@@ -713,8 +713,13 @@ def test_sql_del_modulo_parsea_como_postgres():
     """Guarda barata que SIEMPRE corre: la sintaxis SQL de los upserts es
     Postgres valida segun el parser real (pglast, mismo que usa test_schema).
     La integracion en vivo skipea sin ORBIT_TEST_DSN (y en CI corre contra el
-    service postgres:16); esto atrapa typos de SQL antes de llegar ahi."""
-    pglast = pytest.importorskip("pglast")
+    service postgres:16); esto atrapa typos de SQL antes de llegar ahi.
+
+    Import directo (NO importorskip, hallazgo CodeRabbit): pglast es dev-dep
+    declarada y en CI se instala explicitamente -- si desapareciera, esta
+    guarda debe FALLAR ruidosamente, no saltar en silencio."""
+    import pglast
+
     import app.ads.structure as estructura_modulo
 
     for nombre in (
@@ -1021,8 +1026,16 @@ def _monedas_de_plataforma(conn, platform: str) -> set[str]:
     }
 
 
+# Fail-closed (hallazgo CodeRabbit): si ORBIT_TEST_DSN esta configurado
+# EXPLICITAMENTE (CI), un Postgres inalcanzable debe FALLAR el test, no
+# skipearlo en silencio -- el skip silencioso convertiria un service roto
+# de CI en verde falso. El skip automatico queda solo para corridas locales
+# sin DSN configurado (probe del default localhost:5432).
+_DSN_EXPLICITO = bool(os.environ.get("ORBIT_TEST_DSN"))
+
+
 @pytest.mark.skipif(
-    not _hay_postgres_local(),
+    not _DSN_EXPLICITO and not _hay_postgres_local(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 def test_sync_y_resync_estructura_en_vivo(monkeypatch):
