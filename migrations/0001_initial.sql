@@ -260,7 +260,12 @@ CREATE INDEX ON ad_entity (parent_id);
 COMMENT ON TABLE ad_entity IS
   'Cualquier cosa con external_id en la API de ads: campaña, ad group, '
   'keyword, product target, placement. Los search terms NO son entidades '
-  '(no tienen id propio): viven en search_term_observation.';
+  '(no tienen id propio): viven en search_term_observation. '
+  'platform, kind, external_id, parent_id, match_type y keyword_text son '
+  'INMUTABLES por permisos (app_ingest solo puede UPDATE name y listing_id): '
+  'mutarlos tras insertar hechos rompería el sello de moneda a posteriori y '
+  'dejaría goals apuntando a kinds que ya no son campaign. Corregir una '
+  'entidad = crear una nueva y desactivar la vieja.';
 
 COMMENT ON CONSTRAINT ad_entity_keyword_coherente ON ad_entity IS
   'Keyword sin texto es entidad fantasma: el harvest no podría verificar '
@@ -286,6 +291,7 @@ CREATE TABLE ads_metric_observation (
     CONSTRAINT metric_no_negativos CHECK (
         (cost IS NULL OR cost >= 0) AND
         (ad_revenue IS NULL OR ad_revenue >= 0) AND
+        (revenue_same_sku IS NULL OR revenue_same_sku >= 0) AND
         (impressions IS NULL OR impressions >= 0) AND
         (clicks IS NULL OR clicks >= 0) AND
         (orders IS NULL OR orders >= 0)
@@ -398,12 +404,15 @@ DECLARE
     v_esperada currency;
 BEGIN
     -- En ads_metric_observation la plataforma se deriva de la entidad;
-    -- en search_term_observation viene en la fila.
+    -- en search_term_observation viene en la fila. La rama ELSE es
+    -- fail-loud: una tercera tabla que montara este trigger sin su rama
+    -- no puede caer silenciosamente en la lógica de search_terms (referenciaría
+    -- NEW.platform, que podría no existir).
     IF TG_TABLE_NAME = 'ads_metric_observation' THEN
         SELECT e.platform INTO v_platform
           FROM ad_entity e
          WHERE e.id = NEW.ad_entity_id;
-    ELSE
+    ELSIF TG_TABLE_NAME = 'search_term_observation' THEN
         -- search_term_observation: platform viene DESNORMALIZADA en la fila
         -- (la PK la incluye). Se cruza contra la entidad: una fila que
         -- declara una plataforma distinta a la de su entidad es un bug de
@@ -419,6 +428,11 @@ BEGIN
                 'su entidad % es %.', NEW.platform, NEW.ad_entity_id, v_platform
                 USING ERRCODE = 'check_violation';
         END IF;
+    ELSE
+        RAISE EXCEPTION
+            'metric_moneda_de_plataforma: tabla % no soportada por el sello',
+            TG_TABLE_NAME
+            USING ERRCODE = 'check_violation';
     END IF;
 
     v_esperada := CASE v_platform
@@ -508,7 +522,12 @@ CREATE TABLE ledger_event (
         CHECK (NOT (kind = 'sale' AND product_id IS NOT NULL)
                OR (quantity IS NOT NULL AND quantity > 0)),
     CONSTRAINT ledger_desglose_coherente
-        CHECK (item_price IS NULL OR item_price >= 0)
+        CHECK (
+            (item_price IS NULL OR item_price >= 0)
+            AND (item_tax IS NULL OR item_tax >= 0)
+            AND (shipping_price IS NULL OR shipping_price >= 0)
+            AND (shipping_tax IS NULL OR shipping_tax >= 0)
+        )
 );
 
 -- Re-correr un sync no duplica: misma fuente, mismo evento, misma fila.
@@ -529,10 +548,22 @@ CREATE UNIQUE INDEX ledger_dedupe_sin_orden
     NULLS NOT DISTINCT
     WHERE source_event_id IS NULL AND order_id IS NULL;
 
+-- Cargos CON order_id pero sin id de fuente (un re-sync de fees con orden
+-- pero sin event id): no caen en ninguno de los otros dos índices y se
+-- duplicarían en silencio. Misma clave natural, MONEDA INCLUIDA, y NULLS NOT
+-- DISTINCT por la misma razón que ledger_dedupe_sin_orden.
+CREATE UNIQUE INDEX ledger_dedupe_con_orden
+    ON ledger_event (platform, kind, order_id, fee_type, event_date, amount, amount_currency)
+    NULLS NOT DISTINCT
+    WHERE source_event_id IS NULL AND order_id IS NOT NULL;
+
 COMMENT ON INDEX ledger_dedupe_sin_orden IS
   'Los conflictos absorbidos por ON CONFLICT DO NOTHING NO son gratis: la '
   'ingesta los cuenta en ingest_run.rows_skipped con motivo (regla 3). Un '
-  'dedupe que no deja rastro es un dato perdido disfrazado de eficiencia.';
+  'dedupe que no deja rastro es un dato perdido disfrazado de eficiencia. '
+  'Entre las tres claves de dedupe (ledger_dedupe_source por source_event_id, '
+  'ledger_dedupe_con_orden con order_id sin source id, y esta) queda cubierto '
+  'TODO el espacio: source_event_id / order_id / ninguno.';
 
 COMMENT ON COLUMN ledger_event.order_id IS
   'NULLABLE A PROPÓSITO y es la asimetría central del dominio: el ISR de '
@@ -929,6 +960,18 @@ DECLARE
     v_term     TEXT;
     v_platform platform;
 BEGIN
+    -- La fila SIEMPRE nace en 'pending', ANTES del primer POST a Amazon
+    -- (fail-closed ante crash: un job que no nace en pending es un bug de
+    -- app, no un caso legítimo). Las fases posteriores solo se alcanzan por
+    -- UPDATE, que este trigger no interfiere.
+    IF NEW.fase <> 'pending' THEN
+        RAISE EXCEPTION
+            'harvest_job: la fila debe nacer en fase pending (se registra '
+            'ANTES del primer POST a Amazon); las fases posteriores solo se '
+            'alcanzan por UPDATE. Se recibio fase %', NEW.fase
+            USING ERRCODE = 'check_violation';
+    END IF;
+
     SELECT d.kind, d.ad_entity_id, d.search_term, e.platform
       INTO v_kind, v_entity, v_term, v_platform
       FROM decision d
@@ -960,12 +1003,14 @@ CREATE TRIGGER harvest_job_decision_coherente
 
 COMMENT ON TABLE harvest_job IS
   'POSTs de creación no-idempotentes fail-closed: nunca se reintenta a ciegas. '
-  'La fila nace en pending ANTES de tocar Amazon; external_ids acumula lo '
-  'confirmado por la API; la reconciliación la hace la app al inicio de ciclo '
-  '(regla: conciliar contra la fuente externa, no contra la propia '
-  'consistencia interna). decision_id liga el job a la decisión de harvest '
-  'que lo originó (validado por trigger): el rastro ciclo->decisión->job '
-  'queda completo.';
+  'La fila nace SIEMPRE en pending ANTES de tocar Amazon — la base lo exige '
+  '(trigger harvest_job_decision_coherente: un INSERT en otra fase es un bug '
+  'de app; las fases posteriores solo se alcanzan por UPDATE); external_ids '
+  'acumula lo confirmado por la API; la reconciliación la hace la app al '
+  'inicio de ciclo (regla: conciliar contra la fuente externa, no contra la '
+  'propia consistencia interna). decision_id liga el job a la decisión de '
+  'harvest que lo originó (validado por trigger): el rastro '
+  'ciclo->decisión->job queda completo.';
 
 CREATE TABLE decision_application (
     decision_id    BIGINT PRIMARY KEY REFERENCES decision(id),
@@ -1130,10 +1175,21 @@ WITH ventas AS (
            SUM(cogs)                             AS cogs_conocido
       FROM ventas
      GROUP BY 1, 2
+), venta AS (
+    -- VENTA TOTAL: TODAS las ventas, con o sin order_id. La versión anterior
+    -- solo sumaba las de order_id IS NOT NULL y, con cobertura 100%, el
+    -- margen restaba el COGS de ventas que no estaban en `venta`. La venta
+    -- total no necesita supuesto de atribución; la separación
+    -- atribuible/no atribuible se aplica a los CARGOS, no a la venta.
+    SELECT platform,
+           amount_currency,
+           SUM(amount) AS venta
+      FROM ledger_event
+     WHERE kind = 'sale'
+     GROUP BY platform, amount_currency
 ), por_orden AS (
     SELECT platform,
            amount_currency,
-           SUM(amount) FILTER (WHERE kind = 'sale')                         AS venta,
            SUM(amount) FILTER (WHERE kind IN ('fee','refund','withholding')) AS cargos_con_orden
       FROM ledger_event
      WHERE order_id IS NOT NULL
@@ -1149,10 +1205,10 @@ WITH ventas AS (
        AND kind IN ('fee', 'refund', 'withholding')
      GROUP BY platform, amount_currency
 )
-SELECT COALESCE(o.platform, s.platform, g.platform)               AS platform,
-       COALESCE(o.amount_currency, s.amount_currency, g.amount_currency)
-                                                                     AS amount_currency,
-       o.venta,
+SELECT COALESCE(v.platform, o.platform, s.platform, g.platform)   AS platform,
+       COALESCE(v.amount_currency, o.amount_currency,
+                s.amount_currency, g.amount_currency)             AS amount_currency,
+       v.venta,
        o.cargos_con_orden,
        COALESCE(s.cargos_sin_orden, 0) AS cargos_sin_orden,
        g.cogs_conocido,
@@ -1163,22 +1219,29 @@ SELECT COALESCE(o.platform, s.platform, g.platform)               AS platform,
        CASE
            WHEN g.ventas_totales > 0
                 AND g.ventas_con_costo = g.ventas_totales
-               THEN COALESCE(o.venta, 0) + COALESCE(o.cargos_con_orden, 0)
+               THEN COALESCE(v.venta, 0) + COALESCE(o.cargos_con_orden, 0)
                     + COALESCE(s.cargos_sin_orden, 0)
                     - COALESCE(g.cogs_conocido, 0)
            ELSE NULL
        END AS margen_contribucion
-  FROM por_orden o
+  FROM venta v
+  FULL OUTER JOIN por_orden o
+    ON o.platform = v.platform AND o.amount_currency = v.amount_currency
   FULL OUTER JOIN sin_orden s
-    ON s.platform = o.platform AND s.amount_currency = o.amount_currency
+    ON s.platform = COALESCE(v.platform, o.platform)
+   AND s.amount_currency = COALESCE(v.amount_currency, o.amount_currency)
   FULL OUTER JOIN cogs g
-    ON g.platform = COALESCE(o.platform, s.platform)
-   AND g.amount_currency = COALESCE(o.amount_currency, s.amount_currency);
+    ON g.platform = COALESCE(v.platform, o.platform, s.platform)
+   AND g.amount_currency = COALESCE(v.amount_currency, o.amount_currency,
+                                    s.amount_currency);
 
 COMMENT ON VIEW v_margen_plataforma IS
   'Agrupa por (platform, amount_currency): la primera versión de esta vista '
   'agrupaba solo por plataforma y SUMaba MXN con USD — el bug de 18.66x '
   'reimplementado. '
+  'venta es la VENTA TOTAL: todas las ventas, con o sin order_id, sin '
+  'supuesto de atribución — la separación atribuible/no atribuible se aplica '
+  'a los cargos (cargos_con_orden/cargos_sin_orden), no a la venta. '
   'INCLUYE COGS (costo vigente a event_date * quantity): sin costo no es '
   'margen de contribución, es facturación menos cargos. Pero el COGS solo '
   'entra con COBERTURA visible: cobertura_cogs_pct dice qué fracción de las '
@@ -1190,7 +1253,11 @@ COMMENT ON VIEW v_margen_plataforma IS
   'período filtra event_date en la query contra ledger_event, no contra esta '
   'vista. '
   'Expone cargos_sin_orden siempre: el ISR (que llega sin order_id) nunca se '
-  'descarta en silencio.';
+  'descarta en silencio. '
+  'OJO: cargos_sin_orden = 0 puede significar "no llegó" (el ISR no se '
+  'ingirió), no "no hubo" — sin fuente externa la ausencia es indistinguible '
+  'del cero. Lo atrapa external_reconciliation contra los settlement reports, '
+  'no esta vista.';
 
 -- TACoS por PLATAFORMA: la única medida de si el gasto de ads gana, SIN
 -- suposiciones de atribución. No se puede agrupar por moneda solamente:
@@ -1294,7 +1361,13 @@ GRANT INSERT ON ingest_run, product, listing, sku_cost, ad_entity,
 GRANT UPDATE (finished_at, rows_written, rows_skipped, skip_reason, ok)
     ON ingest_run TO app_ingest;
 GRANT UPDATE (valid_to) ON sku_cost TO app_ingest;
-GRANT UPDATE ON product, listing, ad_entity TO app_ingest;
+GRANT UPDATE ON product, listing TO app_ingest;
+-- ad_entity SOLO por columnas: platform, kind, external_id, parent_id,
+-- match_type y keyword_text se fijan en el INSERT y son INMUTABLES por
+-- permisos — mutarlos tras insertar hechos rompería el sello de moneda a
+-- posteriori y dejaría goals apuntando a kinds que ya no son campaign. Si la
+-- ingesta necesita corregir una entidad, crea una nueva y desactiva la vieja.
+GRANT UPDATE (name, listing_id) ON ad_entity TO app_ingest;
 GRANT INSERT, UPDATE ON ad_entity_state TO app_ingest;
 
 -- MOTORES: escriben decisiones y su ciclo de vida de apply. El readback de

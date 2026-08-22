@@ -199,3 +199,48 @@ UPDATE. Documentar: el job se registra ANTES del primer POST a Amazon
    D7, D8, D10 son candidatos), considera agregar el test estático
    correspondiente — es la lección de esta ronda: cada corrección deja su
    candado.
+
+---
+
+## Addendum — hallazgos de qwen (cross-review, validados contra el SQL real)
+
+> qwen revisó mientras D1-D4 se estaban aplicando. Sus puntos D5-D11 = trabajo
+> del plan que sigue pendiente; confirma que D1-D4 quedaron bien. Lo NUEVO,
+> no cubierto por el plan original:
+
+### D12 [media] — Test de integración: credenciales por entorno
+
+`tests/test_schema.py::test_migracion_rechaza_en_vivo` conecta con
+`psycopg.connect(dbname="postgres")` sin usuario → contra el Postgres del
+docker-compose (`POSTGRES_USER=orbit`) dará error de autenticación.
+
+**Hacer:** leer conexión de entorno con default al setup documentado:
+`psycopg.connect(os.environ.get("ORBIT_TEST_DSN", "postgresql://orbit:orbit@localhost:5432/postgres"))`
+y documentar en el docstring que el DSN apunta a la base `postgres` de
+administración (el test crea/tira su propia base temporal).
+
+### D13 [baja] — `ledger_desglose_coherente` solo cubre `item_price`
+
+`item_tax`, `shipping_price` y `shipping_tax` no tienen no-negativos.
+
+**Hacer:** extender el CHECK: los cuatro campos de desglose, NULL o >= 0.
+
+### D14 [baja] — NameError potencial en el test de integración
+
+Si la segunda conexión (a la base temporal) falla, `finally: conn.close()`
+tira NameError y tapa el error real.
+
+**Hacer:** `conn = None` antes del try y `if conn is not None: conn.close()`
+en el finally.
+
+### D15 [baja] — Candados estáticos para lo corregido en esta ronda
+
+El cierre del plan pedía que cada corrección deje su test. Agregar a
+`tests/test_schema.py` asertos estáticos para: cruce de plataforma en
+search_term (D1: NullTest/`IS DISTINCT FROM NEW.platform` en el cuerpo del
+trigger), `quota_no_excedida` (D2), y la reescritura de `v_tacos` (D3: la
+vista referencia `fx_resolve` y corta ambos lados a D−15).
+
+**Ignorar de qwen:** su punto 12 (higiene de commit) ya está resuelto —
+`.claude/` y `.harness-mem/` están en `.gitignore` y todo lo demás ya está
+commiteado en la rama `feat/esquema-db` (PR #1).

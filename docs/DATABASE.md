@@ -18,7 +18,7 @@
   float. Ninguna tabla con dinero sin moneda; ningún agregado que mezcle
   monedas (las vistas agrupan por plataforma —y por moneda donde aplica— y
   convierten solo vía `fx_resolve`; `v_tacos` agrupa por plataforma y
-  convierte el gasto a la moneda de la venta).
+  convierte cada lado por fila a la moneda canónica MXN).
 - **Desviación declarada de la regla 4 ("fecha_fx")**: el esquema es más
   fuerte que la letra de la regla — **nunca persiste el monto convertido**, así
   que no hay fecha_fx que guardar; `fx_resolve` devuelve `rate_date` + `source`
@@ -106,6 +106,12 @@ con `external_id` de la API. Los search terms NO son entidades: tabla aparte.
 exigidas NOT NULL solo cuando `kind='keyword'` y NULL en los demás kinds por
 CHECK — el duplicate-check del harvest contra la campaña manual destino las
 necesita sin parsear payloads (el `bid_cache` viejo no tenía `keyword_text`).
+**Identidad inmutable por permisos**: `app_ingest` solo puede
+`UPDATE (name, listing_id)` — `platform`, `kind`, `external_id`, `parent_id`,
+`match_type` y `keyword_text` se fijan en el INSERT (mutarlos tras insertar
+hechos rompería el sello de moneda a posteriori y dejaría goals apuntando a
+kinds que ya no son campaign); corregir una entidad = crear una nueva y
+desactivar la vieja.
 *Cómo se audita*: UNIQUE `(platform, kind, external_id)`; índice sobre
 `parent_id` para recorrer la jerarquía.
 
@@ -161,12 +167,17 @@ MeLi al revés: 950/950 con order_id) — por eso el ISR se caía de todo margen
 **`quantity` INTEGER**: una venta con `product_id` exige `quantity > 0` por
 CHECK (sin unidades no hay COGS). **Convención de signos por CHECK**:
 `sale > 0`; `fee`/`refund`/`withholding` `<= 0` — así `SUM(amount)` funciona
-sin filtros y ningún reporte inventa su convención. **Idempotencia**:
-`source_event_id` con único parcial; cargos sin id de fuente ni orden (el ISR)
-dedupean por su clave natural `(platform, kind, fee_type, event_date, amount,
-amount_currency)` con **`NULLS NOT DISTINCT`** — la moneda va en la clave (sin
-ella 100 USD y 100 MXN colisionan y un cargo se pierde) y sin NULLS NOT
-DISTINCT dos cargos con `fee_type` NULL nunca chocarían.
+sin filtros y ningún reporte inventa su convención. **Idempotencia**: tres
+únicos parciales que cubren TODO el espacio `(source_event_id, order_id,
+ninguno)`: `ledger_dedupe_source` por `source_event_id`; `ledger_dedupe_sin_orden`
+para cargos sin id de fuente ni orden (el ISR); `ledger_dedupe_con_orden` para
+cargos CON `order_id` pero sin id de fuente (un re-sync de fees con orden) —
+sin él, esa fila no caía en ninguno de los otros dos y se duplicaba en
+silencio. Los dos últimos usan la clave natural `(platform, kind,
+[fee_type | order_id,] event_date, amount, amount_currency)` con
+**`NULLS NOT DISTINCT`** — la moneda va en la clave (sin ella 100 USD y 100
+MXN colisionan y un cargo se pierde) y sin NULLS NOT DISTINCT dos cargos con
+`fee_type` NULL nunca chocarían.
 *Cómo se audita*: trigger `prohibir_mutacion`; conflictos de dedupe contados
 en `ingest_run.rows_skipped`; `v_margen_plataforma` expone el margen con y sin
 cargos no atribuibles; `external_reconciliation` es el chequeo final.
@@ -283,9 +294,12 @@ CHECK.
 
 **`harvest_job`** — Tracking de harvest por fases con orden sellado:
 **`pending` → `negative_created` → `exact_created` → `done` / `failed`**. La
-fila se registra en `pending` **antes del primer POST** (un crash no deja
-ventana de duplicación: el único en-vuelo ya la bloquea). **`decision_id` NOT
-NULL** con trigger `harvest_job_decision_coherente`: el job debe corresponder
+fila se registra en `pending` **antes del primer POST** — y **la base lo
+exige**: el trigger `harvest_job_decision_coherente` rechaza todo INSERT que
+no nazca en `pending` (fail-closed ante crash: un crash no deja ventana de
+duplicación porque el único en-vuelo ya la bloquea; las fases posteriores solo
+se alcanzan por UPDATE). **`decision_id` NOT
+NULL** con el mismo trigger: el job debe corresponder
 a una decisión `kind='harvest'` sobre la misma (entidad, término, plataforma
 vía `ad_entity`) — un typo en la app no puede crear un job huérfano que la
 reconciliación perseguiría contra Amazon en vano. **Único parcial
@@ -299,13 +313,19 @@ failed) entran a reconciliación.
 
 **`apply_quota_state`** — Caps diarios por motor: PK `(motor, quota_date)`,
 `used`/`cap`. Live automático CON TOPES; el consumo es atómico en la app
-(`INSERT … ON CONFLICT … DO UPDATE … WHERE used < cap`). **El motor solo puede
-`UPDATE (used)`: el cap no se puede subir DESPUÉS de creada la fila.** La
-verdad completa, declarada: la fila del día la inserta el propio motor
-copiando el cap desde `config_version` (que escribe `app_admin`) — la
-integridad del valor inicial del cap descansa en la config administrada por
-humanos, no en un permiso. **La reserva para PAUSE la maneja la app** (un cap
-lleno nunca deja una hemorragia sin pausar).
+(`INSERT … ON CONFLICT … DO UPDATE … WHERE used < cap`). El **CHECK
+`quota_no_excedida` (`used <= cap`)** es un backstop que hace cumplir que el
+**orden importe en la app**: consumir SIEMPRE con `WHERE used < cap`, nunca un
+UPDATE ciego. **El motor solo puede `UPDATE (used)`: el cap no se puede subir
+DESPUÉS de creada la fila.** "`used` nunca decrece" NO es enforceable por
+CHECK (compararía contra el valor viejo del UPDATE): queda cubierto por el
+patrón de consumo atómico + la auditoría de `decision` (cada apply tiene su
+fila append-only). La verdad completa, declarada: la fila del día la inserta
+el propio motor copiando el cap desde `config_version` (que escribe
+`app_admin`), y `app_admin` también tiene `INSERT` para fijar caps manualmente
+— la integridad del valor inicial del cap descansa en la config administrada
+por humanos, no en un permiso. **La reserva para PAUSE la maneja la app** (un
+cap lleno nunca deja una hemorragia sin pausar).
 *Cómo se audita*: caps bajos el día 1 del cutover; `used > cap` es imposible
 si la app consume bien, y su sola aparición es señal de bug grave.
 
@@ -321,7 +341,10 @@ Regímenes de lectura, explícitos (reemplazan al "todo lee lo maduro"):
 - **`v_metric_mature`** (D−15, costo cerrado) es para **análisis económico y
   TACoS**, no para el ciclo: el día en curso tiene ~20% del costo y ~12% del
   revenue finales, y el costo madura hacia abajo por clawback — un ACoS de
-  día 1 sale ~1.5× peor que el real.
+  día 1 sale ~1.5× peor que el real. El corte usa **UTC fijado en la
+  expresión** (`(now() AT TIME ZONE 'UTC')::date − 15`), no `CURRENT_DATE`
+  (que se evaluaría según la TimeZone de cada sesión — la misma defensa que
+  el trigger `decision_madurez_corte`).
 - **`metrics_as_of(ts)`** — lo que el sistema PODÍA VER en ese instante:
   backtest honesto (sin esto todo backtest se auto-engaña y sale espectacular).
 - **`v_margen_plataforma`** — **margen de contribución** por **plataforma Y
@@ -331,19 +354,32 @@ Regímenes de lectura, explícitos (reemplazan al "todo lee lo maduro"):
   utilizable ese costo NO entra y baja la cobertura), **`cobertura_cogs_pct`**
   (ventas con costo conocido / ventas totales) y **`margen_contribucion`**,
   calculado **SOLO con cobertura 100% — NULL en caso contrario, con la
-  cobertura visible al lado**. La idea: nunca un margen que esconde huecos —
-  el error histórico es el 49% del COGS de MeLi en 0 disfrazado de dato que
-  pasó tres auditorías como "limpio". FULL OUTER JOIN entre los tres
-  agregados: una plataforma/moneda con solo cargos sin orden (o solo ventas)
-  también aparece. **Sin dimensión temporal a propósito**: es historia
-  completa; el análisis por período filtra `event_date` en la query contra
-  `ledger_event`, no contra esta vista.
+  cobertura visible al lado**. `venta` es la **VENTA TOTAL**: todas las
+  ventas, con o sin `order_id`, sin supuesto de atribución — la separación
+  atribuible/no atribuible se aplica a los **cargos**
+  (`cargos_con_orden`/`cargos_sin_orden`), no a la venta. La idea: nunca un
+  margen que esconde huecos — el error histórico es el 49% del COGS de MeLi
+  en 0 disfrazado de dato que pasó tres auditorías como "limpio". FULL OUTER
+  JOIN entre los tres agregados: una plataforma/moneda con solo cargos sin
+  orden (o solo ventas) también aparece. **Sin dimensión temporal a
+  propósito**: es historia completa; el análisis por período filtra
+  `event_date` en la query contra `ledger_event`, no contra esta vista.
+  OJO: `cargos_sin_orden = 0` puede significar **"no llegó"** (el ISR no se
+  ingirió), no "no hubo" — sin fuente externa la ausencia es indistinguible
+  del cero; lo atrapa `external_reconciliation`, no esta vista.
 - **`v_tacos`** — **por plataforma** (no por moneda: amazon_us gasta en USD
   pero vende en MXN, y amazon_mx + meli comparten MXN): gasto desde
   `ads_metric_observation` vía `ad_entity.platform`, venta desde `ledger_event`
-  por plataforma, y el gasto **convertido a la moneda de la venta con
-  `fx_resolve(mes, moneda_gasto, moneda_venta)`**; sin tasa utilizable
-  `tacos_pct` queda **NULL — fail-loud, nunca inventado**. TACoS por
+  por plataforma. **Ventanas simétricas**: ambos lados cortan en **D−15 UTC**
+  (el gasto vía `v_metric_mature`; la venta con la misma expresión
+  `(now() AT TIME ZONE 'UTC')::date − 15`) — antes la venta tomaba todo el
+  mes y el mes en curso salía con TACoS sistemáticamente bajo (optimista:
+  "todo se ve rentable"). **Sin supuesto de moneda única**: cada fila se
+  convierte a la canónica **MXN** con `fx_resolve` y el JOIN es por
+  `(platform, mes)` sobre montos ya en MXN — si un mes tuviera dos monedas de
+  venta, ambas se convierten y se SUMAN (el gasto no se repite por fila). Sin
+  tasa utilizable, ese monto queda fuera del agregado y `tacos_pct` es
+  **NULL si falta cualquier lado — fail-loud, nunca inventado**. TACoS por
   plataforma es la métrica que no necesita suposición de atribución (meta
   declarada: 8–12%).
 - **`fx_resolve`** — ver sección `fx_rate`.
@@ -352,7 +388,10 @@ Regímenes de lectura, explícitos (reemplazan al "todo lee lo maduro"):
 
 - **`app_ingest`** — sincronizadores: INSERT en hechos y catálogo (incluye
   `external_reconciliation`); UPDATE genérico solo en cache (`ad_entity_state`)
-  y parte del catálogo (`product`, `listing`, `ad_entity`); cierres por
+  y catálogo (`product`, `listing`); `ad_entity` **solo por columnas
+  (`name`, `listing_id`)** — `platform`/`kind`/`external_id`/`parent_id`/
+  `match_type`/`keyword_text` son inmutables por permisos (mutarlos rompería
+  el sello de moneda y los goals); cierres por
   columna: `ingest_run` (`finished_at`, `rows_written`, `rows_skipped`,
   `skip_reason`, `ok`) y `sku_cost` (**solo `valid_to`** — cerrar vigencias
   sí, reescribir importes jamás).
@@ -363,9 +402,10 @@ Regímenes de lectura, explícitos (reemplazan al "todo lee lo maduro"):
   motor no puede subirse el tope a sí mismo; DML completo en
   `ads_optimizer_lock`. **No** escribe goals ni `config_version` (conserva
   SELECT).
-- **`app_admin`** (NOLOGIN) — config humana: escribe `ads_optimizer_goal` e
-  inserta `config_version` (escalera off→shadow→live). El endpoint `/goals`
-  corre como `app_admin`.
+- **`app_admin`** (NOLOGIN) — config humana: escribe `ads_optimizer_goal`,
+  inserta `config_version` y `apply_quota_state` (fijar caps manualmente es
+  decisión de admin, no del motor) — escalera off→shadow→live. El endpoint
+  `/goals` corre como `app_admin`.
 - **`app_read`** — dashboard/análisis: SELECT.
 - Los permisos solos no bastan (un `GRANT ALL` futuro los derrotaría en
   silencio): el candado real es el trigger `prohibir_mutacion`, que bloquea
