@@ -2,7 +2,8 @@
 
 > Runbook de operación de la base viva. Responde la pregunta de
 > reconstrucción: **¿cómo levanto esto desde cero?** (ver "Reconstruir
-> desde cero" al final).
+> desde cero" y "Recuperación desde backups" al final — ambos procedures
+> fueron probados en vivo, no adivinados).
 
 ## Dónde vive
 
@@ -11,8 +12,9 @@
 - **Dir de deploy:** `/mnt/data/appdata/orbit/`
   - `docker-compose.yml` — copia del repo (fuente de verdad: el repo).
   - `.env` — `POSTGRES_USER=orbit` + `POSTGRES_PASSWORD` + los DSN por
-    servicio. Permisos `600`, **nunca se commitea** (está en `.gitignore`).
-  - `backups/` — dumps `pg_dump -Fc` con rotación de 14.
+    servicio (incluido `ORBIT_DSN_TEST`). Permisos `600`, **nunca se
+    commitea** (está en `.gitignore`).
+  - `backups/` — dumps diarios (`700`; dumps `600`).
   - `backup.sh` + cron — ver "Backups".
 - **Contenedor:** `orbit-db-1` (imagen `postgres:16`, volumen `orbit_pgdata`).
 - **Red:** bind `127.0.0.1:5432` SOLO en loopback del server (`ss -lntp` lo
@@ -33,20 +35,58 @@ docker exec orbit-db-1 pg_isready -U orbit   # accepting connections
 
 El esquema crea 4 roles de permisos **NOLOGIN** (`app_ingest`, `app_decide`,
 `app_read`, `app_admin`). Para conectarse hace falta un usuario LOGIN por
-servicio, miembro del rol que le corresponde (creados una sola vez, con
-password generada en el server — los valores viven SOLO en el `.env` del
-server, jamás en el repo):
+servicio, miembro del rol que le corresponde. Los valores viven SOLO en el
+`.env` del server, jamás en el repo:
 
 ```
 ORBIT_DSN_INGEST=postgresql://orbit_ingest:<pass>@127.0.0.1:5432/orbit
 ORBIT_DSN_DECIDE=postgresql://orbit_decide:<pass>@127.0.0.1:5432/orbit
 ORBIT_DSN_READ=postgresql://orbit_read:<pass>@127.0.0.1:5432/orbit
 ORBIT_DSN_ADMIN=postgresql://orbit_admin:<pass>@127.0.0.1:5432/orbit
+ORBIT_DSN_TEST=postgresql://orbit_test:<pass>@127.0.0.1:5432/postgres
 ```
 
 - `orbit_read`: SELECT sí, UPDATE/INSERT no (verificado en vivo).
 - `orbit_ingest`: INSERT en tablas de ingesta sí (`ingest_run`, métricas…).
-- El superusuario del contenedor es `orbit` (para migraciones y admin).
+- `orbit_test`: `CREATEDB CREATEROLE NOSUPERUSER` — para correr la suite
+  sin alcance destructivo de superusuario (ver "Correr los tests").
+- El superusuario del contenedor es `orbit` (solo migraciones y admin).
+
+**Crear los usuarios (comandos exactos, password generada en el server):**
+
+```bash
+ssh goncloud 'bash -s' <<'SCRIPT'
+set -euo pipefail
+ENVF=/mnt/data/appdata/orbit/.env
+gen() { head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32; }
+for svc in ingest decide read admin; do
+  P=$(gen)
+  docker exec -i orbit-db-1 psql -U orbit -d orbit -v ON_ERROR_STOP=1 -q <<SQL
+DO \$\$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'orbit_$svc') THEN
+    EXECUTE format('CREATE ROLE orbit_$svc LOGIN PASSWORD %L', '$P');
+  ELSE
+    EXECUTE format('ALTER ROLE orbit_$svc LOGIN PASSWORD %L', '$P');
+  END IF;
+END \$\$;
+GRANT app_$svc TO orbit_$svc;
+SQL
+  echo "ORBIT_DSN_${svc^^}=postgresql://orbit_${svc}:${P}@127.0.0.1:5432/orbit" >> "$ENVF"
+done
+# rol de test: CREATEDB/CREATEROLE, SIN superusuario
+PT=$(gen)
+docker exec -i orbit-db-1 psql -U orbit -d postgres -v ON_ERROR_STOP=1 -q <<SQL
+DO \$\$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'orbit_test') THEN
+    CREATE ROLE orbit_test LOGIN CREATEDB CREATEROLE NOSUPERUSER;
+  END IF;
+END \$\$;
+DO \$\$ BEGIN EXECUTE format('ALTER ROLE orbit_test PASSWORD %L', '$PT'); END \$\$;
+SQL
+echo "ORBIT_DSN_TEST=postgresql://orbit_test:${PT}@127.0.0.1:5432/postgres" >> "$ENVF"
+chmod 600 "$ENVF"
+SCRIPT
+```
 
 ## Aplicar migraciones
 
@@ -67,17 +107,20 @@ ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit \
 La suite de integración (`test_migracion_rechaza_en_vivo`) necesita un
 Postgres real; en CI lo provee un service container, y desde la máquina dev
 se usa la base viva por túnel. El test crea/borra una base temporal
-`orbit_schema_test_*` y un rol centinela en el cluster — NO toca la base
-`orbit`.
+`orbit_schema_test_*` y un rol centinela **con el rol `orbit_test`**
+(CREATEDB/CREATEROLE, sin superusuario): una regresión del test no puede
+tocar nada fuera de lo que ese rol alcanza. NO toca la base `orbit`.
 
 ```bash
-# 1. túnel (en background / otra terminal)
-ssh -N -L 5432:127.0.0.1:5432 goncloud
+# 1. túnel (en background / otra terminal); 5433 para no chocar con un
+#    listener viejo en 5432
+ssh -N -L 5433:127.0.0.1:5432 goncloud
 
-# 2. suite con el DSN del superusuario (la password sale del .env del server,
+# 2. suite con el DSN de orbit_test (la password sale del .env del server,
 #    no se escribe en la línea de comando ni en ningún archivo local)
-ORBIT_TEST_DSN="$(ssh goncloud 'echo "postgresql://orbit:$(sed -n \
-  "s/^POSTGRES_PASSWORD=//p" /mnt/data/appdata/orbit/.env)@localhost:5432/postgres"')" \
+ORBIT_TEST_DSN="$(ssh goncloud 'echo "postgresql://orbit_test:$(sed -n \
+  "s/^ORBIT_DSN_TEST=postgresql:\/\/orbit_test:\([^@]*\)@.*/\1/p" \
+  /mnt/data/appdata/orbit/.env)@localhost:5433/postgres"')" \
   PYTHONPATH=. pytest -q      # meta: 30 passed, 0 skipped
 ```
 
@@ -96,15 +139,48 @@ taskkill //PID <pid> //F                # Windows; en Linux: kill <pid>
 
 - **Cron en goncloud (root):** `30 3 * * * /mnt/data/appdata/orbit/backup.sh`
   (log en `/mnt/data/appdata/orbit/backup.log`).
-- Cada corrida hace `pg_dump -Fc orbit` a `backups/orbit_YYYY-MM-DD.dump`
-  (primero `.tmp`, luego `mv` — nunca queda un dump a medias con nombre
-  bueno) y rota dejando las **14** más recientes (la lección de
+- Cada corrida produce DOS archivos en `backups/` (ambos `600`, dir `700`):
+  - `orbit_YYYY-MM-DD.dump` — datos+esquema (`pg_dump -Fc`).
+  - `orbit_globals_YYYY-MM-DD.sql` — roles del cluster con sus passwords
+    hasheadas (`pg_dumpall --globals-only`). **`pg_dump` NO dumpea roles**:
+    sin este archivo, una recuperación de cluster revive el esquema pero no
+    los usuarios.
+- Escritura a `.tmp` + `mv` (nunca queda un dump a medias con nombre bueno)
+  y rotación dejando las **14** más recientes de cada tipo (la lección de
   `competitive.db`: la rotación de 3 se comió el histórico).
 - Verificar que un dump sirve:
 
 ```bash
 ssh goncloud 'docker exec -i orbit-db-1 pg_restore --list < \
   /mnt/data/appdata/orbit/backups/orbit_YYYY-MM-DD.dump | head'
+```
+
+**Contenido de `/mnt/data/appdata/orbit/backup.sh`** (versionado aquí
+porque el runbook debe poder reconstruirlo):
+
+```bash
+#!/bin/bash
+# Backup diario de orbit: dump de datos (pg_dump -Fc) + globals (roles y
+# passwords hasheadas, pg_dumpall --globals-only), rotacion de 14.
+set -euo pipefail
+DIR=/mnt/data/appdata/orbit/backups
+STAMP=$(date +%F)
+umask 077
+mkdir -p "$DIR"; chmod 700 "$DIR"
+docker exec orbit-db-1 pg_dump -U orbit -Fc orbit > "$DIR/orbit_$STAMP.dump.tmp"
+mv "$DIR/orbit_$STAMP.dump.tmp" "$DIR/orbit_$STAMP.dump"
+docker exec orbit-db-1 pg_dumpall -U orbit --globals-only > "$DIR/orbit_globals_$STAMP.sql.tmp"
+mv "$DIR/orbit_globals_$STAMP.sql.tmp" "$DIR/orbit_globals_$STAMP.sql"
+ls -1t "$DIR"/orbit_*.dump | tail -n +15 | xargs -r rm -f
+ls -1t "$DIR"/orbit_globals_*.sql | tail -n +15 | xargs -r rm -f
+echo "$(date -Is) backup OK: orbit_$STAMP.dump ($(stat -c%s "$DIR/orbit_$STAMP.dump") bytes) + globals ($(stat -c%s "$DIR/orbit_globals_$STAMP.sql") bytes)"
+```
+
+Instalación del cron (idempotente):
+
+```bash
+ssh goncloud '( crontab -l 2>/dev/null | grep -v "/mnt/data/appdata/orbit/backup.sh" ; \
+  echo "30 3 * * * /mnt/data/appdata/orbit/backup.sh >> /mnt/data/appdata/orbit/backup.log 2>&1" ) | crontab -'
 ```
 
 ## Smoke de candados (chequeo rápido de que el esquema defiende)
@@ -129,7 +205,7 @@ trigger `prohibir_mutacion`. Y el `UPDATE` de `fx_rate` necesita una fila
 presente (los triggers append-only son row-level: con la tabla vacía no
 disparan), por eso el INSERT dentro de la transacción que se revierte.
 
-## Reconstruir desde cero
+## Reconstruir desde cero (base nueva, sin backups)
 
 1. En goncloud: `mkdir -p /mnt/data/appdata/orbit`.
 2. Copiar `docker-compose.yml` del repo al dir de deploy.
@@ -142,13 +218,41 @@ disparan), por eso el INSERT dentro de la transacción que se revierte.
    ```
 4. `docker compose up -d` y esperar `pg_isready` (ver "Levantar").
 5. Aplicar `migrations/0001_initial.sql` (ver "Aplicar migraciones").
-6. Crear los usuarios LOGIN por servicio con `GRANT app_*` y guardar sus
-   DSN en el `.env` del server (ver "Usuarios y DSN"; misma generación de
-   password en el server, sin imprimirla).
-7. Instalar el backup: script + cron (ver "Backups").
+6. Crear los usuarios LOGIN por servicio + `orbit_test` (ver "Usuarios y
+   DSN": comandos exactos arriba).
+7. Instalar el backup: `backup.sh` + cron (ver "Backups").
 8. Verificar: suite completa por túnel (30 passed, 0 skipped) + smoke de
    candados.
 
-Si se pierde el volumen (`docker compose down -v` destruye datos — nunca
-hacerlo salvo reconstrucción deliberada): restaurar el último dump con
-`pg_restore` y reaplicar los pasos 5–6 si cambió el esquema.
+## Recuperación desde backups (pérdida del volumen) — probado en vivo
+
+`docker compose down -v` destruye datos — nunca hacerlo salvo
+reconstrucción deliberada. El procedure (cada paso verificado contra un
+dump real el 2026-08-22):
+
+1. Volumen nuevo + cluster nuevo: `docker compose up -d` (initdb crea el
+   superusuario `orbit` con `POSTGRES_PASSWORD` del `.env`).
+2. **Primero los globals** (los roles NO vienen en el `pg_dump` de datos, y
+   las ACLs del dump referencian `app_*` — sin los roles, el restore
+   revienta):
+   ```bash
+   ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d postgres \
+     -v ON_ERROR_STOP=0 < /mnt/data/appdata/orbit/backups/orbit_globals_FECHA.sql'
+   ```
+   Esperado y tolerable: `ERROR: role "orbit" already exists` (lo creó el
+   initdb). Verificado en vivo: el resto de los roles se crea y sobre el
+   cluster vivo el restore es un no-op con solo errores "already exists".
+3. **Después los datos** (el dump es de la base `orbit`; hay que crearla
+   primero porque se dumpó sin `-C`):
+   ```bash
+   ssh goncloud 'docker exec orbit-db-1 psql -U orbit -d postgres -qc \
+     "CREATE DATABASE orbit OWNER orbit" && \
+     docker exec -i orbit-db-1 pg_restore -U orbit -d orbit --exit-on-error \
+     < /mnt/data/appdata/orbit/backups/orbit_FECHA.dump'
+   ```
+   Verificado en vivo: exit 0, 19 tablas, y los permisos quedan idénticos
+   (`app_read`: SELECT sí / UPDATE no).
+4. **No reaplicar `0001`** después de restaurar: los `CREATE TYPE`/
+   `CREATE TABLE` ya existen y revientan (la migración solo va en bases
+   nuevas).
+5. Verificar como siempre: suite por túnel + smoke de candados.
