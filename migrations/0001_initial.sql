@@ -676,6 +676,15 @@ CREATE TABLE ads_optimizer_goal (
         (scope = 'platform' AND platform IS NOT NULL AND ad_entity_id IS NULL)
     ),
     CONSTRAINT goal_piso_bajo_techo CHECK (bid_floor <= bid_ceiling),
+    -- Todo monto del esquema va acotado (sku_cost_positivo,
+    -- listing_precio_positivo) y los bids no son la excepción: un bid_floor
+    -- en 0 o un techo/acos negativo llegaría al apply en vivo (hallazgo
+    -- CodeRabbit, PR #1).
+    CONSTRAINT goal_bids_positivos CHECK (bid_floor > 0 AND bid_ceiling > 0),
+    CONSTRAINT goal_harvest_bid_positivo
+        CHECK (harvest_default_bid IS NULL OR harvest_default_bid > 0),
+    CONSTRAINT goal_target_acos_positivo
+        CHECK (target_acos_pct IS NULL OR target_acos_pct > 0),
     CONSTRAINT goal_harvest_completo CHECK (
         (harvest_campaign_id IS NULL AND harvest_ad_group_id IS NULL
             AND harvest_default_bid IS NULL)
@@ -1072,7 +1081,12 @@ CREATE TABLE external_reconciliation (
     internal_total  money_amount NOT NULL,
     total_currency  currency     NOT NULL,
     difference      money_amount GENERATED ALWAYS AS (external_total - internal_total) STORED,
-    checked_at      TIMESTAMPTZ  NOT NULL DEFAULT now()
+    checked_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    -- La tabla es append-only: un período invertido NO se puede corregir con
+    -- UPDATE y quedaría en la auditoría para siempre. Mismo invariante que
+    -- sku_cost_rango y decision_ventana_coherente (hallazgo CodeRabbit, PR #1).
+    CONSTRAINT reconciliacion_periodo_coherente
+        CHECK (period_start <= period_end)
 );
 
 -- La vigente por período/fuente es la de mayor checked_at: re-conciliar un
@@ -1274,7 +1288,13 @@ WITH gasto AS (
            SUM(CASE
                    WHEN m.metric_currency = 'MXN'::currency THEN m.cost
                    ELSE m.cost * fx.rate
-               END)                                AS gasto_ads
+               END)                                AS gasto_ads,
+           -- Filas que NO se pudieron convertir (sin tasa utilizable): SUM
+           -- las ignora en silencio y el agregado quedaría corto sin señal.
+           -- Se CUENTAN y se exponen; con una sola, tacos_pct es NULL.
+           COUNT(*) FILTER (
+               WHERE m.metric_currency <> 'MXN'::currency AND fx.rate IS NULL
+           )                                       AS gasto_sin_tasa
       FROM v_metric_mature m
       JOIN ad_entity e ON e.id = m.ad_entity_id
       LEFT JOIN LATERAL (
@@ -1292,7 +1312,10 @@ WITH gasto AS (
            SUM(CASE
                    WHEN l.amount_currency = 'MXN'::currency THEN l.amount
                    ELSE l.amount * fx.rate
-               END)                                AS venta_total
+               END)                                AS venta_total,
+           COUNT(*) FILTER (
+               WHERE l.amount_currency <> 'MXN'::currency AND fx.rate IS NULL
+           )                                       AS ventas_sin_tasa
       FROM ledger_event l
       LEFT JOIN LATERAL (
            SELECT r.rate
@@ -1306,13 +1329,20 @@ SELECT COALESCE(g.platform, v.platform) AS platform,
        COALESCE(g.mes,    v.mes)        AS mes,
        g.gasto_ads,
        v.venta_total,
+       COALESCE(g.gasto_sin_tasa, 0)    AS filas_gasto_sin_tasa,
+       COALESCE(v.ventas_sin_tasa, 0)   AS filas_venta_sin_tasa,
        -- Ambos lados ya están en MXN: si un mes tuviera dos monedas de venta,
        -- ambas se convirtieron y se SUMARON — el gasto no se repite por fila.
-       -- Sin tasa utilizable, ese monto queda FUERA del agregado (SUM ignora
-       -- NULL); si un lado entero queda sin datos, tacos_pct es NULL:
-       -- fail-loud, NUNCA un número inventado (regla 3).
+       -- Si un lado entero queda sin datos, tacos_pct es NULL. Y si CUALQUIER
+       -- fila quedó sin tasa utilizable (aunque el resto sí convirtió), el
+       -- agregado estaría corto: tacos_pct también es NULL y las columnas
+       -- filas_*_sin_tasa dicen cuántas — fail-loud, NUNCA un número
+       -- inventado (regla 3; endurecido en la ronda CodeRabbit del PR #1:
+       -- antes un hueco PARCIAL de FX publicaba un tacos_pct corto).
        CASE
            WHEN g.gasto_ads IS NULL OR NULLIF(v.venta_total, 0) IS NULL THEN NULL
+           WHEN COALESCE(g.gasto_sin_tasa, 0) > 0
+                OR COALESCE(v.ventas_sin_tasa, 0) > 0 THEN NULL
            ELSE ROUND(100 * g.gasto_ads / v.venta_total, 2)
        END AS tacos_pct
   FROM gasto g
@@ -1330,9 +1360,12 @@ COMMENT ON VIEW v_tacos IS
   'SIN SUPUESTO DE MONEDA ÚNICA: cada fila se convierte a la canónica MXN con '
   'fx_resolve (exacta o nearest_prior <= 7d) y el JOIN es por (platform, mes) '
   'sobre montos ya en MXN — si un mes tuviera dos monedas de venta, ambas se '
-  'convierten y se SUMAN en vez de duplicar el gasto por fila. Sin tasa, ese '
-  'monto queda fuera del agregado y tacos_pct es NULL si falta cualquier '
-  'lado: fail-loud, nunca un número inventado (regla 3). Meta declarada del '
+  'convierten y se SUMAN en vez de duplicar el gasto por fila. Sin tasa '
+  'utilizable, la fila NO entra al agregado y se cuenta en '
+  'filas_gasto_sin_tasa / filas_venta_sin_tasa: con una sola fila sin '
+  'convertir, tacos_pct es NULL — un agregado parcial disfrazado de completo '
+  'es exactamente el hueco silencioso que este esquema existe para matar. '
+  'Fail-loud, nunca un número inventado (regla 3). Meta declarada del '
   'dueño: 8-12%.';
 
 
@@ -1341,10 +1374,32 @@ COMMENT ON VIEW v_tacos IS
 --      no pueda pisar la historia
 -- =============================================================================
 
-CREATE ROLE app_ingest;          -- los sincronizadores
-CREATE ROLE app_decide;          -- los motores
-CREATE ROLE app_read;            -- dashboard, análisis, agentes externos
-CREATE ROLE app_admin NOLOGIN;   -- config humana: /goals, config_version
+-- Los cuatro son roles de PRIVILEGIOS (NOLOGIN explícito): nadie conecta como
+-- app_ingest. Cada servicio conecta con su propio usuario LOGIN al que se le
+-- hace GRANT del rol correspondiente (o corre SET ROLE tras conectar); así el
+-- usuario de conexión se rota sin tocar permisos y el rol queda como puro
+-- contenedor de privilegios.
+-- Los roles son de CLUSTER, no de base: sin el guard de existencia, re-correr
+-- la migración (o correrla en un cluster que ya los tiene, p.ej. el test de
+-- integración contra la DB de dev) revienta con DuplicateObject y aborta la
+-- transacción entera. Si el rol ya existe NO se toca: sus atributos y grants
+-- previos quedan intactos (hallazgo CodeRabbit, PR #1).
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'app_ingest') THEN
+        CREATE ROLE app_ingest NOLOGIN;   -- los sincronizadores
+    END IF;
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'app_decide') THEN
+        CREATE ROLE app_decide NOLOGIN;   -- los motores
+    END IF;
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'app_read') THEN
+        CREATE ROLE app_read NOLOGIN;     -- dashboard, análisis, agentes externos
+    END IF;
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'app_admin') THEN
+        CREATE ROLE app_admin NOLOGIN;    -- config humana: /goals, config_version
+    END IF;
+END
+$$;
 
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO app_read;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO app_ingest, app_decide, app_admin;
@@ -1460,6 +1515,38 @@ CREATE TRIGGER fx_append_only
 CREATE TRIGGER reconciliacion_append_only
     BEFORE UPDATE OR DELETE ON external_reconciliation
     FOR EACH ROW EXECUTE FUNCTION prohibir_mutacion();
+
+-- Los triggers FOR EACH ROW no se disparan con TRUNCATE: sin este candado de
+-- sentencia, un TRUNCATE borraría la historia entera sin pasar por
+-- prohibir_mutacion. Hoy ningún rol app tiene TRUNCATE, pero el candado no
+-- debe depender de la AUSENCIA de un GRANT (hallazgo CodeRabbit, PR #1).
+CREATE TRIGGER metric_append_only_truncate
+    BEFORE TRUNCATE ON ads_metric_observation
+    FOR EACH STATEMENT EXECUTE FUNCTION prohibir_mutacion();
+
+CREATE TRIGGER st_metric_append_only_truncate
+    BEFORE TRUNCATE ON search_term_observation
+    FOR EACH STATEMENT EXECUTE FUNCTION prohibir_mutacion();
+
+CREATE TRIGGER ledger_append_only_truncate
+    BEFORE TRUNCATE ON ledger_event
+    FOR EACH STATEMENT EXECUTE FUNCTION prohibir_mutacion();
+
+CREATE TRIGGER config_append_only_truncate
+    BEFORE TRUNCATE ON config_version
+    FOR EACH STATEMENT EXECUTE FUNCTION prohibir_mutacion();
+
+CREATE TRIGGER decision_append_only_truncate
+    BEFORE TRUNCATE ON decision
+    FOR EACH STATEMENT EXECUTE FUNCTION prohibir_mutacion();
+
+CREATE TRIGGER fx_append_only_truncate
+    BEFORE TRUNCATE ON fx_rate
+    FOR EACH STATEMENT EXECUTE FUNCTION prohibir_mutacion();
+
+CREATE TRIGGER reconciliacion_append_only_truncate
+    BEFORE TRUNCATE ON external_reconciliation
+    FOR EACH STATEMENT EXECUTE FUNCTION prohibir_mutacion();
 
 COMMENT ON FUNCTION prohibir_mutacion IS
   'Regla 5, hecha cumplir a nivel de motor. La diferencia entre una regla '

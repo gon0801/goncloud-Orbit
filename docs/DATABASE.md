@@ -377,9 +377,11 @@ Regímenes de lectura, explícitos (reemplazan al "todo lee lo maduro"):
   "todo se ve rentable"). **Sin supuesto de moneda única**: cada fila se
   convierte a la canónica **MXN** con `fx_resolve` y el JOIN es por
   `(platform, mes)` sobre montos ya en MXN — si un mes tuviera dos monedas de
-  venta, ambas se convierten y se SUMAN (el gasto no se repite por fila). Sin
-  tasa utilizable, ese monto queda fuera del agregado y `tacos_pct` es
-  **NULL si falta cualquier lado — fail-loud, nunca inventado**. TACoS por
+  venta, ambas se convierten y se SUMAN (el gasto no se repite por fila).
+  **Fail-loud ante huecos de FX**: la fila sin tasa utilizable NO entra al
+  agregado y se cuenta en `filas_gasto_sin_tasa` / `filas_venta_sin_tasa`;
+  con una sola fila sin convertir (o si falta cualquier lado entero),
+  `tacos_pct` es **NULL — nunca un agregado parcial disfrazado de completo**. TACoS por
   plataforma es la métrica que no necesita suposición de atribución (meta
   declarada: 8–12%).
 - **`fx_resolve`** — ver sección `fx_rate`.

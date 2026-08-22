@@ -85,20 +85,50 @@ def test_migracion_parsea():
 
 
 def test_las_siete_append_only_tienen_candado():
-    # Constantes de trigger.h: BEFORE=2, DELETE=8, UPDATE=16 (INSERT=4).
-    protegidas = set()
+    # Constantes de trigger.h: BEFORE=2; INSERT=4, DELETE=8, UPDATE=16,
+    # TRUNCATE=32. El candado exige DOS capas por tabla: FOR EACH ROW contra
+    # UPDATE/DELETE y FOR EACH STATEMENT contra TRUNCATE — los triggers de
+    # fila NO se disparan con TRUNCATE, y sin la segunda capa un TRUNCATE
+    # borraría la historia entera sin pasar por prohibir_mutacion
+    # (hallazgo CodeRabbit, PR #1).
+    capa_fila = set()
+    capa_truncate = set()
     for t in TRIGGERS:
-        if t.funcname and t.funcname[-1].sval == "prohibir_mutacion":
-            assert t.timing == 2 and t.row, (
-                f"{t.relation.relname}: prohibir_mutacion debe ser BEFORE ... FOR EACH ROW"
-            )
+        if not (t.funcname and t.funcname[-1].sval == "prohibir_mutacion"):
+            continue
+        assert t.timing == 2, f"{t.relation.relname}: prohibir_mutacion debe ser BEFORE"
+        if t.row:
             assert t.events & 8 and t.events & 16, (
-                f"{t.relation.relname}: el candado debe cubrir UPDATE y DELETE"
+                f"{t.relation.relname}: el candado de fila debe cubrir UPDATE y DELETE"
             )
-            protegidas.add(t.relation.relname)
-    assert protegidas >= APPEND_ONLY, (
-        f"tablas append-only sin trigger prohibir_mutacion: {APPEND_ONLY - protegidas}"
+            capa_fila.add(t.relation.relname)
+        else:
+            assert t.events & 32, (
+                f"{t.relation.relname}: el candado de sentencia debe cubrir TRUNCATE"
+            )
+            capa_truncate.add(t.relation.relname)
+    assert capa_fila >= APPEND_ONLY, (
+        f"tablas append-only sin candado de fila (UPDATE/DELETE): {APPEND_ONLY - capa_fila}"
     )
+    assert capa_truncate >= APPEND_ONLY, (
+        f"tablas append-only sin candado de sentencia (TRUNCATE): {APPEND_ONLY - capa_truncate}"
+    )
+
+
+def test_nuevos_candados_de_rango_positivo():
+    # Ronda CodeRabbit (PR #1): bids y target ACoS acotados por abajo, y la
+    # conciliación con período coherente (append-only: un período invertido
+    # no se podría corregir con UPDATE).
+    goals = _check_constraints("ads_optimizer_goal")
+    assert "goal_bids_positivos" in goals
+    assert "goal_harvest_bid_positivo" in goals
+    assert "goal_target_acos_positivo" in goals
+    bids = repr(goals["goal_bids_positivos"].raw_expr)
+    assert "bid_floor" in bids and "bid_ceiling" in bids
+    reconciliacion = _check_constraints("external_reconciliation")
+    assert "reconciliacion_periodo_coherente" in reconciliacion
+    periodo = repr(reconciliacion["reconciliacion_periodo_coherente"].raw_expr)
+    assert "period_start" in periodo and "period_end" in periodo
 
 
 def test_ninguna_columna_usa_float():
@@ -302,6 +332,19 @@ def test_v_tacos_convierte_por_fila_a_mxn():
     )
 
 
+def test_v_tacos_fail_loud_con_huecos_parciales_de_fx():
+    # Ronda CodeRabbit (PR #1): un hueco PARCIAL de FX (algunas filas sin tasa
+    # utilizable) antes publicaba un tacos_pct corto sin señal — SUM ignora
+    # los NULL. Ahora la vista cuenta las filas sin convertir por lado y
+    # tacos_pct sale NULL con una sola.
+    tacos = [v for v in _stmts(ast.ViewStmt) if v.view.relname == "v_tacos"]
+    assert tacos, "falta la vista v_tacos"
+    cuerpo = repr(tacos[0].query)
+    assert "gasto_sin_tasa" in cuerpo and "ventas_sin_tasa" in cuerpo, (
+        "v_tacos sin contadores de filas no convertibles por lado"
+    )
+
+
 # ---------------------------------------------------------------------------
 # (b) INTEGRACIÓN — skip automático sin Postgres local
 # ---------------------------------------------------------------------------
@@ -360,7 +403,7 @@ def test_probe_rechaza_listener_muerto(monkeypatch):
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 def test_migracion_rechaza_en_vivo():
-    """Aplica la migración en una base temporal y prueba 3 rechazos reales.
+    """Aplica la migración en una base temporal y prueba 6 rechazos reales.
 
     El DSN viene de ORBIT_TEST_DSN (default: el docker-compose.yml del repo,
     POSTGRES_USER=orbit). Sin él, psycopg usaría el usuario del SO y el test
@@ -368,24 +411,40 @@ def test_migracion_rechaza_en_vivo():
     cross-review grok).
     """
     psycopg = pytest.importorskip("psycopg")
+    from psycopg import sql
+
     dsn = _test_dsn()
     db = f"orbit_schema_test_{socket.gethostname().lower()}_{os.getpid()}"
     admin = psycopg.connect(dsn, autocommit=True)
     conn = None
+    # Rol centinela: prueba que la migración NO toca roles pre-existentes del
+    # cluster (hallazgo CodeRabbit PR #1: antes el test DROPEABA los roles
+    # app_* — de cluster, no de base — y no los restauraba; contra un cluster
+    # compartido eso destruye roles ajenos). La migración ahora crea los roles
+    # solo si faltan (guard pg_roles), así que no hay que borrar nada. El
+    # centinela lo crea y lo destruye este mismo test.
+    centinela = f"orbit_sentinel_{os.getpid()}"
     try:
-        admin.execute(f'CREATE DATABASE "{db}"')
-        # Los roles son de CLUSTER, no de base: si el cluster ya tiene el
-        # esquema (p.ej. la DB de dev con la migración aplicada), el
-        # CREATE ROLE de la migración chocaría con DuplicateObject y el test
-        # no podría correr dos veces contra el mismo cluster. Se dropean y
-        # la migración los recrea idénticos (verificado en vivo: hallazgo de
-        # la verificación contra PostgreSQL 16 real).
-        for rol in ("app_ingest", "app_decide", "app_read", "app_admin"):
-            admin.execute(f"DROP ROLE IF EXISTS {rol}")
+        # sql.Identifier: el nombre lleva el hostname; componer el DDL a mano
+        # con "{db}" se rompe con un hostname con comillas (hallazgo SAST).
+        admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(db)))
+        admin.execute(sql.SQL("CREATE ROLE {}").format(sql.Identifier(centinela)))
         conn = psycopg.connect(dsn, dbname=db, autocommit=True)
         try:
             conn.execute("SET TIME ZONE 'UTC'")
             conn.execute(SQL)  # la migración entera, con su BEGIN/COMMIT
+
+            # Los roles del esquema existen y el centinela (ajeno a la
+            # migración) sobrevivió intacto: roles de cluster intactos.
+            esperados = {centinela, "app_ingest", "app_decide", "app_read", "app_admin"}
+            roles = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT rolname FROM pg_roles WHERE rolname = ANY(%s)",
+                    (list(esperados),),
+                )
+            }
+            assert esperados <= roles
 
             run_id = conn.execute(
                 "INSERT INTO ingest_run (source) VALUES ('test') RETURNING id"
@@ -433,6 +492,36 @@ def test_migracion_rechaza_en_vivo():
                     f" VALUES ({entidad_us}, '2026-08-01', now() + interval '1h',"
                     f" 'USD', 'R1', {run_id})"
                 )
+            # 4. Desglose fiscal negativo (D13 cubre los 4 campos; aquí se
+            # prueba item_tax en vivo).
+            with pytest.raises(psycopg.errors.CheckViolation):
+                conn.execute(
+                    "INSERT INTO ledger_event (platform, kind, event_date,"
+                    " amount, amount_currency, item_tax, ingest_run_id) VALUES"
+                    f" ('amazon_us', 'sale', '2026-08-01', 100, 'USD', -1, {run_id})"
+                )
+
+            # 5. Un harvest_job debe NACER en fase pending; las demás fases
+            # solo se alcanzan por UPDATE. La decisión madura (window_end hace
+            # 15 días) además es el control positivo del corte de madurez.
+            decision_ok = conn.execute(
+                "INSERT INTO decision (cycle_id, ad_entity_id, kind,"
+                " config_version_id, data_observed_at, window_start, window_end,"
+                " inputs) VALUES"
+                f" ({ciclo_id}, {entidad_us}, 'pause', {config_id},"
+                " now(), CURRENT_DATE - 45, CURRENT_DATE - 15, '{}') RETURNING id"
+            ).fetchone()[0]
+            with pytest.raises(psycopg.errors.CheckViolation):
+                conn.execute(
+                    "INSERT INTO harvest_job (decision_id, search_term, platform,"
+                    " ad_entity_id, fase) VALUES"
+                    f" ({decision_ok}, 'term', 'amazon_us', {entidad_us}, 'done')"
+                )
+
+            # 6. TRUNCATE no esquiva el candado append-only: los triggers de
+            # fila no se disparan con TRUNCATE; hace falta el de sentencia.
+            with pytest.raises(psycopg.errors.RestrictViolation):
+                conn.execute("TRUNCATE fx_rate")
         finally:
             # D14 (ronda cross-review grok): sin el guard, un fallo del
             # segundo connect dejaría `conn` sin asignar y el finally lanzaría
@@ -440,5 +529,6 @@ def test_migracion_rechaza_en_vivo():
             if conn is not None:
                 conn.close()
     finally:
-        admin.execute(f'DROP DATABASE IF EXISTS "{db}" WITH (FORCE)')
+        admin.execute(sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(db)))
+        admin.execute(sql.SQL("DROP ROLE IF EXISTS {}").format(sql.Identifier(centinela)))
         admin.close()

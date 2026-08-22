@@ -210,6 +210,8 @@ UPDATE. Documentar: el job se registra ANTES del primer POST a Amazon
 
 ### D12 [media] — Test de integración: credenciales por entorno
 
+**Estado: Done** (verificado con evidencia archivo:línea; commit 1b382c9)
+
 `tests/test_schema.py::test_migracion_rechaza_en_vivo` conecta con
 `psycopg.connect(dbname="postgres")` sin usuario → contra el Postgres del
 docker-compose (`POSTGRES_USER=orbit`) dará error de autenticación.
@@ -221,11 +223,15 @@ administración (el test crea/tira su propia base temporal).
 
 ### D13 [baja] — `ledger_desglose_coherente` solo cubre `item_price`
 
+**Estado: Done** (verificado con evidencia archivo:línea; commit 1b382c9)
+
 `item_tax`, `shipping_price` y `shipping_tax` no tienen no-negativos.
 
 **Hacer:** extender el CHECK: los cuatro campos de desglose, NULL o >= 0.
 
 ### D14 [baja] — NameError potencial en el test de integración
+
+**Estado: Done** (verificado con evidencia archivo:línea; commit 1b382c9)
 
 Si la segunda conexión (a la base temporal) falla, `finally: conn.close()`
 tira NameError y tapa el error real.
@@ -234,6 +240,9 @@ tira NameError y tapa el error real.
 en el finally.
 
 ### D15 [baja] — Candados estáticos para lo corregido en esta ronda
+
+**Estado: Done** (tests estáticos D1/D2/D3 + los de la ronda claude y
+CodeRabbit, todos en `tests/test_schema.py`; commit 1b382c9 y siguientes)
 
 El cierre del plan pedía que cada corrección deje su test. Agregar a
 `tests/test_schema.py` asertos estáticos para: cruce de plataforma en
