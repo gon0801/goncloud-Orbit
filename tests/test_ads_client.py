@@ -722,3 +722,26 @@ def test_download_redirect_a_http_rechazado():
     assert len(api_calls) == 1, "el salto http no debe emitirse"
     assert "no-https" in str(excinfo.value)
     assert "fake-sig" not in str(excinfo.value)
+
+
+def test_redact_url_malformada_no_fuga_ni_revienta():
+    """[media, ronda 2] redact_url ante URLs malformadas: sin fuga y sin ValueError."""
+    from app.redaction import redact_url
+
+    # espacio en el scheme: urlsplit mete el userinfo en path -> placeholder total
+    malformada = "http ://user:fake-mal-pw@host/path"
+    assert redact_url(malformada) == "<url-malformada>"
+    assert "fake-mal-pw" not in redact_url(malformada)
+
+    # IPv6 rota: urlsplit lanza ValueError -> se degrada a placeholder
+    assert redact_url("http://[bad") == "<url-no-parseable>"
+
+    # el camino completo: download() la rechaza SIN ecoar el secreto
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("jamas debe salir a la red")
+
+    client = make_client(handler)
+    with pytest.raises(AdsApiError) as excinfo:
+        client.download(malformada)
+    assert "fake-mal-pw" not in str(excinfo.value)
+    assert "fake-mal-pw" not in repr(excinfo.value)

@@ -91,7 +91,16 @@ def redact_url(url: str | None) -> str | None:
     """
     if not url:
         return url
-    parsed = urlsplit(url)
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        # p.ej. "http://[bad": jamas propagar el ValueError ni ecoar la URL.
+        return "<url-no-parseable>"
+    if not parsed.scheme or not parsed.netloc:
+        # URL malformada (p.ej. espacio dentro del scheme): urlsplit mete
+        # todo en `path`, incluido un posible userinfo con password. No se
+        # rescatan pedazos: cualquiera podria contener el secreto.
+        return "<url-malformada>"
     netloc = parsed.netloc
     userinfo, sep, hostport = netloc.rpartition("@")
     if sep:
