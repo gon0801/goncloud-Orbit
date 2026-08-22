@@ -307,17 +307,57 @@ def test_v_tacos_convierte_por_fila_a_mxn():
 # ---------------------------------------------------------------------------
 
 
+def _test_dsn():
+    return os.environ.get("ORBIT_TEST_DSN", "postgresql://orbit:orbit@localhost:5432/postgres")
+
+
 def _hay_postgres_local():
+    """¿Hay un Postgres UTILIZABLE en el DSN de prueba?
+
+    Un probe TCP no basta: un túnel SSH muerto (o cualquier proceso colgado
+    del puerto) acepta la conexión y luego cierra sin hablar protocolo
+    Postgres — el test corría contra ese agujero y fallaba con
+    OperationalError tras ~2 min de timeout en vez de skipear (caso real:
+    túnel SSH caído en 127.0.0.1:5432 bloqueando el pre-push, ronda
+    cross-review claude). Hay que hablar Postgres de verdad, con tope corto.
+    """
+    psycopg = pytest.importorskip("psycopg")
     try:
-        with socket.create_connection(("localhost", 5432), timeout=1):
+        with psycopg.connect(_test_dsn(), connect_timeout=2):
             return True
-    except OSError:
+    except psycopg.Error:
         return False
+
+
+def test_probe_rechaza_listener_muerto(monkeypatch):
+    """Un listener que acepta TCP y cierra sin hablar Postgres NO es "hay
+    Postgres": es el túnel SSH muerto que tumbó el pre-push. Con el probe TCP
+    viejo este test daría True (regresión)."""
+    import threading
+
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    port = srv.getsockname()[1]
+
+    def _aceptar_y_cerrar():
+        try:
+            conn, _ = srv.accept()
+            conn.close()
+        except OSError:
+            pass
+
+    threading.Thread(target=_aceptar_y_cerrar, daemon=True).start()
+    monkeypatch.setenv("ORBIT_TEST_DSN", f"postgresql://u:p@127.0.0.1:{port}/postgres")
+    try:
+        assert _hay_postgres_local() is False
+    finally:
+        srv.close()
 
 
 @pytest.mark.skipif(
     not _hay_postgres_local(),
-    reason="sin Postgres en localhost:5432 (Docker no levantado en esta máquina)",
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 def test_migracion_rechaza_en_vivo():
     """Aplica la migración en una base temporal y prueba 3 rechazos reales.
@@ -328,7 +368,7 @@ def test_migracion_rechaza_en_vivo():
     cross-review grok).
     """
     psycopg = pytest.importorskip("psycopg")
-    dsn = os.environ.get("ORBIT_TEST_DSN", "postgresql://orbit:orbit@localhost:5432/postgres")
+    dsn = _test_dsn()
     db = f"orbit_schema_test_{socket.gethostname().lower()}_{os.getpid()}"
     admin = psycopg.connect(dsn, autocommit=True)
     conn = None
