@@ -152,8 +152,9 @@ taskkill //PID <pid> //F                # Windows; en Linux: kill <pid>
 - Propiedades del script (todas nacidas de hallazgos de revisión):
   - `flock`: una sola ejecución a la vez (un manual no pisa al cron).
   - staging con `mktemp -d` + `trap`: los temporales jamás quedan.
-  - la pareja se publica con **un solo rename de directorio** (atómico de
-    verdad: nunca existe un día con dump de datos sin su globals).
+  - publicación que **conserva la versión previa**: la pareja se aparta a
+    `.old_`, se publica la nueva con un rename y, si algo falla, rollback
+    automático a la de ayer — nunca te quedas sin backup válido.
   - rotación de **14** directorios (la lección de `competitive.db`: la
     rotación de 3 se comió el histórico).
 - Verificar que un dump sirve (rápido, solo catálogo):
@@ -163,16 +164,19 @@ ssh goncloud 'docker exec -i orbit-db-1 pg_restore --list < \
   /mnt/data/appdata/orbit/backups/orbit_YYYY-MM-DD/orbit_YYYY-MM-DD.dump | head'
 ```
 
-- Verificar de verdad (restauración real a base descartable, conserva el
-  código de salida; `--exit-on-error` hace fallar el comando si el dump
-  está roto):
+- Verificar de verdad (restauración real a base descartable): conserva el
+  código de salida de `pg_restore`, limpia SIEMPRE la base temporal (incluso
+  si el restore falla, con `FORCE` por si algo quedó conectado) y sólo dice
+  `VERIFY_OK` cuando TODO salió bien — el exit code viaja hasta tu shell:
 
 ```bash
-ssh goncloud 'set -e; D=/mnt/data/appdata/orbit/backups/orbit_YYYY-MM-DD; \
+ssh goncloud 'D=/mnt/data/appdata/orbit/backups/orbit_YYYY-MM-DD; \
   docker exec orbit-db-1 psql -U orbit -d postgres -qc "DROP DATABASE IF EXISTS orbit_verify_tmp"; \
   docker exec orbit-db-1 psql -U orbit -d postgres -qc "CREATE DATABASE orbit_verify_tmp"; \
-  docker exec -i orbit-db-1 pg_restore -U orbit -d orbit_verify_tmp --exit-on-error < "$D/orbit_YYYY-MM-DD.dump" && echo VERIFY_OK; \
-  docker exec orbit-db-1 psql -U orbit -d postgres -qc "DROP DATABASE orbit_verify_tmp"'
+  rc=0; docker exec -i orbit-db-1 pg_restore -U orbit -d orbit_verify_tmp --exit-on-error \
+    < "$D/orbit_YYYY-MM-DD.dump" || rc=$?; \
+  docker exec orbit-db-1 psql -U orbit -d postgres -qc "DROP DATABASE orbit_verify_tmp WITH (FORCE)"; \
+  if [ "$rc" -eq 0 ]; then echo VERIFY_OK; else echo VERIFY_FAIL; exit "$rc"; fi'
 ```
 
 **Contenido de `/mnt/data/appdata/orbit/backup.sh`** (versionado aquí
@@ -180,11 +184,11 @@ porque el runbook debe poder reconstruirlo):
 
 ```bash
 #!/bin/bash
-# Backup diario de orbit (v3, hallazgos CodeRabbit PR #5):
+# Backup diario de orbit (v4, hallazgos CodeRabbit PR #5 y #6):
 # - flock: una sola ejecucion a la vez (cron + manual nunca se pisan)
 # - staging con mktemp -d y trap: basura temporal jamas queda
-# - la pareja (datos + globals) se publica con UN solo rename de directorio
-#   (atomico de verdad: nunca existe un dia con dump sin su globals)
+# - publicacion con CONSERVACION de la version previa: si algo falla en el
+#   remplazo, la copia de ayer sigue intacta (rollback automatico)
 # - rotacion de 14 sobre directorios
 set -euo pipefail
 DIR=/mnt/data/appdata/orbit/backups
@@ -198,9 +202,15 @@ trap 'rm -rf "$STAGE"' EXIT
 docker exec orbit-db-1 pg_dump -U orbit -Fc orbit > "$STAGE/orbit_$STAMP.dump"
 docker exec orbit-db-1 pg_dumpall -U orbit --globals-only > "$STAGE/orbit_globals_$STAMP.sql"
 FINAL="$DIR/orbit_$STAMP"
-rm -rf "$FINAL"            # re-run del mismo dia: reemplaza la version vieja
-mv -T "$STAGE" "$FINAL"    # un solo rename: publicacion atomica de la pareja
-trap - EXIT
+OLD="$DIR/.old_$STAMP"
+if [ -e "$FINAL" ]; then mv -T "$FINAL" "$OLD"; fi   # aparta la version previa
+if mv -T "$STAGE" "$FINAL"; then                    # publica la nueva
+  rm -rf "$OLD"; trap - EXIT
+else
+  [ -e "$OLD" ] && mv -T "$OLD" "$FINAL"            # rollback a la previa
+  echo "$(date -Is) backup FALLO al publicar; se conserva la version previa" >&2
+  exit 1
+fi
 ls -1dt "$DIR"/orbit_[0-9]*[0-9]/ | tail -n +15 | xargs -r rm -rf
 echo "$(date -Is) backup OK: $FINAL ($(stat -c%s "$FINAL/orbit_$STAMP.dump") + $(stat -c%s "$FINAL/orbit_globals_$STAMP.sql") bytes)"
 ```
@@ -253,7 +263,7 @@ disparan), por eso el INSERT dentro de la transacción que se revierte.
 8. Verificar: suite completa por túnel (30 passed, 0 skipped) + smoke de
    candados.
 
-## Recuperación desde backups (pérdida del volumen)
+## Recuperación desde backups (pérdida del volumen) — pasos verificados por separado, NO punta a punta
 
 > **Honestidad primero:** este procedure NO fue ejecutado punta a punta
 > contra un volumen realmente destruido. Cada paso se verificó por separado
@@ -276,15 +286,27 @@ reconstrucción deliberada. Pasos:
    ```
    Esperado y tolerable: `ERROR: role "orbit" already exists` (lo creó el
    initdb). `ON_ERROR_STOP=0` calla CUALQUIER error, no solo el esperado —
-   por eso el restore **no cuenta como done** hasta pasar el gate:
+   por eso el restore **no cuenta como done** hasta pasar el gate, que
+   además del conteo valida ATRIBUTOS y MEMBRESÍAS (un globals parcial
+   crea roles sin grants y igual cuenta 9 — el gate v2 lo atrapa):
    ```bash
    ssh goncloud "N=\$(docker exec orbit-db-1 psql -U orbit -d postgres -tAc \\
      \"SELECT count(*) FROM pg_roles WHERE rolname IN ('app_ingest','app_decide',\\
 'app_read','app_admin','orbit_ingest','orbit_decide','orbit_read','orbit_admin','orbit_test')\"); \\
-     [ \"\$N\" = 9 ] && echo GATE_ROLES_OK || { echo \"GATE_ROLES_FAIL (N=\$N): globals a medias, NO restaurar datos\"; exit 1; }"
+     ATTR=\$(docker exec orbit-db-1 psql -U orbit -d postgres -tAc \\
+     \"SELECT count(*) FROM pg_roles WHERE (rolname LIKE 'app\\\_%' AND NOT rolcanlogin) OR \\
+      (rolname='orbit_test' AND rolcreatedb AND rolcreaterole AND NOT rolsuper)\"); \\
+     MEM=\$(docker exec orbit-db-1 psql -U orbit -d postgres -tAc \\
+     \"SELECT count(*) FROM pg_auth_members m JOIN pg_roles g ON g.oid=m.roleid \\
+      JOIN pg_roles u ON u.oid=m.member WHERE g.rolname='app_'||substr(u.rolname,7) \\
+      AND u.rolname LIKE 'orbit\\\_%'\"); \\
+     if [ \"\$N\" = 9 ] && [ \"\$ATTR\" = 5 ] && [ \"\$MEM\" = 4 ]; then echo GATE_ROLES_OK; \\
+     else echo \"GATE_ROLES_FAIL (N=\$N ATTR=\$ATTR MEM=\$MEM): NO restaurar datos\"; exit 1; fi"
    ```
    El gate **detiene el procedure** (exit 1) antes del restore de datos si
-   falta cualquiera de los 9 roles.
+   falta cualquiera de los 9 roles, si los `app_*` no son NOLOGIN, si
+   `orbit_test` no tiene sus atributos, o si los 4 usuarios no son miembros
+   de su rol `app_*` correspondiente.
 3. **Después los datos**: la base `orbit` YA EXISTE vacía (el compose la
    crea en el initdb vía `POSTGRES_DB=orbit` — un `CREATE DATABASE orbit`
    aquí revienta con "already exists"). Solo restaurar encima:
@@ -296,7 +318,9 @@ reconstrucción deliberada. Pasos:
    (`app_read`: SELECT sí / UPDATE no).
 4. **No reaplicar `0001`** después de restaurar: los `CREATE TYPE`/
    `CREATE TABLE` ya existen y revientan (la migración solo va en bases
-   nuevas). Si para la fecha del dump ya existían migraciones posteriores
-   a `0001`, aplicar SOLO las más nuevas que el dump (cuando exista una
-   tabla de versiones, la fecha del dump dice hasta cuál llegar).
+   nuevas). Y **no inferir el estado de migraciones por la fecha del dump**:
+   hoy no existe una fuente autoritativa de versiones, así que si algún día
+   hay migraciones posteriores a `0001`, la recuperación se DETIENE aquí
+   para revisión manual de qué migraciones faltan sobre el dump — no se
+   aplica nada en automático.
 5. Verificar como siempre: suite por túnel + smoke de candados.
