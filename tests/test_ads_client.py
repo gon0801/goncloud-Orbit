@@ -556,3 +556,169 @@ def test_token_se_renueva_con_margen_de_60s():
     clock["now"] = 41.0
     client.get("/v2/profiles")
     assert len(token_calls) == 2
+
+
+# ---------------------------------------------------------------------------
+# 9. Fixes de la cross-review Codex (ronda 1): cada bug con su test
+# ---------------------------------------------------------------------------
+
+
+def test_redaccion_dsn_con_espacio_inicial(caplog):
+    """[alta] Un DSN con espacio inicial (clasico de .env) tambien se redacta."""
+    dsn = "  postgresql://orbit_ingest:fake-lead-pw@127.0.0.1:9/orbit"
+    assert "fake-lead-pw" not in redact_dsn(dsn)
+
+    with caplog.at_level(logging.DEBUG), pytest.raises(OrbitDbError) as excinfo:
+        connect(dsn, connect_timeout=1)
+    for exc in _exception_chain(excinfo.value):
+        assert "fake-lead-pw" not in str(exc)
+        assert "fake-lead-pw" not in repr(exc)
+    assert "fake-lead-pw" not in caplog.text
+
+
+def test_redact_url_elimina_userinfo():
+    """[baja] https://user:pass@host no debe fugar el userinfo en logs/errores."""
+    from app.redaction import redact_url, scrub
+
+    redacted = redact_url("https://user:fake-basic-pw@reports.example.com/f.gz?X-Amz-Signature=s")
+    assert redacted == "https://reports.example.com/f.gz"
+    assert "fake-basic-pw" not in redacted
+    # la password del userinfo quedo ademas registrada para scrub()
+    assert "fake-basic-pw" not in scrub("echo fake-basic-pw")
+
+
+def test_config_json_no_objeto(tmp_path):
+    """[baja] JSON valido pero no-objeto -> AdsConfigError, jamas AttributeError."""
+    (tmp_path / "amazon_ads_config.json").write_text("[1, 2]", encoding="utf-8")
+    (tmp_path / "amazon_ads_tokens.json").write_text(
+        json.dumps({"refresh_token": FAKE_REFRESH_TOKEN}), encoding="utf-8"
+    )
+    with pytest.raises(AdsConfigError):
+        AdsCredentials.from_secrets_dir(tmp_path)
+
+
+def test_config_valor_no_string(tmp_path):
+    """[baja] Una clave presente pero no-string -> AdsConfigError sin valores."""
+    (tmp_path / "amazon_ads_config.json").write_text(
+        json.dumps({"client_id": FAKE_CLIENT_ID, "client_secret": 12345}), encoding="utf-8"
+    )
+    (tmp_path / "amazon_ads_tokens.json").write_text(
+        json.dumps({"refresh_token": FAKE_REFRESH_TOKEN}), encoding="utf-8"
+    )
+    with pytest.raises(AdsConfigError) as excinfo:
+        AdsCredentials.from_secrets_dir(tmp_path)
+    assert "12345" not in str(excinfo.value)
+
+
+def test_create_report_fallo_de_red_no_reintenta():
+    """[media] POST no idempotente + fallo AMBIGUO (red) -> fail-closed sin retry."""
+    api_calls: list[httpx.Request] = []
+    sleeps: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        api_calls.append(request)
+        raise httpx.ConnectError("boom", request=request)
+
+    client = make_client(handler, sleep=sleeps.append)
+    with pytest.raises(AdsApiError) as excinfo:
+        client.create_report({"reportTypeId": "spCampaigns"}, profile_id=1)
+
+    assert len(api_calls) == 1, "sin retry: un duplicado seria posible"
+    assert sleeps == []
+    assert "no idempotente" in str(excinfo.value)
+
+
+def test_create_report_5xx_no_reintenta():
+    """[media] POST no idempotente + 5xx (ambiguo) -> fail-closed sin retry."""
+    api_calls: list[httpx.Request] = []
+    sleeps: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        api_calls.append(request)
+        return httpx.Response(500, json={"error": "boom"})
+
+    client = make_client(handler, sleep=sleeps.append)
+    with pytest.raises(AdsApiError):
+        client.create_report({"reportTypeId": "spCampaigns"}, profile_id=1)
+
+    assert len(api_calls) == 1
+    assert sleeps == []
+
+
+def test_create_report_429_si_reintenta():
+    """[media] 429 = rechazado SIN procesar -> el POST si puede reintentarse."""
+    api_calls: list[httpx.Request] = []
+    sleeps: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        api_calls.append(request)
+        if len(api_calls) == 1:
+            return httpx.Response(429, json={"error": "throttled"})
+        return httpx.Response(200, json={"reportId": "r1"})
+
+    client = make_client(handler, sleep=sleeps.append)
+    resp = client.create_report({"reportTypeId": "spCampaigns"}, profile_id=1)
+
+    assert resp.status_code == 200
+    assert len(api_calls) == 2
+    assert len(sleeps) == 1
+
+
+def test_refresh_lwa_reintenta_5xx_transitorio():
+    """[media] El refresh LWA es idempotente: un 5xx transitorio NO aborta."""
+    token_calls: list[httpx.Request] = []
+    sleeps: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            token_calls.append(request)
+            if len(token_calls) < 3:
+                return httpx.Response(500, json={"error": "hiccup"})
+            return _token_response(len(token_calls))
+        return httpx.Response(200, json={"profiles": []})
+
+    client = make_client(handler, sleep=sleeps.append)
+    resp = client.get("/v2/profiles")
+
+    assert resp.status_code == 200
+    assert len(token_calls) == 3, "dos 5xx transitorios + el exito"
+    assert len(sleeps) == 2
+
+
+def test_download_rechaza_http():
+    """[media] download() solo acepta https: nada de descargas en claro."""
+    api_calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        api_calls.append(request)
+        return httpx.Response(200, content=b"x")
+
+    client = make_client(handler)
+    with pytest.raises(AdsApiError) as excinfo:
+        client.download("http://reports.example.com/f.gz")
+
+    assert api_calls == [], "la URL http jamas debe salir a la red"
+    assert "no-https" in str(excinfo.value)
+
+
+def test_download_redirect_a_http_rechazado():
+    """[media] Un redirect con downgrade a http se rechaza (la firma iria en claro)."""
+    api_calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        api_calls.append(request)
+        return httpx.Response(302, headers={"location": "http://evil.example.com/f.gz"})
+
+    client = make_client(handler)
+    with pytest.raises(AdsApiError) as excinfo:
+        client.download("https://reports.example.com/f.gz?X-Amz-Signature=fake-sig")
+
+    assert len(api_calls) == 1, "el salto http no debe emitirse"
+    assert "no-https" in str(excinfo.value)
+    assert "fake-sig" not in str(excinfo.value)

@@ -155,9 +155,12 @@ class AdsClient:
         `follow_redirects=False` esta seteado en el cliente httpx interno:
         los redirects se resuelven aqui a mano, re-emitiendo SIEMPRE GET
         (el metodo jamas cambia en un redirect), con tope de saltos.
+        Solo se acepta `https://` -- tambien en cada salto de redirect: un
+        downgrade a http mandaria la URL firmada en claro (cross-review).
         """
         current_url = url
         for _ in range(MAX_REDIRECTS + 1):
+            self._require_https(current_url)
             resp = self._send_with_retries("GET", current_url, headers={})
             if resp.status_code in (301, 302, 303, 307, 308):
                 location = resp.headers.get("location")
@@ -169,6 +172,11 @@ class AdsClient:
                 raise AdsApiError(f"status={resp.status_code}: GET {redact_url(current_url)}")
             return resp
         raise AdsApiError(f"demasiados redirects (> {MAX_REDIRECTS}): GET {redact_url(url)}")
+
+    @staticmethod
+    def _require_https(url: str) -> None:
+        if not url.lower().startswith("https://"):
+            raise AdsApiError(f"descarga no-https rechazada: GET {redact_url(url)}")
 
     # ------------------------------------------------------------------
     # Guard read-only central + despacho autenticado
@@ -193,15 +201,24 @@ class AdsClient:
             )
 
         url = f"{self._base_url}{path}"
+        # El POST de creacion de reportes NO es idempotente: la politica de
+        # retries lo trata fail-closed (ver _send_with_retries).
+        idempotent = method == "GET"
         token = self._ensure_token()
         headers = self._build_headers(token, profile_id)
-        resp = self._send_with_retries(method, url, headers=headers, params=params, json=json)
+        resp = self._send_with_retries(
+            method, url, headers=headers, params=params, json=json, idempotent=idempotent
+        )
 
         if resp.status_code == 401:
             # UN refresh forzado + UN retry, nada mas (no se compone con 429/5xx).
+            # Re-enviar el POST aqui es seguro: un 401 significa RECHAZADO
+            # antes de procesar, no ambiguo.
             token = self._ensure_token(force=True)
             headers = self._build_headers(token, profile_id)
-            resp = self._send_with_retries(method, url, headers=headers, params=params, json=json)
+            resp = self._send_with_retries(
+                method, url, headers=headers, params=params, json=json, idempotent=idempotent
+            )
 
         if resp.status_code >= 400:
             raise AdsApiError(f"status={resp.status_code}: {method} {redact_url(url)}")
@@ -228,18 +245,32 @@ class AdsClient:
         headers: dict[str, str],
         params: dict | None = None,
         json: dict | None = None,
+        data: dict | None = None,
+        idempotent: bool = True,
     ) -> httpx.Response:
+        # `idempotent=False` (el POST de creacion de reportes) es fail-closed
+        # ante resultados AMBIGUOS -- regla de CONTEXTO.md: "POSTs de creacion
+        # no-idempotentes fail-closed". Un fallo de red o un 5xx no dicen si
+        # el server proceso el request: reintentar podria crear un reporte
+        # duplicado, asi que se lanza y el caller decide. Un 429 si se
+        # reintenta: significa RECHAZADO sin procesar.
         attempt = 0
         while True:
             attempt += 1
             network_failed = False
             resp: httpx.Response | None = None
             try:
-                resp = self._client.request(method, url, headers=headers, params=params, json=json)
+                resp = self._client.request(
+                    method, url, headers=headers, params=params, json=json, data=data
+                )
             except httpx.HTTPError:
                 network_failed = True
 
             if network_failed:
+                if not idempotent:
+                    raise AdsApiError(
+                        f"fallo de red sin retry (POST no idempotente): {method} {redact_url(url)}"
+                    )
                 if attempt >= MAX_RETRIES:
                     raise AdsApiError(
                         f"fallo de red tras {attempt} intentos: {method} {redact_url(url)}"
@@ -250,6 +281,11 @@ class AdsClient:
             logger.debug("%s %s status=%s", method, redact_url(url), resp.status_code)
 
             if resp.status_code in RETRYABLE_STATUSES or resp.status_code >= 500:
+                if resp.status_code >= 500 and not idempotent:
+                    raise AdsApiError(
+                        f"status={resp.status_code} sin retry (POST no idempotente): "
+                        f"{method} {redact_url(url)}"
+                    )
                 if attempt >= MAX_RETRIES:
                     raise AdsApiError(
                         f"status={resp.status_code} tras {attempt} intentos: "
@@ -305,18 +341,25 @@ class AdsClient:
             "client_id": self._credentials.client_id,
             "client_secret": self._credentials.client_secret,
         }
+        # El refresh LWA ES idempotente (el refresh_token no rota), asi que
+        # merece la misma politica de retries que el resto: un 429/5xx o un
+        # fallo de red transitorio del token endpoint no debe abortar la
+        # ingesta entera (hallazgo cross-review). `AdsApiError` (retries
+        # agotados) se convierte a `AdsAuthError` SIN encadenar: el error
+        # original ya esta redactado, pero el contrato del modulo es que los
+        # fallos de auth salen como AdsAuthError con mensaje minimo.
         error: AdsAuthError | None = None
         resp: httpx.Response | None = None
         try:
-            resp = self._client.post(LWA_TOKEN_URL, data=payload)
-        except httpx.HTTPError:
+            resp = self._send_with_retries(
+                "POST", LWA_TOKEN_URL, headers={}, data=payload, idempotent=True
+            )
+        except AdsApiError:
             error = AdsAuthError(
-                f"fallo de red refrescando el token LWA: POST {redact_url(LWA_TOKEN_URL)}"
+                f"fallo refrescando el token LWA: POST {redact_url(LWA_TOKEN_URL)}"
             )
         if error is not None:
             raise error from None
-
-        logger.debug("POST %s status=%s", redact_url(LWA_TOKEN_URL), resp.status_code)
 
         if resp.status_code >= 400:
             raise AdsAuthError(f"LWA rechazo el refresh: status={resp.status_code}")

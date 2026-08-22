@@ -23,8 +23,11 @@ _secrets: list[str] = []
 #  codicioso empuja el corte al ultimo `@` de la cadena, asi que una
 #  password con `@` literal (ej. `fake@pw@123`) se captura COMPLETA en vez
 #  de cortarse en el primer `@` (bug real: dejaba el resto sin redactar).
+#  El `\s*` inicial tolera espacios accidentales (un `.env` con espacio de
+#  mas es un clasico): sin el, un DSN con espacio inicial no matcheaba y la
+#  password quedaba SIN redactar (bug real, cross-review Codex ronda 1).
 _DSN_URL_PASSWORD_RE = re.compile(
-    r"^(?P<prefix>\w[\w+]*://[^:/@]*:)(?P<password>.*)(?P<suffix>@[^@]*)$"
+    r"^(?P<prefix>\s*\w[\w+]*://[^:/@]*:)(?P<password>.*)(?P<suffix>@[^@]*)$"
 )
 _DSN_KV_PASSWORD_RE = re.compile(r"(?i)(password)\s*=\s*('(?:[^'\\]|\\.)*'|\S+)")
 
@@ -79,16 +82,24 @@ def redact_dsn(dsn: str | None) -> str | None:
 
 
 def redact_url(url: str | None) -> str | None:
-    """Conserva scheme+host+path de una URL; ELIMINA query y fragment.
+    """Conserva scheme+host+path de una URL; ELIMINA query, fragment y userinfo.
 
     Las URLs firmadas (descargas de reportes) llevan el secreto en la
     query string (`X-Amz-Signature=...`); nunca debe aparecer en logs ni
-    mensajes de error.
+    mensajes de error. El userinfo (`https://user:pass@host/...`) tambien
+    se elimina: su password se registra como secreto para `scrub()`.
     """
     if not url:
         return url
     parsed = urlsplit(url)
-    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+    netloc = parsed.netloc
+    userinfo, sep, hostport = netloc.rpartition("@")
+    if sep:
+        _, colon, password = userinfo.partition(":")
+        if colon and password:
+            register_secret(password)
+        netloc = hostport
+    return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
 
 
 class SecretScrubFilter(logging.Filter):

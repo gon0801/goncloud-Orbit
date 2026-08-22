@@ -28,15 +28,18 @@ def _load_json(path: Path) -> dict:
     if not path.is_file():
         raise AdsConfigError(f"no existe el archivo de credenciales: {path.name}")
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         raise AdsConfigError(f"JSON invalido en {path.name}") from None
+    if not isinstance(data, dict):
+        raise AdsConfigError(f"formato invalido en {path.name}: se esperaba un objeto JSON")
+    return data
 
 
 def _require(data: dict, key: str, filename: str) -> str:
     value = data.get(key)
-    if not value:
-        raise AdsConfigError(f"falta la clave '{key}' en {filename}")
+    if not isinstance(value, str) or not value:
+        raise AdsConfigError(f"falta la clave '{key}' (string no vacio) en {filename}")
     return value
 
 
