@@ -15,7 +15,12 @@
 
 - **Dinero**: dominio `money_amount` (`NUMERIC(14,4)`) + columna `currency`
   (ENUM `MXN`/`USD`) en toda tabla que guarde montos (regla 4). Prohibido
-  float. Ninguna tabla con dinero sin moneda; ningún agregado que mezcle
+  float. **Excepción de tipo, no de regla**: `decision.old_value`/`new_value`
+  son `NUMERIC` crudo (no `money_amount`) porque su significado depende del
+  `kind`; la moneda se les exige por CHECK para **todo kind que mueve dinero
+  —`bid`, `budget` y `harvest`—** y se prohíbe la moneda suelta en los que no
+  (`decision_moneda_solo_en_kinds_con_dinero`). Ninguna tabla con dinero sin
+  moneda; ningún agregado que mezcle
   monedas (las vistas agrupan por plataforma —y por moneda donde aplica— y
   convierten solo vía `fx_resolve`; `v_tacos` agrupa por plataforma y
   convierte cada lado por fila a la moneda canónica MXN).
@@ -38,6 +43,19 @@
   operación; `apply_quota_state` solo consume (`UPDATE (used)`); `sku_cost`
   solo cierra vigencias (`UPDATE (valid_to)`); el resto del catálogo
   (`product`, `listing`, `ad_entity`) admite correcciones controladas.
+  `sku_cost` es la única con **candado propio** en vez de simple ausencia de
+  GRANT: el trigger `sku_cost_solo_cierra_vigencia` permite cambiar `valid_to`
+  y **nada más**, y prohíbe el `DELETE` (borrar una vigencia publicada
+  reescribe el histórico de márgenes hacia atrás).
+- **Toda FK tiene índice de apoyo**: PostgreSQL no crea uno por el
+  `REFERENCES`. Sin él, cada verificación de integridad al tocar la tabla
+  padre barre la hija entera y los JOIN que el propio esquema declara
+  (`v_margen_plataforma` cruza `ledger_event.product_id` contra `sku_cost`)
+  salen a secuencial. Los índices **parciales no cuentan** (la verificación de
+  integridad consulta la clave sin el filtro del `WHERE`): por eso
+  `ads_optimizer_goal` y `harvest_job` llevan índice propio además de sus
+  únicos parciales. Lo afirma `test_toda_fk_tiene_indice_de_apoyo` sobre el
+  AST.
 - **Dato faltante = fila ausente o NULL, nunca constante mágica** (regla 3):
   `fx_resolve` devuelve cero filas si no hay tasa usable; `sku_cost` rechaza
   costo 0; la config de harvest va completa o no va; `is_asin_like` no tiene
@@ -96,6 +114,11 @@ del COGS de MeLi era 0 y pasó tres auditorías como "limpio"). **La ingesta
 solo puede `UPDATE (valid_to)`**: cerrar vigencias sí; reescribir
 `cost_amount`/`valid_from` de una fila publicada, jamás — la corrección es una
 fila nueva con vigencia nueva (el EXCLUDE ya garantiza que no se solape).
+**Y no descansa en el permiso**: el trigger `sku_cost_solo_cierra_vigencia`
+(`BEFORE UPDATE OR DELETE`, más el de sentencia contra `TRUNCATE`) rechaza
+cualquier UPDATE que toque algo distinto de `valid_to` y prohíbe el DELETE,
+aunque el rol tenga todos los permisos — la misma razón por la que las
+append-only tienen trigger y no sólo GRANT.
 *Cómo se audita*: el `EXCLUDE` garantiza un solo costo vigente por fecha;
 invariante — productos activos sin costo vigente hoy (lista explícita, no
 cero disfrazado).
@@ -224,9 +247,16 @@ fijado en la expresión (curva medida de falsos cortes: día 0 = 8.7%, día 10 =
 generar la señal que la revertiría). No es CHECK porque PostgreSQL acepta
 expresiones STABLE en CHECKs y las evalúa por sesión; el trigger fija UTC en
 la expresión misma (la app con TZ UTC es segunda capa).
+**Moneda por kind (regla 4)**: `old_value`/`new_value` son `NUMERIC` crudo
+(su significado depende del `kind`), así que el candado de moneda es explícito
+— `decision_valor_con_moneda` exige `value_currency` para `bid`, `budget` **y
+`harvest`** (su `new_value` es el bid inicial de la keyword harvesteada,
+`goal.harvest_default_bid`), y `decision_moneda_solo_en_kinds_con_dinero`
+prohíbe la moneda suelta en los kinds que no mueven dinero (moneda sin importe
+= dato inventado, regla 3).
 *Cómo se audita*: trigger append-only + trigger de madurez + únicos parciales;
-índices `(ad_entity_id, decided_at DESC)` y `(cycle_id)` para cooldown y
-reconstrucción de ciclo; cooldown 7d solo cuenta applies verificados
+índices `(ad_entity_id, decided_at DESC)`, `(cycle_id)` y
+`(config_version_id)` para cooldown, reconstrucción de ciclo e integridad; cooldown 7d solo cuenta applies verificados
 (`decision_application.verify_ok IS TRUE`).
 
 **`decision_application`** — Separación decidir/aplicar (la regla más cara del
@@ -381,7 +411,12 @@ Regímenes de lectura, explícitos (reemplazan al "todo lee lo maduro"):
   **Fail-loud ante huecos de FX**: la fila sin tasa utilizable NO entra al
   agregado y se cuenta en `filas_gasto_sin_tasa` / `filas_venta_sin_tasa`;
   con una sola fila sin convertir (o si falta cualquier lado entero),
-  `tacos_pct` es **NULL — nunca un agregado parcial disfrazado de completo**. TACoS por
+  `tacos_pct` es **NULL — nunca un agregado parcial disfrazado de completo**.
+  **Y lo mismo ante el costo ausente**: `SUM` tampoco suma los NULL, así que
+  una fila de métrica con `cost` NULL dejaba el gasto corto y `tacos_pct`
+  optimista sin dejar señal; ahora se cuenta en `filas_gasto_sin_costo` y
+  anula `tacos_pct` igual. (El lado de la venta no lo necesita:
+  `ledger_event.amount` es NOT NULL.) TACoS por
   plataforma es la métrica que no necesita suposición de atribución (meta
   declarada: 8–12%).
 - **`fx_resolve`** — ver sección `fx_rate`.
@@ -412,6 +447,10 @@ Regímenes de lectura, explícitos (reemplazan al "todo lee lo maduro"):
 - Los permisos solos no bastan (un `GRANT ALL` futuro los derrotaría en
   silencio): el candado real es el trigger `prohibir_mutacion`, que bloquea
   UPDATE/DELETE en las siete tablas append-only **aunque el rol tenga
-  permiso**.
+  permiso** — y `sku_cost_solo_cierra_vigencia`, que hace lo propio con la
+  única mutación acotada del esquema. Lo que sigue descansando sólo en el
+  GRANT por columna, y queda declarado: la identidad inmutable de `ad_entity`,
+  los cierres por columna de `ingest_run`/`optimizer_cycle` y el `cap` de
+  `apply_quota_state`.
 - `REVOKE ALL … FROM PUBLIC` + default privileges de solo lectura: ningún rol
   futuro hereda escritura por accidente.

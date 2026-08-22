@@ -33,6 +33,13 @@ APPEND_ONLY = {
 
 TIPOS_FLOAT = {"float4", "float8"}  # real / double precision / float
 
+# Tablas que guardan dinero en NUMERIC crudo, fuera del dominio money_amount:
+# el detector por tipo no las ve y se saltarian el candado de la regla 4.
+DINERO_EN_NUMERIC = {"decision"}
+
+# Kinds de decision cuyo old_value/new_value ES un importe.
+DECISION_KINDS_CON_DINERO = ("bid", "budget", "harvest")
+
 
 def _stmts(cls):
     return [s.stmt for s in STMTS if isinstance(s.stmt, cls)]
@@ -139,10 +146,44 @@ def test_ninguna_columna_usa_float():
 
 
 def test_toda_tabla_con_dinero_tiene_moneda():
+    # OJO: detectar el dinero SOLO por el dominio money_amount deja fuera a
+    # `decision`, que guarda el bid/budget viejo y nuevo en NUMERIC crudo — la
+    # tabla se saltaba esta prueba entera. Y "existe una columna currency" no
+    # es el invariante de la regla 4: el invariante es que un importe SIN
+    # moneda sea imposible.
     for tabla in TABLES:
-        tipos = {_type_name(c) for c in _cols(tabla).values()}
-        if "money_amount" in tipos:
-            assert "currency" in tipos, f"{tabla} tiene money_amount sin currency"
+        cols = _cols(tabla)
+        tipos = {_type_name(c) for c in cols.values()}
+        if "money_amount" not in tipos and tabla not in DINERO_EN_NUMERIC:
+            continue
+        assert "currency" in tipos, f"{tabla} guarda dinero sin columna currency"
+        checks = _check_constraints(tabla)
+        for nombre, col in cols.items():
+            if _type_name(col) != "currency":
+                continue
+            if enums.ConstrType.CONSTR_NOTNULL in _contypes(col):
+                continue
+            atada = any(nombre in repr(c.raw_expr) for c in checks.values())
+            assert atada, (
+                f"{tabla}.{nombre} es nullable y ningun CHECK la ata al importe: "
+                "un monto sin moneda entraria en silencio (regla 4)"
+            )
+
+
+def test_decision_exige_moneda_en_todo_kind_con_dinero():
+    # `harvest` mueve dinero: new_value es el bid inicial de la keyword
+    # harvesteada (goal.harvest_default_bid). Como old_value/new_value son
+    # NUMERIC crudo y no money_amount, ningun otro candado del esquema lo
+    # cubria: una decision harvest podia registrar el importe SIN moneda y un
+    # SUM() sobre decision volvia a mezclar MXN con USD (regla 4).
+    checks = _check_constraints("decision")
+    expr = repr(checks["decision_valor_con_moneda"].raw_expr)
+    for kind in DECISION_KINDS_CON_DINERO:
+        assert f"'{kind}'" in expr, f"decision_valor_con_moneda no exige moneda para kind={kind}"
+    # Y la inversa: moneda suelta en un kind sin importe es dato inventado.
+    assert "decision_moneda_solo_en_kinds_con_dinero" in checks, (
+        "falta el CHECK inverso: value_currency en un kind sin dinero"
+    )
 
 
 def test_decision_tiene_ventana_not_null():
@@ -345,6 +386,120 @@ def test_v_tacos_fail_loud_con_huecos_parciales_de_fx():
     )
 
 
+def _lideres_de_indice_no_parcial():
+    """{(tabla, primera_columna)} de todo indice NO parcial de la migracion.
+
+    Cuenta los indices implicitos de PRIMARY KEY / UNIQUE / EXCLUDE: son
+    indices reales y sirven igual. Los PARCIALES no cuentan: la verificacion
+    de integridad de una FK consulta la clave sin filtro extra y no puede
+    apoyarse en un indice con WHERE.
+    """
+    lideres = set()
+    for i in INDEXES:
+        if i.whereClause is not None:
+            continue
+        primera = i.indexParams[0]
+        if primera.name:
+            lideres.add((i.relation.relname, primera.name))
+    llaves = {enums.ConstrType.CONSTR_PRIMARY, enums.ConstrType.CONSTR_UNIQUE}
+    for tabla, t in TABLES.items():
+        for e in t.tableElts:
+            if isinstance(e, ast.ColumnDef):
+                if _contypes(e) & llaves:
+                    lideres.add((tabla, e.colname))
+            elif isinstance(e, ast.Constraint):
+                if e.contype in llaves:
+                    lideres.add((tabla, e.keys[0].sval))
+                elif e.contype == enums.ConstrType.CONSTR_EXCLUSION:
+                    primera = e.exclusions[0][0]
+                    if primera.name:
+                        lideres.add((tabla, primera.name))
+    return lideres
+
+
+def _claves_foraneas():
+    for tabla, t in TABLES.items():
+        for e in t.tableElts:
+            if isinstance(e, ast.ColumnDef):
+                for c in e.constraints or ():
+                    if c.contype == enums.ConstrType.CONSTR_FOREIGN:
+                        yield tabla, e.colname
+            elif isinstance(e, ast.Constraint) and e.contype == enums.ConstrType.CONSTR_FOREIGN:
+                yield tabla, e.fk_attrs[0].sval
+
+
+def test_toda_fk_tiene_indice_de_apoyo():
+    # PostgreSQL NO crea indice por un REFERENCES. Sin el, cada verificacion
+    # de integridad al tocar la tabla padre barre la hija entera, y los JOIN
+    # que el esquema mismo declara (v_margen_plataforma cruza ledger_event por
+    # product_id; v_tacos cruza las metricas por ad_entity_id) salen a
+    # secuencial.
+    lideres = _lideres_de_indice_no_parcial()
+    sin_indice = sorted({fk for fk in _claves_foraneas() if fk not in lideres})
+    assert not sin_indice, f"FKs sin indice de apoyo: {sin_indice}"
+
+
+def test_sku_cost_no_se_puede_reescribir_ni_borrar():
+    # El COMMENT de sku_cost promete que el importe y valid_from de una fila
+    # publicada jamas se reescriben, pero eso descansaba SOLO en el GRANT por
+    # columna — exactamente lo que la seccion 16 declara insuficiente ("el
+    # candado no debe depender de la AUSENCIA de un GRANT"). Y nada impedia el
+    # DELETE: borrar una vigencia publicada reescribe el historico de margenes
+    # hacia atras, que es el bug que esta tabla existe para matar.
+    fila = [t for t in TRIGGERS if t.relation.relname == "sku_cost" and t.row and t.timing == 2]
+    assert fila, "sku_cost sin candado de fila (BEFORE UPDATE OR DELETE)"
+    eventos = 0
+    for t in fila:
+        eventos |= t.events
+    assert eventos & 8 and eventos & 16, "el candado de sku_cost debe cubrir UPDATE y DELETE"
+    sentencia = [
+        t for t in TRIGGERS if t.relation.relname == "sku_cost" and not t.row and t.events & 32
+    ]
+    assert sentencia, "sku_cost sin candado de sentencia contra TRUNCATE"
+
+
+def test_includes_tax_obligatorio_sin_default():
+    # Mismo candado que is_asin_like y con la misma factura detras: la
+    # pregunta "el costo lleva IVA?" quedo sin responder un anio y valia 8
+    # puntos de margen en MX. Un default la contestaria sola.
+    col = _cols("sku_cost")["includes_tax"]
+    tipos = _contypes(col)
+    assert enums.ConstrType.CONSTR_NOTNULL in tipos
+    assert enums.ConstrType.CONSTR_DEFAULT not in tipos, (
+        "includes_tax con default = la pregunta fiscal contestada por omision"
+    )
+
+
+def test_ningun_check_depende_de_la_timezone_de_sesion():
+    # La cabecera del SQL y docs/DATABASE.md lo declaran: PostgreSQL ACEPTA
+    # expresiones STABLE en un CHECK y las evalua segun la TimeZone de cada
+    # sesion, asi que el mismo CHECK pasaria en una sesion y fallaria en otra.
+    # Los invariantes fecha-vs-timestamp viven en TRIGGERS con UTC fijado.
+    # Este test impide que alguien "simplifique" un trigger a CHECK.
+    prohibido = ("now", "current_date", "current_timestamp", "localtimestamp", "timezone")
+    for tabla in TABLES:
+        for nombre, c in _check_constraints(tabla).items():
+            expr = repr(c.raw_expr).lower()
+            for palabra in prohibido:
+                assert f"'{palabra}'" not in expr, (
+                    f"{tabla}.{nombre} usa {palabra}: el CHECK se evaluaria "
+                    "segun la TimeZone de la sesion"
+                )
+
+
+def test_v_tacos_fail_loud_con_costo_nulo():
+    # El mismo agujero que el hueco parcial de FX, por el otro lado: SUM
+    # ignora los NULL, asi que una fila de metrica con cost NULL bajaba
+    # gasto_ads sin dejar senal y tacos_pct salia CORTO — el sesgo optimista
+    # de siempre ("todo se ve rentable"), justo el que la vista existe para
+    # matar. El lado de la venta no lo necesita: ledger_event.amount es NOT
+    # NULL.
+    tacos = [v for v in _stmts(ast.ViewStmt) if v.view.relname == "v_tacos"]
+    assert tacos, "falta la vista v_tacos"
+    cuerpo = repr(tacos[0].query)
+    assert "gasto_sin_costo" in cuerpo, "v_tacos no cuenta las filas de gasto con cost NULL"
+
+
 # ---------------------------------------------------------------------------
 # (b) INTEGRACIÓN — skip automático sin Postgres local
 # ---------------------------------------------------------------------------
@@ -403,7 +558,7 @@ def test_probe_rechaza_listener_muerto(monkeypatch):
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 def test_migracion_rechaza_en_vivo():
-    """Aplica la migración en una base temporal y prueba 6 rechazos reales.
+    """Aplica la migración en una base temporal y prueba 9 rechazos reales.
 
     El DSN viene de ORBIT_TEST_DSN (default: el docker-compose.yml del repo,
     POSTGRES_USER=orbit). Sin él, psycopg usaría el usuario del SO y el test
@@ -522,6 +677,41 @@ def test_migracion_rechaza_en_vivo():
             # fila no se disparan con TRUNCATE; hace falta el de sentencia.
             with pytest.raises(psycopg.errors.RestrictViolation):
                 conn.execute("TRUNCATE fx_rate")
+
+            # 7 y 8. sku_cost: cerrar la vigencia es el ÚNICO cambio legítimo.
+            # Reescribir el importe de una fila publicada o borrarla reescribe
+            # el histórico de márgenes hacia atrás — y hasta ahora eso sólo lo
+            # frenaba la AUSENCIA de un GRANT, que es justo lo que la sección
+            # 16 del SQL declara insuficiente. Aquí se prueba con superusuario
+            # (todos los permisos): el candado tiene que aguantar igual.
+            prod_id = conn.execute(
+                "INSERT INTO product (odoo_sku, name) VALUES ('SKU-1', 'p') RETURNING id"
+            ).fetchone()[0]
+            costo_id = conn.execute(
+                "INSERT INTO sku_cost (product_id, cost_amount, cost_currency,"
+                " includes_tax, valid_from) VALUES"
+                f" ({prod_id}, 10, 'MXN', true, '2026-01-01') RETURNING id"
+            ).fetchone()[0]
+            # Control positivo: cerrar la vigencia SÍ se permite.
+            conn.execute(f"UPDATE sku_cost SET valid_to = '2026-06-01' WHERE id = {costo_id}")
+            with pytest.raises(psycopg.errors.RestrictViolation):
+                conn.execute(f"UPDATE sku_cost SET cost_amount = 99 WHERE id = {costo_id}")
+            with pytest.raises(psycopg.errors.RestrictViolation):
+                conn.execute(f"DELETE FROM sku_cost WHERE id = {costo_id}")
+
+            # 9. Una decisión harvest lleva dinero (new_value = bid inicial de
+            # la keyword harvesteada) y por lo tanto exige moneda: como
+            # old_value/new_value son NUMERIC crudo, sin este CHECK el importe
+            # entraba sin moneda y un SUM() sobre decision volvía a mezclar
+            # MXN con USD (regla 4).
+            with pytest.raises(psycopg.errors.CheckViolation):
+                conn.execute(
+                    "INSERT INTO decision (cycle_id, ad_entity_id, kind,"
+                    " config_version_id, data_observed_at, window_start,"
+                    " window_end, search_term, new_value, inputs) VALUES"
+                    f" ({ciclo_id}, {entidad_us}, 'harvest', {config_id}, now(),"
+                    " CURRENT_DATE - 45, CURRENT_DATE - 15, 'zapato', 1.25, '{}')"
+                )
         finally:
             # D14 (ronda cross-review grok): sin el guard, un fallo del
             # segundo connect dejaría `conn` sin asignar y el finally lanzaría
