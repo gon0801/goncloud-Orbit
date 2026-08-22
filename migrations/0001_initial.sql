@@ -127,6 +127,11 @@ COMMENT ON TABLE listing IS
   'cardinalidad es lo que infló las ventas 48% en el panel de salud del '
   'sistema viejo.';
 
+-- FK SIN ÍNDICE: PostgreSQL no crea uno por el REFERENCES. Sin él, toda
+-- verificación de integridad al tocar la tabla padre barre la hija entera, y
+-- los JOIN que este mismo esquema declara salen a secuencial.
+CREATE INDEX ON listing (product_id);
+
 
 -- =============================================================================
 --  4. COSTOS  —  con vigencia temporal y con la pregunta fiscal FORZADA
@@ -167,8 +172,13 @@ COMMENT ON TABLE sku_cost IS
   'histórico hacia atrás. Corregir un costo = CERRAR la vigencia de la fila '
   'vieja (UPDATE valid_to, el único UPDATE que el permiso permite) e INSERTAR '
   'una fila nueva con vigencia nueva: el importe y valid_from de una fila ya '
-  'publicada jamás se reescriben; el EXCLUDE garantiza que la nueva vigencia '
-  'no se solape con la anterior.';
+  'publicada jamás se reescriben (lo hace cumplir el trigger '
+  'sku_cost_solo_cierra_vigencia de la sección 16, no sólo el GRANT por '
+  'columna); el EXCLUDE garantiza que la nueva vigencia no se solape con la '
+  'anterior.';
+
+-- product_id ya tiene índice: la primera columna del EXCLUDE gist. ingest_run_id no.
+CREATE INDEX ON sku_cost (ingest_run_id);
 
 
 -- =============================================================================
@@ -196,6 +206,8 @@ COMMENT ON TABLE fx_rate IS
 
 COMMENT ON CONSTRAINT fx_rate_positiva ON fx_rate IS
   'Nada impedía una tasa 0 o negativa en el sistema viejo.';
+
+CREATE INDEX ON fx_rate (ingest_run_id);
 
 -- Resolución con tope de antigüedad. Devuelve CERO FILAS si no hay tasa
 -- utilizable: NUNCA una constante. El fallback silencioso a 20.5 infló
@@ -256,6 +268,7 @@ CREATE TABLE ad_entity (
 );
 
 CREATE INDEX ON ad_entity (parent_id);
+CREATE INDEX ON ad_entity (listing_id);
 
 COMMENT ON TABLE ad_entity IS
   'Cualquier cosa con external_id en la API de ads: campaña, ad group, '
@@ -339,6 +352,9 @@ COMMENT ON COLUMN ads_metric_observation.source_report_id IS
 
 CREATE INDEX ON ads_metric_observation (metric_date DESC, ad_entity_id);
 CREATE INDEX ON ads_metric_observation (ad_entity_id, metric_date DESC, observed_at DESC);
+-- Procedencia: sin este índice, auditar "qué escribió la corrida N" (o
+-- borrar una corrida) barre la tabla más grande del esquema.
+CREATE INDEX ON ads_metric_observation (ingest_run_id);
 
 
 -- =============================================================================
@@ -374,6 +390,11 @@ CREATE TABLE search_term_observation (
 CREATE UNIQUE INDEX st_metric_dedupe_reporte
     ON search_term_observation (platform, ad_entity_id, search_term, metric_date, source_report_id)
     WHERE source_report_id IS NOT NULL;
+
+-- La PK empieza por platform, así que NO sirve de índice para la FK a
+-- ad_entity ni para "los términos de esta campaña": hace falta uno propio.
+CREATE INDEX ON search_term_observation (ad_entity_id, metric_date DESC, observed_at DESC);
+CREATE INDEX ON search_term_observation (ingest_run_id);
 
 COMMENT ON TABLE search_term_observation IS
   'Misma disciplina append-only que ads_metric_observation (regla 5): la '
@@ -590,6 +611,10 @@ CREATE INDEX ON ledger_event (platform, event_date DESC);
 CREATE INDEX ON ledger_event (order_id) WHERE order_id IS NOT NULL;
 -- Índice parcial: los cargos sin orden son los que hay que vigilar.
 CREATE INDEX ON ledger_event (platform, event_date) WHERE order_id IS NULL;
+-- product_id: lo cruza v_margen_plataforma contra sku_cost en CADA lectura
+-- del margen, y sin índice ese LEFT JOIN es secuencial sobre todo el ledger.
+CREATE INDEX ON ledger_event (product_id, event_date);
+CREATE INDEX ON ledger_event (ingest_run_id);
 
 
 -- =============================================================================
@@ -699,6 +724,10 @@ CREATE UNIQUE INDEX goal_unico_campana
     ON ads_optimizer_goal (ad_entity_id) WHERE scope = 'campaign';
 CREATE UNIQUE INDEX goal_unico_plataforma
     ON ads_optimizer_goal (platform) WHERE scope = 'platform';
+
+-- goal_unico_campana es PARCIAL (WHERE scope='campaign'): no puede apoyar la
+-- verificación de integridad de la FK, que consulta la clave sin ese filtro.
+CREATE INDEX ON ads_optimizer_goal (ad_entity_id);
 
 -- Un goal de campaña tiene que apuntar a una entidad que ES una campaña.
 -- La FK sola no lo garantiza (ad_entity mezcla kinds); un goal sobre un
@@ -846,8 +875,17 @@ CREATE TABLE decision (
         (kind IN ('negative', 'harvest') AND search_term IS NOT NULL)
         OR (kind IN ('bid', 'budget', 'pause', 'resume') AND search_term IS NULL)
     ),
+    -- Regla 4: TODO kind que mueve dinero lleva su moneda. harvest faltaba y
+    -- era el hueco real: new_value es el bid inicial de la keyword
+    -- harvesteada (goal.harvest_default_bid). Como old_value/new_value son
+    -- NUMERIC crudo y no money_amount, ningún otro candado del esquema los
+    -- alcanzaba: un SUM() sobre decision volvía a poder mezclar MXN con USD.
     CONSTRAINT decision_valor_con_moneda
-        CHECK ((kind NOT IN ('bid','budget')) OR value_currency IS NOT NULL),
+        CHECK ((kind NOT IN ('bid','budget','harvest')) OR value_currency IS NOT NULL),
+    -- Y la inversa: moneda suelta en un kind que no mueve dinero es una
+    -- moneda sin importe, o sea un dato inventado (regla 3).
+    CONSTRAINT decision_moneda_solo_en_kinds_con_dinero
+        CHECK ((kind IN ('bid','budget','harvest')) OR value_currency IS NULL),
     -- timestamptz contra timestamptz: comparación INMUTABLE, CHECK válido.
     CONSTRAINT decision_dato_no_del_futuro
         CHECK (data_observed_at <= decided_at)
@@ -866,6 +904,7 @@ CREATE UNIQUE INDEX decision_unica_termino_ciclo
 
 CREATE INDEX ON decision (ad_entity_id, decided_at DESC);
 CREATE INDEX ON decision (cycle_id);
+CREATE INDEX ON decision (config_version_id);
 
 COMMENT ON TABLE decision IS
   'Append-only por trigger. Una decisión por entidad por ciclo (únicos '
@@ -955,6 +994,11 @@ CREATE TABLE harvest_job (
 CREATE UNIQUE INDEX harvest_job_en_vuelo
     ON harvest_job (platform, ad_entity_id, search_term)
     WHERE fase IN ('pending', 'negative_created', 'exact_created');
+
+-- harvest_job_en_vuelo es parcial y empieza por platform: no apoya ninguna de
+-- las dos FKs. decision_id es además el rastro ciclo->decisión->job.
+CREATE INDEX ON harvest_job (decision_id);
+CREATE INDEX ON harvest_job (ad_entity_id, search_term);
 
 -- El job tiene que corresponder a una decisión de HARVEST sobre el mismo
 -- (entidad, término, plataforma): sin este trigger, un typo en la app crea un
@@ -1294,7 +1338,13 @@ WITH gasto AS (
            -- Se CUENTAN y se exponen; con una sola, tacos_pct es NULL.
            COUNT(*) FILTER (
                WHERE m.metric_currency <> 'MXN'::currency AND fx.rate IS NULL
-           )                                       AS gasto_sin_tasa
+           )                                       AS gasto_sin_tasa,
+           -- Y el mismo agujero por el otro lado: SUM tampoco suma los NULL.
+           -- Una fila con cost NULL bajaba gasto_ads sin dejar señal y
+           -- tacos_pct salía CORTO — el sesgo optimista de siempre. Se
+           -- cuentan igual que las filas sin tasa. (La venta no lo necesita:
+           -- ledger_event.amount es NOT NULL.)
+           COUNT(*) FILTER (WHERE m.cost IS NULL)  AS gasto_sin_costo
       FROM v_metric_mature m
       JOIN ad_entity e ON e.id = m.ad_entity_id
       LEFT JOIN LATERAL (
@@ -1331,6 +1381,7 @@ SELECT COALESCE(g.platform, v.platform) AS platform,
        v.venta_total,
        COALESCE(g.gasto_sin_tasa, 0)    AS filas_gasto_sin_tasa,
        COALESCE(v.ventas_sin_tasa, 0)   AS filas_venta_sin_tasa,
+       COALESCE(g.gasto_sin_costo, 0)   AS filas_gasto_sin_costo,
        -- Ambos lados ya están en MXN: si un mes tuviera dos monedas de venta,
        -- ambas se convirtieron y se SUMARON — el gasto no se repite por fila.
        -- Si un lado entero queda sin datos, tacos_pct es NULL. Y si CUALQUIER
@@ -1342,7 +1393,8 @@ SELECT COALESCE(g.platform, v.platform) AS platform,
        CASE
            WHEN g.gasto_ads IS NULL OR NULLIF(v.venta_total, 0) IS NULL THEN NULL
            WHEN COALESCE(g.gasto_sin_tasa, 0) > 0
-                OR COALESCE(v.ventas_sin_tasa, 0) > 0 THEN NULL
+                OR COALESCE(v.ventas_sin_tasa, 0) > 0
+                OR COALESCE(g.gasto_sin_costo, 0) > 0 THEN NULL
            ELSE ROUND(100 * g.gasto_ads / v.venta_total, 2)
        END AS tacos_pct
   FROM gasto g
@@ -1365,6 +1417,9 @@ COMMENT ON VIEW v_tacos IS
   'filas_gasto_sin_tasa / filas_venta_sin_tasa: con una sola fila sin '
   'convertir, tacos_pct es NULL — un agregado parcial disfrazado de completo '
   'es exactamente el hueco silencioso que este esquema existe para matar. '
+  'Lo MISMO con el costo ausente: una fila de métrica con cost NULL también '
+  'se cae del SUM en silencio y dejaba el gasto corto (tacos_pct optimista); '
+  'se cuenta en filas_gasto_sin_costo y anula tacos_pct igual. '
   'Fail-loud, nunca un número inventado (regla 3). Meta declarada del '
   'dueño: 8-12%.';
 
@@ -1548,12 +1603,85 @@ CREATE TRIGGER reconciliacion_append_only_truncate
     BEFORE TRUNCATE ON external_reconciliation
     FOR EACH STATEMENT EXECUTE FUNCTION prohibir_mutacion();
 
+-- sku_cost NO es append-only (cerrar una vigencia ES un UPDATE legítimo),
+-- pero su promesa —"el importe y valid_from de una fila publicada jamás se
+-- reescriben"— descansaba SOLO en el GRANT UPDATE (valid_to). Eso es
+-- exactamente lo que esta sección declara insuficiente: un GRANT ALL futuro
+-- lo derrota en silencio. Y nada impedía el DELETE, que es peor que el
+-- UPDATE: borrar la vigencia vieja reescribe el histórico de márgenes hacia
+-- atrás, el bug que esta tabla existe para matar.
+CREATE FUNCTION sku_cost_solo_cierra_vigencia() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public
+AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION
+            'sku_cost es histórico: una vigencia publicada no se BORRA. Se '
+            'CIERRA (UPDATE valid_to) y el costo nuevo entra como fila nueva.'
+            USING ERRCODE = 'restrict_violation';
+    END IF;
+    -- valid_to es la única columna mutable, pero NO es libre: sólo admite la
+    -- transición NULL -> fecha, una vez. Mover el corte de una vigencia ya
+    -- cerrada (DATE -> DATE) o reabrirla (DATE -> NULL) reescribe el período
+    -- histórico en el que ese costo aplicó, que es la misma corrupción hacia
+    -- atrás que la tabla existe para matar. Y el EXCLUDE no lo atrapa:
+    -- encoger un rango nunca genera solapamiento, y extenderlo tampoco si la
+    -- fila no tiene sucesora — el caso mudo y peligroso es extender la última
+    -- vigencia de un producto, donde los márgenes de días que ese costo nunca
+    -- cubrió cambian con cobertura 100% y sin señal (hallazgo CodeRabbit,
+    -- PR #2). Cerrar en la fecha equivocada se corrige con una migración,
+    -- no con un UPDATE: es el precio declarado de que el histórico sea firme.
+    IF NEW.valid_to IS DISTINCT FROM OLD.valid_to
+       AND (OLD.valid_to IS NOT NULL OR NEW.valid_to IS NULL) THEN
+        RAISE EXCEPTION
+            'sku_cost: valid_to sólo puede pasar de NULL a una fecha, una vez. '
+            'Mover el corte de una vigencia cerrada o reabrirla reescribe el '
+            'período en que ese costo aplicó, y el EXCLUDE no lo detecta.'
+            USING ERRCODE = 'restrict_violation';
+    END IF;
+    IF ROW(NEW.id, NEW.product_id, NEW.cost_amount, NEW.cost_currency,
+           NEW.includes_tax, NEW.valid_from, NEW.ingest_run_id)
+       IS DISTINCT FROM
+       ROW(OLD.id, OLD.product_id, OLD.cost_amount, OLD.cost_currency,
+           OLD.includes_tax, OLD.valid_from, OLD.ingest_run_id) THEN
+        RAISE EXCEPTION
+            'sku_cost: de una fila publicada sólo se puede cerrar la vigencia '
+            '(valid_to). Corregir un costo es INSERTAR una fila nueva con '
+            'vigencia nueva: en el sistema viejo cada cambio de costo en Odoo '
+            'corrompía el histórico hacia atrás.'
+            USING ERRCODE = 'restrict_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER sku_cost_solo_cierra_vigencia
+    BEFORE UPDATE OR DELETE ON sku_cost
+    FOR EACH ROW EXECUTE FUNCTION sku_cost_solo_cierra_vigencia();
+
+-- Misma razón que en las append-only: los triggers de fila no se disparan
+-- con TRUNCATE.
+CREATE TRIGGER sku_cost_append_only_truncate
+    BEFORE TRUNCATE ON sku_cost
+    FOR EACH STATEMENT EXECUTE FUNCTION prohibir_mutacion();
+
+COMMENT ON FUNCTION sku_cost_solo_cierra_vigencia IS
+  'sku_cost es la única tabla con una mutación legítima acotada: cerrar la '
+  'vigencia. Este trigger la acota de verdad —valid_to y nada más, y sólo en '
+  'la transición NULL -> fecha, una vez— y prohíbe el DELETE, sin depender de '
+  'qué GRANT tenga el rol que escribe. Mover el corte de una vigencia ya '
+  'cerrada o reabrirla queda fuera: reescribe el período en que ese costo '
+  'aplicó y el EXCLUDE no lo ve (encoger no solapa; extender tampoco, sin '
+  'fila sucesora).';
+
 COMMENT ON FUNCTION prohibir_mutacion IS
   'Regla 5, hecha cumplir a nivel de motor. La diferencia entre una regla '
   'escrita en un documento —que el repo viejo YA TENÍA y no sirvió de nada— y '
   'una que la base hace cumplir aunque el que escriba tenga todos los '
   'permisos. Excepciones deliberadas (documentadas en su tabla): ingest_run, '
   'optimizer_cycle, decision_application, ad_entity_state, ads_optimizer_goal, '
-  'ads_optimizer_lock, harvest_job, apply_quota_state, catálogo.';
+  'ads_optimizer_lock, harvest_job, apply_quota_state, catálogo. sku_cost '
+  'tiene su propio candado, más estrecho: sku_cost_solo_cierra_vigencia.';
 
 COMMIT;
