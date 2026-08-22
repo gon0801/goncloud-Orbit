@@ -10,3 +10,4 @@ dist/
 build/
 .claude/
 .harness-mem/
+.loop-architect/
