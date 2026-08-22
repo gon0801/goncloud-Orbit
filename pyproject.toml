@@ -1,0 +1,30 @@
+[project]
+name = "orbit"
+version = "0.1.0"
+description = "Orbit — optimizador de Amazon Ads y modulos de gestion e-commerce (Amazon + MeLi)"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "psycopg[binary]>=3.2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "httpx>=0.27",
+    "ruff>=0.6",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+# Instalado y mantenido por quality-kit (install-repo-hygiene.ps1): no
+# tocar su formato, re-correr el instalador lo restauraria.
+extend-exclude = ["tools/check_context_docs.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
