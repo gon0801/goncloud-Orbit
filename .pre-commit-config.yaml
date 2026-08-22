@@ -36,7 +36,10 @@ repos:
     hooks:
       - id: pytest-pre-push
         name: pytest (pre-push)
-        entry: .venv/Scripts/python.exe -m pytest -x -q
+        # El './' NO es cosmetico: sin el, CreateProcess rechaza la ruta
+        # relativa con barras normales y el push muere con WinError 2
+        # aunque el archivo exista (regresion: tests/test_precommit_hooks.py).
+        entry: ./.venv/Scripts/python.exe -m pytest -x -q
         language: system
         pass_filenames: false
         stages: [pre-push]

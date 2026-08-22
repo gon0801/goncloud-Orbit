@@ -1,0 +1,45 @@
+# yaml-language-server: $schema=https://storage.googleapis.com/coderabbit_public_assets/schema.v2.json
+#
+# Configuracion de CodeRabbit. Este archivo PISA lo que este configurado en el
+# dashboard web, asi que la config vive aca y viaja con el repo.
+#
+# Ojo con `language`: el enum solo acepta es / es-AR / es-ES. "es-MX" NO existe
+# y hace que el archivo no valide.
+language: "es"
+tone_instructions: "Directo y tecnico. Senala el riesgo concreto, sin preambulos."
+
+reviews:
+  profile: chill                    # 'quiet' si el volumen de comentarios estorba
+  high_level_summary: true
+  request_changes_workflow: false   # true = CodeRabbit puede bloquear el merge
+
+  auto_review:
+    # El default es 5: en un PR largo CodeRabbit se duerme y uno cree que
+    # sigue revisando. Se despierta a mano con "@coderabbitai review".
+    auto_pause_after_reviewed_commits: 20
+
+  path_instructions:
+    - path: "migrations/**/*.sql"
+      instructions: |
+        Reglas innegociables de este repo (docs/CONTEXTO.md). Cada violacion
+        es Major, no Minor:
+        - Todo monto lleva columna `currency`. Un SUM() que pueda mezclar
+          monedas es un bug, no estilo. Prohibido float para dinero.
+        - Las tablas de hechos son append-only con clave
+          (entidad, metric_date, observed_at) y trigger que prohibe
+          UPDATE/DELETE. Un UPSERT in-place sobre metricas invalida los
+          backtests sin dar sintoma.
+        - Dato faltante = fila ausente o NULL, jamas una constante de
+          fallback (un FX default a 20.5 inflo revenue 28,549 MXN).
+        - Ninguna accion irreversible sin su reversa implementada antes.
+        - Un CHECK no puede depender de la TimeZone de sesion: los casts
+          timestamptz::date son STABLE, no IMMUTABLE, y Postgres los acepta
+          sin quejarse para luego evaluarlos distinto por sesion. Ese tipo
+          de invariante va en trigger con UTC fijado en la expresion.
+
+    - path: "tests/**/*.py"
+      instructions: |
+        Una prueba que pasa igual antes y despues del arreglo no prueba nada.
+        Marca los tests que afirmen sobre el AST un invariante que el SQL no
+        impone de verdad, y los guards de entorno que fallen abierto: un skip
+        silencioso se lee como cobertura y no lo es.

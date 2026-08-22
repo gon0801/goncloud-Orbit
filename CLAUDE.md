@@ -17,9 +17,13 @@ orden. **Regla obligatoria:**
 - Al **empezar** una tarea: marcarla `In progress`.
 - Al **terminarla**: marcarla `Done`.
 - Si el trabajo no tiene tarea: crearla primero.
+- **Las notas (`--notes`) llevan TODAS las anotaciones de la tarea**: qué se
+  hizo, evidencia (comandos y resultados), decisiones tomadas, PRs ligados y
+  qué queda pendiente. Al terminar una tarea, sus notas deben contar el
+  trabajo completo — el `Done` sin anotaciones no cierra nada.
 
 Se hace con la skill `appflowy-ehv-task`:
-`ssh goncloud "python3 /mnt/data/appdata/appflowy/_migrate/add_ehv_task.py --name '<ORBIT NN — ...>' --status 'In progress|Done'"`
+`ssh goncloud "python3 /mnt/data/appdata/appflowy/_migrate/add_ehv_task.py --name '<ORBIT NN — ...>' --status 'In progress|Done' --notes '<qué se hizo, evidencia (comandos y resultados), decisiones, PRs ligados y qué queda pendiente>'"`
 (idempotente por nombre: re-correr actualiza la misma fila, no duplica).
 
 <!-- >>> QUALITY-KIT CALIDAD SECTION START -- managed by quality-kit's init-repo.ps1. Do not hand-edit between these markers; re-running init-repo.ps1 will refresh this block cleanly. -->
