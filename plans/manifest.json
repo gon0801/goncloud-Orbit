@@ -9,7 +9,12 @@
       "name": "orbit-02",
       "path": "plans/orbit-02.md",
       "description": "ORBIT 02 — Migrar credenciales + apagado seguro del sistema viejo (ejecutar con sesión fuerte, una tarea a la vez)"
+    },
+    {
+      "name": "orbit-03",
+      "path": "plans/orbit-03.md",
+      "description": "ORBIT 03 — PR1 optimizador: SHADOW completo (ingesta + motor puro + ciclo + router + cron; cero escrituras a Amazon)"
     }
   ],
-  "active": "orbit-01"
+  "active": "orbit-03"
 }
