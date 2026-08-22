@@ -59,6 +59,7 @@ ssh goncloud 'bash -s' <<'SCRIPT'
 set -euo pipefail
 ENVF=/mnt/data/appdata/orbit/.env
 gen() { head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32; }
+sed -i '/^ORBIT_DSN_/d' "$ENVF"   # re-corrida = DSNs nuevos, sin duplicados
 for svc in ingest decide read admin; do
   P=$(gen)
   docker exec -i orbit-db-1 psql -U orbit -d orbit -v ON_ERROR_STOP=1 -q <<SQL
@@ -162,14 +163,16 @@ porque el runbook debe poder reconstruirlo):
 #!/bin/bash
 # Backup diario de orbit: dump de datos (pg_dump -Fc) + globals (roles y
 # passwords hasheadas, pg_dumpall --globals-only), rotacion de 14.
+# La pareja se publica JUNTA: ambos .tmp primero, los dos mv al final -- si
+# pg_dumpall falla, no queda un dump de datos sin su globals de la fecha.
 set -euo pipefail
 DIR=/mnt/data/appdata/orbit/backups
 STAMP=$(date +%F)
 umask 077
 mkdir -p "$DIR"; chmod 700 "$DIR"
 docker exec orbit-db-1 pg_dump -U orbit -Fc orbit > "$DIR/orbit_$STAMP.dump.tmp"
-mv "$DIR/orbit_$STAMP.dump.tmp" "$DIR/orbit_$STAMP.dump"
 docker exec orbit-db-1 pg_dumpall -U orbit --globals-only > "$DIR/orbit_globals_$STAMP.sql.tmp"
+mv "$DIR/orbit_$STAMP.dump.tmp" "$DIR/orbit_$STAMP.dump"
 mv "$DIR/orbit_globals_$STAMP.sql.tmp" "$DIR/orbit_globals_$STAMP.sql"
 ls -1t "$DIR"/orbit_*.dump | tail -n +15 | xargs -r rm -f
 ls -1t "$DIR"/orbit_globals_*.sql | tail -n +15 | xargs -r rm -f
@@ -240,15 +243,21 @@ dump real el 2026-08-22):
      -v ON_ERROR_STOP=0 < /mnt/data/appdata/orbit/backups/orbit_globals_FECHA.sql'
    ```
    Esperado y tolerable: `ERROR: role "orbit" already exists` (lo creó el
-   initdb). Verificado en vivo: el resto de los roles se crea y sobre el
-   cluster vivo el restore es un no-op con solo errores "already exists".
-3. **Después los datos** (el dump es de la base `orbit`; hay que crearla
-   primero porque se dumpó sin `-C`):
+   initdb). **Verificación obligatoria después** (`ON_ERROR_STOP=0` calla
+   cualquier error, no solo el esperado — esta cuenta es la que separa un
+   restore completo de uno parcial silencioso):
    ```bash
-   ssh goncloud 'docker exec orbit-db-1 psql -U orbit -d postgres -qc \
-     "CREATE DATABASE orbit OWNER orbit" && \
-     docker exec -i orbit-db-1 pg_restore -U orbit -d orbit --exit-on-error \
-     < /mnt/data/appdata/orbit/backups/orbit_FECHA.dump'
+   ssh goncloud "docker exec orbit-db-1 psql -U orbit -d postgres -tAc \
+     \"SELECT count(*) FROM pg_roles WHERE rolname IN ('app_ingest','app_decide',\
+'app_read','app_admin','orbit_ingest','orbit_decide','orbit_read','orbit_admin','orbit_test')\""
+   # debe devolver 9; si devuelve menos, el restore de globals quedó a medias
+   ```
+3. **Después los datos**: la base `orbit` YA EXISTE vacía (el compose la
+   crea en el initdb vía `POSTGRES_DB=orbit` — un `CREATE DATABASE orbit`
+   aquí revienta con "already exists"). Solo restaurar encima:
+   ```bash
+   ssh goncloud 'docker exec -i orbit-db-1 pg_restore -U orbit -d orbit \
+     --exit-on-error < /mnt/data/appdata/orbit/backups/orbit_FECHA.dump'
    ```
    Verificado en vivo: exit 0, 19 tablas, y los permisos quedan idénticos
    (`app_read`: SELECT sí / UPDATE no).
