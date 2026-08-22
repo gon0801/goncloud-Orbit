@@ -11,3 +11,5 @@ build/
 .claude/
 .harness-mem/
 .loop-architect/
+# scratch de sesiones de agentes (scripts one-off ya aplicados en el server)
+out/
