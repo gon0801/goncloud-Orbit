@@ -42,8 +42,8 @@ jobs:
       - name: Run Python tests
         if: hashFiles('pyproject.toml', 'requirements.txt') != ''
         run: |
-          pip install pytest
-          pytest -q
+          pip install fastapi "psycopg[binary]" pytest httpx pglast
+          PYTHONPATH=. pytest -q
 
       - name: Run Node tests
         if: hashFiles('package.json') != ''
