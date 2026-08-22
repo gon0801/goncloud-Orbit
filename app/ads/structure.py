@@ -54,6 +54,10 @@ Decisiones selladas de esta task:
   a la misma platform y un choque de external_ids entre ellos se resolveria
   como la misma entidad (los ids de Amazon son por marketplace; hoy hay
   exactamente un perfil US y uno MX).
+- Un perfil por pais (GUARD, no supuesto; hallazgo cross-review codex ronda 3):
+  la platform (amazon_us/amazon_mx) es una sola por pais, asi que el segundo
+  perfil aceptable con el mismo countryCode se RECHAZA con motivo "pais
+  duplicado". Gana el primero en el orden del payload /v2/profiles.
 - state.acos_target es SIEMPRE None (confirmado por corrida real, arriba).
 - listing_id queda NULL: el catalogo no esta en el camino de la task 1.2.
 - name: campana/ad group -> payload.name; keyword -> NULL (keyword_text es la
@@ -64,10 +68,12 @@ Decisiones selladas de esta task:
   saltado en runtime), el hijo se salta con motivo; NO se consulta la base
   por padres de corridas viejas (fail-closed y determinista).
 - Inmutabilidad por permisos: app_ingest solo puede hacer UPDATE de
-  name/listing_id en ad_entity. Si en re-sync una entidad existente tiene
-  parent_id distinto al del payload, el item se SALTA con motivo (jamas se
-  intenta UPDATE de parent_id), su estado NO se escribe y sus hijos se
-  saltan en cascada. NOTA: el upsert de la entidad ya corrio cuando se
+  name/listing_id en ad_entity. Si en re-sync una entidad existente difiere
+  del payload en parent_id, match_type o keyword_text (los inmutables por
+  permisos), el item se SALTA con motivo (jamas se intenta UPDATE), su
+  estado NO se escribe y sus hijos se saltan en cascada. Antes de la ronda 3
+  de cross-review, una divergencia de keyword_text/match_type contaba como
+  escrita conservando el valor viejo, en silencio. NOTA: el upsert de la entidad ya corrio cuando se
   detecta la divergencia, asi que su `name` SI queda refrescado en ese
   camino (legal: es la unica columna mutable por permisos, y refrescar el
   nombre es idempotente); lo que el skip garantiza es que NI el estado NI
@@ -107,7 +113,7 @@ import logging
 import os
 import sys
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation
 
 import psycopg
@@ -166,14 +172,16 @@ _CLAVE_CONTENEDORA = {
 _SQL_ABRIR_RUN = "INSERT INTO ingest_run (source) VALUES (%s) RETURNING id"
 
 # xmax = 0 distingue INSERT (0) del UPDATE que dejo el mismo row (xid de la
-# transaccion en curso). DO UPDATE solo toca `name`: parent_id vuelve con el
-# valor EXISTENTE, que es justo lo que hay que comparar contra el payload.
+# transaccion en curso). DO UPDATE solo toca `name`: parent_id, match_type y
+# keyword_text vuelven con el valor EXISTENTE, que es justo lo que hay que
+# comparar contra el payload (divergencia de inmutables = skip, jamas UPDATE;
+# hallazgo cross-review codex, ronda 3).
 _SQL_UPSERT_ENTIDAD = """
     INSERT INTO ad_entity
         (platform, kind, external_id, parent_id, name, match_type, keyword_text)
     VALUES (%s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT (platform, kind, external_id) DO UPDATE SET name = EXCLUDED.name
-    RETURNING id, parent_id, (xmax = 0) AS es_nueva
+    RETURNING id, parent_id, match_type, keyword_text, (xmax = 0) AS es_nueva
 """
 
 # acos_target siempre NULL (confirmado por corrida real 2026-08-22): se
@@ -326,7 +334,9 @@ def _listar_todo(client: AdsClient, path: str, *, profile_id: int) -> list[dict]
 
     Primera pagina con body {} (pageSize se ignora, corrida real); las
     siguientes piden {"nextToken": ...}. La clave es nextToken, NO
-    nextPageToken.
+    nextPageToken. Si la respuesta declara totalResults (int), el acumulado
+    final tiene que cuadrar: "falta nextToken" ya no basta como prueba de
+    lista completa (hallazgo cross-review codex, ronda 3).
     """
     items: list[dict] = []
     next_token: str | None = None
@@ -336,6 +346,14 @@ def _listar_todo(client: AdsClient, path: str, *, profile_id: int) -> list[dict]
         items.extend(_extraer_lista(data, path))
         next_token = data.get("nextToken") if isinstance(data, dict) else None
         if not next_token:
+            total = data.get("totalResults") if isinstance(data, dict) else None
+            # Solo se exige cuando totalResults viene como int: dato faltante o
+            # de otro tipo = sin prueba, se mantiene el comportamiento actual.
+            if isinstance(total, int) and not isinstance(total, bool) and total != len(items):
+                raise AdsStructureError(
+                    f"paginacion incompleta de POST {path}: {len(items)} acumulados"
+                    f" de {total} segun totalResults"
+                )
             return items
     raise AdsStructureError(f"paginacion de POST {path} excede el tope de {MAX_PAGINAS} paginas")
 
@@ -398,18 +416,31 @@ def _evaluar_perfil(raw: dict) -> PerfilAds:
 def fetch_structure(client: AdsClient) -> EstructuraAds:
     """GET /v2/profiles + los 4 POST list v3 por cada perfil aceptado.
 
-    Los perfiles rechazados (seller/pais/moneda) NO generan llamadas de
-    lista: su evidencia queda en `perfiles` con el motivo.
+    Los perfiles rechazados (seller/pais/moneda/pais duplicado) NO generan
+    llamadas de lista: su evidencia queda en `perfiles` con el motivo.
     """
     perfiles: list[PerfilAds] = []
     estructuras: list[EstructuraPerfil] = []
+    paises_aceptados: set[str] = set()
     for raw in _extraer_lista(
         _json_de(client.get(PATH_PROFILES), "GET", PATH_PROFILES), PATH_PROFILES
     ):
         perfil = _evaluar_perfil(raw)
+        if perfil.aceptado and perfil.country in paises_aceptados:
+            # GUARD (no supuesto): la platform (amazon_us/amazon_mx) es una
+            # sola por pais; dos perfiles del mismo pais romperian el mapeo
+            # entidad->plataforma. Gana el PRIMERO visto en el payload.
+            perfil = replace(
+                perfil,
+                aceptado=False,
+                platform=None,
+                moneda=None,
+                motivo=f"pais duplicado: ya se acepto otro perfil {perfil.country}",
+            )
         perfiles.append(perfil)
         if not perfil.aceptado:
             continue
+        paises_aceptados.add(perfil.country)
         # aceptado implica profile_id/platform/moneda fijados por _evaluar_perfil
         estructuras.append(
             EstructuraPerfil(
@@ -461,8 +492,11 @@ def _plan_items(estructura: EstructuraAds) -> tuple[list[_ItemEntidad], Counter[
 
     Orden por perfil: campanas -> ad groups -> keywords -> targets (el padre
     siempre se planifica antes que el hijo). Un item solo entra si su padre
-    esta entre los items ya planificados DE ESTA CORRIDA. Claves v3: ids
-    string planos, defaultBid escalar, bid OPCIONAL (su ausencia no es skip).
+    esta entre los items ya planificados DE ESTA CORRIDA y, para keywords y
+    targets, si el campaignId que el payload trae DE MAS no contradice al del
+    ad group padre planificado (hallazgo cross-review codex, ronda 3). Claves
+    v3: ids string planos, defaultBid escalar, bid OPCIONAL (su ausencia no
+    es skip).
     """
     items: list[_ItemEntidad] = []
     skips: Counter[str] = Counter()
@@ -471,6 +505,10 @@ def _plan_items(estructura: EstructuraAds) -> tuple[list[_ItemEntidad], Counter[
         platform = est.perfil.platform or ""
         moneda = est.perfil.moneda
         conocidos: set[tuple[str, str, str]] = set()
+        # adGroupId -> campaignId con el que se planifico el ad group (para
+        # validar la coherencia del campaignId que keyword/target traen DE
+        # MAS en su payload; hallazgo cross-review codex, ronda 3).
+        campana_del_ad_group: dict[str, str] = {}
 
         for payload in est.campanas:
             external = payload.get("campaignId")
@@ -523,6 +561,7 @@ def _plan_items(estructura: EstructuraAds) -> tuple[list[_ItemEntidad], Counter[
                 )
             )
             conocidos.add((platform, "ad_group", str(external)))
+            campana_del_ad_group[str(external)] = str(payload.get("campaignId"))
 
         for payload in est.keywords:
             external = payload.get("keywordId")
@@ -537,8 +576,15 @@ def _plan_items(estructura: EstructuraAds) -> tuple[list[_ItemEntidad], Counter[
             if not match_type:
                 skips["keyword sin matchType"] += 1
                 continue
-            if (platform, "ad_group", str(payload.get("adGroupId"))) not in conocidos:
+            ad_group_id = str(payload.get("adGroupId"))
+            if (platform, "ad_group", ad_group_id) not in conocidos:
                 skips["keyword sin ad group planificado"] += 1
+                continue
+            campaign_id = payload.get("campaignId")
+            if campaign_id is not None and str(campaign_id) != campana_del_ad_group[ad_group_id]:
+                skips[
+                    "keyword con campaignId distinto al de su ad group (payload incoherente)"
+                ] += 1
                 continue
             try:
                 bid = _bid_decimal(payload.get("bid"), "bid")
@@ -550,7 +596,7 @@ def _plan_items(estructura: EstructuraAds) -> tuple[list[_ItemEntidad], Counter[
                     platform=platform,
                     kind="keyword",
                     external_id=str(external),
-                    parent_ref=(platform, "ad_group", str(payload.get("adGroupId"))),
+                    parent_ref=(platform, "ad_group", ad_group_id),
                     name=None,  # keyword_text es la fuente unica (regla 2)
                     match_type=match_type,
                     keyword_text=keyword_text,
@@ -567,8 +613,13 @@ def _plan_items(estructura: EstructuraAds) -> tuple[list[_ItemEntidad], Counter[
             if external is None:
                 skips["target sin targetId"] += 1
                 continue
-            if (platform, "ad_group", str(payload.get("adGroupId"))) not in conocidos:
+            ad_group_id = str(payload.get("adGroupId"))
+            if (platform, "ad_group", ad_group_id) not in conocidos:
                 skips["target sin ad group planificado"] += 1
+                continue
+            campaign_id = payload.get("campaignId")
+            if campaign_id is not None and str(campaign_id) != campana_del_ad_group[ad_group_id]:
+                skips["target con campaignId distinto al de su ad group (payload incoherente)"] += 1
                 continue
             try:
                 bid = _bid_decimal(payload.get("bid"), "bid")
@@ -580,7 +631,7 @@ def _plan_items(estructura: EstructuraAds) -> tuple[list[_ItemEntidad], Counter[
                     platform=platform,
                     kind="product_target",
                     external_id=str(external),
-                    parent_ref=(platform, "ad_group", str(payload.get("adGroupId"))),
+                    parent_ref=(platform, "ad_group", ad_group_id),
                     name=_nombre_target(payload.get("expression")),
                     match_type=None,
                     keyword_text=None,
@@ -662,11 +713,21 @@ def sync_structure(conn: psycopg.Connection, estructura: EstructuraAds) -> Resul
                         item.keyword_text,
                     ),
                 ).fetchone()
-                entidad_id, parent_actual, es_nueva = row
+                entidad_id, parent_actual, match_actual, keyword_text_actual, es_nueva = row
                 if parent_actual != parent_id:
                     # Columna inmutable por permisos: jamas UPDATE, skip con motivo.
                     etiqueta = _ETIQUETA_KIND[item.kind]
                     skips[f"{etiqueta} con parent_id distinto al existente (inmutable)"] += 1
+                    continue
+                if match_actual != item.match_type or keyword_text_actual != item.keyword_text:
+                    # Divergencia del resto de inmutables (match_type/keyword_text,
+                    # solo keywords): mismo trato que el padre, sin estado escrito
+                    # y con la divergencia EXPRESA en skip_reason (antes contaba
+                    # como escrita conservando el valor viejo, en silencio).
+                    etiqueta = _ETIQUETA_KIND[item.kind]
+                    skips[
+                        f"{etiqueta} con keyword_text/match_type distinto al existente (inmutable)"
+                    ] += 1
                     continue
                 conn.execute(
                     _SQL_UPSERT_STATE,

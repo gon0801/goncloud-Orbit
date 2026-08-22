@@ -118,10 +118,11 @@ KEYWORDS_US = [
         "bid": 0.5,
     },
     # keyword de campana AUTO: v3 NO trae bid -> item valido con bid NULL
+    # (campaignId coherente con la campana de su ad group; cross-review ronda 3)
     {
         "keywordId": "9205",
         "adGroupId": "9101",
-        "campaignId": "9002",
+        "campaignId": "9001",
         "keywordText": "auto kw",
         "matchType": "BROAD",
         "state": "ENABLED",
@@ -422,6 +423,66 @@ def test_paginacion_sin_fin_da_error_claro():
     assert "paginacion" in str(excinfo.value)
 
 
+def test_paginacion_incompleta_segun_totalresults_da_error():
+    """[cross-review codex r3] "falta nextToken" ya no basta como prueba de
+    lista completa: si la ultima pagina declara totalResults y el acumulado
+    no cuadra, error claro. Sin esta guarda, una pagina truncada (nextToken
+    perdido por la API) entraria como lista completa en silencio."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return httpx.Response(
+                200, json={"access_token": "fake-access-token-largo", "expires_in": 3600}
+            )
+        if request.url.path == "/v2/profiles":
+            return httpx.Response(200, json=[PERFILES_OK[0]])
+        # una sola pagina SIN nextToken, pero declarando 5 totales: incompleta
+        return httpx.Response(200, json={"campaigns": [CAMPANAS_US[0]], "totalResults": 5})
+
+    client = _cliente(handler)
+    with pytest.raises(AdsStructureError) as excinfo:
+        fetch_structure(client)
+    assert "paginacion incompleta" in str(excinfo.value)
+    assert "1 acumulados de 5" in str(excinfo.value)
+
+
+def test_pais_duplicado_rechaza_al_segundo_perfil():
+    """[cross-review codex r3] Un perfil por pais es GUARD, no supuesto: el
+    segundo perfil aceptable del mismo pais se rechaza con motivo y no
+    genera llamadas de lista (la platform es una sola por pais)."""
+    perfiles = PERFILES_OK + [
+        {
+            "profileId": 606,
+            "countryCode": "US",
+            "currencyCode": "USD",
+            "dailyBudget": 7.0,
+            "timezone": "America/Los_Angeles",
+            "accountInfo": {
+                "marketplaceStringId": "ATVPDKIKX0DER",
+                "id": "6",
+                "type": "seller",
+                "name": "Goncloud US Dos",
+                "validPaymentMethod": True,
+            },
+        },
+    ]
+    registro: list[dict] = []
+    client = _cliente(_handler_sp(perfiles, _SP_DATOS, registro))
+    estructura = fetch_structure(client)
+
+    por_id = {perfil.profile_id: perfil for perfil in estructura.perfiles}
+    assert len(estructura.perfiles) == 3
+    assert {p.profile_id for p in estructura.perfiles if p.aceptado} == {101, 202}
+    # Regla 9: gana el PRIMERO; el duplicado queda con su motivo explicito.
+    # Sin el guard, 606 entraria como aceptado y esto truena.
+    assert por_id[606].motivo == "pais duplicado: ya se acepto otro perfil US"
+    assert por_id[101].motivo is None
+
+    assert [est.perfil.profile_id for est in estructura.estructuras] == [101, 202]
+    scopes_llamados = {r["scope"] for r in registro if r["scope"] is not None}
+    assert scopes_llamados == {"101", "202"}
+
+
 # ---------------------------------------------------------------------------
 # (a) UNITARIOS - planificacion pura (items incoherentes)
 # ---------------------------------------------------------------------------
@@ -443,8 +504,9 @@ def _perfil_us_aceptado() -> PerfilAds:
 
 def test_items_incoherentes_se_saltan_con_motivo():
     """Regla 9: el test afirma cada skip y su motivo. Sin el pre-check de
-    padre, el ad group huerfano y sus hijos entrarian con parent NULL y el
-    conteo de skips daria 0 -> esto truena."""
+    padre, el ad group huerfano y sus hijos entrarian con parent NULL; sin el
+    pre-check de campaignId, keywords/targets incoherentes entrarian igual:
+    el conteo de skips daria menos -> truena."""
     estructura = EstructuraAds(
         perfiles=[_perfil_us_aceptado()],
         estructuras=[
@@ -466,6 +528,14 @@ def test_items_incoherentes_se_saltan_con_motivo():
                         "defaultBid": 0.5,
                         "state": "ENABLED",
                     },
+                    # ad group COHERENTE (campana 9001): padre valido para los
+                    # casos de campaignId incoherente de abajo
+                    {
+                        "adGroupId": "9150",
+                        "campaignId": "9001",
+                        "defaultBid": 0.4,
+                        "state": "ENABLED",
+                    },
                 ],
                 keywords=[
                     # ad group 9101 fue saltado -> keyword sin padre escrito
@@ -478,10 +548,27 @@ def test_items_incoherentes_se_saltan_con_motivo():
                     },
                     # sin matchType (el CHECK ad_entity_keyword_coherente lo rechazaria)
                     {"keywordId": "9202", "adGroupId": "9101", "keywordText": "x", "bid": 0.4},
+                    # campaignId contradice al de su ad group (9001): incoherente
+                    {
+                        "keywordId": "9203",
+                        "adGroupId": "9150",
+                        "campaignId": "8888",
+                        "keywordText": "rara",
+                        "matchType": "PHRASE",
+                        "bid": 0.4,
+                    },
                 ],
                 targets=[
                     # ad group "8888" no existe en el payload
                     {"targetId": "9301", "adGroupId": "8888", "bid": 0.9, "expression": []},
+                    # campaignId contradice al de su ad group (9001): incoherente
+                    {
+                        "targetId": "9302",
+                        "adGroupId": "9150",
+                        "campaignId": "7777",
+                        "bid": 0.9,
+                        "expression": [],
+                    },
                 ],
             )
         ],
@@ -489,13 +576,15 @@ def test_items_incoherentes_se_saltan_con_motivo():
 
     items, skips = _plan_items(estructura)
 
-    assert [item.kind for item in items] == ["campaign"]
+    assert [item.kind for item in items] == ["campaign", "ad_group"]
     assert skips == Counter(
         {
             "ad group sin campana planificada": 1,
             "keyword sin ad group planificado": 1,
             "keyword sin matchType": 1,
+            "keyword con campaignId distinto al de su ad group (payload incoherente)": 1,
             "target sin ad group planificado": 1,
+            "target con campaignId distinto al de su ad group (payload incoherente)": 1,
         }
     )
 
@@ -529,6 +618,7 @@ def test_items_validos_llevan_bid_decimal_y_moneda_del_perfil():
                     {
                         "keywordId": "9201",
                         "adGroupId": "9101",
+                        "campaignId": "9001",
                         "keywordText": "z",
                         "matchType": "EXACT",
                         "bid": 0.5,
@@ -545,6 +635,7 @@ def test_items_validos_llevan_bid_decimal_y_moneda_del_perfil():
                     {
                         "targetId": "9301",
                         "adGroupId": "9101",
+                        "campaignId": "9001",
                         "expression": [{"type": "asinSameAs", "value": "B01"}],
                         "bid": 0.9,
                     },
@@ -826,11 +917,14 @@ def _estructura_resync() -> EstructuraAds:
                     },
                 ],
                 keywords=[
+                    # [cross-review codex r3] keywordText DISTINTO al existente
+                    # (misma keywordId): inmutable divergente -> skip, jamas
+                    # UPDATE silencioso del texto viejo
                     {
                         "keywordId": "9201",
                         "adGroupId": "9101",
                         "campaignId": "9001",
-                        "keywordText": "zapato",
+                        "keywordText": "zapatos",
                         "matchType": "EXACT",
                         "state": "ENABLED",
                         "bid": 0.55,
@@ -849,6 +943,7 @@ def _estructura_resync() -> EstructuraAds:
                     {
                         "keywordId": "9204",
                         "adGroupId": "9199",
+                        "campaignId": "9002",
                         "keywordText": "colgando",
                         "matchType": "BROAD",
                         "state": "ENABLED",
@@ -1032,28 +1127,34 @@ def test_sync_y_resync_estructura_en_vivo(monkeypatch):
         )
 
         # ------------------------------------------------------------------
-        # RE-SYNC (DoD): estado cambiado, entidad nueva, padre movido
+        # RE-SYNC (DoD): estado cambiado, entidad nueva, padre movido y
+        # keyword con texto divergente (inmutables)
         # ------------------------------------------------------------------
         synced_ag_movido = ag_movido[10]
         synced_c_us = c_us[10]
+        synced_kw = kw[10]
         id_campana_9001 = c_us[0]
 
         res2 = sync_structure(conn, _estructura_resync())
 
-        # 10 escritos (7 us + 3 mx), 2 saltados (padre movido + hijo en cascada)
+        # 9 escritos (6 us + 3 mx), 3 saltados: padre movido, keyword con
+        # keyword_text divergente (inmutable) y su hijo en cascada
         assert res2.ok is True
-        assert res2.rows_written == 10
-        assert res2.rows_skipped == 2
+        assert res2.rows_written == 9
+        assert res2.rows_skipped == 3
         assert res2.entidades_nuevas == 2  # campana 9002 + keyword 9203
 
         run2 = conn.execute(
             "SELECT ok, rows_written, rows_skipped, skip_reason FROM ingest_run WHERE id = %s",
             (res2.run_id,),
         ).fetchone()
-        assert run2[0] is True and run2[1] == 10 and run2[2] == 2
-        # Regla 9: el rechazo por inmutabilidad queda afirmado con su motivo
+        assert run2[0] is True and run2[1] == 9 and run2[2] == 3
+        # Regla 9: los rechazos por inmutabilidad quedan afirmados con motivo
         assert "ad group con parent_id distinto al existente (inmutable)" in run2[3]
         assert "keyword sin ad group escrito en esta corrida" in run2[3]
+        # [cross-review codex r3] la keyword divergente tambien, y su estado
+        # NO se escribio: conserva texto, bid y synced_at de la corrida 1
+        assert "keyword con keyword_text/match_type distinto al existente (inmutable)" in run2[3]
 
         # ad_entity NO se duplica: 9 + exactamente las 2 nuevas
         assert conn.execute("SELECT count(*) FROM ad_entity").fetchone()[0] == 11
@@ -1070,10 +1171,15 @@ def test_sync_y_resync_estructura_en_vivo(monkeypatch):
         assert c_us2[7] == "PAUSED"
         assert c_us2[10] >= synced_c_us
         assert ag2[5] == Decimal("1.25")
-        assert kw2[5] == Decimal("0.55")
         assert kw_nueva is not None and kw_nueva[3] == "BROAD"
         # la keyword que no traia bid ahora lo trae: NULL -> valor con moneda
         assert kw_sin_bid2[5] == Decimal("0.42") and kw_sin_bid2[6] == "USD"
+        # la keyword divergente conserva TODO lo de la corrida 1: el texto
+        # viejo ("zapato", no "zapatos"), el bid viejo (0.5, no 0.55) y su
+        # synced_at sin renovar (mismo patron que el padre movido, regla 9)
+        assert kw2[4] == "zapato"
+        assert kw2[5] == Decimal("0.5")
+        assert kw2[10] == synced_kw
 
         # el padre movido conserva TODO su estado de la corrida 1: parent
         # original, bid original y synced_at sin renovar
