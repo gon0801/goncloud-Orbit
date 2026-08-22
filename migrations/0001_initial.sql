@@ -1621,6 +1621,25 @@ BEGIN
             'CIERRA (UPDATE valid_to) y el costo nuevo entra como fila nueva.'
             USING ERRCODE = 'restrict_violation';
     END IF;
+    -- valid_to es la única columna mutable, pero NO es libre: sólo admite la
+    -- transición NULL -> fecha, una vez. Mover el corte de una vigencia ya
+    -- cerrada (DATE -> DATE) o reabrirla (DATE -> NULL) reescribe el período
+    -- histórico en el que ese costo aplicó, que es la misma corrupción hacia
+    -- atrás que la tabla existe para matar. Y el EXCLUDE no lo atrapa:
+    -- encoger un rango nunca genera solapamiento, y extenderlo tampoco si la
+    -- fila no tiene sucesora — el caso mudo y peligroso es extender la última
+    -- vigencia de un producto, donde los márgenes de días que ese costo nunca
+    -- cubrió cambian con cobertura 100% y sin señal (hallazgo CodeRabbit,
+    -- PR #2). Cerrar en la fecha equivocada se corrige con una migración,
+    -- no con un UPDATE: es el precio declarado de que el histórico sea firme.
+    IF NEW.valid_to IS DISTINCT FROM OLD.valid_to
+       AND (OLD.valid_to IS NOT NULL OR NEW.valid_to IS NULL) THEN
+        RAISE EXCEPTION
+            'sku_cost: valid_to sólo puede pasar de NULL a una fecha, una vez. '
+            'Mover el corte de una vigencia cerrada o reabrirla reescribe el '
+            'período en que ese costo aplicó, y el EXCLUDE no lo detecta.'
+            USING ERRCODE = 'restrict_violation';
+    END IF;
     IF ROW(NEW.id, NEW.product_id, NEW.cost_amount, NEW.cost_currency,
            NEW.includes_tax, NEW.valid_from, NEW.ingest_run_id)
        IS DISTINCT FROM
@@ -1649,8 +1668,12 @@ CREATE TRIGGER sku_cost_append_only_truncate
 
 COMMENT ON FUNCTION sku_cost_solo_cierra_vigencia IS
   'sku_cost es la única tabla con una mutación legítima acotada: cerrar la '
-  'vigencia. Este trigger la acota de verdad (valid_to y nada más) y prohíbe '
-  'el DELETE, sin depender de qué GRANT tenga el rol que escribe.';
+  'vigencia. Este trigger la acota de verdad —valid_to y nada más, y sólo en '
+  'la transición NULL -> fecha, una vez— y prohíbe el DELETE, sin depender de '
+  'qué GRANT tenga el rol que escribe. Mover el corte de una vigencia ya '
+  'cerrada o reabrirla queda fuera: reescribe el período en que ese costo '
+  'aplicó y el EXCLUDE no lo ve (encoger no solapa; extender tampoco, sin '
+  'fila sucesora).';
 
 COMMENT ON FUNCTION prohibir_mutacion IS
   'Regla 5, hecha cumplir a nivel de motor. La diferencia entre una regla '

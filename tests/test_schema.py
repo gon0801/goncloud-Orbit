@@ -458,6 +458,22 @@ def test_sku_cost_no_se_puede_reescribir_ni_borrar():
     assert sentencia, "sku_cost sin candado de sentencia contra TRUNCATE"
 
 
+def test_sku_cost_cierre_de_vigencia_es_una_sola_transicion():
+    # Hallazgo CodeRabbit (PR #2) sobre la propia corrección de este PR: el
+    # candado dejaba `valid_to` libre y sólo protegía las demás columnas. Un
+    # DATE->DATE (mover el corte) o un DATE->NULL (reabrir la vigencia)
+    # reescribe el período histórico en el que ese costo aplicó, y el EXCLUDE
+    # NO lo atrapa: encoger un rango nunca genera solapamiento, y extenderlo
+    # tampoco si esa fila no tiene sucesora. El caso mudo y peligroso es
+    # extender la última vigencia de un producto: los márgenes de días que ese
+    # costo nunca cubrió cambian, con cobertura 100% y sin señal.
+    cuerpo = " ".join(_body_plpgsql("sku_cost_solo_cierra_vigencia").split())
+    assert (
+        "IF NEW.valid_to IS DISTINCT FROM OLD.valid_to "
+        "AND (OLD.valid_to IS NOT NULL OR NEW.valid_to IS NULL) THEN"
+    ) in cuerpo, "valid_to admite algo más que la transición única NULL -> fecha"
+
+
 def test_includes_tax_obligatorio_sin_default():
     # Mismo candado que is_asin_like y con la misma factura detras: la
     # pregunta "el costo lleva IVA?" quedo sin responder un anio y valia 8
@@ -558,7 +574,7 @@ def test_probe_rechaza_listener_muerto(monkeypatch):
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 def test_migracion_rechaza_en_vivo():
-    """Aplica la migración en una base temporal y prueba 9 rechazos reales.
+    """Aplica la migración en una base temporal y prueba 11 rechazos reales.
 
     El DSN viene de ORBIT_TEST_DSN (default: el docker-compose.yml del repo,
     POSTGRES_USER=orbit). Sin él, psycopg usaría el usuario del SO y el test
@@ -692,8 +708,17 @@ def test_migracion_rechaza_en_vivo():
                 " includes_tax, valid_from) VALUES"
                 f" ({prod_id}, 10, 'MXN', true, '2026-01-01') RETURNING id"
             ).fetchone()[0]
-            # Control positivo: cerrar la vigencia SÍ se permite.
+            # Control positivo: cerrar la vigencia SÍ se permite, UNA vez.
             conn.execute(f"UPDATE sku_cost SET valid_to = '2026-06-01' WHERE id = {costo_id}")
+            # Mover el corte de una vigencia ya cerrada reescribe el período
+            # histórico en que ese costo aplicó — y el EXCLUDE no lo ve
+            # (encoger no solapa; extender tampoco, sin fila sucesora).
+            with pytest.raises(psycopg.errors.RestrictViolation):
+                conn.execute(f"UPDATE sku_cost SET valid_to = '2026-07-01' WHERE id = {costo_id}")
+            # Reabrirla es lo mismo por el otro lado: el costo vuelve a
+            # aplicar hasta el infinito.
+            with pytest.raises(psycopg.errors.RestrictViolation):
+                conn.execute(f"UPDATE sku_cost SET valid_to = NULL WHERE id = {costo_id}")
             with pytest.raises(psycopg.errors.RestrictViolation):
                 conn.execute(f"UPDATE sku_cost SET cost_amount = 99 WHERE id = {costo_id}")
             with pytest.raises(psycopg.errors.RestrictViolation):

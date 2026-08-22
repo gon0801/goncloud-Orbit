@@ -46,7 +46,13 @@
   `sku_cost` es la única con **candado propio** en vez de simple ausencia de
   GRANT: el trigger `sku_cost_solo_cierra_vigencia` permite cambiar `valid_to`
   y **nada más**, y prohíbe el `DELETE` (borrar una vigencia publicada
-  reescribe el histórico de márgenes hacia atrás).
+  reescribe el histórico de márgenes hacia atrás). **Cerrar es una transición
+  única `NULL → fecha`**: mover el corte de una vigencia ya cerrada
+  (`DATE → DATE`) o reabrirla (`DATE → NULL`) también reescribe el período en
+  que ese costo aplicó, y el `EXCLUDE` **no lo detecta** — encoger un rango
+  nunca solapa, y extenderlo tampoco si la fila no tiene sucesora. Precio
+  declarado: cerrar en la fecha equivocada se corrige con una migración, no
+  con un UPDATE.
 - **Toda FK tiene índice de apoyo**: PostgreSQL no crea uno por el
   `REFERENCES`. Sin él, cada verificación de integridad al tocar la tabla
   padre barre la hija entera y los JOIN que el propio esquema declara
@@ -116,8 +122,11 @@ solo puede `UPDATE (valid_to)`**: cerrar vigencias sí; reescribir
 fila nueva con vigencia nueva (el EXCLUDE ya garantiza que no se solape).
 **Y no descansa en el permiso**: el trigger `sku_cost_solo_cierra_vigencia`
 (`BEFORE UPDATE OR DELETE`, más el de sentencia contra `TRUNCATE`) rechaza
-cualquier UPDATE que toque algo distinto de `valid_to` y prohíbe el DELETE,
-aunque el rol tenga todos los permisos — la misma razón por la que las
+cualquier UPDATE que toque algo distinto de `valid_to`, admite en `valid_to`
+**sólo la transición `NULL → fecha` y una sola vez** (mover el corte o reabrir
+la vigencia reescribe el período en que el costo aplicó, y el `EXCLUDE` no lo
+ve porque encoger no solapa) y prohíbe el DELETE, aunque el rol tenga todos
+los permisos — la misma razón por la que las
 append-only tienen trigger y no sólo GRANT.
 *Cómo se audita*: el `EXCLUDE` garantiza un solo costo vigente por fecha;
 invariante — productos activos sin costo vigente hoy (lista explícita, no
