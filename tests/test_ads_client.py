@@ -18,6 +18,11 @@ Cubre el DoD de la tarea 1.1:
   (`str`/`repr`/`__cause__`/`__context__`);
 - superficie publica EXACTA del cliente (sin metodos de mutacion de
   campanas) y el guard read-only rechazando bypasses;
+- POSTs de lista v3 (`list_objects`): allowlist literal con vendor
+  Content-Type/Accept, idempotentes en retries (429/red/5xx SI reintentan,
+  a diferencia de create_report) y con vendor types conservados en la
+  re-emision tras 401 (Amazon retiro v2 sp con 404; corrida real
+  2026-08-22);
 - config de credenciales: carga OK, `repr` redactado, error sin valores;
 - refresh de token encapsulado con margen de 60s antes de `expires_in`.
 """
@@ -31,6 +36,7 @@ import httpx
 import pytest
 
 from app.ads.client import (
+    LIST_REQUEST_TYPES,
     MAX_REDIRECTS,
     AdsApiError,
     AdsAuthError,
@@ -387,7 +393,7 @@ def test_superficie_publica_exacta():
         for name, value in vars(AdsClient).items()
         if not name.startswith("_") and callable(value)
     }
-    assert public == {"get", "create_report", "get_report", "download"}
+    assert public == {"get", "list_objects", "create_report", "get_report", "download"}
 
     assert issubclass(AdsApiError, AdsClientError)
     assert issubclass(AdsAuthError, AdsClientError)
@@ -401,10 +407,14 @@ def test_metodos_de_mutacion_bloqueados_siempre(method):
         client._request(method, "/reporting/reports")
 
 
-def test_post_fuera_de_report_request_bloqueado():
+def test_post_de_mutacion_de_campanas_bloqueado():
+    """/sp/campaigns (sin /list) es la mutacion real v3: sigue rechazado."""
     client = make_client(lambda request: httpx.Response(200))
     with pytest.raises(MutationNotAllowedError):
         client._request("POST", "/sp/campaigns")
+    # y la capa del metodo publico tambien (defense in depth)
+    with pytest.raises(MutationNotAllowedError):
+        client.list_objects("/sp/campaigns", {}, profile_id=1)
 
 
 @pytest.mark.parametrize(
@@ -415,6 +425,11 @@ def test_post_fuera_de_report_request_bloqueado():
         ("GET", "/reporting/reports/../../sp/campaigns"),
         ("GET", "/reporting%2Freports"),
         ("POST", "/reporting/reports?x=1"),
+        # el allowlist de listas es por igualdad literal EXACTA: cualquier
+        # variante del path de lista se rechaza como POST
+        ("POST", "/sp/campaigns/list?x=1"),
+        ("POST", "/sp/campaigns/list/"),
+        ("POST", "/sp/campaigns//list"),
     ],
 )
 def test_bypasses_del_guard_rechazados(method, path):
@@ -423,7 +438,120 @@ def test_bypasses_del_guard_rechazados(method, path):
         client._request(method, path)
 
 
-def test_create_report_es_el_unico_post_permitido():
+def test_list_objects_post_de_lectura_con_vendor_types():
+    """Cada path del allowlist pasa como POST y lleva SU vendor Content-Type
+    y Accept (sin ellos la API responde 415; corrida real 2026-08-22)."""
+    llamadas: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        llamadas.append(request)
+        return httpx.Response(200, json={"campaigns": [], "totalResults": 0})
+
+    client = make_client(handler)
+    for path in LIST_REQUEST_TYPES:
+        resp = client.list_objects(path, {}, profile_id=101)
+        assert resp.status_code == 200
+
+    assert len(llamadas) == len(LIST_REQUEST_TYPES)
+    for request, (path, vendor) in zip(llamadas, LIST_REQUEST_TYPES.items(), strict=True):
+        assert request.method == "POST"
+        assert request.url.path == path
+        assert request.headers["Content-Type"] == vendor, (
+            "httpx no debe pisar el vendor Content-Type explicito al serializar json="
+        )
+        assert request.headers["Accept"] == vendor
+        assert request.headers["Amazon-Advertising-API-Scope"] == "101"
+
+
+def test_list_objects_429_reintenta_por_ser_lectura():
+    """El POST de lista es idempotente (lectura): 429 -> backoff -> exito,
+    igual que un GET (a diferencia de create_report, fail-closed)."""
+    api_calls: list[httpx.Request] = []
+    sleeps: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        api_calls.append(request)
+        if len(api_calls) == 1:
+            return httpx.Response(429, json={"error": "throttled"})
+        return httpx.Response(200, json={"campaigns": [], "totalResults": 0})
+
+    client = make_client(handler, sleep=sleeps.append)
+    resp = client.list_objects("/sp/campaigns/list", {}, profile_id=1)
+
+    assert resp.status_code == 200
+    assert len(api_calls) == 2
+    assert len(sleeps) == 1
+
+
+def test_list_objects_fallo_de_red_reintenta():
+    """Fallo de red en un list POST: el resultado NO es ambiguo (lectura sin
+    efectos secundarios), asi que reintenta; create_report no (fail-closed)."""
+    api_calls: list[httpx.Request] = []
+    sleeps: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        api_calls.append(request)
+        if len(api_calls) == 1:
+            raise httpx.ConnectError("boom", request=request)
+        return httpx.Response(200, json={"adGroups": [], "totalResults": 0})
+
+    client = make_client(handler, sleep=sleeps.append)
+    resp = client.list_objects("/sp/adGroups/list", {}, profile_id=1)
+
+    assert resp.status_code == 200
+    assert len(api_calls) == 2
+    assert len(sleeps) == 1
+
+
+def test_list_objects_5xx_agotado_lanza_tras_exactamente_4_intentos():
+    api_calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        api_calls.append(request)
+        return httpx.Response(500, json={"error": "boom"})
+
+    client = make_client(handler)
+    with pytest.raises(AdsApiError):
+        client.list_objects("/sp/keywords/list", {}, profile_id=1)
+
+    assert len(api_calls) == 4
+
+
+def test_list_objects_401_re_emision_conserva_vendor_types():
+    """La re-emision tras el refresh por 401 debe volver a llevar el vendor
+    Content-Type/Accept: sin el, Amazon responderia 415 y el retry moriria."""
+    api_calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        api_calls.append(request)
+        if len(api_calls) == 1:
+            return httpx.Response(401, json={"error": "Unauthorized"})
+        return httpx.Response(200, json={"targetingClauses": [], "totalResults": 0})
+
+    client = make_client(handler)
+    resp = client.list_objects("/sp/targets/list", {}, profile_id=1)
+
+    assert resp.status_code == 200
+    assert len(api_calls) == 2
+    for request in api_calls:
+        vendor = LIST_REQUEST_TYPES["/sp/targets/list"]
+        assert request.headers["Content-Type"] == vendor
+        assert request.headers["Accept"] == vendor
+
+
+def test_create_report_sigue_atado_a_su_path_sellado():
+    """create_report sigue siendo el unico POST con efectos secundarios: solo
+    emite a /reporting/reports (y sigue fail-closed en retries)."""
     calls: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:

@@ -7,10 +7,16 @@ tokens ROTATIVOS de MeLi; no aplica aqui).
 
 Guard read-only CENTRAL en `_request`: default-deny. GET siempre permitido
 (tras validar que el path es seguro); POST SOLO para crear un reporte
-(`/reporting/reports`, la unica escritura permitida); PUT/PATCH/DELETE y
-cualquier otro metodo se rechazan siempre. La superficie publica expone
-solo `get`, `create_report`, `get_report` y `download` -- nunca un metodo
-generico `request`/`post`.
+(`/reporting/reports`, la unica escritura con efectos secundarios) o para
+los LIST v3 de lectura (`/sp/campaigns/list` y afines: allowlist por
+igualdad literal, cada path con su vendor Content-Type/Accept -- Amazon
+retiro el campaign management v2 con 404 y responde 415 sin el vendor type;
+corrida real 2026-08-22). PUT/PATCH/DELETE y cualquier otro metodo se
+rechazan siempre. Los POST de lista son lecturas sin efectos secundarios:
+idempotentes en la politica de retries (como un GET); el POST de
+`/reporting/reports` SIGUE fail-closed no-idempotente. La superficie
+publica expone solo `get`, `list_objects`, `create_report`, `get_report` y
+`download` -- nunca un metodo generico `request`/`post`.
 
 Redaccion: las excepciones propias llevan SOLO metodo + path (sin query) +
 status; nunca headers ni body (los errores de LWA pueden ecoar el
@@ -26,6 +32,7 @@ import random
 import re
 import time
 from collections.abc import Callable
+from types import MappingProxyType
 from urllib.parse import urljoin
 
 import httpx
@@ -42,6 +49,20 @@ TOKEN_EXPIRY_MARGIN_SECONDS = 60.0
 MAX_RETRIES = 4
 MAX_REDIRECTS = 5
 REPORT_REQUEST_PATH = "/reporting/reports"
+# POSTs de LECTURA (list v3): allowlist por igualdad literal EXACTA, igual que
+# REPORT_REQUEST_PATH. El valor es el vendor Content-Type/Accept que la API
+# exige (415 sin el; corrida real 2026-08-22). Amazon retiro v2 sp (404), asi
+# que estas listas son el unico camino de estructura. MappingProxyType: es un
+# allowlist de SEGURIDAD leida en vivo por el guard -- congelarla evita que
+# una mutacion accidental (o un test descuidado) amplie la superficie de POST.
+LIST_REQUEST_TYPES: MappingProxyType[str, str] = MappingProxyType(
+    {
+        "/sp/campaigns/list": "application/vnd.spcampaign.v3+json",
+        "/sp/adGroups/list": "application/vnd.spadgroup.v3+json",
+        "/sp/keywords/list": "application/vnd.spkeyword.v3+json",
+        "/sp/targets/list": "application/vnd.sptargetingclause.v3+json",
+    }
+)
 RETRYABLE_STATUSES = {429}
 RETRY_AFTER_MAX_SECONDS = 60.0
 
@@ -129,7 +150,8 @@ class AdsClient:
         self._token_expires_at: float | None = None  # timestamp en la escala de `clock`
 
     # ------------------------------------------------------------------
-    # Superficie publica (EXACTA: get, create_report, get_report, download)
+    # Superficie publica (EXACTA: get, list_objects, create_report,
+    # get_report, download)
     # ------------------------------------------------------------------
 
     def get(
@@ -141,8 +163,28 @@ class AdsClient:
     ) -> httpx.Response:
         return self._request("GET", path, params=params, profile_id=profile_id)
 
+    def list_objects(
+        self,
+        path: str,
+        body: dict,
+        *,
+        profile_id: str | int,
+    ) -> httpx.Response:
+        """Lista objetos v3 (`/sp/*/list`): POST de LECTURA, no una mutacion.
+
+        Solo acepta los paths de `LIST_REQUEST_TYPES` (igualdad literal);
+        cualquier otro path se rechaza como mutacion (default-deny), aunque
+        `_request` volveria a revisarlo: dos capas. `body` es el filtro de
+        paginacion ({} en la primera pagina, {"nextToken": ...} despues).
+        """
+        if path not in LIST_REQUEST_TYPES:
+            raise MutationNotAllowedError(
+                f"list_objects solo acepta los list v3 de LIST_REQUEST_TYPES: {_clean_path(path)}"
+            )
+        return self._request("POST", path, json=body, profile_id=profile_id)
+
     def create_report(self, body: dict, *, profile_id: str | int) -> httpx.Response:
-        """Crea un reporte. Unica escritura permitida por el guard read-only."""
+        """Crea un reporte. Unico POST con efectos secundarios que el guard permite."""
         return self._request("POST", REPORT_REQUEST_PATH, json=body, profile_id=profile_id)
 
     def get_report(self, report_id: str, *, profile_id: str | int) -> httpx.Response:
@@ -191,21 +233,25 @@ class AdsClient:
         json: dict | None = None,
         profile_id: str | int | None = None,
     ) -> httpx.Response:
-        # Default-deny: solo GET y el POST de creacion de reportes sobreviven.
+        # Default-deny: solo GET, el POST de creacion de reportes y los POST
+        # de lista v3 (allowlist literal) sobreviven.
         if method not in ("GET", "POST"):
             raise MutationNotAllowedError(f"metodo no permitido: {method} {_clean_path(path)}")
         _validate_relative_path(path)
-        if method == "POST" and path != REPORT_REQUEST_PATH:
+        if method == "POST" and path != REPORT_REQUEST_PATH and path not in LIST_REQUEST_TYPES:
             raise MutationNotAllowedError(
-                f"POST no permitido fuera de {REPORT_REQUEST_PATH}: {_clean_path(path)}"
+                f"POST no permitido (solo {REPORT_REQUEST_PATH} y los list v3): {_clean_path(path)}"
             )
 
         url = f"{self._base_url}{path}"
         # El POST de creacion de reportes NO es idempotente: la politica de
-        # retries lo trata fail-closed (ver _send_with_retries).
-        idempotent = method == "GET"
+        # retries lo trata fail-closed (ver _send_with_retries). Los POST de
+        # lista v3 SON lecturas sin efectos secundarios: idempotentes igual
+        # que un GET (corrida real 2026-08-22: v2 sp retirado, estas listas
+        # son el unico camino de estructura).
+        idempotent = method == "GET" or path in LIST_REQUEST_TYPES
         token = self._ensure_token()
-        headers = self._build_headers(token, profile_id)
+        headers = self._build_headers(token, profile_id, path=path, method=method)
         resp = self._send_with_retries(
             method, url, headers=headers, params=params, json=json, idempotent=idempotent
         )
@@ -221,7 +267,7 @@ class AdsClient:
             # Re-enviar el POST aqui es seguro: un 401 significa RECHAZADO
             # antes de procesar, no ambiguo.
             token = self._ensure_token(force=True)
-            headers = self._build_headers(token, profile_id)
+            headers = self._build_headers(token, profile_id, path=path, method=method)
             resp = self._send_with_retries(
                 method, url, headers=headers, params=params, json=json, idempotent=idempotent
             )
@@ -230,13 +276,27 @@ class AdsClient:
             raise AdsApiError(f"status={resp.status_code}: {method} {redact_url(url)}")
         return resp
 
-    def _build_headers(self, token: str, profile_id: str | int | None) -> dict[str, str]:
+    def _build_headers(
+        self,
+        token: str,
+        profile_id: str | int | None,
+        *,
+        path: str | None = None,
+        method: str = "GET",
+    ) -> dict[str, str]:
         headers = {
             "Amazon-Advertising-API-ClientId": self._credentials.client_id,
             "Authorization": f"Bearer {token}",
         }
         if profile_id is not None:
             headers["Amazon-Advertising-API-Scope"] = str(profile_id)
+        # Los list v3 exigen el vendor Content-Type y Accept (415 sin ellos).
+        # Vive aqui — y no en el caller — para que la re-emision tras un 401
+        # tambien los lleve: ambas emisiones pasan por este metodo. httpx no
+        # pisa un Content-Type explicito al serializar `json=`.
+        if method == "POST" and path in LIST_REQUEST_TYPES:
+            headers["Content-Type"] = LIST_REQUEST_TYPES[path]
+            headers["Accept"] = LIST_REQUEST_TYPES[path]
         return headers
 
     # ------------------------------------------------------------------
