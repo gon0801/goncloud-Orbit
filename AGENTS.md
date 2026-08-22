@@ -8,6 +8,20 @@ código viejo; solo se migran credenciales y datos verificados.
 del dominio, qué se migra y qué no, fases. Las fuentes verbatim están en
 `docs/traspaso/` (diseño v2 = fuente de verdad de reglas y umbrales).
 
+## Registro de trabajo (AppFlowy)
+
+El grid **EHV Tasks** (notion.goncloud.cc, server goncloud) lleva el registro
+de todo el trabajo de este repo: las fases están como tareas `ORBIT NN` en
+orden. **Regla obligatoria:**
+
+- Al **empezar** una tarea: marcarla `In progress`.
+- Al **terminarla**: marcarla `Done`.
+- Si el trabajo no tiene tarea: crearla primero.
+
+Se hace con la skill `appflowy-ehv-task`:
+`ssh goncloud "python3 /mnt/data/appdata/appflowy/_migrate/add_ehv_task.py --name '<ORBIT NN — ...>' --status 'In progress|Done'"`
+(idempotente por nombre: re-correr actualiza la misma fila, no duplica).
+
 <!-- >>> QUALITY-KIT CALIDAD SECTION START -- managed by quality-kit's init-repo.ps1. Do not hand-edit between these markers; re-running init-repo.ps1 will refresh this block cleanly. -->
 ## Calidad (quality-kit)
 
