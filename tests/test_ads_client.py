@@ -1,6 +1,9 @@
 """Tests del cliente HTTP Amazon Ads READ-ONLY (`app.ads.client`).
 
-Transporte 100% mock (`httpx.MockTransport`): nunca sale una llamada real.
+Transporte de la API de Ads 100% mock (`httpx.MockTransport`): a Amazon no
+sale ninguna llamada real. Excepcion declarada: los tests de redaccion de DSN
+llaman `connect()` real contra `127.0.0.1:9` (puerto muerto) y dependen de que
+el kernel rechace esa conexion -- es local y determinista, pero es un socket.
 Los "secretos" usados aqui son SIEMPRE valores falsos (`fake-...`), nunca
 credenciales reales.
 
@@ -28,6 +31,7 @@ import httpx
 import pytest
 
 from app.ads.client import (
+    MAX_REDIRECTS,
     AdsApiError,
     AdsAuthError,
     AdsClient,
@@ -457,13 +461,21 @@ def test_download_sigue_redirect_como_get_con_tope_de_saltos():
 
 
 def test_download_tiene_tope_de_saltos():
+    hops: list[httpx.Request] = []
+
     def handler(request: httpx.Request) -> httpx.Response:
         # redirect infinito a si mismo
+        hops.append(request)
         return httpx.Response(302, headers={"Location": str(request.url)})
 
     client = make_client(handler)
-    with pytest.raises(AdsApiError):
+    with pytest.raises(AdsApiError) as excinfo:
         client.download("https://cdn.example.com/loop")
+
+    # peticion inicial + MAX_REDIRECTS saltos, NI UNO MAS: si el tope
+    # cambiara en silencio, este conteo exacto lo delata (CodeRabbit PR #11)
+    assert len(hops) == MAX_REDIRECTS + 1
+    assert "demasiados redirects" in str(excinfo.value)
 
 
 # ---------------------------------------------------------------------------
