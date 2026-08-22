@@ -757,3 +757,35 @@ def test_redact_url_malformada_no_fuga_ni_revienta():
         client.download(malformada)
     assert "fake-mal-pw" not in str(excinfo.value)
     assert "fake-mal-pw" not in repr(excinfo.value)
+
+
+def test_401_luego_429_conserva_backoff_sin_segundo_refresh():
+    """[Greptile PR #11] Semantica SELLADA de la re-emision post-refresh.
+
+    La re-emision tras el refresh por 401 conserva a proposito la politica
+    normal de 429/5xx (un throttle post-refresh merece backoff, no abort);
+    lo que JAMAS se repite es el refresh. Este test documenta la decision:
+    si alguien "arregla" la composicion en cualquier direccion, truena.
+    """
+    token_calls: list[httpx.Request] = []
+    api_calls: list[httpx.Request] = []
+    sleeps: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            token_calls.append(request)
+            return _token_response(len(token_calls))
+        api_calls.append(request)
+        if len(api_calls) == 1:
+            return httpx.Response(401, json={"error": "Unauthorized"})
+        if len(api_calls) == 2:
+            return httpx.Response(429, json={"error": "throttled"})
+        return httpx.Response(200, json={"profiles": []})
+
+    client = make_client(handler, sleep=sleeps.append)
+    resp = client.get("/v2/profiles")
+
+    assert resp.status_code == 200
+    assert len(token_calls) == 2, "el refresh NO se repite: 1 inicial + 1 forzado"
+    assert len(api_calls) == 3, "401 -> re-emision -> 429 con backoff -> 200"
+    assert len(sleeps) == 1, "el 429 post-refresh SI recibe su backoff normal"

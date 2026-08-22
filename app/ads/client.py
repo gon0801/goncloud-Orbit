@@ -211,7 +211,13 @@ class AdsClient:
         )
 
         if resp.status_code == 401:
-            # UN refresh forzado + UN retry, nada mas (no se compone con 429/5xx).
+            # UN refresh forzado, JAMAS un segundo (aunque el 401 persista).
+            # La re-emision post-refresh conserva a proposito la politica
+            # normal de 429/5xx/red: un throttle despues de refrescar merece
+            # el mismo backoff que uno antes -- abortar seria convertir un
+            # transitorio en error duro. Tope de red total acotado: dos
+            # ventanas de _send_with_retries como maximo, nunca 4x4 ni
+            # refresh repetido (semantica sellada por test).
             # Re-enviar el POST aqui es seguro: un 401 significa RECHAZADO
             # antes de procesar, no ambiguo.
             token = self._ensure_token(force=True)
