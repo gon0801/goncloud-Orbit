@@ -37,6 +37,7 @@ import socket
 from contextlib import contextmanager
 from decimal import Decimal
 
+import pglast
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
@@ -44,6 +45,7 @@ from psycopg.conninfo import make_conninfo
 from psycopg.types.json import Json
 from test_schema import SQL, _postgres_obligatorio_ausente, _test_dsn
 
+from app import api as api_mod
 from app.main import app
 
 DECIDED_AT = dt.datetime(2026, 8, 22, 12, 0, tzinfo=dt.UTC)
@@ -382,6 +384,42 @@ def test_status_tolera_notes_de_ciclo_muerto_en_texto_plano(monkeypatch):
     _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
+def test_status_ignora_ciclos_de_otro_motor(monkeypatch):
+    """Regresion (hallazgo reviewer 3.2, baja): /status es del optimizador;
+    un ciclo futuro de OTRO motor con la misma plataforma no puede colarse
+    como 'ultimo ciclo' (filtro motor='ads_optimizer' sellado)."""
+    with _db_temporal("orbit_api_otro_motor") as (conn, dsn):
+        ids = _siembra_maestra(conn)
+        # ciclo de otro motor con id MAYOR al nuevo: no debe ganar el DISTINCT
+        otro = conn.execute(
+            "INSERT INTO optimizer_cycle (motor, mode, platform, status, finished_at)"
+            " VALUES ('otro_motor', 'shadow', 'amazon_us', 'done', %s) RETURNING id",
+            (DECIDED_AT,),
+        ).fetchone()[0]
+        assert otro > ids["ciclo_nuevo"]
+
+        resp = _cliente(dsn, monkeypatch).get("/api/ads-optimizer/status")
+        assert resp.status_code == 200
+        us = resp.json()["plataformas"]["amazon_us"]
+        assert us["ultimo_ciclo"]["id"] == ids["ciclo_nuevo"]
+
+
+def test_sql_del_router_parsea_como_postgres():
+    """Sintaxis de las SQL del router (patron test_cycle::test_sql_del_modulo):
+    sin Postgres local el pre-push no ejercita los queries de integracion;
+    pglast valida que las constantes del router parsean como Postgres real
+    (regla 9: un typo de SQL muere en el CI, no en produccion)."""
+    nombres = sorted(n for n in vars(api_mod) if n.startswith("_SQL_"))
+    assert nombres, "no se encontraron constantes _SQL_* en app/api"
+    for nombre in nombres:
+        sql = getattr(api_mod, nombre).replace("%s", "NULL").replace("{filtros}", "true")
+        assert pglast.parse_sql(sql), f"{nombre} no parseo"
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
 def test_status_plataforma_sin_datos_devuelve_nulls(monkeypatch):
     """Una plataforma sin ciclos ni metricas aparece con nulls, no con 404."""
     with _db_temporal("orbit_api_vacio") as (conn, dsn):
@@ -566,12 +604,42 @@ def test_router_ads_optimizer_solo_registra_get():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(
-    _postgres_obligatorio_ausente(),
-    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
-)
 def test_sin_dsn_de_lectura_fail_closed_503(monkeypatch):
+    """Sin `ORBIT_DSN_READ` el router responde 503 con mensaje claro (la
+    dependencia falla ANTES de conectar: no requiere Postgres, corre siempre).
+    """
     monkeypatch.delenv("ORBIT_DSN_READ", raising=False)
     resp = TestClient(app).get("/api/ads-optimizer/status")
     assert resp.status_code == 503
     assert "ORBIT_DSN_READ" in resp.json()["detail"]
+
+
+def test_conexion_de_lectura_corre_en_autocommit(monkeypatch):
+    """Regresion (auto-review 3.2): la conexion de lectura abre en AUTCOMMIT.
+
+    La API es de SOLO LECTURA: una transaccion implicita ociosa por request
+    (que psycopg abriria con la primera consulta y solo cerraria el rollback
+    de close()) es basura; cada SELECT debe ser una lectura autonoma."""
+    import app.api as api
+
+    llamadas: dict = {}
+
+    class _FakeConn:
+        def close(self) -> None:
+            pass
+
+    def _fake_connect(dsn, **kw):
+        llamadas["dsn"] = dsn
+        llamadas.update(kw)
+        return _FakeConn()
+
+    monkeypatch.setenv("ORBIT_DSN_READ", "postgresql://orbit_read:secreta@127.0.0.1:5432/orbit")
+    monkeypatch.setattr(api, "connect", _fake_connect)
+
+    generador = api._conexion_lectura()
+    conn = next(generador)
+    generador.close()
+
+    assert isinstance(conn, _FakeConn)
+    assert llamadas["dsn"] == "postgresql://orbit_read:secreta@127.0.0.1:5432/orbit"
+    assert llamadas["autocommit"] is True

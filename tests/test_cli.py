@@ -160,6 +160,65 @@ def test_cli_cycle_ocupado_sale_cero(monkeypatch, capsys):
     assert "ya en curso" in capsys.readouterr().err
 
 
+def test_cli_cycle_args_extra_rechazados(monkeypatch, capsys):
+    """Regresion (hallazgo reviewer 3.2, baja): el ciclo ESCRIBE decisiones;
+    un flag mal tipeado (p.ej. --decided-at-time) NO puede ignorarse en
+    silencio y correr con el reloj equivocado: es un error del operador."""
+    capturado = _captura(monkeypatch)
+    monkeypatch.setenv("ORBIT_DSN_DECIDE", "postgresql://orbit_decide:secreta@127.0.0.1:5432/orbit")
+
+    codigo = cli.main(
+        ["cycle", "--platform", "amazon_us", "--decided-at-time", "2026-08-22T12:00:00+00:00"]
+    )
+
+    assert codigo == 2
+    assert "desconocidos" in capsys.readouterr().err
+    assert not capturado  # el orquestador JAMAS se llamo
+
+
+def test_cli_ingest_structure_args_extra_rechazados(monkeypatch, capsys):
+    """Regresion (hallazgo reviewer 3.2, baja): `ingest structure` no define
+    ninguna opcion; tokens extra ahi son un error del operador, no basura
+    ignorada en silencio."""
+    llamadas: list = []
+
+    def _main_estructura():
+        llamadas.append("structure")
+        return 0
+
+    monkeypatch.setattr("app.ads.structure.main", _main_estructura)
+    codigo = cli.main(["ingest", "structure", "--fecha", "2026-08-20"])
+
+    assert codigo == 2
+    assert "desconocidos" in capsys.readouterr().err
+    assert llamadas == []  # el pipeline JAMAS se llamo
+
+
+def test_cli_cycle_imprime_motivo_si_no_done(monkeypatch, capsys):
+    """Observacion reviewer 3.2: el operador manual del ciclo necesita el
+    PORQUE de un skipped/degraded; el resumen imprime el motivo_skip del
+    notes sin tragar el JSON entero."""
+
+    def _skipped(conn, **kwargs):
+        return ciclo.ResultadoCiclo(
+            cycle_id=7,
+            status="skipped",
+            decisions_count=0,
+            notes='{"skips": {}, "motivo_skip": "escalera_off", "detalle": "escalera global off"}',
+        )
+
+    monkeypatch.setattr(ciclo, "corre_ciclo", _skipped)
+    monkeypatch.setattr(cli, "connect", lambda dsn: _FakeConn())
+    monkeypatch.setenv("ORBIT_DSN_DECIDE", "postgresql://orbit_decide:secreta@127.0.0.1:5432/orbit")
+
+    codigo = cli.main(["cycle", "--platform", "amazon_us"])
+
+    assert codigo == 0
+    out = capsys.readouterr().out
+    assert "status=skipped" in out
+    assert "motivo: escalera_off" in out
+
+
 # ---------------------------------------------------------------------------
 # 3. ingest: delega a los pipelines de app/ads (el mismo camino, cero logica)
 # ---------------------------------------------------------------------------

@@ -39,6 +39,7 @@ import logging
 import os
 from typing import Annotated, Literal
 
+import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 from psycopg.rows import dict_row
 
@@ -66,6 +67,7 @@ SELECT DISTINCT ON (platform) id, mode, platform, started_at, finished_at,
        decisions_count, applied_count, status, notes
   FROM optimizer_cycle
  WHERE platform IS NOT NULL
+   AND motor = 'ads_optimizer'
  ORDER BY platform, id DESC
 """
 
@@ -101,7 +103,11 @@ def _conexion_lectura():
 
     Fail-closed: sin DSN -> 503 con mensaje claro (la API no puede operar sin
     config); fallo de conexion -> 503 con el DSN ya redactado por
-    `app.db.connect` (jamas el DSN crudo en la respuesta).
+    `app.db.connect` (jamas el DSN crudo en la respuesta). La conexion corre
+    en AUTCOMMIT: la API es de SOLO LECTURA y una transaccion implicita
+    ociosa por request (que psycopg abriria con la primera consulta y solo
+    cerraria el rollback de close()) no aporta nada y mantiene un snapshot
+    vivo de mas: cada SELECT es una lectura autonoma.
     """
     dsn = os.environ.get("ORBIT_DSN_READ")
     if not dsn:
@@ -110,7 +116,7 @@ def _conexion_lectura():
             detail="ORBIT_DSN_READ no esta definido: la API de lectura no puede conectar",
         )
     try:
-        conn = connect(dsn)
+        conn = connect(dsn, autocommit=True)
     except OrbitDbError as exc:
         logger.warning("no se pudo conectar la API de lectura: %s", exc)
         raise HTTPException(status_code=503, detail=str(exc)) from None
@@ -120,7 +126,7 @@ def _conexion_lectura():
         conn.close()
 
 
-ConexionLectura = Annotated[object, Depends(_conexion_lectura)]
+ConexionLectura = Annotated[psycopg.Connection, Depends(_conexion_lectura)]
 
 
 def _dec_str(valor) -> str | None:
@@ -214,6 +220,10 @@ def status(conn: ConexionLectura) -> dict:
     plataforma sin datos aparece con nulls, no con 404: el status es un
     panorama de TODAS las plataformas del vocabulario sellado.
 
+    CONTRATO DE TIPOS: `watermark` es una FECHA (ISO, "2026-08-19") y
+    `synced_at` un TIMESTAMP (ISO con offset): son dos magnitudes distintas
+    del mismo panorama de frescura, no se normalizan entre si.
+
     NOTA: las consultas de watermark/synced importan las constantes de
     windows.py (columna sin ALIAS: `max(...)`), asi que aqui se leen por
     INDICE con row_factory por defecto (tuplas); las consultas de audit/goals
@@ -297,7 +307,13 @@ def goals(
     enabled: bool | None = None,
 ) -> list[dict]:
     """Lectura de goals (la escritura es decision humana: app_admin via el
-    camino de 4.3; /goals write llega en PR2 con auth propia)."""
+    camino de 4.3; /goals write llega en PR2 con auth propia).
+
+    NOTA DE CONTRATO: un goal de scope=campaign trae `platform: null` (la
+    columna es NULL por `goal_scope_coherente`; la plataforma se resuelve por
+    su ad_entity_id). El filtro `platform` SI lo incluye (subconsulta a
+    ad_entity, misma resolucion que app/cycle), pero el consumidor que quiera
+    la plataforma de un goal de campana debe unirla por ad_entity_id."""
     conn.row_factory = dict_row
     filtros, params = _filtros_goals(platform, scope, enabled)
     filas = conn.execute(_SQL_GOALS.format(filtros=filtros), params).fetchall()

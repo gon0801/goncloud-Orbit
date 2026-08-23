@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import json
 import os
 import socket
 import sys
@@ -94,14 +95,29 @@ def _cycle(args) -> int:
         f"cycle_id={resultado.cycle_id} status={resultado.status} "
         f"decisions_count={resultado.decisions_count}"
     )
+    if resultado.status != "done":
+        # El operador manual del ciclo necesita el PORQUE de un skipped/
+        # degraded sin tragar el JSON entero (observacion reviewer 3.2).
+        try:
+            notas = json.loads(resultado.notes)
+        except (ValueError, TypeError):
+            print(f"notas: {resultado.notes[:200]}")
+        else:
+            motivo = notas.get("motivo_skip") or notas.get("error")
+            print(f"motivo: {motivo or 'ver notes del ciclo'}")
     return 0
 
 
 def _ingest(args, rest: list[str]) -> int:
     """`ingest`: delega a los mains de los pipelines (el mismo camino, cero
     logica duplicada; cada pipeline exige su propio ORBIT_DSN_INGEST y sella
-    su ingest_run). argparse ya valido `pipeline` contra las choices."""
+    su ingest_run). argparse ya valido `pipeline` contra las choices.
+    `metrics` acepta los args del pipeline (--fecha/--fecha-fin); `structure`
+    no define ninguna opcion: tokens extra ahi son un error del operador."""
     if args.pipeline == "structure":
+        if rest:
+            print(f"argumentos desconocidos para 'ingest structure': {rest}", file=sys.stderr)
+            return 2
         return structure.main()
     if args.pipeline == "metrics":
         return reports.main(rest)
@@ -144,9 +160,15 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     args, rest = parser.parse_known_args(argv)
-    if args.comando == "ingest":
-        return _ingest(args, rest)
-    return _cycle(args)
+    if args.comando == "cycle":
+        # El ciclo ESCRIBE decisiones: un flag mal tipeado que se ignorara en
+        # silencio correria con el reloj equivocado (hallazgo reviewer 3.2,
+        # baja). Los tokens extra de `cycle` son SIEMPRE un error del operador.
+        if rest:
+            print(f"argumentos desconocidos para 'cycle': {rest}", file=sys.stderr)
+            return 2
+        return _cycle(args)
+    return _ingest(args, rest)
 
 
 if __name__ == "__main__":
