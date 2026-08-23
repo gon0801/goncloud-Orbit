@@ -89,6 +89,18 @@ install_scrub_filter(logger)
 
 MOTOR = "ads_optimizer"
 
+
+def job_key_de(platform: str) -> str:
+    """job_key del lock del ciclo para `platform` (UNA fuente, regla 2).
+
+    El cron de 4.2 y el CLI de 3.3 comparten este MISMO job_key: si
+    divergieran, dos procesos correrian ciclos paralelos sin claim comun
+    (dos envelopes 'running' sobre la misma plataforma). El claim atomico de
+    _SQL_CLAIM se toma contra esta clave.
+    """
+    return f"{MOTOR}:{platform}"
+
+
 # Motivos de skip del ORQUESTADOR (vocabulario cerrado; ademas se importan los
 # MOTIVO_* de bid/hygiene tal cual a los contadores de notes).
 MOTIVO_SIN_GOAL = "sin_goal"
@@ -993,7 +1005,7 @@ def corre_ciclo(
         raise ValueError(f"plataforma fuera del vocabulario sellado: {platform!r}")
     if heartbeat_cada <= 0:
         raise ValueError("heartbeat_cada debe ser > 0")
-    job_key = f"{MOTOR}:{platform}"
+    job_key = job_key_de(platform)
     conn.commit()  # no-op en IDLE: el modulo empieza desde estado limpio
     hb = _abre_heartbeat(conn)
     cycle_id: int | None = None
