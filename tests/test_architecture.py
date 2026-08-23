@@ -44,6 +44,15 @@ ALLOWLIST_TAMANO = {
         "fusion de grano); candidato DECLARADO a partirse en "
         "report_pipeline/metrics/terms la proxima vez que se toque en grande"
     ),
+    "app/cycle.py": (
+        "ORBIT 03 task 3.1: orquestador del ciclo, ubicacion SELLADA por el "
+        "plan (importa psycopg, fuera del motor puro) y API publica sellada "
+        "(corre_ciclo + reproduce para el spot-check 4.4). Sus piezas (SQL "
+        "sellada de claim/envelope/rastro, 3 fases de transaccion, "
+        "serializacion congelada de inputs y replay) no tienen frontera "
+        "coherente para partirse sin romper el sellado; partir por partir "
+        "esta prohibido por la regla anti-Goodhart"
+    ),
 }
 
 

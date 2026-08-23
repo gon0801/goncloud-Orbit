@@ -435,6 +435,25 @@ def ventana_cortes(
     return _agrega_metricas(conn, ad_entity_id, inicio_ventana(window_end), window_end)
 
 
+def _ventanas_metricas(
+    conn: psycopg.Connection, ad_entity_id: int, decided_at: dt.datetime
+) -> tuple[AgregadoMetricas | None, AgregadoMetricas | None]:
+    """El par (bids, cortes) compartiendo el ANCLA: max(metric_date) de la
+    entidad en v_metric_latest se computa UNA vez (misma fila consultada dos
+    veces por ventanas_entidad; plan ORBIT 03 punto 8) y cada agregado corre
+    sobre SU PROPIA ventana con SU PROPIA query (el agregado de cortes NUNCA
+    se deriva del de bids: Spec delta). (None, None) sin observaciones."""
+    max_fecha = _max_fecha(conn, ad_entity_id)
+    if max_fecha is None:
+        return (None, None)
+    fin_bids = fin_ventana_bids(max_fecha)
+    fin_cortes = fin_ventana_cortes(max_fecha, decided_at)
+    return (
+        _agrega_metricas(conn, ad_entity_id, inicio_ventana(fin_bids), fin_bids),
+        _agrega_metricas(conn, ad_entity_id, inicio_ventana(fin_cortes), fin_cortes),
+    )
+
+
 def terminos_cortes(
     conn: psycopg.Connection, ad_entity_id: int, decided_at: dt.datetime
 ) -> TerminosCortes:
@@ -494,11 +513,13 @@ def ventanas_entidad(
 ) -> VentanasEntidad:
     """Las DOS ventanas de una entidad + sus terminos en un solo pedido
     (conveniencia para 3.1). Cada agregado sale de su propia query sobre su
-    propia ventana."""
+    propia ventana; el ancla max(metric_date) se computa UNA sola vez (ver
+    _ventanas_metricas)."""
+    bids, cortes = _ventanas_metricas(conn, ad_entity_id, decided_at)
     return VentanasEntidad(
         ad_entity_id=ad_entity_id,
-        bids=ventana_bids(conn, ad_entity_id),
-        cortes=ventana_cortes(conn, ad_entity_id, decided_at),
+        bids=bids,
+        cortes=cortes,
         terminos=terminos_cortes(conn, ad_entity_id, decided_at),
     )
 
