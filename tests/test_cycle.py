@@ -646,12 +646,8 @@ def test_claim_ttl_vencido_reclamable_con_rastro_del_muerto():
         assert json.loads(res.notes)["ciclos_muertos"] == [huerfano]
 
 
-@pytest.mark.skipif(
-    _postgres_obligatorio_ausente(),
-    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
-)
 def _trabajador_race(owner, conectar, barrera, ganadores, ocupados) -> None:
-    """Un competidor del claim:conexion propia, sincronizado por la barrera.
+    """Un competidor del claim: conexion propia, sincronizada por la barrera.
     Todo por parametro (B023): nada capturado del loop."""
     propia = conectar()
     try:
@@ -955,6 +951,130 @@ def test_opt_out_goal_campana_deshabilitado():
         # goal de campana deshabilitado (pisa a la plataforma: 2.4 EN LA APP)
         assert notes["skips"]["entidad"] == {"goal_disabled": 2}
         assert notes["skips"]["termino"] == {"goal_disabled": 5}
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_gates_de_elegibilidad_sin_goal_mode_off_estado_y_cooldown():
+    """Los 4 gates de elegibilidad sin test propio (hallazgo verificador):
+    sin_goal (ciclo 1, sin ningun goal), goal_mode_off, estado_no_enabled y
+    cooldown_7d (ciclo 2, con goal de plataforma habilitado + overrides por
+    campana). Cada keyword elegible queda contada por SU motivo exacto y
+    ninguna genera decision."""
+    with _db_temporal("orbit_ciclo_gates") as (conn, _c):
+        run_id = _run(conn)
+        config_id = _config_version(conn, {"ads_optimizer_mode": "shadow"})
+        synced = DECIDED_AT - dt.timedelta(hours=4)
+
+        # keyword S: campana SIN goal de ningun tipo
+        camp_s = _entidad(conn, "amazon_us", "campaign", "9601")
+        ag_s = _entidad(conn, "amazon_us", "ad_group", "9611", parent=camp_s)
+        kw_s = _entidad(
+            conn, "amazon_us", "keyword", "9621", parent=ag_s, match_type="EXACT", keyword_text="s"
+        )
+        _estado(conn, camp_s, synced_at=synced)
+        _estado(conn, ag_s, synced_at=synced)
+        _estado(conn, kw_s, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
+        _siembra_kw_bid(conn, run_id, kw_s)
+
+        # ciclo 1: sin goals -> todo elegible-pero-sin-goal
+        res1 = _corre(conn)
+        assert res1.status == "done"
+        assert res1.decisions_count == 0
+        assert json.loads(res1.notes)["skips"]["entidad"] == {"sin_goal": 1}
+
+        # ciclo 2: plataforma habilitada (mode shadow) + overrides por campana
+        _goal_plataforma(conn)
+        # M: goal de campana habilitado con mode 'off' -> goal_mode_off
+        camp_m = _entidad(conn, "amazon_us", "campaign", "9602")
+        ag_m = _entidad(conn, "amazon_us", "ad_group", "9612", parent=camp_m)
+        kw_m = _entidad(
+            conn, "amazon_us", "keyword", "9622", parent=ag_m, match_type="EXACT", keyword_text="m"
+        )
+        conn.execute(
+            "INSERT INTO ads_optimizer_goal (scope, ad_entity_id, target_acos_pct, bid_floor,"
+            " bid_ceiling, bid_currency, enabled, mode)"
+            " VALUES ('campaign', %s, 25, 0.40, 2.50, 'USD', true, 'off')",
+            (camp_m,),
+        )
+        _estado(conn, camp_m, synced_at=synced)
+        _estado(conn, ag_m, synced_at=synced)
+        _estado(conn, kw_m, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
+        _siembra_kw_bid(conn, run_id, kw_m)
+        # E: cubierta por la plataforma pero su keyword esta PAUSED -> estado_no_enabled
+        camp_e = _entidad(conn, "amazon_us", "campaign", "9603")
+        ag_e = _entidad(conn, "amazon_us", "ad_group", "9613", parent=camp_e)
+        kw_e = _entidad(
+            conn, "amazon_us", "keyword", "9623", parent=ag_e, match_type="EXACT", keyword_text="e"
+        )
+        _estado(conn, camp_e, synced_at=synced)
+        _estado(conn, ag_e, synced_at=synced)
+        _estado(
+            conn,
+            kw_e,
+            synced_at=synced,
+            current_bid=Decimal("1.00"),
+            bid_currency="USD",
+            status="PAUSED",
+        )
+        _siembra_kw_bid(conn, run_id, kw_e)
+        # C: elegible PERO en cooldown: apply verificado de un ciclo LIVE hace <7d
+        camp_c = _entidad(conn, "amazon_us", "campaign", "9604")
+        ag_c = _entidad(conn, "amazon_us", "ad_group", "9614", parent=camp_c)
+        kw_c = _entidad(
+            conn, "amazon_us", "keyword", "9624", parent=ag_c, match_type="EXACT", keyword_text="c"
+        )
+        _estado(conn, camp_c, synced_at=synced)
+        _estado(conn, ag_c, synced_at=synced)
+        _estado(conn, kw_c, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
+        _siembra_kw_bid(conn, run_id, kw_c)
+        ciclo_vivo = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        dec_viva = conn.execute(
+            "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
+            " data_observed_at, window_start, window_end, old_value, new_value, value_currency,"
+            " inputs) VALUES (%s, %s, 'bid', %s, %s, %s, %s, %s, 1.00, 0.75, 'USD', %s)"
+            " RETURNING id",
+            (
+                ciclo_vivo,
+                kw_c,
+                DECIDED_AT - dt.timedelta(days=7),
+                config_id,
+                DECIDED_AT - dt.timedelta(days=7, hours=1),
+                dt.date(2026, 7, 20),
+                dt.date(2026, 8, 10),
+                Json({"seed": "cooldown"}),
+            ),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO decision_application (decision_id, attempted_at, confirmed_at,"
+            " verify_ok, platform_ack) VALUES (%s, %s, %s, true, %s)",
+            (
+                dec_viva,
+                DECIDED_AT - dt.timedelta(days=6),
+                DECIDED_AT - dt.timedelta(days=6),
+                Json({"estado": "ok"}),
+            ),
+        )
+
+        res2 = _corre(conn)
+        assert res2.status == "done"
+        skips_entidad = json.loads(res2.notes)["skips"]["entidad"]
+        # kw_s ya NO esta en sin_goal: con goal de plataforma y metricas
+        # maduras DECIDE banda -25 (1 decision), no skip. Los tres gates
+        # cuentan cada keyword gateada por SU motivo exacto.
+        assert skips_entidad == {"goal_mode_off": 1, "estado_no_enabled": 1, "cooldown_7d": 1}
+        decs = conn.execute(
+            "SELECT d.ad_entity_id, d.kind FROM decision d JOIN optimizer_cycle oc"
+            " ON oc.id = d.cycle_id WHERE oc.id = %s",
+            (res2.cycle_id,),
+        ).fetchall()
+        # la unica decision del ciclo 2 es la banda de kw_s (target 25 por
+        # plataforma, ACoS 36%): las tres gateadas NO decidieron
+        assert [(d[0], d[1]) for d in decs] == [(kw_s, "bid")]
 
 
 # ---------------------------------------------------------------------------
