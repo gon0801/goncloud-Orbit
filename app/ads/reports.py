@@ -159,13 +159,22 @@ Search terms (task 1.4):
   FUSIONA las filas validas de la misma clave SUMANDO metricas: los
   aportes por keyword al mismo hecho son disjuntos (sumar no inventa dato)
   hacia la identidad (ad_group, termino, fecha) del esquema sellado, la que
-  el motor consume. Honestidad de la evidencia: la disyuncion de los
-  aportes se verifico en el sondeo (grano nativo del reporte); el payload
-  que guardamos NO trae keywordId, asi que no es re-verificable desde los
-  datos almacenados (hallazgo reviewer). Cada fila absorbida cuenta como
-  rows_skipped "fila agregada por clave duplicada en el reporte": la
-  contabilidad rows_written + rows_skipped == filas sigue cuadrando y la
-  fusion queda visible en skip_reason de la run.
+  el motor consume. DISYUNCION VERIFICADA EN VIVO (sondeo con la columna
+  keyword, cross-review 1.5): las 3 claves repetidas del 2026-08-19 eran
+  aportes por keywords DISTINTAS con vectores de metricas distintos, 0
+  copias identicas; el payload que guardamos NO trae keywordId, asi que la
+  disyuncion no es re-verificable desde los datos almacenados (hallazgo
+  reviewer). Semantica de None en la fusion (hallazgo codex): si ALGUN
+  aporte trajo la metrica ausente, la fusionada queda None (envenenamiento:
+  un agregado parcial jamas se guarda como completo; regla 3); solo se suma
+  cuando TODOS los aportes la reportaron. Y metrica NEGATIVA en cualquier
+  fila cruda aborta la corrida fail-closed (hallazgos codex+grok): la
+  fusion podria compensar el negativo con un positivo hermano y colarlo
+  bajo el CHECK st_metric_no_negativos -- ese nivel de corrupcion se quiere
+  VER, no tragar. Cada fila absorbida cuenta como rows_skipped "fila
+  agregada por clave duplicada en el reporte": la contabilidad
+  rows_written + rows_skipped == filas sigue cuadrando y la fusion queda
+  visible en skip_reason de la run.
 - Dedupe por source_report_id (indice parcial st_metric_dedupe_reporte),
   igual que metricas: la defensa para la RE-INGESTA del mismo reporte (la
   fusion del planificador ya hace imposible dos inserts de la misma clave
@@ -756,21 +765,21 @@ def es_asin_like(termino: str) -> bool:
 
 
 def _sumar_decimal(actual: Decimal | None, aporte: Decimal | None) -> Decimal | None:
-    """Fusion de dinero por clave duplicada: None aporta nada (None + X = X);
-    si TODAS las filas de la clave trajeron None, queda None (regla 3)."""
-    if actual is None:
-        return aporte
-    if aporte is None:
-        return actual
+    """Fusion de dinero por clave duplicada, con ENVENENAMIENTO de None: si
+    ALGUN aporte de la clave trajo la metrica AUSENTE, la fusionada queda
+    None (hallazgo codex, cross-review 1.5: None + X = X trataba el ausente
+    como 0 implicito y guardaba un agregado parcial como completo, contra la
+    regla 3). Solo se suma cuando TODOS los aportes reportaron la metrica;
+    None + None = None (la metrica que nadie trae, regla 3)."""
+    if actual is None or aporte is None:
+        return None
     return actual + aporte
 
 
 def _sumar_entero(actual: int | None, aporte: int | None) -> int | None:
-    """Espejo entero de _sumar_decimal (misma semantica de None)."""
-    if actual is None:
-        return aporte
-    if aporte is None:
-        return actual
+    """Espejo entero de _sumar_decimal (mismo envenenamiento de None)."""
+    if actual is None or aporte is None:
+        return None
     return actual + aporte
 
 
@@ -795,20 +804,25 @@ def _planea_filas_terminos(
     FUSION por clave duplicada (grano multiple del reporte, verificado EN
     VIVO en el sondeo 1.5 del 2026-08-23): el mismo (adGroupId, searchTerm,
     date) llega en varias filas -- el termino convierte via keywords
-    distintas del mismo ad group -- y las filas VALIDAS de la misma clave se
-    fusionan SUMANDO metricas (cost/ad_revenue como Decimal y clicks/orders
-    como int via _sumar_decimal/_sumar_entero: None aporta nada y la
-    metrica que nadie trae queda None, regla 3). Los aportes por keyword al
-    mismo hecho son disjuntos: sumar no inventa dato hacia la identidad
-    (ad_group, termino, fecha) del esquema sellado, la que el motor consume
-    -- un orders subestimado por first-wins puede generar un NEGATIVE_EXACT
-    erroneo en 2.3. is_asin_like no se toca: es funcion del termino, igual
-    en toda la clave. Cada fila absorbida cuenta como skip "fila agregada
-    por clave duplicada en el reporte" (clave de vocabulario CERRADO: la
-    contabilidad rows_written + rows_skipped == filas sigue cuadrando y la
-    fusion queda visible en skip_reason de la run; el detalle de la clave va
-    al log). El acumulador por dict preserva el orden de aparicion: el plan
-    sale en el orden de PRIMERA aparicion de cada clave (determinista).
+    distintas del mismo ad group, DISYUNCION confirmada con la columna
+    keyword (0 copias identicas; cross-review 1.5) -- y las filas VALIDAS de
+    la misma clave se fusionan SUMANDO metricas (cost/ad_revenue como
+    Decimal y clicks/orders como int via _sumar_decimal/_sumar_entero, con
+    ENVENENAMIENTO: si algun aporte trajo la metrica ausente, la fusionada
+    queda None -- un agregado parcial jamas se guarda como completo, regla
+    3). Metrica NEGATIVA en cualquier fila cruda -> AdsReportsError (la
+    corrida aborta fail-closed: la fusion podria compensarla bajo el CHECK
+    de la base; ese nivel de corrupcion se quiere ver). Sumar no inventa
+    dato hacia la identidad (ad_group, termino, fecha) del esquema sellado,
+    la que el motor consume -- un orders subestimado por first-wins puede
+    generar un NEGATIVE_EXACT erroneo en 2.3. is_asin_like no se toca: es
+    funcion del termino, igual en toda la clave. Cada fila absorbida cuenta
+    como skip "fila agregada por clave duplicada en el reporte" (clave de
+    vocabulario CERRADO: la contabilidad rows_written + rows_skipped ==
+    filas sigue cuadrando y la fusion queda visible en skip_reason de la
+    run; el detalle de la clave va al log). El acumulador por dict preserva
+    el orden de aparicion: el plan sale en el orden de PRIMERA aparicion de
+    cada clave (determinista).
     """
     plan: list[_FilaTermino] = []
     skips: Counter[str] = Counter()
@@ -864,6 +878,21 @@ def _planea_filas_terminos(
             skips["fila sin ninguna metrica"] += 1
             logger.debug("fila sin ninguna metrica: %s %s %s", etiqueta, external_id, metric_date)
             continue
+        # Negativos = dato corrupto y la corrida ABORTA (fail-closed), igual
+        # que el CHECK st_metric_no_negativos hace para metricas: alla la base
+        # ve cada fila cruda, pero la FUSION podria compensar un negativo con
+        # un positivo hermano y colarlo (hallazgos codex+grok, cross-review
+        # 1.5) -- este nivel de corrupcion se quiere VER, no tragar.
+        if (
+            (cost is not None and cost < 0)
+            or (ad_revenue is not None and ad_revenue < 0)
+            or (clicks is not None and clicks < 0)
+            or (orders is not None and orders < 0)
+        ):
+            raise AdsReportsError(
+                f"fila de {etiqueta} con metrica negativa (dato corrupto): "
+                "la corrida aborta fail-closed"
+            )
         previa = por_clave.get((external_id, search_term, metric_date))
         if previa is not None:
             # Grano multiple del reporte: los aportes por keyword al mismo

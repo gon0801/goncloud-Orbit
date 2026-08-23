@@ -656,14 +656,16 @@ def test_plan_terminos_clasifica_y_gates():
 
 def test_plan_terminos_fusiona_claves_duplicadas():
     """Regla 9 (grano multiple verificado EN VIVO, sondeo 1.5 del 2026-08-23:
-    US, reporte del 2026-08-19: 113 filas -> 110 claves, 3 repetidas x2):
-    el MISMO (adGroupId, searchTerm, date) llega en varias filas porque el
-    termino convierte via keywords distintas del mismo ad group. El
-    first-wins anterior perdia las metricas de la segunda fila -- un orders
-    subestimado puede generar un NEGATIVE_EXACT erroneo en el motor 2.3 --
-    asi que las filas validas de la misma clave se FUSIONAN sumando
-    metricas: los aportes por keyword al mismo hecho son disjuntos (sumar
-    no inventa dato) hacia la identidad sellada que el motor consume."""
+    US, reporte del 2026-08-19: 113 filas -> 110 claves, 3 repetidas x2, TODAS
+    por keywords distintas con vectores distintos -- disyuncion confirmada con
+    la columna keyword en la cross-review 1.5): el MISMO (adGroupId,
+    searchTerm, date) llega en varias filas porque el termino convierte via
+    keywords distintas del mismo ad group. El first-wins anterior perdia las
+    metricas de la segunda fila -- un orders subestimado puede generar un
+    NEGATIVE_EXACT erroneo en el motor 2.3 -- asi que las filas validas de la
+    misma clave se FUSIONAN sumando metricas. La metrica que ALGUN aporte
+    trajo ausente envenena la fusionada a None (hallazgo codex: un agregado
+    parcial jamas se guarda como completo; regla 3)."""
     filas = [
         {
             "date": "2026-08-20",
@@ -672,6 +674,7 @@ def test_plan_terminos_fusiona_claves_duplicadas():
             "clicks": 5,
             "cost": 1.25,
             "sales7d": 100.0,
+            "purchases7d": 1,
         },
         # misma clave (via otra keyword del mismo ad group): se FUSIONA
         {
@@ -680,6 +683,26 @@ def test_plan_terminos_fusiona_claves_duplicadas():
             "searchTerm": "arras for wedding ceremony",
             "clicks": 7,
             "cost": 2.0,
+            "sales7d": 50.0,
+            "purchases7d": 2,
+        },
+        # otra clave donde UN aporte trae cost ausente: la fusionada queda
+        # envenenada a None en cost, pero clicks/orders (presentes en ambas)
+        # si se suman
+        {
+            "date": "2026-08-20",
+            "adGroupId": 9202,
+            "searchTerm": "arras de boda",
+            "clicks": 1,
+            "purchases7d": 5,
+        },
+        {
+            "date": "2026-08-20",
+            "adGroupId": 9202,
+            "searchTerm": "arras de boda",
+            "clicks": 2,
+            "cost": 0.5,
+            "purchases7d": 2,
         },
     ]
 
@@ -691,18 +714,63 @@ def test_plan_terminos_fusiona_claves_duplicadas():
         fecha_fin=dt.date(2026, 8, 20),
     )
 
-    # UNA sola fila en el plan: la segunda se agrego a la primera
-    assert len(plan) == 1
-    fusionada = plan[0]
+    assert len(plan) == 2
+    fusionada = next(f for f in plan if f.search_term == "arras for wedding ceremony")
     assert isinstance(fusionada, _FilaTermino)
     assert fusionada.cost == Decimal("3.25")  # 1.25 + 2.0, Decimal via str
     assert fusionada.clicks == 12  # 5 + 7
-    # presente + None: None aporta nada
-    assert fusionada.ad_revenue == Decimal("100.0")
-    # None + None: metrica que nadie trae queda None (regla 3)
-    assert fusionada.orders is None
-    # la fila absorbida queda contada con la clave de vocabulario cerrado
-    assert skips == Counter({"fila agregada por clave duplicada en el reporte": 1})
+    assert fusionada.ad_revenue == Decimal("150.0")  # 100.0 + 50.0
+    # [hallazgo grok] la suma de ORDERS, la metrica que motiva el cambio
+    # (orders subestimado -> NEGATIVE_EXACT erroneo): 1 + 2 = 3
+    assert fusionada.orders == 3
+    # envenenamiento: cost ausente en UN aporte -> None aunque el otro trajo
+    # 0.5 (un agregado parcial no se guarda como completo); el resto suma
+    envenenada = next(f for f in plan if f.search_term == "arras de boda")
+    assert envenenada.cost is None
+    assert (envenenada.clicks, envenenada.orders) == (3, 7)
+    # las filas absorbidas quedan contadas con la clave de vocabulario cerrado
+    assert skips == Counter({"fila agregada por clave duplicada en el reporte": 2})
+
+
+def test_plan_terminos_metrica_negativa_aborta_fail_closed():
+    """[hallazgos codex+grok, cross-review 1.5] Metrica negativa en una fila
+    cruda ABORTA la corrida (AdsReportsError), aunque una hermana positiva de
+    la misma clave podria compensarla bajo la suma: el CHECK
+    st_metric_no_negativos de la base ya no ve las filas crudas (la fusion es
+    previa), y ese nivel de corrupcion se quiere VER, no tragar. Regla 9: sin
+    el pre-check, cost -1 + cost 4.0 fusionaba a 3.0 y la corrida quedaba
+    ok=true con el dato corrupto absorbido."""
+    filas = [
+        {
+            "date": "2026-08-20",
+            "adGroupId": 9101,
+            "searchTerm": "arras de boda",
+            "clicks": 2,
+            "cost": -1.0,
+            "purchases7d": 0,
+        },
+        # hermana positiva de la MISMA clave: sin el pre-check, la fusion
+        # compensaria el negativo (4.0 + (-1.0) = 3.0) y colaria
+        {
+            "date": "2026-08-20",
+            "adGroupId": 9101,
+            "searchTerm": "arras de boda",
+            "clicks": 3,
+            "cost": 4.0,
+            "purchases7d": 1,
+        },
+    ]
+
+    with pytest.raises(AdsReportsError) as excinfo:
+        _planea_filas_terminos(
+            SEARCH_TERMS_CFG,
+            filas,
+            hoy=dt.date(2026, 8, 21),
+            fecha_ini=dt.date(2026, 8, 20),
+            fecha_fin=dt.date(2026, 8, 20),
+        )
+    assert "negativa" in str(excinfo.value)
+    assert "fail-closed" in str(excinfo.value)
 
 
 def test_plan_terminos_primera_ocurrencia_invalida_no_contamina_la_clave():
@@ -1498,13 +1566,16 @@ def test_pipeline_search_terms_en_vivo():
             # del mismo ad group). El planificador FUSIONA las dos filas
             # SUMANDO metricas y cuenta la absorbida como rows_skipped con
             # motivo: sin perdida silenciosa, tal como promete el docstring
-            # del modulo.
+            # del modulo. La fila trae TODAS las columnas con ceros explicitos
+            # (como la API real, sondeo): la fusion suma 0+0 sin envenenar.
             {
                 "date": str(ayer),
                 "adGroupId": 9101,
                 "searchTerm": "B0AB12CD34",
                 "clicks": 7,
                 "cost": 2.0,
+                "purchases7d": 0,
+                "sales7d": 0,
             },
         ]
 
