@@ -1,9 +1,10 @@
-# DEPLOY — Base de datos Orbit (Postgres 16 en goncloud)
+# DEPLOY — Orbit en goncloud (Postgres 16 + app)
 
-> Runbook de operación de la base viva. Responde la pregunta de
-> reconstrucción: **¿cómo levanto esto desde cero?** (ver "Reconstruir
-> desde cero" y "Recuperación desde backups" al final — ambos procedures
-> fueron probados en vivo, no adivinados).
+> Runbook de operación de la base viva y del servicio `app` (API + CLI).
+> Responde la pregunta de reconstrucción: **¿cómo levanto esto desde
+> cero?** (ver "Reconstruir desde cero" y "Recuperación desde backups"
+> al final — el de la base se verificó en vivo; el de la app se verificó
+> en 4.1 con `curl /health` y `ss -lntp`).
 
 ## Dónde vive
 
@@ -11,25 +12,170 @@
   `accounting`, como manda `docs/CONTEXTO.md`.
 - **Dir de deploy:** `/mnt/data/appdata/orbit/`
   - `docker-compose.yml` — copia del repo (fuente de verdad: el repo).
+  - `Dockerfile`, `pyproject.toml`, `uv.lock`, `app/` — contexto de build
+    de la imagen `app` (se copian del repo; ver "Servicio app").
   - `.env` — `POSTGRES_USER=orbit` + `POSTGRES_PASSWORD` + los DSN por
     servicio (incluido `ORBIT_DSN_TEST`). Permisos `600`, **nunca se
     commitea** (está en `.gitignore`).
+  - `secrets/` — credenciales (LWA, etc.). Dir `700`, archivos `600`,
+    dueño `root`. **Jamás relajar estos permisos.** El contenedor `app`
+    corre como `user: "0:0"` precisamente para leerlos sin chmod.
   - `backups/` — dumps diarios (`700`; dumps `600`).
   - `backup.sh` + cron — ver "Backups".
-- **Contenedor:** `orbit-db-1` (imagen `postgres:16`, volumen `orbit_pgdata`).
-- **Red:** bind `127.0.0.1:5432` SOLO en loopback del server (`ss -lntp` lo
-  confirma). No hay puerto abierto al exterior: el acceso remoto es por
-  túnel SSH.
+  - `logs/` — stdout de los crons de Orbit (escribible por `gon`).
+- **Contenedores:** `orbit-db-1` (imagen `postgres:16`, volumen
+  `orbit_pgdata`) y `orbit-app-1` (imagen construida del repo con
+  `uv sync --frozen`).
+- **Red:** bind `127.0.0.1:5432` (Postgres) y `127.0.0.1:8010` (app)
+  SOLO en loopback del server (`ss -lntp` lo confirma). Nunca `0.0.0.0`
+  (lección de los puertos 8055/8056, 7 semanas expuestos). El acceso
+  remoto a la base es por túnel SSH.
 
 ## Levantar / parar
 
 ```bash
 ssh goncloud
 cd /mnt/data/appdata/orbit
-docker compose up -d        # levanta (o nada si ya está)
-docker compose ps           # debe decir Up y 127.0.0.1:5432->5432
+docker compose up -d        # levanta db+app (o nada si ya están)
+docker compose ps           # db: 127.0.0.1:5432->5432 ; app: 127.0.0.1:8010->8000
 docker exec orbit-db-1 pg_isready -U orbit   # accepting connections
+curl -sS http://127.0.0.1:8010/health        # {"status":"ok"}
 ```
+
+`docker compose up -d --no-deps --build app` construye/recrea SOLO la
+app. **`--no-deps` es obligatorio:** un `up --build app` sin él recreó
+`orbit-db-1` en 4.1 (el volumen `orbit_pgdata` persistió — 5,897
+entidades intactas — pero hubo ~1 s de downtime). Verificar después
+que el container id de `orbit-db-1` no cambió. El compose en el server
+debe ser LF (CRLF de un scp desde Windows cuenta como cambio de
+config y dispara recreate).
+
+## Servicio app (API + CLI)
+
+Imagen construida **en el server** desde el repo, con el lockfile
+pinneado. Uvicorn sirve `app.main:app` en el puerto 8000 *dentro* del
+contenedor; compose publica `127.0.0.1:8010:8000` (8010 se verificó
+libre con `ss -lntp` el 2026-08-23; si un día está ocupado, elegir otro
+loopback y documentarlo aquí — jamás caer a `0.0.0.0`).
+
+**Por qué `ORBIT_PG_HOST=db`:** los DSN del `.env` apuntan a
+`127.0.0.1:5432` (bind del host, para psql/túnel/backup). Dentro del
+contenedor ese address es el propio `app`, no Postgres. El rewrite en
+`app.db.connect` (`aplicar_host_override`) sustituye el loopback por el
+nombre del servicio compose `db`. En el host y en CI la var no existe y
+el DSN no se toca. El `.env` no se duplica ni se reescribe.
+
+**Por qué `user: "0:0"`:** los archivos de `secrets/` son `root:root`
+`0600` y **así se quedan**. Un uid distinto no los puede leer; chmod
+para acomodar un usuario no-root está prohibido. El mount es `:ro` (el
+contenedor no puede escribir ni relajar permisos).
+
+**Qué se monta:** SOLO `secrets/` (read-only). Ni backups, ni `.env`
+como archivo (los DSN llegan por `env_file`). `.dockerignore` excluye
+`.env` y `secrets/` del contexto de build: no entran a la imagen.
+
+Reconstruir/actualizar **solo la app** (Postgres intacto):
+
+```bash
+ssh goncloud
+cd /mnt/data/appdata/orbit
+# copiar del repo: Dockerfile .dockerignore pyproject.toml uv.lock app/
+docker compose up -d --build app
+curl -sS http://127.0.0.1:8010/health
+ss -lntp | grep 8010    # debe decir 127.0.0.1:8010, NUNCA *:8010
+# secrets/ sin tocar:
+stat -c '%a %U:%G %n' /mnt/data/appdata/orbit/secrets \
+  /mnt/data/appdata/orbit/secrets/*
+```
+
+CLI (el mismo camino que el cron; `exec` hereda el env del contenedor,
+incluido `ORBIT_PG_HOST` y los DSN):
+
+```bash
+cd /mnt/data/appdata/orbit
+docker compose exec -T app python -m app.cli ingest structure
+docker compose exec -T app python -m app.cli ingest metrics \
+  --fecha "$(date -u -d '31 days ago' +%F)" \
+  --fecha-fin "$(date -u -d '1 day ago' +%F)"
+docker compose exec -T app python -m app.cli cycle --platform amazon_us
+docker compose exec -T app python -m app.cli cycle --platform amazon_mx
+```
+
+`up --build` se corre como **root** (`.env` es `600` root, y **se queda
+así**). El crontab de `gon` no puede `docker compose exec` porque el
+servicio `db` (intocable) declara `env_file: .env` y compose lo abre al
+parsear el proyecto. `gon` está en el grupo `docker`: el cron usa
+`docker exec orbit-app-1`, el mismo contenedor, el mismo env. Un
+`compose exec` manual como root sí funciona.
+
+## Crons de Orbit (crontab de `gon`, ADITIVO)
+
+Tres jobs NUEVOS en el crontab de `gon`. Los de accounting (y el resto:
+EHV, heartbeat, etc.) **no se tocan**. El backup de Postgres sigue en el
+crontab de **root** (`30 3 * * * backup.sh`) — tampoco se toca.
+
+El server está en UTC: estas horas SON UTC.
+
+| UTC   | job_key | comando |
+|-------|---------|---------|
+| 06:45 | `ingest:structure` | `python -m app.cli ingest structure` |
+| 07:10 | `ingest:metrics` | `python -m app.cli ingest metrics --fecha D-31 --fecha-fin D-1` |
+| 08:40 | `ads_optimizer:amazon_us` + `ads_optimizer:amazon_mx` | `python -m app.cli cycle --platform …` (los dos, en serie) |
+
+`job_key` del ciclo es `app.cycle.job_key_de` (`ads_optimizer:<platform>`),
+la misma fuente que el CLI. Los de ingesta quedan como comentario en el
+crontab y como `ingest_run.source` (`amazon_ads_structure_v2` /
+`amazon_ads_reports_v3`).
+
+### Profundidad de la tirada diaria de métricas (sello 4.2)
+
+Evidencia de 1.5 (corrida 2026-08-22/23): reporting v3 sirve **95 días**
+de métricas (`spCampaigns`) y ~65 de search terms. El rango máximo de
+**un** request es **31 días** (`MAX_RANGO_DIAS` en `app/ads/reports.py`,
+verificado: un rango mayor revienta).
+
+La atribución de search terms madura 7 días → mínimo operacional
+**D-8..D-1**. Las columnas 30d de métricas maduran 30. Una tirada de
+solo "ayer" congelaría cada día con ~1 día de maduración (hallazgo
+codex 1.4, regla 6).
+
+**Sello: el cron diario pide D-31..D-1** (31 días, el tope de un
+request). Por qué no 95d: (1) un request no puede pedir más de 31 — partir
+en 4 requests alarga la ventana de API **sin** ganar maduración extra en
+días que el backfill y las tiradas previas ya cubrieron; (2) 31 días cubre
+enteras las columnas 30d y de sobra el mínimo D-8..D-1 de terms; (3) el
+costo de re-tirar es solo tiempo de reporte; la bitemporalidad hace el
+re-pull dedupe-safe (observación nueva, el motor colapsa a la más
+reciente). El lookback de 95d queda como capacidad de **backfill**, no
+como cadencia diaria.
+
+Bloque para el crontab de `gon` (idempotente: el filtro borra SOLO las
+líneas de Orbit, no las de accounting):
+
+```bash
+ssh goncloud 'bash -s' <<'SCRIPT'
+set -euo pipefail
+STAMP=$(date -u +%Y%m%d-%H%M%S)
+crontab -u gon -l > /mnt/data/appdata/orbit/archive/crontab-gon.$STAMP
+mkdir -p /mnt/data/appdata/orbit/logs
+chown gon:gon /mnt/data/appdata/orbit/logs
+ORBIT_BLOCK=$(cat <<'CRON'
+# === Orbit (ORBIT 03 / 4.2) ===
+# job_key=ingest:structure
+45 6 * * * docker exec orbit-app-1 python -m app.cli ingest structure >> /mnt/data/appdata/orbit/logs/ingest-structure.log 2>&1
+# job_key=ingest:metrics  profundidad D-31..D-1 (sello 4.2; max API 31d cubre atribucion 30d)
+10 7 * * * FECHA=$(date -u -d "31 days ago" +%F) FECHA_FIN=$(date -u -d "1 day ago" +%F) && docker exec orbit-app-1 python -m app.cli ingest metrics --fecha "$FECHA" --fecha-fin "$FECHA_FIN" >> /mnt/data/appdata/orbit/logs/ingest-metrics.log 2>&1
+# job_key=ads_optimizer:amazon_us + ads_optimizer:amazon_mx
+40 8 * * * docker exec orbit-app-1 python -m app.cli cycle --platform amazon_us >> /mnt/data/appdata/orbit/logs/optimizer.log 2>&1; docker exec orbit-app-1 python -m app.cli cycle --platform amazon_mx >> /mnt/data/appdata/orbit/logs/optimizer.log 2>&1
+CRON
+)
+{ crontab -u gon -l 2>/dev/null | grep -v "Orbit (ORBIT 03" | grep -v "job_key=ingest:" | grep -v "job_key=ads_optimizer" | grep -v "app.cli ingest" | grep -v "app.cli cycle" ; printf "%s\n" "$ORBIT_BLOCK" ; } | crontab -u gon -
+crontab -u gon -l
+SCRIPT
+```
+
+Diff obligatorio contra el respaldo: las líneas de accounting deben
+seguir byte-iguales. Solo aparecen las 3 (más comentarios) de Orbit.
 
 ## Usuarios y DSN
 
@@ -244,10 +390,13 @@ trigger `prohibir_mutacion`. Y el `UPDATE` de `fx_rate` necesita una fila
 presente (los triggers append-only son row-level: con la tabla vacía no
 disparan), por eso el INSERT dentro de la transacción que se revierte.
 
-## Reconstruir desde cero (base nueva, sin backups)
+## Reconstruir desde cero (app + base nuevas, sin backups)
 
-1. En goncloud: `mkdir -p /mnt/data/appdata/orbit`.
-2. Copiar `docker-compose.yml` del repo al dir de deploy.
+1. En goncloud: `mkdir -p /mnt/data/appdata/orbit/{backups,archive,logs,secrets}`.
+   Permisos: `secrets/` `700`, `backups/` `700`. Archivos de secretos `600`
+   root — **jamás** `chmod` para acomodar un usuario del contenedor.
+2. Copiar del repo al dir de deploy: `docker-compose.yml`, `Dockerfile`,
+   `.dockerignore`, `pyproject.toml`, `uv.lock`, `app/`.
 3. Crear `.env` (600) con `POSTGRES_USER=orbit` y un
    `POSTGRES_PASSWORD` generado en el server (≥24 chars, nunca commiteado):
    ```bash
@@ -255,13 +404,19 @@ disparan), por eso el INSERT dentro de la transacción que se revierte.
      { echo "POSTGRES_USER=orbit"; echo "POSTGRES_PASSWORD=$(head -c 48 \
      /dev/urandom | base64 | tr -dc "A-Za-z0-9" | head -c 32)"; } > .env'
    ```
-4. `docker compose up -d` y esperar `pg_isready` (ver "Levantar").
+4. `docker compose up -d` y esperar `pg_isready` + `curl 127.0.0.1:8010/health`
+   (ver "Levantar"). `ss -lntp` debe mostrar 5432 y 8010 **solo** en
+   127.0.0.1.
 5. Aplicar `migrations/0001_initial.sql` (ver "Aplicar migraciones").
 6. Crear los usuarios LOGIN por servicio + `orbit_test` (ver "Usuarios y
    DSN": comandos exactos arriba).
-7. Instalar el backup: `backup.sh` + cron (ver "Backups").
-8. Verificar: suite completa por túnel (30 passed, 0 skipped) + smoke de
-   candados.
+7. Poblar `secrets/` (amazon_ads_config.json + amazon_ads_tokens.json,
+   etc.; nombres verificados en el server, valores jamás al repo).
+8. Instalar el backup: `backup.sh` + cron de **root** (ver "Backups").
+9. Instalar los 3 crons de Orbit en el crontab de **gon** (ver "Crons de
+   Orbit") — ADITIVO, no pisa accounting.
+10. Verificar: suite completa por túnel + smoke de candados +
+    `curl 127.0.0.1:8010/health` + una corrida manual de cada job del CLI.
 
 ## Recuperación desde backups (pérdida del volumen) — pasos verificados por separado, NO punta a punta
 

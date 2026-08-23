@@ -49,9 +49,11 @@ todas las formas de abajo fueron verificadas en vivo):
   el remedio: re-pedir un dia ya ingerido crea una observacion NUEVA (report
   id distinto) y el motor colapsa a la mas reciente. Requisito operacional
   del cron de 4.2: la tirada diaria re-incluye la ventana de maduracion --
-  MINIMO D-8..D-1 por los 7d de search terms; la profundidad final para las
-  30d se sella en 4.2 junto al lookback medido de 1.5. Sin esa ventana, los
-  cortes de higiene deciden sobre datos inmaduros (regla 6).
+  MINIMO D-8..D-1 por los 7d de search terms. Sello 4.2: el cron pide
+  D-31..D-1 (31 dias = tope de un request de reporting v3, cubre las
+  columnas 30d; el lookback maximo medido en 1.5 es 95d y queda para
+  backfill, no para la cadencia diaria). Ver docs/DEPLOY.md. Sin esa
+  ventana, los cortes de higiene deciden sobre datos inmaduros (regla 6).
 
 Arquitectura (regla 1, igual que app.ads.structure): IO de API separada de IO
 de DB, y fase de API COMPLETA antes de la fase de DB (ninguna transaccion de

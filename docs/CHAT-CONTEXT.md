@@ -4,11 +4,11 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
-**Última actualización: 2026-08-24 — Phases 1, 2 y 3 de ORBIT 03 COMPLETAS,
-revisadas y mergeadas a master (motor puro + orquestador + API de lectura +
-CLI + candados anti-monolito). Sigue Phase 4: deploy, crons y los dos
-checkpoints humanos del dueño. Este archivo tiene candado de frescura: el CI
-exige actualizarlo en cada PR que cierre tareas.**
+**Última actualización: 2026-08-23 — Phases 1–3 en master; 4.1 y 4.2 hechas
+en goncloud (servicio `app` en 127.0.0.1:8010 + 3 crons aditivos, profundidad
+diaria D-31..D-1). Siguen 4.3 (seed humano), 4.4 (primer shadow real) y 4.5
+(cierre). Este archivo tiene candado de frescura: el CI exige actualizarlo
+en cada PR que cierre tareas.**
 
 ## Qué es Orbit
 
@@ -39,8 +39,11 @@ escribe nada a Amazon hasta pasar validación humana (el "apply" llega en PR2).
   a los pipelines de `app/ads/`); candados anti-monolito activos
   (complejidad, fronteras de imports, tamaño de módulos, frescura de este
   archivo).
-- **En curso**: Phase 4 (deploy, crons, seed humano de goals, primer shadow
-  real).
+- **En curso / PR draft Phase 4**: 4.1 servicio `app` vivo (`curl
+  127.0.0.1:8010/health` OK, puerto solo en loopback, `secrets/` 0600
+  intactos) y 4.2 tres crons en el crontab de `gon` (accounting intacto).
+  Pendiente del dueño: 4.3 seed de config/goals; del lead: 4.4 spot-check
+  y 4.5 cierre. No se ejecutó el seed ni se marcó el PR ready.
 - **Datos reales ya en la base viva** (Postgres en el server `goncloud`):
   5,897 entidades, ~22,000 observaciones de métricas, ~6,900 de search terms.
 
@@ -117,7 +120,9 @@ PR1 'live' degrada a shadow (fail-closed).
 - **Monedas**: el sistema viejo mezcló MXN/USD (error de 18.66× a favor de
   "todo es rentabilísimo"). En Orbit es imposible por schema.
 - **El día en curso** llega incompleto y etiquetado con su fecha: el cron
-  re-tira D-8..D-1 y la bitemporalidad lo hace seguro.
+  re-tira D-31..D-1 (sello 4.2: tope de un request = 31d, cubre las
+  columnas 30d y el mínimo D-8..D-1 de terms) y la bitemporalidad lo hace
+  seguro.
 - **La pregunta sin respuesta**: si la cuenta US gana o pierde depende del
   supuesto de halo (entre +1,671 y −2,238 USD en 91 días). Decisión pendiente
   antes de la fase margin-aware: acotar, holdout, o TACoS.
