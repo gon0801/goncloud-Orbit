@@ -732,6 +732,60 @@ def test_plan_terminos_fusiona_claves_duplicadas():
     assert skips == Counter({"fila agregada por clave duplicada en el reporte": 2})
 
 
+def test_plan_terminos_par_envenenado_no_llega_al_insert():
+    """[review PR #11, minor obligatorio] Dos filas parciales COMPLEMENTARIAS
+    (cada una trae metricas que la otra no) fusionan a TODO-None por
+    envenenamiento. Sin el gate post-fusion, esa observacion 100% vacia llega
+    al INSERT y TAPA datos completos anteriores en el colapso a-la-mas-reciente
+    (mismo hallazgo alto que 1.3 cerro para metricas). El plan debe quedar SIN
+    la clave; si una tercera fila de la misma clave trae metricas completas,
+    entra limpia (la clave descartada no contamina)."""
+    filas = [
+        # fila parcial 1: solo clicks
+        {"date": "2026-08-20", "adGroupId": 9101, "searchTerm": "arras de boda", "clicks": 5},
+        # fila parcial 2 (misma clave): solo cost -> el par envenena TODAS
+        # las metricas (clicks 5+None=None, cost None+0.5=None, resto None)
+        {"date": "2026-08-20", "adGroupId": 9101, "searchTerm": "arras de boda", "cost": 0.5},
+        # tercera fila de la MISMA clave con metricas completas: entra limpia
+        {
+            "date": "2026-08-20",
+            "adGroupId": 9101,
+            "searchTerm": "arras de boda",
+            "clicks": 3,
+            "cost": 0.9,
+            "purchases7d": 1,
+            "sales7d": 20.0,
+        },
+    ]
+
+    plan, skips = _planea_filas_terminos(
+        SEARCH_TERMS_CFG,
+        filas,
+        hoy=dt.date(2026, 8, 21),
+        fecha_ini=dt.date(2026, 8, 20),
+        fecha_fin=dt.date(2026, 8, 20),
+    )
+
+    # el par envenenado NO llega al plan: ninguna fila con todas las
+    # metricas en None (regla 9: sin el gate, el plan traia UNA fila vacia
+    # camino al INSERT)
+    assert len(plan) == 1
+    limpia = plan[0]
+    assert (limpia.clicks, limpia.cost, limpia.orders, limpia.ad_revenue) == (
+        3,
+        Decimal("0.9"),
+        1,
+        Decimal("20.0"),
+    )
+    # contabilidad: 3 filas -> 1 planificada + 1 absorbida + 1 vacia post-fusion
+    assert skips == Counter(
+        {
+            "fila agregada por clave duplicada en el reporte": 1,
+            "fila sin ninguna metrica": 1,
+        }
+    )
+
+
 def test_plan_terminos_metrica_negativa_aborta_fail_closed():
     """[hallazgos codex+grok, cross-review 1.5] Metrica negativa en una fila
     cruda ABORTA la corrida (AdsReportsError), aunque una hermana positiva de

@@ -164,17 +164,24 @@ Search terms (task 1.4):
   aportes por keywords DISTINTAS con vectores de metricas distintos, 0
   copias identicas; el payload que guardamos NO trae keywordId, asi que la
   disyuncion no es re-verificable desde los datos almacenados (hallazgo
-  reviewer). Semantica de None en la fusion (hallazgo codex): si ALGUN
-  aporte trajo la metrica ausente, la fusionada queda None (envenenamiento:
-  un agregado parcial jamas se guarda como completo; regla 3); solo se suma
-  cuando TODOS los aportes la reportaron. Y metrica NEGATIVA en cualquier
-  fila cruda aborta la corrida fail-closed (hallazgos codex+grok): la
-  fusion podria compensar el negativo con un positivo hermano y colarlo
-  bajo el CHECK st_metric_no_negativos -- ese nivel de corrupcion se quiere
-  VER, no tragar. Cada fila absorbida cuenta como rows_skipped "fila
-  agregada por clave duplicada en el reporte": la contabilidad
-  rows_written + rows_skipped == filas sigue cuadrando y la fusion queda
-  visible en skip_reason de la run.
+  reviewer). SEMANTICA DE None EN LA FUSION -- DECISION SELLADA (review del
+  PR #11, major; supersede el mensaje del commit e1492bd): un campo ausente
+  es DESCONOCIDO, no cero; si ALGUN aporte trajo la metrica ausente, la
+  fusionada queda None (envenenamiento: la suma con sumando desconocido es
+  desconocida, y 0+None=0 en orders dispararia NEGATIVE_EXACT contra un
+  termino convertidor -- el bug exacto que la fusion vino a matar; regla 3).
+  Solo se suma cuando TODOS los aportes la reportaron. Y si la fusion deja
+  la clave SIN NINGUNA metrica (par complementario envenenado), la clave NO
+  se escribe: una observacion 100% vacia taparia datos completos anteriores
+  en el colapso a-la-mas-reciente (mismo hallazgo alto que 1.3 cerro para
+  metricas) y contaria como skip "fila sin ninguna metrica". Metrica
+  NEGATIVA en cualquier fila cruda aborta la corrida fail-closed (hallazgos
+  codex+grok): la fusion podria compensar el negativo con un positivo
+  hermano y colarlo bajo el CHECK st_metric_no_negativos -- ese nivel de
+  corrupcion se quiere VER, no tragar. Cada fila absorbida cuenta como
+  rows_skipped "fila agregada por clave duplicada en el reporte": la
+  contabilidad rows_written + rows_skipped == filas sigue cuadrando y la
+  fusion queda visible en skip_reason de la run.
 - Dedupe por source_report_id (indice parcial st_metric_dedupe_reporte),
   igual que metricas: la defensa para la RE-INGESTA del mismo reporte (la
   fusion del planificador ya hace imposible dos inserts de la misma clave
@@ -765,19 +772,25 @@ def es_asin_like(termino: str) -> bool:
 
 
 def _sumar_decimal(actual: Decimal | None, aporte: Decimal | None) -> Decimal | None:
-    """Fusion de dinero por clave duplicada, con ENVENENAMIENTO de None: si
-    ALGUN aporte de la clave trajo la metrica AUSENTE, la fusionada queda
-    None (hallazgo codex, cross-review 1.5: None + X = X trataba el ausente
-    como 0 implicito y guardaba un agregado parcial como completo, contra la
-    regla 3). Solo se suma cuando TODOS los aportes reportaron la metrica;
-    None + None = None (la metrica que nadie trae, regla 3)."""
+    """Fusion de dinero por clave duplicada, con ENVENENAMIENTO de None.
+
+    DECISION SELLADA (review PR #11, major; SUPERSEDE el mensaje del commit
+    e1492bd, que decia "None aporta nada; todo-None queda None"): si ALGUN
+    aporte de la clave trajo la metrica AUSENTE, la fusionada queda None. Un
+    campo ausente en el reporte es DESCONOCIDO, no cero: la suma con un
+    sumando desconocido es desconocida, y guardar 0+None como 0 trataria el
+    ausente como aporte nulo inventado (regla 3) -- en orders, un 0+None=0
+    dispararia NEGATIVE_EXACT contra un termino convertidor, exactamente el
+    bug que la fusion vino a matar. Solo se suma cuando TODOS los aportes
+    reportaron la metrica; None + None = None."""
     if actual is None or aporte is None:
         return None
     return actual + aporte
 
 
 def _sumar_entero(actual: int | None, aporte: int | None) -> int | None:
-    """Espejo entero de _sumar_decimal (mismo envenenamiento de None)."""
+    """Espejo entero de _sumar_decimal (mismo envenenamiento de None: decision
+    sellada de la review del PR #11, supersede el mensaje del commit e1492bd)."""
     if actual is None or aporte is None:
         return None
     return actual + aporte
@@ -910,6 +923,33 @@ def _planea_filas_terminos(
                 search_term,
                 metric_date,
             )
+            # [review PR #11, minor obligatorio] Gate POST-fusion: un par
+            # complementario (cada fila trae metricas que la otra no)
+            # envenena TODAS las metricas de la clave. Una observacion 100%
+            # vacia NO se escribe: taparia datos completos anteriores en el
+            # colapso a-la-mas-reciente (mismo hallazgo alto que 1.3 cerro
+            # para metricas) Y su previa envenenada arruinaria filas buenas
+            # posteriores de la misma clave. La clave se DESCARTA del
+            # acumulador: si otra fila de la misma clave llega despues con
+            # metricas, entra como clave nueva limpia. Contablemente cuenta
+            # como "fila sin ninguna metrica" (ademas del "agregada" de la
+            # absorbida): written + skipped == filas sigue cuadrando.
+            if (
+                previa.cost is None
+                and previa.ad_revenue is None
+                and previa.clicks is None
+                and previa.orders is None
+            ):
+                del por_clave[(external_id, search_term, metric_date)]
+                plan.remove(previa)
+                skips["fila sin ninguna metrica"] += 1
+                logger.debug(
+                    "fusion dejo la clave sin ninguna metrica (par envenenado), "
+                    "no se escribe: %s %s %s",
+                    etiqueta,
+                    external_id,
+                    search_term,
+                )
             continue
         fila = _FilaTermino(
             external_id=external_id,
