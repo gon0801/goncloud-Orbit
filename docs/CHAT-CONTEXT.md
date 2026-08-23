@@ -5,7 +5,8 @@
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
 **Última actualización: 2026-08-23 — Phase 1 y Phase 2 de ORBIT 03 completas
-y revisadas; Phase 3 (orquestador) en implementación.**
+y revisadas; Phase 3 (orquestador) en implementación. Este archivo tiene
+candado de frescura: el CI exige actualizarlo en cada PR que cierre tareas.**
 
 ## Qué es Orbit
 
