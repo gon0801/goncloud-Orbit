@@ -1452,10 +1452,12 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
             sync_metrics(conn, client, fecha_ini=ayer, fecha_fin=ayer, sleep=lambda s: None)
         fallo_create["on"] = False
 
+        # id de la run fallida consultado, no derivado de la secuencia
+        # (nitpick CodeRabbit, mismo patron que arriba): nextval no se
+        # revierte en un rollback y un hueco dejaria el SELECT sin fila
         run_api = conn.execute(
             "SELECT ok, rows_written, rows_skipped, skip_reason, finished_at"
-            " FROM ingest_run WHERE id = %s",
-            (res_vendor.run_id + 1,),
+            " FROM ingest_run WHERE ok IS FALSE ORDER BY id DESC LIMIT 1"
         ).fetchone()
         assert run_api[0] is False
         assert run_api[1] is None  # nunca llego a contar
