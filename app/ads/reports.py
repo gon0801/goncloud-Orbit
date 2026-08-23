@@ -159,10 +159,13 @@ Search terms (task 1.4):
   FUSIONA las filas validas de la misma clave SUMANDO metricas: los
   aportes por keyword al mismo hecho son disjuntos (sumar no inventa dato)
   hacia la identidad (ad_group, termino, fecha) del esquema sellado, la que
-  el motor consume. Cada fila absorbida cuenta como rows_skipped "fila
-  agregada por clave duplicada en el reporte": la contabilidad
-  rows_written + rows_skipped == filas sigue cuadrando y la fusion queda
-  visible en skip_reason de la run.
+  el motor consume. Honestidad de la evidencia: la disyuncion de los
+  aportes se verifico en el sondeo (grano nativo del reporte); el payload
+  que guardamos NO trae keywordId, asi que no es re-verificable desde los
+  datos almacenados (hallazgo reviewer). Cada fila absorbida cuenta como
+  rows_skipped "fila agregada por clave duplicada en el reporte": la
+  contabilidad rows_written + rows_skipped == filas sigue cuadrando y la
+  fusion queda visible en skip_reason de la run.
 - Dedupe por source_report_id (indice parcial st_metric_dedupe_reporte),
   igual que metricas: la defensa para la RE-INGESTA del mismo reporte (la
   fusion del planificador ya hace imposible dos inserts de la misma clave

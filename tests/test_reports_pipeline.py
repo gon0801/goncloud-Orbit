@@ -705,6 +705,81 @@ def test_plan_terminos_fusiona_claves_duplicadas():
     assert skips == Counter({"fila agregada por clave duplicada en el reporte": 1})
 
 
+def test_plan_terminos_primera_ocurrencia_invalida_no_contamina_la_clave():
+    """[hallazgo reviewer] El orden gate-antes-de-fusion, pineado para la
+    MISMA clave: una primera ocurrencia invalida (purchases7d fraccionario)
+    se salta con su motivo y NO entra al acumulador; la segunda valida de la
+    misma clave entra limpia. Fusionar antes de validar descartaria o
+    contaminaria la fila buena y este test voltearia. Afirma tambien una
+    clave con 3 filas (el sondeo solo vio x2; el camino es el mismo)."""
+    filas = [
+        # primera ocurrencia INVALIDA de la clave (via keyword A): skip
+        {
+            "date": "2026-08-20",
+            "adGroupId": 9101,
+            "searchTerm": "arras para boda catolica",
+            "clicks": 3,
+            "cost": 0.6,
+            "purchases7d": 2.5,
+        },
+        # segunda ocurrencia VALIDA (via keyword B): entra sola al plan
+        {
+            "date": "2026-08-20",
+            "adGroupId": 9101,
+            "searchTerm": "arras para boda catolica",
+            "clicks": 4,
+            "cost": 0.8,
+            "purchases7d": 1,
+        },
+        # otra clave con TRES filas validas: dos fusiones
+        {
+            "date": "2026-08-20",
+            "adGroupId": 9202,
+            "searchTerm": "arras de boda",
+            "clicks": 1,
+            "cost": 0.1,
+        },
+        {
+            "date": "2026-08-20",
+            "adGroupId": 9202,
+            "searchTerm": "arras de boda",
+            "clicks": 2,
+            "cost": 0.2,
+        },
+        {
+            "date": "2026-08-20",
+            "adGroupId": 9202,
+            "searchTerm": "arras de boda",
+            "clicks": 3,
+            "cost": 0.3,
+        },
+    ]
+
+    plan, skips = _planea_filas_terminos(
+        SEARCH_TERMS_CFG,
+        filas,
+        hoy=dt.date(2026, 8, 21),
+        fecha_ini=dt.date(2026, 8, 20),
+        fecha_fin=dt.date(2026, 8, 20),
+    )
+
+    # la clave con primera-ocurrencia-invalida entra SOLO con la fila valida:
+    # el 2.5 fraccionario no contamina (regla 9: sin el orden gate->fusion,
+    # esta fila se perderia o contaminaria y este test voltea)
+    assert len(plan) == 2
+    boda = next(f for f in plan if f.search_term == "arras para boda catolica")
+    assert (boda.clicks, boda.cost, boda.orders) == (4, Decimal("0.8"), 1)
+    # clave de 3 filas: metricas de las tres sumadas
+    arras = next(f for f in plan if f.search_term == "arras de boda")
+    assert (arras.clicks, arras.cost) == (6, Decimal("0.6"))
+    assert skips == Counter(
+        {
+            "fila de search_terms con metrica no numerica o fraccionaria": 1,
+            "fila agregada por clave duplicada en el reporte": 2,
+        }
+    )
+
+
 # ---------------------------------------------------------------------------
 # (a) UNITARIOS - CLI: fail-closed y rango de fechas
 # ---------------------------------------------------------------------------
