@@ -32,11 +32,12 @@ import httpx
 import pytest
 from test_schema import SQL, _hay_postgres_local, _test_dsn
 
-from app.ads.client import AdsClient
+from app.ads.client import AdsApiError, AdsClient
 from app.ads.config import AdsCredentials
 from app.ads.reports import (
     CAMPANAS_CFG,
     KEYWORDS_CFG,
+    MAX_BYTES_REPORTE,
     SOURCE,
     AdsReportsError,
     _FilaPlano,
@@ -296,6 +297,49 @@ def test_descarga_que_no_es_array_da_error_claro():
     assert "array JSON" in str(excinfo.value)
 
 
+def test_reporte_con_file_size_anormal_da_error_antes_de_descargar():
+    """[hallazgo codex] fileSize del poll (campo verificado en vivo) > tope ->
+    fail-closed ANTES de meter el gzip anormal a memoria."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token(request)
+        return httpx.Response(
+            200,
+            json={
+                "reportId": "rep-grande",
+                "status": "COMPLETED",
+                "url": "https://bucket.example.com/rep-grande.gz",
+                "fileSize": MAX_BYTES_REPORTE + 1,
+            },
+        )
+
+    client = _cliente(handler)
+    with pytest.raises(AdsReportsError) as excinfo:
+        esperar_reporte(client, _perfil(101, "US"), "rep-grande", sleep=lambda segundos: None)
+    assert "fileSize" in str(excinfo.value)
+    assert "fail-closed" in str(excinfo.value)
+
+
+def test_descarga_sobre_el_tope_de_bytes_da_error(monkeypatch):
+    """[hallazgo codex] Segunda guarda: el contenido REAL excede el tope
+    aunque el poll no trajera fileSize (o mintiera). El tope se achica via
+    monkeypatch para no alocar 512 MB en el test; la logica es la misma."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token(request)
+        return httpx.Response(200, content=b"x" * 64)
+
+    import app.ads.reports as reports_modulo
+
+    monkeypatch.setattr(reports_modulo, "MAX_BYTES_REPORTE", 16)
+    client = _cliente(handler)
+    with pytest.raises(AdsReportsError) as excinfo:
+        descargar_filas(client, "https://bucket.example.com/gordo.json")
+    assert "excede el tope" in str(excinfo.value)
+
+
 # ---------------------------------------------------------------------------
 # (a) UNITARIOS - planificacion pura (gates de fila, regla 9)
 # ---------------------------------------------------------------------------
@@ -312,10 +356,37 @@ def test_plan_filas_fecha_futura_se_salta_con_motivo():
         {"date": "2026-08-22", "campaignId": 9001, "cost": 1.0},
     ]
 
-    plan, skips = _planea_filas(CAMPANAS_CFG, filas, hoy=hoy)
+    plan, skips = _planea_filas(
+        CAMPANAS_CFG,
+        filas,
+        hoy=hoy,
+        fecha_ini=dt.date(2026, 8, 20),
+        fecha_fin=dt.date(2026, 8, 20),
+    )
 
     assert [fila.metric_date for fila in plan] == [dt.date(2026, 8, 20)]
     assert skips == Counter({"fila con metric_date futura": 1})
+
+
+def test_plan_filas_fecha_fuera_del_rango_se_salta():
+    """Regla 9 (hallazgo codex): una descarga equivocada (fila de anteayer en
+    un reporte de ayer) no puede contaminar fechas ajenas al rango pedido.
+    Sin la guarda, la fila entraria al INSERT y este test voltea."""
+    filas = [
+        {"date": "2026-08-20", "campaignId": 9001, "cost": 9.25},
+        {"date": "2026-08-19", "campaignId": 9001, "cost": 1.0},
+    ]
+
+    plan, skips = _planea_filas(
+        CAMPANAS_CFG,
+        filas,
+        hoy=dt.date(2026, 8, 21),
+        fecha_ini=dt.date(2026, 8, 20),
+        fecha_fin=dt.date(2026, 8, 20),
+    )
+
+    assert [fila.metric_date for fila in plan] == [dt.date(2026, 8, 20)]
+    assert skips == Counter({"fila con metric_date fuera del rango solicitado": 1})
 
 
 def test_plan_filas_same_sku_mayor_que_ad_revenue_se_salta():
@@ -330,17 +401,42 @@ def test_plan_filas_same_sku_mayor_que_ad_revenue_se_salta():
         }
     ]
 
-    plan, skips = _planea_filas(KEYWORDS_CFG, filas, hoy=dt.date(2026, 8, 21))
+    plan, skips = _planea_filas(
+        KEYWORDS_CFG,
+        filas,
+        hoy=dt.date(2026, 8, 21),
+        fecha_ini=dt.date(2026, 8, 20),
+        fecha_fin=dt.date(2026, 8, 20),
+    )
 
     assert plan == []
     assert skips == Counter({"fila con revenue_same_sku > ad_revenue": 1})
 
 
+def test_plan_filas_sin_ninguna_metrica_se_salta():
+    """Regla 9 (hallazgo codex): una fila sin NINGUN dato NO se escribe -- una
+    observacion vacia posterior llegaria a v_metric_latest y taparia datos
+    completos anteriores. Sin la guarda, la fila entraria con todo NULL y este
+    test voltea."""
+    filas = [
+        {"date": "2026-08-20", "campaignId": 9001},
+    ]
+
+    plan, skips = _planea_filas(
+        CAMPANAS_CFG,
+        filas,
+        hoy=dt.date(2026, 8, 21),
+        fecha_ini=dt.date(2026, 8, 20),
+        fecha_fin=dt.date(2026, 8, 20),
+    )
+
+    assert plan == []
+    assert skips == Counter({"fila sin ninguna metrica": 1})
+
+
 def test_plan_filas_metricas_ausentes_none_y_tipos_exactos():
     hoy = dt.date(2026, 8, 21)
     filas = [
-        # sin ninguna metrica: fila VALIDA con todo None (regla 3)
-        {"date": "2026-08-20", "campaignId": 9001},
         # ids NUMERO de la API y contadores como float enteros -> int
         {
             "date": "2026-08-20",
@@ -352,35 +448,46 @@ def test_plan_filas_metricas_ausentes_none_y_tipos_exactos():
             "clicks": 25,
             "purchases30d": 3,
         },
-        # sin id, con date invalida y con contador fraccionario: skips
+        # metrica parcial (solo clicks): fila VALIDA, el resto None (regla 3)
+        {"date": "2026-08-20", "campaignId": 9001, "clicks": 4},
+        # sin id, con date invalida, con contador fraccionario y sin NINGUNA
+        # metrica: skips
         {"date": "2026-08-20"},
         {"date": "viernes", "campaignId": 9001},
         {"date": "2026-08-20", "campaignId": 9001, "purchases30d": 2.5},
+        {"date": "2026-08-20", "campaignId": 9001},
     ]
 
-    plan, skips = _planea_filas(CAMPANAS_CFG, filas, hoy=hoy)
+    plan, skips = _planea_filas(
+        CAMPANAS_CFG,
+        filas,
+        hoy=hoy,
+        fecha_ini=dt.date(2026, 8, 20),
+        fecha_fin=dt.date(2026, 8, 20),
+    )
 
-    assert [fila.external_id for fila in plan] == ["9001", "138625505369345"]
-    sin_metricas = plan[0]
-    assert isinstance(sin_metricas, _FilaPlano)
-    assert (
-        sin_metricas.cost,
-        sin_metricas.ad_revenue,
-        sin_metricas.revenue_same_sku,
-        sin_metricas.impressions,
-        sin_metricas.clicks,
-        sin_metricas.orders,
-    ) == (None, None, None, None, None, None)
-    completa = plan[1]
+    assert [fila.external_id for fila in plan] == ["138625505369345", "9001"]
+    completa = plan[0]
+    assert isinstance(completa, _FilaPlano)
     assert completa.cost == Decimal("9.25")  # Decimal via str, jamas float
     assert completa.ad_revenue == Decimal("118.0")
     assert completa.revenue_same_sku == Decimal("0")
     assert (completa.impressions, completa.clicks, completa.orders) == (1660, 25, 3)
+    parcial = plan[1]
+    assert (
+        parcial.cost,
+        parcial.ad_revenue,
+        parcial.revenue_same_sku,
+        parcial.impressions,
+        parcial.clicks,
+        parcial.orders,
+    ) == (None, None, None, None, 4, None)
     assert skips == Counter(
         {
             "fila de campanas sin campaignId": 1,
             "fila con date invalida": 1,
             "fila de campanas con metrica no numerica o fraccionaria": 1,
+            "fila sin ninguna metrica": 1,
         }
     )
 
@@ -440,7 +547,7 @@ def test_sql_del_modulo_parsea_como_postgres():
 
     import app.ads.reports as reports_modulo
 
-    for nombre in ("_SQL_ENTIDADES", "_SQL_INSERT_METRICA"):
+    for nombre in ("_SQL_ENTIDADES", "_SQL_INSERT_METRICA", "_SQL_FECHA_HOY"):
         sql = getattr(reports_modulo, nombre).replace("%s", "NULL")
         assert pglast.parse_sql(sql), f"{nombre} no parseo"
 
@@ -470,6 +577,10 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
       CHECK simple de tabla).
     - PRIVILEGIO NEGATIVO (DoD): app_ingest no puede escribir decisions.
     - Fallo a mitad: rollback atomico + sello ok=false, nada a medias.
+    - Cero perfiles aceptados (grok): lista vacia o solo rechazados -> run
+      sellada ok=false CON motivo, jamas ok=true con 0 filas.
+    - Fallo de fase API (codex): create 400 -> run sellada ok=false con el
+      error y re-raise: toda invocacion deja fila auditable.
     """
     psycopg = pytest.importorskip("psycopg")
     from psycopg import sql as pgsql
@@ -501,6 +612,7 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
             ).fetchone()[0]
 
         camp_us = entidad("amazon_us", "campaign", "9001")
+        camp_us2 = entidad("amazon_us", "campaign", "9002")
         ag_us = entidad("amazon_us", "ad_group", "9101", parent=camp_us)
         kw_us = entidad(
             "amazon_us", "keyword", "9201", parent=ag_us, match_type="EXACT", keyword_text="zapato"
@@ -510,7 +622,6 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
 
         ahora = dt.datetime.now(dt.UTC)
         ayer = ahora.date() - dt.timedelta(days=1)
-        antesdeayer = ayer - dt.timedelta(days=1)
         manana = ahora.date() + dt.timedelta(days=1)
         medianoche_ayer = dt.datetime(ayer.year, ayer.month, ayer.day, tzinfo=dt.UTC)
 
@@ -572,8 +683,8 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
                         "impressions": 1660,
                     },
                     {
-                        "date": str(antesdeayer),
-                        "campaignId": 9001,
+                        "date": str(ayer),
+                        "campaignId": 9002,
                         "cost": 7.5,
                         "clicks": 10,
                         "impressions": 300,
@@ -647,12 +758,21 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
                 ]
             return []
 
+        # [fix grok] el mock puede degenerar /v2/profiles (vacio / solo
+        # rechazados) y [fix codex] puede romper la fase API (create 400)
+        perfiles_respuesta = {"lista": PERFILES_API}
+        fallo_create = {"on": False}
+
         def handler(request: httpx.Request) -> httpx.Response:
             if request.url.host == "api.amazon.com":
                 return _token(request)
             if request.url.path == "/v2/profiles":
-                return httpx.Response(200, json=PERFILES_API)
+                return httpx.Response(200, json=perfiles_respuesta["lista"])
             if request.method == "POST" and request.url.path == "/reporting/reports":
+                if fallo_create["on"]:
+                    # 400 en create: AdsApiError del cliente (POST no
+                    # idempotente, fail-closed sin retries)
+                    return httpx.Response(400, json={"code": 400})
                 cfg = json.loads(request.content)["configuration"]
                 scope = request.headers.get("Amazon-Advertising-API-Scope")
                 if cfg["reportTypeId"] == "spCampaigns":
@@ -686,9 +806,7 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
         # ------------------------------------------------------------------
         # CORRIDA 1
         # ------------------------------------------------------------------
-        res1 = sync_metrics(
-            conn, client, fecha_ini=ayer, fecha_fin=ayer, ahora_utc=ahora, sleep=lambda s: None
-        )
+        res1 = sync_metrics(conn, client, fecha_ini=ayer, fecha_fin=ayer, sleep=lambda s: None)
 
         # 4 escritas (camp/kw/tg US + camp MX) y 3 saltadas (entidad ausente,
         # same_sku > ad_revenue, fecha futura); los reportes MX sin entidades
@@ -762,9 +880,7 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
         # RE-REPORTE (DoD): misma source_report_id, filas nuevas + las mismas
         # ------------------------------------------------------------------
         corrida["n"] = 2
-        res2 = sync_metrics(
-            conn, client, fecha_ini=ayer, fecha_fin=ayer, ahora_utc=ahora, sleep=lambda s: None
-        )
+        res2 = sync_metrics(conn, client, fecha_ini=ayer, fecha_fin=ayer, sleep=lambda s: None)
 
         # lote mixto: 1 nueva + 4 duplicadas (las 4 validas de la corrida 1)
         assert res2.ok is True
@@ -785,7 +901,7 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
         nueva = conn.execute(
             "SELECT ingest_run_id, cost FROM ads_metric_observation"
             " WHERE ad_entity_id = %s AND metric_date = %s",
-            (camp_us, antesdeayer),
+            (camp_us2, ayer),
         ).fetchone()
         assert nueva == (res2.run_id, Decimal("7.5"))
 
@@ -797,9 +913,7 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
         # (entidad, fecha) a secas perderia las correcciones por clawback.
         # ------------------------------------------------------------------
         corrida["n"] = 3
-        res3 = sync_metrics(
-            conn, client, fecha_ini=ayer, fecha_fin=ayer, ahora_utc=ahora, sleep=lambda s: None
-        )
+        res3 = sync_metrics(conn, client, fecha_ini=ayer, fecha_fin=ayer, sleep=lambda s: None)
         assert res3.ok is True
         assert res3.rows_written == 4  # camp_us corregida + kw + tg + camp_mx
         assert res3.rows_skipped == 0  # ids NUEVOS: nada deduplicado
@@ -855,7 +969,6 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
                     client,
                     fecha_ini=ayer,
                     fecha_fin=ayer,
-                    ahora_utc=ahora,
                     sleep=lambda s: None,
                 )
 
@@ -872,6 +985,63 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
         # rollback atomico: nada de lo que escribio la corrida fallida quedo
         assert conn.execute("SELECT count(*) FROM ads_metric_observation").fetchone()[0] == 9
         assert conn.execute("SELECT count(*) FROM ingest_run").fetchone()[0] == 4
+
+        # ------------------------------------------------------------------
+        # CERO PERFILES ACEPTADOS (hallazgo grok, mandatorio): la corrida se
+        # sella ok=false CON motivo, jamas ok=true con 0 filas. Caso lista
+        # VACIA de la API.
+        # ------------------------------------------------------------------
+        perfiles_respuesta["lista"] = []
+        res_vacio = sync_metrics(conn, client, fecha_ini=ayer, fecha_fin=ayer, sleep=lambda s: None)
+        assert res_vacio.ok is False
+        assert (res_vacio.rows_written, res_vacio.rows_skipped) == (0, 0)
+        assert res_vacio.reportes == []
+        assert res_vacio.skip_reason == "ningun perfil aceptado: /v2/profiles devolvio 0 perfiles"
+        run_vacio = conn.execute(
+            "SELECT ok, rows_written, rows_skipped, skip_reason, finished_at"
+            " FROM ingest_run WHERE id = %s",
+            (res_vacio.run_id,),
+        ).fetchone()
+        assert run_vacio[0] is False  # sellada ok=false en la base (regla 9)
+        assert run_vacio[2] == 0
+        assert run_vacio[3] == "ningun perfil aceptado: /v2/profiles devolvio 0 perfiles"
+        assert run_vacio[4] is not None
+
+        # mismo veredicto con SOLO rechazados: los motivos de rechazo suben a
+        # la run (el vendor 303 de la fixture)
+        perfiles_respuesta["lista"] = [PERFILES_API[2]]
+        res_vendor = sync_metrics(
+            conn, client, fecha_ini=ayer, fecha_fin=ayer, sleep=lambda s: None
+        )
+        assert res_vendor.ok is False
+        assert [p.profile_id for p in res_vendor.perfiles_rechazados] == [303]
+        assert res_vendor.skip_reason.startswith("ningun perfil aceptado: ")
+        assert "no seller" in res_vendor.skip_reason
+
+        # ------------------------------------------------------------------
+        # FALLO DE FASE API CON RUN AUDITABLE (hallazgo codex, mandatorio):
+        # un 400 en create abre run + sello ok=false y RE-LANZA; antes de este
+        # fix, el fallo no dejaba ninguna fila en ingest_run.
+        # ------------------------------------------------------------------
+        perfiles_respuesta["lista"] = PERFILES_API  # restaurar los perfiles
+        fallo_create["on"] = True
+        with pytest.raises(AdsApiError):
+            sync_metrics(conn, client, fecha_ini=ayer, fecha_fin=ayer, sleep=lambda s: None)
+        fallo_create["on"] = False
+
+        run_api = conn.execute(
+            "SELECT ok, rows_written, rows_skipped, skip_reason, finished_at"
+            " FROM ingest_run WHERE id = %s",
+            (res_vendor.run_id + 1,),
+        ).fetchone()
+        assert run_api[0] is False
+        assert run_api[1] is None  # nunca llego a contar
+        assert run_api[2] == 0  # rows_skipped=0 explicito
+        assert run_api[3] is not None and "status=400" in run_api[3]  # rastro del error
+        assert run_api[4] is not None  # sellada, no abierta
+        # ni estas corridas ni la fallida escribieron metricas nuevas
+        assert conn.execute("SELECT count(*) FROM ads_metric_observation").fetchone()[0] == 9
+        assert conn.execute("SELECT count(*) FROM ingest_run").fetchone()[0] == 7
 
         # ------------------------------------------------------------------
         # PRIVILEGIO NEGATIVO (DoD): app_ingest inserta metricas, JAMAS

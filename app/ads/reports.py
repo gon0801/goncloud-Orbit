@@ -31,10 +31,19 @@ todas las formas de abajo fueron verificadas en vivo):
   "salesSameSku30d" NO existe.
 - Moneda: las filas NO traen moneda; es la del perfil (us->USD, mx->MXN). El
   trigger metric_moneda_de_plataforma la sella en la base.
+- Sondeo 2026-08-23 01:15 UTC: la API sirve el dia de marketplace EN CURSO
+  etiquetado con su misma fecha (reporte de "hoy" devolvio 6 filas). El
+  riesgo de vintage parcial del ultimo dia queda acotado por la guarda de
+  frescura del motor (ventana termina en max(metric_date)-3d) y la
+  bitemporalidad; nota operativa para el cron de 4.2: la tirada diaria debe
+  re-incluir D-1 para que todo dia cierre con observacion post-cierre
+  (dedupe-safe).
 
 Arquitectura (regla 1, igual que app.ads.structure): IO de API separada de IO
 de DB, y fase de API COMPLETA antes de la fase de DB (ninguna transaccion de
-base queda abierta durante el polling de reportes, que tarda minutos):
+base queda abierta durante el polling de reportes, que tarda minutos) pero
+ENVUELTA: todo fallo de la fase API abre una run y la sella ok=false antes de
+re-lanzar (toda invocacion deja fila auditable en ingest_run):
 
     evaluar_perfiles(client)    (de structure: unica fuente del gate; los
                                 rechazados quedan como warning + evidencia)
@@ -51,18 +60,36 @@ Decisiones selladas de esta task:
   propia transaccion, el trabajo va en otra, y en fallo hay rollback atomico
   + sello best-effort ok=false con rows_skipped=0 EXPLICITO (la columna es
   NOT NULL y su DEFAULT no aplica en UPDATE; una corrida que no termino su
-  trabajo tiene verdad contable 0, no NULL).
+  trabajo tiene verdad contable 0, no NULL). Los fallos de la FASE API
+  (perfiles, crear, poll, descarga) tambien dejan run sellada ok=false con
+  el error: sin eso, una corrida que revienta antes de la fase DB no dejaba
+  rastro contable (hallazgo cross-review codex).
+- Cero perfiles aceptados NO es exito: la run se abre y sella ok=false con
+  "ningun perfil aceptado: <motivos de los rechazados>" (o "...
+  /v2/profiles devolvio 0 perfiles" si la lista vino vacia). Sin esto,
+  Amazon moviendo /v2/profiles dejaba corridas ok=true con 0 filas: el verde
+  falso que el COMMENT de ingest_run denuncia (hallazgo grok).
 - Un fallo en CUALQUIER reporte (creacion, poll FAILED o agotado, descarga)
   aborta la corrida entera: fail-closed. Re-correr es seguro: el indice
   parcial metric_dedupe_reporte hace imposible duplicar las filas de un mismo
   reporte aunque cambie observed_at.
+- Descargas con tope (hallazgo codex): fileSize > MAX_BYTES_REPORTE en el
+  poll -> error ANTES de descargar; contenido descargado > MAX_BYTES_REPORTE
+  -> mismo error. Un backfill legitimo de 31 dias son unos pocos MB; 512 MB
+  solo lo alcanza un gzip anormal.
 - observed_at la fija la ingesta como now() (reloj de la DB); el invariante
   observado >= metric_date NO vive en un CHECK de la base (un cast
   date::timestamptz en CHECK se evalua segun la TimeZone de cada sesion; ver
   el comentario de la tabla) -- es responsabilidad DECLARADA de este codigo:
-  solo se guarda metric_date <= ahora_utc.date() (UTC). RIESGO anotado: la
-  garantia cruza dos relojes (el caller fija ahora_utc, la DB fija now()); un
-  skew que cruce medianoche podria romperla. Se asume NTP en el servidor.
+  el guard de fecha futura usa el MISMO reloj que escribe observed_at (la
+  fecha de now() calculada con UTC FIJADO en la expresion, en la misma
+  transaccion que abre la run; hallazgo grok). El skew Python-DB ya no puede
+  romper el invariante: solo queda el reloj de la DB.
+- metric_date fuera del rango solicitado -> skip: una descarga equivocada no
+  puede contaminar fechas ajenas al reporte pedido (hallazgo codex).
+- Fila sin NINGUNA metrica -> skip: una observacion vacia posterior puede
+  llegar a v_metric_latest y TAPAR datos completos anteriores; fila sin
+  ningun dato no se escribe (espiritu de regla 3; hallazgo codex).
 - Pre-valida revenue_same_sku <= ad_revenue ANTES del INSERT: la API puede
   traer el par incoherente (clawbacks asimetricos) y el CHECK
   metric_same_sku_cabe abortaria el lote ENTERO; la fila se salta con motivo.
@@ -128,6 +155,12 @@ MAX_RANGO_DIAS = 31
 INTENTOS_POLL = 120
 ESPERA_POLL_SEGUNDOS = 5.0
 
+# Tope de descarga (hallazgo codex): un backfill legitimo de 31 dias son unos
+# pocos MB; 512 MB solo lo alcanza un gzip anormal (bug de la API o payload
+# corrupto). Dos guardas fail-closed: el fileSize del poll ANTES de descargar
+# y el tamano real tras descargar.
+MAX_BYTES_REPORTE = 512 * 1024 * 1024
+
 # Metricas comunes a los tres reportes (verificado en vivo): el mapeo a
 # columnas de ads_metric_observation es:
 #   cost -> cost, sales30d -> ad_revenue,
@@ -185,6 +218,12 @@ _SQL_ENTIDADES = """
     SELECT external_id, id FROM ad_entity
     WHERE platform = %s AND kind = %s AND external_id = ANY(%s)
 """
+
+# El "hoy" del guard de fecha futura sale del MISMO reloj que escribe
+# observed_at (now() de la DB, constante dentro de la transaccion) con UTC
+# FIJADO en la expresion: misma defensa que los triggers del esquema
+# (hallazgo grok). Se calcula en la misma transaccion que abre la run.
+_SQL_FECHA_HOY = "SELECT (now() AT TIME ZONE 'UTC')::date"
 
 # Append-only (regla 5): JAMAS UPDATE. El ON CONFLICT apunta al indice parcial
 # metric_dedupe_reporte (re-ingestar el MISMO reporte no duplica aunque cambie
@@ -345,7 +384,9 @@ def esperar_reporte(
 
     FAILED -> AdsReportsError con failureReason (redactado por scrub al
     construir la excepcion); statuses desconocidos y polls agotados tambien
-    son error claro. El sleep se inyecta para los tests.
+    son error claro. fileSize (campo verificado en vivo) mayor a
+    MAX_BYTES_REPORTE -> error ANTES de descargar (hallazgo codex: un gzip
+    anormal no debe entrar a memoria). El sleep se inyecta para los tests.
     """
     path = f"/reporting/reports/{report_id}"
     for intento in range(1, intentos + 1):
@@ -355,6 +396,19 @@ def esperar_reporte(
             url = data.get("url")
             if not isinstance(url, str) or not url:
                 raise AdsReportsError(f"reporte {report_id} COMPLETED sin url de descarga")
+            file_size = data.get("fileSize")
+            if (
+                isinstance(file_size, (int, float))
+                and not isinstance(file_size, bool)
+                and file_size > MAX_BYTES_REPORTE
+            ):
+                # fileSize ausente o no numerico NO se valida (regla 3: sin
+                # dato no se inventa); el tope real lo garantiza descargar.
+                raise AdsReportsError(
+                    f"reporte {report_id} con fileSize {int(file_size)} bytes excede el "
+                    f"tope de {MAX_BYTES_REPORTE} (descarga anormal): la corrida aborta "
+                    "fail-closed"
+                )
             return url
         if status == "FAILED":
             raise AdsReportsError(f"reporte {report_id} FAILED: {data.get('failureReason')!r}")
@@ -374,8 +428,16 @@ def descargar_filas(client: AdsClient, url: str) -> list[dict]:
     El cuerpo viene gzip (format GZIP_JSON) pero se tolera sin gzip: se
     distingue por magic bytes. Cualquier otra forma (no gzip corrupto, no
     utf-8, no array JSON de objetos) es error claro, nunca una fila inventada.
+    El contenido descargado mayor a MAX_BYTES_REPORTE es error fail-closed
+    (hallazgo codex): la segunda guarda, para cuando el poll no trajo
+    fileSize o mintio.
     """
     contenido = client.download(url).content
+    if len(contenido) > MAX_BYTES_REPORTE:
+        raise AdsReportsError(
+            f"descarga del reporte excede el tope de {MAX_BYTES_REPORTE} bytes "
+            f"(recibidos {len(contenido)}): la corrida aborta fail-closed"
+        )
     if contenido[:2] == b"\x1f\x8b":
         try:
             texto = gzip.decompress(contenido).decode("utf-8")
@@ -432,16 +494,25 @@ def _entero_reporte(valor: object, campo: str) -> int | None:
 
 
 def _planea_filas(
-    reporte_cfg: dict, filas: list[dict], *, hoy: dt.date
+    reporte_cfg: dict,
+    filas: list[dict],
+    *,
+    hoy: dt.date,
+    fecha_ini: dt.date,
+    fecha_fin: dt.date,
 ) -> tuple[list[_FilaPlano], Counter[str]]:
     """Valida cada fila ANTES de tocar la base.
 
     Gates (todos dejan la fila fuera con motivo, ninguno aborta la corrida):
     id ausente, date invalida, fecha futura (la fecha del payload NO puede ser
-    futura: observed_at lo fija la ingesta en now(), el invariante
-    observado >= hecho es responsabilidad declarada de este modulo),
-    metricas no numericas/fraccionarias y revenue_same_sku > ad_revenue (el
-    CHECK metric_same_sku_cabe abortaria el lote entero si llegara al INSERT).
+    futura: observed_at lo fija la ingesta en now(), el invariante observado
+    >= hecho es responsabilidad declarada de este modulo), metric_date fuera
+    del rango solicitado (una descarga equivocada no contamina fechas ajenas
+    al reporte pedido; hallazgo codex), metricas no numericas/fraccionarias,
+    fila sin NINGUNA metrica (una observacion vacia posterior llegaria a
+    v_metric_latest y taparia datos completos anteriores; hallazgo codex) y
+    revenue_same_sku > ad_revenue (el CHECK metric_same_sku_cabe abortaria el
+    lote entero si llegara al INSERT).
     """
     plan: list[_FilaPlano] = []
     skips: Counter[str] = Counter()
@@ -467,6 +538,17 @@ def _planea_filas(
             skips["fila con metric_date futura"] += 1
             logger.debug("metric_date futura en fila de %s: %s > %s", etiqueta, metric_date, hoy)
             continue
+        if metric_date < fecha_ini or metric_date > fecha_fin:
+            skips["fila con metric_date fuera del rango solicitado"] += 1
+            logger.debug(
+                "metric_date %s fuera del rango %s..%s en %s %s",
+                metric_date,
+                fecha_ini,
+                fecha_fin,
+                etiqueta,
+                external_id,
+            )
+            continue
         try:
             cost = _decimal_reporte(fila.get("cost"), "cost")
             ad_revenue = _decimal_reporte(fila.get("sales30d"), "sales30d")
@@ -478,6 +560,17 @@ def _planea_filas(
             orders = _entero_reporte(fila.get("purchases30d"), "purchases30d")
         except ValueError:
             skips[f"fila de {etiqueta} con metrica no numerica o fraccionaria"] += 1
+            continue
+        if (
+            cost is None
+            and ad_revenue is None
+            and revenue_same_sku is None
+            and impressions is None
+            and clicks is None
+            and orders is None
+        ):
+            skips["fila sin ninguna metrica"] += 1
+            logger.debug("fila sin ninguna metrica: %s %s %s", etiqueta, external_id, metric_date)
             continue
         if (
             revenue_same_sku is not None
@@ -526,7 +619,9 @@ def ingest_metrics(
     filas: list[dict],
     *,
     run_id: int,
-    ahora_utc: dt.datetime,
+    hoy: dt.date,
+    fecha_ini: dt.date,
+    fecha_fin: dt.date,
 ) -> ResultadoIngesta:
     """Inserta las filas de UN reporte en ads_metric_observation (append-only).
 
@@ -538,15 +633,19 @@ def ingest_metrics(
     trigger metric_moneda_de_plataforma en la base.
 
     `run_id` es la ingest_run que abre sync_metrics (UNA por corrida, no una
-    por reporte). `ahora_utc` (UTC) fija el guard de fecha futura; observed_at
-    la fija el servidor con now() -- ver el riesgo de relojes en el docstring
-    del modulo.
+    por reporte). `hoy` es la fecha del reloj de la DB (UTC fijado) calculada
+    en la misma transaccion que abre la run: el guard de fecha futura usa el
+    MISMO reloj que escribe observed_at con now() (hallazgo grok).
+    `fecha_ini`/`fecha_fin` delimitan el rango solicitado: una fila con
+    metric_date fuera del rango (descarga equivocada) se salta con motivo.
     """
     if not perfil.aceptado or perfil.platform is None or perfil.moneda is None:
         raise AdsReportsError(
             f"ingest_metrics exige un perfil aceptado (profile_id={perfil.profile_id!r})"
         )
-    plan, skips = _planea_filas(reporte_cfg, filas, hoy=ahora_utc.date())
+    plan, skips = _planea_filas(
+        reporte_cfg, filas, hoy=hoy, fecha_ini=fecha_ini, fecha_fin=fecha_fin
+    )
 
     # Resolucion de entidades en un solo SELECT por reporte: las filas
     # comparten (platform, kind); los ids que falten son skip, no error.
@@ -619,52 +718,109 @@ def _validar_rango(fecha_ini: dt.date, fecha_fin: dt.date) -> None:
         raise ValueError(f"rango de {dias} dias excede el maximo de {MAX_RANGO_DIAS} de la API")
 
 
+def _run_de_fallo_de_api(conn: psycopg.Connection, exc: BaseException) -> None:
+    """Fallo de la fase API: abre una run y la sella ok=false (best-effort).
+
+    Toda invocacion deja fila auditable en ingest_run (hallazgo codex): sin
+    esto, una corrida que revienta en perfiles/crear/poll/descarga no dejaba
+    rastro contable. Abrir y sellar van en UNA transaccion: nunca existe una
+    run abierta de un fallo de fase API. Si la conexion tambien esta muerta,
+    se deja el rastro en el log y la excepcion ORIGINAL sube igual.
+    """
+    try:
+        with conn.transaction():
+            run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE,)).fetchone()[0]
+            _sellar_run(
+                conn,
+                run_id,
+                ok=False,
+                rows_skipped=0,
+                skip_reason=scrub(str(exc)) or type(exc).__name__,
+            )
+    except Exception:
+        logger.warning(
+            "fallo de fase API sin run auditable (sello tambien fallo): %s",
+            scrub(str(exc)),
+        )
+
+
 def sync_metrics(
     conn: psycopg.Connection,
     client: AdsClient,
     *,
     fecha_ini: dt.date,
     fecha_fin: dt.date,
-    ahora_utc: dt.datetime | None = None,
     sleep=time.sleep,
 ) -> ResultadoSync:
     """Orquestador: perfiles aceptados -> 3 reportes por perfil -> ingesta.
 
     Fase de API COMPLETA antes de la fase de DB (ninguna transaccion queda
-    abierta durante el polling); un fallo de esa fase ocurre ANTES de abrir la
-    run y no deja run registrada (igual que fetch_structure). UNA ingest_run
-    por llamada (source amazon_ads_reports_v3), abierta en su propia
-    transaccion y sellada al final; en fallo de la fase DB, rollback atomico
-    del trabajo + sello best-effort ok=false (patron sync_structure). Un fallo
-    en cualquier reporte aborta la corrida entera (fail-closed): re-correr es
-    seguro por el dedupe de source_report_id.
+    abierta durante el polling) y ENVUELTA: todo fallo de esa fase abre una
+    run y la sella ok=false con el error antes de re-lanzar (toda invocacion
+    deja fila auditable; hallazgo codex). Cero perfiles aceptados NO es
+    excepcion ni exito: la run se sella ok=false con los motivos de rechazo
+    (hallazgo grok). La fase de DB abre la run en su propia transaccion y
+    calcula ahi mismo el "hoy" del guard con now() de la DB (UTC fijado);
+    en fallo, rollback atomico del trabajo + sello best-effort ok=false
+    (patron sync_structure). Un fallo en cualquier reporte aborta la corrida
+    entera (fail-closed): re-correr es seguro por el dedupe de source_report_id.
     """
     _validar_rango(fecha_ini, fecha_fin)
-    ahora = ahora_utc if ahora_utc is not None else dt.datetime.now(dt.UTC)
 
-    # Evidencia de perfiles RECHAZADOS al log (hallazgo reviewer): sin esto,
-    # Amazon moviendo /v2/profiles dejaria corridas ok=true con 0 filas y sin
-    # rastro -- el verde falso que el COMMENT de ingest_run denuncia. La
-    # corrida sigue con los aceptados (fail-closed por perfil, no global).
-    todos = evaluar_perfiles(client)
-    for perfil in todos:
-        if not perfil.aceptado:
-            logger.warning(
-                "perfil %s rechazado, sin metricas esta corrida: %s",
-                perfil.profile_id,
-                perfil.motivo,
-            )
-    perfiles = [perfil for perfil in todos if perfil.aceptado]
-    perfiles_rechazados = [perfil for perfil in todos if not perfil.aceptado]
     descargados: list[tuple[PerfilAds, dict, str, list[dict]]] = []
-    for perfil in perfiles:
-        for cfg in REPORTES_CFG:
-            report_id = solicitar_reporte(client, perfil, cfg, fecha_ini, fecha_fin)
-            url = esperar_reporte(client, perfil, report_id, sleep=sleep)
-            descargados.append((perfil, cfg, report_id, descargar_filas(client, url)))
+    perfiles_rechazados: list[PerfilAds] = []
+    try:
+        # Evidencia de perfiles RECHAZADOS al log (hallazgo reviewer): sin esto,
+        # Amazon moviendo /v2/profiles dejaria corridas ok=true con 0 filas y sin
+        # rastro -- el verde falso que el COMMENT de ingest_run denuncia. La
+        # corrida sigue con los aceptados (fail-closed por perfil, no global).
+        todos = evaluar_perfiles(client)
+        for perfil in todos:
+            if not perfil.aceptado:
+                logger.warning(
+                    "perfil %s rechazado, sin metricas esta corrida: %s",
+                    perfil.profile_id,
+                    perfil.motivo,
+                )
+        perfiles = [perfil for perfil in todos if perfil.aceptado]
+        perfiles_rechazados = [perfil for perfil in todos if not perfil.aceptado]
+        if not perfiles:
+            # Verde falso (hallazgo grok): sin perfiles aceptados la corrida se
+            # sella ok=false CON los motivos, jamas ok=true con 0 filas.
+            motivo = (
+                "ningun perfil aceptado: /v2/profiles devolvio 0 perfiles"
+                if not perfiles_rechazados
+                else "ningun perfil aceptado: "
+                + "; ".join(perfil.motivo or "sin motivo" for perfil in perfiles_rechazados)
+            )
+            with conn.transaction():
+                run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE,)).fetchone()[0]
+                _sellar_run(conn, run_id, ok=False, rows_skipped=0, skip_reason=motivo)
+            return ResultadoSync(
+                run_id=run_id,
+                ok=False,
+                rows_written=0,
+                rows_skipped=0,
+                skip_reason=motivo,
+                reportes=[],
+                perfiles_rechazados=perfiles_rechazados,
+            )
+        for perfil in perfiles:
+            for cfg in REPORTES_CFG:
+                report_id = solicitar_reporte(client, perfil, cfg, fecha_ini, fecha_fin)
+                url = esperar_reporte(client, perfil, report_id, sleep=sleep)
+                descargados.append((perfil, cfg, report_id, descargar_filas(client, url)))
+    except BaseException as exc:
+        _run_de_fallo_de_api(conn, exc)
+        raise
 
     with conn.transaction():
         run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE,)).fetchone()[0]
+        # El "hoy" del guard sale del MISMO reloj que escribe observed_at
+        # (now() de la DB, constante dentro de la transaccion) con UTC FIJADO
+        # en la expresion: el skew Python-DB ya no puede romper el invariante
+        # observado >= hecho (hallazgo grok).
+        hoy = conn.execute(_SQL_FECHA_HOY).fetchone()[0]
 
     escritos = 0
     skips: Counter[str] = Counter()
@@ -679,7 +835,9 @@ def sync_metrics(
                     report_id,
                     filas,
                     run_id=run_id,
-                    ahora_utc=ahora,
+                    hoy=hoy,
+                    fecha_ini=fecha_ini,
+                    fecha_fin=fecha_fin,
                 )
                 escritos += resultado.rows_written
                 skips.update(resultado.skips)
@@ -834,8 +992,11 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
     _imprimir_resumen(fecha_ini, fecha_fin, resultado)
-    # resultado.ok es siempre True aqui: sync_metrics solo retorna en exito
-    # (los fallos levantan excepcion y salen por el except de arriba).
+    if not resultado.ok:
+        # Cero perfiles aceptados: la run quedo sellada ok=false en la base;
+        # el proceso tambien reporta fallo al cron (la excepcion pura sale por
+        # el except de arriba con el mismo exit 1).
+        return 1
     return 0
 
 
