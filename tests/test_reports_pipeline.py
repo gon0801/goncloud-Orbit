@@ -654,6 +654,57 @@ def test_plan_terminos_clasifica_y_gates():
     )
 
 
+def test_plan_terminos_fusiona_claves_duplicadas():
+    """Regla 9 (grano multiple verificado EN VIVO, sondeo 1.5 del 2026-08-23:
+    US, reporte del 2026-08-19: 113 filas -> 110 claves, 3 repetidas x2):
+    el MISMO (adGroupId, searchTerm, date) llega en varias filas porque el
+    termino convierte via keywords distintas del mismo ad group. El
+    first-wins anterior perdia las metricas de la segunda fila -- un orders
+    subestimado puede generar un NEGATIVE_EXACT erroneo en el motor 2.3 --
+    asi que las filas validas de la misma clave se FUSIONAN sumando
+    metricas: los aportes por keyword al mismo hecho son disjuntos (sumar
+    no inventa dato) hacia la identidad sellada que el motor consume."""
+    filas = [
+        {
+            "date": "2026-08-20",
+            "adGroupId": 9101,
+            "searchTerm": "arras for wedding ceremony",
+            "clicks": 5,
+            "cost": 1.25,
+            "sales7d": 100.0,
+        },
+        # misma clave (via otra keyword del mismo ad group): se FUSIONA
+        {
+            "date": "2026-08-20",
+            "adGroupId": 9101,
+            "searchTerm": "arras for wedding ceremony",
+            "clicks": 7,
+            "cost": 2.0,
+        },
+    ]
+
+    plan, skips = _planea_filas_terminos(
+        SEARCH_TERMS_CFG,
+        filas,
+        hoy=dt.date(2026, 8, 21),
+        fecha_ini=dt.date(2026, 8, 20),
+        fecha_fin=dt.date(2026, 8, 20),
+    )
+
+    # UNA sola fila en el plan: la segunda se agrego a la primera
+    assert len(plan) == 1
+    fusionada = plan[0]
+    assert isinstance(fusionada, _FilaTermino)
+    assert fusionada.cost == Decimal("3.25")  # 1.25 + 2.0, Decimal via str
+    assert fusionada.clicks == 12  # 5 + 7
+    # presente + None: None aporta nada
+    assert fusionada.ad_revenue == Decimal("100.0")
+    # None + None: metrica que nadie trae queda None (regla 3)
+    assert fusionada.orders is None
+    # la fila absorbida queda contada con la clave de vocabulario cerrado
+    assert skips == Counter({"fila agregada por clave duplicada en el reporte": 1})
+
+
 # ---------------------------------------------------------------------------
 # (a) UNITARIOS - CLI: fail-closed y rango de fechas
 # ---------------------------------------------------------------------------
@@ -1282,10 +1333,12 @@ def test_pipeline_search_terms_en_vivo():
       referencias (ad_entity_id del ad_group, source_report_id,
       ingest_run_id).
     - Skips afirmados (regla 9): entidad ausente, sin adGroupId, searchTerm
-      solo espacios y la duplicada intra-reporte (misma transaccion, mismo
-      now(): absorbida por el dedupe con first-wins, sin agregacion).
-    - RE-CORRIDA con el MISMO report id: las 4 validas quedan absorbidas
-      por el dedupe del indice parcial st_metric_dedupe_reporte; la tabla
+      solo espacios y la duplicada intra-reporte, que el planificador
+      FUSIONA (grano multiple verificado en vivo: las metricas de las dos
+      filas se SUMAN hacia la clave (ad_group, termino, fecha)).
+    - RE-CORRIDA con el MISMO report id: las 4 claves validas quedan
+      absorbidas por el dedupe del indice parcial st_metric_dedupe_reporte
+      (la fusion vuelve a correr y vuelve a contar su skip); la tabla
       sigue en 4 (append-only, sin duplicados).
     """
     psycopg = pytest.importorskip("psycopg")
@@ -1365,11 +1418,12 @@ def test_pipeline_search_terms_en_vivo():
             # searchTerm solo espacios: skip
             {"date": str(ayer), "adGroupId": 9101, "searchTerm": "   ", "clicks": 1, "cost": 0.1},
             # [hallazgo reviewer] duplicada INTRA-reporte: el MISMO (ad_group,
-            # termino, fecha) llega dos veces en un reporte (observed_at es
-            # now(), constante en la transaccion -> colision de PK Y del indice
-            # parcial en la misma corrida). La segunda queda absorbida por el
-            # dedupe como rows_skipped con motivo: sin perdida silenciosa ni
-            # agregacion inventada, tal como promete el docstring del modulo.
+            # termino, fecha) llega dos veces en un reporte (grano multiple
+            # verificado en vivo: el termino convierte via keywords distintas
+            # del mismo ad group). El planificador FUSIONA las dos filas
+            # SUMANDO metricas y cuenta la absorbida como rows_skipped con
+            # motivo: sin perdida silenciosa, tal como promete el docstring
+            # del modulo.
             {
                 "date": str(ayer),
                 "adGroupId": 9101,
@@ -1414,8 +1468,9 @@ def test_pipeline_search_terms_en_vivo():
         client = _cliente(handler)
 
         # ------------------------------------------------------------------
-        # CORRIDA 1: 4 escritas (las 4 validas) + 4 saltadas (los 3 gates y
-        # la duplicada intra-reporte)
+        # CORRIDA 1: 4 escritas (las 4 claves validas, la duplicada ya
+        # FUSIONADA) + 4 saltadas (los 3 gates y la fila absorbida por la
+        # fusion)
         # ------------------------------------------------------------------
         res1 = sync_metrics(conn, client, fecha_ini=ayer, fecha_fin=ayer, sleep=lambda s: None)
 
@@ -1434,9 +1489,9 @@ def test_pipeline_search_terms_en_vivo():
         assert "1x entidad ausente en ad_entity (ad_group)" in res1.skip_reason
         assert "1x fila de search_terms sin adGroupId" in res1.skip_reason
         assert "1x fila de search_terms sin searchTerm" in res1.skip_reason
-        # la duplicada intra-reporte queda absorbida por el dedupe (misma
-        # corrida, mismo now()): contada, con motivo, sin doble fila
-        assert "1x fila duplicada del reporte R-ST-101" in res1.skip_reason
+        # la duplicada intra-reporte se FUSIONO en el planificador: contada
+        # como skip con su clave propia, sin perder sus metricas
+        assert "1x fila agregada por clave duplicada en el reporte" in res1.skip_reason
 
         _SQL_TERMINOS = (
             "SELECT search_term, is_asin_like, metric_date::text, observed_at,"
@@ -1461,19 +1516,24 @@ def test_pipeline_search_terms_en_vivo():
             assert fila[11] == "R-ST-101"
             assert fila[12] == res1.run_id
         asin = next(fila for fila in terminos if fila[0] == "B0AB12CD34")
-        assert (asin[7], asin[8], asin[9], asin[10]) == (Decimal("1.25"), 5, 0, Decimal("0"))
+        # la duplicada se FUSIONO: cost 1.25 + 2.0, clicks 5 + 7 (el
+        # first-wins anterior dejaba 1.25/5 y perdia la segunda fila)
+        assert (asin[7], asin[8], asin[9], asin[10]) == (Decimal("3.25"), 12, 0, Decimal("0"))
 
         # ------------------------------------------------------------------
-        # RE-CORRIDA (mismo handler -> mismos report ids): las 4 validas
-        # quedan absorbidas por el dedupe; los 3 gates saltan otra vez
+        # RE-CORRIDA (mismo handler -> mismos report ids): las 4 claves
+        # validas quedan absorbidas por el dedupe de DB; los 3 gates saltan
+        # otra vez y la fusion vuelve a correr (y a contar su skip)
         # ------------------------------------------------------------------
         res2 = sync_metrics(conn, client, fecha_ini=ayer, fecha_fin=ayer, sleep=lambda s: None)
 
         assert res2.ok is True
         assert res2.rows_written == 0
-        # 5 duplicadas (las 4 validas + la intra-reporte) + los 3 gates
+        # 4 duplicadas por dedupe de DB (las 4 claves validas) + 1 fila
+        # agregada por la fusion + los 3 gates
         assert res2.rows_skipped == 8
-        assert "5x fila duplicada del reporte R-ST-101" in res2.skip_reason
+        assert "4x fila duplicada del reporte R-ST-101" in res2.skip_reason
+        assert "1x fila agregada por clave duplicada en el reporte" in res2.skip_reason
         assert conn.execute("SELECT count(*) FROM search_term_observation").fetchone()[0] == 4
     finally:
         if conn is not None:

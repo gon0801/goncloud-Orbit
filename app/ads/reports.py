@@ -148,12 +148,25 @@ Search terms (task 1.4):
   SIN DEFAULT a proposito y esta funcion es el UNICO clasificador.
 - search_term se guarda STRIPPEADO de espacios extremos (normalizacion de
   identidad para la PK, no invencion de dato).
+- GRANO MULTIPLE del reporte (verificado EN VIVO, sondeo 1.5 del
+  2026-08-23): el mismo (adGroupId, searchTerm, date) llega en varias filas
+  -- el termino convierte via keywords distintas del mismo ad group.
+  Evidencia: US, reporte del 2026-08-19: 113 filas -> 110 claves, 3
+  repetidas x2 (p.ej. ("153443759852430", "arras for wedding ceremony",
+  "2026-08-19") x2); MX: 42 filas, 0 repetidas. First-wins perdia las
+  metricas de las filas absorbidas (un orders subestimado puede generar un
+  NEGATIVE_EXACT erroneo en el motor 2.3), asi que _planea_filas_terminos
+  FUSIONA las filas validas de la misma clave SUMANDO metricas: los
+  aportes por keyword al mismo hecho son disjuntos (sumar no inventa dato)
+  hacia la identidad (ad_group, termino, fecha) del esquema sellado, la que
+  el motor consume. Cada fila absorbida cuenta como rows_skipped "fila
+  agregada por clave duplicada en el reporte": la contabilidad
+  rows_written + rows_skipped == filas sigue cuadrando y la fusion queda
+  visible en skip_reason de la run.
 - Dedupe por source_report_id (indice parcial st_metric_dedupe_reporte),
-  igual que metricas. Si un MISMO reporte trajera dos filas del mismo
-  (ad_group, termino, fecha) -- p.ej. via keywords distintas -- la segunda
-  queda absorbida por el dedupe y cuenta como rows_skipped con motivo:
-  visible y auditable, sin perdida silenciosa ni agregacion inventada; si la
-  corrida real de 1.5 muestra ese grano multiple, se decide ahi con evidencia.
+  igual que metricas: la defensa para la RE-INGESTA del mismo reporte (la
+  fusion del planificador ya hace imposible dos inserts de la misma clave
+  dentro de un reporte).
 
 `python -m app.ads.reports`: carga AdsCredentials.from_secrets_dir()
 (ORBIT_SECRETS_DIR) y la DSN de ORBIT_DSN_INGEST (via app.db.connect),
@@ -739,6 +752,25 @@ def es_asin_like(termino: str) -> bool:
     return bool(_RE_ASIN.match(termino.strip()))
 
 
+def _sumar_decimal(actual: Decimal | None, aporte: Decimal | None) -> Decimal | None:
+    """Fusion de dinero por clave duplicada: None aporta nada (None + X = X);
+    si TODAS las filas de la clave trajeron None, queda None (regla 3)."""
+    if actual is None:
+        return aporte
+    if aporte is None:
+        return actual
+    return actual + aporte
+
+
+def _sumar_entero(actual: int | None, aporte: int | None) -> int | None:
+    """Espejo entero de _sumar_decimal (misma semantica de None)."""
+    if actual is None:
+        return aporte
+    if aporte is None:
+        return actual
+    return actual + aporte
+
+
 def _planea_filas_terminos(
     reporte_cfg: dict,
     filas: list[dict],
@@ -747,7 +779,7 @@ def _planea_filas_terminos(
     fecha_ini: dt.date,
     fecha_fin: dt.date,
 ) -> tuple[list[_FilaTermino], Counter[str]]:
-    """Valida y CLASIFICA cada fila de search terms ANTES de tocar la base.
+    """Valida, CLASIFICA y FUSIONA las filas de search terms ANTES de la base.
 
     Espejo de _planea_filas con el vocabulario CERRADO de skips (mismas
     claves de fecha/metrica; solo cambian las de identidad de la fila):
@@ -756,11 +788,30 @@ def _planea_filas_terminos(
     numericas/fraccionarias y fila sin NINGUNA metrica. NO hay pre-check
     same_sku: la tabla no tiene esa columna. Toda fila planificada llega con
     is_asin_like calculado y search_term strippeado.
+
+    FUSION por clave duplicada (grano multiple del reporte, verificado EN
+    VIVO en el sondeo 1.5 del 2026-08-23): el mismo (adGroupId, searchTerm,
+    date) llega en varias filas -- el termino convierte via keywords
+    distintas del mismo ad group -- y las filas VALIDAS de la misma clave se
+    fusionan SUMANDO metricas (cost/ad_revenue como Decimal y clicks/orders
+    como int via _sumar_decimal/_sumar_entero: None aporta nada y la
+    metrica que nadie trae queda None, regla 3). Los aportes por keyword al
+    mismo hecho son disjuntos: sumar no inventa dato hacia la identidad
+    (ad_group, termino, fecha) del esquema sellado, la que el motor consume
+    -- un orders subestimado por first-wins puede generar un NEGATIVE_EXACT
+    erroneo en 2.3. is_asin_like no se toca: es funcion del termino, igual
+    en toda la clave. Cada fila absorbida cuenta como skip "fila agregada
+    por clave duplicada en el reporte" (clave de vocabulario CERRADO: la
+    contabilidad rows_written + rows_skipped == filas sigue cuadrando y la
+    fusion queda visible en skip_reason de la run; el detalle de la clave va
+    al log). El acumulador por dict preserva el orden de aparicion: el plan
+    sale en el orden de PRIMERA aparicion de cada clave (determinista).
     """
     plan: list[_FilaTermino] = []
     skips: Counter[str] = Counter()
     etiqueta = reporte_cfg["nombre"]
     campo_id = reporte_cfg["id_field"]
+    por_clave: dict[tuple[str, str, dt.date], _FilaTermino] = {}
 
     for fila in filas:
         external = fila.get(campo_id)
@@ -810,18 +861,36 @@ def _planea_filas_terminos(
             skips["fila sin ninguna metrica"] += 1
             logger.debug("fila sin ninguna metrica: %s %s %s", etiqueta, external_id, metric_date)
             continue
-        plan.append(
-            _FilaTermino(
-                external_id=external_id,
-                search_term=search_term,
-                is_asin_like=es_asin_like(search_term),
-                metric_date=metric_date,
-                cost=cost,
-                ad_revenue=ad_revenue,
-                clicks=clicks,
-                orders=orders,
+        previa = por_clave.get((external_id, search_term, metric_date))
+        if previa is not None:
+            # Grano multiple del reporte: los aportes por keyword al mismo
+            # hecho (ad_group, termino, fecha) son disjuntos -> se SUMAN; el
+            # skip mantiene visible la fila absorbida en la contabilidad.
+            previa.cost = _sumar_decimal(previa.cost, cost)
+            previa.ad_revenue = _sumar_decimal(previa.ad_revenue, ad_revenue)
+            previa.clicks = _sumar_entero(previa.clicks, clicks)
+            previa.orders = _sumar_entero(previa.orders, orders)
+            skips["fila agregada por clave duplicada en el reporte"] += 1
+            logger.debug(
+                "fila agregada por clave duplicada en el reporte: %s %s %s %s",
+                etiqueta,
+                external_id,
+                search_term,
+                metric_date,
             )
+            continue
+        fila = _FilaTermino(
+            external_id=external_id,
+            search_term=search_term,
+            is_asin_like=es_asin_like(search_term),
+            metric_date=metric_date,
+            cost=cost,
+            ad_revenue=ad_revenue,
+            clicks=clicks,
+            orders=orders,
         )
+        por_clave[(external_id, search_term, metric_date)] = fila
+        plan.append(fila)
 
     return plan, skips
 
@@ -946,10 +1015,13 @@ def ingest_search_terms(
     is_asin_like clasificado por es_asin_like (la columna es NOT NULL SIN
     DEFAULT). La platform va en la fila (la PK la incluye) y la moneda es la
     del perfil: el trigger st_metric_moneda_sellada sella la moneda Y cruza
-    plataforma<->entidad. Si un MISMO reporte trajera dos filas del mismo
-    (ad_group, termino, fecha) -- p.ej. via keywords distintas -- la segunda
-    queda absorbida por el dedupe y cuenta como rows_skipped: visible y
-    auditable, sin perdida silenciosa ni agregacion inventada.
+    plataforma<->entidad. Si un MISMO reporte trae dos filas del mismo
+    (ad_group, termino, fecha) -- p.ej. via keywords distintas, grano
+    multiple verificado en vivo -- el PLANIFICADOR las FUSIONA sumando
+    metricas y la fila absorbida cuenta como rows_skipped "fila agregada
+    por clave duplicada en el reporte" (ver _planea_filas_terminos): sin
+    perdida silenciosa. El dedupe de source_report_id queda como defensa
+    para la re-ingesta del mismo reporte.
 
     `run_id`/`hoy`/`fecha_ini`/`fecha_fin`: misma semantica que ingest_metrics
     (una ingest_run por corrida; el guard de fecha futura usa el MISMO reloj
