@@ -220,8 +220,17 @@ cargos no atribuibles; `external_reconciliation` es el chequeo final.
 config "viva" vigente es la fila más reciente** (segundo peldaño de la cascada
 de target ACoS: `ads_target_acos_pct_<platform>`). Cada decisión apunta a la
 versión que regía. La inserta `app_admin` (config humana, escalera
-off→shadow→live), no los motores. **`settings` JAMÁS contiene credenciales**:
-`app_read` tiene SELECT aquí.
+off→shadow→live), no los motores. Claves de settings del optimizador (resuelve
+`app/optimizer/goals.py`, task 2.4): `ads_optimizer_mode` (escalera global,
+valores `off|shadow|live`, ausente → `off` fail-closed) y
+`ads_target_acos_pct_<platform>` (target por plataforma, ej
+`ads_target_acos_pct_amazon_us`; la siembra humana es 4.3).
+**`settings` JAMÁS contiene credenciales**: `app_read` tiene SELECT aquí.
+Contrato fail-closed completo: `ads_optimizer_mode` ausente, NULL o inválida → `off`
+(una config corrupta jamás habilita `live`); si el modo efectivo es `live` sin
+módulo apply (PR1) degrada a `shadow` + nota. Cada target ACoS (`goal`, setting,
+cache) debe ser numérico, finito y > 0 — un peldaño presente pero corrupto
+revienta con `ValueError`, jamás cae al default 55 en silencio (regla 3).
 *Cómo se audita*: append-only por trigger; JOIN desde `decision`.
 
 **`optimizer_cycle`** — Envelope de ciclo: una corrida = una fila (`motor`,

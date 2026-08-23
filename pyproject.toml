@@ -25,7 +25,26 @@ line-length = 100
 extend-exclude = ["tools/check_context_docs.py"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM"]
+# C901/PLR0912/PLR0915: presupuesto de complejidad (plan guardrails-01, task
+# 1.1). Limites = censo real del repo 2026-08-23 + margen chico (C901 max 20
+# -> 22; branches max 23 -> 25; statements max 74 -> 80): cazan DERIVA
+# futura, no fuerzan refactors del presente. Regla anti-Goodhart: si un
+# candado dispara, se simplifica de verdad o se pone noqa CON razon que pasa
+# por review -- JAMAS partir una funcion coherente solo para esquivar el
+# numero (tres helpers sin sentido son peor codigo que un noqa justificado).
+select = ["E", "F", "I", "UP", "B", "SIM", "C901", "PLR0912", "PLR0915"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 22
+
+[tool.ruff.lint.pylint]
+max-branches = 25
+max-statements = 80
+
+[tool.ruff.lint.per-file-ignores]
+# Los tests de integracion son guiones de escenario: largos y lineales por
+# naturaleza; el riesgo de monolito vive en app/, no aqui.
+"tests/*" = ["C901", "PLR0912", "PLR0915"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

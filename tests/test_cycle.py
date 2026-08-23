@@ -1,0 +1,1193 @@
+"""Tests del orquestador del ciclo (`app.cycle`, task 3.1 de ORBIT 03).
+
+INTEGRACION (patron _db_temporal de test_optimizer_hygiene, COPIADO; skipif
+fail-closed `_postgres_obligatorio_ausente` de test_schema): el ciclo completo
+contra la migracion entera, con fixture maestra siembrada por el test y reloj
+FIJO tz-aware (decided_at por parametro; el modulo jamas esconde un now() en
+las decisiones -- el reloj del LOCK si es now() de la DB, sellado por diseno
+para la atomicidad del claim en una sola sentencia):
+
+1. Ciclo shadow completo: decisiones EXACTAS pineadas (bid 1.00 -> 0.75 con
+   factor -0.25, pause sin dinero, negative con search_term, harvest con
+   default_bid) y notes JSON con contadores exactos por motivo.
+2. Claim: lock vigente ajeno NO robable (CicloOcupado, sin envelope nuevo);
+   TTL vencido SI reclamable (con rastro del ciclo muerto cerrado 'failed' y
+   su id en ciclos_muertos); concurrencia REAL (2 threads + Barrier, 3
+   rondas) deja exactamente un ganador. FLAKE TEORICO DECLARADO (residual
+   del PR): si el perdedor llegara al claim DESPUES de que el ganador
+   libero el lock, ganaria tambien — en la practica el perdedor falla en
+   milisegundos mientras el ganador corre la fase de lecturas completa.
+3. decisions_count del envelope cuadra contra SELECT count(*) de decision.
+4. GOLDEN REPLAY: reproduce(inputs) == (kind, new_value, value_currency)
+   para TODAS las decisions del ciclo (incluye pause y negative sin dinero).
+5. Privilegio negativo con SET ROLE app_decide: escribe decision/lock/
+   optimizer_cycle; JAMAS ads_optimizer_goal ni config_version (patron
+   test_reports_pipeline; sin membresia por tunel -> skip salvo DSN explicito).
+6. Guardas: watermark >7d -> degraded con motivo en notes; synced_at >48h ->
+   idem; escalera global 'off' -> skipped.
+7. Sello fail-closed: decide_bid que revienta a mitad -> excepcion re-lanzada,
+   envelope 'failed' con el error scrubbado en notes y lock liberado.
+8. Opt-out auditable: goal de campana enabled=false PISA al de plataforma
+   (precedencia 2.4 resuelta EN LA APP): nadie decide, goal_disabled contado.
+9. REPEATABLE READ verificable: la fase de lecturas corre en el nivel sellado
+   (capturado con SHOW transaction_isolation dentro de un monkeypatch).
+10. Sintaxis: las SQL del modulo parsean como Postgres real (pglast).
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import json
+import os
+import socket
+import threading
+from contextlib import contextmanager
+from decimal import Decimal
+
+import pglast
+import psycopg
+import pytest
+from psycopg.types.json import Json
+from test_schema import SQL, _postgres_obligatorio_ausente, _test_dsn
+
+from app import cycle as ciclo
+from app.optimizer import bid as bid_mod
+from app.optimizer import windows as w
+
+# ---------------------------------------------------------------------------
+# Reloj FIJO y ventanas derivadas (mismas constantes que test_optimizer_windows)
+# ---------------------------------------------------------------------------
+
+DECIDED_AT = dt.datetime(2026, 8, 22, 12, 0, tzinfo=dt.UTC)
+MAX_FECHA = dt.date(2026, 8, 19)  # max(metric_date) sembrado de las keywords
+FIN_BIDS = dt.date(2026, 8, 16)  # MAX_FECHA - 3d
+INICIO_BIDS = dt.date(2026, 7, 18)  # FIN_BIDS - 29d
+FIN_CORTES = dt.date(2026, 8, 12)  # min(FIN_BIDS, DECIDED_AT - 10d)
+INICIO_CORTES = dt.date(2026, 7, 14)  # FIN_CORTES - 29d
+# Ventana de terminos: ancla en max(metric_date) de SUS observaciones (07-21)
+# -> fin = min(07-18, 08-12) = 07-18, inicio = 06-19.
+INICIO_TERMINOS = dt.date(2026, 6, 19)
+FIN_TERMINOS = dt.date(2026, 7, 18)
+
+OWNER = "test-host:1"
+JOB_KEY = "ads_optimizer:amazon_us"
+
+_DIA = dt.timedelta(days=1)
+
+_DSN_EXPLICITO = bool(os.environ.get("ORBIT_TEST_DSN"))
+
+
+def _obs(fecha: dt.date, hora: int = 1) -> dt.datetime:
+    """observed_at de una observacion: medianoche + hora UTC (>= metric_date)."""
+    return dt.datetime(fecha.year, fecha.month, fecha.day, hora, tzinfo=dt.UTC)
+
+
+def _rango(inicio: dt.date, fin: dt.date) -> list[dt.date]:
+    dias: list[dt.date] = []
+    fecha = inicio
+    while fecha <= fin:
+        dias.append(fecha)
+        fecha += _DIA
+    return dias
+
+
+# ---------------------------------------------------------------------------
+# Patron _db_temporal COPIADO de test_optimizer_hygiene (con factory de conecs)
+# ---------------------------------------------------------------------------
+
+
+@contextmanager
+def _db_temporal(prefijo: str):
+    """DB temporal con la migracion entera; yields (conn, conectar_extra)."""
+    from psycopg import sql as pgsql
+
+    dsn = _test_dsn()
+    db = f"{prefijo}_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+
+    def conectar_extra():
+        """Conexion adicional a la MISMA DB temporal (threads del test)."""
+        return psycopg.connect(dsn, dbname=db, autocommit=True)
+
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(dsn, dbname=db, autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        conn.execute(SQL)  # la migracion entera
+        yield conn, conectar_extra
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()
+
+
+# ---------------------------------------------------------------------------
+# Seeds (helpers del estilo test_optimizer_hygiene)
+# ---------------------------------------------------------------------------
+
+
+def _run(conn) -> int:
+    return conn.execute("INSERT INTO ingest_run (source) VALUES ('test') RETURNING id").fetchone()[
+        0
+    ]
+
+
+def _entidad(conn, platform: str, kind: str, external: str, parent=None, **extra) -> int:
+    return conn.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id, parent_id, match_type,"
+        " keyword_text) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+        (platform, kind, external, parent, extra.get("match_type"), extra.get("keyword_text")),
+    ).fetchone()[0]
+
+
+def _metrica(
+    conn,
+    run_id,
+    ad_entity_id,
+    fecha,
+    observed_at,
+    *,
+    moneda="USD",
+    cost=None,
+    ad_revenue=None,
+    clicks=None,
+    orders=None,
+) -> None:
+    conn.execute(
+        "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
+        " metric_currency, cost, ad_revenue, impressions, clicks, orders, ingest_run_id)"
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        (
+            ad_entity_id,
+            fecha,
+            observed_at,
+            moneda,
+            Decimal(cost) if cost is not None else None,
+            Decimal(ad_revenue) if ad_revenue is not None else None,
+            None,
+            clicks,
+            orders,
+            run_id,
+        ),
+    )
+
+
+def _termino(
+    conn,
+    run_id,
+    ad_entity_id,
+    term,
+    fecha,
+    observed_at,
+    *,
+    cost=None,
+    ad_revenue=None,
+    clicks=None,
+    orders=None,
+    asin=False,
+) -> None:
+    conn.execute(
+        "INSERT INTO search_term_observation (platform, ad_entity_id, search_term,"
+        " metric_date, observed_at, metric_currency, cost, clicks, orders, ad_revenue,"
+        " is_asin_like, ingest_run_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        (
+            "amazon_us",
+            ad_entity_id,
+            term,
+            fecha,
+            observed_at,
+            "USD",
+            Decimal(cost) if cost is not None else None,
+            clicks,
+            orders,
+            Decimal(ad_revenue) if ad_revenue is not None else None,
+            asin,
+            run_id,
+        ),
+    )
+
+
+def _estado(
+    conn,
+    ad_entity_id,
+    *,
+    synced_at,
+    current_bid=None,
+    bid_currency=None,
+    status="ENABLED",
+    acos_target=None,
+) -> None:
+    conn.execute(
+        "INSERT INTO ad_entity_state (ad_entity_id, current_bid, bid_currency, status,"
+        " acos_target, synced_at) VALUES (%s, %s, %s, %s, %s, %s)",
+        (ad_entity_id, current_bid, bid_currency, status, acos_target, synced_at),
+    )
+
+
+def _config_version(conn, settings: dict) -> int:
+    return conn.execute(
+        "INSERT INTO config_version (label, settings) VALUES (%s, %s) RETURNING id",
+        ("test-cycle", Json(settings)),
+    ).fetchone()[0]
+
+
+def _goal_plataforma(conn) -> int:
+    """Goal de plataforma habilitado: target 25, floor 0.40, ceiling 2.50 y
+    config de harvest COMPLETA (default_bid 0.75 USD)."""
+    return conn.execute(
+        "INSERT INTO ads_optimizer_goal (scope, platform, target_acos_pct, bid_floor,"
+        " bid_ceiling, bid_currency, harvest_campaign_id, harvest_ad_group_id,"
+        " harvest_default_bid, enabled, mode)"
+        " VALUES ('platform', 'amazon_us', 25, 0.40, 2.50, 'USD', '9002', '9102',"
+        " 0.75, true, 'live') RETURNING id"
+    ).fetchone()[0]
+
+
+def _goal_campana_disabled(conn, camp_id) -> int:
+    """El opt-out del Spec delta: goal de campana enabled=false que PISA al de
+    plataforma (precedencia 2.4 resuelta EN LA APP)."""
+    return conn.execute(
+        "INSERT INTO ads_optimizer_goal (scope, ad_entity_id, target_acos_pct, bid_floor,"
+        " bid_ceiling, bid_currency, enabled, mode)"
+        " VALUES ('campaign', %s, NULL, 0.10, 2.50, 'USD', false, 'shadow') RETURNING id",
+        (camp_id,),
+    ).fetchone()[0]
+
+
+def _siembra_kw_bid(conn, run_id, kw) -> None:
+    """37 fechas diarias (07-14..08-19) en tres segmentos: la ventana de BIDS
+    (07-18..08-16) suma cost 36 / revenue 100 / clicks 50 / orders 5 (ACoS 36%
+    > 1.35x25 con orders>=1 -> banda -25%: bid 1.00 -> 0.75) y la de CORTES
+    (07-14..08-12) queda con orders 5 (no pause)."""
+    for fecha in _rango(dt.date(2026, 7, 14), dt.date(2026, 7, 17)):
+        _metrica(
+            conn,
+            run_id,
+            kw,
+            fecha,
+            _obs(fecha),
+            cost="0.25",
+            ad_revenue="0.50",
+            clicks=0,
+            orders=0,
+        )
+    for i, fecha in enumerate(_rango(dt.date(2026, 7, 18), dt.date(2026, 8, 12))):
+        _metrica(
+            conn,
+            run_id,
+            kw,
+            fecha,
+            _obs(fecha),
+            cost="1.00",
+            ad_revenue="2.50",
+            clicks=1,
+            orders=1 if i < 5 else 0,
+        )
+    for fecha in _rango(dt.date(2026, 8, 13), dt.date(2026, 8, 16)):
+        _metrica(
+            conn,
+            run_id,
+            kw,
+            fecha,
+            _obs(fecha),
+            cost="2.50",
+            ad_revenue="8.75",
+            clicks=6,
+            orders=0,
+        )
+    for fecha in _rango(dt.date(2026, 8, 17), dt.date(2026, 8, 19)):
+        _metrica(
+            conn,
+            run_id,
+            kw,
+            fecha,
+            _obs(fecha),
+            cost="0.10",
+            ad_revenue="0.10",
+            clicks=1,
+            orders=0,
+        )
+
+
+def _siembra_kw_pause(conn, run_id, kw) -> None:
+    """La ventana de CORTES (07-14..08-12, las 30 fechas completas) suma
+    orders 0 / clicks 30 / cost 15.00 -> PAUSE (umbrales us: 25 y 12 USD)."""
+    for fecha in _rango(dt.date(2026, 7, 14), dt.date(2026, 8, 12)):
+        _metrica(
+            conn,
+            run_id,
+            kw,
+            fecha,
+            _obs(fecha),
+            cost="0.50",
+            ad_revenue="1.00",
+            clicks=1,
+            orders=0,
+        )
+    for fecha in _rango(dt.date(2026, 8, 13), dt.date(2026, 8, 19)):
+        _metrica(
+            conn,
+            run_id,
+            kw,
+            fecha,
+            _obs(fecha),
+            cost="0.10",
+            ad_revenue="0.10",
+            clicks=1,
+            orders=0,
+        )
+
+
+def _siembra_terminos(conn, run_id, ag) -> None:
+    """Cinco terminos del ad group, con ancla 07-21 (la ventana de terminos
+    queda 06-19..07-18 y la entidad completa: 9 fechas dentro)."""
+    # NEGATIVE elegible: orders 0, clicks 20, cost 8.00 (bordes inclusivos us)
+    for fecha, clicks, cost in (
+        (dt.date(2026, 7, 10), 7, "3.00"),
+        (dt.date(2026, 7, 11), 7, "3.00"),
+        (dt.date(2026, 7, 12), 6, "2.00"),
+    ):
+        _termino(
+            conn,
+            run_id,
+            ag,
+            "tortugas ninja calzas",
+            fecha,
+            _obs(fecha),
+            cost=cost,
+            ad_revenue="1.00",
+            clicks=clicks,
+            orders=0,
+        )
+    # HARVEST elegible: orders 3 (1 por fecha, >= 2), ACoS 10% <= min(35, 25)
+    for fecha, cost, revenue in (
+        (dt.date(2026, 7, 13), "3.34", "30.00"),
+        (dt.date(2026, 7, 14), "3.33", "30.00"),
+        (dt.date(2026, 7, 15), "3.33", "40.00"),
+    ):
+        _termino(
+            conn,
+            run_id,
+            ag,
+            "buena yarda",
+            fecha,
+            _obs(fecha),
+            cost=cost,
+            ad_revenue=revenue,
+            clicks=2,
+            orders=1,
+        )
+    # ASIN-like: cumpliria negative pero SIEMPRE se salta
+    _termino(
+        conn,
+        run_id,
+        ag,
+        "b0abcd1234",
+        dt.date(2026, 7, 16),
+        _obs(dt.date(2026, 7, 16)),
+        cost="15.00",
+        ad_revenue="1.00",
+        clicks=30,
+        orders=0,
+        asin=True,
+    )
+    # orders None: DESCONOCIDO, jamas decision por dato faltante
+    _termino(
+        conn,
+        run_id,
+        ag,
+        "sin orden conocida",
+        dt.date(2026, 7, 17),
+        _obs(dt.date(2026, 7, 17)),
+        cost="1.00",
+        ad_revenue="1.00",
+        clicks=5,
+        orders=None,
+    )
+    # relleno que SOLO sube el ancla de la ventana de terminos a 07-21
+    for fecha in _rango(dt.date(2026, 7, 18), dt.date(2026, 7, 21)):
+        _termino(
+            conn,
+            run_id,
+            ag,
+            "relleno diario",
+            fecha,
+            _obs(fecha),
+            cost="0.01",
+            ad_revenue="0.01",
+            clicks=0,
+            orders=0,
+        )
+
+
+def _siembra_maestra(conn, *, escalera: str = "shadow") -> dict:
+    """Fixture maestra del DoD: config + goal de plataforma + campana/ad_group/
+    2 keywords con ventanas maduras + 5 terminos. Reloj FIJO DECIDED_AT."""
+    run_id = _run(conn)
+    config_id = _config_version(conn, {"ads_optimizer_mode": escalera})
+    _goal_plataforma(conn)
+    camp = _entidad(conn, "amazon_us", "campaign", "9001")
+    ag = _entidad(conn, "amazon_us", "ad_group", "9101", parent=camp)
+    kw_bid = _entidad(
+        conn, "amazon_us", "keyword", "9201", parent=ag, match_type="EXACT", keyword_text="kw bid"
+    )
+    kw_pause = _entidad(
+        conn, "amazon_us", "keyword", "9202", parent=ag, match_type="EXACT", keyword_text="kw pause"
+    )
+    synced = DECIDED_AT - dt.timedelta(hours=4)
+    _estado(conn, kw_bid, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
+    _estado(conn, kw_pause, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
+    _estado(conn, ag, synced_at=synced)
+    _estado(conn, camp, synced_at=synced)
+    _siembra_kw_bid(conn, run_id, kw_bid)
+    _siembra_kw_pause(conn, run_id, kw_pause)
+    _siembra_terminos(conn, run_id, ag)
+    return {"config_id": config_id, "camp": camp, "ag": ag, "kw_bid": kw_bid, "kw_pause": kw_pause}
+
+
+def _corre(conn, *, owner=OWNER, platform="amazon_us"):
+    return ciclo.corre_ciclo(
+        conn, platform=platform, owner=owner, decided_at=DECIDED_AT, heartbeat_cada=1
+    )
+
+
+def _decisions_de(conn, cycle_id: int) -> list:
+    return conn.execute(
+        "SELECT ad_entity_id, kind, search_term, old_value, new_value, value_currency,"
+        " window_start, window_end, data_observed_at, inputs"
+        " FROM decision WHERE cycle_id = %s ORDER BY id",
+        (cycle_id,),
+    ).fetchall()
+
+
+def _envelope(conn, cycle_id: int):
+    return conn.execute(
+        "SELECT status, decisions_count, notes, finished_at FROM optimizer_cycle WHERE id = %s",
+        (cycle_id,),
+    ).fetchone()
+
+
+# ---------------------------------------------------------------------------
+# 1. Ciclo shadow completo: decisiones exactas pineadas + notes exactos
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ciclo_shadow_completo_decisiones_y_notes_exactos():
+    with _db_temporal("orbit_ciclo_full") as (conn, _c):
+        ids = _siembra_maestra(conn)
+        res = _corre(conn)
+
+        assert res.status == "done"
+        assert res.decisions_count == 4
+        env = _envelope(conn, res.cycle_id)
+        assert env[0] == "done"
+        assert env[2] == res.notes
+        assert env[3] is not None  # finished_at sellado
+
+        filas = _decisions_de(conn, res.cycle_id)
+        por = {(f[0], f[1], f[2]): f for f in filas}
+
+        # keyword kw_bid: banda -25% (ACoS 36% > 1.35x25, orders 5) -> 0.75 USD
+        bid_row = por[(ids["kw_bid"], "bid", None)]
+        assert bid_row[3] == Decimal("1.00")
+        assert bid_row[4] == Decimal("0.75")
+        assert bid_row[5] == "USD"
+        assert (bid_row[6], bid_row[7]) == (INICIO_BIDS, FIN_BIDS)
+        assert bid_row[8] == _obs(FIN_BIDS)
+        ins = bid_row[9]
+        assert ins["motor"] == "bid"
+        assert ins["platform"] == "amazon_us"
+        assert ins["factor"] == "-0.25"
+        assert ins["motivo"] == "banda_menos_25"
+        assert ins["target_acos_pct_usado"] == "25.00"
+        assert ins["bid_actual"] == "1.0000"
+        assert ins["bid_moneda"] == "USD"
+        assert ins["modo"] == "shadow"
+        assert ins["ventanas"]["bids"]["cost"] == "36.0000"
+        assert ins["ventanas"]["bids"]["ad_revenue"] == "100.0000"
+        assert ins["ventanas"]["bids"]["fechas"] == 30
+        assert ins["ventanas"]["bids"]["clicks"] == 50
+        assert ins["ventanas"]["bids"]["orders"] == 5
+        assert ins["ventanas"]["bids"]["moneda"] == "USD"
+        assert ins["ventanas"]["cortes"]["cost"] == "27.0000"
+        assert ins["goal"] == {
+            "scope": "platform",
+            "target_acos_pct": "25.00",
+            "bid_floor": "0.4000",
+            "bid_ceiling": "2.5000",
+            "harvest": {
+                "campaign_id": "9002",
+                "ad_group_id": "9102",
+                "default_bid": "0.7500",
+                "moneda": "USD",
+            },
+        }
+
+        # keyword kw_pause: PAUSE sobre la ventana de cortes, SIN dinero
+        pause_row = por[(ids["kw_pause"], "pause", None)]
+        assert pause_row[3] is None
+        assert pause_row[4] is None
+        assert pause_row[5] is None
+        assert (pause_row[6], pause_row[7]) == (INICIO_CORTES, FIN_CORTES)
+        assert pause_row[9]["motivo"] == "pause_umbral"
+        assert pause_row[9]["ventanas"]["cortes"]["cost"] == "15.0000"
+        assert pause_row[9]["ventanas"]["cortes"]["orders"] == 0
+        assert pause_row[9]["ventanas"]["cortes"]["clicks"] == 30
+
+        # termino NEGATIVE: con search_term y SIN dinero
+        neg_row = por[(ids["ag"], "negative", "tortugas ninja calzas")]
+        assert neg_row[3] is None and neg_row[4] is None and neg_row[5] is None
+        assert (neg_row[6], neg_row[7]) == (INICIO_TERMINOS, FIN_TERMINOS)
+        assert neg_row[9]["motor"] == "hygiene"
+        assert neg_row[9]["motivo"] == "negative_umbral"
+        assert neg_row[9]["termino"]["search_term"] == "tortugas ninja calzas"
+        assert neg_row[9]["termino"]["clicks"] == 20
+        assert neg_row[9]["termino"]["cost"] == "8.0000"
+        assert neg_row[9]["target_acos_pct_usado"] == "25.00"
+
+        # termino HARVEST: new_value = default_bid del goal con SU moneda
+        harv_row = por[(ids["ag"], "harvest", "buena yarda")]
+        assert harv_row[3] is None
+        assert harv_row[4] == Decimal("0.75")
+        assert harv_row[5] == "USD"
+        assert harv_row[9]["motivo"] == "harvest_umbral"
+
+        # asin-like y orders=None: SIN decision (solo cuentan en los notes)
+        terminos_con_decision = {f[2] for f in filas if f[2] is not None}
+        assert "b0abcd1234" not in terminos_con_decision
+        assert "sin orden conocida" not in terminos_con_decision
+
+        notes = json.loads(res.notes)
+        assert notes["skips"] == {
+            "entidad": {},
+            "termino": {"asin_like": 1, "orders_desconocido": 1, "sin_umbral_negative": 1},
+        }
+        assert notes["decisiones"] == {"bid": 1, "pause": 1, "negative": 1, "harvest": 1}
+        assert notes["entidades"] == 2
+        assert notes["ad_groups"] == 1
+        assert notes["terminos"] == 5
+        assert notes["ciclos_muertos"] == []
+        assert notes["degradacion_live"] is None
+
+        # lock liberado al terminar
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM ads_optimizer_lock WHERE job_key = %s", (JOB_KEY,)
+            ).fetchone()[0]
+            == 0
+        )
+
+
+# ---------------------------------------------------------------------------
+# 2. Claim: vigente ajeno / TTL vencido con rastro / concurrencia real
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_claim_vigente_de_otro_owner_no_robable():
+    with _db_temporal("orbit_ciclo_claim") as (conn, _c):
+        _siembra_maestra(conn)
+        conn.execute(
+            "INSERT INTO ads_optimizer_lock (job_key, owner) VALUES (%s, 'otro')", (JOB_KEY,)
+        )
+        conn.execute(
+            "UPDATE ads_optimizer_lock SET heartbeat_at = now() WHERE job_key = %s", (JOB_KEY,)
+        )
+        antes = conn.execute("SELECT count(*) FROM optimizer_cycle").fetchone()[0]
+
+        with pytest.raises(ciclo.CicloOcupado):
+            _corre(conn)
+
+        # SIN envelope nuevo (nada corrio) y el lock sigue siendo del otro
+        assert conn.execute("SELECT count(*) FROM optimizer_cycle").fetchone()[0] == antes
+        dueno = conn.execute(
+            "SELECT owner FROM ads_optimizer_lock WHERE job_key = %s", (JOB_KEY,)
+        ).fetchone()[0]
+        assert dueno == "otro"
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_claim_ttl_vencido_reclamable_con_rastro_del_muerto():
+    with _db_temporal("orbit_ciclo_ttl") as (conn, _c):
+        _siembra_maestra(conn)
+        conn.execute(
+            "INSERT INTO ads_optimizer_lock (job_key, owner) VALUES (%s, 'muerto')", (JOB_KEY,)
+        )
+        conn.execute(
+            "UPDATE ads_optimizer_lock SET heartbeat_at = now() - interval '31 minutes'"
+            " WHERE job_key = %s",
+            (JOB_KEY,),
+        )
+        # envelope huerfano del ciclo muerto (quedo 'running' para siempre)
+        huerfano = conn.execute(
+            "INSERT INTO optimizer_cycle (motor, mode, platform)"
+            " VALUES ('ads_optimizer', 'shadow', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+
+        res = _corre(conn)  # gana el claim: TTL de 30 min vencido hace 1
+
+        assert res.status == "done"
+        fila_huerfana = conn.execute(
+            "SELECT status, notes FROM optimizer_cycle WHERE id = %s", (huerfano,)
+        ).fetchone()
+        assert fila_huerfana[0] == "failed"
+        assert "rastro" in fila_huerfana[1]
+        assert json.loads(res.notes)["ciclos_muertos"] == [huerfano]
+
+
+def _trabajador_race(owner, conectar, barrera, ganadores, ocupados) -> None:
+    """Un competidor del claim: conexion propia, sincronizada por la barrera.
+    Todo por parametro (B023): nada capturado del loop."""
+    propia = conectar()
+    try:
+        barrera.wait(timeout=30)
+        res = ciclo.corre_ciclo(
+            propia,
+            platform="amazon_us",
+            owner=owner,
+            decided_at=DECIDED_AT,
+            heartbeat_cada=1,
+        )
+        ganadores.append(res.cycle_id)
+    except ciclo.CicloOcupado:
+        ocupados.append(True)
+    finally:
+        propia.close()
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_claim_concurrencia_real_dos_threads_un_ganador():
+    with _db_temporal("orbit_ciclo_race") as (conn, conectar):
+        _siembra_maestra(conn)
+        for ronda in range(3):
+            ganadores: list[int] = []
+            ocupados: list[bool] = []
+            barrera = threading.Barrier(2)
+
+            hilos = [
+                threading.Thread(
+                    target=_trabajador_race,
+                    args=(f"th-{ronda}-a", conectar, barrera, ganadores, ocupados),
+                ),
+                threading.Thread(
+                    target=_trabajador_race,
+                    args=(f"th-{ronda}-b", conectar, barrera, ganadores, ocupados),
+                ),
+            ]
+            for h in hilos:
+                h.start()
+            for h in hilos:
+                h.join(timeout=60)
+            assert not any(h.is_alive() for h in hilos)
+            assert len(ganadores) == 1, f"ronda {ronda}: un solo ganador, hubo {ganadores}"
+            assert len(ocupados) == 1, f"ronda {ronda}: el otro debe ver CicloOcupado"
+
+
+# ---------------------------------------------------------------------------
+# 3. decisions_count cuadra contra la tabla
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_decisions_count_cuadra_contra_decision():
+    with _db_temporal("orbit_ciclo_count") as (conn, _c):
+        _siembra_maestra(conn)
+        res = _corre(conn)
+        real = conn.execute(
+            "SELECT count(*) FROM decision WHERE cycle_id = %s", (res.cycle_id,)
+        ).fetchone()[0]
+        assert res.decisions_count == real == 4
+        assert _envelope(conn, res.cycle_id)[1] == real
+
+
+# ---------------------------------------------------------------------------
+# 4. GOLDEN TEST DE REPLAY: reproduce(inputs) == decision exacta
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_golden_replay_reproduce_todas_las_decisiones():
+    with _db_temporal("orbit_ciclo_replay") as (conn, _c):
+        _siembra_maestra(conn)
+        res = _corre(conn)
+        filas = conn.execute(
+            "SELECT kind, new_value, value_currency, inputs FROM decision WHERE cycle_id = %s",
+            (res.cycle_id,),
+        ).fetchall()
+        kinds = {f[0] for f in filas}
+        assert kinds == {"bid", "pause", "negative", "harvest"}
+        for kind, new_value, moneda, inputs in filas:
+            # Decimal de string (regla 4): inputs congelo los numeros como str
+            assert ciclo.reproduce(inputs) == (kind, new_value, moneda), kind
+
+
+# ---------------------------------------------------------------------------
+# 5. Privilegio negativo con SET ROLE app_decide (patron test_reports_pipeline)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_privilegio_negativo_app_decide():
+    with _db_temporal("orbit_ciclo_priv") as (conn, _c):
+        config_id = _config_version(conn, {"ads_optimizer_mode": "shadow"})
+        camp = _entidad(conn, "amazon_us", "campaign", "6001")
+        try:
+            conn.execute("SET ROLE app_decide")
+        except psycopg.errors.InsufficientPrivilege:
+            # Señal CI igual que _postgres_obligatorio_ausente (hallazgo
+            # CodeRabbit): si CI corre sin ORBIT_TEST_DSN y el usuario no
+            # tiene membresia, el DoD no puede evaporarse en skip verde.
+            if _DSN_EXPLICITO or os.environ.get("CI"):
+                raise AssertionError(
+                    "CI con usuario sin membresia app_decide: el privilegio "
+                    "negativo del DoD quedo sin ejercer"
+                ) from None
+            pytest.skip(
+                "usuario del DSN sin membresia app_decide: el privilegio negativo "
+                "se ejercita en CI, donde el DSN es superuser"
+            )
+        try:
+            # LO QUE SI: el motor escribe decisiones, envelopes y el lock
+            ciclo_id = conn.execute(
+                "INSERT INTO optimizer_cycle (motor, mode, platform)"
+                " VALUES ('ads_optimizer', 'shadow', 'amazon_us') RETURNING id"
+            ).fetchone()[0]
+            conn.execute("INSERT INTO ads_optimizer_lock (job_key, owner) VALUES ('t:lock', 't')")
+            conn.execute(
+                "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at,"
+                " config_version_id, data_observed_at, window_start, window_end,"
+                " old_value, new_value, value_currency, inputs)"
+                " VALUES (%s, %s, 'bid', %s, %s, %s, %s, %s, 1.00, 0.75, 'USD', '{}')",
+                (
+                    ciclo_id,
+                    camp,
+                    DECIDED_AT,
+                    config_id,
+                    DECIDED_AT - dt.timedelta(hours=1),
+                    dt.date(2026, 7, 25),
+                    dt.date(2026, 8, 12),
+                ),
+            )
+            # LO QUE NO: goals y config son decision humana (app_admin)
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute(
+                    "INSERT INTO ads_optimizer_goal (scope, platform, bid_currency, enabled)"
+                    " VALUES ('platform', 'amazon_us', 'USD', false)"
+                )
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute("INSERT INTO config_version (settings) VALUES ('{}')")
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute(
+                    "UPDATE config_version SET settings = '{}' WHERE id = %s", (config_id,)
+                )
+        finally:
+            conn.execute("SET ROLE NONE")
+
+
+# ---------------------------------------------------------------------------
+# 6. Guardas: watermark viejo / synced_at >48h -> degraded; escalera off -> skipped
+# ---------------------------------------------------------------------------
+
+
+def _siembra_guarda(conn, *, metric_date, synced_at) -> None:
+    run_id = _run(conn)
+    _config_version(conn, {"ads_optimizer_mode": "shadow"})
+    camp = _entidad(conn, "amazon_us", "campaign", "8001")
+    kw = _entidad(
+        conn, "amazon_us", "keyword", "8101", parent=camp, match_type="EXACT", keyword_text="kw g"
+    )
+    _estado(conn, camp, synced_at=synced_at)
+    _estado(conn, kw, synced_at=synced_at, current_bid=Decimal("1.00"), bid_currency="USD")
+    _metrica(
+        conn,
+        run_id,
+        kw,
+        metric_date,
+        _obs(metric_date),
+        cost="1.00",
+        ad_revenue="3.00",
+        clicks=1,
+        orders=1,
+    )
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_guarda_watermark_viejo_degraded():
+    with _db_temporal("orbit_ciclo_wm") as (conn, _c):
+        _siembra_guarda(
+            conn, metric_date=dt.date(2026, 8, 13), synced_at=DECIDED_AT - dt.timedelta(hours=4)
+        )
+        res = _corre(conn)
+        assert res.status == "degraded"
+        notes = json.loads(res.notes)
+        assert notes["motivo_skip"] == "guarda_watermark"
+        assert "watermark" in notes["detalle"]
+        assert res.decisions_count == 0
+        assert conn.execute("SELECT count(*) FROM decision").fetchone()[0] == 0
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_guarda_synced_at_viejo_degraded():
+    with _db_temporal("orbit_ciclo_sync") as (conn, _c):
+        _siembra_guarda(
+            conn, metric_date=dt.date(2026, 8, 21), synced_at=DECIDED_AT - dt.timedelta(hours=60)
+        )
+        res = _corre(conn)
+        assert res.status == "degraded"
+        notes = json.loads(res.notes)
+        assert notes["motivo_skip"] == "guarda_synced_at"
+        assert "sincronizada" in notes["detalle"] or "synced" in notes["detalle"]
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_escalera_global_off_skipped():
+    with _db_temporal("orbit_ciclo_off") as (conn, _c):
+        _siembra_maestra(conn, escalera="off")
+        res = _corre(conn)
+        assert res.status == "skipped"
+        assert res.decisions_count == 0
+        notes = json.loads(res.notes)
+        assert notes["motivo_skip"] == "escalera_off"
+        assert conn.execute("SELECT count(*) FROM decision").fetchone()[0] == 0
+        # el envelope existe, quedo cerrado skipped y el lock liberado
+        env = _envelope(conn, res.cycle_id)
+        assert env[0] == "skipped" and env[3] is not None
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM ads_optimizer_lock WHERE job_key = %s", (JOB_KEY,)
+            ).fetchone()[0]
+            == 0
+        )
+
+
+# ---------------------------------------------------------------------------
+# 7. Sello fail-closed: re-lanza, sella 'failed' con error scrubbado, libera lock
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_sello_fail_closed_decide_bid_explota(monkeypatch):
+    with _db_temporal("orbit_ciclo_sello") as (conn, _c):
+        _siembra_maestra(conn)
+
+        def _boom(**_kwargs):
+            raise RuntimeError("boom decidir")
+
+        monkeypatch.setattr(bid_mod, "decide_bid", _boom)
+        with pytest.raises(RuntimeError, match="boom"):
+            _corre(conn)
+        monkeypatch.undo()
+
+        ciclos = conn.execute(
+            "SELECT id, status, notes FROM optimizer_cycle WHERE motor = 'ads_optimizer'"
+        ).fetchall()
+        assert len(ciclos) == 1
+        ciclo_id, status, notes = ciclos[0]
+        assert status == "failed"
+        # el error scrubbado viaja DENTRO del notes JSON estructurado
+        assert json.loads(notes)["error"].startswith("boom")
+        # nada se decidio y el lock quedo liberado
+        assert conn.execute("SELECT count(*) FROM decision").fetchone()[0] == 0
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM ads_optimizer_lock WHERE job_key = %s", (JOB_KEY,)
+            ).fetchone()[0]
+            == 0
+        )
+
+
+# ---------------------------------------------------------------------------
+# 8. Opt-out auditable: goal de campana enabled=false pisa al de plataforma
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_opt_out_goal_campana_deshabilitado():
+    with _db_temporal("orbit_ciclo_optout") as (conn, _c):
+        ids = _siembra_maestra(conn)
+        _goal_campana_disabled(conn, ids["camp"])
+        res = _corre(conn)
+
+        assert res.status == "done"
+        assert res.decisions_count == 0
+        assert conn.execute("SELECT count(*) FROM decision").fetchone()[0] == 0
+        notes = json.loads(res.notes)
+        # las 2 keywords y los 5 terminos del ad group quedaron fuera por el
+        # goal de campana deshabilitado (pisa a la plataforma: 2.4 EN LA APP)
+        assert notes["skips"]["entidad"] == {"goal_disabled": 2}
+        assert notes["skips"]["termino"] == {"goal_disabled": 5}
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_gates_de_elegibilidad_sin_goal_mode_off_estado_y_cooldown():
+    """Los 4 gates de elegibilidad sin test propio (hallazgo verificador):
+    sin_goal (ciclo 1, sin ningun goal), goal_mode_off, estado_no_enabled y
+    cooldown_7d (ciclo 2, con goal de plataforma habilitado + overrides por
+    campana). Cada keyword elegible queda contada por SU motivo exacto y
+    ninguna genera decision."""
+    with _db_temporal("orbit_ciclo_gates") as (conn, _c):
+        run_id = _run(conn)
+        config_id = _config_version(conn, {"ads_optimizer_mode": "shadow"})
+        synced = DECIDED_AT - dt.timedelta(hours=4)
+
+        # keyword S: campana SIN goal de ningun tipo
+        camp_s = _entidad(conn, "amazon_us", "campaign", "9601")
+        ag_s = _entidad(conn, "amazon_us", "ad_group", "9611", parent=camp_s)
+        kw_s = _entidad(
+            conn, "amazon_us", "keyword", "9621", parent=ag_s, match_type="EXACT", keyword_text="s"
+        )
+        _estado(conn, camp_s, synced_at=synced)
+        _estado(conn, ag_s, synced_at=synced)
+        _estado(conn, kw_s, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
+        _siembra_kw_bid(conn, run_id, kw_s)
+
+        # ciclo 1: sin goals -> todo elegible-pero-sin-goal
+        res1 = _corre(conn)
+        assert res1.status == "done"
+        assert res1.decisions_count == 0
+        assert json.loads(res1.notes)["skips"]["entidad"] == {"sin_goal": 1}
+
+        # ciclo 2: plataforma habilitada (mode shadow) + overrides por campana
+        _goal_plataforma(conn)
+        # M: goal de campana habilitado con mode 'off' -> goal_mode_off
+        camp_m = _entidad(conn, "amazon_us", "campaign", "9602")
+        ag_m = _entidad(conn, "amazon_us", "ad_group", "9612", parent=camp_m)
+        kw_m = _entidad(
+            conn, "amazon_us", "keyword", "9622", parent=ag_m, match_type="EXACT", keyword_text="m"
+        )
+        conn.execute(
+            "INSERT INTO ads_optimizer_goal (scope, ad_entity_id, target_acos_pct, bid_floor,"
+            " bid_ceiling, bid_currency, enabled, mode)"
+            " VALUES ('campaign', %s, 25, 0.40, 2.50, 'USD', true, 'off')",
+            (camp_m,),
+        )
+        _estado(conn, camp_m, synced_at=synced)
+        _estado(conn, ag_m, synced_at=synced)
+        _estado(conn, kw_m, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
+        _siembra_kw_bid(conn, run_id, kw_m)
+        # E: cubierta por la plataforma pero su keyword esta PAUSED -> estado_no_enabled
+        camp_e = _entidad(conn, "amazon_us", "campaign", "9603")
+        ag_e = _entidad(conn, "amazon_us", "ad_group", "9613", parent=camp_e)
+        kw_e = _entidad(
+            conn, "amazon_us", "keyword", "9623", parent=ag_e, match_type="EXACT", keyword_text="e"
+        )
+        _estado(conn, camp_e, synced_at=synced)
+        _estado(conn, ag_e, synced_at=synced)
+        _estado(
+            conn,
+            kw_e,
+            synced_at=synced,
+            current_bid=Decimal("1.00"),
+            bid_currency="USD",
+            status="PAUSED",
+        )
+        _siembra_kw_bid(conn, run_id, kw_e)
+        # C: elegible PERO en cooldown: apply verificado de un ciclo LIVE hace <7d
+        camp_c = _entidad(conn, "amazon_us", "campaign", "9604")
+        ag_c = _entidad(conn, "amazon_us", "ad_group", "9614", parent=camp_c)
+        kw_c = _entidad(
+            conn, "amazon_us", "keyword", "9624", parent=ag_c, match_type="EXACT", keyword_text="c"
+        )
+        _estado(conn, camp_c, synced_at=synced)
+        _estado(conn, ag_c, synced_at=synced)
+        _estado(conn, kw_c, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
+        _siembra_kw_bid(conn, run_id, kw_c)
+        ciclo_vivo = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        dec_viva = conn.execute(
+            "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
+            " data_observed_at, window_start, window_end, old_value, new_value, value_currency,"
+            " inputs) VALUES (%s, %s, 'bid', %s, %s, %s, %s, %s, 1.00, 0.75, 'USD', %s)"
+            " RETURNING id",
+            (
+                ciclo_vivo,
+                kw_c,
+                DECIDED_AT - dt.timedelta(days=7),
+                config_id,
+                DECIDED_AT - dt.timedelta(days=7, hours=1),
+                dt.date(2026, 7, 20),
+                dt.date(2026, 8, 10),
+                Json({"seed": "cooldown"}),
+            ),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO decision_application (decision_id, attempted_at, confirmed_at,"
+            " verify_ok, platform_ack) VALUES (%s, %s, %s, true, %s)",
+            (
+                dec_viva,
+                DECIDED_AT - dt.timedelta(days=6),
+                DECIDED_AT - dt.timedelta(days=6),
+                Json({"estado": "ok"}),
+            ),
+        )
+
+        res2 = _corre(conn)
+        assert res2.status == "done"
+        skips_entidad = json.loads(res2.notes)["skips"]["entidad"]
+        # kw_s ya NO esta en sin_goal: con goal de plataforma y metricas
+        # maduras DECIDE banda -25 (1 decision), no skip. Los tres gates
+        # cuentan cada keyword gateada por SU motivo exacto.
+        assert skips_entidad == {"goal_mode_off": 1, "estado_no_enabled": 1, "cooldown_7d": 1}
+        decs = conn.execute(
+            "SELECT d.ad_entity_id, d.kind FROM decision d JOIN optimizer_cycle oc"
+            " ON oc.id = d.cycle_id WHERE oc.id = %s",
+            (res2.cycle_id,),
+        ).fetchall()
+        # la unica decision del ciclo 2 es la banda de kw_s (target 25 por
+        # plataforma, ACoS 36%): las tres gateadas NO decidieron
+        assert [(d[0], d[1]) for d in decs] == [(kw_s, "bid")]
+
+
+# ---------------------------------------------------------------------------
+# 9. REPEATABLE READ verificable en la fase de lecturas
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_fase_de_lecturas_corre_en_repeatable_read(monkeypatch):
+    with _db_temporal("orbit_ciclo_rr") as (conn, _c):
+        _siembra_maestra(conn)
+        capturado: dict[str, str] = {}
+        original = w.ventanas_entidad
+
+        def _espia(conn_entrante, ad_entity_id, decided_at):
+            capturado["isolation"] = conn_entrante.execute("SHOW transaction_isolation").fetchone()[
+                0
+            ]
+            return original(conn_entrante, ad_entity_id, decided_at)
+
+        monkeypatch.setattr(w, "ventanas_entidad", _espia)
+        res = _corre(conn)
+        assert res.status == "done"
+        assert capturado["isolation"] == "repeatable read"
+
+
+# ---------------------------------------------------------------------------
+# 10. Sintaxis: las SQL del modulo parsean como Postgres real
+# ---------------------------------------------------------------------------
+
+
+def test_sql_del_modulo_parsea_como_postgres():
+    """Patron del repo: pglast es dev-dep declarada y su desaparicion debe
+    FALLAR ruidosamente, no saltar en silencio."""
+    nombres = sorted(n for n in vars(ciclo) if n.startswith("_SQL_"))
+    assert nombres, "no se encontraron constantes _SQL_* en app/cycle"
+    for nombre in nombres:
+        sql = getattr(ciclo, nombre).replace("%s", "NULL")
+        assert pglast.parse_sql(sql), f"{nombre} no parseo"
+
+
+# ---------------------------------------------------------------------------
+# 11. Regresiones CodeRabbit (ronda ready): perdedor no libera lock ajeno;
+#     congelado EFECTIVO de floor/ceiling
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_claim_perdido_no_libera_lock_ajeno_con_mismo_owner():
+    """Hallazgo CodeRabbit (major): el finally liberaba el lock aunque el
+    claim se hubiera PERDIDO -- con owners IGUALES entre procesos (owner fijo
+    de config, o hostname:pid repetido en contenedores del mismo host) el
+    perdedor borraba el lock del ganador y dos ciclos quedaban escribiendo en
+    paralelo. Quien nunca gano el claim NO libera nada."""
+    with _db_temporal("orbit_ciclo_mismo_owner") as (conn, conectar):
+        _siembra_maestra(conn)
+        ocupante = conectar()  # otro proceso que YA tiene el lock, mismo owner
+        ocupante.execute(
+            "INSERT INTO ads_optimizer_lock (job_key, owner) VALUES (%s, %s)",
+            (JOB_KEY, "gemelo"),
+        )
+        try:
+            with pytest.raises(ciclo.CicloOcupado):
+                ciclo.corre_ciclo(
+                    conn,
+                    platform="amazon_us",
+                    owner="gemelo",
+                    decided_at=DECIDED_AT,
+                    heartbeat_cada=1,
+                )
+            fila = conn.execute(
+                "SELECT owner FROM ads_optimizer_lock WHERE job_key = %s", (JOB_KEY,)
+            ).fetchone()
+            assert fila is not None, "el perdedor NO borra el lock del ocupante"
+            assert fila[0] == "gemelo"
+        finally:
+            ocupante.close()
+
+
+def test_goal_json_congela_floor_ceiling_efectivos():
+    """Hallazgo CodeRabbit (major): el congelado llevaba bid_floor/ceiling
+    CRUDOS del goal, pero decide_bid consume los EFECTIVOS
+    (resuelve_floor_ceiling). Un goal construido a mano con None debe
+    congelar los defaults 0.10/2.50 -- exactamente lo que el motor uso; el
+    valor crudo None romperia reproduce() con Decimal(None)."""
+    from app.optimizer import goals as g
+
+    goal = g.Goal(
+        scope="platform",
+        ad_entity_id=None,
+        platform="amazon_us",
+        target_acos_pct=Decimal("25"),
+        bid_floor=None,
+        bid_ceiling=None,
+        bid_currency="USD",
+        harvest_campaign_id=None,
+        harvest_ad_group_id=None,
+        harvest_default_bid=None,
+        enabled=True,
+        mode="shadow",
+    )
+    congelado = ciclo._goal_json(goal)
+    assert congelado["bid_floor"] == "0.10"
+    assert congelado["bid_ceiling"] == "2.50"

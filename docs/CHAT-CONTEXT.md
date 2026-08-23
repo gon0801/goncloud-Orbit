@@ -4,9 +4,11 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
-**Última actualización: 2026-08-23 — Phase 1 y Phase 2 de ORBIT 03 completas
-y revisadas; Phase 3 (orquestador) en implementación. Este archivo tiene
-candado de frescura: el CI exige actualizarlo en cada PR que cierre tareas.**
+**Última actualización: 2026-08-24 — Phases 1, 2 y 3 de ORBIT 03 COMPLETAS,
+revisadas y mergeadas a master (motor puro + orquestador + API de lectura +
+CLI + candados anti-monolito). Sigue Phase 4: deploy, crons y los dos
+checkpoints humanos del dueño. Este archivo tiene candado de frescura: el CI
+exige actualizarlo en cada PR que cierre tareas.**
 
 ## Qué es Orbit
 
@@ -23,14 +25,22 @@ escribe nada a Amazon hasta pasar validación humana (el "apply" llega en PR2).
 
 - **Hecho y en master**: toda la ingesta (cliente HTTP read-only con redacción
   de secretos, sync de estructura, pipeline de métricas y search terms,
-  backfill histórico completo: 95 días de métricas, ~65 de terms, us y mx).
-- **Hecho en el PR #12 (rama de Phase 2)**: la capa de ventanas de datos y el
+  backfill histórico completo: 95 días de métricas, ~65 de terms, us y mx),
+  y todo lo siguiente (mergeado 2026-08-24): la capa de ventanas de datos, el
   motor de decisión puro (bids, hygiene, goals) con todos los umbrales
-  sellados y testeados; candados anti-monolito activos (complejidad,
-  fronteras de imports, tamaño de módulos).
-- **En curso**: 3.1 el orquestador del ciclo (une ventanas + motor y escribe
-  la auditoría). Siguen: 3.2 API de lectura, 3.3 CLI, y Phase 4 (deploy,
-  crons, seed humano de goals, primer shadow real).
+  sellados y testeados, 3.1 el orquestador del ciclo (claim atómico del
+  lock con TTL y heartbeat, envelope que se sella en todos los caminos,
+  skips estructurados en notes, decisiones con inputs congelados y golden
+  replay que las reproduce exactas), 3.2 la API de solo lectura
+  (`/api/ads-optimizer/{status,audit,goals}`, GET como `orbit_read`, con
+  watermarks de la misma fuente del motor y notes de formato mixto
+  tolerado) y 3.3 el CLI `python -m app.cli {ingest,cycle}` (envoltorio
+  delgado: el ciclo usa el mismo claim/job_key del cron y `ingest` delega
+  a los pipelines de `app/ads/`); candados anti-monolito activos
+  (complejidad, fronteras de imports, tamaño de módulos, frescura de este
+  archivo).
+- **En curso**: Phase 4 (deploy, crons, seed humano de goals, primer shadow
+  real).
 - **Datos reales ya en la base viva** (Postgres en el server `goncloud`):
   5,897 entidades, ~22,000 observaciones de métricas, ~6,900 de search terms.
 
@@ -62,7 +72,7 @@ app/
     ├── bid.py        decisiones de puja y pause
     ├── hygiene.py    negative exact y harvest
     └── goals.py      metas por campaña/plataforma, modo efectivo, cooldown
-app/cycle.py (en construcción) ← orquestador: ventanas → motor → auditoría
+app/cycle.py ← orquestador del ciclo: ventanas → motor → tabla decision (auditoría)
 ```
 
 Flujo de una vía: Amazon → `ads/` → Postgres → `windows.py` → motor →

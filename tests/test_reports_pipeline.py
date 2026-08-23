@@ -30,7 +30,7 @@ from decimal import Decimal
 
 import httpx
 import pytest
-from test_schema import SQL, _hay_postgres_local, _test_dsn
+from test_schema import SQL, _postgres_obligatorio_ausente, _test_dsn
 
 from app.ads.client import AdsApiError, AdsClient
 from app.ads.config import AdsCredentials
@@ -978,7 +978,7 @@ _DSN_EXPLICITO = bool(os.environ.get("ORBIT_TEST_DSN"))
 
 
 @pytest.mark.skipif(
-    not _DSN_EXPLICITO and not _hay_postgres_local(),
+    _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 def test_pipeline_metricas_en_vivo(monkeypatch):
@@ -997,7 +997,7 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
     - Fallo de fase API (codex): create 400 -> run sellada ok=false con el
       error y re-raise: toda invocacion deja fila auditable.
     """
-    psycopg = pytest.importorskip("psycopg")
+    import psycopg  # import real: sin driver el guard fail-closed ya decidio
     from psycopg import sql as pgsql
 
     dsn = _test_dsn()
@@ -1487,11 +1487,12 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
         except psycopg.errors.InsufficientPrivilege:
             # Hallazgo CodeRabbit: con DSN EXPLICITO (CI) esto no puede ser un
             # skip silencioso -- el DoD se apagaria sin senal si el DSN dejara
-            # de ser superuser. Falla salvo en corridas locales sin DSN puesto.
-            if _DSN_EXPLICITO:
+            # de ser superuser. Señal CI explicita (mismo fix que 3.1): aunque
+            # ORBIT_TEST_DSN no estuviera definida, en CI el DoD no se evapora.
+            if _DSN_EXPLICITO or "CI" in os.environ:
                 raise AssertionError(
-                    "ORBIT_TEST_DSN explicito pero sin membresia app_ingest: "
-                    "el privilegio negativo del DoD quedo sin ejercer"
+                    "CI con usuario sin membresia app_ingest: el privilegio "
+                    "negativo del DoD quedo sin ejercer"
                 ) from None
             pytest.skip(
                 "usuario del DSN sin membresia app_ingest: el privilegio negativo "
@@ -1518,7 +1519,7 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
 
 
 @pytest.mark.skipif(
-    not _DSN_EXPLICITO and not _hay_postgres_local(),
+    _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 def test_pipeline_search_terms_en_vivo():
@@ -1540,7 +1541,7 @@ def test_pipeline_search_terms_en_vivo():
       (la fusion vuelve a correr y vuelve a contar su skip); la tabla
       sigue en 4 (append-only, sin duplicados).
     """
-    psycopg = pytest.importorskip("psycopg")
+    import psycopg  # import real: sin driver el guard fail-closed ya decidio
     from psycopg import sql as pgsql
 
     dsn = _test_dsn()

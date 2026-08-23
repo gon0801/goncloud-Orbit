@@ -535,12 +535,97 @@ def _hay_postgres_local():
     túnel SSH caído en 127.0.0.1:5432 bloqueando el pre-push, ronda
     cross-review claude). Hay que hablar Postgres de verdad, con tope corto.
     """
-    psycopg = pytest.importorskip("psycopg")
+    if not _psycopg_disponible():
+        return False
+    import psycopg
+
     try:
         with psycopg.connect(_test_dsn(), connect_timeout=2):
             return True
     except psycopg.Error:
         return False
+
+
+def _psycopg_disponible() -> bool:
+    """Driver psycopg importable (hallazgo CodeRabbit PR #12, ronda ready):
+    sin driver, el importorskip de los tests se comeria la cobertura en
+    silencio AUN con ORBIT_TEST_DSN definido."""
+    import importlib
+
+    try:
+        importlib.import_module("psycopg")
+    except ImportError:
+        # find_spec puede devolver spec aunque el import truene
+        # (CodeRabbit): el criterio es el import REAL
+        return False
+    return True
+
+
+def _postgres_obligatorio_ausente() -> bool:
+    """Condicion de skip FAIL-CLOSED para tests de integracion (hallazgo
+    CodeRabbit PR #12): sin DSN explicito y sin Postgres local se skipea,
+    PERO en CI (env CI definida; GitHub Actions siempre la pone) Postgres
+    debe existir -- su ausencia ahi es RuntimeError ruidoso en la coleccion,
+    jamas un skip silencioso que se lea como cobertura. El DRIVER psycopg
+    cuenta como parte de "Postgres utilizable": sin el nada corre, y el
+    importorskip de los tests NO es señal (skipea, no truena).
+    """
+    if not _psycopg_disponible():
+        if "CI" in os.environ:
+            raise RuntimeError(
+                "CI definida pero sin driver psycopg: los tests de "
+                "integracion desaparecerian en silencio (fail-closed)"
+            )
+        return True
+    if os.environ.get("ORBIT_TEST_DSN"):
+        return False
+    if _hay_postgres_local():
+        return False
+    if "CI" in os.environ:  # presencia, no truthiness: CI="" tambien es CI
+        raise RuntimeError(
+            "CI definida pero sin Postgres utilizable: los tests de "
+            "integracion desaparecerian en silencio (fail-closed)"
+        )
+    return True
+
+
+def test_postgres_obligatorio_ausente_fail_closed(monkeypatch):
+    """El guard NO puede fallar abierto en CI: sin DSN y sin Postgres, con
+    CI definida revienta (jamas skip silencioso); sin CI, si skipea."""
+    import test_schema as ts
+
+    monkeypatch.delenv("ORBIT_TEST_DSN", raising=False)
+    monkeypatch.setattr(ts, "_hay_postgres_local", lambda: False)
+    monkeypatch.setenv("CI", "true")
+    with pytest.raises(RuntimeError, match="fail-closed"):
+        ts._postgres_obligatorio_ausente()
+    # CI="" TAMBIEN es CI (GitHub podria setearla vacia): presencia manda
+    monkeypatch.setenv("CI", "")
+    with pytest.raises(RuntimeError, match="fail-closed"):
+        ts._postgres_obligatorio_ausente()
+    monkeypatch.delenv("CI", raising=False)
+    assert ts._postgres_obligatorio_ausente() is True
+
+
+def test_postgres_obligatorio_driver_ausente_fail_closed(monkeypatch):
+    """Hallazgo CodeRabbit (ronda ready): con el driver psycopg AUSENTE el
+    guard debe tratar Postgres como no utilizable -- RuntimeError en CI
+    (jamas skip silencioso) y skip local, TANTO con ORBIT_TEST_DSN definido
+    como sin el (el importorskip de los tests skipea, no truena: no es
+    señal)."""
+    import test_schema as ts
+
+    monkeypatch.setattr(ts, "_psycopg_disponible", lambda: False)
+    monkeypatch.setattr(ts, "_hay_postgres_local", lambda: True)  # da igual: el driver manda
+    for dsn in (None, "postgresql://x/y"):
+        monkeypatch.delenv("ORBIT_TEST_DSN", raising=False)
+        if dsn:
+            monkeypatch.setenv("ORBIT_TEST_DSN", dsn)
+        monkeypatch.setenv("CI", "true")
+        with pytest.raises(RuntimeError, match="driver psycopg"):
+            ts._postgres_obligatorio_ausente()
+        monkeypatch.delenv("CI", raising=False)
+        assert ts._postgres_obligatorio_ausente() is True
 
 
 def test_probe_rechaza_listener_muerto(monkeypatch):
@@ -570,7 +655,7 @@ def test_probe_rechaza_listener_muerto(monkeypatch):
 
 
 @pytest.mark.skipif(
-    not _hay_postgres_local(),
+    _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 def test_migracion_rechaza_en_vivo():
