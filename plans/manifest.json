@@ -14,6 +14,11 @@
       "name": "orbit-03",
       "path": "plans/orbit-03.md",
       "description": "ORBIT 03 — PR1 optimizador: SHADOW completo (ingesta + motor puro + ciclo + router + cron; cero escrituras a Amazon)"
+    },
+    {
+      "name": "guardrails-01",
+      "path": "plans/guardrails-01.md",
+      "description": "GUARDRAILS 01 — candados anti-monolito: presupuesto de complejidad (ruff), fronteras de imports del motor, presupuesto de tamaño por módulo"
     }
   ],
   "active": "orbit-03"
