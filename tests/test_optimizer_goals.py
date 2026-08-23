@@ -425,10 +425,12 @@ def test_cooldown_ciclo_shadow_sin_applies_no_enfria():
     """El caso shadow, documentado con nombre: los ciclos shadow escriben
     decision pero JAMAS decision_application (no existe modulo apply en PR1),
     asi que una entidad con historia shadow completa NO queda en cooldown por
-    sus decisiones. El cooldown solo lo pueden enfriar applies verificados."""
+    sus decisiones. El cooldown solo lo pueden enfriar applies verificados
+    de ciclos live (el mode explicito: el default del helper es 'live',
+    hallazgo codex+grok ronda 2)."""
     with _db_temporal("orbit_goals_shadow") as conn:
         config_id = _config_version(conn)
-        ciclo = _ciclo(conn)
+        ciclo = _ciclo(conn, mode="shadow")
         entidad = _campana(conn, "7004")
         _decision(conn, ciclo, config_id, entidad)
         assert g.en_cooldown(conn, entidad, ahora=AHORA) is False

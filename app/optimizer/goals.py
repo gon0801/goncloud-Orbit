@@ -46,10 +46,10 @@ Reglas selladas (plans/orbit-03.md task 2.4 + Spec delta de CONTEXTO.md):
   confirmed_at + platform_ack + verify_ok se sella JUNTA en el readback
   (CHECKs del esquema), asi que confirmed_at es el instante en que el apply
   quedo VERIFICADO. FALSE (divergencia, se reintenta) NO enfria; NULL (en
-  vuelo) tampoco. En shadow nunca enfria COMO PROPIEDAD: los ciclos shadow
-  no escriben decision_application (no hay modulo apply en PR1); el test de
-  integracion lo documenta con una entidad con decisiones shadow y sin
-  applies.
+  vuelo) tampoco. En shadow nunca enfria POR QUERY (JOIN a optimizer_cycle
+  mode='live', regla sellada del diseno v2 -- hallazgo codex+grok ronda 1):
+  aunque un dry-run de PR2 escribiera decision_application en shadow, ese
+  apply JAMAS enfria.
 - DETERMINISMO: no hay now() escondido; `ahora` llega por parametro y DEBE
   ser tz-aware (mismo principio que windows._fecha_utc, replicado aqui
   localmente: no se importan privados de otro modulo).

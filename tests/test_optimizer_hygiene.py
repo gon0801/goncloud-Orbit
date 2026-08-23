@@ -271,6 +271,16 @@ def test_negative_moneda_incoherente_skip():
     assert r["zapato rojo"].motivo == "moneda_incoherente"
 
 
+def test_target_acos_invalido_value_error():
+    """Misma guarda que bid (hallazgo codex+grok ronda 1): un target <= 0 o
+    no finito corrompe el tope min(35, target) del harvest. ValueError
+    ruidoso; el gemelo de este test en bid existe desde el fix -- este cierra
+    el hueco de cobertura que senalo grok en la ronda 2."""
+    for target in ("0", "-25", "nan"):
+        with pytest.raises(ValueError, match="target_acos_pct"):
+            _decide(_terminos([_harvesteable()]), target=target)
+
+
 def test_harvest_acos_borde_inclusivo_y_un_pelo_arriba():
     """ACoS justo = tope (25% con target 25: cost 25 sobre revenue 100)
     HARVESTEA (<= inclusivo, por multiplicacion exacta); un pelo arriba
