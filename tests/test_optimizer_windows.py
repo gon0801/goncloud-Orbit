@@ -10,10 +10,14 @@
     solo si ORBIT_TEST_DSN no esta explicito y no hay Postgres local):
     colapso a la ULTIMA observacion por fecha SIN doble conteo (metricas y
     terminos), doble ventana (el agregado de cortes se calcula sobre SU
-    ventana, jamas reutilizando la de bids), acople motor<->trigger
-    decision_madurez_corte (decision pause con ventana de bids RECHAZADA; con
-    la de cortes inserta), guardas watermark/synced_at/sin_datos y
-    completitud 6 vs 7 fechas.
+    ventana, jamas reutilizando la de bids), ANCLA de terminos en SUS
+    observaciones (ad group SIN metricas, forma real de produccion; hallazgo
+    codex+grok), acople motor<->trigger decision_madurez_corte (decision
+    pause con ventana de bids RECHAZADA; con la de cortes inserta), guardas
+    watermark/synced_at/sin_datos, completitud 6 vs 7 fechas, veneno con
+    fixture DISCRIMINANTE (dos filas in-window, una NULL; hallazgo grok),
+    is_asin_like expuesto desde la fuente (bool_or fail-closed) y
+    observed_at_max (insumo de decision.data_observed_at; hallazgo codex).
 (c) Guarda de sintaxis: las SQL del modulo parsean como Postgres real (pglast).
 """
 
@@ -146,6 +150,7 @@ def _agregado(n_fechas: int) -> w.AgregadoMetricas:
         impressions=0,
         clicks=0,
         orders=0,
+        observed_at_max=None,
     )
 
 
@@ -159,6 +164,29 @@ def test_completitud_unidad_es_la_entidad():
     assert _agregado(0).completa is False  # ventana vacia: incompleta
 
 
+def _terminos_cortes(n_fechas: int) -> w.TerminosCortes:
+    """Fixture puro de TerminosCortes con termino simbolico."""
+    fechas = tuple(INICIO_CORTES + _DIA * i for i in range(n_fechas))
+    return w.TerminosCortes(
+        ad_entity_id=1,
+        window_start=INICIO_CORTES if fechas else None,
+        window_end=FIN_CORTES if fechas else None,
+        fechas_entidad=fechas,
+        terminos=(),
+    )
+
+
+def test_completitud_de_terminos_mismo_borde_6_vs_7():
+    """Mismo borde sellado de la entidad, medido sobre fechas de TERMINOS
+    (el camino de produccion de higiene: ad groups sin metricas). 6 fechas
+    incompleta, 7 completa, sin observaciones incompleta (hallazgo grok r2:
+    el live solo cubria 0 y 14)."""
+    assert _terminos_cortes(6).completa is False
+    assert _terminos_cortes(7).completa is True
+    assert _terminos_cortes(0).completa is False
+    assert _terminos_cortes(0).window_end is None  # sin observaciones: sin ventana
+
+
 # ---------------------------------------------------------------------------
 # (c) GUARDA DE SINTAXIS - las SQL del modulo son Postgres valido
 # ---------------------------------------------------------------------------
@@ -170,7 +198,9 @@ def test_sql_del_modulo_parsea_como_postgres():
     for nombre in (
         "_SQL_MAX_FECHA_ENTIDAD",
         "_SQL_AGREGA_METRICAS",
+        "_SQL_MAX_FECHA_TERMINOS",
         "_SQL_TERMINOS_CORTES",
+        "_SQL_FECHAS_ENTIDAD_TERMINOS",
         "_SQL_WATERMARK_PLATAFORMA",
         "_SQL_SYNC_PLATAFORMA",
     ):
@@ -284,12 +314,13 @@ def _termino(
     ad_revenue=None,
     clicks=None,
     orders=None,
+    asin=False,
 ) -> None:
     conn.execute(
         "INSERT INTO search_term_observation (platform, ad_entity_id, search_term,"
         " metric_date, observed_at, metric_currency, cost, clicks, orders,"
         " ad_revenue, is_asin_like, source_report_id, ingest_run_id)"
-        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, false, %s, %s)",
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
         (
             platform,
             ad_entity_id,
@@ -301,6 +332,7 @@ def _termino(
             clicks,
             orders,
             ad_revenue,
+            asin,
             report_id,
             run_id,
         ),
@@ -398,6 +430,10 @@ def test_ventanas_y_agregados_en_vivo():
         # (Decimal('2') == 2 es True, por eso el isinstance y no el ==).
         assert isinstance(bids.clicks, int) and isinstance(bids.impressions, int)
         assert isinstance(bids.cost, Decimal)
+        # la observacion mas reciente del agregado alimenta
+        # decision.data_observed_at (hallazgo codex): 08-16 01:00 (la
+        # correccion 08-11 07:00 es anterior)
+        assert bids.observed_at_max == _obs(dt.date(2026, 8, 16))
 
         # ------------------------------------------------------------------
         # VENTANA DE CORTES: SU PROPIA ventana (decided_at - 10d manda)
@@ -412,6 +448,7 @@ def test_ventanas_y_agregados_en_vivo():
         assert cortes.completa is True
         # la doble observacion sigue dentro de la ventana de cortes: colapsada
         assert cortes.cost == Decimal("2.50")
+        assert cortes.observed_at_max == _obs(dt.date(2026, 8, 12))
 
         # ------------------------------------------------------------------
         # COMPLETITUD: 6 fechas incompleta, 7 completa (la unidad es la
@@ -548,11 +585,15 @@ def test_ventanas_y_agregados_en_vivo():
         )
         assert w.ventana_bids(conn, kw_z) is None
         assert w.ventana_cortes(conn, kw_z, DECIDED_AT) is None
-        assert w.terminos_cortes(conn, kw_z, DECIDED_AT) == ()
+        tc_z = w.terminos_cortes(conn, kw_z, DECIDED_AT)
+        assert tc_z.terminos == () and tc_z.window_end is None and tc_z.completa is False
 
         # ------------------------------------------------------------------
-        # AGREGADO PARCIAL VENENADO (regla 3): una observacion con cost NULL
-        # en la ventana envenena el SUM de cost (None), no lo disfraza
+        # AGREGADO PARCIAL VENENADO (regla 3): DOS filas DENTRO de la ventana,
+        # una con cost NULL y otra con valor -- un SUM sin bool_and IGNORA el
+        # NULL y daria 1.00 (parcial disfrazado de completo); bool_and lo
+        # envenena a None. (Hallazgo grok: el fixture original tenia una sola
+        # fila in-window y no discriminaba.)
         # ------------------------------------------------------------------
         kw_p = _entidad(
             conn,
@@ -579,6 +620,19 @@ def test_ventanas_y_agregados_en_vivo():
             conn,
             run_id,
             kw_p,
+            dt.date(2026, 8, 5),
+            _obs(dt.date(2026, 8, 5)),
+            moneda="USD",
+            report_id="R-P",
+            cost=Decimal("1.00"),
+            ad_revenue=Decimal("1.00"),
+            clicks=1,
+            orders=0,
+        )
+        _metrica(
+            conn,
+            run_id,
+            kw_p,
             MAX_FECHA,
             _obs(MAX_FECHA),
             moneda="USD",
@@ -589,45 +643,26 @@ def test_ventanas_y_agregados_en_vivo():
             orders=0,
         )
         bids_p = w.ventana_bids(conn, kw_p)
-        assert bids_p.cost is None  # 08-01 trajo cost NULL: no hay suma completa
-        assert bids_p.clicks == 1  # clicks si estaba en todas: suma normal
-        assert bids_p.ad_revenue == Decimal("1.00")
+        # 08-01 trajo cost NULL y 08-05 valor: no hay suma completa de cost
+        assert bids_p.cost is None
+        assert bids_p.clicks == 2  # clicks si estaba en todas: suma normal
+        assert bids_p.ad_revenue == Decimal("2.00")
+        assert bids_p.observed_at_max == _obs(dt.date(2026, 8, 5))
 
         # ------------------------------------------------------------------
-        # TERMINOS: colapsados sobre la ventana de CORTES (unidad entidad)
+        # TERMINOS: ad group SIN metricas (forma real de produccion: los
+        # terminos viven en ad groups y NO hay reporte de metricas de ad
+        # groups). REGRESION del ancla (hallazgo codex+grok): la ventana de
+        # terminos se ancla en SUS observaciones; anclada en v_metric_latest
+        # del ad group devolvia () SIEMPRE.
         # ------------------------------------------------------------------
         ag = _entidad(conn, "amazon_us", "ad_group", "9101", parent=camp)
-        for fecha in _rango(dt.date(2026, 8, 5), dt.date(2026, 8, 12)):
-            _metrica(
-                conn,
-                run_id,
-                ag,
-                fecha,
-                _obs(fecha),
-                moneda="USD",
-                report_id="R-AG",
-                cost=Decimal("0.10"),
-                ad_revenue=Decimal("0.20"),
-                clicks=1,
-                orders=0,
-            )
-        _metrica(
-            conn,
-            run_id,
-            ag,
-            MAX_FECHA,
-            _obs(MAX_FECHA),
-            moneda="USD",
-            report_id="R-AG",
-            cost=Decimal("0.10"),
-            ad_revenue=Decimal("0.20"),
-            clicks=1,
-            orders=0,
-        )
 
-        # el termino tiene UNA fecha (08-10) con doble observacion + UNA fecha
-        # fresca (08-15) que esta DENTRO de la ventana de bids pero FUERA de
-        # la de cortes: el agregado de terminos tiene que usar la de CORTES
+        # "arras de boda": UNA fecha madura (08-10) con doble observacion + UNA
+        # fresca (08-18) que sube el ancla. Con max=08-18: el recorte de
+        # frescura daria 08-15 y la madurez 08-12 -> manda la MADUREZ; si la
+        # ventana terminara en max-3d (08-15) el termino tendria 2 fechas y
+        # cost 0.80 (DISCRIMINANTE bids-vs-cortes; hallazgo grok r2)
         _termino(
             conn,
             run_id,
@@ -662,39 +697,151 @@ def test_ventanas_y_agregados_en_vivo():
             "amazon_us",
             ag,
             "arras de boda",
-            dt.date(2026, 8, 15),
-            _obs(dt.date(2026, 8, 15), 23),
+            dt.date(2026, 8, 18),
+            _obs(dt.date(2026, 8, 18), 23),
             moneda="USD",
             report_id="R-ST-3",
             cost=Decimal("0.50"),
             clicks=5,
             orders=0,
         )
+        # "arras plata": 8 fechas maduras (07-28..08-04) -> completa la entidad
+        for fecha in _rango(dt.date(2026, 7, 28), dt.date(2026, 8, 4)):
+            _termino(
+                conn,
+                run_id,
+                "amazon_us",
+                ag,
+                "arras plata",
+                fecha,
+                _obs(fecha),
+                moneda="USD",
+                report_id="R-ST-P",
+                cost=Decimal("0.05"),
+                clicks=1,
+                orders=0,
+            )
+        # ASIN-like (patron sellado: 10 alfanumericos empezando en b0): 2.3 lo
+        # salta SIEMPRE; el agregado tiene que exponerlo desde la fuente
+        # (regla 2), no re-clasificarlo
+        _termino(
+            conn,
+            run_id,
+            "amazon_us",
+            ag,
+            "b0abc12xyz",
+            dt.date(2026, 8, 5),
+            _obs(dt.date(2026, 8, 5)),
+            moneda="USD",
+            report_id="R-ST-A",
+            cost=Decimal("0.60"),
+            clicks=1,
+            orders=0,
+            asin=True,
+        )
+        # DIVERGENCIA IMPOSIBLE a proposito (el clasificador es determinista):
+        # una fila ASIN-like y otra no, fechas distintas. bool_or = fail-closed
+        # -- cualquier fila ASIN-like salta el termino completo. Es el sello
+        # del SEMANTICO del agregado, no un fixture de ingesta.
+        _termino(
+            conn,
+            run_id,
+            "amazon_us",
+            ag,
+            "mixto imposible",
+            dt.date(2026, 8, 6),
+            _obs(dt.date(2026, 8, 6)),
+            moneda="USD",
+            report_id="R-ST-M1",
+            cost=Decimal("0.01"),
+            clicks=1,
+            orders=0,
+            asin=True,
+        )
+        _termino(
+            conn,
+            run_id,
+            "amazon_us",
+            ag,
+            "mixto imposible",
+            dt.date(2026, 8, 7),
+            _obs(dt.date(2026, 8, 7)),
+            moneda="USD",
+            report_id="R-ST-M2",
+            cost=Decimal("0.01"),
+            clicks=1,
+            orders=0,
+        )
+        # VENENO en terminos (mismo bool_and que metricas): cost NULL en una
+        # fecha y valor en otra -> la suma de cost es None, los clicks suman
+        _termino(
+            conn,
+            run_id,
+            "amazon_us",
+            ag,
+            "cost nulo",
+            dt.date(2026, 8, 8),
+            _obs(dt.date(2026, 8, 8)),
+            moneda="USD",
+            report_id="R-ST-N1",
+            clicks=1,
+            orders=0,
+        )
+        _termino(
+            conn,
+            run_id,
+            "amazon_us",
+            ag,
+            "cost nulo",
+            dt.date(2026, 8, 9),
+            _obs(dt.date(2026, 8, 9)),
+            moneda="USD",
+            report_id="R-ST-N2",
+            cost=Decimal("0.40"),
+            clicks=2,
+            orders=0,
+        )
 
         res = w.ventanas_entidad(conn, ag, DECIDED_AT)
-        assert res.bids is not None and res.bids.window_end == FIN_BIDS
-        assert res.bids.completa is True  # 8 fechas en ventana de bids
-        assert res.cortes is not None and res.cortes.window_end == FIN_CORTES
-        assert res.cortes.completa is True  # 8 fechas en ventana de cortes
-        assert res.cortes.cost == Decimal("0.80")  # 8 x 0.10 (08-19 fuera)
+        # forma de PRODUCCION: el ad group no tiene metricas -> bids/cortes
+        # None, y los terminos EXISTEN igual (ancla en sus observaciones)
+        assert res.bids is None and res.cortes is None
+        tc = res.terminos
+        assert tc.window_end == FIN_CORTES  # min(max(08-18) - 3d=08-15, 08-12)
+        assert tc.window_start == INICIO_CORTES
+        assert dt.date(2026, 8, 18) not in tc.fechas_entidad  # fresca: fuera
+        # 14 fechas de entidad en ventana (08-10, 07-28..08-04, 08-05..08-09)
+        assert tc.fechas_distintas == 14
+        assert tc.completa is True
 
-        # termino de UNA fecha dentro de entidad completa: EXISTE (la unidad
-        # de completitud es la entidad; el termino no exige fechas propias)
-        terminos = {t.search_term: t for t in res.terminos}
-        assert "arras de boda" in terminos
+        terminos = {t.search_term: t for t in tc.terminos}
         term = terminos["arras de boda"]
-        # SOLO 08-10 (la 08-15 quedo fuera de la ventana de cortes): si el
-        # agregado de terminos reutilizara la ventana de BIDS serian 2 fechas
-        # y cost 0.80
+        # SOLO 08-10: si la ventana terminara en el recorte de frescura
+        # (max-3d = 08-15) el termino tendria 2 fechas y cost 0.80
         assert term.fechas_distintas == 1
         assert term.cost == Decimal("0.30")  # solo la observacion mas nueva
         assert term.clicks == 2
         assert isinstance(term.clicks, int)  # mismo sello de tipo que metricas
         assert term.metric_currency == "USD"
+        assert term.is_asin_like is False
+        assert term.observed_at_max == _obs(dt.date(2026, 8, 11), 7)
+        # termino long-tail de 8 fechas propias (la completitud es de la
+        # ENTIDAD; el termino no exige fechas propias)
+        plata = terminos["arras plata"]
+        assert plata.fechas_distintas == 8
+        assert plata.cost == Decimal("0.40")
+        # ASIN-like expuesto desde la fuente: True directo y True por bool_or
+        # ante divergencia (fail-closed)
+        assert terminos["b0abc12xyz"].is_asin_like is True
+        assert terminos["mixto imposible"].is_asin_like is True
+        nulo = terminos["cost nulo"]
+        assert nulo.cost is None  # sin bool_and, SUM ignoraria el NULL: 0.40
+        assert nulo.clicks == 3
 
-        # una keyword sin terminos devuelve vacio, no error
+        # una keyword sin terminos devuelve la estructura VACIA, no error
         res_kw = w.ventanas_entidad(conn, kw_a, DECIDED_AT)
-        assert res_kw.terminos == ()
+        assert res_kw.terminos.terminos == ()
+        assert res_kw.terminos.completa is False
         assert res_kw.cortes.cost == Decimal("2.50")
 
 
