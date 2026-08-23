@@ -4,10 +4,11 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
-**Última actualización: 2026-08-23 — Phase 1, Phase 2 y tasks 3.1–3.3 de ORBIT
-03 completas y revisadas (orquestador del ciclo + API de lectura + CLI);
-sigue Phase 4. Este archivo tiene candado de frescura: el CI exige
-actualizarlo en cada PR que cierre tareas.**
+**Última actualización: 2026-08-24 — Phases 1, 2 y 3 de ORBIT 03 COMPLETAS,
+revisadas y mergeadas a master (motor puro + orquestador + API de lectura +
+CLI + candados anti-monolito). Sigue Phase 4: deploy, crons y los dos
+checkpoints humanos del dueño. Este archivo tiene candado de frescura: el CI
+exige actualizarlo en cada PR que cierre tareas.**
 
 ## Qué es Orbit
 
@@ -24,8 +25,8 @@ escribe nada a Amazon hasta pasar validación humana (el "apply" llega en PR2).
 
 - **Hecho y en master**: toda la ingesta (cliente HTTP read-only con redacción
   de secretos, sync de estructura, pipeline de métricas y search terms,
-  backfill histórico completo: 95 días de métricas, ~65 de terms, us y mx).
-- **Hecho en el PR #12 (rama de Phase 2)**: la capa de ventanas de datos, el
+  backfill histórico completo: 95 días de métricas, ~65 de terms, us y mx),
+  y todo lo siguiente (mergeado 2026-08-24): la capa de ventanas de datos, el
   motor de decisión puro (bids, hygiene, goals) con todos los umbrales
   sellados y testeados, 3.1 el orquestador del ciclo (claim atómico del
   lock con TTL y heartbeat, envelope que se sella en todos los caminos,
