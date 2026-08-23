@@ -40,6 +40,18 @@ todas las formas de abajo fueron verificadas en vivo):
   bitemporalidad; nota operativa para el cron de 4.2: la tirada diaria debe
   re-incluir D-1 para que todo dia cierre con observacion post-cierre
   (dedupe-safe).
+- MADURACION DE LA ATRIBUCION (hallazgo codex, cross-review 1.4): las
+  metricas atribuidas de un dia SIGUEN CRECIENDO despues de ese dia --
+  purchases7d/sales7d de search terms maduran 7 dias, las 30d de metricas
+  maduran 30. Una tirada diaria que solo pidiera "ayer" congelaria cada dia
+  con ~1 dia de maduracion: orders/ad_revenue subestimados y una higiene que
+  podria negativizar terminos que convirtieron despues. La bitemporalidad es
+  el remedio: re-pedir un dia ya ingerido crea una observacion NUEVA (report
+  id distinto) y el motor colapsa a la mas reciente. Requisito operacional
+  del cron de 4.2: la tirada diaria re-incluye la ventana de maduracion --
+  MINIMO D-8..D-1 por los 7d de search terms; la profundidad final para las
+  30d se sella en 4.2 junto al lookback medido de 1.5. Sin esa ventana, los
+  cortes de higiene deciden sobre datos inmaduros (regla 6).
 
 Arquitectura (regla 1, igual que app.ads.structure): IO de API separada de IO
 de DB, y fase de API COMPLETA antes de la fase de DB (ninguna transaccion de
