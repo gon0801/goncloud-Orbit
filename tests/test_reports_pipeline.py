@@ -972,10 +972,11 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
                     sleep=lambda s: None,
                 )
 
+        # id de la ULTIMA run fallida consultado, no derivado (nitpick
+        # CodeRabbit): acopla el test a la secuencia en vez de al hecho
         run_fallida = conn.execute(
             "SELECT ok, rows_written, rows_skipped, finished_at, skip_reason"
-            " FROM ingest_run WHERE id = %s",
-            (res3.run_id + 1,),
+            " FROM ingest_run WHERE ok IS FALSE ORDER BY id DESC LIMIT 1"
         ).fetchone()
         assert run_fallida[0] is False
         assert run_fallida[1] is None  # nunca llego a contar
@@ -1060,6 +1061,14 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
         try:
             conn.execute("SET ROLE app_ingest")
         except psycopg.errors.InsufficientPrivilege:
+            # Hallazgo CodeRabbit: con DSN EXPLICITO (CI) esto no puede ser un
+            # skip silencioso -- el DoD se apagaria sin senal si el DSN dejara
+            # de ser superuser. Falla salvo en corridas locales sin DSN puesto.
+            if _DSN_EXPLICITO:
+                raise AssertionError(
+                    "ORBIT_TEST_DSN explicito pero sin membresia app_ingest: "
+                    "el privilegio negativo del DoD quedo sin ejercer"
+                ) from None
             pytest.skip(
                 "usuario del DSN sin membresia app_ingest: el privilegio negativo "
                 "se ejercita en CI, donde el DSN es superuser"

@@ -348,8 +348,17 @@ def _listar_todo(client: AdsClient, path: str, *, profile_id: int) -> list[dict]
         body = {"nextToken": next_token} if next_token else {}
         data = _json_de(client.list_objects(path, body, profile_id=profile_id), "POST", path)
         items.extend(_extraer_lista(data, path))
-        next_token = data.get("nextToken") if isinstance(data, dict) else None
-        if not next_token:
+        if not isinstance(data, dict) or "nextToken" not in data or data["nextToken"] is None:
+            next_token = None
+        else:
+            # Fin de paginacion SOLO por clave ausente o None (hallazgo
+            # CodeRabbit): un nextToken malformado (false, "", numero) tratado
+            # como fin dejaba estructura parcial sellada ok -- fail-closed.
+            candidato = data["nextToken"]
+            if not isinstance(candidato, str) or not candidato:
+                raise AdsStructureError(f"nextToken malformado en POST {path}: {candidato!r}")
+            next_token = candidato
+        if next_token is None:
             total = data.get("totalResults") if isinstance(data, dict) else None
             # Solo se exige cuando totalResults viene como int: dato faltante o
             # de otro tipo = sin prueba, se mantiene el comportamiento actual.
@@ -495,6 +504,9 @@ def _bid_decimal(valor: object, campo: str) -> Decimal | None:
     parte de los targets la API NO trae `bid`; corrida real 2026-08-22).
     Un valor presente pero no numerico (o no finito) es dato corrupto:
     ValueError para que el item se salte con motivo, no un numero inventado.
+    Un bid <= 0 tambien es payload invalido (hallazgo CodeRabbit): Amazon no
+    publica pujas no positivas y el esquema sella la positividad donde puede
+    (goal_bids_positivos); para el cache, la puerta es esta.
     """
     if valor is None:
         return None
@@ -504,8 +516,8 @@ def _bid_decimal(valor: object, campo: str) -> Decimal | None:
         numero = Decimal(str(valor))
     except (InvalidOperation, ValueError):
         raise ValueError(f"{campo} no numerico") from None
-    if not numero.is_finite():
-        raise ValueError(f"{campo} no numerico")
+    if not numero.is_finite() or numero <= 0:
+        raise ValueError(f"{campo} no numerico o no positivo")
     return numero
 
 
@@ -572,7 +584,7 @@ def _plan_items(estructura: EstructuraAds) -> tuple[list[_ItemEntidad], Counter[
             try:
                 bid = _bid_decimal(payload.get("defaultBid"), "defaultBid")
             except ValueError:
-                skips["ad group con defaultBid no numerico"] += 1
+                skips["ad group con defaultBid no numerico o no positivo"] += 1
                 continue
             items.append(
                 _ItemEntidad(
@@ -618,7 +630,7 @@ def _plan_items(estructura: EstructuraAds) -> tuple[list[_ItemEntidad], Counter[
             try:
                 bid = _bid_decimal(payload.get("bid"), "bid")
             except ValueError:
-                skips["keyword con bid no numerico"] += 1
+                skips["keyword con bid no numerico o no positivo"] += 1
                 continue
             items.append(
                 _ItemEntidad(
@@ -653,7 +665,7 @@ def _plan_items(estructura: EstructuraAds) -> tuple[list[_ItemEntidad], Counter[
             try:
                 bid = _bid_decimal(payload.get("bid"), "bid")
             except ValueError:
-                skips["target con bid no numerico"] += 1
+                skips["target con bid no numerico o no positivo"] += 1
                 continue
             items.append(
                 _ItemEntidad(

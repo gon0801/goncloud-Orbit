@@ -423,6 +423,30 @@ def test_paginacion_sin_fin_da_error_claro():
     assert "paginacion" in str(excinfo.value)
 
 
+def test_paginacion_next_token_malformado_da_error_claro():
+    """Hallazgo CodeRabbit: nextToken false/""/numero NO es fin de paginacion
+    -- tratarlo como fin dejaba estructura parcial sellada ok. Solo clave
+    ausente o None terminan; cualquier otra cosa malformada revienta."""
+
+    for malformado in (False, "", 123):
+
+        def handler(request: httpx.Request, malo=malformado) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(
+                    200, json={"access_token": "fake-access-token-largo", "expires_in": 3600}
+                )
+            if request.url.path == "/v2/profiles":
+                return httpx.Response(200, json=[PERFILES_OK[0]])
+            # sin totalResults (regla 3) para que la unica guarda que salve es
+            # la del token malformado
+            return httpx.Response(200, json={"campaigns": [], "nextToken": malo})
+
+        client = _cliente(handler)
+        with pytest.raises(AdsStructureError) as excinfo:
+            fetch_structure(client)
+        assert "nextToken malformado" in str(excinfo.value), f"no revento con {malformado!r}"
+
+
 def test_paginacion_incompleta_segun_totalresults_da_error():
     """[cross-review codex r3] "falta nextToken" ya no basta como prueba de
     lista completa: si la ultima pagina declara totalResults y el acumulado
@@ -672,6 +696,8 @@ def test_items_validos_llevan_bid_decimal_y_moneda_del_perfil():
 
 
 def test_items_con_bid_corrupto_se_saltan():
+    """Cubre bid no numerico Y bid no positivo (hallazgo CodeRabbit): 0 y
+    negativos son payload invalido -- Amazon no publica pujas no positivas."""
     estructura = EstructuraAds(
         perfiles=[_perfil_us_aceptado()],
         estructuras=[
@@ -679,12 +705,27 @@ def test_items_con_bid_corrupto_se_saltan():
                 perfil=_perfil_us_aceptado(),
                 campanas=[{"campaignId": "9001", "targetingType": "MANUAL", "state": "ENABLED"}],
                 ad_groups=[
+                    # no numerico
                     {
                         "adGroupId": "9101",
                         "campaignId": "9001",
                         "defaultBid": "mucho",
                         "state": "ENABLED",
-                    }
+                    },
+                    # cero: invalido
+                    {
+                        "adGroupId": "9102",
+                        "campaignId": "9001",
+                        "defaultBid": 0,
+                        "state": "ENABLED",
+                    },
+                    # negativo: invalido
+                    {
+                        "adGroupId": "9103",
+                        "campaignId": "9001",
+                        "defaultBid": -0.5,
+                        "state": "ENABLED",
+                    },
                 ],
                 keywords=[],
                 targets=[],
@@ -694,8 +735,14 @@ def test_items_con_bid_corrupto_se_saltan():
 
     items, skips = _plan_items(estructura)
 
+    # Regla 9: sin el rechazo de no-positivos, 9102/9103 entrarian y el
+    # contador seria 1 -> truena.
     assert [item.kind for item in items] == ["campaign"]
-    assert skips == Counter({"ad group con defaultBid no numerico": 1})
+    assert skips == Counter(
+        {
+            "ad group con defaultBid no numerico o no positivo": 3,
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
