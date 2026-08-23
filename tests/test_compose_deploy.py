@@ -38,6 +38,30 @@ def test_compose_existe_y_db_esta_intacto():
 def test_compose_ningun_puerto_en_todas_las_interfaces():
     texto = COMPOSE.read_text(encoding="utf-8")
     assert "0.0.0.0" not in texto, "puerto bind a 0.0.0.0: prohibido (leccion 8055/8056)"
+    # "8010:8000" sin host tambien publica en todas las interfaces (hallazgo codex).
+    en_ports = False
+    for ln in texto.splitlines():
+        if ln.strip() == "ports:":
+            en_ports = True
+            continue
+        if en_ports:
+            stripped = ln.strip()
+            if stripped.startswith("- "):
+                mapa = stripped[2:].strip().strip('"').strip("'")
+                assert mapa.startswith("127.0.0.1:"), f"puerto no loopback: {mapa}"
+            elif stripped and not stripped.startswith("#"):
+                en_ports = False
+
+
+def test_cron_metricas_escapa_porcentaje_de_date():
+    """Vixie cron convierte % no escapado en newline: el job de metricas
+    quedaria truncado antes de docker exec (alta de cross-review codex)."""
+    texto = (RAIZ / "docs" / "DEPLOY.md").read_text(encoding="utf-8")
+    lineas = [ln for ln in texto.splitlines() if ln.startswith("10 7 * * *")]
+    assert lineas, "falta el cron 07:10 de metricas en DEPLOY.md"
+    for ln in lineas:
+        assert r"+\%F" in ln, f"date +%F sin escapar en crontab: {ln}"
+        assert "+%F" not in ln.replace(r"+\%F", "")
 
 
 def test_compose_app_en_loopback_8010_con_secrets_ro():
