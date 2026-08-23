@@ -38,12 +38,16 @@ from app.ads.reports import (
     CAMPANAS_CFG,
     KEYWORDS_CFG,
     MAX_BYTES_REPORTE,
+    SEARCH_TERMS_CFG,
     SOURCE,
     AdsReportsError,
     _FilaPlano,
+    _FilaTermino,
     _planea_filas,
+    _planea_filas_terminos,
     _rango_desde_args,
     descargar_filas,
+    es_asin_like,
     esperar_reporte,
     main,
     solicitar_reporte,
@@ -238,6 +242,61 @@ def test_ciclo_completo_crea_poll_descarga():
     assert len(polls) == 3  # PENDING -> PROCESSING -> COMPLETED
 
     assert descargar_filas(client, url) == filas
+
+
+def test_body_reporte_search_terms():
+    """El 4to reporte (1.4): reportTypeId "spSearchTerm" (SINGULAR; la forma
+    la verifico EN VIVO el sistema viejo goncloud-MCP-2, re-sellado contra
+    la API en la corrida real de 1.5), groupBy ["searchTerm"], columns
+    STRINGS subconjunto de las verificadas, SIN filters (solo spTargeting
+    los tiene) y el resto de la configuracion igual a los otros cfg."""
+    registro: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token(request)
+        if request.method == "POST" and request.url.path == "/reporting/reports":
+            registro.append(
+                {
+                    "scope": request.headers.get("Amazon-Advertising-API-Scope"),
+                    "body": json.loads(request.content),
+                }
+            )
+            return httpx.Response(200, json={"reportId": "rep-st", "status": "PENDING"})
+        raise AssertionError(f"llamada inesperada: {request.method} {request.url}")
+
+    client = _cliente(handler)
+    perfil = _perfil(101, "US")
+
+    assert (
+        solicitar_reporte(
+            client, perfil, SEARCH_TERMS_CFG, dt.date(2026, 8, 20), dt.date(2026, 8, 20)
+        )
+        == "rep-st"
+    )
+    assert len(registro) == 1
+
+    assert registro[0]["scope"] == "101"
+    cuerpo = registro[0]["body"]
+    assert cuerpo["startDate"] == "2026-08-20"
+    assert cuerpo["endDate"] == "2026-08-20"
+    cfg = cuerpo["configuration"]
+    assert cfg["adProduct"] == "SPONSORED_PRODUCTS"
+    assert cfg["reportTypeId"] == "spSearchTerm"  # SINGULAR, no "spSearchTerms"
+    assert cfg["groupBy"] == ["searchTerm"]  # ARRAY, no string
+    assert cfg["timeUnit"] == "DAILY"
+    assert cfg["format"] == "GZIP_JSON"
+    assert cfg["columns"] == [
+        "date",
+        "adGroupId",
+        "searchTerm",
+        "clicks",
+        "cost",
+        "purchases7d",
+        "sales7d",
+    ]
+    assert all(isinstance(columna, str) for columna in cfg["columns"])  # STRINGS
+    assert "filters" not in cfg
 
 
 def test_reporte_failed_da_error_con_failure_reason():
@@ -492,6 +551,109 @@ def test_plan_filas_metricas_ausentes_none_y_tipos_exactos():
     )
 
 
+def test_es_asin_like_clasificador():
+    """DoD del clasificador (el unico que llena la columna NOT NULL SIN
+    DEFAULT): ASIN real, ASIN en minusculas, termino normal, "b0" embebido,
+    mas los bordes de longitud, prefijo, strip y ASCII-strict."""
+    assert es_asin_like("B0AB12CD34") is True  # ASIN real (mayusculas)
+    assert es_asin_like("b0ab12cd34") is True  # minusculas: case-insensitive
+    assert es_asin_like("tenis para correr") is False  # termino normal
+    assert es_asin_like("usb0cable") is False  # "b0" embebido NO es ASIN
+    assert es_asin_like("B0AB12CD3") is False  # 9 caracteres
+    assert es_asin_like("B0AB12CD345") is False  # 11 caracteres
+    assert es_asin_like("X0AB12CD34") is False  # no empieza con "B0"
+    assert es_asin_like("") is False
+    assert es_asin_like(" B0AB12CD34 ") is True  # espacios extremos (strip)
+    assert es_asin_like("B0ÁBCDEFGH") is False  # ASCII estricto: unicode NO pasa
+    # [hallazgo verifier] sin re.ASCII, IGNORECASE case-foldea U+212A (Kelvin)
+    # a "k" y el termino pasaba como ASIN: el criterio sellado es ASCII-strict
+    assert es_asin_like("b0" + "K" * 8) is False  # K = U+212A, foldea a "k"
+
+
+def test_plan_terminos_clasifica_y_gates():
+    """Regla 9: los skips del plan de terminos se AFIRMAN con su motivo
+    (vocabulario CERRADO: mismas claves de fecha/metrica que _planea_filas
+    + las dos propias de terminos). La clasificacion is_asin_like corre EN
+    la planificacion: toda fila planificada llega clasificada."""
+    hoy = dt.date(2026, 8, 21)
+    filas = [
+        # validas: mezcla de clasificacion
+        {
+            "date": "2026-08-20",
+            "adGroupId": 9101,
+            "searchTerm": "B0AB12CD34",
+            "clicks": 5,
+            "cost": 1.25,
+            "purchases7d": 0,
+            "sales7d": 0,
+        },
+        {
+            "date": "2026-08-20",
+            "adGroupId": 9101,
+            "searchTerm": "b0aaaa1111",
+            "clicks": 2,
+            "cost": 0.5,
+        },
+        {
+            "date": "2026-08-20",
+            "adGroupId": 9101,
+            "searchTerm": "tenis para correr",
+            "clicks": 9,
+            "sales7d": 200.0,
+            "purchases7d": 3,
+        },
+        {"date": "2026-08-20", "adGroupId": 9101, "searchTerm": "usb0cable", "clicks": 1},
+        # gates: cada fila salta por exactamente un motivo
+        {"date": "2026-08-20", "searchTerm": "huerfano", "clicks": 1},  # sin adGroupId
+        {"date": "2026-08-20", "adGroupId": 9101, "clicks": 1},  # searchTerm ausente
+        {
+            "date": "2026-08-20",
+            "adGroupId": 9101,
+            "searchTerm": "   ",
+            "clicks": 1,
+        },  # solo espacios
+        {"date": "2026-08-22", "adGroupId": 9101, "searchTerm": "futuro", "clicks": 1},
+        {"date": "2026-08-19", "adGroupId": 9101, "searchTerm": "anteayer", "clicks": 1},
+        {"date": "2026-08-20", "adGroupId": 9101, "searchTerm": "fraccion", "purchases7d": 2.5},
+        {"date": "2026-08-20", "adGroupId": 9101, "searchTerm": "vacio"},
+    ]
+
+    plan, skips = _planea_filas_terminos(
+        SEARCH_TERMS_CFG,
+        filas,
+        hoy=hoy,
+        fecha_ini=dt.date(2026, 8, 20),
+        fecha_fin=dt.date(2026, 8, 20),
+    )
+
+    assert [fila.search_term for fila in plan] == [
+        "B0AB12CD34",
+        "b0aaaa1111",
+        "tenis para correr",
+        "usb0cable",
+    ]
+    # la clasificacion viaja EN el plan: sin ella, el INSERT romperia la NOT
+    # NULL (la columna NO tiene default a proposito)
+    assert [fila.is_asin_like for fila in plan] == [True, True, False, False]
+    assert all(isinstance(fila, _FilaTermino) for fila in plan)
+    # tipos exactos: dinero Decimal via str, contadores int, ausente -> None
+    assert plan[0].external_id == "9101"
+    assert plan[0].cost == Decimal("1.25")
+    assert (plan[0].clicks, plan[0].orders, plan[0].ad_revenue) == (5, 0, Decimal("0"))
+    assert (plan[1].cost, plan[1].ad_revenue) == (Decimal("0.5"), None)
+    assert (plan[2].ad_revenue, plan[2].orders, plan[2].cost) == (Decimal("200.0"), 3, None)
+    assert skips == Counter(
+        {
+            "fila de search_terms sin adGroupId": 1,
+            "fila de search_terms sin searchTerm": 2,
+            "fila con metric_date futura": 1,
+            "fila con metric_date fuera del rango solicitado": 1,
+            "fila de search_terms con metrica no numerica o fraccionaria": 1,
+            "fila sin ninguna metrica": 1,
+        }
+    )
+
+
 # ---------------------------------------------------------------------------
 # (a) UNITARIOS - CLI: fail-closed y rango de fechas
 # ---------------------------------------------------------------------------
@@ -547,7 +709,12 @@ def test_sql_del_modulo_parsea_como_postgres():
 
     import app.ads.reports as reports_modulo
 
-    for nombre in ("_SQL_ENTIDADES", "_SQL_INSERT_METRICA", "_SQL_FECHA_HOY"):
+    for nombre in (
+        "_SQL_ENTIDADES",
+        "_SQL_INSERT_METRICA",
+        "_SQL_INSERT_TERMINO",
+        "_SQL_FECHA_HOY",
+    ):
         sql = getattr(reports_modulo, nombre).replace("%s", "NULL")
         assert pglast.parse_sql(sql), f"{nombre} no parseo"
 
@@ -777,6 +944,11 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
                 scope = request.headers.get("Amazon-Advertising-API-Scope")
                 if cfg["reportTypeId"] == "spCampaigns":
                     reporte = f"R-CAMP-{scope}"
+                elif cfg["reportTypeId"] == "spSearchTerm":
+                    # search terms NO trae filters (cae al return [] final:
+                    # este test sella la tabla de metricas, la de terminos
+                    # tiene su propio test en vivo)
+                    reporte = f"R-ST-{scope}"
                 elif "TARGETING_EXPRESSION" in cfg["filters"][0]["values"]:
                     reporte = f"R-TG-{scope}"
                 else:
@@ -820,9 +992,11 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
             "R-CAMP-101",
             "R-KW-101",
             "R-TG-101",
+            "R-ST-101",
             "R-CAMP-202",
             "R-KW-202",
             "R-TG-202",
+            "R-ST-202",
         ]
 
         run1 = conn.execute(
@@ -1084,6 +1258,223 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
                 )
         finally:
             conn.execute("SET ROLE NONE")
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()
+
+
+@pytest.mark.skipif(
+    not _DSN_EXPLICITO and not _hay_postgres_local(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_pipeline_search_terms_en_vivo():
+    """Corrida del orquestador con el 4to reporte (spSearchTerm, task 1.4)
+    contra la migracion real, en SU propia DB temporal:
+
+    - CORRIDA 1: fixture MIXTA -> 4 escritas con is_asin_like SIEMPRE
+      clasificado (ASIN mayusculas/minusculas True; termino normal y "b0"
+      embebido False), moneda/platform selladas por el trigger
+      st_metric_moneda_sellada, observed_at >= medianoche de ayer, y las
+      referencias (ad_entity_id del ad_group, source_report_id,
+      ingest_run_id).
+    - Skips afirmados (regla 9): entidad ausente, sin adGroupId, searchTerm
+      solo espacios y la duplicada intra-reporte (misma transaccion, mismo
+      now(): absorbida por el dedupe con first-wins, sin agregacion).
+    - RE-CORRIDA con el MISMO report id: las 4 validas quedan absorbidas
+      por el dedupe del indice parcial st_metric_dedupe_reporte; la tabla
+      sigue en 4 (append-only, sin duplicados).
+    """
+    psycopg = pytest.importorskip("psycopg")
+    from psycopg import sql as pgsql
+
+    dsn = _test_dsn()
+    db = f"orbit_st_test_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(dsn, dbname=db, autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        conn.execute(SQL)  # la migracion entera
+
+        # seed de estructura (en produccion la escribe app.ads.structure):
+        # campana + ad group en US; el reporte de terminos se adjunta al
+        # ad_group (kind de SEARCH_TERMS_CFG)
+        camp_us = conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id)"
+            " VALUES ('amazon_us', 'campaign', '9001') RETURNING id"
+        ).fetchone()[0]
+        ag_us = conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id, parent_id)"
+            " VALUES ('amazon_us', 'ad_group', '9101', %s) RETURNING id",
+            (camp_us,),
+        ).fetchone()[0]
+
+        ahora = dt.datetime.now(dt.UTC)
+        ayer = ahora.date() - dt.timedelta(days=1)
+        medianoche_ayer = dt.datetime(ayer.year, ayer.month, ayer.day, tzinfo=dt.UTC)
+
+        # fixture MIXTA: ids NUMERO como en la API real
+        filas_st = [
+            {
+                "date": str(ayer),
+                "adGroupId": 9101,
+                "searchTerm": "B0AB12CD34",
+                "clicks": 5,
+                "cost": 1.25,
+                "purchases7d": 0,
+                "sales7d": 0,
+            },
+            {
+                "date": str(ayer),
+                "adGroupId": 9101,
+                "searchTerm": "b0aaaa1111",
+                "clicks": 2,
+                "cost": 0.5,
+            },
+            {
+                "date": str(ayer),
+                "adGroupId": 9101,
+                "searchTerm": "tenis para correr",
+                "clicks": 9,
+                "cost": 3.0,
+                "purchases7d": 1,
+                "sales7d": 200.0,
+            },
+            {
+                "date": str(ayer),
+                "adGroupId": 9101,
+                "searchTerm": "usb0cable",
+                "clicks": 1,
+                "cost": 0.2,
+            },
+            # ad_group que NO esta en ad_entity: skip con motivo
+            {
+                "date": str(ayer),
+                "adGroupId": 9999,
+                "searchTerm": "no existe",
+                "clicks": 1,
+                "cost": 0.1,
+            },
+            # sin adGroupId: skip
+            {"date": str(ayer), "searchTerm": "huerfano", "clicks": 1, "cost": 0.1},
+            # searchTerm solo espacios: skip
+            {"date": str(ayer), "adGroupId": 9101, "searchTerm": "   ", "clicks": 1, "cost": 0.1},
+            # [hallazgo reviewer] duplicada INTRA-reporte: el MISMO (ad_group,
+            # termino, fecha) llega dos veces en un reporte (observed_at es
+            # now(), constante en la transaccion -> colision de PK Y del indice
+            # parcial en la misma corrida). La segunda queda absorbida por el
+            # dedupe como rows_skipped con motivo: sin perdida silenciosa ni
+            # agregacion inventada, tal como promete el docstring del modulo.
+            {
+                "date": str(ayer),
+                "adGroupId": 9101,
+                "searchTerm": "B0AB12CD34",
+                "clicks": 7,
+                "cost": 2.0,
+            },
+        ]
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return _token(request)
+            if request.url.path == "/v2/profiles":
+                # solo el perfil US 101: este test sella la tabla de terminos
+                return httpx.Response(200, json=[PERFILES_API[0]])
+            if request.method == "POST" and request.url.path == "/reporting/reports":
+                cfg = json.loads(request.content)["configuration"]
+                scope = request.headers.get("Amazon-Advertising-API-Scope")
+                if cfg["reportTypeId"] == "spCampaigns":
+                    reporte = f"R-CAMP-{scope}"
+                elif cfg["reportTypeId"] == "spSearchTerm":
+                    reporte = f"R-ST-{scope}"
+                elif "TARGETING_EXPRESSION" in cfg["filters"][0]["values"]:
+                    reporte = f"R-TG-{scope}"
+                else:
+                    reporte = f"R-KW-{scope}"
+                return httpx.Response(200, json={"reportId": reporte, "status": "PENDING"})
+            if request.url.path.startswith("/reporting/reports/"):
+                reporte = request.url.path.rsplit("/", 1)[1]
+                return httpx.Response(
+                    200,
+                    json={
+                        "reportId": reporte,
+                        "status": "COMPLETED",
+                        "url": f"https://bucket.example.com/{reporte}.json",
+                    },
+                )
+            reporte = request.url.path.removesuffix(".json").removeprefix("/")
+            filas = filas_st if reporte == "R-ST-101" else []
+            return httpx.Response(200, content=gzip.compress(json.dumps(filas).encode("utf-8")))
+
+        client = _cliente(handler)
+
+        # ------------------------------------------------------------------
+        # CORRIDA 1: 4 escritas (las 4 validas) + 4 saltadas (los 3 gates y
+        # la duplicada intra-reporte)
+        # ------------------------------------------------------------------
+        res1 = sync_metrics(conn, client, fecha_ini=ayer, fecha_fin=ayer, sleep=lambda s: None)
+
+        assert res1.ok is True
+        assert res1.rows_written == 4
+        assert res1.rows_skipped == 4
+        # orden de REPORTES_CFG: los 3 de metricas (0 filas en este test) y
+        # el de terminos al final
+        assert [resumen.report_id for resumen in res1.reportes] == [
+            "R-CAMP-101",
+            "R-KW-101",
+            "R-TG-101",
+            "R-ST-101",
+        ]
+        # regla 9: cada skip afirmado con su motivo (vocabulario cerrado)
+        assert "1x entidad ausente en ad_entity (ad_group)" in res1.skip_reason
+        assert "1x fila de search_terms sin adGroupId" in res1.skip_reason
+        assert "1x fila de search_terms sin searchTerm" in res1.skip_reason
+        # la duplicada intra-reporte queda absorbida por el dedupe (misma
+        # corrida, mismo now()): contada, con motivo, sin doble fila
+        assert "1x fila duplicada del reporte R-ST-101" in res1.skip_reason
+
+        _SQL_TERMINOS = (
+            "SELECT search_term, is_asin_like, metric_date::text, observed_at,"
+            " metric_currency, platform, ad_entity_id, cost, clicks, orders, ad_revenue,"
+            " source_report_id, ingest_run_id FROM search_term_observation"
+        )
+        terminos = conn.execute(_SQL_TERMINOS).fetchall()
+        assert len(terminos) == 4
+        # clasificacion correcta por termino (la columna es NOT NULL sin default)
+        assert {fila[0]: fila[1] for fila in terminos} == {
+            "B0AB12CD34": True,
+            "b0aaaa1111": True,
+            "tenis para correr": False,
+            "usb0cable": False,
+        }
+        for fila in terminos:
+            assert fila[2] == str(ayer)
+            assert fila[3] >= medianoche_ayer  # observado >= hecho (invariante)
+            assert fila[4] == "USD"  # moneda sellada contra la plataforma
+            assert fila[5] == "amazon_us"
+            assert fila[6] == ag_us  # attachment al ad_group seedeado
+            assert fila[11] == "R-ST-101"
+            assert fila[12] == res1.run_id
+        asin = next(fila for fila in terminos if fila[0] == "B0AB12CD34")
+        assert (asin[7], asin[8], asin[9], asin[10]) == (Decimal("1.25"), 5, 0, Decimal("0"))
+
+        # ------------------------------------------------------------------
+        # RE-CORRIDA (mismo handler -> mismos report ids): las 4 validas
+        # quedan absorbidas por el dedupe; los 3 gates saltan otra vez
+        # ------------------------------------------------------------------
+        res2 = sync_metrics(conn, client, fecha_ini=ayer, fecha_fin=ayer, sleep=lambda s: None)
+
+        assert res2.ok is True
+        assert res2.rows_written == 0
+        # 5 duplicadas (las 4 validas + la intra-reporte) + los 3 gates
+        assert res2.rows_skipped == 8
+        assert "5x fila duplicada del reporte R-ST-101" in res2.skip_reason
+        assert conn.execute("SELECT count(*) FROM search_term_observation").fetchone()[0] == 4
     finally:
         if conn is not None:
             conn.close()

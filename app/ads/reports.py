@@ -1,7 +1,9 @@
-"""Pipeline de metricas Amazon Ads (reporting v3 asincrono) -> ads_metric_observation.
+"""Pipeline de metricas Amazon Ads (reporting v3 asincrono) -> ads_metric_observation
++ search_term_observation.
 
-ORBIT 03, task 1.3. NO toca app.ads.client: su superficie sellada (get,
-create_report, get_report, download) ya cubre todo el camino.
+ORBIT 03, tasks 1.3 (metricas) y 1.4 (search terms). NO toca app.ads.client:
+su superficie sellada (get, create_report, get_report, download) ya cubre todo
+el camino.
 
 EVIDENCIA DE LA CORRIDA REAL (2026-08-22, sondeo con credenciales reales;
 todas las formas de abajo fueron verificadas en vivo):
@@ -48,8 +50,8 @@ re-lanzar (toda invocacion deja fila auditable en ingest_run):
     evaluar_perfiles(client)    (de structure: unica fuente del gate; los
                                 rechazados quedan como warning + evidencia)
     solicitar_reporte / esperar_reporte / descargar_filas   (IO de API)
-    ingest_metrics(conn, ...)    (IO de DB, un reporte a la vez)
-    sync_metrics(conn, client, ...)   (orquestador: 3 reportes por perfil aceptado)
+    ingest_metrics / ingest_search_terms(conn, ...)   (IO de DB, un reporte a la vez)
+    sync_metrics(conn, client, ...)   (orquestador: 4 reportes por perfil aceptado)
 
 Decisiones selladas de esta task:
 
@@ -103,6 +105,44 @@ Decisiones selladas de esta task:
   (regla 3, la API solo trae filas con actividad y columnas pueden faltar);
   impressions/clicks/orders a int (fraccion o no numerico -> skip con motivo).
 
+Search terms (task 1.4):
+
+- 4to reporte del MISMO pipeline (un solo job del cron de 4.2, UNA ingest_run
+  por corrida): SEARCH_TERMS_CFG -> tabla search_term_observation. PROVENANCE
+  de la forma: la unica evidencia VERIFICADA EN VIVO es la del sistema viejo
+  goncloud-MCP-2 (_request_search_term_report): reportTypeId "spSearchTerm"
+  (SINGULAR "Term"), groupBy ["searchTerm"], metricas purchases7d/sales7d
+  (ventana 7d: para search terms NO hay evidencia de 30d y las reglas de
+  higiene del diseno v2 se calibraron sobre esa ventana). La re-verificacion
+  contra la API queda para la corrida real de 1.5.
+- Nuestras columns son un SUBCONJUNTO de las que el viejo verifico (date,
+  adGroupId, searchTerm, clicks, cost, purchases7d, sales7d): no se piden
+  campaignId/keyword/matchType/impressions porque la tabla no los guarda
+  (regla "un numero, una fuente": no pedir lo que no se almacena). Mapeo:
+  cost -> cost, sales7d -> ad_revenue, purchases7d -> orders, clicks ->
+  clicks. La tabla NO tiene impressions ni revenue_same_sku: no se piden ni
+  se guardan (y por eso no hay pre-check same_sku en el plan de terminos).
+- Attachment al ad_group (kind "ad_group", id_field "adGroupId"): el
+  comentario del esquema dice "campana/ad_group origen" y el reporte siempre
+  trae adGroupId; la unidad de completitud del motor (2.1) es la entidad.
+- Clasificador OBLIGATORIO es_asin_like: un search term ASIN-like es una
+  UBICACION de pagina de producto, no una busqueda tipeada, y siempre se
+  saltan en negativos (regla sealed own-ASIN; ver el COMMENT de
+  search_term_observation.is_asin_like en la migracion). Patron: EXACTAMENTE
+  10 caracteres alfanumericos ASCII que EMPIEZAN con "B0", case-insensitive,
+  full-match sobre el termino sin espacios extremos; un "b0" embebido en un
+  termino mas largo NO es ASIN. La clasificacion corre en la PLANIFICACION
+  de cada fila: toda fila escrita llega clasificada. La columna es NOT NULL
+  SIN DEFAULT a proposito y esta funcion es el UNICO clasificador.
+- search_term se guarda STRIPPEADO de espacios extremos (normalizacion de
+  identidad para la PK, no invencion de dato).
+- Dedupe por source_report_id (indice parcial st_metric_dedupe_reporte),
+  igual que metricas. Si un MISMO reporte trajera dos filas del mismo
+  (ad_group, termino, fecha) -- p.ej. via keywords distintas -- la segunda
+  queda absorbida por el dedupe y cuenta como rows_skipped con motivo:
+  visible y auditable, sin perdida silenciosa ni agregacion inventada; si la
+  corrida real de 1.5 muestra ese grano multiple, se decide ahi con evidencia.
+
 `python -m app.ads.reports`: carga AdsCredentials.from_secrets_dir()
 (ORBIT_SECRETS_DIR) y la DSN de ORBIT_DSN_INGEST (via app.db.connect),
 sincroniza por defecto AYER UTC (--fecha / --fecha-fin, max 31 dias, el tope
@@ -120,6 +160,7 @@ import gzip
 import json
 import logging
 import os
+import re
 import sys
 import time
 import zlib
@@ -161,8 +202,8 @@ ESPERA_POLL_SEGUNDOS = 5.0
 # y el tamano real tras descargar.
 MAX_BYTES_REPORTE = 512 * 1024 * 1024
 
-# Metricas comunes a los tres reportes (verificado en vivo): el mapeo a
-# columnas de ads_metric_observation es:
+# Metricas comunes a los tres reportes de metricas (verificado en vivo): el
+# mapeo a columnas de ads_metric_observation es:
 #   cost -> cost, sales30d -> ad_revenue,
 #   attributedSalesSameSku30d -> revenue_same_sku, purchases30d -> orders
 _METRICAS = (
@@ -210,7 +251,22 @@ TARGETS_CFG = {
     "kind": "product_target",
     "id_field": "keywordId",
 }
-REPORTES_CFG = (CAMPANAS_CFG, KEYWORDS_CFG, TARGETS_CFG)
+# 4to reporte (task 1.4). PROVENANCE DISTINTA: esta forma NO la verifico
+# nuestro sondeo, la verifico EN VIVO el sistema viejo goncloud-MCP-2
+# (_request_search_term_report: "spSearchTerm" SINGULAR, groupBy
+# ["searchTerm"], purchases7d/sales7d); re-sellado contra la API en la
+# corrida real de 1.5. "tabla" es la clave que usa sync_metrics para
+# despachar esta cfg a ingest_search_terms.
+SEARCH_TERMS_CFG = {
+    "nombre": "search_terms",
+    "reportTypeId": "spSearchTerm",
+    "groupBy": ["searchTerm"],
+    "columns": ["date", "adGroupId", "searchTerm", "clicks", "cost", "purchases7d", "sales7d"],
+    "kind": "ad_group",
+    "id_field": "adGroupId",
+    "tabla": "search_term_observation",
+}
+REPORTES_CFG = (CAMPANAS_CFG, KEYWORDS_CFG, TARGETS_CFG, SEARCH_TERMS_CFG)
 
 # Resolucion de entidades en un solo SELECT por reporte (las filas de un
 # reporte comparten platform/kind; los external_id van de a miles).
@@ -243,6 +299,24 @@ _SQL_INSERT_METRICA = """
     RETURNING ad_entity_id
 """
 
+# Espejo append-only para search_term_observation: el ON CONFLICT apunta al
+# indice parcial st_metric_dedupe_reporte (misma disciplina que metricas);
+# sin RETURNING row la fila fue absorbida por el dedupe y cuenta como
+# rows_skipped con motivo. platform va DESNORMALIZADA en la fila (la PK la
+# incluye) y el trigger st_metric_moneda_sellada sella la moneda Y cruza
+# plataforma<->entidad. RETURNING search_term solo distingue insert de
+# absorbida.
+_SQL_INSERT_TERMINO = """
+    INSERT INTO search_term_observation
+        (platform, ad_entity_id, search_term, metric_date, observed_at, metric_currency,
+         cost, clicks, orders, ad_revenue, is_asin_like, source_report_id, ingest_run_id)
+    VALUES (%s, %s, %s, %s, now(), %s, %s, %s, %s, %s, %s, %s, %s)
+    ON CONFLICT (platform, ad_entity_id, search_term, metric_date, source_report_id)
+        WHERE source_report_id IS NOT NULL
+    DO NOTHING
+    RETURNING search_term
+"""
+
 
 class AdsReportsError(Exception):
     """Error de forma en la respuesta de la API de reportes.
@@ -266,6 +340,25 @@ class _FilaPlano:
     ad_revenue: Decimal | None
     revenue_same_sku: Decimal | None
     impressions: int | None
+    clicks: int | None
+    orders: int | None
+
+
+@dataclass
+class _FilaTermino:
+    """Una fila de search term planificada: lo que se inserta si ningun gate la salta.
+
+    `search_term` ya viene STRIPPEADO (normalizacion de identidad para la PK)
+    y `is_asin_like` calculado en la planificacion: la columna es NOT NULL
+    SIN DEFAULT, asi que el clasificador corre ANTES de tocar la base.
+    """
+
+    external_id: str  # adGroupId como str
+    search_term: str
+    is_asin_like: bool
+    metric_date: dt.date
+    cost: Decimal | None
+    ad_revenue: Decimal | None
     clicks: int | None
     orders: int | None
 
@@ -606,6 +699,121 @@ def _planea_filas(
     return plan, skips
 
 
+# Clasificador ASIN-like: EXACTAMENTE 10 caracteres alfanumericos ASCII que
+# empiezan con "B0", case-insensitive, full-match. re.ASCII + IGNORECASE: sin
+# el flag ASCII, [0-9a-z] deja pasar signos Unicode que case-foldean a ASCII
+# (U+212A Kelvin -> "k"; hallazgo verifier) y el criterio documentado es
+# ASCII-strict.
+_RE_ASIN = re.compile(r"^b0[0-9a-z]{8}$", re.IGNORECASE | re.ASCII)
+
+
+def es_asin_like(termino: str) -> bool:
+    """Clasifica un search term del reporte como ASIN-like o no.
+
+    Un search term ASIN-like es una UBICACION de pagina de producto, no una
+    busqueda tipeada, y los ASIN-like SIEMPRE se saltan en negativos (regla
+    sealed own-ASIN: negativizar un ASIN propio es apagarte a ti mismo; ver
+    el COMMENT de search_term_observation.is_asin_like en la migracion).
+
+    Criterio: EXACTAMENTE 10 caracteres alfanumericos ASCII que EMPIEZAN con
+    "B0" (patron de ASIN de Amazon), case-insensitive, full-match sobre el
+    termino sin espacios extremos. Un "b0" embebido en un termino mas largo
+    NO es ASIN. Esta funcion es el UNICO clasificador de la columna NOT NULL
+    SIN DEFAULT: corre en la planificacion de cada fila, asi ninguna fila
+    escrita llega sin clasificar (un default false convertiria "no lo
+    revise" en "no es ASIN", el dato faltante disfrazado que prohibe la
+    regla 3).
+    """
+    return bool(_RE_ASIN.match(termino.strip()))
+
+
+def _planea_filas_terminos(
+    reporte_cfg: dict,
+    filas: list[dict],
+    *,
+    hoy: dt.date,
+    fecha_ini: dt.date,
+    fecha_fin: dt.date,
+) -> tuple[list[_FilaTermino], Counter[str]]:
+    """Valida y CLASIFICA cada fila de search terms ANTES de tocar la base.
+
+    Espejo de _planea_filas con el vocabulario CERRADO de skips (mismas
+    claves de fecha/metrica; solo cambian las de identidad de la fila):
+    adGroupId ausente, searchTerm ausente/vacio (tras strip), date invalida,
+    metric_date futura, fuera del rango solicitado, metricas no
+    numericas/fraccionarias y fila sin NINGUNA metrica. NO hay pre-check
+    same_sku: la tabla no tiene esa columna. Toda fila planificada llega con
+    is_asin_like calculado y search_term strippeado.
+    """
+    plan: list[_FilaTermino] = []
+    skips: Counter[str] = Counter()
+    etiqueta = reporte_cfg["nombre"]
+    campo_id = reporte_cfg["id_field"]
+
+    for fila in filas:
+        external = fila.get(campo_id)
+        if external is None:
+            skips[f"fila de {etiqueta} sin {campo_id}"] += 1
+            continue
+        external_id = str(external)
+        raw_term = fila.get("searchTerm")
+        if not isinstance(raw_term, str) or not raw_term.strip():
+            skips["fila de search_terms sin searchTerm"] += 1
+            logger.debug("fila de %s sin searchTerm: %r", etiqueta, raw_term)
+            continue
+        search_term = raw_term.strip()
+        raw_date = fila.get("date")
+        try:
+            if not isinstance(raw_date, str):
+                raise ValueError
+            metric_date = dt.date.fromisoformat(raw_date)
+        except ValueError:
+            skips["fila con date invalida"] += 1
+            logger.debug("date invalida en fila de %s: %r", etiqueta, raw_date)
+            continue
+        if metric_date > hoy:
+            skips["fila con metric_date futura"] += 1
+            logger.debug("metric_date futura en fila de %s: %s > %s", etiqueta, metric_date, hoy)
+            continue
+        if metric_date < fecha_ini or metric_date > fecha_fin:
+            skips["fila con metric_date fuera del rango solicitado"] += 1
+            logger.debug(
+                "metric_date %s fuera del rango %s..%s en %s %s",
+                metric_date,
+                fecha_ini,
+                fecha_fin,
+                etiqueta,
+                external_id,
+            )
+            continue
+        try:
+            cost = _decimal_reporte(fila.get("cost"), "cost")
+            ad_revenue = _decimal_reporte(fila.get("sales7d"), "sales7d")
+            clicks = _entero_reporte(fila.get("clicks"), "clicks")
+            orders = _entero_reporte(fila.get("purchases7d"), "purchases7d")
+        except ValueError:
+            skips[f"fila de {etiqueta} con metrica no numerica o fraccionaria"] += 1
+            continue
+        if cost is None and ad_revenue is None and clicks is None and orders is None:
+            skips["fila sin ninguna metrica"] += 1
+            logger.debug("fila sin ninguna metrica: %s %s %s", etiqueta, external_id, metric_date)
+            continue
+        plan.append(
+            _FilaTermino(
+                external_id=external_id,
+                search_term=search_term,
+                is_asin_like=es_asin_like(search_term),
+                metric_date=metric_date,
+                cost=cost,
+                ad_revenue=ad_revenue,
+                clicks=clicks,
+                orders=orders,
+            )
+        )
+
+    return plan, skips
+
+
 # ---------------------------------------------------------------------------
 # IO de DB: ingest_metrics
 # ---------------------------------------------------------------------------
@@ -704,6 +912,101 @@ def ingest_metrics(
     )
 
 
+def ingest_search_terms(
+    conn: psycopg.Connection,
+    perfil: PerfilAds,
+    reporte_cfg: dict,
+    report_id: str,
+    filas: list[dict],
+    *,
+    run_id: int,
+    hoy: dt.date,
+    fecha_ini: dt.date,
+    fecha_fin: dt.date,
+) -> ResultadoIngesta:
+    """Inserta las filas de UN reporte en search_term_observation (append-only).
+
+    Espejo de ingest_metrics con la unidad contable (fila del reporte) y los
+    mismos outcomes: insertada -> rows_written; absorbida por el dedupe del
+    indice parcial st_metric_dedupe_reporte -> rows_skipped "fila duplicada
+    del reporte <id>"; entidad (ad_group) ausente en ad_entity -> rows_skipped
+    "entidad ausente en ad_entity (ad_group)". Toda fila escrita llega con
+    is_asin_like clasificado por es_asin_like (la columna es NOT NULL SIN
+    DEFAULT). La platform va en la fila (la PK la incluye) y la moneda es la
+    del perfil: el trigger st_metric_moneda_sellada sella la moneda Y cruza
+    plataforma<->entidad. Si un MISMO reporte trajera dos filas del mismo
+    (ad_group, termino, fecha) -- p.ej. via keywords distintas -- la segunda
+    queda absorbida por el dedupe y cuenta como rows_skipped: visible y
+    auditable, sin perdida silenciosa ni agregacion inventada.
+
+    `run_id`/`hoy`/`fecha_ini`/`fecha_fin`: misma semantica que ingest_metrics
+    (una ingest_run por corrida; el guard de fecha futura usa el MISMO reloj
+    que escribe observed_at).
+    """
+    if not perfil.aceptado or perfil.platform is None or perfil.moneda is None:
+        raise AdsReportsError(
+            f"ingest_search_terms exige un perfil aceptado (profile_id={perfil.profile_id!r})"
+        )
+    plan, skips = _planea_filas_terminos(
+        reporte_cfg, filas, hoy=hoy, fecha_ini=fecha_ini, fecha_fin=fecha_fin
+    )
+
+    # Resolucion de entidades en un solo SELECT por reporte (kind ad_group):
+    # los adGroupId que falten son skip, no error.
+    externos = sorted({fila.external_id for fila in plan})
+    ids: dict[str, int] = {}
+    if externos:
+        ids = {
+            str(external): entidad_id
+            for external, entidad_id in conn.execute(
+                _SQL_ENTIDADES, (perfil.platform, reporte_cfg["kind"], externos)
+            ).fetchall()
+        }
+
+    kind = reporte_cfg["kind"]
+    written = 0
+    for fila in plan:
+        entidad_id = ids.get(fila.external_id)
+        if entidad_id is None:
+            skips[f"entidad ausente en ad_entity ({kind})"] += 1
+            logger.debug(
+                "entidad ausente en ad_entity: %s %s (correr sync de estructura)",
+                kind,
+                fila.external_id,
+            )
+            continue
+        insertado = conn.execute(
+            _SQL_INSERT_TERMINO,
+            (
+                perfil.platform,
+                entidad_id,
+                fila.search_term,
+                fila.metric_date,
+                perfil.moneda,
+                fila.cost,
+                fila.clicks,
+                fila.orders,
+                fila.ad_revenue,
+                fila.is_asin_like,
+                report_id,
+                run_id,
+            ),
+        ).fetchone()
+        if insertado is None:
+            skips[f"fila duplicada del reporte {report_id}"] += 1
+            continue
+        written += 1
+
+    return ResultadoIngesta(
+        report_id=report_id,
+        filas=len(filas),
+        rows_written=written,
+        rows_skipped=sum(skips.values()),
+        skip_reason=_formato_skip_reason(skips),
+        skips=skips,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Orquestador + rango de fechas
 # ---------------------------------------------------------------------------
@@ -752,7 +1055,7 @@ def sync_metrics(
     fecha_fin: dt.date,
     sleep=time.sleep,
 ) -> ResultadoSync:
-    """Orquestador: perfiles aceptados -> 3 reportes por perfil -> ingesta.
+    """Orquestador: perfiles aceptados -> 4 reportes por perfil -> ingesta.
 
     Fase de API COMPLETA antes de la fase de DB (ninguna transaccion queda
     abierta durante el polling) y ENVUELTA: todo fallo de esa fase abre una
@@ -828,17 +1131,40 @@ def sync_metrics(
     try:
         with conn.transaction():
             for perfil, cfg, report_id, filas in descargados:
-                resultado = ingest_metrics(
-                    conn,
-                    perfil,
-                    cfg,
-                    report_id,
-                    filas,
-                    run_id=run_id,
-                    hoy=hoy,
-                    fecha_ini=fecha_ini,
-                    fecha_fin=fecha_fin,
-                )
+                # Dispatch por tabla (clave "tabla" solo la lleva el cfg de
+                # search terms): mismo camino, un solo dueno por tabla. Un
+                # valor desconocido es fail-closed, jamas "caer" al camino de
+                # metricas (hallazgo reviewer: un else mudo enrutaria filas a
+                # la tabla equivocada).
+                tabla = cfg.get("tabla")
+                if tabla is None:
+                    resultado = ingest_metrics(
+                        conn,
+                        perfil,
+                        cfg,
+                        report_id,
+                        filas,
+                        run_id=run_id,
+                        hoy=hoy,
+                        fecha_ini=fecha_ini,
+                        fecha_fin=fecha_fin,
+                    )
+                elif tabla == "search_term_observation":
+                    resultado = ingest_search_terms(
+                        conn,
+                        perfil,
+                        cfg,
+                        report_id,
+                        filas,
+                        run_id=run_id,
+                        hoy=hoy,
+                        fecha_ini=fecha_ini,
+                        fecha_fin=fecha_fin,
+                    )
+                else:
+                    raise AdsReportsError(
+                        f"cfg de reporte {cfg.get('nombre')!r} con tabla desconocida: {tabla!r}"
+                    )
                 escritos += resultado.rows_written
                 skips.update(resultado.skips)
                 reportes.append(
@@ -954,7 +1280,10 @@ def _imprimir_resumen(fecha_ini: dt.date, fecha_fin: dt.date, resultado: Resulta
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Sincroniza metricas de Amazon Ads (reporting v3) a ads_metric_observation"
+        description=(
+            "Sincroniza metricas y search terms de Amazon Ads (reporting v3) a "
+            "ads_metric_observation y search_term_observation"
+        )
     )
     parser.add_argument("--fecha", help="YYYY-MM-DD del dia inicial (default: ayer UTC)")
     parser.add_argument(
