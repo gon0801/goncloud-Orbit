@@ -33,6 +33,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          # historia completa: el candado de frescura del contexto de chat
+          # necesita el merge-base contra la rama base del PR
+          fetch-depth: 0
 
       - name: Set up Python
         if: hashFiles('pyproject.toml', 'requirements.txt') != ''
@@ -53,6 +57,15 @@ jobs:
       - name: Install Node dependencies
         if: hashFiles('package-lock.json') != ''
         run: npm ci
+
+      - name: Candado de frescura del contexto de chat (solo PRs)
+        # guardrails-01 task 1.4: un PR que marca tareas completadas en un
+        # plan debe actualizar docs/CHAT-CONTEXT.md (lo lee el Project de
+        # Claude Chat del dueno). El candado revisa, jamas escribe.
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch origin "$GITHUB_BASE_REF"
+          python tools/check_chat_context_fresh.py "origin/$GITHUB_BASE_REF"
 
       - name: Run pre-commit (todos los candados locales, sobre todo el repo)
         uses: pre-commit/action@v3.0.1
