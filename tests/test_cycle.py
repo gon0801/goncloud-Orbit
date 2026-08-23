@@ -13,7 +13,10 @@ para la atomicidad del claim en una sola sentencia):
 2. Claim: lock vigente ajeno NO robable (CicloOcupado, sin envelope nuevo);
    TTL vencido SI reclamable (con rastro del ciclo muerto cerrado 'failed' y
    su id en ciclos_muertos); concurrencia REAL (2 threads + Barrier, 3
-   rondas) deja exactamente un ganador.
+   rondas) deja exactamente un ganador. FLAKE TEORICO DECLARADO (residual
+   del PR): si el perdedor llegara al claim DESPUES de que el ganador
+   libero el lock, ganaria tambien — en la practica el perdedor falla en
+   milisegundos mientras el ganador corre la fase de lecturas completa.
 3. decisions_count del envelope cuadra contra SELECT count(*) de decision.
 4. GOLDEN REPLAY: reproduce(inputs) == (kind, new_value, value_currency)
    para TODAS las decisions del ciclo (incluye pause y negative sin dinero).

@@ -51,7 +51,10 @@ ALLOWLIST_TAMANO = {
         "sellada de claim/envelope/rastro, 3 fases de transaccion, "
         "serializacion congelada de inputs y replay) no tienen frontera "
         "coherente para partirse sin romper el sellado; partir por partir "
-        "esta prohibido por la regla anti-Goodhart"
+        "esta prohibido por la regla anti-Goodhart. Candidato DECLARADO "
+        "(hallazgo reviewer 3.1): el codec de inputs congelados "
+        "(serializacion + replay, par freeze<->replay de ~300 lineas) si "
+        "3.3/PR2 hacen crecer el modulo"
     ),
 }
 

@@ -39,8 +39,10 @@ Diseño sellado (plans/orbit-03.md task 3.1 + diseno v2):
 - SKIPS ESTRUCTURADOS: optimizer_cycle.notes es un JSON con contadores por
   motivo (vocabulario CERRADO: MOTIVO_* de bid/hygiene importados + los
   propios del orquestador). Sin PII de terminos saltados: SOLO contadores
-  (la evidencia por decision esta en decision.inputs). Es la fuente del
-  spot-check humano (4.4) y del endpoint de estado (3.2).
+  (para un termino saltado no existe fila en decision, asi que el contador
+  con motivo del vocabulario cerrado ES toda la evidencia — y para 4.4
+  basta). Es la fuente del spot-check humano (4.4) y del endpoint de estado
+  (3.2).
 - ELEGIBILIDAD (precedencia campaña > plataforma resuelta EN LA APP con
   goals.resuelve_goal, COMMENT del esquema; NADA de coalesce en SQL): sin goal
   -> 'sin_goal'; goal resuelto deshabilitado -> 'goal_disabled' (ESTE es el
@@ -100,7 +102,11 @@ MOTIVO_ESCALERA_OFF = "escalera_off"
 # techo real en PR1 (resuelve_modo degrada live->shadow sin modulo apply), y
 # el modo por goal solo puede BAJARLO (goal 'off' deja entidades fuera, no
 # sube el ciclo). Para toda entidad que decide, el modo efectivo coincide con
-# el del envelope.
+# el del envelope EN PR1. RESIDUAL PR2 (hallazgo reviewer 3.1): cuando
+# HAY_MODULO_APPLY se voltee y la escalera sea 'live' con goal 'shadow', el
+# envelope dira 'live' y decisiones de goals 'shadow' llevaran inputs.modo
+# 'live' — el apply de PR2 JAMAS debe filtrar por inputs.modo/cycle.mode:
+# debe re-resolver goal.mode por decision.
 _MODO_TOPE_ENVELOPE = "live"
 
 # JSON con Decimals como STRING (regla 4), fechas ISO y ASCII libre.
@@ -146,7 +152,12 @@ RETURNING claimed_at
 """
 
 # Rastro de ciclos muertos: SOLO alcanzable tras ganar el claim (si el lock
-# estaba tomado, no hay ciclo vivo que cerrar). El id nuevo se excluye.
+# estaba tomado, no hay ciclo vivo QUE NOS DEJE CERRAR — residual declarado:
+# con heartbeat fail-open y latidos fallando >TTL pero conexion principal
+# viva, un ciclo ZOMBIE puede seguir corriendo; este rastro lo marca failed
+# y el zombie luego lo pisa a done al cerrarse (auditoria inconsistente, no
+# corrupcion; guard de status='running' en el cierre es mejora de PR2).
+# El id nuevo se excluye.
 _SQL_RASTRO = """
 UPDATE optimizer_cycle
    SET status = 'failed', finished_at = now(),
@@ -286,6 +297,11 @@ class _Lecturas:
 
 
 def _dec_str(valor: Decimal | None) -> str | None:
+    """Decimal -> string TAL CUAL llega de la DB: la escala del string
+    (ej '1.0000', '25.00') es artefacto deterministico del NUMERIC de origen
+    (money_amount NUMERIC(14,4), acos NUMERIC(6,2)) y hay que CONSERVARLA —
+    una "normalizacion" futura aqui romperia las comparaciones de auditoria
+    y el golden replay (hallazgo reviewer 3.1)."""
     return str(valor) if valor is not None else None
 
 
