@@ -422,7 +422,7 @@ def test_sql_del_router_parsea_como_postgres():
 )
 def test_status_plataforma_sin_datos_devuelve_nulls(monkeypatch):
     """Una plataforma sin ciclos ni metricas aparece con nulls, no con 404."""
-    with _db_temporal("orbit_api_vacio") as (conn, dsn):
+    with _db_temporal("orbit_api_vacio") as (_conn, dsn):
         resp = _cliente(dsn, monkeypatch).get("/api/ads-optimizer/status")
         assert resp.status_code == 200
         for plataforma in ("amazon_us", "amazon_mx"):
@@ -450,7 +450,9 @@ def test_audit_paginacion_con_order_by_estable(monkeypatch):
 
         assert resp.status_code == 200
         data = resp.json()
-        assert data["total"] == 6  # 5 del ciclo nuevo + 1 del viejo
+        # sin filtros el total es null: no se paga count(*) de la tabla
+        # append-only completa por request (hallazgo CodeRabbit)
+        assert data["total"] is None
         assert data["limit"] == 2 and data["offset"] == 2
         items = data["items"]
         assert len(items) == 2

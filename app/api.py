@@ -257,6 +257,11 @@ def audit(
     """Decisiones paginadas con filtros por ciclo/entidad/kind.
 
     ORDER BY estable (`id DESC`): la paginacion por offset es determinista.
+    `total` es EXACTO solo con algun filtro; sin filtros es null: un
+    count(*) de la tabla append-only completa por request escala lineal
+    con el historial (hallazgo CodeRabbit) y el panorama global ya lo da
+    /status. Los indices decision(cycle_id) y decision(ad_entity_id,..)
+    cubren las variantes filtradas.
     404 para ids inexistentes (cycle_id/ad_entity_id que no existen en el
     esquema); un id existente sin decisiones devuelve items vacios.
     """
@@ -270,8 +275,12 @@ def audit(
         raise HTTPException(status_code=404, detail=f"ad_entity_id {ad_entity_id} no existe")
 
     filtros, params = _filtros_decision(cycle_id, ad_entity_id, kind)
-    # dict_row activo: la columna se lee por nombre (AS total), jamas por indice
-    total = conn.execute(_SQL_AUDIT_TOTAL.format(filtros=filtros), params).fetchone()["total"]
+    if cycle_id is None and ad_entity_id is None and kind is None:
+        # sin filtros no se paga un count(*) de toda la tabla (ver docstring)
+        total = None
+    else:
+        # dict_row activo: la columna se lee por nombre (AS total), jamas por indice
+        total = conn.execute(_SQL_AUDIT_TOTAL.format(filtros=filtros), params).fetchone()["total"]
     filas = conn.execute(
         _SQL_AUDIT_BASE.format(filtros=filtros),
         (*params, limit, offset),

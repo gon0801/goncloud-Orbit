@@ -535,7 +535,10 @@ def _hay_postgres_local():
     túnel SSH caído en 127.0.0.1:5432 bloqueando el pre-push, ronda
     cross-review claude). Hay que hablar Postgres de verdad, con tope corto.
     """
-    psycopg = pytest.importorskip("psycopg")
+    if not _psycopg_disponible():
+        return False
+    import psycopg
+
     try:
         with psycopg.connect(_test_dsn(), connect_timeout=2):
             return True
@@ -547,9 +550,15 @@ def _psycopg_disponible() -> bool:
     """Driver psycopg importable (hallazgo CodeRabbit PR #12, ronda ready):
     sin driver, el importorskip de los tests se comeria la cobertura en
     silencio AUN con ORBIT_TEST_DSN definido."""
-    import importlib.util
+    import importlib
 
-    return importlib.util.find_spec("psycopg") is not None
+    try:
+        importlib.import_module("psycopg")
+    except ImportError:
+        # find_spec puede devolver spec aunque el import truene
+        # (CodeRabbit): el criterio es el import REAL
+        return False
+    return True
 
 
 def _postgres_obligatorio_ausente() -> bool:
@@ -562,7 +571,7 @@ def _postgres_obligatorio_ausente() -> bool:
     importorskip de los tests NO es señal (skipea, no truena).
     """
     if not _psycopg_disponible():
-        if os.environ.get("CI"):
+        if "CI" in os.environ:
             raise RuntimeError(
                 "CI definida pero sin driver psycopg: los tests de "
                 "integracion desaparecerian en silencio (fail-closed)"
@@ -572,7 +581,7 @@ def _postgres_obligatorio_ausente() -> bool:
         return False
     if _hay_postgres_local():
         return False
-    if os.environ.get("CI"):
+    if "CI" in os.environ:  # presencia, no truthiness: CI="" tambien es CI
         raise RuntimeError(
             "CI definida pero sin Postgres utilizable: los tests de "
             "integracion desaparecerian en silencio (fail-closed)"
@@ -588,6 +597,10 @@ def test_postgres_obligatorio_ausente_fail_closed(monkeypatch):
     monkeypatch.delenv("ORBIT_TEST_DSN", raising=False)
     monkeypatch.setattr(ts, "_hay_postgres_local", lambda: False)
     monkeypatch.setenv("CI", "true")
+    with pytest.raises(RuntimeError, match="fail-closed"):
+        ts._postgres_obligatorio_ausente()
+    # CI="" TAMBIEN es CI (GitHub podria setearla vacia): presencia manda
+    monkeypatch.setenv("CI", "")
     with pytest.raises(RuntimeError, match="fail-closed"):
         ts._postgres_obligatorio_ausente()
     monkeypatch.delenv("CI", raising=False)
@@ -642,7 +655,7 @@ def test_probe_rechaza_listener_muerto(monkeypatch):
 
 
 @pytest.mark.skipif(
-    not _hay_postgres_local(),
+    _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 def test_migracion_rechaza_en_vivo():

@@ -89,7 +89,9 @@ def test_cli_cycle_owner_explicito_y_decided_at_por_default(monkeypatch, capsys)
     assert capturado["platform"] == "amazon_mx"
     assert capturado["owner"] == "cron-01"
     assert capturado["decided_at"].tzinfo is not None  # now() tz-aware
-    assert ciclo.job_key_de("amazon_mx") == "ads_optimizer:amazon_mx"
+    # anclado a la SALIDA del CLI (no una tautologia sobre job_key_de):
+    # el resumen debe reportar el job_key del orquestador (CodeRabbit)
+    assert ciclo.job_key_de("amazon_mx") in capsys.readouterr().out
 
 
 def test_cli_cycle_plataforma_fuera_del_vocabulario_rechazada(capsys):
@@ -123,11 +125,15 @@ def test_cli_cycle_sin_dsn_fail_closed(monkeypatch, capsys):
 
 def test_cli_cycle_fallo_de_conexion_sin_filtrar_dsn(monkeypatch, capsys):
     from app.db import OrbitDbError
+    from app.redaction import redact_dsn
 
     def _reventar(dsn):
-        raise OrbitDbError(
-            "no se pudo conectar a la base de datos: postgresql://***REDACTED***@..."
-        )
+        # como el connect real: redact_dsn REGISTRA la password antes del
+        # error; el mensaje lleva el DSN CRUDO para que el scrub del camino
+        # de salida sea quien lo limpie (CodeRabbit: el fake pre-redactado
+        # no ejercitaba nada)
+        redact_dsn(dsn)
+        raise OrbitDbError(f"no se pudo conectar a la base de datos: {dsn}")
 
     monkeypatch.setattr(cli, "connect", _reventar)
     monkeypatch.setenv(
@@ -140,6 +146,7 @@ def test_cli_cycle_fallo_de_conexion_sin_filtrar_dsn(monkeypatch, capsys):
     err = capsys.readouterr().err
     assert "no se pudo conectar" in err
     assert "SUPER_SECRETA" not in err  # jamas el secreto en la salida
+    assert "REDACTED" in err  # y la redaccion OCURRIO (no solo ausencia)
 
 
 def test_cli_cycle_ocupado_sale_cero(monkeypatch, capsys):
