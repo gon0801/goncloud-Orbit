@@ -73,6 +73,24 @@ Se adopta completo **como especificación**, con dos traducciones:
 - Los nombres de módulos (`engines/ads_optimizer_*.py`) son guía de
   arquitectura, no obligación de layout.
 
+Spec delta ORBIT 03 (sellado; tres traducciones nuevas que el diseño v2 no
+conocía):
+
+1. **Doble ventana.** Bids: ventana 30d que termina en `max(metric_date) − 3d`.
+   Cortes (pause/negative/harvest): agregado SEPARADO cuya ventana termina en
+   `min(max(metric_date) − 3d, decided_at − 10d)` — madurez ≥10d, es decir
+   `window_end <= decided_at − 10d` (regla 6; el trigger
+   `decision_madurez_corte` lo hace imposible de violar). Prohibido calcular
+   con la ventana de bids y solo "bajar" la columna `window_end`.
+2. **Opt-out por campaña.** `campaign_optimization_state` del viejo no existe
+   en Orbit: se traduce a goal de scope campaña con `enabled=false`, que PISA
+   a un goal de plataforma habilitado. La gracia de 7d por reactivación manual
+   sigue diferida a PR2 (residual #3 del diseño).
+3. **Criterio de shadow para el cutover.** "Revisado contra lo que hizo
+   adaptive" ya no aplica: el sistema viejo está APAGADO (ORBIT 02). El shadow
+   se valida contra datos reales + recálculo manual, y se acepta el costo
+   declarado de que nadie optimiza las campañas durante el freeze.
+
 Reglas numéricas selladas (resumen; el documento manda):
 
 - **PAUSE**: orders=0 ∧ clicks≥25 ∧ cost≥{us: 12 USD, mx: 200 MXN}
