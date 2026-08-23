@@ -543,6 +543,39 @@ def _hay_postgres_local():
         return False
 
 
+def _postgres_obligatorio_ausente() -> bool:
+    """Condicion de skip FAIL-CLOSED para tests de integracion (hallazgo
+    CodeRabbit PR #12): sin DSN explicito y sin Postgres local se skipea,
+    PERO en CI (env CI definida; GitHub Actions siempre la pone) Postgres
+    debe existir -- su ausencia ahi es RuntimeError ruidoso en la coleccion,
+    jamas un skip silencioso que se lea como cobertura.
+    """
+    if os.environ.get("ORBIT_TEST_DSN"):
+        return False
+    if _hay_postgres_local():
+        return False
+    if os.environ.get("CI"):
+        raise RuntimeError(
+            "CI definida pero sin Postgres utilizable: los tests de "
+            "integracion desaparecerian en silencio (fail-closed)"
+        )
+    return True
+
+
+def test_postgres_obligatorio_ausente_fail_closed(monkeypatch):
+    """El guard NO puede fallar abierto en CI: sin DSN y sin Postgres, con
+    CI definida revienta (jamas skip silencioso); sin CI, si skipea."""
+    import test_schema as ts
+
+    monkeypatch.delenv("ORBIT_TEST_DSN", raising=False)
+    monkeypatch.setattr(ts, "_hay_postgres_local", lambda: False)
+    monkeypatch.setenv("CI", "true")
+    with pytest.raises(RuntimeError, match="fail-closed"):
+        ts._postgres_obligatorio_ausente()
+    monkeypatch.delenv("CI", raising=False)
+    assert ts._postgres_obligatorio_ausente() is True
+
+
 def test_probe_rechaza_listener_muerto(monkeypatch):
     """Un listener que acepta TCP y cierra sin hablar Postgres NO es "hay
     Postgres": es el túnel SSH muerto que tumbó el pre-push. Con el probe TCP

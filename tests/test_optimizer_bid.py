@@ -528,3 +528,30 @@ def test_plataforma_fuera_de_vocabulario_raise():
 def test_floor_mayor_que_ceiling_raise():
     with pytest.raises(ValueError, match="floor"):
         _decide(None, None, floor="2.50", ceiling="0.40")
+
+
+# ---------------------------------------------------------------------------
+# Cobertura extra (review 2.2-2.4): bordes MX del lado de abajo y orders=0
+# ---------------------------------------------------------------------------
+
+
+def test_cost_199_99_no_pause_mx():
+    """Un centavo bajo el umbral MX (199.99, umbral 200): NO pausea
+    (simetria con test_cost_11_99_no_pause_us)."""
+    r = _decide(
+        None,
+        _cortes(cost=Decimal("199.99"), ad_revenue=Decimal("0"), orders=0, clicks=25, moneda="MXN"),
+        platform="amazon_mx",
+        bid_moneda="MXN",
+    )
+    assert r.kind is None
+
+
+def test_orders_0_literal_no_habilita_menos_25_cae_a_menos_12():
+    """orders=0 LITERAL (no None) con ACoS sobre 1.35x: la banda -25 exige
+    orders minimo 1, asi que cae a -12. El 0 literal merece su propio pin
+    en vez de inferirse de la rama None (review 2.2-2.4)."""
+    r = _decide(_bids(cost=Decimal("40"), ad_revenue=Decimal("100"), orders=0), None)
+    assert r.kind == "bid"
+    assert r.motivo == "banda_menos_12"
+    assert r.factor == Decimal("-0.12")

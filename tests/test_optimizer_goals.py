@@ -32,7 +32,7 @@ from decimal import Decimal
 import pglast
 import pytest
 from psycopg.types.json import Json
-from test_schema import SQL, _hay_postgres_local, _test_dsn
+from test_schema import SQL, _postgres_obligatorio_ausente, _test_dsn
 
 from app.optimizer import goals as g
 
@@ -369,7 +369,7 @@ def _apply(conn, decision_id: int, *, confirmed_at: dt.datetime, verify_ok: bool
 
 
 @pytest.mark.skipif(
-    not _DSN_EXPLICITO and not _hay_postgres_local(),
+    _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 def test_cooldown_en_vivo_verificado_divergencia_y_borde_7d():
@@ -400,7 +400,7 @@ def test_cooldown_en_vivo_verificado_divergencia_y_borde_7d():
 
 
 @pytest.mark.skipif(
-    not _DSN_EXPLICITO and not _hay_postgres_local(),
+    _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 def test_cooldown_apply_de_ciclo_shadow_no_enfria():

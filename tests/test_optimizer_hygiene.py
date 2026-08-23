@@ -33,7 +33,7 @@ from decimal import Decimal
 
 import pglast
 import pytest
-from test_schema import SQL, _hay_postgres_local, _test_dsn
+from test_schema import SQL, _postgres_obligatorio_ausente, _test_dsn
 
 from app.optimizer import hygiene as h
 from app.optimizer import windows as w
@@ -605,7 +605,7 @@ def _rango(inicio: dt.date, fin: dt.date) -> list[dt.date]:
 
 
 @pytest.mark.skipif(
-    not _DSN_EXPLICITO and not _hay_postgres_local(),
+    _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 def test_desempate_source_report_id_en_vivo():
@@ -726,7 +726,7 @@ def test_desempate_source_report_id_en_vivo():
 
 
 @pytest.mark.skipif(
-    not _DSN_EXPLICITO and not _hay_postgres_local(),
+    _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 def test_keywords_campana_destino_en_vivo():
@@ -802,3 +802,15 @@ def test_keywords_campana_destino_en_vivo():
         # declarada; el harvest dedupe contra vacio simplemente no bloquea)
         _entidad(conn, "amazon_us", "campaign", "9999")
         assert h.keywords_campana_destino(conn, "amazon_us", "9999") == frozenset()
+
+
+def test_negative_cost_129_99_no_mx():
+    """Un centavo bajo el umbral MX (129.99, umbral 130): NO negativiza
+    (simetria con test_negative_borde_exacto_mx_cost_130; review 2.2-2.4)."""
+    r = _decide(
+        _terminos([_negativo(cost=Decimal("129.99"), moneda="MXN")]),
+        platform="amazon_mx",
+        config=h.ConfigHarvest("9", "9", Decimal("20"), "MXN"),
+    )["zapato rojo"]
+    assert r.kind is None
+    assert r.motivo == "sin_umbral_negative"
