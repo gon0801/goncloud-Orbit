@@ -4,7 +4,7 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
-**Última actualización: 2026-08-23 — Phases 1–3 en master; 4.1 y 4.2 hechas
+**Última actualización: 2026-08-24 — Phases 1–3 en master; 4.1 y 4.2 hechas
 en goncloud (servicio `app` en 127.0.0.1:8010 + 3 crons aditivos, profundidad
 diaria D-31..D-1). Siguen 4.3 (seed humano), 4.4 (primer shadow real) y 4.5
 (cierre). Este archivo tiene candado de frescura: el CI exige actualizarlo

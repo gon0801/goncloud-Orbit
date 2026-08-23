@@ -73,6 +73,11 @@ contenedor no puede escribir ni relajar permisos).
 **Qué se monta:** SOLO `secrets/` (read-only). Ni backups, ni `.env`
 como archivo (los DSN llegan por `env_file`). `.dockerignore` excluye
 `.env` y `secrets/` del contexto de build: no entran a la imagen.
+`env_file: .env` inyecta el archivo entero (incluye `POSTGRES_PASSWORD`
+y `ORBIT_DSN_ADMIN`, que la app no usa): residual aceptado — el mismo
+contenedor corre API (`ORBIT_DSN_READ`) y CLI (`INGEST`/`DECIDE`); el
+bind es loopback. `user: "0:0"` es riesgo aceptado residual (secrets
+root 0600, mount `:ro`, jamás chmod).
 
 Reconstruir/actualizar **solo la app** (Postgres intacto):
 
@@ -80,7 +85,7 @@ Reconstruir/actualizar **solo la app** (Postgres intacto):
 ssh goncloud
 cd /mnt/data/appdata/orbit
 # copiar del repo: Dockerfile .dockerignore pyproject.toml uv.lock app/
-docker compose up -d --build app
+docker compose up -d --no-deps --build app
 curl -sS http://127.0.0.1:8010/health
 ss -lntp | grep 8010    # debe decir 127.0.0.1:8010, NUNCA *:8010
 # secrets/ sin tocar:
