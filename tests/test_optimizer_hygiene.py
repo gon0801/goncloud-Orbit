@@ -247,6 +247,30 @@ def test_harvest_duplicado():
     assert r["zapato rojo"].motivo == "harvest_duplicado"
 
 
+def test_harvest_duplicado_normalizado_strip_y_casefold():
+    """Hallazgo grok (ronda 1): keyword_text se guarda tal cual llega de la
+    API (espacios extremos posibles) y la capitalizacion de searchTerm vs
+    keywordText no esta garantizada igual. El dedupe compara NORMALIZADO
+    (strip + casefold): ante divergencia de forma, skip -- evitar un
+    duplicado en la campana destino manda sobre cosechar."""
+    r = _decide(
+        _terminos([_harvesteable()]),
+        keywords=frozenset({"  ZAPATO ROJO  "}),
+    )
+    assert r["zapato rojo"].kind is None
+    assert r["zapato rojo"].motivo == "harvest_duplicado"
+
+
+def test_negative_moneda_incoherente_skip():
+    """Hallazgo grok (ronda 1): el umbral de cost del negative esta en la
+    moneda de la plataforma; la capa pura no puede confiar solo en el
+    trigger de DB. Termino con metric_currency cruzada -> skip, jamas
+    negative (misma defensa que bid/harvest)."""
+    r = _decide(_terminos([_negativo(moneda="MXN")]))
+    assert r["zapato rojo"].kind is None
+    assert r["zapato rojo"].motivo == "moneda_incoherente"
+
+
 def test_harvest_acos_borde_inclusivo_y_un_pelo_arriba():
     """ACoS justo = tope (25% con target 25: cost 25 sobre revenue 100)
     HARVESTEA (<= inclusivo, por multiplicacion exacta); un pelo arriba
@@ -551,7 +575,10 @@ def test_desempate_source_report_id_en_vivo():
     colision); el test DROPEA la PK en su DB temporal para sembrarlo y probar
     que el query es determinista POR SI MISMO (defensa en profundidad: si la
     PK/grano cambia manana, el colapso sigue siendo correcto). Con el
-    desempate source_report_id DESC, gana el reporte MAYOR."""
+    desempate source_report_id DESC NULLS LAST, gana el reporte MAYOR y la
+    fila CON reporte gana sobre una sin el (NULL): DESC sin clausula pone
+    los NULL PRIMEROS, que es lo contrario de trazable (hallazgo codex,
+    ronda 1)."""
     with _db_temporal("orbit_hyg_desempate") as conn:
         run_id = _run(conn)
         camp = _entidad(conn, "amazon_us", "campaign", "9001")
@@ -608,6 +635,24 @@ def test_desempate_source_report_id_en_vivo():
             clicks=2,
             orders=0,
         )
+        # TERCERA fila del empate SIN source_report_id y cost absurdo: sin
+        # NULLS LAST, DESC pone los NULL primero y esta fila GANARIA (99+).
+        # El indice de dedupe es parcial (WHERE source_report_id IS NOT
+        # NULL): una fila sin reporte no choca con nada.
+        _termino(
+            conn,
+            run_id,
+            "amazon_us",
+            ag,
+            "arras de boda",
+            dt.date(2026, 8, 4),
+            empate_at,
+            moneda="USD",
+            report_id=None,
+            cost=Decimal("99.00"),
+            clicks=99,
+            orders=0,
+        )
         # observacion fresca (08-19) que SOLO sube el ancla de la ventana
         _termino(
             conn,
@@ -644,8 +689,12 @@ def test_keywords_campana_destino_en_vivo():
     """keywords_campana_destino: SOLO keywords EXACT de la campana destino,
     navegando ad_group -> campaign por parent_id (el comentario de ad_entity
     declara que keyword_text/match_type existen PARA este duplicate-check).
-    Una PHRASE con el mismo texto NO es duplicado (el harvest crea EXACT);
-    una EXACT de OTRA plataforma tampoco (cammuflaje via campaign_id igual)."""
+    Una PHRASE con el mismo texto NO es duplicado (el harvest crea EXACT):
+    se siembran DOS PHRASE -- una con el MISMO texto del EXACT (caso del
+    docstring, invisible en el frozenset) y otra con texto UNICO que hace el
+    assert DISCRIMINANTE (si el filtro match_type se rompiera, apareceria en
+    el set; hallazgo grok ronda 1). Una EXACT de OTRA plataforma tampoco
+    (cammuflaje via campaign_id igual)."""
     with _db_temporal("orbit_hyg_keywords") as conn:
         _run(conn)
         camp_dest = _entidad(conn, "amazon_us", "campaign", "9002")
@@ -666,7 +715,16 @@ def test_keywords_campana_destino_en_vivo():
             "9203",
             parent=ag_dest,
             match_type="PHRASE",
-            keyword_text="otro texto",
+            keyword_text="zapato rojo",
+        )
+        _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "9205",
+            parent=ag_dest,
+            match_type="PHRASE",
+            keyword_text="frase unica phrase",
         )
         # misma campana DESTINO no: otra plataforma con el mismo texto
         camp_mx = _entidad(conn, "amazon_mx", "campaign", "9002")
@@ -683,6 +741,19 @@ def test_keywords_campana_destino_en_vivo():
 
         kws = h.keywords_campana_destino(conn, "amazon_us", "9002")
         assert kws == frozenset({"zapato rojo"})
+        # end-to-end del claim del docstring: un termino que SOLO existe como
+        # keyword PHRASE ('frase unica phrase') NO se deduplica (no esta en
+        # el set EXACT) -> el harvest sale. El termino 'zapato rojo' si se
+        # deduplicaria (la EXACT existe): eso ya lo cubre el test puro.
+        resultados = h.decide_hygiene(
+            platform="amazon_us",
+            terminos=_terminos([_harvesteable(search_term="frase unica phrase")]),
+            target_acos_pct=Decimal("25"),
+            config_harvest=CONFIG,
+            keywords_existentes=kws,
+        )
+        assert resultados[0].search_term == "frase unica phrase"
+        assert resultados[0].kind == "harvest"
         # campana sin keywords: conjunto VACIO, no error (regla 3: ausencia
         # declarada; el harvest dedupe contra vacio simplemente no bloquea)
         _entidad(conn, "amazon_us", "campaign", "9999")

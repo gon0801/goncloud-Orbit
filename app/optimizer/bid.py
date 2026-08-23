@@ -26,10 +26,16 @@ diseno manda):
   pct (ej 25).
 - Precedencia EXPLICITA: PAUSE gana a cualquier ajuste; -25 gana a -12;
   -12 y +15 son mutuamente excluyentes (0.85 < 1.15 en aritmetica exacta).
-- Clamps: factor por decision a [-30%, +20%]; resultado a [floor, ceiling];
-  despues de AMBOS, |new - bid_actual| < 0.01 (estricto) -> no-op.
-  `ResultadoBid.factor` reporta la banda ANTES de los clamps. El bid NO se
-  redondea (sin quantize): la presentacion la decide el apply de PR2.
+- Clamps: factor por decision a [-30%, +20%]; resultado a [floor, ceiling].
+  El CAMBIO FINAL (new - bid_actual) tambien debe obedecer el clamp por
+  decision: con el bid ya fuera de [floor, ceiling] el clamp de resultado
+  puede invertir la direccion (un -25% que SUBE al floor, un +15% que BAJA
+  al ceiling) -- ese ajuste NO se emite (no-op 'rango_bloquea_ajuste'; el
+  diseno exige cambio en [-30%, +20%] Y resultado en [floor, ceiling], y no
+  existe valor que cumpla ambos). Despues de todo, |new - bid_actual| <
+  0.01 (estricto) -> no-op. `ResultadoBid.factor` reporta la banda ANTES de
+  los clamps. El bid NO se redondea (sin quantize): la presentacion la
+  decide el apply de PR2.
 
 Semantica de None (regla 3 del repo: dato faltante != cero):
 
@@ -37,9 +43,10 @@ Semantica de None (regla 3 del repo: dato faltante != cero):
   satisface orders>=1 ni >=3.
 - clicks/cost None -> no PAUSE. cost o ad_revenue None -> no banda (ACoS
   desconocido).
-- bid_actual None -> no se puede ajustar (skip con motivo); PAUSE no lo
-  necesita. Para kind 'bid', `bid_moneda` debe coincidir con la moneda del
-  agregado (mismo criterio que el agregado).
+- bid_actual None -> no se puede ajustar (skip con motivo); bid_actual <= 0
+  es dato roto (skip 'bid_actual_invalido'). PAUSE no lo necesita. Para kind
+  'bid', `bid_moneda` debe coincidir con la moneda del agregado (mismo
+  criterio que el agregado).
 - Ventana incompleta (`completa` False, <7 fechas): ESA ventana no decide
   -- pause exige `cortes.completa`, bandas exigen `bids.completa`, cada una
   con su motivo. ASIMETRIA INTENCIONAL: cortes incompleto NO impide evaluar
@@ -113,6 +120,8 @@ MOTIVO_BIDS_SIN_OBSERVACIONES = "bids_sin_observaciones"
 MOTIVO_BIDS_INCOMPLETO = "bids_incompleto"
 MOTIVO_BIDS_MONEDA_INVALIDA = "bids_moneda_agregado_invalida"
 MOTIVO_ACOS_DESCONOCIDO = "acos_desconocido"
+MOTIVO_RANGO_BLOQUEA_AJUSTE = "rango_bloquea_ajuste"
+MOTIVO_BID_ACTUAL_INVALIDO = "bid_actual_invalido"
 MOTIVO_BID_ACTUAL_AUSENTE = "bid_actual_ausente"
 MOTIVO_BID_MONEDA_INVALIDA = "bid_moneda_invalida"
 MOTIVO_SIN_BANDA = "sin_banda"
@@ -218,6 +227,11 @@ def decide_bid(
         raise ValueError(
             f"plataforma fuera del vocabulario sellado {{amazon_us, amazon_mx}}: {platform!r}"
         )
+    if not target_acos_pct.is_finite() or target_acos_pct <= 0:
+        # target 0 haria que cualquier cost>0 dispare una baja; negativo
+        # invierte las bandas. La cascada de 2.4 ya valida sus peldanos, pero
+        # el motor no puede confiar en eso (hallazgo codex+grok, ronda 1).
+        raise ValueError(f"target_acos_pct invalido: {target_acos_pct!r} (debe ser > 0)")
     if floor > ceiling:
         raise ValueError(f"floor {floor} > ceiling {ceiling}: rango de bid invalido")
     moneda = PLATAFORMAS_MONEDA[platform]
@@ -266,6 +280,8 @@ def decide_bid(
             motivo_bids_bloqueado = MOTIVO_SIN_BANDA
         elif bid_actual is None:
             motivo_bids_bloqueado = MOTIVO_BID_ACTUAL_AUSENTE
+        elif bid_actual <= 0:
+            motivo_bids_bloqueado = MOTIVO_BID_ACTUAL_INVALIDO
         elif bid_moneda != moneda:
             motivo_bids_bloqueado = MOTIVO_BID_MONEDA_INVALIDA
         else:
@@ -275,17 +291,33 @@ def decide_bid(
             if abs(nuevo - bid_actual) < MIN_DELTA_ABSOLUTO:
                 motivo_bids_bloqueado = MOTIVO_DELTA_BAJO_UMBRAL
             else:
-                return ResultadoBid(
-                    kind="bid",
-                    motivo=_MOTIVO_BANDA[factor],
-                    old_value=bid_actual,
-                    new_value=nuevo,  # sin quantize: presentacion la decide el apply (PR2)
-                    value_currency=bid_moneda,
-                    factor=factor,
-                    window_start=bids.window_start,
-                    window_end=bids.window_end,
-                    data_observed_at=bids.observed_at_max,
-                )
+                delta = nuevo - bid_actual
+                direccion_ok = (
+                    delta < 0 if factor_clamped < 0 else delta > 0
+                )  # la banda bajo -> baja; la banda subio -> sube
+                magnitud_ok = delta <= CLAMP_FACTOR_MAX * bid_actual and (
+                    -delta <= -CLAMP_FACTOR_MIN * bid_actual
+                )  # cambio final dentro de [-30%, +20%] (multiplicacion, sin division)
+                if not (direccion_ok and magnitud_ok):
+                    # El clamp a [floor, ceiling] puede dejar un cambio que ya
+                    # no es el que la banda decidio (bid fuera de rango: -25%
+                    # que termina SUBIENDO al floor, +15% que termina BAJANDO
+                    # al ceiling). Si no hay valor que cumpla el cambio por
+                    # decision Y el rango del goal, no-op (hallazgo codex
+                    # [alta], cross-review ronda 1).
+                    motivo_bids_bloqueado = MOTIVO_RANGO_BLOQUEA_AJUSTE
+                else:
+                    return ResultadoBid(
+                        kind="bid",
+                        motivo=_MOTIVO_BANDA[factor],
+                        old_value=bid_actual,
+                        new_value=nuevo,  # sin quantize: presentacion la decide el apply (PR2)
+                        value_currency=bid_moneda,
+                        factor=factor,
+                        window_start=bids.window_start,
+                        window_end=bids.window_end,
+                        data_observed_at=bids.observed_at_max,
+                    )
 
     # (3) Nada decidio: no-op con la primera guarda que bloqueo (pause -> bids)
     return ResultadoBid(

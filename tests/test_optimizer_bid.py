@@ -261,6 +261,77 @@ def test_delta_0_009_tras_clamp_a_ceiling_es_no_op():
     assert r.motivo == "delta_bajo_umbral"
 
 
+def test_clamp_floor_no_puede_invertir_una_baja():
+    """Hallazgo codex [alta], cross-review ronda 1: banda -25% con bid 0.05 y
+    floor 0.10 -> el clamp de resultado SUBIRIA el bid a 0.10 (+100%) con un
+    motivo que dice -25%. El cambio FINAL tambien debe obedecer el clamp por
+    decision [-30%, +20%]: no existe valor que cumpla ambos -> no-op."""
+    r = _decide(
+        _bids(cost=Decimal("36"), ad_revenue=Decimal("100"), orders=5),
+        None,
+        bid_actual="0.05",
+        floor="0.10",
+    )
+    assert r.kind is None
+    assert r.motivo == "rango_bloquea_ajuste"
+    assert r.new_value is None
+
+
+def test_clamp_ceiling_no_puede_invertir_una_subida():
+    """Cara complementaria del mismo hallazgo: +15% con bid 3.00 y ceiling
+    2.50 -> el clamp BAJARIA a 2.50 (-16.7%) con un motivo que dice +15%.
+    Direccion invertida -> no-op 'rango_bloquea_ajuste'."""
+    r = _decide(
+        _bids(cost=Decimal("20"), ad_revenue=Decimal("100"), orders=5),
+        None,
+        bid_actual="3.00",
+        ceiling="2.50",
+    )
+    assert r.kind is None
+    assert r.motivo == "rango_bloquea_ajuste"
+
+
+def test_clamp_ceiling_con_baja_dentro_del_rango_si_decide():
+    """No todo bid fuera de rango bloquea: -12% con bid 3.00 y ceiling 2.50
+    clampa a 2.50 con delta -16.7%, MISMA direccion y dentro de [-30%, +20%]
+    -> si se emite (el ajuste es ejecutable)."""
+    r = _decide(
+        _bids(cost=Decimal("30"), ad_revenue=Decimal("100"), orders=5),
+        None,
+        bid_actual="3.00",
+        ceiling="2.50",
+    )
+    assert r.kind == "bid"
+    assert r.factor == Decimal("-0.12")
+    assert r.new_value == Decimal("2.50")
+
+
+def test_bid_actual_cero_es_dato_roto():
+    """bid_actual <= 0 no existe en Amazon y romperia la aritmetica del
+    cambio: skip con motivo, jamas decision (regla 3)."""
+    r = _decide(
+        _bids(cost=Decimal("36"), ad_revenue=Decimal("100"), orders=5),
+        None,
+        bid_actual="0",
+    )
+    assert r.kind is None
+    assert r.motivo == "bid_actual_invalido"
+
+
+def test_target_acos_invalido_value_error():
+    """Hallazgo codex+grok (ronda 1): target 0 haria que cualquier cost>0
+    dispare una baja (la multiplicacion queda costo > 0); negativo invierte
+    las bandas. La cascada de 2.4 valida sus peldanos, pero el motor no
+    confia en eso: ValueError ruidoso y temprano."""
+    for target in ("0", "-25", "nan"):
+        with pytest.raises(ValueError, match="target_acos_pct"):
+            _decide(
+                _bids(cost=Decimal("36"), ad_revenue=Decimal("100"), orders=5),
+                None,
+                target=target,
+            )
+
+
 # ---------------------------------------------------------------------------
 # DoD 5: regla 9 -- ACoS COMPLETO, revenue_same_sku jamas
 # ---------------------------------------------------------------------------

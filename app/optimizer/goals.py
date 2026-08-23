@@ -160,11 +160,34 @@ def target_desde_settings(settings: Mapping, platform: str) -> Decimal | None:
     """Target ACoS de config_version.settings para la plataforma: None si la
     clave no esta (el default NO se aplica aqui: eso es del ultimo peldano de
     la cascada). El valor JSON se normaliza via str a Decimal exacto, nunca
-    por binario float (regla 4 de estilo numerico del repo)."""
-    valor = settings.get(clave_target_plataforma(platform))
+    por binario float (regla 4 de estilo numerico del repo). Un valor PRESENTE
+    pero no numerico, NaN/Inf, 0 o negativo es config CORRUPTA, no dato
+    faltante: ValueError ruidoso (regla 3 -- camuflarlo de ausente para caer
+    al default 55 decidiria con un target que nadie configuro; hallazgo
+    codex+grok, cross-review ronda 1)."""
+    clave = clave_target_plataforma(platform)
+    valor = settings.get(clave)
     if valor is None:
         return None
-    return Decimal(str(valor))
+    try:
+        target = Decimal(str(valor))
+    except ArithmeticError as exc:  # InvalidOperation: basura no numerica
+        raise ValueError(f"setting {clave}: valor no numerico: {valor!r}") from exc
+    if not target.is_finite() or target <= 0:
+        raise ValueError(f"setting {clave}: target debe ser > 0 y finito, llego {target}")
+    return target
+
+
+def _valida_target_peldano(valor: Decimal | None, peldano: str) -> Decimal | None:
+    """Validacion comun de la cascada: None pasa (sigue al siguiente peldano);
+    un valor presente pero <= 0 o no finito revienta (regla 3: invalido !=
+    ausente). El CHECK goal_target_acos_positivo cubre el goal en DB; el
+    setting JSONB y el cache de ad_entity_state NO tienen candado."""
+    if valor is None:
+        return None
+    if not valor.is_finite() or valor <= 0:
+        raise ValueError(f"target de {peldano} invalido: {valor!r} (debe ser > 0)")
+    return valor
 
 
 def cascada_target_acos(
@@ -174,13 +197,16 @@ def cascada_target_acos(
 ) -> Decimal:
     """Cascada sellada, peldano por peldano: goal -> setting de plataforma ->
     cache ad_entity_state.acos_target -> default 55. Cada peldano decide SOLO
-    si el anterior es None (regla 3: dato faltante != valor)."""
-    if target_goal is not None:
-        return target_goal
-    if setting_plataforma is not None:
-        return setting_plataforma
-    if cache_acos_target is not None:
-        return cache_acos_target
+    si el anterior es None (regla 3: dato faltante != valor); un peldano
+    presente pero invalido (<= 0, no finito) revienta, NO cae al siguiente."""
+    for valor, peldano in (
+        (target_goal, "goal.target_acos_pct"),
+        (setting_plataforma, "setting ads_target_acos_pct"),
+        (cache_acos_target, "ad_entity_state.acos_target"),
+    ):
+        valido = _valida_target_peldano(valor, peldano)
+        if valido is not None:
+            return valido
     return DEFAULT_TARGET_PCT
 
 
@@ -240,17 +266,23 @@ def resuelve_modo(escalera_global: str, modo_goal: str) -> ModoEfectivo:
 # Parte con IO (SOLO lectura; el conn llega por parametro)
 # ---------------------------------------------------------------------------
 
-# Cooldown de 7d por ENTIDAD sobre applies VERIFICADOS. verify_ok IS TRUE
-# directo (nunca parsear platform_ack: el ack es evidencia, no senal de
-# control -- COMMENT de la columna) y umbral confirmed_at > ahora - 7d
-# ESTRICTO: confirmado exactamente hace 7d ya NO enfria (consistente con los
-# comparadores estrictos de windows). FALSE (divergencia) y NULL (en vuelo)
-# no enfrian: solo un apply verificado dentro de la ventana cuenta.
+# Cooldown de 7d por ENTIDAD sobre applies VERIFICADOS de ciclos LIVE.
+# verify_ok IS TRUE directo (nunca parsear platform_ack: el ack es evidencia,
+# no senal de control -- COMMENT de la columna), umbral confirmed_at > ahora
+# - 7d ESTRICTO: confirmado exactamente hace 7d ya NO enfria (consistente
+# con los comparadores estrictos de windows). FALSE (divergencia) y NULL (en
+# vuelo) no enfrian: solo un apply verificado dentro de la ventana cuenta.
+# El JOIN a optimizer_cycle con mode='live' es del diseno v2 ("solo cuenta
+# mode='live' AND applied=1 AND verify_ok<>0") y hace al query inmune a que
+# un dry-run de PR2 escriba decision_application en shadow (hallazgo
+# codex+grok, cross-review ronda 1): una decision shadow con apply
+# verificado JAMAS enfria.
 _SQL_EN_COOLDOWN = """
 SELECT EXISTS (
     SELECT 1
       FROM decision_application da
       JOIN decision d ON d.id = da.decision_id
+      JOIN optimizer_cycle oc ON oc.id = d.cycle_id AND oc.mode = 'live'
      WHERE d.ad_entity_id = %s
        AND da.verify_ok IS TRUE
        AND da.confirmed_at > %s
@@ -259,13 +291,14 @@ SELECT EXISTS (
 
 
 def en_cooldown(conn: psycopg.Connection, ad_entity_id: int, *, ahora: dt.datetime) -> bool:
-    """True si la ENTIDAD tiene alguna decision con apply VERIFICADO
-    (verify_ok IS TRUE) confirmado hace <7d respecto de `ahora`. Reloj por
-    parametro (sin now() escondido), DEBE ser tz-aware: un naive evaluaria
+    """True si la ENTIDAD tiene alguna decision de un ciclo LIVE con apply
+    VERIFICADO (verify_ok IS TRUE) confirmado hace <7d respecto de `ahora`.
+    Reloj por parametro (sin now() escondido), DEBE ser tz-aware (en
+    cualquier zona: la comparacion es entre instantes): un naive evaluaria
     segun la TZ local del proceso y se rechaza ruidosamente (mismo principio
     que windows._fecha_utc, replicado sin importar su privado). En shadow
-    nunca enfria como propiedad: los ciclos shadow no escriben
-    decision_application."""
+    nunca enfria POR QUERY: el filtro optimizer_cycle.mode='live' lo hace
+    inmune a applies de dry-run (regla sellada del diseno v2)."""
     if ahora.tzinfo is None:
         raise ValueError(
             "ahora debe ser tz-aware (UTC): un naive evaluaria segun la TZ local del proceso"

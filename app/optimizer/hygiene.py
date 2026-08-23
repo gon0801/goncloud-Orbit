@@ -16,9 +16,9 @@ Reglas selladas (plans/orbit-03.md task 2.3 + diseno v2; el diseno manda):
   (madura: termina en decided_at - 10d, regla 6; el trigger
   decision_madurez_corte es la segunda capa). Sin dinero: kind negative
   exige value_currency/new_value NULL en el esquema (un negativo no mueve
-  bid). El camino negative NO re-valida moneda (no mueve dinero y el umbral
-  de cost se compara en la moneda del termino, sellada contra la plataforma
-  por el trigger metric_moneda_de_plataforma en DB).
+  bid). El camino negative TAMBIEN exige moneda del termino coherente con
+  la plataforma (misma defensa que bid/harvest; el umbral de cost esta en
+  la moneda de la plataforma -- hallazgo grok, cross-review ronda 1).
 - HARVEST (kind 'harvest'): orders>=2 AND ACoS <= min(35%, target_acos_pct).
   La comparacion es <= INCLUSIVA por MULTIPLICACION exacta
   (cost * 100 <= tope_pct * ad_revenue): PROHIBIDO dividir (evita la
@@ -51,9 +51,13 @@ llamar con la config resuelta de un goal que la DB ya valido).
 
 Dedupe del harvest: search_term ya presente como keyword EXACT en la campana
 destino (keywords_existentes, que 3.1 llena via keywords_campana_destino) ->
-skip 'harvest_duplicado'. match_type='EXACT' es decision sellada: el harvest
-crea keyword EXACT, y una PHRASE con el mismo texto NO es duplicado (el
-match semanticamente distinto no reemplaza al que se va a crear).
+skip 'harvest_duplicado'. La comparacion es NORMALIZADA (strip + casefold):
+search_term llega strippeado de la ingesta pero keyword_text se guarda tal
+cual y la capitalizacion de la API no esta garantizada igual (hallazgo grok,
+ronda 1); ante divergencia de forma manda evitar el duplicado. match_type
+='EXACT' es decision sellada: el harvest crea keyword EXACT, y una PHRASE
+con el mismo texto NO es duplicado (el match semanticamente distinto no
+reemplaza al que se va a crear).
 
 Coherencia de moneda del termino (defensa en profundidad, igual que 2.2: el
 trigger metric_moneda_de_plataforma ya la sella en DB):
@@ -67,11 +71,14 @@ el motivo que se reporta, auditable en 3.1):
 (2) is_asin_like -> skip 'asin_like'.
 (3) orders None -> skip 'orders_desconocido'.
 (4) orders==0 -> camino NEGATIVE: clicks o cost None -> skip 'dato_faltante';
+    moneda del termino incoherente -> skip 'moneda_incoherente';
     clicks>=20 AND cost>= umbral -> kind 'negative' (sin dinero); si no ->
     no-op 'sin_umbral_negative'.
-(5) orders==1 -> no-op 'sin_banda' (ni negative ni harvest posibles: hay
-    venta, y una sola venta no habilita harvest).
-(6) orders>=2 -> camino HARVEST: cost o ad_revenue None -> skip
+(5) orders < HARVEST_ORDERS_MIN (== 1 con el sellado actual) -> no-op
+    'sin_banda' (ni negative ni harvest posibles: hay venta, y una sola
+    venta no habilita harvest; la regla vive en la constante, no en la
+    caida de un else).
+(6) orders >= HARVEST_ORDERS_MIN -> camino HARVEST: cost o ad_revenue None -> skip
     'dato_faltante'; ACoS > tope -> no-op 'acos_sobre_tope'; config
     incompleta -> skip 'harvest_sin_config'; moneda de la CONFIG distinta a
     la de la plataforma -> skip 'harvest_moneda_incoherente' (la unica
@@ -133,6 +140,18 @@ MOTIVO_HARVEST_MONEDA_INCOHERENTE = "harvest_moneda_incoherente"
 MOTIVO_MONEDA_INCOHERENTE = "moneda_incoherente"
 
 _CIEN = Decimal("100")
+
+
+def _normaliza_texto(texto: str) -> str:
+    """Normalizacion del dedupe de harvest: strip + casefold. El search_term
+    llega strippeado de la ingesta (app.ads.reports) pero keyword_text se
+    guarda tal cual viene de la API (espacios extremos posibles), y no hay
+    evidencia de que Amazon devuelva searchTerm y keywordText con la misma
+    capitalizacion (hallazgos grok, cross-review ronda 1). Fail-closed: ante
+    divergencia de forma, SKIP del harvest -- evitar un duplicado en la
+    campana destino manda sobre cosechar."""
+    return texto.strip().casefold()
+
 
 # ---------------------------------------------------------------------------
 # Estructuras (config que llega resuelta + resultado auditable)
@@ -214,9 +233,14 @@ def decide_hygiene(
         raise ValueError(
             f"plataforma fuera del vocabulario sellado {{amazon_us, amazon_mx}}: {platform!r}"
         )
+    if not target_acos_pct.is_finite() or target_acos_pct <= 0:
+        # El tope min(35, target) con target <= 0 cerraria el harvest a todo
+        # o lo dejaria pasar de forma incoherente; mismo criterio que bid.
+        raise ValueError(f"target_acos_pct invalido: {target_acos_pct!r} (debe ser > 0)")
     moneda = PLATAFORMAS_MONEDA[platform]
     umbral_cost = NEGATIVE_COST_MIN[platform]
     tope_pct = min(HARVEST_ACOS_TOPE_FIJO_PCT, target_acos_pct)
+    keywords_norm = frozenset(_normaliza_texto(k) for k in keywords_existentes)
 
     if not terminos.completa:
         # Unidad de completitud sellada: la ENTIDAD. Cortar/pausar exige
@@ -237,6 +261,11 @@ def decide_hygiene(
             # (4) camino NEGATIVE
             if t.clicks is None or t.cost is None:
                 motivo = MOTIVO_DATO_FALTANTE
+            elif t.metric_currency != moneda:
+                # Misma defensa que bid/harvest: el umbral de cost esta en la
+                # moneda de la plataforma y la capa pura no puede confiar
+                # solo en el trigger de DB (hallazgo grok, ronda 1).
+                motivo = MOTIVO_MONEDA_INCOHERENTE
             elif t.clicks >= NEGATIVE_CLICKS_MIN and t.cost >= umbral_cost:
                 resultados.append(
                     ResultadoTermino(
@@ -253,8 +282,10 @@ def decide_hygiene(
                 continue
             else:
                 motivo = MOTIVO_SIN_UMBRAL_NEGATIVE
-        elif t.orders == 1:
-            # (5) ni negative (hay venta) ni harvest (una sola no alcanza)
+        elif t.orders < HARVEST_ORDERS_MIN:
+            # (5) ni negative (hay venta) ni harvest (no alcanza el minimo):
+            # con el sellado actual orders==1, pero la regla vive en la
+            # constante, no en la caida del else (hallazgo grok, ronda 1)
             motivo = MOTIVO_SIN_BANDA
         else:
             # (6) camino HARVEST (orders >= 2)
@@ -266,7 +297,7 @@ def decide_hygiene(
                 motivo = MOTIVO_HARVEST_SIN_CONFIG
             elif config_harvest.moneda != moneda:
                 motivo = MOTIVO_HARVEST_MONEDA_INCOHERENTE
-            elif t.search_term in keywords_existentes:
+            elif _normaliza_texto(t.search_term) in keywords_norm:
                 motivo = MOTIVO_HARVEST_DUPLICADO
             elif t.metric_currency != moneda:
                 motivo = MOTIVO_MONEDA_INCOHERENTE

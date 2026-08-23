@@ -145,6 +145,33 @@ def test_target_desde_settings_por_plataforma_y_sin_clave():
     )
 
 
+def test_target_invalido_es_config_corrupta_no_ausente():
+    """Hallazgo codex+grok (ronda 1): el setting JSONB y el cache de
+    ad_entity_state NO tienen candado de positividad (solo el goal lo tiene
+    en DB). Un valor PRESENTE pero 0/negativo/NaN/no numerico es config
+    CORRUPTA: ValueError ruidoso, jamas se camufla de ausente para caer al
+    default 55 (decidiria con un target que nadie configuro)."""
+    with pytest.raises(ValueError, match="debe ser > 0"):
+        g.target_desde_settings({"ads_target_acos_pct_amazon_us": 0}, "amazon_us")
+    with pytest.raises(ValueError, match="debe ser > 0"):
+        g.target_desde_settings({"ads_target_acos_pct_amazon_us": -10}, "amazon_us")
+    with pytest.raises(ValueError, match="debe ser > 0"):
+        g.target_desde_settings({"ads_target_acos_pct_amazon_us": "nan"}, "amazon_us")
+    with pytest.raises(ValueError, match="no numerico"):
+        g.target_desde_settings({"ads_target_acos_pct_amazon_us": "abc"}, "amazon_us")
+    # la cascada valida IGUAL cada peldano (goal lo cubre el CHECK en DB;
+    # setting y cache no)
+    with pytest.raises(ValueError, match="setting ads_target_acos_pct"):
+        g.cascada_target_acos(None, Decimal("0"), None)
+    with pytest.raises(ValueError, match="ad_entity_state.acos_target"):
+        g.cascada_target_acos(None, None, Decimal("-5"))
+    with pytest.raises(ValueError, match="goal.target_acos_pct"):
+        g.cascada_target_acos(Decimal("0"), Decimal("30"), Decimal("28"))
+    # NaN de Decimal (is_finite False), mismo trato
+    with pytest.raises(ValueError):
+        g.cascada_target_acos(None, Decimal("NaN"), None)
+
+
 # ---------------------------------------------------------------------------
 # Floor/ceiling con defaults
 # ---------------------------------------------------------------------------
@@ -285,11 +312,11 @@ def _config_version(conn) -> int:
     ).fetchone()[0]
 
 
-def _ciclo(conn) -> int:
+def _ciclo(conn, mode: str = "live") -> int:
     return conn.execute(
         "INSERT INTO optimizer_cycle (motor, mode, platform)"
-        " VALUES ('ads_optimizer', 'shadow', %s) RETURNING id",
-        ("amazon_us",),
+        " VALUES ('ads_optimizer', %s, %s) RETURNING id",
+        (mode, "amazon_us"),
     ).fetchone()[0]
 
 
@@ -345,12 +372,13 @@ def _apply(conn, decision_id: int, *, confirmed_at: dt.datetime, verify_ok: bool
 )
 def test_cooldown_en_vivo_verificado_divergencia_y_borde_7d():
     """Cooldown contra la DB real: solo enfria un apply con verify_ok IS TRUE
-    confirmado hace <7d. La divergencia (FALSE, se reintenta) NO enfría y el
-    borde EXACTO de 7d tampoco (comparador ESTRICTO: confirmed_at > ahora-7d).
-    La unidad es la ENTIDAD: cualquier decision suya con apply verificado."""
+    de un ciclo LIVE confirmado hace <7d. La divergencia (FALSE, se
+    reintenta) NO enfría y el borde EXACTO de 7d tampoco (comparador ESTRICTO:
+    confirmed_at > ahora-7d). La unidad es la ENTIDAD: cualquier decision
+    suya con apply verificado."""
     with _db_temporal("orbit_goals_cooldown") as conn:
         config_id = _config_version(conn)
-        ciclo = _ciclo(conn)
+        ciclo = _ciclo(conn)  # live (default del helper)
 
         e_verificada = _campana(conn, "7001")
         d1 = _decision(conn, ciclo, config_id, e_verificada)
@@ -367,6 +395,26 @@ def test_cooldown_en_vivo_verificado_divergencia_y_borde_7d():
         assert g.en_cooldown(conn, e_verificada, ahora=AHORA) is True
         assert g.en_cooldown(conn, e_divergente, ahora=AHORA) is False
         assert g.en_cooldown(conn, e_borde, ahora=AHORA) is False
+
+
+@pytest.mark.skipif(
+    not _DSN_EXPLICITO and not _hay_postgres_local(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_cooldown_apply_de_ciclo_shadow_no_enfria():
+    """Hallazgo codex+grok (cross-review ronda 1), regla sellada del diseno
+    v2 ('solo cuenta mode=live AND verify_ok<>0'): un apply VERIFICADO hace
+    <7d sobre una decision cuyo ciclo fue SHADOW NO enfria. Sin el JOIN a
+    optimizer_cycle, un dry-run de PR2 que escriba decision_application en
+    shadow enfriaria entidades que nunca se tocaron en vivo (contra el test
+    anterior, este FALLA contra el SQL sin el filtro)."""
+    with _db_temporal("orbit_goals_shadow_apply") as conn:
+        config_id = _config_version(conn)
+        ciclo = _ciclo(conn, mode="shadow")
+        entidad = _campana(conn, "7005")
+        d = _decision(conn, ciclo, config_id, entidad)
+        _apply(conn, d, confirmed_at=AHORA - dt.timedelta(days=6), verify_ok=True)
+        assert g.en_cooldown(conn, entidad, ahora=AHORA) is False
 
 
 @pytest.mark.skipif(

@@ -269,12 +269,16 @@ SELECT max(metric_date) FROM search_term_observation WHERE ad_entity_id = %s
 
 # El colapso de terminos NO tiene vista: DISTINCT ON manual con la clave
 # (ad_entity_id, search_term, metric_date) ORDER BY observed_at DESC,
-# source_report_id DESC. El desempate extra cierra el caso dos observaciones
-# con el MISMO observed_at (mismo run de backfill, reportes distintos): sin
-# el, DISTINCT ON elegia de forma NO determinista (minor declarado en la
-# review de 2.1; testeado en tests/test_optimizer_hygiene.py relajando la PK
-# en la DB temporal, porque bajo el esquema sellado el empate no puede entrar
-# a la tabla). La plataforma no va en la clave: entra por el WHERE por
+# source_report_id DESC NULLS LAST. El desempate extra cierra el caso dos
+# observaciones con el MISMO observed_at (mismo run de backfill, reportes
+# distintos): sin el, DISTINCT ON elegia de forma NO determinista (minor
+# declarado en la review de 2.1; testeado en tests/test_optimizer_hygiene.py
+# relajando la PK en la DB temporal, porque bajo el esquema sellado el empate
+# no puede entrar a la tabla). NULLS LAST porque DESC sin clausula pone los
+# NULL PRIMEROS: ante empate total gana la fila CON reporte de origen
+# (trazable) sobre la que no lo tiene (hallazgo codex, ronda 1). Es comparacion
+# TEXT lexicografica: la propiedad defendida es el DETERMINISMO del query, no
+# la recencia. La plataforma no va en la clave: entra por el WHERE por
 # ad_entity_id (la entidad pertenece a una sola plataforma). is_asin_like via
 # bool_or: fail-closed (ver docstring de AgregadoTermino); observed_at max
 # alimenta decision.data_observed_at de la decision sobre ese termino.
@@ -298,7 +302,7 @@ SELECT ad_entity_id,
        WHERE ad_entity_id = %s
          AND metric_date BETWEEN %s AND %s
        ORDER BY ad_entity_id, search_term, metric_date, observed_at DESC,
-                source_report_id DESC
+                source_report_id DESC NULLS LAST
   ) colapsado
  GROUP BY ad_entity_id, search_term
  ORDER BY search_term
