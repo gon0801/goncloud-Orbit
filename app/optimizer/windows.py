@@ -22,8 +22,12 @@ Decisiones selladas (plans/orbit-03.md task 2.1 + Spec delta de CONTEXTO.md):
   (entidad, fecha) tiene N observaciones por source_report_id). SIEMPRE se
   colapsa a la ultima observacion por fecha: metricas via v_metric_latest;
   terminos via DISTINCT ON (ad_entity_id, search_term, metric_date)
-  ORDER BY observed_at DESC (no hay vista para terminos). La plataforma no va
-  en la clave de terminos: entra por el WHERE por ad_entity_id.
+  ORDER BY observed_at DESC, source_report_id DESC (no hay vista para
+  terminos; el desempate por source_report_id cierra el caso dos
+  observaciones con el MISMO observed_at — mismo run de backfill, reportes
+  distintos — que sin el elegia de forma no determinista; minor de la review
+  de 2.1). La plataforma no va en la clave de terminos: entra por el WHERE
+  por ad_entity_id.
 - CADA VENTANA SE ANCLA EN LOS DATOS QUE AGREGA (regla 8: forma real del
   dato verificada contra la ingesta): las metricas anclan en
   v_metric_latest de la entidad, pero los search terms viven en ad groups
@@ -264,11 +268,16 @@ SELECT max(metric_date) FROM search_term_observation WHERE ad_entity_id = %s
 """
 
 # El colapso de terminos NO tiene vista: DISTINCT ON manual con la clave
-# (ad_entity_id, search_term, metric_date) ORDER BY observed_at DESC. La
-# plataforma no va en la clave: entra por el WHERE por ad_entity_id (la
-# entidad pertenece a una sola plataforma). is_asin_like via bool_or:
-# fail-closed (ver docstring de AgregadoTermino); observed_at max alimenta
-# decision.data_observed_at de la decision sobre ese termino.
+# (ad_entity_id, search_term, metric_date) ORDER BY observed_at DESC,
+# source_report_id DESC. El desempate extra cierra el caso dos observaciones
+# con el MISMO observed_at (mismo run de backfill, reportes distintos): sin
+# el, DISTINCT ON elegia de forma NO determinista (minor declarado en la
+# review de 2.1; testeado en tests/test_optimizer_hygiene.py relajando la PK
+# en la DB temporal, porque bajo el esquema sellado el empate no puede entrar
+# a la tabla). La plataforma no va en la clave: entra por el WHERE por
+# ad_entity_id (la entidad pertenece a una sola plataforma). is_asin_like via
+# bool_or: fail-closed (ver docstring de AgregadoTermino); observed_at max
+# alimenta decision.data_observed_at de la decision sobre ese termino.
 _SQL_TERMINOS_CORTES = """
 SELECT ad_entity_id,
        search_term,
@@ -283,11 +292,13 @@ SELECT ad_entity_id,
   FROM (
       SELECT DISTINCT ON (ad_entity_id, search_term, metric_date)
              ad_entity_id, search_term, metric_date, metric_currency,
-             cost, ad_revenue, clicks, orders, is_asin_like, observed_at
+             cost, ad_revenue, clicks, orders, is_asin_like, observed_at,
+             source_report_id
         FROM search_term_observation
        WHERE ad_entity_id = %s
          AND metric_date BETWEEN %s AND %s
-       ORDER BY ad_entity_id, search_term, metric_date, observed_at DESC
+       ORDER BY ad_entity_id, search_term, metric_date, observed_at DESC,
+                source_report_id DESC
   ) colapsado
  GROUP BY ad_entity_id, search_term
  ORDER BY search_term
