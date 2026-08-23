@@ -72,8 +72,10 @@ def test_cli_cycle_llama_al_mismo_orquestador(monkeypatch, capsys):
     assert capturado["owner"]  # default hostname:pid
 
     # el MISMO job_key que el cron de 4.2 (ads_optimizer:<platform>): el claim
-    # del lock es COMPARTIDO entre cron y CLI, una sola fuente (regla 1)
-    assert ciclo.job_key_de("amazon_us") == "ads_optimizer:amazon_us"
+    # del lock es COMPARTIDO entre cron y CLI. Anclado a la SALIDA del CLI
+    # contra el LITERAL del cron (feedback lead: un assert contra la propia
+    # job_key_de es tautologico — si la funcion estuviera rota, el assert
+    # pasaria igual). Con job_key_de rota, la salida no contiene el literal.
     out = capsys.readouterr().out
     assert "ads_optimizer:amazon_us" in out
     assert "42" in out and "done" in out  # el resumen sin secretos
@@ -89,9 +91,10 @@ def test_cli_cycle_owner_explicito_y_decided_at_por_default(monkeypatch, capsys)
     assert capturado["platform"] == "amazon_mx"
     assert capturado["owner"] == "cron-01"
     assert capturado["decided_at"].tzinfo is not None  # now() tz-aware
-    # anclado a la SALIDA del CLI (no una tautologia sobre job_key_de):
-    # el resumen debe reportar el job_key del orquestador (CodeRabbit)
-    assert ciclo.job_key_de("amazon_mx") in capsys.readouterr().out
+    # anclado a la SALIDA del CLI contra el LITERAL del cron (no contra la
+    # propia job_key_de: comparar contra la funcion seria tautologico y
+    # pasaria aunque estuviera rota; feedback lead)
+    assert "ads_optimizer:amazon_mx" in capsys.readouterr().out
 
 
 def test_cli_cycle_plataforma_fuera_del_vocabulario_rechazada(capsys):
