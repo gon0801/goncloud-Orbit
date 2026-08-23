@@ -40,6 +40,10 @@ Arquitectura (regla 1): IO de API separada de IO de DB.
     sync_structure(conn, estructura) -> ResultadoSync (ad_entity, ad_entity_state,
                                          ingest_run)
 
+El gate de perfiles (evaluar_perfiles/perfiles_aceptados) es la UNICA fuente
+del sello seller/pais/moneda/1-pais-por-pais: app.ads.reports lo reutiliza
+para las metricas de reporting v3 (regla 2, task 1.3).
+
 Decisiones selladas de esta task:
 
 - Perfil: countryCode US -> platform amazon_us (moneda esperada USD); MX ->
@@ -413,14 +417,15 @@ def _evaluar_perfil(raw: dict) -> PerfilAds:
     return perfil(True, platform=platform, moneda=moneda_esperada)
 
 
-def fetch_structure(client: AdsClient) -> EstructuraAds:
-    """GET /v2/profiles + los 4 POST list v3 por cada perfil aceptado.
+def evaluar_perfiles(client: AdsClient) -> list[PerfilAds]:
+    """GET /v2/profiles + sello: TODOS los perfiles vistos, ya evaluados.
 
-    Los perfiles rechazados (seller/pais/moneda/pais duplicado) NO generan
-    llamadas de lista: su evidencia queda en `perfiles` con el motivo.
+    Unica fuente del gate seller/pais/moneda/1-pais-por-pais (regla 2): la
+    usan fetch_structure (evidencia completa) y perfiles_aceptados (la vista
+    de los syncs que solo necesitan los aceptados, p.ej. app.ads.reports).
+    Los rechazados llevan su motivo en el propio PerfilAds.
     """
     perfiles: list[PerfilAds] = []
-    estructuras: list[EstructuraPerfil] = []
     paises_aceptados: set[str] = set()
     for raw in _extraer_lista(
         _json_de(client.get(PATH_PROFILES), "GET", PATH_PROFILES), PATH_PROFILES
@@ -438,9 +443,33 @@ def fetch_structure(client: AdsClient) -> EstructuraAds:
                 motivo=f"pais duplicado: ya se acepto otro perfil {perfil.country}",
             )
         perfiles.append(perfil)
+        if perfil.aceptado:
+            paises_aceptados.add(perfil.country)
+    return perfiles
+
+
+def perfiles_aceptados(client: AdsClient) -> list[PerfilAds]:
+    """GET /v2/profiles -> SOLO los perfiles aceptados por el sello.
+
+    Vista de evaluar_perfiles para los syncs que no necesitan la evidencia
+    de rechazo (task 1.3: metricas de reporting v3). Los perfiles aceptados
+    traen profile_id/platform/moneda fijados.
+    """
+    return [perfil for perfil in evaluar_perfiles(client) if perfil.aceptado]
+
+
+def fetch_structure(client: AdsClient) -> EstructuraAds:
+    """GET /v2/profiles + los 4 POST list v3 por cada perfil aceptado.
+
+    Los perfiles rechazados (seller/pais/moneda/pais duplicado) NO generan
+    llamadas de lista: su evidencia queda en `perfiles` con el motivo. El
+    gate vive en evaluar_perfiles (unica fuente, regla 2).
+    """
+    perfiles = evaluar_perfiles(client)
+    estructuras: list[EstructuraPerfil] = []
+    for perfil in perfiles:
         if not perfil.aceptado:
             continue
-        paises_aceptados.add(perfil.country)
         # aceptado implica profile_id/platform/moneda fijados por _evaluar_perfil
         estructuras.append(
             EstructuraPerfil(
