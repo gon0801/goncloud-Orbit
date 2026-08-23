@@ -54,7 +54,12 @@ destino (keywords_existentes, que 3.1 llena via keywords_campana_destino) ->
 skip 'harvest_duplicado'. La comparacion es NORMALIZADA (strip + casefold):
 search_term llega strippeado de la ingesta pero keyword_text se guarda tal
 cual y la capitalizacion de la API no esta garantizada igual (hallazgo grok,
-ronda 1); ante divergencia de forma manda evitar el duplicado. match_type
+ronda 1); ante divergencia de forma manda evitar el duplicado. El dedupe
+tambien corre INTRA-LLAMADA: dos terminos de la MISMA entidad que normalizan
+al mismo texto ("Yoga Mat" vs "yoga mat") no se harvestean dos veces (el
+segundo es 'harvest_duplicado' contra lo que la llamada ya emitio; hallazgo
+qwen, ronda 3). El dedupe ENTRE entidades de un mismo ciclo (goal de
+plataforma, campana destino compartida) queda en 3.1, declarado. match_type
 ='EXACT' es decision sellada: el harvest crea keyword EXACT, y una PHRASE
 con el mismo texto NO es duplicado (el match semanticamente distinto no
 reemplaza al que se va a crear).
@@ -248,6 +253,7 @@ def decide_hygiene(
         return tuple(_skip(t.search_term, MOTIVO_ENTIDAD_INCOMPLETA) for t in terminos.terminos)
 
     resultados: list[ResultadoTermino] = []
+    _harvest_norm: set[str] = set()  # ya harvesteados EN ESTA llamada (normalizados)
     for t in terminos.terminos:
         # (2) ASIN-like: SIEMPRE skip, ambos kinds (decision sellada del lead)
         if t.is_asin_like:
@@ -297,11 +303,21 @@ def decide_hygiene(
                 motivo = MOTIVO_HARVEST_SIN_CONFIG
             elif config_harvest.moneda != moneda:
                 motivo = MOTIVO_HARVEST_MONEDA_INCOHERENTE
-            elif _normaliza_texto(t.search_term) in keywords_norm:
+            elif (
+                _normaliza_texto(t.search_term) in keywords_norm
+                or _normaliza_texto(t.search_term) in _harvest_norm
+            ):
+                # Duplicado contra la estructura PREEXISTENTE o contra lo que
+                # ESTA MISMA LLAMADA ya decidio harvestear: dos terminos de la
+                # entidad que difieren solo en casing/espacios ("Yoga Mat" vs
+                # "yoga mat") crearian la MISMA keyword EXACT dos veces en PR2
+                # (hallazgo qwen, ronda 3 -- el dedupe entre entidades de un
+                # mismo ciclo queda en 3.1, declarado).
                 motivo = MOTIVO_HARVEST_DUPLICADO
             elif t.metric_currency != moneda:
                 motivo = MOTIVO_MONEDA_INCOHERENTE
             else:
+                _harvest_norm.add(_normaliza_texto(t.search_term))
                 resultados.append(
                     ResultadoTermino(
                         search_term=t.search_term,
@@ -328,7 +344,9 @@ def decide_hygiene(
 # sin parsear payloads). match_type='EXACT' sellado: el harvest crea keyword
 # EXACT y una PHRASE con el mismo texto NO es duplicado. La campana se
 # direcciona por external_id (harvest_campaign_id del goal) recorriendo
-# keyword -> ad_group -> campaign por parent_id.
+# keyword -> ad_group -> campaign por parent_id. La igualdad de plataforma en
+# TODA la cadena es defensa ante datos degenerados (una FK de parent cruzando
+# plataforma no la impide ningun CHECK del esquema; hallazgo qwen, ronda 3).
 _SQL_KEYWORDS_CAMPANA = """
 SELECT k.keyword_text
   FROM ad_entity k
@@ -336,6 +354,8 @@ SELECT k.keyword_text
   JOIN ad_entity c ON c.id = ag.parent_id AND c.kind = 'campaign'
  WHERE k.kind = 'keyword' AND k.match_type = 'EXACT'
    AND k.platform = %s::platform
+   AND ag.platform = k.platform
+   AND c.platform = k.platform
    AND c.external_id = %s
 """
 
@@ -345,6 +365,13 @@ def keywords_campana_destino(
 ) -> frozenset[str]:
     """Textos de las keywords EXACT de la campana manual destino (LECTURA).
     Alimenta keywords_existentes de decide_hygiene. Campana sin keywords ->
-    frozenset vacio (ausencia declarada, regla 3: el dedupe no bloquea nada)."""
+    frozenset vacio (ausencia declarada, regla 3: el dedupe no bloquea nada).
+    La plataforma se valida TEMPRANO igual que en las funciones hermanas (un
+    valor fuera del vocabulo revienta con ValueError claro, no con el error
+    de enum de la DB; hallazgo qwen, ronda 3)."""
+    if platform not in PLATAFORMAS_MONEDA:
+        raise ValueError(
+            f"plataforma fuera del vocabulario sellado {{amazon_us, amazon_mx}}: {platform!r}"
+        )
     filas = conn.execute(_SQL_KEYWORDS_CAMPANA, (platform, harvest_campaign_id)).fetchall()
     return frozenset(fila[0] for fila in filas)

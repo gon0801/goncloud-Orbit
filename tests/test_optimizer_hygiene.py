@@ -261,6 +261,40 @@ def test_harvest_duplicado_normalizado_strip_y_casefold():
     assert r["zapato rojo"].motivo == "harvest_duplicado"
 
 
+def test_harvest_duplicado_intra_llamada_mismo_texto_normalizado():
+    """Hallazgo qwen (ronda 3, media): dos terminos de la MISMA entidad que
+    difieren solo en casing/espacios ("Yoga Mat" vs "yoga mat ") normalizan
+    al mismo texto -> solo el PRIMERO se harvestea; el segundo es
+    'harvest_duplicado' contra lo que ESTA llamada ya emitio (en PR2 serian
+    dos POST de la misma keyword EXACT)."""
+    terminos = _terminos(
+        [
+            _harvesteable(search_term="Yoga Mat"),
+            _harvesteable(search_term="  yoga mat "),
+        ]
+    )
+    resultados = h.decide_hygiene(
+        platform="amazon_us",
+        terminos=terminos,
+        target_acos_pct=Decimal("25"),
+        config_harvest=CONFIG,
+        keywords_existentes=frozenset(),
+    )
+    assert resultados[0].search_term == "Yoga Mat"
+    assert resultados[0].kind == "harvest"
+    assert resultados[1].search_term == "  yoga mat "
+    assert resultados[1].kind is None
+    assert resultados[1].motivo == "harvest_duplicado"
+
+
+def test_keywords_campana_destino_plataforma_invalida_value_error():
+    """Hallazgo qwen (ronda 3, baja): la validacion de plataforma es TEMPRANA
+    igual que en las funciones hermanas -- ValueError claro ANTES de tocar la
+    DB (conn=None lo demuestra: nunca se usa)."""
+    with pytest.raises(ValueError, match="vocabulario sellado"):
+        h.keywords_campana_destino(None, "shopify", "9002")
+
+
 def test_negative_moneda_incoherente_skip():
     """Hallazgo grok (ronda 1): el umbral de cost del negative esta en la
     moneda de la plataforma; la capa pura no puede confiar solo en el
