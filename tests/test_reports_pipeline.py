@@ -1487,11 +1487,12 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
         except psycopg.errors.InsufficientPrivilege:
             # Hallazgo CodeRabbit: con DSN EXPLICITO (CI) esto no puede ser un
             # skip silencioso -- el DoD se apagaria sin senal si el DSN dejara
-            # de ser superuser. Falla salvo en corridas locales sin DSN puesto.
-            if _DSN_EXPLICITO:
+            # de ser superuser. Señal CI explicita (mismo fix que 3.1): aunque
+            # ORBIT_TEST_DSN no estuviera definida, en CI el DoD no se evapora.
+            if _DSN_EXPLICITO or os.environ.get("CI"):
                 raise AssertionError(
-                    "ORBIT_TEST_DSN explicito pero sin membresia app_ingest: "
-                    "el privilegio negativo del DoD quedo sin ejercer"
+                    "CI con usuario sin membresia app_ingest: el privilegio "
+                    "negativo del DoD quedo sin ejercer"
                 ) from None
             pytest.skip(
                 "usuario del DSN sin membresia app_ingest: el privilegio negativo "

@@ -31,9 +31,11 @@ APP = RAIZ / "app"
 OPTIMIZER = APP / "optimizer"
 
 # El motor no habla con el mundo: ni red, ni base, ni la capa de ingesta.
-PROHIBIDOS_MOTOR = ("httpx", "psycopg", "app.ads", "app.db")
+# El marker de import relativo nivel >= 2 va en AMBAS listas: desde
+# app/optimizer, ".." alcanza app y un alias ads/db escaparia del candado.
+PROHIBIDOS_MOTOR = ("httpx", "psycopg", "app.ads", "app.db", "<import-relativo-nivel-2>")
 # La puerta de datos (windows.py) si lee la base; la API de Amazon jamas.
-PROHIBIDOS_PUERTA = ("httpx", "app.ads")
+PROHIBIDOS_PUERTA = ("httpx", "app.ads", "<import-relativo-nivel-2>")
 
 MAX_LINEAS_MODULO = 900
 # path relativo (posix) -> razon escrita. Sacar una entrada exige que el
@@ -88,6 +90,17 @@ def _imports_runtime(path: Path) -> set[str]:
             elif isinstance(nodo, ast.ImportFrom):
                 if nodo.module and nodo.level == 0:
                     encontrados.add(nodo.module)
+                    # "from app import ads" importa app.ads: registrar el
+                    # modulo EFECTIVO de cada alias, no solo el contenedor
+                    # (hallazgo CodeRabbit: sin esto el import pasaba el
+                    # candado porque solo se registraba "app").
+                    encontrados.update(f"{nodo.module}.{alias.name}" for alias in nodo.names)
+                elif nodo.level >= 2:
+                    # ".." desde app/optimizer/<modulo> alcanza app: un alias
+                    # ads/db escaparia por la puerta relativa. El detector no
+                    # sabe la profundidad del paquete, asi que nivel >= 2 se
+                    # marca ENTERO: el motor usa imports absolutos.
+                    encontrados.add("<import-relativo-nivel-2>")
             else:
                 _visitar(list(ast.iter_child_nodes(nodo)))
 
@@ -100,15 +113,74 @@ def _violaciones(imports: set[str], prohibidos: tuple[str, ...]) -> list[str]:
 
 
 def test_motor_puro_sin_io():
-    """Ningun modulo del motor (salvo windows.py) importa IO en runtime."""
-    modulos = [p for p in OPTIMIZER.glob("*.py") if p.name not in ("windows.py", "__init__.py")]
+    """Ningun modulo del motor (salvo windows.py) importa IO en runtime.
+    rglob: un subpaquete app/optimizer/<sub>/x.py con IO tambien es una fuga
+    (hallazgo CodeRabbit: glob solo miraba el nivel raiz)."""
+    modulos = [
+        p
+        for p in OPTIMIZER.rglob("*.py")
+        if p.relative_to(OPTIMIZER).as_posix() not in ("windows.py", "__init__.py")
+    ]
     assert modulos, "no se encontro el motor: ¿se movio app/optimizer/?"
     fugas = {
-        p.name: v for p in modulos if (v := _violaciones(_imports_runtime(p), PROHIBIDOS_MOTOR))
+        p.relative_to(OPTIMIZER).as_posix(): v
+        for p in modulos
+        if (v := _violaciones(_imports_runtime(p), PROHIBIDOS_MOTOR))
     }
     assert not fugas, (
         f"el motor debe ser PURO (regla 1 de la autopsia); imports de IO encontrados: {fugas}"
     )
+
+
+def test_detector_caza_import_desde_contenedor_y_relativos(tmp_path):
+    """Regresion del hallazgo CodeRabbit: "from app import ads" solo
+    registraba "app" (el contenedor) y pasaba el candado; el import
+    relativo de nivel >= 2 (que desde app/optimizer alcanza app) tampoco
+    tenia marca. Ambos deben quedar registrados."""
+    fuga = tmp_path / "fuga.py"
+    fuga.write_text(
+        "from app import ads\nfrom .. import db\nimport httpx\n",
+        encoding="utf-8",
+    )
+    imp = _imports_runtime(fuga)
+    assert "app.ads" in imp, "from app import ads debe registrar app.ads"
+    assert "<import-relativo-nivel-2>" in imp, "from .. import db debe quedar marcado"
+    assert "httpx" in imp
+    viol = _violaciones(imp, PROHIBIDOS_MOTOR)
+    assert "app.ads" in viol and "<import-relativo-nivel-2>" in viol and "httpx" in viol
+
+
+def test_detector_type_checking_excluido_y_from_normal(tmp_path):
+    """La cara complementaria: lo legitimo no se marca. TYPE_CHECKING sigue
+    excluido (anotacion, no runtime) y un "from app.optimizer import bid"
+    registra el contenedor y el modulo efectivo SIN disparar el candado."""
+    sano = tmp_path / "sano.py"
+    sano.write_text(
+        "from typing import TYPE_CHECKING\n"
+        "if TYPE_CHECKING:\n"
+        "    import psycopg\n"
+        "from app.optimizer import bid\n",
+        encoding="utf-8",
+    )
+    imp = _imports_runtime(sano)
+    assert "psycopg" not in imp
+    assert "app.optimizer" in imp
+    assert "app.optimizer.bid" in imp
+    assert _violaciones(imp, PROHIBIDOS_MOTOR) == []
+
+
+def test_frontera_recorre_subpaquetes(tmp_path, monkeypatch):
+    """Regresion del hallazgo CodeRabbit: un subpaquete anidado con IO debe
+    DISPARAR el candado (antes glob("*.py") no lo veia)."""
+    import pytest
+
+    (tmp_path / "windows.py").write_text("", encoding="utf-8")
+    (tmp_path / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "fuga.py").write_text("import httpx\n", encoding="utf-8")
+    monkeypatch.setattr("test_architecture.OPTIMIZER", tmp_path)
+    with pytest.raises(AssertionError, match="sub/fuga.py"):
+        test_motor_puro_sin_io()
 
 
 def test_puerta_de_datos_sin_api_de_amazon():

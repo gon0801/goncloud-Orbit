@@ -760,10 +760,13 @@ def test_privilegio_negativo_app_decide():
         try:
             conn.execute("SET ROLE app_decide")
         except psycopg.errors.InsufficientPrivilege:
-            if _DSN_EXPLICITO:
+            # Señal CI igual que _postgres_obligatorio_ausente (hallazgo
+            # CodeRabbit): si CI corre sin ORBIT_TEST_DSN y el usuario no
+            # tiene membresia, el DoD no puede evaporarse en skip verde.
+            if _DSN_EXPLICITO or os.environ.get("CI"):
                 raise AssertionError(
-                    "ORBIT_TEST_DSN explicito pero sin membresia app_decide: "
-                    "el privilegio negativo del DoD quedo sin ejercer"
+                    "CI con usuario sin membresia app_decide: el privilegio "
+                    "negativo del DoD quedo sin ejercer"
                 ) from None
             pytest.skip(
                 "usuario del DSN sin membresia app_decide: el privilegio negativo "
@@ -1120,3 +1123,71 @@ def test_sql_del_modulo_parsea_como_postgres():
     for nombre in nombres:
         sql = getattr(ciclo, nombre).replace("%s", "NULL")
         assert pglast.parse_sql(sql), f"{nombre} no parseo"
+
+
+# ---------------------------------------------------------------------------
+# 11. Regresiones CodeRabbit (ronda ready): perdedor no libera lock ajeno;
+#     congelado EFECTIVO de floor/ceiling
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_claim_perdido_no_libera_lock_ajeno_con_mismo_owner():
+    """Hallazgo CodeRabbit (major): el finally liberaba el lock aunque el
+    claim se hubiera PERDIDO -- con owners IGUALES entre procesos (owner fijo
+    de config, o hostname:pid repetido en contenedores del mismo host) el
+    perdedor borraba el lock del ganador y dos ciclos quedaban escribiendo en
+    paralelo. Quien nunca gano el claim NO libera nada."""
+    with _db_temporal("orbit_ciclo_mismo_owner") as (conn, conectar):
+        _siembra_maestra(conn)
+        ocupante = conectar()  # otro proceso que YA tiene el lock, mismo owner
+        ocupante.execute(
+            "INSERT INTO ads_optimizer_lock (job_key, owner) VALUES (%s, %s)",
+            (JOB_KEY, "gemelo"),
+        )
+        try:
+            with pytest.raises(ciclo.CicloOcupado):
+                ciclo.corre_ciclo(
+                    conn,
+                    platform="amazon_us",
+                    owner="gemelo",
+                    decided_at=DECIDED_AT,
+                    heartbeat_cada=1,
+                )
+            fila = conn.execute(
+                "SELECT owner FROM ads_optimizer_lock WHERE job_key = %s", (JOB_KEY,)
+            ).fetchone()
+            assert fila is not None, "el perdedor NO borra el lock del ocupante"
+            assert fila[0] == "gemelo"
+        finally:
+            ocupante.close()
+
+
+def test_goal_json_congela_floor_ceiling_efectivos():
+    """Hallazgo CodeRabbit (major): el congelado llevaba bid_floor/ceiling
+    CRUDOS del goal, pero decide_bid consume los EFECTIVOS
+    (resuelve_floor_ceiling). Un goal construido a mano con None debe
+    congelar los defaults 0.10/2.50 -- exactamente lo que el motor uso; el
+    valor crudo None romperia reproduce() con Decimal(None)."""
+    from app.optimizer import goals as g
+
+    goal = g.Goal(
+        scope="platform",
+        ad_entity_id=None,
+        platform="amazon_us",
+        target_acos_pct=Decimal("25"),
+        bid_floor=None,
+        bid_ceiling=None,
+        bid_currency="USD",
+        harvest_campaign_id=None,
+        harvest_ad_group_id=None,
+        harvest_default_bid=None,
+        enabled=True,
+        mode="shadow",
+    )
+    congelado = ciclo._goal_json(goal)
+    assert congelado["bid_floor"] == "0.10"
+    assert congelado["bid_ceiling"] == "2.50"

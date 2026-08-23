@@ -331,17 +331,22 @@ def _agregado_json(agg: windows.AgregadoMetricas | None) -> dict | None:
 
 
 def _goal_json(goal: g.Goal) -> dict:
-    """Goal resuelto congelado (estructura sellada que consume el replay)."""
+    """Goal resuelto congelado (estructura sellada que consume el replay).
+    bid_floor/bid_ceiling se congelan EFECTIVOS (resuelve_floor_ceiling):
+    exactamente los que decide_bid consumio. Congelar los crudos divergiria
+    del replay ante cualquier default/clamp futuro, y un None crudo romperia
+    Decimal(None) en reproduce() (hallazgo CodeRabbit major)."""
     completa = (
         goal.harvest_campaign_id is not None
         or goal.harvest_ad_group_id is not None
         or goal.harvest_default_bid is not None
     )
+    floor, ceiling = g.resuelve_floor_ceiling(goal)
     return {
         "scope": goal.scope,
         "target_acos_pct": _dec_str(goal.target_acos_pct),
-        "bid_floor": _dec_str(goal.bid_floor),
-        "bid_ceiling": _dec_str(goal.bid_ceiling),
+        "bid_floor": _dec_str(floor),
+        "bid_ceiling": _dec_str(ceiling),
         "harvest": (
             {
                 "campaign_id": goal.harvest_campaign_id,
@@ -992,6 +997,7 @@ def corre_ciclo(
     conn.commit()  # no-op en IDLE: el modulo empieza desde estado limpio
     hb = _abre_heartbeat(conn)
     cycle_id: int | None = None
+    gano = False  # quien NUNCA gano el claim no libera NADA (hallazgo CodeRabbit)
     contadores = _Contadores()
     muertos: list[int] = []
     try:
@@ -1000,6 +1006,7 @@ def corre_ciclo(
             modo = g.resuelve_modo(g.modo_desde_settings(settings), _MODO_TOPE_ENVELOPE)
             if not _toma_claim(conn, job_key, owner):
                 raise CicloOcupado(f"lock vigente de otro owner para {job_key}")
+            gano = True
             cycle_id = _abre_envelope(conn, modo.modo, platform)
             muertos = _cierra_rastro(conn, owner, platform, cycle_id)
         return _corre_fases(
@@ -1022,7 +1029,13 @@ def corre_ciclo(
             _sello_fallido(conn, cycle_id, exc, contadores, muertos)
         raise
     finally:
-        _libera_lock(hb, conn, job_key, owner)
+        # Solo libera quien GANO el claim: con owners iguales entre procesos
+        # (owner fijo de config, o hostname:pid repetido entre contenedores),
+        # el perdedor de CicloOcupado borraria el lock del ganador y dejaria
+        # dos ciclos escribiendo en paralelo (hallazgo CodeRabbit major). El
+        # WHERE owner ya cubria al sucesor; esto cubre al "nunca lo tuve".
+        if gano:
+            _libera_lock(hb, conn, job_key, owner)
         if hb is not None:
             hb.close()
 
