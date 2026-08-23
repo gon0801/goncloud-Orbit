@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import datetime as dt
 import os
+import re
 import socket
 from contextlib import contextmanager
 from decimal import Decimal
@@ -160,12 +161,13 @@ def test_target_invalido_es_config_corrupta_no_ausente():
     with pytest.raises(ValueError, match="no numerico"):
         g.target_desde_settings({"ads_target_acos_pct_amazon_us": "abc"}, "amazon_us")
     # la cascada valida IGUAL cada peldano (goal lo cubre el CHECK en DB;
-    # setting y cache no)
+    # setting y cache no). re.escape: los nombres de peldano llevan puntos
+    # (hallazgo CodeRabbit RUF043: sin escapar son comodin de regex).
     with pytest.raises(ValueError, match="setting ads_target_acos_pct"):
         g.cascada_target_acos(None, Decimal("0"), None)
-    with pytest.raises(ValueError, match="ad_entity_state.acos_target"):
+    with pytest.raises(ValueError, match=re.escape("ad_entity_state.acos_target")):
         g.cascada_target_acos(None, None, Decimal("-5"))
-    with pytest.raises(ValueError, match="goal.target_acos_pct"):
+    with pytest.raises(ValueError, match=re.escape("goal.target_acos_pct")):
         g.cascada_target_acos(Decimal("0"), Decimal("30"), Decimal("28"))
     # NaN de Decimal (is_finite False), mismo trato
     with pytest.raises(ValueError):
@@ -417,20 +419,12 @@ def test_cooldown_apply_de_ciclo_shadow_no_enfria():
         assert g.en_cooldown(conn, entidad, ahora=AHORA) is False
 
 
-@pytest.mark.skipif(
-    not _DSN_EXPLICITO and not _hay_postgres_local(),
-    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
-)
-def test_cooldown_ciclo_shadow_sin_applies_no_enfria():
-    """El caso shadow, documentado con nombre: los ciclos shadow escriben
-    decision pero JAMAS decision_application (no existe modulo apply en PR1),
-    asi que una entidad con historia shadow completa NO queda en cooldown por
-    sus decisiones. El cooldown solo lo pueden enfriar applies verificados
-    de ciclos live (el mode explicito: el default del helper es 'live',
-    hallazgo codex+grok ronda 2)."""
-    with _db_temporal("orbit_goals_shadow") as conn:
-        config_id = _config_version(conn)
-        ciclo = _ciclo(conn, mode="shadow")
-        entidad = _campana(conn, "7004")
-        _decision(conn, ciclo, config_id, entidad)
-        assert g.en_cooldown(conn, entidad, ahora=AHORA) is False
+# NOTA (hallazgo CodeRabbit): hubo un test 'cooldown_ciclo_shadow_sin_applies'
+# que sembraba decisiones shadow SIN ninguna fila en decision_application --
+# EXISTS devolvia false por construccion y el test pasaba igual con el SQL
+# roto (sin JOIN a optimizer_cycle, sin verify_ok, sin umbral). Se elimino:
+# un test que no discrimina es peor que la ausencia. El caso shadow con
+# poder discriminatorio lo cubre test_cooldown_apply_de_ciclo_shadow_no_enfria
+# (rojo demostrado contra el SQL sin el filtro), y la propiedad "los ciclos
+# shadow no escriben decision_application en PR1" vive en el docstring de
+# goals.py (en_cooldown).
