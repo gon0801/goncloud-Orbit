@@ -222,6 +222,22 @@ def test_harvest_sin_config_none_y_parciales():
         assert r.motivo == "harvest_sin_config"
 
 
+def test_harvest_moneda_de_config_incoherente_con_plataforma():
+    """Config COMPLETA pero con moneda cruzada (MXN en amazon_us) -> skip
+    'harvest_moneda_incoherente', sin new_value: harvest es la unica salida
+    de hygiene que crea dinero en PR2 y el esquema NO sella
+    goal.bid_currency contra platform (hallazgo review 2.3, regla 4: un goal
+    sembrado a mano con moneda cruzada fluye hasta un bid real)."""
+    r = _decide(
+        _terminos([_harvesteable()]),
+        config=h.ConfigHarvest("9002", "9102", Decimal("0.75"), "MXN"),
+    )["zapato rojo"]
+    assert r.kind is None
+    assert r.motivo == "harvest_moneda_incoherente"
+    assert r.new_value is None
+    assert r.value_currency is None
+
+
 def test_harvest_duplicado():
     """El termino ya existe como keyword en la campana destino -> skip (el
     dedupe contra keywords_existentes, que 3.1 llena via

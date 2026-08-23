@@ -73,8 +73,12 @@ el motivo que se reporta, auditable en 3.1):
     venta, y una sola venta no habilita harvest).
 (6) orders>=2 -> camino HARVEST: cost o ad_revenue None -> skip
     'dato_faltante'; ACoS > tope -> no-op 'acos_sobre_tope'; config
-    incompleta -> skip 'harvest_sin_config'; search_term en
-    keywords_existentes -> skip 'harvest_duplicado'; moneda del termino
+    incompleta -> skip 'harvest_sin_config'; moneda de la CONFIG distinta a
+    la de la plataforma -> skip 'harvest_moneda_incoherente' (la unica
+    salida de hygiene que crea dinero en PR2; el esquema NO sella
+    goal.bid_currency contra platform, un goal sembrado a mano con moneda
+    cruzada fluye hasta un bid real si esto no se corta aqui); search_term
+    en keywords_existentes -> skip 'harvest_duplicado'; moneda del termino
     incoherente con la plataforma -> skip 'moneda_incoherente'; si todo
     pasa -> kind 'harvest' con new_value=default_bid y SU moneda.
 
@@ -125,6 +129,7 @@ MOTIVO_SIN_BANDA = "sin_banda"
 MOTIVO_ACOS_SOBRE_TOPE = "acos_sobre_tope"
 MOTIVO_HARVEST_SIN_CONFIG = "harvest_sin_config"
 MOTIVO_HARVEST_DUPLICADO = "harvest_duplicado"
+MOTIVO_HARVEST_MONEDA_INCOHERENTE = "harvest_moneda_incoherente"
 MOTIVO_MONEDA_INCOHERENTE = "moneda_incoherente"
 
 _CIEN = Decimal("100")
@@ -259,6 +264,8 @@ def decide_hygiene(
                 motivo = MOTIVO_ACOS_SOBRE_TOPE
             elif not _config_completa(config_harvest):
                 motivo = MOTIVO_HARVEST_SIN_CONFIG
+            elif config_harvest.moneda != moneda:
+                motivo = MOTIVO_HARVEST_MONEDA_INCOHERENTE
             elif t.search_term in keywords_existentes:
                 motivo = MOTIVO_HARVEST_DUPLICADO
             elif t.metric_currency != moneda:
