@@ -45,11 +45,12 @@ escribe nada a Amazon hasta pasar validación humana (el "apply" llega en PR2).
   a los pipelines de `app/ads/`); candados anti-monolito activos
   (complejidad, fronteras de imports, tamaño de módulos, frescura de este
   archivo).
-- **En curso / PR draft Phase 4**: 4.1 servicio `app` vivo (`curl
-  127.0.0.1:8010/health` OK, puerto solo en loopback, `secrets/` 0600
-  intactos) y 4.2 tres crons en el crontab de `gon` (accounting intacto).
-  Pendiente del dueño: 4.3 seed de config/goals; del lead: 4.4 spot-check
-  y 4.5 cierre. No se ejecutó el seed ni se marcó el PR ready.
+- **Phase 4 (PR #15, en cierre)**: 4.1 servicio `app` vivo en el server
+  (`/health` OK, puerto solo loopback, `secrets/` 0600 intactos), 4.2
+  tres crons diarios (accounting intacto), 4.3 seed del dueño ejecutado
+  (shadow, targets 20/20) y 4.4 primer shadow real VALIDADO (133
+  decisiones, triple verificación adversarial limpia). Falta solo el
+  merge (4.5).
 - **Datos reales ya en la base viva** (Postgres en el server `goncloud`):
   5,897 entidades, ~22,000 observaciones de métricas, ~6,900 de search terms.
 

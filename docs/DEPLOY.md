@@ -402,7 +402,9 @@ disparan), por eso el INSERT dentro de la transacción que se revierte.
    Permisos: `secrets/` `700`, `backups/` `700`. Archivos de secretos `600`
    root — **jamás** `chmod` para acomodar un usuario del contenedor.
 2. Copiar del repo al dir de deploy: `docker-compose.yml`, `Dockerfile`,
-   `.dockerignore`, `pyproject.toml`, `uv.lock`, `app/`.
+   `.dockerignore`, `pyproject.toml`, `uv.lock`, `app/` y `migrations/`
+   (el paso 5 aplica `migrations/0001_initial.sql`: sin la carpeta, la
+   base nueva no puede completar el esquema — hallazgo CodeRabbit).
 3. Crear `.env` (600) con `POSTGRES_USER=orbit` y un
    `POSTGRES_PASSWORD` generado en el server (≥24 chars, nunca commiteado):
    ```bash
