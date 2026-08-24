@@ -1,4 +1,4 @@
-# Cortes adaptativos per-producto (NEGATIVE_EXACT + PAUSE) — v2
+# Cortes adaptativos per-producto (NEGATIVE_EXACT + PAUSE) — v3
 
 > Spec aprobado por el dueño (2026-08-24) vía brainstorming estructurado;
 > v2 tras ronda 1 de cross-review (codex 4A+4M, grok 3A+7M — todo
@@ -30,7 +30,13 @@ Por ad group, una vez por ciclo (dentro de TX2, REPEATABLE READ):
 
 ```
 D = _fecha_utc(decided_at)          (mismo reloj UTC que la madurez;
-                                     SIN el ajuste -3d de frescura)
+                                     SIN el ajuste -3d de frescura NI el
+                                     clamp por watermark de la madurez
+                                     actual — asimetría DELIBERADA: con
+                                     lag de ingesta la evidencia cubre
+                                     fechas sin datos y el efecto es más
+                                     fallback, acotado por Z_min=14 —
+                                     ronda 2 kimi)
 ventana_evidencia = BETWEEN D-90 AND D-10   (literal; son 81 fechas
                     maduras — L=90 es LOOKBACK desde D, no longitud;
                     NO se usa el helper inicio_ventana del patrón 30d)
@@ -82,11 +88,24 @@ inputs.corte = {
 ```
 
 `inputs.termino` y `inputs.ventanas` NO cambian de contrato.
+**`inputs.corte` SOLO existe en decisiones que consultan umbral de
+clicks** (kinds negative y pause, y toda decisión del motor de bids que
+evaluó PAUSE): las decisiones `harvest` NO lo llevan — su regla
+(orders>=2 ∧ ACoS<=min(35,target)) no usa umbral de clicks; su replay no
+cambia (sellado, ronda 2 kimi).
 
-**Sello bitemporal (ronda 1, codex)**: `evidencia.observed_at_max` se
-congela y `decision.data_observed_at = max(observed_at del dato directo,
-observed_at_max de la evidencia)` — la edad del dato decidido incluye la
-evidencia; con test donde la evidencia es la observación más reciente.
+**Sello bitemporal (ronda 1 codex, CLAMP de ronda 2 qwen)**:
+`evidencia.observed_at_max` se congela y `decision.data_observed_at =
+LEAST(decided_at, max(observed_at directo, observed_at_max de la
+evidencia))` — el CLAMP a `decided_at` es obligatorio: el CHECK
+`decision_dato_no_del_futuro` exige `data_observed_at <= decided_at`, y
+un backfill que re-observa fechas viejas, una ingesta concurrente o skew
+de relojes puede producir un observed_at posterior; sin clamp, UNA fila
+abortaría el executemany de TX3 (el ciclo entero de la plataforma). El
+clamp es honesto: la evidencia era visible en el snapshot de TX2, así
+que lógicamente se observó antes de decidir. Tests: evidencia más
+reciente que el dato directo, Y el borde observed_at > decided_at →
+clampeado (jamás CHECK violation).
 
 **Replay**: `reproduce()` LEE `inputs.corte.umbral_clicks_usado` (jamás
 recalcula evidencia); fila sin `inputs.corte` (histórica) → legacy 20/25.
@@ -101,7 +120,7 @@ recalcula evidencia); fila sin `inputs.corte` (histórica) → legacy 20/25.
 - **`windows.py`**: `ventanas_evidencia_ad_group(conn, platform,
   decided_at)` — firma real del patrón del repo; una consulta por
   plataforma/ciclo dentro de TX2.
-- **`cycle.py`**: `_SQL_DECISORAS` agrega `parent_id AS ad_group_id` (hoy
+- **`cycle.py`**: `_SQL_DECISORAS` agrega `k.parent_id AS ad_group_id` (hoy
   no lo selecciona y PAUSE no podría mapear su evidencia); congela
   `inputs.corte` en todas las decisiones de ambos motores.
 - **Golden replay — la verdad de cómo funciona (ronda 1, ambos)**: el
