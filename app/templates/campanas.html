@@ -8,6 +8,7 @@
     <thead>
       <tr>
         <th>Campana</th>
+        <th>Estado</th>
         <th>Plataforma</th>
         <th class="num">Cost (30d)</th>
         <th class="num">Revenue (30d)</th>
@@ -22,6 +23,13 @@
       {% for item in items %}
       <tr>
         <td>{{ item.nombre or "—" }}</td>
+        <td>
+          {% if item.status == "ENABLED" %}<span class="chip ok">activa</span>
+          {% elif item.status == "PAUSED" %}<span class="chip">pausada</span>
+          {% elif item.status == "ARCHIVED" %}<span class="chip mutado">archivada</span>
+          {% elif item.status %}<span class="chip">{{ item.status }}</span>
+          {% else %}<span class="mutado">—</span>{% endif %}
+        </td>
         <td>{{ item.plataforma }} · {{ item.moneda }}</td>
         {# regla 3 en presentacion (hallazgo codex): `or "—"` pintaba el 0
            como faltante; el cero ES dato — solo None es hueco #}

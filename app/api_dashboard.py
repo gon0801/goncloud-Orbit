@@ -129,7 +129,7 @@ SELECT v.metric_date,
 # LEFT JOIN NO rompe el grano: el WHERE e.kind = 'campaign' sigue siendo
 # conjuncion obligatoria (candado AST).
 _SQL_CAMPANAS_30D = """
-SELECT e.id, e.name, e.platform, s.acos_target,
+SELECT e.id, e.name, e.platform, s.acos_target, s.status,
        CASE WHEN bool_and(v.cost IS NOT NULL) THEN sum(v.cost) END,
        CASE WHEN bool_and(v.ad_revenue IS NOT NULL) THEN sum(v.ad_revenue) END,
        CASE WHEN bool_and(v.clicks IS NOT NULL) THEN sum(v.clicks)::bigint END
@@ -139,7 +139,7 @@ SELECT e.id, e.name, e.platform, s.acos_target,
  WHERE e.kind = 'campaign'
    AND e.platform = %s::platform
    AND v.metric_date BETWEEN %s AND %s
- GROUP BY e.id, e.name, e.platform, s.acos_target
+ GROUP BY e.id, e.name, e.platform, s.acos_target, s.status
  ORDER BY e.id
 """
 
@@ -512,7 +512,7 @@ def _fila_campana(
     """Fila del resumen: metricas 30d (grano campaign, dinero string) + target
     EFECTIVO con PROCEDENCIA (cascada de 1.2 REUTILIZADA, jamas
     reimplementada) + goal resuelto. Sin total al pie (regla 4)."""
-    camp_id, nombre, _plataforma, acos_cache, cost, revenue, clicks = fila
+    camp_id, nombre, _plataforma, acos_cache, estado, cost, revenue, clicks = fila
     goal_campana = goals_campana.get(camp_id)
     valor, peldano = g.cascada_target_acos_con_procedencia(
         goal_campana, goal_plataforma, settings, acos_cache, plataforma
@@ -521,6 +521,10 @@ def _fila_campana(
     return {
         "ad_entity_id": camp_id,
         "nombre": nombre,
+        # estado publicado en Amazon (ad_entity_state; feedback del smoke
+        # 1.7: no todas las campanas con datos 30d siguen activas). Sin
+        # estado -> null (regla 3), jamas un estado inventado.
+        "status": estado,
         "plataforma": plataforma,
         "moneda": PLATAFORMAS_MONEDA[plataforma],
         "metricas_30d": {

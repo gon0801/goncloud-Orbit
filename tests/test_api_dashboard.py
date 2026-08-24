@@ -966,6 +966,8 @@ def test_campanas_goal_estado_resuelto_y_metricas_string(monkeypatch):
         camp_a = _campana(conn, "amazon_us", "9001", name="A")
         camp_b = _campana(conn, "amazon_us", "9002", name="B")
         camp_mx = _campana(conn, "amazon_mx", "9003", name="MX")
+        # estado publicado (feedback smoke 1.7): camp_a con estado, camp_b sin
+        _estado_acos(conn, camp_a, None)
         _goal_db(
             conn,
             scope="campaign",
@@ -1035,6 +1037,9 @@ def test_campanas_goal_estado_resuelto_y_metricas_string(monkeypatch):
         assert por_id[camp_b]["moneda"] == "USD"
         assert por_id[camp_mx]["moneda"] == "MXN"
         assert por_id[camp_mx]["metricas_30d"]["acos"] == "33.33"
+        # estado publicado visible (feedback smoke 1.7); sin estado -> null
+        assert por_id[camp_a]["status"] == "ENABLED"
+        assert por_id[camp_b]["status"] is None
 
 
 @pytest.mark.skipif(
