@@ -170,6 +170,9 @@ def test_acoso_ratio_2_decimales_y_sin_ventas():
     revenue == 0 conocido -> sin_ventas (caso real amazon_us: 66.6300 / 0).
     cost o revenue None -> dato faltante (acos null, sin_ventas false)."""
     assert dash._acoso(Decimal("363.1400"), Decimal("3262.0600")) == ("11.13", False)
+    # redondeo HALF_UP explicito (hallazgo kimi): con el half-even del
+    # contexto por default, 11.125 daria "11.12" y este assert fallaria
+    assert dash._acoso(Decimal("11.125"), Decimal("100")) == ("11.13", False)
     assert dash._acoso(Decimal("66.6300"), Decimal("0")) == (None, True)
     assert dash._acoso(Decimal("0"), Decimal("0")) == (None, True)  # no hubo ventas
     assert dash._acoso(Decimal("5"), None) == (None, False)
@@ -231,10 +234,13 @@ def test_series_sql_filtran_kind_campaign_en_ad_entity():
     out/tdd-red-1.3.log)."""
     for nombre in ("_SQL_SERIE_PLATAFORMA", "_SQL_SERIE_CAMPANA"):
         sql = getattr(dash, nombre).replace("%s", "NULL")
-        normalizada = pglast.prettify(sql)
-        assert "ad_entity" in normalizada, f"{nombre}: sin JOIN a ad_entity"
-        assert "kind" in normalizada and "campaign" in normalizada, (
-            f"{nombre}: sin el filtro e.kind='campaign' las hojas duplicarian el dinero"
+        # predicado EXACTO sobre el SQL normalizado (hallazgo kimi: el
+        # containment suelto de "kind"/"campaign" pasaria con el filtro mal
+        # puesto o en un comentario)
+        normalizada = " ".join(pglast.prettify(sql).lower().split())
+        assert "join ad_entity" in normalizada, f"{nombre}: sin JOIN a ad_entity"
+        assert "e.kind = 'campaign'" in normalizada, (
+            f"{nombre}: sin el predicado e.kind = 'campaign' las hojas duplicarian el dinero"
         )
 
 
@@ -647,6 +653,17 @@ def test_serie_campana_contrato_404_422_y_nombre_null(monkeypatch):
         )
         assert r_null.status_code == 200
         assert r_null.json()["nombre"] is None
+        # ad_entity_id fuera del contrato (ge=1) -> 422 (hallazgo reviewer)
+        assert (
+            cliente.get("/api/dashboard/series/campana", params={"ad_entity_id": 0}).status_code
+            == 422
+        )
+        # campana meli: enum valido SIN moneda sellada del dashboard -> 422
+        # (hallazgo reviewer: la rama existia sin test)
+        camp_meli = _campana(conn, "meli", "9004")
+        r_meli = cliente.get("/api/dashboard/series/campana", params={"ad_entity_id": camp_meli})
+        assert r_meli.status_code == 422
+        assert "sin moneda sellada" in r_meli.json()["detail"]
 
 
 @pytest.mark.skipif(

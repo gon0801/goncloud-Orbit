@@ -553,6 +553,15 @@ def test_procedencia_equivale_a_la_cascada_del_motor():
         (None, None, {"ads_target_acos_pct_amazon_us": 30}, None, "amazon_us"),
         (None, None, {}, Decimal("28"), "amazon_us"),
         (None, _goal(target_acos_pct=Decimal("25")), {}, None, "amazon_us"),
+        # rama elif con target None (hallazgo reviewer): goal de plataforma
+        # presente pero sin target -> setting, mismo camino que el motor
+        (
+            None,
+            _goal(target_acos_pct=None),
+            {"ads_target_acos_pct_amazon_us": 30},
+            Decimal("28"),
+            "amazon_us",
+        ),
         (
             _goal(scope="campaign", ad_entity_id=1, platform=None, target_acos_pct=Decimal("18")),
             _goal(target_acos_pct=Decimal("25")),

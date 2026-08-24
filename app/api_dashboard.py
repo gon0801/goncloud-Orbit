@@ -37,7 +37,7 @@ sesion).
 from __future__ import annotations
 
 import datetime as dt
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query
@@ -135,14 +135,17 @@ def _acoso(cost: Decimal | None, ad_revenue: Decimal | None) -> tuple[str | None
     true y acos null (infinito: jamas division ni 0 enganoso); cost o
     ad_revenue None -> dato faltante (acos null, sin_ventas false); si no,
     ratio Decimal exacto con 2 decimales como STRING (el cliente parsea con
-    Number(); decision 7 del header)."""
+    Number(); decision 7 del header). Redondeo HALF_UP EXPLICITO (convencion
+    comercial; hallazgo kimi: el default del contexto es half-even y 11.125
+    saldria "11.12"). Solo presentacion: el motor jamas materializa ACoS
+    (compara por multiplicacion)."""
     if ad_revenue is None:
         return None, False
     if ad_revenue == 0:
         return None, True
     if cost is None:
         return None, False
-    acos = (cost / ad_revenue * Decimal("100")).quantize(Decimal("0.01"))
+    acos = (cost / ad_revenue * Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     return str(acos), False
 
 
