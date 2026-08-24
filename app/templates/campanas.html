@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block contenido %}
+<h2>Campanas — metricas 30d y target efectivo con procedencia</h2>
+<div class="tarjeta">
+  <table>
+    <thead>
+      <tr>
+        <th>Campana</th>
+        <th>Plataforma</th>
+        <th class="num">Cost (30d)</th>
+        <th class="num">Revenue (30d)</th>
+        <th class="num">Clicks</th>
+        <th class="num">ACoS</th>
+        <th>Target efectivo</th>
+        <th>Procedencia</th>
+        <th>Goal</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td>{{ item.nombre or "—" }}</td>
+        <td>{{ item.plataforma }} · {{ item.moneda }}</td>
+        <td class="num">{{ item.metricas_30d.cost or "—" }}</td>
+        <td class="num">{{ item.metricas_30d.ad_revenue or "—" }}</td>
+        <td class="num">{{ item.metricas_30d.clicks or "—" }}</td>
+        <td class="num">
+          {% if item.metricas_30d.sin_ventas %}<span class="chip chip-sinventas">sin ventas</span>
+          {% elif item.metricas_30d.acos %}{{ item.metricas_30d.acos }}%
+          {% else %}<span class="mutado">—</span>{% endif %}
+        </td>
+        <td class="num">{{ item.target_efectivo.valor }}%</td>
+        <td><span class="chip">{{ item.target_efectivo.peldano }}</span></td>
+        <td>
+          {% if item.goal %}
+            {{ item.goal.scope }} · {{ item.goal.mode }}{% if not item.goal.enabled %} · <span class="alerta">disabled</span>{% endif %}
+          {% else %}<span class="mutado">sin goal</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

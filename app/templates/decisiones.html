@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block contenido %}
+<h2>Decisiones — feed por cursor (solo entidades que decidieron)</h2>
+<div class="tarjeta">
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Entidad</th>
+        <th>Kind</th>
+        <th>Decidida</th>
+        <th>Search term</th>
+        <th>Target usado</th>
+        <th>Motivo</th>
+        <th class="num">old / new</th>
+        <th>Moneda</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td>{{ item.id }}</td>
+        <td>{{ item.nombre or "—" }} <span class="mutado">#{{ item.ad_entity_id }}</span></td>
+        <td><span class="chip">{{ item.kind }}</span></td>
+        <td class="mutado">{{ item.decided_at }}</td>
+        {# El search_term es texto libre del comprador: AUTOESCAPE lo escapa #}
+        <td>{{ item.search_term or "—" }}</td>
+        <td class="num">{{ item.target_acos_pct_usado or "—" }}%</td>
+        <td>{{ item.motivo_es or "—" }}</td>
+        <td class="num">
+          {% if item.old_value or item.new_value %}{{ item.old_value or "—" }} / {{ item.new_value or "—" }}
+          {% else %}<span class="mutado">—</span>{% endif %}
+        </td>
+        <td>{{ item.value_currency or "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if has_more and next_cursor %}
+  <p><button id="btn-mas" data-cursor="{{ next_cursor }}" onclick="cargarMas()">Cargar mas (pagina siguiente)</button></p>
+  {% endif %}
+</div>
+{% endblock %}

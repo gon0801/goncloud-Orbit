@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block contenido %}
+<h2>Salud — ultimo ciclo, historico 14d y skips</h2>
+{% for plataforma, datos in plataformas.items() %}
+<div class="tarjeta">
+  <h2>{{ plataforma }}
+    {% if datos.ultimo_ciclo %}
+      <span class="chip">{{ datos.ultimo_ciclo.status }}</span>
+      <span class="chip">{{ datos.ultimo_ciclo.mode }}</span>
+    {% endif %}
+  </h2>
+  <p class="mutado">Watermark (v_metric_latest): {{ datos.watermark or "—" }} ·
+     Sync estructura: {{ datos.synced_at or "—" }}</p>
+
+  <h3>Skips del ultimo ciclo</h3>
+  <canvas id="skips-{{ plataforma }}" height="160"></canvas>
+  <script type="application/json" id="datos-skips-{{ plataforma }}">{{ datos.skips | tojson }}</script>
+
+  {% if datos.ultimo_ciclo %}
+  <h3>Ultimo ciclo</h3>
+  <p>#{{ datos.ultimo_ciclo.id }} · {{ datos.ultimo_ciclo.started_at }} ·
+     decisiones: {{ datos.ultimo_ciclo.decisions_count }} ·
+     applies: {{ datos.ultimo_ciclo.applied_count or "—" }}</p>
+  {% endif %}
+
+  <h3>Historico (14d)</h3>
+  <table>
+    <thead><tr><th>Ciclo</th><th>Fecha</th><th>Status</th><th class="num">Decisiones</th><th>Motivo</th></tr></thead>
+    <tbody>
+      {% for h in datos.historico_14d %}
+      <tr>
+        <td>#{{ h.cycle_id }}</td>
+        <td class="mutado">{{ h.fecha }}</td>
+        <td><span class="chip {% if h.status == 'done' %}ok{% elif h.status in ('degraded', 'failed') %}alerta{% endif %}">{{ h.status }}</span></td>
+        <td class="num">{{ h.decisions_count }}</td>
+        <td>{{ h.motivo or "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endfor %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Skips por motivo (barras): entidad + termino del ultimo ciclo.
+  ["amazon_us", "amazon_mx"].forEach(function (plataforma) {
+    var datos = datosDe("datos-skips-" + plataforma);
+    if (!datos) return;
+    var etiquetas = [];
+    var valores = [];
+    ["entidad", "termino"].forEach(function (lado) {
+      Object.keys(datos[lado] || {}).forEach(function (motivo) {
+        etiquetas.push(motivo);
+        valores.push(datos[lado][motivo].count);
+      });
+    });
+    if (etiquetas.length) graficarBarras("skips-" + plataforma, etiquetas, valores, "#f87171");
+  });
+</script>
+{% endblock %}

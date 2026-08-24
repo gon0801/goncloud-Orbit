@@ -75,7 +75,7 @@ jobs:
         env:
           ORBIT_TEST_DSN: postgresql://orbit:orbit@localhost:5432/postgres
         run: |
-          pip install fastapi "psycopg[binary]" pytest httpx pglast
+          pip install fastapi "psycopg[binary]" pytest httpx pglast jinja2
           PYTHONPATH=. pytest -q
 
       - name: Run Node tests

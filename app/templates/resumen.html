@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block contenido %}
+<h2>Resumen — series diarias (D-30..D-1, dia en curso excluido)</h2>
+<div class="graficas">
+  {% for plataforma, datos in series.items() %}
+  <div class="grafica">
+    <h2>{{ plataforma }} ({{ datos.moneda }}) — spend y revenue</h2>
+    <canvas id="serie-{{ plataforma }}" height="200"></canvas>
+    <p class="mutado">Ventana efectiva: {{ datos.desde }} .. {{ datos.hasta }} ·
+       inmaduros D-8..D-1: {{ datos.ventana_inmaduros.desde }} .. {{ datos.ventana_inmaduros.hasta }}</p>
+    <!-- Decision 12: los datos hacia JS pasan EXCLUSIVAMENTE por |tojson -->
+    <script type="application/json" id="datos-serie-{{ plataforma }}">{{ datos | tojson }}</script>
+  </div>
+  <div class="grafica">
+    <h2>{{ plataforma }} ({{ datos.moneda }}) — ACoS %</h2>
+    <canvas id="serie-acos-{{ plataforma }}" height="160"></canvas>
+    <p class="mutado">ACoS null = hueco o sin ventas (jamas 0 enganoso)</p>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  graficarSeries("serie-amazon_us", "datos-serie-amazon_us", ["cost", "ad_revenue"], ["Cost", "Revenue"]);
+  graficarSeries("serie-amazon_mx", "datos-serie-amazon_mx", ["cost", "ad_revenue"], ["Cost", "Revenue"]);
+  graficarSeries("serie-acos-amazon_us", "datos-serie-amazon_us", ["acos"], ["ACoS %"]);
+  graficarSeries("serie-acos-amazon_mx", "datos-serie-amazon_mx", ["acos"], ["ACoS %"]);
+</script>
+{% endblock %}

@@ -315,20 +315,29 @@ offset sobre una tabla append-only produce huecos/duplicados entre páginas
 `count(*)` de la tabla append-only completa por request escala lineal con el
 historial).
 
-## 6. Librería de gráficas (unknown declarado)
+## 6. Librería de gráficas (elegida en 1.6)
 
-**Estado: `unknown` declarado (`not_observed != absent`)** — la elige la task
-1.6. Candidatos sellados por el plan: **uPlot** y **Chart.js single-file**;
-criterio: la más chica que cubra **líneas** (series spend/revenue/ACoS) y
-**barras** (skips, decisiones por kind). Restricciones innegociables:
+**Elegida: Chart.js 4.4.9 single-file (UMD)**, vendoreada en
+`app/static/vendor/chart.umd.min.js`.
 
-- Vendoreada en el repo (versión + licencia + hash SHA-256 documentados EN ESTA
-  sección cuando 1.6 decida); **cero CDN** y cero hosts externos en el HTML
-  (un CDN caído no puede romper el dashboard; Reject del plan).
-- Los datos a JS pasan EXCLUSIVAMENTE por `|tojson` (decisión 12); el parseo
-  string→número ocurre en el cliente (`Number()`, decisión 7).
-- El HTML no lleva scripts inline de datos (solo el `|tojson` en un bloque
-  `<script type="application/json">` o equivalente sellado en 1.6).
+- **Versión:** 4.4.9 · **Licencia:** MIT · **SHA-256:**
+  `BCE154080959C574BE0BB6B1A924FF32F08EBC6FF460C159171F51C53802C844`
+  (descargada de jsdelivr/npm; el hash se verificó al vendorear y es la
+  referencia del candado).
+- **Por qué Chart.js y no uPlot** (candidato sellado del plan): el criterio
+  era "la más chica que cubra líneas Y barras". El core de uPlot 1.6.32 NO
+  cubre barras sin plugin, y el plugin (`uPlot.bars.js`) no se distribuye en
+  el dist estándar del release/npm (verificado contra el repo en el tag
+  1.6.32: dist solo trae el core) — no existe una descarga limpia y
+  versionada del par core+plugin. Chart.js UMD cubre líneas y barras en UN
+  archivo descargable limpio (~207 KB, MIT). Es el candidato que cumple el
+  requisito funcional completo; la decisión queda declarada con su razón.
+- Restricciones innegociables (siguen vigentes): **cero CDN** y cero hosts
+  externos en el HTML (un CDN caído no puede romper el dashboard); los datos
+  a JS pasan EXCLUSIVAMENTE por `|tojson` (decisión 12); el parseo
+  string→número ocurre en el cliente (`Number()`, decisión 7); el HTML no
+  lleva scripts inline de datos salvo el bloque `<script type="application/json">`
+  con `|tojson`.
 
 ## 7. Evidencia regla 8 — forma real del dato (corrida por el lead, 2026-08-24 UTC)
 
