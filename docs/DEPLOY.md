@@ -26,10 +26,15 @@
 - **Contenedores:** `orbit-db-1` (imagen `postgres:16`, volumen
   `orbit_pgdata`) y `orbit-app-1` (imagen construida del repo con
   `uv sync --frozen`).
-- **Red:** bind `127.0.0.1:5432` (Postgres) y `127.0.0.1:8010` (app)
-  SOLO en loopback del server (`ss -lntp` lo confirma). Nunca `0.0.0.0`
-  (lección de los puertos 8055/8056, 7 semanas expuestos). El acceso
-  remoto a la base es por túnel SSH.
+- **Red:** bind `127.0.0.1:5432` (Postgres) y `127.0.0.1:8010` +
+  `10.13.13.1:8010` (app; la segunda es la IP de la interfaz WireGuard
+  `wg0` — DASHBOARD 01 / 2.1: el dashboard se ve del cel/compu por VPN).
+  Nunca `0.0.0.0` (lección de los puertos 8055/8056, 7 semanas
+  expuestos); la allowlist EXACTA de hosts la sella
+  `tests/test_compose_deploy.py`. `10.13.13.1` es RFC1918 point-to-point:
+  solo el host y los peers cifrados del túnel llegan (INPUT policy DROP +
+  CrowdSec, cero DNAT — evidencia en ORBIT 16). El acceso remoto a la
+  base sigue siendo por túnel SSH.
 
 ## Levantar / parar
 

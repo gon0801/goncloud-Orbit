@@ -63,10 +63,18 @@ def test_compose_db_sellado_por_contrato():
     )
 
 
-def test_compose_ningun_puerto_en_todas_las_interfaces():
-    texto = COMPOSE.read_text(encoding="utf-8")
-    assert "0.0.0.0" not in texto, "puerto bind a 0.0.0.0: prohibido (leccion 8055/8056)"
-    # "8010:8000" sin host tambien publica en todas las interfaces (hallazgo codex).
+# Allowlist EXACTA de hosts de bind (DASHBOARD 01 task 2.1): loopback + la IP
+# de la interfaz WireGuard wg0 (10.13.13.1 — RFC1918 point-to-point: solo el
+# host y los peers cifrados del tunel; evidencia de firewall/NAT en ORBIT 16).
+# Un host nuevo aqui es DECISION con review, jamas un ajuste de paso.
+HOSTS_BIND_PERMITIDOS = {"127.0.0.1", "10.13.13.1"}
+
+
+def _hosts_de_ports(texto: str) -> set[str]:
+    """Set de hosts de TODAS las entradas ports: del compose. Una entrada sin
+    host ("8010:8000") aporta su puerto crudo al set y el candado la rechaza
+    (publicar sin host = todas las interfaces, hallazgo codex)."""
+    hosts: set[str] = set()
     en_ports = False
     for ln in texto.splitlines():
         if ln.strip() == "ports:":
@@ -76,9 +84,33 @@ def test_compose_ningun_puerto_en_todas_las_interfaces():
             stripped = ln.strip()
             if stripped.startswith("- "):
                 mapa = stripped[2:].strip().strip('"').strip("'")
-                assert mapa.startswith("127.0.0.1:"), f"puerto no loopback: {mapa}"
+                hosts.add(mapa.split(":")[0])
             elif stripped and not stripped.startswith("#"):
                 en_ports = False
+    return hosts
+
+
+def test_compose_ningun_puerto_en_todas_las_interfaces():
+    """0.0.0.0 prohibido (leccion 8055/8056) y allowlist EXACTA por SET (2.1):
+    el compose publica EXACTAMENTE en {127.0.0.1, 10.13.13.1} — la IP wg0
+    para ver el dashboard del cel por VPN. El set EXACTO corta ambos lados:
+    un host de mas expone, un bind de menos deja el dashboard sin acceso.
+    Regla 9 in situ: los mutantes 0.0.0.0, IP publica sintetica y entrada
+    sin host DEBEN ser rechazados."""
+    texto = COMPOSE.read_text(encoding="utf-8")
+    assert "0.0.0.0" not in texto, "puerto bind a 0.0.0.0: prohibido (leccion 8055/8056)"
+    assert _hosts_de_ports(texto) == HOSTS_BIND_PERMITIDOS, (
+        f"hosts del compose fuera de la allowlist exacta: "
+        f"{_hosts_de_ports(texto) ^ HOSTS_BIND_PERMITIDOS}"
+    )
+    for mutante in (
+        texto.replace('"127.0.0.1:8010:8000"', '"0.0.0.0:8010:8000"'),
+        texto.replace('"127.0.0.1:8010:8000"', '"203.0.113.9:8010:8000"'),
+        texto.replace('"127.0.0.1:8010:8000"', '"8010:8000"'),
+    ):
+        assert _hosts_de_ports(mutante) != HOSTS_BIND_PERMITIDOS, (
+            "el candado no discrimina un mutante de bind"
+        )
 
 
 def test_cron_metricas_escapa_porcentaje_de_date():
