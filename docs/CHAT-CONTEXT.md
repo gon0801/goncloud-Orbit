@@ -13,8 +13,13 @@ decisión (el bid sugerido de Amazon llega con el apply de PR2 — regla 3:
 jamás inventar el número). 4.4 VALIDADA por el dueño: primer shadow real corrido (133 decisiones,
 us 124 / mx 9), spot-check completo y verificación adversarial TRIPLE
 (codex, grok y qwen: 133/133 limpias, skips cuadrando al entero).
-Sigue solo 4.5 (cierre y merge). Este archivo tiene candado de frescura: el CI exige
-actualizarlo en cada PR que cierre tareas.**
+ORBIT 03 COMPLETO (17/17 tareas): el optimizador decide EN SOMBRA todos
+los dias (crons 06:45/07:10/08:40-08:41 UTC) sobre todas las campanas
+activas, con cero capacidad de escribir a Amazon. El reloj de las 2
+semanas de shadow para el cutover (ORBIT 05) corre desde el 2026-08-24.
+Siguiente proyecto: ORBIT 04 (PR2: el apply con topes). Este archivo
+tiene candado de frescura: el CI exige actualizarlo en cada PR que
+cierre tareas.**
 
 ## Qué es Orbit
 
