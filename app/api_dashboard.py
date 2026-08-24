@@ -570,9 +570,12 @@ def campanas(
 # ---------------------------------------------------------------------------
 
 
-def _filtros_feed(platform, kind) -> tuple[str, list]:
+def _filtros_feed(platform, kind) -> tuple[list[str], list]:
     """Fragmentos SQL FIJOS + parametros de los filtros del feed (ningun texto
-    del usuario se interpola: solo clausulas literales de este codigo)."""
+    del usuario se interpola: solo clausulas literales de este codigo).
+    Devuelve la LISTA de clausulas (el caller agrega el cursor y une una sola
+    vez): devolver el string ya unido rompia el feed — bug atrapado por
+    test_feed_sql_compuesto_parsea_con_todos_los_filtros."""
     clausulas: list[str] = []
     params: list = []
     if platform is not None:
@@ -581,7 +584,7 @@ def _filtros_feed(platform, kind) -> tuple[str, list]:
     if kind is not None:
         clausulas.append("d.kind = %s::decision_kind")
         params.append(kind)
-    return (" AND ".join(clausulas), params)
+    return (clausulas, params)
 
 
 def _fila_decision(fila) -> dict:
@@ -660,9 +663,10 @@ def _motivo_ciclo(status: str, notes) -> str | None:
         degradacion = notes.get("degradacion_live")
         if degradacion:
             return degradacion
-        return None
-    if isinstance(notes, dict) and "texto" in notes:
-        return notes["texto"]
+        # _parse_notes envuelve el texto plano como {"texto": ...}: la rama
+        # vivia FUERA de este if y era inalcanzable (motivo perdido en ciclos
+        # failed con notes de texto — lo atrapa test_salud_notes_mixto_* en CI)
+        return notes.get("texto")
     return None
 
 

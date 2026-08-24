@@ -367,6 +367,28 @@ def test_series_sql_filtran_kind_campaign_en_ad_entity():
     )
 
 
+def test_feed_sql_compuesto_parsea_con_todos_los_filtros():
+    """Regla 9 (bug REAL del bloque 2): _filtros_feed devolvia un string ya
+    unido y decisiones() lo trataba como lista -> " AND ".join() re-unia
+    caracter por caracter (SQL basura con cualquier filtro) y .append()
+    reventaba con cursor. Los tests de integracion lo atrapan en CI, pero
+    skipean sin Postgres: este candado compone el SQL EXACTAMENTE como el
+    endpoint (todas las combinaciones de filtros) y lo parsea con pglast,
+    atrapando la clase entera en cualquier maquina."""
+    for platform in (None, "amazon_us"):
+        for kind in (None, "bid"):
+            for cursor in (None, 42):
+                clausulas, params = dash._filtros_feed(platform, kind)
+                assert isinstance(clausulas, list), "los filtros del feed son lista, no string"
+                if cursor is not None:
+                    clausulas.append("d.id < %s")
+                    params.append(cursor)
+                sql = dash._SQL_DECISIONES_FEED.format(
+                    filtros=" AND ".join(clausulas) or "true"
+                ).replace("%s", "NULL")
+                assert pglast.parse_sql(sql), (platform, kind, cursor)
+
+
 def test_sql_del_modulo_dashboard_parsea_como_postgres():
     """Sintaxis de las SQL del modulo (patron test_api): pglast valida que las
     constantes parsean como Postgres real (un typo muere en CI, no en prod)."""
@@ -1295,6 +1317,19 @@ def test_sql_historico_14d_acotado():
 
 def json_dumps(obj) -> str:
     return json.dumps(obj, ensure_ascii=False, default=str)
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_decisiones_feed_vacio(monkeypatch):
+    """Feed sin decisiones (hallazgo review): items vacios, next_cursor null,
+    has_more false — jamas un crash ni un 404."""
+    with _db_temporal("orbit_dash_feed_vacio") as (_conn, dsn):
+        resp = _cliente(dsn, monkeypatch).get("/api/dashboard/decisiones")
+        assert resp.status_code == 200
+        assert resp.json() == {"items": [], "next_cursor": None, "has_more": False}
 
 
 @pytest.mark.skipif(
