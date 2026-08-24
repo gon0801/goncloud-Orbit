@@ -34,6 +34,7 @@ del plan manda):
 from __future__ import annotations
 
 import datetime as dt
+import json
 import os
 import socket
 from contextlib import contextmanager
@@ -1271,3 +1272,169 @@ def test_decisiones_filtros_platform_kind_y_vocabulario_cerrado(monkeypatch):
         assert (
             cliente.get("/api/dashboard/decisiones", params={"platform": "meli"}).status_code == 422
         )
+
+
+# ---------------------------------------------------------------------------
+# 1.5 - CANDADO del historico (corre sin Postgres): acotado a 14 ciclos
+# ---------------------------------------------------------------------------
+
+
+def test_sql_historico_14d_acotado():
+    """Candado (regla 9, corre sin Postgres): el historico de /salud esta
+    ACOTADO a 14 ciclos por plataforma (LIMIT 14) — un historico sin tope
+    escala con la historia del envelope (append-only)."""
+    sql = dash._SQL_HISTORICO_14D.replace("%s", "NULL")
+    normalizada = " ".join(pglast.prettify(sql).lower().split())
+    assert "limit 14" in normalizada, "el historico debe estar acotado a 14 ciclos"
+
+
+# ---------------------------------------------------------------------------
+# 1.5 - INTEGRACION /salud: snapshot, historico 14d, notes mixto, skips
+# ---------------------------------------------------------------------------
+
+
+def json_dumps(obj) -> str:
+    return json.dumps(obj, ensure_ascii=False, default=str)
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_salud_snapshot_ultimo_ciclo_historico_14d_y_watermarks(monkeypatch):
+    """Snapshot del ULTIMO ciclo por plataforma + historico ACOTADO a 14d +
+    watermarks (las mismas fuentes del motor: v_metric_latest y synced_at)."""
+    with _db_temporal("orbit_dash_salud") as (conn, dsn):
+        run = _run(conn)
+        camp = _campana(conn, "amazon_us", "9001", name="A")
+        _metrica(
+            conn,
+            run,
+            camp,
+            dt.date(2026, 8, 22),
+            cost="1.0000",
+            ad_revenue="3.0000",
+            clicks=1,
+            moneda="USD",
+        )
+        _estado_acos(conn, camp, Decimal("25"))
+        notas_us = json_dumps(
+            {"skips": {"entidad": {"estado_no_enabled": 3}}, "decisiones": {"bid": 1}}
+        )
+        ids = []
+        for _i in range(20):
+            ids.append(_ciclo(conn, platform="amazon_us", notes=notas_us))
+        ciclo_mx = _ciclo(conn, platform="amazon_mx", notes="rastro: ciclo muerto")
+        _hoy(monkeypatch, dt.date(2026, 8, 24))
+        data = _cliente(dsn, monkeypatch).get("/api/dashboard/salud").json()["plataformas"]
+
+        us = data["amazon_us"]
+        assert us["ultimo_ciclo"]["id"] == ids[-1]  # el de mayor id
+        assert us["ultimo_ciclo"]["notes"]["skips"] == {"entidad": {"estado_no_enabled": 3}}
+        assert len(us["historico_14d"]) == 14  # ACOTADO aunque haya 20
+        assert us["historico_14d"][0]["cycle_id"] == ids[-1]
+        assert us["watermark"] == "2026-08-22"
+        assert us["synced_at"] is not None
+
+        mx = data["amazon_mx"]
+        assert mx["ultimo_ciclo"]["id"] == ciclo_mx
+        assert mx["ultimo_ciclo"]["notes"] == {"texto": "rastro: ciclo muerto"}  # formato mixto
+        assert mx["watermark"] is None
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_salud_notes_mixto_y_ciclos_degradado_failed_con_motivo(monkeypatch):
+    """DoD: ciclo degraded/failed VISIBLE con motivo. Notes de FORMATO MIXTO
+    (JSON con motivo_skip guarda_* y texto plano 'rastro: ...' en ciclos
+    muertos reclamados) — _parse_notes tolera ambos y el motivo se traduce."""
+    with _db_temporal("orbit_dash_notes") as (conn, dsn):
+        notas_degradado = json_dumps(
+            {
+                "skips": {"entidad": {}},
+                "motivo_skip": "guarda_watermark",
+                "detalle": "watermark viejo",
+            }
+        )
+        _ciclo(conn, platform="amazon_us", status="degraded", notes=notas_degradado)
+        _ciclo(conn, platform="amazon_us", status="failed", notes="rastro: fallo del ciclo")
+        _hoy(monkeypatch, dt.date(2026, 8, 24))
+        historico = (
+            _cliente(dsn, monkeypatch)
+            .get("/api/dashboard/salud")
+            .json()["plataformas"]["amazon_us"]["historico_14d"]
+        )
+        por_id = {h["cycle_id"]: h for h in historico}
+        degradado = [h for h in historico if h["status"] == "degraded"][0]
+        assert degradado["motivo"] == "Watermark de la plataforma vencido (> 7 dias)"
+        failed = [h for h in historico if h["status"] == "failed"][0]
+        assert failed["motivo"] == "rastro: fallo del ciclo"
+        assert por_id  # sanity: hay filas
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_salud_skips_traducidos_del_orquestador(monkeypatch):
+    """DoD: skips agregados por motivo con su traduccion (vocabulario del
+    ORQUESTADOR + MOTIVO_* que el orquestador importa a sus contadores);
+    motivo desconocido -> fallback al id crudo sin crash (decision 11)."""
+    with _db_temporal("orbit_dash_skips") as (conn, dsn):
+        _ciclo(
+            conn,
+            platform="amazon_us",
+            notes=json_dumps(
+                {
+                    "skips": {
+                        "entidad": {"estado_no_enabled": 3200, "rango_bloquea_ajuste": 44},
+                        "termino": {
+                            "asin_like": 84,
+                            "sin_umbral_negative": 547,
+                            "motivo_futuro": 1,
+                        },
+                    },
+                    "decisiones": {"bid": 4},
+                }
+            ),
+        )
+        _hoy(monkeypatch, dt.date(2026, 8, 24))
+        skips = (
+            _cliente(dsn, monkeypatch)
+            .get("/api/dashboard/salud")
+            .json()["plataformas"]["amazon_us"]["skips"]
+        )
+        assert skips["entidad"]["estado_no_enabled"] == {
+            "count": 3200,
+            "motivo_es": "Entidad sin estado o no habilitada",
+        }
+        assert (
+            skips["entidad"]["rango_bloquea_ajuste"]["motivo_es"]
+            == "Rango [floor, ceiling] bloquea el ajuste"
+        )
+        assert skips["termino"]["asin_like"]["count"] == 84
+        assert skips["termino"]["sin_umbral_negative"]["motivo_es"] == (
+            "Sin umbral de negative (clicks o costo bajo)"
+        )
+        # motivo desconocido -> fallback al id crudo, sin crash
+        assert skips["termino"]["motivo_futuro"]["motivo_es"] == "motivo_futuro"
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_salud_plataforma_sin_datos_devuelve_null_y_vacio(monkeypatch):
+    """Plataforma sin ciclos ni metricas: nulls y vacios, jamas 404 ni ceros
+    inventados (regla 3)."""
+    with _db_temporal("orbit_dash_salud_vacio") as (_conn, dsn):
+        _hoy(monkeypatch, dt.date(2026, 8, 24))
+        plataformas = _cliente(dsn, monkeypatch).get("/api/dashboard/salud").json()["plataformas"]
+        for p in ("amazon_us", "amazon_mx"):
+            assert plataformas[p]["ultimo_ciclo"] is None
+            assert plataformas[p]["historico_14d"] == []
+            assert plataformas[p]["skips"] == {"entidad": {}, "termino": {}}
+            assert plataformas[p]["watermark"] is None
+            assert plataformas[p]["synced_at"] is None

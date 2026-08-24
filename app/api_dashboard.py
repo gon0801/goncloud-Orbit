@@ -57,11 +57,18 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query
 
+from app import cycle as ciclo
 from app.api import KINDS_DECISION, ConexionLectura
-from app.api_common import _dec_str
+from app.api_common import (
+    _SQL_ULTIMO_CICLO_POR_PLATAFORMA,
+    _dec_str,
+    _fila_ciclo,
+    _parse_notes,
+)
 from app.optimizer import bid, hygiene
 from app.optimizer import goals as g
 from app.optimizer.bid import PLATAFORMAS_MONEDA
+from app.optimizer.windows import _SQL_SYNC_PLATAFORMA, _SQL_WATERMARK_PLATAFORMA
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -176,6 +183,73 @@ MOTIVOS_ES_DECISIONES: dict[str, str] = {
     bid._MOTIVO_BANDA[bid.FACTOR_SUBIDA]: "ACoS bajo 0.85x del target: +15%",
     hygiene.MOTIVO_NEGATIVE: "Negativo: termino sin ventas con clicks y costo sobre el umbral",
     hygiene.MOTIVO_HARVEST: "Harvest: termino con ACoS bajo el tope hacia campana manual",
+}
+
+# ---------------------------------------------------------------------------
+# 1.5 - /salud: historico 14d y motivos de skip del ORQUESTADOR
+# ---------------------------------------------------------------------------
+
+# Ultimos 14 ciclos de la plataforma (acotado; el candado del test fija el
+# LIMIT). El snapshot usa la MISMA fuente del /status de 3.2
+# (_SQL_ULTIMO_CICLO_POR_PLATAFORMA, extraido a api_common).
+_SQL_HISTORICO_14D = """
+SELECT id, mode, platform, started_at, finished_at, decisions_count,
+       applied_count, status, notes
+  FROM optimizer_cycle
+ WHERE platform = %s::platform
+   AND motor = 'ads_optimizer'
+ ORDER BY id DESC
+ LIMIT 14
+"""
+
+# Motivos de SKIP -> espanol (decision 11): el vocabulario que el ORQUESTADOR
+# persiste en notes.skips — los MOTIVO_* propios de cycle.py + los guarda_*
+# (windows.py) + los MOTIVO_* de bid/hygiene que cycle importa a sus
+# contadores (evidencia real 2026-08-24: estado_no_enabled, bids_sin_observaciones,
+# rango_bloquea_ajuste, sin_banda, pause_cortes_incompleto, bid_actual_ausente,
+# sin_umbral_negative, asin_like, acos_sobre_tope, harvest_sin_config,
+# entidad_incompleta). DOS diccionarios (este y el del feed), cada uno
+# importando su fuente. Motivo desconocido -> id crudo (fallback sin crash).
+MOTIVOS_ES_SALUD: dict[str, str] = {
+    # motivos del ORQUESTADOR (cycle.py; su fuente)
+    ciclo.MOTIVO_SIN_GOAL: "Entidad sin goal (la campana no esta configurada)",
+    ciclo.MOTIVO_GOAL_DISABLED: "Goal de campana deshabilitado (opt-out)",
+    ciclo.MOTIVO_GOAL_MODE_OFF: "Goal en modo off",
+    ciclo.MOTIVO_ESTADO_NO_ENABLED: "Entidad sin estado o no habilitada",
+    ciclo.MOTIVO_COOLDOWN_7D: "Cooldown 7d: apply verificado reciente",
+    ciclo.MOTIVO_ESCALERA_OFF: "Escalera global off",
+    # guardas de plataforma (windows.py; el envelope las persiste como
+    # motivo_skip = guarda_<guarda>)
+    "guarda_watermark": "Watermark de la plataforma vencido (> 7 dias)",
+    "guarda_synced_at": "Estructura sincronizada hace > 48h",
+    "guarda_sin_datos": "Plataforma sin metricas ni estado",
+    # MOTIVO_* de bid (skips que el orquestador importa a sus contadores)
+    bid.MOTIVO_PAUSE: "Pausa: sin ventas con clicks y costo sobre el umbral",
+    bid.MOTIVO_PAUSE_CORTES_INCOMPLETO: "Pausa bloqueada: ventana de cortes incompleta",
+    bid.MOTIVO_PAUSE_MONEDA_INVALIDA: "Pausa bloqueada: moneda del agregado invalida",
+    bid.MOTIVO_PAUSE_ORDERS_DESCONOCIDO: "Pausa bloqueada: orders desconocidos",
+    bid.MOTIVO_PAUSE_CLICKS_COST_DESCONOCIDOS: "Pausa bloqueada: clicks o costo desconocidos",
+    bid.MOTIVO_BIDS_SIN_OBSERVACIONES: "Bid sin observaciones en la ventana",
+    bid.MOTIVO_BIDS_INCOMPLETO: "Bid bloqueado: ventana incompleta (< 7 fechas)",
+    bid.MOTIVO_BIDS_MONEDA_INVALIDA: "Bid bloqueado: moneda del agregado invalida",
+    bid.MOTIVO_ACOS_DESCONOCIDO: "ACoS desconocido (cost o revenue faltante)",
+    bid.MOTIVO_RANGO_BLOQUEA_AJUSTE: "Rango [floor, ceiling] bloquea el ajuste",
+    bid.MOTIVO_BID_ACTUAL_INVALIDO: "Bid actual invalido",
+    bid.MOTIVO_BID_ACTUAL_AUSENTE: "Bid actual ausente",
+    bid.MOTIVO_BID_MONEDA_INVALIDA: "Bid con moneda invalida",
+    bid.MOTIVO_SIN_BANDA: "Sin banda de ajuste (ACoS dentro del rango)",
+    bid.MOTIVO_DELTA_BAJO_UMBRAL: "Cambio menor a 0.01: no-op",
+    # MOTIVO_* de hygiene (idem)
+    hygiene.MOTIVO_ENTIDAD_INCOMPLETA: "Entidad incompleta: sin umbral de fechas",
+    hygiene.MOTIVO_ASIN_LIKE: "Termino ASIN-like: se salta siempre",
+    hygiene.MOTIVO_ORDERS_DESCONOCIDO: "Orders desconocidos: sin umbral",
+    hygiene.MOTIVO_DATO_FALTANTE: "Dato faltante del termino",
+    hygiene.MOTIVO_SIN_UMBRAL_NEGATIVE: "Sin umbral de negative (clicks o costo bajo)",
+    hygiene.MOTIVO_ACOS_SOBRE_TOPE: "ACoS sobre el tope de harvest",
+    hygiene.MOTIVO_HARVEST_SIN_CONFIG: "Harvest sin config de campana manual",
+    hygiene.MOTIVO_HARVEST_DUPLICADO: "Harvest duplicado: ya existe la keyword",
+    hygiene.MOTIVO_HARVEST_MONEDA_INCOHERENTE: "Harvest con moneda incoherente",
+    hygiene.MOTIVO_MONEDA_INCOHERENTE: "Moneda incoherente",
 }
 
 
@@ -565,3 +639,94 @@ def decisiones(
         "next_cursor": items[-1]["id"] if hay_mas and items else None,
         "has_more": hay_mas,
     }
+
+
+# ---------------------------------------------------------------------------
+# 1.5 - /salud: snapshot + historico 14d + watermarks + skips
+# ---------------------------------------------------------------------------
+
+
+def _motivo_ciclo(status: str, notes) -> str | None:
+    """Motivo visible de un ciclo degraded/failed: de notes.motivo_skip
+    (guarda_*) traducido, o de notes.degradacion_live, o el texto plano del
+    notes (formato mixto); None en ciclos done sin motivo. jamas un ciclo
+    roto por un notes raro (regla 3: faltante = null)."""
+    if status not in ("degraded", "failed"):
+        return None
+    if isinstance(notes, dict):
+        motivo_skip = notes.get("motivo_skip")
+        if motivo_skip is not None:
+            return MOTIVOS_ES_SALUD.get(motivo_skip, motivo_skip)
+        degradacion = notes.get("degradacion_live")
+        if degradacion:
+            return degradacion
+        return None
+    if isinstance(notes, dict) and "texto" in notes:
+        return notes["texto"]
+    return None
+
+
+def _fila_historico(fila) -> dict:
+    """Una fila del historico 14d: cycle_id, fecha (started_at), status,
+    decisions_count y, cuando aplique, el motivo (degradado/failed visible
+    con motivo — DoD de 1.5)."""
+    (id, _mode, _platform, started_at, _finished_at, decisions_count, _applied, status, notes) = (
+        fila
+    )
+    return {
+        "cycle_id": id,
+        "fecha": started_at,
+        "status": status,
+        "decisions_count": decisions_count,
+        "motivo": _motivo_ciclo(status, _parse_notes(notes)),
+    }
+
+
+def _skips_traducidos(contadores: dict) -> dict:
+    """{motivo: {count, motivo_es}}; motivo desconocido -> id crudo (fallback
+    sin crash: la evidencia del skip jamas se pierde)."""
+    return {
+        motivo: {"count": count, "motivo_es": MOTIVOS_ES_SALUD.get(motivo, motivo)}
+        for motivo, count in contadores.items()
+    }
+
+
+def _skips_de(ultimo_ciclo: dict | None) -> dict:
+    """Skips agregados por motivo del ULTIMO ciclo (vocabulario del
+    orquestador + MOTIVO_* de bid/hygiene que importa a sus contadores),
+    traducidos (decision 11). Sin ciclo o sin notes -> vacio, jamas null
+    inventado."""
+    if ultimo_ciclo is None or ultimo_ciclo.get("notes") is None:
+        return {"entidad": {}, "termino": {}}
+    skips = ultimo_ciclo["notes"].get("skips") or {}
+    return {
+        "entidad": _skips_traducidos(skips.get("entidad") or {}),
+        "termino": _skips_traducidos(skips.get("termino") or {}),
+    }
+
+
+@router.get("/salud")
+def salud(conn: ConexionLectura) -> dict:
+    """Salud por plataforma (brief §3.5, plan 1.5): snapshot del ULTIMO ciclo
+    + historico ACOTADO a 14d + watermarks (las MISMAS fuentes del motor:
+    v_metric_latest y synced_at — regla 2) + skips del ultimo ciclo con su
+    traduccion. REUTILIZA _parse_notes, _fila_ciclo y el SQL de ultimo ciclo
+    extraidos a api_common (jamas dos copias, decision 6)."""
+    ciclos = {
+        fila[2]: _fila_ciclo(fila)  # fila[2] = platform (ver SELECT)
+        for fila in conn.execute(_SQL_ULTIMO_CICLO_POR_PLATAFORMA).fetchall()
+    }
+    plataformas: dict[str, dict] = {}
+    for plataforma in PLATAFORMAS_MONEDA:
+        watermark = conn.execute(_SQL_WATERMARK_PLATAFORMA, (plataforma,)).fetchone()[0]
+        synced_at = conn.execute(_SQL_SYNC_PLATAFORMA, (plataforma,)).fetchone()[0]
+        historico = conn.execute(_SQL_HISTORICO_14D, (plataforma,)).fetchall()
+        ultimo = ciclos.get(plataforma)
+        plataformas[plataforma] = {
+            "watermark": watermark.isoformat() if watermark is not None else None,
+            "synced_at": synced_at,
+            "ultimo_ciclo": ultimo,
+            "historico_14d": [_fila_historico(fila) for fila in historico],
+            "skips": _skips_de(ultimo),
+        }
+    return {"plataformas": plataformas}

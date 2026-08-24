@@ -34,7 +34,6 @@ que el congelado de inputs en app/cycle).
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 from typing import Annotated, Literal
@@ -43,7 +42,11 @@ import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 from psycopg.rows import dict_row
 
-from app.api_common import _dec_str
+from app.api_common import (
+    _SQL_ULTIMO_CICLO_POR_PLATAFORMA,
+    _dec_str,
+    _fila_ciclo,
+)
 from app.db import OrbitDbError, connect
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.windows import _SQL_SYNC_PLATAFORMA, _SQL_WATERMARK_PLATAFORMA
@@ -62,15 +65,6 @@ KINDS_DECISION = Literal["bid", "budget", "pause", "resume", "negative", "harves
 # es append-only y crece; una pagina sin tope es un SELECT secuencial enorme).
 LIMITE_MAX = 200
 LIMITE_DEFAULT = 50
-
-_SQL_ULTIMO_CICLO_POR_PLATAFORMA = """
-SELECT DISTINCT ON (platform) id, mode, platform, started_at, finished_at,
-       decisions_count, applied_count, status, notes
-  FROM optimizer_cycle
- WHERE platform IS NOT NULL
-   AND motor = 'ads_optimizer'
- ORDER BY platform, id DESC
-"""
 
 _SQL_CICLO_EXISTE = "SELECT 1 FROM optimizer_cycle WHERE id = %s"
 _SQL_ENTIDAD_EXISTE = "SELECT 1 FROM ad_entity WHERE id = %s"
@@ -130,23 +124,6 @@ def _conexion_lectura():
 ConexionLectura = Annotated[psycopg.Connection, Depends(_conexion_lectura)]
 
 
-def _parse_notes(notes) -> dict | None:
-    """Notes del envelope: FORMATO MIXTO (residual declarado del plan).
-
-    JSON en ciclos normales -> se devuelve el dict estructurado (ahi viven
-    los skips que 4.4 cita); texto plano `rastro: ...` en ciclos muertos
-    reclamados -> se devuelve bajo la clave `texto`. Ninguna forma puede
-    reventar el endpoint.
-    """
-    if notes is None:
-        return None
-    try:
-        data = json.loads(notes)
-    except (ValueError, TypeError):
-        return {"texto": notes}
-    return data if isinstance(data, dict) else {"texto": notes}
-
-
 def _filtros_decision(cycle_id, ad_entity_id, kind) -> tuple[str, list]:
     """Fragmentos SQL FIJOS + parametros de los filtros de /audit (ningun
     texto del usuario se interpola: solo clausulas literales de este codigo)."""
@@ -187,21 +164,6 @@ def _filtros_goals(platform, scope, enabled) -> tuple[str, list]:
         clausulas.append("enabled = %s")
         params.append(enabled)
     return (" AND ".join(clausulas) or "true", params)
-
-
-def _fila_ciclo(fila) -> dict:
-    """Tupla de _SQL_ULTIMO_CICLO_POR_PLATAFORMA -> dict de la respuesta."""
-    return {
-        "id": fila[0],
-        "mode": fila[1],
-        "platform": fila[2],
-        "started_at": fila[3],
-        "finished_at": fila[4],
-        "decisions_count": fila[5],
-        "applied_count": fila[6],
-        "status": fila[7],
-        "notes": _parse_notes(fila[8]),
-    }
 
 
 @router.get("/status")
