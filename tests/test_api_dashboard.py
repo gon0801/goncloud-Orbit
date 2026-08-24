@@ -1,0 +1,668 @@
+"""Tests del router de series temporales del dashboard (`app.api_dashboard`,
+ORBIT 16 — DASHBOARD 01, task 1.3).
+
+INTEGRACION (patron `_db_temporal` de test_api, COPIADO; skipif fail-closed
+`_postgres_obligatorio_ausente` de test_schema): DB temporal con la migracion
+entera, sembrada por el test, y el router conectado como rol de lectura via
+`ORBIT_DSN_READ` (misma dependencia que api.py; sin DSN -> 503 fail-closed).
+
+Contrato sellado de la task (brief docs/DASHBOARD.md §3.1/§3.2/§3.6; el header
+del plan manda):
+
+1. COLAPSO BITEMPORAL (regla 5): las series leen SIEMPRE `v_metric_latest`
+   (ultima observacion por (entidad, fecha)); dos obs de la misma fecha ->
+   gana la ultima por observed_at.
+2. ANTI-DOBLE-CONTEO (regla 9): grano `kind='campaign'` EXPLICITO via JOIN a
+   ad_entity; una fila keyword del mismo dia NO entra a la serie (evidencia de
+   produccion: campaign 63.96 = keyword 24.94 + product_target 39.02 -> SUM
+   sin filtro = 2x). El candado a nivel SQL (test_series_sql_filtran_kind_*)
+   corre SIN Postgres y se demuestra FALLANDO contra el SQL sin el filtro
+   (rojo en out/tdd-red-1.3.log).
+3. NULL != 0 (regla 3): fecha sin fila -> valores null (spine de fechas, hueco
+   visible, jamas 0); metrica NULL en alguna campana del dia -> agregado
+   envenenado (bool_and) -> null.
+4. SIN_VENTAS: ad_revenue == 0 (conocido) -> acos null + sin_ventas true
+   (caso REAL: amazon_us 2026-08-22, cost 66.6300, revenue 0.0000).
+5. DIA EN CURSO EXCLUIDO: default [D-30, D-1] UTC; un `hasta` que pida el dia
+   en curso se RECORTA a D-1 y la respuesta declara el rango efectivo.
+6. DINERO COMO STRING (regla 4): cost/ad_revenue tal cual el NUMERIC(14,4)
+   ("363.1400"); clicks entero; acos string de 2 decimales o null; moneda por
+   serie, jamas un total que mezcle monedas.
+7. SUPERFICIE OpenAPI: /api/dashboard solo registra GET.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import os
+import socket
+from contextlib import contextmanager
+from decimal import Decimal
+from pathlib import Path
+
+import pglast
+import psycopg
+import pytest
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
+from psycopg.conninfo import make_conninfo
+from test_schema import _postgres_obligatorio_ausente, _test_dsn
+
+from app import api_dashboard as dash
+from app.main import app
+
+_DIA = dt.timedelta(days=1)
+
+SQL_MIGRACION = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0001_initial.sql"
+).read_text(encoding="utf-8")
+
+
+def _obs(fecha: dt.date, hora: int = 1) -> dt.datetime:
+    """observed_at de una observacion: medianoche + hora UTC (>= metric_date)."""
+    return dt.datetime(fecha.year, fecha.month, fecha.day, hora, tzinfo=dt.UTC)
+
+
+# ---------------------------------------------------------------------------
+# Patron _db_temporal COPIADO de test_api (con factory de conecs)
+# ---------------------------------------------------------------------------
+
+
+@contextmanager
+def _db_temporal(prefijo: str):
+    """DB temporal con la migracion entera; yields (conn, dsn_lectura)."""
+    from psycopg import sql as pgsql
+
+    dsn = _test_dsn()
+    db = f"{prefijo}_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(dsn, dbname=db, autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        conn.execute(SQL_MIGRACION)
+        dsn_lectura = make_conninfo(dsn, dbname=db)
+        yield conn, dsn_lectura
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()
+
+
+def _cliente(dsn_lectura: str, monkeypatch) -> TestClient:
+    """TestClient con el router conectado a la DB temporal (rol de lectura)."""
+    monkeypatch.setenv("ORBIT_DSN_READ", dsn_lectura)
+    return TestClient(app)
+
+
+def _hoy(monkeypatch, fecha: dt.date) -> None:
+    """Reloj fijo UTC del dashboard (determinismo; sin now() escondido)."""
+    monkeypatch.setattr(dash, "_hoy_utc", lambda: fecha)
+
+
+# ---------------------------------------------------------------------------
+# Seeds (helpers del estilo test_api, copiados)
+# ---------------------------------------------------------------------------
+
+
+def _run(conn) -> int:
+    return conn.execute("INSERT INTO ingest_run (source) VALUES ('test') RETURNING id").fetchone()[
+        0
+    ]
+
+
+def _campana(conn, platform: str, external: str, name=None) -> int:
+    return conn.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id, name)"
+        " VALUES (%s, 'campaign', %s, %s) RETURNING id",
+        (platform, external, name),
+    ).fetchone()[0]
+
+
+def _grupo(conn, platform: str, external: str, parent: int) -> int:
+    return conn.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id, parent_id)"
+        " VALUES (%s, 'ad_group', %s, %s) RETURNING id",
+        (platform, external, parent),
+    ).fetchone()[0]
+
+
+def _keyword(conn, platform: str, external: str, parent: int, text: str) -> int:
+    return conn.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id, parent_id, match_type,"
+        " keyword_text) VALUES (%s, 'keyword', %s, %s, 'EXACT', %s) RETURNING id",
+        (platform, external, parent, text),
+    ).fetchone()[0]
+
+
+def _metrica(
+    conn, run_id, ad_entity_id, fecha, *, cost, ad_revenue, clicks, moneda, observed_at=None
+) -> None:
+    """Una observacion de metricas (bitemporal: observed_at controlable)."""
+    conn.execute(
+        "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
+        " metric_currency, cost, ad_revenue, impressions, clicks, orders, ingest_run_id)"
+        " VALUES (%s, %s, %s, %s, %s, %s, NULL, %s, NULL, %s)",
+        (
+            ad_entity_id,
+            fecha,
+            observed_at or _obs(fecha),
+            moneda,
+            None if cost is None else Decimal(cost),
+            None if ad_revenue is None else Decimal(ad_revenue),
+            clicks,
+            run_id,
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# UNITARIOS puros (corren siempre, sin DB): ACoS, ventana efectiva, spine
+# ---------------------------------------------------------------------------
+
+
+def test_acoso_ratio_2_decimales_y_sin_ventas():
+    """Caso real amazon_mx 2026-08-22: 363.1400 / 3262.0600 -> "11.13".
+    revenue == 0 conocido -> sin_ventas (caso real amazon_us: 66.6300 / 0).
+    cost o revenue None -> dato faltante (acos null, sin_ventas false)."""
+    assert dash._acoso(Decimal("363.1400"), Decimal("3262.0600")) == ("11.13", False)
+    assert dash._acoso(Decimal("66.6300"), Decimal("0")) == (None, True)
+    assert dash._acoso(Decimal("0"), Decimal("0")) == (None, True)  # no hubo ventas
+    assert dash._acoso(Decimal("5"), None) == (None, False)
+    assert dash._acoso(None, Decimal("5")) == (None, False)
+    assert dash._acoso(None, None) == (None, False)
+
+
+def test_ventana_efectiva_default_recorte_y_validaciones():
+    """Default [D-30, D-1]; el dia en curso EXCLUIDO (hasta se recorta a D-1);
+    desde > hasta tras recorte -> 422; ventana > 366 dias -> 422."""
+    hoy = dt.date(2026, 8, 24)
+    assert dash._ventana_efectiva(None, None, hoy) == (
+        dt.date(2026, 7, 25),
+        dt.date(2026, 8, 23),
+    )
+    # hasta que pide el dia en curso: recorte a D-1
+    assert dash._ventana_efectiva(dt.date(2026, 8, 1), dt.date(2026, 8, 24), hoy) == (
+        dt.date(2026, 8, 1),
+        dt.date(2026, 8, 23),
+    )
+    with pytest.raises(HTTPException) as exc:
+        dash._ventana_efectiva(dt.date(2026, 8, 24), dt.date(2026, 8, 24), hoy)
+    assert exc.value.status_code == 422
+    with pytest.raises(HTTPException) as exc2:
+        dash._ventana_efectiva(dt.date(2025, 1, 1), dt.date(2026, 8, 23), hoy)
+    assert exc2.value.status_code == 422
+
+
+def test_arma_serie_spine_completo_con_huecos_null():
+    """Spine: TODAS las fechas del rango; fecha sin fila -> todo null
+    (hueco visible), JAMAS 0; inmaduro relativo a hoy (D-8..D-1)."""
+    hoy = dt.date(2026, 8, 24)
+    por_fecha = {dt.date(2026, 8, 20): (Decimal("2.0000"), Decimal("6.0000"), 2)}
+    serie = dash._arma_serie(dt.date(2026, 8, 19), dt.date(2026, 8, 21), por_fecha, hoy)
+    assert [s["fecha"] for s in serie] == ["2026-08-19", "2026-08-20", "2026-08-21"]
+    hueco = serie[0]
+    assert hueco["cost"] is None and hueco["ad_revenue"] is None
+    assert hueco["clicks"] is None and hueco["acos"] is None
+    assert hueco["sin_ventas"] is False
+    assert serie[1]["cost"] == "2.0000" and serie[1]["acos"] == "33.33"
+    assert serie[1]["sin_ventas"] is False
+    # inmaduro: D-8..D-1 -> 08-16..08-23; 08-19/20/21 SI, 08-15 NO
+    assert serie[0]["inmaduro"] is True and serie[2]["inmaduro"] is True
+    serie_fuera = dash._arma_serie(dt.date(2026, 8, 14), dt.date(2026, 8, 15), {}, hoy)
+    assert all(s["inmaduro"] is False for s in serie_fuera)
+
+
+# ---------------------------------------------------------------------------
+# Candados SIN Postgres (corren siempre): SQL anti-doble-conteo + parseo
+# ---------------------------------------------------------------------------
+
+
+def test_series_sql_filtran_kind_campaign_en_ad_entity():
+    """Candado ANTI-DOBLE-CONTEO a nivel SQL (regla 9, corre sin Postgres):
+    ambas queries de serie JOIN ad_entity y filtran e.kind = 'campaign'. Sin
+    ese filtro, las filas keyword/product_target del mismo dia duplicarian el
+    dinero (evidencia: campaign 63.96 = keyword 24.94 + product_target 39.02
+    -> 2x). Demostrado FALLANDO contra el SQL sin el filtro (rojo en
+    out/tdd-red-1.3.log)."""
+    for nombre in ("_SQL_SERIE_PLATAFORMA", "_SQL_SERIE_CAMPANA"):
+        sql = getattr(dash, nombre).replace("%s", "NULL")
+        normalizada = pglast.prettify(sql)
+        assert "ad_entity" in normalizada, f"{nombre}: sin JOIN a ad_entity"
+        assert "kind" in normalizada and "campaign" in normalizada, (
+            f"{nombre}: sin el filtro e.kind='campaign' las hojas duplicarian el dinero"
+        )
+
+
+def test_sql_del_modulo_dashboard_parsea_como_postgres():
+    """Sintaxis de las SQL del modulo (patron test_api): pglast valida que las
+    constantes parsean como Postgres real (un typo muere en CI, no en prod)."""
+    nombres = sorted(n for n in vars(dash) if n.startswith("_SQL_"))
+    assert nombres, "no se encontraron constantes _SQL_* en app/api_dashboard"
+    for nombre in nombres:
+        sql = getattr(dash, nombre).replace("%s", "NULL")
+        assert pglast.parse_sql(sql), f"{nombre} no parseo"
+
+
+def test_router_dashboard_solo_registra_get():
+    """Superficie OpenAPI COMPLETA: /api/dashboard solo expone GET (CERO
+    escrituras en PR1; introspeccion de rutas, no convencion)."""
+    paths = app.openapi()["paths"]
+    rutas = {path: metodos for path, metodos in paths.items() if path.startswith("/api/dashboard")}
+    assert rutas, "no se encontraron rutas /api/dashboard en el OpenAPI"
+    for path, metodos in rutas.items():
+        assert set(metodos) == {"get"}, (
+            f"{path} expone {sorted(metodos)}: el router de PR1 solo puede exponer GET"
+        )
+
+
+def test_sin_dsn_de_lectura_fail_closed_503(monkeypatch):
+    """Misma dependencia de lectura que api.py: sin ORBIT_DSN_READ -> 503 con
+    mensaje claro (corre sin Postgres)."""
+    monkeypatch.delenv("ORBIT_DSN_READ", raising=False)
+    resp = TestClient(app).get("/api/dashboard/series/plataforma", params={"platform": "amazon_us"})
+    assert resp.status_code == 503
+    assert "ORBIT_DSN_READ" in resp.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# INTEGRACION (skipif fail-closed sin Postgres): los sellos sobre la DB real
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_serie_plataforma_colapso_bitemporal_gana_la_ultima(monkeypatch):
+    """Regla 5: dos observaciones de la misma (entidad, fecha) -> la serie usa
+    la ULTIMA por observed_at (v_metric_latest), jamas la cruda."""
+    with _db_temporal("orbit_dash_colapso") as (conn, dsn):
+        run = _run(conn)
+        camp = _campana(conn, "amazon_us", "9001", name="Campaña A")
+        fecha = dt.date(2026, 8, 20)
+        _metrica(
+            conn,
+            run,
+            camp,
+            fecha,
+            cost="10.0000",
+            ad_revenue="30.0000",
+            clicks=3,
+            moneda="USD",
+            observed_at=_obs(fecha, 1),
+        )
+        _metrica(
+            conn,
+            run,
+            camp,
+            fecha,
+            cost="20.0000",
+            ad_revenue="60.0000",
+            clicks=6,
+            moneda="USD",
+            observed_at=_obs(fecha, 3),
+        )
+        _hoy(monkeypatch, dt.date(2026, 8, 24))
+        resp = _cliente(dsn, monkeypatch).get(
+            "/api/dashboard/series/plataforma",
+            params={"platform": "amazon_us", "desde": "2026-08-20", "hasta": "2026-08-20"},
+        )
+        assert resp.status_code == 200
+        fila = resp.json()["series"][0]
+        assert fila["cost"] == "20.0000"  # la ULTIMA observacion gana
+        assert fila["ad_revenue"] == "60.0000"
+        assert fila["clicks"] == 6
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_serie_plataforma_anti_doble_conteo_solo_campaign(monkeypatch):
+    """Evidencia real (amazon_us 2026-08-20): campaign suma 63.96 y las hojas
+    suman EXACTO lo mismo (keyword 24.94 + product_target 39.02). La serie usa
+    SOLO la fila campaign: sin el filtro kind='campaign' duplicaria el dinero
+    (regla 9; el candado SQL test_series_sql_filtran_kind_campaign_en_ad_entity
+    se demuestra fallando contra el SQL sin el filtro)."""
+    with _db_temporal("orbit_dash_doble") as (conn, dsn):
+        run = _run(conn)
+        camp = _campana(conn, "amazon_us", "9001")
+        ag = _grupo(conn, "amazon_us", "9101", parent=camp)
+        kw = _keyword(conn, "amazon_us", "9201", parent=ag, text="girasoles")
+        fecha = dt.date(2026, 8, 20)
+        _metrica(
+            conn, run, camp, fecha, cost="63.9600", ad_revenue="100.0000", clicks=10, moneda="USD"
+        )
+        _metrica(conn, run, kw, fecha, cost="24.9400", ad_revenue="40.0000", clicks=4, moneda="USD")
+        _hoy(monkeypatch, dt.date(2026, 8, 24))
+        resp = _cliente(dsn, monkeypatch).get(
+            "/api/dashboard/series/plataforma",
+            params={"platform": "amazon_us", "desde": "2026-08-20", "hasta": "2026-08-20"},
+        )
+        assert resp.status_code == 200
+        fila = resp.json()["series"][0]
+        assert fila["cost"] == "63.9600"  # SOLO campaign; 63.96+24.94 seria 2x
+        assert fila["ad_revenue"] == "100.0000"
+        assert fila["clicks"] == 10
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_serie_spine_fechas_completo_y_huecos_null_no_cero(monkeypatch):
+    """Spine: TODAS las fechas del rango; una fecha sin fila -> null (hueco
+    visible), JAMAS 0 (regla 3)."""
+    with _db_temporal("orbit_dash_spine") as (conn, dsn):
+        run = _run(conn)
+        camp = _campana(conn, "amazon_us", "9001")
+        _metrica(
+            conn,
+            run,
+            camp,
+            dt.date(2026, 8, 18),
+            cost="1.0000",
+            ad_revenue="3.0000",
+            clicks=1,
+            moneda="USD",
+        )
+        _metrica(
+            conn,
+            run,
+            camp,
+            dt.date(2026, 8, 20),
+            cost="2.0000",
+            ad_revenue="6.0000",
+            clicks=2,
+            moneda="USD",
+        )
+        _hoy(monkeypatch, dt.date(2026, 8, 24))
+        resp = _cliente(dsn, monkeypatch).get(
+            "/api/dashboard/series/plataforma",
+            params={"platform": "amazon_us", "desde": "2026-08-18", "hasta": "2026-08-20"},
+        )
+        assert resp.status_code == 200
+        series = resp.json()["series"]
+        assert [s["fecha"] for s in series] == ["2026-08-18", "2026-08-19", "2026-08-20"]
+        hueco = series[1]  # 08-19 sin fila
+        assert hueco["cost"] is None and hueco["ad_revenue"] is None
+        assert hueco["clicks"] is None and hueco["acos"] is None
+        assert hueco["sin_ventas"] is False
+        assert series[0]["cost"] == "1.0000"
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_serie_null_metrico_envenena_el_agregado(monkeypatch):
+    """Regla 3: una campana con cost NULL ese dia envenena el agregado
+    (bool_and, mismo criterio que windows.py): cost null, jamas '0.0000'."""
+    with _db_temporal("orbit_dash_null") as (conn, dsn):
+        run = _run(conn)
+        camp = _campana(conn, "amazon_us", "9001")
+        _metrica(
+            conn,
+            run,
+            camp,
+            dt.date(2026, 8, 20),
+            cost=None,
+            ad_revenue="5.0000",
+            clicks=2,
+            moneda="USD",
+        )
+        _hoy(monkeypatch, dt.date(2026, 8, 24))
+        resp = _cliente(dsn, monkeypatch).get(
+            "/api/dashboard/series/plataforma",
+            params={"platform": "amazon_us", "desde": "2026-08-20", "hasta": "2026-08-20"},
+        )
+        fila = resp.json()["series"][0]
+        assert fila["cost"] is None
+        assert fila["ad_revenue"] == "5.0000"
+        assert fila["acos"] is None
+        assert fila["sin_ventas"] is False
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_serie_sin_ventas_caso_real_amazon_us(monkeypatch):
+    """Caso REAL de la evidencia (amazon_us 2026-08-22): cost 66.6300, revenue
+    0.0000 -> acos null + sin_ventas true, jamas division ni 0 enganoso."""
+    with _db_temporal("orbit_dash_sinventas") as (conn, dsn):
+        run = _run(conn)
+        camp = _campana(conn, "amazon_us", "9001")
+        _metrica(
+            conn,
+            run,
+            camp,
+            dt.date(2026, 8, 22),
+            cost="66.6300",
+            ad_revenue="0.0000",
+            clicks=5,
+            moneda="USD",
+        )
+        _hoy(monkeypatch, dt.date(2026, 8, 24))
+        resp = _cliente(dsn, monkeypatch).get(
+            "/api/dashboard/series/plataforma",
+            params={"platform": "amazon_us", "desde": "2026-08-22", "hasta": "2026-08-22"},
+        )
+        fila = resp.json()["series"][0]
+        assert fila["acos"] is None
+        assert fila["sin_ventas"] is True
+        assert fila["cost"] == "66.6300"
+        assert fila["ad_revenue"] == "0.0000"
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_serie_dinero_string_y_acos_ratio_caso_mx(monkeypatch):
+    """Caso REAL amazon_mx 2026-08-22: cost 363.1400, revenue 3262.0600, clicks
+    116 -> dinero STRING con 4 decimales tal cual, acos "11.13", moneda MXN."""
+    with _db_temporal("orbit_dash_dinero") as (conn, dsn):
+        run = _run(conn)
+        camp = _campana(conn, "amazon_mx", "9002", name="Campaña MX")
+        _metrica(
+            conn,
+            run,
+            camp,
+            dt.date(2026, 8, 22),
+            cost="363.1400",
+            ad_revenue="3262.0600",
+            clicks=116,
+            moneda="MXN",
+        )
+        _hoy(monkeypatch, dt.date(2026, 8, 24))
+        resp = _cliente(dsn, monkeypatch).get(
+            "/api/dashboard/series/plataforma",
+            params={"platform": "amazon_mx", "desde": "2026-08-22", "hasta": "2026-08-22"},
+        )
+        data = resp.json()
+        assert data["moneda"] == "MXN"
+        fila = data["series"][0]
+        assert isinstance(fila["cost"], str) and fila["cost"] == "363.1400"
+        assert isinstance(fila["ad_revenue"], str) and fila["ad_revenue"] == "3262.0600"
+        assert isinstance(fila["clicks"], int) and fila["clicks"] == 116
+        assert fila["acos"] == "11.13"
+        assert fila["sin_ventas"] is False
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_serie_dia_en_curso_excluido_default_y_recorte(monkeypatch):
+    """Sellado: el dia en curso jamas se sirve. Default [D-30, D-1]; un hasta
+    explicito que pide el dia en curso se RECORTA a D-1 y la respuesta declara
+    el rango efectivo."""
+    with _db_temporal("orbit_dash_hoy") as (conn, dsn):
+        run = _run(conn)
+        camp = _campana(conn, "amazon_us", "9001")
+        _metrica(
+            conn,
+            run,
+            camp,
+            dt.date(2026, 8, 23),
+            cost="1.0000",
+            ad_revenue="3.0000",
+            clicks=1,
+            moneda="USD",
+        )
+        _metrica(
+            conn,
+            run,
+            camp,
+            dt.date(2026, 8, 24),
+            cost="9.0000",
+            ad_revenue="27.0000",
+            clicks=9,
+            moneda="USD",
+        )
+        _hoy(monkeypatch, dt.date(2026, 8, 24))
+        cliente = _cliente(dsn, monkeypatch)
+        # default: [D-30, D-1] = 30 dias; el 08-24 (dia en curso) queda fuera
+        r = cliente.get("/api/dashboard/series/plataforma", params={"platform": "amazon_us"})
+        data = r.json()
+        assert data["desde"] == "2026-07-25" and data["hasta"] == "2026-08-23"
+        assert len(data["series"]) == 30
+        assert data["series"][-1]["fecha"] == "2026-08-23"
+        assert data["series"][-1]["cost"] == "1.0000"  # el 08-24 no entra
+        # hasta explicito con el dia en curso: recorte a D-1, rango declarado
+        r2 = cliente.get(
+            "/api/dashboard/series/plataforma",
+            params={"platform": "amazon_us", "desde": "2026-08-23", "hasta": "2026-08-24"},
+        )
+        data2 = r2.json()
+        assert data2["hasta"] == "2026-08-23"
+        assert [s["fecha"] for s in data2["series"]] == ["2026-08-23"]
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_serie_dias_inmaduros_d8_a_d1_marcados(monkeypatch):
+    """D-8..D-1 marcados inmaduro: true (la atribucion madura 5-8d y el costo
+    hasta D+15); el resto false. Relativo a hoy, independiente del rango."""
+    with _db_temporal("orbit_dash_inmaduro") as (conn, dsn):
+        run = _run(conn)
+        camp = _campana(conn, "amazon_us", "9001")
+        for fecha in (dt.date(2026, 8, 15), dt.date(2026, 8, 16), dt.date(2026, 8, 23)):
+            _metrica(
+                conn, run, camp, fecha, cost="1.0000", ad_revenue="3.0000", clicks=1, moneda="USD"
+            )
+        _hoy(monkeypatch, dt.date(2026, 8, 24))
+        resp = _cliente(dsn, monkeypatch).get(
+            "/api/dashboard/series/plataforma",
+            params={"platform": "amazon_us", "desde": "2026-08-15", "hasta": "2026-08-23"},
+        )
+        data = resp.json()
+        assert data["ventana_inmaduros"] == {"desde": "2026-08-16", "hasta": "2026-08-23"}
+        por_fecha = {s["fecha"]: s for s in data["series"]}
+        assert por_fecha["2026-08-15"]["inmaduro"] is False  # D-9
+        assert por_fecha["2026-08-16"]["inmaduro"] is True  # D-8
+        assert por_fecha["2026-08-23"]["inmaduro"] is True  # D-1
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_serie_plataforma_sin_datos_devuelve_spine_completo_de_nulls(monkeypatch):
+    """Plataforma sin datos: la respuesta trae TODO el rango con nulls
+    (spine obligatorio: el D-1 puede venir todo-null en la madrugada, antes
+    del cron de las 07:10 UTC), jamas 404 ni ceros."""
+    with _db_temporal("orbit_dash_vacio") as (_conn, dsn):
+        _hoy(monkeypatch, dt.date(2026, 8, 24))
+        resp = _cliente(dsn, monkeypatch).get(
+            "/api/dashboard/series/plataforma", params={"platform": "amazon_us"}
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["moneda"] == "USD"
+        assert len(data["series"]) == 30
+        assert all(
+            s["cost"] is None and s["ad_revenue"] is None and s["clicks"] is None
+            for s in data["series"]
+        )
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_serie_campana_contrato_404_422_y_nombre_null(monkeypatch):
+    """Serie por campana: mismo contrato de filas; 404 id inexistente; 422 si
+    la entidad no es kind='campaign'; nombre NULL (ad_entity.name nullable)
+    no revienta."""
+    with _db_temporal("orbit_dash_campana") as (conn, dsn):
+        run = _run(conn)
+        camp = _campana(conn, "amazon_us", "9001", name="Campaña A")
+        ag = _grupo(conn, "amazon_us", "9101", parent=camp)
+        _metrica(
+            conn,
+            run,
+            camp,
+            dt.date(2026, 8, 20),
+            cost="5.0000",
+            ad_revenue="15.0000",
+            clicks=2,
+            moneda="USD",
+        )
+        _hoy(monkeypatch, dt.date(2026, 8, 24))
+        cliente = _cliente(dsn, monkeypatch)
+        r = cliente.get(
+            "/api/dashboard/series/campana",
+            params={"ad_entity_id": camp, "desde": "2026-08-20", "hasta": "2026-08-20"},
+        )
+        assert r.status_code == 200
+        data = r.json()
+        assert data["ad_entity_id"] == camp
+        assert data["nombre"] == "Campaña A"
+        assert data["plataforma"] == "amazon_us" and data["moneda"] == "USD"
+        assert data["series"][0]["cost"] == "5.0000"
+        # id inexistente -> 404
+        assert (
+            cliente.get(
+                "/api/dashboard/series/campana", params={"ad_entity_id": 999_999}
+            ).status_code
+            == 404
+        )
+        # entidad que NO es campaign (ad group) -> 422
+        r422 = cliente.get("/api/dashboard/series/campana", params={"ad_entity_id": ag})
+        assert r422.status_code == 422
+        # nombre NULL no revienta
+        camp_sin_nombre = _campana(conn, "amazon_us", "9003")
+        r_null = cliente.get(
+            "/api/dashboard/series/campana",
+            params={"ad_entity_id": camp_sin_nombre, "desde": "2026-08-20", "hasta": "2026-08-20"},
+        )
+        assert r_null.status_code == 200
+        assert r_null.json()["nombre"] is None
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_serie_plataforma_vocabulario_y_ventana_invalidos_422(monkeypatch):
+    """platform fuera del vocabulario -> 422 (Literal de FastAPI); desde >
+    hasta -> 422 (regla del rango)."""
+    with _db_temporal("orbit_dash_422") as (conn, dsn):
+        _hoy(monkeypatch, dt.date(2026, 8, 24))
+        cliente = _cliente(dsn, monkeypatch)
+        r = cliente.get("/api/dashboard/series/plataforma", params={"platform": "meli"})
+        assert r.status_code == 422
+        r2 = cliente.get(
+            "/api/dashboard/series/plataforma",
+            params={"platform": "amazon_us", "desde": "2026-08-24", "hasta": "2026-08-20"},
+        )
+        assert r2.status_code == 422

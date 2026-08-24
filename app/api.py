@@ -43,6 +43,7 @@ import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 from psycopg.rows import dict_row
 
+from app.api_common import _dec_str
 from app.db import OrbitDbError, connect
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.windows import _SQL_SYNC_PLATAFORMA, _SQL_WATERMARK_PLATAFORMA
@@ -127,13 +128,6 @@ def _conexion_lectura():
 
 
 ConexionLectura = Annotated[psycopg.Connection, Depends(_conexion_lectura)]
-
-
-def _dec_str(valor) -> str | None:
-    """Decimal -> string TAL CUAL sale de la DB (regla 4: dinero como str,
-    jamas float; la escala del string es artefacto deterministico del
-    NUMERIC de origen, mismo criterio que _dec_str de app/cycle)."""
-    return str(valor) if valor is not None else None
 
 
 def _parse_notes(notes) -> dict | None:
