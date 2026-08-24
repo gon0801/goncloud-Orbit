@@ -1094,13 +1094,20 @@ def test_decisiones_paginacion_cursor_estable_con_insercion(monkeypatch):
     with _db_temporal("orbit_dash_cursor") as (conn, dsn):
         config_id = _config_version(conn, {"ads_optimizer_mode": "shadow"})
         camp = _campana(conn, "amazon_us", "9001", name="Campana A")
-        ciclo = _ciclo(conn, platform="amazon_us")
         inputs = {"motor": "bid", "motivo": "banda_menos_12", "target_acos_pct_usado": "25.00"}
-        # kind bid exige moneda por CHECK decision_valor_con_moneda (fallo
-        # real de la primera corrida en CI: el seed la omitia)
+        # CHECKs sellados (fallos reales de las primeras corridas en CI): bid
+        # exige moneda (decision_valor_con_moneda) y solo cabe UNA decision
+        # por entidad por ciclo (decision_unica_entidad_ciclo) -> un ciclo
+        # NUEVO por decision, como en la operacion real (un ciclo diario)
         ids = [
             _decision(
-                conn, ciclo, camp, kind="bid", config_id=config_id, inputs=inputs, moneda="USD"
+                conn,
+                _ciclo(conn, platform="amazon_us"),
+                camp,
+                kind="bid",
+                config_id=config_id,
+                inputs=inputs,
+                moneda="USD",
             )
             for _ in range(5)
         ]
@@ -1112,8 +1119,17 @@ def test_decisiones_paginacion_cursor_estable_con_insercion(monkeypatch):
         assert data1["next_cursor"] == ids[3]
         assert data1["has_more"] is True
 
-        # insercion concurrente simulada: decision NUEVA con id mayor
-        _decision(conn, ciclo, camp, kind="bid", config_id=config_id, inputs=inputs, moneda="USD")
+        # insercion concurrente simulada: decision NUEVA con id mayor (su
+        # propio ciclo: una decision por entidad por ciclo)
+        _decision(
+            conn,
+            _ciclo(conn, platform="amazon_us"),
+            camp,
+            kind="bid",
+            config_id=config_id,
+            inputs=inputs,
+            moneda="USD",
+        )
 
         r2 = cliente.get(
             "/api/dashboard/decisiones", params={"limit": 2, "cursor": data1["next_cursor"]}
@@ -1173,7 +1189,9 @@ def test_decisiones_trampa_pause_null_y_target_desde_inputs(monkeypatch):
         )
         id_pause = _decision(
             conn,
-            ciclo,
+            # ciclo PROPIO: bid ya decidio sobre camp en `ciclo` y el schema
+            # sella una decision por entidad por ciclo
+            _ciclo(conn, platform="amazon_us"),
             camp,
             kind="pause",
             config_id=config_id,

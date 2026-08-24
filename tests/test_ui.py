@@ -351,13 +351,14 @@ def test_ui_decisiones_propaga_el_cursor(monkeypatch):
     pagina solo muestra ids MENORES."""
     with _db_temporal("orbit_ui_cursor") as (conn, dsn):
         config_id = _config_version(conn, {"ads_optimizer_mode": "shadow"})
-        ciclo = _ciclo(conn, platform="amazon_us")
         camp = _campana(conn, "amazon_us", "9001", name="Campana A")
         inputs = {"motivo": "banda_menos_12", "target_acos_pct_usado": "20"}
+        # un ciclo por decision: el schema sella UNA decision por entidad
+        # por ciclo (decision_unica_entidad_ciclo)
         ids = [
             _decision(
                 conn,
-                ciclo,
+                _ciclo(conn, platform="amazon_us"),
                 camp,
                 kind="bid",
                 config_id=config_id,
