@@ -225,23 +225,50 @@ def test_arma_serie_spine_completo_con_huecos_null():
 # ---------------------------------------------------------------------------
 
 
+def _conjuntos_and(nodo):
+    """Aplana SOLO conjunciones AND del WHERE: lo que quede bajo un OR no es
+    obligatorio (un `... OR TRUE` re-incluiria las hojas por precedencia)."""
+    from pglast import ast as pgast
+    from pglast import enums as pgenums
+
+    if isinstance(nodo, pgast.BoolExpr) and nodo.boolop == pgenums.BoolExprType.AND_EXPR:
+        planos = []
+        for arg in nodo.args:
+            planos.extend(_conjuntos_and(arg))
+        return planos
+    return [nodo]
+
+
 def test_series_sql_filtran_kind_campaign_en_ad_entity():
     """Candado ANTI-DOBLE-CONTEO a nivel SQL (regla 9, corre sin Postgres):
-    ambas queries de serie JOIN ad_entity y filtran e.kind = 'campaign'. Sin
-    ese filtro, las filas keyword/product_target del mismo dia duplicarian el
-    dinero (evidencia: campaign 63.96 = keyword 24.94 + product_target 39.02
-    -> 2x). Demostrado FALLANDO contra el SQL sin el filtro (rojo en
-    out/tdd-red-1.3.log)."""
+    en ambas queries de serie, e.kind = 'campaign' es conjuncion OBLIGATORIA
+    (AND de nivel superior del WHERE), verificado por AST — el containment
+    lexico aceptaba un mutante `... OR TRUE` que re-incluye las hojas por
+    precedencia SQL (hallazgo kimi + CodeRabbit). Sin el filtro, keyword y
+    product_target duplican el dinero (evidencia: campaign 63.96 = keyword
+    24.94 + product_target 39.02 -> 2x). Rojo original en out/tdd-red-1.3.log;
+    el poder discriminante contra el mutante se demuestra AQUI mismo."""
+    from pglast.stream import RawStream
+
     for nombre in ("_SQL_SERIE_PLATAFORMA", "_SQL_SERIE_CAMPANA"):
         sql = getattr(dash, nombre).replace("%s", "NULL")
-        # predicado EXACTO sobre el SQL normalizado (hallazgo kimi: el
-        # containment suelto de "kind"/"campaign" pasaria con el filtro mal
-        # puesto o en un comentario)
         normalizada = " ".join(pglast.prettify(sql).lower().split())
         assert "join ad_entity" in normalizada, f"{nombre}: sin JOIN a ad_entity"
-        assert "e.kind = 'campaign'" in normalizada, (
-            f"{nombre}: sin el predicado e.kind = 'campaign' las hojas duplicarian el dinero"
+        where = pglast.parse_sql(sql)[0].stmt.whereClause
+        conjuntos = [RawStream()(c) for c in _conjuntos_and(where)]
+        assert "e.kind = 'campaign'" in conjuntos, (
+            f"{nombre}: e.kind = 'campaign' no es conjuncion obligatoria del "
+            f"WHERE (conjuntos: {conjuntos})"
         )
+    # regla 9 in situ: el mutante OR TRUE NO pasa este candado
+    mutante = dash._SQL_SERIE_PLATAFORMA.replace("%s", "NULL").replace(
+        "e.kind = 'campaign'", "e.kind = 'campaign' OR TRUE"
+    )
+    where_mutante = pglast.parse_sql(mutante)[0].stmt.whereClause
+    conjuntos_mutante = [RawStream()(c) for c in _conjuntos_and(where_mutante)]
+    assert "e.kind = 'campaign'" not in conjuntos_mutante, (
+        "el candado no discrimina el mutante OR TRUE"
+    )
 
 
 def test_sql_del_modulo_dashboard_parsea_como_postgres():
@@ -407,11 +434,16 @@ def test_serie_spine_fechas_completo_y_huecos_null_no_cero(monkeypatch):
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 def test_serie_null_metrico_envenena_el_agregado(monkeypatch):
-    """Regla 3: una campana con cost NULL ese dia envenena el agregado
-    (bool_and, mismo criterio que windows.py): cost null, jamas '0.0000'."""
+    """Regla 3: una campana con cost NULL ese dia envenena el agregado de ESA
+    metrica (bool_and, criterio de windows.py): cost null, JAMAS una suma
+    PARCIAL enganosa. La segunda campana con cost CONOCIDO es la que
+    discrimina (hallazgo CodeRabbit: con una sola campana, SUM(NULL) da NULL
+    hasta sin bool_and — un SUM parcial aqui devolveria "1.0000"). Las
+    metricas completas del dia (revenue, clicks) SI suman."""
     with _db_temporal("orbit_dash_null") as (conn, dsn):
         run = _run(conn)
         camp = _campana(conn, "amazon_us", "9001")
+        camp_con_cost = _campana(conn, "amazon_us", "9002")
         _metrica(
             conn,
             run,
@@ -422,14 +454,25 @@ def test_serie_null_metrico_envenena_el_agregado(monkeypatch):
             clicks=2,
             moneda="USD",
         )
+        _metrica(
+            conn,
+            run,
+            camp_con_cost,
+            dt.date(2026, 8, 20),
+            cost="1.0000",
+            ad_revenue="3.0000",
+            clicks=1,
+            moneda="USD",
+        )
         _hoy(monkeypatch, dt.date(2026, 8, 24))
         resp = _cliente(dsn, monkeypatch).get(
             "/api/dashboard/series/plataforma",
             params={"platform": "amazon_us", "desde": "2026-08-20", "hasta": "2026-08-20"},
         )
         fila = resp.json()["series"][0]
-        assert fila["cost"] is None
-        assert fila["ad_revenue"] == "5.0000"
+        assert fila["cost"] is None  # envenenado: un SUM parcial daria "1.0000"
+        assert fila["ad_revenue"] == "8.0000"  # metrica completa: suma normal
+        assert fila["clicks"] == 3
         assert fila["acos"] is None
         assert fila["sin_ventas"] is False
 
