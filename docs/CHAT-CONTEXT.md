@@ -17,7 +17,11 @@ ORBIT 03 COMPLETO (17/17 tareas): el optimizador decide EN SOMBRA todos
 los dias (crons 06:45/07:10/08:40-08:41 UTC) sobre todas las campanas
 activas, con cero capacidad de escribir a Amazon. El reloj de las 2
 semanas de shadow para el cutover (ORBIT 05) corre desde el 2026-08-24.
-Siguiente proyecto: ORBIT 04 (PR2: el apply con topes). Este archivo
+EN CURSO: ORBIT 16 — dashboard de lectura (plan
+plans/dashboard-01.md): bloque 1.1–1.3 hecho (brief, cascada con
+procedencia, series temporales) en PR #19 draft, revisado por lead +
+reviewer fresco + Kimi + CodeRabbit + Greptile, cero altas. Siguiente
+proyecto grande: ORBIT 04 (PR2: el apply con topes). Este archivo
 tiene candado de frescura: el CI exige actualizarlo en cada PR que
 cierre tareas.**
 
