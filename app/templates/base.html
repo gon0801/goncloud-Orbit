@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Orbit — Dashboard</title>
+  {# CSS y JS EXTERNOS en /static: la CSP default-src 'self' bloquea todo lo
+     inline (hallazgo mayor de la review del bloque 2). Los unicos bloques de
+     script inline permitidos son los INERTES type="application/json". #}
+  <link rel="stylesheet" href="/static/css/dashboard.css">
+</head>
+<body data-pantalla="{{ pantalla }}">
+  <header>
+    <h1>Orbit — Dashboard</h1>
+    <nav>
+      <a href="/" {% if pantalla == "resumen" %}aria-current="page"{% endif %}>Resumen</a>
+      <a href="/campanas" {% if pantalla == "campanas" %}aria-current="page"{% endif %}>Campanas</a>
+      <a href="/decisiones" {% if pantalla == "decisiones" %}aria-current="page"{% endif %}>Decisiones</a>
+      <a href="/salud" {% if pantalla == "salud" %}aria-current="page"{% endif %}>Salud</a>
+    </nav>
+  </header>
+  <main>
+    {% block contenido %}{% endblock %}
+  </main>
+  <script src="/static/vendor/chart.umd.min.js"></script>
+  <script src="/static/js/dashboard.js"></script>
+</body>
+</html>

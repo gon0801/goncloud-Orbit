@@ -21,6 +21,12 @@ Reglas selladas (plans/orbit-03.md task 2.4 + Spec delta de CONTEXTO.md):
   plataforma DEL ENUM, amazon_us/amazon_mx) -> ad_entity_state.acos_target
   (cache de lo publicado en Amazon; NO es la fuente, ver su COMMENT) ->
   DEFAULT_TARGET_PCT 55.
+- VARIANTE CON PROCEDENCIA (ORBIT 16, task 1.2): `cascada_target_acos_con_procedencia`
+  devuelve (valor, peldaño) con los CINCO peldaños (goal_campana, goal_plataforma,
+  setting_plataforma, cache_estado, default) para el dashboard. Compatible con el
+  camino del motor (misma aritmetica; la campana PISA siempre que exista: con un
+  goal de campana de target None, el target del goal de plataforma NO entra --
+  testeado por equivalencia). La capa web la REUTILIZA, jamas la reimplementa.
 - FLOOR/CEILING: la DB ya sella NOT NULL DEFAULT 0.10/2.50; un None solo
   puede venir de un Goal construido a mano (esta capa pura) y recibe el
   MISMO default: un None pasando al clamp de 2.2 seria un bid sin piso.
@@ -208,6 +214,64 @@ def cascada_target_acos(
         if valido is not None:
             return valido
     return DEFAULT_TARGET_PCT
+
+
+# ---------------------------------------------------------------------------
+# Variante con PROCEDENCIA (ORBIT 16, task 1.2): el dashboard expone QUE
+# peldano gano. Compatible con el camino del motor (cero cambio de
+# comportamiento: misma aritmetica, testeada por equivalencia); la capa web
+# jamas la reimplementa.
+# ---------------------------------------------------------------------------
+
+# Vocabulario sellado de los CINCO peldaños: el dashboard los muestra tal
+# cual; un nombre distinto aqui rompe el contrato de 1.4.
+PELDANOS_CASCADA = (
+    "goal_campana",
+    "goal_plataforma",
+    "setting_plataforma",
+    "cache_estado",
+    "default",
+)
+
+
+def cascada_target_acos_con_procedencia(
+    goal_campana: Goal | None,
+    goal_plataforma: Goal | None,
+    settings: Mapping,
+    cache_acos_target: Decimal | None,
+    platform: str,
+) -> tuple[Decimal, str]:
+    """Cascada sellada con PROCEDENCIA: devuelve (valor, peldaño) con los
+    CINCO peldaños y estos nombres EXACTOS: goal_campana, goal_plataforma,
+    setting_plataforma, cache_estado, default. Cada peldaño decide SOLO si el
+    anterior es None (regla 3); un valor PRESENTE pero invalido (<= 0, no
+    finito) revienta, jamas cae al siguiente. La clave del setting sale de
+    clave_target_plataforma(platform) via target_desde_settings -- REUTILIZADA,
+    no reimplementada (regla 2).
+
+    SEMANTICA DE LOS DOS GOALS, identica al camino del motor: el goal de
+    campana PISA SIEMPRE que exista (resuelve_goal, INCLUIDO enabled); si su
+    target es None, el target del goal de plataforma NO entra -- el motor
+    resuelve goal_campana y su cascada vieja salta el target None al setting.
+    El peldaño goal_plataforma solo gana cuando NO existe goal de campana.
+    Reportar 'goal_plataforma' cuando existe un goal de campana con target
+    None mentiria sobre lo que el motor decidio (regla 2: un numero, una
+    fuente; el test de equivalencia lo sella)."""
+    if goal_campana is not None:
+        valido = _valida_target_peldano(goal_campana.target_acos_pct, "goal_campana")
+        if valido is not None:
+            return (valido, "goal_campana")
+    elif goal_plataforma is not None:
+        valido = _valida_target_peldano(goal_plataforma.target_acos_pct, "goal_plataforma")
+        if valido is not None:
+            return (valido, "goal_plataforma")
+    setting = target_desde_settings(settings, platform)
+    if setting is not None:
+        return (setting, "setting_plataforma")
+    valido = _valida_target_peldano(cache_acos_target, "cache_estado")
+    if valido is not None:
+        return (valido, "cache_estado")
+    return (DEFAULT_TARGET_PCT, "default")
 
 
 def resuelve_floor_ceiling(goal: Goal | None) -> tuple[Decimal, Decimal]:

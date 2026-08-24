@@ -428,3 +428,188 @@ def test_cooldown_apply_de_ciclo_shadow_no_enfria():
 # (rojo demostrado contra el SQL sin el filtro), y la propiedad "los ciclos
 # shadow no escriben decision_application en PR1" vive en el docstring de
 # goals.py (en_cooldown).
+
+
+# ---------------------------------------------------------------------------
+# (d) CASCADA CON PROCEDENCIA (ORBIT 16 - DASHBOARD 01, task 1.2): variante
+#     valor+peldaño con los CINCO peldaños, compatible con el camino del motor
+# ---------------------------------------------------------------------------
+
+
+def _settings_target(us=None, mx=None) -> dict:
+    """settings de config_version solo con claves de target (la clave sale de
+    clave_target_plataforma, NUNCA una clave corta inventada)."""
+    settings = {}
+    if us is not None:
+        settings["ads_target_acos_pct_amazon_us"] = us
+    if mx is not None:
+        settings["ads_target_acos_pct_amazon_mx"] = mx
+    return settings
+
+
+def test_peldanos_vocabulario_exacto():
+    """El vocabulario de los CINCO peldaños es EXACTO y sellado: el dashboard
+    lo muestra tal cual y la variante lo reporta; un nombre distinto aqui
+    rompe el contrato de 1.4."""
+    assert g.PELDANOS_CASCADA == (
+        "goal_campana",
+        "goal_plataforma",
+        "setting_plataforma",
+        "cache_estado",
+        "default",
+    )
+
+
+def test_peldano_goal_campana_gana_y_reporta_su_nombre():
+    """Peldaño 1: el goal de campaña gana con TODO lo demás presente y reporta
+    su nombre exacto."""
+    campana = _goal(scope="campaign", ad_entity_id=1, platform=None, target_acos_pct=Decimal("18"))
+    plataforma = _goal(target_acos_pct=Decimal("25"))
+    settings = _settings_target(us=30)
+    valor, peldano = g.cascada_target_acos_con_procedencia(
+        campana, plataforma, settings, Decimal("28"), "amazon_us"
+    )
+    assert valor == Decimal("18")
+    assert peldano == "goal_campana"
+
+
+def test_peldano_goal_plataforma_gana_y_reporta_su_nombre():
+    """Peldaño 2: sin goal de campaña, el de plataforma gana (y reporta su
+    nombre), pisando setting/cache."""
+    plataforma = _goal(target_acos_pct=Decimal("25"))
+    settings = _settings_target(us=30)
+    valor, peldano = g.cascada_target_acos_con_procedencia(
+        None, plataforma, settings, Decimal("28"), "amazon_us"
+    )
+    assert valor == Decimal("25")
+    assert peldano == "goal_plataforma"
+
+
+def test_peldano_setting_plataforma_gana_y_reporta_su_nombre():
+    """Peldaño 3: sin goals, el setting de config gana. La clave es POR
+    plataforma (clave_target_plataforma): amazon_us y amazon_mx leen la suya."""
+    settings = _settings_target(us=30, mx=40)
+    valor, peldano = g.cascada_target_acos_con_procedencia(
+        None, None, settings, Decimal("28"), "amazon_us"
+    )
+    assert valor == Decimal("30")
+    assert peldano == "setting_plataforma"
+    valor_mx, peldano_mx = g.cascada_target_acos_con_procedencia(
+        None, None, settings, Decimal("28"), "amazon_mx"
+    )
+    assert valor_mx == Decimal("40")
+    assert peldano_mx == "setting_plataforma"
+
+
+def test_peldano_cache_estado_gana_y_reporta_su_nombre():
+    """Peldaño 4: sin goals ni setting, el cache de ad_entity_state gana."""
+    valor, peldano = g.cascada_target_acos_con_procedencia(
+        None, None, {}, Decimal("28"), "amazon_us"
+    )
+    assert valor == Decimal("28")
+    assert peldano == "cache_estado"
+
+
+def test_peldano_default_gana_y_reporta_su_nombre():
+    """Peldaño 5: todo None -> default 55 y reporta 'default'."""
+    valor, peldano = g.cascada_target_acos_con_procedencia(None, None, {}, None, "amazon_us")
+    assert valor == Decimal("55")
+    assert peldano == "default"
+    assert valor == g.DEFAULT_TARGET_PCT
+
+
+def test_procedencia_compatible_con_el_motor_campana_con_target_none():
+    """Compatibilidad con el camino del motor (cero cambio de comportamiento):
+    el motor resuelve con resuelve_goal (la campaña PISA SIEMPRE que existe) y
+    la cascada vieja salta el target None del goal resuelto al SETTING. Un goal
+    de campaña con target None NO puede caer al target del goal de plataforma:
+    el motor jamás lo usaría (resuelto=goal_campana, su target None -> setting).
+    Si el dashboard reportara 'goal_plataforma' ahí, mentiría sobre lo que el
+    motor decidió (regla 2: un número, una fuente)."""
+    campana = _goal(scope="campaign", ad_entity_id=1, platform=None, target_acos_pct=None)
+    plataforma = _goal(target_acos_pct=Decimal("25"))
+    settings = _settings_target(us=30)
+    valor, peldano = g.cascada_target_acos_con_procedencia(
+        campana, plataforma, settings, Decimal("28"), "amazon_us"
+    )
+    assert valor == Decimal("30")  # el 25 de la plataforma NO gana
+    assert peldano == "setting_plataforma"
+    # sin setting: cae al cache, tampoco al goal de plataforma
+    valor2, peldano2 = g.cascada_target_acos_con_procedencia(
+        campana, plataforma, {}, Decimal("28"), "amazon_us"
+    )
+    assert valor2 == Decimal("28")
+    assert peldano2 == "cache_estado"
+
+
+def test_procedencia_equivale_a_la_cascada_del_motor():
+    """Mismo valor que la cascada vieja en los casos discriminados (regla 2):
+    la variante con procedencia es una REFINACION de la cascada del motor, no
+    otra aritmética. El motor ya resolvió el goal (resuelve_goal), así que el
+    par (goal_campana, goal_plataforma) se compara contra
+    cascada_target_acos(resuelto.target, setting, cache)."""
+    casos = [
+        (None, None, {}, None, "amazon_us"),
+        (None, None, {"ads_target_acos_pct_amazon_us": 30}, None, "amazon_us"),
+        (None, None, {}, Decimal("28"), "amazon_us"),
+        (None, _goal(target_acos_pct=Decimal("25")), {}, None, "amazon_us"),
+        # rama elif con target None (hallazgo reviewer): goal de plataforma
+        # presente pero sin target -> setting, mismo camino que el motor
+        (
+            None,
+            _goal(target_acos_pct=None),
+            {"ads_target_acos_pct_amazon_us": 30},
+            Decimal("28"),
+            "amazon_us",
+        ),
+        (
+            _goal(scope="campaign", ad_entity_id=1, platform=None, target_acos_pct=Decimal("18")),
+            _goal(target_acos_pct=Decimal("25")),
+            {"ads_target_acos_pct_amazon_us": 30},
+            Decimal("28"),
+            "amazon_us",
+        ),
+        (
+            _goal(scope="campaign", ad_entity_id=1, platform=None, target_acos_pct=None),
+            _goal(target_acos_pct=Decimal("25")),
+            {"ads_target_acos_pct_amazon_us": 30},
+            Decimal("28"),
+            "amazon_us",
+        ),
+    ]
+    for goal_campana, goal_plataforma, settings, cache, platform in casos:
+        resuelto = g.resuelve_goal(goal_campana, goal_plataforma)
+        # el motor normaliza el setting con target_desde_settings ANTES de la
+        # cascada vieja (cycle.py): la comparacion usa la MISMA fuente
+        esperado = g.cascada_target_acos(
+            resuelto.target_acos_pct if resuelto is not None else None,
+            g.target_desde_settings(settings, platform),
+            cache,
+        )
+        valor, _peldano = g.cascada_target_acos_con_procedencia(
+            goal_campana, goal_plataforma, settings, cache, platform
+        )
+        assert valor == esperado
+
+
+def test_procedencia_peldano_invalido_revienta_no_cae_al_siguiente():
+    """Regla 3 (mismo criterio que la cascada vieja): un peldaño PRESENTE pero
+    invalido (<= 0, no finito) revienta ruidosamente, jamas cae al siguiente.
+    Los nombres de peldaño llevan guion bajo (no puntos): re.escape evita el
+    comodin de regex (patron del test de la cascada vieja)."""
+    campana_malo = _goal(
+        scope="campaign", ad_entity_id=1, platform=None, target_acos_pct=Decimal("0")
+    )
+    with pytest.raises(ValueError, match=re.escape("goal_campana")):
+        g.cascada_target_acos_con_procedencia(campana_malo, None, {}, None, "amazon_us")
+    plataforma_mala = _goal(target_acos_pct=Decimal("-5"))
+    with pytest.raises(ValueError, match=re.escape("goal_plataforma")):
+        g.cascada_target_acos_con_procedencia(None, plataforma_mala, {}, None, "amazon_us")
+    with pytest.raises(ValueError, match=re.escape("cache_estado")):
+        g.cascada_target_acos_con_procedencia(None, None, {}, Decimal("-5"), "amazon_us")
+    # setting corrupto: target_desde_settings (REUTILIZADA, no reimplementada)
+    # revienta con la clave sellada en el mensaje
+    with pytest.raises(ValueError, match="ads_target_acos_pct_amazon_us"):
+        g.cascada_target_acos_con_procedencia(
+            None, None, {"ads_target_acos_pct_amazon_us": 0}, None, "amazon_us"
+        )

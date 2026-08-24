@@ -17,9 +17,20 @@ ORBIT 03 COMPLETO (17/17 tareas): el optimizador decide EN SOMBRA todos
 los dias (crons 06:45/07:10/08:40-08:41 UTC) sobre todas las campanas
 activas, con cero capacidad de escribir a Amazon. El reloj de las 2
 semanas de shadow para el cutover (ORBIT 05) corre desde el 2026-08-24.
-Siguiente proyecto: ORBIT 04 (PR2: el apply con topes). Este archivo
-tiene candado de frescura: el CI exige actualizarlo en cada PR que
-cierre tareas.**
+ORBIT 16 Phase 1 CERRADA (7/7 tareas): dashboard de LECTURA en master
+y desplegado — 4 pantallas (Resumen con gráficas, Campañas con estado
+y procedencia del target, Decisiones por cursor, Salud), acceso por
+túnel ssh al 8010. El dueño validó el smoke 1.7 (gráficas OK bajo CSP
+estricta; pidió y recibió la columna de estado de campaña; se le
+explicó con datos vivos por qué el motor negativiza sus términos
+"arras": 116 clicks / 0 ventas en ventana madura — la decisión
+estratégica listing-vs-negative queda anotada para el apply). La
+review en cadena (lead + reviewer fresco + kimi/codex/grok + bots)
+atrapó y cerró bugs reales del bloque 2. Quedan Phase 2 (exposición
+VPN WireGuard, PR separado con sign-off) y Phase 3 (settings de
+escritura, bloqueada por ORBIT 04). Siguiente proyecto grande: ORBIT
+04 (PR2: el apply con topes). Este archivo tiene candado de frescura:
+el CI exige actualizarlo en cada PR que cierre tareas.**
 
 ## Qué es Orbit
 
