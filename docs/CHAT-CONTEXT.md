@@ -10,8 +10,10 @@ diaria D-31..D-1). 4.3 EJECUTADA por el dueño: escalera global en shadow,
 targets ACoS 20 (mx) y 20 (us — presión máxima elegida a sabiendas), TODAS
 las campañas activas vía goals de plataforma; harvest sin bid fijo por
 decisión (el bid sugerido de Amazon llega con el apply de PR2 — regla 3:
-jamás inventar el número). Siguen 4.4 (primer shadow real + spot-check del
-dueño) y 4.5 (cierre). Este archivo tiene candado de frescura: el CI exige
+jamás inventar el número). 4.4 VALIDADA por el dueño: primer shadow real corrido (133 decisiones,
+us 124 / mx 9), spot-check completo y verificación adversarial TRIPLE
+(codex, grok y qwen: 133/133 limpias, skips cuadrando al entero).
+Sigue solo 4.5 (cierre y merge). Este archivo tiene candado de frescura: el CI exige
 actualizarlo en cada PR que cierre tareas.**
 
 ## Qué es Orbit
