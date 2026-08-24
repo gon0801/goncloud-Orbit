@@ -230,9 +230,11 @@ def _decision(
     new_value=None,
     moneda=None,
 ) -> int:
-    """Una decision (inputs JSONB congelados). kind bid exige moneda por CHECK;
-    negative/harvest exigen window_end <= decided_at - 10d (trigger de madurez)
-    y moneda NULL; pause tolera TODO null (trampa real de la evidencia)."""
+    """Una decision (inputs JSONB congelados). CHECKs sellados: bid/budget/
+    harvest exigen moneda (decision_valor_con_moneda) aunque los valores vayan
+    null; pause/negative/harvest son CORTES y el trigger decision_madurez_corte
+    exige window_end <= decided_at - 10d. pause SI tolera old/new/moneda NULL
+    (trampa real de la evidencia) — pero NO esta exento de la madurez."""
     return conn.execute(
         "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
         " data_observed_at, window_start, window_end, search_term, old_value, new_value,"
@@ -1094,8 +1096,12 @@ def test_decisiones_paginacion_cursor_estable_con_insercion(monkeypatch):
         camp = _campana(conn, "amazon_us", "9001", name="Campana A")
         ciclo = _ciclo(conn, platform="amazon_us")
         inputs = {"motor": "bid", "motivo": "banda_menos_12", "target_acos_pct_usado": "25.00"}
+        # kind bid exige moneda por CHECK decision_valor_con_moneda (fallo
+        # real de la primera corrida en CI: el seed la omitia)
         ids = [
-            _decision(conn, ciclo, camp, kind="bid", config_id=config_id, inputs=inputs)
+            _decision(
+                conn, ciclo, camp, kind="bid", config_id=config_id, inputs=inputs, moneda="USD"
+            )
             for _ in range(5)
         ]
         cliente = _cliente(dsn, monkeypatch)
@@ -1107,7 +1113,7 @@ def test_decisiones_paginacion_cursor_estable_con_insercion(monkeypatch):
         assert data1["has_more"] is True
 
         # insercion concurrente simulada: decision NUEVA con id mayor
-        _decision(conn, ciclo, camp, kind="bid", config_id=config_id, inputs=inputs)
+        _decision(conn, ciclo, camp, kind="bid", config_id=config_id, inputs=inputs, moneda="USD")
 
         r2 = cliente.get(
             "/api/dashboard/decisiones", params={"limit": 2, "cursor": data1["next_cursor"]}
@@ -1171,6 +1177,10 @@ def test_decisiones_trampa_pause_null_y_target_desde_inputs(monkeypatch):
             camp,
             kind="pause",
             config_id=config_id,
+            # pause ES un corte: el trigger decision_madurez_corte exige
+            # window_end <= decided_at - 10d (fallo real de la primera
+            # corrida en CI: el default 08-16 lo violaba con decided 08-22)
+            window_end=dt.date(2026, 8, 12),
             inputs={"motor": "bid", "motivo": "pause_umbral", "target_acos_pct_usado": "20.00"},
         )
         id_negative = _decision(
