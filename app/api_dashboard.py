@@ -650,11 +650,13 @@ def decisiones(
 
 
 def _motivo_ciclo(status: str, notes) -> str | None:
-    """Motivo visible de un ciclo degraded/failed: de notes.motivo_skip
-    (guarda_*) traducido, o de notes.degradacion_live, o el texto plano del
-    notes (formato mixto); None en ciclos done sin motivo. jamas un ciclo
-    roto por un notes raro (regla 3: faltante = null)."""
-    if status not in ("degraded", "failed"):
+    """Motivo visible de un ciclo degraded/failed/skipped (grok r2: skipped
+    trae motivo_skip=escalera_off y quedaba fuera del filtro): de
+    notes.motivo_skip traducido, o notes.degradacion_live, o notes.error (el
+    sello de _sello_fallido persiste el error scrubbeado AHI — grok r2), o el
+    texto plano del notes (formato mixto); None en ciclos done sin motivo.
+    Jamas un ciclo roto por un notes raro (regla 3: faltante = null)."""
+    if status not in ("degraded", "failed", "skipped"):
         return None
     if isinstance(notes, dict):
         motivo_skip = notes.get("motivo_skip")
@@ -663,6 +665,12 @@ def _motivo_ciclo(status: str, notes) -> str | None:
         degradacion = notes.get("degradacion_live")
         if degradacion:
             return degradacion
+        # ciclos failed reales: _sello_fallido persiste el error scrubbeado
+        # bajo notes.error (grok r2: no se leia y el historico lo mostraba
+        # sin motivo)
+        error = notes.get("error")
+        if error:
+            return error
         # _parse_notes envuelve el texto plano como {"texto": ...}: la rama
         # vivia FUERA de este if y era inalcanzable (motivo perdido en ciclos
         # failed con notes de texto — lo atrapa test_salud_notes_mixto_* en CI)

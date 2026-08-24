@@ -1423,6 +1423,21 @@ def test_salud_notes_mixto_y_ciclos_degradado_failed_con_motivo(monkeypatch):
         )
         _ciclo(conn, platform="amazon_us", status="degraded", notes=notas_degradado)
         _ciclo(conn, platform="amazon_us", status="failed", notes="rastro: fallo del ciclo")
+        # grok r2: un failed REAL persiste el error scrubbeado en notes.error
+        # (_sello_fallido) y un skipped trae motivo_skip=escalera_off — ambos
+        # quedaban sin motivo visible
+        _ciclo(
+            conn,
+            platform="amazon_us",
+            status="failed",
+            notes=json_dumps({"skips": {"entidad": {}}, "error": "ValueError: sin watermark"}),
+        )
+        _ciclo(
+            conn,
+            platform="amazon_us",
+            status="skipped",
+            notes=json_dumps({"skips": {"entidad": {}}, "motivo_skip": "escalera_off"}),
+        )
         _hoy(monkeypatch, dt.date(2026, 8, 24))
         historico = (
             _cliente(dsn, monkeypatch)
@@ -1433,8 +1448,10 @@ def test_salud_notes_mixto_y_ciclos_degradado_failed_con_motivo(monkeypatch):
         # el assert (el `assert por_id` que habia aqui no discriminaba nada)
         degradado = next(h for h in historico if h["status"] == "degraded")
         assert degradado["motivo"] == "Watermark de la plataforma vencido (> 7 dias)"
-        failed = next(h for h in historico if h["status"] == "failed")
-        assert failed["motivo"] == "rastro: fallo del ciclo"
+        motivos_failed = {h["motivo"] for h in historico if h["status"] == "failed"}
+        assert motivos_failed == {"rastro: fallo del ciclo", "ValueError: sin watermark"}
+        saltado = next(h for h in historico if h["status"] == "skipped")
+        assert saltado["motivo"] == "Escalera global off"
 
 
 @pytest.mark.skipif(

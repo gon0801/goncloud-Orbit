@@ -177,6 +177,16 @@ def test_ui_templates_compatibles_con_csp_self():
             )
 
 
+def test_docs_de_fastapi_sin_csp_que_los_rompa():
+    """grok r2: /docs y /redoc cargan swagger/redoc desde CDN; la CSP
+    default-src 'self' los dejaria EN BLANCO. El middleware los excluye de la
+    CSP (superficie dev por tunel, fuera del contrato cero-CDN del dashboard);
+    las pantallas del dashboard SI la llevan (test de headers existente)."""
+    resp = TestClient(app).get("/docs")
+    assert resp.status_code == 200
+    assert "Content-Security-Policy" not in resp.headers
+
+
 def test_vendor_chartjs_intacto_por_hash():
     """El asset vendoreado es EXACTAMENTE el documentado en el brief §6
     (hallazgo review: el hash documentado no tenia candado — un reemplazo o

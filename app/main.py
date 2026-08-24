@@ -20,14 +20,18 @@ from app.ui import router as dashboard_ui_router
 
 
 class _HeadersDashboard(BaseHTTPMiddleware):
-    """CSP `default-src 'self'` + `Cache-Control: no-store` en TODAS las
-    respuestas HTML (decision 12 del header: XSS de dos contextos + cero
-    assets externos). La API JSON no los necesita y no los recibe."""
+    """CSP `default-src 'self'` + `Cache-Control: no-store` en las respuestas
+    HTML del dashboard (decision 12 del header: XSS de dos contextos + cero
+    assets externos). La API JSON no los necesita y no los recibe. /docs y
+    /redoc quedan FUERA de la CSP (grok r2): cargan swagger/redoc desde CDN
+    y la politica los dejaria en blanco — son superficie dev por tunel, no
+    parte del contrato cero-CDN del dashboard."""
 
     async def dispatch(self, request, call_next):
         response = await call_next(request)
         if (response.headers.get("content-type") or "").startswith("text/html"):
-            response.headers["Content-Security-Policy"] = "default-src 'self'"
+            if not request.url.path.startswith(("/docs", "/redoc")):
+                response.headers["Content-Security-Policy"] = "default-src 'self'"
             response.headers["Cache-Control"] = "no-store"
         return response
 
