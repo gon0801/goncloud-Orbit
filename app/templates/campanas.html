@@ -21,9 +21,11 @@
       <tr>
         <td>{{ item.nombre or "—" }}</td>
         <td>{{ item.plataforma }} · {{ item.moneda }}</td>
-        <td class="num">{{ item.metricas_30d.cost or "—" }}</td>
-        <td class="num">{{ item.metricas_30d.ad_revenue or "—" }}</td>
-        <td class="num">{{ item.metricas_30d.clicks or "—" }}</td>
+        {# regla 3 en presentacion (hallazgo codex): `or "—"` pintaba el 0
+           como faltante; el cero ES dato — solo None es hueco #}
+        <td class="num">{% if item.metricas_30d.cost is none %}<span class="mutado">—</span>{% else %}{{ item.metricas_30d.cost }}{% endif %}</td>
+        <td class="num">{% if item.metricas_30d.ad_revenue is none %}<span class="mutado">—</span>{% else %}{{ item.metricas_30d.ad_revenue }}{% endif %}</td>
+        <td class="num">{% if item.metricas_30d.clicks is none %}<span class="mutado">—</span>{% else %}{{ item.metricas_30d.clicks }}{% endif %}</td>
         <td class="num">
           {% if item.metricas_30d.sin_ventas %}<span class="chip chip-sinventas">sin ventas</span>
           {% elif item.metricas_30d.acos %}{{ item.metricas_30d.acos }}%
@@ -33,7 +35,8 @@
         <td><span class="chip">{{ item.target_efectivo.peldano }}</span></td>
         <td>
           {% if item.goal %}
-            {{ item.goal.scope }} · {{ item.goal.mode }}{% if not item.goal.enabled %} · <span class="alerta">disabled</span>{% endif %}
+            {{ item.goal.scope }} · {{ item.goal.mode }} ·
+            <span class="mutado">floor {{ item.goal.floor }} · ceiling {{ item.goal.ceiling }}</span>{% if not item.goal.enabled %} · <span class="alerta">disabled</span>{% endif %}
           {% else %}<span class="mutado">sin goal</span>{% endif %}
         </td>
       </tr>

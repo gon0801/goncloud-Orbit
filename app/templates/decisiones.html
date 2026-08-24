@@ -25,7 +25,7 @@
         <td class="mutado">{{ item.decided_at }}</td>
         {# El search_term es texto libre del comprador: AUTOESCAPE lo escapa #}
         <td>{{ item.search_term or "—" }}</td>
-        <td class="num">{{ item.target_acos_pct_usado or "—" }}%</td>
+        <td class="num">{% if item.target_acos_pct_usado is none %}<span class="mutado">—</span>{% else %}{{ item.target_acos_pct_usado }}%{% endif %}</td>
         <td>{{ item.motivo_es or "—" }}</td>
         <td class="num">
           {% if item.old_value or item.new_value %}{{ item.old_value or "—" }} / {{ item.new_value or "—" }}
@@ -37,7 +37,8 @@
     </tbody>
   </table>
   {% if has_more and next_cursor %}
-  <p><button id="btn-mas" data-cursor="{{ next_cursor }}" onclick="cargarMas()">Cargar mas (pagina siguiente)</button></p>
+  {# el click lo cablea /static/js/dashboard.js (onclick= inline lo bloquea la CSP) #}
+  <p><button id="btn-mas" data-cursor="{{ next_cursor }}">Cargar mas (pagina siguiente)</button></p>
   {% endif %}
 </div>
 {% endblock %}

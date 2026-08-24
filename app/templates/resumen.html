@@ -5,7 +5,8 @@
   {% for plataforma, datos in series.items() %}
   <div class="grafica">
     <h2>{{ plataforma }} ({{ datos.moneda }}) — spend y revenue</h2>
-    <canvas id="serie-{{ plataforma }}" height="200"></canvas>
+    <canvas id="serie-{{ plataforma }}" data-serie="datos-serie-{{ plataforma }}"
+            data-claves="cost,ad_revenue" data-etiquetas="Cost,Revenue" height="200"></canvas>
     <p class="mutado">Ventana efectiva: {{ datos.desde }} .. {{ datos.hasta }} ·
        inmaduros D-8..D-1: {{ datos.ventana_inmaduros.desde }} .. {{ datos.ventana_inmaduros.hasta }}</p>
     <!-- Decision 12: los datos hacia JS pasan EXCLUSIVAMENTE por |tojson -->
@@ -13,18 +14,11 @@
   </div>
   <div class="grafica">
     <h2>{{ plataforma }} ({{ datos.moneda }}) — ACoS %</h2>
-    <canvas id="serie-acos-{{ plataforma }}" height="160"></canvas>
-    <p class="mutado">ACoS null = hueco o sin ventas (jamas 0 enganoso)</p>
+    <canvas id="serie-acos-{{ plataforma }}" data-serie="datos-serie-{{ plataforma }}"
+            data-claves="acos" data-etiquetas="ACoS %" height="160"></canvas>
+    <p class="mutado">* / tramo punteado = dia inmaduro (D-8..D-1) · ACoS null = sin dato
+       (hueco) o sin ventas (revenue 0 visible en la grafica de arriba) — jamas 0 enganoso</p>
   </div>
   {% endfor %}
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-  graficarSeries("serie-amazon_us", "datos-serie-amazon_us", ["cost", "ad_revenue"], ["Cost", "Revenue"]);
-  graficarSeries("serie-amazon_mx", "datos-serie-amazon_mx", ["cost", "ad_revenue"], ["Cost", "Revenue"]);
-  graficarSeries("serie-acos-amazon_us", "datos-serie-amazon_us", ["acos"], ["ACoS %"]);
-  graficarSeries("serie-acos-amazon_mx", "datos-serie-amazon_mx", ["acos"], ["ACoS %"]);
-</script>
 {% endblock %}

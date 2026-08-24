@@ -28,8 +28,9 @@ DETERMINISMO: las paginas delegan en los endpoints (que ya usan `_hoy_utc`).
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
@@ -72,10 +73,16 @@ def pagina_campanas(request: Request, conn: ConexionLectura) -> HTMLResponse:
 
 
 @router.get("/decisiones", response_class=HTMLResponse)
-def pagina_decisiones(request: Request, conn: ConexionLectura) -> HTMLResponse:
+def pagina_decisiones(
+    request: Request,
+    conn: ConexionLectura,
+    cursor: Annotated[int | None, Query(ge=1)] = None,
+) -> HTMLResponse:
     """Decisiones: feed por cursor con motivo en espanol; el search_term se
-    renderiza ESCAPADO ({{ }}) — es el vector XSS real del dominio."""
-    datos = dash.decisiones(conn=conn)
+    renderiza ESCAPADO ({{ }}) — es el vector XSS real del dominio. El
+    `?cursor=` del boton 'Cargar mas' se PROPAGA al feed (hallazgo alta de
+    codex: ignorarlo recargaba la primera pagina por siempre)."""
+    datos = dash.decisiones(conn=conn, cursor=cursor)
     return templates.TemplateResponse(
         request,
         "decisiones.html",

@@ -151,6 +151,47 @@ def test_ui_xss_datos_de_grafica_neutralizados_por_tojson():
 
 
 # ---------------------------------------------------------------------------
+# CSP: los templates NO dependen de nada inline (hallazgo mayor de review)
+# ---------------------------------------------------------------------------
+
+
+def test_ui_templates_compatibles_con_csp_self():
+    """Regla 9 (hallazgo MAYOR de la review del bloque 2): la CSP
+    `default-src 'self'` bloquea <script> inline, atributos on*= y <style>
+    inline — las graficas y la paginacion morian EN SILENCIO en el navegador
+    real (TestClient no ejecuta JS: por eso este candado es ESTATICO y
+    discrimina en cualquier maquina). Todo JS/CSS vive en /static; los unicos
+    <script> inline permitidos son los bloques INERTES de datos
+    type="application/json"."""
+    import re
+
+    for archivo in sorted(ui._TEMPLATES_DIR.glob("*.html")):
+        fuente = archivo.read_text(encoding="utf-8")
+        assert "<style" not in fuente, f"{archivo.name}: CSS inline (la CSP lo bloquea)"
+        assert not re.search(r"\son[a-z]+\s*=", fuente), (
+            f"{archivo.name}: handler inline on*= (la CSP lo bloquea)"
+        )
+        for tag in re.findall(r"<script\b[^>]*>", fuente):
+            assert 'type="application/json"' in tag or "src=" in tag, (
+                f"{archivo.name}: <script> inline ejecutable (la CSP lo bloquea): {tag}"
+            )
+
+
+def test_vendor_chartjs_intacto_por_hash():
+    """El asset vendoreado es EXACTAMENTE el documentado en el brief §6
+    (hallazgo review: el hash documentado no tenia candado — un reemplazo o
+    edicion a mano del bundle pasaba invisible)."""
+    import hashlib
+    from pathlib import Path
+
+    ruta = Path(ui.__file__).resolve().parent / "static" / "vendor" / "chart.umd.min.js"
+    hash_real = hashlib.sha256(ruta.read_bytes()).hexdigest()
+    assert hash_real == "bce154080959c574be0bb6b1a924ff32f08ebc6ff460c159171f51c53802c844"
+    brief = Path(ui.__file__).resolve().parent.parent / "docs" / "DASHBOARD.md"
+    assert hash_real.upper() in brief.read_text(encoding="utf-8"), "el brief §6 documenta otro hash"
+
+
+# ---------------------------------------------------------------------------
 # uv.lock commiteado
 # ---------------------------------------------------------------------------
 
@@ -284,10 +325,91 @@ def test_ui_cero_hosts_externos_en_el_html(monkeypatch):
 
 def test_ui_js_parsea_dinero_string_con_number():
     """Decision 7: el JS del cliente parsea el dinero string de la API con
-    Number() (el backend jamas emite floats de dinero). El patron vive en el
-    template base (helper grafica) y este test lo fija."""
-    loader = jinja2.FileSystemLoader(str(ui._TEMPLATES_DIR))
-    env = jinja2.Environment(loader=loader, autoescape=True)
-    base = env.get_template("base.html")
-    html = base.render(pantalla="resumen", contenido="")
-    assert "Number(" in html, "el cliente debe parsear los strings con Number()"
+    Number() (el backend jamas emite floats de dinero). El patron vive en
+    /static/js/dashboard.js (externalizado por la CSP — hallazgo mayor de
+    review) y este test lo fija ahi."""
+    from pathlib import Path
+
+    js = Path(ui.__file__).resolve().parent / "static" / "js" / "dashboard.js"
+    fuente = js.read_text(encoding="utf-8")
+    assert "Number(" in fuente, "el cliente debe parsear los strings con Number()"
+    assert "JSON.parse" in fuente, "los datos inertes se leen con JSON.parse"
+
+
+# ---------------------------------------------------------------------------
+# Bugs reales del bloque 2 (codex altas/medias): cursor de la UI y cero != null
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ui_decisiones_propaga_el_cursor(monkeypatch):
+    """Regla 9 (hallazgo ALTA de codex): la ruta UI ignoraba ?cursor= —
+    'Cargar mas' recargaba la misma pagina por siempre. Con cursor=<id>, la
+    pagina solo muestra ids MENORES."""
+    with _db_temporal("orbit_ui_cursor") as (conn, dsn):
+        config_id = _config_version(conn)
+        ciclo = _ciclo(conn, platform="amazon_us")
+        camp = _campana(conn, "amazon_us", "9001", name="Campana A")
+        inputs = {"motivo": "banda_menos_12", "target_acos_pct_usado": "20"}
+        ids = [
+            _decision(
+                conn,
+                ciclo,
+                camp,
+                kind="bid",
+                config_id=config_id,
+                inputs=inputs,
+                old_value="1.00",
+                new_value="0.88",
+                moneda="USD",
+            )
+            for _ in range(3)
+        ]
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn)
+        html = TestClient(app).get("/decisiones", params={"cursor": ids[1]}).text
+        assert f"<td>{ids[0]}</td>" in html, "la pagina con cursor debe traer los ids menores"
+        assert f"<td>{ids[1]}</td>" not in html and f"<td>{ids[2]}</td>" not in html, (
+            "la ruta UI debe propagar el cursor al feed (id < cursor)"
+        )
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ui_cero_no_se_pinta_como_dato_faltante(monkeypatch):
+    """Regla 3 en la capa de PRESENTACION (hallazgo media de codex): el idiom
+    `or "—"` pintaba clicks=0 y applied_count=0 como dato faltante. CERO es
+    dato (y en shadow applied_count es SIEMPRE 0: se veia "—" en todos los
+    ciclos)."""
+    with _db_temporal("orbit_ui_ceros") as (conn, dsn):
+        run = _run(conn)
+        camp = _campana(conn, "amazon_us", "9001", name="Campana A")
+        _metrica(
+            conn,
+            run,
+            camp,
+            dt.date(2026, 8, 20),
+            cost="1.0000",
+            ad_revenue="3.0000",
+            clicks=0,
+            moneda="USD",
+        )
+        conn.execute(
+            "INSERT INTO optimizer_cycle (motor, mode, platform, status, finished_at,"
+            " decisions_count, applied_count, notes) VALUES"
+            " ('ads_optimizer', 'shadow', 'amazon_us', 'done', now(), 0, 0, NULL)"
+        )
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn)
+        cliente = TestClient(app)
+        campanas_html = cliente.get("/campanas").text
+        assert 'class="num">0<' in campanas_html.replace("</td>", "<"), (
+            "clicks=0 debe renderizarse como 0, jamas como dato faltante"
+        )
+        salud_html = cliente.get("/salud").text
+        assert "applies: 0" in salud_html, (
+            "applied_count=0 (lo normal en shadow) debe verse como 0, no como —"
+        )

@@ -18,9 +18,11 @@
 
   {% if datos.ultimo_ciclo %}
   <h3>Ultimo ciclo</h3>
+  {# regla 3: en shadow applied_count es SIEMPRE 0 y `or "—"` lo escondia
+     como faltante en TODOS los ciclos (hallazgo codex) #}
   <p>#{{ datos.ultimo_ciclo.id }} · {{ datos.ultimo_ciclo.started_at }} ·
      decisiones: {{ datos.ultimo_ciclo.decisions_count }} ·
-     applies: {{ datos.ultimo_ciclo.applied_count or "—" }}</p>
+     applies: {% if datos.ultimo_ciclo.applied_count is none %}<span class="mutado">—</span>{% else %}{{ datos.ultimo_ciclo.applied_count }}{% endif %}</p>
   {% endif %}
 
   <h3>Historico (14d)</h3>
@@ -40,23 +42,4 @@
   </table>
 </div>
 {% endfor %}
-{% endblock %}
-
-{% block scripts %}
-<script>
-  // Skips por motivo (barras): entidad + termino del ultimo ciclo.
-  ["amazon_us", "amazon_mx"].forEach(function (plataforma) {
-    var datos = datosDe("datos-skips-" + plataforma);
-    if (!datos) return;
-    var etiquetas = [];
-    var valores = [];
-    ["entidad", "termino"].forEach(function (lado) {
-      Object.keys(datos[lado] || {}).forEach(function (motivo) {
-        etiquetas.push(motivo);
-        valores.push(datos[lado][motivo].count);
-      });
-    });
-    if (etiquetas.length) graficarBarras("skips-" + plataforma, etiquetas, valores, "#f87171");
-  });
-</script>
 {% endblock %}
