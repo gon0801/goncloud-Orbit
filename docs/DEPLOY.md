@@ -172,7 +172,8 @@ ORBIT_BLOCK=$(cat <<'CRON'
 # Vixie cron: % sin escapar se vuelve newline y trunca el comando (hallazgo codex).
 10 7 * * * FECHA=$(date -u -d "31 days ago" +\%F) FECHA_FIN=$(date -u -d "1 day ago" +\%F) && docker exec orbit-app-1 python -m app.cli ingest metrics --fecha "$FECHA" --fecha-fin "$FECHA_FIN" >> /mnt/data/appdata/orbit/logs/ingest-metrics.log 2>&1
 # job_key=ads_optimizer:amazon_us + ads_optimizer:amazon_mx
-40 8 * * * docker exec orbit-app-1 python -m app.cli cycle --platform amazon_us >> /mnt/data/appdata/orbit/logs/optimizer.log 2>&1; docker exec orbit-app-1 python -m app.cli cycle --platform amazon_mx >> /mnt/data/appdata/orbit/logs/optimizer.log 2>&1
+40 8 * * * docker exec orbit-app-1 python -m app.cli cycle --platform amazon_us >> /mnt/data/appdata/orbit/logs/optimizer.log 2>&1
+41 8 * * * docker exec orbit-app-1 python -m app.cli cycle --platform amazon_mx >> /mnt/data/appdata/orbit/logs/optimizer.log 2>&1
 CRON
 )
 { crontab -u gon -l 2>/dev/null | grep -v "Orbit (ORBIT 03" | grep -v "job_key=ingest:" | grep -v "job_key=ads_optimizer" | grep -v "app.cli ingest" | grep -v "app.cli cycle" ; printf "%s\n" "$ORBIT_BLOCK" ; } | crontab -u gon -

@@ -4,7 +4,7 @@
 # compose (127.0.0.1:8010:8000); 0.0.0.0 aqui es SOLO intra-contenedor
 # (sin eso el port-map de Docker no alcanza uvicorn).
 FROM python:3.12-slim-bookworm
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.11.11 /uv /uvx /bin/
 
 WORKDIR /app
 
