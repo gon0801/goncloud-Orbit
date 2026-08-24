@@ -6,9 +6,13 @@
 
 **Última actualización: 2026-08-24 — Phases 1–3 en master; 4.1 y 4.2 hechas
 en goncloud (servicio `app` en 127.0.0.1:8010 + 3 crons aditivos, profundidad
-diaria D-31..D-1). Siguen 4.3 (seed humano), 4.4 (primer shadow real) y 4.5
-(cierre). Este archivo tiene candado de frescura: el CI exige actualizarlo
-en cada PR que cierre tareas.**
+diaria D-31..D-1). 4.3 EJECUTADA por el dueño: escalera global en shadow,
+targets ACoS 20 (mx) y 20 (us — presión máxima elegida a sabiendas), TODAS
+las campañas activas vía goals de plataforma; harvest sin bid fijo por
+decisión (el bid sugerido de Amazon llega con el apply de PR2 — regla 3:
+jamás inventar el número). Siguen 4.4 (primer shadow real + spot-check del
+dueño) y 4.5 (cierre). Este archivo tiene candado de frescura: el CI exige
+actualizarlo en cada PR que cierre tareas.**
 
 ## Qué es Orbit
 
