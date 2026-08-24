@@ -10,6 +10,10 @@
 > cero mutaciones fuera de los probes autorizados (2.5/4.3); ORBIT 05 es el
 > cutover, con criterio sellado: 2 semanas de shadow (~2026-09-07) +
 > recálculo manual + **veto ejecutado por el dueño sobre una fila real**.
+> Ronda 3 (suspensión explícita del tope por el dueño, razón: 16 altas en r2
+> = sin convergencia + diseño nuevo sin revisar): kimi LGTM (cero hallazgos,
+> verificó cada referencia contra el repo); qwen 2A+3M+3B "de formulación
+> sellada, no de arquitectura" — cerrados en este v4.
 
 ## Decisiones SELLADAS (header manda sobre las tareas)
 
@@ -58,10 +62,15 @@
    (solo vetable o descartable). En el flip de ORBIT 05, TODA fila shadow
    pendiente pasa a `discarded` en bloque: el live arranca SOLO con
    decisiones frescas post-flip y su ventana completa. Además,
-   **re-validación al liberar** (r2 grok 20): antes de `applying`, el corte
-   se re-evalúa contra la ventana FRESCA de datos — si ya no califica (el
-   término vendió durante las 48h), pasa a `discarded` con nota; jamás se
-   corta por silencio contra la regla.
+   **re-validación al liberar** (r2 grok 20): el corte se re-evalúa contra
+   la ventana FRESCA de datos — si ya no califica (el término vendió
+   durante las 48h), pasa a `discarded` con nota; jamás se corta por
+   silencio contra la regla. **Orden interno SELLADO del apply de un
+   corte** (r3 qwen: la máquina no tiene `applying → discarded` y la quota
+   no debe quemarse en descartes): re-validación SOBRE la fila `released`
+   (PRE-claim) → claim atómico `released → applying` → cobro de quota →
+   fila del ledger → HTTP. Un descarte ocurre siempre ANTES del claim y
+   jamás después del cobro.
 7. **Rampa por config**: día 1 = 10 bids / 2 pauses / 5 negatives /
    2 harvests POR DÍA Y PLATAFORMA; unidad = OPERACIÓN LÓGICA (harvest = 1
    aunque sean 2 HTTPs — con test que lo demuestre, r2); REVERSAS EXENTAS
@@ -83,7 +92,12 @@
    espejo real del read client, no un "jamás retry" que quemaría el cap con
    throttling); huérfano `applying` conserva su cobro (la reconciliación
    decide). Cap agotado → cortes esperan FIFO (y SIGUEN vetables); bids no
-   aplicados = DESCARTADOS (jamás reintentados).
+   aplicados = DESCARTADOS (jamás reintentados). **Selección de bids bajo
+   cap SELLADA** (r3 qwen): prioridad por urgencia de hemorragia —
+   banda_menos_25 > banda_menos_12 > banda_mas_15, y dentro de cada banda
+   por costo de la ventana descendente; los descartados se cuentan en el
+   digest ("N bids fuera de cap hoy") — la ausencia de fila no se confunde
+   con un bug porque el conteo lo declara.
 9. **Cliente de ESCRITURA (`app/ads/write.py`)**: allowlist default-deny —
    update bid y pause/resume de **keyword Y `product_target`** (r2 grok 4:
    549 targets US + 861 MX reciben decisiones del motor y la v2 los olvidó;
@@ -106,7 +120,14 @@
     del ledger ANTES del HTTP: decision_id (nullable para probes), seq,
     tipo (normal/reversa/probe), request_payload EXACTO (para harvest, el
     bid efectivo a escribir), quota_cobrada, started_at; el ack/resultado
-    se sella al volver. "No existe 4º intento" = COUNT verificable.
+    se sella al volver — **con el patrón del repo para esta tercera vía**
+    (r3 qwen: el "append-only" del trigger `prohibir_mutacion` bloquearía
+    el sello): trigger acotado por columnas estilo
+    `sku_cost_solo_cierra_vigencia` — SOLO ack/resultado/finished_at pasan
+    de NULL a valor, UNA vez — y la tabla se declara excepción deliberada
+    en los invariantes de test_schema (mismo trato que
+    `decision_application` en 0001). "No existe 4º intento" = COUNT
+    verificable.
     `decision_application` queda como RESUMEN por decisión (su PK única se
     respeta: reintentos = UPDATE del resumen con acks acumulados + fila
     NUEVA del ledger — r2 grok 12), con `applied_cycle_id` sellado AL
@@ -122,7 +143,11 @@
 12. **Regla 7 — reversas**: bid → `old_value`; pause → resume; negative →
     delete; harvest parcial → delete del negativo; harvest completo →
     keyword PRIMERO, negativo después. Cada una en el ledger como tipo
-    reversa, exenta de quota, testeada antes en el mismo PR.
+    reversa, exenta de quota, testeada antes en el mismo PR. **Una reversa
+    NO limpia el cooldown** (r3 qwen, declarado deliberado): la entidad
+    origen queda fría 7d igual — anti-loop: revertir y re-decidir lo mismo
+    al día siguiente sería el ciclo tonto que el cooldown existe para
+    impedir.
 13. **Harvest**: fases + `harvest_job` nace AL LIBERAR el corte de la cola
     (primer paso del apply), jamás al decidir (r2 grok 8: nacer al decidir
     dejaba un `pending` eterno si el harvest se vetaba; la COLA manda,
@@ -152,11 +177,15 @@
     `app_decide` UPDATE acotado de `ad_entity_state`
     (current_bid/status/synced_at) que el apply ejecuta con lo LEÍDO tras
     confirmar; el re-check "ya estaba" usa GET fresco, jamás el cache.
-17. **Gracia de reactivación 7d DESDE el ENABLED detectado** (r2 grok 20:
-    contada desde el apply sería un no-op — el cooldown ya cubre eso):
-    el sync que ve ENABLED sobre una entidad con pause verificado propio
-    marca el instante; 7d sin re-pausar desde AHÍ. Solo el caso detectable;
-    residual declarado.
+17. **Gracia de reactivación 7d DESDE el ENABLED detectado — con casa en el
+    schema** (r3 qwen: `synced_at` se pisa en cada sync y ninguna tarea
+    tocaba al escritor): tabla chica `reactivacion_manual` en la 0002
+    (`ad_entity_id` PK, `detectada_en`), escrita por el APLICADOR — no por
+    el sync: el apply ya hace GET fresco en su re-check y ahí detecta
+    "pause verificado propio + estado vivo ENABLED" → marca el instante si
+    no existe (grant INSERT/SELECT acotado a `app_decide`); gracia = 7d
+    desde `detectada_en`. `structure.py` no se toca. Solo el caso
+    detectable; residual declarado.
 18. **AUTH de escritura**: token estático (secrets 0600 ro, register_secret,
     compare_digest, solo header) en TODO endpoint de escritura; los
     endpoints de escritura usan **`ORBIT_DSN_ADMIN` vía dependencia nueva
@@ -180,15 +209,19 @@
     el DoD del cierre verifica escalera en shadow.
 23. **PROBE de formas reales AUTORIZADO en Phase 2 (tarea 2.5)** (r2 codex 9
     + grok 10: fijar los tests de readback contra un shape adivinado viola
-    la regla 8 — y el ack de PUT/POST/DELETE de cortes no se fija con un
-    solo bid): con autorización del dueño y campaña sacrificable elegida
-    por él: bid keyword ±0.01 con reversa, bid `product_target` ±0.01 con
-    reversa, y negative create+delete NETO CERO sobre un término basura —
-    fija los shapes de TODOS los acks ANTES de finalizar los tests de
-    readback. Mecanismo: herramienta `tools/smoke_apply.py` con
-    autorización efímera (env one-shot) + campaña allowlisted en config +
-    excepción explícita en test_architecture (r2 codex 5). El ensayo E2E
-    final (4.3) re-usa la misma herramienta como verificación pre-cutover.
+    la regla 8): con autorización del dueño y campaña sacrificable elegida
+    por él, LAS CUATRO formas (r3 qwen: faltaba el POST/DELETE de keyword —
+    el corazón del harvest): (1) bid keyword ±0.01 con reversa; (2) bid
+    `product_target` ±0.01 con reversa; (3) negative create+delete NETO
+    CERO sobre término basura; (4) **keyword create+delete NETO CERO**
+    sobre término basura. Fija los shapes de TODOS los acks ANTES de
+    finalizar los tests de readback (los de 2.1-2.2 nacen marcados
+    "pendientes de shape" hasta 2.5, y 2.3 DEPENDE de 2.5). Mecanismo:
+    `tools/smoke_apply.py` con autorización efímera (env one-shot) +
+    campaña allowlisted en config + excepción explícita en
+    test_architecture; **corre con `ORBIT_DSN_DECIDE`** (r3 qwen: sus filas
+    de ledger nacen con la identidad del motor, tipo `probe` auditable).
+    El ensayo E2E final (4.3) re-usa la misma herramienta.
 24. **Deploy endurecido**: env por servicio (el DSN admin solo donde toca) +
     non-root CON el esquema de permisos de secrets resuelto; **la 0002 se
     APLICA en goncloud como tarea con DoD y entra al runbook de DEPLOY.md**
@@ -242,7 +275,7 @@ verificado contra el PG16 del server.
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
 | 1.1 | Brief `docs/APPLY.md`: contrato fino de TODO el header (checklist 1:1) — máquinas de estado (cola con familia de efecto y shadow-mark, harvest_job, ledger), matriz de reconciliación con identidad completa, tabla de reversas, claves config↔quota con mapeo, semántica 48h sanas, secuencia ledger→HTTP→readback→sello, procedimiento de familia harvest nueva y rotación de token, checklist de cutover ORBIT 05 (incluye discard masivo de filas shadow). Spec delta a CONTEXTO.md **y DATABASE.md**. Marcar `ORBIT 04` In progress. `[tdd:skip:docs-brief]` | Checklist 1:1 verificable punto por punto; ambos spec deltas; CI verde | - | cc:TODO |
-| 1.2 | Migración `0002_apply.sql`: `apply_queue` (familia de efecto, estados con `discarded`, shadow-mark, triggers INSERT nace-pending y UPDATE de transiciones, vetoed exige admin por trigger, único parcial en-vuelo NULLS NOT DISTINCT, `request_payload`, `vence_el`, `vetoed_at/by`) + `apply_attempt` (ledger append-only) + sellos de `apply_quota_state` (fila desde config con mapeo de claves, used creciente, quota_date = día UTC de la base) + triggers de `harvest_job` + `decision_application.applied_cycle_id` (incluido en el GRANT de columnas) + UPDATE acotado de `ad_entity_state` para app_decide + GRANTs positivos completos (secuencias IDENTITY) + `tests/test_schema.py` parsea también 0002. `[tdd:required]` | Tests: transición ilegal revienta en las 3 máquinas; INSERT directo en released revienta; app_decide no veta (trigger current_user), no inventa cap, no decrementa used; dos cortes en vuelo de la misma CLAVE DE EFECTO chocan (incluye pause NULL y negative-vs-harvest del mismo término); GRANTs positivos probados con el ROL real (no superuser); invariantes de test_schema cubren 0002 | 1.1 | cc:TODO |
+| 1.2 | Migración `0002_apply.sql`: `apply_queue` (familia de efecto, estados con `discarded`, shadow-mark, triggers INSERT nace-pending y UPDATE de transiciones, vetoed exige admin por trigger, único parcial en-vuelo NULLS NOT DISTINCT, `request_payload`, `vence_el`, `vetoed_at/by`) + `apply_attempt` (ledger con trigger acotado por columnas: solo ack/resultado/finished_at NULL→valor una vez, y excepción declarada en los invariantes de test_schema) + `reactivacion_manual` (ad_entity_id PK, detectada_en; INSERT/SELECT solo app_decide) + sellos de `apply_quota_state` (fila desde config con mapeo de claves, used creciente, quota_date = día UTC de la base) + triggers de `harvest_job` + `decision_application.applied_cycle_id` (incluido en el GRANT de columnas) + UPDATE acotado de `ad_entity_state` para app_decide + GRANTs positivos completos (secuencias IDENTITY) + `tests/test_schema.py` parsea también 0002. `[tdd:required]` | Tests: transición ilegal revienta en las 3 máquinas; INSERT directo en released revienta; app_decide no veta (trigger current_user), no inventa cap, no decrementa used; dos cortes en vuelo de la misma CLAVE DE EFECTO chocan (incluye pause NULL y negative-vs-harvest del mismo término); GRANTs positivos probados con el ROL real (no superuser); invariantes de test_schema cubren 0002 | 1.1 | cc:TODO |
 | 1.3 | Cliente de escritura `app/ads/write.py`: allowlist con keyword Y product_target (+reversas), payload de UN objeto, headers vendor + scope del profile por plataforma, presentación (quantize 2 decimales + moneda vs goal.bid_currency), 429-retry-sin-recobro / ambiguo-no-retry, constructor con modo confirmado, construcción solo desde apply/smoke (test_architecture con excepción explícita), read client sigue rechazando PUT/PATCH/DELETE (test). Ampliar LIST_REQUEST_TYPES con negativeKeywords (regla 8 en vivo). `[tdd:required]` | Tests: cada path fuera de allowlist rechazado; multi-objeto rechazado; scope equivocado imposible (plataforma→profile sellado, demostrado fallando); moneda equivocada revienta; retry solo en 429 y sin recobro; constructor fuera de apply/smoke revienta; superficie read intacta | 1.1 | cc:TODO |
 
 ## Phase 2 — El apply integrado [lane:gate]
@@ -250,10 +283,10 @@ verificado contra el PG16 del server.
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
 | 2.1 | Núcleo (`app/apply.py`): re-resolución por decisión (escalera + goal.mode + enabled + existencia — incluido el caso envelope-live/goal-shadow del residual de cycle.py), ledger pre-HTTP para TODA mutación, secuencia sellada, retry con tope 3 (COUNT del ledger), bids descartados si no caben, applied_cycle_id al confirmar, actualización del cache con el readback, reversa de bid. `[tdd:required]` | Tests: escalera shadow → cero HTTP (regla 9); envelope live + goal shadow NO aplica (regla 9); crash entre ledger y HTTP deja rastro y la reconciliación resuelve; no existe 4º intento (COUNT); bid descartado no reaparece; cache actualizado post-readback (demostrado fallando: sin ello el ciclo siguiente decide sobre bid viejo); terna parcial revienta; applied_count por ciclo ejecutor | 1.2, 1.3 | cc:TODO |
-| 2.2 | Cola de cortes: encolar por la APP con invariante corte↔cola, shadow-mark (shadow jamás libera), skip por clave de efecto, liberar vencidos (FIFO, caps lógicos, reversas exentas — ambos con test), released sigue vetable, claim atómico released→applying, re-validación con datos frescos al liberar (no califica → discarded con nota), re-check de estado vivo por GET fresco, gracia 7d desde el ENABLED detectado, veto durable por clave de efecto. `[tdd:required]` | Tests: carreras (veto en released gana o pierde limpio contra claim; veto en applying → "en vuelo"); invariante corte↔cola demostrado fallando; fila shadow jamás libera; re-validación descarta al que vendió en la ventana (regla 9); harvest=1 quota/2 HTTPs y reversa exenta (regla 9); gracia desde el ENABLED; reversas pause/negative | 2.1 | cc:TODO |
-| 2.3 | Harvest: harvest_job nace al LIBERAR, fases + reconciliación viva con identidad completa (fixture señuelo en otro ad group), bid sugerido (regla 8 define endpoint/cliente/guard) clampeado + intención en ledger, fallo definitivo → reversa + alerta, orden de reversas. `[tdd:required]` | Tests: matriz completa del brief celda por celda; señuelo no da falso "ya aplicada" (regla 9); harvest vetado JAMÁS crea harvest_job; intención sobrevive crash; orden de reversa (regla 9); failed → alerta | 2.2 | cc:TODO |
+| 2.2 | Cola de cortes: encolar por la APP con invariante corte↔cola, shadow-mark (shadow jamás libera), skip por clave de efecto, liberar vencidos (FIFO, caps lógicos, reversas exentas — ambos con test), released sigue vetable, claim atómico released→applying, orden sellado re-validación(PRE-claim)→claim→quota→ledger→HTTP (descarte jamás post-cobro), re-check de estado vivo por GET fresco (que además detecta y marca `reactivacion_manual`), gracia 7d desde `detectada_en`, veto durable por clave de efecto. `[tdd:required]` | Tests: carreras (veto en released gana o pierde limpio contra claim; veto en applying → "en vuelo"); invariante corte↔cola demostrado fallando; fila shadow jamás libera; re-validación descarta al que vendió en la ventana (regla 9); harvest=1 quota/2 HTTPs y reversa exenta (regla 9); gracia desde el ENABLED; reversas pause/negative | 2.1 | cc:TODO |
+| 2.3 | Harvest: harvest_job nace al LIBERAR, fases + reconciliación viva con identidad completa (fixture señuelo en otro ad group), bid sugerido (regla 8 define endpoint/cliente/guard) clampeado + intención en ledger, fallo definitivo → reversa + alerta, orden de reversas. `[tdd:required]` | Tests: matriz completa del brief celda por celda; señuelo no da falso "ya aplicada" (regla 9); harvest vetado JAMÁS crea harvest_job; intención sobrevive crash; orden de reversa (regla 9); failed → alerta | 2.2, 2.5 | cc:TODO |
 | 2.4 | Integración en `corre_ciclo`: fase de apply DENTRO del lock, heartbeat durante mutaciones/readback, guard `status='running'` en el cierre, ownership-check pre-HTTP con aborto fail-closed, `HAY_MODULO_APPLY=True`. `[tdd:required]` | Tests: zombie y sucesor concurrentes → solo uno muta (regla 9, la mejora anunciada en cycle.py 166-171); lease perdido aborta sin HTTP; lock se libera DESPUÉS del apply; escalera shadow → cero HTTP re-verificado tras el flip del flag | 2.1 | cc:TODO |
-| 2.5 | PROBE autorizado de formas reales (dueño: autorización + campaña sacrificable): `tools/smoke_apply.py` (autorización efímera + campaña allowlisted + excepción sellada en test_architecture) — bid keyword ±0.01 y reversa, bid product_target ±0.01 y reversa, negative create+delete neto cero; fija los shapes de TODOS los acks y los tests de readback se FINALIZAN contra ellos (regla 8). `[tdd:skip:probe-produccion]` | Evidencia completa en ORBIT 04 (request/ack/readback/reversa × 3 formas); estado final == inicial; tests de readback de 2.1-2.3 sellados contra shapes reales | 2.1 | cc:TODO |
+| 2.5 | PROBE autorizado de formas reales (dueño: autorización + campaña sacrificable): `tools/smoke_apply.py` (autorización efímera + campaña allowlisted + excepción sellada en test_architecture, corre con ORBIT_DSN_DECIDE y sus filas de ledger son tipo probe) — LAS CUATRO formas: bid keyword ±0.01 y reversa, bid product_target ±0.01 y reversa, negative create+delete neto cero, y keyword create+delete neto cero (el POST/DELETE del corazón del harvest); fija los shapes de TODOS los acks y los tests de readback se FINALIZAN contra ellos (regla 8; los de 2.1-2.2 nacen marcados pendientes-de-shape hasta esta tarea). `[tdd:skip:probe-produccion]` | Evidencia completa en ORBIT 04 (request/ack/readback/reversa × 4 formas); estado final == inicial; tests de readback de 2.1-2.3 sellados contra shapes reales | 2.1 | cc:TODO |
 
 ## Phase 3 — Superficies: veto, goals y Telegram [lane:gate]
 
