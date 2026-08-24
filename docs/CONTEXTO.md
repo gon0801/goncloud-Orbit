@@ -223,6 +223,30 @@ autopsia. Reconciliaciones explícitas:
   append-only de la regla 5: `(entidad, fecha, observed_at)`, nunca UPSERT
   in-place.
 
+## Módulo dashboard (ORBIT 16 — DASHBOARD 01)
+
+Dashboard de LECTURA del optimizador (series spend/revenue/ACoS, campañas con
+target efectivo y procedencia, feed de decisiones, salud) para el dueño, por
+túnel SSH ahora y por su VPN WireGuard en Phase 2. El contrato fino (pantallas,
+endpoints, JSON, límites, lib de gráficas) vive en **`docs/DASHBOARD.md`** y
+manda para la implementación; este párrafo es el spec delta sellado:
+
+- **Lectura pura en Phase 1**: solo GET, rol `orbit_read`; CERO escrituras
+  (settings y goals vivos se escriben por el camino humano de 4.3 / Phase 3 con
+  auth de ORBIT 04).
+- **Reglas 1-10 aplican igual**: series con grano `kind='campaign'` explícito
+  (anti-doble-conteo, regla 1-2), colapso bitemporal vía `v_metric_latest`
+  (regla 5), NULL = hueco jamás 0 (regla 3), dinero como STRING y moneda por
+  plataforma sin mezclar (regla 4), día en curso excluido y D-8..D-1 marcados
+  inmaduros (regla 6), SELECT real antes de los tests (regla 8), regresión
+  demostrada fallando (regla 9).
+- **Procedencia del target**: la cascada de `app/optimizer/goals.py` gana una
+  variante valor+peldaño con CINCO peldaños (goal_campana, goal_plataforma,
+  setting_plataforma, cache_estado, default), compatible con el camino del
+  motor — la capa web jamás la reimplementa.
+- **Módulo nuevo** `app/api_dashboard.py` desde el inicio; helpers de
+  `app/api.py` extraídos a `app/api_common.py` (nunca dos copias).
+
 ## Fases (adoptadas del diseño v2)
 
 1. **PR 1 — shadow completo**: decisiones + auditoría + envelope + router +
