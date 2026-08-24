@@ -5,97 +5,129 @@
 > Pedido del dueño 2026-08-24: gráficas de spend/revenue/ACoS, info de
 > campañas, decisiones explicadas, y poder editar el target ACoS. Acceso:
 > por su VPN WireGuard (compu/cel), patrón de sus demás apps del server.
-> Registro: fila `ORBIT 16 — Dashboard del optimizador` en EHV Tasks.
+> Registro: fila `ORBIT 16 — Dashboard del optimizador` en EHV Tasks
+> (`In progress` al arrancar 1.1; `Done` con notas completas al cerrar el
+> plan — mandato de AGENTS.md).
 >
-> Validado por revisión de 5 perspectivas (team_validation_mode: subagent —
-> Product/Architecture/Security/QA/Skeptic, 2026-08-24): 4 majors + 4 minors,
-> TODOS incorporados a las tareas de abajo (moneda declarada, procedencia de
-> la cascada como subtarea propia, test XSS de `search_term`, candado de
-> puertos con test exacto + smoke negativo, Salud con alcance fijado, 1.2
-> partida por superficie, Reject de reverse-proxy, exposición VPN como PR
-> separado).
+> Validación en DOS rondas: (a) 5 perspectivas subagent (4 majors + 4
+> minors) y (b) cross-review paralela codex+qwen sobre el documento v1
+> (7 altas + 6 medias + 4 bajas). TODO incorporado abajo; los hallazgos
+> clave de la ronda 2: goals son MUTABLES por schema (la 3.1 v1 lo
+> contradecía), el grano de las series duplicaría dinero sin filtro por
+> kind, las procedencias de la cascada son CINCO, la aritmética de NULL y
+> revenue=0 no estaba sellada, el XSS aplicaba también al contexto JS de
+> las gráficas, y el vintage de los últimos días debe MARCARSE en las
+> gráficas (trampa de los tres relojes).
 >
 > Spec delta: `docs/CONTEXTO.md` gana la sección "Módulo dashboard"
 > (aplicada por 1.1 en su mismo PR); el contrato fino vive en el brief
-> `docs/DASHBOARD.md` (task 1.1). Precedencia: CONTEXTO/diseño v2 mandan;
-> el dashboard es capa de LECTURA sobre lo ya sellado.
+> `docs/DASHBOARD.md` (task 1.1). Precedencia: CONTEXTO/diseño v2 mandan.
 >
-> Decisiones selladas de este plan (del lead, con la validación):
-> - **Moneda (regla 4)**: todas las series y tablas van en moneda NATIVA por
->   plataforma (USD para us, MXN para mx), sin agregados cross-currency;
->   cualquier conversión futura pasa EXCLUSIVAMENTE por `fx_resolve` (hoy
->   fuera de alcance: `fx_rate` está vacía a propósito).
-> - **Procedencia del target (regla 2)**: el peldaño ganador de la cascada
->   sale de `goals.py` (variante que devuelve valor + peldaño), JAMÁS de una
->   reimplementación en la capa web.
-> - **Salud**: snapshot del último ciclo por plataforma + histórico de 14
->   días de `optimizer_cycle` (la tabla es chica; cubre el reloj del shadow).
-> - **Feed de decisiones — límite declarado**: solo muestra entidades que SÍ
->   decidieron; los skips son agregados por motivo (así los persiste
->   `optimizer_cycle.notes`, sin id de entidad). "¿Por qué la campaña X no
->   se movió?" se responde en Salud por conteo de motivos, no por entidad
->   (mejora candidata para PR2 si el dueño la pide con uso real).
-> - **Motivos → español**: la capa de presentación IMPORTA las constantes
->   `MOTIVO_*` del motor (dict constante→plantilla); nada de strings a mano.
-> - **`app/api_dashboard.py` desde el inicio** (el api.py actual va en 349
->   líneas; el split de emergencia a mitad de PR se evita naciendo partido).
-> - **Exposición VPN = PR separado** (Phase 2): primero el dashboard se USA
->   por túnel SSH; el único cambio de red del plan viaja solo, chico y
->   revertible, con sign-off explícito del dueño.
+> Decisiones selladas de este plan (lead + 2 rondas de validación):
+> - **Moneda (regla 4)**: series y tablas en moneda NATIVA por plataforma;
+>   CERO agregación cross-currency; conversión futura solo vía `fx_resolve`.
+> - **Grano (anti-doble-conteo)**: `ads_metric_observation` mezcla filas de
+>   campaña, keywords y targets — toda serie/agregado filtra por `kind`
+>   EXPLÍCITO (Resumen y por-campaña: solo `kind='campaign'`; las hojas
+>   duplicarían el dinero). Sellado con test regla 9.
+> - **Ventanas**: series diarias en UTC, rango default [D-30, D-1]; el día
+>   en curso EXCLUIDO (vintage parcial, regla 6). Los días D-8..D-1 se
+>   muestran MARCADOS como "inmaduros" (la atribución madura en 5-8d y el
+>   costo hasta D+15 — mostrar sin marcar miente, ocultar pierde utilidad).
+> - **NULL y ceros (regla 3)**: métrica NULL = hueco visible "sin dato",
+>   JAMÁS un 0 pintado; ACoS con revenue=0 y cost>0 = "sin ventas" (∞),
+>   nunca división ni cero engañoso.
+> - **Procedencia del target (regla 2)**: CINCO peldaños — goal de campaña,
+>   goal de plataforma, setting de config, cache del estado, default 55 —
+>   expuestos por `goals.py` (variante valor+peldaño), JAMÁS reimplementados
+>   en la capa web.
+> - **Reuso (reglas 1-2)**: los helpers que ya existen en `app/api.py`
+>   (`_parse_notes` de formato mixto, SQL de último ciclo por plataforma,
+>   serialización de dinero como STRING) se EXTRAEN y comparten con
+>   `app/api_dashboard.py` — nunca dos copias.
+> - **Dinero en JSON = STRING** en todos los endpoints nuevos (patrón
+>   sellado de 3.2); jamás floats en JSON ni en los datos de gráficas.
+> - **Paginación del feed por CURSOR** (`id <` último visto, DESC): offset
+>   sobre una tabla append-only produce huecos/duplicados entre páginas.
+> - **Salud**: snapshot del último ciclo por plataforma + histórico 14d.
+> - **Feed — límite declarado**: solo entidades que SÍ decidieron; skips
+>   agregados por motivo (así los persiste `notes`, sin id de entidad).
+> - **Motivos → español**: dict que IMPORTA las constantes `MOTIVO_*`.
+> - **XSS (dos contextos)**: Jinja2 con autoescape VERIFICADO para HTML; los
+>   datos hacia JS de gráficas pasan EXCLUSIVAMENTE por `|tojson`; header
+>   CSP `default-src 'self'`; `Cache-Control: no-store`.
+> - **Regla 8**: antes de fijar los tests de cada endpoint, correr el SELECT
+>   de forma real contra la base viva (por túnel) y anotar la evidencia.
+> - **`app/api_dashboard.py` desde el inicio** (api.py va en 349 líneas).
+> - **Dependencias**: Jinja2 pinneada en pyproject + uv.lock commiteado
+>   (patrón de 1.1 de ORBIT 03); la lib de gráficas vendoreada con versión,
+>   licencia y hash documentados en el brief.
+> - **Exposición VPN = PR separado** (Phase 2), único cambio de red,
+>   revertible, con sign-off del dueño. Residual ACEPTADO con razón: la VPN
+>   demuestra "no público", no "solo dueño" — aceptable porque TODOS los
+>   peers WG son dispositivos del dueño (server mono-operador); si algún
+>   día se agregan peers de terceros, la Phase 3 ya tendrá auth propia.
+> - **Goals MUTABLES (corrección de ronda 2)**: `ads_optimizer_goal` es
+>   mutable POR SCHEMA (únicos parciales por campaña/plataforma; la
+>   historia se reconstruye vía `config_version` + `decision.inputs`
+>   congelados — así lo sella DATABASE.md). La edición de Phase 3 es
+>   UPDATE del goal + fila NUEVA de config cuando toque config; jamás
+>   "fila nueva de goal".
 >
 > unknowns declarados (`not_observed != absent`): IP exacta de la interfaz
-> WG del server y su alcanzabilidad SOLO-túnel (2.1 la verifica con
-> evidencia); tamaño real de la lib de gráficas vendoreada (1.6 la elige:
-> candidatos uPlot/Chart.js single-file, la más chica que cubra líneas y
-> barras).
+> WG y su alcanzabilidad solo-túnel (2.1 la verifica con evidencia); lib de
+> gráficas final (1.6 la elige: candidatos uPlot/Chart.js single-file, la
+> más chica que cubra líneas y barras); forma real de los datos (regla 8,
+> por endpoint antes de sus tests).
 
 ## Phase 1 — Dashboard de LECTURA por túnel [lane:gate]
 
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
-| 1.1 | Brief `docs/DASHBOARD.md`: las 4 pantallas (Resumen: tendencias diarias spend/revenue/ACoS por plataforma, moneda NATIVA — regla 4 sellada arriba; Campañas: tabla con métricas 30d colapsadas + target EFECTIVO con PROCEDENCIA + estado del goal; Decisiones: feed paginado con explicación en español desde `inputs` congelados; Salud: snapshot último ciclo + histórico 14d + skips agregados por motivo), contratos de los endpoints nuevos, modelo de acceso (Phase 1 túnel, Phase 2 VPN), y el límite declarado del feed. Spec delta a `docs/CONTEXTO.md` (sección Módulo dashboard) en el mismo PR. `[tdd:skip:docs-brief]` | El brief responde moneda, alcance de Salud y límite del feed SIN ambigüedad (los 3 huecos de la validación); CONTEXTO.md actualizado; CI verde | - | cc:TODO |
-| 1.2 | `app/optimizer/goals.py`: variante de la cascada que devuelve `(valor, peldaño)` — peldaño ∈ {goal_campana, setting_plataforma, cache_estado, default} — reutilizada por dashboard Y por el camino existente (el motor sigue consumiendo el valor; cero cambio de comportamiento). Regla 2: la precedencia vive en UN lugar. `[tdd:required]` | Tests: cada peldaño gana con su fixture y reporta su nombre; el camino existente del motor NO cambia (mismos resultados en los tests de 2.4 sin tocarlos); demostrado fallando (regla 9) | 1.1 | cc:TODO |
-| 1.3 | `app/api_dashboard.py` (módulo NUEVO — el presupuesto de 900 nace respetado): endpoints GET de series temporales por día (spend/revenue/ACoS por plataforma y por campaña, desde las tablas bitemporales COLAPSADAS — regla 5: `v_metric_latest` / `DISTINCT ON` sellados; moneda nativa, CERO agregación cross-currency) montado en `app/main.py`. Guard solo-GET ampliado al router nuevo. `[tdd:required]` | Tests: serie correcta con fixture bitemporal (dos observaciones misma fecha → usa la última); test de que NINGUNA query suma monedas distintas (espejo del sello del schema); test de superficie: el OpenAPI COMPLETO sigue solo-GET (cierra de paso el minor declarado de 3.2) | 1.1 | cc:TODO |
-| 1.4 | Endpoints GET de resumen de campañas (métricas 30d + target efectivo CON procedencia vía 1.2 + goal enabled/floor/ceiling) y de decisiones enriquecidas (join con nombres de entidad, término, paginado; motivo en español importando `MOTIVO_*`). `[tdd:required]` | Tests: procedencia correcta por fixture en los 4 peldaños; campaña sin nombre (targets NULL) no revienta el join; motivo desconocido → fallback genérico sin crash (regla 3: jamás inventar); paginación estable | 1.2, 1.3 | cc:TODO |
-| 1.5 | Endpoint GET de salud: snapshot del último ciclo por plataforma (tolerando `notes` de formato MIXTO — JSON y texto "rastro", residual declarado de 3.1) + histórico 14d de `optimizer_cycle` + watermarks (importando las constantes de `windows.py` — regla 2, patrón de 3.2). `[tdd:required]` | Tests: notes mixto no revienta; ciclo `failed`/`degraded` visible con su motivo; histórico ordenado y acotado a 14d | 1.3 | cc:TODO |
-| 1.6 | UI servida por la MISMA app: Jinja2 server-rendered (AUTOESCAPE verificado explícitamente), lib de gráficas VENDOREADA en `app/static/` (cero CDN; la más chica que cubra líneas+barras), responsive para cel, `Cache-Control: no-store`. Las 4 pantallas del brief. `[tdd:required]` | Tests: las 4 rutas → 200 con marcador único de cada pantalla; **test XSS (regla 9): un `search_term` con `<script>` en el feed se renderiza ESCAPADO — demostrado fallando con autoescape apagado** (hallazgo Security de la validación: los términos vienen de búsquedas reales de compradores); cero requests a hosts externos en el HTML generado | 1.4, 1.5 | cc:TODO |
-| 1.7 | Uso real: smoke por túnel SSH desde la compu del dueño (las 4 pantallas con los datos vivos del shadow), feedback de primera impresión anotado, y cierre del PR de Phase 1 (CI verde, batería completa). `[tdd:skip:smoke-de-uso]` | El dueño vio el dashboard con datos reales y su feedback quedó en AppFlowy; PR de Phase 1 mergeado | 1.6 | cc:TODO |
+| 1.1 | Brief `docs/DASHBOARD.md`: las 4 pantallas (Resumen: series diarias spend/revenue/ACoS por plataforma — moneda NATIVA, grano `kind='campaign'`, rango [D-30,D-1] UTC, días D-8..D-1 marcados inmaduros, NULL=hueco; Campañas: tabla 30d + target efectivo con PROCEDENCIA de 5 peldaños + estado del goal; Decisiones: feed por cursor con explicación en español desde `inputs`; Salud: snapshot + histórico 14d + skips por motivo) con TODAS las decisiones selladas del header, contratos de endpoints, modelo de acceso y límite del feed. Spec delta a CONTEXTO.md. Marcar `ORBIT 16` In progress. `[tdd:skip:docs-brief]` | El brief fija por escrito: moneda, grano por kind, ventanas/madurez visual, NULL/revenue=0, cursor, reuso de helpers, dinero-string, XSS de dos contextos, deps pinneadas — sin ambigüedad (huecos de las DOS rondas cerrados); CONTEXTO.md actualizado; CI verde | - | cc:TODO |
+| 1.2 | `app/optimizer/goals.py`: variante de la cascada que devuelve `(valor, peldaño)` con los CINCO peldaños (goal_campana, goal_plataforma, setting_plataforma, cache_estado, default), reutilizada por dashboard y compatible con el camino del motor (cero cambio de comportamiento). `[tdd:required]` | Tests: cada uno de los 5 peldaños gana con su fixture y reporta su nombre; los tests existentes de 2.4 pasan SIN tocarse; demostrado fallando (regla 9) | 1.1 | cc:TODO |
+| 1.3 | `app/api_dashboard.py` (módulo nuevo): endpoints GET de series temporales (por plataforma y por campaña) implementando los sellos: colapso bitemporal (regla 5), `kind='campaign'` explícito, [D-30,D-1] UTC, NULL como null (no 0), revenue=0 → ACoS null con flag "sin_ventas", dinero como STRING. ANTES de fijar tests: SELECT de forma real contra la base viva (regla 8, evidencia anotada). `[tdd:required]` | Tests: colapso (dos obs misma fecha → la última); ANTI-DOBLE-CONTEO demostrado fallando (fixture con fila campaign + fila keyword del mismo día → la serie usa SOLO campaign, regla 9); NULL≠0; sin_ventas; día en curso excluido; dinero string; superficie OpenAPI COMPLETA solo-GET | 1.1 | cc:TODO |
+| 1.4 | Endpoints GET de resumen de campañas (métricas 30d colapsadas + target efectivo CON procedencia vía 1.2 + goal enabled/floor/ceiling) y feed de decisiones por CURSOR (join nombres — `ad_entity.name` nullable, término, motivo en español importando `MOTIVO_*`). Reuso obligatorio de helpers de api.py (extraídos a módulo compartido si hace falta). `[tdd:required]` | Tests: procedencia en los 5 peldaños; name NULL no revienta; motivo desconocido → fallback sin crash; cursor estable con inserción concurrente simulada (páginas sin duplicados ni huecos); regla 8 antes de los tests | 1.2, 1.3 | cc:TODO |
+| 1.5 | Endpoint GET de salud: snapshot último ciclo por plataforma + histórico 14d + watermarks — REUTILIZANDO `_parse_notes` y el SQL de último ciclo de api.py (extracción compartida, no copia). `[tdd:required]` | Tests: notes mixto; ciclo failed/degraded visible con motivo; histórico acotado 14d; los tests de 3.2 existentes siguen intactos tras la extracción | 1.3 | cc:TODO |
+| 1.6 | UI Jinja2 server-rendered (dep pinneada en pyproject + uv.lock; AUTOESCAPE verificado), lib de gráficas VENDOREADA (versión+licencia+hash en el brief; cero CDN), responsive, CSP `default-src 'self'`, `Cache-Control: no-store`. Datos a JS SOLO vía `|tojson`. Las 4 pantallas. `[tdd:required]` | Tests: 4 rutas → 200 con marcador único; XSS regla 9 en DOS contextos (search_term con `<script>` escapado en HTML — demostrado fallando con autoescape off — Y payload en datos de gráfica neutralizado por tojson); cero hosts externos en el HTML; headers presentes; uv.lock commiteado | 1.4, 1.5 | cc:TODO |
+| 1.7 | Uso real: smoke por túnel SSH desde la compu del dueño (4 pantallas con los datos vivos del shadow), feedback anotado en AppFlowy, cierre del PR de Phase 1 (CI verde, batería completa). `[tdd:skip:smoke-de-uso]` | El dueño vio el dashboard con datos reales y su feedback quedó en la fila ORBIT 16; PR de Phase 1 mergeado | 1.6 | cc:TODO |
 
 ## Phase 2 — Exposición por VPN WireGuard [lane:gate] — PR SEPARADO
 
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
-| 2.1 | Publicar el puerto de la app TAMBIÉN en la IP de la interfaz WG del server (además de 127.0.0.1; JAMÁS 0.0.0.0). ANTES: verificar con evidencia que esa IP es alcanzable SOLO por el túnel (reglas de firewall/NAT + `ss -lntp`; un bind por-IP no basta si algún proxy la puentea). Candado `tests/test_compose_deploy.py::test_compose_ningun_puerto_en_todas_las_interfaces` actualizado a allowlist EXACTO `{127.0.0.1, <IP-WG>}` (set, no match laxo). DEPLOY.md con el modelo de acceso. **Este task relaja acotadamente un sello de PR1 y requiere sign-off EXPLÍCITO del dueño al aprobar este plan.** `[tdd:required]` | Candado demostrado fallando (regla 9) con `0.0.0.0` Y con una IP pública sintética; smoke POSITIVO desde un cliente VPN (compu y cel) y NEGATIVO (puerto inalcanzable desde fuera del túnel, con evidencia); accounting/bridge intactos | 1.7 | cc:TODO |
+| 2.1 | Publicar el puerto TAMBIÉN en la IP de la interfaz WG (además de 127.0.0.1; JAMÁS 0.0.0.0). ANTES: verificar con evidencia (firewall/NAT + `ss -lntp`) que esa IP solo es alcanzable por el túnel. Candado `tests/test_compose_deploy.py::test_compose_ningun_puerto_en_todas_las_interfaces` a allowlist EXACTO `{127.0.0.1, <IP-WG>}` (set). DEPLOY.md actualizado. Residual "no-público ≠ solo-dueño" aceptado con razón (header). **Requiere sign-off explícito del dueño.** `[tdd:required]` | Candado demostrado fallando (regla 9) con `0.0.0.0` Y con IP pública sintética; smoke POSITIVO desde compu y cel por VPN; smoke NEGATIVO (inalcanzable fuera del túnel, con evidencia); accounting/bridge intactos; evidencia en ORBIT 16 | 1.7 | cc:TODO |
 
 ## Phase 3 — Settings de ESCRITURA [lane:gate] — BLOQUEADA por ORBIT 04
 
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
-| 3.1 | Con la auth propia de ORBIT 04 (sellada en su Reject de PR1): endpoints write versionados (goal de campaña, config de plataforma — siempre filas NUEVAS, append-only) + pantalla de settings: target por plataforma, override por campaña (mostrando procedencia y a quién pisa), enabled, floor/ceiling; config de harvest cuando el apply exista. CERO escritura antes de esa auth. `[tdd:required]` | Tests de auth (sin credencial → rechazado), de versionado (cambio = fila nueva, jamás UPDATE), y de que el siguiente ciclo usa el valor nuevo; sign-off del dueño sobre la primera edición real | ORBIT 04 | cc:TODO |
+| 3.1 | Con la auth propia de ORBIT 04: edición de settings respetando el schema sellado — **goal = UPDATE** (mutable por diseño, únicos parciales; historia vía `config_version` + `decision.inputs`) y **config de plataforma = fila NUEVA de `config_version`** (append-only por trigger); pantalla de settings: target por plataforma, override por campaña (mostrando procedencia y a quién pisa), enabled, floor/ceiling; harvest config cuando el apply exista. CERO escritura antes de esa auth. `[tdd:required]` | Tests: sin credencial → rechazado; edición de goal = UPDATE visible en el ciclo siguiente con su rastro en `decision.inputs`; cambio de config = fila nueva (el trigger append-only lo exige); sign-off del dueño sobre la primera edición real; `ORBIT 16` → Done con notas completas al cerrar | ORBIT 04 | cc:TODO |
 
 ## Priorización
 
-- **Required**: 1.1–1.7 (la herramienta de revisión del shadow — su momento es AHORA, durante las 2 semanas del reloj), 2.1 (el acceso que el dueño pidió).
-- **Recommended**: skips por entidad en el feed (si el uso real lo pide — hoy el límite está declarado); pantalla de harvest candidates cuando PR2 traiga el bid sugerido.
-- **Optional**: gráficas de TACoS/margen (necesitan `fx_rate` + margen: fase margin-aware, ORBIT 06+).
+- **Required**: 1.1–1.7 (la herramienta de revisión del shadow — su momento es AHORA), 2.1 (el acceso pedido).
+- **Recommended**: skips por entidad en el feed (si el uso real lo pide); pantalla de harvest candidates cuando PR2 traiga el bid sugerido.
+- **Optional**: gráficas TACoS/margen (necesitan `fx_rate` + margen: ORBIT 06+); `v_metric_mature` como toggle de vista madura.
 - **Reject** (con razón):
-  - SPA con framework/build de frontend (npm, bundlers): infra que la autopsia mata; server-rendered + una lib vendoreada cubre 4 pantallas.
-  - Websockets/tiempo real: los datos cambian una vez al día (crons); recargar la página basta.
-  - Multi-usuario/roles: server mono-operador detrás de VPN.
-  - CDNs o cualquier asset externo: la app no depende de internet y un CDN caído no puede romper el dashboard.
-  - Exposición a internet público: la VPN es el perímetro, punto.
-  - **Reverse-proxy adicional (nginx/Caddy) "para TLS" frente a la IP WG**: WireGuard ya cifra extremo a extremo; proxy = infra innecesaria (hallazgo Skeptic).
-  - Editar settings desde el chat del Project de claude.ai: el camino de escritura es la app con auth (ORBIT 04), no un LLM con acceso a la base.
+  - SPA con framework/build de frontend: infra que la autopsia mata.
+  - Websockets/tiempo real: los datos cambian una vez al día.
+  - Multi-usuario/roles: mono-operador detrás de VPN (si eso cambia, Phase 3 ya trae auth).
+  - CDNs o assets externos: un CDN caído no puede romper el dashboard.
+  - Exposición a internet público: la VPN es el perímetro.
+  - Reverse-proxy adicional "para TLS" frente a la IP WG: WireGuard ya cifra extremo a extremo.
+  - Allowlist por peer WG / smoke por peer no autorizado: sobre-ingeniería para un server mono-operador cuyos peers son todos del dueño (residual documentado en el header).
+  - Editar settings desde el chat de claude.ai: la escritura va por la app con auth, no por un LLM.
 
 ## 事前確認
 
-- 事項: external-send — `git push` de ramas + `gh pr create`/merge (un PR por phase: Phase 1 lectura, Phase 2 exposición VPN, Phase 3 settings)
+- 事項: external-send — `git push` de ramas + `gh pr create`/merge (un PR por phase)
   理由: cada phase cierra con PR y batería completa en CI, patrón del repo
   scope: Phases 1-3 / todas las tareas
-- 事項: external-send — lecturas por ssh a goncloud para smokes (curl al dashboard por túnel, `ss -lntp`, verificación de firewall/NAT de la IP WG) y anotaciones de evidencia en AppFlowy
-  理由: DoD de 1.7 y 2.1; solo lectura del estado del server, cero secretos
-  scope: Phase 1 / 1.7, Phase 2 / 2.1
-- 事項: destructive/estado — editar el compose de deploy del server para agregar el binding de la IP WG (aditivo: una línea de ports; los servicios db/bridge/accounting no se tocan) y `docker compose up -d --no-deps app`
-  理由: DoD de 2.1 — es el único cambio de red del plan, en PR separado con sign-off del dueño
+- 事項: external-send — lecturas por ssh a goncloud: SELECTs de forma real (regla 8, read-only), curl al dashboard por túnel, `ss -lntp`, verificación firewall/NAT de la IP WG, y anotaciones de evidencia en AppFlowy
+  理由: DoD de 1.3-1.5 (regla 8), 1.7 y 2.1; solo lectura, cero secretos
+  scope: Phase 1 / 1.3-1.7, Phase 2 / 2.1
+- 事項: destructive/estado — editar el compose de deploy del server para agregar el binding de la IP WG (aditivo: una línea de ports; db/bridge/accounting intactos) y `docker compose up -d --no-deps app`
+  理由: DoD de 2.1 — único cambio de red del plan, PR separado con sign-off del dueño
   scope: Phase 2 / 2.1
 - (sin secret-read en todo el plan)
