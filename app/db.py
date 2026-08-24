@@ -8,6 +8,7 @@ debe filtrar el DSN crudo -- ni en el mensaje, ni en la cadena
 from __future__ import annotations
 
 import logging
+import os
 
 import psycopg
 
@@ -24,6 +25,25 @@ class OrbitDbError(Exception):
         super().__init__(scrub(message))
 
 
+def aplicar_host_override(dsn: str, host: str | None = None) -> str:
+    """Reescribe el host de loopback del DSN cuando corre DENTRO del compose.
+
+    Los DSN del `.env` del server apuntan a `127.0.0.1` (bind del host). Dentro
+    del contenedor `app` ese address es el propio contenedor, no Postgres: el
+    servicio compose se llama `db`. `ORBIT_PG_HOST=db` (compose, 4.1) activa
+    el rewrite. En el host y en CI la var no existe y el DSN no se toca.
+
+    Solo sustituye `@127.0.0.1:` y `@localhost:` (separador userinfo/host del
+    URI). No inventa un host si el DSN ya apunta a otro.
+    """
+    if not host:
+        return dsn
+    for loopback in ("127.0.0.1", "localhost"):
+        dsn = dsn.replace(f"@{loopback}:", f"@{host}:")
+        dsn = dsn.replace(f"@{loopback}/", f"@{host}/")
+    return dsn
+
+
 def connect(dsn: str, **kw) -> psycopg.Connection:
     """Conecta a Postgres; ante fallo, re-lanza `OrbitDbError` con el DSN redactado.
 
@@ -32,6 +52,7 @@ def connect(dsn: str, **kw) -> psycopg.Connection:
     excepcion original (que puede traer el DSN crudo en su propio mensaje)
     no quede enganchada como `__context__` de `OrbitDbError`.
     """
+    dsn = aplicar_host_override(dsn, os.environ.get("ORBIT_PG_HOST"))
     error: OrbitDbError | None = None
     try:
         return psycopg.connect(dsn, **kw)

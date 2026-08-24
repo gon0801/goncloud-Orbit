@@ -4,11 +4,22 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
-**Última actualización: 2026-08-24 — Phases 1, 2 y 3 de ORBIT 03 COMPLETAS,
-revisadas y mergeadas a master (motor puro + orquestador + API de lectura +
-CLI + candados anti-monolito). Sigue Phase 4: deploy, crons y los dos
-checkpoints humanos del dueño. Este archivo tiene candado de frescura: el CI
-exige actualizarlo en cada PR que cierre tareas.**
+**Última actualización: 2026-08-24 — Phases 1–3 en master; 4.1 y 4.2 hechas
+en goncloud (servicio `app` en 127.0.0.1:8010 + 3 crons aditivos, profundidad
+diaria D-31..D-1). 4.3 EJECUTADA por el dueño: escalera global en shadow,
+targets ACoS 20 (mx) y 20 (us — presión máxima elegida a sabiendas), TODAS
+las campañas activas vía goals de plataforma; harvest sin bid fijo por
+decisión (el bid sugerido de Amazon llega con el apply de PR2 — regla 3:
+jamás inventar el número). 4.4 VALIDADA por el dueño: primer shadow real corrido (133 decisiones,
+us 124 / mx 9), spot-check completo y verificación adversarial TRIPLE
+(codex, grok y qwen: 133/133 limpias, skips cuadrando al entero).
+ORBIT 03 COMPLETO (17/17 tareas): el optimizador decide EN SOMBRA todos
+los dias (crons 06:45/07:10/08:40-08:41 UTC) sobre todas las campanas
+activas, con cero capacidad de escribir a Amazon. El reloj de las 2
+semanas de shadow para el cutover (ORBIT 05) corre desde el 2026-08-24.
+Siguiente proyecto: ORBIT 04 (PR2: el apply con topes). Este archivo
+tiene candado de frescura: el CI exige actualizarlo en cada PR que
+cierre tareas.**
 
 ## Qué es Orbit
 
@@ -39,8 +50,12 @@ escribe nada a Amazon hasta pasar validación humana (el "apply" llega en PR2).
   a los pipelines de `app/ads/`); candados anti-monolito activos
   (complejidad, fronteras de imports, tamaño de módulos, frescura de este
   archivo).
-- **En curso**: Phase 4 (deploy, crons, seed humano de goals, primer shadow
-  real).
+- **Phase 4 (PR #15, en cierre)**: 4.1 servicio `app` vivo en el server
+  (`/health` OK, puerto solo loopback, `secrets/` 0600 intactos), 4.2
+  tres crons diarios (accounting intacto), 4.3 seed del dueño ejecutado
+  (shadow, targets 20/20) y 4.4 primer shadow real VALIDADO (133
+  decisiones, triple verificación adversarial limpia). Falta solo el
+  merge (4.5).
 - **Datos reales ya en la base viva** (Postgres en el server `goncloud`):
   5,897 entidades, ~22,000 observaciones de métricas, ~6,900 de search terms.
 
@@ -117,7 +132,9 @@ PR1 'live' degrada a shadow (fail-closed).
 - **Monedas**: el sistema viejo mezcló MXN/USD (error de 18.66× a favor de
   "todo es rentabilísimo"). En Orbit es imposible por schema.
 - **El día en curso** llega incompleto y etiquetado con su fecha: el cron
-  re-tira D-8..D-1 y la bitemporalidad lo hace seguro.
+  re-tira D-31..D-1 (sello 4.2: tope de un request = 31d, cubre las
+  columnas 30d y el mínimo D-8..D-1 de terms) y la bitemporalidad lo hace
+  seguro.
 - **La pregunta sin respuesta**: si la cuenta US gana o pierde depende del
   supuesto de halo (entre +1,671 y −2,238 USD en 91 días). Decisión pendiente
   antes de la fase margin-aware: acotar, holdout, o TACoS.
