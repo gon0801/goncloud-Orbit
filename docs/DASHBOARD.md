@@ -160,15 +160,16 @@ Respuesta 200:
       "plataforma": "amazon_mx",
       "moneda": "MXN",
       "metricas_30d": {"cost": "4231.5500", "ad_revenue": "18876.2100", "clicks": 1320, "acos": "22.42", "sin_ventas": false, "inmaduro": true},
-      "target_efectivo": {"valor": "25.00", "peldaño": "goal_plataforma"},
+      "target_efectivo": {"valor": "25.00", "peldano": "goal_plataforma"},
       "goal": {"enabled": true, "floor": "0.1000", "ceiling": "2.5000", "mode": "shadow", "scope": "platform"}
     }
   ]
 }
 ```
-- `metricas_30d`: misma semántica de grano/ventana/NULL/dinero-string que §3.1/§3.2.
-- `target_efectivo.peldaño` ∈ exactamente `{goal_campana, goal_plataforma, setting_plataforma, cache_estado, default}` (función de 1.2; valor `str` de Decimal).
-- `goal` es el estado VIVO del goal resuelto (decisión 17): `enabled`, `floor`, `ceiling`, `mode`; `target_acos_pct` del goal NO se expone como target efectivo (eso es la cascada), solo via `target_efectivo`.
+- `metricas_30d`: misma semántica de grano/ventana/NULL/dinero-string que §3.1/§3.2
+  (ventana fija [D-30, D-1]; `inmaduro` = el agregado incluye días D-8..D-1).
+- `target_efectivo.peldano` ∈ exactamente `{goal_campana, goal_plataforma, setting_plataforma, cache_estado, default}` (función de 1.2, REUTILIZADA; valor `str` de Decimal). La clave es `peldano` (convención del repo: sin acentos en el código).
+- `goal` es el estado VIVO del goal RESUELTO (`resuelve_goal`: campaña > plataforma; decisión 17): `enabled`, `floor`, `ceiling`, `mode`, `scope`; `null` si no hay goal (regla 3). `target_acos_pct` del goal NO se expone como target efectivo (eso es la cascada), solo via `target_efectivo`.
 - Cada fila lleva su `moneda`; **NO existe total al pie que sume filas de monedas distintas** (regla 4 — test anti-mezcla).
 
 ### 3.4 Feed de decisiones — `GET /api/dashboard/decisiones`  *(1.4)*
@@ -205,12 +206,19 @@ Respuesta 200:
 }
 ```
 - `target_acos_pct_usado` se lee de `inputs.target_acos_pct_usado`; **jamás de
-  `inputs.goal.target_acos_pct`** (NULL cuando ganó el default — afinación grok r2).
+  `inputs.goal.target_acos_pct`** (NULL cuando ganó el default — afinación grok r2;
+  en producción los goals de plataforma no traen target y leer el goal mostraría
+  null en TODAS las decisiones).
 - `nombre` viene del JOIN a `ad_entity.name` (nullable → `null`, no revienta).
 - `motivo_es`: dict de traducción que IMPORTA las constantes `MOTIVO_*` de
-  `app/optimizer/bid.py`/`hygiene.py`; motivo desconocido → fallback sin crash.
-- `value_currency` por fila; sin total al pie (regla 4). `search_term` solo en
-  kinds de término (NULL en los demás, CHECK del esquema).
+  `app/optimizer/bid.py`/`hygiene.py`; motivo desconocido → fallback SIN crash
+  (se devuelve el id crudo del motivo, jamas se pierde información).
+- `old_value`/`new_value`/`value_currency` pueden ser `null` (trampa real: los
+  pause traen los tres NULL — el CHECK del esquema solo exige moneda en kinds
+  que mueven dinero): el feed los renderiza null sin inventar 0 ni crashear.
+- `search_term` solo en kinds de término (NULL en los demás, CHECK del esquema);
+  es texto libre del comprador → el vector XSS que la UI de 1.6 debe escapar.
+- `value_currency` por fila; sin total al pie (regla 4).
 - Cursor estable bajo inserción concurrente simulada (páginas sin duplicados ni
   huecos) — DoD de 1.4.
 
@@ -221,22 +229,30 @@ Respuesta 200:
 {
   "plataformas": {
     "amazon_us": {
-      "ultimo_ciclo": {"id": 12, "mode": "shadow", "status": "done", "started_at": "2026-08-22T12:00:00Z", "finished_at": "2026-08-22T12:05:00Z", "decisions_count": 5, "applied_count": 0, "notes": {"skips": {"entidad": {"sin_goal": 1}}}},
-      "historico_14d": [{"fecha": "2026-08-09", "status": "done", "decisions_count": 4}, {"fecha": "2026-08-10", "status": "degraded", "motivo": "watermark viejo"}, "..."],
-      "skips": {"sin_goal": 1, "goal_disabled": 2}
+      "watermark": "2026-08-22",
+      "synced_at": "2026-08-23T00:46:00Z",
+      "ultimo_ciclo": {"id": 5, "mode": "shadow", "status": "done", "started_at": "2026-08-22T00:46:00Z", "finished_at": "2026-08-22T00:50:00Z", "decisions_count": 124, "applied_count": 0, "notes": {"skips": {"entidad": {"estado_no_enabled": 3200}}, "decisiones": {"bid": 124}}},
+      "historico_14d": [{"cycle_id": 5, "fecha": "2026-08-22T00:46:00Z", "status": "done", "decisions_count": 124}, {"cycle_id": 4, "fecha": "2026-08-21T00:47:00Z", "status": "degraded", "decisions_count": 0, "motivo": "Watermark de la plataforma vencido"}],
+      "skips": {"entidad": {"estado_no_enabled": {"count": 3200, "motivo_es": "Entidad sin estado o no habilitada"}}, "termino": {"asin_like": {"count": 84, "motivo_es": "Termino ASIN-like: se salta siempre"}}}
     }
   }
 }
 ```
+- `watermark`/`synced_at`: las MISMAS fuentes del motor (v_metric_latest y
+  ad_entity_state.synced_at, constantes de `windows.py`) — regla 2.
 - `ultimo_ciclo` REUTILIZA `_parse_notes` (formato mixto JSON / texto `rastro: …`)
   y el SQL de último ciclo de `api.py` (extraídos a `app/api_common.py`, no
   copiados — decisión 6).
 - `historico_14d`: los últimos 14 ciclos de la plataforma (acotado), con
-  `status` y, cuando aplique, el motivo (degradado/failed visible con motivo).
-- `skips`: vocabulario del ORQUESTADOR (`cycle.py`: sin_goal, goal_disabled,
-  estado_no_enabled, cooldown_7d, escalera_off, …) — el que vive en
-  `notes.skips`; DOS diccionarios de traducción (este y el de §3.4), cada uno
-  importando su fuente (decisión 11).
+  `status` y, cuando aplique, el `motivo` en español (degradado/failed visible
+  con motivo; de `notes.motivo_skip` — guarda_watermark/synced_at/sin_datos — o
+  el texto del notes).
+- `skips`: los contadores del notes del ORQUESTADOR (`cycle.py`: sin_goal,
+  goal_disabled, estado_no_enabled, cooldown_7d, escalera_off, … + los
+  `MOTIVO_*` de bid/hygiene que el orquestador importa a sus contadores) con su
+  traducción `motivo_es`; DOS diccionarios de traducción (este y el de §3.4),
+  cada uno importando su fuente (decisión 11); motivo desconocido → fallback sin
+  crash.
 
 ### 3.6 Reglas transversales de las series (selladas)
 

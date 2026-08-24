@@ -46,12 +46,18 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from psycopg.conninfo import make_conninfo
+from psycopg.types.json import Json
 from test_schema import _postgres_obligatorio_ausente, _test_dsn
 
 from app import api_dashboard as dash
 from app.main import app
 
 _DIA = dt.timedelta(days=1)
+
+# Reloj FIJO tz-aware (determinismo): los seeds de decisiones y ciclos se
+# cuelgan de AHORA (patron test_api).
+AHORA = dt.datetime(2026, 8, 22, 12, 0, tzinfo=dt.UTC)
+DECIDED_AT = AHORA
 
 SQL_MIGRACION = (
     Path(__file__).resolve().parent.parent / "migrations" / "0001_initial.sql"
@@ -160,6 +166,95 @@ def _metrica(
     )
 
 
+def _config_version(conn, settings: dict) -> int:
+    """config_version (JSONB); la vigente es la de mayor id."""
+    return conn.execute(
+        "INSERT INTO config_version (label, settings) VALUES (%s, %s) RETURNING id",
+        ("test-dashboard", Json(settings)),
+    ).fetchone()[0]
+
+
+def _goal_db(
+    conn,
+    *,
+    scope: str,
+    platform=None,
+    ad_entity_id=None,
+    target=None,
+    floor="0.10",
+    ceiling="2.50",
+    enabled=True,
+    mode="shadow",
+) -> int:
+    """Goal de plataforma o campana (convencion del schema: scope=campaign exige
+    ad_entity_id y platform NULL; scope=platform al reves)."""
+    return conn.execute(
+        "INSERT INTO ads_optimizer_goal (scope, ad_entity_id, platform, target_acos_pct,"
+        " bid_floor, bid_ceiling, bid_currency, enabled, mode)"
+        " VALUES (%s, %s, %s::platform, %s, %s, %s, 'USD', %s, %s) RETURNING id",
+        (scope, ad_entity_id, platform, target, floor, ceiling, enabled, mode),
+    ).fetchone()[0]
+
+
+def _estado_acos(conn, ad_entity_id, acos_target) -> None:
+    """ad_entity_state con cache del acos_target publicado (4to peldano)."""
+    conn.execute(
+        "INSERT INTO ad_entity_state (ad_entity_id, current_bid, bid_currency, status,"
+        " acos_target, synced_at) VALUES (%s, NULL, NULL, 'ENABLED', %s, %s)",
+        (ad_entity_id, acos_target, AHORA),
+    )
+
+
+def _ciclo(conn, *, platform: str, status: str = "done", notes=None) -> int:
+    """Envelope de ciclo (notes TEXT: JSON o texto plano 'rastro: ...')."""
+    return conn.execute(
+        "INSERT INTO optimizer_cycle (motor, mode, platform, status, finished_at,"
+        " decisions_count, notes) VALUES ('ads_optimizer', 'shadow', %s::platform, %s, %s, 0, %s)"
+        " RETURNING id",
+        (platform, status, AHORA, notes),
+    ).fetchone()[0]
+
+
+def _decision(
+    conn,
+    ciclo,
+    ad_entity_id,
+    *,
+    kind: str,
+    config_id: int,
+    inputs: dict,
+    search_term=None,
+    window_end=dt.date(2026, 8, 16),
+    old_value=None,
+    new_value=None,
+    moneda=None,
+) -> int:
+    """Una decision (inputs JSONB congelados). kind bid exige moneda por CHECK;
+    negative/harvest exigen window_end <= decided_at - 10d (trigger de madurez)
+    y moneda NULL; pause tolera TODO null (trampa real de la evidencia)."""
+    return conn.execute(
+        "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
+        " data_observed_at, window_start, window_end, search_term, old_value, new_value,"
+        " value_currency, inputs) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+        " RETURNING id",
+        (
+            ciclo,
+            ad_entity_id,
+            kind,
+            DECIDED_AT,
+            config_id,
+            DECIDED_AT - dt.timedelta(hours=1),
+            dt.date(2026, 7, 14),
+            window_end,
+            search_term,
+            old_value,
+            new_value,
+            moneda,
+            Json(inputs),
+        ),
+    ).fetchone()[0]
+
+
 # ---------------------------------------------------------------------------
 # UNITARIOS puros (corren siempre, sin DB): ACoS, ventana efectiva, spine
 # ---------------------------------------------------------------------------
@@ -250,7 +345,7 @@ def test_series_sql_filtran_kind_campaign_en_ad_entity():
     el poder discriminante contra el mutante se demuestra AQUI mismo."""
     from pglast.stream import RawStream
 
-    for nombre in ("_SQL_SERIE_PLATAFORMA", "_SQL_SERIE_CAMPANA"):
+    for nombre in ("_SQL_SERIE_PLATAFORMA", "_SQL_SERIE_CAMPANA", "_SQL_CAMPANAS_30D"):
         sql = getattr(dash, nombre).replace("%s", "NULL")
         normalizada = " ".join(pglast.prettify(sql).lower().split())
         assert "join ad_entity" in normalizada, f"{nombre}: sin JOIN a ad_entity"
@@ -277,7 +372,7 @@ def test_sql_del_modulo_dashboard_parsea_como_postgres():
     nombres = sorted(n for n in vars(dash) if n.startswith("_SQL_"))
     assert nombres, "no se encontraron constantes _SQL_* en app/api_dashboard"
     for nombre in nombres:
-        sql = getattr(dash, nombre).replace("%s", "NULL")
+        sql = getattr(dash, nombre).replace("%s", "NULL").replace("{filtros}", "true")
         assert pglast.parse_sql(sql), f"{nombre} no parseo"
 
 
@@ -726,3 +821,453 @@ def test_serie_plataforma_vocabulario_y_ventana_invalidos_422(monkeypatch):
             params={"platform": "amazon_us", "desde": "2026-08-24", "hasta": "2026-08-20"},
         )
         assert r2.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# 1.4 - CANDADO del feed (corre sin Postgres): cursor, jamas limit/offset
+# ---------------------------------------------------------------------------
+
+
+def test_sql_feed_decisiones_por_cursor_sin_offset_y_con_join_nombre():
+    """Candado del FEED (regla 9, corre sin Postgres): paginacion por CURSOR
+    (id <, ORDER BY d.id DESC) — PROHIBIDO limit/offset (decision 8 del
+    header: offset sobre una tabla append-only produce huecos/duplicados entre
+    paginas) — y JOIN a ad_entity para el nombre (nullable)."""
+    sql = dash._SQL_DECISIONES_FEED.replace("%s", "NULL").replace("{filtros}", "true")
+    normalizada = " ".join(pglast.prettify(sql).lower().split())
+    assert "join ad_entity" in normalizada, "el feed debe JOIN ad_entity para el nombre"
+    assert "order by d.id desc" in normalizada, "el feed ordena por id DESC (cursor)"
+    assert "offset" not in normalizada, "el feed JAMAS pagina por offset"
+    assert "limit" in normalizada
+
+
+# ---------------------------------------------------------------------------
+# 1.4 - INTEGRACION /campanas: procedencia en los 5 peldanos, goal, anti-mezcla
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_campanas_procedencia_en_los_5_peldanos(monkeypatch):
+    """DoD: procedencia en los 5 peldanos via el ENDPOINT. Con una sola
+    config vigente y dos plataformas no alcanza a aislar los 5 estados, asi
+    que la config se avanza entre llamadas (la vigente es la de mayor id): la
+    primera config cubre goal_campana/goal_plataforma/cache/default; una
+    config NUEVA con la clave de amazon_mx voltea las campañas mx a
+    setting_plataforma (el setting pisa el cache)."""
+    with _db_temporal("orbit_dash_peldanos") as (conn, dsn):
+        run = _run(conn)
+        _config_version(conn, {"ads_target_acos_pct_amazon_us": 30})
+        _goal_db(conn, scope="platform", platform="amazon_us", target="25")
+        camp_a = _campana(conn, "amazon_us", "9001", name="A")
+        camp_b = _campana(conn, "amazon_us", "9002", name="B")
+        _goal_db(conn, scope="campaign", ad_entity_id=camp_a, target="18")
+        camp_c = _campana(conn, "amazon_mx", "9003", name="C")
+        camp_d = _campana(conn, "amazon_mx", "9004", name="D")
+        _estado_acos(conn, camp_c, Decimal("28"))
+        for camp in (camp_a, camp_b):
+            _metrica(
+                conn,
+                run,
+                camp,
+                dt.date(2026, 8, 20),
+                cost="1.0000",
+                ad_revenue="3.0000",
+                clicks=1,
+                moneda="USD",
+            )
+        for camp in (camp_c, camp_d):
+            _metrica(
+                conn,
+                run,
+                camp,
+                dt.date(2026, 8, 20),
+                cost="1.0000",
+                ad_revenue="3.0000",
+                clicks=1,
+                moneda="MXN",
+            )
+        _hoy(monkeypatch, dt.date(2026, 8, 24))
+        cliente = _cliente(dsn, monkeypatch)
+
+        data = cliente.get("/api/dashboard/campanas").json()["items"]
+        por_id = {i["ad_entity_id"]: i for i in data}
+        assert por_id[camp_a]["target_efectivo"] == {"valor": "18.00", "peldano": "goal_campana"}
+        assert por_id[camp_b]["target_efectivo"] == {"valor": "25.00", "peldano": "goal_plataforma"}
+        assert por_id[camp_c]["target_efectivo"] == {"valor": "28.00", "peldano": "cache_estado"}
+        assert por_id[camp_d]["target_efectivo"] == {"valor": "55", "peldano": "default"}
+        assert por_id[camp_d]["goal"] is None  # sin goal de plataforma ni de campana
+
+        # config VIGENTE nueva: amazon_mx gana setting_plataforma (40)
+        _config_version(conn, {"ads_target_acos_pct_amazon_mx": 40})
+        data2 = cliente.get("/api/dashboard/campanas").json()["items"]
+        por_id2 = {i["ad_entity_id"]: i for i in data2}
+        assert por_id2[camp_d]["target_efectivo"] == {
+            "valor": "40",
+            "peldano": "setting_plataforma",
+        }
+        assert por_id2[camp_c]["target_efectivo"] == {
+            "valor": "40",
+            "peldano": "setting_plataforma",
+        }
+        # los goals siguen pisando: camp_a y camp_b intactos
+        assert por_id2[camp_a]["target_efectivo"]["peldano"] == "goal_campana"
+        assert por_id2[camp_b]["target_efectivo"]["peldano"] == "goal_plataforma"
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_campanas_goal_estado_resuelto_y_metricas_string(monkeypatch):
+    """DoD: estado VIVO del goal RESUELTO (campaña > plataforma, decision 17);
+    goal null sin goal (regla 3); dinero string; metricas 30d con acos y
+    sin_ventas (revenue 0 -> acos null + flag)."""
+    with _db_temporal("orbit_dash_goal") as (conn, dsn):
+        run = _run(conn)
+        _config_version(conn, {"ads_target_acos_pct_amazon_us": 30})
+        _goal_db(
+            conn,
+            scope="platform",
+            platform="amazon_us",
+            target=None,
+            floor="0.40",
+            ceiling="2.50",
+            enabled=True,
+            mode="shadow",
+        )
+        camp_a = _campana(conn, "amazon_us", "9001", name="A")
+        camp_b = _campana(conn, "amazon_us", "9002", name="B")
+        camp_mx = _campana(conn, "amazon_mx", "9003", name="MX")
+        _goal_db(
+            conn,
+            scope="campaign",
+            ad_entity_id=camp_a,
+            target="18",
+            floor="0.20",
+            ceiling="2.00",
+            enabled=False,
+            mode="off",
+        )
+        _metrica(
+            conn,
+            run,
+            camp_a,
+            dt.date(2026, 8, 20),
+            cost="1.0000",
+            ad_revenue="3.0000",
+            clicks=1,
+            moneda="USD",
+        )
+        _metrica(
+            conn,
+            run,
+            camp_b,
+            dt.date(2026, 8, 20),
+            cost="66.6300",
+            ad_revenue="0.0000",
+            clicks=5,
+            moneda="USD",
+        )
+        _metrica(
+            conn,
+            run,
+            camp_mx,
+            dt.date(2026, 8, 20),
+            cost="2.0000",
+            ad_revenue="6.0000",
+            clicks=2,
+            moneda="MXN",
+        )
+        _hoy(monkeypatch, dt.date(2026, 8, 24))
+        data = _cliente(dsn, monkeypatch).get("/api/dashboard/campanas").json()["items"]
+        por_id = {i["ad_entity_id"]: i for i in data}
+        # goal resuelto = EL DE CAMPANA (pisa a la plataforma INCLUSO disabled)
+        assert por_id[camp_a]["goal"] == {
+            "enabled": False,
+            "floor": "0.2000",
+            "ceiling": "2.0000",
+            "mode": "off",
+            "scope": "campaign",
+        }
+        # sin goal de campana -> el de plataforma
+        assert por_id[camp_b]["goal"] == {
+            "enabled": True,
+            "floor": "0.4000",
+            "ceiling": "2.5000",
+            "mode": "shadow",
+            "scope": "platform",
+        }
+        # amazon_mx sin goal -> goal null
+        assert por_id[camp_mx]["goal"] is None
+        # dinero string + sin_ventas real + moneda por fila
+        assert por_id[camp_b]["metricas_30d"]["cost"] == "66.6300"
+        assert isinstance(por_id[camp_b]["metricas_30d"]["cost"], str)
+        assert por_id[camp_b]["metricas_30d"]["sin_ventas"] is True
+        assert por_id[camp_b]["metricas_30d"]["acos"] is None
+        assert por_id[camp_b]["moneda"] == "USD"
+        assert por_id[camp_mx]["moneda"] == "MXN"
+        assert por_id[camp_mx]["metricas_30d"]["acos"] == "33.33"
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_campanas_anti_mezcla_de_monedas(monkeypatch):
+    """DoD regla 4: cada fila lleva su moneda y NO existe total al pie que
+    sume USD+MXN (el shape del contrato no tiene total)."""
+    with _db_temporal("orbit_dash_mezcla") as (conn, dsn):
+        run = _run(conn)
+        _config_version(conn, {})
+        camp_us = _campana(conn, "amazon_us", "9001", name="US")
+        camp_mx = _campana(conn, "amazon_mx", "9002", name="MX")
+        _metrica(
+            conn,
+            run,
+            camp_us,
+            dt.date(2026, 8, 20),
+            cost="10.0000",
+            ad_revenue="30.0000",
+            clicks=3,
+            moneda="USD",
+        )
+        _metrica(
+            conn,
+            run,
+            camp_mx,
+            dt.date(2026, 8, 20),
+            cost="100.0000",
+            ad_revenue="300.0000",
+            clicks=3,
+            moneda="MXN",
+        )
+        _hoy(monkeypatch, dt.date(2026, 8, 24))
+        data = _cliente(dsn, monkeypatch).get("/api/dashboard/campanas").json()
+        assert "total" not in data, "PROHIBIDO un total que mezclaria monedas"
+        por_id = {i["ad_entity_id"]: i for i in data["items"]}
+        assert por_id[camp_us]["moneda"] == "USD" and por_id[camp_mx]["moneda"] == "MXN"
+        assert por_id[camp_us]["metricas_30d"]["cost"] == "10.0000"
+        assert por_id[camp_mx]["metricas_30d"]["cost"] == "100.0000"
+
+
+# ---------------------------------------------------------------------------
+# 1.4 - INTEGRACION /decisiones: cursor estable, trampas reales, fallback
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_decisiones_paginacion_cursor_estable_con_insercion(monkeypatch):
+    """DoD: cursor estable con insercion concurrente simulada — paginas sin
+    duplicados ni huecos. La fila nueva (id mayor) jamas se cuela en una
+    pagina cuyo cursor ya quedo atras (offset si lo haria)."""
+    with _db_temporal("orbit_dash_cursor") as (conn, dsn):
+        config_id = _config_version(conn, {"ads_optimizer_mode": "shadow"})
+        camp = _campana(conn, "amazon_us", "9001", name="Campana A")
+        ciclo = _ciclo(conn, platform="amazon_us")
+        inputs = {"motor": "bid", "motivo": "banda_menos_12", "target_acos_pct_usado": "25.00"}
+        ids = [
+            _decision(conn, ciclo, camp, kind="bid", config_id=config_id, inputs=inputs)
+            for _ in range(5)
+        ]
+        cliente = _cliente(dsn, monkeypatch)
+
+        r1 = cliente.get("/api/dashboard/decisiones", params={"limit": 2})
+        data1 = r1.json()
+        assert [i["id"] for i in data1["items"]] == [ids[4], ids[3]]
+        assert data1["next_cursor"] == ids[3]
+        assert data1["has_more"] is True
+
+        # insercion concurrente simulada: decision NUEVA con id mayor
+        _decision(conn, ciclo, camp, kind="bid", config_id=config_id, inputs=inputs)
+
+        r2 = cliente.get(
+            "/api/dashboard/decisiones", params={"limit": 2, "cursor": data1["next_cursor"]}
+        )
+        data2 = r2.json()
+        assert [i["id"] for i in data2["items"]] == [ids[2], ids[1]]
+        assert data2["next_cursor"] == ids[1]
+        assert data2["has_more"] is True
+
+        r3 = cliente.get(
+            "/api/dashboard/decisiones", params={"limit": 2, "cursor": data2["next_cursor"]}
+        )
+        data3 = r3.json()
+        assert [i["id"] for i in data3["items"]] == [ids[0]]
+        assert data3["next_cursor"] is None
+        assert data3["has_more"] is False
+
+        todos = (
+            [i["id"] for i in data1["items"]]
+            + [i["id"] for i in data2["items"]]
+            + [i["id"] for i in data3["items"]]
+        )
+        assert todos == sorted(ids, reverse=True)  # sin duplicados ni huecos
+        assert all(i["nombre"] == "Campana A" for i in data1["items"])
+        assert all(i["target_acos_pct_usado"] == "25.00" for i in data1["items"])
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_decisiones_trampa_pause_null_y_target_desde_inputs(monkeypatch):
+    """DoD + trampas reales de la evidencia: (a) el target mostrado se lee de
+    inputs.target_acos_pct_usado, JAMAS de inputs.goal.target_acos_pct (null
+    en produccion cuando gano el default o el setting); (b) los pause traen
+    old_value/new_value/value_currency NULL: el feed los renderiza null sin
+    inventar 0 ni crashear; (c) negative trae search_term (el vector XSS)."""
+    with _db_temporal("orbit_dash_trampas") as (conn, dsn):
+        config_id = _config_version(conn, {"ads_optimizer_mode": "shadow"})
+        camp = _campana(conn, "amazon_us", "9001", name="Campana A")
+        ag = _grupo(conn, "amazon_us", "9101", parent=camp)
+        ciclo = _ciclo(conn, platform="amazon_us")
+        id_bid = _decision(
+            conn,
+            ciclo,
+            camp,
+            kind="bid",
+            config_id=config_id,
+            moneda="USD",
+            inputs={
+                "motor": "bid",
+                "motivo": "banda_menos_12",
+                "target_acos_pct_usado": "25.00",
+                # la trampa: el goal congelado NO trae target (null real)
+                "goal": {"scope": "platform", "target_acos_pct": None},
+            },
+        )
+        id_pause = _decision(
+            conn,
+            ciclo,
+            camp,
+            kind="pause",
+            config_id=config_id,
+            inputs={"motor": "bid", "motivo": "pause_umbral", "target_acos_pct_usado": "20.00"},
+        )
+        id_negative = _decision(
+            conn,
+            ciclo,
+            ag,
+            kind="negative",
+            config_id=config_id,
+            search_term="tortugas ninja",
+            window_end=dt.date(2026, 8, 12),
+            inputs={
+                "motor": "hygiene",
+                "motivo": "negative_umbral",
+                "target_acos_pct_usado": "20.00",
+                "termino": {"search_term": "tortugas ninja", "cost": "8.0000", "clicks": 20},
+            },
+        )
+        cliente = _cliente(dsn, monkeypatch)
+        data = cliente.get("/api/dashboard/decisiones").json()
+        por_id = {i["id"]: i for i in data["items"]}
+        assert len(por_id) == 3
+
+        bid = por_id[id_bid]
+        assert bid["target_acos_pct_usado"] == "25.00"  # de inputs, no del goal null
+        assert bid["motivo_es"] == "ACoS sobre 1.15x del target: -12%"
+
+        pause = por_id[id_pause]
+        assert pause["old_value"] is None and pause["new_value"] is None
+        assert pause["value_currency"] is None
+        assert pause["motivo_es"] == "Pausa: sin ventas con clicks y costo sobre el umbral"
+
+        negative = por_id[id_negative]
+        assert negative["search_term"] == "tortugas ninja"
+        assert negative["kind"] == "negative"
+        assert (
+            negative["motivo_es"]
+            == "Negativo: termino sin ventas con clicks y costo sobre el umbral"
+        )
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_decisiones_motivo_desconocido_fallback_y_nombre_null(monkeypatch):
+    """DoD: motivo desconocido -> fallback SIN crash (se devuelve el id crudo,
+    jamas se pierde informacion); name NULL (ad_entity.name nullable) no
+    revienta."""
+    with _db_temporal("orbit_dash_fallback") as (conn, dsn):
+        config_id = _config_version(conn, {})
+        camp_sin_nombre = _campana(conn, "amazon_us", "9002")  # name NULL
+        ciclo = _ciclo(conn, platform="amazon_us")
+        _decision(
+            conn,
+            ciclo,
+            camp_sin_nombre,
+            kind="bid",
+            config_id=config_id,
+            moneda="USD",
+            inputs={
+                "motor": "bid",
+                "motivo": "motivo_futuro_desconocido",
+                "target_acos_pct_usado": "20.00",
+            },
+        )
+        item = _cliente(dsn, monkeypatch).get("/api/dashboard/decisiones").json()["items"][0]
+        assert item["nombre"] is None  # name NULL no revienta
+        assert item["motivo_es"] == "motivo_futuro_desconocido"  # fallback sin crash
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_decisiones_filtros_platform_kind_y_vocabulario_cerrado(monkeypatch):
+    """Filtros por platform y kind; vocabulario cerrado: valores ajenos -> 422
+    (jamas un filtro vacio que mienta, patron /audit)."""
+    with _db_temporal("orbit_dash_filtros") as (conn, dsn):
+        config_id = _config_version(conn, {})
+        camp_us = _campana(conn, "amazon_us", "9001", name="US")
+        camp_mx = _campana(conn, "amazon_mx", "9002", name="MX")
+        ciclo = _ciclo(conn, platform="amazon_us")
+        id_bid = _decision(
+            conn,
+            ciclo,
+            camp_us,
+            kind="bid",
+            config_id=config_id,
+            moneda="USD",
+            inputs={"motor": "bid", "motivo": "banda_mas_15", "target_acos_pct_usado": "25.00"},
+        )
+        id_neg = _decision(
+            conn,
+            ciclo,
+            camp_mx,
+            kind="negative",
+            config_id=config_id,
+            search_term="girasol",
+            window_end=dt.date(2026, 8, 12),
+            inputs={
+                "motor": "hygiene",
+                "motivo": "negative_umbral",
+                "target_acos_pct_usado": "20.00",
+            },
+        )
+        cliente = _cliente(dsn, monkeypatch)
+
+        # sin filtros: ambas decisiones (orden id DESC)
+        r0 = cliente.get("/api/dashboard/decisiones")
+        assert [i["id"] for i in r0.json()["items"]] == [id_neg, id_bid]
+
+        r = cliente.get("/api/dashboard/decisiones", params={"platform": "amazon_mx"})
+        assert [i["id"] for i in r.json()["items"]] == [id_neg]
+        assert r.json()["items"][0]["plataforma"] == "amazon_mx"
+
+        r2 = cliente.get("/api/dashboard/decisiones", params={"kind": "negative"})
+        assert [i["id"] for i in r2.json()["items"]] == [id_neg]
+        assert r2.json()["items"][0]["search_term"] == "girasol"
+
+        assert cliente.get("/api/dashboard/decisiones", params={"kind": "x"}).status_code == 422
+        assert (
+            cliente.get("/api/dashboard/decisiones", params={"platform": "meli"}).status_code == 422
+        )
