@@ -29,7 +29,12 @@
       "name": "orbit-04",
       "path": "plans/orbit-04.md",
       "description": "ORBIT 04 — PR2 optimizador: APPLY con topes, ventana de veto para cortes, harvest real con bid sugerido, auth de escritura y rampa manual (cutover = ORBIT 05)"
+    },
+    {
+      "name": "cortes-01",
+      "path": "plans/cortes-01.md",
+      "description": "CORTES 01 — umbral adaptativo per-producto para NEGATIVE_EXACT y PAUSE (evidencia por ad group, fallback estricto; spec en docs/superpowers/specs/2026-08-24-cortes-adaptativos-design.md; debe aterrizar antes de ORBIT 04 Phase 2 y del cutover)"
     }
   ],
-  "active": "orbit-04"
+  "active": "cortes-01"
 }
