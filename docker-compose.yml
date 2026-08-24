@@ -25,6 +25,14 @@ services:
       ORBIT_SECRETS_DIR: /mnt/data/appdata/orbit/secrets
     ports:
       - "127.0.0.1:8010:8000"
+      # DASHBOARD 01 / 2.1: la IP de la interfaz WireGuard wg0 (10.13.13.1,
+      # RFC1918 point-to-point — solo el host y los peers cifrados del tunel)
+      # para ver el dashboard del cel por VPN. JAMAS todas las interfaces;
+      # el candado test_compose_ningun_puerto_en_todas_las_interfaces sella
+      # la allowlist exacta de hosts. Residual aceptado (header del plan):
+      # la VPN demuestra "no publico", no "solo dueno" — todos los peers
+      # wg0 son del dueno.
+      - "10.13.13.1:8010:8000"
     volumes:
       - /mnt/data/appdata/orbit/secrets:/mnt/data/appdata/orbit/secrets:ro
     depends_on:

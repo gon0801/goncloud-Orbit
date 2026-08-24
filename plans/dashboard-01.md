@@ -100,7 +100,7 @@
 
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
-| 2.1 | Publicar el puerto TAMBIÉN en la IP de la interfaz WG (además de 127.0.0.1; JAMÁS 0.0.0.0). ANTES: verificar con evidencia (firewall/NAT + `ss -lntp`) que esa IP solo es alcanzable por el túnel. Candado `tests/test_compose_deploy.py::test_compose_ningun_puerto_en_todas_las_interfaces` a allowlist EXACTO `{127.0.0.1, <IP-WG>}` (set). DEPLOY.md actualizado. Residual "no-público ≠ solo-dueño" aceptado con razón (header). **Requiere sign-off explícito del dueño.** `[tdd:required]` | Candado demostrado fallando (regla 9) con `0.0.0.0` Y con IP pública sintética; smoke POSITIVO desde compu y cel por VPN; smoke NEGATIVO (inalcanzable fuera del túnel, con evidencia); accounting/bridge intactos; evidencia en ORBIT 16 | 1.7 | cc:TODO |
+| 2.1 | Publicar el puerto TAMBIÉN en la IP de la interfaz WG (además de 127.0.0.1; JAMÁS 0.0.0.0). ANTES: verificar con evidencia (firewall/NAT + `ss -lntp`) que esa IP solo es alcanzable por el túnel. Candado `tests/test_compose_deploy.py::test_compose_ningun_puerto_en_todas_las_interfaces` a allowlist EXACTO `{127.0.0.1, <IP-WG>}` (set). DEPLOY.md actualizado. Residual "no-público ≠ solo-dueño" aceptado con razón (header). **Requiere sign-off explícito del dueño.** `[tdd:required]` | Candado demostrado fallando (regla 9) con `0.0.0.0` Y con IP pública sintética; smoke POSITIVO desde compu y cel por VPN; smoke NEGATIVO (inalcanzable fuera del túnel, con evidencia); accounting/bridge intactos; evidencia en ORBIT 16 | 1.7 | cc:完了 [1a9e7eb] |
 
 ## Phase 3 — Settings de ESCRITURA [lane:gate] — BLOQUEADA por ORBIT 04
 
