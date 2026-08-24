@@ -1,45 +1,40 @@
 # CORTES 01 — umbral adaptativo per-producto (NEGATIVE_EXACT + PAUSE)
 
 > **Propósito**: matar los cortes prematuros en catálogo de rotación lenta.
-> El CONTRATO es el spec aprobado por el dueño:
-> `docs/superpowers/specs/2026-08-24-cortes-adaptativos-design.md`
-> (precedencia: spec > este plan). Diseño validado por brainstorm
-> estructurado con el dueño (unidad ad-group sellada tras descartar ASIN
-> literal con datos vivos; 7 números sellados: 3 órdenes / 60 clicks /
-> 14 fechas / M=1.5 / F_neg=40 / F_pause=50 / L=90d). Nacido de la
-> evidencia arras (116 clicks / 0 ventas en término core). Validación del
-> plan: ligera a propósito — el diseño ya nació revisado contra schema y
-> datos vivos en el brainstorm; la red fuerte es la cadena de review por
-> tarea (TDD + lead + reviewer fresco + bots).
+> CONTRATO: `docs/superpowers/specs/2026-08-24-cortes-adaptativos-design.md`
+> v2 (precedencia spec > plan). Validación: brainstorm estructurado con el
+> dueño + ronda 1 de cross-review codex (4A+4M) y grok (3A+7M) — todo
+> incorporado; el dueño selló además el PISO `max(20/25, adaptativo)`.
+> Números sellados: 3 órdenes / 60 clicks / 14 fechas / M=1.5 / F_neg=40 /
+> F_pause=50 / L=90 (lookback: ventana literal BETWEEN D-90 AND D-10 = 81
+> fechas maduras).
 >
-> **Reglas de secuencia** (selladas en el spec): aterriza ANTES de que
-> ORBIT 04 Phase 2 toque `cycle.py` y ANTES del cutover de ORBIT 05 (el
-> shadow debe validar la regla NUEVA varios días). Paralelo-seguro con
-> ORBIT 04 Phase 1 (archivos disjuntos).
+> **Reglas de secuencia**: aterriza ANTES de que ORBIT 04 Phase 2 toque
+> `cycle.py` y ANTES del cutover ORBIT 05. Este PR también actualiza el DoD
+> 2.2 de `plans/orbit-04.md` (la re-validación al liberar RE-RESUELVE
+> `umbral_corte` con evidencia fresca — contrato cross-plan sellado).
 >
-> Spec skip reason: no se crea spec adicional — el contrato fino ya existe
-> (spec de brainstorm committeado en este mismo PR); `docs/CONTEXTO.md`
-> recibe el delta de umbrales en 1.2/1.3 (su tabla sellada mentiría tras el
-> merge). `docs/traspaso/` (fuente verbatim) NO se toca: el cambio de regla
-> es decisión del dueño registrada aquí y en el spec.
+> Spec skip reason: el contrato fino es el spec de este mismo PR;
+> `docs/CONTEXTO.md` recibe el delta de umbrales en 1.2/1.3;
+> `docs/traspaso/` (verbatim) no se toca.
 
 ## Phase 1 — La regla adaptativa [lane:gate]
 
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
-| 1.1 | `windows.py`: función `ventanas_evidencia_ad_group(platform)` — una consulta por plataforma/ciclo, suma colapsada (v_metric_latest) de las hojas keyword+product_target por ad group en [D-90, D-10], envenenamiento por None estándar, `fechas_distintas` incluida. ANTES de fijar tests: SELECT de forma real contra la base viva (regla 8, evidencia anotada). `[tdd:required]` | Tests (patrón _db_temporal): suma correcta multi-hoja; colapso bitemporal (gana la última); None envenena la métrica del grupo (demostrado fallando: sin bool_and daría suma parcial); ventana [D-90, D-10] exacta (bordes); ad group sin hojas/sin filas → ausente del dict (jamás ceros); pglast del SQL | - | cc:TODO |
-| 1.2 | NEGATIVE_EXACT adaptativo: función compartida `umbral_corte(evidencia, regla)` (elegibilidad 3/60/14 → ceil(expected×1.5); si no → F por regla) + `hygiene.py` consume el umbral resuelto + `cycle.py` cablea la ventana nueva y congela `inputs.termino` enriquecido (umbral_clicks_usado, elegible, expected_clicks, evidencia) + replay compat (sin umbral_clicks_usado → legacy 20). Delta de umbrales a `docs/CONTEXTO.md`. `[tdd:required]` | Tests regla 9 demostrados fallando: cada mínimo de elegibilidad discrimina (falta 1 orden → fallback); adaptativo vs fallback con fixtures; caso arras de sanity (CPO 50, M 1.5 → umbral 75: término 116/0 SÍ corta; término 30/0 NO); replay legacy reproduce las decisiones históricas EXACTAS (goldens sellados intactos); motor sigue puro (test_architecture verde) | 1.1 | cc:TODO |
-| 1.3 | PAUSE adaptativo: `bid.py` consume LA MISMA `umbral_corte(evidencia, 'pause')` (F_pause=50; cero reimplementación — test de camino único) + inputs congelados enriquecidos igual + replay compat (legacy 25). `[tdd:required]` | Tests: misma batería que 1.2 para pause; test de camino ÚNICO (negative y pause resuelven por la misma función — demostrado fallando si divergen); precedencia PAUSE>bandas intacta; goldens históricos de pause reproducen exactos | 1.2 | cc:TODO |
-| 1.4 | Cierre: ciclo shadow manual con la regla nueva + REPORTE DELTA para el dueño (cuántos negatives/pauses dejan de dispararse, cuáles sobreviven y por qué — evidencia por decisión con su umbral), CHAT-CONTEXT al día, PR mergeado (CI batería completa), `CORTES 01` Done en AppFlowy con notas completas. `[tdd:skip:cierre-reporte]` | Reporte delta entregado y anotado en AppFlowy; el dueño lo vio; CI verde; markers al día | 1.3 | cc:TODO |
+| 1.1 | `windows.py`: `ventanas_evidencia_ad_group(conn, platform, decided_at)` — D = `_fecha_utc(decided_at)` (sin −3d), ventana literal `BETWEEN D-90 AND D-10` (NO el helper `inicio_ventana`), suma colapsada (v_metric_latest) de hojas keyword+product_target por ad group, envenenamiento por None estándar, `fechas_distintas = COUNT(DISTINCT metric_date)` del GRUPO (unión). Llamada UNA vez por plataforma dentro de TX2. ANTES de fijar tests: SELECT vivo (regla 8, evidencia anotada). `[tdd:required]` | Tests (_db_temporal): suma multi-hoja correcta; colapso bitemporal; None envenena (regla 9: sin bool_and daría parcial); bordes exactos D-90/D-10; unión de fechas con overlap multi-hoja el mismo día = 1 (regla 9: sumar conteos inflaría Z); grupo sin filas → ausente del dict (jamás ceros); `observed_at_max` del grupo incluido; pglast | - | cc:TODO |
+| 1.2 | NEGATIVE_EXACT adaptativo: módulo puro NUEVO `app/optimizer/cortes.py` con `umbral_corte(evidencia, regla)` (elegibilidad 3/60/14 → `ceil(Decimal(clicks)/Decimal(orders) × Decimal("1.5"))` — ceil DEL PRODUCTO; si no → F por regla; SIEMPRE `max(legacy, bruto)`) + `hygiene.py` consume el umbral resuelto (int) + `cycle.py`: `_SQL_DECISORAS` gana `parent_id AS ad_group_id`, cablea la ventana, congela **`inputs.corte` top-level** (shape del spec, expected_clicks como string Decimal, evidencia con `observed_at_max`) y `data_observed_at = max(directo, evidencia)` + `reproduce()` LEE `inputs.corte.umbral_clicks_usado` (fila sin la clave → legacy 20). Delta de umbrales a `docs/CONTEXTO.md`. `[tdd:required]` | Tests regla 9 demostrados fallando: cada mínimo discrimina (2/3, 59/60, 13/14); ceil fraccionario (61/3 → 31) y entero (50 → 75); PISO (expected×M=15 → umbral 20); replay legacy con fixtures de inputs SIN `inputs.corte` → 20 (rojo sin el compat); bitemporal max (evidencia más reciente que el dato directo); goldens de CICLO re-sembrados para que los 4 kinds disparen bajo la regla nueva (declarado: NO intactos — la siembra vieja de 20 clicks caería a fallback y el golden moriría); motor puro (test_architecture; cortes.py sin IO) | 1.1 | cc:TODO |
+| 1.3 | PAUSE adaptativo: `bid.py` consume LA MISMA `umbral_corte(evidencia, 'pause')` (F=50, legacy 25) y **congela `inputs.corte` en TODA decisión del motor de bids — incluidas las de kind final `bid`** (PAUSE se evalúa antes de las bandas: sin el freeze, el replay de un bid histórico podría volverse pause). `[tdd:required]` | Tests: misma batería que 1.2 para pause; camino ÚNICO (ambas reglas por la misma función — regla 9 si divergen); GOLDEN bid-que-bloqueó-pause (decisión bid con umbral pause adaptativo alto rejuega EXACTA; rojo con legacy 25); replay legacy de pauses históricos exacto; precedencia intacta | 1.2 | cc:TODO |
+| 1.4 | Cierre: **reporte delta CONTRAFACTUAL** (mismo snapshot y reloj, maquinaria pura con umbrales legacy vs adaptativos — jamás dos ciclos consecutivos) con evidencia por decisión y su umbral, entregado al dueño y anotado en AppFlowy; actualización del DoD 2.2 de `plans/orbit-04.md` (re-resuelve `umbral_corte` con evidencia fresca al liberar) verificada en el diff; CHAT-CONTEXT al día; PR mergeado (CI batería completa); `CORTES 01` Done. `[tdd:skip:cierre-reporte]` | Reporte contrafactual entregado y anotado; el dueño lo vio; el delta a orbit-04.md está en el PR; CI verde; markers al día | 1.3 | cc:TODO |
 
 ## 事前確認
 
 - 事項: external-send — `git push` + `gh pr create`/merge (un PR del plan completo)
   理由: cierre con batería completa en CI, patrón del repo
   scope: Phase 1 / todas
-- 事項: external-send — SELECTs READ-ONLY por ssh a la base viva (regla 8 de 1.1) + anotaciones de evidencia en AppFlowy
-  理由: DoD de 1.1 y registro obligatorio del repo
+- 事項: external-send — SELECTs READ-ONLY por ssh a la base viva (regla 8 de 1.1) + anotaciones en AppFlowy
+  理由: DoD de 1.1 y registro obligatorio
   scope: Phase 1 / 1.1, 1.4
-- 事項: external-send — UN ciclo shadow manual (docker exec app.cli cycle) para el reporte delta de 1.4 — escritura APPEND-ONLY de decisiones shadow, mismo patrón operativo diario
-  理由: DoD de 1.4 (el delta se mide contra decisiones reales)
+- 事項: external-send — corrida CONTRAFACTUAL de solo lectura para el reporte de 1.4 (la maquinaria pura sobre un snapshot leído; NO escribe decisiones — a diferencia del plan v1, ya no se corre un ciclo shadow extra)
+  理由: DoD de 1.4 (delta atribuible solo a la regla)
   scope: Phase 1 / 1.4
