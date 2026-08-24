@@ -674,11 +674,9 @@ def _fila_historico(fila) -> dict:
     """Una fila del historico 14d: cycle_id, fecha (started_at), status,
     decisions_count y, cuando aplique, el motivo (degradado/failed visible
     con motivo — DoD de 1.5)."""
-    (id, _mode, _platform, started_at, _finished_at, decisions_count, _applied, status, notes) = (
-        fila
-    )
+    (cycle_id, _mode, _platform, started_at, _fin, decisions_count, _applied, status, notes) = fila
     return {
-        "cycle_id": id,
+        "cycle_id": cycle_id,
         "fecha": started_at,
         "status": status,
         "decisions_count": decisions_count,

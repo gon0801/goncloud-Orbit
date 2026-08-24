@@ -1429,12 +1429,12 @@ def test_salud_notes_mixto_y_ciclos_degradado_failed_con_motivo(monkeypatch):
             .get("/api/dashboard/salud")
             .json()["plataformas"]["amazon_us"]["historico_14d"]
         )
-        por_id = {h["cycle_id"]: h for h in historico}
-        degradado = [h for h in historico if h["status"] == "degraded"][0]
+        # next(...) revienta con StopIteration si el status no aparece: eso ES
+        # el assert (el `assert por_id` que habia aqui no discriminaba nada)
+        degradado = next(h for h in historico if h["status"] == "degraded")
         assert degradado["motivo"] == "Watermark de la plataforma vencido (> 7 dias)"
-        failed = [h for h in historico if h["status"] == "failed"][0]
+        failed = next(h for h in historico if h["status"] == "failed")
         assert failed["motivo"] == "rastro: fallo del ciclo"
-        assert por_id  # sanity: hay filas
 
 
 @pytest.mark.skipif(
