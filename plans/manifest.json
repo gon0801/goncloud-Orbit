@@ -24,7 +24,12 @@
       "name": "dashboard-01",
       "path": "plans/dashboard-01.md",
       "description": "DASHBOARD 01 — dashboard del optimizador: lectura tipo Perpetua con decisiones explicadas (Phase 1, túnel), exposición VPN (Phase 2, PR separado), settings con la auth de ORBIT 04 (Phase 3)"
+    },
+    {
+      "name": "orbit-04",
+      "path": "plans/orbit-04.md",
+      "description": "ORBIT 04 — PR2 optimizador: APPLY con topes, ventana de veto para cortes, harvest real con bid sugerido, auth de escritura y rampa manual (cutover = ORBIT 05)"
     }
   ],
-  "active": "dashboard-01"
+  "active": "orbit-04"
 }
