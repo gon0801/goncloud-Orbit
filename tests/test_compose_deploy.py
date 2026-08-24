@@ -63,18 +63,24 @@ def test_compose_db_sellado_por_contrato():
     )
 
 
-# Allowlist EXACTA de hosts de bind (DASHBOARD 01 task 2.1): loopback + la IP
-# de la interfaz WireGuard wg0 (10.13.13.1 — RFC1918 point-to-point: solo el
-# host y los peers cifrados del tunel; evidencia de firewall/NAT en ORBIT 16).
-# Un host nuevo aqui es DECISION con review, jamas un ajuste de paso.
-HOSTS_BIND_PERMITIDOS = {"127.0.0.1", "10.13.13.1"}
+# Allowlist EXACTA de MAPEOS completos host:puerto:puerto (DASHBOARD 01 task
+# 2.1; endurecida por hallazgo Greptile P2: un set de solo hosts permitia
+# mover el bind wg0 a OTRO servicio — p.ej. Postgres publicado en la VPN —
+# sin ponerse rojo). 10.13.13.1 = interfaz WireGuard wg0, RFC1918
+# point-to-point (solo el host y los peers cifrados del tunel; evidencia de
+# firewall/NAT en ORBIT 16). Un mapeo nuevo aqui es DECISION con review.
+MAPEOS_PERMITIDOS = {
+    "127.0.0.1:5432:5432",
+    "127.0.0.1:8010:8000",
+    "10.13.13.1:8010:8000",
+}
 
 
-def _hosts_de_ports(texto: str) -> set[str]:
-    """Set de hosts de TODAS las entradas ports: del compose. Una entrada sin
-    host ("8010:8000") aporta su puerto crudo al set y el candado la rechaza
-    (publicar sin host = todas las interfaces, hallazgo codex)."""
-    hosts: set[str] = set()
+def _mapeos_de_ports(texto: str) -> set[str]:
+    """Set de TODAS las entradas ports: del compose, mapeo COMPLETO. Una
+    entrada sin host ("8010:8000") entra tal cual al set y el candado la
+    rechaza (publicar sin host = todas las interfaces, hallazgo codex)."""
+    mapeos: set[str] = set()
     en_ports = False
     for ln in texto.splitlines():
         if ln.strip() == "ports:":
@@ -83,33 +89,35 @@ def _hosts_de_ports(texto: str) -> set[str]:
         if en_ports:
             stripped = ln.strip()
             if stripped.startswith("- "):
-                mapa = stripped[2:].strip().strip('"').strip("'")
-                hosts.add(mapa.split(":")[0])
+                mapeos.add(stripped[2:].strip().strip('"').strip("'"))
             elif stripped and not stripped.startswith("#"):
                 en_ports = False
-    return hosts
+    return mapeos
 
 
 def test_compose_ningun_puerto_en_todas_las_interfaces():
-    """0.0.0.0 prohibido (leccion 8055/8056) y allowlist EXACTA por SET (2.1):
-    el compose publica EXACTAMENTE en {127.0.0.1, 10.13.13.1} — la IP wg0
-    para ver el dashboard del cel por VPN. El set EXACTO corta ambos lados:
-    un host de mas expone, un bind de menos deja el dashboard sin acceso.
-    Regla 9 in situ: los mutantes 0.0.0.0, IP publica sintetica y entrada
-    sin host DEBEN ser rechazados."""
+    """0.0.0.0 prohibido (leccion 8055/8056) y allowlist EXACTA de MAPEOS
+    completos (2.1 + Greptile P2): el compose publica EXACTAMENTE
+    {db en loopback:5432, app en loopback:8010 y en wg0:8010 — la IP de la
+    VPN para el cel del dueno}. El set EXACTO corta todos los lados: un
+    mapeo de mas expone, uno de menos deja sin acceso, y mover el bind wg0
+    a otro servicio/puerto tambien truena. Regla 9 in situ: los mutantes
+    0.0.0.0, IP publica sintetica y entrada sin host DEBEN ser rechazados."""
     texto = COMPOSE.read_text(encoding="utf-8")
     assert "0.0.0.0" not in texto, "puerto bind a 0.0.0.0: prohibido (leccion 8055/8056)"
-    assert _hosts_de_ports(texto) == HOSTS_BIND_PERMITIDOS, (
-        f"hosts del compose fuera de la allowlist exacta: "
-        f"{_hosts_de_ports(texto) ^ HOSTS_BIND_PERMITIDOS}"
+    assert _mapeos_de_ports(texto) == MAPEOS_PERMITIDOS, (
+        f"mapeos del compose fuera de la allowlist exacta: "
+        f"{_mapeos_de_ports(texto) ^ MAPEOS_PERMITIDOS}"
     )
     for mutante in (
         texto.replace('"127.0.0.1:8010:8000"', '"0.0.0.0:8010:8000"'),
         texto.replace('"127.0.0.1:8010:8000"', '"203.0.113.9:8010:8000"'),
         texto.replace('"127.0.0.1:8010:8000"', '"8010:8000"'),
+        # el caso que el set de solo-hosts NO atrapaba: wg0 movido a Postgres
+        texto.replace('"127.0.0.1:5432:5432"', '"10.13.13.1:5432:5432"'),
     ):
-        assert _hosts_de_ports(mutante) != HOSTS_BIND_PERMITIDOS, (
-            "el candado no discrimina un mutante de bind"
+        assert _mapeos_de_ports(mutante) != MAPEOS_PERMITIDOS, (
+            "el candado no discrimina un mutante de mapeo"
         )
 
 

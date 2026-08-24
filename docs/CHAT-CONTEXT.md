@@ -26,9 +26,11 @@ explicó con datos vivos por qué el motor negativiza sus términos
 "arras": 116 clicks / 0 ventas en ventana madura — la decisión
 estratégica listing-vs-negative queda anotada para el apply). La
 review en cadena (lead + reviewer fresco + kimi/codex/grok + bots)
-atrapó y cerró bugs reales del bloque 2. Quedan Phase 2 (exposición
-VPN WireGuard, PR separado con sign-off) y Phase 3 (settings de
-escritura, bloqueada por ORBIT 04). Siguiente proyecto grande: ORBIT
+atrapó y cerró bugs reales del bloque 2. Phase 2 CERRADA: el dashboard
+también se ve por la VPN WireGuard del dueño (cel y compu, validado
+por él) — bind adicional en la IP wg0, allowlist EXACTA de mapeos
+sellada por candado, sign-off del dueño antes de aplicar. Queda solo
+Phase 3 (settings de escritura, bloqueada por ORBIT 04). Siguiente proyecto grande: ORBIT
 04 (PR2: el apply con topes). Este archivo tiene candado de frescura:
 el CI exige actualizarlo en cada PR que cierre tareas.**
 

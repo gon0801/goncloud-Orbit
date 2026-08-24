@@ -42,7 +42,7 @@
 ssh goncloud
 cd /mnt/data/appdata/orbit
 docker compose up -d        # levanta db+app (o nada si ya están)
-docker compose ps           # db: 127.0.0.1:5432->5432 ; app: 127.0.0.1:8010->8000
+docker compose ps           # db: 127.0.0.1:5432->5432 ; app: 127.0.0.1:8010->8000 y 10.13.13.1:8010->8000
 docker exec orbit-db-1 pg_isready -U orbit   # accepting connections
 curl -sS http://127.0.0.1:8010/health        # {"status":"ok"}
 ```
