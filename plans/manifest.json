@@ -19,7 +19,12 @@
       "name": "guardrails-01",
       "path": "plans/guardrails-01.md",
       "description": "GUARDRAILS 01 — candados anti-monolito: presupuesto de complejidad (ruff), fronteras de imports del motor, presupuesto de tamaño por módulo"
+    },
+    {
+      "name": "dashboard-01",
+      "path": "plans/dashboard-01.md",
+      "description": "DASHBOARD 01 — dashboard del optimizador: lectura tipo Perpetua con decisiones explicadas (Phase 1, túnel), exposición VPN (Phase 2, PR separado), settings con la auth de ORBIT 04 (Phase 3)"
     }
   ],
-  "active": "orbit-03"
+  "active": "dashboard-01"
 }
