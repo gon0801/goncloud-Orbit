@@ -52,6 +52,7 @@ from test_schema import SQL, _postgres_obligatorio_ausente, _test_dsn
 
 from app import cycle as ciclo
 from app.optimizer import bid as bid_mod
+from app.optimizer import cortes
 from app.optimizer import windows as w
 
 # ---------------------------------------------------------------------------
@@ -567,8 +568,20 @@ def test_ciclo_shadow_completo_decisiones_y_notes_exactos():
         assert pause_row[9]["ventanas"]["cortes"]["cost"] == "15.0000"
         assert pause_row[9]["ventanas"]["cortes"]["orders"] == 0
         assert pause_row[9]["ventanas"]["cortes"]["clicks"] == 45
-        # PAUSE sigue legacy en 1.2 (el adaptativo de pause es 1.3): sin corte
-        assert "corte" not in pause_row[9]
+        # CORTES 01 (1.3): pause TAMBIEN congela inputs.corte -- mismo shape
+        # que negative. El grupo es elegible (71/5/30) con expected 14.2 ->
+        # bruto ceil(21.3)=22, y el umbral FINAL del freeze es el PISO 25
+        # (45 >= 25 dispara; sin el piso el freeze diria 22)
+        assert pause_row[9]["corte"]["umbral_clicks_usado"] == 25
+        assert pause_row[9]["corte"]["elegible"] is True
+        assert pause_row[9]["corte"]["expected_clicks"] == "14.2"
+        assert pause_row[9]["corte"]["evidencia"]["clicks"] == 71
+        # sello bitemporal: LEAST(decided_at, max(obs cortes, evidencia))
+        assert pause_row[8] == _obs(FIN_CORTES)
+        # y la decision BID del mismo ciclo congela EL MISMO freeze (misma
+        # evidencia del grupo ag): decide_bid evalua PAUSE antes de las bandas
+        # y toda decision del motor lleva el corte (spec 1.3)
+        assert bid_row[9]["corte"] == pause_row[9]["corte"]
 
         # termino NEGATIVE: con search_term y SIN dinero
         neg_row = por[(ids["ag"], "negative", "tortugas ninja calzas")]
@@ -1423,3 +1436,231 @@ def test_replay_hygiene_legacy_sin_inputs_corte_usa_20():
     sellada: el replay de la historia previa no cambia."""
     inputs = _inputs_negative(25, corte=None)
     assert ciclo.reproduce(inputs) == ("negative", None, None)
+
+
+# ---------------------------------------------------------------------------
+# 13. CORTES 01 (1.3): PAUSE adaptativo -- golden bid-que-bloqueo-pause,
+#     piso cableado, camino unico, replay legacy y clamp del motor de bids
+# ---------------------------------------------------------------------------
+
+
+def _siembra_bid_bloquea_pause(conn) -> dict:
+    """Fixture del GOLDEN 1.3: una entidad cuyo PAUSE es BLOQUEADO por el
+    umbral adaptativo y cae a la banda -25% (kind final bid).
+
+    - Ventana de CORTES (07-14..08-12): clicks 30 / cost 15.00 / orders 0
+      -> PAUSE clasico bajo el legacy 25 (30>=25, 15>=12).
+    - Evidencia del grupo (misma hoja, D-90..D-10): orders 0 -> NO elegible
+      -> umbral pause = fallback 50 -> 30 < 50 -> PAUSE BLOQUEADO.
+    - Ventana de BIDS propia (max metric_date 08-16 -> fin 08-13): filas de
+      07-15..08-13 -> cost 17.00 / revenue 29.10 / orders 1 (la del 08-13)
+      -> ACoS 58% > 1.35x25 con orders>=1 -> banda -25%: bid 1.00 -> 0.75."""
+    run_id = _run(conn)
+    _config_version(conn, {"ads_optimizer_mode": "shadow"})
+    _goal_plataforma(conn)
+    camp = _entidad(conn, "amazon_us", "campaign", "9501")
+    ag = _entidad(conn, "amazon_us", "ad_group", "9511", parent=camp)
+    kw = _entidad(
+        conn,
+        "amazon_us",
+        "keyword",
+        "9521",
+        parent=ag,
+        match_type="EXACT",
+        keyword_text="kw bloqueo",
+    )
+    synced = DECIDED_AT - dt.timedelta(hours=4)
+    _estado(conn, camp, synced_at=synced)
+    _estado(conn, ag, synced_at=synced)
+    _estado(conn, kw, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
+    for fecha in _rango(dt.date(2026, 7, 14), dt.date(2026, 8, 12)):
+        _metrica(
+            conn, run_id, kw, fecha, _obs(fecha), cost="0.50", ad_revenue="1.00", clicks=1, orders=0
+        )
+    for fecha in _rango(dt.date(2026, 8, 13), dt.date(2026, 8, 16)):
+        _metrica(
+            conn, run_id, kw, fecha, _obs(fecha), cost="2.50", ad_revenue="0.10", clicks=6, orders=1
+        )
+    return {"camp": camp, "ag": ag, "kw": kw}
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_golden_bid_que_bloqueo_pause():
+    """El test estrella de 1.3: decision de kind final BID cuya existencia
+    depende de que el umbral adaptativo de pause (fallback 50, grupo no
+    elegible) BLOQUEO el PAUSE que el legacy 25 si habria cortado. Su replay
+    reproduce EXACTO leyendo el umbral congelado: con legacy 25, el replay
+    rejugaria como pause (30 >= 25) y el test reventaria."""
+    with _db_temporal("orbit_ciclo_bqp") as (conn, _c):
+        ids = _siembra_bid_bloquea_pause(conn)
+        res = _corre(conn)
+        assert res.status == "done"
+        assert res.decisions_count == 1
+        fila = conn.execute(
+            "SELECT kind, old_value, new_value, value_currency, data_observed_at, inputs"
+            " FROM decision WHERE cycle_id = %s AND ad_entity_id = %s",
+            (res.cycle_id, ids["kw"]),
+        ).fetchone()
+        # el pause BLOQUEADO: la decision es la banda -25%, no el corte
+        assert fila[0] == "bid"
+        assert (fila[1], fila[2], fila[3]) == (Decimal("1.00"), Decimal("0.75"), "USD")
+        # sello bitemporal: SU ventana de bids termina en max(08-16)-3d =
+        # 08-13, mas reciente que la evidencia (08-12) -> gana el obs directo
+        assert fila[4] == _obs(dt.date(2026, 8, 13))
+        corte = fila[5]["corte"]
+        # fallback 50 CABLEADO con evidencia del grupo (no elegible: orders 0)
+        assert corte["umbral_clicks_usado"] == 50
+        assert corte["elegible"] is False
+        assert corte["expected_clicks"] is None
+        assert corte["evidencia"]["clicks"] == 30
+        assert corte["evidencia"]["orders"] == 0
+        assert corte["evidencia"]["ventana_hasta"] == "2026-08-12"
+        # REPLAY EXACTO leyendo el congelado (50): el pause sigue bloqueado
+        # y la banda rejuega igual
+        assert ciclo.reproduce(fila[5]) == ("bid", Decimal("0.75"), "USD")
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_piso_pause_25_en_el_freeze_del_ciclo():
+    """Piso pause CABLEADO (DoD 1.3): el grupo maestro es elegible con
+    expected 14.2 -> bruto ceil(21.3) = 22 < legacy 25. El umbral FINAL que
+    el freeze congela en la decision pause es el PISO 25 -- una implementacion
+    sin el max() congelaria 22 y este test reventaria (la funcion pura ya
+    vive en test_optimizer_cortes; esto testea el cableado por el ciclo)."""
+    with _db_temporal("orbit_ciclo_piso") as (conn, _c):
+        _siembra_maestra(conn)
+        res = _corre(conn)
+        assert res.status == "done"
+        fila = conn.execute(
+            "SELECT inputs FROM decision WHERE cycle_id = %s AND kind = 'pause'",
+            (res.cycle_id,),
+        ).fetchone()
+        corte = fila[0]["corte"]
+        assert corte["umbral_clicks_usado"] == 25  # el piso gano al bruto 22
+        assert corte["elegible"] is True
+        assert corte["expected_clicks"] == "14.2"
+
+
+def _inputs_pause_legacy() -> dict:
+    """Fixture de inputs congelados de una pause HISTORICA (pre-CORTES 01,
+    sin la clave corte): clicks 30 en la ventana de cortes -- bajo el legacy
+    25 SI pausa (compatibilidad del replay de la historia)."""
+    return {
+        "motor": "bid",
+        "platform": "amazon_us",
+        "ventanas": {
+            "bids": None,
+            "cortes": {
+                "window_start": "2026-07-14",
+                "window_end": "2026-08-12",
+                "fechas": 30,
+                "cost": "15.0000",
+                "ad_revenue": "30.0000",
+                "revenue_same_sku": None,
+                "clicks": 30,
+                "orders": 0,
+                "moneda": "USD",
+                "observed_at_max": "2026-08-12T01:00:00+00:00",
+            },
+        },
+        "goal": {"bid_floor": "0.4000", "bid_ceiling": "2.5000", "harvest": None},
+        "target_acos_pct_usado": "25.00",
+        "bid_actual": "1.0000",
+        "bid_moneda": "USD",
+        "factor": None,
+        "motivo": "pause_umbral",
+        "modo": "shadow",
+    }
+
+
+def test_replay_legacy_pause_sin_inputs_corte_usa_25():
+    """Fila de pause HISTORICA sin inputs.corte -> replay con LEGACY_PAUSE
+    25 -> los 30 clicks SI pausan. Espejo del compat de hygiene (1.2): el
+    replay de la historia previa a CORTES 01 no cambia."""
+    inputs = _inputs_pause_legacy()
+    assert ciclo.reproduce(inputs) == ("pause", None, None)
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_camino_unico_negative_y_pause_por_la_misma_umbral_corte(monkeypatch):
+    """Regla 9 (camino UNICO): negative y pause resuelven por LA MISMA
+    cortes.umbral_corte con la MISMA evidencia del grupo. Un espia cuenta
+    las llamadas del ciclo: si un camino reimplementara el calculo (o
+    divergiera a otra funcion), su regla dejaria de aparecer aqui y el test
+    reventaria. El grupo maestro resuelve 'negative' (via _procesa_grupo)
+    y 'pause' (via _procesa_decisora) con la evidencia del MISMO ag."""
+    with _db_temporal("orbit_ciclo_unico") as (conn, _c):
+        ids = _siembra_maestra(conn)
+        llamadas: list[tuple[str, int | None]] = []
+        real = cortes.umbral_corte
+
+        def espia(evidencia, regla):
+            llamadas.append((regla, evidencia.ad_group_id if evidencia is not None else None))
+            return real(evidencia, regla)
+
+        monkeypatch.setattr(cortes, "umbral_corte", espia)
+        res = _corre(conn)
+        monkeypatch.undo()
+        assert res.status == "done"
+        reglas = {regla for regla, _ in llamadas}
+        assert {"negative", "pause"} <= reglas
+        # misma evidencia (mismo grupo) alimenta ambas reglas
+        por_regla: dict[str, set[int | None]] = {}
+        for regla, gid in llamadas:
+            por_regla.setdefault(regla, set()).add(gid)
+        assert ids["ag"] in por_regla["negative"]
+        assert ids["ag"] in por_regla["pause"]
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_bitemporal_pause_clamp_observed_at_futuro_a_decided_at():
+    """Cierra el hallazgo residual de 1.2: el camino bid/pause PREEXISTENTE
+    era vulnerable al CHECK decision_dato_no_del_futuro (un observed_at
+    futuro en la ventana de una entidad que decide PAUSE abortaba el
+    executemany de TX3; con el codigo de 1.2 este test reventaba con
+    CheckViolation). Con el sello bitemporal de 1.3 en TODA decision del
+    motor de bids, el LEAST(decided_at, ...) clampea y el ciclo sobrevive."""
+    with _db_temporal("orbit_ciclo_bip") as (conn, _c):
+        ids = _siembra_maestra(conn)
+        run_id = conn.execute("SELECT id FROM ingest_run LIMIT 1").fetchone()[0]
+        futuro = dt.datetime(2026, 8, 24, 1, tzinfo=dt.UTC)  # > DECIDED_AT (08-22)
+        # obs futura en la ventana de CORTES de kw_pause: SU pause decide, y
+        # tanto el obs directo (cortes) como la evidencia traen el futuro
+        _metrica(
+            conn,
+            run_id,
+            ids["kw_pause"],
+            FIN_CORTES,
+            futuro,
+            cost="0.50",
+            ad_revenue="1.00",
+            clicks=1,  # 08-12 es fecha IMPAR de _siembra_kw_pause -> clicks 1
+            orders=0,
+        )
+        res = _corre(conn)  # con codigo 1.2: CheckViolation aborta TX3 aqui
+        assert res.status == "done"
+        assert res.decisions_count == 4
+        pause = conn.execute(
+            "SELECT data_observed_at FROM decision WHERE cycle_id = %s AND kind = 'pause'",
+            (res.cycle_id,),
+        ).fetchone()
+        assert pause[0] == DECIDED_AT  # LEAST(decided_at, futuro)
+        bid = conn.execute(
+            "SELECT data_observed_at FROM decision WHERE cycle_id = %s AND kind = 'bid'",
+            (res.cycle_id,),
+        ).fetchone()
+        # el bid tambien sella con la evidencia: max(bids 08-16, futuro) =
+        # futuro -> clamp a decided_at
+        assert bid[0] == DECIDED_AT

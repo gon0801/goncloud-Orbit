@@ -93,7 +93,14 @@ conocía):
 
 Reglas numéricas selladas (resumen; el documento manda):
 
-- **PAUSE**: orders=0 ∧ clicks≥25 ∧ cost≥{us: 12 USD, mx: 200 MXN}
+- **PAUSE**: orders=0 ∧ clicks≥umbral_corte ∧ cost≥{us: 12 USD, mx: 200 MXN}.
+  Umbral de clicks **adaptativo por producto** (CORTES 01 1.3): LA MISMA
+  resolución que NEGATIVE_EXACT (`umbral_corte(evidencia, 'pause')` con la
+  elegibilidad 3/60/14) con fallback 50 y **piso max(25, bruto)**. El motor
+  de bids congela `inputs.corte` en TODA decisión — incluidas las de kind
+  final `bid` (PAUSE se evalúa antes de las bandas: sin el freeze, el replay
+  de un bid histórico rejugaría como pause); el replay lee
+  `inputs.corte.umbral_clicks_usado` (fila histórica sin la clave → 25).
 - **−25%** si ACoS > 1.35×target (orders≥1); **−12%** si > 1.15×target;
   **+15%** si ACoS < 0.85×target ∧ orders≥3. Clamp por decisión ∈ [−30%, +20%],
   resultado ∈ [floor, ceiling] (defaults 0.10/2.50).
