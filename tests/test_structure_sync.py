@@ -33,6 +33,10 @@ from app.ads.client import LIST_REQUEST_TYPES, AdsClient
 from app.ads.config import AdsCredentials
 from app.ads.structure import (
     MAX_PAGINAS,
+    PATH_AD_GROUPS,
+    PATH_CAMPAIGNS,
+    PATH_KEYWORDS,
+    PATH_TARGETS,
     AdsStructureError,
     EstructuraAds,
     EstructuraPerfil,
@@ -283,7 +287,12 @@ def test_fetch_usa_get_de_perfiles_y_post_list_con_scope_y_vendor_types():
         {"path": "/v2/profiles", "metodo": "GET", "scope": None}
     ]
 
-    for path in LIST_REQUEST_TYPES:
+    # Los paths que el SYNC de estructura lista (constantes de structure.py).
+    # Desde ORBIT 04, LIST_REQUEST_TYPES ya NO es 1:1 con el sync: se sumo
+    # /sp/negativeKeywords/list (evidencia regla 8, 2026-08-25) para la
+    # reconciliacion de harvest (APPLY.md §6), que lo consume 2.3 — el sync
+    # de estructura NO lo trae.
+    for path in (PATH_CAMPAIGNS, PATH_AD_GROUPS, PATH_KEYWORDS, PATH_TARGETS):
         llamadas = [r for r in registro if r["path"] == path]
         scopes = sorted(str(r["scope"]) for r in llamadas)
         if path == "/sp/campaigns/list":

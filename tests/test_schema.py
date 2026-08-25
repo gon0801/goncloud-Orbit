@@ -10,6 +10,7 @@ aquí la "forma real" es el AST que PostgreSQL ejecutaría.
 """
 
 import os
+import re
 import socket
 from pathlib import Path
 
@@ -20,6 +21,11 @@ from pglast import ast, enums
 ROOT = Path(__file__).resolve().parents[1]
 SQL = (ROOT / "migrations" / "0001_initial.sql").read_text(encoding="utf-8")
 STMTS = tuple(pglast.parse_sql(SQL))
+
+# 0002 (ORBIT 04, task 1.2 — sellado 24 del header: test_schema parsea TAMBIEN
+# 0002 para que los invariantes cubran las tablas nuevas).
+SQL2 = (ROOT / "migrations" / "0002_apply.sql").read_text(encoding="utf-8")
+STMTS2 = tuple(pglast.parse_sql(SQL2))
 
 APPEND_ONLY = {
     "ads_metric_observation",
@@ -45,14 +51,37 @@ def _stmts(cls):
     return [s.stmt for s in STMTS if isinstance(s.stmt, cls)]
 
 
+def _stmts2(cls):
+    return [s.stmt for s in STMTS2 if isinstance(s.stmt, cls)]
+
+
 TABLES = {t.relation.relname: t for t in _stmts(ast.CreateStmt)}
 TRIGGERS = _stmts(ast.CreateTrigStmt)
 INDEXES = _stmts(ast.IndexStmt)
 FUNCTIONS = {f.funcname[-1].sval: f for f in _stmts(ast.CreateFunctionStmt)}
 
+TABLES2 = {t.relation.relname: t for t in _stmts2(ast.CreateStmt)}
+TRIGGERS2 = _stmts2(ast.CreateTrigStmt)
+INDEXES2 = _stmts2(ast.IndexStmt)
+FUNCTIONS2 = {f.funcname[-1].sval: f for f in _stmts2(ast.CreateFunctionStmt)}
+
+# Union para los invariantes TRANSVERSALES (regla del repo que vale igual para
+# toda migracion): toda FK con indice de apoyo, nada de float para dinero,
+# ningun CHECK dependiente de la TimeZone de sesion.
+TABLAS_TOTALES = {**TABLES, **TABLES2}
+INDEXES_TOTALES = (*INDEXES, *INDEXES2)
+
 
 def _cols(tabla):
     return {e.colname: e for e in TABLES[tabla].tableElts if isinstance(e, ast.ColumnDef)}
+
+
+def _cols_de(tables, tabla):
+    return {e.colname: e for e in tables[tabla].tableElts if isinstance(e, ast.ColumnDef)}
+
+
+def _cols2(tabla):
+    return _cols_de(TABLES2, tabla)
 
 
 def _type_name(coldef):
@@ -64,9 +93,13 @@ def _contypes(coldef):
 
 
 def _check_constraints(tabla):
+    return _checks_de(TABLES, tabla)
+
+
+def _checks_de(tables, tabla):
     return {
         e.conname: e
-        for e in TABLES[tabla].tableElts
+        for e in tables[tabla].tableElts
         if isinstance(e, ast.Constraint)
         and e.contype == enums.ConstrType.CONSTR_CHECK
         and e.conname
@@ -75,11 +108,47 @@ def _check_constraints(tabla):
 
 def _body_plpgsql(nombre_funcion):
     """Cuerpo de una función PL/pgSQL, extraído del AST de CREATE FUNCTION."""
-    func = FUNCTIONS[nombre_funcion]
-    for opt in func.options:
+    return _body_de(FUNCTIONS, nombre_funcion)
+
+
+def _body_de(funciones, nombre_funcion):
+    for opt in funciones[nombre_funcion].options:
         if opt.defname == "as":
             return "".join(parte.sval for parte in opt.arg)
     raise AssertionError(f"{nombre_funcion}: sin cuerpo 'as' en el AST")
+
+
+def _pares_de_transiciones(cuerpo):
+    """Extrae los pares ('desde', 'hasta') de una tabla de transiciones
+    escrita como (OLD.campo, NEW.campo) IN ( ('a','b'), ... ) THEN en el
+    cuerpo plpgsql del trigger. ANCLADA al patrón de la tabla y NO-GREEDY
+    hasta el primer ') THEN' (el cierre de la tabla): la versión naïve
+    (cualquier par de strings consecutivos) confundió el NOT IN
+    ('vetoed','discarded') del perímetro shadow con una transición, y el
+    greedy tragaría la tabla entera hasta el ') THEN' del propio guard
+    (hallazgo del rojo del guard, reviewer r1 de 1.2)."""
+    tabla = re.search(r"\(OLD\.(\w+),\s*NEW\.\1\)\s*IN\s*\((.*?)\)\s*THEN", cuerpo, re.DOTALL)
+    assert tabla, "no se encontró la tabla (OLD.campo, NEW.campo) IN (...) del trigger"
+    return set(re.findall(r"\('([a-z_]+)',\s*'([a-z_]+)'\)", tabla.group(2)))
+
+
+def _grants_sobre_2(tabla, priv):
+    """{rol: set(columnas)} de los GRANT <priv> [ (cols) ] sobre `tabla` en 0002."""
+    resultado: dict[str, set[str]] = {}
+    for s in STMTS2:
+        st = s.stmt
+        if not isinstance(st, ast.GrantStmt):
+            continue
+        if st.targtype != enums.GrantTargetType.ACL_TARGET_OBJECT:
+            continue
+        if not any(isinstance(o, ast.RangeVar) and o.relname == tabla for o in st.objects):
+            continue
+        for p in st.privileges:
+            if p.priv_name != priv:
+                continue
+            for rol in st.grantees:
+                resultado.setdefault(rol.rolename, set()).update(c.sval for c in (p.cols or ()))
+    return resultado
 
 
 # ---------------------------------------------------------------------------
@@ -139,7 +208,7 @@ def test_nuevos_candados_de_rango_positivo():
 
 
 def test_ninguna_columna_usa_float():
-    for tabla, cols in ((n, _cols(n)) for n in TABLES):
+    for tabla, cols in ((n, _cols_de(TABLAS_TOTALES, n)) for n in TABLAS_TOTALES):
         for col in cols.values():
             tipo = _type_name(col).split(".")[-1]
             assert tipo not in TIPOS_FLOAT, f"{tabla}.{col.colname} usa {tipo}"
@@ -151,8 +220,8 @@ def test_toda_tabla_con_dinero_tiene_moneda():
     # tabla se saltaba esta prueba entera. Y "existe una columna currency" no
     # es el invariante de la regla 4: el invariante es que un importe SIN
     # moneda sea imposible.
-    for tabla in TABLES:
-        cols = _cols(tabla)
+    for tabla in TABLAS_TOTALES:
+        cols = _cols_de(TABLAS_TOTALES, tabla)
         tipos = {_type_name(c) for c in cols.values()}
         if "money_amount" not in tipos and tabla not in DINERO_EN_NUMERIC:
             continue
@@ -386,7 +455,7 @@ def test_v_tacos_fail_loud_con_huecos_parciales_de_fx():
     )
 
 
-def _lideres_de_indice_no_parcial():
+def _lideres_de_indice_no_parcial(indexes=INDEXES_TOTALES, tables=TABLAS_TOTALES):
     """{(tabla, primera_columna)} de todo indice NO parcial de la migracion.
 
     Cuenta los indices implicitos de PRIMARY KEY / UNIQUE / EXCLUDE: son
@@ -395,14 +464,14 @@ def _lideres_de_indice_no_parcial():
     apoyarse en un indice con WHERE.
     """
     lideres = set()
-    for i in INDEXES:
+    for i in indexes:
         if i.whereClause is not None:
             continue
         primera = i.indexParams[0]
         if primera.name:
             lideres.add((i.relation.relname, primera.name))
     llaves = {enums.ConstrType.CONSTR_PRIMARY, enums.ConstrType.CONSTR_UNIQUE}
-    for tabla, t in TABLES.items():
+    for tabla, t in tables.items():
         for e in t.tableElts:
             if isinstance(e, ast.ColumnDef):
                 if _contypes(e) & llaves:
@@ -417,8 +486,8 @@ def _lideres_de_indice_no_parcial():
     return lideres
 
 
-def _claves_foraneas():
-    for tabla, t in TABLES.items():
+def _claves_foraneas(tables=TABLES):
+    for tabla, t in tables.items():
         for e in t.tableElts:
             if isinstance(e, ast.ColumnDef):
                 for c in e.constraints or ():
@@ -428,14 +497,34 @@ def _claves_foraneas():
                 yield tabla, e.fk_attrs[0].sval
 
 
+def _fks_de_add_column(stmts):
+    """FKs agregadas por ALTER TABLE ... ADD COLUMN (0002:
+    decision_application.applied_cycle_id). El invariante de indice de apoyo
+    tambien vale para las columnas que llegan por ALTER."""
+    for s in stmts:
+        st = s.stmt
+        if not isinstance(st, ast.AlterTableStmt):
+            continue
+        for cmd in st.cmds:
+            if not isinstance(cmd.def_, ast.ColumnDef):
+                continue
+            for c in cmd.def_.constraints or ():
+                if c.contype == enums.ConstrType.CONSTR_FOREIGN:
+                    yield st.relation.relname, cmd.def_.colname
+
+
 def test_toda_fk_tiene_indice_de_apoyo():
     # PostgreSQL NO crea indice por un REFERENCES. Sin el, cada verificacion
     # de integridad al tocar la tabla padre barre la hija entera, y los JOIN
     # que el esquema mismo declara (v_margen_plataforma cruza ledger_event por
     # product_id; v_tacos cruza las metricas por ad_entity_id) salen a
-    # secuencial.
-    lideres = _lideres_de_indice_no_parcial()
-    sin_indice = sorted({fk for fk in _claves_foraneas() if fk not in lideres})
+    # secuencial. Vale para 0001 Y 0002 (sellado 24: test_schema parsea 0002).
+    fks = (
+        set(_claves_foraneas(TABLES))
+        | set(_claves_foraneas(TABLES2))
+        | set(_fks_de_add_column(STMTS2))
+    )
+    sin_indice = sorted(fk for fk in fks if fk not in _lideres_de_indice_no_parcial())
     assert not sin_indice, f"FKs sin indice de apoyo: {sin_indice}"
 
 
@@ -493,8 +582,8 @@ def test_ningun_check_depende_de_la_timezone_de_sesion():
     # Los invariantes fecha-vs-timestamp viven en TRIGGERS con UTC fijado.
     # Este test impide que alguien "simplifique" un trigger a CHECK.
     prohibido = ("now", "current_date", "current_timestamp", "localtimestamp", "timezone")
-    for tabla in TABLES:
-        for nombre, c in _check_constraints(tabla).items():
+    for tabla in TABLAS_TOTALES:
+        for nombre, c in _checks_de(TABLAS_TOTALES, tabla).items():
             expr = repr(c.raw_expr).lower()
             for palabra in prohibido:
                 assert f"'{palabra}'" not in expr, (
@@ -514,6 +603,389 @@ def test_v_tacos_fail_loud_con_costo_nulo():
     assert tacos, "falta la vista v_tacos"
     cuerpo = repr(tacos[0].query)
     assert "gasto_sin_costo" in cuerpo, "v_tacos no cuenta las filas de gasto con cost NULL"
+
+
+# ---------------------------------------------------------------------------
+# (a2) ESTÁTICOS de 0002_apply — ORBIT 04, task 1.2 (docs/APPLY.md es la spec)
+# ---------------------------------------------------------------------------
+
+# Tabla de transiciones EXACTA del brief §1.2 (sellado 4). El set EXACTO
+# asegura lo tres candados a la vez: no sobra transición (no existe
+# applying -> discarded), no falta (released sigue vetable), y los terminales
+# (vetoed/applied/failed/discarded) no aparecen como ORIGEN.
+BRIEF_TRANSICIONES_APLICAR = {
+    ("pending_veto", "vetoed"),
+    ("pending_veto", "released"),
+    ("pending_veto", "discarded"),
+    ("released", "vetoed"),
+    ("released", "applying"),
+    ("released", "discarded"),
+    ("applying", "applied"),
+    ("applying", "failed"),
+}
+
+# Progresión sellada de harvest_job (sellado 13): la cadena sin saltos ni
+# retrocesos, con failed alcanzable desde CUALQUIER fase en vuelo (la matriz
+# §6.1 cierra failed desde negative_created Y exact_created; done solo se
+# alcanza desde exact_created).
+PROGRESION_HARVEST = {
+    ("pending", "negative_created"),
+    ("negative_created", "exact_created"),
+    ("exact_created", "done"),
+    ("pending", "failed"),
+    ("negative_created", "failed"),
+    ("exact_created", "failed"),
+}
+
+
+def test_0002_parsea():
+    assert len(STMTS2) > 25  # sanity: la migración completa parseó
+
+
+def test_0002_apply_queue_nace_pending_veto():
+    # Sellado 4 / brief §1.5: un INSERT directo en `released` saltaría la
+    # ventana de veto — la fila nace SIEMPRE pending_veto por trigger
+    # (patrón harvest_job de 0001).
+    candidatos = [
+        t
+        for t in TRIGGERS2
+        if t.relation.relname == "apply_queue"
+        and t.funcname
+        and t.funcname[-1].sval == "apply_queue_nace_pending_veto"
+    ]
+    assert candidatos, "falta el trigger de INSERT que exige nacer pending_veto"
+    # BEFORE INSERT FOR EACH ROW (constantes de parsenodes.h: BEFORE=2, INSERT=4).
+    assert any(t.timing == 2 and t.events & 4 and t.row for t in candidatos)
+    cuerpo = " ".join(_body_de(FUNCTIONS2, "apply_queue_nace_pending_veto").split())
+    assert "NEW.estado <> 'pending_veto'" in cuerpo
+
+
+def test_0002_transiciones_exactas_del_brief_y_veto_exige_admin():
+    # Sellado 4: la máquina de estados vive en el trigger, no en la app. El
+    # set de pares extraído del cuerpo debe ser EXACTAMENTE el del brief.
+    candidatos = [
+        t
+        for t in TRIGGERS2
+        if t.relation.relname == "apply_queue"
+        and t.funcname
+        and t.funcname[-1].sval == "apply_queue_sella_transiciones"
+    ]
+    assert candidatos, "falta el trigger de UPDATE con la tabla de transiciones"
+    assert any(t.timing == 2 and t.events & 16 and t.row for t in candidatos)
+    cuerpo = " ".join(_body_de(FUNCTIONS2, "apply_queue_sella_transiciones").split())
+    assert _pares_de_transiciones(cuerpo) == BRIEF_TRANSICIONES_APLICAR, (
+        "la tabla de transiciones del trigger NO coincide con el brief §1.2"
+    )
+    # Sellados 4/18 (r2 grok 7): la transición a vetoed exige admin POR
+    # SCHEMA — el rol del motor NO veta ni siquiera con el UPDATE del claim.
+    assert "pg_has_role(current_user, 'app_admin', 'MEMBER')" in cuerpo
+    # Todo UPDATE de la cola ES una transición: no existen updates in-place.
+    assert "NEW.estado = OLD.estado" in cuerpo
+
+
+def test_0002_fila_shadow_jamas_sale_del_permetro_veto_descartar():
+    # Sellado 6 (hallazgo reviewer r1 de 1.2): "una fila shadow JAMAS
+    # transiciona a released" — y por construccion tampoco a applying/applied/
+    # failed (de una fila shadow jamas sale HTTP). Candado de SCHEMA, no de
+    # disciplina de la app: de una fila modo='shadow' solo se llega a vetoed
+    # (practica del veto) o discarded (flip de ORBIT 05).
+    cuerpo = " ".join(_body_de(FUNCTIONS2, "apply_queue_sella_transiciones").split())
+    assert "OLD.modo = 'shadow'" in cuerpo, (
+        "el trigger de transiciones no condiciona por modo: una fila shadow "
+        "podria liberarse por SQL directo"
+    )
+    assert "NOT IN ('vetoed', 'discarded')" in cuerpo, (
+        "el perimetro de una fila shadow es vetoed|discarded, nada mas"
+    )
+
+
+def test_0002_clave_de_efecto_unico_parcial_nulls_not_distinct():
+    # Sellado 4 / brief §1.5: a lo sumo un en-vuelo por CLAVE DE EFECTO. El
+    # NULLS NOT DISTINCT es OBLIGATORIO porque search_term es NULL en los
+    # pause: sin él, dos pauses de la misma entidad no chocarían.
+    unicos = [i for i in INDEXES2 if i.relation.relname == "apply_queue" and i.unique]
+    parciales = [i for i in unicos if i.whereClause is not None]
+    assert len(parciales) == 1, "debe existir exactamente un único parcial en apply_queue"
+    idx = parciales[0]
+    assert idx.nulls_not_distinct, "sin NULLS NOT DISTINCT los pause (search_term NULL) no chocan"
+    assert tuple(p.name for p in idx.indexParams) == (
+        "platform",
+        "ad_entity_id",
+        "familia",
+        "search_term",
+    ), "la clave del único parcial no es la clave de efecto sellada"
+    # Parcial sobre NO terminales: los terminales liberan la clave.
+    where = repr(idx.whereClause)
+    for terminal in ("applied", "failed", "vetoed", "discarded"):
+        assert f"'{terminal}'" in where, f"el parcial no excluye el terminal {terminal}"
+
+
+def test_0002_familia_de_efecto_derivada_y_clave_coherente():
+    # Sellado 4: familia = entity_cut (pause) / term_cut (negative Y harvest).
+    # Con kind en la clave, un veto de negative se eludía proponiendo harvest
+    # del MISMO término: la familia de efecto es lo que choca. Es GENERATED
+    # (regla 2: un número, una fuente) — deriva del kind, no se elige.
+    cols = _cols2("apply_queue")
+    gen = [
+        c
+        for c in (cols["familia"].constraints or ())
+        if c.contype == enums.ConstrType.CONSTR_GENERATED
+    ]
+    assert gen, "familia debe ser columna GENERATED (deriva del kind, no se elige)"
+    expr = repr(gen[0].raw_expr)
+    for token in ("pause", "negative", "harvest", "entity_cut", "term_cut"):
+        assert token in expr, f"la expresión de familia no menciona {token}"
+    checks = _checks_de(TABLES2, "apply_queue")
+    # Perímetro sellado 1: SOLO cortes en la cola; los bids aplican en su ciclo.
+    solo_cortes = repr(checks["apply_queue_solo_cortes"].raw_expr)
+    for kind in ("pause", "negative", "harvest"):
+        assert f"'{kind}'" in solo_cortes
+    assert "'bid'" not in solo_cortes, "un bid en la cola rompe el perímetro híbrido"
+    # Coherencia clave↔familia: entity_cut lleva search_term NULL, term_cut
+    # lo exige NOT NULL (brief §1.3).
+    coherente = repr(checks["apply_queue_clave_coherente"].raw_expr)
+    assert "search_term" in coherente
+    assert "entity_cut" in coherente and "term_cut" in coherente
+
+
+def test_0002_apply_attempt_excepcion_declarada_sello_una_vez():
+    # Sellado 10 / brief §4.1: el "append-only" estricto de prohibir_mutacion
+    # bloquearía el sello del ack. La excepción es DELIBERADA y con candado
+    # propio ACOTADO por columnas (patrón sku_cost_solo_cierra_vigencia):
+    # SOLO ack/resultado/finished_at pasan de NULL a valor UNA vez; el resto
+    # de la fila y el DELETE revientan.
+    fila = [
+        t for t in TRIGGERS2 if t.relation.relname == "apply_attempt" and t.row and t.timing == 2
+    ]
+    assert fila, "apply_attempt sin candado de fila (BEFORE UPDATE OR DELETE)"
+    eventos = 0
+    for t in fila:
+        eventos |= t.events
+    assert eventos & 8 and eventos & 16, "el candado de apply_attempt cubre UPDATE y DELETE"
+    nombres = {t.funcname[-1].sval for t in fila if t.funcname}
+    assert nombres == {"apply_attempt_solo_sella_resultado"}, (
+        "apply_attempt NO lleva prohibir_mutacion de fila: la excepción del "
+        "sello es deliberada y su trigger es el acotado"
+    )
+    cuerpo = " ".join(_body_de(FUNCTIONS2, "apply_attempt_solo_sella_resultado").split())
+    assert "TG_OP = 'DELETE'" in cuerpo
+    for col in ("ack", "resultado", "finished_at"):
+        assert f"NEW.{col} IS DISTINCT FROM OLD.{col}" in cuerpo
+        assert f"OLD.{col} IS NOT NULL" in cuerpo, (
+            f"falta el candado de re-sello: {col} ya sellada debe revienta"
+        )
+    assert "ROW(NEW.id" in cuerpo and "NEW.quota_cobrada" in cuerpo, (
+        "falta la inmutabilidad del resto de la fila (patrón ROW IS DISTINCT FROM)"
+    )
+    # Los triggers de fila no se disparan con TRUNCATE: capa de sentencia.
+    sentencia = [
+        t
+        for t in TRIGGERS2
+        if t.relation.relname == "apply_attempt" and not t.row and t.events & 32
+    ]
+    assert sentencia, "apply_attempt sin candado de sentencia contra TRUNCATE"
+    # decision_id NULL SOLO para probes (brief §4.1).
+    checks = _checks_de(TABLES2, "apply_attempt")
+    expr = repr(checks["attempt_probe_sin_decision"].raw_expr)
+    assert "'probe'" in expr and "decision_id" in expr
+
+
+def test_0002_reactivacion_manual_es_hecho_puro():
+    # Sellado 17: la gracia de 7d corre DESDE detectada_en — pisar esa fecha
+    # movería la gracia. Es un hecho puro: prohibir_mutacion completo (fila +
+    # TRUNCATE), sin excepciones.
+    cols = _cols2("reactivacion_manual")
+    assert enums.ConstrType.CONSTR_PRIMARY in _contypes(cols["ad_entity_id"])
+    assert enums.ConstrType.CONSTR_NOTNULL in _contypes(cols["detectada_en"])
+    fila = {
+        t.funcname[-1].sval
+        for t in TRIGGERS2
+        if t.relation.relname == "reactivacion_manual" and t.row and t.funcname
+    }
+    trunc = [
+        t
+        for t in TRIGGERS2
+        if t.relation.relname == "reactivacion_manual" and not t.row and t.events & 32
+    ]
+    assert fila == {"prohibir_mutacion"} and trunc, "reactivacion_manual debe ser append-only"
+    # Re-confirmación de la excepción de 0001 (trato par al de apply_attempt):
+    # decision_application sigue siendo el RESUMEN mutable por columna —
+    # jamás tabla append-only (su UPDATE sella el readback).
+    assert "decision_application" not in APPEND_ONLY
+    con_prohibir = {
+        t.relation.relname
+        for t in TRIGGERS
+        if t.funcname and t.funcname[-1].sval == "prohibir_mutacion" and t.row
+    }
+    assert "decision_application" not in con_prohibir
+
+
+def test_0002_mapeo_quota_contiene_las_ocho_claves():
+    # Sellado 7 / brief §5.2: DOS vocabularios (config vs quota) sin mapeo era
+    # el hueco (r2 grok 13). El mapeo es EXPLÍCITO y CERRADO: las 8 claves
+    # ads_apply_cap_* mapeadas a los 8 motores ads_optimizer:* — un motor
+    # fuera de mapa no resuelve clave y el INSERT revienta (fail-closed).
+    cuerpo = " ".join(_body_de(FUNCTIONS2, "apply_cap_de_config").split())
+    for plat in ("amazon_us", "amazon_mx"):
+        for kind in ("bid", "pause", "negative", "harvest"):
+            assert f"ads_apply_cap_{plat}_{kind}" in cuerpo, (
+                f"falta la clave de config ads_apply_cap_{plat}_{kind} en el mapeo"
+            )
+            assert f"ads_optimizer:{plat}:{kind}" in cuerpo, (
+                f"falta el motor ads_optimizer:{plat}:{kind} en el mapeo"
+            )
+    assert "config_version" in cuerpo, "el mapeo debe resolver la config vigente"
+
+
+def test_0002_quota_fail_closed_dia_utc_y_used_creciente():
+    # Sellado 8: fila del día SOLO desde config vigente (fail-closed: sin
+    # clave no nace fila → cero applies), quota_date = día UTC de la BASE
+    # (r2 codex: DATE sin zona + sesiones con TZ distinta duplicaban el cap)
+    # y used jamás decrece (en 0001 esto no era enforceable).
+    cuerpo_ins = " ".join(_body_de(FUNCTIONS2, "apply_quota_fila_desde_config").split())
+    assert "(now() AT TIME ZONE 'UTC')::date" in cuerpo_ins, (
+        "quota_date debe validarse contra el día UTC de la base, no CURRENT_DATE"
+    )
+    assert "apply_cap_de_config" in cuerpo_ins, "el INSERT de quota debe resolver el cap del mapeo"
+    cuerpo_upd = " ".join(_body_de(FUNCTIONS2, "apply_quota_used_creciente").split())
+    assert "NEW.used < OLD.used" in cuerpo_upd, "falta el candado used creciente"
+    for col in ("cap", "quota_date", "motor"):
+        assert f"NEW.{col} <> OLD.{col}" in cuerpo_upd, (
+            f"falta la inmutabilidad de {col} por UPDATE (la PK no lo sella sola)"
+        )
+
+
+def test_0002_harvest_job_sella_progresion():
+    # Sellado 13: las transiciones de harvest_job las sella 0002 por trigger
+    # de UPDATE — SIN tocar el trigger de INSERT de 0001 (que sigue siendo el
+    # único ahí: nace pending + coherencia con la decisión).
+    sobre_0001 = {
+        t.funcname[-1].sval for t in TRIGGERS if t.relation.relname == "harvest_job" and t.funcname
+    }
+    assert sobre_0001 == {"harvest_job_decision_coherente"}, (
+        "0002 no debe tocar los triggers de INSERT de harvest_job"
+    )
+    candidatos = [
+        t
+        for t in TRIGGERS2
+        if t.relation.relname == "harvest_job"
+        and t.funcname
+        and t.funcname[-1].sval == "harvest_job_sella_fases"
+    ]
+    assert candidatos, "falta el trigger de UPDATE que sella las fases"
+    assert any(t.timing == 2 and t.events & 16 and t.row for t in candidatos)
+    cuerpo = " ".join(_body_de(FUNCTIONS2, "harvest_job_sella_fases").split())
+    assert _pares_de_transiciones(cuerpo) == PROGRESION_HARVEST, (
+        "la progresión de harvest_job no es la cadena sellada (sin saltos ni retrocesos)"
+    )
+
+
+def test_0002_applied_cycle_id_en_decision_application():
+    # Sellado 21: cooldown por ciclo EJECUTOR — decision_application gana
+    # applied_cycle_id (NULL hasta confirmar; el sellado AL CONFIRMAR es
+    # disciplina de la app, declarada en el COMMENT de la columna).
+    alteradas = [
+        st
+        for st in (s.stmt for s in STMTS2)
+        if isinstance(st, ast.AlterTableStmt) and st.relation.relname == "decision_application"
+    ]
+    assert alteradas, "falta el ALTER de decision_application"
+    columnas = [
+        cmd.def_.colname
+        for st in alteradas
+        for cmd in st.cmds
+        if isinstance(cmd.def_, ast.ColumnDef)
+    ]
+    assert columnas == ["applied_cycle_id"], "el único ALTER debe agregar applied_cycle_id"
+    assert any(
+        i.relation.relname == "decision_application"
+        and [p.name for p in i.indexParams] == ["applied_cycle_id"]
+        for i in INDEXES2
+    ), "applied_cycle_id es FK y necesita índice de apoyo"
+    assert _grants_sobre_2("decision_application", "update").get("app_decide") == {
+        "applied_cycle_id"
+    }, "el GRANT de columnas existente debe ganar SOLO applied_cycle_id"
+
+
+def test_0002_cache_ad_entity_state_update_acotado():
+    # Sellado 16: el apply actualiza el cache CON el readback (lo LEÍDO, no lo
+    # pedido) — sin este UPDATE acotado el ciclo siguiente calcularía +15%
+    # sobre el bid viejo (regla 2: la fuente es Amazon y el readback ES de
+    # Amazon).
+    assert _grants_sobre_2("ad_entity_state", "update").get("app_decide") == {
+        "current_bid",
+        "status",
+        "synced_at",
+    }
+
+
+def test_0002_update_de_apply_repartido_por_columnas():
+    # La separación sellada de la cola entre el ROL MOTOR y el ADMIN, hecha
+    # cumplir por GRANTs positivos POR COLUMNA (nadie tiene UPDATE genérico:
+    # el candado no descansa en la ausencia de un GRANT, pero tampoco deja
+    # uno abierto):
+    #   - app_decide (motor): avanza la máquina y sella sus timestamps +
+    #     descarta con motivo. JAMAS vence_el/vetoed_at/vetoed_by.
+    #   - app_admin (veto + flip de cutover): transición a vetoed con su
+    #     bloqueo editable y el discard masivo de shadow.
+    por_rol = _grants_sobre_2("apply_queue", "update")
+    assert por_rol.get("app_decide") == {
+        "estado",
+        "released_at",
+        "applying_at",
+        "applied_at",
+        "failed_at",
+        "discarded_at",
+        "discard_motivo",
+    }
+    assert por_rol.get("app_admin") == {
+        "estado",
+        "vence_el",
+        "vetoed_at",
+        "vetoed_by",
+        "discarded_at",
+        "discard_motivo",
+    }
+    for rol, cols in por_rol.items():
+        assert cols, f"UPDATE genérico (sin columnas) sobre apply_queue para {rol}"
+    assert set(por_rol) == {"app_decide", "app_admin"}, "nadie más muta la cola"
+    # El ledger: el motor SOLO sella el resultado (el intento nace pre-HTTP).
+    assert _grants_sobre_2("apply_attempt", "update").get("app_decide") == {
+        "ack",
+        "resultado",
+        "finished_at",
+    }
+    assert set(_grants_sobre_2("apply_attempt", "update")) == {"app_decide"}
+    # La detección de reactivación la escribe SOLO el aplicador (sellado 17).
+    assert not _grants_sobre_2("reactivacion_manual", "update")
+    assert set(_grants_sobre_2("reactivacion_manual", "insert")) == {"app_decide"}
+    assert set(_grants_sobre_2("apply_queue", "insert")) == {"app_decide"}
+    assert set(_grants_sobre_2("apply_attempt", "insert")) == {"app_decide"}
+
+
+def test_0002_secuencias_y_select_explicitos():
+    # Sellado 24: GRANTs positivos completos — USAGE de las secuencias
+    # IDENTITY nuevas para los tres escritores (patrón línea 1517 de 0001) y
+    # SELECT explícito a app_read sobre las tablas nuevas (patrón 1459; el
+    # DEFAULT PRIVILEGES de 0001 también aplicaría, pero el candado no
+    # descansa en que el owner de la migración sea el mismo).
+    usage = [
+        st
+        for st in (s.stmt for s in STMTS2)
+        if isinstance(st, ast.GrantStmt) and any(p.priv_name == "usage" for p in st.privileges)
+    ]
+    assert usage, "falta el GRANT USAGE de secuencias en 0002"
+    roles_usage = {g.rolename for st in usage for g in st.grantees}
+    assert {"app_ingest", "app_decide", "app_admin"} <= roles_usage
+    select = [
+        st
+        for st in (s.stmt for s in STMTS2)
+        if isinstance(st, ast.GrantStmt)
+        and any(p.priv_name == "select" for p in st.privileges)
+        and any(g.rolename == "app_read" for g in st.grantees)
+    ]
+    tablas_read = {o.relname for st in select for o in st.objects if isinstance(o, ast.RangeVar)}
+    assert {"apply_queue", "apply_attempt", "reactivacion_manual"} <= tablas_read
 
 
 # ---------------------------------------------------------------------------

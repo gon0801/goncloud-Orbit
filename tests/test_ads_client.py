@@ -419,6 +419,31 @@ def test_post_de_mutacion_de_campanas_bloqueado():
 
 @pytest.mark.parametrize(
     "method,path",
+    [("PUT", "/sp/keywords"), ("DELETE", "/sp/negativeKeywords")],
+)
+def test_read_client_sigue_rechazando_las_mutaciones_del_write_client(method, path):
+    """ORBIT 04 1.3: con la llegada de `app.ads.write` el guard read-only NO
+    se relaja (r2: el atajo natural era relajar el guard viejo). Los paths
+    de mutacion del write client siguen reventando en el read client."""
+    client = make_client(lambda request: httpx.Response(200))
+    with pytest.raises(MutationNotAllowedError):
+        client._request(method, path)
+
+
+def test_list_request_types_incluye_negative_keywords_list():
+    """Evidencia REGLA 8 EN VIVO (lead, 2026-08-25; log
+    out/regla8-negkeywords.log): POST /sp/negativeKeywords/list con vendor
+    spnegativekeyword v3 responde 200 en AMBOS perfiles (US y MX). El POST
+    por list_objects pasa el guard al formar parte de LIST_REQUEST_TYPES
+    (lo ejercita test_list_objects_post_de_lectura_con_vendor_types, que
+    recorre el mapa completo)."""
+    assert LIST_REQUEST_TYPES["/sp/negativeKeywords/list"] == (
+        "application/vnd.spnegativekeyword.v3+json"
+    )
+
+
+@pytest.mark.parametrize(
+    "method,path",
     [
         ("GET", "https://evil.example.com/steal"),
         ("POST", "/reporting//reports"),

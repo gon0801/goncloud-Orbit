@@ -4,7 +4,26 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
-**Última actualización: 2026-08-24 — Phases 1–3 en master; 4.1 y 4.2 hechas
+**Última actualización: 2026-08-25 — ORBIT 04 Phase 1 CERRADA (3/3 tareas,
+rama orbit-04/phase-1, PR de fase): (1.1) docs/APPLY.md, el contrato fino de
+PR2 — máquina de estados de la cola de cortes con clave de efecto y ventana
+de veto 48h, ledger de intentos, quota sellada con mapeo config↔motor,
+matriz de reconciliación, tabla de reversas y checklist de cutover; spec
+deltas en CONTEXTO.md y DATABASE.md. (1.2) migración 0002_apply.sql: tabla
+apply_queue (nace pending_veto, transiciones exactas por trigger, veto exige
+admin por schema, fila shadow JAMÁS sale de vetoed|discarded, único parcial
+NULLS NOT DISTINCT por clave de efecto), ledger apply_attempt (sello una
+sola vez), reactivacion_manual, sellos de apply_quota_state (fila del día
+solo desde config, used creciente, día UTC de la base), fases de
+harvest_job, applied_cycle_id y GRANTs por columna; test_schema parsea 0002
+y test_apply_schema ejercita el DoD en DB (CI). (1.3) app/ads/write.py:
+cliente de escritura allowlist default-deny (10 mutaciones exactas, scope
+sellado por instancia, moneda verificada pre-HTTP, 429 reintenta sin
+recobro / 5xx no reintenta, constructor fail-closed exige modo live, candado
+de imports) + negativeKeywords/list verificado EN VIVO (regla 8, 200 en US y
+MX). Suite local 359 passed / 78 DB-skips; batería DB completa en el CI del
+PR. Siguiente: Phase 2 (el apply integrado: 2.1 núcleo, 2.2 cola, 2.3
+harvest, 2.4 integración al ciclo, 2.5 probe autorizado). Previo (2026-08-24): Phases 1–3 en master; 4.1 y 4.2 hechas
 en goncloud (servicio `app` en 127.0.0.1:8010 + 3 crons aditivos, profundidad
 diaria D-31..D-1). 4.3 EJECUTADA por el dueño: escalera global en shadow,
 targets ACoS 20 (mx) y 20 (us — presión máxima elegida a sabiendas), TODAS
