@@ -193,6 +193,22 @@ BEGIN
             USING ERRCODE = 'check_violation';
     END IF;
 
+    -- Sellado 6 (hallazgo reviewer r1): una fila shadow JAMAS se libera (ni
+    -- applying/applied/failed: de una fila shadow no sale HTTP). Candado de
+    -- schema, no disciplina de la app: su perimetro es veto (practica del
+    -- dueño) o discard (flip de ORBIT 05). Va ANTES del check de la tabla
+    -- para que TODO escape de una fila shadow reporte el perimetro (hallazgo
+    -- reviewer r2: despues de la tabla, un pending_veto->applying de fila
+    -- shadow reventaria con el mensaje de la maquina, no el del perimetro).
+    IF OLD.modo = 'shadow' AND NEW.estado NOT IN ('vetoed', 'discarded') THEN
+        RAISE EXCEPTION
+            'apply_queue %: fila shadow (modo=%) JAMAS transiciona a % — su '
+            'perimetro es vetoed|discarded (sellado 6: en shadow el dueño '
+            'practica el veto; el flip descarta en bloque; cero HTTP).',
+            OLD.id, OLD.modo, NEW.estado
+            USING ERRCODE = 'check_violation';
+    END IF;
+
     IF (OLD.estado, NEW.estado) IN (
         ('pending_veto', 'vetoed'),
         ('pending_veto', 'released'),
@@ -213,19 +229,6 @@ BEGIN
             'son inmutables; y el veto contra una fila en vuelo (applying) se '
             'rechaza: applying es punto de no retorno.',
             OLD.id, OLD.estado, NEW.estado
-            USING ERRCODE = 'check_violation';
-    END IF;
-
-    -- Sellado 6 (hallazgo reviewer r1): una fila shadow JAMAS se libera (ni
-    -- applying/applied/failed: de una fila shadow no sale HTTP). Candado de
-    -- schema, no disciplina de la app: su perimetro es veto (practica del
-    -- dueño) o discard (flip de ORBIT 05).
-    IF OLD.modo = 'shadow' AND NEW.estado NOT IN ('vetoed', 'discarded') THEN
-        RAISE EXCEPTION
-            'apply_queue %: fila shadow (modo=%) JAMAS transiciona a % — su '
-            'perimetro es vetoed|discarded (sellado 6: en shadow el dueño '
-            'practica el veto; el flip descarta en bloque; cero HTTP).',
-            OLD.id, OLD.modo, NEW.estado
             USING ERRCODE = 'check_violation';
     END IF;
 
