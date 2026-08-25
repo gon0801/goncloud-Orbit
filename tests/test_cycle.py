@@ -348,7 +348,7 @@ def _siembra_kw_pause(conn, run_id, kw) -> None:
 
 
 def _siembra_terminos(conn, run_id, ag) -> None:
-    """Cinco terminos del ad group, con ancla 07-21 (la ventana de terminos
+    """Seis terminos del ad group, con ancla 07-21 (la ventana de terminos
     queda 06-19..07-18 y la entidad completa: 9 fechas dentro)."""
     # NEGATIVE elegible: orders 0, clicks 23 (>= umbral adaptativo 22 del
     # grupo), cost 8.00 (borde inclusivo us). Re-siembra CORTES 01: con los
@@ -370,6 +370,25 @@ def _siembra_terminos(conn, run_id, ag) -> None:
             clicks=clicks,
             orders=0,
         )
+    # HUECO DISCRIMINANTE del cableado (hallazgo grok, cross-review 1.2):
+    # clicks 21 vive ENTRE el legacy 20 y el umbral adaptativo 22 -- bajo la
+    # regla nueva NO corta (21 < 22) pero bajo el legacy 20 SI dispararia.
+    # Si _procesa_grupo dejara de pasar umbral_negative al motor (default
+    # legacy 20), este termino generaria una negative extra y el golden
+    # reventaria: sin el, "tortugas" (23) dispara con CUALQUIERA de los dos
+    # umbrales y un cable roto pasaria el CI en silencio.
+    _termino(
+        conn,
+        run_id,
+        ag,
+        "hueco legacy",
+        dt.date(2026, 7, 12),
+        _obs(dt.date(2026, 7, 12), 2),
+        cost="9.00",
+        ad_revenue="1.00",
+        clicks=21,
+        orders=0,
+    )
     # HARVEST elegible: orders 3 (1 por fecha, >= 2), ACoS 10% <= min(35, 25)
     for fecha, cost, revenue in (
         (dt.date(2026, 7, 13), "3.34", "30.00"),
@@ -594,20 +613,24 @@ def test_ciclo_shadow_completo_decisiones_y_notes_exactos():
         assert harv_row[9]["motivo"] == "harvest_umbral"
         assert "corte" not in harv_row[9]
 
-        # asin-like y orders=None: SIN decision (solo cuentan en los notes)
+        # asin-like, orders=None y el HUECO LEGACY (21 clicks < umbral 22):
+        # SIN decision (solo cuentan en los notes)
         terminos_con_decision = {f[2] for f in filas if f[2] is not None}
         assert "b0abcd1234" not in terminos_con_decision
         assert "sin orden conocida" not in terminos_con_decision
+        # el hueco 20<21<22 NO corta bajo la regla nueva; bajo el legacy 20
+        # del default SI habria decision negative (cable roto detectado)
+        assert "hueco legacy" not in terminos_con_decision
 
         notes = json.loads(res.notes)
         assert notes["skips"] == {
             "entidad": {},
-            "termino": {"asin_like": 1, "orders_desconocido": 1, "sin_umbral_negative": 1},
+            "termino": {"asin_like": 1, "orders_desconocido": 1, "sin_umbral_negative": 2},
         }
         assert notes["decisiones"] == {"bid": 1, "pause": 1, "negative": 1, "harvest": 1}
         assert notes["entidades"] == 2
         assert notes["ad_groups"] == 1
-        assert notes["terminos"] == 5
+        assert notes["terminos"] == 6
         assert notes["ciclos_muertos"] == []
         assert notes["degradacion_live"] is None
 
@@ -987,10 +1010,10 @@ def test_opt_out_goal_campana_deshabilitado():
         assert res.decisions_count == 0
         assert conn.execute("SELECT count(*) FROM decision").fetchone()[0] == 0
         notes = json.loads(res.notes)
-        # las 2 keywords y los 5 terminos del ad group quedaron fuera por el
+        # las 2 keywords y los 6 terminos del ad group quedaron fuera por el
         # goal de campana deshabilitado (pisa a la plataforma: 2.4 EN LA APP)
         assert notes["skips"]["entidad"] == {"goal_disabled": 2}
-        assert notes["skips"]["termino"] == {"goal_disabled": 5}
+        assert notes["skips"]["termino"] == {"goal_disabled": 6}
 
 
 @pytest.mark.skipif(
@@ -1148,27 +1171,34 @@ def test_fase_de_lecturas_corre_en_repeatable_read(monkeypatch):
 # 10. Sintaxis: las SQL del modulo parsean como Postgres real
 # ---------------------------------------------------------------------------
 
+# TUPLA LITERAL hardcodeada (CORTES 01 1.2, DoD): cada SQL del modulo aparece
+# EXPLICITO aqui, visible en cada diff que agregue uno.
+_SQL_CYCLE = (
+    "_SQL_CLAIM",
+    "_SQL_RASTRO",
+    "_SQL_ABRIR_ENVELOPE",
+    "_SQL_CERRAR_ENVELOPE",
+    "_SQL_SELLAR_FALLIDO",
+    "_SQL_LIBERAR_LOCK",
+    "_SQL_HEARTBEAT",
+    "_SQL_CONFIG_RECIENTE",
+    "_SQL_CAMPANAS",
+    "_SQL_GOALS",
+    "_SQL_DECISORAS",
+    "_SQL_GRUPOS",
+    "_SQL_INSERT_DECISION",
+)
+
 
 def test_sql_del_modulo_parsea_como_postgres():
     """Patron del repo: pglast es dev-dep declarada y su desaparicion debe
-    FALLAR ruidosamente, no saltar en silencio. TUPLA LITERAL hardcodeada
-    (CORTES 01 1.2, DoD): cada SQL del modulo aparece EXPLICITO aqui -- un
-    SQL nuevo sin listar no lo parsea nadie y el olvido es visible en diff."""
-    for nombre in (
-        "_SQL_CLAIM",
-        "_SQL_RASTRO",
-        "_SQL_ABRIR_ENVELOPE",
-        "_SQL_CERRAR_ENVELOPE",
-        "_SQL_SELLAR_FALLIDO",
-        "_SQL_LIBERAR_LOCK",
-        "_SQL_HEARTBEAT",
-        "_SQL_CONFIG_RECIENTE",
-        "_SQL_CAMPANAS",
-        "_SQL_GOALS",
-        "_SQL_DECISORAS",
-        "_SQL_GRUPOS",
-        "_SQL_INSERT_DECISION",
-    ):
+    FALLAR ruidosamente, no saltar en silencio. La lista es LITERAL (el SQL
+    nuevo visible en diff) PERO exhaustiva contra el modulo (hallazgos
+    codex+grok, cross-review 1.2): una constante _SQL_* futura sin listar
+    revienta aqui en vez de quedar sin parsear en silencio -- la regression
+    del candado vars() original cubierto por lista explicita."""
+    assert set(_SQL_CYCLE) == {n for n in vars(ciclo) if n.startswith("_SQL_")}
+    for nombre in _SQL_CYCLE:
         sql = getattr(ciclo, nombre).replace("%s", "NULL")
         assert pglast.parse_sql(sql), f"{nombre} no parseo"
 
