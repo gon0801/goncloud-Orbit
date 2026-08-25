@@ -203,6 +203,7 @@ def test_sql_del_modulo_parsea_como_postgres():
         "_SQL_FECHAS_ENTIDAD_TERMINOS",
         "_SQL_WATERMARK_PLATAFORMA",
         "_SQL_SYNC_PLATAFORMA",
+        "_SQL_EVIDENCIA_AD_GROUP",
     ):
         sql = getattr(w, nombre).replace("%s", "NULL")
         assert pglast.parse_sql(sql), f"{nombre} no parseo"
@@ -1006,3 +1007,303 @@ def test_guardas_y_trigger_en_vivo():
             (kw,),
         ).fetchone()
         assert fila == ("pause", INICIO_CORTES, FIN_CORTES)
+
+
+# ---------------------------------------------------------------------------
+# (b) INTEGRACION - ventana de EVIDENCIA por ad group (CORTES 01, task 1.1)
+#
+# D = fecha UTC de decided_at (08-22) SIN -3d de frescura NI clamp por
+# watermark (asimetria DELIBERADA del spec); ventana LITERAL
+# BETWEEN D-90 AND D-10 (L=90 es lookback, NO longitud: son 81 fechas).
+# ---------------------------------------------------------------------------
+
+DESDE_EVIDENCIA = dt.date(2026, 5, 24)  # D(08-22) - 90d, borde inferior INCLUSIVE
+HASTA_EVIDENCIA = dt.date(2026, 8, 12)  # D - 10d, borde superior INCLUSIVE
+
+
+@pytest.mark.skipif(
+    not _DSN_EXPLICITO and not _hay_postgres_local(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_evidencia_ad_group_en_vivo():
+    """Suma colapsada de las hojas keyword+product_target por ad group sobre
+    la ventana LITERAL D-90..D-10: un query por plataforma, dict por
+    ad_group_id, grupo sin filas en ventana AUSENTE (regla 3: jamas ceros)."""
+    with _db_temporal("orbit_evid_test") as conn:
+        run_id = _run(conn)
+        camp = _entidad(conn, "amazon_us", "campaign", "9001")
+
+        # GRUPO A: dos hojas (keyword + product_target) con overlap de fechas
+        ag_a = _entidad(conn, "amazon_us", "ad_group", "9101", parent=camp)
+        kw_a = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "9201",
+            parent=ag_a,
+            match_type="EXACT",
+            keyword_text="arras",
+        )
+        pt_a = _entidad(conn, "amazon_us", "product_target", "9301", parent=ag_a)
+
+        # borde inferior EXACTO D-90 (05-24): dentro
+        _metrica(
+            conn,
+            run_id,
+            kw_a,
+            dt.date(2026, 5, 24),
+            _obs(dt.date(2026, 5, 24)),
+            moneda="USD",
+            report_id="R-A",
+            cost=Decimal("1.00"),
+            ad_revenue=Decimal("1.00"),
+            clicks=1,
+            orders=0,
+        )
+        # DOBLE observacion (kw_a, 06-01): gana la MAS NUEVA (cost 2.00 /
+        # clicks 2 / orders 1); la vieja JAMAS se suma (regla 5). La
+        # correccion llega al dia siguiente, como un backfill real.
+        _metrica(
+            conn,
+            run_id,
+            kw_a,
+            dt.date(2026, 6, 1),
+            _obs(dt.date(2026, 6, 1), 1),
+            moneda="USD",
+            report_id="R-A-1",
+            cost=Decimal("1.00"),
+            ad_revenue=Decimal("1.00"),
+            clicks=1,
+            orders=0,
+        )
+        _metrica(
+            conn,
+            run_id,
+            kw_a,
+            dt.date(2026, 6, 1),
+            _obs(dt.date(2026, 6, 2), 9),
+            moneda="USD",
+            report_id="R-A-2",
+            cost=Decimal("2.00"),
+            ad_revenue=Decimal("2.00"),
+            clicks=2,
+            orders=1,
+        )
+        # borde superior EXACTO D-10 (08-12): dentro
+        _metrica(
+            conn,
+            run_id,
+            kw_a,
+            dt.date(2026, 8, 12),
+            _obs(dt.date(2026, 8, 12), 5),
+            moneda="USD",
+            report_id="R-A",
+            cost=Decimal("4.00"),
+            ad_revenue=Decimal("4.00"),
+            clicks=4,
+            orders=1,
+        )
+        # FUERA de bordes (mismo kw_a): D-91 (05-23) y D-9 (08-13) con valores
+        # que revolverian cualquier suma si entraran
+        for fecha in (dt.date(2026, 5, 23), dt.date(2026, 8, 13)):
+            _metrica(
+                conn,
+                run_id,
+                kw_a,
+                fecha,
+                _obs(fecha),
+                moneda="USD",
+                report_id="R-A",
+                cost=Decimal("99.00"),
+                ad_revenue=Decimal("99.00"),
+                clicks=99,
+                orders=99,
+            )
+
+        # pt_a: 06-01 (MISMO dia que kw_a -> UNION de fechas: cuenta 1) y
+        # 06-07 con observed_at POSTERIOR a decided_at: observed_at_max viene
+        # CRUDO (sin clamp aqui; el clamp es de 1.2)
+        _metrica(
+            conn,
+            run_id,
+            pt_a,
+            dt.date(2026, 6, 1),
+            _obs(dt.date(2026, 6, 1)),
+            moneda="USD",
+            report_id="R-PT",
+            cost=Decimal("10.00"),
+            ad_revenue=Decimal("10.00"),
+            clicks=10,
+            orders=2,
+        )
+        _metrica(
+            conn,
+            run_id,
+            pt_a,
+            dt.date(2026, 6, 7),
+            dt.datetime(2026, 8, 23, 8, 0, tzinfo=dt.UTC),
+            moneda="USD",
+            report_id="R-PT",
+            cost=Decimal("20.00"),
+            ad_revenue=Decimal("20.00"),
+            clicks=20,
+            orders=3,
+        )
+
+        # placement bajo el MISMO grupo: NO es hoja de evidencia (solo
+        # keyword+product_target); sus valores gigantes no deben entrar
+        pl_a = _entidad(conn, "amazon_us", "placement", "9401", parent=ag_a)
+        _metrica(
+            conn,
+            run_id,
+            pl_a,
+            dt.date(2026, 6, 8),
+            _obs(dt.date(2026, 6, 8)),
+            moneda="USD",
+            report_id="R-PL",
+            cost=Decimal("500.00"),
+            ad_revenue=Decimal("500.00"),
+            clicks=500,
+            orders=500,
+        )
+
+        # GRUPO B: veneno por None (regla 3, POR METRICA): clicks NULL en una
+        # fecha y valor en otra -> clicks del grupo None; cost sigue sumando
+        ag_b = _entidad(conn, "amazon_us", "ad_group", "9102", parent=camp)
+        kw_b = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "9202",
+            parent=ag_b,
+            match_type="EXACT",
+            keyword_text="parcial",
+        )
+        _metrica(
+            conn,
+            run_id,
+            kw_b,
+            dt.date(2026, 6, 10),
+            _obs(dt.date(2026, 6, 10)),
+            moneda="USD",
+            report_id="R-B",
+            cost=Decimal("1.00"),
+            ad_revenue=Decimal("1.00"),
+            orders=0,
+        )
+        _metrica(
+            conn,
+            run_id,
+            kw_b,
+            dt.date(2026, 6, 11),
+            _obs(dt.date(2026, 6, 11)),
+            moneda="USD",
+            report_id="R-B",
+            cost=Decimal("1.00"),
+            ad_revenue=Decimal("1.00"),
+            clicks=5,
+            orders=0,
+        )
+
+        # GRUPO C: solo filas FUERA de la ventana (frescas) -> AUSENTE del dict
+        ag_c = _entidad(conn, "amazon_us", "ad_group", "9103", parent=camp)
+        kw_c = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "9203",
+            parent=ag_c,
+            match_type="EXACT",
+            keyword_text="fresco",
+        )
+        for fecha in (dt.date(2026, 8, 13), dt.date(2026, 8, 20)):
+            _metrica(
+                conn,
+                run_id,
+                kw_c,
+                fecha,
+                _obs(fecha),
+                moneda="USD",
+                report_id="R-C",
+                cost=Decimal("1.00"),
+                ad_revenue=Decimal("1.00"),
+                clicks=1,
+                orders=0,
+            )
+
+        # GRUPO E: ad group SIN hojas -> AUSENTE del dict
+        _entidad(conn, "amazon_us", "ad_group", "9104", parent=camp)
+
+        # GRUPO MX: misma forma en OTRA plataforma -> solo aparece al pedir MX
+        camp_mx = _entidad(conn, "amazon_mx", "campaign", "7001")
+        ag_mx = _entidad(conn, "amazon_mx", "ad_group", "7101", parent=camp_mx)
+        kw_mx = _entidad(
+            conn,
+            "amazon_mx",
+            "keyword",
+            "7201",
+            parent=ag_mx,
+            match_type="EXACT",
+            keyword_text="plata",
+        )
+        _metrica(
+            conn,
+            run_id,
+            kw_mx,
+            dt.date(2026, 7, 1),
+            _obs(dt.date(2026, 7, 1)),
+            moneda="MXN",
+            report_id="R-MX",
+            cost=Decimal("1.00"),
+            ad_revenue=Decimal("1.00"),
+            clicks=1,
+            orders=0,
+        )
+
+        evid = w.ventanas_evidencia_ad_group(conn, "amazon_us", DECIDED_AT)
+
+        # sin filas en ventana (C), sin hojas (E) y otra plataforma (MX):
+        # AUSENTES, jamas ceros inventados (regla 3)
+        assert set(evid) == {ag_a, ag_b}
+
+        a = evid[ag_a]
+        assert a.ventana_desde == DESDE_EVIDENCIA
+        assert a.ventana_hasta == HASTA_EVIDENCIA
+        # UNION de fechas del GRUPO: 05-24, 06-01 (dos hojas el mismo dia = 1),
+        # 06-07, 08-12. Sumar conteos por hoja daria 5 (regla 9: infla Z).
+        assert a.fechas_distintas == 4
+        # colapso bitemporal: SOLO la obs mas nueva de 06-01 suma (2.00, no
+        # 1.00+2.00); bordes: D-91/D-9 fuera (99.00/99 clicks no entraron)
+        assert a.cost == Decimal("37.00")  # 1+2+4 (kw) + 10+20 (pt)
+        assert a.clicks == 37
+        assert a.orders == 7  # 0+1+1 (kw) + 2+3 (pt)
+        assert a.ad_revenue == Decimal("37.00")
+        # tipos sellados del modulo: contadores int, dinero Decimal
+        assert isinstance(a.clicks, int)
+        assert isinstance(a.cost, Decimal)
+        assert a.metric_currency == "USD"
+        # CRUDO, sin clamp: la obs de pt_a (06-07) se observo el 08-23 08:00,
+        # POSTERIOR a decided_at (08-22 12:00). El clamp a decided_at es de
+        # 1.2; aqui llega crudo (hallazgo qwen ronda 2).
+        assert a.observed_at_max == dt.datetime(2026, 8, 23, 8, 0, tzinfo=dt.UTC)
+
+        # veneno POR METRICA: sin el bool_and, SUM ignoraria el NULL y daria
+        # clicks=5 (suma parcial disfrazada de completa; regla 9)
+        b = evid[ag_b]
+        assert b.clicks is None
+        assert b.cost == Decimal("2.00")
+        assert b.orders == 0
+        assert b.fechas_distintas == 2
+        assert b.observed_at_max == _obs(dt.date(2026, 6, 11))
+
+        # otra plataforma: mismo query, sus grupos y SU moneda
+        evid_mx = w.ventanas_evidencia_ad_group(conn, "amazon_mx", DECIDED_AT)
+        assert set(evid_mx) == {ag_mx}
+        assert evid_mx[ag_mx].clicks == 1
+        assert evid_mx[ag_mx].metric_currency == "MXN"
+
+        # decided_at naive: rechazo ruidoso ANTES de tocar la base (patron
+        # _fecha_utc del modulo)
+        with pytest.raises(ValueError) as excinfo:
+            w.ventanas_evidencia_ad_group(conn, "amazon_us", dt.datetime(2026, 8, 22, 12))
+        assert "tz-aware" in str(excinfo.value)

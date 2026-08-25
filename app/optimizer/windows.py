@@ -28,6 +28,17 @@ Decisiones selladas (plans/orbit-03.md task 2.1 + Spec delta de CONTEXTO.md):
   distintos — que sin el elegia de forma no determinista; minor de la review
   de 2.1). La plataforma no va en la clave de terminos: entra por el WHERE
   por ad_entity_id.
+- EVIDENCIA POR AD GROUP (CORTES 01, task 1.1): para el umbral adaptativo de
+  cortes, la evidencia del "producto" es la suma de las hojas
+  keyword+product_target de su ad group (proxy sellado: ad groups 1:1
+  mono-producto) sobre la ventana LITERAL BETWEEN D-90 AND D-10, con D =
+  fecha UTC de decided_at SIN el ajuste -3d de frescura NI el clamp por
+  watermark de la madurez actual -- asimetria DELIBERADA (spec v3): con lag
+  de ingesta la evidencia cubre fechas sin datos y el efecto es mas
+  fallback, acotado por Z_min=14. L=90 es LOOKBACK desde D (81 fechas
+  maduras), NO longitud: se prohibe derivarla con inicio_ventana (patron
+  30d). Un solo query por plataforma/ciclo (dentro de TX2); grupo sin hojas
+  o sin filas en la ventana: AUSENTE del dict, jamas ceros.
 - CADA VENTANA SE ANCLA EN LOS DATOS QUE AGREGA (regla 8: forma real del
   dato verificada contra la ingesta): las metricas anclan en
   v_metric_latest de la entidad, pero los search terms viven en ad groups
@@ -100,7 +111,7 @@ Supuestos declarados (nuevos, de este modulo):
 SQL del modulo (todas de LECTURA; las parsea el test de sintaxis con pglast):
 _SQL_MAX_FECHA_ENTIDAD, _SQL_AGREGA_METRICAS, _SQL_MAX_FECHA_TERMINOS,
 _SQL_TERMINOS_CORTES, _SQL_FECHAS_ENTIDAD_TERMINOS, _SQL_WATERMARK_PLATAFORMA,
-_SQL_SYNC_PLATAFORMA.
+_SQL_SYNC_PLATAFORMA, _SQL_EVIDENCIA_AD_GROUP.
 """
 
 from __future__ import annotations
@@ -123,6 +134,12 @@ DIAS_MADUREZ_CORTES = 10  # window_end_cortes <= decided_at - 10d (regla 6)
 MIN_FECHAS_COMPLETITUD = 7  # fechas distintas por ENTIDAD en su ventana
 MAX_EDAD_WATERMARK = dt.timedelta(days=7)  # estricto: exacto NO salta
 MAX_EDAD_SYNC = dt.timedelta(hours=48)  # estricto: exacto NO salta
+# CORTES 01 (task 1.1): L=90 es LOOKBACK desde D, NO longitud -- la ventana
+# de evidencia es la LITERAL BETWEEN D-90 AND D-10 (81 fechas maduras). El
+# -10 del fin es la MISMA regla 6 de madurez (un numero, una fuente:
+# DIAS_MADUREZ_CORTES); el 90 no comparte fuente con nada (no es la ventana
+# 30d de bids/cortes y se prohibe derivarlo con inicio_ventana).
+LOOKBACK_EVIDENCIA = 90  # dias de lookback desde D en la ventana de evidencia
 
 # ---------------------------------------------------------------------------
 # Estructuras de salida (documentadas para 2.2/2.3/3.1)
@@ -226,6 +243,31 @@ class VentanasEntidad:
     bids: AgregadoMetricas | None
     cortes: AgregadoMetricas | None
     terminos: TerminosCortes
+
+
+@dataclass(frozen=True)
+class EvidenciaAdGroup:
+    """Suma de las hojas keyword+product_target de UN ad group sobre la
+    ventana LITERAL D-90..D-10 (CORTES 01; el ad group es el proxy de
+    producto sellado). Mismo colapso bitemporal y veneno por None que
+    AgregadoMetricas, pero POR GRUPO: `fechas_distintas` es la UNION de
+    fechas de todas las hojas (COUNT(DISTINCT), no una tupla de fechas) y
+    `observed_at_max` llega CRUDO, sin clamp -- decision.data_observed_at =
+    LEAST(decided_at, ...) es del orquestador, que ya tiene decided_at (el
+    sello bitemporal de 1.2)."""
+
+    ad_group_id: int
+    ventana_desde: dt.date
+    ventana_hasta: dt.date
+    fechas_distintas: int
+    metric_currency: str | None
+    cost: Decimal | None
+    ad_revenue: Decimal | None
+    revenue_same_sku: Decimal | None
+    impressions: int | None
+    clicks: int | None
+    orders: int | None
+    observed_at_max: dt.datetime | None
 
 
 # ---------------------------------------------------------------------------
@@ -332,6 +374,36 @@ SELECT max(s.synced_at)
   FROM ad_entity_state s
   JOIN ad_entity e ON e.id = s.ad_entity_id
  WHERE e.platform = %s::platform
+"""
+
+# CORTES 01 (task 1.1): evidencia por ad group = suma de las HOJAS
+# keyword+product_target del grupo (parent_id), colapsada por v_metric_latest
+# (regla 5) y envenenada POR METRICA a nivel GRUPO (bool_and: una metrica
+# NULL en cualquier hoja envenena ESA metrica del grupo). fechas_distintas es
+# COUNT(DISTINCT metric_date) del GRUPO: UNION de fechas -- dos hojas el
+# mismo dia cuentan 1 (sumar conteos por hoja inflaria Z_min). Solo hojas CON
+# grupo (parent_id IS NOT NULL): una hoja huerfana no es evidencia de nadie y
+# una clave None romperia el dict[int, ...]. observed_at_max crudo: el clamp
+# a decided_at (sello bitemporal) es del orquestador. Los sum() de contadores
+# llevan ::bigint por la misma razon que _SQL_AGREGA_METRICAS.
+_SQL_EVIDENCIA_AD_GROUP = """
+SELECT e.parent_id AS ad_group_id,
+       min(v.metric_currency),
+       CASE WHEN bool_and(v.cost IS NOT NULL) THEN sum(v.cost) END,
+       CASE WHEN bool_and(v.ad_revenue IS NOT NULL) THEN sum(v.ad_revenue) END,
+       CASE WHEN bool_and(v.revenue_same_sku IS NOT NULL) THEN sum(v.revenue_same_sku) END,
+       CASE WHEN bool_and(v.impressions IS NOT NULL) THEN sum(v.impressions)::bigint END,
+       CASE WHEN bool_and(v.clicks IS NOT NULL) THEN sum(v.clicks)::bigint END,
+       CASE WHEN bool_and(v.orders IS NOT NULL) THEN sum(v.orders)::bigint END,
+       count(DISTINCT v.metric_date),
+       max(v.observed_at)
+  FROM v_metric_latest v
+  JOIN ad_entity e ON e.id = v.ad_entity_id
+ WHERE e.platform = %s::platform
+   AND e.kind IN ('keyword', 'product_target')
+   AND e.parent_id IS NOT NULL
+   AND v.metric_date BETWEEN %s AND %s
+ GROUP BY e.parent_id
 """
 
 
@@ -575,3 +647,46 @@ def guarda_plataforma(
             ),
         )
     return None
+
+
+def ventanas_evidencia_ad_group(
+    conn: psycopg.Connection, platform: str, decided_at: dt.datetime
+) -> dict[int, EvidenciaAdGroup]:
+    """Evidencia por AD GROUP para el umbral adaptativo de cortes (CORTES 01,
+    task 1.1): UNA consulta por plataforma que suma las hojas
+    keyword+product_target de cada grupo sobre la ventana LITERAL
+    BETWEEN D-90 AND D-10, con D = _fecha_utc(decided_at).
+
+    ASIMETRIA DELIBERADA (spec v3, sellada): D NO lleva el ajuste -3d de
+    frescura NI el clamp por watermark de la madurez -- con lag de ingesta la
+    evidencia cubre fechas sin datos y el efecto es mas fallback, acotado por
+    Z_min=14. PROHIBIDO derivar el inicio con inicio_ventana (patron 30d):
+    L=90 es LOOKBACK desde D, no longitud.
+
+    Salida: dict por ad_group_id. Grupo sin hojas o sin filas en la ventana:
+    AUSENTE del dict (regla 3: jamas ceros). fechas_distintas es la UNION de
+    fechas del grupo (dos hojas el mismo dia = 1) y el veneno por None es el
+    estandar del modulo, POR METRICA. observed_at_max llega CRUDO, sin clamp
+    a decided_at: el sello bitemporal LEAST(decided_at, ...) lo aplica el
+    orquestador (1.2), que ya tiene decided_at."""
+    fecha_decision = _fecha_utc(decided_at)
+    hasta = fecha_decision - dt.timedelta(days=DIAS_MADUREZ_CORTES)
+    desde = fecha_decision - dt.timedelta(days=LOOKBACK_EVIDENCIA)
+    filas = conn.execute(_SQL_EVIDENCIA_AD_GROUP, (platform, desde, hasta)).fetchall()
+    return {
+        fila[0]: EvidenciaAdGroup(
+            ad_group_id=fila[0],
+            ventana_desde=desde,
+            ventana_hasta=hasta,
+            metric_currency=fila[1],
+            cost=fila[2],
+            ad_revenue=fila[3],
+            revenue_same_sku=fila[4],
+            impressions=fila[5],
+            clicks=fila[6],
+            orders=fila[7],
+            fechas_distintas=fila[8],
+            observed_at_max=fila[9],
+        )
+        for fila in filas
+    }
