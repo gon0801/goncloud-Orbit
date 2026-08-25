@@ -189,6 +189,48 @@ def test_puerta_de_datos_sin_api_de_amazon():
     assert not fugas, f"la puerta de datos no habla con Amazon ni la ingesta: {fugas}"
 
 
+# ORBIT 04 decision 9 (r2 codex 5): quien puede importar el cliente de
+# ESCRITURA de Amazon Ads. La allowlist nombra A FUTURO — app/apply.py y
+# tools/smoke_apply.py existen recien en las fases 2.x/2.5 del plan — asi
+# que hoy el conjunto de importers legitimos de app/ y tools/ es vacio; los
+# tests propios quedan fuera por diseno (este candado recorre app/ y
+# tools/, no tests/). Crecer la allowlist exige editar este archivo =
+# decision visible en diff y review, jamas derivacion silenciosa (mismo
+# trato que ALLOWLIST_TAMANO).
+PERMITIDOS_IMPORTAR_ADS_WRITE = {
+    "app/apply.py": (
+        "aplicador del modulo APPLY (fase 2.x): el dueno legitimo del "
+        "cliente de escritura, que re-resuelve la escalera POR DECISION "
+        "antes de construirlo"
+    ),
+    "tools/smoke_apply.py": (
+        "smoke E2E autorizado del probe 2.5 (sellado 23): corre con "
+        "ORBIT_DSN_DECIDE y sus filas de ledger nacen tipo probe"
+    ),
+}
+
+
+def test_imports_del_cliente_de_escritura_acotados():
+    """Nadie fuera de {app/apply.py, tools/smoke_apply.py} importa
+    `app.ads.write` en runtime. El write client es la unica superficie que
+    escribe en Amazon: colgarlo de otro modulo (una API, un job suelto)
+    seria un segundo dueno de la mutacion. Imports bajo TYPE_CHECKING no
+    cuentan: anotaciones, no construccion."""
+    importadores: set[str] = set()
+    for raiz in (APP, RAIZ / "tools"):
+        for p in raiz.rglob("*.py"):
+            if "app.ads.write" in _imports_runtime(p):
+                importadores.add(p.relative_to(RAIZ).as_posix())
+
+    ilegales = importadores - set(PERMITIDOS_IMPORTAR_ADS_WRITE)
+    assert not ilegales, (
+        f"modulos que importan app.ads.write sin estar en la allowlist "
+        f"(decision 9 sellada; sumar entrada SOLO con decision del dueno): {sorted(ilegales)}"
+    )
+    for rel, razon in PERMITIDOS_IMPORTAR_ADS_WRITE.items():
+        assert razon.strip(), f"entrada de allowlist sin razon escrita: {rel}"
+
+
 def test_presupuesto_de_tamano_por_modulo():
     """Ningun .py de app/ pasa de 900 lineas salvo allowlist con razon."""
     excedidos = {}
