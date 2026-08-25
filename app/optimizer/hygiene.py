@@ -13,8 +13,11 @@ Reglas selladas (plans/orbit-03.md task 2.3 + diseno v2; el diseno manda):
 - NEGATIVE_EXACT (kind 'negative'): orders==0 AND clicks>= umbral_negative
   (CORTES 01 1.2: llega RESUELTO por parametro -- adaptativo por producto
   con piso legacy 20, resuelto por cortes.umbral_corte en cycle.py; el
-  replay lee el congelado) AND cost>= umbral por plataforma {amazon_us:
-  8 USD, amazon_mx: 130 MXN}, UMBRALES INCLUSIVOS (>=), sobre la ventana
+  replay lee el congelado) AND cost >= piso_negative (CORTES 01 1.4:
+  TAMBIEN llega resuelto por parametro -- adaptativo por producto sobre el
+  AOV del grupo con piso legacy {amazon_us: 8 USD, amazon_mx: 130 MXN},
+  resuelto por cortes.piso_corte en cycle.py; el replay lee el
+  piso_cost_usado congelado), UMBRALES INCLUSIVOS (>=), sobre la ventana
   de CORTES que trae TerminosCortes
   (madura: termina en decided_at - 10d, regla 6; el trigger
   decision_madurez_corte es la segunda capa). Sin dinero: kind negative
@@ -80,7 +83,8 @@ el motivo que se reporta, auditable en 3.1):
 (3) orders None -> skip 'orders_desconocido'.
 (4) orders==0 -> camino NEGATIVE: clicks o cost None -> skip 'dato_faltante';
     moneda del termino incoherente -> skip 'moneda_incoherente';
-    clicks>=umbral_negative AND cost>= umbral -> kind 'negative' (sin dinero); si no ->
+    clicks>=umbral_negative AND cost>=piso_negative (ambos resueltos por
+    parametro, 1.2/1.4) -> kind 'negative' (sin dinero); si no ->
     no-op 'sin_umbral_negative'.
 (5) orders < HARVEST_ORDERS_MIN (== 1 con el sellado actual) -> no-op
     'sin_banda' (ni negative ni harvest posibles: hay venta, y una sola
@@ -112,7 +116,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from app.optimizer.bid import PLATAFORMAS_MONEDA
-from app.optimizer.cortes import LEGACY_NEGATIVE
+from app.optimizer.cortes import LEGACY_NEGATIVE, NEGATIVE_COST_MIN
 from app.optimizer.windows import TerminosCortes
 
 if TYPE_CHECKING:
@@ -122,15 +126,13 @@ if TYPE_CHECKING:
 # Constantes selladas (fuente: plans/orbit-03.md task 2.3 + diseno v2)
 # ---------------------------------------------------------------------------
 
-# CORTES 01 (1.2): el umbral de clicks del camino negative ya NO vive aqui.
-# Llega RESUELTO por parametro (cortes.umbral_corte en cycle.py; el motor
-# sigue puro). El default es el LEGACY sellado con UNA fuente (cortes.py):
-# los callers que no optimizan por producto (replay de filas historicas sin
-# inputs.corte) reproducen el comportamiento pre-CORTES exacto.
-NEGATIVE_COST_MIN: dict[str, Decimal] = {
-    "amazon_us": Decimal("8"),
-    "amazon_mx": Decimal("130"),
-}
+# CORTES 01 (1.2/1.4): NI el umbral de clicks NI el piso de cost del camino
+# negative viven aqui. Ambos llegan RESUELTOS por parametro
+# (cortes.umbral_corte / cortes.piso_corte en cycle.py; el motor sigue
+# puro). Los defaults son los LEGACY sellados con UNA fuente (cortes.py,
+# importado arriba): los callers que no optimizan por producto (replay de
+# filas historicas sin la clave en inputs.corte) reproducen el
+# comportamiento pre-CORTES exacto.
 
 HARVEST_ORDERS_MIN = 2  # inclusivo (>=)
 HARVEST_ACOS_TOPE_FIJO_PCT = Decimal("35")  # tope = min(35, target_acos_pct)
@@ -238,6 +240,7 @@ def decide_hygiene(
     config_harvest: ConfigHarvest | None,
     keywords_existentes: frozenset[str],
     umbral_negative: int = LEGACY_NEGATIVE,
+    piso_negative: Decimal | None = None,
 ) -> tuple[ResultadoTermino, ...]:
     """Decide negative/harvest para CADA termino de la entidad, puro y
     determinista. Un resultado por termino, en el orden de `terminos.terminos`
@@ -248,8 +251,12 @@ def decide_hygiene(
     negative YA RESUELTO (inclusivo >=): el orquestador lo calcula con
     cortes.umbral_corte(evidencia del grupo, 'negative') y el replay lee el
     congelado en inputs.corte.umbral_clicks_usado; el default es el legacy
-    20 (filas historicas sin la clave). Este modulo jamas recalcula: una
-    decision, un camino, un dueno."""
+    20 (filas historicas sin la clave). `piso_negative` (CORTES 01 1.4) es
+    el piso de COST del mismo camino, tambien YA RESUELTO (inclusivo >=):
+    el orquestador lo calcula con cortes.piso_corte(evidencia, platform) y
+    el replay lee el congelado en inputs.corte.piso_cost_usado; None (el
+    default) aplica el legacy 8/130 de cortes.NEGATIVE_COST_MIN. Este
+    modulo jamas recalcula: una decision, un camino, un dueno."""
     if platform not in PLATAFORMAS_MONEDA:
         raise ValueError(
             f"plataforma fuera del vocabulario sellado {{amazon_us, amazon_mx}}: {platform!r}"
@@ -259,7 +266,9 @@ def decide_hygiene(
         # o lo dejaria pasar de forma incoherente; mismo criterio que bid.
         raise ValueError(f"target_acos_pct invalido: {target_acos_pct!r} (debe ser > 0)")
     moneda = PLATAFORMAS_MONEDA[platform]
-    umbral_cost = NEGATIVE_COST_MIN[platform]
+    # Piso de cost del camino negative: resuelto por parametro (1.4); None
+    # -> legacy por plataforma, misma fuente y patron que umbral_negative.
+    umbral_cost = piso_negative if piso_negative is not None else NEGATIVE_COST_MIN[platform]
     tope_pct = min(HARVEST_ACOS_TOPE_FIJO_PCT, target_acos_pct)
     keywords_norm = frozenset(_normaliza_texto(k) for k in keywords_existentes)
 

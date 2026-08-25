@@ -110,7 +110,13 @@ Reglas numéricas selladas (resumen; el documento manda):
   keyword+product_target en la ventana literal D-90..D-10) con elegibilidad
   orders≥3 ∧ clicks≥60 ∧ ≥14 fechas resuelve `ceil(expected_clicks×1.5)`
   (ceil del producto); sin elegibilidad → 40; **siempre piso
-  max(20, bruto)** — el adaptativo solo SUBE umbrales. La ventana del
+  max(20, bruto)** — el adaptativo solo SUBE umbrales. El piso de cost
+  **también es adaptativo** (CORTES 01 1.4): con la MISMA elegibilidad y
+  `ad_revenue` sano, AOV = `ad_revenue_total/orders_total` (Decimal) y piso
+  `max(legacy, AOV×1.0)`; sin elegibilidad o revenue envenenado →
+  `max(legacy, {us: 45 USD, mx: 600 MXN})`. `inputs.corte` congela
+  `piso_cost_usado`+`aov`; el replay lee el congelado (fila sin la clave →
+  8/130). Solo negative (pisos de pause 12/200 intactos). La ventana del
   término NO cambia (sigue siendo la de cortes). El replay lee
   `inputs.corte.umbral_clicks_usado` (fila histórica sin la clave → 20).
 - **HARVEST**: orders≥2 ∧ ACoS ≤ min(35%, target); requiere config de campaña

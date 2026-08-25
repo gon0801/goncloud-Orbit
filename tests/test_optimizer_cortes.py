@@ -1,4 +1,4 @@
-"""Tests del umbral adaptativo de cortes (`app.optimizer.cortes`, CORTES 01 1.2).
+"""Tests del umbral adaptativo de cortes (`app.optimizer.cortes`, CORTES 01).
 
 PUROS (sin DB): un test por candado con nombre descriptivo (feedback de 1.1:
 el mega-test cubre todo pero localiza mal las fallas). Cada minimo de
@@ -10,6 +10,13 @@ metrica) o ausente cae a fallback, jamas a un numero inventado (regla 3).
 
 Numeros sellados (spec v3): O_min=3, C_min=60, Z_min=14, M=1.5, F_neg=40,
 F_pause=50, legacy 20 negative / 25 pause (el piso solo SUBE umbrales).
+
+PISO DE COST adaptativo del camino negative (1.4, decision 5bis): funcion
+hermana `piso_corte` con la MISMA elegibilidad 3/60/14 pero POR PLATAFORMA;
+AOV = ad_revenue/orders SOLO con revenue sano (Decimal exacto), bruto =
+AOV x K (K=1.0) o respaldo {us: 45, mx: 600}, piso = max(legacy 8/130,
+bruto). INDEPENDENCIA sellada: un grupo puede ser umbral-elegible y
+piso-respaldo (revenue None) a la vez -- dos resoluciones, sin acoplarse.
 """
 
 from __future__ import annotations
@@ -23,9 +30,11 @@ from app.optimizer import cortes
 from app.optimizer.windows import EvidenciaAdGroup
 
 
-def _evid(*, clicks, orders, fechas) -> EvidenciaAdGroup:
-    """Evidencia sintetica del grupo con lo UNICO que la regla consume
-    (clicks/orders/fechas_distintas); el resto son valores neutros."""
+def _evid(*, clicks, orders, fechas, ad_revenue: Decimal | None = Decimal("0")) -> EvidenciaAdGroup:
+    """Evidencia sintetica del grupo con lo UNICO que las reglas consumen
+    (clicks/orders/fechas_distintas y, desde 1.4, ad_revenue para el AOV del
+    piso); el resto son valores neutros. ad_revenue=None envenena el dato
+    (bool_and del SQL de windows) y el piso debe caer a respaldo."""
     return EvidenciaAdGroup(
         ad_group_id=1,
         ventana_desde=dt.date(2026, 5, 24),
@@ -33,7 +42,7 @@ def _evid(*, clicks, orders, fechas) -> EvidenciaAdGroup:
         fechas_distintas=fechas,
         metric_currency="USD",
         cost=Decimal("0"),
-        ad_revenue=Decimal("0"),
+        ad_revenue=ad_revenue,
         revenue_same_sku=Decimal("0"),
         impressions=0,
         clicks=clicks,
@@ -172,3 +181,87 @@ def test_umbral_resuelto_es_int_y_expected_decimal():
     res = cortes.umbral_corte(_evid(clicks=61, orders=3, fechas=14), "negative")
     assert isinstance(res.umbral, int)
     assert isinstance(res.expected_clicks, Decimal)
+
+
+# ---------------------------------------------------------------------------
+# PISO de cost adaptativo del camino negative (CORTES 01 1.4, decision 5bis)
+# ---------------------------------------------------------------------------
+
+
+def test_piso_aov_decimal_exacto_caso_fraccionario():
+    """AOV Decimal EXACTO: elegible (100/3/20) con ad_revenue 100.00 -> aov
+    == Decimal('100.00')/Decimal(3) por igualdad EXACTA (cualquier float en
+    el camino rompe esa igualdad; regla 4) y piso == aov x K, ambos Decimal."""
+    res = cortes.piso_corte(
+        _evid(clicks=100, orders=3, fechas=20, ad_revenue=Decimal("100.00")), "amazon_us"
+    )
+    assert res.aov == Decimal("100.00") / Decimal(3)
+    assert res.piso_cost == res.aov * cortes.K
+    assert isinstance(res.aov, Decimal)
+    assert isinstance(res.piso_cost, Decimal)
+
+
+def test_piso_independencia_elegible_sin_revenue_es_respaldo():
+    """INDEPENDENCIA sellada (1.4): la MISMA evidencia elegible en clicks/
+    orders (100/3/20) con ad_revenue None es umbral-corte ELEGIBLE (bruto
+    ceil(100/3 x 1.5) = 50) Y piso-RESPALDO (max(8, 45) = 45 con aov None).
+    Si las dos resoluciones se acoplan (elegibilidad que exige revenue, o
+    AOV inventado sin revenue sano), este test revienta."""
+    ev = _evid(clicks=100, orders=3, fechas=20, ad_revenue=None)
+    umbral = cortes.umbral_corte(ev, "negative")
+    assert umbral.elegible is True
+    assert umbral.umbral == 50
+    piso = cortes.piso_corte(ev, "amazon_us")
+    assert piso.piso_cost == Decimal("45")
+    assert piso.aov is None
+
+
+def test_piso_grupo_no_elegible_respaldo_us_45_mx_600():
+    """Grupo NO elegible (clicks 59 < C_min aunque el revenue sea sano):
+    respaldo por plataforma -- US 45, MX 600 -- con aov None (la elegibilidad
+    3/60/14 es la MISMA del umbral; un AOV de grupo inmaduro seria invento)."""
+    ev = _evid(clicks=59, orders=3, fechas=20, ad_revenue=Decimal("500.00"))
+    for platform, esperado in (("amazon_us", Decimal("45")), ("amazon_mx", Decimal("600"))):
+        res = cortes.piso_corte(ev, platform)
+        assert res.piso_cost == esperado
+        assert res.aov is None
+
+
+def test_piso_jamas_baja_del_legacy_8_us_130_mx():
+    """El piso JAMAS baja del legacy: elegible US con AOV 2 (10.00/5) ->
+    piso 8; espejo MX con AOV 80 (400/5) -> piso 130. Sin el max() el piso
+    reventaria con 2.0/80: MAS agresivo que hoy, contra el proposito."""
+    us = cortes.piso_corte(
+        _evid(clicks=60, orders=5, fechas=20, ad_revenue=Decimal("10.00")), "amazon_us"
+    )
+    assert us.aov == Decimal("2")
+    assert us.piso_cost == cortes.NEGATIVE_COST_MIN["amazon_us"] == Decimal("8")
+    mx = cortes.piso_corte(
+        _evid(clicks=60, orders=5, fechas=20, ad_revenue=Decimal("400")), "amazon_mx"
+    )
+    assert mx.aov == Decimal("80")
+    assert mx.piso_cost == cortes.NEGATIVE_COST_MIN["amazon_mx"] == Decimal("130")
+
+
+def test_piso_moneda_por_plataforma_jamas_cruzada():
+    """AOVs grandes discriminan la plataforma: elegible US con 1500.00/3 ->
+    AOV 500 (USD); espejo MX con 9000.00/3 -> AOV 3000 (MXN). Un piso que
+    cruzara monedas dejaria ambos en el mismo numero."""
+    us = cortes.piso_corte(
+        _evid(clicks=100, orders=3, fechas=20, ad_revenue=Decimal("1500.00")), "amazon_us"
+    )
+    assert us.aov == Decimal("500")
+    assert us.piso_cost == Decimal("500")
+    mx = cortes.piso_corte(
+        _evid(clicks=100, orders=3, fechas=20, ad_revenue=Decimal("9000.00")), "amazon_mx"
+    )
+    assert mx.aov == Decimal("3000")
+    assert mx.piso_cost == Decimal("3000")
+
+
+def test_piso_plataforma_fuera_de_vocabulario_rechaza():
+    """`platform` es vocabulario CERRADO {amazon_us, amazon_mx} (el piso es
+    POR PLATAFORMA, en SU moneda): cualquier otra revienta ruidosamente,
+    jamas un fallback silencioso (mismo patron que umbral_corte)."""
+    with pytest.raises(ValueError, match="vocabulario"):
+        cortes.piso_corte(_evid(clicks=60, orders=3, fechas=20), "mercadolibre")

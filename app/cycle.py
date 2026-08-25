@@ -348,14 +348,22 @@ def _fecha_iso(fecha: dt.date | None) -> str | None:
     return fecha.isoformat() if fecha is not None else None
 
 
-def _corte_json(corte: cortes.UmbralResuelto, evidencia: windows.EvidenciaAdGroup | None) -> dict:
+def _corte_json(
+    corte: cortes.UmbralResuelto,
+    evidencia: windows.EvidenciaAdGroup | None,
+    piso: cortes.PisoResuelto | None = None,
+) -> dict:
     """Freeze de `inputs.corte` TOP-LEVEL (CORTES 01; shape EXACTO del spec
     v3): umbral_clicks_usado es el FINAL con piso aplicado, expected_clicks
     viaja como string Decimal (regla 4) y evidencia es null cuando el grupo
-    no esta en el dict (fallback; jamas un numero inventado). Lo consumen
-    _pendiente_bid (toda decision del motor de bids, 1.3) y
-    _pendiente_termino (negative, 1.2) -- un solo sello, una sola fuente."""
-    return {
+    no esta en el dict (fallback; jamas un numero inventado). Desde 1.4, el
+    camino negative congela ADEMAS el piso de cost resuelto (piso_cost_usado
+    + aov como string Decimal|null; misma regla 4). `piso` None deja el
+    shape EXACTO de 1.2/1.3: solo lo congela quien lo consumo (pause/bid NO
+    llevan piso, sellado). Lo consumen _pendiente_bid (toda decision del
+    motor de bids, 1.3) y _pendiente_termino (negative, 1.2/1.4) -- un solo
+    sello, una sola fuente."""
+    freeze = {
         "umbral_clicks_usado": corte.umbral,
         "elegible": corte.elegible,
         "expected_clicks": _dec_str(corte.expected_clicks),
@@ -372,6 +380,10 @@ def _corte_json(corte: cortes.UmbralResuelto, evidencia: windows.EvidenciaAdGrou
             else None
         ),
     }
+    if piso is not None:
+        freeze["piso_cost_usado"] = _dec_str(piso.piso_cost)
+        freeze["aov"] = _dec_str(piso.aov)
+    return freeze
 
 
 def _sello_bitemporal(
@@ -508,13 +520,16 @@ def _pendiente_termino(
     decided_at: dt.datetime,
     corte: cortes.UmbralResuelto | None = None,
     evidencia: windows.EvidenciaAdGroup | None = None,
+    piso: cortes.PisoResuelto | None = None,
 ) -> _Pendiente:
     """El freeze de CORTES 01 (spec v3): `corte` y `evidencia` llegan SOLO
     en decisiones que consultan umbral de clicks (kind 'negative'; las
     harvest NO lo llevan, sellado). En esas decisiones se congela
     inputs.corte TOP-LEVEL (_corte_json, shape exacto del spec) y se aplica
     el sello bitemporal (_sello_bitemporal) mezclando el obs directo del
-    termino con la evidencia del grupo, clampeado a decided_at."""
+    termino con la evidencia del grupo, clampeado a decided_at. Desde 1.4,
+    `piso` (PisoResuelto de cortes.piso_corte) viaja con el corte para
+    congelar piso_cost_usado/aov en el MISMO freeze."""
     data_observed = resultado.data_observed_at
     inputs = {
         "motor": "hygiene",
@@ -540,7 +555,7 @@ def _pendiente_termino(
         "modo": modo,
     }
     if corte is not None:
-        inputs["corte"] = _corte_json(corte, evidencia)
+        inputs["corte"] = _corte_json(corte, evidencia, piso)
         # sello bitemporal compartido con el motor de bids (1.3): la
         # evidencia entra al max y el LEAST clampea a decided_at
         data_observed = _sello_bitemporal(decided_at, data_observed, evidencia)
@@ -938,11 +953,14 @@ def _procesa_grupo(
         tick()
         return
     assert goal is not None
-    # CORTES 01 (1.2): umbral adaptativo del GRUPO resuelto UNA vez por ciclo
-    # (elegibilidad 3/60/14 sobre la evidencia de la ventana D-90..D-10;
-    # grupo ausente del dict -> evidencia None -> fallback con piso legacy)
+    # CORTES 01 (1.2/1.4): umbral de clicks Y piso de cost del GRUPO
+    # resueltos UNA vez por ciclo (misma evidencia de la ventana D-90..D-10;
+    # grupo ausente del dict -> evidencia None -> fallback/respaldo con piso
+    # legacy). El piso es por plataforma (moneda manda) y SOLO del camino
+    # negative.
     evidencia = evidencia_ad_groups.get(grupo_id)
     corte_negativo = cortes.umbral_corte(evidencia, "negative")
+    piso_neg = cortes.piso_corte(evidencia, platform)
     cache_campana = acos_campanas.get(campaign_id)
     target = g.cascada_target_acos(goal.target_acos_pct, setting_target, cache_campana)
     config_harvest, keywords = _config_harvest_de(conn, goal, platform)
@@ -953,6 +971,7 @@ def _procesa_grupo(
         config_harvest=config_harvest,
         keywords_existentes=keywords,
         umbral_negative=corte_negativo.umbral,
+        piso_negative=piso_neg.piso_cost,
     )
     tick()
     for termino, resultado in zip(terminos.terminos, resultados, strict=True):
@@ -974,6 +993,7 @@ def _procesa_grupo(
                 # clicks: negative (las harvest NO llevan inputs.corte)
                 corte=corte_negativo if resultado.kind == "negative" else None,
                 evidencia=evidencia if resultado.kind == "negative" else None,
+                piso=piso_neg if resultado.kind == "negative" else None,
             )
         )
         contadores.decisiones[resultado.kind] += 1
@@ -1281,11 +1301,17 @@ def _replay_hygiene(inputs: dict) -> hygiene.ResultadoTermino:
         if harvest
         else None
     )
-    # CORTES 01 (spec): el replay LEE inputs.corte.umbral_clicks_usado, JAMAS
-    # recalcula evidencia (el snapshot de la decision ya no existe). Fila
-    # historica sin la clave (pre-CORTES) -> legacy 20, replay exacto.
+    # CORTES 01 (spec): el replay LEE inputs.corte.umbral_clicks_usado y
+    # piso_cost_usado, JAMAS recalcula evidencia ni AOV (el snapshot de la
+    # decision ya no existe). Fila historica sin la clave (pre-CORTES, o
+    # congelada en 1.2/1.3 sin piso) -> legacy 20 y 8/130, replay exacto.
     corte = inputs.get("corte")
     umbral_negative = corte["umbral_clicks_usado"] if corte is not None else cortes.LEGACY_NEGATIVE
+    piso = (
+        Decimal(corte["piso_cost_usado"])
+        if corte is not None and "piso_cost_usado" in corte
+        else None
+    )
     (resultado,) = hygiene.decide_hygiene(
         platform=inputs["platform"],
         terminos=terminos,
@@ -1295,6 +1321,7 @@ def _replay_hygiene(inputs: dict) -> hygiene.ResultadoTermino:
         # termino NO estaba duplicado al decidir (replay contra nada bloquea).
         keywords_existentes=frozenset(),
         umbral_negative=umbral_negative,
+        piso_negative=piso,
     )
     return resultado
 

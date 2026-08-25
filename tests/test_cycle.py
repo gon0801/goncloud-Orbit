@@ -349,15 +349,22 @@ def _siembra_kw_pause(conn, run_id, kw) -> None:
 
 
 def _siembra_terminos(conn, run_id, ag) -> None:
-    """Seis terminos del ad group, con ancla 07-21 (la ventana de terminos
-    queda 06-19..07-18 y la entidad completa: 9 fechas dentro)."""
+    """Siete terminos del ad group, con ancla 07-21 (la ventana de terminos
+    queda 06-19..07-18 y la entidad completa: 9 fechas dentro).
+
+    Re-siembra CORTES 01 1.4 (declarada, mismo criterio que el hueco-legacy
+    de 1.2): el piso de cost del grupo es adaptativo -- AOV 97.00/5 x 1.0 =
+    19.40 -- y los cost 8.00/9.00 de la siembra original quedaban BAJO el
+    piso; sin subirlos, "tortugas" no dispararia y el hueco-legacy quedaria
+    doble-bloqueado (detectaria menos)."""
     # NEGATIVE elegible: orders 0, clicks 23 (>= umbral adaptativo 22 del
-    # grupo), cost 8.00 (borde inclusivo us). Re-siembra CORTES 01: con los
-    # 20 clicks viejos y umbral adaptativo 22 el termino NO disparaba.
+    # grupo), cost 20.00 (>= piso adaptativo 19.40). Re-siembras: con los 20
+    # clicks viejos y umbral adaptativo 22 NO disparaba (1.2); con el cost
+    # 8.00 viejo y piso adaptativo 19.40 tampoco (1.4).
     for fecha, clicks, cost in (
-        (dt.date(2026, 7, 10), 8, "3.00"),
-        (dt.date(2026, 7, 11), 8, "3.00"),
-        (dt.date(2026, 7, 12), 7, "2.00"),
+        (dt.date(2026, 7, 10), 8, "8.00"),
+        (dt.date(2026, 7, 11), 8, "8.00"),
+        (dt.date(2026, 7, 12), 7, "4.00"),
     ):
         _termino(
             conn,
@@ -371,13 +378,11 @@ def _siembra_terminos(conn, run_id, ag) -> None:
             clicks=clicks,
             orders=0,
         )
-    # HUECO DISCRIMINANTE del cableado (hallazgo grok, cross-review 1.2):
+    # HUECO DISCRIMINANTE del cableado del umbral (hallazgo grok, 1.2):
     # clicks 21 vive ENTRE el legacy 20 y el umbral adaptativo 22 -- bajo la
     # regla nueva NO corta (21 < 22) pero bajo el legacy 20 SI dispararia.
-    # Si _procesa_grupo dejara de pasar umbral_negative al motor (default
-    # legacy 20), este termino generaria una negative extra y el golden
-    # reventaria: sin el, "tortugas" (23) dispara con CUALQUIERA de los dos
-    # umbrales y un cable roto pasaria el CI en silencio.
+    # Cost 20.00 desde 1.4: bajo el piso estaria DOBLE-bloqueado y el hueco
+    # discriminaria menos (9.00 < 19.40 ya cortaba por cost solo).
     _termino(
         conn,
         run_id,
@@ -385,9 +390,25 @@ def _siembra_terminos(conn, run_id, ag) -> None:
         "hueco legacy",
         dt.date(2026, 7, 12),
         _obs(dt.date(2026, 7, 12), 2),
-        cost="9.00",
+        cost="20.00",
         ad_revenue="1.00",
         clicks=21,
+        orders=0,
+    )
+    # HUECO DISCRIMINANTE del cableado del PISO (1.4): clicks 23 >= umbral 22
+    # y cost 15.00 con 8 < 15 < 19.40 -- SOLO el piso lo bloquea. Si el ciclo
+    # dejara de pasar piso_negative al motor (default legacy 8), generaria
+    # una negative extra y el golden reventaria.
+    _termino(
+        conn,
+        run_id,
+        ag,
+        "hueco piso",
+        dt.date(2026, 7, 12),
+        _obs(dt.date(2026, 7, 12), 3),
+        cost="15.00",
+        ad_revenue="1.00",
+        clicks=23,
         orders=0,
     )
     # HARVEST elegible: orders 3 (1 por fecha, >= 2), ACoS 10% <= min(35, 25)
@@ -453,7 +474,7 @@ def _siembra_terminos(conn, run_id, ag) -> None:
 
 def _siembra_maestra(conn, *, escalera: str = "shadow") -> dict:
     """Fixture maestra del DoD: config + goal de plataforma + campana/ad_group/
-    2 keywords con ventanas maduras + 5 terminos. Reloj FIJO DECIDED_AT."""
+    2 keywords con ventanas maduras + 7 terminos. Reloj FIJO DECIDED_AT."""
     run_id = _run(conn)
     config_id = _config_version(conn, {"ads_optimizer_mode": escalera})
     _goal_plataforma(conn)
@@ -576,6 +597,11 @@ def test_ciclo_shadow_completo_decisiones_y_notes_exactos():
         assert pause_row[9]["corte"]["elegible"] is True
         assert pause_row[9]["corte"]["expected_clicks"] == "14.2"
         assert pause_row[9]["corte"]["evidencia"]["clicks"] == 71
+        # CORTES 01 (1.4): el piso de cost adaptativo es SOLO del camino
+        # negative -- pause/bid NO congelan piso ni aov (quien no consumio el
+        # piso, no congela piso; hallazgo reviewer 1.4)
+        assert "piso_cost_usado" not in pause_row[9]["corte"]
+        assert "aov" not in pause_row[9]["corte"]
         # sello bitemporal: LEAST(decided_at, max(obs cortes, evidencia))
         assert pause_row[8] == _obs(FIN_CORTES)
         # y la decision BID del mismo ciclo congela EL MISMO freeze (misma
@@ -591,7 +617,7 @@ def test_ciclo_shadow_completo_decisiones_y_notes_exactos():
         assert neg_row[9]["motivo"] == "negative_umbral"
         assert neg_row[9]["termino"]["search_term"] == "tortugas ninja calzas"
         assert neg_row[9]["termino"]["clicks"] == 23
-        assert neg_row[9]["termino"]["cost"] == "8.0000"
+        assert neg_row[9]["termino"]["cost"] == "20.0000"
         assert neg_row[9]["target_acos_pct_usado"] == "25.00"
         # SELLO BITEMPORAL (CORTES 01 1.2): data_observed_at = LEAST(decided_at,
         # max(obs directo del termino 07-12, observed_at_max de la evidencia
@@ -600,9 +626,11 @@ def test_ciclo_shadow_completo_decisiones_y_notes_exactos():
         # inputs.corte TOP-LEVEL con el shape EXACTO del spec: umbral FINAL con
         # piso, elegible, expected como string Decimal y la evidencia del
         # GRUPO sembrado (71 clicks de las hojas kw_bid+kw_pause, 5 ordenes,
-        # 30 fechas; ventana literal D-90..D-10). Sin esta asercion, un mapeo
-        # de grupo roto pasaria los goldens en fallback sistematico (ronda 2
-        # qwen).
+        # 30 fechas; ventana literal D-90..D-10). Desde 1.4 tambien congela el
+        # PISO de cost resuelto: AOV 97.00/5 = Decimal('19.40') y piso
+        # max(8, 19.40 x 1.0) = Decimal('19.400'), con SUS strings exactos
+        # (regla 4). Sin la asercion del dict, un mapeo de grupo roto pasaria
+        # los goldens en fallback sistematico (ronda 2 qwen).
         assert neg_row[9]["corte"] == {
             "umbral_clicks_usado": 22,
             "elegible": True,
@@ -615,6 +643,8 @@ def test_ciclo_shadow_completo_decisiones_y_notes_exactos():
                 "ventana_hasta": "2026-08-12",
                 "observed_at_max": "2026-08-12T01:00:00+00:00",
             },
+            "piso_cost_usado": "19.400",
+            "aov": "19.40",
         }
 
         # termino HARVEST: new_value = default_bid del goal con SU moneda;
@@ -626,24 +656,28 @@ def test_ciclo_shadow_completo_decisiones_y_notes_exactos():
         assert harv_row[9]["motivo"] == "harvest_umbral"
         assert "corte" not in harv_row[9]
 
-        # asin-like, orders=None y el HUECO LEGACY (21 clicks < umbral 22):
-        # SIN decision (solo cuentan en los notes)
+        # asin-like, orders=None y los DOS HUECOS: SIN decision (solo cuentan
+        # en los notes)
         terminos_con_decision = {f[2] for f in filas if f[2] is not None}
         assert "b0abcd1234" not in terminos_con_decision
         assert "sin orden conocida" not in terminos_con_decision
         # el hueco 20<21<22 NO corta bajo la regla nueva; bajo el legacy 20
         # del default SI habria decision negative (cable roto detectado)
         assert "hueco legacy" not in terminos_con_decision
+        # el hueco del PISO (clicks 23 >= 22, cost 15 con 8 < 15 < 19.40)
+        # SOLO el piso adaptativo lo bloquea: con el default legacy 8 este
+        # termino generaria una negative extra (cable roto detectado, 1.4)
+        assert "hueco piso" not in terminos_con_decision
 
         notes = json.loads(res.notes)
         assert notes["skips"] == {
             "entidad": {},
-            "termino": {"asin_like": 1, "orders_desconocido": 1, "sin_umbral_negative": 2},
+            "termino": {"asin_like": 1, "orders_desconocido": 1, "sin_umbral_negative": 3},
         }
         assert notes["decisiones"] == {"bid": 1, "pause": 1, "negative": 1, "harvest": 1}
         assert notes["entidades"] == 2
         assert notes["ad_groups"] == 1
-        assert notes["terminos"] == 6
+        assert notes["terminos"] == 7
         assert notes["ciclos_muertos"] == []
         assert notes["degradacion_live"] is None
 
@@ -1023,10 +1057,10 @@ def test_opt_out_goal_campana_deshabilitado():
         assert res.decisions_count == 0
         assert conn.execute("SELECT count(*) FROM decision").fetchone()[0] == 0
         notes = json.loads(res.notes)
-        # las 2 keywords y los 6 terminos del ad group quedaron fuera por el
+        # las 2 keywords y los 7 terminos del ad group quedaron fuera por el
         # goal de campana deshabilitado (pisa a la plataforma: 2.4 EN LA APP)
         assert notes["skips"]["entidad"] == {"goal_disabled": 2}
-        assert notes["skips"]["termino"] == {"goal_disabled": 6}
+        assert notes["skips"]["termino"] == {"goal_disabled": 7}
 
 
 @pytest.mark.skipif(
@@ -1381,13 +1415,22 @@ def test_bitemporal_clamp_observed_at_futuro_a_decided_at():
         assert neg[0] == DECIDED_AT  # LEAST(decided_at, futuro) = decided_at
 
 
-def _inputs_negative(clicks_termino: int, *, corte: dict | None) -> dict:
+def _inputs_negative(
+    clicks_termino: int,
+    *,
+    corte: dict | None,
+    cost: str = "9.0000",
+    platform: str = "amazon_us",
+    moneda: str = "USD",
+) -> dict:
     """Fixture de inputs congelados de una decision negative (motor hygiene)
     con clicks del termino entre el legacy 20 y el umbral adaptativo: SOLO
-    la clave `corte` decide si replayea a negative o a no-op."""
+    la clave `corte` decide si replayea a negative o a no-op. `cost`,
+    `platform` y `moneda` se parametrizan desde 1.4 (el piso de cost es por
+    plataforma y su replay discrimina el borde en la moneda correcta)."""
     inputs = {
         "motor": "hygiene",
-        "platform": "amazon_us",
+        "platform": platform,
         "ventana_terminos": {
             "window_start": "2026-06-19",
             "window_end": "2026-07-18",
@@ -1395,12 +1438,12 @@ def _inputs_negative(clicks_termino: int, *, corte: dict | None) -> dict:
         },
         "termino": {
             "search_term": "tortugas ninja calzas",
-            "cost": "9.0000",
+            "cost": cost,
             "ad_revenue": "1.0000",
             "clicks": clicks_termino,
             "orders": 0,
             "fechas_distintas": 3,
-            "moneda": "USD",
+            "moneda": moneda,
             "observed_at_max": "2026-07-12T01:00:00+00:00",
         },
         "goal": {"harvest": None},
@@ -1436,6 +1479,63 @@ def test_replay_hygiene_legacy_sin_inputs_corte_usa_20():
     sellada: el replay de la historia previa no cambia."""
     inputs = _inputs_negative(25, corte=None)
     assert ciclo.reproduce(inputs) == ("negative", None, None)
+
+
+def test_replay_hygiene_lee_piso_cost_usado_congelado():
+    """CORTES 01 1.4: reproduce() LEE inputs.corte.piso_cost_usado, JAMAS
+    recalcula el AOV (el snapshot de la evidencia ya no existe): termino con
+    clicks 25 (>= umbral congelado 20) y cost 15 (< piso 19.40 pero >=
+    legacy 8) -> NO negative. Una implementacion que ignorara el congelado
+    aplicaria el legacy 8 y dispararia el corte en el replay (regla 9)."""
+    inputs = _inputs_negative(
+        25,
+        corte={
+            "umbral_clicks_usado": 20,
+            "elegible": True,
+            "expected_clicks": None,
+            "evidencia": None,
+            "piso_cost_usado": "19.40",
+            "aov": "19.4",
+        },
+        cost="15.0000",
+    )
+    assert ciclo.reproduce(inputs) == (None, None, None)  # sin_umbral_negative
+
+
+def test_replay_hygiene_corte_sin_piso_usa_legacy_8():
+    """Transicion 1.2/1.3: fila CON inputs.corte PERO sin piso_cost_usado
+    (congelada antes de 1.4) -> replay con el legacy 8 (cost 15 >= 8
+    dispara). El replay de la historia congelada no cambia."""
+    inputs = _inputs_negative(
+        25,
+        corte={
+            "umbral_clicks_usado": 20,
+            "elegible": True,
+            "expected_clicks": None,
+            "evidencia": None,
+        },
+        cost="15.0000",
+    )
+    assert ciclo.reproduce(inputs) == ("negative", None, None)
+
+
+def test_replay_hygiene_legacy_mx_130_exacto():
+    """Espejo MX del compat legacy: corte sin piso_cost_usado en amazon_mx,
+    termino MXN con clicks sobre el umbral congelado 20 -> cost justo 130.00
+    dispara negative (>= inclusivo) y 129.00 no. Sin el default por
+    plataforma, un replay MX usaria el 8 USD y dispararia TODO."""
+    corte_mx = {
+        "umbral_clicks_usado": 20,
+        "elegible": True,
+        "expected_clicks": None,
+        "evidencia": None,
+    }
+    for cost, esperado in (
+        ("130.0000", ("negative", None, None)),
+        ("129.0000", (None, None, None)),
+    ):
+        inputs = _inputs_negative(25, corte=corte_mx, cost=cost, platform="amazon_mx", moneda="MXN")
+        assert ciclo.reproduce(inputs) == esperado
 
 
 # ---------------------------------------------------------------------------
@@ -1518,6 +1618,9 @@ def test_golden_bid_que_bloqueo_pause():
         assert corte["evidencia"]["clicks"] == 30
         assert corte["evidencia"]["orders"] == 0
         assert corte["evidencia"]["ventana_hasta"] == "2026-08-12"
+        # idem 1.4: decision del motor de bids SIN piso congelado (solo negative)
+        assert "piso_cost_usado" not in corte
+        assert "aov" not in corte
         # REPLAY EXACTO leyendo el congelado (50): el pause sigue bloqueado
         # y la banda rejuega igual
         assert ciclo.reproduce(fila[5]) == ("bid", Decimal("0.75"), "USD")
