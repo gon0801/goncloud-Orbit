@@ -97,8 +97,15 @@ Reglas numéricas selladas (resumen; el documento manda):
 - **−25%** si ACoS > 1.35×target (orders≥1); **−12%** si > 1.15×target;
   **+15%** si ACoS < 0.85×target ∧ orders≥3. Clamp por decisión ∈ [−30%, +20%],
   resultado ∈ [floor, ceiling] (defaults 0.10/2.50).
-- **NEGATIVE_EXACT**: orders=0 ∧ clicks≥20 ∧ cost≥{us: 8, mx: 130}; términos
-  ASIN-like siempre skip.
+- **NEGATIVE_EXACT**: orders=0 ∧ clicks≥umbral_corte ∧ cost≥{us: 8, mx: 130};
+  términos ASIN-like siempre skip. Umbral de clicks **adaptativo por
+  producto** (CORTES 01): la evidencia del ad group (suma de sus hojas
+  keyword+product_target en la ventana literal D-90..D-10) con elegibilidad
+  orders≥3 ∧ clicks≥60 ∧ ≥14 fechas resuelve `ceil(expected_clicks×1.5)`
+  (ceil del producto); sin elegibilidad → 40; **siempre piso
+  max(20, bruto)** — el adaptativo solo SUBE umbrales. La ventana del
+  término NO cambia (sigue siendo la de cortes). El replay lee
+  `inputs.corte.umbral_clicks_usado` (fila histórica sin la clave → 20).
 - **HARVEST**: orders≥2 ∧ ACoS ≤ min(35%, target); requiere config de campaña
   manual en el goal, sin placeholders.
 - Guardas: solo campañas con goal habilitado; frescura (ventana termina en
