@@ -241,6 +241,24 @@ BEGIN
             OLD.id, current_user
             USING ERRCODE = 'restrict_violation';
     END IF;
+
+    -- Descartar una fila SHADOW es el flip de ORBIT 05 (brief §12): ceremonia
+    -- admin. El GRANT del motor incluye estado/discarded_at/discard_motivo
+    -- (los necesita para el discard de filas LIVE por re-validacion fallida),
+    -- asi que sin este candado el motor podia ejecutar el flip el solo:
+    -- borrar la cola de practica de veto del dueño y liberar sus claves de
+    -- efecto (hallazgo post-merge PR #25, greptile P1).
+    IF NEW.estado = 'discarded'
+       AND OLD.modo = 'shadow'
+       AND NOT pg_has_role(current_user, 'app_admin', 'MEMBER') THEN
+        RAISE EXCEPTION
+            'apply_queue %: descartar una fila shadow ES el flip de ORBIT 05 '
+            '(brief §12) y exige admin (current_user = % no es miembro de '
+            'app_admin). El discard del motor es SOLO de filas live '
+            '(re-validacion fallida).',
+            OLD.id, current_user
+            USING ERRCODE = 'restrict_violation';
+    END IF;
     RETURN NEW;
 END;
 $$;
