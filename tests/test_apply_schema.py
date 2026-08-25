@@ -201,16 +201,19 @@ def _avanzar(conn, q: int, estado: str) -> None:
 def _zona_pg_con_otro_dia() -> str | None:
     """Offset POSIX para `SET TIME ZONE` cuya CURRENT_DATE difiere del día UTC
     (r2 codex: un DATE sin zona validado contra CURRENT_DATE duplicaría el cap
-    con sesiones en otra TZ). Entero POSIX: positivo = oeste, así UTC+13 es
-    -13 y UTC-11 es 11. El flanco de cambio de ambos es 11:00 UTC: cerca de
-    ese borde el test se declara y skipea en vez de arriesgar flake."""
+    con sesiones en otra TZ). SIGNO VERIFICADO EN VIVO contra el PG16 del
+    server (hallazgo del primer CI real: estaba invertido — en el bare number
+    de SET TIME ZONE, '13' ES UTC+13 y '-11' ES UTC-11): pasado el flanco de
+    las 11:00 UTC hay que irse a UTC+13 (ya pasó de día); antes, a UTC-11
+    (sigue en ayer). El flanco de cambio de ambos es 11:00 UTC: cerca de ese
+    borde el test se declara y skipea en vez de arriesgar flake."""
     ahora = dt.datetime.now(dt.UTC)
     minutos = ahora.hour * 60 + ahora.minute
     if abs(minutos - 11 * 60) < 5:
         return None
     if minutos > 11 * 60:
-        return "-13"  # UTC+13: ya pasó de día
-    return "11"  # UTC-11: sigue en ayer
+        return "13"  # UTC+13: ya pasó de día
+    return "-11"  # UTC-11: sigue en ayer
 
 
 # ---------------------------------------------------------------------------
@@ -361,6 +364,11 @@ def test_veto_exige_admin_y_el_motor_si_avanza():
             _avanzar(conn, q, "applying")
             fila = conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()
             assert fila[0] == "applying"
+            # Cerrar q a terminal ANTES de encolar q2 (mismo kw, misma clave
+            # de efecto): un en-vuelo bloquearía el INSERT de q2 con
+            # UniqueViolation — el candado FUNCIONANDO, pero estropearía el
+            # resto del test (hallazgo del primer CI real).
+            _avanzar(conn, q, "applied")
         finally:
             conn.execute("SET ROLE NONE")
 
