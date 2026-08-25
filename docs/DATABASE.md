@@ -377,6 +377,97 @@ cap lleno nunca deja una hemorragia sin pausar).
 *Cómo se audita*: caps bajos el día 1 del cutover; `used > cap` es imposible
 si la app consume bien, y su sola aparición es señal de bug grave.
 
+### Módulo apply (ORBIT 04 — migración 0002, AÚN NO APLICADA)
+
+> Las tablas y sellos siguientes viven en `migrations/0002_apply.sql`
+> (tarea 1.2 de `plans/orbit-04.md`); **4.1 la aplica en goncloud**. Hasta
+> entonces esta sección es diseño sellado, no estado del schema vivo. El
+> contrato fino (máquinas de estado, matriz de reconciliación, quota,
+> cutover) está en `docs/APPLY.md`.
+
+**`apply_queue`** — Cola de cortes (pause/negative/harvest) del módulo
+apply; los bids NO van a la cola (aplican en su ciclo). Máquina de estados
+sellada por trigger: `pending_veto → vetoed|released`;
+`released → vetoed|applying`; `applying → applied|failed`;
+`pending_veto/released → discarded`; terminales `vetoed/applied/failed/
+discarded` (no existe `applying → discarded`). **Nace `pending_veto` por
+trigger de INSERT** (un INSERT directo en `released` salta la ventana de
+veto y revienta); transiciones por trigger de UPDATE, atómicas en la app
+(`UPDATE … WHERE estado=…`). **Clave de efecto `(platform, ad_entity_id,
+familia, search_term)`** con familia `entity_cut` (pause, término NULL) /
+`term_cut` (negative Y harvest — con `kind` en la clave un veto de negative
+se eludía proponiendo harvest del mismo término; `kind` queda como dato
+auditable). **Único parcial en-vuelo sobre no terminales con
+`NULLS NOT DISTINCT`** (sin él, dos pause de la misma entidad no
+chocarían). **`vetoed` exige admin**: la transición a `vetoed` valida
+`current_user` por trigger — el rol del motor no puede vetar con el UPDATE
+que usa para el claim. Ventana 48h (`vence_el`, el reloj no se detiene por
+infra), veto durable 30d editable al vetar (`vetoed_at`/`vetoed_by`),
+shadow-mark (`modo='shadow'`: fila shadow jamás transiciona a `released`),
+`request_payload` con lo que se va a mandar. La encola la APP (necesita el
+modo efectivo por decisión), con invariante testeado: toda decisión de
+corte del ciclo tiene fila en cola o skip registrado.
+*Cómo se audita*: invariante — cortes del ciclo sin fila ni skip; filas no
+terminales con `vence_el` vencido (el liberador las toma FIFO); vetos
+vigentes por clave de efecto (los consulta el skip del ciclo).
+
+**`apply_attempt`** — Ledger de intentos de TODA mutación (bid, corte,
+reversa, probe): `decision_id` (NULL solo para probes), `seq` (tope de
+reintentos = 3, "no existe 4º intento" es un COUNT), `tipo`
+(normal/reversa/probe), `request_payload` EXACTO (en harvest, el bid
+efectivo a escribir), `quota_cobrada`, `started_at`. **Nace ANTES del
+HTTP** (la intención durable) y el ack/resultado/`finished_at` se sellan
+al volver **UNA vez**: trigger acotado por columnas patrón
+`sku_cost_solo_cierra_vigencia` — solo la transición NULL→valor de esas
+columnas pasa; todo otro UPDATE/DELETE revienta. **Excepción deliberada**
+declarada en los invariantes de `tests/test_schema.py` (mismo trato que
+`decision_application` en 0001).
+*Cómo se audita*: invariante — intentos sin sello viejos entran a
+reconciliación; COUNT por decisión ≤ 3.
+
+**`reactivacion_manual`** — Detección de reactivación manual del dueño:
+`ad_entity_id` PK, `detectada_en`. La escribe el APLICADOR (no el sync): el
+re-check por GET fresco del apply detecta "pause verificado propio + estado
+vivo ENABLED" y marca el instante si no existe (INSERT idempotente por PK).
+**Gracia de 7d desde `detectada_en`**: durante la gracia el motor no vuelve
+a cortar esa entidad. Solo el caso detectable (entidades nunca tocadas por
+el motor quedan invisibles — residual declarado del header). Grants
+INSERT/SELECT solo a `app_decide`. `structure.py` no se toca.
+*Cómo se audita*: invariante — cortes a entidades dentro de su gracia.
+
+**Sellos de `apply_quota_state` (0002)** — La fila del día `(motor,
+quota_date)` **solo nace desde `config_version` vigente** (trigger: copia
+el cap de la clave `ads_apply_cap_<platform>_<kind>` mapeada 1:1 al
+`motor` `ads_optimizer:<platform>:<kind>`, vocabulario cerrado
+bid/pause/negative/harvest); **sin clave no nace fila → cero applies**
+(fail-closed, visible en Salud — no se disfraza de rampa sana). **`used`
+creciente** por trigger (en 0001 no era enforceable). **`quota_date` =
+día UTC de la base** (`(now() AT TIME ZONE 'UTC')::date` en la expresión —
+`CURRENT_DATE` se evalúa por sesión y duplicaba el cap con TZ distinta).
+Unidad = operación lógica (harvest = 1 aunque sean 2 HTTPs); 429 reintenta
+sin recobrar; reversas exentas; cap agotado: cortes FIFO esperan (siguen
+vetables), bids se descartan con conteo en el digest.
+*Cómo se audita*: fila del día sin clave vigente = fail-closed activo
+(alerta, no rampa); `used > cap` imposible por CHECK + trigger.
+
+**`decision_application.applied_cycle_id` (0002)** — Columna nueva al
+RESUMEN por decisión: el ciclo (modo live) que **EJECUTÓ** el apply, sellado
+**AL CONFIRMAR** (jamás pre-HTTP: un crash no cuenta como applied). El
+cooldown de `goals.py` pasa a mirarla (test punta a punta del caso
+decisión-shadow-aplicada-en-live); `applied_count` cuadra por ciclo
+ejecutor. Se agrega al GRANT de columnas de UPDATE de `app_decide`.
+
+**GRANTs nuevos (0002)** — Positivos y completos (sellado 24): USAGE de
+las secuencias IDENTITY nuevas; UPDATE acotado de `ad_entity_state` a
+`app_decide` (current_bid/status/synced_at — el cache se actualiza CON el
+readback, con lo LEÍDO); INSERT/SELECT de `reactivacion_manual` a
+`app_decide`; `applied_cycle_id` en el GRANT de columnas de
+`decision_application`; INSERT/UPDATE acotados de `apply_queue` y
+INSERT + sello de `apply_attempt` a `app_decide`; la transición a `vetoed`
+solo `app_admin` (el trigger valida `current_user`). `tests/test_schema.py`
+amplía su parser a 0002: los invariantes (FK con índice, append-only y sus
+excepciones declaradas) cubren las tablas nuevas.
+
 ## Vistas y funciones (lo que la app consume; nadie lee tablas crudas)
 
 Regímenes de lectura, explícitos (reemplazan al "todo lee lo maduro"):

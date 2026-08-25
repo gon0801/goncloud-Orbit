@@ -267,6 +267,48 @@ manda para la implementación; este párrafo es el spec delta sellado:
 - **Módulo nuevo** `app/api_dashboard.py` desde el inicio; helpers de
   `app/api.py` extraídos a `app/api_common.py` (nunca dos copias).
 
+## Módulo apply (ORBIT 04 — PR2)
+
+El motor escribe a Amazon por primera vez, con topes y veto. El contrato
+fino (máquina de estados de `apply_queue`, ledger `apply_attempt`, matriz de
+reconciliación, tabla de reversas, mapeo config↔quota, checklist de cutover)
+vive en **`docs/APPLY.md`** y manda para la implementación; este párrafo es
+el spec delta sellado:
+
+- **Híbrido con ventana de veto** (dueño 2026-08-24): los bids aplican
+  automático en su ciclo; los cortes (pause/negative/harvest) van a la cola
+  `apply_queue` con ventana de 48h — default al vencer = APLICAR. Solo
+  cortes en la cola; nada nuevo se cuelga de ella. Veto durable 30d por
+  CLAVE DE EFECTO `(platform, ad_entity_id, familia, search_term)`.
+- **Shadow con práctica de veto**: en shadow los cortes se encolan marcados
+  `modo='shadow'` (el dueño practica el veto con candidatos reales) pero
+  jamás se liberan; en el cutover (ORBIT 05) toda fila shadow pendiente se
+  descarta en bloque.
+- **Orden sellado del apply de un corte**: re-validación PRE-claim contra
+  ventana FRESCA (re-resuelve `umbral_corte` de CORTES 01 al reloj de
+  liberación — contrato cross-plan) → claim atómico → quota → fila del
+  ledger → HTTP. Descarte siempre pre-claim, jamás post-cobro.
+- **Quota fail-closed**: la fila del día solo nace desde config vigente
+  (`ads_apply_cap_<platform>_<kind>` mapeada a
+  `ads_optimizer:<platform>:<kind>`); sin clave no hay fila ni applies, y
+  el estado es visible en Salud. Unidad = operación lógica; 429 reintenta
+  sin recobrar; reversas exentas.
+- **Ledger pre-HTTP para TODA mutación** (`apply_attempt`, append-only con
+  sello acotado); `decision_application` queda como resumen, con
+  `applied_cycle_id` sellado al confirmar (cooldown por ciclo EJECUTOR).
+- **Cliente de escritura default-deny** (`app/ads/write.py`: keyword y
+  product_target, negatives exact, keywords; scope del profile de LA
+  plataforma; bid quantizado y moneda contra `goal.bid_currency`); el read
+  client sigue rechazando PUT/PATCH/DELETE.
+- **Regla 7 antes de encender**: toda mutación tiene su reversa testeada
+  en el mismo PR (harvest completo: keyword primero, negativo después); una
+  reversa NO limpia el cooldown.
+- **Reconciliación al inicio del ciclo contra Amazon VIVO** con identidad
+  completa (plataforma/profile + adGroupId + keyword_text + match_type);
+  cubre harvest pendiente, negatives y applying huérfanos del ledger.
+- ORBIT 05 es el cutover (flip + rampa + discard masivo; checklist en
+  `docs/APPLY.md`).
+
 ## Fases (adoptadas del diseño v2)
 
 1. **PR 1 — shadow completo**: decisiones + auditoría + envelope + router +
