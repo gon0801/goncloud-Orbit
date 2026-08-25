@@ -627,9 +627,11 @@ def test_ciclo_shadow_completo_decisiones_y_notes_exactos():
         # piso, elegible, expected como string Decimal y la evidencia del
         # GRUPO sembrado (71 clicks de las hojas kw_bid+kw_pause, 5 ordenes,
         # 30 fechas; ventana literal D-90..D-10). Desde 1.4 tambien congela el
-        # PISO de cost resuelto: AOV 97.00/5 = Decimal('19.40') y piso
-        # max(8, 19.40 x 1.0) = Decimal('19.400'), con SUS strings exactos
-        # (regla 4). Sin la asercion del dict, un mapeo de grupo roto pasaria
+        # PISO de cost resuelto: AOV 97.0000/5 = Decimal('19.4000') y piso
+        # max(8, 19.4000 x 1.0) = Decimal('19.40000') -- la ESCALA nace del
+        # money_amount NUMERIC(14,4) del revenue y _dec_str la conserva tal
+        # cual (regla 4; hallazgo codex 1.4: pinear '19.40' mataba el golden
+        # en CI). Sin la asercion del dict, un mapeo de grupo roto pasaria
         # los goldens en fallback sistematico (ronda 2 qwen).
         assert neg_row[9]["corte"] == {
             "umbral_clicks_usado": 22,
@@ -643,8 +645,8 @@ def test_ciclo_shadow_completo_decisiones_y_notes_exactos():
                 "ventana_hasta": "2026-08-12",
                 "observed_at_max": "2026-08-12T01:00:00+00:00",
             },
-            "piso_cost_usado": "19.400",
-            "aov": "19.40",
+            "piso_cost_usado": "19.40000",
+            "aov": "19.4000",
         }
 
         # termino HARVEST: new_value = default_bid del goal con SU moneda;
