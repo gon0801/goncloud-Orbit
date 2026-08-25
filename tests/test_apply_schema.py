@@ -324,6 +324,67 @@ def test_fila_shadow_jamas_libera_perimetro_veto_descartar():
         assert [e[0] for e in estados] == ["discarded", "vetoed"]
 
 
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_discard_de_fila_shadow_exige_admin_pero_el_motor_descarta_live():
+    """Hallazgo post-merge PR #25 (greptile P1): el GRANT del motor incluye
+    estado/discarded_at/discard_motivo, así que sin candado en el trigger el
+    motor podía ejecutar él solo el flip de ORBIT 05 (discard de filas
+    shadow, brief §12 — ceremonia admin): borrar la cola de práctica de veto
+    del dueño y liberar sus claves de efecto. Regla 9: sin el candado, el
+    primer UPDATE pasa y el test revienta. En el MISMO test se asserta la
+    otra dirección (que el candado no sobre-bloquee): el discard del motor
+    sobre filas LIVE (re-validación fallida, brief §1.2) sigue pasando."""
+    with _db_temporal("orbit_apply_shadow_discard") as conn:
+        ids = _semilla(conn)
+        q = _encolar(conn, ids["dec_pause"], ids["kw"], "pause", modo="shadow")
+
+        conn.execute("SET ROLE app_decide")
+        try:
+            # El motor tiene el GRANT de estas TRES columnas: solo el trigger
+            # (rol REAL via current_user) puede pararlo.
+            with pytest.raises(psycopg.errors.RestrictViolation, match="admin"):
+                conn.execute(
+                    "UPDATE apply_queue SET estado = 'discarded',"
+                    " discarded_at = now(), discard_motivo = 'motor' WHERE id = %s",
+                    (q,),
+                )
+        finally:
+            conn.execute("RESET ROLE")
+        fila = conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()
+        assert fila[0] == "pending_veto"  # la práctica de veto sigue intacta
+
+        # Dirección discriminante: la fila LIVE sí la descarta el MOTOR
+        # (re-validación fallida) — el candado es por modo, no por estado.
+        q2 = _encolar(conn, ids["dec_neg"], ids["ag"], "negative", term="zapato blanco")
+        conn.execute("SET ROLE app_decide")
+        try:
+            conn.execute(
+                "UPDATE apply_queue SET estado = 'discarded', discarded_at = now(),"
+                " discard_motivo = 're-validacion fallida' WHERE id = %s",
+                (q2,),
+            )
+        finally:
+            conn.execute("RESET ROLE")
+        fila2 = conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q2,)).fetchone()
+        assert fila2[0] == "discarded"
+
+        # Y el flip real (admin) sobre la shadow sí procede.
+        conn.execute("SET ROLE app_admin")
+        try:
+            conn.execute(
+                "UPDATE apply_queue SET estado = 'discarded', discarded_at = now(),"
+                " discard_motivo = 'flip' WHERE id = %s",
+                (q,),
+            )
+        finally:
+            conn.execute("RESET ROLE")
+        fila3 = conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()
+        assert fila3[0] == "discarded"
+
+
 # ---------------------------------------------------------------------------
 # 3. Veto exige admin con el ROL REAL; el motor claima
 # ---------------------------------------------------------------------------
