@@ -83,6 +83,9 @@ Notas selladas sobre la tabla:
   qwen; ver orden en §3).
 - Descartes (`pending_veto/released → discarded`): flip de cutover (§2) y
   re-validación fallida (§3), con nota.
+- El discard de una fila **shadow** exige admin POR SCHEMA (candado del
+  trigger, como el veto): es la ceremonia del flip de ORBIT 05 (§12) — el
+  motor solo descarta filas live (hallazgo post-merge PR #25).
 
 ### 1.3 Clave de efecto (sellado 4)
 
