@@ -244,19 +244,22 @@ def test_piso_jamas_baja_del_legacy_8_us_130_mx():
 
 
 def test_piso_moneda_por_plataforma_jamas_cruzada():
-    """AOVs grandes discriminan la plataforma: elegible US con 1500.00/3 ->
-    AOV 500 (USD); espejo MX con 9000.00/3 -> AOV 3000 (MXN). Un piso que
-    cruzara monedas dejaria ambos en el mismo numero."""
+    """MISMO ad_revenue en ambas plataformas, con AOV=50 ENTRE los legacy
+    (8 USD y 130 MXN): solo el legacy POR PLATAFORMA separa los resultados
+    (us max(8,50)=50; mx max(130,50)=130). Un piso_corte que ignorara
+    `platform` en la rama elegible daria el mismo numero en ambas — este
+    seed lo atrapa (hallazgo CodeRabbit: con AOVs grandes y distintos, la
+    plataforma no se discriminaba de verdad)."""
     us = cortes.piso_corte(
-        _evid(clicks=100, orders=3, fechas=20, ad_revenue=Decimal("1500.00")), "amazon_us"
+        _evid(clicks=100, orders=3, fechas=20, ad_revenue=Decimal("150.00")), "amazon_us"
     )
-    assert us.aov == Decimal("500")
-    assert us.piso_cost == Decimal("500")
+    assert us.aov == Decimal("50")
+    assert us.piso_cost == Decimal("50")  # max(8, 50): gana el AOV
     mx = cortes.piso_corte(
-        _evid(clicks=100, orders=3, fechas=20, ad_revenue=Decimal("9000.00")), "amazon_mx"
+        _evid(clicks=100, orders=3, fechas=20, ad_revenue=Decimal("150.00")), "amazon_mx"
     )
-    assert mx.aov == Decimal("3000")
-    assert mx.piso_cost == Decimal("3000")
+    assert mx.aov == Decimal("50")
+    assert mx.piso_cost == Decimal("130")  # max(130, 50): gana el legacy MXN
 
 
 def test_piso_plataforma_fuera_de_vocabulario_rechaza():

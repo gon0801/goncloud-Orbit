@@ -18,6 +18,11 @@
    multiplicador, DOS fallbacks. Secuencia de aterrizaje: negative → pause.
 4. **Números sellados**: `O_min=3`, `C_min=60`, `Z_min=14`, `M=1.5`,
    `F_neg=40`, `F_pause=50`, `L=90`.
+5. **PISO de clicks sellado (ronda 1, grok)**: `umbral_final = max(legacy, umbral)`
+   con legacy 20 (negative) / 25 (pause) — el adaptativo solo puede SUBIR
+   umbrales, jamás bajar de los actuales. Sin piso, un producto de
+   conversión rápida (60 clicks/6 órdenes → expected 10) quedaría con
+   umbral 15: más agresivo que hoy, contra el propósito del plan.
 5bis. **PISO DE COSTO ADAPTATIVO para NEGATIVE (dueño 2026-08-24, tras su
    ejercicio de anotación de 57 términos)**: el piso fijo le queda chico
    a productos caros y grande a baratos (catálogo: ~40 a ~100 USD en US,
@@ -35,11 +40,6 @@
    legacy 8/130). Un grupo puede ser elegible para el UMBRAL (clicks/
    orders sanos) y caer a respaldo en el PISO (revenue envenenado): dos
    resoluciones independientes de la misma evidencia, regla 3 en ambas.
-5. **PISO de clicks sellado (ronda 1, grok)**: `umbral_final = max(legacy, umbral)`
-   con legacy 20 (negative) / 25 (pause) — el adaptativo solo puede SUBIR
-   umbrales, jamás bajar de los actuales. Sin piso, un producto de
-   conversión rápida (60 clicks/6 órdenes → expected 10) quedaría con
-   umbral 15: más agresivo que hoy, contra el propósito del plan.
 
 ## La regla
 
@@ -100,7 +100,10 @@ inputs.corte = {
   elegible: bool,
   expected_clicks: string|null,    (Decimal serializado como string)
   evidencia: { clicks, orders, fechas, ventana_desde, ventana_hasta,
-               observed_at_max } | null
+               observed_at_max } | null,
+  piso_cost_usado: string,         (SOLO en decisiones negative — 5bis;
+                                    string Decimal, escala del NUMERIC)
+  aov: string | null               (SOLO en negative; null sin AOV)
 }
 ```
 

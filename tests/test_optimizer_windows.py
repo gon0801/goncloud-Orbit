@@ -31,7 +31,7 @@ from decimal import Decimal
 
 import pglast
 import pytest
-from test_schema import SQL, _hay_postgres_local, _test_dsn
+from test_schema import SQL, _postgres_obligatorio_ausente, _test_dsn
 
 from app.optimizer import windows as w
 
@@ -341,7 +341,7 @@ def _termino(
 
 
 @pytest.mark.skipif(
-    not _DSN_EXPLICITO and not _hay_postgres_local(),
+    _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 def test_ventanas_y_agregados_en_vivo():
@@ -847,7 +847,7 @@ def test_ventanas_y_agregados_en_vivo():
 
 
 @pytest.mark.skipif(
-    not _DSN_EXPLICITO and not _hay_postgres_local(),
+    _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 def test_guardas_y_trigger_en_vivo():
@@ -1022,7 +1022,7 @@ HASTA_EVIDENCIA = dt.date(2026, 8, 12)  # D - 10d, borde superior INCLUSIVE
 
 
 @pytest.mark.skipif(
-    not _DSN_EXPLICITO and not _hay_postgres_local(),
+    _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 def test_evidencia_ad_group_en_vivo():
