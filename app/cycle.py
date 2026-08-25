@@ -59,6 +59,24 @@ Diseño sellado (plans/orbit-03.md task 3.1 + diseno v2):
   congelado (agregados sinteticos: el CONTEO de fechas es lo que replayea
   `completa`). Es la funcion del spot-check humano de 4.4.
 
+CORTES 01 (1.2/1.3): umbrales de clicks adaptativos por producto. cycle
+resuelve cortes.umbral_corte con la evidencia del ad group
+(windows.ventanas_evidencia_ad_group, UNA consulta por plataforma dentro de
+TX2) -- 'negative' para hygiene (1.2) y 'pause' para el motor de bids (1.3,
+via k.parent_id de _SQL_DECISORAS) -- y los motores RECIBEN el int
+resuelto. Toda decision que consulta umbral de clicks congela inputs.corte
+TOP-LEVEL (shape del spec: umbral_clicks_usado FINAL con piso, elegible,
+expected_clicks como string, evidencia con observed_at_max) -- en hygiene
+las negative (las harvest NO lo llevan) y en bids TODAS, incluidas las de
+kind final 'bid': decide_bid evalua PAUSE antes de las bandas y, sin el
+freeze, el replay de un bid cuyo umbral adaptativo bloqueo el pause
+rejugaria como pause con el legacy 25. data_observed_at =
+LEAST(decided_at, max(obs directo, observed_at_max de la evidencia)) -- el
+clamp es obligatorio (CHECK decision_dato_no_del_futuro): sin el, un
+observed_at posterior a decided_at aborta el executemany de TX3.
+reproduce() LEE el umbral congelado (fila historica sin la clave ->
+legacy 20 negative / 25 pause); jamas recalcula evidencia.
+
 Semantica de status del envelope: 'done' si el ciclo corrio completo (aunque
 todo haya sido skips), 'degraded' si disparo una guarda de plataforma (dato
 stale ES alarma), 'skipped' para escalera off / lock ajeno (este ultimo ni
@@ -79,7 +97,7 @@ import psycopg
 from psycopg.conninfo import make_conninfo
 from psycopg.types.json import Json
 
-from app.optimizer import bid, hygiene, windows
+from app.optimizer import bid, cortes, hygiene, windows
 from app.optimizer import goals as g
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.redaction import install_scrub_filter, scrub
@@ -233,9 +251,14 @@ SELECT scope, ad_entity_id, platform, target_acos_pct, bid_floor, bid_ceiling,
 
 # Entidades decisoras (keyword/product_target) con SU campaña (por el ad
 # group) y SU state: bid actual+moneda, status y cache de target.
+# CORTES 01 (1.2): k.parent_id AS ad_group_id -- LITERAL con el alias k.
+# calificado: en esta query ag.parent_id YA existe como campaign_id, y un
+# parent_id desnudo seria ambiguo o, peor, mapearia la CAMPAÑA como grupo
+# del termino y toda la evidencia caeria a fallback en silencio (ronda 2
+# qwen). El freeze del motor de bids (1.3) consume esta columna.
 _SQL_DECISORAS = """
-SELECT k.id, ag.parent_id AS campaign_id, s.current_bid, s.bid_currency,
-       s.status, s.acos_target
+SELECT k.id, k.parent_id AS ad_group_id, ag.parent_id AS campaign_id,
+       s.current_bid, s.bid_currency, s.status, s.acos_target
   FROM ad_entity k
   JOIN ad_entity ag ON ag.id = k.parent_id AND ag.kind = 'ad_group'
   LEFT JOIN ad_entity_state s ON s.ad_entity_id = k.id
@@ -325,6 +348,65 @@ def _fecha_iso(fecha: dt.date | None) -> str | None:
     return fecha.isoformat() if fecha is not None else None
 
 
+def _corte_json(
+    corte: cortes.UmbralResuelto,
+    evidencia: windows.EvidenciaAdGroup | None,
+    piso: cortes.PisoResuelto | None = None,
+) -> dict:
+    """Freeze de `inputs.corte` TOP-LEVEL (CORTES 01; shape EXACTO del spec
+    v3): umbral_clicks_usado es el FINAL con piso aplicado, expected_clicks
+    viaja como string Decimal (regla 4) y evidencia es null cuando el grupo
+    no esta en el dict (fallback; jamas un numero inventado). Desde 1.4, el
+    camino negative congela ADEMAS el piso de cost resuelto (piso_cost_usado
+    + aov como string Decimal|null; misma regla 4). `piso` None deja el
+    shape EXACTO de 1.2/1.3: solo lo congela quien lo consumo (pause/bid NO
+    llevan piso, sellado). Lo consumen _pendiente_bid (toda decision del
+    motor de bids, 1.3) y _pendiente_termino (negative, 1.2/1.4) -- un solo
+    sello, una sola fuente."""
+    freeze = {
+        "umbral_clicks_usado": corte.umbral,
+        "elegible": corte.elegible,
+        "expected_clicks": _dec_str(corte.expected_clicks),
+        "evidencia": (
+            {
+                "clicks": evidencia.clicks,
+                "orders": evidencia.orders,
+                "fechas": evidencia.fechas_distintas,
+                "ventana_desde": evidencia.ventana_desde.isoformat(),
+                "ventana_hasta": evidencia.ventana_hasta.isoformat(),
+                "observed_at_max": _ts(evidencia.observed_at_max),
+            }
+            if evidencia is not None
+            else None
+        ),
+    }
+    if piso is not None:
+        freeze["piso_cost_usado"] = _dec_str(piso.piso_cost)
+        freeze["aov"] = _dec_str(piso.aov)
+    return freeze
+
+
+def _sello_bitemporal(
+    decided_at: dt.datetime,
+    obs_directo: dt.datetime | None,
+    evidencia: windows.EvidenciaAdGroup | None,
+) -> dt.datetime | None:
+    """data_observed_at = LEAST(decided_at, max(obs directo, observed_at_max
+    de la evidencia)) -- el CLAMP es OBLIGATORIO: el CHECK
+    decision_dato_no_del_futuro exige data_observed_at <= decided_at y un
+    backfill que re-observa fechas viejas, una ingesta concurrente o skew de
+    relojes puede producir un observed_at posterior; sin clamp, UNA fila
+    aborta el executemany de TX3 (el ciclo entero de la plataforma). El
+    clamp es honesto: la evidencia era visible en el snapshot de TX2, asi
+    que logicamente se observo antes de decidir (ronda 2 qwen)."""
+    base = obs_directo
+    if evidencia is not None and evidencia.observed_at_max is not None:
+        base = evidencia.observed_at_max if base is None else max(base, evidencia.observed_at_max)
+    if base is None:
+        return None
+    return min(decided_at, base)
+
+
 def _agregado_json(agg: windows.AgregadoMetricas | None) -> dict | None:
     if agg is None:
         return None
@@ -383,7 +465,18 @@ def _pendiente_bid(
     target: Decimal,
     bid_actual: Decimal | None,
     bid_moneda: str | None,
+    decided_at: dt.datetime,
+    corte: cortes.UmbralResuelto,
+    evidencia: windows.EvidenciaAdGroup | None,
 ) -> _Pendiente:
+    """El freeze de CORTES 01 (1.3): `inputs.corte` se congela en TODA
+    decision del motor de bids -- INCLUIDAS las de kind final 'bid' -- porque
+    decide_bid evalua PAUSE ANTES de las bandas: sin el freeze, el replay de
+    un bid historico cuyo umbral adaptativo de pause BLOQUEO el corte
+    rejugaria como pause con el legacy 25 y la auditoria divergiria (spec
+    v3). El sello bitemporal (_sello_bitemporal) aplica al obs directo del
+    agregado que decidio (cortes para pause, bids para bid) mezclado con la
+    evidencia del grupo, clampeado a decided_at."""
     inputs = {
         "motor": "bid",
         "platform": platform,
@@ -398,11 +491,12 @@ def _pendiente_bid(
         "factor": _dec_str(resultado.factor),
         "motivo": resultado.motivo,
         "modo": modo,
+        "corte": _corte_json(corte, evidencia),
     }
     return _Pendiente(
         ad_entity_id=entidad_id,
         kind=resultado.kind,
-        data_observed_at=resultado.data_observed_at,
+        data_observed_at=_sello_bitemporal(decided_at, resultado.data_observed_at, evidencia),
         window_start=resultado.window_start,
         window_end=resultado.window_end,
         search_term=None,  # bid/pause deciden sobre la entidad (CHECK del esquema)
@@ -423,7 +517,20 @@ def _pendiente_termino(
     goal: g.Goal,
     terminos: windows.TerminosCortes,
     target: Decimal,
+    decided_at: dt.datetime,
+    corte: cortes.UmbralResuelto | None = None,
+    evidencia: windows.EvidenciaAdGroup | None = None,
+    piso: cortes.PisoResuelto | None = None,
 ) -> _Pendiente:
+    """El freeze de CORTES 01 (spec v3): `corte` y `evidencia` llegan SOLO
+    en decisiones que consultan umbral de clicks (kind 'negative'; las
+    harvest NO lo llevan, sellado). En esas decisiones se congela
+    inputs.corte TOP-LEVEL (_corte_json, shape exacto del spec) y se aplica
+    el sello bitemporal (_sello_bitemporal) mezclando el obs directo del
+    termino con la evidencia del grupo, clampeado a decided_at. Desde 1.4,
+    `piso` (PisoResuelto de cortes.piso_corte) viaja con el corte para
+    congelar piso_cost_usado/aov en el MISMO freeze."""
+    data_observed = resultado.data_observed_at
     inputs = {
         "motor": "hygiene",
         "platform": platform,
@@ -447,10 +554,15 @@ def _pendiente_termino(
         "motivo": resultado.motivo,
         "modo": modo,
     }
+    if corte is not None:
+        inputs["corte"] = _corte_json(corte, evidencia, piso)
+        # sello bitemporal compartido con el motor de bids (1.3): la
+        # evidencia entra al max y el LEAST clampea a decided_at
+        data_observed = _sello_bitemporal(decided_at, data_observed, evidencia)
     return _Pendiente(
         ad_entity_id=grupo_id,
         kind=resultado.kind,
-        data_observed_at=resultado.data_observed_at,
+        data_observed_at=data_observed,
         window_start=resultado.window_start,
         window_end=resultado.window_end,
         search_term=resultado.search_term,
@@ -746,8 +858,10 @@ def _procesa_decisora(
     contadores: _Contadores,
     pendientes: list[_Pendiente],
     tick,
+    evidencia_ad_groups: dict[int, windows.EvidenciaAdGroup],
+    corte_pause_por_grupo: dict[int, tuple[cortes.UmbralResuelto, windows.EvidenciaAdGroup | None]],
 ) -> None:
-    entidad_id, campaign_id, current_bid, bid_currency, status, acos_cache = fila
+    entidad_id, ad_group_id, campaign_id, current_bid, bid_currency, status, acos_cache = fila
     goal, motivo = _gates_entidad(
         conn,
         goals,
@@ -761,6 +875,15 @@ def _procesa_decisora(
         tick()
         return
     assert goal is not None  # _porta_goal_campana: motivo None implica goal
+    # CORTES 01 (1.3): umbral pause del GRUPO (k.parent_id de
+    # _SQL_DECISORAS) resuelto con LA MISMA funcion que negative, UNA vez
+    # por ad group y ciclo (cache lazy del recorrido); entidad cuyo grupo
+    # no esta en el dict -> evidencia None -> fallback 50 con piso legacy
+    # 25 (regla 3: jamas un numero inventado)
+    if ad_group_id not in corte_pause_por_grupo:
+        evidencia = evidencia_ad_groups.get(ad_group_id)
+        corte_pause_por_grupo[ad_group_id] = (cortes.umbral_corte(evidencia, "pause"), evidencia)
+    corte_pause, evidencia = corte_pause_por_grupo[ad_group_id]
     ventanas = windows.ventanas_entidad(conn, entidad_id, decided_at)
     target = g.cascada_target_acos(goal.target_acos_pct, setting_target, acos_cache)
     floor, ceiling = g.resuelve_floor_ceiling(goal)
@@ -773,6 +896,7 @@ def _procesa_decisora(
         bid_moneda=bid_currency,
         floor=floor,
         ceiling=ceiling,
+        umbral_pause=corte_pause.umbral,
     )
     tick()
     if resultado.kind is None:
@@ -789,6 +913,9 @@ def _procesa_decisora(
             target=target,
             bid_actual=current_bid,
             bid_moneda=bid_currency,
+            decided_at=decided_at,
+            corte=corte_pause,
+            evidencia=evidencia,
         )
     )
     contadores.decisiones[resultado.kind] += 1
@@ -807,6 +934,7 @@ def _procesa_grupo(
     contadores: _Contadores,
     pendientes: list[_Pendiente],
     tick,
+    evidencia_ad_groups: dict[int, windows.EvidenciaAdGroup],
 ) -> None:
     grupo_id, campaign_id, status = fila
     terminos = windows.terminos_cortes(conn, grupo_id, decided_at)
@@ -825,6 +953,14 @@ def _procesa_grupo(
         tick()
         return
     assert goal is not None
+    # CORTES 01 (1.2/1.4): umbral de clicks Y piso de cost del GRUPO
+    # resueltos UNA vez por ciclo (misma evidencia de la ventana D-90..D-10;
+    # grupo ausente del dict -> evidencia None -> fallback/respaldo con piso
+    # legacy). El piso es por plataforma (moneda manda) y SOLO del camino
+    # negative.
+    evidencia = evidencia_ad_groups.get(grupo_id)
+    corte_negativo = cortes.umbral_corte(evidencia, "negative")
+    piso_neg = cortes.piso_corte(evidencia, platform)
     cache_campana = acos_campanas.get(campaign_id)
     target = g.cascada_target_acos(goal.target_acos_pct, setting_target, cache_campana)
     config_harvest, keywords = _config_harvest_de(conn, goal, platform)
@@ -834,6 +970,8 @@ def _procesa_grupo(
         target_acos_pct=target,
         config_harvest=config_harvest,
         keywords_existentes=keywords,
+        umbral_negative=corte_negativo.umbral,
+        piso_negative=piso_neg.piso_cost,
     )
     tick()
     for termino, resultado in zip(terminos.terminos, resultados, strict=True):
@@ -850,6 +988,12 @@ def _procesa_grupo(
                 goal=goal,
                 terminos=terminos,
                 target=target,
+                decided_at=decided_at,
+                # el freeze SOLO en decisiones que consultan umbral de
+                # clicks: negative (las harvest NO llevan inputs.corte)
+                corte=corte_negativo if resultado.kind == "negative" else None,
+                evidencia=evidencia if resultado.kind == "negative" else None,
+                piso=piso_neg if resultado.kind == "negative" else None,
             )
         )
         contadores.decisiones[resultado.kind] += 1
@@ -871,6 +1015,19 @@ def _recorre_plataforma(
         fila[0]: fila[1] for fila in conn.execute(_SQL_CAMPANAS, (platform,)).fetchall()
     }
     goals = _lee_goals(conn, platform, list(acos_campanas))
+    evidencia_ad_groups = windows.ventanas_evidencia_ad_group(conn, platform, decided_at)
+    # CORTES 01 (1.2/1.3): evidencia por ad group, UNA consulta por
+    # plataforma DENTRO de TX2 junto a las demas lecturas (mismo snapshot
+    # REPEATABLE READ; spec: una ventana, una elegibilidad, un multiplicador).
+    # Cache lazy de la resolucion pause POR GRUPO (hallazgo codex+kimi,
+    # cross-review 1.3): el spec sella "por ad group, una vez por ciclo" --
+    # la primera entidad decisora del grupo resuelve, las demas reusan el
+    # MISMO UmbralResuelto (la funcion es pura, pero la letra del contrato
+    # y la simetria con negative -- una vez por grupo en _procesa_grupo --
+    # exigen no recalcular por entidad).
+    corte_pause_por_grupo: dict[
+        int, tuple[cortes.UmbralResuelto, windows.EvidenciaAdGroup | None]
+    ] = {}
     comunes = dict(
         platform=platform,
         setting_target=setting_target,
@@ -880,10 +1037,11 @@ def _recorre_plataforma(
         contadores=contadores,
         pendientes=pendientes,
         tick=tick,
+        evidencia_ad_groups=evidencia_ad_groups,
     )
     for fila in conn.execute(_SQL_DECISORAS, (platform,)).fetchall():
         contadores.entidades += 1
-        _procesa_decisora(conn, fila=fila, **comunes)
+        _procesa_decisora(conn, fila=fila, corte_pause_por_grupo=corte_pause_por_grupo, **comunes)
     for fila in conn.execute(_SQL_GRUPOS, (platform,)).fetchall():
         contadores.ad_groups += 1
         _procesa_grupo(conn, fila=fila, acos_campanas=acos_campanas, **comunes)
@@ -1090,6 +1248,11 @@ def _agregado_sintetico(d: dict | None) -> windows.AgregadoMetricas | None:
 
 def _replay_bid(inputs: dict) -> bid.ResultadoBid:
     goal = inputs["goal"]
+    # CORTES 01 (spec): el replay LEE inputs.corte.umbral_clicks_usado, JAMAS
+    # recalcula evidencia (el snapshot de la decision ya no existe). Fila
+    # historica sin la clave (pre-CORTES) -> LEGACY_PAUSE 25, replay exacto.
+    corte = inputs.get("corte")
+    umbral_pause = corte["umbral_clicks_usado"] if corte is not None else cortes.LEGACY_PAUSE
     return bid.decide_bid(
         platform=inputs["platform"],
         bids=_agregado_sintetico(inputs["ventanas"]["bids"]),
@@ -1099,6 +1262,7 @@ def _replay_bid(inputs: dict) -> bid.ResultadoBid:
         bid_moneda=inputs["bid_moneda"],
         floor=Decimal(goal["bid_floor"]),
         ceiling=Decimal(goal["bid_ceiling"]),
+        umbral_pause=umbral_pause,
     )
 
 
@@ -1137,6 +1301,17 @@ def _replay_hygiene(inputs: dict) -> hygiene.ResultadoTermino:
         if harvest
         else None
     )
+    # CORTES 01 (spec): el replay LEE inputs.corte.umbral_clicks_usado y
+    # piso_cost_usado, JAMAS recalcula evidencia ni AOV (el snapshot de la
+    # decision ya no existe). Fila historica sin la clave (pre-CORTES, o
+    # congelada en 1.2/1.3 sin piso) -> legacy 20 y 8/130, replay exacto.
+    corte = inputs.get("corte")
+    umbral_negative = corte["umbral_clicks_usado"] if corte is not None else cortes.LEGACY_NEGATIVE
+    piso = (
+        Decimal(corte["piso_cost_usado"])
+        if corte is not None and "piso_cost_usado" in corte
+        else None
+    )
     (resultado,) = hygiene.decide_hygiene(
         platform=inputs["platform"],
         terminos=terminos,
@@ -1145,6 +1320,8 @@ def _replay_hygiene(inputs: dict) -> hygiene.ResultadoTermino:
         # keywords_existentes vacio: una decision de harvest solo existe si el
         # termino NO estaba duplicado al decidir (replay contra nada bloquea).
         keywords_existentes=frozenset(),
+        umbral_negative=umbral_negative,
+        piso_negative=piso,
     )
     return resultado
 

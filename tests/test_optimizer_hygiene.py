@@ -108,14 +108,19 @@ def _decide(
     target: str = "25",
     config: h.ConfigHarvest | None = CONFIG,
     keywords: frozenset[str] = frozenset(),
+    piso: Decimal | None = None,
 ) -> dict[str, h.ResultadoTermino]:
-    """decide_hygiene + indexado por search_term (tests de un vistazo)."""
+    """decide_hygiene + indexado por search_term (tests de un vistazo).
+    `piso` (CORTES 01 1.4) solo viaja cuando NO es None: el default del motor
+    es el legacy de cost por plataforma (8/130), igual que umbral_negative."""
+    extra: dict = {} if piso is None else {"piso_negative": piso}
     resultados = h.decide_hygiene(
         platform=platform,
         terminos=terminos,
         target_acos_pct=Decimal(target),
         config_harvest=config,
         keywords_existentes=keywords,
+        **extra,
     )
     return {r.search_term: r for r in resultados}
 
@@ -166,6 +171,27 @@ def test_negative_cost_7_99_no_us():
     r = _decide(_terminos([_negativo(cost=Decimal("7.99"))]))["zapato rojo"]
     assert r.kind is None
     assert r.motivo == "sin_umbral_negative"
+
+
+def test_piso_negative_por_parametro_bloquea():
+    """CORTES 01 1.4: el piso de cost del camino negative llega RESUELTO por
+    parametro -- piso 19.40 contra un termino de cost 15 con clicks 25 (>=
+    umbral 20) -> no-op 'sin_umbral_negative'. SIN piso, el MISMO termino
+    dispara negative (15 >= legacy 8). Regla 9: si el motor ignorara el
+    parametro, la primera mitad de este test reventaria."""
+    r = _decide(_terminos([_negativo(clicks=25, cost=Decimal("15"))]), piso=Decimal("19.40"))
+    assert r["zapato rojo"].kind is None
+    assert r["zapato rojo"].motivo == "sin_umbral_negative"
+    r_sin_piso = _decide(_terminos([_negativo(clicks=25, cost=Decimal("15"))]))
+    assert r_sin_piso["zapato rojo"].kind == "negative"
+
+
+def test_piso_negative_borde_inclusivo():
+    """Borde inclusivo del piso (>=, igual que el umbral legacy): cost ==
+    piso EXACTO (19.40) dispara negative."""
+    r = _decide(_terminos([_negativo(clicks=25, cost=Decimal("19.40"))]), piso=Decimal("19.40"))
+    assert r["zapato rojo"].kind == "negative"
+    assert r["zapato rojo"].motivo == "negative_umbral"
 
 
 def test_negative_borde_exacto_mx_cost_130():

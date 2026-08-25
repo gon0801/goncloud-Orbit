@@ -52,6 +52,7 @@ from test_schema import SQL, _postgres_obligatorio_ausente, _test_dsn
 
 from app import cycle as ciclo
 from app.optimizer import bid as bid_mod
+from app.optimizer import cortes
 from app.optimizer import windows as w
 
 # ---------------------------------------------------------------------------
@@ -315,8 +316,13 @@ def _siembra_kw_bid(conn, run_id, kw) -> None:
 
 def _siembra_kw_pause(conn, run_id, kw) -> None:
     """La ventana de CORTES (07-14..08-12, las 30 fechas completas) suma
-    orders 0 / clicks 30 / cost 15.00 -> PAUSE (umbrales us: 25 y 12 USD)."""
-    for fecha in _rango(dt.date(2026, 7, 14), dt.date(2026, 8, 12)):
+    orders 0 / clicks 45 / cost 15.00 -> PAUSE (umbrales us: 25 y 12 USD).
+    Re-siembra CORTES 01: clicks 45 (2 en fechas pares, 1 en impares)
+    empuja la EVIDENCIA del grupo (suma de hojas en D-90..D-10) a 71
+    clicks / 5 ordenes / 30 fechas -> elegible, expected 14.2 -> umbral
+    negative 22 (con los 30 clicks viejos el grupo NO calificaba y la
+    negative caia a fallback 40: golden muerto, re-siembra declarada)."""
+    for i, fecha in enumerate(_rango(dt.date(2026, 7, 14), dt.date(2026, 8, 12))):
         _metrica(
             conn,
             run_id,
@@ -325,7 +331,7 @@ def _siembra_kw_pause(conn, run_id, kw) -> None:
             _obs(fecha),
             cost="0.50",
             ad_revenue="1.00",
-            clicks=1,
+            clicks=2 if i % 2 == 0 else 1,
             orders=0,
         )
     for fecha in _rango(dt.date(2026, 8, 13), dt.date(2026, 8, 19)):
@@ -343,13 +349,22 @@ def _siembra_kw_pause(conn, run_id, kw) -> None:
 
 
 def _siembra_terminos(conn, run_id, ag) -> None:
-    """Cinco terminos del ad group, con ancla 07-21 (la ventana de terminos
-    queda 06-19..07-18 y la entidad completa: 9 fechas dentro)."""
-    # NEGATIVE elegible: orders 0, clicks 20, cost 8.00 (bordes inclusivos us)
+    """Siete terminos del ad group, con ancla 07-21 (la ventana de terminos
+    queda 06-19..07-18 y la entidad completa: 9 fechas dentro).
+
+    Re-siembra CORTES 01 1.4 (declarada, mismo criterio que el hueco-legacy
+    de 1.2): el piso de cost del grupo es adaptativo -- AOV 97.00/5 x 1.0 =
+    19.40 -- y los cost 8.00/9.00 de la siembra original quedaban BAJO el
+    piso; sin subirlos, "tortugas" no dispararia y el hueco-legacy quedaria
+    doble-bloqueado (detectaria menos)."""
+    # NEGATIVE elegible: orders 0, clicks 23 (>= umbral adaptativo 22 del
+    # grupo), cost 20.00 (>= piso adaptativo 19.40). Re-siembras: con los 20
+    # clicks viejos y umbral adaptativo 22 NO disparaba (1.2); con el cost
+    # 8.00 viejo y piso adaptativo 19.40 tampoco (1.4).
     for fecha, clicks, cost in (
-        (dt.date(2026, 7, 10), 7, "3.00"),
-        (dt.date(2026, 7, 11), 7, "3.00"),
-        (dt.date(2026, 7, 12), 6, "2.00"),
+        (dt.date(2026, 7, 10), 8, "8.00"),
+        (dt.date(2026, 7, 11), 8, "8.00"),
+        (dt.date(2026, 7, 12), 7, "4.00"),
     ):
         _termino(
             conn,
@@ -363,6 +378,39 @@ def _siembra_terminos(conn, run_id, ag) -> None:
             clicks=clicks,
             orders=0,
         )
+    # HUECO DISCRIMINANTE del cableado del umbral (hallazgo grok, 1.2):
+    # clicks 21 vive ENTRE el legacy 20 y el umbral adaptativo 22 -- bajo la
+    # regla nueva NO corta (21 < 22) pero bajo el legacy 20 SI dispararia.
+    # Cost 20.00 desde 1.4: bajo el piso estaria DOBLE-bloqueado y el hueco
+    # discriminaria menos (9.00 < 19.40 ya cortaba por cost solo).
+    _termino(
+        conn,
+        run_id,
+        ag,
+        "hueco legacy",
+        dt.date(2026, 7, 12),
+        _obs(dt.date(2026, 7, 12), 2),
+        cost="20.00",
+        ad_revenue="1.00",
+        clicks=21,
+        orders=0,
+    )
+    # HUECO DISCRIMINANTE del cableado del PISO (1.4): clicks 23 >= umbral 22
+    # y cost 15.00 con 8 < 15 < 19.40 -- SOLO el piso lo bloquea. Si el ciclo
+    # dejara de pasar piso_negative al motor (default legacy 8), generaria
+    # una negative extra y el golden reventaria.
+    _termino(
+        conn,
+        run_id,
+        ag,
+        "hueco piso",
+        dt.date(2026, 7, 12),
+        _obs(dt.date(2026, 7, 12), 3),
+        cost="15.00",
+        ad_revenue="1.00",
+        clicks=23,
+        orders=0,
+    )
     # HARVEST elegible: orders 3 (1 por fecha, >= 2), ACoS 10% <= min(35, 25)
     for fecha, cost, revenue in (
         (dt.date(2026, 7, 13), "3.34", "30.00"),
@@ -426,7 +474,7 @@ def _siembra_terminos(conn, run_id, ag) -> None:
 
 def _siembra_maestra(conn, *, escalera: str = "shadow") -> dict:
     """Fixture maestra del DoD: config + goal de plataforma + campana/ad_group/
-    2 keywords con ventanas maduras + 5 terminos. Reloj FIJO DECIDED_AT."""
+    2 keywords con ventanas maduras + 7 terminos. Reloj FIJO DECIDED_AT."""
     run_id = _run(conn)
     config_id = _config_version(conn, {"ads_optimizer_mode": escalera})
     _goal_plataforma(conn)
@@ -540,7 +588,26 @@ def test_ciclo_shadow_completo_decisiones_y_notes_exactos():
         assert pause_row[9]["motivo"] == "pause_umbral"
         assert pause_row[9]["ventanas"]["cortes"]["cost"] == "15.0000"
         assert pause_row[9]["ventanas"]["cortes"]["orders"] == 0
-        assert pause_row[9]["ventanas"]["cortes"]["clicks"] == 30
+        assert pause_row[9]["ventanas"]["cortes"]["clicks"] == 45
+        # CORTES 01 (1.3): pause TAMBIEN congela inputs.corte -- mismo shape
+        # que negative. El grupo es elegible (71/5/30) con expected 14.2 ->
+        # bruto ceil(21.3)=22, y el umbral FINAL del freeze es el PISO 25
+        # (45 >= 25 dispara; sin el piso el freeze diria 22)
+        assert pause_row[9]["corte"]["umbral_clicks_usado"] == 25
+        assert pause_row[9]["corte"]["elegible"] is True
+        assert pause_row[9]["corte"]["expected_clicks"] == "14.2"
+        assert pause_row[9]["corte"]["evidencia"]["clicks"] == 71
+        # CORTES 01 (1.4): el piso de cost adaptativo es SOLO del camino
+        # negative -- pause/bid NO congelan piso ni aov (quien no consumio el
+        # piso, no congela piso; hallazgo reviewer 1.4)
+        assert "piso_cost_usado" not in pause_row[9]["corte"]
+        assert "aov" not in pause_row[9]["corte"]
+        # sello bitemporal: LEAST(decided_at, max(obs cortes, evidencia))
+        assert pause_row[8] == _obs(FIN_CORTES)
+        # y la decision BID del mismo ciclo congela EL MISMO freeze (misma
+        # evidencia del grupo ag): decide_bid evalua PAUSE antes de las bandas
+        # y toda decision del motor lleva el corte (spec 1.3)
+        assert bid_row[9]["corte"] == pause_row[9]["corte"]
 
         # termino NEGATIVE: con search_term y SIN dinero
         neg_row = por[(ids["ag"], "negative", "tortugas ninja calzas")]
@@ -549,31 +616,70 @@ def test_ciclo_shadow_completo_decisiones_y_notes_exactos():
         assert neg_row[9]["motor"] == "hygiene"
         assert neg_row[9]["motivo"] == "negative_umbral"
         assert neg_row[9]["termino"]["search_term"] == "tortugas ninja calzas"
-        assert neg_row[9]["termino"]["clicks"] == 20
-        assert neg_row[9]["termino"]["cost"] == "8.0000"
+        assert neg_row[9]["termino"]["clicks"] == 23
+        assert neg_row[9]["termino"]["cost"] == "20.0000"
         assert neg_row[9]["target_acos_pct_usado"] == "25.00"
+        # SELLO BITEMPORAL (CORTES 01 1.2): data_observed_at = LEAST(decided_at,
+        # max(obs directo del termino 07-12, observed_at_max de la evidencia
+        # 08-12)) -> gana la evidencia (es mas reciente que el dato directo)
+        assert neg_row[8] == _obs(FIN_CORTES)
+        # inputs.corte TOP-LEVEL con el shape EXACTO del spec: umbral FINAL con
+        # piso, elegible, expected como string Decimal y la evidencia del
+        # GRUPO sembrado (71 clicks de las hojas kw_bid+kw_pause, 5 ordenes,
+        # 30 fechas; ventana literal D-90..D-10). Desde 1.4 tambien congela el
+        # PISO de cost resuelto: AOV 97.0000/5 = Decimal('19.4000') y piso
+        # max(8, 19.4000 x 1.0) = Decimal('19.40000') -- la ESCALA nace del
+        # money_amount NUMERIC(14,4) del revenue y _dec_str la conserva tal
+        # cual (regla 4; hallazgo codex 1.4: pinear '19.40' mataba el golden
+        # en CI). Sin la asercion del dict, un mapeo de grupo roto pasaria
+        # los goldens en fallback sistematico (ronda 2 qwen).
+        assert neg_row[9]["corte"] == {
+            "umbral_clicks_usado": 22,
+            "elegible": True,
+            "expected_clicks": "14.2",
+            "evidencia": {
+                "clicks": 71,
+                "orders": 5,
+                "fechas": 30,
+                "ventana_desde": "2026-05-24",
+                "ventana_hasta": "2026-08-12",
+                "observed_at_max": "2026-08-12T01:00:00+00:00",
+            },
+            "piso_cost_usado": "19.40000",
+            "aov": "19.4000",
+        }
 
-        # termino HARVEST: new_value = default_bid del goal con SU moneda
+        # termino HARVEST: new_value = default_bid del goal con SU moneda;
+        # JAMAS lleva inputs.corte (su regla no usa umbral de clicks, sellado)
         harv_row = por[(ids["ag"], "harvest", "buena yarda")]
         assert harv_row[3] is None
         assert harv_row[4] == Decimal("0.75")
         assert harv_row[5] == "USD"
         assert harv_row[9]["motivo"] == "harvest_umbral"
+        assert "corte" not in harv_row[9]
 
-        # asin-like y orders=None: SIN decision (solo cuentan en los notes)
+        # asin-like, orders=None y los DOS HUECOS: SIN decision (solo cuentan
+        # en los notes)
         terminos_con_decision = {f[2] for f in filas if f[2] is not None}
         assert "b0abcd1234" not in terminos_con_decision
         assert "sin orden conocida" not in terminos_con_decision
+        # el hueco 20<21<22 NO corta bajo la regla nueva; bajo el legacy 20
+        # del default SI habria decision negative (cable roto detectado)
+        assert "hueco legacy" not in terminos_con_decision
+        # el hueco del PISO (clicks 23 >= 22, cost 15 con 8 < 15 < 19.40)
+        # SOLO el piso adaptativo lo bloquea: con el default legacy 8 este
+        # termino generaria una negative extra (cable roto detectado, 1.4)
+        assert "hueco piso" not in terminos_con_decision
 
         notes = json.loads(res.notes)
         assert notes["skips"] == {
             "entidad": {},
-            "termino": {"asin_like": 1, "orders_desconocido": 1, "sin_umbral_negative": 1},
+            "termino": {"asin_like": 1, "orders_desconocido": 1, "sin_umbral_negative": 3},
         }
         assert notes["decisiones"] == {"bid": 1, "pause": 1, "negative": 1, "harvest": 1}
         assert notes["entidades"] == 2
         assert notes["ad_groups"] == 1
-        assert notes["terminos"] == 5
+        assert notes["terminos"] == 7
         assert notes["ciclos_muertos"] == []
         assert notes["degradacion_live"] is None
 
@@ -953,10 +1059,10 @@ def test_opt_out_goal_campana_deshabilitado():
         assert res.decisions_count == 0
         assert conn.execute("SELECT count(*) FROM decision").fetchone()[0] == 0
         notes = json.loads(res.notes)
-        # las 2 keywords y los 5 terminos del ad group quedaron fuera por el
+        # las 2 keywords y los 7 terminos del ad group quedaron fuera por el
         # goal de campana deshabilitado (pisa a la plataforma: 2.4 EN LA APP)
         assert notes["skips"]["entidad"] == {"goal_disabled": 2}
-        assert notes["skips"]["termino"] == {"goal_disabled": 5}
+        assert notes["skips"]["termino"] == {"goal_disabled": 7}
 
 
 @pytest.mark.skipif(
@@ -1114,13 +1220,34 @@ def test_fase_de_lecturas_corre_en_repeatable_read(monkeypatch):
 # 10. Sintaxis: las SQL del modulo parsean como Postgres real
 # ---------------------------------------------------------------------------
 
+# TUPLA LITERAL hardcodeada (CORTES 01 1.2, DoD): cada SQL del modulo aparece
+# EXPLICITO aqui, visible en cada diff que agregue uno.
+_SQL_CYCLE = (
+    "_SQL_CLAIM",
+    "_SQL_RASTRO",
+    "_SQL_ABRIR_ENVELOPE",
+    "_SQL_CERRAR_ENVELOPE",
+    "_SQL_SELLAR_FALLIDO",
+    "_SQL_LIBERAR_LOCK",
+    "_SQL_HEARTBEAT",
+    "_SQL_CONFIG_RECIENTE",
+    "_SQL_CAMPANAS",
+    "_SQL_GOALS",
+    "_SQL_DECISORAS",
+    "_SQL_GRUPOS",
+    "_SQL_INSERT_DECISION",
+)
+
 
 def test_sql_del_modulo_parsea_como_postgres():
     """Patron del repo: pglast es dev-dep declarada y su desaparicion debe
-    FALLAR ruidosamente, no saltar en silencio."""
-    nombres = sorted(n for n in vars(ciclo) if n.startswith("_SQL_"))
-    assert nombres, "no se encontraron constantes _SQL_* en app/cycle"
-    for nombre in nombres:
+    FALLAR ruidosamente, no saltar en silencio. La lista es LITERAL (el SQL
+    nuevo visible en diff) PERO exhaustiva contra el modulo (hallazgos
+    codex+grok, cross-review 1.2): una constante _SQL_* futura sin listar
+    revienta aqui en vez de quedar sin parsear en silencio -- la regression
+    del candado vars() original cubierto por lista explicita."""
+    assert set(_SQL_CYCLE) == {n for n in vars(ciclo) if n.startswith("_SQL_")}
+    for nombre in _SQL_CYCLE:
         sql = getattr(ciclo, nombre).replace("%s", "NULL")
         assert pglast.parse_sql(sql), f"{nombre} no parseo"
 
@@ -1191,3 +1318,461 @@ def test_goal_json_congela_floor_ceiling_efectivos():
     congelado = ciclo._goal_json(goal)
     assert congelado["bid_floor"] == "0.10"
     assert congelado["bid_ceiling"] == "2.50"
+
+
+# ---------------------------------------------------------------------------
+# 12. CORTES 01 (1.2): sello bitemporal de la evidencia + replay del corte
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_bitemporal_evidencia_reciente_entra_al_max_del_data_observed_at():
+    """Una correccion (observacion NUEVA append-only) de una hoja del grupo
+    con observed_at MAS RECIENTE que el dato directo del termino pero <
+    decided_at: entra al max -- data_observed_at del negative es el
+    observed_at_max de la EVIDENCIA, no el del termino (sello bitemporal
+    ronda 1 codex). La obs nueva replica los valores de la que colapsa: las
+    sumas del grupo y el umbral quedan intactos."""
+    with _db_temporal("orbit_ciclo_bi1") as (conn, _c):
+        ids = _siembra_maestra(conn)
+        run_id = conn.execute("SELECT id FROM ingest_run LIMIT 1").fetchone()[0]
+        reciente = dt.datetime(2026, 8, 20, 1, tzinfo=dt.UTC)
+        _metrica(  # colapsa a esta (observed_at mayor): suma identica
+            conn,
+            run_id,
+            ids["kw_pause"],
+            FIN_CORTES,
+            reciente,
+            cost="0.50",
+            ad_revenue="1.00",
+            clicks=1,  # 08-12 es fecha IMPAR de _siembra_kw_pause -> clicks 1
+            orders=0,
+        )
+        res = _corre(conn)
+        assert res.status == "done"
+        neg = conn.execute(
+            "SELECT data_observed_at, inputs FROM decision"
+            " WHERE cycle_id = %s AND kind = 'negative'",
+            (res.cycle_id,),
+        ).fetchone()
+        assert neg is not None
+        # el dato directo del termino es _obs(07-12); la evidencia trae 08-20:
+        # gana la evidencia y decided_at (08-22) no clampea nada
+        assert neg[0] == reciente
+        assert neg[1]["corte"]["evidencia"]["observed_at_max"] == reciente.isoformat()
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_bitemporal_clamp_observed_at_futuro_a_decided_at():
+    """El borde sellado (ronda 2 qwen): un observed_at POSTERIOR a
+    decided_at (backfill/skew; la convencion _obs() del repo no lo produce,
+    se siembra EXPLICITO) debe CLAMPEARSE a decided_at. Sin el clamp, el
+    CHECK decision_dato_no_del_futuro viola y UNA fila aborta el
+    executemany de TX3 -- el ciclo ENTERO de la plataforma muere (regla 9:
+    el test demuestra que el ciclo sobrevive y data_observed_at == decided_at
+    exacto)."""
+    with _db_temporal("orbit_ciclo_bi2") as (conn, _c):
+        ids = _siembra_maestra(conn)
+        run_id = conn.execute("SELECT id FROM ingest_run LIMIT 1").fetchone()[0]
+        futuro = dt.datetime(2026, 8, 24, 1, tzinfo=dt.UTC)  # > DECIDED_AT (08-22)
+        # La obs futura se siembra en una HOJA NUEVA sin ad_entity_state:
+        # aporta a la EVIDENCIA del grupo pero NO decide (estado_no_enabled),
+        # asi el test aisla el sello de 1.2 (negative) del camino bid/pause,
+        # cuyo data_observed_at es preexistente y su clamp llega en 1.3.
+        # Valores neutros (clicks 0 / orders 0 / cost 0.00): elegibilidad,
+        # expected y umbral del grupo quedan intactos.
+        kw_solo_evidencia = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "9299",
+            parent=ids["ag"],
+            match_type="EXACT",
+            keyword_text="hoja solo evidencia",
+        )
+        _metrica(
+            conn,
+            run_id,
+            kw_solo_evidencia,
+            FIN_CORTES,
+            futuro,
+            cost="0.00",
+            ad_revenue="0.00",
+            clicks=0,
+            orders=0,
+        )
+        res = _corre(conn)  # sin clamp: CheckViolation aborta TX3 aqui
+        assert res.status == "done"
+        assert res.decisions_count == 4  # el ciclo completo sobrevivio
+        neg = conn.execute(
+            "SELECT data_observed_at FROM decision WHERE cycle_id = %s AND kind = 'negative'",
+            (res.cycle_id,),
+        ).fetchone()
+        assert neg[0] == DECIDED_AT  # LEAST(decided_at, futuro) = decided_at
+
+
+def _inputs_negative(
+    clicks_termino: int,
+    *,
+    corte: dict | None,
+    cost: str = "9.0000",
+    platform: str = "amazon_us",
+    moneda: str = "USD",
+) -> dict:
+    """Fixture de inputs congelados de una decision negative (motor hygiene)
+    con clicks del termino entre el legacy 20 y el umbral adaptativo: SOLO
+    la clave `corte` decide si replayea a negative o a no-op. `cost`,
+    `platform` y `moneda` se parametrizan desde 1.4 (el piso de cost es por
+    plataforma y su replay discrimina el borde en la moneda correcta)."""
+    inputs = {
+        "motor": "hygiene",
+        "platform": platform,
+        "ventana_terminos": {
+            "window_start": "2026-06-19",
+            "window_end": "2026-07-18",
+            "fechas": 9,
+        },
+        "termino": {
+            "search_term": "tortugas ninja calzas",
+            "cost": cost,
+            "ad_revenue": "1.0000",
+            "clicks": clicks_termino,
+            "orders": 0,
+            "fechas_distintas": 3,
+            "moneda": moneda,
+            "observed_at_max": "2026-07-12T01:00:00+00:00",
+        },
+        "goal": {"harvest": None},
+        "target_acos_pct_usado": "25.00",
+        "motivo": "negative_umbral",
+        "modo": "shadow",
+    }
+    if corte is not None:
+        inputs["corte"] = corte
+    return inputs
+
+
+def test_replay_hygiene_lee_inputs_corte_congelado():
+    """reproduce() LEE inputs.corte.umbral_clicks_usado, JAMAS recalcula
+    evidencia (spec): termino con 25 clicks y umbral congelado 26 -> NO
+    negative. Una implementacion que ignorara la clave y usara el legacy 20
+    dejaria pasar el corte en el replay (regla 9: 25 >= 20 dispararia)."""
+    inputs = _inputs_negative(
+        25,
+        corte={
+            "umbral_clicks_usado": 26,
+            "elegible": True,
+            "expected_clicks": None,
+            "evidencia": None,
+        },
+    )
+    assert ciclo.reproduce(inputs) == (None, None, None)  # sin_umbral_negative
+
+
+def test_replay_hygiene_legacy_sin_inputs_corte_usa_20():
+    """Fila HISTORICA sin inputs.corte (previa a CORTES 01): replay con el
+    legacy 20 -> termino de 25 clicks SI dispara negative. Compatibilidad
+    sellada: el replay de la historia previa no cambia."""
+    inputs = _inputs_negative(25, corte=None)
+    assert ciclo.reproduce(inputs) == ("negative", None, None)
+
+
+def test_replay_hygiene_lee_piso_cost_usado_congelado():
+    """CORTES 01 1.4: reproduce() LEE inputs.corte.piso_cost_usado, JAMAS
+    recalcula el AOV (el snapshot de la evidencia ya no existe): termino con
+    clicks 25 (>= umbral congelado 20) y cost 15 (< piso 19.40 pero >=
+    legacy 8) -> NO negative. Una implementacion que ignorara el congelado
+    aplicaria el legacy 8 y dispararia el corte en el replay (regla 9)."""
+    inputs = _inputs_negative(
+        25,
+        corte={
+            "umbral_clicks_usado": 20,
+            "elegible": True,
+            "expected_clicks": None,
+            "evidencia": None,
+            "piso_cost_usado": "19.40",
+            "aov": "19.4",
+        },
+        cost="15.0000",
+    )
+    assert ciclo.reproduce(inputs) == (None, None, None)  # sin_umbral_negative
+
+
+def test_replay_hygiene_corte_sin_piso_usa_legacy_8():
+    """Transicion 1.2/1.3: fila CON inputs.corte PERO sin piso_cost_usado
+    (congelada antes de 1.4) -> replay con el legacy 8 (cost 15 >= 8
+    dispara). El replay de la historia congelada no cambia."""
+    inputs = _inputs_negative(
+        25,
+        corte={
+            "umbral_clicks_usado": 20,
+            "elegible": True,
+            "expected_clicks": None,
+            "evidencia": None,
+        },
+        cost="15.0000",
+    )
+    assert ciclo.reproduce(inputs) == ("negative", None, None)
+
+
+def test_replay_hygiene_legacy_mx_130_exacto():
+    """Espejo MX del compat legacy: corte sin piso_cost_usado en amazon_mx,
+    termino MXN con clicks sobre el umbral congelado 20 -> cost justo 130.00
+    dispara negative (>= inclusivo) y 129.00 no. Sin el default por
+    plataforma, un replay MX usaria el 8 USD y dispararia TODO."""
+    corte_mx = {
+        "umbral_clicks_usado": 20,
+        "elegible": True,
+        "expected_clicks": None,
+        "evidencia": None,
+    }
+    for cost, esperado in (
+        ("130.0000", ("negative", None, None)),
+        ("129.0000", (None, None, None)),
+    ):
+        inputs = _inputs_negative(25, corte=corte_mx, cost=cost, platform="amazon_mx", moneda="MXN")
+        assert ciclo.reproduce(inputs) == esperado
+
+
+# ---------------------------------------------------------------------------
+# 13. CORTES 01 (1.3): PAUSE adaptativo -- golden bid-que-bloqueo-pause,
+#     piso cableado, camino unico, replay legacy y clamp del motor de bids
+# ---------------------------------------------------------------------------
+
+
+def _siembra_bid_bloquea_pause(conn) -> dict:
+    """Fixture del GOLDEN 1.3: una entidad cuyo PAUSE es BLOQUEADO por el
+    umbral adaptativo y cae a la banda -25% (kind final bid).
+
+    - Ventana de CORTES (07-14..08-12): clicks 30 / cost 15.00 / orders 0
+      -> PAUSE clasico bajo el legacy 25 (30>=25, 15>=12).
+    - Evidencia del grupo (misma hoja, D-90..D-10): orders 0 -> NO elegible
+      -> umbral pause = fallback 50 -> 30 < 50 -> PAUSE BLOQUEADO.
+    - Ventana de BIDS propia (max metric_date 08-16 -> fin 08-13): filas de
+      07-15..08-13 -> cost 17.00 / revenue 29.10 / orders 1 (la del 08-13)
+      -> ACoS 58% > 1.35x25 con orders>=1 -> banda -25%: bid 1.00 -> 0.75."""
+    run_id = _run(conn)
+    _config_version(conn, {"ads_optimizer_mode": "shadow"})
+    _goal_plataforma(conn)
+    camp = _entidad(conn, "amazon_us", "campaign", "9501")
+    ag = _entidad(conn, "amazon_us", "ad_group", "9511", parent=camp)
+    kw = _entidad(
+        conn,
+        "amazon_us",
+        "keyword",
+        "9521",
+        parent=ag,
+        match_type="EXACT",
+        keyword_text="kw bloqueo",
+    )
+    synced = DECIDED_AT - dt.timedelta(hours=4)
+    _estado(conn, camp, synced_at=synced)
+    _estado(conn, ag, synced_at=synced)
+    _estado(conn, kw, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
+    for fecha in _rango(dt.date(2026, 7, 14), dt.date(2026, 8, 12)):
+        _metrica(
+            conn, run_id, kw, fecha, _obs(fecha), cost="0.50", ad_revenue="1.00", clicks=1, orders=0
+        )
+    for fecha in _rango(dt.date(2026, 8, 13), dt.date(2026, 8, 16)):
+        _metrica(
+            conn, run_id, kw, fecha, _obs(fecha), cost="2.50", ad_revenue="0.10", clicks=6, orders=1
+        )
+    return {"camp": camp, "ag": ag, "kw": kw}
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_golden_bid_que_bloqueo_pause():
+    """El test estrella de 1.3: decision de kind final BID cuya existencia
+    depende de que el umbral adaptativo de pause (fallback 50, grupo no
+    elegible) BLOQUEO el PAUSE que el legacy 25 si habria cortado. Su replay
+    reproduce EXACTO leyendo el umbral congelado: con legacy 25, el replay
+    rejugaria como pause (30 >= 25) y el test reventaria."""
+    with _db_temporal("orbit_ciclo_bqp") as (conn, _c):
+        ids = _siembra_bid_bloquea_pause(conn)
+        res = _corre(conn)
+        assert res.status == "done"
+        assert res.decisions_count == 1
+        fila = conn.execute(
+            "SELECT kind, old_value, new_value, value_currency, data_observed_at, inputs"
+            " FROM decision WHERE cycle_id = %s AND ad_entity_id = %s",
+            (res.cycle_id, ids["kw"]),
+        ).fetchone()
+        # el pause BLOQUEADO: la decision es la banda -25%, no el corte
+        assert fila[0] == "bid"
+        assert (fila[1], fila[2], fila[3]) == (Decimal("1.00"), Decimal("0.75"), "USD")
+        # sello bitemporal: SU ventana de bids termina en max(08-16)-3d =
+        # 08-13, mas reciente que la evidencia (08-12) -> gana el obs directo
+        assert fila[4] == _obs(dt.date(2026, 8, 13))
+        corte = fila[5]["corte"]
+        # fallback 50 CABLEADO con evidencia del grupo (no elegible: orders 0)
+        assert corte["umbral_clicks_usado"] == 50
+        assert corte["elegible"] is False
+        assert corte["expected_clicks"] is None
+        assert corte["evidencia"]["clicks"] == 30
+        assert corte["evidencia"]["orders"] == 0
+        assert corte["evidencia"]["ventana_hasta"] == "2026-08-12"
+        # idem 1.4: decision del motor de bids SIN piso congelado (solo negative)
+        assert "piso_cost_usado" not in corte
+        assert "aov" not in corte
+        # REPLAY EXACTO leyendo el congelado (50): el pause sigue bloqueado
+        # y la banda rejuega igual
+        assert ciclo.reproduce(fila[5]) == ("bid", Decimal("0.75"), "USD")
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_piso_pause_25_en_el_freeze_del_ciclo():
+    """Piso pause CABLEADO (DoD 1.3): el grupo maestro es elegible con
+    expected 14.2 -> bruto ceil(21.3) = 22 < legacy 25. El umbral FINAL que
+    el freeze congela en la decision pause es el PISO 25 -- una implementacion
+    sin el max() congelaria 22 y este test reventaria (la funcion pura ya
+    vive en test_optimizer_cortes; esto testea el cableado por el ciclo)."""
+    with _db_temporal("orbit_ciclo_piso") as (conn, _c):
+        _siembra_maestra(conn)
+        res = _corre(conn)
+        assert res.status == "done"
+        fila = conn.execute(
+            "SELECT inputs FROM decision WHERE cycle_id = %s AND kind = 'pause'",
+            (res.cycle_id,),
+        ).fetchone()
+        corte = fila[0]["corte"]
+        assert corte["umbral_clicks_usado"] == 25  # el piso gano al bruto 22
+        assert corte["elegible"] is True
+        assert corte["expected_clicks"] == "14.2"
+
+
+def _inputs_pause_legacy() -> dict:
+    """Fixture de inputs congelados de una pause HISTORICA (pre-CORTES 01,
+    sin la clave corte): clicks 30 en la ventana de cortes -- bajo el legacy
+    25 SI pausa (compatibilidad del replay de la historia)."""
+    return {
+        "motor": "bid",
+        "platform": "amazon_us",
+        "ventanas": {
+            "bids": None,
+            "cortes": {
+                "window_start": "2026-07-14",
+                "window_end": "2026-08-12",
+                "fechas": 30,
+                "cost": "15.0000",
+                "ad_revenue": "30.0000",
+                "revenue_same_sku": None,
+                "clicks": 30,
+                "orders": 0,
+                "moneda": "USD",
+                "observed_at_max": "2026-08-12T01:00:00+00:00",
+            },
+        },
+        "goal": {"bid_floor": "0.4000", "bid_ceiling": "2.5000", "harvest": None},
+        "target_acos_pct_usado": "25.00",
+        "bid_actual": "1.0000",
+        "bid_moneda": "USD",
+        "factor": None,
+        "motivo": "pause_umbral",
+        "modo": "shadow",
+    }
+
+
+def test_replay_legacy_pause_sin_inputs_corte_usa_25():
+    """Fila de pause HISTORICA sin inputs.corte -> replay con LEGACY_PAUSE
+    25 -> los 30 clicks SI pausan. Espejo del compat de hygiene (1.2): el
+    replay de la historia previa a CORTES 01 no cambia."""
+    inputs = _inputs_pause_legacy()
+    assert ciclo.reproduce(inputs) == ("pause", None, None)
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_camino_unico_negative_y_pause_por_la_misma_umbral_corte(monkeypatch):
+    """Regla 9 (camino UNICO): negative y pause resuelven por LA MISMA
+    cortes.umbral_corte con la MISMA evidencia del grupo. Un espia cuenta
+    las llamadas del ciclo: si un camino reimplementara el calculo (o
+    divergiera a otra funcion), su regla dejaria de aparecer aqui y el test
+    reventaria. El grupo maestro resuelve 'negative' (via _procesa_grupo)
+    y 'pause' (via _procesa_decisora) con la evidencia del MISMO ag."""
+    with _db_temporal("orbit_ciclo_unico") as (conn, _c):
+        ids = _siembra_maestra(conn)
+        llamadas: list[tuple[str, int | None]] = []
+        real = cortes.umbral_corte
+
+        def espia(evidencia, regla):
+            llamadas.append((regla, evidencia.ad_group_id if evidencia is not None else None))
+            return real(evidencia, regla)
+
+        monkeypatch.setattr(cortes, "umbral_corte", espia)
+        res = _corre(conn)
+        monkeypatch.undo()
+        assert res.status == "done"
+        reglas = {regla for regla, _ in llamadas}
+        assert {"negative", "pause"} <= reglas
+        # misma evidencia (mismo grupo) alimenta ambas reglas
+        por_regla: dict[str, set[int | None]] = {}
+        for regla, gid in llamadas:
+            por_regla.setdefault(regla, set()).add(gid)
+        assert ids["ag"] in por_regla["negative"]
+        assert ids["ag"] in por_regla["pause"]
+        # CARDINALIDAD sellada (spec: "Por ad group, una vez por ciclo" --
+        # hallazgo codex+kimi, cross-review 1.3): el fixture tiene DOS
+        # entidades decisoras del MISMO grupo (kw_bid y kw_pause) y la regla
+        # pause debe resolverse UNA sola vez para el grupo. Sin el cacheo,
+        # son dos llamadas y este assert revienta.
+        llamadas_pause_ag = [1 for regla, gid in llamadas if regla == "pause" and gid == ids["ag"]]
+        assert sum(llamadas_pause_ag) == 1
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_bitemporal_pause_clamp_observed_at_futuro_a_decided_at():
+    """Cierra el hallazgo residual de 1.2: el camino bid/pause PREEXISTENTE
+    era vulnerable al CHECK decision_dato_no_del_futuro (un observed_at
+    futuro en la ventana de una entidad que decide PAUSE abortaba el
+    executemany de TX3; con el codigo de 1.2 este test reventaba con
+    CheckViolation). Con el sello bitemporal de 1.3 en TODA decision del
+    motor de bids, el LEAST(decided_at, ...) clampea y el ciclo sobrevive."""
+    with _db_temporal("orbit_ciclo_bip") as (conn, _c):
+        ids = _siembra_maestra(conn)
+        run_id = conn.execute("SELECT id FROM ingest_run LIMIT 1").fetchone()[0]
+        futuro = dt.datetime(2026, 8, 24, 1, tzinfo=dt.UTC)  # > DECIDED_AT (08-22)
+        # obs futura en la ventana de CORTES de kw_pause: SU pause decide, y
+        # tanto el obs directo (cortes) como la evidencia traen el futuro
+        _metrica(
+            conn,
+            run_id,
+            ids["kw_pause"],
+            FIN_CORTES,
+            futuro,
+            cost="0.50",
+            ad_revenue="1.00",
+            clicks=1,  # 08-12 es fecha IMPAR de _siembra_kw_pause -> clicks 1
+            orders=0,
+        )
+        res = _corre(conn)  # con codigo 1.2: CheckViolation aborta TX3 aqui
+        assert res.status == "done"
+        assert res.decisions_count == 4
+        pause = conn.execute(
+            "SELECT data_observed_at FROM decision WHERE cycle_id = %s AND kind = 'pause'",
+            (res.cycle_id,),
+        ).fetchone()
+        assert pause[0] == DECIDED_AT  # LEAST(decided_at, futuro)
+        bid = conn.execute(
+            "SELECT data_observed_at FROM decision WHERE cycle_id = %s AND kind = 'bid'",
+            (res.cycle_id,),
+        ).fetchone()
+        # el bid tambien sella con la evidencia: max(bids 08-16, futuro) =
+        # futuro -> clamp a decided_at
+        assert bid[0] == DECIDED_AT
