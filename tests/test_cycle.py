@@ -1619,6 +1619,13 @@ def test_camino_unico_negative_y_pause_por_la_misma_umbral_corte(monkeypatch):
             por_regla.setdefault(regla, set()).add(gid)
         assert ids["ag"] in por_regla["negative"]
         assert ids["ag"] in por_regla["pause"]
+        # CARDINALIDAD sellada (spec: "Por ad group, una vez por ciclo" --
+        # hallazgo codex+kimi, cross-review 1.3): el fixture tiene DOS
+        # entidades decisoras del MISMO grupo (kw_bid y kw_pause) y la regla
+        # pause debe resolverse UNA sola vez para el grupo. Sin el cacheo,
+        # son dos llamadas y este assert revienta.
+        llamadas_pause_ag = [1 for regla, gid in llamadas if regla == "pause" and gid == ids["ag"]]
+        assert sum(llamadas_pause_ag) == 1
 
 
 @pytest.mark.skipif(

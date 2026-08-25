@@ -844,6 +844,7 @@ def _procesa_decisora(
     pendientes: list[_Pendiente],
     tick,
     evidencia_ad_groups: dict[int, windows.EvidenciaAdGroup],
+    corte_pause_por_grupo: dict[int, tuple[cortes.UmbralResuelto, windows.EvidenciaAdGroup | None]],
 ) -> None:
     entidad_id, ad_group_id, campaign_id, current_bid, bid_currency, status, acos_cache = fila
     goal, motivo = _gates_entidad(
@@ -860,11 +861,14 @@ def _procesa_decisora(
         return
     assert goal is not None  # _porta_goal_campana: motivo None implica goal
     # CORTES 01 (1.3): umbral pause del GRUPO (k.parent_id de
-    # _SQL_DECISORAS) resuelto con LA MISMA funcion que negative; entidad
-    # cuyo grupo no esta en el dict -> evidencia None -> fallback 50 con
-    # piso legacy 25 (regla 3: jamas un numero inventado)
-    evidencia = evidencia_ad_groups.get(ad_group_id)
-    corte_pause = cortes.umbral_corte(evidencia, "pause")
+    # _SQL_DECISORAS) resuelto con LA MISMA funcion que negative, UNA vez
+    # por ad group y ciclo (cache lazy del recorrido); entidad cuyo grupo
+    # no esta en el dict -> evidencia None -> fallback 50 con piso legacy
+    # 25 (regla 3: jamas un numero inventado)
+    if ad_group_id not in corte_pause_por_grupo:
+        evidencia = evidencia_ad_groups.get(ad_group_id)
+        corte_pause_por_grupo[ad_group_id] = (cortes.umbral_corte(evidencia, "pause"), evidencia)
+    corte_pause, evidencia = corte_pause_por_grupo[ad_group_id]
     ventanas = windows.ventanas_entidad(conn, entidad_id, decided_at)
     target = g.cascada_target_acos(goal.target_acos_pct, setting_target, acos_cache)
     floor, ceiling = g.resuelve_floor_ceiling(goal)
@@ -991,10 +995,19 @@ def _recorre_plataforma(
         fila[0]: fila[1] for fila in conn.execute(_SQL_CAMPANAS, (platform,)).fetchall()
     }
     goals = _lee_goals(conn, platform, list(acos_campanas))
+    evidencia_ad_groups = windows.ventanas_evidencia_ad_group(conn, platform, decided_at)
     # CORTES 01 (1.2/1.3): evidencia por ad group, UNA consulta por
     # plataforma DENTRO de TX2 junto a las demas lecturas (mismo snapshot
-    # REPEATABLE READ; spec: una ventana, una elegibilidad, un multiplicador)
-    evidencia_ad_groups = windows.ventanas_evidencia_ad_group(conn, platform, decided_at)
+    # REPEATABLE READ; spec: una ventana, una elegibilidad, un multiplicador).
+    # Cache lazy de la resolucion pause POR GRUPO (hallazgo codex+kimi,
+    # cross-review 1.3): el spec sella "por ad group, una vez por ciclo" --
+    # la primera entidad decisora del grupo resuelve, las demas reusan el
+    # MISMO UmbralResuelto (la funcion es pura, pero la letra del contrato
+    # y la simetria con negative -- una vez por grupo en _procesa_grupo --
+    # exigen no recalcular por entidad).
+    corte_pause_por_grupo: dict[
+        int, tuple[cortes.UmbralResuelto, windows.EvidenciaAdGroup | None]
+    ] = {}
     comunes = dict(
         platform=platform,
         setting_target=setting_target,
@@ -1008,7 +1021,7 @@ def _recorre_plataforma(
     )
     for fila in conn.execute(_SQL_DECISORAS, (platform,)).fetchall():
         contadores.entidades += 1
-        _procesa_decisora(conn, fila=fila, **comunes)
+        _procesa_decisora(conn, fila=fila, corte_pause_por_grupo=corte_pause_por_grupo, **comunes)
     for fila in conn.execute(_SQL_GRUPOS, (platform,)).fetchall():
         contadores.ad_groups += 1
         _procesa_grupo(conn, fila=fila, acos_campanas=acos_campanas, **comunes)
