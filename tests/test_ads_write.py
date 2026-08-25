@@ -546,3 +546,18 @@ def test_401_un_refresh_forzado_y_reemision_con_mismo_scope_vendor():
         assert request.headers["Accept"] == vendor
         bearers.append(request.headers["Authorization"])
     assert bearers[0] != bearers[1], "la re-emision usa el token refrescado"
+
+
+def test_plataforma_moneda_consistente_con_el_mapa_del_motor():
+    """Hallazgo reviewer r1 (1.3): PLATAFORMA_MONEDA (capa HTTP) y
+    PLATAFORMAS_MONEDA (capa motor) son dos mapas con dueños distintos (el
+    cliente de ads NO importa el optimizer) — la duplicacion de VOCABULARIO
+    es tolerable, pero nada pineaba que sigan IGUALES: crecer a una tercera
+    plataforma se editaria en dos lugares sin que nada los compare. Este
+    test vuelve la divergencia una decision visible (regla 2)."""
+    from app.optimizer.bid import PLATAFORMAS_MONEDA
+
+    assert dict(PLATAFORMA_MONEDA) == dict(PLATAFORMAS_MONEDA), (
+        "PLATAFORMA_MONEDA (write) y PLATAFORMAS_MONEDA (motor) divergieron: "
+        "unificar a proposito o explicar la razon de la divergencia aqui"
+    )

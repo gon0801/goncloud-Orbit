@@ -119,9 +119,17 @@ def _body_de(funciones, nombre_funcion):
 
 
 def _pares_de_transiciones(cuerpo):
-    """Extrae los pares ('desde', 'hasta') de una tabla de transiciones escrita
-    como IN ( ('a','b'), ... ) en el cuerpo plpgsql de un trigger."""
-    return set(re.findall(r"\('([a-z_]+)',\s*'([a-z_]+)'\)", cuerpo))
+    """Extrae los pares ('desde', 'hasta') de una tabla de transiciones
+    escrita como (OLD.campo, NEW.campo) IN ( ('a','b'), ... ) THEN en el
+    cuerpo plpgsql del trigger. ANCLADA al patrón de la tabla y NO-GREEDY
+    hasta el primer ') THEN' (el cierre de la tabla): la versión naïve
+    (cualquier par de strings consecutivos) confundió el NOT IN
+    ('vetoed','discarded') del perímetro shadow con una transición, y el
+    greedy tragaría la tabla entera hasta el ') THEN' del propio guard
+    (hallazgo del rojo del guard, reviewer r1 de 1.2)."""
+    tabla = re.search(r"\(OLD\.(\w+),\s*NEW\.\1\)\s*IN\s*\((.*?)\)\s*THEN", cuerpo, re.DOTALL)
+    assert tabla, "no se encontró la tabla (OLD.campo, NEW.campo) IN (...) del trigger"
+    return set(re.findall(r"\('([a-z_]+)',\s*'([a-z_]+)'\)", tabla.group(2)))
 
 
 def _grants_sobre_2(tabla, priv):
@@ -673,6 +681,22 @@ def test_0002_transiciones_exactas_del_brief_y_veto_exige_admin():
     assert "pg_has_role(current_user, 'app_admin', 'MEMBER')" in cuerpo
     # Todo UPDATE de la cola ES una transición: no existen updates in-place.
     assert "NEW.estado = OLD.estado" in cuerpo
+
+
+def test_0002_fila_shadow_jamas_sale_del_permetro_veto_descartar():
+    # Sellado 6 (hallazgo reviewer r1 de 1.2): "una fila shadow JAMAS
+    # transiciona a released" — y por construccion tampoco a applying/applied/
+    # failed (de una fila shadow jamas sale HTTP). Candado de SCHEMA, no de
+    # disciplina de la app: de una fila modo='shadow' solo se llega a vetoed
+    # (practica del veto) o discarded (flip de ORBIT 05).
+    cuerpo = " ".join(_body_de(FUNCTIONS2, "apply_queue_sella_transiciones").split())
+    assert "OLD.modo = 'shadow'" in cuerpo, (
+        "el trigger de transiciones no condiciona por modo: una fila shadow "
+        "podria liberarse por SQL directo"
+    )
+    assert "NOT IN ('vetoed', 'discarded')" in cuerpo, (
+        "el perimetro de una fila shadow es vetoed|discarded, nada mas"
+    )
 
 
 def test_0002_clave_de_efecto_unico_parcial_nulls_not_distinct():

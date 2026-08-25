@@ -277,6 +277,50 @@ def test_maquina_de_estados_transiciones_legales_e_ilegales():
             conn.execute("UPDATE apply_queue SET discard_motivo = 'nota' WHERE id = %s", (q,))
 
 
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_fila_shadow_jamas_libera_perimetro_veto_descartar():
+    """Sellado 6 (hallazgo reviewer r1 de 1.2): una fila shadow JAMAS
+    transiciona a released — ni a applying/applied/failed (de una fila shadow
+    no sale HTTP). Candado de SCHEMA (el trigger condiciona por modo): su
+    perímetro es vetoed (práctica del dueño; corre como admin) o discarded
+    (flip de ORBIT 05; corre como admin). Regla 9: sin el guard, el UPDATE a
+    released de una fila shadow pasaría y el test reventaría."""
+    with _db_temporal("orbit_apply_shadow") as conn:
+        ids = _semilla(conn)
+        q = _encolar(conn, ids["dec_pause"], ids["kw"], "pause", modo="shadow")
+
+        for destino in ("released", "applying", "applied", "failed"):
+            with pytest.raises(psycopg.errors.CheckViolation, match="shadow"):
+                conn.execute("UPDATE apply_queue SET estado = %s WHERE id = %s", (destino, q))
+
+        # El perímetro LEGAL de una fila shadow: discard (corre como admin,
+        # como el flip de ORBIT 05) y veto (admin, práctica del dueño).
+        conn.execute("SET ROLE app_admin")
+        conn.execute(
+            "UPDATE apply_queue SET estado = 'discarded', discarded_at = now(),"
+            " discard_motivo = 'flip' WHERE id = %s",
+            (q,),
+        )
+        conn.execute("RESET ROLE")
+        q2 = _encolar(
+            conn, ids["dec_neg"], ids["ag"], "negative", term="zapato blanco", modo="shadow"
+        )
+        conn.execute("SET ROLE app_admin")
+        conn.execute(
+            "UPDATE apply_queue SET estado = 'vetoed', vetoed_at = now(), vetoed_by = 'dueno'"
+            " WHERE id = %s",
+            (q2,),
+        )
+        conn.execute("RESET ROLE")
+        estados = conn.execute(
+            "SELECT estado FROM apply_queue WHERE id IN (%s, %s) ORDER BY id", (q, q2)
+        ).fetchall()
+        assert [e[0] for e in estados] == ["discarded", "vetoed"]
+
+
 # ---------------------------------------------------------------------------
 # 3. Veto exige admin con el ROL REAL; el motor claima
 # ---------------------------------------------------------------------------

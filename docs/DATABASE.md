@@ -403,7 +403,8 @@ chocarían). **`vetoed` exige admin**: la transición a `vetoed` valida
 `current_user` por trigger — el rol del motor no puede vetar con el UPDATE
 que usa para el claim. Ventana 48h (`vence_el`, el reloj no se detiene por
 infra), veto durable 30d editable al vetar (`vetoed_at`/`vetoed_by`),
-shadow-mark (`modo='shadow'`: fila shadow jamás transiciona a `released`),
+shadow-mark (`modo='shadow'`: una fila shadow jamás se libera — candado del
+trigger de transiciones: su perímetro es `vetoed`|`discarded`),
 `request_payload` con lo que se va a mandar. La encola la APP (necesita el
 modo efectivo por decisión), con invariante testeado: toda decisión de
 corte del ciclo tiene fila en cola o skip registrado.
@@ -465,8 +466,12 @@ readback, con lo LEÍDO); INSERT/SELECT de `reactivacion_manual` a
 `decision_application`; INSERT/UPDATE acotados de `apply_queue` y
 INSERT + sello de `apply_attempt` a `app_decide`; la transición a `vetoed`
 solo `app_admin` (el trigger valida `current_user`). `tests/test_schema.py`
-amplía su parser a 0002: los invariantes (FK con índice, append-only y sus
-excepciones declaradas) cubren las tablas nuevas.
+amplía su parser a 0002: los invariantes transversales (FK con índice de
+apoyo, sin float para dinero, CHECKs sin TimeZone de sesión) cubren las
+tablas nuevas; los candados propios de 0002 (máquina de estados, perímetro
+shadow, sello del ledger, sellos de quota, GRANTs por columna) tienen sus
+tests dedicados en `tests/test_schema.py` (estáticos) y
+`tests/test_apply_schema.py` (integración).
 
 ## Vistas y funciones (lo que la app consume; nadie lee tablas crudas)
 

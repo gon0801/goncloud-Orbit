@@ -637,3 +637,22 @@ los fija el implementador de la tarea correspondiente):
   EJECUTOR" sin cubrir la confirmación tardía; lo fija 2.1/2.3 con test.
 - Subir el cap de una fila del día ya nacida: no sellado (§5.5); si la
   operación lo necesita, lo define 4.2 como admin.
+
+Notas de la revisión de Phase 1 (r1 del reviewer; para 2.1/2.3/0003, nadie
+las resuelve antes):
+
+- `AdsWriteClient` hereda los métodos de LECTURA del read client (`get`,
+  `list_objects`, ...) que ACEPTAN `profile_id` arbitrario: el scope sellado
+  a la instancia cubre las 10 mutaciones; el aplicador (2.1) debe pasar el
+  MISMO profile del cliente en el re-check GET fresco — o envolverlo en un
+  helper de lectura con scope sellado.
+- `>= 400` lanza `AdsApiError` con solo status+método+path (redacción del
+  read client): el cuerpo del error de Amazon se pierde y el `resultado` del
+  ledger (2.1) heredaría esa pérdida; valorar exponer la respuesta o un
+  snippet saneado.
+- Índices/backstops futuros baratos como 0003: índice `(estado, vence_el)`
+  para el barrido FIFO del liberador (irrelevante con los caps del día 1) y
+  `UNIQUE (decision_id, seq)` en `apply_attempt` cuidando los probes con
+  `decision_id` NULL (el tope-3 es COUNT de la app, sellado 10).
+- Un discard bajo `SET ROLE app_admin` (como el flip de ORBIT 05) no está
+  ejercitado en los tests DB de 1.2; los grants sí están pineados estáticos.

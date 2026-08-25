@@ -216,6 +216,19 @@ BEGIN
             USING ERRCODE = 'check_violation';
     END IF;
 
+    -- Sellado 6 (hallazgo reviewer r1): una fila shadow JAMAS se libera (ni
+    -- applying/applied/failed: de una fila shadow no sale HTTP). Candado de
+    -- schema, no disciplina de la app: su perimetro es veto (practica del
+    -- dueño) o discard (flip de ORBIT 05).
+    IF OLD.modo = 'shadow' AND NEW.estado NOT IN ('vetoed', 'discarded') THEN
+        RAISE EXCEPTION
+            'apply_queue %: fila shadow (modo=%) JAMAS transiciona a % — su '
+            'perimetro es vetoed|discarded (sellado 6: en shadow el dueño '
+            'practica el veto; el flip descarta en bloque; cero HTTP).',
+            OLD.id, OLD.modo, NEW.estado
+            USING ERRCODE = 'check_violation';
+    END IF;
+
     IF NEW.estado = 'vetoed'
        AND NOT pg_has_role(current_user, 'app_admin', 'MEMBER') THEN
         RAISE EXCEPTION
@@ -242,9 +255,10 @@ COMMENT ON FUNCTION apply_queue_sella_transiciones IS
   'La maquina de estados del brief §1.2 hecha cumplir por la base, no por la '
   'disciplina de la app (las transiciones atómicas UPDATE ... WHERE estado '
   'siguen siendo obligatorias en la app para las carreras; esto es el '
-  'backstop de schema). Tres candados en uno: tabla EXACTA de transiciones '
+  'backstop de schema). Cuatro candados en uno: tabla EXACTA de transiciones '
   '(sin applying -> discarded, terminales inmutables), todo UPDATE es '
-  'transicion (nada de reescribir la fila in-place) y el veto exige '
+  'transicion (nada de reescribir la fila in-place), una fila shadow jamas '
+  'sale del perimetro vetoed|discarded (sellado 6) y el veto exige '
   'pg_has_role(current_user, app_admin) — el endpoint de veto corre como '
   'admin (sellado 18); el motor jamas.';
 
@@ -398,9 +412,10 @@ COMMENT ON TABLE reactivacion_manual IS
   'Hecho PURO (append-only por prohibir_mutacion): la primera detección del '
   'ENABLED manual es la que abre la gracia de 7d; una segunda detección no '
   'mueve detectada_en (la PK lo impide) y re-detectar tras la gracia no '
-  'reescribe la historia. Solo el aplicador escribe (GRANT INSERT/SELECT '
-  'exclusivos de app_decide): el sync no toca esta tabla (structure.py no se '
-  'toca; solo el caso detectable, residual declarado en el header).';
+  'reescribe la historia. Solo el aplicador escribe (INSERT exclusivo de '
+  'app_decide; el SELECT es como toda tabla del schema, patrón 0001 — la '
+  'gracia es visible en Salud): el sync no toca esta tabla (structure.py no '
+  'se toca; solo el caso detectable, residual declarado en el header).';
 
 
 -- =============================================================================

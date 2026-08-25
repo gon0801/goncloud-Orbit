@@ -48,7 +48,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from decimal import Decimal
+from decimal import ROUND_HALF_EVEN, Decimal
 from types import MappingProxyType
 
 import httpx
@@ -114,12 +114,15 @@ def _un_objeto(valor: object, nombre: str) -> object:
 def _bid_payload(bid: Decimal) -> str:
     """Bid quantizado a 2 decimales (presentacion sellada; el NUMERIC de
     origen trae 4) y serializado como string: float prohibido para dinero
-    (regla 4) y json.dumps no serializa Decimal."""
+    (regla 4) y json.dumps no serializa Decimal. El modo de redondeo va
+    EXPLICITO (hallazgo reviewer r1): ROUND_HALF_EVEN, el default del
+    contexto Decimal — declararlo evita que el modo dependa de un contexto
+    global que nadie mira; cambiarlo es decision del dueno en el probe 2.5."""
     if not isinstance(bid, Decimal):
         raise TypeError(
             f"bid debe ser Decimal, no {type(bid).__name__} (float prohibido para dinero)"
         )
-    return str(bid.quantize(Decimal("0.01")))
+    return str(bid.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN))
 
 
 class AdsWriteClient(AdsClient):
