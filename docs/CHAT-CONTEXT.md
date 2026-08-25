@@ -30,7 +30,17 @@ atrapó y cerró bugs reales del bloque 2. Phase 2 CERRADA: el dashboard
 también se ve por la VPN WireGuard del dueño (cel y compu, validado
 por él) — bind adicional en la IP wg0, allowlist EXACTA de mapeos
 sellada por candado, sign-off del dueño antes de aplicar. Queda solo
-Phase 3 (settings de escritura, bloqueada por ORBIT 04). Siguiente proyecto grande: ORBIT
+Phase 3 (settings de escritura, bloqueada por ORBIT 04). CORTES 01
+CERRADO (5/5): los cortes NEGATIVE y PAUSE ahora usan umbral de clicks
+ADAPTATIVO por producto (evidencia del ad group 90d: expected_clicks ×
+1.5, piso max con legacy) y NEGATIVE además piso de COSTO adaptativo
+(AOV del producto × 1.0, respaldos 45 USD/600 MXN) — nacido del caso
+arras y calibrado con 57 anotaciones del dueño (regla nueva 21/22 con
+su instinto vs 0/22 de la vieja); contrafactual final: 28 cortes
+legacy → 1 con el paquete. Los términos PRODUCTO-DIFERENTE se cortan
+por la otra vía: lista curada por AI con aprobación del dueño
+(CORTES 02, sembrada). Shadow valida la regla nueva ~2 semanas antes
+del cutover. Siguiente proyecto grande: ORBIT
 04 (PR2: el apply con topes). Este archivo tiene candado de frescura:
 el CI exige actualizarlo en cada PR que cierre tareas.**
 
