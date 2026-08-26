@@ -49,14 +49,15 @@ ALLOWLIST_TAMANO = {
     "app/cycle.py": (
         "ORBIT 03 task 3.1: orquestador del ciclo, ubicacion SELLADA por el "
         "plan (importa psycopg, fuera del motor puro) y API publica sellada "
-        "(corre_ciclo + reproduce para el spot-check 4.4). Sus piezas (SQL "
-        "sellada de claim/envelope/rastro, 3 fases de transaccion, "
-        "serializacion congelada de inputs y replay) no tienen frontera "
-        "coherente para partirse sin romper el sellado; partir por partir "
-        "esta prohibido por la regla anti-Goodhart. Candidato DECLARADO "
-        "(hallazgo reviewer 3.1): el codec de inputs congelados "
-        "(serializacion + replay, par freeze<->replay de ~300 lineas) si "
-        "3.3/PR2 hacen crecer el modulo"
+        "(corre_ciclo + reproduce para el spot-check 4.4). ORBIT 04 2.4 "
+        "agrego la fase de apply dentro del lock (TX4 + aplicador + guard de "
+        "ownership). Sus piezas (SQL sellada de claim/envelope/rastro, fases "
+        "de transaccion, serializacion congelada de inputs, replay y la fase "
+        "de apply) no tienen frontera coherente para partirse sin romper el "
+        "sellado; partir por partir esta prohibido por la regla "
+        "anti-Goodhart. Candidato DECLARADO (hallazgo reviewer 3.1): el codec "
+        "de inputs congelados (serializacion + replay, par freeze<->replay de "
+        "~300 lineas)"
     ),
 }
 

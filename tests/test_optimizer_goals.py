@@ -209,14 +209,21 @@ def test_modo_efectivo_meet_del_reticulo():
     assert g.modo_efectivo("live", "live") == "live"
 
 
-def test_resuelve_modo_live_degradado_a_shadow_con_nota_pr1():
-    """Fail-closed PR1: HAY_MODULO_APPLY es False, asi que un meet 'live'
-    (escalera live + goal live) se degrada a 'shadow' con nota del vocabulario
-    estable. Sin nota seria una degradacion invisible en el ciclo."""
+def test_resuelve_modo_live_ya_no_degrada_con_modulo_apply():
+    """GOLDEN INVERTIDO en ORBIT 04 2.4 (sellado 22, declarado): HAY_MODULO_APPLY
+    se encendio, asi que un meet 'live' (escalera live + goal live) YA NO se
+    degrada a 'shadow'. La rama de PR1 queda como candado de flip-back: con el
+    flag apagado a mano, la degradacion con la nota estable vuelve a disparar
+    (regla 9: un flip accidental dejaria de ser invisible)."""
     resuelto = g.resuelve_modo("live", "live")
-    assert resuelto.modo == "shadow"
-    assert resuelto.nota is not None
-    assert resuelto.nota == g.NOTA_LIVE_DEGRADADO
+    assert resuelto == g.ModoEfectivo(modo="live", nota=None)
+    original = g.HAY_MODULO_APPLY
+    try:
+        g.HAY_MODULO_APPLY = False
+        degradado = g.resuelve_modo("live", "live")
+    finally:
+        g.HAY_MODULO_APPLY = original
+    assert degradado == g.ModoEfectivo(modo="shadow", nota=g.NOTA_LIVE_DEGRADADO)
 
 
 def test_resuelve_modo_shadow_por_escalera_no_lleva_nota():

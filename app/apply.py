@@ -63,6 +63,16 @@ fija contra las formas reales.
 `owner`/`job_key` se guardan para el ownership-check pre-HTTP de la
 integracion (2.4, decision 11); el heartbeat `tick` se llama DURANTE la
 mutacion y el readback.
+
+GANCHOS de 2.4 (declarados): (a) `credentials`/`profile_id` OPCIONALES — el
+ciclo construye un Aplicador sin credenciales cuando solo necesita
+`modo_efectivo` (escalera shadow: cero HTTP por construccion) y `_cliente()`
+revienta fail-closed si un camino live lo intenta sin ellas; (b)
+`guard_http` — callback que corre ANTES DE CADA HTTP del write client
+(envolviendo el transport: mutacion, readback, listas y token LWA incluidos).
+Es la unica forma de garantizar el ownership-check pre-HTTP de la decision 11
+SIN tocar write.py (su allowlist de imports esta sellada): todos los HTTP del
+Aplicador pasan por el transport.
 """
 
 from __future__ import annotations
@@ -453,6 +463,23 @@ _KINDS_DECISORAS = {
 }
 
 
+class _TransportGuardado(httpx.BaseTransport):
+    """Transport decorado con el guard pre-HTTP (gancho 2.4, decision 11): el
+    callback corre ANTES de despachar CADA request. Asi el ownership-check del
+    ciclo cubre mutacion, readback, listas y hasta el token LWA sin tocar el
+    write client (candado de imports sellado). El guard que lanza aborta la
+    fase de apply sin que el request salga — el transport espia de los tests
+    jamas lo ve."""
+
+    def __init__(self, base: httpx.BaseTransport, guard: Callable[[], None]) -> None:
+        self._base = base
+        self._guard = guard
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        self._guard()
+        return self._base.handle_request(request)
+
+
 class Aplicador:
     """Aplica decisiones de bid de UN ciclo ejecutor sobre UNA plataforma.
 
@@ -461,21 +488,29 @@ class Aplicador:
     no es exactamente 'live' (fail-closed), asi que la re-resolucion POR
     DECISION es la que decide si existe cliente. En shadow: cero HTTP (ni
     token LWA). `transport`/`sleep` son la inyeccion de tests (MockTransport),
-    misma puerta que AdsClient."""
+    misma puerta que AdsClient.
+
+    2.4: `credentials`/`profile_id` son OPCIONALES — un Aplicador sin ellos
+    sirve para re-resolver modo_efectivo (escalera shadow o fabrica que aborto)
+    y JAMAS construye cliente (fail-closed en _cliente, regla 3: no existe
+    profile inventado). `guard_http` corre antes de CADA HTTP del write client
+    (ownership-check + heartbeat de la decision 11; ver docstring del modulo).
+    """
 
     def __init__(
         self,
         conn: psycopg.Connection,
         *,
         platform: str,
-        profile_id: str | int,
-        credentials: AdsCredentials,
         cycle_id_ejecutor: int,
         owner: str,
         job_key: str,
         tick: Callable[[], None] | None = None,
         transport: httpx.BaseTransport | None = None,
         sleep: Callable[[float], None] | None = None,
+        credentials: AdsCredentials | None = None,
+        profile_id: str | int | None = None,
+        guard_http: Callable[[], None] | None = None,
     ) -> None:
         if platform not in PLATAFORMA_MONEDA:
             raise ValueError(
@@ -494,6 +529,7 @@ class Aplicador:
         self._tick_fn = tick
         self._transport = transport
         self._sleep = sleep
+        self._guard_http = guard_http
         self._write_client: AdsWriteClient | None = None
 
     # -- modo efectivo por decision (JAMAS inputs.modo ni cycle.mode) ------
@@ -543,13 +579,28 @@ class Aplicador:
     # -- write client lazy ---------------------------------------------------
 
     def _cliente(self) -> AdsWriteClient:
+        if self._credentials is None or self._profile_id is None:
+            # Aplicador sin credenciales/profile (solo modo_efectivo): un
+            # camino live NO puede construir cliente — fail-closed ruidoso,
+            # jamas un profile inventado (regla 3).
+            raise ValueError(
+                "Aplicador sin credentials/profile_id: el modo live exige la "
+                "fabrica del ciclo (2.4), no un cliente a ciegas"
+            )
         if self._write_client is None:
+            transport: httpx.BaseTransport | None = self._transport
+            if self._guard_http is not None:
+                # Gancho 2.4 (decision 11): TODOS los HTTP del write client
+                # pasan por el transport — el guard corre ANTES de cada
+                # request (mutacion, readback, listas y token LWA incluidos).
+                base = self._transport if self._transport is not None else httpx.HTTPTransport()
+                transport = _TransportGuardado(base, self._guard_http)
             self._write_client = AdsWriteClient(
                 self._credentials,
                 platform=self._platform,
                 profile_id=self._profile_id,
                 modo_confirmado=MODO_CONFIRMADO_LIVE,
-                transport=self._transport,
+                transport=transport,
                 sleep=self._sleep if self._sleep is not None else (lambda seconds: None),
             )
         return self._write_client

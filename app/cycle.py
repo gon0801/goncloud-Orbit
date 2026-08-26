@@ -79,9 +79,56 @@ legacy 20 negative / 25 pause); jamas recalcula evidencia.
 
 Semantica de status del envelope: 'done' si el ciclo corrio completo (aunque
 todo haya sido skips), 'degraded' si disparo una guarda de plataforma (dato
-stale ES alarma), 'skipped' para escalera off / lock ajeno (este ultimo ni
-abre envelope), 'failed' solo via sello de excepcion (la excepcion sube: el
-status 'failed' nunca se devuelve, se persiste).
+stale ES alarma) o la fase de apply aborto (2.4), 'skipped' para escalera off
+/ lock ajeno (este ultimo ni abre envelope), 'failed' solo via sello de
+excepcion (la excepcion sube: el status 'failed' nunca se devuelve, se
+persiste).
+
+ORBIT 04 2.4 — FASE DE APPLY DENTRO DEL LOCK (decisiones 11, 21, 22; APPLY.md
+§9). Tras TX3 (decisiones commitadas) y ANTES del return (el lock se libera en
+el `finally` de corre_ciclo — el apply corre con el lock NUESTRO):
+
+- TX4 (transaccion propia, por fila como 2.2 sella): `encola_cortes` con TODA
+  decision de corte del ciclo (shadow-mark por decision via modo_efectivo del
+  Aplicador; corre en shadow Y live — en shadow con un Aplicador SIN
+  credenciales: cero HTTP por construccion).
+- SKIP POR CLAVE DE EFECTO en la FASE DE DECISION (2.2 sellado 5): al empezar
+  `_fase_lecturas` se cargan las claves bloqueadas (en-vuelo o veto vigente,
+  `apply_cola.claves_bloqueadas`) y `_procesa_decisora`/`_procesa_grupo`
+  saltan la entidad/termino bloqueado con motivo `veto_pendiente` (funciona en
+  shadow y live: el bloqueo es por clave de efecto, no por modo). DECLARADO:
+  el bloqueo entity_cut salta la entidad ENTERA del motor de bids — decide_bid
+  evalua pause y banda en UNA llamada y no existe forma de prohibir solo el
+  pause sin inventar un umbral (regla 3); su bid vuelve al ciclo siguiente.
+- Si el modo del envelope es 'live': la fase de apply propiamente — la
+  FABRICA (`_aplicador_real`, inyectable via `aplicador_factory` para tests)
+  resuelve credenciales (`AdsCredentials.from_secrets_dir`) y profile por
+  plataforma (GET /v2/profiles + `evaluar_perfiles` de structure, la MISMA
+  fuente del sync — regla 2). Sin perfil aceptado -> la fase ABORTA con nota
+  `apply_error` (fail-closed: cero HTTP de mutacion) y el ciclo SIGUE. Luego
+  `reconcilia_harvest` (inicio de la fase), `aplica_bids` (seleccion bajo cap)
+  y `libera_vencidos` (FIFO).
+- OWNERSHIP-CHECK PRE-HTTP + HEARTBEAT (decision 11): el `tick` del Aplicador
+  ES el guard — heartbeat y `SELECT owner FROM ads_optimizer_lock`; si el
+  owner ya no es el nuestro -> `ApplyAbortado`: aborta la fase de apply
+  FAIL-CLOSED (sin mas HTTP; el guard vive en el transport del write client y
+  cubre mutacion, readback, listas y token), el envelope se sella con nota
+  `apply_abortado_owner` y status 'degraded'. Stance DECLARADA
+  FAIL-CLOSED-AUDITADO: el ciclo NO re-lanza (las decisiones ya estan; el
+  aborto es auditado y el siguiente ciclo reconcilia) y CUALQUIER otra
+  excepcion de la fase de apply se captura igual (nota `apply_error` +
+  degraded) — un fallo de apply no borra las decisiones ya tomadas. Solo el
+  GET /v2/profiles de la fabrica queda fuera del guard (lectura previa a la
+  existencia del Aplicador; residual declarado).
+- GUARD `status='running'` EN EL CIERRE (la mejora que el rastro anunciaba):
+  `_cierra_envelope` solo cierra envelopes 'running' — 0 filas = alguien ya
+  cerro (rastro de un sucesor): warning y NO pisar, jamas sobre-cerrar. El
+  sello post-apply (notes['apply'] + degraded) tampoco toca un envelope ya
+  cerrado por rastro. `applied_count` se actualiza POR COLUMNA al final de la
+  fase (permitido por GRANT), nunca como cierre.
+- NOTES del apply: vocabulario CERRADO bajo `notes["apply"]` —
+  bids_aplicados, bids_descartados, cortes_encolados, cortes_liberados,
+  apply_error, apply_abortado_owner.
 """
 
 from __future__ import annotations
@@ -90,13 +137,20 @@ import datetime as dt
 import json
 import logging
 from collections import Counter
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 
+import httpx
 import psycopg
 from psycopg.conninfo import make_conninfo
 from psycopg.types.json import Json
 
+from app import apply, apply_cola, apply_harvest
+from app.ads.client import AdsClient
+from app.ads.config import AdsCredentials
+from app.ads.structure import evaluar_perfiles
+from app.apply import Aplicador
 from app.optimizer import bid, cortes, hygiene, windows
 from app.optimizer import goals as g
 from app.optimizer.bid import PLATAFORMAS_MONEDA
@@ -120,23 +174,24 @@ def job_key_de(platform: str) -> str:
 
 
 # Motivos de skip del ORQUESTADOR (vocabulario cerrado; ademas se importan los
-# MOTIVO_* de bid/hygiene tal cual a los contadores de notes).
+# MOTIVO_* de bid/hygiene tal cual a los contadores de notes). veto_pendiente
+# viene de apply_cola (2.2 sellado 5): UNA fuente del vocabulario.
 MOTIVO_SIN_GOAL = "sin_goal"
 MOTIVO_GOAL_DISABLED = "goal_disabled"  # el opt-out auditable del Spec delta
 MOTIVO_GOAL_MODE_OFF = "goal_mode_off"
 MOTIVO_ESTADO_NO_ENABLED = "estado_no_enabled"
 MOTIVO_COOLDOWN_7D = "cooldown_7d"
 MOTIVO_ESCALERA_OFF = "escalera_off"
+MOTIVO_VETO_PENDIENTE = apply_cola.MOTIVO_VETO_PENDIENTE
 
 # Modo tope del goal para el envelope del ciclo: la escalera global es el
-# techo real en PR1 (resuelve_modo degrada live->shadow sin modulo apply), y
-# el modo por goal solo puede BAJARLO (goal 'off' deja entidades fuera, no
-# sube el ciclo). Para toda entidad que decide, el modo efectivo coincide con
-# el del envelope EN PR1. RESIDUAL PR2 (hallazgo reviewer 3.1): cuando
-# HAY_MODULO_APPLY se voltee y la escalera sea 'live' con goal 'shadow', el
-# envelope dira 'live' y decisiones de goals 'shadow' llevaran inputs.modo
-# 'live' — el apply de PR2 JAMAS debe filtrar por inputs.modo/cycle.mode:
-# debe re-resolver goal.mode por decision.
+# techo, y el modo por goal solo puede BAJARLO (goal 'off' deja entidades
+# fuera, no sube el ciclo). Para toda entidad que decide, el modo efectivo
+# coincide con el del envelope. El RESIDUAL PR2 (hallazgo reviewer 3.1) ya
+# esta RESUELTO desde 2.4: con la escalera 'live' y un goal 'shadow' el
+# envelope dice 'live' y las decisiones llevan inputs.modo 'live' — y el
+# aplicador JAMAS filtra por inputs.modo/cycle.mode: re-resuelve goal.mode
+# POR DECISION (Aplicador.modo_efectivo, sellado 2.1).
 _MODO_TOPE_ENVELOPE = "live"
 
 # JSON con Decimals como STRING (regla 4), fechas ISO y ASCII libre.
@@ -149,6 +204,21 @@ def _dumps(obj) -> str:
 class CicloOcupado(Exception):
     """El claim del lock se perdio: hay un ciclo vigente de OTRO owner. Se
     lanza SIN envelope (nada corrio) y sin liberar lock ajeno."""
+
+
+class ApplyAbortado(Exception):
+    """Ownership-check pre-HTTP (decision 11): el lock del job ya NO es
+    nuestro (lease perdido, un sucesor lo reclamo tras el TTL). Aborta la
+    fase de apply FAIL-CLOSED — sin mas HTTP — sin tumbar el ciclo: las
+    decisiones ya estan commitadas y el aborto es auditado (nota
+    apply_abortado_owner + degraded); el siguiente ciclo reconcilia."""
+
+
+class SinPerfilAplicar(Exception):
+    """La fabrica del aplicador no encontro perfil ACEPTADO para la plataforma
+    en GET /v2/profiles (evaluar_perfiles, la misma fuente del sync). La fase
+    de apply aborta fail-closed (cero HTTP de mutacion) y el ciclo sigue con
+    nota apply_error (2.4)."""
 
 
 @dataclass(frozen=True)
@@ -182,11 +252,12 @@ RETURNING claimed_at
 """
 
 # Rastro de ciclos muertos: SOLO alcanzable tras ganar el claim (si el lock
-# estaba tomado, no hay ciclo vivo QUE NOS DEJE CERRAR — residual declarado:
+# estaba tomado, no hay ciclo vivo QUE NOS DEJE CERRAR). Residual declarado:
 # con heartbeat fail-open y latidos fallando >TTL pero conexion principal
-# viva, un ciclo ZOMBIE puede seguir corriendo; este rastro lo marca failed
-# y el zombie luego lo pisa a done al cerrarse (auditoria inconsistente, no
-# corrupcion; guard de status='running' en el cierre es mejora de PR2).
+# viva, un ciclo ZOMBIE puede seguir corriendo; este rastro lo marca failed.
+# Desde 2.4 el guard `status='running'` del cierre (_SQL_CERRAR_ENVELOPE) y
+# el ownership-check pre-HTTP del apply CIERRAN la ventana del zombie: este
+# ya NO pisa el rastro del sucesor al cerrarse (0 filas, warning, no pisa).
 # El id nuevo se excluye.
 _SQL_RASTRO = """
 UPDATE optimizer_cycle
@@ -204,10 +275,37 @@ VALUES ('ads_optimizer', %s, %s::platform)
 RETURNING id
 """
 
+# GUARD status='running' (2.4, decision 11): solo se cierra un envelope
+# ABIERTO — 0 filas = alguien ya lo cerro (rastro del sucesor sobre nuestro
+# zombie) y JAMAS se sobre-cierra.
 _SQL_CERRAR_ENVELOPE = """
 UPDATE optimizer_cycle
    SET status = %s, finished_at = now(), decisions_count = %s, notes = %s
- WHERE id = %s
+ WHERE id = %s AND status = 'running'
+"""
+
+# Ownership-check pre-HTTP (decision 11): SELECT fresco del owner del lock.
+# Fuera de transaccion explicita (READ COMMITTED de la sesion): ve el UPDATE
+# commitado del sucesor aunque nuestra sesion tenga una transaccion abierta.
+_SQL_OWNER_LOCK = """
+SELECT owner FROM ads_optimizer_lock WHERE job_key = %s
+"""
+
+# Sello post-apply (2.4): notes['apply'] y, si la fase aborto (%s), degraded.
+# Solo toca envelopes 'done'/'degraded' — si el rastro de un sucesor ya cerro
+# el nuestro en 'failed', NO se pisa (jamas sobre-cerrar; auditoria del zombie).
+_SQL_SELLA_APPLY = """
+UPDATE optimizer_cycle
+   SET status = CASE WHEN %s AND status = 'done' THEN 'degraded' ELSE status END,
+       notes = %s
+ WHERE id = %s AND status IN ('done', 'degraded')
+"""
+
+# applied_count por COLUMNA al final de la fase de apply (2.4, sellado 21:
+# cuadra por ciclo EJECUTOR; el GRANT de 0001 cubre esta columna). No es un
+# cierre: no toca status ni finished_at.
+_SQL_APPLIED_COUNT_CICLO = """
+UPDATE optimizer_cycle SET applied_count = %s WHERE id = %s
 """
 
 _SQL_SELLAR_FALLIDO = """
@@ -651,6 +749,67 @@ def _tick_heartbeat(hb, job_key: str, owner: str, cada: int):
     return tick
 
 
+def _guard_apply(
+    conn: psycopg.Connection, job_key: str, owner: str, tick_heartbeat: Callable[[], None]
+) -> Callable[[], None]:
+    """El `tick` del Aplicador en la fase de apply (decision 11): (a) heartbeat
+    — mutaciones lentas no dejan morir el lease; (b) ownership-check fresco
+    contra ads_optimizer_lock. Lease perdido -> ApplyAbortado: aborto
+    fail-closed de la fase (el guard tambien vive en el transport del write
+    client, ver app/apply 2.4), SIN tumbar el ciclo."""
+
+    def guard() -> None:
+        tick_heartbeat()
+        fila = conn.execute(_SQL_OWNER_LOCK, (job_key,)).fetchone()
+        if fila is None or fila[0] != owner:
+            dueno = fila[0] if fila is not None else "sin lock"
+            raise ApplyAbortado(f"lock {job_key} ya no es nuestro (owner: {dueno})")
+
+    return guard
+
+
+def _aplicador_real(
+    conn: psycopg.Connection,
+    *,
+    platform: str,
+    cycle_id_ejecutor: int,
+    owner: str,
+    job_key: str,
+    tick: Callable[[], None] | None,
+    transport: httpx.BaseTransport | None = None,
+) -> Aplicador:
+    """Fabrica por defecto del aplicador (2.4). Credenciales del secrets dir
+    (`AdsCredentials.from_secrets_dir`) y profile por plataforma desde GET
+    /v2/profiles + `evaluar_perfiles` — la MISMA fuente del sync (regla 2; el
+    profile_id NO se inventa ni se hardcodea). Sin perfil aceptado ->
+    SinPerfilAplicar (la fase aborta fail-closed). `transport` es la puerta de
+    tests (MockTransport); `tick` viaja como tick Y guard pre-HTTP del write
+    client (heartbeat + ownership-check, decision 11)."""
+    credentials = AdsCredentials.from_secrets_dir()
+    perfil = next(
+        (
+            p
+            for p in evaluar_perfiles(AdsClient(credentials, transport=transport))
+            if p.aceptado and p.platform == platform
+        ),
+        None,
+    )
+    if perfil is None:
+        raise SinPerfilAplicar(f"sin perfil aceptado para {platform} en /v2/profiles")
+    return Aplicador(
+        conn,
+        platform=platform,
+        cycle_id_ejecutor=cycle_id_ejecutor,
+        owner=owner,
+        job_key=job_key,
+        tick=tick,
+        guard_http=tick,
+        transport=transport,
+        credentials=credentials,
+        profile_id=perfil.profile_id,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Fases de TX1
 # ---------------------------------------------------------------------------
@@ -715,8 +874,33 @@ def _inserta_decisiones(
 
 def _cierra_envelope(
     conn: psycopg.Connection, cycle_id: int, status: str, decisions_count: int, notes: str
-) -> None:
-    conn.execute(_SQL_CERRAR_ENVELOPE, (status, decisions_count, notes, cycle_id))
+) -> bool:
+    """Cierra el envelope SOLO si sigue 'running' (guard 2.4). False = 0 filas:
+    alguien ya lo cerro (rastro de un sucesor sobre nuestro zombie) — warning
+    y NO pisar; las decisiones ya commitadas no se borran por esto."""
+    filas = conn.execute(_SQL_CERRAR_ENVELOPE, (status, decisions_count, notes, cycle_id)).rowcount
+    if filas == 0:
+        logger.warning(
+            "cierre del envelope %s ignorado: ya no esta 'running' (rastro de un "
+            "sucesor o cierre previo) — no se pisa",
+            cycle_id,
+        )
+        return False
+    return True
+
+
+def _sella_apply(conn: psycopg.Connection, cycle_id: int, notes: str, *, degradar: bool) -> bool:
+    """Sello post-apply: notes['apply'] y degraded si la fase aborto (2.4).
+    Misma regla de no-sobre-cerrar: un envelope cerrado en 'failed' por el
+    rastro de un sucesor NO se toca."""
+    filas = conn.execute(_SQL_SELLA_APPLY, (degradar, notes, cycle_id)).rowcount
+    if filas == 0:
+        logger.warning(
+            "sello de apply del envelope %s ignorado: cerrado por otro (rastro)",
+            cycle_id,
+        )
+        return False
+    return True
 
 
 def _sello_fallido(
@@ -860,8 +1044,18 @@ def _procesa_decisora(
     tick,
     evidencia_ad_groups: dict[int, windows.EvidenciaAdGroup],
     corte_pause_por_grupo: dict[int, tuple[cortes.UmbralResuelto, windows.EvidenciaAdGroup | None]],
+    bloqueadas: set[tuple[int, str, str | None]],
 ) -> None:
     entidad_id, ad_group_id, campaign_id, current_bid, bid_currency, status, acos_cache = fila
+    if (entidad_id, "entity_cut", None) in bloqueadas:
+        # 2.2 sellado 5 / 2.4: clave de efecto en vuelo (fila NO terminal o
+        # veto vigente) — el ciclo NO re-decide esa clave. Salta la entidad
+        # ENTERA del motor de bids (decide_bid evalua pause y banda en una
+        # sola llamada; prohibir solo el pause exigiria inventar un umbral,
+        # regla 3 — declarado en el docstring del modulo).
+        contadores.skips_entidad[MOTIVO_VETO_PENDIENTE] += 1
+        tick()
+        return
     goal, motivo = _gates_entidad(
         conn,
         goals,
@@ -935,10 +1129,22 @@ def _procesa_grupo(
     pendientes: list[_Pendiente],
     tick,
     evidencia_ad_groups: dict[int, windows.EvidenciaAdGroup],
+    bloqueadas: set[tuple[int, str, str | None]],
 ) -> None:
     grupo_id, campaign_id, status = fila
     terminos = windows.terminos_cortes(conn, grupo_id, decided_at)
     contadores.terminos += len(terminos.terminos)
+    # 2.2 sellado 5 / 2.4: los terminos cuya clave de efecto (grupo,
+    # term_cut, search_term) esta bloqueada NO se re-deciden; los demas
+    # avanzan. La ventana/fechas de la entidad se conservan: el filtro es de
+    # terminos, no de la ventana (mismo snapshot de TX2).
+    libres = tuple(
+        t for t in terminos.terminos if (grupo_id, "term_cut", t.search_term) not in bloqueadas
+    )
+    bloqueados = len(terminos.terminos) - len(libres)
+    if bloqueados:
+        contadores.skips_termino[MOTIVO_VETO_PENDIENTE] += bloqueados
+        terminos = replace(terminos, terminos=libres)
     goal, motivo = _gates_entidad(
         conn,
         goals,
@@ -1009,6 +1215,7 @@ def _recorre_plataforma(
     contadores: _Contadores,
     pendientes: list[_Pendiente],
     tick,
+    bloqueadas: set[tuple[int, str, str | None]],
 ) -> None:
     setting_target = g.target_desde_settings(settings, platform)
     acos_campanas = {
@@ -1038,6 +1245,7 @@ def _recorre_plataforma(
         pendientes=pendientes,
         tick=tick,
         evidencia_ad_groups=evidencia_ad_groups,
+        bloqueadas=bloqueadas,
     )
     for fila in conn.execute(_SQL_DECISORAS, (platform,)).fetchall():
         contadores.entidades += 1
@@ -1058,14 +1266,16 @@ def _fase_lecturas(
     pendientes: list[_Pendiente],
     tick,
 ) -> windows.MotivoSkip | None:
-    """TX2: guarda de plataforma + recorrido completo, TODO en una transaccion
-    REPEATABLE READ (snapshot uniforme; SET TRANSACTION como PRIMERA sentencia).
-    Devuelve la guarda disparada (None = ciclo completo)."""
+    """TX2: guarda de plataforma + claves de efecto bloqueadas + recorrido
+    completo, TODO en una transaccion REPEATABLE READ (snapshot uniforme; SET
+    TRANSACTION como PRIMERA sentencia). Devuelve la guarda disparada (None =
+    ciclo completo)."""
     with conn.transaction():
         conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
         guarda = windows.guarda_plataforma(conn, platform, ahora=decided_at)
         if guarda is not None:
             return guarda
+        bloqueadas = apply_cola.claves_bloqueadas(conn, platform, decided_at)
         _recorre_plataforma(
             conn,
             platform=platform,
@@ -1075,8 +1285,110 @@ def _fase_lecturas(
             contadores=contadores,
             pendientes=pendientes,
             tick=tick,
+            bloqueadas=bloqueadas,
         )
     return None
+
+
+# ---------------------------------------------------------------------------
+# Fase de apply (2.4): TX4 + apply propio, DENTRO del lock
+# ---------------------------------------------------------------------------
+
+
+def _fase_apply(
+    conn: psycopg.Connection,
+    *,
+    cycle_id: int,
+    modo: g.ModoEfectivo,
+    platform: str,
+    decided_at: dt.datetime,
+    job_key: str,
+    owner: str,
+    guard: Callable[[], None],
+    aplicador_factory: Callable[..., Aplicador] | None,
+) -> tuple[dict, bool]:
+    """TX4 + fase de apply propiamente (decisiones 11/21; docstring del
+    modulo). Devuelve (seccion notes['apply'], fallo). Stance
+    FAIL-CLOSED-AUDITADO: CUALQUIER excepcion de la fase (fabrica incluida) se
+    captura como nota + degraded — un fallo de apply no borra las decisiones
+    ya tomadas; el siguiente ciclo reconcilia. El invariante corte<->cola
+    (2.2 sellado 4) se conserva incluso si la fabrica aborta: TX4 corre con
+    un Aplicador sin credenciales (solo modo_efectivo, cero HTTP)."""
+    notas: dict = {}
+    fallo = False
+    aplicador: Aplicador | None = None
+    if modo.modo == "live":
+        try:
+            fabrica = aplicador_factory if aplicador_factory is not None else _aplicador_real
+            aplicador = fabrica(
+                conn,
+                platform=platform,
+                cycle_id_ejecutor=cycle_id,
+                owner=owner,
+                job_key=job_key,
+                tick=guard,
+            )
+        except Exception as exc:  # noqa: BLE001 - fail-closed-auditado (docstring)
+            notas["apply_error"] = scrub(str(exc)) or type(exc).__name__
+            fallo = True
+    if aplicador is None:
+        # Shadow (o fabrica abortada): Aplicador SOLO modo_efectivo, sin
+        # credenciales ni profile — jamas construye cliente (fail-closed).
+        aplicador = Aplicador(
+            conn,
+            platform=platform,
+            cycle_id_ejecutor=cycle_id,
+            owner=owner,
+            job_key=job_key,
+            tick=guard,
+        )
+    try:
+        resumen = apply_cola.encola_cortes(
+            conn, aplicador, cycle_id, modo_envelope=modo.modo, ahora=decided_at
+        )
+        notas["cortes_encolados"] = {
+            "live": resumen.encoladas_live,
+            "shadow": resumen.encoladas_shadow,
+            "choques": len(resumen.choques),
+        }
+        if modo.modo == "live" and "apply_error" not in notas:
+            reconciliacion = apply_harvest.reconcilia_harvest(conn, aplicador, platform)
+            res_bids = aplicador.aplica_bids(
+                apply.bids_del_ciclo(conn, cycle_id), escalera_global=modo.modo
+            )
+            res_cola = apply_cola.libera_vencidos(
+                conn, platform, ahora=decided_at, aplicador=aplicador
+            )
+            notas["bids_aplicados"] = res_bids.aplicadas
+            notas["bids_descartados"] = len(res_bids.descartadas)
+            notas["cortes_liberados"] = {
+                "liberadas": res_cola.liberadas,
+                "aplicadas": res_cola.aplicadas,
+                "fallidas": res_cola.fallidas,
+                "sin_quota": res_cola.sin_quota,
+                "carreras_perdidas": res_cola.carreras_perdidas,
+            }
+            # applied_count por COLUMNA al final de la fase (sellado 21): el
+            # total confirmado de ESTE ciclo ejecutor. En aborto no se toca:
+            # los incrementos por mutacion de _confirma_resumen ya quedaron
+            # (parcial honesto; la fuente de verdad es decision_application).
+            total = (
+                res_bids.aplicadas
+                + res_cola.aplicadas
+                + reconciliacion.jobs_done
+                + reconciliacion.negativas_confirmadas
+            )
+            with conn.transaction():
+                conn.execute(_SQL_APPLIED_COUNT_CICLO, (total, cycle_id))
+    except ApplyAbortado as exc:
+        notas["apply_abortado_owner"] = True
+        fallo = True
+        logger.warning("fase de apply abortada (lease perdido): %s", scrub(str(exc)))
+    except Exception as exc:  # noqa: BLE001 - fail-closed-auditado (docstring)
+        notas["apply_error"] = scrub(str(exc)) or type(exc).__name__
+        fallo = True
+        logger.warning("fase de apply abortada por error: %s", scrub(str(exc)))
+    return notas, fallo
 
 
 # ---------------------------------------------------------------------------
@@ -1099,6 +1411,7 @@ def _corre_fases(
     owner: str,
     hb,
     heartbeat_cada: int,
+    aplicador_factory: Callable[..., Aplicador] | None = None,
 ) -> ResultadoCiclo:
     if modo.modo == "off":
         notas = _notas_json(
@@ -1120,7 +1433,7 @@ def _corre_fases(
         tick=tick,
     )
     motivo = f"guarda_{guarda.guarda}" if guarda is not None else None
-    notas = _notas_json(
+    cuerpo = _notas_cuerpo(
         contadores,
         ciclos_muertos,
         modo.nota,
@@ -1128,9 +1441,31 @@ def _corre_fases(
         guarda.detalle if guarda is not None else None,
     )
     status = "degraded" if guarda is not None else "done"
+    notas = json.dumps(cuerpo, ensure_ascii=False, default=str)
     with conn.transaction():  # TX3: decisiones + cierre del envelope, atomicos
         _inserta_decisiones(conn, cycle_id, config_id, decided_at, pendientes)
         _cierra_envelope(conn, cycle_id, status, len(pendientes), notas)
+    # FASE DE APPLY DENTRO DEL LOCK (2.4): TX4 + apply propio, DESPUES de TX3
+    # (las decisiones ya estan commitadas) y ANTES del return — el lock se
+    # libera recien en el finally de corre_ciclo, con el apply ya corrido.
+    notas_apply, fallo_apply = _fase_apply(
+        conn,
+        cycle_id=cycle_id,
+        modo=modo,
+        platform=platform,
+        decided_at=decided_at,
+        job_key=job_key,
+        owner=owner,
+        guard=_guard_apply(conn, job_key, owner, tick),
+        aplicador_factory=aplicador_factory,
+    )
+    if notas_apply:
+        cuerpo["apply"] = notas_apply
+        notas = json.dumps(cuerpo, ensure_ascii=False, default=str)
+        if fallo_apply:
+            status = "degraded"
+        with conn.transaction():
+            _sella_apply(conn, cycle_id, notas, degradar=fallo_apply)
     return ResultadoCiclo(cycle_id, status, len(pendientes), notas)
 
 
@@ -1146,6 +1481,7 @@ def corre_ciclo(
     owner: str,
     decided_at: dt.datetime,
     heartbeat_cada: int = 25,
+    aplicador_factory: Callable[..., Aplicador] | None = None,
 ) -> ResultadoCiclo:
     """Corre UN ciclo del optimizador para `platform` (amazon_us|amazon_mx).
 
@@ -1155,7 +1491,12 @@ def corre_ciclo(
     (atomicidad del claim en una sola sentencia). `owner` identifica al
     proceso (ej hostname:pid). CicloOcupado si el lock esta vigente ajeno (sin
     envelope). Cualquier otra excepcion: envelope sellado 'failed' con el error
-    scrubbado, lock liberado y la original RE-LANZADA (fail-closed).
+    scrubbado, lock liberado y la original RE-LANZADA (fail-closed). Desde
+    2.4, la fase de apply (TX4 + aplicador) corre DENTRO del lock y sus
+    fallos son fail-closed-auditados (nota + degraded, SIN re-lanzar).
+    `aplicador_factory` inyecta la construccion del Aplicador para tests
+    (default: `_aplicador_real`, credenciales del secrets dir + profile por
+    GET /v2/profiles con evaluar_perfiles).
     """
     if decided_at.tzinfo is None:
         raise ValueError("decided_at debe ser tz-aware (UTC): un naive evaluaria segun la TZ local")
@@ -1193,6 +1534,7 @@ def corre_ciclo(
             owner=owner,
             hb=hb,
             heartbeat_cada=heartbeat_cada,
+            aplicador_factory=aplicador_factory,
         )
     except BaseException as exc:  # noqa: BLE001 - sello + re-lanzamiento sellado
         if cycle_id is not None:  # CicloOcupado no tiene envelope que sellar
