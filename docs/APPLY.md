@@ -581,6 +581,76 @@ con las claves `ads_apply_cap_*` mayores (append-only, `app_admin`) y
 verificando en Salud que la fila del día siguiente nace con el cap nuevo.
 No existe camino del motor para subir caps (sellado 8).
 
+### 11d. Probe autorizado de formas reales (tarea 2.5, sellado 23)
+
+Herramienta: `tools/smoke_apply.py` (runbook completo en su docstring; esta
+sección es su referencia operativa). **La corrida la AUTORIZA el dueño con
+una campaña sacrificable y la coordina el lead; JAMÁS se ejecuta "a ver si
+funciona"** (la tarea 2.5 entrega la herramienta y sus tests: la corrida
+real es un acto del dueño).
+
+**Las dos capas de autorización (fail-closed):**
+
+1. `ORBIT_SMOKE_AUTH`: token EFÍMERO que el dueño setea SOLO para la
+   corrida y borra al terminar. Sin él (o vacío): exit != 0 ANTES de abrir
+   cualquier conexión o credencial.
+2. `--acepto-mutacion-real`: flag explícito. El env solo NO corre nada —
+   nada sale por accidente.
+
+**Campaña allowlisted (JAMÁS por flag/env):** la clave
+`ads_smoke_campaign_<platform>` en la `config_version` VIGENTE, con el
+`external_id` de la campaña sacrificable. Se siembra con ceremonia de admin:
+
+```sql
+-- app_admin; OJO: config_version se resuelve por ÚLTIMA fila — copiar los
+-- settings vigentes y AGREGAR la clave (sembrar solo la clave apagaría los
+-- caps ads_apply_cap_* para las lecturas de ese día).
+INSERT INTO config_version (label, settings)
+VALUES ('smoke 2.5', '<settings vigentes + "ads_smoke_campaign_<platform>": "<external_id>">'::jsonb);
+```
+
+Quitarla al cerrar = fila NUEVA de config sin la clave (append-only).
+
+**Corrida (en el server, con `ORBIT_DSN_DECIDE` en el entorno — identidad
+del motor: sus filas de ledger nacen tipo `probe` auditable, decision_id
+NULL, `quota_cobrada=false`):**
+
+```bash
+export ORBIT_SMOKE_AUTH="<token de un uso>"
+python tools/smoke_apply.py --forma todas --platform <platform> \
+  --acepto-mutacion-real 2>&1 | tee out/smoke-apply-<fecha>.log
+unset ORBIT_SMOKE_AUTH
+```
+
+Cada forma imprime UNA línea JSON de evidencia (saneada por scrub):
+request EXACTO, ack (body + headers sin secretos), readback y reversa.
+Las cuatro formas (decisión 23): `bid_keyword` (±0.01 con reversa al
+ORIGINAL LEÍDO), `bid_target` (idem), `negative` (create+delete neto cero
+sobre término basura), `keyword` (create+delete neto cero — el corazón del
+harvest; su bid sale de una fuente REAL: el bid LEÍDO de la primera keyword
+EXACT de la campaña). `--forma todas` corre las cuatro en orden y SE DETIENE
+en la primera que falla (fail-closed). Exit 0 solo si TODO quedó neto cero.
+
+**HIPÓTESIS SIN VERIFICAR (orden explícito del dueño):** los ENUMS y tipos
+del REQUEST de mutación JAMÁS corrieron contra la API real — la corrida
+autorizada los FIJA. Declaradas en `HIPOTESIS_SHAPES` de la herramienta y
+viajan en la evidencia de cada forma: `matchType 'exact'` vs
+`'negativeExact'`; `state 'userPaused'/'enabled'`; el bid como string
+quantizado a 2 decimales; el campo del id creado en el ack (`keywordId` vs
+`negativeKeywordId`); el contenedor del GET de readback
+(`'keywords'/'targets'`); el body del DELETE. Si la corrida corrige uno,
+se arregla `write.py` y los tests se re-sellan.
+
+**Cómo se cierra la tarea 2.5 con esta corrida:** (1) verificar exit 0 y
+`neto_cero=true` en las cuatro líneas de evidencia + estado final ==
+inicial; (2) contra cada ack/readback REAL, confirmar o corregir las
+hipótesis de arriba; (3) FINALIZAR los tests de readback de 2.1-2.3 hoy
+marcados "pendientes de shape" (§13.2) sellándolos contra los shapes reales
+(regla 8); (4) el dueño borra `ORBIT_SMOKE_AUTH` y el admin siembra config
+nueva sin la clave de campaña; (5) evidencia (log + `SELECT` del ledger
+probe) al registro de ORBIT 04. El ensayo E2E de 4.3 re-usa esta misma
+herramienta.
+
 ---
 
 ## 12. Checklist de cutover ORBIT 05
@@ -619,7 +689,8 @@ antes):
 1. **Endpoint/shape del bid sugerido** — regla 8 en vivo define endpoint,
    cliente y guard (sellado 14). Hasta entonces: sin sugerencia → default.
 2. **Shapes de acks** — los fija **2.5** con el probe autorizado (las
-   CUATRO formas, incluido keyword create+delete neto cero); los tests de
+   CUATRO formas, incluido keyword create+delete neto cero; procedimiento y
+   hipótesis declaradas: §11d); los tests de
    readback de 2.1-2.2 nacen marcados "pendientes de shape" hasta ahí.
 3. **Ad groups e ids `ad_entity` reales de las Exact US**
    (post-reactivación) — se verifican POST-sync en 4.2.
