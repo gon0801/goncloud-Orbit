@@ -41,12 +41,18 @@ Elecciones DECLARADAS de esta task:
   reintentos son mutaciones que ese ciclo corre).
 - La continuacion cuelga TODO del decision_id del JOB (la clave de efecto
   de la cola garantiza que es el mismo corte).
-- Los request payloads de los /list van VACIOS (payload exacto = unknown
-  #4 del brief; la respuesta si esta verificada, log
+- Los request payloads de los /list van VACIOS (payload exacto = unknown #4 del
+  brief; la respuesta si esta verificada, log
   out/regla8-negkeywords.log); identidad filtrada cliente-side con tope
   de paginacion.
 
-PENDIENTES del probe 2.5 (sellado 23): shapes de acks supuestos (MockTransport).
+SELLADO por el probe 2.5 (corrida autorizada del dueno 2026-08-26, ledger
+apply_attempt ids 1-20, log out/smoke-apply-20260826.log): acks 207 con
+success/error anidados por recurso (_id_de_ack ya los parsea), matchType del
+wire NEGATIVE_EXACT/EXACT, el "delete" v3 ARCHIVA (state=ARCHIVED en el list:
+operativamente AUSENTE para la identidad viva) y el estado del readback vive
+por LIST con vocabulario UPPER (apply.ESTADO_WIRE_* — el GET directo de
+entidad esta retirado, 403).
 
 Ronda de CROSS-REVIEW del dueno (codex+grok+qwen, ORBIT 04 P2): el tope-3
 del ledger cuenta SOLO intentos 'normal' (las reversas son el mecanismo de
@@ -90,9 +96,10 @@ logger = logging.getLogger(__name__)
 # es una LECTURA: sin ledger, solo logging debug).
 PATH_BID_SUGERIDO = "/sp/keywords/bidRecommendations"
 
-# Contenedor de la respuesta por path de list (negativeKeywords verificado
-# en vivo: contenedor + nextToken + totalResults; keywords = supuesto del
-# probe 2.5, mismo patron v3).
+# Contenedor de la respuesta por path de list. VERIFICADOS en vivo:
+# negativeKeywords (regla 8, 2026-08-25, log out/regla8-negkeywords.log) y
+# keywords (probe 2.5, 2026-08-26, apply_attempt 16-17: readback por LIST de
+# la keyword creada y ausencia tras el delete-archiva).
 _CONTENEDORES_LIST = {
     "/sp/keywords/list": "keywords",
     "/sp/negativeKeywords/list": "negativeKeywords",
@@ -270,7 +277,7 @@ class ResumenReconciliacion:
     """Barrido de reconciliacion (2.2/2.4 la invocan). `jobs_cerrados_por_cola`
     = jobs de filas muertas vetoed/discarded (la cola manda). Desde la review
     adversaria (ADV-03) tambien reporta las pausas applying huerfanas
-    resueltas por GET fresco (matriz §6.1); desde la cross-review del dueno
+    resueltas por LIST fresco (matriz §6.1); desde la cross-review del dueno
     (GK4) reporta ADEMAS las filas harvest applying cerradas por el barrido
     de seguridad (sin job en vuelo que las conduzca)."""
 
@@ -402,14 +409,20 @@ def _lista_todos(cliente, path: str, profile_id: str | int) -> list[dict]:
 
 def _identidad(items: list[dict], ad_group_id: str, keyword_text: str) -> dict | None:
     """IDENTIDAD COMPLETA (sellado 13): mismo adGroupId + mismo texto + match
-    EXACT (casefold defensivo: el casing del enum no esta pineado). La misma
-    keyword_text en OTRO ad group NO cuenta — el señuelo de r2 codex 7."""
+    EXACT. Shapes del WIRE verificados por el probe 2.5 (2026-08-26, ledger
+    ids 1-20): matchType viaja con el enum completo (NEGATIVE_EXACT en
+    negatives, EXACT en keywords — se normaliza el prefijo) y el "delete" v3
+    ARCHIVA: un item con state=ARCHIVED esta operativamente MUERTO y NO
+    cuenta (el mismo criterio del smoke). La misma keyword_text en OTRO ad
+    group NO cuenta — el señuelo de r2 codex 7."""
     for item in items:
+        if str(item.get("state", "")).upper() == apply.ESTADO_WIRE_ARCHIVED:
+            continue  # delete-archiva: operativamente AUSENTE (probe 2.5)
         if str(item.get("adGroupId", "")) != str(ad_group_id):
             continue
         if item.get("keywordText") != keyword_text:
             continue
-        if str(item.get("matchType", "")).casefold() != "exact":
+        if str(item.get("matchType", "")).casefold().replace("negative_", "") != "exact":
             continue
         return item
     return None
@@ -423,14 +436,12 @@ def _solo_en_otro_ad_group(items: list[dict], ad_group_id: str, keyword_text: st
 
 
 def _id_de_ack(ack: dict, clave_principal: str) -> str | None:
-    """El id del objeto creado segun el ack. Shape PENDIENTE del probe 2.5:
-    prueba la clave principal (negativeKeywordId/keywordId), su variante de
-    lista (*List), la generica y listas de ids; GK2(c) de la cross-review
-    agrega el shape 207 ANIDADO ({"<recurso>": {"success": [...]}} — la
-    forma que _parse_single_207 del diseno v2 parseaba: el id vive en el
-    primer success, plano o bajo la key del recurso). None = ack sin id
-    legible (regla 3: jamas inventado; la reversa resuelve el id por lista
-    si hace falta)."""
+    """El id del objeto creado segun el ack. Shape SELLADO por el probe 2.5
+    (2026-08-26, apply_attempt 13 y 16): 207 con success/error ANIDADOS por
+    recurso, el id vive en el primer success — las variantes planas/listas
+    siguen probandose como defensa (GK2(c) de la cross-review). None = ack
+    sin id legible (regla 3: jamas inventado; la reversa resuelve el id por
+    lista si hace falta)."""
     if not isinstance(ack, dict):
         return None
     claves = (clave_principal, f"{clave_principal}List", "keywordId", "keywordIdList")
@@ -581,21 +592,10 @@ def _sella_pendientes(conn: psycopg.Connection, decision_id: int, resultado: str
     conn.execute(_SQL_SELLA_PENDIENTES, (resultado, decision_id))
 
 
-def _estado_leido(resp, contenedor: str, id_campo: str, external_id: str) -> str | None:
-    """El estado del READBACK fresco, SOLO si la fila leida ES la entidad
-    pedida (CX6/GK8: el id cruza con el external_id — una respuesta de OTRA
-    entidad no es evidencia). Espejo de apply_cola._estado_leido (mismo
-    supuesto sellado por tests, PENDIENTE del probe 2.5; el ciclo de imports
-    obliga el espejo). None = ilegible/vacio/de otra entidad."""
-    try:
-        filas = resp.json().get(contenedor)
-        fila = filas[0] if filas else None
-        if fila is None or str(fila.get(id_campo)) != str(external_id):
-            return None
-        estado = fila.get("state")
-    except (ValueError, AttributeError, IndexError, KeyError, TypeError):
-        return None
-    return estado if isinstance(estado, str) else None
+# El lector de estado vive en app.apply (una sola fuente, shape del probe
+# 2.5): el ciclo de imports apply_cola -> apply_harvest obligaba el espejo
+# local; ahora ambos reusan el de apply (escaneo por cruce de id + wire UPPER).
+_estado_leido = apply._estado_leido
 
 
 def _falla_job(
@@ -636,8 +636,11 @@ def _reversa_delete(
     conn: psycopg.Connection, cliente, decision_id: int, clase: str, objeto_id
 ) -> bool:
     """UN delete de reversa con su fila de ledger (tipo 'reversa', EXENTA de
-    quota) nacida PRE-HTTP y sellada al volver."""
-    payload = {"keywordId": str(objeto_id)}
+    quota) nacida PRE-HTTP y sellada al volver. El "delete" v3 es POST
+    /sp/{recurso}/delete con FILTRO de ids (probe 2.5, apply_attempt 14 y 17)
+    y ARCHIVA: operativamente muerto."""
+    filtro = f"{clase}IdFilter" if clase == "keyword" else "negativeKeywordIdFilter"
+    payload = {filtro: {"include": [str(objeto_id)]}}
     id_attempt = apply._ledger(conn, decision_id, "reversa", payload, quota_cobrada=False)
     if id_attempt is None:
         return False
@@ -728,14 +731,16 @@ def _reversa_automatica(conn: psycopg.Connection, aplicador, job: _Job, ctx: _Co
 
 
 def _payload_keyword(ctx: _Contexto, term: str, bid: Decimal) -> dict:
-    """Payload EXACTO del POST de la keyword (MISMO shape y serializacion
-    que el write client: el bid viaja quantizado por _bid_payload — una sola
-    fuente, regla 2)."""
+    """Payload EXACTO del POST de la keyword (MISMO shape que el write client:
+    enums del wire REAL — probe 2.5, apply_attempt 16: matchType EXACT + state
+    ENABLED — y el bid quantizado por _bid_payload, una sola fuente, regla 2;
+    el wire lo serializa como NUMERO _bid_wire)."""
     return {
         "adGroupId": ctx.destino_grupo,
         "campaignId": ctx.destino_campana,
         "keywordText": term,
-        "matchType": "exact",
+        "matchType": "EXACT",
+        "state": "ENABLED",
         "bid": apply._bid_payload(bid),
     }
 
@@ -761,10 +766,12 @@ def _paso_negative(
         _avanza(conn, job, "negative_created", {"negative_id": propio.get("keywordId")})
         return "avanza", None
     payload = {
+        # Espejo del wire REAL (probe 2.5, apply_attempt 13): enums UPPER.
         "adGroupId": ctx.grupo_ext,
         "campaignId": ctx.campana_ext,
         "keywordText": job.search_term,
-        "matchType": "exact",
+        "matchType": "NEGATIVE_EXACT",
+        "state": "ENABLED",
     }
     id_attempt = apply._ledger(conn, job.decision_id, "normal", payload, quota_cobrada=True)
     if id_attempt is None:
@@ -1014,11 +1021,12 @@ def revalida_harvest(
 def _reconcilia_pauses(conn: psycopg.Connection, aplicador, platform: str) -> tuple[int, int]:
     """Cola applying huerfana kind PAUSE (ADV-03; matriz §6.1): un fallo
     ambiguo (5xx/red) dejo la fila applying con su ledger sin sello y su
-    clave entity_cut bloqueada para siempre. GET FRESCO de estado decide:
-    userPaused (Amazon SI proceso) → confirmar/applied; enabled (no proceso,
-    o el dueno re-activo) → failed y, con pause propio verificado, INSERT
-    reactivacion_manual (gracia 7d, sellado 17). Lectura ilegible/ambigua →
-    se salta al ciclo siguiente (la fila sin sello ES el rastro)."""
+    clave entity_cut bloqueada para siempre. LIST FRESCO de estado decide
+    (probe 2.5: el GET directo esta retirado; wire UPPER): PAUSED (Amazon SI
+    proceso) → confirmar/applied; ENABLED (no proceso, o el dueno re-activo)
+    → failed y, con pause propio verificado, INSERT reactivacion_manual
+    (gracia 7d, sellado 17). Lectura ilegible/ambigua → se salta al ciclo
+    siguiente (la fila sin sello ES el rastro)."""
     confirmadas = fallidas = 0
     cliente = None
     filas = conn.execute(_SQL_PAUSES_APLICANDO, (platform,)).fetchall()
@@ -1033,12 +1041,12 @@ def _reconcilia_pauses(conn: psycopg.Connection, aplicador, platform: str) -> tu
             cliente = aplicador._cliente()
         _, path, contenedor, param = apply._KINDS_DECISORAS[identidad[0]]
         try:
-            resp = cliente.get_sellado(path, params={param: identidad[1]})
+            resp = cliente.list_sellado(path, {})
         except AdsApiError:
             continue  # lectura ambigua: proximo ciclo (la fila ES el rastro)
         estado = _estado_leido(resp, contenedor, param, identidad[1])
-        if estado == "userPaused":
-            ack = {"fuente": "get", "state": estado}
+        if estado == apply.ESTADO_WIRE_PAUSED:
+            ack = {"fuente": "list", "state": estado}
             with conn.transaction():
                 _sella_pendientes(conn, decision_id, "ok:reconciliado")
                 apply._confirma_resumen(conn, decision_id, ack, True, aplicador.cycle_id_ejecutor)
@@ -1046,7 +1054,7 @@ def _reconcilia_pauses(conn: psycopg.Connection, aplicador, platform: str) -> tu
                 _termina_cola(conn, q_id, "applied")
             confirmadas += 1
             continue
-        if estado == "enabled":
+        if estado == apply.ESTADO_WIRE_ENABLED:
             with conn.transaction():
                 _sella_pendientes(conn, decision_id, "fallo:reconciliado_enabled")
                 if conn.execute(_SQL_PAUSE_PROPIO, (entidad,)).fetchone()[0]:
@@ -1116,10 +1124,12 @@ def _reconcilia_negativas(conn: psycopg.Connection, aplicador, platform: str) ->
             fallidas += 1
             continue
         payload = {
+            # Espejo del wire REAL (probe 2.5, apply_attempt 13): enums UPPER.
             "adGroupId": grupo_ext,
             "campaignId": campana_ext,
             "keywordText": term,
-            "matchType": "exact",
+            "matchType": "NEGATIVE_EXACT",
+            "state": "ENABLED",
         }
         id_attempt = apply._ledger(conn, decision_id, "normal", payload, quota_cobrada=False)
         if id_attempt is None:
@@ -1174,7 +1184,7 @@ def reconcilia_harvest(
     contra Amazon VIVO por lista con IDENTIDAD COMPLETA: jobs en vuelo (la
     matriz decide por fase: ya aplicada avanza por EVIDENCIA, falta
     reintenta el POST seguro), la cola applying huerfana de negatives
-    normales, la de PAUSES por GET fresco de estado (ADV-03, matriz §6.1),
+    normales, la de PAUSES por LIST fresco de estado (ADV-03, matriz §6.1),
     los jobs de filas muertas (vetoed/discarded → failed: la cola manda) y
     la red de seguridad de filas harvest applying sin job vivo (GK4).
     Quota SOLO la primera vez; antes de cualquier HTTP reclama la fila (el

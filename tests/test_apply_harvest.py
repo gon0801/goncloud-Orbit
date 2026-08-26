@@ -31,12 +31,12 @@ DoD de la tarea, un candado por test (regla 9 en cada uno):
    que espera quota por primera vez la cobra al ejecutar (sin recobro para
    el applying que ya cobro).
 
-PENDIENTES del probe autorizado 2.5 (brief APPLY §13, sellado 23): los
-shapes de los acks del POST/DELETE (negativeKeywordId / keywordId) y de las
-respuestas de list son SUPUESTOS de estos tests contra MockTransport (los
-de negativeKeywords/list estan verificados en vivo, log
-out/regla8-negkeywords.log); el probe los fija contra las formas reales. El
-endpoint de bid sugerido esta NO pineado (log out/regla8-bidrec.log):
+RE-SELLADO contra el probe 2.5 (corrida autorizada del dueno 2026-08-26,
+ledger apply_attempt ids 1-20, log out/smoke-apply-20260826.log): acks 207
+con success/error anidados por recurso, contenedores del body, bid NUMERO
+en el wire, matchType NEGATIVE_EXACT/EXACT y el "delete" v3 por POST
+/delete con filtro que ARCHIVA (state=ARCHIVED en el list posterior). El
+endpoint de bid sugerido sigue NO pineado (log out/regla8-bidrec.log):
 cualquier error devuelve None (fail-open al default sellado).
 """
 
@@ -395,19 +395,30 @@ def _handler_harvest(
     ack_negative_sin_id: bool = False,
     ack_keyword_sin_id: bool = False,
 ):
-    """Handler MockTransport con ALMACEN: POST crea en el store (y devuelve el
-    id del ack), DELETE borra, los /list devuelven el store. `bidrec_status`
-    controla el endpoint de bid sugerido (403 por defecto: PENDIENTE-DE-
-    REGLA-8). `fallo_keyword_status` responde ese status en el POST de
-    keyword (fallo DEFINITIVO >=400); `tumbar_keyword` rompe la red (crash
-    ambiguo). Variante cross-review: `fallo_delete_keyword` responde ese
-    status en el DELETE de keyword; `ack_*_sin_id` hacen que el ack del POST
-    venga SIN id legible (GK2: fases con ids reales). Cuenta TODOS los
-    requests de la API (LWA fuera)."""
+    """Handler MockTransport con ALMACEN y el shape REAL del probe 2.5
+    (2026-08-26, ledger ids 1-20, log out/smoke-apply-20260826.log): el POST
+    viaja como unica entrada del contenedor del recurso, el ack es 207 con
+    success/error anidados (apply_attempt 13/16) y el "delete" v3 es POST
+    /delete con filtro de ids que ARCHIVA (el item SIGUE en el list con
+    state=ARCHIVED; apply_attempt 14/17) — la identidad viva lo ignora.
+    `bidrec_status` controla el endpoint de bid sugerido (403 por defecto:
+    PENDIENTE-DE-REGLA-8). `fallo_keyword_status` responde ese status en el
+    POST de keyword (fallo DEFINITIVO >=400); `tumbar_keyword` rompe la red
+    (crash ambiguo). Variante cross-review: `fallo_delete_keyword` responde
+    ese status en el delete de keyword; `ack_*_sin_id` sirven el 207 SIN id
+    en success (GK2: fases con ids reales). Cuenta TODOS los requests de la
+    API (LWA fuera)."""
     neg_store = list(negatives or [])
     kw_store = list(keywords or [])
     vistos: list[httpx.Request] = []
     seq = iter(range(100, 999))
+
+    def _archiva(store: list[dict], kid: str) -> None:
+        # El "delete" v3 ARCHIVA (probe 2.5: 207 success + state=ARCHIVED en
+        # el list posterior): el item SIGUE en el almacen del list.
+        for item in store:
+            if str(item.get("keywordId")) == str(kid):
+                item["state"] = "ARCHIVED"
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "api.amazon.com":
@@ -426,50 +437,75 @@ def _handler_harvest(
                 return httpx.Response(bidrec_status, json={"message": "sigv4 requerido"})
             return httpx.Response(200, json=bidrec_body or {})
         if path == "/sp/negativeKeywords" and request.method == "POST":
+            obj = body["negativeKeywords"][0]  # contenedor del recurso (probe 2.5)
             kid = f"n-{next(seq)}"
             neg_store.append(
                 {
-                    "adGroupId": body["adGroupId"],
-                    "campaignId": body["campaignId"],
+                    "adGroupId": obj["adGroupId"],
+                    "campaignId": obj["campaignId"],
                     "keywordId": kid,
-                    "keywordText": body["keywordText"],
-                    "matchType": body["matchType"],
-                    "state": "enabled",
+                    "keywordText": obj["keywordText"],
+                    "matchType": obj["matchType"],  # wire: NEGATIVE_EXACT
+                    "state": "ENABLED",  # wire UPPER (apply_attempt 19-20)
                 }
             )
             if ack_negative_sin_id:
-                return httpx.Response(200, json={"status": "ok", "ack": body})
-            return httpx.Response(200, json={"negativeKeywordId": kid, "ack": body})
-        if path == "/sp/negativeKeywords" and request.method == "DELETE":
-            kid = body.get("keywordId")
-            neg_store[:] = [x for x in neg_store if x["keywordId"] != kid]
-            return httpx.Response(200, json={"deleted": kid})
+                return httpx.Response(207, json={"negativeKeywords": {"error": [], "success": []}})
+            return httpx.Response(
+                207,
+                json={
+                    "negativeKeywords": {
+                        "error": [],
+                        "success": [{"index": 0, "negativeKeywordId": kid}],
+                    }
+                },
+            )
+        if path == "/sp/negativeKeywords/delete" and request.method == "POST":
+            # Shape real (probe 2.5, apply_attempt 14): filtro de ids; archiva.
+            kid = body["negativeKeywordIdFilter"]["include"][0]
+            _archiva(neg_store, kid)
+            return httpx.Response(
+                207,
+                json={
+                    "negativeKeywords": {
+                        "error": [],
+                        "success": [{"index": 0, "negativeKeywordId": kid}],
+                    }
+                },
+            )
         if path == "/sp/keywords" and request.method == "POST":
             if tumbar_keyword:
                 raise httpx.ConnectError("crash simulado entre ledger y sello")
             if fallo_keyword_status:
                 return httpx.Response(fallo_keyword_status, json={"code": "400"})
+            obj = body["keywords"][0]  # contenedor del recurso (probe 2.5)
             kid = f"k-{next(seq)}"
             kw_store.append(
                 {
-                    "adGroupId": body["adGroupId"],
-                    "campaignId": body["campaignId"],
+                    "adGroupId": obj["adGroupId"],
+                    "campaignId": obj["campaignId"],
                     "keywordId": kid,
-                    "keywordText": body["keywordText"],
-                    "matchType": body["matchType"],
-                    "state": "enabled",
-                    "bid": body["bid"],
+                    "keywordText": obj["keywordText"],
+                    "matchType": obj["matchType"],  # wire: EXACT
+                    "state": "ENABLED",
+                    "bid": obj["bid"],  # wire: NUMERO (apply_attempt 3)
                 }
             )
             if ack_keyword_sin_id:
-                return httpx.Response(200, json={"status": "ok", "ack": body})
-            return httpx.Response(200, json={"keywordId": kid, "ack": body})
-        if path == "/sp/keywords" and request.method == "DELETE":
+                return httpx.Response(207, json={"keywords": {"error": [], "success": []}})
+            return httpx.Response(
+                207,
+                json={"keywords": {"error": [], "success": [{"index": 0, "keywordId": kid}]}},
+            )
+        if path == "/sp/keywords/delete" and request.method == "POST":
             if fallo_delete_keyword:
                 return httpx.Response(fallo_delete_keyword, json={"code": "400"})
-            kid = body.get("keywordId")
-            kw_store[:] = [x for x in kw_store if x["keywordId"] != kid]
-            return httpx.Response(200, json={"deleted": kid})
+            kid = body["keywordIdFilter"]["include"][0]
+            _archiva(kw_store, kid)
+            return httpx.Response(
+                207,
+                json={"keywords": {"error": [], "success": [{"index": 0, "keywordId": kid}]}},
+            )
         raise AssertionError(f"request inesperado: {request.method} {path}")
 
     return handler, vistos
@@ -508,21 +544,28 @@ def _reconcilia(conn, handler, ciclo_ejec: int):
 
 
 def _payload_keyword(bid: str) -> dict:
+    """Espejo del wire REAL (probe 2.5, apply_attempt 16): matchType EXACT +
+    state ENABLED; el bid del LEDGER viaja quantizado string (_bid_payload,
+    una sola fuente) — el wire lo serializa NUMERO (_bid_wire)."""
     return {
         "adGroupId": DESTINO_GRUPO,
         "campaignId": DESTINO_CAMPANA,
         "keywordText": TERMINO,
-        "matchType": "exact",
+        "matchType": "EXACT",
+        "state": "ENABLED",
         "bid": bid,
     }
 
 
 def _payload_negative() -> dict:
+    """Espejo del wire REAL (probe 2.5, apply_attempt 13): el matchType de
+    negatives es el enum NEGATIVE_* y state es OBLIGATORIO (UPPER)."""
     return {
         "adGroupId": ORIGEN_GRUPO,
         "campaignId": ORIGEN_CAMPANA,
         "keywordText": TERMINO,
-        "matchType": "exact",
+        "matchType": "NEGATIVE_EXACT",
+        "state": "ENABLED",
     }
 
 
@@ -651,9 +694,13 @@ def test_harvest_completo_1_quota_2_https():
             (dec,),
         ).fetchone()
         assert resumen == (True, ids["ciclo_ejec"]), "sello al confirmar con el ciclo EJECUTOR"
-        # El POST de la keyword viaja al DESTINO sellado del goal con el bid.
+        # El POST de la keyword viaja al DESTINO sellado del goal: contenedor
+        # del recurso + bid NUMERO (probe 2.5, apply_attempt 16); el LEDGER
+        # congela el mismo objeto con el bid quantizado string (_payload_keyword).
         posts_kw = [r for r in muts if r.url.path == "/sp/keywords"]
-        assert json.loads(posts_kw[0].content) == _payload_keyword("1.00")
+        assert json.loads(posts_kw[0].content) == {
+            "keywords": [{**_payload_keyword("1.00"), "bid": 1.0}]
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -812,10 +859,10 @@ def test_fallo_definitivo_negative_created_reversa_automatica_failed_alerta():
         assert isinstance(resultado.alerta, AlertaHarvest)
         assert resultado.alerta.motivo == MOTIVO_FALLO_KEYWORD
         assert resultado.alerta.decision_id == dec and resultado.alerta.search_term == TERMINO
-        deletes = [r for r in _mutaciones(vistos) if r.method == "DELETE"]
-        assert [json.loads(d.content) for d in deletes] == [{"keywordId": "n-100"}], (
-            "reversa automatica: borra el negativo creado"
-        )
+        deletes = [r for r in _mutaciones(vistos) if r.url.path.endswith("/delete")]
+        assert [json.loads(d.content) for d in deletes] == [
+            {"negativeKeywordIdFilter": {"include": ["n-100"]}}
+        ], "reversa automatica: POST /delete con filtro (probe 2.5, apply_attempt 14)"
         job = conn.execute("SELECT fase FROM harvest_job WHERE decision_id = %s", (dec,)).fetchone()
         assert job == ("failed",)
         cola = conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()[0]
@@ -855,10 +902,11 @@ def test_orden_reversa_completa_keyword_primero_negativo_despues():
         )
 
         assert ok is True
-        deletes = [r for r in _mutaciones(vistos) if r.method == "DELETE"]
-        assert [r.url.path for r in deletes] == ["/sp/keywords", "/sp/negativeKeywords"], (
-            "keyword PRIMERO, negativo despues (sellado 12)"
-        )
+        deletes = [r for r in _mutaciones(vistos) if r.url.path.endswith("/delete")]
+        assert [r.url.path for r in deletes] == [
+            "/sp/keywords/delete",
+            "/sp/negativeKeywords/delete",
+        ], "keyword PRIMERO, negativo despues (sellado 12; POST /delete v3)"
         filas = conn.execute(
             "SELECT tipo, quota_cobrada, resultado FROM apply_attempt ORDER BY seq"
         ).fetchall()
@@ -878,8 +926,10 @@ def test_reversa_parcial_borra_el_negativo_exenta():
         ok = reversa_harvest_parcial(conn, aplicador._cliente(), dec, negative_id="n-7")
 
         assert ok is True
-        deletes = [r for r in _mutaciones(vistos) if r.method == "DELETE"]
-        assert [json.loads(d.content) for d in deletes] == [{"keywordId": "n-7"}]
+        deletes = [r for r in _mutaciones(vistos) if r.url.path.endswith("/delete")]
+        assert [json.loads(d.content) for d in deletes] == [
+            {"negativeKeywordIdFilter": {"include": ["n-7"]}}
+        ], "delete v3: POST /delete con filtro (probe 2.5)"
         filas = conn.execute(
             "SELECT tipo, quota_cobrada FROM apply_attempt ORDER BY seq"
         ).fetchall()
@@ -1088,10 +1138,11 @@ def test_matriz_senuelo_en_otro_ad_group_no_es_ya_aplicada():
         assert resumen.alertas and resumen.alertas[0].motivo == MOTIVO_KEYWORD_AUSENTE
         job = conn.execute("SELECT fase FROM harvest_job WHERE decision_id = %s", (dec,)).fetchone()
         assert job == ("failed",)
-        deletes = [r for r in _mutaciones(vistos) if r.method == "DELETE"]
-        assert [r.url.path for r in deletes] == ["/sp/keywords", "/sp/negativeKeywords"], (
-            "reversa completa: keyword PRIMERO, negativo despues"
-        )
+        deletes = [r for r in _mutaciones(vistos) if r.url.path.endswith("/delete")]
+        assert [r.url.path for r in deletes] == [
+            "/sp/keywords/delete",
+            "/sp/negativeKeywords/delete",
+        ], "reversa completa: keyword PRIMERO, negativo despues"
         cola = conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()[0]
         assert cola == "failed"
 
@@ -1391,7 +1442,9 @@ def test_revalida_harvest_descarta_por_revision_acos_sobre_tope():
 
 def _handler_pause_estado(estado: str):
     """Handler MockTransport minimo para el reconciliador de pausas: SOLO el
-    GET fresco de estado de la keyword (la reconciliacion jamas re-muta)."""
+    LIST fresco de estado de la keyword (probe 2.5: el GET directo esta
+    retirado, 403; la reconciliacion jamas re-muta). `estado` viaja en el
+    vocabulario UPPER del wire (apply_attempt 19-20)."""
     vistos: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -1401,9 +1454,8 @@ def _handler_pause_estado(estado: str):
             # (una "t" romperia a cualquier test posterior que aserte texto).
             return httpx.Response(200, json={"access_token": "fake-access-1", "expires_in": 3600})
         vistos.append(request)
-        if request.method == "GET" and request.url.path == "/sp/keywords":
-            ext = request.url.params.get("keywordId")
-            return httpx.Response(200, json={"keywords": [{"keywordId": ext, "state": estado}]})
+        if request.method == "POST" and request.url.path == "/sp/keywords/list":
+            return httpx.Response(200, json={"keywords": [{"keywordId": "7201", "state": estado}]})
         raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
 
     return handler, vistos
@@ -1429,7 +1481,7 @@ def _pause_aplicando_huerfana(conn, ids) -> tuple[int, int]:
 
 @_skip_db
 def test_reconcilia_pause_aplicando_huerfana_paused_confirma():
-    """Celda PAUSED de la matriz §6.1: GET fresco lee userPaused (Amazon SI
+    """Celda PAUSED de la matriz §6.1: LIST fresco lee PAUSED (Amazon SI
     proceso el PUT ambiguo) → confirmar: ledger sellado ok:reconciliado,
     resumen con verify_ok + ciclo EJECUTOR, cache con lo LEIDO y fila
     applied. Regla 9: sin reconciliador de pausas la fila queda applying para
@@ -1437,7 +1489,7 @@ def test_reconcilia_pause_aplicando_huerfana_paused_confirma():
     with _db_temporal("orbit_har_rpause") as conn:
         ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_pause": 2})
         q, dec = _pause_aplicando_huerfana(conn, ids)
-        handler, vistos = _handler_pause_estado("userPaused")
+        handler, vistos = _handler_pause_estado("PAUSED")  # wire UPPER (probe 2.5)
 
         resumen = _reconcilia(conn, handler, ids["ciclo_ejec"])
 
@@ -1459,15 +1511,15 @@ def test_reconcilia_pause_aplicando_huerfana_paused_confirma():
         cache = conn.execute(
             "SELECT status FROM ad_entity_state WHERE ad_entity_id = %s", (ids["kw"],)
         ).fetchone()[0]
-        assert cache == "userPaused", "cache con LO LEIDO (sellado 16)"
-        assert [f"{r.method} {r.url.path}" for r in vistos] == ["GET /sp/keywords"], (
-            "la reconciliacion de pause JAMAS re-muta: solo el GET fresco"
+        assert cache == "PAUSED", "cache con LO LEIDO (sellado 16; wire UPPER)"
+        assert [f"{r.method} {r.url.path}" for r in vistos] == ["POST /sp/keywords/list"], (
+            "la reconciliacion de pause JAMAS re-muta: solo el LIST fresco"
         )
 
 
 @_skip_db
 def test_reconcilia_pause_aplicando_huerfana_enabled_failed():
-    """Celda ENABLED de la matriz §6.1: el PUT ambiguo JAMAS proceso (la
+    """Celda ENABLED de la matriz §6.1 (wire UPPER): el PUT ambiguo JAMAS proceso (la
     keyword sigue viva) → failed: ledger sellado con el veredicto, fila
     failed, SIN resumen confirmado y SIN reactivacion_manual (no hubo pause
     propio verificado previo). Regla 9: sin reconciliador, la clave
@@ -1475,7 +1527,7 @@ def test_reconcilia_pause_aplicando_huerfana_enabled_failed():
     with _db_temporal("orbit_har_rpausa2") as conn:
         ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_pause": 2})
         q, dec = _pause_aplicando_huerfana(conn, ids)
-        handler, _v = _handler_pause_estado("enabled")
+        handler, _v = _handler_pause_estado("ENABLED")  # wire UPPER (probe 2.5)
 
         resumen = _reconcilia(conn, handler, ids["ciclo_ejec"])
 
@@ -1524,7 +1576,7 @@ def test_reconcilia_pause_enabled_con_pause_propio_marca_reactivacion():
             (dec_vieja,),
         )
         q, _dec = _pause_aplicando_huerfana(conn, ids)
-        handler, _v = _handler_pause_estado("enabled")
+        handler, _v = _handler_pause_estado("ENABLED")  # wire UPPER (probe 2.5)
 
         resumen = _reconcilia(conn, handler, ids["ciclo_ejec"])
 
@@ -1570,8 +1622,8 @@ def test_reversa_automatica_borra_la_keyword_aun_sin_negative_id():
         resumen = _reconcilia(conn, handler, ids["ciclo_ejec"])
 
         assert resumen.jobs_failed == 1 and resumen.jobs_done == 0
-        deletes = [r for r in _mutaciones(vistos) if r.method == "DELETE"]
-        assert [r.url.path for r in deletes] == ["/sp/keywords"], (
+        deletes = [r for r in _mutaciones(vistos) if r.url.path.endswith("/delete")]
+        assert [r.url.path for r in deletes] == ["/sp/keywords/delete"], (
             "la keyword nacida se borra aunque el negativo no se pueda resolver"
         )
         job = conn.execute("SELECT fase FROM harvest_job WHERE decision_id = %s", (dec,)).fetchone()
@@ -1628,8 +1680,8 @@ def test_reversa_completa_keyword_falla_y_el_negativo_no_se_borra():
         )
 
         assert ok is False
-        deletes = [r for r in _mutaciones(vistos) if r.method == "DELETE"]
-        assert [r.url.path for r in deletes] == ["/sp/keywords"], (
+        deletes = [r for r in _mutaciones(vistos) if r.url.path.endswith("/delete")]
+        assert [r.url.path for r in deletes] == ["/sp/keywords/delete"], (
             "el delete del negativo JAMAS sale si la keyword no se borro"
         )
         filas = conn.execute("SELECT tipo, resultado FROM apply_attempt ORDER BY seq").fetchall()
@@ -1732,10 +1784,11 @@ def test_paso_keyword_con_ack_sin_id_falla_y_revierte_ambos():
 
         assert resumen.jobs_failed == 1 and resumen.jobs_done == 0
         assert resumen.alertas[0].motivo == MOTIVO_FALLO_KEYWORD
-        deletes = [r for r in _mutaciones(vistos) if r.method == "DELETE"]
-        assert [r.url.path for r in deletes] == ["/sp/keywords", "/sp/negativeKeywords"], (
-            "reversa completa: keyword PRIMERO (identidad resuelta), negativo despues"
-        )
+        deletes = [r for r in _mutaciones(vistos) if r.url.path.endswith("/delete")]
+        assert [r.url.path for r in deletes] == [
+            "/sp/keywords/delete",
+            "/sp/negativeKeywords/delete",
+        ], "reversa completa: keyword PRIMERO (identidad resuelta), negativo despues"
         resultado = conn.execute(
             "SELECT resultado FROM apply_attempt WHERE decision_id = %s AND tipo = 'normal'"
             " ORDER BY seq DESC LIMIT 1",
@@ -1802,3 +1855,64 @@ def test_barrido_cierra_fila_harvest_applying_sin_job_vivo():
         ).fetchone()[0]
         assert sello == "fallo:huerfana_sin_job", "nota en el ledger del por que"
         assert vistos == [], "cierre administrativo: cero HTTP"
+
+
+# ===========================================================================
+# Probe 2.5 (corrida autorizada 2026-08-26, ledger probe ids 1-20, log
+# out/smoke-apply-20260826.log): el matchType del WIRE de los lists es el enum
+# NEGATIVE_EXACT/EXACT (UPPER, apply_attempt 10 y 16) y el "delete" v3 ARCHIVA
+# (state=ARCHIVED en el list tras el POST /delete). Tests PUROS del matcher de
+# identidad (regla 9: rojo demostrado en out/tdd-red-o4-shapes.log contra el
+# casefold plano que no conocia el prefijo NEGATIVE_ ni ARCHIVED).
+# ===========================================================================
+
+
+def test_identidad_normaliza_negative_exact_del_wire():
+    """El list de negatives trae matchType 'NEGATIVE_EXACT' (probe 2.5,
+    apply_attempt 10): el matcher lo normaliza a exacto — sin la normalizacion
+    el negativo YA CORTADO jamas se hallaria por identidad y la matriz §6.1
+    re-postearia un duplicado. Regla 9: contra el casefold plano reventaba."""
+    from app.apply_harvest import _identidad
+
+    items = [
+        {
+            "adGroupId": ORIGEN_GRUPO,
+            "keywordText": TERMINO,
+            "matchType": "NEGATIVE_EXACT",
+            "state": "ENABLED",
+            "keywordId": "n-1",
+        }
+    ]
+    assert _identidad(items, ORIGEN_GRUPO, TERMINO) is not None
+    assert _identidad(items, ORIGEN_GRUPO, TERMINO)["keywordId"] == "n-1"
+
+
+def test_identidad_ignora_archived_el_delete_archiva():
+    """El POST /delete responde 207 pero el item SIGUE en el list con
+    state=ARCHIVED (probe 2.5, readback final de las formas negative/keyword):
+    operativamente muerto = AUSENTE para la identidad viva. Sin el filtro, la
+    reconciliacion confirmaria un negativo que el dueno borro. Regla 9:
+    contra el matcher con normalizacion PERO sin filtro de ARCHIVED, la fila
+    archivada (que va PRIMERA) ganaria y este test reventaria."""
+    from app.apply_harvest import _identidad
+
+    items = [
+        {  # "borrado" por POST /delete (207 success): SIGUE en el list
+            "adGroupId": ORIGEN_GRUPO,
+            "keywordText": TERMINO,
+            "matchType": "NEGATIVE_EXACT",
+            "state": "ARCHIVED",
+            "keywordId": "n-1",
+        },
+        {  # el negativo VIVO de otra creacion
+            "adGroupId": ORIGEN_GRUPO,
+            "keywordText": TERMINO,
+            "matchType": "NEGATIVE_EXACT",
+            "state": "ENABLED",
+            "keywordId": "n-2",
+        },
+    ]
+    propio = _identidad(items, ORIGEN_GRUPO, TERMINO)
+    assert propio is not None and propio["keywordId"] == "n-2", (
+        "ARCHIVED es operativamente AUSENTE: la identidad devuelve la fila VIVA"
+    )

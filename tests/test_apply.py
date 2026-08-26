@@ -35,10 +35,11 @@ DoD de la tarea, un test por candado (regla 9 en cada uno):
 14. Secuencia sellada completa de un bid ok (ledger pre-HTTP con payload
     EXACTO, quota, ack, verify, resumen, cache, applied_count).
 
-PENDIENTES del probe autorizado 2.5 (brief APPLY §13, sellado 23): el path y
-el shape del readback (contenedor `keywords`/`targets`, campo `bid`) son
-SUPUESTOS de estos tests contra MockTransport; el probe fija los shapes
-reales y los re-sella.
+RE-SELLADO contra el probe 2.5 (corrida autorizada del dueno 2026-08-26,
+ledger apply_attempt ids 1-20, log out/smoke-apply-20260826.log): el
+readback vive por LIST (GET directo retirado, 403), contenedores
+keywords/targetingClauses, bid NUMERO en el wire y ack 207 con success
+anidado. Unica hipotesis viva: el state del PUT de pause (ESTADO_PUT_*).
 """
 
 from __future__ import annotations
@@ -248,10 +249,13 @@ def _decision_bid(
 
 
 def _handler_api(remoto: dict[str, str], *, desviado: dict[str, str] | None = None):
-    """Handler MockTransport: cuenta TODOS los requests de la API (el token LWA
-    no pasa por aqui, va a api.amazon.com). El PUT deja a Amazon con lo
-    escrito (`remoto`); el GET del readback devuelve `desviado` si la clave
-    esta (test de cache con lo LEIDO != enviado) y sino `remoto`."""
+    """Handler MockTransport con el shape REAL del probe 2.5 (2026-08-26,
+    ledger ids 1-20, log out/smoke-apply-20260826.log): el PUT viaja como
+    UNICA entrada del contenedor del recurso (keywords/targetingClauses) con
+    bid NUMERO, y el readback es el POST de LISTA (el GET directo responde
+    403 — retirado; apply_attempt 4-5) devolviendo TODAS las filas del
+    `remoto` (el cruce de id es del motor). `desviado` pisa el bid leido de
+    una clave (test de cache con lo LEIDO != enviado)."""
     vistos: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -260,15 +264,22 @@ def _handler_api(remoto: dict[str, str], *, desviado: dict[str, str] | None = No
         vistos.append(request)
         if request.method == "PUT":
             body = json.loads(request.content)
-            ext = str(body.get("keywordId") or body.get("targetId"))
-            remoto[ext] = body["bid"]
-            return httpx.Response(200, json={"ack": body})
-        if request.method == "GET":
-            ext = request.url.params.get("keywordId") or request.url.params.get("targetId")
-            contenedor = "targets" if request.url.path == "/sp/targets" else "keywords"
-            campo = "targetId" if contenedor == "targets" else "keywordId"
-            bid = (desviado or {}).get(ext, remoto[ext])
-            return httpx.Response(200, json={contenedor: [{campo: ext, "bid": bid}]})
+            # Contenedor del recurso (probe 2.5, apply_attempt 1 y 18-20).
+            obj = body["keywords"][0] if "keywords" in body else body["targetingClauses"][0]
+            ext = str(obj.get("keywordId") or obj.get("targetId"))
+            remoto[ext] = obj["bid"]  # bid NUMERO en el wire (apply_attempt 3)
+            return httpx.Response(207, json={"ack": obj})
+        if request.method == "POST" and request.url.path.endswith("/list"):
+            contenedor, campo = (
+                ("targetingClauses", "targetId")
+                if request.url.path == "/sp/targets/list"
+                else ("keywords", "keywordId")
+            )
+            filas = []
+            for ext, bid in remoto.items():
+                leido = (desviado or {}).get(ext, bid)
+                filas.append({campo: ext, "bid": leido, "state": "ENABLED"})
+            return httpx.Response(200, json={contenedor: filas, "totalResults": len(filas)})
         raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
 
     return handler, vistos
@@ -303,8 +314,17 @@ def _puts(vistos: list[httpx.Request]) -> list[httpx.Request]:
     return [r for r in vistos if r.method == "PUT"]
 
 
-def _gets(vistos: list[httpx.Request]) -> list[httpx.Request]:
-    return [r for r in vistos if r.method == "GET"]
+def _lists(vistos: list[httpx.Request]) -> list[httpx.Request]:
+    """Los readbacks por LIST (POST de lectura; probe 2.5: el GET directo de
+    entidad esta retirado — un GET en vistos seria un bug del motor)."""
+    return [r for r in vistos if r.method == "POST" and r.url.path.endswith("/list")]
+
+
+def _obj_de_put(request: httpx.Request) -> dict:
+    """El objeto de mutacion tal como viaja en el wire REAL del probe 2.5:
+    unica entrada de la lista bajo el contenedor del recurso."""
+    body = json.loads(request.content)
+    return body.get("keywords", body.get("targetingClauses"))[0]
 
 
 # ---------------------------------------------------------------------------
@@ -450,8 +470,8 @@ def test_bid_descartado_bajo_cap_no_reaparece():
         assert res.orden == [dec1, dec2], "hemorragia primero: mismo motivo, cost DESC"
         assert res.aplicadas == 1
         assert res.descartadas == [MOTIVO_FUERA_DE_CAP]
-        assert [json.loads(p.content)["keywordId"] for p in _puts(vistos)] == ["7201"]
-        assert len(_gets(vistos)) == 1
+        assert [_obj_de_put(p)["keywordId"] for p in _puts(vistos)] == ["7201"]
+        assert len(_lists(vistos)) == 1
 
         # Re-llamar: el aplicado salta (ya_aplicada) y el descartado NO se
         # reintenta (bids fuera de cap = DESCARTADOS, sellado 8).
@@ -635,7 +655,9 @@ def test_reversa_de_bid_exenta_de_quota():
         ok = reversa_bid(conn, _write_client(handler), bids_del_ciclo(conn, ids["ciclo_dec"])[0])
 
         assert ok is True
-        assert [json.loads(p.content)["bid"] for p in _puts(vistos)] == ["0.85", "1.00"]
+        assert [_obj_de_put(p)["bid"] for p in _puts(vistos)] == [0.85, 1.0], (
+            "bid NUMERO en el wire (probe 2.5, apply_attempt 3: string -> 400)"
+        )
         filas = conn.execute(
             "SELECT tipo, quota_cobrada, resultado FROM apply_attempt ORDER BY seq"
         ).fetchall()
@@ -712,13 +734,16 @@ def test_aplicador_sella_fallo_http_en_ledger_y_no_marca_aplicada():
 
 
 # ---------------------------------------------------------------------------
-# 12. get_sellado usa el scope de la instancia
+# 12. Puerta de lectura sellada: get_sellado (bidrec PENDIENTE-DE-REGLA-8) y
+# list_sellado (EL readback de entidad desde el probe 2.5)
 # ---------------------------------------------------------------------------
 
 
 def test_get_sellado_usa_el_scope_de_la_instancia():
     """El re-check del aplicador JAMAS pasa un profile a mano: get_sellado es
-    la unica puerta de lectura con el scope sellado del constructor."""
+    una puerta de lectura con el scope sellado del constructor. Desde el probe
+    2.5 NO sirve entidad sp (GET retirado, 403): su unico caller es
+    bid_sugerido (PENDIENTE-DE-REGLA-8, log out/regla8-bidrec.log)."""
     vistos: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -736,6 +761,74 @@ def test_get_sellado_usa_el_scope_de_la_instancia():
     assert api.url.path == "/sp/keywords"
     assert api.url.params["keywordId"] == "7201"
     assert api.headers["Amazon-Advertising-API-Scope"] == str(FAKE_PROFILE_US)
+
+
+# ===========================================================================
+# Probe 2.5 (corrida autorizada 2026-08-26, ledger probe ids 1-20, log
+# out/smoke-apply-20260826.log): el GET directo de entidad sp esta RETIRADO
+# (403, apply_attempt 4-5) — el readback del motor vive por LIST. Tests PUROS
+# (sin DB) del cruce de id y de la puerta sellada (regla 9: rojo demostrado
+# en out/tdd-red-o4-shapes.log contra el motor que leia filas[0] por GET).
+# ===========================================================================
+
+
+def test_list_sellado_es_la_puerta_de_readback_con_get_retirado():
+    """El mock replica a Amazon REAL (probe 2.5, apply_attempt 4-5): GET
+    /sp/keywords → 403, POST /sp/keywords/list → 200. list_sellado es la
+    puerta de readback con el MISMO scope sellado (header presente). Regla 9:
+    contra el write client sin list_sellado, este test reventaba con
+    AttributeError — el motor no tenia puerta de lectura util."""
+    vistos: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        vistos.append(request)
+        if request.method == "GET":
+            return httpx.Response(403, json={"message": "sigv4 requerido (GET retirado)"})
+        assert request.method == "POST" and request.url.path == "/sp/keywords/list"
+        return httpx.Response(200, json={"keywords": [{"keywordId": "7201", "bid": 0.85}]})
+
+    client = _write_client(handler)
+    resp = client.list_sellado("/sp/keywords/list", {})
+
+    assert resp.status_code == 200
+    assert resp.json()["keywords"][0]["bid"] == 0.85
+    assert [f"{r.method} {r.url.path}" for r in vistos] == ["POST /sp/keywords/list"], (
+        "el readback de entidad JAMAS sale por GET: retirado (probe 2.5)"
+    )
+    assert vistos[0].headers["Amazon-Advertising-API-Scope"] == str(FAKE_PROFILE_US)
+    # La puerta GET sigue EXISTIENDO pero solo para el PENDIENTE-DE-REGLA-8
+    # (bid_sugerido): contra el mock real responde 403 → AdsApiError.
+    from app.ads.client import AdsApiError
+
+    with pytest.raises(AdsApiError):
+        client.get_sellado("/sp/keywords", params={"keywordId": "7201"})
+
+
+def test_bid_leido_por_list_cruza_id_en_respuesta_multifila():
+    """La respuesta del LIST trae TODAS las keywords de la cuenta: el bid se
+    lee SOLO de la fila cuyo id CRUZA con el pedido (CX6/GK8 extendido al
+    list). Regla 9: el lector viejo (filas[0] del GET de una sola fila)
+    devuelve None con el senuelo primero y este test reventaba."""
+    from app.apply import _bid_leido
+
+    resp = httpx.Response(
+        200,
+        json={
+            "keywords": [
+                {"keywordId": "9999", "bid": 7.77},  # senuelo: OTRA entidad
+                {"keywordId": "7201", "bid": 0.85},  # la pedida, SEGUNDA
+                {"keywordId": "7202", "bid": 1.5},
+            ]
+        },
+    )
+    assert _bid_leido(resp, "keywords", "keywordId", "7201") == Decimal("0.85")
+    # El id que NO esta en la respuesta JAMAS confirma (regla 3).
+    assert _bid_leido(resp, "keywords", "keywordId", "7777") is None
+    # Contenedor del target: targetingClauses (probe 2.5, apply_attempt 18-20).
+    resp_t = httpx.Response(200, json={"targetingClauses": [{"targetId": "7301", "bid": 0.32}]})
+    assert _bid_leido(resp_t, "targetingClauses", "targetId", "7301") == Decimal("0.32")
 
 
 # ---------------------------------------------------------------------------
@@ -811,17 +904,21 @@ def test_secuencia_sellada_bid_ok():
         ).fetchone()
         assert intento[0] == 1
         assert intento[1] == "normal"
-        assert intento[2] == {"keywordId": "7201", "bid": "0.85"}
+        assert intento[2] == {"keywordId": "7201", "bid": "0.85"}, (
+            "el LEDGER congela el bid quantizado string (_bid_payload, una sola fuente)"
+        )
         assert intento[3] is True
-        assert intento[4] == {"ack": {"keywordId": "7201", "bid": "0.85"}}
+        assert intento[4] == {"ack": {"keywordId": "7201", "bid": 0.85}}, (
+            "el ack ecoa el WIRE: bid NUMERO (probe 2.5, apply_attempt 3)"
+        )
         assert intento[5] == "ok"
         assert intento[6] is not None
         # HTTP: UNA mutacion (quantizado a 2 dec) + UN readback con el MISMO scope.
         assert [json.loads(p.content) for p in _puts(vistos)] == [
-            {"keywordId": "7201", "bid": "0.85"}
-        ]
-        assert len(_gets(vistos)) == 1
-        assert _gets(vistos)[0].headers["Amazon-Advertising-API-Scope"] == str(FAKE_PROFILE_US)
+            {"keywords": [{"keywordId": "7201", "bid": 0.85}]}
+        ], "contenedor del recurso + bid NUMERO (probe 2.5)"
+        assert len(_lists(vistos)) == 1
+        assert _lists(vistos)[0].headers["Amazon-Advertising-API-Scope"] == str(FAKE_PROFILE_US)
         # Resumen: la terna junta + applied_cycle_id AL CONFIRMAR.
         resumen = conn.execute(
             "SELECT confirmed_at, platform_ack, verify_ok, applied_cycle_id"
@@ -829,7 +926,7 @@ def test_secuencia_sellada_bid_ok():
             (dec,),
         ).fetchone()
         assert resumen[0] is not None
-        assert resumen[1] == {"ack": {"keywordId": "7201", "bid": "0.85"}}
+        assert resumen[1] == {"ack": {"keywordId": "7201", "bid": 0.85}}
         assert resumen[2] is True
         assert resumen[3] == ids["ciclo_ejec"]
         # Cache: lo LEIDO.
@@ -847,11 +944,11 @@ def test_secuencia_sellada_bid_ok():
 
 @_skip_db
 def test_reconcilia_bids_get_igual_confirma():
-    """Veredicto GET == pedido: el PUT ambiguo SI proceso → confirmar — sello
+    """Veredicto LIST == pedido: el PUT ambiguo SI proceso → confirmar — sello
     'ok:reconciliado', resumen con verify_ok + applied_cycle_id del EJECUTOR y
-    cache con lo LEIDO. HTTP: SOLO el GET de readback (jamas re-mutar). Regla
-    9: contra el codigo sin caller de intentos_sin_sello, la fila zombie
-    miente para siempre en el ledger y este test reventaria."""
+    cache con lo LEIDO. HTTP: SOLO el LIST de readback (jamas re-mutar).
+    Regla 9: contra el codigo sin caller de intentos_sin_sello, la fila
+    zombie miente para siempre en el ledger y este test reventaria."""
     from app.apply import reconcilia_bids
 
     with _db_temporal("orbit_apply_rbid1") as conn:
@@ -882,14 +979,14 @@ def test_reconcilia_bids_get_igual_confirma():
         cache = conn.execute(
             "SELECT current_bid FROM ad_entity_state WHERE ad_entity_id = %s", (ids["kw"],)
         ).fetchone()[0]
-        assert cache == Decimal("0.85"), "cache con lo LEIDO del GET fresco (sellado 16)"
+        assert cache == Decimal("0.85"), "cache con lo LEIDO del LIST fresco (sellado 16)"
         assert _puts(vistos) == [], "la reconciliacion JAMAS re-muta"
-        assert len(_gets(vistos)) == 1
+        assert len(_lists(vistos)) == 1
 
 
 @_skip_db
 def test_reconcilia_bids_divergencia_reintenta_bajo_tope_y_falla():
-    """Veredicto GET != pedido (divergencia): la fila original se sella
+    """Veredicto LIST != pedido (divergencia): la fila original se sella
     'fallo:divergencia_readback', se REINTENTA bajo tope (fila nueva + PUT) y
     la divergencia persistente sella tambien el reintento — verify_ok FALSE,
     sin applied_cycle_id, cache con LO LEIDO."""
@@ -932,7 +1029,7 @@ def test_reconcilia_bids_divergencia_reintenta_bajo_tope_y_falla():
 
 @_skip_db
 def test_reconcilia_bids_ambiguo_falla_sin_reintento():
-    """Veredicto ambiguo (GET 5xx agotado): failed SIN reintento (conserva su
+    """Veredicto ambiguo (LIST 5xx agotado): failed SIN reintento (conserva su
     cobro, matriz §6.1) — la fila se sella con el veredicto y NO nace PUT ni
     fila nueva; sin resumen, cache intacto."""
     from app.apply import reconcilia_bids
@@ -949,7 +1046,7 @@ def test_reconcilia_bids_ambiguo_falla_sin_reintento():
         def handler(request: httpx.Request) -> httpx.Response:
             if request.url.host == "api.amazon.com":
                 return _token_response()
-            if request.method == "GET":
+            if request.method == "POST" and request.url.path.endswith("/list"):
                 return httpx.Response(503, json={"message": "boom"})
             raise AssertionError("el ambiguo JAMAS re-muta: no puede haber PUT")
 
@@ -1076,7 +1173,7 @@ def test_tope_3_cuenta_solo_intentos_normal_las_reversas_no_consumen():
 
 @_skip_db
 def test_readback_que_devuelve_otra_entidad_no_confirma_ni_toca_cache():
-    """CX6/GK8: el GET del readback responde la fila de OTRA keyword (id
+    """CX6/GK8: el LIST del readback responde la fila de OTRA keyword (id
     distinto): NO es evidencia de esta decision — verify_ok False, cache
     INTACTO y sin applied. Regla 9: el filas[0] sin cruce de id confirmaria
     el bid de otra entidad y pisaria el cache con su valor."""
@@ -1090,16 +1187,18 @@ def test_readback_que_devuelve_otra_entidad_no_confirma_ni_toca_cache():
                 return _token_response()
             vistos.append(request)
             if request.method == "PUT":
-                return httpx.Response(200, json={"ack": json.loads(request.content)})
-            assert request.method == "GET", "solo PUT + readback GET"
+                return httpx.Response(207, json={"ack": json.loads(request.content)})
+            assert request.method == "POST" and request.url.path.endswith("/list"), (
+                "solo PUT + readback por LIST (probe 2.5: GET retirado)"
+            )
             # Respuesta de OTRA entidad: el id NO es el pedido.
-            return httpx.Response(200, json={"keywords": [{"keywordId": "9999", "bid": "0.85"}]})
+            return httpx.Response(200, json={"keywords": [{"keywordId": "9999", "bid": 0.85}]})
 
         ap = _aplicador(conn, handler, ids["ciclo_ejec"])
         res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
 
         assert res.aplicadas == 0
-        assert len(_puts(vistos)) == 1 and len(_gets(vistos)) == 1
+        assert len(_puts(vistos)) == 1 and len(_lists(vistos)) == 1
         cache = conn.execute(
             "SELECT current_bid FROM ad_entity_state WHERE ad_entity_id = %s", (ids["kw"],)
         ).fetchone()[0]
@@ -1185,8 +1284,8 @@ def test_ack_2xx_con_secreto_queda_redactado_en_el_ledger():
                 return httpx.Response(
                     200, json={"ack": json.loads(request.content), "eco_token": "fake-access-1"}
                 )
-            ext = request.url.params.get("keywordId")
-            return httpx.Response(200, json={"keywords": [{"keywordId": ext, "bid": "0.85"}]})
+            assert request.method == "POST" and request.url.path.endswith("/list")
+            return httpx.Response(200, json={"keywords": [{"keywordId": "7201", "bid": 0.85}]})
 
         ap = _aplicador(conn, handler, ids["ciclo_ejec"])
         res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
@@ -1239,8 +1338,8 @@ def test_write_client_de_produccion_duerme_el_backoff_de_429():
                     # Sin Retry-After: el backoff exponencial real manda.
                     return httpx.Response(429, json={"message": "throttled"})
                 return httpx.Response(200, json={"ack": "reintento"})
-            ext = request.url.params.get("keywordId")
-            return httpx.Response(200, json={"keywords": [{"keywordId": ext, "bid": "0.85"}]})
+            assert request.method == "POST" and request.url.path.endswith("/list")
+            return httpx.Response(200, json={"keywords": [{"keywordId": "7201", "bid": 0.85}]})
 
         ap = Aplicador(
             conn,

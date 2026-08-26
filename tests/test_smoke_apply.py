@@ -33,9 +33,11 @@ Candados (regla 9 en cada uno):
     PHRASE, otras campanas y sin bid); primer target con bid; primer ad
     group.
 
-PENDIENTES del probe autorizado (decision 23 / APPLY §13.2): los shapes de
-acks y readbacks que el mock sirve son SUPUESTOS; la corrida autorizada los
-fija y estos tests se re-sellan contra ellos.
+RE-SELLADO contra el probe 2.5 (corrida autorizada del dueno 2026-08-26,
+ledger apply_attempt ids 1-20, log out/smoke-apply-20260826.log): el mock
+sirve los shapes REALES verificados (contenedores del body, enums UPPER,
+bid NUMERO, ack 207 anidado, delete v3 por POST /delete que ARCHIVA y
+readback por LIST — el GET directo sp responde 403, retirado).
 """
 
 from __future__ import annotations
@@ -72,41 +74,43 @@ FAKE_PROFILE_US = 404040
 # de la 7001.
 CAMPANA = "7001"
 GRUPO = "7101"
+# Items del list con el WIRE REAL del probe 2.5 (2026-08-26, apply_attempt
+# 19-20): matchType/state UPPER y bid NUMERO.
 KW_EXACTA = {
     "keywordId": "7201",
     "campaignId": CAMPANA,
     "adGroupId": GRUPO,
     "keywordText": "kw exacta de la campana",
-    "matchType": "exact",
-    "state": "enabled",
-    "bid": "1.23",
+    "matchType": "EXACT",
+    "state": "ENABLED",
+    "bid": 1.23,
 }
 KW_PHRASE = {
     "keywordId": "7202",
     "campaignId": CAMPANA,
     "adGroupId": GRUPO,
     "keywordText": "kw phrase de la campana",
-    "matchType": "phrase",
-    "state": "enabled",
-    "bid": "2.00",
+    "matchType": "PHRASE",
+    "state": "ENABLED",
+    "bid": 2.00,
 }
 KW_OTRA_CAMPANA = {
     "keywordId": "7299",
     "campaignId": "9001",
     "adGroupId": "9101",
     "keywordText": "kw exacta de otra campana",
-    "matchType": "exact",
-    "state": "enabled",
-    "bid": "9.99",
+    "matchType": "EXACT",
+    "state": "ENABLED",
+    "bid": 9.99,
 }
 TARGET = {
     "targetId": "7301",
     "campaignId": CAMPANA,
     "adGroupId": GRUPO,
-    "state": "enabled",
-    "bid": "2.34",
+    "state": "ENABLED",
+    "bid": 2.34,
 }
-AD_GROUP = {"adGroupId": GRUPO, "campaignId": CAMPANA, "name": "grupo smoke", "state": "enabled"}
+AD_GROUP = {"adGroupId": GRUPO, "campaignId": CAMPANA, "name": "grupo smoke", "state": "ENABLED"}
 
 _skip_db = pytest.mark.skipif(
     _postgres_obligatorio_ausente(),
@@ -168,18 +172,28 @@ def _token_response(n: int = 1) -> httpx.Response:
 
 
 def _handler_smoke(estado: dict, *, fallar_readback_bid: bool = False, eco_token: bool = False):
-    """Handler MockTransport del perfil US: sirve los CUATRO lists (con los
-    contenedores verificados en vivo: keywords/targetingClauses/adGroups/
-    negativeKeywords) y las mutaciones de write.py mutando `estado` (el
-    "Amazon" remoto). `vistos` registra cada request para asserts de orden.
+    """Handler MockTransport del perfil US con el WIRE REAL del probe 2.5
+    (2026-08-26, ledger ids 1-20, log out/smoke-apply-20260826.log): los
+    CUATRO lists con sus contenedores verificados, mutaciones de write.py en
+    el contenedor del recurso (una entrada), ack 207 con success/error
+    anidados y "delete" v3 por POST /delete con filtro que ARCHIVA (el item
+    SIGUE en el list con state=ARCHIVED — la identidad viva lo ignora).
+    `fallar_readback_bid` tumba el LIST de readback DESPUES de la primera
+    mutacion (el readback ya no es GET: retirado, 403). `vistos` registra
+    cada request para asserts de orden.
     """
     vistos: list[httpx.Request] = []
     proximo_id = [8000]
+    hubo_mutacion = [False]
 
     def _eco(ack: dict) -> dict:
         if eco_token:
             ack["eco"] = "fake-access-1"
         return ack
+
+    def _207(recurso: str, campo: str, nuevo: str) -> dict:
+        # Ack 207 real (apply_attempt 13 y 16): success/error anidados.
+        return {recurso: {"error": [], "success": [{"index": 0, campo: nuevo}]}}
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "api.amazon.com":
@@ -188,6 +202,8 @@ def _handler_smoke(estado: dict, *, fallar_readback_bid: bool = False, eco_token
         path, metodo = request.url.path, request.method
         body = json.loads(request.content) if request.content else {}
         if metodo == "POST" and path.endswith("/list"):
+            if fallar_readback_bid and hubo_mutacion[0]:
+                return httpx.Response(500, json={"detail": "boom readback"})
             contenedor = {
                 "/sp/keywords/list": "keywords",
                 "/sp/targets/list": "targetingClauses",
@@ -198,48 +214,50 @@ def _handler_smoke(estado: dict, *, fallar_readback_bid: bool = False, eco_token
                 200, json={contenedor: estado[contenedor], "totalResults": len(estado[contenedor])}
             )
         if metodo == "GET":
-            if fallar_readback_bid:
-                return httpx.Response(500, json={"detail": "boom readback"})
-            contenedor = "targets" if path == "/sp/targets" else "keywords"
-            campo = "targetId" if contenedor == "targets" else "keywordId"
-            ext = request.url.params.get(campo)
-            filas = [
-                k
-                for k in estado["keywords"] + estado["targetingClauses"]
-                if str(k.get(campo)) == ext
-            ]
-            return httpx.Response(200, json={contenedor: filas})
+            raise AssertionError("GET directo de sp: retirado (probe 2.5, 403)")
         if metodo == "PUT":
-            campo = "targetId" if path == "/sp/targets" else "keywordId"
-            ext = str(body[campo])
+            # Contenedor del recurso (apply_attempt 1/18): UNA entrada.
+            es_target = "targetingClauses" in body
+            obj = body["targetingClauses"][0] if es_target else body["keywords"][0]
+            campo = "targetId" if es_target else "keywordId"
+            ext = str(obj[campo])
             for k in estado["keywords"] + estado["targetingClauses"]:
                 if str(k.get(campo)) == ext:
-                    k["bid"] = body["bid"]
-            return httpx.Response(200, json=_eco({campo: ext, "bid": body["bid"]}))
-        if metodo == "POST":
+                    k["bid"] = obj["bid"]  # bid NUMERO (apply_attempt 3)
+            hubo_mutacion[0] = True
+            recurso = "targetingClauses" if es_target else "keywords"
+            return httpx.Response(207, json=_eco(_207(recurso, campo, ext)))
+        if metodo == "POST" and path in ("/sp/keywords", "/sp/negativeKeywords"):
             es_negative = path == "/sp/negativeKeywords"
+            contenedor = "negativeKeywords" if es_negative else "keywords"
+            obj = body[contenedor][0]  # contenedor del recurso (probe 2.5)
             campo = "keywordId"
             proximo_id[0] += 1
-            nuevo = int(proximo_id[0])
+            nuevo = str(int(proximo_id[0]))
             item = {
-                campo: str(nuevo),
-                "adGroupId": str(body["adGroupId"]),
-                "campaignId": str(body["campaignId"]),
-                "keywordText": body["keywordText"],
-                "matchType": body.get("matchType"),
-                "state": "enabled",
+                campo: nuevo,
+                "adGroupId": str(obj["adGroupId"]),
+                "campaignId": str(obj["campaignId"]),
+                "keywordText": obj["keywordText"],
+                "matchType": obj.get("matchType"),  # wire: NEGATIVE_EXACT/EXACT
+                "state": "ENABLED",  # wire UPPER (apply_attempt 19-20)
             }
             if not es_negative:
-                item["bid"] = body["bid"]
-            contenedor = "negativeKeywords" if es_negative else "keywords"
+                item["bid"] = obj["bid"]  # NUMERO (apply_attempt 3)
             estado[contenedor].append(item)
-            return httpx.Response(200, json=_eco({campo: str(nuevo)}))
-        if metodo == "DELETE":
-            campo = "keywordId"
-            ext = str(body[campo])
+            hubo_mutacion[0] = True
+            return httpx.Response(200, json=_eco(_207(contenedor, campo, nuevo)))
+        if metodo == "POST" and path.endswith("/delete"):
+            # Delete v3 real (apply_attempt 14/17): filtro de ids; ARCHIVA.
+            es_negative = path == "/sp/negativeKeywords/delete"
+            filtro = "negativeKeywordIdFilter" if es_negative else "keywordIdFilter"
+            ext = str(body[filtro]["include"][0])
             for contenedor in ("keywords", "negativeKeywords"):
-                estado[contenedor] = [k for k in estado[contenedor] if str(k[campo]) != ext]
-            return httpx.Response(200, json=_eco({campo: ext, "deleted": True}))
+                for k in estado[contenedor]:
+                    if str(k.get("keywordId")) == ext:
+                        k["state"] = "ARCHIVED"  # el item SIGUE en el list
+            recurso = "negativeKeywords" if es_negative else "keywords"
+            return httpx.Response(200, json=_eco(_207(recurso, "keywordId", ext)))
         raise AssertionError(f"request inesperado: {metodo} {path}")
 
     return handler, vistos
@@ -532,7 +550,7 @@ def test_bid_keyword_neto_cero_restaura_lo_leido(capsys):
         rc = sa.corre_formas(_ctx(conn, handler), ["bid_keyword"])
 
         assert rc == 0
-        assert estado["keywords"][0]["bid"] == "1.23", "el Amazon remoto queda como estaba"
+        assert estado["keywords"][0]["bid"] == 1.23, "el Amazon remoto queda como estaba"
         ev = _lineas_json(capsys.readouterr().out)[0]
         assert ev["forma"] == "bid_keyword" and ev["ok"] is True and ev["neto_cero"] is True
         assert ev["pasos"][0]["bid_original"] == "1.23"
@@ -548,7 +566,7 @@ def test_bid_target_neto_cero(capsys):
         rc = sa.corre_formas(_ctx(conn, handler), ["bid_target"])
 
         assert rc == 0
-        assert estado["targetingClauses"][0]["bid"] == "2.34"
+        assert estado["targetingClauses"][0]["bid"] == 2.34
         ev = _lineas_json(capsys.readouterr().out)[0]
         assert ev["forma"] == "bid_target" and ev["neto_cero"] is True
         payloads = conn.execute("SELECT request_payload FROM apply_attempt ORDER BY id").fetchall()
@@ -566,11 +584,17 @@ def test_negative_create_delete_neto_cero(capsys):
         rc = sa.corre_formas(_ctx(conn, handler), ["negative"])
 
         assert rc == 0
-        assert estado["negativeKeywords"] == [], "neto cero: el negativo basura se borro"
+        # Neto cero con el wire REAL: el "delete" v3 ARCHIVA — el negativo
+        # basura queda operativamente MUERTO (state=ARCHIVED, ausente para la
+        # identidad viva), no removido del list (probe 2.5, apply_attempt 14).
+        assert [k["state"] for k in estado["negativeKeywords"]] == ["ARCHIVED"], (
+            "neto cero: el negativo basura quedo archivado (operativamente muerto)"
+        )
         ev = _lineas_json(capsys.readouterr().out)[0]
         assert ev["forma"] == "negative" and ev["ok"] is True and ev["neto_cero"] is True
         # Identidad completa: el POST y el DELETE viven en el ad group de la
-        # campana allowlisted, sobre el termino basura de la corrida.
+        # campana allowlisted, sobre el termino basura de la corrida; enums y
+        # filtro del wire REAL (apply_attempt 13-14).
         post, delete = (
             f[0]
             for f in conn.execute(
@@ -578,8 +602,9 @@ def test_negative_create_delete_neto_cero(capsys):
             ).fetchall()
         )
         assert post["adGroupId"] == GRUPO and post["campaignId"] == CAMPANA
-        assert post["matchType"] == "exact" and "zzsmoke" in post["keywordText"]
-        assert set(delete) == {"keywordId"}
+        assert post["matchType"] == "NEGATIVE_EXACT" and post["state"] == "ENABLED"
+        assert "zzsmoke" in post["keywordText"]
+        assert set(delete) == {"negativeKeywordIdFilter"}
 
 
 @_skip_db
@@ -595,12 +620,16 @@ def test_keyword_create_delete_neto_cero(capsys):
         rc = sa.corre_formas(_ctx(conn, handler), ["keyword"])
 
         assert rc == 0
-        assert len(estado["keywords"]) == 3, "la keyword basura se borro"
+        # La keyword basura quedo ARCHIVED (delete v3): viva siguen las 3.
+        assert len([k for k in estado["keywords"] if k["state"] != "ARCHIVED"]) == 3, (
+            "la keyword basura quedo operativamente muerta (ARCHIVED)"
+        )
         ev = _lineas_json(capsys.readouterr().out)[0]
         assert ev["forma"] == "keyword" and ev["ok"] is True and ev["neto_cero"] is True
         post = conn.execute("SELECT request_payload FROM apply_attempt ORDER BY id").fetchone()[0]
         assert post["bid"] == "1.23", "bid LEIDO de la primera EXACT (regla 3)"
-        assert post["matchType"] == "exact" and post["adGroupId"] == GRUPO
+        assert post["matchType"] == "EXACT" and post["state"] == "ENABLED"
+        assert post["adGroupId"] == GRUPO
 
 
 @_skip_db
@@ -618,10 +647,13 @@ def test_forma_todas_corre_las_cuatro_en_orden():
         ).fetchall()
         assert [f[0] for f in tipos] == list(range(1, 9)), "8 filas: 2 por forma"
         assert all(f[1] == "probe" and f[2] is False for f in tipos)
-        # Estado final == estado inicial en TODO el remoto.
-        assert estado["keywords"] == _estado_inicial()["keywords"]
-        assert estado["targetingClauses"] == _estado_inicial()["targetingClauses"]
-        assert estado["negativeKeywords"] == []
+        # Estado final == estado inicial en TODO el remoto VIVO: el delete
+        # v3 ARCHIVA (probe 2.5) — los items basura siguen en el list pero
+        # operativamente muertos (la identidad viva los ignora).
+        vivo = lambda items: [k for k in items if k.get("state") != "ARCHIVED"]  # noqa: E731
+        assert vivo(estado["keywords"]) == _estado_inicial()["keywords"]
+        assert vivo(estado["targetingClauses"]) == _estado_inicial()["targetingClauses"]
+        assert vivo(estado["negativeKeywords"]) == []
 
 
 @_skip_db
@@ -661,7 +693,7 @@ def test_fallo_a_mitad_reversa_best_effort_y_exit_no_cero(capsys):
         rc = sa.corre_formas(_ctx(conn, handler), ["bid_keyword"])
 
         assert rc != 0
-        assert estado["keywords"][0]["bid"] == "1.23", "reversa best-effort restaura el original"
+        assert estado["keywords"][0]["bid"] == 1.23, "reversa best-effort restaura el original"
         ev = _lineas_json(capsys.readouterr().out)[0]
         assert ev["ok"] is False and ev["forma"] == "bid_keyword"
         resultado_reversa = conn.execute(
@@ -692,7 +724,7 @@ def test_forma_todas_detiene_en_la_primera_falla():
         # Solo la forma que fallo dejo filas; bid_target/negative/keyword no corrieron.
         seqs = conn.execute("SELECT seq FROM apply_attempt ORDER BY id").fetchall()
         assert [s[0] for s in seqs] == [1], "las formas siguientes NO corren"
-        assert estado["targetingClauses"][0]["bid"] == "2.34"
+        assert estado["targetingClauses"][0]["bid"] == 2.34
         assert estado["negativeKeywords"] == []
 
 
@@ -746,7 +778,7 @@ def test_readback_bid_con_id_ajeno_no_confirma():
     (regla 9: el mock devuelve el senuelo primero)."""
 
     class _ClienteSenuelo:
-        def get_sellado(self, path, params=None):
+        def list_objects(self, path, body, profile_id=None):
             return httpx.Response(
                 200,
                 json={
@@ -759,6 +791,7 @@ def test_readback_bid_con_id_ajeno_no_confirma():
 
     class _Ctx:
         cliente = _ClienteSenuelo()
+        profile_id = "1"
 
     bid, paso = sa._paso_readback_bid(_Ctx(), es_keyword=True, ext="321")
     assert bid == Decimal("1.23"), "la fila de la entidad PEDIDA gana sobre el senuelo"
@@ -825,7 +858,9 @@ def _handler_negative_campo_id(estado: dict, campo_id: str | None):
     def handler(request: httpx.Request) -> httpx.Response:
         path, metodo = request.url.path, request.method
         if metodo == "POST" and path == "/sp/negativeKeywords":
-            body = json.loads(request.content)
+            # El objeto viaja como unica entrada del contenedor del recurso
+            # (shape real fijado por el probe 2.5; antes objeto desnudo).
+            body = json.loads(request.content)["negativeKeywords"][0]
             proximo_id[0] += 1
             nuevo = str(proximo_id[0])
             item = {
@@ -839,8 +874,9 @@ def _handler_negative_campo_id(estado: dict, campo_id: str | None):
                 item[campo_id] = nuevo
             estado["negativeKeywords"].append(item)
             return httpx.Response(200, json={(campo_id or "id"): nuevo})
-        if metodo == "DELETE" and path == "/sp/negativeKeywords":
-            ext = str(json.loads(request.content)["keywordId"])
+        if metodo == "POST" and path == "/sp/negativeKeywords/delete":
+            # Shape real (probe 2.5): POST /delete con filtro de ids.
+            ext = str(json.loads(request.content)["negativeKeywordIdFilter"]["include"][0])
             estado["negativeKeywords"] = [
                 k for k in estado["negativeKeywords"] if str(k.get(campo_id or "\0")) != ext
             ]

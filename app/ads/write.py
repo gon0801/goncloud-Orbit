@@ -39,16 +39,20 @@ Diseno SELLADO (plans/orbit-04.md decision 9; docs/APPLY.md §8):
   el body de Amazon; el `resultado` del ledger lo heredaria. `_mutate` lanza
   `AdsApiErrorMutacion` con `cuerpo` = snippet del body JSON SANEADO
   (scrub() + ~500 chars) + status + method + path.
-- `get_sellado(path, params)`: GET de readback con el scope SELLADO de la
-  instancia — el re-check del aplicador JAMAS pasa un profile a mano (r1 del
-  brief: los metodos de lectura heredados aceptan profile_id arbitrario).
+- `list_sellado(path, body)`: LIST v3 de READBACK con el scope SELLADO de la
+  instancia — desde el probe 2.5 (2026-08-26, corrida autorizada del dueno,
+  ledger apply_attempt ids 1-20, log out/smoke-apply-20260826.log) es LA
+  puerta de lectura de entidad: el GET directo /sp/keywords responde 403
+  (retirado como todo GET de sp; apply_attempt 4-5). `get_sellado` SOLO
+  queda para el PENDIENTE-DE-REGLA-8 de bid_sugerido
+  (out/regla8-bidrec.log: en vivo 403/404 → fail-open None), NUNCA para
+  readback de entidad.
 
-PENDIENTE del probe autorizado 2.5 (brief APPLY §13, sellado 23): los
-paths y vendor types de MUTACION no estan verificados en vivo (solo
-`/sp/negativeKeywords/list` lo esta — regla 8, 2026-08-25, log
-out/regla8-negkeywords.log) y los shapes de los acks los fija el probe; los
-tests de este modulo usan MockTransport y NO dependen de que los endpoints
-reales existan. El sello/parseo de acks es del aplicador (2.1).
+SELLADO por el probe 2.5 (2026-08-26): paths, vendor types, contenedores,
+enums UPPER (matchType EXACT/NEGATIVE_EXACT, state ENABLED en creates), bid
+como NUMERO JSON y deletes por POST /sp/{recurso}/delete con filtro de ids
+— todo verificado en vivo con las 4 formas neto cero. Unica hipotesis
+PENDIENTE: el state del PUT de pause/resume (ver ESTADO_PUT_PAUSED).
 """
 
 from __future__ import annotations
@@ -90,21 +94,47 @@ PLATAFORMA_MONEDA: MappingProxyType[str, str] = MappingProxyType(
 # LIST_REQUEST_TYPES: es una allowlist de SEGURIDAD leida en vivo por el
 # guard; congelarla evita que una mutacion accidental amplie la superficie.
 #
-# PENDIENTES del probe autorizado 2.5 (brief §13, sellado 23): los paths y
-# vendor types de mutacion NO estan verificados en vivo — solo el del list
-# de negatives lo esta (regla 8, 2026-08-25). El probe fija shapes de acks
-# y confirma/corrige estos pares; hasta entonces los tests de este modulo
-# corren 100% contra MockTransport.
+# SELLADO por el probe 2.5 (2026-08-26, ledger probe ids 1-20, log
+# out/smoke-apply-20260826.log): los cuatro pares de create/update
+# respondieron 207 en vivo y los DELETE v3 van por POST /delete con filtro
+# (el DELETE directo del collection responde 403 SigV4 — NO existe: los
+# pares DELETE viejos se retiraron).
 MUTATION_REQUEST_TYPES: MappingProxyType[tuple[str, str], str] = MappingProxyType(
     {
         ("PUT", "/sp/keywords"): "application/vnd.spkeyword.v3+json",
         ("PUT", "/sp/targets"): "application/vnd.sptargetingclause.v3+json",
         ("POST", "/sp/negativeKeywords"): "application/vnd.spnegativekeyword.v3+json",
-        ("DELETE", "/sp/negativeKeywords"): "application/vnd.spnegativekeyword.v3+json",
+        ("POST", "/sp/negativeKeywords/delete"): ("application/vnd.spnegativekeyword.v3+json"),
         ("POST", "/sp/keywords"): "application/vnd.spkeyword.v3+json",
-        ("DELETE", "/sp/keywords"): "application/vnd.spkeyword.v3+json",
+        ("POST", "/sp/keywords/delete"): "application/vnd.spkeyword.v3+json",
     }
 )
+
+# Contenedor del RECURSO que la API v3 exige en el body de las mutaciones de
+# coleccion: el objeto viaja como UNICA entrada de una lista bajo esta clave
+# (el sello "payload de UN objeto" se mantiene: una entrada, jamas un lote).
+# SELLADO por el probe 2.5 (2026-08-26, corrida autorizada del dueno, ledger
+# probe ids 1-20, log out/smoke-apply-20260826.log): los TRES contenedores
+# respondieron 207 en vivo — keywords (apply_attempt 6-7), targetingClauses
+# (19-20; el MISMO del list) y negativeKeywords (13-14).
+MUTATION_CONTAINERS: MappingProxyType[str, str] = MappingProxyType(
+    {
+        "/sp/keywords": "keywords",
+        "/sp/targets": "targetingClauses",
+        "/sp/negativeKeywords": "negativeKeywords",
+    }
+)
+
+# HIPOTESIS PENDIENTE de la corrida del pause real (probe 2.5 NO la fijo): el
+# state del REQUEST en el PUT de pause/resume viaja como 'userPaused'/
+# 'enabled' — la forma bid del probe NO toco state, y la UNICA evidencia del
+# enum (apply_attempt 9: el 400 del negative listo [ENABLED, PROPOSED,
+# PAUSED]) sugiere que el valor del PUT es 'PAUSED'/'ENABLED' UPPER. Se
+# CONSERVA el valor actual (sellado por tests) hasta que el dueno autorice
+# la corrida que lo fije; el READBACK ya compara contra el wire VERIFICADO
+# del list (ESTADO_WIRE_* de app/apply.py: ENABLED/PAUSED/ARCHIVED UPPER).
+ESTADO_PUT_PAUSED = "userPaused"
+ESTADO_PUT_ENABLED = "enabled"
 
 
 def _un_objeto(valor: object, nombre: str) -> object:
@@ -117,6 +147,16 @@ def _un_objeto(valor: object, nombre: str) -> object:
             "el payload de mutacion lleva UN objeto por request"
         )
     return valor
+
+
+def _bid_wire(bid: Decimal) -> float:
+    """Bid para el PAYLOAD JSON: NUMERO, no string (evidencia probe 2.5,
+    apply_attempt id=3: "STRING_VALUE is not an expected Json type"). La
+    regla 4 (jamás float) gobierna el ALMACENAMIENTO y la aritmética de
+    decisiones — este es el encoding FINAL del valor YA cuantizado a 2
+    decimales: float(Decimal("0.76")) serializa como 0.76 exacto (repr de
+    round-trip), sin inventar precisión."""
+    return float(_bid_payload(bid))
 
 
 def _bid_payload(bid: Decimal) -> str:
@@ -172,11 +212,12 @@ def _snippet_cuerpo(resp: httpx.Response, tope: int = 500) -> str:
 class AdsWriteClient(AdsClient):
     """Cliente de escritura Amazon Ads: SOLO las mutaciones del allowlist.
 
-    La superficie publica es EXACTA (las 10 mutaciones selladas + get_sellado
-    para el readback del aplicador; ningun metodo generico request/post) y
-    ningun metodo acepta profile/platform: el scope vive en la instancia.
-    Devuelven el `httpx.Response` crudo (el ack); el sello/parseo es del
-    aplicador (2.1).
+    La superficie publica es EXACTA (las 10 mutaciones selladas + las dos
+    puertas de lectura sellada: list_sellado para el readback de entidad y
+    get_sellado solo para el PENDIENTE-DE-REGLA-8; ningun metodo generico
+    request/post) y ningun metodo acepta profile/platform: el scope vive en
+    la instancia. Devuelven el `httpx.Response` crudo (el ack); el
+    sello/parseo es del aplicador (2.1).
     """
 
     def __init__(
@@ -232,7 +273,7 @@ class AdsWriteClient(AdsClient):
             "/sp/keywords",
             {
                 "keywordId": _un_objeto(keyword_id, "keyword_id"),
-                "bid": _bid_payload(bid),
+                "bid": _bid_wire(bid),
             },
         )
 
@@ -246,30 +287,38 @@ class AdsWriteClient(AdsClient):
             "/sp/targets",
             {
                 "targetId": _un_objeto(target_id, "target_id"),
-                "bid": _bid_payload(bid),
+                "bid": _bid_wire(bid),
             },
         )
 
     def pausar_keyword(self, keyword_id: str | int) -> httpx.Response:
-        """PUT /sp/keywords: keyword a userPaused."""
-        return self._cambiar_estado("keyword", keyword_id, "userPaused")
+        """PUT /sp/keywords: keyword a userPaused (HIPOTESIS del PUT: ver
+        ESTADO_PUT_PAUSED — PENDIENTE de la corrida del pause real)."""
+        return self._cambiar_estado("keyword", keyword_id, ESTADO_PUT_PAUSED)
 
     def reanudar_keyword(self, keyword_id: str | int) -> httpx.Response:
-        """PUT /sp/keywords: keyword a enabled (reversa del pause)."""
-        return self._cambiar_estado("keyword", keyword_id, "enabled")
+        """PUT /sp/keywords: keyword a enabled (reversa del pause; HIPOTESIS
+        del PUT: ver ESTADO_PUT_ENABLED)."""
+        return self._cambiar_estado("keyword", keyword_id, ESTADO_PUT_ENABLED)
 
     def pausar_target(self, target_id: str | int) -> httpx.Response:
-        """PUT /sp/targets: product_target a userPaused."""
-        return self._cambiar_estado("target", target_id, "userPaused")
+        """PUT /sp/targets: product_target a userPaused (HIPOTESIS del PUT:
+        ver ESTADO_PUT_PAUSED — PENDIENTE de la corrida del pause real)."""
+        return self._cambiar_estado("target", target_id, ESTADO_PUT_PAUSED)
 
     def reanudar_target(self, target_id: str | int) -> httpx.Response:
-        """PUT /sp/targets: product_target a enabled (reversa del pause)."""
-        return self._cambiar_estado("target", target_id, "enabled")
+        """PUT /sp/targets: product_target a enabled (reversa del pause;
+        HIPOTESIS del PUT: ver ESTADO_PUT_ENABLED)."""
+        return self._cambiar_estado("target", target_id, ESTADO_PUT_ENABLED)
 
     def crear_negative_exacto(
         self, ad_group_id: str | int, campaign_id: str | int, keyword_text: str
     ) -> httpx.Response:
-        """POST /sp/negativeKeywords: negative EXACT de UN termino."""
+        """POST /sp/negativeKeywords: negative EXACT de UN termino.
+
+        Shapes fijados por el probe 2.5 (apply_attempt id=8): matchType es
+        el enum NEGATIVE_* (NEGATIVE_EXACT — NO el 'exact' de las keywords)
+        y `state` es OBLIGATORIO en el POST (enum UPPER: ENABLED/PROPOSED/PAUSED)."""
         return self._mutate(
             "POST",
             "/sp/negativeKeywords",
@@ -277,16 +326,25 @@ class AdsWriteClient(AdsClient):
                 "adGroupId": _un_objeto(ad_group_id, "ad_group_id"),
                 "campaignId": _un_objeto(campaign_id, "campaign_id"),
                 "keywordText": _un_objeto(keyword_text, "keyword_text"),
-                "matchType": "exact",
+                "matchType": "NEGATIVE_EXACT",
+                "state": "ENABLED",  # enum UPPER (apply_attempt 9: ENABLED/PROPOSED/PAUSED)
             },
         )
 
     def borrar_negative(self, negative_id: str | int) -> httpx.Response:
-        """DELETE /sp/negativeKeywords: reversa del negative."""
+        """POST /sp/negativeKeywords/delete: reversa del negative.
+
+        Shape REAL del probe 2.5: el DELETE directo del collection responde
+        403 (superficie que exige firma AWS); el camino v3 es POST al
+        sub-path /delete con un FILTRO de ids ({"negativeKeywordIdFilter":
+        {"include": [id]}} — 207 success, verificado en vivo). El "delete"
+        de Amazon ARCHIVA (state=ARCHIVED): operativamente muerto, la fila
+        sigue apareciendo en el list con ese estado."""
         return self._mutate(
-            "DELETE",
-            "/sp/negativeKeywords",
-            {"keywordId": _un_objeto(negative_id, "negative_id")},
+            "POST",
+            "/sp/negativeKeywords/delete",
+            {"negativeKeywordIdFilter": {"include": [_un_objeto(negative_id, "negative_id")]}},
+            envolver=False,
         )
 
     def crear_keyword_exacta(
@@ -297,7 +355,10 @@ class AdsWriteClient(AdsClient):
         bid: Decimal,
         moneda: str,
     ) -> httpx.Response:
-        """POST /sp/keywords: keyword EXACT nueva (el corazon del harvest)."""
+        """POST /sp/keywords: keyword EXACT nueva (el corazon del harvest).
+
+        Shapes del probe 2.5 (apply_attempt 15): matchType enum UPPER
+        (EXACT/PHRASE/BROAD) y state OBLIGATORIO (ENABLED)."""
         self._verificar_moneda(moneda)
         return self._mutate(
             "POST",
@@ -306,28 +367,47 @@ class AdsWriteClient(AdsClient):
                 "adGroupId": _un_objeto(ad_group_id, "ad_group_id"),
                 "campaignId": _un_objeto(campaign_id, "campaign_id"),
                 "keywordText": _un_objeto(keyword_text, "keyword_text"),
-                "matchType": "exact",
-                "bid": _bid_payload(bid),
+                "matchType": "EXACT",
+                "state": "ENABLED",
+                "bid": _bid_wire(bid),
             },
         )
 
     def borrar_keyword(self, keyword_id: str | int) -> httpx.Response:
-        """DELETE /sp/keywords: reversa del harvest (keyword primero)."""
+        """POST /sp/keywords/delete: reversa del harvest (keyword primero).
+
+        Shape simetrico al del negative (probe 2.5): POST /sp/keywords/delete
+        con {"keywordIdFilter": {"include": [id]}}; el DELETE directo del
+        collection no existe en la superficie Bearer (403 SigV4)."""
         return self._mutate(
-            "DELETE",
-            "/sp/keywords",
-            {"keywordId": _un_objeto(keyword_id, "keyword_id")},
+            "POST",
+            "/sp/keywords/delete",
+            {"keywordIdFilter": {"include": [_un_objeto(keyword_id, "keyword_id")]}},
+            envolver=False,
         )
 
     def get_sellado(self, path: str, *, params: dict | None = None) -> httpx.Response:
-        """GET de READBACK con el scope SELLADO de la instancia.
+        """GET con el scope SELLADO de la instancia.
 
         El re-check "ya estaba" del aplicador JAMAS pasa un profile a mano
         (hallazgo r1 del brief §13: los metodos de lectura heredados aceptan
         profile_id arbitrario — un readback con scope de otra plataforma
-        validaria la cuenta equivocada). Es un GET comun: pasa por el guard
-        read-only del padre con la politica normal de retries."""
+        validaria la cuenta equivocada). Desde el probe 2.5 (apply_attempt
+        4-5) NO sirve readback de entidad sp: el GET directo responde 403
+        (retirado). Su UNICO caller es `bid_sugerido` (PENDIENTE-DE-REGLA-8,
+        out/regla8-bidrec.log: en vivo 403/404 → None fail-open)."""
         return self._request("GET", path, params=params, profile_id=self._profile_id)
+
+    def list_sellado(self, path: str, body: dict) -> httpx.Response:
+        """LIST v3 de READBACK con el scope SELLADO de la instancia.
+
+        Desde el probe 2.5 (2026-08-26, apply_attempt 4-5) es LA puerta de
+        lectura de entidad del motor: el GET directo /sp/keywords responde
+        403 (retirado) y el UNICO camino de lectura es el POST de lista (el
+        mismo del sync de estructura, verificado en vivo desde 2026-08-22).
+        `body` es el filtro de paginacion ({} primera pagina). Misma regla
+        que get_sellado: el profile JAMAS viaja a mano — vive en la instancia."""
+        return self.list_objects(path, body, profile_id=self._profile_id)
 
     # ------------------------------------------------------------------
     # Despacho central: guard allowlist + scope sellado + no-idempotente
@@ -354,7 +434,9 @@ class AdsWriteClient(AdsClient):
             {campo: _un_objeto(entity_id, f"{entidad}_id"), "state": estado},
         )
 
-    def _mutate(self, method: str, path: str, payload: dict) -> httpx.Response:
+    def _mutate(
+        self, method: str, path: str, payload: dict, *, envolver: bool = True
+    ) -> httpx.Response:
         """Guard central de mutaciones (dos capas, como list_objects):
 
         1. `_validate_relative_path` (path relativo seguro, sin traversal);
@@ -376,12 +458,17 @@ class AdsWriteClient(AdsClient):
             )
 
         url = f"{self._base_url}{path}"
+        # El objeto viaja como UNICA entrada de la lista bajo el contenedor
+        # del recurso (evidencia probe 2.5 arriba): objeto desnudo = 400
+        # INVALID_ARGUMENT "Member must not be null". Los DELETE v3 van por
+        # POST /delete con body de FILTRO (envolver=False): shape propio.
+        body = payload if not envolver else {MUTATION_CONTAINERS[path]: [payload]}
         token = self._ensure_token()
         resp = self._send_with_retries(
             method,
             url,
             headers=self._headers_mutacion(token, vendor),
-            json=payload,
+            json=body,
             idempotent=False,
         )
         if resp.status_code == 401:
@@ -390,7 +477,7 @@ class AdsWriteClient(AdsClient):
                 method,
                 url,
                 headers=self._headers_mutacion(token, vendor),
-                json=payload,
+                json=body,
                 idempotent=False,
             )
         if resp.status_code >= 400:

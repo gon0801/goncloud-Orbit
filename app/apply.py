@@ -38,7 +38,8 @@ Diseno SELLADO (plans/orbit-04.md decisiones 7-12, 14, 16, 21; docs/APPLY.md
   cabe: descartado, JAMAS HTTP) -> fila del ledger PRE-HTTP (seq =
   count(*)+1 del decision_id; tope 3: COUNT >= 3 -> no existe 4o intento,
   salta con motivo) + COMMIT (la intencion durable ANTES del HTTP) -> HTTP
-  (write client) -> readback GET FRESCO con el MISMO scope sellado ->
+  (write client) -> readback por LIST FRESCO con el MISMO scope sellado
+  (probe 2.5: el GET directo de entidad sp responde 403, retirado) ->
   sellar ledger (ack/resultado/finished_at una vez) -> UPSERT
   decision_application (la terna confirmed_at+platform_ack+verify_ok JUNTA
   al confirmar; applied_cycle_id = ciclo EJECUTOR solo al confirmar) ->
@@ -57,15 +58,19 @@ Diseno SELLADO (plans/orbit-04.md decisiones 7-12, 14, 16, 21; docs/APPLY.md
 - RECONCILIACION DE LEDGER SIN SELLO (`reconcilia_bids`, ADV-04 de la review
   adversaria de phase 2; matriz §6.1 "Ledger sin sello - bid"): los bids no
   viven en apply_queue, asi que su rastro de crash SOLO existe en el ledger.
-  GET fresco del readback: GET == pedido → confirmar (sello ok:reconciliado
-  + resumen + ciclo EJECUTOR + cache); divergencia → sello de fallo y UN
-  reintento bajo tope-3 (quota ya cobrada); ambiguo → failed SIN reintento.
-  Filas reversa/probe sin sello: RESIDUAL declarado (APPLY.md §13).
+  LIST fresco del readback: lectura == pedido → confirmar (sello
+  ok:reconciliado + resumen + ciclo EJECUTOR + cache); divergencia → sello
+  de fallo y UN reintento bajo tope-3 (quota ya cobrada); ambiguo → failed
+  SIN reintento. Filas reversa/probe sin sello: RESIDUAL declarado (APPLY.md
+  §13).
 
-PENDIENTES del probe autorizado 2.5 (brief §13, sellado 23): el path y el
-shape del readback (contenedor 'keywords'/'targets', campo 'bid') son
-supuestos de esta task sellados por tests contra MockTransport; el probe los
-fija contra las formas reales.
+SELLADO por el probe 2.5 (corrida autorizada del dueno 2026-08-26, ledger
+apply_attempt ids 1-20, log out/smoke-apply-20260826.log): el readback de
+entidad vive por LIST (POST /sp/{keywords|targets}/list — el GET directo
+responde 403, retirado; apply_attempt 4-5), contenedores 'keywords'/
+'targetingClauses' y estados del wire UPPER (ESTADO_WIRE_*). Unica hipotesis
+PENDIENTE: el state del REQUEST del PUT de pause/resume
+(write.py ESTADO_PUT_*).
 
 `owner`/`job_key` se guardan para el ownership-check pre-HTTP de la
 integracion (2.4, decision 11); el heartbeat `tick` se llama DURANTE la
@@ -160,6 +165,17 @@ def perfil_aceptado_de(
             return perfil
     return None
 
+
+# Estados del WIRE en el readback por LIST. SELLADO por el probe 2.5
+# (2026-08-26, ledger probe ids 1-20, log out/smoke-apply-20260826.log): el
+# list trae state UPPER — ENABLED/PAUSED/ARCHIVED (apply_attempt 19-20:
+# targets list con ENABLED y PAUSED vivos). 'userPaused' NO existe en la
+# RESPUESTA: es vocabulario del REQUEST del PUT (hipotesis pendiente,
+# write.py ESTADO_PUT_*). ARCHIVED = operativamente muerto (el "delete" v3
+# archiva): NO confirma entidad viva ni pause verificado.
+ESTADO_WIRE_ENABLED = "ENABLED"
+ESTADO_WIRE_PAUSED = "PAUSED"
+ESTADO_WIRE_ARCHIVED = "ARCHIVED"
 
 # Vocabulario cerrado de motivos del aplicador (skips y descartes
 # estructurados; el digest de 3.3 los consume tal cual).
@@ -460,7 +476,9 @@ def reconcilia_bids(
         kind, external_id = identidad
         _, path, contenedor, param = _KINDS_DECISORAS[kind]
         try:
-            resp = cliente.get_sellado(path, params={param: external_id})
+            # Readback por LIST con el MISMO scope sellado (probe 2.5: el GET
+            # directo de entidad responde 403 — retirado).
+            resp = cliente.list_sellado(path, {})
         except AdsApiError:
             with conn.transaction():
                 _sella_ledger(conn, id_attempt, ack=None, resultado="fallo:readback_ambiguo")
@@ -544,9 +562,7 @@ def _reintento_divergente(
     ack_http = _json_seguro(resp_http)
     _tick(aplicador._tick_fn)
     try:
-        bid2 = _bid_leido(
-            cliente.get_sellado(path, params={param: external_id}), contenedor, param, external_id
-        )
+        bid2 = _bid_leido(cliente.list_sellado(path, {}), contenedor, param, external_id)
     except AdsApiError:
         _sella_ledger(conn, id_retry, ack=ack_http, resultado="fallo:readback_ambiguo")
         conn.commit()
@@ -623,30 +639,50 @@ def _json_seguro(resp: httpx.Response) -> dict:
     return json.loads(scrub(json.dumps(data)))
 
 
+def _fila_de_lista(resp: httpx.Response, contenedor: str, id_campo: str, external_id: str) -> dict:
+    """La fila de ESTA entidad en la respuesta del LIST (cruce de id
+    CX6/GK8): el list trae TODAS las filas de la cuenta, asi que se ESCANEA
+    por el id — nunca filas[0]. None/{} = la entidad pedida no esta en la
+    respuesta (una respuesta de OTRA entidad no es evidencia de esta
+    decision ni toca el cache)."""
+    try:
+        filas = resp.json().get(contenedor)
+    except (ValueError, AttributeError, TypeError):
+        return {}
+    for fila in filas or []:
+        if isinstance(fila, dict) and str(fila.get(id_campo)) == str(external_id):
+            return fila
+    return {}
+
+
 def _bid_leido(
     resp: httpx.Response, contenedor: str, id_campo: str, external_id: str
 ) -> Decimal | None:
-    """El bid del READBACK fresco, SOLO si la fila leida ES la entidad pedida
-    (CX6/GK8: el id de la fila debe cruzar con el external_id del pedido —
-    una respuesta de OTRA entidad no es evidencia de esta decision ni toca
-    el cache). PENDIENTE del probe 2.5: el shape (contenedor
-    'keywords'/'targets' con el campo 'bid') es supuesto sellado por tests;
-    el probe lo fija contra la API real. None = sin bid legible de ESTA
-    entidad."""
-    try:
-        filas = resp.json().get(contenedor)
-        fila = filas[0] if filas else None
-        if fila is None or str(fila.get(id_campo)) != str(external_id):
-            return None
-        bid = fila.get("bid")
-    except (ValueError, AttributeError, IndexError, KeyError, TypeError):
-        return None
+    """El bid del READBACK por LIST, SOLO de la fila cuyo id CRUZA con el
+    pedido. Shape SELLADO por el probe 2.5 (2026-08-26, apply_attempt 4-7 y
+    19-20: contenedor 'keywords'/'targetingClauses', campo 'bid' NUMERO en
+    el wire). None = sin bid legible de ESTA entidad."""
+    fila = _fila_de_lista(resp, contenedor, id_campo, external_id)
+    bid = fila.get("bid")
     if bid is None:
         return None
     try:
         return Decimal(str(bid))
     except ArithmeticError:
         return None
+
+
+def _estado_leido(
+    resp: httpx.Response, contenedor: str, id_campo: str, external_id: str
+) -> str | None:
+    """El estado del READBACK por LIST, SOLO de la fila cuyo id CRUZA con el
+    pedido (espejo de _bid_leido para cortes). El vocabulario del wire es
+    UPPER — ESTADO_WIRE_* (probe 2.5, apply_attempt 19-20); 'userPaused' NO
+    existe en la respuesta. None = ilegible/vacio/de otra entidad. Vive AQUI
+    (una sola fuente): apply_cola y apply_harvest lo reusan por import."""
+    fila = _fila_de_lista(resp, contenedor, id_campo, external_id)
+    estado = fila.get("state")
+    return estado if isinstance(estado, str) else None
 
 
 def _ya_aplicada(conn: psycopg.Connection, decision_id: int) -> bool:
@@ -703,12 +739,14 @@ SELECT scope, ad_entity_id, platform, target_acos_pct, bid_floor, bid_ceiling,
     OR (scope = 'campaign' AND ad_entity_id = %s)
 """
 
-# (kind de la entidad) -> (metodo del write client, path del readback,
-# contenedor de la respuesta, param del GET). PENDIENTE del probe 2.5 para
-# el shape del readback.
+# (kind de la entidad) -> (metodo del write client, path del LIST de
+# readback, contenedor de la respuesta, campo del id para el cruce). Shape
+# SELLADO por el probe 2.5 (2026-08-26, apply_attempt 4-5 y 18-20): el GET
+# directo esta retirado (403) — el contenedor de targets es
+# 'targetingClauses', el MISMO del list.
 _KINDS_DECISORAS = {
-    "keyword": ("bid_keyword", "/sp/keywords", "keywords", "keywordId"),
-    "product_target": ("bid_target", "/sp/targets", "targets", "targetId"),
+    "keyword": ("bid_keyword", "/sp/keywords/list", "keywords", "keywordId"),
+    "product_target": ("bid_target", "/sp/targets/list", "targetingClauses", "targetId"),
 }
 
 
@@ -982,11 +1020,12 @@ class Aplicador:
         return cliente.actualizar_bid_target(external_id, bid, moneda)
 
     def _readback(self, cliente: AdsWriteClient, identidad: tuple[str, str]) -> Decimal | None:
-        """GET FRESCO con el MISMO scope sellado (get_sellado: el re-check
-        JAMAS pasa un profile a mano — sellado 16)."""
+        """LIST FRESCO con el MISMO scope sellado (list_sellado: el re-check
+        JAMAS pasa un profile a mano — sellado 16; probe 2.5: el GET directo
+        de entidad esta retirado, 403)."""
         kind, external_id = identidad
         _, path, contenedor, param = _KINDS_DECISORAS[kind]
-        resp = cliente.get_sellado(path, params={param: external_id})
+        resp = cliente.list_sellado(path, {})
         return _bid_leido(resp, contenedor, param, external_id)
 
 
@@ -1038,7 +1077,8 @@ def reversa_bid(
     ack = _json_seguro(resp_http)
     _tick(tick)
     _, path, contenedor, param = _KINDS_DECISORAS[identidad[0]]
-    resp = cliente.get_sellado(path, params={param: identidad[1]})
+    # Readback por LIST (probe 2.5: GET directo retirado), scope sellado.
+    resp = cliente.list_sellado(path, {})
     bid_leido = _bid_leido(resp, contenedor, param, identidad[1])
     # QW1: misma etiqueta de divergencia que el apply y la reconciliacion.
     resultado = (
