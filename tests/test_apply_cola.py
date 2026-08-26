@@ -1073,6 +1073,62 @@ def test_pause_se_aplica_y_reversa_pause_resume_exenta_de_quota():
 
 
 @_skip_db
+def test_pause_con_readback_divergente_no_sella_ok_en_el_ledger():
+    """Bug PR27-3 (BAJA): si el GET fresco devuelve un estado legible que NO
+    es userPaused (Amazon no proceso el pause), la fila cerraba failed con
+    verify_ok=False PERO el ledger sellaba resultado='ok' — afirmaba exito
+    donde hubo divergencia (bids ya usan 'fallo:divergencia_readback', QW1; la
+    reconciliacion de pausas, 'fallo:reconciliado_enabled'). Regla 9: contra
+    el codigo viejo el resultado era 'ok' y el assert reventaba."""
+    with _db_temporal("orbit_cola_divp") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_pause": 1})
+        d = ids["ahora"]
+        for fecha in _fechas(d.date() - dt.timedelta(days=28), d.date() - dt.timedelta(days=11)):
+            _metrica(conn, ids["run"], ids["kw"], fecha, clicks=5, cost=2, orders=0)
+        dec = _decision_corte(conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause")
+        q = _encola_fila(conn, dec, ids["kw"], "pause", payload=_payload_pause("7201"))
+        vistos: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            # Amazon NO procesa el pause: el PUT sale 200 pero el estado remoto
+            # JAMAS cambia — el GET fresco sigue devolviendo 'enabled'.
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(
+                    200, json={"access_token": "fake-access-1", "expires_in": 3600}
+                )
+            vistos.append(request)
+            if request.method == "GET":
+                ext = request.url.params.get("keywordId") or request.url.params.get("targetId")
+                contenedor = "targets" if request.url.path == "/sp/targets" else "keywords"
+                campo = "targetId" if contenedor == "targets" else "keywordId"
+                return httpx.Response(200, json={contenedor: [{campo: ext, "state": "enabled"}]})
+            if request.method == "PUT":
+                return httpx.Response(200, json={"ack": json.loads(request.content)})
+            raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
+
+        aplicador = _aplicador(conn, handler, ids["ciclo_ejec"])
+        res = libera_vencidos(conn, "amazon_us", ahora=d, aplicador=aplicador)
+
+        assert res.aplicadas == 0
+        fila = conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()
+        assert fila == ("failed",), "divergencia: la fila NO es applied"
+        resumen = conn.execute(
+            "SELECT verify_ok FROM decision_application WHERE decision_id = %s", (dec,)
+        ).fetchone()
+        assert resumen == (False,)
+        resultado = conn.execute(
+            "SELECT resultado FROM apply_attempt WHERE decision_id = %s", (dec,)
+        ).fetchone()[0]
+        assert resultado == "fallo:divergencia_readback", (
+            "estado legible distinto al pedido: el ledger JAMAS sella 'ok'"
+        )
+        estado = conn.execute(
+            "SELECT status FROM ad_entity_state WHERE ad_entity_id = %s", (ids["kw"],)
+        ).fetchone()[0]
+        assert estado == "enabled", "cache con LO LEIDO del readback (sellado 16)"
+
+
+@_skip_db
 def test_negative_se_aplica_y_reversa_negative_delete_exenta_de_quota():
     with _db_temporal("orbit_cola_revn") as conn:
         ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_negative": 1})

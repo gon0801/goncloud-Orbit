@@ -864,7 +864,9 @@ def test_reconcilia_bids_get_igual_confirma():
         )
         handler, vistos = _handler_api({"7201": "0.85"})
 
-        confirmadas, fallidas = reconcilia_bids(conn, _aplicador(conn, handler, ids["ciclo_ejec"]))
+        confirmadas, fallidas = reconcilia_bids(
+            conn, _aplicador(conn, handler, ids["ciclo_ejec"]), "amazon_us"
+        )
 
         assert (confirmadas, fallidas) == (1, 0)
         fila = conn.execute(
@@ -903,7 +905,9 @@ def test_reconcilia_bids_divergencia_reintenta_bajo_tope_y_falla():
         )
         handler, vistos = _handler_api({"7201": "0.85"}, desviado={"7201": "0.90"})
 
-        confirmadas, fallidas = reconcilia_bids(conn, _aplicador(conn, handler, ids["ciclo_ejec"]))
+        confirmadas, fallidas = reconcilia_bids(
+            conn, _aplicador(conn, handler, ids["ciclo_ejec"]), "amazon_us"
+        )
 
         assert (confirmadas, fallidas) == (0, 1)
         filas = conn.execute(
@@ -949,7 +953,9 @@ def test_reconcilia_bids_ambiguo_falla_sin_reintento():
                 return httpx.Response(503, json={"message": "boom"})
             raise AssertionError("el ambiguo JAMAS re-muta: no puede haber PUT")
 
-        confirmadas, fallidas = reconcilia_bids(conn, _aplicador(conn, handler, ids["ciclo_ejec"]))
+        confirmadas, fallidas = reconcilia_bids(
+            conn, _aplicador(conn, handler, ids["ciclo_ejec"]), "amazon_us"
+        )
 
         assert (confirmadas, fallidas) == (0, 1)
         filas = conn.execute(
@@ -971,6 +977,59 @@ def test_reconcilia_bids_ambiguo_falla_sin_reintento():
             "SELECT current_bid FROM ad_entity_state WHERE ad_entity_id = %s", (ids["kw"],)
         ).fetchone()[0]
         assert cache == Decimal("1.00"), "sin lectura no hay evidencia: el cache no se toca"
+
+
+@_skip_db
+def test_reconcilia_bids_no_cruza_plataformas():
+    """Bug PR27-1 (ALTA): _SQL_INTENTOS_BID_SIN_SELLO no filtraba por
+    plataforma — el ciclo de amazon_us reconciliaba filas sin sello de
+    amazon_mx con el scope equivocado (podia sellar 'fallo:readback_sin_bid'
+    una mutacion EN VUELO del otro proceso y reventar al dueno legitimo con
+    el trigger sello-una-vez). Los locks del ciclo son POR plataforma
+    (job_key_de), igual que TODOS los demas reconciliadores. Regla 9: contra
+    el codigo viejo la fila mx SI se procesaba (GET al cliente y sello)."""
+    from app.apply import reconcilia_bids
+
+    with _db_temporal("orbit_apply_rbid4") as conn:
+        ids = _semilla(conn)
+        # Ciclo + cadena de entidades + decision bid de amazon_mx, con su fila
+        # del ledger SIN sello (mutacion en vuelo del ciclo de mx).
+        ciclo_mx = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_mx') RETURNING id"
+        ).fetchone()[0]
+        camp_mx = conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id)"
+            " VALUES ('amazon_mx', 'campaign', '8001') RETURNING id"
+        ).fetchone()[0]
+        ag_mx = conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id, parent_id)"
+            " VALUES ('amazon_mx', 'ad_group', '8101', %s) RETURNING id",
+            (camp_mx,),
+        ).fetchone()[0]
+        kw_mx = conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id, parent_id,"
+            " match_type, keyword_text) VALUES ('amazon_mx', 'keyword', '8201', %s,"
+            " 'EXACT', 'kw mx') RETURNING id",
+            (ag_mx,),
+        ).fetchone()[0]
+        dec_mx = _decision_bid(conn, ciclo_mx, ids["config"], kw_mx, new="0.85")
+        conn.execute(
+            "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada)"
+            " VALUES (%s, 1, 'normal', %s, true)",
+            (dec_mx, Json({"keywordId": "8201", "bid": "0.85"})),
+        )
+        handler, vistos = _handler_api({"8201": "0.85"})
+
+        # El ciclo de US reconcilia: la fila de mx NO es suya.
+        resultado = reconcilia_bids(conn, _aplicador(conn, handler, ids["ciclo_ejec"]), "amazon_us")
+
+        assert resultado == (0, 0), "sin filas de US: nada que reconciliar"
+        fila = conn.execute(
+            "SELECT resultado, finished_at FROM apply_attempt WHERE decision_id = %s",
+            (dec_mx,),
+        ).fetchone()
+        assert fila == (None, None), "la fila de mx sigue SIN sello: la conduce su propio ciclo"
+        assert vistos == [], "cero GET al cliente: la fila de otra plataforma ni se lee"
 
 
 # ===========================================================================

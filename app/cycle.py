@@ -1385,7 +1385,7 @@ def _fase_apply(
         }
         if modo.modo == "live" and "apply_error" not in notas:
             reconciliacion = apply_harvest.reconcilia_harvest(conn, aplicador, platform)
-            rec_bids = apply.reconcilia_bids(conn, aplicador)
+            rec_bids = apply.reconcilia_bids(conn, aplicador, platform)
             res_bids = aplicador.aplica_bids(
                 apply.bids_del_ciclo(conn, cycle_id), escalera_global=modo.modo
             )

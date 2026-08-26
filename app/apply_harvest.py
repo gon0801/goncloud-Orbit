@@ -1105,9 +1105,11 @@ def _reconcilia_negativas(conn: psycopg.Connection, aplicador, platform: str) ->
             _termina_cola(conn, q_id, "failed")
             fallidas += 1
             continue
-        total = conn.execute(
-            "SELECT count(*) FROM apply_attempt WHERE decision_id = %s", (decision_id,)
-        ).fetchone()[0]
+        # El tope cuenta SOLO intentos 'normal' (CX1/GK1, apply._SQL_COUNT_INTENTOS):
+        # las reversas son el mecanismo de seguridad y jamas consumen
+        # presupuesto de intentos (bug PR27-2: el count(*) crudo cerraba en
+        # tope_intentos con 2 normales + 1 reversa).
+        total = conn.execute(apply._SQL_COUNT_INTENTOS, (decision_id,)).fetchone()[0]
         if total >= apply.TOPE_INTENTOS:
             _sella_pendientes(conn, decision_id, "fallo:tope_intentos")
             _termina_cola(conn, q_id, "failed")

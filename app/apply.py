@@ -353,21 +353,31 @@ def intentos_sin_sello(conn: psycopg.Connection) -> list[tuple]:
 # ADV-04 (review adversaria, matriz §6.1 "Ledger sin sello - bid"): los BIDS
 # no viven en apply_queue, asi que su rastro de crash SOLO existe aqui. Solo
 # intentos 'normal' de decisions kind bid — reversa/probe quedan RESIDUALES
-# declarados (APPLY.md §13).
+# declarados (APPLY.md §13). Filtro de plataforma via el ciclo de la decision
+# (bug PR27-1: los locks del ciclo son POR plataforma — job_key_de —, asi que
+# el ciclo de una plataforma JAMAS reconcilia filas de la otra, como todos los
+# demas reconciliadores: _SQL_PAUSES_APLICANDO, _SQL_NEGATIVAS_APLICANDO,
+# _SQL_HARVEST_APLICANDO, _SQL_JOBS_EN_VUELO).
 _SQL_INTENTOS_BID_SIN_SELLO = """
 SELECT a.id, a.decision_id, a.request_payload, d.ad_entity_id, d.new_value,
        d.value_currency
   FROM apply_attempt a
   JOIN decision d ON d.id = a.decision_id
+  JOIN optimizer_cycle oc ON oc.id = d.cycle_id
  WHERE a.finished_at IS NULL AND a.tipo = 'normal' AND d.kind = 'bid'
+   AND oc.platform = %s::platform
  ORDER BY a.started_at, a.id
 """
 
 
-def reconcilia_bids(conn: psycopg.Connection, aplicador: Aplicador) -> tuple[int, int]:
+def reconcilia_bids(
+    conn: psycopg.Connection, aplicador: Aplicador, platform: str
+) -> tuple[int, int]:
     """Reconciliacion del ledger de BIDS sin sello (ADV-04; la llaman al
-    inicio de la fase de apply de los ciclos live). Por fila, GET FRESCO del
-    readback con el MISMO scope sellado:
+    inicio de la fase de apply de los ciclos live) de UNA plataforma: el
+    lock del ciclo es por plataforma, asi que la fila sin sello de OTRA
+    plataforma la conduce su propio ciclo (bug PR27-1). Por fila, GET FRESCO
+    del readback con el MISMO scope sellado:
 
     - GET == pedido (quantizado) → confirmar: sello 'ok:reconciliado' +
       resumen con verify_ok + applied_cycle_id del EJECUTOR + cache con lo
@@ -381,7 +391,7 @@ def reconcilia_bids(conn: psycopg.Connection, aplicador: Aplicador) -> tuple[int
     El reintento divergente se resuelve en la MISMA pasada (PUT + readback);
     un ambiguo del reintento deja la fila nueva SIN sello: ES el rastro del
     proximo ciclo. Devuelve (confirmadas, fallidas)."""
-    filas = conn.execute(_SQL_INTENTOS_BID_SIN_SELLO).fetchall()
+    filas = conn.execute(_SQL_INTENTOS_BID_SIN_SELLO, (platform,)).fetchall()
     if not filas:
         return (0, 0)
     cliente = aplicador._cliente()

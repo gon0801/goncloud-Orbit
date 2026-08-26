@@ -674,7 +674,14 @@ def _ejecuta_pause(conn: psycopg.Connection, aplicador: Aplicador, fila: FilaCol
         cliente.get_sellado(path, params={param: identidad[1]}), contenedor, param, identidad[1]
     )
     verify = estado == "userPaused"
-    resultado = "ok" if estado is not None else "fallo:readback_sin_estado"
+    # El ledger sella 'ok' SOLO con verificacion (bug PR27-3): un estado
+    # legible distinto al pedido es divergencia (misma etiqueta QW1 de los
+    # bids), jamas exito con verify_ok False.
+    resultado = (
+        "ok"
+        if verify
+        else ("fallo:divergencia_readback" if estado is not None else "fallo:readback_sin_estado")
+    )
     with conn.transaction():
         apply._sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
         apply._confirma_resumen(conn, fila.decision_id, ack, verify, aplicador.cycle_id_ejecutor)

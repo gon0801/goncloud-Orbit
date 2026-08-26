@@ -1202,6 +1202,49 @@ def test_matriz_applying_huerfano_negative_ausente_reintenta_bajo_tope():
         ], "el huerfano se sella, el reintento es fila nueva sin recobro"
 
 
+@_skip_db
+def test_reconcilia_negative_tope_cuenta_solo_normales_reversa_exenta():
+    """Bug PR27-2 (MEDIA): el tope-3 de _reconcilia_negativas contaba TODAS
+    las filas del ledger (SELECT count(*) crudo), incluidas las REVERSAS que
+    el sellado CX1/GK1 exime (apply._SQL_COUNT_INTENTOS: solo tipo 'normal').
+    Con 2 normales + 1 reversa la copia cruda cerraba en 'fallo:tope_intentos'
+    aunque _ledger permitia el reintento. Regla 9: contra el codigo viejo la
+    cola cierra failed y NO nace el POST de reintento — ambos asserts
+    reventaban."""
+    with _db_temporal("orbit_har_t3rev") as conn:
+        ids = _semilla(conn)
+        dec = _decision_negative(conn, ids["ciclo_dec"], ids["config"], ids["ag"])
+        q = _encola_fila(conn, dec, ids["ag"], kind="negative", term=TERMINO)
+        _libera_fila(conn, q)
+        _claim_fila(conn, q)
+        # 2 intentos 'normal' sellados + 1 'reversa' (total 3 en el crudo;
+        # solo 2 cuentan para el tope).
+        for seq, tipo in ((1, "normal"), (2, "normal"), (3, "reversa")):
+            conn.execute(
+                "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload,"
+                " quota_cobrada, resultado, finished_at) VALUES (%s, %s, %s, '{}'::jsonb,"
+                " false, 'ok', now())",
+                (dec, seq, tipo),
+            )
+        handler, vistos = _handler_harvest()
+
+        resumen = _reconcilia(conn, handler, ids["ciclo_ejec"])
+
+        assert resumen.negativas_confirmadas == 1, (
+            "2 normales + 1 reversa: el tope NO se alcanza — REINTENTA, no cierra"
+        )
+        posts = [r for r in _mutaciones(vistos) if r.method == "POST"]
+        assert len(posts) == 1, "nace el reintento del negativo (fila nueva del ledger)"
+        cola = conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()[0]
+        assert cola == "applied"
+        conteo = conn.execute(
+            "SELECT count(*) FILTER (WHERE tipo = 'normal'), count(*) FROM apply_attempt"
+            " WHERE decision_id = %s",
+            (dec,),
+        ).fetchone()
+        assert conteo == (3, 4), "el 3er normal nace del reintento; la reversa queda exenta"
+
+
 # ---------------------------------------------------------------------------
 # 8. La cola manda: veto cierra el job; quota perezosa SOLO la primera vez
 # ---------------------------------------------------------------------------
