@@ -580,6 +580,17 @@ def _buscar_por_identidad(
     return None, items
 
 
+def _id_de_item(item: dict) -> str | None:
+    """El id del item creado: HIPOTESIS_SHAPES['campo_id_ack'] declara que el
+    campo puede ser keywordId o negativeKeywordId — se prueban AMBOS, jamas
+    indexado directo (CR4: un KeyError aqui subia al except de main DESPUES
+    del POST y ANTES del DELETE: el termino basura quedaba VIVO sin reversa)."""
+    for campo in ("keywordId", "negativeKeywordId"):
+        if item.get(campo) is not None:
+            return str(item[campo])
+    return None
+
+
 def _forma_create_delete(ctx: ContextoSmoke, forma: str) -> dict:
     es_negative = forma == "negative"
     grupos = listar_paginado(ctx, "/sp/adGroups/list")
@@ -641,13 +652,17 @@ def _forma_create_delete(ctx: ContextoSmoke, forma: str) -> dict:
     post = _paso_mutacion(ctx, "http_create", payload_post, _post)
     pasos.append(post)
     creado, _items = _buscar_por_identidad(ctx, es_negative, grupo, termino)
-    pasos.append(
-        {
-            "paso": "readback_create",
-            "hallado": creado is not None,
-            "id_creado": str(creado["keywordId"]) if creado is not None else None,
-        }
-    )
+    id_creado = _id_de_item(creado) if creado is not None else None
+    paso_readback: dict = {
+        "paso": "readback_create",
+        "hallado": creado is not None,
+        "id_creado": id_creado,
+    }
+    if creado is not None and id_creado is None:
+        # Shape desconocido: los campos REALES del item quedan en la evidencia
+        # (la corrida autorizada re-sella el shape con ellos) — JAMAS KeyError.
+        paso_readback["campos"] = sorted(creado)
+    pasos.append(paso_readback)
     if creado is None:
         # El POST pudo quedar ambiguo: reversa best-effort por identidad; si
         # el list NO lo ve, no hay nada que borrar (y el ack no da id usable).
@@ -658,7 +673,18 @@ def _forma_create_delete(ctx: ContextoSmoke, forma: str) -> dict:
             "pasos": pasos,
             "error": "el readback no encontro lo creado (shape o fallo del POST; ver ack)",
         }
-    id_creado = str(creado["keywordId"])
+    if id_creado is None:
+        # Hallado por identidad pero SIN id legible: no existe DELETE posible —
+        # camino limpio con residuo DECLARADO (se revisa a mano), jamas KeyError.
+        return {
+            "ok": False,
+            "neto_cero": False,
+            "pasos": pasos,
+            "error": (
+                "el item creado no trae keywordId/negativeKeywordId (shape del list "
+                "distinto al sellado): RESIDUO POSIBLE, revisar a mano"
+            ),
+        }
     delete = _paso_mutacion(ctx, "http_delete", {"keywordId": id_creado}, _delete(id_creado))
     pasos.append(delete)
     final, items_final = _buscar_por_identidad(ctx, es_negative, grupo, termino)

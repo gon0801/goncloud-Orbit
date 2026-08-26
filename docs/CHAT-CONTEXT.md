@@ -4,9 +4,11 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
-**Última actualización: 2026-08-26 — ORBIT 04 Phase 2 CERRADA (5/5 tareas,
-rama orbit-04/phase-2, PR DRAFT sin mergear — el dueño revisa): el apply
-integrado. (2.1) app/apply.py: re-resolución por decisión (escalera + goal,
+**Última actualización: 2026-08-26 — ORBIT 04 Phase 2: implementación
+COMPLETA (5/5 tareas construidas y mergeables, rama orbit-04/phase-2, PR
+DRAFT sin mergear — el dueño revisa) pero ACEPTACIÓN PENDIENTE: la corrida
+real del probe 2.5 es acto del dueño y los tests de readback se sellan
+contra los shapes reales en esa corrida: el apply integrado. (2.1) app/apply.py: re-resolución por decisión (escalera + goal,
 JAMÁS inputs.modo), quota atómica con cap de config, ledger PRE-HTTP con
 tope-3, readback con GET sellado, cache con LO LEÍDO, reversa de bid.
 (2.2) app/apply_cola.py: encola cortes (invariante corte↔cola), skip

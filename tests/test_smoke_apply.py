@@ -767,3 +767,120 @@ def test_readback_bid_con_id_ajeno_no_confirma():
     bid_ajeno, paso_ajeno = sa._paso_readback_bid(_Ctx(), es_keyword=True, ext="777")
     assert bid_ajeno is None, "un id que no esta en la respuesta JAMAS confirma"
     assert paso_ajeno["id_cruzado"] is False
+
+
+# ---------------------------------------------------------------------------
+# CR4 (CodeRabbit PR #27): el id del item creado puede venir bajo OTRO nombre
+# (HIPOTESIS_SHAPES["campo_id_ack"]: keywordId; alternativa negativeKeywordId)
+# — indexar creado["keywordId"] directo dejaba el termino basura VIVO: el
+# KeyError subia al except de main DESPUES del POST y ANTES del DELETE.
+# Tests SIN DB: el ledger probe se sirve de una conn stub (el candado es la
+# LOGICA de la forma, no la persistencia).
+# ---------------------------------------------------------------------------
+
+
+class _ConnStub:
+    """conn minima para nace/sella_probe sin DB: execute devuelve self (su
+    fetchone da el attempt id) y commit es no-op."""
+
+    def __init__(self):
+        self.seq = 0
+
+    def execute(self, _sql, _params=None):
+        self.seq += 1
+        return self
+
+    def fetchone(self):
+        return (self.seq,)
+
+    def commit(self):
+        pass
+
+
+def _ctx_sin_db(handler) -> sa.ContextoSmoke:
+    cliente = AdsWriteClient(
+        _creds(),
+        platform="amazon_us",
+        profile_id=FAKE_PROFILE_US,
+        modo_confirmado="live",
+        transport=httpx.MockTransport(handler),
+        sleep=lambda seconds: None,
+    )
+    return sa.ContextoSmoke(
+        conn=_ConnStub(),
+        cliente=cliente,
+        platform="amazon_us",
+        campana=CAMPANA,
+        profile_id=str(FAKE_PROFILE_US),
+    )
+
+
+def _handler_negative_campo_id(estado: dict, campo_id: str | None):
+    """Amazon del smoke donde el item creado en /sp/negativeKeywords guarda su
+    id bajo `campo_id` (None = shape totalmente desconocido: el item NO trae
+    ningun campo de id). El resto delega al handler base."""
+    base, vistos = _handler_smoke(estado)
+    proximo_id = [8000]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path, metodo = request.url.path, request.method
+        if metodo == "POST" and path == "/sp/negativeKeywords":
+            body = json.loads(request.content)
+            proximo_id[0] += 1
+            nuevo = str(proximo_id[0])
+            item = {
+                "adGroupId": str(body["adGroupId"]),
+                "campaignId": str(body["campaignId"]),
+                "keywordText": body["keywordText"],
+                "matchType": body.get("matchType"),
+                "state": "enabled",
+            }
+            if campo_id is not None:
+                item[campo_id] = nuevo
+            estado["negativeKeywords"].append(item)
+            return httpx.Response(200, json={(campo_id or "id"): nuevo})
+        if metodo == "DELETE" and path == "/sp/negativeKeywords":
+            ext = str(json.loads(request.content)["keywordId"])
+            estado["negativeKeywords"] = [
+                k for k in estado["negativeKeywords"] if str(k.get(campo_id or "\0")) != ext
+            ]
+            return httpx.Response(200, json={"keywordId": ext, "deleted": True})
+        return base(request)
+
+    return handler, vistos
+
+
+def test_negative_create_delete_con_campo_negativeKeywordId_completa_el_delete():
+    """CR4: el list del readback devuelve el item con `negativeKeywordId` (NO
+    `keywordId`): la forma lo reconoce, completa el DELETE con ese id y queda
+    NETO CERO, cero excepcion. Regla 9: contra el codigo viejo
+    creado["keywordId"] reventaba con KeyError tras el POST."""
+    estado = _estado_inicial()
+    handler, _ = _handler_negative_campo_id(estado, "negativeKeywordId")
+
+    ev = sa.corre_forma(_ctx_sin_db(handler), "negative")
+
+    assert ev["ok"] is True and ev["neto_cero"] is True
+    assert estado["negativeKeywords"] == [], "neto cero con el id bajo OTRO nombre"
+    delete = [p for p in ev["pasos"] if p["paso"] == "http_delete"]
+    assert len(delete) == 1 and delete[0]["ok"] is True
+
+
+def test_negative_create_delete_shape_desconocido_declara_residuo_sin_keyerror():
+    """CR4 cara fea: el item hallado por identidad NO trae keywordId NI
+    negativeKeywordId — no hay id para borrar. La forma JAMAS revienta con
+    KeyError: registra los campos REALES del item en el paso de readback y
+    cierra con error explicito de RESIDUO POSIBLE (se revisa a mano)."""
+    estado = _estado_inicial()
+    handler, _ = _handler_negative_campo_id(estado, None)
+
+    ev = sa.corre_forma(_ctx_sin_db(handler), "negative")
+
+    assert ev["ok"] is False and ev["neto_cero"] is False
+    assert "RESIDUO POSIBLE" in ev["error"], "el residuo se declara, jamas se esconde"
+    readback = [p for p in ev["pasos"] if p["paso"] == "readback_create"][0]
+    assert readback["hallado"] is True and readback["id_creado"] is None
+    assert readback["campos"] == sorted(estado["negativeKeywords"][0]), (
+        "los campos reales del item quedan en la evidencia (re-sello del shape)"
+    )
+    assert len(estado["negativeKeywords"]) == 1, "sin id no hay DELETE: el basura queda (declarado)"
