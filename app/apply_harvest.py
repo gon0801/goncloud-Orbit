@@ -51,6 +51,7 @@ PENDIENTES del probe 2.5 (sellado 23): shapes de acks supuestos (MockTransport).
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 from dataclasses import dataclass
 from decimal import Decimal
@@ -62,6 +63,7 @@ from psycopg.types.json import Json
 
 from app import apply
 from app.ads.client import AdsApiError, AdsClientError
+from app.optimizer import cortes, hygiene, windows
 from app.optimizer import goals as g
 
 if TYPE_CHECKING:
@@ -174,6 +176,40 @@ UPDATE apply_attempt SET resultado = %s, finished_at = now()
  WHERE decision_id = %s AND finished_at IS NULL AND resultado IS NULL
 """
 
+# ADV-03 (review adversaria, matriz §6.1 fila faltante): pausas applying
+# huerfanas (fallo ambiguo 5xx/red en el PUT). Espejos de apply_cola (el
+# ciclo de imports apply_cola -> apply_harvest obliga a NO importarlo):
+# seleccion, lectura del estado del readback, gracia y cache.
+_SQL_PAUSES_APLICANDO = """
+SELECT id, ad_entity_id, decision_id
+  FROM apply_queue
+ WHERE platform = %s::platform AND estado = 'applying' AND kind = 'pause'
+ ORDER BY id
+"""
+
+_SQL_PAUSE_PROPIO = """
+SELECT EXISTS (
+    SELECT 1
+      FROM decision_application da
+      JOIN decision d ON d.id = da.decision_id
+     WHERE d.ad_entity_id = %s AND d.kind = 'pause' AND da.verify_ok IS TRUE
+)
+"""
+
+_SQL_INSERT_REACTIVACION = """
+INSERT INTO reactivacion_manual (ad_entity_id) VALUES (%s) ON CONFLICT DO NOTHING
+"""
+
+_SQL_CACHE_ESTADO = """
+UPDATE ad_entity_state SET status = %s, synced_at = now() WHERE ad_entity_id = %s
+"""
+
+# ADV-05: constantes de firma de la re-decision (mismo trato declarado que
+# apply_cola._TARGET/_FLOOR/_CEILING_REVALIDA: JAMAS se persisten, regla 3).
+_TARGET_REVALIDA = Decimal("100")
+_FLOOR_REVALIDA = Decimal("0.01")
+_CEILING_REVALIDA = Decimal("10000")
+
 # ---------------------------------------------------------------------------
 # Estructuras de salida
 # ---------------------------------------------------------------------------
@@ -204,7 +240,9 @@ class ResultadoHarvest:
 @dataclass(frozen=True)
 class ResumenReconciliacion:
     """Barrido de reconciliacion (2.2/2.4 la invocan). `jobs_cerrados_por_cola`
-    = jobs de filas muertas vetoed/discarded (la cola manda)."""
+    = jobs de filas muertas vetoed/discarded (la cola manda). Desde la review
+    adversaria (ADV-03) tambien reporta las pausas applying huerfanas
+    resueltas por GET fresco (matriz §6.1)."""
 
     jobs_done: int
     jobs_failed: int
@@ -212,6 +250,8 @@ class ResumenReconciliacion:
     negativas_fallidas: int
     jobs_cerrados_por_cola: int
     alertas: tuple[AlertaHarvest, ...]
+    pausas_confirmadas: int = 0
+    pausas_fallidas: int = 0
 
 
 @dataclass
@@ -472,6 +512,18 @@ def _sella_pendientes(conn: psycopg.Connection, decision_id: int, resultado: str
     """Sella las filas sin sello (crash/5xx) cuando la evidencia viva ya
     resolvio el veredicto (UNA vez; solo resultado IS NULL)."""
     conn.execute(_SQL_SELLA_PENDIENTES, (resultado, decision_id))
+
+
+def _estado_leido(resp, contenedor: str) -> str | None:
+    """El estado del READBACK fresco. Espejo de apply_cola._estado_leido
+    (mismo supuesto sellado por tests, PENDIENTE del probe 2.5; el ciclo de
+    imports obliga el espejo). None = ilegible/vacio."""
+    try:
+        filas = resp.json().get(contenedor)
+        estado = filas[0].get("state") if filas else None
+    except (ValueError, AttributeError, IndexError, KeyError, TypeError):
+        return None
+    return estado if isinstance(estado, str) else None
 
 
 def _falla_job(
@@ -765,6 +817,121 @@ def aplica_harvest(
     return ResultadoHarvest(estado="applied" if estado == "done" else estado, alerta=alerta)
 
 
+def revalida_harvest(
+    conn: psycopg.Connection, platform: str, fila: FilaCola, ahora: dt.datetime
+) -> str | None:
+    """Re-validacion PRE-claim del corte HARVEST (ADV-05 de la review
+    adversaria; sellado 6: 'jamas se corta por silencio contra la regla').
+    El hogar natural de la regla del harvest es este modulo: re-evalua
+    decide_hygiene con la ventana FRESCA del termino al reloj de LIBERACION,
+    umbral/piso RE-RESUELTOS de la evidencia fresca del grupo y config de
+    harvest + keywords de destino resueltas FRESCAS del goal.
+
+    None = sigue calificando (la cadena corre). Motivo = discard: el
+    vocabulario es el de apply_cola (vendio_en_ventana / ya_no_califica /
+    ...), espejado como string porque apply_cola importa este modulo. El
+    target/floor/ceiling de firma son los mismos valores declarados de
+    apply_cola (_TARGET_REVALIDA=100 deja el tope ACoS del harvest en el cap
+    fijo 35, igual que cualquier target real >= 35): JAMAS se persisten
+    (regla 3)."""
+    grupo = fila.ad_entity_id
+    padre = conn.execute(_SQL_PADRE, (grupo,)).fetchone()
+    goal = _goal_del_grupo(conn, platform, padre[0]) if padre is not None else None
+    config: hygiene.ConfigHarvest | None = None
+    keywords: frozenset[str] = frozenset()
+    if (
+        goal is not None
+        and goal.harvest_campaign_id is not None
+        and goal.harvest_ad_group_id is not None
+        and goal.harvest_default_bid is not None
+    ):
+        config = hygiene.ConfigHarvest(
+            campaign_id=goal.harvest_campaign_id,
+            ad_group_id=goal.harvest_ad_group_id,
+            default_bid=goal.harvest_default_bid,
+            moneda=goal.bid_currency,
+        )
+        keywords = hygiene.keywords_campana_destino(conn, platform, goal.harvest_campaign_id)
+    evidencia = windows.ventanas_evidencia_ad_group(conn, platform, ahora).get(grupo)
+    umbral = cortes.umbral_corte(evidencia, "negative").umbral
+    piso = cortes.piso_corte(evidencia, platform).piso_cost
+    terminos = windows.terminos_cortes(conn, grupo, ahora)
+    term = next((t for t in terminos.terminos if t.search_term == fila.search_term), None)
+    if term is None:
+        # Sin observaciones frescas del termino en la ventana: ausencia, no
+        # ceros inventados (regla 3) — el harvest de evidencia rancia muere.
+        return "ya_no_califica"
+    single = windows.TerminosCortes(
+        ad_entity_id=grupo,
+        window_start=terminos.window_start,
+        window_end=terminos.window_end,
+        fechas_entidad=terminos.fechas_entidad,
+        terminos=(term,),
+    )
+    (resultado,) = hygiene.decide_hygiene(
+        platform=platform,
+        terminos=single,
+        target_acos_pct=_TARGET_REVALIDA,
+        config_harvest=config,
+        keywords_existentes=keywords,
+        umbral_negative=umbral,
+        piso_negative=piso,
+    )
+    if resultado.kind == "harvest":
+        return None
+    # Para el harvest TODO motivo de no-calificacion (ACoS sobre tope, sin
+    # banda, config, duplicado) es el mismo discard: la regla fresca dijo no.
+    return "ya_no_califica"
+
+
+def _reconcilia_pauses(conn: psycopg.Connection, aplicador, platform: str) -> tuple[int, int]:
+    """Cola applying huerfana kind PAUSE (ADV-03; matriz §6.1): un fallo
+    ambiguo (5xx/red) dejo la fila applying con su ledger sin sello y su
+    clave entity_cut bloqueada para siempre. GET FRESCO de estado decide:
+    userPaused (Amazon SI proceso) → confirmar/applied; enabled (no proceso,
+    o el dueno re-activo) → failed y, con pause propio verificado, INSERT
+    reactivacion_manual (gracia 7d, sellado 17). Lectura ilegible/ambigua →
+    se salta al ciclo siguiente (la fila sin sello ES el rastro)."""
+    confirmadas = fallidas = 0
+    cliente = None
+    filas = conn.execute(_SQL_PAUSES_APLICANDO, (platform,)).fetchall()
+    for q_id, entidad, decision_id in filas:
+        identidad = apply._identidad(conn, entidad)
+        if identidad is None or identidad[0] not in apply._KINDS_DECISORAS:
+            _sella_pendientes(conn, decision_id, "fallo:entidad_sin_identidad")
+            _termina_cola(conn, q_id, "failed")
+            fallidas += 1
+            continue
+        if cliente is None:
+            cliente = aplicador._cliente()
+        _, path, contenedor, param = apply._KINDS_DECISORAS[identidad[0]]
+        try:
+            resp = cliente.get_sellado(path, params={param: identidad[1]})
+        except AdsApiError:
+            continue  # lectura ambigua: proximo ciclo (la fila ES el rastro)
+        estado = _estado_leido(resp, contenedor)
+        if estado == "userPaused":
+            ack = {"fuente": "get", "state": estado}
+            with conn.transaction():
+                _sella_pendientes(conn, decision_id, "ok:reconciliado")
+                apply._confirma_resumen(conn, decision_id, ack, True, aplicador.cycle_id_ejecutor)
+                conn.execute(_SQL_CACHE_ESTADO, (estado, entidad))
+                _termina_cola(conn, q_id, "applied")
+            confirmadas += 1
+            continue
+        if estado == "enabled":
+            with conn.transaction():
+                _sella_pendientes(conn, decision_id, "fallo:reconciliado_enabled")
+                if conn.execute(_SQL_PAUSE_PROPIO, (entidad,)).fetchone()[0]:
+                    # Pause propio verificado + ENABLED vivo: el dueno
+                    # re-activo a mano (sellado 17) — gracia de 7d.
+                    conn.execute(_SQL_INSERT_REACTIVACION, (entidad,))
+                _termina_cola(conn, q_id, "failed")
+            fallidas += 1
+        # Otro estado (ARCHIVED/ilegible): ambiguo, proximo ciclo.
+    return (confirmadas, fallidas)
+
+
 # ---------------------------------------------------------------------------
 # Reconciliacion al inicio del ciclo (sellado 13; matriz §6.1)
 # ---------------------------------------------------------------------------
@@ -861,10 +1028,11 @@ def reconcilia_harvest(
     contra Amazon VIVO por lista con IDENTIDAD COMPLETA: jobs en vuelo (la
     matriz decide por fase: ya aplicada avanza por EVIDENCIA, falta
     reintenta el POST seguro), la cola applying huerfana de negatives
-    normales y los jobs de filas muertas (vetoed/discarded → failed: la
-    cola manda). Quota SOLO la primera vez; antes de cualquier HTTP reclama
-    la fila (el veto puede ganar el claim). Ambiguo por job → se salta al
-    ciclo siguiente (la fila sin sello ES el rastro)."""
+    normales, la de PAUSES por GET fresco de estado (ADV-03, matriz §6.1) y
+    los jobs de filas muertas (vetoed/discarded → failed: la cola manda).
+    Quota SOLO la primera vez; antes de cualquier HTTP reclama la fila (el
+    veto puede ganar el claim). Ambiguo por job → se salta al ciclo siguiente
+    (la fila sin sello ES el rastro)."""
     alertas: list[AlertaHarvest] = []
     jobs_done = jobs_failed = cerrados = 0
     for fila_job in conn.execute(_SQL_JOBS_EN_VUELO, (platform,)).fetchall():
@@ -890,6 +1058,7 @@ def reconcilia_harvest(
             if alerta is not None:
                 alertas.append(alerta)
     negativas_confirmadas, negativas_fallidas = _reconcilia_negativas(conn, aplicador, platform)
+    pausas_confirmadas, pausas_fallidas = _reconcilia_pauses(conn, aplicador, platform)
     return ResumenReconciliacion(
         jobs_done=jobs_done,
         jobs_failed=jobs_failed,
@@ -897,4 +1066,6 @@ def reconcilia_harvest(
         negativas_fallidas=negativas_fallidas,
         jobs_cerrados_por_cola=cerrados,
         alertas=tuple(alertas),
+        pausas_confirmadas=pausas_confirmadas,
+        pausas_fallidas=pausas_fallidas,
     )

@@ -835,3 +835,199 @@ def test_secuencia_sellada_bid_ok():
             "SELECT current_bid FROM ad_entity_state WHERE ad_entity_id = %s", (ids["kw"],)
         ).fetchone()[0]
         assert cache == Decimal("0.85")
+
+
+# ===========================================================================
+# Review adversaria de phase 2 (ADV-04): reconciliacion del ledger de BIDS
+# sin sello — matriz §6.1 "Ledger sin sello - bid", antes sin caller
+# ===========================================================================
+
+
+@_skip_db
+def test_reconcilia_bids_get_igual_confirma():
+    """Veredicto GET == pedido: el PUT ambiguo SI proceso → confirmar — sello
+    'ok:reconciliado', resumen con verify_ok + applied_cycle_id del EJECUTOR y
+    cache con lo LEIDO. HTTP: SOLO el GET de readback (jamas re-mutar). Regla
+    9: contra el codigo sin caller de intentos_sin_sello, la fila zombie
+    miente para siempre en el ledger y este test reventaria."""
+    from app.apply import reconcilia_bids
+
+    with _db_temporal("orbit_apply_rbid1") as conn:
+        ids = _semilla(conn)
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], new="0.85")
+        conn.execute(
+            "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada)"
+            " VALUES (%s, 1, 'normal', %s, true)",
+            (dec, Json({"keywordId": "7201", "bid": "0.85"})),
+        )
+        handler, vistos = _handler_api({"7201": "0.85"})
+
+        confirmadas, fallidas = reconcilia_bids(conn, _aplicador(conn, handler, ids["ciclo_ejec"]))
+
+        assert (confirmadas, fallidas) == (1, 0)
+        fila = conn.execute(
+            "SELECT resultado, finished_at IS NOT NULL FROM apply_attempt WHERE decision_id = %s",
+            (dec,),
+        ).fetchone()
+        assert fila == ("ok:reconciliado", True)
+        resumen = conn.execute(
+            "SELECT verify_ok, applied_cycle_id FROM decision_application WHERE decision_id = %s",
+            (dec,),
+        ).fetchone()
+        assert resumen == (True, ids["ciclo_ejec"])
+        cache = conn.execute(
+            "SELECT current_bid FROM ad_entity_state WHERE ad_entity_id = %s", (ids["kw"],)
+        ).fetchone()[0]
+        assert cache == Decimal("0.85"), "cache con lo LEIDO del GET fresco (sellado 16)"
+        assert _puts(vistos) == [], "la reconciliacion JAMAS re-muta"
+        assert len(_gets(vistos)) == 1
+
+
+@_skip_db
+def test_reconcilia_bids_divergencia_reintenta_bajo_tope_y_falla():
+    """Veredicto GET != pedido (divergencia): la fila original se sella
+    'fallo:divergencia_readback', se REINTENTA bajo tope (fila nueva + PUT) y
+    la divergencia persistente sella tambien el reintento — verify_ok FALSE,
+    sin applied_cycle_id, cache con LO LEIDO."""
+    from app.apply import reconcilia_bids
+
+    with _db_temporal("orbit_apply_rbid2") as conn:
+        ids = _semilla(conn)
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], new="0.85")
+        conn.execute(
+            "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada)"
+            " VALUES (%s, 1, 'normal', %s, true)",
+            (dec, Json({"keywordId": "7201", "bid": "0.85"})),
+        )
+        handler, vistos = _handler_api({"7201": "0.85"}, desviado={"7201": "0.90"})
+
+        confirmadas, fallidas = reconcilia_bids(conn, _aplicador(conn, handler, ids["ciclo_ejec"]))
+
+        assert (confirmadas, fallidas) == (0, 1)
+        filas = conn.execute(
+            "SELECT seq, resultado, quota_cobrada FROM apply_attempt WHERE decision_id = %s"
+            " ORDER BY seq",
+            (dec,),
+        ).fetchall()
+        assert [f[0] for f in filas] == [1, 2], "el reintento nace como fila nueva del ledger"
+        assert all(f[1] == "fallo:divergencia_readback" for f in filas)
+        assert filas[1][2] is False, "el reintento NO recobra (la unidad ya estaba cobrada)"
+        resumen = conn.execute(
+            "SELECT verify_ok, applied_cycle_id FROM decision_application WHERE decision_id = %s",
+            (dec,),
+        ).fetchone()
+        assert resumen == (False, None), "divergencia: no cuenta como aplicada ni enfria"
+        cache = conn.execute(
+            "SELECT current_bid FROM ad_entity_state WHERE ad_entity_id = %s", (ids["kw"],)
+        ).fetchone()[0]
+        assert cache == Decimal("0.90"), "cache con LO LEIDO (divergencia incluida)"
+        assert len(_puts(vistos)) == 1, "UN reintento del tope (no un bucle)"
+
+
+@_skip_db
+def test_reconcilia_bids_ambiguo_falla_sin_reintento():
+    """Veredicto ambiguo (GET 5xx agotado): failed SIN reintento (conserva su
+    cobro, matriz §6.1) — la fila se sella con el veredicto y NO nace PUT ni
+    fila nueva; sin resumen, cache intacto."""
+    from app.apply import reconcilia_bids
+
+    with _db_temporal("orbit_apply_rbid3") as conn:
+        ids = _semilla(conn)
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], new="0.85")
+        conn.execute(
+            "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada)"
+            " VALUES (%s, 1, 'normal', %s, true)",
+            (dec, Json({"keywordId": "7201", "bid": "0.85"})),
+        )
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return _token_response()
+            if request.method == "GET":
+                return httpx.Response(503, json={"message": "boom"})
+            raise AssertionError("el ambiguo JAMAS re-muta: no puede haber PUT")
+
+        confirmadas, fallidas = reconcilia_bids(conn, _aplicador(conn, handler, ids["ciclo_ejec"]))
+
+        assert (confirmadas, fallidas) == (0, 1)
+        filas = conn.execute(
+            "SELECT count(*), count(finished_at) FROM apply_attempt WHERE decision_id = %s",
+            (dec,),
+        ).fetchone()
+        assert filas == (1, 1), "la fila se cierra; SIN fila nueva de reintento"
+        resultado = conn.execute(
+            "SELECT resultado FROM apply_attempt WHERE decision_id = %s", (dec,)
+        ).fetchone()[0]
+        assert resultado == "fallo:readback_ambiguo"
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM decision_application WHERE decision_id = %s", (dec,)
+            ).fetchone()[0]
+            == 0
+        )
+        cache = conn.execute(
+            "SELECT current_bid FROM ad_entity_state WHERE ad_entity_id = %s", (ids["kw"],)
+        ).fetchone()[0]
+        assert cache == Decimal("1.00"), "sin lectura no hay evidencia: el cache no se toca"
+
+
+# ===========================================================================
+# ADV-07: el write client de produccion SI duerme el backoff de los 429
+# ===========================================================================
+
+
+@_skip_db
+def test_write_client_de_produccion_duerme_el_backoff_de_429():
+    """El Aplicador SIN sleep inyectado (como _aplicador_real) le deja al
+    write client su time.sleep REAL: un 429 reintenta CON backoff. Regla 9:
+    contra el lambda no-op de produccion, el sleep del cliente NO es
+    time.sleep y el reintento sale back-to-back (elapsed ~0) — ambos asserts
+    reventarian (hallazgo ADV-07: la rampa del dia 1 quemaria cap con
+    throttling transitorio)."""
+    import time as _time
+
+    with _db_temporal("orbit_apply_slp") as conn:
+        ids = _semilla(conn)
+        _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], new="0.85")
+        puts = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return _token_response()
+            if request.method == "PUT":
+                puts["n"] += 1
+                if puts["n"] == 1:
+                    # Sin Retry-After: el backoff exponencial real manda.
+                    return httpx.Response(429, json={"message": "throttled"})
+                return httpx.Response(200, json={"ack": "reintento"})
+            ext = request.url.params.get("keywordId")
+            return httpx.Response(200, json={"keywords": [{"keywordId": ext, "bid": "0.85"}]})
+
+        ap = Aplicador(
+            conn,
+            platform="amazon_us",
+            profile_id=FAKE_PROFILE_US,
+            credentials=_fake_credentials(),
+            cycle_id_ejecutor=ids["ciclo_ejec"],
+            owner="test:sleep",
+            job_key="ads_optimizer:amazon_us",
+            transport=httpx.MockTransport(handler),
+            # SIN sleep: exactamente como _aplicador_real en produccion.
+        )
+        cliente = ap._cliente()
+        assert cliente._sleep is _time.sleep, (
+            "produccion: el sleep del write client es el REAL (jamas un no-op)"
+        )
+
+        t0 = _time.monotonic()
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+        elapsed = _time.monotonic() - t0
+
+        assert res.aplicadas == 1
+        assert puts["n"] == 2, "el 429 se reintento (SIN recobrar quota)"
+        assert elapsed >= 1.0, "el reintento DUERME: backoff del intento 1 = 1.0s + jitter"
+        used = conn.execute(
+            "SELECT used FROM apply_quota_state WHERE motor = %s",
+            (motor_quota("amazon_us", "bid"),),
+        ).fetchone()[0]
+        assert used == 1, "el 429 reintentado es el MISMO intento del ledger (sin recobro)"

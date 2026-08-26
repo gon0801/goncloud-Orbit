@@ -59,6 +59,26 @@ ALLOWLIST_TAMANO = {
         "de inputs congelados (serializacion + replay, par freeze<->replay de "
         "~300 lineas)"
     ),
+    "app/apply_harvest.py": (
+        "ORBIT 04 2.3: ejecucion del corte harvest (cadena de fases del job, "
+        "bid sugerido, reversas). La review adversaria de phase 2 le SUMO la "
+        "reconciliacion de inicio de ciclo que le faltaba (pausas applying "
+        "huerfanas ADV-03 + re-validacion del harvest ADV-05) y con eso paso "
+        "el umbral. Candidato DECLARADO a partirse la proxima vez que se "
+        "toque en grande: reconciliacion (reconcilia_harvest/_reconcilia_* + "
+        "revalida_harvest) vs ejecucion de jobs (la cadena _paso_*); partir "
+        "por partir esta prohibido por la regla anti-Goodhart"
+    ),
+    "app/apply.py": (
+        "ORBIT 04 2.1: nucleo del aplicador (quota, ledger, secuencia sellada "
+        "de mutaciones, reversas). La review adversaria de phase 2 le SUMO "
+        "reconcilia_bids (ADV-04: el ledger de bids sin sello no tenia "
+        "caller) y con eso paso el umbral (936). Mismo candidato DECLARADO "
+        "que apply_harvest: partir ejecucion (Aplicador + _ejecuta_mutacion) "
+        "de reconciliacion de ledger (reconcilia_bids) la proxima vez que se "
+        "toque en grande; partir por partir esta prohibido por la regla "
+        "anti-Goodhart"
+    ),
 }
 
 

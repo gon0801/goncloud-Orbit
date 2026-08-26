@@ -32,7 +32,7 @@ from decimal import Decimal
 import pglast
 import pytest
 from psycopg.types.json import Json
-from test_schema import SQL, _postgres_obligatorio_ausente, _test_dsn
+from test_schema import SQL, SQL2, _postgres_obligatorio_ausente, _test_dsn
 
 from app.optimizer import goals as g
 
@@ -361,16 +361,21 @@ def _decision(conn, ciclo: int, config_id: int, entidad: int) -> int:
 
 def _apply(conn, decision_id: int, *, confirmed_at: dt.datetime, verify_ok: bool) -> None:
     """Terna del esquema sellada JUNTA en el readback: confirmed_at +
-    platform_ack + verify_ok (CHECKs application_confirmacion_con_*)."""
+    platform_ack + verify_ok (CHECKs application_confirmacion_con_*). Desde la
+    review adversaria (ADV-06, sellado 21) siembra ADEMAS applied_cycle_id =
+    ciclo que EJECUTO la decision (aqui, el mismo que la decidio — el caso
+    ejecutor != decisor tiene su propio test punta a punta)."""
     conn.execute(
         "INSERT INTO decision_application (decision_id, attempted_at, confirmed_at,"
-        " verify_ok, platform_ack) VALUES (%s, %s, %s, %s, %s)",
+        " verify_ok, platform_ack, applied_cycle_id)"
+        " SELECT %s, %s, %s, %s, %s, d.cycle_id FROM decision d WHERE d.id = %s",
         (
             decision_id,
             confirmed_at - dt.timedelta(minutes=5),
             confirmed_at,
             verify_ok,
             Json({"estado": "ok" if verify_ok else "divergente"}),
+            decision_id,
         ),
     )
 
@@ -386,6 +391,7 @@ def test_cooldown_en_vivo_verificado_divergencia_y_borde_7d():
     confirmed_at > ahora-7d). La unidad es la ENTIDAD: cualquier decision
     suya con apply verificado."""
     with _db_temporal("orbit_goals_cooldown") as conn:
+        conn.execute(SQL2)  # decision_application.applied_cycle_id vive en 0002
         config_id = _config_version(conn)
         ciclo = _ciclo(conn)  # live (default del helper)
 
@@ -418,12 +424,51 @@ def test_cooldown_apply_de_ciclo_shadow_no_enfria():
     shadow enfriaria entidades que nunca se tocaron en vivo (contra el test
     anterior, este FALLA contra el SQL sin el filtro)."""
     with _db_temporal("orbit_goals_shadow_apply") as conn:
+        conn.execute(SQL2)  # applied_cycle_id vive en 0002
         config_id = _config_version(conn)
         ciclo = _ciclo(conn, mode="shadow")
         entidad = _campana(conn, "7005")
         d = _decision(conn, ciclo, config_id, entidad)
         _apply(conn, d, confirmed_at=AHORA - dt.timedelta(days=6), verify_ok=True)
         assert g.en_cooldown(conn, entidad, ahora=AHORA) is False
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_cooldown_cuenta_el_ciclo_ejecutor_no_el_decisor():
+    """ADV-06 (sellado 21, punta a punta): decision nacida en ciclo SHADOW y
+    APLICADA (verify_ok) por el ciclo LIVE ejecutor → enfria desde el APPLY.
+    Regla 9: contra el JOIN al ciclo DECISOR (d.cycle_id, shadow), el EXISTS
+    no ve nada, la entidad NO enfria y puede re-decidirse/re-aplicarse al dia
+    siguiente (el anti-loop roto) — este test reventaria."""
+    with _db_temporal("orbit_goals_ejec") as conn:
+        conn.execute(SQL2)  # decision_application.applied_cycle_id vive en 0002
+        config_id = _config_version(conn)
+        ciclo_shadow = _ciclo(conn, mode="shadow")  # el que DECIDIO
+        ciclo_live = _ciclo(conn, mode="live")  # el que EJECUTO
+        entidad = _campana(conn, "7009")
+        d = _decision(conn, ciclo_shadow, config_id, entidad)
+        conn.execute(
+            "INSERT INTO decision_application (decision_id, confirmed_at, platform_ack,"
+            " verify_ok, applied_cycle_id) VALUES (%s, %s, %s, true, %s)",
+            (d, AHORA - dt.timedelta(days=6), Json({"estado": "ok"}), ciclo_live),
+        )
+
+        assert g.en_cooldown(conn, entidad, ahora=AHORA) is True, (
+            "el cooldown mira applied_cycle_id (ciclo EJECUTOR), no d.cycle_id"
+        )
+
+        # Control de la misma moneda: aplicada por un ejecutor SHADOW no enfria.
+        entidad2 = _campana(conn, "7010")
+        d2 = _decision(conn, ciclo_shadow, config_id, entidad2)
+        conn.execute(
+            "INSERT INTO decision_application (decision_id, confirmed_at, platform_ack,"
+            " verify_ok, applied_cycle_id) VALUES (%s, %s, %s, true, %s)",
+            (d2, AHORA - dt.timedelta(days=6), Json({"estado": "ok"}), ciclo_shadow),
+        )
+        assert g.en_cooldown(conn, entidad2, ahora=AHORA) is False
 
 
 # NOTA (hallazgo CodeRabbit): hubo un test 'cooldown_ciclo_shadow_sin_applies'

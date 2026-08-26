@@ -88,10 +88,15 @@ ORBIT 04 2.4 — FASE DE APPLY DENTRO DEL LOCK (decisiones 11, 21, 22; APPLY.md
 §9). Tras TX3 (decisiones commitadas) y ANTES del return (el lock se libera en
 el `finally` de corre_ciclo — el apply corre con el lock NUESTRO):
 
-- TX4 (transaccion propia, por fila como 2.2 sella): `encola_cortes` con TODA
-  decision de corte del ciclo (shadow-mark por decision via modo_efectivo del
-  Aplicador; corre en shadow Y live — en shadow con un Aplicador SIN
-  credenciales: cero HTTP por construccion).
+- TX4 (transaccion REAL que commitea, como TX1/TX3; ADV-01 de la review
+  adversaria de phase 2): `encola_cortes` con TODA decision de corte del
+  ciclo (shadow-mark por decision via modo_efectivo del Aplicador; corre en
+  shadow Y live — en shadow con un Aplicador SIN credenciales: cero HTTP por
+  construccion). El bloque envuelve el encolado ENTERO desde IDLE; los
+  savepoints por fila (choques del unico parcial) se conservan DENTRO. El
+  camino de exito de la fase cierra con conn.commit() y cada except arranca
+  con conn.rollback() — con la conexion de produccion (sin autocommit) un
+  commit que falta revierte TODO lo escrito de la fase en el close() del CLI.
 - SKIP POR CLAVE DE EFECTO en la FASE DE DECISION (2.2 sellado 5): al empezar
   `_fase_lecturas` se cargan las claves bloqueadas (en-vuelo o veto vigente,
   `apply_cola.claves_bloqueadas`) y `_procesa_decisora`/`_procesa_grupo`
@@ -127,8 +132,10 @@ el `finally` de corre_ciclo — el apply corre con el lock NUESTRO):
   cerrado por rastro. `applied_count` se actualiza POR COLUMNA al final de la
   fase (permitido por GRANT), nunca como cierre.
 - NOTES del apply: vocabulario CERRADO bajo `notes["apply"]` —
-  bids_aplicados, bids_descartados, cortes_encolados, cortes_liberados,
-  apply_error, apply_abortado_owner.
+  bids_aplicados, bids_descartados, bids_reconciliados, pausas_reconciliadas,
+  cortes_encolados, cortes_liberados, apply_error, apply_abortado_owner
+  (bids_reconciliados/pausas_reconciliadas llegan con la reconciliacion de
+  ledger sin sello de bids y de pausas applying huerfanas: ADV-03/ADV-04).
 """
 
 from __future__ import annotations
@@ -308,10 +315,14 @@ _SQL_APPLIED_COUNT_CICLO = """
 UPDATE optimizer_cycle SET applied_count = %s WHERE id = %s
 """
 
+# Guard status='running' (ADV-09, review adversaria): mismo candado que el
+# cierre y el sello de apply — el rastro del sucesor puede haber cerrado YA el
+# envelope del zombie en 'failed' con su nota; el sello del zombie NO pisa esa
+# evidencia (la nota del rastro es el unico indicio de que hubo dos procesos).
 _SQL_SELLAR_FALLIDO = """
 UPDATE optimizer_cycle
    SET status = 'failed', finished_at = now(), notes = %s
- WHERE id = %s
+ WHERE id = %s AND status = 'running'
 """
 
 _SQL_LIBERAR_LOCK = """
@@ -912,13 +923,21 @@ def _sello_fallido(
 ) -> None:
     """Sello best-effort (patron ingest_run): 'failed' + error scrubbado. Si la
     conexion tambien esta muerta, queda el warning y el rastro del ciclo muerto
-    lo cierra el SIGUIENTE ciclo que gane el claim tras el TTL."""
+    lo cierra el SIGUIENTE ciclo que gane el claim tras el TTL. Guard
+    status='running' (ADV-09): un envelope ya cerrado en 'failed' por el rastro
+    del sucesor NO se pisa (jamas sobre-cerrar)."""
     cuerpo = _notas_cuerpo(contadores, ciclos_muertos, None, None, None)
     cuerpo["error"] = scrub(str(exc)) or type(exc).__name__
     try:
         with conn.transaction():
-            conn.execute(
+            filas = conn.execute(
                 _SQL_SELLAR_FALLIDO, (json.dumps(cuerpo, ensure_ascii=False, default=str), cycle_id)
+            ).rowcount
+        if filas == 0:
+            logger.warning(
+                "sello del ciclo fallido %s ignorado: ya no esta 'running' (rastro del"
+                " sucesor) — no se pisa",
+                cycle_id,
             )
     except Exception:  # noqa: BLE001 - el sello es best-effort, la original sube
         logger.warning(
@@ -1313,7 +1332,19 @@ def _fase_apply(
     captura como nota + degraded — un fallo de apply no borra las decisiones
     ya tomadas; el siguiente ciclo reconcilia. El invariante corte<->cola
     (2.2 sellado 4) se conserva incluso si la fabrica aborta: TX4 corre con
-    un Aplicador sin credenciales (solo modo_efectivo, cero HTTP)."""
+    un Aplicador sin credenciales (solo modo_efectivo, cero HTTP).
+
+    DISCIPLINA DE TRANSACCIONES (ADV-01, review adversaria): con la conexion
+    de produccion (SIN autocommit, como app.db.connect) todo `with
+    conn.transaction():` que entra con una tx implicita abierta es un
+    SAVEPOINT que JAMAS commitea — y el CLI cierra sin commit. Por eso: (a)
+    TX4 envuelve `encola_cortes` ENTERO y entra desde IDLE (commit real como
+    TX1/TX3; los savepoints por fila del encolado se conservan DENTRO); (b) el
+    camino de EXITO hace conn.commit() al final (lo pre-HTTP ya era durable
+    por los commits del ledger, esto deja IDLE lo restante) y cada `except`
+    arranca con conn.rollback() — asi el sello `_sella_apply` (y el
+    `_sello_fallido` de corre_ciclo) commitean DE VERDAD. NADA de commit por
+    fila en TX4 ni dentro de _sella_apply."""
     notas: dict = {}
     fallo = False
     aplicador: Aplicador | None = None
@@ -1343,9 +1374,10 @@ def _fase_apply(
             tick=guard,
         )
     try:
-        resumen = apply_cola.encola_cortes(
-            conn, aplicador, cycle_id, modo_envelope=modo.modo, ahora=decided_at
-        )
+        with conn.transaction():  # TX4 REAL (ADV-01): entra desde IDLE, commitea
+            resumen = apply_cola.encola_cortes(
+                conn, aplicador, cycle_id, modo_envelope=modo.modo, ahora=decided_at
+            )
         notas["cortes_encolados"] = {
             "live": resumen.encoladas_live,
             "shadow": resumen.encoladas_shadow,
@@ -1353,6 +1385,7 @@ def _fase_apply(
         }
         if modo.modo == "live" and "apply_error" not in notas:
             reconciliacion = apply_harvest.reconcilia_harvest(conn, aplicador, platform)
+            rec_bids = apply.reconcilia_bids(conn, aplicador)
             res_bids = aplicador.aplica_bids(
                 apply.bids_del_ciclo(conn, cycle_id), escalera_global=modo.modo
             )
@@ -1361,6 +1394,14 @@ def _fase_apply(
             )
             notas["bids_aplicados"] = res_bids.aplicadas
             notas["bids_descartados"] = len(res_bids.descartadas)
+            notas["bids_reconciliados"] = {
+                "confirmados": rec_bids[0],
+                "fallidos": rec_bids[1],
+            }
+            notas["pausas_reconciliadas"] = {
+                "confirmadas": reconciliacion.pausas_confirmadas,
+                "fallidas": reconciliacion.pausas_fallidas,
+            }
             notas["cortes_liberados"] = {
                 "liberadas": res_cola.liberadas,
                 "aplicadas": res_cola.aplicadas,
@@ -1377,14 +1418,19 @@ def _fase_apply(
                 + res_cola.aplicadas
                 + reconciliacion.jobs_done
                 + reconciliacion.negativas_confirmadas
+                + reconciliacion.pausas_confirmadas
+                + rec_bids[0]
             )
             with conn.transaction():
                 conn.execute(_SQL_APPLIED_COUNT_CICLO, (total, cycle_id))
+        conn.commit()  # ADV-01: la fase deja la conexion IDLE (sello real)
     except ApplyAbortado as exc:
+        conn.rollback()  # ADV-01: IDLE para que el sello de apply commitee
         notas["apply_abortado_owner"] = True
         fallo = True
         logger.warning("fase de apply abortada (lease perdido): %s", scrub(str(exc)))
     except Exception as exc:  # noqa: BLE001 - fail-closed-auditado (docstring)
+        conn.rollback()  # ADV-01: lo pre-HTTP ya es durable (commits del ledger)
         notas["apply_error"] = scrub(str(exc)) or type(exc).__name__
         fallo = True
         logger.warning("fase de apply abortada por error: %s", scrub(str(exc)))

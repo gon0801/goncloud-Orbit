@@ -153,7 +153,10 @@ def _semilla(conn, *, caps: dict | None = None) -> dict:
     state (grupo incluido: la escalera de los cortes de termino la exige) y
     el goal de plataforma con destino de harvest sellado (floor 0.10 /
     ceiling 2.50 USD, default 1.00 — el default EFECTIVO viaja congelado en
-    decision.new_value)."""
+    decision.new_value). Desde la review adversaria (ADV-05) siembra ADEMAS
+    observaciones del termino que CALIFICAN para harvest en la ventana fresca
+    de liberacion: la re-validacion PRE-claim re-evalua la regla con esta
+    evidencia (ver _termino_calificado)."""
     settings = (
         dict(caps)
         if caps is not None
@@ -181,6 +184,7 @@ def _semilla(conn, *, caps: dict | None = None) -> dict:
         " 2.50, 'USD', %s, %s, 1.00, true, 'live')",
         (DESTINO_CAMPANA, DESTINO_GRUPO),
     )
+    run_id = _termino_calificado(conn, ag)
     return {
         "config": config_id,
         "ciclo_dec": ciclo_dec,
@@ -188,7 +192,80 @@ def _semilla(conn, *, caps: dict | None = None) -> dict:
         "camp": camp,
         "ag": ag,
         "kw": kw,
+        "run": run_id,
     }
+
+
+def _termino_calificado(conn, grupo: int, *, term: str = TERMINO, observed=None) -> int:
+    """Siembra observaciones del termino que CALIFICAN para harvest en la
+    ventana fresca de LIBERACION (la re-validacion de ADV-05 re-evalua la
+    regla contra ellas): 12 fechas dentro de la ventana, orders 2 (>=
+    HARVEST_ORDERS_MIN), ACoS 10% (muy bajo el tope 35), USD. Devuelve el
+    ingest_run. `observed` permite sembrar revisiones bitemporales."""
+    run_id = conn.execute(
+        "INSERT INTO ingest_run (source) VALUES ('test') RETURNING id"
+    ).fetchone()[0]
+    ahora = dt.datetime.now(dt.UTC)
+    base = observed or (ahora - dt.timedelta(days=5))
+    # La venta que HABILITA el harvest (orders >= 2), UNICA fila de su fecha
+    # (sin empate bitemporal: el colapso DISTINCT ON es determinista).
+    _termino_obs(
+        conn,
+        run_id,
+        grupo,
+        term,
+        ahora.date() - dt.timedelta(days=40),
+        clicks=3,
+        cost="0.50",
+        ad_revenue="5.00",
+        orders=2,
+        observed=base,
+    )
+    for fecha in _fechas(
+        ahora.date() - dt.timedelta(days=39), ahora.date() - dt.timedelta(days=27)
+    ):
+        _termino_obs(
+            conn,
+            run_id,
+            grupo,
+            term,
+            fecha,
+            clicks=3,
+            cost="0.50",
+            ad_revenue="5.00",
+            orders=0,
+            observed=base,
+        )
+    return run_id
+
+
+def _fechas(desde: dt.date, hasta: dt.date):
+    dia = desde
+    while dia <= hasta:
+        yield dia
+        dia += dt.timedelta(days=1)
+
+
+def _termino_obs(
+    conn, run_id, grupo, term, fecha, *, clicks=0, cost=0, orders=0, ad_revenue=None, observed=None
+) -> None:
+    conn.execute(
+        "INSERT INTO search_term_observation (platform, ad_entity_id, search_term,"
+        " metric_date, observed_at, metric_currency, cost, clicks, orders, ad_revenue,"
+        " is_asin_like, ingest_run_id) VALUES ('amazon_us', %s, %s, %s, %s, 'USD', %s, %s,"
+        " %s, %s, false, %s)",
+        (
+            grupo,
+            term,
+            fecha,
+            observed or (dt.datetime.now(dt.UTC) - dt.timedelta(days=5)),
+            Decimal(cost) if cost is not None else None,
+            clicks,
+            orders,
+            Decimal(ad_revenue) if ad_revenue is not None else None,
+            run_id,
+        ),
+    )
 
 
 def _decision_harvest(conn, ciclo: int, config_id: int, entidad: int, term: str = TERMINO) -> int:
@@ -1167,3 +1244,235 @@ def test_reconcilia_cobra_quota_la_primera_vez_y_respeta_el_veto_en_released():
         assert quota == (1,), "cobra UNA vez: la operacion logica completa (2 HTTPs)"
         cola = conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()[0]
         assert cola == "applied", "la fila released se reclama antes del HTTP (veto respetado)"
+
+
+# ===========================================================================
+# Review adversaria de phase 2: re-validacion PRE-claim del harvest (ADV-05)
+# y reconciliador de pausas applying huerfanas (ADV-03, matriz §6.1)
+# ===========================================================================
+
+
+@_skip_db
+def test_revalida_harvest_sigue_calificando_aplica():
+    """ADV-05 cara complementaria: con evidencia FRESCA que SIGUE calificando
+    (orders >= 2, ACoS bajo el tope fresco) la cadena corre completa — la
+    re-validacion re-evalua la regla, no la bloquea."""
+    with _db_temporal("orbit_har_revok") as conn:
+        ids = _semilla(conn)
+        dec = _decision_harvest(conn, ids["ciclo_dec"], ids["config"], ids["ag"])
+        q = _encola_fila(conn, dec, ids["ag"], term=TERMINO)
+        handler, vistos = _handler_harvest()
+
+        res = libera_vencidos(
+            conn,
+            "amazon_us",
+            ahora=dt.datetime.now(dt.UTC),
+            aplicador=_aplicador(conn, handler, ids["ciclo_ejec"]),
+        )
+
+        assert res.aplicadas == 1 and res.descartadas == [] and res.fallidas == 0
+        assert (
+            conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()[0]
+            == "applied"
+        )
+        assert [f"{r.method} {r.url.path}" for r in _mutaciones(vistos)] == [
+            "POST /sp/negativeKeywords",
+            "POST /sp/keywords",
+        ]
+
+
+@_skip_db
+def test_revalida_harvest_descarta_por_revision_acos_sobre_tope():
+    """ADV-05: revision bitemporal DURANTE la ventana de veto que sube el ACoS
+    del termino sobre el tope → la regla re-evaluada ya no califica →
+    discarded 'ya_no_califica' CON NOTA, cero HTTP, sin job. Regla 9: contra
+    el harvest que no re-valida, la cadena correria sobre evidencia rancia y
+    este test reventaria."""
+    with _db_temporal("orbit_har_revacos") as conn:
+        ids = _semilla(conn)
+        d = dt.datetime.now(dt.UTC)
+        # Revision de la fecha con la venta: el costo se dispara (ACoS > tope
+        # 35) — el colapso DISTINCT ON elige la observacion MAS RECIENTE.
+        _termino_obs(
+            conn,
+            ids["run"],
+            ids["ag"],
+            TERMINO,
+            d.date() - dt.timedelta(days=40),
+            clicks=3,
+            cost="22.00",
+            ad_revenue="5.00",
+            orders=2,
+            observed=d - dt.timedelta(hours=1),
+        )
+        dec = _decision_harvest(conn, ids["ciclo_dec"], ids["config"], ids["ag"])
+        q = _encola_fila(conn, dec, ids["ag"], term=TERMINO)
+        handler, vistos = _handler_harvest()
+
+        res = libera_vencidos(
+            conn, "amazon_us", ahora=d, aplicador=_aplicador(conn, handler, ids["ciclo_ejec"])
+        )
+
+        assert res.descartadas == ["ya_no_califica"]
+        fila = conn.execute(
+            "SELECT estado, discard_motivo FROM apply_queue WHERE id = %s", (q,)
+        ).fetchone()
+        assert fila == ("discarded", "ya_no_califica")
+        assert vistos == [], "jamas un HTTP sobre una decision rancia"
+        assert conn.execute("SELECT count(*) FROM harvest_job").fetchone()[0] == 0
+
+
+# ---------------------------------------------------------------------------
+# ADV-03: pausas applying huerfanas (fallo ambiguo 5xx/red en el PUT) —
+# la fila §6.1 "Cola applying huerfana - pause" reconciliada por GET fresco
+# ---------------------------------------------------------------------------
+
+
+def _handler_pause_estado(estado: str):
+    """Handler MockTransport minimo para el reconciliador de pausas: SOLO el
+    GET fresco de estado de la keyword (la reconciliacion jamas re-muta)."""
+    vistos: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            # OJO: el access token se REGISTRA como secreto y scrub redacta
+            # sus ocurrencias en TODO el proceso — jamas un token de 1 char
+            # (una "t" romperia a cualquier test posterior que aserte texto).
+            return httpx.Response(200, json={"access_token": "fake-access-1", "expires_in": 3600})
+        vistos.append(request)
+        if request.method == "GET" and request.url.path == "/sp/keywords":
+            ext = request.url.params.get("keywordId")
+            return httpx.Response(200, json={"keywords": [{"keywordId": ext, "state": estado}]})
+        raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
+
+    return handler, vistos
+
+
+def _pause_aplicando_huerfana(conn, ids) -> tuple[int, int]:
+    """Siembra el escenario ADV-03: fila pause vencida, liberada, claimed y un
+    fallo ambiguo tras el ledger PRE-HTTP (la fila queda applying con su fila
+    de ledger SIN sello — el rastro). Devuelve (queue_id, decision_id)."""
+    dec = conn.execute(
+        "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
+        " data_observed_at, window_start, window_end, inputs) VALUES (%s, %s, 'pause',"
+        " now() - interval '3 days', %s, now() - interval '4 days', CURRENT_DATE - 60,"
+        " CURRENT_DATE - 30, '{}'::jsonb) RETURNING id",
+        (ids["ciclo_dec"], ids["kw"], ids["config"]),
+    ).fetchone()[0]
+    q = _encola_fila(conn, dec, ids["kw"], kind="pause", term=None)
+    _libera_fila(conn, q)
+    _claim_fila(conn, q)
+    _fila_ledger_abierta(conn, dec)
+    return q, dec
+
+
+@_skip_db
+def test_reconcilia_pause_aplicando_huerfana_paused_confirma():
+    """Celda PAUSED de la matriz §6.1: GET fresco lee userPaused (Amazon SI
+    proceso el PUT ambiguo) → confirmar: ledger sellado ok:reconciliado,
+    resumen con verify_ok + ciclo EJECUTOR, cache con lo LEIDO y fila
+    applied. Regla 9: sin reconciliador de pausas la fila queda applying para
+    siempre (clave bloqueada) y este test reventaria."""
+    with _db_temporal("orbit_har_rpause") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_pause": 2})
+        q, dec = _pause_aplicando_huerfana(conn, ids)
+        handler, vistos = _handler_pause_estado("userPaused")
+
+        resumen = _reconcilia(conn, handler, ids["ciclo_ejec"])
+
+        assert resumen.pausas_confirmadas == 1 and resumen.pausas_fallidas == 0
+        assert (
+            conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()[0]
+            == "applied"
+        )
+        ledger = conn.execute(
+            "SELECT resultado, finished_at IS NOT NULL FROM apply_attempt WHERE decision_id = %s",
+            (dec,),
+        ).fetchone()
+        assert ledger == ("ok:reconciliado", True)
+        resumen_dec = conn.execute(
+            "SELECT verify_ok, applied_cycle_id FROM decision_application WHERE decision_id = %s",
+            (dec,),
+        ).fetchone()
+        assert resumen_dec == (True, ids["ciclo_ejec"]), "sello al ciclo EJECUTOR"
+        cache = conn.execute(
+            "SELECT status FROM ad_entity_state WHERE ad_entity_id = %s", (ids["kw"],)
+        ).fetchone()[0]
+        assert cache == "userPaused", "cache con LO LEIDO (sellado 16)"
+        assert [f"{r.method} {r.url.path}" for r in vistos] == ["GET /sp/keywords"], (
+            "la reconciliacion de pause JAMAS re-muta: solo el GET fresco"
+        )
+
+
+@_skip_db
+def test_reconcilia_pause_aplicando_huerfana_enabled_failed():
+    """Celda ENABLED de la matriz §6.1: el PUT ambiguo JAMAS proceso (la
+    keyword sigue viva) → failed: ledger sellado con el veredicto, fila
+    failed, SIN resumen confirmado y SIN reactivacion_manual (no hubo pause
+    propio verificado previo). Regla 9: sin reconciliador, la clave
+    entity_cut queda bloqueada para siempre y este test reventaria."""
+    with _db_temporal("orbit_har_rpausa2") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_pause": 2})
+        q, dec = _pause_aplicando_huerfana(conn, ids)
+        handler, _v = _handler_pause_estado("enabled")
+
+        resumen = _reconcilia(conn, handler, ids["ciclo_ejec"])
+
+        assert resumen.pausas_confirmadas == 0 and resumen.pausas_fallidas == 1
+        assert (
+            conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()[0]
+            == "failed"
+        )
+        ledger = conn.execute(
+            "SELECT resultado, finished_at IS NOT NULL FROM apply_attempt WHERE decision_id = %s",
+            (dec,),
+        ).fetchone()
+        assert ledger[0].startswith("fallo:") and ledger[1] is True
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM decision_application WHERE decision_id = %s", (dec,)
+            ).fetchone()[0]
+            == 0
+        ), "failed: sin confirmacion"
+        assert conn.execute("SELECT count(*) FROM reactivacion_manual").fetchone()[0] == 0
+
+
+@_skip_db
+def test_reconcilia_pause_enabled_con_pause_propio_marca_reactivacion():
+    """Celda ENABLED + pause propio verificado: el dueno re-activo a mano ->
+    failed + INSERT reactivacion_manual (gracia 7d, idempotente por PK --
+    sellado 17): el motor no vuelve a cortar la entidad durante la gracia."""
+    with _db_temporal("orbit_har_rpausa3") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_pause": 2})
+        # Pause propio verificado PREVIO: decision de pause vieja (en SU
+        # propio ciclo — el esquema exige decision unica por entidad/ciclo)
+        # con decision_application verify_ok TRUE.
+        ciclo_viejo = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        dec_vieja = conn.execute(
+            "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
+            " data_observed_at, window_start, window_end, inputs) VALUES (%s, %s, 'pause',"
+            " now() - interval '20 days', %s, now() - interval '21 days', CURRENT_DATE - 80,"
+            " CURRENT_DATE - 50, '{}'::jsonb) RETURNING id",
+            (ciclo_viejo, ids["kw"], ids["config"]),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO decision_application (decision_id, confirmed_at, platform_ack,"
+            " verify_ok) VALUES (%s, now(), '{}'::jsonb, true)",
+            (dec_vieja,),
+        )
+        q, _dec = _pause_aplicando_huerfana(conn, ids)
+        handler, _v = _handler_pause_estado("enabled")
+
+        resumen = _reconcilia(conn, handler, ids["ciclo_ejec"])
+
+        assert resumen.pausas_fallidas == 1
+        assert (
+            conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()[0]
+            == "failed"
+        )
+        deteccion = conn.execute(
+            "SELECT detectada_en FROM reactivacion_manual WHERE ad_entity_id = %s", (ids["kw"],)
+        ).fetchone()
+        assert deteccion is not None, "ENABLED + pause propio verificado abre la gracia 7d"

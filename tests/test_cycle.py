@@ -1166,12 +1166,15 @@ def test_gates_de_elegibilidad_sin_goal_mode_off_estado_y_cooldown():
         ).fetchone()[0]
         conn.execute(
             "INSERT INTO decision_application (decision_id, attempted_at, confirmed_at,"
-            " verify_ok, platform_ack) VALUES (%s, %s, %s, true, %s)",
+            " verify_ok, platform_ack, applied_cycle_id) VALUES (%s, %s, %s, true, %s, %s)",
             (
                 dec_viva,
                 DECIDED_AT - dt.timedelta(days=6),
                 DECIDED_AT - dt.timedelta(days=6),
                 Json({"estado": "ok"}),
+                # ADV-06 (sellado 21): el cooldown mira el ciclo EJECUTOR
+                # (aqui, el mismo live que decidio y aplico).
+                ciclo_vivo,
             ),
         )
 

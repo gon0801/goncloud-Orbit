@@ -132,16 +132,22 @@ VALUES (%s::platform, %s, %s, %s, %s, %s, 'pending_veto', %s, %s)
 RETURNING id
 """
 
+# Barrido FIFO (ADV-02 de la review adversaria): vencidas pending_veto Y
+# TAMBIEN las released no terminales que esperaron quota (pausas/negatives
+# que no alcanzaron cap el ciclo anterior y JAMAS se reintentaban — su clave
+# de efecto quedaba bloqueada para siempre). Una fila released NO se
+# re-libera: vuelve a entrar por la MISMA secuencia (re-validacion + quota +
+# claim) y leerla ya liberada JAMAS cuenta como carrera.
 _SQL_VENCIDAS = """
-SELECT id, kind, ad_entity_id, search_term, decision_id, request_payload
+SELECT id, kind, ad_entity_id, search_term, decision_id, request_payload, estado
   FROM apply_queue
- WHERE platform = %s::platform AND estado = 'pending_veto' AND modo = 'live'
-   AND vence_el <= %s
+ WHERE platform = %s::platform AND modo = 'live'
+   AND ((estado = 'pending_veto' AND vence_el <= %s) OR estado = 'released')
  ORDER BY encolado_at, id
 """
 
 _SQL_FILA = """
-SELECT id, kind, ad_entity_id, search_term, decision_id, request_payload
+SELECT id, kind, ad_entity_id, search_term, decision_id, request_payload, estado
   FROM apply_queue WHERE id = %s
 """
 
@@ -248,7 +254,10 @@ class ResultadoLiberacion:
 class FilaCola:
     """Espejo de una fila de apply_queue tal como la consume el aplicador de
     cortes (reversas incluidas). `request_payload` es la intencion EXACTA que
-    el ledger congela pre-HTTP (COMMENT de la columna en 0002)."""
+    el ledger congela pre-HTTP (COMMENT de la columna en 0002). `estado`
+    viaja desde el barrido FIFO: distingue la vencida pending_veto (se
+    libera) de la released que espera quota (se REINTENTA sin re-liberar,
+    ADV-02)."""
 
     id: int
     kind: str
@@ -256,6 +265,7 @@ class FilaCola:
     search_term: str | None
     decision_id: int
     request_payload: dict
+    estado: str
 
 
 def fila_cola(conn: psycopg.Connection, queue_id: int) -> FilaCola | None:
@@ -588,12 +598,16 @@ def _revalida(
     ahora: dt.datetime,
 ) -> str | None:
     """None = el corte sigue calificando. Un motivo = discard (PRE-claim: el
-    descarte ocurre SIEMPRE antes del cobro, brief §3)."""
+    descarte ocurre SIEMPRE antes del cobro, brief §3). El harvest delega en
+    apply_harvest.revalida_harvest (ADV-05 de la review adversaria: la regla
+    se re-evalua con evidencia FRESCA al reloj de liberacion — jamas se
+    cosecha por silencio contra la regla lo que vendio/dejo de calificar
+    durante la ventana)."""
     if fila.kind == "pause":
         return _revalida_pause(conn, aplicador, platform, fila, ahora)
     if fila.kind == "negative":
         return _revalida_negative(conn, platform, fila, ahora)
-    return None  # harvest: la matriz del brief §6.1 es de 2.3
+    return apply_harvest.revalida_harvest(conn, platform, fila, ahora)
 
 
 # ---------------------------------------------------------------------------
@@ -703,9 +717,13 @@ def libera_vencidos(
     aplicador: Aplicador,
 ) -> ResultadoLiberacion:
     """Barrido FIFO de las filas vencidas (pending_veto, modo live, vence_el
-    <= ahora; por encolado_at/id). ORDEN SELLADO por fila (brief §3):
+    <= ahora; por encolado_at/id) Y de las released no terminales que
+    esperaron quota (ADV-02: misma secuencia al ciclo siguiente — sin este
+    barrido la fila huerfana bloqueaba su clave de efecto para siempre).
+    ORDEN SELLADO por fila (brief §3):
 
-    1. liberacion atomica pending_veto -> released;
+    1. liberacion atomica pending_veto -> released (la fila que YA viene
+       released NO se re-libera y JAMAS cuenta como carrera: esperaba FIFO);
     2. re-validacion PRE-claim SOBRE la fila released (evidencia FRESCA al
        reloj de LIBERACION + GET fresco de estado vivo): motivo -> discard
        (un descarte SIEMPRE antes del claim, NUNCA despues del cobro);
@@ -714,9 +732,12 @@ def libera_vencidos(
        porque la maquina no tiene applying -> released (0002): cobrar despues
        del claim dejaria atrapada la fila que espera quota — declarado; el
        invariante "descarte jamas post-cobro" se conserva (el discard es el
-       paso 2). Residual aceptado: si un veto gana la carrera entre cobro y
-       claim, esa unidad queda cobrada sin intento (ventana de microsegundos,
-       una unidad, visible en apply_quota_state);
+       paso 2). Residuales aceptados: (a) si un veto gana la carrera entre
+       cobro y claim, esa unidad queda cobrada sin intento (ventana de
+       microsegundos, una unidad, visible en apply_quota_state); (b) ADV-11:
+       si la decision ya agoto el tope de 3 intentos del ledger, `_ledger`
+       devuelve None DESPUES del cobro — una unidad quemada sin intento ni
+       fila (edge: exige 3 intentos previos de la MISMA decision);
     4. claim atomico released -> applying (0 filas = perdio la carrera);
     5. fila del ledger PRE-HTTP + commit (apply._ledger);
     6. HTTP (write client del aplicador) + readback + sello -> applied|failed.
@@ -729,10 +750,13 @@ def libera_vencidos(
     liberadas = aplicadas = fallidas = sin_quota = carreras = 0
     descartadas: list[str] = []
     for fila in filas:
-        if conn.execute(_SQL_LIBERA, (fila.id,)).fetchone() is None:
-            carreras += 1
-            continue
-        liberadas += 1
+        if fila.estado == "pending_veto":
+            if conn.execute(_SQL_LIBERA, (fila.id,)).fetchone() is None:
+                carreras += 1
+                continue
+            liberadas += 1
+        # released (esperaba quota FIFO o es el reintento del ciclo
+        # siguiente): SIN re-liberacion — directa a la secuencia sellada.
         motivo = _revalida(conn, aplicador, platform, fila, ahora)
         if motivo is not None:
             conn.execute(_SQL_DESCARTA, (motivo, fila.id, "released"))

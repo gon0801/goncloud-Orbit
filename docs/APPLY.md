@@ -256,6 +256,16 @@ El ack/resultado/`finished_at` se sellan **al volver, SOLO una vez**:
 decisión = 3 (tarea 2.1); un 4º intento revienta contra el COUNT del
 ledger.
 
+**Residual declarado (ADV-08, review adversaria de phase 2):** el sello por
+decisión (`ok:reconciliado` con `ack` NULL) cierra TODAS las filas sin
+sello de la decisión cuando la evidencia viva resuelve el efecto — incluida
+la de un intento que murió ANTES de enviar (crash entre ledger-commit y
+HTTP): el ledger puede afirmar un intento que jamás salió. El tope-3 las
+CUENTA igual (conservador: un intento fantasma consume un hueco del tope,
+jamás lo regala). No hay forma barata de distinguir "nunca salió" de
+"salió y no se selló" sin leer `started_at` contra el log de acceso — si
+ese poder se necesita, es decisión nueva del dueño.
+
 ### 4.2 `decision_application` queda como RESUMEN
 
 - Su PK única (`decision_id`) se respeta: **reintentos = UPDATE del
@@ -417,6 +427,15 @@ Ninguna acción irreversible sin su reversa implementada antes (regla 7):
   impedir.
 - El orden de reversa del harvest completo es SELLADO (keyword primero,
   negativo después) — test de orden (regla 9).
+- **Residual declarado (ADV-10, review adversaria de phase 2):** la
+  reconciliación del harvest adopta por IDENTIDAD COMPLETA (grupo destino +
+  texto + exact) y la reversa borra por **id externo** — si el dueño crea a
+  mano una keyword EXACT con el mismo texto en el destino durante la
+  ventana, el job puede ADOPTARLA y una reversa automática posterior
+  BORRARÍA su keyword manual. Mitigación disponible HOY: el **veto dentro de
+  la ventana** mata el job antes de que ejecute. Una marca de origen
+  (p. ej. conservar el `keywordId` del ack propio y no adoptar ids ajenos
+  salvo evidencia) es decisión nueva del dueño si el caso aparece.
 
 ---
 
@@ -703,6 +722,13 @@ antes):
 Pendientes declarados por este brief (detalle fino DENTRO de lo sellado;
 los fija el implementador de la tarea correspondiente):
 
+- **Residual (ADV-04, review adversaria de phase 2):** la reconciliación de
+  ledger sin sello cableada en phase 2 cubre SOLO intentos `tipo='normal'`
+  de decisions kind `bid`. Las filas **reversa/probe sin sello** (matriz
+  §6.1 última fila) NO tienen reconcilador: un crash entre el ledger de una
+  reversa y su HTTP queda abierto hasta que el operador lo resuelva contra
+  el GET/list correspondiente. Se declara en vez de implementarse a ciegas
+  porque cada tipo exige su propio readback y no existe aún un caso real.
 - Nombres de columnas no citados por el header (p.ej. el sello
   ack/resultado del ledger): los fija 1.2 sin salirse de §4.
 - Si el probe (2.5) consume quota o va exento (§5.3).

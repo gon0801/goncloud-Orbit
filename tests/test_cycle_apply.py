@@ -122,10 +122,12 @@ def _db_temporal(prefijo: str):
     admin = psycopg.connect(dsn, autocommit=True)
     conn = None
 
-    def conectar_extra():
+    def conectar_extra(autocommit: bool = True):
         """Conexion adicional a la MISMA DB temporal (otra sesion: verificacion
-        del lock desde fuera de la sesion del ciclo)."""
-        return psycopg.connect(dsn, dbname=db, autocommit=True)
+        del lock desde fuera de la sesion del ciclo). `autocommit=False` sirve
+        para reproducir la conexion de PRODUCCION (app.db.connect no usa
+        autocommit y el CLI cierra sin commit)."""
+        return psycopg.connect(dsn, dbname=db, autocommit=autocommit)
 
     try:
         admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
@@ -403,12 +405,16 @@ def test_zombie_y_sucesor_concurrentes_solo_uno_muta(secrets_falsos):
         assert notas_s["skips"]["entidad"].get("veto_pendiente") == 1  # pause de kw_pause
         assert notas_s["skips"]["termino"].get("veto_pendiente") == 2  # tortugas + buena yarda
         assert notas_s["apply"]["cortes_encolados"] == {"live": 0, "shadow": 0, "choques": 0}
+        # ADV-04: el rastro del zombie (ledger sin sello, su PUT jamas salio)
+        # lo cierra el reconciliador de bids del sucesor — el mock de Amazon
+        # ya tenia 0.75, el GET fresco CONFIRMA sin nuevo HTTP de mutacion.
+        assert notas_s["apply"]["bids_reconciliados"] == {"confirmados": 1, "fallidos": 0}
         assert (
             conn.execute(
                 "SELECT applied_count FROM optimizer_cycle WHERE id = %s", (res_s.cycle_id,)
             ).fetchone()[0]
-            == 1
-        )
+            == 2
+        ), "1 bid aplicado por el sucesor + 1 reconciliado del zombie (ejecutor)"
 
 
 # ---------------------------------------------------------------------------
@@ -765,3 +771,122 @@ def test_sin_perfil_aceptado_aborta_fail_closed(secrets_falsos):
             ).fetchone()[0]
             == 0
         )
+
+
+# ---------------------------------------------------------------------------
+# ADV-01 (P0, review adversaria de phase 2): la fase de apply CIERRA sus
+# transacciones — TX4 real y sello persisten con la conexion de PRODUCCION
+# ---------------------------------------------------------------------------
+
+
+@_skip_db
+def test_ciclo_shadow_persisten_cola_y_sello_con_conexion_sin_autocommit():
+    """Conexion COMO PRODUCCION (app.db.connect: sin autocommit; app.cli:
+    conn.close() en el finally SIN commit). TODO lo escrito por la fase de
+    apply (filas de apply_queue + notes['apply']) debe seguir ahi visto desde
+    OTRA conexion tras el close. Regla 9: contra el codigo que deja TX4 y el
+    sello en una transaccion abierta que el close revierte, la cola shadow
+    queda en 0 filas y el envelope sin notes['apply'] — este test revienta
+    (hallazgo ADV-01: la cola shadow de produccion quedaba SIEMPRE vacia)."""
+    with _db_temporal("orbit_cyc_tx4") as (setup, conectar):
+        _siembra_maestra(setup)  # escalera shadow: el ciclo decide 3 cortes
+        conn = conectar(autocommit=False)  # como app.db.connect + app.cli
+        conn.execute("SET TIME ZONE 'UTC'")
+        res = ciclo.corre_ciclo(
+            conn,
+            platform="amazon_us",
+            owner="prod:tx4",
+            decided_at=DECIDED_AT,
+            heartbeat_cada=1,
+        )
+        assert res.status == "done"
+        conn.close()  # el finally del CLI: SIN commit
+
+        ver = conectar()
+        filas = ver.execute("SELECT estado, count(*) FROM apply_queue GROUP BY estado").fetchall()
+        env = ver.execute(
+            "SELECT status, notes FROM optimizer_cycle WHERE id = %s", (res.cycle_id,)
+        ).fetchone()
+        ver.close()
+
+        assert filas == [("pending_veto", 3)], (
+            "la cola shadow persiste tras el close del CLI (dueno puede vetar)"
+        )
+        assert env[0] == "done"
+        assert '"apply"' in (env[1] or ""), "el sello notes['apply'] persiste, no solo en memoria"
+        notas = json.loads(env[1])
+        assert notas["apply"]["cortes_encolados"]["shadow"] == 3
+
+
+@_skip_db
+def test_live_fabrica_aborta_senal_degraded_persistida():
+    """Ciclo LIVE con la fabrica abortando (p.ej. secrets ilegibles): la senal
+    fail-closed (status 'degraded' + nota apply_error) debe quedar PERSISTIDA
+    — Salud no puede mostrar ciclos 'done' sanos mientras el motor no aplica.
+    Regla 9: contra el codigo sin commits de la fase, el envelope persiste
+    'done' SIN apply_error (la senal se revierte en el close) y este test
+    revienta (hallazgo ADV-01c)."""
+    with _db_temporal("orbit_cyc_tx4ab") as (setup, conectar):
+        _siembra_maestra(setup, escalera="live")
+        _config_live_caps(setup)
+
+        def fabrica_que_aborta(*_args, **_kwargs):
+            raise ciclo.SinPerfilAplicar("secrets ilegibles (simulado)")
+
+        conn = conectar(autocommit=False)  # como app.db.connect + app.cli
+        conn.execute("SET TIME ZONE 'UTC'")
+        res = _corre(conn, factory=fabrica_que_aborta)
+        assert res.status == "degraded"  # la senal in-memory
+        conn.close()  # el finally del CLI: SIN commit
+
+        ver = conectar()
+        env = ver.execute(
+            "SELECT status, notes FROM optimizer_cycle WHERE id = %s", (res.cycle_id,)
+        ).fetchone()
+        cola = ver.execute(
+            "SELECT count(*) FROM apply_queue WHERE modo = 'live' AND estado = 'pending_veto'"
+        ).fetchone()[0]
+        ver.close()
+
+        assert env[0] == "degraded", "la degradacion persiste: jamas 'done' silencioso"
+        notas = json.loads(env[1])
+        assert "apply_error" in notas["apply"], "la nota apply_error persiste"
+        assert cola == 3, "el encolado live tambien persiste"
+
+
+# ---------------------------------------------------------------------------
+# ADV-09 (P2): el sello de falla NO pisa el rastro del sucesor
+# ---------------------------------------------------------------------------
+
+
+@_skip_db
+def test_sello_fallido_no_pisa_el_rastro_del_sucesor(caplog):
+    """Un zombie que despierta y revienta NO puede sobreescribir el envelope
+    que el RASTRO del sucesor ya cerro 'failed' con su nota (mismo guard
+    status='running' que _cierra_envelope y _sella_apply). Regla 9: sin el
+    guard, el UPDATE pisa notes con el cuerpo parcial del zombie y la nota
+    'rastro' (unico indicio de que hubo dos procesos) desaparece."""
+    with _db_temporal("orbit_cyc_sello") as (conn, _c):
+        ciclo_id = conn.execute(
+            "INSERT INTO optimizer_cycle (motor, mode, platform)"
+            " VALUES ('ads_optimizer', 'shadow', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        # El sucesor gano el claim tras el TTL y cerro el rastro del zombie.
+        conn.execute(
+            "UPDATE optimizer_cycle SET status = 'failed', finished_at = now(), notes ="
+            " 'rastro: ciclo muerto (lock expirado, reclamado por sucesor:9)'"
+            " WHERE id = %s",
+            (ciclo_id,),
+        )
+
+        with caplog.at_level(logging.WARNING, logger="app.cycle"):
+            ciclo._sello_fallido(
+                conn, ciclo_id, RuntimeError("boom del zombie"), ciclo._Contadores(), []
+            )
+
+        fila = conn.execute(
+            "SELECT status, notes FROM optimizer_cycle WHERE id = %s", (ciclo_id,)
+        ).fetchone()
+        assert fila[0] == "failed"
+        assert "rastro: ciclo muerto" in fila[1], "el sello del zombie NO pisa el rastro"
+        assert "boom" not in fila[1]

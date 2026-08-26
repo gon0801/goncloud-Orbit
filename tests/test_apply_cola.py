@@ -1179,3 +1179,138 @@ def test_recheck_enabled_tras_pause_propio_marca_reactivacion_y_descarta():
         assert total[0] == 1, "idempotente por PK"
         assert total[1] == deteccion[0], "detectada_en jamas se mueve (append-only)"
         assert _mutaciones(vistos) == []
+
+
+# ---------------------------------------------------------------------------
+# 14. ADV-02 (review adversaria): fila released que espero quota se REINTENTA
+# al ciclo siguiente — misma secuencia, sin contar carrera
+# ---------------------------------------------------------------------------
+
+
+@_skip_db
+def test_released_sin_quota_se_reintenta_al_dia_siguiente(monkeypatch):
+    """Dia 1 con cap agotado -> la fila joven queda released (FIFO, vetable).
+    Dia 2 con quota renovada -> el barrido la VE (ya liberada), la re-valida
+    con evidencia fresca, cobra quota, reclama y aplica. Una fila ya released
+    NO se re-libera y leerla JAMAS cuenta como carrera perdida. Regla 9:
+    contra el _SQL_VENCIDAS que solo selecciona pending_veto, la fila queda
+    released PARA SIEMPRE (clave de efecto bloqueada) y este test reventaria
+    (hallazgo ADV-02: el corte muere en silencio)."""
+    import app.apply_cola
+
+    with _db_temporal("orbit_cola_rtry") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_pause": 1})
+        d = ids["ahora"]
+        for entidad in (ids["kw"], ids["kw2"]):
+            for fecha in _fechas(
+                d.date() - dt.timedelta(days=28), d.date() - dt.timedelta(days=11)
+            ):
+                _metrica(conn, ids["run"], entidad, fecha, clicks=5, cost=2, orders=0)
+        dec1 = _decision_corte(conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause")
+        q1 = _encola_fila(
+            conn,
+            dec1,
+            ids["kw"],
+            "pause",
+            encolado=d - dt.timedelta(days=3),
+            payload=_payload_pause("7201"),
+        )
+        ciclo2 = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        dec2 = _decision_corte(conn, ciclo2, ids["config"], ids["kw2"], "pause")
+        q2 = _encola_fila(
+            conn,
+            dec2,
+            ids["kw2"],
+            "pause",
+            encolado=d - dt.timedelta(days=2),
+            payload=_payload_pause("7202"),
+        )
+        handler, vistos = _handler_cortes()
+
+        # Dia 1 (quota REAL): la mas vieja aplica, la joven queda released.
+        res1 = libera_vencidos(
+            conn, "amazon_us", ahora=d, aplicador=_aplicador(conn, handler, ids["ciclo_ejec"])
+        )
+        assert res1.aplicadas == 1 and res1.sin_quota == 1
+        assert (
+            conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q2,)).fetchone()[0]
+            == "released"
+        )
+
+        # Dia 2: quota_date ancla al now() de la DB (un solo dia REAL por
+        # test), asi que la renovacion entra por la MISMA puerta de quota; la
+        # secuencia posterior (re-validacion + claim + HTTP) corre real.
+        d2 = d + dt.timedelta(days=1)
+        monkeypatch.setattr(app.apply_cola, "consume_quota", lambda *_a, **_k: True)
+        vistos.clear()
+        res2 = libera_vencidos(
+            conn, "amazon_us", ahora=d2, aplicador=_aplicador(conn, handler, ids["ciclo_ejec"])
+        )
+
+        assert res2.liberadas == 0, "una fila ya released NO se vuelve a liberar"
+        assert res2.carreras_perdidas == 0, "leer una fila ya released NO es una carrera"
+        assert res2.aplicadas == 1, "con quota renovada la fila waiting aplica"
+        assert (
+            conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q2,)).fetchone()[0]
+            == "applied"
+        )
+        puts = [r for r in _mutaciones(vistos) if r.method == "PUT"]
+        assert [json.loads(p.content)["keywordId"] for p in puts] == ["7202"]
+        # La clave de efecto queda LIBRE de nuevo (el motor puede re-decidir).
+        assert (ids["kw2"], "entity_cut", None) not in claves_bloqueadas(conn, "amazon_us", d2)
+        # La fila del dia 1 sigue aplicada (idempotente, no se re-toca).
+        assert (
+            conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q1,)).fetchone()[0]
+            == "applied"
+        )
+
+
+# ---------------------------------------------------------------------------
+# 15. ADV-05 (review adversaria): re-validacion PRE-claim del HARVEST
+# ---------------------------------------------------------------------------
+
+
+@_skip_db
+def test_revalida_harvest_sin_observaciones_frescas_descarta():
+    """El harvest TAMBIEN se re-evalua contra la regla con evidencia FRESCA al
+    reloj de LIBERACION (sellado 6: 'jamas se corta por silencio contra la
+    regla'). Sin observaciones del termino en la ventana fresca no califica
+    (regla 3: ausencia, jamas ceros inventados) -> discarded 'ya_no_califica'
+    con CERO HTTP y sin job. Regla 9: contra el `return None` de harvest en
+    _revalida, la cadena correria igual sobre evidencia rancia (el caso caro
+    de ADV-05: POST del negativo + keyword con bid) y este test reventaria."""
+    with _db_temporal("orbit_cola_hrev") as conn:
+        ids = _semilla(
+            conn,
+            caps={"ads_apply_cap_amazon_us_harvest": 2, "ads_apply_cap_amazon_us_negative": 5},
+        )
+        d = ids["ahora"]
+        # SIN _termino_obs: el termino no existe en la ventana fresca.
+        dec = _decision_corte(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            ids["ag"],
+            "harvest",
+            term="buen termino",
+            valor=0.75,
+            moneda="USD",
+        )
+        q = _encola_fila(conn, dec, ids["ag"], "harvest", term="buen termino", payload={})
+        handler, vistos = _handler_cortes()
+
+        res = libera_vencidos(
+            conn, "amazon_us", ahora=d, aplicador=_aplicador(conn, handler, ids["ciclo_ejec"])
+        )
+
+        assert res.descartadas == [MOTIVO_YA_NO_CALIFICA]
+        fila = conn.execute(
+            "SELECT estado, discard_motivo FROM apply_queue WHERE id = %s", (q,)
+        ).fetchone()
+        assert fila == ("discarded", MOTIVO_YA_NO_CALIFICA)
+        assert vistos == [], "un descartado jamas genera HTTP"
+        assert conn.execute("SELECT count(*) FROM harvest_job").fetchone()[0] == 0, (
+            "sin calificar no nace job (la cola manda)"
+        )

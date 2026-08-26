@@ -56,7 +56,10 @@ Reglas selladas (plans/orbit-03.md task 2.4 + Spec delta de CONTEXTO.md):
   vuelo) tampoco. En shadow nunca enfria POR QUERY (JOIN a optimizer_cycle
   mode='live', regla sellada del diseno v2 -- hallazgo codex+grok ronda 1):
   aunque un dry-run de PR2 escribiera decision_application en shadow, ese
-  apply JAMAS enfria.
+  apply JAMAS enfria. Desde ORBIT 04 phase 2 (ADV-06, sellado 21) el JOIN es
+  contra applied_cycle_id (el ciclo que EJECUTO, sellado con verify_ok en
+  0002), no contra d.cycle_id (el que decidio): la decision shadow aplicada
+  en live SI enfria desde el apply.
 - DETERMINISMO: no hay now() escondido; `ahora` llega por parametro y DEBE
   ser tz-aware (mismo principio que windows._fecha_utc, replicado aqui
   localmente: no se importan privados de otro modulo).
@@ -346,12 +349,18 @@ def resuelve_modo(escalera_global: str, modo_goal: str) -> ModoEfectivo:
 # un dry-run de PR2 escriba decision_application en shadow (hallazgo
 # codex+grok, cross-review ronda 1): una decision shadow con apply
 # verificado JAMAS enfria.
+# Desde la review adversaria de ORBIT 04 phase 2 (ADV-06, sellado 21) el JOIN
+# mira da.applied_cycle_id — el ciclo que EJECUTO el apply (se sella SOLO con
+# verify_ok, 0002) — y NO d.cycle_id (el que decidio): la decision nacida en
+# ciclo shadow y aplicada por un ciclo live SI enfria desde el apply; mirar
+# al decisor dejaba el anti-loop roto justo en ese caso (la entidad se
+# re-decidia y re-aplicaba al dia siguiente).
 _SQL_EN_COOLDOWN = """
 SELECT EXISTS (
     SELECT 1
       FROM decision_application da
       JOIN decision d ON d.id = da.decision_id
-      JOIN optimizer_cycle oc ON oc.id = d.cycle_id AND oc.mode = 'live'
+      JOIN optimizer_cycle oc ON oc.id = da.applied_cycle_id AND oc.mode = 'live'
      WHERE d.ad_entity_id = %s
        AND da.verify_ok IS TRUE
        AND da.confirmed_at > %s
@@ -360,14 +369,16 @@ SELECT EXISTS (
 
 
 def en_cooldown(conn: psycopg.Connection, ad_entity_id: int, *, ahora: dt.datetime) -> bool:
-    """True si la ENTIDAD tiene alguna decision de un ciclo LIVE con apply
-    VERIFICADO (verify_ok IS TRUE) confirmado hace <7d respecto de `ahora`.
-    Reloj por parametro (sin now() escondido), DEBE ser tz-aware (en
-    cualquier zona: la comparacion es entre instantes): un naive evaluaria
-    segun la TZ local del proceso y se rechaza ruidosamente (mismo principio
-    que windows._fecha_utc, replicado sin importar su privado). En shadow
-    nunca enfria POR QUERY: el filtro optimizer_cycle.mode='live' lo hace
-    inmune a applies de dry-run (regla sellada del diseno v2)."""
+    """True si la ENTIDAD tiene alguna decision con apply VERIFICADO
+    (verify_ok IS TRUE) EJECUTADO por un ciclo LIVE (applied_cycle_id, el
+    ciclo ejecutor — no el decisor) y confirmado hace <7d respecto de
+    `ahora`. Reloj por parametro (sin now() escondido), DEBE ser tz-aware
+    (en cualquier zona: la comparacion es entre instantes): un naive
+    evaluaria segun la TZ local del proceso y se rechaza ruidosamente
+    (mismo principio que windows._fecha_utc, replicado sin importar su
+    privado). En shadow nunca enfria POR QUERY: el filtro del ciclo EJECUTOR
+    mode='live' lo hace inmune a applies de dry-run (regla sellada del
+    diseno v2)."""
     if ahora.tzinfo is None:
         raise ValueError(
             "ahora debe ser tz-aware (UTC): un naive evaluaria segun la TZ local del proceso"
