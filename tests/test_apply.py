@@ -510,7 +510,9 @@ def test_cache_actualizado_post_readback_con_lo_leido():
         resultado = conn.execute(
             "SELECT resultado FROM apply_attempt WHERE decision_id = %s", (dec,)
         ).fetchone()[0]
-        assert resultado == "ok", "el HTTP fue aceptado; la divergencia vive en verify_ok"
+        assert resultado == "fallo:divergencia_readback", (
+            "QW1: la divergencia sella SIEMPRE la misma etiqueta (antes 'ok')"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -974,6 +976,184 @@ def test_reconcilia_bids_ambiguo_falla_sin_reintento():
 # ===========================================================================
 # ADV-07: el write client de produccion SI duerme el backoff de los 429
 # ===========================================================================
+
+
+# ===========================================================================
+# Cross-review del dueno (codex+grok+qwen, ORBIT 04 P2): tope-3 solo cuenta
+# 'normal', readback de OTRA entidad, etiqueta unificada de divergencia,
+# tope ANTES del cobro, ack 2xx saneado y divergencia observable
+# ===========================================================================
+
+
+@_skip_db
+def test_tope_3_cuenta_solo_intentos_normal_las_reversas_no_consumen():
+    """CX1/GK1: un harvest completo deja 2 filas 'normal' y su reversa
+    completa otras 2 'reversa'; el reintento normal SIGUE cabiendo (el tope
+    cuenta intentos de aplicacion, las reversas son el mecanismo de seguridad
+    y jamas consumen presupuesto de intentos). Regla 9: con el COUNT sin
+    filtro el 4o paso devolvia None y este test reventaria."""
+    from app import apply as apply_mod
+
+    with _db_temporal("orbit_apply_t3n") as conn:
+        ids = _semilla(conn)
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"])
+        for seq, tipo in ((1, "normal"), (2, "normal"), (3, "reversa"), (4, "reversa")):
+            conn.execute(
+                "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload,"
+                " quota_cobrada) VALUES (%s, %s, %s, '{}'::jsonb, false)",
+                (dec, seq, tipo),
+            )
+
+        id_attempt = apply_mod._ledger(
+            conn, dec, "normal", {"keywordId": "7201", "bid": "0.85"}, quota_cobrada=False
+        )
+
+        assert id_attempt is not None, "2 reversas NO agotan el tope-3 de normales"
+        fila = conn.execute(
+            "SELECT seq, tipo FROM apply_attempt WHERE id = %s", (id_attempt,)
+        ).fetchone()
+        assert fila == (3, "normal"), "el seq sigue el conteo de SOLO normales"
+
+
+@_skip_db
+def test_readback_que_devuelve_otra_entidad_no_confirma_ni_toca_cache():
+    """CX6/GK8: el GET del readback responde la fila de OTRA keyword (id
+    distinto): NO es evidencia de esta decision — verify_ok False, cache
+    INTACTO y sin applied. Regla 9: el filas[0] sin cruce de id confirmaria
+    el bid de otra entidad y pisaria el cache con su valor."""
+    with _db_temporal("orbit_apply_otra") as conn:
+        ids = _semilla(conn)
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], new="0.85")
+        vistos: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return _token_response()
+            vistos.append(request)
+            if request.method == "PUT":
+                return httpx.Response(200, json={"ack": json.loads(request.content)})
+            assert request.method == "GET", "solo PUT + readback GET"
+            # Respuesta de OTRA entidad: el id NO es el pedido.
+            return httpx.Response(200, json={"keywords": [{"keywordId": "9999", "bid": "0.85"}]})
+
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.aplicadas == 0
+        assert len(_puts(vistos)) == 1 and len(_gets(vistos)) == 1
+        cache = conn.execute(
+            "SELECT current_bid FROM ad_entity_state WHERE ad_entity_id = %s", (ids["kw"],)
+        ).fetchone()[0]
+        assert cache == Decimal("1.00"), "cache INTACTO: la fila leida era de OTRA entidad"
+        resumen = conn.execute(
+            "SELECT verify_ok FROM decision_application WHERE decision_id = %s", (dec,)
+        ).fetchone()
+        assert resumen == (False,)
+        resultado = conn.execute(
+            "SELECT resultado FROM apply_attempt WHERE decision_id = %s", (dec,)
+        ).fetchone()[0]
+        assert resultado == "fallo:readback_sin_bid", "sin evidencia de ESTA entidad"
+
+
+@_skip_db
+def test_divergencia_readback_sella_la_misma_etiqueta_en_apply_y_reversa():
+    """QW1: la divergencia de readback sella SIEMPRE
+    'fallo:divergencia_readback' — _ejecuta_mutacion y reversa_bid ponian
+    'ok' con verify_ok False (la misma condicion con etiquetas distintas
+    segun el camino). Regla 9: contra el 'ok' viejo ambos asserts revientan."""
+    with _db_temporal("orbit_apply_etq") as conn:
+        ids = _semilla(conn)
+        _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], old="1.00", new="0.85")
+        handler, _v = _handler_api({"7201": "0.85"}, desviado={"7201": "0.90"})
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+        ok_reversa = reversa_bid(
+            conn, _write_client(handler), bids_del_ciclo(conn, ids["ciclo_dec"])[0]
+        )
+
+        assert ok_reversa is False, "la reversa tambien diverge (Amazon queda en 0.90)"
+        filas = conn.execute("SELECT tipo, resultado FROM apply_attempt ORDER BY seq").fetchall()
+        assert [f[0] for f in filas] == ["normal", "reversa"]
+        assert all(f[1] == "fallo:divergencia_readback" for f in filas), (
+            "etiqueta UNIFICADA en ambos caminos"
+        )
+
+
+@_skip_db
+def test_tope_se_chequea_antes_del_cobro_quota_intacta():
+    """GK5/QW2: decision ya a tope de 3 normales → skip SIN quemar la unidad
+    de quota (la decision ya a tope no genera HTTP ni fila de quota). Regla
+    9: el orden viejo (consume_quota primero) dejaria used=1 en
+    apply_quota_state sin intento alguno."""
+    with _db_temporal("orbit_apply_tqc") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_bid": 10})
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"])
+        for seq in (1, 2, 3):
+            conn.execute(
+                "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload,"
+                " quota_cobrada) VALUES (%s, %s, 'normal', '{}'::jsonb, true)",
+                (dec, seq),
+            )
+        handler, vistos = _handler_api({"7201": "0.85"})
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.skips == [MOTIVO_TOPE_INTENTOS]
+        assert vistos == [], "a tope: ni token LWA"
+        quota = conn.execute(
+            "SELECT count(*) FROM apply_quota_state WHERE motor = %s",
+            (motor_quota("amazon_us", "bid"),),
+        ).fetchone()[0]
+        assert quota == 0, "la unidad NO se quema en una decision ya a tope"
+
+
+@_skip_db
+def test_ack_2xx_con_secreto_queda_redactado_en_el_ledger():
+    """GK9: el body del ack SIEMPRE pasa por scrub antes del ledger (solo el
+    camino >=400 redactaba). El mock ecoa el token LWA (registrado como
+    secreto por el cliente) en un 2xx. Regla 9: sin el scrub, el token
+    quedaria en apply_attempt.ack y este test reventaria."""
+    with _db_temporal("orbit_apply_scrub") as conn:
+        ids = _semilla(conn)
+        _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], new="0.85")
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return _token_response()
+            if request.method == "PUT":
+                return httpx.Response(
+                    200, json={"ack": json.loads(request.content), "eco_token": "fake-access-1"}
+                )
+            ext = request.url.params.get("keywordId")
+            return httpx.Response(200, json={"keywords": [{"keywordId": ext, "bid": "0.85"}]})
+
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.aplicadas == 1
+        ack = conn.execute("SELECT ack::text FROM apply_attempt").fetchone()[0]
+        assert "fake-access-1" not in ack, "el ack del ledger va redactado (scrub SIEMPRE)"
+        assert "REDACTED" in ack
+
+
+@_skip_db
+def test_divergencia_de_readback_es_observable_en_el_resultado():
+    """GK10/QW4: la decision con readback divergente (HTTP 200 pero Amazon
+    quedo con OTRO bid) cuenta en el campo propio del ResultadoAplicador —
+    antes desaparecia de aplicadas/skips/descartadas (la mutacion SALIO y no
+    era visible). Regla 9: sin el contador, divergencias == 0 reventaria."""
+    with _db_temporal("orbit_apply_divo") as conn:
+        ids = _semilla(conn)
+        _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], new="0.85")
+        handler, _v = _handler_api({"7201": "0.85"}, desviado={"7201": "0.90"})
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.aplicadas == 0 and res.skips == [] and res.descartadas == []
+        assert res.divergencias == 1, "campo propio: la divergencia es observable"
 
 
 @_skip_db

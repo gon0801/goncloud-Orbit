@@ -22,17 +22,21 @@ PASO A PASO DE LA CORRIDA AUTORIZADA:
 
  1. El dueno elige la campana sacrificable y su plataforma (amazon_us o
     amazon_mx) y AUTORIZA la corrida en ese momento (nada pre-autorizado).
- 2. Un admin siembra la clave de allowlist en la config VIGENTE (nueva fila
-    de config_version, append-only, rol app_admin):
+ 2. Un admin siembra DOS claves en la config VIGENTE (nueva fila de
+    config_version, append-only, rol app_admin):
       INSERT INTO config_version (label, settings)
-      VALUES ('smoke 2.5', '<settings vigentes + clave>'::jsonb);
-    donde la clave es ads_smoke_campaign_<platform> = external_id de la
-    campana. OJO: config_version se resuelve por ULTIMA fila — hay que copiar
-    los settings vigentes y AGREGAR la clave (sembrar solo la clave apagaria
+      VALUES ('smoke 2.5', '<settings vigentes + claves>'::jsonb);
+    - ads_smoke_campaign_<platform> = external_id de la campana
+      sacrificable (allowlist; JAMAS por flag/env).
+    - ads_smoke_auth = el token efimero de ESTA corrida (CX5 de la
+      cross-review: el env se compara con compare_digest contra esta clave —
+      cualquier string no-vacio ya NO basta).
+    OJO: config_version se resuelve por ULTIMA fila — hay que copiar los
+    settings vigentes y AGREGAR las claves (sembrar solo las claves apagaria
     los caps ads_apply_cap_* para las lecturas de ese dia).
-    El tool JAMAS acepta la campana por flag/env: solo desde config.
- 3. El dueno setea el token efimero SOLO para esta corrida:
-      export ORBIT_SMOKE_AUTH="<token de un uso>"   # se BORRA al terminar
+ 3. El dueno setea el token efimero SOLO para esta corrida (el MISMO valor
+    sembrado en ads_smoke_auth) y lo BORRA al terminar:
+      export ORBIT_SMOKE_AUTH="<mismo token que ads_smoke_auth>"
  4. Corre el tool EN EL SERVER (donde viven los secrets y el tunel a la base;
     ver docs/DEPLOY.md), con ORBIT_DSN_DECIDE en el entorno (identidad del
     motor: sus filas de ledger nacen tipo probe auditable) y capturando la
@@ -51,9 +55,10 @@ PASO A PASO DE LA CORRIDA AUTORIZADA:
     los tests de readback de 2.1-2.3 tienen marcados "pendientes de shape"
     (regla 8); re-sellar esos tests contra el shape real.
  7. Cerrar: el dueno BORRA ORBIT_SMOKE_AUTH y el admin siembra una config
-    NUEVA sin la clave de campana (append-only: quitar = fila nueva sin la
-    clave). La evidencia (log + SELECT del ledger probe) va al registro de
-    ORBIT 04; la re-verificacion E2E de 4.3 re-usa esta misma herramienta.
+    NUEVA sin las claves de campana NI auth (append-only: quitar = fila
+    nueva sin las claves). La evidencia (log + SELECT del ledger probe) va
+    al registro de ORBIT 04; la re-verificacion E2E de 4.3 re-usa esta misma
+    herramienta.
 
 HIPOTESIS SIN VERIFICAR (ORDEN EXPLICITA DEL DUENO): los ENUMS/tipos del
 REQUEST de mutacion (matchType, state, bid como string) y los shapes de los
@@ -68,6 +73,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hmac
 import json
 import os
 import sys
@@ -184,8 +190,11 @@ class SmokeError(Exception):
 
 
 def autorizacion_ok(valor_env: str | None, flag_acepto: bool) -> tuple[bool, str]:
-    """Las DOS capas de autorizacion (sellado 23): env efimero no vacio AND
-    flag explicito. Corre ANTES de abrir cualquier conexion/credencial."""
+    """Capa 1 (presencia) + capa 2 (flag): ANTES de abrir cualquier
+    conexion/credencial. La capa 1 COMPLETA (CX5 de la cross-review) compara
+    el env con la clave ads_smoke_auth de la config VIGENTE por
+    compare_digest — ver auth_coincide; esta funcion solo descarta el env
+    ausente/vacio y el flag faltante."""
     if valor_env is None or not valor_env.strip():
         return False, (
             f"falta {AUTORIZACION_ENV}: el probe exige el token efimero que el "
@@ -198,6 +207,36 @@ def autorizacion_ok(valor_env: str | None, flag_acepto: bool) -> tuple[bool, str
             "el flag explicito es la segunda capa (nada por accidente)."
         )
     return True, ""
+
+
+def clave_auth() -> str:
+    """Clave del token efimero en config_version: ads_smoke_auth (misma
+    ceremonia que la campana: la siembra un admin en la config VIGENTE)."""
+    return "ads_smoke_auth"
+
+
+def auth_esperada(conn: psycopg.Connection) -> str | None:
+    """El token esperado, SOLO desde la config VIGENTE (misma resolucion que
+    campana_allowlisted). None = sin clave -> fail-closed. Clave presente pero
+    corrupta (no string no vacio) es config ROTA: ruidosa (regla 3)."""
+    fila = conn.execute(_SQL_CONFIG_VIGENTE).fetchone()
+    if fila is None:
+        return None
+    valor = (fila[0] or {}).get(clave_auth())
+    if valor is None:
+        return None
+    if not isinstance(valor, str) or not valor.strip():
+        raise ValueError(f"{clave_auth()}: valor corrupto en la config vigente: {valor!r}")
+    return valor.strip()
+
+
+def auth_coincide(valor_env: str | None, esperado: str | None) -> bool:
+    """CX5: comparacion por compare_digest (sin timing oracles) del env contra
+    la clave sembrada — cualquier string no-vacio YA NO basta (falla del
+    hallazgo original)."""
+    if esperado is None or valor_env is None:
+        return False
+    return hmac.compare_digest(valor_env.strip().encode(), esperado.encode())
 
 
 def clave_campana(platform: str) -> str:
@@ -342,12 +381,16 @@ def termino_basura(ahora: dt.datetime | None = None) -> str:
 
 
 def _json_seguro(resp: httpx.Response) -> dict:
-    """El JSON del ack; si el body no parsea, evidencia minima (el ack crudo
+    """El JSON del ack SANEADO (GK9: scrub SIEMPRE — un 2xx tambien puede
+    ecoar secretos); si el body no parsea, evidencia minima (el ack crudo
     JAMAS debe tumbar la evidencia). Misma regla que apply._json_seguro."""
     try:
-        return resp.json()
+        data = resp.json()
     except ValueError:
-        return {"status": resp.status_code, "body": resp.text[:200]}
+        return {"status": resp.status_code, "body": scrub(resp.text[:200])}
+    if not isinstance(data, dict):
+        return {"status": resp.status_code, "body": scrub(str(data)[:200])}
+    return json.loads(scrub(json.dumps(data)))
 
 
 def _evidencia_respuesta(resp: httpx.Response) -> dict:
@@ -689,7 +732,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         prog="python tools/smoke_apply.py",
         description=(
             "Probe AUTORIZADO de las 4 formas de mutacion real (ORBIT 04 2.5). "
-            "Requiere ORBIT_SMOKE_AUTH (token efimero del dueno) Y "
+            "Requiere ORBIT_SMOKE_AUTH (que debe COINCIDIR con la clave "
+            "ads_smoke_auth de la config vigente, compare_digest) Y "
             "--acepto-mutacion-real; la campana sacrificable viene SOLO de la "
             "clave ads_smoke_campaign_<platform> en config vigente."
         ),
@@ -736,6 +780,18 @@ def main(argv: list[str] | None = None) -> int:
     conn: psycopg.Connection | None = None
     try:
         conn = connect(dsn)
+        # CX5 (cross-review): la capa 1 se completa contra la config VIGENTE —
+        # el env debe COINCIDIR con ads_smoke_auth (compare_digest) ANTES de
+        # tocar credenciales. Cualquier string no-vacio ya NO basta.
+        esperado = auth_esperada(conn)
+        if not auth_coincide(os.environ.get(AUTORIZACION_ENV), esperado):
+            print(
+                f"{AUTORIZACION_ENV} no coincide con la clave {clave_auth()} de la config "
+                "vigente (o la clave no esta sembrada): la autorizacion efimera es REAL, "
+                "no un env cualquiera — fail-closed (ver runbook del modulo).",
+                file=sys.stderr,
+            )
+            return 2
         campana = campana_allowlisted(conn, args.platform)
         if campana is None:
             print(

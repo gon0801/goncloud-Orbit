@@ -47,6 +47,16 @@ Elecciones DECLARADAS de esta task:
   de paginacion.
 
 PENDIENTES del probe 2.5 (sellado 23): shapes de acks supuestos (MockTransport).
+
+Ronda de CROSS-REVIEW del dueno (codex+grok+qwen, ORBIT 04 P2): el tope-3
+del ledger cuenta SOLO intentos 'normal' (las reversas son el mecanismo de
+seguridad, CX1/GK1); el nacimiento del job absorbe el choque del unico
+parcial con SAVEPOINT para no abortar la transaccion de produccion (CX2);
+la reversa completa JAMAS borra el negativo si la keyword no se borro
+(CX3); las fases avanzan SOLO con ids REALES del ack o de la evidencia viva
+— fail-closed: el termino no se cosecha sin cortarse en origen (GK2), con
+_id_de_ack parseando tambien el shape 207 anidado; y el barrido de
+reconciliacion cierra las filas harvest applying cuyo job ya no vive (GK4).
 """
 
 from __future__ import annotations
@@ -176,6 +186,24 @@ UPDATE apply_attempt SET resultado = %s, finished_at = now()
  WHERE decision_id = %s AND finished_at IS NULL AND resultado IS NULL
 """
 
+# GK4 (cross-review del dueno): red de seguridad — filas apply_queue applying
+# de kind harvest SIN job en vuelo que las conduzca (p.ej. un cierre de job
+# que dejo la cola viva). Sin este barrido la clave term_cut quedaria
+# bloqueada para siempre (applying eterno, no terminal).
+_SQL_HARVEST_APLICANDO = """
+SELECT id, decision_id
+  FROM apply_queue
+ WHERE platform = %s::platform AND estado = 'applying' AND kind = 'harvest'
+ ORDER BY id
+"""
+
+_SQL_JOB_EN_VUELO_DE = """
+SELECT EXISTS (
+    SELECT 1 FROM harvest_job
+     WHERE decision_id = %s AND fase IN ('pending', 'negative_created', 'exact_created')
+)
+"""
+
 # ADV-03 (review adversaria, matriz §6.1 fila faltante): pausas applying
 # huerfanas (fallo ambiguo 5xx/red en el PUT). Espejos de apply_cola (el
 # ciclo de imports apply_cola -> apply_harvest obliga a NO importarlo):
@@ -242,7 +270,9 @@ class ResumenReconciliacion:
     """Barrido de reconciliacion (2.2/2.4 la invocan). `jobs_cerrados_por_cola`
     = jobs de filas muertas vetoed/discarded (la cola manda). Desde la review
     adversaria (ADV-03) tambien reporta las pausas applying huerfanas
-    resueltas por GET fresco (matriz §6.1)."""
+    resueltas por GET fresco (matriz §6.1); desde la cross-review del dueno
+    (GK4) reporta ADEMAS las filas harvest applying cerradas por el barrido
+    de seguridad (sin job en vuelo que las conduzca)."""
 
     jobs_done: int
     jobs_failed: int
@@ -252,6 +282,7 @@ class ResumenReconciliacion:
     alertas: tuple[AlertaHarvest, ...]
     pausas_confirmadas: int = 0
     pausas_fallidas: int = 0
+    harvest_huerfanas_cerradas: int = 0
 
 
 @dataclass
@@ -393,14 +424,45 @@ def _solo_en_otro_ad_group(items: list[dict], ad_group_id: str, keyword_text: st
 
 def _id_de_ack(ack: dict, clave_principal: str) -> str | None:
     """El id del objeto creado segun el ack. Shape PENDIENTE del probe 2.5:
-    prueba la clave principal (negativeKeywordId/keywordId), la generica y
-    listas de un elemento. None = ack sin id legible (regla 3: jamas
-    inventado; la reversa resuelve el id por lista si hace falta)."""
+    prueba la clave principal (negativeKeywordId/keywordId), su variante de
+    lista (*List), la generica y listas de ids; GK2(c) de la cross-review
+    agrega el shape 207 ANIDADO ({"<recurso>": {"success": [...]}} — la
+    forma que _parse_single_207 del diseno v2 parseaba: el id vive en el
+    primer success, plano o bajo la key del recurso). None = ack sin id
+    legible (regla 3: jamas inventado; la reversa resuelve el id por lista
+    si hace falta)."""
     if not isinstance(ack, dict):
         return None
-    for clave in (clave_principal, "keywordId", "keywordIdList"):
-        valor = ack.get(clave)
-        if isinstance(valor, str | int) and str(valor).strip():
+    claves = (clave_principal, f"{clave_principal}List", "keywordId", "keywordIdList")
+    id_ = _id_plano_de(ack, claves)
+    if id_ is not None:
+        return id_
+    for valor in ack.values():
+        if not isinstance(valor, dict):
+            continue
+        success = valor.get("success")
+        if not isinstance(success, list):
+            continue
+        for item in success:
+            if not isinstance(item, dict):
+                continue
+            id_ = _id_plano_de(item, claves)
+            if id_ is not None:
+                return id_
+            for sub in item.values():  # {"keyword": {"keywordId": ...}}
+                if isinstance(sub, dict):
+                    id_ = _id_plano_de(sub, claves)
+                    if id_ is not None:
+                        return id_
+    return None
+
+
+def _id_plano_de(dic: dict, claves: tuple[str, ...]) -> str | None:
+    """El id bajo las claves candidatas de UN dict plano: valor directo o
+    lista de ids (toma el primero). None = nada legible ahi."""
+    for clave in claves:
+        valor = dic.get(clave)
+        if isinstance(valor, str | int) and not isinstance(valor, bool) and str(valor).strip():
             return str(valor)
         if isinstance(valor, list) and valor and isinstance(valor[0], str | int):
             return str(valor[0])
@@ -426,12 +488,17 @@ def _job_de_fila(fila) -> _Job:
 
 def _nace_job(conn: psycopg.Connection, platform: str, fila) -> _Job:
     """Nace 'pending' AL LIBERAR, antes de cualquier HTTP (trigger 0001). Clave
-    con job en vuelo → se CONTINUA ese (bloquea duplicados)."""
+    con job en vuelo → se CONTINUA ese (bloquea duplicados). CX2 de la
+    cross-review: el INSERT va con SAVEPOINT (conn.transaction()) para que el
+    choque del unico parcial NO aborte la transaccion de produccion (SIN
+    autocommit, como app.db.connect) — sin el savepoint, el SELECT del reuso
+    reventaria con InFailedSqlTransaction."""
     try:
-        fila_job = conn.execute(
-            _SQL_INSERT_JOB,
-            (fila.decision_id, fila.search_term, platform, fila.ad_entity_id),
-        ).fetchone()
+        with conn.transaction():  # savepoint: absorbe el choque sin abortar la tx
+            fila_job = conn.execute(
+                _SQL_INSERT_JOB,
+                (fila.decision_id, fila.search_term, platform, fila.ad_entity_id),
+            ).fetchone()
     except psycopg.errors.UniqueViolation:
         fila_job = conn.execute(
             _SQL_JOB_EXISTENTE, (platform, fila.ad_entity_id, fila.search_term)
@@ -514,13 +581,18 @@ def _sella_pendientes(conn: psycopg.Connection, decision_id: int, resultado: str
     conn.execute(_SQL_SELLA_PENDIENTES, (resultado, decision_id))
 
 
-def _estado_leido(resp, contenedor: str) -> str | None:
-    """El estado del READBACK fresco. Espejo de apply_cola._estado_leido
-    (mismo supuesto sellado por tests, PENDIENTE del probe 2.5; el ciclo de
-    imports obliga el espejo). None = ilegible/vacio."""
+def _estado_leido(resp, contenedor: str, id_campo: str, external_id: str) -> str | None:
+    """El estado del READBACK fresco, SOLO si la fila leida ES la entidad
+    pedida (CX6/GK8: el id cruza con el external_id — una respuesta de OTRA
+    entidad no es evidencia). Espejo de apply_cola._estado_leido (mismo
+    supuesto sellado por tests, PENDIENTE del probe 2.5; el ciclo de imports
+    obliga el espejo). None = ilegible/vacio/de otra entidad."""
     try:
         filas = resp.json().get(contenedor)
-        estado = filas[0].get("state") if filas else None
+        fila = filas[0] if filas else None
+        if fila is None or str(fila.get(id_campo)) != str(external_id):
+            return None
+        estado = fila.get("state")
     except (ValueError, AttributeError, IndexError, KeyError, TypeError):
         return None
     return estado if isinstance(estado, str) else None
@@ -535,11 +607,15 @@ def _falla_job(
     detalle: str = "",
 ) -> tuple[str, AlertaHarvest]:
     """Cierra el job en failed (legal desde cualquier fase en vuelo),
-    termina su fila de cola y produce la ALERTA ESTRUCTURADA."""
-    conn.execute(_SQL_JOB_FAILED, (job.id,))
+    termina su fila de cola y produce la ALERTA ESTRUCTURADA. GK4 de la
+    cross-review: job y cola se cierran en UNA transaccion — nunca un job
+    failed con la fila applying viva (esa combinacion es la que bloquea la
+    clave para siempre)."""
+    with conn.transaction():
+        conn.execute(_SQL_JOB_FAILED, (job.id,))
+        if queue_id is not None:
+            _termina_cola(conn, queue_id, "failed")
     job.fase = "failed"
-    if queue_id is not None:
-        _termina_cola(conn, queue_id, "failed")
     alerta = AlertaHarvest(
         motivo=motivo,
         decision_id=job.decision_id,
@@ -595,32 +671,50 @@ def reversa_harvest_completo(
 ) -> bool:
     """Reversa del harvest COMPLETO (§7, ORDEN SELLADO): delete de la KEYWORD
     PRIMERO, negativo DESPUES (invertido, el termino volveria a competir en
-    el origen con la keyword muerta). Exentas ambas."""
-    ok_keyword = _reversa_delete(conn, cliente, decision_id, "keyword", keyword_id)
-    ok_negativo = _reversa_delete(conn, cliente, decision_id, "negative", negative_id)
-    return ok_keyword and ok_negativo
+    el origen con la keyword muerta). Exentas ambas. CX3 de la cross-review:
+    si el delete de la keyword FALLA, el delete del negativo JAMAS sale — la
+    reversa se aborta (fila/queue consistentes) para REINTENTAR en el ciclo
+    siguiente; borrar el negativo con la keyword viva devolveria el termino
+    a competir en origen Y destino."""
+    if not _reversa_delete(conn, cliente, decision_id, "keyword", keyword_id):
+        return False
+    return _reversa_delete(conn, cliente, decision_id, "negative", negative_id)
 
 
 def _reversa_automatica(conn: psycopg.Connection, aplicador, job: _Job, ctx: _Contexto) -> str:
     """La reversa del fallo definitivo (sellado 13): borrar lo creado, en el
-    ORDEN sellado. Best-effort: el detalle declara que fallo (la alerta es
-    la senal que el operador ve)."""
+    ORDEN sellado (keyword PRIMERO). Best-effort: el detalle declara que
+    fallo (la alerta es la senal que el operador ve).
+
+    Semantica DECLARADA de la cola de GK1 (cross-review): parcial = lo que
+    nacio se revierte. Si el negative_id NO se puede resolver (ack sin id y
+    ausente de la lista de origen), la keyword nacida SE BORRA IGUAL y el
+    detalle lo declara — el retorno temprano viejo dejaba la exacta huerfana
+    en destino. El keyword_id ausente se resuelve por IDENTIDAD en el
+    destino (simetrico al negativo)."""
     try:
         cliente = aplicador._cliente()
         ext = dict(job.external_ids)
         neg_id = ext.get("negative_id")
         kw_id = ext.get("keyword_id")
+        if kw_id is None:
+            kws = _lista_todos(cliente, "/sp/keywords/list", aplicador._profile_id)
+            propio = _identidad(kws, ctx.destino_grupo, job.search_term)
+            if propio is not None:
+                kw_id = propio.get("keywordId")
+        if kw_id is not None and not _reversa_delete(
+            conn, cliente, job.decision_id, "keyword", kw_id
+        ):
+            return f"reversa: fallo borrando keyword {kw_id}"
         if neg_id is None:
             items = _lista_todos(cliente, "/sp/negativeKeywords/list", aplicador._profile_id)
             propio = _identidad(items, ctx.grupo_ext, job.search_term)
             if propio is not None:
                 neg_id = propio.get("keywordId")
         if neg_id is None:
-            return "reversa: negativo no encontrado (nada que borrar)"
-        if kw_id is not None and not _reversa_delete(
-            conn, cliente, job.decision_id, "keyword", kw_id
-        ):
-            return f"reversa: fallo borrando keyword {kw_id}"
+            if kw_id is None:
+                return "reversa: nada que borrar (sin keyword ni negativo)"
+            return "reversa: keyword borrada; negativo no encontrado (nada mas que borrar)"
         if not _reversa_delete(conn, cliente, job.decision_id, "negative", neg_id):
             return f"reversa: fallo borrando negativo {neg_id}"
         return "reversa: ok"
@@ -655,7 +749,10 @@ def _paso_negative(
 ) -> tuple[str, AlertaHarvest | None]:
     """Fase pending → negative_created. LISTA contra Amazon VIVO antes de
     escribir (POST no idempotente): el negativo YA esta (crash post-POST
-    pre-sello) → avanza por evidencia SIN re-postear."""
+    pre-sello) → avanza por evidencia SIN re-postear. GK2(a) de la
+    cross-review: tras el POST, un ack SIN id resuelto FAILS CLOSED — el paso
+    NO avanza (el termino no se cosecha sin cortarse en origen): ledger
+    'fallo:ack_sin_id', reversa best-effort, failed + alerta."""
     cliente = aplicador._cliente()
     items = _lista_todos(cliente, "/sp/negativeKeywords/list", aplicador._profile_id)
     propio = _identidad(items, ctx.grupo_ext, job.search_term)
@@ -684,11 +781,20 @@ def _paso_negative(
             conn, job, MOTIVO_FALLO_NEGATIVE, queue_id=queue_id, detalle=f"fallo http {exc.status}"
         )
     ack = apply._json_seguro(resp)
+    neg_id = _id_de_ack(ack, "negativeKeywordId")
+    if neg_id is None:
+        # GK2(a): fail-closed — sin id del ack no hay evidencia del corte en
+        # origen; se sella el fallo y se revierte lo que pudo nacer.
+        with conn.transaction():
+            apply._sella_ledger(conn, id_attempt, ack=ack, resultado="fallo:ack_sin_id")
+        conn.commit()
+        detalle = (
+            _reversa_automatica(conn, aplicador, job, ctx) + " | ack sin negative_id (fail-closed)"
+        )
+        return _falla_job(conn, job, MOTIVO_FALLO_NEGATIVE, queue_id=queue_id, detalle=detalle)
     with conn.transaction():
         apply._sella_ledger(conn, id_attempt, ack=ack, resultado="ok")
-        _avanza(
-            conn, job, "negative_created", {"negative_id": _id_de_ack(ack, "negativeKeywordId")}
-        )
+        _avanza(conn, job, "negative_created", {"negative_id": neg_id})
     return "avanza", None
 
 
@@ -703,7 +809,10 @@ def _paso_keyword(
     destino (identidad completa), avanza sin re-postear; si no: bid sugerido
     (regla 8, fail-open al default) clampeado, INTENCION con el bid EFECTIVO
     en el ledger PRE-POST (sellado 14) y POST. Fallo definitivo → reversa
-    automatica + failed + alerta."""
+    automatica + failed + alerta. GK2(b) de la cross-review: la keyword
+    JAMAS se postea sin negative_id resuelto (external_ids o evidencia viva
+    del origen — fail-closed), y su ack SIN id tambien cierra failed con
+    reversa completa."""
     cliente = aplicador._cliente()
     if not job.external_ids.get("negative_id"):
         # id del negativo para la reversa: evidencia viva si el ack no lo dio
@@ -711,6 +820,15 @@ def _paso_keyword(
         propio = _identidad(items, ctx.grupo_ext, job.search_term)
         if propio is not None:
             _avanza(conn, job, None, {"negative_id": propio.get("keywordId")})
+    if not job.external_ids.get("negative_id"):
+        # GK2(b): sin negativo cortado en origen NO se cosecha el termino.
+        return _falla_job(
+            conn,
+            job,
+            MOTIVO_FALLO_NEGATIVE,
+            queue_id=queue_id,
+            detalle="negative_id ausente: no se cosecha sin corte en origen (fail-closed)",
+        )
     kws = _lista_todos(cliente, "/sp/keywords/list", aplicador._profile_id)
     encontrado = _identidad(kws, ctx.destino_grupo, job.search_term)
     if encontrado is not None:
@@ -742,9 +860,18 @@ def _paso_keyword(
         detalle = _reversa_automatica(conn, aplicador, job, ctx) + f" | fallo http {exc.status}"
         return _falla_job(conn, job, MOTIVO_FALLO_KEYWORD, queue_id=queue_id, detalle=detalle)
     ack = apply._json_seguro(resp)
+    kw_id = _id_de_ack(ack, "keywordId")
+    if kw_id is None:
+        # GK2(b/c): fail-closed — reversa completa (la keyword nacida se
+        # resuelve por IDENTIDAD en el destino) y cierre con alerta.
+        with conn.transaction():
+            apply._sella_ledger(conn, id_attempt, ack=ack, resultado="fallo:ack_sin_id")
+        conn.commit()
+        detalle = _reversa_automatica(conn, aplicador, job, ctx) + " | ack sin keyword_id"
+        return _falla_job(conn, job, MOTIVO_FALLO_KEYWORD, queue_id=queue_id, detalle=detalle)
     with conn.transaction():
         apply._sella_ledger(conn, id_attempt, ack=ack, resultado="ok")
-        _avanza(conn, job, "exact_created", {"keyword_id": _id_de_ack(ack, "keywordId")})
+        _avanza(conn, job, "exact_created", {"keyword_id": kw_id})
     return "avanza", None
 
 
@@ -909,7 +1036,7 @@ def _reconcilia_pauses(conn: psycopg.Connection, aplicador, platform: str) -> tu
             resp = cliente.get_sellado(path, params={param: identidad[1]})
         except AdsApiError:
             continue  # lectura ambigua: proximo ciclo (la fila ES el rastro)
-        estado = _estado_leido(resp, contenedor)
+        estado = _estado_leido(resp, contenedor, param, identidad[1])
         if estado == "userPaused":
             ack = {"fuente": "get", "state": estado}
             with conn.transaction():
@@ -1021,6 +1148,23 @@ def _reconcilia_negativas(conn: psycopg.Connection, aplicador, platform: str) ->
     return confirmadas, fallidas
 
 
+def _reconcilia_harvest_huerfanas(conn: psycopg.Connection, platform: str) -> int:
+    """Red de seguridad GK4 (cross-review del dueno): filas apply_queue
+    applying de kind harvest cuyo job YA no esta en vuelo (failed/done o jamas
+    nacio) → failed con nota en el ledger pendiente. Sin este barrido la
+    clave term_cut quedaria bloqueada para siempre. La fila CON job en vuelo
+    NO se toca: el job la conduce. Devuelve cuantas cerro."""
+    cerradas = 0
+    for q_id, decision_id in conn.execute(_SQL_HARVEST_APLICANDO, (platform,)).fetchall():
+        if conn.execute(_SQL_JOB_EN_VUELO_DE, (decision_id,)).fetchone()[0]:
+            continue  # el job en vuelo conduce esta fila
+        with conn.transaction():
+            _sella_pendientes(conn, decision_id, "fallo:huerfana_sin_job")
+            _termina_cola(conn, q_id, "failed")
+        cerradas += 1
+    return cerradas
+
+
 def reconcilia_harvest(
     conn: psycopg.Connection, aplicador: Aplicador, platform: str
 ) -> ResumenReconciliacion:
@@ -1028,8 +1172,9 @@ def reconcilia_harvest(
     contra Amazon VIVO por lista con IDENTIDAD COMPLETA: jobs en vuelo (la
     matriz decide por fase: ya aplicada avanza por EVIDENCIA, falta
     reintenta el POST seguro), la cola applying huerfana de negatives
-    normales, la de PAUSES por GET fresco de estado (ADV-03, matriz §6.1) y
-    los jobs de filas muertas (vetoed/discarded → failed: la cola manda).
+    normales, la de PAUSES por GET fresco de estado (ADV-03, matriz §6.1),
+    los jobs de filas muertas (vetoed/discarded → failed: la cola manda) y
+    la red de seguridad de filas harvest applying sin job vivo (GK4).
     Quota SOLO la primera vez; antes de cualquier HTTP reclama la fila (el
     veto puede ganar el claim). Ambiguo por job → se salta al ciclo siguiente
     (la fila sin sello ES el rastro)."""
@@ -1059,6 +1204,7 @@ def reconcilia_harvest(
                 alertas.append(alerta)
     negativas_confirmadas, negativas_fallidas = _reconcilia_negativas(conn, aplicador, platform)
     pausas_confirmadas, pausas_fallidas = _reconcilia_pauses(conn, aplicador, platform)
+    huerfanas = _reconcilia_harvest_huerfanas(conn, platform)
     return ResumenReconciliacion(
         jobs_done=jobs_done,
         jobs_failed=jobs_failed,
@@ -1068,4 +1214,5 @@ def reconcilia_harvest(
         alertas=tuple(alertas),
         pausas_confirmadas=pausas_confirmadas,
         pausas_fallidas=pausas_fallidas,
+        harvest_huerfanas_cerradas=huerfanas,
     )

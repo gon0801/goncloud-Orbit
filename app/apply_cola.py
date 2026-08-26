@@ -73,6 +73,7 @@ import psycopg
 from psycopg.types.json import Json
 
 from app import apply, apply_harvest
+from app.ads.client import AdsApiError
 from app.apply import Aplicador, DecisionBid, consume_quota
 from app.optimizer import bid as motor_bid
 from app.optimizer import cortes, hygiene, windows
@@ -240,7 +241,10 @@ class ResultadoLiberacion:
     """Resultado del barrido FIFO de vencidas. `sin_quota` son las que
     esperan en released (cap agotado: siguen vetables, brief §5.4);
     `carreras_perdidas` son los claims/liberaciones atomicos que vieron 0
-    filas (un veto llego primero: pierden LIMPIO, sin HTTP)."""
+    filas (un veto llego primero: pierden LIMPIO, sin HTTP);
+    `revalida_sin_respuesta` cuenta las filas cuyo GET fresco de
+    re-validacion murio (GK3 de la cross-review: quedan released con esta
+    nota y el barrido SIGUE — una entidad muerta no degrada el ciclo)."""
 
     liberadas: int
     aplicadas: int
@@ -248,6 +252,7 @@ class ResultadoLiberacion:
     descartadas: list[str]
     sin_quota: int
     carreras_perdidas: int
+    revalida_sin_respuesta: int = 0
 
 
 @dataclass(frozen=True)
@@ -471,13 +476,19 @@ def encola_cortes(
 # ---------------------------------------------------------------------------
 
 
-def _estado_leido(resp, contenedor: str) -> str | None:
-    """El estado del READBACK fresco. PENDIENTE del probe 2.5: el shape
-    (contenedor 'keywords'/'targets' con campo 'state') es supuesto sellado
-    por tests; el probe lo fija contra la API real. None = ilegible/vacio."""
+def _estado_leido(resp, contenedor: str, id_campo: str, external_id: str) -> str | None:
+    """El estado del READBACK fresco, SOLO si la fila leida ES la entidad
+    pedida (CX6/GK8: el id cruza con el external_id del pedido — una
+    respuesta de OTRA entidad no es evidencia). PENDIENTE del probe 2.5: el
+    shape (contenedor 'keywords'/'targets' con campo 'state') es supuesto
+    sellado por tests; el probe lo fija contra la API real. None =
+    ilegible/vacio/de otra entidad."""
     try:
         filas = resp.json().get(contenedor)
-        estado = filas[0].get("state") if filas else None
+        fila = filas[0] if filas else None
+        if fila is None or str(fila.get(id_campo)) != str(external_id):
+            return None
+        estado = fila.get("state")
     except (ValueError, AttributeError, IndexError, KeyError, TypeError):
         return None
     return estado if isinstance(estado, str) else None
@@ -510,7 +521,7 @@ def _revalida_pause(
     kind, external_id = identidad
     _, path, contenedor, param = apply._KINDS_DECISORAS[kind]
     resp = aplicador._cliente().get_sellado(path, params={param: external_id})
-    estado = _estado_leido(resp, contenedor)
+    estado = _estado_leido(resp, contenedor, param, external_id)
     if estado != "enabled":
         # Ya no existe / ARCHIVED / ya PAUSED: el corte es moot. La marca de
         # reactivacion_manual NO aplica aqui: es el caso pause-propio + ENABLED
@@ -659,7 +670,9 @@ def _ejecuta_pause(conn: psycopg.Connection, aplicador: Aplicador, fila: FilaCol
     # huerfana: ES el rastro, la reconciliacion (2.3, matriz §6.1) decide.
     ack = apply._json_seguro(resp_http)
     _, path, contenedor, param = apply._KINDS_DECISORAS[identidad[0]]
-    estado = _estado_leido(cliente.get_sellado(path, params={param: identidad[1]}), contenedor)
+    estado = _estado_leido(
+        cliente.get_sellado(path, params={param: identidad[1]}), contenedor, param, identidad[1]
+    )
     verify = estado == "userPaused"
     resultado = "ok" if estado is not None else "fallo:readback_sin_estado"
     with conn.transaction():
@@ -692,16 +705,18 @@ def _ejecuta_negative(conn: psycopg.Connection, aplicador: Aplicador, fila: Fila
         _termina(conn, fila, "failed")
         return "failed"
     ack = apply._json_seguro(resp_http)
-    # Readback del negative = el ack del POST de creacion. La verificacion por
-    # lista con identidad completa es de la RECONCILIACION (2.3, §6.1) y los
-    # shapes los fija el probe 2.5; aqui el ack 2xx con cuerpo es la evidencia.
+    # CX4/GK6: un 2xx con body ilegible/vacio o SIN id resuelto NO es applied
+    # — el negative aplica SOLO con evidencia del ack (el fallback de
+    # _json_seguro es dict, asi que isinstance(ack, dict) era SIEMPRE True).
+    # La verificacion por lista con identidad completa es de la
+    # RECONCILIACION (2.3, §6.1); los shapes los fija el probe 2.5.
+    verify = apply_harvest._id_de_ack(ack, "negativeKeywordId") is not None
+    resultado = "ok" if verify else "fallo:ack_sin_id"
     with conn.transaction():
-        apply._sella_ledger(conn, id_attempt, ack=ack, resultado="ok")
-        apply._confirma_resumen(
-            conn, fila.decision_id, ack, isinstance(ack, dict), aplicador.cycle_id_ejecutor
-        )
-        _termina(conn, fila, "applied")
-    return "applied"
+        apply._sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
+        apply._confirma_resumen(conn, fila.decision_id, ack, verify, aplicador.cycle_id_ejecutor)
+        _termina(conn, fila, "applied" if verify else "failed")
+    return "applied" if verify else "failed"
 
 
 # ---------------------------------------------------------------------------
@@ -745,9 +760,12 @@ def libera_vencidos(
     Las filas shadow JAMAS se seleccionan (sellado 6). kind harvest delega al
     hook apply_harvest.aplica_harvest (2.3: harvest_job nace AL LIBERAR,
     sellado 13) DESPUES de la re-validacion y ANTES del cobro de la cola —
-    la UNICA unidad de la operacion logica la cobra el hook."""
+    la UNICA unidad de la operacion logica la cobra el hook. GK3
+    (cross-review): si el GET fresco de la re-validacion de una fila muere
+    (AdsApiError), ESA fila queda released con nota y el FIFO continua con
+    las demas — una entidad muerta NO aborta el barrido."""
     filas = [FilaCola(*f) for f in conn.execute(_SQL_VENCIDAS, (platform, ahora)).fetchall()]
-    liberadas = aplicadas = fallidas = sin_quota = carreras = 0
+    liberadas = aplicadas = fallidas = sin_quota = carreras = sin_respuesta = 0
     descartadas: list[str] = []
     for fila in filas:
         if fila.estado == "pending_veto":
@@ -757,7 +775,16 @@ def libera_vencidos(
             liberadas += 1
         # released (esperaba quota FIFO o es el reintento del ciclo
         # siguiente): SIN re-liberacion — directa a la secuencia sellada.
-        motivo = _revalida(conn, aplicador, platform, fila, ahora)
+        try:
+            motivo = _revalida(conn, aplicador, platform, fila, ahora)
+        except AdsApiError:
+            # GK3: el GET fresco de re-validacion de ESTA fila murio (entidad
+            # muerta/path caido): la fila queda released (vetable, reintenta
+            # al ciclo siguiente) con la nota en el resumen — el barrido SIGUE
+            # con las demas; una entidad muerta NO degrada el ciclo. Los 5xx
+            # de las MUTACIONES siguen SUBIENDO (sellado 8).
+            sin_respuesta += 1
+            continue
         if motivo is not None:
             conn.execute(_SQL_DESCARTA, (motivo, fila.id, "released"))
             descartadas.append(motivo)
@@ -797,6 +824,7 @@ def libera_vencidos(
         descartadas=descartadas,
         sin_quota=sin_quota,
         carreras_perdidas=carreras,
+        revalida_sin_respuesta=sin_respuesta,
     )
 
 
@@ -840,7 +868,9 @@ def reversa_pause(
     if tick is not None:
         tick()
     _, path, contenedor, param = apply._KINDS_DECISORAS[identidad[0]]
-    estado = _estado_leido(cliente.get_sellado(path, params={param: identidad[1]}), contenedor)
+    estado = _estado_leido(
+        cliente.get_sellado(path, params={param: identidad[1]}), contenedor, param, identidad[1]
+    )
     resultado = "ok" if estado is not None else "fallo:readback_sin_estado"
     with conn.transaction():
         apply._sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)

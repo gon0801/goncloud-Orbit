@@ -142,12 +142,15 @@ def _db_temporal(prefijo: str):
         admin.close()
 
 
-def _semilla_config(conn, *, con_campaña: bool = True) -> int:
+def _semilla_config(conn, *, con_campaña: bool = True, auth: str | None = None) -> int:
     """Config vigente con la clave de campana smoke + un cap (para probar que
-    el probe JAMAS toca quota aunque existan caps)."""
+    el probe JAMAS toca quota aunque existan caps). `auth` siembra ADEMAS la
+    clave ads_smoke_auth (CX5: el token efimero se compara contra ELLA)."""
     settings: dict = {"ads_apply_cap_amazon_us_bid": 5}
     if con_campaña:
         settings["ads_smoke_campaign_amazon_us"] = CAMPANA
+    if auth is not None:
+        settings["ads_smoke_auth"] = auth
     return conn.execute(
         "INSERT INTO config_version (label, settings) VALUES ('t-smoke', %s) RETURNING id",
         (Json(settings),),
@@ -365,7 +368,7 @@ def test_sin_clave_campaña_fail_closed_antes_de_credenciales(monkeypatch, capsy
     """Config vigente SIN la clave: exit != 0 y from_secrets_dir JAMAS corre
     (la campana se resuelve ANTES de tocar secrets/HTTP)."""
     with _db_temporal("orbit_smoke_fc") as conn:
-        _semilla_config(conn, con_campaña=False)
+        _semilla_config(conn, con_campaña=False, auth="token-efimero")
         monkeypatch.setenv(sa.AUTORIZACION_ENV, "token-efimero")
         monkeypatch.setenv("ORBIT_DSN_DECIDE", "postgresql://u:p@127.0.0.1:5432/orbit")
         monkeypatch.setattr(sa, "connect", lambda *a, **kw: conn)
@@ -384,6 +387,95 @@ def test_sin_clave_campaña_fail_closed_antes_de_credenciales(monkeypatch, capsy
         assert rc == 2
         assert "ads_smoke_campaign_amazon_us" in capsys.readouterr().err
         assert secreto_tocado == [], "la campana se resuelve ANTES de las credenciales"
+
+
+# ---------------------------------------------------------------------------
+# 3b. CX5 (cross-review): la capa 1 compara contra ads_smoke_auth de la
+# config VIGENTE — cualquier string no-vacio ya NO basta
+# ---------------------------------------------------------------------------
+
+
+@_skip_db
+def test_auth_diferente_de_la_clave_config_no_abre_credenciales(monkeypatch, capsys):
+    """CX5: ORBIT_SMOKE_AUTH se compara con compare_digest contra la clave
+    ads_smoke_auth de la config VIGENTE (sembrada con la misma ceremonia que
+    la campana): un token DISTINTO → exit != 0 ANTES de tocar credenciales.
+    Regla 9: el env no-vacio solo (codigo viejo) pasaba la capa 1."""
+    with _db_temporal("orbit_smoke_auth2") as conn:
+        _semilla_config(conn, auth="token-bueno")
+        monkeypatch.setenv(sa.AUTORIZACION_ENV, "token-malo")
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", "postgresql://u:p@127.0.0.1:5432/orbit")
+        monkeypatch.setattr(sa, "connect", lambda *a, **kw: conn)
+        secreto_tocado = []
+
+        def _espia(cls, *a, **kw):
+            secreto_tocado.append(1)
+            return _creds()
+
+        monkeypatch.setattr(AdsCredentials, "from_secrets_dir", classmethod(_espia))
+
+        rc = sa.main(
+            ["--forma", "bid_keyword", "--acepto-mutacion-real", "--platform", "amazon_us"]
+        )
+
+        assert rc == 2
+        assert "ads_smoke_auth" in capsys.readouterr().err
+        assert secreto_tocado == [], "el rechazo corre ANTES de las credenciales"
+
+
+@_skip_db
+def test_auth_sin_clave_en_config_fail_closed(monkeypatch, capsys):
+    """CX5: config vigente SIN ads_smoke_auth → no hay contra que comparar:
+    exit != 0 ANTES de credenciales (fail-closed, jamas env-solo)."""
+    with _db_temporal("orbit_smoke_auth3") as conn:
+        _semilla_config(conn)  # con campana, SIN ads_smoke_auth
+        monkeypatch.setenv(sa.AUTORIZACION_ENV, "lo-que-sea")
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", "postgresql://u:p@127.0.0.1:5432/orbit")
+        monkeypatch.setattr(sa, "connect", lambda *a, **kw: conn)
+        secreto_tocado = []
+
+        def _espia(cls, *a, **kw):
+            secreto_tocado.append(1)
+            return _creds()
+
+        monkeypatch.setattr(AdsCredentials, "from_secrets_dir", classmethod(_espia))
+
+        rc = sa.main(
+            ["--forma", "bid_keyword", "--acepto-mutacion-real", "--platform", "amazon_us"]
+        )
+
+        assert rc == 2
+        assert "ads_smoke_auth" in capsys.readouterr().err
+        assert secreto_tocado == []
+
+
+@_skip_db
+def test_auth_coincidente_pasa_la_capa_1(monkeypatch, capsys):
+    """CX5 cara complementaria: el token que COINCIDE con ads_smoke_auth pasa
+    la capa 1 (la corrida sigue hasta la puerta de campana — sembrada SIN
+    clave aqui para que el test no abra credenciales ni HTTP)."""
+    with _db_temporal("orbit_smoke_auth4") as conn:
+        _semilla_config(conn, con_campaña=False, auth="token-bueno")
+        monkeypatch.setenv(sa.AUTORIZACION_ENV, "token-bueno")
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", "postgresql://u:p@127.0.0.1:5432/orbit")
+        monkeypatch.setattr(sa, "connect", lambda *a, **kw: conn)
+        secreto_tocado = []
+
+        def _espia(cls, *a, **kw):
+            secreto_tocado.append(1)
+            return _creds()
+
+        monkeypatch.setattr(AdsCredentials, "from_secrets_dir", classmethod(_espia))
+
+        rc = sa.main(
+            ["--forma", "bid_keyword", "--acepto-mutacion-real", "--platform", "amazon_us"]
+        )
+
+        assert rc == 2, "fallo por la campana (NO por el auth): la capa 1 paso"
+        err = capsys.readouterr().err
+        assert "ads_smoke_campaign_amazon_us" in err
+        assert "ads_smoke_auth" not in err, "el auth coincidio: no es el motivo del rechazo"
+        assert secreto_tocado == []
 
 
 # ---------------------------------------------------------------------------

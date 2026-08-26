@@ -1394,6 +1394,9 @@ def _fase_apply(
             )
             notas["bids_aplicados"] = res_bids.aplicadas
             notas["bids_descartados"] = len(res_bids.descartadas)
+            # GK10/QW4 (cross-review): la divergencia de readback es observable
+            # en notes['apply'] (la mutacion salio y Amazon quedo con OTRO bid).
+            notas["bids_divergentes"] = res_bids.divergencias
             notas["bids_reconciliados"] = {
                 "confirmados": rec_bids[0],
                 "fallidos": rec_bids[1],

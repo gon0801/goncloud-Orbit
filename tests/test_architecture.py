@@ -76,8 +76,19 @@ ALLOWLIST_TAMANO = {
         "caller) y con eso paso el umbral (936). Mismo candidato DECLARADO "
         "que apply_harvest: partir ejecucion (Aplicador + _ejecuta_mutacion) "
         "de reconciliacion de ledger (reconcilia_bids) la proxima vez que se "
-        "toque en grande; partir por partir esta prohibido por la regla "
+        "tome en grande; partir por partir esta prohibido por la regla "
         "anti-Goodhart"
+    ),
+    "app/apply_cola.py": (
+        "ORBIT 04 2.2: cola de cortes (encolado, re-validacion PRE-claim, "
+        "liberacion FIFO y reversas). La cross-review del dueno (codex+grok"
+        "+qwen, ORBIT 04 P2) le sumo el barrido resiliente (GK3: AdsApiError "
+        "por fila en la re-validacion), el verify honesto del negative "
+        "(CX4/GK6) y el cruce de id del readback de estado (CX6/GK8) y con "
+        "eso paso el umbral (912). Mismo candidato DECLARADO que la familia "
+        "apply: partir la ejecucion sellada por fila (_revalida*/_ejecuta_*) "
+        "de la maquina de encolado/liberacion la proxima vez que se toque en "
+        "grande; partir por partir esta prohibido por la regla anti-Goodhart"
     ),
 }
 

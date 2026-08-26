@@ -84,6 +84,7 @@ Aplicador pasan por el transport.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
@@ -102,6 +103,7 @@ from app.ads.write import (
     _bid_payload,
 )
 from app.optimizer import goals as g
+from app.redaction import scrub
 
 # Tope de intentos por decision: "no existe 4o intento" es un COUNT verificable
 # contra el ledger (sellado 10 / brief §4.1).
@@ -214,13 +216,17 @@ class DecisionBid:
 @dataclass(frozen=True)
 class ResultadoAplicador:
     """Resultado estructurado del lote: el ORDEN sellado (ids), cuantas
-    quedaron confirmadas por readback, y los motivos de descarte/skip (uno
-    por decision; el digest de 3.3 los consume tal cual)."""
+    quedaron confirmadas por readback, los motivos de descarte/skip (uno por
+    decision; el digest de 3.3 los consume tal cual) y el conteo de
+    DIVERGENCIAS de readback (GK10/QW4 de la cross-review: la mutacion SALIO,
+    Amazon quedo con OTRO bid — antes esa decision desaparecia del resumen;
+    vocabulario cerrado de notes['apply'] via cycle)."""
 
     orden: list[int]
     aplicadas: int
     descartadas: list[str]
     skips: list[str]
+    divergencias: int = 0
 
 
 _SQL_BIDS_CICLO = """
@@ -283,8 +289,12 @@ _SQL_IDENTIDAD = """
 SELECT kind, external_id FROM ad_entity WHERE id = %s
 """
 
+# CX1/GK1 (cross-review): el tope cuenta SOLO intentos 'normal' — las REVERSAS
+# son el mecanismo de seguridad (regla 7) y jamas consumen presupuesto de
+# intentos: un harvest completo (2 normal) + su reversa completa (2 reversa)
+# deja el reintento normal vivo.
 _SQL_COUNT_INTENTOS = """
-SELECT count(*) FROM apply_attempt WHERE decision_id = %s
+SELECT count(*) FROM apply_attempt WHERE decision_id = %s AND tipo = 'normal'
 """
 
 _SQL_INSERT_LEDGER = """
@@ -394,7 +404,7 @@ def reconcilia_bids(conn: psycopg.Connection, aplicador: Aplicador) -> tuple[int
                 _sella_ledger(conn, id_attempt, ack=None, resultado="fallo:readback_ambiguo")
             fallidas += 1
             continue
-        bid_leido = _bid_leido(resp, contenedor)
+        bid_leido = _bid_leido(resp, contenedor, param, external_id)
         if bid_leido == Decimal(_bid_payload(new_value)):
             ack = {"fuente": "readback", "bid": str(bid_leido)}
             with conn.transaction():
@@ -472,7 +482,9 @@ def _reintento_divergente(
     ack_http = _json_seguro(resp_http)
     _tick(aplicador._tick_fn)
     try:
-        bid2 = _bid_leido(cliente.get_sellado(path, params={param: external_id}), contenedor)
+        bid2 = _bid_leido(
+            cliente.get_sellado(path, params={param: external_id}), contenedor, param, external_id
+        )
     except AdsApiError:
         _sella_ledger(conn, id_retry, ack=ack_http, resultado="fallo:readback_ambiguo")
         conn.commit()
@@ -499,8 +511,10 @@ def _ledger(
     *,
     quota_cobrada: bool,
 ) -> int | None:
-    """Nace la fila del ledger PRE-HTTP: seq = count(*)+1 del decision_id.
-    Tope 3 (sellado 10): COUNT >= 3 -> None y no existe 4o intento."""
+    """Nace la fila del ledger PRE-HTTP: seq = count(*)+1 del decision_id
+    contando SOLO intentos 'normal' (CX1/GK1: reversas y probes no consumen
+    presupuesto de intentos). Tope 3 (sellado 10): COUNT >= 3 -> None y no
+    existe 4o intento."""
     count = conn.execute(_SQL_COUNT_INTENTOS, (decision_id,)).fetchone()[0]
     if count >= TOPE_INTENTOS:
         return None
@@ -534,21 +548,35 @@ def _payload_bid(kind_entidad: str, external_id: str, bid: Decimal) -> dict:
 
 
 def _json_seguro(resp: httpx.Response) -> dict:
-    """El JSON del ack; si el body no parsea, evidencia minima (el ack crudo
+    """El JSON del ack SANEADO (GK9 de la cross-review: el body pasa SIEMPRE
+    por scrub — un 2xx tambien puede ecoar secretos; antes solo el camino
+    >=400 redactaba); si el body no parsea, evidencia minima (el ack crudo
     JAMAS debe tumbar el sello del ledger)."""
     try:
-        return resp.json()
+        data = resp.json()
     except ValueError:
-        return {"status": resp.status_code, "body": resp.text[:200]}
+        return {"status": resp.status_code, "body": scrub(resp.text[:200])}
+    if not isinstance(data, dict):
+        return {"status": resp.status_code, "body": scrub(str(data)[:200])}
+    return json.loads(scrub(json.dumps(data)))
 
 
-def _bid_leido(resp: httpx.Response, contenedor: str) -> Decimal | None:
-    """El bid del READBACK fresco. PENDIENTE del probe 2.5: el shape
-    (contenedor 'keywords'/'targets' con el campo 'bid') es supuesto sellado
-    por tests; el probe lo fija contra la API real. None = sin bid legible."""
+def _bid_leido(
+    resp: httpx.Response, contenedor: str, id_campo: str, external_id: str
+) -> Decimal | None:
+    """El bid del READBACK fresco, SOLO si la fila leida ES la entidad pedida
+    (CX6/GK8: el id de la fila debe cruzar con el external_id del pedido —
+    una respuesta de OTRA entidad no es evidencia de esta decision ni toca
+    el cache). PENDIENTE del probe 2.5: el shape (contenedor
+    'keywords'/'targets' con el campo 'bid') es supuesto sellado por tests;
+    el probe lo fija contra la API real. None = sin bid legible de ESTA
+    entidad."""
     try:
         filas = resp.json().get(contenedor)
-        bid = filas[0].get("bid") if filas else None
+        fila = filas[0] if filas else None
+        if fila is None or str(fila.get(id_campo)) != str(external_id):
+            return None
+        bid = fila.get("bid")
     except (ValueError, AttributeError, IndexError, KeyError, TypeError):
         return None
     if bid is None:
@@ -784,6 +812,7 @@ class Aplicador:
         skips: list[str] = []
         descartadas: list[str] = []
         aplicadas = 0
+        divergencias = 0
         for decision in ordenadas:
             modo = self.modo_efectivo(self._conn, decision, escalera_global=escalera_global)
             if modo != "live":
@@ -799,6 +828,14 @@ class Aplicador:
             if identidad is None or identidad[0] not in _KINDS_DECISORAS:
                 skips.append(MOTIVO_ENTIDAD_NO_DECISORA)
                 continue
+            # GK5/QW2: el tope se chequea ANTES del cobro — la unidad NO se
+            # quema en una decision ya a tope (el _ledger re-chequea igual
+            # como red de seguridad ante carreras).
+            if self._conn.execute(_SQL_COUNT_INTENTOS, (decision.id,)).fetchone()[0] >= (
+                TOPE_INTENTOS
+            ):
+                skips.append(MOTIVO_TOPE_INTENTOS)
+                continue
             if not consume_quota(self._conn, self._platform, "bid"):
                 # Bids fuera de cap = DESCARTADOS, jamas reintentados (8).
                 descartadas.append(MOTIVO_FUERA_DE_CAP)
@@ -813,11 +850,16 @@ class Aplicador:
                 skips.append(MOTIVO_FALLO_HTTP)
             elif resultado_bid:
                 aplicadas += 1
+            else:
+                # GK10/QW4: la mutacion SALIO y Amazon quedo con OTRO bid —
+                # observable en el campo propio del resultado.
+                divergencias += 1
         return ResultadoAplicador(
             orden=[d.id for d in ordenadas],
             aplicadas=aplicadas,
             descartadas=descartadas,
             skips=skips,
+            divergencias=divergencias,
         )
 
     def _ejecuta_mutacion(
@@ -849,7 +891,15 @@ class Aplicador:
         _tick(self._tick_fn)
         bid_leido = self._readback(cliente, identidad)
         verify_ok = bid_leido is not None and bid_leido == Decimal(_bid_payload(decision.new_value))
-        resultado = "ok" if bid_leido is not None else "fallo:readback_sin_bid"
+        # QW1: la divergencia sella SIEMPRE la misma etiqueta que la
+        # reconciliacion (antes 'ok' con verify_ok False).
+        resultado = (
+            "ok"
+            if verify_ok
+            else (
+                "fallo:divergencia_readback" if bid_leido is not None else "fallo:readback_sin_bid"
+            )
+        )
         with self._conn.transaction():
             _sella_ledger(self._conn, id_attempt, ack=ack, resultado=resultado)
             _confirma_resumen(self._conn, decision.id, ack, verify_ok, self.cycle_id_ejecutor)
@@ -875,7 +925,7 @@ class Aplicador:
         kind, external_id = identidad
         _, path, contenedor, param = _KINDS_DECISORAS[kind]
         resp = cliente.get_sellado(path, params={param: external_id})
-        return _bid_leido(resp, contenedor)
+        return _bid_leido(resp, contenedor, param, external_id)
 
 
 # ---------------------------------------------------------------------------
@@ -927,8 +977,13 @@ def reversa_bid(
     _tick(tick)
     _, path, contenedor, param = _KINDS_DECISORAS[identidad[0]]
     resp = cliente.get_sellado(path, params={param: identidad[1]})
-    bid_leido = _bid_leido(resp, contenedor)
-    resultado = "ok" if bid_leido is not None else "fallo:readback_sin_bid"
+    bid_leido = _bid_leido(resp, contenedor, param, identidad[1])
+    # QW1: misma etiqueta de divergencia que el apply y la reconciliacion.
+    resultado = (
+        "ok"
+        if bid_leido is not None and bid_leido == Decimal(_bid_payload(decision.old_value))
+        else ("fallo:divergencia_readback" if bid_leido is not None else "fallo:readback_sin_bid")
+    )
     with conn.transaction():
         _sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
         if bid_leido is not None:

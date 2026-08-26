@@ -350,10 +350,18 @@ def _payload_negative(grupo_ext: str, camp_ext: str, term: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _handler_cortes(estados: dict[str, str] | None = None):
+def _handler_cortes(
+    estados: dict[str, str] | None = None,
+    *,
+    get_404: tuple[str, ...] = (),
+    ack_negative_sin_id: bool = False,
+):
     """Handler MockTransport: `estados` es el estado REMOTO por external_id
-    (el GET lo devuelve); el PUT de estado lo actualiza. Cuenta TODOS los
-    requests de la API (el token LWA va a api.amazon.com, fuera del conteo)."""
+    (el GET lo devuelve); el PUT de estado lo actualiza. Variantes
+    cross-review: `get_404` hace que el GET de esas entidades responda 404
+    (entidad muerta, GK3) y `ack_negative_sin_id` sirve un ack 2xx SIN id
+    (CX4/GK6). Cuenta TODOS los requests de la API (el token LWA va a
+    api.amazon.com, fuera del conteo)."""
     remoto = {"7201": "enabled", "7202": "enabled"} | dict(estados or {})
     vistos: list[httpx.Request] = []
 
@@ -363,6 +371,8 @@ def _handler_cortes(estados: dict[str, str] | None = None):
         vistos.append(request)
         if request.method == "GET":
             ext = request.url.params.get("keywordId") or request.url.params.get("targetId")
+            if ext in get_404:
+                return httpx.Response(404, json={"message": "not found"})
             contenedor = "targets" if request.url.path == "/sp/targets" else "keywords"
             campo = "targetId" if contenedor == "targets" else "keywordId"
             return httpx.Response(
@@ -374,6 +384,8 @@ def _handler_cortes(estados: dict[str, str] | None = None):
             remoto[ext] = body["state"]
             return httpx.Response(200, json={"ack": body})
         if request.method == "POST":
+            if ack_negative_sin_id:
+                return httpx.Response(200, json={"status": "ok"})
             return httpx.Response(200, json={"negativeKeywordId": "n-1", "ack": body})
         if request.method == "DELETE":
             return httpx.Response(200, json={"deleted": True})
@@ -1314,3 +1326,106 @@ def test_revalida_harvest_sin_observaciones_frescas_descarta():
         assert conn.execute("SELECT count(*) FROM harvest_job").fetchone()[0] == 0, (
             "sin calificar no nace job (la cola manda)"
         )
+
+
+# ===========================================================================
+# Cross-review del dueno (codex+grok+qwen, ORBIT 04 P2): GET muerto en la
+# re-validacion NO aborta el barrido y el ack del negative SIN id no es applied
+# ===========================================================================
+
+
+@_skip_db
+def test_get_de_revalida_muerto_no_aborta_el_barrido():
+    """GK3: el GET fresco de la re-validacion de UNA pause muere (404,
+    entidad muerta): ESA fila queda released CON NOTA y el barrido SIGUE el
+    FIFO con las demas — el ciclo NO degrada por una entidad muerta. Regla
+    9: la AdsApiError sin capturar abortaba libera_vencidos entero (la
+    negative de atras jamas se procesaba) y este test reventaria."""
+    with _db_temporal("orbit_cola_get404") as conn:
+        ids = _semilla(
+            conn,
+            caps={"ads_apply_cap_amazon_us_pause": 2, "ads_apply_cap_amazon_us_negative": 5},
+        )
+        d = ids["ahora"]
+        # La PAUSE (encolada PRIMERA: muere en su GET) y la NEGATIVE (segunda:
+        # califica con evidencia fresca y SI tiene que aplicarse).
+        dec_pause = _decision_corte(conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause")
+        q_pause = _encola_fila(conn, dec_pause, ids["kw"], "pause", payload=_payload_pause("7201"))
+        for fecha in _fechas(d.date() - dt.timedelta(days=40), d.date() - dt.timedelta(days=23)):
+            _termino_obs(
+                conn, ids["run"], ids["ag"], "zapato blanco", fecha, clicks=4, cost=4, orders=0
+            )
+        dec_neg = _decision_corte(
+            conn, ids["ciclo_dec"], ids["config"], ids["ag"], "negative", term="zapato blanco"
+        )
+        q_neg = _encola_fila(
+            conn,
+            dec_neg,
+            ids["ag"],
+            "negative",
+            term="zapato blanco",
+            encolado=d - dt.timedelta(days=2),
+            payload=_payload_negative("7101", "7001", "zapato blanco"),
+        )
+        handler, vistos = _handler_cortes(get_404=("7201",))
+
+        res = libera_vencidos(
+            conn, "amazon_us", ahora=d, aplicador=_aplicador(conn, handler, ids["ciclo_ejec"])
+        )
+
+        assert res.revalida_sin_respuesta == 1, "la nota del GET muerto vive en el resumen"
+        assert res.aplicadas == 1 and res.fallidas == 0, "la negative SI se proceso"
+        pause = conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q_pause,)).fetchone()[
+            0
+        ]
+        assert pause == "released", "la fila del GET muerto queda released (vetable, reintenta)"
+        neg = conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q_neg,)).fetchone()[0]
+        assert neg == "applied"
+        posts = [r for r in _mutaciones(vistos) if r.method == "POST"]
+        assert len(posts) == 1, "el POST de la negative SI salio (FIFO no abortado)"
+
+
+@_skip_db
+def test_negative_con_ack_2xx_sin_id_no_es_applied():
+    """CX4/GK6: el POST del negative responde 2xx con body SIN id resuelto:
+    NO es applied — verify_ok False, ledger 'fallo:ack_sin_id' y fila failed
+    (la clave de efecto NO se libera como applied). Regla 9: el verify viejo
+    (isinstance(ack, dict)) era SIEMPRE True y este test reventaria."""
+    with _db_temporal("orbit_cola_ackv") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_negative": 1})
+        d = ids["ahora"]
+        for fecha in _fechas(d.date() - dt.timedelta(days=40), d.date() - dt.timedelta(days=23)):
+            _termino_obs(
+                conn, ids["run"], ids["ag"], "zapato blanco", fecha, clicks=4, cost=4, orders=0
+            )
+        dec = _decision_corte(
+            conn, ids["ciclo_dec"], ids["config"], ids["ag"], "negative", term="zapato blanco"
+        )
+        q = _encola_fila(
+            conn,
+            dec,
+            ids["ag"],
+            "negative",
+            term="zapato blanco",
+            payload=_payload_negative("7101", "7001", "zapato blanco"),
+        )
+        handler, _v = _handler_cortes(ack_negative_sin_id=True)
+
+        res = libera_vencidos(
+            conn, "amazon_us", ahora=d, aplicador=_aplicador(conn, handler, ids["ciclo_ejec"])
+        )
+
+        assert res.aplicadas == 0 and res.fallidas == 1
+        fila = conn.execute(
+            "SELECT estado, failed_at IS NOT NULL FROM apply_queue WHERE id = %s", (q,)
+        ).fetchone()
+        assert fila == ("failed", True), "la clave NO se libera como applied"
+        resumen = conn.execute(
+            "SELECT verify_ok, applied_cycle_id FROM decision_application WHERE decision_id = %s",
+            (dec,),
+        ).fetchone()
+        assert resumen == (False, None), "aplica SOLO con evidencia del ack"
+        ledger = conn.execute(
+            "SELECT resultado FROM apply_attempt WHERE decision_id = %s", (dec,)
+        ).fetchone()[0]
+        assert ledger == "fallo:ack_sin_id"

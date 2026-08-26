@@ -60,6 +60,7 @@ from app.apply import Aplicador
 from app.apply_cola import fila_cola, libera_vencidos
 from app.apply_harvest import (
     MOTIVO_FALLO_KEYWORD,
+    MOTIVO_FALLO_NEGATIVE,
     MOTIVO_KEYWORD_AUSENTE,
     AlertaHarvest,
     aplica_harvest,
@@ -360,6 +361,11 @@ def _job_en(conn, decision: int, entidad: int, fase: str, *, external_ids=None) 
             " updated_at = now() WHERE id = %s",
             (Json(external_ids if external_ids is not None else {}), jid),
         )
+    if fase == "failed":
+        # Cierre directo (legal desde cualquier fase en vuelo por 0002).
+        conn.execute(
+            "UPDATE harvest_job SET fase = 'failed', updated_at = now() WHERE id = %s", (jid,)
+        )
     return jid
 
 
@@ -385,13 +391,19 @@ def _handler_harvest(
     bidrec_body: dict | None = None,
     fallo_keyword_status: int = 0,
     tumbar_keyword: bool = False,
+    fallo_delete_keyword: int = 0,
+    ack_negative_sin_id: bool = False,
+    ack_keyword_sin_id: bool = False,
 ):
     """Handler MockTransport con ALMACEN: POST crea en el store (y devuelve el
     id del ack), DELETE borra, los /list devuelven el store. `bidrec_status`
     controla el endpoint de bid sugerido (403 por defecto: PENDIENTE-DE-
     REGLA-8). `fallo_keyword_status` responde ese status en el POST de
     keyword (fallo DEFINITIVO >=400); `tumbar_keyword` rompe la red (crash
-    ambiguo). Cuenta TODOS los requests de la API (LWA fuera)."""
+    ambiguo). Variante cross-review: `fallo_delete_keyword` responde ese
+    status en el DELETE de keyword; `ack_*_sin_id` hacen que el ack del POST
+    venga SIN id legible (GK2: fases con ids reales). Cuenta TODOS los
+    requests de la API (LWA fuera)."""
     neg_store = list(negatives or [])
     kw_store = list(keywords or [])
     vistos: list[httpx.Request] = []
@@ -425,6 +437,8 @@ def _handler_harvest(
                     "state": "enabled",
                 }
             )
+            if ack_negative_sin_id:
+                return httpx.Response(200, json={"status": "ok", "ack": body})
             return httpx.Response(200, json={"negativeKeywordId": kid, "ack": body})
         if path == "/sp/negativeKeywords" and request.method == "DELETE":
             kid = body.get("keywordId")
@@ -447,8 +461,12 @@ def _handler_harvest(
                     "bid": body["bid"],
                 }
             )
+            if ack_keyword_sin_id:
+                return httpx.Response(200, json={"status": "ok", "ack": body})
             return httpx.Response(200, json={"keywordId": kid, "ack": body})
         if path == "/sp/keywords" and request.method == "DELETE":
+            if fallo_delete_keyword:
+                return httpx.Response(fallo_delete_keyword, json={"code": "400"})
             kid = body.get("keywordId")
             kw_store[:] = [x for x in kw_store if x["keywordId"] != kid]
             return httpx.Response(200, json={"deleted": kid})
@@ -1476,3 +1494,268 @@ def test_reconcilia_pause_enabled_con_pause_propio_marca_reactivacion():
             "SELECT detectada_en FROM reactivacion_manual WHERE ad_entity_id = %s", (ids["kw"],)
         ).fetchone()
         assert deteccion is not None, "ENABLED + pause propio verificado abre la gracia 7d"
+
+
+# ===========================================================================
+# Cross-review del dueno (codex+grok+qwen, ORBIT 04 P2): tope-3 sin reversas,
+# reuso de job sin abortar la tx, reversa completa de verdad, fases con ids
+# REALES (fail-closed) y barrido de cola harvest huerfana
+# ===========================================================================
+
+
+@_skip_db
+def test_reversa_automatica_borra_la_keyword_aun_sin_negative_id():
+    """GK1 (cola): el negative_id no se puede resolver (ack sin id y ausente
+    de la lista) → la keyword NACIDA se borra IGUAL (parcial: lo que nacio se
+    revierte). Regla 9: el retorno temprano viejo dejaba la exacta huerfana
+    en destino (0 DELETEs) y este test reventaria."""
+    with _db_temporal("orbit_har_crneg") as conn:
+        ids = _semilla(conn)
+        dec = _decision_harvest(conn, ids["ciclo_dec"], ids["config"], ids["ag"])
+        q = _encola_fila(conn, dec, ids["ag"], term=TERMINO)
+        _libera_fila(conn, q)
+        _claim_fila(conn, q)
+        _job_en(
+            conn,
+            dec,
+            ids["ag"],
+            "exact_created",
+            external_ids={"keyword_id": "k-7"},  # sin negative_id
+        )
+        handler, vistos = _handler_harvest()  # Amazon NO tiene el negativo
+
+        resumen = _reconcilia(conn, handler, ids["ciclo_ejec"])
+
+        assert resumen.jobs_failed == 1 and resumen.jobs_done == 0
+        deletes = [r for r in _mutaciones(vistos) if r.method == "DELETE"]
+        assert [r.url.path for r in deletes] == ["/sp/keywords"], (
+            "la keyword nacida se borra aunque el negativo no se pueda resolver"
+        )
+        job = conn.execute("SELECT fase FROM harvest_job WHERE decision_id = %s", (dec,)).fetchone()
+        assert job == ("failed",)
+
+
+@_skip_db
+def test_reintento_released_sin_quota_reusa_el_job_sin_abortar_la_tx():
+    """CX2: el INSERT del job choca el unico parcial (job en vuelo de la
+    misma clave) DENTRO de una transaccion de produccion (SIN autocommit,
+    como app.db.connect): el choque se absorbe (savepoint) y el SELECT del
+    reuso NO revienta con InFailedSqlTransaction. Regla 9: el catch viejo
+    hacia SELECT sobre la tx abortada."""
+    with _db_temporal("orbit_har_reuse") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_harvest": 0})
+        dec = _decision_harvest(conn, ids["ciclo_dec"], ids["config"], ids["ag"])
+        q = _encola_fila(conn, dec, ids["ag"], term=TERMINO)
+        _libera_fila(conn, q)
+        _job_en(conn, dec, ids["ag"], "pending")  # job en vuelo de la MISMA clave
+        handler, vistos = _handler_harvest()
+        conn.autocommit = False  # la conexion de produccion (app.db.connect)
+
+        try:
+            resultado = aplica_harvest(
+                conn,
+                _aplicador(conn, handler, ids["ciclo_ejec"]),
+                fila_cola(conn, q),
+                platform="amazon_us",
+            )
+        finally:
+            conn.rollback()
+            conn.autocommit = True
+
+        assert resultado.estado == "sin_quota", "reuso limpio del job (sin quota)"
+        jobs = conn.execute("SELECT count(*), max(fase::text) FROM harvest_job").fetchone()
+        assert jobs == (1, "pending"), "el job en vuelo se CONTINUA, no se duplica"
+        assert vistos == [], "cap 0: cero HTTP"
+
+
+@_skip_db
+def test_reversa_completa_keyword_falla_y_el_negativo_no_se_borra():
+    """CX3: si el delete de la keyword FALLA (>=400), el delete del negativo
+    JAMAS sale — la reversa se aborta (orden sellado §7: el termino volveria
+    a competir en origen con la keyword muerta) y se reintenta en el ciclo
+    siguiente. Regla 9: el codigo viejo corria el negativo igual."""
+    with _db_temporal("orbit_har_revfail") as conn:
+        ids = _semilla(conn)
+        dec = _decision_harvest(conn, ids["ciclo_dec"], ids["config"], ids["ag"])
+        handler, vistos = _handler_harvest(fallo_delete_keyword=400)
+        aplicador = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        ok = reversa_harvest_completo(
+            conn, aplicador._cliente(), dec, negative_id="n-1", keyword_id="k-1"
+        )
+
+        assert ok is False
+        deletes = [r for r in _mutaciones(vistos) if r.method == "DELETE"]
+        assert [r.url.path for r in deletes] == ["/sp/keywords"], (
+            "el delete del negativo JAMAS sale si la keyword no se borro"
+        )
+        filas = conn.execute("SELECT tipo, resultado FROM apply_attempt ORDER BY seq").fetchall()
+        assert len(filas) == 1 and filas[0][0] == "reversa", "solo el intento de la keyword"
+        assert filas[0][1].startswith("fallo http 400"), (
+            "el ledger declara el fallo del delete de la keyword"
+        )
+
+
+@_skip_db
+def test_paso_negative_con_ack_sin_id_falla_fail_closed():
+    """GK2(a): el POST del negativo responde 2xx SIN id legible: el paso
+    FALLA (fail-closed: el termino NO se cosecha sin cortarse en origen) —
+    reversa best-effort, failed + alerta, y la keyword JAMAS se postea.
+    Regla 9: avanzar de todos modos dejaba el job en negative_created sin
+    evidencia del corte en origen."""
+    with _db_temporal("orbit_har_ackn") as conn:
+        ids = _semilla(conn)
+        dec = _decision_harvest(conn, ids["ciclo_dec"], ids["config"], ids["ag"])
+        q = _encola_fila(conn, dec, ids["ag"], term=TERMINO)
+        _libera_fila(conn, q)
+        _claim_fila(conn, q)
+        _job_en(conn, dec, ids["ag"], "pending")
+        handler, vistos = _handler_harvest(ack_negative_sin_id=True)
+
+        resumen = _reconcilia(conn, handler, ids["ciclo_ejec"])
+
+        assert resumen.jobs_failed == 1 and resumen.jobs_done == 0
+        assert resumen.alertas and resumen.alertas[0].motivo == MOTIVO_FALLO_NEGATIVE
+        posts_kw = [r for r in _mutaciones(vistos) if r.url.path == "/sp/keywords"]
+        assert posts_kw == [], "la keyword JAMAS se postea sin el negativo cortado en origen"
+        job = conn.execute("SELECT fase FROM harvest_job WHERE decision_id = %s", (dec,)).fetchone()
+        assert job == ("failed",)
+        resultado = conn.execute(
+            "SELECT resultado FROM apply_attempt WHERE decision_id = %s AND seq = 1", (dec,)
+        ).fetchone()[0]
+        assert resultado == "fallo:ack_sin_id"
+        cola = conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()[0]
+        assert cola == "failed"
+
+
+@_skip_db
+def test_paso_keyword_exige_negative_id_del_origen():
+    """GK2(b): job en negative_created SIN negative_id y el negativo NO esta
+    en el origen (lista vacia): FAIL-CLOSED, la keyword no se postea. Regla
+    9: el codigo viejo creaba la keyword igual (cosecha sin corte en origen)
+    y este test reventaria."""
+    with _db_temporal("orbit_har_negid") as conn:
+        ids = _semilla(conn)
+        dec = _decision_harvest(conn, ids["ciclo_dec"], ids["config"], ids["ag"])
+        q = _encola_fila(conn, dec, ids["ag"], term=TERMINO)
+        _libera_fila(conn, q)
+        _claim_fila(conn, q)
+        _job_en(conn, dec, ids["ag"], "negative_created")  # external_ids vacio
+        handler, vistos = _handler_harvest()  # origen SIN el negativo
+
+        resumen = _reconcilia(conn, handler, ids["ciclo_ejec"])
+
+        assert resumen.jobs_failed == 1 and resumen.jobs_done == 0
+        assert resumen.alertas[0].motivo == MOTIVO_FALLO_NEGATIVE
+        assert _mutaciones(vistos) == [], "sin negative_id NO se postea la keyword"
+        job = conn.execute("SELECT fase FROM harvest_job WHERE decision_id = %s", (dec,)).fetchone()
+        assert job == ("failed",)
+
+
+@_skip_db
+def test_paso_keyword_con_ack_sin_id_falla_y_revierte_ambos():
+    """GK2(b/c): el POST de la keyword responde 2xx SIN id legible: fail-closed
+    (failed + alerta) y la reversa completa borra keyword y negativo (el id de
+    la keyword se resuelve por IDENTIDAD en el destino). Regla 9: avanzar sin
+    id dejaba la keyword huerfana e irreversible."""
+    with _db_temporal("orbit_har_ackk") as conn:
+        ids = _semilla(conn)
+        dec = _decision_harvest(conn, ids["ciclo_dec"], ids["config"], ids["ag"])
+        q = _encola_fila(conn, dec, ids["ag"], term=TERMINO)
+        _libera_fila(conn, q)
+        _claim_fila(conn, q)
+        _job_en(
+            conn,
+            dec,
+            ids["ag"],
+            "negative_created",
+            external_ids={"negative_id": "n-9"},
+        )
+        handler, vistos = _handler_harvest(
+            ack_keyword_sin_id=True,
+            negatives=[
+                {
+                    "adGroupId": ORIGEN_GRUPO,
+                    "campaignId": ORIGEN_CAMPANA,
+                    "keywordId": "n-9",
+                    "keywordText": TERMINO,
+                    "matchType": "exact",
+                    "state": "enabled",
+                }
+            ],
+        )
+
+        resumen = _reconcilia(conn, handler, ids["ciclo_ejec"])
+
+        assert resumen.jobs_failed == 1 and resumen.jobs_done == 0
+        assert resumen.alertas[0].motivo == MOTIVO_FALLO_KEYWORD
+        deletes = [r for r in _mutaciones(vistos) if r.method == "DELETE"]
+        assert [r.url.path for r in deletes] == ["/sp/keywords", "/sp/negativeKeywords"], (
+            "reversa completa: keyword PRIMERO (identidad resuelta), negativo despues"
+        )
+        resultado = conn.execute(
+            "SELECT resultado FROM apply_attempt WHERE decision_id = %s AND tipo = 'normal'"
+            " ORDER BY seq DESC LIMIT 1",
+            (dec,),
+        ).fetchone()[0]
+        assert resultado == "fallo:ack_sin_id"
+
+
+def test_id_de_ack_parsea_207_anidado_listas_y_shapes():
+    """GK2(c): _id_de_ack TAMBIEN resuelve el shape 207 anidado
+    ({"<recurso>": {"success": [...]}} — la forma que _parse_single_207 del
+    diseno v2 parseaba) y listas de ids. Regla 9: solo claves top-level
+    devolveria None para el 207 y estos asserts reventarian."""
+    from app.apply_harvest import _id_de_ack
+
+    assert _id_de_ack({"negativeKeywordId": "n-1"}, "negativeKeywordId") == "n-1"
+    assert _id_de_ack({"negativeKeywordIdList": ["n-2"]}, "negativeKeywordId") == "n-2"
+    assert _id_de_ack({"keywordIdList": ["k-8", "k-9"]}, "keywordId") == "k-8"
+    # Shape 207: el id vive en el primer success (plano o bajo la key recurso).
+    assert (
+        _id_de_ack(
+            {"negativeKeywords": {"success": [{"negativeKeywordId": "n-3"}], "error": []}},
+            "negativeKeywordId",
+        )
+        == "n-3"
+    )
+    assert (
+        _id_de_ack({"keywords": {"success": [{"keyword": {"keywordId": "k-9"}}]}}, "keywordId")
+        == "k-9"
+    )
+    # Sin success o con error: NADA legible (regla 3: jamas inventado).
+    assert _id_de_ack({"keywords": {"success": [], "error": [{"index": 0}]}}, "keywordId") is None
+    assert _id_de_ack({"keywords": {"error": [{"index": 0}]}}, "keywordId") is None
+    assert _id_de_ack({"nada": 1}, "keywordId") is None
+    assert _id_de_ack("no-dict", "keywordId") is None
+
+
+@_skip_db
+def test_barrido_cierra_fila_harvest_applying_sin_job_vivo():
+    """GK4: fila applying kind harvest cuyo job YA no esta en vuelo (job
+    failed con la cola viva) queda a cargo del barrido de reconciliacion:
+    se cierra failed con nota — la clave term_cut NO queda bloqueada para
+    siempre. Regla 9: sin barrido la fila huerfana quedaba applying
+    eternamente y este test reventaria."""
+    with _db_temporal("orbit_har_huerf") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_harvest": 0})
+        dec_huerfana = _decision_harvest(conn, ids["ciclo_dec"], ids["config"], ids["ag"])
+        q_huerfana = _encola_fila(conn, dec_huerfana, ids["ag"], term=TERMINO)
+        _libera_fila(conn, q_huerfana)
+        _claim_fila(conn, q_huerfana)
+        _fila_ledger_abierta(conn, dec_huerfana)
+        _job_en(conn, dec_huerfana, ids["ag"], "failed")  # job cerrado, cola viva
+        handler, vistos = _handler_harvest()
+
+        resumen = _reconcilia(conn, handler, ids["ciclo_ejec"])
+
+        assert resumen.harvest_huerfanas_cerradas == 1
+        cola = conn.execute(
+            "SELECT estado FROM apply_queue WHERE id = %s", (q_huerfana,)
+        ).fetchone()[0]
+        assert cola == "failed", "la clave de efecto queda LIBRE (no applying eterno)"
+        sello = conn.execute(
+            "SELECT resultado FROM apply_attempt WHERE decision_id = %s", (dec_huerfana,)
+        ).fetchone()[0]
+        assert sello == "fallo:huerfana_sin_job", "nota en el ledger del por que"
+        assert vistos == [], "cierre administrativo: cero HTTP"

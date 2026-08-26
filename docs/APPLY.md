@@ -611,8 +611,13 @@ real es un acto del dueño).
 **Las dos capas de autorización (fail-closed):**
 
 1. `ORBIT_SMOKE_AUTH`: token EFÍMERO que el dueño setea SOLO para la
-   corrida y borra al terminar. Sin él (o vacío): exit != 0 ANTES de abrir
-   cualquier conexión o credencial.
+   corrida y borra al terminar. **La capa es REAL (CX5 de la cross-review):
+   el valor del env se compara con `compare_digest` contra la clave
+   `ads_smoke_auth` de la `config_version` VIGENTE** — sembrada con la misma
+   ceremonia de admin que la campaña. Cualquier string no-vacío YA NO basta:
+   sin clave sembrada o con token distinto → exit != 0 ANTES de abrir
+   credenciales o HTTP. Sin el env (o vacío): exit != 0 ANTES de abrir
+   cualquier conexión.
 2. `--acepto-mutacion-real`: flag explícito. El env solo NO corre nada —
    nada sale por accidente.
 
@@ -622,20 +627,22 @@ real es un acto del dueño).
 
 ```sql
 -- app_admin; OJO: config_version se resuelve por ÚLTIMA fila — copiar los
--- settings vigentes y AGREGAR la clave (sembrar solo la clave apagaría los
--- caps ads_apply_cap_* para las lecturas de ese día).
+-- settings vigentes y AGREGAR las claves (sembrar solo las claves apagaría
+-- los caps ads_apply_cap_* para las lecturas de ese día).
 INSERT INTO config_version (label, settings)
-VALUES ('smoke 2.5', '<settings vigentes + "ads_smoke_campaign_<platform>": "<external_id>">'::jsonb);
+VALUES ('smoke 2.5', '<settings vigentes
+  + "ads_smoke_campaign_<platform>": "<external_id>"
+  + "ads_smoke_auth": "<token de un uso de esta corrida>">'::jsonb);
 ```
 
-Quitarla al cerrar = fila NUEVA de config sin la clave (append-only).
+Quitarlas al cerrar = fila NUEVA de config sin las claves (append-only).
 
 **Corrida (en el server, con `ORBIT_DSN_DECIDE` en el entorno — identidad
 del motor: sus filas de ledger nacen tipo `probe` auditable, decision_id
 NULL, `quota_cobrada=false`):**
 
 ```bash
-export ORBIT_SMOKE_AUTH="<token de un uso>"
+export ORBIT_SMOKE_AUTH="<el MISMO token sembrado en ads_smoke_auth>"
 python tools/smoke_apply.py --forma todas --platform <platform> \
   --acepto-mutacion-real 2>&1 | tee out/smoke-apply-<fecha>.log
 unset ORBIT_SMOKE_AUTH
@@ -666,9 +673,9 @@ inicial; (2) contra cada ack/readback REAL, confirmar o corregir las
 hipótesis de arriba; (3) FINALIZAR los tests de readback de 2.1-2.3 hoy
 marcados "pendientes de shape" (§13.2) sellándolos contra los shapes reales
 (regla 8); (4) el dueño borra `ORBIT_SMOKE_AUTH` y el admin siembra config
-nueva sin la clave de campaña; (5) evidencia (log + `SELECT` del ledger
-probe) al registro de ORBIT 04. El ensayo E2E de 4.3 re-usa esta misma
-herramienta.
+nueva sin las claves de campaña NI `ads_smoke_auth`; (5) evidencia (log +
+`SELECT` del ledger probe) al registro de ORBIT 04. El ensayo E2E de 4.3
+re-usa esta misma herramienta.
 
 ---
 
