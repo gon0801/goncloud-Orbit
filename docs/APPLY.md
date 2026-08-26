@@ -763,3 +763,19 @@ las resuelve antes):
   `decision_id` NULL (el tope-3 es COUNT de la app, sellado 10).
 - Un discard bajo `SET ROLE app_admin` (como el flip de ORBIT 05) no está
   ejercitado en los tests DB de 1.2; los grants sí están pineados estáticos.
+
+Declarados SIN fix tras la cross-review del dueño (codex+grok+qwen,
+2026-08-26; suscrito por el reviewer — nota, no sello roto):
+
+- Tope-3 check-then-act (qwen): sin UNIQUE `(decision_id, seq)` el COUNT y
+  el INSERT no son atómicos entre DOS aplicadores concurrentes; el claim
+  del lock serializa la fase de apply POR PLATAFORMA (una decisión, un
+  camino, un dueño), así que la carrera requiere romper el claim primero.
+  Backstop UNIQUE = candidato 0003 (ya declarado arriba).
+- Doble scrub idempotente (qwen): `_snippet_cuerpo` y la excepción aplican
+  `scrub()` dos veces; redaction.py asume idempotencia en todos sus usos.
+  Blindaje barato pendiente (P2): try/except alrededor del
+  `json.loads(scrub(...))` del ack.
+- Un 5xx/fallo ambiguo de mutación ABORTA el lote de bids en curso (qwen):
+  diseño sellado (§5.3, "no se reintenta") — el ciclo sella degraded y el
+  siguiente reconcilia; confirmado deseado.

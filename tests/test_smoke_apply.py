@@ -45,6 +45,7 @@ import os
 import socket
 import sys
 from contextlib import contextmanager
+from decimal import Decimal
 from pathlib import Path
 
 import httpx
@@ -735,3 +736,34 @@ def test_selectores_puros():
         sa.primer_ad_group_de_campana(_estado_inicial()["adGroups"], CAMPANA)["adGroupId"] == GRUPO
     )
     assert sa.primer_ad_group_de_campana(_estado_inicial()["adGroups"], "8888") is None
+
+
+def test_readback_bid_con_id_ajeno_no_confirma():
+    """Reviewer P2 (post cross-review): el readback del smoke CRUZA el id de
+    la fila leida contra el pedido — una respuesta con el id de OTRA entidad
+    JAMAS devuelve su bid (id_cruzado False). Sin el cruce, filas[0] de una
+    respuesta multi-entidad revertiria al bid ajeno y el neto-cero mentiria
+    (regla 9: el mock devuelve el senuelo primero)."""
+
+    class _ClienteSenuelo:
+        def get_sellado(self, path, params=None):
+            return httpx.Response(
+                200,
+                json={
+                    "keywords": [
+                        {"keywordId": "999", "bid": "7.77"},  # senuelo: otra entidad
+                        {"keywordId": "321", "bid": "1.23"},
+                    ]
+                },
+            )
+
+    class _Ctx:
+        cliente = _ClienteSenuelo()
+
+    bid, paso = sa._paso_readback_bid(_Ctx(), es_keyword=True, ext="321")
+    assert bid == Decimal("1.23"), "la fila de la entidad PEDIDA gana sobre el senuelo"
+    assert paso["id_cruzado"] is True
+
+    bid_ajeno, paso_ajeno = sa._paso_readback_bid(_Ctx(), es_keyword=True, ext="777")
+    assert bid_ajeno is None, "un id que no esta en la respuesta JAMAS confirma"
+    assert paso_ajeno["id_cruzado"] is False

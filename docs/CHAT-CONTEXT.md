@@ -4,7 +4,33 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
-**Última actualización: 2026-08-25 — ORBIT 04 Phase 1 CERRADA (3/3 tareas,
+**Última actualización: 2026-08-26 — ORBIT 04 Phase 2 CERRADA (5/5 tareas,
+rama orbit-04/phase-2, PR DRAFT sin mergear — el dueño revisa): el apply
+integrado. (2.1) app/apply.py: re-resolución por decisión (escalera + goal,
+JAMÁS inputs.modo), quota atómica con cap de config, ledger PRE-HTTP con
+tope-3, readback con GET sellado, cache con LO LEÍDO, reversa de bid.
+(2.2) app/apply_cola.py: encola cortes (invariante corte↔cola), skip
+veto_pendiente por clave de efecto, liberación FIFO con re-validación de
+evidencia FRESCA al reloj de liberación (contrato cross-plan CORTES 01),
+descarte pre-cobro, filas released reintentadas al día siguiente.
+(2.3) app/apply_harvest.py: harvest_job nace AL LIBERAR, reconciliación
+viva por identidad completa (señuelo en otro ad group no engaña), bid
+sugerido clampeado con intención pre-POST (endpoint NO pineado: v2
+retirado, v3 exige SigV4 — fail-open al default sellado; regla 8
+documentada), reversas keyword-primero. (2.4) fase de apply DENTRO del
+lock en corre_ciclo: heartbeat + ownership-check pre-HTTP con aborto
+fail-closed, guard status=running en el cierre, HAY_MODULO_APPLY=True
+(escalera shadow sigue = cero HTTP, testeado tras el flip). (2.5)
+tools/smoke_apply.py CONSTRUIDO y NO ejecutado (doble autorización +
+campaña solo por config; corrida real = dueño). Review de fase con
+adversario: 11 hallazgos (1 crítico: TX4 sin commit invisible por
+autocommit en tests — corregido con test SIN autocommit), 8 fixes
+aplicados y aprobados por el reviewer. Cross-review ordenada por el dueño
+(codex+grok+qwen en paralelo): 6 altas reales (tope-3 contando reversas,
+UniqueViolation al reusar job, reversa rompiendo keyword-primero, fases
+de harvest avanzando sin ids del ack, GET sin capturar abortando el
+barrido, cierre job+cola sin transacción) + medias — 13 fixes aplicados.
+Suite 550 passed con batería DB real (túnel). Previo (2026-08-25): ORBIT 04 Phase 1 CERRADA (3/3 tareas,
 rama orbit-04/phase-1, PR de fase): (1.1) docs/APPLY.md, el contrato fino de
 PR2 — máquina de estados de la cola de cortes con clave de efecto y ventana
 de veto 48h, ledger de intentos, quota sellada con mapeo config↔motor,

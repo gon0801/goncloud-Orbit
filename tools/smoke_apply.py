@@ -456,13 +456,19 @@ def _paso_readback_bid(
     try:
         resp = ctx.cliente.get_sellado(path, params={param: ext})
         filas = (resp.json() or {}).get(contenedor) or []
-        crudo = filas[0].get("bid") if filas else None
+        # Cruce de id (reviewer P2, post cross-review): una respuesta con el
+        # id de OTRA entidad JAMAS confirma ni revierte — el motor ya cruza
+        # (_bid_leido/_estado_leido) y el probe no debe sellar shapes con
+        # una disciplina mas debil que la del codigo que decide dinero.
+        fila = next((f for f in filas if str(f.get(param)) == str(ext)), None)
+        crudo = fila.get("bid") if fila else None
         bid = _bid_valido(crudo)
         return bid, {
             "paso": "readback",
             "http": _evidencia_respuesta(resp),
             "bid_leido": str(bid) if bid is not None else None,
             "bid_crudo": crudo,
+            "id_cruzado": fila is not None,
         }
     except (AdsApiError, ValueError, TypeError, IndexError, AttributeError) as exc:
         return None, {"paso": "readback", "error": scrub(str(exc)), "bid_leido": None}
