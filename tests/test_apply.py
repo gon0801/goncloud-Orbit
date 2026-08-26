@@ -1369,3 +1369,156 @@ def test_write_client_de_produccion_duerme_el_backoff_de_429():
             (motor_quota("amazon_us", "bid"),),
         ).fetchone()[0]
         assert used == 1, "el 429 reintentado es el MISMO intento del ledger (sin recobro)"
+
+
+# ===========================================================================
+# Cross-review del dueno shapes (codex+qwen, out/cross-review-shapes-*.log):
+# el readback por LIST PAGINA hasta hallar la entidad (CX1/QW1 + CX6) — la
+# cuenta real trae 1334 keywords / 549 targets y el body {} solo ve la
+# PRIMERA pagina: una entidad en pagina 2+ era "ausente" (falsa divergencia
+# con quota cobrada). Tests PUROS (sin DB; regla 9: rojo en
+# out/tdd-red-shapes-cr.log contra el readback de UNA pagina).
+# ===========================================================================
+
+
+class _ClienteListPaginado:
+    """Write client de mentira que sirve paginas por nextToken: `paginas` es
+    la lista de bodies (un dict por pagina); registra cada request para
+    asserts de tope. El cruce de id lo hace el motor (como el wire real)."""
+
+    def __init__(self, paginas: list[dict]):
+        self.paginas = paginas
+        self.requests: list[dict] = []
+
+    def list_sellado(self, path: str, body: dict) -> httpx.Response:
+        self.requests.append({"path": path, "body": dict(body)})
+        return httpx.Response(200, json=self.paginas[int(body.get("nextToken", 0))])
+
+
+def _aplicador_sin_db() -> Aplicador:
+    """Aplicador para tests PUROS del readback: __init__ no toca la base (la
+    conn solo se guarda) ni la red (el write client es LAZY) — _readback
+    recibe el cliente por parametro."""
+    return Aplicador(
+        object(),  # conn de mentira: jamas se toca en el camino probado
+        platform="amazon_us",
+        cycle_id_ejecutor=1,
+        owner="test:puro",
+        job_key="ads_optimizer:amazon_us",
+    )
+
+
+def test_readback_de_bid_por_list_pagina_hasta_hallar_la_entidad():
+    """CX1/QW1: la entidad pedida vive en la pagina 2 (detras del nextToken):
+    el readback la HALLA. Regla 9: contra el readback de UNA pagina el bid
+    leido es None ('fallo:readback_sin_bid' con quota cobrada) y este test
+    reventaba."""
+    cliente = _ClienteListPaginado(
+        [
+            {
+                "keywords": [{"keywordId": "9999", "bid": 7.77, "state": "ENABLED"}],
+                "nextToken": "1",
+            },
+            {"keywords": [{"keywordId": "7201", "bid": 0.85, "state": "ENABLED"}]},
+        ]
+    )
+    bid = _aplicador_sin_db()._readback(cliente, ("keyword", "7201"))
+    assert bid == Decimal("0.85"), "la entidad de la pagina 2 NO es ausente"
+    assert [r["body"] for r in cliente.requests] == [{}, {"nextToken": "1"}], (
+        "la primera pagina va con body {} y la siguiente CON nextToken"
+    )
+
+
+def test_estado_de_readback_por_list_pagina_hasta_hallar_la_entidad():
+    """CX1/QW1 lado estado (pausas y sus reconciliaciones): mismo cruce de id
+    paginando. Regla 9: la lectora de UNA pagina devolvia None (estado
+    ilegible) y el corte moria como moot/divergente."""
+    from app.apply import _estado_de_readback
+
+    cliente = _ClienteListPaginado(
+        [
+            {
+                "keywords": [{"keywordId": "9999", "state": "PAUSED"}],
+                "nextToken": "1",
+            },
+            {"keywords": [{"keywordId": "7201", "state": "ENABLED"}]},
+        ]
+    )
+    estado = _estado_de_readback(cliente, "/sp/keywords/list", "keywords", "keywordId", "7201")
+    assert estado == "ENABLED"
+    # El id que NO esta en NINGUNA pagina JAMAS confirma (regla 3).
+    cliente2 = _ClienteListPaginado(
+        [
+            {"keywords": [{"keywordId": "9999", "state": "PAUSED"}], "nextToken": "1"},
+            {"keywords": [{"keywordId": "8888", "state": "ENABLED"}]},
+        ]
+    )
+    assert (
+        _estado_de_readback(cliente2, "/sp/keywords/list", "keywords", "keywordId", "7777") is None
+    )
+
+
+def test_readback_paginado_corta_en_el_tope_de_paginas():
+    """CX1/QW1: un nextToken INFINITO (bug de la API o del codigo) no cuelga
+    el ciclo: corta en apply.TOPE_PAGINAS_READBACK requests. Regla 9: el
+    readback de UNA pagina hace 1 request (el tope jamas se alcanza) y el
+    assert de conteo reventaba."""
+    from app.apply import TOPE_PAGINAS_READBACK
+
+    cliente = _ClienteListPaginado(
+        # nextToken SIEMPRE presente: la lista "nunca termina".
+        [{"keywords": [{"keywordId": "9999", "bid": 7.77}], "nextToken": "0"}]
+    )
+    bid = _aplicador_sin_db()._readback(cliente, ("keyword", "7201"))
+    assert bid is None, "la entidad no esta: corta por tope, jamas la halla"
+    assert len(cliente.requests) == TOPE_PAGINAS_READBACK, (
+        f"corta EXACTO en el tope ({TOPE_PAGINAS_READBACK} paginas), no loopea"
+    )
+
+
+@_skip_db
+def test_readback_encuentra_el_bid_en_la_pagina_dos_del_list():
+    """CX1/QW1 end-to-end: el apply de UN bid cuya entidad vive en la pagina
+    2 del LIST confirma por readback. Regla 9: contra el readback de UNA
+    pagina el resultado sellaba 'fallo:readback_sin_bid' con la decision NO
+    aplicada (quota cobrada) y estos asserts reventaban."""
+    with _db_temporal("orbit_apply_p2") as conn:
+        ids = _semilla(conn)
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"])
+        # El senuelo 9999 va PRIMERO en el almacen: la entidad pedida vive en
+        # la pagina 2 del LIST.
+        handler, vistos = _handler_api({"9999": "9.99", "7201": "0.85"})
+
+        def paginado(request: httpx.Request) -> httpx.Response:
+            if request.method == "POST" and request.url.path.endswith("/list"):
+                body = json.loads(request.content) if request.content else {}
+                desde = int(body.get("nextToken", 0))
+                data = handler(request).json()  # todas las filas en UNA pagina
+                filas = data["keywords"][desde : desde + 1]
+                pagina: dict = {"keywords": filas, "totalResults": data["totalResults"]}
+                if desde + 1 < data["totalResults"]:
+                    pagina["nextToken"] = str(desde + 1)
+                return httpx.Response(200, json=pagina)
+            return handler(request)
+
+        ap = Aplicador(
+            conn,
+            platform="amazon_us",
+            profile_id=FAKE_PROFILE_US,
+            credentials=_fake_credentials(),
+            cycle_id_ejecutor=ids["ciclo_ejec"],
+            owner="test:apply",
+            job_key="ads_optimizer:amazon_us",
+            transport=httpx.MockTransport(paginado),
+            sleep=lambda seconds: None,
+        )
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.aplicadas == 1 and res.divergencias == 0
+        resultado = conn.execute(
+            "SELECT resultado FROM apply_attempt WHERE decision_id = %s", (dec,)
+        ).fetchone()[0]
+        assert resultado == "ok", "la entidad de la pagina 2 se lee: NO es divergencia"
+        lists = [r for r in vistos if r.method == "POST" and r.url.path.endswith("/list")]
+        assert len(lists) == 2, "pagino: pagina 1 (senuelo) + pagina 2 (la pedida)"

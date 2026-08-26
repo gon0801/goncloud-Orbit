@@ -63,6 +63,15 @@ la reversa completa JAMAS borra el negativo si la keyword no se borro
 — fail-closed: el termino no se cosecha sin cortarse en origen (GK2), con
 _id_de_ack parseando tambien el shape 207 anidado; y el barrido de
 reconciliacion cierra las filas harvest applying cuyo job ya no vive (GK4).
+
+Ronda de CROSS-REVIEW de shapes (codex+qwen, out/cross-review-shapes-*.log):
+el 207 NO es exito automatico — el reintento de negatives de la
+reconciliacion exige sin-error[] + id de success[] (CX2), los deletes de
+reversa exigen sin rechazo por-item con el id del objeto borrado (CX3,
+'fallo:reversa_rechazada' con el cuerpo) y el senuelo exige OTRO ad group
+VIVO (_solo_en_otro_ad_group, CX4: un ARCHIVED del propio grupo reintenta);
+el estado del readback pagina por nextToken (CX1/QW1,
+apply._estado_de_readback).
 """
 
 from __future__ import annotations
@@ -430,9 +439,23 @@ def _identidad(items: list[dict], ad_group_id: str, keyword_text: str) -> dict |
 
 def _solo_en_otro_ad_group(items: list[dict], ad_group_id: str, keyword_text: str) -> bool:
     """El texto existe en Amazon PERO no en el ad group esperado (señuelo):
-    la matriz §6.1 NO confirma con el y cierra failed."""
+    la matriz §6.1 NO confirma con el y cierra failed. CX4 de la
+    cross-review del dueno: SOLO cuentan items VIVOS de OTRO ad group — un
+    ARCHIVED del MISMO grupo (delete-archiva del probe 2.5: operativamente
+    AUSENTE) o una variante de otro matchType en el PROPIO grupo NO son
+    señuelo: el reintento del POST sigue vivo en vez de cerrar en
+    'fallo:senuelo_otro_ad_group'."""
     propio = _identidad(items, ad_group_id, keyword_text)
-    return propio is None and any(x.get("keywordText") == keyword_text for x in items)
+    if propio is not None:
+        return False
+    for item in items:
+        if str(item.get("state", "")).upper() == apply.ESTADO_WIRE_ARCHIVED:
+            continue  # delete-archiva: operativamente AUSENTE (probe 2.5)
+        if str(item.get("adGroupId", "")) == str(ad_group_id):
+            continue  # del MISMO grupo (otro matchType): no es señuelo
+        if item.get("keywordText") == keyword_text:
+            return True
+    return False
 
 
 def _id_de_ack(ack: dict, clave_principal: str) -> str | None:
@@ -478,6 +501,41 @@ def _id_plano_de(dic: dict, claves: tuple[str, ...]) -> str | None:
         if isinstance(valor, list) and valor and isinstance(valor[0], str | int):
             return str(valor[0])
     return None
+
+
+def _errores_de_ack(ack: dict) -> list:
+    """Las entradas de error[] del ack 207 anidado (shape sellado por el
+    probe 2.5, apply_attempt 13-17: {"<recurso>": {"error": [...], "success":
+    [...]}}): la fila RECHAZADA por-item viaja en error[] y un 2xx NO es
+    exito automatico (CX2/CX3 de la cross-review del dueno). [] = sin
+    rechazos legibles (regla 3: un shape sin anidado no inventa errores)."""
+    if not isinstance(ack, dict):
+        return []
+    for valor in ack.values():
+        if isinstance(valor, dict):
+            error = valor.get("error")
+            if isinstance(error, list) and error:
+                return error
+    return []
+
+
+def _reversa_rechazada(ack: dict, clave_id: str, objeto_id) -> bool:
+    """CX3: el veredicto del ack de UN delete — True = la reversa NO se
+    confirma. Rechazado si error[] trae la fila (el 207 con rechazo
+    por-item) o si el id legible de success[] NO es el del objeto borrado
+    (fail-closed: borrar OTRA cosa tampoco confirma). Un ack SIN estructura
+    legible y sin error[] sigue en pie (el 2xx del delete es la evidencia)."""
+    if _errores_de_ack(ack):
+        return True
+    id_ack = _id_de_ack(ack, clave_id)
+    return id_ack is not None and id_ack != str(objeto_id)
+
+
+def _resultado_reversa_rechazada(ack: dict) -> str:
+    """El resultado del ledger de una reversa rechazada por-item (CX3): la
+    etiqueta + el cuerpo del ack (el ack completo ya vive saneado en su
+    columna; aqui va compacto para el resultado)."""
+    return f"fallo:reversa_rechazada: {str(ack)[:300]}"
 
 
 # ---------------------------------------------------------------------------
@@ -594,8 +652,8 @@ def _sella_pendientes(conn: psycopg.Connection, decision_id: int, resultado: str
 
 # El lector de estado vive en app.apply (una sola fuente, shape del probe
 # 2.5): el ciclo de imports apply_cola -> apply_harvest obligaba el espejo
-# local; ahora ambos reusan el de apply (escaneo por cruce de id + wire UPPER).
-_estado_leido = apply._estado_leido
+# local; ahora ambos reusan el de apply (escaneo por cruce de id + wire
+# UPPER) en su version PAGINADA (CX1/QW1: _estado_de_readback).
 
 
 def _falla_job(
@@ -638,7 +696,10 @@ def _reversa_delete(
     """UN delete de reversa con su fila de ledger (tipo 'reversa', EXENTA de
     quota) nacida PRE-HTTP y sellada al volver. El "delete" v3 es POST
     /sp/{recurso}/delete con FILTRO de ids (probe 2.5, apply_attempt 14 y 17)
-    y ARCHIVA: operativamente muerto."""
+    y ARCHIVA: operativamente muerto. CX3 de la cross-review: el 207 NO es
+    exito automatico — exige sin rechazo por-item (error[]) y, si el ack
+    expone id, que sea el del objeto borrado; si no, 'fallo:reversa_rechazada'
+    con el cuerpo y False."""
     filtro = f"{clase}IdFilter" if clase == "keyword" else "negativeKeywordIdFilter"
     payload = {filtro: {"include": [str(objeto_id)]}}
     id_attempt = apply._ledger(conn, decision_id, "reversa", payload, quota_cobrada=False)
@@ -656,8 +717,16 @@ def _reversa_delete(
         )
         conn.commit()
         return False
+    ack = apply._json_seguro(resp)
+    clave = "keywordId" if clase == "keyword" else "negativeKeywordId"
+    if _reversa_rechazada(ack, clave, objeto_id):
+        with conn.transaction():
+            apply._sella_ledger(
+                conn, id_attempt, ack=ack, resultado=_resultado_reversa_rechazada(ack)
+            )
+        return False
     with conn.transaction():
-        apply._sella_ledger(conn, id_attempt, ack=apply._json_seguro(resp), resultado="ok")
+        apply._sella_ledger(conn, id_attempt, ack=ack, resultado="ok")
     return True
 
 
@@ -1041,10 +1110,12 @@ def _reconcilia_pauses(conn: psycopg.Connection, aplicador, platform: str) -> tu
             cliente = aplicador._cliente()
         _, path, contenedor, param = apply._KINDS_DECISORAS[identidad[0]]
         try:
-            resp = cliente.list_sellado(path, {})
+            # CX1/QW1: el LIST PAGINA — la entidad puede vivir en la pagina
+            # 2+ y leer solo la primera la daba por ausente (estado ilegible,
+            # fila applying eterna).
+            estado = apply._estado_de_readback(cliente, path, contenedor, param, identidad[1])
         except AdsApiError:
             continue  # lectura ambigua: proximo ciclo (la fila ES el rastro)
-        estado = _estado_leido(resp, contenedor, param, identidad[1])
         if estado == apply.ESTADO_WIRE_PAUSED:
             ack = {"fuente": "list", "state": estado}
             with conn.transaction():
@@ -1149,12 +1220,25 @@ def _reconcilia_negativas(conn: psycopg.Connection, aplicador, platform: str) ->
             continue
         except AdsApiError:
             continue  # ambiguo: la fila sin sello ES el rastro
-        with conn.transaction():
-            apply._sella_ledger(conn, id_attempt, ack=apply._json_seguro(resp), resultado="ok")
-            _sella_pendientes(conn, decision_id, "ok:reconciliado")
-            apply._confirma_resumen(
-                conn, decision_id, apply._json_seguro(resp), True, aplicador.cycle_id_ejecutor
+        ack = apply._json_seguro(resp)
+        errores = _errores_de_ack(ack)
+        neg_id = _id_de_ack(ack, "negativeKeywordId")
+        if errores or neg_id is None:
+            # CX2 de la cross-review: el 207 NO es exito automatico — la fila
+            # rechazada viaja en error[] (fallo CON el cuerpo) y un ack sin id
+            # no es evidencia del corte (GK2: fail-closed).
+            resultado = (
+                f"fallo:ack_con_error: {str(errores)[:300]}" if errores else "fallo:ack_sin_id"
             )
+            with conn.transaction():
+                apply._sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
+                _termina_cola(conn, q_id, "failed")
+            fallidas += 1
+            continue
+        with conn.transaction():
+            apply._sella_ledger(conn, id_attempt, ack=ack, resultado="ok")
+            _sella_pendientes(conn, decision_id, "ok:reconciliado")
+            apply._confirma_resumen(conn, decision_id, ack, True, aplicador.cycle_id_ejecutor)
             _termina_cola(conn, q_id, "applied")
         confirmadas += 1
     return confirmadas, fallidas

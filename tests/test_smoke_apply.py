@@ -920,3 +920,43 @@ def test_negative_create_delete_shape_desconocido_declara_residuo_sin_keyerror()
         "los campos reales del item quedan en la evidencia (re-sello del shape)"
     )
     assert len(estado["negativeKeywords"]) == 1, "sin id no hay DELETE: el basura queda (declarado)"
+
+
+# ===========================================================================
+# Cross-review del dueno shapes (codex+qwen): el readback de bids del smoke
+# PAGINA (CX6 — la seleccion ya paginaba con listar_paginado; el readback
+# quedo en la primera pagina y reportaria falsos fallos con la entidad
+# elegida en pagina 2+). Test PURO (regla 9: rojo en out/tdd-red-shapes-cr.log
+# contra el readback de UNA pagina).
+# ===========================================================================
+
+
+def test_readback_bid_del_smoke_pagina_hasta_hallar_la_entidad():
+    """CX6: la entidad perturbada vive en la pagina 2 del LIST: el readback
+    del smoke la HALLA (id cruzado). Regla 9: el readback de UNA pagina
+    devolvia None con id_cruzado False y el probe reportaria un falso fallo
+    aunque la reversa hubiera sido correcta."""
+
+    class _ClientePaginado:
+        def __init__(self):
+            self.requests = []
+
+        def list_objects(self, path, body, profile_id=None):
+            self.requests.append(dict(body))
+            if body.get("nextToken"):
+                return httpx.Response(200, json={"keywords": [{"keywordId": "321", "bid": "1.23"}]})
+            return httpx.Response(
+                200,
+                json={
+                    "keywords": [{"keywordId": "999", "bid": "7.77"}],
+                    "nextToken": "2",
+                },
+            )
+
+    class _Ctx:
+        cliente = _ClientePaginado()
+        profile_id = "1"
+
+    bid, paso = sa._paso_readback_bid(_Ctx(), es_keyword=True, ext="321")
+    assert bid == Decimal("1.23"), "la entidad de la pagina 2 NO es ausente"
+    assert paso["id_cruzado"] is True

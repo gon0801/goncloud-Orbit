@@ -361,6 +361,7 @@ def _handler_cortes(
     *,
     get_404: tuple[str, ...] = (),
     ack_negative_sin_id: bool = False,
+    delete_rechazado: bool = False,
 ):
     """Handler MockTransport: el readback de estado vivo es el POST de LISTA
     con states del wire UPPER — ENABLED/PAUSED/ARCHIVED (probe 2.5, apply_attempt
@@ -414,6 +415,20 @@ def _handler_cortes(
                 },
             )
         if request.method == "POST" and request.url.path == "/sp/negativeKeywords/delete":
+            if delete_rechazado:
+                # CX3: 207 con la fila en error[] — el rechazo por-item del
+                # shape real del probe 2.5 (la fila viaja en error, no success).
+                return httpx.Response(
+                    207,
+                    json={
+                        "negativeKeywords": {
+                            "error": [
+                                {"index": 0, "code": "NOT_FOUND", "negativeKeywordId": "n-1"}
+                            ],
+                            "success": [],
+                        }
+                    },
+                )
             return httpx.Response(
                 207,
                 json={
@@ -1583,3 +1598,182 @@ def test_estado_archived_no_confirma_entidad_viva():
     estado = _estado_leido(resp, "keywords", "keywordId", "7201")
     assert estado == "ARCHIVED"
     assert estado != ESTADO_WIRE_ENABLED, "ARCHIVED NO es vivo: el corte es moot"
+
+
+# ===========================================================================
+# Cross-review del dueno shapes (codex+qwen, out/cross-review-shapes-*.log):
+# literales del pause a UNA fuente (QW2), reversas verificadas (CX3/QW6) y
+# readback de estado PAGINADO (CX1/QW1 — el body {} solo ve la primera
+# pagina de una cuenta con 1334 keywords / 549 targets).
+# ===========================================================================
+
+
+def test_payload_pause_usa_las_constantes_de_write_una_sola_fuente(monkeypatch):
+    """QW2: el state del REQUEST del pause/resume vive SOLO en write.py
+    (ESTADO_PUT_*); apply lo re-exporta (el unico que puede importar write)
+    y la cola lo usa. Regla 9: contra los literales sueltos (a) el re-export
+    no existia (AttributeError) y (b) el sentinel NUNCA llegaba al payload —
+    cambiar write.py dejaba el ledger del pause con el enum viejo."""
+    from app import apply
+    from app.ads.write import ESTADO_PUT_ENABLED, ESTADO_PUT_PAUSED
+    from app.apply_cola import _payload_pause
+
+    assert apply.ESTADO_PUT_PAUSED == ESTADO_PUT_PAUSED, "apply re-exporta la constante"
+    assert apply.ESTADO_PUT_ENABLED == ESTADO_PUT_ENABLED
+    assert _payload_pause("keyword", "7201") == {"keywordId": "7201", "state": ESTADO_PUT_PAUSED}
+    # La corrida real del pause fija el enum tocando UN lugar (write.py): el
+    # payload del ledger la sigue SIN editar apply_cola.
+    monkeypatch.setattr(apply, "ESTADO_PUT_PAUSED", "PAUSED")
+    assert _payload_pause("keyword", "7201")["state"] == "PAUSED", "el payload vive de la constante"
+
+
+@_skip_db
+def test_reversa_pause_con_readback_que_sigue_paused_sella_divergencia():
+    """QW6 (mismo bug que PR27-3 en el camino principal): un resume cuyo
+    readback sigue PAUSED NO sella 'ok' — la reversa no surtio efecto.
+    Regla 9: el codigo viejo sellaba resultado='ok' con cualquier estado
+    legible (solo devolvia False) y el assert del ledger reventaba."""
+    with _db_temporal("orbit_cola_rdiv") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_pause": 1})
+        dec = _decision_corte(conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause")
+        q = _encola_fila(conn, dec, ids["kw"], "pause", payload=_payload_pause("7201"))
+        vistos: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            # El PUT del resume sale 207... pero Amazon NO lo procesa: el LIST
+            # fresco sigue devolviendo PAUSED (wire UPPER, probe 2.5).
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(
+                    200, json={"access_token": "fake-access-1", "expires_in": 3600}
+                )
+            vistos.append(request)
+            if request.method == "POST" and request.url.path.endswith("/list"):
+                return httpx.Response(
+                    200, json={"keywords": [{"keywordId": "7201", "state": "PAUSED"}]}
+                )
+            if request.method == "PUT":
+                return httpx.Response(207, json={"ack": json.loads(request.content)})
+            raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
+
+        from app.apply_cola import fila_cola
+
+        aplicador = _aplicador(conn, handler, ids["ciclo_ejec"])
+        ok = reversa_pause(conn, aplicador._cliente(), fila_cola(conn, q), tick=lambda: None)
+
+        assert ok is False, "un readback PAUSED NO confirma la reversa"
+        filas = conn.execute(
+            "SELECT tipo, resultado FROM apply_attempt WHERE decision_id = %s", (dec,)
+        ).fetchall()
+        assert filas == [("reversa", "fallo:divergencia_readback")], (
+            "el ledger JAMAS sella 'ok' sin el estado pedido (regla de PR27-3)"
+        )
+        estado = conn.execute(
+            "SELECT status FROM ad_entity_state WHERE ad_entity_id = %s", (ids["kw"],)
+        ).fetchone()[0]
+        assert estado == "PAUSED", "cache con LO LEIDO del readback (sellado 16)"
+
+
+@_skip_db
+def test_reversa_negative_con_207_rechazado_no_sella_ok():
+    """CX3: el delete de la reversa responde 207 con la fila en error[]
+    (rechazo por-item del shape real del probe 2.5): la reversa NO se
+    confirma. Regla 9: el codigo viejo sellaba 'ok' con cualquier 2xx y
+    devolvia True — el negativo quedaba vivo con el ledger mintiendo."""
+    with _db_temporal("orbit_cola_rneg") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_negative": 1})
+        dec = _decision_corte(
+            conn, ids["ciclo_dec"], ids["config"], ids["ag"], "negative", term="zapato blanco"
+        )
+        q = _encola_fila(
+            conn,
+            dec,
+            ids["ag"],
+            "negative",
+            term="zapato blanco",
+            payload=_payload_negative("7101", "7001", "zapato blanco"),
+        )
+        handler, _v = _handler_cortes(delete_rechazado=True)
+
+        from app.apply_cola import fila_cola
+
+        ok = reversa_negative(
+            conn, _aplicador(conn, handler, ids["ciclo_ejec"])._cliente(), fila_cola(conn, q), "n-1"
+        )
+
+        assert ok is False, "un 207 con error[] NO es una reversa confirmada"
+        filas = conn.execute(
+            "SELECT tipo, resultado FROM apply_attempt WHERE decision_id = %s", (dec,)
+        ).fetchall()
+        assert filas == [
+            (
+                "reversa",
+                "fallo:reversa_rechazada: {'negativeKeywords': "
+                "{'error': [{'index': 0, 'code': 'NOT_FOUND', "
+                "'negativeKeywordId': 'n-1'}], 'success': []}}",
+            )
+        ], "el ledger sella el rechazo CON el cuerpo del ack"
+
+
+@_skip_db
+def test_pause_cuya_entidad_vive_en_la_pagina_dos_del_list_aplica():
+    """CX1/QW1 lado pausas: la keyword vive en la pagina 2 del LIST de estado
+    (cuenta real: 1334 keywords). Regla 9: con la lectora de UNA pagina el
+    re-check de estado vivo leia None y el corte moria discard
+    'entidad_no_viva' (cero HTTP de mutacion) — estos asserts reventaban."""
+    with _db_temporal("orbit_cola_lp2") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_pause": 1})
+        d = ids["ahora"]
+        for fecha in _fechas(d.date() - dt.timedelta(days=28), d.date() - dt.timedelta(days=11)):
+            _metrica(conn, ids["run"], ids["kw"], fecha, clicks=5, cost=2, orders=0)
+        dec = _decision_corte(conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause")
+        q = _encola_fila(conn, dec, ids["kw"], "pause", payload=_payload_pause("7201"))
+        vistos: list[httpx.Request] = []
+        remoto = {"7201": "ENABLED"}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(
+                    200, json={"access_token": "fake-access-1", "expires_in": 3600}
+                )
+            vistos.append(request)
+            body = json.loads(request.content) if request.content else {}
+            if request.method == "POST" and request.url.path.endswith("/list"):
+                # Pagina 1: el senuelo 9999 + nextToken; pagina 2: la pedida.
+                if body.get("nextToken"):
+                    return httpx.Response(
+                        200,
+                        json={
+                            "keywords": [{"keywordId": "7201", "state": remoto["7201"]}],
+                            "totalResults": 2,
+                        },
+                    )
+                return httpx.Response(
+                    200,
+                    json={
+                        "keywords": [{"keywordId": "9999", "state": "ENABLED"}],
+                        "nextToken": "2",
+                        "totalResults": 2,
+                    },
+                )
+            if request.method == "PUT":
+                obj = body["keywords"][0]
+                ext = str(obj.get("keywordId"))
+                remoto[ext] = {"userPaused": "PAUSED", "enabled": "ENABLED"}.get(
+                    obj["state"], obj["state"]
+                )
+                return httpx.Response(207, json={"ack": obj})
+            raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
+
+        res = libera_vencidos(
+            conn, "amazon_us", ahora=d, aplicador=_aplicador(conn, handler, ids["ciclo_ejec"])
+        )
+
+        assert res.aplicadas == 1 and res.descartadas == [], (
+            "la entidad de la pagina 2 NO es 'entidad_no_viva': el corte aplica"
+        )
+        cola = conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()[0]
+        assert cola == "applied"
+        resultado = conn.execute(
+            "SELECT resultado FROM apply_attempt WHERE decision_id = %s", (dec,)
+        ).fetchone()[0]
+        assert resultado == "ok"

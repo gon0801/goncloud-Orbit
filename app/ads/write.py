@@ -104,7 +104,7 @@ MUTATION_REQUEST_TYPES: MappingProxyType[tuple[str, str], str] = MappingProxyTyp
         ("PUT", "/sp/keywords"): "application/vnd.spkeyword.v3+json",
         ("PUT", "/sp/targets"): "application/vnd.sptargetingclause.v3+json",
         ("POST", "/sp/negativeKeywords"): "application/vnd.spnegativekeyword.v3+json",
-        ("POST", "/sp/negativeKeywords/delete"): ("application/vnd.spnegativekeyword.v3+json"),
+        ("POST", "/sp/negativeKeywords/delete"): "application/vnd.spnegativekeyword.v3+json",
         ("POST", "/sp/keywords"): "application/vnd.spkeyword.v3+json",
         ("POST", "/sp/keywords/delete"): "application/vnd.spkeyword.v3+json",
     }

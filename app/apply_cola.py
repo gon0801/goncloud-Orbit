@@ -69,7 +69,15 @@ vivo se lee por LIST (POST /sp/{keywords|targets}/list — el GET directo
 responde 403, retirado) con cruce de id, y el vocabulario del wire es UPPER
 (apply.ESTADO_WIRE_*: ENABLED/PAUSED/ARCHIVED; ARCHIVED = operativamente
 muerto). Unica hipotesis PENDIENTE: el state del REQUEST del PUT de
-pause/resume (write.py ESTADO_PUT_*).
+pause/resume (write.py ESTADO_PUT_*, re-exportada por apply — QW2, UNA
+fuente).
+
+Ronda de CROSS-REVIEW del dueno (codex+qwen, shapes del probe 2.5,
+out/cross-review-shapes-*.log): el LIST de readback PAGINA por nextToken
+(apply._estado_de_readback — CX1/QW1: el body {} solo ve la primera pagina
+de una cuenta con 1334 keywords); la reversa del negative exige un 207 sin
+rechazo por-item (CX3, 'fallo:reversa_rechazada'); y reversa_pause sella
+'ok' SOLO si el readback lee ENABLED (QW6, misma regla que PR27-3).
 """
 
 from __future__ import annotations
@@ -390,10 +398,12 @@ def _modo_efectivo_corte(
 
 def _payload_pause(kind_entidad: str, external_id: str) -> dict:
     """Payload EXACTO del corte pause (mismo shape que _cambiar_estado del
-    write client). El state 'userPaused' es la HIPOTESIS del REQUEST
-    PENDIENTE de la corrida del pause real (write.py ESTADO_PUT_PAUSED)."""
+    write client). El state del REQUEST vive de la constante re-exportada
+    (QW2 de la cross-review: UNA fuente — write.py ESTADO_PUT_PAUSED, la
+    HIPOTESIS PENDIENTE de la corrida del pause real; cambiarla ahi cambia
+    el ledger del pause SIN tocar este modulo)."""
     campo = "keywordId" if kind_entidad == "keyword" else "targetId"
-    return {campo: external_id, "state": "userPaused"}
+    return {campo: external_id, "state": apply.ESTADO_PUT_PAUSED}
 
 
 def _payload_term(grupo_ext: str, campana_ext: str, term: str) -> dict:
@@ -489,9 +499,8 @@ def encola_cortes(
 
 
 # El lector de estado vive en app.apply (una sola fuente, shape del probe
-# 2.5): _estado_leido escanea el LIST por cruce de id y trae el vocabulario
-# UPPER del wire (ESTADO_WIRE_*).
-_estado_leido = apply._estado_leido
+# 2.5): _estado_de_readback escanea el LIST PAGINADO (CX1/QW1) por cruce de
+# id y trae el vocabulario UPPER del wire (ESTADO_WIRE_*).
 
 
 def _gracia_activa(conn: psycopg.Connection, ad_entity_id: int, ahora: dt.datetime) -> bool:
@@ -521,8 +530,10 @@ def _revalida_pause(
         return MOTIVO_ENTIDAD_NO_VIVA
     kind, external_id = identidad
     _, path, contenedor, param = apply._KINDS_DECISORAS[kind]
-    resp = aplicador._cliente().list_sellado(path, {})
-    estado = _estado_leido(resp, contenedor, param, external_id)
+    # CX1/QW1: el LIST PAGINA (la entidad puede vivir en la pagina 2+ de una
+    # cuenta con miles de keywords — leer solo la primera la daba por
+    # ausente y el corte moria 'entidad_no_viva').
+    estado = apply._estado_de_readback(aplicador._cliente(), path, contenedor, param, external_id)
     if estado != apply.ESTADO_WIRE_ENABLED:
         # Ya no existe / ARCHIVED / ya PAUSED: el corte es moot (ARCHIVED es
         # operativamente muerto — probe 2.5: el "delete" v3 archiva). La marca
@@ -672,8 +683,9 @@ def _ejecuta_pause(conn: psycopg.Connection, aplicador: Aplicador, fila: FilaCol
     # huerfana: ES el rastro, la reconciliacion (2.3, matriz §6.1) decide.
     ack = apply._json_seguro(resp_http)
     _, path, contenedor, param = apply._KINDS_DECISORAS[identidad[0]]
-    # Readback por LIST (probe 2.5: GET directo retirado) + wire UPPER.
-    estado = _estado_leido(cliente.list_sellado(path, {}), contenedor, param, identidad[1])
+    # Readback por LIST PAGINADO (probe 2.5: GET directo retirado; CX1/QW1)
+    # + wire UPPER.
+    estado = apply._estado_de_readback(cliente, path, contenedor, param, identidad[1])
     verify = estado == apply.ESTADO_WIRE_PAUSED
     # El ledger sella 'ok' SOLO con verificacion (bug PR27-3): un estado
     # legible distinto al pedido es divergencia (misma etiqueta QW1 de los
@@ -857,10 +869,11 @@ def reversa_pause(
     if identidad is None or identidad[0] not in apply._KINDS_DECISORAS:
         return False
     campo = "keywordId" if identidad[0] == "keyword" else "targetId"
-    # 'enabled' = el REQUEST del resume (HIPOTESIS del PUT, write.py
-    # ESTADO_PUT_ENABLED; PENDIENTE de la corrida del pause real). El READBACK
-    # compara contra el wire verificado del list (ESTADO_WIRE_ENABLED).
-    payload = {campo: identidad[1], "state": "enabled"}
+    # El state del REQUEST del resume vive de la constante re-exportada (QW2:
+    # write.py ESTADO_PUT_ENABLED — HIPOTESIS del PUT, PENDIENTE de la
+    # corrida del pause real). El READBACK compara contra el wire VERIFICADO
+    # del list (ESTADO_WIRE_ENABLED).
+    payload = {campo: identidad[1], "state": apply.ESTADO_PUT_ENABLED}
     id_attempt = apply._ledger(conn, fila.decision_id, "reversa", payload, quota_cobrada=False)
     if id_attempt is None:
         return False  # tope 3 del ledger: no existe 4o intento
@@ -880,14 +893,23 @@ def reversa_pause(
     if tick is not None:
         tick()
     _, path, contenedor, param = apply._KINDS_DECISORAS[identidad[0]]
-    # Readback por LIST (probe 2.5: GET directo retirado) + wire UPPER.
-    estado = _estado_leido(cliente.list_sellado(path, {}), contenedor, param, identidad[1])
-    resultado = "ok" if estado is not None else "fallo:readback_sin_estado"
+    # Readback por LIST PAGINADO (probe 2.5: GET directo retirado; CX1/QW1)
+    # + wire UPPER.
+    estado = apply._estado_de_readback(cliente, path, contenedor, param, identidad[1])
+    # QW6 (mismo bug que PR27-3 en _ejecuta_pause): el ledger sella 'ok' SOLO
+    # si el estado leido ES el pedido (ENABLED) — un resume que no surtio
+    # efecto es divergencia, jamas exito con retorno False.
+    verify = estado == apply.ESTADO_WIRE_ENABLED
+    resultado = (
+        "ok"
+        if verify
+        else ("fallo:divergencia_readback" if estado is not None else "fallo:readback_sin_estado")
+    )
     with conn.transaction():
         apply._sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
         if estado is not None:
             conn.execute(_SQL_CACHE_ESTADO, (estado, fila.ad_entity_id))
-    return estado == apply.ESTADO_WIRE_ENABLED
+    return verify
 
 
 def reversa_negative(
@@ -903,7 +925,10 @@ def reversa_negative(
     ids — el DELETE directo del collection NO existe, 403). Ledger tipo
     'reversa' EXENTO de quota; el `negative_id` es el que devolvio el ack del
     apply — lo pasa el caller porque la fila de la cola no lo congela.
-    True = el delete fue aceptado."""
+    CX3 de la cross-review: el 207 NO es exito automatico — la fila
+    rechazada viaja en error[] y la reversa se confirma SOLO sin rechazo
+    por-item (con el id de success[] siendo el del negativo borrado). True =
+    el delete fue aceptado."""
     payload = {"negativeKeywordIdFilter": {"include": [str(negative_id)]}}
     id_attempt = apply._ledger(conn, fila.decision_id, "reversa", payload, quota_cobrada=False)
     if id_attempt is None:
@@ -920,6 +945,15 @@ def reversa_negative(
     ack = apply._json_seguro(resp_http)
     if tick is not None:
         tick()
+    if apply_harvest._reversa_rechazada(ack, "negativeKeywordId", negative_id):
+        with conn.transaction():
+            apply._sella_ledger(
+                conn,
+                id_attempt,
+                ack=ack,
+                resultado=apply_harvest._resultado_reversa_rechazada(ack),
+            )
+        return False
     with conn.transaction():
         apply._sella_ledger(conn, id_attempt, ack=ack, resultado="ok")
-    return isinstance(ack, dict)
+    return True

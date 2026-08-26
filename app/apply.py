@@ -70,7 +70,13 @@ entidad vive por LIST (POST /sp/{keywords|targets}/list — el GET directo
 responde 403, retirado; apply_attempt 4-5), contenedores 'keywords'/
 'targetingClauses' y estados del wire UPPER (ESTADO_WIRE_*). Unica hipotesis
 PENDIENTE: el state del REQUEST del PUT de pause/resume
-(write.py ESTADO_PUT_*).
+(write.py ESTADO_PUT_*; re-exportada aqui — QW2, una sola fuente).
+
+Ronda de CROSS-REVIEW del dueno (codex+qwen, shapes del probe 2.5,
+out/cross-review-shapes-*.log): el readback por LIST PAGINA por nextToken
+con tope (CX1/QW1 + CX6) — el body {} solo trae la PRIMERA pagina y la
+cuenta real tiene 1334 keywords / 549 targets: una entidad en pagina 2+
+era "ausente" (falsa divergencia con quota cobrada).
 
 `owner`/`job_key` se guardan para el ownership-check pre-HTTP de la
 integracion (2.4, decision 11); el heartbeat `tick` se llama DURANTE la
@@ -101,6 +107,18 @@ from psycopg.types.json import Json
 from app.ads.client import AdsApiError, AdsClient
 from app.ads.config import AdsCredentials
 from app.ads.structure import PerfilAds, evaluar_perfiles
+
+# Re-export QW2 (cross-review del dueno): el state del REQUEST del PUT de
+# pause/resume vive SOLO en write.py (ESTADO_PUT_*); apply — el unico modulo
+# que puede importar write — lo re-exporta para que apply_cola/apply_harvest
+# usen LA constante. Cuando la corrida real del pause fije el enum, se toca
+# UN lugar (write.py) y el payload del ledger lo sigue.
+from app.ads.write import (
+    ESTADO_PUT_ENABLED as ESTADO_PUT_ENABLED,
+)
+from app.ads.write import (
+    ESTADO_PUT_PAUSED as ESTADO_PUT_PAUSED,
+)
 from app.ads.write import (
     MODO_CONFIRMADO_LIVE,
     PLATAFORMA_MONEDA,
@@ -165,6 +183,18 @@ def perfil_aceptado_de(
             return perfil
     return None
 
+
+# Tope de paginaciones del LIST de readback (CX1/QW1 + CX6 de la
+# cross-review del dueno): una cuenta real trae >1000 keywords y el body {}
+# solo trae la PRIMERA pagina, asi que el readback recorre TODAS por
+# nextToken (patron sellado de structure.py MAX_PAGINAS / smoke TOPE_PAGINAS
+# / apply_harvest TOPE_PAGINAS_LIST) con tope: una lista que nunca termina no
+# cuelga el ciclo. RESIDUAL DECLARADO (reviewer): el page size real del list
+# v3 es 1000 (log del probe: 1334 keywords = 2 paginas), asi que 20 paginas
+# cubren ~20k filas (~15x la cuenta actual); si la cuenta algun dia supera
+# el tope, una entidad mas alla se manifiesta como "ausente" (misma falsa
+# divergencia que este fix elimina) — subir el tope ese dia.
+TOPE_PAGINAS_READBACK = 20
 
 # Estados del WIRE en el readback por LIST. SELLADO por el probe 2.5
 # (2026-08-26, ledger probe ids 1-20, log out/smoke-apply-20260826.log): el
@@ -476,15 +506,15 @@ def reconcilia_bids(
         kind, external_id = identidad
         _, path, contenedor, param = _KINDS_DECISORAS[kind]
         try:
-            # Readback por LIST con el MISMO scope sellado (probe 2.5: el GET
-            # directo de entidad responde 403 — retirado).
-            resp = cliente.list_sellado(path, {})
+            # Readback por LIST PAGINADO con el MISMO scope sellado (probe
+            # 2.5: el GET directo retirado; CX1/QW1: el body {} solo trae la
+            # primera pagina y la entidad puede vivir en la 2+).
+            bid_leido = _bid_de_readback(cliente, path, contenedor, param, external_id)
         except AdsApiError:
             with conn.transaction():
                 _sella_ledger(conn, id_attempt, ack=None, resultado="fallo:readback_ambiguo")
             fallidas += 1
             continue
-        bid_leido = _bid_leido(resp, contenedor, param, external_id)
         if bid_leido == Decimal(_bid_payload(new_value)):
             ack = {"fuente": "readback", "bid": str(bid_leido)}
             with conn.transaction():
@@ -562,7 +592,8 @@ def _reintento_divergente(
     ack_http = _json_seguro(resp_http)
     _tick(aplicador._tick_fn)
     try:
-        bid2 = _bid_leido(cliente.list_sellado(path, {}), contenedor, param, external_id)
+        # CX1/QW1: readback paginado (la entidad puede vivir en pagina 2+).
+        bid2 = _bid_de_readback(cliente, path, contenedor, param, external_id)
     except AdsApiError:
         _sella_ledger(conn, id_retry, ack=ack_http, resultado="fallo:readback_ambiguo")
         conn.commit()
@@ -639,30 +670,62 @@ def _json_seguro(resp: httpx.Response) -> dict:
     return json.loads(scrub(json.dumps(data)))
 
 
-def _fila_de_lista(resp: httpx.Response, contenedor: str, id_campo: str, external_id: str) -> dict:
-    """La fila de ESTA entidad en la respuesta del LIST (cruce de id
-    CX6/GK8): el list trae TODAS las filas de la cuenta, asi que se ESCANEA
-    por el id — nunca filas[0]. None/{} = la entidad pedida no esta en la
-    respuesta (una respuesta de OTRA entidad no es evidencia de esta
-    decision ni toca el cache)."""
-    try:
-        filas = resp.json().get(contenedor)
-    except (ValueError, AttributeError, TypeError):
-        return {}
+def _fila_de_filas(filas, id_campo: str, external_id: str) -> dict:
+    """El cruce de id PURO: la primera fila de `filas` cuyo id CRUZA con el
+    pedido (CX6/GK8 — nunca filas[0]). Vive separado para que el lector de
+    UNA pagina y el paginado compartan el MISMO cruce (una sola fuente)."""
     for fila in filas or []:
         if isinstance(fila, dict) and str(fila.get(id_campo)) == str(external_id):
             return fila
     return {}
 
 
-def _bid_leido(
-    resp: httpx.Response, contenedor: str, id_campo: str, external_id: str
-) -> Decimal | None:
-    """El bid del READBACK por LIST, SOLO de la fila cuyo id CRUZA con el
-    pedido. Shape SELLADO por el probe 2.5 (2026-08-26, apply_attempt 4-7 y
-    19-20: contenedor 'keywords'/'targetingClauses', campo 'bid' NUMERO en
-    el wire). None = sin bid legible de ESTA entidad."""
-    fila = _fila_de_lista(resp, contenedor, id_campo, external_id)
+def _fila_de_lista(resp: httpx.Response, contenedor: str, id_campo: str, external_id: str) -> dict:
+    """La fila de ESTA entidad en UNA pagina de la respuesta del LIST (cruce
+    de id CX6/GK8): el list trae TODAS las filas de la cuenta, asi que se
+    ESCANEA por el id — nunca filas[0]. None/{} = la entidad pedida no esta
+    en la respuesta (una respuesta de OTRA entidad no es evidencia de esta
+    decision ni toca el cache)."""
+    try:
+        filas = resp.json().get(contenedor)
+    except (ValueError, AttributeError, TypeError):
+        return {}
+    return _fila_de_filas(filas, id_campo, external_id)
+
+
+def _fila_de_readback(
+    cliente: AdsWriteClient, path: str, contenedor: str, id_campo: str, external_id: str
+) -> dict:
+    """La fila de ESTA entidad recorriendo TODAS las paginas del LIST de
+    readback (CX1/QW1 de la cross-review del dueno): el body {} trae SOLO la
+    primera pagina y la cuenta real tiene miles de keywords/targets — una
+    entidad en pagina 2+ seria "ausente" (falsa divergencia con quota
+    cobrada). Corta EN CUANTO la halla; sigue el nextToken con tope
+    (TOPE_PAGINAS_READBACK: una lista que nunca termina no cuelga el ciclo).
+    {} = no esta en ninguna pagina visitada. AdsApiError (5xx/ambiguo) SUBE:
+    quien decide el sello lo captura como antes."""
+    token: str | None = None
+    for _ in range(TOPE_PAGINAS_READBACK):
+        body = {"nextToken": token} if token else {}
+        try:
+            data = cliente.list_sellado(path, body).json()
+        except (ValueError, AttributeError, TypeError):
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        fila = _fila_de_filas(data.get(contenedor), id_campo, external_id)
+        if fila:
+            return fila
+        token = data.get("nextToken")
+        if not token:
+            return {}
+    return {}
+
+
+def _bid_de_fila(fila: dict) -> Decimal | None:
+    """El bid de la fila del LIST ya cruzada. Shape SELLADO por el probe 2.5
+    (apply_attempt 4-7 y 19-20: campo 'bid' NUMERO en el wire). None = sin
+    bid legible."""
     bid = fila.get("bid")
     if bid is None:
         return None
@@ -672,17 +735,51 @@ def _bid_leido(
         return None
 
 
+def _estado_de_fila(fila: dict) -> str | None:
+    """El estado de la fila del LIST ya cruzada, vocabulario UPPER del wire
+    (ESTADO_WIRE_*). None = ilegible."""
+    estado = fila.get("state")
+    return estado if isinstance(estado, str) else None
+
+
+def _bid_de_readback(
+    cliente: AdsWriteClient, path: str, contenedor: str, id_campo: str, external_id: str
+) -> Decimal | None:
+    """El bid del READBACK paginado por LIST (espejo paginado de _bid_leido;
+    misma extraccion _bid_de_fila, una sola fuente). None = sin bid legible
+    de ESTA entidad en NINGUNA pagina."""
+    return _bid_de_fila(_fila_de_readback(cliente, path, contenedor, id_campo, external_id))
+
+
+def _estado_de_readback(
+    cliente: AdsWriteClient, path: str, contenedor: str, id_campo: str, external_id: str
+) -> str | None:
+    """El estado del READBACK paginado por LIST (espejo paginado de
+    _estado_leido para cortes y sus reconciliaciones). Vive AQUI (una sola
+    fuente): apply_cola y apply_harvest lo reusan por import."""
+    return _estado_de_fila(_fila_de_readback(cliente, path, contenedor, id_campo, external_id))
+
+
+def _bid_leido(
+    resp: httpx.Response, contenedor: str, id_campo: str, external_id: str
+) -> Decimal | None:
+    """El bid del READBACK por LIST de UNA pagina, SOLO de la fila cuyo id
+    CRUZA con el pedido. Shape SELLADO por el probe 2.5 (2026-08-26,
+    apply_attempt 4-7 y 19-20: contenedor 'keywords'/'targetingClauses',
+    campo 'bid' NUMERO en el wire). None = sin bid legible de ESTA entidad."""
+    return _bid_de_fila(_fila_de_lista(resp, contenedor, id_campo, external_id))
+
+
 def _estado_leido(
     resp: httpx.Response, contenedor: str, id_campo: str, external_id: str
 ) -> str | None:
-    """El estado del READBACK por LIST, SOLO de la fila cuyo id CRUZA con el
-    pedido (espejo de _bid_leido para cortes). El vocabulario del wire es
-    UPPER — ESTADO_WIRE_* (probe 2.5, apply_attempt 19-20); 'userPaused' NO
-    existe en la respuesta. None = ilegible/vacio/de otra entidad. Vive AQUI
-    (una sola fuente): apply_cola y apply_harvest lo reusan por import."""
-    fila = _fila_de_lista(resp, contenedor, id_campo, external_id)
-    estado = fila.get("state")
-    return estado if isinstance(estado, str) else None
+    """El estado del READBACK por LIST de UNA pagina, SOLO de la fila cuyo id
+    CRUZA con el pedido (espejo de _bid_leido para cortes). El vocabulario
+    del wire es UPPER — ESTADO_WIRE_* (probe 2.5, apply_attempt 19-20);
+    'userPaused' NO existe en la respuesta. None = ilegible/vacio/de otra
+    entidad. Vive AQUI (una sola fuente): apply_cola y apply_harvest lo
+    reusan por import."""
+    return _estado_de_fila(_fila_de_lista(resp, contenedor, id_campo, external_id))
 
 
 def _ya_aplicada(conn: psycopg.Connection, decision_id: int) -> bool:
@@ -1020,13 +1117,13 @@ class Aplicador:
         return cliente.actualizar_bid_target(external_id, bid, moneda)
 
     def _readback(self, cliente: AdsWriteClient, identidad: tuple[str, str]) -> Decimal | None:
-        """LIST FRESCO con el MISMO scope sellado (list_sellado: el re-check
-        JAMAS pasa un profile a mano — sellado 16; probe 2.5: el GET directo
-        de entidad esta retirado, 403)."""
+        """LIST FRESCO PAGINADO con el MISMO scope sellado (list_sellado: el
+        re-check JAMAS pasa un profile a mano — sellado 16; probe 2.5: el GET
+        directo de entidad esta retirado, 403; CX1/QW1: el body {} solo trae
+        la primera pagina de la cuenta)."""
         kind, external_id = identidad
         _, path, contenedor, param = _KINDS_DECISORAS[kind]
-        resp = cliente.list_sellado(path, {})
-        return _bid_leido(resp, contenedor, param, external_id)
+        return _bid_de_readback(cliente, path, contenedor, param, external_id)
 
 
 # ---------------------------------------------------------------------------
@@ -1077,9 +1174,9 @@ def reversa_bid(
     ack = _json_seguro(resp_http)
     _tick(tick)
     _, path, contenedor, param = _KINDS_DECISORAS[identidad[0]]
-    # Readback por LIST (probe 2.5: GET directo retirado), scope sellado.
-    resp = cliente.list_sellado(path, {})
-    bid_leido = _bid_leido(resp, contenedor, param, identidad[1])
+    # Readback por LIST PAGINADO (probe 2.5: GET directo retirado; CX1/QW1),
+    # scope sellado.
+    bid_leido = _bid_de_readback(cliente, path, contenedor, param, identidad[1])
     # QW1: misma etiqueta de divergencia que el apply y la reconciliacion.
     resultado = (
         "ok"

@@ -394,6 +394,8 @@ def _handler_harvest(
     fallo_delete_keyword: int = 0,
     ack_negative_sin_id: bool = False,
     ack_keyword_sin_id: bool = False,
+    ack_negative_con_error: bool = False,
+    delete_keyword_rechazado: bool = False,
 ):
     """Handler MockTransport con ALMACEN y el shape REAL del probe 2.5
     (2026-08-26, ledger ids 1-20, log out/smoke-apply-20260826.log): el POST
@@ -439,6 +441,18 @@ def _handler_harvest(
         if path == "/sp/negativeKeywords" and request.method == "POST":
             obj = body["negativeKeywords"][0]  # contenedor del recurso (probe 2.5)
             kid = f"n-{next(seq)}"
+            if ack_negative_con_error:
+                # CX2: 207 con la fila en error[] — rechazo por-item (shape del
+                # probe 2.5): Amazon NO creo nada, el almacen no cambia.
+                return httpx.Response(
+                    207,
+                    json={
+                        "negativeKeywords": {
+                            "error": [{"index": 0, "code": "DUPLICATE", "negativeKeywordId": kid}],
+                            "success": [],
+                        }
+                    },
+                )
             neg_store.append(
                 {
                     "adGroupId": obj["adGroupId"],
@@ -501,6 +515,18 @@ def _handler_harvest(
             if fallo_delete_keyword:
                 return httpx.Response(fallo_delete_keyword, json={"code": "400"})
             kid = body["keywordIdFilter"]["include"][0]
+            if delete_keyword_rechazado:
+                # CX3: el delete responde 207 pero la fila viaja en error[]
+                # (rechazo por-item: NO fue aceptado aunque el status sea 2xx).
+                return httpx.Response(
+                    207,
+                    json={
+                        "keywords": {
+                            "error": [{"index": 0, "code": "NOT_FOUND", "keywordId": kid}],
+                            "success": [],
+                        }
+                    },
+                )
             _archiva(kw_store, kid)
             return httpx.Response(
                 207,
@@ -1916,3 +1942,195 @@ def test_identidad_ignora_archived_el_delete_archiva():
     assert propio is not None and propio["keywordId"] == "n-2", (
         "ARCHIVED es operativamente AUSENTE: la identidad devuelve la fila VIVA"
     )
+
+
+# ===========================================================================
+# Cross-review del dueno shapes (codex+qwen, out/cross-review-shapes-*.log):
+# el 207 con la fila en error[] NO es exito automatico (CX2/CX3) y el
+# senuelo exige OTRO ad group VIVO (CX4). Tests PUROS donde se puede (regla
+# 9: rojo en out/tdd-red-shapes-cr.log); los de DB corren en CI (skip sin
+# tunel, igual que el resto de la suite).
+# ===========================================================================
+
+
+def test_solo_en_otro_ad_group_exige_otro_ad_group_y_vivo():
+    """CX4: un ARCHIVED del MISMO grupo (delete-archiva del probe 2.5) o una
+    variante de otro matchType en el PROPIO grupo NO son senuelo — el
+    reintento sigue vivo. Regla 9: el any() viejo contaba cualquiera de esos
+    items y el corte moria 'fallo:senuelo_otro_ad_group' sin senuelo real."""
+    from app.apply_harvest import _solo_en_otro_ad_group
+
+    archived_mismo_grupo = [
+        {
+            "adGroupId": ORIGEN_GRUPO,
+            "keywordText": TERMINO,
+            "matchType": "NEGATIVE_EXACT",
+            "state": "ARCHIVED",
+            "keywordId": "n-1",
+        }
+    ]
+    assert _solo_en_otro_ad_group(archived_mismo_grupo, ORIGEN_GRUPO, TERMINO) is False, (
+        "archived del MISMO grupo: operativamente ausente, se REINTENTA"
+    )
+    phrase_mismo_grupo = [
+        {
+            "adGroupId": ORIGEN_GRUPO,
+            "keywordText": TERMINO,
+            "matchType": "NEGATIVE_PHRASE",
+            "state": "ENABLED",
+            "keywordId": "n-2",
+        }
+    ]
+    assert _solo_en_otro_ad_group(phrase_mismo_grupo, ORIGEN_GRUPO, TERMINO) is False, (
+        "vivo del MISMO grupo (otro matchType): no es senuelo"
+    )
+    vivo_otro_grupo = [
+        {
+            "adGroupId": GRUPO_SENUELO,
+            "keywordText": TERMINO,
+            "matchType": "NEGATIVE_EXACT",
+            "state": "ENABLED",
+            "keywordId": "n-3",
+        }
+    ]
+    assert _solo_en_otro_ad_group(vivo_otro_grupo, ORIGEN_GRUPO, TERMINO) is True, (
+        "vivo de OTRO ad group: ese SI es el senuelo de la matriz 6.1"
+    )
+    assert _solo_en_otro_ad_group([], ORIGEN_GRUPO, TERMINO) is False
+
+
+def test_errores_de_ack_caza_el_rechazo_por_item_del_207():
+    """CX2/CX3: el ack 207 anidado lleva error[]/success[] por recurso (shape
+    sellado por el probe 2.5, apply_attempt 13-17): la fila RECHAZADA viaja
+    en error[] y un 2xx NO es exito automatico. Regla 9: sin el lector, el
+    rechazo por-item era invisible para el motor."""
+    from app.apply_harvest import _errores_de_ack
+
+    limpio = {"negativeKeywords": {"error": [], "success": [{"negativeKeywordId": "n-1"}]}}
+    assert _errores_de_ack(limpio) == []
+    rechazado = {
+        "negativeKeywords": {
+            "error": [{"index": 0, "code": "DUPLICATE", "negativeKeywordId": "n-1"}],
+            "success": [],
+        }
+    }
+    assert _errores_de_ack(rechazado) == rechazado["negativeKeywords"]["error"]
+    # Shapes defensivos: sin anidado no hay rechazo legible (regla 3).
+    assert _errores_de_ack({"nada": 1}) == []
+    assert _errores_de_ack("no-dict") == []
+
+
+def test_reversa_rechazada_exige_sin_error_e_id_propio():
+    """CX3: el veredicto del ack del delete — rechazado si error[] trae la
+    fila, o si el id de success[] NO es el del objeto borrado (fail-closed:
+    borrar OTRA cosa tampoco confirma). Regla 9: sin el veredicto, cualquier
+    2xx sellaba 'ok' y la reversa mentia."""
+    from app.apply_harvest import _reversa_rechazada
+
+    ok = {"keywords": {"error": [], "success": [{"index": 0, "keywordId": "k-1"}]}}
+    assert _reversa_rechazada(ok, "keywordId", "k-1") is False
+    rechazado = {
+        "keywords": {
+            "error": [{"index": 0, "code": "NOT_FOUND", "keywordId": "k-1"}],
+            "success": [],
+        }
+    }
+    assert _reversa_rechazada(rechazado, "keywordId", "k-1") is True
+    id_ajeno = {"keywords": {"error": [], "success": [{"keywordId": "k-OTRO"}]}}
+    assert _reversa_rechazada(id_ajeno, "keywordId", "k-1") is True, (
+        "success con el id de OTRA cosa: fail-closed, no confirma"
+    )
+    sin_estructura = {"status": 200}
+    assert _reversa_rechazada(sin_estructura, "keywordId", "k-1") is False, (
+        "sin error[] legible el 2xx del delete sigue en pie"
+    )
+
+
+@_skip_db
+def test_reconcilia_negative_con_207_rechazado_no_es_applied():
+    """CX2: el reintento de la reconciliacion recibe 207 con la fila en
+    error[]: NO se sella applied. Regla 9: el codigo viejo sellaba 'ok' +
+    'ok:reconciliado' + resumen verify_ok TRUE con CUALQUIER 2xx — el
+    rechazo por-item quedaba registrado como exito y estos asserts
+    reventaban."""
+    with _db_temporal("orbit_har_207e") as conn:
+        ids = _semilla(conn)
+        dec = _decision_negative(conn, ids["ciclo_dec"], ids["config"], ids["ag"])
+        q = _encola_fila(conn, dec, ids["ag"], kind="negative", term=TERMINO)
+        _libera_fila(conn, q)
+        _claim_fila(conn, q)
+        _fila_ledger_abierta(conn, dec)
+        handler, _v = _handler_harvest(ack_negative_con_error=True)
+
+        resumen = _reconcilia(conn, handler, ids["ciclo_ejec"])
+
+        assert resumen.negativas_confirmadas == 0 and resumen.negativas_fallidas == 1
+        cola = conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()[0]
+        assert cola == "failed", "un rechazo por-item JAMAS es applied"
+        # El reintento sella SU fila con el rechazo (la huerfana del crash
+        # conserva resultado NULL: el rastro, mismo trato que el fallo >=400).
+        reintento = conn.execute(
+            "SELECT resultado FROM apply_attempt WHERE decision_id = %s AND seq = 2", (dec,)
+        ).fetchone()[0]
+        assert reintento.startswith("fallo:ack_con_error"), (
+            "el ledger del reintento declara el RECHAZO con su cuerpo"
+        )
+        assert "DUPLICATE" in reintento, "el cuerpo del ack viaja en el resultado"
+        confirmado = conn.execute(
+            "SELECT verify_ok FROM decision_application WHERE decision_id = %s", (dec,)
+        ).fetchone()
+        assert confirmado is None, "sin resumen: no hay confirmacion de un rechazo"
+
+
+@_skip_db
+def test_reconcilia_negative_con_207_limpio_si_es_applied():
+    """CX2 cara complementaria: el 207 limpio (error[] vacio + id en
+    success[]) SI es applied — el veredicto nuevo no rompe el camino sano
+    (regla 9: el reintento de la matriz 6.1 sigue confirmando)."""
+    with _db_temporal("orbit_har_207l") as conn:
+        ids = _semilla(conn)
+        dec = _decision_negative(conn, ids["ciclo_dec"], ids["config"], ids["ag"])
+        q = _encola_fila(conn, dec, ids["ag"], kind="negative", term=TERMINO)
+        _libera_fila(conn, q)
+        _claim_fila(conn, q)
+        _fila_ledger_abierta(conn, dec)
+        handler, _v = _handler_harvest()
+
+        resumen = _reconcilia(conn, handler, ids["ciclo_ejec"])
+
+        assert resumen.negativas_confirmadas == 1
+        cola = conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()[0]
+        assert cola == "applied"
+        resultado = conn.execute(
+            "SELECT resultado FROM apply_attempt WHERE decision_id = %s AND seq = 2", (dec,)
+        ).fetchone()[0]
+        assert resultado == "ok"
+
+
+@_skip_db
+def test_reversa_completa_con_delete_rechazado_no_borra_el_negativo():
+    """CX3: el delete de la keyword responde 207 con la fila en error[]: la
+    reversa NO se confirma y el delete del negativo JAMAS sale (keyword
+    primero, §7 — borrar el negativo con la keyword viva devolveria el
+    termino a competir en origen Y destino). Regla 9: el codigo viejo sellaba
+    'ok' cualquier 2xx, corria el negativo igual y devolvia True."""
+    with _db_temporal("orbit_har_revrech") as conn:
+        ids = _semilla(conn)
+        dec = _decision_harvest(conn, ids["ciclo_dec"], ids["config"], ids["ag"])
+        handler, vistos = _handler_harvest(delete_keyword_rechazado=True)
+        aplicador = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        ok = reversa_harvest_completo(
+            conn, aplicador._cliente(), dec, negative_id="n-1", keyword_id="k-1"
+        )
+
+        assert ok is False, "un delete rechazado por-item NO confirma la reversa"
+        deletes = [r for r in _mutaciones(vistos) if r.url.path.endswith("/delete")]
+        assert [r.url.path for r in deletes] == ["/sp/keywords/delete"], (
+            "el delete del negativo JAMAS corre: la keyword sigue viva"
+        )
+        filas = conn.execute("SELECT tipo, resultado FROM apply_attempt ORDER BY seq").fetchall()
+        assert len(filas) == 1 and filas[0][0] == "reversa"
+        assert filas[0][1].startswith("fallo:reversa_rechazada"), (
+            "el ledger declara el rechazo con el cuerpo del ack"
+        )

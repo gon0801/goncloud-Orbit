@@ -469,17 +469,19 @@ def _paso_mutacion(ctx: ContextoSmoke, nombre: str, payload: dict, funcion) -> d
 def _paso_readback_bid(
     ctx: ContextoSmoke, es_keyword: bool, ext: str
 ) -> tuple[Decimal | None, dict]:
-    """Readback por LIST v3 con el MISMO profile sellado (evidencia probe
-    2.5, apply_attempt 4-5: el GET directo /sp/keywords responde 403 — retirado
-    como el resto de v2; el UNICO camino de lectura es el POST de lista,
-    verificado en vivo desde 2026-08-22). El contenedor del list es
-    'keywords'/'targetingClauses'; cruce de id contra la fila pedida."""
+    """Readback por LIST v3 PAGINADO con el MISMO profile sellado (evidencia
+    probe 2.5, apply_attempt 4-5: el GET directo /sp/keywords responde 403 —
+    retirado como el resto de v2; el UNICO camino de lectura es el POST de
+    lista, verificado en vivo desde 2026-08-22). El contenedor del list es
+    'keywords'/'targetingClauses'; cruce de id contra la fila pedida. CX6 de
+    la cross-review del dueno: la seleccion ya paginaba con listar_paginado
+    y el readback quedaba en la PRIMERA pagina — con la entidad elegida en
+    pagina 2+ el probe reportaria un falso fallo aunque la reversa fuera
+    correcta."""
     path = "/sp/keywords/list" if es_keyword else "/sp/targets/list"
     param = "keywordId" if es_keyword else "targetId"
-    contenedor = "keywords" if es_keyword else "targetingClauses"
     try:
-        resp = ctx.cliente.list_objects(path, {}, profile_id=ctx.profile_id)
-        filas = (resp.json() or {}).get(contenedor) or []
+        filas = listar_paginado(ctx, path)
         # Cruce de id (reviewer P2, post cross-review): una respuesta con el
         # id de OTRA entidad JAMAS confirma ni revierte — el motor ya cruza
         # (_bid_leido/_estado_leido) y el probe no debe sellar shapes con
@@ -489,12 +491,12 @@ def _paso_readback_bid(
         bid = _bid_valido(crudo)
         return bid, {
             "paso": "readback",
-            "http": _evidencia_respuesta(resp),
+            "filas_leidas": len(filas),
             "bid_leido": str(bid) if bid is not None else None,
             "bid_crudo": crudo,
             "id_cruzado": fila is not None,
         }
-    except (AdsApiError, ValueError, TypeError, IndexError, AttributeError) as exc:
+    except (AdsApiError, SmokeError, ValueError, TypeError, IndexError, AttributeError) as exc:
         return None, {"paso": "readback", "error": scrub(str(exc)), "bid_leido": None}
 
 
