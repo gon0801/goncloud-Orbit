@@ -48,7 +48,7 @@ import pglast
 import psycopg
 import pytest
 from psycopg.types.json import Json
-from test_schema import SQL, _postgres_obligatorio_ausente, _test_dsn
+from test_schema import SQL, SQL2, _postgres_obligatorio_ausente, _test_dsn
 
 from app import cycle as ciclo
 from app.optimizer import bid as bid_mod
@@ -115,7 +115,10 @@ def _db_temporal(prefijo: str):
         admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
         conn = psycopg.connect(dsn, dbname=db, autocommit=True)
         conn.execute("SET TIME ZONE 'UTC'")
-        conn.execute(SQL)  # la migracion entera
+        conn.execute(SQL)  # 0001: roles, esquema sellado, grants
+        # ORBIT 04 2.4: la fase de apply del ciclo escribe en apply_queue/
+        # apply_attempt (0002) — sin esta migracion el encolado revienta.
+        conn.execute(SQL2)
         yield conn, conectar_extra
     finally:
         if conn is not None:
@@ -1163,12 +1166,15 @@ def test_gates_de_elegibilidad_sin_goal_mode_off_estado_y_cooldown():
         ).fetchone()[0]
         conn.execute(
             "INSERT INTO decision_application (decision_id, attempted_at, confirmed_at,"
-            " verify_ok, platform_ack) VALUES (%s, %s, %s, true, %s)",
+            " verify_ok, platform_ack, applied_cycle_id) VALUES (%s, %s, %s, true, %s, %s)",
             (
                 dec_viva,
                 DECIDED_AT - dt.timedelta(days=6),
                 DECIDED_AT - dt.timedelta(days=6),
                 Json({"estado": "ok"}),
+                # ADV-06 (sellado 21): el cooldown mira el ciclo EJECUTOR
+                # (aqui, el mismo live que decidio y aplico).
+                ciclo_vivo,
             ),
         )
 
@@ -1221,7 +1227,9 @@ def test_fase_de_lecturas_corre_en_repeatable_read(monkeypatch):
 # ---------------------------------------------------------------------------
 
 # TUPLA LITERAL hardcodeada (CORTES 01 1.2, DoD): cada SQL del modulo aparece
-# EXPLICITO aqui, visible en cada diff que agregue uno.
+# EXPLICITO aqui, visible en cada diff que agregue uno. ORBIT 04 2.4 agrega
+# los de la fase de apply (guard del cierre, ownership-check, sello apply y
+# applied_count por columna).
 _SQL_CYCLE = (
     "_SQL_CLAIM",
     "_SQL_RASTRO",
@@ -1236,6 +1244,9 @@ _SQL_CYCLE = (
     "_SQL_DECISORAS",
     "_SQL_GRUPOS",
     "_SQL_INSERT_DECISION",
+    "_SQL_OWNER_LOCK",
+    "_SQL_SELLA_APPLY",
+    "_SQL_APPLIED_COUNT_CICLO",
 )
 
 

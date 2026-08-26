@@ -35,6 +35,13 @@ Diseno SELLADO (plans/orbit-04.md decision 9; docs/APPLY.md §8):
   y NO se escribe.
 - Quien puede importar este modulo: candado en tests/test_architecture.py
   — solo `app/apply.py` y `tools/smoke_apply.py` (r2 codex 5).
+- Errores >=400 (ORBIT 04 2.1, hallazgo r1 del brief §13): AdsApiError perdia
+  el body de Amazon; el `resultado` del ledger lo heredaria. `_mutate` lanza
+  `AdsApiErrorMutacion` con `cuerpo` = snippet del body JSON SANEADO
+  (scrub() + ~500 chars) + status + method + path.
+- `get_sellado(path, params)`: GET de readback con el scope SELLADO de la
+  instancia — el re-check del aplicador JAMAS pasa un profile a mano (r1 del
+  brief: los metodos de lectura heredados aceptan profile_id arbitrario).
 
 PENDIENTE del probe autorizado 2.5 (brief APPLY §13, sellado 23): los
 paths y vendor types de MUTACION no estan verificados en vivo (solo
@@ -46,6 +53,7 @@ reales existan. El sello/parseo de acks es del aplicador (2.1).
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Callable
 from decimal import ROUND_HALF_EVEN, Decimal
@@ -62,7 +70,7 @@ from app.ads.client import (
     _validate_relative_path,
 )
 from app.ads.config import AdsCredentials
-from app.redaction import redact_url
+from app.redaction import redact_url, scrub
 
 MODO_CONFIRMADO_LIVE = "live"
 
@@ -125,13 +133,50 @@ def _bid_payload(bid: Decimal) -> str:
     return str(bid.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN))
 
 
+class AdsApiErrorMutacion(AdsApiError):
+    """La API rechazo una mutacion (>=400) y el RECHAZO trae cuerpo.
+
+    Hoy AdsApiError pierde el body (redaccion del read client: solo status +
+    metodo + path) y el `resultado` del ledger heredaria esa perdida (r1 del
+    brief §13). `cuerpo` lleva un snippet del body JSON SANEADO (scrub: los
+    errores de Amazon pueden ecoar tokens) y truncado a ~500 chars — evidencia
+    para el ledger, no un volcado."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        cuerpo: str,
+        status: int,
+        method: str,
+        path: str,
+    ) -> None:
+        super().__init__(message)
+        self.cuerpo = scrub(cuerpo)
+        self.status = status
+        self.method = method
+        self.path = path
+
+
+def _snippet_cuerpo(resp: httpx.Response, tope: int = 500) -> str:
+    """Snippet saneado del body de una respuesta de error: JSON compacto si
+    parsea, texto crudo si no; scrub() SIEMPRE (defensa en profundidad: un
+    body puede ecoar credenciales) y truncado a `tope` chars."""
+    try:
+        cuerpo = json.dumps(resp.json(), ensure_ascii=False)
+    except ValueError:
+        cuerpo = resp.text
+    return scrub(cuerpo)[:tope]
+
+
 class AdsWriteClient(AdsClient):
     """Cliente de escritura Amazon Ads: SOLO las mutaciones del allowlist.
 
-    La superficie publica es EXACTA (10 metodos, ningun generico
-    request/post) y ningun metodo acepta profile/platform: el scope vive en
-    la instancia. Devuelven el `httpx.Response` crudo (el ack); el
-    sello/parseo es del aplicador (2.1).
+    La superficie publica es EXACTA (las 10 mutaciones selladas + get_sellado
+    para el readback del aplicador; ningun metodo generico request/post) y
+    ningun metodo acepta profile/platform: el scope vive en la instancia.
+    Devuelven el `httpx.Response` crudo (el ack); el sello/parseo es del
+    aplicador (2.1).
     """
 
     def __init__(
@@ -274,6 +319,16 @@ class AdsWriteClient(AdsClient):
             {"keywordId": _un_objeto(keyword_id, "keyword_id")},
         )
 
+    def get_sellado(self, path: str, *, params: dict | None = None) -> httpx.Response:
+        """GET de READBACK con el scope SELLADO de la instancia.
+
+        El re-check "ya estaba" del aplicador JAMAS pasa un profile a mano
+        (hallazgo r1 del brief §13: los metodos de lectura heredados aceptan
+        profile_id arbitrario — un readback con scope de otra plataforma
+        validaria la cuenta equivocada). Es un GET comun: pasa por el guard
+        read-only del padre con la politica normal de retries."""
+        return self._request("GET", path, params=params, profile_id=self._profile_id)
+
     # ------------------------------------------------------------------
     # Despacho central: guard allowlist + scope sellado + no-idempotente
     # ------------------------------------------------------------------
@@ -339,7 +394,15 @@ class AdsWriteClient(AdsClient):
                 idempotent=False,
             )
         if resp.status_code >= 400:
-            raise AdsApiError(f"status={resp.status_code}: {method} {redact_url(url)}")
+            # El rechazo determinista (>=400) lleva su cuerpo: el ledger del
+            # aplicador conserva la RAZON de Amazon (AdsApiError la perdia).
+            raise AdsApiErrorMutacion(
+                f"status={resp.status_code}: {method} {redact_url(url)}",
+                cuerpo=_snippet_cuerpo(resp),
+                status=resp.status_code,
+                method=method,
+                path=_clean_path(path),
+            )
         return resp
 
     def _headers_mutacion(self, token: str, vendor: str) -> dict[str, str]:

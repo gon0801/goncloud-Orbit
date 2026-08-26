@@ -130,6 +130,8 @@ def test_plataforma_vocabulario_cerrado():
 # 2. Superficie publica EXACTA y scope inexpresable
 # ---------------------------------------------------------------------------
 
+# Las 10 MUTACIONES selladas + get_sellado (ORBIT 04 2.1: el readback del
+# aplicador JAMAS pasa un profile a mano — GET con el scope de la instancia).
 METODOS_PUBLICOS = {
     "actualizar_bid_keyword",
     "actualizar_bid_target",
@@ -141,13 +143,14 @@ METODOS_PUBLICOS = {
     "borrar_negative",
     "crear_keyword_exacta",
     "borrar_keyword",
+    "get_sellado",
 }
 
 
 def test_superficie_publica_exacta():
-    """Solo los 10 metodos sellados; NADA generico request/post y ninguna
-    ampliacion silenciosa (vars() de la clase: lo heredado del read client
-    no se re-sella aqui)."""
+    """Las 10 mutaciones selladas + get_sellado, NADA mas; ningun metodo
+    generico request/post y ninguna ampliacion silenciosa (vars() de la
+    clase: lo heredado del read client no se re-sella aqui)."""
     public = {
         name
         for name, value in vars(AdsWriteClient).items()

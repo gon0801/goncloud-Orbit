@@ -49,14 +49,46 @@ ALLOWLIST_TAMANO = {
     "app/cycle.py": (
         "ORBIT 03 task 3.1: orquestador del ciclo, ubicacion SELLADA por el "
         "plan (importa psycopg, fuera del motor puro) y API publica sellada "
-        "(corre_ciclo + reproduce para el spot-check 4.4). Sus piezas (SQL "
-        "sellada de claim/envelope/rastro, 3 fases de transaccion, "
-        "serializacion congelada de inputs y replay) no tienen frontera "
-        "coherente para partirse sin romper el sellado; partir por partir "
-        "esta prohibido por la regla anti-Goodhart. Candidato DECLARADO "
-        "(hallazgo reviewer 3.1): el codec de inputs congelados "
-        "(serializacion + replay, par freeze<->replay de ~300 lineas) si "
-        "3.3/PR2 hacen crecer el modulo"
+        "(corre_ciclo + reproduce para el spot-check 4.4). ORBIT 04 2.4 "
+        "agrego la fase de apply dentro del lock (TX4 + aplicador + guard de "
+        "ownership). Sus piezas (SQL sellada de claim/envelope/rastro, fases "
+        "de transaccion, serializacion congelada de inputs, replay y la fase "
+        "de apply) no tienen frontera coherente para partirse sin romper el "
+        "sellado; partir por partir esta prohibido por la regla "
+        "anti-Goodhart. Candidato DECLARADO (hallazgo reviewer 3.1): el codec "
+        "de inputs congelados (serializacion + replay, par freeze<->replay de "
+        "~300 lineas)"
+    ),
+    "app/apply_harvest.py": (
+        "ORBIT 04 2.3: ejecucion del corte harvest (cadena de fases del job, "
+        "bid sugerido, reversas). La review adversaria de phase 2 le SUMO la "
+        "reconciliacion de inicio de ciclo que le faltaba (pausas applying "
+        "huerfanas ADV-03 + re-validacion del harvest ADV-05) y con eso paso "
+        "el umbral. Candidato DECLARADO a partirse la proxima vez que se "
+        "toque en grande: reconciliacion (reconcilia_harvest/_reconcilia_* + "
+        "revalida_harvest) vs ejecucion de jobs (la cadena _paso_*); partir "
+        "por partir esta prohibido por la regla anti-Goodhart"
+    ),
+    "app/apply.py": (
+        "ORBIT 04 2.1: nucleo del aplicador (quota, ledger, secuencia sellada "
+        "de mutaciones, reversas). La review adversaria de phase 2 le SUMO "
+        "reconcilia_bids (ADV-04: el ledger de bids sin sello no tenia "
+        "caller) y con eso paso el umbral (936). Mismo candidato DECLARADO "
+        "que apply_harvest: partir ejecucion (Aplicador + _ejecuta_mutacion) "
+        "de reconciliacion de ledger (reconcilia_bids) la proxima vez que se "
+        "tome en grande; partir por partir esta prohibido por la regla "
+        "anti-Goodhart"
+    ),
+    "app/apply_cola.py": (
+        "ORBIT 04 2.2: cola de cortes (encolado, re-validacion PRE-claim, "
+        "liberacion FIFO y reversas). La cross-review del dueno (codex+grok"
+        "+qwen, ORBIT 04 P2) le sumo el barrido resiliente (GK3: AdsApiError "
+        "por fila en la re-validacion), el verify honesto del negative "
+        "(CX4/GK6) y el cruce de id del readback de estado (CX6/GK8) y con "
+        "eso paso el umbral (912). Mismo candidato DECLARADO que la familia "
+        "apply: partir la ejecucion sellada por fila (_revalida*/_ejecuta_*) "
+        "de la maquina de encolado/liberacion la proxima vez que se toque en "
+        "grande; partir por partir esta prohibido por la regla anti-Goodhart"
     ),
 }
 

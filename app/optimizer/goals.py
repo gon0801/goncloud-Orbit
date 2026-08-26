@@ -37,13 +37,14 @@ Reglas selladas (plans/orbit-03.md task 2.4 + Spec delta de CONTEXTO.md):
   (las funciones puras no adivinan). modo_desde_settings es fail-closed:
   sin clave o valor invalido -> 'off' (una config corrupta JAMAS habilita
   live por accidente).
-- FAIL-CLOSED PR1: HAY_MODULO_APPLY es False mientras el modulo apply no
-  exista (ORBIT 04/PR2 lo voltea a True). resuelve_modo degrada un meet
-  'live' a 'shadow' con la nota estable NOTA_LIVE_DEGRADADO: sin modulo de
-  aplicacion un ciclo live no puede aplicar nada, y degradarlo con nota es
-  lo unico auditable (3.1 lo persiste en optimizer_cycle.notes). Un meet
-  'shadow' por la escalera NO lleva nota: es el meet pedido, no una
-  degradacion de PR1.
+- FAIL-CLOSED PR1 (historico, ya resuelto): HAY_MODULO_APPLY fue False hasta
+  ORBIT 04 2.4 (sellado 22) mientras el modulo apply no existia; resuelve_modo
+  degradaba un meet 'live' a 'shadow' con la nota estable NOTA_LIVE_DEGRADADO.
+  Desde 2.4 el flag vive en True y la degradacion YA NO dispara: el residuo
+  envelope-live/goal-shadow lo resuelve el aplicador re-resolviendo el modo
+  POR DECISION (app/apply.py, JAMAS inputs.modo ni cycle.mode). La rama y la
+  nota se conservan como candado de un flip-back deliberado. Un meet 'shadow'
+  por la escalera NO lleva nota: es el meet pedido, no una degradacion.
 - COOLDOWN 7d por ENTIDAD: en_cooldown pregunta si la entidad tiene ALGUNA
   decision con apply VERIFICADO dentro de los ultimos 7 dias (umbral
   confirmed_at > ahora - 7d, comparador ESTRICTO como los de windows:
@@ -55,7 +56,10 @@ Reglas selladas (plans/orbit-03.md task 2.4 + Spec delta de CONTEXTO.md):
   vuelo) tampoco. En shadow nunca enfria POR QUERY (JOIN a optimizer_cycle
   mode='live', regla sellada del diseno v2 -- hallazgo codex+grok ronda 1):
   aunque un dry-run de PR2 escribiera decision_application en shadow, ese
-  apply JAMAS enfria.
+  apply JAMAS enfria. Desde ORBIT 04 phase 2 (ADV-06, sellado 21) el JOIN es
+  contra applied_cycle_id (el ciclo que EJECUTO, sellado con verify_ok en
+  0002), no contra d.cycle_id (el que decidio): la decision shadow aplicada
+  en live SI enfria desde el apply.
 - DETERMINISMO: no hay now() escondido; `ahora` llega por parametro y DEBE
   ser tz-aware (mismo principio que windows._fecha_utc, replicado aqui
   localmente: no se importan privados de otro modulo).
@@ -87,9 +91,12 @@ DEFAULT_CEILING = Decimal("2.50")  # igual al DEFAULT de DB (bid_ceiling)
 # humana de 4.3 escribe la escalera global aqui; valores off|shadow|live).
 CLAVE_SETTING_MODO = "ads_optimizer_mode"
 
-# PR1: no existe modulo apply. ORBIT 04 (PR2) voltea esta bandera a True y
-# con ella desaparece la degradacion de resuelve_modo.
-HAY_MODULO_APPLY = False
+# Encendido en ORBIT 04 2.4 (sellado 22: la tarea de integracion lo voltea):
+# con True, resuelve_modo YA NO degrada live->shadow — la fase de apply vive
+# en app/cycle.py y el residual envelope-live/goal-shadow lo resuelve el
+# aplicador por decision. Un flip-back a False reactivaria la degradacion con
+# nota (candado deliberado, no codigo muerto).
+HAY_MODULO_APPLY = True
 
 COOLDOWN = dt.timedelta(days=7)  # por ENTIDAD; comparador ESTRICTO en el umbral
 
@@ -316,10 +323,11 @@ def modo_efectivo(escalera_global: str, modo_goal: str) -> str:
 
 
 def resuelve_modo(escalera_global: str, modo_goal: str) -> ModoEfectivo:
-    """modo_efectivo + fail-closed de PR1: si el meet es 'live' y
-    HAY_MODULO_APPLY es False, se degrada a 'shadow' con la nota estable
-    NOTA_LIVE_DEGRADADO (auditable en optimizer_cycle.notes via 3.1). Un meet
-    'shadow' u 'off' por la escalera NO lleva nota: no es degradacion."""
+    """modo_efectivo + fail-closed historico de PR1: con HAY_MODULO_APPLY en
+    False, un meet 'live' se degrada a 'shadow' con la nota estable
+    NOTA_LIVE_DEGRADADO. Desde 2.4 el flag vive en True (sellado 22) y el meet
+    live YA NO se degrada: existe modulo de aplicacion. Un meet 'shadow' u
+    'off' por la escalera NO lleva nota: no es degradacion."""
     modo = modo_efectivo(escalera_global, modo_goal)
     if modo == "live" and not HAY_MODULO_APPLY:
         return ModoEfectivo(modo="shadow", nota=NOTA_LIVE_DEGRADADO)
@@ -341,12 +349,18 @@ def resuelve_modo(escalera_global: str, modo_goal: str) -> ModoEfectivo:
 # un dry-run de PR2 escriba decision_application en shadow (hallazgo
 # codex+grok, cross-review ronda 1): una decision shadow con apply
 # verificado JAMAS enfria.
+# Desde la review adversaria de ORBIT 04 phase 2 (ADV-06, sellado 21) el JOIN
+# mira da.applied_cycle_id — el ciclo que EJECUTO el apply (se sella SOLO con
+# verify_ok, 0002) — y NO d.cycle_id (el que decidio): la decision nacida en
+# ciclo shadow y aplicada por un ciclo live SI enfria desde el apply; mirar
+# al decisor dejaba el anti-loop roto justo en ese caso (la entidad se
+# re-decidia y re-aplicaba al dia siguiente).
 _SQL_EN_COOLDOWN = """
 SELECT EXISTS (
     SELECT 1
       FROM decision_application da
       JOIN decision d ON d.id = da.decision_id
-      JOIN optimizer_cycle oc ON oc.id = d.cycle_id AND oc.mode = 'live'
+      JOIN optimizer_cycle oc ON oc.id = da.applied_cycle_id AND oc.mode = 'live'
      WHERE d.ad_entity_id = %s
        AND da.verify_ok IS TRUE
        AND da.confirmed_at > %s
@@ -355,14 +369,16 @@ SELECT EXISTS (
 
 
 def en_cooldown(conn: psycopg.Connection, ad_entity_id: int, *, ahora: dt.datetime) -> bool:
-    """True si la ENTIDAD tiene alguna decision de un ciclo LIVE con apply
-    VERIFICADO (verify_ok IS TRUE) confirmado hace <7d respecto de `ahora`.
-    Reloj por parametro (sin now() escondido), DEBE ser tz-aware (en
-    cualquier zona: la comparacion es entre instantes): un naive evaluaria
-    segun la TZ local del proceso y se rechaza ruidosamente (mismo principio
-    que windows._fecha_utc, replicado sin importar su privado). En shadow
-    nunca enfria POR QUERY: el filtro optimizer_cycle.mode='live' lo hace
-    inmune a applies de dry-run (regla sellada del diseno v2)."""
+    """True si la ENTIDAD tiene alguna decision con apply VERIFICADO
+    (verify_ok IS TRUE) EJECUTADO por un ciclo LIVE (applied_cycle_id, el
+    ciclo ejecutor — no el decisor) y confirmado hace <7d respecto de
+    `ahora`. Reloj por parametro (sin now() escondido), DEBE ser tz-aware
+    (en cualquier zona: la comparacion es entre instantes): un naive
+    evaluaria segun la TZ local del proceso y se rechaza ruidosamente
+    (mismo principio que windows._fecha_utc, replicado sin importar su
+    privado). En shadow nunca enfria POR QUERY: el filtro del ciclo EJECUTOR
+    mode='live' lo hace inmune a applies de dry-run (regla sellada del
+    diseno v2)."""
     if ahora.tzinfo is None:
         raise ValueError(
             "ahora debe ser tz-aware (UTC): un naive evaluaria segun la TZ local del proceso"

@@ -15,3 +15,6 @@ build/
 out/
 # estado runtime del harness (secretAllow por sesion; lo regenera plan-preapproval.sh)
 .claude-code-harness.config.json
+
+# scratch de sesiones de agentes (evidencia one-shot, no va al repo)
+.saikit/scratch/

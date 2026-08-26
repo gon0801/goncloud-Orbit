@@ -256,6 +256,16 @@ El ack/resultado/`finished_at` se sellan **al volver, SOLO una vez**:
 decisión = 3 (tarea 2.1); un 4º intento revienta contra el COUNT del
 ledger.
 
+**Residual declarado (ADV-08, review adversaria de phase 2):** el sello por
+decisión (`ok:reconciliado` con `ack` NULL) cierra TODAS las filas sin
+sello de la decisión cuando la evidencia viva resuelve el efecto — incluida
+la de un intento que murió ANTES de enviar (crash entre ledger-commit y
+HTTP): el ledger puede afirmar un intento que jamás salió. El tope-3 las
+CUENTA igual (conservador: un intento fantasma consume un hueco del tope,
+jamás lo regala). No hay forma barata de distinguir "nunca salió" de
+"salió y no se selló" sin leer `started_at` contra el log de acceso — si
+ese poder se necesita, es decisión nueva del dueño.
+
 ### 4.2 `decision_application` queda como RESUMEN
 
 - Su PK única (`decision_id`) se respeta: **reintentos = UPDATE del
@@ -417,6 +427,15 @@ Ninguna acción irreversible sin su reversa implementada antes (regla 7):
   impedir.
 - El orden de reversa del harvest completo es SELLADO (keyword primero,
   negativo después) — test de orden (regla 9).
+- **Residual declarado (ADV-10, review adversaria de phase 2):** la
+  reconciliación del harvest adopta por IDENTIDAD COMPLETA (grupo destino +
+  texto + exact) y la reversa borra por **id externo** — si el dueño crea a
+  mano una keyword EXACT con el mismo texto en el destino durante la
+  ventana, el job puede ADOPTARLA y una reversa automática posterior
+  BORRARÍA su keyword manual. Mitigación disponible HOY: el **veto dentro de
+  la ventana** mata el job antes de que ejecute. Una marca de origen
+  (p. ej. conservar el `keywordId` del ack propio y no adoptar ids ajenos
+  salvo evidencia) es decisión nueva del dueño si el caso aparece.
 
 ---
 
@@ -581,6 +600,83 @@ con las claves `ads_apply_cap_*` mayores (append-only, `app_admin`) y
 verificando en Salud que la fila del día siguiente nace con el cap nuevo.
 No existe camino del motor para subir caps (sellado 8).
 
+### 11d. Probe autorizado de formas reales (tarea 2.5, sellado 23)
+
+Herramienta: `tools/smoke_apply.py` (runbook completo en su docstring; esta
+sección es su referencia operativa). **La corrida la AUTORIZA el dueño con
+una campaña sacrificable y la coordina el lead; JAMÁS se ejecuta "a ver si
+funciona"** (la tarea 2.5 entrega la herramienta y sus tests: la corrida
+real es un acto del dueño).
+
+**Las dos capas de autorización (fail-closed):**
+
+1. `ORBIT_SMOKE_AUTH`: token EFÍMERO que el dueño setea SOLO para la
+   corrida y borra al terminar. **La capa es REAL (CX5 de la cross-review):
+   el valor del env se compara con `compare_digest` contra la clave
+   `ads_smoke_auth` de la `config_version` VIGENTE** — sembrada con la misma
+   ceremonia de admin que la campaña. Cualquier string no-vacío YA NO basta:
+   sin clave sembrada o con token distinto → exit != 0 ANTES de abrir
+   credenciales o HTTP. Sin el env (o vacío): exit != 0 ANTES de abrir
+   cualquier conexión.
+2. `--acepto-mutacion-real`: flag explícito. El env solo NO corre nada —
+   nada sale por accidente.
+
+**Campaña allowlisted (JAMÁS por flag/env):** la clave
+`ads_smoke_campaign_<platform>` en la `config_version` VIGENTE, con el
+`external_id` de la campaña sacrificable. Se siembra con ceremonia de admin:
+
+```sql
+-- app_admin; OJO: config_version se resuelve por ÚLTIMA fila — copiar los
+-- settings vigentes y AGREGAR las claves (sembrar solo las claves apagaría
+-- los caps ads_apply_cap_* para las lecturas de ese día).
+INSERT INTO config_version (label, settings)
+VALUES ('smoke 2.5', '<settings vigentes
+  + "ads_smoke_campaign_<platform>": "<external_id>"
+  + "ads_smoke_auth": "<token de un uso de esta corrida>">'::jsonb);
+```
+
+Quitarlas al cerrar = fila NUEVA de config sin las claves (append-only).
+
+**Corrida (en el server, con `ORBIT_DSN_DECIDE` en el entorno — identidad
+del motor: sus filas de ledger nacen tipo `probe` auditable, decision_id
+NULL, `quota_cobrada=false`):**
+
+```bash
+export ORBIT_SMOKE_AUTH="<el MISMO token sembrado en ads_smoke_auth>"
+python tools/smoke_apply.py --forma todas --platform <platform> \
+  --acepto-mutacion-real 2>&1 | tee out/smoke-apply-<fecha>.log
+unset ORBIT_SMOKE_AUTH
+```
+
+Cada forma imprime UNA línea JSON de evidencia (saneada por scrub):
+request EXACTO, ack (body + headers sin secretos), readback y reversa.
+Las cuatro formas (decisión 23): `bid_keyword` (±0.01 con reversa al
+ORIGINAL LEÍDO), `bid_target` (idem), `negative` (create+delete neto cero
+sobre término basura), `keyword` (create+delete neto cero — el corazón del
+harvest; su bid sale de una fuente REAL: el bid LEÍDO de la primera keyword
+EXACT de la campaña). `--forma todas` corre las cuatro en orden y SE DETIENE
+en la primera que falla (fail-closed). Exit 0 solo si TODO quedó neto cero.
+
+**HIPÓTESIS SIN VERIFICAR (orden explícito del dueño):** los ENUMS y tipos
+del REQUEST de mutación JAMÁS corrieron contra la API real — la corrida
+autorizada los FIJA. Declaradas en `HIPOTESIS_SHAPES` de la herramienta y
+viajan en la evidencia de cada forma: `matchType 'exact'` vs
+`'negativeExact'`; `state 'userPaused'/'enabled'`; el bid como string
+quantizado a 2 decimales; el campo del id creado en el ack (`keywordId` vs
+`negativeKeywordId`); el contenedor del GET de readback
+(`'keywords'/'targets'`); el body del DELETE. Si la corrida corrige uno,
+se arregla `write.py` y los tests se re-sellan.
+
+**Cómo se cierra la tarea 2.5 con esta corrida:** (1) verificar exit 0 y
+`neto_cero=true` en las cuatro líneas de evidencia + estado final ==
+inicial; (2) contra cada ack/readback REAL, confirmar o corregir las
+hipótesis de arriba; (3) FINALIZAR los tests de readback de 2.1-2.3 hoy
+marcados "pendientes de shape" (§13.2) sellándolos contra los shapes reales
+(regla 8); (4) el dueño borra `ORBIT_SMOKE_AUTH` y el admin siembra config
+nueva sin las claves de campaña NI `ads_smoke_auth`; (5) evidencia (log +
+`SELECT` del ledger probe) al registro de ORBIT 04. El ensayo E2E de 4.3
+re-usa esta misma herramienta.
+
 ---
 
 ## 12. Checklist de cutover ORBIT 05
@@ -619,7 +715,8 @@ antes):
 1. **Endpoint/shape del bid sugerido** — regla 8 en vivo define endpoint,
    cliente y guard (sellado 14). Hasta entonces: sin sugerencia → default.
 2. **Shapes de acks** — los fija **2.5** con el probe autorizado (las
-   CUATRO formas, incluido keyword create+delete neto cero); los tests de
+   CUATRO formas, incluido keyword create+delete neto cero; procedimiento y
+   hipótesis declaradas: §11d); los tests de
    readback de 2.1-2.2 nacen marcados "pendientes de shape" hasta ahí.
 3. **Ad groups e ids `ad_entity` reales de las Exact US**
    (post-reactivación) — se verifican POST-sync en 4.2.
@@ -632,6 +729,13 @@ antes):
 Pendientes declarados por este brief (detalle fino DENTRO de lo sellado;
 los fija el implementador de la tarea correspondiente):
 
+- **Residual (ADV-04, review adversaria de phase 2):** la reconciliación de
+  ledger sin sello cableada en phase 2 cubre SOLO intentos `tipo='normal'`
+  de decisions kind `bid`. Las filas **reversa/probe sin sello** (matriz
+  §6.1 última fila) NO tienen reconcilador: un crash entre el ledger de una
+  reversa y su HTTP queda abierto hasta que el operador lo resuelva contra
+  el GET/list correspondiente. Se declara en vez de implementarse a ciegas
+  porque cada tipo exige su propio readback y no existe aún un caso real.
 - Nombres de columnas no citados por el header (p.ej. el sello
   ack/resultado del ledger): los fija 1.2 sin salirse de §4.
 - Si el probe (2.5) consume quota o va exento (§5.3).
@@ -659,3 +763,19 @@ las resuelve antes):
   `decision_id` NULL (el tope-3 es COUNT de la app, sellado 10).
 - Un discard bajo `SET ROLE app_admin` (como el flip de ORBIT 05) no está
   ejercitado en los tests DB de 1.2; los grants sí están pineados estáticos.
+
+Declarados SIN fix tras la cross-review del dueño (codex+grok+qwen,
+2026-08-26; suscrito por el reviewer — nota, no sello roto):
+
+- Tope-3 check-then-act (qwen): sin UNIQUE `(decision_id, seq)` el COUNT y
+  el INSERT no son atómicos entre DOS aplicadores concurrentes; el claim
+  del lock serializa la fase de apply POR PLATAFORMA (una decisión, un
+  camino, un dueño), así que la carrera requiere romper el claim primero.
+  Backstop UNIQUE = candidato 0003 (ya declarado arriba).
+- Doble scrub idempotente (qwen): `_snippet_cuerpo` y la excepción aplican
+  `scrub()` dos veces; redaction.py asume idempotencia en todos sus usos.
+  Blindaje barato pendiente (P2): try/except alrededor del
+  `json.loads(scrub(...))` del ack.
+- Un 5xx/fallo ambiguo de mutación ABORTA el lote de bids en curso (qwen):
+  diseño sellado (§5.3, "no se reintenta") — el ciclo sella degraded y el
+  siguiente reconcilia; confirmado deseado.
