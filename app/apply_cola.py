@@ -41,8 +41,9 @@ Diseno SELLADO (plans/orbit-04.md decisiones 1-6, 8, 17; docs/APPLY.md §1-§3,
 - CAP AGOTADO -> cortes esperan FIFO en released y SIGUEN vetables (§5.4).
 - REVERSAS pause/negative (regla 7, sellado 12): ledger tipo 'reversa'
   EXENTAS de quota, mismo readback; no limpian cooldown.
-- HARVEST: hook aplica_harvest que 2.3 implementa (harvest_job nace AL
-  LIBERAR, sellado 13); por ahora raises NotImplementedError.
+- HARVEST (2.3): hook delegado a apply_harvest.aplica_harvest — harvest_job
+  nace AL LIBERAR (sellado 13) y TODA la ejecucion (fases, bid sugerido
+  clampeado, reversas) vive en ese modulo; la cola solo conecta el hook.
 
 Elecciones DECLARADAS de esta task:
 
@@ -71,7 +72,7 @@ from decimal import Decimal
 import psycopg
 from psycopg.types.json import Json
 
-from app import apply
+from app import apply, apply_harvest
 from app.apply import Aplicador, DecisionBid, consume_quota
 from app.optimizer import bid as motor_bid
 from app.optimizer import cortes, hygiene, windows
@@ -689,20 +690,6 @@ def _ejecuta_negative(conn: psycopg.Connection, aplicador: Aplicador, fila: Fila
     return "applied"
 
 
-def aplica_harvest(
-    conn: psycopg.Connection,
-    aplicador: Aplicador,
-    fila: FilaCola,
-    *,
-    ahora: dt.datetime,
-) -> str:
-    """ORBIT 04 2.3: harvest_job nace AL LIBERAR el corte (primer paso del
-    apply, sellado 13) — jamas al decidir. El hook existe para que la cola ya
-    delegue en el camino correcto; su implementacion (fases, bid sugerido
-    clampeado, reversas de harvest) es de la tarea 2.3."""
-    raise NotImplementedError("ORBIT 04 2.3: harvest_job nace al liberar (hook de la cola)")
-
-
 # ---------------------------------------------------------------------------
 # Liberacion FIFO de vencidas
 # ---------------------------------------------------------------------------
@@ -735,8 +722,9 @@ def libera_vencidos(
     6. HTTP (write client del aplicador) + readback + sello -> applied|failed.
 
     Las filas shadow JAMAS se seleccionan (sellado 6). kind harvest delega al
-    hook aplica_harvest (2.3) DESPUES de la re-validacion y ANTES del cobro
-    (no quemar quota en lo no implementado)."""
+    hook apply_harvest.aplica_harvest (2.3: harvest_job nace AL LIBERAR,
+    sellado 13) DESPUES de la re-validacion y ANTES del cobro de la cola —
+    la UNICA unidad de la operacion logica la cobra el hook."""
     filas = [FilaCola(*f) for f in conn.execute(_SQL_VENCIDAS, (platform, ahora)).fetchall()]
     liberadas = aplicadas = fallidas = sin_quota = carreras = 0
     descartadas: list[str] = []
@@ -751,7 +739,18 @@ def libera_vencidos(
             descartadas.append(motivo)
             continue
         if fila.kind == "harvest":
-            aplica_harvest(conn, aplicador, fila, ahora=ahora)  # ORBIT 04 2.3
+            # ORBIT 04 2.3: harvest_job nace al liberar (sellado 13) y TODA
+            # la ejecucion vive en apply_harvest (job → quota → claim →
+            # ledger → 2 HTTPs → readback por identidad completa).
+            resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+            if resultado_h.estado == "applied":
+                aplicadas += 1
+            elif resultado_h.estado == "failed":
+                fallidas += 1
+            elif resultado_h.estado == "perdida":
+                carreras += 1
+            else:
+                sin_quota += 1
             continue
         if not consume_quota(conn, platform, fila.kind):
             sin_quota += 1

@@ -43,8 +43,9 @@ DoD de la tarea, un candado por test (regla 9 en cada uno):
 PENDIENTES del probe autorizado 2.5 (brief APPLY §13, sellado 23): el shape
 del readback de estado (contenedor 'keywords'/'targets', campo 'state') y el
 ack del POST/DELETE de negatives son SUPUESTOS de estos tests contra
-MockTransport; el probe los fija contra las formas reales. Harvest (1 quota /
-2 HTTPs) es 2.3: el hook aplica_harvest queda cubierto por el raise.
+MockTransport; el probe los fija contra las formas reales. El harvest (1
+quota / 2 HTTPs, job al liberar) vive desde 2.3 en app/apply_harvest con
+sus tests en test_apply_harvest.py.
 """
 
 from __future__ import annotations
