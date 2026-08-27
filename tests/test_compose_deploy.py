@@ -77,9 +77,34 @@ def test_compose_db_no_recibe_ningun_dsn():
         "db hereda el .env completo: el DSN admin NO es solo de app"
     )
     assert "ORBIT_DSN" not in operativas, "db recibe DSNs de Orbit: env por servicio roto"
-    # Y el otro lado del contrato: app SI los recibe (la API/CLI los usa).
+    # Y el otro lado del contrato: app recibe SOLO los 4 DSN de servicio por
+    # interpolacion (CodeRabbit Major PR #36: env_file inyectaba TODO el
+    # .env — incluido ORBIT_DSN_TEST, cuyo rol tiene ADMIN OPTION sobre
+    # app_* = escritura en prod desde dentro del contenedor).
     bloque_app = _bloque_servicio(COMPOSE.read_text(encoding="utf-8"), "app")
-    assert "env_file: .env" in bloque_app
+    operativas_app = "\n".join(
+        ln for ln in bloque_app.splitlines() if not ln.strip().startswith("#")
+    )
+    assert "env_file" not in operativas_app, "app hereda TODO el .env por env_file"
+    for svc in ("INGEST", "DECIDE", "READ", "ADMIN"):
+        assert f"ORBIT_DSN_{svc}: ${{ORBIT_DSN_{svc}}}" in operativas_app
+    assert "ORBIT_DSN_TEST" not in operativas_app, (
+        "ORBIT_DSN_TEST no entra al contenedor (ADMIN OPTION sobre app_*)"
+    )
+    assert "POSTGRES_PASSWORD" not in operativas_app
+
+
+def test_runbook_documenta_la_ceremonia_del_uid_10001():
+    """El chown de secrets/ a 10001 es operacion del SERVER: si el runbook
+    no la documenta, el proximo deploy la pierde. Candado del mismo patron
+    que el cron de metricas (texto de DEPLOY.md). Asercion del COMANDO
+    exacto (CodeRabbit PR #36: con 'chown' + 'secrets' sueltos pasaba en
+    verde aunque la ceremonia se borrara — la rotacion del token tambien
+    los menciona)."""
+    texto = (RAIZ / "docs" / "DEPLOY.md").read_text(encoding="utf-8")
+    assert "chown -R 10001:10001 /mnt/data/appdata/orbit/secrets" in texto, (
+        "DEPLOY.md no documenta el chown inicial de secrets/ a 10001"
+    )
 
 
 # Allowlist EXACTA de MAPEOS completos host:puerto:puerto (DASHBOARD 01 task
@@ -171,15 +196,6 @@ def test_compose_app_corre_non_root_con_uid_de_secrets():
     assert 'user: "10001:10001"' in bloque, (
         "uid distinto del dueno de secrets/ (10001): el contenedor no podria leerlos"
     )
-
-
-def test_runbook_documenta_la_ceremonia_del_uid_10001():
-    """El chown de secrets/ a 10001 es operacion del SERVER: si el runbook
-    no la documenta, el proximo deploy la pierde. Candado del mismo patron
-    que el cron de metricas (texto de DEPLOY.md)."""
-    texto = (RAIZ / "docs" / "DEPLOY.md").read_text(encoding="utf-8")
-    assert "10001" in texto, "DEPLOY.md no menciona el uid 10001 de secrets/"
-    assert "chown" in texto and "secrets" in texto
 
 
 def test_dockerfile_instala_con_lockfile_congelado():

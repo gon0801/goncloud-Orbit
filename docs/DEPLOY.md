@@ -87,14 +87,16 @@ darle el uid: `chown 10001:10001 secrets/<archivo>` tras escribirlo (el
 chmod 600 se mantiene). El mount es `:ro` (el contenedor no puede escribir
 ni relajar permisos).
 
-**Env por servicio (4.1):** el servicio `db` ya NO declara `env_file: .env`
-(heredaba TODO, incluido `ORBIT_DSN_ADMIN`): solo `POSTGRES_USER` /
-`POSTGRES_PASSWORD` / `POSTGRES_DB` por interpolación del `.env` (compose lo
-lee al parsear; el archivo sigue `600` root). `ORBIT_DSN_ADMIN` vive
-únicamente en el servicio `app`.
+**Env por servicio (4.1):** ni `db` ni `app` declaran `env_file: .env`
+(heredaban TODO). `db` recibe solo `POSTGRES_USER` / `POSTGRES_PASSWORD` /
+`POSTGRES_DB` y `app` recibe solo los 4 DSN de servicio
+(`INGEST`/`DECIDE`/`READ`/`ADMIN`), todo por interpolación del `.env`
+(compose lo lee al parsear; el archivo sigue `600` root). `ORBIT_DSN_TEST`
+NO entra a ningún contenedor: su rol tiene `ADMIN OPTION` sobre `app_*`
+(escritura en prod) y solo lo usa la suite local por túnel.
 
 **Qué se monta:** SOLO `secrets/` (read-only). Ni backups, ni `.env`
-como archivo (los DSN llegan por `env_file` solo a `app`). `.dockerignore`
+como archivo (los DSN llegan por interpolación). `.dockerignore`
 excluye `.env` y `secrets/` del contexto de build: no entran a la imagen.
 El mismo contenedor corre API (`ORBIT_DSN_READ` + `ORBIT_DSN_ADMIN` para
 veto/reversas con token) y CLI (`INGEST`/`DECIDE`); el bind es loopback.
@@ -136,10 +138,10 @@ docker compose exec -T app python -m app.cli cycle --platform amazon_mx
 ```
 
 `up --build` se corre como **root** (`.env` es `600` root, y **se queda
-así**). El crontab de `gon` no puede `docker compose exec` porque el
-servicio `app` declara `env_file: .env` y compose lo abre al parsear el
-proyecto. `gon` está en el grupo `docker`: el cron usa
-`docker exec orbit-app-1`, el mismo contenedor, el mismo env. Un
+así**). El crontab de `gon` no puede `docker compose exec` porque compose
+abre el `.env` al parsear el proyecto (interpolación de los DSN y de
+`POSTGRES_*`) y `gon` no puede leerlo. `gon` está en el grupo `docker`: el
+cron usa `docker exec orbit-app-1`, el mismo contenedor, el mismo env. Un
 `compose exec` manual como root sí funciona.
 
 ## Crons de Orbit (crontab de `gon`, ADITIVO)
@@ -272,6 +274,11 @@ DO \$\$ BEGIN
 END \$\$;
 DO \$\$ BEGIN EXECUTE format('ALTER ROLE orbit_test PASSWORD %L', '$PT'); END \$\$;
 SQL
+# La suite crea roles LOGIN temporales con membresia app_admin (tests de
+# veto/escritura): necesita ADMIN OPTION. Sin esta linea una instalacion
+# reconstruida NO puede correr la suite en vivo (CodeRabbit PR #36).
+docker exec -i orbit-db-1 psql -U orbit -d postgres -v ON_ERROR_STOP=1 -q \
+  -c 'GRANT app_read, app_ingest, app_decide, app_admin TO orbit_test WITH ADMIN OPTION'
 echo "ORBIT_DSN_TEST=postgresql://orbit_test:${PT}@127.0.0.1:5432/postgres" >> "$ENVF"
 chmod 600 "$ENVF"
 SCRIPT
@@ -299,7 +306,8 @@ El token estático de los endpoints de escritura (veto + reversas) vive en
 `secrets/api_write_token` y se rota con la ceremonia de APPLY.md §11b:
 
 ```bash
-ssh goncloud
+ssh goncloud   # la sesion entra como ROOT: escribir en secrets/ (dir 700,
+               # dueno 10001) y el chown lo exigen (CodeRabbit PR #36)
 cd /mnt/data/appdata/orbit
 # 1. Generar el token NUEVO en el server (nunca en el repo ni en out/)
 NEW=$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)
