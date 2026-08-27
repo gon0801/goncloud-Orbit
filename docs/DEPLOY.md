@@ -18,8 +18,9 @@
     servicio (incluido `ORBIT_DSN_TEST`). Permisos `600`, **nunca se
     commitea** (está en `.gitignore`).
   - `secrets/` — credenciales (LWA, etc.). Dir `700`, archivos `600`,
-    dueño `root`. **Jamás relajar estos permisos.** El contenedor `app`
-    corre como `user: "0:0"` precisamente para leerlos sin chmod.
+    dueño **uid 10001** (4.1: ya no root — el contenedor `app` corre como
+    `user: "10001:10001"` y los lee sin relajar permisos). **Jamás relajar
+    estos permisos.**
   - `backups/` — dumps diarios (`700`; dumps `600`).
   - `backup.sh` + cron — ver "Backups".
   - `logs/` — stdout de los crons de Orbit (escribible por `gon`).
@@ -70,30 +71,41 @@ contenedor ese address es el propio `app`, no Postgres. El rewrite en
 nombre del servicio compose `db`. En el host y en CI la var no existe y
 el DSN no se toca. El `.env` no se duplica ni se reescribe.
 
-**Por qué `user: "0:0"`:** los archivos de `secrets/` son `root:root`
-`0600` y **así se quedan**. Un uid distinto no los puede leer; chmod
-para acomodar un usuario no-root está prohibido. El mount es `:ro` (el
-contenedor no puede escribir ni relajar permisos).
+**Por qué `user: "10001:10001"` (4.1, non-root):** antes la app corría como
+`0:0` porque `secrets/` era `root:root 0600`. Resuelto en el server SIN
+relajar permisos: los archivos pasaron a uid **10001** (mismos `600`, dir
+`700`) y el contenedor corre con ese uid. Ceremonia (una vez, como root):
+
+```bash
+chown -R 10001:10001 /mnt/data/appdata/orbit/secrets
+stat -c '%a %u:%g %n' /mnt/data/appdata/orbit/secrets \
+  /mnt/data/appdata/orbit/secrets/*   # dir 700, archivos 600, todo 10001
+```
+
+Si un secret NUEVO se crea como root (p. ej. al rotar el token), hay que
+darle el uid: `chown 10001:10001 secrets/<archivo>` tras escribirlo (el
+chmod 600 se mantiene). El mount es `:ro` (el contenedor no puede escribir
+ni relajar permisos).
+
+**Env por servicio (4.1):** el servicio `db` ya NO declara `env_file: .env`
+(heredaba TODO, incluido `ORBIT_DSN_ADMIN`): solo `POSTGRES_USER` /
+`POSTGRES_PASSWORD` / `POSTGRES_DB` por interpolación del `.env` (compose lo
+lee al parsear; el archivo sigue `600` root). `ORBIT_DSN_ADMIN` vive
+únicamente en el servicio `app`.
 
 **Qué se monta:** SOLO `secrets/` (read-only). Ni backups, ni `.env`
-como archivo (los DSN llegan por `env_file`). `.dockerignore` excluye
-`.env` y `secrets/` del contexto de build: no entran a la imagen.
-`env_file: .env` inyecta el archivo entero (incluye `POSTGRES_PASSWORD`;
-`ORBIT_DSN_ADMIN` lo consume la API de escritura desde ORBIT 04 3.1 — veto
-y reversas con token — y 4.1 lo divide por servicio): residual aceptado — el
-mismo
-contenedor corre API (`ORBIT_DSN_READ`) y CLI (`INGEST`/`DECIDE`); el
-bind es loopback. `user: "0:0"` es riesgo aceptado residual (secrets
+como archivo (los DSN llegan por `env_file` solo a `app`). `.dockerignore`
+excluye `.env` y `secrets/` del contexto de build: no entran a la imagen.
+El mismo contenedor corre API (`ORBIT_DSN_READ` + `ORBIT_DSN_ADMIN` para
+veto/reversas con token) y CLI (`INGEST`/`DECIDE`); el bind es loopback.
 
-> **NOTA (ORBIT 04 3.1, hasta 4.1):** el camino `/reversa/*` escribe filas
-> en el ledger `apply_attempt`, cuyo `GRANT INSERT` en 0002 es SOLO de
-> `app_decide` (línea 687). El `orbit_admin` del runbook (solo `app_admin`)
-> puede VETAR pero NO revertir: una reversa real revienta con
-> `InsufficientPrivilege`. 4.1 (env por servicio) resuelve el wiring —
-> p. ej. membresía `app_decide` adicional para el usuario del DSN admin o
-> micro-migración revisada; hasta entonces el botón existe y el camino
-> queda declarado, no operativo.
-root 0600, mount `:ro`, jamás chmod).
+> **RESUELTO (ORBIT 04 4.1):** el camino `/reversa/*` escribe filas en el
+> ledger `apply_attempt`, cuyo `GRANT INSERT` en 0002 es SOLO de
+> `app_decide`. El `orbit_admin` original (solo `app_admin`) podía VETAR
+> pero NO revertir. Wiring cerrado en vivo 2026-08-27:
+> `GRANT app_decide TO orbit_admin;` (el admin hereda el INSERT del ledger;
+> verificado con una reversa de prueba sobre fila inexistente → 404, camino
+> operativo).
 
 Reconstruir/actualizar **solo la app** (Postgres intacto):
 
@@ -124,8 +136,8 @@ docker compose exec -T app python -m app.cli cycle --platform amazon_mx
 
 `up --build` se corre como **root** (`.env` es `600` root, y **se queda
 así**). El crontab de `gon` no puede `docker compose exec` porque el
-servicio `db` (intocable) declara `env_file: .env` y compose lo abre al
-parsear el proyecto. `gon` está en el grupo `docker`: el cron usa
+servicio `app` declara `env_file: .env` y compose lo abre al parsear el
+proyecto. `gon` está en el grupo `docker`: el cron usa
 `docker exec orbit-app-1`, el mismo contenedor, el mismo env. Un
 `compose exec` manual como root sí funciona.
 
@@ -258,14 +270,17 @@ chmod 600 "$ENVF"
 SCRIPT
 ```
 
-> **Estado actual del cluster (2026-08-26, cross-review ORBIT 04 3.1):**
-> para que la suite local cree roles LOGIN temporales con membresía
-> `app_admin` (tests del endpoint de veto), `orbit_test` recibió además
-> `GRANT app_read, app_ingest, app_decide, app_admin TO orbit_test WITH
-> ADMIN OPTION`. Es membresía de CLUSTER: quien tenga el DSN de test puede
-> `SET ROLE` a escritura en la base prod (mitigado: bind loopback + túnel +
-> password root-only). **4.1 debe resolverlo** — o revoke al terminar el
-> desarrollo local:
+> **Estado actual del cluster (resuelto en 4.1, 2026-08-27):** para que la
+> suite local cree roles LOGIN temporales con membresía `app_admin` (tests
+> del endpoint de veto), `orbit_test` recibió además `GRANT app_read,
+> app_ingest, app_decide, app_admin TO orbit_test WITH ADMIN OPTION`. Es
+> membresía de CLUSTER: quien tenga el DSN de test puede `SET ROLE` a
+> escritura en la base prod. **Decisión 4.1: se QUEDA mientras la suite
+> pueda correr contra el cluster vivo por túnel** (sin ella los tests de
+> veto/escritura no pueden crear sus roles). Mitigación vigente: bind
+> loopback + túnel + password root-only + el DSN de test jamás sale del
+> `.env` del server. La revocación queda atada a mover la base de test
+> fuera del cluster de prod (sin fecha; cuando eso exista):
 >
 > ```sql
 > REVOKE app_read, app_ingest, app_decide, app_admin FROM orbit_test;
@@ -281,9 +296,11 @@ ssh goncloud
 cd /mnt/data/appdata/orbit
 # 1. Generar el token NUEVO en el server (nunca en el repo ni en out/)
 NEW=$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)
-# 2. Escribirlo en secrets/ con 0600 (dir 700, dueño root; mount :ro)
+# 2. Escribirlo en secrets/ con 0600 y el uid del contenedor (dir 700,
+#    dueno 10001 desde 4.1; mount :ro)
 printf '%s' "$NEW" > secrets/api_write_token
 chmod 600 secrets/api_write_token
+chown 10001:10001 secrets/api_write_token
 # 3. Reiniciar la app (relee el archivo y lo registra con register_secret)
 docker compose up -d --no-deps --force-recreate app
 # 4. Verificar contra el endpoint de veto con un queue_id INEXISTENTE

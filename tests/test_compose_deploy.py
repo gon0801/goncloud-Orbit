@@ -42,7 +42,9 @@ def _bloque_servicio(texto: str, nombre: str) -> str:
 
 def test_compose_db_sellado_por_contrato():
     """El servicio db es ADITIVO-intocable: el SET exacto de sus lineas
-    operativas esta sellado — reordenar es inocuo, agregar o quitar NO."""
+    operativas esta sellado — reordenar es inocuo, agregar o quitar NO.
+    Re-sello 4.1 (env por servicio): db ya NO hereda el .env completo
+    (llevaba hasta ORBIT_DSN_ADMIN); solo POSTGRES_* por interpolacion."""
     bloque = _bloque_servicio(COMPOSE.read_text(encoding="utf-8"), "db")
     lineas = {
         ln.strip() for ln in bloque.splitlines() if ln.strip() and not ln.strip().startswith("#")
@@ -50,17 +52,34 @@ def test_compose_db_sellado_por_contrato():
     esperadas = {
         "image: postgres:16",
         "restart: unless-stopped",
-        "env_file: .env",
         "environment:",
         "POSTGRES_DB: orbit",
+        "POSTGRES_USER: ${POSTGRES_USER}",
+        "POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}",
         "volumes:",
         "- pgdata:/var/lib/postgresql/data",
         "ports:",
         '- "127.0.0.1:5432:5432"',
     }
     assert lineas == esperadas, (
-        f"servicio db cambio (sellado 2026-08-23; diff simetrico): {lineas ^ esperadas}"
+        f"servicio db cambio (re-sello 4.1 2026-08-27; diff simetrico): {lineas ^ esperadas}"
     )
+
+
+def test_compose_db_no_recibe_ningun_dsn():
+    """4.1 (env por servicio): el DSN admin vive SOLO en app. db no tiene
+    env_file ni ningun ORBIT_DSN_* — antes heredaba TODO el .env (incluido
+    ORBIT_DSN_ADMIN) por env_file. Regla 9: contra el compose viejo (env_file
+    en db) este candado reventaba."""
+    bloque = _bloque_servicio(COMPOSE.read_text(encoding="utf-8"), "db")
+    operativas = "\n".join(ln for ln in bloque.splitlines() if not ln.strip().startswith("#"))
+    assert "env_file" not in operativas, (
+        "db hereda el .env completo: el DSN admin NO es solo de app"
+    )
+    assert "ORBIT_DSN" not in operativas, "db recibe DSNs de Orbit: env por servicio roto"
+    # Y el otro lado del contrato: app SI los recibe (la API/CLI los usa).
+    bloque_app = _bloque_servicio(COMPOSE.read_text(encoding="utf-8"), "app")
+    assert "env_file: .env" in bloque_app
 
 
 # Allowlist EXACTA de MAPEOS completos host:puerto:puerto (DASHBOARD 01 task
@@ -138,8 +157,29 @@ def test_compose_app_en_loopback_8010_con_secrets_ro():
     bloque = _bloque_servicio(COMPOSE.read_text(encoding="utf-8"), "app")
     assert '"127.0.0.1:8010:8000"' in bloque
     assert "secrets:/mnt/data/appdata/orbit/secrets:ro" in bloque
-    assert 'user: "0:0"' in bloque
     assert "ORBIT_PG_HOST: db" in bloque
+
+
+def test_compose_app_corre_non_root_con_uid_de_secrets():
+    """4.1: la app ya NO corre como root (user 0:0 era residual aceptado de
+    ORBIT 03: los secrets eran root 0600). Resuelto en el SERVER: secrets/
+    pasan a uid 10001 (mismos 600/700) y el contenedor corre con ESE uid —
+    mismo acceso, cero root. Regla 9: contra el compose viejo (user 0:0)
+    este candado reventaba."""
+    bloque = _bloque_servicio(COMPOSE.read_text(encoding="utf-8"), "app")
+    assert 'user: "0:0"' not in bloque, "la app sigue corriendo como root"
+    assert 'user: "10001:10001"' in bloque, (
+        "uid distinto del dueno de secrets/ (10001): el contenedor no podria leerlos"
+    )
+
+
+def test_runbook_documenta_la_ceremonia_del_uid_10001():
+    """El chown de secrets/ a 10001 es operacion del SERVER: si el runbook
+    no la documenta, el proximo deploy la pierde. Candado del mismo patron
+    que el cron de metricas (texto de DEPLOY.md)."""
+    texto = (RAIZ / "docs" / "DEPLOY.md").read_text(encoding="utf-8")
+    assert "10001" in texto, "DEPLOY.md no menciona el uid 10001 de secrets/"
+    assert "chown" in texto and "secrets" in texto
 
 
 def test_dockerfile_instala_con_lockfile_congelado():
