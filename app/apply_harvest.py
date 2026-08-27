@@ -63,7 +63,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
@@ -71,7 +71,7 @@ import httpx
 import psycopg
 from psycopg.types.json import Json
 
-from app import apply
+from app import apply, notifica
 from app.ads.client import AdsApiError, AdsClientError
 from app.optimizer import cortes, hygiene, windows
 from app.optimizer import goals as g
@@ -246,7 +246,10 @@ _CEILING_REVALIDA = Decimal("10000")
 @dataclass(frozen=True)
 class AlertaHarvest:
     """SENAL estructurada de fallo (sellado 13): 3.3/notifica la consume;
-    este modulo solo la produce. `detalle` = la evidencia."""
+    este modulo solo la produce. `detalle` = la evidencia. `envio_fallido`
+    (3.3, sellados 2/19): True cuando el aviso por Telegram NO salio — la
+    bandera viaja con la alerta hasta el ciclo, que la convierte en la NOTA
+    notes['telegram'] (la unica visibilidad del fallo del canal)."""
 
     motivo: str
     decision_id: int
@@ -254,6 +257,7 @@ class AlertaHarvest:
     plataforma: str
     job_id: int | None
     detalle: str
+    envio_fallido: bool = False
 
 
 @dataclass(frozen=True)
@@ -610,7 +614,10 @@ def _falla_job(
     termina su fila de cola y produce la ALERTA ESTRUCTURADA. GK4 de la
     cross-review: job y cola se cierran en UNA transaccion — nunca un job
     failed con la fila applying viva (esa combinacion es la que bloquea la
-    clave para siempre)."""
+    clave para siempre). 3.3 (sellados 13/19): la alerta SALE por el canal
+    Telegram AQUI, el punto unico de fallo definitivo (la reversa automatica
+    ya corrio en el caller); si el envio fallo, la bandera envio_fallido
+    viaja con la alerta hasta el ciclo para la NOTA notes['telegram']."""
     with conn.transaction():
         conn.execute(_SQL_JOB_FAILED, (job.id,))
         if queue_id is not None:
@@ -624,6 +631,8 @@ def _falla_job(
         job_id=job.id,
         detalle=detalle,
     )
+    if not notifica.notifica_harvest_failed(alerta):
+        alerta = replace(alerta, envio_fallido=True)
     return "failed", alerta
 
 

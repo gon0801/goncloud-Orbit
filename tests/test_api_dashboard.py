@@ -1523,3 +1523,35 @@ def test_salud_plataforma_sin_datos_devuelve_null_y_vacio(monkeypatch):
             assert plataformas[p]["skips"] == {"entidad": {}, "termino": {}}
             assert plataformas[p]["watermark"] is None
             assert plataformas[p]["synced_at"] is None
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_salud_nota_telegram_visible_en_la_respuesta(monkeypatch):
+    """ORBIT 04 3.3 (sellado 2): la NOTA notes['telegram'] del ciclo — la
+    unica visibilidad del fallo del canal — sobrevive el parseo y llega a la
+    respuesta de /salud (un ciclo 'done' con el canal caido NO se disfraza
+    de salud perfecta)."""
+    with _db_temporal("orbit_dash_salud_tg") as (conn, dsn):
+        notas = json_dumps(
+            {
+                "skips": {"entidad": {}},
+                "apply": {"cortes_encolados": {"live": 1, "shadow": 0, "choques": 0}},
+                "telegram": {
+                    "aviso_encola": "fallo: aviso de corte encolado no enviado por Telegram",
+                    "digest": "fallo: digest del ciclo no enviado por Telegram",
+                },
+            }
+        )
+        _ciclo(conn, platform="amazon_us", notes=notas)
+        _hoy(monkeypatch, dt.date(2026, 8, 24))
+        ultimo = (
+            _cliente(dsn, monkeypatch)
+            .get("/api/dashboard/salud")
+            .json()["plataformas"]["amazon_us"]["ultimo_ciclo"]
+        )
+        assert ultimo["status"] == "done"
+        assert ultimo["notes"]["telegram"]["aviso_encola"].startswith("fallo:")
+        assert ultimo["notes"]["telegram"]["digest"].startswith("fallo:")
