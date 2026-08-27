@@ -325,7 +325,7 @@ def test_mutacion_envia_method_path_payload_vendor_y_scope_sellados(
 def test_bid_quantizado_a_dos_decimales_en_el_body():
     """0.7550 -> 0.76 en el body: sin quantize el payload llevaria los 4
     decimales del NUMERIC de origen (presentacion sellada). El bid viaja
-    como string: float prohibido para dinero (regla 4)."""
+    como numero JSON tras cuantizar el Decimal (regla 4)."""
     bodies: list[bytes] = []
 
     def handler(request: httpx.Request) -> httpx.Response:

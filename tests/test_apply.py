@@ -1476,6 +1476,53 @@ def test_readback_paginado_corta_en_el_tope_de_paginas():
     )
 
 
+class _ClienteListCrudo:
+    """Write client de mentira que sirve bodies CRUDOS (no-JSON o JSON
+    no-dict) en un 2xx: para probar que el readback malformado es AMBIGUO
+    (AdsApiError SUBE), jamas ausencia."""
+
+    def __init__(self, contenido: bytes):
+        self.contenido = contenido
+
+    def list_sellado(self, path: str, body: dict) -> httpx.Response:
+        return httpx.Response(200, content=self.contenido)
+
+
+def test_readback_malformado_es_ambiguo_no_ausencia():
+    """P1 Greptile (PR #35): un 2xx con JSON roto o no-dict NO es 'entidad
+    ausente' — es un fallo AMBIGUO y SUBE AdsApiError (mismo canal del 5xx:
+    ledger sin sello, reconciliacion resuelve). Tratarlo como ausencia
+    clasificaba una entidad VIVA como entidad_no_viva en la re-validacion de
+    cortes y sellaba fallos de readback definitivos en bids/pausas. Regla 9:
+    el codigo anterior devolvia {} (= ausente) y este test reventaba porque
+    nada subia."""
+    from app.ads.client import AdsApiError
+    from app.apply import _bid_de_readback, _estado_de_readback
+
+    for contenido in (b"no-es-json", b'["una", "lista"]'):
+        cliente = _ClienteListCrudo(contenido)
+        with pytest.raises(AdsApiError):
+            _estado_de_readback(cliente, "/sp/keywords/list", "keywords", "keywordId", "7201")
+        with pytest.raises(AdsApiError):
+            _bid_de_readback(cliente, "/sp/keywords/list", "keywords", "keywordId", "7201")
+
+
+def test_fila_de_lista_malformada_es_ambigua_no_ilegible():
+    """Mismo P1 en la lectora de UNA pagina (_fila_de_lista, via _estado_leido
+    y _bid_leido — la que usan apply_cola/apply_harvest con la respuesta YA en
+    mano): 2xx no-JSON o no-dict SUBE AdsApiError, no devuelve None/{}
+    (= ilegible/ausente). Regla 9: antes tragaba el ValueError/AttributeError
+    y este test reventaba."""
+    from app.ads.client import AdsApiError
+    from app.apply import _bid_leido, _estado_leido
+
+    for resp in (httpx.Response(200, content=b"roto"), httpx.Response(200, json=[1, 2])):
+        with pytest.raises(AdsApiError):
+            _estado_leido(resp, "keywords", "keywordId", "7201")
+        with pytest.raises(AdsApiError):
+            _bid_leido(resp, "keywords", "keywordId", "7201")
+
+
 @_skip_db
 def test_readback_encuentra_el_bid_en_la_pagina_dos_del_list():
     """CX1/QW1 end-to-end: el apply de UN bid cuya entidad vive en la pagina
