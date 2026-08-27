@@ -1473,6 +1473,7 @@ def _fase_notifica(
     *,
     cycle_id: int,
     platform: str,
+    modo: str,
     status: str,
     decisions_count: int,
     notas_apply: dict,
@@ -1500,6 +1501,7 @@ def _fase_notifica(
         resumen = {
             "cycle_id": cycle_id,
             "plataforma": platform,
+            "modo": modo,
             "status": status,
             "decisions_count": decisions_count,
             "apply": notas_apply,
@@ -1598,6 +1600,7 @@ def _corre_fases(
         fase.alertas,
         cycle_id=cycle_id,
         platform=platform,
+        modo=modo.modo,
         status=status,
         decisions_count=len(pendientes),
         notas_apply=notas_apply,

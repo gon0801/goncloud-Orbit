@@ -185,14 +185,17 @@ def aviso_corte_encolado(fila: CorteEncolado) -> str:
 
 
 def digest_ciclo(resumen: dict) -> str:
-    """Digest MINIMO del ciclo ejecutor: cycle_id, plataforma, status y
-    decisiones, mas lo que EXISTA en notes['apply'] (regla 3: clave ausente no
-    se menciona, jamas un 0 inventado)."""
+    """Digest MINIMO del ciclo ejecutor: cycle_id, plataforma, modo del ciclo
+    (live/shadow — en shadow el dueno practica el veto y el digest tambien
+    sale; sin el modo en el encabezado un digest de shadow se confunde con
+    uno live), status y decisiones, mas lo que EXISTA en notes['apply']
+    (regla 3: clave ausente no se menciona, jamas un 0 inventado)."""
     apply = resumen.get("apply")
     apply = apply if isinstance(apply, dict) else {}
+    modo = resumen.get("modo")
     lineas = [
         f"[Orbit] digest ciclo #{resumen['cycle_id']}"
-        f" {resumen['plataforma']} — {resumen['status']}",
+        f" {resumen['plataforma']}" + (f" [{modo}]" if modo else "") + f" — {resumen['status']}",
         f"decisiones: {resumen['decisions_count']}",
     ]
     if "bids_aplicados" in apply:

@@ -8,7 +8,9 @@
 PRs DRAFT #28 (3.1), #30 (3.2, apilado) y 3.3 en su rama apilada — el lead
 revisa. 3.3 (`app/notifica.py`, canal Telegram fail-silent): aviso por cada
 corte NUEVO encolado (con vence_el 48h de la MISMA fuente de la fila),
-digest único por ciclo ejecutor y alerta de harvest failed (en `_falla_job`,
+digest único por ciclo (live Y shadow: el encabezado declara el modo para
+que un digest de shadow no se confunda con uno live — cierre del hallazgo
+medio de la review del lead) y alerta de harvest failed (en `_falla_job`,
 junto a la reversa). Un fallo del canal JAMÁS tumba el ciclo ni degrada el
 status: warning scrubbeado + NOTA `notes['telegram']` (solo claves de lo
 que falló, regla 3) integrada antes del sello post-apply — estructuralmente

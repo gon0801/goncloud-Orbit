@@ -178,6 +178,7 @@ def test_digest_ciclo_contenido():
     resumen = {
         "cycle_id": 42,
         "plataforma": "amazon_us",
+        "modo": "live",
         "status": "degraded",
         "decisions_count": 7,
         "apply": {
@@ -188,7 +189,10 @@ def test_digest_ciclo_contenido():
         },
     }
     texto = notifica.digest_ciclo(resumen)
-    assert texto.startswith("[Orbit] digest ciclo #42 amazon_us — degraded")
+    # El modo viaja en el encabezado: en shadow el dueno practica el veto y el
+    # digest tambien sale — sin el modo no distingue un digest de shadow de
+    # uno live (hallazgo medio de la review del lead sobre 3.3).
+    assert texto.startswith("[Orbit] digest ciclo #42 amazon_us [live] — degraded")
     assert "decisiones: 7" in texto
     assert "bids aplicados: 2" in texto
     assert "bids fuera de cap hoy: 1" in texto
@@ -361,6 +365,9 @@ def test_ciclo_canal_ok_avisos_por_corte_y_digest_unico_sin_nota(canal_ok):
         assert any("term_cut" in t for t in avisos), "familia de negative/harvest"
         assert f"#{res.cycle_id}" in digests[0]
         assert "done" in digests[0]
+        # El digest declara el modo del ciclo (la siembra maestra corre shadow):
+        # sin el, un digest de shadow se confunde con uno live (review 3.3).
+        assert "[shadow]" in digests[0]
         assert all(m["chat_id"] == FAKE_CHAT_ID for m in canal_ok)
 
 
@@ -457,6 +464,7 @@ def test_fase_notifica_mapea_alerta_harvest_fallida_a_nota():
         (alerta,),
         cycle_id=1,
         platform="amazon_us",
+        modo="shadow",
         status="done",
         decisions_count=0,
         notas_apply={},
@@ -471,6 +479,7 @@ def test_fase_notifica_mapea_alerta_harvest_fallida_a_nota():
             (ok,),
             cycle_id=1,
             platform="amazon_us",
+            modo="shadow",
             status="done",
             decisions_count=0,
             notas_apply={},
