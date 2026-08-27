@@ -694,7 +694,10 @@ def _fila_de_lista(resp: httpx.Response, contenedor: str, id_campo: str, externa
         raise AdsApiError("readback malformado: 2xx sin JSON en el LIST") from None
     if not isinstance(cuerpo, dict):
         raise AdsApiError("readback malformado: el JSON del LIST no es un objeto")
-    return _fila_de_filas(cuerpo.get(contenedor), id_campo, external_id)
+    filas = cuerpo.get(contenedor)
+    if not isinstance(filas, list):
+        raise AdsApiError(f"readback malformado: el LIST no trae '{contenedor}' como lista")
+    return _fila_de_filas(filas, id_campo, external_id)
 
 
 def _fila_de_readback(
@@ -707,10 +710,11 @@ def _fila_de_readback(
     cobrada). Corta EN CUANTO la halla; sigue el nextToken con tope
     (TOPE_PAGINAS_READBACK: una lista que nunca termina no cuelga el ciclo).
     {} = no esta en ninguna pagina visitada. AdsApiError (5xx/ambiguo) SUBE:
-    quien decide el sello lo captura como antes. Un 2xx MALFORMADO (no-JSON o
-    no-dict) TAMBIEN sube AdsApiError (P1 Greptile PR #35): no es ausencia —
-    como ausencia sellaba fallos de readback definitivos y clasificaba
-    entidades VIVAS como entidad_no_viva."""
+    quien decide el sello lo captura como antes. Un 2xx MALFORMADO (no-JSON,
+    no-dict, o sin el contenedor como lista — el wire sellado por el probe 2.5
+    SIEMPRE lo trae) TAMBIEN sube AdsApiError (P1 Greptile PR #35): no es
+    ausencia — como ausencia sellaba fallos de readback definitivos y
+    clasificaba entidades VIVAS como entidad_no_viva."""
     token: str | None = None
     for _ in range(TOPE_PAGINAS_READBACK):
         body = {"nextToken": token} if token else {}
@@ -720,7 +724,10 @@ def _fila_de_readback(
             raise AdsApiError(f"readback malformado: 2xx sin JSON en POST {path}") from None
         if not isinstance(data, dict):
             raise AdsApiError(f"readback malformado: el JSON de POST {path} no es un objeto")
-        fila = _fila_de_filas(data.get(contenedor), id_campo, external_id)
+        filas = data.get(contenedor)
+        if not isinstance(filas, list):
+            raise AdsApiError(f"readback malformado: POST {path} no trae '{contenedor}' como lista")
+        fila = _fila_de_filas(filas, id_campo, external_id)
         if fila:
             return fila
         token = data.get("nextToken")

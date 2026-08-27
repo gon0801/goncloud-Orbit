@@ -1507,6 +1507,28 @@ def test_readback_malformado_es_ambiguo_no_ausencia():
             _bid_de_readback(cliente, "/sp/keywords/list", "keywords", "keywordId", "7201")
 
 
+def test_readback_sin_contenedor_es_ambiguo_no_ausencia():
+    """P1 Greptile (PR #35, ronda 2): un 2xx dict SIN el contenedor esperado
+    ('keywords'/'targetingClauses'), o con el contenedor null/no-lista, es
+    TAMBIEN malformado -> AMBIGUO (AdsApiError SUBE), jamas ausencia. El
+    wire real SELLADO por el probe 2.5 siempre trae el contenedor (aunque
+    sea lista vacia): que falte es una respuesta que no entendemos. Regla 9:
+    el codigo anterior caia en `filas or []` = {} y este test reventaba."""
+    from app.ads.client import AdsApiError
+    from app.apply import _bid_de_readback, _estado_de_readback
+
+    for pagina in (
+        {"totalResults": 5},  # sin el contenedor
+        {"keywords": None},  # contenedor null
+        {"keywords": {"7201": {}}},  # contenedor no-lista
+    ):
+        cliente = _ClienteListPaginado([pagina])
+        with pytest.raises(AdsApiError):
+            _estado_de_readback(cliente, "/sp/keywords/list", "keywords", "keywordId", "7201")
+        with pytest.raises(AdsApiError):
+            _bid_de_readback(cliente, "/sp/keywords/list", "keywords", "keywordId", "7201")
+
+
 def test_fila_de_lista_malformada_es_ambigua_no_ilegible():
     """Mismo P1 en la lectora de UNA pagina (_fila_de_lista, via _estado_leido
     y _bid_leido — la que usan apply_cola/apply_harvest con la respuesta YA en
@@ -1516,7 +1538,13 @@ def test_fila_de_lista_malformada_es_ambigua_no_ilegible():
     from app.ads.client import AdsApiError
     from app.apply import _bid_leido, _estado_leido
 
-    for resp in (httpx.Response(200, content=b"roto"), httpx.Response(200, json=[1, 2])):
+    for resp in (
+        httpx.Response(200, content=b"roto"),
+        httpx.Response(200, json=[1, 2]),
+        httpx.Response(200, json={"totalResults": 5}),  # sin el contenedor
+        httpx.Response(200, json={"keywords": None}),  # contenedor null
+        httpx.Response(200, json={"keywords": {"7201": {}}}),  # no-lista
+    ):
         with pytest.raises(AdsApiError):
             _estado_leido(resp, "keywords", "keywordId", "7201")
         with pytest.raises(AdsApiError):
