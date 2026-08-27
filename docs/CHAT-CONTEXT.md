@@ -4,7 +4,25 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
-**Última actualización: 2026-08-27 — ORBIT 04 Phase 3 COMPLETA (3.1-3.3) y
+**Última actualización: 2026-08-27 — ORBIT 04 task 4.1 CERRADA (deploy
+endurecido, EN VIVO):** env por servicio (db ya no hereda el .env completo —
+llevaba hasta ORBIT_DSN_ADMIN; solo POSTGRES_* por interpolación), app
+non-root como uid 10001 (secrets/ chown 10001:10001 con 600/700 intactos;
+se retira el residual `user: "0:0"` de ORBIT 03), y wiring admin→ledger
+resuelto (`GRANT app_decide TO orbit_admin` — las reversas ya no revientan
+con InsufficientPrivilege). Backup previo `backups/pre-4.1-20260827.dump`.
+Verificado en vivo: health ok, 8010 solo loopback+wg0, 5432 loopback, db
+env con 0 ORBIT_DSN, datos intactos (apply_attempt=21), veto sin token 401 /
+con token 422 (auth lee el secret como uid 10001), bridge y crons intactos.
+Decisión documentada: la membresía cluster de orbit_test SE QUEDA mientras
+la suite corra por túnel (revocación atada a sacar la base de test de prod).
+0002 ya estaba aplicada (SELECT: apply_queue, apply_attempt, reactivacion_manual).
+Candados re-sellados con rojo demostrado (sello bloque db, db sin DSNs, app
+non-root, runbook con el uid). Rama orbit-04/4-1-deploy-endurecido, PR a
+master. Pendiente Phase 4: 4.2 seeds (el dueño reactiva las Exact US —
+lista de dedup en out/campanas-01-dedup-20260827.md), 4.3 ensayo E2E, 4.4 cierre.
+
+Previo (2026-08-27): ORBIT 04 Phase 3 COMPLETA (3.1-3.3) y
 task 2.5 MERGEADAS a master (squash: #28 3.1, #33 3.2, #34 3.3 y 2.5
 probe-shapes; #29-32 quedaron cerrados por la cascada de bases). 3.3
 (`app/notifica.py`, canal Telegram fail-silent): aviso por cada
