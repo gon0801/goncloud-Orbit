@@ -31,6 +31,11 @@
       "description": "ORBIT 04 — PR2 optimizador: APPLY con topes, ventana de veto para cortes, harvest real con bid sugerido, auth de escritura y rampa manual (cutover = ORBIT 05). Phase 1 cerrada (brief APPLY + migracion 0002 + cliente de escritura); Phase 2 = el apply integrado"
     },
     {
+      "name": "campanas-01",
+      "path": "plans/campanas-01.md",
+      "description": "CAMPANAS 01 — auditoria de campanas pausadas con historial rentable (Arras Manual, AGM2M, A1U...) y entidades sin impresiones en campanas ENABLED; URGENTE, analisis para decision humana de reactivar"
+    },
+    {
       "name": "cortes-01",
       "path": "plans/cortes-01.md",
       "description": "CORTES 01 — umbral adaptativo per-producto para NEGATIVE_EXACT y PAUSE (evidencia por ad group, fallback estricto; spec en docs/superpowers/specs/2026-08-24-cortes-adaptativos-design.md; debe aterrizar antes de ORBIT 04 Phase 2 y del cutover)"
