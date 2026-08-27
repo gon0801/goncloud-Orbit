@@ -4,7 +4,27 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
-**Última actualización: 2026-08-26 — ORBIT 04 Phase 3 EN CURSO: 3.1 lista
+**Última actualización: 2026-08-27 — ORBIT 04 Phase 3 EN CURSO: 3.1 y 3.2
+listas (PRs DRAFT #28 y apilado — el lead revisa). 3.2 (goals amigables,
+rama orbit-04/3-2-goals-set): UNA implementación `app/goals_write.edita_goal`
+(UPDATE solo-campos-pasados con `updated_at` EXPLICITO obligatorio — mutante
+demostrado cazado; pre-validación de entrada pura SIN I/O que combina
+nuevo+existente: floor<=ceiling, finitos, ids no vacíos, terna harvest
+all-or-nothing con `harvest_limpia`, edición vacía rechazada) despachada por
+DOS superficies: POST /api/ads-optimizer/goals/{goal_id} (misma auth de 3.1)
+y CLI `python -m app.cli goals set` (ORBIT_DSN_ADMIN fail-closed exit 2,
+allow_abbrev=False — el hueco de `--targe` abreviado cazado por test).
+Candado de camino único en test_architecture (regex IGNORECASE+\s+; tools/
+fuera, declarado) y superficie OpenAPI sellada +ruta. Test de punta a punta:
+editar target 25→20 y correr UN ciclo REAL — la decisión congela
+inputs.target_acos_pct_usado == "20.00" (rastro completo). Declaración
+sellada: NINGÚN campo de goals set vive en config_version — la regla
+config=fila-nueva queda para la pantalla de settings de ORBIT 16 Phase 3.
+Review: GO tras fixes (ids vacíos, edición vacía que re-sellaba updated_at,
+Decimal Infinity/NaN, docstrings stale); 100 tests focused en verde con
+PG16 real por túnel; batería completa en el CI del PR.
+
+Previo (2026-08-26): ORBIT 04 Phase 3 EN CURSO: 3.1 lista
 (rama orbit-04/3-1-auth-escritura, PR DRAFT — el lead revisa). Auth de
 escritura: token estático SOLO-header (x-orbit-token, compare_digest,
 register_secret, fail-closed 503 sin secret/DSN, query string no
