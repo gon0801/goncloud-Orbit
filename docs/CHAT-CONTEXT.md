@@ -4,7 +4,23 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
-**Última actualización: 2026-08-26 — ORBIT 04 Phase 3 EN CURSO: 3.1 lista
+**Última actualización: 2026-08-27 — ORBIT 04 task 2.5 CERRADA: el probe
+real se ejecutó (2026-08-26, autorización del dueño, campaña sacrificable
+amazon_us) con 4/4 formas en neto cero (evidencia out/smoke-apply-20260826.log,
+ledger probe ids 1-20) y los shapes quedaron fijados contra la API VIVA —
+las hipótesis adivinadas estaban mal y se corrigieron (regla 8 cumplida a
+contrapelo): el bid viaja como NÚMERO JSON (no string), los enums son UPPER
+(matchType EXACT/NEGATIVE_EXACT, state ENABLED/PAUSED), los deletes v3 van
+por POST /sp/{recurso}/delete con filtro de ids (DELETE con body da 403),
+el readback es por LIST (el GET directo da 403) y los acks son 207 con
+success/error. Tests de readback de 2.1-2.3 re-sellados contra esos shapes;
+cross-review del dueño (codex+qwen) cerrada (readback paginado, 207
+verificados campo por campo, constantes del pause a una fuente). Residuo
+verificado y limpio: los 4 términos basura zzsmokeprobe* quedaron ARCHIVED
+(en Amazon delete=archivar; el último se archivó con ledger probe id 21).
+Rama orbit-04/2-5-probe-shapes, PR DRAFT #31 apilado sobre #29 (3.2).
+
+Previo (2026-08-26): ORBIT 04 Phase 3 EN CURSO: 3.1 lista
 (rama orbit-04/3-1-auth-escritura, PR DRAFT — el lead revisa). Auth de
 escritura: token estático SOLO-header (x-orbit-token, compare_digest,
 register_secret, fail-closed 503 sin secret/DSN, query string no
