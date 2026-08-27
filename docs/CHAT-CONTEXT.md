@@ -4,7 +4,29 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
-**Última actualización: 2026-08-26 — ORBIT 04 Phase 2: implementación
+**Última actualización: 2026-08-26 — ORBIT 04 Phase 3 EN CURSO: 3.1 lista
+(rama orbit-04/3-1-auth-escritura, PR DRAFT — el lead revisa). Auth de
+escritura: token estático SOLO-header (x-orbit-token, compare_digest,
+register_secret, fail-closed 503 sin secret/DSN, query string no
+autentica), ConexionEscritura (ORBIT_DSN_ADMIN), POST /veto (actor,
+vence_el editable default 30d, 409 en applying/terminal, 404 inexistente)
+y POST /reversa/{bid,pause,negative} vía apply.reversa_manual
+(negative_id SIEMPRE del ledger; una reversa por decisión — 409 "ya
+revertida"), pantalla /cortes (pendientes + vencimiento + botón vetar, JS
+estático CSP-self, XSS testeado), candados OpenAPI = lista sellada 3 GET +
+4 POST con auth-dependency introspectada, docstring api.py corregido
+(/run Reject permanente), rotación de token en DEPLOY.md (verifica con
+queue_id inexistente — jamás muta). Ciclo adversario por tocar auth: 6
+hallazgos; ADV-2/3/4 ARREGLADOS con tests en rojo primero; ADV-1
+DECLARADO (orbit_test quedó miembro ADMIN OPTION de app_* en el cluster
+para tests locales por túnel — REVOKE documentado en DEPLOY.md, 4.1
+resuelve); declarado también: reversas necesitan además membresía
+app_decide (GRANT apply_attempt es solo decide, NOTA en DEPLOY.md, wiring
+en 4.1). 65 tests nuevos/focused en verde contra PG16 real por túnel;
+batería completa en el CI del PR. Siguiente: 3.2 goals amigables (CLI +
+endpoint, una implementación), 3.3 app/notifica.py.
+
+Previo (2026-08-26): ORBIT 04 Phase 2: implementación
 COMPLETA (5/5 tareas construidas y mergeables, rama orbit-04/phase-2, PR
 DRAFT sin mergear — el dueño revisa) pero ACEPTACIÓN PENDIENTE: la corrida
 real del probe 2.5 es acto del dueño y los tests de readback se sellan

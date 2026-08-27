@@ -1,11 +1,14 @@
 """Router de SOLO LECTURA del optimizador (ORBIT 03, task 3.2).
 
 Tres endpoints GET bajo `/api/ads-optimizer`: `status`, `audit` y `goals`.
-CERO escrituras en PR1 (hallazgo Security del plan: un endpoint sin auth en
-host compartido no puede portar `orbit_admin`; la escalera y los goals se
-escriben por el camino humano de 4.3; `/run` y `/goals` write llegan en PR2
-con auth propia). El test de superficie (`test_api.py`) sella por
-introspeccion de rutas que aqui no se registra ningun metodo distinto de GET.
+Este modulo SIGUE siendo el router de LECTURA: la superficie de ESCRITURA
+bajo el mismo prefijo (veto + reversas manuales, ORBIT 04 3.1; goals write en
+3.2) vive en `app/api_write.py` con token estatico SOLO header
+(`x-orbit-token`, compare_digest, secrets 0600) y `ConexionEscritura`
+(`ORBIT_DSN_ADMIN`, rol admin — sellado 18). El candado de superficie
+(`test_api.py`) sella la lista EXACTA de GET + escrituras autenticadas.
+`/run` = Reject formal PERMANENTE: el disparo del ciclo es el CLI por ssh
+(cron del server), jamas un endpoint HTTP del ciclo.
 
 Conexion como rol de lectura: `ORBIT_DSN_READ` (usuario LOGIN `orbit_read`
 -> rol `app_read`, SELECT en todo el esquema; docs/DEPLOY.md). Sin DSN ->

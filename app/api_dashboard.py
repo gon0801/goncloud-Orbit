@@ -56,6 +56,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query
+from psycopg.rows import dict_row
 
 from app import cycle as ciclo
 from app.api import KINDS_DECISION, ConexionLectura
@@ -744,3 +745,49 @@ def salud(conn: ConexionLectura) -> dict:
             "skips": _skips_de(ultimo),
         }
     return {"plataformas": plataformas}
+
+
+# ---------------------------------------------------------------------------
+# ORBIT 04 3.1 - /cortes: pendientes de veto (UI minima de veto, sellado 20)
+# ---------------------------------------------------------------------------
+
+# SOLO los estados vetables (sellado 4): pending_veto (en ventana) y released
+# (espera quota FIFO y SIGUE vetable, r2 grok); applying es punto de no retorno
+# y los terminales no se vetan. ORDER BY vence_el: lo que vence primero se ve
+# primero. LEFT JOIN ad_entity por el external_id (nullable por schema).
+_SQL_CORTES_PENDIENTES = """
+SELECT q.id, q.platform::text, q.familia, q.kind, q.ad_entity_id, e.external_id,
+       q.search_term, q.estado, q.vence_el, q.encolado_at, q.decision_id
+  FROM apply_queue q
+  LEFT JOIN ad_entity e ON e.id = q.ad_entity_id
+ WHERE q.estado IN ('pending_veto', 'released')
+ ORDER BY q.vence_el, q.id
+"""
+
+
+@router.get("/cortes")
+def cortes(conn: ConexionLectura) -> dict:
+    """Cortes pendientes de veto con su vencimiento (regla 22: la UI CONSUME
+    este endpoint, no reimplementa queries). El POST del veto vive en
+    app/api_write.py (auth de escritura, sellado 18); esta lectura no
+    necesita token (es la misma conexion de lectura del dashboard)."""
+    conn.row_factory = dict_row
+    filas = conn.execute(_SQL_CORTES_PENDIENTES).fetchall()
+    return {
+        "items": [
+            {
+                "id": fila["id"],
+                "plataforma": fila["platform"],
+                "familia": fila["familia"],
+                "kind": fila["kind"],
+                "ad_entity_id": fila["ad_entity_id"],
+                "external_id": fila["external_id"],
+                "search_term": fila["search_term"],
+                "estado": fila["estado"],
+                "vence_el": fila["vence_el"].isoformat(),
+                "encolado_at": fila["encolado_at"].isoformat(),
+                "decision_id": fila["decision_id"],
+            }
+            for fila in filas
+        ]
+    }

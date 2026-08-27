@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block contenido %}
+<h2>Cortes pendientes de veto</h2>
+<p class="mutado">
+  Los cortes encolados aplican solos al vencer su ventana. Vetarlos los bloquea
+  de forma durable (30 dias por defecto, editable): el motor no vuelve a
+  proponer ese corte hasta que venza el bloqueo.
+</p>
+<div class="tarjeta">
+  {% if items %}
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Plataforma</th>
+        <th>Kind</th>
+        <th>Entidad</th>
+        <th>Search term</th>
+        <th>Estado</th>
+        <th>Vence</th>
+        <th>Encolado</th>
+        <th>Accion</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td>{{ item.id }}</td>
+        <td>{{ item.plataforma }}</td>
+        <td><span class="chip">{{ item.kind }}</span> <span class="mutado">{{ item.familia }}</span></td>
+        <td class="num">
+          {% if item.external_id %}{{ item.external_id }}{% else %}<span class="mutado">#{{ item.ad_entity_id }}</span>{% endif %}
+        </td>
+        {# El search_term es texto libre del comprador: AUTOESCAPE lo escapa #}
+        <td>{{ item.search_term or "—" }}</td>
+        <td><span class="chip">{{ item.estado }}</span></td>
+        <td class="mutado">{{ item.vence_el }}</td>
+        <td class="mutado">{{ item.encolado_at }}</td>
+        <td>
+          {# el click lo cablea /static/js/cortes.js (onclick= inline lo bloquea la CSP) #}
+          <button type="button" data-vetar="{{ item.id }}">Vetar</button>
+        </td>
+      </tr>
+      <tr hidden id="form-{{ item.id }}">
+        <td colspan="9">
+          <form data-veto="{{ item.id }}">
+            <label>Dias <input type="number" name="dias" min="1" max="365" value="30"></label>
+            <label>Actor <input type="text" name="actor" maxlength="200" placeholder="quien veta" required></label>
+            <label>Token <input type="password" name="token" placeholder="x-orbit-token" required></label>
+            <button type="submit">Confirmar veto</button>
+            <span data-estado class="mutado"></span>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>sin cortes pendientes: la cola no tiene filas esperando ventana de veto.</p>
+  {% endif %}
+</div>
+{% endblock %}
