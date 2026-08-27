@@ -68,9 +68,9 @@ ledger apply_attempt ids 1-20, log out/smoke-apply-20260826.log): el estado
 vivo se lee por LIST (POST /sp/{keywords|targets}/list — el GET directo
 responde 403, retirado) con cruce de id, y el vocabulario del wire es UPPER
 (apply.ESTADO_WIRE_*: ENABLED/PAUSED/ARCHIVED; ARCHIVED = operativamente
-muerto). Unica hipotesis PENDIENTE: el state del REQUEST del PUT de
-pause/resume (write.py ESTADO_PUT_*, re-exportada por apply — QW2, UNA
-fuente).
+muerto). El state del REQUEST del PUT de pause/resume quedo SELLADO el
+2026-08-27: UPPER, igual que el wire (write.py ESTADO_PUT_*, re-exportada
+por apply — QW2, UNA fuente).
 
 Ronda de CROSS-REVIEW del dueno (codex+qwen, shapes del probe 2.5,
 out/cross-review-shapes-*.log): el LIST de readback PAGINA por nextToken
@@ -406,8 +406,8 @@ def _modo_efectivo_corte(
 def _payload_pause(kind_entidad: str, external_id: str) -> dict:
     """Payload EXACTO del corte pause (mismo shape que _cambiar_estado del
     write client). El state del REQUEST vive de la constante re-exportada
-    (QW2 de la cross-review: UNA fuente — write.py ESTADO_PUT_PAUSED, la
-    HIPOTESIS PENDIENTE de la corrida del pause real; cambiarla ahi cambia
+    (QW2 de la cross-review: UNA fuente — write.py ESTADO_PUT_PAUSED, SELLADA
+    el 2026-08-27 por la corrida de reactivacion; cambiarla ahi cambia
     el ledger del pause SIN tocar este modulo)."""
     campo = "keywordId" if kind_entidad == "keyword" else "targetId"
     return {campo: external_id, "state": apply.ESTADO_PUT_PAUSED}
@@ -898,9 +898,8 @@ def reversa_pause(
         return False
     campo = "keywordId" if identidad[0] == "keyword" else "targetId"
     # El state del REQUEST del resume vive de la constante re-exportada (QW2:
-    # write.py ESTADO_PUT_ENABLED — HIPOTESIS del PUT, PENDIENTE de la
-    # corrida del pause real). El READBACK compara contra el wire VERIFICADO
-    # del list (ESTADO_WIRE_ENABLED).
+    # write.py ESTADO_PUT_ENABLED — sello 2026-08-27 del PUT). El READBACK
+    # compara contra el wire VERIFICADO del list (ESTADO_WIRE_ENABLED).
     payload = {campo: identidad[1], "state": apply.ESTADO_PUT_ENABLED}
     id_attempt = apply._ledger(conn, fila.decision_id, "reversa", payload, quota_cobrada=False)
     if id_attempt is None:

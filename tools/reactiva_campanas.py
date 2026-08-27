@@ -1,0 +1,448 @@
+#!/usr/bin/env python3
+"""Reactivacion AUTORIZADA de campanas + pausas de dedup (CAMPANAS 01).
+
+RUNBOOK — decision del dueno 2026-08-27 ("hazlo tu por API"): reactivar las
+5 campanas candidatas del analisis (out/campanas-01-analisis-20260827.md) y
+pausar las keywords duplicadas de la lista de dedup
+(out/campanas-01-dedup-20260827.md). Es una operacion de NEGOCIO ejecutada
+por API (equivalente a los clics de la consola), NO una decision del motor:
+no pasa por apply_queue, ni por la escalera, ni por el write client sellado
+(su allowlist no cubre resume de campana — shape nuevo, ver abajo). Reversa:
+todo es reversible (resume <-> pause); no hay creates ni deletes.
+
+QUE HACE, EN ORDEN (pausas ANTES que resumes: jamas hay ventana con el
+mismo texto+match ENABLED en dos campanas a la vez):
+
+ 1. Plan desde la BASE (regla 8, ORBIT_DSN_READ read-only): resuelve los
+    external_id por (campaign_id interno, texto, match_type) y verifica que
+    cada keyword a pausar existe y hoy esta ENABLED; fail-closed si la
+    realidad difiere de la lista.
+ 2. Pausas de keywords: PUT /sp/keywords state='PAUSED' — enum SELLADO en
+    vivo 2026-08-27 (la hipotesis 'userPaused' de write.py quedo REFUTADA:
+    el PUT v3 exige UPPER; evidencia en out/reactiva-campanas-20260827.log).
+    El id viaja como STRING (con numero: 400 'NUMBER_VALUE...') y los headers
+    llevan el vendor v3 EXACTO en Content-Type Y Accept (sin Accept: 415).
+ 3. Resume de las 5 campanas: PUT /sp/campaigns state='ENABLED' (mismo sello;
+    vendor application/vnd.spcampaign.v3+json): PRIMERO una sola campana
+    (A1U Exact US, chica y necesaria para 4.2) con readback; solo si esa
+    cierra, las demas.
+ 4. Readback de TODO por POST /{recurso}/list (el GET directo da 403,
+    probe 2.5) y reconciliacion final: estado vivo == estado objetivo.
+
+CORRIDA (en el server, dentro del contenedor app — ahi viven secrets y DSN;
+la evidencia se captura fuera):
+
+    ssh goncloud 'docker exec -i orbit-app-1 python - --acepto-mutacion-real' \
+      < tools/reactiva_campanas.py | tee out/reactiva-campanas-<fecha>.log
+
+Sin --acepto-mutacion-real es DRY-RUN: imprime el plan resuelto y no toca
+Amazon. Cada mutacion imprime UNA linea JSON (scrub: app.redaction) con
+request/ack/readback; la linea final es la reconciliacion.
+"""
+
+from __future__ import annotations
+
+import argparse
+import contextlib
+import json
+import logging
+import os
+import sys
+import time
+from typing import Any
+
+import httpx
+import psycopg
+
+from app.ads.client import DEFAULT_BASE_URL, AdsClient
+from app.ads.config import AdsCredentials
+from app.ads.structure import evaluar_perfiles
+from app.db import connect
+from app.redaction import install_scrub_filter, register_secret, scrub
+
+install_scrub_filter(logging.getLogger())  # root logger: todo sale scrubbed
+
+API = DEFAULT_BASE_URL  # https://advertising-api.amazon.com
+LWA_TOKEN_URL = "https://api.amazon.com/auth/o2/token"
+
+# Las 5 campanas a REACTIVAR (ids internos de ad_entity; verificados contra
+# la base viva en el analisis 2026-08-27). AGM2M (165) queda FUERA: su
+# veredicto es reactivar-con-ajuste y el ajuste fino es decision aparte.
+CAMPANAS_REACTIVAR = {
+    108: "Arras Manual (MX)",
+    3934: "Wedding Coin - Asin Targeting (US)",
+    3911: "A1U - Category Phrase - US",
+    3909: "A1U - Category Exact - US",
+    3926: "AU2 - Category Exact - US",
+}
+
+# Pausas de dedup: (campaign_id interno, keyword_text, match_type).
+# Fuente: out/campanas-01-dedup-20260827.md (economia por lado, regla 8).
+PAUSAS_DEDUP: list[tuple[int, str, str]] = [
+    # Dentro de Arras Manual (pierden contra AC Phrase/Exact activas)
+    (108, "arras matrimoniales", "EXACT"),
+    (108, "arras de matrimonio", "PHRASE"),
+    (108, "arras de plata", "EXACT"),
+    (108, "arras de plata", "PHRASE"),
+    # AD_READY (los broads que vendian mejor en Arras Manual o empatan 0/0)
+    (157, "arras de oro", "BROAD"),
+    (158, "arras de oro", "BROAD"),
+    (159, "arras de oro", "BROAD"),
+    (160, "arras de oro", "BROAD"),
+    (158, "arras", "BROAD"),
+    (159, "arras", "BROAD"),
+    (160, "arras", "BROAD"),
+    (157, "arras de plata", "BROAD"),
+    (158, "arras de plata", "BROAD"),
+    (159, "arras de plata", "BROAD"),
+    (160, "arras de plata", "BROAD"),
+    (157, "arras de matrimonio", "BROAD"),
+    (158, "arras de matrimonio", "BROAD"),
+    (157, "arras matrimoniales de oro", "BROAD"),
+    (158, "arras matrimoniales de oro", "BROAD"),
+    (159, "arras matrimoniales de oro", "BROAD"),
+    # NOTA regla 8 (2026-08-27): el doc de dedup decia "AD_READY x4" para
+    # 'arras matrimoniales de oro', pero la base VIVA confirma que la 160
+    # NO la tiene (fail-closed de la 1a corrida lo atajo) — son 25 pausas.
+    (158, "arras matrimoniales de plata", "BROAD"),
+    (160, "arras matrimoniales de plata", "BROAD"),
+    # AU2 Phrase US (las 3 PHRASE que gana A1U Phrase 3911)
+    (3920, "unity coins", "PHRASE"),
+    (3920, "arras for wedding ceremony", "PHRASE"),
+    (3920, "silver arras for wedding", "PHRASE"),
+]
+
+# Enum del REQUEST de pause/resume: SELLADO EN VIVO 2026-08-27 (evidencia en
+# out/reactiva-campanas-20260827.log y los probes del mismo dia): el PUT v3
+# exige UPPER ('PAUSED'/'ENABLED'; 'paused' minuscula responde 400 con el
+# enum exacto [ENABLED, PROPOSED, PAUSED]). La hipotesis previa del repo
+# ('userPaused') queda REFUTADA — write.py se corrige en este mismo cambio.
+ENUM_PAUSE = "PAUSED"
+ENUM_RESUME = "ENABLED"
+
+# Vendor Content-Type/Accept por path (el PUT sin vendor responde 415 — la
+# API lista el tipo exacto disponible; mismos tipos que write.py
+# MUTATION_REQUEST_TYPES + el de campanas sellado en esta corrida).
+VENDOR_POR_PATH = {
+    "/sp/keywords": "application/vnd.spkeyword.v3+json",
+    "/sp/campaigns": "application/vnd.spcampaign.v3+json",
+}
+
+
+class Abortar(RuntimeError):
+    """Fail-closed: la realidad difiere del plan o la API rechaza."""
+
+
+def _log(evento: str, **campos: Any) -> None:
+    print(scrub(json.dumps({"evento": evento, **campos}, default=str)), flush=True)
+
+
+def _token_lwa(cred: AdsCredentials, client: httpx.Client) -> str:
+    resp = client.post(
+        LWA_TOKEN_URL,
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": cred.refresh_token,
+            "client_id": cred.client_id,
+            "client_secret": cred.client_secret,
+        },
+    )
+    if resp.status_code != 200:
+        raise Abortar(f"LWA {resp.status_code}: {scrub(resp.text[:300])}")
+    token = resp.json()["access_token"]
+    register_secret(token)
+    return token
+
+
+def _dsn_read() -> str:
+    dsn = os.environ.get("ORBIT_DSN_READ")
+    if not dsn:
+        raise Abortar("ORBIT_DSN_READ no esta en el entorno (corre dentro del contenedor app)")
+    return dsn
+
+
+def _perfiles(cliente_lectura: AdsClient) -> dict[str, int]:
+    """platform -> profile_id ACEPTADO (una fuente: evaluar_perfiles)."""
+    out: dict[str, int] = {}
+    for p in evaluar_perfiles(cliente_lectura):
+        if p.aceptado and p.platform and p.profile_id is not None:
+            out[p.platform] = p.profile_id
+    return out
+
+
+def _resolver_plan(conn: psycopg.Connection) -> tuple[dict[int, dict], list[dict]]:
+    """external_ids y plataforma de campanas y keywords, contra la base VIVA.
+    Fail-closed: cualquier faltante o estado inesperado aborta ANTES de
+    tocar Amazon."""
+    campanas: dict[int, dict] = {}
+    for cid, nombre in CAMPANAS_REACTIVAR.items():
+        row = conn.execute(
+            """SELECT e.external_id, e.platform, s.status
+               FROM ad_entity e JOIN ad_entity_state s ON s.ad_entity_id = e.id
+               WHERE e.id = %s AND e.kind = 'campaign'""",
+            (cid,),
+        ).fetchone()
+        if row is None:
+            raise Abortar(f"campaña {cid} ({nombre}) no existe en la base")
+        campanas[cid] = {"external_id": row[0], "platform": row[1], "status": row[2]}
+        _log(
+            "campana_resuelta",
+            id=cid,
+            nombre=nombre,
+            external_id=row[0],
+            platform=row[1],
+            estado_cache=row[2],
+        )
+
+    keywords: list[dict] = []
+    for camp_id, texto, match in PAUSAS_DEDUP:
+        rows = conn.execute(
+            """SELECT k.external_id, s.status, c.platform
+               FROM ad_entity k
+               JOIN ad_entity g ON g.id = k.parent_id
+               JOIN ad_entity c ON c.id = g.parent_id
+               JOIN ad_entity_state s ON s.ad_entity_id = k.id
+               WHERE c.id = %s AND k.kind = 'keyword'
+                 AND lower(k.keyword_text) = %s AND k.match_type = %s""",
+            (camp_id, texto, match),
+        ).fetchall()
+        if len(rows) != 1:
+            raise Abortar(
+                f"keyword ({camp_id}, {texto!r}, {match}) resuelve a {len(rows)} filas "
+                "(esperaba EXACTAMENTE 1; la realidad difiere de la lista de dedup)"
+            )
+        ext, estado, platform = rows[0]
+        if estado != "ENABLED":
+            raise Abortar(f"keyword {ext} ({texto!r}) hoy esta {estado}, no ENABLED")
+        keywords.append(
+            {
+                "camp_id": camp_id,
+                "texto": texto,
+                "match": match,
+                "external_id": ext,
+                "platform": platform,
+            }
+        )
+        _log(
+            "keyword_resuelta",
+            camp_id=camp_id,
+            texto=texto,
+            match=match,
+            external_id=ext,
+            platform=platform,
+        )
+    return campanas, keywords
+
+
+def _put(
+    client: httpx.Client,
+    token: str,
+    cred: AdsCredentials,
+    profile: int,
+    path: str,
+    payload: dict,
+) -> dict:
+    vendor = VENDOR_POR_PATH[path]
+    resp = client.put(
+        f"{API}{path}",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Amazon-Advertising-API-ClientId": cred.client_id,
+            "Amazon-Advertising-API-Scope": str(profile),
+            # Vendor EXACTO en los dos headers (mismo criterio que el write
+            # client sellado): sin Accept la API responde 415.
+            "Content-Type": vendor,
+            "Accept": vendor,
+        },
+        json=payload,
+    )
+    cuerpo: dict = {}
+    with contextlib.suppress(ValueError):
+        cuerpo = resp.json()
+    return {"status": resp.status_code, "cuerpo": cuerpo, "texto": scrub(resp.text[:400])}
+
+
+def _errores_207(ack: dict) -> list:
+    """Todos los errores del 207 multi-status, cualquiera sea el contenedor
+    (mismo criterio que apply_harvest._id_de_ack: success/error ANIDADOS)."""
+    cuerpo = ack["cuerpo"]
+    if not isinstance(cuerpo, dict):
+        return [{"no_json": ack["texto"]}]
+    errores: list = []
+    for valor in cuerpo.values():
+        if isinstance(valor, dict):
+            errores.extend(valor.get("error") or [])
+    return errores
+
+
+def _readback_estado(
+    cliente_lectura: AdsClient,
+    profile: int,
+    path_list: str,
+    filtro: str,
+    contenedor: str,
+    id_campo: str,
+    external_id: str,
+) -> str | None:
+    resp = cliente_lectura.list_objects(
+        path_list, {filtro: {"include": [external_id]}}, profile_id=profile
+    )
+    if resp.status_code != 200:
+        return None
+    for fila in resp.json().get(contenedor) or []:
+        if str(fila.get(id_campo)) == str(external_id):
+            return fila.get("state")
+    return None
+
+
+def _put_estado(
+    http: httpx.Client,
+    token: str,
+    cred: AdsCredentials,
+    profile: int,
+    path: str,
+    contenedor: str,
+    id_campo: str,
+    external_id: str,
+    estado_put: str,
+) -> dict:
+    """PUT de estado con el enum SELLADO (ENUM_PAUSE/ENUM_RESUME). El id viaja
+    como STRING — con numero JSON la API responde 400 'NUMBER_VALUE can not
+    be converted to a String' (probe 2026-08-27). Abortar si la API rechaza:
+    fail-closed, jamas 'adivina' silencioso."""
+    ack = _put(
+        http,
+        token,
+        cred,
+        profile,
+        path,
+        {contenedor: [{id_campo: str(external_id), "state": estado_put}]},
+    )
+    errores = _errores_207(ack)
+    if ack["status"] in (200, 207) and not errores:
+        return ack
+    _log(
+        "estado_rechazado",
+        external_id=external_id,
+        enum_intentado=estado_put,
+        status=ack["status"],
+        errores=errores,
+    )
+    raise Abortar(f"PUT {path} rechazado para {external_id} (status {ack['status']})")
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument(
+        "--acepto-mutacion-real",
+        action="store_true",
+        help="obligatorio para tocar Amazon; sin el = dry-run",
+    )
+    args = ap.parse_args()
+
+    cred = AdsCredentials.from_secrets_dir()
+    conn = connect(_dsn_read())
+    cliente_lectura = AdsClient(cred)
+    http = httpx.Client(timeout=httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0))
+
+    campanas, keywords = _resolver_plan(conn)
+    perfiles = _perfiles(cliente_lectura)
+    _log("perfiles", perfiles=perfiles)
+    for cid, c in campanas.items():
+        if c["platform"] not in perfiles:
+            raise Abortar(f"sin perfil aceptado para {c['platform']} (campana {cid})")
+
+    if not args.acepto_mutacion_real:
+        _log(
+            "dry_run",
+            pausas=len(keywords),
+            resumes=len(campanas),
+            nota="sin --acepto-mutacion-real no se toca Amazon",
+        )
+        return 0
+
+    token = _token_lwa(cred, http)
+
+    # ---- Fase 1: pausas de dedup (enum del PUT SELLADO: ENUM_PAUSE) ----
+    for kw in keywords:
+        profile = perfiles[kw["platform"]]
+        _put_estado(
+            http,
+            token,
+            cred,
+            profile,
+            "/sp/keywords",
+            "keywords",
+            "keywordId",
+            kw["external_id"],
+            ENUM_PAUSE,
+        )
+        time.sleep(0.3)  # cortesia de rate limit
+        estado = _readback_estado(
+            cliente_lectura,
+            profile,
+            "/sp/keywords/list",
+            "keywordIdFilter",
+            "keywords",
+            "keywordId",
+            kw["external_id"],
+        )
+        _log(
+            "pause",
+            external_id=kw["external_id"],
+            texto=kw["texto"],
+            match=kw["match"],
+            camp_id=kw["camp_id"],
+            readback=estado,
+            ok=estado == "PAUSED",
+        )
+        if estado != "PAUSED":
+            raise Abortar(f"readback del pause de {kw['external_id']} != PAUSED: {estado}")
+
+    # ---- Fase 2: resumes (PRIMERO A1U Exact 3909 sola: shape nuevo) ----
+    orden = [3909] + [c for c in campanas if c != 3909]
+    for cid in orden:
+        c = campanas[cid]
+        profile = perfiles[c["platform"]]
+        _put_estado(
+            http,
+            token,
+            cred,
+            profile,
+            "/sp/campaigns",
+            "campaigns",
+            "campaignId",
+            c["external_id"],
+            ENUM_RESUME,
+        )
+        time.sleep(0.3)
+        estado = _readback_estado(
+            cliente_lectura,
+            profile,
+            "/sp/campaigns/list",
+            "campaignIdFilter",
+            "campaigns",
+            "campaignId",
+            c["external_id"],
+        )
+        _log(
+            "resume",
+            camp_id=cid,
+            nombre=CAMPANAS_REACTIVAR[cid],
+            external_id=c["external_id"],
+            readback=estado,
+            ok=estado == "ENABLED",
+        )
+        if estado != "ENABLED":
+            raise Abortar(f"resume de {cid} fallo (readback {estado}) — las demas NO se tocaron")
+
+    _log("reconciliacion_final", pausas_ok=len(keywords), resumes_ok=len(campanas), ok=True)
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except Abortar as exc:
+        _log("ABORTAR_FAIL_CLOSED", motivo=str(exc))
+        sys.exit(2)

@@ -4,8 +4,30 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
-**Última actualización: 2026-08-27 — ORBIT 04 task 4.1 CERRADA (deploy
-endurecido, EN VIVO):** env por servicio (db ya no hereda el .env completo —
+**Última actualización: 2026-08-27 (tarde) — REACTIVACIÓN POR API EJECUTADA
+(autorizada por el dueño, "hazlo tú"):** 25 keywords pausadas (dedup de
+CAMPANAS 01: 4 en Arras Manual 108, 18 broads en AD_READY 157-160, 3 phrases
+en AU2 3920) y 5 campañas reactivadas (108 Arras Manual MX, 3934 Wedding
+Coin ASIN US, 3911 A1U Category Phrase US, 3909 A1U Category Exact US, 3926
+AU2 Category Exact US), cada una con readback verificado y cache sincronizado
+(ingest_run 19, ok). AGM2M (165) quedó FUERA (veredicto reactivar-con-ajuste:
+decisión aparte). Herramienta `tools/reactiva_campanas.py` (operación de
+NEGOCIO por API, no del motor: no pasa por apply_queue; dry-run por defecto,
+`--acepto-mutacion-real` obligatorio, fail-closed contra la base viva).
+Evidencia `out/reactiva-campanas-20260827.log`. **Sellos NUEVOS de la API
+v3 que refutaron hipótesis del repo:** el state del PUT de pause/resume es
+UPPER (`PAUSED`/`ENABLED` — `'paused'` minúscula: 400 con el enum exacto;
+`'userPaused'` de write.py REFUTADO y `ESTADO_PUT_*` corregidas con sus
+tests); el id del body viaja como STRING (con número: 400 `NUMBER_VALUE...`);
+los headers exigen el vendor v3 EXACTO en Content-Type **y** Accept (sin
+Accept: 415; campañas `application/vnd.spcampaign.v3+json` — shape de resume
+de campaña NUEVO, sellado con 3909 primero). Regla 8 atrapó un error del doc
+de dedup: 'arras matrimoniales de oro' BROAD no existe en la 160 (decía
+×4, eran 3) — la herramienta abortó fail-closed y la lista quedó en 25.
+Pendiente Phase 4: 4.2 seeds (las Exact US YA están ENABLED — destrabado),
+4.3 ensayo E2E, 4.4 cierre. CAMPANAS 01 1.1 完了.
+
+Previo (2026-08-27): ORBIT 04 task 4.1 CERRADA (deploy endurecido, EN VIVO): env por servicio (db ya no hereda el .env completo —
 llevaba hasta ORBIT_DSN_ADMIN; solo POSTGRES_* por interpolación), app
 non-root como uid 10001 (secrets/ chown 10001:10001 con 600/700 intactos;
 se retira el residual `user: "0:0"` de ORBIT 03), y wiring admin→ledger

@@ -39,7 +39,8 @@ RE-SELLADO contra el probe 2.5 (corrida autorizada del dueno 2026-08-26,
 ledger apply_attempt ids 1-20, log out/smoke-apply-20260826.log): el
 readback vive por LIST (GET directo retirado, 403), contenedores
 keywords/targetingClauses, bid NUMERO en el wire y ack 207 con success
-anidado. Unica hipotesis viva: el state del PUT de pause (ESTADO_PUT_*).
+anidado. El state del PUT de pause quedo SELLADO el 2026-08-27 (ESTADO_PUT_*
+UPPER — corrida de reactivacion, out/reactiva-campanas-20260827.log).
 """
 
 from __future__ import annotations

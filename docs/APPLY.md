@@ -670,7 +670,9 @@ viajan en la evidencia de cada forma: `matchType 'exact'` vs
 quantizado a 2 decimales; el campo del id creado en el ack (`keywordId` vs
 `negativeKeywordId`); el contenedor del GET de readback
 (`'keywords'/'targets'`); el body del DELETE. Si la corrida corrige uno,
-se arregla `write.py` y los tests se re-sellan.
+se arregla `write.py` y los tests se re-sellan. **Actualización 2026-08-27:
+el `state` del PUT ya NO es hipótesis — quedó sellado UPPER
+(`PAUSED`/`ENABLED`) por la corrida de reactivación (ver abajo).**
 
 **Cómo se cierra la tarea 2.5 con esta corrida:** (1) verificar exit 0 y
 `neto_cero=true` en las cuatro líneas de evidencia + estado final ==
@@ -712,11 +714,17 @@ re-usa esta misma herramienta.
 - **Ack 207** con `success`/`error` anidados por recurso; el id del objeto
   creado vive en el primer `success` (apply_attempt 13 y 16; ya lo parsea
   `_id_de_ack`).
-- **ÚNICA HIPÓTESIS PENDIENTE**: el `state` del REQUEST del PUT de
-  pause/resume (`userPaused`/`enabled`, `write.py ESTADO_PUT_*`) — la forma
-  bid no toca state y el smoke no ejercita pause; la fija la próxima corrida
-  autorizada que ejercite un pause real. El READBACK ya compara contra el
-  wire verificado del list (`app/apply.py ESTADO_WIRE_*`).
+- **State del PUT de pause/resume — SELLADO 2026-08-27** (corrida de
+  reactivación autorizada por el dueño, evidencia
+  `out/reactiva-campanas-20260827.log`): el REQUEST exige UPPER
+  (`PAUSED`/`ENABLED`; `'paused'` minúscula responde 400 con el enum exacto
+  `[ENABLED, PROPOSED, PAUSED]`). La hipótesis vieja `userPaused`/`enabled`
+  (`write.py ESTADO_PUT_*`) quedó **refutada** y las constantes corregidas.
+  Sellos extra de esa corrida: el **id viaja como STRING** en el body (con
+  número JSON: 400 `NUMBER_VALUE can not be converted to a String`) y los
+  headers exigen el **vendor v3 EXACTO en `Content-Type` Y `Accept`** (sin
+  `Accept`: 415; campañas: `application/vnd.spcampaign.v3+json`). El READBACK
+  compara contra el wire verificado del list (`app/apply.py ESTADO_WIRE_*`).
 
 ---
 
