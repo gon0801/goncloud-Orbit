@@ -42,7 +42,9 @@ def _bloque_servicio(texto: str, nombre: str) -> str:
 
 def test_compose_db_sellado_por_contrato():
     """El servicio db es ADITIVO-intocable: el SET exacto de sus lineas
-    operativas esta sellado — reordenar es inocuo, agregar o quitar NO."""
+    operativas esta sellado — reordenar es inocuo, agregar o quitar NO.
+    Re-sello 4.1 (env por servicio): db ya NO hereda el .env completo
+    (llevaba hasta ORBIT_DSN_ADMIN); solo POSTGRES_* por interpolacion."""
     bloque = _bloque_servicio(COMPOSE.read_text(encoding="utf-8"), "db")
     lineas = {
         ln.strip() for ln in bloque.splitlines() if ln.strip() and not ln.strip().startswith("#")
@@ -50,16 +52,58 @@ def test_compose_db_sellado_por_contrato():
     esperadas = {
         "image: postgres:16",
         "restart: unless-stopped",
-        "env_file: .env",
         "environment:",
         "POSTGRES_DB: orbit",
+        "POSTGRES_USER: ${POSTGRES_USER}",
+        "POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}",
         "volumes:",
         "- pgdata:/var/lib/postgresql/data",
         "ports:",
         '- "127.0.0.1:5432:5432"',
     }
     assert lineas == esperadas, (
-        f"servicio db cambio (sellado 2026-08-23; diff simetrico): {lineas ^ esperadas}"
+        f"servicio db cambio (re-sello 4.1 2026-08-27; diff simetrico): {lineas ^ esperadas}"
+    )
+
+
+def test_compose_db_no_recibe_ningun_dsn():
+    """4.1 (env por servicio): el DSN admin vive SOLO en app. db no tiene
+    env_file ni ningun ORBIT_DSN_* — antes heredaba TODO el .env (incluido
+    ORBIT_DSN_ADMIN) por env_file. Regla 9: contra el compose viejo (env_file
+    en db) este candado reventaba."""
+    bloque = _bloque_servicio(COMPOSE.read_text(encoding="utf-8"), "db")
+    operativas = "\n".join(ln for ln in bloque.splitlines() if not ln.strip().startswith("#"))
+    assert "env_file" not in operativas, (
+        "db hereda el .env completo: el DSN admin NO es solo de app"
+    )
+    assert "ORBIT_DSN" not in operativas, "db recibe DSNs de Orbit: env por servicio roto"
+    # Y el otro lado del contrato: app recibe SOLO los 4 DSN de servicio por
+    # interpolacion (CodeRabbit Major PR #36: env_file inyectaba TODO el
+    # .env — incluido ORBIT_DSN_TEST, cuyo rol tiene ADMIN OPTION sobre
+    # app_* = escritura en prod desde dentro del contenedor).
+    bloque_app = _bloque_servicio(COMPOSE.read_text(encoding="utf-8"), "app")
+    operativas_app = "\n".join(
+        ln for ln in bloque_app.splitlines() if not ln.strip().startswith("#")
+    )
+    assert "env_file" not in operativas_app, "app hereda TODO el .env por env_file"
+    for svc in ("INGEST", "DECIDE", "READ", "ADMIN"):
+        assert f"ORBIT_DSN_{svc}: ${{ORBIT_DSN_{svc}}}" in operativas_app
+    assert "ORBIT_DSN_TEST" not in operativas_app, (
+        "ORBIT_DSN_TEST no entra al contenedor (ADMIN OPTION sobre app_*)"
+    )
+    assert "POSTGRES_PASSWORD" not in operativas_app
+
+
+def test_runbook_documenta_la_ceremonia_del_uid_10001():
+    """El chown de secrets/ a 10001 es operacion del SERVER: si el runbook
+    no la documenta, el proximo deploy la pierde. Candado del mismo patron
+    que el cron de metricas (texto de DEPLOY.md). Asercion del COMANDO
+    exacto (CodeRabbit PR #36: con 'chown' + 'secrets' sueltos pasaba en
+    verde aunque la ceremonia se borrara — la rotacion del token tambien
+    los menciona)."""
+    texto = (RAIZ / "docs" / "DEPLOY.md").read_text(encoding="utf-8")
+    assert "chown -R 10001:10001 /mnt/data/appdata/orbit/secrets" in texto, (
+        "DEPLOY.md no documenta el chown inicial de secrets/ a 10001"
     )
 
 
@@ -138,8 +182,20 @@ def test_compose_app_en_loopback_8010_con_secrets_ro():
     bloque = _bloque_servicio(COMPOSE.read_text(encoding="utf-8"), "app")
     assert '"127.0.0.1:8010:8000"' in bloque
     assert "secrets:/mnt/data/appdata/orbit/secrets:ro" in bloque
-    assert 'user: "0:0"' in bloque
     assert "ORBIT_PG_HOST: db" in bloque
+
+
+def test_compose_app_corre_non_root_con_uid_de_secrets():
+    """4.1: la app ya NO corre como root (user 0:0 era residual aceptado de
+    ORBIT 03: los secrets eran root 0600). Resuelto en el SERVER: secrets/
+    pasan a uid 10001 (mismos 600/700) y el contenedor corre con ESE uid —
+    mismo acceso, cero root. Regla 9: contra el compose viejo (user 0:0)
+    este candado reventaba."""
+    bloque = _bloque_servicio(COMPOSE.read_text(encoding="utf-8"), "app")
+    assert 'user: "0:0"' not in bloque, "la app sigue corriendo como root"
+    assert 'user: "10001:10001"' in bloque, (
+        "uid distinto del dueno de secrets/ (10001): el contenedor no podria leerlos"
+    )
 
 
 def test_dockerfile_instala_con_lockfile_congelado():

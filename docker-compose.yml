@@ -2,9 +2,13 @@ services:
   db:
     image: postgres:16
     restart: unless-stopped
-    env_file: .env
+    # 4.1 (env por servicio): db ya NO hereda el .env completo (llevaba
+    # hasta ORBIT_DSN_ADMIN). Solo POSTGRES_* por interpolacion del .env;
+    # los DSN de Orbit viven unicamente en el servicio app.
     environment:
       POSTGRES_DB: orbit
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
@@ -12,17 +16,24 @@ services:
 
   # API + CLI (ORBIT 03 / 4.1). ADITIVO: el servicio db de arriba no se toca.
   # Bind SOLO en 127.0.0.1 (leccion 8055/8056). secrets/ se monta :ro;
-  # user 0:0 = uid dueno de esos archivos (root 0600, ASI SE QUEDAN).
+  # user 10001:10001 = uid dueno de esos archivos en el server (4.1:
+  # chown 10001:10001, perms 600/700 intactos — la app ya no es root).
+  # Env por servicio (CodeRabbit PR #36): SOLO los 4 DSN de servicio por
+  # interpolacion del .env — NUNCA ORBIT_DSN_TEST (su rol tiene ADMIN
+  # OPTION sobre app_* = escritura en prod) ni POSTGRES_*.
   app:
     build:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
-    env_file: .env
-    user: "0:0"
+    user: "10001:10001"
     environment:
       ORBIT_PG_HOST: db
       ORBIT_SECRETS_DIR: /mnt/data/appdata/orbit/secrets
+      ORBIT_DSN_INGEST: ${ORBIT_DSN_INGEST}
+      ORBIT_DSN_DECIDE: ${ORBIT_DSN_DECIDE}
+      ORBIT_DSN_READ: ${ORBIT_DSN_READ}
+      ORBIT_DSN_ADMIN: ${ORBIT_DSN_ADMIN}
     ports:
       - "127.0.0.1:8010:8000"
       # DASHBOARD 01 / 2.1: la IP de la interfaz WireGuard wg0 (10.13.13.1,
