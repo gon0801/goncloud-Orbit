@@ -23,6 +23,12 @@
   <p>#{{ datos.ultimo_ciclo.id }} · {{ datos.ultimo_ciclo.started_at }} ·
      decisiones: {{ datos.ultimo_ciclo.decisions_count }} ·
      applies: {% if datos.ultimo_ciclo.applied_count is none %}<span class="mutado">—</span>{% else %}{{ datos.ultimo_ciclo.applied_count }}{% endif %}</p>
+  {% if datos.ultimo_ciclo.notes and datos.ultimo_ciclo.notes.telegram %}
+  {# ORBIT 04 3.3 (sellado 2): la NOTA telegram es la UNICA visibilidad del
+     fallo del canal — sin esta linea, un ciclo done con el canal caido se
+     veria perfecto (el silencio del canal jamas es invisible) #}
+  <p class="alerta">telegram: fallo del canal ({{ datos.ultimo_ciclo.notes.telegram.keys() | join(", ") }} sin entregar — ver notes)</p>
+  {% endif %}
   {% endif %}
 
   <h3>Historico (14d)</h3>

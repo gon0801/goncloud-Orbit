@@ -89,7 +89,7 @@ from decimal import Decimal
 import psycopg
 from psycopg.types.json import Json
 
-from app import apply, apply_harvest
+from app import apply, apply_harvest, notifica
 from app.ads.client import AdsApiError
 from app.apply import Aplicador, DecisionBid, consume_quota
 from app.optimizer import bid as motor_bid
@@ -246,11 +246,14 @@ class ResumenEncolado:
     cuyo INSERT choco el unico parcial por clave de efecto (clave ya en
     vuelo): la decision NO se borra (decision es append-only) y el skip por
     clave lo hace el CICLO siguiente antes de decidir — semantica declarada
-    del invariante corte<->cola (sellado 4)."""
+    del invariante corte<->cola (sellado 4). `avisos` lleva UN CorteEncolado
+    por fila NUEVA commitada (3.3: el aviso Telegram al dueno sale al
+    ENCOLAR, sellado 2; los choques no avisaron nada nuevo)."""
 
     encoladas_live: int
     encoladas_shadow: int
     choques: list[str]
+    avisos: tuple[notifica.CorteEncolado, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -270,6 +273,10 @@ class ResultadoLiberacion:
     sin_quota: int
     carreras_perdidas: int
     revalida_sin_respuesta: int = 0
+    # 3.3 (sellados 13/19): las alertas de harvest failed del barrido viajan
+    # al ciclo (con la bandera de envio fallido del canal) para la NOTA
+    # notes['telegram'] — antes se caian aqui.
+    alertas: tuple[apply_harvest.AlertaHarvest, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -444,6 +451,7 @@ def encola_cortes(
     live = 0
     shadow = 0
     choques: list[str] = []
+    avisos: list[notifica.CorteEncolado] = []
     for dec_id, entidad, kind, term in conn.execute(_SQL_CORTES_CICLO, (cycle_id,)).fetchall():
         modo = _modo_efectivo_corte(
             conn, aplicador, platform, entidad, escalera_global=modo_envelope
@@ -466,6 +474,7 @@ def encola_cortes(
         else:
             fila = conn.execute(_SQL_EXTERNALES_GRUPO, (entidad,)).fetchone()
             payload = _payload_term(fila[0], fila[1], term) if fila is not None else {}
+        vence = ahora + VENTANA_VETO
         try:
             with conn.transaction():
                 conn.execute(
@@ -477,7 +486,7 @@ def encola_cortes(
                         term,
                         dec_id,
                         modo,
-                        ahora + VENTANA_VETO,
+                        vence,
                         Json(payload),
                     ),
                 )
@@ -485,12 +494,26 @@ def encola_cortes(
                 live += 1
             else:
                 shadow += 1
+            # 3.3 (sellado 2): el aviso al dueno sale al ENCOLAR, con el
+            # vencimiento de la ventana — el ciclo lo envia tras el commit
+            # de TX4 (fail-silent; un fallo del canal deja NOTA en notes).
+            avisos.append(
+                notifica.CorteEncolado(
+                    platform=platform,
+                    kind=kind,
+                    search_term=term,
+                    vence_el=vence,
+                    modo=modo,
+                )
+            )
         except psycopg.errors.UniqueViolation:
             choques.append(
                 f"decision {dec_id}: clave de efecto en vuelo"
                 f" (entidad {entidad}, kind {kind}, termino {term!r})"
             )
-    return ResumenEncolado(encoladas_live=live, encoladas_shadow=shadow, choques=choques)
+    return ResumenEncolado(
+        encoladas_live=live, encoladas_shadow=shadow, choques=choques, avisos=tuple(avisos)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -788,6 +811,7 @@ def libera_vencidos(
     filas = [FilaCola(*f) for f in conn.execute(_SQL_VENCIDAS, (platform, ahora)).fetchall()]
     liberadas = aplicadas = fallidas = sin_quota = carreras = sin_respuesta = 0
     descartadas: list[str] = []
+    alertas_harvest: list[apply_harvest.AlertaHarvest] = []
     for fila in filas:
         if fila.estado == "pending_veto":
             if conn.execute(_SQL_LIBERA, (fila.id,)).fetchone() is None:
@@ -815,6 +839,9 @@ def libera_vencidos(
             # la ejecucion vive en apply_harvest (job → quota → claim →
             # ledger → 2 HTTPs → readback por identidad completa).
             resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+            if resultado_h.alerta is not None:
+                # 3.3: la alerta viaja al ciclo (NOTA telegram si su envio fallo)
+                alertas_harvest.append(resultado_h.alerta)
             if resultado_h.estado == "applied":
                 aplicadas += 1
             elif resultado_h.estado == "failed":
@@ -846,6 +873,7 @@ def libera_vencidos(
         sin_quota=sin_quota,
         carreras_perdidas=carreras,
         revalida_sin_respuesta=sin_respuesta,
+        alertas=tuple(alertas_harvest),
     )
 
 

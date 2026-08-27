@@ -471,3 +471,33 @@ def test_ui_cero_no_se_pinta_como_dato_faltante(monkeypatch):
         assert "applies: 0" in salud_html, (
             "applied_count=0 (lo normal en shadow) debe verse como 0, no como —"
         )
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ui_salud_muestra_nota_telegram_del_ciclo(monkeypatch):
+    """ORBIT 04 3.3 (sellado 2): la NOTA notes['telegram'] — la unica
+    visibilidad del fallo del canal — se MUESTRA en la pantalla de Salud del
+    ultimo ciclo; sin la linea, un ciclo done con el canal caido se veria
+    perfecto (regla 9: el rojo de este test se capturo antes del display)."""
+    import json as _json
+
+    with _db_temporal("orbit_ui_salud_tg") as (conn, dsn):
+        notas = _json.dumps(
+            {
+                "skips": {"entidad": {}},
+                "telegram": {"digest": "fallo: digest del ciclo no enviado por Telegram"},
+            }
+        )
+        conn.execute(
+            "INSERT INTO optimizer_cycle (motor, mode, platform, status, finished_at,"
+            " decisions_count, applied_count, notes) VALUES"
+            " ('ads_optimizer', 'shadow', 'amazon_us', 'done', now(), 0, 0, %s)",
+            (notas,),
+        )
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn)
+        salud_html = TestClient(app).get("/salud").text
+        assert "telegram" in salud_html, "la NOTA debe verse en Salud (sellado 2)"
+        assert "digest" in salud_html, "la clave que fallo es la evidencia visible"

@@ -485,7 +485,10 @@ disparan), por eso el INSERT dentro de la transacción que se revierte.
    DSN": comandos exactos arriba).
 7. Poblar `secrets/` (amazon_ads_config.json + amazon_ads_tokens.json,
    `api_write_token` — el token estático de los endpoints de escritura,
-   ver "Rotación del token de escritura" —, etc.; nombres verificados en el
+   ver "Rotación del token de escritura" — y `telegram.json` — OPCIONAL,
+   canal de avisos de ORBIT 04 (3.3): `{"bot_token": "...", "chat_id": "..."}`
+   con `600`; sin el archivo el canal queda deshabilitado SIN error (los
+   avisos no salen y no generan nota) —, etc.; nombres verificados en el
    server, valores jamás al repo).
 8. Instalar el backup: `backup.sh` + cron de **root** (ver "Backups").
 9. Instalar los 3 crons de Orbit en el crontab de **gon** (ver "Crons de
