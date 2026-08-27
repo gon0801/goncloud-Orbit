@@ -128,22 +128,24 @@ HEADERS_ACK = ("x-amz-request-id", "x-amz-rid", "x-amzn-requestid", "request-id"
 
 # SHAPES del probe 2.5 (corrida autorizada del dueno 2026-08-26, ledger
 # apply_attempt ids 1-20, log out/smoke-apply-20260826.log): TODO lo ejercido
-# por el smoke quedo CONFIRMADO contra la API real; la UNICA hipotesis viva es
-# el state del REQUEST del PUT de pause/resume (la forma bid no toca state y
-# el smoke no ejercita pause — solo el dueno autoriza esa corrida). Viajan en
-# la evidencia de cada forma.
+# por el smoke quedo CONFIRMADO contra la API real. El state del REQUEST del
+# PUT de pause/resume quedo SELLADO el 2026-08-27 (ver state_user_paused).
 HIPOTESIS_SHAPES = {
     "match_type_exact": (
         "CONFIRMADO (apply_attempt 8-10 y 15-16): matchType es el enum UPPER "
         "del recurso — NEGATIVE_EXACT en negatives, EXACT en keywords"
     ),
     "state_user_paused": (
-        "HIPOTESIS PENDIENTE de la corrida del pause real: state "
-        "'userPaused'/'enabled' en el PUT de pause/resume (write.py "
-        "ESTADO_PUT_*); la evidencia del enum UPPER (apply_attempt 9: el 400 "
-        "del negative listo [ENABLED, PROPOSED, PAUSED]) sugiere "
-        "'PAUSED'/'ENABLED'. El READBACK ya compara el wire verificado del "
-        "list (ENABLED/PAUSED/ARCHIVED, apply_attempt 19-20)"
+        "SELLADO 2026-08-27 (corrida de reactivacion autorizada por el "
+        "dueno, evidencia out/reactiva-campanas-20260827.log): el PUT v3 de "
+        "pause/resume exige state UPPER 'PAUSED'/'ENABLED' — 'paused' "
+        "minuscula responde 400 con el enum exacto [ENABLED, PROPOSED, "
+        "PAUSED]; la hipotesis 'userPaused'/'enabled' (write.py ESTADO_PUT_* "
+        "viejo) quedo REFUTADA y las constantes corregidas. Ademas: el id "
+        "viaja como STRING (con numero: 400 'NUMBER_VALUE...') y los headers "
+        "exigen el vendor v3 EXACTO en Content-Type Y Accept (sin Accept: "
+        "415). El READBACK compara el wire verificado del list "
+        "(ENABLED/PAUSED/ARCHIVED, apply_attempt 19-20)"
     ),
     "bid_string": (
         "CONFIRMADO (apply_attempt 3): string -> 400 'STRING_VALUE is not an "

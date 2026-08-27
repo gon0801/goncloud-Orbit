@@ -868,7 +868,7 @@ def _handler_negative_campo_id(estado: dict, campo_id: str | None):
                 "campaignId": str(body["campaignId"]),
                 "keywordText": body["keywordText"],
                 "matchType": body.get("matchType"),
-                "state": "enabled",
+                "state": "ENABLED",  # wire verificado UPPER (probe 2.5 + sello 2026-08-27)
             }
             if campo_id is not None:
                 item[campo_id] = nuevo

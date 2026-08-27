@@ -702,7 +702,8 @@ def _handler_reversas():
             obj = body["keywords"][0] if "keywords" in body else body["targetingClauses"][0]
             ext = str(obj.get("keywordId") or obj.get("targetId"))
             if "state" in obj:
-                remoto[ext] = {"userPaused": "PAUSED", "enabled": "ENABLED"}.get(
+                # El REQUEST ya viaja UPPER (sello 2026-08-27): mapa identidad.
+                remoto[ext] = {"PAUSED": "PAUSED", "ENABLED": "ENABLED"}.get(
                     obj["state"], obj["state"]
                 )
             else:
@@ -770,7 +771,7 @@ def test_reversa_manual_pause_sobre_fila_applied(tmp_path, monkeypatch):
 
         assert resultado == {"tipo": "pause", "queue_id": q, "confirmada": True}
         puts = [r for r in _mutaciones(vistos) if r.method == "PUT"]
-        assert [_obj_de_put(p) for p in puts] == [{"keywordId": "7201", "state": "enabled"}]
+        assert [_obj_de_put(p) for p in puts] == [{"keywordId": "7201", "state": "ENABLED"}]
         ledger = conn.execute(
             "SELECT tipo, quota_cobrada, resultado FROM apply_attempt WHERE decision_id = %s",
             (dec,),

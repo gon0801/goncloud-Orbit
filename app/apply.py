@@ -68,9 +68,10 @@ SELLADO por el probe 2.5 (corrida autorizada del dueno 2026-08-26, ledger
 apply_attempt ids 1-20, log out/smoke-apply-20260826.log): el readback de
 entidad vive por LIST (POST /sp/{keywords|targets}/list — el GET directo
 responde 403, retirado; apply_attempt 4-5), contenedores 'keywords'/
-'targetingClauses' y estados del wire UPPER (ESTADO_WIRE_*). Unica hipotesis
-PENDIENTE: el state del REQUEST del PUT de pause/resume
-(write.py ESTADO_PUT_*; re-exportada aqui — QW2, una sola fuente).
+'targetingClauses' y estados del wire UPPER (ESTADO_WIRE_*). El state del
+REQUEST del PUT de pause/resume quedo SELLADO el 2026-08-27: UPPER, igual
+que el wire del readback (write.py ESTADO_PUT_*; re-exportada aqui — QW2,
+una sola fuente).
 
 Ronda de CROSS-REVIEW del dueno (codex+qwen, shapes del probe 2.5,
 out/cross-review-shapes-*.log): el readback por LIST PAGINA por nextToken
@@ -200,9 +201,11 @@ TOPE_PAGINAS_READBACK = 20
 # (2026-08-26, ledger probe ids 1-20, log out/smoke-apply-20260826.log): el
 # list trae state UPPER — ENABLED/PAUSED/ARCHIVED (apply_attempt 19-20:
 # targets list con ENABLED y PAUSED vivos). 'userPaused' NO existe en la
-# RESPUESTA: es vocabulario del REQUEST del PUT (hipotesis pendiente,
-# write.py ESTADO_PUT_*). ARCHIVED = operativamente muerto (el "delete" v3
-# archiva): NO confirma entidad viva ni pause verificado.
+# RESPUESTA: el REQUEST del PUT quedo SELLADO el 2026-08-27 (corrida de
+# reactivacion autorizada por el dueno, evidencia
+# out/reactiva-campanas-20260827.log) con el MISMO enum UPPER del wire
+# (write.py ESTADO_PUT_* = PAUSED/ENABLED). ARCHIVED = operativamente muerto
+# (el "delete" v3 archiva): NO confirma entidad viva ni pause verificado.
 ESTADO_WIRE_ENABLED = "ENABLED"
 ESTADO_WIRE_PAUSED = "PAUSED"
 ESTADO_WIRE_ARCHIVED = "ARCHIVED"

@@ -334,7 +334,7 @@ def _encola_fila(
 
 
 def _payload_pause(ext: str) -> dict:
-    return {"keywordId": ext, "state": "userPaused"}
+    return {"keywordId": ext, "state": "PAUSED"}
 
 
 def _payload_negative(grupo_ext: str, camp_ext: str, term: str) -> dict:
@@ -368,7 +368,7 @@ def _handler_cortes(
     19-20; el GET directo esta retirado, 403) — el PUT viaja como unica
     entrada del contenedor del recurso y el delete v3 es POST /delete con
     filtro. `estados` es el estado REMOTO por external_id; el PUT lo
-    actualiza (userPaused del REQUEST -> PAUSED del wire). Variante GK3:
+    actualiza (el REQUEST ya viaja UPPER — sello 2026-08-27). Variante GK3:
     `get_404` hace que el LIST muera 404 (entidad muerta).
     `ack_negative_sin_id` sirve el 207 SIN id en success (CX4/GK6). Cuenta
     TODOS los requests de la API (el token LWA va a api.amazon.com, fuera)."""
@@ -394,11 +394,9 @@ def _handler_cortes(
             # Contenedor del recurso (probe 2.5, apply_attempt 1): una entrada.
             obj = body["keywords"][0] if "keywords" in body else body["targetingClauses"][0]
             ext = str(obj.get("keywordId") or obj.get("targetId"))
-            # El REQUEST lleva el vocabulario del PUT (userPaused/enabled,
-            # HIPOTESIS PENDIENTE del pause real); el LIST responde el wire.
-            remoto[ext] = {"userPaused": "PAUSED", "enabled": "ENABLED"}.get(
-                obj["state"], obj["state"]
-            )
+            # El REQUEST ya lleva el enum UPPER (sello 2026-08-27 de la
+            # corrida de reactivacion): el LIST responde el mismo wire.
+            remoto[ext] = {"PAUSED": "PAUSED", "ENABLED": "ENABLED"}.get(obj["state"], obj["state"])
             return httpx.Response(207, json={"ack": obj})
         if request.method == "POST" and request.url.path == "/sp/negativeKeywords":
             # Ack 207 con success/error anidados por recurso (probe 2.5,
@@ -1107,8 +1105,8 @@ def test_pause_se_aplica_y_reversa_pause_resume_exenta_de_quota():
         assert ok is True
         puts = [r for r in _mutaciones(vistos) if r.method == "PUT"]
         assert [json.loads(p.content) for p in puts] == [
-            {"keywords": [{"keywordId": "7201", "state": "userPaused"}]},
-            {"keywords": [{"keywordId": "7201", "state": "enabled"}]},
+            {"keywords": [{"keywordId": "7201", "state": "PAUSED"}]},
+            {"keywords": [{"keywordId": "7201", "state": "ENABLED"}]},
         ], "contenedor del recurso (probe 2.5); la reversa resume la keyword"
         filas = conn.execute(
             "SELECT tipo, quota_cobrada, resultado FROM apply_attempt ORDER BY seq"
@@ -1128,7 +1126,7 @@ def test_pause_se_aplica_y_reversa_pause_resume_exenta_de_quota():
 @_skip_db
 def test_pause_con_readback_divergente_no_sella_ok_en_el_ledger():
     """Bug PR27-3 (BAJA): si el LIST fresco devuelve un estado legible que NO
-    es userPaused (Amazon no proceso el pause), la fila cerraba failed con
+    es PAUSED (Amazon no proceso el pause), la fila cerraba failed con
     verify_ok=False PERO el ledger sellaba resultado='ok' — afirmaba exito
     donde hubo divergencia (bids ya usan 'fallo:divergencia_readback', QW1; la
     reconciliacion de pausas, 'fallo:reconciliado_enabled'). Regla 9: contra
@@ -1144,7 +1142,7 @@ def test_pause_con_readback_divergente_no_sella_ok_en_el_ledger():
 
         def handler(request: httpx.Request) -> httpx.Response:
             # Amazon NO procesa el pause: el PUT sale 200 pero el estado remoto
-            # JAMAS cambia — el GET fresco sigue devolviendo 'enabled'.
+            # JAMAS cambia — el LIST fresco sigue devolviendo 'ENABLED'.
             if request.url.host == "api.amazon.com":
                 return httpx.Response(
                     200, json={"access_token": "fake-access-1", "expires_in": 3600}
@@ -1547,7 +1545,8 @@ def test_negative_con_ack_2xx_sin_id_no_es_applied():
 # out/smoke-apply-20260826.log): el readback de estado vivo vive por LIST y el
 # enum del WIRE de la respuesta es UPPER — ENABLED/PAUSED/ARCHIVED
 # (apply_attempt 19-20: targets list con ENABLED y PAUSED; 'userPaused' NO
-# existe en la RESPUESTA, es vocabulario del REQUEST del PUT). Tests PUROS
+# existe ni en la RESPUESTA ni en el REQUEST del PUT — el REQUEST quedo
+# SELLADO UPPER el 2026-08-27). Tests PUROS
 # (sin DB; regla 9: rojo demostrado en out/tdd-red-o4-shapes.log contra el
 # lector viejo de filas[0] con states lower).
 # ===========================================================================
@@ -1758,7 +1757,7 @@ def test_pause_cuya_entidad_vive_en_la_pagina_dos_del_list_aplica():
             if request.method == "PUT":
                 obj = body["keywords"][0]
                 ext = str(obj.get("keywordId"))
-                remoto[ext] = {"userPaused": "PAUSED", "enabled": "ENABLED"}.get(
+                remoto[ext] = {"PAUSED": "PAUSED", "ENABLED": "ENABLED"}.get(
                     obj["state"], obj["state"]
                 )
                 return httpx.Response(207, json={"ack": obj})

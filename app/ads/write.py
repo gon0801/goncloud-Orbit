@@ -51,8 +51,8 @@ Diseno SELLADO (plans/orbit-04.md decision 9; docs/APPLY.md §8):
 SELLADO por el probe 2.5 (2026-08-26): paths, vendor types, contenedores,
 enums UPPER (matchType EXACT/NEGATIVE_EXACT, state ENABLED en creates), bid
 como NUMERO JSON y deletes por POST /sp/{recurso}/delete con filtro de ids
-— todo verificado en vivo con las 4 formas neto cero. Unica hipotesis
-PENDIENTE: el state del PUT de pause/resume (ver ESTADO_PUT_PAUSED).
+— todo verificado en vivo con las 4 formas neto cero. El state del PUT de
+pause/resume quedo SELLADO el 2026-08-27 (ver ESTADO_PUT_PAUSED).
 """
 
 from __future__ import annotations
@@ -125,16 +125,15 @@ MUTATION_CONTAINERS: MappingProxyType[str, str] = MappingProxyType(
     }
 )
 
-# HIPOTESIS PENDIENTE de la corrida del pause real (probe 2.5 NO la fijo): el
-# state del REQUEST en el PUT de pause/resume viaja como 'userPaused'/
-# 'enabled' — la forma bid del probe NO toco state, y la UNICA evidencia del
-# enum (apply_attempt 9: el 400 del negative listo [ENABLED, PROPOSED,
-# PAUSED]) sugiere que el valor del PUT es 'PAUSED'/'ENABLED' UPPER. Se
-# CONSERVA el valor actual (sellado por tests) hasta que el dueno autorice
-# la corrida que lo fije; el READBACK ya compara contra el wire VERIFICADO
-# del list (ESTADO_WIRE_* de app/apply.py: ENABLED/PAUSED/ARCHIVED UPPER).
-ESTADO_PUT_PAUSED = "userPaused"
-ESTADO_PUT_ENABLED = "enabled"
+# SELLADO el 2026-08-27 por la corrida de reactivacion (autorizada por el
+# dueno, evidencia out/reactiva-campanas-20260827.log): el state del REQUEST
+# en el PUT v3 de pause/resume es UPPER — 'paused' minuscula respondio 400
+# con el enum exacto [ENABLED, PROPOSED, PAUSED] y 'PAUSED' respondio 207
+# success con readback PAUSED (la hipotesis 'userPaused'/'enabled' quedo
+# REFUTADA). El READBACK compara contra el wire VERIFICADO del list
+# (ESTADO_WIRE_* de app/apply.py: ENABLED/PAUSED/ARCHIVED UPPER).
+ESTADO_PUT_PAUSED = "PAUSED"
+ESTADO_PUT_ENABLED = "ENABLED"
 
 
 def _un_objeto(valor: object, nombre: str) -> object:
@@ -292,23 +291,23 @@ class AdsWriteClient(AdsClient):
         )
 
     def pausar_keyword(self, keyword_id: str | int) -> httpx.Response:
-        """PUT /sp/keywords: keyword a userPaused (HIPOTESIS del PUT: ver
-        ESTADO_PUT_PAUSED — PENDIENTE de la corrida del pause real)."""
+        """PUT /sp/keywords: keyword a PAUSED (sello 2026-08-27 del PUT: ver
+        ESTADO_PUT_PAUSED)."""
         return self._cambiar_estado("keyword", keyword_id, ESTADO_PUT_PAUSED)
 
     def reanudar_keyword(self, keyword_id: str | int) -> httpx.Response:
-        """PUT /sp/keywords: keyword a enabled (reversa del pause; HIPOTESIS
-        del PUT: ver ESTADO_PUT_ENABLED)."""
+        """PUT /sp/keywords: keyword a ENABLED (reversa del pause; sello
+        2026-08-27 del PUT: ver ESTADO_PUT_ENABLED)."""
         return self._cambiar_estado("keyword", keyword_id, ESTADO_PUT_ENABLED)
 
     def pausar_target(self, target_id: str | int) -> httpx.Response:
-        """PUT /sp/targets: product_target a userPaused (HIPOTESIS del PUT:
-        ver ESTADO_PUT_PAUSED — PENDIENTE de la corrida del pause real)."""
+        """PUT /sp/targets: product_target a PAUSED (sello 2026-08-27 del
+        PUT: ver ESTADO_PUT_PAUSED)."""
         return self._cambiar_estado("target", target_id, ESTADO_PUT_PAUSED)
 
     def reanudar_target(self, target_id: str | int) -> httpx.Response:
-        """PUT /sp/targets: product_target a enabled (reversa del pause;
-        HIPOTESIS del PUT: ver ESTADO_PUT_ENABLED)."""
+        """PUT /sp/targets: product_target a ENABLED (reversa del pause;
+        sello 2026-08-27 del PUT: ver ESTADO_PUT_ENABLED)."""
         return self._cambiar_estado("target", target_id, ESTADO_PUT_ENABLED)
 
     def crear_negative_exacto(
@@ -425,7 +424,7 @@ class AdsWriteClient(AdsClient):
             )
 
     def _cambiar_estado(self, entidad: str, entity_id: str | int, estado: str) -> httpx.Response:
-        """PUT de estado (userPaused/enabled) para keyword o product_target."""
+        """PUT de estado (PAUSED/ENABLED, sello 2026-08-27) para keyword o product_target."""
         campo = "keywordId" if entidad == "keyword" else "targetId"
         path = "/sp/keywords" if entidad == "keyword" else "/sp/targets"
         return self._mutate(

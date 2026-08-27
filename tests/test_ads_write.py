@@ -207,7 +207,7 @@ CASOS_MUTACION = [
         "PUT",
         "/sp/keywords",
         "application/vnd.spkeyword.v3+json",
-        {"keywordId": 101, "state": "userPaused"},
+        {"keywordId": 101, "state": "PAUSED"},
         id="pausar-keyword",
     ),
     pytest.param(
@@ -216,7 +216,7 @@ CASOS_MUTACION = [
         "PUT",
         "/sp/keywords",
         "application/vnd.spkeyword.v3+json",
-        {"keywordId": 101, "state": "enabled"},
+        {"keywordId": 101, "state": "ENABLED"},
         id="reanudar-keyword",
     ),
     pytest.param(
@@ -225,7 +225,7 @@ CASOS_MUTACION = [
         "PUT",
         "/sp/targets",
         "application/vnd.sptargetingclause.v3+json",
-        {"targetId": 202, "state": "userPaused"},
+        {"targetId": 202, "state": "PAUSED"},
         id="pausar-target",
     ),
     pytest.param(
@@ -234,7 +234,7 @@ CASOS_MUTACION = [
         "PUT",
         "/sp/targets",
         "application/vnd.sptargetingclause.v3+json",
-        {"targetId": 202, "state": "enabled"},
+        {"targetId": 202, "state": "ENABLED"},
         id="reanudar-target",
     ),
     pytest.param(
