@@ -1509,11 +1509,15 @@ def _fase_notifica(
     except Exception as exc:  # noqa: BLE001 - jamas rompe el ciclo (docstring)
         notas["digest"] = "fallo: el digest del ciclo no salio (ver log)"
         logger.warning("notifica: fallo en el digest: %s", scrub(str(exc)))
-    for alerta in alertas:
-        if getattr(alerta, "envio_fallido", False):
-            notas["harvest_failed"] = (
-                "fallo: alerta de harvest failed no enviada por Telegram (revisar harvest_job)"
-            )
+    try:
+        for alerta in alertas:
+            if getattr(alerta, "envio_fallido", False):
+                notas["harvest_failed"] = (
+                    "fallo: alerta de harvest failed no enviada por Telegram (revisar harvest_job)"
+                )
+    except Exception as exc:  # noqa: BLE001 - jamas rompe el ciclo (docstring)
+        notas["harvest_failed"] = "fallo: la alerta de harvest failed no salio (ver log)"
+        logger.warning("notifica: fallo en alertas de harvest: %s", scrub(str(exc)))
     return notas
 
 

@@ -2,7 +2,7 @@
 
 DoD (plans/orbit-04.md 3.3; sellados 2 y 19; APPLY.md 10.2), un candado por
 test (regla 9 en cada uno). CERO HTTP real: TODO contra `httpx.MockTransport`
-(ni Telegram ni Amazon); `tests/conftest.py` aísla el canal por defecto.
+(ni Telegram ni Amazon); `tests/conftest.py` aisla el canal por defecto.
 
 1. BUILDERS PUROS: mensajes correctos (aviso con vence_el, digest con lo que
    existe, alerta de harvest) SIN secretos y SIN parse_mode (texto plano).
@@ -430,3 +430,50 @@ def test_alerta_harvest_failed_envio_falla_bandera_y_propaga(canal_fail):
         assert resumen.fallidas == 1
         assert resumen.alertas, "la alerta ya no se cae en el camino a la superficie"
         assert resumen.alertas[0].envio_fallido is True
+
+
+def test_fase_notifica_mapea_alerta_harvest_fallida_a_nota():
+    """b1 de la review: el eslabon FINAL harvest-failed -> NOTA probado
+    DIRECTO (cycle._fase_notifica, sin ciclo completo) — la bandera
+    envio_fallido=True produce la clave notes['telegram']['harvest_failed']
+    (regla 9: un typo en el mapeo pasaba verde); envio OK -> sin NOTA (el
+    silencio del canal solo es invisible cuando TODO salio)."""
+    from dataclasses import replace
+
+    from app import cycle as ciclo
+    from app.apply_harvest import AlertaHarvest
+
+    alerta = AlertaHarvest(
+        motivo="fallo_definitivo",
+        decision_id=1,
+        search_term=TERMINO,
+        plataforma="amazon_us",
+        job_id=7,
+        detalle="500",
+        envio_fallido=True,
+    )
+    notas = ciclo._fase_notifica(
+        (),
+        (alerta,),
+        cycle_id=1,
+        platform="amazon_us",
+        status="done",
+        decisions_count=0,
+        notas_apply={},
+    )
+    assert set(notas) == {"harvest_failed"}
+    assert "Telegram" in notas["harvest_failed"]
+
+    ok = replace(alerta, envio_fallido=False)
+    assert (
+        ciclo._fase_notifica(
+            (),
+            (ok,),
+            cycle_id=1,
+            platform="amazon_us",
+            status="done",
+            decisions_count=0,
+            notas_apply={},
+        )
+        == {}
+    )
