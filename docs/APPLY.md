@@ -240,8 +240,11 @@ del header declarado).
 TODA mutación — bid, corte, reversa, probe — nace como fila del ledger
 **ANTES del HTTP** con: `decision_id` (NULL permitido SOLO para probes),
 `seq` (número de intento de la decisión), `tipo` (`normal` / `reversa` /
-`probe`), **`request_payload` EXACTO** (para harvest: el bid efectivo a
-escribir, sellado 14), `quota_cobrada`, `started_at`.
+`probe`), **`request_payload`** con la INTENCIÓN lógica (para harvest: el
+bid efectivo a escribir, sellado 14; el envelope de contenedor/enum/type-cast
+del wire lo aplica `write.py` de forma determinista — los deletes SÍ se
+congelan exactos porque su wire es el filtro; declaración post-probe 2.5,
+hallazgo reviewer Obs 3), `quota_cobrada`, `started_at`.
 
 El ack/resultado/`finished_at` se sellan **al volver, SOLO una vez**:
 
@@ -443,22 +446,22 @@ Ninguna acción irreversible sin su reversa implementada antes (regla 7):
 
 ### 8.1 Allowlist default-deny — nada más que esto
 
-| Operación | Path sellado |
+| Operación | Path sellado (probe 2.5, 2026-08-26) |
 |---|---|
-| update bid de keyword | fija el probe 2.5 (§13) |
-| pause/resume de keyword | fija el probe 2.5 (§13) |
-| update bid de product_target | `/sp/targets` (PUT) |
-| pause/resume de product_target | `/sp/targets` |
-| create negative exact | fija el probe 2.5 (§13) |
-| delete negative | fija el probe 2.5 (§13) |
-| create keyword | fija el probe 2.5 (§13) |
-| delete keyword | fija el probe 2.5 (§13) |
+| update bid de keyword | PUT `/sp/keywords` (body `{keywords: [{keywordId, bid}]}`) |
+| pause/resume de keyword | PUT `/sp/keywords` (`state` del REQUEST: HIPÓTESIS `ESTADO_PUT_*`) |
+| update bid de product_target | PUT `/sp/targets` (body `{targetingClauses: [{targetId, bid}]}`) |
+| pause/resume de product_target | PUT `/sp/targets` (`state` del REQUEST: HIPÓTESIS `ESTADO_PUT_*`) |
+| create negative exact | POST `/sp/negativeKeywords` (`matchType=NEGATIVE_EXACT`, `state=ENABLED`) |
+| delete negative | POST `/sp/negativeKeywords/delete` (filtro de ids; archiva) |
+| create keyword | POST `/sp/keywords` (`matchType=EXACT`, `state=ENABLED`, bid número) |
+| delete keyword | POST `/sp/keywords/delete` (filtro de ids; archiva) |
 
 (r2 grok 4: 549 targets US + 861 MX reciben decisiones del motor y la v2
 los olvidó.) Todo path fuera de la allowlist se rechaza — default-deny,
-con test por path. Los paths/acks exactos no confirmados aún los fija el
-**probe 2.5** (regla 8: shapes REALES, no adivinados); hasta entonces los
-tests de readback nacen marcados "pendientes de shape".
+con test por path. Shapes de request/ack **fijados por el probe 2.5**
+(§11d, ledger probe ids 1-20); única hipótesis pendiente: el `state` del
+PUT de pause/resume.
 
 ### 8.2 Contrato del request
 
@@ -678,6 +681,42 @@ marcados "pendientes de shape" (§13.2) sellándolos contra los shapes reales
 nueva sin las claves de campaña NI `ads_smoke_auth`; (5) evidencia (log +
 `SELECT` del ledger probe) al registro de ORBIT 04. El ensayo E2E de 4.3
 re-usa esta misma herramienta.
+
+**SHAPES FIJADOS (corrida real 2026-08-26, ledger `apply_attempt` probe ids
+1-20, log `out/smoke-apply-20260826.log`; 4/4 formas neto cero):**
+
+- **Readback por LIST**: el GET directo de entidad sp responde **403**
+  (RETIRADO; apply_attempt 4-5) — el único camino de lectura es el POST de
+  lista (`/sp/keywords/list` contenedor `keywords`, `/sp/targets/list`
+  contenedor `targetingClauses`) con cruce de id. El readback del MOTOR
+  (bids/pauses/reversas/reconciliaciones) migró a `list_sellado`
+  (`app/apply.py`, `app/apply_cola.py`, `app/apply_harvest.py`);
+  `get_sellado` queda SOLO para el PENDIENTE-DE-REGLA-8 de bid sugerido.
+- **Contenedor del body**: toda mutación de colección viaja como ÚNICA
+  entrada de la lista bajo el contenedor del recurso (`keywords` /
+  `targetingClauses` / `negativeKeywords`; apply_attempt 1, 6-7, 13, 18-19).
+- **Bid como NÚMERO JSON** quantizado a 2 decimales (string → 400
+  "STRING_VALUE is not an expected Json type", apply_attempt 3); el LEDGER
+  sigue congelando la intención con el bid string (`_bid_payload`).
+- **Enums UPPER**: `matchType` es `EXACT` en keywords y `NEGATIVE_EXACT` en
+  negatives; `state` es OBLIGATORIO en los POST (enum [ENABLED, PROPOSED,
+  PAUSED], apply_attempt 9). El LIST responde states UPPER
+  (`ENABLED/PAUSED/ARCHIVED`, apply_attempt 19-20) — `userPaused` NO existe
+  en la RESPUESTA.
+- **Delete v3**: el DELETE directo del collection responde **403 SigV4**
+  (NO existe, apply_attempt 12); el camino real es `POST
+  /sp/{recurso}/delete` con `{"<recurso>IdFilter": {"include": [id]}}` → 207
+  (apply_attempt 14 y 17). El "delete" **ARCHIVA**: el item sigue en el
+  list con `state=ARCHIVED` — operativamente muerto (la identidad viva lo
+  ignora).
+- **Ack 207** con `success`/`error` anidados por recurso; el id del objeto
+  creado vive en el primer `success` (apply_attempt 13 y 16; ya lo parsea
+  `_id_de_ack`).
+- **ÚNICA HIPÓTESIS PENDIENTE**: el `state` del REQUEST del PUT de
+  pause/resume (`userPaused`/`enabled`, `write.py ESTADO_PUT_*`) — la forma
+  bid no toca state y el smoke no ejercita pause; la fija la próxima corrida
+  autorizada que ejercite un pause real. El READBACK ya compara contra el
+  wire verificado del list (`app/apply.py ESTADO_WIRE_*`).
 
 ---
 

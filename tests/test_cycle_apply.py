@@ -32,8 +32,10 @@ DoD de la tarea, un candado por test (regla 9 en cada uno):
 9. SIN PERFIL ACEPTADO: la fase de apply aborta fail-closed con nota
    apply_error, CERO HTTP de mutacion y el ciclo SIGUE (decisiones intactas).
 
-PENDIENTES del probe autorizado 2.5 (sellado 23): el shape del readback es
-supuesto de estos tests contra MockTransport; el probe los re-sella.
+RE-SELLADO contra el probe 2.5 (corrida autorizada del dueno 2026-08-26,
+ledger apply_attempt ids 1-20, log out/smoke-apply-20260826.log): el
+readback vive por LIST (GET directo retirado, 403) y el PUT viaja en el
+contenedor del recurso con bid NUMERO.
 """
 
 from __future__ import annotations
@@ -278,22 +280,29 @@ def _handler(bids: dict[str, str] | None = None, *, perfiles: str = "US", al_req
             data = [PERFIL_MX] if perfiles == "MX" else [PERFIL_US]
             return httpx.Response(200, json={"profiles": data})
         if request.method == "PUT":
+            # Contenedor del recurso + bid NUMERO (probe 2.5, apply_attempt 3/6).
             body = json.loads(request.content)
-            ext = str(body.get("keywordId") or body.get("targetId"))
-            remoto[ext] = body["bid"]
-            return httpx.Response(200, json={"ack": body})
-        if request.method == "GET":
-            ext = request.url.params.get("keywordId") or request.url.params.get("targetId")
-            contenedor = "targets" if request.url.path == "/sp/targets" else "keywords"
-            campo = "targetId" if contenedor == "targets" else "keywordId"
-            return httpx.Response(200, json={contenedor: [{campo: ext, "bid": remoto[ext]}]})
+            obj = body["keywords"][0] if "keywords" in body else body["targetingClauses"][0]
+            ext = str(obj.get("keywordId") or obj.get("targetId"))
+            remoto[ext] = obj["bid"]
+            return httpx.Response(207, json={"ack": obj})
+        if request.method == "POST" and request.url.path.endswith("/list"):
+            # Readback por LIST (probe 2.5, apply_attempt 4-5: GET retirado).
+            contenedor, campo = (
+                ("targetingClauses", "targetId")
+                if request.url.path == "/sp/targets/list"
+                else ("keywords", "keywordId")
+            )
+            filas = [{campo: ext, "bid": remoto[ext]} for ext in remoto]
+            return httpx.Response(200, json={contenedor: filas})
         raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
 
     return handler, vistos
 
 
 def _mutaciones(vistos: list[httpx.Request]) -> list[httpx.Request]:
-    return [r for r in vistos if r.method != "GET"]
+    # Los /list son lecturas (readback por LIST del probe 2.5), no mutaciones.
+    return [r for r in vistos if r.method != "GET" and not r.url.path.endswith("/list")]
 
 
 def _puts(vistos: list[httpx.Request]) -> list[httpx.Request]:
@@ -435,9 +444,14 @@ def test_lease_perdido_a_medida_aborta_sin_http(secrets_falsos):
         flip = {"hecho": False}
 
         def al_request(request: httpx.Request) -> None:
-            # Tras el readback del primer bid (PUT+GET completos), el sucesor
-            # reclama el lock: el zombie recien lo descubre en el PROXIMO HTTP.
-            if not flip["hecho"] and request.method == "GET" and request.url.path == "/sp/keywords":
+            # Tras el readback por LIST del primer bid (PUT+LIST completos), el
+            # sucesor reclama el lock: el zombie recien lo descubre en el
+            # PROXIMO HTTP (probe 2.5: el GET directo esta retirado).
+            if (
+                not flip["hecho"]
+                and request.method == "POST"
+                and request.url.path == "/sp/keywords/list"
+            ):
                 flip["hecho"] = True
                 conn.execute(
                     "UPDATE ads_optimizer_lock SET owner = 'sucesor' WHERE job_key = %s",
@@ -591,9 +605,10 @@ def test_e2e_live_bids_aplicados_y_cortes_encolados(secrets_falsos):
             (res.cycle_id,),
         ).fetchone()
         assert env == ("live", 1, "done")
-        # UNA mutacion + UN readback (token y /v2/profiles no son mutaciones)
+        # UNA mutacion + UN readback (token, /v2/profiles y /list no son
+        # mutaciones); el PUT viaja en el contenedor con bid NUMERO (probe 2.5)
         assert [json.loads(p.content) for p in _puts(vistos)] == [
-            {"keywordId": "9201", "bid": "0.75"}
+            {"keywords": [{"keywordId": "9201", "bid": 0.75}]}
         ]
         assert (
             conn.execute("SELECT count(*) FROM apply_attempt WHERE resultado = 'ok'").fetchone()[0]

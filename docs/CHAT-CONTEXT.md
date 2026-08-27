@@ -4,9 +4,10 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
-**Última actualización: 2026-08-27 — ORBIT 04 Phase 3 COMPLETA (3.1-3.3):
-PRs DRAFT #28 (3.1), #30 (3.2, apilado) y 3.3 en su rama apilada — el lead
-revisa. 3.3 (`app/notifica.py`, canal Telegram fail-silent): aviso por cada
+**Última actualización: 2026-08-27 — ORBIT 04 Phase 3 COMPLETA (3.1-3.3) y
+task 2.5 MERGEADAS a master (squash: #28 3.1, #33 3.2, #34 3.3 y 2.5
+probe-shapes; #29-32 quedaron cerrados por la cascada de bases). 3.3
+(`app/notifica.py`, canal Telegram fail-silent): aviso por cada
 corte NUEVO encolado (con vence_el 48h de la MISMA fuente de la fila),
 digest único por ciclo (live Y shadow: el encabezado declara el modo para
 que un digest de shadow no se confunda con uno live — cierre del hallazgo
@@ -46,6 +47,22 @@ config=fila-nueva queda para la pantalla de settings de ORBIT 16 Phase 3.
 Review: GO tras fixes (ids vacíos, edición vacía que re-sellaba updated_at,
 Decimal Infinity/NaN, docstrings stale); 100 tests focused en verde con
 PG16 real por túnel; batería completa en el CI del PR.
+
+Previo (2026-08-27): ORBIT 04 task 2.5 CERRADA: el probe
+real se ejecutó (2026-08-26, autorización del dueño, campaña sacrificable
+amazon_us) con 4/4 formas en neto cero (evidencia out/smoke-apply-20260826.log,
+ledger probe ids 1-20) y los shapes quedaron fijados contra la API VIVA —
+las hipótesis adivinadas estaban mal y se corrigieron (regla 8 cumplida a
+contrapelo): el bid viaja como NÚMERO JSON (no string), los enums son UPPER
+(matchType EXACT/NEGATIVE_EXACT, state ENABLED/PAUSED), los deletes v3 van
+por POST /sp/{recurso}/delete con filtro de ids (DELETE con body da 403),
+el readback es por LIST (el GET directo da 403) y los acks son 207 con
+success/error. Tests de readback de 2.1-2.3 re-sellados contra esos shapes;
+cross-review del dueño (codex+qwen) cerrada (readback paginado, 207
+verificados campo por campo, constantes del pause a una fuente). Residuo
+verificado y limpio: los 4 términos basura zzsmokeprobe* quedaron ARCHIVED
+(en Amazon delete=archivar; el último se archivó con ledger probe id 21).
+Rama orbit-04/2-5-probe-shapes, PR DRAFT #31 apilado sobre #29 (3.2).
 
 Previo (2026-08-26): ORBIT 04 Phase 3 EN CURSO: 3.1 lista
 (rama orbit-04/3-1-auth-escritura, PR DRAFT — el lead revisa). Auth de

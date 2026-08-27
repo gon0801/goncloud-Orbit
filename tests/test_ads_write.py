@@ -1,10 +1,10 @@
 """Tests del cliente de ESCRITURA Amazon Ads (`app.ads.write`) — ORBIT 04 1.3.
 
 Transporte de la API de Ads 100% mock (`httpx.MockTransport`): a Amazon no
-sale ninguna llamada real. Los tests NO dependen de que los endpoints de
-mutacion existan: sus paths/vendor types quedan PENDIENTES del probe
-autorizado 2.5 (brief APPLY §13, sellado 23). Los "secretos" son SIEMPRE
-valores falsos (`fake-...`).
+sale ninguna llamada real. Los paths/vendor types/containers quedaron
+SELLADOS por el probe 2.5 (corrida autorizada del dueno 2026-08-26, ledger
+apply_attempt ids 1-20, log out/smoke-apply-20260826.log). Los "secretos"
+son SIEMPRE valores falsos (`fake-...`).
 
 Cubre el DoD 1.3 (decision 9 sellada):
 - constructor fail-closed: `modo_confirmado` debe ser EXACTAMENTE 'live'
@@ -42,6 +42,7 @@ import pytest
 from app.ads.client import AdsApiError, AdsClient, MutationNotAllowedError
 from app.ads.config import AdsCredentials
 from app.ads.write import (
+    MUTATION_CONTAINERS,
     MUTATION_REQUEST_TYPES,
     PLATAFORMA_MONEDA,
     AdsWriteClient,
@@ -130,8 +131,10 @@ def test_plataforma_vocabulario_cerrado():
 # 2. Superficie publica EXACTA y scope inexpresable
 # ---------------------------------------------------------------------------
 
-# Las 10 MUTACIONES selladas + get_sellado (ORBIT 04 2.1: el readback del
-# aplicador JAMAS pasa un profile a mano — GET con el scope de la instancia).
+# Las 10 MUTACIONES selladas + las DOS puertas de lectura sellada (ORBIT 04
+# 2.1/probe 2.5: list_sellado es EL readback de entidad — el GET directo sp
+# esta retirado, 403; get_sellado queda SOLO para el PENDIENTE-DE-REGLA-8 de
+# bid_sugerido). Ningun metodo pasa un profile a mano.
 METODOS_PUBLICOS = {
     "actualizar_bid_keyword",
     "actualizar_bid_target",
@@ -144,13 +147,15 @@ METODOS_PUBLICOS = {
     "crear_keyword_exacta",
     "borrar_keyword",
     "get_sellado",
+    "list_sellado",
 }
 
 
 def test_superficie_publica_exacta():
-    """Las 10 mutaciones selladas + get_sellado, NADA mas; ningun metodo
-    generico request/post y ninguna ampliacion silenciosa (vars() de la
-    clase: lo heredado del read client no se re-sella aqui)."""
+    """Las 10 mutaciones selladas + list_sellado (readback de entidad, probe
+    2.5) + get_sellado (solo bidrec PENDIENTE-DE-REGLA-8), NADA mas; ningun
+    metodo generico request/post y ninguna ampliacion silenciosa (vars() de
+    la clase: lo heredado del read client no se re-sella aqui)."""
     public = {
         name
         for name, value in vars(AdsWriteClient).items()
@@ -184,7 +189,7 @@ CASOS_MUTACION = [
         "PUT",
         "/sp/keywords",
         "application/vnd.spkeyword.v3+json",
-        {"keywordId": 101, "bid": "0.76"},
+        {"keywordId": 101, "bid": 0.76},
         id="bid-keyword",
     ),
     pytest.param(
@@ -193,7 +198,7 @@ CASOS_MUTACION = [
         "PUT",
         "/sp/targets",
         "application/vnd.sptargetingclause.v3+json",
-        {"targetId": 202, "bid": "1.00"},
+        {"targetId": 202, "bid": 1.0},
         id="bid-target",
     ),
     pytest.param(
@@ -242,17 +247,18 @@ CASOS_MUTACION = [
             "adGroupId": 31,
             "campaignId": 21,
             "keywordText": "zapato roto",
-            "matchType": "exact",
+            "matchType": "NEGATIVE_EXACT",
+            "state": "ENABLED",
         },
         id="crear-negative",
     ),
     pytest.param(
         "borrar_negative",
         (99,),
-        "DELETE",
-        "/sp/negativeKeywords",
+        "POST",
+        "/sp/negativeKeywords/delete",
         "application/vnd.spnegativekeyword.v3+json",
-        {"keywordId": 99},
+        {"negativeKeywordIdFilter": {"include": [99]}},
         id="borrar-negative",
     ),
     pytest.param(
@@ -265,18 +271,19 @@ CASOS_MUTACION = [
             "adGroupId": 31,
             "campaignId": 21,
             "keywordText": "zapato bueno",
-            "matchType": "exact",
-            "bid": "10.00",
+            "matchType": "EXACT",
+            "state": "ENABLED",
+            "bid": 10.0,
         },
         id="crear-keyword",
     ),
     pytest.param(
         "borrar_keyword",
         (101,),
-        "DELETE",
-        "/sp/keywords",
+        "POST",
+        "/sp/keywords/delete",
         "application/vnd.spkeyword.v3+json",
-        {"keywordId": 101},
+        {"keywordIdFilter": {"include": [101]}},
         id="borrar-keyword",
     ),
 ]
@@ -305,13 +312,20 @@ def test_mutacion_envia_method_path_payload_vendor_y_scope_sellados(
     assert enviado.headers["Content-Type"] == vendor
     assert enviado.headers["Accept"] == vendor
     assert enviado.headers["Amazon-Advertising-API-Scope"] == str(FAKE_PROFILE_MX)
-    assert json.loads(enviado.content) == payload
+    # Evidencia probe 2.5 (2026-08-26): la API v3 exige el objeto como
+    # UNICA entrada de la lista bajo el contenedor del recurso (PUT con
+    # objeto desnudo -> 400 "Value null at 'keywords'") — EXCEPTO los
+    # DELETE v3, que van por POST /delete con body de FILTRO sin contenedor.
+    if path.endswith("/delete"):
+        assert json.loads(enviado.content) == payload
+    else:
+        assert json.loads(enviado.content) == {MUTATION_CONTAINERS[path]: [payload]}
 
 
 def test_bid_quantizado_a_dos_decimales_en_el_body():
     """0.7550 -> 0.76 en el body: sin quantize el payload llevaria los 4
     decimales del NUMERIC de origen (presentacion sellada). El bid viaja
-    como string: float prohibido para dinero (regla 4)."""
+    como numero JSON tras cuantizar el Decimal (regla 4)."""
     bodies: list[bytes] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -323,7 +337,8 @@ def test_bid_quantizado_a_dos_decimales_en_el_body():
     client = make_write_client(handler)
     client.actualizar_bid_keyword(101, Decimal("0.7550"), "MXN")
 
-    assert json.loads(bodies[0])["bid"] == "0.76"
+    body = json.loads(bodies[0])
+    assert body == {"keywords": [{"keywordId": 101, "bid": 0.76}]}
 
 
 def test_bid_que_no_es_decimal_revierta_typeerror():
@@ -393,16 +408,18 @@ def test_par_fuera_del_allowlist_rechazado_sin_http(method, path):
 def test_allowlist_sellada_contenido_y_congelamiento():
     """El allowlist ES la superficie de mutacion: contenido exacto y
     MappingProxyType congelado (una mutacion accidental del mapa revienta)."""
+    # Contenido sellado tras el probe 2.5: los DELETE v3 son POST /delete
+    # (el DELETE directo del collection responde 403 SigV4 — retirado).
     assert set(MUTATION_REQUEST_TYPES) == {
         ("PUT", "/sp/keywords"),
         ("PUT", "/sp/targets"),
         ("POST", "/sp/negativeKeywords"),
-        ("DELETE", "/sp/negativeKeywords"),
+        ("POST", "/sp/negativeKeywords/delete"),
         ("POST", "/sp/keywords"),
-        ("DELETE", "/sp/keywords"),
+        ("POST", "/sp/keywords/delete"),
     }
     assert MUTATION_REQUEST_TYPES[("PUT", "/sp/keywords")] == ("application/vnd.spkeyword.v3+json")
-    assert MUTATION_REQUEST_TYPES[("DELETE", "/sp/negativeKeywords")] == (
+    assert MUTATION_REQUEST_TYPES[("POST", "/sp/negativeKeywords/delete")] == (
         "application/vnd.spnegativekeyword.v3+json"
     )
     with pytest.raises(TypeError):

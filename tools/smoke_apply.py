@@ -50,20 +50,25 @@ PASO A PASO DE LA CORRIDA AUTORIZADA:
     la evidencia de una forma: request exacto, ack (body + headers sin
     secretos), readback y reversa. Las filas de apply_attempt tipo 'probe'
     quedan como rastro durable en la base.
- 6. FIJAR LOS SHAPES (el objetivo de la corrida): contra cada ack/readback
-    real, confirmar o corregir las HIPOTESIS de mas abajo y los shapes que
-    los tests de readback de 2.1-2.3 tienen marcados "pendientes de shape"
-    (regla 8); re-sellar esos tests contra el shape real.
+ 6. VERIFICAR LOS SHAPES (hecho en la corrida 2026-08-26; 4.3 re-verifica):
+    contra cada ack/readback real, confirmar que siguen los shapes
+    sellados (seccion SHAPES VERIFICADOS de abajo / APPLY.md §11d).
  7. Cerrar: el dueno BORRA ORBIT_SMOKE_AUTH y el admin siembra una config
     NUEVA sin las claves de campana NI auth (append-only: quitar = fila
     nueva sin las claves). La evidencia (log + SELECT del ledger probe) va
     al registro de ORBIT 04; la re-verificacion E2E de 4.3 re-usa esta misma
     herramienta.
 
-HIPOTESIS SIN VERIFICAR (ORDEN EXPLICITA DEL DUENO): los ENUMS/tipos del
-REQUEST de mutacion (matchType, state, bid como string) y los shapes de los
-acks NO corrieron nunca contra la API real — la corrida autorizada los fija.
-Estan declarados en HIPOTESIS_SHAPES y viajan en la evidencia de cada forma.
+SHAPES VERIFICADOS (corrida autorizada del dueno 2026-08-26, ledger
+apply_attempt ids 1-20, log out/smoke-apply-20260826.log; 4/4 formas neto
+cero): contenedores del body (keywords/targetingClauses/negativeKeywords con
+UNA entrada), enums UPPER (matchType EXACT/NEGATIVE_EXACT, state ENABLED en
+creates), bid como NUMERO JSON, ack 207 con success/error anidados por
+recurso, deletes por POST /sp/{recurso}/delete con filtro (el DELETE directo
+del collection NO existe: 403 SigV4) que ARCHIVA, y readback SOLO por LIST
+(GET directo retirado: 403). UNICA HIPOTESIS VIVA: el state del REQUEST del
+PUT de pause/resume (write.py ESTADO_PUT_* — la forma bid no toco state);
+declarada en HIPOTESIS_SHAPES.
 
 Uso: python tools/smoke_apply.py --forma <bid_keyword|bid_target|negative|keyword|todas>
      --platform <amazon_us|amazon_mx> --acepto-mutacion-real
@@ -121,29 +126,47 @@ TOPE_PAGINAS = 50
 # ni Amazon-Advertising-API-ClientId, que viajan en TODO request).
 HEADERS_ACK = ("x-amz-request-id", "x-amz-rid", "x-amzn-requestid", "request-id", "content-type")
 
-# HIPOTESIS SIN VERIFICAR (orden del dueno; APPLY.md §13.2): ninguno de estos
-# enums/tipos corrio contra la API real. La corrida autorizada los CONFIRMA o
-# CORRIGE; corregir = arreglar write.py y re-sellar los tests de readback de
-# 2.1-2.3 contra el shape real. La evidencia de cada forma los nombra.
+# SHAPES del probe 2.5 (corrida autorizada del dueno 2026-08-26, ledger
+# apply_attempt ids 1-20, log out/smoke-apply-20260826.log): TODO lo ejercido
+# por el smoke quedo CONFIRMADO contra la API real; la UNICA hipotesis viva es
+# el state del REQUEST del PUT de pause/resume (la forma bid no toca state y
+# el smoke no ejercita pause — solo el dueno autoriza esa corrida). Viajan en
+# la evidencia de cada forma.
 HIPOTESIS_SHAPES = {
     "match_type_exact": (
-        "matchType 'exact' en el POST/PUT de keyword y negative (alternativa: "
-        "'negativeExact' en negatives)"
+        "CONFIRMADO (apply_attempt 8-10 y 15-16): matchType es el enum UPPER "
+        "del recurso — NEGATIVE_EXACT en negatives, EXACT en keywords"
     ),
     "state_user_paused": (
-        "state 'userPaused'/'enabled' en pause/resume (formas no ejercidas "
-        "por el smoke; el motor las usa en cortes)"
+        "HIPOTESIS PENDIENTE de la corrida del pause real: state "
+        "'userPaused'/'enabled' en el PUT de pause/resume (write.py "
+        "ESTADO_PUT_*); la evidencia del enum UPPER (apply_attempt 9: el 400 "
+        "del negative listo [ENABLED, PROPOSED, PAUSED]) sugiere "
+        "'PAUSED'/'ENABLED'. El READBACK ya compara el wire verificado del "
+        "list (ENABLED/PAUSED/ARCHIVED, apply_attempt 19-20)"
     ),
-    "bid_string": "el bid viaja como string quantizado a 2 decimales (alternativa: numero)",
+    "bid_string": (
+        "CONFIRMADO (apply_attempt 3): string -> 400 'STRING_VALUE is not an "
+        "expected Json type'; el bid viaja como NUMERO JSON (quantizado a 2 "
+        "decimales por _bid_wire)"
+    ),
     "campo_id_ack": (
-        "campo del id creado en el ack del POST (keywordId; alternativa: "
-        "negativeKeywordId) — el smoke prefiere el id del LIST readback "
-        "(shape verificado, regla 8)"
+        "CONFIRMADO (apply_attempt 13 y 16): ack 207 con success/error "
+        "anidados por recurso; el id vive en el primer success "
+        "({'<recurso>': {'success': [{'index': 0, '<recurso>Id': ...}]}})"
     ),
     "contenedor_get": (
-        "contenedor del GET de readback de bid ('keywords'/'targets'; alternativa: otro contenedor)"
+        "CONFIRMADO (apply_attempt 4-5 y 18-20): el GET directo de entidad "
+        "sp responde 403 (RETIRADO) — el readback vive por LIST "
+        "('/sp/keywords/list' contenedor 'keywords', '/sp/targets/list' "
+        "contenedor 'targetingClauses')"
     ),
-    "payload_delete": "DELETE con body {'keywordId': ...} (alternativa: query string)",
+    "payload_delete": (
+        "CONFIRMADO (apply_attempt 12, 14 y 17): el DELETE directo del "
+        "collection responde 403 SigV4 (NO existe); el camino real es POST "
+        "/sp/{recurso}/delete con {'<recurso>IdFilter': {'include': [id]}} "
+        "-> 207; el 'delete' ARCHIVA (state=ARCHIVED en el list)"
+    ),
 }
 
 HIPOTESIS_POR_FORMA = {
@@ -446,16 +469,19 @@ def _paso_mutacion(ctx: ContextoSmoke, nombre: str, payload: dict, funcion) -> d
 def _paso_readback_bid(
     ctx: ContextoSmoke, es_keyword: bool, ext: str
 ) -> tuple[Decimal | None, dict]:
-    """GET de readback con el scope sellado (get_sellado). HIPOTESIS
-    contenedor_get: 'keywords'/'targets' con campo 'bid'. Devuelve (bid leido
-    o None, evidencia del paso); JAMAS lanza (un readback roto es un hallazgo
-    del probe, no un crash)."""
-    path = "/sp/keywords" if es_keyword else "/sp/targets"
+    """Readback por LIST v3 PAGINADO con el MISMO profile sellado (evidencia
+    probe 2.5, apply_attempt 4-5: el GET directo /sp/keywords responde 403 —
+    retirado como el resto de v2; el UNICO camino de lectura es el POST de
+    lista, verificado en vivo desde 2026-08-22). El contenedor del list es
+    'keywords'/'targetingClauses'; cruce de id contra la fila pedida. CX6 de
+    la cross-review del dueno: la seleccion ya paginaba con listar_paginado
+    y el readback quedaba en la PRIMERA pagina — con la entidad elegida en
+    pagina 2+ el probe reportaria un falso fallo aunque la reversa fuera
+    correcta."""
+    path = "/sp/keywords/list" if es_keyword else "/sp/targets/list"
     param = "keywordId" if es_keyword else "targetId"
-    contenedor = "keywords" if es_keyword else "targets"
     try:
-        resp = ctx.cliente.get_sellado(path, params={param: ext})
-        filas = (resp.json() or {}).get(contenedor) or []
+        filas = listar_paginado(ctx, path)
         # Cruce de id (reviewer P2, post cross-review): una respuesta con el
         # id de OTRA entidad JAMAS confirma ni revierte — el motor ya cruza
         # (_bid_leido/_estado_leido) y el probe no debe sellar shapes con
@@ -465,12 +491,12 @@ def _paso_readback_bid(
         bid = _bid_valido(crudo)
         return bid, {
             "paso": "readback",
-            "http": _evidencia_respuesta(resp),
+            "filas_leidas": len(filas),
             "bid_leido": str(bid) if bid is not None else None,
             "bid_crudo": crudo,
             "id_cruzado": fila is not None,
         }
-    except (AdsApiError, ValueError, TypeError, IndexError, AttributeError) as exc:
+    except (AdsApiError, SmokeError, ValueError, TypeError, IndexError, AttributeError) as exc:
         return None, {"paso": "readback", "error": scrub(str(exc)), "bid_leido": None}
 
 
@@ -570,11 +596,20 @@ def _buscar_por_identidad(
         ctx, "/sp/negativeKeywords/list" if es_negative else "/sp/keywords/list"
     )
     for item in items:
+        # El "delete" v3 ARCHIVA (probe 2.5: state=ARCHIVED tras el POST
+        # /delete con 207 success): un item archivado esta operativamente
+        # MUERTO — para identidad de vivo (y el neto cero) es AUSENTE.
+        if str(item.get("state", "")).upper() == "ARCHIVED":
+            continue
         if str(item.get("adGroupId", "")) != grupo:
             continue
         if item.get("keywordText") != termino:
             continue
-        if str(item.get("matchType", "")).lower() != "exact":
+        # matchType del WIRE: NEGATIVE_EXACT para negatives (probe 2.5,
+        # apply_attempt 10 + list readback), EXACT/exact para keywords — se
+        # normaliza para no romper la identidad por el case del enum.
+        mt = str(item.get("matchType", "")).lower().replace("negative_", "")
+        if mt != "exact":
             continue
         return item, items
     return None, items
@@ -626,15 +661,19 @@ def _forma_create_delete(ctx: ContextoSmoke, forma: str) -> dict:
         bid = None
 
     # Payloads ESPEJO de write.py (regla 2, una sola fuente del shape: si
-    # write.py cambia, estos dict lo siguen — los tests de payload EXACTO lo cazan).
+    # write.py cambia, estos dict lo siguen — los tests de payload EXACTO lo
+    # cazan). Shapes CONFIRMADOS por el probe 2.5: enums UPPER y state
+    # OBLIGATORIO en creates; el bid del LEDGER viaja quantizado string (el
+    # wire lo serializa NUMERO via _bid_wire).
     payload_post = {
         "adGroupId": grupo,
         "campaignId": ctx.campana,
         "keywordText": termino,
-        "matchType": "exact",  # HIPOTESIS match_type_exact
+        "matchType": "NEGATIVE_EXACT" if es_negative else "EXACT",
+        "state": "ENABLED",
     }
     if bid is not None:
-        payload_post["bid"] = _bid_payload(bid)  # HIPOTESIS bid_string
+        payload_post["bid"] = _bid_payload(bid)
 
     def _post():
         if es_negative:
@@ -643,6 +682,13 @@ def _forma_create_delete(ctx: ContextoSmoke, forma: str) -> dict:
         return ctx.cliente.crear_keyword_exacta(
             grupo, ctx.campana, termino, bid, PLATAFORMA_MONEDA[ctx.platform]
         )
+
+    # Delete v3 CONFIRMADO (probe 2.5, apply_attempt 14 y 17): POST al
+    # sub-path /delete con filtro de ids — asi congela el ledger la reversa.
+    filtro_delete = "negativeKeywordIdFilter" if es_negative else "keywordIdFilter"
+
+    def _payload_delete(id_creado: str) -> dict:
+        return {filtro_delete: {"include": [id_creado]}}
 
     def _delete(id_creado: str):
         if es_negative:
@@ -685,16 +731,17 @@ def _forma_create_delete(ctx: ContextoSmoke, forma: str) -> dict:
                 "distinto al sellado): RESIDUO POSIBLE, revisar a mano"
             ),
         }
-    delete = _paso_mutacion(ctx, "http_delete", {"keywordId": id_creado}, _delete(id_creado))
+    delete = _paso_mutacion(ctx, "http_delete", _payload_delete(id_creado), _delete(id_creado))
     pasos.append(delete)
     final, items_final = _buscar_por_identidad(ctx, es_negative, grupo, termino)
     neto_cero = final is None
     pasos.append({"paso": "readback_final", "ausente": neto_cero})
     ok = bool(post["ok"] and delete["ok"] and neto_cero)
     if not ok and delete["ok"] and not neto_cero:
-        # El DELETE dice ok pero el termino sigue: re-intento best-effort UNA vez.
+        # El DELETE dice ok pero el termino sigue VIVO (el delete v3 ARCHIVA:
+        # ARCHIVED ya es ausencia para la identidad): re-intento UNA vez.
         reintento = _paso_mutacion(
-            ctx, "reversa_best_effort", {"keywordId": id_creado}, _delete(id_creado)
+            ctx, "reversa_best_effort", _payload_delete(id_creado), _delete(id_creado)
         )
         final2, _ = _buscar_por_identidad(ctx, es_negative, grupo, termino)
         pasos.append(reintento)

@@ -33,11 +33,12 @@ Diseno SELLADO (plans/orbit-04.md decisiones 1-6, 8, 17; docs/APPLY.md §1-§3,
   JAMAS reusa inputs.corte.umbral_clicks_usado congelado (y NO se limita a
   "orders>0": el umbral fresco tambien descarta — pause: decide_bid con
   umbral fresco; negative: decide_hygiene con umbral+piso frescos).
-- RE-CHECK DE ESTADO VIVO por GET fresco (jamas el cache, sellado 16) en la
-  familia entity_cut (pause): entidad no viva -> el corte es moot; ENABLED +
-  pause propio verificado -> INSERT reactivacion_manual (idempotente por PK,
-  sellado 17) y el corte se descarta: la gracia de 7d desde detectada_en no
-  vuelve a cortar la entidad.
+- RE-CHECK DE ESTADO VIVO por LIST fresco (jamas el cache, sellado 16; probe
+  2.5: el GET directo de entidad esta retirado) en la familia entity_cut
+  (pause): entidad no viva -> el corte es moot; ENABLED + pause propio
+  verificado -> INSERT reactivacion_manual (idempotente por PK, sellado 17)
+  y el corte se descarta: la gracia de 7d desde detectada_en no vuelve a
+  cortar la entidad.
 - CAP AGOTADO -> cortes esperan FIFO en released y SIGUEN vetables (§5.4).
 - REVERSAS pause/negative (regla 7, sellado 12): ledger tipo 'reversa'
   EXENTAS de quota, mismo readback; no limpian cooldown.
@@ -61,6 +62,22 @@ Elecciones DECLARADAS de esta task:
 - Encola necesita las ids de las decisiones del ciclo recien commitado: las
   lee por SELECT del ciclo (cycle.py NO se toca — _inserta_decisiones no
   expone RETURNING y aqui no hace falta).
+
+READBACK: SELLADO por el probe 2.5 (corrida autorizada del dueno 2026-08-26,
+ledger apply_attempt ids 1-20, log out/smoke-apply-20260826.log): el estado
+vivo se lee por LIST (POST /sp/{keywords|targets}/list — el GET directo
+responde 403, retirado) con cruce de id, y el vocabulario del wire es UPPER
+(apply.ESTADO_WIRE_*: ENABLED/PAUSED/ARCHIVED; ARCHIVED = operativamente
+muerto). Unica hipotesis PENDIENTE: el state del REQUEST del PUT de
+pause/resume (write.py ESTADO_PUT_*, re-exportada por apply — QW2, UNA
+fuente).
+
+Ronda de CROSS-REVIEW del dueno (codex+qwen, shapes del probe 2.5,
+out/cross-review-shapes-*.log): el LIST de readback PAGINA por nextToken
+(apply._estado_de_readback — CX1/QW1: el body {} solo ve la primera pagina
+de una cuenta con 1334 keywords); la reversa del negative exige un 207 sin
+rechazo por-item (CX3, 'fallo:reversa_rechazada'); y reversa_pause sella
+'ok' SOLO si el readback lee ENABLED (QW6, misma regla que PR27-3).
 """
 
 from __future__ import annotations
@@ -245,7 +262,7 @@ class ResultadoLiberacion:
     esperan en released (cap agotado: siguen vetables, brief §5.4);
     `carreras_perdidas` son los claims/liberaciones atomicos que vieron 0
     filas (un veto llego primero: pierden LIMPIO, sin HTTP);
-    `revalida_sin_respuesta` cuenta las filas cuyo GET fresco de
+    `revalida_sin_respuesta` cuenta las filas cuyo LIST fresco de
     re-validacion murio (GK3 de la cross-review: quedan released con esta
     nota y el barrido SIGUE — una entidad muerta no degrada el ciclo)."""
 
@@ -388,20 +405,25 @@ def _modo_efectivo_corte(
 
 def _payload_pause(kind_entidad: str, external_id: str) -> dict:
     """Payload EXACTO del corte pause (mismo shape que _cambiar_estado del
-    write client; PENDIENTE del probe 2.5 como todo shape de mutacion)."""
+    write client). El state del REQUEST vive de la constante re-exportada
+    (QW2 de la cross-review: UNA fuente — write.py ESTADO_PUT_PAUSED, la
+    HIPOTESIS PENDIENTE de la corrida del pause real; cambiarla ahi cambia
+    el ledger del pause SIN tocar este modulo)."""
     campo = "keywordId" if kind_entidad == "keyword" else "targetId"
-    return {campo: external_id, "state": "userPaused"}
+    return {campo: external_id, "state": apply.ESTADO_PUT_PAUSED}
 
 
 def _payload_term(grupo_ext: str, campana_ext: str, term: str) -> dict:
     """Payload EXACTO del primer HTTP de un corte de termino: el negative
     exacto en el ad group ORIGEN (para harvest es el primer paso de su cadena,
-    brief §6 — 2.3 extiende el segundo POST con su bid)."""
+    brief §6 — 2.3 extiende el segundo POST con su bid). Enums del wire REAL
+    (probe 2.5, apply_attempt 13: matchType NEGATIVE_EXACT + state ENABLED)."""
     return {
         "adGroupId": grupo_ext,
         "campaignId": campana_ext,
         "keywordText": term,
-        "matchType": "exact",
+        "matchType": "NEGATIVE_EXACT",
+        "state": "ENABLED",
     }
 
 
@@ -499,22 +521,9 @@ def encola_cortes(
 # ---------------------------------------------------------------------------
 
 
-def _estado_leido(resp, contenedor: str, id_campo: str, external_id: str) -> str | None:
-    """El estado del READBACK fresco, SOLO si la fila leida ES la entidad
-    pedida (CX6/GK8: el id cruza con el external_id del pedido — una
-    respuesta de OTRA entidad no es evidencia). PENDIENTE del probe 2.5: el
-    shape (contenedor 'keywords'/'targets' con campo 'state') es supuesto
-    sellado por tests; el probe lo fija contra la API real. None =
-    ilegible/vacio/de otra entidad."""
-    try:
-        filas = resp.json().get(contenedor)
-        fila = filas[0] if filas else None
-        if fila is None or str(fila.get(id_campo)) != str(external_id):
-            return None
-        estado = fila.get("state")
-    except (ValueError, AttributeError, IndexError, KeyError, TypeError):
-        return None
-    return estado if isinstance(estado, str) else None
+# El lector de estado vive en app.apply (una sola fuente, shape del probe
+# 2.5): _estado_de_readback escanea el LIST PAGINADO (CX1/QW1) por cruce de
+# id y trae el vocabulario UPPER del wire (ESTADO_WIRE_*).
 
 
 def _gracia_activa(conn: psycopg.Connection, ad_entity_id: int, ahora: dt.datetime) -> bool:
@@ -533,22 +542,26 @@ def _revalida_pause(
     fila: FilaCola,
     ahora: dt.datetime,
 ) -> str | None:
-    """Re-validacion de un pause: re-check de estado vivo por GET FRESCO
-    (jamas el cache, sellado 16) y re-decision de la regla completa del motor
-    con el umbral RE-RESUELTO a la evidencia FRESCA anclada al reloj de
-    LIBERACION (el decided_at de ventanas_evidencia_ad_group es el instante de
-    liberar, NO el de decidir — contrato cross-plan de CORTES 01)."""
+    """Re-validacion de un pause: re-check de estado vivo por LIST FRESCO
+    (jamas el cache, sellado 16; probe 2.5: el GET directo esta retirado) y
+    re-decision de la regla completa del motor con el umbral RE-RESUELTO a la
+    evidencia FRESCA anclada al reloj de LIBERACION (el decided_at de
+    ventanas_evidencia_ad_group es el instante de liberar, NO el de decidir —
+    contrato cross-plan de CORTES 01)."""
     identidad = apply._identidad(conn, fila.ad_entity_id)
     if identidad is None or identidad[0] not in apply._KINDS_DECISORAS:
         return MOTIVO_ENTIDAD_NO_VIVA
     kind, external_id = identidad
     _, path, contenedor, param = apply._KINDS_DECISORAS[kind]
-    resp = aplicador._cliente().get_sellado(path, params={param: external_id})
-    estado = _estado_leido(resp, contenedor, param, external_id)
-    if estado != "enabled":
-        # Ya no existe / ARCHIVED / ya PAUSED: el corte es moot. La marca de
-        # reactivacion_manual NO aplica aqui: es el caso pause-propio + ENABLED
-        # (sellado 17), no el de entidad apagada.
+    # CX1/QW1: el LIST PAGINA (la entidad puede vivir en la pagina 2+ de una
+    # cuenta con miles de keywords — leer solo la primera la daba por
+    # ausente y el corte moria 'entidad_no_viva').
+    estado = apply._estado_de_readback(aplicador._cliente(), path, contenedor, param, external_id)
+    if estado != apply.ESTADO_WIRE_ENABLED:
+        # Ya no existe / ARCHIVED / ya PAUSED: el corte es moot (ARCHIVED es
+        # operativamente muerto — probe 2.5: el "delete" v3 archiva). La marca
+        # de reactivacion_manual NO aplica aqui: es el caso pause-propio +
+        # ENABLED (sellado 17), no el de entidad apagada.
         return MOTIVO_ENTIDAD_NO_VIVA
     if _gracia_activa(conn, fila.ad_entity_id, ahora):
         return MOTIVO_REACTIVACION_MANUAL
@@ -693,10 +706,10 @@ def _ejecuta_pause(conn: psycopg.Connection, aplicador: Aplicador, fila: FilaCol
     # huerfana: ES el rastro, la reconciliacion (2.3, matriz §6.1) decide.
     ack = apply._json_seguro(resp_http)
     _, path, contenedor, param = apply._KINDS_DECISORAS[identidad[0]]
-    estado = _estado_leido(
-        cliente.get_sellado(path, params={param: identidad[1]}), contenedor, param, identidad[1]
-    )
-    verify = estado == "userPaused"
+    # Readback por LIST PAGINADO (probe 2.5: GET directo retirado; CX1/QW1)
+    # + wire UPPER.
+    estado = apply._estado_de_readback(cliente, path, contenedor, param, identidad[1])
+    verify = estado == apply.ESTADO_WIRE_PAUSED
     # El ledger sella 'ok' SOLO con verificacion (bug PR27-3): un estado
     # legible distinto al pedido es divergencia (misma etiqueta QW1 de los
     # bids), jamas exito con verify_ok False.
@@ -739,7 +752,8 @@ def _ejecuta_negative(conn: psycopg.Connection, aplicador: Aplicador, fila: Fila
     # — el negative aplica SOLO con evidencia del ack (el fallback de
     # _json_seguro es dict, asi que isinstance(ack, dict) era SIEMPRE True).
     # La verificacion por lista con identidad completa es de la
-    # RECONCILIACION (2.3, §6.1); los shapes los fija el probe 2.5.
+    # RECONCILIACION (2.3, §6.1); el shape del ack quedo sellado por el probe
+    # 2.5 (207 con success anidado, apply_attempt 13).
     verify = apply_harvest._id_de_ack(ack, "negativeKeywordId") is not None
     resultado = "ok" if verify else "fallo:ack_sin_id"
     with conn.transaction():
@@ -770,7 +784,7 @@ def libera_vencidos(
     1. liberacion atomica pending_veto -> released (la fila que YA viene
        released NO se re-libera y JAMAS cuenta como carrera: esperaba FIFO);
     2. re-validacion PRE-claim SOBRE la fila released (evidencia FRESCA al
-       reloj de LIBERACION + GET fresco de estado vivo): motivo -> discard
+       reloj de LIBERACION + LIST fresco de estado vivo): motivo -> discard
        (un descarte SIEMPRE antes del claim, NUNCA despues del cobro);
     3. cobro de quota (apply.consume_quota): sin quota la fila QUEDA en
        released (espera FIFO y SIGUE vetable, §5.4). Se cobra ANTES del claim
@@ -791,7 +805,7 @@ def libera_vencidos(
     hook apply_harvest.aplica_harvest (2.3: harvest_job nace AL LIBERAR,
     sellado 13) DESPUES de la re-validacion y ANTES del cobro de la cola —
     la UNICA unidad de la operacion logica la cobra el hook. GK3
-    (cross-review): si el GET fresco de la re-validacion de una fila muere
+    (cross-review): si el LIST fresco de la re-validacion de una fila muere
     (AdsApiError), ESA fila queda released con nota y el FIFO continua con
     las demas — una entidad muerta NO aborta el barrido."""
     filas = [FilaCola(*f) for f in conn.execute(_SQL_VENCIDAS, (platform, ahora)).fetchall()]
@@ -809,7 +823,7 @@ def libera_vencidos(
         try:
             motivo = _revalida(conn, aplicador, platform, fila, ahora)
         except AdsApiError:
-            # GK3: el GET fresco de re-validacion de ESTA fila murio (entidad
+            # GK3: si el LIST fresco de re-validacion de ESTA fila murio (entidad
             # muerta/path caido): la fila queda released (vetable, reintenta
             # al ciclo siguiente) con la nota en el resumen — el barrido SIGUE
             # con las demas; una entidad muerta NO degrada el ciclo. Los 5xx
@@ -883,7 +897,11 @@ def reversa_pause(
     if identidad is None or identidad[0] not in apply._KINDS_DECISORAS:
         return False
     campo = "keywordId" if identidad[0] == "keyword" else "targetId"
-    payload = {campo: identidad[1], "state": "enabled"}
+    # El state del REQUEST del resume vive de la constante re-exportada (QW2:
+    # write.py ESTADO_PUT_ENABLED — HIPOTESIS del PUT, PENDIENTE de la
+    # corrida del pause real). El READBACK compara contra el wire VERIFICADO
+    # del list (ESTADO_WIRE_ENABLED).
+    payload = {campo: identidad[1], "state": apply.ESTADO_PUT_ENABLED}
     id_attempt = apply._ledger(conn, fila.decision_id, "reversa", payload, quota_cobrada=False)
     if id_attempt is None:
         return False  # tope 3 del ledger: no existe 4o intento
@@ -903,15 +921,23 @@ def reversa_pause(
     if tick is not None:
         tick()
     _, path, contenedor, param = apply._KINDS_DECISORAS[identidad[0]]
-    estado = _estado_leido(
-        cliente.get_sellado(path, params={param: identidad[1]}), contenedor, param, identidad[1]
+    # Readback por LIST PAGINADO (probe 2.5: GET directo retirado; CX1/QW1)
+    # + wire UPPER.
+    estado = apply._estado_de_readback(cliente, path, contenedor, param, identidad[1])
+    # QW6 (mismo bug que PR27-3 en _ejecuta_pause): el ledger sella 'ok' SOLO
+    # si el estado leido ES el pedido (ENABLED) — un resume que no surtio
+    # efecto es divergencia, jamas exito con retorno False.
+    verify = estado == apply.ESTADO_WIRE_ENABLED
+    resultado = (
+        "ok"
+        if verify
+        else ("fallo:divergencia_readback" if estado is not None else "fallo:readback_sin_estado")
     )
-    resultado = "ok" if estado is not None else "fallo:readback_sin_estado"
     with conn.transaction():
         apply._sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
         if estado is not None:
             conn.execute(_SQL_CACHE_ESTADO, (estado, fila.ad_entity_id))
-    return estado == "enabled"
+    return verify
 
 
 def reversa_negative(
@@ -922,11 +948,16 @@ def reversa_negative(
     *,
     tick=None,
 ) -> bool:
-    """Reversa del negative: DELETE del negativo creado (regla 7). Ledger tipo
+    """Reversa del negative: POST /sp/negativeKeywords/delete del negativo
+    creado (regla 7; shape real del probe 2.5, apply_attempt 14: filtro de
+    ids — el DELETE directo del collection NO existe, 403). Ledger tipo
     'reversa' EXENTO de quota; el `negative_id` es el que devolvio el ack del
-    apply (shape pendiente del probe 2.5) — lo pasa el caller porque la fila
-    de la cola no lo congela. True = el DELETE fue aceptado."""
-    payload = {"keywordId": str(negative_id)}
+    apply — lo pasa el caller porque la fila de la cola no lo congela.
+    CX3 de la cross-review: el 207 NO es exito automatico — la fila
+    rechazada viaja en error[] y la reversa se confirma SOLO sin rechazo
+    por-item (con el id de success[] siendo el del negativo borrado). True =
+    el delete fue aceptado."""
+    payload = {"negativeKeywordIdFilter": {"include": [str(negative_id)]}}
     id_attempt = apply._ledger(conn, fila.decision_id, "reversa", payload, quota_cobrada=False)
     if id_attempt is None:
         return False
@@ -942,6 +973,15 @@ def reversa_negative(
     ack = apply._json_seguro(resp_http)
     if tick is not None:
         tick()
+    if apply_harvest._reversa_rechazada(ack, "negativeKeywordId", negative_id):
+        with conn.transaction():
+            apply._sella_ledger(
+                conn,
+                id_attempt,
+                ack=ack,
+                resultado=apply_harvest._resultado_reversa_rechazada(ack),
+            )
+        return False
     with conn.transaction():
         apply._sella_ledger(conn, id_attempt, ack=ack, resultado="ok")
-    return isinstance(ack, dict)
+    return True
