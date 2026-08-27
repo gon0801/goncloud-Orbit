@@ -112,11 +112,23 @@ TOPE_INTENTOS = 3
 
 
 # Excepciones de la REVERSA MANUAL (3.1): el endpoint de app/api_write.py las
-# mapea 1:1 a HTTP (409 precondicion / 404 inexistente / 422 id no resoluble /
-# 503 sin perfil). Van aqui para que el candado de test_architecture (solo
-# app/apply.py construye AdsWriteClient) siga intacto.
+# mapea 1:1 a HTTP (409 precondicion / 409 ya revertida / 404 inexistente /
+# 422 id no resoluble / 503 sin perfil). Van aqui para que el candado de
+# test_architecture (solo app/apply.py construye AdsWriteClient) siga intacto.
 class ReversaNoAplicada(Exception):
     """La reversa exige un apply confirmado y no lo hay: precondicion (409)."""
+
+
+class ReversaYaHecha(Exception):
+    """Ya existe UNA reversa confirmada (tipo 'reversa' resultado 'ok') para la
+    decision: una reversa es UNA por decision (regla 7; ADV-3 — sin este
+    candado el endpoint despachaba HTTP real ilimitado en loop). 409."""
+
+    def __init__(self, decision_id: int) -> None:
+        super().__init__(
+            f"ya revertida: la decision {decision_id} ya tiene una reversa"
+            " confirmada en el ledger (una reversa es UNA por decision)"
+        )
 
 
 class ReversaInexistente(Exception):
@@ -124,8 +136,8 @@ class ReversaInexistente(Exception):
 
 
 class NegativeIdNoResoluble(Exception):
-    """El negative_id no vino explicito ni se resolvio del ledger (422;
-    regla 3: el id jamas se inventa)."""
+    """El negative_id no se resolvio del ledger (422; regla 3: el id jamas se
+    inventa — y desde ADV-2 el caller JAMAS lo pasa: una sola fuente)."""
 
 
 class SinPerfilReversa(Exception):
@@ -1066,13 +1078,30 @@ _SQL_PLATAFORMA_FILA = """
 SELECT platform::text FROM apply_queue WHERE id = %s
 """
 
-# El ack del ULTIMO intento normal ok de la decision: de ahi sale el
-# negative_id del DELETE cuando el caller no lo pasa.
+# El ack del ULTIMO intento normal ok de la decision: de ahi sale SIEMPRE el
+# negative_id del DELETE (ADV-2: una sola fuente — el body no lo acepta).
 _SQL_ACK_OK = """
 SELECT ack FROM apply_attempt
  WHERE decision_id = %s AND tipo = 'normal' AND resultado = 'ok'
  ORDER BY seq DESC LIMIT 1
 """
+
+# ADV-3: una reversa confirmada por decision — sin esto, el endpoint
+# despachaba HTTP real ilimitado en loop (las reversas estan exentas de quota
+# y del tope-3, y la fila de la cola no cambia de estado al revertir).
+_SQL_REVERSA_OK = """
+SELECT EXISTS (
+    SELECT 1 FROM apply_attempt
+     WHERE decision_id = %s AND tipo = 'reversa' AND resultado = 'ok'
+)
+"""
+
+
+def _reversa_ya_hecha(conn: psycopg.Connection, decision_id: int) -> bool:
+    """True si la decision ya tiene UNA reversa confirmada (resultado 'ok'):
+    una reversa es UNA por decision (regla 7; ADV-3). Una reversa FALLIDA no
+    bloquea: el reintento queda vivo."""
+    return conn.execute(_SQL_REVERSA_OK, (decision_id,)).fetchone()[0]
 
 
 def _cliente_reversa(platform: str, *, transport: httpx.BaseTransport | None) -> AdsWriteClient:
@@ -1110,8 +1139,7 @@ def _negative_id_del_ledger(conn: psycopg.Connection, decision_id: int) -> str:
             return negative_id
     raise NegativeIdNoResoluble(
         f"no se resolvio el negative_id de la decision {decision_id} desde el"
-        " ledger (sin intento normal resultado ok con ack legible): pasarlo"
-        " explicito en el body"
+        " ledger (sin intento normal resultado ok con ack legible)"
     )
 
 
@@ -1121,7 +1149,6 @@ def reversa_manual(
     tipo: str,
     decision_id: int | None = None,
     queue_id: int | None = None,
-    negative_id: str | int | None = None,
     transport: httpx.BaseTransport | None = None,
 ) -> dict:
     """Reversa MANUAL (regla 7, sellado 12): un solo entry point para las tres
@@ -1132,7 +1159,11 @@ def reversa_manual(
     (decision_application.applied_cycle_id sellado) + old_value/moneda;
     pause/negative exigen fila existente en estado 'applied'. Plataforma: la
     del ciclo de la decision (bid) o la de la fila (pause/negative) — una
-    sola fuente, jamas parametro del caller.
+    sola fuente, jamas parametro del caller. Y desde ADV-2/ADV-3: el
+    negative_id del DELETE sale SIEMPRE del ledger (el caller JAMAS lo pasa)
+    y una decision con reversa ya confirmada no se revierte dos veces
+    (ReversaYaHecha — sin ese candado, el loop del endpoint despachaba HTTP
+    real ilimitado).
 
     Despacha a las funciones ya testeadas (reversa_bid / apply_cola.reversa_
     pause / apply_cola.reversa_negative: ledger tipo reversa EXENTO de quota,
@@ -1157,6 +1188,8 @@ def reversa_manual(
                 f"decision {decision_id} no esta confirmada como aplicada"
                 " (applied_cycle_id): no existe reversa sin apply"
             )
+        if _reversa_ya_hecha(conn, decision_id):
+            raise ReversaYaHecha(decision_id)
         decision = DecisionBid(
             id=fila[0],
             ad_entity_id=fila[2],
@@ -1182,13 +1215,14 @@ def reversa_manual(
             raise ReversaNoAplicada(
                 f"fila {queue_id} en estado {fila.estado}: la reversa exige applied"
             )
+        if _reversa_ya_hecha(conn, fila.decision_id):
+            raise ReversaYaHecha(fila.decision_id)
         platform = conn.execute(_SQL_PLATAFORMA_FILA, (queue_id,)).fetchone()[0]
         cliente = _cliente_reversa(platform, transport=transport)
         if tipo == "pause":
             confirmada = apply_cola.reversa_pause(conn, cliente, fila)
             return {"tipo": "pause", "queue_id": queue_id, "confirmada": confirmada}
-        if negative_id is None:
-            negative_id = _negative_id_del_ledger(conn, fila.decision_id)
+        negative_id = _negative_id_del_ledger(conn, fila.decision_id)
         confirmada = apply_cola.reversa_negative(conn, cliente, fila, negative_id)
         return {
             "tipo": "negative",

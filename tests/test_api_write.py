@@ -5,9 +5,11 @@ Contrato sellado (plans/orbit-04.md decisiones 18, 20, 12, 4; docs/APPLY.md §10
 1. AUTH: token estatico en `<ORBIT_SECRETS_DIR>/api_write_token` (0600 en el
    server), SOLO header `x-orbit-token`, comparado con `hmac.compare_digest`.
    La query string JAMAS autentica (con test). Sin secrets dir / sin archivo /
-   archivo vacio -> 503 FAIL-CLOSED, jamas fail-open. Sin `ORBIT_DSN_ADMIN` ->
-   503. El guard de token corre ANTES de abrir el DSN (sin token Y sin DSN ->
-   401, no 503).
+   archivo vacio -> 503 FAIL-CLOSED con mensaje GENERICO (ADV-4: la razon
+   especifica solo va al logger, no da oraculo sin autenticar), jamas
+   fail-open. Sin `ORBIT_DSN_ADMIN` -> 503 (mensaje del DSN, estandar del
+   repo). El guard de token corre ANTES de abrir el DSN (sin token Y sin DSN
+   -> 401, no 503).
 2. VETO: transicion a `vetoed` con actor (`vetoed_by`), `vence_el` editable
    al vetar (default 30d, sellado 3). Corre con el DSN admin (el trigger de
    0002 exige pg_has_role(current_user, 'app_admin')): la integracion crea un
@@ -16,9 +18,13 @@ Contrato sellado (plans/orbit-04.md decisiones 18, 20, 12, 4; docs/APPLY.md §10
    4); terminal -> 409; inexistente -> 404.
 3. REVERSAS: `apply.reversa_manual` (regla 7, sellado 12) despachada por
    endpoints; mapeo de errores: ReversaNoAplicada -> 409,
-   ReversaInexistente -> 404, NegativeIdNoResoluble -> 422. `transport` es
-   la puerta de tests del camino HTTP (cero escrituras vivas: todo MockTransport,
-   mismo patron que test_apply_cola).
+   ReversaInexistente -> 404, NegativeIdNoResoluble -> 422, ReversaYaHecha ->
+   409 "ya revertida" (ADV-3: una reversa es UNA por decision — segunda
+   llamada sin segundo HTTP). El negative_id del DELETE sale SIEMPRE del ack
+   del ledger de ESA fila (ADV-2: el body JAMAS lo acepta — regla 1, una
+   fuente; borrar el negativo de OTRO con un id a mano es imposible).
+   `transport` es la puerta de tests del camino HTTP (cero escrituras vivas:
+   todo MockTransport, mismo patron que test_apply_cola).
 4. PANTALLA /cortes: consume el endpoint GET /api/dashboard/cortes (regla 22,
    la UI no reimplementa queries); XSS del search_term cubierto (regla 9).
 
@@ -109,22 +115,45 @@ def test_token_incorrecto_401(tmp_path, monkeypatch):
     assert resp.status_code == 401
 
 
-def test_sin_secrets_dir_503_fail_closed(monkeypatch):
-    """DoD: sin ORBIT_SECRETS_DIR -> 503 con mensaje claro (jamas fail-open)."""
+# ADV-4: TODOS los 503 de configuracion del token comparten UN detalle
+# generico — la razon especifica (sin dir / sin archivo / vacio / ilegible)
+# va SOLO al logger.warning (scrubbed): un caller sin autenticar no recibe
+# un oraculo del estado interno del server. El 503 de ORBIT_DSN_ADMIN no se
+# toca (mensaje estandar del repo para DSNs).
+DETAIL_TOKEN_503 = "escrituras no disponibles: configuracion de token incompleta"
+
+
+def test_sin_secrets_dir_503_fail_closed_mensaje_generico(monkeypatch):
+    """DoD: sin ORBIT_SECRETS_DIR -> 503 fail-closed con el detalle generico
+    (ADV-4: la razon especifica NO viaja en la respuesta)."""
     monkeypatch.delenv("ORBIT_SECRETS_DIR", raising=False)
     resp = TestClient(app).post("/api/ads-optimizer/veto", json={"queue_id": 1, "actor": "dueno"})
     assert resp.status_code == 503
-    assert "ORBIT_SECRETS_DIR" in resp.json()["detail"]
+    assert resp.json()["detail"] == DETAIL_TOKEN_503
+    assert "ORBIT_SECRETS_DIR" not in resp.json()["detail"]
 
 
-def test_dir_sin_archivo_de_token_503_fail_closed(tmp_path, monkeypatch):
-    """DoD: secrets dir presente pero SIN el archivo api_write_token -> 503."""
+def test_dir_sin_archivo_de_token_503_mensaje_generico(tmp_path, monkeypatch):
+    """DoD: secrets dir presente pero SIN el archivo api_write_token -> 503
+    generico (ADV-4: sin nombrar el archivo en la respuesta)."""
     d = tmp_path / "secrets-vacios"
     d.mkdir()
     monkeypatch.setenv("ORBIT_SECRETS_DIR", str(d))
     resp = TestClient(app).post("/api/ads-optimizer/veto", json={"queue_id": 1, "actor": "dueno"})
     assert resp.status_code == 503
-    assert "api_write_token" in resp.json()["detail"]
+    assert resp.json()["detail"] == DETAIL_TOKEN_503
+    assert "api_write_token" not in resp.json()["detail"]
+
+
+def test_token_vacio_503_mensaje_generico(tmp_path, monkeypatch):
+    """DoD: archivo presente pero VACIO -> 503 generico (ADV-4)."""
+    d = tmp_path / "secrets-vacio"
+    d.mkdir()
+    (d / "api_write_token").write_text("   \n", encoding="utf-8")
+    monkeypatch.setenv("ORBIT_SECRETS_DIR", str(d))
+    resp = TestClient(app).post("/api/ads-optimizer/veto", json={"queue_id": 1, "actor": "dueno"})
+    assert resp.status_code == 503
+    assert resp.json()["detail"] == DETAIL_TOKEN_503
 
 
 def test_token_ok_sin_dsn_admin_503(tmp_path, monkeypatch):
@@ -244,8 +273,9 @@ def _reversa_monkeypatcheada(monkeypatch, tmp_path, resultado=None, error=None, 
 
 def test_reversa_endpoints_pasando_tipo_e_identificadores(tmp_path, monkeypatch):
     """Cada endpoint despacha a reversa_manual con su tipo y su identificador
-    (decision_id para bid; queue_id para pause; queue_id+negative_id para
-    negative, negative_id None cuando no viene)."""
+    (decision_id para bid; queue_id para pause y negative). ADV-2: el body de
+    negative JAMAS acepta negative_id — el id sale del ledger, una fuente
+    (regla 1); un extra en el body se ignora, no viaja al despacho."""
     captura: dict = {}
     _reversa_monkeypatcheada(
         monkeypatch, tmp_path, resultado={"tipo": "x", "confirmada": True}, captura=captura
@@ -261,26 +291,30 @@ def test_reversa_endpoints_pasando_tipo_e_identificadores(tmp_path, monkeypatch)
     assert r.status_code == 200
     assert captura == {"tipo": "pause", "queue_id": 7}
 
+    r = cliente.post("/api/ads-optimizer/reversa/negative", json={"queue_id": 9}, headers=cabecera)
+    assert r.status_code == 200
+    assert captura == {"tipo": "negative", "queue_id": 9}
+
+    # ADV-2 (regla 9): un negative_id en el body se IGNORA — contra el codigo
+    # que lo reenviaba al despacho, este assert reventaba.
     r = cliente.post(
         "/api/ads-optimizer/reversa/negative",
-        json={"queue_id": 9, "negative_id": "n-1"},
+        json={"queue_id": 9, "negative_id": "AJENO-999"},
         headers=cabecera,
     )
     assert r.status_code == 200
-    assert captura == {"tipo": "negative", "queue_id": 9, "negative_id": "n-1"}
-
-    r = cliente.post("/api/ads-optimizer/reversa/negative", json={"queue_id": 9}, headers=cabecera)
-    assert r.status_code == 200
-    assert captura == {"tipo": "negative", "queue_id": 9, "negative_id": None}
+    assert captura == {"tipo": "negative", "queue_id": 9}
 
 
-def test_reversa_endpoints_mapean_errores_409_404_422(tmp_path, monkeypatch):
+def test_reversa_endpoints_mapean_errores_409_404_422_ya_revertida(tmp_path, monkeypatch):
     """Mapeo sellado: ReversaNoAplicada -> 409, ReversaInexistente -> 404,
-    NegativeIdNoResoluble -> 422; y la respuesta 200 lleva confirmada: bool."""
-    for error, codigo in (
-        (apply.ReversaNoAplicada("no aplicada"), 409),
-        (apply.ReversaInexistente("no existe"), 404),
-        (apply.NegativeIdNoResoluble("sin id"), 422),
+    NegativeIdNoResoluble -> 422, ReversaYaHecha -> 409 "ya revertida" (ADV-3);
+    y la respuesta 200 lleva confirmada: bool."""
+    for error, codigo, fragmento in (
+        (apply.ReversaNoAplicada("no aplicada"), 409, None),
+        (apply.ReversaInexistente("no existe"), 404, None),
+        (apply.NegativeIdNoResoluble("sin id"), 422, None),
+        (apply.ReversaYaHecha("ya revertida: decision 1"), 409, "ya revertida"),
     ):
         _reversa_monkeypatcheada(monkeypatch, tmp_path, error=error)
         resp = TestClient(app).post(
@@ -289,6 +323,8 @@ def test_reversa_endpoints_mapean_errores_409_404_422(tmp_path, monkeypatch):
             headers={"x-orbit-token": TOKEN},
         )
         assert resp.status_code == codigo, f"{type(error).__name__} -> {resp.status_code}"
+        if fragmento is not None:
+            assert fragmento in resp.json()["detail"]
 
     _reversa_monkeypatcheada(
         monkeypatch, tmp_path, resultado={"tipo": "bid", "decision_id": 1, "confirmada": False}
@@ -317,7 +353,7 @@ def test_reversa_sin_token_401(tmp_path, monkeypatch):
 
 
 @contextmanager
-def _db_con_rol_admin(prefijo: str):
+def _db_con_rol_admin(prefijo: str, *, con_decide: bool = False):
     """DB temporal (0001+0002) + rol LOGIN temporal miembro de app_admin.
 
     Yields (conn_semillas, dsn_admin, dsn_lectura): la conn siembra como
@@ -325,7 +361,13 @@ def _db_con_rol_admin(prefijo: str):
     la MISMA DB con el rol temporal (miembro de app_admin, como orbit_admin en
     produccion) y el dsn_lectura es el del rol de test (lectura del dashboard).
     El rol se crea con CREATEROLE de orbit_test y se suelta en el teardown
-    (REVOKE + DROP ROLE)."""
+    (REVOKE + DROP ROLE).
+
+    `con_decide` (hallazgo del test de endpoint de reversa): las REVERSAS
+    insertan filas de ledger y el INSERT de apply_attempt es SOLO de
+    app_decide en 0002 — el DSN de escritura necesita AMBAS membresias para
+    el camino reversa. DECLARADO para 4.1 (env por servicio): las migraciones
+    no se tocan aqui."""
     dsn = _test_dsn()
     db = f"{prefijo}_{socket.gethostname().lower()}_{os.getpid()}"
     rol = f"orbit_wtest_{mod_secrets.token_hex(4)}"
@@ -347,6 +389,8 @@ def _db_con_rol_admin(prefijo: str):
             )
         )
         admin.execute(pgsql.SQL("GRANT app_admin TO {}").format(pgsql.Identifier(rol)))
+        if con_decide:
+            admin.execute(pgsql.SQL("GRANT app_decide TO {}").format(pgsql.Identifier(rol)))
         yield (
             conn,
             make_conninfo(dsn, dbname=db, user=rol, password=password),
@@ -358,6 +402,8 @@ def _db_con_rol_admin(prefijo: str):
         admin.execute(
             pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
         )
+        if con_decide:
+            admin.execute(pgsql.SQL("REVOKE app_decide FROM {}").format(pgsql.Identifier(rol)))
         admin.execute(pgsql.SQL("REVOKE app_admin FROM {}").format(pgsql.Identifier(rol)))
         admin.execute(pgsql.SQL("DROP ROLE {}").format(pgsql.Identifier(rol)))
         admin.close()
@@ -813,3 +859,125 @@ def test_reversa_manual_fila_o_decision_inexistente(tmp_path, monkeypatch):
             apply.reversa_manual(
                 conn, tipo="bid", decision_id=99999, transport=httpx.MockTransport(handler)
             )
+
+
+# ---------------------------------------------------------------------------
+# ADV-2/ADV-3 (cross-review de la task): el id del DELETE es del ledger y una
+# reversa es UNA por decision — ambos demostrados fallando contra el codigo
+# que aceptaba negative_id del body / repetia la reversa sin tope.
+# ---------------------------------------------------------------------------
+
+
+@_skip_db
+def test_reversa_negative_por_endpoint_borra_el_id_del_ledger_no_el_del_body(tmp_path, monkeypatch):
+    """ADV-2: el negative_id del body viajaba VERBATIM al DELETE de Amazon —
+    permitia borrar un negativo AJENO con un id a mano. Tras el fix el body ya
+    no acepta negative_id (pydantic ignora extras): el DELETE sale SIEMPRE del
+    ack del ledger de ESA fila (regla 1, una fuente)."""
+    with _db_con_rol_admin("orbit_w_adv2", con_decide=True) as (conn, dsn_admin, _dsn_l):
+        s = _semilla_veto(conn)
+        dec = s["decision"]("negative", s["ag"], term="zapato blanco")
+        q = s["encola"](dec, s["ag"], "negative", "zapato blanco")
+        for estado in ("released", "applying", "applied"):
+            s["avanza"](q, estado)
+        conn.execute(
+            "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada,"
+            " ack, resultado, finished_at)"
+            " VALUES (%s, 1, 'normal', '{}'::jsonb, true, %s, 'ok', now())",
+            (dec, Json({"negativeKeywordId": "n-propio-123"})),
+        )
+        handler, vistos, _r = _handler_reversas()
+        # El endpoint NO recibe transport (produccion): la puerta de mock del
+        # camino REAL es la construccion del cliente (_cliente_reversa).
+        from app.ads.write import AdsWriteClient
+
+        creds = AdsCredentials(
+            client_id="fake-client-id",
+            client_secret="fake-client-secret",
+            refresh_token="fake-refresh-token",
+        )
+
+        def _cliente_mock(platform, *, transport):
+            return AdsWriteClient(
+                creds,
+                platform=platform,
+                profile_id=PERFIL_US_RAW["profileId"],
+                modo_confirmado="live",
+                transport=httpx.MockTransport(handler),
+                sleep=lambda seconds: None,
+            )
+
+        monkeypatch.setattr(apply, "_cliente_reversa", _cliente_mock)
+        _secrets_token(tmp_path, monkeypatch)
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
+
+        resp = TestClient(app).post(
+            "/api/ads-optimizer/reversa/negative",
+            json={"queue_id": q, "negative_id": "AJENO-999"},
+            headers={"x-orbit-token": TOKEN},
+        )
+
+        assert resp.status_code == 200, resp.text
+        deletes = [r for r in _mutaciones(vistos) if r.method == "DELETE"]
+        assert [json.loads(d.content) for d in deletes] == [{"keywordId": "n-propio-123"}], (
+            "el id del DELETE es SIEMPRE el del ledger de ESA fila, jamas el del body"
+        )
+        assert resp.json()["negative_id"] == "n-propio-123"
+
+
+@_skip_db
+def test_reversa_manual_no_repite_una_reversa_confirmada(tmp_path, monkeypatch):
+    """ADV-3: la fila queda 'applied' y las reversas estan exentas de quota y
+    del tope-3 — nada impedia llamar /reversa/* en loop con HTTP real
+    ilimitado. Tras el fix, una reversa confirmada (tipo 'reversa' resultado
+    'ok') bloquea la segunda llamada con ReversaYaHecha ANTES de despachar
+    HTTP (regla 7: una reversa es UNA por decision)."""
+    with _db_con_rol_admin("orbit_w_adv3") as (conn, dsn_admin, _dsn_l):
+        s = _semilla_veto(conn)
+        dec = s["decision"]("pause", s["kw"])
+        q = s["encola"](dec, s["kw"], "pause")
+        for estado in ("released", "applying", "applied"):
+            s["avanza"](q, estado)
+        handler, vistos, _r = _handler_reversas()
+        _creds_fake(monkeypatch)
+        transport = httpx.MockTransport(handler)
+
+        primera = apply.reversa_manual(conn, tipo="pause", queue_id=q, transport=transport)
+        assert primera["confirmada"] is True
+
+        with pytest.raises(apply.ReversaYaHecha, match="ya revertida"):
+            apply.reversa_manual(conn, tipo="pause", queue_id=q, transport=transport)
+
+        puts = [r for r in _mutaciones(vistos) if r.method == "PUT"]
+        assert len(puts) == 1, "la segunda llamada NO despacha un segundo HTTP"
+
+
+@_skip_db
+def test_reversa_manual_reversa_fallida_puede_reintentarse(tmp_path, monkeypatch):
+    """La cara complementaria del ADV-3: solo una reversa CONFIRMADA (resultado
+    'ok') bloquea — una reversa sellada como fallo se puede reintentar (el
+    candado no sobre-bloquea el camino de recuperacion)."""
+    with _db_con_rol_admin("orbit_w_adv3b") as (conn, dsn_admin, _dsn_l):
+        s = _semilla_veto(conn)
+        dec = s["decision"]("pause", s["kw"])
+        q = s["encola"](dec, s["kw"], "pause")
+        for estado in ("released", "applying", "applied"):
+            s["avanza"](q, estado)
+        # una reversa previa que FALLO (divergencia de readback): sello no-ok
+        conn.execute(
+            "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada,"
+            " ack, resultado, finished_at)"
+            " VALUES (%s, 1, 'reversa', '{}'::jsonb, false, NULL,"
+            " 'fallo:readback_sin_estado', now())",
+            (dec,),
+        )
+        handler, vistos, _r = _handler_reversas()
+        _creds_fake(monkeypatch)
+
+        resultado = apply.reversa_manual(
+            conn, tipo="pause", queue_id=q, transport=httpx.MockTransport(handler)
+        )
+
+        assert resultado["confirmada"] is True, "la reversa fallida NO bloquea el reintento"
+        puts = [r for r in _mutaciones(vistos) if r.method == "PUT"]
+        assert len(puts) == 1

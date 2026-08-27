@@ -8,9 +8,10 @@ el disparo del ciclo es el CLI por ssh, jamas un endpoint HTTP del ciclo.
 AUTH (sellado 18, docs/APPLY.md §10.1): token estatico en el archivo
 `api_write_token` dentro de `ORBIT_SECRETS_DIR` (0600 en el server), leido con
 `register_secret` y comparado con `hmac.compare_digest`. SOLO header
-`x-orbit-token`: la query string JAMAS autentica (test). Sin secrets dir, sin
-archivo, archivo ilegible o vacio -> 503 FAIL-CLOSED (jamas fail-open: un
-endpoint de escritura sin token conocido no existe).
+`x-orbit-token`: la query string JAMAS autentica (con test). Sin secrets dir, sin
+archivo, archivo ilegible o vacio -> 503 FAIL-CLOSED con detalle GENERICO
+(ADV-4: la razon especifica va solo al logger; un caller sin autenticar no
+recibe un oraculo del estado interno; jamas fail-open).
 
 CONEXION: `ConexionEscritura` abre `ORBIT_DSN_ADMIN` (usuario LOGIN
 `orbit_admin` -> rol `app_admin`; docs/DEPLOY.md) SIN autocommit — las
@@ -28,10 +29,13 @@ inexistente 404.
 
 REVERSAS: despachan a `apply.reversa_manual` (el UNICO punto fuera del ciclo
 que construye el write client, candado de test_architecture intacto). Mapeo
-de errores: ReversaNoAplicada -> 409 (precondicion), ReversaInexistente ->
-404, NegativeIdNoResoluble -> 422, SinPerfilReversa -> 503 fail-closed. La
-respuesta lleva `confirmada: bool` (false = la reversa quedo sellada como
-fallo en el ledger; el detalle vive ahi, regla 10).
+de errores: ReversaNoAplicada -> 409 (precondicion), ReversaYaHecha -> 409
+"ya revertida" (ADV-3: una reversa es UNA por decision, regla 7), ReversaInexistente ->
+404, NegativeIdNoResoluble -> 422, SinPerfilReversa -> 503 fail-closed. El
+negative_id del DELETE sale SIEMPRE del ack del ledger de ESA fila (ADV-2: el
+body JAMAS lo acepta, regla 1 — borrar el negativo de OTRO con un id a mano
+es imposible). La respuesta lleva `confirmada: bool` (false = la reversa quedo
+sellada como fallo en el ledger; el detalle vive ahi, regla 10).
 """
 
 from __future__ import annotations
@@ -65,42 +69,35 @@ ARCHIVO_TOKEN = "api_write_token"
 VENCIMIENTO_VETO_DEFAULT_DIAS = 30
 
 
+# ADV-4: TODOS los 503 de configuracion del token comparten UN detalle
+# generico — la razon especifica va SOLO al logger.warning (scrubbed): un
+# caller sin autenticar no recibe un oraculo del estado interno del server.
+# El 503 de ORBIT_DSN_ADMIN ausente NO se toca (mensaje estandar del repo).
+DETAIL_TOKEN_503 = "escrituras no disponibles: configuracion de token incompleta"
+
+
 def _lee_token_escritura() -> str:
     """El token del archivo `<ORBIT_SECRETS_DIR>/api_write_token`.
 
     Fail-closed en TODA forma de fallo (jamas fail-open): sin dir, sin
-    archivo, ilegible o vacio -> 503. El valor se registra en redaction para
-    que jamas aparezca en logs ni errores."""
+    archivo, ilegible o vacio -> 503 con detalle GENERICO (ADV-4); la razon
+    especifica solo va al logger (scrubbed por el filtro del modulo). El
+    valor se registra en redaction para que jamas aparezca en logs ni
+    errores."""
     secrets_dir = os.environ.get("ORBIT_SECRETS_DIR")
     if not secrets_dir:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "ORBIT_SECRETS_DIR no esta definido: no se puede leer el token de"
-                f" escritura ({ARCHIVO_TOKEN}); los endpoints de escritura quedan"
-                " cerrados (fail-closed)"
-            ),
-        )
+        logger.warning("token de escritura ilegible: ORBIT_SECRETS_DIR no esta definido")
+        raise HTTPException(status_code=503, detail=DETAIL_TOKEN_503)
     ruta = Path(secrets_dir) / ARCHIVO_TOKEN
     try:
         contenido = ruta.read_text(encoding="utf-8")
     except OSError:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                f"no se pudo leer {ARCHIVO_TOKEN} dentro de ORBIT_SECRETS_DIR:"
-                " los endpoints de escritura quedan cerrados (fail-closed)"
-            ),
-        ) from None
+        logger.warning("token de escritura ilegible: %s", ruta)
+        raise HTTPException(status_code=503, detail=DETAIL_TOKEN_503) from None
     token = contenido.strip()
     if not token:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                f"{ARCHIVO_TOKEN} esta vacio: los endpoints de escritura quedan"
-                " cerrados (fail-closed)"
-            ),
-        )
+        logger.warning("token de escritura ilegible: %s esta vacio", ruta)
+        raise HTTPException(status_code=503, detail=DETAIL_TOKEN_503)
     register_secret(token)
     return token
 
@@ -161,8 +158,12 @@ class CuerpoReversaPause(BaseModel):
 
 
 class CuerpoReversaNegative(BaseModel):
+    """ADV-2: el body JAMAS acepta negative_id — el id del DELETE sale del
+    ack del ledger de ESA fila (regla 1, una fuente); borrar el negativo de
+    OTRO con un id a mano es imposible. Pydantic ignora extras: un
+    negative_id en el body no viaja a ningun lado."""
+
     queue_id: int = Field(ge=1)
-    negative_id: str | int | None = None
 
 
 # Transicion atomica del veto: el WHERE de estados ES la carrera contra el
@@ -224,9 +225,11 @@ def veto(
 
 
 # Mapeo sellado de errores de reversa_manual -> HTTP (el endpoint no inventa
-# semantica: cada excepcion de apply tiene su codigo).
+# semantica: cada excepcion de apply tiene su codigo). ADV-3: ReversaYaHecha
+# -> 409 "ya revertida" (una reversa es UNA por decision, regla 7).
 _ERRORES_REVERSA: dict[type[Exception], int] = {
     apply.ReversaNoAplicada: 409,
+    apply.ReversaYaHecha: 409,
     apply.ReversaInexistente: 404,
     apply.NegativeIdNoResoluble: 422,
     apply.SinPerfilReversa: 503,
@@ -269,11 +272,10 @@ def reversa_negative(
     conn: ConexionEscritura,
     cuerpo: CuerpoReversaNegative,
 ) -> dict:
-    """Reversa manual del negative aplicado (DELETE); negative_id opcional: sin
-    el se resuelve del ultimo intento ok del ledger (422 si no es resoluble)."""
+    """Reversa manual del negative aplicado (DELETE del id creado). El id sale
+    SIEMPRE del ack del ledger de ESA fila (ADV-2: el body no lo acepta; 422 si
+    el ledger no lo resuelve)."""
     try:
-        return apply.reversa_manual(
-            conn, tipo="negative", queue_id=cuerpo.queue_id, negative_id=cuerpo.negative_id
-        )
+        return apply.reversa_manual(conn, tipo="negative", queue_id=cuerpo.queue_id)
     except tuple(_ERRORES_REVERSA) as exc:
         raise _error_reversa(exc) from None
