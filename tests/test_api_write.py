@@ -669,11 +669,13 @@ PERFIL_US_RAW = {
 
 
 def _handler_reversas():
-    """Amazon mock del camino completo de reversa_manual: LWA + /v2/profiles
-    (perfil US aceptado: MISMA resolucion del ciclo) + PUT de estado/bid +
-    GET de readback + DELETE de negative. `vistos` registra cada request."""
+    """Amazon mock del camino completo de reversa_manual con el shape REAL
+    del probe 2.5: LWA + /v2/profiles (perfil US aceptado: MISMA resolucion
+    del ciclo) + PUT envuelto en el contenedor del recurso (bid NUMERO) +
+    readback por POST /list (el GET directo de entidad responde 403) +
+    delete v3 POST /sp/negativeKeywords/delete con filtro de ids."""
     vistos: list[httpx.Request] = []
-    remoto: dict[str, str] = {}
+    remoto: dict[str, object] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "api.amazon.com":
@@ -683,21 +685,40 @@ def _handler_reversas():
         if metodo == "GET" and path == "/v2/profiles":
             return httpx.Response(200, json=[PERFIL_US_RAW])
         body = json.loads(request.content) if request.content else {}
-        if metodo == "GET":
-            ext = request.url.params.get("keywordId") or request.url.params.get("targetId")
-            fila: dict = {"keywordId": ext, "state": "enabled"}
-            if ext in remoto and remoto[ext].startswith("bid:"):
-                fila = {"keywordId": ext, "bid": remoto[ext].removeprefix("bid:")}
-            return httpx.Response(200, json={"keywords": [fila]})
+        if metodo == "POST" and path.endswith("/list"):
+            contenedor, campo = (
+                ("targetingClauses", "targetId")
+                if path == "/sp/targets/list"
+                else ("keywords", "keywordId")
+            )
+            filas = []
+            for ext, val in remoto.items():
+                if isinstance(val, dict) and "bid" in val:
+                    filas.append({campo: ext, "bid": val["bid"], "state": "ENABLED"})
+                else:
+                    filas.append({campo: ext, "state": val})
+            return httpx.Response(200, json={contenedor: filas, "totalResults": len(filas)})
         if metodo == "PUT":
-            ext = str(body.get("keywordId") or body.get("targetId"))
-            if "state" in body:
-                remoto[ext] = body["state"]
+            obj = body["keywords"][0] if "keywords" in body else body["targetingClauses"][0]
+            ext = str(obj.get("keywordId") or obj.get("targetId"))
+            if "state" in obj:
+                remoto[ext] = {"userPaused": "PAUSED", "enabled": "ENABLED"}.get(
+                    obj["state"], obj["state"]
+                )
             else:
-                remoto[ext] = f"bid:{body['bid']}"
-            return httpx.Response(200, json={"ack": body})
-        if metodo == "DELETE":
-            return httpx.Response(200, json={"keywordId": body.get("keywordId"), "deleted": True})
+                remoto[ext] = {"bid": obj["bid"]}
+            return httpx.Response(207, json={"ack": obj})
+        if metodo == "POST" and path == "/sp/negativeKeywords/delete":
+            nid = (body.get("negativeKeywordIdFilter") or {}).get("include", [None])[0]
+            return httpx.Response(
+                207,
+                json={
+                    "negativeKeywords": {
+                        "error": [],
+                        "success": [{"index": 0, "negativeKeywordId": nid}],
+                    }
+                },
+            )
         raise AssertionError(f"request inesperado: {metodo} {path}")
 
     return handler, vistos, remoto
@@ -715,7 +736,18 @@ def _creds_fake(monkeypatch) -> None:
 
 
 def _mutaciones(vistos: list[httpx.Request]) -> list[httpx.Request]:
-    return [r for r in vistos if r.method != "GET"]
+    """HTTP de mutacion: PUT y POST /delete. El POST /list es readback."""
+    return [
+        r
+        for r in vistos
+        if r.method == "PUT" or (r.method == "POST" and r.url.path.endswith("/delete"))
+    ]
+
+
+def _obj_de_put(request: httpx.Request) -> dict:
+    """Unica entrada del contenedor del recurso (shape real probe 2.5)."""
+    body = json.loads(request.content)
+    return body.get("keywords", body.get("targetingClauses"))[0]
 
 
 @_skip_db
@@ -738,7 +770,7 @@ def test_reversa_manual_pause_sobre_fila_applied(tmp_path, monkeypatch):
 
         assert resultado == {"tipo": "pause", "queue_id": q, "confirmada": True}
         puts = [r for r in _mutaciones(vistos) if r.method == "PUT"]
-        assert [json.loads(p.content) for p in puts] == [{"keywordId": "7201", "state": "enabled"}]
+        assert [_obj_de_put(p) for p in puts] == [{"keywordId": "7201", "state": "enabled"}]
         ledger = conn.execute(
             "SELECT tipo, quota_cobrada, resultado FROM apply_attempt WHERE decision_id = %s",
             (dec,),
@@ -789,7 +821,7 @@ def test_reversa_manual_bid_confirmada_y_no_aplicada(tmp_path, monkeypatch):
         )
         assert resultado == {"tipo": "bid", "decision_id": dec1, "confirmada": True}
         puts = [r for r in _mutaciones(vistos) if r.method == "PUT"]
-        assert [json.loads(p.content) for p in puts] == [{"keywordId": "7201", "bid": "1.00"}]
+        assert [_obj_de_put(p) for p in puts] == [{"keywordId": "7201", "bid": 1.0}]
 
         with pytest.raises(apply.ReversaNoAplicada):
             apply.reversa_manual(
@@ -822,8 +854,10 @@ def test_reversa_manual_negative_resuelve_id_del_ledger(tmp_path, monkeypatch):
 
         assert resultado["confirmada"] is True
         assert resultado["negative_id"] == "n-77"
-        deletes = [r for r in _mutaciones(vistos) if r.method == "DELETE"]
-        assert [json.loads(d.content) for d in deletes] == [{"keywordId": "n-77"}]
+        deletes = [r for r in _mutaciones(vistos) if r.url.path.endswith("/delete")]
+        assert [json.loads(d.content) for d in deletes] == [
+            {"negativeKeywordIdFilter": {"include": ["n-77"]}}
+        ]
 
 
 @_skip_db
@@ -918,10 +952,10 @@ def test_reversa_negative_por_endpoint_borra_el_id_del_ledger_no_el_del_body(tmp
         )
 
         assert resp.status_code == 200, resp.text
-        deletes = [r for r in _mutaciones(vistos) if r.method == "DELETE"]
-        assert [json.loads(d.content) for d in deletes] == [{"keywordId": "n-propio-123"}], (
-            "el id del DELETE es SIEMPRE el del ledger de ESA fila, jamas el del body"
-        )
+        deletes = [r for r in _mutaciones(vistos) if r.url.path.endswith("/delete")]
+        assert [json.loads(d.content) for d in deletes] == [
+            {"negativeKeywordIdFilter": {"include": ["n-propio-123"]}}
+        ], "el id del DELETE es SIEMPRE el del ledger de ESA fila, jamas el del body"
         assert resp.json()["negative_id"] == "n-propio-123"
 
 

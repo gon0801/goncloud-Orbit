@@ -446,22 +446,22 @@ Ninguna acción irreversible sin su reversa implementada antes (regla 7):
 
 ### 8.1 Allowlist default-deny — nada más que esto
 
-| Operación | Path sellado |
+| Operación | Path sellado (probe 2.5, 2026-08-26) |
 |---|---|
-| update bid de keyword | fija el probe 2.5 (§13) |
-| pause/resume de keyword | fija el probe 2.5 (§13) |
-| update bid de product_target | `/sp/targets` (PUT) |
-| pause/resume de product_target | `/sp/targets` |
-| create negative exact | fija el probe 2.5 (§13) |
-| delete negative | fija el probe 2.5 (§13) |
-| create keyword | fija el probe 2.5 (§13) |
-| delete keyword | fija el probe 2.5 (§13) |
+| update bid de keyword | PUT `/sp/keywords` (body `{keywords: [{keywordId, bid}]}`) |
+| pause/resume de keyword | PUT `/sp/keywords` (`state` del REQUEST: HIPÓTESIS `ESTADO_PUT_*`) |
+| update bid de product_target | PUT `/sp/targets` (body `{targetingClauses: [{targetId, bid}]}`) |
+| pause/resume de product_target | PUT `/sp/targets` (`state` del REQUEST: HIPÓTESIS `ESTADO_PUT_*`) |
+| create negative exact | POST `/sp/negativeKeywords` (`matchType=NEGATIVE_EXACT`, `state=ENABLED`) |
+| delete negative | POST `/sp/negativeKeywords/delete` (filtro de ids; archiva) |
+| create keyword | POST `/sp/keywords` (`matchType=EXACT`, `state=ENABLED`, bid número) |
+| delete keyword | POST `/sp/keywords/delete` (filtro de ids; archiva) |
 
 (r2 grok 4: 549 targets US + 861 MX reciben decisiones del motor y la v2
 los olvidó.) Todo path fuera de la allowlist se rechaza — default-deny,
-con test por path. Los paths/acks exactos no confirmados aún los fija el
-**probe 2.5** (regla 8: shapes REALES, no adivinados); hasta entonces los
-tests de readback nacen marcados "pendientes de shape".
+con test por path. Shapes de request/ack **fijados por el probe 2.5**
+(§11d, ledger probe ids 1-20); única hipótesis pendiente: el `state` del
+PUT de pause/resume.
 
 ### 8.2 Contrato del request
 
