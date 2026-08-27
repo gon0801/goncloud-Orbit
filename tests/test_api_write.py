@@ -382,7 +382,7 @@ def _db_con_rol_admin(prefijo: str, *, con_decide: bool = False):
         conn.execute(SQL2)  # 0002: cola de cortes, ledger, sellos de quota
         # CREATE ROLE es utility statement: NO admite parametros posicionales
         # (revienta con syntax error en $1); la password va como sql.Literal
-        # (composición segura de psycopg, no interpolacion de strings).
+        # (composicion segura de psycopg, no interpolacion de strings).
         admin.execute(
             pgsql.SQL("CREATE ROLE {} LOGIN PASSWORD {}").format(
                 pgsql.Identifier(rol), pgsql.Literal(password)

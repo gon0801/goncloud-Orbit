@@ -18,3 +18,5 @@ out/
 
 # scratch de sesiones de agentes (evidencia one-shot, no va al repo)
 .saikit/scratch/
+# artefactos del harness (findings de adversario: nunca al repo)
+.saikit/

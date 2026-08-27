@@ -588,7 +588,9 @@ fallback 1.00 USD cada uno. A1U fuera.
 3. Registrarlo con `register_secret` (redacción de logs) y reiniciar la
    app; el endpoint sigue `compare_digest` y **solo header** (una rotación
    jamás habilita query string).
-4. Verificar: sin token → 401; con el token nuevo → 200; el token viejo →
+4. Verificar: sin token → 401; con el token nuevo → 404 sobre un
+   `queue_id` INEXISTENTE (p. ej. 999999999 — NUNCA un queue_id real: la
+   verificación de la rotación no debe mutar nada); el token viejo →
    401. El fallo de lectura del secret es fail-closed (escrituras 503),
    jamás fail-open.
 

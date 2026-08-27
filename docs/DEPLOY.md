@@ -84,6 +84,15 @@ y reversas con token — y 4.1 lo divide por servicio): residual aceptado — el
 mismo
 contenedor corre API (`ORBIT_DSN_READ`) y CLI (`INGEST`/`DECIDE`); el
 bind es loopback. `user: "0:0"` es riesgo aceptado residual (secrets
+
+> **NOTA (ORBIT 04 3.1, hasta 4.1):** el camino `/reversa/*` escribe filas
+> en el ledger `apply_attempt`, cuyo `GRANT INSERT` en 0002 es SOLO de
+> `app_decide` (línea 687). El `orbit_admin` del runbook (solo `app_admin`)
+> puede VETAR pero NO revertir: una reversa real revienta con
+> `InsufficientPrivilege`. 4.1 (env por servicio) resuelve el wiring —
+> p. ej. membresía `app_decide` adicional para el usuario del DSN admin o
+> micro-migración revisada; hasta entonces el botón existe y el camino
+> queda declarado, no operativo.
 root 0600, mount `:ro`, jamás chmod).
 
 Reconstruir/actualizar **solo la app** (Postgres intacto):
@@ -249,6 +258,19 @@ chmod 600 "$ENVF"
 SCRIPT
 ```
 
+> **Estado actual del cluster (2026-08-26, cross-review ORBIT 04 3.1):**
+> para que la suite local cree roles LOGIN temporales con membresía
+> `app_admin` (tests del endpoint de veto), `orbit_test` recibió además
+> `GRANT app_read, app_ingest, app_decide, app_admin TO orbit_test WITH
+> ADMIN OPTION`. Es membresía de CLUSTER: quien tenga el DSN de test puede
+> `SET ROLE` a escritura en la base prod (mitigado: bind loopback + túnel +
+> password root-only). **4.1 debe resolverlo** — o revoke al terminar el
+> desarrollo local:
+>
+> ```sql
+> REVOKE app_read, app_ingest, app_decide, app_admin FROM orbit_test;
+> ```
+
 ## Rotación del token de escritura (ORBIT 04, sellado 18)
 
 El token estático de los endpoints de escritura (veto + reversas) vive en
@@ -264,15 +286,18 @@ printf '%s' "$NEW" > secrets/api_write_token
 chmod 600 secrets/api_write_token
 # 3. Reiniciar la app (relee el archivo y lo registra con register_secret)
 docker compose up -d --no-deps --force-recreate app
-# 4. Verificar contra el endpoint de veto (cualquier queue_id sirve:
-#    sin token -> 401; con el NUEVO -> 200/404/409; con el VIEJO -> 401 )
+# 4. Verificar contra el endpoint de veto con un queue_id INEXISTENTE
+#    (999999999): la verificacion NO debe mutar nada real. Un queue_id
+#    real en pending_veto/released VETARIA una fila de produccion 30 dias.
+#    sin token -> 401; con el NUEVO -> 404 (fila inexistente = token
+#    valido); con el VIEJO -> 401.
 curl -s -o /dev/null -w '%{http_code}\n' -X POST \
   http://127.0.0.1:8010/api/ads-optimizer/veto \
-  -H 'Content-Type: application/json' -d '{"queue_id":1,"actor":"rotacion"}'
+  -H 'Content-Type: application/json' -d '{"queue_id":999999999,"actor":"rotacion"}'
 curl -s -o /dev/null -w '%{http_code}\n' -X POST \
   http://127.0.0.1:8010/api/ads-optimizer/veto \
   -H 'Content-Type: application/json' -H "x-orbit-token: $NEW" \
-  -d '{"queue_id":1,"actor":"rotacion"}'
+  -d '{"queue_id":999999999,"actor":"rotacion"}'
 unset NEW   # el token no vive en el shell ni en el historial
 ```
 
