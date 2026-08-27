@@ -15,7 +15,7 @@
 
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
-| 1.1 | **URGENTE** — Analisis completo de campanas pausadas: por cada campana PAUSED con historial (orders>0 o cost>0): ventana completa de metricas (cost/revenue/orders/ACOS historico y por mes), fecha de la pausa (si es deducible de metricas: ultimo dia con impresiones), entidades vivas dentro, y veredicto candidato (reactivar / reactivar con ajuste / dejar muerta) con la razon en datos. Incluye las campanias ENABLED con entidades sin impresiones 30d (AC, AU2, AGMX, AD_READY: diagnostico de por que no se sirven — bid bajo vs sin volumen). Reporte en `out/` + resumen al dueno. `[tdd:skip:analisis-datos]` | Reporte con TODAS las campanas pausadas con historial, numeros contra la base viva (regla 8), veredicto por campana con razon; el dueno puede decidir reactivar/dejar morir sin pedir mas datos | - | cc:完了 [1814e4d] |
+| 1.1 | **URGENTE** — Analisis completo de campanas pausadas: por cada campana PAUSED con historial (orders>0 o cost>0): ventana completa de metricas (cost/revenue/orders/ACOS historico y por mes), fecha de la pausa (si es deducible de metricas: ultimo dia con impresiones), entidades vivas dentro, y veredicto candidato (reactivar / reactivar con ajuste / dejar muerta) con la razon en datos. Incluye las campanias ENABLED con entidades sin impresiones 30d (AC, AU2, AGMX, AD_READY: diagnostico de por que no se sirven — bid bajo vs sin volumen). Reporte en `out/` + resumen al dueno. `[tdd:skip:analisis-datos]` | Reporte con TODAS las campanas pausadas con historial, numeros contra la base viva (regla 8), veredicto por campana con razon; el dueno puede decidir reactivar/dejar morir sin pedir mas datos | - | cc:完了 [de6cc7e] |
 
 ## Notas
 
