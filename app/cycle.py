@@ -1477,6 +1477,7 @@ def _fase_notifica(
     status: str,
     decisions_count: int,
     notas_apply: dict,
+    tick: Callable[[], None] | None = None,
 ) -> dict:
     """Avisos Telegram del ciclo (3.3, sellados 2/19): UN aviso por corte
     nuevo encolado + UN digest final. Devuelve la seccion notes['telegram']
@@ -1485,8 +1486,17 @@ def _fase_notifica(
     fallo del canal (sellado 2: el silencio jamas es invisible) y JAMAS
     rompe el ciclo ni degrada el status: TODO lo de notifica va envuelto
     (armado del mensaje incluido) — los notifica_* ya son fail-silent, esto
-    es la segunda barrera."""
+    es la segunda barrera.
+
+    Los envios son SINCRONOS dentro del lock: `tick` (el heartbeat del ciclo)
+    late UNA vez por mensaje enviado para que N avisos con el canal lento no
+    coman el lease (Greptile P2, PR #32; el zombie de la decision 11)."""
     notas: dict[str, str] = {}
+
+    def _latido() -> None:
+        if tick is not None:
+            tick()
+
     try:
         for aviso in avisos:
             if not notifica.notifica_encola(aviso):
@@ -1494,6 +1504,7 @@ def _fase_notifica(
                     "fallo: aviso de corte encolado no enviado por Telegram "
                     "(revisar la cola de veto: la ventana 48h corre igual)"
                 )
+            _latido()
     except Exception as exc:  # noqa: BLE001 - jamas rompe el ciclo (docstring)
         notas["aviso_encola"] = "fallo: el aviso de corte encolado no salio (ver log)"
         logger.warning("notifica: fallo en avisos de encola: %s", scrub(str(exc)))
@@ -1508,6 +1519,7 @@ def _fase_notifica(
         }
         if not notifica.notifica_digest(resumen):
             notas["digest"] = "fallo: digest del ciclo no enviado por Telegram"
+        _latido()
     except Exception as exc:  # noqa: BLE001 - jamas rompe el ciclo (docstring)
         notas["digest"] = "fallo: el digest del ciclo no salio (ver log)"
         logger.warning("notifica: fallo en el digest: %s", scrub(str(exc)))
@@ -1604,6 +1616,7 @@ def _corre_fases(
         status=status,
         decisions_count=len(pendientes),
         notas_apply=notas_apply,
+        tick=tick,
     )
     if notas_apply or telegram:
         if telegram:

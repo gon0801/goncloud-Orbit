@@ -341,6 +341,40 @@ def test_ciclo_canal_falla_termina_done_con_nota_telegram(canal_fail):
         assert _parse_notes(persistido)["telegram"] == notas["telegram"]
 
 
+def test_fase_notifica_lattea_entre_envios(canal_ok):
+    """Greptile P2 (PR #32): los envios son SINCRONOS y corren dentro del lock
+    del ciclo — N avisos con el canal lento alargan el lease y abren la
+    ventana del zombie (decision 11). _fase_notifica recibe el tick de
+    heartbeat del ciclo y late UNA vez por mensaje enviado."""
+    from app import cycle as ciclo
+
+    latidos = []
+    avisos = tuple(
+        notifica.CorteEncolado(
+            platform="amazon_us",
+            kind=kind,
+            search_term=None,
+            vence_el=VENCE,
+            modo="shadow",
+        )
+        for kind in ("pause", "negative", "harvest")
+    )
+    notas = ciclo._fase_notifica(
+        avisos,
+        (),
+        cycle_id=1,
+        platform="amazon_us",
+        modo="shadow",
+        status="done",
+        decisions_count=0,
+        notas_apply={},
+        tick=lambda: latidos.append(1),
+    )
+    assert notas == {}
+    assert len(canal_ok) == 4, "3 avisos + 1 digest"
+    assert len(latidos) == len(canal_ok), "un latido por mensaje enviado"
+
+
 @_skip_db
 def test_ciclo_canal_ok_avisos_por_corte_y_digest_unico_sin_nota(canal_ok):
     """Canal OK: UN aviso POR corte nuevo (con el vencimiento 48h y la familia
