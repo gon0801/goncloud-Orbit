@@ -1,5 +1,5 @@
-"""Tests del CLI de operacion `python -m app.cli {ingest,cycle}` (ORBIT 03,
-task 3.3).
+"""Tests del CLI de operacion `python -m app.cli {ingest,cycle,goals}` (ORBIT
+03 task 3.3; `goals set` llego en ORBIT 04 3.2).
 
 UNITARIOS (sin Postgres): el CLI es un ENVOLTORIO DELGADO — cada subcomando
 invoca EXACTAMENTE el mismo camino que ya existe, asi que se prueba con
@@ -19,6 +19,7 @@ monkeypatch al punto de entrada:
 from __future__ import annotations
 
 import datetime as dt
+from decimal import Decimal
 
 import pytest
 
@@ -290,3 +291,246 @@ def test_cli_ingest_help_documenta_pipelines(capsys):
     assert exc.value.code == 0
     out = capsys.readouterr().out
     assert "structure" in out and "metrics" in out
+
+
+# ---------------------------------------------------------------------------
+# 5. goals set (ORBIT 04 3.2): DESPACHA a app/goals_write.edita_goal, cero SQL
+# ---------------------------------------------------------------------------
+
+FILA_GOAL = {
+    "id": 7,
+    "scope": "platform",
+    "ad_entity_id": None,
+    "platform": "amazon_us",
+    "target_acos_pct": "20.00",
+    "bid_floor": "0.4000",
+    "bid_ceiling": "2.5000",
+    "bid_currency": "USD",
+    "harvest_campaign_id": None,
+    "harvest_ad_group_id": None,
+    "harvest_default_bid": None,
+    "enabled": True,
+    "mode": "shadow",
+    "created_at": dt.datetime(2026, 1, 1, tzinfo=dt.UTC),
+    "updated_at": dt.datetime(2026, 8, 26, 10, 0, tzinfo=dt.UTC),
+}
+
+
+def _goal_captura(monkeypatch, resultado=FILA_GOAL, error=None):
+    """Spy de goals_write.edita_goal + connect falso: el CLI de goals JAMAS
+    abre DSN real en los tests unitarios (regla 9 del plan de tests)."""
+    from app import goals_write
+
+    capturado: dict = {}
+
+    def _edita(conn, goal_id, *, updated_at, **kw):
+        capturado["conn"] = conn
+        capturado["goal_id"] = goal_id
+        capturado["updated_at"] = updated_at
+        capturado.update(kw)
+        if error is not None:
+            raise error
+        return resultado
+
+    monkeypatch.setattr(goals_write, "edita_goal", _edita)
+    monkeypatch.setattr(cli, "connect", lambda dsn: _FakeConn())
+    return capturado
+
+
+def test_cli_goals_set_sin_dsn_admin_fail_closed(monkeypatch, capsys):
+    """DoD: sin ORBIT_DSN_ADMIN -> mensaje claro + exit 2 (fail-closed, patron
+    _cycle); edita_goal JAMAS se llama."""
+    monkeypatch.delenv("ORBIT_DSN_ADMIN", raising=False)
+    capturado: dict = {}
+    monkeypatch.setattr(
+        "app.goals_write.edita_goal",
+        lambda *a, **kw: capturado.setdefault("llamado", True),
+    )
+    codigo = cli.main(["goals", "set", "7", "--target", "20"])
+    assert codigo == 2
+    assert "ORBIT_DSN_ADMIN" in capsys.readouterr().err
+    assert not capturado
+
+
+def test_cli_goals_set_llama_a_edita_goal(monkeypatch, capsys):
+    """Camino unico (regla 1): `goals set` DESPACHA a goals_write.edita_goal
+    con el goal_id, los campos parseados y updated_at now-UTC; imprime la fila
+    resultante con updated_at VISIBLE (una linea por campo)."""
+    capturado = _goal_captura(monkeypatch)
+    monkeypatch.setenv("ORBIT_DSN_ADMIN", "postgresql://orbit_admin:secreta@127.0.0.1:5432/o")
+
+    codigo = cli.main(
+        [
+            "goals",
+            "set",
+            "7",
+            "--target",
+            "20",
+            "--enabled",
+            "true",
+            "--floor",
+            "0.40",
+            "--ceiling",
+            "2.50",
+            "--harvest-campaign",
+            "9002",
+            "--harvest-ad-group",
+            "9102",
+            "--harvest-bid",
+            "1.00",
+        ]
+    )
+
+    assert codigo == 0
+    assert capturado["goal_id"] == 7
+    assert capturado["target_acos_pct"] == Decimal("20")
+    assert capturado["enabled"] is True
+    assert capturado["bid_floor"] == Decimal("0.40")
+    assert capturado["bid_ceiling"] == Decimal("2.50")
+    assert capturado["harvest_campaign_id"] == "9002"
+    assert capturado["harvest_ad_group_id"] == "9102"
+    assert capturado["harvest_default_bid"] == Decimal("1.00")
+    assert capturado["harvest_limpia"] is False
+    assert capturado["updated_at"].tzinfo is not None  # now UTC
+    assert isinstance(capturado["conn"], _FakeConn)
+    out = capsys.readouterr().out
+    assert "updated_at=2026-08-26T10:00:00+00:00" in out
+    assert "target_acos_pct=20.00" in out
+
+
+def test_cli_goals_set_harvest_limpia(monkeypatch):
+    capturado = _goal_captura(monkeypatch)
+    monkeypatch.setenv("ORBIT_DSN_ADMIN", "postgresql://orbit_admin:secreta@127.0.0.1:5432/o")
+    codigo = cli.main(["goals", "set", "7", "--harvest-limpia"])
+    assert codigo == 0
+    assert capturado["harvest_limpia"] is True
+
+
+def test_cli_goals_set_sin_campos_es_uso_invalido(monkeypatch, capsys):
+    """`goals set 7` sin NINGUN campo: edicion vacia = error del operador
+    (exit 2), jamas un UPDATE que solo toque updated_at."""
+    capturado = _goal_captura(monkeypatch)
+    monkeypatch.setenv("ORBIT_DSN_ADMIN", "postgresql://orbit_admin:secreta@127.0.0.1:5432/o")
+    codigo = cli.main(["goals", "set", "7"])
+    assert codigo == 2
+    assert "al menos un campo" in capsys.readouterr().err
+    assert not capturado  # edita_goal JAMAS se llamo
+
+
+def test_cli_goals_set_argumentos_invalidos_exit_2(monkeypatch, capsys):
+    """Decimal no numerico / enabled fuera de true|false / goal_id no entero:
+    error de USO -> exit 2 con mensaje claro de argparse (patron del repo)."""
+    monkeypatch.setenv("ORBIT_DSN_ADMIN", "postgresql://orbit_admin:secreta@127.0.0.1:5432/o")
+    for argv in (
+        ["goals", "set", "7", "--target", "veinte"],
+        ["goals", "set", "7", "--enabled", "si"],
+        ["goals", "set", "siete", "--target", "20"],
+        ["goals", "set", "7", "--floor", "0,40"],
+    ):
+        with pytest.raises(SystemExit) as exc:
+            cli.main(argv)
+        assert exc.value.code == 2, f"{argv} deberia ser exit 2"
+
+
+def test_cli_goals_set_args_extra_rechazados(monkeypatch, capsys):
+    """Tokens extra = error del operador (patron cycle): ni se conecta."""
+    capturado = _goal_captura(monkeypatch)
+    monkeypatch.setenv("ORBIT_DSN_ADMIN", "postgresql://orbit_admin:secreta@127.0.0.1:5432/o")
+    codigo = cli.main(["goals", "set", "7", "--targe", "20"])
+    assert codigo == 2
+    assert "desconocidos" in capsys.readouterr().err
+    assert not capturado
+
+
+def test_cli_goals_set_goal_invalido_exit_2(monkeypatch, capsys):
+    """GoalInvalido (validacion) = USO invalido: exit 2 con el motivo en
+    espanol (eleccion sellada en el docstring de goals_write)."""
+    from app import goals_write
+
+    _goal_captura(monkeypatch, error=goals_write.GoalInvalido("bid_floor 3.00 > bid_ceiling 2.50"))
+    monkeypatch.setenv("ORBIT_DSN_ADMIN", "postgresql://orbit_admin:secreta@127.0.0.1:5432/o")
+    codigo = cli.main(["goals", "set", "7", "--floor", "3.00"])
+    assert codigo == 2
+    err = capsys.readouterr().err
+    assert "bid_floor" in err
+
+
+def test_cli_goals_set_goal_inexistente_exit_1(monkeypatch, capsys):
+    """GoalInexistente = fallo contra la base (el id no esta): exit 1, patron
+    de error de corrida (no de uso)."""
+    from app import goals_write
+
+    _goal_captura(monkeypatch, error=goals_write.GoalInexistente("goal 7 no existe"))
+    monkeypatch.setenv("ORBIT_DSN_ADMIN", "postgresql://orbit_admin:secreta@127.0.0.1:5432/o")
+    codigo = cli.main(["goals", "set", "7", "--target", "20"])
+    assert codigo == 1
+    assert "no existe" in capsys.readouterr().err
+
+
+def test_cli_goals_set_fallo_de_conexion_scrubbed(monkeypatch, capsys):
+    from app.db import OrbitDbError
+    from app.redaction import redact_dsn
+
+    def _reventar(dsn):
+        redact_dsn(dsn)
+        raise OrbitDbError(f"no se pudo conectar a la base de datos: {dsn}")
+
+    monkeypatch.setattr(cli, "connect", _reventar)
+    monkeypatch.setenv(
+        "ORBIT_DSN_ADMIN", "postgresql://orbit_admin:SUPER_SECRETA@127.0.0.1:5432/orbit"
+    )
+    codigo = cli.main(["goals", "set", "7", "--target", "20"])
+    assert codigo == 1
+    err = capsys.readouterr().err
+    assert "SUPER_SECRETA" not in err
+
+
+def test_cli_goals_set_harvest_cadena_vacia_exit_2(monkeypatch, capsys):
+    """#1 (regresion review 3.2): `--harvest-campaign ''` cuenta como
+    "presente" para la terna harvest (regla 3: faltante no es cadena vacia).
+    Lo rechaza el camino UNICO (goals_write) ANTES de leer la fila — edita_goal
+    va REAL (sin mock): si el guard no disparara, la conexion falsa reventaria
+    y el exit seria 1 generico, no 2."""
+    monkeypatch.setattr(cli, "connect", lambda dsn: _FakeConn())
+    monkeypatch.setenv("ORBIT_DSN_ADMIN", "postgresql://orbit_admin:secreta@127.0.0.1:5432/o")
+    for argv in (
+        ["goals", "set", "7", "--harvest-campaign", ""],
+        ["goals", "set", "7", "--harvest-ad-group", "   "],
+    ):
+        codigo = cli.main(argv)
+        assert codigo == 2, f"{argv} deberia ser exit 2, no {codigo}"
+        err = capsys.readouterr().err
+        assert "harvest_" in err, f"{argv}: el mensaje debe nombrar el campo"
+
+
+def test_cli_goals_set_numeros_no_finitos_exit_2(monkeypatch, capsys):
+    """#3 (regresion review 3.2): Decimal('NaN') PARSEA en argparse y esquia
+    toda comparacion (NaN <= 0 es False); Infinity pasa gt=0 — y PG16 acepta
+    ambos en NUMERIC. El camino unico los rechaza con mensaje claro (exit 2,
+    patron de uso invalido), sin traceback. edita_goal va REAL (sin mock)."""
+    monkeypatch.setattr(cli, "connect", lambda dsn: _FakeConn())
+    monkeypatch.setenv("ORBIT_DSN_ADMIN", "postgresql://orbit_admin:secreta@127.0.0.1:5432/o")
+    for argv in (
+        ["goals", "set", "7", "--target", "NaN"],
+        ["goals", "set", "7", "--floor", "Infinity"],
+        ["goals", "set", "7", "--harvest-bid", "NaN"],
+    ):
+        codigo = cli.main(argv)
+        assert codigo == 2, f"{argv} deberia ser exit 2, no {codigo}"
+        err = capsys.readouterr().err
+        assert "finito" in err, f"{argv}: mensaje claro, no un fallo generico"
+        assert "Traceback" not in err
+
+
+def test_cli_goals_help_documentado(capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["goals", "--help"])
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert "set" in out
+
+
+def test_cli_goals_sin_subcomando_exit_2(capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["goals"])
+    assert exc.value.code == 2

@@ -274,8 +274,9 @@ def goals(
     scope: Literal["campaign", "platform"] | None = None,
     enabled: bool | None = None,
 ) -> list[dict]:
-    """Lectura de goals (la escritura es decision humana: app_admin via el
-    camino de 4.3; /goals write llega en PR2 con auth propia).
+    """Lectura de goals (la escritura ya existe: POST /api/ads-optimizer/
+    goals/{goal_id} en app/api_write.py, ORBIT 04 3.2 — token de escritura y
+    el camino unico app/goals_write.edita_goal, compartido con el CLI).
 
     NOTA DE CONTRATO: un goal de scope=campaign trae `platform: null` (la
     columna es NULL por `goal_scope_coherente`; la plataforma se resuelve por

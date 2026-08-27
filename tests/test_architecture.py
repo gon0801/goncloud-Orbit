@@ -24,6 +24,7 @@ incoherentes solo para esquivar el numero.
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -290,3 +291,70 @@ def test_allowlist_de_tamano_auto_limpiante():
             f"{rel} tiene {lineas} lineas (<= {MAX_LINEAS_MODULO}): ya no "
             f"necesita allowlist — sacar la entrada"
         )
+
+
+# ORBIT 04 decision 26 (sellada): la escritura de goals tiene UN SOLO dueno —
+# app/goals_write.edita_goal. El CLI y el router de escritura DESPACHAN a esa
+# funcion (regla 1, una decision un camino); una segunda copia del SQL de
+# ads_optimizer_goal en cualquier superficie seria una segunda fuente de
+# verdad sobre como se edita un goal. Patrones SQL (no menciones de
+# docstring): lo que se prohibe es CONSULTAR/MUTAR la tabla desde otro lado.
+# COMPILADOS con re.IGNORECASE y \s+ entre palabras (hallazgo #5 review 3.2):
+# "uPdAtE\n\tads_optimizer_goal" (case/whitespace evadido) tambien detecta;
+# una frase benigna sin verbo SQL delante ("...escritura de
+# ads_optimizer_goal") no dispara.
+_SQL_UPDATE_GOAL = r"UPDATE\s+ads_optimizer_goal"
+_PATRONES_SQL_GOALS = tuple(
+    re.compile(patron, re.IGNORECASE)
+    for patron in (
+        r"FROM\s+ads_optimizer_goal",
+        _SQL_UPDATE_GOAL,
+        r"INSERT\s+INTO\s+ads_optimizer_goal",
+        r"DELETE\s+FROM\s+ads_optimizer_goal",
+    )
+)
+# El candado del escritor unico usa SOLO el UPDATE (SELECT si puede leer):
+# mismo patron compilado, no una segunda copia del texto.
+_PATRON_UPDATE_GOAL = re.compile(_SQL_UPDATE_GOAL, re.IGNORECASE)
+MODULOS_DESPACHAN_GOALS = ("app/cli.py", "app/api_write.py")
+
+
+def test_escritura_de_goals_vive_solo_en_goals_write():
+    """Candado de camino unico de goals (3.2): cli.py y api_write.py (a) NO
+    contienen SQL contra ads_optimizer_goal y (b) importan app.goals_write en
+    runtime; y NINGUN modulo de app/ fuera de goals_write.py escribe
+    `UPDATE ads_optimizer_goal` (las lecturas de cycle/api_dashboard/apply si
+    pueden: SELECT no es escritura)."""
+    for rel in MODULOS_DESPACHAN_GOALS:
+        fuente = (RAIZ / rel).read_text(encoding="utf-8")
+        sql_encontrado = [p.pattern for p in _PATRONES_SQL_GOALS if p.search(fuente)]
+        assert not sql_encontrado, (
+            f"{rel} contiene SQL contra ads_optimizer_goal ({sql_encontrado}): "
+            "la escritura vive SOLO en app/goals_write.py (decision 26; "
+            "despachar, no duplicar)"
+        )
+        assert "app.goals_write" in _imports_runtime(RAIZ / rel), (
+            f"{rel} debe importar app.goals_write en runtime (camino unico de la edicion de goals)"
+        )
+
+    escritores = [
+        p.relative_to(RAIZ).as_posix()
+        for p in APP.rglob("*.py")
+        if _PATRON_UPDATE_GOAL.search(p.read_text(encoding="utf-8"))
+    ]
+    assert escritores == ["app/goals_write.py"], (
+        f"UPDATE de ads_optimizer_goal fuera de app/goals_write.py (decision "
+        f"26, un solo dueno): {escritores}"
+    )
+
+
+def test_patrones_sql_goals_resisten_case_y_whitespace():
+    """#5 (hallazgo review 3.2): el candado escaneaba cadenas LITERALES —
+    "uPdAtE\\n\\tads_optimizer_goal" lo evadia con case/whitespace. Los
+    patrones van compilados (IGNORECASE, \\s+): la evasion DETECTA y una frase
+    benigna sin verbo SQL delante no dispara falso positivo. Limitacion
+    declarada: tools/ queda fuera del alcance del candado (no se amplia aqui)."""
+    assert _PATRON_UPDATE_GOAL.search("uPdAtE\n\tads_optimizer_goal")
+    assert any(p.search("fRoM   ads_optimizer_goal") for p in _PATRONES_SQL_GOALS)
+    benigno = "el UNICO camino de escritura de ads_optimizer_goal (decision 26)"
+    assert not any(p.search(benigno) for p in _PATRONES_SQL_GOALS)

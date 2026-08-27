@@ -3,18 +3,21 @@
 Envoltorio DELGADO: cada subcomando invoca EXACTAMENTE el mismo camino que ya
 existe — `cycle` llama al orquestador de `app.cycle.py` (`corre_ciclo`, con su
 MISMO claim/job_key/envelope; el job_key del lock es COMPARTIDO entre cron y
-CLI via `app.cycle.job_key_de`, una sola fuente) y `ingest` delega a los mains
+CLI via `app.cycle.job_key_de`, una sola fuente), `ingest` delega a los mains
 de los pipelines de `app/ads/` (structure/reports, con su ORBIT_DSN_INGEST y
-su contabilidad de ingest_run). PROHIBIDO duplicar logica: aqui no vive
-NINGUNA regla de decision ni de ingesta, solo el despacho a los caminos
-existentes. El disparo manual del ciclo en PR1 ES este CLI via ssh (no hay
-`/run` en la API; hallazgo Security del plan).
+su contabilidad de ingest_run) y `goals set` despacha a
+`app.goals_write.edita_goal` (ORBIT 04 3.2: el UNICO camino de escritura de
+ads_optimizer_goal, con su ORBIT_DSN_ADMIN). PROHIBIDO duplicar logica: aqui
+no vive NINGUNA regla de decision ni de ingesta, solo el despacho a los
+caminos existentes. El disparo manual del ciclo en PR1 ES este CLI via ssh
+(no hay `/run` en la API; hallazgo Security del plan).
 
 Exit codes: 0 exito — `cycle` con CicloOcupado TAMBIEN sale 0: el claim del
 lock lo garantiza, el trabajo ya esta en curso (cron + manual coincidiendo),
 no es un fallo de esta corrida; 1 fallo (el error va scrubbado: jamas un
-secreto en la salida); 2 config ausente o uso invalido (patron de los mains
-de app.ads: DSN sin definir -> mensaje claro y fail-closed).
+secreto en la salida; para `goals set`, goal inexistente); 2 config ausente o
+uso invalido (patron de los mains de app.ads: DSN sin definir -> mensaje
+claro y fail-closed; edicion de goal invalida).
 """
 
 from __future__ import annotations
@@ -25,8 +28,10 @@ import json
 import os
 import socket
 import sys
+from decimal import Decimal
 
 from app import cycle as ciclo
+from app import goals_write
 from app.ads import reports, structure
 from app.db import connect
 from app.optimizer.bid import PLATAFORMAS_MONEDA
@@ -124,14 +129,125 @@ def _ingest(args, rest: list[str]) -> int:
     raise AssertionError(f"pipeline inalcanzable: {args.pipeline!r}")
 
 
+def _decimal_arg(flag: str):
+    """type de argparse para montos: Decimal exacto (regla 4, jamas float) con
+    mensaje claro de USO (exit 2). Decimal lanza ArithmeticError, que argparse
+    NO convierte en error de uso: hay que traducirla a ArgumentTypeError."""
+
+    def _parse(texto: str) -> Decimal:
+        try:
+            return Decimal(texto)
+        except ArithmeticError:
+            raise argparse.ArgumentTypeError(
+                f"--{flag} no es un numero valido: {texto!r}"
+            ) from None
+
+    return _parse
+
+
+def _bool_arg(flag: str):
+    """type de argparse para --enabled: true|false (case-insensitive)."""
+
+    def _parse(texto: str) -> bool:
+        t = texto.strip().lower()
+        if t == "true":
+            return True
+        if t == "false":
+            return False
+        raise argparse.ArgumentTypeError(f"--{flag} acepta solo true|false, llego {texto!r}")
+
+    return _parse
+
+
+# Orden de impresion de la fila editada (una linea por campo, updated_at
+# visible: el sello de la edicion es parte del rastro).
+_CAMPOS_GOAL = (
+    "scope",
+    "platform",
+    "ad_entity_id",
+    "target_acos_pct",
+    "enabled",
+    "bid_floor",
+    "bid_ceiling",
+    "bid_currency",
+    "harvest_campaign_id",
+    "harvest_ad_group_id",
+    "harvest_default_bid",
+    "mode",
+    "created_at",
+    "updated_at",
+)
+
+
+def _goals_set(args) -> int:
+    """`goals set`: DESPACHA a goals_write.edita_goal (el UNICO camino de
+    escritura de ads_optimizer_goal, regla 1; cero SQL aqui). Requiere
+    ORBIT_DSN_ADMIN (los goals los escribe app_admin): sin DSN -> exit 2
+    fail-closed (patron _cycle). Exit codes sellados en goals_write:
+    GoalInvalido = 2 (uso invalido), GoalInexistente = 1; la conexion se abre
+    SOLO despues de validar los argumentos."""
+    dsn = os.environ.get("ORBIT_DSN_ADMIN")
+    if not dsn:
+        print(
+            "ORBIT_DSN_ADMIN no esta definido: no se puede editar el goal (fail-closed)",
+            file=sys.stderr,
+        )
+        return 2
+    campos = {
+        "target_acos_pct": args.target,
+        "enabled": args.enabled,
+        "bid_floor": args.floor,
+        "bid_ceiling": args.ceiling,
+        "harvest_campaign_id": args.harvest_campaign,
+        "harvest_ad_group_id": args.harvest_ad_group,
+        "harvest_default_bid": args.harvest_bid,
+    }
+    if not any(v is not None for v in campos.values()) and not args.harvest_limpia:
+        print(
+            "goals set necesita al menos un campo a editar "
+            "(--target/--enabled/--floor/--ceiling/--harvest-*)",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        conn = connect(dsn)
+        try:
+            fila = goals_write.edita_goal(
+                conn,
+                args.goal_id,
+                harvest_limpia=args.harvest_limpia,
+                updated_at=dt.datetime.now(dt.UTC),
+                **campos,
+            )
+        finally:
+            conn.close()
+    except goals_write.GoalInvalido as exc:
+        print(f"edicion invalida (exit 2): {exc}", file=sys.stderr)
+        return 2
+    except goals_write.GoalInexistente as exc:
+        print(f"{exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"edicion del goal fallo: {scrub(str(exc))}", file=sys.stderr)
+        return 1
+    print(f"== Goal {fila['id']} actualizado ==")
+    for campo in _CAMPOS_GOAL:
+        valor = fila[campo]
+        if hasattr(valor, "isoformat"):
+            valor = valor.isoformat()
+        print(f"{campo}={valor}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m app.cli",
         description=(
             "Operacion de Orbit: `ingest` corre los pipelines de app/ads "
-            "(estructura o metricas+search terms) y `cycle` corre UN ciclo del "
+            "(estructura o metricas+search terms), `cycle` corre UN ciclo del "
             "optimizador por el MISMO camino que el cron (mismo claim/job_key/"
-            "envelope)."
+            "envelope) y `goals set` edita un goal del optimizador por el unico "
+            "camino de escritura (app/goals_write)."
         ),
     )
     sub = parser.add_subparsers(dest="comando", required=True)
@@ -159,6 +275,43 @@ def main(argv: list[str] | None = None) -> int:
         help="ISO 8601 tz-aware para el reloj de las decisiones (default: ahora UTC)",
     )
 
+    p_goals = sub.add_parser(
+        "goals",
+        help="edicion amigable de goals del optimizador (ORBIT 04 3.2; requiere ORBIT_DSN_ADMIN)",
+        # Sin abreviaturas: --targe NO puede interpretarse como --target y
+        # editar con un valor mal tipeado (la edicion ESCRIBE config viva).
+        allow_abbrev=False,
+    )
+    goals_sub = p_goals.add_subparsers(dest="subcomando", required=True)
+    p_set = goals_sub.add_parser(
+        "set", help="edita un goal por id (caminos no pasados quedan igual)", allow_abbrev=False
+    )
+    p_set.add_argument(
+        "goal_id",
+        type=int,
+        help="id numerico del goal (el que lista GET /api/ads-optimizer/goals)",
+    )
+    p_set.add_argument(
+        "--target", type=_decimal_arg("target"), default=None, help="target_acos_pct"
+    )
+    p_set.add_argument("--enabled", type=_bool_arg("enabled"), default=None, help="true|false")
+    p_set.add_argument("--floor", type=_decimal_arg("floor"), default=None, help="bid_floor")
+    p_set.add_argument("--ceiling", type=_decimal_arg("ceiling"), default=None, help="bid_ceiling")
+    p_set.add_argument(
+        "--harvest-campaign", default=None, help="harvest_campaign_id (terna harvest completa)"
+    )
+    p_set.add_argument(
+        "--harvest-ad-group", default=None, help="harvest_ad_group_id (terna harvest completa)"
+    )
+    p_set.add_argument(
+        "--harvest-bid", type=_decimal_arg("harvest-bid"), default=None, help="harvest_default_bid"
+    )
+    p_set.add_argument(
+        "--harvest-limpia",
+        action="store_true",
+        help="pone los TRES campos de harvest en NULL (no combina con --harvest-*)",
+    )
+
     args, rest = parser.parse_known_args(argv)
     if args.comando == "cycle":
         # El ciclo ESCRIBE decisiones: un flag mal tipeado que se ignorara en
@@ -168,6 +321,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"argumentos desconocidos para 'cycle': {rest}", file=sys.stderr)
             return 2
         return _cycle(args)
+    if args.comando == "goals":
+        # Mismo candado que cycle: un --targe mal tipeado NO puede ignorarse y
+        # "editar" nada (la edicion ESCRIBE configuracion viva del optimizador).
+        if rest:
+            print(f"argumentos desconocidos para 'goals set': {rest}", file=sys.stderr)
+            return 2
+        return _goals_set(args)
     return _ingest(args, rest)
 
 
