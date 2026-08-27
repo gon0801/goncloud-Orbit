@@ -582,9 +582,9 @@ def test_goals_lectura_con_filtros(monkeypatch):
 # ---------------------------------------------------------------------------
 
 # La lista EXACTA (ni mas ni menos) de (path, metodo) bajo /api/ads-optimizer:
-# las 3 lecturas de ORBIT 03 + el veto y las 3 reversas manuales de ORBIT 04
-# 3.1 (token estatico solo-header en app/api_write.py; los goals write de 3.2
-# se suman a esta lista cuando existan).
+# las 3 lecturas de ORBIT 03 + el veto, las 3 reversas manuales de ORBIT 04
+# 3.1 y la edicion de goals de ORBIT 04 3.2 (token estatico solo-header en
+# app/api_write.py; ambos despachan a app/goals_write.edita_goal).
 SUPERFICIE_ADS_OPTIMIZER = {
     ("/api/ads-optimizer/status", "get"),
     ("/api/ads-optimizer/audit", "get"),
@@ -593,6 +593,7 @@ SUPERFICIE_ADS_OPTIMIZER = {
     ("/api/ads-optimizer/reversa/bid", "post"),
     ("/api/ads-optimizer/reversa/pause", "post"),
     ("/api/ads-optimizer/reversa/negative", "post"),
+    ("/api/ads-optimizer/goals/{goal_id}", "post"),
 }
 
 

@@ -1,9 +1,10 @@
 """Router de ESCRITURA del optimizador (ORBIT 04, task 3.1).
 
 La superficie de escritura bajo el MISMO prefijo `/api/ads-optimizer` que la
-lectura (app/api.py): veto de cortes + reversas manuales (regla 7). Los goals
-write llegan en 3.2 sobre esta misma auth. `/run` = Reject formal PERMANENTE:
-el disparo del ciclo es el CLI por ssh, jamas un endpoint HTTP del ciclo.
+lectura (app/api.py): veto de cortes, reversas manuales (regla 7) y edicion
+de goals (3.2, sellado 26 — despacha a app/goals_write.edita_goal, un solo
+camino con el CLI). `/run` = Reject formal PERMANENTE: el disparo del ciclo
+es el CLI por ssh, jamas un endpoint HTTP del ciclo.
 
 AUTH (sellado 18, docs/APPLY.md §10.1): token estatico en el archivo
 `api_write_token` dentro de `ORBIT_SECRETS_DIR` (0600 en el server), leido con
@@ -40,9 +41,11 @@ sellada como fallo en el ledger; el detalle vive ahi, regla 10).
 
 from __future__ import annotations
 
+import datetime as dt
 import hmac
 import logging
 import os
+from decimal import Decimal
 from pathlib import Path
 from typing import Annotated
 
@@ -51,7 +54,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
-from app import apply
+from app import apply, goals_write
 from app.db import OrbitDbError, connect
 from app.redaction import install_scrub_filter, register_secret
 
@@ -164,6 +167,23 @@ class CuerpoReversaNegative(BaseModel):
     negative_id en el body no viaja a ningun lado."""
 
     queue_id: int = Field(ge=1)
+
+
+class CuerpoGoal(BaseModel):
+    """Edicion de goals (3.2, sellado 26): TODOS los campos opcionales — None
+    = no cambiar. Montos gt=0 validados aqui (el resto de la pre-validacion,
+    que combina con los valores EXISTENTES de la fila, vive en
+    goals_write.edita_goal: una sola implementacion CLI/endpoint). Extras
+    ignorados (pydantic default)."""
+
+    target_acos_pct: Decimal | None = Field(default=None, gt=0)
+    enabled: bool | None = None
+    bid_floor: Decimal | None = Field(default=None, gt=0)
+    bid_ceiling: Decimal | None = Field(default=None, gt=0)
+    harvest_campaign_id: str | None = None
+    harvest_ad_group_id: str | None = None
+    harvest_default_bid: Decimal | None = Field(default=None, gt=0)
+    harvest_limpia: bool = False
 
 
 # Transicion atomica del veto: el WHERE de estados ES la carrera contra el
@@ -279,3 +299,45 @@ def reversa_negative(
         return apply.reversa_manual(conn, tipo="negative", queue_id=cuerpo.queue_id)
     except tuple(_ERRORES_REVERSA) as exc:
         raise _error_reversa(exc) from None
+
+
+# Mapeo sellado de errores de edita_goal -> HTTP (mismo principio que las
+# reversas: el endpoint no inventa semantica). GoalInvalido -> 422 con el
+# MOTIVO como detail (la pre-validacion combina nuevo+existente); 404 para el
+# goal inexistente.
+_ERRORES_GOAL: dict[type[Exception], int] = {
+    goals_write.GoalInvalido: 422,
+    goals_write.GoalInexistente: 404,
+}
+
+
+@router.post("/goals/{goal_id}")
+def editar_goal(
+    _token: Annotated[str, Depends(exige_token)],
+    conn: ConexionEscritura,
+    goal_id: int,
+    cuerpo: CuerpoGoal,
+) -> dict:
+    """Edita un goal del optimizador (3.2, sellado 26): target/enabled/
+    floor/ceiling y los campos harvest_*, con la auth de 3.1 (token solo
+    header, DSN admin). DESPACHA a `goals_write.edita_goal` — el UNICO camino
+    de escritura de ads_optimizer_goal (regla 1; el CLI `goals set` llama a la
+    misma funcion). El `updated_at` explicito lo pone AQUI: now UTC del
+    servidor (no hay trigger que lo mantenga; dashboard-01 r2). Respuesta: la
+    fila actualizada, mismo shape que GET /goals."""
+    try:
+        return goals_write.edita_goal(
+            conn,
+            goal_id,
+            target_acos_pct=cuerpo.target_acos_pct,
+            enabled=cuerpo.enabled,
+            bid_floor=cuerpo.bid_floor,
+            bid_ceiling=cuerpo.bid_ceiling,
+            harvest_campaign_id=cuerpo.harvest_campaign_id,
+            harvest_ad_group_id=cuerpo.harvest_ad_group_id,
+            harvest_default_bid=cuerpo.harvest_default_bid,
+            harvest_limpia=cuerpo.harvest_limpia,
+            updated_at=dt.datetime.now(dt.UTC),
+        )
+    except tuple(_ERRORES_GOAL) as exc:
+        raise HTTPException(status_code=_ERRORES_GOAL[type(exc)], detail=str(exc)) from None

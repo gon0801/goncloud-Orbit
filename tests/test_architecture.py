@@ -290,3 +290,47 @@ def test_allowlist_de_tamano_auto_limpiante():
             f"{rel} tiene {lineas} lineas (<= {MAX_LINEAS_MODULO}): ya no "
             f"necesita allowlist — sacar la entrada"
         )
+
+
+# ORBIT 04 decision 26 (sellada): la escritura de goals tiene UN SOLO dueno —
+# app/goals_write.edita_goal. El CLI y el router de escritura DESPACHAN a esa
+# funcion (regla 1, una decision un camino); una segunda copia del SQL de
+# ads_optimizer_goal en cualquier superficie seria una segunda fuente de
+# verdad sobre como se edita un goal. Patrones SQL (no menciones de
+# docstring): lo que se prohibe es CONSULTAR/MUTAR la tabla desde otro lado.
+_PATRONES_SQL_GOALS = (
+    "FROM ads_optimizer_goal",
+    "UPDATE ads_optimizer_goal",
+    "INSERT INTO ads_optimizer_goal",
+    "DELETE FROM ads_optimizer_goal",
+)
+MODULOS_DESPACHAN_GOALS = ("app/cli.py", "app/api_write.py")
+
+
+def test_escritura_de_goals_vive_solo_en_goals_write():
+    """Candado de camino unico de goals (3.2): cli.py y api_write.py (a) NO
+    contienen SQL contra ads_optimizer_goal y (b) importan app.goals_write en
+    runtime; y NINGUN modulo de app/ fuera de goals_write.py escribe
+    `UPDATE ads_optimizer_goal` (las lecturas de cycle/api_dashboard/apply si
+    pueden: SELECT no es escritura)."""
+    for rel in MODULOS_DESPACHAN_GOALS:
+        fuente = (RAIZ / rel).read_text(encoding="utf-8")
+        sql_encontrado = [p for p in _PATRONES_SQL_GOALS if p in fuente]
+        assert not sql_encontrado, (
+            f"{rel} contiene SQL contra ads_optimizer_goal ({sql_encontrado}): "
+            "la escritura vive SOLO en app/goals_write.py (decision 26; "
+            "despachar, no duplicar)"
+        )
+        assert "app.goals_write" in _imports_runtime(RAIZ / rel), (
+            f"{rel} debe importar app.goals_write en runtime (camino unico de la edicion de goals)"
+        )
+
+    escritores = [
+        p.relative_to(RAIZ).as_posix()
+        for p in APP.rglob("*.py")
+        if "UPDATE ads_optimizer_goal" in p.read_text(encoding="utf-8")
+    ]
+    assert escritores == ["app/goals_write.py"], (
+        f"UPDATE de ads_optimizer_goal fuera de app/goals_write.py (decision "
+        f"26, un solo dueno): {escritores}"
+    )
