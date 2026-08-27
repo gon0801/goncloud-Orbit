@@ -4,7 +4,30 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
-**Última actualización: 2026-08-27 — ORBIT 04 Phase 3 EN CURSO: 3.1 y 3.2
+**Última actualización: 2026-08-27 — ORBIT 04 Phase 3 COMPLETA (3.1-3.3):
+PRs DRAFT #28 (3.1), #30 (3.2, apilado) y 3.3 en su rama apilada — el lead
+revisa. 3.3 (`app/notifica.py`, canal Telegram fail-silent): aviso por cada
+corte NUEVO encolado (con vence_el 48h de la MISMA fuente de la fila),
+digest único por ciclo (live Y shadow: el encabezado declara el modo para
+que un digest de shadow no se confunda con uno live — cierre del hallazgo
+medio de la review del lead) y alerta de harvest failed (en `_falla_job`,
+junto a la reversa). Un fallo del canal JAMÁS tumba el ciclo ni degrada el
+status: warning scrubbeado + NOTA `notes['telegram']` (solo claves de lo
+que falló, regla 3) integrada antes del sello post-apply — estructuralmente
+TX4 corre después del cierre del envelope, ahí estaba la única escritura de
+notes restante — y VISIBLE en Salud (endpoint + pantalla). Canal
+deshabilitado (sin secrets/telegram.json) = no es fallo: True, sin NOTA.
+Avisos también en shadow (el mensaje declara modo — el dueño practica el
+veto con candidatos reales, sellado 6). Ciclos skipped/failed sin digest
+(estructura del ciclo; visibles por su propio status). tests/conftest.py
+aísla el canal por defecto: cero HTTP real en tests es invariante
+determinístico. Review: GO tras fixes (test directo del mapeo
+harvest→NOTA, loop de alertas envuelto, acento). Rojo honesto del DoD
+capturado (KeyError 'telegram' contra la base 3.2). 17 tests nuevos;
+161+ focused en verde con PG16 real por túnel; batería completa en el CI
+del PR.
+
+Previo (2026-08-27): ORBIT 04 Phase 3 EN CURSO: 3.1 y 3.2
 listas (PRs DRAFT #28 y apilado — el lead revisa). 3.2 (goals amigables,
 rama orbit-04/3-2-goals-set): UNA implementación `app/goals_write.edita_goal`
 (UPDATE solo-campos-pasados con `updated_at` EXPLICITO obligatorio — mutante

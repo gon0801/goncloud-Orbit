@@ -136,6 +136,17 @@ el `finally` de corre_ciclo — el apply corre con el lock NUESTRO):
   cortes_encolados, cortes_liberados, apply_error, apply_abortado_owner
   (bids_reconciliados/pausas_reconciliadas llegan con la reconciliacion de
   ledger sin sello de bids y de pausas applying huerfanas: ADV-03/ADV-04).
+- ORBIT 04 3.3 — NOTIFICA (sellados 2 y 19): canal Telegram fail-silent con
+  UN aviso por corte NUEVO encolado (tras el commit de TX4, con el
+  vencimiento de la ventana 48h) y UN digest al final del ciclo ejecutor.
+  Un fallo del canal JAMAS tumba ni degrada el ciclo: deja la NOTA
+  `notes["telegram"]` (solo claves de lo que fallo, regla 3), persistida por
+  el mismo sello post-apply y VISIBLE en Salud — la NOTA es la UNICA
+  visibilidad del fallo del canal: el silencio del canal jamas es invisible
+  (sellado 2). Canal deshabilitado (sin secrets) no es fallo: no genera
+  NOTA. Las alertas de harvest failed salen en el punto de fallo definitivo
+  (app.apply_harvest._falla_job) y su bandera de envio fallido llega aqui
+  para la misma NOTA.
 """
 
 from __future__ import annotations
@@ -153,7 +164,7 @@ import psycopg
 from psycopg.conninfo import make_conninfo
 from psycopg.types.json import Json
 
-from app import apply, apply_cola, apply_harvest
+from app import apply, apply_cola, apply_harvest, notifica
 from app.ads.config import AdsCredentials
 from app.apply import Aplicador
 from app.optimizer import bid, cortes, hygiene, windows
@@ -1306,6 +1317,19 @@ def _fase_lecturas(
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class _FaseApply:
+    """Resultado de la fase de apply para _corre_fases: la seccion
+    notes['apply'], si aborto (degraded) y lo que 3.3 notifica — UN aviso por
+    corte NUEVO encolado (TX4 commitado) y las alertas de harvest failed con
+    la bandera de envio fallido del canal (sellados 13/19)."""
+
+    notas: dict
+    fallo: bool
+    avisos: tuple[notifica.CorteEncolado, ...] = ()
+    alertas: tuple = ()
+
+
 def _fase_apply(
     conn: psycopg.Connection,
     *,
@@ -1317,9 +1341,10 @@ def _fase_apply(
     owner: str,
     guard: Callable[[], None],
     aplicador_factory: Callable[..., Aplicador] | None,
-) -> tuple[dict, bool]:
+) -> _FaseApply:
     """TX4 + fase de apply propiamente (decisiones 11/21; docstring del
-    modulo). Devuelve (seccion notes['apply'], fallo). Stance
+    modulo). Devuelve _FaseApply (seccion notes['apply'], fallo, avisos de
+    encola y alertas de harvest para 3.3). Stance
     FAIL-CLOSED-AUDITADO: CUALQUIER excepcion de la fase (fabrica incluida) se
     captura como nota + degraded — un fallo de apply no borra las decisiones
     ya tomadas; el siguiente ciclo reconcilia. El invariante corte<->cola
@@ -1340,6 +1365,8 @@ def _fase_apply(
     notas: dict = {}
     fallo = False
     aplicador: Aplicador | None = None
+    avisos: tuple[notifica.CorteEncolado, ...] = ()
+    alertas_harvest: list = []
     if modo.modo == "live":
         try:
             fabrica = aplicador_factory if aplicador_factory is not None else _aplicador_real
@@ -1370,6 +1397,7 @@ def _fase_apply(
             resumen = apply_cola.encola_cortes(
                 conn, aplicador, cycle_id, modo_envelope=modo.modo, ahora=decided_at
             )
+        avisos = resumen.avisos  # 3.3: solo lo COMMITADO se avisa (sellado 2)
         notas["cortes_encolados"] = {
             "live": resumen.encoladas_live,
             "shadow": resumen.encoladas_shadow,
@@ -1377,6 +1405,7 @@ def _fase_apply(
         }
         if modo.modo == "live" and "apply_error" not in notas:
             reconciliacion = apply_harvest.reconcilia_harvest(conn, aplicador, platform)
+            alertas_harvest += reconciliacion.alertas
             rec_bids = apply.reconcilia_bids(conn, aplicador, platform)
             res_bids = aplicador.aplica_bids(
                 apply.bids_del_ciclo(conn, cycle_id), escalera_global=modo.modo
@@ -1384,6 +1413,7 @@ def _fase_apply(
             res_cola = apply_cola.libera_vencidos(
                 conn, platform, ahora=decided_at, aplicador=aplicador
             )
+            alertas_harvest += res_cola.alertas
             notas["bids_aplicados"] = res_bids.aplicadas
             notas["bids_descartados"] = len(res_bids.descartadas)
             # GK10/QW4 (cross-review): la divergencia de readback es observable
@@ -1429,12 +1459,80 @@ def _fase_apply(
         notas["apply_error"] = scrub(str(exc)) or type(exc).__name__
         fallo = True
         logger.warning("fase de apply abortada por error: %s", scrub(str(exc)))
-    return notas, fallo
+    return _FaseApply(notas=notas, fallo=fallo, avisos=avisos, alertas=tuple(alertas_harvest))
 
 
 # ---------------------------------------------------------------------------
 # Orquestacion de fases tras TX1
 # ---------------------------------------------------------------------------
+
+
+def _fase_notifica(
+    avisos: tuple[notifica.CorteEncolado, ...],
+    alertas: tuple,
+    *,
+    cycle_id: int,
+    platform: str,
+    modo: str,
+    status: str,
+    decisions_count: int,
+    notas_apply: dict,
+    tick: Callable[[], None] | None = None,
+) -> dict:
+    """Avisos Telegram del ciclo (3.3, sellados 2/19): UN aviso por corte
+    nuevo encolado + UN digest final. Devuelve la seccion notes['telegram']
+    con SOLO claves de lo que fallo (regla 3); vacio = todo bien o canal
+    deshabilitado (que no es fallo). La NOTA es la UNICA visibilidad del
+    fallo del canal (sellado 2: el silencio jamas es invisible) y JAMAS
+    rompe el ciclo ni degrada el status: TODO lo de notifica va envuelto
+    (armado del mensaje incluido) — los notifica_* ya son fail-silent, esto
+    es la segunda barrera.
+
+    Los envios son SINCRONOS dentro del lock: `tick` (el heartbeat del ciclo)
+    late UNA vez por mensaje enviado para que N avisos con el canal lento no
+    coman el lease (Greptile P2, PR #32; el zombie de la decision 11)."""
+    notas: dict[str, str] = {}
+
+    def _latido() -> None:
+        if tick is not None:
+            tick()
+
+    try:
+        for aviso in avisos:
+            if not notifica.notifica_encola(aviso):
+                notas["aviso_encola"] = (
+                    "fallo: aviso de corte encolado no enviado por Telegram "
+                    "(revisar la cola de veto: la ventana 48h corre igual)"
+                )
+            _latido()
+    except Exception as exc:  # noqa: BLE001 - jamas rompe el ciclo (docstring)
+        notas["aviso_encola"] = "fallo: el aviso de corte encolado no salio (ver log)"
+        logger.warning("notifica: fallo en avisos de encola: %s", scrub(str(exc)))
+    try:
+        resumen = {
+            "cycle_id": cycle_id,
+            "plataforma": platform,
+            "modo": modo,
+            "status": status,
+            "decisions_count": decisions_count,
+            "apply": notas_apply,
+        }
+        if not notifica.notifica_digest(resumen):
+            notas["digest"] = "fallo: digest del ciclo no enviado por Telegram"
+        _latido()
+    except Exception as exc:  # noqa: BLE001 - jamas rompe el ciclo (docstring)
+        notas["digest"] = "fallo: el digest del ciclo no salio (ver log)"
+        logger.warning("notifica: fallo en el digest: %s", scrub(str(exc)))
+    try:
+        for alerta in alertas:
+            if getattr(alerta, "envio_fallido", False):
+                notas["harvest_failed"] = (
+                    "fallo: alerta de harvest failed no enviada por Telegram (revisar harvest_job)"
+                )
+    except Exception as exc:  # noqa: BLE001 - jamas rompe el ciclo (docstring)
+        notas["harvest_failed"] = "fallo: la alerta de harvest failed no salio (ver log)"
+        logger.warning("notifica: fallo en alertas de harvest: %s", scrub(str(exc)))
+    return notas
 
 
 def _corre_fases(
@@ -1489,7 +1587,7 @@ def _corre_fases(
     # FASE DE APPLY DENTRO DEL LOCK (2.4): TX4 + apply propio, DESPUES de TX3
     # (las decisiones ya estan commitadas) y ANTES del return — el lock se
     # libera recien en el finally de corre_ciclo, con el apply ya corrido.
-    notas_apply, fallo_apply = _fase_apply(
+    fase = _fase_apply(
         conn,
         cycle_id=cycle_id,
         modo=modo,
@@ -1500,13 +1598,32 @@ def _corre_fases(
         guard=_guard_apply(conn, job_key, owner, tick),
         aplicador_factory=aplicador_factory,
     )
+    notas_apply = fase.notas
     if notas_apply:
         cuerpo["apply"] = notas_apply
-        notas = json.dumps(cuerpo, ensure_ascii=False, default=str)
-        if fallo_apply:
+        if fase.fallo:
             status = "degraded"
+    # NOTIFICA (3.3, sellados 2/19): la NOTA telegram se integra al notes ANTES
+    # del sello post-apply (la escritura final de notes del ciclo) para que el
+    # fallo del canal viva en la MISMA notes — un fallo de Telegram JAMAS
+    # degrada el status (degradar sigue siendo solo cosa del apply).
+    telegram = _fase_notifica(
+        fase.avisos,
+        fase.alertas,
+        cycle_id=cycle_id,
+        platform=platform,
+        modo=modo.modo,
+        status=status,
+        decisions_count=len(pendientes),
+        notas_apply=notas_apply,
+        tick=tick,
+    )
+    if notas_apply or telegram:
+        if telegram:
+            cuerpo["telegram"] = telegram
+        notas = json.dumps(cuerpo, ensure_ascii=False, default=str)
         with conn.transaction():
-            _sella_apply(conn, cycle_id, notas, degradar=fallo_apply)
+            _sella_apply(conn, cycle_id, notas, degradar=fase.fallo)
     return ResultadoCiclo(cycle_id, status, len(pendientes), notas)
 
 
