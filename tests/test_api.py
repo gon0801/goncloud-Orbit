@@ -17,8 +17,9 @@ Contrato sellado de la task:
    tolera AMBOS sin reventar.
 2. `/audit`: decisiones paginadas (limit/offset, ORDER BY estable id DESC),
    filtros por ciclo/entidad/kind, 404 para ids inexistentes.
-3. `/goals`: lectura de goals (sin escritura: la escalera y los goals se
-   escriben por el camino humano de 4.3; `/goals` write llega en PR2).
+3. `/goals`: lectura de goals (la escritura llego en ORBIT 04 3.2: POST
+   `/goals/{goal_id}` en app/api_write.py, token + camino unico de
+   app/goals_write; item 4 de esta lista lo sella en la superficie).
 4. Superficie SELLADA (ORBIT 04 3.1, decision 18): el conjunto exacto de
    (path, metodo) bajo /api/ads-optimizer = 3 GET de lectura + veto y 3
    reversas POST autenticadas de app/api_write.py (introspeccion del OpenAPI).

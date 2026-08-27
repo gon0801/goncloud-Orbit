@@ -171,8 +171,9 @@ class CuerpoReversaNegative(BaseModel):
 
 class CuerpoGoal(BaseModel):
     """Edicion de goals (3.2, sellado 26): TODOS los campos opcionales — None
-    = no cambiar. Montos gt=0 validados aqui (el resto de la pre-validacion,
-    que combina con los valores EXISTENTES de la fila, vive en
+    = no cambiar. Montos gt=0 y strings no vacios (min_length=1) validados
+    aqui (el resto de la pre-validacion, que combina con los valores
+    EXISTENTES de la fila y caza whitespace-only, vive en
     goals_write.edita_goal: una sola implementacion CLI/endpoint). Extras
     ignorados (pydantic default)."""
 
@@ -180,8 +181,8 @@ class CuerpoGoal(BaseModel):
     enabled: bool | None = None
     bid_floor: Decimal | None = Field(default=None, gt=0)
     bid_ceiling: Decimal | None = Field(default=None, gt=0)
-    harvest_campaign_id: str | None = None
-    harvest_ad_group_id: str | None = None
+    harvest_campaign_id: str | None = Field(default=None, min_length=1)
+    harvest_ad_group_id: str | None = Field(default=None, min_length=1)
     harvest_default_bid: Decimal | None = Field(default=None, gt=0)
     harvest_limpia: bool = False
 

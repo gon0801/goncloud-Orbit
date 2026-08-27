@@ -25,6 +25,13 @@ campos harvest individuales). El objetivo es doble: mensaje claro de USO
 operador. `None` en un parametro significa "no cambiar" — el unico camino a
 NULL de la terna harvest es `harvest_limpia` (regla 3: faltante no es cero).
 
+VALIDACION DE ENTRADA pura (review 3.2, hallazgos #1-#3) ANTES de leer la
+fila, sin I/O: cero campos = edicion invalida (un UPDATE que solo mueva
+updated_at es un rastro que miente en espiritu), cadenas vacias o de puros
+espacios en los ids harvest NO cuentan como "presentes" para la terna (regla
+3), y los Decimales pasados deben ser finitos (Infinity pasa el gt=0 y las
+comparaciones; NaN las esquiva; PG16 acepta ambos en NUMERIC).
+
 EXIT CODES del CLI (eleccion sellada aqui): GoalInvalido = exit 2 (uso
 invalido, patron argparse); GoalInexistente = exit 1 (fallo contra la base).
 
@@ -191,6 +198,27 @@ def edita_goal(
         cambios["harvest_campaign_id"] = None
         cambios["harvest_ad_group_id"] = None
         cambios["harvest_default_bid"] = None
+
+    # Validacion de ENTRADA pura, ANTES de leer la fila (sin I/O; hallazgos
+    # #1-#3 de la review 3.2): edicion vacia (un UPDATE que solo mueve
+    # updated_at seria un rastro que miente), cadenas vacias/espacios en la
+    # terna harvest ("" cuenta como "presente" y dejaria config harvest
+    # "completa" con ids vacios — regla 3) y Decimales no finitos
+    # (Infinity pasa gt=0 y las comparaciones; NaN las esquiva; PG16 acepta
+    # ambos en NUMERIC). Vive SOLO aqui: cubre CLI y endpoint.
+    if not cambios:
+        raise GoalInvalido("edicion vacia: nada que cambiar")
+    for nombre in ("target_acos_pct", "bid_floor", "bid_ceiling", "harvest_default_bid"):
+        valor = cambios.get(nombre)
+        if valor is not None and not valor.is_finite():
+            raise GoalInvalido(f"{nombre} no es un numero finito valido")
+    for nombre in ("harvest_campaign_id", "harvest_ad_group_id"):
+        valor = cambios.get(nombre)
+        if valor is not None and not valor.strip():
+            raise GoalInvalido(
+                f"{nombre} no puede ser vacio o solo espacios:"
+                " la terna harvest se borra con harvest_limpia"
+            )
 
     conn.row_factory = dict_row
     fila = conn.execute(_SQL_LEE, (goal_id,)).fetchone()

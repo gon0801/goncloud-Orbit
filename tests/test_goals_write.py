@@ -224,6 +224,88 @@ def test_endpoint_goals_valida_montos_positivos_422(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Validacion de ENTRADA pura (sin I/O): hallazgos #1-#3 de la review 3.2
+# ---------------------------------------------------------------------------
+
+# Conn centinela: la validacion de entrada corre ANTES de leer/tocar la fila;
+# si edita_goal la toca, AttributeError y el test revienta (el guard no disparo).
+_CONN_INTOCABLE = object()
+
+
+def test_edita_goal_rechaza_cadenas_vacias_en_la_terna_harvest():
+    """#1: '' (o solo espacios) en harvest_campaign_id/harvest_ad_group_id
+    cuenta como "presente" para la terna y almacenaria config harvest
+    "completa" con ids vacios (regla 3: faltante no es cadena vacia). Lo
+    rechaza el camino UNICO antes de cualquier I/O, con el nombre del campo."""
+    with pytest.raises(goals_write.GoalInvalido, match="harvest_campaign_id"):
+        goals_write.edita_goal(_CONN_INTOCABLE, 7, harvest_campaign_id="", updated_at=T_EDITADO)
+    with pytest.raises(goals_write.GoalInvalido, match="harvest_ad_group_id"):
+        goals_write.edita_goal(_CONN_INTOCABLE, 7, harvest_ad_group_id="   ", updated_at=T_EDITADO)
+
+
+def test_edita_goal_rechaza_edicion_vacia_antes_de_leer_la_fila():
+    """#2: un body/argv sin NINGUN campo no es edicion — ejecutaria un UPDATE
+    que solo mueve updated_at (rastro que miente en espiritu). GoalInvalido
+    ANTES de leer la fila, por el camino unico (el CLI ya lo rechazaba; el
+    endpoint re-sellaba la fila con 200)."""
+    with pytest.raises(goals_write.GoalInvalido, match="edicion vacia"):
+        goals_write.edita_goal(_CONN_INTOCABLE, 7, updated_at=T_EDITADO)
+
+
+def test_edita_goal_rechaza_decimales_no_finitos():
+    """#3: Decimal('Infinity') pasa el gt=0 de pydantic y las comparaciones de
+    pre-validacion (NaN las esquiva: toda comparacion es False), y PG16
+    ACEPTA ambos valores en NUMERIC. El camino unico exige finitos antes de
+    cualquier I/O. (El endpoint ya los rechaza pydantic: test mas abajo.)"""
+    for nombre, valor in (
+        ("target_acos_pct", Decimal("Infinity")),
+        ("target_acos_pct", Decimal("NaN")),
+        ("bid_floor", Decimal("Infinity")),
+        ("bid_ceiling", Decimal("NaN")),
+        ("harvest_default_bid", Decimal("Infinity")),
+    ):
+        with pytest.raises(goals_write.GoalInvalido, match="finito"):
+            goals_write.edita_goal(_CONN_INTOCABLE, 7, **{nombre: valor}, updated_at=T_EDITADO)
+
+
+def test_endpoint_goals_ids_harvest_vacios_422(tmp_path, monkeypatch):
+    """#1 (regresion review 3.2): '' en harvest_campaign_id/harvest_ad_group_id
+    -> 422 de pydantic (min_length=1 en CuerpoGoal) ANTES de despachar; el
+    whitespace-only lo caza goals_write antes del UPDATE (tambien 422)."""
+    _goal_monkeypatcheada(monkeypatch, tmp_path, resultado={"id": 1})
+    cliente = TestClient(app)
+    for cuerpo in (
+        {"harvest_campaign_id": ""},
+        {"harvest_ad_group_id": ""},
+    ):
+        resp = cliente.post(
+            "/api/ads-optimizer/goals/1", json=cuerpo, headers={"x-orbit-token": TOKEN}
+        )
+        assert resp.status_code == 422, f"{cuerpo} deberia ser 422, no {resp.status_code}"
+
+
+def test_endpoint_goals_numericos_no_finitos_422(tmp_path, monkeypatch):
+    """#3 (documentacion de la capa pydantic): Infinity/NaN en los montos del
+    body los RECHAZA pydantic por si solo (verificado en vivo contra la
+    version instalada) — el endpoint jamas los despacha. Quien si puede llegar
+    a goals_write es el CLI (Decimal('NaN') parsea en argparse), y ese caso lo
+    cubre el guard del camino unico (test de arriba + test_cli)."""
+    _goal_monkeypatcheada(monkeypatch, tmp_path, resultado={"id": 1})
+    cliente = TestClient(app)
+    for cuerpo in (
+        {"target_acos_pct": "Infinity"},
+        {"target_acos_pct": "NaN"},
+        {"bid_floor": "Infinity"},
+        {"bid_ceiling": "NaN"},
+        {"harvest_default_bid": "Infinity"},
+    ):
+        resp = cliente.post(
+            "/api/ads-optimizer/goals/1", json=cuerpo, headers={"x-orbit-token": TOKEN}
+        )
+        assert resp.status_code == 422, f"{cuerpo} deberia ser 422, no {resp.status_code}"
+
+
+# ---------------------------------------------------------------------------
 # PG16 REAL: UPDATE honesto, pre-validacion combinada y visibilidad al ciclo
 # ---------------------------------------------------------------------------
 
@@ -478,3 +560,49 @@ def test_endpoint_pg_harvest_incompleto_422_sin_tocar_la_fila(tmp_path, monkeypa
             (goal_id,),
         ).fetchone()
         assert en_db == (Decimal("25"), T_SEMBRADO)
+
+
+@_skip_db
+def test_endpoint_pg_body_vacio_422_sin_re_sellar_la_fila(tmp_path, monkeypatch):
+    """#2 (regresion review 3.2, edita_goal REAL sin mock): body {} NO es
+    edicion — 422 'edicion vacia' (antes re-sellaba la fila con 200: un
+    updated_at movido sin ningun cambio real). La fila queda intacta."""
+    with _db_con_rol_admin("orbit_g_vacio") as (conn, dsn_admin, _dsn_l):
+        goal_id = _siembra_goal_plataforma(conn)
+        _secrets_token(tmp_path, monkeypatch)
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
+
+        resp = TestClient(app).post(
+            f"/api/ads-optimizer/goals/{goal_id}", json={}, headers={"x-orbit-token": TOKEN}
+        )
+        assert resp.status_code == 422, resp.text
+        assert "edicion vacia" in resp.json()["detail"]
+        en_db = conn.execute(
+            "SELECT target_acos_pct, updated_at FROM ads_optimizer_goal WHERE id = %s",
+            (goal_id,),
+        ).fetchone()
+        assert en_db == (Decimal("25"), T_SEMBRADO), "un body vacio no mueve NADA de la fila"
+
+
+@_skip_db
+def test_endpoint_pg_harvest_whitespace_422_sin_tocar_la_fila(tmp_path, monkeypatch):
+    """#1 (cadena de espacios, edita_goal REAL): pydantic la deja pasar
+    (min_length=1); la rechaza el camino unico antes del UPDATE — la fila
+    queda intacta."""
+    with _db_con_rol_admin("orbit_g_ws") as (conn, dsn_admin, _dsn_l):
+        goal_id = _siembra_goal_plataforma(conn)
+        _secrets_token(tmp_path, monkeypatch)
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
+
+        resp = TestClient(app).post(
+            f"/api/ads-optimizer/goals/{goal_id}",
+            json={"harvest_ad_group_id": "   "},
+            headers={"x-orbit-token": TOKEN},
+        )
+        assert resp.status_code == 422, resp.text
+        assert "harvest_ad_group_id" in resp.json()["detail"]
+        en_db = conn.execute(
+            "SELECT harvest_ad_group_id, updated_at FROM ads_optimizer_goal WHERE id = %s",
+            (goal_id,),
+        ).fetchone()
+        assert en_db == (None, T_SEMBRADO)

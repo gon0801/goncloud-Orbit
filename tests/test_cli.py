@@ -1,5 +1,5 @@
-"""Tests del CLI de operacion `python -m app.cli {ingest,cycle}` (ORBIT 03,
-task 3.3).
+"""Tests del CLI de operacion `python -m app.cli {ingest,cycle,goals}` (ORBIT
+03 task 3.3; `goals set` llego en ORBIT 04 3.2).
 
 UNITARIOS (sin Postgres): el CLI es un ENVOLTORIO DELGADO — cada subcomando
 invoca EXACTAMENTE el mismo camino que ya existe, asi que se prueba con
@@ -483,6 +483,43 @@ def test_cli_goals_set_fallo_de_conexion_scrubbed(monkeypatch, capsys):
     assert codigo == 1
     err = capsys.readouterr().err
     assert "SUPER_SECRETA" not in err
+
+
+def test_cli_goals_set_harvest_cadena_vacia_exit_2(monkeypatch, capsys):
+    """#1 (regresion review 3.2): `--harvest-campaign ''` cuenta como
+    "presente" para la terna harvest (regla 3: faltante no es cadena vacia).
+    Lo rechaza el camino UNICO (goals_write) ANTES de leer la fila — edita_goal
+    va REAL (sin mock): si el guard no disparara, la conexion falsa reventaria
+    y el exit seria 1 generico, no 2."""
+    monkeypatch.setattr(cli, "connect", lambda dsn: _FakeConn())
+    monkeypatch.setenv("ORBIT_DSN_ADMIN", "postgresql://orbit_admin:secreta@127.0.0.1:5432/o")
+    for argv in (
+        ["goals", "set", "7", "--harvest-campaign", ""],
+        ["goals", "set", "7", "--harvest-ad-group", "   "],
+    ):
+        codigo = cli.main(argv)
+        assert codigo == 2, f"{argv} deberia ser exit 2, no {codigo}"
+        err = capsys.readouterr().err
+        assert "harvest_" in err, f"{argv}: el mensaje debe nombrar el campo"
+
+
+def test_cli_goals_set_numeros_no_finitos_exit_2(monkeypatch, capsys):
+    """#3 (regresion review 3.2): Decimal('NaN') PARSEA en argparse y esquia
+    toda comparacion (NaN <= 0 es False); Infinity pasa gt=0 — y PG16 acepta
+    ambos en NUMERIC. El camino unico los rechaza con mensaje claro (exit 2,
+    patron de uso invalido), sin traceback. edita_goal va REAL (sin mock)."""
+    monkeypatch.setattr(cli, "connect", lambda dsn: _FakeConn())
+    monkeypatch.setenv("ORBIT_DSN_ADMIN", "postgresql://orbit_admin:secreta@127.0.0.1:5432/o")
+    for argv in (
+        ["goals", "set", "7", "--target", "NaN"],
+        ["goals", "set", "7", "--floor", "Infinity"],
+        ["goals", "set", "7", "--harvest-bid", "NaN"],
+    ):
+        codigo = cli.main(argv)
+        assert codigo == 2, f"{argv} deberia ser exit 2, no {codigo}"
+        err = capsys.readouterr().err
+        assert "finito" in err, f"{argv}: mensaje claro, no un fallo generico"
+        assert "Traceback" not in err
 
 
 def test_cli_goals_help_documentado(capsys):
