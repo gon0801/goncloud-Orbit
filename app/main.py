@@ -1,11 +1,13 @@
 """Orbit — punto de entrada de la API.
 
 Sistema nuevo desde cero (ver docs/CONTEXTO.md). Este modulo expone la app,
-el healthcheck, el router de SOLO LECTURA del optimizador (3.2), el router
-del dashboard (ORBIT 16: API + UI server-rendered) y los headers de la UI
-(CSP default-src 'self' y Cache-Control: no-store en el HTML — decision 12
-del header de plans/dashboard-01.md). El bind real 127.0.0.1:<puerto> lo
-hace el servicio de deploy en 4.1, jamas 0.0.0.0.
+el healthcheck, el router de SOLO LECTURA del optimizador (3.2), el router de
+ESCRITURA del optimizador (ORBIT 04 3.1: veto + reversas, token solo-header
+via ORBIT_DSN_ADMIN), el router del dashboard (ORBIT 16: API + UI
+server-rendered) y los headers de la UI (CSP default-src 'self' y
+Cache-Control: no-store en el HTML — decision 12 del header de
+plans/dashboard-01.md). El bind real 127.0.0.1:<puerto> lo hace el servicio
+de deploy en 4.1, jamas 0.0.0.0.
 """
 
 from pathlib import Path
@@ -16,6 +18,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api import router as ads_optimizer_router
 from app.api_dashboard import router as dashboard_router
+from app.api_write import router as ads_optimizer_write_router
 from app.ui import router as dashboard_ui_router
 
 
@@ -42,6 +45,7 @@ app.add_middleware(_HeadersDashboard)
 # se sirve localmente (los templates jamas referencian hosts externos).
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 app.include_router(ads_optimizer_router)
+app.include_router(ads_optimizer_write_router)
 app.include_router(dashboard_router)
 app.include_router(dashboard_ui_router)
 

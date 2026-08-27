@@ -154,9 +154,7 @@ from psycopg.conninfo import make_conninfo
 from psycopg.types.json import Json
 
 from app import apply, apply_cola, apply_harvest
-from app.ads.client import AdsClient
 from app.ads.config import AdsCredentials
-from app.ads.structure import evaluar_perfiles
 from app.apply import Aplicador
 from app.optimizer import bid, cortes, hygiene, windows
 from app.optimizer import goals as g
@@ -791,20 +789,14 @@ def _aplicador_real(
 ) -> Aplicador:
     """Fabrica por defecto del aplicador (2.4). Credenciales del secrets dir
     (`AdsCredentials.from_secrets_dir`) y profile por plataforma desde GET
-    /v2/profiles + `evaluar_perfiles` — la MISMA fuente del sync (regla 2; el
+    /v2/profiles + `evaluar_perfiles` — via `apply.perfil_aceptado_de` (la
+    MISMA fuente del sync y de la reversa manual de 3.1, regla 2; el
     profile_id NO se inventa ni se hardcodea). Sin perfil aceptado ->
     SinPerfilAplicar (la fase aborta fail-closed). `transport` es la puerta de
     tests (MockTransport); `tick` viaja como tick Y guard pre-HTTP del write
     client (heartbeat + ownership-check, decision 11)."""
     credentials = AdsCredentials.from_secrets_dir()
-    perfil = next(
-        (
-            p
-            for p in evaluar_perfiles(AdsClient(credentials, transport=transport))
-            if p.aceptado and p.platform == platform
-        ),
-        None,
-    )
+    perfil = apply.perfil_aceptado_de(credentials, platform, transport=transport)
     if perfil is None:
         raise SinPerfilAplicar(f"sin perfil aceptado para {platform} en /v2/profiles")
     return Aplicador(

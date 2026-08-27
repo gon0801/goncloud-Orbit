@@ -78,8 +78,10 @@ contenedor no puede escribir ni relajar permisos).
 **Qué se monta:** SOLO `secrets/` (read-only). Ni backups, ni `.env`
 como archivo (los DSN llegan por `env_file`). `.dockerignore` excluye
 `.env` y `secrets/` del contexto de build: no entran a la imagen.
-`env_file: .env` inyecta el archivo entero (incluye `POSTGRES_PASSWORD`
-y `ORBIT_DSN_ADMIN`, que la app no usa): residual aceptado — el mismo
+`env_file: .env` inyecta el archivo entero (incluye `POSTGRES_PASSWORD`;
+`ORBIT_DSN_ADMIN` lo consume la API de escritura desde ORBIT 04 3.1 — veto
+y reversas con token — y 4.1 lo divide por servicio): residual aceptado — el
+mismo
 contenedor corre API (`ORBIT_DSN_READ`) y CLI (`INGEST`/`DECIDE`); el
 bind es loopback. `user: "0:0"` es riesgo aceptado residual (secrets
 root 0600, mount `:ro`, jamás chmod).
@@ -246,6 +248,38 @@ echo "ORBIT_DSN_TEST=postgresql://orbit_test:${PT}@127.0.0.1:5432/postgres" >> "
 chmod 600 "$ENVF"
 SCRIPT
 ```
+
+## Rotación del token de escritura (ORBIT 04, sellado 18)
+
+El token estático de los endpoints de escritura (veto + reversas) vive en
+`secrets/api_write_token` y se rota con la ceremonia de APPLY.md §11b:
+
+```bash
+ssh goncloud
+cd /mnt/data/appdata/orbit
+# 1. Generar el token NUEVO en el server (nunca en el repo ni en out/)
+NEW=$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)
+# 2. Escribirlo en secrets/ con 0600 (dir 700, dueño root; mount :ro)
+printf '%s' "$NEW" > secrets/api_write_token
+chmod 600 secrets/api_write_token
+# 3. Reiniciar la app (relee el archivo y lo registra con register_secret)
+docker compose up -d --no-deps --force-recreate app
+# 4. Verificar contra el endpoint de veto (cualquier queue_id sirve:
+#    sin token -> 401; con el NUEVO -> 200/404/409; con el VIEJO -> 401 )
+curl -s -o /dev/null -w '%{http_code}\n' -X POST \
+  http://127.0.0.1:8010/api/ads-optimizer/veto \
+  -H 'Content-Type: application/json' -d '{"queue_id":1,"actor":"rotacion"}'
+curl -s -o /dev/null -w '%{http_code}\n' -X POST \
+  http://127.0.0.1:8010/api/ads-optimizer/veto \
+  -H 'Content-Type: application/json' -H "x-orbit-token: $NEW" \
+  -d '{"queue_id":1,"actor":"rotacion"}'
+unset NEW   # el token no vive en el shell ni en el historial
+```
+
+- El endpoint sigue `compare_digest` y **solo header** (`x-orbit-token`): una
+  rotación jamás habilita query string (con test).
+- **Fail-closed**: si falta el archivo, está vacío o es ilegible, TODA la
+  superficie de escritura responde 503 — jamás fail-open.
 
 ## Aplicar migraciones
 
@@ -425,7 +459,9 @@ disparan), por eso el INSERT dentro de la transacción que se revierte.
 6. Crear los usuarios LOGIN por servicio + `orbit_test` (ver "Usuarios y
    DSN": comandos exactos arriba).
 7. Poblar `secrets/` (amazon_ads_config.json + amazon_ads_tokens.json,
-   etc.; nombres verificados en el server, valores jamás al repo).
+   `api_write_token` — el token estático de los endpoints de escritura,
+   ver "Rotación del token de escritura" —, etc.; nombres verificados en el
+   server, valores jamás al repo).
 8. Instalar el backup: `backup.sh` + cron de **root** (ver "Backups").
 9. Instalar los 3 crons de Orbit en el crontab de **gon** (ver "Crons de
    Orbit") — ADITIVO, no pisa accounting.

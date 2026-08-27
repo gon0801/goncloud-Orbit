@@ -93,8 +93,9 @@ import httpx
 import psycopg
 from psycopg.types.json import Json
 
-from app.ads.client import AdsApiError
+from app.ads.client import AdsApiError, AdsClient
 from app.ads.config import AdsCredentials
+from app.ads.structure import PerfilAds, evaluar_perfiles
 from app.ads.write import (
     MODO_CONFIRMADO_LIVE,
     PLATAFORMA_MONEDA,
@@ -108,6 +109,45 @@ from app.redaction import scrub
 # Tope de intentos por decision: "no existe 4o intento" es un COUNT verificable
 # contra el ledger (sellado 10 / brief §4.1).
 TOPE_INTENTOS = 3
+
+
+# Excepciones de la REVERSA MANUAL (3.1): el endpoint de app/api_write.py las
+# mapea 1:1 a HTTP (409 precondicion / 404 inexistente / 422 id no resoluble /
+# 503 sin perfil). Van aqui para que el candado de test_architecture (solo
+# app/apply.py construye AdsWriteClient) siga intacto.
+class ReversaNoAplicada(Exception):
+    """La reversa exige un apply confirmado y no lo hay: precondicion (409)."""
+
+
+class ReversaInexistente(Exception):
+    """La decision/fila pedida no existe (404)."""
+
+
+class NegativeIdNoResoluble(Exception):
+    """El negative_id no vino explicito ni se resolvio del ledger (422;
+    regla 3: el id jamas se inventa)."""
+
+
+class SinPerfilReversa(Exception):
+    """Sin perfil ACEPTADO para la plataforma en /v2/profiles: la reversa
+    aborta fail-closed (503; regla 3: jamas un profile inventado)."""
+
+
+def perfil_aceptado_de(
+    credentials: AdsCredentials, platform: str, *, transport: httpx.BaseTransport | None = None
+) -> PerfilAds | None:
+    """Perfil ACEPTADO de la plataforma desde GET /v2/profiles + evaluar_perfiles.
+
+    UNA fuente de la resolucion (regla 2): la fabrica del ciclo
+    (`cycle._aplicador_real`) y la reversa manual (`reversa_manual`) comparten
+    este camino — el profile_id JAMAS se inventa ni se duplica la resolucion.
+    None = sin perfil aceptado para la plataforma (el caller aborta
+    fail-closed)."""
+    for perfil in evaluar_perfiles(AdsClient(credentials, transport=transport)):
+        if perfil.aceptado and perfil.platform == platform:
+            return perfil
+    return None
+
 
 # Vocabulario cerrado de motivos del aplicador (skips y descartes
 # estructurados; el digest de 3.3 los consume tal cual).
@@ -999,3 +1039,162 @@ def reversa_bid(
         if bid_leido is not None:
             _actualiza_cache(conn, decision.ad_entity_id, bid_leido)
     return bid_leido is not None and bid_leido == Decimal(_bid_payload(decision.old_value))
+
+
+# ---------------------------------------------------------------------------
+# Reversa MANUAL (ORBIT 04, task 3.1): el unico AdsWriteClient fuera del ciclo
+# ---------------------------------------------------------------------------
+
+# La decision de bid POR ID (columnas de DecisionBid + ciclo para plataforma:
+# UNA fuente — la plataforma es la del ciclo que decidio, jamas un parametro
+# del caller).
+_SQL_DECISION_POR_ID = """
+SELECT d.id, d.cycle_id, d.ad_entity_id, d.old_value, d.new_value,
+       d.value_currency, d.inputs, oc.platform::text
+  FROM decision d
+  JOIN optimizer_cycle oc ON oc.id = d.cycle_id
+ WHERE d.id = %s
+"""
+
+# "Confirmada como aplicada" = decision_application.applied_cycle_id sellado
+# AL CONFIRMAR (sellado 10/21): un crash o una divergencia NO cuentan.
+_SQL_RESUMEN_APLICADA = """
+SELECT applied_cycle_id FROM decision_application WHERE decision_id = %s
+"""
+
+_SQL_PLATAFORMA_FILA = """
+SELECT platform::text FROM apply_queue WHERE id = %s
+"""
+
+# El ack del ULTIMO intento normal ok de la decision: de ahi sale el
+# negative_id del DELETE cuando el caller no lo pasa.
+_SQL_ACK_OK = """
+SELECT ack FROM apply_attempt
+ WHERE decision_id = %s AND tipo = 'normal' AND resultado = 'ok'
+ ORDER BY seq DESC LIMIT 1
+"""
+
+
+def _cliente_reversa(platform: str, *, transport: httpx.BaseTransport | None) -> AdsWriteClient:
+    """El write client de la reversa manual: credenciales del secrets dir +
+    perfil por /v2/profiles (el MISMO camino del ciclo via perfil_aceptado_de,
+    regla 2) y modo confirmado live — la reversa existe para DESHACER un apply
+    ya confirmado; no re-resuelve escalera (quien llama decidio deshacer)."""
+    credentials = AdsCredentials.from_secrets_dir()
+    perfil = perfil_aceptado_de(credentials, platform, transport=transport)
+    if perfil is None:
+        raise SinPerfilReversa(
+            f"sin perfil aceptado para {platform} en /v2/profiles: la reversa"
+            " aborta fail-closed (regla 3: jamas un profile inventado)"
+        )
+    return AdsWriteClient(
+        credentials,
+        platform=platform,
+        profile_id=perfil.profile_id,
+        modo_confirmado=MODO_CONFIRMADO_LIVE,
+        transport=transport,
+    )
+
+
+def _negative_id_del_ledger(conn: psycopg.Connection, decision_id: int) -> str:
+    """Resuelve el negative_id del ack del ultimo intento normal ok del ledger
+    (mismo parseo del camino de apply_cola al ejecutar el negative: el helper
+    _id_de_ack de apply_harvest). No resoluble -> NegativeIdNoResoluble: el id
+    jamas se inventa (regla 3)."""
+    from app import apply_harvest  # import diferido: apply_harvest importa apply
+
+    fila = conn.execute(_SQL_ACK_OK, (decision_id,)).fetchone()
+    if fila is not None and isinstance(fila[0], dict):
+        negative_id = apply_harvest._id_de_ack(fila[0], "negativeKeywordId")
+        if negative_id is not None:
+            return negative_id
+    raise NegativeIdNoResoluble(
+        f"no se resolvio el negative_id de la decision {decision_id} desde el"
+        " ledger (sin intento normal resultado ok con ack legible): pasarlo"
+        " explicito en el body"
+    )
+
+
+def reversa_manual(
+    conn: psycopg.Connection,
+    *,
+    tipo: str,
+    decision_id: int | None = None,
+    queue_id: int | None = None,
+    negative_id: str | int | None = None,
+    transport: httpx.BaseTransport | None = None,
+) -> dict:
+    """Reversa MANUAL (regla 7, sellado 12): un solo entry point para las tres
+    formas (bid -> PUT old_value; pause -> resume; negative -> DELETE).
+
+    Precondiciones ANTES de construir cliente o HTTP (fail-closed ruidoso):
+    bid exige decision existente + confirmada aplicada
+    (decision_application.applied_cycle_id sellado) + old_value/moneda;
+    pause/negative exigen fila existente en estado 'applied'. Plataforma: la
+    del ciclo de la decision (bid) o la de la fila (pause/negative) — una
+    sola fuente, jamas parametro del caller.
+
+    Despacha a las funciones ya testeadas (reversa_bid / apply_cola.reversa_
+    pause / apply_cola.reversa_negative: ledger tipo reversa EXENTO de quota,
+    readback, cache con lo leido; una reversa NO limpia el cooldown — sellado
+    12, este wrapper no toca nada de eso). `transport` es la puerta de tests
+    (MockTransport); el endpoint NO lo pasa.
+
+    Devuelve {tipo, identificadores, confirmada: bool} — confirmada false =
+    la reversa quedo sellada como fallo en el ledger (el detalle vive ahi).
+    """
+    from app import apply_cola  # diferidos: importan apply (circular)
+
+    if tipo == "bid":
+        if decision_id is None:
+            raise ValueError("reversa de bid exige decision_id")
+        fila = conn.execute(_SQL_DECISION_POR_ID, (decision_id,)).fetchone()
+        if fila is None:
+            raise ReversaInexistente(f"decision {decision_id} no existe")
+        resumen = conn.execute(_SQL_RESUMEN_APLICADA, (decision_id,)).fetchone()
+        if resumen is None or resumen[0] is None:
+            raise ReversaNoAplicada(
+                f"decision {decision_id} no esta confirmada como aplicada"
+                " (applied_cycle_id): no existe reversa sin apply"
+            )
+        decision = DecisionBid(
+            id=fila[0],
+            ad_entity_id=fila[2],
+            old_value=fila[3],
+            new_value=fila[4],
+            value_currency=fila[5],
+            inputs=fila[6] or {},
+        )
+        if decision.old_value is None or decision.value_currency is None:
+            raise ReversaNoAplicada(
+                f"decision {decision_id} sin old_value/moneda: nada que revertir (regla 7)"
+            )
+        confirmada = reversa_bid(conn, _cliente_reversa(fila[7], transport=transport), decision)
+        return {"tipo": "bid", "decision_id": decision_id, "confirmada": confirmada}
+
+    if tipo in ("pause", "negative"):
+        if queue_id is None:
+            raise ValueError(f"reversa de {tipo} exige queue_id")
+        fila = apply_cola.fila_cola(conn, queue_id)
+        if fila is None:
+            raise ReversaInexistente(f"fila {queue_id} de apply_queue no existe")
+        if fila.estado != "applied":
+            raise ReversaNoAplicada(
+                f"fila {queue_id} en estado {fila.estado}: la reversa exige applied"
+            )
+        platform = conn.execute(_SQL_PLATAFORMA_FILA, (queue_id,)).fetchone()[0]
+        cliente = _cliente_reversa(platform, transport=transport)
+        if tipo == "pause":
+            confirmada = apply_cola.reversa_pause(conn, cliente, fila)
+            return {"tipo": "pause", "queue_id": queue_id, "confirmada": confirmada}
+        if negative_id is None:
+            negative_id = _negative_id_del_ledger(conn, fila.decision_id)
+        confirmada = apply_cola.reversa_negative(conn, cliente, fila, negative_id)
+        return {
+            "tipo": "negative",
+            "queue_id": queue_id,
+            "negative_id": str(negative_id),
+            "confirmada": confirmada,
+        }
+
+    raise ValueError(f"tipo de reversa desconocido: {tipo!r} (bid|pause|negative)")

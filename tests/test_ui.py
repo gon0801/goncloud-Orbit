@@ -106,6 +106,53 @@ def test_ui_xss_search_term_demostrado_fallando_con_autoescape_off():
 
 
 # ---------------------------------------------------------------------------
+# Pantalla de cortes (ORBIT 04 3.1): XSS + vacio + cableo CSP
+# ---------------------------------------------------------------------------
+
+
+def _ctx_cortes(search_term: str = PAYLOAD_XSS) -> dict:
+    """Contexto minimo del template de cortes (render sin DB): una fila
+    pendiente de veto cuyo search_term es el payload XSS (el vector real)."""
+    return {
+        "pantalla": "cortes",
+        "items": [
+            {
+                "id": 11,
+                "plataforma": "amazon_us",
+                "familia": "term_cut",
+                "kind": "negative",
+                "ad_entity_id": 3,
+                "external_id": "7101",
+                "search_term": search_term,
+                "estado": "pending_veto",
+                "vence_el": "2026-09-25T12:00:00+00:00",
+                "encolado_at": "2026-08-26T12:00:00+00:00",
+                "decision_id": 99,
+            }
+        ],
+    }
+
+
+def test_ui_cortes_xss_search_term_escapado():
+    """Regla 9: el search_term de la cola (texto libre del comprador) va por
+    {{ }} en cortes.html y el entorno REAL lo escapa; el HTML servido jamas
+    contiene el <script> crudo. El nav de base.html enlaza /cortes y el JS de
+    la pantalla vive en /static/js/cortes.js (la CSP prohibe inline)."""
+    html = ui.templates.env.get_template("cortes.html").render(**_ctx_cortes())
+    assert PAYLOAD_XSS not in html
+    assert "&lt;script&gt;" in html
+    assert 'href="/cortes"' in html, "el nav del dashboard enlaza la pantalla de cortes"
+    assert 'src="/static/js/cortes.js"' in html, "el JS del veto vive en /static (CSP 'self')"
+
+
+def test_ui_cortes_vacio_muestra_sin_pendientes():
+    """Estado vacio de la matriz: cola sin pendientes -> mensaje explicito,
+    jamas una tabla mentirosa."""
+    html = ui.templates.env.get_template("cortes.html").render(pantalla="cortes", items=[])
+    assert "sin cortes pendientes" in html
+
+
+# ---------------------------------------------------------------------------
 # XSS contexto tojson: datos de graficas neutralizados (decision 12)
 # ---------------------------------------------------------------------------
 

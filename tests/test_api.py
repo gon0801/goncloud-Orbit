@@ -19,8 +19,9 @@ Contrato sellado de la task:
    filtros por ciclo/entidad/kind, 404 para ids inexistentes.
 3. `/goals`: lectura de goals (sin escritura: la escalera y los goals se
    escriben por el camino humano de 4.3; `/goals` write llega en PR2).
-4. Superficie: el router no registra NINGUN metodo distinto de GET
-   (introspeccion de rutas, no convencion).
+4. Superficie SELLADA (ORBIT 04 3.1, decision 18): el conjunto exacto de
+   (path, metodo) bajo /api/ads-optimizer = 3 GET de lectura + veto y 3
+   reversas POST autenticadas de app/api_write.py (introspeccion del OpenAPI).
 5. Fail-closed sin config: sin `ORBIT_DSN_READ` -> 503 con mensaje claro,
    jamas un DSN en la respuesta.
 
@@ -577,28 +578,40 @@ def test_goals_lectura_con_filtros(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# 4. Superficie: el router NO registra ningun metodo distinto de GET
+# 4. Superficie SELLADA: lectura GET + escrituras autenticadas (ORBIT 04 3.1)
 # ---------------------------------------------------------------------------
 
+# La lista EXACTA (ni mas ni menos) de (path, metodo) bajo /api/ads-optimizer:
+# las 3 lecturas de ORBIT 03 + el veto y las 3 reversas manuales de ORBIT 04
+# 3.1 (token estatico solo-header en app/api_write.py; los goals write de 3.2
+# se suman a esta lista cuando existan).
+SUPERFICIE_ADS_OPTIMIZER = {
+    ("/api/ads-optimizer/status", "get"),
+    ("/api/ads-optimizer/audit", "get"),
+    ("/api/ads-optimizer/goals", "get"),
+    ("/api/ads-optimizer/veto", "post"),
+    ("/api/ads-optimizer/reversa/bid", "post"),
+    ("/api/ads-optimizer/reversa/pause", "post"),
+    ("/api/ads-optimizer/reversa/negative", "post"),
+}
 
-def test_router_ads_optimizer_solo_registra_get():
-    """Test de SUPERFICIE (introspeccion de rutas, no convencion): en PR1 el
-    router es de SOLO LECTURA (hallazgo Security del plan: un endpoint sin
-    auth en host compartido no puede portar orbit_admin). /run y /goals write
-    llegan en PR2 con auth propia.
 
-    Se introspecciona el OpenAPI de la app (el contrato publicado): cada
-    path /api/ads-optimizer/* debe existir y exponer SOLO el verbo `get`.
-    """
+def test_superficie_ads_optimizer_sellada_get_mas_escrituras_autenticadas():
+    """Test de SUPERFICIE (introspeccion del OpenAPI publicado, no convencion):
+    el conjunto exacto de (path, metodo) bajo /api/ads-optimizer debe IGUALAR
+    la lista sellada. Decision 18 de ORBIT 04: sin este candado actualizado,
+    CI rojo o el veto escondido — ni una ruta de mas ni una de menos."""
     paths = app.openapi()["paths"]
     rutas = {
-        path: metodos for path, metodos in paths.items() if path.startswith("/api/ads-optimizer")
+        (path, metodo)
+        for path in paths
+        if path.startswith("/api/ads-optimizer")
+        for metodo in paths[path]
     }
     assert rutas, "no se encontraron rutas /api/ads-optimizer en el OpenAPI"
-    for path, metodos in rutas.items():
-        assert set(metodos) == {"get"}, (
-            f"{path} expone {sorted(metodos)}: el router de PR1 solo puede exponer GET"
-        )
+    assert rutas == SUPERFICIE_ADS_OPTIMIZER, (
+        f"superficie bajo /api/ads-optimizer cambio: {sorted(rutas ^ SUPERFICIE_ADS_OPTIMIZER)}"
+    )
 
 
 # ---------------------------------------------------------------------------
