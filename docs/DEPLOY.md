@@ -104,8 +104,9 @@ veto/reversas con token) y CLI (`INGEST`/`DECIDE`); el bind es loopback.
 > `app_decide`. El `orbit_admin` original (solo `app_admin`) podía VETAR
 > pero NO revertir. Wiring cerrado en vivo 2026-08-27:
 > `GRANT app_decide TO orbit_admin;` (el admin hereda el INSERT del ledger;
-> verificado con una reversa de prueba sobre fila inexistente → 404, camino
-> operativo).
+> verificado con `pg_has_role`). El GRANT además quedó DENTRO del script de
+> creación de usuarios de abajo (P1 Greptile PR #36: si solo existe como
+> operación viva, una instalación reconstruida vetaría pero no revertiría).
 
 Reconstruir/actualizar **solo la app** (Postgres intacto):
 
@@ -255,6 +256,12 @@ GRANT app_$svc TO orbit_$svc;
 SQL
   echo "ORBIT_DSN_${svc^^}=postgresql://orbit_${svc}:${P}@127.0.0.1:5432/orbit" >> "$ENVF"
 done
+# 4.1: orbit_admin necesita TAMBIEN app_decide — las reversas /reversa/*
+# insertan en apply_attempt, cuyo GRANT INSERT (0002) es solo de app_decide.
+# Sin esta linea una instalacion reconstruida vetaria pero NO revertiria
+# (InsufficientPrivilege). Idempotente (GRANT es no-op si ya la tiene).
+docker exec -i orbit-db-1 psql -U orbit -d orbit -v ON_ERROR_STOP=1 -q \
+  -c 'GRANT app_decide TO orbit_admin'
 # rol de test: CREATEDB/CREATEROLE, SIN superusuario
 PT=$(gen)
 docker exec -i orbit-db-1 psql -U orbit -d postgres -v ON_ERROR_STOP=1 -q <<SQL
