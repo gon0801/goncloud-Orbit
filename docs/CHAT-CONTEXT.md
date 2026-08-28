@@ -84,8 +84,12 @@ re-pregunta tras 48h live; (3) **halo US = ACOTAR con ambos supuestos**
 decide con el rango con-halo / sin-halo; ORBIT 05 sigue con revenue
 completo; (4) **goals del día 1 = TODOS** (4 MX, 5/6/7 US); la rampa por
 goal queda como mecanismo de rollback parcial. Con esto los planes
-`orbit-05-preflight` y `orbit-05` quedan APROBADOS por el dueño (PR #44);
-el cutover no arranca antes de ~2026-09-07 ni sin el preflight Done.
+`orbit-05-preflight` y `orbit-05` quedan APROBADOS por el dueño — evidencia
+de la aprobación: su mensaje literal en la sesión del lead (2026-08-28) y
+la nota fechada en la fila `ORBIT 05` de AppFlowy (la PR #44 lleva la
+misma cita; no hay review `APPROVED` de GitHub porque el dueño no revisa
+por GitHub). El cutover no arranca antes de ~2026-09-07 ni sin el preflight
+Done.
 
 Previo (2026-08-28): ORBIT 04 4.3 CERRADA con DoD literal
 (ensayo E2E + veto delegado en la fila 3 + VETO PERSONAL DEL DUEÑO en la
