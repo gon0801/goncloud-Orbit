@@ -48,8 +48,12 @@ decisiones, implementador + 11 del lead). **Pendientes** — 2 semanas de
 shadow (~2026-09-07); **firma del dueño del spot-check** (la única
 validación independiente; AppFlowy "ORBIT 04 4.4 — spot-check shadow");
 `tools/snapshot_listas.py` con test; **backup pre-cutover REAL el día del
-flip** (ítem 4); verificación adversarial TRIPLE de las primeras decisiones
-live (ítem 9). AppFlowy lo cierra el lead al firmar el dueño.
+flip** (ítem 4); **CORTES 02 mergeada y desplegada** (umbrales de pausa
+100 clics / $40 USD del dueño — con los umbrales actuales 50 / $12 NO se
+hace el flip; ver abajo); verificación adversarial TRIPLE de las primeras
+decisiones live (ítem 9). Cumplido post-#40: techo de bids MX 1.00/45.00
+MXN en el goal 4 (ver abajo). AppFlowy lo cierra el lead al firmar el
+dueño.
 
 **Decisiones del dueño salidas del spot-check (2026-08-28, post-#40)**:
 (1) **Techo de bids MX**: el default 2.50 del esquema (número pensado en

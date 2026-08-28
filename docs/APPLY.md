@@ -830,7 +830,12 @@ recálculo manual + veto ejecutado por el dueño sobre una fila real (4.3)**.
        spot-check** (checkpoint humano de 4.4:
        `out/orbit-04-4-4-cierre-20260828.md` §3.4 — 33 decisiones con
        recálculo del implementador, 0 divergencias, + 11 re-calculadas por
-       el lead). **SIN MARCAR hasta que el dueño firme**: ningún recálculo
+       el lead) y (c) **CORTES 02 mergeada y desplegada** (umbrales de
+       pausa del dueño: ≥100 clics y ≥$40 USD sin ventas; salió del
+       spot-check — con los umbrales vigentes 50 / $12 el dueño NO autoriza
+       el flip). Cumplido 2026-08-28: techo de bids MX del goal 4 corregido
+       a 1.00/45.00 MXN (el default 2.50 era un número en USD aplicado a
+       pesos). **SIN MARCAR hasta que el dueño firme**: ningún recálculo
        de la IA sustituye la firma (el implementador es el autor del motor).
 4. [ ] **Backup pre-cutover REAL (el mismo día, ANTES del discard) +
        discard masivo de filas shadow:** repetir el runbook del ítem 2 en
