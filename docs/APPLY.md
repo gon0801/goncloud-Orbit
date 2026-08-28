@@ -826,11 +826,12 @@ recálculo manual + veto ejecutado por el dueño sobre una fila real (4.3)**.
        ítem 4, el mismo día, con este runbook.
 3. [ ] **Candado humano pre-flip**: (a) **2 semanas de shadow cumplidas**
        (shadow desde 2026-08-24 → ~2026-09-07; hasta entonces NO se marca
-       aunque todo lo demás esté listo) y (b) **firma del dueño del
-       spot-check** (checkpoint humano de 4.4:
-       `out/orbit-04-4-4-cierre-20260828.md` §3.4 — 33 decisiones con
+       aunque todo lo demás esté listo), (b) **firma del dueño del
+       spot-check — CUMPLIDA 2026-08-28** ("spot check confirmado";
+       checkpoint humano de 4.4: `out/orbit-04-4-4-cierre-20260828.md` §3.4
+       y AppFlowy "ORBIT 04 4.4 — spot-check shadow" — 33 decisiones con
        recálculo del implementador, 0 divergencias, + 11 re-calculadas por
-       el lead) y (c) **CORTES 03 mergeada y desplegada** (umbrales de
+       el lead; de su revisión salieron el techo MX y CORTES 03) y (c) **CORTES 03 mergeada y desplegada** (umbrales de
        pausa del dueño: ≥100 clics y gasto sin ventas ≥$40 USD en US /
        ≥500 MXN en MX; salió del spot-check — con los umbrales vigentes
        50 clics / $12 USD / $200 MXN el dueño NO autoriza el flip). Cumplido 2026-08-28: techo de bids MX del goal 4 corregido

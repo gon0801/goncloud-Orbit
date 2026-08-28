@@ -4,9 +4,10 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
-**Última actualización: 2026-08-28 — ORBIT 04 entregada (4.1-4.4, todo en
-`shadow`); `ORBIT 04` se marca Done en AppFlowy SOLO cuando el dueño firme
-el spot-check (DoD de 4.4, checkpoint humano — pendiente):**
+**Última actualización: 2026-08-28 — ORBIT 04 CERRADA (4.1-4.4, todo en
+`shadow`); el dueño FIRMÓ el spot-check el 2026-08-28 ("spot check
+confirmado", revisado en lenguaje de negocio con el lead) → DoD de 4.4
+cumplido, `ORBIT 04` Done en AppFlowy:**
 
 - **4.1** deploy endurecido (env por servicio, non-root uid 10001, 0002
   aplicada, wiring admin→ledger).
@@ -25,8 +26,9 @@ el spot-check (DoD de 4.4, checkpoint humano — pendiente):**
   recalculadas por el implementador (GLM, autor del motor: NO es una
   verificación independiente) + 11 re-calculadas por el lead desde
   `bid.py` (**0 divergencias** en ambas; tabla en AppFlowy "ORBIT 04 4.4 —
-  spot-check" y en `out/orbit-04-4-4-cierre-20260828.md` §3 — **firma del
-  dueño pendiente: es la única validación independiente**);
+  spot-check" y en `out/orbit-04-4-4-cierre-20260828.md` §3 — **FIRMADA
+  por el dueño 2026-08-28**, la única validación independiente; de su
+  revisión salieron el techo MX y CORTES 03, ver abajo);
   escalera shadow verificada (config id 10 mode=shadow, attempts solo probe,
   quota 0 filas, cola 2 pending + 2 vetoed, `/api/ads-optimizer/status`
   cita shadow); corrección 1e41a1f: la verificación adversarial TRIPLE se
@@ -44,9 +46,9 @@ discard → flip → rampa** (checklist APPLY.md §12 ítems 4-6).
 mano), ensayo E2E (4/4 neto-cero), **runbook del backup pre-cutover
 ensayado y verificado restaurable** (el snapshot del 28 NO es el punto de
 restauración del flip), caps día 1 sembrados, spot-check preparado (33
-decisiones, implementador + 11 del lead). **Pendientes** — 2 semanas de
-shadow (~2026-09-07); **firma del dueño del spot-check** (la única
-validación independiente; AppFlowy "ORBIT 04 4.4 — spot-check shadow");
+decisiones, implementador + 11 del lead) **y FIRMADO por el dueño
+2026-08-28** (AppFlowy "ORBIT 04 4.4 — spot-check shadow", Done).
+**Pendientes** — 2 semanas de shadow (~2026-09-07);
 `tools/snapshot_listas.py` con test; **backup pre-cutover REAL el día del
 flip** (ítem 4); **CORTES 03 mergeada y desplegada** (umbrales de pausa
 100 clics / $40 USD del dueño — con los umbrales actuales 50 / $12 NO se
