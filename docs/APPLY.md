@@ -815,12 +815,15 @@ recálculo manual + veto ejecutado por el dueño sobre una fila real (4.3)**.
        del motor) + 11 filas re-calculadas por separado por el lead desde
        `bid.py:102-107`, todas coincidentes — la FIRMA DEL DUEÑO es el
        ítem 3 de este checklist y no la sustituye ninguna de las dos).
-2. [x] **Backup pre-cutover** (2026-08-28): dump completo + globals +
-       CSV de `ad_entity_state` (5,899 filas) + listas de Amazon
-       (keywords/negativeKeywords/targets, 2 plataformas) en
-       `backups/precutover_orbit04_2026-08-28/` (fuera de la rotación) —
-       **VERIFY_OK**: restore real con los 5 conteos idénticos a producción
-       (4.4).
+2. [x] **Runbook del backup pre-cutover ENSAYADO y verificado restaurable**
+       (2026-08-28): dump completo + globals + CSV de `ad_entity_state`
+       (5,899 filas) + listas de Amazon (keywords/negativeKeywords/targets,
+       2 plataformas) en `backups/precutover_orbit04_2026-08-28/` (fuera de
+       la rotación) — **VERIFY_OK**: restore real con los 5 conteos
+       idénticos a producción (4.4). **OJO (codex 4.4, alta): ese snapshot
+       será OBSOLETO el día del flip** (~2026-09-07: la base y las listas
+       cambian a diario) — el punto de restauración REAL se toma en el
+       ítem 4, el mismo día, con este runbook.
 3. [ ] **Candado humano pre-flip**: (a) **2 semanas de shadow cumplidas**
        (shadow desde 2026-08-24 → ~2026-09-07; hasta entonces NO se marca
        aunque todo lo demás esté listo) y (b) **firma del dueño del
@@ -829,9 +832,12 @@ recálculo manual + veto ejecutado por el dueño sobre una fila real (4.3)**.
        recálculo del implementador, 0 divergencias, + 11 re-calculadas por
        el lead). **SIN MARCAR hasta que el dueño firme**: ningún recálculo
        de la IA sustituye la firma (el implementador es el autor del motor).
-4. [ ] **Discard masivo de filas shadow:** TODA fila shadow pendiente →
-       `discarded` en UNA transacción; conteo antes/después concilia; cero
-       filas shadow no terminales al terminar.
+4. [ ] **Backup pre-cutover REAL (el mismo día, ANTES del discard) +
+       discard masivo de filas shadow:** repetir el runbook del ítem 2 en
+       `backups/precutover_orbit05_<fecha>/` con VERIFY_OK y conteos del
+       día; solo entonces TODA fila shadow pendiente → `discarded` en UNA
+       transacción; conteo antes/después concilia; cero filas shadow no
+       terminales al terminar.
 5. [ ] **Flip:** modo live por la escalera (decisión humana, config nueva;
        off→shadow→live del diseño v2 adoptado en CONTEXTO).
 6. [ ] Rampa día 1 ya sembrada: 10 bids / 2 pauses / 5 negatives /

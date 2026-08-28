@@ -493,6 +493,14 @@ Verificado 2026-08-28: VERIFY_OK con 4/29/9/977/5,899.
 **Cómo se restaura**: ver "Recuperación desde backups" (mismo mecanismo;
 los globals van ANTES del dump para revivir los roles).
 
+**Vigencia (codex 4.4, hallazgo alto)**: el snapshot del 2026-08-28 es el
+ENSAYO del runbook, no el punto de restauración del flip: la base y las
+listas de Amazon cambian a diario y el flip es ~2026-09-07 o después. El
+día del cutover se REPITE este mismo procedimiento (mismos 4 artefactos +
+VERIFY_OK + conteos del día) en `backups/precutover_orbit05_<fecha>/`
+ANTES del discard masivo (checklist APPLY.md §12 ítem 4). El directorio del
+ensayo se conserva como referencia y como respaldo del estado pre-4.4.
+
 Instalación del cron (idempotente):
 
 ```bash

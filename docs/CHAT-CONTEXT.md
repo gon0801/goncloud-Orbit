@@ -4,8 +4,9 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
-**Última actualización: 2026-08-28 — ORBIT 04 CERRADA (fase completa 4.1-4.4,
-todo en `shadow`):**
+**Última actualización: 2026-08-28 — ORBIT 04 entregada (4.1-4.4, todo en
+`shadow`); `ORBIT 04` se marca Done en AppFlowy SOLO cuando el dueño firme
+el spot-check (DoD de 4.4, checkpoint humano — pendiente):**
 
 - **4.1** deploy endurecido (env por servicio, non-root uid 10001, 0002
   aplicada, wiring admin→ledger).
@@ -21,8 +22,11 @@ todo en `shadow`):**
   `backups/precutover_orbit04_2026-08-28/` (dump 762 KB + globals + CSV de
   ad_entity_state 5,899 filas + listas Amazon de 2 plataformas; restore real
   con conteos idénticos 4/29/9/977/5899); spot-check de 33 decisiones shadow
-  con recálculo independiente (**0 divergencias**;
-  `out/orbit-04-4-4-cierre-20260828.md` §3 — **firma del dueño pendiente**);
+  recalculadas por el implementador (GLM, autor del motor: NO es una
+  verificación independiente) + 11 re-calculadas por el lead desde
+  `bid.py` (**0 divergencias** en ambas; tabla en AppFlowy "ORBIT 04 4.4 —
+  spot-check" y en `out/orbit-04-4-4-cierre-20260828.md` §3 — **firma del
+  dueño pendiente: es la única validación independiente**);
   escalera shadow verificada (config id 10 mode=shadow, attempts solo probe,
   quota 0 filas, cola 2 pending + 2 vetoed, `/api/ads-optimizer/status`
   cita shadow); corrección 1e41a1f: la verificación adversarial TRIPLE se
