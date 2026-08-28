@@ -673,13 +673,19 @@ unset ORBIT_SMOKE_AUTH
 # token por `-e` argv, con el token efímero ya muerto en la config 10).
 # TODO se ejecuta desde el host del repo contra goncloud; el token viaja por
 # ARCHIVO dentro del contenedor, JAMÁS por argv de docker exec (no queda en
-# history ni en ps):
+# history ni en ps), y los archivos nacen 600 (umask 077 en AMBOS lados —
+# Greptile P1 PR #39: un `cat >` con umask por defecto deja el token 644):
+#   0) ssh goncloud 'umask 077; head -c 48 /dev/urandom | base64 |
+#        tr -dc A-Za-z0-9 | head -c 32 > /tmp/smoke_token'
+#      (token efímero SOLO en el host, jamás impreso; sembrarlo en
+#      `ads_smoke_auth` leyéndolo del archivo — ver siembra arriba)
 #   1) cat tools/smoke_apply.py | ssh goncloud 'docker exec -i orbit-app-1
 #        sh -c "cat > /tmp/smoke_apply.py"'
-#      ssh goncloud 'cat /tmp/smoke_token | docker exec -i orbit-app-1
-#        sh -c "cat > /tmp/smoke_token"'     (token 600 en el host; jamás
-#        imprimirlo)
-#   2) ssh goncloud 'set -o pipefail; docker exec orbit-app-1 sh -c
+#      ssh goncloud 'docker exec -i orbit-app-1 sh -c "umask 077;
+#        cat > /tmp/smoke_token" < /tmp/smoke_token'
+#   2) set -o pipefail   # en ESTE shell: el pipe con tee es LOCAL; un
+#                        # pipefail dentro del ssh no cubre el `| tee`
+#      ssh goncloud 'docker exec orbit-app-1 sh -c
 #        "ORBIT_SMOKE_AUTH=\$(cat /tmp/smoke_token) PYTHONPATH=/app python
 #        /tmp/smoke_apply.py --forma <X> --platform <platform>
 #        --acepto-mutacion-real"' 2>&1 | tee out/smoke-apply-<fecha>.log
@@ -689,6 +695,14 @@ unset ORBIT_SMOKE_AUTH
 #        AMBOS lados; el allowlist de UNA campaña por plataforma y las
 #        configs sucesivas A/B: ver OJO al final de esta sección)
 ```
+
+RESIDUAL declarado (visto en 4.3): `config_version` es append-only, así que
+el token del smoke queda en **texto plano** en las filas históricas
+(`settings.ads_smoke_auth` de las configs de humo: 4/5 del 2.5, 8/9 del
+4.3). Está muerto funcionalmente — el tool es fail-closed contra la config
+VIGENTE y el cierre sin claves lo desarma — pero cualquiera con lectura a la
+base lo ve. Por eso el token es de UN solo uso por corrida y nunca se
+reutiliza; no hay borrado (la tabla no admite UPDATE/DELETE).
 
 OJO (medido en 4.3): el allowlist es UNA campaña por plataforma — si las
 formas necesitan dos campañas (las de keyword viven en una y el

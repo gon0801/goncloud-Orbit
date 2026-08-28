@@ -311,7 +311,7 @@ escribe nada a Amazon hasta pasar validación humana (el "apply" llega en PR2).
   checkpoints humanos en Phase 4: elegir campañas piloto (4.3) y el
   spot-check manual de ≥20 decisiones del primer shadow (4.4).
 - Un PR por phase; nada llega a master sin CI verde y reviews atendidas.
-- Registro de trabajo: fila `ORBIT 03` en AppFlowy (EHV Tasks).
+- Registro de trabajo: fila `ORBIT 04` en AppFlowy (EHV Tasks).
 
 ## Arquitectura (mapa de carpetas)
 
