@@ -464,8 +464,6 @@ ls -1dt "$DIR"/orbit_[0-9]*[0-9]/ | tail -n +15 | xargs -r rm -rf
 echo "$(date -Is) backup OK: $FINAL ($(stat -c%s "$FINAL/orbit_$STAMP.dump") + $(stat -c%s "$FINAL/orbit_globals_$STAMP.sql") bytes)"
 ```
 
-Instalación del cron (idempotente):
-
 ### Backup pre-cutover (ORBIT 04 4.4, 2026-08-28)
 
 Snapshot NOMBRADO del estado justo antes del cutover a live, **fuera de la
@@ -483,15 +481,19 @@ rotación borra): `backups/precutover_orbit04_2026-08-28/` (dir 700, archivos
   campaña), capturado con el cliente de LECTURA (POST list, cero
   mutaciones).
 
-**Cómo se verifica** (receta VERIFY_OK de arriba, cambiando `$D`): restore
-real a `orbit_verify_tmp` con `--exit-on-error`, `pg_restore --list` (CON
-`docker exec -i`), y conteos de `apply_queue`/`apply_attempt`/
-`config_version`/`decision`/`ad_entity_state` idénticos a producción ANTES
-del `DROP ... WITH (FORCE)`. Verificado 2026-08-28: VERIFY_OK con
-4/29/9/977/5,899.
+**Cómo se verifica** (receta VERIFY_OK de arriba, apuntando `$D` al
+directorio de arriba Y el nombre del dump a
+`orbit_precutover_orbit04_2026-08-28.dump` — ojo, NO es el
+`orbit_YYYY-MM-DD.dump` de la receta): restore real a `orbit_verify_tmp`
+con `--exit-on-error`, `pg_restore --list` (CON `docker exec -i`), y
+conteos de `apply_queue`/`apply_attempt`/`config_version`/`decision`/
+`ad_entity_state` idénticos a producción ANTES del `DROP ... WITH (FORCE)`.
+Verificado 2026-08-28: VERIFY_OK con 4/29/9/977/5,899.
 
 **Cómo se restaura**: ver "Recuperación desde backups" (mismo mecanismo;
 los globals van ANTES del dump para revivir los roles).
+
+Instalación del cron (idempotente):
 
 ```bash
 ssh goncloud '( crontab -l 2>/dev/null | grep -v "/mnt/data/appdata/orbit/backup.sh" ; \

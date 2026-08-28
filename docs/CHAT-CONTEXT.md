@@ -26,7 +26,9 @@ todo en `shadow`):**
   escalera shadow verificada (config id 10 mode=shadow, attempts solo probe,
   quota 0 filas, cola 2 pending + 2 vetoed, `/api/ads-optimizer/status`
   cita shadow); corrección 1e41a1f: la verificación adversarial TRIPLE se
-  movió al checklist §12 (ítem 8, ritual de ORBIT 05).
+  movió al checklist §12 (ítem 9, ritual de ORBIT 05). La FIRMA del dueño
+  del spot-check quedó como ítem 3 SIN MARCAR del checklist §12: candado
+  pre-flip.
 
 **Estado final de la cola**: fila 2 pause `pending_veto`, fila 3 harvest
 `vetoed` (gon), fila 4 harvest `vetoed` (gon-personal), fila 5 harvest
@@ -38,7 +40,7 @@ mano), ensayo E2E (4/4 neto-cero), backup pre-cutover verificado
 restaurable, caps día 1 sembrados. **Pendientes** — 2 semanas de shadow
 (~2026-09-07) + recálculo manual; firma del dueño del spot-check (§3.4 de
 `out/orbit-04-4-4-cierre-20260828.md`); verificación adversarial TRIPLE de
-las primeras decisiones live (checklist §12 ítem 8). AppFlowy lo cierra el
+las primeras decisiones live (checklist §12 ítem 9). AppFlowy lo cierra el
 lead.
 
 Previo (2026-08-28): ORBIT 04 4.3 CERRADA con DoD literal
