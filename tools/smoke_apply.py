@@ -43,6 +43,16 @@ PASO A PASO DE LA CORRIDA AUTORIZADA:
     evidencia:
       python tools/smoke_apply.py --forma todas --platform <platform> \
         --acepto-mutacion-real 2>&1 | tee out/smoke-apply-<fecha>.log
+    Variante CONTENEDOR (post-4.1: el tool no va en la imagen y el
+    contenedor es non-root — /app no escribible; medida en 4.3, 2026-08-28):
+      cat tools/smoke_apply.py | ssh goncloud 'docker exec -i orbit-app-1 \
+        sh -c "cat > /tmp/smoke_apply.py"'
+      docker exec -e ORBIT_SMOKE_AUTH=<token> -e PYTHONPATH=/app \
+        orbit-app-1 python /tmp/smoke_apply.py --forma <X> \
+        --platform <platform> --acepto-mutacion-real
+      docker exec orbit-app-1 rm -f /tmp/smoke_apply.py
+    Y si las formas necesitan DOS campanas (allowlist = 1 campana por
+    plataforma), se siembran configs sucesivas A/B (medido en 4.3).
     Dos capas: el env efimero SOLO no corre nada — el flag
     --acepto-mutacion-real es obligatorio (nada por accidente).
  5. Verificar el exit code (0 = las formas corrieron con neto cero) y que

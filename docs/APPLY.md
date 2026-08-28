@@ -652,16 +652,32 @@ VALUES ('smoke 2.5', '<settings vigentes
 
 Quitarlas al cerrar = fila NUEVA de config sin las claves (append-only).
 
-**Corrida (en el server, con `ORBIT_DSN_DECIDE` en el entorno — identidad
-del motor: sus filas de ledger nacen tipo `probe` auditable, decision_id
-NULL, `quota_cobrada=false`):**
+**Corrida (con `ORBIT_DSN_DECIDE` en el entorno — identidad del motor: sus
+filas de ledger nacen tipo `probe` auditable, decision_id NULL,
+`quota_cobrada=false`). Dos variantes según dónde corra:**
 
 ```bash
+# Variante HOST/server (repo clone con out/):
 export ORBIT_SMOKE_AUTH="<el MISMO token sembrado en ads_smoke_auth>"
 python tools/smoke_apply.py --forma todas --platform <platform> \
   --acepto-mutacion-real 2>&1 | tee out/smoke-apply-<fecha>.log
 unset ORBIT_SMOKE_AUTH
+
+# Variante CONTENEDOR (post-4.1: el tool NO va en la imagen y el contenedor
+# es non-root — /app no es escribible; la 4.3 corrió así, 2026-08-28):
+#   1) cat tools/smoke_apply.py | ssh goncloud 'docker exec -i orbit-app-1 \
+#        sh -c "cat > /tmp/smoke_apply.py"'
+#   2) docker exec -e ORBIT_SMOKE_AUTH=<token> -e PYTHONPATH=/app \
+#        orbit-app-1 python /tmp/smoke_apply.py --forma <X> \
+#        --platform <platform> --acepto-mutacion-real   (stdout = evidencia)
+#   3) docker exec orbit-app-1 rm -f /tmp/smoke_apply.py
 ```
+
+OJO (medido en 4.3): el allowlist es UNA campaña por plataforma — si las
+formas necesitan dos campañas (las de keyword viven en una y el
+`bid_target` en otra), se siembran DOS configs sucesivas (A → correr formas
+de keyword; B → correr `bid_target`; cierre sin claves), cada una copiando
+los settings vigentes.
 
 Cada forma imprime UNA línea JSON de evidencia (saneada por scrub):
 request EXACTO, ack (body + headers sin secretos), readback y reversa.
@@ -695,7 +711,9 @@ nueva sin las claves de campaña NI `ads_smoke_auth`; (5) evidencia (log +
 re-usa esta misma herramienta.
 
 **SHAPES FIJADOS (corrida real 2026-08-26, ledger `apply_attempt` probe ids
-1-20, log `out/smoke-apply-20260826.log`; 4/4 formas neto cero):**
+1-20, log `out/smoke-apply-20260826.log`; 4/4 formas neto cero; RE-CONFIRMADOS
+punta a punta por el ensayo E2E 4.3 del 2026-08-28 — ids 22-29 — contra el
+deploy real, mismo resultado 4/4):**
 
 - **Readback por LIST**: el GET directo de entidad sp responde **403**
   (RETIRADO; apply_attempt 4-5) — el único camino de lectura es el POST de

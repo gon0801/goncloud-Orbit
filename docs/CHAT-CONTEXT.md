@@ -4,8 +4,32 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
-**Última actualización: 2026-08-27 (noche) — ORBIT 04 4.2 CERRADA (seeds de
-configuración en vivo):** goal 4 (platform amazon_mx) con terna harvest
+**Última actualización: 2026-08-28 — ORBIT 04 4.3 CERRADA (ensayo E2E +
+veto real, prerequisito de ORBIT 05 cumplido):** re-corrida del smoke 2.5
+contra el deploy real, mismas campañas sacrificables (A: USPerNog Category
+Exact 251723662158466 — hoy PAUSED; B: USPerNog Auto Discovery
+140602818838686), dentro del contenedor (tool a `/tmp` + `PYTHONPATH=/app`:
+post-4.1 la imagen es non-root y sin tools; variante documentada en
+APPLY.md §11d y en el docstring del tool). **4/4 formas ok/neto-cero**:
+bid_keyword 0.51→0.52→0.51, negative crear+archivar, keyword crear+archivar
+(bid 0.51 real leído), bid_target 0.32→0.33→0.32; ledger `apply_attempt`
+probe ids 22-29 (quota_cobrada=false), config 8/9 de humo + **id 10 de
+cierre limpia** (11 claves: mode, targets 20/20, caps 10/2/5/2). SHAPES
+re-confirmados. **VETO REAL por el endpoint** (`POST /api/ads-optimizer/veto`):
+fila 3 (harvest "arras matrimoniales cristianas") → `vetoed`,
+`vetoed_by='gon'`, vence 2026-09-27. **Declarado: ejecutado por el lead por
+delegación expresa del dueño** ("el veto el que consideres mejor"); la fila
+2 (pause de una keyword con 62 clicks/$22.78/0 órdenes en 30d) se dejó
+intacta a propósito — es un corte correcto. **Pendiente antes del flip de
+ORBIT 05: que el dueño ejecute ÉL un veto personal** (filas 2/4/5 siguen
+`pending_veto` y vetables, riesgo cero — una fila shadow jamás se aplica).
+La cola queda sana para el cutover: 3 shadow pending → descarte en bloque
+en el flip; 1 vetoed terminal. Resto de la cola de fase: 4.4 cierre
+(backup, CHAT-CONTEXT, PR final). Evidencia
+`out/orbit-04-4-3-ensayo-e2e-20260828.md` + `out/smoke-apply-20260828.log`.
+
+Previo (2026-08-27, noche): ORBIT 04 4.2 CERRADA (seeds de
+configuración en vivo): goal 4 (platform amazon_mx) con terna harvest
 completa → Arras Manual (external `97835222467967`, ad group
 `272585315669297`, ambos ENABLED; `harvest_default_bid` 2.50 MXN = mediana
 2.525 de los bids reales de 18 keywords EXACT ENABLED clampeada al techo
