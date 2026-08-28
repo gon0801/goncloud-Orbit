@@ -1,0 +1,104 @@
+# ORBIT 05 preflight — candados antes del cutover a live
+
+> **Propósito**: dejar TODO lo que el checklist de cutover (`docs/APPLY.md`
+> §12) exige ANTES del día del flip, sin tocar el flip. Origen: backlog
+> post-ORBIT 04 (chat de estrategia Grok, 2026-08-28) contrastado por el lead
+> contra repo y base viva: 4 correcciones incorporadas (P0.2 superada por la
+> decisión de replay fiel de CORTES 03; P0.6 reescrito como "default de goal
+> por moneda" — solo existe UN goal MX y ya está corregido; P3.2 y P3.4
+> eliminados: no hay token vigente que rotar ni tabla vieja de umbrales).
+> Reglas 1-10 de `docs/CONTEXTO.md` intactas. Precedencia: `docs/APPLY.md`
+> §12 > este plan. Un PR por tarea (o por pareja 1.4+1.5 si el lead lo
+> autoriza); nada de umbrales nuevos aquí (los umbrales viven en CORTES 03).
+>
+> **Reloj**: el cutover no se adelanta por "se ve bien": 2 semanas de shadow
+> desde 2026-08-24 (~2026-09-07) + este preflight Done + `plans/orbit-05.md`
+> aprobado por el dueño.
+>
+> **Reparto**: GLM implementa 1.1-1.4 (código); DeepSeek 1.5 (superficie de
+> lectura + alerta, sin ssh/push/tracker); el lead cierra 1.6-1.8 y revisa
+> cada tarea contra la base viva + reviewer fresco + bots. Cross-review:
+> 1 ronda por tarea; 2ª SOLO si la 1ª halló alta; jamás 3ª.
+
+## Decisiones SELLADAS (header manda sobre las tareas)
+
+1. **CORTES 03 es candado del flip**: con los umbrales de pausa vigentes
+   (50 clics / 12 USD / 200 MXN) el dueño NO autoriza live (checklist §12
+   ítem 3c). Los umbrales nuevos (100 clics / 40 USD / 500 MXN) y el replay
+   fiel por construcción (freeze `cost_min_usado` + defaults históricos
+   solo-replay) ya están decididos en PR #43; aquí solo se DESPLIEGAN y se
+   VERIFICAN.
+2. **Un número de dinero lleva su moneda**: el default de esquema
+   `bid_floor/bid_ceiling = 0.10/2.50` nació en USD y se aplicó al goal 4
+   (MXN) hasta que el spot-check lo atrapó (144/233 keywords y 44/51
+   targets MX activos por encima de 2.50 MXN). Sellado: un goal MXN jamás
+   nace con defaults USD. Los números MXN son los que el dueño ya firmó:
+   **piso 1.00 / techo 45.00 MXN**; USD queda 0.10/2.50 (máx real observado
+   2.00). NO se inventan otros pisos/techos: se listan y se pregunta.
+3. **Conciliar contra Amazon, no contra consistencia interna** (regla 10):
+   el snapshot de listas del día del flip se produce con un TOOL del repo
+   con test, no con código inline (4.4 lo hizo inline: quedó declarado como
+   hueco del runbook). Cero mutaciones: solo POST de lectura por el cliente
+   allowlist.
+4. **Quota visible antes de cobrarse en anger**: `apply_quota_state` tiene 0
+   filas hoy; el primer ciclo live es la primera cobrada. Antes del flip la
+   superficie de lectura muestra `used` vs cap por forma y plataforma y el
+   canal Telegram avisa (fail-silent) al saturar un cap. Sin "retry mañana"
+   que ignore el cap (fail-closed sellado en 4.2 se queda).
+5. **Las preguntas de producto son del dueño** (destino harvest US, AGM2M,
+   halo US): el lead pregunta con opciones escritas; no decide ni codifica
+   hasta tener respuesta firmada o diferimiento explícito.
+
+## Phase 1 — Preflight [lane:gate]
+
+| Task | 内容 | DoD | Depends | Status |
+|------|------|-----|---------|--------|
+| 1.1 | **CORTES 03 desplegada y verificada en vivo**: merge de PR #43 (con el cierre de replay del lead: freeze `cost_min_usado`, `REPLAY_*` históricos, 34/34 fieles), deploy en goncloud (`docker compose up -d --no-deps --force-recreate app`, DEPLOY.md), un ciclo shadow del cron como verificación: la keyword de la decisión 774 (72 clics / 25.21 USD) ya NO produce pause; `SELECT` de las nuevas decisiones pause (si las hay) con `inputs.corte.cost_min_usado = '40'/'500'`; replay de las 34 históricas fiel. Marcar `docs/APPLY.md` §12 ítem 3(c). `[tdd:skip:deploy-verificacion]` | PR #43 en master con CI verde; contenedor recreado con la imagen nueva (digest citado); ciclo shadow posterior sin pause de la 774 y con `cost_min_usado` congelado en toda pause nueva; ítem 3c marcado con fecha | - | cc:TODO |
+| 1.2 | **Default de goal por moneda** (sellado 2): `app/optimizer/goals.py` — `resuelve_floor_ceiling(goal)` resuelve los None por `bid_currency` (`USD → 0.10/2.50`, `MXN → 1.00/45.00`, otra moneda → error explícito, jamás un número inventado); `app/goals_write.edita_goal` y el camino de alta (INSERT admin de 4.2 / CLI) rechazan un goal MXN con floor/ceiling implícitos o los resuelven por moneda ANTES de persistir (una fuente: la misma tabla de defaults); el DEFAULT del esquema (0001:685-686) queda documentado como "USD-only, no confiar" (sin migración: la tabla es de datos, no de reglas). Auditoría regla 8: `SELECT id, platform, bid_currency, bid_floor, bid_ceiling, harvest_default_bid FROM ads_optimizer_goal` en la evidencia (hoy: 4 = MXN 1.00/45.00/2.50; 5-7 = USD 0.10/2.50). `[tdd:required]` | Tests regla 9: goal MXN con None → 1.00/45.00 (rojo con el default único); USD → 0.10/2.50 intacto; moneda desconocida → excepción; `edita_goal` no persiste un MXN con defaults USD; el golden del ciclo shadow no cambia para US; SELECT de auditoría en la evidencia; delta a `docs/APPLY.md` §5 (goals) y CONTEXTO | 1.1 | cc:TODO |
+| 1.3 | **`tools/snapshot_listas.py` + test** (sellado 3): reusar `app.ads.structure.perfiles_aceptados` + `AdsClient.list_objects` sobre `/sp/keywords/list`, `/sp/negativeKeywords/list`, `/sp/targets/list` (paginación completa), salida JSON agrupada por `campaignId` + resumen de conteos por plataforma/recurso; flag `--out <dir>` (archivos 600, `umask 077`) y `--solo-conteos`; cero mutaciones (test de arquitectura: el tool solo importa el cliente de lectura y jamás `app/ads/write.py`). Partes puras (agrupado, conteos, comparación contra cache) con tests; corrida real read-only una vez (regla 8) comparando contra `ad_entity` (incl. ARCHIVED): hoy MX 2,645 kw / 861 targets, US 1,336 / 549. DEPLOY.md §"Backup pre-cutover" cita el tool en vez del inline. `[tdd:required]` | Tests puros verdes + red-log; test de arquitectura que falla si el tool importa write.py; corrida real con conteos = cache (diferencias explicadas); runbook actualizado; sin credenciales en repo ni logs | - | cc:TODO |
+| 1.4 | **Quota visible + alerta** (sellado 4): `GET /api/ads-optimizer/status` (o `salud`) expone por plataforma y forma (`bid/pause/negative/harvest`) `cap` (config vigente) y `used` (`apply_quota_state` del día UTC), sin nueva copia de la lógica de caps (reusar el mapeo config↔quota de `app/apply.py`, decisión 6: jamás dos fuentes); `app/notifica.py` manda aviso fail-silent cuando un ciclo ejecutor agota un cap (una vez por cap y día; NOTA en `notes` si el canal falla). `[tdd:required]` | Tests: `status` muestra `used/cap` coherentes con una fila sembrada de `apply_quota_state` (rojo sin el campo); cap agotado → 1 aviso y no 2 el mismo día; canal caído no tumba el ciclo (conftest aísla, cero HTTP real); OpenAPI sin endpoints de escritura nuevos | 1.1 | cc:TODO |
+| 1.5 | **Pantalla `/salud` o `/cortes` muestra la quota** (DeepSeek, server-rendered, solo lectura): `used/cap` por plataforma y forma desde el endpoint de 1.4; sin JS nuevo; sin tocar `app/apply.py` ni `app/ads/write.py`. `[tdd:required]` | Test de render con la fixture de 1.4; test_architecture verde; cero escritura | 1.4 | cc:TODO |
+| 1.6 | **Preguntas al dueño (sellado 5)** — el lead presenta cada una con opciones escritas y registra la respuesta en `docs/CHAT-CONTEXT.md` (sección "Decisiones del dueño"): (a) **destino harvest US**: USPerNog Exact (ad_entity 3919) sigue PAUSED y el goal 5 (platform US) no tiene terna → los harvest US se saltan por `harvest_sin_config`; opciones: reactivar 3919 y sembrar terna (mediana de bids EXACT reales, como en 4.2), otro destino, o dejar harvest US fuera del piloto; (b) **AGM2M (165)**: reactivar-con-ajuste (cuál) o fuera del piloto — no semi-viva; (c) **halo US**: la cuenta US da entre +1,671 y −2,238 USD en 91 días según el supuesto de halo (56-58% del revenue atribuido es de otros SKUs); opciones ya escritas: acotar, holdout o TACoS — decisión ANTES de cualquier fase margin-aware; el flip puede ir sin esto SOLO si el dueño lo difiere por escrito. `[tdd:skip:decision-dueno]` | Tres respuestas (firmadas o diferidas explícitamente) en CHAT-CONTEXT y AppFlowy; si (a) elige reactivar: tarea de seeds separada (patrón 4.2) con DoD "destino ENABLED verificado" | - | cc:TODO |
+| 1.7 | **Fecha de revocación de `orbit_test` ADMIN OPTION** (DEPLOY.md:95/281/300): atarla a "sacar la DB de test del cluster de prod" con fecha o hito concreto acordado con el dueño; documentar en DEPLOY.md; nada se revoca en este plan. `[tdd:skip:docs]` | DEPLOY.md con hito/fecha; AppFlowy con la tarea futura creada | - | cc:TODO |
+| 1.8 | **Cierre del preflight**: CHAT-CONTEXT al día ("ORBIT 05 preflight CERRADO", estado de la cola, prerequisitos del flip con lo cumplido), `plans/orbit-05.md` aprobado por el dueño (su firma en AppFlowy), `ORBIT 05` en AppFlowy con la evidencia. `[tdd:skip:cierre-docs]` | Checklist §12 ítems 1-3 con estado real; 1.1-1.7 Done; el dueño aprobó orbit-05.md | 1.1-1.7 | cc:TODO |
+
+## Reject (con razón)
+
+- **Rotar "el token vigente" del smoke (backlog P3.2)**: no existe token
+  vigente — el del smoke es de un solo uso por corrida y la config vigente
+  (id 10) no lleva la clave; el residual (texto plano en el historial
+  append-only de `config_version`) ya está declarado en APPLY.md §11d.
+- **Limpiar "tabla vieja de umbrales" en CHAT-CONTEXT (P3.4)**: no existe;
+  el único 25/12 que aparece es la nota de replay histórico de CORTES 03
+  (correcta y necesaria).
+- **Partir `cycle.py` antes del flip (P3.1)**: deuda real (80 KB) pero
+  cirugía sobre el archivo que el flip usa; va DESPUÉS de 48h live quietas.
+- **Cambiar caps 10/2/5/2, NEGATIVE, o meter margin-aware/Mercado Libre**:
+  fuera de alcance sellado.
+
+## Residuales declarados
+
+1. "ACoS MX temprano ~1.5× peor" (backlog P1.4) es hipótesis del chat de
+   estrategia, no dato del repo: se anota en el runbook de orbit-05 como
+   advertencia de lectura (no evaluar ACoS de día 1), no como regla.
+2. El DEFAULT del esquema sigue siendo 0.10/2.50 (USD-only): se mitiga en el
+   código (1.2), no con migración — si un INSERT manual salta el camino de
+   la app, el SELECT de auditoría lo atrapa.
+
+## 事前確認
+
+- 事項: external-send — `git push` + `gh pr create`/merge (un PR por tarea)
+  理由: patrón del repo, batería en CI
+  scope: Phase 1 / todas
+- 事項: destructive — deploy de la app (recreate del contenedor) en 1.1
+  理由: CORTES 03 debe estar viva antes del flip; crons y base intactos
+  scope: Phase 1 / 1.1
+- 事項: external-send — LECTURAS a Amazon Ads (los tres `/list`) en 1.3
+  理由: regla 10 (conciliar contra Amazon); cero mutaciones
+  scope: Phase 1 / 1.3
+- 事項: external-send — SELECTs read-only a la base viva y anotaciones en AppFlowy
+  理由: regla 8 y registro obligatorio
+  scope: Phase 1 / todas
+- 事項: external-send — mensajes Telegram de prueba del aviso de quota (canal real SOLO en la verificación final, tests con canal aislado)
+  理由: DoD de 1.4
+  scope: Phase 1 / 1.4

@@ -1,0 +1,119 @@
+# ORBIT 05 — cutover: el motor pasa a LIVE con rampa
+
+> **Propósito**: primera vez que Orbit aplica decisiones reales sin probe.
+> Es un runbook con candados, no código nuevo (salvo lo que el preflight ya
+> dejó). Fuente de verdad del orden: `docs/APPLY.md` §12 (ítems 4-10);
+> precedencia §12 > este plan. Origen: backlog post-ORBIT 04 (Grok,
+> 2026-08-28) contrastado por el lead; `plans/orbit-05-preflight.md` es
+> prerequisito completo. Reglas 1-10 de `docs/CONTEXTO.md` intactas.
+>
+> **Prerequisitos SELLADOS (todos, sin excepción)**: (1) 2 semanas de shadow
+> desde 2026-08-24 (~2026-09-07); (2) veto personal del dueño — CUMPLIDO
+> (fila 4, `gon-personal`, 2026-08-28); (3) ensayo E2E 4/4 neto-cero —
+> CUMPLIDO (4.3); (4) firma del dueño del spot-check — CUMPLIDA
+> (2026-08-28, 33 decisiones); (5) CORTES 03 desplegada y verificada
+> (preflight 1.1); (6) preflight 1.2-1.8 Done; (7) este plan aprobado por
+> el dueño con SU decisión de qué goals entran a live el día 1.
+>
+> **Reparto**: el día del flip lo ejecuta el lead con el dueño presente (o
+> autorización escrita paso a paso); GLM no despliega ni flipea. Cross-review
+> del PLAN: 1 ronda (codex) antes de aprobarlo; del día del flip no hay
+> cross-review — hay verificación adversarial TRIPLE de las primeras
+> decisiones aplicadas (ítem 9 del checklist).
+
+## Decisiones SELLADAS (header manda sobre las tareas)
+
+1. **Orden operativo**: backup REAL del día → discard masivo de filas shadow
+   (`app_admin`, UNA transacción) → flip → rampa. Nunca al revés; nunca el
+   mismo día que un deploy de código o que settings de dashboard
+   (ORBIT 16 Phase 3 va DESPUÉS de 48h live quietas).
+2. **El flip es doble**: el modo efectivo es el *meet* del retículo
+   `off < shadow < live` entre la escalera global (`ads_optimizer_mode` de
+   la config vigente) y `goal.mode` (`app/apply.py modo_efectivo`,
+   `goals.modo_efectivo`). Subir la escalera a `live` NO enciende nada
+   mientras los goals sigan en `shadow`. Eso permite **rampa por goal**: el
+   dueño decide qué goals entran el día 1 (p. ej. solo US 6/7, o solo MX 4)
+   y el resto se enciende después con el mismo runbook. No existe CLI para
+   `goal.mode`: se hace por `UPDATE` admin con `updated_at` explícito, en la
+   misma ceremonia y con su SELECT.
+3. **Caps de día 1 = 10 bids / 2 pauses / 5 negatives / 2 harvests por día y
+   plataforma** (config id 10, seeds 4.2). No se suben el día 1. La
+   duplicación "cada 48h sanas" es decisión humana posterior (config nueva,
+   append-only), fuera de este plan.
+4. **El live arranca SOLO con decisiones frescas post-flip** con su ventana
+   de 48h completa: por eso el discard masivo va ANTES del flip. Las filas
+   `vetoed` (3 y 4) son terminales y no se tocan.
+5. **La ventana de veto aplica por default**: si el dueño no abre `/cortes`
+   en 48h, Orbit escribe. Digest diario por Telegram + plazo escrito en el
+   runbook; el veto NO se automatiza.
+6. **Primeras decisiones aplicadas = ritual completo**: (a) primer harvest
+   live se revisa a mano contra Amazon (readback LIST, identidad completa),
+   no contra la fila; (b) verificación adversarial TRIPLE (codex + grok +
+   qwen) de las primeras decisiones APLICADAS (ritual sellado en la
+   aprobación del plan de ORBIT 04) con **muestra MX forzada** (el bug del
+   techo 2.50 era mexicano; el primer shadow validado fue 124 US / 9 MX);
+   (c) spot-check del dueño sobre las primeras aplicadas — el recálculo de
+   IA no lo sustituye.
+7. **No evaluar ACoS de día 1**: venta 5-8 días, costo hasta 15, fees
+   15-30. Revisión de impacto = ventana madura (~30 días). Advertencia:
+   "ACoS MX temprano ~1.5× peor" es hipótesis del chat de estrategia, no
+   dato del repo — se lee con cautela, no se codifica.
+
+## Phase 1 — Día del flip [lane:release]
+
+| Task | 内容 | DoD | Depends | Status |
+|------|------|-----|---------|--------|
+| 1.1 | **Go/No-go**: el lead verifica los 7 prerequisitos con evidencia (SELECTs: config vigente shadow, cola 2/5 `pending_veto` + 3/4 `vetoed`, `apply_attempt` solo probe, `apply_quota_state` 0, goals con floor/ceiling por moneda, CORTES 03 viva: última pause con `cost_min_usado`), CI de master verde, y el dueño firma el go con la lista de goals que entran a live el día 1 (sellado 2). `[tdd:skip:go-no-go]` | Tabla de prerequisitos con SELECT y resultado en la evidencia; firma del dueño (mensaje literal) con la lista de goals | preflight 1.8 | cc:TODO |
+| 1.2 | **Backup pre-cutover REAL** (checklist §12 ítem 4a): runbook DEPLOY.md §"Backup pre-cutover" con `tools/snapshot_listas.py` (preflight 1.3): dump -Fc + globals + CSV `ad_entity_state` + listas Amazon en `backups/precutover_orbit05_<fecha>/` (700/600, root, fuera de rotación); **VERIFY_OK de los CUATRO artefactos** (restore real a `orbit_verify_tmp` + conteos del día idénticos, globals = roles, CSV = count+1, JSON cargable con totales = cache). `[tdd:skip:ops]` | VERIFY_OK con los cuatro gates y conteos del día en la evidencia; base temporal borrada; `/tmp` limpio | 1.1 | cc:TODO |
+| 1.3 | **Discard masivo de filas shadow** (ítem 4b): con `ORBIT_DSN_ADMIN`, UNA transacción: `SELECT count(*)` antes → `UPDATE apply_queue SET estado='discarded', discarded_at=now(), discard_motivo='flip ORBIT 05 <fecha>' WHERE modo='shadow' AND estado IN ('pending_veto','released') RETURNING id` → conteo después; el trigger exige admin (candado PR #26). Filas `vetoed` intactas. `[tdd:skip:ops]` | `RETURNING` = conteo previo (hoy 2: filas 2 y 5, o las que haya ese día); `SELECT` posterior: cero filas shadow no terminales; 3 y 4 siguen `vetoed`; evidencia con ambos conteos | 1.2 | cc:TODO |
+| 1.4 | **Flip** (ítem 5): (a) config NUEVA (append-only, patrón 4.2 / APPLY §11: copia de la vigente con `ads_optimizer_mode='live'` y las mismas 10 claves de caps/targets, label `flip ORBIT 05 <fecha>`); (b) `UPDATE ads_optimizer_goal SET mode='live', updated_at=now() WHERE id IN (<goals firmados en 1.1>)`; (c) SELECT de config vigente y goals; (d) `GET /api/ads-optimizer/status` cita `live` en la escalera y `HAY_MODULO_APPLY` con escalera live (ítem 10). Nada más se toca ese día. `[tdd:skip:ops]` | Config vigente `live`; goals firmados en `live` y el resto en `shadow`; status/salud lo reflejan; evidencia con los SELECT; hora exacta del flip registrada | 1.3 | cc:TODO |
+| 1.5 | **Primer ciclo live y rampa** (ítems 6-7): esperar el ciclo del cron (no forzar `/run`); verificar: bids aplicados ≤ cap por plataforma y `apply_quota_state` con filas (primera cobrada), ledger `apply_attempt` tipo `normal` con ack + readback + sello, cortes nuevos en cola `modo='live'` `pending_veto` con `vence_el = +48h`, aviso Telegram de encolado recibido, cero filas shadow nuevas. Cualquier `failed` o readback divergente → PARAR (escalera de vuelta a `shadow` con config nueva) y analizar antes del siguiente ciclo. `[tdd:skip:ops]` | SELECTs del primer ciclo en la evidencia; quota `used ≤ cap`; sin `failed`; el dueño recibió el aviso; decisión explícita "seguimos" del lead+dueño | 1.4 | cc:TODO |
+
+## Phase 2 — Primeras 48h live [lane:gate]
+
+| Task | 内容 | DoD | Depends | Status |
+|------|------|-----|---------|--------|
+| 2.1 | **Verificación adversarial TRIPLE** (ítem 9, sellado 6b): codex + grok + qwen reciben las primeras decisiones APLICADAS (ledger + inputs congelados + readback), con muestra MX forzada (mínimo 5 MX si existen; si no hay MX aplicadas el día 1, se declara y se repite al primer día con MX). Cada uno recalcula contra las reglas selladas y busca divergencias entre decisión, request, ack y readback. Tope: 1 ronda; residuales declarados. `[tdd:skip:verificacion-adversarial]` | Tres reportes adjudicados por el lead; cero divergencia sin explicar; si hay bug → escalera a shadow y tarea de fix ANTES de seguir | 1.5 | cc:TODO |
+| 2.2 | **Spot-check del dueño sobre las primeras aplicadas** (sellado 6c): tabla en lenguaje de negocio (keyword, campaña, gasto, ventas, ACoS, acción, ack) de las primeras ≥10 decisiones aplicadas + la cola live pendiente; el dueño firma o veta. `[tdd:skip:checkpoint-humano]` | Firma del dueño en AppFlowy con fecha; vetos ejecutados por él si los hay | 1.5 | cc:TODO |
+| 2.3 | **Primer harvest live a mano** (sellado 6a): cuando el primer harvest salga de la cola (48h después del flip como mínimo): readback LIST en la campaña destino (MX = Arras Manual, terna goal 4; US = lo que el dueño decidió en preflight 1.6), identidad completa (keyword_text + match_type + ad group + bid), ledger sellado, y `keywords_campana_destino` sin duplicado. `[tdd:skip:ops]` | Keyword nueva visible en Amazon con el bid del goal; ledger `applied` con readback; cero duplicados; evidencia | 1.5 | cc:TODO |
+| 2.4 | **Monitoreo 48h + hábito de veto** (ítem 8, sellado 5): digest diario por Telegram, `/cortes` revisado por el dueño al menos una vez al día (registrado), quota `used/cap` en la superficie de preflight 1.4-1.5, alertas de cap saturado, cero `failed` sin analizar; anotar en el runbook que el ACoS de día 1 no se evalúa (sellado 7). `[tdd:skip:ops]` | Dos días consecutivos con: ciclos `done`, quota dentro de cap, cola sana (sin `applying` colgado), dueño con al menos una visita a `/cortes` por día registrada | 1.5 | cc:TODO |
+| 2.5 | **Cierre**: post-flip (ítem 10) — SELECT de la cola (cero shadow pendientes), quota del día, escalera live verificada; CHAT-CONTEXT "ORBIT 05 CERRADA" (qué goals están live, cuáles no, estado de la cola y de las decisiones del dueño), `ORBIT 05` Done en AppFlowy. La duplicación de caps y el encendido de goals restantes = decisiones humanas registradas como tareas nuevas. `[tdd:skip:cierre-docs]` | Checklist §12 completo con fechas; CHAT-CONTEXT al día; AppFlowy Done con evidencia | 2.1-2.4 | cc:TODO |
+
+## Reject (con razón)
+
+- **Forzar `/run` el día del flip**: el camino del cron es el que se ensayó
+  (2.5, 4.3); un `/run` manual cambia el reloj de liberación y la evidencia.
+- **Subir caps el día 1 o encender todos los goals a la vez sin firma**: el
+  retículo permite rampa por goal precisamente para no hacerlo.
+- **Deploy de código o settings de dashboard el mismo día**: un cambio a la
+  vez (sellado 1).
+- **Automatizar el veto o "retry mañana" que ignore el cap**: contra el
+  diseño híbrido y el fail-closed sellados.
+
+## Residuales declarados
+
+1. El destino harvest US depende de la respuesta del dueño en preflight 1.6;
+   si se difiere, los harvest US siguen saltándose por `harvest_sin_config`
+   (correcto: sin config jamás placeholder) y 2.3 se ejecuta solo en MX.
+2. Halo US (acotar/holdout/TACoS) puede quedar diferido por escrito: el
+   motor optimiza ACoS con revenue completo (CONTEXTO manda) y la
+   rentabilidad real de US sigue siendo la "pregunta sin respuesta" hasta
+   la fase margin-aware.
+3. `apply_queue.vetoed_by` sigue siendo texto libre bajo un token compartido
+   (residual 5 de ORBIT 04): la autoría de los vetos del dueño se prueba por
+   la ceremonia (él ejecuta), no por la base.
+
+## 事前確認
+
+- 事項: destructive/external-send — **MUTACIONES REALES a Amazon Ads** por el motor en modo live (bids automáticos; cortes tras 48h de ventana), con caps de día 1 y solo en los goals firmados por el dueño
+  理由: es el propósito de ORBIT 05; autorización = firma del dueño en 1.1 + go explícito en 1.5
+  scope: Phase 1 / 1.4-1.5, Phase 2 / 2.3-2.4
+- 事項: destructive — discard masivo de filas shadow (`app_admin`, una transacción) y flip de config/goals
+  理由: ítems 4-5 del checklist §12
+  scope: Phase 1 / 1.3-1.4
+- 事項: external-send — backup real con lecturas a Amazon (`tools/snapshot_listas.py`), restore a base temporal, SELECTs de verificación
+  理由: ítem 4a; regla 10
+  scope: Phase 1 / 1.2, 1.5
+- 事項: external-send — `git push` + PRs de docs (este plan, CHAT-CONTEXT), mensajes Telegram (avisos y digest reales)
+  理由: patrón del repo; el canal es parte del mecanismo de veto
+  scope: todas
