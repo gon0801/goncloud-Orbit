@@ -830,7 +830,7 @@ recálculo manual + veto ejecutado por el dueño sobre una fila real (4.3)**.
        spot-check** (checkpoint humano de 4.4:
        `out/orbit-04-4-4-cierre-20260828.md` §3.4 — 33 decisiones con
        recálculo del implementador, 0 divergencias, + 11 re-calculadas por
-       el lead) y (c) **CORTES 02 mergeada y desplegada** (umbrales de
+       el lead) y (c) **CORTES 03 mergeada y desplegada** (umbrales de
        pausa del dueño: ≥100 clics y ≥$40 USD sin ventas; salió del
        spot-check — con los umbrales vigentes 50 / $12 el dueño NO autoriza
        el flip). Cumplido 2026-08-28: techo de bids MX del goal 4 corregido

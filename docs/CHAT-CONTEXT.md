@@ -48,7 +48,7 @@ decisiones, implementador + 11 del lead). **Pendientes** — 2 semanas de
 shadow (~2026-09-07); **firma del dueño del spot-check** (la única
 validación independiente; AppFlowy "ORBIT 04 4.4 — spot-check shadow");
 `tools/snapshot_listas.py` con test; **backup pre-cutover REAL el día del
-flip** (ítem 4); **CORTES 02 mergeada y desplegada** (umbrales de pausa
+flip** (ítem 4); **CORTES 03 mergeada y desplegada** (umbrales de pausa
 100 clics / $40 USD del dueño — con los umbrales actuales 50 / $12 NO se
 hace el flip; ver abajo); verificación adversarial TRIPLE de las primeras
 decisiones live (ítem 9). Cumplido post-#40: techo de bids MX 1.00/45.00
@@ -66,7 +66,7 @@ terminal `goals set 4 --floor 1.00 --ceiling 45.00` (verificado por SELECT,
 `updated_at` 18:05 UTC); US queda 0.10/2.50 (máx real 2.00). (2) **Umbrales
 de pausa**: 72 clics / $25 / 0 ventas (fila 30 del spot-check) le pareció
 poco → PAUSE exigirá **≥100 clics y ≥$40 USD** sin ventas (**MX: ≥500
-MXN**, confirmado por el dueño) = tarea **CORTES 02** (cambio de spec v3: `cortes.py
+MXN**, confirmado por el dueño) = tarea **CORTES 03** (CORTES 02 ya es la lista curada de términos producto-diferente; cambio de spec v3: `cortes.py
 F_PAUSE/LEGACY_PAUSE`, `bid.py PAUSE_COST_MIN`, tests, docs/traspaso),
 prerequisito de ORBIT 05, implementa GLM por PR con TDD. La firma del
 spot-check sigue pendiente.
