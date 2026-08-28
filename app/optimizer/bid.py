@@ -16,8 +16,11 @@ diseno manda):
   orders=0 AND clicks>= umbral_pause (CORTES 01 1.3: llega RESUELTO por
   parametro -- adaptativo por producto con piso legacy 100, resuelto por
   cortes.umbral_corte en cycle.py; el replay lee el congelado) AND cost>=
-  {amazon_us: 40 USD, amazon_mx: 500 MXN} (CORTES 03, dueno 2026-08-28;
-  antes 25 / 12 USD / 200 MXN).
+  cost_min (CORTES 03: piso de costo RESUELTO por parametro -- None = el
+  vigente PAUSE_COST_MIN de abajo, {amazon_us: 40 USD, amazon_mx: 500 MXN}
+  desde el 2026-08-28, antes 25 / 12 USD / 200 MXN; el ciclo vivo lo pasa y
+  lo congela en inputs.corte.cost_min_usado, el replay pasa el congelado o
+  el historico de su era).
 - Bandas (kind 'bid') sobre el agregado de la ventana de BIDS:
   * -25% si ACoS > 1.35x target AND orders>=1 (estricto >)
   * -12% si ACoS > 1.15x target (sin condicion de orders)
@@ -89,26 +92,29 @@ from app.optimizer.windows import AgregadoMetricas
 
 PLATAFORMAS_MONEDA: dict[str, str] = {"amazon_us": "USD", "amazon_mx": "MXN"}
 
-# CORTES 01 (1.3): el umbral de clicks del PAUSE ya NO vive aqui. Llega
-# RESUELTO por parametro (cortes.umbral_corte(evidencia del grupo, 'pause')
-# en cycle.py; el motor sigue puro). El default es el LEGACY VIGENTE con UNA
-# fuente (cortes.py; 100 desde CORTES 03): los callers que no optimizan por
-# producto (replay de filas historicas sin inputs.corte) rejuegan con el
-# default VIGENTE, NO con el historico -- para las pauses reales pre-CORTES
-# (119 clicks / 45.80 USD) el replay sigue reproduciendo; una fila
-# hipotetica de < 100 clicks ya no (efecto documentado en CORTES 03;
-# decision de compat pendiente del lead). OJO: a diferencia del umbral de
-# clicks, el PISO DE COSTO de abajo NO viaja congelado en inputs.corte -- el
-# replay lo re-evalua VIVO, asi que las pauses historicas con costo en
-# [12, 40) USD / [200, 500) MXN ya no reproducen ni trayendo freeze (31
-# filas medidas 2026-08-28; hallazgo codex, cross-review CORTES 03; la
-# solucion es decision del lead). El "mismo patron" del default-vigente es
-# el del UMBRAL negative en hygiene (1.2); ojo con la asimetria: el PISO de
-# negative SI viaja congelado (piso_cost_usado, 1.4) -- el de pause no
-# (hallazgo grok, ronda 2: la simetria aqui NO existe).
+# CORTES 01 (1.3): el umbral de clicks del PAUSE llega RESUELTO por
+# parametro (cortes.umbral_corte(evidencia del grupo, 'pause') en cycle.py;
+# el motor sigue puro). Contrato del PISO DE COSTO (cierre replay CORTES 03,
+# decision del lead 2026-08-28): PAUSE_COST_MIN es la fuente UNICA del piso
+# VIGENTE y `cost_min` de decide_bid lo recibe YA RESUELTO -- el ciclo vivo
+# pasa el vigente y lo CONGELA en inputs.corte.cost_min_usado; el replay
+# pasa el congelado o el HISTORICO de su era (REPLAY_PAUSE_COST_PRE_CORTES03
+# de abajo). El default-vigente de `umbral_pause` ya NO es mecanismo de
+# replay: sin la clave, el replay usa las constantes REPLAY_* (historia
+# congelada, JAMAS el vigente LEGACY_PAUSE).
 PAUSE_COST_MIN: dict[str, Decimal] = {  # CORTES 03 (dueno 2026-08-28; antes 12/200)
     "amazon_us": Decimal("40"),
     "amazon_mx": Decimal("500"),
+}
+
+# Historia congelada (decision del lead 2026-08-28): el piso de costo que
+# VIGIA antes de CORTES 03. SOLO lo consume _replay_bid (cycle.py) para
+# filas sin inputs.corte.cost_min_usado (toda la era anterior; ninguna fila
+# de produccion tenia aun la clave al medir 2026-08-28); JAMAS lo use el
+# camino vivo (decide_bid sin cost_min resuelve PAUSE_COST_MIN).
+REPLAY_PAUSE_COST_PRE_CORTES03: dict[str, Decimal] = {
+    "amazon_us": Decimal("12"),
+    "amazon_mx": Decimal("200"),
 }
 
 MULT_BAJA_FUERTE = Decimal("1.35")  # ACoS > 1.35x target (estricto)
@@ -223,15 +229,21 @@ def decide_bid(
     floor: Decimal,
     ceiling: Decimal,
     umbral_pause: int = LEGACY_PAUSE,
+    cost_min: Decimal | None = None,
 ) -> ResultadoBid:
     """Decide PAUSE o ajuste de bid para UNA entidad, puro y determinista.
 
     `umbral_pause` (CORTES 01 1.3) es el umbral de clicks del PAUSE YA
     RESUELTO (inclusivo >=): el orquestador lo calcula con
     cortes.umbral_corte(evidencia del ad group, 'pause') y el replay lee el
-    congelado en inputs.corte.umbral_clicks_usado; el default es el legacy
-    vigente, 100 desde CORTES 03 (filas historicas sin la clave). Este
-    modulo jamas recalcula.
+    congelado en inputs.corte.umbral_clicks_usado. `cost_min` (cierre
+    replay CORTES 03, decision del lead 2026-08-28) es el piso de costo del
+    PAUSE YA RESUELTO: None = resuelve el VIGENTE (PAUSE_COST_MIN, fuente
+    unica) -- el ciclo vivo lo pasa EXPLICITO y lo congela en
+    inputs.corte.cost_min_usado, y apply_cola revalida vivo sin pasarlo;
+    el replay pasa el congelado (cost_min_usado) o el historico de su era
+    (REPLAY_PAUSE_COST_PRE_CORTES03). Este modulo jamas recalcula ninguno
+    de los dos.
 
     Orden interno sellado:
     (1) PAUSE sobre el agregado de CORTES (si existe, esta completo, su
@@ -267,6 +279,8 @@ def decide_bid(
     moneda = PLATAFORMAS_MONEDA[platform]
 
     # (1) PAUSE sobre la ventana de CORTES (un pause es un corte: regla 6)
+    # piso de costo: el que llega resuelto; None = el VIGENTE (fuente unica)
+    costo_piso = cost_min if cost_min is not None else PAUSE_COST_MIN[platform]
     motivo_pause_bloqueado: str | None = None
     if cortes is not None:
         if not cortes.completa:
@@ -277,11 +291,7 @@ def decide_bid(
             motivo_pause_bloqueado = MOTIVO_PAUSE_ORDERS_DESCONOCIDO
         elif cortes.clicks is None or cortes.cost is None:
             motivo_pause_bloqueado = MOTIVO_PAUSE_CLICKS_COST_DESCONOCIDOS
-        elif (
-            cortes.orders == 0
-            and cortes.clicks >= umbral_pause
-            and cortes.cost >= PAUSE_COST_MIN[platform]
-        ):
+        elif cortes.orders == 0 and cortes.clicks >= umbral_pause and cortes.cost >= costo_piso:
             return ResultadoBid(
                 kind="pause",
                 motivo=MOTIVO_PAUSE,

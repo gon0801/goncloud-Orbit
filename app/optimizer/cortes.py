@@ -68,6 +68,14 @@ F_PAUSE = 100  # fallback pause (lo consume 1.3); CORTES 03, antes 50
 LEGACY_NEGATIVE = 20  # piso: el adaptativo jamas baja de aqui
 LEGACY_PAUSE = 100  # piso pause (lo consume 1.3); CORTES 03, antes 25
 
+# Historia congelada (cierre CORTES 03, decision del lead 2026-08-28): el
+# umbral de clicks del pause que VIGIA antes de CORTES 01. SOLO lo consume
+# el replay (_replay_bid en cycle.py) para filas sin inputs.corte; JAMAS el
+# camino vivo (F_PAUSE/LEGACY_PAUSE siguen siendo el fallback/piso VIGENTES:
+# 100/100).
+REPLAY_PAUSE_CLICKS_PRE_CORTES01 = 25
+
+
 # Piso de COST legacy del camino negative (1.4): vivia en hygiene, ahora
 # tiene UNA fuente aqui junto a los demas sellados (hygiene lo importa). El
 # piso adaptativo jamas baja de estos valores.

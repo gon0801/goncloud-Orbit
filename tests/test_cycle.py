@@ -1794,14 +1794,19 @@ def test_replay_pause_congelada_cortes01_reproduce_con_piso_historico():
 def test_replay_fiel_por_construccion_ignora_el_vigente(monkeypatch):
     """FIDELIDAD POR CONSTRUCCION (decision del lead 2026-08-28): el replay
     de una fila CON `cost_min_usado` congelado manda sobre el piso VIVO. Con
-    PAUSE_COST_MIN envenenado a 999, la fila 72 clicks / 25.21 USD con
+    PAUSE_COST_MIN envenenado a 999, la fila 72 clicks / 45.00 USD con
     freeze {umbral_clicks_usado: 50, cost_min_usado: "40"} sigue pausando
-    (25.21 >= 40 congelado); si _replay_bid dejara de leer el congelado, el
-    999 vivo mataria el pause y la asercion reventaria."""
+    (45 >= 40 congelado); si _replay_bid dejara de leer el congelado, el
+    999 vivo mataria el pause y la asercion reventaria. DESVIACION del pin
+    literal de la task declarada: la task pidio esta fila con cost 25.21,
+    pero 25.21 < 40 NO pausaria ni con el congelado (el test seria
+    indistinguible: congelado y vivo dan el mismo no-op); el escenario
+    historico real es una fila pausada BAJO el piso 40 de CORTES 03 cuyo
+    vigente cambia despues."""
     monkeypatch.setitem(bid_mod.PAUSE_COST_MIN, "amazon_us", Decimal("999"))
     congelada = _inputs_pause_legacy(
         clicks=72,
-        cost="25.2100",
+        cost="45.0000",
         corte={"umbral_clicks_usado": 50, "cost_min_usado": "40"},
     )
     assert ciclo.reproduce(congelada) == ("pause", None, None)

@@ -130,14 +130,16 @@ que lógicamente se observó antes de decidir. Tests: evidencia más
 reciente que el dato directo, Y el borde observed_at > decided_at →
 clampeado (jamás CHECK violation).
 
-**Replay**: `reproduce()` LEE `inputs.corte.umbral_clicks_usado` (jamás
-recalcula evidencia); fila sin `inputs.corte` (histórica) → legacy 20/25
-(CORTES 03, dueno 2026-08-28: el default pause es 100; y el piso de costo
-del pause NO viaja congelado — `PAUSE_COST_MIN` se lee vivo en el replay,
-así que pauses históricas con costo en [12, 40) USD / [200, 500) MXN ya no
-reproducen ni con freeze: 31 de 34 filas medidas 2026-08-28; congelar
-`cost_min_usado` y la política para la historia es decisión pendiente del
-lead).
+**Replay**: `reproduce()` LEE lo congelado — `umbral_clicks_usado` y,
+desde CORTES 03, `cost_min_usado` (el motor de bids lo congela en toda
+decisión suya, decision del lead 2026-08-28) — y jamás recalcula
+evidencia; sin la clave, la fila histórica rejuega con el valor HISTÓRICO
+de su era (`REPLAY_PAUSE_CLICKS_PRE_CORTES01=25`,
+`REPLAY_PAUSE_COST_PRE_CORTES03=12/200`; negative intacto: 20 y 8/130),
+jamás con el vigente — replay fiel por construcción (decisión del lead
+2026-08-28: 34/34 pauses históricas medidas fieles; ninguna fila de
+producción tenía aún `cost_min_usado`, así que el histórico 12/200 cubre
+toda la era CORTES 01, incluida la 774 → pause).
 
 ## Arquitectura
 

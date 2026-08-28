@@ -70,13 +70,18 @@ expected_clicks como string, evidencia con observed_at_max) -- en hygiene
 las negative (las harvest NO lo llevan) y en bids TODAS, incluidas las de
 kind final 'bid': decide_bid evalua PAUSE antes de las bandas y, sin el
 freeze, el replay de un bid cuyo umbral adaptativo bloqueo el pause
-rejugaria como pause con el legacy vigente (100 desde CORTES 03; era 25). data_observed_at =
+rejugaria como pause con la historia sin la clave (25, REPLAY_PAUSE_
+CLICKS_PRE_CORTES01), no con el umbral que SU decision resolvio.
+data_observed_at =
 LEAST(decided_at, max(obs directo, observed_at_max de la evidencia)) -- el
 clamp es obligatorio (CHECK decision_dato_no_del_futuro): sin el, un
 observed_at posterior a decided_at aborta el executemany de TX3.
-reproduce() LEE el umbral congelado (fila historica sin la clave ->
-legacy 20 negative / 100 pause, vigente desde CORTES 03); jamas recalcula
-evidencia.
+reproduce() LEE lo congelado -- umbral_clicks_usado y, desde CORTES 03,
+cost_min_usado (cierre replay: decision del lead 2026-08-28, replay FIEL
+POR CONSTRUCCION); fila historica sin la clave rejuega con la HISTORIA de
+su era (REPLAY_PAUSE_CLICKS_PRE_CORTES01=25 y
+REPLAY_PAUSE_COST_PRE_CORTES03=12/200 para pause; legacy 20 y 8/130 para
+negative), JAMAS con un valor vigente; jamas recalcula evidencia.
 
 Semantica de status del envelope: 'done' si el ciclo corrio completo (aunque
 todo haya sido skips), 'degraded' si disparo una guarda de plataforma (dato
@@ -471,17 +476,23 @@ def _corte_json(
     corte: cortes.UmbralResuelto,
     evidencia: windows.EvidenciaAdGroup | None,
     piso: cortes.PisoResuelto | None = None,
+    cost_min: Decimal | None = None,
 ) -> dict:
     """Freeze de `inputs.corte` TOP-LEVEL (CORTES 01; shape EXACTO del spec
     v3): umbral_clicks_usado es el FINAL con piso aplicado, expected_clicks
     viaja como string Decimal (regla 4) y evidencia es null cuando el grupo
     no esta en el dict (fallback; jamas un numero inventado). Desde 1.4, el
     camino negative congela ADEMAS el piso de cost resuelto (piso_cost_usado
-    + aov como string Decimal|null; misma regla 4). `piso` None deja el
-    shape EXACTO de 1.2/1.3: solo lo congela quien lo consumo (pause/bid NO
-    llevan piso, sellado). Lo consumen _pendiente_bid (toda decision del
-    motor de bids, 1.3) y _pendiente_termino (negative, 1.2/1.4) -- un solo
-    sello, una sola fuente."""
+    + aov como string Decimal|null; misma regla 4). Desde el cierre CORTES
+    03 (decision del lead 2026-08-28), el MOTOR DE BIDS congela ADEMAS
+    cost_min_usado (string Decimal) cuando le llega `cost_min`: replay fiel
+    por construccion -- queda congelado el piso de costo que decide_bid
+    consumio; negative NO lo lleva (su freeze queda EXACTO como estaba).
+    `piso` None deja el shape EXACTO de 1.2/1.3: solo lo congela quien lo
+    consumo (pause/bid NO llevan piso adaptativo, sellado). Lo consumen
+    _pendiente_bid (toda decision del motor de bids, 1.3) y
+    _pendiente_termino (negative, 1.2/1.4) -- un solo sello, una sola
+    fuente."""
     freeze = {
         "umbral_clicks_usado": corte.umbral,
         "elegible": corte.elegible,
@@ -502,6 +513,8 @@ def _corte_json(
     if piso is not None:
         freeze["piso_cost_usado"] = _dec_str(piso.piso_cost)
         freeze["aov"] = _dec_str(piso.aov)
+    if cost_min is not None:
+        freeze["cost_min_usado"] = _dec_str(cost_min)
     return freeze
 
 
@@ -587,13 +600,18 @@ def _pendiente_bid(
     decided_at: dt.datetime,
     corte: cortes.UmbralResuelto,
     evidencia: windows.EvidenciaAdGroup | None,
+    cost_min: Decimal,
 ) -> _Pendiente:
     """El freeze de CORTES 01 (1.3): `inputs.corte` se congela en TODA
     decision del motor de bids -- INCLUIDAS las de kind final 'bid' -- porque
     decide_bid evalua PAUSE ANTES de las bandas: sin el freeze, el replay de
     un bid historico cuyo umbral adaptativo de pause BLOQUEO el corte
-    rejugaria como pause con el legacy vigente (100 desde CORTES 03) y la
-    auditoria divergiria (spec v3). El sello bitemporal
+    rejugaria como pause con la historia sin la clave (25) y la
+    auditoria divergiria (spec v3). Desde el cierre CORTES 03 (decision del
+    lead 2026-08-28) congela ADEMAS `cost_min_usado`: el piso de costo que
+    el ciclo le pasa a decide_bid (bid.PAUSE_COST_MIN[platform]) viaja por
+    este parametro para que el freeze registre EXACTAMENTE el valor usado
+    (replay fiel por construccion). El sello bitemporal
     (_sello_bitemporal) aplica al obs directo del
     agregado que decidio (cortes para pause, bids para bid) mezclado con la
     evidencia del grupo, clampeado a decided_at."""
@@ -611,7 +629,7 @@ def _pendiente_bid(
         "factor": _dec_str(resultado.factor),
         "motivo": resultado.motivo,
         "modo": modo,
-        "corte": _corte_json(corte, evidencia),
+        "corte": _corte_json(corte, evidencia, cost_min=cost_min),
     }
     return _Pendiente(
         ad_entity_id=entidad_id,
@@ -1097,7 +1115,10 @@ def _procesa_decisora(
     # _SQL_DECISORAS) resuelto con LA MISMA funcion que negative, UNA vez
     # por ad group y ciclo (cache lazy del recorrido); entidad cuyo grupo
     # no esta en el dict -> evidencia None -> fallback 100 con piso legacy
-    # 100 (CORTES 03; antes 50/25; regla 3: jamas un numero inventado)
+    # 100 (CORTES 03; antes 50/25; regla 3: jamas un numero inventado).
+    # Cierre CORTES 03 (decision del lead 2026-08-28): el piso de costo
+    # VIGENTE tambien va EXPLICITO a decide_bid y al freeze
+    # (cost_min_usado) -- replay fiel por construccion.
     if ad_group_id not in corte_pause_por_grupo:
         evidencia = evidencia_ad_groups.get(ad_group_id)
         corte_pause_por_grupo[ad_group_id] = (cortes.umbral_corte(evidencia, "pause"), evidencia)
@@ -1105,6 +1126,7 @@ def _procesa_decisora(
     ventanas = windows.ventanas_entidad(conn, entidad_id, decided_at)
     target = g.cascada_target_acos(goal.target_acos_pct, setting_target, acos_cache)
     floor, ceiling = g.resuelve_floor_ceiling(goal)
+    costo_piso = bid.PAUSE_COST_MIN[platform]
     resultado = bid.decide_bid(
         platform=platform,
         bids=ventanas.bids,
@@ -1115,6 +1137,7 @@ def _procesa_decisora(
         floor=floor,
         ceiling=ceiling,
         umbral_pause=corte_pause.umbral,
+        cost_min=costo_piso,
     )
     tick()
     if resultado.kind is None:
@@ -1134,6 +1157,7 @@ def _procesa_decisora(
             decided_at=decided_at,
             corte=corte_pause,
             evidencia=evidencia,
+            cost_min=costo_piso,
         )
     )
     contadores.decisiones[resultado.kind] += 1
@@ -1750,21 +1774,29 @@ def _agregado_sintetico(d: dict | None) -> windows.AgregadoMetricas | None:
 
 def _replay_bid(inputs: dict) -> bid.ResultadoBid:
     goal = inputs["goal"]
-    # CORTES 01 (spec): el replay LEE inputs.corte.umbral_clicks_usado, JAMAS
-    # recalcula evidencia (el snapshot de la decision ya no existe). Fila
-    # historica sin la clave (pre-CORTES) rejuega con el default VIGENTE
-    # (LEGACY_PAUSE, 100 desde CORTES 03): las pauses pre-CORTES REALES de
-    # produccion (119 clicks / 45.80 USD) siguen reproduciendo; una fila
-    # hipotetica de < 100 clicks ya no (efecto documentado en CORTES 03,
-    # decision de compat pendiente del lead). SEGUNDO efecto (hallazgo codex,
-    # cross-review CORTES 03): el piso de costo NO viaja congelado -- decide_bid
-    # lo re-evalua vivo contra PAUSE_COST_MIN, asi que las pauses historicas
-    # con costo en [12, 40) USD / [200, 500) MXN dejan de reproducir AUN
-    # trayendo freeze (31 de 34 filas medidas 2026-08-28; test
-    # test_replay_pause_congelada_cortes01_diverge_por_costo_vivo; solucion =
-    # decision del lead).
+    # CORTES 01 (spec) + cierre CORTES 03 (decision del lead 2026-08-28:
+    # replay FIEL POR CONSTRUCCION): el replay LEE lo congelado, JAMAS
+    # recalcula evidencia (el snapshot de la decision ya no existe) y JAMAS
+    # usa un valor vigente. Umbral de clicks: inputs.corte.umbral_clicks_usado.
+    # Piso de costo: inputs.corte.cost_min_usado (clave que congela el ciclo
+    # desde CORTES 03). Fila historica sin la clave rejuega con la HISTORIA
+    # de su era -- REPLAY_PAUSE_CLICKS_PRE_CORTES01 (25) y
+    # REPLAY_PAUSE_COST_PRE_CORTES03 (12/200) --, nunca con el vigente
+    # (100 / 40/500). Medicion en produccion (SELECT read-only 2026-08-28):
+    # las 34/34 pauses historicas reproducen fieles (4 con freeze usan su
+    # umbral congelado; 30 sin freeze usan 25/12; ninguna fila tenia aun
+    # cost_min_usado, incluida la 774 -> pause).
     corte = inputs.get("corte")
-    umbral_pause = corte["umbral_clicks_usado"] if corte is not None else cortes.LEGACY_PAUSE
+    umbral_pause = (
+        corte["umbral_clicks_usado"]
+        if corte is not None
+        else cortes.REPLAY_PAUSE_CLICKS_PRE_CORTES01
+    )
+    cost_min = (
+        Decimal(corte["cost_min_usado"])
+        if corte is not None and "cost_min_usado" in corte
+        else bid.REPLAY_PAUSE_COST_PRE_CORTES03[inputs["platform"]]
+    )
     return bid.decide_bid(
         platform=inputs["platform"],
         bids=_agregado_sintetico(inputs["ventanas"]["bids"]),
@@ -1775,6 +1807,7 @@ def _replay_bid(inputs: dict) -> bid.ResultadoBid:
         floor=Decimal(goal["bid_floor"]),
         ceiling=Decimal(goal["bid_ceiling"]),
         umbral_pause=umbral_pause,
+        cost_min=cost_min,
     )
 
 

@@ -8,10 +8,10 @@
 umbral de PAUSE del dueño → **100 clics / 40 USD / 500 MXN** (origen
 spot-check 4.4 fila 30 / decisión 774: 72 clics / 25.21 USD / 0 ventas
 pausó prematuro); fallback y piso legacy de PAUSE también suben a 100;
-NEGATIVE intacto. Efecto de replay documentado: las filas históricas sin
-`inputs.corte` rejuegan con el default VIGENTE (las pauses pre-CORTES
-reales de producción, 119 clics / 45.80 USD, siguen reproduciendo; una fila
-hipotética de <100 clics ya no — decisión de compat pendiente del lead).
+NEGATIVE intacto. Replay hecho **fiel por construcción** (decisión del
+lead 2026-08-28): el motor de bids congela `cost_min_usado` en su freeze y
+las filas históricas sin la clave rejuegan con los históricos REPLAY_*
+(25 clics / 12 USD, solo-replay) — 34/34 pauses medidas fieles.
 
 **Última actualización: 2026-08-28 — ORBIT 04 CERRADA (4.1-4.4, todo en
 `shadow`); el dueño FIRMÓ el spot-check el 2026-08-28 ("spot check
