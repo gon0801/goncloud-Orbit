@@ -50,19 +50,24 @@ PASO A PASO DE LA CORRIDA AUTORIZADA:
     contenedor, JAMAS por argv de docker exec (ni history ni ps) y nace 600
     en ambos lados (umask 077) — la corrida 4.3 uso `-e` argv con su token
     efimero ya muerto; esta receta endurecida salio del cross-review:
-      ssh goncloud 'umask 077; head -c 48 /dev/urandom | base64 | \
-        tr -dc A-Za-z0-9 | head -c 32 > /tmp/smoke_token'
+      ssh goncloud 'rm -f /tmp/smoke_token; umask 077; head -c 48 \
+        /dev/urandom | base64 | tr -dc A-Za-z0-9 | head -c 32 \
+        > /tmp/smoke_token'
+      (rm -f previo: umask solo rige archivos NUEVOS; sin el, un
+      /tmp/smoke_token 644 o symlink preexistente expondria el token)
       cat tools/smoke_apply.py | ssh goncloud 'docker exec -i orbit-app-1 \
         sh -c "cat > /tmp/smoke_apply.py"'
-      ssh goncloud 'docker exec -i orbit-app-1 sh -c "umask 077; \
-        cat > /tmp/smoke_token" < /tmp/smoke_token'
+      ssh goncloud 'docker exec -i orbit-app-1 sh -c "rm -f /tmp/smoke_token; \
+        umask 077; cat > /tmp/smoke_token" < /tmp/smoke_token'
       set -o pipefail   # LOCAL: el `| tee` corre aqui, no dentro del ssh
       ssh goncloud 'docker exec orbit-app-1 sh -c \
         "ORBIT_SMOKE_AUTH=\\$(cat /tmp/smoke_token) PYTHONPATH=/app python \
         /tmp/smoke_apply.py --forma <X> --platform <platform> \
         --acepto-mutacion-real"' 2>&1 | tee out/smoke-apply-<fecha>.log
+      rc=$?   # capturar AQUI: el ssh de limpieza de abajo pisa $?
       ssh goncloud 'docker exec orbit-app-1 rm -f /tmp/smoke_apply.py \
         /tmp/smoke_token; rm -f /tmp/smoke_token'
+      echo "smoke rc=$rc"   # 0 = neto cero; otro = NO seguir
     El token queda en texto plano en el historial append-only de
     config_version (residual declarado en APPLY.md 11d): un solo uso.
     Y si las formas necesitan DOS campanas (allowlist = 1 campana por

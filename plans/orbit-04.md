@@ -272,6 +272,14 @@
 3. Reactivación manual invisible para entidades nunca tocadas por el motor.
 4. Puntos 1-5 verbatim de qwen ronda 1 perdidos (convergentes con codex por
    su cierre; capturas posteriores completas).
+5. (4.3, codex sobre los commits del lead) `apply_queue.vetoed_by` es texto
+   libre del caller bajo UN token de escritura compartido (sellado 18): la
+   base no puede probar por sí sola que un veto fue personal del dueño. El
+   veto personal de 4.3 (fila 4, `gon-personal`) se sustenta en que el dueño
+   lo ejecutó desde su propia terminal mientras el harness bloqueaba al lead
+   esa misma acción. Un actor autenticado por persona exige tokens por
+   usuario = fuera de ORBIT 04 (candidato a ORBIT 16 con la config por
+   fila).
 
 unknowns declarados: endpoint/shape del bid sugerido; shapes de acks (los
 fija 2.5); ad groups e ids `ad_entity` reales de las Exact US

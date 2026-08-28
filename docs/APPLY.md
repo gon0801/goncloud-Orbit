@@ -675,25 +675,30 @@ unset ORBIT_SMOKE_AUTH
 # ARCHIVO dentro del contenedor, JAMÁS por argv de docker exec (no queda en
 # history ni en ps), y los archivos nacen 600 (umask 077 en AMBOS lados —
 # Greptile P1 PR #39: un `cat >` con umask por defecto deja el token 644):
-#   0) ssh goncloud 'umask 077; head -c 48 /dev/urandom | base64 |
-#        tr -dc A-Za-z0-9 | head -c 32 > /tmp/smoke_token'
-#      (token efímero SOLO en el host, jamás impreso; sembrarlo en
-#      `ads_smoke_auth` leyéndolo del archivo — ver siembra arriba)
+#   0) ssh goncloud 'rm -f /tmp/smoke_token; umask 077; head -c 48
+#        /dev/urandom | base64 | tr -dc A-Za-z0-9 | head -c 32
+#        > /tmp/smoke_token'
+#      (el `rm -f` previo evita heredar un archivo/symlink 644 anterior —
+#      umask solo rige archivos NUEVOS; token efímero SOLO en el host, jamás
+#      impreso; sembrarlo en `ads_smoke_auth` leyéndolo del archivo — ver
+#      siembra arriba)
 #   1) cat tools/smoke_apply.py | ssh goncloud 'docker exec -i orbit-app-1
 #        sh -c "cat > /tmp/smoke_apply.py"'
-#      ssh goncloud 'docker exec -i orbit-app-1 sh -c "umask 077;
-#        cat > /tmp/smoke_token" < /tmp/smoke_token'
+#      ssh goncloud 'docker exec -i orbit-app-1 sh -c "rm -f /tmp/smoke_token;
+#        umask 077; cat > /tmp/smoke_token" < /tmp/smoke_token'
 #   2) set -o pipefail   # en ESTE shell: el pipe con tee es LOCAL; un
 #                        # pipefail dentro del ssh no cubre el `| tee`
 #      ssh goncloud 'docker exec orbit-app-1 sh -c
 #        "ORBIT_SMOKE_AUTH=\$(cat /tmp/smoke_token) PYTHONPATH=/app python
 #        /tmp/smoke_apply.py --forma <X> --platform <platform>
 #        --acepto-mutacion-real"' 2>&1 | tee out/smoke-apply-<fecha>.log
+#      rc=$?   # capturarlo AQUÍ: el ssh de limpieza del paso 3 lo pisa
 #        (stdout = evidencia; la durable es el ledger)
 #   3) ssh goncloud 'docker exec orbit-app-1 rm -f /tmp/smoke_apply.py
 #        /tmp/smoke_token; rm -f /tmp/smoke_token'   (limpiar el token en
 #        AMBOS lados; el allowlist de UNA campaña por plataforma y las
 #        configs sucesivas A/B: ver OJO al final de esta sección)
+#      echo "smoke rc=$rc"   # 0 = neto cero; cualquier otro = NO seguir
 ```
 
 RESIDUAL declarado (visto en 4.3): `config_version` es append-only, así que
