@@ -615,9 +615,14 @@ def test_ciclo_shadow_completo_decisiones_y_notes_exactos():
         assert pause_row[9]["corte"]["elegible"] is True
         assert pause_row[9]["corte"]["expected_clicks"] == "14.55555555555555555555555556"
         assert pause_row[9]["corte"]["evidencia"]["clicks"] == 131
-        # CORTES 01 (1.4): el piso de cost adaptativo es SOLO del camino
-        # negative -- pause/bid NO congelan piso ni aov (quien no consumio el
-        # piso, no congela piso; hallazgo reviewer 1.4)
+        # CORTES 03 (cierre replay, decision del lead 2026-08-28): el motor
+        # de bids congela ADEMAS el piso de costo que consumio
+        # (cost_min_usado, string Decimal) -- replay fiel por construccion
+        assert pause_row[9]["corte"]["cost_min_usado"] == "40"
+        # CORTES 01 (1.4): el piso de cost ADAPTATIVO es SOLO del camino
+        # negative -- pause/bid NO congelan piso_cost_usado ni aov (quien no
+        # consumio el piso adaptativo, no lo congela; hallazgo reviewer 1.4;
+        # el cost_min_usado de arriba es el SELLADO de bid, no el adaptativo)
         assert "piso_cost_usado" not in pause_row[9]["corte"]
         assert "aov" not in pause_row[9]["corte"]
         # sello bitemporal: LEAST(decided_at, max(obs cortes, evidencia))
@@ -1686,6 +1691,8 @@ def test_piso_pause_100_en_el_freeze_del_ciclo():
         assert corte["umbral_clicks_usado"] == 100  # el piso gano al bruto 22
         assert corte["elegible"] is True
         assert corte["expected_clicks"] == "14.55555555555555555555555556"
+        # CORTES 03 (cierre replay): el freeze lleva el piso de costo usado
+        assert corte["cost_min_usado"] == "40"
 
 
 def _inputs_pause_legacy(
@@ -1694,8 +1701,10 @@ def _inputs_pause_legacy(
     """Fixture de inputs congelados de una pause HISTORICA (pre-CORTES 01,
     sin la clave corte): la fila clasica de 30 clicks / 15.00 USD y su
     ESPEJO de la pause real de produccion (119 clicks / 45.80 USD). Sin la
-    clave, el replay rejuega con el default VIGENTE (LEGACY_PAUSE, 100 desde
-    CORTES 03). Con `corte`, simula una fila CON freeze (era CORTES 01)."""
+    clave, el replay rejuega con la HISTORIA congelada de su era (decision
+    del lead 2026-08-28: 25 clicks / 12 USD, constantes REPLAY_*; jamas el
+    vigente 100/40). Con `corte`, simula una fila CON freeze (era CORTES 01);
+    `cost_min_usado` solo existe en freezes desde CORTES 03."""
     inputs = {
         "motor": "bid",
         "platform": "amazon_us",
@@ -1727,16 +1736,21 @@ def _inputs_pause_legacy(
     return inputs
 
 
-def test_replay_legacy_pause_sin_inputs_corte_usa_default_vigente():
-    """Fila de pause HISTORICA sin inputs.corte -> replay con el LEGACY
-    VIGENTE (100 desde CORTES 03; antes 25). DOS casos:
-    (1) la fila clasica de 30 clicks / 15.00 USD YA NO reproduce (30 < 100;
-        efecto documentado en CORTES 03, decision de compat pendiente del
-        lead); con las pauses pre-CORTES REALES de produccion (119 clicks /
-        45.80 USD) el replay SI reproduce.
-    (2) la fila espejo de la real (119 clicks / 45.80 USD) -> SI pausa
-        (119 >= 100 y 45.80 >= 40)."""
-    assert ciclo.reproduce(_inputs_pause_legacy()) == (None, None, None)
+def test_replay_legacy_pause_sin_inputs_corte_usa_historicos():
+    """Fila de pause HISTORICA sin inputs.corte -> replay con la HISTORIA
+    congelada de su era (decision del lead 2026-08-28: replay fiel por
+    construccion; REPLAY_PAUSE_CLICKS_PRE_CORTES01=25 +
+    REPLAY_PAUSE_COST_PRE_CORTES03=12 USD; JAMAS el vigente 100/40). DOS
+    casos:
+    (1) la fila clasica de 30 clicks / 15.00 USD REPRODUCE (30 >= 25 y
+        15.00 >= 12) -- contra el default vigente 100/40 daba no-op (rojo
+        del TDD); era una de las 27 pre-CORTES-01 que el piso vivo dejaba
+        mudas.
+    (2) la fila espejo de la real (119 clicks / 45.80 USD) -> PAUSE
+        (119 >= 25 y 45.80 >= 12; VERDE TAMBIEN EN ROJO: con el default
+        vigente 100/40 ya reproducia -- su fidelidad era coincidencia de
+        datos, ahora es contrato)."""
+    assert ciclo.reproduce(_inputs_pause_legacy()) == ("pause", None, None)
     espejo_real = _inputs_pause_legacy(clicks=119, cost="45.8000")
     assert ciclo.reproduce(espejo_real) == ("pause", None, None)
 
@@ -1758,40 +1772,71 @@ def test_replay_pause_lee_el_umbral_congelado_jamas_el_default():
     assert ciclo.reproduce(sin_freeze) == ("pause", None, None)
 
 
-def test_replay_pause_congelada_cortes01_diverge_por_costo_vivo():
-    """Hallazgo codex (cross-review CORTES 03), PINNADO: una pause CON
-    inputs.corte de la era CORTES 01 (umbral de clicks congelado 50) cuyo
-    costo queda ENTRE el piso viejo y el nuevo -- 72 clicks / 25.21 USD: la
-    fila 30 del spot-check 4.4 (decision 774 y sus re-decisiones
-    423/541/659) -- YA NO reproduce. El umbral de clicks SI viaja congelado,
-    pero el piso de costo vive en PAUSE_COST_MIN y se lee VIVO en el replay:
-    25.21 < 40 mata el pause que el freeze no puede salvar. Impacto medido
-    en produccion (SELECT read-only 2026-08-28): 31 de las 34 pauses
-    historicas dejan de reproducir (4 con freeze, por costo; 27 pre-CORTES
-    01, por default y costo); las 3 de 119 clicks / 45.80 USD siguen
-    fieles. Congelar cost_min_usado en inputs.corte (y que hacer con la
-    historia) es decision del LEAD: no se resuelve a ciegas. Este test pina
-    el comportamiento ACTUAL para que la divergencia quede declarada, no
-    silenciosa."""
+def test_replay_pause_congelada_cortes01_reproduce_con_piso_historico():
+    """Misma geometria del hallazgo codex (cross-review CORTES 03), bajo el
+    contrato NUEVO (decision del lead 2026-08-28: replay fiel por
+    construccion): una pause CON inputs.corte de la era CORTES 01 (umbral de
+    clicks congelado 50, SIN cost_min_usado -- la clave nace en CORTES 03)
+    cuyo costo queda ENTRE el piso historico y el vigente -- 72 clicks /
+    25.21 USD: la fila 30 del spot-check 4.4 (decision 774 y sus
+    re-decisiones 423/541/659) -- REPRODUCE: 72 >= 50 congelado y
+    25.21 >= 12 (REPLAY_PAUSE_COST_PRE_CORTES03, la historia de su era; el
+    piso vigente 40 JAMAS entra al replay). Antes del cierre el piso VIVO
+    mataba el pause y el replay daba (None, None, None)."""
     congelada = _inputs_pause_legacy(
         clicks=72,
         cost="25.2100",
         corte={"umbral_clicks_usado": 50, "elegible": False},
     )
-    assert ciclo.reproduce(congelada) == (None, None, None)
+    assert ciclo.reproduce(congelada) == ("pause", None, None)
 
 
-def test_replay_decision_774_real_diverge_a_banda_menos_12():
-    """Punto duro del mismo hallazgo (grok, cross-review ronda 2): replay con
-    los inputs REALES congelados de la decision 774 (la fila 30 del
-    spot-check que motivo CORTES 03; extraidos por SELECT read-only
-    2026-08-28 y espejados aqui). El pause ya no califica (costo 25.21 < 40
-    piso vivo) y el replay CAE A LA BANDA -12% (bids: cost 25.21,
-    ad_revenue 0, orders 0 -> baja sin minimo de ordenes; bid 0.25 x 0.88 =
-    0.22): un auditor que rejuegue la 774 ve un BID donde la decision
-    persistida es PAUSE -- divergencia PEOR que un no-op limpio. Pinnado
-    para que quede declarado; la cura (congelar cost_min_usado) es decision
-    del lead, no de este PR."""
+def test_replay_fiel_por_construccion_ignora_el_vigente(monkeypatch):
+    """FIDELIDAD POR CONSTRUCCION (decision del lead 2026-08-28): el replay
+    de una fila CON `cost_min_usado` congelado manda sobre el piso VIVO. Con
+    PAUSE_COST_MIN envenenado a 999, la fila 72 clicks / 25.21 USD con
+    freeze {umbral_clicks_usado: 50, cost_min_usado: "40"} sigue pausando
+    (25.21 >= 40 congelado); si _replay_bid dejara de leer el congelado, el
+    999 vivo mataria el pause y la asercion reventaria."""
+    monkeypatch.setitem(bid_mod.PAUSE_COST_MIN, "amazon_us", Decimal("999"))
+    congelada = _inputs_pause_legacy(
+        clicks=72,
+        cost="25.2100",
+        corte={"umbral_clicks_usado": 50, "cost_min_usado": "40"},
+    )
+    assert ciclo.reproduce(congelada) == ("pause", None, None)
+
+
+def test_constantes_historicas_de_replay_son_inmutables():
+    """Las constantes REPLAY_* son HISTORIA CONGELADA (decision del lead
+    2026-08-28): solo las consume el replay de filas sin la clave, JAMAS el
+    camino vivo. Cambiarlas ("actualizarlas" a la era nueva) rompe la
+    auditoria de las 34 pauses historicas medidas fieles -- si alguien las
+    toca, este test revienta. PAUSE_COST_MIN se pinea para detectar un
+    cambio accidental del VIGENTE (su cambio legitimo exige re-medir el
+    replay y actualizar este pin con evidencia)."""
+    assert cortes.REPLAY_PAUSE_CLICKS_PRE_CORTES01 == 25
+    assert {
+        "amazon_us": Decimal("12"),
+        "amazon_mx": Decimal("200"),
+    } == bid_mod.REPLAY_PAUSE_COST_PRE_CORTES03
+    assert {
+        "amazon_us": Decimal("40"),
+        "amazon_mx": Decimal("500"),
+    } == bid_mod.PAUSE_COST_MIN
+
+
+def test_replay_decision_774_real_reproduce_pause():
+    """Replay con los inputs REALES congelados de la decision 774 (la fila 30
+    del spot-check que motivo CORTES 03; extraidos por SELECT read-only
+    2026-08-28 y espejados aqui), bajo el contrato NUEVO (decision del lead
+    2026-08-28: replay fiel por construccion): 72 >= 50 (freeze de clicks) y
+    25.21 >= 12 (la fila NO tiene cost_min_usado -> el piso historico de su
+    era, REPLAY_PAUSE_COST_PRE_CORTES03) -> PAUSE, la decision persistida.
+    Antes del cierre el piso VIVO 40 mataba el pause y el replay CAIA A LA
+    BANDA -12% (bids: cost 25.21, ad_revenue 0, orders 0 -> baja sin minimo
+    de ordenes; bid 0.25 x 0.88 = 0.22): un auditor veia un BID donde la
+    decision persistida es PAUSE."""
     inputs_774 = {
         "goal": {
             "scope": "platform",
@@ -1848,7 +1893,7 @@ def test_replay_decision_774_real_diverge_a_banda_menos_12():
         "bid_actual": "0.2500",
         "bid_moneda": "USD",
     }
-    assert ciclo.reproduce(inputs_774) == ("bid", Decimal("0.22"), "USD")
+    assert ciclo.reproduce(inputs_774) == ("pause", None, None)
 
 
 @pytest.mark.skipif(
