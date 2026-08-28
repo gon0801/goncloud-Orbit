@@ -810,20 +810,25 @@ recálculo manual + veto ejecutado por el dueño sobre una fila real (4.3)**.
        con su actor (4.3: fila 3 por delegación del dueño actor 'gon' + fila
        4 veto PERSONAL del dueño actor 'gon-personal' 2026-08-28) +
        re-verificación del smoke E2E contra el deploy real (4.3, 4/4 formas
-       neto-cero) + recálculo manual del lead (spot-check 33 decisiones / 0
-       divergencias de recálculo, 2026-08-28 — la FIRMA DEL DUEÑO es el
-       ítem 2 de este checklist).
+       neto-cero) + recálculo del spot-check (33 decisiones / 0
+       divergencias, 2026-08-28: recálculo del IMPLEMENTADOR (GLM, autor
+       del motor) + 11 filas re-calculadas por separado por el lead desde
+       `bid.py:102-107`, todas coincidentes — la FIRMA DEL DUEÑO es el
+       ítem 3 de este checklist y no la sustituye ninguna de las dos).
 2. [x] **Backup pre-cutover** (2026-08-28): dump completo + globals +
        CSV de `ad_entity_state` (5,899 filas) + listas de Amazon
        (keywords/negativeKeywords/targets, 2 plataformas) en
        `backups/precutover_orbit04_2026-08-28/` (fuera de la rotación) —
        **VERIFY_OK**: restore real con los 5 conteos idénticos a producción
        (4.4).
-3. [ ] **Firma del dueño del spot-check** (checkpoint humano de 4.4:
+3. [ ] **Candado humano pre-flip**: (a) **2 semanas de shadow cumplidas**
+       (shadow desde 2026-08-24 → ~2026-09-07; hasta entonces NO se marca
+       aunque todo lo demás esté listo) y (b) **firma del dueño del
+       spot-check** (checkpoint humano de 4.4:
        `out/orbit-04-4-4-cierre-20260828.md` §3.4 — 33 decisiones con
-       recálculo del lead, 0 divergencias). **SIN MARCAR hasta que el dueño
-       firme**: es el candado pre-flip; el recálculo del lead no lo
-       sustituye (mismo autor que el motor).
+       recálculo del implementador, 0 divergencias, + 11 re-calculadas por
+       el lead). **SIN MARCAR hasta que el dueño firme**: ningún recálculo
+       de la IA sustituye la firma (el implementador es el autor del motor).
 4. [ ] **Discard masivo de filas shadow:** TODA fila shadow pendiente →
        `discarded` en UNA transacción; conteo antes/después concilia; cero
        filas shadow no terminales al terminar.
