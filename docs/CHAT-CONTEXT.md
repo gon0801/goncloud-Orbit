@@ -233,7 +233,7 @@ por la otra vía: lista curada por AI con aprobación del dueño
 (CORTES 02, sembrada). Shadow valida la regla nueva ~2 semanas antes
 del cutover. Siguiente proyecto grande: ORBIT
 04 (PR2: el apply con topes). Este archivo tiene candado de frescura:
-el CI exige actualizarlo en cada PR que cierre tareas.**
+el CI exige actualizarlo en cada PR que cierre tareas.
 
 ## Qué es Orbit
 
