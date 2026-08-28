@@ -19,8 +19,9 @@
   al floor $0.10, gastando ~$4/dia mientras tanto.
 - La via PAUSE si funciona para los peores casos (32 pauses el dia 24, ej.
   36 clicks/$26.91/0 ordenes), pero el umbral adaptativo (CORTES 01) es
-  deliberadamente conservador (piso 25 clicks legacy, sube con la rotacion
-  del producto): el sangrado moderado (60-115 clicks sin ventas en grupos
+  deliberadamente conservador (piso 100 clicks legacy desde CORTES 03,
+  dueno 2026-08-28; este spec lo escribio con el piso 25 de CORTES 01, sube
+  con la rotacion del producto): el sangrado moderado (60-115 clicks sin ventas en grupos
   de rotacion lenta) queda en tierra de nadie: no pausa, solo -12%.
 - **Ventanas rancias**: muchas entidades tienen `window_end` 2026-06-23 —
   sin trafico desde junio (los datos frescos existen: los cortes usan
