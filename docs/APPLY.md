@@ -834,10 +834,16 @@ recálculo manual + veto ejecutado por el dueño sobre una fila real (4.3)**.
        de la IA sustituye la firma (el implementador es el autor del motor).
 4. [ ] **Backup pre-cutover REAL (el mismo día, ANTES del discard) +
        discard masivo de filas shadow:** repetir el runbook del ítem 2 en
-       `backups/precutover_orbit05_<fecha>/` con VERIFY_OK y conteos del
-       día; solo entonces TODA fila shadow pendiente → `discarded` en UNA
-       transacción; conteo antes/después concilia; cero filas shadow no
-       terminales al terminar.
+       `backups/precutover_orbit05_<fecha>/` con VERIFY_OK de los CUATRO
+       artefactos y conteos del día (prerequisito: `tools/snapshot_listas.py`
+       aterrizado con test — en 4.4 las listas se capturaron inline); solo
+       entonces TODA fila shadow pendiente → `discarded` en UNA transacción
+       **con `ORBIT_DSN_ADMIN` (rol `app_admin`: el trigger
+       `apply_queue_sella_transiciones` RECHAZA el discard de filas shadow
+       a `app_decide` — `tests/test_apply_schema.py`)**; conteo
+       antes/después concilia (`UPDATE … RETURNING` = filas shadow
+       pendientes antes); cero filas shadow no terminales al terminar.
+       Orden operativo sellado: **backup real → discard → flip → rampa**.
 5. [ ] **Flip:** modo live por la escalera (decisión humana, config nueva;
        off→shadow→live del diseño v2 adoptado en CONTEXTO).
 6. [ ] Rampa día 1 ya sembrada: 10 bids / 2 pauses / 5 negatives /

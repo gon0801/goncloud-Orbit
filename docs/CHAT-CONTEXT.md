@@ -37,15 +37,19 @@ el spot-check (DoD de 4.4, checkpoint humano — pendiente):**
 **Estado final de la cola**: fila 2 pause `pending_veto`, fila 3 harvest
 `vetoed` (gon), fila 4 harvest `vetoed` (gon-personal), fila 5 harvest
 `pending_veto` — cero released/applying; las shadow se descartan en bloque
-en el flip.
+el día del cutover, con `app_admin`, en el orden sellado **backup real →
+discard → flip → rampa** (checklist APPLY.md §12 ítems 4-6).
 
 **Prerequisitos de ORBIT 05**: cumplidos — veto del dueño (fila 4, con su
-mano), ensayo E2E (4/4 neto-cero), backup pre-cutover verificado
-restaurable, caps día 1 sembrados. **Pendientes** — 2 semanas de shadow
-(~2026-09-07) + recálculo manual; firma del dueño del spot-check (§3.4 de
-`out/orbit-04-4-4-cierre-20260828.md`); verificación adversarial TRIPLE de
-las primeras decisiones live (checklist §12 ítem 9). AppFlowy lo cierra el
-lead.
+mano), ensayo E2E (4/4 neto-cero), **runbook del backup pre-cutover
+ensayado y verificado restaurable** (el snapshot del 28 NO es el punto de
+restauración del flip), caps día 1 sembrados, spot-check preparado (33
+decisiones, implementador + 11 del lead). **Pendientes** — 2 semanas de
+shadow (~2026-09-07); **firma del dueño del spot-check** (la única
+validación independiente; AppFlowy "ORBIT 04 4.4 — spot-check shadow");
+`tools/snapshot_listas.py` con test; **backup pre-cutover REAL el día del
+flip** (ítem 4); verificación adversarial TRIPLE de las primeras decisiones
+live (ítem 9). AppFlowy lo cierra el lead al firmar el dueño.
 
 Previo (2026-08-28): ORBIT 04 4.3 CERRADA con DoD literal
 (ensayo E2E + veto delegado en la fila 3 + VETO PERSONAL DEL DUEÑO en la

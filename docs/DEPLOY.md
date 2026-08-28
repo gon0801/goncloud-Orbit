@@ -481,14 +481,45 @@ rotación borra): `backups/precutover_orbit04_2026-08-28/` (dir 700, archivos
   campaña), capturado con el cliente de LECTURA (POST list, cero
   mutaciones).
 
-**Cómo se verifica** (receta VERIFY_OK de arriba, apuntando `$D` al
-directorio de arriba Y el nombre del dump a
-`orbit_precutover_orbit04_2026-08-28.dump` — ojo, NO es el
-`orbit_YYYY-MM-DD.dump` de la receta): restore real a `orbit_verify_tmp`
-con `--exit-on-error`, `pg_restore --list` (CON `docker exec -i`), y
-conteos de `apply_queue`/`apply_attempt`/`config_version`/`decision`/
-`ad_entity_state` idénticos a producción ANTES del `DROP ... WITH (FORCE)`.
-Verificado 2026-08-28: VERIFY_OK con 4/29/9/977/5,899.
+**Cómo se produce** (como root en goncloud, `umask 077`, `D=backups/precutover_<tag>/`):
+
+1. Dump + globals: los mismos dos comandos de `backup.sh` (pg_dump -Fc y
+   `pg_dumpall --globals-only` vía `docker exec orbit-db-1`), con el
+   nombre `orbit_precutover_<tag>.dump` / `orbit_globals_precutover_<tag>.sql`.
+2. CSV del cache: `docker exec orbit-db-1 psql -U orbit -d orbit -c
+   "\copy ad_entity_state TO STDOUT CSV HEADER" > "$D/ad_entity_state_<fecha>.csv"`.
+3. Listas de Amazon (SOLO lectura): por cada perfil de
+   `app.ads.structure.perfiles_aceptados`, `AdsClient.list_objects` sobre
+   `/sp/keywords/list`, `/sp/negativeKeywords/list` y `/sp/targets/list`
+   (paginando), agrupado por `campaignId` → `$D/listas_amazon/listas_por_plataforma.json`.
+   **En 4.4 esto corrió como código inline dentro del contenedor (no está
+   en el repo)**: antes del flip, el ítem 4 del checklist exige aterrizarlo
+   como `tools/snapshot_listas.py` (con test de sus partes puras) para que
+   el operador lo repita sin reescribirlo — hallazgo Greptile PR #40.
+
+**Cómo se verifica — los CUATRO artefactos, no solo el dump** (CodeRabbit
+PR #40): `VERIFY_OK` solo se emite si pasan todos:
+
+1. Dump: receta VERIFY_OK de arriba apuntando `$D` al directorio y el
+   nombre del dump a `orbit_precutover_<tag>.dump` (ojo, NO es el
+   `orbit_YYYY-MM-DD.dump` de la receta): restore real a `orbit_verify_tmp`
+   con `--exit-on-error`, `pg_restore --list` (CON `docker exec -i`), y
+   conteos de `apply_queue`/`apply_attempt`/`config_version`/`decision`/
+   `ad_entity_state` idénticos a producción ANTES del `DROP ... WITH (FORCE)`.
+2. Globals: `grep -c '^CREATE ROLE' "$D/orbit_globals_precutover_<tag>.sql"`
+   = el número de roles del cluster (`SELECT count(*) FROM pg_roles WHERE
+   rolname NOT LIKE 'pg_%'`).
+3. CSV: `wc -l` = `SELECT count(*) FROM ad_entity_state` + 1 (header).
+4. JSON: `python3 -c 'import json;json.load(open(...))'` sin error y los
+   totales por plataforma/recurso = `SELECT platform, kind, count(*) FROM
+   ad_entity WHERE kind IN ('keyword','product_target') GROUP BY 1,2`
+   (incluye ARCHIVED: el LIST los devuelve); negativeKeywords sin
+   referencia en cache — solo se registra el conteo.
+
+Verificado 2026-08-28 (ensayo): dump VERIFY_OK con 4/29/9/977/5,899; CSV
+5,900 líneas; JSON cargable con MX 2,645 kw / 861 targets y US 1,336 kw /
+549 targets = `ad_entity` exacto (conciliado por el lead); globals 3,236 B
+(conteo de roles NO verificado en el ensayo — se exige desde el real).
 
 **Cómo se restaura**: ver "Recuperación desde backups" (mismo mecanismo;
 los globals van ANTES del dump para revivir los roles).
