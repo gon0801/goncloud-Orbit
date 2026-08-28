@@ -171,6 +171,14 @@
     referencia); el DoD del seed exige destino con `status='ENABLED'` (r2:
     harvest a campaña pausada gasta quota sin servir). A1U fuera. Alta de
     familias futuras = un goal por config.
+   **RATIFICADO por el dueño (2026-08-27, tras las reactivaciones del PR
+   #37): manda el brief de 4.2 — MX = Arras Manual (108; ad group external
+   272585315669297) con default 2.50 MXN derivado de la mediana de bids
+   EXACT reales clampeada al techo del goal; US = goals campaign 6/7 (A1U
+   3909 + AU2 3926) sin terna (destino harvest US queda abierto). USPerNog
+   (3919) sigue PAUSED: su destino quedaba descalificado por el propio DoD
+   "destino PAUSED rechazado". Seed aplicado en vivo; evidencia
+   out/orbit-04-4-2-seeds-20260827.md.**
 16. **Post-apply, el cache se actualiza CON el readback** (r2 grok 3: sin
     esto el ciclo siguiente calcula +15% sobre el bid viejo — regla 2, la
     fuente es Amazon y el readback ES de Amazon): la 0002 otorga a

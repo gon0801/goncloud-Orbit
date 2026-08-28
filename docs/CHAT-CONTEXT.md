@@ -27,7 +27,7 @@ hasta el primer apply real; sistema en shadow. Evidencia
 veto real del dueño, 4.4 cierre.
 
 Previo (2026-08-27, tarde): REACTIVACIÓN POR API EJECUTADA
-(autorizada por el dueño, "hazlo tú"):** 25 keywords pausadas (dedup de
+(autorizada por el dueño, "hazlo tú"): 25 keywords pausadas (dedup de
 CAMPANAS 01: 4 en Arras Manual 108, 18 broads en AD_READY 157-160, 3 phrases
 en AU2 3920) y 5 campañas reactivadas (108 Arras Manual MX, 3934 Wedding
 Coin ASIN US, 3911 A1U Category Phrase US, 3909 A1U Category Exact US, 3926

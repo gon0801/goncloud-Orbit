@@ -582,6 +582,16 @@ Goals sellados del seed (4.2): MX = `AC - Category Exact - MX` ad group
 553629449717842, fallback 10.00 MXN; US = DOS goals scope=campaign: AU2 →
 `AU2 - Category Exact - US` y USPerNog → `USPerNog - Category Exact - US`,
 fallback 1.00 USD cada uno. A1U fuera.
+**RATIFICACIÓN del dueño (2026-08-27) — el seed EJECUTADO fue otro y este
+párrafo queda como historia de la decisión 15, no como estado vigente:**
+MX = Arras Manual (108, external `97835222467967`, ad group external
+`272585315669297`) con default 2.50 MXN (mediana de bids EXACT reales de la
+campaña clampeada al techo del goal); US = goals scope=campaign 6/7 sobre
+A1U Exact (3909) y AU2 Exact (3926) SIN terna — el destino harvest US y su
+fallback quedan como decisión abierta del dueño. USPerNog (3919) estaba
+PAUSED al sembrar: descalificada por el propio DoD "destino PAUSED
+rechazado". Para familias NUEVAS el fallback se deriva de los bids reales
+del destino elegido (regla 3), no de los literales 10.00/1.00 de arriba.
 
 ### 11b. Rotación del token estático de escritura (sellado 18)
 
