@@ -12,8 +12,12 @@
 > (fila 4, `gon-personal`, 2026-08-28); (3) ensayo E2E 4/4 neto-cero —
 > CUMPLIDO (4.3); (4) firma del dueño del spot-check — CUMPLIDA
 > (2026-08-28, 33 decisiones); (5) CORTES 03 desplegada y verificada
-> (preflight 1.1); (6) preflight 1.2-1.8 Done; (7) este plan aprobado por
-> el dueño con SU decisión de qué goals entran a live el día 1.
+> (preflight 1.1); (6) preflight 1.2-1.8 Done (incluida 1.6a: destino
+> harvest US reactivado y sembrado); (7) este plan APROBADO por el dueño el
+> 2026-08-28 ("1. si 2. no se 3 acotar 4 todos"): **goals del día 1 =
+> TODOS (4 MX, 5/6/7 US)** — la rampa por goal queda disponible como
+> mecanismo de rollback parcial, no como plan de encendido; el go del día
+> del flip (1.1) lo re-confirma con la lista literal.
 >
 > **Reparto**: el día del flip lo ejecuta el lead con el dueño presente (o
 > autorización escrita paso a paso); GLM no despliega ni flipea. Cross-review
@@ -92,13 +96,16 @@
 
 ## Residuales declarados
 
-1. El destino harvest US depende de la respuesta del dueño en preflight 1.6;
-   si se difiere, los harvest US siguen saltándose por `harvest_sin_config`
-   (correcto: sin config jamás placeholder) y 2.3 se ejecuta solo en MX.
-2. Halo US (acotar/holdout/TACoS) puede quedar diferido por escrito: el
-   motor optimiza ACoS con revenue completo (CONTEXTO manda) y la
-   rentabilidad real de US sigue siendo la "pregunta sin respuesta" hasta
-   la fase margin-aware.
+1. Destino harvest US: decidido (preflight 1.6a: USPerNog Exact 3919
+   reactivada + terna del goal 5). Hasta que 1.6a esté Done, los harvest
+   US se saltan por `harvest_sin_config` (correcto: sin config jamás
+   placeholder) y 2.3 solo puede ocurrir en MX.
+2. Halo US: el dueño eligió **acotar con ambos supuestos** — vale para la
+   fase margin-aware (reportar/decidir con el rango con-halo / sin-halo);
+   ORBIT 05 sigue optimizando ACoS con revenue completo (CONTEXTO manda),
+   así que la rentabilidad real de US sigue sin un solo número hasta esa
+   fase. AGM2M (165) queda DIFERIDO por el dueño ("no sé"): PAUSED, fuera
+   del piloto, se re-pregunta tras 48h live.
 3. `apply_queue.vetoed_by` sigue siendo texto libre bajo un token compartido
    (residual 5 de ORBIT 04): la autoría de los vetos del dueño se prueba por
    la ceremonia (él ejecuta), no por la base.
