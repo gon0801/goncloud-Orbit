@@ -102,8 +102,10 @@ PLATAFORMAS_MONEDA: dict[str, str] = {"amazon_us": "USD", "amazon_mx": "MXN"}
 # replay lo re-evalua VIVO, asi que las pauses historicas con costo en
 # [12, 40) USD / [200, 500) MXN ya no reproducen ni trayendo freeze (31
 # filas medidas 2026-08-28; hallazgo codex, cross-review CORTES 03; la
-# solucion es decision del lead). Mismo patron que hygiene con
-# negative (1.2).
+# solucion es decision del lead). El "mismo patron" del default-vigente es
+# el del UMBRAL negative en hygiene (1.2); ojo con la asimetria: el PISO de
+# negative SI viaja congelado (piso_cost_usado, 1.4) -- el de pause no
+# (hallazgo grok, ronda 2: la simetria aqui NO existe).
 PAUSE_COST_MIN: dict[str, Decimal] = {  # CORTES 03 (dueno 2026-08-28; antes 12/200)
     "amazon_us": Decimal("40"),
     "amazon_mx": Decimal("500"),

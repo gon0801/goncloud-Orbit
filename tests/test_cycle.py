@@ -1781,6 +1781,76 @@ def test_replay_pause_congelada_cortes01_diverge_por_costo_vivo():
     assert ciclo.reproduce(congelada) == (None, None, None)
 
 
+def test_replay_decision_774_real_diverge_a_banda_menos_12():
+    """Punto duro del mismo hallazgo (grok, cross-review ronda 2): replay con
+    los inputs REALES congelados de la decision 774 (la fila 30 del
+    spot-check que motivo CORTES 03; extraidos por SELECT read-only
+    2026-08-28 y espejados aqui). El pause ya no califica (costo 25.21 < 40
+    piso vivo) y el replay CAE A LA BANDA -12% (bids: cost 25.21,
+    ad_revenue 0, orders 0 -> baja sin minimo de ordenes; bid 0.25 x 0.88 =
+    0.22): un auditor que rejuegue la 774 ve un BID donde la decision
+    persistida es PAUSE -- divergencia PEOR que un no-op limpio. Pinnado
+    para que quede declarado; la cura (congelar cost_min_usado) es decision
+    del lead, no de este PR."""
+    inputs_774 = {
+        "goal": {
+            "scope": "platform",
+            "harvest": None,
+            "bid_floor": "0.1000",
+            "bid_ceiling": "2.5000",
+            "target_acos_pct": None,
+        },
+        "modo": "shadow",
+        "corte": {
+            "elegible": False,
+            "evidencia": {
+                "clicks": 283,
+                "fechas": 52,
+                "orders": 1,
+                "ventana_desde": "2026-05-30",
+                "ventana_hasta": "2026-08-18",
+                "observed_at_max": "2026-08-25T08:06:11.871936+00:00",
+            },
+            "expected_clicks": None,
+            "umbral_clicks_usado": 50,
+        },
+        "motor": "bid",
+        "factor": None,
+        "motivo": "pause_umbral",
+        "platform": "amazon_us",
+        "ventanas": {
+            "bids": {
+                "cost": "25.2100",
+                "clicks": 72,
+                "fechas": 30,
+                "moneda": "USD",
+                "orders": 0,
+                "ad_revenue": "0.0000",
+                "window_end": "2026-08-17",
+                "window_start": "2026-07-19",
+                "observed_at_max": "2026-08-25T08:06:11.871936+00:00",
+                "revenue_same_sku": "0.0000",
+            },
+            "cortes": {
+                "cost": "25.2100",
+                "clicks": 72,
+                "fechas": 30,
+                "moneda": "USD",
+                "orders": 0,
+                "ad_revenue": "0.0000",
+                "window_end": "2026-08-17",
+                "window_start": "2026-07-19",
+                "observed_at_max": "2026-08-25T08:06:11.871936+00:00",
+                "revenue_same_sku": "0.0000",
+            },
+        },
+        "target_acos_pct_usado": "25.00",
+        "bid_actual": "0.2500",
+        "bid_moneda": "USD",
+    }
+    assert ciclo.reproduce(inputs_774) == ("bid", Decimal("0.22"), "USD")
+
+
 @pytest.mark.skipif(
     _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
