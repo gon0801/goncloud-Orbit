@@ -4,7 +4,7 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
-**2026-08-28 — CORTES 03 EN PREPARACIÓN** (rama `cortes-03/umbrales-pausa`):
+**2026-08-28 — CORTES 03 en PR #43 (CI verde; pendiente de merge y deploy del lead)** (rama `cortes-03/umbrales-pausa`):
 umbral de PAUSE del dueño → **100 clics / 40 USD / 500 MXN** (origen
 spot-check 4.4 fila 30 / decisión 774: 72 clics / 25.21 USD / 0 ventas
 pausó prematuro); fallback y piso legacy de PAUSE también suben a 100;

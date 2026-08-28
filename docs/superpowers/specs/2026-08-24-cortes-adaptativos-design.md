@@ -78,8 +78,9 @@ umbral_final(regla) = max(legacy_regla, umbral_bruto(regla))
 - **NEGATIVE_EXACT**: `orders=0 ∧ clicks_término ≥ umbral_final(neg) ∧
   cost ≥ {us:8, mx:130}` — el término sigue midiéndose en SU ventana
   madura existente. **PAUSE**: `orders=0 ∧ clicks_entidad ≥
-  umbral_final(pause) ∧ cost ≥ {us:12, mx:200}` — la entidad sigue en SU
-  ventana de cortes existente. **La ventana de 90d SOLO resuelve el
+  umbral_final(pause) ∧ cost ≥ {us:40, mx:500}` — la entidad sigue en SU
+  ventana de cortes existente (CORTES 03 subió el costo; este spec lo
+  selló en 12/200). **La ventana de 90d SOLO resuelve el
   umbral; las ventanas de comparación de término/entidad NO cambian**
   (sellado explícito: "alinear" a 90d sería otro contrato).
 - Intactos: pisos de cost, maduración ≥10d, precedencia PAUSE>bandas,

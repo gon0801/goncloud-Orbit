@@ -94,6 +94,7 @@ def _decide(
     bid_moneda: str | None = "USD",
     floor: str = "0.40",
     ceiling: str = "2.50",
+    cost_min: str | None = None,
 ) -> b.ResultadoBid:
     return b.decide_bid(
         platform=platform,
@@ -104,6 +105,7 @@ def _decide(
         bid_moneda=bid_moneda,
         floor=Decimal(floor),
         ceiling=Decimal(ceiling),
+        cost_min=None if cost_min is None else Decimal(cost_min),
     )
 
 
@@ -239,6 +241,28 @@ def test_clicks_100_cost_39_99_no_pause_us():
 # ---------------------------------------------------------------------------
 # DoD 3: precedencias explicitas
 # ---------------------------------------------------------------------------
+
+
+def test_cost_min_parametro_manda_sobre_el_default():
+    """El parametro cost_min (cierre CORTES 03) ES consumido por la guarda
+    de pause, en ambas direcciones: con cost_min 999 el costo 45 NO pausa
+    (el default vigente 40 si lo haria); con cost_min 5 el costo 11.99 SI
+    pausa (el default no). Si alguien volviera a leer el dict directo e
+    ignorara el parametro, estas dos aserciones reventan. El replay es el
+    caller que depende de esto (pasa el congelado/historico)."""
+    r_alto = _decide(
+        None,
+        _cortes(cost=Decimal("45"), ad_revenue=Decimal("0"), orders=0, clicks=100),
+        cost_min="999",
+    )
+    assert r_alto.kind is None
+    r_bajo = _decide(
+        None,
+        _cortes(cost=Decimal("11.99"), ad_revenue=Decimal("0"), orders=0, clicks=100),
+        cost_min="5",
+    )
+    assert r_bajo.kind == "pause"
+    assert r_bajo.motivo == "pause_umbral"
 
 
 def test_precedencia_pause_gana_a_banda_menos_25():

@@ -1755,6 +1755,58 @@ def test_replay_legacy_pause_sin_inputs_corte_usa_historicos():
     assert ciclo.reproduce(espejo_real) == ("pause", None, None)
 
 
+def test_replay_bid_kind_congelada_depende_del_piso_costo():
+    """Guarda del hueco que vio grok (cross-review ronda del lead): no habia
+    replay de una decision kind=BID cuya existencia dependa de la puerta de
+    costo del pause -- si _pendiente_bid dejara de congelar cost_min_usado
+    (o _replay_bid de leerlo), una fila viva CORTES 03 con clicks sobre el
+    umbral y costo ENTRE el historico (12) y el vigente (40) rejugaria como
+    pause y la suite seguiria verde. Espejo: freeze {umbral 100,
+    cost_min "40"}, entidad 120 clicks / 25.21 USD / 0 ordenes (pause
+    bloqueado SOLO por el piso congelado) y banda -25% en bids (36/100,
+    orders 5). Si el replay usara el historico 12, rejugaria pause y la
+    primera asercion reventaria."""
+    inputs_bid = {
+        "motor": "bid",
+        "platform": "amazon_us",
+        "ventanas": {
+            "bids": {
+                "window_start": "2026-07-18",
+                "window_end": "2026-08-16",
+                "fechas": 30,
+                "cost": "36.0000",
+                "ad_revenue": "100.0000",
+                "revenue_same_sku": None,
+                "clicks": 50,
+                "orders": 5,
+                "moneda": "USD",
+                "observed_at_max": "2026-08-20T06:00:00+00:00",
+            },
+            "cortes": {
+                "window_start": "2026-07-19",
+                "window_end": "2026-08-17",
+                "fechas": 30,
+                "cost": "25.2100",
+                "ad_revenue": "0.0000",
+                "revenue_same_sku": None,
+                "clicks": 120,
+                "orders": 0,
+                "moneda": "USD",
+                "observed_at_max": "2026-08-25T08:06:11.871936+00:00",
+            },
+        },
+        "goal": {"bid_floor": "0.4000", "bid_ceiling": "2.5000", "harvest": None},
+        "target_acos_pct_usado": "25.00",
+        "bid_actual": "1.0000",
+        "bid_moneda": "USD",
+        "factor": None,
+        "motivo": "banda_menos_25",
+        "modo": "shadow",
+        "corte": {"umbral_clicks_usado": 100, "cost_min_usado": "40", "elegible": False},
+    }
+    assert ciclo.reproduce(inputs_bid) == ("bid", Decimal("0.75"), "USD")
+
+
 def test_replay_pause_lee_el_umbral_congelado_jamas_el_default():
     """Guarda PURA del hallazgo grok (cross-review CORTES 03): el replay DEBE
     consumir inputs.corte.umbral_clicks_usado, jamas caer al default. Mismos
