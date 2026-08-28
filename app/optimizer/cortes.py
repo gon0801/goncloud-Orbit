@@ -7,11 +7,16 @@ meterla ahi crearia un import circular; en windows violaria la frontera IO
 (spec v3).
 
 Numeros sellados (spec v3, dueno 2026-08-24): O_min=3, C_min=60, Z_min=14,
-M=1.5, F_neg=40, F_pause=50. PISO (ronda 1 grok): umbral_final =
-max(legacy_regla, bruto) con legacy 20 negative / 25 pause -- el adaptativo
-solo puede SUBIR umbrales, jamas bajar de los actuales (sin piso, un
-producto de conversion rapida -- 60 clicks / 6 ordenes -> expected 10 ->
-umbral 15 -- quedaria MAS agresivo que hoy, contra el proposito del plan).
+M=1.5, F_neg=40. CORTES 03 (dueno 2026-08-28; origen spot-check ORBIT 04
+4.4 fila 30 / decision 774: 72 clicks / 25.21 USD / 0 ventas pauso
+prematuramente): F_pause=100 y legacy pause=100 (antes 50/25 por CORTES 01).
+PISO (ronda 1 grok): umbral_final = max(legacy_regla, bruto) con legacy
+20 negative / 100 pause -- el piso pause aplica en AMBOS caminos (elegible y
+fallback, via max()) y el adaptativo solo puede SUBIR umbrales, jamas bajar
+de los actuales (sin piso, un producto de conversion rapida -- 60 clicks /
+6 ordenes -> expected 10 -> umbral 15 -- quedaria MAS agresivo que hoy,
+contra el proposito del plan; bajo pause ese ejemplo lo cubre el piso 100 y
+bajo negative el legacy 20).
 
 La evidencia es del AD GROUP (proxy de producto sellado: suma de sus hojas
 keyword+product_target sobre la ventana literal D-90..D-10; windows.py,
@@ -30,7 +35,8 @@ Decimal es exacto: cero float en todo el camino.
 PISO DE COST del camino negative (CORTES 01 1.4, decision 5bis): la funcion
 hermana `piso_corte` resuelve el umbral de DINERO del negative, por
 PLATAFORMA (la moneda manda) y SOLO de ese camino (los pisos de cost de
-pause 12/200 viven en bid; jamas se tocan). Mismo contrato que el umbral:
+pause 40/500 viven en bid; CORTES 03 los subio de 12/200, decision del
+dueno 2026-08-28). Mismo contrato que el umbral:
 elegibilidad 3/60/14 ANTES de dividir, AOV = ad_revenue/orders SOLO con
 evidencia elegible y revenue sano (envenenado -> respaldo, jamas un AOV
 inventado), bruto = AOV x K (K=1.0 sellado) o respaldo {us: 45, mx: 600},
@@ -58,9 +64,9 @@ C_MIN = 60  # clicks del grupo para calificar (>=)
 Z_MIN = 14  # fechas distintas de la UNION de hojas para calificar (>=)
 M = Decimal("1.5")  # multiplicador sobre expected_clicks
 F_NEG = 40  # fallback negative (grupo no elegible)
-F_PAUSE = 50  # fallback pause (lo consume 1.3)
+F_PAUSE = 100  # fallback pause (lo consume 1.3); CORTES 03, antes 50
 LEGACY_NEGATIVE = 20  # piso: el adaptativo jamas baja de aqui
-LEGACY_PAUSE = 25  # piso pause (lo consume 1.3)
+LEGACY_PAUSE = 100  # piso pause (lo consume 1.3); CORTES 03, antes 25
 
 # Piso de COST legacy del camino negative (1.4): vivia en hygiene, ahora
 # tiene UNA fuente aqui junto a los demas sellados (hygiene lo importa). El

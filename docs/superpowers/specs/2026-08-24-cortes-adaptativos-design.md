@@ -17,9 +17,11 @@
 3. **Maquinaria única compartida**: una ventana, una elegibilidad, UN
    multiplicador, DOS fallbacks. Secuencia de aterrizaje: negative → pause.
 4. **Números sellados**: `O_min=3`, `C_min=60`, `Z_min=14`, `M=1.5`,
-   `F_neg=40`, `F_pause=50`, `L=90`.
+   `F_neg=40`, `F_pause=100` (CORTES 03, dueno 2026-08-28; este spec lo
+   selló en 50), `L=90`.
 5. **PISO de clicks sellado (ronda 1, grok)**: `umbral_final = max(legacy, umbral)`
-   con legacy 20 (negative) / 25 (pause) — el adaptativo solo puede SUBIR
+   con legacy 20 (negative) / 100 (pause; CORTES 03, dueno 2026-08-28 — este
+   spec lo selló en 25) — el adaptativo solo puede SUBIR
    umbrales, jamás bajar de los actuales. Sin piso, un producto de
    conversión rápida (60 clicks/6 órdenes → expected 10) quedaría con
    umbral 15: más agresivo que hoy, contra el propósito del plan.
@@ -34,7 +36,8 @@
    600 MXN**, `AOV = ad_revenue_total / orders_total` del grupo (Decimal,
    jamás float). Piso legacy 8/130 queda como mínimo absoluto (patrón
    max: el adaptativo solo SUBE). Solo NEGATIVE — los pisos de PAUSE
-   (12/200) no cambian (pause es reversible y tendrá veto).
+   (12/200) no cambian por ESTE spec (pause es reversible y tendrá veto);
+   CORTES 03 (dueno 2026-08-28) sí los subió después a 40 USD / 500 MXN.
    `inputs.corte` gana `piso_cost_usado` (string Decimal) y `aov`
    (string|null); el replay LEE el piso congelado (fila sin la clave →
    legacy 8/130). Un grupo puede ser elegible para el UMBRAL (clicks/
@@ -67,9 +70,9 @@ expected_clicks = Decimal(total_clicks) / Decimal(total_orders)
 umbral_bruto(regla) = ceil(expected_clicks × Decimal("1.5"))   si califica
                       — ceil DEL PRODUCTO (jamás ceil-luego-multiplica);
                       con M=1.5 equivale al racional ceil(3·clicks/2·orders)
-                    = F_neg=40 | F_pause=50                    si no
+                    = F_neg=40 | F_pause=100 (CORTES 03)        si no
 umbral_final(regla) = max(legacy_regla, umbral_bruto(regla))
-                      legacy: 20 negative / 25 pause
+                      legacy: 20 negative / 100 pause (CORTES 03)
 ```
 
 - **NEGATIVE_EXACT**: `orders=0 ∧ clicks_término ≥ umbral_final(neg) ∧

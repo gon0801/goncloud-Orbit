@@ -70,12 +70,13 @@ expected_clicks como string, evidencia con observed_at_max) -- en hygiene
 las negative (las harvest NO lo llevan) y en bids TODAS, incluidas las de
 kind final 'bid': decide_bid evalua PAUSE antes de las bandas y, sin el
 freeze, el replay de un bid cuyo umbral adaptativo bloqueo el pause
-rejugaria como pause con el legacy 25. data_observed_at =
+rejugaria como pause con el legacy vigente (100 desde CORTES 03; era 25). data_observed_at =
 LEAST(decided_at, max(obs directo, observed_at_max de la evidencia)) -- el
 clamp es obligatorio (CHECK decision_dato_no_del_futuro): sin el, un
 observed_at posterior a decided_at aborta el executemany de TX3.
 reproduce() LEE el umbral congelado (fila historica sin la clave ->
-legacy 20 negative / 25 pause); jamas recalcula evidencia.
+legacy 20 negative / 100 pause, vigente desde CORTES 03); jamas recalcula
+evidencia.
 
 Semantica de status del envelope: 'done' si el ciclo corrio completo (aunque
 todo haya sido skips), 'degraded' si disparo una guarda de plataforma (dato
@@ -591,8 +592,9 @@ def _pendiente_bid(
     decision del motor de bids -- INCLUIDAS las de kind final 'bid' -- porque
     decide_bid evalua PAUSE ANTES de las bandas: sin el freeze, el replay de
     un bid historico cuyo umbral adaptativo de pause BLOQUEO el corte
-    rejugaria como pause con el legacy 25 y la auditoria divergiria (spec
-    v3). El sello bitemporal (_sello_bitemporal) aplica al obs directo del
+    rejugaria como pause con el legacy vigente (100 desde CORTES 03) y la
+    auditoria divergiria (spec v3). El sello bitemporal
+    (_sello_bitemporal) aplica al obs directo del
     agregado que decidio (cortes para pause, bids para bid) mezclado con la
     evidencia del grupo, clampeado a decided_at."""
     inputs = {
@@ -1094,8 +1096,8 @@ def _procesa_decisora(
     # CORTES 01 (1.3): umbral pause del GRUPO (k.parent_id de
     # _SQL_DECISORAS) resuelto con LA MISMA funcion que negative, UNA vez
     # por ad group y ciclo (cache lazy del recorrido); entidad cuyo grupo
-    # no esta en el dict -> evidencia None -> fallback 50 con piso legacy
-    # 25 (regla 3: jamas un numero inventado)
+    # no esta en el dict -> evidencia None -> fallback 100 con piso legacy
+    # 100 (CORTES 03; antes 50/25; regla 3: jamas un numero inventado)
     if ad_group_id not in corte_pause_por_grupo:
         evidencia = evidencia_ad_groups.get(ad_group_id)
         corte_pause_por_grupo[ad_group_id] = (cortes.umbral_corte(evidencia, "pause"), evidencia)
@@ -1750,7 +1752,11 @@ def _replay_bid(inputs: dict) -> bid.ResultadoBid:
     goal = inputs["goal"]
     # CORTES 01 (spec): el replay LEE inputs.corte.umbral_clicks_usado, JAMAS
     # recalcula evidencia (el snapshot de la decision ya no existe). Fila
-    # historica sin la clave (pre-CORTES) -> LEGACY_PAUSE 25, replay exacto.
+    # historica sin la clave (pre-CORTES) rejuega con el default VIGENTE
+    # (LEGACY_PAUSE, 100 desde CORTES 03): las pauses pre-CORTES REALES de
+    # produccion (119 clicks / 45.80 USD) siguen reproduciendo; una fila
+    # hipotetica de < 100 clicks ya no (efecto documentado en CORTES 03,
+    # decision de compat pendiente del lead).
     corte = inputs.get("corte")
     umbral_pause = corte["umbral_clicks_usado"] if corte is not None else cortes.LEGACY_PAUSE
     return bid.decide_bid(

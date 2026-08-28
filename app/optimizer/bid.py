@@ -14,9 +14,10 @@ diseno manda):
   window_end <= decided_at - 10d; decidirlo con la ventana de bids seria
   rechazado por la base -- 2.1 lo probo). Umbrales INCLUSIVOS (>=):
   orders=0 AND clicks>= umbral_pause (CORTES 01 1.3: llega RESUELTO por
-  parametro -- adaptativo por producto con piso legacy 25, resuelto por
+  parametro -- adaptativo por producto con piso legacy 100, resuelto por
   cortes.umbral_corte en cycle.py; el replay lee el congelado) AND cost>=
-  {amazon_us: 12 USD, amazon_mx: 200 MXN}.
+  {amazon_us: 40 USD, amazon_mx: 500 MXN} (CORTES 03, dueno 2026-08-28;
+  antes 25 / 12 USD / 200 MXN).
 - Bandas (kind 'bid') sobre el agregado de la ventana de BIDS:
   * -25% si ACoS > 1.35x target AND orders>=1 (estricto >)
   * -12% si ACoS > 1.15x target (sin condicion de orders)
@@ -90,13 +91,17 @@ PLATAFORMAS_MONEDA: dict[str, str] = {"amazon_us": "USD", "amazon_mx": "MXN"}
 
 # CORTES 01 (1.3): el umbral de clicks del PAUSE ya NO vive aqui. Llega
 # RESUELTO por parametro (cortes.umbral_corte(evidencia del grupo, 'pause')
-# en cycle.py; el motor sigue puro). El default es el LEGACY sellado con UNA
-# fuente (cortes.py): los callers que no optimizan por producto (replay de
-# filas historicas sin inputs.corte) reproducen el comportamiento
-# pre-CORTES exacto. Mismo patron que hygiene con negative (1.2).
-PAUSE_COST_MIN: dict[str, Decimal] = {
-    "amazon_us": Decimal("12"),
-    "amazon_mx": Decimal("200"),
+# en cycle.py; el motor sigue puro). El default es el LEGACY VIGENTE con UNA
+# fuente (cortes.py; 100 desde CORTES 03): los callers que no optimizan por
+# producto (replay de filas historicas sin inputs.corte) rejuegan con el
+# default VIGENTE, NO con el historico -- para las pauses reales pre-CORTES
+# (119 clicks / 45.80 USD) el replay sigue reproduciendo; una fila
+# hipotetica de < 100 clicks ya no (efecto documentado en CORTES 03;
+# decision de compat pendiente del lead). Mismo patron que hygiene con
+# negative (1.2).
+PAUSE_COST_MIN: dict[str, Decimal] = {  # CORTES 03 (dueno 2026-08-28; antes 12/200)
+    "amazon_us": Decimal("40"),
+    "amazon_mx": Decimal("500"),
 }
 
 MULT_BAJA_FUERTE = Decimal("1.35")  # ACoS > 1.35x target (estricto)
@@ -218,7 +223,8 @@ def decide_bid(
     RESUELTO (inclusivo >=): el orquestador lo calcula con
     cortes.umbral_corte(evidencia del ad group, 'pause') y el replay lee el
     congelado en inputs.corte.umbral_clicks_usado; el default es el legacy
-    25 (filas historicas sin la clave). Este modulo jamas recalcula.
+    vigente, 100 desde CORTES 03 (filas historicas sin la clave). Este
+    modulo jamas recalcula.
 
     Orden interno sellado:
     (1) PAUSE sobre el agregado de CORTES (si existe, esta completo, su

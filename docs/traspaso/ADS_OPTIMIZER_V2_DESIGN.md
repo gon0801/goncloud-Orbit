@@ -43,7 +43,7 @@ topes.
 
 Bids (ventana 30d por entidad, target en %, costos en moneda LOCAL):
 
-1. **PAUSE**: orders=0 ∧ clicks≥25 ∧ cost≥{us: 12 USD, mx: 200 MXN}
+1. **PAUSE**: orders=0 ∧ clicks≥100 ∧ cost≥{us: 40 USD, mx: 500 MXN} (CORTES 03, dueno 2026-08-28; antes 25 / 12 USD / 200 MXN; CORTES 01 habia puesto fallback 50; umbral final = max(100, bruto adaptativo))
 2. **−25%**: ACoS% > 1.35×target (orders≥1)
 3. **−12%**: ACoS% > 1.15×target
 4. **+15%**: ACoS% < 0.85×target ∧ orders≥3

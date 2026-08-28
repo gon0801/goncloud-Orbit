@@ -199,7 +199,8 @@ Re-evalúa el corte contra la **ventana FRESCA** de datos — jamás reusa los
 insumos congelados de la decisión:
 
 - **Regla re-evaluada completa**: PAUSE `orders=0 ∧ clicks≥umbral_corte ∧
-  cost≥{us: 12 USD, mx: 200 MXN}`; NEGATIVE `orders=0 ∧ clicks≥umbral_corte
+  cost≥{us: 40 USD, mx: 500 MXN}` (CORTES 03; antes 12/200); NEGATIVE
+  `orders=0 ∧ clicks≥umbral_corte
   ∧ cost≥piso` (pisos adaptativos de CORTES 01). Si ya no califica — el
   término vendió durante las 48h, o el umbral re-resuelto ya no se alcanza
   — pasa a `discarded` CON NOTA. Jamás se corta por silencio contra la
