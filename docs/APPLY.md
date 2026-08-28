@@ -662,15 +662,31 @@ export ORBIT_SMOKE_AUTH="<el MISMO token sembrado en ads_smoke_auth>"
 python tools/smoke_apply.py --forma todas --platform <platform> \
   --acepto-mutacion-real 2>&1 | tee out/smoke-apply-<fecha>.log
 unset ORBIT_SMOKE_AUTH
+# '--forma todas' SOLO si UNA campaña allowlisted cubre las cuatro formas;
+# si no (p. ej. las de keyword en una campaña y bid_target en otra), correr
+# formas por invocación con configs sucesivas (ver variante contenedor).
 
 # Variante CONTENEDOR (post-4.1: el tool NO va en la imagen y el contenedor
-# es non-root — /app no es escribible; la 4.3 corrió así, 2026-08-28):
-#   1) cat tools/smoke_apply.py | ssh goncloud 'docker exec -i orbit-app-1 \
+# es non-root — /app no es escribible; la 4.3 corrió así, 2026-08-28).
+# TODO se ejecuta desde el host del repo contra goncloud; el token viaja por
+# ARCHIVO dentro del contenedor, JAMÁS por argv de docker exec (no queda en
+# history ni en ps):
+#   1) cat tools/smoke_apply.py | ssh goncloud 'docker exec -i orbit-app-1
 #        sh -c "cat > /tmp/smoke_apply.py"'
-#   2) docker exec -e ORBIT_SMOKE_AUTH=<token> -e PYTHONPATH=/app \
-#        orbit-app-1 python /tmp/smoke_apply.py --forma <X> \
-#        --platform <platform> --acepto-mutacion-real   (stdout = evidencia)
-#   3) docker exec orbit-app-1 rm -f /tmp/smoke_apply.py
+#      ssh goncloud 'cat /tmp/smoke_token | docker exec -i orbit-app-1
+#        sh -c "cat > /tmp/smoke_token"'     (token 600 en el host; jamás
+#        imprimirlo)
+#   2) ssh goncloud 'docker exec orbit-app-1 sh -c "ORBIT_SMOKE_AUTH=\$(cat
+#        /tmp/smoke_token) PYTHONPATH=/app python /tmp/smoke_apply.py
+#        --forma <X> --platform <platform> --acepto-mutacion-real"' \
+#        2>&1 | tee out/smoke-apply-<fecha>.log   (stdout = evidencia; la
+#        durable es el ledger)
+#   3) ssh goncloud 'docker exec orbit-app-1 rm -f /tmp/smoke_apply.py
+#        /tmp/smoke_token'
+# OJO: el allowlist es UNA campaña por plataforma — '--forma todas' solo si
+# UNA campaña cubre las cuatro formas; si no, formas por invocación con DOS
+# configs sucesivas (medido en 4.3: A para las de keyword, B para
+# bid_target).
 ```
 
 OJO (medido en 4.3): el allowlist es UNA campaña por plataforma — si las

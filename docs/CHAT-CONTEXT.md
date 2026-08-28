@@ -5,7 +5,8 @@
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
 **Última actualización: 2026-08-28 — ORBIT 04 4.3 CERRADA (ensayo E2E +
-veto real, prerequisito de ORBIT 05 cumplido):** re-corrida del smoke 2.5
+veto real por delegación; para el flip de ORBIT 05 falta el veto PERSONAL
+del dueño):** re-corrida del smoke 2.5
 contra el deploy real, mismas campañas sacrificables (A: USPerNog Category
 Exact 251723662158466 — hoy PAUSED; B: USPerNog Auto Discovery
 140602818838686), dentro del contenedor (tool a `/tmp` + `PYTHONPATH=/app`:
@@ -148,7 +149,8 @@ cross-review del dueño (codex+qwen) cerrada (readback paginado, 207
 verificados campo por campo, constantes del pause a una fuente). Residuo
 verificado y limpio: los 4 términos basura zzsmokeprobe* quedaron ARCHIVED
 (en Amazon delete=archivar; ledger probe ids 1-20 — el id 21 es de la
-reactivación por API del 2026-08-27, PR #37).
+limpieza del residuo del 2.5 del 2026-08-27, script
+`out/limpia_residuo_probe_2_5.py`, verificado por payload).
 Rama orbit-04/2-5-probe-shapes, PR DRAFT #31 apilado sobre #29 (3.2).
 
 Previo (2026-08-26): ORBIT 04 Phase 3 EN CURSO: 3.1 lista
