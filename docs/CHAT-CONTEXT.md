@@ -65,8 +65,8 @@ plataforma; cache y decisiones 100% consistentes). El dueño aplicó desde su
 terminal `goals set 4 --floor 1.00 --ceiling 45.00` (verificado por SELECT,
 `updated_at` 18:05 UTC); US queda 0.10/2.50 (máx real 2.00). (2) **Umbrales
 de pausa**: 72 clics / $25 / 0 ventas (fila 30 del spot-check) le pareció
-poco → PAUSE exigirá **≥100 clics y ≥$40 USD** sin ventas (MX propuesto 700
-MXN, por confirmar) = tarea **CORTES 02** (cambio de spec v3: `cortes.py
+poco → PAUSE exigirá **≥100 clics y ≥$40 USD** sin ventas (**MX: ≥500
+MXN**, confirmado por el dueño) = tarea **CORTES 02** (cambio de spec v3: `cortes.py
 F_PAUSE/LEGACY_PAUSE`, `bid.py PAUSE_COST_MIN`, tests, docs/traspaso),
 prerequisito de ORBIT 05, implementa GLM por PR con TDD. La firma del
 spot-check sigue pendiente.
