@@ -51,6 +51,22 @@ validación independiente; AppFlowy "ORBIT 04 4.4 — spot-check shadow");
 flip** (ítem 4); verificación adversarial TRIPLE de las primeras decisiones
 live (ítem 9). AppFlowy lo cierra el lead al firmar el dueño.
 
+**Decisiones del dueño salidas del spot-check (2026-08-28, post-#40)**:
+(1) **Techo de bids MX**: el default 2.50 del esquema (número pensado en
+USD, `goals.py DEFAULT_CEILING`) estaba aplicado al goal 4 de México en
+MXN — 144/233 keywords y 44/51 targets MX activos tienen bid > 2.50 MXN
+(mediana 2.92 / 8.98, máx 42.63): en live los habría aplastado hacia 2.50.
+Verificado que NO hay mezcla de monedas (`bid.py:89` fija MXN/USD por
+plataforma; cache y decisiones 100% consistentes). El dueño aplicó desde su
+terminal `goals set 4 --floor 1.00 --ceiling 45.00` (verificado por SELECT,
+`updated_at` 18:05 UTC); US queda 0.10/2.50 (máx real 2.00). (2) **Umbrales
+de pausa**: 72 clics / $25 / 0 ventas (fila 30 del spot-check) le pareció
+poco → PAUSE exigirá **≥100 clics y ≥$40 USD** sin ventas (MX propuesto 700
+MXN, por confirmar) = tarea **CORTES 02** (cambio de spec v3: `cortes.py
+F_PAUSE/LEGACY_PAUSE`, `bid.py PAUSE_COST_MIN`, tests, docs/traspaso),
+prerequisito de ORBIT 05, implementa GLM por PR con TDD. La firma del
+spot-check sigue pendiente.
+
 Previo (2026-08-28): ORBIT 04 4.3 CERRADA con DoD literal
 (ensayo E2E + veto delegado en la fila 3 + VETO PERSONAL DEL DUEÑO en la
 fila 4, actor `gon-personal`, 06:54 UTC, verificado en `apply_queue`;
