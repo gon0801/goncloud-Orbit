@@ -652,16 +652,76 @@ VALUES ('smoke 2.5', '<settings vigentes
 
 Quitarlas al cerrar = fila NUEVA de config sin las claves (append-only).
 
-**Corrida (en el server, con `ORBIT_DSN_DECIDE` en el entorno — identidad
-del motor: sus filas de ledger nacen tipo `probe` auditable, decision_id
-NULL, `quota_cobrada=false`):**
+**Corrida (con `ORBIT_DSN_DECIDE` en el entorno — identidad del motor: sus
+filas de ledger nacen tipo `probe` auditable, decision_id NULL,
+`quota_cobrada=false`). Dos variantes según dónde corra:**
 
 ```bash
+# Variante HOST/server (repo clone con out/):
+set -o pipefail   # si no, el exit code del pipeline es el de tee, no el del tool
 export ORBIT_SMOKE_AUTH="<el MISMO token sembrado en ads_smoke_auth>"
 python tools/smoke_apply.py --forma todas --platform <platform> \
   --acepto-mutacion-real 2>&1 | tee out/smoke-apply-<fecha>.log
 unset ORBIT_SMOKE_AUTH
+# '--forma todas' SOLO si UNA campaña allowlisted cubre las cuatro formas;
+# si no (p. ej. las de keyword en una campaña y bid_target en otra), correr
+# formas por invocación con configs sucesivas (ver variante contenedor).
+
+# Variante CONTENEDOR (post-4.1: el tool NO va en la imagen y el contenedor
+# es non-root — /app no es escribible; la 4.3 corrió en el contenedor y esta
+# receta endurecida salió del cross-review posterior: esa corrida pasó el
+# token por `-e` argv, con el token efímero ya muerto en la config 10).
+# TODO se ejecuta desde el host del repo contra goncloud; el token viaja por
+# ARCHIVO dentro del contenedor, JAMÁS por argv de docker exec (no queda en
+# history ni en ps), y los archivos nacen 600 (umask 077 en AMBOS lados —
+# Greptile P1 PR #39: un `cat >` con umask por defecto deja el token 644):
+#   0) ssh goncloud 'rm -f /tmp/smoke_token; umask 077; head -c 48
+#        /dev/urandom | base64 | tr -dc A-Za-z0-9 | head -c 32
+#        > /tmp/smoke_token'
+#      (el `rm -f` previo evita heredar un archivo/symlink 644 anterior —
+#      umask solo rige archivos NUEVOS; token efímero SOLO en el host, jamás
+#      impreso; sembrarlo en `ads_smoke_auth` leyéndolo del archivo — ver
+#      siembra arriba)
+#   1) cat tools/smoke_apply.py | ssh goncloud 'docker exec -i orbit-app-1
+#        sh -c "cat > /tmp/smoke_apply.py"'
+#      ssh goncloud 'docker exec -i orbit-app-1 sh -c "rm -f /tmp/smoke_token;
+#        umask 077; cat > /tmp/smoke_token" < /tmp/smoke_token'
+#   2) set -o pipefail   # en ESTE shell: el pipe con tee es LOCAL; un
+#                        # pipefail dentro del ssh no cubre el `| tee`
+#      ssh goncloud 'docker exec orbit-app-1 sh -c
+#        "ORBIT_SMOKE_AUTH=\$(cat /tmp/smoke_token) PYTHONPATH=/app python
+#        /tmp/smoke_apply.py --forma <X> --platform <platform>
+#        --acepto-mutacion-real"' 2>&1 | tee out/smoke-apply-<fecha>.log
+#      rc=$?   # capturarlo AQUÍ: el ssh de limpieza del paso 3 lo pisa
+#        (stdout = evidencia; la durable es el ledger)
+#   3) ssh goncloud 'docker exec orbit-app-1 rm -f /tmp/smoke_apply.py
+#        /tmp/smoke_token && rm -f /tmp/smoke_token'   (limpiar el token en
+#        AMBOS lados; `&&` para que un fallo del docker exec NO quede tapado
+#        por el rm del host; el allowlist de UNA campaña por plataforma y
+#        las configs sucesivas A/B: ver OJO al final de esta sección)
+#      echo "smoke rc=$rc"   # 0 = neto cero; cualquier otro = NO seguir
+# RESIDUAL declarado (bots PR #39): la ruta /tmp/smoke_token es predecible
+# y hay una ventana rm→`>` en la que otro proceso con escritura en ese /tmp
+# podría colar un symlink. Modelo de amenaza real: en el host solo entra
+# root por ssh; en el contenedor corre UN proceso (uid 10001) que ya tiene
+# los secrets de Amazon y el DSN — quien pueda escribir ahí no gana nada con
+# el token; y el token es de un solo uso, muere con el cierre sin claves.
+# mktemp con ruta propagada a cada paso no cambia ese balance.
 ```
+
+RESIDUAL declarado (visto en 4.3): `config_version` es append-only, así que
+el token del smoke queda en **texto plano** en las filas históricas
+(`settings.ads_smoke_auth` de las configs de humo: 4/5 del 2.5, 8/9 del
+4.3). Está muerto funcionalmente — el tool es fail-closed contra la config
+VIGENTE y el cierre sin claves lo desarma — pero cualquiera con lectura a la
+base lo ve. Por eso el token es de UN solo uso por corrida y nunca se
+reutiliza; no hay borrado (la tabla no admite UPDATE/DELETE).
+
+OJO (medido en 4.3): el allowlist es UNA campaña por plataforma — si las
+formas necesitan dos campañas (las de keyword viven en una y el
+`bid_target` en otra), se siembran DOS configs sucesivas (A → correr formas
+de keyword; B → correr `bid_target`; cierre sin claves), cada una copiando
+los settings vigentes.
 
 Cada forma imprime UNA línea JSON de evidencia (saneada por scrub):
 request EXACTO, ack (body + headers sin secretos), readback y reversa.
@@ -695,7 +755,9 @@ nueva sin las claves de campaña NI `ads_smoke_auth`; (5) evidencia (log +
 re-usa esta misma herramienta.
 
 **SHAPES FIJADOS (corrida real 2026-08-26, ledger `apply_attempt` probe ids
-1-20, log `out/smoke-apply-20260826.log`; 4/4 formas neto cero):**
+1-20, log `out/smoke-apply-20260826.log`; 4/4 formas neto cero; RE-CONFIRMADOS
+punta a punta por el ensayo E2E 4.3 del 2026-08-28 — ids 22-29 — contra el
+deploy real, mismo resultado 4/4):**
 
 - **Readback por LIST**: el GET directo de entidad sp responde **403**
   (RETIRADO; apply_attempt 4-5) — el único camino de lectura es el POST de

@@ -4,8 +4,39 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
-**Última actualización: 2026-08-27 (noche) — ORBIT 04 4.2 CERRADA (seeds de
-configuración en vivo):** goal 4 (platform amazon_mx) con terna harvest
+**Última actualización: 2026-08-28 — ORBIT 04 4.3 CERRADA con DoD literal
+(ensayo E2E + veto delegado en la fila 3 + VETO PERSONAL DEL DUEÑO en la
+fila 4, actor `gon-personal`, 06:54 UTC, verificado en `apply_queue`;
+prerequisito de ORBIT 05 cumplido). Review del lead post-cierre: pipefail
+al shell local, token 600 por umask, residual del token en el historial
+append-only de `config_version`, DoD de 4.4 con spot-check ≥20 +
+adversarial triple, y el "neto-cero contra el cache" de la evidencia §6 era
+ANTERIOR a la corrida (re-verificar post-sync en 4.4):** re-corrida del smoke 2.5
+contra el deploy real, mismas campañas sacrificables (A: USPerNog Category
+Exact 251723662158466 — hoy PAUSED; B: USPerNog Auto Discovery
+140602818838686), dentro del contenedor (tool a `/tmp` + `PYTHONPATH=/app`:
+post-4.1 la imagen es non-root y sin tools; variante documentada en
+APPLY.md §11d y en el docstring del tool). **4/4 formas ok/neto-cero**:
+bid_keyword 0.51→0.52→0.51, negative crear+archivar, keyword crear+archivar
+(bid 0.51 real leído), bid_target 0.32→0.33→0.32; ledger `apply_attempt`
+probe ids 22-29 (quota_cobrada=false), config 8/9 de humo + **id 10 de
+cierre limpia** (11 claves: mode, targets 20/20, caps 10/2/5/2). SHAPES
+re-confirmados. **VETO REAL por el endpoint** (`POST /api/ads-optimizer/veto`):
+fila 3 (harvest "arras matrimoniales cristianas") → `vetoed`,
+`vetoed_by='gon'`, vence 2026-09-27. **Declarado: ejecutado por el lead por
+delegación expresa del dueño** ("el veto el que consideres mejor"); la fila
+2 (pause de una keyword con 62 clicks/$22.78/0 órdenes en 30d) se dejó
+intacta a propósito — es un corte correcto. **Veto PERSONAL del dueño CUMPLIDO** el
+2026-08-28 06:54 UTC: fila 4 (harvest "arras matrimoniales personalizadas")
+→ `vetoed`, `vetoed_by='gon-personal'`, vence 2026-09-27 — ejecutado por
+él desde su terminal contra el endpoint real, verificado en `apply_queue`.
+La cola queda sana para el cutover: 2 shadow `pending_veto` (filas 2 y 5)
+→ descarte en bloque en el flip; 2 `vetoed` terminales (3 y 4). Resto de la cola de fase: 4.4 cierre
+(backup, CHAT-CONTEXT, PR final). Evidencia
+`out/orbit-04-4-3-ensayo-e2e-20260828.md` + `out/smoke-apply-20260828.log`.
+
+Previo (2026-08-27, noche): ORBIT 04 4.2 CERRADA (seeds de
+configuración en vivo): goal 4 (platform amazon_mx) con terna harvest
 completa → Arras Manual (external `97835222467967`, ad group
 `272585315669297`, ambos ENABLED; `harvest_default_bid` 2.50 MXN = mediana
 2.525 de los bids reales de 18 keywords EXACT ENABLED clampeada al techo
@@ -123,7 +154,9 @@ success/error. Tests de readback de 2.1-2.3 re-sellados contra esos shapes;
 cross-review del dueño (codex+qwen) cerrada (readback paginado, 207
 verificados campo por campo, constantes del pause a una fuente). Residuo
 verificado y limpio: los 4 términos basura zzsmokeprobe* quedaron ARCHIVED
-(en Amazon delete=archivar; el último se archivó con ledger probe id 21).
+(en Amazon delete=archivar; ledger probe ids 1-20 — el id 21 es de la
+limpieza del residuo del 2.5 del 2026-08-27, script
+`out/limpia_residuo_probe_2_5.py`, verificado por payload).
 Rama orbit-04/2-5-probe-shapes, PR DRAFT #31 apilado sobre #29 (3.2).
 
 Previo (2026-08-26): ORBIT 04 Phase 3 EN CURSO: 3.1 lista
@@ -284,7 +317,7 @@ escribe nada a Amazon hasta pasar validación humana (el "apply" llega en PR2).
   checkpoints humanos en Phase 4: elegir campañas piloto (4.3) y el
   spot-check manual de ≥20 decisiones del primer shadow (4.4).
 - Un PR por phase; nada llega a master sin CI verde y reviews atendidas.
-- Registro de trabajo: fila `ORBIT 03` en AppFlowy (EHV Tasks).
+- Registro de trabajo: fila `ORBIT 04` en AppFlowy (EHV Tasks).
 
 ## Arquitectura (mapa de carpetas)
 
