@@ -466,6 +466,33 @@ echo "$(date -Is) backup OK: $FINAL ($(stat -c%s "$FINAL/orbit_$STAMP.dump") + $
 
 Instalación del cron (idempotente):
 
+### Backup pre-cutover (ORBIT 04 4.4, 2026-08-28)
+
+Snapshot NOMBRADO del estado justo antes del cutover a live, **fuera de la
+rotación de 14** (su nombre no calza el patrón `orbit_NNNN-NN-NN/` que la
+rotación borra): `backups/precutover_orbit04_2026-08-28/` (dir 700, archivos
+600, root). Contenido:
+
+- `orbit_precutover_orbit04_2026-08-28.dump` — pg_dump -Fc completo
+  (368 entradas TOC, 22 TABLE DATA).
+- `orbit_globals_precutover_orbit04_2026-08-28.sql` — roles del cluster.
+- `ad_entity_state_2026-08-28.csv` — COPY CSV del cache de estado
+  (5,899 filas + header).
+- `listas_amazon/listas_por_plataforma.json` — snapshot de las listas v3 de
+  Amazon (keywords/negativeKeywords/targets, 2 plataformas, agrupado por
+  campaña), capturado con el cliente de LECTURA (POST list, cero
+  mutaciones).
+
+**Cómo se verifica** (receta VERIFY_OK de arriba, cambiando `$D`): restore
+real a `orbit_verify_tmp` con `--exit-on-error`, `pg_restore --list` (CON
+`docker exec -i`), y conteos de `apply_queue`/`apply_attempt`/
+`config_version`/`decision`/`ad_entity_state` idénticos a producción ANTES
+del `DROP ... WITH (FORCE)`. Verificado 2026-08-28: VERIFY_OK con
+4/29/9/977/5,899.
+
+**Cómo se restaura**: ver "Recuperación desde backups" (mismo mecanismo;
+los globals van ANTES del dump para revivir los roles).
+
 ```bash
 ssh goncloud '( crontab -l 2>/dev/null | grep -v "/mnt/data/appdata/orbit/backup.sh" ; \
   echo "30 3 * * * /mnt/data/appdata/orbit/backup.sh >> /mnt/data/appdata/orbit/backup.log 2>&1" ) | crontab -'

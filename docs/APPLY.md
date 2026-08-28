@@ -806,12 +806,19 @@ El flip NO es parte de ORBIT 04 (ORBIT 04 entrega TODO con la escalera en
 `shadow`). Prerequisitos sellados: **2 semanas de shadow (~2026-09-07) +
 recálculo manual + veto ejecutado por el dueño sobre una fila real (4.3)**.
 
-1. [ ] Prerequisito: veto real del dueño sobre una fila shadow registrado
-       con su actor (4.3) + re-verificación del smoke E2E contra el deploy
-       real (4.3) + recálculo manual.
-2. [ ] **Backup pre-cutover:** dump completo + listas de estado
-       (`ad_entity_state` + keywords/negativeKeywords/targets lists) —
-       verificado restaurable (4.4).
+1. [x] Prerequisito: veto real del dueño sobre una fila shadow registrado
+       con su actor (4.3: fila 3 por delegación del dueño actor 'gon' + fila
+       4 veto PERSONAL del dueño actor 'gon-personal' 2026-08-28) +
+       re-verificación del smoke E2E contra el deploy real (4.3, 4/4 formas
+       neto-cero) + recálculo manual (spot-check 33 decisiones / 0
+       divergencias de recálculo, 2026-08-28; firma del dueño pendiente —
+       `out/orbit-04-4-4-cierre-20260828.md` §3.4).
+2. [x] **Backup pre-cutover** (2026-08-28): dump completo + globals +
+       CSV de `ad_entity_state` (5,899 filas) + listas de Amazon
+       (keywords/negativeKeywords/targets, 2 plataformas) en
+       `backups/precutover_orbit04_2026-08-28/` (fuera de la rotación) —
+       **VERIFY_OK**: restore real con los 5 conteos idénticos a producción
+       (4.4).
 3. [ ] **Discard masivo de filas shadow:** TODA fila shadow pendiente →
        `discarded` en UNA transacción; conteo antes/después concilia; cero
        filas shadow no terminales al terminar.
@@ -823,7 +830,12 @@ recálculo manual + veto ejecutado por el dueño sobre una fila real (4.3)**.
        completa 48h desde cero).
 7. [ ] Monitoreo 48h (checklist PR2 del diseño v2: caps bajos día 1,
        monitoreo 48h) + digest por ciclo ejecutor activo.
-8. [ ] Post-flip: SELECT de la cola (cero shadow pendientes), quota del
+8. [ ] **Verificación adversarial TRIPLE (codex+grok+qwen) de las primeras
+       decisiones APLICADAS EN VIVO** (ritual sellado en la aprobación del
+       plan, AppFlowy 2026-08-24; movido aquí desde el DoD de 4.4 — el
+       commit 1e41a1f lo había colado en la tarea de cierre, pero pertenece
+       a ORBIT 05: solo tiene sentido con decisiones live reales).
+9. [ ] Post-flip: SELECT de la cola (cero shadow pendientes), quota del
        día, `HAY_MODULO_APPLY` con escalera live verificada.
 
 ---

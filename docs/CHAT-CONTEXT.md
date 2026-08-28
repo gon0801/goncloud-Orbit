@@ -4,14 +4,51 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
-**Última actualización: 2026-08-28 — ORBIT 04 4.3 CERRADA con DoD literal
+**Última actualización: 2026-08-28 — ORBIT 04 CERRADA (fase completa 4.1-4.4,
+todo en `shadow`):**
+
+- **4.1** deploy endurecido (env por servicio, non-root uid 10001, 0002
+  aplicada, wiring admin→ledger).
+- **4.2** seeds: goal 4 (platform MX) con terna harvest → Arras Manual
+  (2.50 MXN, mediana de bids EXACT reales); goals 6/7 scope=campaign (A1U
+  3909, AU2 3926) en shadow; caps día 1 en config id 7 (10/2/5/2 por
+  plataforma); fail-closed de quota probado en vivo en ambos sentidos.
+- **4.3** ensayo E2E: 4/4 formas neto-cero contra Amazon real (ledger probe
+  22-29), SHAPES re-confirmados; veto real por endpoint (fila 3, actor
+  'gon', delegado) + **veto PERSONAL del dueño (fila 4, actor
+  'gon-personal', 06:54 UTC)**; neto-cero RE-VERIFICADO post-sync en 4.4.
+- **4.4** backup pre-cutover VERIFY_OK en
+  `backups/precutover_orbit04_2026-08-28/` (dump 762 KB + globals + CSV de
+  ad_entity_state 5,899 filas + listas Amazon de 2 plataformas; restore real
+  con conteos idénticos 4/29/9/977/5899); spot-check de 33 decisiones shadow
+  con recálculo independiente (**0 divergencias**;
+  `out/orbit-04-4-4-cierre-20260828.md` §3 — **firma del dueño pendiente**);
+  escalera shadow verificada (config id 10 mode=shadow, attempts solo probe,
+  quota 0 filas, cola 2 pending + 2 vetoed, `/api/ads-optimizer/status`
+  cita shadow); corrección 1e41a1f: la verificación adversarial TRIPLE se
+  movió al checklist §12 (ítem 8, ritual de ORBIT 05).
+
+**Estado final de la cola**: fila 2 pause `pending_veto`, fila 3 harvest
+`vetoed` (gon), fila 4 harvest `vetoed` (gon-personal), fila 5 harvest
+`pending_veto` — cero released/applying; las shadow se descartan en bloque
+en el flip.
+
+**Prerequisitos de ORBIT 05**: cumplidos — veto del dueño (fila 4, con su
+mano), ensayo E2E (4/4 neto-cero), backup pre-cutover verificado
+restaurable, caps día 1 sembrados. **Pendientes** — 2 semanas de shadow
+(~2026-09-07) + recálculo manual; firma del dueño del spot-check (§3.4 de
+`out/orbit-04-4-4-cierre-20260828.md`); verificación adversarial TRIPLE de
+las primeras decisiones live (checklist §12 ítem 8). AppFlowy lo cierra el
+lead.
+
+Previo (2026-08-28): ORBIT 04 4.3 CERRADA con DoD literal
 (ensayo E2E + veto delegado en la fila 3 + VETO PERSONAL DEL DUEÑO en la
 fila 4, actor `gon-personal`, 06:54 UTC, verificado en `apply_queue`;
 prerequisito de ORBIT 05 cumplido). Review del lead post-cierre: pipefail
 al shell local, token 600 por umask, residual del token en el historial
 append-only de `config_version`, DoD de 4.4 con spot-check ≥20 +
 adversarial triple, y el "neto-cero contra el cache" de la evidencia §6 era
-ANTERIOR a la corrida (re-verificar post-sync en 4.4):** re-corrida del smoke 2.5
+ANTERIOR a la corrida (re-verificar post-sync en 4.4): re-corrida del smoke 2.5
 contra el deploy real, mismas campañas sacrificables (A: USPerNog Category
 Exact 251723662158466 — hoy PAUSED; B: USPerNog Auto Discovery
 140602818838686), dentro del contenedor (tool a `/tmp` + `PYTHONPATH=/app`:
