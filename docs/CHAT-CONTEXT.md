@@ -71,7 +71,25 @@ poco → PAUSE exigirá **≥100 clics y ≥$40 USD** sin ventas (**MX: ≥500
 MXN**, confirmado por el dueño) = tarea **CORTES 03** (CORTES 02 ya es la lista curada de términos producto-diferente; cambio de spec v3: `cortes.py
 F_PAUSE/LEGACY_PAUSE`, `bid.py PAUSE_COST_MIN`, tests, docs/traspaso),
 prerequisito de ORBIT 05, implementa GLM por PR con TDD. La firma del
-spot-check sigue pendiente.
+spot-check se cumplió el 2026-08-28.
+
+**Decisiones del dueño para ORBIT 05 (2026-08-28, respuesta literal "1. si
+2. no se 3 acotar 4 todos" a las 4 preguntas de `plans/orbit-05-preflight.md`
+1.6)**: (1) **destino harvest US = SÍ**: reactivar USPerNog Exact US
+(ad_entity 3919, external 251723662158466, hoy PAUSED) y sembrar la terna
+del goal 5 (preflight 1.6a; mutación real con autorización en el momento);
+(2) **AGM2M (165) = DIFERIDO** ("no sé"): PAUSED, fuera del piloto, se
+re-pregunta tras 48h live; (3) **halo US = ACOTAR con ambos supuestos**
+(CONTEXTO "la pregunta sin respuesta"): la fase margin-aware reporta y
+decide con el rango con-halo / sin-halo; ORBIT 05 sigue con revenue
+completo; (4) **goals del día 1 = TODOS** (4 MX, 5/6/7 US); la rampa por
+goal queda como mecanismo de rollback parcial. Con esto los planes
+`orbit-05-preflight` y `orbit-05` quedan APROBADOS por el dueño — evidencia
+de la aprobación: su mensaje literal en la sesión del lead (2026-08-28) y
+la nota fechada en la fila `ORBIT 05` de AppFlowy (la PR #44 lleva la
+misma cita; no hay review `APPROVED` de GitHub porque el dueño no revisa
+por GitHub). El cutover no arranca antes de ~2026-09-07 ni sin el preflight
+Done.
 
 Previo (2026-08-28): ORBIT 04 4.3 CERRADA con DoD literal
 (ensayo E2E + veto delegado en la fila 3 + VETO PERSONAL DEL DUEÑO en la

@@ -39,7 +39,17 @@
       "name": "cortes-01",
       "path": "plans/cortes-01.md",
       "description": "CORTES 01 — umbral adaptativo per-producto para NEGATIVE_EXACT y PAUSE (evidencia por ad group, fallback estricto; spec en docs/superpowers/specs/2026-08-24-cortes-adaptativos-design.md; debe aterrizar antes de ORBIT 04 Phase 2 y del cutover)"
+    },
+    {
+      "name": "orbit-05-preflight",
+      "path": "plans/orbit-05-preflight.md",
+      "description": "ORBIT 05 preflight — candados antes del cutover: CORTES 03 desplegada y verificada, default de goal por moneda (migracion 0003), tools/snapshot_listas.py, quota visible + alerta, preguntas al dueno (harvest US, AGM2M, halo), fecha de revocacion de orbit_test"
+    },
+    {
+      "name": "orbit-05",
+      "path": "plans/orbit-05.md",
+      "description": "ORBIT 05 — cutover a LIVE con rampa: backup real -> discard masivo shadow (app_admin) -> flip doble (escalera + goal.mode por goal firmado) -> primer ciclo live con caps 10/2/5/2; 48h live con adversarial triple, spot-check del dueno y primer harvest a mano. Arranca tras ~2026-09-07 y preflight Done"
     }
   ],
-  "active": "orbit-04"
+  "active": "orbit-05-preflight"
 }
