@@ -4,9 +4,14 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
-**Última actualización: 2026-08-28 — ORBIT 04 4.3 CERRADA (ensayo E2E +
-veto real por delegación; para el flip de ORBIT 05 falta el veto PERSONAL
-del dueño):** re-corrida del smoke 2.5
+**Última actualización: 2026-08-28 — ORBIT 04 4.3 CERRADA con DoD literal
+(ensayo E2E + veto delegado en la fila 3 + VETO PERSONAL DEL DUEÑO en la
+fila 4, actor `gon-personal`, 06:54 UTC, verificado en `apply_queue`;
+prerequisito de ORBIT 05 cumplido). Review del lead post-cierre: pipefail
+al shell local, token 600 por umask, residual del token en el historial
+append-only de `config_version`, DoD de 4.4 con spot-check ≥20 +
+adversarial triple, y el "neto-cero contra el cache" de la evidencia §6 era
+ANTERIOR a la corrida (re-verificar post-sync en 4.4):** re-corrida del smoke 2.5
 contra el deploy real, mismas campañas sacrificables (A: USPerNog Category
 Exact 251723662158466 — hoy PAUSED; B: USPerNog Auto Discovery
 140602818838686), dentro del contenedor (tool a `/tmp` + `PYTHONPATH=/app`:
@@ -21,11 +26,12 @@ fila 3 (harvest "arras matrimoniales cristianas") → `vetoed`,
 `vetoed_by='gon'`, vence 2026-09-27. **Declarado: ejecutado por el lead por
 delegación expresa del dueño** ("el veto el que consideres mejor"); la fila
 2 (pause de una keyword con 62 clicks/$22.78/0 órdenes en 30d) se dejó
-intacta a propósito — es un corte correcto. **Pendiente antes del flip de
-ORBIT 05: que el dueño ejecute ÉL un veto personal** (filas 2/4/5 siguen
-`pending_veto` y vetables, riesgo cero — una fila shadow jamás se aplica).
-La cola queda sana para el cutover: 3 shadow pending → descarte en bloque
-en el flip; 1 vetoed terminal. Resto de la cola de fase: 4.4 cierre
+intacta a propósito — es un corte correcto. **Veto PERSONAL del dueño CUMPLIDO** el
+2026-08-28 06:54 UTC: fila 4 (harvest "arras matrimoniales personalizadas")
+→ `vetoed`, `vetoed_by='gon-personal'`, vence 2026-09-27 — ejecutado por
+él desde su terminal contra el endpoint real, verificado en `apply_queue`.
+La cola queda sana para el cutover: 2 shadow `pending_veto` (filas 2 y 5)
+→ descarte en bloque en el flip; 2 `vetoed` terminales (3 y 4). Resto de la cola de fase: 4.4 cierre
 (backup, CHAT-CONTEXT, PR final). Evidencia
 `out/orbit-04-4-3-ensayo-e2e-20260828.md` + `out/smoke-apply-20260828.log`.
 
