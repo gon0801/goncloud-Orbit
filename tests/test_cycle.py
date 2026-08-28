@@ -1623,8 +1623,14 @@ def test_golden_bid_que_bloqueo_pause():
     depende de que el umbral adaptativo de pause (fallback 100 con CORTES 03,
     grupo no elegible) BLOQUEO el PAUSE que los umbrales pre-CORTES 03
     (legacy 25 / 12 USD) si habrian cortado con esta geometria (30 / 15.00).
-    Su replay reproduce EXACTO leyendo el umbral congelado: con el legacy
-    viejo 25 el replay rejugaria como pause (30 >= 25) y el test reventaria."""
+    LIMITACION (hallazgo grok, cross-review CORTES 03): con 100/40 esta
+    geometria YA NO discrimina la lectura del freeze -- 30 clicks quedan
+    bloqueados con freeze, sin el, y el costo 15 < 40 mata el pause en toda
+    era; si _replay_bid ignorara umbral_clicks_usado, este test seguiria
+    verde. Esa guarda vive ahora en el test PURO
+    test_replay_pause_lee_el_umbral_congelado_jamas_el_default (freeze 150 vs
+    default 100 con los mismos agregados). El replay-exacto de aqui sigue
+    sellando que la decision bid persistida se rejugable."""
     with _db_temporal("orbit_ciclo_bqp") as (conn, _c):
         ids = _siembra_bid_bloquea_pause(conn)
         res = _corre(conn)
@@ -1733,6 +1739,23 @@ def test_replay_legacy_pause_sin_inputs_corte_usa_default_vigente():
     assert ciclo.reproduce(_inputs_pause_legacy()) == (None, None, None)
     espejo_real = _inputs_pause_legacy(clicks=119, cost="45.8000")
     assert ciclo.reproduce(espejo_real) == ("pause", None, None)
+
+
+def test_replay_pause_lee_el_umbral_congelado_jamas_el_default():
+    """Guarda PURA del hallazgo grok (cross-review CORTES 03): el replay DEBE
+    consumir inputs.corte.umbral_clicks_usado, jamas caer al default. Mismos
+    agregados (120 clicks / 45 USD / 0 ordenes), dos filas: CON freeze 150
+    (grupo elegible con bruto 150) NO pausa (120 < 150); SIN freeze el
+    default 100 SI pausaria (120 >= 100 y 45 >= 40). Si _replay_bid dejara de
+    leer el congelado, ambas filas dan pause y la primera asercion
+    reventaria. Es la discriminacion que el golden bid-que-bloqueo perdio con
+    los umbrales 100/40 (su geometria de 30 clicks es bloqueada en toda era)."""
+    con_freeze = _inputs_pause_legacy(
+        clicks=120, cost="45.0000", corte={"umbral_clicks_usado": 150, "elegible": True}
+    )
+    assert ciclo.reproduce(con_freeze) == (None, None, None)
+    sin_freeze = _inputs_pause_legacy(clicks=120, cost="45.0000")
+    assert ciclo.reproduce(sin_freeze) == ("pause", None, None)
 
 
 def test_replay_pause_congelada_cortes01_diverge_por_costo_vivo():
