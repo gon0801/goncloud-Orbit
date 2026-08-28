@@ -51,7 +51,7 @@ PASO A PASO DE LA CORRIDA AUTORIZADA:
         sh -c "cat > /tmp/smoke_apply.py"'
       ssh goncloud 'cat /tmp/smoke_token | docker exec -i orbit-app-1 \
         sh -c "cat > /tmp/smoke_token"'
-      ssh goncloud 'docker exec orbit-app-1 sh -c "ORBIT_SMOKE_AUTH=\$(cat \
+      ssh goncloud 'docker exec orbit-app-1 sh -c "ORBIT_SMOKE_AUTH=\\$(cat \
         /tmp/smoke_token) PYTHONPATH=/app python /tmp/smoke_apply.py \
         --forma <X> --platform <platform> --acepto-mutacion-real"' \
         2>&1 | tee out/smoke-apply-<fecha>.log
