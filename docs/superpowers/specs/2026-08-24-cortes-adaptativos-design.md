@@ -131,11 +131,18 @@ reciente que el dato directo, Y el borde observed_at > decided_at →
 clampeado (jamás CHECK violation).
 
 **Replay**: `reproduce()` LEE `inputs.corte.umbral_clicks_usado` (jamás
-recalcula evidencia); fila sin `inputs.corte` (histórica) → legacy 20/25.
+recalcula evidencia); fila sin `inputs.corte` (histórica) → legacy 20/25
+(CORTES 03, dueno 2026-08-28: el default pause es 100; y el piso de costo
+del pause NO viaja congelado — `PAUSE_COST_MIN` se lee vivo en el replay,
+así que pauses históricas con costo en [12, 40) USD / [200, 500) MXN ya no
+reproducen ni con freeze: 31 de 34 filas medidas 2026-08-28; congelar
+`cost_min_usado` y la política para la historia es decisión pendiente del
+lead).
 
 ## Arquitectura
 
-- Números = constantes en código (misma práctica que 20/25/8/130).
+- Números = constantes en código (misma práctica que 20/25/8/130; pause
+  100 clics / 40 USD / 500 MXN desde CORTES 03).
 - **`umbral_corte(evidencia, regla)` vive en módulo puro NUEVO
   `app/optimizer/cortes.py`** (hygiene ya importa bid: meterla en hygiene
   crearía import circular; en windows violaría la frontera IO). El motor

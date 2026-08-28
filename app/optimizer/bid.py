@@ -97,7 +97,12 @@ PLATAFORMAS_MONEDA: dict[str, str] = {"amazon_us": "USD", "amazon_mx": "MXN"}
 # default VIGENTE, NO con el historico -- para las pauses reales pre-CORTES
 # (119 clicks / 45.80 USD) el replay sigue reproduciendo; una fila
 # hipotetica de < 100 clicks ya no (efecto documentado en CORTES 03;
-# decision de compat pendiente del lead). Mismo patron que hygiene con
+# decision de compat pendiente del lead). OJO: a diferencia del umbral de
+# clicks, el PISO DE COSTO de abajo NO viaja congelado en inputs.corte -- el
+# replay lo re-evalua VIVO, asi que las pauses historicas con costo en
+# [12, 40) USD / [200, 500) MXN ya no reproducen ni trayendo freeze (31
+# filas medidas 2026-08-28; hallazgo codex, cross-review CORTES 03; la
+# solucion es decision del lead). Mismo patron que hygiene con
 # negative (1.2).
 PAUSE_COST_MIN: dict[str, Decimal] = {  # CORTES 03 (dueno 2026-08-28; antes 12/200)
     "amazon_us": Decimal("40"),

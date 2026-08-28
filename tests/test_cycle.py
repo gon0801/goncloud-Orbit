@@ -1682,13 +1682,15 @@ def test_piso_pause_100_en_el_freeze_del_ciclo():
         assert corte["expected_clicks"] == "14.55555555555555555555555556"
 
 
-def _inputs_pause_legacy(clicks: int = 30, cost: str = "15.0000") -> dict:
+def _inputs_pause_legacy(
+    clicks: int = 30, cost: str = "15.0000", corte: dict | None = None
+) -> dict:
     """Fixture de inputs congelados de una pause HISTORICA (pre-CORTES 01,
     sin la clave corte): la fila clasica de 30 clicks / 15.00 USD y su
     ESPEJO de la pause real de produccion (119 clicks / 45.80 USD). Sin la
     clave, el replay rejuega con el default VIGENTE (LEGACY_PAUSE, 100 desde
-    CORTES 03)."""
-    return {
+    CORTES 03). Con `corte`, simula una fila CON freeze (era CORTES 01)."""
+    inputs = {
         "motor": "bid",
         "platform": "amazon_us",
         "ventanas": {
@@ -1714,6 +1716,9 @@ def _inputs_pause_legacy(clicks: int = 30, cost: str = "15.0000") -> dict:
         "motivo": "pause_umbral",
         "modo": "shadow",
     }
+    if corte is not None:
+        inputs["corte"] = corte
+    return inputs
 
 
 def test_replay_legacy_pause_sin_inputs_corte_usa_default_vigente():
@@ -1728,6 +1733,29 @@ def test_replay_legacy_pause_sin_inputs_corte_usa_default_vigente():
     assert ciclo.reproduce(_inputs_pause_legacy()) == (None, None, None)
     espejo_real = _inputs_pause_legacy(clicks=119, cost="45.8000")
     assert ciclo.reproduce(espejo_real) == ("pause", None, None)
+
+
+def test_replay_pause_congelada_cortes01_diverge_por_costo_vivo():
+    """Hallazgo codex (cross-review CORTES 03), PINNADO: una pause CON
+    inputs.corte de la era CORTES 01 (umbral de clicks congelado 50) cuyo
+    costo queda ENTRE el piso viejo y el nuevo -- 72 clicks / 25.21 USD: la
+    fila 30 del spot-check 4.4 (decision 774 y sus re-decisiones
+    423/541/659) -- YA NO reproduce. El umbral de clicks SI viaja congelado,
+    pero el piso de costo vive en PAUSE_COST_MIN y se lee VIVO en el replay:
+    25.21 < 40 mata el pause que el freeze no puede salvar. Impacto medido
+    en produccion (SELECT read-only 2026-08-28): 31 de las 34 pauses
+    historicas dejan de reproducir (4 con freeze, por costo; 27 pre-CORTES
+    01, por default y costo); las 3 de 119 clicks / 45.80 USD siguen
+    fieles. Congelar cost_min_usado en inputs.corte (y que hacer con la
+    historia) es decision del LEAD: no se resuelve a ciegas. Este test pina
+    el comportamiento ACTUAL para que la divergencia quede declarada, no
+    silenciosa."""
+    congelada = _inputs_pause_legacy(
+        clicks=72,
+        cost="25.2100",
+        corte={"umbral_clicks_usado": 50, "elegible": False},
+    )
+    assert ciclo.reproduce(congelada) == (None, None, None)
 
 
 @pytest.mark.skipif(

@@ -1756,7 +1756,13 @@ def _replay_bid(inputs: dict) -> bid.ResultadoBid:
     # (LEGACY_PAUSE, 100 desde CORTES 03): las pauses pre-CORTES REALES de
     # produccion (119 clicks / 45.80 USD) siguen reproduciendo; una fila
     # hipotetica de < 100 clicks ya no (efecto documentado en CORTES 03,
-    # decision de compat pendiente del lead).
+    # decision de compat pendiente del lead). SEGUNDO efecto (hallazgo codex,
+    # cross-review CORTES 03): el piso de costo NO viaja congelado -- decide_bid
+    # lo re-evalua vivo contra PAUSE_COST_MIN, asi que las pauses historicas
+    # con costo en [12, 40) USD / [200, 500) MXN dejan de reproducir AUN
+    # trayendo freeze (31 de 34 filas medidas 2026-08-28; test
+    # test_replay_pause_congelada_cortes01_diverge_por_costo_vivo; solucion =
+    # decision del lead).
     corte = inputs.get("corte")
     umbral_pause = corte["umbral_clicks_usado"] if corte is not None else cortes.LEGACY_PAUSE
     return bid.decide_bid(
