@@ -81,7 +81,11 @@ cost_min_usado (cierre replay: decision del lead 2026-08-28, replay FIEL
 POR CONSTRUCCION); fila historica sin la clave rejuega con la HISTORIA de
 su era (REPLAY_PAUSE_CLICKS_PRE_CORTES01=25 y
 REPLAY_PAUSE_COST_PRE_CORTES03=12/200 para pause; legacy 20 y 8/130 para
-negative), JAMAS con un valor vigente; jamas recalcula evidencia.
+negative), JAMAS con un valor vigente del PAUSE; jamas recalcula evidencia.
+OJO negative: no tiene constantes REPLAY_* congeladas -- hoy es fiel porque
+sus numeros nunca cambiaron (20 y 8/130); si una fase futura los toca,
+congelalos igual que el pause o la misma clase de bug volvera (deuda
+declarada en el spec, cierre CORTES 03).
 
 Semantica de status del envelope: 'done' si el ciclo corrio completo (aunque
 todo haya sido skips), 'degraded' si disparo una guarda de plataforma (dato

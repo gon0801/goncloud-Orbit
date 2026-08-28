@@ -139,7 +139,10 @@ de su era (`REPLAY_PAUSE_CLICKS_PRE_CORTES01=25`,
 jamás con el vigente — replay fiel por construcción (decisión del lead
 2026-08-28: 34/34 pauses históricas medidas fieles; ninguna fila de
 producción tenía aún `cost_min_usado`, así que el histórico 12/200 cubre
-toda la era CORTES 01, incluida la 774 → pause).
+toda la era CORTES 01, incluida la 774 → pause). Deuda declarada: negative
+no tiene constantes REPLAY_* congeladas — su replay usa el vigente (20,
+8/130) y es fiel SOLO mientras negative no cambie; si una fase futura los
+toca, hay que congelarlos igual que el pause.
 
 ## Arquitectura
 

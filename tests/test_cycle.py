@@ -1759,8 +1759,8 @@ def test_replay_pause_lee_el_umbral_congelado_jamas_el_default():
     """Guarda PURA del hallazgo grok (cross-review CORTES 03): el replay DEBE
     consumir inputs.corte.umbral_clicks_usado, jamas caer al default. Mismos
     agregados (120 clicks / 45 USD / 0 ordenes), dos filas: CON freeze 150
-    (grupo elegible con bruto 150) NO pausa (120 < 150); SIN freeze el
-    default 100 SI pausaria (120 >= 100 y 45 >= 40). Si _replay_bid dejara de
+    (grupo elegible con bruto 150) NO pausa (120 < 150); SIN freeze los
+    historicos REPLAY_* SI pausan (120 >= 25 y 45 >= 12). Si _replay_bid dejara de
     leer el congelado, ambas filas dan pause y la primera asercion
     reventaria. Es la discriminacion que el golden bid-que-bloqueo perdio con
     los umbrales 100/40 (su geometria de 30 clicks es bloqueada en toda era)."""
