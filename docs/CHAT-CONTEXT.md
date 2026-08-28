@@ -4,8 +4,30 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
-**Última actualización: 2026-08-27 (tarde) — REACTIVACIÓN POR API EJECUTADA
-(autorizada por el dueño, "hazlo tú"):** 25 keywords pausadas (dedup de
+**Última actualización: 2026-08-27 (noche) — ORBIT 04 4.2 CERRADA (seeds de
+configuración en vivo):** goal 4 (platform amazon_mx) con terna harvest
+completa → Arras Manual (external `97835222467967`, ad group
+`272585315669297`, ambos ENABLED; `harvest_default_bid` 2.50 MXN = mediana
+2.525 de los bids reales de 18 keywords EXACT ENABLED clampeada al techo
+2.50 del goal), escrita por el camino único (`goals set` →
+`goals_write.edita_goal`). Goals 6 y 7 scope=campaign: A1U Exact US (3909) y
+AU2 Exact US (3926), USD, shadow, target NULL (la cascada da 20 desde
+config). Caps día 1 en `config_version` id 7 (fila NUEVA append-only, la 6
+intacta): `ads_apply_cap_*` = 10 bids / 2 pauses / 5 negatives / 2 harvests
+por día y plataforma (rampa sellada: decisión 7 + APPLY.md §5.5). DoD en
+vivo: `goal_harvest_completo` rechaza la terna a medias (CLI exit 2 y
+`CheckViolation` con ROLLBACK); fail-closed de quota probado en ambos
+sentidos contra el trigger vivo (sin clave no nace fila; con clave nace con
+el cap de config; cap que no coincide también se rechaza). Divergencia con
+la decisión sellada 15 ratificada por el dueño: manda el brief
+(destino MX = Arras Manual; USPerNog 3919 sigue PAUSED — el destino US de
+harvest queda como decisión abierta). `apply_quota_state` sigue en 0 filas
+hasta el primer apply real; sistema en shadow. Evidencia
+`out/orbit-04-4-2-seeds-20260827.md`. Pendiente Phase 4: 4.3 ensayo E2E +
+veto real del dueño, 4.4 cierre.
+
+Previo (2026-08-27, tarde): REACTIVACIÓN POR API EJECUTADA
+(autorizada por el dueño, "hazlo tú"): 25 keywords pausadas (dedup de
 CAMPANAS 01: 4 en Arras Manual 108, 18 broads en AD_READY 157-160, 3 phrases
 en AU2 3920) y 5 campañas reactivadas (108 Arras Manual MX, 3934 Wedding
 Coin ASIN US, 3911 A1U Category Phrase US, 3909 A1U Category Exact US, 3926
@@ -211,7 +233,7 @@ por la otra vía: lista curada por AI con aprobación del dueño
 (CORTES 02, sembrada). Shadow valida la regla nueva ~2 semanas antes
 del cutover. Siguiente proyecto grande: ORBIT
 04 (PR2: el apply con topes). Este archivo tiene candado de frescura:
-el CI exige actualizarlo en cada PR que cierre tareas.**
+el CI exige actualizarlo en cada PR que cierre tareas.
 
 ## Qué es Orbit
 
