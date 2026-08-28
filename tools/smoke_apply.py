@@ -66,10 +66,14 @@ PASO A PASO DE LA CORRIDA AUTORIZADA:
         --acepto-mutacion-real"' 2>&1 | tee out/smoke-apply-<fecha>.log
       rc=$?   # capturar AQUI: el ssh de limpieza de abajo pisa $?
       ssh goncloud 'docker exec orbit-app-1 rm -f /tmp/smoke_apply.py \
-        /tmp/smoke_token; rm -f /tmp/smoke_token'
+        /tmp/smoke_token && rm -f /tmp/smoke_token'   # && : un fallo del
+        # docker exec no queda tapado por el rm del host
       echo "smoke rc=$rc"   # 0 = neto cero; otro = NO seguir
-    El token queda en texto plano en el historial append-only de
-    config_version (residual declarado en APPLY.md 11d): un solo uso.
+    Residuales declarados (APPLY.md 11d): el token queda en texto plano en
+    el historial append-only de config_version (un solo uso); y la ruta
+    /tmp/smoke_token es predecible (ventana rm->'>' para un symlink) — en el
+    host solo entra root y en el contenedor corre un proceso uid 10001 que
+    ya tiene los secrets de Amazon, asi que quien escriba ahi no gana nada.
     Y si las formas necesitan DOS campanas (allowlist = 1 campana por
     plataforma), se siembran configs sucesivas A/B (medido en 4.3); '--forma
     todas' solo si UNA campana cubre las cuatro.

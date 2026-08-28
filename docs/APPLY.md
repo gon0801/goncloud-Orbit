@@ -695,10 +695,18 @@ unset ORBIT_SMOKE_AUTH
 #      rc=$?   # capturarlo AQUÍ: el ssh de limpieza del paso 3 lo pisa
 #        (stdout = evidencia; la durable es el ledger)
 #   3) ssh goncloud 'docker exec orbit-app-1 rm -f /tmp/smoke_apply.py
-#        /tmp/smoke_token; rm -f /tmp/smoke_token'   (limpiar el token en
-#        AMBOS lados; el allowlist de UNA campaña por plataforma y las
-#        configs sucesivas A/B: ver OJO al final de esta sección)
+#        /tmp/smoke_token && rm -f /tmp/smoke_token'   (limpiar el token en
+#        AMBOS lados; `&&` para que un fallo del docker exec NO quede tapado
+#        por el rm del host; el allowlist de UNA campaña por plataforma y
+#        las configs sucesivas A/B: ver OJO al final de esta sección)
 #      echo "smoke rc=$rc"   # 0 = neto cero; cualquier otro = NO seguir
+# RESIDUAL declarado (bots PR #39): la ruta /tmp/smoke_token es predecible
+# y hay una ventana rm→`>` en la que otro proceso con escritura en ese /tmp
+# podría colar un symlink. Modelo de amenaza real: en el host solo entra
+# root por ssh; en el contenedor corre UN proceso (uid 10001) que ya tiene
+# los secrets de Amazon y el DSN — quien pueda escribir ahí no gana nada con
+# el token; y el token es de un solo uso, muere con el cierre sin claves.
+# mktemp con ruta propagada a cada paso no cambia ese balance.
 ```
 
 RESIDUAL declarado (visto en 4.3): `config_version` es append-only, así que
