@@ -43,20 +43,23 @@ PASO A PASO DE LA CORRIDA AUTORIZADA:
     evidencia:
       python tools/smoke_apply.py --forma todas --platform <platform> \
         --acepto-mutacion-real 2>&1 | tee out/smoke-apply-<fecha>.log
+    (con set -o pipefail antes del pipeline: si no, $? es el exit de tee).
     Variante CONTENEDOR (post-4.1: el tool no va en la imagen y el
     contenedor es non-root — /app no escribible; medida en 4.3, 2026-08-28).
     TODO desde el host del repo; el token viaja por ARCHIVO dentro del
-    contenedor, JAMAS por argv de docker exec (ni history ni ps):
+    contenedor, JAMAS por argv de docker exec (ni history ni ps) — la
+    corrida 4.3 uso `-e` argv con su token efimero ya muerto; esta receta
+    endurecida salio del cross-review posterior:
       cat tools/smoke_apply.py | ssh goncloud 'docker exec -i orbit-app-1 \
         sh -c "cat > /tmp/smoke_apply.py"'
       ssh goncloud 'cat /tmp/smoke_token | docker exec -i orbit-app-1 \
         sh -c "cat > /tmp/smoke_token"'
-      ssh goncloud 'docker exec orbit-app-1 sh -c "ORBIT_SMOKE_AUTH=\\$(cat \
-        /tmp/smoke_token) PYTHONPATH=/app python /tmp/smoke_apply.py \
-        --forma <X> --platform <platform> --acepto-mutacion-real"' \
-        2>&1 | tee out/smoke-apply-<fecha>.log
+      ssh goncloud 'set -o pipefail; docker exec orbit-app-1 sh -c \
+        "ORBIT_SMOKE_AUTH=\\$(cat /tmp/smoke_token) PYTHONPATH=/app python \
+        /tmp/smoke_apply.py --forma <X> --platform <platform> \
+        --acepto-mutacion-real"' 2>&1 | tee out/smoke-apply-<fecha>.log
       ssh goncloud 'docker exec orbit-app-1 rm -f /tmp/smoke_apply.py \
-        /tmp/smoke_token'
+        /tmp/smoke_token; rm -f /tmp/smoke_token'
     Y si las formas necesitan DOS campanas (allowlist = 1 campana por
     plataforma), se siembran configs sucesivas A/B (medido en 4.3); '--forma
     todas' solo si UNA campana cubre las cuatro.

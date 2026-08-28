@@ -658,6 +658,7 @@ filas de ledger nacen tipo `probe` auditable, decision_id NULL,
 
 ```bash
 # Variante HOST/server (repo clone con out/):
+set -o pipefail   # si no, el exit code del pipeline es el de tee, no el del tool
 export ORBIT_SMOKE_AUTH="<el MISMO token sembrado en ads_smoke_auth>"
 python tools/smoke_apply.py --forma todas --platform <platform> \
   --acepto-mutacion-real 2>&1 | tee out/smoke-apply-<fecha>.log
@@ -667,7 +668,9 @@ unset ORBIT_SMOKE_AUTH
 # formas por invocación con configs sucesivas (ver variante contenedor).
 
 # Variante CONTENEDOR (post-4.1: el tool NO va en la imagen y el contenedor
-# es non-root — /app no es escribible; la 4.3 corrió así, 2026-08-28).
+# es non-root — /app no es escribible; la 4.3 corrió en el contenedor y esta
+# receta endurecida salió del cross-review posterior: esa corrida pasó el
+# token por `-e` argv, con el token efímero ya muerto en la config 10).
 # TODO se ejecuta desde el host del repo contra goncloud; el token viaja por
 # ARCHIVO dentro del contenedor, JAMÁS por argv de docker exec (no queda en
 # history ni en ps):
@@ -676,17 +679,15 @@ unset ORBIT_SMOKE_AUTH
 #      ssh goncloud 'cat /tmp/smoke_token | docker exec -i orbit-app-1
 #        sh -c "cat > /tmp/smoke_token"'     (token 600 en el host; jamás
 #        imprimirlo)
-#   2) ssh goncloud 'docker exec orbit-app-1 sh -c "ORBIT_SMOKE_AUTH=\$(cat
-#        /tmp/smoke_token) PYTHONPATH=/app python /tmp/smoke_apply.py
-#        --forma <X> --platform <platform> --acepto-mutacion-real"' \
-#        2>&1 | tee out/smoke-apply-<fecha>.log   (stdout = evidencia; la
-#        durable es el ledger)
+#   2) ssh goncloud 'set -o pipefail; docker exec orbit-app-1 sh -c
+#        "ORBIT_SMOKE_AUTH=\$(cat /tmp/smoke_token) PYTHONPATH=/app python
+#        /tmp/smoke_apply.py --forma <X> --platform <platform>
+#        --acepto-mutacion-real"' 2>&1 | tee out/smoke-apply-<fecha>.log
+#        (stdout = evidencia; la durable es el ledger)
 #   3) ssh goncloud 'docker exec orbit-app-1 rm -f /tmp/smoke_apply.py
-#        /tmp/smoke_token'
-# OJO: el allowlist es UNA campaña por plataforma — '--forma todas' solo si
-# UNA campaña cubre las cuatro formas; si no, formas por invocación con DOS
-# configs sucesivas (medido en 4.3: A para las de keyword, B para
-# bid_target).
+#        /tmp/smoke_token; rm -f /tmp/smoke_token'   (limpiar el token en
+#        AMBOS lados; el allowlist de UNA campaña por plataforma y las
+#        configs sucesivas A/B: ver OJO al final de esta sección)
 ```
 
 OJO (medido en 4.3): el allowlist es UNA campaña por plataforma — si las
