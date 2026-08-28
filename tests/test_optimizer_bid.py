@@ -8,7 +8,8 @@ completa). Acoplamiento numerico sellado contra el diseno v2
 - Ejemplo sellado del diseno: target 25, bid 1.00, ACoS 36 -> -25% -> 0.75;
   floor 0.80 -> 0.80 (clamp por floor).
 - Bordes EXACTOS por mercado: 1.35x, 1.15x y 0.85x (estrictos), orders 1/3,
-  clicks 25 y cost 12 USD / 200 MXN (inclusivos >=).
+  clicks 100 y cost 40 USD / 500 MXN (inclusivos >=; CORTES 03; antes
+  25 / 12 / 200).
 - Precedencia explicita: PAUSE gana a cualquier ajuste; -25 gana a -12.
 - |delta| < 0.01 tras ambos clamps -> no-op con motivo.
 - Regla 9 del repo (ACoS = cost / ad_revenue COMPLETO; revenue_same_sku
@@ -181,12 +182,13 @@ def test_orders_3_exacto_habilita_mas_15():
     assert r2.kind is None
 
 
-def test_pause_exacto_us_clicks_25_cost_12():
-    """Bordes inclusivos exactos en amazon_us: clicks=25 y cost=12 USD
+def test_pause_exacto_us_clicks_100_cost_40():
+    """Bordes inclusivos exactos en amazon_us: clicks=100 y cost=40 USD
     PAUSEAN (>=). kind 'pause' no lleva dinero: value_currency NULL (esquema
     sellado), old/new None, factor None. La ventana que decide es la de
-    CORTES, con SU observed_at."""
-    r = _decide(None, _cortes(cost=Decimal("12"), ad_revenue=Decimal("0"), orders=0, clicks=25))
+    CORTES, con SU observed_at. CORTES 03 (dueno 2026-08-28): los bordes
+    eran 25 clicks / 12 USD."""
+    r = _decide(None, _cortes(cost=Decimal("40"), ad_revenue=Decimal("0"), orders=0, clicks=100))
     assert r.kind == "pause"
     assert r.motivo == "pause_umbral"
     assert r.old_value is None
@@ -197,11 +199,12 @@ def test_pause_exacto_us_clicks_25_cost_12():
     assert r.data_observed_at == OBS_CORTES
 
 
-def test_pause_exacto_mx_cost_200_mxn():
-    """Cost justo 200 MXN en amazon_mx PAUSEA (>=, umbral por plataforma)."""
+def test_pause_exacto_mx_cost_500_mxn():
+    """Cost justo 500 MXN en amazon_mx PAUSEA (>=, umbral por plataforma).
+    CORTES 03 (dueno 2026-08-28): el borde era 200 MXN."""
     r = _decide(
         None,
-        _cortes(cost=Decimal("200"), ad_revenue=Decimal("0"), orders=0, clicks=25, moneda="MXN"),
+        _cortes(cost=Decimal("500"), ad_revenue=Decimal("0"), orders=0, clicks=100, moneda="MXN"),
         platform="amazon_mx",
         bid_moneda="MXN",
     )
@@ -209,13 +212,27 @@ def test_pause_exacto_mx_cost_200_mxn():
     assert r.value_currency is None
 
 
-def test_clicks_24_no_pause():
-    r = _decide(None, _cortes(cost=Decimal("15"), ad_revenue=Decimal("0"), orders=0, clicks=24))
+def test_cortes_03_fila_30_no_pausa_72_clicks_25_usd():
+    """CASO DISCRIMINANTE estrella de CORTES 03 (dueno 2026-08-28, origen
+    spot-check ORBIT 04 4.4 fila 30, decision 774): 72 clics / 25.21 USD /
+    0 ventas NO debe pausar. Con el codigo viejo (fallback 50 / 12 USD) ESTA
+    MISMA geometria SI pausaba -- este test la veta."""
+    r = _decide(None, _cortes(cost=Decimal("25.21"), ad_revenue=Decimal("0"), orders=0, clicks=72))
+    assert r.kind is None
+    assert r.motivo == "bids_sin_observaciones"
+
+
+def test_clicks_99_cost_40_no_pause():
+    """Borde inclusivo por clicks CORTES 03: 99 < 100 NO pausa aunque el cost
+    40 >= 40. Con el codigo viejo (piso 25) 99 clicks SI pausaban."""
+    r = _decide(None, _cortes(cost=Decimal("40"), ad_revenue=Decimal("0"), orders=0, clicks=99))
     assert r.kind is None
 
 
-def test_cost_11_99_no_pause_us():
-    r = _decide(None, _cortes(cost=Decimal("11.99"), ad_revenue=Decimal("0"), orders=0, clicks=25))
+def test_clicks_100_cost_39_99_no_pause_us():
+    """Borde inclusivo por cost CORTES 03: 39.99 < 40 USD NO pausa aunque
+    clicks 100 >= 100. Con el codigo viejo (12 USD) SI pausaba."""
+    r = _decide(None, _cortes(cost=Decimal("39.99"), ad_revenue=Decimal("0"), orders=0, clicks=100))
     assert r.kind is None
 
 
@@ -226,10 +243,11 @@ def test_cost_11_99_no_pause_us():
 
 def test_precedencia_pause_gana_a_banda_menos_25():
     """Entidad que cumple PAUSE por cortes Y banda -25 por bids: PAUSE gana,
-    y la ventana reportada es la de CORTES (la que decidio el pause)."""
+    y la ventana reportada es la de CORTES (la que decidio el pause).
+    Geometria CORTES 03: 105 clicks / 45 USD (>= 100 / >= 40)."""
     r = _decide(
         _bids(cost=Decimal("36"), ad_revenue=Decimal("100"), orders=5),
-        _cortes(cost=Decimal("15"), ad_revenue=Decimal("0"), orders=0, clicks=30),
+        _cortes(cost=Decimal("45"), ad_revenue=Decimal("0"), orders=0, clicks=105),
     )
     assert r.kind == "pause"
     assert (r.window_start, r.window_end) == (INICIO_CORTES, FIN_CORTES)
@@ -379,9 +397,10 @@ def test_documental_bandas_selladas_dentro_del_clamp_por_decision():
 
 
 def test_orders_none_no_pause_motivo_dato_faltante():
-    """orders=None es DESCONOCIDO, no 0: con clicks 50 y cost 15 (>= umbrales
-    us) NO hay pause; el motivo declara el dato faltante (auditable en 3.1)."""
-    r = _decide(None, _cortes(cost=Decimal("15"), ad_revenue=Decimal("0"), orders=None, clicks=50))
+    """orders=None es DESCONOCIDO, no 0: con clicks 105 y cost 45 (>= umbrales
+    us CORTES 03) NO hay pause; el motivo declara el dato faltante (auditable
+    en 3.1)."""
+    r = _decide(None, _cortes(cost=Decimal("45"), ad_revenue=Decimal("0"), orders=None, clicks=105))
     assert r.kind is None
     assert r.motivo == "pause_orders_desconocido"
 
@@ -389,10 +408,10 @@ def test_orders_none_no_pause_motivo_dato_faltante():
 def test_clicks_o_cost_none_no_pause():
     """clicks/cost None en cortes -> no PAUSE (umbrales no evaluables)."""
     r_clicks = _decide(
-        None, _cortes(cost=Decimal("15"), ad_revenue=Decimal("0"), orders=0, clicks=None)
+        None, _cortes(cost=Decimal("45"), ad_revenue=Decimal("0"), orders=0, clicks=None)
     )
     assert r_clicks.kind is None
-    r_cost = _decide(None, _cortes(cost=None, ad_revenue=Decimal("0"), orders=0, clicks=50))
+    r_cost = _decide(None, _cortes(cost=None, ad_revenue=Decimal("0"), orders=0, clicks=105))
     assert r_cost.kind is None
     assert r_cost.motivo == "pause_clicks_o_cost_desconocidos"
 
@@ -449,7 +468,7 @@ def test_moneda_agregado_cortes_invalida_no_pause():
     umbrales cumplidos -> NO pause (fail-closed antes de decidir)."""
     r = _decide(
         None,
-        _cortes(cost=Decimal("15"), ad_revenue=Decimal("0"), orders=0, clicks=50, moneda="MXN"),
+        _cortes(cost=Decimal("45"), ad_revenue=Decimal("0"), orders=0, clicks=105, moneda="MXN"),
     )
     assert r.kind is None
     assert r.motivo == "pause_moneda_agregado_invalida"
@@ -485,7 +504,7 @@ def test_bid_actual_none_no_ajustable_pero_pause_no_lo_necesita():
     assert r.motivo == "bid_actual_ausente"
     r_pause = _decide(
         None,
-        _cortes(cost=Decimal("15"), ad_revenue=Decimal("0"), orders=0, clicks=50),
+        _cortes(cost=Decimal("40"), ad_revenue=Decimal("0"), orders=0, clicks=100),
         bid_actual=None,
     )
     assert r_pause.kind == "pause"
@@ -535,12 +554,15 @@ def test_floor_mayor_que_ceiling_raise():
 # ---------------------------------------------------------------------------
 
 
-def test_cost_199_99_no_pause_mx():
-    """Un centavo bajo el umbral MX (199.99, umbral 200): NO pausea
-    (simetria con test_cost_11_99_no_pause_us)."""
+def test_cost_499_99_no_pause_mx():
+    """Un centavo bajo el umbral MX (499.99, umbral 500): NO pausea
+    (simetria con test_clicks_100_cost_39_99_no_pause_us). Con el codigo
+    viejo (umbral 200) SI pausaba."""
     r = _decide(
         None,
-        _cortes(cost=Decimal("199.99"), ad_revenue=Decimal("0"), orders=0, clicks=25, moneda="MXN"),
+        _cortes(
+            cost=Decimal("499.99"), ad_revenue=Decimal("0"), orders=0, clicks=100, moneda="MXN"
+        ),
         platform="amazon_mx",
         bid_moneda="MXN",
     )

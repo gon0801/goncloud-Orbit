@@ -9,7 +9,8 @@ elegibilidad va ANTES de la division) y la evidencia envenenada (None por
 metrica) o ausente cae a fallback, jamas a un numero inventado (regla 3).
 
 Numeros sellados (spec v3): O_min=3, C_min=60, Z_min=14, M=1.5, F_neg=40,
-F_pause=50, legacy 20 negative / 25 pause (el piso solo SUBE umbrales).
+F_pause=100, legacy 20 negative / 100 pause (CORTES 03, dueno 2026-08-28:
+antes F_pause=50 y legacy 25; el piso solo SUBE umbrales).
 
 PISO DE COST adaptativo del camino negative (1.4, decision 5bis): funcion
 hermana `piso_corte` con la MISMA elegibilidad 3/60/14 pero POR PLATAFORMA;
@@ -137,17 +138,30 @@ def test_piso_legacy_negative_gana_sobre_el_adaptativo():
     assert res.umbral == cortes.LEGACY_NEGATIVE == 20
 
 
-def test_piso_legacy_pause_es_25():
-    """Mismo grupo bajo regla pause: expected 10 -> 15 < legacy 25 -> 25
-    (el piso es POR REGLA; pause la consume 1.3)."""
+def test_piso_legacy_pause_es_100():
+    """Mismo grupo bajo regla pause: expected 10 -> 15 < legacy 100 -> 100
+    (el piso es POR REGLA; pause la consume 1.3). Piso CORTES 03 (dueno
+    2026-08-28, origen spot-check ORBIT 04 4.4 fila 30 / decision 774):
+    antes era 25 y pauso prematuro."""
     res = cortes.umbral_corte(_evid(clicks=60, orders=6, fechas=20), "pause")
-    assert res.umbral == cortes.LEGACY_PAUSE == 25
+    assert res.umbral == cortes.LEGACY_PAUSE == 100
 
 
-def test_fallback_pause_es_50():
-    """Grupo no elegible bajo pause: fallback F_pause=50 (lo consume 1.3)."""
+def test_fallback_pause_es_100():
+    """Grupo no elegible bajo pause: fallback F_pause=100 (lo consume 1.3).
+    CORTES 03: el fallback TAMBIEN sube a 100 (antes 50)."""
     res = cortes.umbral_corte(_evid(clicks=59, orders=3, fechas=14), "pause")
-    assert res.umbral == cortes.F_PAUSE == 50
+    assert res.umbral == cortes.F_PAUSE == 100
+
+
+def test_piso_pause_adaptativo_sigue_subiendo():
+    """GUARDA de regresion del adaptativo (NO discrimina CORTES 03: 150 ya
+    superaba al piso viejo 25): elegible 300/3 -> expected 100 -> bruto
+    ceil(150) = 150 > piso 100 -> el adaptativo sigue mandando por arriba
+    del piso. Si el piso aplastara al bruto (max al reves), revienta."""
+    res = cortes.umbral_corte(_evid(clicks=300, orders=3, fechas=20), "pause")
+    assert res.elegible is True
+    assert res.umbral == 150
 
 
 def test_veneno_clicks_none_no_califica():
