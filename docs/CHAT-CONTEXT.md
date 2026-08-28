@@ -147,7 +147,8 @@ success/error. Tests de readback de 2.1-2.3 re-sellados contra esos shapes;
 cross-review del dueño (codex+qwen) cerrada (readback paginado, 207
 verificados campo por campo, constantes del pause a una fuente). Residuo
 verificado y limpio: los 4 términos basura zzsmokeprobe* quedaron ARCHIVED
-(en Amazon delete=archivar; el último se archivó con ledger probe id 21).
+(en Amazon delete=archivar; ledger probe ids 1-20 — el id 21 es de la
+reactivación por API del 2026-08-27, PR #37).
 Rama orbit-04/2-5-probe-shapes, PR DRAFT #31 apilado sobre #29 (3.2).
 
 Previo (2026-08-26): ORBIT 04 Phase 3 EN CURSO: 3.1 lista
