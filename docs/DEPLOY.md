@@ -581,7 +581,14 @@ rotación borra): `backups/precutover_orbit04_2026-08-28/` (dir 700, archivos
    sh -c "cat > /tmp/snapshot_listas.py"'` y correr con
    `PYTHONPATH=/app python /tmp/snapshot_listas.py --out /tmp/listas`
    (runbook completo en el docstring del tool, con el `docker cp` de salida
-   y la limpieza). **Historia**: en 4.4 el snapshot del 2026-08-28 corrió
+   y la limpieza). **Prerequisito de imagen**: la receta simple (solo el
+   tool en `/tmp`, `PYTHONPATH=/app`) exige que la imagen incluya el commit
+   que trae el tool (`app.ads.structure` con `listar_todo` pública y
+   `PATH_NEGATIVE_KEYWORDS`). Si la imagen es anterior, montar el árbol del
+   commit en `/tmp` y correrlo desde ahí — el bootstrap del tool pone su
+   propio árbol primero en `sys.path`, sin mezclar módulos (variante
+   verificada en la corrida real del 2026-08-28; receta completa en el
+   docstring del tool). **Historia**: en 4.4 el snapshot del 2026-08-28 corrió
    como código inline dentro del contenedor (hueco declarado del runbook —
    hallazgo Greptile PR #40); ORBIT 05 preflight 1.3 lo aterrizó como tool
    del repo con test de sus partes puras.

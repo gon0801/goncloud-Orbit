@@ -57,9 +57,22 @@ desde el host del repo, donde viven los secrets que ya usa orbit-app-1):
     && rm -rf /tmp/listas"'
   echo "snapshot rc=$rc"   # 0 = snapshot completo; otro = NO seguir
 (--solo-conteos antes de la corrida completa para ver los totales sin
-escribir nada.) Verificacion del JSON: DEPLOY.md §"Backup pre-cutover"
+escribir nada.) Verificación del JSON: DEPLOY.md §"Backup pre-cutover"
 (totales por plataforma/recurso = ad_entity, incl. ARCHIVED;
 negativeKeywords solo conteo, sin espejo en cache).
+
+PREREQUISITO DE IMAGEN: la receta de arriba (solo el tool en /tmp con
+PYTHONPATH=/app) exige que la imagen incluya ESTE commit (app.ads.structure
+con listar_todo publica y PATH_NEGATIVE_KEYWORDS). Con una imagen anterior,
+monta el ARBOL del commit en /tmp y corralo desde ahi — el bootstrap del
+tool pone su propio arbol primero en sys.path, sin mezclar modulos:
+  git archive HEAD app tools/snapshot_listas.py | ssh goncloud \
+    'docker exec -i orbit-app-1 sh -c "rm -rf /tmp/snapshot_src && \
+     mkdir -p /tmp/snapshot_src && tar -x -C /tmp/snapshot_src"'
+  ssh goncloud 'docker exec orbit-app-1 python \
+    /tmp/snapshot_src/tools/snapshot_listas.py --solo-conteos'
+(variante usada en la corrida real del 2026-08-28 contra la imagen vigente,
+anterior al commit; evidencia out/orbit-05-preflight-1-3-2026-08-28.md).
 """
 
 from __future__ import annotations
