@@ -27,11 +27,6 @@ STMTS = tuple(pglast.parse_sql(SQL))
 SQL2 = (ROOT / "migrations" / "0002_apply.sql").read_text(encoding="utf-8")
 STMTS2 = tuple(pglast.parse_sql(SQL2))
 
-# 0002 (ORBIT 04, task 1.2 — sellado 24 del header: test_schema parsea TAMBIEN
-# 0002 para que los invariantes cubran las tablas nuevas).
-SQL2 = (ROOT / "migrations" / "0002_apply.sql").read_text(encoding="utf-8")
-STMTS2 = tuple(pglast.parse_sql(SQL2))
-
 # 0003 (ORBIT 05 preflight 1.2 — mismo criterio: los invariantes del sello
 # "sin DEFAULT en piso/techo" se afirman sobre el AST de la migracion).
 SQL3 = (ROOT / "migrations" / "0003_goal_bounds_explicit.sql").read_text(encoding="utf-8")

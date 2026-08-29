@@ -310,7 +310,8 @@ CHECK de coherencia y únicos parciales: un goal por campaña, uno por
 plataforma). Trigger `goal_scope_campana_real` (`BEFORE INSERT/UPDATE`):
 un goal de campaña tiene que apuntar a una entidad que ES `kind='campaign'`
 (la FK sola no lo garantiza). `target_acos_pct`, `bid_floor`/`bid_ceiling`
-(defaults 0.10/2.50, `floor <= ceiling`), config de harvest
+(NOT NULL sin DEFAULT desde 0003; defaults solo en `DEFAULTS_POR_MONEDA`
+de app/optimizer/goals.py, por moneda; `floor <= ceiling`), config de harvest
 (`harvest_campaign_id`, `harvest_ad_group_id`, `harvest_default_bid` — cuya
 moneda es `bid_currency` del mismo goal) **nullable con CHECK de
 completitud**: falta config → la decisión HARVEST se salta con motivo, nunca
