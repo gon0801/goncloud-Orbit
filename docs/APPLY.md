@@ -360,6 +360,66 @@ hueco (r2 grok 13); el mapeo es EXPLÍCITO y testeado.
   día siguiente). Subir el cap del día en curso no está sellado → si la
   operación lo necesita, lo define 4.2 como admin, nunca el motor.
 
+### 5.6 Quota visible y aviso de saturación (preflight 1.4, sellado 4)
+
+Antes del primer cobro real (el cutover), el estado de la quota es
+**visible** y el agotamiento **avisa** — sin "retry mañana" que ignore el
+cap (el fail-closed de 4.2 se queda).
+
+- **Lectura `used/cap` con su fuente** (`estado_quota` en `app/apply.py`):
+  la única fuente de lectura en la app — reusa `motor_quota` (el vocabulario
+  `ads_optimizer:<platform>:<kind>`) y la MISMA expresión de día UTC de
+  `consume_quota` y del trigger (`(now() AT TIME ZONE 'UTC')::date`; jamás
+  `CURRENT_DATE` ni fecha del cliente). Tres fuentes declaradas:
+  - `fila_del_dia`: existe fila `(motor, hoy UTC)` — `used` y `cap` son los
+    que rigen hoy. **El cap de la fila es INMUTABLE una vez nacida** (§5.5):
+    subir el tope es config nueva que rige desde la próxima fila; leer aquí
+    la config vigente haría mentir al dashboard.
+  - `config_vigente`: sin fila hoy — cap resuelto igual que el trigger
+    (`_cap_de_config`, misma resolución ORDER BY id DESC LIMIT 1).
+  - `sin_clave`: la config vigente no trae la clave — `cap: null`,
+    fail-closed **explícito** (no disfraz de rampa sana; §5.1).
+  - `config_rota` (solo en la lectura de `/salud`): la clave existe pero su
+    valor no es numérico — `estado_quota` revienta a propósito en el camino
+    de cobro (ruidoso, jamás disfraz de cap infinito), pero la pantalla de
+    lectura no muere entera: la forma rota queda **visible** con
+    `cap: null` (no `sin_clave`, que mentiría: la clave SI existe) y las
+    formas sanas siguen legibles (ADV-1, adversaria).
+- **Superficie**: `GET /api/dashboard/salud` expone por plataforma la clave
+  `quota`: `{kind: {used, cap, fuente}}` para las cuatro formas
+  (`bid/pause/negative/harvest`; lista `KINDS_QUOTA` en `app/apply.py`,
+  espejo del CASE del trigger). DECISIÓN DECLARADA: vive en `/salud` (y no
+  en `/api/ads-optimizer/status`) porque es la fuente que la pantalla
+  `/salud` ya consume y donde 0002/notifica declaran la visibilidad
+  ("VISIBLE en Salud"); la tarea 1.5 renderiza desde ahí sin fetch nuevo y
+  no se agregan rutas.
+- **Aviso de cap agotado (fail-silent, Telegram)**: el ciclo ejecutor avisa
+  cuando un consumo lleva `used` **EXACTAMENTE al cap de la propia fila**
+  (transición: el `RETURNING used, cap` del UPDATE atómico — `used == cap`
+  de la fila, el que rige hoy; una config cambiada a mitad de día no
+  adelanta ni cancela la transición) — por construcción ocurre UNA
+  vez por `(motor, día)`, derivable de la propia fila de quota, sin
+  variable en memoria ni tabla nueva. Los intentos posteriores rechazados
+  por tope NO disparan nada. **Residuales declarados**: (1) una fila YA
+  saturada al iniciar el proceso no re-avisa (nadie la consume con éxito →
+  no hay transición); (2) si el ciclo muere por un 5xx ambiguo DESPUÉS del
+  cobro que saturó, el aviso se pierde con el ciclo (la semántica sellada
+  del aborto ya pierde TODO el digest de ese ciclo) — la saturación queda
+  visible en Salud (`used == cap`, `fuente="fila_del_dia"`). Sin fecha en
+  el texto del aviso: el día es la `quota_date`
+  de la fila, visible en Salud (jamás `datetime.now()` del cliente). Más
+  residuales (cross-review grok): (3) el cap del **cobro** sale siempre de
+  la config vigente (sellado de `consume`): quitar la clave, ponerla en 0 o
+  corrupta a mitad de día niega el cobro fail-closed aunque la fila del día
+  conserve SU cap — Salud muestra la fila y el ciclo declara el rechazo
+  (`fuera_de_cap` / `apply_error`); (4) un cruce de medianoche UTC entre el
+  cobro que satura y la re-lectura del evento pierde ESE aviso
+  (fail-silent).
+- **Canal caído**: el fallo del envío deja la NOTA
+  `notes['telegram']['cap_agotado']` del ciclo ejecutor (con
+  `plataforma/kind` y `used/cap`) y JAMÁS degrada el ciclo — mismo
+  contrato fail-silent del resto del canal (§10.2).
+
 ---
 
 ## 6. Reconciliación al inicio del ciclo, contra Amazon VIVO (sellado 13)

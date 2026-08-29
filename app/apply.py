@@ -225,14 +225,20 @@ MOTIVO_ENTIDAD_NO_DECISORA = "entidad_no_decisora"
 # ---------------------------------------------------------------------------
 
 
+# Formas de quota de la rampa (preflight 1.4): ESPEJO del CASE del trigger
+# apply_cap_de_config (0002) — la UNICA lista en app; los lectores
+# (estado_quota y el endpoint de /salud) la recorren. kind nuevo = decision
+# nueva del dueno (sellado 8), aca y en el trigger.
+KINDS_QUOTA = ("bid", "pause", "negative", "harvest")
+
+
 def motor_quota(platform: str, kind: str) -> str:
     """Clave del motor de quota: `ads_optimizer:<platform>:<kind>`.
 
     UNA fuente en la app de este vocabulario; su espejo de schema es el
     mapeo de `apply_cap_de_config` (0002), que resuelve la clave de config
-    `ads_apply_cap_<platform>_<kind>` para ESTE motor. kind en
-    {bid, pause, negative, harvest} — kinds nuevos de quota = decision nueva
-    del dueno (sellado 8)."""
+    `ads_apply_cap_<platform>_<kind>` para ESTE motor. kind en KINDS_QUOTA —
+    kinds nuevos de quota = decision nueva del dueno (sellado 8)."""
     return f"ads_optimizer:{platform}:{kind}"
 
 
@@ -262,8 +268,9 @@ def _cap_de_config(conn: psycopg.Connection, platform: str, kind: str) -> int | 
         ) from None
 
 
-def consume_quota(conn: psycopg.Connection, platform: str, kind: str) -> bool:
-    """Consume UNA unidad de quota del dia, atomicamente.
+def consume_quota_y_sello(conn: psycopg.Connection, platform: str, kind: str) -> tuple[bool, bool]:
+    """Consume UNA unidad de quota del dia y sella la TRANSICION de saturacion
+    (preflight 1.4, D3a). Devuelve (usada, saturada).
 
     INSERT ... ON CONFLICT DO UPDATE en UNA sentencia (no SELECT-luego-UPSERT:
     dos sesiones concurrentes no pueden pasarse del cap). La fila NACE con
@@ -271,15 +278,36 @@ def consume_quota(conn: psycopg.Connection, platform: str, kind: str) -> bool:
     0 y el primer apply del dia seria gratis). El dia va fijado a UTC EN LA
     EXPRESION — el trigger de 0002 valida quota_date contra el dia UTC de la
     base y CURRENT_DATE dependeria de la TimeZone de la sesion (r2 codex).
-    Sin fila devuelta (cap agotado o sin clave) -> False. El cap del INSERT
-    sale de la config VIGENTE: el trigger lo re-valida igual."""
+    Sin fila devuelta (cap agotado o sin clave) -> (False, False). El cap del
+    INSERT sale de la config VIGENTE: el trigger lo re-valida igual.
+
+    DETECCION POR TRANSICION: `saturada` es True SOLO en el consumo que lleva
+    used EXACTAMENTE al cap de la PROPIA fila (RETURNING used, cap del UPDATE
+    atomico: used == cap de la fila) — por construccion ocurre UNA vez por
+    (motor, dia): el estado es derivable de la PROPIA fila de quota, sin
+    variable en memoria ni tabla nueva. El cap que rige hoy es el de la fila
+    (inmutable, trigger de 0002): el de la config solo importa al NACER la
+    fila, asi que una config cambiada a mitad de dia no adelanta ni cancela
+    la transicion (regresion
+    test_consume_quota_y_sello_satura_contra_el_cap_de_la_fila). Los intentos
+    posteriores rechazados (usada=False por tope) NO disparan nada.
+    RESIDUALES DECLARADOS (cross-review grok 1.4): (1) una fila YA saturada
+    al iniciar el proceso no re-avisa (nadie la consume con exito -> no hay
+    transicion); (2) el cap del COBRO sale SIEMPRE de la config vigente
+    (comportamiento sellado de consume, este camino no lo cambia): quitar la
+    clave, ponerla en 0 o corrupta a mitad de dia NIEGA el cobro fail-closed
+    aunque la fila del dia conserve SU cap — /salud muestra la fila
+    (used/cap) y el ciclo declara el rechazo (fuera_de_cap / apply_error);
+    (3) un cruce de medianoche UTC entre el cobro y la re-lectura del
+    evento (evento_cap_saturado) perderia ESE aviso (fail-silent; la
+    saturacion queda visible en /salud)."""
     cap = _cap_de_config(conn, platform, kind)
     if cap is None:
-        return False
+        return False, False
     if cap <= 0:
         # cap 0 = rampa apagada por config (fail-closed): cero applies, sin
         # nacer fila — la visibilidad del estado es la config misma.
-        return False
+        return False, False
     fila = conn.execute(
         """
         INSERT INTO apply_quota_state (motor, quota_date, cap, used)
@@ -287,11 +315,74 @@ def consume_quota(conn: psycopg.Connection, platform: str, kind: str) -> bool:
         ON CONFLICT (motor, quota_date) DO UPDATE
            SET used = apply_quota_state.used + 1
          WHERE apply_quota_state.used < apply_quota_state.cap
-        RETURNING used
+        RETURNING used, cap
         """,
         (motor_quota(platform, kind), cap),
     ).fetchone()
-    return fila is not None
+    if fila is None:
+        return False, False
+    return True, fila[0] == fila[1]
+
+
+def consume_quota(conn: psycopg.Connection, platform: str, kind: str) -> bool:
+    """Consume UNA unidad de quota del dia, atomicamente (contrato historico:
+    True = cobrada). Wrapper que descarta el sello de transicion — la logica
+    y el SQL atomico viven en `consume_quota_y_sello` (UNA fuente)."""
+    usada, _saturada = consume_quota_y_sello(conn, platform, kind)
+    return usada
+
+
+def estado_quota(conn: psycopg.Connection, platform: str, kind: str) -> dict:
+    """Lectura de quota del dia (preflight 1.4, D1): {used, cap, fuente}.
+
+    UNA fuente: motor_quota para la clave y la MISMA expresion de dia UTC de
+    consume_quota y del trigger de 0002 ((now() AT TIME ZONE 'UTC')::date —
+    jamas CURRENT_DATE ni fecha del cliente). Tres fuentes declaradas:
+    - "fila_del_dia": existe fila (motor, hoy UTC) — used y cap SON los que
+      rigen hoy; el cap de la fila es INMUTABLE (trigger de 0002): subir el
+      tope es config nueva que rige desde la proxima fila.
+    - "config_vigente": sin fila aun hoy — cap resuelto igual que
+      _cap_de_config (la misma resolucion del trigger).
+    - "sin_clave": la config vigente no trae la clave (o no hay config):
+      fail-closed explicito, cap None."""
+    fila = conn.execute(
+        """
+        SELECT used, cap FROM apply_quota_state
+         WHERE motor = %s AND quota_date = (now() AT TIME ZONE 'UTC')::date
+        """,
+        (motor_quota(platform, kind),),
+    ).fetchone()
+    if fila is not None:
+        return {"used": fila[0], "cap": fila[1], "fuente": "fila_del_dia"}
+    cap = _cap_de_config(conn, platform, kind)
+    if cap is not None:
+        return {"used": 0, "cap": cap, "fuente": "config_vigente"}
+    return {"used": 0, "cap": None, "fuente": "sin_clave"}
+
+
+@dataclass(frozen=True)
+class CapSaturado:
+    """Evento de saturacion de quota (preflight 1.4, D3a/D3d): viaja en los
+    resultados de apply/apply_cola/apply_harvest hasta el ciclo, que manda UN
+    aviso fail-silent por evento (y la NOTA notes['telegram']['cap_agotado']
+    si el canal fallo). `used`/`cap` salen de la PROPIA fila del dia
+    (evento_cap_saturado), no de memoria."""
+
+    platform: str
+    kind: str
+    used: int
+    cap: int
+
+
+def evento_cap_saturado(conn: psycopg.Connection, platform: str, kind: str) -> CapSaturado | None:
+    """El CapSaturado del consumo que acabo de saturar (D3a): used/cap de la
+    propia fila del dia. None si la fila del dia no existe — no puede pasar
+    tras un consumo exitoso, pero fail-closed: sin fila no hay evento ni
+    numeros inventados (regla 3)."""
+    estado = estado_quota(conn, platform, kind)
+    if estado["fuente"] != "fila_del_dia":
+        return None
+    return CapSaturado(platform=platform, kind=kind, used=estado["used"], cap=estado["cap"])
 
 
 # ---------------------------------------------------------------------------
@@ -328,6 +419,10 @@ class ResultadoAplicador:
     descartadas: list[str]
     skips: list[str]
     divergencias: int = 0
+    # Preflight 1.4 (D3d): los caps que ESTE lote llevo a su transicion
+    # (used == cap) — viajan al ciclo para el aviso fail-silent. El consumo
+    # rechazado por tope NO agrega (no es transicion).
+    caps_saturados: tuple[CapSaturado, ...] = ()
 
 
 _SQL_BIDS_CICLO = """
@@ -1027,6 +1122,7 @@ class Aplicador:
         descartadas: list[str] = []
         aplicadas = 0
         divergencias = 0
+        caps_saturados: list[CapSaturado] = []
         for decision in ordenadas:
             modo = self.modo_efectivo(self._conn, decision, escalera_global=escalera_global)
             if modo != "live":
@@ -1050,10 +1146,17 @@ class Aplicador:
             ):
                 skips.append(MOTIVO_TOPE_INTENTOS)
                 continue
-            if not consume_quota(self._conn, self._platform, "bid"):
+            usada, saturada = consume_quota_y_sello(self._conn, self._platform, "bid")
+            if not usada:
                 # Bids fuera de cap = DESCARTADOS, jamas reintentados (8).
                 descartadas.append(MOTIVO_FUERA_DE_CAP)
                 continue
+            if saturada:
+                # Preflight 1.4: la unidad que llevo used a cap dispara UN
+                # evento (el rechazo del siguiente bid no pasa por aqui).
+                evento = evento_cap_saturado(self._conn, self._platform, "bid")
+                if evento is not None:
+                    caps_saturados.append(evento)
             payload = _payload_bid(identidad[0], identidad[1], decision.new_value)
             id_attempt = _ledger(self._conn, decision.id, "normal", payload, quota_cobrada=True)
             if id_attempt is None:
@@ -1074,6 +1177,7 @@ class Aplicador:
             descartadas=descartadas,
             skips=skips,
             divergencias=divergencias,
+            caps_saturados=tuple(caps_saturados),
         )
 
     def _ejecuta_mutacion(

@@ -52,6 +52,7 @@ sesion).
 from __future__ import annotations
 
 import datetime as dt
+import logging
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, Literal
 
@@ -66,10 +67,15 @@ from app.api_common import (
     _fila_ciclo,
     _parse_notes,
 )
+from app.apply import KINDS_QUOTA, estado_quota
 from app.optimizer import bid, hygiene
 from app.optimizer import goals as g
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.windows import _SQL_SYNC_PLATAFORMA, _SQL_WATERMARK_PLATAFORMA
+from app.redaction import install_scrub_filter, scrub
+
+logger = logging.getLogger(__name__)
+install_scrub_filter(logger)
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -727,7 +733,18 @@ def salud(conn: ConexionLectura) -> dict:
     + historico ACOTADO a 14d + watermarks (las MISMAS fuentes del motor:
     v_metric_latest y synced_at — regla 2) + skips del ultimo ciclo con su
     traduccion. REUTILIZA _parse_notes, _fila_ciclo y el SQL de ultimo ciclo
-    extraidos a api_common (jamas dos copias, decision 6)."""
+    extraidos a api_common (jamas dos copias, decision 6).
+
+    Preflight 1.4 (sellado 4): cada plataforma gana "quota" —
+    {kind: {used, cap, fuente}} para cada kind de KINDS_QUOTA. DECISION
+    DECLARADA: la visibilidad vive AQUI (y no en /api/ads-optimizer/status)
+    porque /salud es la fuente que la pantalla /salud ya consume
+    (app/ui.py pagina_salud) y donde 0002/notifica ya declaran la
+    visibilidad de la quota ("VISIBLE en Salud"); la tarea 1.5 renderiza
+    desde aqui sin cablear un fetch nuevo, y NO se agregan rutas (la
+    superficie de ambos routers queda sellada). UNA fuente: estado_quota de
+    app.apply (el mismo motor_quota y la misma expresion de dia UTC que
+    consume_quota); la app JAMAS re-implementa el mapeo de caps."""
     ciclos = {
         fila[2]: _fila_ciclo(fila)  # fila[2] = platform (ver SELECT)
         for fila in conn.execute(_SQL_ULTIMO_CICLO_POR_PLATAFORMA).fetchall()
@@ -744,8 +761,31 @@ def salud(conn: ConexionLectura) -> dict:
             "ultimo_ciclo": ultimo,
             "historico_14d": [_fila_historico(fila) for fila in historico],
             "skips": _skips_de(ultimo),
+            "quota": _quota_de(conn, plataforma),
         }
     return {"plataformas": plataformas}
+
+
+def _quota_de(conn: ConexionLectura, plataforma: str) -> dict:
+    """El bloque quota de UNA plataforma (preflight 1.4). ADV-1 (adversary):
+    un cap ROTO en la config (valor no numerico) revienta estado_quota A
+    PROPOSITO en el camino de cobro (ruidoso, jamas disfraz de cap infinito)
+    — pero la pantalla de LECTURA no muere entera por una forma rota: queda
+    VISIBLE con fuente="config_rota" (cap null; no "sin_clave", que
+    mentiria: la clave SI existe) y las formas sanas siguen legibles."""
+    quota: dict = {}
+    for kind in KINDS_QUOTA:
+        try:
+            quota[kind] = estado_quota(conn, plataforma, kind)
+        except ValueError as exc:
+            logger.warning(
+                "salud: quota %s/%s ilegible (config rota): %s",
+                plataforma,
+                kind,
+                scrub(str(exc)),
+            )
+            quota[kind] = {"used": 0, "cap": None, "fuente": "config_rota"}
+    return quota
 
 
 # ---------------------------------------------------------------------------

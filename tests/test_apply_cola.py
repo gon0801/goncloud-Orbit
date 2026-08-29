@@ -700,7 +700,9 @@ def test_veto_en_released_gana_limpio_contra_claim(monkeypatch):
     quota): el claim atomico UPDATE ... WHERE estado='released' ve 0 filas y NO
     aplica — cero HTTP, cero ledger. El perdedor pierde LIMPIO."""
     import app.apply_cola
-    from app.apply_cola import consume_quota as _cq  # noqa: F401 - existencia del simbolo
+    from app.apply_cola import (  # noqa: F401 - existencia del simbolo
+        consume_quota_y_sello as _cqs,
+    )
 
     with _db_temporal("orbit_cola_carrera") as conn:
         ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_pause": 2})
@@ -725,9 +727,9 @@ def test_veto_en_released_gana_limpio_contra_claim(monkeypatch):
                 )
             finally:
                 conn.execute("RESET ROLE")
-            return _cq(conn, platform, kind)
+            return _cqs(conn, platform, kind)
 
-        monkeypatch.setattr(app.apply_cola, "consume_quota", quota_que_veta)
+        monkeypatch.setattr(app.apply_cola, "consume_quota_y_sello", quota_que_veta)
 
         res = libera_vencidos(
             conn,
@@ -1382,7 +1384,11 @@ def test_released_sin_quota_se_reintenta_al_dia_siguiente(monkeypatch):
         # test), asi que la renovacion entra por la MISMA puerta de quota; la
         # secuencia posterior (re-validacion + claim + HTTP) corre real.
         d2 = d + dt.timedelta(days=1)
-        monkeypatch.setattr(app.apply_cola, "consume_quota", lambda *_a, **_k: True)
+        # preflight 1.4: el cobro va por consume_quota_y_sello (usada,
+        # saturada) — la renovacion exitosa NO es transicion de cap.
+        monkeypatch.setattr(
+            app.apply_cola, "consume_quota_y_sello", lambda *_a, **_k: (True, False)
+        )
         vistos.clear()
         res2 = libera_vencidos(
             conn, "amazon_us", ahora=d2, aplicador=_aplicador(conn, handler, ids["ciclo_ejec"])
