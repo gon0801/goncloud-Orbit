@@ -38,6 +38,24 @@ la evidencia se captura fuera):
 Sin --acepto-mutacion-real es DRY-RUN: imprime el plan resuelto y no toca
 Amazon. Cada mutacion imprime UNA linea JSON (scrub: app.redaction) con
 request/ack/readback; la linea final es la reconciliacion.
+
+MODO --solo-campana (ORBIT 05 preflight 1.6a): reactiva SOLO la campana
+indicada (id interno ad_entity) por el MISMO camino sellado de arriba.
+El plan se reduce a ESA campana (nombre resuelto de la base), las pausas
+de dedup se SALTAN (cero keywords) y ANTES de mutar — tambien en dry-run —
+se verifica el estado VIVO por POST /sp/campaigns/list: si la campana ya
+esta ENABLED, NO se muta (fail-closed: declararlo y seguir desde el paso
+4 del runbook 1.6a). La mutacion real exige ademas --esperado-external
+<external_id>: el external que el dueno autorizo viendo el dry-run; si la
+base resuelve otro, aborta (anti-typo, cross-review grok). Con --dedup-1-6a
+(parte 2, GO del dueno 2026-08-29) las 9 keywords EXACT de PAUSAS_DEDUP_1_6A
+se pausan ANTES del resume por el MISMO camino sellado de la Fase 1 — y ese
+modo SOLO acepta --solo-campana 3919: las 9 pausas estan autorizadas atadas
+al resume de ESA campana (cross-review codex). Corrida:
+
+    ssh goncloud 'docker exec -i orbit-app-1 python - --solo-campana 3919 \
+      --esperado-external 251723662158466 [--dedup-1-6a] [--acepto-mutacion-real]' \
+      < tools/reactiva_campanas.py
 """
 
 from __future__ import annotations
@@ -112,6 +130,33 @@ PAUSAS_DEDUP: list[tuple[int, str, str]] = [
     (3920, "silver arras for wedding", "PHRASE"),
 ]
 
+# Dedup de ORBIT 05 preflight 1.6a (GO del dueno 2026-08-29, "go con la 1"):
+# 9 pausas de keywords EXACT ANTES del resume de la 3919, para que jamas
+# quede el mismo texto+match ENABLED en dos campanas. Fuente: brief parte 2
+# del lead + evidencia out/orbit-05-preflight-1-6a-20260829.md seccion 2.0
+# (criterio "gana quien convierte"; datos 90d). La fila 'silver arras for
+# wedding' estuvo en disputa (la tabla del lead venia de sumar SIN colapsar
+# la bitemporalidad; la re-derivacion colapsada la volteria hacia la 3909)
+# y el lead la resolvio el 2026-08-29 con la respuesta literal "A": la
+# lista se ejecuta TAL CUAL (esa fila pausa la copia de la 3919).
+# Campana cuyo resume autoriza ese GO: las 9 pausas lo PROTEGEN (el dedup
+# existe para reactivarla sin competencia propia). --dedup-1-6a solo acepta
+# --solo-campana con ESTA campana (cross-review codex: con otra campana se
+# pausarian las 9 fijas y se reactivaria una no autorizada).
+CAMPANA_DEDUP_1_6A = 3919
+
+PAUSAS_DEDUP_1_6A: list[tuple[int, str, str]] = [
+    (3919, "arras para boda catolica", "EXACT"),
+    (3919, "arras for wedding ceremony", "EXACT"),
+    (3919, "wedding arras coins set", "EXACT"),
+    (3919, "unity coins", "EXACT"),
+    (3919, "silver arras for wedding", "EXACT"),
+    (3919, "arras matrimoniales", "EXACT"),
+    (3919, "arras de boda centenario", "EXACT"),
+    (3919, "b0bvqfltlq", "EXACT"),
+    (3926, "arras de boda cristiana", "EXACT"),
+]
+
 # Enum del REQUEST de pause/resume: SELLADO EN VIVO 2026-08-27 (evidencia en
 # out/reactiva-campanas-20260827.log y los probes del mismo dia): el PUT v3
 # exige UPPER ('PAUSED'/'ENABLED'; 'paused' minuscula responde 400 con el
@@ -170,32 +215,14 @@ def _perfiles(cliente_lectura: AdsClient) -> dict[str, int]:
     return out
 
 
-def _resolver_plan(conn: psycopg.Connection) -> tuple[dict[int, dict], list[dict]]:
-    """external_ids y plataforma de campanas y keywords, contra la base VIVA.
-    Fail-closed: cualquier faltante o estado inesperado aborta ANTES de
-    tocar Amazon."""
-    campanas: dict[int, dict] = {}
-    for cid, nombre in CAMPANAS_REACTIVAR.items():
-        row = conn.execute(
-            """SELECT e.external_id, e.platform, s.status
-               FROM ad_entity e JOIN ad_entity_state s ON s.ad_entity_id = e.id
-               WHERE e.id = %s AND e.kind = 'campaign'""",
-            (cid,),
-        ).fetchone()
-        if row is None:
-            raise Abortar(f"campaña {cid} ({nombre}) no existe en la base")
-        campanas[cid] = {"external_id": row[0], "platform": row[1], "status": row[2]}
-        _log(
-            "campana_resuelta",
-            id=cid,
-            nombre=nombre,
-            external_id=row[0],
-            platform=row[1],
-            estado_cache=row[2],
-        )
-
+def _resolver_keywords(conn: psycopg.Connection, pausas: list[tuple[int, str, str]]) -> list[dict]:
+    """external_id y plataforma de las keywords a pausar, contra la base VIVA
+    (un unico camino para el dedup del camino original y el del 1.6a).
+    Fail-closed: cada (campana, texto, match) debe resolver EXACTAMENTE 1
+    fila en estado ENABLED; la realidad difiere de la lista -> Abortar ANTES
+    de tocar Amazon."""
     keywords: list[dict] = []
-    for camp_id, texto, match in PAUSAS_DEDUP:
+    for camp_id, texto, match in pausas:
         rows = conn.execute(
             """SELECT k.external_id, s.status, c.platform
                FROM ad_entity k
@@ -231,6 +258,82 @@ def _resolver_plan(conn: psycopg.Connection) -> tuple[dict[int, dict], list[dict
             external_id=ext,
             platform=platform,
         )
+    return keywords
+
+
+def _resolver_plan(
+    conn: psycopg.Connection,
+    solo_campana: int | None = None,
+    dedup_1_6a: bool = False,
+) -> tuple[dict[int, dict], list[dict]]:
+    """external_ids y plataforma de campanas y keywords, contra la base VIVA.
+    Fail-closed: cualquier faltante o estado inesperado aborta ANTES de
+    tocar Amazon.
+
+    Con solo_campana (ORBIT 05 preflight 1.6a): el plan se reduce a ESA
+    campana (id interno ad_entity); con dedup_1_6a resuelve TAMBIEN las 9
+    pausas de PAUSAS_DEDUP_1_6A por el MISMO camino del helper (parte 2, GO
+    del dueno 2026-08-29: dedup ANTES del resume); sin el flag las keywords
+    quedan VACIAS."""
+    if solo_campana is not None:
+        row = conn.execute(
+            """SELECT e.external_id, e.platform, e.name, s.status
+               FROM ad_entity e JOIN ad_entity_state s ON s.ad_entity_id = e.id
+               WHERE e.id = %s AND e.kind = 'campaign'""",
+            (solo_campana,),
+        ).fetchone()
+        if row is None:
+            raise Abortar(f"campana {solo_campana} no existe en la base (kind 'campaign')")
+        external_id, platform, name, status = row
+        # Regla 3: e.name NULL -> el external_id es el nombre declarado, sin inventar.
+        nombre = name or external_id
+        _log(
+            "campana_resuelta",
+            id=solo_campana,
+            nombre=nombre,
+            external_id=external_id,
+            platform=platform,
+            estado_cache=status,
+        )
+        keywords = _resolver_keywords(conn, PAUSAS_DEDUP_1_6A) if dedup_1_6a else []
+        return (
+            {
+                solo_campana: {
+                    "external_id": external_id,
+                    "platform": platform,
+                    "status": status,
+                    "nombre": nombre,
+                }
+            },
+            keywords,
+        )
+
+    campanas: dict[int, dict] = {}
+    for cid, nombre in CAMPANAS_REACTIVAR.items():
+        row = conn.execute(
+            """SELECT e.external_id, e.platform, s.status
+               FROM ad_entity e JOIN ad_entity_state s ON s.ad_entity_id = e.id
+               WHERE e.id = %s AND e.kind = 'campaign'""",
+            (cid,),
+        ).fetchone()
+        if row is None:
+            raise Abortar(f"campaña {cid} ({nombre}) no existe en la base")
+        campanas[cid] = {
+            "external_id": row[0],
+            "platform": row[1],
+            "status": row[2],
+            "nombre": nombre,
+        }
+        _log(
+            "campana_resuelta",
+            id=cid,
+            nombre=nombre,
+            external_id=row[0],
+            platform=row[1],
+            estado_cache=row[2],
+        )
+
+    keywords = _resolver_keywords(conn, PAUSAS_DEDUP)
     return campanas, keywords
 
 
@@ -331,6 +434,17 @@ def _put_estado(
     raise Abortar(f"PUT {path} rechazado para {external_id} (status {ack['status']})")
 
 
+def _orden_resumes(campanas: dict[int, dict]) -> list[int]:
+    """Orden de la fase de resumes: A1U Exact 3909 (el shape nuevo, sellado en
+    vivo 2026-08-27) encabeza SOLO si esta en el plan; el resto conserva el
+    orden del plan. Con --solo-campana el plan ES una sola campana y va tal
+    cual (review r2: el orden hardcodeado [3909]+... reventaba con KeyError
+    porque 3909 no esta en un plan reducido)."""
+    if 3909 in campanas:
+        return [3909] + [c for c in campanas if c != 3909]
+    return list(campanas)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument(
@@ -338,19 +452,97 @@ def main() -> int:
         action="store_true",
         help="obligatorio para tocar Amazon; sin el = dry-run",
     )
+    ap.add_argument(
+        "--solo-campana",
+        type=int,
+        default=None,
+        help="id interno ad_entity de UNA campana: reduce el plan a ESA campana y "
+        "salta las pausas de dedup (ORBIT 05 preflight 1.6a)",
+    )
+    ap.add_argument(
+        "--esperado-external",
+        default=None,
+        help="external_id que la base DEBE resolver para --solo-campana (anti-typo, "
+        "cross-review grok): OBLIGATORIO con --acepto-mutacion-real; aborta si difiere",
+    )
+    ap.add_argument(
+        "--dedup-1-6a",
+        action="store_true",
+        help="con --solo-campana: pausar TAMBIEN las 9 keywords EXACT de "
+        "PAUSAS_DEDUP_1_6A antes del resume (parte 2, GO del dueno 2026-08-29)",
+    )
     args = ap.parse_args()
+
+    # Las 9 pausas del 1.6a van atadas al resume de ESA campana: sin el modo
+    # --solo-campana es un error de uso, y con OTRA campana tambien (las 9
+    # pausas protegen la reactivacion autorizada de la 3919, no cualquier
+    # resume) — fail-closed antes de abrir nada.
+    if args.dedup_1_6a:
+        if args.solo_campana is None:
+            raise Abortar("--dedup-1-6a requiere --solo-campana")
+        if args.solo_campana != CAMPANA_DEDUP_1_6A:
+            raise Abortar(
+                f"--dedup-1-6a esta atado al resume de la campana {CAMPANA_DEDUP_1_6A} "
+                f"(las 9 pausas protegen ESA reactivacion, GO 2026-08-29); "
+                f"para la {args.solo_campana} es otra tarea con su propia lista"
+            )
 
     cred = AdsCredentials.from_secrets_dir()
     conn = connect(_dsn_read())
     cliente_lectura = AdsClient(cred)
     http = httpx.Client(timeout=httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0))
 
-    campanas, keywords = _resolver_plan(conn)
+    campanas, keywords = _resolver_plan(conn, args.solo_campana, dedup_1_6a=args.dedup_1_6a)
+
+    # Anti-typo (cross-review grok, media): con --solo-campana la mutacion real
+    # queda ATADA al external que el dueno autorizo viendo el dry-run. Un id
+    # interno equivocado (p. ej. otra campana PAUSED) revienta aqui, no en
+    # Amazon. El desacuerdo aborta tambien en dry-run.
+    if args.esperado_external is not None and args.solo_campana is None:
+        raise Abortar("--esperado-external solo tiene sentido junto a --solo-campana")
+    if args.solo_campana is not None:
+        resuelto = campanas[args.solo_campana]["external_id"]
+        if args.esperado_external is not None and args.esperado_external != resuelto:
+            raise Abortar(
+                f"--esperado-external {args.esperado_external} != external resuelto "
+                f"{resuelto} (campana {args.solo_campana}): realidad difiere del plan"
+            )
+        if args.acepto_mutacion_real and args.esperado_external is None:
+            raise Abortar(
+                f"mutacion real de --solo-campana exige --esperado-external "
+                f"(el external autorizado; el resuelto es {resuelto})"
+            )
     perfiles = _perfiles(cliente_lectura)
     _log("perfiles", perfiles=perfiles)
     for cid, c in campanas.items():
         if c["platform"] not in perfiles:
             raise Abortar(f"sin perfil aceptado para {c['platform']} (campana {cid})")
+
+    # Guard 1.6a (SOLO --solo-campana): el estado VIVO se declara ANTES de
+    # mutar; si la campana ya esta ENABLED, NO se muta. Tambien dispara en
+    # dry-run: es la declaracion fail-closed que pide el runbook 1.6a.
+    if args.solo_campana is not None:
+        c = campanas[args.solo_campana]
+        profile = perfiles[c["platform"]]
+        vivo = _readback_estado(
+            cliente_lectura,
+            profile,
+            "/sp/campaigns/list",
+            "campaignIdFilter",
+            "campaigns",
+            "campaignId",
+            c["external_id"],
+        )
+        _log("estado_vivo", camp_id=args.solo_campana, external_id=c["external_id"], estado=vivo)
+        if vivo is None:
+            raise Abortar(
+                f"readback vivo de la campana {args.solo_campana} ({c['external_id']}) no respondio"
+            )
+        if vivo != "PAUSED":
+            raise Abortar(
+                f"campana {args.solo_campana} ya esta {vivo} en Amazon: no se muta "
+                "(declararlo y sigue desde el paso 4 del runbook 1.6a)"
+            )
 
     if not args.acepto_mutacion_real:
         _log(
@@ -400,10 +592,31 @@ def main() -> int:
             raise Abortar(f"readback del pause de {kw['external_id']} != PAUSED: {estado}")
 
     # ---- Fase 2: resumes (PRIMERO A1U Exact 3909 sola: shape nuevo) ----
-    orden = [3909] + [c for c in campanas if c != 3909]
-    for cid in orden:
+    for cid in _orden_resumes(campanas):
         c = campanas[cid]
         profile = perfiles[c["platform"]]
+        # RE-LECTURA justo antes del PUT (hallazgo Greptile PR #54): entre el
+        # guard de arriba y este resume corren las pausas de dedup (9 PUT +
+        # readback), y en esa ventana alguien —persona o automatismo— pudo
+        # pausar la campana a proposito. Reactivarla igual seria pisar una
+        # decision ajena. El chequeo SOLO aplica a --solo-campana (el camino
+        # original de CAMPANAS 01 reactiva un lote ya acordado).
+        if args.solo_campana is not None:
+            vivo_ahora = _readback_estado(
+                cliente_lectura,
+                profile,
+                "/sp/campaigns/list",
+                "campaignIdFilter",
+                "campaigns",
+                "campaignId",
+                c["external_id"],
+            )
+            _log("estado_vivo_prev_resume", camp_id=cid, estado=vivo_ahora)
+            if vivo_ahora != "PAUSED":
+                raise Abortar(
+                    f"campana {cid} ({c['external_id']}) cambio a {vivo_ahora} DURANTE la "
+                    "corrida (entre el guard y el resume): no se pisa una decision ajena"
+                )
         _put_estado(
             http,
             token,
@@ -428,7 +641,7 @@ def main() -> int:
         _log(
             "resume",
             camp_id=cid,
-            nombre=CAMPANAS_REACTIVAR[cid],
+            nombre=c["nombre"],
             external_id=c["external_id"],
             readback=estado,
             ok=estado == "ENABLED",
