@@ -27,6 +27,11 @@ STMTS = tuple(pglast.parse_sql(SQL))
 SQL2 = (ROOT / "migrations" / "0002_apply.sql").read_text(encoding="utf-8")
 STMTS2 = tuple(pglast.parse_sql(SQL2))
 
+# 0003 (ORBIT 05 preflight 1.2): la RUTA se declara aqui y el CONTENIDO se lee
+# DENTRO del test de integracion — en el commit de tests rojos (TDD) la
+# migracion todavia no existe y el modulo debe colectar sin ella.
+_RUTA_0003 = ROOT / "migrations" / "0003_goal_bounds_explicit.sql"
+
 APPEND_ONLY = {
     "ads_metric_observation",
     "search_term_observation",
@@ -1303,4 +1308,57 @@ def test_migracion_rechaza_en_vivo():
     finally:
         admin.execute(sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(db)))
         admin.execute(sql.SQL("DROP ROLE IF EXISTS {}").format(sql.Identifier(centinela)))
+        admin.close()
+
+
+@pytest.mark.skipif(
+    not _RUTA_0003.exists(),
+    reason="0003 aun no existe (commit de tests rojos: el rojo de este test "
+    "es de ENTORNO — sin Postgres local no es demostrable aqui, CI lo corre)",
+)
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_0003_goal_sin_piso_techo_revierte_y_con_bounds_pasa():
+    """(e) Sello 0003 en vivo (ORBIT 05 preflight 1.2, sellado 2 del plan):
+    tras 0001+0002+0003, un INSERT de goal que omita bid_floor/bid_ceiling
+    REVIENTA con NotNullViolation — la DB ya no trae el DEFAULT 0.10/2.50
+    (pensado en USD: el goal 4 MXN nacio con el techo que aplastaba 144/233
+    keywords y 44/51 targets MX con bid > 2.50 MXN, spot-check 4.4) — y el
+    INSERT con bounds explicitos PASA (control positivo, MXN 1.00/45.00).
+    ROJO contra 0001+0002: el DEFAULT llenaba los omitidos y el insert
+    prosperaba naciendo en USD."""
+    psycopg = pytest.importorskip("psycopg")
+    from psycopg import sql as pgsql
+
+    sql3 = _RUTA_0003.read_text(encoding="utf-8")
+    dsn = _test_dsn()
+    db = f"orbit_0003_test_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(dsn, dbname=db, autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        conn.execute(SQL)  # 0001: esquema sellado
+        conn.execute(SQL2)  # 0002: apply
+        conn.execute(sql3)  # 0003: sin DEFAULT en piso/techo
+        with pytest.raises(psycopg.errors.NotNullViolation):
+            conn.execute(
+                "INSERT INTO ads_optimizer_goal (scope, platform, bid_currency, enabled)"
+                " VALUES ('platform', 'amazon_mx', 'MXN', true)"
+            )
+        # Control positivo: bounds explicitos PASAN (los del sello MXN).
+        conn.execute(
+            "INSERT INTO ads_optimizer_goal (scope, platform, bid_currency, bid_floor,"
+            " bid_ceiling, enabled, mode)"
+            " VALUES ('platform', 'amazon_mx', 'MXN', 1.00, 45.00, true, 'shadow')"
+        )
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
         admin.close()

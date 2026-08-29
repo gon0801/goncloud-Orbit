@@ -306,6 +306,87 @@ def test_endpoint_goals_numericos_no_finitos_422(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Defaults de piso/techo POR MONEDA al persistir (ORBIT 05 preflight 1.2)
+# ---------------------------------------------------------------------------
+
+
+class _ConnFila:
+    """Conn minima del guard de defaults: la lectura devuelve la fila dada y
+    el UPDATE se CAPTURA (sql + params) sin tocar base. El guard corre entre
+    la lectura y el persist; este test lo pinea sin Postgres."""
+
+    def __init__(self, fila: dict):
+        self.fila = fila
+        self.sql = ""
+        self.params: tuple = ()
+
+    def execute(self, sql, params=None):
+        if sql.lstrip().upper().startswith("SELECT"):
+            return self
+        self.sql, self.params = sql, tuple(params or ())
+        return self
+
+    def fetchone(self):
+        return self.fila
+
+    def commit(self):
+        pass
+
+
+def _fila_mxn(**sobreescribe) -> dict:
+    """Fila completa de un goal MXN con floor/ceiling AUSENTES: la forma que
+    la DB (NOT NULL desde 0001) jamas produce hoy y que el guard de
+    goals_write debe resolver por moneda antes de persistir."""
+    fila = {
+        "id": 7,
+        "scope": "platform",
+        "ad_entity_id": None,
+        "platform": "amazon_mx",
+        "target_acos_pct": Decimal("25"),
+        "bid_floor": None,
+        "bid_ceiling": None,
+        "bid_currency": "MXN",
+        "harvest_campaign_id": None,
+        "harvest_ad_group_id": None,
+        "harvest_default_bid": None,
+        "enabled": True,
+        "mode": "shadow",
+        "created_at": T_SEMBRADO,
+        "updated_at": T_SEMBRADO,
+    }
+    fila.update(sobreescribe)
+    return fila
+
+
+def test_edita_goal_mxn_sin_piso_techo_persiste_defaults_de_su_moneda():
+    """(d) ROJO del preflight 1.2: si el estado efectivo del goal queda con
+    floor/ceiling ausentes, edita_goal los resuelve con DEFAULTS_POR_MONEDA
+    de LA MONEDA DE LA FILA antes del UPDATE -- un goal MXN JAMAS se guarda
+    con 0.10/2.50 implicitos (spot-check 4.4: ese techo en USD aplastaba
+    bids vivos de MX). El UPDATE persiste 1.00/45.00 EXPLICITOS."""
+    conn_falso = _ConnFila(_fila_mxn())
+    goals_write.edita_goal(conn_falso, 7, target_acos_pct=Decimal("30"), updated_at=T_EDITADO)
+    assert "bid_floor = %s" in conn_falso.sql, (
+        "el UPDATE debe llevar el piso resuelto por moneda, no omitirlo"
+    )
+    assert "bid_ceiling = %s" in conn_falso.sql, (
+        "el UPDATE debe llevar el techo resuelto por moneda, no omitirlo"
+    )
+    assert Decimal("1.00") in conn_falso.params
+    assert Decimal("45.00") in conn_falso.params
+
+
+def test_edita_goal_moneda_sin_defaults_revierte_antes_de_persistir():
+    """(d) OTRA moneda = error explicito (regla 3): una fila con moneda fuera
+    de DEFAULTS_POR_MONEDA revienta ValueError y el UPDATE JAMAS se ejecuta
+    (no se persiste nada con defaults inventados)."""
+    conn_falso = _ConnFila(_fila_mxn(bid_currency="EUR"))
+    with pytest.raises(ValueError, match="DEFAULTS_POR_MONEDA"):
+        goals_write.edita_goal(conn_falso, 7, target_acos_pct=Decimal("30"), updated_at=T_EDITADO)
+    assert conn_falso.sql == "", "con moneda sin defaults no se ejecuta ningun UPDATE"
+
+
+# ---------------------------------------------------------------------------
 # PG16 REAL: UPDATE honesto, pre-validacion combinada y visibilidad al ciclo
 # ---------------------------------------------------------------------------
 
