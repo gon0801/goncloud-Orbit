@@ -385,6 +385,17 @@ def _put_estado(
     raise Abortar(f"PUT {path} rechazado para {external_id} (status {ack['status']})")
 
 
+def _orden_resumes(campanas: dict[int, dict]) -> list[int]:
+    """Orden de la fase de resumes: A1U Exact 3909 (el shape nuevo, sellado en
+    vivo 2026-08-27) encabeza SOLO si esta en el plan; el resto conserva el
+    orden del plan. Con --solo-campana el plan ES una sola campana y va tal
+    cual (review r2: el orden hardcodeado [3909]+... reventaba con KeyError
+    porque 3909 no esta en un plan reducido)."""
+    if 3909 in campanas:
+        return [3909] + [c for c in campanas if c != 3909]
+    return list(campanas)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument(
@@ -487,8 +498,7 @@ def main() -> int:
             raise Abortar(f"readback del pause de {kw['external_id']} != PAUSED: {estado}")
 
     # ---- Fase 2: resumes (PRIMERO A1U Exact 3909 sola: shape nuevo) ----
-    orden = [3909] + [c for c in campanas if c != 3909]
-    for cid in orden:
+    for cid in _orden_resumes(campanas):
         c = campanas[cid]
         profile = perfiles[c["platform"]]
         _put_estado(

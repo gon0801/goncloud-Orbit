@@ -23,6 +23,15 @@ no hubo NI mutacion NI token LWA. Cubren:
    sin ningun intento de PUT.
 5. main --solo-campana con la campana YA ENABLED en Amazon: Abortar "no se
    muta" (guard del runbook 1.6a, tambien dispara en dry-run); sin PUT.
+6. main --solo-campana --acepto-mutacion-real: la fase 2 COMPLETA el resume
+   de la 3919 (regresion del review r2: con el orden hardcodeado
+   [3909]+... reventia KeyError 3909 ANTES del PUT) con el shape sellado
+   exacto: UN PUT a /sp/campaigns, id STRING, state ENABLED, vendor v3 en
+   Content-Type Y Accept, readback ENABLED y reconciliacion 0/1.
+7. _orden_resumes: 3909 encabeza SOLO si esta en el plan; --solo-campana es
+   la unica fila del orden.
+8. e.name NULL -> el nombre declarado es el external_id (regla 3: jamas
+   constante inventada).
 """
 
 from __future__ import annotations
@@ -98,11 +107,13 @@ def _conn_camino_original() -> _ConnFalsa:
 
 
 class _Respuesta:
-    """Lo minimo que _readback_estado pide: status_code y json()."""
+    """Lo minimo que _readback_estado y _put piden: status_code, json() y
+    text (para el scrub del cuerpo crudo)."""
 
-    def __init__(self, status_code: int, datos: dict):
+    def __init__(self, status_code: int, datos: dict, texto: str = ""):
         self.status_code = status_code
         self._datos = datos
+        self.text = texto
 
     def json(self):
         return self._datos
@@ -111,17 +122,23 @@ class _Respuesta:
 class _ClienteAdsFalso:
     """AdsClient canned: /sp/campaigns/list responde la campana con el estado
     indicado; cualquier otro path (o un GET) revienta — el guard del 1.6a es
-    el UNICO consumidor vivo del cliente en estos tests."""
+    el UNICO consumidor vivo del cliente en estos tests. Con `secuencia`, cada
+    llamada consume el siguiente estado (guard PAUSED y readback post-PUT
+    ENABLED en la misma corrida)."""
 
-    def __init__(self, estado_vivo: str = "PAUSED"):
+    def __init__(self, estado_vivo: str = "PAUSED", secuencia: list[str] | None = None):
         self._estado = estado_vivo
+        self._secuencia = list(secuencia or [])
         self.llamadas: list[dict] = []
 
     def list_objects(self, path, body, *, profile_id=None):
         self.llamadas.append({"path": path, "body": dict(body), "profile_id": profile_id})
         assert path == "/sp/campaigns/list", f"path inesperado: {path}"
+        estado = self._secuencia.pop(0) if self._secuencia else self._estado
         return _Respuesta(
-            200, {"campaigns": [{"campaignId": SOLO_EXTERNAL, "state": self._estado}]}
+            200,
+            {"campaigns": [{"campaignId": SOLO_EXTERNAL, "state": estado}]},
+            texto='{"state": "ok"}',
         )
 
     def get(self, *a, **kw):
@@ -137,6 +154,22 @@ class _HttpFalso:
 
     def post(self, *a, **kw):
         raise AssertionError("POST inesperado (token LWA) donde no correspondia")
+
+    def close(self):
+        pass
+
+
+class _HttpQueResume:
+    """httpx.Client falso para la fase 2 de --solo-campana: CONTESTA los PUT
+    con ack 200 sin errores del 207 y graba cada llamada (url, headers,
+    payload) para afirmar el shape sellado."""
+
+    def __init__(self):
+        self.puts: list[dict] = []
+
+    def put(self, url, headers=None, json=None):
+        self.puts.append({"url": url, "headers": dict(headers or {}), "payload": json})
+        return _Respuesta(200, {}, texto='{"campaigns": []}')
 
     def close(self):
         pass
@@ -164,17 +197,26 @@ def _perfil_us() -> PerfilAds:
     )
 
 
-def _fakea_main(monkeypatch, conn: _ConnFalsa, estado_vivo: str = "PAUSED") -> _ClienteAdsFalso:
+def _fakea_main(
+    monkeypatch,
+    conn: _ConnFalsa,
+    estado_vivo: str = "PAUSED",
+    http=None,
+    secuencia: list[str] | None = None,
+) -> _ClienteAdsFalso:
     """Fakea la frontera del main: credenciales, DSN+connect, AdsClient,
-    perfiles aceptados y httpx (todo canned, cero red)."""
+    perfiles aceptados y httpx (todo canned, cero red). `http` permite
+    inyectar el _HttpQueResume de la fase 2."""
     monkeypatch.setattr(AdsCredentials, "from_secrets_dir", classmethod(lambda cls: _CREDS_FALSAS))
     monkeypatch.setattr(rc, "_dsn_read", lambda: "dsn-falso")
     monkeypatch.setattr(rc, "connect", lambda dsn: conn)
-    cliente = _ClienteAdsFalso(estado_vivo)
+    cliente = _ClienteAdsFalso(estado_vivo, secuencia=secuencia)
     monkeypatch.setattr(rc, "AdsClient", lambda cred: cliente)
     monkeypatch.setattr(rc, "evaluar_perfiles", lambda cliente_lectura: [_perfil_us()])
     monkeypatch.setattr(
-        rc, "httpx", SimpleNamespace(Client=lambda **kw: _HttpFalso(), Timeout=lambda **kw: None)
+        rc,
+        "httpx",
+        SimpleNamespace(Client=lambda **kw: http or _HttpFalso(), Timeout=lambda **kw: None),
     )
     return cliente
 
@@ -279,3 +321,69 @@ def test_main_solo_campana_ya_enabled_no_muta(monkeypatch, capsys):
         "se declara el estado vivo que disparo el abort"
     )
     # Sin PUT: el _HttpFalso reventaria; el Abortar salio del guard, no de red.
+
+
+# ---------------------------------------------------------------------------
+# 6-8. Review r2: fase 2 completa en solo-campana, orden de resumes, name NULL
+# ---------------------------------------------------------------------------
+
+
+def test_main_solo_campana_resume_completa_la_fase_2(monkeypatch, capsys):
+    """Regresion del review (ALTA): con --solo-campana 3919 la fase 2 reventia
+    con KeyError 3909 (orden = [3909] + ... asume que 3909 esta en el plan)
+    despues del token y ANTES de cualquier PUT. Aqui la mutacion COMPLETA: un
+    solo PUT con el shape sellado, readback ENABLED, reconciliacion 0/1."""
+    http = _HttpQueResume()
+    _fakea_main(
+        monkeypatch,
+        _conn_solo_campana("PAUSED"),
+        secuencia=["PAUSED", "ENABLED"],  # guard -> PAUSED; readback post-PUT -> ENABLED
+        http=http,
+    )
+    monkeypatch.setattr(rc, "_token_lwa", lambda cred, client: "token-falso")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["reactiva_campanas.py", "--solo-campana", str(SOLO_CAMPANA), "--acepto-mutacion-real"],
+    )
+
+    assert rc.main() == 0
+
+    assert len(http.puts) == 1, "UN solo PUT: el resume de la 3919 (cero pausas)"
+    put = http.puts[0]
+    assert put["url"].endswith("/sp/campaigns")
+    assert put["payload"] == {"campaigns": [{"campaignId": SOLO_EXTERNAL, "state": "ENABLED"}]}, (
+        "id como STRING y enum UPPER: el shape sellado de PR #37"
+    )
+    vendor = "application/vnd.spcampaign.v3+json"
+    assert put["headers"]["Content-Type"] == vendor and put["headers"]["Accept"] == vendor, (
+        "vendor v3 EXACTO en Content-Type Y Accept"
+    )
+    eventos = _eventos(capsys)
+    resumes = [e for e in eventos if e["evento"] == "resume"]
+    assert len(resumes) == 1
+    assert resumes[0]["camp_id"] == SOLO_CAMPANA
+    assert resumes[0]["readback"] == "ENABLED" and resumes[0]["ok"] is True
+    fin = [e for e in eventos if e["evento"] == "reconciliacion_final"]
+    assert len(fin) == 1
+    assert fin[0]["pausas_ok"] == 0 and fin[0]["resumes_ok"] == 1
+
+
+def test_orden_resumes_solo_campana_es_esa_campana():
+    assert rc._orden_resumes({SOLO_CAMPANA: {}}) == [SOLO_CAMPANA]
+
+
+def test_orden_resumes_camino_original_3909_encabeza():
+    campanas = {cid: {} for cid in rc.CAMPANAS_REACTIVAR}
+    esperado = [3909] + [c for c in campanas if c != 3909]
+    orden = rc._orden_resumes(campanas)
+    assert orden == esperado, "el camino original conserva el orden sellado de master"
+    assert orden[0] == 3909, "A1U Exact 3909 sigue PRIMERA (shape nuevo de PR #37)"
+
+
+def test_nombre_null_cae_al_external_id_sin_inventar(capsys):
+    conn = _conn_solo_campana(nombre=None)  # e.name NULL
+    campanas, _ = rc._resolver_plan(conn, solo_campana=SOLO_CAMPANA)
+    assert campanas[SOLO_CAMPANA]["nombre"] == SOLO_EXTERNAL, (
+        "regla 3: sin nombre en la base, el declarado es el external_id"
+    )
