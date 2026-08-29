@@ -368,8 +368,11 @@ pudo nacer con el techo USD y esos valores NO son None, así que ningún
 guard de código los corrige) — debe dar **cero filas**:
 
 ```sql
+-- OR, no AND (Greptile PR #47): un goal MXN pudo quedar con UN SOLO bound
+-- heredado — `goals set` mueve piso y techo por separado y 0003 conserva los
+-- valores existentes; con AND esa fila se escapaba del chequeo.
 SELECT id, bid_currency, bid_floor, bid_ceiling FROM ads_optimizer_goal
- WHERE bid_currency = 'MXN' AND bid_floor = 0.10 AND bid_ceiling = 2.50;
+ WHERE bid_currency = 'MXN' AND (bid_floor = 0.10 OR bid_ceiling = 2.50);
 ```
 
 Si devuelve alguna: corregirla ANTES de migrar con
@@ -377,12 +380,27 @@ Si devuelve alguna: corregirla ANTES de migrar con
 auditado por `updated_at`; 0003 NO toca datos por diseño). Verificado
 2026-08-29: cero filas (goal 4 ya en 1.00/45.00 MXN).
 
-**(b) Backup del schema de la tabla** (además del backup diario):
+**(b) Backup del schema de la tabla** (además del backup diario), con
+**staging + verificación** (Greptile PR #47: escribir directo al nombre
+final deja un archivo vacío o a medias con pinta de evidencia de rollback si
+`pg_dump` se interrumpe; mismo patrón que `backup.sh`):
 
 ```bash
-ssh goncloud 'docker exec orbit-db-1 pg_dump -U orbit -d orbit --schema-only \
-  -t ads_optimizer_goal > /mnt/data/appdata/orbit/backups/pre0003_ads_optimizer_goal_$(date -u +%Y%m%d-%H%M%S).sql'
+ssh goncloud 'set -e; D=/mnt/data/appdata/orbit/backups; \
+  STAMP=$(date -u +%Y%m%d-%H%M%S); TMP="$D/.pre0003_$STAMP.sql.tmp"; \
+  docker exec orbit-db-1 pg_dump -U orbit -d orbit --schema-only \
+    -t ads_optimizer_goal > "$TMP"; \
+  [ -s "$TMP" ] && grep -q "CREATE TABLE public.ads_optimizer_goal" "$TMP" \
+    && grep -q "bid_floor" "$TMP" \
+    || { echo "DUMP INVALIDO"; rm -f "$TMP"; exit 1; }; \
+  chmod 600 "$TMP"; mv "$TMP" "$D/pre0003_ads_optimizer_goal_$STAMP.sql"; \
+  ls -l "$D/pre0003_ads_optimizer_goal_$STAMP.sql"'
 ```
+
+El archivo final solo aparece si el dump trae el `CREATE TABLE` de la tabla
+y sus columnas; si no, se borra el temporal y el runbook se detiene ahí. El
+backup real del 2026-08-29 04:10 se verificó a mano (6,407 B con el
+`CREATE TABLE` completo).
 
 **(c) Aplicar**, mismo patrón de comando:
 
