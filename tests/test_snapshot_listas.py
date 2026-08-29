@@ -567,6 +567,11 @@ def test_runbook_del_docstring_propaga_el_rc_del_cp():
     doc = ast.get_docstring(ast.parse(fuente)) or ""
     assert 'ssh goncloud "mkdir -p' in doc
     assert doc.count("|| rc=$?") >= 2, "mkdir y docker cp deben propagar su rc al runbook"
+    # La ultima linea del runbook debe PRESERVAR el estado: un `echo` pelado
+    # dejaba $?=0 con el snapshot fallido (Greptile PR #48).
+    assert "snapshot FALLIDO rc=$rc" in doc and "false; fi" in doc, (
+        "el runbook debe terminar con estado != 0 cuando rc != 0"
+    )
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="symlinks POSIX")

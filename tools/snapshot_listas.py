@@ -65,7 +65,11 @@ desde el host del repo, donde viven los secrets que ya usa orbit-app-1):
   fi   # $D = backups/precutover_<tag>/ del host
   ssh goncloud 'docker exec orbit-app-1 sh -c "rm -f /tmp/snapshot_listas.py \
     && rm -rf /tmp/listas"'   # limpieza SIEMPRE: /tmp no es el backup
-  echo "snapshot rc=$rc"   # 0 = snapshot completo y copiado a $D; otro = NO seguir
+  # La ULTIMA linea preserva el estado (Greptile PR #48): un `echo` pelado
+  # dejaba $?=0 aunque el snapshot o el cp hubieran fallado, y quien
+  # encadenara `&&` seguia al discard sin artefacto.
+  if [ "$rc" -eq 0 ]; then echo "snapshot OK (JSON en $D/listas_amazon/)"; \
+  else echo "snapshot FALLIDO rc=$rc: NO seguir con el cutover"; false; fi
 (--solo-conteos antes de la corrida completa para ver los totales sin
 escribir nada.) Verificacion del JSON: DEPLOY.md §"Backup pre-cutover"
 (totales por plataforma/recurso = ad_entity, incl. ARCHIVED;
