@@ -832,10 +832,13 @@ recálculo manual + veto ejecutado por el dueño sobre una fila real (4.3)**.
        checkpoint humano de 4.4: `out/orbit-04-4-4-cierre-20260828.md` §3.4
        y AppFlowy "ORBIT 04 4.4 — spot-check shadow" — 33 decisiones con
        recálculo del implementador, 0 divergencias, + 11 re-calculadas por
-       el lead; de su revisión salieron el techo MX y CORTES 03) y (c) **CORTES 03 mergeada y desplegada** (umbrales de
+       el lead; de su revisión salieron el techo MX y CORTES 03) y (c) **CORTES 03 mergeada y desplegada — CUMPLIDA 2026-08-29** (umbrales de
        pausa del dueño: ≥100 clics y gasto sin ventas ≥$40 USD en US /
-       ≥500 MXN en MX; salió del spot-check — con los umbrales vigentes
-       50 clics / $12 USD / $200 MXN el dueño NO autoriza el flip). Cumplido 2026-08-28: techo de bids MX del goal 4 corregido
+       ≥500 MXN en MX; PR #43 → master `5e5b16b`; deploy con `--build`,
+       imagen `a5d5d579`, constantes leídas DENTRO del contenedor =
+       100 / 100 / $40 / 500 MXN; ciclos shadow 19/20 sin pauses nuevas y
+       156/156 decisiones con `cost_min_usado`; evidencia
+       `out/orbit-05-preflight-1-1-20260829.md`). Cumplido 2026-08-28: techo de bids MX del goal 4 corregido
        a 1.00/45.00 MXN (el default 2.50 era un número en USD aplicado a
        pesos). **SIN MARCAR hasta que el dueño firme**: ningún recálculo
        de la IA sustituye la firma (el implementador es el autor del motor).

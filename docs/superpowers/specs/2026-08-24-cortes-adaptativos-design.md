@@ -17,11 +17,14 @@
 3. **Maquinaria única compartida**: una ventana, una elegibilidad, UN
    multiplicador, DOS fallbacks. Secuencia de aterrizaje: negative → pause.
 4. **Números sellados**: `O_min=3`, `C_min=60`, `Z_min=14`, `M=1.5`,
-   `F_neg=40`, `F_pause=100` (CORTES 03, dueno 2026-08-28; este spec lo
-   selló en 50), `L=90`.
+   `F_neg=40`, `F_pause` = **100 VIGENTE** (valor ORIGINAL de este spec:
+   50; elevado a 100 por CORTES 03, dueño 2026-08-28 — un solo contrato: el
+   vigente es 100), `L=90`.
 5. **PISO de clicks sellado (ronda 1, grok)**: `umbral_final = max(legacy, umbral)`
-   con legacy 20 (negative) / 100 (pause; CORTES 03, dueno 2026-08-28 — este
-   spec lo selló en 25) — el adaptativo solo puede SUBIR
+   con legacy 20 (negative) / **100 VIGENTE** (pause; valor ORIGINAL de este
+   spec: 25; elevado a 100 por CORTES 03, dueño 2026-08-28; los 25/50
+   originales sobreviven SOLO como defaults de replay para filas históricas
+   sin freeze: `REPLAY_PAUSE_CLICKS_PRE_CORTES01`) — el adaptativo solo puede SUBIR
    umbrales, jamás bajar de los actuales. Sin piso, un producto de
    conversión rápida (60 clicks/6 órdenes → expected 10) quedaría con
    umbral 15: más agresivo que hoy, contra el propósito del plan.
