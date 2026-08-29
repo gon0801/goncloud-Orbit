@@ -607,7 +607,9 @@ def _contexto(conn: psycopg.Connection, job: _Job) -> _Contexto:
         raise ValueError(MOTIVO_BID_DEFAULT_FALTANTE)
     if value_currency != goal.bid_currency:
         raise ValueError(MOTIVO_MONEDA_INCOHERENTE)
-    floor, ceiling = g.resuelve_floor_ceiling(goal)
+    # Defaults POR MONEDA (preflight 1.2): la moneda es la del PROPIO goal
+    # (ya cruzada contra value_currency de la decision, dos lineas arriba).
+    floor, ceiling = g.resuelve_floor_ceiling(goal, goal.bid_currency)
     return _Contexto(
         plataforma=job.plataforma,
         grupo_ext=externos[0],

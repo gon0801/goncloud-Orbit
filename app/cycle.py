@@ -560,18 +560,21 @@ def _agregado_json(agg: windows.AgregadoMetricas | None) -> dict | None:
     }
 
 
-def _goal_json(goal: g.Goal) -> dict:
+def _goal_json(goal: g.Goal, moneda: str) -> dict:
     """Goal resuelto congelado (estructura sellada que consume el replay).
     bid_floor/bid_ceiling se congelan EFECTIVOS (resuelve_floor_ceiling):
     exactamente los que decide_bid consumio. Congelar los crudos divergiria
     del replay ante cualquier default/clamp futuro, y un None crudo romperia
-    Decimal(None) en reproduce() (hallazgo CodeRabbit major)."""
+    Decimal(None) en reproduce() (hallazgo CodeRabbit major). `moneda` viaja
+    EXPLICITA desde el llamador (PLATAFORMAS_MONEDA[platform]): los defaults
+    son POR MONEDA (preflight 1.2) y una desalineacion con goal.bid_currency
+    revienta aca, no se cuela al freeze."""
     completa = (
         goal.harvest_campaign_id is not None
         or goal.harvest_ad_group_id is not None
         or goal.harvest_default_bid is not None
     )
-    floor, ceiling = g.resuelve_floor_ceiling(goal)
+    floor, ceiling = g.resuelve_floor_ceiling(goal, moneda)
     return {
         "scope": goal.scope,
         "target_acos_pct": _dec_str(goal.target_acos_pct),
@@ -626,7 +629,7 @@ def _pendiente_bid(
             "bids": _agregado_json(ventanas.bids),
             "cortes": _agregado_json(ventanas.cortes),
         },
-        "goal": _goal_json(goal),
+        "goal": _goal_json(goal, PLATAFORMAS_MONEDA[platform]),
         "target_acos_pct_usado": _dec_str(target),
         "bid_actual": _dec_str(bid_actual),
         "bid_moneda": bid_moneda,
@@ -691,7 +694,7 @@ def _pendiente_termino(
             "moneda": termino.metric_currency,
             "observed_at_max": _ts(termino.observed_at_max),
         },
-        "goal": _goal_json(goal),
+        "goal": _goal_json(goal, PLATAFORMAS_MONEDA[platform]),
         "target_acos_pct_usado": _dec_str(target),
         "motivo": resultado.motivo,
         "modo": modo,
@@ -1129,7 +1132,7 @@ def _procesa_decisora(
     corte_pause, evidencia = corte_pause_por_grupo[ad_group_id]
     ventanas = windows.ventanas_entidad(conn, entidad_id, decided_at)
     target = g.cascada_target_acos(goal.target_acos_pct, setting_target, acos_cache)
-    floor, ceiling = g.resuelve_floor_ceiling(goal)
+    floor, ceiling = g.resuelve_floor_ceiling(goal, PLATAFORMAS_MONEDA[platform])
     costo_piso = bid.PAUSE_COST_MIN[platform]
     resultado = bid.decide_bid(
         platform=platform,

@@ -352,6 +352,29 @@ ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit \
 - Post-aplicación (verificación de la 0001): 19 tablas en `public`, roles
   `app_*` en `pg_roles`, `prohibir_mutacion` en `pg_proc`.
 
+Migración `0003` (ORBIT 05 preflight 1.2), mismo patrón de comando:
+
+```bash
+ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit \
+  -v ON_ERROR_STOP=1 -1' < migrations/0003_goal_bounds_explicit.sql
+```
+
+- **`0003`** quita el `DEFAULT 0.10/2.50` de `bid_floor`/`bid_ceiling` en
+  `ads_optimizer_goal` (sellado 2 del plan ORBIT 05 preflight; spot-check
+  4.4: el default único estaba pensado en USD y el goal MXN nació con el
+  techo que aplastaba bids vivos). **NOT NULL se queda**: un INSERT de goal
+  que omita piso/techo REVIENTA — los defaults viven solo en
+  `DEFAULTS_POR_MONEDA` (app/optimizer/goals.py). NO toca datos ni GRANTs.
+- **La aplica el LEAD**, con **backup previo del schema (runbook 4.1,
+  sección "Backups")**. Verificación post-aplicación — ambas filas deben
+  traer `column_default` NULL:
+
+```sql
+SELECT column_name, column_default FROM information_schema.columns
+ WHERE table_name = 'ads_optimizer_goal'
+   AND column_name IN ('bid_floor', 'bid_ceiling');
+```
+
 ## Correr los tests desde la máquina dev (túnel SSH)
 
 La suite de integración (`test_migracion_rechaza_en_vivo`) necesita un
@@ -580,7 +603,10 @@ disparan), por eso el INSERT dentro de la transacción que se revierte.
 4. `docker compose up -d` y esperar `pg_isready` + `curl 127.0.0.1:8010/health`
    (ver "Levantar"). `ss -lntp` debe mostrar 5432 y 8010 **solo** en
    127.0.0.1.
-5. Aplicar `migrations/0001_initial.sql` (ver "Aplicar migraciones").
+5. Aplicar las migraciones EN ORDEN (`0001_initial.sql`, `0002_apply.sql`,
+   `0003_goal_bounds_explicit.sql` — ver "Aplicar migraciones"). Omitir 0003
+   re-crearia los DEFAULT USD 0.10/2.50 que el sellado 2 del preflight
+   elimino: un goal MXN volveria a nacer con techo 2.50.
 6. Crear los usuarios LOGIN por servicio + `orbit_test` (ver "Usuarios y
    DSN": comandos exactos arriba).
 7. Poblar `secrets/` (amazon_ads_config.json + amazon_ads_tokens.json,

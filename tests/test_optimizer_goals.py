@@ -175,22 +175,57 @@ def test_target_invalido_es_config_corrupta_no_ausente():
 
 
 # ---------------------------------------------------------------------------
-# Floor/ceiling con defaults
+# Floor/ceiling con defaults POR MONEDA (ORBIT 05 preflight 1.2)
 # ---------------------------------------------------------------------------
 
 
-def test_floor_ceiling_defaults_y_valores_dados():
-    """En DB son NOT NULL DEFAULT 0.10/2.50; un None solo puede venir de un
-    Goal construido a mano (capa pura) y se aplica el MISMO default. Valores
-    dados se conservan tal cual (sin quantize: la presentacion es del apply)."""
-    assert g.resuelve_floor_ceiling(_goal(bid_floor=None, bid_ceiling=None)) == (
+def test_floor_ceiling_usd_guarda_declarada():
+    """(b) GUARDA declarada del preflight 1.2, verde ANTES y DESPUES (su
+    "verde en rojo" va anotado en el log: la afirmacion no cambia, solo la
+    firma gana `moneda` obligatoria). Valores dados se conservan tal cual
+    (sin quantize: la presentacion es del apply); goal None y goal con None
+    reciben los defaults de USD: 0.10/2.50 (max real observado 2.00)."""
+    assert g.resuelve_floor_ceiling(_goal(bid_floor=None, bid_ceiling=None), "USD") == (
         Decimal("0.10"),
         Decimal("2.50"),
     )
     assert g.resuelve_floor_ceiling(
-        _goal(bid_floor=Decimal("0.80"), bid_ceiling=Decimal("1.90"))
+        _goal(bid_floor=Decimal("0.80"), bid_ceiling=Decimal("1.90")), "USD"
     ) == (Decimal("0.80"), Decimal("1.90"))
-    assert g.resuelve_floor_ceiling(None) == (Decimal("0.10"), Decimal("2.50"))
+    assert g.resuelve_floor_ceiling(None, "USD") == (Decimal("0.10"), Decimal("2.50"))
+
+
+def test_floor_ceiling_mxn_defaults_por_moneda():
+    """(a) ROJO del preflight 1.2: un goal MXN con floor/ceiling None cae a
+    1.00/45.00, los defaults de SU moneda (sellado 2 del plan ORBIT 05
+    preflight; spot-check 4.4: con el default unico 0.10/2.50 pensado en USD,
+    144/233 keywords y 44/51 targets MX tenian bid > 2.50 MXN y el techo los
+    habria APLASTADO en vivo; decision del dueno 2026-08-28)."""
+    assert g.resuelve_floor_ceiling(
+        _goal(platform="amazon_mx", bid_floor=None, bid_ceiling=None, bid_currency="MXN"),
+        "MXN",
+    ) == (Decimal("1.00"), Decimal("45.00"))
+    assert g.resuelve_floor_ceiling(None, "MXN") == (Decimal("1.00"), Decimal("45.00"))
+
+
+def test_moneda_desconocida_revierte_ruidosa():
+    """(c) OTRA moneda = error explicito (regla 3: no se inventan numeros):
+    una moneda fuera de DEFAULTS_POR_MONEDA revienta ValueError, con goal y
+    con goal None. ROJO hoy: el default unico USD respondia 0.10/2.50 en
+    silencio para cualquier moneda. (El goal del caso 1 trae LA MISMA moneda
+    'EUR': una desalineacion goal-vs-moneda es OTRO error, con su test.)"""
+    with pytest.raises(ValueError, match="DEFAULTS_POR_MONEDA"):
+        g.resuelve_floor_ceiling(_goal(bid_currency="EUR"), "EUR")
+    with pytest.raises(ValueError, match="DEFAULTS_POR_MONEDA"):
+        g.resuelve_floor_ceiling(None, "EUR")
+
+
+def test_moneda_desalineada_con_el_goal_revierte():
+    """El bid_currency del goal ES LA moneda: un llamador que pasa otra
+    (desalineacion del ciclo) revierte ruidoso en vez de mezclar defaults de
+    dos monedas en un mismo clamp."""
+    with pytest.raises(ValueError, match="bid_currency"):
+        g.resuelve_floor_ceiling(_goal(), "MXN")
 
 
 # ---------------------------------------------------------------------------

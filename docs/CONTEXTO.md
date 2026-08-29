@@ -109,7 +109,7 @@ Reglas numéricas selladas (resumen; el documento manda):
   fieles).
 - **−25%** si ACoS > 1.35×target (orders≥1); **−12%** si > 1.15×target;
   **+15%** si ACoS < 0.85×target ∧ orders≥3. Clamp por decisión ∈ [−30%, +20%],
-  resultado ∈ [floor, ceiling] (defaults 0.10/2.50).
+  resultado ∈ [floor, ceiling] (defaults de goal POR MONEDA, regla 4).
 - **NEGATIVE_EXACT**: orders=0 ∧ clicks≥umbral_corte ∧ cost≥{us: 8, mx: 130};
   términos ASIN-like siempre skip. Umbral de clicks **adaptativo por
   producto** (CORTES 01): la evidencia del ad group (suma de sus hojas
@@ -146,6 +146,9 @@ Cada una tiene atrás dinero perdido. Aplican a todo el código de Orbit:
 4. **Todo dinero lleva `(valor, moneda, fecha_fx)` por schema**, y se guarda
    siempre el importe original además del convertido (la conversión es
    irreversible). Un `SUM()` mezclando monedas debe ser imposible por schema.
+   Los defaults de piso/techo de goals van POR MONEDA (USD 0.10/2.50, MXN
+   1.00/45.00; sellado 2 del preflight de ORBIT 05) — sin moneda no hay
+   default.
 5. **Toda métrica es append-only con clave `(entidad, metric_date,
    observed_at)`.** El UPSERT in-place del sistema viejo hacía que el backtest
    viera números que el motor jamás pudo ver (lookahead sin síntomas — la

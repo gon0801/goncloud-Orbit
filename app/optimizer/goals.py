@@ -27,9 +27,16 @@ Reglas selladas (plans/orbit-03.md task 2.4 + Spec delta de CONTEXTO.md):
   camino del motor (misma aritmetica; la campana PISA siempre que exista: con un
   goal de campana de target None, el target del goal de plataforma NO entra --
   testeado por equivalencia). La capa web la REUTILIZA, jamas la reimplementa.
-- FLOOR/CEILING: la DB ya sella NOT NULL DEFAULT 0.10/2.50; un None solo
-  puede venir de un Goal construido a mano (esta capa pura) y recibe el
-  MISMO default: un None pasando al clamp de 2.2 seria un bid sin piso.
+- FLOOR/CEILING: los defaults son POR MONEDA (DEFAULTS_POR_MONEDA: USD
+  0.10/2.50 con max real observado 2.00, MXN 1.00/45.00; OTRA moneda =
+  ValueError explicito -- sellado 2 del plan plans/orbit-05-preflight.md,
+  decision del dueno 2026-08-28 tras el spot-check 4.4: con el default
+  unico pensado en USD, 144/233 keywords y 44/51 targets MX tenian bid >
+  2.50 MXN y el techo los habria aplastado en vivo). Desde 0003 la DB ya
+  NO tiene DEFAULT en ads_optimizer_goal: la tabla es la UNICA fuente y
+  resuelve_floor_ceiling exige la moneda EXPLICITA; un None solo puede
+  venir de un Goal construido a mano (esta capa pura) y recibe el default
+  de SU moneda -- un None pasando al clamp de 2.2 seria un bid sin piso.
 - MODO EFECTIVO = escalera global (config_version.settings, clave sellada
   `ads_optimizer_mode` -- NUEVA en esta task, la siembra humana la hace 4.3;
   valores off|shadow|live) AND goal.mode: el INFIMO (meet) del reticulo
@@ -84,8 +91,19 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 DEFAULT_TARGET_PCT = Decimal("55")  # ultimo peldano de la cascada
-DEFAULT_FLOOR = Decimal("0.10")  # igual al DEFAULT de DB (bid_floor)
-DEFAULT_CEILING = Decimal("2.50")  # igual al DEFAULT de DB (bid_ceiling)
+
+# Defaults de piso/techo POR MONEDA (ORBIT 05 preflight 1.2, sellado 2 del
+# plan plans/orbit-05-preflight.md; spot-check 4.4: con el default unico
+# 0.10/2.50 pensado en USD, el goal 4 MXN aplastaba 144/233 keywords y
+# 44/51 targets MX con bid > 2.50 MXN; decision del dueno 2026-08-28).
+# UNICA fuente de defaults: OTRA moneda = ValueError explicito, no se
+# inventan numeros (regla 3). La DB ya NO tiene DEFAULT (0003): todo INSERT
+# de goal lleva piso/techo explicitos y esta tabla resuelve solo los None
+# de la capa pura.
+DEFAULTS_POR_MONEDA: dict[str, tuple[Decimal, Decimal]] = {
+    "USD": (Decimal("0.10"), Decimal("2.50")),  # max real observado 2.00
+    "MXN": (Decimal("1.00"), Decimal("45.00")),
+}
 
 # Clave NUEVA de config_version.settings (sellada en esta task; la siembra
 # humana de 4.3 escribe la escalera global aqui; valores off|shadow|live).
@@ -117,8 +135,9 @@ class Goal:
     """Goal resuelto de una entidad, espejo de ads_optimizer_goal (la fila la
     lee 3.1 y la reconstruye aqui; target/floor/ceiling None = "este peldano
     no decide", la cascada/defaults de este modulo los resuelven).
-    bid_floor/bid_ceiling son NOT NULL DEFAULT en DB: None solo si se
-    construye a mano. `mode` es la escalera PROPIA del goal."""
+    bid_floor/bid_ceiling son NOT NULL en DB y SIN DEFAULT desde 0003: None
+    solo si se construye a mano (resuelve_floor_ceiling los resuelve por
+    moneda). `mode` es la escalera PROPIA del goal."""
 
     scope: str  # 'campaign' | 'platform'
     ad_entity_id: int | None  # scope campaign
@@ -281,16 +300,42 @@ def cascada_target_acos_con_procedencia(
     return (DEFAULT_TARGET_PCT, "default")
 
 
-def resuelve_floor_ceiling(goal: Goal | None) -> tuple[Decimal, Decimal]:
-    """(floor, ceiling) del goal con los defaults 0.10/2.50 aplicados donde
-    venga None. goal None (entidad sin goal) tambien devuelve los defaults:
-    el par acota SIEMPRE (un clamp sin piso en 2.2 seria un bid sin suelo).
-    Sin quantize: la presentacion la decide el apply de PR2."""
+def resuelve_floor_ceiling(goal: Goal | None, moneda: str) -> tuple[Decimal, Decimal]:
+    """(floor, ceiling) del goal con los defaults DE SU MONEDA aplicados donde
+    venga None. `moneda` es OBLIGATORIA y la pasa el llamador EXPLICITA
+    (bid.PLATAFORMAS_MONEDA[platform] en el ciclo; goal.bid_currency donde
+    solo hay goal) -- sin moneda no hay default (regla 3). El bid_currency
+    del goal es LA moneda: si `goal` trae otra, ValueError ruidoso
+    (desalineacion del llamador, jamas se mezclan monedas en un clamp). Una
+    moneda fuera de DEFAULTS_POR_MONEDA -> ValueError explicito (no se
+    inventan numeros). Tras 0003 la DB ya NO tiene DEFAULT 0.10/2.50: esta
+    tabla es la UNICA fuente. goal None (entidad sin goal) tambien devuelve
+    los defaults de la moneda: el par acota SIEMPRE (un clamp sin piso en
+    2.2 seria un bid sin suelo). Sin quantize: la presentacion la decide el
+    apply."""
+    if goal is not None and goal.bid_currency != moneda:
+        # FAIL-LOUD DELIBERADO (grok, cross-review 1.2 r2): un goal desalineado
+        # es config CORRUPTA -- sus numeros estan en otra moneda y aplicarselos
+        # seria inventar (regla 3); mata el ciclo con ValueError, mismo
+        # criterio que target_desde_settings. Deuda declarada en el spec: el
+        # esquema NO sella platform <-> bid_currency (4/4 goals de produccion
+        # coherentes, SELECT 2026-08-28).
+        raise ValueError(
+            f"moneda {moneda!r} != goal.bid_currency {goal.bid_currency!r}: "
+            "el bid_currency del goal es LA moneda (desalineacion del llamador)"
+        )
+    try:
+        piso, techo = DEFAULTS_POR_MONEDA[moneda]
+    except KeyError:
+        raise ValueError(
+            f"sin defaults inventados para {moneda!r}; agregala a "
+            "DEFAULTS_POR_MONEDA con decision del dueno"
+        ) from None
     if goal is None:
-        return (DEFAULT_FLOOR, DEFAULT_CEILING)
+        return (piso, techo)
     return (
-        goal.bid_floor if goal.bid_floor is not None else DEFAULT_FLOOR,
-        goal.bid_ceiling if goal.bid_ceiling is not None else DEFAULT_CEILING,
+        goal.bid_floor if goal.bid_floor is not None else piso,
+        goal.bid_ceiling if goal.bid_ceiling is not None else techo,
     )
 
 

@@ -25,6 +25,12 @@ campos harvest individuales). El objetivo es doble: mensaje claro de USO
 operador. `None` en un parametro significa "no cambiar" — el unico camino a
 NULL de la terna harvest es `harvest_limpia` (regla 3: faltante no es cero).
 
+DEFAULTS POR MONEDA (ORBIT 05 preflight 1.2): si el estado efectivo del
+goal queda con `bid_floor`/`bid_ceiling` ausentes, se resuelven con
+`DEFAULTS_POR_MONEDA` (app.optimizer.goals) de LA MONEDA DE LA FILA antes
+de persistir — un goal MXN jamas se guarda con 0.10/2.50 implicitos; moneda
+desconocida -> ValueError y el UPDATE no se ejecuta.
+
 VALIDACION DE ENTRADA pura (review 3.2, hallazgos #1-#3) ANTES de leer la
 fila, sin I/O: cero campos = edicion invalida (un UPDATE que solo mueva
 updated_at es un rastro que miente en espiritu), cadenas vacias o de puros
@@ -48,6 +54,7 @@ import psycopg
 from psycopg.rows import dict_row
 
 from app.api_common import _dec_str
+from app.optimizer.goals import resuelve_floor_ceiling
 
 
 class GoalInexistente(Exception):
@@ -224,6 +231,28 @@ def edita_goal(
     fila = conn.execute(_SQL_LEE, (goal_id,)).fetchone()
     if fila is None:
         raise GoalInexistente(f"goal {goal_id} no existe")
+
+    # Defaults de piso/techo POR MONEDA (ORBIT 05 preflight 1.2; la DB ya no
+    # tiene DEFAULT desde 0003): si el estado efectivo de la fila editable
+    # quedara con floor/ceiling ausentes, se resuelven con LA MONEDA DEL
+    # PROPIO goal antes de persistir -- JAMAS caen a 0.10/2.50 implicitos
+    # (spot-check 4.4: ese techo en USD aplastaba bids vivos de MX). Moneda
+    # fuera de DEFAULTS_POR_MONEDA -> ValueError y el UPDATE no se ejecuta.
+    # La pre-validacion de abajo corre SOBRE el estado ya resuelto: el
+    # operador ve el mensaje claro, no un CheckViolation crudo.
+    # DEFENSA EN PROFUNDIDAD (grok, cross-review 1.2 r2): contra filas reales
+    # es inalcanzable hoy (bid_floor/bid_ceiling son NOT NULL desde 0001;
+    # None en la API significa "no cambiar") -- se queda porque el sello del
+    # plan exige que un MXN jamas se persista con defaults USD implicitos.
+    if (
+        cambios.get("bid_floor", fila["bid_floor"]) is None
+        or cambios.get("bid_ceiling", fila["bid_ceiling"]) is None
+    ):
+        piso_default, techo_default = resuelve_floor_ceiling(None, fila["bid_currency"])
+        if cambios.get("bid_floor", fila["bid_floor"]) is None:
+            cambios["bid_floor"] = piso_default
+        if cambios.get("bid_ceiling", fila["bid_ceiling"]) is None:
+            cambios["bid_ceiling"] = techo_default
 
     _valida_pre_editar(fila, cambios)
 
