@@ -146,6 +146,9 @@ Cada una tiene atrás dinero perdido. Aplican a todo el código de Orbit:
 4. **Todo dinero lleva `(valor, moneda, fecha_fx)` por schema**, y se guarda
    siempre el importe original además del convertido (la conversión es
    irreversible). Un `SUM()` mezclando monedas debe ser imposible por schema.
+   Los defaults de piso/techo de goals van POR MONEDA (USD 0.10/2.50, MXN
+   1.00/45.00; sellado 2 del preflight de ORBIT 05) — sin moneda no hay
+   default.
 5. **Toda métrica es append-only con clave `(entidad, metric_date,
    observed_at)`.** El UPSERT in-place del sistema viejo hacía que el backtest
    viera números que el motor jamás pudo ver (lookahead sin síntomas — la

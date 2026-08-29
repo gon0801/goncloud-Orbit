@@ -555,6 +555,15 @@ CLI (`app.cli goals set`) + endpoints write (target/enabled/floor/ceiling
 18. `goal` = UPDATE con `updated_at` explícito; config = fila nueva; **una
 sola implementación CLI/endpoint** (regla 1).
 
+Piso/techo del goal: los defaults se resuelven **POR MONEDA** con
+`DEFAULTS_POR_MONEDA` (app/optimizer/goals.py: USD 0.10/2.50, MXN
+1.00/45.00, otra moneda = error — sellado 2 del plan ORBIT 05 preflight,
+spot-check 4.4). Desde la migración 0003 el esquema ya NO trae `DEFAULT`
+en `bid_floor`/`bid_ceiling`: todo INSERT de goal lleva piso/techo
+explícitos (el que los omite REVIENTA — jamás nace en USD), y
+`edita_goal` resuelve por moneda cualquier piso/techo efectivo ausente
+antes de persistir.
+
 ---
 
 ## 11. Procedimientos operativos

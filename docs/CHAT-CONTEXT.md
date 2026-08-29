@@ -4,6 +4,8 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-08-28 — ORBIT 05 preflight 1.2 EN PR (rama `orbit-05/preflight-1-2-goal-moneda`): default de piso/techo de goals POR MONEDA (USD 0.10/2.50, MXN 1.00/45.00) + migración 0003 (la DB ya no tiene DEFAULT; la aplica el lead en goncloud).**
+
 **2026-08-29 — CORTES 03 MERGEADA (#43 → master `5e5b16b`) y DESPLEGADA en
 goncloud (preflight 1.1 de ORBIT 05, GO del dueño; imagen `a5d5d579`,
 constantes 100/100/40/500 leídas dentro del contenedor). Verificación con

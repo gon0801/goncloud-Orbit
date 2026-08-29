@@ -48,7 +48,7 @@ import pglast
 import psycopg
 import pytest
 from psycopg.types.json import Json
-from test_schema import SQL, SQL2, _postgres_obligatorio_ausente, _test_dsn
+from test_schema import SQL, SQL2, SQL3, _postgres_obligatorio_ausente, _test_dsn
 
 from app import cycle as ciclo
 from app.optimizer import bid as bid_mod
@@ -119,6 +119,9 @@ def _db_temporal(prefijo: str):
         # ORBIT 04 2.4: la fase de apply del ciclo escribe en apply_queue/
         # apply_attempt (0002) — sin esta migracion el encolado revienta.
         conn.execute(SQL2)
+        # ORBIT 05 preflight 1.2: la DB de prueba ES la de produccion —
+        # ads_optimizer_goal sin DEFAULT en piso/techo (0003).
+        conn.execute(SQL3)
         yield conn, conectar_extra
     finally:
         if conn is not None:
@@ -923,11 +926,14 @@ def test_privilegio_negativo_app_decide():
                     dt.date(2026, 8, 12),
                 ),
             )
-            # LO QUE NO: goals y config son decision humana (app_admin)
+            # LO QUE NO: goals y config son decision humana (app_admin).
+            # Bounds EXPLICITOS (0003 quito el DEFAULT; aqui reventa igual
+            # InsufficientPrivilege, que precede a todo chequeo de columnas).
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
                 conn.execute(
-                    "INSERT INTO ads_optimizer_goal (scope, platform, bid_currency, enabled)"
-                    " VALUES ('platform', 'amazon_us', 'USD', false)"
+                    "INSERT INTO ads_optimizer_goal (scope, platform, bid_currency,"
+                    " bid_floor, bid_ceiling, enabled)"
+                    " VALUES ('platform', 'amazon_us', 'USD', 0.10, 2.50, false)"
                 )
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
                 conn.execute("INSERT INTO config_version (settings) VALUES ('{}')")
@@ -1328,8 +1334,10 @@ def test_goal_json_congela_floor_ceiling_efectivos():
     """Hallazgo CodeRabbit (major): el congelado llevaba bid_floor/ceiling
     CRUDOS del goal, pero decide_bid consume los EFECTIVOS
     (resuelve_floor_ceiling). Un goal construido a mano con None debe
-    congelar los defaults 0.10/2.50 -- exactamente lo que el motor uso; el
-    valor crudo None romperia reproduce() con Decimal(None)."""
+    congelar los defaults DE SU MONEDA (preflight 1.2: USD -> 0.10/2.50;
+    la moneda viaja EXPLICITA desde el llamador, PLATAFORMAS_MONEDA) --
+    exactamente lo que el motor uso; el valor crudo None romperia
+    reproduce() con Decimal(None)."""
     from app.optimizer import goals as g
 
     goal = g.Goal(
@@ -1346,7 +1354,7 @@ def test_goal_json_congela_floor_ceiling_efectivos():
         enabled=True,
         mode="shadow",
     )
-    congelado = ciclo._goal_json(goal)
+    congelado = ciclo._goal_json(goal, "USD")
     assert congelado["bid_floor"] == "0.10"
     assert congelado["bid_ceiling"] == "2.50"
 

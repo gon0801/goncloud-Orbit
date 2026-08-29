@@ -27,10 +27,15 @@ STMTS = tuple(pglast.parse_sql(SQL))
 SQL2 = (ROOT / "migrations" / "0002_apply.sql").read_text(encoding="utf-8")
 STMTS2 = tuple(pglast.parse_sql(SQL2))
 
-# 0003 (ORBIT 05 preflight 1.2): la RUTA se declara aqui y el CONTENIDO se lee
-# DENTRO del test de integracion — en el commit de tests rojos (TDD) la
-# migracion todavia no existe y el modulo debe colectar sin ella.
-_RUTA_0003 = ROOT / "migrations" / "0003_goal_bounds_explicit.sql"
+# 0002 (ORBIT 04, task 1.2 — sellado 24 del header: test_schema parsea TAMBIEN
+# 0002 para que los invariantes cubran las tablas nuevas).
+SQL2 = (ROOT / "migrations" / "0002_apply.sql").read_text(encoding="utf-8")
+STMTS2 = tuple(pglast.parse_sql(SQL2))
+
+# 0003 (ORBIT 05 preflight 1.2 — mismo criterio: los invariantes del sello
+# "sin DEFAULT en piso/techo" se afirman sobre el AST de la migracion).
+SQL3 = (ROOT / "migrations" / "0003_goal_bounds_explicit.sql").read_text(encoding="utf-8")
+STMTS3 = tuple(pglast.parse_sql(SQL3))
 
 APPEND_ONLY = {
     "ads_metric_observation",
@@ -58,6 +63,10 @@ def _stmts(cls):
 
 def _stmts2(cls):
     return [s.stmt for s in STMTS2 if isinstance(s.stmt, cls)]
+
+
+def _stmts3(cls):
+    return [s.stmt for s in STMTS3 if isinstance(s.stmt, cls)]
 
 
 TABLES = {t.relation.relname: t for t in _stmts(ast.CreateStmt)}
@@ -994,6 +1003,36 @@ def test_0002_secuencias_y_select_explicitos():
 
 
 # ---------------------------------------------------------------------------
+# (a3) ESTÁTICOS de 0003_goal_bounds_explicit — ORBIT 05 preflight 1.2
+# ---------------------------------------------------------------------------
+
+
+def test_0003_quita_los_defaults_de_piso_y_techo():
+    # Sellado 2 del plan ORBIT 05 preflight (spot-check 4.4 + decision del
+    # dueno 2026-08-28): la DB ya NO nace goals en 0.10/2.50 — numeros
+    # pensados en USD que el goal MXN heredó y con los que el techo habria
+    # aplastado bids vivos. El ALTER debe ser EXACTAMENTE DROP DEFAULT
+    # (AT_ColumnDefault con def_ None: un SET DEFAULT aqui traria el numero
+    # inventado de vuelta) sobre esas DOS columnas, y NADA mas.
+    altera = [
+        st for st in _stmts3(ast.AlterTableStmt) if st.relation.relname == "ads_optimizer_goal"
+    ]
+    assert len(altera) == 2, "0003 debe alterar ads_optimizer_goal exactamente dos veces"
+    columnas = []
+    for st in altera:
+        assert len(st.cmds) == 1
+        cmd = st.cmds[0]
+        assert cmd.subtype == enums.AlterTableType.AT_ColumnDefault
+        assert cmd.def_ is None, "debe ser DROP DEFAULT, no SET DEFAULT (el numero inventado)"
+        columnas.append(cmd.name)
+    assert sorted(columnas) == ["bid_ceiling", "bid_floor"]
+    # La migracion NO toca nada mas: sin CREATE/GRANT/INSERT en 0003.
+    assert not [
+        s for s in STMTS3 if isinstance(s.stmt, (ast.CreateStmt, ast.GrantStmt, ast.InsertStmt))
+    ], "0003 es SOLO los dos DROP DEFAULT (nada de datos ni grants)"
+
+
+# ---------------------------------------------------------------------------
 # (b) INTEGRACIÓN — skip automático sin Postgres local
 # ---------------------------------------------------------------------------
 
@@ -1312,11 +1351,6 @@ def test_migracion_rechaza_en_vivo():
 
 
 @pytest.mark.skipif(
-    not _RUTA_0003.exists(),
-    reason="0003 aun no existe (commit de tests rojos: el rojo de este test "
-    "es de ENTORNO — sin Postgres local no es demostrable aqui, CI lo corre)",
-)
-@pytest.mark.skipif(
     _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
@@ -1332,7 +1366,6 @@ def test_0003_goal_sin_piso_techo_revierte_y_con_bounds_pasa():
     psycopg = pytest.importorskip("psycopg")
     from psycopg import sql as pgsql
 
-    sql3 = _RUTA_0003.read_text(encoding="utf-8")
     dsn = _test_dsn()
     db = f"orbit_0003_test_{socket.gethostname().lower()}_{os.getpid()}"
     admin = psycopg.connect(dsn, autocommit=True)
@@ -1343,7 +1376,7 @@ def test_0003_goal_sin_piso_techo_revierte_y_con_bounds_pasa():
         conn.execute("SET TIME ZONE 'UTC'")
         conn.execute(SQL)  # 0001: esquema sellado
         conn.execute(SQL2)  # 0002: apply
-        conn.execute(sql3)  # 0003: sin DEFAULT en piso/techo
+        conn.execute(SQL3)  # 0003: sin DEFAULT en piso/techo
         with pytest.raises(psycopg.errors.NotNullViolation):
             conn.execute(
                 "INSERT INTO ads_optimizer_goal (scope, platform, bid_currency, enabled)"

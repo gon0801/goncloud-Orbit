@@ -61,7 +61,7 @@ from test_cycle import (
     _rango,
     _siembra_maestra,
 )
-from test_schema import SQL, SQL2, _postgres_obligatorio_ausente, _test_dsn
+from test_schema import SQL, SQL2, SQL3, _postgres_obligatorio_ausente, _test_dsn
 
 from app import cycle as ciclo
 from app.ads.config import AdsCredentials
@@ -137,6 +137,7 @@ def _db_temporal(prefijo: str):
         conn.execute("SET TIME ZONE 'UTC'")
         conn.execute(SQL)  # 0001: roles, esquema sellado, grants
         conn.execute(SQL2)  # 0002: cola de cortes, ledger, sellos de quota
+        conn.execute(SQL3)  # 0003: ads_optimizer_goal sin DEFAULT en piso/techo
         yield conn, conectar_extra
     finally:
         if conn is not None:

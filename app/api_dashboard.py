@@ -489,11 +489,12 @@ def _config_vigente(conn) -> dict:
 
 def _goal_estado(goal: g.Goal | None) -> dict | None:
     """Estado VIVO del goal resuelto (decision 17: el goal es config mutable,
-    no historia): enabled + floor/ceiling EFECTIVOS (defaults de goals.py) +
-    mode + scope. Sin goal -> None (regla 3: faltante = null, no inventado)."""
+    no historia): enabled + floor/ceiling EFECTIVOS (defaults de goals.py POR
+    MONEDA, preflight 1.2 -- la moneda es goal.bid_currency) + mode + scope.
+    Sin goal -> None (regla 3: faltante = null, no inventado)."""
     if goal is None:
         return None
-    floor, ceiling = g.resuelve_floor_ceiling(goal)
+    floor, ceiling = g.resuelve_floor_ceiling(goal, goal.bid_currency)
     return {
         "enabled": goal.enabled,
         "floor": _dec_str(floor),

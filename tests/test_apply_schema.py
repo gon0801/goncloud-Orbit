@@ -1,9 +1,10 @@
 """Tests de integración de la migración `migrations/0002_apply.sql` (ORBIT 04, task 1.2).
 
 Patrón `_db_temporal` de test_cycle (COPIADO) con la diferencia de que aplica
-0001 + 0002 juntas. Skip fail-closed `_postgres_obligatorio_ausente` de
-test_schema: sin Postgres utilizable se skipea; en CI corre contra el
-Postgres 16 del workflow quality.yml. DoD de la tarea, punto por punto:
+0001 + 0002 + 0003 juntas (la cadena completa de migraciones). Skip fail-closed
+`_postgres_obligatorio_ausente` de test_schema: sin Postgres utilizable se
+skipea; en CI corre contra el Postgres 16 del workflow quality.yml. DoD de la
+tarea, punto por punto:
 
 1. INSERT directo en `released` revienta: la fila nace pending_veto por
    trigger (sellado 4).
@@ -36,7 +37,7 @@ from contextlib import contextmanager
 import psycopg
 import pytest
 from psycopg.types.json import Json
-from test_schema import SQL, SQL2, _postgres_obligatorio_ausente, _test_dsn
+from test_schema import SQL, SQL2, SQL3, _postgres_obligatorio_ausente, _test_dsn
 
 _DSN_EXPLICITO = bool(os.environ.get("ORBIT_TEST_DSN"))
 
@@ -73,6 +74,7 @@ def _db_temporal(prefijo: str):
         conn.execute("SET TIME ZONE 'UTC'")
         conn.execute(SQL)  # 0001: roles, esquema sellado, grants
         conn.execute(SQL2)  # 0002: cola de cortes, ledger, sellos de quota
+        conn.execute(SQL3)  # 0003: ads_optimizer_goal sin DEFAULT en piso/techo
         yield conn
     finally:
         if conn is not None:

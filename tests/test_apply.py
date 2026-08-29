@@ -55,7 +55,7 @@ import httpx
 import psycopg
 import pytest
 from psycopg.types.json import Json
-from test_schema import SQL, SQL2, _postgres_obligatorio_ausente, _test_dsn
+from test_schema import SQL, SQL2, SQL3, _postgres_obligatorio_ausente, _test_dsn
 
 from app.ads.config import AdsCredentials
 from app.ads.write import AdsApiErrorMutacion, AdsWriteClient
@@ -117,6 +117,7 @@ def _db_temporal(prefijo: str):
         conn.execute("SET TIME ZONE 'UTC'")
         conn.execute(SQL)  # 0001: roles, esquema sellado, grants
         conn.execute(SQL2)  # 0002: cola de cortes, ledger, sellos de quota
+        conn.execute(SQL3)  # 0003: ads_optimizer_goal sin DEFAULT en piso/techo
         yield conn
     finally:
         if conn is not None:
@@ -184,9 +185,11 @@ def _semilla(
             (entidad,),
         )
     if con_goal:
+        # Bounds EXPLICITOS (0003 quito el DEFAULT 0.10/2.50 de la DB; USD).
         conn.execute(
-            "INSERT INTO ads_optimizer_goal (scope, platform, target_acos_pct, bid_currency,"
-            " enabled, mode) VALUES ('platform', 'amazon_us', 55, 'USD', %s, %s)",
+            "INSERT INTO ads_optimizer_goal (scope, platform, target_acos_pct, bid_floor,"
+            " bid_ceiling, bid_currency, enabled, mode)"
+            " VALUES ('platform', 'amazon_us', 55, 0.10, 2.50, 'USD', %s, %s)",
             (goal_enabled, goal_mode),
         )
     return {

@@ -49,7 +49,7 @@ from fastapi.testclient import TestClient
 from psycopg import sql as pgsql
 from psycopg.conninfo import make_conninfo
 from psycopg.types.json import Json
-from test_schema import SQL, SQL2, _postgres_obligatorio_ausente, _test_dsn
+from test_schema import SQL, SQL2, SQL3, _postgres_obligatorio_ausente, _test_dsn
 
 from app import apply
 from app.ads.config import AdsCredentials
@@ -380,6 +380,7 @@ def _db_con_rol_admin(prefijo: str, *, con_decide: bool = False):
         conn.execute("SET TIME ZONE 'UTC'")
         conn.execute(SQL)  # 0001: roles, esquema sellado, grants
         conn.execute(SQL2)  # 0002: cola de cortes, ledger, sellos de quota
+        conn.execute(SQL3)  # 0003: ads_optimizer_goal sin DEFAULT en piso/techo
         # CREATE ROLE es utility statement: NO admite parametros posicionales
         # (revienta con syntax error en $1); la password va como sql.Literal
         # (composicion segura de psycopg, no interpolacion de strings).

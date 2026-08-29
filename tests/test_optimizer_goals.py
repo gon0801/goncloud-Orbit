@@ -212,9 +212,10 @@ def test_moneda_desconocida_revierte_ruidosa():
     """(c) OTRA moneda = error explicito (regla 3: no se inventan numeros):
     una moneda fuera de DEFAULTS_POR_MONEDA revienta ValueError, con goal y
     con goal None. ROJO hoy: el default unico USD respondia 0.10/2.50 en
-    silencio para cualquier moneda."""
+    silencio para cualquier moneda. (El goal del caso 1 trae LA MISMA moneda
+    'EUR': una desalineacion goal-vs-moneda es OTRO error, con su test.)"""
     with pytest.raises(ValueError, match="DEFAULTS_POR_MONEDA"):
-        g.resuelve_floor_ceiling(_goal(), "EUR")
+        g.resuelve_floor_ceiling(_goal(bid_currency="EUR"), "EUR")
     with pytest.raises(ValueError, match="DEFAULTS_POR_MONEDA"):
         g.resuelve_floor_ceiling(None, "EUR")
 
