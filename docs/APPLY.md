@@ -909,13 +909,19 @@ recálculo manual + veto ejecutado por el dueño sobre una fila real (4.3)**.
        156/156 decisiones con `cost_min_usado`; evidencia
        `out/orbit-05-preflight-1-1-20260829.md`). Cumplido 2026-08-28: techo de bids MX del goal 4 corregido
        a 1.00/45.00 MXN (el default 2.50 era un número en USD aplicado a
-       pesos). **SIN MARCAR hasta que el dueño firme**: ningún recálculo
-       de la IA sustituye la firma (el implementador es el autor del motor).
+       pesos). **SIN MARCAR hasta el 2026-09-07 por (a) y sólo por (a)**
+       (preflight 1.8, 2026-08-29): (b) y (c) están cumplidas y el
+       preflight completo (1.1-1.8) está en master, así que lo único que
+       mantiene abierto este candado es el calendario de shadow. La firma
+       del spot-check ya la dio el dueño; ningún recálculo de la IA la
+       sustituye (el implementador es el autor del motor).
 4. [ ] **Backup pre-cutover REAL (el mismo día, ANTES del discard) +
        discard masivo de filas shadow:** repetir el runbook del ítem 2 en
        `backups/precutover_orbit05_<fecha>/` con VERIFY_OK de los CUATRO
-       artefactos y conteos del día (prerequisito: `tools/snapshot_listas.py`
-       aterrizado con test — en 4.4 las listas se capturaron inline); solo
+       artefactos y conteos del día (prerequisito **CUMPLIDO** en preflight
+       1.3, PR #48 → master `14ae6c0`: `tools/snapshot_listas.py` aterrizado
+       con tests y con corrida real conciliada contra `ad_entity` — en 4.4
+       las listas se capturaron inline); solo
        entonces TODA fila shadow pendiente → `discarded` en UNA transacción
        **con `ORBIT_DSN_ADMIN` (rol `app_admin`: el trigger
        `apply_queue_sella_transiciones` RECHAZA el discard de filas shadow
