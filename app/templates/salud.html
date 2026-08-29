@@ -31,6 +31,27 @@
   {% endif %}
   {% endif %}
 
+  {% if datos.quota %}
+  {# preflight 1.5: la quota que el endpoint de 1.4 ya trae. cap nulo es
+     fail-closed (sin_clave) o config rota (alarma), JAMAS tope cero (regla 3):
+     se muestra como — CON su etiqueta. used >= cap con cap no nulo es el
+     estado que dispara el aviso Telegram de 1.4: se ve SATURADA. #}
+  <h3>Quota del dia</h3>
+  <table>
+    <thead><tr><th>Forma</th><th class="num">Usado</th><th class="num">Cap</th><th>Estado</th></tr></thead>
+    <tbody>
+      {% for forma, q in datos.quota.items() %}
+      <tr><td>{{ forma }}</td>
+        <td class="num">{{ q.used }}</td>
+        <td class="num">{% if q.cap is not none %}{{ q.cap }}{% elif q.fuente == "config_rota" %}<span class="mutado">— (config rota)</span>{% else %}<span class="mutado">— (sin clave)</span>{% endif %}</td>
+        <td>{% if q.fuente == "fila_del_dia" %}<span class="chip ok">fila_del_dia</span>{% elif q.fuente == "config_vigente" %}<span class="chip">config_vigente</span>{% elif q.fuente == "sin_clave" %}<span class="chip alerta">sin_clave · fail-closed</span>{% else %}<span class="chip alerta">config_rota · revisar config</span>{% endif %}
+          {% if q.cap is not none and q.used >= q.cap %}<span class="chip alerta">saturada</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
   <h3>Historico (14d)</h3>
   <table>
     <thead><tr><th>Ciclo</th><th>Fecha</th><th>Status</th><th class="num">Decisiones</th><th>Motivo</th></tr></thead>
