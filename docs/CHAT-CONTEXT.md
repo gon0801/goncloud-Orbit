@@ -59,11 +59,14 @@ cumplido, `ORBIT 04` Done en AppFlowy:**
   del spot-check quedó como ítem 3 SIN MARCAR del checklist §12: candado
   pre-flip.
 
-**Estado final de la cola**: fila 2 pause `pending_veto`, fila 3 harvest
-`vetoed` (gon), fila 4 harvest `vetoed` (gon-personal), fila 5 harvest
-`pending_veto` — cero released/applying; las shadow se descartan en bloque
-el día del cutover, con `app_admin`, en el orden sellado **backup real →
-discard → flip → rampa** (checklist APPLY.md §12 ítems 4-6).
+**Estado de la cola (2026-08-29, tras el preflight 1.1)**: fila 2 pause
+**`discarded`** (descartada por el dueño con motivo declarado para liberar
+la clave de efecto de la keyword de la 774 y probar en vivo CORTES 03),
+fila 3 harvest `vetoed` (gon), fila 4 harvest `vetoed` (gon-personal),
+fila 5 harvest `pending_veto` — cero released/applying. El día del cutover
+queda **una** fila shadow pendiente (la 5, más las que nazcan hasta
+entonces): se descartan en bloque con `app_admin`, en el orden sellado
+**backup real → discard → flip → rampa** (checklist APPLY.md §12 ítems 4-6).
 
 **Prerequisitos de ORBIT 05**: cumplidos — veto del dueño (fila 4, con su
 mano), ensayo E2E (4/4 neto-cero), **runbook del backup pre-cutover
@@ -73,12 +76,12 @@ decisiones, implementador + 11 del lead) **y FIRMADO por el dueño
 2026-08-28** (AppFlowy "ORBIT 04 4.4 — spot-check shadow", Done).
 **Pendientes** — 2 semanas de shadow (~2026-09-07);
 `tools/snapshot_listas.py` con test; **backup pre-cutover REAL el día del
-flip** (ítem 4); **CORTES 03 mergeada y desplegada** (umbrales de pausa
-100 clics / $40 USD del dueño — con los umbrales actuales 50 / $12 NO se
-hace el flip; ver abajo); verificación adversarial TRIPLE de las primeras
-decisiones live (ítem 9). Cumplido post-#40: techo de bids MX 1.00/45.00
-MXN en el goal 4 (ver abajo). AppFlowy lo cierra el lead al firmar el
-dueño.
+flip** (ítem 4); verificación adversarial TRIPLE de las primeras
+decisiones live (ítem 9); resto del preflight (1.2-1.8 de
+`plans/orbit-05-preflight.md`). **CUMPLIDOS post-#40**: techo de bids MX
+1.00/45.00 MXN en el goal 4 (ver abajo) y **CORTES 03 mergeada, desplegada
+y verificada en vivo el 2026-08-29** (preflight 1.1; ítem 3c del checklist
+§12 marcado).
 
 **Decisiones del dueño salidas del spot-check (2026-08-28, post-#40)**:
 (1) **Techo de bids MX**: el default 2.50 del esquema (número pensado en
@@ -467,15 +470,17 @@ tabla `decision` (auditoría) → API/CLI de lectura.
 
 | Decisión | Regla |
 |---|---|
-| PAUSE | orders=0 ∧ clicks≥100 ∧ cost≥ {us: 40 USD, mx: 500 MXN} (CORTES 03) |
+| PAUSE | orders=0 ∧ clicks ≥ `max(100, ceil(1.5×clicks/órdenes del ad group))` ∧ cost≥ {us: 40 USD, mx: 500 MXN} (piso y fallback 100 = CORTES 03; umbral adaptativo = CORTES 01) |
 | Bajar puja −25% | ACoS > 1.35×target (con orders≥1) |
 | Bajar puja −12% | ACoS > 1.15×target |
 | Subir puja +15% | ACoS < 0.85×target ∧ orders≥3 |
-| NEGATIVE_EXACT | orders=0 ∧ clicks≥20 ∧ cost≥ {us: 8, mx: 130}; ASIN-like nunca |
+| NEGATIVE_EXACT | orders=0 ∧ clicks ≥ `max(20, ceil(1.5×clicks/órdenes del ad group))` (fallback 40 si el grupo no califica) ∧ cost ≥ `max({us: 8, mx: 130}, AOV×1.0)` (respaldo 45/600); ASIN-like nunca — CORTES 01 |
 | HARVEST | orders≥2 ∧ ACoS ≤ min(35%, target); exige config completa en el goal |
 
 ACoS = cost / ad_revenue COMPLETO (halo incluido). Clamp por decisión
-[−30%, +20%]; resultado dentro de [floor, ceiling] (defaults 0.10/2.50).
+[−30%, +20%]; resultado dentro del [floor, ceiling] DEL GOAL (goal 4 MX:
+1.00/45.00 MXN por decisión del dueño; goals US: 0.10/2.50 USD — el default
+del esquema, pensado en USD, deja de aplicarse a ciegas en el preflight 1.2).
 Target ACoS en cascada: goal → config global → cache del estado → default 55.
 Precedencia: PAUSE gana a todo; −25 gana a −12. Modo: off→shadow→live, y en
 PR1 'live' degrada a shadow (fail-closed).
