@@ -240,6 +240,10 @@ def edita_goal(
     # fuera de DEFAULTS_POR_MONEDA -> ValueError y el UPDATE no se ejecuta.
     # La pre-validacion de abajo corre SOBRE el estado ya resuelto: el
     # operador ve el mensaje claro, no un CheckViolation crudo.
+    # DEFENSA EN PROFUNDIDAD (grok, cross-review 1.2 r2): contra filas reales
+    # es inalcanzable hoy (bid_floor/bid_ceiling son NOT NULL desde 0001;
+    # None en la API significa "no cambiar") -- se queda porque el sello del
+    # plan exige que un MXN jamas se persista con defaults USD implicitos.
     if (
         cambios.get("bid_floor", fila["bid_floor"]) is None
         or cambios.get("bid_ceiling", fila["bid_ceiling"]) is None

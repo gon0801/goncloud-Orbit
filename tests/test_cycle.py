@@ -1359,6 +1359,33 @@ def test_goal_json_congela_floor_ceiling_efectivos():
     assert congelado["bid_ceiling"] == "2.50"
 
 
+def test_goal_json_congela_defaults_mxn_1_y_45():
+    """Espejo MXN del hallazgo CodeRabbit (grok, cross-review 1.2 r2): la
+    moneda que motivo el cambio era MXN y no tenia freeze golden. Un goal
+    MXN construido a mano con None congela 1.00/45.00 (DEFAULTS_POR_MONEDA),
+    JAMAS 0.10/2.50 -- un goal MXN nacido con techo 2.50 es exactamente el
+    bug del spot-check 4.4 (144/233 keywords sobre el techo)."""
+    from app.optimizer import goals as g
+
+    goal = g.Goal(
+        scope="platform",
+        ad_entity_id=None,
+        platform="amazon_mx",
+        target_acos_pct=Decimal("25"),
+        bid_floor=None,
+        bid_ceiling=None,
+        bid_currency="MXN",
+        harvest_campaign_id="9002",
+        harvest_ad_group_id="9102",
+        harvest_default_bid=Decimal("2.50"),
+        enabled=True,
+        mode="shadow",
+    )
+    congelado = ciclo._goal_json(goal, "MXN")
+    assert congelado["bid_floor"] == "1.00"
+    assert congelado["bid_ceiling"] == "45.00"
+
+
 # ---------------------------------------------------------------------------
 # 12. CORTES 01 (1.2): sello bitemporal de la evidencia + replay del corte
 # ---------------------------------------------------------------------------

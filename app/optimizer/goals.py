@@ -314,6 +314,12 @@ def resuelve_floor_ceiling(goal: Goal | None, moneda: str) -> tuple[Decimal, Dec
     2.2 seria un bid sin suelo). Sin quantize: la presentacion la decide el
     apply."""
     if goal is not None and goal.bid_currency != moneda:
+        # FAIL-LOUD DELIBERADO (grok, cross-review 1.2 r2): un goal desalineado
+        # es config CORRUPTA -- sus numeros estan en otra moneda y aplicarselos
+        # seria inventar (regla 3); mata el ciclo con ValueError, mismo
+        # criterio que target_desde_settings. Deuda declarada en el spec: el
+        # esquema NO sella platform <-> bid_currency (4/4 goals de produccion
+        # coherentes, SELECT 2026-08-28).
         raise ValueError(
             f"moneda {moneda!r} != goal.bid_currency {goal.bid_currency!r}: "
             "el bid_currency del goal es LA moneda (desalineacion del llamador)"
