@@ -392,15 +392,19 @@ ssh goncloud 'set -e; D=/mnt/data/appdata/orbit/backups; \
     -t ads_optimizer_goal > "$TMP"; \
   [ -s "$TMP" ] && grep -q "CREATE TABLE public.ads_optimizer_goal" "$TMP" \
     && grep -q "bid_floor" "$TMP" \
+    && tail -5 "$TMP" | grep -q "PostgreSQL database dump complete" \
     || { echo "DUMP INVALIDO"; rm -f "$TMP"; exit 1; }; \
   chmod 600 "$TMP"; mv "$TMP" "$D/pre0003_ads_optimizer_goal_$STAMP.sql"; \
   ls -l "$D/pre0003_ads_optimizer_goal_$STAMP.sql"'
 ```
 
-El archivo final solo aparece si el dump trae el `CREATE TABLE` de la tabla
-y sus columnas; si no, se borra el temporal y el runbook se detiene ahí. El
-backup real del 2026-08-29 04:10 se verificó a mano (6,407 B con el
-`CREATE TABLE` completo).
+El archivo final solo aparece si el dump trae el `CREATE TABLE` de la tabla,
+sus columnas **y el marcador de cierre que `pg_dump` escribe al terminar**
+(`-- PostgreSQL database dump complete` en las últimas líneas): un dump
+interrumpido DESPUÉS del `CREATE TABLE` no lo tiene (Greptile PR #47). Si
+falta cualquiera de los tres, se borra el temporal y el runbook se detiene
+ahí. El backup real del 2026-08-29 04:10 se verificó a mano: 6,407 B, con el
+`CREATE TABLE` completo y el marcador de cierre presente.
 
 **(c) Aplicar**, mismo patrón de comando:
 
