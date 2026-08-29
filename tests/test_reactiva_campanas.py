@@ -1,37 +1,38 @@
-"""Tests del modo --solo-campana de tools/reactiva_campanas (ORBIT 05
-preflight 1.6a, paso 1: reactivar SOLO la campana 3919 — USPerNog, external
-251723662158466, hoy PAUSED — sin tocar las pausas de dedup ni las otras
-campanas del camino sellado de PR #37).
+"""Tests de los modos --solo-campana y --dedup-1-6a de tools/reactiva_campanas
+(ORBIT 05 preflight 1.6a: reactivar SOLO la campana 3919 — USPerNog, external
+251723662158466 — primero sin dedup (parte 1) y luego pausando las 9 keywords
+de PAUSAS_DEDUP_1_6A ANTES del resume (parte 2, GO del dueno 2026-08-29), por
+el camino sellado de PR #37).
 
 PUROS: sin red, sin base, sin psycopg — la base es una conn falsa que sirve
 filas enlatadas y graba cada (sql, params); el "Amazon" del guard es un
-AdsClient falso que responde el /sp/campaigns/list canned; la frontera del
-main se fakea igual que en tests/test_snapshot_listas.py (_fakea_main). El
-http falso REVIENTA en .put/.post: que el test llegue al final demuestra que
-no hubo NI mutacion NI token LWA. Cubren:
+AdsClient falso que responde /sp/campaigns/list y /sp/keywords/list canned;
+la frontera del main se fakea igual que en tests/test_snapshot_listas.py
+(_fakea_main). El http falso REVIENTA en .put/.post: que el test llegue al
+final demuestra que no hubo NI mutacion NI token LWA (el _HttpQueResume de
+los tests de mutacion graba los PUTs para afirmar los shapes). Grupos:
 
-1. --solo-campana reduce el plan a ESA campana (external_id, platform,
-   status y nombre resuelto de e.name) con CERO pausas de dedup:
-   exactamente 1 query contra la base y el log campana_resuelta con el
-   nombre resuelto.
-2. campana inexistente -> Abortar fail-closed con el id en el mensaje.
-3. camino original sin flag INTACTO: len(CAMPANAS_REACTIVAR) campanas (cada
-   una con su nombre en el dict) y len(PAUSAS_DEDUP) keywords de dedup —
-   el comportamiento de master queda igual.
-4. main dry-run --solo-campana 3919: campana_resuelta (external
-   251723662158466), estado_vivo PAUSED y dry_run con pausas=0 resumes=1;
-   sin ningun intento de PUT.
-5. main --solo-campana con la campana YA ENABLED en Amazon: Abortar "no se
-   muta" (guard del runbook 1.6a, tambien dispara en dry-run); sin PUT.
-6. main --solo-campana --acepto-mutacion-real: la fase 2 COMPLETA el resume
-   de la 3919 (regresion del review r2: con el orden hardcodeado
-   [3909]+... reventia KeyError 3909 ANTES del PUT) con el shape sellado
-   exacto: UN PUT a /sp/campaigns, id STRING, state ENABLED, vendor v3 en
-   Content-Type Y Accept, readback ENABLED y reconciliacion 0/1.
-7. _orden_resumes: 3909 encabeza SOLO si esta en el plan; --solo-campana es
-   la unica fila del orden.
-8. e.name NULL -> el nombre declarado es el external_id (regla 3: jamas
-   constante inventada).
+- Plan puro (1-3): --solo-campana reduce el plan a ESA campana (nombre de
+  e.name, fallback external_id si NULL — regla 3) con CERO pausas de dedup y
+  exactamente 1 query; campana inexistente -> Abortar; camino original sin
+  flag INTACTO (len(CAMPANAS_REACTIVAR) campanas + len(PAUSAS_DEDUP) pausas,
+  mismas queries que master).
+- Dry-run y guards (4-5): imprime campana_resuelta/estado_vivo/dry_run
+  pausas=0 resumes=1 sin PUT; campana YA ENABLED en Amazon -> Abortar "no se
+  muta" (tambien en dry-run).
+- Fase 2 y orden (6-7): mutacion completa en solo-campana con el shape
+  sellado exacto (UN PUT /sp/campaigns, id STRING, state ENABLED, vendor v3
+  en Content-Type Y Accept, readback, reconciliacion 0/1 — regresion r2 del
+  KeyError 3909); _orden_resumes: 3909 encabeza SOLO si esta en el plan.
+- Anti-typo (8-10): --esperado-external OBLIGATORIO con --acepto-mutacion-real
+  en solo-campana (sin el: Abortar y cero PUT); desacuerdo con la base ->
+  Abortar antes del dry-run; flag sin --solo-campana -> Abortar.
+- Dedup 1.6a (11-15): el plan trae EXACTAMENTE las 9 de PAUSAS_DEDUP_1_6A en
+  orden + 1 resume (10 queries); --dedup-1-6a sin --solo-campana -> Abortar;
+  keyword no-ENABLED -> Abortar fail-closed; dry-run pausas=9 resumes=1; y
+  la mutacion ordena los 10 PUTs: primeros 9 a /sp/keywords (keywordId
+  STRING, state PAUSED UPPER, vendor spkeyword v3 en ambos headers) y el
+  ultimo a /sp/campaigns (state ENABLED), reconciliacion 9/1.
 """
 
 from __future__ import annotations
