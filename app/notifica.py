@@ -239,6 +239,23 @@ def alerta_harvest_failed(alerta: AlertaHarvest) -> str:
     )
 
 
+def aviso_cap_agotado(plataforma: str, kind: str, used: int, cap: int) -> str:
+    """Aviso de cap de quota agotado (preflight 1.4): la rampa del dia llego
+    a su tope en una forma. Sin FECHA en el texto (decision declarada): ni
+    datetime.now() del cliente ni parametro inyectado — el dia es la
+    quota_date de la propia fila, visible en /salud con su fuente; una fecha
+    aqui seria un segundo reloj (regla 2)."""
+    return "\n".join(
+        [
+            "[Orbit] ALERTA cap agotado",
+            f"plataforma: {plataforma}",
+            f"kind: {kind}",
+            f"used: {used}",
+            f"cap: {cap}",
+        ]
+    )
+
+
 # ---------------------------------------------------------------------------
 # Senders de alto nivel: devuelven bool, JAMAS levantan excepciones
 # ---------------------------------------------------------------------------
@@ -279,4 +296,20 @@ def notifica_harvest_failed(
         return _envia_texto(alerta_harvest_failed(alerta), transport=transport)
     except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
         logger.warning("telegram: fallo armando la alerta de harvest: %s", scrub(str(exc)))
+        return False
+
+
+def notifica_cap_agotado(
+    plataforma: str, kind: str, used: int, cap: int, *, transport: httpx.BaseTransport | None = None
+) -> bool:
+    """Aviso de cap agotado (preflight 1.4): lo manda el ciclo por CADA evento
+    de transicion (UNA vez por (motor, dia), D3a). Mismo contrato fail-silent
+    de los otros senders: canal deshabilitado -> True (no es fallo);
+    cualquier excepcion -> warning con scrub + False; JAMAS levanta."""
+    try:
+        if not canal_activo():
+            return True
+        return _envia_texto(aviso_cap_agotado(plataforma, kind, used, cap), transport=transport)
+    except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
+        logger.warning("telegram: fallo armando el aviso de cap agotado: %s", scrub(str(exc)))
         return False

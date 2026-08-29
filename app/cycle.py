@@ -176,7 +176,7 @@ from psycopg.types.json import Json
 
 from app import apply, apply_cola, apply_harvest, notifica
 from app.ads.config import AdsCredentials
-from app.apply import Aplicador
+from app.apply import Aplicador, CapSaturado
 from app.optimizer import bid, cortes, hygiene, windows
 from app.optimizer import goals as g
 from app.optimizer.bid import PLATAFORMAS_MONEDA
@@ -1361,6 +1361,9 @@ class _FaseApply:
     fallo: bool
     avisos: tuple[notifica.CorteEncolado, ...] = ()
     alertas: tuple = ()
+    # Preflight 1.4 (D3d): caps de quota llevados a su transicion por la fase
+    # (reconciliacion + bids + cola) — UN aviso fail-silent por evento en 3.3.
+    caps_saturados: tuple[CapSaturado, ...] = ()
 
 
 def _fase_apply(
@@ -1400,6 +1403,7 @@ def _fase_apply(
     aplicador: Aplicador | None = None
     avisos: tuple[notifica.CorteEncolado, ...] = ()
     alertas_harvest: list = []
+    caps_saturados: list = []
     if modo.modo == "live":
         try:
             fabrica = aplicador_factory if aplicador_factory is not None else _aplicador_real
@@ -1439,14 +1443,17 @@ def _fase_apply(
         if modo.modo == "live" and "apply_error" not in notas:
             reconciliacion = apply_harvest.reconcilia_harvest(conn, aplicador, platform)
             alertas_harvest += reconciliacion.alertas
+            caps_saturados += reconciliacion.caps_saturados
             rec_bids = apply.reconcilia_bids(conn, aplicador, platform)
             res_bids = aplicador.aplica_bids(
                 apply.bids_del_ciclo(conn, cycle_id), escalera_global=modo.modo
             )
+            caps_saturados += res_bids.caps_saturados
             res_cola = apply_cola.libera_vencidos(
                 conn, platform, ahora=decided_at, aplicador=aplicador
             )
             alertas_harvest += res_cola.alertas
+            caps_saturados += res_cola.caps_saturados
             notas["bids_aplicados"] = res_bids.aplicadas
             notas["bids_descartados"] = len(res_bids.descartadas)
             # GK10/QW4 (cross-review): la divergencia de readback es observable
@@ -1492,7 +1499,13 @@ def _fase_apply(
         notas["apply_error"] = scrub(str(exc)) or type(exc).__name__
         fallo = True
         logger.warning("fase de apply abortada por error: %s", scrub(str(exc)))
-    return _FaseApply(notas=notas, fallo=fallo, avisos=avisos, alertas=tuple(alertas_harvest))
+    return _FaseApply(
+        notas=notas,
+        fallo=fallo,
+        avisos=avisos,
+        alertas=tuple(alertas_harvest),
+        caps_saturados=tuple(caps_saturados),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1510,10 +1523,13 @@ def _fase_notifica(
     status: str,
     decisions_count: int,
     notas_apply: dict,
+    caps_saturados: tuple = (),
     tick: Callable[[], None] | None = None,
 ) -> dict:
     """Avisos Telegram del ciclo (3.3, sellados 2/19): UN aviso por corte
-    nuevo encolado + UN digest final. Devuelve la seccion notes['telegram']
+    nuevo encolado + UN aviso por cap de quota saturado (preflight 1.4: la
+    transicion used == cap ya filtro los duplicados — el rechazo por tope no
+    es evento) + UN digest final. Devuelve la seccion notes['telegram']
     con SOLO claves de lo que fallo (regla 3); vacio = todo bien o canal
     deshabilitado (que no es fallo). La NOTA es la UNICA visibilidad del
     fallo del canal (sellado 2: el silencio jamas es invisible) y JAMAS
@@ -1541,6 +1557,31 @@ def _fase_notifica(
     except Exception as exc:  # noqa: BLE001 - jamas rompe el ciclo (docstring)
         notas["aviso_encola"] = "fallo: el aviso de corte encolado no salio (ver log)"
         logger.warning("notifica: fallo en avisos de encola: %s", scrub(str(exc)))
+    try:
+        for evento in caps_saturados:
+            if not notifica.notifica_cap_agotado(
+                evento.platform, evento.kind, evento.used, evento.cap
+            ):
+                detalle = (
+                    "fallo: aviso de cap agotado no enviado por Telegram "
+                    f"(cap {evento.platform}/{evento.kind} agotado: "
+                    f"{evento.used}/{evento.cap})"
+                )
+                # Un ciclo puede agotar MAS de un cap (p. ej. bid y harvest):
+                # la NOTA ACUMULA los detalles, jamas pisa (regla 3: la
+                # evidencia de cada aviso perdido queda en notes).
+                notas["cap_agotado"] = (
+                    f"{notas['cap_agotado']} | {detalle}" if "cap_agotado" in notas else detalle
+                )
+            _latido()
+    except Exception as exc:  # noqa: BLE001 - jamas rompe el ciclo (docstring)
+        # ADV-3 (adversary): el except TAMBIEN acumula, jamas pisa la NOTA
+        # ya armada con los detalles de los avisos que fallaron antes.
+        detalle = "fallo: el aviso de cap agotado no salio (ver log)"
+        notas["cap_agotado"] = (
+            f"{notas['cap_agotado']} | {detalle}" if "cap_agotado" in notas else detalle
+        )
+        logger.warning("notifica: fallo en avisos de cap agotado: %s", scrub(str(exc)))
     try:
         resumen = {
             "cycle_id": cycle_id,
@@ -1643,6 +1684,7 @@ def _corre_fases(
     telegram = _fase_notifica(
         fase.avisos,
         fase.alertas,
+        caps_saturados=fase.caps_saturados,
         cycle_id=cycle_id,
         platform=platform,
         modo=modo.modo,

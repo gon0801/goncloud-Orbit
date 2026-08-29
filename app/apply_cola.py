@@ -91,7 +91,13 @@ from psycopg.types.json import Json
 
 from app import apply, apply_harvest, notifica
 from app.ads.client import AdsApiError
-from app.apply import Aplicador, DecisionBid, consume_quota
+from app.apply import (
+    Aplicador,
+    CapSaturado,
+    DecisionBid,
+    consume_quota_y_sello,
+    evento_cap_saturado,
+)
 from app.optimizer import bid as motor_bid
 from app.optimizer import cortes, hygiene, windows
 from app.optimizer import goals as g
@@ -277,6 +283,10 @@ class ResultadoLiberacion:
     # al ciclo (con la bandera de envio fallido del canal) para la NOTA
     # notes['telegram'] — antes se caian aqui.
     alertas: tuple[apply_harvest.AlertaHarvest, ...] = ()
+    # Preflight 1.4 (D3d): los caps de quota que ESTE barrido llevo a su
+    # transicion (los propios de la cola + los del hook harvest) viajan al
+    # ciclo para el aviso fail-silent; el consumo rechazado NO agrega.
+    caps_saturados: tuple[CapSaturado, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -786,7 +796,7 @@ def libera_vencidos(
     2. re-validacion PRE-claim SOBRE la fila released (evidencia FRESCA al
        reloj de LIBERACION + LIST fresco de estado vivo): motivo -> discard
        (un descarte SIEMPRE antes del claim, NUNCA despues del cobro);
-    3. cobro de quota (apply.consume_quota): sin quota la fila QUEDA en
+    3. cobro de quota (apply.consume_quota_y_sello): sin quota la fila QUEDA en
        released (espera FIFO y SIGUE vetable, §5.4). Se cobra ANTES del claim
        porque la maquina no tiene applying -> released (0002): cobrar despues
        del claim dejaria atrapada la fila que espera quota — declarado; el
@@ -812,6 +822,7 @@ def libera_vencidos(
     liberadas = aplicadas = fallidas = sin_quota = carreras = sin_respuesta = 0
     descartadas: list[str] = []
     alertas_harvest: list[apply_harvest.AlertaHarvest] = []
+    caps_saturados: list[CapSaturado] = []
     for fila in filas:
         if fila.estado == "pending_veto":
             if conn.execute(_SQL_LIBERA, (fila.id,)).fetchone() is None:
@@ -842,6 +853,9 @@ def libera_vencidos(
             if resultado_h.alerta is not None:
                 # 3.3: la alerta viaja al ciclo (NOTA telegram si su envio fallo)
                 alertas_harvest.append(resultado_h.alerta)
+            # Preflight 1.4: la unidad del harvest la cobra el hook — si esa
+            # cobro saturo el cap, el evento viaja con el resultado.
+            caps_saturados.extend(resultado_h.caps_saturados)
             if resultado_h.estado == "applied":
                 aplicadas += 1
             elif resultado_h.estado == "failed":
@@ -851,9 +865,16 @@ def libera_vencidos(
             else:
                 sin_quota += 1
             continue
-        if not consume_quota(conn, platform, fila.kind):
+        usada, saturada = consume_quota_y_sello(conn, platform, fila.kind)
+        if not usada:
             sin_quota += 1
             continue  # queda en released: espera FIFO y SIGUE vetable
+        if saturada:
+            # Preflight 1.4 (D3a): el cobro que llevo used a cap es UN evento
+            # por (motor, dia); las filas siguientes quedan sin quota (arriba).
+            evento = evento_cap_saturado(conn, platform, fila.kind)
+            if evento is not None:
+                caps_saturados.append(evento)
         if conn.execute(_SQL_CLAIM, (fila.id,)).fetchone() is None:
             carreras += 1
             continue
@@ -874,6 +895,7 @@ def libera_vencidos(
         carreras_perdidas=carreras,
         revalida_sin_respuesta=sin_respuesta,
         alertas=tuple(alertas_harvest),
+        caps_saturados=tuple(caps_saturados),
     )
 
 

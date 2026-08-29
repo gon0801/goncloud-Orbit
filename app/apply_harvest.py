@@ -92,7 +92,7 @@ from app.optimizer import cortes, hygiene, windows
 from app.optimizer import goals as g
 
 if TYPE_CHECKING:
-    from app.apply import Aplicador
+    from app.apply import Aplicador, CapSaturado
     from app.apply_cola import FilaCola
 
 logger = logging.getLogger(__name__)
@@ -283,6 +283,9 @@ class ResultadoHarvest:
 
     estado: str
     alerta: AlertaHarvest | None = None
+    # Preflight 1.4 (D3d): el cobro de la unidad lo hace ESTE hook — si ese
+    # cobro llevo used a cap, el evento viaja al ciclo (aviso fail-silent).
+    caps_saturados: tuple[CapSaturado, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -303,6 +306,9 @@ class ResumenReconciliacion:
     pausas_confirmadas: int = 0
     pausas_fallidas: int = 0
     harvest_huerfanas_cerradas: int = 0
+    # Preflight 1.4 (D3d): caps de quota llevados a su transicion por el
+    # re-cobro de filas released — viajan al ciclo (aviso fail-silent).
+    caps_saturados: tuple[CapSaturado, ...] = ()
 
 
 @dataclass
@@ -1023,12 +1029,22 @@ def aplica_harvest(
     vetable) con el job ya nacido; claim perdido contra un veto = pierde
     LIMPIO (residual declarado de 2.2: unidad cobrada sin intento)."""
     job = _nace_job(conn, platform, fila)
-    if not apply.consume_quota(conn, platform, "harvest"):
+    usada, saturada = apply.consume_quota_y_sello(conn, platform, "harvest")
+    if not usada:
         return ResultadoHarvest(estado="sin_quota")
+    caps = ()
+    if saturada:
+        # Preflight 1.4 (D3a): la unidad que llevo used a cap dispara UN
+        # evento; el resultado de la carrera del claim no lo cambia.
+        evento = apply.evento_cap_saturado(conn, platform, "harvest")
+        if evento is not None:
+            caps = (evento,)
     if conn.execute(_SQL_CLAIM, (fila.id,)).fetchone() is None:
-        return ResultadoHarvest(estado="perdida")
+        return ResultadoHarvest(estado="perdida", caps_saturados=caps)
     estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
-    return ResultadoHarvest(estado="applied" if estado == "done" else estado, alerta=alerta)
+    return ResultadoHarvest(
+        estado="applied" if estado == "done" else estado, alerta=alerta, caps_saturados=caps
+    )
 
 
 def revalida_harvest(
@@ -1286,6 +1302,7 @@ def reconcilia_harvest(
     veto puede ganar el claim). Ambiguo por job → se salta al ciclo siguiente
     (la fila sin sello ES el rastro)."""
     alertas: list[AlertaHarvest] = []
+    caps_saturados: list[CapSaturado] = []
     jobs_done = jobs_failed = cerrados = 0
     for fila_job in conn.execute(_SQL_JOBS_EN_VUELO, (platform,)).fetchall():
         job = _job_de_fila(fila_job)
@@ -1295,8 +1312,15 @@ def reconcilia_harvest(
             cerrados += 1
             continue
         if queue_estado == "released":
-            if not apply.consume_quota(conn, platform, "harvest"):
+            usada, saturada = apply.consume_quota_y_sello(conn, platform, "harvest")
+            if not usada:
                 continue  # sigue esperando quota (y vetable)
+            if saturada:
+                # Preflight 1.4 (D3a): el re-cobro que llevo used a cap es UN
+                # evento por (motor, dia).
+                evento = apply.evento_cap_saturado(conn, platform, "harvest")
+                if evento is not None:
+                    caps_saturados.append(evento)
             if queue_id is None or conn.execute(_SQL_CLAIM, (queue_id,)).fetchone() is None:
                 continue  # un veto gano la carrera del claim: la cola manda
         try:
@@ -1322,4 +1346,5 @@ def reconcilia_harvest(
         pausas_confirmadas=pausas_confirmadas,
         pausas_fallidas=pausas_fallidas,
         harvest_huerfanas_cerradas=huerfanas,
+        caps_saturados=tuple(caps_saturados),
     )
