@@ -77,9 +77,28 @@ def test_bateria_completa_corre_en_ci():
         if "pytest" in str(paso.get("run", ""))
     ]
     assert pasos, "CI debe correr pytest: la bateria completa vive ahi (no en pre-push)"
-    corridas = " ".join(str(p.get("run", "")) for p in pasos)
-    assert "pytest -q" in corridas or "pytest " in corridas, (
-        f"CI debe correr la bateria COMPLETA (sin acotar a un subconjunto): {corridas!r}"
+    # Un `in` sobre el texto aceptaria un pytest ACOTADO (`pytest tests/x.py`) o
+    # una mera mencion en un echo (hallazgo Greptile PR #50): hay que mirar la
+    # invocacion REAL y exigir que no lleve rutas de test.
+    completas = []
+    for paso in pasos:
+        for linea in str(paso["run"]).splitlines():
+            tokens = shlex.split(linea, posix=True) if linea.strip() else []
+            if "pytest" not in tokens and not any(t.endswith("pytest") for t in tokens):
+                continue
+            if tokens[0] in {"echo", "printf", "#"}:
+                continue  # una mencion en un mensaje no es una corrida
+            i = next(n for n, t in enumerate(tokens) if t == "pytest" or t.endswith("pytest"))
+            rutas = [
+                t
+                for t in tokens[i + 1 :]
+                if not t.startswith("-") and (t.endswith(".py") or "tests" in t)
+            ]
+            if not rutas:
+                completas.append(linea.strip())
+    assert completas, (
+        "CI debe correr la bateria COMPLETA (pytest SIN rutas de test); "
+        f"invocaciones halladas: {[str(p['run']).strip() for p in pasos]!r}"
     )
 
 
