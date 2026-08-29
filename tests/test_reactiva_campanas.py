@@ -101,6 +101,19 @@ def _conn_camino_original() -> _ConnFalsa:
     return _ConnFalsa(resultados)
 
 
+def _conn_solo_campana_dedup(estados_keywords: list[str] | None = None) -> _ConnFalsa:
+    """Cola del modo --solo-campana --dedup-1-6a: la campana primero y una
+    fila (external_id, estado, platform) por keyword de PAUSAS_DEDUP_1_6A en
+    orden; por defecto todas ENABLED — con `estados_keywords` se fuerza el
+    fail-closed (p. ej. una PAUSED)."""
+    if estados_keywords is not None:
+        assert len(estados_keywords) == len(rc.PAUSAS_DEDUP_1_6A)
+    estados = list(estados_keywords or ["ENABLED"] * len(rc.PAUSAS_DEDUP_1_6A))
+    resultados = [[(SOLO_EXTERNAL, "amazon_us", SOLO_NOMBRE, "PAUSED")]]
+    resultados += [[(f"kw-16a-{i}", estado, "amazon_us")] for i, estado in enumerate(estados)]
+    return _ConnFalsa(resultados)
+
+
 # ---------------------------------------------------------------------------
 # Fakes de la frontera del main (patron _fakea_main de test_snapshot_listas).
 # ---------------------------------------------------------------------------
@@ -121,10 +134,11 @@ class _Respuesta:
 
 class _ClienteAdsFalso:
     """AdsClient canned: /sp/campaigns/list responde la campana con el estado
-    indicado; cualquier otro path (o un GET) revienta — el guard del 1.6a es
-    el UNICO consumidor vivo del cliente en estos tests. Con `secuencia`, cada
-    llamada consume el siguiente estado (guard PAUSED y readback post-PUT
-    ENABLED en la misma corrida)."""
+    indicado y /sp/keywords/list responde la keyword pedida PAUSED (readback
+    post-PUT de la Fase 1, SIN consumir la secuencia de campanas); cualquier
+    otro path (o un GET) revienta. Con `secuencia`, cada llamada de CAMPANAS
+    consume el siguiente estado (guard PAUSED y readback post-PUT ENABLED en
+    la misma corrida)."""
 
     def __init__(self, estado_vivo: str = "PAUSED", secuencia: list[str] | None = None):
         self._estado = estado_vivo
@@ -133,6 +147,13 @@ class _ClienteAdsFalso:
 
     def list_objects(self, path, body, *, profile_id=None):
         self.llamadas.append({"path": path, "body": dict(body), "profile_id": profile_id})
+        if path == "/sp/keywords/list":
+            kw_id = body["keywordIdFilter"]["include"][0]
+            return _Respuesta(
+                200,
+                {"keywords": [{"keywordId": kw_id, "state": "PAUSED"}]},
+                texto='{"state": "ok"}',
+            )
         assert path == "/sp/campaigns/list", f"path inesperado: {path}"
         estado = self._secuencia.pop(0) if self._secuencia else self._estado
         return _Respuesta(
@@ -466,3 +487,127 @@ def test_main_esperado_external_sin_solo_campana_aborta(monkeypatch):
 
     with pytest.raises(rc.Abortar, match="solo-campana"):
         rc.main()
+
+
+# ---------------------------------------------------------------------------
+# 13-17. Parte 2 (GO del dueno 2026-08-29, "go con la 1"): --dedup-1-6a pausa
+# las 9 keywords EXACT de PAUSAS_DEDUP_1_6A ANTES del resume de la 3919, para
+# que jamas quede el mismo texto+match ENABLED en dos campanas — reusando el
+# MISMO mecanismo sellado de la Fase 1 del camino original.
+# ---------------------------------------------------------------------------
+
+
+def test_dedup_1_6a_plan_trae_exactamente_9_pausas_y_1_resume(capsys):
+    conn = _conn_solo_campana_dedup()
+    campanas, keywords = rc._resolver_plan(conn, solo_campana=SOLO_CAMPANA, dedup_1_6a=True)
+
+    assert len(rc.PAUSAS_DEDUP_1_6A) == 9, "la lista autorizada del 1.6a son 9 pausas"
+    assert list(campanas) == [SOLO_CAMPANA]
+    assert campanas[SOLO_CAMPANA]["external_id"] == SOLO_EXTERNAL
+    assert [(k["camp_id"], k["texto"], k["match"]) for k in keywords] == [
+        tuple(pausa) for pausa in rc.PAUSAS_DEDUP_1_6A
+    ], "las 9 pausas en el ORDEN exacto de la lista autorizada"
+    assert len(conn.queries) == 10, "1 query de campana + 9 de keywords"
+    # Los eventos keyword_resuelta ya los loguea el helper compartido.
+    resueltas = [e for e in _eventos(capsys) if e["evento"] == "keyword_resuelta"]
+    assert len(resueltas) == 9
+    assert [e["camp_id"] for e in resueltas] == [p[0] for p in rc.PAUSAS_DEDUP_1_6A]
+
+
+def test_dedup_1_6a_sin_solo_campana_aborta(monkeypatch):
+    _fakea_main(monkeypatch, _conn_camino_original())
+    monkeypatch.setattr(sys, "argv", ["reactiva_campanas.py", "--dedup-1-6a"])
+
+    with pytest.raises(rc.Abortar, match="--dedup-1-6a requiere --solo-campana"):
+        rc.main()
+
+
+def test_dedup_1_6a_keyword_no_enabled_aborta_fail_closed(monkeypatch):
+    """Una keyword de la lista 1.6a que la base resuelve PAUSED aborta el plan
+    ANTES de tocar Amazon: ni token LWA ni PUT (el _HttpFalso REVIENTA)."""
+    estados = ["ENABLED"] * len(rc.PAUSAS_DEDUP_1_6A)
+    estados[4] = "PAUSED"  # 'silver arras for wedding': la fila en disputa
+    _fakea_main(monkeypatch, _conn_solo_campana_dedup(estados))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "reactiva_campanas.py",
+            "--solo-campana",
+            str(SOLO_CAMPANA),
+            "--dedup-1-6a",
+            "--esperado-external",
+            SOLO_EXTERNAL,
+            "--acepto-mutacion-real",
+        ],
+    )
+
+    with pytest.raises(rc.Abortar, match="no ENABLED"):
+        rc.main()
+
+
+def test_main_dedup_1_6a_dry_run_imprime_9_pausas_1_resume(monkeypatch, capsys):
+    _fakea_main(monkeypatch, _conn_solo_campana_dedup(), estado_vivo="PAUSED")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["reactiva_campanas.py", "--solo-campana", str(SOLO_CAMPANA), "--dedup-1-6a"],
+    )
+
+    assert rc.main() == 0
+
+    eventos = _eventos(capsys)
+    assert len([e for e in eventos if e["evento"] == "keyword_resuelta"]) == 9
+    secos = [e for e in eventos if e["evento"] == "dry_run"]
+    assert len(secos) == 1
+    assert secos[0]["pausas"] == 9 and secos[0]["resumes"] == 1
+    # Cero PUT/token: el _HttpFalso REVIENTA en .put/.post — llegar a return 0
+    # sin reviente es la demostracion.
+
+
+def test_main_dedup_1_6a_mutacion_ordena_pausas_antes_del_resume(monkeypatch, capsys):
+    http = _HttpQueResume()
+    _fakea_main(
+        monkeypatch,
+        _conn_solo_campana_dedup(),
+        secuencia=["PAUSED", "ENABLED"],  # guard campana -> PAUSED; readback post-PUT -> ENABLED
+        http=http,
+    )
+    monkeypatch.setattr(rc, "_token_lwa", lambda cred, client: "token-falso")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "reactiva_campanas.py",
+            "--solo-campana",
+            str(SOLO_CAMPANA),
+            "--dedup-1-6a",
+            "--esperado-external",
+            SOLO_EXTERNAL,
+            "--acepto-mutacion-real",
+        ],
+    )
+
+    assert rc.main() == 0
+
+    assert len(http.puts) == 10, "9 pausas de keywords + 1 resume de campana"
+    pausas, resume = http.puts[:9], http.puts[9]
+    vendor_kw = "application/vnd.spkeyword.v3+json"
+    for put in pausas:
+        assert put["url"].endswith("/sp/keywords"), "los PRIMEROS 9 PUTs son pausas"
+        assert put["headers"]["Content-Type"] == vendor_kw
+        assert put["headers"]["Accept"] == vendor_kw, "vendor v3 en Content-Type Y Accept"
+        fila = put["payload"]["keywords"][0]
+        assert fila["state"] == "PAUSED", "enum UPPER sellado en vivo 2026-08-27"
+        assert isinstance(fila["keywordId"], str), "id como STRING (con numero: 400)"
+    assert [p["payload"]["keywords"][0]["keywordId"] for p in pausas] == [
+        f"kw-16a-{i}" for i in range(len(rc.PAUSAS_DEDUP_1_6A))
+    ], "las 9 pausas en el orden del plan, TODAS antes del resume"
+    assert resume["url"].endswith("/sp/campaigns"), "el ULTIMO PUT es el resume"
+    assert resume["payload"] == {"campaigns": [{"campaignId": SOLO_EXTERNAL, "state": "ENABLED"}]}
+    vendor_camp = "application/vnd.spcampaign.v3+json"
+    assert resume["headers"]["Content-Type"] == vendor_camp
+    assert resume["headers"]["Accept"] == vendor_camp
+    fin = [e for e in _eventos(capsys) if e["evento"] == "reconciliacion_final"]
+    assert len(fin) == 1
+    assert fin[0]["pausas_ok"] == 9 and fin[0]["resumes_ok"] == 1
