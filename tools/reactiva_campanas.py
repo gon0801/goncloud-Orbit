@@ -49,10 +49,12 @@ esta ENABLED, NO se muta (fail-closed: declararlo y seguir desde el paso
 <external_id>: el external que el dueno autorizo viendo el dry-run; si la
 base resuelve otro, aborta (anti-typo, cross-review grok). Con --dedup-1-6a
 (parte 2, GO del dueno 2026-08-29) las 9 keywords EXACT de PAUSAS_DEDUP_1_6A
-se pausan ANTES del resume por el MISMO camino sellado de la Fase 1. Corrida:
+se pausan ANTES del resume por el MISMO camino sellado de la Fase 1 — y ese
+modo SOLO acepta --solo-campana 3919: las 9 pausas estan autorizadas atadas
+al resume de ESA campana (cross-review codex). Corrida:
 
     ssh goncloud 'docker exec -i orbit-app-1 python - --solo-campana 3919 \
-      --esperado-external 251723662158466 [--acepto-mutacion-real]' \
+      --esperado-external 251723662158466 [--dedup-1-6a] [--acepto-mutacion-real]' \
       < tools/reactiva_campanas.py
 """
 
@@ -137,6 +139,12 @@ PAUSAS_DEDUP: list[tuple[int, str, str]] = [
 # la bitemporalidad; la re-derivacion colapsada la volteria hacia la 3909)
 # y el lead la resolvio el 2026-08-29 con la respuesta literal "A": la
 # lista se ejecuta TAL CUAL (esa fila pausa la copia de la 3919).
+# Campana cuyo resume autoriza ese GO: las 9 pausas lo PROTEGEN (el dedup
+# existe para reactivarla sin competencia propia). --dedup-1-6a solo acepta
+# --solo-campana con ESTA campana (cross-review codex: con otra campana se
+# pausarian las 9 fijas y se reactivaria una no autorizada).
+CAMPANA_DEDUP_1_6A = 3919
+
 PAUSAS_DEDUP_1_6A: list[tuple[int, str, str]] = [
     (3919, "arras para boda catolica", "EXACT"),
     (3919, "arras for wedding ceremony", "EXACT"),
@@ -466,9 +474,18 @@ def main() -> int:
     args = ap.parse_args()
 
     # Las 9 pausas del 1.6a van atadas al resume de ESA campana: sin el modo
-    # --solo-campana es un error de uso (fail-closed antes de abrir nada).
-    if args.dedup_1_6a and args.solo_campana is None:
-        raise Abortar("--dedup-1-6a requiere --solo-campana")
+    # --solo-campana es un error de uso, y con OTRA campana tambien (las 9
+    # pausas protegen la reactivacion autorizada de la 3919, no cualquier
+    # resume) — fail-closed antes de abrir nada.
+    if args.dedup_1_6a:
+        if args.solo_campana is None:
+            raise Abortar("--dedup-1-6a requiere --solo-campana")
+        if args.solo_campana != CAMPANA_DEDUP_1_6A:
+            raise Abortar(
+                f"--dedup-1-6a esta atado al resume de la campana {CAMPANA_DEDUP_1_6A} "
+                f"(las 9 pausas protegen ESA reactivacion, GO 2026-08-29); "
+                f"para la {args.solo_campana} es otra tarea con su propia lista"
+            )
 
     cred = AdsCredentials.from_secrets_dir()
     conn = connect(_dsn_read())

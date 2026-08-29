@@ -523,6 +523,20 @@ def test_dedup_1_6a_sin_solo_campana_aborta(monkeypatch):
         rc.main()
 
 
+def test_dedup_1_6a_con_otra_campana_aborta(monkeypatch):
+    """Cross-review codex (alta): --dedup-1-6a esta ATADO al resume de la 3919
+    (las 9 pausas protegen ESA reactivacion, GO 2026-08-29). Con cualquier otra
+    campana aborta ANTES de abrir nada: no se pausan las 9 keywords fijas al
+    azar ni se reactiva una campana distinta de la autorizada."""
+    _fakea_main(monkeypatch, _conn_solo_campana_dedup())
+    monkeypatch.setattr(
+        sys, "argv", ["reactiva_campanas.py", "--solo-campana", "3911", "--dedup-1-6a"]
+    )
+
+    with pytest.raises(rc.Abortar, match="3919"):
+        rc.main()
+
+
 def test_dedup_1_6a_keyword_no_enabled_aborta_fail_closed(monkeypatch):
     """Una keyword de la lista 1.6a que la base resuelve PAUSED aborta el plan
     ANTES de tocar Amazon: ni token LWA ni PUT (el _HttpFalso REVIENTA)."""
