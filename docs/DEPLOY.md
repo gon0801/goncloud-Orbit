@@ -565,14 +565,33 @@ rotación borra): `backups/precutover_orbit04_2026-08-28/` (dir 700, archivos
    nombre `orbit_precutover_<tag>.dump` / `orbit_globals_precutover_<tag>.sql`.
 2. CSV del cache: `docker exec orbit-db-1 psql -U orbit -d orbit -c
    "\copy ad_entity_state TO STDOUT CSV HEADER" > "$D/ad_entity_state_<fecha>.csv"`.
-3. Listas de Amazon (SOLO lectura): por cada perfil de
-   `app.ads.structure.perfiles_aceptados`, `AdsClient.list_objects` sobre
-   `/sp/keywords/list`, `/sp/negativeKeywords/list` y `/sp/targets/list`
-   (paginando), agrupado por `campaignId` → `$D/listas_amazon/listas_por_plataforma.json`.
-   **En 4.4 esto corrió como código inline dentro del contenedor (no está
-   en el repo)**: antes del flip, el ítem 4 del checklist exige aterrizarlo
-   como `tools/snapshot_listas.py` (con test de sus partes puras) para que
-   el operador lo repita sin reescribirlo — hallazgo Greptile PR #40.
+3. Listas de Amazon (SOLO lectura): el tool **`tools/snapshot_listas.py`**
+   (ORBIT 05 preflight 1.3, decisión sellada 3 del preflight: el snapshot se
+   produce con un tool del repo con test, jamás código inline) recorre
+   `app.ads.structure.perfiles_aceptados` y lista `/sp/keywords/list`,
+   `/sp/negativeKeywords/list` y `/sp/targets/list` con
+   `AdsClient.list_objects` (paginación completa por nextToken, cero
+   mutaciones), agrupa por `campaignId` y escribe
+   `$D/listas_amazon/listas_por_plataforma.json` (el tool fuerza `umask
+   077`: dir 700, archivo 600). Flags: `--out <dir>` (escribe el JSON) o
+   `--solo-conteos` (imprime el resumen por stdout, no escribe archivo);
+   `--platform amazon_us|amazon_mx` opcional. Receta de contenedor (patrón
+   §11d; el tool no va en la imagen):
+   `cat tools/snapshot_listas.py | ssh goncloud 'docker exec -i orbit-app-1
+   sh -c "cat > /tmp/snapshot_listas.py"'` y correr con
+   `PYTHONPATH=/app python /tmp/snapshot_listas.py --out /tmp/listas`
+   (runbook completo en el docstring del tool, con el `docker cp` de salida
+   y la limpieza). **Prerequisito de imagen**: la receta simple (solo el
+   tool en `/tmp`, `PYTHONPATH=/app`) exige que la imagen incluya el commit
+   que trae el tool (`app.ads.structure` con `listar_todo` pública y
+   `PATH_NEGATIVE_KEYWORDS`). Si la imagen es anterior, montar el árbol del
+   commit en `/tmp` y correrlo desde ahí — el bootstrap del tool pone su
+   propio árbol primero en `sys.path`, sin mezclar módulos (variante
+   verificada en la corrida real del 2026-08-28; receta completa en el
+   docstring del tool). **Historia**: en 4.4 el snapshot del 2026-08-28 corrió
+   como código inline dentro del contenedor (hueco declarado del runbook —
+   hallazgo Greptile PR #40); ORBIT 05 preflight 1.3 lo aterrizó como tool
+   del repo con test de sus partes puras.
 
 **Cómo se verifica — los CUATRO artefactos, no solo el dump** (CodeRabbit
 PR #40): `VERIFY_OK` solo se emite si pasan todos:

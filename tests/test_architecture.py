@@ -42,6 +42,18 @@ MAX_LINEAS_MODULO = 900
 # path relativo (posix) -> razon escrita. Sacar una entrada exige que el
 # modulo haya bajado del umbral; agregarla exige razon y review.
 ALLOWLIST_TAMANO = {
+    "app/ads/structure.py": (
+        "ORBIT 05 preflight 1.3: al modulo del sync de estructura se le sumo "
+        "PATH_NEGATIVE_KEYWORDS (evidencia regla 8, 2026-08-25) y la "
+        "paginacion promovida a API publica (listar_todo) para el snapshot "
+        "read-only de listas (tools/snapshot_listas.py); el modulo ya vivia "
+        "al tope del presupuesto (900). Candidato DECLARADO a partirse la "
+        "proxima vez que se toque en grande: IO de API (evaluar_perfiles + "
+        "listar_todo + fetch_structure) de IO de DB (SQL sellada + "
+        "_plan_items + sync_structure) — la frontera ya esta marcada en el "
+        "propio modulo; partir por partir esta prohibido por la regla "
+        "anti-Goodhart"
+    ),
     "app/ads/reports.py": (
         "pipeline compartido de reporting v3 (metricas + search terms + "
         "fusion de grano); candidato DECLARADO a partirse en "
@@ -358,3 +370,99 @@ def test_patrones_sql_goals_resisten_case_y_whitespace():
     assert any(p.search("fRoM   ads_optimizer_goal") for p in _PATRONES_SQL_GOALS)
     benigno = "el UNICO camino de escritura de ads_optimizer_goal (decision 26)"
     assert not any(p.search(benigno) for p in _PATRONES_SQL_GOALS)
+
+
+# ---------------------------------------------------------------------------
+# ORBIT 05 preflight 1.3 (decision sellada 3): el snapshot de listas del
+# backup pre-cutover es un TOOL del repo con test, no codigo inline. Allowlist
+# POSITIVA de los imports de runtime de tools/snapshot_listas.py: stdlib + el
+# cliente de LECTURA (app.ads.client), credenciales, estructura y redaccion.
+# Ampliarla exige editar este archivo a proposito (mismo trato que
+# ALLOWLIST_TAMANO: decision visible en diff y review, jamas deriva
+# silenciosa). El tool JAMAS entra a PERMITIDOS_IMPORTAR_ADS_WRITE: no tiene
+# porque importar write y el candado
+# test_imports_del_cliente_de_escritura_acotados ya escanea tools/ entero.
+# Sincronizada con los imports del tool (incluye los "modulo.alias" que
+# _imports_runtime registra para cada from-import).
+# ---------------------------------------------------------------------------
+ALLOWLIST_IMPORTS_SNAPSHOT_LISTAS = frozenset(
+    {
+        "__future__",
+        "__future__.annotations",
+        "argparse",
+        # contextlib / stat / tempfile: endurecimiento de la escritura
+        # (hallazgos Greptile + CodeRabbit PR #48) — temporal EXCLUSIVO con
+        # mkstemp (nada de nombre predecible), modo 700 impuesto al out_dir
+        # preexistente y limpieza del temporal si algo revienta.
+        "contextlib",
+        "datetime",
+        "json",
+        "os",
+        "stat",
+        "sys",
+        "tempfile",
+        "pathlib",
+        "pathlib.Path",
+        "typing",
+        "typing.TYPE_CHECKING",
+        "app.ads.client",
+        "app.ads.client.AdsClient",
+        "app.ads.config",
+        "app.ads.config.AdsCredentials",
+        "app.ads.structure",
+        "app.ads.structure.PATH_KEYWORDS",
+        "app.ads.structure.PATH_NEGATIVE_KEYWORDS",
+        "app.ads.structure.PATH_TARGETS",
+        "app.ads.structure.listar_todo",
+        "app.ads.structure.perfiles_aceptados",
+        "app.redaction",
+        "app.redaction.scrub",
+    }
+)
+
+
+def test_snapshot_listas_solo_importa_lectura():
+    """El snapshot de listas es SOLO lectura: sus imports de runtime deben ser
+    subconjunto de la allowlist positiva. Un import de mas es una decision de
+    arquitectura: se suma EDITANDO este archivo (visible en diff y review).
+
+    Residual DECLARADO (hallazgo reviewer 1.3): la allowlist nombra
+    app.ads.structure ENTERO, asi que un caller hipotetico podria llegar a
+    sync_structure por atributo sin disparar — granularidad aceptada: el
+    modelo de amenaza es deriva accidental, no malicia, y reusar structure es
+    el diseno (reusar, no reescribir)."""
+    extras = (
+        _imports_runtime(RAIZ / "tools" / "snapshot_listas.py") - ALLOWLIST_IMPORTS_SNAPSHOT_LISTAS
+    )
+    assert not extras, (
+        f"tools/snapshot_listas.py importa por fuera de la allowlist de "
+        f"lectura: {sorted(extras)} — ampliar ALLOWLIST_IMPORTS_SNAPSHOT_LISTAS "
+        "exige editar tests/test_architecture.py a proposito"
+    )
+    assert "tools/snapshot_listas.py" not in PERMITIDOS_IMPORTAR_ADS_WRITE, (
+        "el snapshot jamas debe habilitarse para importar app.ads.write"
+    )
+    # Cierre barato del hueco AST (hallazgo reviewer 1.3): __import__("...")
+    # y importlib.import_module no producen nodos de import y la allowlist no
+    # los ve. Un tool read-only no tiene razon legitima de import dinamico:
+    # escaneo de texto; ampliarlo exige editar este archivo a proposito.
+    fuente = (RAIZ / "tools" / "snapshot_listas.py").read_text(encoding="utf-8")
+    for patron in ("__import__(", "import_module("):
+        assert patron not in fuente, (
+            f"tools/snapshot_listas.py usa import dinamico ({patron!r}): el "
+            "candado de allowlist no lo ve — justificarlo y editar "
+            "tests/test_architecture.py a proposito"
+        )
+
+
+def test_allowlist_snapshot_caza_import_de_escritura(tmp_path):
+    """Regla 9: si manana el tool importara app.ads.write, la allowlist
+    (subconjunto) lo detecta: la copia del tool con la linea agregada REBENTA
+    con el import de mas identificado (el detector muerde)."""
+    fuente = (RAIZ / "tools" / "snapshot_listas.py").read_text(encoding="utf-8")
+    fuga = tmp_path / "snapshot_listas_fuga.py"
+    fuga.write_text(fuente + "from app.ads.write import AdsWriteClient\n", encoding="utf-8")
+    imp = _imports_runtime(fuga)
+    assert "app.ads.write" in _violaciones(imp, ("app.ads.write",))
+    extras = imp - ALLOWLIST_IMPORTS_SNAPSHOT_LISTAS
+    assert "app.ads.write" in extras and "app.ads.write.AdsWriteClient" in extras
