@@ -389,6 +389,16 @@ def test_main_sin_flags_error_de_uso(monkeypatch, capsys, tmp_path):
     assert "--out" in err and "--solo-conteos" in err
 
 
+def test_main_out_y_solo_conteos_excluyentes(monkeypatch, tmp_path):
+    """Ambos flags a la vez es error de uso (hallazgo grok r1): argparse lo
+    rechaza (SystemExit) ANTES de correr nada — jamas un exito sin archivo
+    que el operador del backup podria tomar por backup completo."""
+    monkeypatch.setenv("ORBIT_SECRETS_DIR", str(tmp_path / "sin_secrets"))
+    with pytest.raises(SystemExit):
+        sl.main(["--out", str(tmp_path), "--solo-conteos"])
+    assert list(tmp_path.iterdir()) == [], "nada escrito ni creado"
+
+
 # ---------------------------------------------------------------------------
 # 7-9. main fakeado: --solo-conteos, --out, --platform
 # ---------------------------------------------------------------------------

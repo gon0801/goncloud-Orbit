@@ -36,7 +36,9 @@ USO:
   [--platform amazon_us|amazon_mx]  # filtra a ese perfil (default: todos los aceptados)
 
 Sin --out y sin --solo-conteos -> error de uso (exit != 0): el tool siempre
-o imprime o escribe, explicito. Sin ORBIT_SECRETS_DIR valido -> fail-closed
+o imprime o escribe, explicito. Ambos flags a la vez TAMBIEN es error de uso
+(excluyentes, hallazgo grok r1: jamas un exito sin archivo que parezca
+backup). Sin ORBIT_SECRETS_DIR valido -> fail-closed
 sin abrir red. Errores de API/estructura/escritura -> mensaje por stderr
 (scrub) y exit != 0. --platform que no deja ningun perfil aceptado ->
 exit != 0 (jamas un exito vacio).
@@ -51,11 +53,14 @@ desde el host del repo, donde viven los secrets que ya usa orbit-app-1):
     "PYTHONPATH=/app python /tmp/snapshot_listas.py --out /tmp/listas"' \
     2>&1 | tee out/snapshot-listas-<fecha>.log
   rc=$?
-  ssh goncloud 'docker cp orbit-app-1:/tmp/listas/listas_por_plataforma.json \
-    "$D/listas_amazon/"'   # $D = backups/precutover_<tag>/ del host
+  if [ "$rc" -eq 0 ]; then   # cp SOLO con snapshot completo (grok r1)
+    ssh goncloud "mkdir -p '$D/listas_amazon'"   # sin el dir previo, docker
+    ssh goncloud "docker cp orbit-app-1:/tmp/listas/listas_por_plataforma.json \
+      '$D/listas_amazon/'"   # cp crea un ARCHIVO llamado listas_amazon
+  fi   # $D = backups/precutover_<tag>/ del host
   ssh goncloud 'docker exec orbit-app-1 sh -c "rm -f /tmp/snapshot_listas.py \
-    && rm -rf /tmp/listas"'
-  echo "snapshot rc=$rc"   # 0 = snapshot completo; otro = NO seguir
+    && rm -rf /tmp/listas"'   # limpieza SIEMPRE: /tmp no es el backup
+  echo "snapshot rc=$rc"   # 0 = snapshot completo y copiado a $D; otro = NO seguir
 (--solo-conteos antes de la corrida completa para ver los totales sin
 escribir nada.) Verificacion del JSON: DEPLOY.md §"Backup pre-cutover"
 (totales por plataforma/recurso = ad_entity, incl. ARCHIVED;
@@ -217,14 +222,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "el backup pre-cutover (ORBIT 05 preflight 1.3). Cero mutaciones."
         ),
     )
-    parser.add_argument(
+    # Excluyentes (hallazgo grok r1): ambos a la vez produce un "exito" sin
+    # archivo que el operador del backup podria tomar por backup completo.
+    grupo_destino = parser.add_mutually_exclusive_group()
+    grupo_destino.add_argument(
         "--out",
         type=Path,
         default=None,
         metavar="DIR",
         help=(f"directorio de salida (lo crea si falta, umask 077); escribe {ARCHIVO}"),
     )
-    parser.add_argument(
+    grupo_destino.add_argument(
         "--solo-conteos",
         dest="solo_conteos",
         action="store_true",
