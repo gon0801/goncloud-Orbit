@@ -38,6 +38,17 @@ la evidencia se captura fuera):
 Sin --acepto-mutacion-real es DRY-RUN: imprime el plan resuelto y no toca
 Amazon. Cada mutacion imprime UNA linea JSON (scrub: app.redaction) con
 request/ack/readback; la linea final es la reconciliacion.
+
+MODO --solo-campana (ORBIT 05 preflight 1.6a): reactiva SOLO la campana
+indicada (id interno ad_entity) por el MISMO camino sellado de arriba.
+El plan se reduce a ESA campana (nombre resuelto de la base), las pausas
+de dedup se SALTAN (cero keywords) y ANTES de mutar — tambien en dry-run —
+se verifica el estado VIVO por POST /sp/campaigns/list: si la campana ya
+esta ENABLED, NO se muta (fail-closed: declararlo y seguir desde el paso
+4 del runbook 1.6a). Corrida:
+
+    ssh goncloud 'docker exec -i orbit-app-1 python - --solo-campana 3919 \
+      [--acepto-mutacion-real]' < tools/reactiva_campanas.py
 """
 
 from __future__ import annotations
@@ -170,10 +181,48 @@ def _perfiles(cliente_lectura: AdsClient) -> dict[str, int]:
     return out
 
 
-def _resolver_plan(conn: psycopg.Connection) -> tuple[dict[int, dict], list[dict]]:
+def _resolver_plan(
+    conn: psycopg.Connection, solo_campana: int | None = None
+) -> tuple[dict[int, dict], list[dict]]:
     """external_ids y plataforma de campanas y keywords, contra la base VIVA.
     Fail-closed: cualquier faltante o estado inesperado aborta ANTES de
-    tocar Amazon."""
+    tocar Amazon.
+
+    Con solo_campana (ORBIT 05 preflight 1.6a): el plan se reduce a ESA
+    campana (id interno ad_entity) y las keywords quedan VACIAS — ni se
+    consultan las pausas de dedup."""
+    if solo_campana is not None:
+        row = conn.execute(
+            """SELECT e.external_id, e.platform, e.name, s.status
+               FROM ad_entity e JOIN ad_entity_state s ON s.ad_entity_id = e.id
+               WHERE e.id = %s AND e.kind = 'campaign'""",
+            (solo_campana,),
+        ).fetchone()
+        if row is None:
+            raise Abortar(f"campana {solo_campana} no existe en la base (kind 'campaign')")
+        external_id, platform, name, status = row
+        # Regla 3: e.name NULL -> el external_id es el nombre declarado, sin inventar.
+        nombre = name or external_id
+        _log(
+            "campana_resuelta",
+            id=solo_campana,
+            nombre=nombre,
+            external_id=external_id,
+            platform=platform,
+            estado_cache=status,
+        )
+        return (
+            {
+                solo_campana: {
+                    "external_id": external_id,
+                    "platform": platform,
+                    "status": status,
+                    "nombre": nombre,
+                }
+            },
+            [],
+        )
+
     campanas: dict[int, dict] = {}
     for cid, nombre in CAMPANAS_REACTIVAR.items():
         row = conn.execute(
@@ -184,7 +233,12 @@ def _resolver_plan(conn: psycopg.Connection) -> tuple[dict[int, dict], list[dict
         ).fetchone()
         if row is None:
             raise Abortar(f"campaña {cid} ({nombre}) no existe en la base")
-        campanas[cid] = {"external_id": row[0], "platform": row[1], "status": row[2]}
+        campanas[cid] = {
+            "external_id": row[0],
+            "platform": row[1],
+            "status": row[2],
+            "nombre": nombre,
+        }
         _log(
             "campana_resuelta",
             id=cid,
@@ -338,6 +392,13 @@ def main() -> int:
         action="store_true",
         help="obligatorio para tocar Amazon; sin el = dry-run",
     )
+    ap.add_argument(
+        "--solo-campana",
+        type=int,
+        default=None,
+        help="id interno ad_entity de UNA campana: reduce el plan a ESA campana y "
+        "salta las pausas de dedup (ORBIT 05 preflight 1.6a)",
+    )
     args = ap.parse_args()
 
     cred = AdsCredentials.from_secrets_dir()
@@ -345,12 +406,38 @@ def main() -> int:
     cliente_lectura = AdsClient(cred)
     http = httpx.Client(timeout=httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0))
 
-    campanas, keywords = _resolver_plan(conn)
+    campanas, keywords = _resolver_plan(conn, args.solo_campana)
     perfiles = _perfiles(cliente_lectura)
     _log("perfiles", perfiles=perfiles)
     for cid, c in campanas.items():
         if c["platform"] not in perfiles:
             raise Abortar(f"sin perfil aceptado para {c['platform']} (campana {cid})")
+
+    # Guard 1.6a (SOLO --solo-campana): el estado VIVO se declara ANTES de
+    # mutar; si la campana ya esta ENABLED, NO se muta. Tambien dispara en
+    # dry-run: es la declaracion fail-closed que pide el runbook 1.6a.
+    if args.solo_campana is not None:
+        c = campanas[args.solo_campana]
+        profile = perfiles[c["platform"]]
+        vivo = _readback_estado(
+            cliente_lectura,
+            profile,
+            "/sp/campaigns/list",
+            "campaignIdFilter",
+            "campaigns",
+            "campaignId",
+            c["external_id"],
+        )
+        _log("estado_vivo", camp_id=args.solo_campana, external_id=c["external_id"], estado=vivo)
+        if vivo is None:
+            raise Abortar(
+                f"readback vivo de la campana {args.solo_campana} ({c['external_id']}) no respondio"
+            )
+        if vivo != "PAUSED":
+            raise Abortar(
+                f"campana {args.solo_campana} ya esta {vivo} en Amazon: no se muta "
+                "(declararlo y sigue desde el paso 4 del runbook 1.6a)"
+            )
 
     if not args.acepto_mutacion_real:
         _log(
@@ -428,7 +515,7 @@ def main() -> int:
         _log(
             "resume",
             camp_id=cid,
-            nombre=CAMPANAS_REACTIVAR[cid],
+            nombre=c["nombre"],
             external_id=c["external_id"],
             readback=estado,
             ok=estado == "ENABLED",
