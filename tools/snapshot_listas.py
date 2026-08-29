@@ -165,8 +165,11 @@ def comparar_con_cache(
     Clave solo en snapshot -> cache=None y diferencia=snapshot; solo en
     cache -> snapshot=None y diferencia=-cache. negativeKeywords NO tiene
     espejo en ad_entity: el caller no la pasa en conteos_cache y la fila
-    queda con cache=None (declarado, no drop silencioso). Orden determinista
-    por (plataforma, recurso)."""
+    queda con cache=None (declarado, no drop silencioso). El mapeo
+    contenedor->kind de ad_entity lo aplica el caller: keywords->keyword,
+    targetingClauses->product_target (asi lo hizo la conciliacion real del
+    2026-08-28, evidencia out/concilia-cache-20260828.log). Orden
+    determinista por (plataforma, recurso)."""
     filas: list[dict] = []
     for plataforma, recurso in sorted(set(conteos_snapshot) | set(conteos_cache)):
         n_snapshot = conteos_snapshot.get((plataforma, recurso))
@@ -255,12 +258,23 @@ def _imprimir_resumen(snap: dict) -> None:
 
 
 def _escribir_snapshot(snap: dict, out_dir: Path) -> int:
-    # umask 077 ANTES de crear dir/archivo: 700/600 sin importar la umask del
-    # caller (el backup pre-cutover exige archivos 600; DEPLOY.md).
-    os.umask(0o077)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    destino = out_dir / ARCHIVO
-    destino.write_text(json.dumps(snap, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    # umask 077 SOLO durante la creacion y RESTAURADA al salir (hallazgo qwen
+    # r2): 700/600 sin importar la umask del caller (el backup pre-cutover
+    # exige 600; DEPLOY.md), sin contagiar la umask del proceso (tests
+    # in-process).
+    vieja = os.umask(0o077)
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        destino = out_dir / ARCHIVO
+        # Escritura ATOMICA (hallazgo qwen r2): temporal + os.replace, una
+        # re-corrida jamas deja un JSON a medias en el destino del backup.
+        # La re-escritura PISA el snapshot previo (la ultima corrida gana;
+        # declarado: la receta apunta cada flip a un $D fresco).
+        temporal = destino.with_suffix(".json.tmp")
+        temporal.write_text(json.dumps(snap, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        os.replace(temporal, destino)
+    finally:
+        os.umask(vieja)
     print(f"snapshot escrito: {destino}")
     return 0
 
