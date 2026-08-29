@@ -139,6 +139,13 @@ PATH_CAMPAIGNS = "/sp/campaigns/list"
 PATH_AD_GROUPS = "/sp/adGroups/list"
 PATH_KEYWORDS = "/sp/keywords/list"
 PATH_TARGETS = "/sp/targets/list"
+# Evidencia REGLA 8 en vivo (lead, 2026-08-25; log out/regla8-negkeywords.log):
+# POST /sp/negativeKeywords/list con el vendor vnd.spnegativekeyword.v3+json
+# (allowlist de app.ads.client) responde 200 en AMBOS perfiles (US y MX);
+# contenedor `negativeKeywords`, paginacion nextToken+totalResults. Lo consume
+# el snapshot read-only de listas (ORBIT 05 preflight 1.3,
+# tools/snapshot_listas.py); el sync de estructura NO lo lista.
+PATH_NEGATIVE_KEYWORDS = "/sp/negativeKeywords/list"
 
 # Tope de seguridad de la paginacion nextToken: una lista que nunca termina
 # (bug de la API o de este codigo) no debe colgar la corrida para siempre.
@@ -164,13 +171,15 @@ _ETIQUETA_PADRE = {
     "product_target": "ad group",
 }
 
-# Clave contenedora de cada respuesta (ojo targets: "targetingClauses").
+# Clave contenedora de cada respuesta (ojo targets: "targetingClauses";
+# negativeKeywords: evidencia regla 8, comentario en PATH_NEGATIVE_KEYWORDS).
 _CLAVE_CONTENEDORA = {
     PATH_PROFILES: "profiles",
     PATH_CAMPAIGNS: "campaigns",
     PATH_AD_GROUPS: "adGroups",
     PATH_KEYWORDS: "keywords",
     PATH_TARGETS: "targetingClauses",
+    PATH_NEGATIVE_KEYWORDS: "negativeKeywords",
 }
 
 _SQL_ABRIR_RUN = "INSERT INTO ingest_run (source) VALUES (%s) RETURNING id"
@@ -333,8 +342,15 @@ def _extraer_lista(data: object, path: str) -> list[dict]:
     return lista
 
 
-def _listar_todo(client: AdsClient, path: str, *, profile_id: int) -> list[dict]:
-    """Itera la paginacion v3 por nextToken hasta que falta (tope MAX_PAGINAS).
+def listar_todo(client: AdsClient, path: str, *, profile_id: int) -> list[dict]:
+    """Lectura paginada v3 COMPLETA (publica para consumidores read-only).
+
+    Itera la paginacion v3 por nextToken hasta que falta (tope MAX_PAGINAS).
+    Consumidores: fetch_structure y el snapshot read-only de listas
+    (tools/snapshot_listas.py, ORBIT 05 preflight 1.3). El `path` debe estar
+    en _CLAVE_CONTENEDORA y en el allowlist de lectura del cliente
+    (app.ads.client.LIST_REQUEST_TYPES); el guard de totalResults vive aqui,
+    asi que todo consumidor hereda la verificacion de lista completa.
 
     Primera pagina con body {} (pageSize se ignora, corrida real); las
     siguientes piden {"nextToken": ...}. La clave es nextToken, NO
@@ -483,10 +499,10 @@ def fetch_structure(client: AdsClient) -> EstructuraAds:
         estructuras.append(
             EstructuraPerfil(
                 perfil=perfil,
-                campanas=_listar_todo(client, PATH_CAMPAIGNS, profile_id=perfil.profile_id),
-                ad_groups=_listar_todo(client, PATH_AD_GROUPS, profile_id=perfil.profile_id),
-                keywords=_listar_todo(client, PATH_KEYWORDS, profile_id=perfil.profile_id),
-                targets=_listar_todo(client, PATH_TARGETS, profile_id=perfil.profile_id),
+                campanas=listar_todo(client, PATH_CAMPAIGNS, profile_id=perfil.profile_id),
+                ad_groups=listar_todo(client, PATH_AD_GROUPS, profile_id=perfil.profile_id),
+                keywords=listar_todo(client, PATH_KEYWORDS, profile_id=perfil.profile_id),
+                targets=listar_todo(client, PATH_TARGETS, profile_id=perfil.profile_id),
             )
         )
     return EstructuraAds(perfiles=perfiles, estructuras=estructuras)

@@ -42,6 +42,18 @@ MAX_LINEAS_MODULO = 900
 # path relativo (posix) -> razon escrita. Sacar una entrada exige que el
 # modulo haya bajado del umbral; agregarla exige razon y review.
 ALLOWLIST_TAMANO = {
+    "app/ads/structure.py": (
+        "ORBIT 05 preflight 1.3: al modulo del sync de estructura se le sumo "
+        "PATH_NEGATIVE_KEYWORDS (evidencia regla 8, 2026-08-25) y la "
+        "paginacion promovida a API publica (listar_todo) para el snapshot "
+        "read-only de listas (tools/snapshot_listas.py); el modulo ya vivia "
+        "al tope del presupuesto (900). Candidato DECLARADO a partirse la "
+        "proxima vez que se toque en grande: IO de API (evaluar_perfiles + "
+        "listar_todo + fetch_structure) de IO de DB (SQL sellada + "
+        "_plan_items + sync_structure) — la frontera ya esta marcada en el "
+        "propio modulo; partir por partir esta prohibido por la regla "
+        "anti-Goodhart"
+    ),
     "app/ads/reports.py": (
         "pipeline compartido de reporting v3 (metricas + search terms + "
         "fusion de grano); candidato DECLARADO a partirse en "
