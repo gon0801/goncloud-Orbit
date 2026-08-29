@@ -57,3 +57,43 @@ def test_entry_de_pre_push_es_ejecutable(monkeypatch: pytest.MonkeyPatch):
     except OSError as e:
         pytest.fail(f"pre-commit no podra lanzar {exe!r}: {type(e).__name__}: {e}")
     assert proc.returncode == 0, proc.stderr.decode(errors="replace")
+
+
+def test_bateria_completa_corre_en_ci():
+    """La bateria COMPLETA se cobra en CI, no en la maquina del lead.
+
+    Decision del dueno 2026-08-29: el pre-push local quedo con el subconjunto
+    de GUARDAS (arquitectura + esta config, ~1.5 s) porque la bateria entera
+    costaba ~6 min POR PUSH en Windows y CI ya la corre en ~1.5-2 min. El
+    candado no se debilita, se MUEVE — y este test lo pinea: si alguien saca
+    el `pytest` de CI, el push falla aqui (que es el unico lugar donde la
+    ausencia se puede detectar sin red).
+    """
+    workflow = yaml.safe_load((RAIZ / ".github" / "workflows" / "quality.yml").read_text("utf-8"))
+    pasos = [
+        paso
+        for job in workflow["jobs"].values()
+        for paso in job.get("steps", [])
+        if "pytest" in str(paso.get("run", ""))
+    ]
+    assert pasos, "CI debe correr pytest: la bateria completa vive ahi (no en pre-push)"
+    corridas = " ".join(str(p.get("run", "")) for p in pasos)
+    assert "pytest -q" in corridas or "pytest " in corridas, (
+        f"CI debe correr la bateria COMPLETA (sin acotar a un subconjunto): {corridas!r}"
+    )
+
+
+def test_pre_push_es_rapido_y_declara_donde_vive_la_bateria():
+    """El entry de pre-push acota a las guardas y el archivo declara POR QUE.
+
+    Sin esta asercion, un `pytest -x -q` pelado vuelve a colarse en el hook
+    (paso 5 veces) y cada push del lead vuelve a costar ~6 min.
+    """
+    entry = _hook("pytest-pre-push")["entry"]
+    assert "tests/test_architecture.py" in entry and "tests/test_precommit_hooks.py" in entry, (
+        f"el pre-push local corre SOLO las guardas; la bateria va en CI: {entry!r}"
+    )
+    texto = CONFIG.read_text(encoding="utf-8")
+    assert "quality.yml" in texto and "--no-verify" in texto, (
+        "la config debe declarar donde corre la bateria completa y que jamas se usa --no-verify"
+    )

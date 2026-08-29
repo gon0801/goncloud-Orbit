@@ -32,14 +32,24 @@ repos:
       - id: ruff-format
 # pytest corre en PRE-PUSH, no en cada commit (fragmento
 # templates/pre-commit-test-pytest.yaml del quality-kit).
+#
+# DECISION DEL DUENO 2026-08-29 — la bateria COMPLETA corre UNA vez y donde es
+# barata: en CI (.github/workflows/quality.yml, paso "Run Python tests":
+# `PYTHONPATH=. pytest -q` sobre TODO el repo, ~1.5-2 min en Linux). En esta
+# maquina Windows la misma bateria cuesta ~6 min POR PUSH y se pagaba en cada
+# vuelta de review: 17 pushes en un dia = ~1.7 h de duplicado puro. El candado
+# NO se debilita, se MUEVE: aqui queda el subconjunto de GUARDAS que protegen
+# la propia configuracion (arquitectura + hooks, ~1.5 s) y
+# tests/test_precommit_hooks.py::test_bateria_completa_corre_en_ci pinea que CI
+# siga corriendo la bateria entera. JAMAS se usa --no-verify.
   - repo: local
     hooks:
       - id: pytest-pre-push
-        name: pytest (pre-push)
+        name: pytest rapido (pre-push; la bateria COMPLETA corre en CI)
         # El './' NO es cosmetico: sin el, CreateProcess rechaza la ruta
         # relativa con barras normales y el push muere con WinError 2
         # aunque el archivo exista (regresion: tests/test_precommit_hooks.py).
-        entry: ./.venv/Scripts/python.exe -m pytest -x -q
+        entry: ./.venv/Scripts/python.exe -m pytest -x -q tests/test_architecture.py tests/test_precommit_hooks.py
         language: system
         pass_filenames: false
         stages: [pre-push]
