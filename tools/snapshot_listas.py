@@ -277,6 +277,12 @@ def _escribir_snapshot(snap: dict, out_dir: Path) -> int:
         # aplica la umask (hallazgo CodeRabbit PR #48). El tool promete 700,
         # asi que lo IMPONE — y si el dir es de otro dueno, fail-closed en vez
         # de escribir el backup en un directorio ajeno.
+        # Un out_dir que es SYMLINK se rechaza antes de mirar modos: `stat` y
+        # `chmod` seguirian el enlace y le cambiarian los permisos al
+        # directorio APUNTADO (hallazgo Greptile PR #48 sobre este mismo
+        # endurecimiento). El backup no toca directorios ajenos: fail-closed.
+        if out_dir.is_symlink():
+            raise PermissionError(f"{out_dir} es un symlink: el snapshot exige un directorio real")
         info = out_dir.stat()
         if hasattr(os, "getuid") and info.st_uid != os.getuid():
             raise PermissionError(f"{out_dir} no es del usuario del proceso (uid {info.st_uid})")

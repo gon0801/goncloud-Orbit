@@ -567,3 +567,22 @@ def test_runbook_del_docstring_propaga_el_rc_del_cp():
     doc = ast.get_docstring(ast.parse(fuente)) or ""
     assert 'ssh goncloud "mkdir -p' in doc
     assert doc.count("|| rc=$?") >= 2, "mkdir y docker cp deben propagar su rc al runbook"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="symlinks POSIX")
+def test_out_dir_symlink_se_rechaza_sin_tocar_el_destino(tmp_path):
+    """`--out` apuntando a un SYMLINK de directorio: `stat`/`chmod` seguirian
+    el enlace y le cambiarian los permisos al dir APUNTADO (hallazgo Greptile
+    sobre el endurecimiento del lead). Fail-closed: se rechaza y el destino
+    conserva su modo."""
+    real = tmp_path / "compartido"
+    real.mkdir(mode=0o755)
+    os.chmod(real, 0o755)
+    enlace = tmp_path / "listas"
+    enlace.symlink_to(real, target_is_directory=True)
+
+    with pytest.raises(PermissionError):
+        sl._escribir_snapshot(_snap_minimo(), enlace)
+
+    assert stat.S_IMODE(real.stat().st_mode) == 0o755
+    assert not (real / sl.ARCHIVO).exists()
