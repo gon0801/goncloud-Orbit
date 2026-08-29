@@ -603,7 +603,10 @@ disparan), por eso el INSERT dentro de la transacción que se revierte.
 4. `docker compose up -d` y esperar `pg_isready` + `curl 127.0.0.1:8010/health`
    (ver "Levantar"). `ss -lntp` debe mostrar 5432 y 8010 **solo** en
    127.0.0.1.
-5. Aplicar `migrations/0001_initial.sql` (ver "Aplicar migraciones").
+5. Aplicar las migraciones EN ORDEN (`0001_initial.sql`, `0002_apply.sql`,
+   `0003_goal_bounds_explicit.sql` — ver "Aplicar migraciones"). Omitir 0003
+   re-crearia los DEFAULT USD 0.10/2.50 que el sellado 2 del preflight
+   elimino: un goal MXN volveria a nacer con techo 2.50.
 6. Crear los usuarios LOGIN por servicio + `orbit_test` (ver "Usuarios y
    DSN": comandos exactos arriba).
 7. Poblar `secrets/` (amazon_ads_config.json + amazon_ads_tokens.json,
