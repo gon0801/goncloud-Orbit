@@ -80,19 +80,29 @@ def test_bateria_completa_corre_en_ci():
     # Un `in` sobre el texto aceptaria un pytest ACOTADO (`pytest tests/x.py`) o
     # una mera mencion en un echo (hallazgo Greptile PR #50): hay que mirar la
     # invocacion REAL y exigir que no lleve rutas de test.
+    # `pytest` tiene que ser el COMANDO EJECUTADO, no una palabra en la linea:
+    # un `pip install ... pytest ...` (que el workflow ya tiene) colaba como si
+    # fuera una corrida, y borrar el pytest real dejaba el candado verde
+    # (hallazgo Greptile PR #50, 2a pasada).
+    NO_EJECUTAN = {"echo", "printf", "pip", "pip3", "uv", "poetry", "apt", "apt-get", "npm", "#"}
     completas = []
     for paso in pasos:
         for linea in str(paso["run"]).splitlines():
             tokens = shlex.split(linea, posix=True) if linea.strip() else []
-            if "pytest" not in tokens and not any(t.endswith("pytest") for t in tokens):
+            # Prefijos de entorno tipo `PYTHONPATH=. pytest -q` no son el comando.
+            resto = list(tokens)
+            while resto and "=" in resto[0] and not resto[0].startswith("-"):
+                resto.pop(0)
+            if not resto or resto[0] in NO_EJECUTAN:
                 continue
-            if tokens[0] in {"echo", "printf", "#"}:
-                continue  # una mencion en un mensaje no es una corrida
-            i = next(n for n, t in enumerate(tokens) if t == "pytest" or t.endswith("pytest"))
+            comando = resto[0]
+            es_pytest_directo = comando == "pytest" or comando.endswith("/pytest")
+            es_modulo = comando.startswith("python") and resto[1:3] == ["-m", "pytest"]
+            if not (es_pytest_directo or es_modulo):
+                continue
+            args = resto[1:] if es_pytest_directo else resto[3:]
             rutas = [
-                t
-                for t in tokens[i + 1 :]
-                if not t.startswith("-") and (t.endswith(".py") or "tests" in t)
+                a for a in args if not a.startswith("-") and (a.endswith(".py") or "tests" in a)
             ]
             if not rutas:
                 completas.append(linea.strip())
