@@ -358,3 +358,75 @@ def test_patrones_sql_goals_resisten_case_y_whitespace():
     assert any(p.search("fRoM   ads_optimizer_goal") for p in _PATRONES_SQL_GOALS)
     benigno = "el UNICO camino de escritura de ads_optimizer_goal (decision 26)"
     assert not any(p.search(benigno) for p in _PATRONES_SQL_GOALS)
+
+
+# ---------------------------------------------------------------------------
+# ORBIT 05 preflight 1.3 (decision sellada 3): el snapshot de listas del
+# backup pre-cutover es un TOOL del repo con test, no codigo inline. Allowlist
+# POSITIVA de los imports de runtime de tools/snapshot_listas.py: stdlib + el
+# cliente de LECTURA (app.ads.client), credenciales, estructura y redaccion.
+# Ampliarla exige editar este archivo a proposito (mismo trato que
+# ALLOWLIST_TAMANO: decision visible en diff y review, jamas deriva
+# silenciosa). El tool JAMAS entra a PERMITIDOS_IMPORTAR_ADS_WRITE: no tiene
+# porque importar write y el candado
+# test_imports_del_cliente_de_escritura_acotados ya escanea tools/ entero.
+# Sincronizada con los imports del tool (incluye los "modulo.alias" que
+# _imports_runtime registra para cada from-import).
+# ---------------------------------------------------------------------------
+ALLOWLIST_IMPORTS_SNAPSHOT_LISTAS = frozenset(
+    {
+        "__future__",
+        "__future__.annotations",
+        "argparse",
+        "datetime",
+        "json",
+        "os",
+        "sys",
+        "pathlib",
+        "pathlib.Path",
+        "typing",
+        "typing.TYPE_CHECKING",
+        "app.ads.client",
+        "app.ads.client.AdsClient",
+        "app.ads.config",
+        "app.ads.config.AdsCredentials",
+        "app.ads.structure",
+        "app.ads.structure.PATH_KEYWORDS",
+        "app.ads.structure.PATH_NEGATIVE_KEYWORDS",
+        "app.ads.structure.PATH_TARGETS",
+        "app.ads.structure.listar_todo",
+        "app.ads.structure.perfiles_aceptados",
+        "app.redaction",
+        "app.redaction.scrub",
+    }
+)
+
+
+def test_snapshot_listas_solo_importa_lectura():
+    """El snapshot de listas es SOLO lectura: sus imports de runtime deben ser
+    subconjunto de la allowlist positiva. Un import de mas es una decision de
+    arquitectura: se suma EDITANDO este archivo (visible en diff y review)."""
+    extras = (
+        _imports_runtime(RAIZ / "tools" / "snapshot_listas.py") - ALLOWLIST_IMPORTS_SNAPSHOT_LISTAS
+    )
+    assert not extras, (
+        f"tools/snapshot_listas.py importa por fuera de la allowlist de "
+        f"lectura: {sorted(extras)} — ampliar ALLOWLIST_IMPORTS_SNAPSHOT_LISTAS "
+        "exige editar tests/test_architecture.py a proposito"
+    )
+    assert "tools/snapshot_listas.py" not in PERMITIDOS_IMPORTAR_ADS_WRITE, (
+        "el snapshot jamas debe habilitarse para importar app.ads.write"
+    )
+
+
+def test_allowlist_snapshot_caza_import_de_escritura(tmp_path):
+    """Regla 9: si manana el tool importara app.ads.write, la allowlist
+    (subconjunto) lo detecta: la copia del tool con la linea agregada REBENTA
+    con el import de mas identificado (el detector muerde)."""
+    fuente = (RAIZ / "tools" / "snapshot_listas.py").read_text(encoding="utf-8")
+    fuga = tmp_path / "snapshot_listas_fuga.py"
+    fuga.write_text(fuente + "from app.ads.write import AdsWriteClient\n", encoding="utf-8")
+    imp = _imports_runtime(fuga)
+    assert "app.ads.write" in _violaciones(imp, ("app.ads.write",))
+    extras = imp - ALLOWLIST_IMPORTS_SNAPSHOT_LISTAS
+    assert "app.ads.write" in extras and "app.ads.write.AdsWriteClient" in extras
