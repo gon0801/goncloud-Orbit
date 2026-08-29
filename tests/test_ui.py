@@ -41,6 +41,7 @@ from test_api_dashboard import (
 from test_schema import _postgres_obligatorio_ausente
 
 from app import ui
+from app.api import _conexion_lectura
 from app.main import app
 
 PANTALLAS = {
@@ -501,3 +502,135 @@ def test_ui_salud_muestra_nota_telegram_del_ciclo(monkeypatch):
         salud_html = TestClient(app).get("/salud").text
         assert "telegram" in salud_html, "la NOTA debe verse en Salud (sellado 2)"
         assert "digest" in salud_html, "la clave que fallo es la evidencia visible"
+
+
+# ---------------------------------------------------------------------------
+# Quota del dia en Salud (ORBIT 05 preflight 1.5): render de la tabla quota
+# ---------------------------------------------------------------------------
+
+
+_QUOTA_BASE = {
+    "bid": {"used": 3, "cap": 10, "fuente": "fila_del_dia"},
+    "pause": {"used": 0, "cap": 2, "fuente": "config_vigente"},
+    "negative": {"used": 0, "cap": None, "fuente": "sin_clave"},
+    "harvest": {"used": 0, "cap": None, "fuente": "config_rota"},
+}
+
+
+def _plataforma_quota(quota: dict | None = None) -> dict:
+    """Tarjeta de plataforma del payload de dash.salud (preflight 1.4): la
+    forma EXACTA que pagina_salud entrega al template salud.html."""
+    return {
+        "watermark": "2026-08-28",
+        "synced_at": "2026-08-28T09:00:00+00:00",
+        "ultimo_ciclo": None,
+        "historico_14d": [],
+        "skips": {"entidad": {}, "termino": {}},
+        "quota": _QUOTA_BASE if quota is None else quota,
+    }
+
+
+def _salud_html_fakeado(monkeypatch, plataformas: dict) -> str:
+    """Render de /salud por el camino REAL (TestClient -> pagina_salud ->
+    dash.salud(conn) -> template) con el endpoint FAKEADO: la UI consume el
+    endpoint (regla 2) y aqui se prueba SOLO el render, sin DB (la
+    dependencia de lectura se sobreescribe y no se toca)."""
+    monkeypatch.setattr(ui.dash, "salud", lambda conn: {"plataformas": plataformas})
+    app.dependency_overrides[_conexion_lectura] = lambda: None
+    try:
+        return TestClient(app).get("/salud").text
+    finally:
+        app.dependency_overrides.pop(_conexion_lectura, None)
+
+
+def _fila_de(html: str, forma: str) -> str:
+    """La fila <tr> de UNA forma de la tabla de quota (aserciones por fila:
+    el used/cap de una forma no se confunde con el de otra)."""
+    filas = [fila for fila in html.split("<tr>") if fila.startswith(f"<td>{forma}</td>")]
+    assert len(filas) == 1, f"la forma {forma} debe aparecer en exactamente una fila"
+    return filas[0]
+
+
+def _celda(fila: str, indice: int) -> str:
+    """Contenido EXACTO de la celda indice de una fila (orden contractual:
+    forma · used · cap · estado)."""
+    return fila.split("<td")[1 + indice].split(">", 1)[1].split("</td>")[0]
+
+
+def test_ui_salud_quota_muestra_las_cuatro_formas_con_sus_numeros(monkeypatch):
+    """Preflight 1.5: la tarjeta de cada plataforma dibuja UNA tabla con una
+    fila por forma (KINDS_QUOTA) y su used/cap: el dueno responde de un
+    vistazo cuanto lleva hoy y contra que tope."""
+    html = _salud_html_fakeado(monkeypatch, {"amazon_us": _plataforma_quota()})
+    assert "<h3>Quota del dia</h3>" in html
+    for forma in _QUOTA_BASE:
+        assert _celda(_fila_de(html, forma), 0) == forma, "la 1a celda es la forma"
+    fila_bid = _fila_de(html, "bid")
+    assert _celda(fila_bid, 1) == "3", "used de bid"
+    assert _celda(fila_bid, 2) == "10", "cap de bid (fila_del_dia)"
+    assert _celda(_fila_de(html, "pause"), 1) == "0", "pause sin consumo hoy"
+    assert _celda(_fila_de(html, "pause"), 2) == "2", "cap de pause (config_vigente)"
+    # fuente distinguible a simple vista: fila_del_dia (chip ok) vs
+    # config_vigente (chip neutro), con su nombre legible en la fila
+    assert 'class="chip ok"' in _fila_de(html, "bid")
+    assert 'class="chip ok"' not in _fila_de(html, "pause")
+    assert "fila_del_dia" in _celda(_fila_de(html, "bid"), 3)
+    assert "config_vigente" in _celda(_fila_de(html, "pause"), 3)
+
+
+def test_ui_salud_quota_cap_nulo_sin_clave_no_se_pinta_como_cero(monkeypatch):
+    """Regla 3 en presentacion: cap None (sin_clave) es FAIL-CLOSED, no tope
+    cero — la celda muestra '—' CON su etiqueta, jamas 0 ni el literal None."""
+    html = _salud_html_fakeado(monkeypatch, {"amazon_us": _plataforma_quota()})
+    fila = _fila_de(html, "negative")
+    cap = _celda(fila, 2)
+    assert "—" in cap and "sin clave" in cap, "cap nulo: guion + etiqueta"
+    assert "0" not in cap, "cap nulo jamas se pinta como 0 (no es tope cero)"
+    assert "None" not in cap, "cap nulo jamas se pinta como el literal None"
+    assert 'class="chip alerta"' in _celda(fila, 3), "sin_clave se marca como alerta"
+
+
+def test_ui_salud_quota_config_rota_marcada_como_alerta(monkeypatch):
+    """config_rota (clave presente, valor no numerico) es ESTADO DE ALARMA: el
+    cobro de esa forma revienta ruidoso a proposito — la fila se marca con la
+    clase de alerta existente y NO se confunde con sin_clave."""
+    html = _salud_html_fakeado(monkeypatch, {"amazon_us": _plataforma_quota()})
+    fila = _fila_de(html, "harvest")
+    estado = _celda(fila, 3)
+    assert 'class="chip alerta"' in estado, "config_rota se marca como alerta"
+    assert "config_rota" in estado
+    cap = _celda(fila, 2)
+    assert "—" in cap and "config rota" in cap, "cap nulo con SU etiqueta (rota)"
+    assert "0" not in cap and "None" not in cap
+    assert "sin clave" not in estado and "sin_clave" not in estado, (
+        "etiquetas distintas de sin_clave"
+    )
+
+
+def test_ui_salud_quota_used_igual_cap_se_ve_saturada(monkeypatch):
+    """used >= cap con cap NO nulo es el estado que dispara el aviso Telegram
+    de 1.4: la fila se ve SATURADA (chip de alerta) en la misma tabla."""
+    quota = dict(_QUOTA_BASE)
+    quota["bid"] = {"used": 3, "cap": 3, "fuente": "fila_del_dia"}
+    quota["pause"] = {"used": 5, "cap": 2, "fuente": "fila_del_dia"}
+    html = _salud_html_fakeado(monkeypatch, {"amazon_us": _plataforma_quota(quota)})
+    for forma in ("bid", "pause"):
+        estado = _celda(_fila_de(html, forma), 3)
+        assert "saturada" in estado, f"{forma} con used >= cap debe verse saturada"
+        assert 'class="chip alerta"' in estado
+    assert '<span class="chip alerta">saturada</span>' in _celda(_fila_de(html, "bid"), 3), (
+        "el chip de saturacion usa la clase de alerta existente"
+    )
+    estado_negativo = _celda(_fila_de(html, "negative"), 3)
+    assert "saturada" not in estado_negativo, "la fila sana no lleva el chip"
+
+
+def test_ui_salud_sin_bloque_quota_no_rompe_la_pantalla(monkeypatch):
+    """Payload VIEJO (plataforma sin la clave quota, pre-1.4): la tarjeta se
+    renderiza entera SIN tabla de quota y no arrastra a las demas tarjetas."""
+    vieja = _plataforma_quota()
+    del vieja["quota"]
+    html = _salud_html_fakeado(monkeypatch, {"amazon_mx": vieja, "amazon_us": _plataforma_quota()})
+    assert html.count("Quota del dia") == 1, "solo la tarjeta CON quota dibuja la tabla"
+    assert "<h2>amazon_mx" in html, "la tarjeta vieja sigue renderizando"
+    assert "Historico (14d)" in html, "las secciones existentes quedan intactas"
