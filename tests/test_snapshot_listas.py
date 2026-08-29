@@ -503,3 +503,67 @@ def test_tool_sin_imports_de_mutacion_ni_db():
         f"el snapshot es SOLO lectura (decision sellada 3): imports de "
         f"mutacion/DB prohibidos en tools/snapshot_listas.py: {violaciones}"
     )
+
+
+# ---------------------------------------------------------------------------
+# 11. Endurecimiento de la escritura (hallazgos Greptile + CodeRabbit PR #48)
+# ---------------------------------------------------------------------------
+
+
+def _snap_minimo() -> dict:
+    return {"generado_en": "2026-08-29T00:00:00Z", "plataformas": {}, "resumen": {}}
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="modos POSIX")
+def test_out_dir_preexistente_permisivo_queda_en_700(tmp_path):
+    """Un `out_dir` que YA existe conserva sus permisos con `mkdir(exist_ok=True)`
+    (la umask no se aplica a lo existente): el tool promete 700 y debe
+    IMPONERLO. Rojo con la version anterior, que lo dejaba en 0o755."""
+    destino = tmp_path / "listas"
+    destino.mkdir(mode=0o755)
+    os.chmod(destino, 0o755)
+
+    assert sl._escribir_snapshot(_snap_minimo(), destino) == 0
+
+    assert stat.S_IMODE(destino.stat().st_mode) == 0o700
+    assert stat.S_IMODE((destino / sl.ARCHIVO).stat().st_mode) == 0o600
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="symlinks POSIX")
+def test_temporal_predecible_plantado_no_se_sigue(tmp_path):
+    """El temporal `<archivo>.json.tmp` era PREDECIBLE: un symlink plantado ahi
+    hacia que `write_text` truncara el archivo apuntado. Con `mkstemp`
+    (O_CREAT|O_EXCL, nombre unico) el archivo victima queda INTACTO."""
+    destino = tmp_path / "listas"
+    destino.mkdir(mode=0o700)
+    victima = tmp_path / "victima.txt"
+    victima.write_text("no me toques\n", encoding="utf-8")
+    # El nombre EXACTO que usaba la version anterior: destino.with_suffix(".json.tmp")
+    trampa = (destino / sl.ARCHIVO).with_suffix(".json.tmp")
+    trampa.symlink_to(victima)
+
+    assert sl._escribir_snapshot(_snap_minimo(), destino) == 0
+
+    assert victima.read_text(encoding="utf-8") == "no me toques\n"
+    assert json.loads((destino / sl.ARCHIVO).read_text(encoding="utf-8"))["plataformas"] == {}
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="modos POSIX")
+def test_no_deja_temporales_huerfanos(tmp_path):
+    """Tras una corrida exitosa no queda ningun `.listas-*.tmp` en el dir."""
+    destino = tmp_path / "listas"
+    assert sl._escribir_snapshot(_snap_minimo(), destino) == 0
+    sobrantes = [p.name for p in destino.iterdir() if p.name != sl.ARCHIVO]
+    assert sobrantes == [], f"temporales huerfanos: {sobrantes}"
+
+
+def test_runbook_del_docstring_propaga_el_rc_del_cp():
+    """El runbook del docstring declaraba `rc=0` aunque el `mkdir`/`docker cp`
+    fallara (Greptile PR #48): el operador borraba la copia del contenedor
+    creyendo que el artefacto estaba en $D. El texto debe propagar el rc."""
+    fuente = (Path(__file__).resolve().parent.parent / "tools" / "snapshot_listas.py").read_text(
+        encoding="utf-8"
+    )
+    doc = ast.get_docstring(ast.parse(fuente)) or ""
+    assert 'ssh goncloud "mkdir -p' in doc
+    assert doc.count("|| rc=$?") >= 2, "mkdir y docker cp deben propagar su rc al runbook"

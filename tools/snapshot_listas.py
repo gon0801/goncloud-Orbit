@@ -54,9 +54,14 @@ desde el host del repo, donde viven los secrets que ya usa orbit-app-1):
     2>&1 | tee out/snapshot-listas-<fecha>.log
   rc=$?
   if [ "$rc" -eq 0 ]; then   # cp SOLO con snapshot completo (grok r1)
-    ssh goncloud "mkdir -p '$D/listas_amazon'"   # sin el dir previo, docker
-    ssh goncloud "docker cp orbit-app-1:/tmp/listas/listas_por_plataforma.json \
-      '$D/listas_amazon/'"   # cp crea un ARCHIVO llamado listas_amazon
+    # El rc del cp MANDA (hallazgo Greptile PR #48): sin esto, un mkdir o un
+    # docker cp fallido dejaba rc=0 y el runbook borraba la copia del
+    # contenedor declarando que el artefacto estaba en $D cuando no estaba.
+    ssh goncloud "mkdir -p '$D/listas_amazon'" || rc=$?
+    if [ "$rc" -eq 0 ]; then
+      ssh goncloud "docker cp orbit-app-1:/tmp/listas/listas_por_plataforma.json \
+        '$D/listas_amazon/'" || rc=$?   # cp crea un ARCHIVO llamado listas_amazon
+    fi
   fi   # $D = backups/precutover_<tag>/ del host
   ssh goncloud 'docker exec orbit-app-1 sh -c "rm -f /tmp/snapshot_listas.py \
     && rm -rf /tmp/listas"'   # limpieza SIEMPRE: /tmp no es el backup
@@ -83,10 +88,13 @@ anterior al commit; evidencia out/orbit-05-preflight-1-3-2026-08-28.md).
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as dt
 import json
 import os
+import stat
 import sys
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -265,14 +273,34 @@ def _escribir_snapshot(snap: dict, out_dir: Path) -> int:
     vieja = os.umask(0o077)
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
+        # Un out_dir PREEXISTENTE conserva sus permisos: `exist_ok=True` no
+        # aplica la umask (hallazgo CodeRabbit PR #48). El tool promete 700,
+        # asi que lo IMPONE — y si el dir es de otro dueno, fail-closed en vez
+        # de escribir el backup en un directorio ajeno.
+        info = out_dir.stat()
+        if hasattr(os, "getuid") and info.st_uid != os.getuid():
+            raise PermissionError(f"{out_dir} no es del usuario del proceso (uid {info.st_uid})")
+        if stat.S_IMODE(info.st_mode) != 0o700:
+            out_dir.chmod(0o700)
         destino = out_dir / ARCHIVO
-        # Escritura ATOMICA (hallazgo qwen r2): temporal + os.replace, una
-        # re-corrida jamas deja un JSON a medias en el destino del backup.
-        # La re-escritura PISA el snapshot previo (la ultima corrida gana;
+        # Escritura ATOMICA (qwen r2) con temporal EXCLUSIVO y no predecible
+        # (hallazgos Greptile + CodeRabbit PR #48): `mkstemp` crea con
+        # O_CREAT|O_EXCL y modo 600, asi que no sigue un symlink plantado ni
+        # trunca un archivo ajeno, y dos corridas concurrentes no comparten
+        # temporal. `os.replace` publica en un solo paso: una re-corrida
+        # jamas deja un JSON a medias en el destino del backup. La
+        # re-escritura PISA el snapshot previo (la ultima corrida gana;
         # declarado: la receta apunta cada flip a un $D fresco).
-        temporal = destino.with_suffix(".json.tmp")
-        temporal.write_text(json.dumps(snap, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        os.replace(temporal, destino)
+        fd, temporal = tempfile.mkstemp(dir=out_dir, prefix=".listas-", suffix=".json.tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(snap, ensure_ascii=False, indent=2) + "\n")
+            os.replace(temporal, destino)
+        except BaseException:
+            # El temporal jamas queda huerfano si algo revienta a mitad.
+            with contextlib.suppress(OSError):
+                os.unlink(temporal)
+            raise
     finally:
         os.umask(vieja)
     print(f"snapshot escrito: {destino}")

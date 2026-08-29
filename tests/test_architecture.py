@@ -390,10 +390,17 @@ ALLOWLIST_IMPORTS_SNAPSHOT_LISTAS = frozenset(
         "__future__",
         "__future__.annotations",
         "argparse",
+        # contextlib / stat / tempfile: endurecimiento de la escritura
+        # (hallazgos Greptile + CodeRabbit PR #48) — temporal EXCLUSIVO con
+        # mkstemp (nada de nombre predecible), modo 700 impuesto al out_dir
+        # preexistente y limpieza del temporal si algo revienta.
+        "contextlib",
         "datetime",
         "json",
         "os",
+        "stat",
         "sys",
+        "tempfile",
         "pathlib",
         "pathlib.Path",
         "typing",
