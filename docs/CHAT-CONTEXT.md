@@ -8,13 +8,16 @@
 goncloud (preflight 1.1 de ORBIT 05, GO del dueño; imagen `a5d5d579`,
 constantes 100/100/40/500 leídas dentro del contenedor). Verificación con
 ciclos shadow 19 (US, 109) y 20 (MX, 47) por el mismo camino del cron:
-cero pauses nuevas, 156/156 decisiones congelan `cost_min_usado`; la
-keyword de la 774 sigue saltando por `veto_pendiente` (su fila shadow 2
-sigue en cola: la prueba directa "ya no pausa" llega tras el discard del
-flip — el replay y los tests ya lo demuestran). Efecto del techo MX
-45.00: `rango_bloquea_ajuste` MX bajó de 43 (ciclo 18) a 2 (ciclo 20) — 41
-keywords/targets MX con bid > 2.50 MXN vuelven a recibir decisiones
-(37 −12 %, 6 +15 %, 4 −25 %; máx old 42.63 → new 37.51 dentro del techo).
+cero pauses nuevas, 156/156 decisiones congelan `cost_min_usado`; **prueba
+directa** en el ciclo 21 (tras descartar con motivo la fila shadow 2 que
+bloqueaba su clave): la keyword de la 774 (72 clics / $25.21 / 0 ventas)
+salió como bid 0.25 → 0.22 (banda −12 %, `umbral 100`, `cost_min_usado
+40`) — **ya no pausa**. Efecto del techo MX
+45.00: `rango_bloquea_ajuste` MX bajó de 43 (ciclo 18) a 2 (ciclo 20). Las
+47 decisiones MX del ciclo 20 concilian así: 5 que ya decidían en el 18 +
+41 desbloqueadas por el techo (43 → 2) + 1 que salió de
+`pause_cortes_incompleto` (47 → 46); por banda: 37 −12 %, 6 +15 %, 4 −25 %;
+máx old 42.63 → new 37.51, dentro del techo.
 Checklist §12 ítem 3(c) marcado.** Detalle previo (PR #43):
 umbral de PAUSE del dueño → **100 clics / 40 USD / 500 MXN** (origen
 spot-check 4.4 fila 30 / decisión 774: 72 clics / 25.21 USD / 0 ventas
