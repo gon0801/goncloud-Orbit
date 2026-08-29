@@ -294,11 +294,32 @@ SCRIPT
 > veto/escritura no pueden crear sus roles). Mitigación vigente: bind
 > loopback + túnel + password root-only + el DSN de test jamás sale del
 > `.env` del server. La revocación queda atada a mover la base de test
-> fuera del cluster de prod (sin fecha; cuando eso exista):
+> fuera del cluster de prod:
 >
 > ```sql
 > REVOKE app_read, app_ingest, app_decide, app_admin FROM orbit_test;
 > ```
+>
+> **HITO DE REVOCACIÓN (ORBIT 05 preflight 1.7, 2026-08-29)**: se cierra el
+> "sin fecha" — así es como una excepción temporal se vuelve permanente. La
+> revocación NO va por calendario (una fecha inventada solo se pospone) sino
+> por hito verificable, el primero que ocurra:
+>
+> 1. **La suite deja de necesitar el cluster de prod**: cuando exista un
+>    Postgres 16 de test aparte (contenedor propio en goncloud o local)
+>    donde corran `test_migracion_rechaza_en_vivo` y los tests de
+>    veto/escritura que hoy crean roles LOGIN temporales. Es la condición
+>    real: revocar antes deja la suite sin poder correr en vivo.
+> 2. **Cualquier acceso de terceros al DSN de test** (otra persona, otra
+>    máquina, un CI que use el túnel): ahí la mitigación vigente deja de
+>    sostenerse y se revoca ESE MISMO DÍA, aunque la suite pierda cobertura
+>    en vivo.
+>
+> Tarea abierta en el tracker: **"ORBIT — DB de test fuera del cluster de
+> prod (revocar ADMIN OPTION de orbit_test)"**. Hasta que el hito ocurra
+> esto es **deuda declarada, no olvido**: quien tenga el DSN de test puede
+> `SET ROLE` a escritura sobre la base viva. Se revisa en cada cierre de
+> fase.
 
 ## Rotación del token de escritura (ORBIT 04, sellado 18)
 
