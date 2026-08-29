@@ -266,7 +266,14 @@ def _siembra_kw_bid(conn, run_id, kw) -> None:
     """37 fechas diarias (07-14..08-19) en tres segmentos: la ventana de BIDS
     (07-18..08-16) suma cost 36 / revenue 100 / clicks 50 / orders 5 (ACoS 36%
     > 1.35x25 con orders>=1 -> banda -25%: bid 1.00 -> 0.75) y la de CORTES
-    (07-14..08-12) queda con orders 5 (no pause)."""
+    (07-14..08-12) queda con orders 9 (no pause: orders != 0).
+
+    Re-siembra CORTES 03: las 4 fechas de 07-14..07-17 llevan orders 1 y
+    ad_revenue 1.00 (fuera de la ventana de BIDS, con cost/clicks intactos
+    para no mover el golden 27.00 de la ventana de CORTES) -- suben la
+    EVIDENCIA del grupo a 9 ordenes / 99.00 de revenue (AOV 11.0000) para
+    que el bruto adaptativo quede en 22 junto a los clicks extra de
+    _siembra_kw_pause."""
     for fecha in _rango(dt.date(2026, 7, 14), dt.date(2026, 7, 17)):
         _metrica(
             conn,
@@ -275,9 +282,9 @@ def _siembra_kw_bid(conn, run_id, kw) -> None:
             fecha,
             _obs(fecha),
             cost="0.25",
-            ad_revenue="0.50",
+            ad_revenue="1.00",
             clicks=0,
-            orders=0,
+            orders=1,
         )
     for i, fecha in enumerate(_rango(dt.date(2026, 7, 18), dt.date(2026, 8, 12))):
         _metrica(
@@ -319,12 +326,13 @@ def _siembra_kw_bid(conn, run_id, kw) -> None:
 
 def _siembra_kw_pause(conn, run_id, kw) -> None:
     """La ventana de CORTES (07-14..08-12, las 30 fechas completas) suma
-    orders 0 / clicks 45 / cost 15.00 -> PAUSE (umbrales us: 25 y 12 USD).
-    Re-siembra CORTES 01: clicks 45 (2 en fechas pares, 1 en impares)
-    empuja la EVIDENCIA del grupo (suma de hojas en D-90..D-10) a 71
-    clicks / 5 ordenes / 30 fechas -> elegible, expected 14.2 -> umbral
-    negative 22 (con los 30 clicks viejos el grupo NO calificaba y la
-    negative caia a fallback 40: golden muerto, re-siembra declarada)."""
+    orders 0 / clicks 105 / cost 45.00 -> PAUSE (umbrales us CORTES 03:
+    clicks 100 y 40 USD). Re-siembra CORTES 03: clicks 105 (3 en fechas
+    pares, 4 en impares) con cost 45.00 en las MISMAS 30 fechas ya sembradas
+    (fechas_distintas de la evidencia intactas); junto a las ordenes extra
+    de _siembra_kw_bid, la evidencia del grupo (D-90..D-10) queda en 131
+    clicks / 9 ordenes / 30 fechas -> expected 14.5555... -> bruto 22 ->
+    umbral pause 100 (el piso gana) y negative 22."""
     for i, fecha in enumerate(_rango(dt.date(2026, 7, 14), dt.date(2026, 8, 12))):
         _metrica(
             conn,
@@ -332,9 +340,9 @@ def _siembra_kw_pause(conn, run_id, kw) -> None:
             kw,
             fecha,
             _obs(fecha),
-            cost="0.50",
+            cost="1.50",
             ad_revenue="1.00",
-            clicks=2 if i % 2 == 0 else 1,
+            clicks=3 if i % 2 == 0 else 4,
             orders=0,
         )
     for fecha in _rango(dt.date(2026, 8, 13), dt.date(2026, 8, 19)):
@@ -356,14 +364,17 @@ def _siembra_terminos(conn, run_id, ag) -> None:
     queda 06-19..07-18 y la entidad completa: 9 fechas dentro).
 
     Re-siembra CORTES 01 1.4 (declarada, mismo criterio que el hueco-legacy
-    de 1.2): el piso de cost del grupo es adaptativo -- AOV 97.00/5 x 1.0 =
-    19.40 -- y los cost 8.00/9.00 de la siembra original quedaban BAJO el
-    piso; sin subirlos, "tortugas" no dispararia y el hueco-legacy quedaria
-    doble-bloqueado (detectaria menos)."""
+    de 1.2): el piso de cost del grupo es adaptativo -- AOV del revenue sano
+    del grupo x 1.0 -- y los cost 8.00/9.00 de la siembra original quedaban
+    BAJO el piso; sin subirlos, "tortugas" no dispararia y el hueco-legacy
+    quedaria doble-bloqueado (detectaria menos). Re-siembra CORTES 03: con
+    el AOV nuevo 99.00/9 = 11.0000, el cost del hueco-piso baja de 15.00 a
+    9.00 para seguir ENTRE el legacy 8 y el piso adaptativo (8 < 9 < 11)."""
     # NEGATIVE elegible: orders 0, clicks 23 (>= umbral adaptativo 22 del
-    # grupo), cost 20.00 (>= piso adaptativo 19.40). Re-siembras: con los 20
-    # clicks viejos y umbral adaptativo 22 NO disparaba (1.2); con el cost
-    # 8.00 viejo y piso adaptativo 19.40 tampoco (1.4).
+    # grupo), cost 20.00 (>= piso adaptativo 11.0000 desde CORTES 03).
+    # Re-siembras: con los 20 clicks viejos y umbral adaptativo 22 NO
+    # disparaba (1.2); con el cost 8.00 viejo y el piso de entonces (19.40)
+    # tampoco (1.4).
     for fecha, clicks, cost in (
         (dt.date(2026, 7, 10), 8, "8.00"),
         (dt.date(2026, 7, 11), 8, "8.00"),
@@ -384,8 +395,10 @@ def _siembra_terminos(conn, run_id, ag) -> None:
     # HUECO DISCRIMINANTE del cableado del umbral (hallazgo grok, 1.2):
     # clicks 21 vive ENTRE el legacy 20 y el umbral adaptativo 22 -- bajo la
     # regla nueva NO corta (21 < 22) pero bajo el legacy 20 SI dispararia.
-    # Cost 20.00 desde 1.4: bajo el piso estaria DOBLE-bloqueado y el hueco
-    # discriminaria menos (9.00 < 19.40 ya cortaba por cost solo).
+    # Cost 20.00 desde 1.4: el hueco discrimina SOLO por clicks -- sobre el
+    # piso de su epoca (19.40) y sobre el vigente (11.0000); con el cost
+    # 9.00 original quedaba BAJO el piso de entonces y ya cortaba por cost
+    # solo (hueco degradado).
     _termino(
         conn,
         run_id,
@@ -398,10 +411,11 @@ def _siembra_terminos(conn, run_id, ag) -> None:
         clicks=21,
         orders=0,
     )
-    # HUECO DISCRIMINANTE del cableado del PISO (1.4): clicks 23 >= umbral 22
-    # y cost 15.00 con 8 < 15 < 19.40 -- SOLO el piso lo bloquea. Si el ciclo
-    # dejara de pasar piso_negative al motor (default legacy 8), generaria
-    # una negative extra y el golden reventaria.
+    # HUECO DISCRIMINANTE del cableado del PISO (1.4, re-siembra CORTES 03):
+    # clicks 23 >= umbral 22 y cost 9.00 con 8 < 9 < 11.0000 (piso del grupo
+    # re-sembrado) -- SOLO el piso lo bloquea. Si el ciclo dejara de pasar
+    # piso_negative al motor (default legacy 8), generaria una negative
+    # extra y el golden reventaria.
     _termino(
         conn,
         run_id,
@@ -409,7 +423,7 @@ def _siembra_terminos(conn, run_id, ag) -> None:
         "hueco piso",
         dt.date(2026, 7, 12),
         _obs(dt.date(2026, 7, 12), 3),
-        cost="15.00",
+        cost="9.00",
         ad_revenue="1.00",
         clicks=23,
         orders=0,
@@ -589,20 +603,26 @@ def test_ciclo_shadow_completo_decisiones_y_notes_exactos():
         assert pause_row[5] is None
         assert (pause_row[6], pause_row[7]) == (INICIO_CORTES, FIN_CORTES)
         assert pause_row[9]["motivo"] == "pause_umbral"
-        assert pause_row[9]["ventanas"]["cortes"]["cost"] == "15.0000"
+        assert pause_row[9]["ventanas"]["cortes"]["cost"] == "45.0000"
         assert pause_row[9]["ventanas"]["cortes"]["orders"] == 0
-        assert pause_row[9]["ventanas"]["cortes"]["clicks"] == 45
+        assert pause_row[9]["ventanas"]["cortes"]["clicks"] == 105
         # CORTES 01 (1.3): pause TAMBIEN congela inputs.corte -- mismo shape
-        # que negative. El grupo es elegible (71/5/30) con expected 14.2 ->
-        # bruto ceil(21.3)=22, y el umbral FINAL del freeze es el PISO 25
-        # (45 >= 25 dispara; sin el piso el freeze diria 22)
-        assert pause_row[9]["corte"]["umbral_clicks_usado"] == 25
+        # que negative. El grupo es elegible (131/9/30) con expected
+        # 14.5555... -> bruto ceil(21.83) = 22, y el umbral FINAL del freeze
+        # es el PISO 100 (CORTES 03: 105 >= 100 y 45 >= 40 dispara; sin el
+        # piso el freeze diria 22)
+        assert pause_row[9]["corte"]["umbral_clicks_usado"] == 100
         assert pause_row[9]["corte"]["elegible"] is True
-        assert pause_row[9]["corte"]["expected_clicks"] == "14.2"
-        assert pause_row[9]["corte"]["evidencia"]["clicks"] == 71
-        # CORTES 01 (1.4): el piso de cost adaptativo es SOLO del camino
-        # negative -- pause/bid NO congelan piso ni aov (quien no consumio el
-        # piso, no congela piso; hallazgo reviewer 1.4)
+        assert pause_row[9]["corte"]["expected_clicks"] == "14.55555555555555555555555556"
+        assert pause_row[9]["corte"]["evidencia"]["clicks"] == 131
+        # CORTES 03 (cierre replay, decision del lead 2026-08-28): el motor
+        # de bids congela ADEMAS el piso de costo que consumio
+        # (cost_min_usado, string Decimal) -- replay fiel por construccion
+        assert pause_row[9]["corte"]["cost_min_usado"] == "40"
+        # CORTES 01 (1.4): el piso de cost ADAPTATIVO es SOLO del camino
+        # negative -- pause/bid NO congelan piso_cost_usado ni aov (quien no
+        # consumio el piso adaptativo, no lo congela; hallazgo reviewer 1.4;
+        # el cost_min_usado de arriba es el SELLADO de bid, no el adaptativo)
         assert "piso_cost_usado" not in pause_row[9]["corte"]
         assert "aov" not in pause_row[9]["corte"]
         # sello bitemporal: LEAST(decided_at, max(obs cortes, evidencia))
@@ -628,10 +648,10 @@ def test_ciclo_shadow_completo_decisiones_y_notes_exactos():
         assert neg_row[8] == _obs(FIN_CORTES)
         # inputs.corte TOP-LEVEL con el shape EXACTO del spec: umbral FINAL con
         # piso, elegible, expected como string Decimal y la evidencia del
-        # GRUPO sembrado (71 clicks de las hojas kw_bid+kw_pause, 5 ordenes,
+        # GRUPO sembrado (131 clicks de las hojas kw_bid+kw_pause, 9 ordenes,
         # 30 fechas; ventana literal D-90..D-10). Desde 1.4 tambien congela el
-        # PISO de cost resuelto: AOV 97.0000/5 = Decimal('19.4000') y piso
-        # max(8, 19.4000 x 1.0) = Decimal('19.40000') -- la ESCALA nace del
+        # PISO de cost resuelto: AOV 99.0000/9 = Decimal('11.0000') y piso
+        # max(8, 11.0000 x 1.0) = Decimal('11.00000') -- la ESCALA nace del
         # money_amount NUMERIC(14,4) del revenue y _dec_str la conserva tal
         # cual (regla 4; hallazgo codex 1.4: pinear '19.40' mataba el golden
         # en CI). Sin la asercion del dict, un mapeo de grupo roto pasaria
@@ -639,17 +659,17 @@ def test_ciclo_shadow_completo_decisiones_y_notes_exactos():
         assert neg_row[9]["corte"] == {
             "umbral_clicks_usado": 22,
             "elegible": True,
-            "expected_clicks": "14.2",
+            "expected_clicks": "14.55555555555555555555555556",
             "evidencia": {
-                "clicks": 71,
-                "orders": 5,
+                "clicks": 131,
+                "orders": 9,
                 "fechas": 30,
                 "ventana_desde": "2026-05-24",
                 "ventana_hasta": "2026-08-12",
                 "observed_at_max": "2026-08-12T01:00:00+00:00",
             },
-            "piso_cost_usado": "19.40000",
-            "aov": "19.4000",
+            "piso_cost_usado": "11.00000",
+            "aov": "11.0000",
         }
 
         # termino HARVEST: new_value = default_bid del goal con SU moneda;
@@ -669,7 +689,7 @@ def test_ciclo_shadow_completo_decisiones_y_notes_exactos():
         # el hueco 20<21<22 NO corta bajo la regla nueva; bajo el legacy 20
         # del default SI habria decision negative (cable roto detectado)
         assert "hueco legacy" not in terminos_con_decision
-        # el hueco del PISO (clicks 23 >= 22, cost 15 con 8 < 15 < 19.40)
+        # el hueco del PISO (clicks 23 >= 22, cost 9.00 con 8 < 9 < 11.0000)
         # SOLO el piso adaptativo lo bloquea: con el default legacy 8 este
         # termino generaria una negative extra (cable roto detectado, 1.4)
         assert "hueco piso" not in terminos_con_decision
@@ -1357,9 +1377,9 @@ def test_bitemporal_evidencia_reciente_entra_al_max_del_data_observed_at():
             ids["kw_pause"],
             FIN_CORTES,
             reciente,
-            cost="0.50",
+            cost="1.50",
             ad_revenue="1.00",
-            clicks=1,  # 08-12 es fecha IMPAR de _siembra_kw_pause -> clicks 1
+            clicks=4,  # 08-12 es fecha IMPAR de _siembra_kw_pause -> clicks 4
             orders=0,
         )
         res = _corre(conn)
@@ -1562,9 +1582,11 @@ def _siembra_bid_bloquea_pause(conn) -> dict:
     umbral adaptativo y cae a la banda -25% (kind final bid).
 
     - Ventana de CORTES (07-14..08-12): clicks 30 / cost 15.00 / orders 0
-      -> PAUSE clasico bajo el legacy 25 (30>=25, 15>=12).
+      -> PAUSE bajo los umbrales pre-CORTES 03 (legacy 25 / 12 USD); bajo
+      los vigentes (fallback 100 / 40 USD) NO pausaria ni sin adaptativo.
     - Evidencia del grupo (misma hoja, D-90..D-10): orders 0 -> NO elegible
-      -> umbral pause = fallback 50 -> 30 < 50 -> PAUSE BLOQUEADO.
+      -> umbral pause = fallback 100 (CORTES 03) -> 30 < 100 -> PAUSE
+      BLOQUEADO.
     - Ventana de BIDS propia (max metric_date 08-16 -> fin 08-13): filas de
       07-15..08-13 -> cost 17.00 / revenue 29.10 / orders 1 (la del 08-13)
       -> ACoS 58% > 1.35x25 con orders>=1 -> banda -25%: bid 1.00 -> 0.75."""
@@ -1603,10 +1625,17 @@ def _siembra_bid_bloquea_pause(conn) -> dict:
 )
 def test_golden_bid_que_bloqueo_pause():
     """El test estrella de 1.3: decision de kind final BID cuya existencia
-    depende de que el umbral adaptativo de pause (fallback 50, grupo no
-    elegible) BLOQUEO el PAUSE que el legacy 25 si habria cortado. Su replay
-    reproduce EXACTO leyendo el umbral congelado: con legacy 25, el replay
-    rejugaria como pause (30 >= 25) y el test reventaria."""
+    depende de que el umbral adaptativo de pause (fallback 100 con CORTES 03,
+    grupo no elegible) BLOQUEO el PAUSE que los umbrales pre-CORTES 03
+    (legacy 25 / 12 USD) si habrian cortado con esta geometria (30 / 15.00).
+    LIMITACION (hallazgo grok, cross-review CORTES 03): con 100/40 esta
+    geometria YA NO discrimina la lectura del freeze -- 30 clicks quedan
+    bloqueados con freeze, sin el, y el costo 15 < 40 mata el pause en toda
+    era; si _replay_bid ignorara umbral_clicks_usado, este test seguiria
+    verde. Esa guarda vive ahora en el test PURO
+    test_replay_pause_lee_el_umbral_congelado_jamas_el_default (freeze 150 vs
+    default 100 con los mismos agregados). El replay-exacto de aqui sigue
+    sellando que la decision bid persistida se rejugable."""
     with _db_temporal("orbit_ciclo_bqp") as (conn, _c):
         ids = _siembra_bid_bloquea_pause(conn)
         res = _corre(conn)
@@ -1624,8 +1653,8 @@ def test_golden_bid_que_bloqueo_pause():
         # 08-13, mas reciente que la evidencia (08-12) -> gana el obs directo
         assert fila[4] == _obs(dt.date(2026, 8, 13))
         corte = fila[5]["corte"]
-        # fallback 50 CABLEADO con evidencia del grupo (no elegible: orders 0)
-        assert corte["umbral_clicks_usado"] == 50
+        # fallback 100 CABLEADO con evidencia del grupo (no elegible: orders 0)
+        assert corte["umbral_clicks_usado"] == 100
         assert corte["elegible"] is False
         assert corte["expected_clicks"] is None
         assert corte["evidencia"]["clicks"] == 30
@@ -1634,7 +1663,7 @@ def test_golden_bid_que_bloqueo_pause():
         # idem 1.4: decision del motor de bids SIN piso congelado (solo negative)
         assert "piso_cost_usado" not in corte
         assert "aov" not in corte
-        # REPLAY EXACTO leyendo el congelado (50): el pause sigue bloqueado
+        # REPLAY EXACTO leyendo el congelado (100): el pause sigue bloqueado
         # y la banda rejuega igual
         assert ciclo.reproduce(fila[5]) == ("bid", Decimal("0.75"), "USD")
 
@@ -1643,12 +1672,13 @@ def test_golden_bid_que_bloqueo_pause():
     _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
-def test_piso_pause_25_en_el_freeze_del_ciclo():
-    """Piso pause CABLEADO (DoD 1.3): el grupo maestro es elegible con
-    expected 14.2 -> bruto ceil(21.3) = 22 < legacy 25. El umbral FINAL que
-    el freeze congela en la decision pause es el PISO 25 -- una implementacion
-    sin el max() congelaria 22 y este test reventaria (la funcion pura ya
-    vive en test_optimizer_cortes; esto testea el cableado por el ciclo)."""
+def test_piso_pause_100_en_el_freeze_del_ciclo():
+    """Piso pause CABLEADO (DoD 1.3, piso CORTES 03): el grupo maestro es
+    elegible con expected 14.5555... -> bruto ceil(21.83) = 22 < legacy 100.
+    El umbral FINAL que el freeze congela en la decision pause es el PISO
+    100 -- una implementacion sin el max() congelaria 22 y este test
+    reventaria (la funcion pura ya vive en test_optimizer_cortes; esto
+    testea el cableado por el ciclo)."""
     with _db_temporal("orbit_ciclo_piso") as (conn, _c):
         _siembra_maestra(conn)
         res = _corre(conn)
@@ -1658,16 +1688,24 @@ def test_piso_pause_25_en_el_freeze_del_ciclo():
             (res.cycle_id,),
         ).fetchone()
         corte = fila[0]["corte"]
-        assert corte["umbral_clicks_usado"] == 25  # el piso gano al bruto 22
+        assert corte["umbral_clicks_usado"] == 100  # el piso gano al bruto 22
         assert corte["elegible"] is True
-        assert corte["expected_clicks"] == "14.2"
+        assert corte["expected_clicks"] == "14.55555555555555555555555556"
+        # CORTES 03 (cierre replay): el freeze lleva el piso de costo usado
+        assert corte["cost_min_usado"] == "40"
 
 
-def _inputs_pause_legacy() -> dict:
+def _inputs_pause_legacy(
+    clicks: int = 30, cost: str = "15.0000", corte: dict | None = None
+) -> dict:
     """Fixture de inputs congelados de una pause HISTORICA (pre-CORTES 01,
-    sin la clave corte): clicks 30 en la ventana de cortes -- bajo el legacy
-    25 SI pausa (compatibilidad del replay de la historia)."""
-    return {
+    sin la clave corte): la fila clasica de 30 clicks / 15.00 USD y su
+    ESPEJO de la pause real de produccion (119 clicks / 45.80 USD). Sin la
+    clave, el replay rejuega con la HISTORIA congelada de su era (decision
+    del lead 2026-08-28: 25 clicks / 12 USD, constantes REPLAY_*; jamas el
+    vigente 100/40). Con `corte`, simula una fila CON freeze (era CORTES 01);
+    `cost_min_usado` solo existe en freezes desde CORTES 03."""
+    inputs = {
         "motor": "bid",
         "platform": "amazon_us",
         "ventanas": {
@@ -1676,10 +1714,10 @@ def _inputs_pause_legacy() -> dict:
                 "window_start": "2026-07-14",
                 "window_end": "2026-08-12",
                 "fechas": 30,
-                "cost": "15.0000",
+                "cost": cost,
                 "ad_revenue": "30.0000",
                 "revenue_same_sku": None,
-                "clicks": 30,
+                "clicks": clicks,
                 "orders": 0,
                 "moneda": "USD",
                 "observed_at_max": "2026-08-12T01:00:00+00:00",
@@ -1693,14 +1731,226 @@ def _inputs_pause_legacy() -> dict:
         "motivo": "pause_umbral",
         "modo": "shadow",
     }
+    if corte is not None:
+        inputs["corte"] = corte
+    return inputs
 
 
-def test_replay_legacy_pause_sin_inputs_corte_usa_25():
-    """Fila de pause HISTORICA sin inputs.corte -> replay con LEGACY_PAUSE
-    25 -> los 30 clicks SI pausan. Espejo del compat de hygiene (1.2): el
-    replay de la historia previa a CORTES 01 no cambia."""
-    inputs = _inputs_pause_legacy()
-    assert ciclo.reproduce(inputs) == ("pause", None, None)
+def test_replay_legacy_pause_sin_inputs_corte_usa_historicos():
+    """Fila de pause HISTORICA sin inputs.corte -> replay con la HISTORIA
+    congelada de su era (decision del lead 2026-08-28: replay fiel por
+    construccion; REPLAY_PAUSE_CLICKS_PRE_CORTES01=25 +
+    REPLAY_PAUSE_COST_PRE_CORTES03=12 USD; JAMAS el vigente 100/40). DOS
+    casos:
+    (1) la fila clasica de 30 clicks / 15.00 USD REPRODUCE (30 >= 25 y
+        15.00 >= 12) -- contra el default vigente 100/40 daba no-op (rojo
+        del TDD); era una de las 27 pre-CORTES-01 que el piso vivo dejaba
+        mudas.
+    (2) la fila espejo de la real (119 clicks / 45.80 USD) -> PAUSE
+        (119 >= 25 y 45.80 >= 12; VERDE TAMBIEN EN ROJO: con el default
+        vigente 100/40 ya reproducia -- su fidelidad era coincidencia de
+        datos, ahora es contrato)."""
+    assert ciclo.reproduce(_inputs_pause_legacy()) == ("pause", None, None)
+    espejo_real = _inputs_pause_legacy(clicks=119, cost="45.8000")
+    assert ciclo.reproduce(espejo_real) == ("pause", None, None)
+
+
+def test_replay_bid_kind_congelada_depende_del_piso_costo():
+    """Guarda del hueco que vio grok (cross-review ronda del lead): no habia
+    replay de una decision kind=BID cuya existencia dependa de la puerta de
+    costo del pause -- si _pendiente_bid dejara de congelar cost_min_usado
+    (o _replay_bid de leerlo), una fila viva CORTES 03 con clicks sobre el
+    umbral y costo ENTRE el historico (12) y el vigente (40) rejugaria como
+    pause y la suite seguiria verde. Espejo: freeze {umbral 100,
+    cost_min "40"}, entidad 120 clicks / 25.21 USD / 0 ordenes (pause
+    bloqueado SOLO por el piso congelado) y banda -25% en bids (36/100,
+    orders 5). Si el replay usara el historico 12, rejugaria pause y la
+    primera asercion reventaria."""
+    inputs_bid = {
+        "motor": "bid",
+        "platform": "amazon_us",
+        "ventanas": {
+            "bids": {
+                "window_start": "2026-07-18",
+                "window_end": "2026-08-16",
+                "fechas": 30,
+                "cost": "36.0000",
+                "ad_revenue": "100.0000",
+                "revenue_same_sku": None,
+                "clicks": 50,
+                "orders": 5,
+                "moneda": "USD",
+                "observed_at_max": "2026-08-20T06:00:00+00:00",
+            },
+            "cortes": {
+                "window_start": "2026-07-19",
+                "window_end": "2026-08-17",
+                "fechas": 30,
+                "cost": "25.2100",
+                "ad_revenue": "0.0000",
+                "revenue_same_sku": None,
+                "clicks": 120,
+                "orders": 0,
+                "moneda": "USD",
+                "observed_at_max": "2026-08-25T08:06:11.871936+00:00",
+            },
+        },
+        "goal": {"bid_floor": "0.4000", "bid_ceiling": "2.5000", "harvest": None},
+        "target_acos_pct_usado": "25.00",
+        "bid_actual": "1.0000",
+        "bid_moneda": "USD",
+        "factor": None,
+        "motivo": "banda_menos_25",
+        "modo": "shadow",
+        "corte": {"umbral_clicks_usado": 100, "cost_min_usado": "40", "elegible": False},
+    }
+    assert ciclo.reproduce(inputs_bid) == ("bid", Decimal("0.75"), "USD")
+
+
+def test_replay_pause_lee_el_umbral_congelado_jamas_el_default():
+    """Guarda PURA del hallazgo grok (cross-review CORTES 03): el replay DEBE
+    consumir inputs.corte.umbral_clicks_usado, jamas caer al default. Mismos
+    agregados (120 clicks / 45 USD / 0 ordenes), dos filas: CON freeze 150
+    (grupo elegible con bruto 150) NO pausa (120 < 150); SIN freeze los
+    historicos REPLAY_* SI pausan (120 >= 25 y 45 >= 12). Si _replay_bid dejara de
+    leer el congelado, ambas filas dan pause y la primera asercion
+    reventaria. Es la discriminacion que el golden bid-que-bloqueo perdio con
+    los umbrales 100/40 (su geometria de 30 clicks es bloqueada en toda era)."""
+    con_freeze = _inputs_pause_legacy(
+        clicks=120, cost="45.0000", corte={"umbral_clicks_usado": 150, "elegible": True}
+    )
+    assert ciclo.reproduce(con_freeze) == (None, None, None)
+    sin_freeze = _inputs_pause_legacy(clicks=120, cost="45.0000")
+    assert ciclo.reproduce(sin_freeze) == ("pause", None, None)
+
+
+def test_replay_pause_congelada_cortes01_reproduce_con_piso_historico():
+    """Misma geometria del hallazgo codex (cross-review CORTES 03), bajo el
+    contrato NUEVO (decision del lead 2026-08-28: replay fiel por
+    construccion): una pause CON inputs.corte de la era CORTES 01 (umbral de
+    clicks congelado 50, SIN cost_min_usado -- la clave nace en CORTES 03)
+    cuyo costo queda ENTRE el piso historico y el vigente -- 72 clicks /
+    25.21 USD: la fila 30 del spot-check 4.4 (decision 774 y sus
+    re-decisiones 423/541/659) -- REPRODUCE: 72 >= 50 congelado y
+    25.21 >= 12 (REPLAY_PAUSE_COST_PRE_CORTES03, la historia de su era; el
+    piso vigente 40 JAMAS entra al replay). Antes del cierre el piso VIVO
+    mataba el pause y el replay daba (None, None, None)."""
+    congelada = _inputs_pause_legacy(
+        clicks=72,
+        cost="25.2100",
+        corte={"umbral_clicks_usado": 50, "elegible": False},
+    )
+    assert ciclo.reproduce(congelada) == ("pause", None, None)
+
+
+def test_replay_fiel_por_construccion_ignora_el_vigente(monkeypatch):
+    """FIDELIDAD POR CONSTRUCCION (decision del lead 2026-08-28): el replay
+    de una fila CON `cost_min_usado` congelado manda sobre el piso VIVO. Con
+    PAUSE_COST_MIN envenenado a 999, la fila 72 clicks / 45.00 USD con
+    freeze {umbral_clicks_usado: 50, cost_min_usado: "40"} sigue pausando
+    (45 >= 40 congelado); si _replay_bid dejara de leer el congelado, el
+    999 vivo mataria el pause y la asercion reventaria. DESVIACION del pin
+    literal de la task declarada: la task pidio esta fila con cost 25.21,
+    pero 25.21 < 40 NO pausaria ni con el congelado (el test seria
+    indistinguible: congelado y vivo dan el mismo no-op); el escenario
+    historico real es una fila pausada BAJO el piso 40 de CORTES 03 cuyo
+    vigente cambia despues."""
+    monkeypatch.setitem(bid_mod.PAUSE_COST_MIN, "amazon_us", Decimal("999"))
+    congelada = _inputs_pause_legacy(
+        clicks=72,
+        cost="45.0000",
+        corte={"umbral_clicks_usado": 50, "cost_min_usado": "40"},
+    )
+    assert ciclo.reproduce(congelada) == ("pause", None, None)
+
+
+def test_constantes_historicas_de_replay_son_inmutables():
+    """Las constantes REPLAY_* son HISTORIA CONGELADA (decision del lead
+    2026-08-28): solo las consume el replay de filas sin la clave, JAMAS el
+    camino vivo. Cambiarlas ("actualizarlas" a la era nueva) rompe la
+    auditoria de las 34 pauses historicas medidas fieles -- si alguien las
+    toca, este test revienta. PAUSE_COST_MIN se pinea para detectar un
+    cambio accidental del VIGENTE (su cambio legitimo exige re-medir el
+    replay y actualizar este pin con evidencia)."""
+    assert cortes.REPLAY_PAUSE_CLICKS_PRE_CORTES01 == 25
+    assert {
+        "amazon_us": Decimal("12"),
+        "amazon_mx": Decimal("200"),
+    } == bid_mod.REPLAY_PAUSE_COST_PRE_CORTES03
+    assert {
+        "amazon_us": Decimal("40"),
+        "amazon_mx": Decimal("500"),
+    } == bid_mod.PAUSE_COST_MIN
+
+
+def test_replay_decision_774_real_reproduce_pause():
+    """Replay con los inputs REALES congelados de la decision 774 (la fila 30
+    del spot-check que motivo CORTES 03; extraidos por SELECT read-only
+    2026-08-28 y espejados aqui), bajo el contrato NUEVO (decision del lead
+    2026-08-28: replay fiel por construccion): 72 >= 50 (freeze de clicks) y
+    25.21 >= 12 (la fila NO tiene cost_min_usado -> el piso historico de su
+    era, REPLAY_PAUSE_COST_PRE_CORTES03) -> PAUSE, la decision persistida.
+    Antes del cierre el piso VIVO 40 mataba el pause y el replay CAIA A LA
+    BANDA -12% (bids: cost 25.21, ad_revenue 0, orders 0 -> baja sin minimo
+    de ordenes; bid 0.25 x 0.88 = 0.22): un auditor veia un BID donde la
+    decision persistida es PAUSE."""
+    inputs_774 = {
+        "goal": {
+            "scope": "platform",
+            "harvest": None,
+            "bid_floor": "0.1000",
+            "bid_ceiling": "2.5000",
+            "target_acos_pct": None,
+        },
+        "modo": "shadow",
+        "corte": {
+            "elegible": False,
+            "evidencia": {
+                "clicks": 283,
+                "fechas": 52,
+                "orders": 1,
+                "ventana_desde": "2026-05-30",
+                "ventana_hasta": "2026-08-18",
+                "observed_at_max": "2026-08-25T08:06:11.871936+00:00",
+            },
+            "expected_clicks": None,
+            "umbral_clicks_usado": 50,
+        },
+        "motor": "bid",
+        "factor": None,
+        "motivo": "pause_umbral",
+        "platform": "amazon_us",
+        "ventanas": {
+            "bids": {
+                "cost": "25.2100",
+                "clicks": 72,
+                "fechas": 30,
+                "moneda": "USD",
+                "orders": 0,
+                "ad_revenue": "0.0000",
+                "window_end": "2026-08-17",
+                "window_start": "2026-07-19",
+                "observed_at_max": "2026-08-25T08:06:11.871936+00:00",
+                "revenue_same_sku": "0.0000",
+            },
+            "cortes": {
+                "cost": "25.2100",
+                "clicks": 72,
+                "fechas": 30,
+                "moneda": "USD",
+                "orders": 0,
+                "ad_revenue": "0.0000",
+                "window_end": "2026-08-17",
+                "window_start": "2026-07-19",
+                "observed_at_max": "2026-08-25T08:06:11.871936+00:00",
+                "revenue_same_sku": "0.0000",
+            },
+        },
+        "target_acos_pct_usado": "25.00",
+        "bid_actual": "0.2500",
+        "bid_moneda": "USD",
+    }
+    assert ciclo.reproduce(inputs_774) == ("pause", None, None)
 
 
 @pytest.mark.skipif(
@@ -1767,9 +2017,9 @@ def test_bitemporal_pause_clamp_observed_at_futuro_a_decided_at():
             ids["kw_pause"],
             FIN_CORTES,
             futuro,
-            cost="0.50",
+            cost="1.50",
             ad_revenue="1.00",
-            clicks=1,  # 08-12 es fecha IMPAR de _siembra_kw_pause -> clicks 1
+            clicks=4,  # 08-12 es fecha IMPAR de _siembra_kw_pause -> clicks 4
             orders=0,
         )
         res = _corre(conn)  # con codigo 1.2: CheckViolation aborta TX3 aqui

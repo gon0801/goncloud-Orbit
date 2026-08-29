@@ -4,6 +4,15 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-08-28 — CORTES 03 en PR #43 (CI verde; pendiente de merge y deploy del lead)** (rama `cortes-03/umbrales-pausa`):
+umbral de PAUSE del dueño → **100 clics / 40 USD / 500 MXN** (origen
+spot-check 4.4 fila 30 / decisión 774: 72 clics / 25.21 USD / 0 ventas
+pausó prematuro); fallback y piso legacy de PAUSE también suben a 100;
+NEGATIVE intacto. Replay hecho **fiel por construcción** (decisión del
+lead 2026-08-28): el motor de bids congela `cost_min_usado` en su freeze y
+las filas históricas sin la clave rejuegan con los históricos REPLAY_*
+(25 clics / 12 USD, solo-replay) — 34/34 pauses medidas fieles.
+
 **Última actualización: 2026-08-28 — ORBIT 04 CERRADA (4.1-4.4, todo en
 `shadow`); el dueño FIRMÓ el spot-check el 2026-08-28 ("spot check
 confirmado", revisado en lenguaje de negocio con el lead) → DoD de 4.4
@@ -444,7 +453,7 @@ tabla `decision` (auditoría) → API/CLI de lectura.
 
 | Decisión | Regla |
 |---|---|
-| PAUSE | orders=0 ∧ clicks≥25 ∧ cost≥ {us: 12 USD, mx: 200 MXN} |
+| PAUSE | orders=0 ∧ clicks≥100 ∧ cost≥ {us: 40 USD, mx: 500 MXN} (CORTES 03) |
 | Bajar puja −25% | ACoS > 1.35×target (con orders≥1) |
 | Bajar puja −12% | ACoS > 1.15×target |
 | Subir puja +15% | ACoS < 0.85×target ∧ orders≥3 |

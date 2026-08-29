@@ -17,9 +17,11 @@
 3. **Maquinaria única compartida**: una ventana, una elegibilidad, UN
    multiplicador, DOS fallbacks. Secuencia de aterrizaje: negative → pause.
 4. **Números sellados**: `O_min=3`, `C_min=60`, `Z_min=14`, `M=1.5`,
-   `F_neg=40`, `F_pause=50`, `L=90`.
+   `F_neg=40`, `F_pause=100` (CORTES 03, dueno 2026-08-28; este spec lo
+   selló en 50), `L=90`.
 5. **PISO de clicks sellado (ronda 1, grok)**: `umbral_final = max(legacy, umbral)`
-   con legacy 20 (negative) / 25 (pause) — el adaptativo solo puede SUBIR
+   con legacy 20 (negative) / 100 (pause; CORTES 03, dueno 2026-08-28 — este
+   spec lo selló en 25) — el adaptativo solo puede SUBIR
    umbrales, jamás bajar de los actuales. Sin piso, un producto de
    conversión rápida (60 clicks/6 órdenes → expected 10) quedaría con
    umbral 15: más agresivo que hoy, contra el propósito del plan.
@@ -34,7 +36,8 @@
    600 MXN**, `AOV = ad_revenue_total / orders_total` del grupo (Decimal,
    jamás float). Piso legacy 8/130 queda como mínimo absoluto (patrón
    max: el adaptativo solo SUBE). Solo NEGATIVE — los pisos de PAUSE
-   (12/200) no cambian (pause es reversible y tendrá veto).
+   (12/200) no cambian por ESTE spec (pause es reversible y tendrá veto);
+   CORTES 03 (dueno 2026-08-28) sí los subió después a 40 USD / 500 MXN.
    `inputs.corte` gana `piso_cost_usado` (string Decimal) y `aov`
    (string|null); el replay LEE el piso congelado (fila sin la clave →
    legacy 8/130). Un grupo puede ser elegible para el UMBRAL (clicks/
@@ -67,16 +70,17 @@ expected_clicks = Decimal(total_clicks) / Decimal(total_orders)
 umbral_bruto(regla) = ceil(expected_clicks × Decimal("1.5"))   si califica
                       — ceil DEL PRODUCTO (jamás ceil-luego-multiplica);
                       con M=1.5 equivale al racional ceil(3·clicks/2·orders)
-                    = F_neg=40 | F_pause=50                    si no
+                    = F_neg=40 | F_pause=100 (CORTES 03)        si no
 umbral_final(regla) = max(legacy_regla, umbral_bruto(regla))
-                      legacy: 20 negative / 25 pause
+                      legacy: 20 negative / 100 pause (CORTES 03)
 ```
 
 - **NEGATIVE_EXACT**: `orders=0 ∧ clicks_término ≥ umbral_final(neg) ∧
   cost ≥ {us:8, mx:130}` — el término sigue midiéndose en SU ventana
   madura existente. **PAUSE**: `orders=0 ∧ clicks_entidad ≥
-  umbral_final(pause) ∧ cost ≥ {us:12, mx:200}` — la entidad sigue en SU
-  ventana de cortes existente. **La ventana de 90d SOLO resuelve el
+  umbral_final(pause) ∧ cost ≥ {us:40, mx:500}` — la entidad sigue en SU
+  ventana de cortes existente (CORTES 03 subió el costo; este spec lo
+  selló en 12/200). **La ventana de 90d SOLO resuelve el
   umbral; las ventanas de comparación de término/entidad NO cambian**
   (sellado explícito: "alinear" a 90d sería otro contrato).
 - Intactos: pisos de cost, maduración ≥10d, precedencia PAUSE>bandas,
@@ -127,12 +131,24 @@ que lógicamente se observó antes de decidir. Tests: evidencia más
 reciente que el dato directo, Y el borde observed_at > decided_at →
 clampeado (jamás CHECK violation).
 
-**Replay**: `reproduce()` LEE `inputs.corte.umbral_clicks_usado` (jamás
-recalcula evidencia); fila sin `inputs.corte` (histórica) → legacy 20/25.
+**Replay**: `reproduce()` LEE lo congelado — `umbral_clicks_usado` y,
+desde CORTES 03, `cost_min_usado` (el motor de bids lo congela en toda
+decisión suya, decision del lead 2026-08-28) — y jamás recalcula
+evidencia; sin la clave, la fila histórica rejuega con el valor HISTÓRICO
+de su era (`REPLAY_PAUSE_CLICKS_PRE_CORTES01=25`,
+`REPLAY_PAUSE_COST_PRE_CORTES03=12/200`; negative intacto: 20 y 8/130),
+jamás con el vigente — replay fiel por construcción (decisión del lead
+2026-08-28: 34/34 pauses históricas medidas fieles; ninguna fila de
+producción tenía aún `cost_min_usado`, así que el histórico 12/200 cubre
+toda la era CORTES 01, incluida la 774 → pause). Deuda declarada: negative
+no tiene constantes REPLAY_* congeladas — su replay usa el vigente (20,
+8/130) y es fiel SOLO mientras negative no cambie; si una fase futura los
+toca, hay que congelarlos igual que el pause.
 
 ## Arquitectura
 
-- Números = constantes en código (misma práctica que 20/25/8/130).
+- Números = constantes en código (misma práctica que 20/25/8/130; pause
+  100 clics / 40 USD / 500 MXN desde CORTES 03).
 - **`umbral_corte(evidencia, regla)` vive en módulo puro NUEVO
   `app/optimizer/cortes.py`** (hygiene ya importa bid: meterla en hygiene
   crearía import circular; en windows violaría la frontera IO). El motor

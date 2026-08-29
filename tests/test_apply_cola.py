@@ -279,7 +279,9 @@ def _decision_corte(
         "platform": "amazon_us",
         "modo": "live",
         "motivo": f"{kind}_umbral",
-        "corte": {"umbral_clicks_usado": 20 if kind != "pause" else 25, "elegible": False},
+        # Dato VERBATIM del fixture (el aplicador jamas lo reusa): el umbral
+        # pause representa una decision VIGENTE (100 desde CORTES 03).
+        "corte": {"umbral_clicks_usado": 20 if kind != "pause" else 100, "elegible": False},
     }
     return conn.execute(
         "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
@@ -700,8 +702,10 @@ def test_veto_en_released_gana_limpio_contra_claim(monkeypatch):
     with _db_temporal("orbit_cola_carrera") as conn:
         ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_pause": 2})
         d = ids["ahora"]
+        # CORTES 03: 15 fechas x 7 = 105 clicks (>= 100) y cost 45 (>= 40):
+        # la re-validacion debe dejar pasar la fila hasta la carrera del claim.
         for fecha in _fechas(d.date() - dt.timedelta(days=28), d.date() - dt.timedelta(days=11)):
-            _metrica(conn, ids["run"], ids["kw"], fecha, clicks=5, cost=2, orders=0)
+            _metrica(conn, ids["run"], ids["kw"], fecha, clicks=7, cost=3, orders=0)
         dec = _decision_corte(conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause")
         _encola_fila(conn, dec, ids["kw"], "pause", payload=_payload_pause("7201"))
         handler, vistos = _handler_cortes()
@@ -881,21 +885,24 @@ def test_revalida_negative_descarta_por_umbral_adaptativo_fresco():
 
 @_skip_db
 def test_revalida_pause_descarta_por_umbral_adaptativo_fresco():
-    """Pause sobre kw: al decidir calificaba (fallback 50, clicks de la ventana
-    75 >= 50). Al liberar la evidencia del grupo es elegible-alta (hojas nuevas
-    fuera de la ventana de decidir): umbral 173 > 75 -> discard. Caso SEPARADO
-    del negative (regla 9) con el mismo mecanismo de evidencia."""
+    """Pause sobre kw: al decidir calificaba (fallback 100 con CORTES 03,
+    clicks de la ventana 105 >= 100 con cost 45 >= 40). Al liberar la
+    evidencia del grupo es elegible-alta (hojas nuevas fuera de la ventana de
+    decidir): umbral 182 > 105 -> discard. Caso SEPARADO del negative (regla
+    9) con el mismo mecanismo de evidencia."""
     with _db_temporal("orbit_cola_pausum") as conn:
         ids = _semilla(conn)
         d = ids["ahora"]
+        # Re-siembra CORTES 03: 15 fechas x 7 = 105 clicks (>= 100) y cost
+        # 15 x 3 = 45 (>= 40) para que la decision SEA viable al decidir.
         for fecha in _fechas(d.date() - dt.timedelta(days=28), d.date() - dt.timedelta(days=11)):
-            _metrica(conn, ids["run"], ids["kw"], fecha, clicks=5, cost=2, orders=0)
+            _metrica(conn, ids["run"], ids["kw"], fecha, clicks=7, cost=3, orders=0)
         for fecha in (d.date() - dt.timedelta(days=11), d.date() - dt.timedelta(days=10)):
             _metrica(
                 conn, ids["run"], ids["kw2"], fecha, clicks=300, cost=30, orders=3, ad_revenue=30
             )
-        # 690 clicks / 6 orders -> expected 115 -> umbral ceil(115*1.5)=173;
-        # la ventana de cortes fresca de kw ve 15 fechas x 5 = 75 clicks < 173.
+        # 726 clicks / 6 orders -> expected 121 -> umbral ceil(121*1.5)=182;
+        # la ventana de cortes fresca de kw ve 15 fechas x 7 = 105 clicks < 182.
         dec = _decision_corte(conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause")
         q = _encola_fila(conn, dec, ids["kw"], "pause", payload=_payload_pause("7201"))
         handler, vistos = _handler_cortes()
@@ -1005,7 +1012,9 @@ def test_cap_agotado_espera_fifo_la_mas_vieja_y_sigue_vetable():
             for fecha in _fechas(
                 d.date() - dt.timedelta(days=28), d.date() - dt.timedelta(days=11)
             ):
-                _metrica(conn, ids["run"], entidad, fecha, clicks=5, cost=2, orders=0)
+                # CORTES 03: 15 fechas x 7 = 105 clicks (>= 100) y cost 45
+                # (>= 40): la pause debe SOBREVIVIR la re-validacion.
+                _metrica(conn, ids["run"], entidad, fecha, clicks=7, cost=3, orders=0)
         dec1 = _decision_corte(conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause")
         q1 = _encola_fila(
             conn,
@@ -1068,8 +1077,10 @@ def test_pause_se_aplica_y_reversa_pause_resume_exenta_de_quota():
     with _db_temporal("orbit_cola_revp") as conn:
         ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_pause": 1})
         d = ids["ahora"]
+        # CORTES 03: 15 fechas x 7 = 105 clicks (>= 100) y cost 45 (>= 40):
+        # la pause debe SOBREVIVIR la re-validacion.
         for fecha in _fechas(d.date() - dt.timedelta(days=28), d.date() - dt.timedelta(days=11)):
-            _metrica(conn, ids["run"], ids["kw"], fecha, clicks=5, cost=2, orders=0)
+            _metrica(conn, ids["run"], ids["kw"], fecha, clicks=7, cost=3, orders=0)
         dec = _decision_corte(conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause")
         q = _encola_fila(conn, dec, ids["kw"], "pause", payload=_payload_pause("7201"))
         handler, vistos = _handler_cortes()
@@ -1134,8 +1145,10 @@ def test_pause_con_readback_divergente_no_sella_ok_en_el_ledger():
     with _db_temporal("orbit_cola_divp") as conn:
         ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_pause": 1})
         d = ids["ahora"]
+        # CORTES 03: 15 fechas x 7 = 105 clicks (>= 100) y cost 45 (>= 40):
+        # la pause debe SOBREVIVIR la re-validacion y llegar al PUT.
         for fecha in _fechas(d.date() - dt.timedelta(days=28), d.date() - dt.timedelta(days=11)):
-            _metrica(conn, ids["run"], ids["kw"], fecha, clicks=5, cost=2, orders=0)
+            _metrica(conn, ids["run"], ids["kw"], fecha, clicks=7, cost=3, orders=0)
         dec = _decision_corte(conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause")
         q = _encola_fila(conn, dec, ids["kw"], "pause", payload=_payload_pause("7201"))
         vistos: list[httpx.Request] = []
@@ -1326,7 +1339,9 @@ def test_released_sin_quota_se_reintenta_al_dia_siguiente(monkeypatch):
             for fecha in _fechas(
                 d.date() - dt.timedelta(days=28), d.date() - dt.timedelta(days=11)
             ):
-                _metrica(conn, ids["run"], entidad, fecha, clicks=5, cost=2, orders=0)
+                # CORTES 03: 15 fechas x 7 = 105 clicks (>= 100) y cost 45
+                # (>= 40): la pause debe SOBREVIVIR la re-validacion.
+                _metrica(conn, ids["run"], entidad, fecha, clicks=7, cost=3, orders=0)
         dec1 = _decision_corte(conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause")
         q1 = _encola_fila(
             conn,
@@ -1722,8 +1737,10 @@ def test_pause_cuya_entidad_vive_en_la_pagina_dos_del_list_aplica():
     with _db_temporal("orbit_cola_lp2") as conn:
         ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_pause": 1})
         d = ids["ahora"]
+        # CORTES 03: 15 fechas x 7 = 105 clicks (>= 100) y cost 45 (>= 40):
+        # la pause debe SOBREVIVIR la re-validacion.
         for fecha in _fechas(d.date() - dt.timedelta(days=28), d.date() - dt.timedelta(days=11)):
-            _metrica(conn, ids["run"], ids["kw"], fecha, clicks=5, cost=2, orders=0)
+            _metrica(conn, ids["run"], ids["kw"], fecha, clicks=7, cost=3, orders=0)
         dec = _decision_corte(conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause")
         q = _encola_fila(conn, dec, ids["kw"], "pause", payload=_payload_pause("7201"))
         vistos: list[httpx.Request] = []

@@ -93,14 +93,20 @@ conocía):
 
 Reglas numéricas selladas (resumen; el documento manda):
 
-- **PAUSE**: orders=0 ∧ clicks≥umbral_corte ∧ cost≥{us: 12 USD, mx: 200 MXN}.
-  Umbral de clicks **adaptativo por producto** (CORTES 01 1.3): LA MISMA
-  resolución que NEGATIVE_EXACT (`umbral_corte(evidencia, 'pause')` con la
-  elegibilidad 3/60/14) con fallback 50 y **piso max(25, bruto)**. El motor
-  de bids congela `inputs.corte` en TODA decisión — incluidas las de kind
-  final `bid` (PAUSE se evalúa antes de las bandas: sin el freeze, el replay
-  de un bid histórico rejugaría como pause); el replay lee
-  `inputs.corte.umbral_clicks_usado` (fila histórica sin la clave → 25).
+- **PAUSE**: orders=0 ∧ clicks≥umbral_corte ∧ cost≥{us: 40 USD, mx: 500 MXN}
+  (CORTES 03, dueno 2026-08-28; antes 12 USD / 200 MXN). Umbral de clicks
+  **adaptativo por producto** (CORTES 01 1.3): LA MISMA resolución que
+  NEGATIVE_EXACT (`umbral_corte(evidencia, 'pause')` con la elegibilidad
+  3/60/14) con fallback 100 y **piso max(100, bruto)** (CORTES 03; antes
+  fallback 50 / piso 25). El motor de bids congela `inputs.corte` en TODA
+  decisión — incluidas las de kind final `bid` (PAUSE se evalúa antes de las
+  bandas: sin el freeze, el replay de un bid histórico rejugaría como pause);
+  el replay lee lo congelado — `umbral_clicks_usado` y, desde CORTES 03,
+  `cost_min_usado` (el motor de bids congela el piso que consumió); fila
+  histórica sin la clave rejuega con los HISTÓRICOS de su era
+  (solo-replay: clics 25, piso 12/200), jamás el vigente — replay fiel por
+  construcción (decisión del lead 2026-08-28: 34/34 pauses medidas
+  fieles).
 - **−25%** si ACoS > 1.35×target (orders≥1); **−12%** si > 1.15×target;
   **+15%** si ACoS < 0.85×target ∧ orders≥3. Clamp por decisión ∈ [−30%, +20%],
   resultado ∈ [floor, ceiling] (defaults 0.10/2.50).
@@ -116,7 +122,9 @@ Reglas numéricas selladas (resumen; el documento manda):
   `max(legacy, AOV×1.0)`; sin elegibilidad o revenue envenenado →
   `max(legacy, {us: 45 USD, mx: 600 MXN})`. `inputs.corte` congela
   `piso_cost_usado`+`aov`; el replay lee el congelado (fila sin la clave →
-  8/130). Solo negative (pisos de pause 12/200 intactos). La ventana del
+  8/130). Solo negative congela el piso ADAPTATIVO (el piso sellado de
+  pause vive en `bid.py`, 40/500 desde CORTES 03, y TAMBIÉN viaja
+  congelado: `cost_min_usado`, ver PAUSE). La ventana del
   término NO cambia (sigue siendo la de cortes). El replay lee
   `inputs.corte.umbral_clicks_usado` (fila histórica sin la clave → 20).
 - **HARVEST**: orders≥2 ∧ ACoS ≤ min(35%, target); requiere config de campaña
