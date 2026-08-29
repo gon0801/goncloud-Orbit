@@ -557,6 +557,25 @@ def test_no_deja_temporales_huerfanos(tmp_path):
     assert sobrantes == [], f"temporales huerfanos: {sobrantes}"
 
 
+def test_fallo_a_mitad_no_deja_temporal_huerfano(tmp_path, monkeypatch):
+    """El camino que el endurecimiento SI arregla y el test de exito no
+    atrapaba (hallazgo del re-review 1.3): si `os.replace` revienta a mitad,
+    la excepcion se propaga y el temporal `.listas-*.tmp` JAMAS queda en el
+    dir (cleanup del `except BaseException`). Rojo contra el codigo previo a
+    fede39e: sin cleanup, el huerfano quedaba. Sin skipif: no pisa modos,
+    corre igual en POSIX y Windows."""
+    destino = tmp_path / "listas"
+
+    def _replace_roto(src, dst):
+        raise OSError("simulado: el replace revienta a mitad")
+
+    monkeypatch.setattr(sl.os, "replace", _replace_roto)
+    with pytest.raises(OSError):
+        sl._escribir_snapshot(_snap_minimo(), destino)
+    sobrantes = [p.name for p in destino.iterdir() if p.name != sl.ARCHIVO]
+    assert sobrantes == [], f"temporales huerfanos tras fallo: {sobrantes}"
+
+
 def test_runbook_del_docstring_propaga_el_rc_del_cp():
     """El runbook del docstring declaraba `rc=0` aunque el `mkdir`/`docker cp`
     fallara (Greptile PR #48): el operador borraba la copia del contenedor
