@@ -4,7 +4,7 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
-**2026-08-28 — ORBIT 05 preflight 1.2 EN PR (rama `orbit-05/preflight-1-2-goal-moneda`): default de piso/techo de goals POR MONEDA (USD 0.10/2.50, MXN 1.00/45.00) + migración 0003 (la DB ya no tiene DEFAULT; la aplica el lead en goncloud).**
+**2026-08-29 — ORBIT 05 preflight 1.2 CERRADA** (PR #46 → master `66d449e`): default de piso/techo de goals **POR MONEDA** (USD 0.10/2.50, MXN 1.00/45.00; otra moneda = error explícito) con `DEFAULTS_POR_MONEDA` como fuente única, y **migración 0003 aplicada en goncloud el 2026-08-29 04:10 UTC** (GO del dueño; chequeo previo: cero goals MXN con techo USD; backup del schema; verificado `column_default = NULL` con `NOT NULL` intacto y los 4 goals sin cambio): la DB ya no tiene DEFAULT, así que **un goal que nazca sin piso/techo revienta** en vez de heredar números pensados en USD. Preflight: 1.1 y 1.2 Done; siguen 1.3-1.8.**
 
 **2026-08-29 — CORTES 03 MERGEADA (#43 → master `5e5b16b`) y DESPLEGADA en
 goncloud (preflight 1.1 de ORBIT 05, GO del dueño; imagen `a5d5d579`,
