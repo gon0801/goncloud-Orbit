@@ -359,7 +359,11 @@ def test_main_solo_campana_resume_completa_la_fase_2(monkeypatch, capsys):
     _fakea_main(
         monkeypatch,
         _conn_solo_campana("PAUSED"),
-        secuencia=["PAUSED", "ENABLED"],  # guard -> PAUSED; readback post-PUT -> ENABLED
+        secuencia=[
+            "PAUSED",
+            "PAUSED",
+            "ENABLED",
+        ],  # guard -> re-lectura pre-resume -> readback post-PUT
         http=http,
     )
     monkeypatch.setattr(rc, "_token_lwa", lambda cred, client: "token-falso")
@@ -585,7 +589,11 @@ def test_main_dedup_1_6a_mutacion_ordena_pausas_antes_del_resume(monkeypatch, ca
     _fakea_main(
         monkeypatch,
         _conn_solo_campana_dedup(),
-        secuencia=["PAUSED", "ENABLED"],  # guard campana -> PAUSED; readback post-PUT -> ENABLED
+        secuencia=[
+            "PAUSED",
+            "PAUSED",
+            "ENABLED",
+        ],  # guard -> re-lectura pre-resume -> readback post-PUT
         http=http,
     )
     monkeypatch.setattr(rc, "_token_lwa", lambda cred, client: "token-falso")
@@ -626,3 +634,46 @@ def test_main_dedup_1_6a_mutacion_ordena_pausas_antes_del_resume(monkeypatch, ca
     fin = [e for e in _eventos(capsys) if e["evento"] == "reconciliacion_final"]
     assert len(fin) == 1
     assert fin[0]["pausas_ok"] == 9 and fin[0]["resumes_ok"] == 1
+
+
+def test_main_dedup_1_6a_campana_pausada_a_mitad_no_se_pisa(monkeypatch, capsys):
+    """TOCTOU del resume (hallazgo Greptile PR #54): entre el guard inicial y
+    el resume corren las 9 pausas; si en esa ventana alguien pausa la campana
+    a proposito, el PUT final la reactivaria igual, pisando una decision
+    ajena. Con la re-lectura previa al resume, aborta: las 9 pausas ya salieron
+    (son reversibles y estan en el log) pero el resume NO.
+
+    Rojo contra el codigo previo: sin re-lectura el resume salia igual
+    (http.puts con 10 PUTs) y main() devolvia 0."""
+    http = _HttpQueResume()
+    _fakea_main(
+        monkeypatch,
+        _conn_solo_campana_dedup(),
+        # Solo las llamadas de CAMPANAS consumen la secuencia (los readbacks
+        # de keyword no): guard -> PAUSED; RE-LECTURA pre-resume -> ENABLED
+        # (alguien la toco a mitad) -> el resume no debe salir.
+        secuencia=["PAUSED", "ENABLED"],
+        http=http,
+    )
+    monkeypatch.setattr(rc, "_token_lwa", lambda cred, client: "token-falso")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "reactiva_campanas.py",
+            "--solo-campana",
+            str(SOLO_CAMPANA),
+            "--dedup-1-6a",
+            "--esperado-external",
+            SOLO_EXTERNAL,
+            "--acepto-mutacion-real",
+        ],
+    )
+
+    with pytest.raises(rc.Abortar, match="DURANTE la corrida"):
+        rc.main()
+
+    resumes = [p for p in http.puts if p["url"].endswith("/sp/campaigns")]
+    assert resumes == [], "el resume NO sale si la campana cambio a mitad"
+    eventos = [e["evento"] for e in _eventos(capsys)]
+    assert "estado_vivo_prev_resume" in eventos, "la re-lectura queda declarada en el log"

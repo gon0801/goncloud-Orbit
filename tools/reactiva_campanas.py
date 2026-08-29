@@ -595,6 +595,28 @@ def main() -> int:
     for cid in _orden_resumes(campanas):
         c = campanas[cid]
         profile = perfiles[c["platform"]]
+        # RE-LECTURA justo antes del PUT (hallazgo Greptile PR #54): entre el
+        # guard de arriba y este resume corren las pausas de dedup (9 PUT +
+        # readback), y en esa ventana alguien —persona o automatismo— pudo
+        # pausar la campana a proposito. Reactivarla igual seria pisar una
+        # decision ajena. El chequeo SOLO aplica a --solo-campana (el camino
+        # original de CAMPANAS 01 reactiva un lote ya acordado).
+        if args.solo_campana is not None:
+            vivo_ahora = _readback_estado(
+                cliente_lectura,
+                profile,
+                "/sp/campaigns/list",
+                "campaignIdFilter",
+                "campaigns",
+                "campaignId",
+                c["external_id"],
+            )
+            _log("estado_vivo_prev_resume", camp_id=cid, estado=vivo_ahora)
+            if vivo_ahora != "PAUSED":
+                raise Abortar(
+                    f"campana {cid} ({c['external_id']}) cambio a {vivo_ahora} DURANTE la "
+                    "corrida (entre el guard y el resume): no se pisa una decision ajena"
+                )
         _put_estado(
             http,
             token,
