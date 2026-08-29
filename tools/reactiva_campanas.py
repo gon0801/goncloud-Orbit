@@ -45,10 +45,13 @@ El plan se reduce a ESA campana (nombre resuelto de la base), las pausas
 de dedup se SALTAN (cero keywords) y ANTES de mutar — tambien en dry-run —
 se verifica el estado VIVO por POST /sp/campaigns/list: si la campana ya
 esta ENABLED, NO se muta (fail-closed: declararlo y seguir desde el paso
-4 del runbook 1.6a). Corrida:
+4 del runbook 1.6a). La mutacion real exige ademas --esperado-external
+<external_id>: el external que el dueno autorizo viendo el dry-run; si la
+base resuelve otro, aborta (anti-typo, cross-review grok). Corrida:
 
     ssh goncloud 'docker exec -i orbit-app-1 python - --solo-campana 3919 \
-      [--acepto-mutacion-real]' < tools/reactiva_campanas.py
+      --esperado-external 251723662158466 [--acepto-mutacion-real]' \
+      < tools/reactiva_campanas.py
 """
 
 from __future__ import annotations
@@ -410,6 +413,12 @@ def main() -> int:
         help="id interno ad_entity de UNA campana: reduce el plan a ESA campana y "
         "salta las pausas de dedup (ORBIT 05 preflight 1.6a)",
     )
+    ap.add_argument(
+        "--esperado-external",
+        default=None,
+        help="external_id que la base DEBE resolver para --solo-campana (anti-typo, "
+        "cross-review grok): OBLIGATORIO con --acepto-mutacion-real; aborta si difiere",
+    )
     args = ap.parse_args()
 
     cred = AdsCredentials.from_secrets_dir()
@@ -418,6 +427,25 @@ def main() -> int:
     http = httpx.Client(timeout=httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0))
 
     campanas, keywords = _resolver_plan(conn, args.solo_campana)
+
+    # Anti-typo (cross-review grok, media): con --solo-campana la mutacion real
+    # queda ATADA al external que el dueno autorizo viendo el dry-run. Un id
+    # interno equivocado (p. ej. otra campana PAUSED) revienta aqui, no en
+    # Amazon. El desacuerdo aborta tambien en dry-run.
+    if args.esperado_external is not None and args.solo_campana is None:
+        raise Abortar("--esperado-external solo tiene sentido junto a --solo-campana")
+    if args.solo_campana is not None:
+        resuelto = campanas[args.solo_campana]["external_id"]
+        if args.esperado_external is not None and args.esperado_external != resuelto:
+            raise Abortar(
+                f"--esperado-external {args.esperado_external} != external resuelto "
+                f"{resuelto} (campana {args.solo_campana}): realidad difiere del plan"
+            )
+        if args.acepto_mutacion_real and args.esperado_external is None:
+            raise Abortar(
+                f"mutacion real de --solo-campana exige --esperado-external "
+                f"(el external autorizado; el resuelto es {resuelto})"
+            )
     perfiles = _perfiles(cliente_lectura)
     _log("perfiles", perfiles=perfiles)
     for cid, c in campanas.items():

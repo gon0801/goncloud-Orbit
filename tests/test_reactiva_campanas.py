@@ -344,7 +344,14 @@ def test_main_solo_campana_resume_completa_la_fase_2(monkeypatch, capsys):
     monkeypatch.setattr(
         sys,
         "argv",
-        ["reactiva_campanas.py", "--solo-campana", str(SOLO_CAMPANA), "--acepto-mutacion-real"],
+        [
+            "reactiva_campanas.py",
+            "--solo-campana",
+            str(SOLO_CAMPANA),
+            "--esperado-external",
+            SOLO_EXTERNAL,
+            "--acepto-mutacion-real",
+        ],
     )
 
     assert rc.main() == 0
@@ -387,3 +394,75 @@ def test_nombre_null_cae_al_external_id_sin_inventar(capsys):
     assert campanas[SOLO_CAMPANA]["nombre"] == SOLO_EXTERNAL, (
         "regla 3: sin nombre en la base, el declarado es el external_id"
     )
+
+
+# ---------------------------------------------------------------------------
+# 9-12. Cross-review grok (media): la mutacion de una sola campana exige
+# --esperado-external (anti-typo: el plan resuelto DEBE coincidir con el
+# external que autorizo el dueno en el dry-run).
+# ---------------------------------------------------------------------------
+
+
+def test_main_solo_campana_mutacion_sin_esperado_external_aborta(monkeypatch, capsys):
+    """Con --acepto-mutacion-real + --solo-campana y SIN --esperado-external
+    el tool NO puede mutar: el flag es obligatorio para atar la mutacion al
+    external que el dueno autorizo (cross-review grok, hallazgo media: un
+    typo en el id interno reactivaria otra campana y gastaria plata real)."""
+    http = _HttpQueResume()
+    _fakea_main(
+        monkeypatch,
+        _conn_solo_campana("PAUSED"),
+        secuencia=["PAUSED", "ENABLED"],
+        http=http,
+    )
+    monkeypatch.setattr(rc, "_token_lwa", lambda cred, client: "token-falso")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["reactiva_campanas.py", "--solo-campana", str(SOLO_CAMPANA), "--acepto-mutacion-real"],
+    )
+
+    with pytest.raises(rc.Abortar, match="esperado-external"):
+        rc.main()
+    assert http.puts == [], "sin el external esperado no hay NI UN PUT"
+
+
+def test_main_esperado_external_desacuerdo_aborta_fail_closed(monkeypatch, capsys):
+    """--esperado-external que NO coincide con lo resuelto por la base aborta
+    ANTES de tocar Amazon (tambien en dry-run): fail-cleared contra el typo
+    en cualquiera de los dos extremos (id interno o external)."""
+    http = _HttpQueResume()
+    _fakea_main(monkeypatch, _conn_solo_campana("PAUSED"), http=http)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "reactiva_campanas.py",
+            "--solo-campana",
+            str(SOLO_CAMPANA),
+            "--esperado-external",
+            "999999999999999",
+        ],
+    )
+
+    with pytest.raises(rc.Abortar, match="251723662158466"):
+        rc.main()
+    assert http.puts == []
+    eventos = _eventos(capsys)
+    assert [e for e in eventos if e["evento"] == "dry_run"] == [], (
+        "el desacuerdo aborta antes del dry-run: ni se consulta el estado vivo"
+    )
+
+
+def test_main_esperado_external_sin_solo_campana_aborta(monkeypatch):
+    """El flag solo tiene sentido en modo --solo-campana; en el camino
+    original (5 campanas) es un error de uso."""
+    _fakea_main(monkeypatch, _conn_camino_original())
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["reactiva_campanas.py", "--esperado-external", SOLO_EXTERNAL],
+    )
+
+    with pytest.raises(rc.Abortar, match="solo-campana"):
+        rc.main()
