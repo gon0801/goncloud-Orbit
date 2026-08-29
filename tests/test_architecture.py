@@ -417,7 +417,13 @@ ALLOWLIST_IMPORTS_SNAPSHOT_LISTAS = frozenset(
 def test_snapshot_listas_solo_importa_lectura():
     """El snapshot de listas es SOLO lectura: sus imports de runtime deben ser
     subconjunto de la allowlist positiva. Un import de mas es una decision de
-    arquitectura: se suma EDITANDO este archivo (visible en diff y review)."""
+    arquitectura: se suma EDITANDO este archivo (visible en diff y review).
+
+    Residual DECLARADO (hallazgo reviewer 1.3): la allowlist nombra
+    app.ads.structure ENTERO, asi que un caller hipotetico podria llegar a
+    sync_structure por atributo sin disparar — granularidad aceptada: el
+    modelo de amenaza es deriva accidental, no malicia, y reusar structure es
+    el diseno (reusar, no reescribir)."""
     extras = (
         _imports_runtime(RAIZ / "tools" / "snapshot_listas.py") - ALLOWLIST_IMPORTS_SNAPSHOT_LISTAS
     )
@@ -429,6 +435,17 @@ def test_snapshot_listas_solo_importa_lectura():
     assert "tools/snapshot_listas.py" not in PERMITIDOS_IMPORTAR_ADS_WRITE, (
         "el snapshot jamas debe habilitarse para importar app.ads.write"
     )
+    # Cierre barato del hueco AST (hallazgo reviewer 1.3): __import__("...")
+    # y importlib.import_module no producen nodos de import y la allowlist no
+    # los ve. Un tool read-only no tiene razon legitima de import dinamico:
+    # escaneo de texto; ampliarlo exige editar este archivo a proposito.
+    fuente = (RAIZ / "tools" / "snapshot_listas.py").read_text(encoding="utf-8")
+    for patron in ("__import__(", "import_module("):
+        assert patron not in fuente, (
+            f"tools/snapshot_listas.py usa import dinamico ({patron!r}): el "
+            "candado de allowlist no lo ve — justificarlo y editar "
+            "tests/test_architecture.py a proposito"
+        )
 
 
 def test_allowlist_snapshot_caza_import_de_escritura(tmp_path):

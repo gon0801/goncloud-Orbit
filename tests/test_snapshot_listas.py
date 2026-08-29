@@ -421,9 +421,12 @@ def test_main_out_crea_dir_y_escribe_json(monkeypatch, capsys, tmp_path):
 
 @pytest.mark.skipif(os.name != "posix", reason="el umask 077 no aplica en Windows")
 def test_main_out_deja_archivo_600_y_dir_700_en_posix(monkeypatch, tmp_path):
+    """El tool FUERZA umask 077 el mismo (hallazgo reviewer 1.3): la prueba
+    corre con una umask PERMISIVA (0o022) — si el tool no la forzara, el
+    archivo naceria 644 y el test revienta; con 0o077 heredada era tautologico."""
     _fakea_main(monkeypatch)
     destino = tmp_path / "salida"
-    umask_vieja = os.umask(0o077)
+    umask_vieja = os.umask(0o022)
     try:
         assert sl.main(["--out", str(destino)]) == 0
         assert stat.S_IMODE(destino.stat().st_mode) == 0o700

@@ -7,7 +7,7 @@ se produce con ESTE tool del repo, no con codigo inline (4.4 lo corrio inline
 y quedo declarado como hueco del runbook; DEPLOY.md §"Backup pre-cutover"
 cita este tool desde ahora). Cero mutaciones: las unicas llamadas son POST
 de LIST v3 por el cliente de LECTURA allowlist (app.ads.client.list_objects);
-jamas importa app.ads.write ni toca la base (sin psycopg).
+jamas importa app.ads.write ni toca la base (cero conexiones).
 
 QUE PRODUCE: por cada perfil aceptado (app.ads.structure.perfiles_aceptados,
 la MISMA fuente del gate seller/pais/moneda), las TRES listas read-only:
@@ -37,9 +37,9 @@ USO:
 
 Sin --out y sin --solo-conteos -> error de uso (exit != 0): el tool siempre
 o imprime o escribe, explicito. Sin ORBIT_SECRETS_DIR valido -> fail-closed
-sin abrir red. Errores de API/estructura -> mensaje por stderr (scrub) y
-exit != 0. --platform que no deja ningun perfil aceptado -> exit != 0 (jamas
-un exito vacio).
+sin abrir red. Errores de API/estructura/escritura -> mensaje por stderr
+(scrub) y exit != 0. --platform que no deja ningun perfil aceptado ->
+exit != 0 (jamas un exito vacio).
 
 RUNBOOK DEL CONTENEDOR (el tool no va en la imagen y el contenedor corre
 non-root con /app no escribible — patron DEPLOY.md §11d / smoke_apply; todo
@@ -57,7 +57,7 @@ desde el host del repo, donde viven los secrets que ya usa orbit-app-1):
     && rm -rf /tmp/listas"'
   echo "snapshot rc=$rc"   # 0 = snapshot completo; otro = NO seguir
 (--solo-conteos antes de la corrida completa para ver los totales sin
-escribir nada.) Verificación del JSON: DEPLOY.md §"Backup pre-cutover"
+escribir nada.) Verificacion del JSON: DEPLOY.md §"Backup pre-cutover"
 (totales por plataforma/recurso = ad_entity, incl. ARCHIVED;
 negativeKeywords solo conteo, sin espejo en cache).
 
@@ -296,7 +296,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.solo_conteos:
         _imprimir_resumen(snap)
         return 0
-    return _escribir_snapshot(snap, args.out)
+    try:
+        return _escribir_snapshot(snap, args.out)
+    except OSError as exc:
+        # Mismo trato que el resto del tool (hallazgo reviewer 1.3): mensaje
+        # a stderr con scrub y exit controlado, jamas un traceback crudo.
+        print(f"no se pudo escribir el snapshot: {scrub(str(exc))}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
