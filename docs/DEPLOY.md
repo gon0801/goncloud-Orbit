@@ -340,9 +340,16 @@ unset NEW   # el token no vive en el shell ni en el historial
 
 ## Aplicar migraciones
 
+**Cadena completa y EN ORDEN** (CodeRabbit PR #46: la sección saltaba de
+`0001` a `0003` — sin `0002` la base queda sin las tablas/GRANTs del apply y
+`0003` se aplicaría sobre una instalación incompleta):
+
 ```bash
 ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit \
   -v ON_ERROR_STOP=1 -1' < migrations/0001_initial.sql
+ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit \
+  -v ON_ERROR_STOP=1 -1' < migrations/0002_apply.sql
+# 0003: ver abajo — exige chequeo previo y backup del schema
 ```
 
 - `-1` = transacción única: si algo falla a medias, se revierte entera.
@@ -352,7 +359,32 @@ ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit \
 - Post-aplicación (verificación de la 0001): 19 tablas en `public`, roles
   `app_*` en `pg_roles`, `prohibir_mutacion` en `pg_proc`.
 
-Migración `0003` (ORBIT 05 preflight 1.2), mismo patrón de comando:
+Migración `0003` (ORBIT 05 preflight 1.2) — **APLICADA en goncloud el
+2026-08-29 04:10 UTC por el lead con GO del dueño** (evidencia
+`out/orbit-05-preflight-1-2-lead-20260829.md`). Secuencia obligatoria:
+
+**(a) Chequeo PREVIO** (CodeRabbit PR #46: un goal MXN creado ANTES de 0003
+pudo nacer con el techo USD y esos valores NO son None, así que ningún
+guard de código los corrige) — debe dar **cero filas**:
+
+```sql
+SELECT id, bid_currency, bid_floor, bid_ceiling FROM ads_optimizer_goal
+ WHERE bid_currency = 'MXN' AND bid_floor = 0.10 AND bid_ceiling = 2.50;
+```
+
+Si devuelve alguna: corregirla ANTES de migrar con
+`python -m app.cli goals set <id> --floor 1.00 --ceiling 45.00` (queda
+auditado por `updated_at`; 0003 NO toca datos por diseño). Verificado
+2026-08-29: cero filas (goal 4 ya en 1.00/45.00 MXN).
+
+**(b) Backup del schema de la tabla** (además del backup diario):
+
+```bash
+ssh goncloud 'docker exec orbit-db-1 pg_dump -U orbit -d orbit --schema-only \
+  -t ads_optimizer_goal > /mnt/data/appdata/orbit/backups/pre0003_ads_optimizer_goal_$(date -u +%Y%m%d-%H%M%S).sql'
+```
+
+**(c) Aplicar**, mismo patrón de comando:
 
 ```bash
 ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit \
