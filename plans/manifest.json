@@ -49,6 +49,11 @@
       "name": "orbit-05",
       "path": "plans/orbit-05.md",
       "description": "ORBIT 05 — cutover a LIVE con rampa: backup real -> discard masivo shadow (app_admin) -> flip doble (escalera + goal.mode por goal firmado) -> primer ciclo live con caps 10/2/5/2; 48h live con adversarial triple, spot-check del dueno y primer harvest a mano. Arranca tras ~2026-09-07 y preflight Done"
+    },
+    {
+      "name": "orbit-06",
+      "path": "plans/orbit-06.md",
+      "description": "ORBIT 06 - consolidacion post-cutover: Fase 0 el dato (productos+costos, listings, allowlist y vinculo de product ads, FX, ledger con cargos, candado de cobertura), Fase 1 margen medible con rango de halo + digest + pantalla, Fase 2 margin-aware targets en shadow. La Fase 0 NO depende del flip"
     }
   ],
   "active": "orbit-05-preflight"
