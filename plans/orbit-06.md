@@ -102,13 +102,71 @@ alcanza, la Fase 1 no arranca.
 
 | Task | Contenido | DoD | Depends | Status |
 |---|---|---|---|---|
-| 0.1 | **Ingesta de productos y costos** a `product` + `sku_cost`. Fuente: `sku_costs` de la SQLite de contabilidad. Mapeo explícito de nombres: `sku` → `product.odoo_sku`, `cost` → `cost_amount`, `currency` → `cost_currency`. La vigencia bitemporal se PRESERVA. **Semántica de re-corrida contra el esquema real**: `sku_cost` tiene un `EXCLUDE` (btree_gist) que impide dos vigencias solapadas del mismo producto, y el trigger `sku_cost_solo_cierra_vigencia` permite **únicamente** cerrar `valid_to` — no hay UPDATE de importe ni DELETE. Por lo tanto: vigencia nueva ⇒ cierra la anterior con `valid_to` e inserta; vigencia idéntica ya presente ⇒ **no-op**, jamás error ni fila duplicada. `cost` 0 o NULL ⇒ fila no escrita y contada (sellado 1). `includes_tax` se resuelve leyendo qué produce Odoo, no se asume. Subcomando `ingest costs`. `[tdd:required]` | Rojo antes del código. Tests: costo cero rechazado y contado; vigencia nueva cierra la anterior (una sola vigente por producto, el EXCLUDE lo prueba); **re-correr la ingesta completa dos veces deja la base idéntica** (no-op real, no "mismo ingest_run"); intento de modificar un importe existente → rechazado por el trigger. Corrida real con conteos y lista de SKU rechazados con motivo | - | cc:TODO |
+| 0.1 | **Ingesta de productos y costos** a `product` + `sku_cost`. Fuente: `sku_costs` de la SQLite de contabilidad. Mapeo explícito de nombres: `sku` → `product.odoo_sku`, `cost` → `cost_amount`, `currency` → `cost_currency`. La vigencia bitemporal se PRESERVA. **Semántica de re-corrida contra el esquema real**: `sku_cost` tiene un `EXCLUDE` (btree_gist) que impide dos vigencias solapadas del mismo producto, y el trigger `sku_cost_solo_cierra_vigencia` permite **únicamente** cerrar `valid_to` — no hay UPDATE de importe ni DELETE. Por lo tanto: vigencia nueva ⇒ cierra la anterior con `valid_to` e inserta; vigencia idéntica ya presente ⇒ **no-op**, jamás error ni fila duplicada. `cost` 0 o NULL ⇒ fila no escrita y contada (sellado 1). `includes_tax` se resuelve leyendo qué produce Odoo, no se asume. Subcomando `ingest costs`. **Tres obstáculos medidos por el lead el 2026-08-30 que hay que resolver ANTES de escribir código — ver §Obstáculos de la 0.1**: el contenedor no ve la base de contabilidad; las vigencias de origen son timestamps intradía y el destino es DATE con `CHECK` y `EXCLUDE`; y `product.name` e `includes_tax` no tienen fuente. `[tdd:required]` | Las tres decisiones de §Obstáculos escritas y justificadas ANTES del código. Rojo antes del código. Tests: costo cero rechazado y contado; **colapso de vigencias** (varias filas del mismo SKU el mismo día → UNA vigencia; sin este test la ingesta revienta contra el `EXCLUDE`); vigencia nueva cierra la anterior (una sola vigente por producto); **re-correr la ingesta completa dos veces deja la base idéntica** (no-op real, no "mismo ingest_run"); intento de modificar un importe existente → rechazado por el trigger; SKU sin nombre sigue el camino decidido y queda contado. Corrida real con conteos, cuántas filas se colapsaron y lista de SKU rechazados con motivo | - | cc:TODO |
 | 0.2 | **Ingesta de listings**: el mapa SKU ↔ plataforma ↔ identificador externo, a `listing`. Sin él, el costo (por SKU de Odoo) no se une a lo que Amazon anuncia (por ASIN/seller SKU). Fuente a determinar EN LA TAREA con evidencia (contabilidad, API de Amazon, o ambas) y declarada. **El precio es OPCIONAL**: el CHECK `listing_precio_con_moneda` exige `(listing_price IS NULL) = (price_currency IS NULL)`, o sea ambos o ninguno. El producto de esta tarea es el MAPA; un listing sin precio se escribe igual. `[tdd:required]` | Rojo antes del código. Fuente elegida declarada con su SELECT/readback. Tests: un SKU en dos plataformas → dos filas; listing sin precio se escribe (ambos NULL) y no se descarta; precio presente sin moneda → rechazado por el CHECK. Corrida real: conteo por plataforma y % de SKU con costo que quedan mapeados | 0.1 | cc:TODO |
 | 0.3 | **Habilitar la lectura de product ads** — es un cambio de SUPERFICIE DE SEGURIDAD, no una ingesta más: `/sp/productAds/list` **no está** en `LIST_REQUEST_TYPES`, que es un allowlist congelado (`MappingProxyType`) leído en vivo por el guard de POST; hoy `list_objects` rechaza ese path. Ampliarlo sigue el MISMO ritual que pagó `negativeKeywords`: evidencia regla 8 EN VIVO del vendor Content-Type exacto en AMBOS perfiles, con el log en `out/`, ANTES de tocar el allowlist. `[tdd:required]` | Log de la corrida real que prueba el vendor type correcto y el 200 en US y MX (o el fallo declarado). Allowlist ampliado con SOLO ese path. Tests del guard: el path nuevo pasa; un path fuera del allowlist sigue reventando; el conteo de `LIST_REQUEST_TYPES` en los tests se actualiza a propósito, no por accidente | - | cc:TODO |
 | 0.4 | **Vínculo anuncio→producto**: poblar `ad_entity.listing_id` desde los product ads. **Dos decisiones de esquema que la tarea resuelve ANTES de escribir**: (a) `ad_entity_kind` NO tiene `product_ad` — se decide entre extender el enum por migración o no materializar el product ad como entidad y resolver el vínculo en el ad group; (b) **cardinalidad**: un ad group puede anunciar N ASIN y `ad_entity.listing_id` es UNO solo — hay que definir qué se escribe cuando N>1 (propuesta del lead: **NO escribir** y contar el ad group como "multi-ASIN, margen no atribuible", nunca elegir uno arbitrario). Ambas decisiones se documentan con su razón antes de implementar. `[tdd:required]` | Las dos decisiones escritas y justificadas. Rojo antes del código. Candado de arquitectura: el pipeline no importa `write.py`. Tests: ad group con 1 ASIN → `listing_id` resuelto; con 0 y con N → `listing_id` NULL y contado en su categoría. Corrida real read-only con el `SELECT` de cobertura: % de ad groups con vínculo resuelto, y los no resueltos clasificados por motivo (multi-ASIN / sin listing / sin costo), jamás silenciados | 0.2, 0.3 | cc:TODO |
-| 0.5 | **Ingesta de tipos de cambio** a `fx_rate`. Obligatoria (sellado 2). `fx_resolve` **NO se toca** (sellado 3): esta tarea solo llena la tabla de la que esa función lee. Fuente y cadencia declaradas. `[tdd:required]` | Rojo antes del código. Tests: con la tabla poblada, `fx_resolve` devuelve `exact` el día que existe y `nearest_prior` dentro de los 7 días; **más de 7 días sin tasa → cero filas**, y el consumidor lo trata como dato faltante (sellado 1), no como 1.0 ni como constante. Corrida real: rango de fechas cubierto y lista de huecos > 3 días | - | cc:TODO |
-| 0.6 | **Ingesta del ledger, y NO solo ventas** (sellado 4): además de `kind='sale'`, las clases de cargo que `v_margen_plataforma` resta (`fee`, `refund`, `withholding`). Sin ellas el margen sale sistemáticamente alto. **Semántica append-only contra el esquema real**: `ledger_event` tiene tres índices únicos de deduplicación (`ledger_dedupe_source` por `source_event_id`; `ledger_dedupe_sin_orden` y `ledger_dedupe_con_orden` por clave natural, `NULLS NOT DISTINCT`) — re-ingerir el mismo hecho es **no-op**, no una segunda observación. El ISR **no trae `order_id`** y llega en bultos quincenales: se prorratea explícitamente o se excluye POR ESCRITO, con la decisión documentada. `[tdd:required]` | Rojo antes del código. Tests: re-ingerir el mismo evento no inserta y no revienta (`ON CONFLICT DO NOTHING` verificado, no asumido); cada clase de cargo llega a su índice de dedupe correcto; evento sin `order_id` sigue el camino declarado y queda contado. Corrida real con conteo **por `kind`** y ventana; la evidencia declara explícitamente qué clases de cargo entraron y cuáles no | 0.1 | cc:TODO |
+| 0.5 | **Ingesta de tipos de cambio** a `fx_rate`. Obligatoria (sellado 2). Fuente localizada por el lead: `currency_rates` en la SQLite de contabilidad (210 filas: `rate_date`, `base_currency`, `quote_currency`, `rate`). `fx_resolve` **NO se toca** (sellado 3): esta tarea solo llena la tabla de la que esa función lee. Fuente y cadencia declaradas. `[tdd:required]` | Rojo antes del código. Tests: con la tabla poblada, `fx_resolve` devuelve `exact` el día que existe y `nearest_prior` dentro de los 7 días; **más de 7 días sin tasa → cero filas**, y el consumidor lo trata como dato faltante (sellado 1), no como 1.0 ni como constante. Corrida real: rango de fechas cubierto y lista de huecos > 3 días | - | cc:TODO |
+| 0.6 | **Ingesta del ledger, y NO solo ventas** (sellado 4). Fuente localizada por el lead: `ledger_events` en la SQLite de contabilidad (13,127 filas, con `platform`, `order_id`, `event_type`, `fee_category`, `sku`, `quantity`, `amount`). además de `kind='sale'`, las clases de cargo que `v_margen_plataforma` resta (`fee`, `refund`, `withholding`). Sin ellas el margen sale sistemáticamente alto. **Semántica append-only contra el esquema real**: `ledger_event` tiene tres índices únicos de deduplicación (`ledger_dedupe_source` por `source_event_id`; `ledger_dedupe_sin_orden` y `ledger_dedupe_con_orden` por clave natural, `NULLS NOT DISTINCT`) — re-ingerir el mismo hecho es **no-op**, no una segunda observación. El ISR **no trae `order_id`** y llega en bultos quincenales: se prorratea explícitamente o se excluye POR ESCRITO, con la decisión documentada. `[tdd:required]` | Rojo antes del código. Tests: re-ingerir el mismo evento no inserta y no revienta (`ON CONFLICT DO NOTHING` verificado, no asumido); cada clase de cargo llega a su índice de dedupe correcto; evento sin `order_id` sigue el camino declarado y queda contado. Corrida real con conteo **por `kind`** y ventana; la evidencia declara explícitamente qué clases de cargo entraron y cuáles no | 0.1 | cc:TODO |
 | 0.7 | **Candado de cobertura**: qué fracción del GASTO PUBLICITARIO real corresponde a anuncios con vínculo resuelto (0.4), costo conocido (0.1) y FX disponible (0.5). Ponderada por gasto, no por conteo de SKU. Umbral mínimo: **lo propone el lead con el número medido a la vista y lo aprueba el dueño** — no se inventa aquí (regla 3). `[tdd:required]` | Cobertura publicada por plataforma con su `SELECT` en la evidencia, desglosando el gasto NO cubierto por motivo (multi-ASIN, sin listing, sin costo, sin FX). Decisión del dueño con su texto literal. **Si no alcanza, la Fase 1 queda `blocked` con el motivo; no se arranca "con lo que hay"** | 0.4, 0.5, 0.6 | cc:TODO |
+
+## Obstáculos de la 0.1 (medidos por el lead 2026-08-30, antes de asignarla)
+
+Van aquí y no en un brief de chat **a propósito**: son los hallazgos más
+caros de la tarea, y un brief se pierde con la sesión. Quien tome la 0.1
+—hoy o dentro de tres meses— choca con los tres.
+
+**1 · El contenedor NO puede leer la base de contabilidad.**
+`docker exec orbit-app-1 ls /mnt/data/appdata/accounting/data/accounting.db`
+responde `No such file or directory`: el servicio `app` monta SOLO
+`secrets/`. Decisión previa a implementar, con su razón. Opciones: (a)
+bind-mount **read-only** del archivo en el compose; (b) correr la ingesta en
+el host contra el DSN de Orbit; (c) exportar de contabilidad y meter el
+archivo al contenedor. La (a) es la más limpia pero **cambia el contrato de
+deploy** (`docs/DEPLOY.md`: "Qué se monta: SOLO `secrets/`") — si se elige,
+se propone al lead antes de tocar el compose. En cualquier caso el acceso a
+contabilidad es **read-only**.
+
+**2 · Las vigencias de origen son timestamps que cambian en SEGUNDOS; el
+destino es DATE.** Muestra real de `sku_costs`:
+`2026-02-07 12:25:00 → 12:47:06 → 12:47:07 → 12:47:08`. Orbit guarda
+`valid_from`/`valid_to` como **DATE**, con `CHECK (valid_to > valid_from)` y
+un `EXCLUDE` que prohíbe rangos solapados. Medido sobre las 2,708 filas:
+
+| Medición | Valor |
+|---|---|
+| Filas totales | 2,708 |
+| Pares `(sku, día)` distintos | 1,955 |
+| **Filas que abren y cierran el MISMO día** | **753** |
+| **Pares `(sku, día)` con más de una vigencia** | **604** |
+
+Portar fila-por-fila **REVIENTA**: esas 753 dan `valid_to = valid_from`
+(viola `sku_cost_rango`) y esos 604 grupos dan rangos solapados (viola el
+`EXCLUDE`). Es un tercio de la tabla, no un caso borde. Esa rotación
+intradía es **ruido del sync de Odoo**, no historia económica: para el
+margen, una venta del día D usó UN costo. **Propuesta del lead** (se puede
+discutir, con justificación): colapsar a una vigencia por `(sku, día)` con
+el último valor del día, y fusionar días consecutivos de igual costo en una
+sola vigencia. El colapso se declara en la evidencia con cuántas filas se
+fusionaron y bajo qué regla.
+
+**3 · `product.name` e `includes_tax` no tienen fuente en `sku_costs`.**
+`name` es `NOT NULL`; el único candidato es `bom_headers`
+(`product_sku`, `product_name`, 906 filas). Medido: de los **1,087** SKU con
+costo vigente, **906 tienen nombre y 181 NO**. Descartar esos 181 cuesta
+~17% de la cobertura que la 0.7 va a medir. Propuesta del lead: crear el
+producto igual, con nombre derivado del SKU y marca de "nombre no
+disponible" — jamás inventar un nombre descriptivo (regla 3).
+`includes_tax` es `NOT NULL` y **sin default a propósito**, y tampoco tiene
+columna equivalente en el origen: se averigua qué produce Odoo
+(`sku_costs.source`, `bom_lines`, `sync_cogs_odoo.py`) y **se declara con
+evidencia**; si no se puede determinar, se para y se pregunta. Un costo con
+o sin impuesto cambia el margen: es justo el tipo de error que este proyecto
+persigue.
+
+**Fuentes localizadas de paso** (no se tocan en la 0.1): `currency_rates`
+(210 filas) es la fuente de la 0.5, y `ledger_events` (13,127 filas) la de
+la 0.6 — ambas en la misma SQLite de contabilidad.
 
 ## Fase 1 — margen medible y honesto (todavía NO decide nada)
 
