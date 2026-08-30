@@ -56,5 +56,5 @@
       "description": "ORBIT 06 - consolidacion post-cutover: Fase 0 el dato (productos+costos, listings, allowlist y vinculo de product ads, FX, ledger con cargos, candado de cobertura), Fase 1 margen medible con rango de halo + digest + pantalla, Fase 2 margin-aware targets en shadow. La Fase 0 NO depende del flip"
     }
   ],
-  "active": "orbit-05-preflight"
+  "active": "orbit-06"
 }
