@@ -20,3 +20,6 @@ out/
 .saikit/scratch/
 # artefactos del harness (findings de adversario: nunca al repo)
 .saikit/
+
+# pruebas locales de verify-orbit (HTML/JSON de la instancia viva)
+.cursor/skills/verify-orbit/evidence/
