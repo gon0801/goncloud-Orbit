@@ -278,6 +278,34 @@ NULL arranca en su `created_at` 2026-02-20 y los 3 cambios del 2026-08-18
 colapsan al último valor 304.65). Lista de SKU rechazados en la corrida final:
 **vacía**.
 
+### Endurecimiento post-adversario (2026-08-30, mismo PR)
+
+Ronda de adversario sobre el diff (artifact `.saikit/findings/`): 6 hallazgos
+(0 altos, 3 medios, 3 bajos), todos contra datos legales-futuros del origen —
+las invariantes medidas hoy (cadena perfecta, 100% MXN, sin sub-centavos) no
+son garantías del esquema. Corregidos en el mismo PR, cada uno con su test:
+
+1. **Costo sub-centavo** (0 < costo < 5e-5) cuantiza a 0.0000 y revienta
+   `sku_cost_positivo` abortando la corrida entera → ahora es skip contado
+   ("costo cero o nulo", sellado 1).
+2. **Solape en el origen** publicaba la vigencia VIEJA como abierta (costo
+   vigente divergente de la fuente) → ahora el SKU completo queda sin escribir
+   y cada unidad no publicada cuenta su skip.
+3. **Intradía en el borde de la serie**: declarado en D2 — un tramo que abre y
+   cierra el mismo día SIN fila que continúe el día no puede reclamarlo bajo
+   granularidad DATE: el día queda sin costo (dato faltante) y se cuenta
+   aparte (`segmentos_intradia_en_borde`), distinto del ruido con sucesor.
+4. **Moneda/`includes_tax` distintos en lo publicado** con igual importe ya no
+   son no-op: divergencia y SKU completo sin escribir (regla 4).
+5. **SKU ausente del origen** queda contado (antes: silencio con vigencia
+   abierta huérfana). NO se cierra su vigencia (sería inventar que dejó de
+   aplicar) ni se desactiva el producto.
+6. **`UPDATE product.name`** del upsert (cuando el nombre mejora): queda
+   DECLARADO — está dentro de la autorización del dueño para esta tarea
+   ("escritura en `product`"), el catálogo es la excepción mutable por diseño
+   y el GRANT de la migración lo permite; documentado aquí para que el lead
+   lo vea en el diff, no en el silencio.
+
 ## Fase 1 — margen medible y honesto (todavía NO decide nada)
 
 `[lane:gate]` — produce lectura y alertas. Cero escrituras a Amazon.

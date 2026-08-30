@@ -231,6 +231,11 @@ def _motivo_rechazo(fila: FilaCosto) -> str | None:
         return "costo con mas de 4 decimales"
     if valor >= _MAX_COSTO:
         return "costo fuera de rango NUMERIC(14,4)"
+    if _costo_decimal(fila.costo) <= 0:
+        # Sub-centavo (0 < costo < 5e-5) cuantiza a 0.0000: sin este rechazo
+        # el INSERT reventaria sku_cost_positivo y abortaria la corrida ENTERA
+        # (hallazgo 1 del adversario) en vez del skip contado del sellado 1.
+        return "costo cero o nulo (dato faltante)"
     return None
 
 
@@ -240,10 +245,14 @@ def colapsar(
     """Colapsa las filas de contabilidad a vigencias de dia, por SKU.
 
     Regla por fila (D2): la fila cubre [date(inicio o creado), date(fin)); el
-    tramo vacio (abre y cierra el mismo dia) desaparece (ruido intradia); una
-    fila rechazada CORTA la cadena (sus dias quedan sin costo, la vigencia
-    anterior no se estira sobre el hueco). Tramos contiguos de igual costo y
-    moneda se funden. Devuelve (vigencias por sku, skips con motivo, stats).
+    tramo vacio (abre y cierra el mismo dia) desaparece cuando la serie sigue
+    cubriendo ese dia (ruido intradia del sync) y se cuenta APARTE cuando esta
+    en el borde (el dia queda sin costo: dato faltante, sellado 1); una fila
+    rechazada CORTA la cadena (sus dias quedan sin costo, la vigencia anterior
+    no se estira sobre el hueco); un SOLAPE en el origen corta el SKU ENTERO
+    (no se publica ni la vigencia vieja como abierta). Tramos contiguos de
+    igual costo y moneda se funden. Devuelve (vigencias por sku, skips con
+    motivo, stats).
     """
     skips: Counter = Counter()
     stats: Counter = Counter()
@@ -256,7 +265,15 @@ def colapsar(
 
     for sku, filas_sku in por_sku.items():
         serie: list[Vigencia] = []
+        intradia: list[dt.date] = []  # dias de tramos que vivieron < 1 dia
+        solape = False
         for fila in sorted(filas_sku, key=lambda f: f.inicio or f.creado or ""):
+            if solape:
+                # Hallazgo 2 del adversario: tras un solape, el resto de la
+                # cadena del origen ya no es reconstruible: se cuenta todo y
+                # el SKU completo queda sin escribir.
+                skips["vigencia solapada en el origen (sku completo sin escribir)"] += 1
+                continue
             motivo = _motivo_rechazo(fila)
             if motivo is not None:
                 skips[motivo] += 1
@@ -268,9 +285,11 @@ def colapsar(
                 skips["vigencia invertida (valid_to < valid_from)"] += 1
                 continue
             if hasta == desde:
-                # Ruido intradia: costo que vivio menos de un dia. El dia queda
-                # cubierto por la fila que sigue (regla: ultimo valor del dia).
-                stats["segmentos_intradia_colapsados"] += 1
+                # Costo que vivio menos de un dia: si la serie termina
+                # cubriendo ese dia (la fila que sigue), fue ruido del sync;
+                # si no, el dia queda SIN costo (dato faltante). Solo se puede
+                # clasificar con la serie completa (post-pase, abajo).
+                intradia.append(desde)
                 continue
             tramo = Vigencia(
                 sku=sku,
@@ -281,8 +300,10 @@ def colapsar(
             )
             if serie and (serie[-1].hasta is None or serie[-1].hasta > tramo.desde):
                 # El origen solaparia sus propias vigencias: no construimos un
-                # C que violaria el EXCLUDE al escribirlo.
-                skips["vigencia solapada en el origen"] += 1
+                # C que violaria el EXCLUDE, y tampoco publicamos la vieja como
+                # abierta (divergiria del costo vigente de la fuente).
+                solape = True
+                skips["vigencia solapada en el origen (sku completo sin escribir)"] += 1
                 continue
             if (
                 serie
@@ -294,9 +315,23 @@ def colapsar(
                 stats["fusiones"] += 1
             else:
                 serie.append(tramo)
+        if solape:
+            # Los tramos ya construidos del SKU tambien quedan sin escribir:
+            # el contador refleja TODO lo que no se publico del SKU.
+            skips["vigencia solapada en el origen (sku completo sin escribir)"] += len(serie)
+            continue
         if serie:
             vigencias[sku] = serie
             stats["vigencias"] += len(serie)
+        # Clasificacion diferida de los intradia (hallazgo 3 del adversario):
+        # cubierto por la serie = ruido del sync; dia sin cobertura = borde,
+        # el dia se pierde como dato faltante y queda contado APARTE.
+        for dia in intradia:
+            cubierto = any(t.desde <= dia and (t.hasta is None or t.hasta > dia) for t in serie)
+            if cubierto:
+                stats["segmentos_intradia_colapsados"] += 1
+            else:
+                stats["segmentos_intradia_en_borde"] += 1
 
     return vigencias, skips, stats
 
@@ -330,8 +365,8 @@ RETURNING id, (xmax = 0) AS es_nuevo
 _SQL_ID_PRODUCTO = "SELECT id FROM product WHERE odoo_sku = %s"
 
 _SQL_VIGENCIAS_PUBLICADAS = (
-    "SELECT valid_from, cost_amount, valid_to FROM sku_cost"
-    " WHERE product_id = %s ORDER BY valid_from"
+    "SELECT valid_from, cost_amount, valid_to, cost_currency, includes_tax"
+    " FROM sku_cost WHERE product_id = %s ORDER BY valid_from"
 )
 
 # Unica mutacion permitida por el trigger: NULL -> fecha, una vez. El guard
@@ -355,14 +390,16 @@ def _formato_skip_reason(skips: Counter) -> str | None:
 
 def _plan_sku(
     serie: list[Vigencia],
-    publicadas: dict[dt.date, tuple[Decimal, dt.date | None]],
+    publicadas: dict[dt.date, tuple[Decimal, dt.date | None, str, bool]],
 ) -> tuple[list[Vigencia], list[Vigencia], str | None]:
     """Compara la serie colapsada contra lo YA publicado y planifica la write.
 
     Contrato: lo publicado es un prefijo inmutable de la serie. Si el origen
     diverge (costo distinto, cierre movido/reabierto, fila desaparecida,
-    vigencia retroactiva que solaparia) se rechaza el SKU COMPLETO: cero
-    escrituras parciales. Devuelve (cierres, inserciones, motivo | None).
+    vigencia retroactiva que solaparia, moneda o includes_tax distintos —
+    hallazgo 4 del adversario: mismo importe con otra moneda es OTRO numero)
+    se rechaza el SKU COMPLETO: cero escrituras parciales. Devuelve
+    (cierres, inserciones, motivo | None).
     """
     if not publicadas:
         return [], list(serie), None
@@ -375,9 +412,13 @@ def _plan_sku(
             if v.desde <= max_desde:
                 return [], [], "vigencia retroactiva no publicable (solaparia)"
             continue
-        costo_pub, hasta_pub = pub
+        costo_pub, hasta_pub, moneda_pub, tax_pub = pub
         if costo_pub != v.costo:
             return [], [], "costo distinto para vigencia ya publicada"
+        if moneda_pub != v.moneda:
+            return [], [], "moneda distinta para vigencia ya publicada"
+        if tax_pub != INCLUDES_TAX:
+            return [], [], "includes_tax distinto en vigencia ya publicada"
         if hasta_pub is not None and v.hasta != hasta_pub:
             if v.hasta is None:
                 return [], [], "origen reabre vigencia ya publicada"
@@ -428,8 +469,10 @@ def sync_costos(conn: psycopg.Connection, ruta_sqlite: Path | str) -> ResultadoS
                         productos_actualizados += 1
 
                 publicadas = {
-                    vf: (costo, hasta)
-                    for vf, costo, hasta in conn.execute(_SQL_VIGENCIAS_PUBLICADAS, (product_id,))
+                    vf: (costo, hasta, moneda, tax)
+                    for vf, costo, hasta, moneda, tax in conn.execute(
+                        _SQL_VIGENCIAS_PUBLICADAS, (product_id,)
+                    )
                 }
                 cierres, inserciones, motivo = _plan_sku(vigencias_por_sku[sku], publicadas)
                 if motivo is not None:
@@ -446,6 +489,15 @@ def sync_costos(conn: psycopg.Connection, ruta_sqlite: Path | str) -> ResultadoS
                         (product_id, v.costo, v.moneda, INCLUDES_TAX, v.desde, v.hasta, run_id),
                     )
                     insertadas += 1
+
+            # Hallazgo 5 del adversario: un SKU que desaparece ENTERO del
+            # origen no puede quedar en silencio con su vigencia abierta
+            # huerfana. Se cuenta; NO se cierra su vigencia (eso seria inventar
+            # que dejo de aplicar) ni se desactiva el producto.
+            skus_origen = {f.sku for f in origen.filas}
+            for (odoo_sku,) in conn.execute("SELECT odoo_sku FROM product"):
+                if odoo_sku not in skus_origen:
+                    skips["sku ausente del origen (su vigencia abierta queda huerfana)"] += 1
 
             skip_reason = _formato_skip_reason(skips)
             _sellar_run(

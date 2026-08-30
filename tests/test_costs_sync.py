@@ -36,6 +36,8 @@ from test_schema import SQL, _hay_postgres_local, _test_dsn
 from app.costs import (
     NOMBRE_SIN_ODOO,
     FilaCosto,
+    Vigencia,
+    _plan_sku,
     colapsar,
     leer_origen,
     main,
@@ -307,6 +309,72 @@ def test_ruido_binario_del_float_se_cuantiza():
     vigencias, skips, _ = colapsar([_fila("R", 554.1800000000001, "2026-04-01 10:00:00", None)])
     assert skips == Counter()
     assert vigencias == {"R": [("R", Decimal("554.18"), "MXN", date(2026, 4, 1), None)]}
+
+
+# --- hallazgos del adversario (0 altos, 3 medios, 3 bajos), 2026-08-30 ------
+
+
+def test_costo_subcentavo_cuantiza_a_cero_y_se_rechaza():
+    """Hallazgo 1 (medio): un costo en (0, 1e-5) pasa el chequeo > 0 y cuantiza
+    a 0.0000: sin este rechazo el INSERT revienta sku_cost_positivo y aborta
+    la transaccion ENTERA en vez del skip contado que promete el sellado 1."""
+    _, skips, _ = colapsar([_fila("S", 1e-06, "2026-04-01 10:00:00", None)])
+    assert skips == Counter({"costo cero o nulo (dato faltante)": 1})
+
+
+def test_solape_en_el_origen_corta_el_sku_entero():
+    """Hallazgo 2 (medio): si el origen solapa sus propias vigencias, no se
+    publica NI la vieja abierta (divergiria del costo vigente de la fuente):
+    el SKU completo queda sin escribir y cada fila afectada cuenta su skip."""
+    filas = [
+        _fila("O", 100.0, "2026-04-01 10:00:00", None),
+        _fila("O", 120.0, "2026-04-03 09:00:00", "2026-04-10 09:00:00"),
+        _fila("O", 130.0, "2026-04-10 09:00:00", None),
+    ]
+    vigencias, skips, _ = colapsar(filas)
+    assert vigencias == {}
+    assert skips == Counter({"vigencia solapada en el origen (sku completo sin escribir)": 3})
+
+
+def test_intradia_en_el_borde_de_la_serie_pierde_el_dia_y_queda_contado():
+    """Hallazgo 3 (medio): un tramo que abre y cierra el mismo dia en el BORDE
+    de la serie (sin fila que continue el dia) no puede reclamar el dia bajo
+    la granularidad DATE: es dato faltante, contado por separado del ruido
+    intradario con sucesor (declarado en D2 del plan)."""
+    filas = [
+        _fila("B", 100.0, "2026-04-01 10:00:00", "2026-04-05 09:00:00"),
+        _fila("B", 120.0, "2026-04-05 10:00:00", "2026-04-05 15:00:00"),
+    ]
+    vigencias, skips, stats = colapsar(filas)
+    # el 2026-04-05 queda SIN costo: la fila que lo cubria vivio menos de un
+    # dia y nada la continua (sellado 1: no se reclama lo que no se puede probar)
+    assert vigencias == {"B": [("B", Decimal("100"), "MXN", date(2026, 4, 1), date(2026, 4, 5))]}
+    assert skips == Counter()
+    assert stats["segmentos_intradia_en_borde"] == 1
+    assert stats["segmentos_intradia_colapsados"] == 0
+
+
+def test_plan_sku_rechaza_moneda_o_includes_tax_distinto_de_lo_publicado():
+    """Hallazgo 4 (bajo): lo publicado con MISMO importe pero otra moneda (o
+    includes_tax distinto) NO es un no-op: es divergencia y el SKU completo
+    queda sin escribir (regla 4: un numero sin su moneda es otro numero)."""
+    serie = [Vigencia("M", Decimal("100"), "USD", date(2026, 4, 1), None)]
+    _, _, motivo = _plan_sku(serie, {date(2026, 4, 1): (Decimal("100"), None, "MXN", False)})
+    assert motivo == "moneda distinta para vigencia ya publicada"
+    serie_mx = [Vigencia("M", Decimal("100"), "MXN", date(2026, 4, 1), None)]
+    _, _, motivo = _plan_sku(serie_mx, {date(2026, 4, 1): (Decimal("100"), None, "MXN", True)})
+    assert motivo == "includes_tax distinto en vigencia ya publicada"
+
+
+def test_plan_sku_acepta_prefijo_identico_con_moneda_y_tax():
+    """Cara complementaria del hallazgo 4: moneda e includes_tax identicos a
+    lo publicado siguen siendo no-op (el caso comun, 100% MXN / false)."""
+    serie = [Vigencia("M", Decimal("100"), "MXN", date(2026, 4, 1), None)]
+    cierres, inserciones, motivo = _plan_sku(
+        serie, {date(2026, 4, 1): (Decimal("100"), None, "MXN", False)}
+    )
+    assert motivo is None
+    assert cierres == [] and inserciones == []
 
 
 # ---------------------------------------------------------------------------
@@ -669,8 +737,10 @@ def test_sync_costos_ciclo_completo_en_vivo(tmp_path):
         assert _estado(conn) == antes4  # ni cierres ni insert del SKU divergente
 
         # -------- corrida 5: reabrir vigencia publicada tampoco se escribe --------
-        filas_v5 = list(filas_v3)
-        # el origen reabre la vigencia que ya esta publicada como cerrada
+        # El origen REABRE: la rotacion nueva desaparece y la fila publicada
+        # como cerrada vuelve con valid_to NULL. (Dejar AMBIAS filas abiertas
+        # seria un solape del origen, que el colapso caza ANTES de _plan_sku.)
+        filas_v5 = list(filas_v3)[:-1]
         filas_v5[3] = (
             "ARR-16-001",
             305.0,
@@ -687,6 +757,20 @@ def test_sync_costos_ciclo_completo_en_vivo(tmp_path):
         assert r5.rows_written == 0
         assert "origen reabre vigencia ya publicada" in r5.skip_reason
         assert _estado(conn) == antes5
+
+        # -------- corrida 6: SKU ausente del origen queda CONTADO --------
+        # (hallazgo 5 del adversario, bajo): un SKU que desaparece entero del
+        # origen no puede quedar en silencio con su vigencia abierta huerfana.
+        filas_v6 = [f for f in filas_v3 if f[0] != "SKU-C-CERO"]
+        snap6 = _snapshot(tmp_path / "v6.db", filas_v6, _NOMBRES_V1)
+        antes6 = _estado(conn)
+        r6 = sync_costos(conn, snap6)
+        assert r6.ok is True
+        assert r6.rows_written == 0
+        assert "1x sku ausente del origen (su vigencia abierta queda huerfana)" in r6.skip_reason
+        # no se ESCRIBE nada del ausente (ni cerrar su vigencia: eso seria
+        # inventar que dejo de aplicar), y la base queda identica
+        assert _estado(conn) == antes6
     finally:
         if conn is not None:
             conn.close()
