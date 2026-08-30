@@ -135,24 +135,29 @@ class _Respuesta:
 
 class _ClienteAdsFalso:
     """AdsClient canned: /sp/campaigns/list responde la campana con el estado
-    indicado y /sp/keywords/list responde la keyword pedida PAUSED (readback
-    post-PUT de la Fase 1, SIN consumir la secuencia de campanas); cualquier
-    otro path (o un GET) revienta. Con `secuencia`, cada llamada de CAMPANAS
-    consume el siguiente estado (guard PAUSED y readback post-PUT ENABLED en
-    la misma corrida)."""
+    indicado y /sp/keywords/list modela el ciclo REAL de cada keyword —
+    ENABLED en la PRE-LECTURA previa al PUT y PAUSED en el readback posterior
+    (SIN consumir la secuencia de campanas); cualquier otro path (o un GET)
+    revienta. Con `secuencia`, cada llamada de CAMPANAS consume el siguiente
+    estado (guard PAUSED y readback post-PUT ENABLED en la misma corrida)."""
 
     def __init__(self, estado_vivo: str = "PAUSED", secuencia: list[str] | None = None):
         self._estado = estado_vivo
         self._secuencia = list(secuencia or [])
+        self._keywords_vistas: set[str] = set()
         self.llamadas: list[dict] = []
 
     def list_objects(self, path, body, *, profile_id=None):
         self.llamadas.append({"path": path, "body": dict(body), "profile_id": profile_id})
         if path == "/sp/keywords/list":
             kw_id = body["keywordIdFilter"]["include"][0]
+            # 1a lectura de esa keyword = pre-lectura (todavia ENABLED);
+            # las siguientes = readback despues del PUT de pausa.
+            primera = kw_id not in self._keywords_vistas
+            self._keywords_vistas.add(kw_id)
             return _Respuesta(
                 200,
-                {"keywords": [{"keywordId": kw_id, "state": "PAUSED"}]},
+                {"keywords": [{"keywordId": kw_id, "state": "ENABLED" if primera else "PAUSED"}]},
                 texto='{"state": "ok"}',
             )
         assert path == "/sp/campaigns/list", f"path inesperado: {path}"
@@ -677,3 +682,206 @@ def test_main_dedup_1_6a_campana_pausada_a_mitad_no_se_pisa(monkeypatch, capsys)
     assert resumes == [], "el resume NO sale si la campana cambio a mitad"
     eventos = [e["evento"] for e in _eventos(capsys)]
     assert "estado_vivo_prev_resume" in eventos, "la re-lectura queda declarada en el log"
+
+
+# ---------------------------------------------------------------------------
+# 18-25. Pausa suelta post-1.6a (GO del dueno 2026-08-29, "3. go"): UNA pausa
+# y CERO resumes. Es el caso que 1.6a dejo abierto: al reactivar la 3919, su
+# copia de 'arras de boda cristiana' quedo ENABLED a la vez que la de A1U
+# (3909), que no tiene un solo clic en 90 dias.
+# ---------------------------------------------------------------------------
+
+POST_EXTERNAL = "363015968886921"  # keyword 5327 de A1U (3909)
+
+
+def _conn_post_1_6a(estados: list[str] | None = None) -> _ConnFalsa:
+    """Cola del modo --pausas-post-1-6a: SOLO filas de keyword
+    (external_id, estado, platform), una por PAUSAS_POST_1_6A. Cero filas de
+    campana: este modo no resuelve ninguna."""
+    est = list(estados or ["ENABLED"] * len(rc.PAUSAS_POST_1_6A))
+    assert len(est) == len(rc.PAUSAS_POST_1_6A)
+    externals = [POST_EXTERNAL] + [f"kw-post-{i}" for i in range(1, len(est))]
+    return _ConnFalsa([[(externals[i], e, "amazon_us")] for i, e in enumerate(est)])
+
+
+class _HttpQuePausa:
+    """httpx.Client falso que CONTESTA los PUT de pausa con ack 200 limpio."""
+
+    def __init__(self):
+        self.puts: list[dict] = []
+
+    def put(self, url, headers=None, json=None):
+        self.puts.append({"url": url, "headers": dict(headers or {}), "payload": json})
+        return _Respuesta(200, {}, texto='{"keywords": []}')
+
+    def close(self):
+        pass
+
+
+class _ClienteKeywordFalso:
+    """AdsClient canned para el modo de pausa suelta: /sp/keywords/list
+    devuelve el estado que le toque de `secuencia` (pre-lectura ENABLED,
+    readback post-PUT PAUSED). Cualquier path de CAMPANAS revienta: este
+    modo NO debe consultar campanas."""
+
+    def __init__(self, secuencia: list[str]):
+        self._secuencia = list(secuencia)
+        self.llamadas: list[dict] = []
+
+    def list_objects(self, path, body, *, profile_id=None):
+        self.llamadas.append({"path": path, "body": dict(body), "profile_id": profile_id})
+        assert path == "/sp/keywords/list", f"este modo no consulta {path}"
+        kw_id = body["keywordIdFilter"]["include"][0]
+        estado = self._secuencia.pop(0) if self._secuencia else "PAUSED"
+        return _Respuesta(
+            200, {"keywords": [{"keywordId": kw_id, "state": estado}]}, texto='{"state": "ok"}'
+        )
+
+    def get(self, *a, **kw):
+        raise AssertionError("GET inesperado")
+
+
+def _fakea_main_keyword(monkeypatch, conn, secuencia: list[str], http=None):
+    """Frontera del main para el modo de pausa suelta (cero red)."""
+    monkeypatch.setattr(AdsCredentials, "from_secrets_dir", classmethod(lambda cls: _CREDS_FALSAS))
+    monkeypatch.setattr(rc, "_dsn_read", lambda: "dsn-falso")
+    monkeypatch.setattr(rc, "connect", lambda dsn: conn)
+    cliente = _ClienteKeywordFalso(secuencia)
+    monkeypatch.setattr(rc, "AdsClient", lambda cred: cliente)
+    monkeypatch.setattr(rc, "evaluar_perfiles", lambda cliente_lectura: [_perfil_us()])
+    monkeypatch.setattr(
+        rc,
+        "httpx",
+        SimpleNamespace(Client=lambda **kw: http or _HttpFalso(), Timeout=lambda **kw: None),
+    )
+    return cliente
+
+
+def test_post_1_6a_resuelve_solo_keywords_y_cero_campanas(capsys):
+    """El plan del modo post-1.6a es UNA pausa y NINGUN resume: reactivar algo
+    no es parte de esta tarea."""
+    conn = _conn_post_1_6a()
+    campanas, keywords = rc._resolver_plan(conn, pausas_post_1_6a=True)
+
+    assert campanas == {}, "cero resumes: este modo NO reactiva nada"
+    assert [(k["camp_id"], k["texto"], k["match"]) for k in keywords] == rc.PAUSAS_POST_1_6A
+    assert keywords[0]["external_id"] == POST_EXTERNAL
+
+
+def test_post_1_6a_lista_es_la_copia_de_a1u_que_no_convierte():
+    """Candado sobre la lista misma: el GO del dueno autorizo UNA pausa, la
+    copia de A1U (3909). Si alguien le agrega filas, este test lo declara."""
+    assert rc.PAUSAS_POST_1_6A == [(3909, "arras de boda cristiana", "EXACT")]
+
+
+def test_post_1_6a_keyword_no_enabled_en_la_base_aborta():
+    """Fail-closed del helper compartido: si el cache ya la da PAUSED, la
+    realidad difiere del plan y no se toca Amazon."""
+    conn = _conn_post_1_6a(["PAUSED"])
+    with pytest.raises(rc.Abortar, match="no ENABLED"):
+        rc._resolver_plan(conn, pausas_post_1_6a=True)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        ["--solo-campana", str(SOLO_CAMPANA)],
+        ["--dedup-1-6a", "--solo-campana", str(rc.CAMPANA_DEDUP_1_6A)],
+    ],
+)
+def test_post_1_6a_no_se_combina_con_los_modos_de_resume(monkeypatch, extra):
+    """Los modos son excluyentes: la pausa suelta jamas arrastra un resume."""
+    monkeypatch.setattr(sys, "argv", ["reactiva_campanas.py", "--pausas-post-1-6a", *extra])
+    with pytest.raises(rc.Abortar, match="excluyente"):
+        rc.main()
+
+
+def test_post_1_6a_mutacion_sin_esperado_external_aborta(monkeypatch, capsys):
+    """Misma disciplina anti-typo que --solo-campana: la mutacion real queda
+    ATADA al external que el dueno vio en el dry-run."""
+    http = _HttpQuePausa()
+    _fakea_main_keyword(monkeypatch, _conn_post_1_6a(), ["ENABLED"], http=http)
+    monkeypatch.setattr(rc, "_token_lwa", lambda cred, client: "token-falso")
+    monkeypatch.setattr(
+        sys, "argv", ["reactiva_campanas.py", "--pausas-post-1-6a", "--acepto-mutacion-real"]
+    )
+    with pytest.raises(rc.Abortar, match="esperado-external"):
+        rc.main()
+    assert http.puts == [], "sin el external esperado no hay NI UN PUT"
+
+
+def test_post_1_6a_esperado_external_desacuerdo_aborta(monkeypatch, capsys):
+    """Un typo en el external autorizado aborta ANTES de tocar Amazon."""
+    http = _HttpQuePausa()
+    _fakea_main_keyword(monkeypatch, _conn_post_1_6a(), ["ENABLED"], http=http)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "reactiva_campanas.py",
+            "--pausas-post-1-6a",
+            "--esperado-external",
+            "999999999999999",
+            "--acepto-mutacion-real",
+        ],
+    )
+    with pytest.raises(rc.Abortar, match="realidad difiere"):
+        rc.main()
+    assert http.puts == [], "el desacuerdo aborta ANTES de tocar Amazon"
+
+
+def test_post_1_6a_keyword_ya_pausada_en_vivo_no_se_muta(monkeypatch, capsys):
+    """TOCTOU de la MISMA clase que el hallazgo Greptile del PR #54, ahora del
+    lado de la pausa: entre el SELECT del cache y el PUT alguien pudo pausarla
+    (o archivarla). Si el estado VIVO no es ENABLED no se pisa: abortar."""
+    http = _HttpQuePausa()
+    _fakea_main_keyword(monkeypatch, _conn_post_1_6a(), ["PAUSED"], http=http)
+    monkeypatch.setattr(rc, "_token_lwa", lambda cred, client: "token-falso")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "reactiva_campanas.py",
+            "--pausas-post-1-6a",
+            "--esperado-external",
+            POST_EXTERNAL,
+            "--acepto-mutacion-real",
+        ],
+    )
+    with pytest.raises(rc.Abortar, match="ya esta PAUSED en Amazon"):
+        rc.main()
+    assert http.puts == [], "no se pisa una decision ajena: cero PUT"
+    eventos = [e["evento"] for e in _eventos(capsys)]
+    assert "estado_vivo_prev_pause" in eventos, "la pre-lectura queda declarada en el log"
+
+
+def test_post_1_6a_mutacion_real_pausa_con_shape_sellado(monkeypatch, capsys):
+    """Camino feliz: pre-lectura ENABLED -> PUT con el shape sellado (enum
+    UPPER, id STRING, vendor v3) -> readback PAUSED. Cero PUT de campanas."""
+    http = _HttpQuePausa()
+    _fakea_main_keyword(monkeypatch, _conn_post_1_6a(), ["ENABLED", "PAUSED"], http=http)
+    monkeypatch.setattr(rc, "_token_lwa", lambda cred, client: "token-falso")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "reactiva_campanas.py",
+            "--pausas-post-1-6a",
+            "--esperado-external",
+            POST_EXTERNAL,
+            "--acepto-mutacion-real",
+        ],
+    )
+    assert rc.main() == 0
+
+    assert len(http.puts) == 1, "UNA sola mutacion"
+    put = http.puts[0]
+    assert put["url"].endswith("/sp/keywords"), "cero PUT a /sp/campaigns"
+    assert put["payload"] == {"keywords": [{"keywordId": POST_EXTERNAL, "state": "PAUSED"}]}
+    assert isinstance(put["payload"]["keywords"][0]["keywordId"], str), "id como STRING"
+    assert put["headers"]["Content-Type"] == rc.VENDOR_POR_PATH["/sp/keywords"]
+    assert put["headers"]["Accept"] == rc.VENDOR_POR_PATH["/sp/keywords"]
+
+    eventos = {e["evento"]: e for e in _eventos(capsys)}
+    assert eventos["pause"]["ok"] is True
+    assert eventos["pause"]["readback"] == "PAUSED"

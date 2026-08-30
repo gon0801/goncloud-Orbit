@@ -56,6 +56,23 @@ al resume de ESA campana (cross-review codex). Corrida:
     ssh goncloud 'docker exec -i orbit-app-1 python - --solo-campana 3919 \
       --esperado-external 251723662158466 [--dedup-1-6a] [--acepto-mutacion-real]' \
       < tools/reactiva_campanas.py
+
+MODO --pausas-post-1-6a (GO del dueno 2026-08-29, "3. go"): pausa SOLO las
+keywords de PAUSAS_POST_1_6A y CERO campanas — es EXCLUYENTE con
+--solo-campana/--dedup-1-6a, porque un GO para PAUSAR jamas puede arrastrar
+un resume. Misma disciplina anti-typo (--esperado-external obligatorio en
+mutacion real, contra el external de la KEYWORD) y el plan debe resolver
+EXACTAMENTE 1 keyword. Corrida:
+
+    ssh goncloud 'docker exec -i orbit-app-1 python - --pausas-post-1-6a \
+      --esperado-external 363015968886921 [--acepto-mutacion-real]' \
+      < tools/reactiva_campanas.py
+
+PRE-LECTURA ANTES DE CADA PAUSA (todas las fases, no solo el modo nuevo):
+justo antes del PUT se lee el estado VIVO por POST /sp/keywords/list y si no
+es ENABLED se ABORTA — misma clase que el hallazgo Greptile del PR #54 del
+lado del resume: entre el SELECT del cache y la mutacion alguien pudo
+pausarla o archivarla, y pausar igual seria pisar una decision ajena.
 """
 
 from __future__ import annotations
@@ -155,6 +172,18 @@ PAUSAS_DEDUP_1_6A: list[tuple[int, str, str]] = [
     (3919, "arras de boda centenario", "EXACT"),
     (3919, "b0bvqfltlq", "EXACT"),
     (3926, "arras de boda cristiana", "EXACT"),
+]
+
+# Pausa suelta POST-1.6a (GO del dueno 2026-08-29, literal "3. go"): el dedup
+# de 1.6a dejo un duplicado abierto que la tabla del lead no vio. Al reactivar
+# la 3919, su copia de 'arras de boda cristiana' quedo ENABLED a la vez que la
+# de A1U (3909) — la tabla listaba "—" para la 3909 porque no tiene datos, no
+# porque no existiera. Datos 90d COLAPSADOS (v_metric_latest, regla 5): la de
+# 3909 tiene 0 clics / $0 / 0 ordenes y ni un dia de metrica; la de 3919 tiene
+# 35 clics / $41.05 / 1 orden / $106.20. Gana quien convierte -> se pausa la
+# de 3909. Es UNA pausa y NINGUN resume: este modo no reactiva nada.
+PAUSAS_POST_1_6A: list[tuple[int, str, str]] = [
+    (3909, "arras de boda cristiana", "EXACT"),
 ]
 
 # Enum del REQUEST de pause/resume: SELLADO EN VIVO 2026-08-27 (evidencia en
@@ -265,6 +294,7 @@ def _resolver_plan(
     conn: psycopg.Connection,
     solo_campana: int | None = None,
     dedup_1_6a: bool = False,
+    pausas_post_1_6a: bool = False,
 ) -> tuple[dict[int, dict], list[dict]]:
     """external_ids y plataforma de campanas y keywords, contra la base VIVA.
     Fail-closed: cualquier faltante o estado inesperado aborta ANTES de
@@ -274,7 +304,14 @@ def _resolver_plan(
     campana (id interno ad_entity); con dedup_1_6a resuelve TAMBIEN las 9
     pausas de PAUSAS_DEDUP_1_6A por el MISMO camino del helper (parte 2, GO
     del dueno 2026-08-29: dedup ANTES del resume); sin el flag las keywords
-    quedan VACIAS."""
+    quedan VACIAS.
+
+    Con pausas_post_1_6a (GO del dueno 2026-08-29, "3. go"): el plan son SOLO
+    las pausas de PAUSAS_POST_1_6A y CERO campanas — este modo no reactiva
+    nada, asi que la fase de resumes queda vacia por construccion."""
+    if pausas_post_1_6a:
+        return {}, _resolver_keywords(conn, PAUSAS_POST_1_6A)
+
     if solo_campana is not None:
         row = conn.execute(
             """SELECT e.external_id, e.platform, e.name, s.status
@@ -445,6 +482,87 @@ def _orden_resumes(campanas: dict[int, dict]) -> list[int]:
     return list(campanas)
 
 
+def _valida_modos(args) -> None:
+    """Guards de FLAGS (antes de abrir credenciales, base o red).
+
+    Viven aparte de main() por el candado anti-monolito del repo: main ya
+    orquesta plan + perfiles + dos fases de mutacion, y cada modo nuevo le
+    sumaba ramas. La regla que protegen: un GO para PAUSAR jamas puede
+    arrastrar un resume, y las 9 pausas del 1.6a solo protegen SU campana."""
+    if args.pausas_post_1_6a and (args.solo_campana is not None or args.dedup_1_6a):
+        raise Abortar(
+            "--pausas-post-1-6a es excluyente con --solo-campana/--dedup-1-6a: "
+            "este modo pausa y NO reactiva nada"
+        )
+    if args.dedup_1_6a:
+        if args.solo_campana is None:
+            raise Abortar("--dedup-1-6a requiere --solo-campana")
+        if args.solo_campana != CAMPANA_DEDUP_1_6A:
+            raise Abortar(
+                f"--dedup-1-6a esta atado al resume de la campana {CAMPANA_DEDUP_1_6A} "
+                f"(las 9 pausas protegen ESA reactivacion, GO 2026-08-29); "
+                f"para la {args.solo_campana} es otra tarea con su propia lista"
+            )
+
+
+def _valida_anti_typo(args, campanas: dict[int, dict], keywords: list[dict]) -> None:
+    """Anti-typo (cross-review grok, media): la mutacion real queda ATADA al
+    external que el dueno autorizo VIENDO el dry-run. Un id interno
+    equivocado revienta aqui, no en Amazon; el desacuerdo aborta tambien en
+    dry-run. Aplica a la campana de --solo-campana y a la keyword de
+    --pausas-post-1-6a."""
+    if (
+        args.esperado_external is not None
+        and args.solo_campana is None
+        and not args.pausas_post_1_6a
+    ):
+        raise Abortar(
+            "--esperado-external solo tiene sentido junto a --solo-campana o --pausas-post-1-6a"
+        )
+
+    if args.pausas_post_1_6a:
+        # La lista es de UNA sola keyword por diseno (un GO = una pausa); si
+        # alguien la alarga, el candado obliga a revisar este bloque antes de
+        # mutar en vez de atar el external a una keyword arbitraria.
+        if len(keywords) != 1:
+            raise Abortar(
+                f"--pausas-post-1-6a espera EXACTAMENTE 1 keyword y el plan trae "
+                f"{len(keywords)}: revisa PAUSAS_POST_1_6A y el anti-typo antes de mutar"
+            )
+        _exige_external(args, keywords[0]["external_id"], f"keyword {keywords[0]['texto']!r}")
+
+    if args.solo_campana is not None:
+        _exige_external(
+            args, campanas[args.solo_campana]["external_id"], f"campana {args.solo_campana}"
+        )
+
+
+def _exige_external(args, resuelto: str, que: str) -> None:
+    """El external autorizado debe coincidir con el resuelto, y en mutacion
+    real no puede faltar (una fuente para los dos modos)."""
+    if args.esperado_external is not None and args.esperado_external != resuelto:
+        raise Abortar(
+            f"--esperado-external {args.esperado_external} != external resuelto "
+            f"{resuelto} ({que}): realidad difiere del plan"
+        )
+    if args.acepto_mutacion_real and args.esperado_external is None:
+        raise Abortar(f"mutacion real exige --esperado-external ({que}); el resuelto es {resuelto}")
+
+
+def _valida_perfiles(perfiles: dict, campanas: dict[int, dict], keywords: list[dict]) -> None:
+    """Sin perfil aceptado no hay mutacion posible. Las KEYWORDS tambien se
+    validan: sin esto el `perfiles[kw['platform']]` de la fase 1 reventaria
+    con KeyError crudo en vez de fail-closed declarado."""
+    for cid, c in campanas.items():
+        if c["platform"] not in perfiles:
+            raise Abortar(f"sin perfil aceptado para {c['platform']} (campana {cid})")
+    for kw in keywords:
+        if kw["platform"] not in perfiles:
+            raise Abortar(
+                f"sin perfil aceptado para {kw['platform']} (keyword {kw['external_id']})"
+            )
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument(
@@ -471,52 +589,34 @@ def main() -> int:
         help="con --solo-campana: pausar TAMBIEN las 9 keywords EXACT de "
         "PAUSAS_DEDUP_1_6A antes del resume (parte 2, GO del dueno 2026-08-29)",
     )
+    ap.add_argument(
+        "--pausas-post-1-6a",
+        action="store_true",
+        help="pausar SOLO las keywords de PAUSAS_POST_1_6A: cero resumes "
+        "(duplicado que quedo abierto tras 1.6a; GO del dueno 2026-08-29)",
+    )
     args = ap.parse_args()
 
-    # Las 9 pausas del 1.6a van atadas al resume de ESA campana: sin el modo
-    # --solo-campana es un error de uso, y con OTRA campana tambien (las 9
-    # pausas protegen la reactivacion autorizada de la 3919, no cualquier
-    # resume) — fail-closed antes de abrir nada.
-    if args.dedup_1_6a:
-        if args.solo_campana is None:
-            raise Abortar("--dedup-1-6a requiere --solo-campana")
-        if args.solo_campana != CAMPANA_DEDUP_1_6A:
-            raise Abortar(
-                f"--dedup-1-6a esta atado al resume de la campana {CAMPANA_DEDUP_1_6A} "
-                f"(las 9 pausas protegen ESA reactivacion, GO 2026-08-29); "
-                f"para la {args.solo_campana} es otra tarea con su propia lista"
-            )
+    # Guards de flags ANTES de abrir credenciales, base o red (fail-closed).
+    _valida_modos(args)
 
     cred = AdsCredentials.from_secrets_dir()
     conn = connect(_dsn_read())
     cliente_lectura = AdsClient(cred)
     http = httpx.Client(timeout=httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0))
 
-    campanas, keywords = _resolver_plan(conn, args.solo_campana, dedup_1_6a=args.dedup_1_6a)
+    campanas, keywords = _resolver_plan(
+        conn,
+        args.solo_campana,
+        dedup_1_6a=args.dedup_1_6a,
+        pausas_post_1_6a=args.pausas_post_1_6a,
+    )
 
-    # Anti-typo (cross-review grok, media): con --solo-campana la mutacion real
-    # queda ATADA al external que el dueno autorizo viendo el dry-run. Un id
-    # interno equivocado (p. ej. otra campana PAUSED) revienta aqui, no en
-    # Amazon. El desacuerdo aborta tambien en dry-run.
-    if args.esperado_external is not None and args.solo_campana is None:
-        raise Abortar("--esperado-external solo tiene sentido junto a --solo-campana")
-    if args.solo_campana is not None:
-        resuelto = campanas[args.solo_campana]["external_id"]
-        if args.esperado_external is not None and args.esperado_external != resuelto:
-            raise Abortar(
-                f"--esperado-external {args.esperado_external} != external resuelto "
-                f"{resuelto} (campana {args.solo_campana}): realidad difiere del plan"
-            )
-        if args.acepto_mutacion_real and args.esperado_external is None:
-            raise Abortar(
-                f"mutacion real de --solo-campana exige --esperado-external "
-                f"(el external autorizado; el resuelto es {resuelto})"
-            )
+    _valida_anti_typo(args, campanas, keywords)
+
     perfiles = _perfiles(cliente_lectura)
     _log("perfiles", perfiles=perfiles)
-    for cid, c in campanas.items():
-        if c["platform"] not in perfiles:
-            raise Abortar(f"sin perfil aceptado para {c['platform']} (campana {cid})")
+    _valida_perfiles(perfiles, campanas, keywords)
 
     # Guard 1.6a (SOLO --solo-campana): el estado VIVO se declara ANTES de
     # mutar; si la campana ya esta ENABLED, NO se muta. Tambien dispara en
@@ -558,6 +658,32 @@ def main() -> int:
     # ---- Fase 1: pausas de dedup (enum del PUT SELLADO: ENUM_PAUSE) ----
     for kw in keywords:
         profile = perfiles[kw["platform"]]
+        # PRE-LECTURA del estado VIVO justo antes del PUT (misma clase que el
+        # hallazgo Greptile del PR #54, ahora del lado de la pausa): entre el
+        # SELECT del cache y esta mutacion alguien —persona o automatismo—
+        # pudo pausarla o archivarla. Pausar igual seria pisar una decision
+        # ajena, y sobre una ARCHIVED el PUT ni siquiera significa lo mismo.
+        vivo = _readback_estado(
+            cliente_lectura,
+            profile,
+            "/sp/keywords/list",
+            "keywordIdFilter",
+            "keywords",
+            "keywordId",
+            kw["external_id"],
+        )
+        _log(
+            "estado_vivo_prev_pause",
+            external_id=kw["external_id"],
+            texto=kw["texto"],
+            camp_id=kw["camp_id"],
+            estado=vivo,
+        )
+        if vivo != "ENABLED":
+            raise Abortar(
+                f"keyword {kw['external_id']} ({kw['texto']!r}) ya esta {vivo} en Amazon: "
+                "no se muta (no se pisa una decision ajena)"
+            )
         _put_estado(
             http,
             token,
