@@ -4,6 +4,12 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-08-31 — ORBIT 06 tarea 0.3 CERRADA: Orbit ya puede leer qué producto anuncia cada anuncio.** Faltaba un permiso: la lista de anuncios de producto de Amazon no estaba habilitada en el candado de lectura del cliente, así que la llamada se rechazaba. Ahora sí, y con el ritual que el repo exige para tocar ese candado: **primero la prueba en vivo** —la hizo el lead porque pide credenciales que sólo viven en el servidor— y recién después el cambio de código. La prueba respondió correctamente en México y Estados Unidos, con 31,063 y 6,918 anuncios respectivamente.
+
+Implementación de **Cursor**, su primera entrega en este repo: cinco líneas de código y once de prueba, sin tocar nada más. El lead verificó que la prueba **discrimina de verdad** (quitando la línea del permiso, falla exactamente ese test) y que el conteo del candado obliga a actualizarlo a propósito, que es justo lo que impide que crezca por accidente.
+
+**Y la prueba en vivo trajo un hallazgo que simplifica la tarea siguiente**: cada anuncio viene con el ASIN y el código de producto **juntos**, así que el vínculo anuncio→producto es directo. Con el aviso de que esos totales incluyen todos los estados y hay que filtrar.
+
 **2026-08-30 — ORBIT 06 tarea 0.2 CERRADA: el anuncio ya se puede conectar con el producto.** Existe el mapa producto ↔ mercado ↔ ASIN (GLM, PR #67): **513 listings** (337 MX / 176 US) que alcanzan **265 productos con costo**. La trampa que el lead había medido antes de asignar la tarea —los SKU de Amazon son autogenerados y NO son los de Odoo, así que unir por texto da 1 % de cobertura— quedó sellada: la unión va **solo** por la tabla puente. Verificado contra la base viva: 0 ASIN duplicados por plataforma, 0 violaciones del CHECK precio/moneda, monedas exactamente partidas por mercado, y `ad_entity.listing_id` **intacto** (eso es la 0.4). Recálculo independiente del lead desde el origen: idéntico. No-op confirmado tres veces.
 
 GLM cazó un bug propio serio con la doble corrida: los SELECT previos abrían una transacción implícita y al cerrar la conexión **se revertía todo** — la corrida imprimía 513 escritas y la base quedaba vacía. **Cero daño verificado**: esos dos `ingest_run` ni existen. Quedó como regla en el código y un test de regresión.
