@@ -19,6 +19,16 @@
 > mecanismo de rollback parcial, no como plan de encendido; el go del día
 > del flip (1.1) lo re-confirma con la lista literal.
 >
+> **FIRMA DEL DUEÑO SOBRE ESTE RUNBOOK — 2026-08-29, literal "2 firmado"**
+> (preflight 1.8). Es distinta del punto (7): aquélla respondía las cuatro
+> preguntas de 1.6; ésta aprueba el DOCUMENTO —orden operativo, rollback por
+> tipo de mutación y terna adversarial— como el procedimiento del día del
+> flip. Con esto el preflight queda cerrado SIN pendientes humanos: lo único
+> que falta para el flip es el calendario (2 semanas de shadow, ~2026-09-07)
+> y lo que se ejecuta ese mismo día (backup real, discard, flip, rampa).
+> La firma aprueba el PROCEDIMIENTO, no dispara el flip: el día del flip
+> exige su propio go explícito del dueño (preapproval #4).
+>
 > **Reparto**: el día del flip lo ejecuta el lead con el dueño presente (o
 > autorización escrita paso a paso); GLM no despliega ni flipea. Cross-review
 > del PLAN: 1 ronda (codex) antes de aprobarlo; del día del flip no hay
