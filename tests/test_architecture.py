@@ -482,29 +482,53 @@ def test_allowlist_snapshot_caza_import_de_escritura(tmp_path):
 #     ley"). DEUDA CONOCIDA: consolidarla con la del motor es candidato de
 #     revision, pero NO se toca el cliente de escritura sellado por una
 #     constante — se declara y se revisa en su fase.
-DEFINICIONES_MONEDA_DECLARADAS = frozenset({"app/optimizer/bid.py", "app/ads/write.py"})
+#   - app/ads/structure.py : _PAIS_PLATAFORMA_MONEDA, forma DISTINTA
+#     (codigo de pais -> (plataforma, moneda)) y proposito distinto: resolver
+#     el perfil de Amazon durante el discovery, no decidir dinero. Se declara
+#     porque codifica la misma ley en otra forma. (Hallazgo de la cross-review
+#     kimi 2026-08-30: la version anterior de este candado NO la veia —solo
+#     miraba claves `amazon_*` con valores string— y el commit afirmaba que
+#     solo habia tres definiciones. Eran CUATRO, y el comentario original de
+#     app/listings.py que la citaba tenia razon.)
+DEFINICIONES_MONEDA_DECLARADAS = frozenset(
+    {"app/optimizer/bid.py", "app/ads/write.py", "app/ads/structure.py"}
+)
+
+_MONEDAS_CONOCIDAS = ("MXN", "USD")
 
 
-def _mapas_de_moneda() -> dict[str, list[int]]:
-    """Modulos de app/ que definen un dict literal plataforma -> moneda.
+def _es_moneda(nodo: ast.expr) -> bool:
+    """El valor codifica una moneda: 'MXN'/'USD' suelto o dentro de una tupla."""
+    if isinstance(nodo, ast.Constant):
+        return nodo.value in _MONEDAS_CONOCIDAS
+    if isinstance(nodo, ast.Tuple):
+        return any(isinstance(e, ast.Constant) and e.value in _MONEDAS_CONOCIDAS for e in nodo.elts)
+    return False
 
-    Detecta la forma `{"amazon_xx": "MXN"/"USD", ...}` en una asignacion, que
-    es como se escribe un mapa de moneda a mano. Devuelve modulo -> lineas.
+
+def _mapas_de_moneda(raiz: Path = RAIZ) -> dict[str, list[int]]:
+    """Modulos de app/ que definen un dict literal que ata algo a una moneda.
+
+    Detecta las DOS formas vistas en el repo: `{"amazon_xx": "MXN"}` (mapa de
+    la capa de decisiones / HTTP) y `{"MX": ("amazon_mx", "MXN")}` (el de
+    discovery de perfiles). El criterio es el VALOR —que sea o contenga una
+    moneda— y no la forma de la clave: mirar solo claves `amazon_*` dejaba
+    pasar la segunda forma (hallazgo kimi 2026-08-30).
+
+    `raiz` es parametro para que el test de poder discriminante trabaje sobre
+    un arbol temporal y NO escriba dentro del repo (mismo hallazgo).
     """
     hallazgos: dict[str, list[int]] = {}
-    for py in sorted((RAIZ / "app").rglob("*.py")):
+    for py in sorted((raiz / "app").rglob("*.py")):
         arbol = ast.parse(py.read_text(encoding="utf-8"))
         for nodo in ast.walk(arbol):
             if not isinstance(nodo, ast.Dict):
                 continue
-            claves = [k.value for k in nodo.keys if isinstance(k, ast.Constant)]
-            valores = [v.value for v in nodo.values if isinstance(v, ast.Constant)]
-            if not claves or not valores:
-                continue
-            if all(isinstance(k, str) and k.startswith("amazon_") for k in claves) and all(
-                v in ("MXN", "USD") for v in valores
-            ):
-                rel = py.relative_to(RAIZ).as_posix()
+            if not nodo.keys or any(k is None for k in nodo.keys):
+                continue  # `{**otro}`: no es un mapa literal
+            claves_constantes = all(isinstance(k, ast.Constant) for k in nodo.keys)
+            if claves_constantes and nodo.values and all(_es_moneda(v) for v in nodo.values):
+                rel = py.relative_to(raiz).as_posix()
                 hallazgos.setdefault(rel, []).append(nodo.lineno)
     return hallazgos
 
@@ -543,13 +567,30 @@ def test_una_sola_fuente_de_moneda_por_plataforma():
     )
 
 
-def test_detector_de_moneda_caza_un_mapa_duplicado(tmp_path, monkeypatch):
-    """Regla 9: el candado de arriba MUERDE. Un modulo nuevo de app/ con su
-    propio mapa de moneda tiene que aparecer en el detector."""
-    duplicado = RAIZ / "app" / "_moneda_duplicada_de_prueba.py"
-    duplicado.write_text('MIA = {"amazon_mx": "MXN", "amazon_us": "USD"}\n', encoding="utf-8")
-    try:
-        hallazgos = _mapas_de_moneda()
-        assert "app/_moneda_duplicada_de_prueba.py" in hallazgos
-    finally:
-        duplicado.unlink()
+def test_detector_de_moneda_caza_las_dos_formas(tmp_path):
+    """Regla 9: el candado MUERDE, y muerde las DOS formas que existen.
+
+    Trabaja sobre un arbol TEMPORAL, jamas sobre `app/` del repo: la version
+    anterior escribia un modulo de prueba dentro del arbol fuente y lo borraba
+    en un `finally` — si el proceso moria en medio quedaba basura en el repo, y
+    con pytest-xdist otros tests que barren `app/` podian ver el fantasma
+    (hallazgo kimi 2026-08-30).
+    """
+    app = tmp_path / "app"
+    app.mkdir()
+    (app / "plano.py").write_text(
+        'MIO = {"amazon_mx": "MXN", "amazon_us": "USD"}\n', encoding="utf-8"
+    )
+    (app / "por_pais.py").write_text(
+        'OTRO = {"MX": ("amazon_mx", "MXN"), "US": ("amazon_us", "USD")}\n', encoding="utf-8"
+    )
+    (app / "inocente.py").write_text('CAPS = {"bid": 10, "pause": 2}\n', encoding="utf-8")
+
+    hallazgos = _mapas_de_moneda(tmp_path)
+
+    assert "app/plano.py" in hallazgos, "no caza la forma plataforma -> moneda"
+    assert "app/por_pais.py" in hallazgos, (
+        "no caza la forma pais -> (plataforma, moneda): es la que se le escapo "
+        "a la primera version del candado"
+    )
+    assert "app/inocente.py" not in hallazgos, "falso positivo: un dict sin monedas no cuenta"
