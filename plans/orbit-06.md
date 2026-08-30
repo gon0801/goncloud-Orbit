@@ -167,7 +167,11 @@ alcanza, la Fase 1 no arranca.
 - **Migración de esquema, SÓLO si la tarea 0.4 decide extender
   `ad_entity_kind`** — `ALTER TYPE ... ADD VALUE`, por el runbook de
   migraciones con backup previo y `SELECT` de verificación. Alcance: 0.4, y
-  solo si la decisión documentada lo justifica.
+  solo si la decisión documentada lo justifica. **OJO (cross-review kimi,
+  ronda 2)**: en PostgreSQL un valor de enum recién agregado **no puede
+  usarse en la misma transacción que lo agrega**. La migración commitea
+  ANTES de cualquier `INSERT` que use `product_ad`; migración e ingesta van
+  en pasos separados, jamás en una sola transacción.
 
 **Fuera de esto, con go explícito en el momento**: cualquier mutación en
 Amazon, cualquier cambio de umbral del motor, cualquier `INSERT`/`UPDATE`
@@ -191,11 +195,33 @@ Los 10 hallazgos fueron verificados por el lead contra
 | 9 | media | 0.1 no cubría el re-run real (EXCLUDE gist + trigger que solo cierra vigencia) | 0.1: no-op verificado corriendo la ingesta dos veces |
 | 10 | baja | Plan ausente de `plans/manifest.json`; ruta del diseño v2 rota | Registrado en el manifest; ruta corregida a `docs/traspaso/` |
 
+### Ronda 2 (kimi + qwen, 2026-08-30) — el tope duro; no hay tercera
+
+**qwen no entregó**: colgado a los 300 s porque su versión no ejecuta
+herramientas en modo no interactivo (el mismo fallo que grok declaró en el
+preflight 1.6a). Declarado, no reintentado.
+
+**kimi verificó las 8 afirmaciones de esquema del plan v2 como CORRECTAS**
+—`v_margen_plataforma` sin `listing_id` ni dimensión temporal; `fx_resolve`
+con `exact`/`nearest_prior`/cero filas y su campo `source`; los 5 paths de
+`LIST_REQUEST_TYPES` sin productAds; `ad_entity_kind` sin `product_ad`;
+`listing_precio_con_moneda` admitiendo ambos NULL; los 3 índices de dedupe
+del ledger; el `EXCLUDE` y el trigger de `sku_cost`; y el registro en el
+manifest— y halló 2 residuales BAJOS, ambos corregidos aquí:
+
+| # | Sev | Hallazgo | Corrección |
+|---|---|---|---|
+| 11 | baja | `manifest.json` registraba orbit-06 pero `active` seguía en `orbit-05-preflight`, que está **9/9 cerrado**: el puntero señalaba trabajo terminado, y AGENTS.md dice que ese campo marca el plan cuyas tareas se siguen | `active` → `orbit-06`. Razón: el preflight está cerrado y `orbit-05` (el cutover) está bloqueado por calendario hasta ~2026-09-07; el único plan que hoy se puede seguir es la Fase 0 de éste. El día del flip el puntero vuelve a `orbit-05` |
+| 12 | baja | La pre-aprobación de `ALTER TYPE ... ADD VALUE` no advertía que un valor de enum nuevo **no puede usarse en la misma transacción que lo agrega** | La pre-aprobación ahora exige commitear la migración ANTES de cualquier `INSERT` que use `product_ad`: pasos separados |
+
 ## Verificación del plan (contrato de calidad)
 
-- `team_validation_mode`: **subagent** — cross-review externa simultánea con
-  codex y grok sobre la v1 (1 ronda, el tope del kit), más la evaluación del
-  lead de las cinco perspectivas. Producto: la fase entrega lectura antes que
+- `team_validation_mode`: **subagent** — dos rondas de cross-review externa
+  simultánea: codex + grok sobre la v1 (10 hallazgos, 5 altos) y kimi + qwen
+  sobre la v2 (qwen no entregó; kimi confirmó las 8 afirmaciones de esquema y
+  halló 2 residuales bajos, corregidos). **Es el tope duro del kit: la 2ª
+  ronda se justificó porque la 1ª halló severidad alta, y no habrá una 3ª.**
+  Más la evaluación del lead de las cinco perspectivas. Producto: la fase entrega lectura antes que
   decisión. Arquitectura: una sola resolución de costo y FX (sellado 7), cero
   duplicación de `fx_resolve`. Seguridad: la ampliación del allowlist de POST
   es una tarea propia con evidencia en vivo, no un detalle. QA: cada tarea de
