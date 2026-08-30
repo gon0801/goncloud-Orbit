@@ -524,10 +524,17 @@ def _mapas_de_moneda(raiz: Path = RAIZ) -> dict[str, list[int]]:
         for nodo in ast.walk(arbol):
             if not isinstance(nodo, ast.Dict):
                 continue
-            if not nodo.keys or any(k is None for k in nodo.keys):
-                continue  # `{**otro}`: no es un mapa literal
-            claves_constantes = all(isinstance(k, ast.Constant) for k in nodo.keys)
-            if claves_constantes and nodo.values and all(_es_moneda(v) for v in nodo.values):
+            # El criterio es el VALOR, y se evalua sobre los valores que se
+            # pueden leer estaticamente. Las claves NO se filtran (hallazgo 1
+            # de qwen, 2026-08-30): exigir que TODAS fueran constantes
+            # ACHICABA la deteccion — un mapa con claves mixtas
+            # (`{plataforma: "MXN", "amazon_mx": "MXN"}`) o con `**base` se
+            # escapaba, que es el punto ciego inverso al que se corrigio.
+            # Con `**`, ast pone key=None y el valor es la expresion
+            # esparcida: no es Constant ni Tuple, asi que simplemente no
+            # cuenta como evidencia, y el resto del dict si se evalua.
+            evaluables = [v for v in nodo.values if isinstance(v, ast.Constant | ast.Tuple)]
+            if evaluables and all(_es_moneda(v) for v in evaluables):
                 rel = py.relative_to(raiz).as_posix()
                 hallazgos.setdefault(rel, []).append(nodo.lineno)
     return hallazgos
@@ -585,6 +592,15 @@ def test_detector_de_moneda_caza_las_dos_formas(tmp_path):
         'OTRO = {"MX": ("amazon_mx", "MXN"), "US": ("amazon_us", "USD")}\n', encoding="utf-8"
     )
     (app / "inocente.py").write_text('CAPS = {"bid": 10, "pause": 2}\n', encoding="utf-8")
+    # Hallazgo 4 de qwen (2026-08-30): las reglas de descarte del detector no
+    # estaban selladas por ningun fixture, y son justo el codigo del cuerpo.
+    (app / "claves_mixtas.py").write_text(
+        'P = "amazon_mx"\nMIXTO = {P: "MXN", "amazon_us": "USD"}\n', encoding="utf-8"
+    )
+    (app / "esparcido.py").write_text(
+        'BASE = {}\nCON_SPREAD = {**BASE, "amazon_mx": "MXN"}\n', encoding="utf-8"
+    )
+    (app / "vacio.py").write_text("NADA = {}\n", encoding="utf-8")
 
     hallazgos = _mapas_de_moneda(tmp_path)
 
@@ -593,4 +609,13 @@ def test_detector_de_moneda_caza_las_dos_formas(tmp_path):
         "no caza la forma pais -> (plataforma, moneda): es la que se le escapo "
         "a la primera version del candado"
     )
+    assert "app/claves_mixtas.py" in hallazgos, (
+        "no caza un mapa con claves mixtas: es el punto ciego que introdujo la "
+        "correccion anterior al exigir que TODAS las claves fueran constantes"
+    )
+    assert "app/esparcido.py" in hallazgos, (
+        "no caza un mapa con `**base`: el spread no es evidencia, pero el resto "
+        "del dict si se evalua"
+    )
     assert "app/inocente.py" not in hallazgos, "falso positivo: un dict sin monedas no cuenta"
+    assert "app/vacio.py" not in hallazgos, "falso positivo: un dict vacio no es un mapa de moneda"
