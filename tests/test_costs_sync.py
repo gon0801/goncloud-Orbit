@@ -571,6 +571,11 @@ def test_sync_costos_ciclo_completo_en_vivo(tmp_path):
         assert r1.rows_skipped == 1
         assert "1x costo cero o nulo (dato faltante)" in r1.skip_reason
         assert r1.productos_nuevos == 3
+        # contadores de colapso visibles (hallazgo de revision): los dos
+        # intradia del fixture tienen sucesor -> ruido; ninguno en el borde
+        assert r1.segmentos_intradia_colapsados == 2
+        assert r1.segmentos_intradia_en_borde == 0
+        assert r1.fusiones == 0
         assert r1.nombres_derivados == 1  # solo SKU-B-SIN-NOMBRE
         # colapso declarado: 8 filas origen -> 5 vigencias
         assert r1.filas_origen == 8

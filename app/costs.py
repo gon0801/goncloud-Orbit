@@ -130,7 +130,13 @@ class OrigenCostos:
 
 @dataclass(frozen=True)
 class ResultadoSync:
-    """Outcome contable de la corrida (espejo de la ingest_run sellada)."""
+    """Outcome contable de la corrida (espejo de la ingest_run sellada).
+
+    Los contadores de colapso (intradia con sucesor, intradia en el borde
+    —dias que pierden su costo— y fusiones) salen del proceso por stdout:
+    son la evidencia que el plan promete contar (hallazgo 3 del adversario
+    + revision: un contador que no se ve no cuenta).
+    """
 
     run_id: int
     ok: bool
@@ -144,6 +150,9 @@ class ResultadoSync:
     vigencias_cerradas: int
     filas_origen: int
     vigencias_finales: int
+    segmentos_intradia_colapsados: int
+    segmentos_intradia_en_borde: int
+    fusiones: int
 
 
 # ---------------------------------------------------------------------------
@@ -180,6 +189,10 @@ def leer_origen(ruta: Path | str) -> OrigenCostos:
             for fila in con.execute(
                 "SELECT product_sku, product_name FROM bom_headers"
                 " WHERE product_name IS NOT NULL AND TRIM(product_name) != ''"
+                # Un SKU con varios BOMs dejaria el nombre al orden arbitrario
+                # de SQLite: ORDER BY fija el ultimo por id y hace la corrida
+                # determinista (hallazgo de revision, baja).
+                " ORDER BY product_sku, id"
             )
         }
     finally:
@@ -544,6 +557,9 @@ def sync_costos(conn: psycopg.Connection, ruta_sqlite: Path | str) -> ResultadoS
         vigencias_cerradas=cerradas,
         filas_origen=stats["filas"],
         vigencias_finales=stats["vigencias"],
+        segmentos_intradia_colapsados=stats["segmentos_intradia_colapsados"],
+        segmentos_intradia_en_borde=stats["segmentos_intradia_en_borde"],
+        fusiones=stats["fusiones"],
     )
 
 
@@ -622,6 +638,14 @@ def main(argv: list[str] | None = None) -> int:
         f" cerradas={resultado.vigencias_cerradas}"
         f" finales={resultado.vigencias_finales} (filas origen:"
         f" {resultado.filas_origen})"
+    )
+    # Evidencia del colapso (hallazgo 3 del adversario + revision): los dias
+    # intradia en el borde PIERDEN su costo y tienen que ser visibles, igual
+    # que el ruido colapsado y las fusiones — un contador que no se ve no cuenta.
+    print(
+        f"colapso: intradia_con_sucesor={resultado.segmentos_intradia_colapsados}"
+        f" intradia_en_borde={resultado.segmentos_intradia_en_borde}"
+        f" fusiones={resultado.fusiones}"
     )
     if resultado.skip_reason:
         print(f"skips: {resultado.skip_reason}")
