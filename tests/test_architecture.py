@@ -530,11 +530,19 @@ def _mapas_de_moneda(raiz: Path = RAIZ) -> dict[str, list[int]]:
             # ACHICABA la deteccion — un mapa con claves mixtas
             # (`{plataforma: "MXN", "amazon_mx": "MXN"}`) o con `**base` se
             # escapaba, que es el punto ciego inverso al que se corrigio.
-            # Con `**`, ast pone key=None y el valor es la expresion
-            # esparcida: no es Constant ni Tuple, asi que simplemente no
-            # cuenta como evidencia, y el resto del dict si se evalua.
-            evaluables = [v for v in nodo.values if isinstance(v, ast.Constant | ast.Tuple)]
-            if evaluables and all(_es_moneda(v) for v in evaluables):
+            # Con `**`, ast pone key=None: esa entrada NO es evidencia y se
+            # ignora, pero el resto del dict si se evalua.
+            #
+            # Lo que NO se ignora es un valor calculado en una entrada normal
+            # (hallazgo MEDIA de glm-5.3, 2026-08-30): saltar todo lo no
+            # literal hacia marcar `{"mx": "MXN", "tasa": get_tasa()}` como
+            # mapa de moneda, un ensanchamiento mas alla del `**` que el
+            # commit anterior documentaba, y sin fixture que lo sellara. Por
+            # eso el criterio se aplica a TODAS las entradas con clave real:
+            # si alguna trae un valor que no se puede leer estaticamente, el
+            # dict no califica.
+            entradas = [v for k, v in zip(nodo.keys, nodo.values, strict=True) if k is not None]
+            if entradas and all(_es_moneda(v) for v in entradas):
                 rel = py.relative_to(raiz).as_posix()
                 hallazgos.setdefault(rel, []).append(nodo.lineno)
     return hallazgos
@@ -601,6 +609,12 @@ def test_detector_de_moneda_caza_las_dos_formas(tmp_path):
         'BASE = {}\nCON_SPREAD = {**BASE, "amazon_mx": "MXN"}\n', encoding="utf-8"
     )
     (app / "vacio.py").write_text("NADA = {}\n", encoding="utf-8")
+    # Hallazgo MEDIA de glm-5.3 (2026-08-30): una moneda literal conviviendo
+    # con un valor CALCULADO no es un mapa de moneda, y la version anterior
+    # del detector la marcaba porque ignoraba todo lo no literal.
+    (app / "con_calculo.py").write_text(
+        'def t(): return 1\nMIXTO_VALOR = {"mx": "MXN", "tasa": t()}\n', encoding="utf-8"
+    )
 
     hallazgos = _mapas_de_moneda(tmp_path)
 
@@ -619,3 +633,7 @@ def test_detector_de_moneda_caza_las_dos_formas(tmp_path):
     )
     assert "app/inocente.py" not in hallazgos, "falso positivo: un dict sin monedas no cuenta"
     assert "app/vacio.py" not in hallazgos, "falso positivo: un dict vacio no es un mapa de moneda"
+    assert "app/con_calculo.py" not in hallazgos, (
+        "falso positivo: una moneda literal junto a un valor CALCULADO no es un "
+        "mapa de moneda; ignorar lo no literal ensanchaba el candado de mas"
+    )
