@@ -103,7 +103,7 @@ alcanza, la Fase 1 no arranca.
 | Task | Contenido | DoD | Depends | Status |
 |---|---|---|---|---|
 | 0.1 | **Ingesta de productos y costos** a `product` + `sku_cost`. Fuente: `sku_costs` de la SQLite de contabilidad. Mapeo explícito de nombres: `sku` → `product.odoo_sku`, `cost` → `cost_amount`, `currency` → `cost_currency`. La vigencia bitemporal se PRESERVA. **Semántica de re-corrida contra el esquema real**: `sku_cost` tiene un `EXCLUDE` (btree_gist) que impide dos vigencias solapadas del mismo producto, y el trigger `sku_cost_solo_cierra_vigencia` permite **únicamente** cerrar `valid_to` — no hay UPDATE de importe ni DELETE. Por lo tanto: vigencia nueva ⇒ cierra la anterior con `valid_to` e inserta; vigencia idéntica ya presente ⇒ **no-op**, jamás error ni fila duplicada. `cost` 0 o NULL ⇒ fila no escrita y contada (sellado 1). `includes_tax` se resuelve leyendo qué produce Odoo, no se asume. Subcomando `ingest costs`. **Tres obstáculos medidos por el lead el 2026-08-30 que hay que resolver ANTES de escribir código — ver §Obstáculos de la 0.1**: el contenedor no ve la base de contabilidad; las vigencias de origen son timestamps intradía y el destino es DATE con `CHECK` y `EXCLUDE`; y `product.name` e `includes_tax` no tienen fuente. `[tdd:required]` | Las tres decisiones de §Obstáculos escritas y justificadas ANTES del código. Rojo antes del código. Tests: costo cero rechazado y contado; **colapso de vigencias** (varias filas del mismo SKU el mismo día → UNA vigencia; sin este test la ingesta revienta contra el `EXCLUDE`); vigencia nueva cierra la anterior (una sola vigente por producto); **re-correr la ingesta completa dos veces deja la base idéntica** (no-op real, no "mismo ingest_run"); intento de modificar un importe existente → rechazado por el trigger; SKU sin nombre sigue el camino decidido y queda contado. Corrida real con conteos, cuántas filas se colapsaron y lista de SKU rechazados con motivo | - | cc:完了 [2026-08-30, GLM PR #63 → master `faac179`. **Verificado por el lead contra la base VIVA, no contra la evidencia**: 1,087 productos / 1,955 vigencias / 181 nombres derivados; **una sola vigencia abierta por producto (1,087 de 1,087)**; 100 % MXN e `includes_tax=false` en las 1,955; cero costos ≤ 0; los 974 NULL de `valid_from` del origen cuadran exactos. **Recálculo INDEPENDIENTE del lead con SQL propio sobre el origen: 1,955, idéntico.** Caso punta a punta: `Y4-FB35-N645` con 7 filas del mismo costo y ruido de segundos → UNA vigencia. **No-op confirmado CUATRO veces** (corridas 30-33 con `rows_written=0`), más de lo que declaraba el PR. La remediación de la corrida 27 (1,522 escritas / 506 saltadas por ruido binario del REAL) no dejó daño: **los 8 triggers quedaron activos**, el `EXCLUDE` y los dos CHECK presentes, y de esa carga no sobrevive ni una fila. Dinero correcto: **rechaza ANTES de redondear**, así que una precisión genuina de más de 4 decimales nunca se redondea en silencio; el sub-centavo que cuantiza a cero se rechaza contado en vez de abortar la corrida (hallazgo del propio adversario de GLM). Contabilidad en `mode=ro` por construcción, cero escrituras fuera de alcance. **Residual D3 del IVA CERRADO por el lead con lectura directa de Odoo** (ver D3). GLM cumplió el proceso: rojo antes del código, 17 tests, adversario propio (6 hallazgos) y 1 sola ronda de cross-review con codex] |
-| 0.2 | **Ingesta de listings**: el mapa SKU ↔ plataforma ↔ identificador externo, a `listing`. Sin él, el costo (por SKU de Odoo) no se une a lo que Amazon anuncia (por ASIN/seller SKU). Fuente a determinar EN LA TAREA con evidencia (contabilidad, API de Amazon, o ambas) y declarada. **El precio es OPCIONAL**: el CHECK `listing_precio_con_moneda` exige `(listing_price IS NULL) = (price_currency IS NULL)`, o sea ambos o ninguno. El producto de esta tarea es el MAPA; un listing sin precio se escribe igual. `[tdd:required]` | Rojo antes del código. Fuente elegida declarada con su SELECT/readback. Tests: un SKU en dos plataformas → dos filas; listing sin precio se escribe (ambos NULL) y no se descarta; precio presente sin moneda → rechazado por el CHECK. Corrida real: conteo por plataforma y % de SKU con costo que quedan mapeados | 0.1 | cc:TODO |
+| 0.2 | **Ingesta de listings**: el mapa SKU ↔ plataforma ↔ identificador externo, a `listing`. Sin él, el costo (por SKU de Odoo) no se une a lo que Amazon anuncia (por ASIN/seller SKU). **Fuente ya localizada y medida por el lead** — ver Obstaculos de la 0.2: las tablas del bridge, y el puente OBLIGATORIO es amazon_sku_mapping (unir por texto de SKU da 1 % de cobertura y esta PROHIBIDO). **El precio es OPCIONAL**: el CHECK `listing_precio_con_moneda` exige `(listing_price IS NULL) = (price_currency IS NULL)`, o sea ambos o ninguno. El producto de esta tarea es el MAPA; un listing sin precio se escribe igual. `[tdd:required]` | Rojo antes del código. Fuente elegida declarada con su SELECT/readback. Tests: un SKU en dos plataformas → dos filas; listing sin precio se escribe (ambos NULL) y no se descarta; precio presente sin moneda → rechazado por el CHECK. Corrida real: conteo por plataforma y % de SKU con costo que quedan mapeados | 0.1 | cc:TODO |
 | 0.3 | **Habilitar la lectura de product ads** — es un cambio de SUPERFICIE DE SEGURIDAD, no una ingesta más: `/sp/productAds/list` **no está** en `LIST_REQUEST_TYPES`, que es un allowlist congelado (`MappingProxyType`) leído en vivo por el guard de POST; hoy `list_objects` rechaza ese path. Ampliarlo sigue el MISMO ritual que pagó `negativeKeywords`: evidencia regla 8 EN VIVO del vendor Content-Type exacto en AMBOS perfiles, con el log en `out/`, ANTES de tocar el allowlist. `[tdd:required]` | Log de la corrida real que prueba el vendor type correcto y el 200 en US y MX (o el fallo declarado). Allowlist ampliado con SOLO ese path. Tests del guard: el path nuevo pasa; un path fuera del allowlist sigue reventando; el conteo de `LIST_REQUEST_TYPES` en los tests se actualiza a propósito, no por accidente | - | cc:TODO |
 | 0.4 | **Vínculo anuncio→producto**: poblar `ad_entity.listing_id` desde los product ads. **Dos decisiones de esquema que la tarea resuelve ANTES de escribir**: (a) `ad_entity_kind` NO tiene `product_ad` — se decide entre extender el enum por migración o no materializar el product ad como entidad y resolver el vínculo en el ad group; (b) **cardinalidad**: un ad group puede anunciar N ASIN y `ad_entity.listing_id` es UNO solo — hay que definir qué se escribe cuando N>1 (propuesta del lead: **NO escribir** y contar el ad group como "multi-ASIN, margen no atribuible", nunca elegir uno arbitrario). Ambas decisiones se documentan con su razón antes de implementar. `[tdd:required]` | Las dos decisiones escritas y justificadas. Rojo antes del código. Candado de arquitectura: el pipeline no importa `write.py`. Tests: ad group con 1 ASIN → `listing_id` resuelto; con 0 y con N → `listing_id` NULL y contado en su categoría. Corrida real read-only con el `SELECT` de cobertura: % de ad groups con vínculo resuelto, y los no resueltos clasificados por motivo (multi-ASIN / sin listing / sin costo), jamás silenciados | 0.2, 0.3 | cc:TODO |
 | 0.5 | **Ingesta de tipos de cambio** a `fx_rate`. Obligatoria (sellado 2). Fuente localizada por el lead: `currency_rates` en la SQLite de contabilidad (210 filas: `rate_date`, `base_currency`, `quote_currency`, `rate`). `fx_resolve` **NO se toca** (sellado 3): esta tarea solo llena la tabla de la que esa función lee. Fuente y cadencia declaradas. `[tdd:required]` | Rojo antes del código. Tests: con la tabla poblada, `fx_resolve` devuelve `exact` el día que existe y `nearest_prior` dentro de los 7 días; **más de 7 días sin tasa → cero filas**, y el consumidor lo trata como dato faltante (sellado 1), no como 1.0 ni como constante. Corrida real: rango de fechas cubierto y lista de huecos > 3 días | - | cc:TODO |
@@ -344,6 +344,55 @@ Ninguno bloquea la 0.2; los dos deben resolverse ANTES de la Fase 1.
    costos desactualizados sin avisar), por el mismo runbook del snapshot que
    dejo la 0.1. Es decision del dueno: cada cuanto, y si el snapshot se
    automatiza en el host.
+
+## Obstáculos de la 0.2 (medidos por el lead 2026-08-30, antes de asignarla)
+
+Misma disciplina que la 0.1: los hallazgos caros van al plan, no a un brief
+de chat.
+
+**1 · La fuente existe, y son DOS tablas de un TERCER sistema (el bridge).**
+`amazon_listing_prices` (809 filas, 735 `seller_sku` distintos, **todas con
+ASIN**; trae `seller_sku`, `asin`, `listing_id`, `marketplace_name`, `price`)
+y `amazon_sku_mapping` (450 filas: `seller_sku`, `odoo_product_id`,
+`odoo_default_code`, `asin`, `parent_asin`). Viven en la SQLite del bridge,
+**no** en contabilidad: es una tercera fuente y **el contenedor tampoco la
+ve** — aplica el mismo runbook de snapshot que resolvió la 0.1.
+
+**2 · LA TRAMPA: los SKU de Amazon NO son los de Odoo, y unirlos por texto
+falla.** Medido: de los 735 `seller_sku` de Amazon **solo 7 coinciden** con un
+SKU que tenga costo. La razón: la mayoría de los listings se crearon con el
+SKU **autogenerado por Amazon** (`01-5LZU-V9KZ`, `04-WUOG-3RXZ`) mientras
+Odoo usa códigos de negocio (`ARR-16-DOR-CAM`, `NH-CAR-AZU-CEN-DOR`). No hay
+transformación entre ambos: son identificadores distintos. **El puente
+OBLIGATORIO es `amazon_sku_mapping`; unir por texto de SKU está PROHIBIDO**
+—daría 1 % de cobertura y parecería "funcionar".
+
+**3 · Cobertura medida de la cadena completa** (listing → mapeo → SKU de Odoo
+→ costo vigente):
+
+| Paso | Valor |
+|---|---|
+| `seller_sku` distintos en listings | 735 |
+| con fila en `amazon_sku_mapping` | **450** |
+| de esos, con `odoo_default_code` no vacío | 450 (100 %) |
+| **de esos, que llegan a un costo** | **450 (100 %)** |
+| sin fila de mapeo (el hueco) | **285** |
+
+O sea: **todo lo mapeado llega a costo**; el único hueco son las 285
+publicaciones sin mapeo. Ese hueco es el insumo de la 0.7 y hay que medirlo
+**ponderado por gasto publicitario**, no por conteo: 285 productos sin
+anuncios no valen lo que 1 que se lleve el 30 % del presupuesto.
+
+**4 · El ASIN es la llave correcta, y es NO AMBIGUA.** Medido: **cero** ASIN
+apuntan a más de un SKU de Odoo, así que un anuncio que apunta a un ASIN
+tiene EXACTAMENTE un costo. (115 SKU de Odoo tienen más de un ASIN —el mismo
+producto en MX y US, o variantes—, lo cual es esperable y no crea ambigüedad
+en la dirección que importa.) La 0.4 traerá ASIN desde los product ads: **la
+unión del margen va por ASIN, no por `seller_sku`.**
+
+**5 · Los mercados ya vienen con el nombre de Orbit.** `marketplace_name`
+trae literalmente `amazon_mx` (548 listings) y `amazon_us` (261): no hace
+falta traducir a `platform`. Verificarlo igual antes de confiar (regla 8).
 
 ## Fase 1 — margen medible y honesto (todavía NO decide nada)
 
