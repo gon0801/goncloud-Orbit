@@ -115,8 +115,25 @@ Reconstruir/actualizar **solo la app** (Postgres intacto):
 ```bash
 ssh goncloud
 cd /mnt/data/appdata/orbit
-# copiar del repo: Dockerfile .dockerignore pyproject.toml uv.lock app/
+# 1) COPIAR EL CODIGO PRIMERO — el paso que se olvida y falla EN SILENCIO.
+#    El server NO es un checkout de git: `--build` construye lo que hay en
+#    /mnt/data/appdata/orbit/app, no lo que hay en master. Sin copiar,
+#    reconstruye el codigo VIEJO y no avisa. Desde el repo, en la maquina
+#    del lead (git archive, no scp: garantiza finales de linea LF):
+#
+#      git archive --format=tar origin/master app Dockerfile .dockerignore \
+#        pyproject.toml uv.lock | ssh goncloud "cd /mnt/data/appdata/orbit && tar -xf -"
+#
+#    OJO: `origin/master`, NO `master` — con el checkout en otra rama el ref
+#    local queda viejo (paso el 2026-08-30: se copio un master de 12 h antes).
+#    Antes de construir, verificar que los .py del server son IDENTICOS a
+#    origin/master por md5, y respaldar el app/ anterior (app.bak-predeploy-<fecha>).
+# 2) Construir y recrear:
 docker compose up -d --no-deps --build app
+# COMO SABER SI EL DEPLOY HIZO ALGO (2026-08-30): si el paso `COPY app ./app`
+# sale `CACHED` y el contenedor dice `Running` en vez de `Recreated`, la
+# imagen NO cambio: te falto copiar el codigo. Un deploy real dice
+# `Recreated` y el digest de la imagen es distinto al anterior.
 curl -sS http://127.0.0.1:8010/health
 ss -lntp | grep 8010    # debe decir 127.0.0.1:8010, NUNCA *:8010
 # secrets/ sin tocar:
@@ -171,9 +188,24 @@ rm /tmp/accounting-snapshot.db
 docker exec -u 0 orbit-app-1 rm /tmp/accounting-snapshot.db
 ```
 
-Cadencia **manual** por ahora (ORBIT 06 0.1): los costos rotan poco y la 0.7
-necesita una base estable antes que frescura. Cuando la Fase 1 pida cadencia,
-se agrega al crontab de `gon` este mismo bloque con `docker exec`.
+**Cadencia: DIARIA, decidida por el dueño el 2026-08-30 y ya agendada.** El
+runbook de arriba vive en `/mnt/data/appdata/orbit/refresh_costos.sh` (los 4
+pasos con `trap` de limpieza) y corre por el crontab de `gon`:
+
+```
+30 7 * * * /mnt/data/appdata/orbit/refresh_costos.sh >> /mnt/data/appdata/orbit/logs/costos.log 2>&1
+```
+
+Las **07:30 UTC** caen entre la ingesta de métricas (07:10) y los ciclos
+(08:40/08:41): los costos llegan frescos antes de que el motor decida.
+
+Por qué diaria y no semanal, **medido**: los costos rotan poco —15 días con
+cambios en 6.5 meses, casi siempre de 1 a 6 SKUs— pero el **2026-08-18
+cambiaron 937 de golpe**. Con cadencia semanal, un evento así deja cada
+número de margen mal hasta 6 días. Y correr la ingesta sin cambios es
+**no-op** (verificado: corridas 30-34 con `rows_written=0`), así que el costo
+de correrla a diario es despreciable. Contabilidad ya se sincroniza con Odoo
+cada hora, así que el snapshot siempre trae el dato fresco.
 
 ## Crons de Orbit (crontab de `gon`, ADITIVO)
 
