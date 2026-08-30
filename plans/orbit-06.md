@@ -165,8 +165,146 @@ o sin impuesto cambia el margen: es justo el tipo de error que este proyecto
 persigue.
 
 **Fuentes localizadas de paso** (no se tocan en la 0.1): `currency_rates`
-(210 filas) es la fuente de la 0.5, y `ledger_events` (13,127 filas) la de
-la 0.6 — ambas en la misma SQLite de contabilidad.
+(210 filas) es la fuente de la 0.5, y `ledger_events` (13,127 filas) la de la
+0.6 — ambas en la misma SQLite de contabilidad.
+
+### Decisiones de la 0.1 (GLM, 2026-08-29 — escritas ANTES del código, como exige el DoD)
+
+Cada decisión cita su medición en vivo (SELECT sobre la SQLite de contabilidad,
+2026-08-29, `mode=ro`). Las mediciones de cabecera del plan (2,708 filas, 753
+mismo día, 604 grupos) se re-verificaron y cuadran exacto.
+
+**D1 · Acceso a la fuente: snapshot con la API `.backup()` de SQLite + `docker cp`
+(opción c).** El pipeline lee un SNAPSHOT de la base, no el archivo vivo. El
+runbook (nuevo en `docs/DEPLOY.md`): en el host, `python3 -c` con la API
+`.backup()` (stdlib) produce `/tmp/accounting-snapshot.db`; `docker cp` lo mete
+al contenedor; `python -m app.cli ingest costs --sqlite /tmp/accounting-snapshot.db`
+hace la ingesta. Razones: la base está en modo **WAL** (`PRAGMA journal_mode` =
+wal, medido) — un bind-mount read-only de una WAL es frágil (el lector puede
+necesitar escribir el `-shm`) y un `cp` directo deja fuera el WAL (lección ya
+pagada, ver "Estado del servidor viejo" en CONTEXTO). La API `.backup()` da un
+snapshot consistente con WAL sin tocar nada de contabilidad. **No cambia el
+contrato de deploy** ("se monta SOLO `secrets/`"): la opción (a) queda ANOTADA
+como propuesta futura para el lead si la cadencia pasa a diaria (exigiría
+resolver el WAL del mount y tocar el compose); la (b) exige un runtime Python de
+Orbit fuera del contenedor (venv + psycopg en el host) y rompe el camino único
+del contenedor. El acceso queda read-only por construcción: el pipeline abre el
+snapshot con `mode=ro` y solo hace SELECT. Cadencia: **manual** por ahora (la
+0.7 necesita una base estable antes que frescura); el cron se agrega con este
+mismo runbook cuando la Fase 1 lo pida.
+
+**D2 · Colapso a UNA vigencia por `(sku, día)` con el ÚLTIMO valor del día, y
+fusión de días consecutivos de igual costo.** Se adopta la propuesta del lead,
+con dos reglas de borde medidas contra el origen:
+
+- `valid_from` NULL (974 filas, todas del backfill del 2026-02-20): el día de
+  inicio es `date(created_at)` — el día en que Odoo REPORTÓ ese costo. Contabilidad
+  lo trata como "desde siempre" (`get_cost_asof` de su sync); Orbit NO porta esa
+  afirmación (regla 3: la fila no puede probar cobertura anterior a su creación).
+  Medido: **0 SKUs** donde una fila fechada sea anterior al `created_at` de su fila
+  NULL → ordenar por `COALESCE(valid_from, created_at)` nunca invierte la historia.
+- La cadena origen es perfecta: **0 huecos** (`valid_to` de una fila =
+  `valid_from` de la siguiente, verificado con window function) y exactamente
+  **una vigencia abierta por SKU** (1,087 filas `valid_to IS NULL` = 1,087 SKUs).
+
+El colapso: el costo del día D es el de la última fila que empieza ≤ D; días
+consecutivos de igual costo se funden. Impacto medido: los **604** grupos
+`(sku, día)` multi-fila tienen TODOS más de un costo distinto (603 con
+diferencia > 0.01 MXN): no es solo rotación idéntica — la regla "último valor
+del día" decide qué costo manda ese día. Semántica de re-corrida contra el
+esquema real: vigencia idéntica ya presente ⇒ **no-op**; vigencia nueva ⇒ cierra
+la abierta (`UPDATE valid_to`, la única transición que el trigger
+`sku_cost_solo_cierra_vigencia` permite) e inserta la nueva; costo DISTINTO para
+un período ya publicado ⇒ **skip contado** (el importe es inmutable; jamás se
+intenta el UPDATE que el trigger rechazaría).
+
+**D3 · `includes_tax = false` (costo NETO de IVA), declarado con la cadena de
+evidencia completa; `product.name` derivado del SKU para los sin nombre.**
+Qué produce Odoo (evidencia):
+
+- `sku_costs.cost` = `product.product.standard_price` **verbatim**
+  (`scripts/sync_cogs_odoo.py` de accounting: `search_read` de `standard_price`,
+  sin ajuste de impuesto alguno; 2,701/2,708 filas; las 7 manuales son el mismo
+  SKU, mismo costo, mismo día — POST repetido del dashboard).
+- El mantenimiento de costos en Odoo es: reglas planas del operador
+  (`goncloud-bridge-in-out/tools/odoo_cost_update_arras.py`: "16mm = $95 MXN") y
+  rollup de BoM (`odoo_cost_recompute_kits.py` usa el `compute_price` NATIVO de
+  mrp, que SUMA costos de componentes — Odoo no aplica impuesto al costo: los
+  impuestos viven en el lado de venta).
+- `standard_price` es el costo de **valoración** de inventario (el propio audit
+  de bridge lo etiqueta "impactan valorizacion"); en la contabilidad mexicana el
+  IVA acreditable de proveedor jamás se capitaliza al inventario.
+- Ninguna herramienta del ecosistema aplica o quita factor de IVA a un costo
+  (verificado en accounting + bridge).
+
+**Residual declarado**: si algún operador tecleó un precio CON IVA en un alta
+manual puntual, ese costo estaría inflado 16%. La verificación definitiva
+(comparar `price_unit` de una factura de proveedor contra su `standard_price`,
+vía Odoo/bridge) queda FUERA de esta tarea (la lectura autorizada es solo la
+base de contabilidad) y se deja anotada para el lead. Dirección del residual:
+declarar `false` cuando el valor cargado era bruto **subestima** margen
+(conservador); declararlo `true` sin prueba lo **sobreestimaría** — el sesgo
+"todo es rentabilísimo" que este plan persigue (sellado 2). `product.name`: 906
+de 1,087 SKUs vigentes tienen nombre en `bom_headers`; los **181** sin nombre se
+crean con `[sin nombre en Odoo] {sku}` y quedan contados en la corrida (regla 3:
+jamás un nombre descriptivo inventado). `active` no se toca en la 0.1: el origen
+solo trae productos activos con costo > 0, así que "ausente del origen" no
+demuestra inactivo.
+
+### Corrida real de la 0.1 (2026-08-29, con el pipeline del PR)
+
+Snapshot `.backup()` → `ingest costs` con rol `orbit_ingest`. **Hallazgo
+propio en la primera corrida (id 27)**: 506 skips por "costo con mas de 4
+decimales" — las 506 filas que SQLite marcaba con `ROUND(cost,4) != cost`
+traen **ruido binario del REAL** (residuo ≤ 1e-13, medido; ej. 554.1800000000001):
+dinero de 2 decimales de Odoo, no precisión real. Regla corregida en el mismo
+PR: ruido < 1e-5 se cuantiza a 4 decimales; precisión genuina ≥ 1e-5 se sigue
+rechazando (test rojo→verde). La carga parcial se remedió como el propio
+trigger prescribe ("cerrar en la fecha equivocada se corrige con una migración,
+no con un UPDATE"): `DELETE` acotado a `ingest_run_id = 27` con el trigger
+deshabilitado DENTRO de una transacción y reactivado antes del COMMIT; el
+registro de la corrida 27 queda como historia honesta.
+
+**Corrida final (id 28)**: 2,708 filas origen → **1,955 vigencias, 0 rechazos,
+1,087 productos (181 con nombre derivado), 753 segmentos intradía colapsados,
+0 fusiones** — sin fusiones es correcto: `sync_cogs_odoo.py` solo rota cuando el
+costo cambia > 0.01, así que no existen días consecutivos de igual costo que
+fundir. **Corrida de control (id 30, mismo snapshot): `rows_written=0`, no-op
+real** (nueva ingest_run sellada, base idéntica). Verificación en la base viva:
+una vigencia abierta por producto (1,087/1,087), 0 solapamientos, 100% MXN,
+`includes_tax=false` en todas, y los SKUs de muestra cayeron exacto (Y4-FB35:
+7 filas intradía → UNA vigencia `[2026-02-07, ∞)`; NH-CAR: el `valid_from`
+NULL arranca en su `created_at` 2026-02-20 y los 3 cambios del 2026-08-18
+colapsan al último valor 304.65). Lista de SKU rechazados en la corrida final:
+**vacía**.
+
+### Endurecimiento post-adversario (2026-08-30, mismo PR)
+
+Ronda de adversario sobre el diff (artifact `.saikit/findings/`): 6 hallazgos
+(0 altos, 3 medios, 3 bajos), todos contra datos legales-futuros del origen —
+las invariantes medidas hoy (cadena perfecta, 100% MXN, sin sub-centavos) no
+son garantías del esquema. Corregidos en el mismo PR, cada uno con su test:
+
+1. **Costo sub-centavo** (0 < costo < 5e-5) cuantiza a 0.0000 y revienta
+   `sku_cost_positivo` abortando la corrida entera → ahora es skip contado
+   ("costo cero o nulo", sellado 1).
+2. **Solape en el origen** publicaba la vigencia VIEJA como abierta (costo
+   vigente divergente de la fuente) → ahora el SKU completo queda sin escribir
+   y cada unidad no publicada cuenta su skip.
+3. **Intradía en el borde de la serie**: declarado en D2 — un tramo que abre y
+   cierra el mismo día SIN fila que continúe el día no puede reclamarlo bajo
+   granularidad DATE: el día queda sin costo (dato faltante) y se cuenta
+   aparte (`segmentos_intradia_en_borde`), distinto del ruido con sucesor.
+4. **Moneda/`includes_tax` distintos en lo publicado** con igual importe ya no
+   son no-op: divergencia y SKU completo sin escribir (regla 4).
+5. **SKU ausente del origen** queda contado (antes: silencio con vigencia
+   abierta huérfana). NO se cierra su vigencia (sería inventar que dejó de
+   aplicar) ni se desactiva el producto.
+6. **`UPDATE product.name`** del upsert (cuando el nombre mejora): queda
+   DECLARADO — está dentro de la autorización del dueño para esta tarea
+   ("escritura en `product`"), el catálogo es la excepción mutable por diseño
+   y el GRANT de la migración lo permite; documentado aquí para que el lead
+   lo vea en el diff, no en el silencio.
 
 ## Fase 1 — margen medible y honesto (todavía NO decide nada)
 
