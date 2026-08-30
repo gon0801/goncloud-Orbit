@@ -196,17 +196,19 @@ def _precio_decimal(precio: float | None) -> tuple[Decimal | None, str | None]:
     if not math.isfinite(precio) or precio <= 0:
         return None, "precio no positivo (dato faltante)"
     valor = Decimal(str(precio))
+    # Guarda de rango ANTES de cuantizar (codex#2/grok#3 de la cross-review):
+    # un REAL finito enorme (~1e25+) lanza InvalidOperation en quantize con la
+    # precision por defecto y ABORTABA la corrida entera — justo lo que esta
+    # guarda pretendia evitar. La comparacion Decimal no necesita precision.
+    if abs(valor) >= _MAX_PRECIO:
+        return None, "precio fuera de rango NUMERIC(14,4)"
     if abs(valor - valor.quantize(_MAX_DECIMALES)) >= _RUIDO_FLOAT:
         return None, "precio con mas de 4 decimales (dato faltante)"
-    # Guardas del endurecimiento de la 0.1 que el adversario extrano aqui
-    # (hallazgo 1): el sub-centavo cuantiza a 0.0000 y violaria
-    # listing_precio_positivo ABORTANDO la corrida entera; 10^10 desborda
-    # NUMERIC(14,4). Ambos son dato faltante contado, no abort.
+    # El sub-centavo cuantiza a 0.0000 y violaria listing_precio_positivo
+    # ABORTANDO la corrida entera (hallazgo 1 del adversario): dato faltante.
     cuantizado = valor.quantize(_MAX_DECIMALES)
     if cuantizado <= 0:
         return None, "precio no positivo (dato faltante)"
-    if cuantizado >= _MAX_PRECIO:
-        return None, "precio fuera de rango NUMERIC(14,4)"
     return cuantizado, None
 
 
@@ -277,6 +279,13 @@ def plan_listings(
                 # no se elige ninguno de los dos.
                 skips["ASIN con precios divergentes en el origen (precio descartado)"] += 1
                 planes[clave] = replace(previo, precio=None, moneda=None)
+            elif previo.seller_sku != seller_sku:
+                # Mismo ASIN publicado bajo dos seller_sku (legal en el
+                # bridge: su unique es (seller_sku, marketplace)). El ASIN y
+                # el producto NO ambiguan, asi que el mapa se conserva con el
+                # primero por orden determinista — pero la divergencia deja
+                # de ser silenciosa (grok#1 de la cross-review).
+                skips["ASIN con seller_sku divergentes (se conserva el primero)"] += 1
             else:
                 stats["colapsados_por_asin"] += 1
             continue
@@ -417,13 +426,19 @@ def sync_listings(conn: psycopg.Connection, ruta_sqlite: Path | str) -> Resultad
             # ser un hueco del snapshot, no una baja real. OJO (hallazgo 4 del
             # adversario): solo cuentan los ausentes del ARCHIVO; una fila que
             # SIGUE en el origen pero perdio el mapeo ya cuenta arriba como
-            # "sin mapeo" y no es "ausente".
+            # "sin mapeo" y no es "ausente". Y solo de plataformas PROPIAS de
+            # este pipeline (codex#1/grok#2): un listing meli no es ausente
+            # del snapshot Amazon — no es su jurisdiccion.
             claves_origen = {
                 ((fila.plataforma or "").strip(), (fila.asin or "").strip())
                 for fila in origen.listings
             }
             for clave in existentes:
-                if clave not in planes and clave not in claves_origen:
+                if (
+                    clave not in planes
+                    and clave not in claves_origen
+                    and clave[0] in MONEDA_POR_PLATAFORMA
+                ):
                     skips["listing de Orbit ausente en el origen (se conserva)"] += 1
 
             if mutaciones:

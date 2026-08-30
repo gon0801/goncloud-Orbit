@@ -549,10 +549,19 @@ def test_asin_con_precios_divergentes_descarta_el_precio():
         mapeo={"XM-A": "SKU-A", "XM-B": "SKU-A", "XM-C": "SKU-A", "XM-D": "SKU-A"},
         productos={"SKU-A"},
     )
-    assert skips == Counter({"ASIN con precios divergentes en el origen (precio descartado)": 1})
+    # B0MISMO: mismo producto y precio pero seller_sku DISTINTO (XM-A/XM-B):
+    # divergencia de seller contada, mapa conservado con el primero. El
+    # "colapso puro" (todo igual) es imposible con el unique del bridge
+    # ((seller_sku, marketplace)): el stat queda como defensa.
+    assert skips == Counter(
+        {
+            "ASIN con seller_sku divergentes (se conserva el primero)": 1,
+            "ASIN con precios divergentes en el origen (precio descartado)": 1,
+        }
+    )
     assert planes[("amazon_mx", "B0MISMO")].precio == Decimal("100")
     assert planes[("amazon_mx", "B0OTRO")].precio is None
-    assert stats["colapsados_por_asin"] == 1
+    assert stats["colapsados_por_asin"] == 0
 
 
 @pytest.mark.skipif(
@@ -578,13 +587,18 @@ def test_ausente_solo_cuenta_filas_ausentes_del_archivo(tmp_path):
         conn.execute("SET TIME ZONE 'UTC'")
         conn.execute(SQL)
         conn.execute("INSERT INTO product (odoo_sku, name) VALUES ('SKU-A', 'SKU-A')")
-        # dos listings ya publicados: uno que el archivo ya NO trae (ausente
-        # real) y uno cuyo asin SIGUE en el archivo pero sin mapeo
-        for external_id, seller_sku in (("B0VIEJO", "XM-VIEJO"), ("B0PRESENTE", "XM-PRESENTE")):
+        # tres listings ya publicados: uno que el archivo ya NO trae (ausente
+        # real), uno cuyo asin SIGUE en el archivo pero sin mapeo, y uno de
+        # OTRA plataforma (meli) que NO es jurisdiccion de este pipeline
+        for plataforma, external_id, seller_sku in (
+            ("amazon_mx", "B0VIEJO", "XM-VIEJO"),
+            ("amazon_mx", "B0PRESENTE", "XM-PRESENTE"),
+            ("meli", "MLM-99", "XM-MELI"),
+        ):
             conn.execute(
                 "INSERT INTO listing (product_id, platform, external_id, seller_sku)"
-                " SELECT id, 'amazon_mx', %s, %s FROM product WHERE odoo_sku = 'SKU-A'",
-                (external_id, seller_sku),
+                " SELECT id, %s, %s, %s FROM product WHERE odoo_sku = 'SKU-A'",
+                (plataforma, external_id, seller_sku),
             )
 
         snap = _snapshot_bridge(
@@ -594,13 +608,15 @@ def test_ausente_solo_cuenta_filas_ausentes_del_archivo(tmp_path):
         )
         r = sync_listings(conn, snap)
         assert r.ok is True
-        assert r.rows_written == 0  # nada cambia: los dos listings se conservan
+        assert r.rows_written == 0  # nada cambia: los tres listings se conservan
         assert "1x seller_sku sin mapeo a SKU de Odoo" in r.skip_reason
         assert "1x listing de Orbit ausente en el origen (se conserva)" in r.skip_reason
-        # el presente-pero-sin-mapeo NO cuenta como ausente (regresion)
+        # el presente-pero-sin-mapeo NO cuenta como ausente (regresion) y el
+        # listing de OTRA plataforma tampoco (hallazgo codex#1/grok#2: no es
+        # jurisdiccion de este pipeline, no es "ausente del snapshot Amazon)
         motivos = [m for m in r.skip_reason.split(", ") if "ausente" in m]
         assert motivos == ["1x listing de Orbit ausente en el origen (se conserva)"]
-        assert conn.execute("SELECT count(*) FROM listing").fetchone()[0] == 2
+        assert conn.execute("SELECT count(*) FROM listing").fetchone()[0] == 3
     finally:
         if conn is not None:
             conn.close()
@@ -608,3 +624,42 @@ def test_ausente_solo_cuenta_filas_ausentes_del_archivo(tmp_path):
             pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
         )
         admin.close()
+
+
+# --- cross-review codex + grok (2026-08-30, ronda unica simultanea) --------
+
+
+def test_precio_gigante_finito_no_aborta_la_corrida():
+    """Hallazgo codex#2/grok#3: un REAL finito enorme (1e25, 1e308) lanzaba
+    InvalidOperation en el quantize y ABORTABA la corrida entera — justo lo
+    que la guarda de NUMERIC(14,4) pretendia evitar. La guarda de rango va
+    ANTES de cuantizar."""
+    planes, skips, _ = plan_listings(
+        [
+            _fila("XM-G1", "B0G1", precio=1e25),
+            _fila("XM-G2", "B0G2", precio=1e308),
+        ],
+        mapeo={"XM-G1": "SKU-A", "XM-G2": "SKU-A"},
+        productos={"SKU-A"},
+    )
+    assert skips == Counter({"precio fuera de rango NUMERIC(14,4)": 2})
+    assert planes[("amazon_mx", "B0G1")].precio is None
+    assert planes[("amazon_mx", "B0G2")].precio is None
+
+
+def test_asin_con_seller_sku_divergentes_queda_contado():
+    """Hallazgo grok#1: dos filas del mismo (plataforma, ASIN) y producto con
+    seller_sku DISTINTO elegian el primero en silencio. La eleccion sigue
+    siendo determinista (el mapa no se pierde: el ASIN y el producto no
+    ambiguan), pero deja de ser silenciosa: se cuenta el skip."""
+    planes, skips, _ = plan_listings(
+        [
+            _fila("XM-A", "B0SKU", precio=100.0),
+            _fila("XM-B", "B0SKU", precio=100.0),
+        ],
+        mapeo={"XM-A": "SKU-A", "XM-B": "SKU-A"},
+        productos={"SKU-A"},
+    )
+    assert skips == Counter({"ASIN con seller_sku divergentes (se conserva el primero)": 1})
+    assert planes[("amazon_mx", "B0SKU")].seller_sku == "XM-A"
+    assert planes[("amazon_mx", "B0SKU")].precio == Decimal("100")
