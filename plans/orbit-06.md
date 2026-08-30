@@ -102,7 +102,7 @@ alcanza, la Fase 1 no arranca.
 
 | Task | Contenido | DoD | Depends | Status |
 |---|---|---|---|---|
-| 0.1 | **Ingesta de productos y costos** a `product` + `sku_cost`. Fuente: `sku_costs` de la SQLite de contabilidad. Mapeo explícito de nombres: `sku` → `product.odoo_sku`, `cost` → `cost_amount`, `currency` → `cost_currency`. La vigencia bitemporal se PRESERVA. **Semántica de re-corrida contra el esquema real**: `sku_cost` tiene un `EXCLUDE` (btree_gist) que impide dos vigencias solapadas del mismo producto, y el trigger `sku_cost_solo_cierra_vigencia` permite **únicamente** cerrar `valid_to` — no hay UPDATE de importe ni DELETE. Por lo tanto: vigencia nueva ⇒ cierra la anterior con `valid_to` e inserta; vigencia idéntica ya presente ⇒ **no-op**, jamás error ni fila duplicada. `cost` 0 o NULL ⇒ fila no escrita y contada (sellado 1). `includes_tax` se resuelve leyendo qué produce Odoo, no se asume. Subcomando `ingest costs`. **Tres obstáculos medidos por el lead el 2026-08-30 que hay que resolver ANTES de escribir código — ver §Obstáculos de la 0.1**: el contenedor no ve la base de contabilidad; las vigencias de origen son timestamps intradía y el destino es DATE con `CHECK` y `EXCLUDE`; y `product.name` e `includes_tax` no tienen fuente. `[tdd:required]` | Las tres decisiones de §Obstáculos escritas y justificadas ANTES del código. Rojo antes del código. Tests: costo cero rechazado y contado; **colapso de vigencias** (varias filas del mismo SKU el mismo día → UNA vigencia; sin este test la ingesta revienta contra el `EXCLUDE`); vigencia nueva cierra la anterior (una sola vigente por producto); **re-correr la ingesta completa dos veces deja la base idéntica** (no-op real, no "mismo ingest_run"); intento de modificar un importe existente → rechazado por el trigger; SKU sin nombre sigue el camino decidido y queda contado. Corrida real con conteos, cuántas filas se colapsaron y lista de SKU rechazados con motivo | - | cc:TODO |
+| 0.1 | **Ingesta de productos y costos** a `product` + `sku_cost`. Fuente: `sku_costs` de la SQLite de contabilidad. Mapeo explícito de nombres: `sku` → `product.odoo_sku`, `cost` → `cost_amount`, `currency` → `cost_currency`. La vigencia bitemporal se PRESERVA. **Semántica de re-corrida contra el esquema real**: `sku_cost` tiene un `EXCLUDE` (btree_gist) que impide dos vigencias solapadas del mismo producto, y el trigger `sku_cost_solo_cierra_vigencia` permite **únicamente** cerrar `valid_to` — no hay UPDATE de importe ni DELETE. Por lo tanto: vigencia nueva ⇒ cierra la anterior con `valid_to` e inserta; vigencia idéntica ya presente ⇒ **no-op**, jamás error ni fila duplicada. `cost` 0 o NULL ⇒ fila no escrita y contada (sellado 1). `includes_tax` se resuelve leyendo qué produce Odoo, no se asume. Subcomando `ingest costs`. **Tres obstáculos medidos por el lead el 2026-08-30 que hay que resolver ANTES de escribir código — ver §Obstáculos de la 0.1**: el contenedor no ve la base de contabilidad; las vigencias de origen son timestamps intradía y el destino es DATE con `CHECK` y `EXCLUDE`; y `product.name` e `includes_tax` no tienen fuente. `[tdd:required]` | Las tres decisiones de §Obstáculos escritas y justificadas ANTES del código. Rojo antes del código. Tests: costo cero rechazado y contado; **colapso de vigencias** (varias filas del mismo SKU el mismo día → UNA vigencia; sin este test la ingesta revienta contra el `EXCLUDE`); vigencia nueva cierra la anterior (una sola vigente por producto); **re-correr la ingesta completa dos veces deja la base idéntica** (no-op real, no "mismo ingest_run"); intento de modificar un importe existente → rechazado por el trigger; SKU sin nombre sigue el camino decidido y queda contado. Corrida real con conteos, cuántas filas se colapsaron y lista de SKU rechazados con motivo | - | cc:完了 [2026-08-30, GLM PR #63 → master `faac179`. **Verificado por el lead contra la base VIVA, no contra la evidencia**: 1,087 productos / 1,955 vigencias / 181 nombres derivados; **una sola vigencia abierta por producto (1,087 de 1,087)**; 100 % MXN e `includes_tax=false` en las 1,955; cero costos ≤ 0; los 974 NULL de `valid_from` del origen cuadran exactos. **Recálculo INDEPENDIENTE del lead con SQL propio sobre el origen: 1,955, idéntico.** Caso punta a punta: `Y4-FB35-N645` con 7 filas del mismo costo y ruido de segundos → UNA vigencia. **No-op confirmado CUATRO veces** (corridas 30-33 con `rows_written=0`), más de lo que declaraba el PR. La remediación de la corrida 27 (1,522 escritas / 506 saltadas por ruido binario del REAL) no dejó daño: **los 8 triggers quedaron activos**, el `EXCLUDE` y los dos CHECK presentes, y de esa carga no sobrevive ni una fila. Dinero correcto: **rechaza ANTES de redondear**, así que una precisión genuina de más de 4 decimales nunca se redondea en silencio; el sub-centavo que cuantiza a cero se rechaza contado en vez de abortar la corrida (hallazgo del propio adversario de GLM). Contabilidad en `mode=ro` por construcción, cero escrituras fuera de alcance. **Residual D3 del IVA CERRADO por el lead con lectura directa de Odoo** (ver D3). GLM cumplió el proceso: rojo antes del código, 17 tests, adversario propio (6 hallazgos) y 1 sola ronda de cross-review con codex] |
 | 0.2 | **Ingesta de listings**: el mapa SKU ↔ plataforma ↔ identificador externo, a `listing`. Sin él, el costo (por SKU de Odoo) no se une a lo que Amazon anuncia (por ASIN/seller SKU). Fuente a determinar EN LA TAREA con evidencia (contabilidad, API de Amazon, o ambas) y declarada. **El precio es OPCIONAL**: el CHECK `listing_precio_con_moneda` exige `(listing_price IS NULL) = (price_currency IS NULL)`, o sea ambos o ninguno. El producto de esta tarea es el MAPA; un listing sin precio se escribe igual. `[tdd:required]` | Rojo antes del código. Fuente elegida declarada con su SELECT/readback. Tests: un SKU en dos plataformas → dos filas; listing sin precio se escribe (ambos NULL) y no se descarta; precio presente sin moneda → rechazado por el CHECK. Corrida real: conteo por plataforma y % de SKU con costo que quedan mapeados | 0.1 | cc:TODO |
 | 0.3 | **Habilitar la lectura de product ads** — es un cambio de SUPERFICIE DE SEGURIDAD, no una ingesta más: `/sp/productAds/list` **no está** en `LIST_REQUEST_TYPES`, que es un allowlist congelado (`MappingProxyType`) leído en vivo por el guard de POST; hoy `list_objects` rechaza ese path. Ampliarlo sigue el MISMO ritual que pagó `negativeKeywords`: evidencia regla 8 EN VIVO del vendor Content-Type exacto en AMBOS perfiles, con el log en `out/`, ANTES de tocar el allowlist. `[tdd:required]` | Log de la corrida real que prueba el vendor type correcto y el 200 en US y MX (o el fallo declarado). Allowlist ampliado con SOLO ese path. Tests del guard: el path nuevo pasa; un path fuera del allowlist sigue reventando; el conteo de `LIST_REQUEST_TYPES` en los tests se actualiza a propósito, no por accidente | - | cc:TODO |
 | 0.4 | **Vínculo anuncio→producto**: poblar `ad_entity.listing_id` desde los product ads. **Dos decisiones de esquema que la tarea resuelve ANTES de escribir**: (a) `ad_entity_kind` NO tiene `product_ad` — se decide entre extender el enum por migración o no materializar el product ad como entidad y resolver el vínculo en el ad group; (b) **cardinalidad**: un ad group puede anunciar N ASIN y `ad_entity.listing_id` es UNO solo — hay que definir qué se escribe cuando N>1 (propuesta del lead: **NO escribir** y contar el ad group como "multi-ASIN, margen no atribuible", nunca elegir uno arbitrario). Ambas decisiones se documentan con su razón antes de implementar. `[tdd:required]` | Las dos decisiones escritas y justificadas. Rojo antes del código. Candado de arquitectura: el pipeline no importa `write.py`. Tests: ad group con 1 ASIN → `listing_id` resuelto; con 0 y con N → `listing_id` NULL y contado en su categoría. Corrida real read-only con el `SELECT` de cobertura: % de ad groups con vínculo resuelto, y los no resueltos clasificados por motivo (multi-ASIN / sin listing / sin costo), jamás silenciados | 0.2, 0.3 | cc:TODO |
@@ -237,11 +237,32 @@ Qué produce Odoo (evidencia):
 - Ninguna herramienta del ecosistema aplica o quita factor de IVA a un costo
   (verificado en accounting + bridge).
 
-**Residual declarado**: si algún operador tecleó un precio CON IVA en un alta
-manual puntual, ese costo estaría inflado 16%. La verificación definitiva
-(comparar `price_unit` de una factura de proveedor contra su `standard_price`,
-vía Odoo/bridge) queda FUERA de esta tarea (la lectura autorizada es solo la
-base de contabilidad) y se deja anotada para el lead. Dirección del residual:
+**RESIDUAL CERRADO por el lead el 2026-08-30, con lectura directa de Odoo**
+(autorizada por el dueño en el momento: "por que no entras a mi odoo y revisas
+personalmente?"). El dueño planteó la duda concreta: sus proveedores chinos no
+cobran IVA y los mexicanos sí, y suponía que al hacer un RFQ y una orden Odoo
+guardaría el costo con el precio completo. **Medido en la base `EHV` (Odoo 17),
+y la suposición NO se cumple**:
+
+- En **227 de 227** líneas de orden de compra, `price_subtotal =
+  price_unit × product_qty`: el precio unitario es SIEMPRE neto.
+- **213 líneas llevan impuesto ENCIMA** (`price_total > price_subtotal`) y **14
+  no** — la mezcla de proveedores que describe el dueño EXISTE y se ve, pero
+  viaja fuera del precio unitario. Ratio promedio `price_total/price_subtotal`
+  = **1.1501**, exactamente `1 + 0.16 × 213/227`: cuadra la aritmética del 16 %
+  aplicado a esas 213.
+- De los 24 productos con `standard_price` y orden de compra comparables: **3
+  coinciden exactos con el precio SIN impuesto y CERO con el precio CON
+  impuesto**. Ejemplos: `4558-BR` costo 173.00 = unitario 173.00 (subtotal
+  865.00, total 1,003.40); `4405-BG` 76.00 = 76.00 (1,140.00 / 1,322.40);
+  `4609` 240.00 = 240.00 (720.00 / 835.20).
+
+**Conclusión: `includes_tax = false` es CORRECTO y queda VERIFICADO contra la
+fuente, no argumentado.** El riesgo que preocupaba —que los productos de
+proveedor mexicano se vieran 16 % más caros que los importados y el motor
+moviera presupuesto por una razón falsa— **no existe**: no era un sesgo parejo
+sino diferencial entre productos, que es peor, y por eso se verificó en vez de
+aceptarse. Dirección del residual:
 declarar `false` cuando el valor cargado era bruto **subestima** margen
 (conservador); declararlo `true` sin prueba lo **sobreestimaría** — el sesgo
 "todo es rentabilísimo" que este plan persigue (sellado 2). `product.name`: 906
@@ -305,6 +326,24 @@ son garantías del esquema. Corregidos en el mismo PR, cada uno con su test:
    ("escritura en `product`"), el catálogo es la excepción mutable por diseño
    y el GRANT de la migración lo permite; documentado aquí para que el lead
    lo vea en el diff, no en el silencio.
+
+
+### Residuales que el lead deja declarados tras cerrar la 0.1 (2026-08-30)
+
+Ninguno bloquea la 0.2; los dos deben resolverse ANTES de la Fase 1.
+
+1. **La fusion de dias consecutivos de igual costo NUNCA se ejercito contra
+   datos reales.** El lead midio el origen con SQL propio: hay **cero** pares
+   de dias consecutivos con el mismo costo en las 2,708 filas, asi que esa
+   rama del colapso no se ejecuto ni una vez en la corrida real. Esta cubierta
+   por test unitario, pero sin evidencia de produccion: si estuviera mal,
+   nada de lo corrido lo habria revelado. Cuando aparezca el primer caso real,
+   verificarlo explicitamente.
+2. **La ingesta es MANUAL: no hay cron.** Los costos se quedan viejos desde
+   hoy. La cadencia se decide ANTES de la Fase 1 (la vista de margen leeria
+   costos desactualizados sin avisar), por el mismo runbook del snapshot que
+   dejo la 0.1. Es decision del dueno: cada cuanto, y si el snapshot se
+   automatiza en el host.
 
 ## Fase 1 — margen medible y honesto (todavía NO decide nada)
 
