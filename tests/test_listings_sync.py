@@ -109,7 +109,7 @@ def _fila(
 
 def test_sin_mapeo_no_se_escribe_y_queda_contado():
     """La trampa sellada: 285 publicaciones sin fila en amazon_sku_mapping NO
-    se escriben (jamás un producto inventado, regla 3) y quedan contadas."""
+    se escriben (jamas un producto inventado, regla 3) y quedan contadas."""
     planes, skips, stats = plan_listings([_fila("01-5LZU-V9KZ", "B0SINMAPEO")], mapeo={})
     assert planes == {}
     assert skips == Counter({"seller_sku sin mapeo a SKU de Odoo": 1})
@@ -118,7 +118,7 @@ def test_sin_mapeo_no_se_escribe_y_queda_contado():
 
 def test_mapeo_por_seller_sku_nunca_por_texto():
     """El mismo TEXTO del seller_sku NO puede producir una fila aunque exista
-    un producto de Orbit con ese mismo texto: la unión es SOLO el mapeo."""
+    un producto de Orbit con ese mismo texto: la union es SOLO el mapeo."""
     # 'ARR-16-DOR-CAM' existe como producto de Orbit, pero si el mapeo no lo
     # trae, la fila no se escribe (los SKU de Amazon no son los de Odoo).
     planes, skips, _ = plan_listings([_fila("ARR-16-DOR-CAM", "B0TEXTO")], mapeo={})
@@ -553,3 +553,58 @@ def test_asin_con_precios_divergentes_descarta_el_precio():
     assert planes[("amazon_mx", "B0MISMO")].precio == Decimal("100")
     assert planes[("amazon_mx", "B0OTRO")].precio is None
     assert stats["colapsados_por_asin"] == 1
+
+
+@pytest.mark.skipif(
+    not _DSN_EXPLICITO and not _hay_postgres_local(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ausente_solo_cuenta_filas_ausentes_del_archivo(tmp_path):
+    """Regresion del hallazgo 4 del adversario (reviewer: faltaba el test):
+    'ausente en el origen' solo puede contar claves que NO estan en el
+    ARCHIVO; una fila presente-pero-sin-mapeo ya cuenta arriba como 'sin
+    mapeo' y no es ausente. Sin este test, el doble conteo con etiqueta
+    falsa volveria sin voltear nada."""
+    psycopg = pytest.importorskip("psycopg")
+    from psycopg import sql as pgsql
+
+    dsn = _test_dsn()
+    db = f"orbit_listings_aus_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(dsn, dbname=db, autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        conn.execute(SQL)
+        conn.execute("INSERT INTO product (odoo_sku, name) VALUES ('SKU-A', 'SKU-A')")
+        # dos listings ya publicados: uno que el archivo ya NO trae (ausente
+        # real) y uno cuyo asin SIGUE en el archivo pero sin mapeo
+        for external_id, seller_sku in (("B0VIEJO", "XM-VIEJO"), ("B0PRESENTE", "XM-PRESENTE")):
+            conn.execute(
+                "INSERT INTO listing (product_id, platform, external_id, seller_sku)"
+                " SELECT id, 'amazon_mx', %s, %s FROM product WHERE odoo_sku = 'SKU-A'",
+                (external_id, seller_sku),
+            )
+
+        snap = _snapshot_bridge(
+            tmp_path / "aus.db",
+            [("XM-PRESENTE", "B0PRESENTE", "amazon_mx", 100.0)],
+            mapeo=[],
+        )
+        r = sync_listings(conn, snap)
+        assert r.ok is True
+        assert r.rows_written == 0  # nada cambia: los dos listings se conservan
+        assert "1x seller_sku sin mapeo a SKU de Odoo" in r.skip_reason
+        assert "1x listing de Orbit ausente en el origen (se conserva)" in r.skip_reason
+        # el presente-pero-sin-mapeo NO cuenta como ausente (regresion)
+        motivos = [m for m in r.skip_reason.split(", ") if "ausente" in m]
+        assert motivos == ["1x listing de Orbit ausente en el origen (se conserva)"]
+        assert conn.execute("SELECT count(*) FROM listing").fetchone()[0] == 2
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()

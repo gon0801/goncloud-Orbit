@@ -261,7 +261,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     sub = parser.add_subparsers(dest="comando", required=True)
 
-    p_ingest = sub.add_parser("ingest", help="pipelines de ingesta (app/ads y app/costs)")
+    p_ingest = sub.add_parser(
+        "ingest", help="pipelines de ingesta (app/ads, app/costs y app/listings)"
+    )
     p_ingest.add_argument(
         "pipeline",
         choices=("structure", "metrics", "costs", "listings"),
