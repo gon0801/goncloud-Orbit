@@ -56,6 +56,7 @@ from pathlib import Path
 import psycopg
 
 from app.db import connect
+from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.redaction import install_scrub_filter, scrub
 
 logger = logging.getLogger(__name__)
@@ -65,9 +66,19 @@ SOURCE = "bridge_listings"
 
 # platform -> moneda del marketplace. El reporte origen (GET_MERCHANT_
 # LISTINGS_ALL_DATA) se pide uno por marketplace y su precio viene en moneda
-# local; el bridge no guarda la columna. Mismo mapa que _PAIS_PLATAFORMA_
-# MONEDA de app/ads/structure.py (D3 de la 0.2).
-MONEDA_POR_PLATAFORMA = {"amazon_mx": "MXN", "amazon_us": "USD"}
+# local; el bridge no guarda la columna, asi que la moneda se DERIVA de la
+# plataforma (D3 de la 0.2).
+#
+# La fuente es UNA SOLA y vive en el motor: `PLATAFORMAS_MONEDA` de
+# app/optimizer/bid.py, la misma que ya usan app/api.py y app/api_dashboard.py.
+# Correccion del lead (2026-08-30): la entrega original definia aqui un mapa
+# propio identico. Hoy los valores coinciden, pero un tercer marketplace
+# actualizaria uno y no el otro, y el precedente de este proyecto es caro
+# (sales_history reportando MXN para amazon_us: error de 18.66x SIEMPRE a
+# favor de "todo es rentabilisimo"). El candado esta en
+# tests/test_architecture.py::test_una_sola_fuente_de_moneda_por_plataforma.
+# Frontera respetada: el motor es puro y no importa de afuera; importar DEL
+# motor si esta permitido y es lo que ya hacen las superficies de lectura.
 
 _MAX_DECIMALES = Decimal("0.0001")  # money_amount = NUMERIC(14,4)
 _RUIDO_FLOAT = Decimal("0.00001")  # umbral ruido binario vs precision real
@@ -243,8 +254,8 @@ def plan_listings(
         if not asin:
             skips["listing sin ASIN"] += 1
             continue
-        if plataforma not in MONEDA_POR_PLATAFORMA:
-            dominios = "/".join(sorted(MONEDA_POR_PLATAFORMA))
+        if plataforma not in PLATAFORMAS_MONEDA:
+            dominios = "/".join(sorted(PLATAFORMAS_MONEDA))
             skips[f"plataforma fuera de dominio ({dominios}): {plataforma}"] += 1
             continue
         if seller_sku in mapeo_ambiguo:
@@ -295,7 +306,7 @@ def plan_listings(
             external_id=asin,
             seller_sku=seller_sku,
             precio=precio,
-            moneda=MONEDA_POR_PLATAFORMA[plataforma] if precio is not None else None,
+            moneda=PLATAFORMAS_MONEDA[plataforma] if precio is not None else None,
         )
 
     stats["listings"] = len(planes)
@@ -437,7 +448,7 @@ def sync_listings(conn: psycopg.Connection, ruta_sqlite: Path | str) -> Resultad
                 if (
                     clave not in planes
                     and clave not in claves_origen
-                    and clave[0] in MONEDA_POR_PLATAFORMA
+                    and clave[0] in PLATAFORMAS_MONEDA
                 ):
                     skips["listing de Orbit ausente en el origen (se conserva)"] += 1
 
