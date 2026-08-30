@@ -339,11 +339,24 @@ Ninguno bloquea la 0.2; los dos deben resolverse ANTES de la Fase 1.
    por test unitario, pero sin evidencia de produccion: si estuviera mal,
    nada de lo corrido lo habria revelado. Cuando aparezca el primer caso real,
    verificarlo explicitamente.
-2. **La ingesta es MANUAL: no hay cron.** Los costos se quedan viejos desde
-   hoy. La cadencia se decide ANTES de la Fase 1 (la vista de margen leeria
-   costos desactualizados sin avisar), por el mismo runbook del snapshot que
-   dejo la 0.1. Es decision del dueno: cada cuanto, y si el snapshot se
-   automatiza en el host.
+2. ~~La ingesta es MANUAL: no hay cron.~~ **CERRADO el 2026-08-30**: el
+   dueno decidio cadencia **DIARIA** y ya esta agendada (07:30 UTC en el
+   crontab de gon, script refresh_costos.sh, runbook en docs/DEPLOY.md).
+   Razon medida: los costos rotan poco (15 dias con cambios en 6.5 meses)
+   pero el 2026-08-18 cambiaron 937 SKUs de golpe — con cadencia semanal un
+   evento asi deja cada numero de margen mal hasta 6 dias; y correr la
+   ingesta sin cambios es no-op (corridas 30-34 con rows_written=0), asi que
+   el costo de la frecuencia es despreciable.
+
+   **Hallazgo del lead al agendarla**: probar el script ANTES de poner el
+   cron atrapó que el contenedor no tenía el subcomando `costs` — el deploy
+   de las 02:12 UTC era anterior al merge de la 0.1, y un `--build` sin
+   copiar el código reconstruye el VIEJO **en silencio** (`COPY app` sale
+   `CACHED` y el contenedor dice `Running`, no `Recreated`). Corregido con un
+   deploy real (imagen nueva, 29 modulos .py verificados identicos a
+   origin/master por md5) y **documentado en docs/DEPLOY.md** para que no
+   vuelva a pasar. Un cron que falla todos los dias es peor que ningun cron:
+   por eso se probo primero.
 
 ## Obstáculos de la 0.2 (medidos por el lead 2026-08-30, antes de asignarla)
 
