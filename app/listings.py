@@ -566,7 +566,9 @@ def main(argv: list[str] | None = None) -> int:
         f"listings: insertadas={resultado.listings_insertadas}"
         f" actualizadas={resultado.listings_actualizadas}"
         f" remapeos={resultado.remapeos} precios_actualizados={resultado.precios_actualizados}"
-        f" finales={resultado.listings_finales} (filas origen: {resultado.filas_origen})"
+        f" finales_plan={resultado.listings_finales}"
+        f" (filas origen: {resultado.filas_origen}; los ausentes conservados"
+        f" no cuentan aqui)"
     )
     print(f"por plataforma: {por_plataforma or '(nada escrito)'}")
     print(f"colapso: filas_mismo_asin={resultado.colapsados_por_asin}")
