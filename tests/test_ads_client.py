@@ -442,6 +442,17 @@ def test_list_request_types_incluye_negative_keywords_list():
     )
 
 
+def test_list_request_types_incluye_product_ads_list():
+    """Evidencia REGLA 8 EN VIVO (log
+    out/regla8-productads.log): POST /sp/productAds/list con vendor
+    spproductad v3 responde 200 en AMBOS perfiles (US y MX). El POST
+    por list_objects pasa el guard al formar parte de LIST_REQUEST_TYPES
+    (lo ejercita test_list_objects_post_de_lectura_con_vendor_types, que
+    recorre el mapa completo)."""
+    assert LIST_REQUEST_TYPES["/sp/productAds/list"] == ("application/vnd.spproductad.v3+json")
+    assert len(LIST_REQUEST_TYPES) == 6
+
+
 @pytest.mark.parametrize(
     "method,path",
     [
