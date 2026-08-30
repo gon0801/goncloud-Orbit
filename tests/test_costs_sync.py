@@ -294,6 +294,16 @@ def test_vigencia_invertida_rechazada():
     assert skips == Counter({"vigencia invertida (valid_to < valid_from)": 1})
 
 
+def test_timestamp_corrupto_rechazado():
+    """Hallazgo 4 de codex (baja): '2026-04-01basura' pasaba como fecha valida
+    porque _dia solo miraba los primeros 10 caracteres — una fecha plausible
+    publicada sobre un dato corrupto. Ahora se parsea el timestamp COMPLETO."""
+    _, skips, _ = colapsar([_fila("C", 100.0, "2026-04-01basura", None, creado="tambien-basura")])
+    assert skips == Counter({"fecha de inicio ilegible (valid_from/created_at)": 1})
+    _, skips_fin, _ = colapsar([_fila("C", 100.0, "2026-04-01 10:00:00", "2026-05-01xy")])
+    assert skips_fin == Counter({"fecha de cierre ilegible (valid_to)": 1})
+
+
 def test_costo_con_mas_de_4_decimales_rechazado():
     # str(301.50001) preserva los decimales: NUMERIC(14,4) no puede guardarlos
     # sin redondear, y redondear dinero en silencio es lo que la regla 4 mata.
@@ -776,6 +786,22 @@ def test_sync_costos_ciclo_completo_en_vivo(tmp_path):
         # no se ESCRIBE nada del ausente (ni cerrar su vigencia: eso seria
         # inventar que dejo de aplicar), y la base queda identica
         assert _estado(conn) == antes6
+
+        # -------- corrida 7: el nombre real NUNCA degrada a derivado --------
+        # (hallazgo 2 de codex, media): si bom_headers pierde el nombre de un
+        # SKU cuyo nombre real YA esta publicado (sync de Odoo incompleto), el
+        # upsert no puede pisarlo con "[sin nombre en Odoo] SKU": solo se
+        # actualiza cuando el nombre MEJORA (derivado -> real, o real -> real).
+        snap7 = _snapshot(tmp_path / "v7.db", filas_v3, [(2, "SKU-C-CERO", "Producto C")])
+        antes7 = _estado(conn)
+        r7 = sync_costos(conn, snap7)
+        assert r7.ok is True
+        # ARR-16-001 sin nombre en el origen: conserva el nombre publicado
+        nombre_arr = conn.execute(
+            "SELECT name FROM product WHERE odoo_sku = 'ARR-16-001'"
+        ).fetchone()[0]
+        assert nombre_arr == "Arra 16mm"
+        assert _estado(conn) == antes7  # nada cambio: ni nombre ni vigencias
     finally:
         if conn is not None:
             conn.close()

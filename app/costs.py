@@ -206,11 +206,16 @@ def leer_origen(ruta: Path | str) -> OrigenCostos:
 
 
 def _dia(texto: str | None) -> dt.date | None:
-    """'YYYY-MM-DD HH:MM:SS' -> date; None/garbage -> None."""
+    """'YYYY-MM-DD[ HH:MM:SS]' -> date; None/basura -> None.
+
+    Se parsea el timestamp COMPLETO, no los primeros 10 caracteres: un
+    '2026-04-01basura' es un dato corrupto, no una fecha plausible que se
+    publica (hallazgo 4 de codex, cross-review).
+    """
     if not texto:
         return None
     try:
-        return dt.date.fromisoformat(texto[:10])
+        return dt.datetime.fromisoformat(texto).date()
     except ValueError:
         return None
 
@@ -368,10 +373,17 @@ UPDATE ingest_run
 # El UPDATE del nombre solo cuando cambia: el re-run de una base ya cargada no
 # genera escrituras (no-op REAL). Sin fila devuelta = el WHERE corto la
 # actualizacion y hay que leer el id existente.
+# El UPDATE del nombre solo cuando MEJORA (hallazgo 2 de codex, cross-review):
+# si bom_headers pierde temporalmente el nombre de un SKU cuyo nombre real ya
+# esta publicado (sync de Odoo incompleto), el derivado NO lo pisa — la
+# degradacion real->derivado quedaria grabada en el catalogo. Se actualiza
+# solo si el existente es derivado (upgrade) o el entrante es real (cambio
+# real->real). Los dos %s extra son el prefijo de la marca, dos veces.
 _SQL_UPSERT_PRODUCTO = """
 INSERT INTO product (odoo_sku, name) VALUES (%s, %s)
 ON CONFLICT (odoo_sku) DO UPDATE SET name = EXCLUDED.name
  WHERE product.name IS DISTINCT FROM EXCLUDED.name
+   AND (product.name LIKE %s OR EXCLUDED.name NOT LIKE %s)
 RETURNING id, (xmax = 0) AS es_nuevo
 """
 
@@ -470,9 +482,13 @@ def sync_costos(conn: psycopg.Connection, ruta_sqlite: Path | str) -> ResultadoS
                 if nombre is None:
                     nombre = f"{NOMBRE_SIN_ODOO} {sku}"
                     nombres_derivados += 1
-                fila = conn.execute(_SQL_UPSERT_PRODUCTO, (sku, nombre)).fetchone()
+                fila = conn.execute(
+                    _SQL_UPSERT_PRODUCTO,
+                    (sku, nombre, f"{NOMBRE_SIN_ODOO}%", f"{NOMBRE_SIN_ODOO}%"),
+                ).fetchone()
                 if fila is None:
-                    # Nombre identico: el WHERE corto el UPDATE; leer el id.
+                    # Nombre identico O protegido contra degradacion: el WHERE
+                    # corto el UPDATE; leer el id existente sin tocar la fila.
                     product_id = conn.execute(_SQL_ID_PRODUCTO, (sku,)).fetchone()[0]
                 else:
                     product_id, es_nuevo = fila

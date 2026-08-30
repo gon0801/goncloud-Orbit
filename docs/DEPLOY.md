@@ -155,15 +155,20 @@ mediciones: `plans/orbit-06.md` §Decisiones de la 0.1.
 
 ```bash
 ssh goncloud
-# 1) snapshot de la SQLite de contabilidad (host, stdlib, no toca la original)
-python3 -c "import sqlite3; src=sqlite3.connect('file:/mnt/data/appdata/accounting/data/accounting.db?mode=ro', uri=True); dst=sqlite3.connect('/tmp/accounting-snapshot.db'); src.backup(dst); dst.close(); src.close()"
+# 1) snapshot de la SQLite de contabilidad (host, stdlib, no toca la original).
+#    chmod 644: la app corre como UID 10001 y docker cp conserva el uid del
+#    archivo; un 600 de root dejaria el snapshot ilegible dentro (codex, ronda 1).
+python3 -c "import sqlite3; src=sqlite3.connect('file:/mnt/data/appdata/accounting/data/accounting.db?mode=ro', uri=True); dst=sqlite3.connect('/tmp/accounting-snapshot.db'); src.backup(dst); dst.close(); src.close()" \
+  && chmod 644 /tmp/accounting-snapshot.db
 # 2) meter el snapshot al contenedor y correr la ingesta (mismo camino que el
 #    cron: docker exec, no compose exec — el .env del proyecto es 600 root)
 docker cp /tmp/accounting-snapshot.db orbit-app-1:/tmp/accounting-snapshot.db
 docker exec orbit-app-1 python -m app.cli ingest costs --sqlite /tmp/accounting-snapshot.db
-# 3) limpieza del snapshot (host y contenedor)
+# 3) limpieza del snapshot (host y contenedor). En el contenedor con -u 0:
+#    /tmp tiene sticky bit y el archivo llega owner=root (docker cp conserva
+#    el uid numerico), asi que el 10001 de la app no puede borrarlo.
 rm /tmp/accounting-snapshot.db
-docker exec orbit-app-1 rm /tmp/accounting-snapshot.db
+docker exec -u 0 orbit-app-1 rm /tmp/accounting-snapshot.db
 ```
 
 Cadencia **manual** por ahora (ORBIT 06 0.1): los costos rotan poco y la 0.7
