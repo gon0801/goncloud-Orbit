@@ -5,7 +5,8 @@ existe — `cycle` llama al orquestador de `app.cycle.py` (`corre_ciclo`, con su
 MISMO claim/job_key/envelope; el job_key del lock es COMPARTIDO entre cron y
 CLI via `app.cycle.job_key_de`, una sola fuente), `ingest` delega a los mains
 de los pipelines de `app/ads/` (structure/reports, con su ORBIT_DSN_INGEST y
-su contabilidad de ingest_run) y `goals set` despacha a
+su contabilidad de ingest_run) y de `app/costs.py` (ORBIT 06 0.1: costos de
+contabilidad desde un snapshot SQLite), y `goals set` despacha a
 `app.goals_write.edita_goal` (ORBIT 04 3.2: el UNICO camino de escritura de
 ads_optimizer_goal, con su ORBIT_DSN_ADMIN). PROHIBIDO duplicar logica: aqui
 no vive NINGUNA regla de decision ni de ingesta, solo el despacho a los
@@ -30,8 +31,8 @@ import socket
 import sys
 from decimal import Decimal
 
+from app import costs, goals_write
 from app import cycle as ciclo
-from app import goals_write
 from app.ads import reports, structure
 from app.db import connect
 from app.optimizer.bid import PLATAFORMAS_MONEDA
@@ -126,6 +127,10 @@ def _ingest(args, rest: list[str]) -> int:
         return structure.main()
     if args.pipeline == "metrics":
         return reports.main(rest)
+    if args.pipeline == "costs":
+        # ORBIT 06 0.1: costos de contabilidad (snapshot SQLite via --sqlite;
+        # runbook en docs/DEPLOY.md). Mismo patron que metrics: args al main.
+        return costs.main(rest)
     raise AssertionError(f"pipeline inalcanzable: {args.pipeline!r}")
 
 
@@ -252,11 +257,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     sub = parser.add_subparsers(dest="comando", required=True)
 
-    p_ingest = sub.add_parser("ingest", help="pipelines de ingesta de Amazon Ads (app/ads)")
+    p_ingest = sub.add_parser("ingest", help="pipelines de ingesta (app/ads y app/costs)")
     p_ingest.add_argument(
         "pipeline",
-        choices=("structure", "metrics"),
-        help="structure: sync de estructura; metrics: metricas + search terms",
+        choices=("structure", "metrics", "costs"),
+        help=(
+            "structure: sync de estructura; metrics: metricas + search terms;"
+            " costs: productos+costos desde contabilidad (--sqlite)"
+        ),
     )
 
     p_cycle = sub.add_parser(

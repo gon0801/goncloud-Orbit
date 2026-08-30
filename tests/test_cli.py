@@ -258,6 +258,21 @@ def test_cli_ingest_metrics_delega_al_pipeline_con_sus_args(monkeypatch, capsys)
     assert llamadas == [["--fecha", "2026-08-20"]]
 
 
+def test_cli_ingest_costs_delega_al_pipeline_con_sus_args(monkeypatch, capsys):
+    """ORBIT 06 0.1: `ingest costs --sqlite RUTA` despacha a app.costs.main
+    con sus args tal cual (mismo patron que metrics: cero logica aqui)."""
+    llamadas: list = []
+
+    def _main_costos(argv=None):
+        llamadas.append(argv)
+        return 4  # exit code del pipeline propagado tal cual
+
+    monkeypatch.setattr("app.costs.main", _main_costos)
+    codigo = cli.main(["ingest", "costs", "--sqlite", "/tmp/snap.db"])
+    assert codigo == 4
+    assert llamadas == [["--sqlite", "/tmp/snap.db"]]
+
+
 def test_cli_ingest_pipeline_desconocido_rechazado(capsys):
     with pytest.raises(SystemExit) as exc:
         cli.main(["ingest", "algo"])
