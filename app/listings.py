@@ -49,7 +49,7 @@ import os
 import sqlite3
 import sys
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from pathlib import Path
 
@@ -71,6 +71,7 @@ MONEDA_POR_PLATAFORMA = {"amazon_mx": "MXN", "amazon_us": "USD"}
 
 _MAX_DECIMALES = Decimal("0.0001")  # money_amount = NUMERIC(14,4)
 _RUIDO_FLOAT = Decimal("0.00001")  # umbral ruido binario vs precision real
+_MAX_PRECIO = Decimal(10) ** 10  # 10 enteros + 4 decimales = 14 digitos
 
 
 class ListingsError(Exception):
@@ -90,7 +91,8 @@ class FilaListing:
 @dataclass(frozen=True)
 class OrigenListings:
     listings: tuple[FilaListing, ...]
-    mapeo: dict[str, str]  # seller_sku -> odoo_default_code
+    mapeo: dict[str, str]  # seller_sku -> odoo_default_code (ambos stripped)
+    mapeo_ambiguo: frozenset[str] = frozenset()  # claves colisionantes tras strip
 
 
 @dataclass(frozen=True)
@@ -121,6 +123,7 @@ class ResultadoSync:
     filas_origen: int
     listings_finales: int
     conteo_por_plataforma: dict[str, int]
+    colapsados_por_asin: int
 
 
 # ---------------------------------------------------------------------------
@@ -147,16 +150,33 @@ def leer_origen(ruta: Path | str) -> OrigenListings:
                 " FROM amazon_listing_prices ORDER BY marketplace_name, seller_sku"
             )
         )
-        mapeo = {
-            fila[0]: fila[1]
-            for fila in con.execute(
-                "SELECT seller_sku, odoo_default_code FROM amazon_sku_mapping"
-                " WHERE odoo_default_code IS NOT NULL AND TRIM(odoo_default_code) != ''"
-            )
-        }
+        # Hallazgo 2 del adversario: la llave y el codigo se NORMALIZAN igual
+        # que el lado del listing (strip simetrico). Una colision de claves
+        # tras el strip con codigos DISTINTOS ('XM-1' y ' XM-1' apuntando a
+        # dos productos) es ambigua: no se elige arbitrario — la clave queda
+        # senalada y plan_listings cuenta el skip por fila.
+        mapeo: dict[str, str] = {}
+        ambiguo: set[str] = set()
+        for seller_sku, odoo_code in con.execute(
+            "SELECT seller_sku, odoo_default_code FROM amazon_sku_mapping"
+            " WHERE odoo_default_code IS NOT NULL AND TRIM(odoo_default_code) != ''"
+            " ORDER BY seller_sku"
+        ):
+            clave = (seller_sku or "").strip()
+            codigo = (odoo_code or "").strip()
+            if not clave or not codigo:
+                continue
+            if clave in ambiguo:
+                continue
+            previo = mapeo.get(clave)
+            if previo is None:
+                mapeo[clave] = codigo
+            elif previo != codigo:
+                del mapeo[clave]
+                ambiguo.add(clave)
     finally:
         con.close()
-    return OrigenListings(listings=listings, mapeo=mapeo)
+    return OrigenListings(listings=listings, mapeo=mapeo, mapeo_ambiguo=frozenset(ambiguo))
 
 
 # ---------------------------------------------------------------------------
@@ -178,13 +198,23 @@ def _precio_decimal(precio: float | None) -> tuple[Decimal | None, str | None]:
     valor = Decimal(str(precio))
     if abs(valor - valor.quantize(_MAX_DECIMALES)) >= _RUIDO_FLOAT:
         return None, "precio con mas de 4 decimales (dato faltante)"
-    return valor.quantize(_MAX_DECIMALES), None
+    # Guardas del endurecimiento de la 0.1 que el adversario extrano aqui
+    # (hallazgo 1): el sub-centavo cuantiza a 0.0000 y violaria
+    # listing_precio_positivo ABORTANDO la corrida entera; 10^10 desborda
+    # NUMERIC(14,4). Ambos son dato faltante contado, no abort.
+    cuantizado = valor.quantize(_MAX_DECIMALES)
+    if cuantizado <= 0:
+        return None, "precio no positivo (dato faltante)"
+    if cuantizado >= _MAX_PRECIO:
+        return None, "precio fuera de rango NUMERIC(14,4)"
+    return cuantizado, None
 
 
 def plan_listings(
     filas: list[FilaListing] | tuple[FilaListing, ...],
     mapeo: dict[str, str],
     productos: set[str] | None = None,
+    mapeo_ambiguo: frozenset[str] = frozenset(),
 ) -> tuple[dict[tuple[str, str], PlanListing], Counter, Counter]:
     """Convierte filas del bridge en listings por (plataforma, ASIN).
 
@@ -193,7 +223,10 @@ def plan_listings(
     viene, un mapeo a un SKU sin producto en Orbit es rechazo (defensa: hoy
     los 450 del mapeo existen). Un (plataforma, asin) con DOS productos
     distintos es conflicto: no se elige uno arbitrario (mismo criterio que la
-    0.4 para multi-ASIN).
+    0.4 para multi-ASIN). Y dos filas del mismo (plataforma, asin) y mismo
+    producto con precios DISTINTOS descartan el precio (hallazgo 3 del
+    adversario): elegir la primera alfabeticamente seria elegir dinero en
+    silencio; la fuente que se contradice no trae un precio confiable.
     """
     skips: Counter = Counter()
     stats: Counter = Counter()
@@ -211,6 +244,9 @@ def plan_listings(
         if plataforma not in MONEDA_POR_PLATAFORMA:
             dominios = "/".join(sorted(MONEDA_POR_PLATAFORMA))
             skips[f"plataforma fuera de dominio ({dominios}): {plataforma}"] += 1
+            continue
+        if seller_sku in mapeo_ambiguo:
+            skips["seller_sku con mapeo ambiguo tras normalizar"] += 1
             continue
         odoo_sku = mapeo.get(seller_sku)
         if odoo_sku is None:
@@ -235,6 +271,12 @@ def plan_listings(
                 del planes[clave]
                 en_conflicto.add(clave)
                 skips["ASIN con conflicto de producto"] += 1
+            elif previo.precio != precio:
+                # Mismo listing con precios divergentes (incluye uno con
+                # precio y el otro no): el precio se descarta (dato faltante),
+                # no se elige ninguno de los dos.
+                skips["ASIN con precios divergentes en el origen (precio descartado)"] += 1
+                planes[clave] = replace(previo, precio=None, moneda=None)
             else:
                 stats["colapsados_por_asin"] += 1
             continue
@@ -338,7 +380,10 @@ def sync_listings(conn: psycopg.Connection, ruta_sqlite: Path | str) -> Resultad
             }
 
             planes, skips, stats = plan_listings(
-                origen.listings, origen.mapeo, productos=set(productos)
+                origen.listings,
+                origen.mapeo,
+                productos=set(productos),
+                mapeo_ambiguo=origen.mapeo_ambiguo,
             )
             mutaciones: list[tuple] = []
             for clave in sorted(planes):
@@ -359,17 +404,26 @@ def sync_listings(conn: psycopg.Connection, ruta_sqlite: Path | str) -> Resultad
                 ):
                     continue  # no-op REAL: nada que escribir
                 actualizadas += 1
+                # Sin elif (hallazgo 4 del adversario): un re-mapeo que ademas
+                # cambia el precio cuenta en AMBOS contadores.
                 if previo_producto != product_id:
                     remapeos += 1
-                elif (previo_precio, previo_moneda) != (plan.precio, plan.moneda):
+                if (previo_precio, previo_moneda) != (plan.precio, plan.moneda):
                     precios_actualizados += 1
                 mutaciones.append(_fila_upsert(product_id, plan))
 
-            # Listings de Orbit que el origen ya no trae: se CONSERVAN (nada
-            # se borra) y quedan contados — la ausencia puede ser un hueco del
-            # snapshot, no una baja real.
+            # Listings de Orbit que el ARCHIVO de origen ya no trae: se
+            # CONSERVAN (nada se borra) y quedan contados — la ausencia puede
+            # ser un hueco del snapshot, no una baja real. OJO (hallazgo 4 del
+            # adversario): solo cuentan los ausentes del ARCHIVO; una fila que
+            # SIGUE en el origen pero perdio el mapeo ya cuenta arriba como
+            # "sin mapeo" y no es "ausente".
+            claves_origen = {
+                ((fila.plataforma or "").strip(), (fila.asin or "").strip())
+                for fila in origen.listings
+            }
             for clave in existentes:
-                if clave not in planes:
+                if clave not in planes and clave not in claves_origen:
                     skips["listing de Orbit ausente en el origen (se conserva)"] += 1
 
             if mutaciones:
@@ -421,6 +475,7 @@ def sync_listings(conn: psycopg.Connection, ruta_sqlite: Path | str) -> Resultad
         filas_origen=stats["filas"],
         listings_finales=stats["listings"],
         conteo_por_plataforma=dict(por_plataforma),
+        colapsados_por_asin=stats["colapsados_por_asin"],
     )
 
 
@@ -499,6 +554,7 @@ def main(argv: list[str] | None = None) -> int:
         f" finales={resultado.listings_finales} (filas origen: {resultado.filas_origen})"
     )
     print(f"por plataforma: {por_plataforma or '(nada escrito)'}")
+    print(f"colapso: filas_mismo_asin={resultado.colapsados_por_asin}")
     if resultado.skip_reason:
         print(f"skips: {resultado.skip_reason}")
     return 0

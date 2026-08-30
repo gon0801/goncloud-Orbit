@@ -490,6 +490,43 @@ origen) **no se ejercitó en producción** — los 133 NULL de precio cayeron
 TODOS en el conjunto sin mapeo; cubierto por test (fixture), sin evidencia de
 producción (mismo estatus que la fusión de la 0.1).
 
+### Endurecimiento post-adversario de la 0.2 (2026-08-30, mismo PR)
+
+Ronda de adversario (artifact `.saikit/findings/orbit-06-0-2-adversario.json`):
+7 hallazgos (0 altos, 3 medios, 4 bajos), todos contra datos legales-futuros
+del bridge. Corregidos con test rojo→verde:
+
+1. **Precio sub-centavo y fuera de rango** (medio): las dos guardas del
+   endurecimiento de la 0.1 no estaban portadas — un precio en (0, 1e-5)
+   cuantiza a 0.0000 y violaba `listing_precio_positivo` ABORTANDO la corrida
+   entera; uno de 11+ enteros desbordaba NUMERIC(14,4). Ambos son dato
+   faltante contado, no abort.
+2. **Strip asimétrico del mapeo** (medio): la llave del mapeo quedaba cruda
+   mientras el listing se stripeaba — pérdida con motivo falso y, con claves
+   gemelas por espacio, producto EQUIVOCADO en silencio. Ahora ambas partes
+   se normalizan y una colisión de claves tras el strip deja el SKU sin
+   escribir, contado como "mapeo ambiguo tras normalizar".
+3. **Precios divergentes del mismo ASIN** (medio): dos filas del mismo
+   (plataforma, ASIN) y producto con precios distintos elegían la primera
+   alfabética en silencio. Ahora el precio divergente se DESCARTA (dato
+   faltante, regla 3) y queda contado; igual precio colapsa con su stat
+   (`filas_mismo_asin`, ahora visible en stdout).
+4. Bajos corregidos: el contador "ausente en el origen" solo cuenta filas
+   ausentes del ARCHIVO (una fila presente-pero-sin-mapeo ya cuenta arriba,
+   sin etiqueta falsa); re-mapeo con precio cuenta en ambos contadores (sin
+   `elif`); test de dispatch del CLI `ingest listings`. Bajo declarado, no
+   corregido: los contadores son pre-computados — bajo una corrida
+   concurrente el reporte podría mentir aunque la base quede correcta (el
+   WHERE del upsert es la defensa); cadencia manual, escritor único.
+
+**Incidente de integración resuelto en el mismo PR**: el lead pusheó
+`d5f358d` (cron diario de costos + lecciones de deploy) mientras la rama se
+cortaba — la edición de DEPLOY.md de esta tarea reemplazaba el mismo bloque.
+Detectado por el adversario, resuelto con rebase sobre `origin/master`
+verificando que el diff quedó **puramente aditivo**. Lección para 0.5/0.6:
+`git fetch` justo antes de editar docs compartidos y verificar el diff contra
+master ANTES de pushear.
+
 ## Fase 1 — margen medible y honesto (todavía NO decide nada)
 
 `[lane:gate]` — produce lectura y alertas. Cero escrituras a Amazon.

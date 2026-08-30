@@ -480,3 +480,76 @@ def test_sync_listings_persiste_con_conexion_sin_autocommit(tmp_path):
             pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
         )
         admin.close()
+
+
+# --- hallazgos del adversario de la 0.2 (0 altos, 3 medios, 4 bajos) --------
+
+
+def test_precio_subcentavo_y_fuera_de_rango_no_revientan_la_corrida():
+    """Hallazgo 1 (medio): un precio sub-centavo cuantiza a 0.0000 y violaba
+    listing_precio_positivo ABORTANDO la corrida entera; uno de 11+ enteros
+    desbordaba NUMERIC(14,4). Ambos son dato faltante contado, no abort."""
+    planes, skips, _ = plan_listings(
+        [
+            _fila("XM-SUB", "B0SUB", precio=1e-06),
+            _fila("XM-GRANDE", "B0GRANDE", precio=1e11),
+        ],
+        mapeo={"XM-SUB": "SKU-A", "XM-GRANDE": "SKU-A"},
+    )
+    assert skips == Counter(
+        {
+            "precio no positivo (dato faltante)": 1,
+            "precio fuera de rango NUMERIC(14,4)": 1,
+        }
+    )
+    # los listings se escriben igual (el MAPA manda), sin precio
+    assert planes[("amazon_mx", "B0SUB")].precio is None
+    assert planes[("amazon_mx", "B0GRANDE")].precio is None
+
+
+def test_mapeo_con_espacios_se_normaliza_simetricamente(tmp_path):
+    """Hallazgo 2 (medio): la llave del mapeo quedaba cruda mientras el
+    listing se stripeaba — un ' XM-1' en ambas tablas se perdia con motivo
+    falso ('sin mapeo'), y claves gemelas por espacio escribian el producto
+    EQUIVOCADO en silencio. Ahora ambas partes se normalizan, y una colision
+    de claves tras el strip deja el SKU sin escribir y contado."""
+    snap = _snapshot_bridge(
+        tmp_path / "espacios.db",
+        [(" XM-1", " B0UNO ", "amazon_mx", 100.0), ("XM-2", "B0DOS", "amazon_mx", 200.0)],
+        mapeo=[(" XM-1", " SKU-A "), ("XM-1", "SKU-B"), ("XM-2", " SKU-C ")],
+    )
+    origen = leer_origen(snap)
+    # la clave y el codigo se stripean: el lookup simetrico encuentra el mapa
+    assert origen.mapeo.get("XM-2") == "SKU-C"
+    planes, skips, _ = plan_listings(
+        origen.listings,
+        origen.mapeo,
+        productos={"SKU-A", "SKU-B", "SKU-C"},
+        mapeo_ambiguo=origen.mapeo_ambiguo,
+    )
+    # XM-1 colisiona tras normalizar ('XM-1' y ' XM-1' con codigos distintos):
+    # no se elige arbitrario — el listing queda sin escribir y contado
+    assert ("amazon_mx", "B0UNO") not in planes
+    assert planes[("amazon_mx", "B0DOS")].producto == "SKU-C"
+    assert skips == Counter({"seller_sku con mapeo ambiguo tras normalizar": 1})
+
+
+def test_asin_con_precios_divergentes_descarta_el_precio():
+    """Hallazgo 3 (medio): dos filas del mismo (plataforma, ASIN) y mismo
+    producto con precios DISTINTOS elegian la primera alfabeticamente en
+    silencio. Ahora el precio divergente se DESCARTA (dato faltante, regla 3)
+    y queda contado; igual precio si colapsa."""
+    planes, skips, stats = plan_listings(
+        [
+            _fila("XM-A", "B0MISMO", precio=100.0),
+            _fila("XM-B", "B0MISMO", precio=100.0),
+            _fila("XM-C", "B0OTRO", precio=300.0),
+            _fila("XM-D", "B0OTRO", precio=400.0),
+        ],
+        mapeo={"XM-A": "SKU-A", "XM-B": "SKU-A", "XM-C": "SKU-A", "XM-D": "SKU-A"},
+        productos={"SKU-A"},
+    )
+    assert skips == Counter({"ASIN con precios divergentes en el origen (precio descartado)": 1})
+    assert planes[("amazon_mx", "B0MISMO")].precio == Decimal("100")
+    assert planes[("amazon_mx", "B0OTRO")].precio is None
+    assert stats["colapsados_por_asin"] == 1
