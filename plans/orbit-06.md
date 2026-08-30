@@ -407,6 +407,126 @@ unión del margen va por ASIN, no por `seller_sku`.**
 trae literalmente `amazon_mx` (548 listings) y `amazon_us` (261): no hace
 falta traducir a `platform`. Verificarlo igual antes de confiar (regla 8).
 
+### Decisiones de la 0.2 (GLM, 2026-08-30 — escritas ANTES del código, como exige el DoD)
+
+Mediciones propias sobre snapshot `.backup()` del bridge (regla 8, `mode=ro`):
+las del lead cuadran exacto (809 filas, 735 `seller_sku`, 450 con mapeo,
+todas con ASIN) y añaden: **0 duplicados** de `(marketplace, asin)` y de
+`(marketplace, seller_sku)`; **0 ASIN vacíos**; precio **133 NULL / 0 con
+valor ≤ 0 / 0 con ruido binario**; rangos MX 99.00–4,076.61 y US 18.99–188.00
+(magnitudes de moneda local); `status` = Active 416 / Inactive 260 /
+Incomplete 133 (los 133 NULL de precio son los Incomplete); el mapeo cubre
+**265 SKUs de Odoo distintos**; y `marketplace_name` verificado literal:
+`amazon_mx` (A1AM78C64UM0Y8, 548) y `amazon_us` (ATVPDKIKX0DER, 261).
+
+**D1 · Acceso: mismo runbook de snapshot de la 0.1, aplicado al bridge.** El
+contenedor tampoco ve `/mnt/data/appdata/bridge/data/bridge.db` (contrato:
+SOLO `secrets/`). `ingest listings --sqlite RUTA` recibe un snapshot del
+bridge producido con la API `.backup()`; lectura `mode=ro`, solo SELECT, cero
+escrituras en el bridge.
+
+**D2 · Las llaves: la unión es SOLO por `seller_sku` contra el mapeo, y el
+`external_id` es el ASIN DEL LISTING.** Unir por texto contra Odoo queda
+PROHIBIDO (obstáculo 2). Detalles medidos:
+- La unión listing→`amazon_sku_mapping` va por `seller_sku` (la PK del mapeo):
+  cubre **450**; unir por ASIN cubriría 438 (12 filas del mapeo sin ASIN) —
+  pierde. El mapeo ES el puente, su PK ES la llave.
+- `external_id = amazon_listing_prices.asin` SIEMPRE (0 nulos, 0 duplicados
+  `(marketplace, asin)`, 0 ASIN que apunten a 2 SKUs de Odoo). La UNICA
+  divergencia listing.asin vs mapeo.asin (XM-20QN-2YJR: B0D9F4V1CC vs
+  B0851SSBL6) resuelve a favor del ASIN DEL LISTING: es la identidad de la
+  publicación en el namespace de Amazon, el mismo que traerán los product ads
+  de la 0.4; se cuenta como informativo, no se corrige nada.
+- `platform = marketplace_name` verificado literal; fuera de
+  `{amazon_mx, amazon_us}` ⇒ fila rechazada y contada (defensa).
+- 74 ASIN viven en ambos mercados ⇒ DOS filas `(platform, external_id)`
+  distintas para el mismo producto: exactamente el caso "un SKU en dos
+  plataformas → dos filas" del DoD.
+
+**D3 · Precio y estado del listing.** El reporte origen
+(`GET_MERCHANT_LISTINGS_ALL_DATA`) se pide UNO POR marketplace y su columna
+`price` viene en la moneda local del mercado por construcción (el sync del
+bridge no la guarda; los rangos medidos lo confirman). La moneda se DERIVA de
+la plataforma (amazon_mx→MXN, amazon_us→USD — el mismo mapa
+`_PAIS_PLATAFORMA_MONEDA` que ya vive en `app/ads/structure.py`). Precio NULL
+(133) ⇒ listing con precio y moneda ambos NULL (el CHECK lo exige y "un
+listing sin precio se escribe igual"). Precio ≤ 0 ⇒ tratado como NULL y
+contado (regla 3; hoy 0 casos). Dinero: `Decimal(str(x))` con la misma regla
+de ruido/precisión de la 0.1. `status` NO filtra: el listing de Orbit es el
+MAPA de identidad, no el ciclo de vida — los anuncios pueden referenciar
+publicaciones Inactive; se escribe todo y el estado queda en el origen.
+**Sin mapeo (285): fila NO escrita y contada** — jamás se crea un producto
+inventado para un `seller_sku` sin Odoo (regla 3). El hueco alimenta la 0.7.
+
+**D4 · Re-corrida: upsert sobre `(platform, external_id)`.** Nueva ⇒ INSERT;
+existente ⇒ UPDATE de `product_id`/`seller_sku`/precio cuando difieran (el
+catálogo es la excepción mutable por diseño y el GRANT del esquema lo permite);
+sin cambios ⇒ no-op REAL (re-correr dos veces deja la base idéntica). El cambio
+de `product_id` de un listing ya publicado es la corrección legítima de un
+re-mapeo del bridge y se cuenta aparte ("remapeos").
+
+### Corrida real de la 0.2 (2026-08-30, con el pipeline del PR)
+
+**Bug propio cazado por la prueba de doble corrida**: las corridas 35/36
+contra la base viva imprimieron 513 escritas y dejaron la base VACÍA — con la
+conexión del CLI (sin autocommit, a diferencia de los tests), los SELECT de
+estado previos al primer bloque transaccional abrían una transacción implícita
+y `conn.close()` la revertía ENTERA. Cero daño (rollback total, ni las
+ingest_run sobrevivieron), corregido moviendo los SELECT DENTRO de la
+transacción de trabajo, con test de regresión rojo→verde usando una conexión
+sin autocommit exactamente como la del CLI.
+
+**Corrida final (id 37)**: 809 filas origen → **513 listings escritos, 296
+filas sin mapeo contadas** (los 285 `seller_sku` distintos del lead + 11 que
+viven en ambos mercados: mismo hueco, unidades distintas), **0 conflictos de
+ASIN, 0 remapeos**. Por plataforma: **amazon_mx 337 / amazon_us 176**, moneda
+derivada MXN/USD al 100%. **Corrida de control (id 38, mismo snapshot):
+`rows_written=0`, no-op real.** Verificación: CHECK precio-con-moneda 0
+violaciones, **265 productos distintos mapeados**, y la cobertura del DoD:
+**24.4% de los SKUs con costo quedan mapeados** (265/1,087) — el hueco (285
+publicaciones sin mapeo) es el insumo de la 0.7 ponderado por gasto.
+Residual declarado: el camino "listing sin precio" (133 filas Incomplete del
+origen) **no se ejercitó en producción** — los 133 NULL de precio cayeron
+TODOS en el conjunto sin mapeo; cubierto por test (fixture), sin evidencia de
+producción (mismo estatus que la fusión de la 0.1).
+
+### Endurecimiento post-adversario de la 0.2 (2026-08-30, mismo PR)
+
+Ronda de adversario (artifact `.saikit/findings/orbit-06-0-2-adversario.json`):
+7 hallazgos (0 altos, 3 medios, 4 bajos), todos contra datos legales-futuros
+del bridge. Corregidos con test rojo→verde:
+
+1. **Precio sub-centavo y fuera de rango** (medio): las dos guardas del
+   endurecimiento de la 0.1 no estaban portadas — un precio en (0, 1e-5)
+   cuantiza a 0.0000 y violaba `listing_precio_positivo` ABORTANDO la corrida
+   entera; uno de 11+ enteros desbordaba NUMERIC(14,4). Ambos son dato
+   faltante contado, no abort.
+2. **Strip asimétrico del mapeo** (medio): la llave del mapeo quedaba cruda
+   mientras el listing se stripeaba — pérdida con motivo falso y, con claves
+   gemelas por espacio, producto EQUIVOCADO en silencio. Ahora ambas partes
+   se normalizan y una colisión de claves tras el strip deja el SKU sin
+   escribir, contado como "mapeo ambiguo tras normalizar".
+3. **Precios divergentes del mismo ASIN** (medio): dos filas del mismo
+   (plataforma, ASIN) y producto con precios distintos elegían la primera
+   alfabética en silencio. Ahora el precio divergente se DESCARTA (dato
+   faltante, regla 3) y queda contado; igual precio colapsa con su stat
+   (`filas_mismo_asin`, ahora visible en stdout).
+4. Bajos corregidos: el contador "ausente en el origen" solo cuenta filas
+   ausentes del ARCHIVO (una fila presente-pero-sin-mapeo ya cuenta arriba,
+   sin etiqueta falsa); re-mapeo con precio cuenta en ambos contadores (sin
+   `elif`); test de dispatch del CLI `ingest listings`. Bajo declarado, no
+   corregido: los contadores son pre-computados — bajo una corrida
+   concurrente el reporte podría mentir aunque la base quede correcta (el
+   WHERE del upsert es la defensa); cadencia manual, escritor único.
+
+**Incidente de integración resuelto en el mismo PR**: el lead pusheó
+`d5f358d` (cron diario de costos + lecciones de deploy) mientras la rama se
+cortaba — la edición de DEPLOY.md de esta tarea reemplazaba el mismo bloque.
+Detectado por el adversario, resuelto con rebase sobre `origin/master`
+verificando que el diff quedó **puramente aditivo**. Lección para 0.5/0.6:
+`git fetch` justo antes de editar docs compartidos y verificar el diff contra
+master ANTES de pushear.
+
 ## Fase 1 — margen medible y honesto (todavía NO decide nada)
 
 `[lane:gate]` — produce lectura y alertas. Cero escrituras a Amazon.

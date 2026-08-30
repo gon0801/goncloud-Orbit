@@ -207,6 +207,27 @@ número de margen mal hasta 6 días. Y correr la ingesta sin cambios es
 de correrla a diario es despreciable. Contabilidad ya se sincroniza con Odoo
 cada hora, así que el snapshot siempre trae el dato fresco.
 
+## Ingesta de listings desde el bridge (ORBIT 06 0.2)
+
+Mismo patrón de snapshot que los costos, contra la SQLite del **bridge**
+(tercera fuente; el contenedor tampoco la ve). Fuente:
+`amazon_listing_prices` + `amazon_sku_mapping`; el puente SKU↔Odoo es
+`amazon_sku_mapping` — unir por texto de SKU está PROHIBIDO (ver
+`plans/orbit-06.md` §Obstáculos de la 0.2 y §Decisiones de la 0.2).
+
+```bash
+ssh goncloud
+# 1) snapshot del bridge (misma API .backup(); chmod 644 por el UID 10001 de la app)
+python3 -c "import sqlite3; src=sqlite3.connect('file:/mnt/data/appdata/bridge/data/bridge.db?mode=ro', uri=True); dst=sqlite3.connect('/tmp/bridge-snapshot.db'); src.backup(dst); dst.close(); src.close()" \
+  && chmod 644 /tmp/bridge-snapshot.db
+# 2) al contenedor y correr (mismo camino que el cron)
+docker cp /tmp/bridge-snapshot.db orbit-app-1:/tmp/bridge-snapshot.db
+docker exec orbit-app-1 python -m app.cli ingest listings --sqlite /tmp/bridge-snapshot.db
+# 3) limpieza (host y contenedor con -u 0: sticky bit + uid numerico de docker cp)
+rm /tmp/bridge-snapshot.db
+docker exec -u 0 orbit-app-1 rm /tmp/bridge-snapshot.db
+```
+
 ## Crons de Orbit (crontab de `gon`, ADITIVO)
 
 Tres jobs NUEVOS en el crontab de `gon`. Los de accounting (y el resto:

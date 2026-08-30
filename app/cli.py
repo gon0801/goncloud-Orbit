@@ -31,7 +31,7 @@ import socket
 import sys
 from decimal import Decimal
 
-from app import costs, goals_write
+from app import costs, goals_write, listings
 from app import cycle as ciclo
 from app.ads import reports, structure
 from app.db import connect
@@ -131,6 +131,10 @@ def _ingest(args, rest: list[str]) -> int:
         # ORBIT 06 0.1: costos de contabilidad (snapshot SQLite via --sqlite;
         # runbook en docs/DEPLOY.md). Mismo patron que metrics: args al main.
         return costs.main(rest)
+    if args.pipeline == "listings":
+        # ORBIT 06 0.2: mapa de listings desde el bridge (snapshot SQLite del
+        # bridge via --sqlite; runbook en docs/DEPLOY.md). Mismo patron.
+        return listings.main(rest)
     raise AssertionError(f"pipeline inalcanzable: {args.pipeline!r}")
 
 
@@ -257,13 +261,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     sub = parser.add_subparsers(dest="comando", required=True)
 
-    p_ingest = sub.add_parser("ingest", help="pipelines de ingesta (app/ads y app/costs)")
+    p_ingest = sub.add_parser(
+        "ingest", help="pipelines de ingesta (app/ads, app/costs y app/listings)"
+    )
     p_ingest.add_argument(
         "pipeline",
-        choices=("structure", "metrics", "costs"),
+        choices=("structure", "metrics", "costs", "listings"),
         help=(
             "structure: sync de estructura; metrics: metricas + search terms;"
-            " costs: productos+costos desde contabilidad (--sqlite)"
+            " costs: productos+costos desde contabilidad (--sqlite);"
+            " listings: mapa de listings desde el bridge (--sqlite)"
         ),
     )
 
