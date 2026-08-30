@@ -67,6 +67,11 @@ LIST_REQUEST_TYPES: MappingProxyType[str, str] = MappingProxyType(
         # `negativeKeywords`, paginacion nextToken+totalResults. Lo consume
         # la reconciliacion de harvest (ORBIT 04, APPLY.md §6).
         "/sp/negativeKeywords/list": "application/vnd.spnegativekeyword.v3+json",
+        # Evidencia REGLA 8 EN VIVO (log
+        # out/regla8-productads.log): POST /sp/productAds/list con
+        # este vendor responde 200 en AMBOS perfiles (US y MX); contenedor
+        # `productAds`, paginacion nextToken+totalResults.
+        "/sp/productAds/list": "application/vnd.spproductad.v3+json",
     }
 )
 RETRYABLE_STATUSES = {429}
