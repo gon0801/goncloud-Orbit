@@ -1,0 +1,9 @@
+{
+  "name": "Orbit — dev (FastAPI + PostgreSQL 16)",
+  "user": "ubuntu",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "install": "uv sync",
+  "start": "bash .cursor/start.sh"
+}
