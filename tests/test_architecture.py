@@ -466,3 +466,90 @@ def test_allowlist_snapshot_caza_import_de_escritura(tmp_path):
     assert "app.ads.write" in _violaciones(imp, ("app.ads.write",))
     extras = imp - ALLOWLIST_IMPORTS_SNAPSHOT_LISTAS
     assert "app.ads.write" in extras and "app.ads.write.AdsWriteClient" in extras
+
+
+# ---------------------------------------------------------------------------
+# UNA SOLA FUENTE DE MONEDA POR PLATAFORMA (correccion del lead, ORBIT 06 0.2)
+# ---------------------------------------------------------------------------
+
+
+# Las UNICAS definiciones permitidas del mapa plataforma -> moneda, cada una
+# con su razon declarada EN EL CODIGO:
+#   - app/optimizer/bid.py : PLATAFORMAS_MONEDA, la fuente de la capa de
+#     DECISIONES; la importan app/api.py, app/api_dashboard.py y app/listings.py.
+#   - app/ads/write.py     : PLATAFORMA_MONEDA, congelada (MappingProxyType) y
+#     declarada a proposito como el mapa de la capa HTTP ("capa distinta, misma
+#     ley"). DEUDA CONOCIDA: consolidarla con la del motor es candidato de
+#     revision, pero NO se toca el cliente de escritura sellado por una
+#     constante — se declara y se revisa en su fase.
+DEFINICIONES_MONEDA_DECLARADAS = frozenset({"app/optimizer/bid.py", "app/ads/write.py"})
+
+
+def _mapas_de_moneda() -> dict[str, list[int]]:
+    """Modulos de app/ que definen un dict literal plataforma -> moneda.
+
+    Detecta la forma `{"amazon_xx": "MXN"/"USD", ...}` en una asignacion, que
+    es como se escribe un mapa de moneda a mano. Devuelve modulo -> lineas.
+    """
+    hallazgos: dict[str, list[int]] = {}
+    for py in sorted((RAIZ / "app").rglob("*.py")):
+        arbol = ast.parse(py.read_text(encoding="utf-8"))
+        for nodo in ast.walk(arbol):
+            if not isinstance(nodo, ast.Dict):
+                continue
+            claves = [k.value for k in nodo.keys if isinstance(k, ast.Constant)]
+            valores = [v.value for v in nodo.values if isinstance(v, ast.Constant)]
+            if not claves or not valores:
+                continue
+            if all(isinstance(k, str) and k.startswith("amazon_") for k in claves) and all(
+                v in ("MXN", "USD") for v in valores
+            ):
+                rel = py.relative_to(RAIZ).as_posix()
+                hallazgos.setdefault(rel, []).append(nodo.lineno)
+    return hallazgos
+
+
+def test_una_sola_fuente_de_moneda_por_plataforma():
+    """Regla 2 (una sola fuente por numero) aplicada a la moneda.
+
+    La fuente es `PLATAFORMAS_MONEDA` de app/optimizer/bid.py y NADIE mas
+    define su propio mapa: se importa. Hoy dos mapas coincidirian, pero un
+    tercer marketplace actualizaria uno y no el otro, y en este proyecto ese
+    error ya se pago caro (sales_history reportando MXN para amazon_us: 18.66x
+    SIEMPRE a favor de "todo es rentabilisimo").
+
+    Historia: la entrega de la 0.2 definia `MONEDA_POR_PLATAFORMA` en
+    app/listings.py, identico al del motor. El lead lo unifico al importarlo.
+    """
+    hallazgos = _mapas_de_moneda()
+    extras = set(hallazgos) - DEFINICIONES_MONEDA_DECLARADAS
+    assert not extras, (
+        f"mapa de moneda por plataforma NO declarado en: {sorted(extras)}. "
+        "Importa PLATAFORMAS_MONEDA de app/optimizer/bid.py en vez de escribir "
+        "uno propio (el motor es puro y no importa de afuera, pero importar DEL "
+        "motor si esta permitido, y es lo que ya hacen api.py y api_dashboard.py). "
+        "Si de verdad hace falta otra definicion, se agrega a "
+        "DEFINICIONES_MONEDA_DECLARADAS con su razon escrita, como las dos que hay."
+    )
+    assert hallazgos, "no se encontro NINGUN mapa de moneda: el detector dejo de morder"
+    # La allowlist se limpia sola: una entrada que ya no define un mapa es
+    # permiso muerto que deja pasar una duplicacion futura sin avisar (mismo
+    # criterio que ALLOWLIST_TAMANO).
+    obsoletas = DEFINICIONES_MONEDA_DECLARADAS - set(hallazgos)
+    assert not obsoletas, (
+        f"DEFINICIONES_MONEDA_DECLARADAS tiene entradas que ya no definen un "
+        f"mapa de moneda: {sorted(obsoletas)}. Quitalas: un permiso muerto "
+        "deja pasar la proxima duplicacion en silencio."
+    )
+
+
+def test_detector_de_moneda_caza_un_mapa_duplicado(tmp_path, monkeypatch):
+    """Regla 9: el candado de arriba MUERDE. Un modulo nuevo de app/ con su
+    propio mapa de moneda tiene que aparecer en el detector."""
+    duplicado = RAIZ / "app" / "_moneda_duplicada_de_prueba.py"
+    duplicado.write_text('MIA = {"amazon_mx": "MXN", "amazon_us": "USD"}\n', encoding="utf-8")
+    try:
+        hallazgos = _mapas_de_moneda()
+        assert "app/_moneda_duplicada_de_prueba.py" in hallazgos
+    finally:
+        duplicado.unlink()
