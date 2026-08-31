@@ -288,6 +288,20 @@ def test_cli_ingest_listings_delega_al_pipeline_con_sus_args(monkeypatch, capsys
     assert llamadas == [["--sqlite", "/tmp/bridge.db"]]
 
 
+def test_cli_ingest_fx_delega_al_pipeline_con_sus_args(monkeypatch, capsys):
+    """ORBIT 06 0.5: 'ingest fx --sqlite RUTA' despacha a app.fx.main."""
+    llamadas: list = []
+
+    def _main_fx(argv=None):
+        llamadas.append(argv)
+        return 6
+
+    monkeypatch.setattr("app.fx.main", _main_fx)
+    codigo = cli.main(["ingest", "fx", "--sqlite", "/tmp/accounting-snapshot.db"])
+    assert codigo == 6
+    assert llamadas == [["--sqlite", "/tmp/accounting-snapshot.db"]]
+
+
 def test_cli_ingest_pipeline_desconocido_rechazado(capsys):
     with pytest.raises(SystemExit) as exc:
         cli.main(["ingest", "algo"])
