@@ -777,3 +777,25 @@ def test_cli_archivar_un_error_DESPUES_de_mutar_no_se_disfraza_de_error_de_uso(
     monkeypatch.setattr(cli.archivar, "archivar_anuncios", _revienta_despues)
     with pytest.raises(ValueError, match="Expecting value"):
         cli.main(_argv(tmp_path, ("111",), confirmar="live"))
+
+
+def test_cli_report_cobertura_despacha_con_sus_args(monkeypatch, capsys):
+    """kimi r2 (baja): nada ejercitaba app.cli.main(['report', 'cobertura', ...])
+    — un typo en el despacho pasaba la suite en verde. Se prueba el paso de
+    `rest` completo al main del modulo."""
+    visto: dict = {}
+
+    def _fake_main(rest):
+        visto["rest"] = list(rest)
+        return 0
+
+    monkeypatch.setattr(cli.cobertura, "main", _fake_main)
+    assert cli.main(["report", "cobertura", "--ventana-dias", "30"]) == 0
+    assert visto["rest"] == ["--ventana-dias", "30"]
+
+
+def test_cli_report_reporte_desconocido_rechazado(capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["report", "margen"])
+    assert exc.value.code == 2
+    assert "invalid choice" in capsys.readouterr().err

@@ -137,6 +137,24 @@ SELECT g.platform,
 """
 
 
+SQL_FILAS_SIN_COSTO = """
+SELECT count(*)
+  FROM v_metric_mature m
+  JOIN ad_entity e ON e.id = m.ad_entity_id
+ WHERE e.kind IN ('keyword', 'product_target')
+   AND m.cost IS NULL
+   AND m.metric_date > (now() AT TIME ZONE 'UTC')::date - 15 - %(dias)s
+"""
+
+
+def filas_sin_costo(conn: psycopg.Connection, dias: int) -> int:
+    """Filas maduras de la ventana con cost NULL: quedan FUERA del
+    denominador (no hay gasto que ponderar) pero se DECLARAN — v_tacos hace
+    lo mismo con gasto_sin_costo, y un candado no esconde filas (hallazgo
+    qwen r2; medido en vivo 2026-08-31: 0 filas hoy)."""
+    return conn.execute(SQL_FILAS_SIN_COSTO, {"dias": dias}).fetchone()[0]
+
+
 def medir_cobertura(conn: psycopg.Connection, dias: int) -> list[tuple]:
     """Filas (platform, moneda, estado, grupos, gasto, gasto_sin_fx)."""
     if dias <= 0:
@@ -190,6 +208,10 @@ def main(argv: list[str] | None = None) -> int:
         help="dias de metricas MADURAS a ponderar (default 90, la ventana de margen)",
     )
     args = parser.parse_args(argv)
+    if args.ventana_dias <= 0:
+        # Error de OPERADOR: exit 2 y sin abrir conexion (hallazgo qwen r2).
+        print(f"--ventana-dias invalida: {args.ventana_dias}", file=sys.stderr)
+        return 2
 
     dsn = os.environ.get("ORBIT_DSN_READ")
     if not dsn:
@@ -202,6 +224,7 @@ def main(argv: list[str] | None = None) -> int:
         conn = connect(dsn)
         try:
             filas = medir_cobertura(conn, dias=args.ventana_dias)
+            sin_costo = filas_sin_costo(conn, dias=args.ventana_dias)
         finally:
             conn.close()
     except Exception as exc:
@@ -218,6 +241,8 @@ def main(argv: list[str] | None = None) -> int:
             f"  ({fila['gasto_cubierto']} de {fila['gasto_total']})"
             f"  |  estricta (grupo mono-producto) {fila['pct_estricta']:.1f}%"
         )
+    if sin_costo:
+        print(f"filas maduras SIN costo (fuera del denominador): {sin_costo}")
     print(
         "NOTA: 'a nivel grupo' = la cadena resuelve para TODOS los productos"
         " del grupo; la atribucion por-producto de los multi-ASIN la define"
