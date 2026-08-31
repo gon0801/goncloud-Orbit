@@ -27,7 +27,7 @@ from decimal import Decimal
 
 import httpx
 import pytest
-from test_schema import SQL, _hay_postgres_local, _test_dsn
+from test_schema import SQL, SQL4, _hay_postgres_local, _test_dsn
 
 from app.ads.client import LIST_REQUEST_TYPES, AdsClient
 from app.ads.config import AdsCredentials
@@ -1517,6 +1517,8 @@ def test_product_ad_archivado_en_amazon_deja_de_figurar_vivo_en_el_cache():
         conn = psycopg.connect(dsn, dbname=db, autocommit=True)
         conn.execute("SET TIME ZONE 'UTC'")
         conn.execute(SQL)
+        # 0004: sin ella el enum ad_entity_kind no conoce 'product_ad'.
+        conn.execute(SQL4)
 
         # --- corrida 1: el anuncio esta vivo ---
         sync_structure(conn, _estructura_con_product_ad("ENABLED"))
