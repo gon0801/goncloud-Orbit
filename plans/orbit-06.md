@@ -122,7 +122,7 @@ alcanza, la Fase 1 no arranca.
 | 0.3 | **Habilitar la lectura de product ads** — es un cambio de SUPERFICIE DE SEGURIDAD, no una ingesta más: `/sp/productAds/list` **no está** en `LIST_REQUEST_TYPES`, que es un allowlist congelado (`MappingProxyType`) leído en vivo por el guard de POST; hoy `list_objects` rechaza ese path. Ampliarlo sigue el MISMO ritual que pagó `negativeKeywords`: evidencia regla 8 EN VIVO del vendor Content-Type exacto en AMBOS perfiles, con el log en `out/`, ANTES de tocar el allowlist. **EVIDENCIA YA OBTENIDA POR EL LEAD (2026-08-31, `out/regla8-productads.log`)**, porque exige credenciales de Amazon que solo viven en el server: el vendor es **`application/vnd.spproductad.v3+json`** y responde **200 en AMBOS perfiles** (MX 31,063 product ads; US 6,918), contenedor `productAds` con `nextToken`/`totalResults` — la misma paginación de los otros `/list`. Con eso, lo que queda de esta tarea es **código puro y sin credenciales**: ampliar el allowlist con ESE valor y los tests del guard. `[tdd:required]` | Log de la corrida real que prueba el vendor type correcto y el 200 en US y MX (o el fallo declarado). Allowlist ampliado con SOLO ese path. Tests del guard: el path nuevo pasa; un path fuera del allowlist sigue reventando; el conteo de `LIST_REQUEST_TYPES` en los tests se actualiza a propósito, no por accidente | - | cc:完了 [2026-08-31. Evidencia regla 8 del LEAD (`out/regla8-productads.log`, master `6edb2de`): vendor `application/vnd.spproductad.v3+json`, **200 en AMBOS perfiles**. Implementación de **CURSOR** (PR #74 → master `ca9d5c7`), primera entrega suya en este repo: 5 líneas de código y 11 de test, tocando SOLO `client.py` y `test_ads_client.py`. **Verificado por el lead**: el allowlist crece con ESE path y ninguno más; el test fija el vendor exacto y `len(LIST_REQUEST_TYPES) == 6`, que es lo que obliga a actualizar el conteo A PROPÓSITO; **poder discriminante comprobado** quitando la línea del allowlist — falla exactamente ese test con `KeyError`. Cursor razonó (y el lead confirmó) que NO hacía falta duplicar tests del guard: `test_list_objects_post_de_lectura_con_vendor_types` recorre el mapa completo, así que el path nuevo queda ejercitado por el camino real de `list_objects` con sus headers, y `test_bypasses_del_guard_rechazados` ya cubre los paths fuera del allowlist. 67 tests verdes. Los dos DoD que faltaron —marker y línea de CHAT-CONTEXT— los cerró el lead, igual que en la 0.1 y la 0.2 de GLM: es el patrón que se repite en las tres entregas] |
 | 0.4 | **Vínculo anuncio→producto al grano de product_ad.** Se materializa `kind='product_ad'` (migración `0004`). `listing_id` vive SOLO en esas filas. Join `(platform, asin del anuncio) → listing.(platform, external_id)`. Se escriben **ENABLED y PAUSED**; **ARCHIVED no se upserta** (la ventana de 90d pierde atribución; 0.7 mide si importa). `ad_group.listing_id` no se toca. Extiende `ingest structure` (misma resolución de padre same-run). El `sku` del payload es solo auditoría, no se persiste. Decisiones D1–D5 abajo. `[tdd:required]` | Decisiones D1–D5 escritas. Rojo antes del código. Candado: `structure.py` no importa `write.py`. Tests: `_CLAVE_CONTENEDORA` tiene `productAds`; ENABLED+PAUSED planificados y ARCHIVED saltado con motivo; product_ad con listing → `listing_id` resuelto; asin sin listing → fila escrita, `listing_id` NULL, contada; `ad_group.listing_id` sigue NULL; 0004 es solo `ADD VALUE 'product_ad'`. Corrida real (lead, tras aplicar 0004 en el server): `ingest structure` + SELECT de cobertura por plataforma (con listing / sin listing / sin costo) y por `status`. ARCHIVED no debe aparecer | 0.2, 0.3 | cc:完了 [2026-08-31. Diseño propuesto por **Cursor** (paró antes de programar, como pedía el brief) y aprobado por el dueño: modelo **(a) grano product_ad**, con dos ajustes del lead —incluir PAUSED (la ventana de margen mira 90 días y un anuncio pausado ayer gastó dentro de ella; ARCHIVED = muerto por el criterio sellado del probe 2.5) y **NO denormalizar** en el ad group (crearía dos lugares para el mismo hecho, la duplicación que este repo acaba de pasar tres rondas arreglando, y compraba 4 casos en MX y 0 en US). Implementación PR #78 → master `d54d202`; migración 0004, deploy y corrida real del lead. **VERIFICADO por el lead ANTES de aprobar**: materializar 12,5k entidades **no contamina el motor** (todas las consultas de decisión filtran por kind, y la evidencia por ad group filtra a keyword+product_target); el sync de estructura es aditivo y no las borra; y la paginación entra —**1,000 por página**, o sea 32 páginas MX y 7 US contra un tope de 100, y si algún día se pasara **revienta ruidoso** en vez de truncar. Una objeción del lead se disolvió sola y por buena razón: temía que la frescura de la estructura se falseara si los product ads llevaban estado, pero Cursor los integró AL SYNC EXISTENTE en vez de hacer una ingesta aparte, así que todo se sella en la misma corrida. Tests discriminantes comprobados: desactivando las DOS guardas de estado falla exactamente un test (la primera mutación del lead fue inválida — solo rompió una de dos guardas redundantes), y el test de integración afirma el `listing_id` exacto Y que el ad group queda NULL. **RESULTADO EN VIVO** (`ingest_run 41`): 12,527 product ads materializados (MX 7,709 / US 4,818), 25,454 ARCHIVED saltados, **8,626 con `listing_id` resuelto (69 %)** y **cero entidades de otro kind con listing_id**. Cobertura de la cadena completa: MX 5,015 de 7,709 y US 3,611 de 4,818 — y **el 100 % de los que resuelven listing llegan a un costo**, o sea la cadena anuncio→producto→costo no pierde nada. El hueco son 3,901 anuncios (31 %) cuyo ASIN no está en `listing`: es el mismo hueco de mapeo de la 0.2, ahora visto a nivel anuncio. **Ponderar por gasto queda para la 0.7** y no es trivial: los product ads NO tienen métricas propias (viven en keyword/product_target), así que el peso lo define la vista de margen de 1.1] |
 | 0.5 | **Ingesta de tipos de cambio** a `fx_rate`. Obligatoria (sellado 2). Fuente localizada por el lead: `currency_rates` en la SQLite de contabilidad (210 filas: `rate_date`, `base_currency`, `quote_currency`, `rate`). `fx_resolve` **NO se toca** (sellado 3): esta tarea solo llena la tabla de la que esa función lee. Fuente y cadencia declaradas. `[tdd:required]` | Rojo antes del código. Tests: con la tabla poblada, `fx_resolve` devuelve `exact` el día que existe y `nearest_prior` dentro de los 7 días; **más de 7 días sin tasa → cero filas**, y el consumidor lo trata como dato faltante (sellado 1), no como 1.0 ni como constante. Corrida real: rango de fechas cubierto y lista de huecos > 3 días | - | cc:完了 [2026-08-31, PR #86 → master `2d0f193`; corrida real y cierre del lead. **Verificado por el lead ANTES de aprobar**: poder discriminante comprobado con mutacion propia — el ingestor ingenuo (etiquetas literales de la fuente) revienta EXACTAMENTE los 3 tests de la trampa; la cita del COMMENT de ingest_run (conflictos ON CONFLICT cuentan como skipped) es real. **CORRIDA REAL** (ingest_run 49): 210/210 filas escritas, rango 2025-10-31..2026-08-28, huecos >3d = los tres medidos (5d/5d/4d). **Verificacion independiente del lead con SQL propio sobre la base viva**: las 210 filas son (USD, MXN) con rate 16.898..18.6495, CERO filas absurdas (base=MXN con rate 10-25); fx_resolve en vivo: exact 2026-08-28 = 16.9481 (identico a la fila fuente), nearest_prior cruza el hueco navideno (2025-12-27 → tasa del 12-24), fecha anterior al rango = CERO filas, y hoy resuelve nearest_prior del 08-28. **Re-corrida no-op confirmada** (ingest_run 50: rows_written=0, 210x conflicto PK contado). fx_resolve intacto (sellado 3). Nota de registro: el brief se envio a GLM; la celda del draft decia Cursor — la atribucion la confirma el dueno, el codigo es el mismo] |
-| 0.6 | **Ingesta del ledger, y NO solo ventas** (sellado 4). Fuente localizada por el lead: `ledger_events` en la SQLite de contabilidad (13,127 filas, con `platform`, `order_id`, `event_type`, `fee_category`, `sku`, `quantity`, `amount`). además de `kind='sale'`, las clases de cargo que `v_margen_plataforma` resta (`fee`, `refund`, `withholding`). Sin ellas el margen sale sistemáticamente alto. **Semántica append-only contra el esquema real**: `ledger_event` tiene tres índices únicos de deduplicación (`ledger_dedupe_source` por `source_event_id`; `ledger_dedupe_sin_orden` y `ledger_dedupe_con_orden` por clave natural, `NULLS NOT DISTINCT`) — re-ingerir el mismo hecho es **no-op**, no una segunda observación. El ISR **no trae `order_id`** y llega en bultos quincenales: se prorratea explícitamente o se excluye POR ESCRITO, con la decisión documentada. `[tdd:required]` | Rojo antes del código. Tests: re-ingerir el mismo evento no inserta y no revienta (`ON CONFLICT DO NOTHING` verificado, no asumido); cada clase de cargo llega a su índice de dedupe correcto; evento sin `order_id` sigue el camino declarado y queda contado. Corrida real con conteo **por `kind`** y ventana; la evidencia declara explícitamente qué clases de cargo entraron y cuáles no | 0.1 | cc:TODO |
+| 0.6 | **Ingesta del ledger, y NO solo ventas** (sellado 4). Fuente localizada por el lead: `ledger_events` en la SQLite de contabilidad (13,127 filas, con `platform`, `order_id`, `event_type`, `fee_category`, `sku`, `quantity`, `amount`). además de `kind='sale'`, las clases de cargo que `v_margen_plataforma` resta (`fee`, `refund`, `withholding`). Sin ellas el margen sale sistemáticamente alto. **Semántica append-only contra el esquema real**: `ledger_event` tiene tres índices únicos de deduplicación (`ledger_dedupe_source` por `source_event_id`; `ledger_dedupe_sin_orden` y `ledger_dedupe_con_orden` por clave natural, `NULLS NOT DISTINCT`) — re-ingerir el mismo hecho es **no-op**, no una segunda observación. El ISR **no trae `order_id`** y llega en bultos quincenales: se prorratea explícitamente o se excluye POR ESCRITO, con la decisión documentada. `[tdd:required]` | Rojo antes del código. Tests: re-ingerir el mismo evento no inserta y no revienta (`ON CONFLICT DO NOTHING` verificado, no asumido); cada clase de cargo llega a su índice de dedupe correcto; evento sin `order_id` sigue el camino declarado y queda contado. Corrida real con conteo **por `kind`** y ventana; la evidencia declara explícitamente qué clases de cargo entraron y cuáles no | 0.1 | cc:完了 [2026-08-31. Codigo + corrida viva post-review (`fd53701`): base sigue en **8,041** (sale 1,650 / fee 4,221 / withholding 2,034 / refund 136; mx 4,987 / us 3,054; fee_type=ads 353; withholding sin orden 14). **Ventana real** `rango_min=2025-11-14` .. `rango_max=2026-08-31` (runs 54-55 con codigo endurecido; rows_written=0 = no-op). Clases ENTRARON: sale, fee (incl. ads marcado), refund, withholding. NO entraron: meli (4,998); **106 viola signos** (fee+/refund+/sale<=0, jamas volteados; incluye ~6 ISR fee+). Huecos producto: venta_sin_ASIN=229 / sin_listing=12 / asin_sin_cantidad=0 (sale con product_id 1,409 / sin 241). Live solo pega `ledger_dedupe_source`; indices naturales en CI (`ORBIT_TEST_DSN`). Residual: amazon_us 100% MXN (D8) -> 0.7/lead. Review-fix: product_id solo sale, frontera tipada, DEPLOY DSN@db] |
 | 0.7 | **Candado de cobertura**: qué fracción del GASTO PUBLICITARIO real corresponde a anuncios con vínculo resuelto (0.4), costo conocido (0.1) y FX disponible (0.5). Ponderada por gasto, no por conteo de SKU. Umbral mínimo: **lo propone el lead con el número medido a la vista y lo aprueba el dueño** — no se inventa aquí (regla 3). `[tdd:required]` | Cobertura publicada por plataforma con su `SELECT` en la evidencia, desglosando el gasto NO cubierto por motivo (multi-ASIN, sin listing, sin costo, sin FX). Decisión del dueño con su texto literal. **Si no alcanza, la Fase 1 queda `blocked` con el motivo; no se arranca "con lo que hay"** | 0.4, 0.5, 0.6 | cc:TODO |
 
 ## Obstáculos de la 0.1 (medidos por el lead 2026-08-30, antes de asignarla)
@@ -745,9 +745,12 @@ contra el esquema real de `ledger_event` en Orbit.
    etiqueta.
 5. **El signo NO es uniforme y no se "corrige"**: fees 10,212 negativos y
    **137 positivos** (reversas/ajustes reales), refunds 184 negativos y 15
-   positivos, 3 ventas en 0. El monto se guarda TAL CUAL con su signo
-   (regla: el monto original en su moneda original); un test clava que una
-   reversa positiva no se voltea ni se descarta.
+   positivos, 3 ventas en 0. Decision (D4): el monto se conserva sin
+   `abs` ni negacion; las filas que tras el mapeo de kind **violarian**
+   `ledger_convencion_signos` **NO se escriben y se cuentan** (skip
+   `viola ledger_convencion_signos`). Un test clava que una reversa
+   positiva no se voltea y no se inserta. Meter reversas positivas
+   exigiria migrar el CHECK (fuera de alcance de 0.6).
 6. **El `sku` de la fuente es SKU de AMAZON, no de Odoo** (medido:
    `LQ-FV4D-DY2I` no existe en `product.odoo_sku`; los odoo_sku son tipo
    `4207`, `4405-BG`). `product_id` NO se resuelve por `product.odoo_sku`.
@@ -766,6 +769,93 @@ contra el esquema real de `ledger_event` en Orbit.
    la vista). El desglose fiscal del `raw_payload` (`item_price`,
    `item_tax`, …) puede llenar las columnas homónimas — si se hace, con la
    MISMA moneda del amount y con test; si no, se declara.
+
+### Decisiones de la 0.6 (escritas ANTES del codigo, 2026-08-31)
+
+Cada decision cita medicion propia sobre snapshot/archivo vivo de
+contabilidad (`mode=ro`, 13,145 filas) y el contrato de
+`migrations/0001_initial.sql` (`ledger_convencion_signos` + tres indices
+de dedupe). Re-verificado: `ledger_event` en Orbit = **0 filas**; `listing`
+= 513 (mx 337 / us 176).
+
+**D1 · Alcance: ingerir TODO el libro Amazon; MeLi fuera contado.**
+Orbit esta vacia: no hay ingesta previa de `sale` que respetar. Se leen
+las 8,147 filas `platform IN ('amazon','amazon_us')` y se EXCLUYEN las
+4,998 `meli` (sellado 9), contadas en `rows_skipped` con motivo
+`plataforma meli excluida`. Rename explicito: `amazon` → `amazon_mx`;
+`amazon_us` → `amazon_us`. Cualquier otro valor → skip contado.
+
+**D2 · Mapeo `event_type × fee_category → kind` (tabla, no ifs dispersos).**
+Propuesta del lead adoptada y clavada con test:
+
+| Fuente `event_type` | `fee_category` | Destino `kind` | `fee_type` |
+|---|---|---|---|
+| `sale_gross` | (cualquiera) | `sale` | NULL |
+| `refund` | (cualquiera) | `refund` | `fee_category` o NULL |
+| `fee` | `tax_withheld` / `isr_withheld` | `withholding` | la categoria |
+| `fee` | resto (incl. `ads`) | `fee` | la categoria |
+| otro | — | NO escrito | — |
+
+`fee_category='ads'` (353 filas Amazon) se ingiere como `fee` con
+`fee_type='ads'`: la vista 1.1 decide si resta; esta tarea NO pierde la
+etiqueta (doble conteo ads vs metricas = riesgo de 1.1, no de 0.6).
+
+**D3 · Acceso: mismo runbook de snapshot de la 0.1** (`ingest ledger
+--sqlite`). Snapshot `.backup()` de contabilidad, `mode=ro`, solo SELECT.
+Cadencia manual por ahora. Escritura SOLO en `ledger_event` (+
+`ingest_run`) con `ORBIT_DSN_INGEST`.
+
+**D4 · Signo: TAL CUAL cuando el CHECK lo admite; jamás voltear.**
+Medido Amazon: fee+ 88 / refund+ 15 / sale≤0 = 3. El CHECK
+`ledger_convencion_signos` exige `sale > 0` y
+`fee|refund|withholding <= 0`. Voltear un fee+ a negativo **corrompe**
+`SUM(amount)` (trata una reversa como cargo extra). Descartarlo en
+silencio viola la regla 3. Decision: el monto fuente se conserva sin
+`abs` ni negacion; las filas que tras el mapeo de kind **violarian** el
+CHECK → **NO escritas y contadas** (`viola ledger_convencion_signos`).
+Test: una reversa fee+ NO se voltea y NO se inserta. Residual declarado
+para el lead: meter reversas positivas exigiria migrar el CHECK (fuera
+de alcance de 0.6).
+
+**D5 · `product_id` solo via ASIN→`listing`; jamás por texto de SKU.**
+El `sku` fuente es seller SKU de Amazon (ej. `LQ-FV4D-DY2I`), no
+`product.odoo_sku` (leccion 0.2: join por texto = 1 %). Medido: ASIN en
+`raw_payload` solo en ventas (1,424/1,653 `sale_gross`; 0 en fees).
+Camino: `ASIN` del payload → `listing.(platform, external_id)` →
+`product_id`; sin ASIN o sin listing → `product_id` NULL contado
+(`sin listing para ASIN` / `venta sin ASIN`). Fees/refunds quedan NULL
+de producto (no hay ASIN en payload). `cogs_at_sale` NO se ingiere.
+
+**D6 · Dedupe: `source_event_id = dedupe_key` (unico 8,147/8,147);
+`order_id` vacio → NULL.** Con source id siempre presente en Amazon, la
+re-corrida pega en `ledger_dedupe_source`. Los 400 `order_id=''`
+(20 `isr_withheld` + ads/storage/…) se normalizan a NULL; el ISR
+**entra** (no se excluye ni se prorratea en 0.6: la vista ya expone
+`cargos_sin_orden`). Los indices `sin_orden` / `con_orden` se ejercitan
+en tests con fixtures sin `source_event_id` (DoD: cada clase de cargo
+llega a su indice). Re-corrida: `INSERT … ON CONFLICT DO NOTHING` sobre
+los tres; conflicto = skip contado, base identica.
+
+**D7 · `event_date` → DATE (colapso intradía declarado).** Medido: 1,678
+filas con hora (`2026-01-16 06:52:15`) y 6,469 solo-dia. Destino DATE =
+`date(event_date)` / `fromisoformat(...).date()`. Varias filas el mismo
+dia con distinto `dedupe_key` son hechos distintos (no se fusionan).
+Test: timestamp intradía colapsa al dia sin perder el evento.
+
+**D8 · Desglose fiscal SI; `cogs_at_sale` NO; moneda = la del amount.**
+De `raw_payload` (Orders): `ItemPrice`/`ItemTax` como
+`{CurrencyCode, Amount}` → `item_price`/`item_tax` cuando la moneda
+coincide con `amount_currency`; si diverge o falta → NULL (no se inventa).
+`ShippingPrice`/`ShippingTax` igual. `quantity` = columna fuente (o
+`QuantityShipped` del payload si la columna viene vacia en venta).
+`cogs_at_sale` se ignora (un numero, una fuente: `sku_cost`). Nota
+medida: `amazon_us` trae **100 % currency=MXN** en la fuente — se
+guarda MXN (moneda original reportada), no se inventa USD.
+
+**Forma**: modulo hermano `app/ledger.py`. Data shape: `FilaOrigenLedger`
+(crudo) → `mapear_destino` puro (tabla de kind) → `EventoLedger` (fila
+lista) → `sync_ledger` con mapa `(platform, asin)→product_id` precargado
+desde `listing`.
 
 ## Fase 1 — margen medible y honesto (todavía NO decide nada)
 

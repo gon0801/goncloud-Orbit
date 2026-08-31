@@ -6,7 +6,8 @@ MISMO claim/job_key/envelope; el job_key del lock es COMPARTIDO entre cron y
 CLI via `app.cycle.job_key_de`, una sola fuente), `ingest` delega a los mains
 de los pipelines de `app/ads/` (structure/reports, con su ORBIT_DSN_INGEST y
 su contabilidad de ingest_run), de `app/costs.py` / `app/listings.py` /
-`app/fx.py` (ORBIT 06: costos, listings y FX desde snapshot SQLite), y
+`app/fx.py` / `app/ledger.py` (ORBIT 06: costos, listings, FX y ledger
+desde snapshot SQLite), y
 `goals set` despacha a `app.goals_write.edita_goal` (ORBIT 04 3.2: el UNICO
 camino de escritura de ads_optimizer_goal, con su ORBIT_DSN_ADMIN).
 PROHIBIDO duplicar logica: aqui no vive NINGUNA regla de decision ni de
@@ -33,7 +34,7 @@ import sys
 from decimal import Decimal
 from pathlib import Path
 
-from app import costs, fx, goals_write, listings
+from app import costs, fx, goals_write, ledger, listings
 from app import cycle as ciclo
 from app.ads import archivar, reports, structure
 from app.db import connect
@@ -144,6 +145,10 @@ def _ingest(args, rest: list[str]) -> int:
         # ORBIT 06 0.5: tipos de cambio desde contabilidad (snapshot SQLite
         # via --sqlite; runbook en docs/DEPLOY.md). Mismo patron.
         return fx.main(rest)
+    if args.pipeline == "ledger":
+        # ORBIT 06 0.6: ledger (ventas+cargos) desde contabilidad (snapshot
+        # SQLite via --sqlite; runbook en docs/DEPLOY.md). Mismo patron.
+        return ledger.main(rest)
     raise AssertionError(f"pipeline inalcanzable: {args.pipeline!r}")
 
 
@@ -378,16 +383,18 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="comando", required=True)
 
     p_ingest = sub.add_parser(
-        "ingest", help="pipelines de ingesta (app/ads, app/costs, app/listings, app/fx)"
+        "ingest",
+        help="pipelines de ingesta (app/ads, app/costs, app/listings, app/fx, app/ledger)",
     )
     p_ingest.add_argument(
         "pipeline",
-        choices=("structure", "metrics", "costs", "listings", "fx"),
+        choices=("structure", "metrics", "costs", "listings", "fx", "ledger"),
         help=(
             "structure: sync de estructura; metrics: metricas + search terms;"
             " costs: productos+costos desde contabilidad (--sqlite);"
             " listings: mapa de listings desde el bridge (--sqlite);"
-            " fx: tipos de cambio desde contabilidad (--sqlite)"
+            " fx: tipos de cambio desde contabilidad (--sqlite);"
+            " ledger: ventas+cargos desde contabilidad (--sqlite)"
         ),
     )
 

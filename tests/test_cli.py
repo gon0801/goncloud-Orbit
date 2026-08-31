@@ -302,6 +302,20 @@ def test_cli_ingest_fx_delega_al_pipeline_con_sus_args(monkeypatch, capsys):
     assert llamadas == [["--sqlite", "/tmp/accounting-snapshot.db"]]
 
 
+def test_cli_ingest_ledger_delega_al_pipeline_con_sus_args(monkeypatch, capsys):
+    """ORBIT 06 0.6: 'ingest ledger --sqlite RUTA' despacha a app.ledger.main."""
+    llamadas: list = []
+
+    def _main_ledger(argv=None):
+        llamadas.append(argv)
+        return 7
+
+    monkeypatch.setattr("app.ledger.main", _main_ledger)
+    codigo = cli.main(["ingest", "ledger", "--sqlite", "/tmp/accounting-snapshot.db"])
+    assert codigo == 7
+    assert llamadas == [["--sqlite", "/tmp/accounting-snapshot.db"]]
+
+
 def test_cli_ingest_pipeline_desconocido_rechazado(capsys):
     with pytest.raises(SystemExit) as exc:
         cli.main(["ingest", "algo"])
