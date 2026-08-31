@@ -147,10 +147,12 @@ def test_cobertura_clasifica_y_pondera_en_vivo():
             return pid
 
         def listing(pid, asin):
+            # listing NO lleva ingest_run_id (regla 8: esquema real abierto
+            # tras el fallo de CI del primer intento de este seed).
             return conn.execute(
-                "INSERT INTO listing (product_id, platform, external_id, ingest_run_id)"
-                " VALUES (%s, 'amazon_mx', %s, %s) RETURNING id",
-                (pid, asin, run_id),
+                "INSERT INTO listing (product_id, platform, external_id)"
+                " VALUES (%s, 'amazon_mx', %s) RETURNING id",
+                (pid, asin),
             ).fetchone()[0]
 
         def metrica(entity_id, costo):
