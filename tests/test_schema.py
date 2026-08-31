@@ -32,6 +32,11 @@ STMTS2 = tuple(pglast.parse_sql(SQL2))
 SQL3 = (ROOT / "migrations" / "0003_goal_bounds_explicit.sql").read_text(encoding="utf-8")
 STMTS3 = tuple(pglast.parse_sql(SQL3))
 
+# 0004 (ORBIT 06 0.4): solo ADD VALUE 'product_ad'. El valor nuevo no se
+# puede usar en la misma transaccion que lo agrega.
+SQL4 = (ROOT / "migrations" / "0004_ad_entity_kind_product_ad.sql").read_text(encoding="utf-8")
+STMTS4 = tuple(pglast.parse_sql(SQL4))
+
 APPEND_ONLY = {
     "ads_metric_observation",
     "search_term_observation",
@@ -62,6 +67,10 @@ def _stmts2(cls):
 
 def _stmts3(cls):
     return [s.stmt for s in STMTS3 if isinstance(s.stmt, cls)]
+
+
+def _stmts4(cls):
+    return [s.stmt for s in STMTS4 if isinstance(s.stmt, cls)]
 
 
 TABLES = {t.relation.relname: t for t in _stmts(ast.CreateStmt)}
@@ -1028,6 +1037,26 @@ def test_0003_quita_los_defaults_de_piso_y_techo():
 
 
 # ---------------------------------------------------------------------------
+# (a4) ESTATICOS de 0004_ad_entity_kind_product_ad — ORBIT 06 0.4
+# ---------------------------------------------------------------------------
+
+
+def test_0004_agrega_solo_product_ad_al_enum():
+    """0004 es SOLO ALTER TYPE ... ADD VALUE 'product_ad'. Sin CREATE, GRANT,
+    INSERT ni DROP: la migracion no toca datos ni permisos."""
+    altera = _stmts4(ast.AlterEnumStmt)
+    assert len(altera) == 1, "0004 debe alterar exactamente un enum"
+    assert altera[0].typeName[-1].sval == "ad_entity_kind"
+    assert altera[0].newVal == "product_ad"
+    assert not altera[0].skipIfNewValExists, "0004 no es re-runnable (sin IF NOT EXISTS)"
+    assert not [
+        s
+        for s in STMTS4
+        if isinstance(s.stmt, (ast.CreateStmt, ast.GrantStmt, ast.InsertStmt, ast.DropStmt))
+    ], "0004 es SOLO el ADD VALUE (nada de datos, grants ni drops)"
+
+
+# ---------------------------------------------------------------------------
 # (b) INTEGRACIÓN — skip automático sin Postgres local
 # ---------------------------------------------------------------------------
 
@@ -1383,6 +1412,48 @@ def test_0003_goal_sin_piso_techo_revierte_y_con_bounds_pasa():
             " bid_ceiling, enabled, mode)"
             " VALUES ('platform', 'amazon_mx', 'MXN', 1.00, 45.00, true, 'shadow')"
         )
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_0004_permite_insert_kind_product_ad():
+    """Tras 0001 el enum rechaza product_ad; tras 0004 (otra transaccion) el
+    INSERT pasa. El ADD VALUE y el primer uso no pueden compartir TX."""
+    psycopg = pytest.importorskip("psycopg")
+    from psycopg import sql as pgsql
+
+    dsn = _test_dsn()
+    db = f"orbit_0004_test_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(dsn, dbname=db, autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        conn.execute(SQL)
+        with pytest.raises(psycopg.errors.InvalidTextRepresentation):
+            conn.execute(
+                "INSERT INTO ad_entity (platform, kind, external_id)"
+                " VALUES ('amazon_us', 'product_ad', 'ad-1')"
+            )
+        conn.execute(SQL4)
+        conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id)"
+            " VALUES ('amazon_us', 'product_ad', 'ad-1')"
+        )
+        kind = conn.execute(
+            "SELECT kind::text FROM ad_entity WHERE external_id = 'ad-1'"
+        ).fetchone()[0]
+        assert kind == "product_ad"
     finally:
         if conn is not None:
             conn.close()
