@@ -4,6 +4,14 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-08-31 — Un hallazgo que cambia la tarea siguiente: casi ningún grupo de anuncios vende un solo producto.** Apenas quedó vivo el permiso de la 0.3, el lead midió lo que el plan tenía como desconocido. El plan proponía que, si un grupo anuncia varios productos, no se le atribuyera margen y se contara aparte — dando por hecho que era el caso raro. **Es al revés**: entre los grupos con anuncios activos, en México sólo 4 de 32 venden un producto único, y **en Estados Unidos ninguno de los 48**. El peor caso llega a 1,259 productos en un solo grupo.
+
+Con esa política, la cuenta de Estados Unidos habría quedado **entera** sin margen atribuible. Queda descartada, y la tarea siguiente ya no arranca programando sino **eligiendo cómo atribuir el margen cuando un grupo vende muchos productos** — una decisión del dueño, porque cambia qué significa el número. Las tres salidas posibles quedan escritas en el plan con su costo.
+
+De la misma medición: filtrar por estado es obligatorio (tres de cada cuatro anuncios en México están archivados) y falta una pieza técnica menor que la tarea anterior no cubría.
+
+**Aparte, deuda de proceso saldada**: se sube al plan la exigencia de cerrar el marcador de la tarea y esta misma línea de contexto. En las tres entregas —dos de GLM, una de Cursor— las terminó cerrando el lead. Tres implementadores distintos fallando lo mismo no es descuido de ellos: era que vivía en un mensaje de chat en vez de en el contrato.
+
 **2026-08-31 — ORBIT 06 tarea 0.3 CERRADA: Orbit ya puede leer qué producto anuncia cada anuncio.** Faltaba un permiso: la lista de anuncios de producto de Amazon no estaba habilitada en el candado de lectura del cliente, así que la llamada se rechazaba. Ahora sí, y con el ritual que el repo exige para tocar ese candado: **primero la prueba en vivo** —la hizo el lead porque pide credenciales que sólo viven en el servidor— y recién después el cambio de código. La prueba respondió correctamente en México y Estados Unidos, con 31,063 y 6,918 anuncios respectivamente.
 
 Implementación de **Cursor**, su primera entrega en este repo: cinco líneas de código y once de prueba, sin tocar nada más. El lead verificó que la prueba **discrimina de verdad** (quitando la línea del permiso, falla exactamente ese test) y que el conteo del candado obliga a actualizarlo a propósito, que es justo lo que impide que crezca por accidente.
