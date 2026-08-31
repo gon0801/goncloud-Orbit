@@ -420,8 +420,10 @@ class AdsWriteClient(AdsClient):
 
         SELLADO EN VIVO por la sonda del 2026-08-31 (perfil amazon_mx,
         sku inventado ORBIT-SONDA-NO-EXISTE-20260831072505, evidencia
-        out/sonda-crear-product-ad-20260831.log). Amazon respondio 207 con
-        el contenedor `productAds` y este rechazo por-item:
+        out/sonda-crear-product-ad-20260831.log; la misma forma quedo
+        sellada antes en #83 con ORBIT-SONDA-NO-EXISTE-20260831). Amazon
+        respondio 207 con el contenedor `productAds` y este rechazo
+        por-item:
 
             errorType   adEligibilityError
             reason      AD_INELIGIBLE
