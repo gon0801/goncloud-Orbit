@@ -161,11 +161,17 @@ def _motivo_skip(fila: FilaOrigenFx) -> str | None:
     if _dia(fila.rate_date) is None:
         return "fecha ilegible (rate_date)"
     valor = Decimal(str(fila.rate))
-    if abs(valor - valor.quantize(_MAX_DECIMALES)) >= _RUIDO_FLOAT:
-        return "rate con mas de 8 decimales"
-    if valor >= _MAX_RATE:
+    # Rango ANTES de cuantizar: un REAL finito gigante (1e100) revienta
+    # quantize con InvalidOperation y abortaba la corrida entera.
+    if abs(valor) >= _MAX_RATE:
         return "rate fuera de rango NUMERIC(18,8)"
-    if valor.quantize(_MAX_DECIMALES) <= 0:
+    try:
+        cuantizado = valor.quantize(_MAX_DECIMALES)
+    except Exception:
+        return "rate fuera de rango NUMERIC(18,8)"
+    if abs(valor - cuantizado) >= _RUIDO_FLOAT:
+        return "rate con mas de 8 decimales"
+    if cuantizado <= 0:
         return "rate no positivo o nulo (dato faltante)"
     return None
 
@@ -245,6 +251,7 @@ def sync_fx(conn: psycopg.Connection, ruta_sqlite: Path | str) -> ResultadoSync:
         run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE,)).fetchone()[0]
 
     insertadas = 0
+    conflictos = 0
     try:
         with conn.transaction():
             for tasa in tasas:
@@ -252,9 +259,13 @@ def sync_fx(conn: psycopg.Connection, ruta_sqlite: Path | str) -> ResultadoSync:
                     _SQL_INSERTAR,
                     (tasa.rate_date, tasa.base, tasa.quote, tasa.rate, run_id),
                 )
-                # DO NOTHING deja rowcount=0; solo contamos filas nuevas.
+                # DO NOTHING deja rowcount=0; conflicto = skip contado
+                # (COMMENT ON ingest_run: absorbidas por ON CONFLICT cuentan).
                 if cur.rowcount and cur.rowcount > 0:
                     insertadas += 1
+                else:
+                    conflictos += 1
+                    skips["ya publicada (conflicto PK)"] += 1
 
             skip_reason = _formato_skip_reason(skips)
             _sellar_run(

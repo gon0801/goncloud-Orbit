@@ -123,6 +123,14 @@ def test_mapear_rechaza_par_desconocido():
     assert mapear_destino(_fila(base="EUR", quote="USD", rate=1.1)) is None
 
 
+def test_rate_gigante_no_aborta_la_corrida():
+    """Un REAL finito fuera de NUMERIC(18,8) es skip, no InvalidOperation."""
+    assert mapear_destino(_fila(rate=1e100)) is None
+    tasas, skips = plan_tasas([_fila(rate=1e100)])
+    assert tasas == []
+    assert skips["rate fuera de rango NUMERIC(18,8)"] == 1
+
+
 def test_plan_tasas_cuenta_skips_y_conserva_validas():
     filas = [
         _fila("2026-08-01", "MXN", "USD", 16.95),
@@ -247,11 +255,13 @@ def test_sync_fx_y_fx_resolve_ciclo_completo(tmp_path):
             TasaFx(rate_date=dia, base=fila_pub[0], quote=fila_pub[1], rate=fila_pub[2])
         )
 
-        # doble corrida: ON CONFLICT DO NOTHING → rows_written=0, misma PK
+        # doble corrida: ON CONFLICT DO NOTHING → rows_written=0, conflicto contado
         conteo_antes = conn.execute("SELECT count(*) FROM fx_rate").fetchone()[0]
         r2 = sync_fx(conn, snap)
         assert r2.ok is True
         assert r2.rows_written == 0
+        assert r2.rows_skipped == 3  # 2 skips de origen + 1 conflicto PK
+        assert "ya publicada (conflicto PK)" in (r2.skip_reason or "")
         assert conn.execute("SELECT count(*) FROM fx_rate").fetchone()[0] == conteo_antes
         assert (
             conn.execute("SELECT count(*) FROM ingest_run WHERE source = %s", (SOURCE,)).fetchone()[
