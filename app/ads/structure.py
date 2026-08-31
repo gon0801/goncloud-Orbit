@@ -63,7 +63,11 @@ Decisiones selladas de esta task:
   perfil aceptable con el mismo countryCode se RECHAZA con motivo "pais
   duplicado". Gana el primero en el orden del payload /v2/profiles.
 - state.acos_target es SIEMPRE None (confirmado por corrida real, arriba).
-- listing_id queda NULL: el catalogo no esta en el camino de la task 1.2.
+- listing_id: solo kind='product_ad' (ORBIT 06 0.4). Join
+  (platform, asin del anuncio) -> listing.(platform, external_id). Los
+  demas kinds quedan NULL; este camino NUNCA escribe ad_group.listing_id.
+  ARCHIVED no se materializa (la ventana de 90d pierde atribucion; 0.7
+  mide si importa).
 - name: campana/ad group -> payload.name; keyword -> NULL (keyword_text es la
   fuente unica, regla 2); target -> JSON compacto de `expression`
   (separators sin espacios + sort_keys) o NULL si no viene.
@@ -84,7 +88,7 @@ Decisiones selladas de esta task:
   la referencia como padre se escriben.
 
 Semantica contable (ingest_run): la unidad es el ITEM de payload (cada
-campana / adGroup / keyword / target). Todo item valido cuenta como
+campana / adGroup / keyword / target / product ad). Todo item valido cuenta como
 rows_written (siempre escribe su ad_entity_state con synced_at = now()); todo
 item rechazado cuenta como rows_skipped con su motivo acumulado en
 skip_reason (unico TEXT con contadores: "2x keyword sin matchType, ...").
@@ -117,7 +121,7 @@ import logging
 import os
 import sys
 from collections import Counter
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from decimal import Decimal, InvalidOperation
 
 import psycopg
@@ -132,13 +136,15 @@ install_scrub_filter(logger)
 
 SOURCE = "amazon_ads_structure_v2"
 
-# Unico GET v2 que sigue vivo. Los cuatro de abajo son POST list v3 (ver
-# docstring): el allowlist y sus vendor content-types viven en app.ads.client.
+# Unico GET v2 que sigue vivo. Los list v3 de abajo (salvo negativeKeywords,
+# que solo consume el snapshot) los pide fetch_structure. Vendor types en
+# app.ads.client.
 PATH_PROFILES = "/v2/profiles"
 PATH_CAMPAIGNS = "/sp/campaigns/list"
 PATH_AD_GROUPS = "/sp/adGroups/list"
 PATH_KEYWORDS = "/sp/keywords/list"
 PATH_TARGETS = "/sp/targets/list"
+PATH_PRODUCT_ADS = "/sp/productAds/list"
 # Evidencia REGLA 8 en vivo (lead, 2026-08-25; log out/regla8-negkeywords.log):
 # POST /sp/negativeKeywords/list con el vendor vnd.spnegativekeyword.v3+json
 # (allowlist de app.ads.client) responde 200 en AMBOS perfiles (US y MX);
@@ -163,13 +169,18 @@ _ETIQUETA_KIND = {
     "ad_group": "ad group",
     "keyword": "keyword",
     "product_target": "target",
+    "product_ad": "product ad",
 }
 _ETIQUETA_PADRE = {
     "campaign": "campana",
     "ad_group": "campana",
     "keyword": "ad group",
     "product_target": "ad group",
+    "product_ad": "ad group",
 }
+# Solo estos estados se materializan. ARCHIVED (75% MX) queda fuera: no
+# upsert, no listing_id. Cualquier otro valor es "estado desconocido".
+_ESTADOS_PRODUCT_AD_VIVOS = frozenset({"ENABLED", "PAUSED"})
 
 # Clave contenedora de cada respuesta (ojo targets: "targetingClauses";
 # negativeKeywords: evidencia regla 8, comentario en PATH_NEGATIVE_KEYWORDS).
@@ -180,6 +191,7 @@ _CLAVE_CONTENEDORA = {
     PATH_KEYWORDS: "keywords",
     PATH_TARGETS: "targetingClauses",
     PATH_NEGATIVE_KEYWORDS: "negativeKeywords",
+    PATH_PRODUCT_ADS: "productAds",
 }
 
 _SQL_ABRIR_RUN = "INSERT INTO ingest_run (source) VALUES (%s) RETURNING id"
@@ -219,6 +231,17 @@ _SQL_SELLAR_RUN = """
     SET finished_at = now(), rows_written = %s, rows_skipped = %s,
         skip_reason = %s, ok = %s
     WHERE id = %s
+"""
+
+# El upsert no toca listing_id: un INSERT de campaign/keyword con NULL no
+# puede borrar un vinculo. Solo product_ad lo escribe despues (tambien NULL
+# si el listing ya no esta).
+_SQL_UPDATE_LISTING_ID = "UPDATE ad_entity SET listing_id = %s WHERE id = %s"
+
+_SQL_CARGAR_LISTINGS = """
+    SELECT l.id, l.platform::text, l.external_id,
+           EXISTS (SELECT 1 FROM sku_cost c WHERE c.product_id = l.product_id)
+    FROM listing l
 """
 
 
@@ -265,6 +288,7 @@ class EstructuraPerfil:
     ad_groups: list[dict]
     keywords: list[dict]
     targets: list[dict]
+    product_ads: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -290,6 +314,7 @@ class _ItemEntidad:
     targeting_type: str | None
     bid: Decimal | None
     bid_currency: str | None
+    asin: str | None = None  # solo product_ad; llave de join a listing.external_id
 
 
 @dataclass
@@ -484,7 +509,7 @@ def perfiles_aceptados(client: AdsClient) -> list[PerfilAds]:
 
 
 def fetch_structure(client: AdsClient) -> EstructuraAds:
-    """GET /v2/profiles + los 4 POST list v3 por cada perfil aceptado.
+    """GET /v2/profiles + los 5 POST list v3 por cada perfil aceptado.
 
     Los perfiles rechazados (seller/pais/moneda/pais duplicado) NO generan
     llamadas de lista: su evidencia queda en `perfiles` con el motivo. El
@@ -503,6 +528,7 @@ def fetch_structure(client: AdsClient) -> EstructuraAds:
                 ad_groups=listar_todo(client, PATH_AD_GROUPS, profile_id=perfil.profile_id),
                 keywords=listar_todo(client, PATH_KEYWORDS, profile_id=perfil.profile_id),
                 targets=listar_todo(client, PATH_TARGETS, profile_id=perfil.profile_id),
+                product_ads=listar_todo(client, PATH_PRODUCT_ADS, profile_id=perfil.profile_id),
             )
         )
     return EstructuraAds(perfiles=perfiles, estructuras=estructuras)
@@ -544,16 +570,59 @@ def _nombre_target(expression: object) -> str | None:
     return json.dumps(expression, separators=(",", ":"), sort_keys=True)
 
 
+def _item_product_ad(
+    payload: dict,
+    *,
+    platform: str,
+    conocidos: set[tuple[str, str, str]],
+    campana_del_ad_group: dict[str, str],
+) -> _ItemEntidad | str:
+    """Filtra un product ad en el borde: item listo o motivo de skip."""
+    external = payload.get("adId")
+    if external is None:
+        return "product ad sin adId"
+    asin_crudo = payload.get("asin")
+    asin = asin_crudo.strip() if isinstance(asin_crudo, str) else ""
+    if not asin:
+        return "product ad sin asin"
+    estado = payload.get("state")
+    if estado == "ARCHIVED":
+        return "product ad archivado"
+    if estado not in _ESTADOS_PRODUCT_AD_VIVOS:
+        return "product ad estado desconocido"
+    ad_group_id = str(payload.get("adGroupId"))
+    if (platform, "ad_group", ad_group_id) not in conocidos:
+        return "product ad sin ad group planificado"
+    campaign_id = payload.get("campaignId")
+    if campaign_id is not None and str(campaign_id) != campana_del_ad_group[ad_group_id]:
+        return "product ad con campaignId distinto al de su ad group (payload incoherente)"
+    return _ItemEntidad(
+        platform=platform,
+        kind="product_ad",
+        external_id=str(external),
+        parent_ref=(platform, "ad_group", ad_group_id),
+        name=asin,
+        match_type=None,
+        keyword_text=None,
+        status=estado,
+        targeting_type=None,
+        bid=None,
+        bid_currency=None,
+        asin=asin,
+    )
+
+
 def _plan_items(estructura: EstructuraAds) -> tuple[list[_ItemEntidad], Counter[str]]:
     """Valida la coherencia de cada item ANTES de tocar la base.
 
-    Orden por perfil: campanas -> ad groups -> keywords -> targets (el padre
-    siempre se planifica antes que el hijo). Un item solo entra si su padre
-    esta entre los items ya planificados DE ESTA CORRIDA y, para keywords y
-    targets, si el campaignId que el payload trae DE MAS no contradice al del
-    ad group padre planificado (hallazgo cross-review codex, ronda 3). Claves
-    v3: ids string planos, defaultBid escalar, bid OPCIONAL (su ausencia no
-    es skip).
+    Orden por perfil: campanas -> ad groups -> product ads -> keywords ->
+    targets (el padre siempre se planifica antes que el hijo). Un item solo
+    entra si su padre esta entre los items ya planificados DE ESTA CORRIDA y,
+    para keywords, targets y product ads, si el campaignId que el payload
+    trae DE MAS no contradice al del ad group padre planificado (hallazgo
+    cross-review codex, ronda 3). Claves v3: ids string planos, defaultBid
+    escalar, bid OPCIONAL (su ausencia no es skip). Product ads: solo
+    ENABLED/PAUSED; asin obligatorio; bid tipicamente ausente.
     """
     items: list[_ItemEntidad] = []
     skips: Counter[str] = Counter()
@@ -619,6 +688,19 @@ def _plan_items(estructura: EstructuraAds) -> tuple[list[_ItemEntidad], Counter[
             )
             conocidos.add((platform, "ad_group", str(external)))
             campana_del_ad_group[str(external)] = str(payload.get("campaignId"))
+
+        for payload in est.product_ads:
+            resultado = _item_product_ad(
+                payload,
+                platform=platform,
+                conocidos=conocidos,
+                campana_del_ad_group=campana_del_ad_group,
+            )
+            if isinstance(resultado, str):
+                skips[resultado] += 1
+                continue
+            items.append(resultado)
+            conocidos.add((platform, "product_ad", resultado.external_id))
 
         for payload in est.keywords:
             external = payload.get("keywordId")
@@ -749,6 +831,11 @@ def sync_structure(conn: psycopg.Connection, estructura: EstructuraAds) -> Resul
     try:
         with conn.transaction():
             refs: dict[tuple[str, str, str], int] = {}
+            listings: dict[tuple[str, str], tuple[int, bool]] = {
+                (plat, ext): (lid, bool(tiene_costo))
+                for lid, plat, ext, tiene_costo in conn.execute(_SQL_CARGAR_LISTINGS)
+            }
+            clasificacion: Counter[str] = Counter()
             for item in items:
                 parent_id = refs.get(item.parent_ref) if item.parent_ref else None
                 if item.parent_ref is not None and parent_id is None:
@@ -796,12 +883,22 @@ def sync_structure(conn: psycopg.Connection, estructura: EstructuraAds) -> Resul
                         item.targeting_type,
                     ),
                 )
+                if item.kind == "product_ad":
+                    resuelto = listings.get((item.platform, item.asin or ""))
+                    listing_id = resuelto[0] if resuelto else None
+                    conn.execute(_SQL_UPDATE_LISTING_ID, (listing_id, entidad_id))
+                    if listing_id is None:
+                        clasificacion["product ad sin listing"] += 1
+                    else:
+                        clasificacion["product ad con listing"] += 1
+                        if not resuelto[1]:
+                            clasificacion["product ad sin costo"] += 1
                 refs[(item.platform, item.kind, item.external_id)] = entidad_id
                 written += 1
                 if es_nueva:
                     nuevas += 1
                 counts[(item.platform, item.kind)] += 1
-            skip_reason = _formato_skip_reason(skips)
+            skip_reason = _formato_skip_reason(skips + clasificacion)
             _sellar_run(
                 conn,
                 run_id,

@@ -36,6 +36,7 @@ from app.ads.structure import (
     PATH_AD_GROUPS,
     PATH_CAMPAIGNS,
     PATH_KEYWORDS,
+    PATH_PRODUCT_ADS,
     PATH_TARGETS,
     AdsStructureError,
     EstructuraAds,
@@ -198,12 +199,14 @@ _SP_DATOS = {
         "adGroups": AD_GROUPS_US,
         "keywords": KEYWORDS_US,
         "targetingClauses": TARGETS_US,
+        "productAds": [],
     },
     "202": {
         "campaigns": CAMPANAS_MX,
         "adGroups": AD_GROUPS_MX,
         "keywords": KEYWORDS_MX,
         "targetingClauses": TARGETS_MX,
+        "productAds": [],
     },
 }
 
@@ -212,6 +215,7 @@ _PATH_CLAVE = {
     "/sp/adGroups/list": "adGroups",
     "/sp/keywords/list": "keywords",
     "/sp/targets/list": "targetingClauses",
+    "/sp/productAds/list": "productAds",
 }
 
 
@@ -228,7 +232,7 @@ def _cliente(handler) -> AdsClient:
 
 
 def _handler_sp(perfiles: list[dict], sp_datos: dict, registro: list[dict]):
-    """Sirve GET /v2/profiles + los 4 POST list por scope.
+    """Sirve GET /v2/profiles + los 5 POST list por scope.
 
     campaigns pagina de a 1 item via nextToken (las fixtures traen 2 campanas
     por perfil -> 2 paginas); el resto responde en una sola pagina. Registra
@@ -292,7 +296,13 @@ def test_fetch_usa_get_de_perfiles_y_post_list_con_scope_y_vendor_types():
     # /sp/negativeKeywords/list (evidencia regla 8, 2026-08-25) para la
     # reconciliacion de harvest (APPLY.md §6), que lo consume 2.3 — el sync
     # de estructura NO lo trae.
-    for path in (PATH_CAMPAIGNS, PATH_AD_GROUPS, PATH_KEYWORDS, PATH_TARGETS):
+    for path in (
+        PATH_CAMPAIGNS,
+        PATH_AD_GROUPS,
+        PATH_KEYWORDS,
+        PATH_TARGETS,
+        PATH_PRODUCT_ADS,
+    ):
         llamadas = [r for r in registro if r["path"] == path]
         scopes = sorted(str(r["scope"]) for r in llamadas)
         if path == "/sp/campaigns/list":
@@ -318,10 +328,12 @@ def test_fetch_usa_get_de_perfiles_y_post_list_con_scope_y_vendor_types():
     assert est_us.ad_groups == AD_GROUPS_US
     assert est_us.keywords == KEYWORDS_US
     assert est_us.targets == TARGETS_US
+    assert est_us.product_ads == []
     est_mx = estructura.estructuras[1]
     assert est_mx.perfil.platform == "amazon_mx"
     assert est_mx.campanas == CAMPANAS_MX
     assert est_mx.targets == []
+    assert est_mx.product_ads == []
 
 
 def test_perfiles_rechazados_quedan_fuera_con_motivo_y_sin_llamadas_de_lista():
@@ -902,6 +914,8 @@ def test_sql_del_modulo_parsea_como_postgres():
         "_SQL_SELLAR_RUN",
         "_SQL_UPSERT_ENTIDAD",
         "_SQL_UPSERT_STATE",
+        "_SQL_UPDATE_LISTING_ID",
+        "_SQL_CARGAR_LISTINGS",
     ):
         sql = getattr(estructura_modulo, nombre).replace("%s", "NULL")
         assert pglast.parse_sql(sql), f"{nombre} no parseo"
