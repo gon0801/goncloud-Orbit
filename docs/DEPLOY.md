@@ -885,11 +885,13 @@ disparan), por eso el INSERT dentro de la transacción que se revierte.
    (ver "Levantar"). `ss -lntp` debe mostrar 5432 y 8010 **solo** en
    127.0.0.1.
 5. Aplicar las migraciones EN ORDEN (`0001_initial.sql`, `0002_apply.sql`,
-   `0003_goal_bounds_explicit.sql`, `0004_ad_entity_kind_product_ad.sql` —
-   ver "Aplicar migraciones"). Omitir 0003 re-crearia los DEFAULT USD
-   0.10/2.50 que el sellado 2 del preflight elimino: un goal MXN volveria a
-   nacer con techo 2.50. Omitir 0004 deja el enum sin `product_ad` y la
-   ingesta de estructura de la 0.4 revienta al insertar ese kind.
+   `0003_goal_bounds_explicit.sql`, `0004_ad_entity_kind_product_ad.sql`,
+   `0005_v_tacos_grano_unico.sql` — ver "Aplicar migraciones"). Omitir 0003
+   re-crearia los DEFAULT USD 0.10/2.50 que el sellado 2 del preflight
+   elimino: un goal MXN volveria a nacer con techo 2.50. Omitir 0004 deja el
+   enum sin `product_ad` y la ingesta de estructura de la 0.4 revienta al
+   insertar ese kind. Omitir 0005 reproduce el doble conteo de gasto en
+   `v_tacos` (TACoS inflado ~2x) en la instalacion nueva.
 6. Crear los usuarios LOGIN por servicio + `orbit_test` (ver "Usuarios y
    DSN": comandos exactos arriba).
 7. Poblar `secrets/` (amazon_ads_config.json + amazon_ads_tokens.json,
