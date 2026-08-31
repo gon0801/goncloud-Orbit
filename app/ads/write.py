@@ -111,7 +111,7 @@ MUTATION_REQUEST_TYPES: MappingProxyType[tuple[str, str], str] = MappingProxyTyp
         # SELLADO por la limpieza del 2026-08-30 (ver archivar_product_ad).
         ("POST", "/sp/productAds/delete"): "application/vnd.spproductad.v3+json",
         # La REVERSA del archivado (decision del dueno 2026-08-30, invariante
-        # 7). PENDIENTE-DE-SONDA: ver crear_product_ad.
+        # 7). SELLADO por la sonda del 2026-08-31: ver crear_product_ad.
         ("POST", "/sp/productAds"): "application/vnd.spproductad.v3+json",
     }
 )
@@ -418,13 +418,25 @@ class AdsWriteClient(AdsClient):
         vocabulario que el resto): una reversa que revive en ENABLED algo
         que estaba PAUSED no es una reversa, es un cambio.
 
-        PENDIENTE-DE-SONDA: a diferencia del delete —sellado en vivo por la
-        corrida del 2026-08-30— este create todavia NO se probo contra
-        Amazon. La sonda segura es un sku INEXISTENTE: si el shape es
-        correcto Amazon rechaza por-item y no crea nada, y si alguna clave
-        estuviera mal (esta API las ignora en silencio) el payload queda sin
-        producto y tambien tiene que rechazar. Un SUCCESS ahi seria la
-        senal de alarma.
+        SELLADO EN VIVO por la sonda del 2026-08-31 (perfil amazon_mx,
+        sku inventado ORBIT-SONDA-NO-EXISTE-20260831072505, evidencia
+        out/sonda-crear-product-ad-20260831.log). Amazon respondio 207 con
+        el contenedor `productAds` y este rechazo por-item:
+
+            errorType   adEligibilityError
+            reason      AD_INELIGIBLE
+            message     "Product is ineligible for advertising"
+
+        Ese error prueba que el campo `sku` SE HONRO: Amazon lo busco en el
+        catalogo y rechazo por el PRODUCTO. Si la clave se hubiera ignorado
+        —esta API ignora en silencio las que no reconoce— el rechazo seria
+        de campo faltante, no de elegibilidad. Y no se creo nada: el ad
+        group tenia 298 anuncios antes y 298 despues, cero con el sku de
+        la sonda.
+
+        Lo que queda SIN sondear es el camino feliz (un sku que SI existe):
+        probarlo crearia un anuncio de verdad. La primera reposicion real
+        es, por definicion, su propia sonda — de ahi el ensayo por default.
         """
         estado_wire = _un_objeto(estado, "estado")
         if estado_wire not in ESTADOS_CREATE_PRODUCT_AD:
