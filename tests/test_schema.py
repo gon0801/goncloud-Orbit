@@ -37,6 +37,13 @@ STMTS3 = tuple(pglast.parse_sql(SQL3))
 SQL4 = (ROOT / "migrations" / "0004_ad_entity_kind_product_ad.sql").read_text(encoding="utf-8")
 STMTS4 = tuple(pglast.parse_sql(SQL4))
 
+# 0005 (ORBIT 06 0.7 — hallazgo de qwen en la review 3.3): v_tacos sumaba el
+# gasto por fila kind='campaign' Y por sus hijas kind='keyword'/
+# 'product_target' -- ads_metric_observation duplica el costo entre ambos
+# grados. Filtro de grano único en el CTE `gasto`.
+SQL5 = (ROOT / "migrations" / "0005_v_tacos_grano_unico.sql").read_text(encoding="utf-8")
+STMTS5 = tuple(pglast.parse_sql(SQL5))
+
 APPEND_ONLY = {
     "ads_metric_observation",
     "search_term_observation",

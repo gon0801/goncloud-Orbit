@@ -615,6 +615,28 @@ ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit \
   -v ON_ERROR_STOP=1 -1' < migrations/0004_ad_entity_kind_product_ad.sql
 ```
 
+Migración `0005` (ORBIT 06 0.7 — hallazgo de qwen en la review 3.3, doble
+conteo confirmado en vivo el 2026-08-31) — **NO aplicada todavía en
+goncloud**. `CREATE OR REPLACE VIEW v_tacos`: filtra el CTE `gasto` a
+`e.kind IN ('keyword', 'product_target')`, el mismo grano del motor de
+decisión y del candado de cobertura. Sin el filtro, `ads_metric_observation`
+guarda el mismo costo en la fila `kind='campaign'` Y en sus hijas
+keyword/product_target, y `v_tacos` lo sumaba dos veces (gasto_ads inflado
+~2x, tacos_pct inflado ~2x). **Re-runnable** (`CREATE OR REPLACE`); la lista
+de columnas de `v_tacos` no cambia. La aplica el **lead**. Comando:
+
+```bash
+ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit \
+  -v ON_ERROR_STOP=1 -1' < migrations/0005_v_tacos_grano_unico.sql
+```
+
+Verificación post-aplicación (gasto_ads del mes cae aproximadamente a la
+mitad frente a la medición previa por plataforma):
+
+```sql
+SELECT platform, mes, gasto_ads, tacos_pct FROM v_tacos ORDER BY platform, mes DESC LIMIT 6;
+```
+
 ## Correr los tests desde la máquina dev (túnel SSH)
 
 La suite de integración (`test_migracion_rechaza_en_vivo`) necesita un
