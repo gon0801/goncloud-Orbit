@@ -69,13 +69,18 @@ def test_v_tacos_deja_de_duplicar_gasto_campaign_keyword():
         cam = entidad("campaign", "C-TACOS-1")
         ag = entidad("ad_group", "AG-TACOS-1", cam)
         kw = entidad("keyword", "KW-TACOS-1", ag)
+        # product_target CON costo propio (reviewer, hallazgo 1 del
+        # adversario): sin el, un filtro mutado a kind = solo 'keyword'
+        # pasaba en verde tirando la mitad del grano.
+        tg = entidad("product_target", "TG-TACOS-1", ag)
 
         # Maduro: D-20 (dentro de la ventana D-15 de v_metric_mature), mismo
         # mes para campaign y keyword.
         dia = (date.today() - timedelta(days=20)).isoformat()
 
         costo_campana = Decimal("500.00")
-        costo_keyword = Decimal("500.00")
+        costo_keyword = Decimal("300.00")
+        costo_target = Decimal("200.00")
 
         def metrica(entity_id, costo):
             conn.execute(
@@ -87,6 +92,7 @@ def test_v_tacos_deja_de_duplicar_gasto_campaign_keyword():
 
         metrica(cam, costo_campana)
         metrica(kw, costo_keyword)
+        metrica(tg, costo_target)
 
         # date_trunc del mes de `dia`, no de hoy.
         mes_dia = date.fromisoformat(dia).replace(day=1)
@@ -102,18 +108,19 @@ def test_v_tacos_deja_de_duplicar_gasto_campaign_keyword():
         # ROJO: con 0001-0004 (sin 0005), v_tacos suma campaign Y keyword ->
         # doble conteo del mismo gasto.
         gasto_doble = gasto_ads_mx()
-        assert gasto_doble == costo_campana + costo_keyword, (
+        assert gasto_doble == costo_campana + costo_keyword + costo_target, (
             "el bug no se reprodujo: se esperaba que v_tacos SIN 0005 sumara "
-            "el costo de campaign y de keyword (doble conteo)"
+            "campaign + keyword + product_target (doble conteo)"
         )
 
         # VERDE: aplicar 0005 sobre la MISMA base (CREATE OR REPLACE VIEW).
         conn.execute(SQL5)
 
         gasto_unico = gasto_ads_mx()
-        assert gasto_unico == costo_keyword, (
-            "v_tacos con 0005 debe sumar SOLO kind IN ('keyword', "
-            "'product_target'); el gasto de la fila 'campaign' no debe entrar"
+        assert gasto_unico == costo_keyword + costo_target, (
+            "v_tacos con 0005 debe sumar keyword Y product_target (las DOS "
+            "mitades del grano) y excluir SOLO campaign — un filtro "
+            "sobre-agresivo que tirara los targets tambien fallaria aqui"
         )
     finally:
         if conn is not None:

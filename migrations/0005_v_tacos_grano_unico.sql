@@ -12,7 +12,14 @@
 --  DECISION DEL DUEÑO (tomada, no re-abrir): el grano correcto es
 --  kind IN ('keyword', 'product_target') -- el MISMO grano del motor de
 --  decisión y del candado 0.7 (app/cobertura.py). El grano 'campaign' queda
---  FUERA de la vista: es un duplicado agregado, no gasto adicional.
+--  FUERA de la vista: es un duplicado agregado, no gasto adicional —
+--  CASI exacto: medido en vivo a 90d maduros (2026-08-31), campaign supera
+--  a keyword+target por 4.75 MXN en MX (0.015%) y por 0.00 en US. Ese
+--  residuo es gasto de campaign SIN contraparte hija (p.ej. keywordType
+--  fuera de la allowlist del reporte de keywords/targets) y este grano lo
+--  PIERDE; queda declarado aqui y el contador en la vista va como tarea
+--  aparte (adjudicacion del reviewer 2026-08-31: 0.015% contra un bug de
+--  2x no bloquea, pero no se afirma "duplicado exacto" sin calificarlo).
 --
 --  CREATE OR REPLACE: re-runnable. La lista de columnas de v_tacos NO
 --  cambia (mismo SELECT final, solo el filtro de kind en el CTE `gasto`).

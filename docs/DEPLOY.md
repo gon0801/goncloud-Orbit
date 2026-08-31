@@ -630,12 +630,26 @@ ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit \
   -v ON_ERROR_STOP=1 -1' < migrations/0005_v_tacos_grano_unico.sql
 ```
 
-Verificación post-aplicación (gasto_ads del mes cae aproximadamente a la
-mitad frente a la medición previa por plataforma):
+Verificación post-aplicación (reviewer 2026-08-31: "cae a la mitad" no
+distingue el filtro correcto de uno sobre-agresivo — tirar también los
+targets también "baja"). Se verifica el GRANO desglosando el costo maduro
+por kind, y de paso se publica el residuo campaign − (keyword+target):
 
 ```sql
+-- (a) el desglose por kind: v_tacos debe cuadrar EXACTO con kw+target,
+--     y la brecha contra campaign es el residuo declarado en la 0005.
+SELECT e.platform, e.kind, round(sum(m.cost), 2) AS gasto
+  FROM v_metric_mature m JOIN ad_entity e ON e.id = m.ad_entity_id
+ WHERE m.cost IS NOT NULL
+ GROUP BY 1, 2 ORDER BY 1, 2;
+
+-- (b) la vista, tras el filtro:
 SELECT platform, mes, gasto_ads, tacos_pct FROM v_tacos ORDER BY platform, mes DESC LIMIT 6;
 ```
+
+`gasto_ads` de cada plataforma debe cuadrar con la suma keyword+target de
+(a), no con campaign; y el `tacos_pct` publicado cambia de un día para otro
+(~mitad) — avisar al dueño ANTES de aplicar, no después.
 
 ## Correr los tests desde la máquina dev (túnel SSH)
 

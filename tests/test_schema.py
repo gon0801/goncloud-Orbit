@@ -68,6 +68,40 @@ def _stmts(cls):
     return [s.stmt for s in STMTS if isinstance(s.stmt, cls)]
 
 
+def _v_tacos_viva():
+    """La definicion VIVA de v_tacos: la ULTIMA ViewStmt a traves de todas
+    las migraciones (0005 la reemplaza con CREATE OR REPLACE). Los
+    invariantes sellados se afirman contra ESTA — afirmarlos contra la de
+    0001 tras aplicar 0005 es vigilar SQL muerto (hallazgo del adversario
+    en la review de la 0005: una regresion dentro de 0005 que conservara
+    las columnas viajaba en verde)."""
+    import pglast as _pglast  # noqa: F401  (ya importado arriba; claridad)
+
+    vistas = [
+        s.stmt
+        for lote in (STMTS, STMTS2, STMTS3, STMTS4, STMTS5)
+        for s in lote
+        if isinstance(s.stmt, ast.ViewStmt) and s.stmt.view.relname == "v_tacos"
+    ]
+    assert vistas, "falta la vista v_tacos en las migraciones"
+    return vistas[-1]
+
+
+def _tacos_pct_viva():
+    """El subarbol del target `tacos_pct` de la definicion viva de v_tacos.
+
+    Los fail-loud se afirman DENTRO de este subarbol y no por presencia en
+    el cuerpo entero: cada contador aparece ademas en su COUNT y su
+    COALESCE, asi que "esta en alguna parte" deja pasar la mutacion exacta
+    del adversario de la 0005 (borrar SOLO la rama del CASE conservando las
+    columnas) — comprobado midiendo: la presencia global sobrevive, el
+    subarbol de tacos_pct no."""
+    query = _v_tacos_viva().query
+    targets = [r for r in query.targetList if getattr(r, "name", None) == "tacos_pct"]
+    assert targets, "v_tacos vivo sin columna tacos_pct"
+    return repr(targets[0])
+
+
 def _stmts2(cls):
     return [s.stmt for s in STMTS2 if isinstance(s.stmt, cls)]
 
@@ -457,9 +491,7 @@ def test_v_tacos_convierte_por_fila_a_mxn():
     # montos ya en MXN. El viejo suponía UNA moneda de venta por
     # plataforma+mes (columnas moneda_gasto/moneda_venta): si reaparecen, el
     # supuesto volvió y el gasto se repetiría por fila ante dos monedas.
-    tacos = [v for v in _stmts(ast.ViewStmt) if v.view.relname == "v_tacos"]
-    assert tacos, "falta la vista v_tacos"
-    cuerpo = repr(tacos[0].query)
+    cuerpo = repr(_v_tacos_viva().query)
     assert "fx_resolve" in cuerpo, "v_tacos sin conversión por fila"
     assert "MXN" in cuerpo, "v_tacos sin moneda canónica MXN"
     assert "moneda_gasto" not in cuerpo and "moneda_venta" not in cuerpo, (
@@ -472,11 +504,10 @@ def test_v_tacos_fail_loud_con_huecos_parciales_de_fx():
     # utilizable) antes publicaba un tacos_pct corto sin señal — SUM ignora
     # los NULL. Ahora la vista cuenta las filas sin convertir por lado y
     # tacos_pct sale NULL con una sola.
-    tacos = [v for v in _stmts(ast.ViewStmt) if v.view.relname == "v_tacos"]
-    assert tacos, "falta la vista v_tacos"
-    cuerpo = repr(tacos[0].query)
-    assert "gasto_sin_tasa" in cuerpo and "ventas_sin_tasa" in cuerpo, (
-        "v_tacos sin contadores de filas no convertibles por lado"
+    pct = _tacos_pct_viva()
+    assert "gasto_sin_tasa" in pct and "ventas_sin_tasa" in pct, (
+        "v_tacos: los contadores de filas sin tasa ya no participan del CASE "
+        "de tacos_pct (el fail-loud de FX parcial se perdio)"
     )
 
 
@@ -624,10 +655,22 @@ def test_v_tacos_fail_loud_con_costo_nulo():
     # de siempre ("todo se ve rentable"), justo el que la vista existe para
     # matar. El lado de la venta no lo necesita: ledger_event.amount es NOT
     # NULL.
-    tacos = [v for v in _stmts(ast.ViewStmt) if v.view.relname == "v_tacos"]
-    assert tacos, "falta la vista v_tacos"
-    cuerpo = repr(tacos[0].query)
-    assert "gasto_sin_costo" in cuerpo, "v_tacos no cuenta las filas de gasto con cost NULL"
+    assert "gasto_sin_costo" in _tacos_pct_viva(), (
+        "v_tacos: gasto_sin_costo ya no participa del CASE de tacos_pct "
+        "(el fail-loud de cost NULL se perdio)"
+    )
+
+
+def test_v_tacos_vivo_filtra_al_grano_keyword_y_target():
+    # 0005 (doble conteo): la definicion VIVA debe filtrar el CTE gasto al
+    # grano keyword + product_target — las DOS mitades, y campaign fuera.
+    # Ademas clava que la viva ES la de 0005 (si alguien borrara la 0005 de
+    # la cadena, el filtro desaparece y esto falla).
+    cuerpo = repr(_v_tacos_viva().query)
+    assert "keyword" in cuerpo and "product_target" in cuerpo, (
+        "v_tacos vivo sin el filtro de grano (keyword + product_target): "
+        "el doble conteo campaign+hijas volvio (migracion 0005)"
+    )
 
 
 # ---------------------------------------------------------------------------
