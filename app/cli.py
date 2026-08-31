@@ -169,7 +169,8 @@ def _archivar_anuncios(args) -> int:
 
     print(f"plataforma: {args.platform}  adIds en la lista: {len(ad_ids)}")
     print(
-        "MODO: LIVE — esto ARCHIVA en la cuenta y NO tiene reversa"
+        "MODO: LIVE — Amazon no des-archiva; la columna reversa sirve "
+        "para recrear con reponer-anuncios"
         if ejecutar
         else "MODO: ENSAYO — no sale ninguna mutacion"
     )
@@ -186,7 +187,7 @@ def _archivar_anuncios(args) -> int:
         return 2
 
     for r in resultados:
-        print(f"  {r.ad_id}	{r.estado_previo or '-'}	{r.resultado}	{r.detalle}")
+        print(f"  {r.ad_id}\t{r.estado_previo or '-'}\t{r.resultado}\t{r.detalle}\t{r.reversa}")
     cuenta = archivar.resumen(resultados)
     print(f"RESUMEN: {cuenta}")
 
@@ -441,7 +442,8 @@ def main(argv: list[str] | None = None) -> int:
         "archivar-anuncios",
         help=(
             "archiva product ads MUERTOS de una lista explicita de adIds "
-            "(ENSAYO salvo --confirmar live; el archivado NO tiene reversa)"
+            "(ENSAYO salvo --confirmar live; Amazon no des-archiva — la "
+            "columna reversa sirve para recrear con reponer-anuncios)"
         ),
         # Mismo candado que goals/cycle: esto MUTA la cuenta del dueno, un
         # --confirma mal tipeado no puede colarse como abreviatura.

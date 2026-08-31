@@ -489,6 +489,22 @@ def test_la_reversa_manda_sku_y_no_asin():
     assert "asin" not in objeto, "una cuenta seller crea product ads por SKU"
 
 
+def test_crear_product_ad_rechaza_estado_fuera_del_enum_antes_de_http():
+    """Minusculas, ARCHIVED o basura no salen a la red: el create solo acepta
+    el enum UPPER vivo (ENABLED/PAUSED/PROPOSED)."""
+    vistos: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        vistos.append(request)
+        raise AssertionError("jamas debe salir a la red")
+
+    cliente = make_write_client(handler)
+    for malo in ("paused", "enabled", "ARCHIVED", "userPaused", ""):
+        with pytest.raises(ValueError, match="UPPER wire"):
+            cliente.crear_product_ad(31, 21, "SKU-X", malo)
+    assert vistos == []
+
+
 def test_el_filtro_del_archivado_de_product_ads_se_llama_exactamente_adIdFilter():
     """El nombre del filtro NO es cosmetico: es la diferencia entre archivar
     UN anuncio y archivar la cuenta entera.

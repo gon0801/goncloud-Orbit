@@ -18,7 +18,8 @@ delete con la clave equivocada NO falla: viaja SIN FILTRO. Por eso el nombre
 del filtro esta clavado con test propio en tests/test_ads_write.py.
 
 "Borrar" en Amazon ARCHIVA: el anuncio queda operativamente muerto y su fila
-sigue saliendo en el list con state=ARCHIVED. NO HAY REVERSA.
+sigue saliendo en el list con state=ARCHIVED. Amazon NO des-archiva; la
+reversa es recrear via `reponer_anuncios` / `crear_product_ad` (invariante 7).
 """
 
 from __future__ import annotations
@@ -280,15 +281,35 @@ def reponer_anuncios(
                 resultados.append(ResultadoAnuncio(d["sku"], d["state"], "fallo", detalle, reversa))
             else:
                 nuevo = _id_del_ack(ack)
-                resultados.append(
-                    ResultadoAnuncio(
-                        nuevo or d["sku"],
-                        d["state"],
-                        "repuesto" if nuevo else "sin_confirmar",
-                        "" if nuevo else "el ack no trajo adId legible",
-                        reversa,
+                if not nuevo:
+                    resultados.append(
+                        ResultadoAnuncio(
+                            d["sku"],
+                            d["state"],
+                            "sin_confirmar",
+                            "el ack no trajo adId legible",
+                            reversa,
+                        )
                     )
-                )
+                else:
+                    # El ack no basta: un 207 success sin fila viva en el list
+                    # es falso exito (Make Operations Idempotent).
+                    posteriores = estados_actuales(escritor, [nuevo])
+                    estado_nuevo = posteriores.get(nuevo)
+                    if estado_nuevo is not None and estado_nuevo != ESTADO_ARCHIVADO:
+                        resultados.append(
+                            ResultadoAnuncio(nuevo, d["state"], "repuesto", "", reversa)
+                        )
+                    else:
+                        resultados.append(
+                            ResultadoAnuncio(
+                                nuevo,
+                                d["state"],
+                                "sin_confirmar",
+                                f"ack trajo adId={nuevo} pero readback dijo {estado_nuevo!r}",
+                                reversa,
+                            )
+                        )
         if i % 25 == 0:
             avisar(f"  ... {i}/{len(datos)}")
         dormir(pausa)

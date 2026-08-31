@@ -34,7 +34,8 @@ Diseno SELLADO (plans/orbit-04.md decision 9; docs/APPLY.md §8):
   `goal.bid_currency`) ANTES del HTTP — si no coincide, algo esta podrido
   y NO se escribe.
 - Quien puede importar este modulo: candado en tests/test_architecture.py
-  — solo `app/apply.py` y `tools/smoke_apply.py` (r2 codex 5).
+  — `app/apply.py`, `tools/smoke_apply.py` y `app/ads/archivar.py` (r2
+  codex 5; archivar = limpieza operada, decision 2026-08-30).
 - Errores >=400 (ORBIT 04 2.1, hallazgo r1 del brief §13): AdsApiError perdia
   el body de Amazon; el `resultado` del ledger lo heredaria. `_mutate` lanza
   `AdsApiErrorMutacion` con `cuerpo` = snippet del body JSON SANEADO
@@ -142,6 +143,10 @@ MUTATION_CONTAINERS: MappingProxyType[str, str] = MappingProxyType(
 # (ESTADO_WIRE_* de app/apply.py: ENABLED/PAUSED/ARCHIVED UPPER).
 ESTADO_PUT_PAUSED = "PAUSED"
 ESTADO_PUT_ENABLED = "ENABLED"
+# Mismo enum UPPER del PUT v3 (sello 2026-08-27: [ENABLED, PROPOSED, PAUSED]).
+ESTADO_PUT_PROPOSED = "PROPOSED"
+# Create de product ad: solo estados vivos del wire; ARCHIVED no se crea.
+ESTADOS_CREATE_PRODUCT_AD = frozenset({ESTADO_PUT_ENABLED, ESTADO_PUT_PAUSED, ESTADO_PUT_PROPOSED})
 
 
 def _un_objeto(valor: object, nombre: str) -> object:
@@ -413,26 +418,34 @@ class AdsWriteClient(AdsClient):
         vocabulario que el resto): una reversa que revive en ENABLED algo
         que estaba PAUSED no es una reversa, es un cambio.
 
-        SELLADO EN VIVO por la sonda del 2026-08-31 (perfil amazon_mx, sku
-        inventado ORBIT-SONDA-NO-EXISTE-20260831, ad group de una campana
-        PAUSADA como segunda red). Amazon respondio 207 con el contenedor
-        `productAds` y este rechazo por-item:
+        SELLADO EN VIVO por la sonda del 2026-08-31 (perfil amazon_mx,
+        sku inventado ORBIT-SONDA-NO-EXISTE-20260831072505, evidencia
+        out/sonda-crear-product-ad-20260831.log; la misma forma quedo
+        sellada antes en #83 con ORBIT-SONDA-NO-EXISTE-20260831). Amazon
+        respondio 207 con el contenedor `productAds` y este rechazo
+        por-item:
 
             errorType   adEligibilityError
             reason      AD_INELIGIBLE
             message     "Product is ineligible for advertising"
 
-        Ese error es la prueba de que el campo `sku` SE HONRO: Amazon lo
-        busco en el catalogo y rechazo por el PRODUCTO. Si la clave se
-        hubiera ignorado —esta API ignora en silencio las que no reconoce—
-        el payload habria quedado sin producto y el rechazo seria de campo
-        faltante, no de elegibilidad. Y no se creo nada: el ad group tenia
-        1000 anuncios antes y 1000 despues, cero con el sku de la sonda.
+        Ese error prueba que el campo `sku` SE HONRO: Amazon lo busco en el
+        catalogo y rechazo por el PRODUCTO. Si la clave se hubiera ignorado
+        —esta API ignora en silencio las que no reconoce— el rechazo seria
+        de campo faltante, no de elegibilidad. Y no se creo nada: el ad
+        group tenia 298 anuncios antes y 298 despues, cero con el sku de
+        la sonda.
 
         Lo que queda SIN sondear es el camino feliz (un sku que SI existe):
         probarlo crearia un anuncio de verdad. La primera reposicion real
         es, por definicion, su propia sonda — de ahi el ensayo por default.
         """
+        estado_wire = _un_objeto(estado, "estado")
+        if estado_wire not in ESTADOS_CREATE_PRODUCT_AD:
+            raise ValueError(
+                f"estado de create debe ser UPPER wire "
+                f"{sorted(ESTADOS_CREATE_PRODUCT_AD)}; llego {estado_wire!r}"
+            )
         return self._mutate(
             "POST",
             "/sp/productAds",
@@ -440,7 +453,7 @@ class AdsWriteClient(AdsClient):
                 "adGroupId": _un_objeto(ad_group_id, "ad_group_id"),
                 "campaignId": _un_objeto(campaign_id, "campaign_id"),
                 "sku": _un_objeto(sku, "sku"),
-                "state": _un_objeto(estado, "estado"),
+                "state": estado_wire,
             },
         )
 
