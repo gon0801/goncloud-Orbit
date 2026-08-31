@@ -78,7 +78,10 @@ def test_v_tacos_deja_de_duplicar_gasto_campaign_keyword():
         # mes para campaign y keyword.
         dia = (date.today() - timedelta(days=20)).isoformat()
 
-        costo_campana = Decimal("500.00")
+        # costo_campana DISTINTO de keyword+target a proposito (reviewer r2):
+        # con 500 = 300+200, un filtro INVERTIDO (solo campaign) daba el
+        # mismo verde. 700 != 500 discrimina las dos direcciones.
+        costo_campana = Decimal("700.00")
         costo_keyword = Decimal("300.00")
         costo_target = Decimal("200.00")
 

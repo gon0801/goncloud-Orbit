@@ -636,20 +636,26 @@ targets también "baja"). Se verifica el GRANO desglosando el costo maduro
 por kind, y de paso se publica el residuo campaign − (keyword+target):
 
 ```sql
--- (a) el desglose por kind: v_tacos debe cuadrar EXACTO con kw+target,
---     y la brecha contra campaign es el residuo declarado en la 0005.
-SELECT e.platform, e.kind, round(sum(m.cost), 2) AS gasto
+-- (a) desglose por kind Y MES (sin el mes, el total jamas cuadra contra la
+--     fila mensual de la vista):
+SELECT e.platform, date_trunc('month', m.metric_date)::date AS mes, e.kind,
+       round(sum(m.cost), 2) AS gasto
   FROM v_metric_mature m JOIN ad_entity e ON e.id = m.ad_entity_id
  WHERE m.cost IS NOT NULL
- GROUP BY 1, 2 ORDER BY 1, 2;
+ GROUP BY 1, 2, 3 ORDER BY 1, 2 DESC, 3;
 
 -- (b) la vista, tras el filtro:
 SELECT platform, mes, gasto_ads, tacos_pct FROM v_tacos ORDER BY platform, mes DESC LIMIT 6;
 ```
 
-`gasto_ads` de cada plataforma debe cuadrar con la suma keyword+target de
-(a), no con campaign; y el `tacos_pct` publicado cambia de un día para otro
-(~mitad) — avisar al dueño ANTES de aplicar, no después.
+Cómo cuadrar (reviewer r2): en `amazon_mx` (costo sellado en MXN),
+`gasto_ads` del mes = suma keyword+product_target de (a) **1:1**. En
+`amazon_us` el costo está sellado en USD y `gasto_ads` sale convertido a
+MXN: NO cuadra en absoluto — se compara la RELACIÓN (campaign vs
+keyword+target debe ser ~1:1 en (a), y `gasto_ads` ≈ suma×tasa). La brecha
+campaign − (keyword+target) de (a) es el residuo declarado en la 0005. El
+`tacos_pct` publicado cambia de un día para otro (~mitad) — avisar al dueño
+ANTES de aplicar, no después.
 
 ## Correr los tests desde la máquina dev (túnel SSH)
 

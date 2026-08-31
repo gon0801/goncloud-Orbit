@@ -75,8 +75,6 @@ def _v_tacos_viva():
     0001 tras aplicar 0005 es vigilar SQL muerto (hallazgo del adversario
     en la review de la 0005: una regresion dentro de 0005 que conservara
     las columnas viajaba en verde)."""
-    import pglast as _pglast  # noqa: F401  (ya importado arriba; claridad)
-
     vistas = [
         s.stmt
         for lote in (STMTS, STMTS2, STMTS3, STMTS4, STMTS5)
@@ -670,6 +668,14 @@ def test_v_tacos_vivo_filtra_al_grano_keyword_y_target():
     assert "keyword" in cuerpo and "product_target" in cuerpo, (
         "v_tacos vivo sin el filtro de grano (keyword + product_target): "
         "el doble conteo campaign+hijas volvio (migracion 0005)"
+    )
+    # Y el ENSANCHAMIENTO tambien (reviewer r2, medido: sumar 'campaign' al
+    # IN dejaba los 4 tests en verde — exactamente el bug de 2x de vuelta).
+    # La cadena 'campaign' no aparece en NINGUN otro lugar del cuerpo de la
+    # vista: si aparece, alguien metio ese kind al filtro.
+    assert "campaign" not in cuerpo, (
+        "v_tacos vivo incluye 'campaign' en el cuerpo: el grano se ensancho "
+        "y el gasto vuelve a contarse doble (migracion 0005)"
     )
 
 
