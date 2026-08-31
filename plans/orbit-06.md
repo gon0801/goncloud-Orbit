@@ -642,6 +642,86 @@ SELECT count(*) FILTER (WHERE listing_id IS NOT NULL)
   FROM ad_entity WHERE kind = 'ad_group';
 ```
 
+## Obstáculos de la 0.5 (medidos por el lead 2026-08-31, antes de asignarla)
+
+Misma disciplina: los hallazgos caros van al plan, no a un brief de chat.
+Todo medido en vivo contra `currency_rates` de la SQLite de contabilidad
+(`mode=ro`) y contra el consumidor real de `fx_rate`.
+
+1. **LA trampa: las etiquetas de la fuente están INVERTIDAS respecto a su
+   valor.** La fuente trae UN solo par: `base_currency='MXN',
+   quote_currency='USD', rate≈16.9–18.6` (210 filas, 2025-10-31..2026-08-28).
+   Ese valor es **pesos por dólar** — leído literal diría "1 MXN = 17 USD",
+   absurdo. Y el consumidor real llama `fx_resolve(fecha, 'USD', 'MXN')` y
+   **multiplica** `monto_USD × rate = monto_MXN` (ver `v_tacos_mensual` en
+   `migrations/0001_initial.sql`). El mapeo correcto es: fila fuente
+   `(MXN, USD, 16.95)` → `fx_rate (base='USD', quote='MXN', rate=16.95)`.
+   Ingerir las etiquetas tal cual dejaría `fx_resolve('USD','MXN')` en CERO
+   filas (todo lo USD sin cobertura) — o multiplicaría pesos ×17 si alguien
+   consultara al revés. **La decisión del mapeo se escribe con su evidencia
+   y con un test que la clave**: una tasa de ~17 con base=MXN es imposible
+   (nadie paga 17 dólares por un peso).
+2. **Cadencia y huecos ya medidos**: diaria (un cron de contabilidad la
+   escribe ~08:00), con 3 huecos > 3 días en 10 meses (máx 5 días:
+   2025-12-24→12-29, 2026-04-02→04-07, 2026-04-30→05-04). Todos dentro del
+   `nearest_prior` de 7 días de `fx_resolve`. La corrida real los declara.
+3. **`fx_rate` está VACÍA hoy (0 filas, medido)** y es APPEND-ONLY con
+   trigger `prohibir_mutacion`: re-ingerir la misma PK
+   `(rate_date, base, quote)` debe ser **no-op por conflicto, jamás UPDATE**
+   (mismo patrón de re-corrida que 0.1/0.6).
+4. **El contenedor no ve la contabilidad** (obstáculo 1 de la 0.1, ya
+   resuelto allí): mismo camino de snapshot `--sqlite` y mismo patrón de
+   subcomando (`ingest fx`).
+
+## Obstáculos de la 0.6 (medidos por el lead 2026-08-31, antes de asignarla)
+
+Medido en vivo contra `ledger_events` de contabilidad (13,144 filas) y
+contra el esquema real de `ledger_event` en Orbit.
+
+1. **`ledger_event` de Orbit está VACÍA (0 filas, medido)**: esta tarea
+   ingiere TODO el libro, ventas incluidas — no hay ingesta previa de
+   `kind='sale'` que respetar.
+2. **El vocabulario de la fuente NO es el del enum destino.** Fuente:
+   `sale_gross` / `fee` / `refund`; destino: `ledger_kind` =
+   `sale/fee/refund/withholding`. Las retenciones vienen como `fee` con
+   `fee_category` ∈ {`tax_withheld` (3,000), `isr_withheld` (973)}. El mapeo
+   `event_type × fee_category → kind` se escribe EXPLÍCITO y con test; la
+   propuesta del lead: `sale_gross→sale`, `refund→refund`,
+   `fee+{tax_withheld,isr_withheld}→withholding`, resto de `fee→fee`.
+3. **`platform='meli'` existe en la fuente (4,997 filas) y el enum de Orbit
+   NO lo tiene.** Se EXCLUYE deliberado y contado — no es un error, es
+   fuera de alcance. Y `'amazon'` de la fuente es **amazon_mx**: el rename
+   es explícito, con test.
+4. **`fee_category='ads'` (549 filas, ~gasto publicitario cobrado en el
+   ledger)**: ingerirlo como `fee` y que la vista de margen (1.1) decida si
+   lo resta — PERO dejarlo marcado (`fee_type='ads'`): el gasto de ads YA
+   vive en las métricas de ads, y restarlo dos veces infla el costo. La
+   decisión de la vista es de 1.1; la de esta tarea es NO perder la
+   etiqueta.
+5. **El signo NO es uniforme y no se "corrige"**: fees 10,212 negativos y
+   **137 positivos** (reversas/ajustes reales), refunds 184 negativos y 15
+   positivos, 3 ventas en 0. El monto se guarda TAL CUAL con su signo
+   (regla: el monto original en su moneda original); un test clava que una
+   reversa positiva no se voltea ni se descarta.
+6. **El `sku` de la fuente es SKU de AMAZON, no de Odoo** (medido:
+   `LQ-FV4D-DY2I` no existe en `product.odoo_sku`; los odoo_sku son tipo
+   `4207`, `4405-BG`). `product_id` NO se resuelve por `product.odoo_sku`.
+   Caminos posibles: el ASIN que viene en `raw_payload` → `listing`
+   (producto de la 0.2) → `product_id`; o dejar `product_id` NULL contado.
+   La decisión se escribe con su cobertura medida; **PROHIBIDO** un join por
+   texto de SKU (lección de la 0.2: 1 % de cobertura).
+7. **Dedupe servido por la fuente**: trae `id` y `dedupe_key` propios →
+   `source_event_id` para `ledger_dedupe_source`. Los 596 fees sin
+   `order_id` (ISR en bultos quincenales, ya anticipado por la fila de la
+   tarea) caen en `ledger_dedupe_sin_orden` (`NULLS NOT DISTINCT`).
+8. **`event_date` de la fuente es timestamp** (`2025-12-14 20:03:57`) y el
+   destino es `DATE`: mismo colapso intradía que la 0.1, declarado y con
+   test. `cogs_at_sale` de la fuente **NO se ingiere** (un número, una
+   fuente: el costo vive en `sku_cost`); `quantity` sí (COGS se calcula en
+   la vista). El desglose fiscal del `raw_payload` (`item_price`,
+   `item_tax`, …) puede llenar las columnas homónimas — si se hace, con la
+   MISMA moneda del amount y con test; si no, se declara.
+
 ## Fase 1 — margen medible y honesto (todavía NO decide nada)
 
 `[lane:gate]` — produce lectura y alertas. Cero escrituras a Amazon.
