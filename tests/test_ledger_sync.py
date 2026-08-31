@@ -26,6 +26,8 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
+from test_schema import SQL, _hay_postgres_local, _test_dsn
+
 from app.ledger import (
     MAPA_KIND,
     SOURCE,
@@ -36,7 +38,6 @@ from app.ledger import (
     plan_eventos,
     sync_ledger,
 )
-from test_schema import SQL, _hay_postgres_local, _test_dsn
 
 _DSN_EXPLICITO = bool(os.environ.get("ORBIT_TEST_DSN"))
 
@@ -177,7 +178,7 @@ def test_mapa_kind_cubre_la_tabla_sellada():
 
 
 def test_event_type_desconocido_no_se_escribe():
-    eventos, skips = plan_eventos([_fila(event_type="mystery", dedupe_key="x")], listings={})
+    eventos, skips, _ = plan_eventos([_fila(event_type="mystery", dedupe_key="x")], listings={})
     assert eventos == []
     assert skips["event_type desconocido"] == 1
 
@@ -188,7 +189,7 @@ def test_meli_excluida_y_amazon_renombra_a_mx():
     assert ev is not None and ev.platform == "amazon_mx"
     ev_us = mapear_destino(_fila(platform="amazon_us", dedupe_key="us1"))
     assert ev_us is not None and ev_us.platform == "amazon_us"
-    _, skips = plan_eventos([_fila(platform="meli", dedupe_key="m1")], listings={})
+    _, skips, _ = plan_eventos([_fila(platform="meli", dedupe_key="m1")], listings={})
     assert skips["plataforma meli excluida"] == 1
 
 
@@ -202,7 +203,7 @@ def test_fee_positivo_no_se_voltea_ni_se_inserta():
         raw_payload="{}",
     )
     assert mapear_destino(fila) is None
-    eventos, skips = plan_eventos([fila], listings={})
+    eventos, skips, _ = plan_eventos([fila], listings={})
     assert eventos == []
     assert skips["viola ledger_convencion_signos"] == 1
 
@@ -282,7 +283,7 @@ def test_moneda_se_guarda_tal_cual_incluso_amazon_us_mxn():
 
 
 def test_amount_con_mas_de_4_decimales_se_rechaza():
-    eventos, skips = plan_eventos(
+    eventos, skips, _ = plan_eventos(
         [_fila(amount=10.123456, dedupe_key="prec")],
         listings={},
     )
