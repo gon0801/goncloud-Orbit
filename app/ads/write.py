@@ -109,6 +109,9 @@ MUTATION_REQUEST_TYPES: MappingProxyType[tuple[str, str], str] = MappingProxyTyp
         ("POST", "/sp/keywords/delete"): "application/vnd.spkeyword.v3+json",
         # SELLADO por la limpieza del 2026-08-30 (ver archivar_product_ad).
         ("POST", "/sp/productAds/delete"): "application/vnd.spproductad.v3+json",
+        # La REVERSA del archivado (decision del dueno 2026-08-30, invariante
+        # 7). PENDIENTE-DE-SONDA: ver crear_product_ad.
+        ("POST", "/sp/productAds"): "application/vnd.spproductad.v3+json",
     }
 )
 
@@ -124,6 +127,9 @@ MUTATION_CONTAINERS: MappingProxyType[str, str] = MappingProxyType(
         "/sp/keywords": "keywords",
         "/sp/targets": "targetingClauses",
         "/sp/negativeKeywords": "negativeKeywords",
+        # Misma clave que el list de product ads (_CLAVE_CONTENEDORA de
+        # app/ads/structure.py, verificada en vivo desde 2026-08-31).
+        "/sp/productAds": "productAds",
     }
 )
 
@@ -385,6 +391,45 @@ class AdsWriteClient(AdsClient):
             "/sp/keywords/delete",
             {"keywordIdFilter": {"include": [_un_objeto(keyword_id, "keyword_id")]}},
             envolver=False,
+        )
+
+    def crear_product_ad(
+        self, ad_group_id: str | int, campaign_id: str | int, sku: str, estado: str
+    ) -> httpx.Response:
+        """POST /sp/productAds: LA REVERSA del archivado (invariante 7).
+
+        Existe porque archivar NO se deshace: Amazon no des-archiva, asi que
+        la unica vuelta atras es volver a crear el anuncio en su mismo ad
+        group. Decision del dueno del 2026-08-30, tomada a sabiendas de que
+        crear un anuncio habilita GASTO — el mismo precio que ya paga el
+        harvest con crear_keyword_exacta.
+
+        `sku` y no `asin` A PROPOSITO: la guia oficial de Sponsored Products
+        pide ASIN para vendors/KDP y SKU para SELLERS, y el gate de perfiles
+        de este repo solo acepta cuentas seller (accountInfo.type). El sku
+        viaja en el mismo payload del list del que salio el anuncio.
+
+        `estado` restaura el que tenia ANTES de archivarse (UPPER, mismo
+        vocabulario que el resto): una reversa que revive en ENABLED algo
+        que estaba PAUSED no es una reversa, es un cambio.
+
+        PENDIENTE-DE-SONDA: a diferencia del delete —sellado en vivo por la
+        corrida del 2026-08-30— este create todavia NO se probo contra
+        Amazon. La sonda segura es un sku INEXISTENTE: si el shape es
+        correcto Amazon rechaza por-item y no crea nada, y si alguna clave
+        estuviera mal (esta API las ignora en silencio) el payload queda sin
+        producto y tambien tiene que rechazar. Un SUCCESS ahi seria la
+        senal de alarma.
+        """
+        return self._mutate(
+            "POST",
+            "/sp/productAds",
+            {
+                "adGroupId": _un_objeto(ad_group_id, "ad_group_id"),
+                "campaignId": _un_objeto(campaign_id, "campaign_id"),
+                "sku": _un_objeto(sku, "sku"),
+                "state": _un_objeto(estado, "estado"),
+            },
         )
 
     def archivar_product_ad(self, ad_id: str | int) -> httpx.Response:

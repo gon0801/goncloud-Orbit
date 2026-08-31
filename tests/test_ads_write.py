@@ -147,13 +147,14 @@ METODOS_PUBLICOS = {
     "crear_keyword_exacta",
     "borrar_keyword",
     "archivar_product_ad",
+    "crear_product_ad",
     "get_sellado",
     "list_sellado",
 }
 
 
 def test_superficie_publica_exacta():
-    """Las 11 mutaciones selladas + list_sellado (readback de entidad, probe
+    """Las 12 mutaciones selladas + list_sellado (readback de entidad, probe
     2.5) + get_sellado (solo bidrec PENDIENTE-DE-REGLA-8), NADA mas; ningun
     metodo generico request/post y ninguna ampliacion silenciosa (vars() de
     la clase: lo heredado del read client no se re-sella aqui)."""
@@ -296,6 +297,15 @@ CASOS_MUTACION = [
         {"adIdFilter": {"include": [7001]}},
         id="archivar-product-ad",
     ),
+    pytest.param(
+        "crear_product_ad",
+        (31, 21, "SKU-VIVO", "PAUSED"),
+        "POST",
+        "/sp/productAds",
+        "application/vnd.spproductad.v3+json",
+        {"adGroupId": 31, "campaignId": 21, "sku": "SKU-VIVO", "state": "PAUSED"},
+        id="crear-product-ad",
+    ),
 ]
 
 
@@ -428,6 +438,7 @@ def test_allowlist_sellada_contenido_y_congelamiento():
         ("POST", "/sp/keywords"),
         ("POST", "/sp/keywords/delete"),
         ("POST", "/sp/productAds/delete"),
+        ("POST", "/sp/productAds"),
     }
     assert MUTATION_REQUEST_TYPES[("PUT", "/sp/keywords")] == ("application/vnd.spkeyword.v3+json")
     assert MUTATION_REQUEST_TYPES[("POST", "/sp/negativeKeywords/delete")] == (
@@ -438,6 +449,44 @@ def test_allowlist_sellada_contenido_y_congelamiento():
     )
     with pytest.raises(TypeError):
         MUTATION_REQUEST_TYPES[("POST", "/sp/campaigns")] = "application/vnd.sp.v3+json"
+
+
+def test_la_reversa_del_archivado_repone_el_estado_que_tenia():
+    """Una reversa que revive en ENABLED algo que estaba PAUSED no es una
+    reversa: es un cambio de estado que nadie pidio, y encima uno que GASTA.
+    El estado viaja tal cual lo dio el caller (invariante 7)."""
+    enviados: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        enviados.append(request)
+        return httpx.Response(207, json={"productAds": {"success": []}})
+
+    cliente = make_write_client(handler)
+    cliente.crear_product_ad(31, 21, "SKU-A", "PAUSED")
+    cliente.crear_product_ad(31, 21, "SKU-B", "ENABLED")
+
+    estados = [json.loads(r.content)["productAds"][0]["state"] for r in enviados]
+    assert estados == ["PAUSED", "ENABLED"]
+
+
+def test_la_reversa_manda_sku_y_no_asin():
+    """La guia de Sponsored Products pide ASIN para vendors/KDP y SKU para
+    SELLERS — y el gate de perfiles de este repo solo acepta seller. Mandar
+    el asin aqui crearia el anuncio equivocado o ninguno."""
+    enviados: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        enviados.append(request)
+        return httpx.Response(207, json={"productAds": {"success": []}})
+
+    make_write_client(handler).crear_product_ad(31, 21, "SKU-VIVO", "ENABLED")
+    objeto = json.loads(enviados[-1].content)["productAds"][0]
+    assert objeto["sku"] == "SKU-VIVO"
+    assert "asin" not in objeto, "una cuenta seller crea product ads por SKU"
 
 
 def test_el_filtro_del_archivado_de_product_ads_se_llama_exactamente_adIdFilter():

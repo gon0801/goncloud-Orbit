@@ -34,6 +34,9 @@ from app.ads.write import AdsWriteClient
 
 # Estados wire del list (UPPER, mismo vocabulario que app/apply.py).
 ESTADO_ARCHIVADO = "ARCHIVED"
+# Estado por default al reponer: PAUSED. Un anuncio repuesto en ENABLED
+# empieza a gastar solo; que lo encienda un humano.
+ESTADO_PAUSADO = "PAUSED"
 
 # Ids por llamada de LECTURA. Las lecturas si baten (el sync pagina de a
 # 1000); la regla "una entrada, jamas un lote" es de las MUTACIONES.
@@ -63,6 +66,7 @@ RESULTADOS = frozenset(
         "ya_estaba",  # ya venia ARCHIVED: no se mando nada
         "no_existe",  # el id no aparece en la cuenta: no se mando nada
         "sin_confirmar",  # se mando, pero el readback no lo vio ARCHIVED
+        "repuesto",  # la REVERSA: el anuncio se volvio a crear
         "fallo",  # Amazon rechazo la mutacion
     }
 )
@@ -164,12 +168,119 @@ def _errores_del_ack(ack: object) -> list:
     return []
 
 
+CLAVES_REVERSA = ("adGroupId", "campaignId", "sku", "state", "asin")
+
+
 def _reversa(fila: dict) -> str:
-    """Con que se volveria a crear ESTE anuncio (adGroupId + asin/sku)."""
-    partes = [
-        f"{clave}={fila.get(clave)}" for clave in ("adGroupId", "asin", "sku") if fila.get(clave)
-    ]
-    return " ".join(partes)
+    """Con que se volveria a crear ESTE anuncio, en formato `clave=valor`.
+
+    Lleva TODO lo que pide el create (adGroupId, campaignId, sku y el estado
+    que tenia ANTES) y ademas el asin, que no se manda pero es lo unico
+    legible por un humano al revisar la lista. `reponer_anuncios` come
+    exactamente estas lineas.
+    """
+    return " ".join(f"{c}={fila.get(c)}" for c in CLAVES_REVERSA if fila.get(c))
+
+
+def parsear_reversa(linea: str) -> dict[str, str]:
+    """Una linea `clave=valor ...` de reversa -> dict, o revienta con motivo.
+
+    Fail-closed: si falta cualquiera de los tres datos que el create exige,
+    NO se adivina (regla 3). Reponer con un dato inventado crearia el
+    anuncio equivocado, y eso si gasta plata.
+    """
+    datos: dict[str, str] = {}
+    for token in linea.split():
+        clave, sep, valor = token.partition("=")
+        if sep and clave in CLAVES_REVERSA and valor:
+            datos[clave] = valor
+    faltan = [c for c in ("adGroupId", "campaignId", "sku") if c not in datos]
+    if faltan:
+        raise ValueError(f"linea de reversa sin {', '.join(faltan)}: {linea.strip()!r}")
+    datos.setdefault("state", ESTADO_PAUSADO)
+    return datos
+
+
+def _id_del_ack(ack: object) -> str | None:
+    """El adId que Amazon devuelve al crear, si es legible.
+
+    Mismo shape anidado sellado que el resto ({"<recurso>": {"success":
+    [...]}}). None = ack sin id legible: regla 3, no se inventa.
+    """
+    if not isinstance(ack, dict):
+        return None
+    for valor in ack.values():
+        if not isinstance(valor, dict):
+            continue
+        for item in valor.get("success") or []:
+            if isinstance(item, dict):
+                for clave in ("adId", "productAdId"):
+                    if item.get(clave):
+                        return str(item[clave])
+    return None
+
+
+def reponer_anuncios(
+    escritor: AdsWriteClient,
+    lineas: Sequence[str],
+    *,
+    ejecutar: bool,
+    avisar: Callable[[str], None] = print,
+    dormir: Callable[[float], None] = time.sleep,
+    pausa: float = 0.2,
+) -> list[ResultadoAnuncio]:
+    """LA REVERSA: vuelve a crear anuncios archivados desde sus lineas.
+
+    Come las lineas `reversa` que dejo `archivar_anuncios`. Es la vuelta
+    atras que exige el invariante 7 — y como CREA anuncios, o sea habilita
+    gasto, tiene el mismo candado que el archivado: ensayo por default.
+
+    Las lineas se parsean TODAS antes de mandar nada: una linea rota a mitad
+    de camino dejaria media reposicion hecha.
+    """
+    datos = [parsear_reversa(linea) for linea in lineas if linea.strip()]
+    if not datos:
+        return []
+
+    avisar(f"a reponer: {len(datos)} anuncios")
+    if not ejecutar:
+        return [
+            ResultadoAnuncio(d["sku"], d["state"], "sin_confirmar", "ENSAYO", _reversa(d))
+            for d in datos
+        ]
+
+    resultados: list[ResultadoAnuncio] = []
+    for i, d in enumerate(datos, 1):
+        reversa = _reversa(d)
+        try:
+            resp = escritor.crear_product_ad(d["adGroupId"], d["campaignId"], d["sku"], d["state"])
+        except AdsApiError as exc:
+            detalle = str(getattr(exc, "cuerpo", "") or exc)[:300]
+            resultados.append(ResultadoAnuncio(d["sku"], d["state"], "fallo", detalle, reversa))
+        else:
+            try:
+                ack = resp.json()
+            except ValueError:
+                ack = {}
+            errores = _errores_del_ack(ack)
+            if errores:
+                detalle = f"207 con rechazo por-item: {errores}"[:300]
+                resultados.append(ResultadoAnuncio(d["sku"], d["state"], "fallo", detalle, reversa))
+            else:
+                nuevo = _id_del_ack(ack)
+                resultados.append(
+                    ResultadoAnuncio(
+                        nuevo or d["sku"],
+                        d["state"],
+                        "repuesto" if nuevo else "sin_confirmar",
+                        "" if nuevo else "el ack no trajo adId legible",
+                        reversa,
+                    )
+                )
+        if i % 25 == 0:
+            avisar(f"  ... {i}/{len(datos)}")
+        dormir(pausa)
+    return resultados
 
 
 def archivar_anuncios(

@@ -23,6 +23,8 @@ from app.ads.archivar import (
     RESULTADOS,
     archivar_anuncios,
     estados_actuales,
+    parsear_reversa,
+    reponer_anuncios,
     resumen,
 )
 from tests.test_ads_write import _token_response, make_write_client
@@ -321,3 +323,136 @@ def test_guarda_con_que_re_crear_el_anuncio_archivado():
     assert resultado.resultado == "archivado"
     assert "adGroupId=77" in resultado.reversa
     assert "asin=B0X" in resultado.reversa
+
+
+# ---------------------------------------------------------------------------
+# LA REVERSA (invariante 7, decision del dueno 2026-08-30)
+# ---------------------------------------------------------------------------
+
+PATH_CREATE = "/sp/productAds"
+
+
+def _handler_create(respuesta):
+    llamadas: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        llamadas.append(json.loads(request.content))
+        return respuesta
+
+    return handler, llamadas
+
+
+def test_la_reversa_cierra_el_circulo_con_lo_que_escribio_el_archivado():
+    """LA prueba que importa: la linea que IMPRIME el archivado tiene que ser
+    exactamente la que LEE la reversa. Si las dos mitades no encajan, la
+    'reversa implementada' del invariante 7 es decorativa."""
+
+    def con_datos(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        cuerpo = json.loads(request.content) if request.content else {}
+        if request.url.path.endswith(PATH_DELETE):
+            return httpx.Response(207, json={})
+        pedidos = cuerpo.get("adIdFilter", {}).get("include", [])
+        return httpx.Response(
+            200,
+            json={
+                "productAds": [
+                    {
+                        "adId": i,
+                        "state": "ARCHIVED",
+                        "adGroupId": "77",
+                        "campaignId": "55",
+                        "sku": "SKU-1",
+                        "asin": "B0X",
+                    }
+                    for i in pedidos
+                ]
+            },
+        )
+
+    (resultado,) = archivar_anuncios(
+        make_write_client(con_datos),
+        ["1"],
+        ejecutar=True,
+        avisar=lambda _m: None,
+        dormir=lambda _s: None,
+    )
+    datos = parsear_reversa(resultado.reversa)
+    assert datos["adGroupId"] == "77"
+    assert datos["campaignId"] == "55"
+    assert datos["sku"] == "SKU-1"
+
+
+def test_el_ensayo_de_la_reversa_no_crea_nada():
+    handler, llamadas = _handler_create(httpx.Response(207, json={}))
+    resultados = reponer_anuncios(
+        make_write_client(handler),
+        ["adGroupId=77 campaignId=55 sku=SKU-1 state=PAUSED"],
+        ejecutar=False,
+        avisar=lambda _m: None,
+    )
+    assert llamadas == []
+    assert [r.resultado for r in resultados] == ["sin_confirmar"]
+
+
+def test_la_reversa_repone_y_devuelve_el_id_nuevo():
+    ack = httpx.Response(207, json={"productAds": {"success": [{"adId": "999"}]}})
+    handler, llamadas = _handler_create(ack)
+    (resultado,) = reponer_anuncios(
+        make_write_client(handler),
+        ["adGroupId=77 campaignId=55 sku=SKU-1 state=ENABLED"],
+        ejecutar=True,
+        avisar=lambda _m: None,
+        dormir=lambda _s: None,
+    )
+    objeto = llamadas[0]["productAds"][0]
+    assert objeto == {"adGroupId": "77", "campaignId": "55", "sku": "SKU-1", "state": "ENABLED"}
+    assert resultado.resultado == "repuesto"
+    assert resultado.ad_id == "999"
+
+
+def test_una_linea_incompleta_aborta_antes_de_crear_nada():
+    """Reponer con un dato adivinado crearia el anuncio equivocado, y eso
+    gasta plata. Y se parsea TODO antes de mandar: una linea rota a mitad
+    dejaria media reposicion hecha."""
+    handler, llamadas = _handler_create(httpx.Response(207, json={}))
+    with pytest.raises(ValueError, match="sin campaignId"):
+        reponer_anuncios(
+            make_write_client(handler),
+            ["adGroupId=77 campaignId=55 sku=SKU-1", "adGroupId=78 sku=SKU-2"],
+            ejecutar=True,
+            avisar=lambda _m: None,
+        )
+    assert llamadas == [], "ni la primera linea, que si estaba completa, se mando"
+
+
+def test_sin_estado_la_reversa_repone_PAUSADO():
+    """Un anuncio repuesto en ENABLED empieza a gastar solo."""
+    handler, llamadas = _handler_create(
+        httpx.Response(207, json={"productAds": {"success": [{"adId": "1"}]}})
+    )
+    reponer_anuncios(
+        make_write_client(handler),
+        ["adGroupId=77 campaignId=55 sku=SKU-1"],
+        ejecutar=True,
+        avisar=lambda _m: None,
+        dormir=lambda _s: None,
+    )
+    assert llamadas[0]["productAds"][0]["state"] == "PAUSED"
+
+
+def test_un_207_con_rechazo_al_reponer_es_fallo():
+    ack = httpx.Response(207, json={"productAds": {"error": [{"errors": [{"e": "NO_SKU"}]}]}})
+    handler, _ = _handler_create(ack)
+    (resultado,) = reponer_anuncios(
+        make_write_client(handler),
+        ["adGroupId=77 campaignId=55 sku=SKU-MALO state=PAUSED"],
+        ejecutar=True,
+        avisar=lambda _m: None,
+        dormir=lambda _s: None,
+    )
+    assert resultado.resultado == "fallo"
+    assert "NO_SKU" in resultado.detalle

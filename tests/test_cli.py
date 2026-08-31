@@ -664,3 +664,53 @@ def test_cli_archivar_ids_repetidos_da_error_de_uso_sin_traceback(monkeypatch, t
     monkeypatch.setattr(cli.archivar, "archivar_anuncios", _revienta)
     assert cli.main(_argv(tmp_path, ("111", "111"), confirmar="live")) == 2
     assert "repetidos" in capsys.readouterr().err
+
+
+def _monta_reponer(monkeypatch) -> dict:
+    visto: dict = {}
+    monkeypatch.setattr(cli.archivar, "preparar_escritor", lambda p: "ESCRITOR")
+
+    def _fake_reponer(escritor, lineas, *, ejecutar, **_k):
+        visto["ejecutar"] = ejecutar
+        visto["lineas"] = list(lineas)
+        return []
+
+    monkeypatch.setattr(cli.archivar, "reponer_anuncios", _fake_reponer)
+    return visto
+
+
+def _argv_reponer(tmp_path, lineas, **extra) -> list[str]:
+    ruta = tmp_path / "reversa.txt"
+    ruta.write_text(NL.join(lineas) + NL, encoding="utf-8")
+    argv = ["reponer-anuncios", "--platform", "amazon_mx", "--reversa-file", str(ruta)]
+    for clave, valor in extra.items():
+        argv += [f"--{clave}", valor]
+    return argv
+
+
+def test_cli_reponer_sin_confirmar_es_ENSAYO(monkeypatch, tmp_path):
+    """La reversa CREA anuncios, o sea habilita gasto: mismo candado que el
+    archivado, y por el mismo motivo."""
+    visto = _monta_reponer(monkeypatch)
+    linea = "adGroupId=77 campaignId=55 sku=SKU-1 state=PAUSED"
+    assert cli.main(_argv_reponer(tmp_path, (linea,))) == 0
+    assert visto["ejecutar"] is False
+    assert visto["lineas"] == [linea]
+
+
+def test_cli_reponer_confirmar_mal_tipeado_sigue_siendo_ensayo(monkeypatch, tmp_path):
+    for valor in ("liv", "si", "LIVE"):
+        visto = _monta_reponer(monkeypatch)
+        cli.main(_argv_reponer(tmp_path, ("adGroupId=77 campaignId=55 sku=S",), confirmar=valor))
+        assert visto["ejecutar"] is False, f"{valor!r} NO debe crear"
+
+
+def test_cli_reponer_linea_rota_es_error_de_uso(monkeypatch, tmp_path, capsys):
+    _monta_reponer(monkeypatch)
+
+    def _revienta(*_a, **_k):
+        raise ValueError("linea de reversa sin campaignId: 'adGroupId=77'")
+
+    monkeypatch.setattr(cli.archivar, "reponer_anuncios", _revienta)
+    assert cli.main(_argv_reponer(tmp_path, ("adGroupId=77",), confirmar="live")) == 2
+    assert "sin campaignId" in capsys.readouterr().err
