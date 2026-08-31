@@ -34,7 +34,8 @@ Diseno SELLADO (plans/orbit-04.md decision 9; docs/APPLY.md §8):
   `goal.bid_currency`) ANTES del HTTP — si no coincide, algo esta podrido
   y NO se escribe.
 - Quien puede importar este modulo: candado en tests/test_architecture.py
-  — solo `app/apply.py` y `tools/smoke_apply.py` (r2 codex 5).
+  — `app/apply.py`, `tools/smoke_apply.py` y `app/ads/archivar.py` (r2
+  codex 5; archivar = limpieza operada, decision 2026-08-30).
 - Errores >=400 (ORBIT 04 2.1, hallazgo r1 del brief §13): AdsApiError perdia
   el body de Amazon; el `resultado` del ledger lo heredaria. `_mutate` lanza
   `AdsApiErrorMutacion` con `cuerpo` = snippet del body JSON SANEADO
@@ -142,6 +143,10 @@ MUTATION_CONTAINERS: MappingProxyType[str, str] = MappingProxyType(
 # (ESTADO_WIRE_* de app/apply.py: ENABLED/PAUSED/ARCHIVED UPPER).
 ESTADO_PUT_PAUSED = "PAUSED"
 ESTADO_PUT_ENABLED = "ENABLED"
+# Mismo enum UPPER del PUT v3 (sello 2026-08-27: [ENABLED, PROPOSED, PAUSED]).
+ESTADO_PUT_PROPOSED = "PROPOSED"
+# Create de product ad: solo estados vivos del wire; ARCHIVED no se crea.
+ESTADOS_CREATE_PRODUCT_AD = frozenset({ESTADO_PUT_ENABLED, ESTADO_PUT_PAUSED, ESTADO_PUT_PROPOSED})
 
 
 def _un_objeto(valor: object, nombre: str) -> object:
@@ -421,6 +426,12 @@ class AdsWriteClient(AdsClient):
         producto y tambien tiene que rechazar. Un SUCCESS ahi seria la
         senal de alarma.
         """
+        estado_wire = _un_objeto(estado, "estado")
+        if estado_wire not in ESTADOS_CREATE_PRODUCT_AD:
+            raise ValueError(
+                f"estado de create debe ser UPPER wire "
+                f"{sorted(ESTADOS_CREATE_PRODUCT_AD)}; llego {estado_wire!r}"
+            )
         return self._mutate(
             "POST",
             "/sp/productAds",
@@ -428,7 +439,7 @@ class AdsWriteClient(AdsClient):
                 "adGroupId": _un_objeto(ad_group_id, "ad_group_id"),
                 "campaignId": _un_objeto(campaign_id, "campaign_id"),
                 "sku": _un_objeto(sku, "sku"),
-                "state": _un_objeto(estado, "estado"),
+                "state": estado_wire,
             },
         )
 

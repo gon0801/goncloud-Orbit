@@ -235,13 +235,10 @@ def test_puerta_de_datos_sin_api_de_amazon():
 
 
 # ORBIT 04 decision 9 (r2 codex 5): quien puede importar el cliente de
-# ESCRITURA de Amazon Ads. La allowlist nombra A FUTURO — app/apply.py y
-# tools/smoke_apply.py existen recien en las fases 2.x/2.5 del plan — asi
-# que hoy el conjunto de importers legitimos de app/ y tools/ es vacio; los
-# tests propios quedan fuera por diseno (este candado recorre app/ y
-# tools/, no tests/). Crecer la allowlist exige editar este archivo =
-# decision visible en diff y review, jamas derivacion silenciosa (mismo
-# trato que ALLOWLIST_TAMANO).
+# ESCRITURA de Amazon Ads. Tres importadores reales: apply (aplicador),
+# smoke_apply (probe 2.5) y archivar (limpieza operada). Crecer la
+# allowlist exige editar este archivo = decision visible en diff y review,
+# jamas derivacion silenciosa (mismo trato que ALLOWLIST_TAMANO).
 PERMITIDOS_IMPORTAR_ADS_WRITE = {
     "app/apply.py": (
         "aplicador del modulo APPLY (fase 2.x): el dueno legitimo del "

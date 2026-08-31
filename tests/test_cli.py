@@ -567,7 +567,7 @@ def test_cli_goals_sin_subcomando_exit_2(capsys):
 
 
 # ---------------------------------------------------------------------------
-# archivar-anuncios: MUTA la cuenta del dueno y NO tiene reversa
+# archivar-anuncios: MUTA la cuenta; Amazon no des-archiva (reversa = reponer)
 # ---------------------------------------------------------------------------
 
 NL = chr(10)
@@ -593,6 +593,19 @@ def _monta_archivado(monkeypatch, *, falla_perfil: bool = False) -> dict:
 
     monkeypatch.setattr(cli.archivar, "archivar_anuncios", _fake_archivar)
     return visto
+
+
+def test_cli_archivar_imprime_la_columna_reversa(monkeypatch, tmp_path, capsys):
+    """Sin la columna reversa el operador no puede alimentar reponer-anuncios."""
+    _monta_archivado(monkeypatch)
+    reversa = "adGroupId=77 campaignId=55 sku=SKU-1 state=ENABLED asin=B0X"
+
+    def _con_reversa(escritor, ad_ids, *, ejecutar, **_k):
+        return [cli.archivar.ResultadoAnuncio("111", "ENABLED", "archivado", "", reversa)]
+
+    monkeypatch.setattr(cli.archivar, "archivar_anuncios", _con_reversa)
+    assert cli.main(_argv(tmp_path, ("111",))) == 0
+    assert reversa in capsys.readouterr().out
 
 
 def _argv(tmp_path, lineas=("111",), **extra) -> list[str]:
