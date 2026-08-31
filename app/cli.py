@@ -30,13 +30,17 @@ import os
 import socket
 import sys
 from decimal import Decimal
+from pathlib import Path
 
 from app import costs, goals_write, listings
 from app import cycle as ciclo
-from app.ads import reports, structure
+from app.ads import archivar, reports, structure
 from app.db import connect
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.redaction import scrub
+
+# El unico valor de --confirmar que ARCHIVA. Cualquier otra cosa es ensayo.
+MODO_ARCHIVADO_LIVE = "live"
 
 
 def _parse_decided_at(texto: str | None) -> dt.datetime:
@@ -136,6 +140,69 @@ def _ingest(args, rest: list[str]) -> int:
         # bridge via --sqlite; runbook en docs/DEPLOY.md). Mismo patron.
         return listings.main(rest)
     raise AssertionError(f"pipeline inalcanzable: {args.pipeline!r}")
+
+
+def _archivar_anuncios(args) -> int:
+    """`archivar-anuncios`: archiva product ads MUERTOS de una lista EXPLICITA.
+
+    Envoltorio delgado sobre `app.ads.archivar`: aqui no vive ninguna regla
+    de cuales estan muertos — esa evidencia la trae el operador en el
+    archivo de ids. ENSAYO por defecto: sin `--confirmar live` no sale ni
+    una mutacion, y el ensayo imprime exactamente lo que haria.
+    """
+    from app.ads.client import AdsClient
+    from app.ads.config import AdsCredentials
+    from app.ads.write import AdsWriteClient
+
+    try:
+        contenido = Path(args.ids_file).read_text(encoding="utf-8")
+    except OSError as exc:
+        print(f"no se pudo leer --ids-file: {scrub(str(exc))}", file=sys.stderr)
+        return 2
+    ad_ids = [linea.strip() for linea in contenido.splitlines() if linea.strip()]
+    if not ad_ids:
+        print(f"--ids-file sin ningun adId: {args.ids_file}", file=sys.stderr)
+        return 2
+
+    ejecutar = args.confirmar == MODO_ARCHIVADO_LIVE
+    credenciales = AdsCredentials.from_secrets_dir()
+    perfiles = [
+        p
+        for p in structure.evaluar_perfiles(AdsClient(credenciales))
+        if p.aceptado and p.platform == args.platform
+    ]
+    if len(perfiles) != 1:
+        print(
+            f"se esperaba EXACTAMENTE 1 perfil aceptado para {args.platform}, "
+            f"hay {len(perfiles)}: no se escribe",
+            file=sys.stderr,
+        )
+        return 2
+
+    print(f"plataforma: {args.platform}  perfil: {perfiles[0].profile_id}")
+    print(f"adIds en la lista: {len(ad_ids)}")
+    print(
+        "MODO: LIVE — esto ARCHIVA en la cuenta y NO tiene reversa"
+        if ejecutar
+        else "MODO: ENSAYO — no sale ninguna mutacion"
+    )
+
+    escritor = AdsWriteClient(
+        credenciales,
+        platform=args.platform,
+        profile_id=perfiles[0].profile_id,
+        modo_confirmado="live",
+    )
+    resultados = archivar.archivar_anuncios(escritor, ad_ids, ejecutar=ejecutar)
+
+    for r in resultados:
+        print(f"  {r.ad_id}	{r.estado_previo or '-'}	{r.resultado}	{r.detalle}")
+    cuenta = archivar.resumen(resultados)
+    print(f"RESUMEN: {cuenta}")
+
+    if not ejecutar:
+        return 0
+    return 1 if (cuenta["fallo"] or cuenta["sin_confirmar"]) else 0
 
 
 def _decimal_arg(flag: str):
@@ -327,6 +394,28 @@ def main(argv: list[str] | None = None) -> int:
         help="pone los TRES campos de harvest en NULL (no combina con --harvest-*)",
     )
 
+    p_arch = sub.add_parser(
+        "archivar-anuncios",
+        help=(
+            "archiva product ads MUERTOS de una lista explicita de adIds "
+            "(ENSAYO salvo --confirmar live; el archivado NO tiene reversa)"
+        ),
+        # Mismo candado que goals/cycle: esto MUTA la cuenta del dueno, un
+        # --confirma mal tipeado no puede colarse como abreviatura.
+        allow_abbrev=False,
+    )
+    p_arch.add_argument(
+        "--platform", required=True, choices=sorted(PLATAFORMAS_MONEDA), help="plataforma"
+    )
+    p_arch.add_argument(
+        "--ids-file", required=True, help="archivo con UN adId por linea (evidencia del operador)"
+    )
+    p_arch.add_argument(
+        "--confirmar",
+        default=None,
+        help=f"'{MODO_ARCHIVADO_LIVE}' para ARCHIVAR de verdad; sin esto es ensayo",
+    )
+
     args, rest = parser.parse_known_args(argv)
     if args.comando == "cycle":
         # El ciclo ESCRIBE decisiones: un flag mal tipeado que se ignorara en
@@ -343,6 +432,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"argumentos desconocidos para 'goals set': {rest}", file=sys.stderr)
             return 2
         return _goals_set(args)
+    if args.comando == "archivar-anuncios":
+        if rest:
+            print(f"argumentos desconocidos para 'archivar-anuncios': {rest}", file=sys.stderr)
+            return 2
+        return _archivar_anuncios(args)
     return _ingest(args, rest)
 
 

@@ -555,6 +555,11 @@ PR1 'live' degrada a shadow (fail-closed).
   re-tira D-31..D-1 (sello 4.2: tope de un request = 31d, cubre las
   columnas 30d y el mínimo D-8..D-1 de terms) y la bitemporalidad lo hace
   seguro.
+- **Amazon ignora en silencio los filtros que no reconoce** (sonda en vivo
+  2026-08-30): pedirle una lista con un filtro mal nombrado no da error —
+  devuelve TODO. En una lectura eso es ruido; en un borrado significa que un
+  nombre equivocado viaja SIN FILTRO, o sea "todos". Por eso el nombre del
+  filtro de cada mutación está clavado con test propio.
 - **La pregunta sin respuesta**: si la cuenta US gana o pierde depende del
   supuesto de halo (entre +1,671 y −2,238 USD en 91 días). Decisión pendiente
   antes de la fase margin-aware: acotar, holdout, o TACoS.

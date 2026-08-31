@@ -885,3 +885,32 @@ reconstrucción deliberada. Pasos:
    para revisión manual de qué migraciones faltan sobre el dump — no se
    aplica nada en automático.
 5. Verificar como siempre: suite por túnel + smoke de candados.
+
+## Limpieza de product ads muertos (ORBIT 06)
+
+Un product ad "muerto" apunta a una publicación que ya no existe: no gasta
+(sin publicación no hay impresión) pero ensucia toda medición de cobertura.
+`archivar-anuncios` los archiva; **archivar NO tiene reversa**.
+
+El comando NO decide cuáles están muertos: recibe una lista EXPLÍCITA de
+adIds. Es a propósito — Orbit todavía no distingue un anuncio muerto de un
+producto real sin mapear (los dos se ven `listing_id IS NULL`), así que la
+evidencia la pone el operador.
+
+```sh
+# 1) ENSAYO (default): no sale ninguna mutación, imprime lo que haría.
+docker exec -i orbit-app-1 python -m app.cli archivar-anuncios \
+  --platform amazon_mx --ids-file /tmp/muertos.txt
+
+# 2) De verdad. La igualdad es EXACTA: 'liv', 'si' o 'LIVE' siguen siendo ensayo.
+docker exec -i orbit-app-1 python -m app.cli archivar-anuncios \
+  --platform amazon_mx --ids-file /tmp/muertos.txt --confirmar live
+```
+
+Salida por anuncio: `archivado` / `ya_estaba` / `no_existe` / `sin_confirmar`
+/ `fallo`. `sin_confirmar` NO es un fallo: el list de Amazon es eventualmente
+consistente y a veces tarda en reflejar el archivado — se re-corre el ensayo
+un rato después y los que ya estén `ya_estaba` quedaron bien.
+
+Después de archivar conviene `ingest structure` para que la base refleje el
+estado nuevo.
