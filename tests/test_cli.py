@@ -650,3 +650,17 @@ def test_cli_archivar_args_extra_rechazados(monkeypatch, tmp_path, capsys):
     assert cli.main([*_argv(tmp_path), "--confirmame", "live"]) == 2
     assert "ejecutar" not in visto
     assert "argumentos desconocidos" in capsys.readouterr().err
+
+
+def test_cli_archivar_ids_repetidos_da_error_de_uso_sin_traceback(monkeypatch, tmp_path, capsys):
+    """El modulo aborta ANTES de mutar por adIds repetidos; el envoltorio
+    tiene que contarlo como error de uso (exit 2), no escupir un traceback
+    (hallazgo cross-review codex/grok 2026-08-30)."""
+    _monta_archivado(monkeypatch)
+
+    def _revienta(*_a, **_k):
+        raise ValueError("hay adIds repetidos en la lista: se aborta antes de mutar")
+
+    monkeypatch.setattr(cli.archivar, "archivar_anuncios", _revienta)
+    assert cli.main(_argv(tmp_path, ("111", "111"), confirmar="live")) == 2
+    assert "repetidos" in capsys.readouterr().err

@@ -175,23 +175,64 @@ def test_el_resumen_declara_los_ceros():
     assert set(cuenta.values()) == {0}
 
 
-def test_preparar_escritor_perfil_ambiguo_no_construye_nada(monkeypatch):
-    """Dos perfiles aceptados para la misma plataforma = no se sabe en QUE
-    cuenta se archivaria. Revienta ANTES de construir el escritor."""
-    from app.ads import archivar as mod
+def _perfil_crudo(profile_id: int, pais: str = "MX") -> dict:
+    """Payload crudo de /v2/profiles, forma REAL (countryCode + accountInfo)."""
+    return {
+        "profileId": profile_id,
+        "countryCode": pais,
+        "currencyCode": "MXN" if pais == "MX" else "USD",
+        "accountInfo": {"type": "seller", "validPaymentMethod": True, "name": "Cuenta"},
+    }
 
-    class _Perfil:
-        def __init__(self, pid):
-            self.platform = "amazon_mx"
-            self.profile_id = pid
-            self.aceptado = True
+
+def _monta_perfiles(monkeypatch, crudos: list[dict]) -> list:
+    """Deja preparar_escritor corriendo contra el evaluar_perfiles REAL.
+
+    No se fabrican PerfilAds a mano a proposito: el hallazgo de la
+    cross-review fue justamente que el test viejo simulaba una salida que
+    `evaluar_perfiles` no puede producir. Aca entra el payload crudo y el
+    gate de verdad decide, asi que el test prueba el CONTRATO entre los dos.
+    """
+    from app.ads import archivar as mod
 
     construidos: list = []
     monkeypatch.setattr(mod.AdsCredentials, "from_secrets_dir", classmethod(lambda cls: "CREDS"))
-    monkeypatch.setattr(mod, "AdsClient", lambda *a, **k: "LECTOR")
-    monkeypatch.setattr(mod, "evaluar_perfiles", lambda _c: [_Perfil("1"), _Perfil("2")])
-    monkeypatch.setattr(mod, "AdsWriteClient", lambda *a, **k: construidos.append(k))
+    monkeypatch.setattr(mod, "AdsClient", lambda *a, **k: _ClienteDePerfiles(crudos))
+    monkeypatch.setattr(mod, "AdsWriteClient", lambda *a, **k: construidos.append(k) or "ESCRITOR")
+    return construidos
 
+
+class _ClienteDePerfiles:
+    """Cliente falso que solo sabe contestar GET /v2/profiles."""
+
+    def __init__(self, crudos: list[dict]) -> None:
+        self._crudos = crudos
+
+    def get(self, _path, **_k):
+        return httpx.Response(200, json=self._crudos)
+
+
+def test_preparar_escritor_para_si_la_cuenta_tiene_DOS_perfiles_del_pais(monkeypatch):
+    """El caso que el conteo de aceptados NO puede ver.
+
+    `evaluar_perfiles` garantiza como maximo UN aceptado por pais: con dos
+    perfiles de MX acepta el PRIMERO del payload y marca el otro como
+    duplicado. Por eso `len(aceptados) != 1` jamas dispara — y sin este
+    candado se archivaria a ciegas en una de las dos cuentas, sin reversa
+    (hallazgo cross-review codex/grok 2026-08-30).
+    """
+    from app.ads import archivar as mod
+
+    construidos = _monta_perfiles(monkeypatch, [_perfil_crudo(111), _perfil_crudo(222)])
+    with pytest.raises(ValueError, match="MAS DE UN perfil"):
+        mod.preparar_escritor("amazon_mx")
+    assert construidos == [], "no se construye escritor con la cuenta ambigua"
+
+
+def test_preparar_escritor_sin_perfil_aceptado_no_construye_nada(monkeypatch):
+    from app.ads import archivar as mod
+
+    construidos = _monta_perfiles(monkeypatch, [_perfil_crudo(111, "US")])
     with pytest.raises(ValueError, match="EXACTAMENTE 1 perfil"):
         mod.preparar_escritor("amazon_mx")
     assert construidos == []
@@ -200,18 +241,83 @@ def test_preparar_escritor_perfil_ambiguo_no_construye_nada(monkeypatch):
 def test_preparar_escritor_sella_plataforma_y_perfil(monkeypatch):
     from app.ads import archivar as mod
 
-    class _Perfil:
-        platform = "amazon_mx"
-        profile_id = "303030"
-        aceptado = True
-
-    visto: dict = {}
-    monkeypatch.setattr(mod.AdsCredentials, "from_secrets_dir", classmethod(lambda cls: "CREDS"))
-    monkeypatch.setattr(mod, "AdsClient", lambda *a, **k: "LECTOR")
-    monkeypatch.setattr(mod, "evaluar_perfiles", lambda _c: [_Perfil()])
-    monkeypatch.setattr(mod, "AdsWriteClient", lambda *a, **k: visto.update(k) or "ESCRITOR")
-
+    construidos = _monta_perfiles(monkeypatch, [_perfil_crudo(303030)])
     assert mod.preparar_escritor("amazon_mx") == "ESCRITOR"
-    assert visto["platform"] == "amazon_mx"
-    assert visto["profile_id"] == "303030"
-    assert visto["modo_confirmado"] == "live"
+    assert construidos[0]["platform"] == "amazon_mx"
+    assert construidos[0]["profile_id"] == 303030
+    assert construidos[0]["modo_confirmado"] == "live"
+
+
+# ---------------------------------------------------------------------------
+# Cierres de la cross-review codex/grok (2026-08-30)
+# ---------------------------------------------------------------------------
+
+
+def _handler_envio(respuesta_delete, estados_despues: dict[str, str]):
+    """Delete que responde `respuesta_delete`; el list posterior dice `estados_despues`."""
+    hubo_delete = {"si": False}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        cuerpo = json.loads(request.content) if request.content else {}
+        if request.url.path.endswith(PATH_DELETE):
+            hubo_delete["si"] = True
+            return respuesta_delete
+        vigentes = estados_despues if hubo_delete["si"] else {"1": "ENABLED"}
+        pedidos = cuerpo.get("adIdFilter", {}).get("include", [])
+        return httpx.Response(
+            200,
+            json={
+                "productAds": [
+                    {"adId": i, "state": vigentes[i], "adGroupId": "77", "asin": "B0X"}
+                    for i in pedidos
+                    if i in vigentes
+                ]
+            },
+        )
+
+    return handler
+
+
+def _archivar_uno(handler):
+    (resultado,) = archivar_anuncios(
+        make_write_client(handler),
+        ["1"],
+        ejecutar=True,
+        avisar=lambda _m: None,
+        dormir=lambda _s: None,
+    )
+    return resultado
+
+
+def test_el_estado_en_amazon_manda_sobre_el_fallo_del_envio():
+    """Un corte despues de aplicar reportaba `fallo` sobre algo que SI quedo
+    archivado. La verdad es el estado en Amazon, no lo que dijo el envio."""
+    resultado = _archivar_uno(
+        _handler_envio(httpx.Response(500, json={"message": "se corto"}), {"1": "ARCHIVED"})
+    )
+    assert resultado.resultado == "archivado"
+    assert "pese al rechazo del envio" in resultado.detalle
+
+
+def test_un_207_con_rechazo_por_item_es_fallo_y_no_sin_confirmar():
+    """Un 2xx NO es exito automatico: Amazon mete el rechazo por-item dentro
+    del 207. Sin leer error[], un rechazo se disfrazaba de `sin_confirmar` —
+    que se lee como 'quiza tarde en reflejarse' y no como 'no paso'."""
+    ack = httpx.Response(
+        207, json={"productAds": {"error": [{"errors": [{"errorType": "ENTITY_NOT_FOUND"}]}]}}
+    )
+    resultado = _archivar_uno(_handler_envio(ack, {"1": "ENABLED"}))
+    assert resultado.resultado == "fallo"
+    assert "207 con rechazo por-item" in resultado.detalle
+    assert "ENTITY_NOT_FOUND" in resultado.detalle
+
+
+def test_guarda_con_que_re_crear_el_anuncio_archivado():
+    """Amazon no des-archiva: adGroupId + asin es lo unico que separa
+    'me equivoque' de 'perdi el dato para siempre' (invariante 7)."""
+    resultado = _archivar_uno(_handler_envio(httpx.Response(207, json={}), {"1": "ARCHIVED"}))
+    assert resultado.resultado == "archivado"
+    assert "adGroupId=77" in resultado.reversa
+    assert "asin=B0X" in resultado.reversa

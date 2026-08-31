@@ -174,7 +174,14 @@ def _archivar_anuncios(args) -> int:
         else "MODO: ENSAYO — no sale ninguna mutacion"
     )
 
-    resultados = archivar.archivar_anuncios(escritor, ad_ids, ejecutar=ejecutar)
+    try:
+        resultados = archivar.archivar_anuncios(escritor, ad_ids, ejecutar=ejecutar)
+    except ValueError as exc:
+        # p.ej. adIds repetidos: el modulo aborta ANTES de mutar. El
+        # envoltorio tiene que contarlo como error de uso, no escupir un
+        # traceback (hallazgo cross-review codex/grok 2026-08-30).
+        print(scrub(str(exc)), file=sys.stderr)
+        return 2
 
     for r in resultados:
         print(f"  {r.ad_id}	{r.estado_previo or '-'}	{r.resultado}	{r.detalle}")
