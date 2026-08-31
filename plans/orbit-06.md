@@ -592,8 +592,11 @@ solo ASIN; atribuir al grupo dejaría la cuenta entera sin margen. La
 migración `0004` agrega el valor al enum y commitea sola (PostgreSQL no
 deja usar el valor nuevo en la misma transacción).
 
-**D2 · Estados vivos: ENABLED y PAUSED.** Un anuncio pausado sigue siendo
-un vínculo real (se puede reactivar). Excluirlo mentiría la cobertura.
+**D2 · Estados vivos: ENABLED y PAUSED.** Criterio sellado desde el probe
+2.5: archivado = muerto, pausado = vivo pero apagado. La vista de margen
+mira 90 días hacia atrás; un anuncio pausado ayer gastó y vendió dentro
+de esa ventana. Excluirlo pierde atribución real. Volumen: 1,707 PAUSED
+en MX (28 % de los no archivados) y 481 en US — no es residual.
 
 **D3 · Sin desnormalizar a `ad_group.listing_id`.** Ese campo queda NULL
 siempre en este camino. N ASINs en un grupo no se aplastan a uno.
