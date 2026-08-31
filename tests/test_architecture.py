@@ -252,11 +252,19 @@ PERMITIDOS_IMPORTAR_ADS_WRITE = {
         "smoke E2E autorizado del probe 2.5 (sellado 23): corre con "
         "ORBIT_DSN_DECIDE y sus filas de ledger nacen tipo probe"
     ),
+    "app/ads/archivar.py": (
+        "limpieza OPERADA de product ads muertos (ORBIT 06, decision del "
+        "dueno 2026-08-30): no es un segundo dueno de la DECISION — no lee "
+        "decision ni apply_queue y solo corre cuando un humano tipea "
+        "--confirmar live con una lista explicita de adIds. El CLI queda "
+        "fuera de esta allowlist a proposito: delega aqui para que el "
+        "importador de app.ads.write siga siendo UNO por camino"
+    ),
 }
 
 
 def test_imports_del_cliente_de_escritura_acotados():
-    """Nadie fuera de {app/apply.py, tools/smoke_apply.py} importa
+    """Nadie fuera de la allowlist de arriba importa
     `app.ads.write` en runtime. El write client es la unica superficie que
     escribe en Amazon: colgarlo de otro modulo (una API, un job suelto)
     seria un segundo dueno de la mutacion. Imports bajo TYPE_CHECKING no

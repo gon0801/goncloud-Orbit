@@ -27,8 +27,9 @@ import time
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 
-from app.ads.client import AdsApiError
-from app.ads.structure import PATH_PRODUCT_ADS
+from app.ads.client import AdsApiError, AdsClient
+from app.ads.config import AdsCredentials
+from app.ads.structure import PATH_PRODUCT_ADS, evaluar_perfiles
 from app.ads.write import AdsWriteClient
 
 # Estados wire del list (UPPER, mismo vocabulario que app/apply.py).
@@ -58,6 +59,37 @@ RESULTADOS = frozenset(
         "fallo",  # Amazon rechazo la mutacion
     }
 )
+
+
+def preparar_escritor(platform: str) -> AdsWriteClient:
+    """Escritor con el scope SELLADO del perfil de `platform`.
+
+    Vive aqui y no en el CLI por el candado de arquitectura: `app.ads.write`
+    es la UNICA superficie que escribe en Amazon y su lista de importadores
+    esta acotada a proposito (un importador de mas = un segundo dueno de la
+    mutacion). Este modulo es ese unico dueno para la limpieza; el CLI queda
+    de envoltorio delgado, sin tocar el cliente de escritura.
+
+    Fail-closed: si la plataforma no resuelve a EXACTAMENTE un perfil
+    aceptado, no se sabe en que cuenta se archivaria y no se construye nada.
+    """
+    credenciales = AdsCredentials.from_secrets_dir()
+    perfiles = [
+        p
+        for p in evaluar_perfiles(AdsClient(credenciales))
+        if p.aceptado and p.platform == platform
+    ]
+    if len(perfiles) != 1:
+        raise ValueError(
+            f"se esperaba EXACTAMENTE 1 perfil aceptado para {platform}, "
+            f"hay {len(perfiles)}: no se escribe"
+        )
+    return AdsWriteClient(
+        credenciales,
+        platform=platform,
+        profile_id=perfiles[0].profile_id,
+        modo_confirmado="live",
+    )
 
 
 def _trozos(items: Sequence[str], tamano: int) -> Iterable[Sequence[str]]:

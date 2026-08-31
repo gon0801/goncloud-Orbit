@@ -150,10 +150,6 @@ def _archivar_anuncios(args) -> int:
     archivo de ids. ENSAYO por defecto: sin `--confirmar live` no sale ni
     una mutacion, y el ensayo imprime exactamente lo que haria.
     """
-    from app.ads.client import AdsClient
-    from app.ads.config import AdsCredentials
-    from app.ads.write import AdsWriteClient
-
     try:
         contenido = Path(args.ids_file).read_text(encoding="utf-8")
     except OSError as exc:
@@ -165,34 +161,19 @@ def _archivar_anuncios(args) -> int:
         return 2
 
     ejecutar = args.confirmar == MODO_ARCHIVADO_LIVE
-    credenciales = AdsCredentials.from_secrets_dir()
-    perfiles = [
-        p
-        for p in structure.evaluar_perfiles(AdsClient(credenciales))
-        if p.aceptado and p.platform == args.platform
-    ]
-    if len(perfiles) != 1:
-        print(
-            f"se esperaba EXACTAMENTE 1 perfil aceptado para {args.platform}, "
-            f"hay {len(perfiles)}: no se escribe",
-            file=sys.stderr,
-        )
+    try:
+        escritor = archivar.preparar_escritor(args.platform)
+    except ValueError as exc:
+        print(scrub(str(exc)), file=sys.stderr)
         return 2
 
-    print(f"plataforma: {args.platform}  perfil: {perfiles[0].profile_id}")
-    print(f"adIds en la lista: {len(ad_ids)}")
+    print(f"plataforma: {args.platform}  adIds en la lista: {len(ad_ids)}")
     print(
         "MODO: LIVE — esto ARCHIVA en la cuenta y NO tiene reversa"
         if ejecutar
         else "MODO: ENSAYO — no sale ninguna mutacion"
     )
 
-    escritor = AdsWriteClient(
-        credenciales,
-        platform=args.platform,
-        profile_id=perfiles[0].profile_id,
-        modo_confirmado="live",
-    )
     resultados = archivar.archivar_anuncios(escritor, ad_ids, ejecutar=ejecutar)
 
     for r in resultados:

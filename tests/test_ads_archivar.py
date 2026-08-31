@@ -173,3 +173,45 @@ def test_el_resumen_declara_los_ceros():
     cuenta = resumen([])
     assert set(cuenta) == set(RESULTADOS)
     assert set(cuenta.values()) == {0}
+
+
+def test_preparar_escritor_perfil_ambiguo_no_construye_nada(monkeypatch):
+    """Dos perfiles aceptados para la misma plataforma = no se sabe en QUE
+    cuenta se archivaria. Revienta ANTES de construir el escritor."""
+    from app.ads import archivar as mod
+
+    class _Perfil:
+        def __init__(self, pid):
+            self.platform = "amazon_mx"
+            self.profile_id = pid
+            self.aceptado = True
+
+    construidos: list = []
+    monkeypatch.setattr(mod.AdsCredentials, "from_secrets_dir", classmethod(lambda cls: "CREDS"))
+    monkeypatch.setattr(mod, "AdsClient", lambda *a, **k: "LECTOR")
+    monkeypatch.setattr(mod, "evaluar_perfiles", lambda _c: [_Perfil("1"), _Perfil("2")])
+    monkeypatch.setattr(mod, "AdsWriteClient", lambda *a, **k: construidos.append(k))
+
+    with pytest.raises(ValueError, match="EXACTAMENTE 1 perfil"):
+        mod.preparar_escritor("amazon_mx")
+    assert construidos == []
+
+
+def test_preparar_escritor_sella_plataforma_y_perfil(monkeypatch):
+    from app.ads import archivar as mod
+
+    class _Perfil:
+        platform = "amazon_mx"
+        profile_id = "303030"
+        aceptado = True
+
+    visto: dict = {}
+    monkeypatch.setattr(mod.AdsCredentials, "from_secrets_dir", classmethod(lambda cls: "CREDS"))
+    monkeypatch.setattr(mod, "AdsClient", lambda *a, **k: "LECTOR")
+    monkeypatch.setattr(mod, "evaluar_perfiles", lambda _c: [_Perfil()])
+    monkeypatch.setattr(mod, "AdsWriteClient", lambda *a, **k: visto.update(k) or "ESCRITOR")
+
+    assert mod.preparar_escritor("amazon_mx") == "ESCRITOR"
+    assert visto["platform"] == "amazon_mx"
+    assert visto["profile_id"] == "303030"
+    assert visto["modo_confirmado"] == "live"
