@@ -35,7 +35,7 @@ import sys
 from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -129,6 +129,10 @@ class ResultadoSync:
     por_kind: dict[str, int]
     ventas_sin_asin: int = 0
     sin_listing_para_asin: int = 0
+    venta_con_asin_sin_cantidad: int = 0
+    desglose_fiscal_negativo_descartado: int = 0
+    rango_min: date | None = None
+    rango_max: date | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -176,7 +180,7 @@ def leer_origen(ruta: Path | str) -> tuple[FilaOrigenLedger, ...]:
 
 
 def _dia(texto: str | None) -> date | None:
-    if not texto:
+    if not isinstance(texto, str) or not texto:
         return None
     try:
         return datetime.fromisoformat(texto).date()
@@ -186,6 +190,7 @@ def _dia(texto: str | None) -> date | None:
 
 def _lookup_kind(event_type: str, fee_category: str | None) -> tuple[str, str | None] | None:
     """Resuelve (kind, fee_type) via MAPA_KIND. None = event_type desconocido."""
+    event_type = (event_type or "").strip()
     if event_type == "sale_gross":
         kind, policy = MAPA_KIND[("sale_gross", None)]
         return kind, None if policy is None else fee_category
@@ -229,23 +234,52 @@ def _money_from_payload(payload: dict[str, Any], clave: str, moneda_amount: str)
         valor = Decimal(str(raw))
     except Exception:
         return None
-    if abs(valor - valor.quantize(_MAX_DECIMALES)) >= _RUIDO_FLOAT:
+    if not valor.is_finite():
         return None
-    if abs(valor) >= _MAX_AMOUNT:
-        return None
-    out = valor.quantize(_MAX_DECIMALES)
-    if out < 0:
-        return None
-    return out
-
-
-def _amount_decimal(amount: float) -> Decimal | None:
-    valor = Decimal(str(amount))
     if abs(valor) >= _MAX_AMOUNT:
         return None
     try:
         cuantizado = valor.quantize(_MAX_DECIMALES)
-    except Exception:
+    except InvalidOperation:
+        return None
+    if abs(valor - cuantizado) >= _RUIDO_FLOAT:
+        return None
+    if cuantizado < 0:
+        return None
+    return cuantizado
+
+
+def _desglose_negativo_en_payload(payload: dict[str, Any], moneda_amount: str) -> int:
+    """Cuenta bloques fiscales con CurrencyCode coincidente y Amount < 0."""
+    n = 0
+    for clave in ("ItemPrice", "ItemTax", "ShippingPrice", "ShippingTax"):
+        bloque = payload.get(clave)
+        if not isinstance(bloque, dict):
+            continue
+        code = (bloque.get("CurrencyCode") or "").strip().upper()
+        if code != moneda_amount:
+            continue
+        raw = bloque.get("Amount")
+        if raw is None:
+            continue
+        try:
+            valor = Decimal(str(raw))
+        except Exception:
+            continue
+        if valor.is_finite() and valor < 0:
+            n += 1
+    return n
+
+
+def _amount_decimal(amount: float) -> Decimal | None:
+    valor = Decimal(str(amount))
+    if not valor.is_finite():
+        return None
+    if abs(valor) >= _MAX_AMOUNT:
+        return None
+    try:
+        cuantizado = valor.quantize(_MAX_DECIMALES)
+    except InvalidOperation:
         return None
     if abs(valor - cuantizado) >= _RUIDO_FLOAT:
         return None
@@ -260,14 +294,19 @@ def _motivo_skip_basico(fila: FilaOrigenLedger) -> str | None:
         return f"plataforma fuera de dominio: {fila.platform}"
     if _lookup_kind(fila.event_type, fila.fee_category) is None:
         return "event_type desconocido"
-    if fila.amount is None or not math.isfinite(fila.amount):
+    if (
+        fila.amount is None
+        or isinstance(fila.amount, bool)
+        or not isinstance(fila.amount, (int, float))
+    ):
         return "amount nulo o no finito"
-    if not fila.currency or fila.currency.strip().upper() not in MONEDAS:
+    if not math.isfinite(fila.amount):
+        return "amount nulo o no finito"
+    if not isinstance(fila.currency, str) or fila.currency.strip().upper() not in MONEDAS:
         return f"moneda fuera de dominio (MXN/USD): {fila.currency}"
-    if _dia(fila.event_date) is None:
+    if not isinstance(fila.event_date, str) or _dia(fila.event_date) is None:
         return "fecha ilegible (event_date)"
     if _amount_decimal(fila.amount) is None:
-        # distingue precision vs rango
         valor = Decimal(str(fila.amount))
         if abs(valor) >= _MAX_AMOUNT:
             return "amount fuera de rango NUMERIC(14,4)"
@@ -297,11 +336,12 @@ def mapear_destino(
     moneda = fila.currency.strip().upper()  # type: ignore[union-attr]
     payload = _parse_payload(fila.raw_payload)
     order_raw = fila.order_id
-    order_id = None if order_raw is None or str(order_raw).strip() == "" else str(order_raw)
+    order_id = None if order_raw is None or str(order_raw).strip() == "" else str(order_raw).strip()
 
-    source_event_id = None
-    if fila.dedupe_key is not None and str(fila.dedupe_key).strip() != "":
-        source_event_id = str(fila.dedupe_key)
+    if fila.dedupe_key is None or str(fila.dedupe_key).strip() == "":
+        source_event_id = None
+    else:
+        source_event_id = str(fila.dedupe_key).strip()
 
     quantity = fila.quantity
     if quantity is None and kind == "sale":
@@ -312,7 +352,7 @@ def mapear_destino(
             quantity = int(qs)
 
     product_id = None
-    if listings is not None:
+    if kind == "sale" and listings is not None:
         asin = payload.get("ASIN")
         if isinstance(asin, str) and asin.strip():
             product_id = listings.get((plataforma, asin.strip()))
@@ -370,13 +410,22 @@ def plan_eventos(
             continue
         ev = mapear_destino(fila, listings=listings)
         assert ev is not None
+        payload = _parse_payload(fila.raw_payload)
+        huecos["desglose_fiscal_negativo_descartado"] += _desglose_negativo_en_payload(
+            payload, ev.amount_currency
+        )
         if ev.kind == "sale":
-            payload = _parse_payload(fila.raw_payload)
             asin = payload.get("ASIN")
             if not (isinstance(asin, str) and asin.strip()):
                 huecos["venta sin ASIN"] += 1
-            elif ev.product_id is None:
-                huecos["sin listing para ASIN"] += 1
+            else:
+                asin_s = asin.strip()
+                listing_pid = listings.get((ev.platform, asin_s))
+                qty_ok = ev.quantity is not None and ev.quantity > 0
+                if listing_pid is None:
+                    huecos["sin listing para ASIN"] += 1
+                elif not qty_ok:
+                    huecos["venta con ASIN sin cantidad"] += 1
         eventos.append(ev)
     return eventos, skips, huecos
 
@@ -476,6 +525,10 @@ def sync_ledger(conn: psycopg.Connection, ruta_sqlite: Path | str) -> ResultadoS
         run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE,)).fetchone()[0]
 
     insertadas = 0
+    por_kind: Counter = Counter()
+    eventos: list[EventoLedger] = []
+    skips: Counter = Counter()
+    huecos: Counter = Counter()
     try:
         with conn.transaction():
             listings = {
@@ -489,6 +542,7 @@ def sync_ledger(conn: psycopg.Connection, ruta_sqlite: Path | str) -> ResultadoS
                 cur = conn.execute(_sql_insert_para(ev), _params(ev, run_id))
                 if cur.rowcount and cur.rowcount > 0:
                     insertadas += 1
+                    por_kind[ev.kind] += 1
                 else:
                     skips["conflicto dedupe"] += 1
 
@@ -521,7 +575,7 @@ def sync_ledger(conn: psycopg.Connection, ruta_sqlite: Path | str) -> ResultadoS
             )
         raise
 
-    por_kind: Counter = Counter(ev.kind for ev in eventos)
+    fechas = [ev.event_date for ev in eventos]
     return ResultadoSync(
         run_id=run_id,
         ok=True,
@@ -533,6 +587,10 @@ def sync_ledger(conn: psycopg.Connection, ruta_sqlite: Path | str) -> ResultadoS
         por_kind=dict(por_kind),
         ventas_sin_asin=huecos["venta sin ASIN"],
         sin_listing_para_asin=huecos["sin listing para ASIN"],
+        venta_con_asin_sin_cantidad=huecos["venta con ASIN sin cantidad"],
+        desglose_fiscal_negativo_descartado=huecos["desglose_fiscal_negativo_descartado"],
+        rango_min=min(fechas) if fechas else None,
+        rango_max=max(fechas) if fechas else None,
     )
 
 
@@ -606,10 +664,16 @@ def main(argv: list[str] | None = None) -> int:
         f"origen={resultado.filas_origen} planificados={resultado.eventos_finales}"
         f" por_kind={resultado.por_kind}"
     )
+    print(f"ventana: rango_min={resultado.rango_min} rango_max={resultado.rango_max}")
     print(
         f"cobertura_producto: venta_sin_ASIN={resultado.ventas_sin_asin}"
         f" sin_listing={resultado.sin_listing_para_asin}"
+        f" asin_sin_cantidad={resultado.venta_con_asin_sin_cantidad}"
     )
+    if resultado.desglose_fiscal_negativo_descartado:
+        print(
+            f"desglose_fiscal_negativo_descartado={resultado.desglose_fiscal_negativo_descartado}"
+        )
     if resultado.skip_reason:
         print(f"skips: {resultado.skip_reason}")
     return 0

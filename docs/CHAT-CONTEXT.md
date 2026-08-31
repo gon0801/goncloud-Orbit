@@ -4,7 +4,7 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
-**2026-08-31 — ORBIT 06 tarea 0.6 CERRADA en código y corrida viva: el libro de Amazon ya está en Orbit.** Se copiaron **8,041 hechos** (1,650 ventas, 4,221 fees, 2,034 retenciones, 136 refunds) desde contabilidad; MeLi quedó fuera; el ISR sin orden entró sin prorratear; las reversas positivas no se voltearon. Re-correrla no escribe nada.
+**2026-08-31 — ORBIT 06 tarea 0.6 CERRADA en código y corrida viva: el libro de Amazon ya está en Orbit.** Se copiaron **8,041 hechos** (1,650 ventas, 4,221 fees, 2,034 retenciones, 136 refunds) desde contabilidad; MeLi quedó fuera; el ISR sin orden entró sin prorratear; **106 filas se descartaron** por `ledger_convencion_signos` (fee+/refund+/sale≤0) — **no se voltearon**. Re-correrla no escribe nada. Residual declarado: 6 ISR fee+ fuente no entran (CHECK D4), no es un bug a voltear.
 
 **2026-08-31 — ORBIT 06 tarea 0.5 lista de código: la ingesta de tipos de cambio ya corrige las etiquetas invertidas de contabilidad** (`MXN/USD ~17` → `USD/MXN` mismo número), así que las tasas ya sirven para convertir dólares a pesos. Falta la corrida real del lead contra la base viva.
 

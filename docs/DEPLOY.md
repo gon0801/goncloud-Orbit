@@ -271,18 +271,21 @@ ssh goncloud
 python3 -c "import sqlite3; src=sqlite3.connect('file:/mnt/data/appdata/accounting/data/accounting.db?mode=ro', uri=True); dst=sqlite3.connect('/tmp/accounting-snapshot.db'); src.backup(dst); dst.close(); src.close()" \
   && chmod 644 /tmp/accounting-snapshot.db
 # 2) al contenedor y correr
+#    ORBIT_DSN_INGEST del contenedor apunta a 127.0.0.1 (bind del host);
+#    dentro de la red compose el host de Postgres es `db`. Reescribirlo
+#    al vuelo (mismo truco que cualquier ingest vía docker exec).
 docker cp /tmp/accounting-snapshot.db orbit-app-1:/tmp/accounting-snapshot.db
-docker exec orbit-app-1 python -m app.cli ingest ledger --sqlite /tmp/accounting-snapshot.db
+docker exec -e ORBIT_DSN_INGEST="$(docker exec orbit-app-1 printenv ORBIT_DSN_INGEST | sed 's/@127.0.0.1:/@db:/')" \
+  orbit-app-1 python -m app.cli ingest ledger --sqlite /tmp/accounting-snapshot.db
 # 3) limpieza
 rm /tmp/accounting-snapshot.db
 docker exec -u 0 orbit-app-1 rm /tmp/accounting-snapshot.db
 ```
 
 Cadencia: **manual** por ahora. Re-correr es no-op por los tres índices de
-dedupe (`rows_written=0`, conflictos contados en `rows_skipped`). Si se
-corre desde `docker exec`, el DSN del contenedor apunta a `127.0.0.1` y
-falla: reescribir el host a `db` (mismo truco que costos) o correr desde
-el host contra el puerto publicado.
+dedupe (`rows_written=0`, conflictos contados en `rows_skipped`). Alternativa
+sin reescribir DSN: correr desde el host contra el puerto publicado
+(`127.0.0.1:5432`) con `ORBIT_DSN_INGEST` del `.env`.
 
 ## Crons de Orbit (crontab de `gon`, ADITIVO)
 
