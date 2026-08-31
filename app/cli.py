@@ -34,7 +34,7 @@ import sys
 from decimal import Decimal
 from pathlib import Path
 
-from app import costs, fx, goals_write, ledger, listings
+from app import cobertura, costs, fx, goals_write, ledger, listings
 from app import cycle as ciclo
 from app.ads import archivar, reports, structure
 from app.db import connect
@@ -451,6 +451,16 @@ def main(argv: list[str] | None = None) -> int:
         help="pone los TRES campos de harvest en NULL (no combina con --harvest-*)",
     )
 
+    p_report = sub.add_parser(
+        "report",
+        help="reportes de SOLO LECTURA (ORBIT 06 0.7: cobertura del gasto)",
+    )
+    p_report.add_argument(
+        "reporte",
+        choices=("cobertura",),
+        help="cobertura: fraccion del gasto maduro costeable de punta a punta",
+    )
+
     p_arch = sub.add_parser(
         "archivar-anuncios",
         help=(
@@ -512,6 +522,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"argumentos desconocidos para 'goals set': {rest}", file=sys.stderr)
             return 2
         return _goals_set(args)
+    if args.comando == "report":
+        # SOLO LECTURA: los args del reporte (--ventana-dias) van al main del
+        # modulo, mismo patron que los pipelines de ingest.
+        if args.reporte == "cobertura":
+            return cobertura.main(rest)
+        raise AssertionError(f"reporte inalcanzable: {args.reporte!r}")
     if args.comando == "reponer-anuncios":
         if rest:
             print(f"argumentos desconocidos para 'reponer-anuncios': {rest}", file=sys.stderr)
