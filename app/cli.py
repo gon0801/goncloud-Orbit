@@ -5,13 +5,14 @@ existe — `cycle` llama al orquestador de `app.cycle.py` (`corre_ciclo`, con su
 MISMO claim/job_key/envelope; el job_key del lock es COMPARTIDO entre cron y
 CLI via `app.cycle.job_key_de`, una sola fuente), `ingest` delega a los mains
 de los pipelines de `app/ads/` (structure/reports, con su ORBIT_DSN_INGEST y
-su contabilidad de ingest_run) y de `app/costs.py` (ORBIT 06 0.1: costos de
-contabilidad desde un snapshot SQLite), y `goals set` despacha a
-`app.goals_write.edita_goal` (ORBIT 04 3.2: el UNICO camino de escritura de
-ads_optimizer_goal, con su ORBIT_DSN_ADMIN). PROHIBIDO duplicar logica: aqui
-no vive NINGUNA regla de decision ni de ingesta, solo el despacho a los
-caminos existentes. El disparo manual del ciclo en PR1 ES este CLI via ssh
-(no hay `/run` en la API; hallazgo Security del plan).
+su contabilidad de ingest_run), de `app/costs.py` / `app/listings.py` /
+`app/fx.py` (ORBIT 06: costos, listings y FX desde snapshot SQLite), y
+`goals set` despacha a `app.goals_write.edita_goal` (ORBIT 04 3.2: el UNICO
+camino de escritura de ads_optimizer_goal, con su ORBIT_DSN_ADMIN).
+PROHIBIDO duplicar logica: aqui no vive NINGUNA regla de decision ni de
+ingesta, solo el despacho a los caminos existentes. El disparo manual del
+ciclo en PR1 ES este CLI via ssh (no hay `/run` en la API; hallazgo
+Security del plan).
 
 Exit codes: 0 exito — `cycle` con CicloOcupado TAMBIEN sale 0: el claim del
 lock lo garantiza, el trabajo ya esta en curso (cron + manual coincidiendo),
@@ -32,7 +33,7 @@ import sys
 from decimal import Decimal
 from pathlib import Path
 
-from app import costs, goals_write, listings
+from app import costs, fx, goals_write, listings
 from app import cycle as ciclo
 from app.ads import archivar, reports, structure
 from app.db import connect
@@ -139,6 +140,10 @@ def _ingest(args, rest: list[str]) -> int:
         # ORBIT 06 0.2: mapa de listings desde el bridge (snapshot SQLite del
         # bridge via --sqlite; runbook en docs/DEPLOY.md). Mismo patron.
         return listings.main(rest)
+    if args.pipeline == "fx":
+        # ORBIT 06 0.5: tipos de cambio desde contabilidad (snapshot SQLite
+        # via --sqlite; runbook en docs/DEPLOY.md). Mismo patron.
+        return fx.main(rest)
     raise AssertionError(f"pipeline inalcanzable: {args.pipeline!r}")
 
 
@@ -373,15 +378,16 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="comando", required=True)
 
     p_ingest = sub.add_parser(
-        "ingest", help="pipelines de ingesta (app/ads, app/costs y app/listings)"
+        "ingest", help="pipelines de ingesta (app/ads, app/costs, app/listings, app/fx)"
     )
     p_ingest.add_argument(
         "pipeline",
-        choices=("structure", "metrics", "costs", "listings"),
+        choices=("structure", "metrics", "costs", "listings", "fx"),
         help=(
             "structure: sync de estructura; metrics: metricas + search terms;"
             " costs: productos+costos desde contabilidad (--sqlite);"
-            " listings: mapa de listings desde el bridge (--sqlite)"
+            " listings: mapa de listings desde el bridge (--sqlite);"
+            " fx: tipos de cambio desde contabilidad (--sqlite)"
         ),
     )
 

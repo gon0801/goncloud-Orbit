@@ -228,6 +228,33 @@ rm /tmp/bridge-snapshot.db
 docker exec -u 0 orbit-app-1 rm /tmp/bridge-snapshot.db
 ```
 
+## Ingesta de tipos de cambio (ORBIT 06 0.5)
+
+Misma SQLite de contabilidad y mismo runbook de snapshot que los costos.
+Fuente: `currency_rates`. Destino: `fx_rate` (append-only). **Las etiquetas
+de la fuente están invertidas** respecto al valor: `(MXN, USD, ~17)` significa
+pesos por dólar; la ingesta escribe `(USD, MXN, ~17)` para que
+`fx_resolve(fecha,'USD','MXN')` multiplique bien. Decisiones:
+`plans/orbit-06.md` §Decisiones de la 0.5. `fx_resolve` no se toca.
+
+```bash
+ssh goncloud
+# 1) snapshot de contabilidad (idéntico al de costos; se puede reutilizar
+#    /tmp/accounting-snapshot.db si acaba de generarse)
+python3 -c "import sqlite3; src=sqlite3.connect('file:/mnt/data/appdata/accounting/data/accounting.db?mode=ro', uri=True); dst=sqlite3.connect('/tmp/accounting-snapshot.db'); src.backup(dst); dst.close(); src.close()" \
+  && chmod 644 /tmp/accounting-snapshot.db
+# 2) al contenedor y correr
+docker cp /tmp/accounting-snapshot.db orbit-app-1:/tmp/accounting-snapshot.db
+docker exec orbit-app-1 python -m app.cli ingest fx --sqlite /tmp/accounting-snapshot.db
+# 3) limpieza
+rm /tmp/accounting-snapshot.db
+docker exec -u 0 orbit-app-1 rm /tmp/accounting-snapshot.db
+```
+
+Cadencia: **manual** por ahora (la fuente ya es diaria en contabilidad; los
+huecos medidos caben en el `nearest_prior` de 7 días). Re-correr es no-op
+por PK. Cron diario se propone cuando la 0.7 lo pida.
+
 ## Crons de Orbit (crontab de `gon`, ADITIVO)
 
 Tres jobs NUEVOS en el crontab de `gon`. Los de accounting (y el resto:
