@@ -564,3 +564,89 @@ def test_cli_goals_sin_subcomando_exit_2(capsys):
     with pytest.raises(SystemExit) as exc:
         cli.main(["goals"])
     assert exc.value.code == 2
+
+
+# ---------------------------------------------------------------------------
+# archivar-anuncios: MUTA la cuenta del dueno y NO tiene reversa
+# ---------------------------------------------------------------------------
+
+NL = chr(10)
+
+
+def _monta_archivado(monkeypatch, *, falla_perfil: bool = False) -> dict:
+    """Deja el comando corriendo contra dobles: nada sale a la red."""
+    visto: dict = {}
+
+    def _fake_preparar(platform):
+        if falla_perfil:
+            raise ValueError("se esperaba EXACTAMENTE 1 perfil aceptado para amazon_mx, hay 2")
+        visto["platform"] = platform
+        return "ESCRITOR"
+
+    monkeypatch.setattr(cli.archivar, "preparar_escritor", _fake_preparar)
+
+    def _fake_archivar(escritor, ad_ids, *, ejecutar, **_k):
+        visto["escritor"] = escritor
+        visto["ejecutar"] = ejecutar
+        visto["ad_ids"] = list(ad_ids)
+        return []
+
+    monkeypatch.setattr(cli.archivar, "archivar_anuncios", _fake_archivar)
+    return visto
+
+
+def _argv(tmp_path, lineas=("111",), **extra) -> list[str]:
+    """argv del comando con un --ids-file de `lineas` (una por renglon)."""
+    ruta = tmp_path / "ids.txt"
+    ruta.write_text(NL.join(lineas) + NL, encoding="utf-8")
+    argv = ["archivar-anuncios", "--platform", "amazon_mx", "--ids-file", str(ruta)]
+    for clave, valor in extra.items():
+        argv += [f"--{clave}", valor]
+    return argv
+
+
+def test_cli_archivar_sin_confirmar_es_ENSAYO(monkeypatch, tmp_path):
+    """Fail-closed: sin --confirmar NO se muta. Es el candado que separa
+    'mostrame que harias' de 'archivalo, no hay vuelta atras'."""
+    visto = _monta_archivado(monkeypatch)
+    assert cli.main(_argv(tmp_path, ("111", "222"))) == 0
+    assert visto["ejecutar"] is False
+    assert visto["ad_ids"] == ["111", "222"]
+
+
+def test_cli_archivar_confirmar_mal_tipeado_sigue_siendo_ensayo(monkeypatch, tmp_path):
+    """Igualdad EXACTA contra 'live': 'liv', 'si' o 'LIVE' NO archivan."""
+    for valor in ("liv", "si", "true", "LIVE"):
+        visto = _monta_archivado(monkeypatch)
+        cli.main(_argv(tmp_path, confirmar=valor))
+        assert visto["ejecutar"] is False, f"{valor!r} NO debe archivar"
+
+
+def test_cli_archivar_confirmar_live_si_ejecuta(monkeypatch, tmp_path):
+    visto = _monta_archivado(monkeypatch)
+    assert cli.main(_argv(tmp_path, confirmar="live")) == 0
+    assert visto["ejecutar"] is True
+    assert visto["platform"] == "amazon_mx"
+
+
+def test_cli_archivar_lista_vacia_no_llama_a_nada(monkeypatch, tmp_path, capsys):
+    visto = _monta_archivado(monkeypatch)
+    assert cli.main(_argv(tmp_path, ("", "  "), confirmar="live")) == 2
+    assert "ejecutar" not in visto
+    assert "sin ningun adId" in capsys.readouterr().err
+
+
+def test_cli_archivar_perfil_ambiguo_no_archiva(monkeypatch, tmp_path, capsys):
+    """Si la plataforma no resuelve a un solo perfil, no se sabe en QUE
+    cuenta se archivaria: el comando muere antes de mutar."""
+    visto = _monta_archivado(monkeypatch, falla_perfil=True)
+    assert cli.main(_argv(tmp_path, confirmar="live")) == 2
+    assert "ejecutar" not in visto
+    assert "EXACTAMENTE 1 perfil" in capsys.readouterr().err
+
+
+def test_cli_archivar_args_extra_rechazados(monkeypatch, tmp_path, capsys):
+    visto = _monta_archivado(monkeypatch)
+    assert cli.main([*_argv(tmp_path), "--confirmame", "live"]) == 2
+    assert "ejecutar" not in visto
+    assert "argumentos desconocidos" in capsys.readouterr().err

@@ -107,6 +107,8 @@ MUTATION_REQUEST_TYPES: MappingProxyType[tuple[str, str], str] = MappingProxyTyp
         ("POST", "/sp/negativeKeywords/delete"): "application/vnd.spnegativekeyword.v3+json",
         ("POST", "/sp/keywords"): "application/vnd.spkeyword.v3+json",
         ("POST", "/sp/keywords/delete"): "application/vnd.spkeyword.v3+json",
+        # PENDIENTE-DE-SONDA: shape del delete de product ads.
+        ("POST", "/sp/productAds/delete"): "application/vnd.spproductad.v3+json",
     }
 )
 
@@ -382,6 +384,24 @@ class AdsWriteClient(AdsClient):
             "POST",
             "/sp/keywords/delete",
             {"keywordIdFilter": {"include": [_un_objeto(keyword_id, "keyword_id")]}},
+            envolver=False,
+        )
+
+    def archivar_product_ad(self, ad_id: str | int) -> httpx.Response:
+        """POST /sp/productAds/delete: saca de circulacion UN anuncio.
+
+        PENDIENTE-DE-SONDA: shape supuesto por simetria con los otros dos
+        deletes v3 (POST al sub-path /delete con FILTRO de ids). La clave
+        del id es `adId` — asi lo devuelve el list de product ads.
+
+        "Borrar" en Amazon ARCHIVA (state=ARCHIVED): el anuncio queda
+        operativamente muerto y su fila sigue saliendo en el list con ese
+        estado. NO HAY REVERSA — no existe des-archivar.
+        """
+        return self._mutate(
+            "POST",
+            "/sp/productAds/delete",
+            {"adIdFilter": {"include": [_un_objeto(ad_id, "ad_id")]}},
             envolver=False,
         )
 
