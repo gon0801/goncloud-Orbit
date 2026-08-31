@@ -647,6 +647,6 @@ def test_cli_archivar_perfil_ambiguo_no_archiva(monkeypatch, tmp_path, capsys):
 
 def test_cli_archivar_args_extra_rechazados(monkeypatch, tmp_path, capsys):
     visto = _monta_archivado(monkeypatch)
-    assert cli.main(_argv(tmp_path) + ["--confirmame", "live"]) == 2
+    assert cli.main([*_argv(tmp_path), "--confirmame", "live"]) == 2
     assert "ejecutar" not in visto
     assert "argumentos desconocidos" in capsys.readouterr().err
