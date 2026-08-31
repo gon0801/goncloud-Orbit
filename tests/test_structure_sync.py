@@ -27,7 +27,7 @@ from decimal import Decimal
 
 import httpx
 import pytest
-from test_schema import SQL, _hay_postgres_local, _test_dsn
+from test_schema import SQL, SQL4, _hay_postgres_local, _test_dsn
 
 from app.ads.client import LIST_REQUEST_TYPES, AdsClient
 from app.ads.config import AdsCredentials
@@ -1424,6 +1424,130 @@ def test_sync_y_resync_estructura_en_vivo(monkeypatch):
         # rollback atomico: nada de lo que escribio la corrida fallida quedo
         assert conn.execute("SELECT count(*) FROM ad_entity").fetchone()[0] == 11
         assert conn.execute("SELECT count(*) FROM ingest_run").fetchone()[0] == 3
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()
+
+
+def _estructura_con_product_ad(estado_del_9401: str) -> EstructuraAds:
+    """Un perfil MX con UN product ad cuyo estado varia entre corridas.
+
+    Trae ademas un archivado que NUNCA se siguio (9499): sirve para afirmar
+    que el sync sigue SIN materializarlo (el filtro del borde no se aflojo).
+    """
+    mx = _perfil_aceptado(202, "MX")
+    return EstructuraAds(
+        perfiles=[mx],
+        estructuras=[
+            EstructuraPerfil(
+                perfil=mx,
+                campanas=[
+                    {
+                        "campaignId": "7001",
+                        "name": "Camp MX",
+                        "targetingType": "MANUAL",
+                        "state": "ENABLED",
+                    }
+                ],
+                ad_groups=[
+                    {
+                        "adGroupId": "7101",
+                        "name": "AG MX",
+                        "campaignId": "7001",
+                        "state": "ENABLED",
+                        "defaultBid": 1.0,
+                    }
+                ],
+                keywords=[],
+                targets=[],
+                product_ads=[
+                    {
+                        "adId": "7401",
+                        "adGroupId": "7101",
+                        "campaignId": "7001",
+                        "asin": "B0VIVO",
+                        "state": estado_del_9401,
+                    },
+                    {
+                        "adId": "7499",
+                        "adGroupId": "7101",
+                        "campaignId": "7001",
+                        "asin": "B0NUNCAVISTO",
+                        "state": "ARCHIVED",
+                    },
+                ],
+            )
+        ],
+    )
+
+
+@pytest.mark.skipif(
+    not _DSN_EXPLICITO and not _hay_postgres_local(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_product_ad_archivado_en_amazon_deja_de_figurar_vivo_en_el_cache():
+    """El cache no puede quedarse con el ENABLED viejo de un anuncio muerto.
+
+    `ad_entity_state` es cache de "como esta hoy en Amazon". El filtro del
+    borde descarta los product ads ARCHIVED para no ingerir las decenas de
+    miles que nunca seguimos — pero descartarlos TAMBIEN para los que ya
+    seguiamos dejaba el cache MINTIENDO para siempre: el sync no los volvia
+    a tocar nunca.
+
+    Lo destapo la limpieza del 2026-08-30: 203 anuncios archivados en vivo
+    (confirmados por readback contra Amazon) seguian ENABLED en la base
+    despues del sync siguiente, asi que toda medicion de cobertura los
+    seguia contando como anuncios vivos sin producto.
+
+    Sin la reconciliacion, la segunda parte de este test ve ENABLED.
+    """
+    psycopg = pytest.importorskip("psycopg")
+    from psycopg import sql as pgsql
+
+    dsn = _test_dsn()
+    db = f"orbit_arch_test_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(dsn, dbname=db, autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        conn.execute(SQL)
+        # 0004: sin ella el enum ad_entity_kind no conoce 'product_ad'.
+        conn.execute(SQL4)
+
+        # --- corrida 1: el anuncio esta vivo ---
+        sync_structure(conn, _estructura_con_product_ad("ENABLED"))
+        vivo = _entidad(conn, "amazon_mx", "product_ad", "7401")
+        assert vivo is not None, "el product ad vivo debe materializarse"
+        assert vivo[7] == "ENABLED"
+        # el archivado que nunca seguimos NO entra (el filtro del borde sigue firme)
+        assert _entidad(conn, "amazon_mx", "product_ad", "7499") is None
+
+        # --- corrida 2: Amazon ahora lo reporta archivado ---
+        res = sync_structure(conn, _estructura_con_product_ad("ARCHIVED"))
+
+        muerto = _entidad(conn, "amazon_mx", "product_ad", "7401")
+        assert muerto is not None, "la fila NO se borra: se marca"
+        assert muerto[7] == "ARCHIVED", (
+            "el cache seguia diciendo ENABLED para un anuncio que Amazon ya "
+            "archivo: toda medicion de cobertura lo contaria como vivo"
+        )
+        assert muerto[0] == vivo[0], "es la MISMA entidad, no una nueva"
+        assert muerto[10] > vivo[10], "synced_at debe avanzar: el dato es fresco"
+
+        # queda contado y con nombre en la corrida
+        fila = conn.execute(
+            "SELECT skip_reason FROM ingest_run WHERE id = %s", (res.run_id,)
+        ).fetchone()
+        assert "1x product ad marcado archivado" in fila[0]
+
+        # y el que nunca seguimos SIGUE sin materializarse
+        assert _entidad(conn, "amazon_mx", "product_ad", "7499") is None
     finally:
         if conn is not None:
             conn.close()

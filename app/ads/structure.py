@@ -181,6 +181,7 @@ _ETIQUETA_PADRE = {
 # Solo estos estados se materializan. ARCHIVED (75% MX) queda fuera: no
 # upsert, no listing_id. Cualquier otro valor es "estado desconocido".
 _ESTADOS_PRODUCT_AD_VIVOS = frozenset({"ENABLED", "PAUSED"})
+ESTADO_ARCHIVED = "ARCHIVED"
 
 # Clave contenedora de cada respuesta (ojo targets: "targetingClauses";
 # negativeKeywords: evidencia regla 8, comentario en PATH_NEGATIVE_KEYWORDS).
@@ -224,6 +225,27 @@ _SQL_UPSERT_STATE = """
         targeting_type = EXCLUDED.targeting_type,
         acos_target = EXCLUDED.acos_target,
         synced_at = now()
+"""
+
+# Un product ad que YA seguimos y que Amazon reporta ARCHIVED: se marca en
+# el cache. El filtro del borde descarta los archivados para no ingerir las
+# decenas de miles que nunca seguimos (75% del inventario en MX), pero
+# descartarlos TAMBIEN para los que ya existen dejaba el cache MINTIENDO:
+# ad_entity_state es cache de "como esta hoy en Amazon" y se quedaba con el
+# ENABLED viejo para siempre, porque el sync jamas los volvia a tocar.
+# Lo destapo la limpieza del 2026-08-30: 203 anuncios archivados en vivo y
+# confirmados por readback seguian ENABLED en la base tras el sync siguiente.
+# No hay inferencia: el ARCHIVED viene EXPLICITO en el payload. Los que NO
+# aparecen en el payload no se tocan (regla 3: ausencia no es muerte).
+_SQL_MARCAR_ARCHIVADOS = """
+    UPDATE ad_entity_state s
+       SET status = %s, synced_at = now()
+      FROM ad_entity e
+     WHERE s.ad_entity_id = e.id
+       AND e.platform = %s
+       AND e.kind = 'product_ad'
+       AND e.external_id = ANY(%s)
+       AND s.status IS DISTINCT FROM %s
 """
 
 _SQL_SELLAR_RUN = """
@@ -586,7 +608,7 @@ def _item_product_ad(
     if not asin:
         return "product ad sin asin"
     estado = payload.get("state")
-    if estado == "ARCHIVED":
+    if estado == ESTADO_ARCHIVED:
         return "product ad archivado"
     if estado not in _ESTADOS_PRODUCT_AD_VIVOS:
         return "product ad estado desconocido"
@@ -610,6 +632,26 @@ def _item_product_ad(
         bid_currency=None,
         asin=asin,
     )
+
+
+def _archivados_por_plataforma(estructura: EstructuraAds) -> dict[str, list[str]]:
+    """adIds que el payload reporta ARCHIVED, por plataforma.
+
+    Los usa `sync_structure` para poner al dia el cache de los product ads
+    que YA seguimos (ver _SQL_MARCAR_ARCHIVADOS). Se leen del payload crudo
+    y no de los items porque `_plan_items` descarta los archivados al borde.
+    """
+    archivados: dict[str, list[str]] = {}
+    for est in estructura.estructuras:
+        platform = est.perfil.platform or ""
+        ids = [
+            str(p.get("adId"))
+            for p in est.product_ads
+            if p.get("state") == ESTADO_ARCHIVED and p.get("adId") is not None
+        ]
+        if ids:
+            archivados.setdefault(platform, []).extend(ids)
+    return archivados
 
 
 def _plan_items(estructura: EstructuraAds) -> tuple[list[_ItemEntidad], Counter[str]]:
@@ -898,6 +940,14 @@ def sync_structure(conn: psycopg.Connection, estructura: EstructuraAds) -> Resul
                 if es_nueva:
                     nuevas += 1
                 counts[(item.platform, item.kind)] += 1
+            for plataforma, archivados in _archivados_por_plataforma(estructura).items():
+                cur = conn.execute(
+                    _SQL_MARCAR_ARCHIVADOS,
+                    (ESTADO_ARCHIVED, plataforma, archivados, ESTADO_ARCHIVED),
+                )
+                if cur.rowcount:
+                    clasificacion["product ad marcado archivado"] += cur.rowcount
+
             skip_reason = _formato_skip_reason(skips + clasificacion)
             _sellar_run(
                 conn,
