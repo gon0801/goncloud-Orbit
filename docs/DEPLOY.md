@@ -255,6 +255,35 @@ Cadencia: **manual** por ahora (la fuente ya es diaria en contabilidad; los
 huecos medidos caben en el `nearest_prior` de 7 días). Re-correr es no-op
 por PK. Cron diario se propone cuando la 0.7 lo pida.
 
+## Ingesta del ledger desde contabilidad (ORBIT 06 0.6)
+
+Misma SQLite de contabilidad y mismo runbook de snapshot que los costos.
+Fuente: `ledger_events`. Destino: `ledger_event` (append-only, tres índices
+de dedupe). MeLi se excluye contada; `amazon` se renombra a `amazon_mx`.
+El ISR sin `order_id` **entra** (no se prorratea en 0.6). Un fee positivo
+(reversa) **no se voltea**: se salta por `ledger_convencion_signos`.
+Decisiones: `plans/orbit-06.md` §Decisiones de la 0.6.
+
+```bash
+ssh goncloud
+# 1) snapshot de contabilidad (idéntico al de costos; se puede reutilizar
+#    /tmp/accounting-snapshot.db si acaba de generarse)
+python3 -c "import sqlite3; src=sqlite3.connect('file:/mnt/data/appdata/accounting/data/accounting.db?mode=ro', uri=True); dst=sqlite3.connect('/tmp/accounting-snapshot.db'); src.backup(dst); dst.close(); src.close()" \
+  && chmod 644 /tmp/accounting-snapshot.db
+# 2) al contenedor y correr
+docker cp /tmp/accounting-snapshot.db orbit-app-1:/tmp/accounting-snapshot.db
+docker exec orbit-app-1 python -m app.cli ingest ledger --sqlite /tmp/accounting-snapshot.db
+# 3) limpieza
+rm /tmp/accounting-snapshot.db
+docker exec -u 0 orbit-app-1 rm /tmp/accounting-snapshot.db
+```
+
+Cadencia: **manual** por ahora. Re-correr es no-op por los tres índices de
+dedupe (`rows_written=0`, conflictos contados en `rows_skipped`). Si se
+corre desde `docker exec`, el DSN del contenedor apunta a `127.0.0.1` y
+falla: reescribir el host a `db` (mismo truco que costos) o correr desde
+el host contra el puerto publicado.
+
 ## Crons de Orbit (crontab de `gon`, ADITIVO)
 
 Tres jobs NUEVOS en el crontab de `gon`. Los de accounting (y el resto:

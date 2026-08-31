@@ -4,6 +4,8 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-08-31 — ORBIT 06 tarea 0.6 CERRADA en código y corrida viva: el libro de Amazon ya está en Orbit.** Se copiaron **8,041 hechos** (1,650 ventas, 4,221 fees, 2,034 retenciones, 136 refunds) desde contabilidad; MeLi quedó fuera; el ISR sin orden entró sin prorratear; las reversas positivas no se voltearon. Re-correrla no escribe nada.
+
 **2026-08-31 — ORBIT 06 tarea 0.5 lista de código: la ingesta de tipos de cambio ya corrige las etiquetas invertidas de contabilidad** (`MXN/USD ~17` → `USD/MXN` mismo número), así que las tasas ya sirven para convertir dólares a pesos. Falta la corrida real del lead contra la base viva.
 
 **2026-08-31 — ORBIT 06 tarea 0.4 EN CURSO: el vínculo anuncio→producto ya no vive en el grupo.** El dueño eligió atribuir margen al **anuncio de producto**, no al grupo: en Estados Unidos ningún grupo vende un solo ASIN, así que el modelo viejo dejaba esa cuenta entera sin margen. Se materializan anuncios ENABLED y PAUSED; los archivados no se guardan. El `listing_id` se escribe solo en esas filas nuevas, nunca en el grupo. **CERRADA el 2026-08-31**: el lead aplicó la migración (con respaldo verificado del esquema y chequeo previo), desplegó y corrió la ingesta real contra Amazon.
