@@ -82,6 +82,39 @@ def test_resumen_no_mezcla_monedas():
     assert all(v["gasto_total"] == Decimal("100") for v in resumen.values())
 
 
+def test_gasto_sin_fx_no_cuenta_como_cubierto():
+    """qwen r2 [media]: el invariante estaba DECLARADO (proteccion 5 del
+    docstring) pero ningun test lo ejercitaba — `+= gasto` a secas dejaba
+    la suite verde. Aqui un grupo cubierto con TODO su gasto sin tasa no
+    aporta nada al cubierto, y uno parcial aporta solo la parte con tasa."""
+    from decimal import Decimal
+
+    filas = [
+        ("amazon_us", "USD", "cubierto_multi_asin", 1, Decimal("100"), Decimal("100")),
+        ("amazon_us", "USD", "cubierto_unico", 1, Decimal("50"), Decimal("20")),
+    ]
+    resumen = resumen_por_plataforma(filas)
+    fila = resumen[("amazon_us", "USD")]
+    assert fila["gasto_total"] == Decimal("150")
+    assert fila["gasto_cubierto"] == Decimal("30"), "solo los 50-20 con tasa"
+    assert fila["gasto_cubierto_unico"] == Decimal("30")
+    assert fila["gasto_sin_fx"] == Decimal("120")
+    assert fila["pct"] == 20.0
+
+
+def test_ventana_invalida_es_error_de_uso_sin_conectar(monkeypatch, capsys):
+    """qwen r2 (baja): --ventana-dias 0 salia exit 1 tras abrir conexion;
+    es un error de OPERADOR: exit 2 y jamas se conecta."""
+
+    def _no_conectar(_dsn):
+        raise AssertionError("no debe conectarse con ventana invalida")
+
+    monkeypatch.setenv("ORBIT_DSN_READ", "postgresql://x@127.0.0.1/x")
+    monkeypatch.setattr("app.cobertura.connect", _no_conectar)
+    assert main(["--ventana-dias", "0"]) == 2
+    assert "ventana-dias" in capsys.readouterr().err
+
+
 def test_main_sin_dsn_falla_cerrado(monkeypatch, capsys):
     """Rol de LECTURA (minimo privilegio, hallazgo codex): jamas el de
     decision para un reporte."""
@@ -216,8 +249,50 @@ def test_cobertura_clasifica_y_pondera_en_vivo():
         kw_e = entidad("keyword", "KE", ag_e)
         metrica(kw_e, 60)
 
+        # grupo F (amazon_us): cadena RESUELTA pero gasto USD sin NINGUNA
+        # tasa en fx_rate -> fx_ok falso, cubierto NO lo cuenta (qwen r2).
+        def entidad_us(kind, ext, parent=None, listing=None):
+            match, texto = ("EXACT", ext) if kind == "keyword" else (None, None)
+            eid = conn.execute(
+                "INSERT INTO ad_entity (platform, kind, external_id, parent_id,"
+                " listing_id, match_type, keyword_text)"
+                " VALUES ('amazon_us', %s, %s, %s, %s, %s, %s) RETURNING id",
+                (kind, ext, parent, listing, match, texto),
+            ).fetchone()[0]
+            conn.execute(
+                "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+                " VALUES (%s, 'ENABLED', now())",
+                (eid,),
+            )
+            return eid
+
+        lus = conn.execute(
+            "INSERT INTO listing (product_id, platform, external_id)"
+            " VALUES (%s, 'amazon_us', 'B0FFF') RETURNING id",
+            (p1,),
+        ).fetchone()[0]
+        cam_us = entidad_us("campaign", "CU")
+        ag_f = entidad_us("ad_group", "F", cam_us)
+        entidad_us("product_ad", "F1", ag_f, lus)
+        kw_f = entidad_us("keyword", "KF", ag_f)
+        conn.execute(
+            "INSERT INTO ads_metric_observation (ad_entity_id, metric_date,"
+            " observed_at, metric_currency, cost, ingest_run_id)"
+            " VALUES (%s, %s, now(), 'USD', 80, %s)",
+            (kw_f, (date.today() - timedelta(days=20)).isoformat(), run_id),
+        )
+
         filas = medir_cobertura(conn, dias=30)
-        por_estado = {f[2]: f for f in filas}
+        por_estado = {f[2]: f for f in filas if f[0] == "amazon_mx"}
+        fila_us = [f for f in filas if f[0] == "amazon_us"]
+        assert len(fila_us) == 1
+        assert fila_us[0][2] == "cubierto_unico"
+        assert fila_us[0][5] == 80, "TODO el gasto USD quedo sin tasa (fx_rate vacia)"
+        resumen_us = resumen_por_plataforma(fila_us)[("amazon_us", "USD")]
+        assert resumen_us["gasto_cubierto"] == 0, (
+            "cadena resuelta pero SIN tasa: no cuenta como cubierto"
+        )
+        assert resumen_us["gasto_sin_fx"] == 80
 
         assert por_estado["cubierto_unico"][4] == 100
         assert por_estado["cubierto_multi_asin"][4] == 300
