@@ -4,6 +4,8 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-08-31 — ORBIT 06 tarea 0.4 EN CURSO: el vínculo anuncio→producto ya no vive en el grupo.** El dueño eligió atribuir margen al **anuncio de producto**, no al grupo: en Estados Unidos ningún grupo vende un solo ASIN, así que el modelo viejo dejaba esa cuenta entera sin margen. Se materializan anuncios ENABLED y PAUSED; los archivados no se guardan. El `listing_id` se escribe solo en esas filas nuevas, nunca en el grupo. Falta que el lead aplique la migración 0004 en el servidor y corra la ingesta de estructura contra Amazon.
+
 **2026-08-31 — Un hallazgo que cambia la tarea siguiente: casi ningún grupo de anuncios vende un solo producto.** Apenas quedó vivo el permiso de la 0.3, el lead midió lo que el plan tenía como desconocido. El plan proponía que, si un grupo anuncia varios productos, no se le atribuyera margen y se contara aparte — dando por hecho que era el caso raro. **Es al revés**: entre los grupos con anuncios activos, en México sólo 4 de 32 venden un producto único, y **en Estados Unidos ninguno de los 48**. El peor caso llega a 1,259 productos en un solo grupo.
 
 Con esa política, la cuenta de Estados Unidos habría quedado **entera** sin margen atribuible. Queda descartada, y la tarea siguiente ya no arranca programando sino **eligiendo cómo atribuir el margen cuando un grupo vende muchos productos** — una decisión del dueño, porque cambia qué significa el número. Las tres salidas posibles quedan escritas en el plan con su costo.

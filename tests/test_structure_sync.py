@@ -36,6 +36,7 @@ from app.ads.structure import (
     PATH_AD_GROUPS,
     PATH_CAMPAIGNS,
     PATH_KEYWORDS,
+    PATH_PRODUCT_ADS,
     PATH_TARGETS,
     AdsStructureError,
     EstructuraAds,
@@ -198,12 +199,14 @@ _SP_DATOS = {
         "adGroups": AD_GROUPS_US,
         "keywords": KEYWORDS_US,
         "targetingClauses": TARGETS_US,
+        "productAds": [],
     },
     "202": {
         "campaigns": CAMPANAS_MX,
         "adGroups": AD_GROUPS_MX,
         "keywords": KEYWORDS_MX,
         "targetingClauses": TARGETS_MX,
+        "productAds": [],
     },
 }
 
@@ -212,6 +215,7 @@ _PATH_CLAVE = {
     "/sp/adGroups/list": "adGroups",
     "/sp/keywords/list": "keywords",
     "/sp/targets/list": "targetingClauses",
+    "/sp/productAds/list": "productAds",
 }
 
 
@@ -228,7 +232,7 @@ def _cliente(handler) -> AdsClient:
 
 
 def _handler_sp(perfiles: list[dict], sp_datos: dict, registro: list[dict]):
-    """Sirve GET /v2/profiles + los 4 POST list por scope.
+    """Sirve GET /v2/profiles + los 5 POST list por scope.
 
     campaigns pagina de a 1 item via nextToken (las fixtures traen 2 campanas
     por perfil -> 2 paginas); el resto responde en una sola pagina. Registra
@@ -292,7 +296,13 @@ def test_fetch_usa_get_de_perfiles_y_post_list_con_scope_y_vendor_types():
     # /sp/negativeKeywords/list (evidencia regla 8, 2026-08-25) para la
     # reconciliacion de harvest (APPLY.md §6), que lo consume 2.3 — el sync
     # de estructura NO lo trae.
-    for path in (PATH_CAMPAIGNS, PATH_AD_GROUPS, PATH_KEYWORDS, PATH_TARGETS):
+    for path in (
+        PATH_CAMPAIGNS,
+        PATH_AD_GROUPS,
+        PATH_KEYWORDS,
+        PATH_TARGETS,
+        PATH_PRODUCT_ADS,
+    ):
         llamadas = [r for r in registro if r["path"] == path]
         scopes = sorted(str(r["scope"]) for r in llamadas)
         if path == "/sp/campaigns/list":
@@ -318,10 +328,12 @@ def test_fetch_usa_get_de_perfiles_y_post_list_con_scope_y_vendor_types():
     assert est_us.ad_groups == AD_GROUPS_US
     assert est_us.keywords == KEYWORDS_US
     assert est_us.targets == TARGETS_US
+    assert est_us.product_ads == []
     est_mx = estructura.estructuras[1]
     assert est_mx.perfil.platform == "amazon_mx"
     assert est_mx.campanas == CAMPANAS_MX
     assert est_mx.targets == []
+    assert est_mx.product_ads == []
 
 
 def test_perfiles_rechazados_quedan_fuera_con_motivo_y_sin_llamadas_de_lista():
@@ -754,6 +766,125 @@ def test_items_con_bid_corrupto_se_saltan():
     )
 
 
+def test_clave_contenedora_tiene_product_ads():
+    """Sin esta clave, listar_todo no extrae el contenedor productAds."""
+    from app.ads.structure import _CLAVE_CONTENEDORA, PATH_PRODUCT_ADS
+
+    assert PATH_PRODUCT_ADS == "/sp/productAds/list"
+    assert _CLAVE_CONTENEDORA[PATH_PRODUCT_ADS] == "productAds"
+
+
+def test_listar_todo_extrae_product_ads():
+    from app.ads.structure import PATH_PRODUCT_ADS, listar_todo
+
+    ads = [{"adId": "9401", "asin": "B0X", "state": "ENABLED"}]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return httpx.Response(200, json={"access_token": "fake-access", "expires_in": 3600})
+        if request.url.path == "/sp/productAds/list":
+            return httpx.Response(200, json={"productAds": ads, "totalResults": 1})
+        raise AssertionError(request.url.path)
+
+    assert listar_todo(_cliente(handler), PATH_PRODUCT_ADS, profile_id=101) == ads
+
+
+def test_plan_items_product_ads_filtra_estado_padre_y_asin():
+    """ENABLED y PAUSED entran; ARCHIVED, estado raro, asin vacio y padre
+    ausente se saltan con motivo. Sin el filtro de estado, el archivado
+    entraria y el conteo de items product_ad seria 3 -> truena."""
+    estructura = EstructuraAds(
+        perfiles=[_perfil_us_aceptado()],
+        estructuras=[
+            EstructuraPerfil(
+                perfil=_perfil_us_aceptado(),
+                campanas=[
+                    {
+                        "campaignId": "9001",
+                        "name": "C",
+                        "targetingType": "MANUAL",
+                        "state": "ENABLED",
+                    }
+                ],
+                ad_groups=[
+                    {
+                        "adGroupId": "9101",
+                        "campaignId": "9001",
+                        "defaultBid": 0.5,
+                        "state": "ENABLED",
+                    }
+                ],
+                keywords=[],
+                targets=[],
+                product_ads=[
+                    {
+                        "adId": "9401",
+                        "adGroupId": "9101",
+                        "campaignId": "9001",
+                        "asin": "B0ON",
+                        "state": "ENABLED",
+                    },
+                    {
+                        "adId": "9402",
+                        "adGroupId": "9101",
+                        "asin": "B0OFF",
+                        "sku": "SKU-OFF",
+                        "state": "PAUSED",
+                    },
+                    {
+                        "adId": "9403",
+                        "adGroupId": "9101",
+                        "asin": "B0OLD",
+                        "state": "ARCHIVED",
+                    },
+                    {
+                        "adId": "9404",
+                        "adGroupId": "9101",
+                        "asin": "B0WTF",
+                        "state": "FOO",
+                    },
+                    {"adId": "9405", "adGroupId": "9101", "state": "ENABLED"},
+                    {
+                        "adId": "9406",
+                        "adGroupId": "9999",
+                        "asin": "B0ORPH",
+                        "state": "ENABLED",
+                    },
+                    {"adGroupId": "9101", "asin": "B0NOID", "state": "ENABLED"},
+                    {
+                        "adId": "9408",
+                        "adGroupId": "9101",
+                        "campaignId": "8888",
+                        "asin": "B0BADC",
+                        "state": "ENABLED",
+                    },
+                ],
+            )
+        ],
+    )
+
+    items, skips = _plan_items(estructura)
+    ads = [item for item in items if item.kind == "product_ad"]
+
+    assert [item.external_id for item in ads] == ["9401", "9402"]
+    assert ads[0].name == "B0ON"
+    assert ads[0].parent_ref == ("amazon_us", "ad_group", "9101")
+    assert ads[0].match_type is None and ads[0].keyword_text is None
+    assert ads[0].bid is None and ads[0].bid_currency is None
+    assert ads[0].status == "ENABLED"
+    assert ads[1].status == "PAUSED"
+    assert skips == Counter(
+        {
+            "product ad archivado": 1,
+            "product ad estado desconocido": 1,
+            "product ad sin asin": 1,
+            "product ad sin ad group planificado": 1,
+            "product ad sin adId": 1,
+            "product ad con campaignId distinto al de su ad group (payload incoherente)": 1,
+        }
+    )
+
+
 # ---------------------------------------------------------------------------
 # (a) UNITARIOS - fail-closed del __main__ y guarda SQL
 # ---------------------------------------------------------------------------
@@ -783,6 +914,8 @@ def test_sql_del_modulo_parsea_como_postgres():
         "_SQL_SELLAR_RUN",
         "_SQL_UPSERT_ENTIDAD",
         "_SQL_UPSERT_STATE",
+        "_SQL_UPDATE_LISTING_ID",
+        "_SQL_CARGAR_LISTINGS",
     ):
         sql = getattr(estructura_modulo, nombre).replace("%s", "NULL")
         assert pglast.parse_sql(sql), f"{nombre} no parseo"

@@ -455,6 +455,7 @@ ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit \
 ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit \
   -v ON_ERROR_STOP=1 -1' < migrations/0002_apply.sql
 # 0003: ver abajo — exige chequeo previo y backup del schema
+# 0004: ver abajo — ADD VALUE 'product_ad'; la aplica el lead
 ```
 
 - `-1` = transacción única: si algo falla a medias, se revierte entera.
@@ -532,6 +533,27 @@ ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit \
 SELECT column_name, column_default FROM information_schema.columns
  WHERE table_name = 'ads_optimizer_goal'
    AND column_name IN ('bid_floor', 'bid_ceiling');
+```
+
+Migración `0004` (ORBIT 06 0.4) — **NO aplicada todavía en goncloud**. Solo
+hace `ALTER TYPE ad_entity_kind ADD VALUE 'product_ad'`. No toca datos ni
+GRANTs. **No es re-runnable.** El valor nuevo no se puede usar en la misma
+transacción que lo agrega: aplicar, commitear, y recién después correr
+`ingest structure` (pasos separados). La aplica el **lead**, con backup
+previo del schema (runbook 4.1). Verificación post-aplicación:
+
+```sql
+SELECT enumlabel FROM pg_enum e
+  JOIN pg_type t ON t.oid = e.enumtypid
+ WHERE t.typname = 'ad_entity_kind'
+ ORDER BY e.enumsortorder;
+```
+
+Debe listar `product_ad` al final. Comando:
+
+```bash
+ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit \
+  -v ON_ERROR_STOP=1 -1' < migrations/0004_ad_entity_kind_product_ad.sql
 ```
 
 ## Correr los tests desde la máquina dev (túnel SSH)
@@ -782,9 +804,11 @@ disparan), por eso el INSERT dentro de la transacción que se revierte.
    (ver "Levantar"). `ss -lntp` debe mostrar 5432 y 8010 **solo** en
    127.0.0.1.
 5. Aplicar las migraciones EN ORDEN (`0001_initial.sql`, `0002_apply.sql`,
-   `0003_goal_bounds_explicit.sql` — ver "Aplicar migraciones"). Omitir 0003
-   re-crearia los DEFAULT USD 0.10/2.50 que el sellado 2 del preflight
-   elimino: un goal MXN volveria a nacer con techo 2.50.
+   `0003_goal_bounds_explicit.sql`, `0004_ad_entity_kind_product_ad.sql` —
+   ver "Aplicar migraciones"). Omitir 0003 re-crearia los DEFAULT USD
+   0.10/2.50 que el sellado 2 del preflight elimino: un goal MXN volveria a
+   nacer con techo 2.50. Omitir 0004 deja el enum sin `product_ad` y la
+   ingesta de estructura de la 0.4 revienta al insertar ese kind.
 6. Crear los usuarios LOGIN por servicio + `orbit_test` (ver "Usuarios y
    DSN": comandos exactos arriba).
 7. Poblar `secrets/` (amazon_ads_config.json + amazon_ads_tokens.json,
