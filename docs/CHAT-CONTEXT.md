@@ -4,7 +4,13 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
-**2026-08-31 — ORBIT 06 tarea 0.4 EN CURSO: el vínculo anuncio→producto ya no vive en el grupo.** El dueño eligió atribuir margen al **anuncio de producto**, no al grupo: en Estados Unidos ningún grupo vende un solo ASIN, así que el modelo viejo dejaba esa cuenta entera sin margen. Se materializan anuncios ENABLED y PAUSED; los archivados no se guardan. El `listing_id` se escribe solo en esas filas nuevas, nunca en el grupo. Falta que el lead aplique la migración 0004 en el servidor y corra la ingesta de estructura contra Amazon.
+**2026-08-31 — ORBIT 06 tarea 0.4 EN CURSO: el vínculo anuncio→producto ya no vive en el grupo.** El dueño eligió atribuir margen al **anuncio de producto**, no al grupo: en Estados Unidos ningún grupo vende un solo ASIN, así que el modelo viejo dejaba esa cuenta entera sin margen. Se materializan anuncios ENABLED y PAUSED; los archivados no se guardan. El `listing_id` se escribe solo en esas filas nuevas, nunca en el grupo. **CERRADA el 2026-08-31**: el lead aplicó la migración (con respaldo verificado del esquema y chequeo previo), desplegó y corrió la ingesta real contra Amazon.
+
+**Resultado**: se materializaron **12,527 anuncios** (7,709 en México, 4,818 en Estados Unidos) y se descartaron 25,454 archivados. **8,626 quedaron ligados a su producto (69 %)**, y ninguna otra entidad recibió el vínculo — el grupo quedó en nulo como se decidió.
+
+**El dato que importa para la fase siguiente**: de los anuncios que resuelven producto, **el 100 % llega hasta un costo**. La cadena anuncio → producto → costo no pierde nada por el camino, así que el margen ya se puede calcular para ese 69 %. El hueco restante son 3,901 anuncios cuyo producto no está mapeado — el mismo hueco de la tarea anterior, ahora visible a nivel de anuncio.
+
+Antes de aprobar, el lead verificó que meter 12 mil entidades nuevas **no contamina al motor** (todas sus consultas de decisión filtran por tipo) y que la descarga diaria entra con margen. Una objeción suya se disolvió al revisar: temía que la frescura de la estructura se falseara, pero la ingesta quedó integrada al sync existente en vez de correr aparte.
 
 **2026-08-31 — Un hallazgo que cambia la tarea siguiente: casi ningún grupo de anuncios vende un solo producto.** Apenas quedó vivo el permiso de la 0.3, el lead midió lo que el plan tenía como desconocido. El plan proponía que, si un grupo anuncia varios productos, no se le atribuyera margen y se contara aparte — dando por hecho que era el caso raro. **Es al revés**: entre los grupos con anuncios activos, en México sólo 4 de 32 venden un producto único, y **en Estados Unidos ninguno de los 48**. El peor caso llega a 1,259 productos en un solo grupo.
 
