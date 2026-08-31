@@ -176,10 +176,12 @@ def _archivar_anuncios(args) -> int:
 
     try:
         resultados = archivar.archivar_anuncios(escritor, ad_ids, ejecutar=ejecutar)
-    except ValueError as exc:
-        # p.ej. adIds repetidos: el modulo aborta ANTES de mutar. El
-        # envoltorio tiene que contarlo como error de uso, no escupir un
-        # traceback (hallazgo cross-review codex/grok 2026-08-30).
+    except archivar.ListaInvalida as exc:
+        # SOLO la lista invalida: el modulo aborta ANTES de mutar, asi que
+        # esto es un error de uso (exit 2) y no merece traceback. Un
+        # ValueError generico NO se atrapa aca a proposito — despues de
+        # mutar significaria "no paso nada" cuando los anuncios ya se
+        # archivaron (hallazgo CodeRabbit 2026-08-30).
         print(scrub(str(exc)), file=sys.stderr)
         return 2
 
@@ -218,7 +220,8 @@ def _reponer_anuncios(args) -> int:
     )
     try:
         resultados = archivar.reponer_anuncios(escritor, lineas, ejecutar=ejecutar)
-    except ValueError as exc:
+    except archivar.ListaInvalida as exc:
+        # Mismo trato: las lineas se parsean TODAS antes de crear nada.
         print(scrub(str(exc)), file=sys.stderr)
         return 2
 

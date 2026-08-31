@@ -659,11 +659,15 @@ def test_cli_archivar_ids_repetidos_da_error_de_uso_sin_traceback(monkeypatch, t
     _monta_archivado(monkeypatch)
 
     def _revienta(*_a, **_k):
-        raise ValueError("hay adIds repetidos en la lista: se aborta antes de mutar")
+        raise cli.archivar.ListaInvalida(
+            "hay adIds repetidos en la lista: se aborta antes de mutar"
+        )
 
     monkeypatch.setattr(cli.archivar, "archivar_anuncios", _revienta)
     assert cli.main(_argv(tmp_path, ("111", "111"), confirmar="live")) == 2
-    assert "repetidos" in capsys.readouterr().err
+    error = capsys.readouterr().err
+    assert "repetidos" in error
+    assert "Traceback" not in error, "el nombre del test exige que NO haya traceback"
 
 
 def _monta_reponer(monkeypatch) -> dict:
@@ -709,8 +713,26 @@ def test_cli_reponer_linea_rota_es_error_de_uso(monkeypatch, tmp_path, capsys):
     _monta_reponer(monkeypatch)
 
     def _revienta(*_a, **_k):
-        raise ValueError("linea de reversa sin campaignId: 'adGroupId=77'")
+        raise cli.archivar.ListaInvalida("linea de reversa sin campaignId: 'adGroupId=77'")
 
     monkeypatch.setattr(cli.archivar, "reponer_anuncios", _revienta)
     assert cli.main(_argv_reponer(tmp_path, ("adGroupId=77",), confirmar="live")) == 2
     assert "sin campaignId" in capsys.readouterr().err
+
+
+def test_cli_archivar_un_error_DESPUES_de_mutar_no_se_disfraza_de_error_de_uso(
+    monkeypatch, tmp_path
+):
+    """Exit 2 significa "argumentos invalidos, no paso nada". Si la relectura
+    posterior reventara (una respuesta que no parsea, p.ej.), los anuncios YA
+    estarian archivados: devolver 2 ahi mentiria sobre lo que ocurrio. Solo
+    la lista invalida —detectada ANTES de mutar— vale como error de uso
+    (hallazgo CodeRabbit 2026-08-30)."""
+    _monta_archivado(monkeypatch)
+
+    def _revienta_despues(*_a, **_k):
+        raise ValueError("Expecting value: line 1 column 1 (char 0)")
+
+    monkeypatch.setattr(cli.archivar, "archivar_anuncios", _revienta_despues)
+    with pytest.raises(ValueError, match="Expecting value"):
+        cli.main(_argv(tmp_path, ("111",), confirmar="live"))

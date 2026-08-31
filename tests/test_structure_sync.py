@@ -914,8 +914,18 @@ def test_sql_del_modulo_parsea_como_postgres():
     # integracion, que skipea sin Postgres (hallazgo cross-review grok
     # 2026-08-30). Asi, una constante nueva entra sola a la guarda.
     nombres = sorted(n for n in vars(estructura_modulo) if n.startswith("_SQL_"))
-    assert "_SQL_MARCAR_ARCHIVADOS" in nombres, "la guarda perdio de vista una constante SQL"
-    assert len(nombres) >= 7, f"muy pocas constantes SQL detectadas: {nombres}"
+    imprescindibles = {
+        "_SQL_ABRIR_RUN",
+        "_SQL_SELLAR_RUN",
+        "_SQL_UPSERT_ENTIDAD",
+        "_SQL_UPSERT_STATE",
+        "_SQL_UPDATE_LISTING_ID",
+        "_SQL_CARGAR_LISTINGS",
+        "_SQL_MARCAR_ARCHIVADOS",
+    }
+    assert imprescindibles <= set(nombres), (
+        f"la guarda perdio de vista {sorted(imprescindibles - set(nombres))}"
+    )
     for nombre in nombres:
         sql = getattr(estructura_modulo, nombre).replace("%s", "NULL")
         assert pglast.parse_sql(sql), f"{nombre} no parseo"

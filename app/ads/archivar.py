@@ -43,6 +43,18 @@ ESTADO_PAUSADO = "PAUSED"
 IDS_POR_LECTURA = 100
 
 
+class ListaInvalida(ValueError):
+    """La lista que trajo el operador no sirve, y se sabe ANTES de mutar.
+
+    Tiene tipo propio (y no un ValueError pelado) para que el CLI pueda
+    distinguirla de un ValueError cualquiera que aparezca DESPUES de haber
+    mutado — p.ej. una respuesta que no parsea en la relectura. Ese caso NO
+    es un error de uso: los anuncios ya se archivaron, y reportarlo como
+    "argumentos invalidos" diria que no paso nada cuando si paso (hallazgo
+    CodeRabbit 2026-08-30).
+    """
+
+
 @dataclass(frozen=True)
 class ResultadoAnuncio:
     """Que le paso a UN anuncio. `resultado` es vocabulario cerrado.
@@ -196,7 +208,7 @@ def parsear_reversa(linea: str) -> dict[str, str]:
             datos[clave] = valor
     faltan = [c for c in ("adGroupId", "campaignId", "sku") if c not in datos]
     if faltan:
-        raise ValueError(f"linea de reversa sin {', '.join(faltan)}: {linea.strip()!r}")
+        raise ListaInvalida(f"linea de reversa sin {', '.join(faltan)}: {linea.strip()!r}")
     datos.setdefault("state", ESTADO_PAUSADO)
     return datos
 
@@ -301,7 +313,7 @@ def archivar_anuncios(
     """
     ids = [str(x) for x in ad_ids]
     if len(set(ids)) != len(ids):
-        raise ValueError("hay adIds repetidos en la lista: se aborta antes de mutar")
+        raise ListaInvalida("hay adIds repetidos en la lista: se aborta antes de mutar")
 
     filas = leer_anuncios(escritor, ids)
     previos = {k: str(v["state"]) for k, v in filas.items()}
