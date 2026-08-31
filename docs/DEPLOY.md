@@ -615,6 +615,48 @@ ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit \
   -v ON_ERROR_STOP=1 -1' < migrations/0004_ad_entity_kind_product_ad.sql
 ```
 
+Migración `0005` (ORBIT 06 0.7 — hallazgo de qwen en la review 3.3, doble
+conteo confirmado en vivo el 2026-08-31) — **NO aplicada todavía en
+goncloud**. `CREATE OR REPLACE VIEW v_tacos`: filtra el CTE `gasto` a
+`e.kind IN ('keyword', 'product_target')`, el mismo grano del motor de
+decisión y del candado de cobertura. Sin el filtro, `ads_metric_observation`
+guarda el mismo costo en la fila `kind='campaign'` Y en sus hijas
+keyword/product_target, y `v_tacos` lo sumaba dos veces (gasto_ads inflado
+~2x, tacos_pct inflado ~2x). **Re-runnable** (`CREATE OR REPLACE`); la lista
+de columnas de `v_tacos` no cambia. La aplica el **lead**. Comando:
+
+```bash
+ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit \
+  -v ON_ERROR_STOP=1 -1' < migrations/0005_v_tacos_grano_unico.sql
+```
+
+Verificación post-aplicación (reviewer 2026-08-31: "cae a la mitad" no
+distingue el filtro correcto de uno sobre-agresivo — tirar también los
+targets también "baja"). Se verifica el GRANO desglosando el costo maduro
+por kind, y de paso se publica el residuo campaign − (keyword+target):
+
+```sql
+-- (a) desglose por kind Y MES (sin el mes, el total jamas cuadra contra la
+--     fila mensual de la vista):
+SELECT e.platform, date_trunc('month', m.metric_date)::date AS mes, e.kind,
+       round(sum(m.cost), 2) AS gasto
+  FROM v_metric_mature m JOIN ad_entity e ON e.id = m.ad_entity_id
+ WHERE m.cost IS NOT NULL
+ GROUP BY 1, 2, 3 ORDER BY 1, 2 DESC, 3;
+
+-- (b) la vista, tras el filtro:
+SELECT platform, mes, gasto_ads, tacos_pct FROM v_tacos ORDER BY platform, mes DESC LIMIT 6;
+```
+
+Cómo cuadrar (reviewer r2): en `amazon_mx` (costo sellado en MXN),
+`gasto_ads` del mes = suma keyword+product_target de (a) **1:1**. En
+`amazon_us` el costo está sellado en USD y `gasto_ads` sale convertido a
+MXN: NO cuadra en absoluto — se compara la RELACIÓN (campaign vs
+keyword+target debe ser ~1:1 en (a), y `gasto_ads` ≈ suma×tasa). La brecha
+campaign − (keyword+target) de (a) es el residuo declarado en la 0005. El
+`tacos_pct` publicado cambia de un día para otro (~mitad) — avisar al dueño
+ANTES de aplicar, no después.
+
 ## Correr los tests desde la máquina dev (túnel SSH)
 
 La suite de integración (`test_migracion_rechaza_en_vivo`) necesita un
@@ -863,11 +905,13 @@ disparan), por eso el INSERT dentro de la transacción que se revierte.
    (ver "Levantar"). `ss -lntp` debe mostrar 5432 y 8010 **solo** en
    127.0.0.1.
 5. Aplicar las migraciones EN ORDEN (`0001_initial.sql`, `0002_apply.sql`,
-   `0003_goal_bounds_explicit.sql`, `0004_ad_entity_kind_product_ad.sql` —
-   ver "Aplicar migraciones"). Omitir 0003 re-crearia los DEFAULT USD
-   0.10/2.50 que el sellado 2 del preflight elimino: un goal MXN volveria a
-   nacer con techo 2.50. Omitir 0004 deja el enum sin `product_ad` y la
-   ingesta de estructura de la 0.4 revienta al insertar ese kind.
+   `0003_goal_bounds_explicit.sql`, `0004_ad_entity_kind_product_ad.sql`,
+   `0005_v_tacos_grano_unico.sql` — ver "Aplicar migraciones"). Omitir 0003
+   re-crearia los DEFAULT USD 0.10/2.50 que el sellado 2 del preflight
+   elimino: un goal MXN volveria a nacer con techo 2.50. Omitir 0004 deja el
+   enum sin `product_ad` y la ingesta de estructura de la 0.4 revienta al
+   insertar ese kind. Omitir 0005 reproduce el doble conteo de gasto en
+   `v_tacos` (TACoS inflado ~2x) en la instalacion nueva.
 6. Crear los usuarios LOGIN por servicio + `orbit_test` (ver "Usuarios y
    DSN": comandos exactos arriba).
 7. Poblar `secrets/` (amazon_ads_config.json + amazon_ads_tokens.json,

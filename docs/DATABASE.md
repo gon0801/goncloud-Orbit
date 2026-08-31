@@ -514,7 +514,10 @@ Regímenes de lectura, explícitos (reemplazan al "todo lee lo maduro"):
   del cero; lo atrapa `external_reconciliation`, no esta vista.
 - **`v_tacos`** — **por plataforma** (no por moneda: amazon_us gasta en USD
   pero vende en MXN, y amazon_mx + meli comparten MXN): gasto desde
-  `ads_metric_observation` vía `ad_entity.platform`, venta desde `ledger_event`
+  `ads_metric_observation` vía `ad_entity.platform` **al grano
+  keyword + product_target desde 0005** (las métricas guardan el mismo costo
+  también en la fila `campaign`; sumar ambos granos duplicaba el gasto ~2x —
+  bug confirmado en vivo 2026-08-31), venta desde `ledger_event`
   por plataforma. **Ventanas simétricas**: ambos lados cortan en **D−15 UTC**
   (el gasto vía `v_metric_mature`; la venta con la misma expresión
   `(now() AT TIME ZONE 'UTC')::date − 15`) — antes la venta tomaba todo el
