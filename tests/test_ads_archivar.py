@@ -456,3 +456,45 @@ def test_un_207_con_rechazo_al_reponer_es_fallo():
     )
     assert resultado.resultado == "fallo"
     assert "NO_SKU" in resultado.detalle
+
+
+def test_el_rechazo_REAL_de_amazon_al_crear_se_lee_como_fallo():
+    """El ack de la sonda del 2026-08-31, TAL CUAL lo devolvio Amazon.
+
+    Los otros tests del 207 usan un cuerpo inventado por nosotros; este usa
+    el shape REAL, capturado en vivo al intentar crear un anuncio con un sku
+    inexistente. Si el parser solo entendiera nuestra version de juguete,
+    este test lo delata.
+    """
+    ack_real = {
+        "productAds": {
+            "error": [
+                {
+                    "errors": [
+                        {
+                            "errorType": "adEligibilityError",
+                            "errorValue": {
+                                "adEligibilityError": {
+                                    "cause": {},
+                                    "message": "Product is ineligible for advertising",
+                                    "reason": "AD_INELIGIBLE",
+                                }
+                            },
+                        }
+                    ],
+                    "index": 0,
+                }
+            ],
+            "success": [],
+        }
+    }
+    handler, _ = _handler_create(httpx.Response(207, json=ack_real))
+    (resultado,) = reponer_anuncios(
+        make_write_client(handler),
+        ["adGroupId=224640906079130 campaignId=177498916708097 sku=NO-EXISTE state=PAUSED"],
+        ejecutar=True,
+        avisar=lambda _m: None,
+        dormir=lambda _s: None,
+    )
+    assert resultado.resultado == "fallo", "un 207 con error[] NO es exito"
+    assert "AD_INELIGIBLE" in resultado.detalle
