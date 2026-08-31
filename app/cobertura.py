@@ -14,6 +14,12 @@ Vocabulario cerrado de estados (un grupo cae en EXACTAMENTE uno):
 - cubierto_multi_asin la cadena resuelve completa pero el grupo anuncia
                       VARIOS productos: margen computable a nivel grupo; la
                       atribucion por producto es decision de la vista 1.1.
+                      El resumen publica DOS numeros — cobertura a nivel
+                      grupo (unico+multi) y estricta (solo mono-producto) —
+                      porque el DoD original listaba multi-ASIN como no
+                      cubierto ANTES de que la 0.4 midiera que casi todo el
+                      gasto es multi-ASIN (MX 4/32, US 0/48 mono-producto).
+                      El umbral lo decide el dueno viendo LOS DOS.
 - sin_costo           todos los ads con listing, pero algun producto sin
                       costo VIGENTE (valid_to IS NULL) en sku_cost.
 - sin_listing         algun ad vivo sin listing_id: el producto anunciado ni
@@ -29,8 +35,16 @@ Ponderacion por GASTO y jamas un SUM mezclando monedas (regla 4): todo sale
 por (plataforma, moneda). `gasto_sin_fx` cuenta el gasto no-MXN de dias sin
 tasa utilizable via fx_resolve (sellado 3: la funcion no se toca).
 
-SOLO LECTURA: ORBIT_DSN_DECIDE. La ventana son N dias de metricas MADURAS
-(v_metric_mature, corte D-15): el dia en curso miente (~1.5x) y no se pondera.
+SOLO LECTURA con el rol de lectura (`ORBIT_DSN_READ`, orbit_read: SELECT
+si, escritura no — minimo privilegio, hallazgo cross-review codex). La
+ventana son N dias de metricas MADURAS (v_metric_mature, corte D-15): el dia
+en curso miente (~1.5x) y no se pondera.
+
+LIMITACION DECLARADA (hallazgo codex 2): la clasificacion usa el estado
+ACTUAL de la cadena (product ads vivos HOY, costo vigente HOY). El gasto
+historico de la ventana hereda esa clasificacion — no existe historia de
+membresia de product ads para reconstruir que anunciaba el grupo el dia del
+gasto. Es la aproximacion honesta disponible, y va declarada en la evidencia.
 """
 
 from __future__ import annotations
@@ -140,8 +154,10 @@ def resumen_por_plataforma(filas: list[tuple]) -> dict[tuple[str, str], dict[str
             {
                 "gasto_total": Decimal(0),
                 "gasto_cubierto": Decimal(0),
+                "gasto_cubierto_unico": Decimal(0),
                 "gasto_sin_fx": Decimal(0),
                 "pct": 0.0,
+                "pct_estricta": 0.0,
             },
         )
         fila["gasto_total"] += gasto
@@ -150,9 +166,12 @@ def resumen_por_plataforma(filas: list[tuple]) -> dict[tuple[str, str], dict[str
             # El gasto sin FX no cuenta como cubierto aunque la cadena de
             # producto resuelva: sin tasa no hay margen comparable.
             fila["gasto_cubierto"] += gasto - gasto_sin_fx
+        if estado == "cubierto_unico":
+            fila["gasto_cubierto_unico"] += gasto - gasto_sin_fx
     for fila in resumen.values():
         if fila["gasto_total"]:
             fila["pct"] = float(100 * fila["gasto_cubierto"] / fila["gasto_total"])
+            fila["pct_estricta"] = float(100 * fila["gasto_cubierto_unico"] / fila["gasto_total"])
     return resumen
 
 
@@ -172,10 +191,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    dsn = os.environ.get("ORBIT_DSN_DECIDE")
+    dsn = os.environ.get("ORBIT_DSN_READ")
     if not dsn:
         print(
-            "ORBIT_DSN_DECIDE no esta definido: no se puede medir (fail-closed)",
+            "ORBIT_DSN_READ no esta definido: no se puede medir (fail-closed)",
             file=sys.stderr,
         )
         return 2
@@ -195,7 +214,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  {plataforma:10} {moneda} {estado:22} grupos={grupos:4} gasto={gasto}{extra}")
     for (plataforma, moneda), fila in sorted(resumen_por_plataforma(filas).items()):
         print(
-            f">> {plataforma} ({moneda}): cobertura {fila['pct']:.1f}%"
+            f">> {plataforma} ({moneda}): cobertura a nivel GRUPO {fila['pct']:.1f}%"
             f"  ({fila['gasto_cubierto']} de {fila['gasto_total']})"
+            f"  |  estricta (grupo mono-producto) {fila['pct_estricta']:.1f}%"
         )
+    print(
+        "NOTA: 'a nivel grupo' = la cadena resuelve para TODOS los productos"
+        " del grupo; la atribucion por-producto de los multi-ASIN la define"
+        " la vista 1.1. 'estricta' = solo grupos mono-producto."
+    )
     return 0

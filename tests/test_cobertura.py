@@ -66,6 +66,8 @@ def test_resumen_pondera_por_gasto_no_por_conteo():
     assert fila["gasto_total"] == Decimal("1009")
     assert fila["gasto_cubierto"] == Decimal("1000")
     assert round(fila["pct"], 1) == 99.1
+    # multi-ASIN NO cuenta en la estricta: los dos numeros divergen a la vista
+    assert fila["pct_estricta"] == 0.0
 
 
 def test_resumen_no_mezcla_monedas():
@@ -81,9 +83,11 @@ def test_resumen_no_mezcla_monedas():
 
 
 def test_main_sin_dsn_falla_cerrado(monkeypatch, capsys):
-    monkeypatch.delenv("ORBIT_DSN_DECIDE", raising=False)
+    """Rol de LECTURA (minimo privilegio, hallazgo codex): jamas el de
+    decision para un reporte."""
+    monkeypatch.delenv("ORBIT_DSN_READ", raising=False)
     assert main(["--ventana-dias", "90"]) == 2
-    assert "ORBIT_DSN_DECIDE" in capsys.readouterr().err
+    assert "ORBIT_DSN_READ" in capsys.readouterr().err
 
 
 # ---------------------------------------------------------------------------
@@ -120,10 +124,14 @@ def test_cobertura_clasifica_y_pondera_en_vivo():
         )
 
         def entidad(kind, ext, parent=None, listing=None):
+            # CHECK ad_entity_keyword_coherente: keyword exige match_type y
+            # keyword_text; el resto los exige NULL (esquema real, regla 8).
+            match, texto = ("EXACT", ext) if kind == "keyword" else (None, None)
             eid = conn.execute(
-                "INSERT INTO ad_entity (platform, kind, external_id, parent_id, listing_id)"
-                " VALUES ('amazon_mx', %s, %s, %s, %s) RETURNING id",
-                (kind, ext, parent, listing),
+                "INSERT INTO ad_entity (platform, kind, external_id, parent_id,"
+                " listing_id, match_type, keyword_text)"
+                " VALUES ('amazon_mx', %s, %s, %s, %s, %s, %s) RETURNING id",
+                (kind, ext, parent, listing, match, texto),
             ).fetchone()[0]
             conn.execute(
                 "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
@@ -225,6 +233,7 @@ def test_cobertura_clasifica_y_pondera_en_vivo():
         assert fila["gasto_total"] == 525
         assert fila["gasto_cubierto"] == 400
         assert round(fila["pct"], 1) == 76.2
+        assert round(fila["pct_estricta"], 1) == 19.0  # solo el grupo A (100)
     finally:
         if conn is not None:
             conn.close()
