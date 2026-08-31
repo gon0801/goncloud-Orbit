@@ -947,6 +947,11 @@ def sync_structure(conn: psycopg.Connection, estructura: EstructuraAds) -> Resul
                 )
                 if cur.rowcount:
                     clasificacion["product ad marcado archivado"] += cur.rowcount
+                    # SUMA a rows_written: son filas de ad_entity_state
+                    # REALMENTE escritas. Contarlas solo en skip_reason dejaba
+                    # el ledger de la corrida diciendo menos escrituras de las
+                    # que hubo (hallazgo cross-review codex 2026-08-30).
+                    written += cur.rowcount
 
             skip_reason = _formato_skip_reason(skips + clasificacion)
             _sellar_run(

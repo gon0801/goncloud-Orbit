@@ -174,7 +174,16 @@ def _archivar_anuncios(args) -> int:
         else "MODO: ENSAYO — no sale ninguna mutacion"
     )
 
-    resultados = archivar.archivar_anuncios(escritor, ad_ids, ejecutar=ejecutar)
+    try:
+        resultados = archivar.archivar_anuncios(escritor, ad_ids, ejecutar=ejecutar)
+    except archivar.ListaInvalida as exc:
+        # SOLO la lista invalida: el modulo aborta ANTES de mutar, asi que
+        # esto es un error de uso (exit 2) y no merece traceback. Un
+        # ValueError generico NO se atrapa aca a proposito — despues de
+        # mutar significaria "no paso nada" cuando los anuncios ya se
+        # archivaron (hallazgo CodeRabbit 2026-08-30).
+        print(scrub(str(exc)), file=sys.stderr)
+        return 2
 
     for r in resultados:
         print(f"  {r.ad_id}	{r.estado_previo or '-'}	{r.resultado}	{r.detalle}")
@@ -184,6 +193,59 @@ def _archivar_anuncios(args) -> int:
     if not ejecutar:
         return 0
     return 1 if (cuenta["fallo"] or cuenta["sin_confirmar"]) else 0
+
+
+def _reponer_anuncios(args) -> int:
+    """`reponer-anuncios`: LA REVERSA del archivado (invariante 7).
+
+    Come las lineas `reversa` que imprimio `archivar-anuncios`. CREA
+    anuncios, o sea habilita gasto: mismo candado que el archivado, ensayo
+    por default y `--confirmar live` exacto para mutar.
+    """
+    lineas = _lineas_de(args.reversa_file)
+    if lineas is None:
+        return 2
+    ejecutar = args.confirmar == MODO_ARCHIVADO_LIVE
+    try:
+        escritor = archivar.preparar_escritor(args.platform)
+    except ValueError as exc:
+        print(scrub(str(exc)), file=sys.stderr)
+        return 2
+
+    print(f"plataforma: {args.platform}  lineas de reversa: {len(lineas)}")
+    print(
+        "MODO: LIVE — esto CREA anuncios en la cuenta (habilita gasto)"
+        if ejecutar
+        else "MODO: ENSAYO — no sale ninguna mutacion"
+    )
+    try:
+        resultados = archivar.reponer_anuncios(escritor, lineas, ejecutar=ejecutar)
+    except archivar.ListaInvalida as exc:
+        # Mismo trato: las lineas se parsean TODAS antes de crear nada.
+        print(scrub(str(exc)), file=sys.stderr)
+        return 2
+
+    for r in resultados:
+        print(f"  {r.ad_id}\t{r.resultado}\t{r.detalle}\t{r.reversa}")
+    cuenta = archivar.resumen(resultados)
+    print(f"RESUMEN: {cuenta}")
+    if not ejecutar:
+        return 0
+    return 1 if (cuenta["fallo"] or cuenta["sin_confirmar"]) else 0
+
+
+def _lineas_de(ruta: str) -> list[str] | None:
+    """Lineas no vacias de un archivo del operador; None = ya se aviso."""
+    try:
+        contenido = Path(ruta).read_text(encoding="utf-8")
+    except OSError as exc:
+        print(f"no se pudo leer {ruta}: {scrub(str(exc))}", file=sys.stderr)
+        return None
+    lineas = [x.strip() for x in contenido.splitlines() if x.strip()]
+    if not lineas:
+        print(f"archivo vacio: {ruta}", file=sys.stderr)
+        return None
+    return lineas
 
 
 def _decimal_arg(flag: str):
@@ -397,6 +459,28 @@ def main(argv: list[str] | None = None) -> int:
         help=f"'{MODO_ARCHIVADO_LIVE}' para ARCHIVAR de verdad; sin esto es ensayo",
     )
 
+    p_rep = sub.add_parser(
+        "reponer-anuncios",
+        help=(
+            "LA REVERSA del archivado: vuelve a crear anuncios desde sus lineas "
+            "de reversa (ENSAYO salvo --confirmar live; CREAR habilita gasto)"
+        ),
+        allow_abbrev=False,
+    )
+    p_rep.add_argument(
+        "--platform", required=True, choices=sorted(PLATAFORMAS_MONEDA), help="plataforma"
+    )
+    p_rep.add_argument(
+        "--reversa-file",
+        required=True,
+        help="archivo con UNA linea de reversa por anuncio (la columna que imprime archivar)",
+    )
+    p_rep.add_argument(
+        "--confirmar",
+        default=None,
+        help=f"'{MODO_ARCHIVADO_LIVE}' para CREAR de verdad; sin esto es ensayo",
+    )
+
     args, rest = parser.parse_known_args(argv)
     if args.comando == "cycle":
         # El ciclo ESCRIBE decisiones: un flag mal tipeado que se ignorara en
@@ -413,6 +497,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"argumentos desconocidos para 'goals set': {rest}", file=sys.stderr)
             return 2
         return _goals_set(args)
+    if args.comando == "reponer-anuncios":
+        if rest:
+            print(f"argumentos desconocidos para 'reponer-anuncios': {rest}", file=sys.stderr)
+            return 2
+        return _reponer_anuncios(args)
     if args.comando == "archivar-anuncios":
         if rest:
             print(f"argumentos desconocidos para 'archivar-anuncios': {rest}", file=sys.stderr)

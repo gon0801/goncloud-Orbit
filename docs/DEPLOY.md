@@ -914,3 +914,29 @@ un rato después y los que ya estén `ya_estaba` quedaron bien.
 
 Después de archivar conviene `ingest structure` para que la base refleje el
 estado nuevo.
+
+### La reversa: `reponer-anuncios`
+
+Archivar no se deshace en Amazon, así que la vuelta atrás es **volver a crear
+el anuncio** en su mismo ad group (invariante 7; decisión del dueño
+2026-08-30, a sabiendas de que crear un anuncio habilita gasto).
+
+`archivar-anuncios` imprime, por anuncio, una columna de **reversa** con todo
+lo que hace falta (`adGroupId`, `campaignId`, `sku`, `state`). Se copian esas
+líneas a un archivo y:
+
+```sh
+# ENSAYO (default): no crea nada.
+docker exec -i orbit-app-1 python -m app.cli reponer-anuncios \
+  --platform amazon_mx --reversa-file /tmp/reversa.txt
+
+# De verdad. CREA anuncios: habilita gasto.
+docker exec -i orbit-app-1 python -m app.cli reponer-anuncios \
+  --platform amazon_mx --reversa-file /tmp/reversa.txt --confirmar live
+```
+
+Sin `state` en la línea, repone en **PAUSED**: un anuncio repuesto en ENABLED
+empieza a gastar solo, y eso lo enciende un humano.
+
+Se crea por **SKU**, no por ASIN: la guía de Sponsored Products pide ASIN para
+vendors/KDP y SKU para *sellers*, y el gate de perfiles solo acepta seller.

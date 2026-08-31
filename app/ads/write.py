@@ -107,8 +107,11 @@ MUTATION_REQUEST_TYPES: MappingProxyType[tuple[str, str], str] = MappingProxyTyp
         ("POST", "/sp/negativeKeywords/delete"): "application/vnd.spnegativekeyword.v3+json",
         ("POST", "/sp/keywords"): "application/vnd.spkeyword.v3+json",
         ("POST", "/sp/keywords/delete"): "application/vnd.spkeyword.v3+json",
-        # PENDIENTE-DE-SONDA: shape del delete de product ads.
+        # SELLADO por la limpieza del 2026-08-30 (ver archivar_product_ad).
         ("POST", "/sp/productAds/delete"): "application/vnd.spproductad.v3+json",
+        # La REVERSA del archivado (decision del dueno 2026-08-30, invariante
+        # 7). PENDIENTE-DE-SONDA: ver crear_product_ad.
+        ("POST", "/sp/productAds"): "application/vnd.spproductad.v3+json",
     }
 )
 
@@ -124,6 +127,9 @@ MUTATION_CONTAINERS: MappingProxyType[str, str] = MappingProxyType(
         "/sp/keywords": "keywords",
         "/sp/targets": "targetingClauses",
         "/sp/negativeKeywords": "negativeKeywords",
+        # Misma clave que el list de product ads (_CLAVE_CONTENEDORA de
+        # app/ads/structure.py, verificada en vivo desde 2026-08-31).
+        "/sp/productAds": "productAds",
     }
 )
 
@@ -387,12 +393,69 @@ class AdsWriteClient(AdsClient):
             envolver=False,
         )
 
+    def crear_product_ad(
+        self, ad_group_id: str | int, campaign_id: str | int, sku: str, estado: str
+    ) -> httpx.Response:
+        """POST /sp/productAds: LA REVERSA del archivado (invariante 7).
+
+        Existe porque archivar NO se deshace: Amazon no des-archiva, asi que
+        la unica vuelta atras es volver a crear el anuncio en su mismo ad
+        group. Decision del dueno del 2026-08-30, tomada a sabiendas de que
+        crear un anuncio habilita GASTO — el mismo precio que ya paga el
+        harvest con crear_keyword_exacta.
+
+        `sku` y no `asin` A PROPOSITO: la guia oficial de Sponsored Products
+        pide ASIN para vendors/KDP y SKU para SELLERS, y el gate de perfiles
+        de este repo solo acepta cuentas seller (accountInfo.type). El sku
+        viaja en el mismo payload del list del que salio el anuncio.
+
+        `estado` restaura el que tenia ANTES de archivarse (UPPER, mismo
+        vocabulario que el resto): una reversa que revive en ENABLED algo
+        que estaba PAUSED no es una reversa, es un cambio.
+
+        PENDIENTE-DE-SONDA: a diferencia del delete —sellado en vivo por la
+        corrida del 2026-08-30— este create todavia NO se probo contra
+        Amazon. La sonda segura es un sku INEXISTENTE: si el shape es
+        correcto Amazon rechaza por-item y no crea nada, y si alguna clave
+        estuviera mal (esta API las ignora en silencio) el payload queda sin
+        producto y tambien tiene que rechazar. Un SUCCESS ahi seria la
+        senal de alarma.
+        """
+        return self._mutate(
+            "POST",
+            "/sp/productAds",
+            {
+                "adGroupId": _un_objeto(ad_group_id, "ad_group_id"),
+                "campaignId": _un_objeto(campaign_id, "campaign_id"),
+                "sku": _un_objeto(sku, "sku"),
+                "state": _un_objeto(estado, "estado"),
+            },
+        )
+
     def archivar_product_ad(self, ad_id: str | int) -> httpx.Response:
         """POST /sp/productAds/delete: saca de circulacion UN anuncio.
 
-        PENDIENTE-DE-SONDA: shape supuesto por simetria con los otros dos
-        deletes v3 (POST al sub-path /delete con FILTRO de ids). La clave
-        del id es `adId` — asi lo devuelve el list de product ads.
+        SELLADO EN VIVO por la limpieza del 2026-08-30 (perfil amazon_mx,
+        corrida autorizada por el dueno con el ensayo a la vista): 203
+        anuncios archivados, los 203 confirmados ARCHIVED por readback, cero
+        fallos. El vendor Content-Type de arriba fue aceptado (ningun 415) y
+        el filtro `adIdFilter` se HONRO — no es solo el nombre del openapi.
+
+        CERO COLATERAL, y esto es lo que lo prueba (la pregunta de la
+        cross-review: el readback solo relee los ids pedidos, asi que no
+        veria un archivado de mas). El sync de estructura siguiente recorre
+        la cuenta ENTERA y movio TRES contadores independientes por
+        exactamente 203 -- escritas 18.426 -> 18.223, archivados saltados
+        25.454 -> 25.657, "sin listing" 3.901 -> 3.698 -- mientras "con
+        listing" quedo clavado en 8.626. Si el filtro se hubiera ignorado
+        habrian caido miles; y ni un solo anuncio CON producto mapeado fue
+        tocado.
+
+        El id del filtro es `adId` — asi lo devuelve el list de product ads.
+        OJO: otra API de Amazon (Retail Ad Service, DELETE /productAds) borra
+        product ads con `productAdIdFilter`, y esta API IGNORA EN SILENCIO
+        los filtros que no reconoce: la clave equivocada viaja SIN FILTRO.
+        Clavado en tests/test_ads_write.py.
 
         "Borrar" en Amazon ARCHIVA (state=ARCHIVED): el anuncio queda
         operativamente muerto y su fila sigue saliendo en el list con ese
