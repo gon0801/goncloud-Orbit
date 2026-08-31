@@ -767,6 +767,93 @@ contra el esquema real de `ledger_event` en Orbit.
    `item_tax`, …) puede llenar las columnas homónimas — si se hace, con la
    MISMA moneda del amount y con test; si no, se declara.
 
+### Decisiones de la 0.6 (escritas ANTES del codigo, 2026-08-31)
+
+Cada decision cita medicion propia sobre snapshot/archivo vivo de
+contabilidad (`mode=ro`, 13,145 filas) y el contrato de
+`migrations/0001_initial.sql` (`ledger_convencion_signos` + tres indices
+de dedupe). Re-verificado: `ledger_event` en Orbit = **0 filas**; `listing`
+= 513 (mx 337 / us 176).
+
+**D1 · Alcance: ingerir TODO el libro Amazon; MeLi fuera contado.**
+Orbit esta vacia: no hay ingesta previa de `sale` que respetar. Se leen
+las 8,147 filas `platform IN ('amazon','amazon_us')` y se EXCLUYEN las
+4,998 `meli` (sellado 9), contadas en `rows_skipped` con motivo
+`plataforma meli excluida`. Rename explicito: `amazon` → `amazon_mx`;
+`amazon_us` → `amazon_us`. Cualquier otro valor → skip contado.
+
+**D2 · Mapeo `event_type × fee_category → kind` (tabla, no ifs dispersos).**
+Propuesta del lead adoptada y clavada con test:
+
+| Fuente `event_type` | `fee_category` | Destino `kind` | `fee_type` |
+|---|---|---|---|
+| `sale_gross` | (cualquiera) | `sale` | NULL |
+| `refund` | (cualquiera) | `refund` | `fee_category` o NULL |
+| `fee` | `tax_withheld` / `isr_withheld` | `withholding` | la categoria |
+| `fee` | resto (incl. `ads`) | `fee` | la categoria |
+| otro | — | NO escrito | — |
+
+`fee_category='ads'` (353 filas Amazon) se ingiere como `fee` con
+`fee_type='ads'`: la vista 1.1 decide si resta; esta tarea NO pierde la
+etiqueta (doble conteo ads vs metricas = riesgo de 1.1, no de 0.6).
+
+**D3 · Acceso: mismo runbook de snapshot de la 0.1** (`ingest ledger
+--sqlite`). Snapshot `.backup()` de contabilidad, `mode=ro`, solo SELECT.
+Cadencia manual por ahora. Escritura SOLO en `ledger_event` (+
+`ingest_run`) con `ORBIT_DSN_INGEST`.
+
+**D4 · Signo: TAL CUAL cuando el CHECK lo admite; jamás voltear.**
+Medido Amazon: fee+ 88 / refund+ 15 / sale≤0 = 3. El CHECK
+`ledger_convencion_signos` exige `sale > 0` y
+`fee|refund|withholding <= 0`. Voltear un fee+ a negativo **corrompe**
+`SUM(amount)` (trata una reversa como cargo extra). Descartarlo en
+silencio viola la regla 3. Decision: el monto fuente se conserva sin
+`abs` ni negacion; las filas que tras el mapeo de kind **violarian** el
+CHECK → **NO escritas y contadas** (`viola ledger_convencion_signos`).
+Test: una reversa fee+ NO se voltea y NO se inserta. Residual declarado
+para el lead: meter reversas positivas exigiria migrar el CHECK (fuera
+de alcance de 0.6).
+
+**D5 · `product_id` solo via ASIN→`listing`; jamás por texto de SKU.**
+El `sku` fuente es seller SKU de Amazon (ej. `LQ-FV4D-DY2I`), no
+`product.odoo_sku` (leccion 0.2: join por texto = 1 %). Medido: ASIN en
+`raw_payload` solo en ventas (1,424/1,653 `sale_gross`; 0 en fees).
+Camino: `ASIN` del payload → `listing.(platform, external_id)` →
+`product_id`; sin ASIN o sin listing → `product_id` NULL contado
+(`sin listing para ASIN` / `venta sin ASIN`). Fees/refunds quedan NULL
+de producto (no hay ASIN en payload). `cogs_at_sale` NO se ingiere.
+
+**D6 · Dedupe: `source_event_id = dedupe_key` (unico 8,147/8,147);
+`order_id` vacio → NULL.** Con source id siempre presente en Amazon, la
+re-corrida pega en `ledger_dedupe_source`. Los 400 `order_id=''`
+(20 `isr_withheld` + ads/storage/…) se normalizan a NULL; el ISR
+**entra** (no se excluye ni se prorratea en 0.6: la vista ya expone
+`cargos_sin_orden`). Los indices `sin_orden` / `con_orden` se ejercitan
+en tests con fixtures sin `source_event_id` (DoD: cada clase de cargo
+llega a su indice). Re-corrida: `INSERT … ON CONFLICT DO NOTHING` sobre
+los tres; conflicto = skip contado, base identica.
+
+**D7 · `event_date` → DATE (colapso intradía declarado).** Medido: 1,678
+filas con hora (`2026-01-16 06:52:15`) y 6,469 solo-dia. Destino DATE =
+`date(event_date)` / `fromisoformat(...).date()`. Varias filas el mismo
+dia con distinto `dedupe_key` son hechos distintos (no se fusionan).
+Test: timestamp intradía colapsa al dia sin perder el evento.
+
+**D8 · Desglose fiscal SI; `cogs_at_sale` NO; moneda = la del amount.**
+De `raw_payload` (Orders): `ItemPrice`/`ItemTax` como
+`{CurrencyCode, Amount}` → `item_price`/`item_tax` cuando la moneda
+coincide con `amount_currency`; si diverge o falta → NULL (no se inventa).
+`ShippingPrice`/`ShippingTax` igual. `quantity` = columna fuente (o
+`QuantityShipped` del payload si la columna viene vacia en venta).
+`cogs_at_sale` se ignora (un numero, una fuente: `sku_cost`). Nota
+medida: `amazon_us` trae **100 % currency=MXN** en la fuente — se
+guarda MXN (moneda original reportada), no se inventa USD.
+
+**Forma**: modulo hermano `app/ledger.py`. Data shape: `FilaOrigenLedger`
+(crudo) → `mapear_destino` puro (tabla de kind) → `EventoLedger` (fila
+lista) → `sync_ledger` con mapa `(platform, asin)→product_id` precargado
+desde `listing`.
+
 ## Fase 1 — margen medible y honesto (todavía NO decide nada)
 
 `[lane:gate]` — produce lectura y alertas. Cero escrituras a Amazon.
