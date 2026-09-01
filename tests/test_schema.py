@@ -677,6 +677,18 @@ def test_v_tacos_vivo_filtra_al_grano_keyword_y_target():
     assert "gasto_campaign_sin_contraparte" in cuerpo, (
         "v_tacos vivo sin gasto_campaign_sin_contraparte (migracion 0006 D6)"
     )
+    # Y el ENSANCHAMIENTO sigue clavado en ESTATICO (review del lead sobre la
+    # 1.2): con la 0006, 'campaign' aparece legitimo en el CTE del residual,
+    # asi que el candado global de la 0005 ya no aplicaba — pero soltar la
+    # discriminacion local dejaba pasar sumar 'campaign' al IN del CTE gasto
+    # (la integracion lo caza solo en CI). Se afirma sobre el SUBARBOL del
+    # CTE gasto, patron _tacos_pct_viva.
+    ctes = {c.ctename: c for c in _v_tacos_viva().query.withClause.ctes}
+    assert "gasto" in ctes, "v_tacos vivo sin CTE gasto"
+    assert "campaign" not in repr(ctes["gasto"]), (
+        "el CTE gasto de v_tacos incluye 'campaign': el grano se ensancho y "
+        "el gasto vuelve a contarse doble (0005/0006)"
+    )
 
 
 def test_0006_parsea():

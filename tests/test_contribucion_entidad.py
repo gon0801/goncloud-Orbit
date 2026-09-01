@@ -102,8 +102,13 @@ def _semilla_mx_completa(conn):
         "INSERT INTO product (odoo_sku, name) VALUES ('SKU-MX-1', 'p') RETURNING id"
     ).fetchone()[0]
     lid = conn.execute(
+        # listing_price (250) DISTINTO del neto realizado del ledger (100) a
+        # PROPOSITO (review del lead): si fueran iguales, una mutacion que
+        # usara la vitrina en MX (contra la enmienda D1.mx del sello) pasaria
+        # estos tests identicos. Con 250, el ratio via vitrina seria 40/250 y
+        # todos los asserts exactos (0.4) revientan.
         "INSERT INTO listing (product_id, platform, external_id, listing_price,"
-        " price_currency) VALUES (%s, 'amazon_mx', 'ASIN-MX-1', 100, 'MXN')"
+        " price_currency) VALUES (%s, 'amazon_mx', 'ASIN-MX-1', 250, 'MXN')"
         " RETURNING id",
         (pid,),
     ).fetchone()[0]
