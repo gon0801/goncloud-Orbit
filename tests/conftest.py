@@ -15,6 +15,7 @@ import pytest
 @pytest.fixture(autouse=True)
 def _canal_telegram_deshabilitado(tmp_path_factory, monkeypatch):
     monkeypatch.setenv("ORBIT_SECRETS_DIR", str(tmp_path_factory.mktemp("secrets_vacios")))
+    monkeypatch.delenv("ORBIT_DSN_READ", raising=False)
     from app import notifica
 
     notifica._reset()
