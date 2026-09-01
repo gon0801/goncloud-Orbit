@@ -728,9 +728,9 @@ def test_allowlist_kinds_en_tres_sitios():
     sitios = {
         "v_tacos": repr(_v_tacos_viva().query),
         "cobertura": cob_src,
-        # La definicion VIVA es la de 0008 (CREATE OR REPLACE); afirmar contra
-        # SQL6/SQL7 seria vigilar SQL muerto (misma leccion que _v_tacos_viva).
-        "v_contribucion_entidad": SQL8,
+        # La definicion VIVA es la de 0009 (CREATE OR REPLACE); afirmar contra
+        # SQL6/SQL7/SQL8 seria vigilar SQL muerto (misma leccion que _v_tacos_viva).
+        "v_contribucion_entidad": SQL9,
     }
     for nombre, cuerpo in sitios.items():
         assert "'keyword'" in cuerpo and "'product_target'" in cuerpo, (
@@ -792,7 +792,18 @@ def _vista_de(stmts, nombre):
 
 
 def _columnas_vista(viewstmt):
-    return [c.name for c in viewstmt.query.targetList]
+    # Alias si hay; si la columna es una referencia desnuda (c.col), su nombre
+    # real es el del ColumnRef (0009 nombra con AS las columnas que 0008 dejaba
+    # desnudas: la interfaz no cambio, el alias solo se hizo explicito).
+    cols = []
+    for c in viewstmt.query.targetList:
+        if c.name:
+            cols.append(c.name)
+        elif isinstance(c.val, ast.ColumnRef):
+            cols.append(c.val.fields[-1].sval)
+        else:
+            cols.append(None)
+    return cols
 
 
 def test_0007_parsea_y_reemplaza_ambas_vistas():
@@ -889,6 +900,38 @@ def test_0008_direccion_fx_y_grano_sellados_intactos():
     assert "fx_resolve(d.metric_date, 'MXN'" not in compacto
     assert "/ fxd.rate" in compacto
     assert "'keyword'" in SQL8 and "'product_target'" in SQL8
+
+
+# ---------------------------------------------------------------------------
+# ESTATICOS de 0009_contribucion_redondeo — escala de dinero en la frontera
+# (bug prod 2026-09-01: cogs/contrib con colas de ~40 decimales)
+# ---------------------------------------------------------------------------
+
+
+def test_0009_parsea_misma_interfaz_que_0008():
+    assert _vista_de(STMTS9, "v_contribucion_entidad") is not None
+    # Solo cambian los VALORES (redondeo); la interfaz es identica a 0008.
+    nombres = {s.stmt.view.relname for s in STMTS9 if isinstance(s.stmt, ast.ViewStmt)}
+    assert nombres == {"v_contribucion_entidad"}
+    assert _columnas_vista(_vista_de(STMTS9, "v_contribucion_entidad")) == _columnas_vista(
+        _vista_de(STMTS8, "v_contribucion_entidad")
+    )
+
+
+def test_0009_round_en_las_4_columnas_computadas():
+    # Regla 4 en la frontera: las columnas de dinero COMPUTADAS salen con la
+    # escala del schema. Se afirma el ROUND del SELECT final (texto compacto),
+    # no el de los COMMENT (que no se ejecutan).
+    compacto = " ".join(SQL9.split())
+    assert "ROUND(c.cogs_sin_halo, 4) AS cogs_sin_halo" in compacto
+    assert "ROUND(c.cogs_con_halo, 4) AS cogs_con_halo" in compacto
+    assert (
+        "ROUND(s.revenue_same_sku_sum - s.cost_sum - c.cogs_sin_halo, 4)"
+        " AS contrib_sin_halo" in compacto
+    )
+    assert (
+        "ROUND(s.ad_revenue_sum - s.cost_sum - c.cogs_con_halo, 4) AS contrib_con_halo" in compacto
+    )
 
 
 # ---------------------------------------------------------------------------
