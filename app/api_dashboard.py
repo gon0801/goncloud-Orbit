@@ -68,6 +68,7 @@ from app.api_common import (
     _parse_notes,
 )
 from app.apply import KINDS_QUOTA, estado_quota
+from app.dashboard_contribucion import contribucion_campanas as _contribucion_campanas
 from app.optimizer import bid, hygiene
 from app.optimizer import goals as g
 from app.optimizer.bid import PLATAFORMAS_MONEDA
@@ -786,6 +787,12 @@ def _quota_de(conn: ConexionLectura, plataforma: str) -> dict:
             )
             quota[kind] = {"used": 0, "cap": None, "fuente": "config_rota"}
     return quota
+
+
+@router.get("/contribucion")
+def contribucion_campanas(conn: ConexionLectura) -> dict:
+    """Contribucion pre-cargos por campana (ORBIT 06 1.4, docs/MARGEN-ENTIDAD.md)."""
+    return _contribucion_campanas(conn)
 
 
 # ---------------------------------------------------------------------------

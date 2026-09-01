@@ -105,6 +105,18 @@ def pagina_salud(request: Request, conn: ConexionLectura) -> HTMLResponse:
     )
 
 
+@router.get("/contribucion", response_class=HTMLResponse)
+def pagina_contribucion(request: Request, conn: ConexionLectura) -> HTMLResponse:
+    """Contribucion pre-cargos por campana (ORBIT 06 1.4): rollup de hijas,
+    rango con/sin halo, ventana D-15/90d, fx_source si aplica. Sin JS."""
+    datos = dash.contribucion_campanas(conn=conn)
+    return templates.TemplateResponse(
+        request,
+        "contribucion.html",
+        {"pantalla": "contribucion", "plataformas": datos["plataformas"]},
+    )
+
+
 @router.get("/cortes", response_class=HTMLResponse)
 def pagina_cortes(request: Request, conn: ConexionLectura) -> HTMLResponse:
     """Cortes pendientes de veto (ORBIT 04 3.1, sellado 20): tabla de
