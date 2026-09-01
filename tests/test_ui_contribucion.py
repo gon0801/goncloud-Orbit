@@ -152,6 +152,36 @@ def test_ui_contribucion_fx_source_visible_cuando_aplica(monkeypatch):
     assert "nearest_prior" in fila or "FX aproximado" in fila
 
 
+def test_ui_contribucion_edad_de_dato_en_la_fila(monkeypatch):
+    """DoD: la edad de dato es POR campana (metric_date_from/to en SU fila),
+    no solo la ventana a nivel plataforma. Fechas del item DISTINTAS de la
+    ventana para que el rojo/verde sea discriminant (la ventana se pinta en
+    el encabezado de plataforma)."""
+    item = _item_con_rango()
+    item["metric_date_from"] = "2026-06-01"
+    item["metric_date_to"] = "2026-08-10"
+    html = _contribucion_html_fakeado(
+        monkeypatch,
+        _payload(mx_items=[item]),
+    )
+    fila = _fila_de(html, "Camp MX")
+    assert "2026-06-01" in fila and "2026-08-10" in fila
+
+
+def test_ui_contribucion_rango_parcial_declara_motivo(monkeypatch):
+    """Cobertura parcial (D4: no SUM parcial disfrazado de completo): con
+    rango presente Y hijas ausentes, el motivo se ve JUNTO al rango."""
+    item = _item_con_rango()
+    item["motivo_ausencia"] = "catalogo_parcial"
+    html = _contribucion_html_fakeado(
+        monkeypatch,
+        _payload(mx_items=[item]),
+    )
+    fila = _fila_de(html, "Camp MX")
+    assert "26.0000 .. 50.0000" in fila
+    assert "catalogo parcial" in fila or "catalogo_parcial" in fila
+
+
 @pytest.mark.skipif(
     _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
