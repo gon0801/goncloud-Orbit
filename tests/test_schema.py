@@ -49,6 +49,13 @@ STMTS5 = tuple(pglast.parse_sql(SQL5))
 SQL6 = (ROOT / "migrations" / "0006_contribucion_entidad.sql").read_text(encoding="utf-8")
 STMTS6 = tuple(pglast.parse_sql(SQL6))
 
+# 0007 (ORBIT 06 1.2 perf): misma vista, cadena de CTEs rearmada — fx_resolve
+# por DIA (era LATERAL por fila: 2.2M llamadas en prod) y sku_cost as-of por
+# (producto, dia) (era sonda de rango por fila). Semantica identica (diff
+# fila-por-fila en prod antes de aplicar).
+SQL7 = (ROOT / "migrations" / "0007_contribucion_perf.sql").read_text(encoding="utf-8")
+STMTS7 = tuple(pglast.parse_sql(SQL7))
+
 APPEND_ONLY = {
     "ads_metric_observation",
     "search_term_observation",
@@ -710,7 +717,9 @@ def test_allowlist_kinds_en_tres_sitios():
     sitios = {
         "v_tacos": repr(_v_tacos_viva().query),
         "cobertura": cob_src,
-        "v_contribucion_entidad": SQL6,
+        # La definicion VIVA es la de 0007 (CREATE OR REPLACE); afirmar contra
+        # SQL6 seria vigilar SQL muerto (misma leccion que _v_tacos_viva).
+        "v_contribucion_entidad": SQL7,
     }
     for nombre, cuerpo in sitios.items():
         assert "'keyword'" in cuerpo and "'product_target'" in cuerpo, (
@@ -756,6 +765,76 @@ def test_0006_catalogo_dia_sin_rejoin_vivos():
     bloque = SQL6[idx : idx + 1200]
     assert "cd.listing_id" in bloque
     assert "JOIN vivos" not in bloque
+
+
+# ---------------------------------------------------------------------------
+# ESTATICOS de 0007_contribucion_perf — ORBIT 06, perf de la 1.2 en prod
+# (~100s por consulta medidos en vivo; fx_resolve corria en LATERAL por fila)
+# ---------------------------------------------------------------------------
+
+
+def _vista_de(stmts, nombre):
+    for s in stmts:
+        if isinstance(s.stmt, ast.ViewStmt) and s.stmt.view.relname == nombre:
+            return s.stmt
+    raise AssertionError(f"falta CREATE OR REPLACE VIEW {nombre}")
+
+
+def _columnas_vista(viewstmt):
+    return [c.name for c in viewstmt.query.targetList]
+
+
+def test_0007_parsea_y_reemplaza_ambas_vistas():
+    assert _vista_de(STMTS7, "v_contribucion_entidad") is not None
+    assert _vista_de(STMTS7, "v_contribucion_cobertura") is not None
+    # 0007 NO toca v_tacos ni v_desfase_gasto_ads (quedan las de 0006).
+    nombres = {s.stmt.view.relname for s in STMTS7 if isinstance(s.stmt, ast.ViewStmt)}
+    assert nombres == {"v_contribucion_entidad", "v_contribucion_cobertura"}
+
+
+def test_0007_misma_interfaz_que_0006():
+    # Semantica sellada: las columnas publicadas NO cambian (ni nombre ni orden).
+    for vista in ("v_contribucion_entidad", "v_contribucion_cobertura"):
+        assert _columnas_vista(_vista_de(STMTS7, vista)) == _columnas_vista(
+            _vista_de(STMTS6, vista)
+        ), f"0007 cambio la interfaz de {vista}"
+
+
+def test_0007_fx_por_dia_no_por_fila():
+    # El fix: fx_resolve se resuelve UNA VEZ por metric_date (CTE fx_dia),
+    # nunca en LATERAL por fila entidad-dia x producto (2.2M llamadas en prod).
+    # Se afirma la llamada real ("LATERAL fx_resolve("), no el texto de los
+    # COMMENT ON VIEW (que mencionan la funcion y no se ejecutan).
+    assert "fx_dia" in SQL7
+    llamadas = [m.start() for m in re.finditer(r"LATERAL fx_resolve\(", SQL7)]
+    assert len(llamadas) == 2, (
+        "fx_resolve debe llamarse 2 veces (una por vista, en su fx_dia); "
+        "si reaparece por fila, la vista vuelve a ~100s"
+    )
+    for pos in llamadas:
+        ctx = SQL7[max(0, pos - 400) : pos]
+        assert "fx_dia" in ctx, "fx_resolve fuera del CTE fx_dia (por fila otra vez)"
+    # Y ningun otro patron de llamada por fila (LEFT JOIN LATERAL de 0006).
+    assert "LEFT JOIN LATERAL" not in SQL7
+
+
+def test_0007_trampa_par_invertido_y_direccion_sellada():
+    # Mismo sello que 0006: USD/MXN con division; NUNCA el par invertido.
+    compacto = " ".join(SQL7.split())
+    assert "fx_resolve(d.metric_date, 'USD'::currency, 'MXN'::currency)" in compacto
+    assert "fx_resolve(d.metric_date, 'MXN'" not in compacto
+    assert "fx_resolve(m.metric_date, 'MXN'" not in compacto
+    assert "/ fxd.rate" in compacto, "US: cost MXN / fx — la division sellada"
+
+
+def test_0007_costo_asof_por_producto_dia():
+    # sku_cost as-of se resuelve por (producto, dia) distinto (CTE
+    # costo_producto_dia), no como sonda de rango por fila del millon.
+    assert "costo_producto_dia" in SQL7
+    idx = SQL7.find("costo_producto_dia AS (")
+    assert idx >= 0
+    bloque = SQL7[idx : idx + 1500]
+    assert "SELECT DISTINCT" in bloque and "JOIN sku_cost" in bloque
 
 
 # ---------------------------------------------------------------------------
