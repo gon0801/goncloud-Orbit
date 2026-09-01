@@ -219,8 +219,33 @@ def test_rollup_sql_vistas_materializadas_y_hojas_sin_dias():
     idx = _SQL_CONTRIBUCION_CAMPANAS.find("hijos AS (")
     assert idx >= 0
     bloque = _SQL_CONTRIBUCION_CAMPANAS[idx : idx + 900]
-    assert "SELECT DISTINCT" in bloque, (
-        "hijos debe ser DISTINCT a grano entidad; sin esto el SUM multiplica por dia"
+    assert "v_metric_mature" not in bloque, (
+        "hijos no debe re-escanear v_metric_mature: las hojas ya estan en ent/cob"
+    )
+
+
+def test_rollup_sql_una_pasada_sin_filtro_por_plataforma():
+    """Bug prod 2026-09-01: GET /contribucion evaluaba las vistas UNA vez por
+    plataforma (MX + US) y cada una otra vez via cobertura (JOIN a entidad).
+    4 evales x ~6s = el colgado de ~25s. Una sola pasada, ambas plataformas."""
+    from app.dashboard_contribucion import _SQL_CONTRIBUCION_CAMPANAS
+
+    assert "%s" not in _SQL_CONTRIBUCION_CAMPANAS, (
+        "el rollup no filtra por plataforma en SQL: una evaluacion de las vistas"
+    )
+
+
+def test_lectura_contribucion_desactiva_nestloop():
+    """El planner estima los CTE de v_contribucion_* en rows=1 y elige Nested
+    Loop (medido: 18k x 18k = 324M filas, ~60s la vista). Hash Join
+    (enable_nestloop=off) deja la misma vista en ~2.5s. Sin este SET la
+    pagina vuelve a colgarse aunque el SQL sea de una pasada."""
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[1] / "app" / "dashboard_contribucion.py"
+    texto = src.read_text(encoding="utf-8")
+    assert "enable_nestloop" in texto and "off" in texto, (
+        "la lectura de /contribucion debe forzar Hash Join en esta conexion"
     )
 
 

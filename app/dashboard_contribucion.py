@@ -23,14 +23,19 @@ MOTIVOS_ES_CONTRIBUCION: dict[str, str] = {
     "sin_fx": "sin FX",
 }
 
+# Una sola pasada, ambas plataformas. Filtrar por plataforma aqui re-evaluaba
+# las vistas 4 veces (ent + cob, que JOINea entidad, x MX + US). Medido
+# 2026-09-01: ~87s la pagina en fixture tipo-prod; una pasada ~43s.
+# Las vistas se materializan UNA vez (0007 las dejo en ~2.5s CON Hash Join).
+# Sin MATERIALIZED el planner las inlinea, misestima rows=1 y cae en Nested
+# Loop: >240s medido en prod (2026-09-01).
+# hijos sale de ent U cob (grano entidad). JOIN a v_metric_mature dejaba
+# grano (leaf, dia) y el rollup SUMaba x dias (~x65-90 en prod).
 _SQL_CONTRIBUCION_CAMPANAS = """
 WITH ventana AS (
     SELECT ((now() AT TIME ZONE 'UTC')::date - 15 - 89) AS d_from,
            ((now() AT TIME ZONE 'UTC')::date - 15)      AS d_to
 ),
--- Las vistas se materializan UNA vez por consulta (0007 las dejo en ~2.5s).
--- Sin MATERIALIZED el planner las inlinea en esta cadena, misestima rows=1
--- y cae en Nested Loop: >240s medido en prod (2026-09-01).
 ent AS MATERIALIZED (
     SELECT v.ad_entity_id,
            v.contrib_sin_halo,
@@ -39,33 +44,29 @@ ent AS MATERIALIZED (
            v.metric_date_from,
            v.metric_date_to,
            v.fx_source::text AS fx_source,
-           v.precio_min_multilisting
+           v.precio_min_multilisting,
+           v.platform
       FROM v_contribucion_entidad v
-     WHERE v.platform = %s::platform
 ),
 cob AS MATERIALIZED (
-    SELECT v.ad_entity_id, v.motivo::text AS motivo
+    SELECT v.ad_entity_id, v.motivo::text AS motivo, v.platform
       FROM v_contribucion_cobertura v
-     WHERE v.platform = %s::platform
 ),
--- Grano ENTIDAD HOJA: UNA fila por leaf con actividad madura en la ventana.
--- Sin DISTINCT el JOIN a v_metric_mature deja una fila por (leaf, dia) y el
--- rollup SUMaba la contribucion de cada leaf una vez POR DIA (~x65-90 en
--- prod; la vista ya suma la ventana completa).
+hojas AS (
+    SELECT ad_entity_id FROM ent
+    UNION
+    SELECT ad_entity_id FROM cob
+),
 hijos AS (
-    SELECT DISTINCT cam.id   AS campaign_id,
+    SELECT cam.id   AS campaign_id,
            cam.name AS campaign_name,
            cam.platform,
            leaf.id  AS ad_entity_id
-      FROM ad_entity cam
-      JOIN ad_entity ag ON ag.parent_id = cam.id AND ag.kind = 'ad_group'
-      JOIN ad_entity leaf ON leaf.parent_id = ag.id
+      FROM hojas h
+      JOIN ad_entity leaf ON leaf.id = h.ad_entity_id
        AND leaf.kind IN ('keyword', 'product_target')
-      JOIN v_metric_mature m ON m.ad_entity_id = leaf.id
-      CROSS JOIN ventana v
-     WHERE cam.kind = 'campaign'
-       AND cam.platform = %s::platform
-       AND m.metric_date BETWEEN v.d_from AND v.d_to
+      JOIN ad_entity ag ON ag.id = leaf.parent_id AND ag.kind = 'ad_group'
+      JOIN ad_entity cam ON cam.id = ag.parent_id AND cam.kind = 'campaign'
 ),
 rollup AS (
     SELECT h.campaign_id,
@@ -112,6 +113,23 @@ SELECT DISTINCT ON (h.campaign_id)
  ORDER BY h.campaign_id
 """
 
+_SQL_VENTANA = (
+    "SELECT ((now() AT TIME ZONE 'UTC')::date - 15 - 89),"
+    "       ((now() AT TIME ZONE 'UTC')::date - 15)"
+)
+
+
+def _preparar_lectura_contribucion(conn: ConexionLectura) -> None:
+    """Hash Join en ESTA conexion (se cierra al terminar el request).
+
+    El planner estima los CTE de v_contribucion_entidad / cobertura en
+    rows=1 y elige Nested Loop. Medido 2026-09-01 (200 hojas x 90d):
+    cogs_diario hace 18k x 18k = 324M filas (~60s la vista). Con
+    enable_nestloop=off la misma vista baja a ~2.5s (Hash Join). USERSET:
+    orbit_read puede cambiarlo; no toca otras conexiones.
+    """
+    conn.execute("SET enable_nestloop = off")
+
 
 def _motivo_contribucion_es(motivo: str | None) -> str | None:
     if motivo is None:
@@ -140,27 +158,37 @@ def _fila_contribucion_campana(fila) -> dict:
     }
 
 
-def _contribucion_plataforma(conn: ConexionLectura, plataforma: str) -> dict:
-    filas = conn.execute(
-        _SQL_CONTRIBUCION_CAMPANAS, (plataforma, plataforma, plataforma)
-    ).fetchall()
+def _ventana_de(conn: ConexionLectura, filas) -> dict:
     if filas:
-        ventana = {
+        return {
             "desde": filas[0][10].isoformat(),
             "hasta": filas[0][11].isoformat(),
         }
-    else:
-        vent = conn.execute(
-            "SELECT ((now() AT TIME ZONE 'UTC')::date - 15 - 89),"
-            "       ((now() AT TIME ZONE 'UTC')::date - 15)"
-        ).fetchone()
-        ventana = {"desde": vent[0].isoformat(), "hasta": vent[1].isoformat()}
-    return {"ventana": ventana, "filas": [_fila_contribucion_campana(f) for f in filas]}
+    vent = conn.execute(_SQL_VENTANA).fetchone()
+    return {"desde": vent[0].isoformat(), "hasta": vent[1].isoformat()}
+
+
+def _contribucion_todas(conn: ConexionLectura) -> dict:
+    """Una consulta: ambas plataformas, vistas evaluadas una vez cada una."""
+    _preparar_lectura_contribucion(conn)
+    filas = conn.execute(_SQL_CONTRIBUCION_CAMPANAS).fetchall()
+    ventana = _ventana_de(conn, filas)
+    por_plat: dict[str, list] = {p: [] for p in PLATAFORMAS_MONEDA}
+    for fila in filas:
+        item = _fila_contribucion_campana(fila)
+        por_plat[item["plataforma"]].append(item)
+    return {
+        "plataformas": {
+            plataforma: {"ventana": ventana, "filas": por_plat[plataforma]}
+            for plataforma in PLATAFORMAS_MONEDA
+        }
+    }
+
+
+def _contribucion_plataforma(conn: ConexionLectura, plataforma: str) -> dict:
+    return _contribucion_todas(conn)["plataformas"][plataforma]
 
 
 def contribucion_campanas(conn: ConexionLectura) -> dict:
     """Payload de /api/dashboard/contribucion y /contribucion (UI)."""
-    plataformas = {
-        plataforma: _contribucion_plataforma(conn, plataforma) for plataforma in PLATAFORMAS_MONEDA
-    }
-    return {"plataformas": plataformas}
+    return _contribucion_todas(conn)
