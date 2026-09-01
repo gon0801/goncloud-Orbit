@@ -1,0 +1,12 @@
+-- =============================================================================
+--  ORBIT · MIGRACION 0008 · precio multilisting US: MIN marcado · PostgreSQL 16
+--
+--  Enmienda D1.bis de docs/MARGEN-ENTIDAD.md, SELLADA por el dueno 2026-09-01:
+--  cuando un producto US tiene varios listings con precios distintos, la
+--  contribucion usa el MENOR y la fila sale MARCADA (margen pesimista, jamas
+--  inflado). Causa medida en prod: productos 120/356 con dos ASINs a precios
+--  distintos excluian 273 entidades (~4,908 USD de gasto 90d).
+--
+--  STUB TDD: este commit trae solo el header (los tests nuevos nacen ROJOS
+--  contra la definicion 0007). La definicion real llega en el commit verde.
+-- =============================================================================

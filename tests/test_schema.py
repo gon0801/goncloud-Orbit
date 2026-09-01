@@ -56,6 +56,12 @@ STMTS6 = tuple(pglast.parse_sql(SQL6))
 SQL7 = (ROOT / "migrations" / "0007_contribucion_perf.sql").read_text(encoding="utf-8")
 STMTS7 = tuple(pglast.parse_sql(SQL7))
 
+# 0008 (ORBIT 06 1.5): precio multilisting US — MIN marcado (enmienda D1.bis,
+# sello del dueno 2026-09-01). Agrega UNA columna al final de
+# v_contribucion_entidad: precio_min_multilisting.
+SQL8 = (ROOT / "migrations" / "0008_precio_multilisting_us.sql").read_text(encoding="utf-8")
+STMTS8 = tuple(pglast.parse_sql(SQL8))
+
 APPEND_ONLY = {
     "ads_metric_observation",
     "search_term_observation",
