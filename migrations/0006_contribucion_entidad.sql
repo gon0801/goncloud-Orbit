@@ -438,7 +438,17 @@ ratio_dia AS (
            BOOL_OR(c.sin_fx) AS sin_fx_dia,
            BOOL_OR(c.cost_i IS NULL OR c.price_i IS NULL OR c.price_i <= 0)
                AS hueco_ratio
-      FROM catalogo_dia c
+      -- DEDUP por (entidad, dia, producto): catalogo_dia hereda UNA fila por
+      -- product_AD, y dos ads del MISMO producto en el grupo duplicaban su
+      -- termino w_i*(cost/price) — COGS al doble (cazado por el test de
+      -- integracion 'dos_product_ads_mismo_producto': esperado 7.5, salia
+      -- -5). cost_i y price_i son identicos entre duplicados (mismo
+      -- producto, mismo dia), asi que DISTINCT es exacto, no un promedio.
+      FROM (
+           SELECT DISTINCT ad_entity_id, metric_date, ad_group_id, platform,
+                  product_id, cost_i, price_i, fx_source_dia, sin_fx
+             FROM catalogo_dia
+      ) c
       JOIN pesos p
         ON p.ad_group_id = c.ad_group_id
        AND p.platform = c.platform
