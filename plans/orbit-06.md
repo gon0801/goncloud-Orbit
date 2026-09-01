@@ -868,6 +868,55 @@ desde `listing`.
 | 1.3 | **Digest diario por Telegram** (lo pide la Fase 3). Reusa `app/notifica.py` (fail-silent con NOTA en `notes`, ya sellado en 3.3 y 1.4): qué decidió el motor, cuánto se aplicó contra qué tope, y el margen del día **como rango**. Sin canal, el ciclo JAMÁS se degrada. `[tdd:required]` | Rojo antes del código. Tests: canal caído no tumba el ciclo y deja NOTA; el digest declara el modo del ciclo (live/shadow); el margen aparece como rango o no aparece. Envío real verificado una vez | 1.2 | cc:TODO |
 | 1.4 | **Vista de lectura del margen en el dashboard** (server-rendered, sin JS: la CSP es `default-src 'self'`). Margen por campaña con su rango, su moneda, su edad de dato y su marca de FX aproximado. Valor nulo se ve como `—` CON etiqueta, jamás como `0` (mismo criterio que la quota de 1.5). Sin endpoints de escritura nuevos. `[tdd:required]` | Rojo antes del código. Tests de render: el rango se ve como rango; ausencia de dato NO se renderiza como cero; una plataforma sin margen no rompe la pantalla. `test_architecture` verde, cero escritura | 1.2 | cc:TODO |
 
+## Obstáculos de la 1.1 (medidos por el lead 2026-08-31, antes de asignarla)
+
+Misma disciplina que 0.1–0.6: lo caro se mide ANTES y va al plan versionado.
+Todo medido en vivo (SOLO LECTURA) sobre la base de producción. Estos hechos
+DICTAN medio diseño; lo que queda abierto es la decisión del diseñador.
+
+1. **El multi-home es TOTAL — la atribución por listing está muerta de
+   entrada.** TODOS los productos vendidos (90d) se anuncian en MÁS de 5 ad
+   groups vivos a la vez: MX 102/102 productos (máx 18 grupos), US 39/39
+   (máx 46). Atribuir la venta del ledger "al grupo que anuncia el producto"
+   contaría cada venta hasta 18–46 veces. Consecuencia directa: **el lado
+   de ingreso del margen por entidad viene de las MÉTRICAS de ads**
+   (`ad_revenue` / `revenue_same_sku`, la atribución de Amazon al
+   keyword/target), no del ledger. El ledger queda como la verdad a nivel
+   PLATAFORMA (reconciliación, no atribución) — exactamente lo que la fila
+   1.1 insinuaba y ahora está medido.
+2. **El rango de halo está COMPLETO en los datos**: 100 % de las filas
+   maduras de 90d traen ad_revenue Y revenue_same_sku (MX 6,681/6,681, US
+   4,998/4,998). Magnitudes: MX 214,469 MXN atribuidos vs 75,072 del mismo
+   SKU (65 % halo); US 12,816 USD vs 4,671 (64 %). El "rango con
+   halo / sin halo" del DoD de la 1.2 es directamente construible.
+3. **Unidades del lado ads NO existen — pero el proxy está medido y es
+   bueno**: `ads_metric_observation` trae `orders`, no unidades. Y el
+   ledger dice que HOY toda venta es de 1 unidad (90d: MX 300 ventas = 300
+   unidades exactas; US 178 = 178). `orders ≈ unidades` es un supuesto
+   MEDIDO, no inventado — se declara y se le pone test de vigencia (si
+   aparecen ventas multi-unidad, el supuesto caduca ruidosamente).
+4. **El COGS por entidad es LA decisión abierta del diseño.** Un order en
+   la keyword K del grupo G no dice QUÉ producto del grupo se vendió, y los
+   grupos anuncian decenas de productos (0.4). Candidatos que el diseñador
+   debe evaluar CONTRA estos números: costo promedio simple de los
+   productos del grupo; promedio ponderado por revenue del ledger;
+   costo/precio como razón aplicada a ad_revenue. La elección cambia qué
+   significa el número: PARA y propónsela al lead antes de programar
+   (mismo ritual que la 0.4).
+5. **Monedas, ya sin sorpresas**: métricas US en USD (el gasto necesita
+   fx_resolve, patrón de v_tacos 0005); ledger TODO en MXN (contabilidad
+   convierte río arriba — D8 de la 0.6). El ledger de la reconciliación no
+   necesita FX; el gasto y el ad_revenue de US sí.
+6. **La reconciliación fail-loud nace en esta ola** (residual de la 0005
+   subido de prioridad por codex en la cross-review externa): contador
+   `gasto_campaign_sin_contraparte` en v_tacos + test VIVO de fail-loud
+   (cost NULL → tacos_pct NULL) + candado anti-deriva de la allowlist de
+   kinds (3 copias). La vista de margen no nace al lado de deuda declarada
+   sin cerrar.
+7. **Atribuibilidad del ledger (para la reconciliación)**: 84 % del importe
+   de ventas MX con product_id resuelto (1.159M de 1.376M MXN), 88 % en US.
+   Los sin producto se cuentan, no se esconden.
+
 ## Fase 2 — margin-aware targets (la única que decide; nace en shadow)
 
 `[lane:release]` — no arranca sin Fases 0 y 1 cerradas Y ≥1 semana post-flip.
