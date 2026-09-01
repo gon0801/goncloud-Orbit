@@ -44,6 +44,11 @@ STMTS4 = tuple(pglast.parse_sql(SQL4))
 SQL5 = (ROOT / "migrations" / "0005_v_tacos_grano_unico.sql").read_text(encoding="utf-8")
 STMTS5 = tuple(pglast.parse_sql(SQL5))
 
+# 0006 (ORBIT 06 1.2): contribucion por entidad + residual campaign +
+# cobertura por motivo + desfase ads metricas vs ledger (D6).
+SQL6 = (ROOT / "migrations" / "0006_contribucion_entidad.sql").read_text(encoding="utf-8")
+STMTS6 = tuple(pglast.parse_sql(SQL6))
+
 APPEND_ONLY = {
     "ads_metric_observation",
     "search_term_observation",
@@ -70,14 +75,14 @@ def _stmts(cls):
 
 def _v_tacos_viva():
     """La definicion VIVA de v_tacos: la ULTIMA ViewStmt a traves de todas
-    las migraciones (0005 la reemplaza con CREATE OR REPLACE). Los
+    las migraciones (0005/0006 la reemplazan con CREATE OR REPLACE). Los
     invariantes sellados se afirman contra ESTA — afirmarlos contra la de
     0001 tras aplicar 0005 es vigilar SQL muerto (hallazgo del adversario
     en la review de la 0005: una regresion dentro de 0005 que conservara
     las columnas viajaba en verde)."""
     vistas = [
         s.stmt
-        for lote in (STMTS, STMTS2, STMTS3, STMTS4, STMTS5)
+        for lote in (STMTS, STMTS2, STMTS3, STMTS4, STMTS5, STMTS6)
         for s in lote
         if isinstance(s.stmt, ast.ViewStmt) and s.stmt.view.relname == "v_tacos"
     ]
@@ -661,22 +666,96 @@ def test_v_tacos_fail_loud_con_costo_nulo():
 
 def test_v_tacos_vivo_filtra_al_grano_keyword_y_target():
     # 0005 (doble conteo): la definicion VIVA debe filtrar el CTE gasto al
-    # grano keyword + product_target — las DOS mitades, y campaign fuera.
-    # Ademas clava que la viva ES la de 0005 (si alguien borrara la 0005 de
-    # la cadena, el filtro desaparece y esto falla).
+    # grano keyword + product_target — las DOS mitades, y campaign fuera del
+    # gasto_ads. 0006 agrega un CTE gasto_campaign APARTADO para el residual;
+    # 'campaign' puede aparecer ahi, pero gasto_ads sigue sin sumarlo.
     cuerpo = repr(_v_tacos_viva().query)
     assert "keyword" in cuerpo and "product_target" in cuerpo, (
         "v_tacos vivo sin el filtro de grano (keyword + product_target): "
-        "el doble conteo campaign+hijas volvio (migracion 0005)"
+        "el doble conteo campaign+hijas volvio (migracion 0005/0006)"
     )
-    # Y el ENSANCHAMIENTO tambien (reviewer r2, medido: sumar 'campaign' al
-    # IN dejaba los 4 tests en verde — exactamente el bug de 2x de vuelta).
-    # La cadena 'campaign' no aparece en NINGUN otro lugar del cuerpo de la
-    # vista: si aparece, alguien metio ese kind al filtro.
-    assert "campaign" not in cuerpo, (
-        "v_tacos vivo incluye 'campaign' en el cuerpo: el grano se ensancho "
-        "y el gasto vuelve a contarse doble (migracion 0005)"
+    assert "gasto_campaign_sin_contraparte" in cuerpo, (
+        "v_tacos vivo sin gasto_campaign_sin_contraparte (migracion 0006 D6)"
     )
+    # Y el ENSANCHAMIENTO sigue clavado en ESTATICO (review del lead sobre la
+    # 1.2): con la 0006, 'campaign' aparece legitimo en el CTE del residual,
+    # asi que el candado global de la 0005 ya no aplicaba — pero soltar la
+    # discriminacion local dejaba pasar sumar 'campaign' al IN del CTE gasto
+    # (la integracion lo caza solo en CI). Se afirma sobre el SUBARBOL del
+    # CTE gasto, patron _tacos_pct_viva.
+    ctes = {c.ctename: c for c in _v_tacos_viva().query.withClause.ctes}
+    assert "gasto" in ctes, "v_tacos vivo sin CTE gasto"
+    assert "campaign" not in repr(ctes["gasto"]), (
+        "el CTE gasto de v_tacos incluye 'campaign': el grano se ensancho y "
+        "el gasto vuelve a contarse doble (0005/0006)"
+    )
+
+
+def test_0006_parsea():
+    assert len(STMTS6) >= 4, "0006 debe definir v_tacos + 3 vistas nuevas"
+
+
+def test_0006_vistas_contribucion_presentes():
+    nombres = {s.stmt.view.relname for s in STMTS6 if isinstance(s.stmt, ast.ViewStmt)}
+    assert "v_tacos" in nombres
+    assert "v_contribucion_entidad" in nombres
+    assert "v_contribucion_cobertura" in nombres
+    assert "v_desfase_gasto_ads" in nombres
+
+
+def test_allowlist_kinds_en_tres_sitios():
+    # D6: la allowlist keyword|product_target vive en 3 copias; si una deriva,
+    # el grano del motor, de TACoS y de contribucion se desincronizan.
+    cob_src = (ROOT / "app" / "cobertura.py").read_text(encoding="utf-8")
+    sitios = {
+        "v_tacos": repr(_v_tacos_viva().query),
+        "cobertura": cob_src,
+        "v_contribucion_entidad": SQL6,
+    }
+    for nombre, cuerpo in sitios.items():
+        assert "'keyword'" in cuerpo and "'product_target'" in cuerpo, (
+            f"allowlist kinds ausente en {nombre}"
+        )
+    # gasto_ads no debe ensancharse a campaign (el residual vive aparte).
+    assert "kind IN ('keyword', 'product_target', 'campaign')" not in SQL6
+    assert "kind IN ('campaign', 'keyword', 'product_target')" not in SQL6
+
+
+def test_0006_fx_trampa_divide_usd_mxn():
+    # Sello del lead: convertir MXN→USD es DIVIDIR por fx_resolve(,'USD','MXN'),
+    # NUNCA llamar el par invertido (devuelve cero filas).
+    compacto = " ".join(SQL6.split())
+    assert "fx_resolve" in compacto
+    assert "/ fx.rate" in compacto or "/fx.rate" in compacto.replace(" ", "")
+    assert "fx_resolve(d.metric_date, 'MXN'" not in compacto, (
+        "0006 llama fx_resolve con base MXN (par invertido; cero filas)"
+    )
+    assert "fx_resolve(m.metric_date, 'MXN'" not in compacto
+    # La direccion sellada aparece (USD, MXN).
+    assert "fx_resolve(d.metric_date, 'USD'::currency, 'MXN'::currency)" in compacto or (
+        "fx_resolve(d.metric_date, 'USD'" in compacto and "'MXN'" in compacto
+    )
+
+
+def test_0006_precio_us_exige_usd_y_dedup():
+    compacto = " ".join(SQL6.split())
+    assert "price_currency = 'USD'::currency" in compacto
+    assert "COUNT(DISTINCT v.listing_price) = 1" in compacto
+
+
+def test_0006_ventas_peso_moneda_homogenea():
+    compacto = " ".join(SQL6.split())
+    assert "COUNT(DISTINCT vl.amount_currency) = 1" in compacto
+    assert "catalogo_vivo" in compacto
+
+
+def test_0006_catalogo_dia_sin_rejoin_vivos():
+    # catalogo_dia debe usar listing_id de costo_dia, no re-join vivos (fan-out).
+    idx = SQL6.find("catalogo_dia AS (")
+    assert idx >= 0
+    bloque = SQL6[idx : idx + 1200]
+    assert "cd.listing_id" in bloque
+    assert "JOIN vivos" not in bloque
 
 
 # ---------------------------------------------------------------------------
