@@ -182,6 +182,84 @@ def test_ui_contribucion_rango_parcial_declara_motivo(monkeypatch):
     assert "catalogo parcial" in fila or "catalogo_parcial" in fila
 
 
+def test_rollup_sql_vistas_materializadas_y_hojas_sin_dias():
+    """Candado estatico del fix prod 2026-09-01: las vistas se materializan
+    UNA vez (sin esto el planner las inlinea y cae en Nested Loop, >240s
+    medido) y hijos queda a grano ENTIDAD (sin una fila por dia, que
+    multiplicaba el SUM por los dias de la serie)."""
+    from app.dashboard_contribucion import _SQL_CONTRIBUCION_CAMPANAS
+
+    assert _SQL_CONTRIBUCION_CAMPANAS.count("AS MATERIALIZED") == 2, (
+        "ent y cob deben ser MATERIALIZED (una evaluacion por consulta)"
+    )
+    idx = _SQL_CONTRIBUCION_CAMPANAS.find("hijos AS (")
+    assert idx >= 0
+    bloque = _SQL_CONTRIBUCION_CAMPANAS[idx : idx + 900]
+    assert "SELECT DISTINCT" in bloque, (
+        "hijos debe ser DISTINCT a grano entidad; sin esto el SUM multiplica por dia"
+    )
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ui_contribucion_rollup_no_multiplica_por_dias(monkeypatch):
+    """Bug prod 2026-09-01 (cazado al medir perf): el CTE hijos tenia grano
+    (leaf, dia) por el JOIN a v_metric_mature, y el rollup SUMaba la
+    contribucion de cada leaf una vez POR DIA de su serie (~x65-90 en prod).
+    Con DOS dias de metrica para la misma keyword, el rollup de la campana
+    debe contar su contribucion UNA sola vez (la vista ya suma la ventana)."""
+    psycopg = pytest.importorskip("psycopg")
+    import os
+    import socket
+    from datetime import timedelta
+
+    from psycopg import sql as pgsql
+    from psycopg.conninfo import make_conninfo
+    from test_schema import _test_dsn
+
+    dsn = _test_dsn()
+    name = f"orbit_ui_contrib_dias_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(name)))
+        conn = psycopg.connect(dsn, dbname=name, autocommit=True)
+        _aplicar_esquema(conn)
+        s = _semilla_mx_completa(conn)
+        # Segundo dia de la MISMA keyword (serie de 2 dias en la ventana).
+        conn.execute(
+            "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
+            " metric_currency, cost, ad_revenue, revenue_same_sku, ingest_run_id)"
+            " VALUES (%s, %s, now(), 'MXN', 10, 100, 60, %s)",
+            (s["kw"], s["dia"] - timedelta(days=1), s["rid"]),
+        )
+        esperado = conn.execute(
+            "SELECT contrib_sin_halo FROM v_contribucion_entidad WHERE ad_entity_id = %s",
+            (s["kw"],),
+        ).fetchone()[0]
+        assert esperado is not None
+
+        monkeypatch.setenv("ORBIT_DSN_READ", make_conninfo(dsn, dbname=name))
+        data = TestClient(app).get("/api/dashboard/contribucion").json()
+        filas = data["plataformas"]["amazon_mx"]["filas"]
+        assert len(filas) == 1
+        got = Decimal(filas[0]["contrib_sin_halo"])
+        assert abs(got - esperado) < Decimal("0.0001"), (
+            f"rollup={got} vs vista={esperado}: si rollup=2x la vista, el "
+            "bug de multiplicacion por dias volvio"
+        )
+        assert abs(got - 2 * esperado) >= Decimal("0.0001"), "esto es el bug"
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(name))
+        )
+        admin.close()
+
+
 @pytest.mark.skipif(
     _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
