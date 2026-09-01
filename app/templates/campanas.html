@@ -4,18 +4,66 @@
 <p class="mutado">La ventana 30d incluye siempre dias inmaduros (D-8..D-1):
    los totales y el ACoS aun maduran.</p>
 <div class="tarjeta">
+  <form class="filtros" method="get" action="/campanas">
+    {% if vista.ordenar %}<input type="hidden" name="ordenar" value="{{ vista.ordenar }}">{% endif %}
+    {% if vista.dir %}<input type="hidden" name="dir" value="{{ vista.dir }}">{% endif %}
+    <label>Plataforma
+      <select name="plataforma">
+        <option value="">todas</option>
+        {% for p in vista.plataformas %}
+        <option value="{{ p }}"{% if vista.filtros.plataforma == p %} selected{% endif %}>{{ p }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Estado
+      <select name="estado">
+        <option value="">todos</option>
+        <option value="ENABLED"{% if vista.filtros.estado == "ENABLED" %} selected{% endif %}>activa</option>
+        <option value="PAUSED"{% if vista.filtros.estado == "PAUSED" %} selected{% endif %}>pausada</option>
+        <option value="ARCHIVED"{% if vista.filtros.estado == "ARCHIVED" %} selected{% endif %}>archivada</option>
+      </select>
+    </label>
+    <label>Campana
+      <input type="search" name="nombre" value="{{ vista.filtros.nombre or "" }}" placeholder="nombre">
+    </label>
+    <label>Cost
+      <input type="search" name="cost" value="{{ vista.filtros.cost or "" }}" placeholder="30d">
+    </label>
+    <label>Revenue
+      <input type="search" name="revenue" value="{{ vista.filtros.revenue or "" }}" placeholder="30d">
+    </label>
+    <label>Clicks
+      <input type="search" name="clicks" value="{{ vista.filtros.clicks or "" }}">
+    </label>
+    <label>ACoS
+      <input type="search" name="acos" value="{{ vista.filtros.acos or "" }}" placeholder="% o sin ventas">
+    </label>
+    <label>Target
+      <input type="search" name="target" value="{{ vista.filtros.target or "" }}">
+    </label>
+    <label>Procedencia
+      <select name="procedencia">
+        <option value="">todas</option>
+        {% for p in vista.peldanos %}
+        <option value="{{ p }}"{% if vista.filtros.procedencia == p %} selected{% endif %}>{{ p }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Filtrar</button>
+    {% if vista.activo %}<a href="{{ vista.href_limpiar }}">Limpiar</a>{% endif %}
+  </form>
   <table>
     <thead>
       <tr>
-        <th>Campana</th>
-        <th>Estado</th>
-        <th>Plataforma</th>
-        <th class="num">Cost (30d)</th>
-        <th class="num">Revenue (30d)</th>
-        <th class="num">Clicks</th>
-        <th class="num">ACoS</th>
-        <th>Target efectivo</th>
-        <th>Procedencia</th>
+        <th aria-sort="{% if vista.ordenar == 'nombre' %}{% if vista.dir == 'desc' %}descending{% else %}ascending{% endif %}{% else %}none{% endif %}"><a href="{{ vista.hrefs_orden.nombre }}">Campana{% if vista.ordenar == 'nombre' %}{% if vista.dir == 'desc' %} ↓{% else %} ↑{% endif %}{% endif %}</a></th>
+        <th aria-sort="{% if vista.ordenar == 'estado' %}{% if vista.dir == 'desc' %}descending{% else %}ascending{% endif %}{% else %}none{% endif %}"><a href="{{ vista.hrefs_orden.estado }}">Estado{% if vista.ordenar == 'estado' %}{% if vista.dir == 'desc' %} ↓{% else %} ↑{% endif %}{% endif %}</a></th>
+        <th aria-sort="{% if vista.ordenar == 'plataforma' %}{% if vista.dir == 'desc' %}descending{% else %}ascending{% endif %}{% else %}none{% endif %}"><a href="{{ vista.hrefs_orden.plataforma }}">Plataforma{% if vista.ordenar == 'plataforma' %}{% if vista.dir == 'desc' %} ↓{% else %} ↑{% endif %}{% endif %}</a></th>
+        <th class="num" aria-sort="{% if vista.ordenar == 'cost' %}{% if vista.dir == 'desc' %}descending{% else %}ascending{% endif %}{% else %}none{% endif %}"><a href="{{ vista.hrefs_orden.cost }}">Cost (30d){% if vista.ordenar == 'cost' %}{% if vista.dir == 'desc' %} ↓{% else %} ↑{% endif %}{% endif %}</a></th>
+        <th class="num" aria-sort="{% if vista.ordenar == 'revenue' %}{% if vista.dir == 'desc' %}descending{% else %}ascending{% endif %}{% else %}none{% endif %}"><a href="{{ vista.hrefs_orden.revenue }}">Revenue (30d){% if vista.ordenar == 'revenue' %}{% if vista.dir == 'desc' %} ↓{% else %} ↑{% endif %}{% endif %}</a></th>
+        <th class="num" aria-sort="{% if vista.ordenar == 'clicks' %}{% if vista.dir == 'desc' %}descending{% else %}ascending{% endif %}{% else %}none{% endif %}"><a href="{{ vista.hrefs_orden.clicks }}">Clicks{% if vista.ordenar == 'clicks' %}{% if vista.dir == 'desc' %} ↓{% else %} ↑{% endif %}{% endif %}</a></th>
+        <th class="num" aria-sort="{% if vista.ordenar == 'acos' %}{% if vista.dir == 'desc' %}descending{% else %}ascending{% endif %}{% else %}none{% endif %}"><a href="{{ vista.hrefs_orden.acos }}">ACoS{% if vista.ordenar == 'acos' %}{% if vista.dir == 'desc' %} ↓{% else %} ↑{% endif %}{% endif %}</a></th>
+        <th class="num" aria-sort="{% if vista.ordenar == 'target' %}{% if vista.dir == 'desc' %}descending{% else %}ascending{% endif %}{% else %}none{% endif %}"><a href="{{ vista.hrefs_orden.target }}">Target efectivo{% if vista.ordenar == 'target' %}{% if vista.dir == 'desc' %} ↓{% else %} ↑{% endif %}{% endif %}</a></th>
+        <th aria-sort="{% if vista.ordenar == 'procedencia' %}{% if vista.dir == 'desc' %}descending{% else %}ascending{% endif %}{% else %}none{% endif %}"><a href="{{ vista.hrefs_orden.procedencia }}">Procedencia{% if vista.ordenar == 'procedencia' %}{% if vista.dir == 'desc' %} ↓{% else %} ↑{% endif %}{% endif %}</a></th>
         <th>Goal</th>
       </tr>
     </thead>
@@ -53,5 +101,8 @@
       {% endfor %}
     </tbody>
   </table>
+  {% if vista.activo and not items %}
+  <p class="mutado">Ninguna campana coincide con el filtro.</p>
+  {% endif %}
 </div>
 {% endblock %}

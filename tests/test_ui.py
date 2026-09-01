@@ -634,3 +634,187 @@ def test_ui_salud_sin_bloque_quota_no_rompe_la_pantalla(monkeypatch):
     assert html.count("Quota del dia") == 1, "solo la tarjeta CON quota dibuja la tabla"
     assert "<h2>amazon_mx" in html, "la tarjeta vieja sigue renderizando"
     assert "Historico (14d)" in html, "las secciones existentes quedan intactas"
+
+
+# ---------------------------------------------------------------------------
+# Campanas: filtro y sort por columnas que YA estan en la tabla
+# ---------------------------------------------------------------------------
+
+
+def _item_campana(
+    nombre: str,
+    *,
+    status="ENABLED",
+    plataforma="amazon_us",
+    clicks=8,
+    cost="10.0000",
+    revenue="40.0000",
+    acos="25.00",
+    sin_ventas=False,
+    peldano="goal_plataforma",
+    target="25.00",
+) -> dict:
+    """Fila con el shape de `_fila_campana` (api_dashboard). Sin orders ni
+    impressions: esas columnas no existen en campanas.html."""
+    return {
+        "ad_entity_id": abs(hash(nombre)) % 10000,
+        "nombre": nombre,
+        "status": status,
+        "plataforma": plataforma,
+        "moneda": "USD" if plataforma == "amazon_us" else "MXN",
+        "metricas_30d": {
+            "cost": cost,
+            "ad_revenue": revenue,
+            "clicks": clicks,
+            "acos": acos,
+            "sin_ventas": sin_ventas,
+            "inmaduro": True,
+        },
+        "target_efectivo": {"valor": target, "peldano": peldano},
+        "goal": None,
+    }
+
+
+def _lote_campanas() -> list[dict]:
+    """Cuatro filas distintas en las columnas utiles (plataforma, estado,
+    clicks, ACoS, cost, revenue). El orden de insercion NO es el de clicks."""
+    return [
+        _item_campana("Alfa US", clicks=80, cost="9.0000", revenue="40.0000", acos="22.50"),
+        _item_campana("Beta US", status="PAUSED", clicks=8, cost="12.0000", acos="60.00"),
+        _item_campana(
+            "Gama MX",
+            plataforma="amazon_mx",
+            clicks=30,
+            cost="100.0000",
+            revenue="400.0000",
+            acos="25.00",
+            peldano="default",
+        ),
+        _item_campana(
+            "Delta US",
+            clicks=None,
+            cost=None,
+            revenue="0.0000",
+            acos=None,
+            sin_ventas=True,
+        ),
+    ]
+
+
+def _nombres(items: list[dict]) -> list[str]:
+    return [item["nombre"] for item in items]
+
+
+def test_filtra_campanas_plataforma_estado_clicks_acos():
+    """Las cuatro columnas pedidas filtran de verdad. Contra el handler viejo
+    (que ignoraba query params) este test FALLA: devolveria las 4 filas."""
+    lote = _lote_campanas()
+    assert _nombres(ui.filtra_y_ordena_campanas(lote, {"plataforma": "amazon_mx"}, None, None)) == [
+        "Gama MX"
+    ]
+    assert _nombres(ui.filtra_y_ordena_campanas(lote, {"estado": "PAUSED"}, None, None)) == [
+        "Beta US"
+    ]
+    # clicks=8 es igualdad exacta: 80 no cuela (substring mentiria)
+    assert _nombres(ui.filtra_y_ordena_campanas(lote, {"clicks": "8"}, None, None)) == ["Beta US"]
+    assert _nombres(ui.filtra_y_ordena_campanas(lote, {"acos": "60"}, None, None)) == ["Beta US"]
+    assert _nombres(ui.filtra_y_ordena_campanas(lote, {"acos": "sin ventas"}, None, None)) == [
+        "Delta US"
+    ]
+
+
+def test_filtra_campanas_cost_revenue_nombre_procedencia():
+    """Las otras columnas utiles de la tabla tambien filtran (cost=spend,
+    revenue=sales). Orders/impressions no estan en la tabla: no se inventan."""
+    lote = _lote_campanas()
+    assert _nombres(ui.filtra_y_ordena_campanas(lote, {"cost": "9.0000"}, None, None)) == [
+        "Alfa US"
+    ]
+    assert _nombres(ui.filtra_y_ordena_campanas(lote, {"revenue": "400"}, None, None)) == [
+        "Gama MX"
+    ]
+    assert _nombres(ui.filtra_y_ordena_campanas(lote, {"nombre": "gama"}, None, None)) == [
+        "Gama MX"
+    ]
+    assert _nombres(ui.filtra_y_ordena_campanas(lote, {"procedencia": "default"}, None, None)) == [
+        "Gama MX"
+    ]
+
+
+def test_ordena_campanas_clicks_y_acos_numericamente():
+    """Sort numerico, no lexicografico: 80 > 30 > 8; cost 9.0000 < 12.0000.
+    Los huecos (regla 3) van al final, nunca se pintan como 0 para ordenar."""
+    lote = _lote_campanas()
+    por_clicks = ui.filtra_y_ordena_campanas(lote, {}, "clicks", "desc")
+    assert _nombres(por_clicks) == ["Alfa US", "Gama MX", "Beta US", "Delta US"]
+    por_acos = ui.filtra_y_ordena_campanas(lote, {}, "acos", "asc")
+    assert _nombres(por_acos)[:3] == ["Alfa US", "Gama MX", "Beta US"]
+    assert por_acos[-1]["nombre"] == "Delta US"
+    por_cost = ui.filtra_y_ordena_campanas(lote, {}, "cost", "asc")
+    assert _nombres(por_cost)[:3] == ["Alfa US", "Beta US", "Gama MX"]
+
+
+def _html_campanas(monkeypatch, items: list[dict], **params) -> str:
+    """Render del camino REAL (TestClient -> pagina_campanas) con el
+    endpoint fakeado: se prueba la vista, no el SQL."""
+
+    def _campanas(conn, platform=None):
+        if platform is None:
+            return {"items": items}
+        return {"items": [i for i in items if i["plataforma"] == platform]}
+
+    monkeypatch.setattr(ui.dash, "campanas", _campanas)
+    app.dependency_overrides[_conexion_lectura] = lambda: None
+    try:
+        return TestClient(app).get("/campanas", params=params)
+    finally:
+        app.dependency_overrides.pop(_conexion_lectura, None)
+
+
+def test_ui_campanas_formulario_y_headers_ordenables(monkeypatch):
+    """La pantalla tiene el form GET (CSP: cero JS) y headers con href de
+    sort para las columnas utiles. Goal no se ordena: es texto compuesto."""
+    html = _html_campanas(monkeypatch, _lote_campanas()).text
+    assert 'class="filtros"' in html
+    assert 'method="get"' in html
+    assert 'name="plataforma"' in html
+    assert 'name="estado"' in html
+    assert 'name="clicks"' in html
+    assert 'name="acos"' in html
+    assert 'name="cost"' in html
+    assert 'name="revenue"' in html
+    assert 'href="/campanas?ordenar=plataforma&amp;dir=asc"' in html
+    assert 'href="/campanas?ordenar=estado&amp;dir=asc"' in html
+    assert 'href="/campanas?ordenar=clicks&amp;dir=desc"' in html
+    assert 'href="/campanas?ordenar=acos&amp;dir=desc"' in html
+    assert "ordenar=goal" not in html
+    assert "impressions" not in html
+    assert ">orders<" not in html.lower()
+
+
+def test_ui_campanas_query_filtra_y_ordena_en_el_html(monkeypatch):
+    """Regla 9: el GET /campanas?estado=PAUSED ignorado por el handler viejo
+    seguia pintando Alfa US. Aqui solo queda Beta US. Sort por clicks desc
+    pone Alfa (80) antes que Gama (30)."""
+    lote = _lote_campanas()
+    filtrado = _html_campanas(monkeypatch, lote, estado="PAUSED").text
+    assert "Beta US" in filtrado
+    assert "Alfa US" not in filtrado
+    assert "Gama MX" not in filtrado
+    assert "Ninguna campana coincide" not in filtrado
+    ordenado = _html_campanas(monkeypatch, lote, ordenar="clicks", dir="desc").text
+    assert ordenado.index("Alfa US") < ordenado.index("Gama MX") < ordenado.index("Beta US")
+    assert 'aria-sort="descending"' in ordenado
+    mx = _html_campanas(monkeypatch, lote, plataforma="amazon_mx").text
+    assert "Gama MX" in mx and "Alfa US" not in mx
+    vacio = _html_campanas(monkeypatch, lote, estado="ARCHIVED").text
+    assert "Ninguna campana coincide con el filtro." in vacio
+
+
+def test_ui_campanas_vocabulario_query_cerrado(monkeypatch):
+    """plataforma/estado/ordenar/dir ajenos -> 422 (Literal del feed)."""
+    lote = _lote_campanas()
+    assert _html_campanas(monkeypatch, lote, plataforma="meli").status_code == 422
+    assert _html_campanas(monkeypatch, lote, estado="ON").status_code == 422
+    assert _html_campanas(monkeypatch, lote, ordenar="impressions").status_code == 422
+    assert _html_campanas(monkeypatch, lote, dir="up").status_code == 422
