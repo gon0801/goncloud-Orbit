@@ -455,7 +455,7 @@ def test_carga_contribucion_digest_rango_y_sin_dato():
         "amazon_mx",
         conn=_Conn(
             [
-                [("MXN", 108, Decimal("100"), Decimal("200"), False)],
+                [("MXN", 108, Decimal("100"), Decimal("200"), False, False)],
                 [],
                 [(Decimal("4.75"),)],
             ]
@@ -565,7 +565,7 @@ def test_notifica_digest_falla_lectura_no_tumba(monkeypatch, tmp_path):
 
 def test_carga_contribucion_digest_cobertura_parcial_con_rango():
     out = notifica._arma_contribucion_digest(
-        [("MXN", 108, Decimal("100"), Decimal("200"), False)],
+        [("MXN", 108, Decimal("100"), Decimal("200"), False, False)],
         [("catalogo_parcial", 4890)],
         None,
     )

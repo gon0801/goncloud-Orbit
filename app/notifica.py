@@ -67,7 +67,8 @@ SELECT metric_currency::text,
        count(*)::int,
        sum(contrib_sin_halo),
        sum(contrib_con_halo),
-       bool_or(rango_invertido) AS rango_invertido
+       bool_or(rango_invertido) AS rango_invertido,
+       bool_or(precio_min_multilisting) AS precio_min_multilisting
   FROM v_contribucion_entidad
  WHERE platform = %s::platform
  GROUP BY metric_currency
@@ -103,6 +104,9 @@ class RangoContribucion:
     con_halo: Decimal
     invertido: bool = False
     entidades_maduras: int | None = None
+    # 0008: alguna entidad publicada uso el precio MENOR de un producto US
+    # multilisting (enmienda D1.bis) — la linea del digest lo declara.
+    precio_min_multilisting: bool = False
 
 
 @dataclass(frozen=True)
@@ -261,6 +265,8 @@ def _linea_contribucion(datos: ContribucionDigest) -> str | None:
         sufijo = ""
         if r.entidades_maduras is not None and r.entidades_maduras > r.entidades:
             sufijo = f" de {r.entidades_maduras} entidades maduras"
+        if r.precio_min_multilisting:
+            sufijo += " · precio min multilisting"
         if r.invertido:
             cuerpo = (
                 f"totales sin_halo={_formatea_monto(r.sin_halo)},"
@@ -291,7 +297,7 @@ def _arma_contribucion_digest(
     por_motivo = tuple((m, n) for m, n in filas_ausentes)
     total_ausentes = sum(n for _, n in por_motivo)
     if len(filas_rango) == 1:
-        moneda, entidades, sin_h, con_h, invertido = filas_rango[0]
+        moneda, entidades, sin_h, con_h, invertido, multilisting = filas_rango[0]
         if entidades and sin_h is not None and con_h is not None:
             maduras = entidades + total_ausentes if total_ausentes else None
             rango = RangoContribucion(
@@ -301,6 +307,7 @@ def _arma_contribucion_digest(
                 con_h,
                 bool(invertido),
                 maduras,
+                bool(multilisting),
             )
     elif len(filas_rango) > 1 and total_ausentes > 0:
         sin_dato = SinDatoContribucion(total_ausentes, por_motivo)

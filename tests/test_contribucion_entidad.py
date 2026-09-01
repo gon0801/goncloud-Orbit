@@ -19,6 +19,7 @@ from test_schema import (
     SQL5,
     SQL6,
     SQL7,
+    SQL8,
     _hay_postgres_local,
     _test_dsn,
 )
@@ -40,6 +41,7 @@ def _aplicar_esquema(conn):
     conn.execute(SQL5)
     conn.execute(SQL6)
     conn.execute(SQL7)
+    conn.execute(SQL8)
 
 
 def _run_id(conn):
