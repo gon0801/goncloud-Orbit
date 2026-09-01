@@ -203,33 +203,49 @@ precio_mx AS (
        AND l.platform = 'amazon_mx'::platform
      GROUP BY 1, 2
 ),
--- Precio US: listing_price (D1.bis vivo).
+-- Precio US: listing_price (D1.bis vivo). Un precio por producto; moneda = USD.
 precio_us AS (
     SELECT v.platform,
            v.product_id,
-           v.listing_price AS price_i,
-           v.price_currency
+           MIN(v.listing_price) AS price_i,
+           'USD'::currency AS price_currency
       FROM vivos v
      WHERE v.platform = 'amazon_us'::platform
        AND v.listing_price IS NOT NULL
        AND v.product_id IS NOT NULL
+       AND v.price_currency = 'USD'::currency
+     GROUP BY 1, 2
+    HAVING COUNT(DISTINCT v.listing_price) = 1
 ),
--- Ventas ledger del catalogo (pesos w_i), misma ventana. Moneda homogenea
--- por grupo: si hay mezcla de monedas sin FX, el producto no entra al peso.
+-- Catalogo vivo a grano (ad_group, platform, product_id) — evita fan-out.
+catalogo_vivo AS (
+    SELECT DISTINCT ad_group_id, platform, product_id
+      FROM vivos
+     WHERE product_id IS NOT NULL
+),
+-- Ventas ledger del catalogo (pesos w_i), misma ventana. Mezcla de monedas
+-- en el mismo producto → el producto no entra al peso (fail-loud por exclusion).
 ventas_peso AS (
-    SELECT vv.ad_group_id,
-           vv.platform,
-           l.product_id,
-           SUM(l.amount) AS venta_ledger
-      FROM vivos vv
-      JOIN ledger_event l
-        ON l.product_id = vv.product_id
-       AND l.platform = vv.platform
-      CROSS JOIN ventana v
-     WHERE l.kind = 'sale'
-       AND l.product_id IS NOT NULL
-       AND l.event_date BETWEEN v.d_from AND v.d_to
+    SELECT vl.ad_group_id,
+           vl.platform,
+           vl.product_id,
+           SUM(vl.amount) AS venta_ledger
+      FROM (
+           SELECT cv.ad_group_id,
+                  cv.platform,
+                  cv.product_id,
+                  l.amount,
+                  l.amount_currency
+             FROM catalogo_vivo cv
+             JOIN ledger_event l
+               ON l.product_id = cv.product_id
+              AND l.platform = cv.platform
+             CROSS JOIN ventana v
+            WHERE l.kind = 'sale'
+              AND l.event_date BETWEEN v.d_from AND v.d_to
+      ) vl
      GROUP BY 1, 2, 3
+    HAVING COUNT(DISTINCT vl.amount_currency) = 1
 ),
 sigma AS (
     SELECT ad_group_id, platform, SUM(venta_ledger) AS sigma_ventas
@@ -261,6 +277,7 @@ costo_dia AS (
            d.metric_date,
            d.metric_currency,
            vv.product_id,
+           vv.listing_id,
            CASE
                WHEN c.id IS NULL THEN NULL
                WHEN d.metric_currency = c.cost_currency THEN c.cost_amount
@@ -331,17 +348,15 @@ catalogo_dia AS (
            cd.cost_i,
            cd.fx_source_dia,
            cd.sin_fx,
-           vv.listing_id,
+           cd.listing_id,
            CASE
                WHEN cd.platform = 'amazon_mx'::platform THEN pm.price_i
-               WHEN cd.platform = 'amazon_us'::platform THEN pu.price_i
+               WHEN cd.platform = 'amazon_us'::platform
+                    AND pu.price_currency = cd.metric_currency
+                   THEN pu.price_i
                ELSE NULL
            END AS price_i
       FROM costo_dia cd
-      JOIN vivos vv
-        ON vv.ad_group_id = cd.ad_group_id
-       AND vv.platform = cd.platform
-       AND vv.product_id = cd.product_id
       LEFT JOIN precio_mx pm
         ON pm.platform = cd.platform
        AND pm.product_id = cd.product_id
@@ -511,7 +526,8 @@ COMMENT ON VIEW v_contribucion_entidad IS
   'COGS = C+B: ratio_G(d) = SUM w_i*(cost_i(d)/price_i); w_i = mezcla ledger '
   'del catalogo del ad_group; cost_i = sku_cost as-of cada metric_date. '
   'D1.mx: price_i MX = promedio ponderado item_price/quantity del ledger '
-  '(razon adimensional MXN/MXN). US: listing_price; costo MXN→USD = '
+  '(razon adimensional MXN/MXN). US: listing_price con price_currency = USD '
+  'y un solo precio por producto; costo MXN→USD = '
   'cost/fx_resolve(date,''USD'',''MXN'') — NUNCA el par invertido. '
   'Cobertura 100% del catalogo vivo (ENABLED|PAUSED) o fila AUSENTE. '
   'sigma ventas = 0 → ausente. Serie con cost NULL o sin par halo → ausente. '
@@ -567,7 +583,8 @@ vivos AS (
            pa.id AS product_ad_id,
            pa.listing_id,
            l.product_id,
-           l.listing_price
+           l.listing_price,
+           l.price_currency
       FROM ad_entity pa
       JOIN ad_entity_state st ON st.ad_entity_id = pa.id
       LEFT JOIN listing l ON l.id = pa.listing_id
@@ -582,7 +599,8 @@ vivos_huecos AS (
                WHERE v.listing_id IS NULL
                   OR v.product_id IS NULL
                   OR (v.platform = 'amazon_us'::platform
-                      AND v.listing_price IS NULL)
+                      AND (v.listing_price IS NULL
+                           OR v.price_currency IS DISTINCT FROM 'USD'::currency))
            ) AS n_sin_catalogo
       FROM vivos v
      GROUP BY 1, 2

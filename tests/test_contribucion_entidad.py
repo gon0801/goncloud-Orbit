@@ -365,13 +365,17 @@ def test_us_nearest_prior_marcada_y_sin_fx_ausente(db):
     )
 
     fila = db.execute(
-        "SELECT fx_source, contrib_sin_halo, contrib_con_halo"
+        "SELECT fx_source, contrib_sin_halo, contrib_con_halo, cogs_sin_halo, cogs_con_halo"
         " FROM v_contribucion_entidad WHERE ad_entity_id = %s",
         (kw,),
     ).fetchone()
     assert fila is not None, "US con nearest_prior debe publicar fila"
     assert fila[0] == "nearest_prior"
-    assert fila[1] is not None and fila[2] is not None
+    # ratio = (180 MXN / 18) / 20 USD = 0.5; COGS sin=25*0.5, con=50*0.5
+    assert fila[3] == Decimal("12.5000")
+    assert fila[4] == Decimal("25.0000")
+    assert fila[1] == Decimal("7.5000")
+    assert fila[2] == Decimal("20.0000")
 
     assert (
         db.execute(
@@ -385,6 +389,116 @@ def test_us_nearest_prior_marcada_y_sin_fx_ausente(db):
         (kw_sin,),
     ).fetchone()
     assert motivo is not None and motivo[0] == "sin_fx"
+
+
+def test_us_listing_mxn_ausente(db):
+    """US con listing_price en MXN no publica fila (D5)."""
+    rid = _run_id(db)
+    d_from, d_to = _ventana_madura()
+    dia = d_to - timedelta(days=5)
+
+    pid = db.execute(
+        "INSERT INTO product (odoo_sku, name) VALUES ('SKU-US-MXN', 'p') RETURNING id"
+    ).fetchone()[0]
+    lid = db.execute(
+        "INSERT INTO listing (product_id, platform, external_id, listing_price,"
+        " price_currency) VALUES (%s, 'amazon_us', 'ASIN-US-MXN', 400, 'MXN')"
+        " RETURNING id",
+        (pid,),
+    ).fetchone()[0]
+    db.execute(
+        "INSERT INTO sku_cost (product_id, cost_amount, cost_currency, includes_tax,"
+        " valid_from, ingest_run_id)"
+        " VALUES (%s, 180, 'MXN', false, %s, %s)",
+        (pid, d_from - timedelta(days=1), rid),
+    )
+    db.execute(
+        "INSERT INTO fx_rate (rate_date, base_currency, quote_currency, rate,"
+        " ingest_run_id) VALUES (%s, 'USD', 'MXN', 18, %s)",
+        (dia, rid),
+    )
+    cam = _entidad(db, "amazon_us", "campaign", "C-US-MXN")
+    ag = _entidad(db, "amazon_us", "ad_group", "AG-US-MXN", cam)
+    kw = _entidad(db, "amazon_us", "keyword", "KW-US-MXN", ag)
+    _entidad(db, "amazon_us", "product_ad", "PA-US-MXN", ag, listing_id=lid)
+    db.execute(
+        "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
+        " metric_currency, cost, ad_revenue, revenue_same_sku, ingest_run_id)"
+        " VALUES (%s, %s, now(), 'USD', 5, 50, 25, %s)",
+        (kw, dia, rid),
+    )
+    db.execute(
+        "INSERT INTO ledger_event (platform, kind, event_date, product_id, quantity,"
+        " amount, amount_currency, source_event_id, ingest_run_id)"
+        " VALUES ('amazon_us', 'sale', %s, %s, 1, 360, 'MXN', 'S-US-MXN', %s)",
+        (dia, pid, rid),
+    )
+    assert (
+        db.execute(
+            "SELECT 1 FROM v_contribucion_entidad WHERE ad_entity_id = %s",
+            (kw,),
+        ).fetchone()
+        is None
+    )
+
+
+def test_us_dos_product_ads_mismo_producto_publica(db):
+    """Mismo product_id en dos product_ads del grupo no vacia la fila US."""
+    rid = _run_id(db)
+    d_from, d_to = _ventana_madura()
+    dia = d_to - timedelta(days=5)
+
+    pid = db.execute(
+        "INSERT INTO product (odoo_sku, name) VALUES ('SKU-US-DUP', 'p') RETURNING id"
+    ).fetchone()[0]
+    lid1 = db.execute(
+        "INSERT INTO listing (product_id, platform, external_id, listing_price,"
+        " price_currency) VALUES (%s, 'amazon_us', 'ASIN-US-D1', 20, 'USD')"
+        " RETURNING id",
+        (pid,),
+    ).fetchone()[0]
+    lid2 = db.execute(
+        "INSERT INTO listing (product_id, platform, external_id, listing_price,"
+        " price_currency) VALUES (%s, 'amazon_us', 'ASIN-US-D2', 20, 'USD')"
+        " RETURNING id",
+        (pid,),
+    ).fetchone()[0]
+    db.execute(
+        "INSERT INTO sku_cost (product_id, cost_amount, cost_currency, includes_tax,"
+        " valid_from, ingest_run_id)"
+        " VALUES (%s, 180, 'MXN', false, %s, %s)",
+        (pid, d_from - timedelta(days=1), rid),
+    )
+    db.execute(
+        "INSERT INTO fx_rate (rate_date, base_currency, quote_currency, rate,"
+        " ingest_run_id) VALUES (%s, 'USD', 'MXN', 18, %s)",
+        (dia, rid),
+    )
+    cam = _entidad(db, "amazon_us", "campaign", "C-US-DUP")
+    ag = _entidad(db, "amazon_us", "ad_group", "AG-US-DUP", cam)
+    kw = _entidad(db, "amazon_us", "keyword", "KW-US-DUP", ag)
+    _entidad(db, "amazon_us", "product_ad", "PA-US-D1", ag, listing_id=lid1)
+    _entidad(db, "amazon_us", "product_ad", "PA-US-D2", ag, listing_id=lid2)
+    db.execute(
+        "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
+        " metric_currency, cost, ad_revenue, revenue_same_sku, ingest_run_id)"
+        " VALUES (%s, %s, now(), 'USD', 5, 50, 25, %s)",
+        (kw, dia, rid),
+    )
+    db.execute(
+        "INSERT INTO ledger_event (platform, kind, event_date, product_id, quantity,"
+        " amount, amount_currency, source_event_id, ingest_run_id)"
+        " VALUES ('amazon_us', 'sale', %s, %s, 1, 360, 'MXN', 'S-US-DUP', %s)",
+        (dia, pid, rid),
+    )
+    fila = db.execute(
+        "SELECT contrib_sin_halo, contrib_con_halo FROM v_contribucion_entidad"
+        " WHERE ad_entity_id = %s",
+        (kw,),
+    ).fetchone()
+    assert fila is not None
+    assert fila[0] == Decimal("7.5000")
+    assert fila[1] == Decimal("20.0000")
 
 
 def test_fx_par_invertido_cero_filas(db):

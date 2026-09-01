@@ -725,6 +725,27 @@ def test_0006_fx_trampa_divide_usd_mxn():
     )
 
 
+def test_0006_precio_us_exige_usd_y_dedup():
+    compacto = " ".join(SQL6.split())
+    assert "price_currency = 'USD'::currency" in compacto
+    assert "COUNT(DISTINCT v.listing_price) = 1" in compacto
+
+
+def test_0006_ventas_peso_moneda_homogenea():
+    compacto = " ".join(SQL6.split())
+    assert "COUNT(DISTINCT vl.amount_currency) = 1" in compacto
+    assert "catalogo_vivo" in compacto
+
+
+def test_0006_catalogo_dia_sin_rejoin_vivos():
+    # catalogo_dia debe usar listing_id de costo_dia, no re-join vivos (fan-out).
+    idx = SQL6.find("catalogo_dia AS (")
+    assert idx >= 0
+    bloque = SQL6[idx : idx + 1200]
+    assert "cd.listing_id" in bloque
+    assert "JOIN vivos" not in bloque
+
+
 # ---------------------------------------------------------------------------
 # (a2) ESTÁTICOS de 0002_apply — ORBIT 04, task 1.2 (docs/APPLY.md es la spec)
 # ---------------------------------------------------------------------------
