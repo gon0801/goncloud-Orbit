@@ -29,6 +29,7 @@ import datetime as dt
 import json
 import logging
 from contextlib import contextmanager
+from decimal import Decimal
 from types import SimpleNamespace
 
 import httpx
@@ -210,6 +211,163 @@ def test_digest_ciclo_tolerante_a_claves_ausentes():
         assert "bids" not in texto and "cortes" not in texto
 
 
+def test_digest_contribucion_rango_nunca_numero_unico():
+    """ORBIT 06 1.3: el rango viaja como rango con la etiqueta sellada; jamas
+    un numero unico ni la palabra 'margen' a secas."""
+    resumen = {
+        "cycle_id": 9,
+        "plataforma": "amazon_mx",
+        "modo": "shadow",
+        "status": "done",
+        "decisions_count": 3,
+        "contribucion": notifica.ContribucionDigest(
+            rango=notifica.RangoContribucion(
+                moneda="MXN",
+                entidades=108,
+                sin_halo=Decimal("1200.50"),
+                con_halo=Decimal("3400.75"),
+            ),
+            sin_dato=None,
+            residual_tacos=None,
+        ),
+    }
+    texto = notifica.digest_ciclo(resumen)
+    assert "contribucion pre-cargos · no decisoria" in texto
+    assert "1200.50 .. 3400.75 MXN (108 entidades)" in texto
+    assert "margen" not in texto.lower()
+
+
+def test_digest_contribucion_sin_dato_con_motivos():
+    """Plataforma sin filas publicadas: sin dato con conteo y motivos desde
+    cobertura — NUNCA cero ni omision silenciosa."""
+    resumen = {
+        "cycle_id": 10,
+        "plataforma": "amazon_us",
+        "modo": "live",
+        "status": "done",
+        "decisions_count": 0,
+        "contribucion": notifica.ContribucionDigest(
+            rango=None,
+            sin_dato=notifica.SinDatoContribucion(
+                total_ausentes=4998,
+                por_motivo=(("catalogo_parcial", 4800), ("sin_fx", 198)),
+            ),
+            residual_tacos=None,
+        ),
+    }
+    texto = notifica.digest_ciclo(resumen)
+    assert "contribucion pre-cargos · no decisoria" in texto
+    assert "sin dato (4998 entidades ausentes: catalogo_parcial 4800, sin_fx 198)" in texto
+
+
+def test_digest_contribucion_residual_tacos():
+    """Residual campaign sin contraparte del mes: linea corta solo si > 0."""
+    resumen = {
+        "cycle_id": 11,
+        "plataforma": "amazon_mx",
+        "status": "done",
+        "decisions_count": 1,
+        "contribucion": notifica.ContribucionDigest(
+            rango=notifica.RangoContribucion(
+                moneda="MXN",
+                entidades=5,
+                sin_halo=Decimal("10"),
+                con_halo=Decimal("20"),
+            ),
+            sin_dato=None,
+            residual_tacos=notifica.ResidualTacos(monto=Decimal("4.75")),
+        ),
+    }
+    texto = notifica.digest_ciclo(resumen)
+    assert "residual tacos campaign: 4.75 MXN" in texto
+
+
+def test_digest_sin_contribucion_no_inventa():
+    """Regla 3: sin clave contribucion no se menciona contrib ni margen."""
+    texto = notifica.digest_ciclo(
+        {"cycle_id": 1, "plataforma": "amazon_mx", "status": "done", "decisions_count": 0}
+    )
+    assert "contribucion" not in texto
+    assert "margen" not in texto.lower()
+
+
+def test_carga_contribucion_digest_rango_y_sin_dato():
+    """Lectura de vistas: rango agregado o sin dato con motivos (sin red)."""
+
+    class _Cur:
+        def __init__(self, filas):
+            self._filas = filas
+
+        def fetchone(self):
+            return self._filas[0] if len(self._filas) == 1 else None
+
+        def fetchall(self):
+            return self._filas
+
+    class _Conn:
+        def __init__(self, respuestas):
+            self._respuestas = list(respuestas)
+
+        def execute(self, _sql, _params=None):
+            return _Cur(self._respuestas.pop(0))
+
+    mx = notifica.carga_contribucion_digest(
+        "amazon_mx",
+        conn=_Conn(
+            [
+                [("MXN", 108, Decimal("100"), Decimal("200"))],
+                [(Decimal("4.75"),)],
+            ]
+        ),
+    )
+    assert mx is not None
+    assert mx.rango == notifica.RangoContribucion("MXN", 108, Decimal("100"), Decimal("200"))
+    assert mx.sin_dato is None
+    assert mx.residual_tacos == notifica.ResidualTacos(Decimal("4.75"))
+
+    us = notifica.carga_contribucion_digest(
+        "amazon_us",
+        conn=_Conn(
+            [
+                [],
+                [("catalogo_parcial", 4800), ("sin_fx", 198)],
+                [(None,)],
+            ]
+        ),
+    )
+    assert us is not None
+    assert us.rango is None
+    assert us.sin_dato == notifica.SinDatoContribucion(
+        4998, (("catalogo_parcial", 4800), ("sin_fx", 198))
+    )
+
+
+def test_notifica_digest_falla_lectura_no_tumba(monkeypatch, tmp_path):
+    """Fail-silent: lectura de contribucion falla pero el digest sale (sin
+    seccion contrib) y notifica_digest devuelve True si el canal manda."""
+    d = tmp_path / "secrets"
+    d.mkdir()
+    (d / "telegram.json").write_text(
+        json.dumps({"bot_token": FAKE_BOT_TOKEN, "chat_id": FAKE_CHAT_ID}), encoding="utf-8"
+    )
+    monkeypatch.setenv("ORBIT_SECRETS_DIR", str(d))
+
+    def _explota(_plataforma, *, conn=None):
+        raise RuntimeError("lectura rota")
+
+    handler, mensajes = _handler_telegram()
+    monkeypatch.setattr(notifica, "_transporte_test", httpx.MockTransport(handler))
+    monkeypatch.setattr(notifica, "carga_contribucion_digest", _explota)
+    notifica._reset()
+    ok = notifica.notifica_digest(
+        {"cycle_id": 1, "plataforma": "amazon_mx", "status": "done", "decisions_count": 0}
+    )
+    assert ok is True
+    assert len(mensajes) == 1
+    assert "contribucion pre-cargos" not in mensajes[0]["text"]
+    notifica._reset()
+
+
 def test_alerta_harvest_failed_contenido():
     texto = notifica.alerta_harvest_failed(_alerta())
     assert texto.startswith("[Orbit] ALERTA harvest failed")
@@ -322,6 +480,32 @@ def test_canal_deshabilitado_claves_vacias_o_faltantes(tmp_path, monkeypatch):
 
 
 @_skip_db
+def test_ciclo_canal_falla_digest_contrib_deja_nota(canal_fail, monkeypatch):
+    """Canal caido con seccion contrib: el ciclo sigue 'done' y la NOTA del
+    digest persiste (camino nuevo ORBIT 06 1.3)."""
+    contrib = notifica.ContribucionDigest(
+        rango=notifica.RangoContribucion(
+            moneda="MXN", entidades=1, sin_halo=Decimal("1"), con_halo=Decimal("2")
+        ),
+        sin_dato=None,
+        residual_tacos=None,
+    )
+
+    def _fija(_plataforma, *, conn=None):
+        return contrib
+
+    monkeypatch.setattr(notifica, "carga_contribucion_digest", _fija)
+    with _db_temporal("orbit_notif_contrib_fail") as (conn, _extra):
+        _siembra_maestra(conn)
+        res = _corre(conn)
+        assert res.status == "done"
+        notas = json.loads(res.notes)
+        assert notas["telegram"]["digest"].startswith("fallo:")
+        digests = [m["text"] for m in canal_fail if m["text"].startswith("[Orbit] digest")]
+        assert digests and "contribucion pre-cargos" in digests[0]
+
+
+@_skip_db
 def test_ciclo_canal_falla_termina_done_con_nota_telegram(canal_fail):
     """EL DoD (regla 9, rojo honesto capturado): canal configurado pero el
     envio FALLA -> el ciclo termina 'done' (un fallo de Telegram JAMAS lo
@@ -334,7 +518,6 @@ def test_ciclo_canal_falla_termina_done_con_nota_telegram(canal_fail):
         notas = json.loads(res.notes)
         assert notas["telegram"]["aviso_encola"].startswith("fallo:")
         assert notas["telegram"]["digest"].startswith("fallo:")
-        # La NOTA queda PERSISTIDA en el envelope y sobrevive el parseo de Salud
         persistido = conn.execute(
             "SELECT notes FROM optimizer_cycle WHERE id = %s", (res.cycle_id,)
         ).fetchone()[0]

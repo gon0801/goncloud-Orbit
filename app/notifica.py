@@ -29,12 +29,14 @@ import json
 import logging
 import os
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import httpx
 
 from app.ads.config import DEFAULT_SECRETS_DIR
+from app.db import connect
 from app.redaction import install_scrub_filter, register_secret, scrub
 
 if TYPE_CHECKING:
@@ -57,6 +59,62 @@ _transporte_test: httpx.BaseTransport | None = None
 # Familia de efecto por kind — ESPEJO de la columna GENERATED de apply_queue
 # (0002: pause -> entity_cut; negative y harvest -> term_cut; regla 2).
 FAMILIA_DE_KIND = {"pause": "entity_cut", "negative": "term_cut", "harvest": "term_cut"}
+
+ETIQUETA_CONTRIBUCION = "contribucion pre-cargos · no decisoria"
+
+SQL_CONTRIB_RANGO = """
+SELECT metric_currency::text,
+       count(*)::int,
+       sum(contrib_sin_halo),
+       sum(contrib_con_halo)
+  FROM v_contribucion_entidad
+ WHERE platform = %s::platform
+ GROUP BY metric_currency
+"""
+
+SQL_CONTRIB_AUSENTES = """
+SELECT motivo, count(*)::int AS n
+  FROM v_contribucion_cobertura
+ WHERE platform = %s::platform
+ GROUP BY motivo
+ ORDER BY n DESC, motivo
+"""
+
+SQL_RESIDUAL_TACOS = """
+SELECT gasto_campaign_sin_contraparte
+  FROM v_tacos
+ WHERE platform = %s::platform
+   AND mes = date_trunc(
+           'month',
+           ((now() AT TIME ZONE 'UTC')::date - 15)
+       )::date
+"""
+
+
+@dataclass(frozen=True)
+class RangoContribucion:
+    moneda: str
+    entidades: int
+    sin_halo: Decimal
+    con_halo: Decimal
+
+
+@dataclass(frozen=True)
+class SinDatoContribucion:
+    total_ausentes: int
+    por_motivo: tuple[tuple[str, int], ...]
+
+
+@dataclass(frozen=True)
+class ResidualTacos:
+    monto: Decimal
+
+
+@dataclass(frozen=True)
+class ContribucionDigest:
+    rango: RangoContribucion | None
+    sin_dato: SinDatoContribucion | None
+    residual_tacos: ResidualTacos | None
 
 
 @dataclass(frozen=True)
@@ -184,6 +242,75 @@ def aviso_corte_encolado(fila: CorteEncolado) -> str:
     return "\n".join(lineas)
 
 
+def _formatea_monto(valor: Decimal) -> str:
+    return format(valor.quantize(Decimal("0.01")), "f")
+
+
+def _linea_contribucion(datos: ContribucionDigest) -> str | None:
+    if datos.rango is not None:
+        r = datos.rango
+        cuerpo = (
+            f"{_formatea_monto(r.sin_halo)} .. {_formatea_monto(r.con_halo)}"
+            f" {r.moneda} ({r.entidades} entidades)"
+        )
+    elif datos.sin_dato is not None:
+        s = datos.sin_dato
+        motivos = ", ".join(f"{m} {n}" for m, n in s.por_motivo)
+        cuerpo = f"sin dato ({s.total_ausentes} entidades ausentes: {motivos})"
+    else:
+        return None
+    return f"{ETIQUETA_CONTRIBUCION}: {cuerpo}"
+
+
+def _arma_contribucion_digest(
+    filas_rango: list[tuple],
+    filas_ausentes: list[tuple],
+    residual: Decimal | None,
+) -> ContribucionDigest | None:
+    rango: RangoContribucion | None = None
+    sin_dato: SinDatoContribucion | None = None
+    if len(filas_rango) == 1:
+        moneda, entidades, sin_h, con_h = filas_rango[0]
+        if entidades and sin_h is not None and con_h is not None:
+            rango = RangoContribucion(moneda, entidades, sin_h, con_h)
+    if rango is None and filas_ausentes:
+        por_motivo = tuple((m, n) for m, n in filas_ausentes)
+        total = sum(n for _, n in por_motivo)
+        if total > 0:
+            sin_dato = SinDatoContribucion(total, por_motivo)
+    if rango is None and sin_dato is None:
+        return None
+    res_tacos = ResidualTacos(residual) if residual is not None and residual > 0 else None
+    return ContribucionDigest(rango=rango, sin_dato=sin_dato, residual_tacos=res_tacos)
+
+
+def carga_contribucion_digest(plataforma: str, *, conn=None) -> ContribucionDigest | None:
+    """Lee v_contribucion_entidad / cobertura / v_tacos (ORBIT_DSN_READ).
+
+      Fail-silent hacia arriba: el caller omite la seccion si devuelve None.
+    Solo lectura; sin ORBIT_DSN_READ devuelve None sin excepcion."""
+    propia = conn is None
+    try:
+        if conn is None:
+            dsn = os.environ.get("ORBIT_DSN_READ")
+            if not dsn:
+                return None
+            conn = connect(dsn)
+        filas_rango = conn.execute(SQL_CONTRIB_RANGO, (plataforma,)).fetchall()
+        filas_ausentes: list[tuple] = []
+        if not filas_rango or not filas_rango[0][1]:
+            filas_ausentes = conn.execute(SQL_CONTRIB_AUSENTES, (plataforma,)).fetchall()
+        residual_row = conn.execute(SQL_RESIDUAL_TACOS, (plataforma,)).fetchone()
+        residual = residual_row[0] if residual_row else None
+        return _arma_contribucion_digest(filas_rango, filas_ausentes, residual)
+    except Exception as exc:  # noqa: BLE001 - fail-silent (digest sigue sin contrib)
+        logger.warning("telegram: fallo leyendo contribucion para digest: %s", scrub(str(exc)))
+        return None
+    finally:
+        if propia and conn is not None:
+            conn.close()
+
+
 def digest_ciclo(resumen: dict) -> str:
     """Digest MINIMO del ciclo ejecutor: cycle_id, plataforma, modo del ciclo
     (live/shadow — en shadow el dueno practica el veto y el digest tambien
@@ -219,6 +346,15 @@ def digest_ciclo(resumen: dict) -> str:
         lineas.append(f"apply_error: {apply['apply_error']}")
     if apply.get("apply_abortado_owner"):
         lineas.append("apply_abortado_owner: true")
+    contrib = resumen.get("contribucion")
+    if isinstance(contrib, ContribucionDigest):
+        linea = _linea_contribucion(contrib)
+        if linea:
+            lineas.append(linea)
+        if contrib.residual_tacos is not None:
+            lineas.append(
+                f"residual tacos campaign: {_formatea_monto(contrib.residual_tacos.monto)} MXN"
+            )
     return "\n".join(lineas)
 
 
@@ -278,7 +414,16 @@ def notifica_digest(resumen: dict, *, transport: httpx.BaseTransport | None = No
     try:
         if not canal_activo():
             return True
-        return _envia_texto(digest_ciclo(resumen), transport=transport)
+        plataforma = resumen.get("plataforma")
+        payload = resumen
+        if isinstance(plataforma, str):
+            try:
+                contrib = carga_contribucion_digest(plataforma)
+            except Exception:  # noqa: BLE001 - contrib es opcional
+                contrib = None
+            if contrib is not None:
+                payload = {**resumen, "contribucion": contrib}
+        return _envia_texto(digest_ciclo(payload), transport=transport)
     except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
         logger.warning("telegram: fallo armando el digest: %s", scrub(str(exc)))
         return False
