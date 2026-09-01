@@ -38,7 +38,8 @@ ent AS MATERIALIZED (
            v.metric_currency::text AS metric_currency,
            v.metric_date_from,
            v.metric_date_to,
-           v.fx_source::text AS fx_source
+           v.fx_source::text AS fx_source,
+           v.precio_min_multilisting
       FROM v_contribucion_entidad v
      WHERE v.platform = %s::platform
 ),
@@ -73,7 +74,8 @@ rollup AS (
            MAX(v.metric_currency) AS metric_currency,
            MIN(v.metric_date_from)    AS metric_date_from,
            MAX(v.metric_date_to)      AS metric_date_to,
-           MAX(v.fx_source) FILTER (WHERE v.fx_source IS NOT NULL) AS fx_source
+           MAX(v.fx_source) FILTER (WHERE v.fx_source IS NOT NULL) AS fx_source,
+           BOOL_OR(v.precio_min_multilisting) AS multilisting
       FROM hijos h
       LEFT JOIN ent v ON v.ad_entity_id = h.ad_entity_id
      GROUP BY h.campaign_id
@@ -101,7 +103,8 @@ SELECT DISTINCT ON (h.campaign_id)
        r.fx_source,
        m.motivo,
        v.d_from,
-       v.d_to
+       v.d_to,
+       r.multilisting
   FROM hijos h
   CROSS JOIN ventana v
   LEFT JOIN rollup r ON r.campaign_id = h.campaign_id
@@ -130,6 +133,9 @@ def _fila_contribucion_campana(fila) -> dict:
         "metric_date_to": fila[7].isoformat() if fila[7] is not None else None,
         "fx_source": fila[8],
         "motivo_ausencia": _motivo_contribucion_es(fila[9]),
+        # 0008: la campana uso el precio MENOR de algun producto multilisting
+        # (bool_or de sus hojas). None (campana sin rango) -> False.
+        "precio_min_multilisting": bool(fila[12]) if fila[12] is not None else False,
         "etiqueta": ETIQUETA_CONTRIBUCION,
     }
 

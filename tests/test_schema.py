@@ -56,6 +56,12 @@ STMTS6 = tuple(pglast.parse_sql(SQL6))
 SQL7 = (ROOT / "migrations" / "0007_contribucion_perf.sql").read_text(encoding="utf-8")
 STMTS7 = tuple(pglast.parse_sql(SQL7))
 
+# 0008 (ORBIT 06 1.5): precio multilisting US — MIN marcado (enmienda D1.bis,
+# sello del dueno 2026-09-01). Agrega UNA columna al final de
+# v_contribucion_entidad: precio_min_multilisting.
+SQL8 = (ROOT / "migrations" / "0008_precio_multilisting_us.sql").read_text(encoding="utf-8")
+STMTS8 = tuple(pglast.parse_sql(SQL8))
+
 APPEND_ONLY = {
     "ads_metric_observation",
     "search_term_observation",
@@ -717,9 +723,9 @@ def test_allowlist_kinds_en_tres_sitios():
     sitios = {
         "v_tacos": repr(_v_tacos_viva().query),
         "cobertura": cob_src,
-        # La definicion VIVA es la de 0007 (CREATE OR REPLACE); afirmar contra
-        # SQL6 seria vigilar SQL muerto (misma leccion que _v_tacos_viva).
-        "v_contribucion_entidad": SQL7,
+        # La definicion VIVA es la de 0008 (CREATE OR REPLACE); afirmar contra
+        # SQL6/SQL7 seria vigilar SQL muerto (misma leccion que _v_tacos_viva).
+        "v_contribucion_entidad": SQL8,
     }
     for nombre, cuerpo in sitios.items():
         assert "'keyword'" in cuerpo and "'product_target'" in cuerpo, (
@@ -835,6 +841,49 @@ def test_0007_costo_asof_por_producto_dia():
     assert idx >= 0
     bloque = SQL7[idx : idx + 1500]
     assert "SELECT DISTINCT" in bloque and "JOIN sku_cost" in bloque
+
+
+# ---------------------------------------------------------------------------
+# ESTATICOS de 0008_precio_multilisting_us — ORBIT 06 1.5 (enmienda D1.bis,
+# sello del dueno 2026-09-01: precio MENOR, MARCADO)
+# ---------------------------------------------------------------------------
+
+
+def test_0008_parsea_y_reemplaza_solo_entidad():
+    assert _vista_de(STMTS8, "v_contribucion_entidad") is not None
+    # 0008 NO toca v_contribucion_cobertura (su logica no cambia: las
+    # entidades recien publicadas simplemente salen del balde).
+    nombres = {s.stmt.view.relname for s in STMTS8 if isinstance(s.stmt, ast.ViewStmt)}
+    assert nombres == {"v_contribucion_entidad"}
+
+
+def test_0008_interfaz_0007_mas_columna_marca():
+    # La marca es UNA columna nueva AL FINAL (lo unico que CREATE OR REPLACE
+    # permite agregar); el resto de la interfaz queda intacta.
+    cols7 = _columnas_vista(_vista_de(STMTS7, "v_contribucion_entidad"))
+    cols8 = _columnas_vista(_vista_de(STMTS8, "v_contribucion_entidad"))
+    assert cols8 == cols7 + ["precio_min_multilisting"], (
+        "0008 solo puede AGREGAR precio_min_multilisting al final de la interfaz"
+    )
+
+
+def test_0008_precio_us_min_y_marca_multilisting():
+    compacto = " ".join(SQL8.split())
+    assert "MIN(v.listing_price)" in compacto, "US: el precio es el MENOR (sello)"
+    # La marca: productos con 2+ precios distintos entre sus vivos.
+    assert "COUNT(DISTINCT v.listing_price) > 1" in compacto
+    assert "producto_multilisting" in SQL8 and "grupo_multilisting" in SQL8
+    # El candado viejo (precio unico o ausente) NO debe sobrevivir en la viva.
+    assert "COUNT(DISTINCT v.listing_price) = 1" not in compacto
+
+
+def test_0008_direccion_fx_y_grano_sellados_intactos():
+    # Mismo sello que 0006/0007: USD/MXN con division; NUNCA el par invertido.
+    compacto = " ".join(SQL8.split())
+    assert "fx_resolve(d.metric_date, 'USD'::currency, 'MXN'::currency)" in compacto
+    assert "fx_resolve(d.metric_date, 'MXN'" not in compacto
+    assert "/ fxd.rate" in compacto
+    assert "'keyword'" in SQL8 and "'product_target'" in SQL8
 
 
 # ---------------------------------------------------------------------------

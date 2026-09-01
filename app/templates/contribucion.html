@@ -29,6 +29,9 @@
         <td class="num">
           {% if item.contrib_sin_halo is not none and item.contrib_con_halo is not none %}
             {{ item.contrib_sin_halo }} .. {{ item.contrib_con_halo }}
+            {% if item.precio_min_multilisting %}
+            <br><span class="chip alerta">precio min multilisting</span>
+            {% endif %}
             {% if item.motivo_ausencia %}
             <br><span class="mutado">parcial: {{ item.motivo_ausencia }}</span>
             {% endif %}

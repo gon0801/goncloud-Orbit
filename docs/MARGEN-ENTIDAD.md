@@ -136,6 +136,11 @@ lead selle UNA de:
 Sin ese sello, 1.3/1.4 muestran el rango con etiqueta
 `contribucion_pre_cargos · no decisoria`.
 
+> **Enmienda 0008 (sello del dueno 2026-09-01):** el precio US de un
+> producto con varios listings a precios distintos es el **MENOR**, y la
+> fila sale **marcada** (`precio_min_multilisting`). Ver Historial de
+> enmiendas. El candado de uso (no decisoria) sigue intacto.
+
 ### Que necesita el lead sellar
 
 - Aceptar **C+B** con los candados de cobertura 100 %, Σ=0 → ausente, y
@@ -317,6 +322,20 @@ versionada, no silencio.
 
 ## Historial de enmiendas
 
+- **2026-09-01 (SELLO del dueno · enmienda D1.bis, migracion 0008).**
+  **Producto US multilisting: precio = MENOR de sus listings, MARCADO.**
+  Causa medida en prod por el lead: los productos 120 (NH-BLA-BRO-VBU-PLA,
+  $106.20/$118.00) y 356 (NH-PERS-ITA-VBU-PLA, $95.58/$106.20) tienen dos
+  ASINs a precios distintos (dos publicaciones del mismo SKU — caso
+  legitimo). La regla "un solo precio por producto" excluia 273 entidades
+  bajo `catalogo_parcial` (~4,908 USD de gasto 90d escondido). NO era mapeo:
+  0 huecos de listing/producto en campanas ENABLED. Sin ponderacion posible
+  (el ledger US no distingue ASIN y llega sin `item_price`), la eleccion es
+  conservadora por diseno: el MENOR precio = margen pesimista, jamas
+  inflado; la fila sale con `precio_min_multilisting = true` (columna nueva
+  al final de la vista) y la marca se ve en el dashboard (tag junto al
+  rango) y en el digest (sufijo de la linea). MX intacto (D1.mx no usa
+  `listing_price`; la marca sale en false).
 - **2026-08-31 (Cursor).** Borrador inicial C+B.
 - **2026-08-31 (SELLO del lead).** Aprobacion del dueno con texto literal;
   enmienda D1.mx (precio neto realizado del ledger, medido 100 %/0.8604);

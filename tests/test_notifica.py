@@ -257,6 +257,62 @@ def test_digest_contribucion_rango_con_denominador():
     assert "108 entidades de 4998 entidades maduras" in texto
 
 
+def test_digest_contribucion_multilisting_marcado():
+    """Sello 1.5 (enmienda D1.bis): si alguna entidad publicada uso el precio
+    MENOR de un producto multilisting, la linea del digest lo declara."""
+    resumen = {
+        "cycle_id": 15,
+        "plataforma": "amazon_us",
+        "status": "done",
+        "decisions_count": 1,
+        "contribucion": notifica.ContribucionDigest(
+            rango=notifica.RangoContribucion(
+                moneda="USD",
+                entidades=42,
+                sin_halo=Decimal("100"),
+                con_halo=Decimal("200"),
+                precio_min_multilisting=True,
+            ),
+            sin_dato=None,
+            residual_tacos=None,
+        ),
+    }
+    texto = notifica.digest_ciclo(resumen)
+    assert "precio min multilisting" in texto
+
+
+def test_digest_contribucion_sin_multilisting_no_lo_menciona():
+    resumen = {
+        "cycle_id": 16,
+        "plataforma": "amazon_mx",
+        "status": "done",
+        "decisions_count": 1,
+        "contribucion": notifica.ContribucionDigest(
+            rango=notifica.RangoContribucion(
+                moneda="MXN",
+                entidades=12,
+                sin_halo=Decimal("100"),
+                con_halo=Decimal("200"),
+            ),
+            sin_dato=None,
+            residual_tacos=None,
+        ),
+    }
+    texto = notifica.digest_ciclo(resumen)
+    assert "multilisting" not in texto
+
+
+def test_arma_contribucion_digest_propaga_marca_multilisting():
+    """La marca viaja desde SQL_CONTRIB_RANGO (6a columna: bool_or del flag)."""
+    out = notifica._arma_contribucion_digest(
+        [("USD", 42, Decimal("100"), Decimal("200"), False, True)],
+        [],
+        None,
+    )
+    assert out is not None and out.rango is not None
+    assert out.rango.precio_min_multilisting is True
+
+
 def test_digest_contribucion_lectura_fallida():
     resumen = {
         "cycle_id": 14,
@@ -399,7 +455,7 @@ def test_carga_contribucion_digest_rango_y_sin_dato():
         "amazon_mx",
         conn=_Conn(
             [
-                [("MXN", 108, Decimal("100"), Decimal("200"), False)],
+                [("MXN", 108, Decimal("100"), Decimal("200"), False, False)],
                 [],
                 [(Decimal("4.75"),)],
             ]
@@ -509,7 +565,7 @@ def test_notifica_digest_falla_lectura_no_tumba(monkeypatch, tmp_path):
 
 def test_carga_contribucion_digest_cobertura_parcial_con_rango():
     out = notifica._arma_contribucion_digest(
-        [("MXN", 108, Decimal("100"), Decimal("200"), False)],
+        [("MXN", 108, Decimal("100"), Decimal("200"), False, False)],
         [("catalogo_parcial", 4890)],
         None,
     )

@@ -182,6 +182,30 @@ def test_ui_contribucion_rango_parcial_declara_motivo(monkeypatch):
     assert "catalogo parcial" in fila or "catalogo_parcial" in fila
 
 
+def test_ui_contribucion_multilisting_marcado(monkeypatch):
+    """Sello 1.5 (enmienda D1.bis): una campana cuya contribucion usa el
+    precio MENOR de un producto con varios listings lo declara junto al
+    rango (margen pesimista visible, jamas silencioso)."""
+    item = _item_con_rango(nombre="Camp US", moneda="USD")
+    item["precio_min_multilisting"] = True
+    html = _contribucion_html_fakeado(
+        monkeypatch,
+        _payload(us_items=[item]),
+    )
+    fila = _fila_de(html, "Camp US")
+    assert "precio min multilisting" in fila
+
+
+def test_ui_contribucion_sin_marca_multilisting_no_la_pinta(monkeypatch):
+    """Sin la marca (o sin la clave, payloads viejos) el tag no aparece."""
+    html = _contribucion_html_fakeado(
+        monkeypatch,
+        _payload(mx_items=[_item_con_rango()]),
+    )
+    fila = _fila_de(html, "Camp MX")
+    assert "multilisting" not in fila
+
+
 def test_rollup_sql_vistas_materializadas_y_hojas_sin_dias():
     """Candado estatico del fix prod 2026-09-01: las vistas se materializan
     UNA vez (sin esto el planner las inlinea y cae en Nested Loop, >240s
