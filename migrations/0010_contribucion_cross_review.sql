@@ -1,37 +1,35 @@
 -- =============================================================================
---  ORBIT · MIGRACION 0008 · precio multilisting US: MIN marcado · PostgreSQL 16
+--  ORBIT · MIGRACION 0010 · cross-review 1.5: marca precisa + reconciliacion
 --
---  Enmienda D1.bis de docs/MARGEN-ENTIDAD.md, SELLADA por el dueno 2026-09-01:
---  cuando un producto US tiene varios listings con precios distintos, la
---  contribucion usa el MENOR (MIN listing_price) y la fila sale MARCADA con
---  la columna nueva precio_min_multilisting — margen pesimista, jamas
---  inflado, jamas silencioso.
+--  Dos hallazgos MEDIA del cross-review de la 1.5 (claude/codex/grok
+--  2026-09-01, out/_cr_1_5_*.txt), cada uno con su test rojo primero
+--  (tests/test_contribucion_multilisting.py):
 --
---  Causa medida en prod 2026-09-01: los productos 120 (NH-BLA-BRO-VBU-PLA,
---  $106.20/$118.00) y 356 (NH-PERS-ITA-VBU-PLA, $95.58/$106.20) tienen dos
---  ASINs a precios distintos; la regla "un solo precio por producto"
---  (HAVING COUNT(DISTINCT listing_price) = 1, 0006/0007) excluia 273
---  entidades con motivo catalogo_parcial (~4,908 USD de gasto 90d
---  escondido). NO era mapeo: 0 huecos de listing/producto en campanas
---  ENABLED. El ledger US no distingue ASIN y llega sin item_price (0/153
---  ventas): no existe ponderacion ni precio realizado para US hoy.
+--  1. La marca precio_min_multilisting SOBRE-DECLARABA: grupo_multilisting
+--     marcaba al ad_group por la simple PRESENCIA de un producto
+--     multilisting vivo, aunque ese producto no tuviera ventas en la
+--     ventana (w_i NULL) y su MIN jamas hubiera entrado al ratio. El chip
+--     del dashboard y el digest afirman "esta contribucion uso el precio
+--     MENOR" — mentira en ese caso (jamas silencioso, jamas inflado: la
+--     marca tambien). Fix: la marca exige PESO — grupo_multilisting se
+--     define sobre `pesos` (el producto multilisting participo del ratio
+--     con su MIN). En prod no cambia ninguna marca publicada hoy: los dos
+--     productos multilisting (120/356) venden; es un fix de veracidad
+--     latente, no de datos.
 --
---  Cambio QUIRURGICO sobre la definicion 0007 (perf intacta):
---   1. precio_us pierde el HAVING de precio unico (queda MIN).
---   2. producto_multilisting: (platform, product_id) con 2+ precios
---      distintos entre sus vivos.
---   3. Columna NUEVA AL FINAL de v_contribucion_entidad:
---      precio_min_multilisting BOOLEAN — true si el grupo de la entidad
---      contiene algun producto multilisting (CREATE OR REPLACE permite
---      agregar columnas al final; consumidores por posicion no se rompen).
+--  2. Las columnas publicadas NO reconciliaban entre si: 0009 redondeaba
+--     cogs pero computaba contrib del cogs CRUDO — ROUND(a-b) != a -
+--     ROUND(b) (empate en el 5o decimal: quien cuadre revenue - cost -
+--     cogs a mano ve un descuadre de 0.0001). Fix: contrib se computa del
+--     cogs YA redondeado; las columnas publicadas cuadran exactas al 4o
+--     decimal (ROUND final es identidad: revenue/cost ya son escala 4).
 --
---  MX intacto (precio_mx no se toca; la columna sale en false). La cobertura
---  no cambia: las entidades recien publicadas simplemente salen del balde.
---  Reversa: DROP VIEW v_contribucion_entidad CASCADE (tumba cobertura, que
---  la referencia), re-aplicar la 0007 completa Y re-correr los GRANT
---  SELECT de los roles de servicio (viven solo en la 0006, seccion final;
---  DROP CASCADE los pierde — hallazgo codex, cross-review 1.5). OR
---  REPLACE no puede QUITAR la columna nueva.
+--  Definicion = 0009 + los dos fixes. Misma interfaz, misma ventana,
+--  mismo sellado FX. Reversa: re-aplicar la 0009 (misma interfaz; OR
+--  REPLACE directo). OJO si se revierte MAS ALLA de 0008 (DROP CASCADE):
+--  los GRANT SELECT de los roles de servicio viven SOLO en la 0006 y hay
+--  que re-correrlos (ver 0006, seccion final) — la reversa original de la
+--  0008 no lo decia (hallazgo codex del mismo cross-review).
 -- =============================================================================
 
 CREATE OR REPLACE VIEW v_contribucion_entidad AS
@@ -149,13 +147,6 @@ producto_multilisting AS (
      GROUP BY 1, 2
     HAVING COUNT(DISTINCT v.listing_price) > 1
 ),
--- 0008: grupos que contienen algun producto multilisting.
-grupo_multilisting AS (
-    SELECT DISTINCT v.ad_group_id, v.platform
-      FROM vivos v
-      JOIN producto_multilisting pm
-        ON pm.platform = v.platform AND pm.product_id = v.product_id
-),
 -- Catalogo vivo a grano (ad_group, platform, product_id) — evita fan-out.
 catalogo_vivo AS (
     SELECT DISTINCT ad_group_id, platform, product_id
@@ -201,6 +192,16 @@ pesos AS (
         ON s.ad_group_id = p.ad_group_id
        AND s.platform = p.platform
      WHERE s.sigma_ventas > 0
+),
+-- 0010: la marca exige PESO — el grupo se marca solo si algun producto
+-- multilisting PARTICIPO del ratio (w_i en la ventana), es decir, si su
+-- MIN entro de verdad al calculo. En 0008/0009 bastaba la presencia del
+-- producto en vivos y la marca podia mentir (cross-review 1.5).
+grupo_multilisting AS (
+    SELECT DISTINCT p.ad_group_id, p.platform
+      FROM pesos p
+      JOIN producto_multilisting pm
+        ON pm.platform = p.platform AND pm.product_id = p.product_id
 ),
 -- 0007: pesos pre-unidos a vivos (join chico 11k x 2.7k). w_i es por
 -- (ad_group, platform, product_id) — sin dia — asi que viaja con el vivo y
@@ -503,10 +504,21 @@ SELECT s.platform,
        s.ad_revenue_sum,
        s.revenue_same_sku_sum,
        s.cost_sum,
-       c.cogs_sin_halo,
-       c.cogs_con_halo,
-       (s.revenue_same_sku_sum - s.cost_sum - c.cogs_sin_halo) AS contrib_sin_halo,
-       (s.ad_revenue_sum - s.cost_sum - c.cogs_con_halo)       AS contrib_con_halo,
+       -- 0009: el dinero COMPUTADO (cogs/contrib, de w_i*(cost_i/price_i))
+       -- sale redondeado a la escala del schema (NUMERIC(14,4), regla 4);
+       -- los CTEs internos siguen exactos. Bug prod: colas de ~40 decimales
+       -- en el dashboard.
+       -- 0010: contrib se computa del cogs YA REDONDEADO, asi las columnas
+       -- publicadas reconcilian exactas al 4o decimal (revenue - cost -
+       -- cogs = contrib; el ROUND externo es identidad porque revenue/cost
+       -- ya son escala 4). En 0009 se computaba del cogs crudo y podian
+       -- descuadrar en 0.0001 (cross-review 1.5).
+       ROUND(c.cogs_sin_halo, 4) AS cogs_sin_halo,
+       ROUND(c.cogs_con_halo, 4) AS cogs_con_halo,
+       ROUND(s.revenue_same_sku_sum - s.cost_sum - ROUND(c.cogs_sin_halo, 4), 4)
+           AS contrib_sin_halo,
+       ROUND(s.ad_revenue_sum - s.cost_sum - ROUND(c.cogs_con_halo, 4), 4)
+           AS contrib_con_halo,
        c.rango_invertido,
        c.fx_source,
        true AS no_decisoria,
@@ -520,6 +532,8 @@ SELECT s.platform,
        END AS precio_as_of,
        -- 0008 (columna NUEVA AL FINAL): el grupo contiene algun producto US
        -- con 2+ listings a precios distintos y la contribucion uso el MENOR.
+       -- 0010: la marca exige que ese producto tenga PESO en la ventana
+       -- (su MIN participo del ratio) — presencia sin peso no marca.
        (gm.ad_group_id IS NOT NULL) AS precio_min_multilisting
   FROM serie_ok s
   JOIN cobertura_ok cob ON cob.ad_entity_id = s.ad_entity_id
@@ -564,4 +578,11 @@ COMMENT ON VIEW v_contribucion_entidad IS
   'Sin FX utilizable → ausente. Par contrib_sin_halo/contrib_con_halo siempre '
   'ambos o no hay fila. rango_invertido si ratio_G > 1. '
   'no_decisoria=true siempre (D1.bis) hasta sello del lead para Fase 2. '
+  '0009: cogs/contrib COMPUTADOS salen con ROUND(...,4) en la frontera '
+  '(regla 4, escala NUMERIC(14,4)); los CTEs internos siguen exactos — '
+  'bug prod 2026-09-01: colas de ~40 decimales en el dashboard. '
+  '0010 (cross-review 1.5): la marca precio_min_multilisting exige PESO '
+  '(el MIN del producto multilisting participo del ratio; presencia sin '
+  'ventas no marca) y contrib se computa del cogs YA redondeado — las '
+  'columnas publicadas reconcilian exactas al 4o decimal. '
   'Cargos fee/refund/withholding NO entran (multi-home).';

@@ -135,7 +135,7 @@ def _fila_contribucion_campana(fila) -> dict:
         "motivo_ausencia": _motivo_contribucion_es(fila[9]),
         # 0008: la campana uso el precio MENOR de algun producto multilisting
         # (bool_or de sus hojas). None (campana sin rango) -> False.
-        "precio_min_multilisting": bool(fila[12]) if fila[12] is not None else False,
+        "precio_min_multilisting": bool(fila[12]),
         "etiqueta": ETIQUETA_CONTRIBUCION,
     }
 
