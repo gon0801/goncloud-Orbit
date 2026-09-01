@@ -917,6 +917,44 @@ DICTAN medio diseño; lo que queda abierto es la decisión del diseñador.
    de ventas MX con product_id resuelto (1.159M de 1.376M MXN), 88 % en US.
    Los sin producto se cuentan, no se esconden.
 
+### Decisiones de la 1.1 (PROPUESTA Cursor, 2026-08-31 — pendiente de sello del lead)
+
+Documento completo: `docs/MARGEN-ENTIDAD.md`. Resumen del corazon (D1) y
+lo demas, para el ritual de la 0.4: el lead sella ANTES de la 1.2.
+
+**D1 · COGS = razon costo/precio ponderada por revenue del ledger (C con
+pesos de B), aplicada a cada punta del ingreso.** Se rechaza el promedio
+simple (A): multi-ASIN es la norma. Se rechaza B solo: dejaria el ~65 %
+halo sin COGS y haria optimista justo el extremo "con halo". Sesgo
+declarado: mezcla keyword ≈ mezcla ledger del catalogo del grupo; halo
+costeado con la misma razon; residual IVA MX (vitrina vs costo neto) puede
+subestimar COGS. Sin listing_price resoluble → fila ausente, no fallback
+silencioso a A. **El lead sella esta eleccion (o manda otra con sesgo
+escrito) antes de programar.**
+
+**D2 · Grano** = `keyword` / `product_target` (mismo que 0005 / motor /
+0.7). Catalogo via `product_ad` del ad_group padre. Sin margen propio en
+campaign/ad_group.
+
+**D3 · Ingreso/gasto** de `v_metric_mature`. Cargos ledger
+(fee/refund/withholding) **no** se atribuyen por entidad (multi-home);
+se declaran fuera y viven en reconciliacion de plataforma.
+`fee_type=ads` no se resta (ya esta en `cost` de metricas).
+
+**D4 · Vintage** D-15 via `v_metric_mature`. **Ventana** 90d maduros
+(magnitudes del obstaculo). Ledger de pesos D1 con el mismo corte.
+
+**D5 · Moneda.** Metricas US en USD + `fx_resolve` cuando haga falta MXN;
+ledger de reconciliacion ya MXN. `sku_cost` 100 % MXN → convertir con
+`fx_resolve` (sellado 3).
+
+**D6 · Ola fail-loud** (obstaculo 6) viaja con la 1.2: contador
+`gasto_campaign_sin_contraparte` en `v_tacos`, test vivo cost NULL →
+tacos_pct NULL, candado anti-deriva de la allowlist de kinds (3 copias).
+
+**D7 · Ausencia.** Sin catalogo/costo/precio/FX o sin par halo → fila no
+escrita (sellado 1).
+
 ## Fase 2 — margin-aware targets (la única que decide; nace en shadow)
 
 `[lane:release]` — no arranca sin Fases 0 y 1 cerradas Y ≥1 semana post-flip.
