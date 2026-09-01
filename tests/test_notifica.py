@@ -211,6 +211,69 @@ def test_digest_ciclo_tolerante_a_claves_ausentes():
         assert "bids" not in texto and "cortes" not in texto
 
 
+def test_digest_contribucion_rango_invertido_no_usa_notacion_acotada():
+    resumen = {
+        "cycle_id": 12,
+        "plataforma": "amazon_mx",
+        "status": "done",
+        "decisions_count": 1,
+        "contribucion": notifica.ContribucionDigest(
+            rango=notifica.RangoContribucion(
+                moneda="MXN",
+                entidades=12,
+                sin_halo=Decimal("-500"),
+                con_halo=Decimal("-900"),
+                invertido=True,
+            ),
+            sin_dato=None,
+            residual_tacos=None,
+        ),
+    }
+    texto = notifica.digest_ciclo(resumen)
+    assert "rango_invertido" in texto
+    assert " .. " not in texto.split("contribucion pre-cargos")[1]
+
+
+def test_digest_contribucion_rango_con_denominador():
+    resumen = {
+        "cycle_id": 13,
+        "plataforma": "amazon_mx",
+        "status": "done",
+        "decisions_count": 1,
+        "contribucion": notifica.ContribucionDigest(
+            rango=notifica.RangoContribucion(
+                moneda="MXN",
+                entidades=108,
+                sin_halo=Decimal("1200.50"),
+                con_halo=Decimal("3400.75"),
+                invertido=False,
+                entidades_maduras=4998,
+            ),
+            sin_dato=None,
+            residual_tacos=None,
+        ),
+    }
+    texto = notifica.digest_ciclo(resumen)
+    assert "108 entidades de 4998 entidades maduras" in texto
+
+
+def test_digest_contribucion_lectura_fallida():
+    resumen = {
+        "cycle_id": 14,
+        "plataforma": "amazon_mx",
+        "status": "done",
+        "decisions_count": 0,
+        "contribucion": notifica.ContribucionDigest(
+            rango=None,
+            sin_dato=None,
+            residual_tacos=None,
+            lectura_fallida=True,
+        ),
+    }
+    texto = notifica.digest_ciclo(resumen)
+    assert "lectura no disponible" in texto
+
+
 def test_digest_contribucion_rango_nunca_numero_unico():
     """ORBIT 06 1.3: el rango viaja como rango con la etiqueta sellada; jamas
     un numero unico ni la palabra 'margen' a secas."""
@@ -260,8 +323,29 @@ def test_digest_contribucion_sin_dato_con_motivos():
     assert "sin dato (4998 entidades ausentes: catalogo_parcial 4800, sin_fx 198)" in texto
 
 
+def test_digest_contribucion_residual_tacos_negativo():
+    resumen = {
+        "cycle_id": 15,
+        "plataforma": "amazon_mx",
+        "status": "done",
+        "decisions_count": 1,
+        "contribucion": notifica.ContribucionDigest(
+            rango=notifica.RangoContribucion(
+                moneda="MXN",
+                entidades=5,
+                sin_halo=Decimal("10"),
+                con_halo=Decimal("20"),
+            ),
+            sin_dato=None,
+            residual_tacos=notifica.ResidualTacos(monto=Decimal("-4.75")),
+        ),
+    }
+    texto = notifica.digest_ciclo(resumen)
+    assert "residual tacos campaign: -4.75 MXN" in texto
+
+
 def test_digest_contribucion_residual_tacos():
-    """Residual campaign sin contraparte del mes: linea corta solo si > 0."""
+    """Residual campaign sin contraparte del mes: linea si != 0."""
     resumen = {
         "cycle_id": 11,
         "plataforma": "amazon_mx",
@@ -315,7 +399,8 @@ def test_carga_contribucion_digest_rango_y_sin_dato():
         "amazon_mx",
         conn=_Conn(
             [
-                [("MXN", 108, Decimal("100"), Decimal("200"))],
+                [("MXN", 108, Decimal("100"), Decimal("200"), False)],
+                [],
                 [(Decimal("4.75"),)],
             ]
         ),
@@ -342,9 +427,29 @@ def test_carga_contribucion_digest_rango_y_sin_dato():
     )
 
 
-def test_notifica_digest_falla_lectura_no_tumba(monkeypatch, tmp_path):
-    """Fail-silent: lectura de contribucion falla pero el digest sale (sin
-    seccion contrib) y notifica_digest devuelve True si el canal manda."""
+def test_carga_contribucion_digest_execute_falla(caplog):
+    """Fail-silent real: execute que revienta -> lectura_fallida, no None."""
+
+    class _Cur:
+        def fetchone(self):
+            return None
+
+        def fetchall(self):
+            return []
+
+    class _Conn:
+        def execute(self, _sql, _params=None):
+            raise RuntimeError("server closed the connection unexpectedly")
+
+    caplog.set_level(logging.WARNING, logger="app.notifica")
+    out = notifica.carga_contribucion_digest("amazon_mx", conn=_Conn())
+    assert out is not None
+    assert out.lectura_fallida is True
+    assert any("fallo leyendo contribucion" in r.message for r in caplog.records)
+
+
+def test_notifica_digest_falla_lectura_muestra_lectura_no_disponible(monkeypatch, tmp_path):
+    """Si carga devuelve lectura_fallida, el digest lo declara (no omite en silencio)."""
     d = tmp_path / "secrets"
     d.mkdir()
     (d / "telegram.json").write_text(
@@ -352,20 +457,65 @@ def test_notifica_digest_falla_lectura_no_tumba(monkeypatch, tmp_path):
     )
     monkeypatch.setenv("ORBIT_SECRETS_DIR", str(d))
 
-    def _explota(_plataforma, *, conn=None):
-        raise RuntimeError("lectura rota")
+    def _fallida(_plataforma, *, conn=None):
+        return notifica.ContribucionDigest(
+            rango=None, sin_dato=None, residual_tacos=None, lectura_fallida=True
+        )
 
     handler, mensajes = _handler_telegram()
     monkeypatch.setattr(notifica, "_transporte_test", httpx.MockTransport(handler))
-    monkeypatch.setattr(notifica, "carga_contribucion_digest", _explota)
+    monkeypatch.setattr(notifica, "carga_contribucion_digest", _fallida)
     notifica._reset()
     ok = notifica.notifica_digest(
         {"cycle_id": 1, "plataforma": "amazon_mx", "status": "done", "decisions_count": 0}
     )
     assert ok is True
     assert len(mensajes) == 1
-    assert "contribucion pre-cargos" not in mensajes[0]["text"]
+    assert "lectura no disponible" in mensajes[0]["text"]
     notifica._reset()
+
+
+def test_notifica_digest_falla_lectura_no_tumba(monkeypatch, tmp_path):
+    """Fail-silent: lectura revienta en execute -> digest declara lectura no
+    disponible y notifica_digest devuelve True si el canal manda."""
+
+    class _Conn:
+        def execute(self, _sql, _params=None):
+            raise RuntimeError("lectura rota")
+
+    real_carga = notifica.carga_contribucion_digest
+
+    def _carga_fallida(plataforma, *, conn=None):
+        return real_carga(plataforma, conn=_Conn())
+
+    d = tmp_path / "secrets"
+    d.mkdir()
+    (d / "telegram.json").write_text(
+        json.dumps({"bot_token": FAKE_BOT_TOKEN, "chat_id": FAKE_CHAT_ID}), encoding="utf-8"
+    )
+    monkeypatch.setenv("ORBIT_SECRETS_DIR", str(d))
+    handler, mensajes = _handler_telegram()
+    monkeypatch.setattr(notifica, "_transporte_test", httpx.MockTransport(handler))
+    monkeypatch.setattr(notifica, "carga_contribucion_digest", _carga_fallida)
+    notifica._reset()
+    ok = notifica.notifica_digest(
+        {"cycle_id": 1, "plataforma": "amazon_mx", "status": "done", "decisions_count": 0}
+    )
+    assert ok is True
+    assert len(mensajes) == 1
+    assert "lectura no disponible" in mensajes[0]["text"]
+    notifica._reset()
+
+
+def test_carga_contribucion_digest_cobertura_parcial_con_rango():
+    out = notifica._arma_contribucion_digest(
+        [("MXN", 108, Decimal("100"), Decimal("200"), False)],
+        [("catalogo_parcial", 4890)],
+        None,
+    )
+    assert out is not None
+    assert out.rango is not None
+    assert out.rango.entidades_maduras == 4998
 
 
 def test_alerta_harvest_failed_contenido():
