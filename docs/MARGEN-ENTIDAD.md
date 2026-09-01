@@ -1,7 +1,9 @@
 # Vista de contribucion por entidad publicitaria (ORBIT 06 · 1.1)
 
-> **Estado.** Propuesta enmendada tras cross-review (adversario 3H/7M/3L +
-> Codex 5A/1M, 2026-08-31). El lead sella antes de la 1.2.
+> **Estado.** SELLADO por el lead el 2026-08-31 con UNA enmienda (D1.mx:
+> precio neto realizado del ledger en MX — ver Sello del lead) y la
+> aprobacion literal del dueno: "si aprobado, sella y dale la 1.2 a
+> cursor". La 1.2 implementa ESTE documento.
 > **Fuente de hechos.** Obstaculos de la 1.1 en `plans/orbit-06.md`
 > (medidos en vivo 2026-08-31, solo lectura). No se re-abren.
 > **Consumidor.** Lectura (digest 1.3, dashboard 1.4). **No es senal de
@@ -262,14 +264,53 @@ total). La fila 1.1 del plan queda enmendada en este mismo PR.
 - Historia bitemporal de `listing_price` (exigiria esquema nuevo; va por
   D1.bis (a) si el lead la pide).
 
+## Sello del lead (2026-08-31)
+
+**Aprobado con una enmienda, respaldada por medicion en vivo del mismo dia.**
+
+**D1.mx — el precio de la razon en MX es el NETO REALIZADO del ledger, no
+`listing_price`.** Medido: 100 % de las ventas MX de la ventana traen
+`item_price` (263/263; los 102 productos vendidos), fechado por
+`event_date`, y la sanidad es exacta: `item_price/amount = 0.8604 ≈ 1/1.16`
+— el IVA, quirurgico. Consecuencias:
+
+- `price_i` en MX = promedio ponderado de `item_price/quantity` del
+  producto en la MISMA ventana y filas que dan `w_i` (una fuente, una
+  ventana). Muere el sesgo 3 (IVA), el 4 (precio no realizado) y el 5
+  (precio sin historia) — y la razon queda ADIMENSIONAL (MXN/MXN): esa
+  pieza deja de necesitar FX.
+- MX se vuelve backtesteable; `precio_as_of` en MX pasa a ser la ventana
+  misma.
+- **US queda como propuso Cursor** (`listing_price` + sesgos declarados):
+  medido 0/153 ventas US con `item_price` (el candado D8 de la 0.6 lo
+  tira: CurrencyCode USD vs amount MXN). D1.bis sigue VIVO para US; para
+  MX, la via (a) queda satisfecha por esta enmienda, pero la etiqueta
+  `no decisoria` se mantiene en AMBAS plataformas hasta la Fase 2 (el
+  proxy de mezcla y el costeo del halo siguen siendo proxys).
+
+**Nota de sello para la 1.2 (trampa de implementacion, no de diseno):**
+`fx_rate` solo tiene el par (USD, MXN). `fx_resolve(fecha,'MXN','USD')`
+devuelve CERO filas — convertir costo MXN a USD es DIVIDIR entre la tasa
+de `fx_resolve(fecha,'USD','MXN')`, jamas llamar el par invertido. Con la
+enmienda D1.mx la razon ya no lo necesita en MX; aplica al costo US y a
+cualquier total canonico.
+
+**Lo demas, aceptado tal cual**: nombre `v_contribucion_entidad` y columnas
+`contrib_*`; D2 grano; D3 fuentes y la doble superficie declarada; D4
+ventana/vintage con serie incompleta fail-loud; D5 monedas; D6 la ola
+fail-loud completa en el tren de la 1.2; D7 ausencias contadas por motivo;
+D8 candado de vigencia de `orders ≈ unidades`.
+
 ## Checklist para el sello del lead
 
-- [ ] D1 COGS = C+B con cobertura 100 %, Σ=0 → ausente, costo por metric_date.
-- [ ] D1.bis bloqueo decisional (o alternativa a/b/c).
-- [ ] Nombre `contrib_*` / vista `v_contribucion_entidad` (no "margen" sin cargos).
-- [ ] D4 serie incompleta fail-loud.
-- [ ] D6 ola fail-loud + desfase ads metricas vs ledger.
-- [ ] D8 candado quantity≠1.
+- [x] D1 COGS = C+B con cobertura 100 %, Σ=0 → ausente, costo por metric_date
+      — **ENMENDADO**: `price_i` MX = neto realizado del ledger (ver Sello).
+- [x] D1.bis: via (a) satisfecha para MX por la enmienda; VIVO para US;
+      etiqueta `no decisoria` en ambas hasta Fase 2.
+- [x] Nombre `contrib_*` / vista `v_contribucion_entidad`.
+- [x] D4 serie incompleta fail-loud.
+- [x] D6 ola fail-loud + desfase ads metricas vs ledger.
+- [x] D8 candado quantity≠1.
 
 Tras el sello, la 1.2 implementa con TDD. Cambio de D1 a D8 = enmienda
 versionada, no silencio.
@@ -277,6 +318,10 @@ versionada, no silencio.
 ## Historial de enmiendas
 
 - **2026-08-31 (Cursor).** Borrador inicial C+B.
+- **2026-08-31 (SELLO del lead).** Aprobacion del dueno con texto literal;
+  enmienda D1.mx (precio neto realizado del ledger, medido 100 %/0.8604);
+  D1.bis vivo solo para US; nota de la trampa fx_resolve invertido para
+  la 1.2.
 - **2026-08-31 (post adversario+Codex).** Cobertura 100 %; Σ=0 → ausente;
   costo por `metric_date`; rename a contribucion pre-cargos; D1.bis;
   sesgo precio realizado + precio sin historia; serie incompleta;
