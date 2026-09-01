@@ -863,7 +863,7 @@ desde `listing`.
 
 | Task | Contenido | DoD | Depends | Status |
 |---|---|---|---|---|
-| 1.1 | **Diseño de la vista de margen POR ENTIDAD PUBLICITARIA.** `v_margen_plataforma` no sirve para esto y no se fuerza: agrupa solo por `(platform, amount_currency)`, sin `listing_id` y sin fecha (así a propósito). Es una vista NUEVA, con la MISMA resolución de costo y FX (sellado 7). Debe definir: cómo se atribuye una venta del ledger a la entidad publicitaria (por `listing_id`, con su supuesto declarado), qué ventana y qué vintage usa, y cómo entra el rango de halo — que viene del lado de ads (`ad_revenue` vs `revenue_same_sku`), no del ledger. `[tdd:skip:diseno]` | Diseño escrito y revisado por el lead ANTES de implementar: fuente de cada columna, supuesto de atribución declarado, y por qué no se puede reusar la vista de plataforma | 0.7 | cc:TODO |
+| 1.1 | **Diseño de la vista de contribucion POR ENTIDAD PUBLICITARIA.** `v_margen_plataforma` no sirve y no se fuerza (sin entidad, sin fecha, sin halo). Vista NUEVA, misma resolucion de costo/FX (sellado 7). **Ingreso = metricas de ads** (`ad_revenue` / `revenue_same_sku`): el obstaculo 1 midio multi-home total, asi que el ledger NO atribuye venta a la entidad (reconcilia plataforma). Debe definir COGS proxy del catalogo del ad group, ventana/vintage, rango de halo, y que cargos NO entran (multi-home). Doc: `docs/MARGEN-ENTIDAD.md`. `[tdd:skip:diseno]` | Diseno escrito y revisado por el lead ANTES de implementar: fuente de cada columna, supuesto de atribucion declarado, y por que no se reusa la vista de plataforma | 0.7 | cc:完了 [2026-08-31, Cursor PR #96 (docs/MARGEN-ENTIDAD.md). Diseno con adversario propio + codex ANTES de entregar (13 hallazgos absorbidos y versionados); renombre honesto a contribucion pre-cargos (los cargos no se atribuyen por entidad: multi-home total) y candado de uso auto-impuesto (no decisoria). SELLADO por el lead con UNA enmienda medida en vivo: D1.mx usa el precio NETO REALIZADO del ledger (100% cobertura; item_price/amount=0.8604 = 1/1.16 exacto, el IVA) — mueren los sesgos de IVA/precio-no-realizado/sin-historia en MX y la razon queda adimensional; US queda con listing_price + D1.bis vivo (0/153 ventas US con item_price, candado D8 de la 0.6). Aprobacion literal del dueno: "si aprobado, sella y dale la 1.2 a cursor". La 1.2 implementa este documento con la ola fail-loud D6 en el mismo tren] |
 | 1.2 | **Implementación de la vista** del diseño 1.1. Cada fila sale con su moneda, su edad de dato declarada, **dos números de margen (con halo y sin halo)** y **qué clases de cargo entraron** (sellado 4). Un solo número está PROHIBIDO. Dato faltante = fila no escrita. `[tdd:required]` | Rojo antes del código. Tests: fila sin costo → ausente, no cero; fila US con FX `nearest_prior` → presente pero MARCADA, y sin tasa utilizable → ausente; el par con-halo/sin-halo siempre presente o la fila no sale; consulta sin vintage falla. Corrida real con el `SELECT` y el rango citado en ambas plataformas | 1.1 | cc:TODO |
 | 1.3 | **Digest diario por Telegram** (lo pide la Fase 3). Reusa `app/notifica.py` (fail-silent con NOTA en `notes`, ya sellado en 3.3 y 1.4): qué decidió el motor, cuánto se aplicó contra qué tope, y el margen del día **como rango**. Sin canal, el ciclo JAMÁS se degrada. `[tdd:required]` | Rojo antes del código. Tests: canal caído no tumba el ciclo y deja NOTA; el digest declara el modo del ciclo (live/shadow); el margen aparece como rango o no aparece. Envío real verificado una vez | 1.2 | cc:TODO |
 | 1.4 | **Vista de lectura del margen en el dashboard** (server-rendered, sin JS: la CSP es `default-src 'self'`). Margen por campaña con su rango, su moneda, su edad de dato y su marca de FX aproximado. Valor nulo se ve como `—` CON etiqueta, jamás como `0` (mismo criterio que la quota de 1.5). Sin endpoints de escritura nuevos. `[tdd:required]` | Rojo antes del código. Tests de render: el rango se ve como rango; ausencia de dato NO se renderiza como cero; una plataforma sin margen no rompe la pantalla. `test_architecture` verde, cero escritura | 1.2 | cc:TODO |
@@ -916,6 +916,47 @@ DICTAN medio diseño; lo que queda abierto es la decisión del diseñador.
 7. **Atribuibilidad del ledger (para la reconciliación)**: 84 % del importe
    de ventas MX con product_id resuelto (1.159M de 1.376M MXN), 88 % en US.
    Los sin producto se cuentan, no se esconden.
+
+### Decisiones de la 1.1 (PROPUESTA Cursor, 2026-08-31 — enmendada post cross-review adversario+Codex; pendiente de sello del lead)
+
+Documento completo: `docs/MARGEN-ENTIDAD.md`. Ritual de la 0.4: el lead
+sella ANTES de la 1.2.
+
+**D1 · COGS = C+B** (razon costo/precio ponderada por revenue ledger),
+aplicada a cada punta del ingreso. Candados del cross-review: cobertura
+**100 %** del catalogo vivo del grupo (si no, ausente; misma ley que
+0.7 / `v_margen_plataforma`); Σ ventas ledger = 0 → **ausente** (NO
+peso uniforme = A); `cost_i` por `metric_date` (no dia representativo).
+Sesgos: mezcla; halo proxy; IVA MX; precio realizado ≠ vitrina; precio
+sin historia (`listing_price` as-of query → no backtesteable).
+
+**D1.bis · Bloqueo decisional.** Solo lectura (digest/dashboard) hasta
+que el lead selle (a) precio neto+efectivo por dia, (b) otra formula sin
+`listing_price`, o (c) aceptacion escrita del sesgo. Fase 2 no consume
+esta senal sin ese sello.
+
+**D2 · Grano** = `keyword` / `product_target`. Catalogo via `product_ad`.
+
+**D3 · Nombre `contrib_*` / vista `v_contribucion_entidad`.** No se llama
+margen: fee/refund/withholding no entran (multi-home). Gasto de entidad =
+metricas; `fee_type=ads` del ledger es otra superficie (D6 las compara).
+
+**D4 · Vintage** D-15; **ventana** 90d maduros; serie incompleta
+fail-loud (contadores; una fila hueca → entidad ausente).
+
+**D5 · Moneda.** Metricas + `fx_resolve`. Pesos ledger: convertir o
+excluir (el esquema EXIME a `ledger_event` del sello de moneda).
+
+**D6 · Ola fail-loud** con 1.2: contador campaign sin contraparte, test
+cost NULL, allowlist kinds ×3, desfase ads metricas vs ledger, cobertura
+por motivo.
+
+**D7 · Ausencia.** Catalogo parcial, sin mezcla, sin FX, serie incompleta,
+sin par halo → no escrita.
+
+**D8 · Candado SQL** `quantity IS DISTINCT FROM 1` en ventas maduras de
+la ventana → 0 filas o falla (supuesto orders≈unidades; la vista no usa
+`orders`).
 
 ## Fase 2 — margin-aware targets (la única que decide; nace en shadow)
 
