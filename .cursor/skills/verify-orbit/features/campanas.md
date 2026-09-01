@@ -25,7 +25,7 @@ Preconditions:
 - **Partir de Resumen.** Corre `curl -sS "$BASE/"`. Status 200 y `data-pantalla="resumen"`.
 - **Seguir el nav.** Corre `curl -sS -D - "$BASE/campanas"`. Status 200. El HTML contiene `data-pantalla="campanas"`, `h2` `Campanas — metricas 30d y target efectivo con procedencia`, y `href="/campanas"` junto a `aria-current="page"`.
 - **Leer la fila sembrada.** El HTML contiene `Campana A`, chip `activa`, `amazon_us · USD`, `12.3400`, `45.6700`, target `25.00%`, chip `goal_plataforma`.
-- **Confirmar lado JSON.** Corre `curl -sS "$BASE/api/dashboard/campanas"`. Status 200. Un item tiene `nombre` `Campana A`, `status` `ENABLED`, `metricas_30d.cost` `12.3400`, `target_efectivo.peldano` `goal_plataforma`.
+- **Confirmar lado JSON.** Corre `curl -sS "$BASE/api/dashboard/campanas"`. Status 200. Un item tiene `nombre` `Campana A`, `status` `ENABLED`, `metricas_30d.cost` `12.3400`, `metricas_30d.clicks` `8`, `metricas_30d.acos` no nulo, `target_efectivo.peldano` `goal_plataforma`.
 - **Proof.** Artefactos en `evidence/<run_id>/campanas/` (HTML de `/` y `/campanas`, headers, JSON, screenshot). O corre `.cursor/skills/verify-orbit/helpers/orbit-verify drive-campanas`.
 
 ## Gotchas

@@ -29,7 +29,7 @@ chmod +x .cursor/skills/verify-orbit/helpers/orbit-verify
 # el helper se reejecuta con .venv/bin/python (psycopg/uvicorn del repo)
 ```
 
-Override: `ORBIT_VERIFY_RUN_ID=mi-run` y/o `--port 18011` (default 18010; 8010 esta prohibido).
+Override: `ORBIT_VERIFY_RUN_ID=mi-run`, `ORBIT_VERIFY_PORT=18011` o `--port 18011` (default 18010; 8010 esta prohibido). `--force` reusa un `run_id` que ya tiene `state.json`.
 
 Que hace, en orden:
 
@@ -152,7 +152,7 @@ Si un intento falla a mitad, corre cleanup de ese run antes de relanzar.
 Todos viven en `.cursor/skills/verify-orbit/helpers/orbit-verify` (ejecutable):
 
 ```bash
-.cursor/skills/verify-orbit/helpers/orbit-verify launch [--run-id ID] [--port 18010]
+.cursor/skills/verify-orbit/helpers/orbit-verify launch [--run-id ID] [--port 18010] [--force]
 .cursor/skills/verify-orbit/helpers/orbit-verify doctor [--run-id ID]
 .cursor/skills/verify-orbit/helpers/orbit-verify drive-campanas [--run-id ID]
 .cursor/skills/verify-orbit/helpers/orbit-verify cleanup [--run-id ID]

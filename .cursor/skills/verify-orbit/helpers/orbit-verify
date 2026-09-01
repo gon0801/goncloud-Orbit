@@ -33,8 +33,12 @@ _VENV_PY = REPO_ROOT / ".venv" / "bin" / "python"
 try:
     import psycopg  # noqa: F401
 except ImportError:
-    if _VENV_PY.is_file():
-        os.execv(str(_VENV_PY), [str(_VENV_PY), __file__, *sys.argv[1:]])
+    # Un solo reexec: .venv/bin/python suele ser symlink a python3; comparar
+    # sys.executable.resolve() con el venv no distingue y el execv buclaría.
+    if _VENV_PY.is_file() and os.environ.get("ORBIT_VERIFY_REEXEC") != "1":
+        env = os.environ.copy()
+        env["ORBIT_VERIFY_REEXEC"] = "1"
+        os.execve(str(_VENV_PY), [str(_VENV_PY), __file__, *sys.argv[1:]], env)
     raise SystemExit("orbit-verify: falta psycopg. Corre `uv sync` en la raiz del repo.") from None
 MIGRATIONS = REPO_ROOT / "migrations"
 START_SH = REPO_ROOT / ".cursor" / "start.sh"
@@ -460,6 +464,13 @@ def cmd_launch(args: argparse.Namespace) -> None:
 def _cleanup_proceso(pid: int) -> None:
     if not _pid_vive(pid):
         return
+    cmdline = _cmdline(pid)
+    if "uvicorn" not in cmdline or "app.main:app" not in cmdline:
+        print(
+            f"orbit-verify: pid {pid} no es uvicorn app.main:app ({cmdline!r}); no lo mato",
+            file=sys.stderr,
+        )
+        return
     try:
         os.kill(pid, signal.SIGTERM)
     except OSError:
@@ -468,8 +479,10 @@ def _cleanup_proceso(pid: int) -> None:
         if not _pid_vive(pid):
             return
         time.sleep(0.1)
-    if _pid_vive(pid):
+    try:
         os.kill(pid, signal.SIGKILL)
+    except OSError:
+        return
 
 
 def cmd_doctor(args: argparse.Namespace) -> None:
@@ -585,6 +598,9 @@ def cmd_drive_campanas(args: argparse.Namespace) -> None:
         i.get("nombre") == "Campana A" and i.get("plataforma") == "amazon_us" for i in items
     )
     checks["api_status_ENABLED"] = any(i.get("status") == "ENABLED" for i in items)
+    checks["api_cost"] = any((i.get("metricas_30d") or {}).get("cost") == "12.3400" for i in items)
+    checks["api_clicks"] = any((i.get("metricas_30d") or {}).get("clicks") == 8 for i in items)
+    checks["api_acos"] = any((i.get("metricas_30d") or {}).get("acos") for i in items)
     checks["api_peldano"] = any(
         (i.get("target_efectivo") or {}).get("peldano") == "goal_plataforma" for i in items
     )
@@ -638,7 +654,7 @@ def cmd_drive_campanas(args: argparse.Namespace) -> None:
     (evidence / "PROOF.json").write_text(json.dumps(prueba, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(prueba, indent=2))
     if not prueba["ok"]:
-        fallaron = [k for k, v in checks.items() if not v]
+        fallaron = [k for k, v in checks.items() if not v and k != "screenshot"]
         _die("drive-campanas FALLA: " + ", ".join(fallaron))
 
 
@@ -654,6 +670,7 @@ def cmd_cleanup(args: argparse.Namespace) -> None:
     import psycopg
     from psycopg import sql as pgsql
 
+    db_dropeada = True
     try:
         admin = psycopg.connect(ADMIN_DSN, autocommit=True)
         admin.execute(
@@ -663,11 +680,17 @@ def cmd_cleanup(args: argparse.Namespace) -> None:
         )
         admin.close()
     except Exception as exc:  # noqa: BLE001 — cleanup best-effort de la DB
+        db_dropeada = False
         print(f"orbit-verify: aviso al dropear {state['db']}: {exc}", file=sys.stderr)
 
     scratch = Path(state.get("scratch_dir") or _scratch(run_id))
-    if scratch.is_dir():
+    if db_dropeada and scratch.is_dir():
         shutil.rmtree(scratch, ignore_errors=True)
+    elif not db_dropeada:
+        print(
+            f"orbit-verify: conservo {scratch} para reintentar el drop de {state['db']}",
+            file=sys.stderr,
+        )
 
     evidencia = Path(state["evidence_dir"])
     if not evidencia.is_dir():
@@ -677,7 +700,7 @@ def cmd_cleanup(args: argparse.Namespace) -> None:
             {
                 "cleaned_run_id": run_id,
                 "killed_pid": pid,
-                "dropped_db": state["db"],
+                "dropped_db": state["db"] if db_dropeada else None,
                 "evidence_still_at": str(evidencia),
             }
         )
