@@ -1,5 +1,10 @@
 # Plans — ORBIT 01: Levantar Postgres en Docker y aplicar migración en vivo
 
+> **Archivo histórico.** Plan CERRADO el 2026-08-22 (todas las tareas `cc:完了`,
+> evidencia en la fila `ORBIT 01` de EHV Tasks). Vivía en `Plans.md` (raíz) y se
+> movió aquí el 2026-09-01 (PR #111) sin cambiar su contenido: las referencias a
+> `Plans.md` dentro del texto son de cuando se ejecutó.
+
 > Purpose: dejar la base de datos de Orbit VIVA en el servidor `goncloud`
 > (junto a bridge y accounting, como manda `docs/CONTEXTO.md`), con la
 > migración `0001` aplicada, los usuarios de conexión reales creados, y el
