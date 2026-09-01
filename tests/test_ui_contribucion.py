@@ -163,6 +163,7 @@ def test_ui_contribucion_integracion_rollup_campana(monkeypatch):
     import socket
 
     from psycopg import sql as pgsql
+    from psycopg.conninfo import make_conninfo
     from test_schema import _test_dsn
 
     dsn = _test_dsn()
@@ -195,7 +196,7 @@ def test_ui_contribucion_integracion_rollup_campana(monkeypatch):
         esperado_sin = Decimal(fila[0])
         esperado_con = Decimal(fila[1])
 
-        monkeypatch.setenv("ORBIT_DSN_READ", dsn)
+        monkeypatch.setenv("ORBIT_DSN_READ", make_conninfo(dsn, dbname=name))
         html = TestClient(app).get("/contribucion").text
         assert 'data-pantalla="contribucion"' in html
         assert str(esperado_sin).split(".")[0] in html or f"{esperado_sin:.4f}" in html
