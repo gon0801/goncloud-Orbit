@@ -2,8 +2,8 @@
   "plans": [
     {
       "name": "orbit-01",
-      "path": "Plans.md",
-      "description": "ORBIT 01 — Levantar Postgres en Docker y aplicar migración en vivo (en ejecución por sesión GLM)"
+      "path": "plans/orbit-01.md",
+      "description": "ORBIT 01 — Levantar Postgres en Docker y aplicar migración en vivo (CERRADO 2026-08-22; archivado en plans/)"
     },
     {
       "name": "orbit-02",
