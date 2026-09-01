@@ -23,3 +23,6 @@ out/
 
 # pruebas locales de verify-orbit (HTML/JSON de la instancia viva)
 .cursor/skills/verify-orbit/evidence/
+
+# temporales de sesiones de qwen (cross-reviewer): jamas al repo
+.qwen/
