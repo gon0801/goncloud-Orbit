@@ -27,6 +27,7 @@ from test_schema import (
     SQL7,
     SQL8,
     SQL9,
+    SQL10,
     _hay_postgres_local,
     _test_dsn,
 )
@@ -41,7 +42,7 @@ pytestmark = pytest.mark.skipif(
 
 def _aplicar_esquema(conn):
     conn.execute("SET TIME ZONE 'UTC'")
-    for sql in (SQL, SQL2, SQL3, SQL4, SQL5, SQL6, SQL7, SQL8, SQL9):
+    for sql in (SQL, SQL2, SQL3, SQL4, SQL5, SQL6, SQL7, SQL8, SQL9, SQL10):
         conn.execute(sql)
 
 
@@ -360,3 +361,35 @@ def test_contrib_reconcilia_con_las_columnas_publicadas(db):
         "contrib no cuadra con revenue - cost - cogs publicados: se computo "
         "del cogs crudo en vez del redondeado"
     )
+
+
+def test_marca_viaja_por_el_sql_real_del_dashboard(db):
+    """Cross-review 1.5 (grok, hallazgo 2): el rollup de campanas mapea la
+    marca por posicion (fila[12]) y ningun test la leia a traves del SQL
+    REAL del dashboard (los de UI inyectan el dict; los de Postgres usan
+    semilla MX, flag siempre false). Un corrimiento de columnas saldria
+    como bool de otra columna — d_to es True en todo rango — y el chip se
+    prenderia en TODAS las campanas. El control de precio unico lo caza."""
+    _semilla_us(db, "US-UI", (20, 25))
+    # Control de precio unico en el MISMO dia (el fx_rate ya lo sembro la
+    # semilla multilisting; un segundo insert chocaria por UNIQUE).
+    rid = _run_id(db)
+    d_from, _d_to = _ventana_madura()
+    dia = date.today() - timedelta(days=20)  # mismo dia que _semilla_us
+    lids = _producto_us(db, "UC", (20,), True, rid, d_from, dia)
+    cam_1l = _entidad(db, "amazon_us", "campaign", "C-US-UC")
+    ag = _entidad(db, "amazon_us", "ad_group", "AG-US-UC", cam_1l)
+    kw = _entidad(db, "amazon_us", "keyword", "KW-US-UC", ag)
+    _entidad(db, "amazon_us", "product_ad", "PA-US-UC-0", ag, listing_id=lids[0])
+    db.execute(
+        "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
+        " metric_currency, cost, ad_revenue, revenue_same_sku, ingest_run_id)"
+        " VALUES (%s, %s, now(), 'USD', 5, 50, 25, %s)",
+        (kw, dia, rid),
+    )
+    from app.dashboard_contribucion import _contribucion_plataforma
+
+    filas = {f["ad_entity_id"]: f for f in _contribucion_plataforma(db, "amazon_us")["filas"]}
+    cam_ml = db.execute("SELECT id FROM ad_entity WHERE external_id = 'C-US-UI'").fetchone()[0]
+    assert filas[cam_ml]["precio_min_multilisting"] is True
+    assert filas[cam_1l]["precio_min_multilisting"] is False

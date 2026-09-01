@@ -67,6 +67,13 @@ STMTS8 = tuple(pglast.parse_sql(SQL8))
 SQL9 = (ROOT / "migrations" / "0009_contribucion_redondeo.sql").read_text(encoding="utf-8")
 STMTS9 = tuple(pglast.parse_sql(SQL9))
 
+# 0010 (ORBIT 06 1.5 cross-review): la marca precio_min_multilisting exige
+# PESO (el MIN entro al ratio; presencia sin ventas no marca) y contrib se
+# computa del cogs YA redondeado (columnas publicadas reconcilian al 4o
+# decimal). Hallazgos media de claude/codex/grok 2026-09-01.
+SQL10 = (ROOT / "migrations" / "0010_contribucion_cross_review.sql").read_text(encoding="utf-8")
+STMTS10 = tuple(pglast.parse_sql(SQL10))
+
 APPEND_ONLY = {
     "ads_metric_observation",
     "search_term_observation",
@@ -728,9 +735,10 @@ def test_allowlist_kinds_en_tres_sitios():
     sitios = {
         "v_tacos": repr(_v_tacos_viva().query),
         "cobertura": cob_src,
-        # La definicion VIVA es la de 0009 (CREATE OR REPLACE); afirmar contra
-        # SQL6/SQL7/SQL8 seria vigilar SQL muerto (misma leccion que _v_tacos_viva).
-        "v_contribucion_entidad": SQL9,
+        # La definicion VIVA es la de 0010 (CREATE OR REPLACE); afirmar contra
+        # SQL6/SQL7/SQL8/SQL9 seria vigilar SQL muerto (misma leccion que
+        # _v_tacos_viva).
+        "v_contribucion_entidad": SQL10,
     }
     for nombre, cuerpo in sitios.items():
         assert "'keyword'" in cuerpo and "'product_target'" in cuerpo, (
@@ -932,6 +940,48 @@ def test_0009_round_en_las_4_columnas_computadas():
     assert (
         "ROUND(s.ad_revenue_sum - s.cost_sum - c.cogs_con_halo, 4) AS contrib_con_halo" in compacto
     )
+
+
+# ---------------------------------------------------------------------------
+# ESTATICOS de 0010_contribucion_cross_review — cross-review 1.5 (claude/
+# codex/grok 2026-09-01): marca con peso exigido + reconciliacion al 4o
+# decimal. Rojos de integracion demostrados en el commit 17e883a.
+# ---------------------------------------------------------------------------
+
+
+def test_0010_parsea_misma_interfaz_que_0009():
+    assert _vista_de(STMTS10, "v_contribucion_entidad") is not None
+    # Solo cambian VALORES y el disparador de la marca; la interfaz (y la
+    # cobertura, que 0010 no toca) quedan identicas a 0009.
+    nombres = {s.stmt.view.relname for s in STMTS10 if isinstance(s.stmt, ast.ViewStmt)}
+    assert nombres == {"v_contribucion_entidad"}
+    assert _columnas_vista(_vista_de(STMTS10, "v_contribucion_entidad")) == _columnas_vista(
+        _vista_de(STMTS9, "v_contribucion_entidad")
+    )
+
+
+def test_0010_marca_exige_peso():
+    # Hallazgo claude/grok: la marca solo puede prender si el producto
+    # multilisting PARTICIPO del ratio (tiene w_i). grupo_multilisting se
+    # define sobre `pesos`, no sobre `vivos` (presencia sin ventas mentia).
+    idx = SQL10.find("grupo_multilisting AS (")
+    assert idx >= 0
+    bloque = SQL10[idx : idx + 400]
+    assert "FROM pesos" in bloque, "grupo_multilisting debe leer pesos, no vivos"
+    assert "FROM vivos" not in bloque
+    # Y se define DESPUES de pesos en la cadena (depende de el).
+    assert SQL10.find("pesos AS (") < idx
+
+
+def test_0010_contrib_desde_cogs_redondeado():
+    # Hallazgo claude: las columnas publicadas reconcilian — contrib sale del
+    # cogs YA redondeado (ROUND externo = identidad), no del crudo.
+    compacto = " ".join(SQL10.split())
+    assert "ROUND(s.revenue_same_sku_sum - s.cost_sum - ROUND(c.cogs_sin_halo, 4), 4)" in compacto
+    assert "ROUND(s.ad_revenue_sum - s.cost_sum - ROUND(c.cogs_con_halo, 4), 4)" in compacto
+    # El patron viejo (contrib del cogs crudo) NO debe sobrevivir en la viva.
+    assert "s.cost_sum - c.cogs_sin_halo" not in compacto
+    assert "s.cost_sum - c.cogs_con_halo" not in compacto
 
 
 # ---------------------------------------------------------------------------
