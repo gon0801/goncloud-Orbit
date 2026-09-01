@@ -94,19 +94,19 @@ def _motivo_contribucion_es(motivo: str | None) -> str | None:
 
 
 def _fila_contribucion_campana(fila) -> dict:
-    contrib_sin = fila[4]
-    contrib_con = fila[5]
+    contrib_sin = fila[3]
+    contrib_con = fila[4]
     return {
         "ad_entity_id": fila[0],
         "nombre": fila[1],
         "plataforma": fila[2],
         "contrib_sin_halo": _dec_str(contrib_sin) if contrib_sin is not None else None,
         "contrib_con_halo": _dec_str(contrib_con) if contrib_con is not None else None,
-        "moneda": fila[6] or PLATAFORMAS_MONEDA.get(fila[2]),
-        "metric_date_from": fila[7].isoformat() if fila[7] is not None else None,
-        "metric_date_to": fila[8].isoformat() if fila[8] is not None else None,
-        "fx_source": fila[9],
-        "motivo_ausencia": _motivo_contribucion_es(fila[10]),
+        "moneda": fila[5] or PLATAFORMAS_MONEDA.get(fila[2]),
+        "metric_date_from": fila[6].isoformat() if fila[6] is not None else None,
+        "metric_date_to": fila[7].isoformat() if fila[7] is not None else None,
+        "fx_source": fila[8],
+        "motivo_ausencia": _motivo_contribucion_es(fila[9]),
         "etiqueta": ETIQUETA_CONTRIBUCION,
     }
 
@@ -115,8 +115,8 @@ def _contribucion_plataforma(conn: ConexionLectura, plataforma: str) -> dict:
     filas = conn.execute(_SQL_CONTRIBUCION_CAMPANAS, (plataforma,)).fetchall()
     if filas:
         ventana = {
-            "desde": filas[0][11].isoformat(),
-            "hasta": filas[0][12].isoformat(),
+            "desde": filas[0][10].isoformat(),
+            "hasta": filas[0][11].isoformat(),
         }
     else:
         vent = conn.execute(
