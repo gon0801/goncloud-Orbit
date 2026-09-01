@@ -26,6 +26,7 @@ from test_schema import (
     SQL6,
     SQL7,
     SQL8,
+    SQL9,
     _hay_postgres_local,
     _test_dsn,
 )
@@ -40,7 +41,7 @@ pytestmark = pytest.mark.skipif(
 
 def _aplicar_esquema(conn):
     conn.execute("SET TIME ZONE 'UTC'")
-    for sql in (SQL, SQL2, SQL3, SQL4, SQL5, SQL6, SQL7, SQL8):
+    for sql in (SQL, SQL2, SQL3, SQL4, SQL5, SQL6, SQL7, SQL8, SQL9):
         conn.execute(sql)
 
 
@@ -148,6 +149,31 @@ def _semilla_us(conn, prefijo, precios):
         (dia, pid, f"S-{prefijo}-1", rid),
     )
     return {"kw": kw, "dia": dia}
+
+
+def test_contribucion_publica_escala_dinero_4_decimales(db):
+    """Regla 4 en la frontera de la vista: las columnas de dinero COMPUTADAS
+    (cogs/contrib, que vienen de w_i*(cost_i/price_i)) salen con a lo mas 4
+    decimales, como cualquier NUMERIC(14,4) del schema. Bug prod 2026-09-01:
+    la division repetida publicaba colas de ~40 digitos en el dashboard
+    (ej. -356.843896106237...90338). ROJO contra 0008 (sin ROUND)."""
+    s = _semilla_us(db, "US-R3", (30,))  # ratio = 10/30 = 1/3 (decimal periodico)
+
+    fila = db.execute(
+        "SELECT contrib_sin_halo, contrib_con_halo, cogs_sin_halo, cogs_con_halo"
+        " FROM v_contribucion_entidad WHERE ad_entity_id = %s",
+        (s["kw"],),
+    ).fetchone()
+    assert fila is not None
+    for valor in fila:
+        assert valor is not None
+        assert valor.as_tuple().exponent >= -4, (
+            f"{valor} tiene mas de 4 decimales: la vista publica dinero sin la "
+            "escala del schema (regla 4)"
+        )
+    # cogs sin halo = 25/3 = 8.3333 (ROUND), contrib = 25 - 5 - 8.3333
+    assert fila[2] == Decimal("8.3333")
+    assert fila[0] == Decimal("11.6667")
 
 
 def test_multilisting_usa_precio_menor_y_marca(db):
