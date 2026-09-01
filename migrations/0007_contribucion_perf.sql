@@ -1,0 +1,720 @@
+-- =============================================================================
+--  ORBIT · MIGRACION 0007 · perf de v_contribucion_entidad · PostgreSQL 16
+--
+--  Misma semantica SELLADA de 0006 (docs/MARGEN-ENTIDAD.md); cero cambio de
+--  resultados — verificado con diff fila-por-fila (EXCEPT en ambos sentidos)
+--  contra la definicion 0006 en produccion antes de aplicar.
+--
+--  Por que: medido en prod 2026-09-01, cada consulta a v_contribucion_entidad
+--  tardaba ~100s (190s el EXPLAIN ANALYZE MX). Tres causas:
+--   1. fx_resolve en LATERAL por fila (entidad-dia x producto vivo): 1.1M
+--      llamadas (~20s) cuando la tasa solo depende del dia (STABLE).
+--   2. sku_cost as-of como sonda de rango por fila del mismo millon.
+--   3. ratio_dia: el planner estima los CTE en rows=1 y elige Nested Loop —
+--      el CTE pesos (2,678 filas) se escaneo 528,199 VECES (144s de 190s).
+--
+--  El fix mueve lo caro a grano chico y agrega ANTES de expandir a entidad:
+--   - fx_dia: fx_resolve UNA VEZ por metric_date de la ventana (~90 filas).
+--   - costo_producto_dia: sku_cost as-of por (producto, dia) distinto.
+--   - pesos se pre-une a vivos (vivos_pesos): join chico (11k x 2.7k), asi
+--      ningun join grande vuelve a caer en Nested Loop por misestimacion.
+--   - vivo_dia a grano (ad_group, dia, moneda, product_ad): las columnas
+--      cost_i / fx_source_dia / sin_fx / price_i son las MISMAS expresiones
+--      de 0006, evaluadas con la moneda del dia del grupo.
+--   - cobertura y ratio agregan a grano (grupo, dia, moneda); la expansion a
+--      entidad ocurre al final via dias_entidad (joins chicos).
+--
+--  Equivalencia fina: la cobertura de 0006 era por (entidad, dia) sobre los
+--  dias de la SERIE DE ESA ENTIDAD; aqui la agregacion es por (grupo, dia,
+--  moneda) y la correlacion con los dias de cada entidad se hace con
+--  dias_entidad en cobertura_ok — un dia que la entidad no tiene en su serie
+--  no la excluye (caso de dos entidades del mismo grupo con series distintas).
+-- =============================================================================
+
+-- ---------------------------------------------------------------------------
+-- v_contribucion_entidad: misma interfaz y semantica que 0006
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE VIEW v_contribucion_entidad AS
+WITH
+ventana AS (
+    SELECT ((now() AT TIME ZONE 'UTC')::date - 15 - 89) AS d_from,
+           ((now() AT TIME ZONE 'UTC')::date - 15)      AS d_to
+),
+-- Metricas maduras de la ventana al grano de decision.
+metricas AS (
+    SELECT e.id              AS ad_entity_id,
+           e.platform,
+           e.kind,
+           e.parent_id       AS ad_group_id,
+           m.metric_date,
+           m.metric_currency,
+           m.cost,
+           m.ad_revenue,
+           m.revenue_same_sku
+      FROM v_metric_mature m
+      JOIN ad_entity e ON e.id = m.ad_entity_id
+      CROSS JOIN ventana v
+     WHERE e.kind IN ('keyword', 'product_target')
+       AND e.platform IN ('amazon_mx'::platform, 'amazon_us'::platform)
+       AND m.metric_date BETWEEN v.d_from AND v.d_to
+),
+-- Serie por entidad: huecos de cost o del par halo → ausente.
+serie AS (
+    SELECT ad_entity_id,
+           platform,
+           kind,
+           ad_group_id,
+           metric_currency,
+           COUNT(*) AS filas,
+           COUNT(*) FILTER (WHERE cost IS NULL) AS filas_sin_costo,
+           COUNT(*) FILTER (
+               WHERE ad_revenue IS NULL OR revenue_same_sku IS NULL
+           ) AS filas_sin_par_halo,
+           SUM(cost) AS cost_sum,
+           SUM(ad_revenue) AS ad_revenue_sum,
+           SUM(revenue_same_sku) AS revenue_same_sku_sum
+      FROM metricas
+     GROUP BY 1, 2, 3, 4, 5
+),
+serie_ok AS (
+    SELECT *
+      FROM serie
+     WHERE ad_group_id IS NOT NULL
+       AND filas_sin_costo = 0
+       AND filas_sin_par_halo = 0
+       AND filas > 0
+),
+-- Catalogo vivo del ad_group: product_ads ENABLED|PAUSED.
+vivos AS (
+    SELECT pa.parent_id AS ad_group_id,
+           pa.platform,
+           pa.id AS product_ad_id,
+           pa.listing_id,
+           l.product_id,
+           l.listing_price,
+           l.price_currency
+      FROM ad_entity pa
+      JOIN ad_entity_state st ON st.ad_entity_id = pa.id
+      LEFT JOIN listing l ON l.id = pa.listing_id
+     WHERE pa.kind = 'product_ad'
+       AND st.status IN ('ENABLED', 'PAUSED')
+),
+vivos_cnt AS (
+    SELECT ad_group_id, platform, COUNT(*) AS n_vivos
+      FROM vivos
+     GROUP BY 1, 2
+),
+-- Precio MX (D1.mx): promedio ponderado item_price/quantity en la ventana.
+precio_mx AS (
+    SELECT l.platform,
+           l.product_id,
+           SUM(l.item_price) / SUM(l.quantity)::numeric AS price_i,
+           SUM(l.amount) AS venta_ledger
+      FROM ledger_event l
+      CROSS JOIN ventana v
+     WHERE l.kind = 'sale'
+       AND l.product_id IS NOT NULL
+       AND l.item_price IS NOT NULL
+       AND l.quantity IS NOT NULL
+       AND l.quantity > 0
+       AND l.event_date BETWEEN v.d_from AND v.d_to
+       AND l.platform = 'amazon_mx'::platform
+     GROUP BY 1, 2
+),
+-- Precio US: listing_price (D1.bis vivo). Un precio por producto; moneda = USD.
+precio_us AS (
+    SELECT v.platform,
+           v.product_id,
+           MIN(v.listing_price) AS price_i,
+           'USD'::currency AS price_currency
+      FROM vivos v
+     WHERE v.platform = 'amazon_us'::platform
+       AND v.listing_price IS NOT NULL
+       AND v.product_id IS NOT NULL
+       AND v.price_currency = 'USD'::currency
+     GROUP BY 1, 2
+    HAVING COUNT(DISTINCT v.listing_price) = 1
+),
+-- Catalogo vivo a grano (ad_group, platform, product_id) — evita fan-out.
+catalogo_vivo AS (
+    SELECT DISTINCT ad_group_id, platform, product_id
+      FROM vivos
+     WHERE product_id IS NOT NULL
+),
+-- Ventas ledger del catalogo (pesos w_i), misma ventana. Mezcla de monedas
+-- en el mismo producto → el producto no entra al peso (fail-loud por exclusion).
+ventas_peso AS (
+    SELECT vl.ad_group_id,
+           vl.platform,
+           vl.product_id,
+           SUM(vl.amount) AS venta_ledger
+      FROM (
+           SELECT cv.ad_group_id,
+                  cv.platform,
+                  cv.product_id,
+                  l.amount,
+                  l.amount_currency
+             FROM catalogo_vivo cv
+             JOIN ledger_event l
+               ON l.product_id = cv.product_id
+              AND l.platform = cv.platform
+             CROSS JOIN ventana v
+            WHERE l.kind = 'sale'
+              AND l.event_date BETWEEN v.d_from AND v.d_to
+      ) vl
+     GROUP BY 1, 2, 3
+    HAVING COUNT(DISTINCT vl.amount_currency) = 1
+),
+sigma AS (
+    SELECT ad_group_id, platform, SUM(venta_ledger) AS sigma_ventas
+      FROM ventas_peso
+     GROUP BY 1, 2
+),
+pesos AS (
+    SELECT p.ad_group_id,
+           p.platform,
+           p.product_id,
+           p.venta_ledger / s.sigma_ventas AS w_i
+      FROM ventas_peso p
+      JOIN sigma s
+        ON s.ad_group_id = p.ad_group_id
+       AND s.platform = p.platform
+     WHERE s.sigma_ventas > 0
+),
+-- 0007: pesos pre-unidos a vivos (join chico 11k x 2.7k). w_i es por
+-- (ad_group, platform, product_id) — sin dia — asi que viaja con el vivo y
+-- NINGUN join grande vuelve a tocar el CTE pesos (el Nested Loop de 144s
+-- en prod: pesos escaneado 528k veces por misestimacion del planner).
+vivos_pesos AS (
+    SELECT v.ad_group_id,
+           v.platform,
+           v.product_ad_id,
+           v.listing_id,
+           v.product_id,
+           p.w_i
+      FROM vivos v
+      LEFT JOIN pesos p
+        ON p.ad_group_id = v.ad_group_id
+       AND p.platform = v.platform
+       AND p.product_id = v.product_id
+),
+-- Dias distintos con metrica por (entidad) — para exigir costo as-of cada dia.
+dias_entidad AS (
+    SELECT DISTINCT ad_entity_id, ad_group_id, platform, metric_date, metric_currency
+      FROM metricas
+),
+-- 0007: fx_resolve es STABLE y solo depende de (metric_date, 'USD', 'MXN').
+-- UNA VEZ por dia de la ventana; en 0006 corria en LATERAL por cada fila
+-- (entidad-dia x producto vivo): 1.1M llamadas medidas en prod.
+fx_dia AS (
+    SELECT d.metric_date, r.rate, r.source
+      FROM (SELECT DISTINCT metric_date FROM dias_entidad) d
+      CROSS JOIN LATERAL fx_resolve(d.metric_date, 'USD'::currency, 'MXN'::currency) r
+),
+-- 0007: sku_cost as-of por (producto, dia) distinto, no por fila del millon.
+-- A lo mas UN costo vigente por producto y fecha (EXCLUDE sin solapamientos,
+-- 0001), asi que el resultado por par es identico al join de 0006.
+costo_producto_dia AS (
+    SELECT pd.product_id,
+           pd.metric_date,
+           c.id            AS sku_cost_id,
+           c.cost_amount,
+           c.cost_currency
+      FROM (
+           SELECT DISTINCT vv.product_id, d.metric_date
+             FROM dias_entidad d
+             JOIN vivos vv
+               ON vv.ad_group_id = d.ad_group_id
+              AND vv.platform = d.platform
+            WHERE vv.product_id IS NOT NULL
+      ) pd
+      LEFT JOIN sku_cost c
+        ON c.product_id = pd.product_id
+       AND pd.metric_date >= c.valid_from
+       AND (c.valid_to IS NULL OR pd.metric_date < c.valid_to)
+),
+-- Catalogo del grupo por dia y moneda de reporte: las MISMAS expresiones de
+-- costo_dia/catalogo_dia de 0006, a grano (ad_group, dia, moneda, product_ad)
+-- en vez de (entidad, dia, product_ad) — la entidad no cambia ningun valor.
+-- US: cost MXN / fx_resolve(date,'USD','MXN') — NUNCA el par invertido.
+vivo_dia AS (
+    SELECT d.ad_group_id,
+           d.platform,
+           d.metric_date,
+           d.metric_currency,
+           vp.product_ad_id,
+           vp.product_id,
+           vp.listing_id,
+           vp.w_i,
+           CASE
+               WHEN cpd.sku_cost_id IS NULL THEN NULL
+               WHEN d.metric_currency = cpd.cost_currency THEN cpd.cost_amount
+               WHEN d.metric_currency = 'USD'::currency
+                    AND cpd.cost_currency = 'MXN'::currency
+                    AND fxd.rate IS NOT NULL
+                   THEN cpd.cost_amount / fxd.rate
+               WHEN d.metric_currency = 'MXN'::currency
+                    AND cpd.cost_currency = 'USD'::currency
+                    AND fxd.rate IS NOT NULL
+                   THEN cpd.cost_amount * fxd.rate
+               ELSE NULL
+           END AS cost_i,
+           CASE
+               WHEN d.metric_currency = cpd.cost_currency THEN NULL
+               WHEN d.metric_currency = 'USD'::currency
+                    AND cpd.cost_currency = 'MXN'::currency
+                   THEN fxd.source
+               WHEN d.metric_currency = 'MXN'::currency
+                    AND cpd.cost_currency = 'USD'::currency
+                   THEN fxd.source
+               ELSE NULL
+           END AS fx_source_dia,
+           CASE
+               WHEN cpd.sku_cost_id IS NULL THEN true
+               WHEN d.metric_currency = cpd.cost_currency THEN false
+               WHEN d.metric_currency = 'USD'::currency
+                    AND cpd.cost_currency = 'MXN'::currency
+                    AND fxd.rate IS NULL THEN true
+               WHEN d.metric_currency = 'MXN'::currency
+                    AND cpd.cost_currency = 'USD'::currency
+                    AND fxd.rate IS NULL THEN true
+               WHEN d.metric_currency <> cpd.cost_currency
+                    AND NOT (
+                        (d.metric_currency = 'USD'::currency
+                         AND cpd.cost_currency = 'MXN'::currency)
+                        OR (d.metric_currency = 'MXN'::currency
+                            AND cpd.cost_currency = 'USD'::currency)
+                    ) THEN true
+               ELSE false
+           END AS sin_fx,
+           CASE
+               WHEN d.platform = 'amazon_mx'::platform THEN pm.price_i
+               WHEN d.platform = 'amazon_us'::platform
+                    AND pu.price_currency = d.metric_currency
+                   THEN pu.price_i
+               ELSE NULL
+           END AS price_i
+      FROM (
+           SELECT DISTINCT ad_group_id, platform, metric_date, metric_currency
+             FROM dias_entidad
+      ) d
+      JOIN vivos_pesos vp
+        ON vp.ad_group_id = d.ad_group_id
+       AND vp.platform = d.platform
+      LEFT JOIN costo_producto_dia cpd
+        ON cpd.product_id = vp.product_id
+       AND cpd.metric_date = d.metric_date
+      LEFT JOIN fx_dia fxd
+        ON fxd.metric_date = d.metric_date
+      LEFT JOIN precio_mx pm
+        ON pm.platform = d.platform
+       AND pm.product_id = vp.product_id
+      LEFT JOIN precio_us pu
+        ON pu.platform = d.platform
+       AND pu.product_id = vp.product_id
+),
+-- Cobertura 100% del catalogo vivo, a grano (grupo, dia, moneda):
+--   base: listing + product + cost_i (+ FX si aplica) en CADA dia de la serie
+--   US: ademas listing_price
+--   MX (D1.mx): price_i ledger obligatorio solo para productos con w_i > 0
+--     (un ASIN sin ventas no inventa precio; si tiene peso y no precio → ausente)
+cobertura AS (
+    SELECT vd.ad_group_id,
+           vd.platform,
+           vd.metric_date,
+           vd.metric_currency,
+           COUNT(*) AS n_vivos_dia,
+           COUNT(*) FILTER (
+               WHERE vd.listing_id IS NOT NULL
+                 AND vd.product_id IS NOT NULL
+                 AND vd.cost_i IS NOT NULL
+                 AND NOT vd.sin_fx
+                 AND (
+                     (vd.platform = 'amazon_us'::platform
+                      AND vd.price_i IS NOT NULL AND vd.price_i > 0)
+                     OR vd.platform = 'amazon_mx'::platform
+                 )
+           ) AS n_completos_base,
+           COUNT(*) FILTER (
+               WHERE vd.w_i IS NOT NULL
+                 AND (vd.price_i IS NULL OR vd.price_i <= 0)
+           ) AS n_peso_sin_precio
+      FROM vivo_dia vd
+     GROUP BY 1, 2, 3, 4
+),
+-- 0007: la cobertura de 0006 era por (entidad, dia) sobre los dias de la SERIE
+-- DE ESA ENTIDAD. La expansion por entidad se hace AQUI via dias_entidad, asi
+-- un dia que la entidad no tiene en su serie no la excluye (dos entidades del
+-- mismo grupo pueden tener series distintas).
+cobertura_entidad AS (
+    SELECT dd.ad_entity_id,
+           c.ad_group_id,
+           c.platform,
+           c.metric_date,
+           c.n_vivos_dia,
+           c.n_completos_base,
+           c.n_peso_sin_precio
+      FROM cobertura c
+      JOIN dias_entidad dd
+        ON dd.ad_group_id = c.ad_group_id
+       AND dd.platform = c.platform
+       AND dd.metric_date = c.metric_date
+       AND dd.metric_currency = c.metric_currency
+),
+cobertura_ok AS (
+    SELECT s.ad_entity_id
+      FROM serie_ok s
+      JOIN vivos_cnt vc
+        ON vc.ad_group_id = s.ad_group_id
+       AND vc.platform = s.platform
+     WHERE vc.n_vivos > 0
+       AND NOT EXISTS (
+           SELECT 1
+             FROM cobertura_entidad c
+            WHERE c.ad_entity_id = s.ad_entity_id
+              AND (
+                  c.n_completos_base < c.n_vivos_dia
+                  OR c.n_peso_sin_precio > 0
+                  OR c.n_vivos_dia <> vc.n_vivos
+              )
+       )
+),
+-- Pesos disponibles (sigma > 0) para el grupo.
+con_mezcla AS (
+    SELECT s.ad_entity_id
+      FROM serie_ok s
+      JOIN sigma g
+        ON g.ad_group_id = s.ad_group_id
+       AND g.platform = s.platform
+     WHERE g.sigma_ventas > 0
+),
+-- ratio_G(d) = SUM w_i * (cost_i(d) / price_i) a grano (grupo, dia, moneda);
+-- FX source peor del dia. DEDUP por (grupo, dia, moneda, producto): vivo_dia
+-- hereda UNA fila por product_AD, y dos ads del MISMO producto en el grupo
+-- duplicaban su termino w_i*(cost/price) — COGS al doble (cazado por el test
+-- de integracion 'dos_product_ads_mismo_producto': esperado 7.5, salia -5).
+-- cost_i y price_i son identicos entre duplicados (mismo producto, mismo dia),
+-- asi que DISTINCT es exacto, no un promedio.
+ratio_dia_grupo AS (
+    SELECT c.ad_group_id,
+           c.platform,
+           c.metric_date,
+           c.metric_currency,
+           SUM(c.w_i * (c.cost_i / c.price_i)) AS ratio_g,
+           -- nearest_prior gana a exact si aparece en cualquier producto.
+           CASE
+               WHEN BOOL_OR(c.fx_source_dia = 'nearest_prior'::fx_source)
+                   THEN 'nearest_prior'::fx_source
+               WHEN BOOL_OR(c.fx_source_dia = 'exact'::fx_source)
+                   THEN 'exact'::fx_source
+               ELSE NULL
+           END AS fx_source_dia,
+           BOOL_OR(c.sin_fx) AS sin_fx_dia,
+           BOOL_OR(c.cost_i IS NULL OR c.price_i IS NULL OR c.price_i <= 0)
+               AS hueco_ratio
+      FROM (
+           SELECT DISTINCT ad_group_id, platform, metric_date, metric_currency,
+                  product_id, w_i, cost_i, price_i, fx_source_dia, sin_fx
+             FROM vivo_dia
+      ) c
+     WHERE c.w_i IS NOT NULL
+     GROUP BY 1, 2, 3, 4
+),
+-- ratio_dia por (entidad, dia): la expansion a entidad via dias_entidad.
+-- La restriccion a entidades ok (cobertura_ok + con_mezcla de 0006) solo
+-- filtraba filas; el VALOR por (grupo, dia, moneda) no depende de ella.
+ratio_dia AS (
+    SELECT dd.ad_entity_id,
+           dd.metric_date,
+           rg.ratio_g,
+           rg.fx_source_dia,
+           rg.sin_fx_dia,
+           rg.hueco_ratio
+      FROM ratio_dia_grupo rg
+      JOIN dias_entidad dd
+        ON dd.ad_group_id = rg.ad_group_id
+       AND dd.platform = rg.platform
+       AND dd.metric_date = rg.metric_date
+       AND dd.metric_currency = rg.metric_currency
+      JOIN serie_ok s ON s.ad_entity_id = dd.ad_entity_id
+      JOIN cobertura_ok ok ON ok.ad_entity_id = dd.ad_entity_id
+      JOIN con_mezcla mx ON mx.ad_entity_id = dd.ad_entity_id
+),
+ratio_ok AS (
+    SELECT ad_entity_id
+      FROM (
+           SELECT ad_entity_id,
+                  COUNT(*) AS dias,
+                  COUNT(*) FILTER (
+                      WHERE sin_fx_dia OR hueco_ratio OR ratio_g IS NULL
+                  ) AS dias_malos
+             FROM ratio_dia
+            GROUP BY 1
+      ) x
+     WHERE dias > 0 AND dias_malos = 0
+),
+-- COGS diario: revenue del dia * ratio del dia (puntas halo).
+cogs_diario AS (
+    SELECT m.ad_entity_id,
+           SUM(m.revenue_same_sku * r.ratio_g) AS cogs_sin_halo,
+           SUM(m.ad_revenue * r.ratio_g)       AS cogs_con_halo,
+           BOOL_OR(r.ratio_g > 1)              AS rango_invertido,
+           CASE
+               WHEN BOOL_OR(r.fx_source_dia = 'nearest_prior'::fx_source)
+                   THEN 'nearest_prior'::fx_source
+               WHEN BOOL_OR(r.fx_source_dia = 'exact'::fx_source)
+                   THEN 'exact'::fx_source
+               ELSE NULL
+           END AS fx_source
+      FROM metricas m
+      JOIN ratio_dia r
+        ON r.ad_entity_id = m.ad_entity_id
+       AND r.metric_date = m.metric_date
+      JOIN ratio_ok ok ON ok.ad_entity_id = m.ad_entity_id
+     GROUP BY 1
+)
+SELECT s.platform,
+       s.ad_entity_id,
+       s.kind,
+       s.metric_currency,
+       v.d_from AS metric_date_from,
+       v.d_to   AS metric_date_to,
+       s.ad_revenue_sum,
+       s.revenue_same_sku_sum,
+       s.cost_sum,
+       c.cogs_sin_halo,
+       c.cogs_con_halo,
+       (s.revenue_same_sku_sum - s.cost_sum - c.cogs_sin_halo) AS contrib_sin_halo,
+       (s.ad_revenue_sum - s.cost_sum - c.cogs_con_halo)       AS contrib_con_halo,
+       c.rango_invertido,
+       c.fx_source,
+       true AS no_decisoria,
+       'contribucion_pre_cargos · no decisoria'::text AS etiqueta,
+       'gasto_ads_metricas,cogs_proxy_d1'::text AS cargos_incluidos,
+       'fee,refund,withholding,fee_type_ads_ledger'::text AS cargos_excluidos,
+       CASE
+           WHEN s.platform = 'amazon_mx'::platform
+               THEN (v.d_to::timestamp AT TIME ZONE 'UTC')
+           ELSE now()
+       END AS precio_as_of
+  FROM serie_ok s
+  JOIN cobertura_ok cob ON cob.ad_entity_id = s.ad_entity_id
+  JOIN con_mezcla mx ON mx.ad_entity_id = s.ad_entity_id
+  JOIN ratio_ok ro ON ro.ad_entity_id = s.ad_entity_id
+  JOIN cogs_diario c ON c.ad_entity_id = s.ad_entity_id
+  CROSS JOIN ventana v
+ -- Par halo siempre presente (ambos contrib_* NOT NULL) o no hay fila.
+ WHERE c.cogs_sin_halo IS NOT NULL
+   AND c.cogs_con_halo IS NOT NULL;
+
+
+-- ---------------------------------------------------------------------------
+-- v_contribucion_cobertura: entidades ausentes con motivo (D6/D7)
+-- 0007: fx_resolve por dia (fx_dia) y catalogo deduplicado en costo_fx_hueco
+-- (BOOL_OR es idempotente a duplicados; el dedup conserva product_id NULL —
+-- un vivo sin producto sigue marcando sin_costo_sku). Mismo resultado.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE VIEW v_contribucion_cobertura AS
+WITH
+ventana AS (
+    SELECT ((now() AT TIME ZONE 'UTC')::date - 15 - 89) AS d_from,
+           ((now() AT TIME ZONE 'UTC')::date - 15)      AS d_to
+),
+candidatos AS (
+    SELECT DISTINCT e.id AS ad_entity_id,
+           e.platform,
+           e.kind,
+           e.parent_id AS ad_group_id
+      FROM ad_entity e
+      JOIN v_metric_mature m ON m.ad_entity_id = e.id
+      CROSS JOIN ventana v
+     WHERE m.metric_date BETWEEN v.d_from AND v.d_to
+),
+metricas AS (
+    SELECT e.id AS ad_entity_id,
+           m.cost,
+           m.ad_revenue,
+           m.revenue_same_sku,
+           m.metric_date
+      FROM v_metric_mature m
+      JOIN ad_entity e ON e.id = m.ad_entity_id
+      CROSS JOIN ventana v
+     WHERE e.kind IN ('keyword', 'product_target')
+       AND m.metric_date BETWEEN v.d_from AND v.d_to
+),
+serie_flags AS (
+    SELECT ad_entity_id,
+           COUNT(*) FILTER (WHERE cost IS NULL) > 0 AS sin_costo,
+           COUNT(*) FILTER (
+               WHERE ad_revenue IS NULL OR revenue_same_sku IS NULL
+           ) > 0 AS sin_par_halo
+      FROM metricas
+     GROUP BY 1
+),
+vivos AS (
+    SELECT pa.parent_id AS ad_group_id,
+           pa.platform,
+           pa.id AS product_ad_id,
+           pa.listing_id,
+           l.product_id,
+           l.listing_price,
+           l.price_currency
+      FROM ad_entity pa
+      JOIN ad_entity_state st ON st.ad_entity_id = pa.id
+      LEFT JOIN listing l ON l.id = pa.listing_id
+     WHERE pa.kind = 'product_ad'
+       AND st.status IN ('ENABLED', 'PAUSED')
+),
+vivos_huecos AS (
+    SELECT v.ad_group_id,
+           v.platform,
+           COUNT(*) AS n_vivos,
+           COUNT(*) FILTER (
+               WHERE v.listing_id IS NULL
+                  OR v.product_id IS NULL
+                  OR (v.platform = 'amazon_us'::platform
+                      AND (v.listing_price IS NULL
+                           OR v.price_currency IS DISTINCT FROM 'USD'::currency))
+           ) AS n_sin_catalogo
+      FROM vivos v
+     GROUP BY 1, 2
+),
+precio_mx_prod AS (
+    SELECT l.product_id
+      FROM ledger_event l
+      CROSS JOIN ventana v
+     WHERE l.kind = 'sale'
+       AND l.platform = 'amazon_mx'::platform
+       AND l.product_id IS NOT NULL
+       AND l.item_price IS NOT NULL
+       AND l.event_date BETWEEN v.d_from AND v.d_to
+     GROUP BY 1
+),
+mx_sin_precio AS (
+    -- Solo productos del catalogo que entran al peso y no tienen item_price.
+    SELECT vv.ad_group_id, vv.platform
+      FROM vivos vv
+      JOIN ledger_event l
+        ON l.product_id = vv.product_id
+       AND l.platform = vv.platform
+       AND l.kind = 'sale'
+       AND l.event_date BETWEEN ((now() AT TIME ZONE 'UTC')::date - 15 - 89)
+                           AND ((now() AT TIME ZONE 'UTC')::date - 15)
+     WHERE vv.platform = 'amazon_mx'::platform
+       AND vv.product_id IS NOT NULL
+       AND NOT EXISTS (
+           SELECT 1 FROM precio_mx_prod p WHERE p.product_id = vv.product_id
+       )
+     GROUP BY 1, 2
+),
+sigma AS (
+    SELECT vv.ad_group_id,
+           vv.platform,
+           COALESCE(SUM(l.amount), 0) AS sigma_ventas
+      FROM vivos vv
+      LEFT JOIN ledger_event l
+        ON l.product_id = vv.product_id
+       AND l.platform = vv.platform
+       AND l.kind = 'sale'
+       AND l.event_date BETWEEN ((now() AT TIME ZONE 'UTC')::date - 15 - 89)
+                           AND ((now() AT TIME ZONE 'UTC')::date - 15)
+     GROUP BY 1, 2
+),
+-- 0007: fx_resolve es STABLE y solo depende del dia; UNA vez por metric_date.
+fx_dia AS (
+    SELECT d.metric_date, r.rate
+      FROM (SELECT DISTINCT metric_date FROM metricas) d
+      CROSS JOIN LATERAL fx_resolve(d.metric_date, 'USD'::currency, 'MXN'::currency) r
+),
+-- Costo/FX: algun vivo sin sku_cost as-of algun dia de la serie de la entidad,
+-- o sin FX cuando hace falta (US cost MXN→USD).
+-- 0007: catalogo deduplicado a (grupo, plataforma, producto) — BOOL_OR es
+-- idempotente a duplicados de product_ad y el dedup conserva product_id NULL.
+costo_fx_hueco AS (
+    SELECT DISTINCT m.ad_entity_id,
+           BOOL_OR(c.id IS NULL) AS sin_costo_sku,
+           BOOL_OR(
+               c.id IS NOT NULL
+               AND e.platform = 'amazon_us'::platform
+               AND c.cost_currency = 'MXN'::currency
+               AND fxd.rate IS NULL
+           ) AS sin_fx
+      FROM metricas m
+      JOIN ad_entity e ON e.id = m.ad_entity_id
+      JOIN (
+           SELECT DISTINCT ad_group_id, platform, product_id FROM vivos
+      ) vv ON vv.ad_group_id = e.parent_id AND vv.platform = e.platform
+      LEFT JOIN sku_cost c
+        ON c.product_id = vv.product_id
+       AND m.metric_date >= c.valid_from
+       AND (c.valid_to IS NULL OR m.metric_date < c.valid_to)
+      LEFT JOIN fx_dia fxd
+        ON fxd.metric_date = m.metric_date
+     GROUP BY 1
+)
+SELECT c.platform,
+       c.ad_entity_id,
+       c.kind,
+       CASE
+           WHEN c.kind NOT IN ('keyword', 'product_target') THEN 'kind_fuera'
+           WHEN c.ad_group_id IS NULL THEN 'sin_padre'
+           WHEN COALESCE(sf.sin_costo, false) OR COALESCE(sf.sin_par_halo, false)
+               THEN 'serie_incompleta'
+           WHEN vh.ad_group_id IS NULL OR vh.n_vivos = 0 OR vh.n_sin_catalogo > 0
+               THEN 'catalogo_parcial'
+           WHEN c.platform = 'amazon_mx'::platform
+                AND mx.ad_group_id IS NOT NULL
+               THEN 'sin_precio'
+           WHEN COALESCE(sg.sigma_ventas, 0) = 0 THEN 'sin_mezcla_ledger'
+           WHEN COALESCE(cf.sin_costo_sku, false) THEN 'catalogo_parcial'
+           WHEN COALESCE(cf.sin_fx, false) THEN 'sin_fx'
+           ELSE 'catalogo_parcial'
+       END AS motivo
+  FROM candidatos c
+  LEFT JOIN v_contribucion_entidad ok ON ok.ad_entity_id = c.ad_entity_id
+  LEFT JOIN serie_flags sf ON sf.ad_entity_id = c.ad_entity_id
+  LEFT JOIN vivos_huecos vh
+    ON vh.ad_group_id = c.ad_group_id AND vh.platform = c.platform
+  LEFT JOIN mx_sin_precio mx
+    ON mx.ad_group_id = c.ad_group_id AND mx.platform = c.platform
+  LEFT JOIN sigma sg
+    ON sg.ad_group_id = c.ad_group_id AND sg.platform = c.platform
+  LEFT JOIN costo_fx_hueco cf ON cf.ad_entity_id = c.ad_entity_id
+ WHERE ok.ad_entity_id IS NULL;
+
+COMMENT ON VIEW v_contribucion_entidad IS
+  'Contribucion PRE-CARGOS por entidad (keyword|product_target). '
+  'docs/MARGEN-ENTIDAD.md SELLADO 2026-08-31. Semantica intacta desde 0006; '
+  '0007 rearmo la cadena de CTEs por perf (medido en prod: ~100s por consulta): '
+  'fx_resolve por dia (era LATERAL por fila), sku_cost as-of por (producto,dia), '
+  'pesos pre-unidos a vivos y agregacion a grano (grupo,dia,moneda) ANTES de '
+  'expandir a entidad (el planner estimaba los CTE en rows=1 y caia en Nested '
+  'Loop: el CTE pesos se escaneo 528k veces, 144s de 190s). '
+  'Grano: kind IN (''keyword'', ''product_target'') — mismo allowlist que '
+  'v_tacos 0005/0006 y app/cobertura.py. '
+  'Ventana: metric_date IN [D_corte-89, D_corte], D_corte = hoy_UTC-15 via '
+  'v_metric_mature (sin ese corte la vista no publica filas maduras). '
+  'Ingreso = ad_revenue / revenue_same_sku (metricas; ledger NO atribuye). '
+  'Gasto = cost de metricas (fee_type=ads del ledger es OTRA superficie). '
+  'COGS = C+B: ratio_G(d) = SUM w_i*(cost_i(d)/price_i); w_i = mezcla ledger '
+  'del catalogo del ad_group; cost_i = sku_cost as-of cada metric_date. '
+  'D1.mx: price_i MX = promedio ponderado item_price/quantity del ledger '
+  '(razon adimensional MXN/MXN). US: listing_price con price_currency = USD '
+  'y un solo precio por producto; costo MXN→USD = '
+  'cost/fx_resolve(date,''USD'',''MXN'') — NUNCA el par invertido. '
+  'Cobertura 100% del catalogo vivo (ENABLED|PAUSED) o fila AUSENTE. '
+  'sigma ventas = 0 → ausente. Serie con cost NULL o sin par halo → ausente. '
+  'Sin FX utilizable → ausente. Par contrib_sin_halo/contrib_con_halo siempre '
+  'ambos o no hay fila. rango_invertido si ratio_G > 1. '
+  'no_decisoria=true siempre (D1.bis) hasta sello del lead para Fase 2. '
+  'Cargos fee/refund/withholding NO entran (multi-home).';
+
+COMMENT ON VIEW v_contribucion_cobertura IS
+  'Entidades con metricas maduras en la ventana 90d que NO salen en '
+  'v_contribucion_entidad, con motivo: kind_fuera, sin_padre, '
+  'serie_incompleta, catalogo_parcial, sin_precio, sin_mezcla_ledger, '
+  'sin_fx. Distingue "sin actividad" de "excluida por datos" (D7). '
+  '0007: fx_resolve por dia y catalogo deduplicado en costo_fx_hueco '
+  '(BOOL_OR idempotente a duplicados) — mismo resultado. '
+  'Allowlist de grano: keyword|product_target (misma que v_tacos y '
+  'app/cobertura.py). Solo lectura; cero escritura.';
