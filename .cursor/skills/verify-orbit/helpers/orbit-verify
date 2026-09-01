@@ -1,0 +1,737 @@
+#!/usr/bin/env python3
+"""Andamiaje de verificacion de Orbit (no es codigo de producto).
+
+Subcomandos:
+  launch          Postgres desechable + migraciones + semilla + uvicorn local
+  doctor          Chequeo de solo lectura: proceso, puerto, build, DSN
+  drive-campanas  Receta curl de la pantalla Campanas + captura de evidencia
+  cleanup         Tira SOLO la instancia de este run_id; no borra evidencia
+
+Estado scratch: /tmp/orbit-verify/<run_id>/
+Evidencia:      .cursor/skills/verify-orbit/evidence/<run_id>/
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import signal
+import socket
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+SKILL_DIR = Path(__file__).resolve().parents[1]
+REPO_ROOT = SKILL_DIR.parents[2]
+_VENV_PY = REPO_ROOT / ".venv" / "bin" / "python"
+try:
+    import psycopg  # noqa: F401
+except ImportError:
+    # Un solo reexec: .venv/bin/python suele ser symlink a python3; comparar
+    # sys.executable.resolve() con el venv no distingue y el execv buclaría.
+    if _VENV_PY.is_file() and os.environ.get("ORBIT_VERIFY_REEXEC") != "1":
+        env = os.environ.copy()
+        env["ORBIT_VERIFY_REEXEC"] = "1"
+        os.execve(str(_VENV_PY), [str(_VENV_PY), __file__, *sys.argv[1:]], env)
+    raise SystemExit("orbit-verify: falta psycopg. Corre `uv sync` en la raiz del repo.") from None
+MIGRATIONS = REPO_ROOT / "migrations"
+START_SH = REPO_ROOT / ".cursor" / "start.sh"
+EVIDENCE_ROOT = SKILL_DIR / "evidence"
+SCRATCH_ROOT = Path("/tmp/orbit-verify")
+
+# 8010 es el bind de produccion (compose / 10.13.13.1). Nunca lo usamos.
+DEFAULT_PORT = 18010
+ADMIN_DSN = os.environ.get("ORBIT_TEST_DSN", "postgresql://orbit:orbit@127.0.0.1:5432/postgres")
+FORBIDDEN_HOSTS = ("10.13.13.1",)
+FORBIDDEN_PORTS = {8010}
+
+
+def _migration_files() -> list[Path]:
+    """SQL numeradas de migrations/ en orden de nombre (hoy 0001-0007)."""
+    files = sorted(
+        (p for p in MIGRATIONS.glob("*.sql") if p.name[:4].isdigit()),
+        key=lambda p: p.name,
+    )
+    if not files:
+        _die(f"no hay migraciones numeradas en {MIGRATIONS}")
+    return files
+
+
+def _die(msg: str, code: int = 1) -> None:
+    print(f"orbit-verify: {msg}", file=sys.stderr)
+    raise SystemExit(code)
+
+
+def _run_id() -> str:
+    return os.environ.get("ORBIT_VERIFY_RUN_ID") or datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _scratch(run_id: str) -> Path:
+    return SCRATCH_ROOT / run_id
+
+
+def _state_path(run_id: str) -> Path:
+    return _scratch(run_id) / "state.json"
+
+
+def _load_state(run_id: str) -> dict:
+    ruta = _state_path(run_id)
+    if not ruta.is_file():
+        _die(f"no hay estado en {ruta}: corre launch primero")
+    return json.loads(ruta.read_text(encoding="utf-8"))
+
+
+def _save_state(state: dict) -> None:
+    ruta = _state_path(state["run_id"])
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    ruta.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+
+
+def _evidence_dir(run_id: str) -> Path:
+    destino = EVIDENCE_ROOT / run_id
+    destino.mkdir(parents=True, exist_ok=True)
+    return destino
+
+
+def _latest_run_id() -> str:
+    env = os.environ.get("ORBIT_VERIFY_RUN_ID")
+    if env:
+        return env
+    if not SCRATCH_ROOT.is_dir():
+        _die("no hay runs en /tmp/orbit-verify: corre launch")
+    candidatos = sorted(
+        (p for p in SCRATCH_ROOT.iterdir() if (p / "state.json").is_file()),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    if not candidatos:
+        _die("no hay state.json en /tmp/orbit-verify: corre launch")
+    return candidatos[0].name
+
+
+def _ensure_postgres() -> None:
+    import psycopg
+
+    try:
+        with psycopg.connect(ADMIN_DSN, connect_timeout=3):
+            return
+    except psycopg.Error:
+        pass
+    if not START_SH.is_file():
+        _die(
+            "Postgres no acepta postgresql://orbit:orbit@127.0.0.1:5432/postgres "
+            f"y no existe {START_SH}"
+        )
+    print("orbit-verify: arrancando Postgres local via .cursor/start.sh")
+    subprocess.run(["bash", str(START_SH)], check=True, cwd=str(REPO_ROOT))
+    last: Exception | None = None
+    for _ in range(30):
+        try:
+            with psycopg.connect(ADMIN_DSN, connect_timeout=2):
+                return
+        except psycopg.Error as exc:
+            last = exc
+            time.sleep(1)
+    _die(f"Postgres sigue sin aceptar el DSN de test tras start.sh: {last}")
+
+
+def _puerto_libre(preferido: int) -> int:
+    if preferido in FORBIDDEN_PORTS:
+        _die(f"puerto {preferido} esta reservado a produccion (compose 8010)")
+    for puerto in range(preferido, preferido + 50):
+        if puerto in FORBIDDEN_PORTS:
+            continue
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                sock.bind(("127.0.0.1", puerto))
+            except OSError:
+                continue
+            return puerto
+    _die(f"no hay puerto libre a partir de {preferido} en 127.0.0.1")
+
+
+def _aplicar_migraciones(conn) -> None:
+    for ruta in _migration_files():
+        conn.execute(ruta.read_text(encoding="utf-8"))
+
+
+def _sembrar(conn) -> dict:
+    """Semilla relativa a hoy UTC para que Campanas/Resumen siempre tengan fila."""
+    from psycopg.types.json import Json
+
+    hoy = datetime.now(UTC).date()
+    metric_date = hoy - timedelta(days=15)
+    decided_at = datetime.now(UTC)
+    window_end = hoy - timedelta(days=15)
+    window_start = window_end - timedelta(days=29)
+
+    run_id = conn.execute(
+        "INSERT INTO ingest_run (source) VALUES ('verify-orbit') RETURNING id"
+    ).fetchone()[0]
+    config_id = conn.execute(
+        "INSERT INTO config_version (label, settings) VALUES (%s, %s) RETURNING id",
+        ("verify-orbit", Json({"ads_optimizer_mode": "shadow"})),
+    ).fetchone()[0]
+    camp_id = conn.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id, name)"
+        " VALUES ('amazon_us', 'campaign', '9001', 'Campana A') RETURNING id"
+    ).fetchone()[0]
+    ag_id = conn.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id, parent_id)"
+        " VALUES ('amazon_us', 'ad_group', '9101', %s) RETURNING id",
+        (camp_id,),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
+        " metric_currency, cost, ad_revenue, impressions, clicks, orders, ingest_run_id)"
+        " VALUES (%s, %s, %s, 'USD', 12.3400, 45.6700, 100, 8, 2, %s)",
+        (
+            camp_id,
+            metric_date,
+            datetime(metric_date.year, metric_date.month, metric_date.day, 1, tzinfo=UTC),
+            run_id,
+        ),
+    )
+    conn.execute(
+        "INSERT INTO ad_entity_state (ad_entity_id, current_bid, bid_currency, status,"
+        " acos_target, synced_at) VALUES (%s, 1.00, 'USD', 'ENABLED', 25.00, %s)",
+        (camp_id, decided_at),
+    )
+    conn.execute(
+        "INSERT INTO ads_optimizer_goal (scope, platform, target_acos_pct, bid_floor,"
+        " bid_ceiling, bid_currency, enabled, mode)"
+        " VALUES ('platform', 'amazon_us', 25.00, 0.10, 2.50, 'USD', true, 'shadow')"
+    )
+    # Un solo ciclo: /salud toma DISTINCT ON (platform) ORDER BY id DESC.
+    # Un segundo ciclo sin notes escondia los skips del snapshot.
+    ciclo_id = conn.execute(
+        "INSERT INTO optimizer_cycle (motor, mode, platform, status, finished_at,"
+        " decisions_count, applied_count, notes) VALUES"
+        " ('ads_optimizer', 'shadow', 'amazon_us', 'done', %s, 2, 0, %s) RETURNING id",
+        (
+            decided_at,
+            '{"skips": {"entidad": {"estado_no_enabled": 3}},'
+            ' "decisiones": {"bid": 1, "negative": 1}}',
+        ),
+    ).fetchone()[0]
+    bid_id = conn.execute(
+        "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
+        " data_observed_at, window_start, window_end, old_value, new_value, value_currency,"
+        " inputs) VALUES (%s, %s, 'bid', %s, %s, %s, %s, %s, 1.00, 0.88, 'USD', %s)"
+        " RETURNING id",
+        (
+            ciclo_id,
+            camp_id,
+            decided_at,
+            config_id,
+            decided_at - timedelta(hours=1),
+            window_start,
+            window_end,
+            Json(
+                {
+                    "motor": "bid",
+                    "motivo": "banda_menos_12",
+                    "target_acos_pct_usado": "25.00",
+                }
+            ),
+        ),
+    ).fetchone()[0]
+    neg_id = conn.execute(
+        "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
+        " data_observed_at, window_start, window_end, search_term, inputs)"
+        " VALUES (%s, %s, 'negative', %s, %s, %s, %s, %s, 'zapato blanco', %s)"
+        " RETURNING id",
+        (
+            ciclo_id,
+            ag_id,
+            decided_at,
+            config_id,
+            decided_at - timedelta(hours=1),
+            window_start,
+            window_end,
+            Json({"motivo": "term_sin_ventas"}),
+        ),
+    ).fetchone()[0]
+    queue_id = conn.execute(
+        "INSERT INTO apply_queue (platform, ad_entity_id, kind, search_term, decision_id,"
+        " modo, estado, vence_el, request_payload) VALUES"
+        " ('amazon_us', %s, 'negative', 'zapato blanco', %s, 'live', 'pending_veto',"
+        " %s, '{}'::jsonb) RETURNING id",
+        (ag_id, neg_id, decided_at + timedelta(hours=48)),
+    ).fetchone()[0]
+    return {
+        "campaign_id": camp_id,
+        "campaign_name": "Campana A",
+        "metric_date": metric_date.isoformat(),
+        "hoy_utc": hoy.isoformat(),
+        "decision_bid_id": bid_id,
+        "queue_id": queue_id,
+        "target_peldano": "goal_plataforma",
+        "target_valor": "25.00",
+    }
+
+
+def _http(url: str, timeout: float = 5.0) -> tuple[int, dict[str, str], bytes]:
+    req = urllib.request.Request(url, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            headers = {k.lower(): v for k, v in resp.headers.items()}
+            return resp.status, headers, resp.read()
+    except urllib.error.HTTPError as exc:
+        headers = {k.lower(): v for k, v in exc.headers.items()} if exc.headers else {}
+        return exc.code, headers, exc.read()
+
+
+def _cmdline(pid: int) -> str:
+    try:
+        return Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\x00", b" ").decode()
+    except OSError:
+        return ""
+
+
+def _pid_vive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _puerto_escucha_127(puerto: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(1)
+        return sock.connect_ex(("127.0.0.1", puerto)) == 0
+
+
+def _inode_listen_127(puerto: int) -> str | None:
+    """Inode de un listener 127.0.0.1:puerto en /proc/net/tcp (hex)."""
+    objetivo = f"0100007F:{puerto:04X}"
+    try:
+        lineas = Path("/proc/net/tcp").read_text(encoding="utf-8").splitlines()[1:]
+    except OSError:
+        return None
+    for linea in lineas:
+        partes = linea.split()
+        if len(partes) < 10:
+            continue
+        local, estado, inode = partes[1], partes[3], partes[9]
+        if local.upper() == objetivo and estado == "0A":
+            return inode
+    return None
+
+
+def _pid_tiene_inode(pid: int, inode: str) -> bool:
+    fd_dir = Path(f"/proc/{pid}/fd")
+    try:
+        for fd in fd_dir.iterdir():
+            try:
+                destino = os.readlink(fd)
+            except OSError:
+                continue
+            if destino == f"socket:[{inode}]":
+                return True
+    except OSError:
+        return False
+    return False
+
+
+def cmd_launch(args: argparse.Namespace) -> None:
+    import psycopg
+    from psycopg import sql as pgsql
+
+    run_id = args.run_id or _run_id()
+    if _state_path(run_id).is_file() and not args.force:
+        _die(f"ya existe {_state_path(run_id)}: usa otro --run-id o cleanup")
+
+    _ensure_postgres()
+    preferido = int(os.environ.get("ORBIT_VERIFY_PORT", args.port))
+    puerto = _puerto_libre(preferido)
+    db = f"orbit_verify_{run_id.lower().replace('-', '_')}"[:63]
+    admin = psycopg.connect(ADMIN_DSN, autocommit=True)
+    conn = None
+    try:
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(ADMIN_DSN, dbname=db, autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        _aplicar_migraciones(conn)
+        semilla = _sembrar(conn)
+    except Exception:
+        if conn is not None:
+            conn.close()
+        try:
+            admin.execute(
+                pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+            )
+        finally:
+            admin.close()
+        raise
+    conn.close()
+    admin.close()
+
+    dsn = f"postgresql://orbit:orbit@127.0.0.1:5432/{db}"
+    scratch = _scratch(run_id)
+    scratch.mkdir(parents=True, exist_ok=True)
+    evidence = _evidence_dir(run_id)
+    log_path = scratch / "uvicorn.log"
+    env = os.environ.copy()
+    env["ORBIT_DSN_READ"] = dsn
+    env.pop("ORBIT_PG_HOST", None)
+    env.pop("ORBIT_DSN_ADMIN", None)
+    env.pop("ORBIT_DSN_DECIDE", None)
+    env.pop("ORBIT_DSN_INGEST", None)
+    python = REPO_ROOT / ".venv" / "bin" / "python"
+    if not python.is_file():
+        _die(f"no existe {python}: corre uv sync")
+    cmd = [
+        str(python),
+        "-m",
+        "uvicorn",
+        "app.main:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(puerto),
+    ]
+    log_fh = log_path.open("w", encoding="utf-8")
+    proc = subprocess.Popen(
+        cmd,
+        cwd=str(REPO_ROOT),
+        env=env,
+        stdout=log_fh,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    state = {
+        "run_id": run_id,
+        "pid": proc.pid,
+        "port": puerto,
+        "bind": "127.0.0.1",
+        "base_url": f"http://127.0.0.1:{puerto}",
+        "db": db,
+        "dsn": dsn,
+        "evidence_dir": str(evidence),
+        "scratch_dir": str(scratch),
+        "log_path": str(log_path),
+        "repo_root": str(REPO_ROOT),
+        "started_at": datetime.now(UTC).isoformat(),
+        "seed": semilla,
+        "cmd": cmd,
+    }
+    _save_state(state)
+    listo = False
+    for _ in range(40):
+        if proc.poll() is not None:
+            _die(
+                f"uvicorn salio con {proc.returncode}. log: {log_path}\n"
+                + log_path.read_text(encoding="utf-8")[-2000:]
+            )
+        try:
+            status, _, body = _http(f"http://127.0.0.1:{puerto}/health", timeout=1.0)
+        except (urllib.error.URLError, TimeoutError, OSError):
+            time.sleep(0.25)
+            continue
+        if status == 200 and body.strip() == b'{"status":"ok"}':
+            listo = True
+            break
+        time.sleep(0.25)
+    if not listo:
+        _cleanup_proceso(proc.pid)
+        _die(f"uvicorn no respondio /health en 10s. log: {log_path}")
+
+    ready = evidence / "launch-ready.txt"
+    ready.write_text(
+        f"base_url={state['base_url']}\n"
+        f"pid={proc.pid}\n"
+        f"db={db}\n"
+        f"health={body.decode()}\n"
+        f"seed={json.dumps(semilla)}\n",
+        encoding="utf-8",
+    )
+    campos = ("run_id", "pid", "port", "base_url", "db", "evidence_dir")
+    print(json.dumps({k: state[k] for k in campos}))
+
+
+def _cleanup_proceso(pid: int) -> None:
+    if not _pid_vive(pid):
+        return
+    cmdline = _cmdline(pid)
+    if "uvicorn" not in cmdline or "app.main:app" not in cmdline:
+        print(
+            f"orbit-verify: pid {pid} no es uvicorn app.main:app ({cmdline!r}); no lo mato",
+            file=sys.stderr,
+        )
+        return
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        return
+    for _ in range(20):
+        if not _pid_vive(pid):
+            return
+        time.sleep(0.1)
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError:
+        return
+
+
+def cmd_doctor(args: argparse.Namespace) -> None:
+    run_id = args.run_id or _latest_run_id()
+    state = _load_state(run_id)
+    fallos: list[str] = []
+
+    if any(h in state["base_url"] for h in FORBIDDEN_HOSTS):
+        fallos.append(f"base_url apunta a produccion VPN: {state['base_url']}")
+    if state["port"] in FORBIDDEN_PORTS:
+        fallos.append(f"puerto {state['port']} es el bind de produccion (8010)")
+    if not state["base_url"].startswith("http://127.0.0.1:"):
+        fallos.append(f"base_url no es loopback: {state['base_url']}")
+
+    pid = int(state["pid"])
+    if not _pid_vive(pid):
+        fallos.append(f"pid {pid} no vive")
+    cmdline = _cmdline(pid)
+    if "uvicorn" not in cmdline or "app.main:app" not in cmdline:
+        fallos.append(f"pid {pid} no es uvicorn app.main:app: {cmdline!r}")
+
+    if not _puerto_escucha_127(state["port"]):
+        fallos.append(f"127.0.0.1:{state['port']} no acepta TCP")
+    inode = _inode_listen_127(state["port"])
+    if inode and not _pid_tiene_inode(pid, inode):
+        fallos.append(f"127.0.0.1:{state['port']} inode={inode} no pertenece al pid {pid}")
+
+    try:
+        status, headers, body = _http(f"{state['base_url']}/health")
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        fallos.append(f"/health no responde: {exc}")
+        status, _, body = 0, {}, b""
+    if status != 200 or body.strip() != b'{"status":"ok"}':
+        fallos.append(f"/health inesperado: {status} {body!r}")
+
+    try:
+        st_html, hdr_html, html = _http(f"{state['base_url']}/")
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        fallos.append(f"GET / no responde: {exc}")
+        st_html, hdr_html, html = 0, {}, b""
+    texto = html.decode("utf-8", errors="replace")
+    if st_html != 200:
+        fallos.append(f"GET / -> {st_html} (sin DSN seria 503)")
+    if 'data-pantalla="resumen"' not in texto:
+        fallos.append("GET / no trae data-pantalla=resumen (build equivocado o 503)")
+    if "Orbit — Dashboard" not in texto and "Orbit" not in texto:
+        fallos.append("GET / no trae el titulo Orbit")
+    if hdr_html.get("content-security-policy") != "default-src 'self'":
+        fallos.append(f"CSP inesperada: {hdr_html.get('content-security-policy')}")
+    if "no-store" not in (hdr_html.get("cache-control") or ""):
+        fallos.append(f"Cache-Control inesperado: {hdr_html.get('cache-control')}")
+
+    reporte = {
+        "run_id": run_id,
+        "ok": not fallos,
+        "pid": pid,
+        "port": state["port"],
+        "base_url": state["base_url"],
+        "cmdline": cmdline,
+        "health": body.decode("utf-8", errors="replace"),
+        "fallos": fallos,
+    }
+    dest = _evidence_dir(run_id) / "doctor.json"
+    dest.write_text(json.dumps(reporte, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(reporte, indent=2))
+    if fallos:
+        _die("doctor FALLA: " + "; ".join(fallos))
+
+
+def cmd_drive_campanas(args: argparse.Namespace) -> None:
+    run_id = args.run_id or _latest_run_id()
+    state = _load_state(run_id)
+    base = state["base_url"]
+    if any(h in base for h in FORBIDDEN_HOSTS) or state["port"] in FORBIDDEN_PORTS:
+        _die(f"rehuso conducir {base}: no es instancia local de verificacion")
+    evidence = _evidence_dir(run_id) / "campanas"
+    evidence.mkdir(parents=True, exist_ok=True)
+
+    st0, _, html0 = _http(f"{base}/")
+    (evidence / "01-resumen.html").write_bytes(html0)
+    if st0 != 200 or 'data-pantalla="resumen"' not in html0.decode("utf-8", errors="replace"):
+        _die(f"punto de partida GET / fallo: {st0}")
+
+    st, headers, html = _http(f"{base}/campanas")
+    (evidence / "02-campanas.html").write_bytes(html)
+    (evidence / "02-campanas.headers.txt").write_text(
+        f"status: {st}\n" + "\n".join(f"{k}: {v}" for k, v in headers.items()) + "\n",
+        encoding="utf-8",
+    )
+    texto = html.decode("utf-8", errors="replace")
+    checks = {
+        "http_200": st == 200,
+        "data-pantalla=campanas": 'data-pantalla="campanas"' in texto,
+        "h2_campanas": "Campanas — metricas 30d y target efectivo con procedencia" in texto,
+        "nav_aria_current": 'href="/campanas"' in texto and 'aria-current="page"' in texto,
+        "fila_campana_a": "Campana A" in texto,
+        "chip_activa": "activa" in texto,
+        "plataforma_usd": "amazon_us · USD" in texto,
+        "cost_semilla": "12.3400" in texto,
+        "revenue_semilla": "45.6700" in texto,
+        "target_25": "25.00%" in texto or ">25.00%<" in texto,
+        "peldano_goal_plataforma": "goal_plataforma" in texto,
+        "th_procedencia": "Procedencia" in texto,
+    }
+
+    stj, _, rawj = _http(f"{base}/api/dashboard/campanas")
+    (evidence / "03-campanas.json").write_bytes(rawj)
+    items = []
+    if stj == 200:
+        items = json.loads(rawj.decode("utf-8")).get("items") or []
+    checks["api_200"] = stj == 200
+    checks["api_misma_campana"] = any(
+        i.get("nombre") == "Campana A" and i.get("plataforma") == "amazon_us" for i in items
+    )
+    checks["api_status_ENABLED"] = any(i.get("status") == "ENABLED" for i in items)
+    checks["api_cost"] = any((i.get("metricas_30d") or {}).get("cost") == "12.3400" for i in items)
+    checks["api_clicks"] = any((i.get("metricas_30d") or {}).get("clicks") == 8 for i in items)
+    checks["api_acos"] = any((i.get("metricas_30d") or {}).get("acos") for i in items)
+    checks["api_peldano"] = any(
+        (i.get("target_efectivo") or {}).get("peldano") == "goal_plataforma" for i in items
+    )
+
+    png = evidence / "04-campanas.png"
+    chrome = os.environ.get("ORBIT_VERIFY_CHROME", "google-chrome")
+    try:
+        shot = subprocess.run(
+            [
+                chrome,
+                "--headless=new",
+                "--disable-gpu",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--hide-scrollbars",
+                "--window-size=1280,900",
+                f"--screenshot={png}",
+                f"{base}/campanas",
+            ],
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if shot.returncode != 0:
+            (evidence / "04-chrome.stderr.txt").write_text(shot.stderr, encoding="utf-8")
+    except subprocess.TimeoutExpired as exc:
+        (evidence / "04-chrome.stderr.txt").write_text(
+            f"chrome timeout 30s: {exc}\n", encoding="utf-8"
+        )
+    except OSError as exc:
+        (evidence / "04-chrome.stderr.txt").write_text(
+            f"chrome no ejecutable ({chrome}): {exc}\n", encoding="utf-8"
+        )
+    checks["screenshot"] = png.is_file() and png.stat().st_size > 0
+
+    prueba = {
+        "feature": "campanas",
+        "entry_point": "nav /campanas desde /",
+        "base_url": base,
+        "action": "GET / luego GET /campanas (mismo camino que el <a href=/campanas>)",
+        "resulting_state": {
+            "html_status": st,
+            "api_status": stj,
+            "items": items,
+        },
+        "checks": checks,
+        "ok": all(v for k, v in checks.items() if k != "screenshot"),
+        "evidence_dir": str(evidence),
+    }
+    (evidence / "PROOF.json").write_text(json.dumps(prueba, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(prueba, indent=2))
+    if not prueba["ok"]:
+        fallaron = [k for k, v in checks.items() if not v and k != "screenshot"]
+        _die("drive-campanas FALLA: " + ", ".join(fallaron))
+
+
+def cmd_cleanup(args: argparse.Namespace) -> None:
+    run_id = args.run_id or _latest_run_id()
+    ruta = _state_path(run_id)
+    if not ruta.is_file():
+        print(f"orbit-verify: nada que limpiar para {run_id}")
+        return
+    state = json.loads(ruta.read_text(encoding="utf-8"))
+    pid = int(state["pid"])
+    _cleanup_proceso(pid)
+    import psycopg
+    from psycopg import sql as pgsql
+
+    db_dropeada = True
+    try:
+        admin = psycopg.connect(ADMIN_DSN, autocommit=True)
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(
+                pgsql.Identifier(state["db"])
+            )
+        )
+        admin.close()
+    except Exception as exc:  # noqa: BLE001 — cleanup best-effort de la DB
+        db_dropeada = False
+        print(f"orbit-verify: aviso al dropear {state['db']}: {exc}", file=sys.stderr)
+
+    scratch = Path(state.get("scratch_dir") or _scratch(run_id))
+    if db_dropeada and scratch.is_dir():
+        shutil.rmtree(scratch, ignore_errors=True)
+    elif not db_dropeada:
+        print(
+            f"orbit-verify: conservo {scratch} para reintentar el drop de {state['db']}",
+            file=sys.stderr,
+        )
+
+    evidencia = Path(state["evidence_dir"])
+    if not evidencia.is_dir():
+        _die(f"cleanup termino pero la evidencia desaparecio: {evidencia}")
+    print(
+        json.dumps(
+            {
+                "cleaned_run_id": run_id,
+                "killed_pid": pid,
+                "dropped_db": state["db"] if db_dropeada else None,
+                "evidence_still_at": str(evidencia),
+            }
+        )
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Verificacion local de Orbit")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    p_launch = sub.add_parser("launch", help="Levanta instancia local desechable")
+    p_launch.add_argument("--run-id", default=None)
+    p_launch.add_argument("--port", type=int, default=DEFAULT_PORT)
+    p_launch.add_argument("--force", action="store_true")
+    p_launch.set_defaults(func=cmd_launch)
+
+    p_doc = sub.add_parser("doctor", help="Chequeo de solo lectura")
+    p_doc.add_argument("--run-id", default=None)
+    p_doc.set_defaults(func=cmd_doctor)
+
+    p_drive = sub.add_parser("drive-campanas", help="Conduce la pantalla Campanas")
+    p_drive.add_argument("--run-id", default=None)
+    p_drive.set_defaults(func=cmd_drive_campanas)
+
+    p_clean = sub.add_parser("cleanup", help="Tira la instancia de este run")
+    p_clean.add_argument("--run-id", default=None)
+    p_clean.set_defaults(func=cmd_cleanup)
+
+    args = parser.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()
