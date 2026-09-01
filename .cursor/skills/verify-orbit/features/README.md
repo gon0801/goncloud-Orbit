@@ -31,4 +31,5 @@ Este directorio es la fuente mantenida del comportamiento que un usuario ve en e
 - [Campanas](./campanas.md) — tabla 30d, target efectivo y procedencia.
 - [Decisiones](./decisiones.md) — feed por cursor de entidades que decidieron.
 - [Salud](./salud.md) — ultimo ciclo, historico 14d, skips y quota.
+- [Contribucion](./contribucion.md) — rango pre-cargos por campana (90d maduros).
 - [Cortes](./cortes.md) — cola de veto (lectura). El POST Vetar queda fuera del baseline.

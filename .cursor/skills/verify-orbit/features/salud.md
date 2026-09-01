@@ -19,12 +19,12 @@ Salud muestra, por plataforma, el ultimo ciclo (status, mode, decisiones, applie
 Preconditions:
 
 - Doctor en verde.
-- Semilla: ciclo `done` / `shadow` en amazon_us con `decisiones` 1, `applies` 0 y skip `estado_no_enabled`.
+- Semilla: ciclo `done` / `shadow` en amazon_us con `decisiones` 2, `applies` 0 y skip `estado_no_enabled`.
 
 - **Abrir Salud.** Corre `curl -sS "$BASE/salud"`. Status 200. El HTML contiene `data-pantalla="salud"` y `h2` `Salud — ultimo ciclo, historico 14d y skips`.
-- **Leer el ultimo ciclo.** Hay una tarjeta `amazon_us` con chips `done` y `shadow`, texto `decisiones: 1` y `applies: 0` (no `—`).
+- **Leer el ultimo ciclo.** Hay una tarjeta `amazon_us` con chips `done` y `shadow`, texto `decisiones: 2` y `applies: 0` (no `—`).
 - **Ver skips.** Existe `id="skips-amazon_us"` y `id="datos-skips-amazon_us"`.
-- **Confirmar lado JSON.** Corre `curl -sS "$BASE/api/dashboard/salud"`. Status 200. `plataformas.amazon_us.ultimo_ciclo.status` es `done` y `applied_count` es `0`.
+- **Confirmar lado JSON.** Corre `curl -sS "$BASE/api/dashboard/salud"`. Status 200. `plataformas.amazon_us.ultimo_ciclo.status` es `done`, `decisions_count` es `2` y `applied_count` es `0`.
 - **Proof.** Guarda HTML y JSON bajo `evidence/<run_id>/salud/`.
 
 ## Gotchas

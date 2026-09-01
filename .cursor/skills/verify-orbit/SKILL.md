@@ -1,6 +1,6 @@
 ---
 name: verify-orbit
-description: Verifica Orbit (dashboard web Jinja2 de Amazon Ads) como lo toca un usuario — Resumen, Campanas, Decisiones, Salud y Cortes. Usala para probar UI, regresiones de pantallas o el camino real del dashboard, nunca el bind de produccion 10.13.13.1:8010.
+description: Verifica Orbit (dashboard web Jinja2 de Amazon Ads) como lo toca un usuario — Resumen, Campanas, Decisiones, Salud, Contribucion y Cortes. Usala para probar UI, regresiones de pantallas o el camino real del dashboard, nunca el bind de produccion 10.13.13.1:8010.
 ---
 
 # Verificar Orbit
@@ -13,7 +13,7 @@ Mantenimiento del mapa: `/maintain-verification-skill`.
 
 ## Entrevista (lo que hay en este repo)
 
-- **Surface.** Dashboard HTML server-rendered (Jinja2). El usuario toca el `<nav>` de `app/templates/base.html`: Resumen `/`, Campanas `/campanas`, Decisiones `/decisiones`, Salud `/salud`, Cortes `/cortes`. El `<body>` lleva `data-pantalla`. Secundario: JSON en `/api/dashboard/*` (la UI lo consume; un camino) y CLI `python -m app.cli` (crons; no es la superficie de esta skill).
+- **Surface.** Dashboard HTML server-rendered (Jinja2). El usuario toca el `<nav>` de `app/templates/base.html`: Resumen `/`, Campanas `/campanas`, Decisiones `/decisiones`, Salud `/salud`, Contribucion `/contribucion`, Cortes `/cortes`. El `<body>` lleva `data-pantalla`. Secundario: JSON en `/api/dashboard/*` (la UI lo consume; un camino) y CLI `python -m app.cli` (crons; no es la superficie de esta skill).
 - **Run.** No hay `npm run dev`. El entorno Cursor deja Postgres 16 en `127.0.0.1:5432` con `orbit`/`orbit` via `.cursor/start.sh`. La app es `uvicorn app.main:app --host 127.0.0.1 --port <libre>`. Las pantallas HTML exigen `ORBIT_DSN_READ` (sin DSN → 503). `/health` no necesita DB. No hay seed de producto: esta skill crea una base desechable y siembra el fixture. Auth de lectura: ninguna (en prod el candado es VPN). Escritura (`POST /api/ads-optimizer/veto`) pide header `x-orbit-token`; **no la conduzcas** en el baseline de lectura.
 - **Drive.** No hay Playwright/Cypress. El harness existente es curl (y TestClient en pytest). Receta: curl a las rutas HTML reales. Chrome headless solo para capturar el canvas de Chart.js (`drive-campanas` le pone tope de 30s: en este entorno el proceso a veces no sale).
 - **Observe.** HTML (`data-pantalla`, `aria-current="page"`, h2, chips, celdas), JSON gemelo `/api/dashboard/...`, headers CSP/`no-store`, screenshot, log de uvicorn en `/tmp/orbit-verify/<run_id>/`.
@@ -34,7 +34,7 @@ Override: `ORBIT_VERIFY_RUN_ID=mi-run` y/o `--port 18011` (default 18010; 8010 e
 Que hace, en orden:
 
 1. Habla Postgres en `postgresql://orbit:orbit@127.0.0.1:5432/postgres`. Si no responde, corre `.cursor/start.sh` (idempotente) y reintenta.
-2. `CREATE DATABASE orbit_verify_<run_id>` y aplica `migrations/0001`…`0005` (0001 no es re-runnable: por eso la base es nueva).
+2. `CREATE DATABASE orbit_verify_<run_id>` y aplica las SQL numeradas de `migrations/` en orden de nombre (0001 no es re-runnable: por eso la base es nueva).
 3. Siembra el fixture: campana `Campana A` (amazon_us, ENABLED), metrica D-15 (12.3400 / 45.6700 USD), goal de plataforma 25% (`goal_plataforma`), decision bid, corte `pending_veto` con search_term `zapato blanco`.
 4. Arranca `.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port <puerto>` con `ORBIT_DSN_READ` apuntando a esa base. No setea `ORBIT_PG_HOST` ni DSN de escritura.
 
@@ -72,21 +72,33 @@ Harness: **curl** (mismo transporte que `docs/DEPLOY.md` y que TestClient). Sele
 
 | Handle | Donde |
 |---|---|
-| `body[data-pantalla="resumen"\|"campanas"\|"decisiones"\|"salud"\|"cortes"]` | `app/templates/base.html` |
-| `nav a[href="/"]`, `/campanas`, `/decisiones`, `/salud`, `/cortes` | mismo |
+| `body[data-pantalla="resumen"\|"campanas"\|"decisiones"\|"salud"\|"contribucion"\|"cortes"]` | `app/templates/base.html` |
+| `nav a[href="/"]`, `/campanas`, `/decisiones`, `/salud`, `/contribucion`, `/cortes` | mismo |
 | `nav a[aria-current="page"]` | pagina activa |
 | `h1` = `Orbit — Dashboard` | header |
-| `h2` Resumen / Campanas / Decisiones / Salud / Cortes | cada template |
+| `h2` Resumen / Campanas / Decisiones / Salud / Contribucion / Cortes | cada template |
 | `canvas#serie-amazon_us`, `#serie-amazon_mx`, `#serie-acos-amazon_us` | `resumen.html` |
 | `script#datos-serie-amazon_us[type=application/json]` | datos de grafica |
 | `button#btn-mas[data-cursor]` | `decisiones.html` (solo si hay mas paginas) |
 | `button[data-vetar="<id>"]`, `form[data-veto="<id>"]` | `cortes.html` |
-| `GET /api/dashboard/campanas` (y series/decisiones/salud/cortes) | JSON gemelo; no es endpoint de test |
+| `GET /api/dashboard/campanas` (y series/decisiones/salud/contribucion/cortes) | JSON gemelo; no es endpoint de test |
 
 Receta minima (tras doctor OK):
 
 ```bash
-BASE=$(python3 -c "import json,pathlib; print(json.loads(pathlib.Path('/tmp/orbit-verify/' + sorted(__import__('os').listdir('/tmp/orbit-verify'))[-1] + '/state.json').read_text())['base_url'])")
+# Preferi ORBIT_VERIFY_RUN_ID si esta definido; si no, el state mas reciente
+# por mtime (el mismo criterio que doctor / drive-campanas / _latest_run_id).
+BASE=$(python3 -c "
+import json, os, pathlib
+root = pathlib.Path('/tmp/orbit-verify')
+env = os.environ.get('ORBIT_VERIFY_RUN_ID')
+if env:
+    d = root / env
+else:
+    d = sorted((p for p in root.iterdir() if (p / 'state.json').is_file()),
+               key=lambda p: p.stat().st_mtime)[-1]
+print(json.loads((d / 'state.json').read_text())['base_url'])
+")
 curl -sS -D - "$BASE/" | tee /tmp/orbit-resumen.headers
 curl -sS "$BASE/campanas" | tee /tmp/orbit-campanas.html
 # El <a href="/campanas"> del nav es el camino de usuario. No saltes a un setter interno.
@@ -104,7 +116,7 @@ No uses coordenadas ni tab order. No conduzcas `POST /api/ads-optimizer/veto` en
 
 Directorio nombrado (sobrevive cleanup):
 
-```
+```text
 .cursor/skills/verify-orbit/evidence/<run_id>/
   launch-ready.txt
   doctor.json

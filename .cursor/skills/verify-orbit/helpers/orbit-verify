@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import signal
 import socket
 import subprocess
@@ -23,7 +24,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
@@ -34,9 +35,7 @@ try:
 except ImportError:
     if _VENV_PY.is_file():
         os.execv(str(_VENV_PY), [str(_VENV_PY), __file__, *sys.argv[1:]])
-    raise SystemExit(
-        "orbit-verify: falta psycopg. Corre `uv sync` en la raiz del repo."
-    )
+    raise SystemExit("orbit-verify: falta psycopg. Corre `uv sync` en la raiz del repo.") from None
 MIGRATIONS = REPO_ROOT / "migrations"
 START_SH = REPO_ROOT / ".cursor" / "start.sh"
 EVIDENCE_ROOT = SKILL_DIR / "evidence"
@@ -44,19 +43,20 @@ SCRATCH_ROOT = Path("/tmp/orbit-verify")
 
 # 8010 es el bind de produccion (compose / 10.13.13.1). Nunca lo usamos.
 DEFAULT_PORT = 18010
-ADMIN_DSN = os.environ.get(
-    "ORBIT_TEST_DSN", "postgresql://orbit:orbit@127.0.0.1:5432/postgres"
-)
+ADMIN_DSN = os.environ.get("ORBIT_TEST_DSN", "postgresql://orbit:orbit@127.0.0.1:5432/postgres")
 FORBIDDEN_HOSTS = ("10.13.13.1",)
 FORBIDDEN_PORTS = {8010}
 
-MIGRATION_FILES = (
-    "0001_initial.sql",
-    "0002_apply.sql",
-    "0003_goal_bounds_explicit.sql",
-    "0004_ad_entity_kind_product_ad.sql",
-    "0005_v_tacos_grano_unico.sql",
-)
+
+def _migration_files() -> list[Path]:
+    """SQL numeradas de migrations/ en orden de nombre (hoy 0001-0007)."""
+    files = sorted(
+        (p for p in MIGRATIONS.glob("*.sql") if p.name[:4].isdigit()),
+        key=lambda p: p.name,
+    )
+    if not files:
+        _die(f"no hay migraciones numeradas en {MIGRATIONS}")
+    return files
 
 
 def _die(msg: str, code: int = 1) -> None:
@@ -65,9 +65,7 @@ def _die(msg: str, code: int = 1) -> None:
 
 
 def _run_id() -> str:
-    return os.environ.get("ORBIT_VERIFY_RUN_ID") or datetime.now(timezone.utc).strftime(
-        "%Y%m%dT%H%M%SZ"
-    )
+    return os.environ.get("ORBIT_VERIFY_RUN_ID") or datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
 def _scratch(run_id: str) -> Path:
@@ -156,18 +154,17 @@ def _puerto_libre(preferido: int) -> int:
 
 
 def _aplicar_migraciones(conn) -> None:
-    for nombre in MIGRATION_FILES:
-        sql = (MIGRATIONS / nombre).read_text(encoding="utf-8")
-        conn.execute(sql)
+    for ruta in _migration_files():
+        conn.execute(ruta.read_text(encoding="utf-8"))
 
 
 def _sembrar(conn) -> dict:
     """Semilla relativa a hoy UTC para que Campanas/Resumen siempre tengan fila."""
     from psycopg.types.json import Json
 
-    hoy = datetime.now(timezone.utc).date()
+    hoy = datetime.now(UTC).date()
     metric_date = hoy - timedelta(days=15)
-    decided_at = datetime.now(timezone.utc)
+    decided_at = datetime.now(UTC)
     window_end = hoy - timedelta(days=15)
     window_start = window_end - timedelta(days=29)
 
@@ -194,7 +191,7 @@ def _sembrar(conn) -> dict:
         (
             camp_id,
             metric_date,
-            datetime(metric_date.year, metric_date.month, metric_date.day, 1, tzinfo=timezone.utc),
+            datetime(metric_date.year, metric_date.month, metric_date.day, 1, tzinfo=UTC),
             run_id,
         ),
     )
@@ -208,13 +205,16 @@ def _sembrar(conn) -> dict:
         " bid_ceiling, bid_currency, enabled, mode)"
         " VALUES ('platform', 'amazon_us', 25.00, 0.10, 2.50, 'USD', true, 'shadow')"
     )
+    # Un solo ciclo: /salud toma DISTINCT ON (platform) ORDER BY id DESC.
+    # Un segundo ciclo sin notes escondia los skips del snapshot.
     ciclo_id = conn.execute(
         "INSERT INTO optimizer_cycle (motor, mode, platform, status, finished_at,"
         " decisions_count, applied_count, notes) VALUES"
-        " ('ads_optimizer', 'shadow', 'amazon_us', 'done', %s, 1, 0, %s) RETURNING id",
+        " ('ads_optimizer', 'shadow', 'amazon_us', 'done', %s, 2, 0, %s) RETURNING id",
         (
             decided_at,
-            '{"skips": {"entidad": {"estado_no_enabled": 3}}, "decisiones": {"bid": 1}}',
+            '{"skips": {"entidad": {"estado_no_enabled": 3}},'
+            ' "decisiones": {"bid": 1, "negative": 1}}',
         ),
     ).fetchone()[0]
     bid_id = conn.execute(
@@ -239,20 +239,13 @@ def _sembrar(conn) -> dict:
             ),
         ),
     ).fetchone()[0]
-    ciclo_corte = conn.execute(
-        "INSERT INTO optimizer_cycle (motor, mode, platform, status, finished_at,"
-        " decisions_count, applied_count, notes) VALUES"
-        " ('ads_optimizer', 'shadow', 'amazon_us', 'done', %s, 1, 0, NULL)"
-        " RETURNING id",
-        (decided_at,),
-    ).fetchone()[0]
     neg_id = conn.execute(
         "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
         " data_observed_at, window_start, window_end, search_term, inputs)"
         " VALUES (%s, %s, 'negative', %s, %s, %s, %s, %s, 'zapato blanco', %s)"
         " RETURNING id",
         (
-            ciclo_corte,
+            ciclo_id,
             ag_id,
             decided_at,
             config_id,
@@ -351,7 +344,7 @@ def cmd_launch(args: argparse.Namespace) -> None:
 
     run_id = args.run_id or _run_id()
     if _state_path(run_id).is_file() and not args.force:
-        _die(f"ya existe { _state_path(run_id) }: usa otro --run-id o cleanup")
+        _die(f"ya existe {_state_path(run_id)}: usa otro --run-id o cleanup")
 
     _ensure_postgres()
     preferido = int(os.environ.get("ORBIT_VERIFY_PORT", args.port))
@@ -360,7 +353,9 @@ def cmd_launch(args: argparse.Namespace) -> None:
     admin = psycopg.connect(ADMIN_DSN, autocommit=True)
     conn = None
     try:
-        admin.execute(pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db)))
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
         admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
         conn = psycopg.connect(ADMIN_DSN, dbname=db, autocommit=True)
         conn.execute("SET TIME ZONE 'UTC'")
@@ -424,7 +419,7 @@ def cmd_launch(args: argparse.Namespace) -> None:
         "scratch_dir": str(scratch),
         "log_path": str(log_path),
         "repo_root": str(REPO_ROOT),
-        "started_at": datetime.now(timezone.utc).isoformat(),
+        "started_at": datetime.now(UTC).isoformat(),
         "seed": semilla,
         "cmd": cmd,
     }
@@ -458,7 +453,8 @@ def cmd_launch(args: argparse.Namespace) -> None:
         f"seed={json.dumps(semilla)}\n",
         encoding="utf-8",
     )
-    print(json.dumps({k: state[k] for k in ("run_id", "pid", "port", "base_url", "db", "evidence_dir")}))
+    campos = ("run_id", "pid", "port", "base_url", "db", "evidence_dir")
+    print(json.dumps({k: state[k] for k in campos}))
 
 
 def _cleanup_proceso(pid: int) -> None:
@@ -499,15 +495,13 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         fallos.append(f"127.0.0.1:{state['port']} no acepta TCP")
     inode = _inode_listen_127(state["port"])
     if inode and not _pid_tiene_inode(pid, inode):
-        fallos.append(
-            f"127.0.0.1:{state['port']} inode={inode} no pertenece al pid {pid}"
-        )
+        fallos.append(f"127.0.0.1:{state['port']} inode={inode} no pertenece al pid {pid}")
 
     try:
         status, headers, body = _http(f"{state['base_url']}/health")
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         fallos.append(f"/health no responde: {exc}")
-        status, headers, body = 0, {}, b""
+        status, _, body = 0, {}, b""
     if status != 200 or body.strip() != b'{"status":"ok"}':
         fallos.append(f"/health inesperado: {status} {body!r}")
 
@@ -621,8 +615,10 @@ def cmd_drive_campanas(args: argparse.Namespace) -> None:
         (evidence / "04-chrome.stderr.txt").write_text(
             f"chrome timeout 30s: {exc}\n", encoding="utf-8"
         )
-        if exc.stdout:
-            pass
+    except OSError as exc:
+        (evidence / "04-chrome.stderr.txt").write_text(
+            f"chrome no ejecutable ({chrome}): {exc}\n", encoding="utf-8"
+        )
     checks["screenshot"] = png.is_file() and png.stat().st_size > 0
 
     prueba = {
@@ -636,7 +632,7 @@ def cmd_drive_campanas(args: argparse.Namespace) -> None:
             "items": items,
         },
         "checks": checks,
-        "ok": all(checks.values()),
+        "ok": all(v for k, v in checks.items() if k != "screenshot"),
         "evidence_dir": str(evidence),
     }
     (evidence / "PROOF.json").write_text(json.dumps(prueba, indent=2) + "\n", encoding="utf-8")
@@ -671,10 +667,7 @@ def cmd_cleanup(args: argparse.Namespace) -> None:
 
     scratch = Path(state.get("scratch_dir") or _scratch(run_id))
     if scratch.is_dir():
-        for hijo in scratch.iterdir():
-            if hijo.is_file():
-                hijo.unlink()
-        scratch.rmdir()
+        shutil.rmtree(scratch, ignore_errors=True)
 
     evidencia = Path(state["evidence_dir"])
     if not evidencia.is_dir():

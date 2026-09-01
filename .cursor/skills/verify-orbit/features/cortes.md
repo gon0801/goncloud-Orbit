@@ -21,7 +21,8 @@ Preconditions:
 
 - Doctor en verde.
 - Semilla: una fila `pending_veto` kind `negative`, search_term `zapato blanco`, plataforma `amazon_us`.
-- Migraciones 0001–0005 aplicadas (sin 0002, `apply_queue` no existe y esta ruta 500).
+- Migraciones numeradas de `migrations/` aplicadas, incluida 0002 (`apply_queue`).
+- Si falta 0002, `apply_queue` no existe y `/cortes` devuelve 500; ese run no es valido.
 
 - **Abrir Cortes.** Corre `curl -sS "$BASE/cortes"`. Status 200. El HTML contiene `data-pantalla="cortes"` y `h2` `Cortes pendientes de veto`.
 - **Leer la fila sembrada.** El HTML contiene chip `negative`, `zapato blanco`, chip `pending_veto`, `button` con `data-vetar=`, y `form` con `data-veto=`, inputs `name="dias"` (value 30), `name="actor"`, `name="token"`.
