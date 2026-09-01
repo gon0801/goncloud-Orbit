@@ -28,6 +28,15 @@ from pathlib import Path
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = SKILL_DIR.parents[2]
+_VENV_PY = REPO_ROOT / ".venv" / "bin" / "python"
+try:
+    import psycopg  # noqa: F401
+except ImportError:
+    if _VENV_PY.is_file():
+        os.execv(str(_VENV_PY), [str(_VENV_PY), __file__, *sys.argv[1:]])
+    raise SystemExit(
+        "orbit-verify: falta psycopg. Corre `uv sync` en la raiz del repo."
+    )
 MIGRATIONS = REPO_ROOT / "migrations"
 START_SH = REPO_ROOT / ".cursor" / "start.sh"
 EVIDENCE_ROOT = SKILL_DIR / "evidence"
@@ -588,25 +597,33 @@ def cmd_drive_campanas(args: argparse.Namespace) -> None:
 
     png = evidence / "04-campanas.png"
     chrome = os.environ.get("ORBIT_VERIFY_CHROME", "google-chrome")
-    shot = subprocess.run(
-        [
-            chrome,
-            "--headless=new",
-            "--disable-gpu",
-            "--no-sandbox",
-            "--disable-dev-shm-usage",
-            "--hide-scrollbars",
-            "--window-size=1280,900",
-            f"--screenshot={png}",
-            f"{base}/campanas",
-        ],
-        cwd=str(REPO_ROOT),
-        capture_output=True,
-        text=True,
-    )
+    try:
+        shot = subprocess.run(
+            [
+                chrome,
+                "--headless=new",
+                "--disable-gpu",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--hide-scrollbars",
+                "--window-size=1280,900",
+                f"--screenshot={png}",
+                f"{base}/campanas",
+            ],
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if shot.returncode != 0:
+            (evidence / "04-chrome.stderr.txt").write_text(shot.stderr, encoding="utf-8")
+    except subprocess.TimeoutExpired as exc:
+        (evidence / "04-chrome.stderr.txt").write_text(
+            f"chrome timeout 30s: {exc}\n", encoding="utf-8"
+        )
+        if exc.stdout:
+            pass
     checks["screenshot"] = png.is_file() and png.stat().st_size > 0
-    if shot.returncode != 0:
-        (evidence / "04-chrome.stderr.txt").write_text(shot.stderr, encoding="utf-8")
 
     prueba = {
         "feature": "campanas",

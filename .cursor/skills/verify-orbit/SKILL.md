@@ -15,7 +15,7 @@ Mantenimiento del mapa: `/maintain-verification-skill`.
 
 - **Surface.** Dashboard HTML server-rendered (Jinja2). El usuario toca el `<nav>` de `app/templates/base.html`: Resumen `/`, Campanas `/campanas`, Decisiones `/decisiones`, Salud `/salud`, Cortes `/cortes`. El `<body>` lleva `data-pantalla`. Secundario: JSON en `/api/dashboard/*` (la UI lo consume; un camino) y CLI `python -m app.cli` (crons; no es la superficie de esta skill).
 - **Run.** No hay `npm run dev`. El entorno Cursor deja Postgres 16 en `127.0.0.1:5432` con `orbit`/`orbit` via `.cursor/start.sh`. La app es `uvicorn app.main:app --host 127.0.0.1 --port <libre>`. Las pantallas HTML exigen `ORBIT_DSN_READ` (sin DSN → 503). `/health` no necesita DB. No hay seed de producto: esta skill crea una base desechable y siembra el fixture. Auth de lectura: ninguna (en prod el candado es VPN). Escritura (`POST /api/ads-optimizer/veto`) pide header `x-orbit-token`; **no la conduzcas** en el baseline de lectura.
-- **Drive.** No hay Playwright/Cypress. El harness existente es curl (y TestClient en pytest). Receta: curl a las rutas HTML reales. Chrome headless solo para capturar el canvas de Chart.js.
+- **Drive.** No hay Playwright/Cypress. El harness existente es curl (y TestClient en pytest). Receta: curl a las rutas HTML reales. Chrome headless solo para capturar el canvas de Chart.js (`drive-campanas` le pone tope de 30s: en este entorno el proceso a veces no sale).
 - **Observe.** HTML (`data-pantalla`, `aria-current="page"`, h2, chips, celdas), JSON gemelo `/api/dashboard/...`, headers CSP/`no-store`, screenshot, log de uvicorn en `/tmp/orbit-verify/<run_id>/`.
 - **Isolate.** Si: otra base `orbit_verify_<run_id>` + otro puerto en `127.0.0.1`. El cluster 5432 se comparte. Nunca 8010 ni `10.13.13.1`. Rehusa conducir una instancia que esta skill no lanzo.
 
@@ -26,6 +26,7 @@ Desde la raiz del repo:
 ```bash
 chmod +x .cursor/skills/verify-orbit/helpers/orbit-verify
 .cursor/skills/verify-orbit/helpers/orbit-verify launch
+# el helper se reejecuta con .venv/bin/python (psycopg/uvicorn del repo)
 ```
 
 Override: `ORBIT_VERIFY_RUN_ID=mi-run` y/o `--port 18011` (default 18010; 8010 esta prohibido).
