@@ -62,6 +62,11 @@ STMTS7 = tuple(pglast.parse_sql(SQL7))
 SQL8 = (ROOT / "migrations" / "0008_precio_multilisting_us.sql").read_text(encoding="utf-8")
 STMTS8 = tuple(pglast.parse_sql(SQL8))
 
+# 0009 (ORBIT 06 1.5b): escala de dinero en la frontera de la vista — ROUND
+# a 4 decimales en cogs/contrib computados (bug prod: colas de ~40 digitos).
+SQL9 = (ROOT / "migrations" / "0009_contribucion_redondeo.sql").read_text(encoding="utf-8")
+STMTS9 = tuple(pglast.parse_sql(SQL9))
+
 APPEND_ONLY = {
     "ads_metric_observation",
     "search_term_observation",

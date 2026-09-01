@@ -1,0 +1,14 @@
+-- =============================================================================
+--  ORBIT · MIGRACION 0009 · escala de dinero en v_contribucion_entidad
+--
+--  Bug prod 2026-09-01 (visible tras 0008): las columnas COMPUTADAS
+--  (cogs_sin_halo, cogs_con_halo, contrib_sin_halo, contrib_con_halo) salen
+--  de w_i*(cost_i/price_i) — division NUMERIC sin redondeo — y publicaban
+--  colas de ~40 decimales en el dashboard (ej. -356.84389610623759...).
+--  Regla 4: el dinero sale del schema como NUMERIC(14,4); la vista redondea
+--  sus salidas computadas a 4 decimales en la frontera (ROUND en el SELECT
+--  final; los CTEs internos siguen exactos).
+--
+--  STUB TDD: este commit trae solo el header (el test nace ROJO contra la
+--  definicion 0008). La definicion real llega en el commit verde.
+-- =============================================================================
