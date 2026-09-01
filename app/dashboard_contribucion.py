@@ -28,8 +28,31 @@ WITH ventana AS (
     SELECT ((now() AT TIME ZONE 'UTC')::date - 15 - 89) AS d_from,
            ((now() AT TIME ZONE 'UTC')::date - 15)      AS d_to
 ),
+-- Las vistas se materializan UNA vez por consulta (0007 las dejo en ~2.5s).
+-- Sin MATERIALIZED el planner las inlinea en esta cadena, misestima rows=1
+-- y cae en Nested Loop: >240s medido en prod (2026-09-01).
+ent AS MATERIALIZED (
+    SELECT v.ad_entity_id,
+           v.contrib_sin_halo,
+           v.contrib_con_halo,
+           v.metric_currency::text AS metric_currency,
+           v.metric_date_from,
+           v.metric_date_to,
+           v.fx_source::text AS fx_source
+      FROM v_contribucion_entidad v
+     WHERE v.platform = %s::platform
+),
+cob AS MATERIALIZED (
+    SELECT v.ad_entity_id, v.motivo::text AS motivo
+      FROM v_contribucion_cobertura v
+     WHERE v.platform = %s::platform
+),
+-- Grano ENTIDAD HOJA: UNA fila por leaf con actividad madura en la ventana.
+-- Sin DISTINCT el JOIN a v_metric_mature deja una fila por (leaf, dia) y el
+-- rollup SUMaba la contribucion de cada leaf una vez POR DIA (~x65-90 en
+-- prod; la vista ya suma la ventana completa).
 hijos AS (
-    SELECT cam.id   AS campaign_id,
+    SELECT DISTINCT cam.id   AS campaign_id,
            cam.name AS campaign_name,
            cam.platform,
            leaf.id  AS ad_entity_id
@@ -47,18 +70,18 @@ rollup AS (
     SELECT h.campaign_id,
            SUM(v.contrib_sin_halo) AS contrib_sin,
            SUM(v.contrib_con_halo) AS contrib_con,
-           MAX(v.metric_currency::text) AS metric_currency,
+           MAX(v.metric_currency) AS metric_currency,
            MIN(v.metric_date_from)    AS metric_date_from,
            MAX(v.metric_date_to)      AS metric_date_to,
            MAX(v.fx_source) FILTER (WHERE v.fx_source IS NOT NULL) AS fx_source
       FROM hijos h
-      LEFT JOIN v_contribucion_entidad v ON v.ad_entity_id = h.ad_entity_id
+      LEFT JOIN ent v ON v.ad_entity_id = h.ad_entity_id
      GROUP BY h.campaign_id
 ),
 cobertura_cnt AS (
     SELECT h.campaign_id, cob.motivo, COUNT(*) AS n
       FROM hijos h
-      JOIN v_contribucion_cobertura cob ON cob.ad_entity_id = h.ad_entity_id
+      JOIN cob ON cob.ad_entity_id = h.ad_entity_id
      GROUP BY h.campaign_id, cob.motivo
 ),
 motivo_dom AS (
@@ -112,7 +135,9 @@ def _fila_contribucion_campana(fila) -> dict:
 
 
 def _contribucion_plataforma(conn: ConexionLectura, plataforma: str) -> dict:
-    filas = conn.execute(_SQL_CONTRIBUCION_CAMPANAS, (plataforma,)).fetchall()
+    filas = conn.execute(
+        _SQL_CONTRIBUCION_CAMPANAS, (plataforma, plataforma, plataforma)
+    ).fetchall()
     if filas:
         ventana = {
             "desde": filas[0][10].isoformat(),
