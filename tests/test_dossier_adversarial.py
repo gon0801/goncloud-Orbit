@@ -50,6 +50,7 @@ CLAVES_DECISION_ESPERADAS = (
     "old_value",
     "new_value",
     "value_currency",
+    "search_term",
     "inputs",
 )
 CLAVES_ENTIDAD_ESPERADAS = (
@@ -308,6 +309,7 @@ def test_escanear_secretos_detecta_patrones():
     assert da.escanear_secretos("keyword calzas ninja bid 0.75") == []
     hits = da.escanear_secretos(f"token {SECRETO} y Bearer x")
     assert hits, "Atza| y Bearer deben disparar el escaner"
+    assert da.escanear_secretos("refresh Atzr|secreto"), "Atzr| (refresh LWA) debe disparar"
 
 
 def test_escanear_case_insensitive():
@@ -315,6 +317,88 @@ def test_escanear_case_insensitive():
     assert da.escanear_secretos("profile_id=123")
     assert da.escanear_estructura({"nivel": {"AuThOrIzAtIoN": "secreto"}})
     assert da.escanear_estructura({"nivel": [{"PROFILE_ID": "123"}]})
+
+
+def _registro_md(**overrides) -> dict:
+    base = {
+        "decision": {
+            "id": 7,
+            "cycle_id": 1,
+            "kind": "harvest",
+            "decided_at": "2026-01-01T00:00:00+00:00",
+            "config_version_id": 1,
+            "data_observed_at": "2026-01-01T00:00:00+00:00",
+            "window_start": "2025-12-01",
+            "window_end": "2025-12-31",
+            "old_value": None,
+            "new_value": None,
+            "value_currency": None,
+            "search_term": None,
+            "inputs": {"platform": "amazon_mx", "motivo": "harvest", "factor": 1},
+        },
+        "entidad": {
+            "id": 1,
+            "kind": "keyword",
+            "match_type": "EXACT",
+            "keyword_text": "kw-fallback",
+            "name": None,
+            "external_id": "e1",
+            "ad_group": {"id": 2, "name": "ag"},
+            "campana": {"id": 3, "name": "camp", "external_id": "c1", "status": "ENABLED"},
+        },
+        "apply_attempts": [],
+        "decision_application": {
+            "attempted_at": None,
+            "confirmed_at": None,
+            "verify_ok": True,
+            "platform_ack": None,
+            "applied_cycle_id": 1,
+            "error": None,
+        },
+        "readback": None,
+        "ciclo": {"mode": "live", "started_at": "2026-01-01T00:00:00+00:00"},
+        "replay": {
+            "kind": "harvest",
+            "new_value": None,
+            "currency": None,
+            "replay_coincide": True,
+        },
+    }
+    for clave, valor in overrides.items():
+        if isinstance(valor, dict) and isinstance(base.get(clave), dict):
+            base[clave] = {**base[clave], **valor}
+        else:
+            base[clave] = valor
+    return base
+
+
+def test_markdown_prioriza_search_term():
+    fila = da._fila_md(_registro_md(decision={"search_term": "term harvest"}))
+    assert "term harvest" in fila
+    assert "kw-fallback" not in fila
+
+
+def test_markdown_acos_invalido_no_tumba():
+    fila = da._fila_md(
+        _registro_md(
+            decision={
+                "inputs": {
+                    "platform": "amazon_mx",
+                    "motivo": "raise",
+                    "factor": 1.1,
+                    "ventanas": {"bids": {"cost": "x", "ad_revenue": "y"}},
+                }
+            }
+        )
+    )
+    assert "| 7 |" in fila
+    assert "sin dato" in fila
+
+
+def test_markdown_fila_rota_no_tumba():
+    fila = da._fila_md({"decision": {"id": 99}})
+    assert "| 99 |" in fila
+    assert "sin dato" in fila
 
 
 def test_replay_no_ejecuta_inputs_con_clave_sensible(monkeypatch):

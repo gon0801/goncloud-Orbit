@@ -51,6 +51,7 @@ CLAVES_DECISION = (
     "old_value",
     "new_value",
     "value_currency",
+    "search_term",
     "inputs",
 )
 CLAVES_ENTIDAD = (
@@ -90,6 +91,7 @@ CLAVES_REPLAY = ("kind", "new_value", "currency", "replay_coincide")
 
 _TEXTOS_SECRETO = (
     "Atza|",
+    "Atzr|",
     "amzn1.",
     "client_secret",
     "refresh_token",
@@ -137,6 +139,7 @@ SELECT
   d.old_value,
   d.new_value,
   d.value_currency,
+  d.search_term,
   d.inputs,
   e.id AS entidad_id,
   e.kind AS entidad_kind,
@@ -352,6 +355,7 @@ def construir_registros(conn, ciclos: list[int]) -> list[dict]:
                             "old_value": fila["old_value"],
                             "new_value": fila["new_value"],
                             "value_currency": fila["value_currency"],
+                            "search_term": fila["search_term"],
                             "inputs": inputs,
                         },
                     ),
@@ -402,15 +406,18 @@ def _ack_id(ack) -> str | None:
 
 
 def _acos_ventana(inputs: dict) -> str:
-    bids = ((inputs or {}).get("ventanas") or {}).get("bids") or {}
-    cost, rev = bids.get("cost"), bids.get("ad_revenue")
-    if cost is None or rev is None:
+    try:
+        bids = ((inputs or {}).get("ventanas") or {}).get("bids") or {}
+        cost, rev = bids.get("cost"), bids.get("ad_revenue")
+        if cost is None or rev is None:
+            return "sin dato"
+        costo, venta = Decimal(str(cost)), Decimal(str(rev))
+        if venta == 0:
+            return f"sin dato ({costo}/{venta})"
+        pct = (costo / venta * Decimal(100)).quantize(Decimal("0.01"))
+        return f"{pct} ({costo}/{venta})"
+    except Exception:
         return "sin dato"
-    costo, venta = Decimal(str(cost)), Decimal(str(rev))
-    if venta == 0:
-        return f"sin dato ({costo}/{venta})"
-    pct = (costo / venta * Decimal(100)).quantize(Decimal("0.01"))
-    return f"{pct} ({costo}/{venta})"
 
 
 def _celda(valor) -> str:
@@ -418,37 +425,41 @@ def _celda(valor) -> str:
 
 
 def _fila_md(reg: dict) -> str:
-    dec = reg["decision"]
-    ent = reg["entidad"]
-    inputs = dec.get("inputs") or {}
-    keyword = ent.get("keyword_text") or ent.get("name")
-    campana = (ent.get("campana") or {}).get("name")
-    intentos = reg.get("apply_attempts") or []
-    normales_ok = [
-        intento
-        for intento in intentos
-        if intento.get("tipo") == "normal" and intento.get("resultado") == "ok"
-    ]
-    intento = max(
-        normales_ok,
-        key=lambda actual: (actual.get("seq"), actual.get("id")),
-        default=None,
-    )
-    payload = intento["request_payload"] if intento is not None else {}
-    ack = intento["ack"] if intento is not None else {}
-    bid_req = payload.get("bid") if isinstance(payload, dict) else None
-    cadena = (
-        f"{dec.get('old_value')} → {dec.get('new_value')} → {bid_req} → "
-        f"{_ack_id(ack)} → {(reg.get('readback') or {}).get('current_bid')}"
-    )
-    motivo = inputs.get("motivo")
-    factor = inputs.get("factor")
-    return (
-        f"| {_celda(dec.get('id'))} | {_celda(inputs.get('platform'))} | "
-        f"{_celda(campana)} | {_celda(keyword)} | {_celda(cadena)} | "
-        f"{_celda(motivo)} / {_celda(factor)} | {_celda(_acos_ventana(inputs))} | "
-        f"{_celda(inputs.get('target_acos_pct_usado'))} | {len(intentos)} |"
-    )
+    try:
+        dec = reg["decision"]
+        ent = reg["entidad"]
+        inputs = dec.get("inputs") or {}
+        keyword = dec.get("search_term") or ent.get("keyword_text") or ent.get("name")
+        campana = (ent.get("campana") or {}).get("name")
+        intentos = reg.get("apply_attempts") or []
+        normales_ok = [
+            intento
+            for intento in intentos
+            if intento.get("tipo") == "normal" and intento.get("resultado") == "ok"
+        ]
+        intento = max(
+            normales_ok,
+            key=lambda actual: (actual.get("seq"), actual.get("id")),
+            default=None,
+        )
+        payload = intento["request_payload"] if intento is not None else {}
+        ack = intento["ack"] if intento is not None else {}
+        bid_req = payload.get("bid") if isinstance(payload, dict) else None
+        cadena = (
+            f"{dec.get('old_value')} → {dec.get('new_value')} → {bid_req} → "
+            f"{_ack_id(ack)} → {(reg.get('readback') or {}).get('current_bid')}"
+        )
+        motivo = inputs.get("motivo")
+        factor = inputs.get("factor")
+        return (
+            f"| {_celda(dec.get('id'))} | {_celda(inputs.get('platform'))} | "
+            f"{_celda(campana)} | {_celda(keyword)} | {_celda(cadena)} | "
+            f"{_celda(motivo)} / {_celda(factor)} | {_celda(_acos_ventana(inputs))} | "
+            f"{_celda(inputs.get('target_acos_pct_usado'))} | {len(intentos)} |"
+        )
+    except Exception:
+        dec_id = (reg.get("decision") or {}).get("id")
+        return f"| {_celda(dec_id)} |  |  |  |  |  | sin dato |  |  |"
 
 
 def _render_md(registros: list[dict], fecha: str, ciclos: list[int]) -> str:
