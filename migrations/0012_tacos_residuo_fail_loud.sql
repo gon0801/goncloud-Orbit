@@ -199,7 +199,15 @@ SELECT b.platform                AS platform,
            ELSE ROUND(100 * b.gasto_ads / b.venta_total, 2)
        END                       AS tacos_pct,
        b.gasto_campaign_sin_contraparte AS gasto_campaign_sin_contraparte,
-       -- 0012: la señal, siempre visible aunque tacos_pct sobreviva.
+       -- 0012: la señal, visible aunque tacos_pct sobreviva.
+       --
+       -- LÍMITE DECLARADO (hallazgo de grok, cross-review 2026-09-02): con
+       -- `gasto_ads = 0` la RAZÓN no existe —denominador cero— y esta columna
+       -- queda NULL justo en el caso más grave. No se fabrica un infinito ni
+       -- un centinela (regla 3): la señal ahí es el par visible
+       -- `gasto_ads = 0` con `gasto_campaign_sin_contraparte <> 0`, más
+       -- ruidoso que cualquier porcentaje, y `tacos_pct` ya está en NULL por
+       -- la rama (b) de arriba.
        CASE
            WHEN b.gasto_campaign_sin_contraparte IS NULL THEN NULL
            WHEN NULLIF(b.gasto_ads, 0) IS NULL THEN NULL
@@ -222,8 +230,10 @@ COMMENT ON VIEW v_tacos IS
   'de FX/costo de ese lado): la reconciliacion es IMPOSIBLE y el grano no '
   'quedo verificado; (c) gasto_ads = 0 con residuo distinto de cero: la razon '
   'no se puede formar y el ELSE publicaria 0.00 % mientras la campana gasta — '
-  'perdida TOTAL del grano. (b) y (c) los hallo codex en la cross-review del '
-  '2026-09-02. Es el '
+  'perdida TOTAL del grano. (b) y (c) los hallaron codex y grok en la '
+  'cross-review del 2026-09-02. LIMITE DECLARADO: en el caso (c) residuo_pct '
+  'queda NULL porque la razon no existe con denominador 0; la senal ahi es el '
+  'par gasto_ads = 0 con residuo <> 0. Es el '
   'sintoma de que la allowlist de kinds se quedo corta y gasto_ads '
   'SUBESTIMA: un numero confiado y equivocado es peor que ningun numero. '
   'Se mira en VALOR ABSOLUTO: hijas por encima de su campana rompe el '
