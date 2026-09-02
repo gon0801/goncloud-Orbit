@@ -198,6 +198,9 @@ ni por kind). Un veto VENCIDO no bloquea: al vencer, el motor re-propone
 Re-evalúa el corte contra la **ventana FRESCA** de datos — jamás reusa los
 insumos congelados de la decisión:
 
+- **Gate de ancestros (CAMPAÑA ACTIVA 01)**: campaña o ad group no ENABLED
+  en el cache → discard PRE-claim `campana_no_enabled`/`grupo_no_enabled`,
+  antes del LIST fresco y del cobro.
 - **Regla re-evaluada completa**: PAUSE `orders=0 ∧ clicks≥umbral_corte ∧
   cost≥{us: 40 USD, mx: 500 MXN}` (CORTES 03; antes 12/200); NEGATIVE
   `orders=0 ∧ clicks≥umbral_corte
