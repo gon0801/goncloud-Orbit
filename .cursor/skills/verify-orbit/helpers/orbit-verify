@@ -51,11 +51,25 @@ ADMIN_DSN = os.environ.get("ORBIT_TEST_DSN", "postgresql://orbit:orbit@127.0.0.1
 FORBIDDEN_HOSTS = ("10.13.13.1",)
 FORBIDDEN_PORTS = {8010}
 
+# Migraciones de DATOS (no esquema): exigen filas de produccion (SKU, costos).
+# La base desechable no las tiene — misma excepcion que test_schema.py (0011
+# no entra al arbol de esquema). Incluye la reversa: tampoco aplica en vacio.
+MIGRACIONES_DATOS = frozenset(
+    {
+        "0011_costo_historico_peseta.sql",
+        "0011_reversa_costo_historico_peseta.sql",
+    }
+)
+
 
 def _migration_files() -> list[Path]:
-    """SQL numeradas de migrations/ en orden de nombre (hoy 0001-0007)."""
+    """SQL numeradas de esquema en orden de nombre; salta migraciones de datos."""
     files = sorted(
-        (p for p in MIGRATIONS.glob("*.sql") if p.name[:4].isdigit()),
+        (
+            p
+            for p in MIGRATIONS.glob("*.sql")
+            if p.name[:4].isdigit() and p.name not in MIGRACIONES_DATOS
+        ),
         key=lambda p: p.name,
     )
     if not files:
