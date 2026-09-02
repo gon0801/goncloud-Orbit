@@ -781,10 +781,17 @@ si el costo no cambió.
 
 **Verificación que cierra el ciclo** (es la prueba de que ambas fuentes cuentan
 la misma historia): tras aplicar 0011 **y** el espejo, `ingest costs` debe salir
-**no-op exacto** — `rows_written=0`, `rows_skipped=0`, `insertadas=0`,
+sin escrituras de costo — `rows_written=0`, `rows_skipped=0`, `insertadas=0`,
 `cerradas=0`. Un `rows_skipped` mayor que cero con el motivo «vigencia publicada
 desaparecio del origen» o «origen reabre vigencia ya publicada» significa que
 sólo se aplicó una de las dos mitades.
+
+Precisión sobre esos cuatro contadores (hallazgo de CodeRabbit, PR #118): sólo
+cubren `sku_cost`. `sync_costos` puede además actualizar el NOMBRE de un
+producto (`_SQL_UPSERT_PRODUCTO`) y seguir mostrando los cuatro en cero, así que
+esto **no** es un no-op del pipeline entero — es exactamente lo que hace falta
+aquí, que ninguna vigencia se escriba ni se rechace. Para un no-op completo hay
+que mirar también `productos: nuevos=0 actualizados=0` en la misma salida.
 
 ## Correr los tests desde la máquina dev (túnel SSH)
 
