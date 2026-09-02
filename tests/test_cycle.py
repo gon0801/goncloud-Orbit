@@ -2072,3 +2072,72 @@ def test_bitemporal_pause_clamp_observed_at_futuro_a_decided_at():
         # el bid tambien sella con la evidencia: max(bids 08-16, futuro) =
         # futuro -> clamp a decided_at
         assert bid[0] == DECIDED_AT
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_gate_campana_y_grupo_no_enabled():
+    """CAMPAÑA ACTIVA 01 (regla 9): una hoja ENABLED dentro de una campaña
+    PAUSED, de una campaña SIN state o de un ad group PAUSED NO decide, y los
+    terminos del ad group de una campaña pausada tampoco. Antes del fix el
+    ciclo decidia (y en live APLICABA) bids en campañas pausadas: ciclos 33/34
+    del 2026-09-02, 12 decisiones y 2 aplicadas (1989 y 2104)."""
+    with _db_temporal("orbit_ciclo_campana") as (conn, _c):
+        ids = _siembra_maestra(conn)  # campaña 9001 ENABLED: sigue decidiendo igual
+        run_id = conn.execute("SELECT id FROM ingest_run LIMIT 1").fetchone()[0]
+        synced = DECIDED_AT - dt.timedelta(hours=4)
+
+        # P: campaña PAUSED, ad group y keyword ENABLED (el caso real del 2026-09-02)
+        camp_p = _entidad(conn, "amazon_us", "campaign", "9701")
+        ag_p = _entidad(conn, "amazon_us", "ad_group", "9711", parent=camp_p)
+        kw_p = _entidad(
+            conn, "amazon_us", "keyword", "9721", parent=ag_p, match_type="EXACT", keyword_text="p"
+        )
+        _estado(conn, camp_p, synced_at=synced, status="PAUSED")
+        _estado(conn, ag_p, synced_at=synced)
+        _estado(conn, kw_p, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
+        _siembra_kw_bid(conn, run_id, kw_p)
+        _siembra_terminos(conn, run_id, ag_p)
+
+        # G: campaña ENABLED, ad group PAUSED, keyword ENABLED
+        camp_g = _entidad(conn, "amazon_us", "campaign", "9702")
+        ag_g = _entidad(conn, "amazon_us", "ad_group", "9712", parent=camp_g)
+        kw_g = _entidad(
+            conn, "amazon_us", "keyword", "9722", parent=ag_g, match_type="EXACT", keyword_text="g"
+        )
+        _estado(conn, camp_g, synced_at=synced)
+        _estado(conn, ag_g, synced_at=synced, status="PAUSED")
+        _estado(conn, kw_g, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
+        _siembra_kw_bid(conn, run_id, kw_g)
+
+        # N: campaña SIN fila de state (regla 3: ausencia = fuera), resto ENABLED
+        camp_n = _entidad(conn, "amazon_us", "campaign", "9703")
+        ag_n = _entidad(conn, "amazon_us", "ad_group", "9713", parent=camp_n)
+        kw_n = _entidad(
+            conn, "amazon_us", "keyword", "9723", parent=ag_n, match_type="EXACT", keyword_text="n"
+        )
+        _estado(conn, ag_n, synced_at=synced)
+        _estado(conn, kw_n, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
+        _siembra_kw_bid(conn, run_id, kw_n)
+
+        n_terminos_p = len(w.terminos_cortes(conn, ag_p, DECIDED_AT).terminos)
+        assert n_terminos_p > 0  # la siembra de terminos del grupo pausado es real
+
+        res = _corre(conn)
+        assert res.status == "done"
+        skips = json.loads(res.notes)["skips"]
+        assert skips["entidad"]["campana_no_enabled"] == 2  # kw_p y kw_n
+        assert skips["entidad"]["grupo_no_enabled"] == 1  # kw_g
+        assert skips["termino"]["campana_no_enabled"] == n_terminos_p
+        con_decision = {
+            r[0]
+            for r in conn.execute(
+                "SELECT ad_entity_id FROM decision WHERE cycle_id = %s", (res.cycle_id,)
+            )
+        }
+        # ninguna hoja gateada decide; el grupo de la campaña pausada tampoco
+        assert con_decision.isdisjoint({kw_p, kw_g, kw_n, ag_p})
+        # la campaña ENABLED de la fixture maestra sigue decidiendo igual que antes
+        assert ids["kw_bid"] in con_decision

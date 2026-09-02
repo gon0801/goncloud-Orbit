@@ -116,9 +116,9 @@ contadas aquí están ENABLED: hoy ni siquiera se saltaban, decidían).
 
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
-| 1.1 | **Gate de ancestros al DECIDIR** (`app/cycle.py`): constantes `MOTIVO_CAMPANA_NO_ENABLED = "campana_no_enabled"` y `MOTIVO_GRUPO_NO_ENABLED = "grupo_no_enabled"`; `_SQL_DECISORAS` gana `sg.status AS status_grupo, sc.status AS status_campana` (LEFT JOIN a `ad_entity_state` del ad group y de `ag.parent_id`); `_SQL_GRUPOS` gana `sc.status AS status_campana`; `_gates_entidad` recibe `ancestros: tuple[tuple[str, str | None], ...]` ((motivo, status) de afuera hacia adentro) y los evalúa entre el gate de goal y el de estado propio (D1); los dos call sites desempacan las columnas nuevas y pasan sus ancestros; docstring del módulo (bala ELEGIBILIDAD) actualizado. Guía exacta en §1.1. `[tdd:required]` | Test `test_gate_campana_y_grupo_no_enabled` en `tests/test_cycle.py` demostrado ROJO contra master (KeyError `campana_no_enabled` + la hoja de la campaña pausada DECIDE un bid) y verde con el fix; los goldens/tests existentes intactos (pglast de `_SQL_DECISORAS`/`_SQL_GRUPOS` incluido); log rojo pegado en §Decisiones | - | cc:TODO |
-| 1.2 | **Gate de ancestros al LIBERAR la cola** (`app/apply_cola.py`): constantes espejo, `_SQL_ANCESTROS` (status del grupo y de la campaña de la fila, resolviendo hoja vs ad group con `CASE`), `_revalida_ancestros(conn, fila)` y su llamada como PRIMER paso de `_revalida` (antes del dispatch por kind); docstring de `libera_vencidos` paso 2 lo cita. Seeds: `_semilla` de `tests/test_apply_cola.py` y de `tests/test_apply_harvest.py` dan state `ENABLED` a la campaña (hoy no la tienen — sin eso TODA la cola se descartaría con el gate nuevo: es el rojo que demuestra que el gate muerde). Guía exacta en §1.2. `[tdd:required]` | Tests `test_libera_descarta_pause_en_campana_pausada` y `test_libera_descarta_negative_en_grupo_pausado` en `tests/test_apply_cola.py` ROJOS contra master (motivo `ya_no_califica`/mutación HTTP en vez del discard) y verdes con el fix: fila `discarded` con `discard_motivo` exacto, **cero HTTP de mutación, cero fila en `apply_quota_state`**; suite de cola y harvest verde con las seeds corregidas; log rojo en §Decisiones | 1.1 | cc:TODO |
-| 1.3 | **Superficie y docs**: `MOTIVOS_ES_SALUD` con los dos motivos (D5) + test puro en `tests/test_api_dashboard.py`; `docs/DASHBOARD.md` (lista de motivos del orquestador, ~línea 251) y `docs/APPLY.md` (una bala en la sección de la cola/re-validación: el gate de ancestros al liberar) al día; línea en `docs/CHAT-CONTEXT.md`; markers 1.1-1.3 a `cc:完了`; PR abierto contra `master` con CI verde. `[tdd:required]` | Test del diccionario ROJO contra master (KeyError) y verde; docs citados en el diff; CI batería completa verde; candado de frescura verde | 1.2 | cc:TODO |
+| 1.1 | **Gate de ancestros al DECIDIR** (`app/cycle.py`): constantes `MOTIVO_CAMPANA_NO_ENABLED = "campana_no_enabled"` y `MOTIVO_GRUPO_NO_ENABLED = "grupo_no_enabled"`; `_SQL_DECISORAS` gana `sg.status AS status_grupo, sc.status AS status_campana` (LEFT JOIN a `ad_entity_state` del ad group y de `ag.parent_id`); `_SQL_GRUPOS` gana `sc.status AS status_campana`; `_gates_entidad` recibe `ancestros: tuple[tuple[str, str | None], ...]` ((motivo, status) de afuera hacia adentro) y los evalúa entre el gate de goal y el de estado propio (D1); los dos call sites desempacan las columnas nuevas y pasan sus ancestros; docstring del módulo (bala ELEGIBILIDAD) actualizado. Guía exacta en §1.1. `[tdd:required]` | Test `test_gate_campana_y_grupo_no_enabled` en `tests/test_cycle.py` demostrado ROJO contra master (KeyError `campana_no_enabled` + la hoja de la campaña pausada DECIDE un bid) y verde con el fix; los goldens/tests existentes intactos (pglast de `_SQL_DECISORAS`/`_SQL_GRUPOS` incluido); log rojo pegado en §Decisiones | - | cc:完了 [2026-09-02, GLM. Test test_gate_campana_y_grupo_no_enabled ROJO contra master (KeyError campana_no_enabled; log en §Decisiones) y verde con el fix; tests/test_cycle.py completo 37 passed (goldens + pglast intactos). Commit fix(cycle) ef0f535] |
+| 1.2 | **Gate de ancestros al LIBERAR la cola** (`app/apply_cola.py`): constantes espejo, `_SQL_ANCESTROS` (status del grupo y de la campaña de la fila, resolviendo hoja vs ad group con `CASE`), `_revalida_ancestros(conn, fila)` y su llamada como PRIMER paso de `_revalida` (antes del dispatch por kind); docstring de `libera_vencidos` paso 2 lo cita. Seeds: `_semilla` de `tests/test_apply_cola.py` y de `tests/test_apply_harvest.py` dan state `ENABLED` a la campaña (hoy no la tienen — sin eso TODA la cola se descartaría con el gate nuevo: es el rojo que demuestra que el gate muerde). Guía exacta en §1.2. `[tdd:required]` | Tests `test_libera_descarta_pause_en_campana_pausada` y `test_libera_descarta_negative_en_grupo_pausado` en `tests/test_apply_cola.py` ROJOS contra master (motivo `ya_no_califica`/mutación HTTP en vez del discard) y verdes con el fix: fila `discarded` con `discard_motivo` exacto, **cero HTTP de mutación, cero fila en `apply_quota_state`**; suite de cola y harvest verde con las seeds corregidas; log rojo en §Decisiones | 1.1 | cc:完了 [2026-09-02, GLM. Seeds de cola/harvest con state de campaña (67 passed antes del gate); 2 tests ROJOS contra master (['ya_no_califica'] != ['campana_no_enabled'/'grupo_no_enabled'], logs en §Decisiones) y verdes con el fix: discarded con motivo exacto, cero HTTP, cero quota; suites cola+harvest 69 passed. Desviación D-GLM-3 (as conn). Commit fix(apply_cola) c67def7] |
+| 1.3 | **Superficie y docs**: `MOTIVOS_ES_SALUD` con los dos motivos (D5) + test puro en `tests/test_api_dashboard.py`; `docs/DASHBOARD.md` (lista de motivos del orquestador, ~línea 251) y `docs/APPLY.md` (una bala en la sección de la cola/re-validación: el gate de ancestros al liberar) al día; línea en `docs/CHAT-CONTEXT.md`; markers 1.1-1.3 a `cc:完了`; PR abierto contra `master` con CI verde. `[tdd:required]` | Test del diccionario ROJO contra master (KeyError) y verde; docs citados en el diff; CI batería completa verde; candado de frescura verde | 1.2 | cc:完了 [2026-09-02, GLM. Test del diccionario ROJO (KeyError) y verde; MOTIVOS_ES_SALUD con los 2 motivos; DASHBOARD.md y APPLY.md al día; línea en CHAT-CONTEXT; PR abierto contra master con los 3 commits. Pendiente CI del PR] |
 | 1.4 | **Lead — revisión, deploy y verificación en vivo**: review del PR contra `origin/master` + reviewer fresco + cross-review codex (1 ronda); merge; deploy al contenedor por el runbook `docs/DEPLOY.md` (imagen nueva, md5 de `app/` vs master, respaldo del `app/` anterior); verificación DENTRO del contenedor de que `_gates_entidad` nuevo está vivo; esperar el ciclo del cron (no forzar `/run`) y comparar `notes.skips` contra §Estado medido (≈299 US / 10 MX `campana_no_enabled`); `/salud` muestra la etiqueta. `[tdd:skip:ops]` | SELECT del ciclo post-deploy con los contadores nuevos en la evidencia; cero decisiones en campañas no ENABLED (`SELECT` de conciliación por `parent_id`); AppFlowy anotado | 1.3 | cc:TODO |
 | 1.5 | **Lead + dueño — las 2 mutaciones ya aplicadas en campañas pausadas** (decisiones 1989 y 2104): el dueño decide conservar o revertir; si revierte, `POST /reversa/bid` por decisión (ledger + readback), evidencia en `plans/orbit-05.md` 1.5. `[tdd:skip:checkpoint-humano]` | Decisión literal del dueño registrada; si hubo reversa: readback = bid original, ledger sellado | - | cc:完了 [2026-09-02: decisión literal del dueño "dejalas asi" — las 2 pujas (1989 US 0.99→0.74 USD, 2104 MX 13.64→10.23 MXN) se conservan; sin reversa; registrado en CHAT-CONTEXT] |
 
@@ -569,8 +569,75 @@ completa; NO correrla local.
 
 ## Decisiones y evidencia (GLM escribe aquí ANTES del código)
 
-_(vacío: lo llena GLM — decisiones D-x con su razón, logs rojos de 1.1/1.2/1.3
-y cualquier desviación del plan con su porqué)_
+**D-GLM-1 (entorno de test local, 2026-09-02):** la máquina de GLM no tiene
+Docker ni Postgres; se instaló PostgreSQL 16 por Homebrew (rol `orbit/orbit`
+superuser en localhost:5432, igual al contenedor del CI) para que
+los tests de ciclo/cola NO skipeen y el log rojo exista. No es desviación del
+diseño: el plan pide "un Postgres igual al de CI"; solo cambia el medio.
+
+**D-GLM-2 (código viejo, verificación inicial):** contra `origin/master`
+`a73afac`, `_gates_entidad` solo evalúa goal → estado propio → cooldown
+(`app/cycle.py`), y `_SQL_DECISORAS`/`_SQL_GRUPOS` no traen status de
+ancestros: el hueco descrito en la Causa existe tal cual. Sin desviaciones del
+plan hasta ahora.
+
+### Logs rojos (regla 9, corridos contra el código viejo antes de cada fix)
+
+**1.1** — `PYTHONPATH=. pytest tests/test_cycle.py -q -k campana_y_grupo`:
+
+```
+>           assert skips["entidad"]["campana_no_enabled"] == 2  # kw_p y kw_n
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           KeyError: 'campana_no_enabled'
+
+tests/test_cycle.py:2131: KeyError
+FAILED tests/test_cycle.py::test_gate_campana_y_grupo_no_enabled - KeyError: ...
+1 failed, 36 deselected in 1.77s
+```
+
+**1.2** — `PYTHONPATH=. pytest tests/test_apply_cola.py -q -k "campana_pausada or
+grupo_pausado"`. Primero con el import de las constantes nuevas (aun sin
+definir en `app/apply_cola.py`), el rojo de colección:
+
+```
+E   ImportError: cannot import name 'MOTIVO_CAMPANA_NO_ENABLED' from 'app.apply_cola' (/Users/dn/dev/goncloud-Orbit/app/apply_cola.py)
+1 error in 0.17s
+```
+
+Luego con SOLO las constantes stub agregadas (paso 4 sin el resto), el rojo
+que demuestra que el gate muerde — el código viejo descarta con el motivo
+EQUIVOCADO en AMBOS tests:
+
+```
+E           AssertionError: assert ['ya_no_califica'] == ['campana_no_enabled']
+E           At index 0 diff: 'ya_no_califica' != 'campana_no_enabled'
+E           AssertionError: assert ['ya_no_califica'] == ['grupo_no_enabled']
+E           At index 0 diff: 'ya_no_califica' != 'grupo_no_enabled'
+FAILED tests/test_apply_cola.py::test_libera_descarta_pause_en_campana_pausada
+FAILED tests/test_apply_cola.py::test_libera_descarta_negative_en_grupo_pausado
+2 failed, 25 deselected in 0.32s
+```
+
+**1.3** — `PYTHONPATH=. pytest tests/test_api_dashboard.py -q -k ancestros`:
+
+```
+E       KeyError: 'campana_no_enabled'
+FAILED tests/test_api_dashboard.py::test_motivos_salud_traducen_los_gates_de_ancestros
+1 failed, 34 deselected in 1.45s
+```
+
+### Desviaciones del plan
+
+**D-GLM-3 (tests 1.2):** el snippet del plan escribe
+`with _db_temporal("orbit_cola_campana") as (conn, _c):`, pero el
+`_db_temporal` de `tests/test_apply_cola.py` yields SOLO `conn` (a diferencia
+del de `tests/test_cycle.py`, que yields la tupla). Se ajustó a
+`as conn` en ambos tests; el cuerpo no cambia. Mismo ajuste NO aplicó a 1.1
+(ahí sí es tupla).
+
+**D-GLM-4 (markers):** 1.1/1.2 se marcan `cc:完了` en el commit de 1.3 junto
+con este texto (regla 7 del plan: la línea de CHAT-CONTEXT y los markers van
+en el cierre, un solo commit de docs como indica el paso 4 de §1.3).
 
 ## Reject (con razón)
 

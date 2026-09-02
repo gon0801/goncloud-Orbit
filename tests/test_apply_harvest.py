@@ -152,7 +152,8 @@ def _estado(conn, entidad: int) -> None:
 def _semilla(conn, *, caps: dict | None = None) -> dict:
     """Config vigente con el cap de harvest pedido (default 2), el ciclo que
     DECIDIO (hace 3d), el ciclo EJECUTOR live, campaign->ad_group->kw con
-    state (grupo incluido: la escalera de los cortes de termino la exige) y
+    state, campaña con state (CAMPAÑA ACTIVA 01: la cola exige campaña y
+    grupo ENABLED al liberar) y
     el goal de plataforma con destino de harvest sellado (floor 0.10 /
     ceiling 2.50 USD, default 1.00 — el default EFECTIVO viaja congelado en
     decision.new_value). Desde la review adversaria (ADV-05) siembra ADEMAS
@@ -177,7 +178,7 @@ def _semilla(conn, *, caps: dict | None = None) -> dict:
     camp = _entidad(conn, "campaign", ORIGEN_CAMPANA)
     ag = _entidad(conn, "ad_group", ORIGEN_GRUPO, parent=camp)
     kw = _entidad(conn, "keyword", "7201", parent=ag)
-    for entidad in (ag, kw):
+    for entidad in (camp, ag, kw):
         _estado(conn, entidad)
     conn.execute(
         "INSERT INTO ads_optimizer_goal (scope, platform, target_acos_pct, bid_floor,"

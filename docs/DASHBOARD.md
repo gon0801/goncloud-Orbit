@@ -248,7 +248,8 @@ Respuesta 200:
   con motivo; de `notes.motivo_skip` — guarda_watermark/synced_at/sin_datos — o
   el texto del notes).
 - `skips`: los contadores del notes del ORQUESTADOR (`cycle.py`: sin_goal,
-  goal_disabled, estado_no_enabled, cooldown_7d, escalera_off, … + los
+  goal_disabled, campana_no_enabled, grupo_no_enabled, estado_no_enabled,
+  cooldown_7d, escalera_off, … + los
   `MOTIVO_*` de bid/hygiene que el orquestador importa a sus contadores) con su
   traducción `motivo_es`; DOS diccionarios de traducción (este y el de §3.4),
   cada uno importando su fuente (decisión 11); motivo desconocido → fallback sin

@@ -67,6 +67,8 @@ from test_schema import SQL, SQL2, SQL3, _postgres_obligatorio_ausente, _test_ds
 from app.ads.config import AdsCredentials
 from app.apply import Aplicador
 from app.apply_cola import (
+    MOTIVO_CAMPANA_NO_ENABLED,
+    MOTIVO_GRUPO_NO_ENABLED,
     MOTIVO_REACTIVACION_MANUAL,
     MOTIVO_VENDIO_EN_VENTANA,
     MOTIVO_YA_NO_CALIFICA,
@@ -168,9 +170,9 @@ def _estado(conn, entidad: int, *, status: str = "ENABLED") -> None:
 
 def _semilla(conn, *, caps: dict | None = None, goal_mode: str = "live") -> dict:
     """Config vigente con los caps pedidos, el ciclo que DECIDIO (hace 3d), el
-    ciclo EJECUTOR live, campaign->ad_group->kw+kw2 con state (grupo tambien:
-    la escalera de los cortes de termino exige state del GRUPO, la entidad que
-    decide el ciclo) y el goal de plataforma."""
+    ciclo EJECUTOR live, campaign->ad_group->kw+kw2 con state, campaña con
+    state (CAMPAÑA ACTIVA 01: la cola exige campaña y grupo ENABLED al
+    liberar) y el goal de plataforma."""
     settings = (
         dict(caps)
         if caps is not None
@@ -197,7 +199,7 @@ def _semilla(conn, *, caps: dict | None = None, goal_mode: str = "live") -> dict
     ag = _entidad(conn, "ad_group", "7101", parent=camp)
     kw = _entidad(conn, "keyword", "7201", parent=ag)
     kw2 = _entidad(conn, "keyword", "7202", parent=ag)
-    for entidad in (ag, kw, kw2):
+    for entidad in (camp, ag, kw, kw2):
         _estado(conn, entidad)
     conn.execute(
         # Bounds EXPLICITOS (0003 quito el DEFAULT 0.10/2.50 de la DB; USD).
@@ -1802,3 +1804,77 @@ def test_pause_cuya_entidad_vive_en_la_pagina_dos_del_list_aplica():
             "SELECT resultado FROM apply_attempt WHERE decision_id = %s", (dec,)
         ).fetchone()[0]
         assert resultado == "ok"
+
+
+def test_libera_descarta_pause_en_campana_pausada():
+    """CAMPAÑA ACTIVA 01 (regla 9): un pause vencido cuya CAMPAÑA se pauso
+    durante la ventana de veto es moot -> discard PRE-claim con motivo
+    'campana_no_enabled': cero HTTP de mutacion, cero quota. Antes del fix
+    la re-validacion solo miraba el estado vivo de la HOJA y la regla: aqui
+    (sin evidencia fresca) descartaba con el motivo EQUIVOCADO
+    ('ya_no_califica') y, con evidencia que califica, el pause SALIA."""
+    with _db_temporal("orbit_cola_campana") as conn:
+        ids = _semilla(conn)
+        conn.execute(
+            "UPDATE ad_entity_state SET status = 'PAUSED' WHERE ad_entity_id = %s",
+            (ids["camp"],),
+        )
+        dec = _decision_corte(conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause")
+        q = _encola_fila(conn, dec, ids["kw"], "pause", payload=_payload_pause("7201"))
+        handler, vistos = _handler_cortes()
+
+        res = libera_vencidos(
+            conn,
+            "amazon_us",
+            ahora=ids["ahora"],
+            aplicador=_aplicador(conn, handler, ids["ciclo_ejec"]),
+        )
+
+        assert res.descartadas == [MOTIVO_CAMPANA_NO_ENABLED]
+        assert res.aplicadas == 0 and res.fallidas == 0
+        assert _mutaciones(vistos) == []
+        fila = conn.execute(
+            "SELECT estado, discard_motivo FROM apply_queue WHERE id = %s", (q,)
+        ).fetchone()
+        assert fila == ("discarded", MOTIVO_CAMPANA_NO_ENABLED)
+        assert conn.execute("SELECT count(*) FROM apply_quota_state").fetchone()[0] == 0
+
+
+def test_libera_descarta_negative_en_grupo_pausado():
+    """CAMPAÑA ACTIVA 01: para negative/harvest la fila ES el ad group; su
+    propio status PAUSED es el gate de grupo -> 'grupo_no_enabled' ANTES de
+    re-evaluar la regla (antes del fix salia 'ya_no_califica' por falta de
+    observaciones frescas: motivo equivocado para un grupo apagado)."""
+    with _db_temporal("orbit_cola_grupo") as conn:
+        ids = _semilla(conn)
+        conn.execute(
+            "UPDATE ad_entity_state SET status = 'PAUSED' WHERE ad_entity_id = %s",
+            (ids["ag"],),
+        )
+        dec = _decision_corte(
+            conn, ids["ciclo_dec"], ids["config"], ids["ag"], "negative", term="zapato blanco"
+        )
+        q = _encola_fila(
+            conn,
+            dec,
+            ids["ag"],
+            "negative",
+            term="zapato blanco",
+            payload=_payload_negative("7101", "7001", "zapato blanco"),
+        )
+        handler, vistos = _handler_cortes()
+
+        res = libera_vencidos(
+            conn,
+            "amazon_us",
+            ahora=ids["ahora"],
+            aplicador=_aplicador(conn, handler, ids["ciclo_ejec"]),
+        )
+
+        assert res.descartadas == [MOTIVO_GRUPO_NO_ENABLED]
+        assert _mutaciones(vistos) == []
+        fila = conn.execute(
+            "SELECT estado, discard_motivo FROM apply_queue WHERE id = %s", (q,)
+        ).fetchone()
+        assert fila == ("discarded", MOTIVO_GRUPO_NO_ENABLED)
+        assert conn.execute("SELECT count(*) FROM apply_quota_state").fetchone()[0] == 0

@@ -1555,3 +1555,13 @@ def test_salud_nota_telegram_visible_en_la_respuesta(monkeypatch):
         assert ultimo["status"] == "done"
         assert ultimo["notes"]["telegram"]["aviso_encola"].startswith("fallo:")
         assert ultimo["notes"]["telegram"]["digest"].startswith("fallo:")
+
+
+def test_motivos_salud_traducen_los_gates_de_ancestros():
+    """CAMPAÑA ACTIVA 01: los dos motivos nuevos del orquestador tienen
+    traduccion en /salud (sin ella la pantalla mostraria el id crudo)."""
+    from app import cycle as ciclo
+    from app.api_dashboard import MOTIVOS_ES_SALUD
+
+    assert MOTIVOS_ES_SALUD[ciclo.MOTIVO_CAMPANA_NO_ENABLED].startswith("Campana")
+    assert MOTIVOS_ES_SALUD[ciclo.MOTIVO_GRUPO_NO_ENABLED].startswith("Ad group")
