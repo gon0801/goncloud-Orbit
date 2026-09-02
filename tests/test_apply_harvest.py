@@ -152,7 +152,7 @@ def _estado(conn, entidad: int) -> None:
 def _semilla(conn, *, caps: dict | None = None) -> dict:
     """Config vigente con el cap de harvest pedido (default 2), el ciclo que
     DECIDIO (hace 3d), el ciclo EJECUTOR live, campaign->ad_group->kw con
-    state, campaña con state (CAMPAÑA ACTIVA 01: la cola exige campaña y
+    state, campaña con state (CAMPANA ACTIVA 01: la cola exige campaña y
     grupo ENABLED al liberar) y
     el goal de plataforma con destino de harvest sellado (floor 0.10 /
     ceiling 2.50 USD, default 1.00 — el default EFECTIVO viaja congelado en

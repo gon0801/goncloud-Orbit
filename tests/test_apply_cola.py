@@ -171,7 +171,7 @@ def _estado(conn, entidad: int, *, status: str = "ENABLED") -> None:
 def _semilla(conn, *, caps: dict | None = None, goal_mode: str = "live") -> dict:
     """Config vigente con los caps pedidos, el ciclo que DECIDIO (hace 3d), el
     ciclo EJECUTOR live, campaign->ad_group->kw+kw2 con state, campaña con
-    state (CAMPAÑA ACTIVA 01: la cola exige campaña y grupo ENABLED al
+    state (CAMPANA ACTIVA 01: la cola exige campaña y grupo ENABLED al
     liberar) y el goal de plataforma."""
     settings = (
         dict(caps)
@@ -1807,7 +1807,7 @@ def test_pause_cuya_entidad_vive_en_la_pagina_dos_del_list_aplica():
 
 
 def test_libera_descarta_pause_en_campana_pausada():
-    """CAMPAÑA ACTIVA 01 (regla 9): un pause vencido cuya CAMPAÑA se pauso
+    """CAMPANA ACTIVA 01 (regla 9): un pause vencido cuya CAMPAÑA se pauso
     durante la ventana de veto es moot -> discard PRE-claim con motivo
     'campana_no_enabled': cero HTTP de mutacion, cero quota. Antes del fix
     la re-validacion solo miraba el estado vivo de la HOJA y la regla: aqui
@@ -1841,7 +1841,7 @@ def test_libera_descarta_pause_en_campana_pausada():
 
 
 def test_libera_descarta_negative_en_grupo_pausado():
-    """CAMPAÑA ACTIVA 01: para negative/harvest la fila ES el ad group; su
+    """CAMPANA ACTIVA 01: para negative/harvest la fila ES el ad group; su
     propio status PAUSED es el gate de grupo -> 'grupo_no_enabled' ANTES de
     re-evaluar la regla (antes del fix salia 'ya_no_califica' por falta de
     observaciones frescas: motivo equivocado para un grupo apagado)."""

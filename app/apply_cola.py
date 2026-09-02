@@ -117,7 +117,7 @@ MOTIVO_VENDIO_EN_VENTANA = "vendio_en_ventana"
 MOTIVO_YA_NO_CALIFICA = "ya_no_califica"
 MOTIVO_ENTIDAD_NO_VIVA = "entidad_no_viva"
 MOTIVO_REACTIVACION_MANUAL = "reactivacion_manual"
-# CAMPAÑA ACTIVA 01: espejo de cycle.MOTIVO_CAMPANA/GRUPO_NO_ENABLED (cycle
+# CAMPANA ACTIVA 01: espejo de cycle.MOTIVO_CAMPANA/GRUPO_NO_ENABLED (cycle
 # importa de este modulo, no al reves): un corte cuya campaña o ad group dejo
 # de estar ENABLED durante la ventana de veto es moot -> discard PRE-claim.
 MOTIVO_CAMPANA_NO_ENABLED = "campana_no_enabled"
@@ -223,7 +223,7 @@ _SQL_PADRE = """
 SELECT parent_id FROM ad_entity WHERE id = %s
 """
 
-# CAMPAÑA ACTIVA 01: status (cache) del ad group y de la campaña de la fila.
+# CAMPANA ACTIVA 01: status (cache) del ad group y de la campaña de la fila.
 # Hoja (pause): el grupo es su padre; ad group (negative/harvest): el grupo
 # es la propia fila. LEFT JOIN: sin fila de state = NULL = fuera (regla 3).
 _SQL_ANCESTROS = """
@@ -665,7 +665,7 @@ def _revalida_negative(
 
 
 def _revalida_ancestros(conn: psycopg.Connection, fila: FilaCola) -> str | None:
-    """CAMPAÑA ACTIVA 01: gate de campaña y ad group ENABLED al LIBERAR, con
+    """CAMPANA ACTIVA 01: gate de campaña y ad group ENABLED al LIBERAR, con
     el cache de estructura (sync diario; guarda de 48h del ciclo) — no un
     LIST fresco de campañas (residual declarado en el plan). Corre ANTES del
     dispatch por kind: sin LIST de la hoja, sin cobro, sin claim. Entidad sin
@@ -830,7 +830,7 @@ def libera_vencidos(
     1. liberacion atomica pending_veto -> released (la fila que YA viene
        released NO se re-libera y JAMAS cuenta como carrera: esperaba FIFO);
     2. re-validacion PRE-claim SOBRE la fila released (gate de ancestros
-       CAMPAÑA ACTIVA 01 + evidencia FRESCA al reloj de LIBERACION + LIST
+       CAMPANA ACTIVA 01 + evidencia FRESCA al reloj de LIBERACION + LIST
        fresco de estado vivo): motivo -> discard
        (un descarte SIEMPRE antes del claim, NUNCA despues del cobro);
     3. cobro de quota (apply.consume_quota_y_sello): sin quota la fila QUEDA en
