@@ -74,6 +74,13 @@ STMTS9 = tuple(pglast.parse_sql(SQL9))
 SQL10 = (ROOT / "migrations" / "0010_contribucion_cross_review.sql").read_text(encoding="utf-8")
 STMTS10 = tuple(pglast.parse_sql(SQL10))
 
+# 0012 (residual de la 0005, cross-review codex 2026-08-31): el residuo del
+# grano —gasto_campaign_sin_contraparte— deja de ser columna informativa y
+# ANULA tacos_pct por encima del 1.00 % de gasto_ads, en valor absoluto.
+# Agrega residuo_pct al final. 0011 no entra aqui: es una migracion de DATOS.
+SQL12 = (ROOT / "migrations" / "0012_tacos_residuo_fail_loud.sql").read_text(encoding="utf-8")
+STMTS12 = tuple(pglast.parse_sql(SQL12))
+
 APPEND_ONLY = {
     "ads_metric_observation",
     "search_term_observation",
@@ -100,14 +107,14 @@ def _stmts(cls):
 
 def _v_tacos_viva():
     """La definicion VIVA de v_tacos: la ULTIMA ViewStmt a traves de todas
-    las migraciones (0005/0006 la reemplazan con CREATE OR REPLACE). Los
+    las migraciones (0005/0006/0012 la reemplazan con CREATE OR REPLACE). Los
     invariantes sellados se afirman contra ESTA — afirmarlos contra la de
     0001 tras aplicar 0005 es vigilar SQL muerto (hallazgo del adversario
     en la review de la 0005: una regresion dentro de 0005 que conservara
     las columnas viajaba en verde)."""
     vistas = [
         s.stmt
-        for lote in (STMTS, STMTS2, STMTS3, STMTS4, STMTS5, STMTS6)
+        for lote in (STMTS, STMTS2, STMTS3, STMTS4, STMTS5, STMTS6, STMTS12)
         for s in lote
         if isinstance(s.stmt, ast.ViewStmt) and s.stmt.view.relname == "v_tacos"
     ]
@@ -537,6 +544,64 @@ def test_v_tacos_fail_loud_con_huecos_parciales_de_fx():
         "v_tacos: los contadores de filas sin tasa ya no participan del CASE "
         "de tacos_pct (el fail-loud de FX parcial se perdio)"
     )
+
+
+# ---------------------------------------------------------------------------
+# ESTATICOS de 0012 — el residuo del grano anula tacos_pct
+# ---------------------------------------------------------------------------
+
+
+def test_0012_residuo_participa_del_case_de_tacos_pct():
+    """El fail-loud nuevo vive DENTRO del CASE de tacos_pct, no al lado.
+
+    Mismo criterio que los otros tres contadores: se afirma sobre el subarbol
+    del target, no por presencia en el cuerpo — `gasto_campaign_sin_contraparte`
+    aparece ademas como columna propia, asi que "esta en alguna parte" dejaria
+    pasar la mutacion exacta de borrar SOLO la rama del CASE.
+    """
+    pct = _tacos_pct_viva()
+    assert "gasto_campaign_sin_contraparte" in pct, (
+        "v_tacos: el residuo del grano ya no anula tacos_pct — un keywordType "
+        "fuera de la allowlist volveria a publicar un TACoS corto en silencio"
+    )
+
+
+def test_0012_umbral_es_el_medido():
+    """El umbral es 1.00 %, medido en prod (peor mes real: 0.0773 %).
+
+    Un test que solo mirara "hay un ABS" pasaria con cualquier numero; el
+    umbral ES la decision, asi que se fija.
+    """
+    pct = _tacos_pct_viva()
+    assert "1.00" in pct, f"el umbral del residuo no es 1.00 en el CASE: {pct[:400]}"
+
+
+def test_0012_residuo_se_juzga_en_valor_absoluto():
+    """Hijas por encima de su campana rompe el supuesto de grano igual que al
+    reves: la comparacion va en valor absoluto, no solo por arriba."""
+    pct = _tacos_pct_viva()
+    assert "ABS" in pct.upper(), (
+        "v_tacos: el residuo se compara con signo — un doble conteo por el "
+        "lado de las hijas pasaria en verde"
+    )
+
+
+def test_0012_expone_residuo_pct_al_final():
+    """La senal es visible aunque tacos_pct sobreviva, y entra AL FINAL: los
+    consumidores por posicion de las columnas viejas no se mueven."""
+    query = _v_tacos_viva().query
+    nombres = [getattr(r, "name", None) for r in query.targetList]
+    assert nombres[-1] == "residuo_pct", f"orden de columnas de v_tacos: {nombres}"
+    assert nombres[:8] == [
+        "platform",
+        "mes",
+        "gasto_ads",
+        "venta_total",
+        "filas_gasto_sin_tasa",
+        "filas_venta_sin_tasa",
+        "filas_gasto_sin_costo",
+        "tacos_pct",
+    ], f"0012 movio columnas existentes de v_tacos: {nombres}"
 
 
 def _lideres_de_indice_no_parcial(indexes=INDEXES_TOTALES, tables=TABLAS_TOTALES):
