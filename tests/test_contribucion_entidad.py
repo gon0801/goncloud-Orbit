@@ -22,6 +22,7 @@ from test_schema import (
     SQL8,
     SQL9,
     SQL10,
+    SQL12,
     _hay_postgres_local,
     _test_dsn,
 )
@@ -46,6 +47,7 @@ def _aplicar_esquema(conn):
     conn.execute(SQL8)
     conn.execute(SQL9)
     conn.execute(SQL10)
+    conn.execute(SQL12)
 
 
 def _run_id(conn):
@@ -615,6 +617,84 @@ def test_gasto_campaign_sin_contraparte(db):
     assert fila[0] == Decimal("10.0000") or fila[0] == Decimal("10")
     # campaign 15 - keyword 10 = 5
     assert fila[1] == Decimal("5.0000") or fila[1] == Decimal("5")
+
+
+def test_residuo_grande_anula_tacos_pct(db):
+    """0012: si el gasto de campana supera al de sus hijas por encima del
+    umbral, tacos_pct se calla — es el sintoma de que la allowlist de kinds
+    se quedo corta y gasto_ads esta SUBESTIMANDO.
+
+    Antes de 0012 el residuo se exponia pero tacos_pct se publicaba igual:
+    un numero optimista y confiado, que es peor que no publicar.
+    """
+    s = _semilla_mx_completa(db)
+    # keyword 10 vs campaign 100 => residuo 90 sobre 10 = 900%
+    db.execute(
+        "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
+        " metric_currency, cost, ingest_run_id) VALUES (%s, %s, now(), 'MXN', 100, %s)",
+        (s["cam"], s["dia"], s["rid"]),
+    )
+    mes = s["dia"].replace(day=1)
+    fila = db.execute(
+        "SELECT tacos_pct, gasto_campaign_sin_contraparte, residuo_pct FROM v_tacos"
+        " WHERE platform = 'amazon_mx' AND mes = %s",
+        (mes,),
+    ).fetchone()
+    assert fila is not None
+    assert fila[0] is None, f"tacos_pct se publico con residuo de 900%: {fila[0]}"
+    assert fila[1] == Decimal("90.0000") or fila[1] == Decimal("90")
+    assert fila[2] is not None and fila[2] > 100, f"residuo_pct = {fila[2]}"
+
+
+def test_residuo_chico_no_anula_tacos_pct(db):
+    """El contrapeso: un guard que apaga tacos_pct SIEMPRE no sirve de nada.
+
+    Residuo dentro del umbral (el caso real medido en prod: 0.077% en agosto
+    MX) => tacos_pct se sigue publicando.
+    """
+    s = _semilla_mx_completa(db)
+    # keyword 10 (semilla) + campaign 10.05 => residuo 0.05 sobre 10 = 0.5%
+    db.execute(
+        "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
+        " metric_currency, cost, ingest_run_id) VALUES (%s, %s, now(), 'MXN', 10.05, %s)",
+        (s["cam"], s["dia"], s["rid"]),
+    )
+    mes = s["dia"].replace(day=1)
+    fila = db.execute(
+        "SELECT tacos_pct, residuo_pct FROM v_tacos WHERE platform = 'amazon_mx' AND mes = %s",
+        (mes,),
+    ).fetchone()
+    assert fila is not None
+    assert fila[0] is not None, "un residuo de 0.5% no debe callar tacos_pct"
+    assert fila[1] is not None and fila[1] < 1, f"residuo_pct = {fila[1]}"
+
+
+def test_residuo_negativo_grande_tambien_anula(db):
+    """La sospecha vale en los DOS sentidos: si las hijas suman MAS que su
+    campana, el supuesto de grano tambien se rompio. Se compara en valor
+    absoluto, no solo por arriba."""
+    s = _semilla_mx_completa(db)
+    # otra keyword con 100 => hijas 110 vs campana 10 => residuo -100
+    kw2 = _entidad(db, "amazon_mx", "keyword", "KW-MX-2", s["ag"])
+    db.execute(
+        "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
+        " metric_currency, cost, ingest_run_id) VALUES (%s, %s, now(), 'MXN', 100, %s)",
+        (kw2, s["dia"], s["rid"]),
+    )
+    db.execute(
+        "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
+        " metric_currency, cost, ingest_run_id) VALUES (%s, %s, now(), 'MXN', 10, %s)",
+        (s["cam"], s["dia"], s["rid"]),
+    )
+    mes = s["dia"].replace(day=1)
+    fila = db.execute(
+        "SELECT tacos_pct, gasto_campaign_sin_contraparte, residuo_pct FROM v_tacos"
+        " WHERE platform = 'amazon_mx' AND mes = %s",
+        (mes,),
+    ).fetchone()
+    assert fila is not None
+    assert fila[1] < 0, f"el residuo deberia ser negativo: {fila[1]}"
+    assert fila[0] is None, "un residuo negativo grande tampoco debe publicar tacos_pct"
 
 
 def test_desfase_gasto_ads_contado(db):
