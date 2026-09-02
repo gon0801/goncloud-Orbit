@@ -566,23 +566,80 @@ def test_0012_residuo_participa_del_case_de_tacos_pct():
     )
 
 
+def _comparacion_del_umbral():
+    """(funcion, constante) de la comparacion `ABS(...) > umbral` del CASE.
+
+    ESTRUCTURAL, no textual (hallazgo baja de codex, cross-review 0012): un
+    candado que sólo buscara los textos "1.00" y "ABS" dentro del repr del
+    subarbol puede quedar VERDE con otro umbral u otra comparacion si esas
+    cadenas sobreviven por casualidad en cualquier otro nodo. Aqui se localiza
+    el nodo real —la comparacion `>` cuyo lado izquierdo es una llamada a
+    funcion— y se afirma sobre EL, no sobre su impresion.
+    """
+    from pglast.visitors import Visitor
+
+    query = _v_tacos_viva().query
+    objetivo = [r for r in query.targetList if getattr(r, "name", None) == "tacos_pct"]
+    assert objetivo, "v_tacos vivo sin columna tacos_pct"
+
+    hallados = []
+
+    class _Walk(Visitor):
+        def visit(self, ancestors, node):
+            if (
+                isinstance(node, ast.A_Expr)
+                and node.name
+                and node.name[0].sval == ">"
+                and isinstance(node.lexpr, ast.FuncCall)
+            ):
+                hallados.append(node)
+
+    _Walk()(objetivo[0])
+    assert len(hallados) == 1, (
+        f"se esperaba UNA comparacion de umbral en tacos_pct, hay {len(hallados)}"
+    )
+    nodo = hallados[0]
+    funcion = ".".join(n.sval for n in nodo.lexpr.funcname)
+    assert isinstance(nodo.rexpr, ast.A_Const), f"el umbral no es una constante: {nodo.rexpr}"
+    return funcion, float(nodo.rexpr.val.fval)
+
+
 def test_0012_umbral_es_el_medido():
     """El umbral es 1.00 %, medido en prod (peor mes real: 0.0773 %).
 
-    Un test que solo mirara "hay un ABS" pasaria con cualquier numero; el
-    umbral ES la decision, asi que se fija.
+    El umbral ES la decision: se afirma el valor exacto del nodo, no que la
+    cadena "1.00" aparezca en alguna parte.
     """
-    pct = _tacos_pct_viva()
-    assert "1.00" in pct, f"el umbral del residuo no es 1.00 en el CASE: {pct[:400]}"
+    _, umbral = _comparacion_del_umbral()
+    assert umbral == 1.00, f"el umbral del residuo es {umbral}, se sello 1.00"
 
 
 def test_0012_residuo_se_juzga_en_valor_absoluto():
     """Hijas por encima de su campana rompe el supuesto de grano igual que al
     reves: la comparacion va en valor absoluto, no solo por arriba."""
+    funcion, _ = _comparacion_del_umbral()
+    assert funcion == "abs", (
+        f"el umbral compara {funcion}(...) y no abs(...): un doble conteo por "
+        "el lado de las hijas pasaria en verde"
+    )
+
+
+def test_0012_calla_ante_reconciliacion_imposible_y_grano_perdido():
+    """Los dos huecos que hallo codex en la cross-review del 2026-09-02.
+
+    (b) residuo NULL = reconciliacion imposible; (c) gasto_ads = 0 con residuo
+    distinto de cero = perdida TOTAL del grano, que publicaba 0.00 %. Ambas
+    ramas viven en el CASE de tacos_pct, no fuera.
+    """
     pct = _tacos_pct_viva()
-    assert "ABS" in pct.upper(), (
-        "v_tacos: el residuo se compara con signo — un doble conteo por el "
-        "lado de las hijas pasaria en verde"
+    assert "gasto_ads" in pct, "el CASE de tacos_pct ya no mira gasto_ads"
+    query = _v_tacos_viva().query
+    objetivo = [r for r in query.targetList if getattr(r, "name", None) == "tacos_pct"][0]
+    ramas = objetivo.val.args
+    assert len(ramas) == 5, (
+        f"el CASE de tacos_pct tiene {len(ramas)} ramas, se esperaban 5 "
+        "(venta/gasto ausente, contadores de huecos, residuo NULL, "
+        "gasto_ads=0, umbral)"
     )
 
 

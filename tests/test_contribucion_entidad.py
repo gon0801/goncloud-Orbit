@@ -697,6 +697,56 @@ def test_residuo_negativo_grande_tambien_anula(db):
     assert fila[0] is None, "un residuo negativo grande tampoco debe publicar tacos_pct"
 
 
+def test_gasto_ads_cero_con_campana_gastando_anula_tacos_pct(db):
+    """Hallazgo 1 de codex (media) sobre 0012: la PERDIDA TOTAL del grano.
+
+    Si las hojas suman 0 pero la campana si gasto, el guard del residuo se
+    saltaba (division por cero evitada con NULLIF) y tacos_pct caia al ELSE:
+    100 * 0 / venta = 0.00. Un TACoS de 0.00 % publicado mientras la campana
+    quema dinero es EXACTAMENTE el numero falsamente optimo que esta
+    migracion existe para impedir.
+    """
+    s = _semilla_mx_completa(db)
+    # la semilla deja keyword con cost 10; lo bajamos a 0 y la campana gasta 50
+    db.execute("UPDATE ads_metric_observation SET cost = 0 WHERE ad_entity_id = %s", (s["kw"],))
+    db.execute(
+        "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
+        " metric_currency, cost, ingest_run_id) VALUES (%s, %s, now(), 'MXN', 50, %s)",
+        (s["cam"], s["dia"], s["rid"]),
+    )
+    mes = s["dia"].replace(day=1)
+    fila = db.execute(
+        "SELECT gasto_ads, tacos_pct, gasto_campaign_sin_contraparte FROM v_tacos"
+        " WHERE platform = 'amazon_mx' AND mes = %s",
+        (mes,),
+    ).fetchone()
+    assert fila is not None
+    assert fila[0] == 0, f"la semilla no dejo gasto_ads en 0: {fila[0]}"
+    assert fila[2] == Decimal("50.0000") or fila[2] == Decimal("50")
+    assert fila[1] is None, f"tacos_pct publico {fila[1]} con el grano perdido entero"
+
+
+def test_residuo_no_reconciliable_anula_tacos_pct(db):
+    """Hallazgo 2 de codex (media) sobre 0012: reconciliacion IMPOSIBLE.
+
+    Si no hay contraparte a nivel campana, el residuo sale NULL y el guard
+    (que exige residuo NOT NULL) no se aplicaba: tacos_pct se publicaba con
+    aplomo sobre un grano que NADIE pudo verificar. La disciplina del resto de
+    la vista es la contraria — sin dato verificable, no hay numero.
+    """
+    s = _semilla_mx_completa(db)  # keyword con gasto, campana SIN metrica
+    mes = s["dia"].replace(day=1)
+    fila = db.execute(
+        "SELECT gasto_ads, gasto_campaign_sin_contraparte, tacos_pct FROM v_tacos"
+        " WHERE platform = 'amazon_mx' AND mes = %s",
+        (mes,),
+    ).fetchone()
+    assert fila is not None
+    assert fila[0] is not None and fila[0] > 0
+    assert fila[1] is None, "la semilla si tiene contraparte campaign; el caso no se prueba"
+    assert fila[2] is None, f"tacos_pct publico {fila[2]} sin poder reconciliar el grano"
+
+
 def test_desfase_gasto_ads_contado(db):
     s = _semilla_mx_completa(db)
     db.execute(
