@@ -569,8 +569,21 @@ completa; NO correrla local.
 
 ## Decisiones y evidencia (GLM escribe aquí ANTES del código)
 
-_(vacío: lo llena GLM — decisiones D-x con su razón, logs rojos de 1.1/1.2/1.3
-y cualquier desviación del plan con su porqué)_
+**D-GLM-1 (entorno de test local, 2026-09-02):** la máquina de GLM no tiene
+Docker ni Postgres; se instaló PostgreSQL 16 por Homebrew (rol `orbit/orbit`
+superuser en localhost:5432, igual al contenedor del CI) para que
+los tests de ciclo/cola NO skipeen y el log rojo exista. No es desviación del
+diseño: el plan pide "un Postgres igual al de CI"; solo cambia el medio.
+
+**D-GLM-2 (código viejo, verificación inicial):** contra `origin/master`
+`a73afac`, `_gates_entidad` solo evalúa goal → estado propio → cooldown
+(`app/cycle.py`), y `_SQL_DECISORAS`/`_SQL_GRUPOS` no traen status de
+ancestros: el hueco descrito en la Causa existe tal cual. Sin desviaciones del
+plan hasta ahora.
+
+### Logs rojos
+
+_(se pegan a medida que cada test corre contra el código viejo)_
 
 ## Reject (con razón)
 

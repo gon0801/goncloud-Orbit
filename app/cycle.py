@@ -47,10 +47,14 @@ Diseño sellado (plans/orbit-03.md task 3.1 + diseno v2):
   goals.resuelve_goal, COMMENT del esquema; NADA de coalesce en SQL): sin goal
   -> 'sin_goal'; goal resuelto deshabilitado -> 'goal_disabled' (ESTE es el
   opt-out auditable del Spec delta); goal.mode 'off' -> 'goal_mode_off';
+  campaña (o, para hojas, ad group) sin state o status != ENABLED ->
+  'campana_no_enabled' / 'grupo_no_enabled' (CAMPAÑA ACTIVA 01: el cache de
+  estructura, no un LIST; un ancestro pausado hace moot todo lo de abajo);
   entidad sin state o status != ENABLED -> 'estado_no_enabled' (para ad
   groups: sus terminos TODOS skip con ese motivo); cooldown 7d -> 'cooldown_7d'.
-  Orden de gateS del orquestador: campaña primero (la hace invisible al
-  optimizador por completo), luego estado, luego cooldown (la ultima guarda
+  Orden de gates del orquestador: campaña (goal) primero (la hace invisible al
+  optimizador por completo), luego ancestros, luego estado, luego cooldown (la
+  ultima guarda
   por decision). Desviacion declarada del orden literal del spec (que lista
   el cooldown antes): en shadow el cooldown JAMAS dispara (solo cuentan
   applies de ciclos live, regla 2.4) y asi no se paga una query EXISTS por
@@ -206,6 +210,11 @@ MOTIVO_SIN_GOAL = "sin_goal"
 MOTIVO_GOAL_DISABLED = "goal_disabled"  # el opt-out auditable del Spec delta
 MOTIVO_GOAL_MODE_OFF = "goal_mode_off"
 MOTIVO_ESTADO_NO_ENABLED = "estado_no_enabled"
+# CAMPAÑA ACTIVA 01: ancestros no ENABLED (o sin fila de state) sacan a la
+# hoja/grupo del motor ANTES de mirar su propio estado. Fuente: el cache
+# ad_entity_state (sync diario; guarda de 48h del ciclo).
+MOTIVO_CAMPANA_NO_ENABLED = "campana_no_enabled"
+MOTIVO_GRUPO_NO_ENABLED = "grupo_no_enabled"
 MOTIVO_COOLDOWN_7D = "cooldown_7d"
 MOTIVO_ESCALERA_OFF = "escalera_off"
 MOTIVO_VETO_PENDIENTE = apply_cola.MOTIVO_VETO_PENDIENTE
@@ -386,19 +395,23 @@ SELECT scope, ad_entity_id, platform, target_acos_pct, bid_floor, bid_ceiling,
 # qwen). El freeze del motor de bids (1.3) consume esta columna.
 _SQL_DECISORAS = """
 SELECT k.id, k.parent_id AS ad_group_id, ag.parent_id AS campaign_id,
-       s.current_bid, s.bid_currency, s.status, s.acos_target
+       s.current_bid, s.bid_currency, s.status, s.acos_target,
+       sg.status AS status_grupo, sc.status AS status_campana
   FROM ad_entity k
   JOIN ad_entity ag ON ag.id = k.parent_id AND ag.kind = 'ad_group'
   LEFT JOIN ad_entity_state s ON s.ad_entity_id = k.id
+  LEFT JOIN ad_entity_state sg ON sg.ad_entity_id = ag.id
+  LEFT JOIN ad_entity_state sc ON sc.ad_entity_id = ag.parent_id
  WHERE k.platform = %s::platform AND k.kind IN ('keyword', 'product_target')
  ORDER BY k.id
 """
 
 # Ad groups con SU campaña y state: son las entidades que portean terminos.
 _SQL_GRUPOS = """
-SELECT ag.id, ag.parent_id AS campaign_id, s.status
+SELECT ag.id, ag.parent_id AS campaign_id, s.status, sc.status AS status_campana
   FROM ad_entity ag
   LEFT JOIN ad_entity_state s ON s.ad_entity_id = ag.id
+  LEFT JOIN ad_entity_state sc ON sc.ad_entity_id = ag.parent_id
  WHERE ag.platform = %s::platform AND ag.kind = 'ad_group'
  ORDER BY ag.id
 """
@@ -1066,12 +1079,19 @@ def _gates_entidad(
     campaign_id,
     entidad_id: int,
     status,
+    ancestros: tuple[tuple[str, str | None], ...],
     decided_at: dt.datetime,
 ) -> tuple[g.Goal | None, str | None]:
     """Cascada de gates del orquestador (orden sellado, ver docstring del
-    modulo): campaña -> estado -> cooldown. None = elegible."""
+    modulo): goal de campaña -> ancestros ENABLED (CAMPAÑA ACTIVA 01: campaña
+    y, para hojas, ad group; `ancestros` = ((motivo, status), ...) de afuera
+    hacia adentro) -> estado propio -> cooldown. None = elegible. Un ancestro
+    sin fila de state (status None) tambien queda fuera (regla 3)."""
     goal_plataforma, por_campana = goals
     goal, motivo = _porta_goal_campana(por_campana, goal_plataforma, campaign_id)
+    for motivo_ancestro, status_ancestro in ancestros:
+        if motivo is None and status_ancestro != "ENABLED":
+            motivo = motivo_ancestro
     if motivo is None and status != "ENABLED":
         motivo = MOTIVO_ESTADO_NO_ENABLED  # None (sin state) tambien queda fuera
     if motivo is None and g.en_cooldown(conn, entidad_id, ahora=decided_at):
@@ -1095,7 +1115,17 @@ def _procesa_decisora(
     corte_pause_por_grupo: dict[int, tuple[cortes.UmbralResuelto, windows.EvidenciaAdGroup | None]],
     bloqueadas: set[tuple[int, str, str | None]],
 ) -> None:
-    entidad_id, ad_group_id, campaign_id, current_bid, bid_currency, status, acos_cache = fila
+    (
+        entidad_id,
+        ad_group_id,
+        campaign_id,
+        current_bid,
+        bid_currency,
+        status,
+        acos_cache,
+        status_grupo,
+        status_campana,
+    ) = fila
     if (entidad_id, "entity_cut", None) in bloqueadas:
         # 2.2 sellado 5 / 2.4: clave de efecto en vuelo (fila NO terminal o
         # veto vigente) — el ciclo NO re-decide esa clave. Salta la entidad
@@ -1111,6 +1141,10 @@ def _procesa_decisora(
         campaign_id=campaign_id,
         entidad_id=entidad_id,
         status=status,
+        ancestros=(
+            (MOTIVO_CAMPANA_NO_ENABLED, status_campana),
+            (MOTIVO_GRUPO_NO_ENABLED, status_grupo),
+        ),
         decided_at=decided_at,
     )
     if motivo is not None:
@@ -1186,7 +1220,7 @@ def _procesa_grupo(
     evidencia_ad_groups: dict[int, windows.EvidenciaAdGroup],
     bloqueadas: set[tuple[int, str, str | None]],
 ) -> None:
-    grupo_id, campaign_id, status = fila
+    grupo_id, campaign_id, status, status_campana = fila
     terminos = windows.terminos_cortes(conn, grupo_id, decided_at)
     contadores.terminos += len(terminos.terminos)
     # 2.2 sellado 5 / 2.4: los terminos cuya clave de efecto (grupo,
@@ -1206,6 +1240,7 @@ def _procesa_grupo(
         campaign_id=campaign_id,
         entidad_id=grupo_id,
         status=status,
+        ancestros=((MOTIVO_CAMPANA_NO_ENABLED, status_campana),),
         decided_at=decided_at,
     )
     if motivo is not None:
