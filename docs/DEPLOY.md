@@ -686,7 +686,27 @@ medido). Las filas nuevas cuelgan de un `ingest_run` con
 tumban las tres mutaciones probadas: quitar el `ENABLE TRIGGER`, cambiar el
 importe histórico, soltar el `WHERE` del `DELETE`).
 
+**La reversa existe y se prueba** (`migrations/0011_reversa_costo_historico_peseta.sql`):
+la regla del repo es que ninguna acción irreversible se ejecuta sin su vuelta
+atrás YA implementada — la misma que obligó a `reponer-anuncios` antes de
+`archivar-anuncios` (hallazgo de CodeRabbit, PR #116). La reversa borra por
+**procedencia** (el `ingest_run` de 0011, no por importe), repone la vigencia
+de plata que 0011 borró, y deja el estado exacto previo: probado en vivo con un
+test de ida y vuelta que compara columna por columna, y con otro que confirma
+que tras revertir **0011 se puede volver a aplicar** (ese es el caso de uso:
+un importe mal, se revierte, se corrige con el dueño, se re-aplica). Único
+detalle declarado: la fila repuesta trae el `ingest_run` de la reversa, no el
+de la ingesta que la creó en su día — por eso el paso 0 de abajo captura el
+estado previo COMPLETO como evidencia.
+
 ```bash
+# 0) EVIDENCIA del estado previo (incluye ingest_run_id: la reversa no lo repone)
+ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit -c "
+  SELECT p.odoo_sku, c.cost_amount, c.cost_currency, c.includes_tax,
+         c.valid_from, c.valid_to, c.ingest_run_id
+    FROM sku_cost c JOIN product p ON p.id = c.product_id
+   WHERE p.odoo_sku IN (''NH-GAM-NEG-PESETA-PLA'',''NH-NOG-VEN-PESETA-DOR'')
+   ORDER BY 1, 5;"'
 # 1) backup del esquema + datos de sku_cost ANTES (runbook 4.1)
 ssh goncloud 'docker exec orbit-db-1 pg_dump -U orbit -d orbit \
   -t sku_cost --data-only -Fc > /mnt/data/appdata/orbit/backups/sku_cost-pre-0011.dump'
@@ -709,6 +729,18 @@ SELECT p.odoo_sku, c.cost_amount, c.valid_from, c.valid_to, r.source
 SELECT tgname, tgenabled FROM pg_trigger
  WHERE tgrelid = 'sku_cost'::regclass AND NOT tgisinternal;
 ```
+
+Si hay que dar marcha atrás (importe equivocado detectado tras aplicar):
+
+```bash
+ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit   -v ON_ERROR_STOP=1' < migrations/0011_reversa_costo_historico_peseta.sql
+```
+
+La reversa se auto-verifica y aborta sin escribir si el estado no es el que
+dejó 0011 (o si 0011 nunca se aplicó). Los dos `ingest_run` —el de 0011 y el
+de la reversa— se conservan: que se aplicó y se revirtió es historia real. Si
+se revierte, hay que deshacer también el cambio espejo en contabilidad (abajo),
+o el próximo `ingest costs` volverá a divergir.
 
 **Contabilidad, en el mismo cambio** (si no, el siguiente `ingest costs`
 rechaza los dos SKU por divergencia con el origen): al de plata se le corre

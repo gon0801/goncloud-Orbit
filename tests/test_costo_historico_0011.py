@@ -32,6 +32,7 @@ import socket
 from decimal import Decimal
 from pathlib import Path
 
+import pglast
 import pytest
 
 from tests.test_schema import (  # candados vivos: mismo DSN y misma condición de skip
@@ -42,11 +43,23 @@ from tests.test_schema import (
     _test_dsn,
 )
 
-pglast = pytest.importorskip("pglast")
+# `import pglast` pelado, como tests/test_schema.py: un `importorskip` a nivel
+# de módulo marcaría TODO el archivo —los cinco tests vivos incluidos— como
+# skipeado si faltara la dependencia, y eso se lee como cobertura cuando no la
+# hay (hallazgo CodeRabbit, PR #116). pglast es dependencia dura del repo:
+# si falta, que truene.
 
 ROOT = Path(__file__).resolve().parents[1]
 SQL11 = (ROOT / "migrations" / "0011_costo_historico_peseta.sql").read_text(encoding="utf-8")
 STMTS11 = tuple(pglast.parse_sql(SQL11))
+
+# La reversa: la regla del repo es que ninguna accion irreversible se ejecuta
+# sin su vuelta atras YA implementada (invariante 7, la misma que obligo a
+# `reponer-anuncios` antes de `archivar-anuncios`).
+SQL11R = (ROOT / "migrations" / "0011_reversa_costo_historico_peseta.sql").read_text(
+    encoding="utf-8"
+)
+STMTS11R = tuple(pglast.parse_sql(SQL11R))
 
 TRIGGER = "sku_cost_solo_cierra_vigencia"
 
@@ -410,5 +423,132 @@ def test_0011_no_es_re_runnable():
             (PLA, DOR),
         ).fetchone()[0]
         assert filas == 3, f"tras el segundo intento hay {filas} vigencias, se esperaban 3"
+    finally:
+        _tirar(psycopg, admin, conn, db)
+
+
+# ---------------------------------------------------------------------------
+# La reversa (regla del repo: nada irreversible sin vuelta atras implementada)
+# ---------------------------------------------------------------------------
+
+
+def test_reversa_parsea_y_reenciende_el_trigger():
+    """La reversa tambien apaga y RE-ENCIENDE el append-only, una vez cada uno."""
+    assert STMTS11R, "la reversa no produjo sentencias"
+    plano = " ".join(SQL11R.split())
+    assert plano.count(f"DISABLE TRIGGER {TRIGGER}") == 1
+    assert plano.count(f"ENABLE TRIGGER {TRIGGER}") == 1
+    assert (
+        plano.index(f"DISABLE TRIGGER {TRIGGER}")
+        < plano.index("DELETE FROM sku_cost")
+        < plano.index(f"ENABLE TRIGGER {TRIGGER}")
+    )
+
+
+def test_reversa_borra_por_procedencia_no_por_importe():
+    """Identifica lo que 0011 escribio por su ingest_run, no por su numero.
+
+    Borrar "la fila de 458.00" borraria tambien una fila legitima que el
+    origen publicara con ese mismo importe; el run es la unica llave que
+    apunta exactamente a lo que esta migracion creo.
+    """
+    plano = " ".join(SQL11R.split())
+    recorte = plano[plano.index("DELETE FROM sku_cost") :][:300]
+    assert "ingest_run_id" in recorte, "la reversa no borra por procedencia"
+    assert "manual_costo_historico_0011" in recorte
+    assert "458" not in recorte and "325" not in recorte, (
+        "la reversa identifica filas por importe: fragil y peligroso"
+    )
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_reversa_devuelve_el_estado_exacto_previo_a_0011():
+    """Ida y vuelta: dinero, moneda, impuesto y fechas vuelven identicos.
+
+    Es la prueba que hace ejecutable la promesa de la reversa. Compara el
+    estado ANTES de 0011 contra el de DESPUES de revertir, columna por
+    columna. `ingest_run_id` queda fuera de la comparacion a proposito y esta
+    declarado en la cabecera de la reversa: la fila repuesta trae la
+    procedencia de la reversa, no la de la ingesta original.
+    """
+    psycopg = pytest.importorskip("psycopg")
+    admin, conn, db = _base_temporal(psycopg, "reversa")
+    try:
+        _sembrar_estado_previo(conn)
+        columnas = (
+            "SELECT p.odoo_sku, c.cost_amount, c.cost_currency, c.includes_tax,"
+            " c.valid_from, c.valid_to"
+            "  FROM sku_cost c JOIN product p ON p.id = c.product_id"
+            " WHERE p.odoo_sku IN (%s, %s) ORDER BY 1, 5"
+        )
+        antes = conn.execute(columnas, (PLA, DOR)).fetchall()
+        assert len(antes) == 2, antes
+
+        conn.execute(SQL11)
+        assert len(conn.execute(columnas, (PLA, DOR)).fetchall()) == 3, "0011 no escribio"
+
+        conn.execute(SQL11R)
+        despues = conn.execute(columnas, (PLA, DOR)).fetchall()
+        assert despues == antes, f"la reversa no restauro el estado: {antes} -> {despues}"
+
+        # Y el append-only quedo armado, probado por comportamiento.
+        conn.rollback()
+        with pytest.raises(psycopg.errors.RestrictViolation):
+            conn.execute(
+                "DELETE FROM sku_cost c USING product p"
+                " WHERE p.id = c.product_id AND p.odoo_sku = %s",
+                (PLA,),
+            )
+    finally:
+        _tirar(psycopg, admin, conn, db)
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_tras_la_reversa_0011_se_puede_reaplicar():
+    """La razon de ser de la reversa: corregir un importe y volver a aplicar.
+
+    Si tras revertir 0011 ya no fuera aplicable, la "reversa" seria un
+    callejon sin salida en vez de una vuelta atras.
+    """
+    psycopg = pytest.importorskip("psycopg")
+    admin, conn, db = _base_temporal(psycopg, "reaplica")
+    try:
+        _sembrar_estado_previo(conn)
+        conn.execute(SQL11)
+        conn.execute(SQL11R)
+        conn.execute(SQL11)  # de nuevo: las guardas de 0011 vuelven a cuadrar
+
+        for sku in (PLA, DOR):
+            faltan = _dias_sin_costo(conn, sku, VENTANA_DESDE, CORTE)
+            assert faltan == 0, f"{sku}: {faltan} dias sin costo tras re-aplicar"
+    finally:
+        _tirar(psycopg, admin, conn, db)
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_reversa_aborta_si_0011_no_esta_aplicada():
+    """Fail-closed en la otra direccion: revertir lo que no se aplico revienta."""
+    psycopg = pytest.importorskip("psycopg")
+    admin, conn, db = _base_temporal(psycopg, "revsin")
+    try:
+        _sembrar_estado_previo(conn)
+        with pytest.raises(psycopg.errors.RaiseException):
+            conn.execute(SQL11R)
+        conn.rollback()
+        filas = conn.execute(
+            "SELECT count(*) FROM sku_cost c JOIN product p ON p.id = c.product_id"
+            " WHERE p.odoo_sku IN (%s, %s)",
+            (PLA, DOR),
+        ).fetchone()[0]
+        assert filas == 2, f"la reversa escribio sobre una base sin 0011: {filas} vigencias"
     finally:
         _tirar(psycopg, admin, conn, db)
