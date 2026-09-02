@@ -7,6 +7,7 @@ import json
 import os
 import socket
 import stat
+import subprocess
 import sys
 from contextlib import contextmanager
 from decimal import Decimal
@@ -27,6 +28,64 @@ RAIZ = Path(__file__).resolve().parents[1]
 DECIDED_AT = dt.datetime(2026, 9, 2, 16, 12, 50, tzinfo=dt.UTC)
 KEYWORD = "calzas ninja"
 SECRETO = "Atza|xxx"
+
+CLAVES_REGISTRO_ESPERADAS = (
+    "decision",
+    "entidad",
+    "apply_attempts",
+    "decision_application",
+    "readback",
+    "ciclo",
+    "replay",
+)
+CLAVES_DECISION_ESPERADAS = (
+    "id",
+    "cycle_id",
+    "kind",
+    "decided_at",
+    "config_version_id",
+    "data_observed_at",
+    "window_start",
+    "window_end",
+    "old_value",
+    "new_value",
+    "value_currency",
+    "inputs",
+)
+CLAVES_ENTIDAD_ESPERADAS = (
+    "id",
+    "kind",
+    "match_type",
+    "keyword_text",
+    "name",
+    "external_id",
+    "ad_group",
+    "campana",
+)
+CLAVES_AD_GROUP_ESPERADAS = ("id", "name")
+CLAVES_CAMPANA_ESPERADAS = ("id", "name", "external_id", "status")
+CLAVES_ATTEMPT_ESPERADAS = (
+    "id",
+    "seq",
+    "tipo",
+    "quota_cobrada",
+    "started_at",
+    "finished_at",
+    "resultado",
+    "request_payload",
+    "ack",
+)
+CLAVES_APPLICATION_ESPERADAS = (
+    "attempted_at",
+    "confirmed_at",
+    "verify_ok",
+    "platform_ack",
+    "applied_cycle_id",
+    "error",
+)
+CLAVES_READBACK_ESPERADAS = ("current_bid", "bid_currency", "status", "synced_at")
+CLAVES_CICLO_ESPERADAS = ("mode", "started_at")
+CLAVES_REPLAY_ESPERADAS = ("kind", "new_value", "currency", "replay_coincide")
 
 
 @contextmanager
@@ -180,6 +239,18 @@ def _siembra(conn, *, secreto: str | None = None) -> dict:
         ),
     )
     conn.execute(
+        "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada,"
+        " started_at, finished_at, resultado, ack)"
+        " VALUES (%s, 2, 'reversa', %s, false, %s, %s, 'ok', %s)",
+        (
+            dec_id,
+            Json({"keywordId": "99901", "bid": "1.00"}),
+            DECIDED_AT + dt.timedelta(seconds=9),
+            DECIDED_AT + dt.timedelta(seconds=10),
+            Json({"keywordId": "reversa-99901"}),
+        ),
+    )
+    conn.execute(
         "INSERT INTO decision_application (decision_id, attempted_at, confirmed_at,"
         " verify_ok, platform_ack, applied_cycle_id, error)"
         " VALUES (%s, %s, %s, true, %s, %s, NULL)",
@@ -192,6 +263,41 @@ def _siembra(conn, *, secreto: str | None = None) -> dict:
         ),
     )
     return {"ciclo": ciclo_id, "decision": dec_id, "keyword": kw}
+
+
+def _siembra_decision_invalida(conn, ids: dict) -> int:
+    kw = conn.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id, parent_id, match_type,"
+        " keyword_text) SELECT platform, kind, '99902', parent_id, match_type,"
+        " 'calzas ninja invalidas' FROM ad_entity WHERE id = %s RETURNING id",
+        (ids["keyword"],),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO ad_entity_state (ad_entity_id, current_bid, bid_currency, status,"
+        " synced_at) VALUES (%s, 0.75, 'USD', 'ENABLED', %s)",
+        (kw, DECIDED_AT + dt.timedelta(minutes=2)),
+    )
+    dec_id = conn.execute(
+        "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
+        " data_observed_at, window_start, window_end, old_value, new_value, value_currency,"
+        " inputs) SELECT cycle_id, %s, kind, decided_at, config_version_id,"
+        " data_observed_at, window_start, window_end, old_value, new_value, value_currency,"
+        " '{}'::jsonb FROM decision WHERE id = %s RETURNING id",
+        (kw, ids["decision"]),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada,"
+        " started_at, finished_at, resultado, ack)"
+        " VALUES (%s, 1, 'normal', %s, true, %s, %s, 'ok', %s)",
+        (
+            dec_id,
+            Json({"keywordId": "99902", "bid": "0.75"}),
+            DECIDED_AT + dt.timedelta(seconds=5),
+            DECIDED_AT + dt.timedelta(seconds=8),
+            Json({"keywordId": "99902"}),
+        ),
+    )
+    return dec_id
 
 
 def _claves(d: dict) -> tuple[str, ...]:
@@ -214,19 +320,42 @@ def test_escanear_secretos_detecta_patrones():
     assert hits, "Atza| y Bearer deben disparar el escaner"
 
 
-def test_modulo_no_importa_ads():
+def test_escanear_case_insensitive():
+    assert da.escanear_secretos("AUTHORIZATION: secreto")
+    assert da.escanear_secretos("profile_id=123")
+    assert da.escanear_estructura({"nivel": {"AuThOrIzAtIoN": "secreto"}})
+    assert da.escanear_estructura({"nivel": [{"PROFILE_ID": "123"}]})
+
+
+def test_import_no_carga_ads():
     path = RAIZ / "tools" / "dossier_adversarial.py"
     viol = _violaciones(_imports_runtime(path), ("app.ads",))
     assert not viol, f"el dossier no puede importar app.ads.*: {viol}"
     fuente = path.read_text(encoding="utf-8")
     for patron in ("__import__(", "import_module("):
         assert patron not in fuente
+    programa = (
+        "import sys\n"
+        f"sys.path.insert(0, {str(RAIZ / 'tools')!r})\n"
+        "import dossier_adversarial\n"
+        "cargados = sorted(m for m in sys.modules "
+        "if m.startswith(('app.ads', 'app.apply')))\n"
+        "assert not cargados, cargados\n"
+    )
+    subprocess.run([sys.executable, "-c", programa], cwd=RAIZ, check=True)
 
 
 def test_main_sin_dsn_fail_closed(monkeypatch, tmp_path):
     monkeypatch.delenv("ORBIT_DSN_READ", raising=False)
-    rc = da.main(["--ciclos", "33", "--out", str(tmp_path / "out")])
-    assert rc != 0
+    monkeypatch.setattr(
+        da,
+        "connect",
+        lambda _dsn: pytest.fail("main no debe conectar sin ORBIT_DSN_READ"),
+    )
+    out = tmp_path / "out"
+    rc = da.main(["--ciclos", "33", "--out", str(out)])
+    assert rc == 2
+    assert not out.exists()
 
 
 @pytest.mark.skipif(
@@ -239,19 +368,24 @@ def test_dossier_aplicada_allowlist_replay_md_permisos(monkeypatch, tmp_path):
         regs = da.construir_registros(conn, [ids["ciclo"]])
         assert len(regs) == 1
         reg = regs[0]
-        assert _claves(reg) == da.CLAVES_REGISTRO
-        assert _claves(reg["decision"]) == da.CLAVES_DECISION
-        assert _claves(reg["entidad"]) == da.CLAVES_ENTIDAD
-        assert _claves(reg["entidad"]["ad_group"]) == da.CLAVES_AD_GROUP
-        assert _claves(reg["entidad"]["campana"]) == da.CLAVES_CAMPANA
-        assert _claves(reg["decision_application"]) == da.CLAVES_APPLICATION
-        assert _claves(reg["readback"]) == da.CLAVES_READBACK
-        assert _claves(reg["ciclo"]) == da.CLAVES_CICLO
-        assert _claves(reg["replay"]) == da.CLAVES_REPLAY
-        assert reg["apply_attempts"]
-        assert _claves(reg["apply_attempts"][0]) == da.CLAVES_ATTEMPT
+        assert _claves(reg) == CLAVES_REGISTRO_ESPERADAS
+        assert _claves(reg["decision"]) == CLAVES_DECISION_ESPERADAS
+        assert _claves(reg["entidad"]) == CLAVES_ENTIDAD_ESPERADAS
+        assert _claves(reg["entidad"]["ad_group"]) == CLAVES_AD_GROUP_ESPERADAS
+        assert _claves(reg["entidad"]["campana"]) == CLAVES_CAMPANA_ESPERADAS
+        assert _claves(reg["decision_application"]) == CLAVES_APPLICATION_ESPERADAS
+        assert _claves(reg["readback"]) == CLAVES_READBACK_ESPERADAS
+        assert _claves(reg["ciclo"]) == CLAVES_CICLO_ESPERADAS
+        assert _claves(reg["replay"]) == CLAVES_REPLAY_ESPERADAS
+        assert len(reg["apply_attempts"]) == 2
+        assert _claves(reg["apply_attempts"][0]) == CLAVES_ATTEMPT_ESPERADAS
+        assert _claves(reg["apply_attempts"][1]) == CLAVES_ATTEMPT_ESPERADAS
+        assert reg["readback"]["status"] == "ENABLED"
         assert reg["replay"]["replay_coincide"] is True
         assert Decimal(str(reg["replay"]["new_value"])) == Decimal("0.75")
+        claves_serializadas = json.dumps(reg).casefold()
+        assert "profile_id" not in claves_serializadas
+        assert "authorization" not in claves_serializadas
 
         monkeypatch.setenv("ORBIT_DSN_READ", _dsn_lectura(conn))
         out = tmp_path / "out"
@@ -268,9 +402,19 @@ def test_dossier_aplicada_allowlist_replay_md_permisos(monkeypatch, tmp_path):
         texto_md = md.read_text(encoding="utf-8")
         assert str(ids["decision"]) in texto_md
         assert KEYWORD in texto_md
+        assert "1.00" not in texto_md
+        assert "reversa-99901" not in texto_md
+        assert "→ 0.75 → 99901 → 0.75" in texto_md
+        assert "| 2 |" in texto_md
         blob = json.loads(js.read_text(encoding="utf-8"))
         assert blob["registros"][0]["decision"]["id"] == ids["decision"]
-        assert "dossier_" in prompt.read_text(encoding="utf-8")
+        texto_prompt = prompt.read_text(encoding="utf-8")
+        assert "dossier_" in texto_prompt
+        assert "Kinds presentes: bid" in texto_prompt
+        assert "quota" in texto_prompt
+        assert "no verificable" in texto_prompt
+        assert "TODOS los apply_attempts" in texto_prompt
+        assert "applied_cycle_id" in texto_prompt
 
 
 @pytest.mark.skipif(
@@ -284,4 +428,31 @@ def test_dossier_secreto_en_inputs_no_escribe(monkeypatch, tmp_path):
         out = tmp_path / "out_sec"
         rc = da.main(["--ciclos", str(ids["ciclo"]), "--out", str(out)])
         assert rc != 0
-        assert _archivos_dossier(out) == []
+        assert not out.exists() or not any(out.rglob("*"))
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_replay_inputs_invalidos_no_tumba_todo(monkeypatch, tmp_path):
+    with _db_temporal("orbit_dossier_replay_invalido") as conn:
+        ids = _siembra(conn)
+        invalida = _siembra_decision_invalida(conn, ids)
+        monkeypatch.setenv("ORBIT_DSN_READ", _dsn_lectura(conn))
+        out = tmp_path / "out"
+
+        rc = da.main(["--ciclos", str(ids["ciclo"]), "--out", str(out)])
+
+        assert rc == 0
+        fecha = dt.datetime.now(dt.UTC).strftime("%Y%m%d")
+        payload = json.loads((out / f"dossier_{fecha}.json").read_text(encoding="utf-8"))
+        assert len(payload["registros"]) == 2
+        por_id = {r["decision"]["id"]: r for r in payload["registros"]}
+        replay = por_id[invalida]["replay"]
+        assert replay == {
+            "kind": None,
+            "new_value": None,
+            "currency": None,
+            "replay_coincide": False,
+        }
