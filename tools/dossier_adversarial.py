@@ -201,7 +201,6 @@ def _filas_dict(conn, sql: str, params) -> list[dict]:
 
 
 def _cadena(fila: dict) -> tuple[dict, dict, int | None]:
-    """(ad_group, campana, campana_id) segun kind de la entidad de la decision."""
     kind = fila["entidad_kind"]
     if kind == "campaign":
         grupo = {"id": None, "name": None}

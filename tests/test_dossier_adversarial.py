@@ -1,16 +1,4 @@
-"""Tests del expediente adversarial (ORBIT 05 tarea 2.1a).
-
-INTEGRACION (patron _db_temporal COPIADO de test_cycle; skipif fail-closed
-`_postgres_obligatorio_ausente` de test_schema): siembra un ciclo live +
-una decision bid APLICADA (apply_attempt tipo=normal resultado=ok) y afirma:
-
-1. el registro trae EXACTAMENTE las claves de la allowlist
-2. replay_coincide is True
-3. el .md contiene id de decision y keyword
-4. inputs con string tipo secreto -> exit != 0 y DIR sin dossier/prompt
-5. DIR 700, archivos 600
-6. el modulo NO importa app.ads.* (AST, mismo walker de test_architecture)
-"""
+"""Tests del expediente adversarial (ORBIT 05 tarea 2.1a)."""
 
 from __future__ import annotations
 
@@ -41,37 +29,22 @@ KEYWORD = "calzas ninja"
 SECRETO = "Atza|xxx"
 
 
-# ---------------------------------------------------------------------------
-# Patron _db_temporal COPIADO de test_cycle (0001+0002+0003)
-# ---------------------------------------------------------------------------
-
-
 @contextmanager
 def _db_temporal(prefijo: str):
-    """DB temporal con la migracion entera; yields (conn, conectar_extra)."""
     from psycopg import sql as pgsql
 
     dsn = _test_dsn()
     db = f"{prefijo}_{socket.gethostname().lower()}_{os.getpid()}"
     admin = psycopg.connect(dsn, autocommit=True)
     conn = None
-
-    def conectar_extra():
-        """Conexion adicional a la MISMA DB temporal (threads del test)."""
-        return psycopg.connect(dsn, dbname=db, autocommit=True)
-
     try:
         admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
         conn = psycopg.connect(dsn, dbname=db, autocommit=True)
         conn.execute("SET TIME ZONE 'UTC'")
-        conn.execute(SQL)  # 0001: roles, esquema sellado, grants
-        # ORBIT 04 2.4: la fase de apply del ciclo escribe en apply_queue/
-        # apply_attempt (0002) — sin esta migracion el encolado revienta.
+        conn.execute(SQL)
         conn.execute(SQL2)
-        # ORBIT 05 preflight 1.2: la DB de prueba ES la de produccion —
-        # ads_optimizer_goal sin DEFAULT en piso/techo (0003).
         conn.execute(SQL3)
-        yield conn, conectar_extra
+        yield conn
     finally:
         if conn is not None:
             conn.close()
@@ -86,7 +59,6 @@ def _dsn_lectura(conn) -> str:
 
 
 def _inputs_bid() -> dict:
-    """Shape REAL de test_cycle (replay bid 1.00 -> 0.75, banda -25%)."""
     return {
         "motor": "bid",
         "platform": "amazon_us",
@@ -134,7 +106,6 @@ def _inputs_bid() -> dict:
 
 
 def _siembra(conn, *, secreto: str | None = None) -> dict:
-    """Ciclo live + cadena campana→grupo→keyword + decision bid aplicada."""
     inputs = _inputs_bid()
     if secreto is not None:
         inputs["motivo"] = f"{inputs['motivo']} {secreto}"
@@ -238,14 +209,12 @@ def _archivos_dossier(out_dir: Path) -> list[Path]:
 
 
 def test_escanear_secretos_detecta_patrones():
-    """El escaner fail-closed muerde el vocabulario sellado; texto limpio no."""
     assert da.escanear_secretos("keyword calzas ninja bid 0.75") == []
     hits = da.escanear_secretos(f"token {SECRETO} y Bearer x")
     assert hits, "Atza| y Bearer deben disparar el escaner"
 
 
 def test_modulo_no_importa_ads():
-    """Candado local: tools/dossier_adversarial.py jamas importa app.ads.*."""
     path = RAIZ / "tools" / "dossier_adversarial.py"
     viol = _violaciones(_imports_runtime(path), ("app.ads",))
     assert not viol, f"el dossier no puede importar app.ads.*: {viol}"
@@ -265,7 +234,7 @@ def test_main_sin_dsn_fail_closed(monkeypatch, tmp_path):
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 def test_dossier_aplicada_allowlist_replay_md_permisos(monkeypatch, tmp_path):
-    with _db_temporal("orbit_dossier") as (conn, _extra):
+    with _db_temporal("orbit_dossier") as conn:
         ids = _siembra(conn)
         regs = da.construir_registros(conn, [ids["ciclo"]])
         assert len(regs) == 1
@@ -309,7 +278,7 @@ def test_dossier_aplicada_allowlist_replay_md_permisos(monkeypatch, tmp_path):
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 def test_dossier_secreto_en_inputs_no_escribe(monkeypatch, tmp_path):
-    with _db_temporal("orbit_dossier_sec") as (conn, _extra):
+    with _db_temporal("orbit_dossier_sec") as conn:
         ids = _siembra(conn, secreto=SECRETO)
         monkeypatch.setenv("ORBIT_DSN_READ", _dsn_lectura(conn))
         out = tmp_path / "out_sec"
