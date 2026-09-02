@@ -531,6 +531,7 @@ def _render_prompt(registros: list[dict], fecha: str, ciclos: list[int]) -> str:
 def _publicar(out_dir: Path, archivos: dict[str, str]) -> None:
     vieja = os.umask(0o077)
     staging = out_dir / f".staging-{os.getpid()}"
+    staging_creado = False
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
         if out_dir.is_symlink():
@@ -541,6 +542,7 @@ def _publicar(out_dir: Path, archivos: dict[str, str]) -> None:
         if stat.S_IMODE(info.st_mode) != 0o700:
             out_dir.chmod(0o700)
         staging.mkdir(mode=0o700)
+        staging_creado = True
         staging.chmod(0o700)
         for nombre, contenido in archivos.items():
             temporal = staging / nombre
@@ -549,7 +551,8 @@ def _publicar(out_dir: Path, archivos: dict[str, str]) -> None:
         for nombre in archivos:
             os.replace(staging / nombre, out_dir / nombre)
     finally:
-        shutil.rmtree(staging, ignore_errors=True)
+        if staging_creado:
+            shutil.rmtree(staging, ignore_errors=True)
         os.umask(vieja)
 
 

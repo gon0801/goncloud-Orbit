@@ -378,6 +378,20 @@ def test_main_oculta_secreto_de_excepcion(monkeypatch, tmp_path, capsys):
     assert "secreto" not in captura.err
 
 
+def test_publicar_no_borra_staging_ajeno(tmp_path):
+    out = tmp_path / "out"
+    out.mkdir(mode=0o700)
+    staging = out / f".staging-{os.getpid()}"
+    staging.mkdir(mode=0o700)
+    testigo = staging / "ajeno"
+    testigo.write_text("conservar", encoding="utf-8")
+
+    with pytest.raises(FileExistsError):
+        da._publicar(out, {"dossier.json": "{}\n"})
+
+    assert testigo.read_text(encoding="utf-8") == "conservar"
+
+
 @pytest.mark.skipif(
     _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
