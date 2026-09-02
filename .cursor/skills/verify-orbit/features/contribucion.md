@@ -29,12 +29,12 @@ Preconditions:
 - **Partir de Resumen.** Corre `curl -sS "$BASE/"`. Status 200 y `data-pantalla="resumen"`.
 - **Seguir el nav.** Corre `curl -sS -D - "$BASE/contribucion"`. Status 200. El HTML contiene `data-pantalla="contribucion"`, `h2` `Contribucion por campana — rango pre-cargos (90d maduros)`, `href="/contribucion"` junto a `aria-current="page"`, y bloques `amazon_us` / `amazon_mx`.
 - **Leer el vacio de la semilla.** El HTML contiene `Sin campanas con actividad madura en la ventana.` No afirma un rango numerico contra esta semilla.
-- **Confirmar lado JSON.** Corre `curl -sS "$BASE/api/dashboard/contribucion"`. Status 200. `plataformas.amazon_us.filas` y `plataformas.amazon_mx.filas` son listas vacias. `ventana.desde` / `ventana.hasta` estan presentes (D-15 y D-15-89 UTC).
+- **Confirmar lado JSON.** Corre `curl -sS "$BASE/api/dashboard/contribucion"`. Status 200. `plataformas.amazon_us.filas` y `plataformas.amazon_mx.filas` son listas vacias. `plataformas.amazon_us.ventana.desde` / `.hasta` estan presentes (D-15-89 y D-15 UTC). No hay `ventana` en la raiz del JSON.
 - **Proof.** Guarda HTML de `/` y `/contribucion` mas el JSON bajo `evidence/<run_id>/contribucion/`.
 
 ## Gotchas
 
 - Un 500 aqui suele ser migracion 0006/0007 ausente (`v_contribucion_entidad` no existe). No es "tabla vacia".
 - Hueco / ausencia se pinta `—` con motivo (`kind fuera`, `sin precio`, `catalogo parcial`, …), jamas `0` ni `0.0000`.
-- `fx_source=nearest_prior` se ve como chip `FX aproximado`. La semilla baseline no lo ejercita.
+- `fx_source=nearest_prior` se ve como chip `FX aproximado · nearest_prior`. La semilla baseline no lo ejercita.
 - La etiqueta visible es `contribucion pre-cargos · no decisoria` (`ETIQUETA_CONTRIBUCION` en `app/dashboard_contribucion.py`).

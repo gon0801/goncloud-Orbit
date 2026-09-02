@@ -53,14 +53,23 @@ FORBIDDEN_PORTS = {8010}
 
 
 def _migration_files() -> list[Path]:
-    """SQL numeradas de migrations/ en orden de nombre (hoy 0001-0007)."""
+    """SQL de esquema, en orden de nombre.
+
+    Si un prefijo NNNN tiene un sibling `*_reversa_*`, ese prefijo es un
+    parche de catalogo vivo (hoy 0011) y no aplica en una base vacia.
+    tests/test_schema.py omite 0011 por la misma razon.
+    """
     files = sorted(
         (p for p in MIGRATIONS.glob("*.sql") if p.name[:4].isdigit()),
         key=lambda p: p.name,
     )
     if not files:
         _die(f"no hay migraciones numeradas en {MIGRATIONS}")
-    return files
+    prefixes_con_reversa = {p.name[:4] for p in files if "_reversa_" in p.name}
+    esquema = [p for p in files if p.name[:4] not in prefixes_con_reversa]
+    if not esquema:
+        _die(f"no quedo SQL de esquema en {MIGRATIONS}")
+    return esquema
 
 
 def _die(msg: str, code: int = 1) -> None:
@@ -605,6 +614,19 @@ def cmd_drive_campanas(args: argparse.Namespace) -> None:
         (i.get("target_efectivo") or {}).get("peldano") == "goal_plataforma" for i in items
     )
 
+    st_mx, _, html_mx = _http(f"{base}/campanas?plataforma=amazon_mx")
+    (evidence / "05-campanas-filtro-mx.html").write_bytes(html_mx)
+    texto_mx = html_mx.decode("utf-8", errors="replace")
+    checks["filtro_mx_200"] = st_mx == 200
+    checks["filtro_mx_vacio"] = "Ninguna campana coincide con el filtro." in texto_mx
+    checks["filtro_mx_sin_campana_a"] = "Campana A" not in texto_mx
+
+    st_ord, _, html_ord = _http(f"{base}/campanas?ordenar=cost&dir=desc")
+    texto_ord = html_ord.decode("utf-8", errors="replace")
+    checks["orden_cost_200"] = st_ord == 200
+    checks["orden_cost_aria"] = 'aria-sort="descending"' in texto_ord
+    checks["orden_cost_campana_a"] = "Campana A" in texto_ord
+
     png = evidence / "04-campanas.png"
     chrome = os.environ.get("ORBIT_VERIFY_CHROME", "google-chrome")
     try:
@@ -641,7 +663,7 @@ def cmd_drive_campanas(args: argparse.Namespace) -> None:
         "feature": "campanas",
         "entry_point": "nav /campanas desde /",
         "base_url": base,
-        "action": "GET / luego GET /campanas (mismo camino que el <a href=/campanas>)",
+        "action": "GET / luego GET /campanas, ?plataforma=amazon_mx y ?ordenar=cost&dir=desc",
         "resulting_state": {
             "html_status": st,
             "api_status": stj,

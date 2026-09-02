@@ -30,6 +30,7 @@ Preconditions:
 ## Gotchas
 
 - Sin `?cursor=` siempre es la primera pagina. Ignorar el query era un bug real: 'Cargar mas' recargaba lo mismo.
+- Motivo desconocido se pinta con el id crudo. La semilla trae un `negative` con `term_sin_ventas` (no esta en el dict): no es un stacktrace.
 - El search_term es texto libre: el HTML servido no puede contener `<script>` crudo. Si siembras un payload, afirma el escape `&lt;script&gt;`.
 - Skips no son filas de este feed: viven agregados en Salud.
 - El boton solo se renderiza si `has_more` y `next_cursor`. Ausencia del boton no es fallo si el JSON dice `has_more: false`.

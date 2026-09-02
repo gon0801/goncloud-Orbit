@@ -5,7 +5,7 @@ Cortes lista la cola de pause/negative/harvest en `pending_veto` o `released`. E
 ## Sub-features
 
 - `cortes-nav` abre `/cortes` y marca `aria-current="page"`.
-- `cortes-tabla` lista id, plataforma, kind, entidad, search_term, estado, vence, encolado, boton Vetar.
+- `cortes-tabla` lista id, plataforma, kind (+ familia, p.ej. `term_cut`), entidad (`external_id` o `#id`), search_term, estado, vence, encolado, boton Vetar.
 - `cortes-vacio` sin filas muestra `sin cortes pendientes: la cola no tiene filas esperando ventana de veto.`
 - `cortes-form` el boton `data-vetar="<id>"` revela `form[data-veto="<id>"]` (dias, actor, token).
 - `cortes-api` `GET /api/dashboard/cortes` es la misma cola.
@@ -21,7 +21,7 @@ Preconditions:
 
 - Doctor en verde.
 - Semilla: una fila `pending_veto` kind `negative`, search_term `zapato blanco`, plataforma `amazon_us`.
-- Migraciones numeradas de `migrations/` aplicadas, incluida 0002 (`apply_queue`).
+- Migraciones de esquema de `migrations/` aplicadas, incluida 0002 (`apply_queue`). Los parches de datos con `_reversa_` (hoy 0011) no van en esta base vacia.
 - Si falta 0002, `apply_queue` no existe y `/cortes` devuelve 500; ese run no es valido.
 
 - **Abrir Cortes.** Corre `curl -sS "$BASE/cortes"`. Status 200. El HTML contiene `data-pantalla="cortes"` y `h2` `Cortes pendientes de veto`.

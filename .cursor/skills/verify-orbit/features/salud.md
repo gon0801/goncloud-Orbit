@@ -29,6 +29,7 @@ Preconditions:
 
 ## Gotchas
 
+- El h3 dice `Historico (14d)`. El SQL es `ORDER BY id DESC LIMIT 14` (ultimos 14 ciclos, no 14 dias de calendario).
 - `applied_count=0` en shadow es el caso normal. Pintarlo como `—` fue un bug de presentacion.
 - Quota con `cap` null se muestra `— (sin clave)` o `— (config rota)`, nunca un tope 0 inventado.
 - La nota `telegram` es la unica visibilidad del canal caido. Si el JSON trae `notes.telegram` y el HTML no la muestra, es regresion.

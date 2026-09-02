@@ -34,7 +34,7 @@ Override: `ORBIT_VERIFY_RUN_ID=mi-run`, `ORBIT_VERIFY_PORT=18011` o `--port 1801
 Que hace, en orden:
 
 1. Habla Postgres en `postgresql://orbit:orbit@127.0.0.1:5432/postgres`. Si no responde, corre `.cursor/start.sh` (idempotente) y reintenta.
-2. `CREATE DATABASE orbit_verify_<run_id>` y aplica las SQL numeradas de `migrations/` en orden de nombre (0001 no es re-runnable: por eso la base es nueva).
+2. `CREATE DATABASE orbit_verify_<run_id>` y aplica las SQL numeradas de esquema en `migrations/` (omite parches de datos que traen `_reversa_`, hoy 0011). 0001 no es re-runnable: por eso la base es nueva.
 3. Siembra el fixture: campana `Campana A` (amazon_us, ENABLED), metrica D-15 (12.3400 / 45.6700 USD), goal de plataforma 25% (`goal_plataforma`), decision bid, corte `pending_veto` con search_term `zapato blanco`.
 4. Arranca `.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port <puerto>` con `ORBIT_DSN_READ` apuntando a esa base. No setea `ORBIT_PG_HOST` ni DSN de escritura.
 
@@ -77,6 +77,7 @@ Harness: **curl** (mismo transporte que `docs/DEPLOY.md` y que TestClient). Sele
 | `nav a[aria-current="page"]` | pagina activa |
 | `h1` = `Orbit — Dashboard` | header |
 | `h2` Resumen / Campanas / Decisiones / Salud / Contribucion / Cortes | cada template |
+| `form.filtros[action="/campanas"]`, `th[aria-sort]`, `a[href^="/campanas?ordenar="]` | `campanas.html` |
 | `canvas#serie-amazon_us`, `#serie-amazon_mx`, `#serie-acos-amazon_us` | `resumen.html` |
 | `script#datos-serie-amazon_us[type=application/json]` | datos de grafica |
 | `button#btn-mas[data-cursor]` | `decisiones.html` (solo si hay mas paginas) |
@@ -126,6 +127,7 @@ Directorio nombrado (sobrevive cleanup):
     02-campanas.headers.txt
     03-campanas.json         # lado JSON del mismo camino
     04-campanas.png          # canvas/table visibles
+    05-campanas-filtro-mx.html
     PROOF.json
 ```
 
