@@ -7,6 +7,8 @@ plataforma sin contribucion no rompe la pantalla. Patron de tests/test_ui.py
 
 from __future__ import annotations
 
+import threading
+import time
 from decimal import Decimal
 
 import pytest
@@ -14,6 +16,7 @@ from fastapi.testclient import TestClient
 from test_contribucion_entidad import _aplicar_esquema, _entidad, _semilla_mx_completa
 from test_schema import _postgres_obligatorio_ausente
 
+from app import dashboard_contribucion as dc
 from app import ui
 from app.api import _conexion_lectura
 from app.main import app
@@ -247,6 +250,115 @@ def test_lectura_contribucion_desactiva_nestloop():
     assert "enable_nestloop" in texto and "off" in texto, (
         "la lectura de /contribucion debe forzar Hash Join en esta conexion"
     )
+    assert "SET LOCAL" in texto, (
+        "el GUC va SET LOCAL (transaccion), no session: si la conexion se "
+        "reusa, nestloop=off no se queda pegado al pool"
+    )
+
+
+def test_reopen_contribucion_no_recomputa_la_vista(monkeypatch):
+    """Prod 2026-09-01 (post PR 113): el primer GET /contribucion abre
+    (~9.6s). Al salir y volver (nav in-app, segundo GET, no-store) se
+    volvia a evaluar v_contribucion_*. Sin snapshot el reopen es otra
+    query completa; si la primera sigue viva (sin cancel) dos Hash Join
+    se pisan y el segundo no vuelve. El segundo GET debe servir el
+    snapshot, no recomputar."""
+    dc.invalidar_cache_contribucion()
+    n = {"calls": 0}
+    payload = _payload(mx_items=[_item_con_rango()])
+
+    def fake(_conn):
+        n["calls"] += 1
+        time.sleep(0.25)
+        return payload
+
+    monkeypatch.setattr(dc, "_contribucion_todas", fake)
+    app.dependency_overrides[_conexion_lectura] = lambda: None
+    try:
+        client = TestClient(app)
+        t0 = time.perf_counter()
+        r1 = client.get("/contribucion")
+        d1 = time.perf_counter() - t0
+        t0 = time.perf_counter()
+        r2 = client.get("/contribucion")
+        d2 = time.perf_counter() - t0
+    finally:
+        app.dependency_overrides.pop(_conexion_lectura, None)
+        dc.invalidar_cache_contribucion()
+
+    assert r1.status_code == 200 and r2.status_code == 200
+    assert 'data-pantalla="contribucion"' in r1.text
+    assert 'data-pantalla="contribucion"' in r2.text
+    assert "Camp MX" in r2.text
+    assert n["calls"] == 1, (
+        f"reopen recomputo la vista {n['calls']} veces (debe ser 1); GET1={d1:.2f}s GET2={d2:.2f}s"
+    )
+    assert d2 < 0.10, f"reopen tardo {d2:.2f}s: no fue snapshot"
+
+
+def test_reopen_contribucion_concurrente_un_solo_calculo(monkeypatch):
+    """Nav-away aborta el GET en el browser pero no cancela el SQL. El
+    reopen arranca otro GET mientras el primero sigue. Sin single-flight
+    son dos Hash Join a la vez."""
+    dc.invalidar_cache_contribucion()
+    n = {"calls": 0}
+    payload = _payload(mx_items=[_item_con_rango()])
+
+    def fake(_conn):
+        n["calls"] += 1
+        time.sleep(0.30)
+        return payload
+
+    monkeypatch.setattr(dc, "_contribucion_todas", fake)
+    resultados: list[dict] = []
+
+    def correr() -> None:
+        resultados.append(dc.contribucion_campanas(None))
+
+    t1 = threading.Thread(target=correr)
+    t2 = threading.Thread(target=correr)
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+    dc.invalidar_cache_contribucion()
+    assert n["calls"] == 1, f"calculo concurrente={n['calls']} (debe ser 1)"
+    assert resultados[0] == resultados[1] == payload
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_set_local_nestloop_no_queda_en_sesion():
+    """SET session (PR 113) dejaba enable_nestloop=off en la conexion.
+    SET LOCAL muere al cerrar la transaccion: la sesion vuelve a on."""
+    psycopg = pytest.importorskip("psycopg")
+    import os
+    import socket
+
+    from psycopg import sql as pgsql
+    from test_schema import _test_dsn
+
+    dsn = _test_dsn()
+    name = f"orbit_nestloop_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(name)))
+        conn = psycopg.connect(dsn, dbname=name, autocommit=True)
+        _aplicar_esquema(conn)
+        conn.execute("SET enable_nestloop = on")
+        dc._contribucion_todas(conn)
+        queda = conn.execute("SHOW enable_nestloop").fetchone()[0]
+        assert queda == "on", f"leftover enable_nestloop={queda}"
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(name))
+        )
+        admin.close()
 
 
 @pytest.mark.skipif(
