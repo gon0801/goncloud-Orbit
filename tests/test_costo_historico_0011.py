@@ -339,13 +339,17 @@ def test_0011_devuelve_el_append_only_armado():
         _sembrar_estado_previo(conn)
         conn.execute(SQL11)
 
-        with pytest.raises(psycopg.errors.RaiseException):
+        # El trigger alza con ERRCODE = 'restrict_violation' (0001), NO la
+        # P0001 generica: afirmar la clase exacta es lo que distingue "el
+        # candado disparo" de "algo fallo".
+        with pytest.raises(psycopg.errors.RestrictViolation):
             conn.execute(
                 "DELETE FROM sku_cost c USING product p"
                 " WHERE p.id = c.product_id AND p.odoo_sku = %s",
                 (PLA,),
             )
-        with pytest.raises(psycopg.errors.RaiseException):
+        conn.rollback()
+        with pytest.raises(psycopg.errors.RestrictViolation):
             conn.execute(
                 "UPDATE sku_cost c SET cost_amount = 1 FROM product p"
                 " WHERE p.id = c.product_id AND p.odoo_sku = %s",
@@ -371,6 +375,10 @@ def test_0011_aborta_si_el_estado_no_es_el_esperado():
         _sembrar_estado_previo(conn, costo_pla=Decimal("999.0000"))
         with pytest.raises(psycopg.errors.RaiseException):
             conn.execute(SQL11)
+        # 0011 trae su propio BEGIN/COMMIT: al abortar deja la conexión en
+        # transacción fallida aun con autocommit. El ROLLBACK explícito es
+        # parte de la prueba: demuestra que NADA de la migración sobrevivió.
+        conn.rollback()
         # Y no dejó nada a medias: sigue habiendo UNA vigencia por SKU.
         filas = conn.execute(
             "SELECT count(*) FROM sku_cost c JOIN product p ON p.id = c.product_id"
@@ -395,6 +403,7 @@ def test_0011_no_es_re_runnable():
         conn.execute(SQL11)
         with pytest.raises(psycopg.errors.RaiseException):
             conn.execute(SQL11)
+        conn.rollback()  # ver test_0011_aborta_si_el_estado_no_es_el_esperado
         filas = conn.execute(
             "SELECT count(*) FROM sku_cost c JOIN product p ON p.id = c.product_id"
             " WHERE p.odoo_sku IN (%s, %s)",
