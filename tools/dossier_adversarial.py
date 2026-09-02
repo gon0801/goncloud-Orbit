@@ -12,21 +12,20 @@ USO:
 from __future__ import annotations
 
 import argparse
-import contextlib
 import datetime as dt
 import json
 import os
 import re
+import shutil
 import stat
 import sys
-import tempfile
 from decimal import Decimal
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.cycle import reproduce  # noqa: E402
 from app.db import connect  # noqa: E402
+from app.optimizer.replay import reproduce  # noqa: E402
 from app.redaction import scrub  # noqa: E402
 
 # Preconfirmacion plan orbit-05 2.1: JAMAS tokens/headers/profile ids/ids de cuenta;
@@ -85,7 +84,7 @@ CLAVES_APPLICATION = (
     "applied_cycle_id",
     "error",
 )
-CLAVES_READBACK = ("current_bid", "bid_currency", "synced_at")
+CLAVES_READBACK = ("current_bid", "bid_currency", "status", "synced_at")
 CLAVES_CICLO = ("mode", "started_at")
 CLAVES_REPLAY = ("kind", "new_value", "currency", "replay_coincide")
 
@@ -97,11 +96,33 @@ _TEXTOS_SECRETO = (
     "Authorization",
     "Bearer ",
     "profileId",
+    "profile_id",
     "Amazon-Advertising-API-",
+    "access_token",
 )
 PATRONES_SECRETO: tuple[re.Pattern[str], ...] = tuple(
-    re.compile(re.escape(texto)) for texto in _TEXTOS_SECRETO
+    re.compile(re.escape(texto), re.IGNORECASE) for texto in _TEXTOS_SECRETO
 )
+_CLAVES_SENSIBLES = frozenset(
+    {
+        "authorization",
+        "bearer",
+        "refresh_token",
+        "client_secret",
+        "access_token",
+        "profileid",
+        "profile_id",
+        "cookie",
+        "set-cookie",
+    }
+)
+_REPLAY_FALLIDO = {
+    "kind": None,
+    "new_value": None,
+    "currency": None,
+    "replay_coincide": False,
+}
+_MENSAJE_OMITIDO = "replay fallido (detalle omitido)"
 
 _SQL_APLICADAS = """
 SELECT
@@ -152,7 +173,7 @@ SELECT id, decision_id, seq, tipo, quota_cobrada, started_at, finished_at,
        resultado, request_payload, ack
 FROM apply_attempt
 WHERE decision_id = ANY(%s)
-ORDER BY decision_id, seq
+ORDER BY decision_id, seq, id
 """
 
 _SQL_APPLICATION = """
@@ -174,6 +195,25 @@ def escanear_secretos(texto: str) -> list[str]:
     if not texto:
         return []
     return [p.pattern for p in PATRONES_SECRETO if p.search(texto)]
+
+
+def escanear_estructura(obj) -> list[str]:
+    """Patrones y claves sensibles presentes en una estructura JSON."""
+    hits = escanear_secretos(json.dumps(_jsonable(obj), ensure_ascii=False, default=str))
+
+    def recorrer(nodo) -> None:
+        if isinstance(nodo, dict):
+            for clave, valor in nodo.items():
+                normalizada = str(clave).casefold()
+                if normalizada in _CLAVES_SENSIBLES:
+                    hits.append(f"clave:{normalizada}")
+                recorrer(valor)
+        elif isinstance(nodo, list | tuple):
+            for valor in nodo:
+                recorrer(valor)
+
+    recorrer(obj)
+    return list(dict.fromkeys(hits))
 
 
 def _jsonable(valor):
@@ -236,7 +276,14 @@ def _misma_plata(a, b) -> bool:
 
 
 def _replay(inputs: dict, kind: str, new_value, currency) -> dict:
-    r_kind, r_nuevo, r_moneda = reproduce(inputs)
+    if escanear_estructura(inputs):
+        return dict(_REPLAY_FALLIDO)
+    try:
+        r_kind, r_nuevo, r_moneda = reproduce(inputs)
+    except Exception as exc:
+        if escanear_secretos(str(exc)):
+            raise ValueError(_MENSAJE_OMITIDO) from None
+        raise
     return _nodo(
         CLAVES_REPLAY,
         {
@@ -278,6 +325,15 @@ def construir_registros(conn, ciclos: list[int]) -> list[dict]:
         campana["status"] = st_camp.get("status")
         st_ent = estados.get(fila["entidad_id"]) or {}
         inputs = fila["inputs"] if isinstance(fila["inputs"], dict) else {}
+        try:
+            replay = _replay(
+                inputs,
+                fila["decision_kind"],
+                fila["new_value"],
+                fila["value_currency"],
+            )
+        except Exception:
+            replay = dict(_REPLAY_FALLIDO)
         registros.append(
             _nodo(
                 CLAVES_REGISTRO,
@@ -321,12 +377,7 @@ def construir_registros(conn, ciclos: list[int]) -> list[dict]:
                         CLAVES_CICLO,
                         {"mode": fila["ciclo_mode"], "started_at": fila["ciclo_started_at"]},
                     ),
-                    "replay": _replay(
-                        inputs,
-                        fila["decision_kind"],
-                        fila["new_value"],
-                        fila["value_currency"],
-                    ),
+                    "replay": replay,
                 },
             )
         )
@@ -373,8 +424,18 @@ def _fila_md(reg: dict) -> str:
     keyword = ent.get("keyword_text") or ent.get("name")
     campana = (ent.get("campana") or {}).get("name")
     intentos = reg.get("apply_attempts") or []
-    payload = intentos[-1]["request_payload"] if intentos else {}
-    ack = intentos[-1]["ack"] if intentos else {}
+    normales_ok = [
+        intento
+        for intento in intentos
+        if intento.get("tipo") == "normal" and intento.get("resultado") == "ok"
+    ]
+    intento = max(
+        normales_ok,
+        key=lambda actual: (actual.get("seq"), actual.get("id")),
+        default=None,
+    )
+    payload = intento["request_payload"] if intento is not None else {}
+    ack = intento["ack"] if intento is not None else {}
     bid_req = payload.get("bid") if isinstance(payload, dict) else None
     cadena = (
         f"{dec.get('old_value')} → {dec.get('new_value')} → {bid_req} → "
@@ -386,7 +447,7 @@ def _fila_md(reg: dict) -> str:
         f"| {_celda(dec.get('id'))} | {_celda(inputs.get('platform'))} | "
         f"{_celda(campana)} | {_celda(keyword)} | {_celda(cadena)} | "
         f"{_celda(motivo)} / {_celda(factor)} | {_celda(_acos_ventana(inputs))} | "
-        f"{_celda(inputs.get('target_acos_pct_usado'))} |"
+        f"{_celda(inputs.get('target_acos_pct_usado'))} | {len(intentos)} |"
     )
 
 
@@ -399,8 +460,8 @@ def _render_md(registros: list[dict], fecha: str, ciclos: list[int]) -> str:
         "",
         "| id | pais/plataforma | campana | keyword/target |"
         " bid antes → decidido → request → ack (id) → readback |"
-        " motivo/factor | ACoS ventana bids | target |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- |",
+        " motivo/factor | ACoS ventana bids | target | intentos |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     lineas.extend(_fila_md(reg) for reg in registros)
     for reg in registros:
@@ -417,13 +478,24 @@ def _render_md(registros: list[dict], fecha: str, ciclos: list[int]) -> str:
     return "\n".join(lineas) + "\n"
 
 
-def _render_prompt(n: int, fecha: str, ciclos: list[int]) -> str:
+def _render_prompt(registros: list[dict], fecha: str, ciclos: list[int]) -> str:
+    n = len(registros)
     nombres = f"dossier_{fecha}.md, dossier_{fecha}.json"
     ciclos_txt = ", ".join(str(c) for c in ciclos)
+    kinds = ", ".join(
+        sorted(
+            {
+                str(reg["decision"]["kind"])
+                for reg in registros
+                if (reg.get("decision") or {}).get("kind") is not None
+            }
+        )
+    )
     return (
         f"# Verificador adversarial — primeras {n} mutaciones aplicadas\n"
         f"\n"
         f"Fecha UTC de corrida: {fecha}. Ciclos: {ciclos_txt}.\n"
+        f"Kinds presentes: {kinds or 'ninguno'}.\n"
         f"\n"
         f"## Rol\n"
         f"Verificador adversarial de las primeras {n} mutaciones aplicadas "
@@ -441,13 +513,14 @@ def _render_prompt(n: int, fecha: str, ciclos: list[int]) -> str:
         f" <0.85× → +15%; piso/techo; quantize 2 dec)\n"
         f"- app/optimizer/goals.py\n"
         f"- app/apply.py\n"
-        f"- cooldown 7d\n"
-        f"- quota\n"
+        f"- quota y cooldown no vienen en el dossier: marcarlos como no verificable\n"
         f"\n"
         f"## Tarea por decision\n"
-        f"Recalcular ACoS, banda, bid esperado vs new_value vs request vs ack"
-        f" vs readback; madurez; data_observed_at≤decided_at; goal scope;"
-        f" pause NO aplicaba; replay_coincide true; moneda del goal.\n"
+        f"Revisar cada kind presente sin asumir que todas las decisiones son bids. "
+        f"Recalcular la regla aplicable, el valor esperado, request, ack y readback; "
+        f"madurez; data_observed_at≤decided_at; goal scope; replay_coincide; moneda.\n"
+        f"Revisar TODOS los apply_attempts y decision_application.applied_cycle_id "
+        f"por decision.\n"
         f"\n"
         f"## Formato\n"
         f"Tabla OK/DIVERGE, hallazgos por severidad, lo no verificable,"
@@ -457,6 +530,7 @@ def _render_prompt(n: int, fecha: str, ciclos: list[int]) -> str:
 
 def _publicar(out_dir: Path, archivos: dict[str, str]) -> None:
     vieja = os.umask(0o077)
+    staging = out_dir / f".staging-{os.getpid()}"
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
         if out_dir.is_symlink():
@@ -466,18 +540,16 @@ def _publicar(out_dir: Path, archivos: dict[str, str]) -> None:
             raise PermissionError(f"{out_dir} no es del usuario del proceso (uid {info.st_uid})")
         if stat.S_IMODE(info.st_mode) != 0o700:
             out_dir.chmod(0o700)
+        staging.mkdir(mode=0o700)
+        staging.chmod(0o700)
         for nombre, contenido in archivos.items():
-            destino = out_dir / nombre
-            fd, temporal = tempfile.mkstemp(dir=out_dir, prefix=".dossier-", suffix=".tmp")
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                    fh.write(contenido)
-                os.replace(temporal, destino)
-            except BaseException:
-                with contextlib.suppress(OSError):
-                    os.unlink(temporal)
-                raise
+            temporal = staging / nombre
+            temporal.write_text(contenido, encoding="utf-8")
+            temporal.chmod(0o600)
+        for nombre in archivos:
+            os.replace(staging / nombre, out_dir / nombre)
     finally:
+        shutil.rmtree(staging, ignore_errors=True)
         os.umask(vieja)
 
 
@@ -496,16 +568,17 @@ def escribir_salidas(
         "ciclos": [int(c) for c in ciclos],
         "registros": registros,
     }
-    json_text = scrub(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
-    md_text = scrub(_render_md(registros, fecha, ciclos))
-    prompt_text = scrub(_render_prompt(len(registros), fecha, ciclos))
-    hits = escanear_secretos(json_text + md_text + prompt_text)
+    json_crudo = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    md_crudo = _render_md(registros, fecha, ciclos)
+    prompt_crudo = _render_prompt(registros, fecha, ciclos)
+    hits = escanear_estructura(payload)
+    hits.extend(escanear_secretos(md_crudo + prompt_crudo))
     if hits:
-        print(
-            "secretos detectados, no se escribe nada: " + scrub(", ".join(hits)),
-            file=sys.stderr,
-        )
+        print("secretos detectados, no se escribe nada", file=sys.stderr)
         return 1
+    json_text = scrub(json_crudo)
+    md_text = scrub(md_crudo)
+    prompt_text = scrub(prompt_crudo)
     _publicar(
         out_dir,
         {
@@ -556,13 +629,21 @@ def main(argv: list[str] | None = None) -> int:
     try:
         conn = connect(dsn)
     except Exception as exc:
-        print(f"no se pudo conectar: {scrub(str(exc))}", file=sys.stderr)
+        mensaje = str(exc)
+        if escanear_secretos(mensaje):
+            print(_MENSAJE_OMITIDO, file=sys.stderr)
+        else:
+            print(f"no se pudo conectar: {scrub(mensaje)}", file=sys.stderr)
         return 1
     try:
         registros = construir_registros(conn, args.ciclos)
         return escribir_salidas(registros, args.out, args.ciclos)
     except Exception as exc:
-        print(f"dossier adversarial fallo: {scrub(str(exc))}", file=sys.stderr)
+        mensaje = str(exc)
+        if escanear_secretos(mensaje):
+            print(_MENSAJE_OMITIDO, file=sys.stderr)
+        else:
+            print(f"dossier adversarial fallo: {scrub(mensaje)}", file=sys.stderr)
         return 1
     finally:
         conn.close()

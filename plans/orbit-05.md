@@ -167,14 +167,18 @@
 - `decision_application.applied_cycle_id` vive en `migrations/0002_apply.sql` (no en 0001). El fixture aplica 0001+0002+0003, como `tests/test_cycle.py`.
 - `pais/plataforma` de la tabla MD sale de `inputs.platform` (congelado). `ad_entity.platform` existe en el esquema pero no entra en `CLAVES_ENTIDAD` (allowlist sellada: sin ids de cuenta ni columnas de mas).
 - `replay_coincide` compara `kind`, moneda y `Decimal(new_value)` cuando hay plata; si `new_value` es `None` (pause) no se llama `Decimal(None)`.
-- `from app.cycle import reproduce` esta en la allowlist de imports del tool. En runtime `app.cycle` carga `app.ads.config` y `app.apply` (transitivo). El candado AST es sobre el fuente del tool: cero `app.ads.*` en ese archivo. No se amplia el cierre transitivo.
+- `reproduce` vive en `app/optimizer/replay.py`, que solo depende del motor puro. `app.cycle` lo reexporta para conservar el spot-check 4.4. El tool importa el modulo puro y el test en un proceso limpio sella que no carga `app.ads` ni `app.apply`.
+- El escaner compila patrones sin distinguir mayusculas y minusculas. Tambien recorre claves JSON con `casefold` antes del replay y antes de publicar.
+- El replay queda aislado por decision. Un `inputs` invalido produce `replay_coincide=false` y valores nulos sin impedir que las otras decisiones entren al dossier.
+- El readback incluye `status`. Los intentos salen en orden `(decision_id, seq, id)` y el resumen MD usa el ultimo intento `normal/ok`, no una reversa posterior.
+- La publicacion arma los tres archivos en `.staging-<pid>` con permisos 700 y los mueve al destino solo despues del escaneo completo en memoria.
 - El JSON de salida lleva wrapper `{generado_utc, ciclos, registros}`. El brief no nombro el contenedor; sin el, el archivo seria un dump suelto.
 
 ### Log ROJO (regla 9, codigo ausente)
 
 Corrida: `PYTHONPATH=. .venv/bin/python -m pytest tests/test_dossier_adversarial.py -q --tb=short`
 
-```
+```text
 ==================================== ERRORS ====================================
 ______________ ERROR collecting tests/test_dossier_adversarial.py ______________
 ImportError while importing test module '/workspace/tests/test_dossier_adversarial.py'.

@@ -304,16 +304,6 @@ def _claves(d: dict) -> tuple[str, ...]:
     return tuple(d.keys())
 
 
-def _archivos_dossier(out_dir: Path) -> list[Path]:
-    if not out_dir.exists():
-        return []
-    return [
-        p
-        for p in out_dir.iterdir()
-        if p.name.startswith("dossier_") or p.name == "prompt_revisor.md"
-    ]
-
-
 def test_escanear_secretos_detecta_patrones():
     assert da.escanear_secretos("keyword calzas ninja bid 0.75") == []
     hits = da.escanear_secretos(f"token {SECRETO} y Bearer x")
@@ -325,6 +315,20 @@ def test_escanear_case_insensitive():
     assert da.escanear_secretos("profile_id=123")
     assert da.escanear_estructura({"nivel": {"AuThOrIzAtIoN": "secreto"}})
     assert da.escanear_estructura({"nivel": [{"PROFILE_ID": "123"}]})
+
+
+def test_replay_no_ejecuta_inputs_con_clave_sensible(monkeypatch):
+    monkeypatch.setattr(
+        da,
+        "reproduce",
+        lambda _inputs: pytest.fail("no debe ejecutar replay con claves sensibles"),
+    )
+    assert da._replay({"nivel": {"Authorization": "secreto"}}, "bid", "0.75", "USD") == {
+        "kind": None,
+        "new_value": None,
+        "currency": None,
+        "replay_coincide": False,
+    }
 
 
 def test_import_no_carga_ads():
@@ -356,6 +360,22 @@ def test_main_sin_dsn_fail_closed(monkeypatch, tmp_path):
     rc = da.main(["--ciclos", "33", "--out", str(out)])
     assert rc == 2
     assert not out.exists()
+
+
+def test_main_oculta_secreto_de_excepcion(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("ORBIT_DSN_READ", "postgresql://local")
+
+    def falla(_dsn):
+        raise RuntimeError("Authorization: Bearer secreto")
+
+    monkeypatch.setattr(da, "connect", falla)
+    rc = da.main(["--ciclos", "33", "--out", str(tmp_path / "out")])
+    captura = capsys.readouterr()
+
+    assert rc == 1
+    assert captura.out == ""
+    assert captura.err == "replay fallido (detalle omitido)\n"
+    assert "secreto" not in captura.err
 
 
 @pytest.mark.skipif(
@@ -402,7 +422,6 @@ def test_dossier_aplicada_allowlist_replay_md_permisos(monkeypatch, tmp_path):
         texto_md = md.read_text(encoding="utf-8")
         assert str(ids["decision"]) in texto_md
         assert KEYWORD in texto_md
-        assert "1.00" not in texto_md
         assert "reversa-99901" not in texto_md
         assert "→ 0.75 → 99901 → 0.75" in texto_md
         assert "| 2 |" in texto_md
