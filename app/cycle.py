@@ -48,7 +48,7 @@ Diseño sellado (plans/orbit-03.md task 3.1 + diseno v2):
   -> 'sin_goal'; goal resuelto deshabilitado -> 'goal_disabled' (ESTE es el
   opt-out auditable del Spec delta); goal.mode 'off' -> 'goal_mode_off';
   campaña (o, para hojas, ad group) sin state o status != ENABLED ->
-  'campana_no_enabled' / 'grupo_no_enabled' (CAMPAÑA ACTIVA 01: el cache de
+  'campana_no_enabled' / 'grupo_no_enabled' (CAMPANA ACTIVA 01: el cache de
   estructura, no un LIST; un ancestro pausado hace moot todo lo de abajo);
   entidad sin state o status != ENABLED -> 'estado_no_enabled' (para ad
   groups: sus terminos TODOS skip con ese motivo); cooldown 7d -> 'cooldown_7d'.
@@ -210,7 +210,7 @@ MOTIVO_SIN_GOAL = "sin_goal"
 MOTIVO_GOAL_DISABLED = "goal_disabled"  # el opt-out auditable del Spec delta
 MOTIVO_GOAL_MODE_OFF = "goal_mode_off"
 MOTIVO_ESTADO_NO_ENABLED = "estado_no_enabled"
-# CAMPAÑA ACTIVA 01: ancestros no ENABLED (o sin fila de state) sacan a la
+# CAMPANA ACTIVA 01: ancestros no ENABLED (o sin fila de state) sacan a la
 # hoja/grupo del motor ANTES de mirar su propio estado. Fuente: el cache
 # ad_entity_state (sync diario; guarda de 48h del ciclo).
 MOTIVO_CAMPANA_NO_ENABLED = "campana_no_enabled"
@@ -1083,7 +1083,7 @@ def _gates_entidad(
     decided_at: dt.datetime,
 ) -> tuple[g.Goal | None, str | None]:
     """Cascada de gates del orquestador (orden sellado, ver docstring del
-    modulo): goal de campaña -> ancestros ENABLED (CAMPAÑA ACTIVA 01: campaña
+    modulo): goal de campaña -> ancestros ENABLED (CAMPANA ACTIVA 01: campaña
     y, para hojas, ad group; `ancestros` = ((motivo, status), ...) de afuera
     hacia adentro) -> estado propio -> cooldown. None = elegible. Un ancestro
     sin fila de state (status None) tambien queda fuera (regla 3)."""

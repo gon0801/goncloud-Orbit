@@ -116,11 +116,12 @@ contadas aquí están ENABLED: hoy ni siquiera se saltaban, decidían).
 
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
-| 1.1 | **Gate de ancestros al DECIDIR** (`app/cycle.py`): constantes `MOTIVO_CAMPANA_NO_ENABLED = "campana_no_enabled"` y `MOTIVO_GRUPO_NO_ENABLED = "grupo_no_enabled"`; `_SQL_DECISORAS` gana `sg.status AS status_grupo, sc.status AS status_campana` (LEFT JOIN a `ad_entity_state` del ad group y de `ag.parent_id`); `_SQL_GRUPOS` gana `sc.status AS status_campana`; `_gates_entidad` recibe `ancestros: tuple[tuple[str, str | None], ...]` ((motivo, status) de afuera hacia adentro) y los evalúa entre el gate de goal y el de estado propio (D1); los dos call sites desempacan las columnas nuevas y pasan sus ancestros; docstring del módulo (bala ELEGIBILIDAD) actualizado. Guía exacta en §1.1. `[tdd:required]` | Test `test_gate_campana_y_grupo_no_enabled` en `tests/test_cycle.py` demostrado ROJO contra master (KeyError `campana_no_enabled` + la hoja de la campaña pausada DECIDE un bid) y verde con el fix; los goldens/tests existentes intactos (pglast de `_SQL_DECISORAS`/`_SQL_GRUPOS` incluido); log rojo pegado en §Decisiones | - | cc:完了 [2026-09-02, GLM. Test test_gate_campana_y_grupo_no_enabled ROJO contra master (KeyError campana_no_enabled; log en §Decisiones) y verde con el fix; tests/test_cycle.py completo 37 passed (goldens + pglast intactos). Commit fix(cycle) ef0f535] |
+| 1.1 | **Gate de ancestros al DECIDIR** (`app/cycle.py`): constantes `MOTIVO_CAMPANA_NO_ENABLED = "campana_no_enabled"` y `MOTIVO_GRUPO_NO_ENABLED = "grupo_no_enabled"`; `_SQL_DECISORAS` gana `sg.status AS status_grupo, sc.status AS status_campana` (LEFT JOIN a `ad_entity_state` del ad group y de `ag.parent_id`); `_SQL_GRUPOS` gana `sc.status AS status_campana`; `_gates_entidad` recibe `ancestros: tuple[tuple[str, str \| None], ...]` ((motivo, status) de afuera hacia adentro) y los evalúa entre el gate de goal y el de estado propio (D1); los dos call sites desempacan las columnas nuevas y pasan sus ancestros; docstring del módulo (bala ELEGIBILIDAD) actualizado. Guía exacta en §1.1. `[tdd:required]` | Test `test_gate_campana_y_grupo_no_enabled` en `tests/test_cycle.py` demostrado ROJO contra master (KeyError `campana_no_enabled` + la hoja de la campaña pausada DECIDE un bid) y verde con el fix; los goldens/tests existentes intactos (pglast de `_SQL_DECISORAS`/`_SQL_GRUPOS` incluido); log rojo pegado en §Decisiones | - | cc:完了 [2026-09-02, GLM. Test test_gate_campana_y_grupo_no_enabled ROJO contra master (KeyError campana_no_enabled; log en §Decisiones) y verde con el fix; tests/test_cycle.py completo 37 passed (goldens + pglast intactos). Commit fix(cycle) ef0f535] |
 | 1.2 | **Gate de ancestros al LIBERAR la cola** (`app/apply_cola.py`): constantes espejo, `_SQL_ANCESTROS` (status del grupo y de la campaña de la fila, resolviendo hoja vs ad group con `CASE`), `_revalida_ancestros(conn, fila)` y su llamada como PRIMER paso de `_revalida` (antes del dispatch por kind); docstring de `libera_vencidos` paso 2 lo cita. Seeds: `_semilla` de `tests/test_apply_cola.py` y de `tests/test_apply_harvest.py` dan state `ENABLED` a la campaña (hoy no la tienen — sin eso TODA la cola se descartaría con el gate nuevo: es el rojo que demuestra que el gate muerde). Guía exacta en §1.2. `[tdd:required]` | Tests `test_libera_descarta_pause_en_campana_pausada` y `test_libera_descarta_negative_en_grupo_pausado` en `tests/test_apply_cola.py` ROJOS contra master (motivo `ya_no_califica`/mutación HTTP en vez del discard) y verdes con el fix: fila `discarded` con `discard_motivo` exacto, **cero HTTP de mutación, cero fila en `apply_quota_state`**; suite de cola y harvest verde con las seeds corregidas; log rojo en §Decisiones | 1.1 | cc:完了 [2026-09-02, GLM. Seeds de cola/harvest con state de campaña (67 passed antes del gate); 2 tests ROJOS contra master (['ya_no_califica'] != ['campana_no_enabled'/'grupo_no_enabled'], logs en §Decisiones) y verdes con el fix: discarded con motivo exacto, cero HTTP, cero quota; suites cola+harvest 69 passed. Desviación D-GLM-3 (as conn). Commit fix(apply_cola) c67def7] |
-| 1.3 | **Superficie y docs**: `MOTIVOS_ES_SALUD` con los dos motivos (D5) + test puro en `tests/test_api_dashboard.py`; `docs/DASHBOARD.md` (lista de motivos del orquestador, ~línea 251) y `docs/APPLY.md` (una bala en la sección de la cola/re-validación: el gate de ancestros al liberar) al día; línea en `docs/CHAT-CONTEXT.md`; markers 1.1-1.3 a `cc:完了`; PR abierto contra `master` con CI verde. `[tdd:required]` | Test del diccionario ROJO contra master (KeyError) y verde; docs citados en el diff; CI batería completa verde; candado de frescura verde | 1.2 | cc:完了 [2026-09-02, GLM. Test del diccionario ROJO (KeyError) y verde; MOTIVOS_ES_SALUD con los 2 motivos; DASHBOARD.md y APPLY.md al día; línea en CHAT-CONTEXT; PR abierto contra master con los 3 commits. Pendiente CI del PR] |
-| 1.4 | **Lead — revisión, deploy y verificación en vivo**: review del PR contra `origin/master` + reviewer fresco + cross-review codex (1 ronda); merge; deploy al contenedor por el runbook `docs/DEPLOY.md` (imagen nueva, md5 de `app/` vs master, respaldo del `app/` anterior); verificación DENTRO del contenedor de que `_gates_entidad` nuevo está vivo; esperar el ciclo del cron (no forzar `/run`) y comparar `notes.skips` contra §Estado medido (≈299 US / 10 MX `campana_no_enabled`); `/salud` muestra la etiqueta. `[tdd:skip:ops]` | SELECT del ciclo post-deploy con los contadores nuevos en la evidencia; cero decisiones en campañas no ENABLED (`SELECT` de conciliación por `parent_id`); AppFlowy anotado | 1.3 | cc:TODO |
+| 1.3 | **Superficie y docs**: `MOTIVOS_ES_SALUD` con los dos motivos (D5) + test puro en `tests/test_api_dashboard.py`; `docs/DASHBOARD.md` (lista de motivos del orquestador, ~línea 251) y `docs/APPLY.md` (una bala en la sección de la cola/re-validación: el gate de ancestros al liberar) al día; línea en `docs/CHAT-CONTEXT.md`; markers 1.1-1.3 a `cc:完了`; PR abierto contra `master` con CI verde. `[tdd:required]` | Test del diccionario ROJO contra master (KeyError) y verde; docs citados en el diff; CI batería completa verde; candado de frescura verde | 1.2 | cc:完了 [2026-09-02, GLM. Test del diccionario ROJO (KeyError) y verde; MOTIVOS_ES_SALUD con los 2 motivos; DASHBOARD.md y APPLY.md al día; línea en CHAT-CONTEXT; PR #123 abierto contra master con los 3 commits; CI batería completa verde; fusionado por el lead tras la cross-review] |
+| 1.4 | **Lead — revisión, deploy y verificación en vivo**: review del PR contra `origin/master` + reviewer fresco + cross-review codex (1 ronda); merge; deploy al contenedor por el runbook `docs/DEPLOY.md` (imagen nueva, md5 de `app/` vs master, respaldo del `app/` anterior); verificación DENTRO del contenedor de que `_gates_entidad` nuevo está vivo; esperar el ciclo del cron (no forzar `/run`) y comparar `notes.skips` contra §Estado medido (≈299 US / 10 MX `campana_no_enabled`); `/salud` muestra la etiqueta. `[tdd:skip:ops]` | SELECT del ciclo post-deploy con los contadores nuevos en la evidencia; cero decisiones en campañas no ENABLED (`SELECT` de conciliación por `parent_id`); AppFlowy anotado | 1.3 | cc:WIP [2026-09-02: revisión del lead contra la base viva (todas las campañas/ad groups tienen fila de state → esperado exacto 299 US / 10 MX); CodeRabbit (8 comentarios) + codex (2 hallazgos, veredicto «mergeable con fixes») adjudicados en §Cross-review; conflicto de CHAT-CONTEXT con #124 resuelto por el lead; #123 fusionado. PENDIENTE: deploy al contenedor, verificación del ciclo 2026-09-03 08:40 UTC, AppFlowy] |
 | 1.5 | **Lead + dueño — las 2 mutaciones ya aplicadas en campañas pausadas** (decisiones 1989 y 2104): el dueño decide conservar o revertir; si revierte, `POST /reversa/bid` por decisión (ledger + readback), evidencia en `plans/orbit-05.md` 1.5. `[tdd:skip:checkpoint-humano]` | Decisión literal del dueño registrada; si hubo reversa: readback = bid original, ledger sellado | - | cc:完了 [2026-09-02: decisión literal del dueño "dejalas asi" — las 2 pujas (1989 US 0.99→0.74 USD, 2104 MX 13.64→10.23 MXN) se conservan; sin reversa; registrado en CHAT-CONTEXT] |
+| 1.6 | **GLM — gate de ancestros en la RECONCILIACIÓN + orden de contadores con veto pendiente** (hallazgos codex r1, §Cross-review): (a) `apply.reconcilia_bids` (reintento divergente `_reintento_divergente`), `apply_harvest.reconcilia_harvest` (jobs en vuelo) y `_reconcilia_negativas` reintentan mutaciones de intentos SIN sello (crash a mitad de un apply) sin consultar campaña/ad group → ANTES de cualquier reintento HTTP, comprobación de ancestros con la misma semántica de D1/D3 (cache `ad_entity_state`; una sola función compartida por `ad_entity_id`, reusada por `apply_cola._revalida_ancestros`); si falla: sellar el intento como `fallo:ancestro_no_enabled`, cerrar fila/job como `failed` (una fila `applying` NO puede pasar a `discarded`), sin HTTP ni cuota; (b) `cycle._procesa_decisora` / `_procesa_grupo`: el chequeo `bloqueadas` (veto_pendiente) va DESPUÉS de goal/ancestros/estado, y un grupo gateado cuenta TODOS sus términos con el motivo del ancestro (hoy los bloqueados se descuentan antes). Mismas reglas de proceso que 1.1-1.3. `[tdd:required]` | Regresiones ROJAS contra master: bid, negative y harvest en reconciliación con campaña `PAUSED` y con ancestro SIN fila de state → cero HTTP de mutación, intento sellado, `failed`; ciclo con veto pendiente + campaña pausada → `campana_no_enabled` (no `veto_pendiente`) y contador del grupo = todos sus términos; suites completas verdes en CI; logs rojos en §Decisiones | 1.4 | cc:TODO |
 
 ## Guía de implementación (GLM)
 
@@ -585,7 +586,7 @@ plan hasta ahora.
 
 **1.1** — `PYTHONPATH=. pytest tests/test_cycle.py -q -k campana_y_grupo`:
 
-```
+```text
 >           assert skips["entidad"]["campana_no_enabled"] == 2  # kw_p y kw_n
                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 E           KeyError: 'campana_no_enabled'
@@ -599,7 +600,7 @@ FAILED tests/test_cycle.py::test_gate_campana_y_grupo_no_enabled - KeyError: ...
 grupo_pausado"`. Primero con el import de las constantes nuevas (aun sin
 definir en `app/apply_cola.py`), el rojo de colección:
 
-```
+```text
 E   ImportError: cannot import name 'MOTIVO_CAMPANA_NO_ENABLED' from 'app.apply_cola' (/Users/dn/dev/goncloud-Orbit/app/apply_cola.py)
 1 error in 0.17s
 ```
@@ -608,7 +609,7 @@ Luego con SOLO las constantes stub agregadas (paso 4 sin el resto), el rojo
 que demuestra que el gate muerde — el código viejo descarta con el motivo
 EQUIVOCADO en AMBOS tests:
 
-```
+```text
 E           AssertionError: assert ['ya_no_califica'] == ['campana_no_enabled']
 E           At index 0 diff: 'ya_no_califica' != 'campana_no_enabled'
 E           AssertionError: assert ['ya_no_califica'] == ['grupo_no_enabled']
@@ -620,7 +621,7 @@ FAILED tests/test_apply_cola.py::test_libera_descarta_negative_en_grupo_pausado
 
 **1.3** — `PYTHONPATH=. pytest tests/test_api_dashboard.py -q -k ancestros`:
 
-```
+```text
 E       KeyError: 'campana_no_enabled'
 FAILED tests/test_api_dashboard.py::test_motivos_salud_traducen_los_gates_de_ancestros
 1 failed, 34 deselected in 1.45s
@@ -638,6 +639,23 @@ del de `tests/test_cycle.py`, que yields la tupla). Se ajustó a
 **D-GLM-4 (markers):** 1.1/1.2 se marcan `cc:完了` en el commit de 1.3 junto
 con este texto (regla 7 del plan: la línea de CHAT-CONTEXT y los markers van
 en el cierre, un solo commit de docs como indica el paso 4 de §1.3).
+
+## Cross-review de #123 (1 ronda: CodeRabbit + codex, 2026-09-02) — adjudicación del lead
+
+| # | Fuente | Hallazgo | Severidad | Decisión |
+|---|---|---|---|---|
+| 1 | codex | La reconciliación post-crash reintenta PUT/POST sin gate de ancestros (`app/apply.py` ~595/636 `_reintento_divergente`, `app/apply_harvest.py` ~1178/1307) | alta (camino: crash a mitad de un apply + campaña pausada después; hoy 0 intentos sin sello) | ACEPTADO → tarea 1.6(a). No bloquea el deploy: el camino normal (decidir + liberar) ya está cerrado |
+| 2 | codex | `bloqueadas` (veto_pendiente) se evalúa ANTES de los gates: una hoja/término en campaña pausada con veto pendiente cuenta como `veto_pendiente` | media (solo contadores; no muta) | ACEPTADO → tarea 1.6(b) |
+| 3 | CodeRabbit | `_revalida_ancestros` devolvería `campana_no_enabled` si el `ad_entity` no existiera | menor | DESCARTADO: `apply_queue.ad_entity_id` tiene FK a `ad_entity` (0002) y las entidades no se borran (ARCHIVED) |
+| 4 | CodeRabbit | Carrera entre `sync_structure` y `_SQL_CLAIM` (pide el predicado de ancestros en el claim) | "mayor" según el bot | DESCARTADO como residual declarado (D2): crons 06:45 y 08:40 UTC, ventana negligible; misma clase que el residual (a) de `libera_vencidos` |
+| 5 | CodeRabbit | APPLY.md §3 documentaba claim ANTES de quota (pre-existente, el código cobra antes del claim) | menor | CORREGIDO en este PR |
+| 6 | CodeRabbit | `Ñ` en comentarios/docstrings nuevos (convención: sin acentos en el código) | menor | CORREGIDO: token `CAMPANA ACTIVA 01` en los .py del PR (la Ñ venía del plan del lead) |
+| 7 | CodeRabbit | Lint markdown del plan (`\|` en tabla, fences sin lenguaje) y marker 1.3 «pendiente CI» | menor | CORREGIDO |
+| 8 | CodeRabbit | Pide test de términos de un ad group PAUSED con `grupo_no_enabled` | menor | DESCARTADO: por D1 el propio ad group gatea por `estado_no_enabled` (vocabulario existente); `grupo_no_enabled` es solo para hojas |
+
+Veredicto codex: **mergeable con fixes**. Los fixes de código van en 1.6 con sus
+regresiones. Tope de rondas alcanzado: no hay segunda ronda; lo que reste se
+declara en §Residuales.
 
 ## Reject (con razón)
 
@@ -663,6 +681,10 @@ en el cierre, un solo commit de docs como indica el paso 4 de §1.3).
 3. Las 2 mutaciones ya aplicadas en campañas pausadas quedan como las dejó el
    ciclo 33/34 por decisión del dueño (1.5, 2026-09-02, "dejalas asi"): si un
    día reactiva esas campañas, esas dos pujas arrancan 25% más bajas.
+4. Hasta que 1.6(a) aterrice, la reconciliación post-crash (intentos sin
+   sello) puede reintentar una mutación sin mirar campaña/ad group (codex r1).
+5. Hasta 1.6(b), una entidad con veto pendiente dentro de una campaña
+   pausada se cuenta como `veto_pendiente` (solo contadores).
 
 ## 事前確認
 

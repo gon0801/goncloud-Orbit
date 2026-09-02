@@ -2079,7 +2079,7 @@ def test_bitemporal_pause_clamp_observed_at_futuro_a_decided_at():
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 def test_gate_campana_y_grupo_no_enabled():
-    """CAMPAÑA ACTIVA 01 (regla 9): una hoja ENABLED dentro de una campaña
+    """CAMPANA ACTIVA 01 (regla 9): una hoja ENABLED dentro de una campaña
     PAUSED, de una campaña SIN state o de un ad group PAUSED NO decide, y los
     terminos del ad group de una campaña pausada tampoco. Antes del fix el
     ciclo decidia (y en live APLICABA) bids en campañas pausadas: ciclos 33/34

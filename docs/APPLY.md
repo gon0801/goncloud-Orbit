@@ -179,9 +179,11 @@ ni por kind). Un veto VENCIDO no bloquea: al vencer, el motor re-propone
 ## 3. Orden sellado del apply de un corte (sellados 6, 13, 17)
 
 ```
-1. re-validación sobre la fila released (PRE-claim)
-2. claim atómico          released -> applying   (UPDATE ... WHERE estado='released')
-3. cobro de quota         (una operación lógica; §5)
+1. re-validación sobre la fila released (PRE-claim): gate de ancestros
+                          (CAMPANA ACTIVA 01) + regla con evidencia fresca
+2. cobro de quota         (una operación lógica; §5) — ANTES del claim: la
+                          máquina no tiene applying -> released (0002)
+3. claim atómico          released -> applying   (UPDATE ... WHERE estado='released')
 4. fila del ledger        apply_attempt ANTES del HTTP (§4)
 5. HTTP de mutación       (write client, §8; heartbeat y ownership-check, §9)
 6. readback + sello       ack/resultado/finished_at una vez; resumen y
