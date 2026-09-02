@@ -7,6 +7,10 @@ Consumido por app/api_dashboard.py y app/ui.py (un camino, regla 2).
 
 from __future__ import annotations
 
+import copy
+import threading
+import time
+
 from app.api import ConexionLectura
 from app.api_common import _dec_str
 from app.optimizer.bid import PLATAFORMAS_MONEDA
@@ -119,16 +123,40 @@ _SQL_VENTANA = (
 )
 
 
+# HTTP no-store obliga un GET nuevo al volver al tab. Sin snapshot cada
+# reopen reevalua las vistas (~10s en prod). Si el primer GET sigue vivo
+# (el browser aborta, el SQL no) dos Hash Join se pisan. Un calculo a la
+# vez + TTL corto: el segundo GET es el mismo payload, no otra query.
+_CACHE_TTL_S = 60.0
+_cache_lock = threading.Lock()
+_cache: tuple[str, float, dict] | None = None
+
+
+def _dbname(conn: ConexionLectura | None) -> str:
+    info = getattr(conn, "info", None)
+    if info is None:
+        return ""
+    return getattr(info, "dbname", "") or ""
+
+
+def invalidar_cache_contribucion() -> None:
+    """Tira el snapshot. Los tests lo llaman para no heredar estado."""
+    global _cache
+    with _cache_lock:
+        _cache = None
+
+
 def _preparar_lectura_contribucion(conn: ConexionLectura) -> None:
-    """Hash Join en ESTA conexion (se cierra al terminar el request).
+    """Hash Join solo en ESTA transaccion (SET LOCAL, no session).
 
     El planner estima los CTE de v_contribucion_entidad / cobertura en
     rows=1 y elige Nested Loop. Medido 2026-09-01 (200 hojas x 90d):
     cogs_diario hace 18k x 18k = 324M filas (~60s la vista). Con
     enable_nestloop=off la misma vista baja a ~2.5s (Hash Join). USERSET:
-    orbit_read puede cambiarlo; no toca otras conexiones.
+    orbit_read puede cambiarlo. SET LOCAL muere al COMMIT: un pool no
+    hereda nestloop=off.
     """
-    conn.execute("SET enable_nestloop = off")
+    conn.execute("SET LOCAL enable_nestloop = off")
 
 
 def _motivo_contribucion_es(motivo: str | None) -> str | None:
@@ -170,8 +198,9 @@ def _ventana_de(conn: ConexionLectura, filas) -> dict:
 
 def _contribucion_todas(conn: ConexionLectura) -> dict:
     """Una consulta: ambas plataformas, vistas evaluadas una vez cada una."""
-    _preparar_lectura_contribucion(conn)
-    filas = conn.execute(_SQL_CONTRIBUCION_CAMPANAS).fetchall()
+    with conn.transaction():
+        _preparar_lectura_contribucion(conn)
+        filas = conn.execute(_SQL_CONTRIBUCION_CAMPANAS).fetchall()
     ventana = _ventana_de(conn, filas)
     por_plat: dict[str, list] = {p: [] for p in PLATAFORMAS_MONEDA}
     for fila in filas:
@@ -190,5 +219,17 @@ def _contribucion_plataforma(conn: ConexionLectura, plataforma: str) -> dict:
 
 
 def contribucion_campanas(conn: ConexionLectura) -> dict:
-    """Payload de /api/dashboard/contribucion y /contribucion (UI)."""
-    return _contribucion_todas(conn)
+    """Payload de /api/dashboard/contribucion y /contribucion (UI).
+
+    Snapshot de proceso + un solo calculo a la vez. El HTML sigue
+    no-store (el browser no cachea); el reopen no vuelve a pagar la vista.
+    """
+    global _cache
+    db = _dbname(conn)
+    with _cache_lock:
+        now = time.monotonic()
+        if _cache is not None and _cache[0] == db and now - _cache[1] < _CACHE_TTL_S:
+            return copy.deepcopy(_cache[2])
+        data = _contribucion_todas(conn)
+        _cache = (db, time.monotonic(), data)
+        return copy.deepcopy(data)
