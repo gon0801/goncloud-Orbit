@@ -108,6 +108,7 @@
 
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
+| 2.1a | **Herramienta del expediente adversarial (Cursor)** — tools/dossier_adversarial.py + prompt_revisor.md + tests; la corrida contra produccion y el envio a codex/grok/qwen son del lead | DoD concreto: tool + tests verdes + prompt generado; cero secretos en salida; allowlist | 1.5 | cc:完了 [tool + 5 tests verdes; prompt generado con nombres reales; escaner fail-closed; allowlist de claves. Corrida prod y envio = lead] |
 | 2.1 | **Verificación adversarial TRIPLE** (ítem 9, sellado 6b): codex + grok + qwen reciben las primeras decisiones APLICADAS **SANEADAS** (decisión + inputs congelados + request/ack pasados por el scrub del repo + readback; JAMÁS tokens, headers, profile ids ni ids de cuenta — los datos comerciales (keyword, gasto, ventas, bid) sí viajan, como en todos los cross-reviews previos; codex plan r1: divulgación declarada en 事前確認), con muestra MX forzada (mínimo 5 MX si existen; si no hay MX aplicadas el día 1, se declara y se repite al primer día con MX). Cada uno recalcula contra las reglas selladas y busca divergencias entre decisión, request, ack y readback. Tope: 1 ronda; residuales declarados. `[tdd:skip:verificacion-adversarial]` | Tres reportes adjudicados por el lead; cero divergencia sin explicar; si hay bug → escalera a shadow y tarea de fix ANTES de seguir | 1.5 | cc:TODO [insumo listo desde 2026-09-02: 20 aplicadas (10 MX → la muestra MX forzada existe), decisiones 1989-2057 US / 2059-2104 MX, `apply_attempt` 30-49. El "bug" ya hallado por el lead (campañas PAUSED) se declara a los tres revisores como conocido y en fix (#123); la escalera NO baja a shadow por él: no mueve dinero] |
 | 2.2 | **Spot-check del dueño sobre las primeras aplicadas** (sellado 6c): tabla en lenguaje de negocio (keyword, campaña, gasto, ventas, ACoS, acción, ack) de las primeras ≥10 decisiones aplicadas + la cola live pendiente; el dueño firma o veta. `[tdd:skip:checkpoint-humano]` | Firma del dueño en AppFlowy con fecha; vetos ejecutados por él si los hay | 1.5 | cc:完了 [2026-09-02: tabla de negocio de las 20 aplicadas (país, keyword/target, campaña, bid antes→después, %) entregada al dueño en sesión el mismo día; cola live pendiente = 0. Decisión del dueño sobre las 2 en campañas pausadas: conservar ("dejalas asi", registrada en AppFlowy y en CHAT-CONTEXT). Las 18 en campañas activas: FIRMADAS por el dueño, literal «si y si» (2026-09-02, respuesta a «¿firmas las 18…?» y «¿te llegaron los 2 avisos…?»); cero vetos. Registrado en AppFlowy ORBIT 05 con fecha] |
 | 2.3 | **Primer harvest live a mano** (sellado 6a): cuando el primer harvest salga de la cola (48h después del flip como mínimo): readback LIST en la campaña destino (MX = Arras Manual, terna goal 4; US = lo que el dueño decidió en preflight 1.6), identidad completa (keyword_text + match_type + ad group + bid), ledger sellado, y `keywords_campana_destino` sin duplicado. `[tdd:skip:ops]` | Keyword nueva visible en Amazon con el bid del goal; ledger `applied` con readback; cero duplicados; evidencia | 1.5 | cc:TODO |
@@ -158,3 +159,40 @@
 - 事項: external-send — `git push` + PRs de docs (este plan, CHAT-CONTEXT), mensajes Telegram (avisos y digest reales)
   理由: patrón del repo; el canal es parte del mecanismo de veto
   scope: todas
+
+## 2.1a — decisiones y logs rojos (Cursor)
+
+### Decisiones (brief ↔ codigo)
+
+- `decision_application.applied_cycle_id` vive en `migrations/0002_apply.sql` (no en 0001). El fixture aplica 0001+0002+0003, como `tests/test_cycle.py`.
+- `pais/plataforma` de la tabla MD sale de `inputs.platform` (congelado). `ad_entity.platform` existe en el esquema pero no entra en `CLAVES_ENTIDAD` (allowlist sellada: sin ids de cuenta ni columnas de mas).
+- `replay_coincide` compara `kind`, moneda y `Decimal(new_value)` cuando hay plata; si `new_value` es `None` (pause) no se llama `Decimal(None)`.
+- `reproduce` vive en `app/optimizer/replay.py`, que solo depende del motor puro. `app.cycle` lo reexporta para conservar el spot-check 4.4. El tool importa el modulo puro y el test en un proceso limpio sella que no carga `app.ads` ni `app.apply`.
+- El escaner compila patrones sin distinguir mayusculas y minusculas. Tambien recorre claves JSON con `casefold` antes del replay y antes de publicar.
+- El replay queda aislado por decision. Un `inputs` invalido produce `replay_coincide=false` y valores nulos sin impedir que las otras decisiones entren al dossier.
+- El readback incluye `status`. Los intentos salen en orden `(decision_id, seq, id)` y el resumen MD usa el ultimo intento `normal/ok`, no una reversa posterior.
+- La publicacion arma los tres archivos en `.staging-<pid>` con permisos 700 y los mueve al destino solo despues del escaneo completo en memoria.
+- El JSON de salida lleva wrapper `{generado_utc, ciclos, registros}`. El brief no nombro el contenedor; sin el, el archivo seria un dump suelto.
+
+### Log ROJO (regla 9, codigo ausente)
+
+Corrida: `PYTHONPATH=. .venv/bin/python -m pytest tests/test_dossier_adversarial.py -q --tb=short`
+
+```text
+==================================== ERRORS ====================================
+______________ ERROR collecting tests/test_dossier_adversarial.py ______________
+ImportError while importing test module '/workspace/tests/test_dossier_adversarial.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_dossier_adversarial.py:36: in <module>
+    import dossier_adversarial as da  # noqa: E402
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ModuleNotFoundError: No module named 'dossier_adversarial'
+=========================== short test summary info ============================
+ERROR tests/test_dossier_adversarial.py
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+1 error in 0.38s
+```
