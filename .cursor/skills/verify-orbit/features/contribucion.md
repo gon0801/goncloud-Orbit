@@ -36,5 +36,6 @@ Preconditions:
 
 - Un 500 aqui suele ser migracion 0006/0007 ausente (`v_contribucion_entidad` no existe). No es "tabla vacia".
 - Hueco / ausencia se pinta `—` con motivo (`kind fuera`, `sin precio`, `catalogo parcial`, …), jamas `0` ni `0.0000`.
-- `fx_source=nearest_prior` se ve como chip `FX aproximado`. La semilla baseline no lo ejercita.
+- `fx_source=nearest_prior` se ve como chip `FX aproximado · nearest_prior` (no solo `FX aproximado`). La semilla baseline no lo ejercita.
+- Multilisting (`precio_min_multilisting`) pinta chip `precio min multilisting` cuando aplica; la semilla baseline no lo ejercita.
 - La etiqueta visible es `contribucion pre-cargos · no decisoria` (`ETIQUETA_CONTRIBUCION` en `app/dashboard_contribucion.py`).
