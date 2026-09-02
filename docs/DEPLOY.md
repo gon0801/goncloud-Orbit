@@ -695,18 +695,26 @@ de plata que 0011 borró, y deja el estado exacto previo: probado en vivo con un
 test de ida y vuelta que compara columna por columna, y con otro que confirma
 que tras revertir **0011 se puede volver a aplicar** (ese es el caso de uso:
 un importe mal, se revierte, se corrige con el dueño, se re-aplica). Único
-detalle declarado: la fila repuesta trae el `ingest_run` de la reversa, no el
-de la ingesta que la creó en su día — por eso el paso 0 de abajo captura el
-estado previo COMPLETO como evidencia.
+detalle declarado: la fila repuesta es una fila NUEVA, así que trae `id` y
+`ingest_run_id` nuevos — el importe, la moneda, `includes_tax` y las fechas
+(que es lo que leen la vista y el motor) vuelven idénticos, pero esas dos
+columnas de identidad no. Nada en el esquema referencia `sku_cost.id` (no hay
+FK hacia él), así que el cambio no arrastra nada; aun así el paso 0 de abajo
+captura el estado previo COMPLETO —`id` incluido— porque es su único registro.
 
 ```bash
-# 0) EVIDENCIA del estado previo (incluye ingest_run_id: la reversa no lo repone)
-ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit -c "
-  SELECT p.odoo_sku, c.cost_amount, c.cost_currency, c.includes_tax,
-         c.valid_from, c.valid_to, c.ingest_run_id
-    FROM sku_cost c JOIN product p ON p.id = c.product_id
-   WHERE p.odoo_sku IN (''NH-GAM-NEG-PESETA-PLA'',''NH-NOG-VEN-PESETA-DOR'')
-   ORDER BY 1, 5;"'
+# 0) EVIDENCIA del estado previo. Incluye `id` e `ingest_run_id`: la reversa NO
+#    los repone (ver más abajo), así que esta captura es su único registro.
+#    OJO con el quoting: '' NO escapa una comilla dentro de comillas simples de
+#    bash — la termina. Los SKU van en $'...' (comilla simple escapable) o, como
+#    aquí, la SQL entera se pasa por stdin y no hay anidamiento que romper.
+ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit' <<'SQL'
+SELECT p.odoo_sku, c.id, c.cost_amount, c.cost_currency, c.includes_tax,
+       c.valid_from, c.valid_to, c.ingest_run_id
+  FROM sku_cost c JOIN product p ON p.id = c.product_id
+ WHERE p.odoo_sku IN ('NH-GAM-NEG-PESETA-PLA', 'NH-NOG-VEN-PESETA-DOR')
+ ORDER BY 1, 6;
+SQL
 # 1) backup del esquema + datos de sku_cost ANTES (runbook 4.1)
 ssh goncloud 'docker exec orbit-db-1 pg_dump -U orbit -d orbit \
   -t sku_cost --data-only -Fc > /mnt/data/appdata/orbit/backups/sku_cost-pre-0011.dump'
@@ -742,14 +750,48 @@ de la reversa— se conservan: que se aplicó y se revirtió es historia real. S
 se revierte, hay que deshacer también el cambio espejo en contabilidad (abajo),
 o el próximo `ingest costs` volverá a divergir.
 
-**Contabilidad, en el mismo cambio** (si no, el siguiente `ingest costs`
-rechaza los dos SKU por divergencia con el origen): al de plata se le corre
-`valid_from` a `2026-02-20` (queda UNA fila abierta, que es lo que produce el
-colapso) y al de oro se le agrega la fila cerrada 458.00
-`[2026-02-20, 2026-08-18)`. El sync horario de Odoo (`sync_cogs_odoo.py`)
-sólo mira `WHERE sku=? AND valid_to IS NULL`: no ve la fila cerrada y no toca
-la abierta si el costo no cambió. Tras ambos cambios, `ingest costs` debe
-salir **no-op** (`rows_written=0`).
+**Contabilidad, en el mismo cambio.** Sin esto el siguiente `ingest costs`
+rechaza los dos SKU por divergencia con el origen y deja de seguirlos. Lo hace
+`tools/contabilidad_costo_historico_0011.py`, que corre en el **host** (la
+SQLite vive en `/mnt/data/appdata/accounting/data/accounting.db`, fuera de todo
+contenedor): al de plata le corre `valid_from` a `2026-02-20` (queda UNA fila
+abierta, que es lo que produce el colapso) y al de oro le agrega la fila cerrada
+458.00 `[2026-02-20, 2026-08-18)`. Respalda `sku_costs` antes de tocarla,
+escribe en UNA transacción, valida el estado de partida y aborta sin escribir si
+no es el esperado.
+
+```bash
+# ENSAYO (no escribe, no deja respaldo): muestra el plan exacto
+ssh goncloud 'python3 -' < tools/contabilidad_costo_historico_0011.py --dry-run
+# De verdad
+ssh goncloud 'cat > /tmp/cch_0011.py' < tools/contabilidad_costo_historico_0011.py
+ssh goncloud 'python3 /tmp/cch_0011.py'          # imprime el respaldo y 2708 -> 2709
+# Reversa (espejo de 0011_reversa_*.sql): --revertir, con --dry-run primero
+ssh goncloud 'python3 /tmp/cch_0011.py --revertir --dry-run'
+ssh goncloud 'python3 /tmp/cch_0011.py --revertir'
+```
+
+La reversa de contabilidad borra la fila histórica por su **`source`**
+(`orbit_0011_costo_historico`), nunca por su importe — mismo criterio que la
+reversa de Orbit.
+
+El sync horario de Odoo (`sync_cogs_odoo.py`) sólo mira
+`WHERE sku=? AND valid_to IS NULL`: no ve la fila cerrada y no toca la abierta
+si el costo no cambió.
+
+**Verificación que cierra el ciclo** (es la prueba de que ambas fuentes cuentan
+la misma historia): tras aplicar 0011 **y** el espejo, `ingest costs` debe salir
+sin escrituras de costo — `rows_written=0`, `rows_skipped=0`, `insertadas=0`,
+`cerradas=0`. Un `rows_skipped` mayor que cero con el motivo «vigencia publicada
+desaparecio del origen» o «origen reabre vigencia ya publicada» significa que
+sólo se aplicó una de las dos mitades.
+
+Precisión sobre esos cuatro contadores (hallazgo de CodeRabbit, PR #118): sólo
+cubren `sku_cost`. `sync_costos` puede además actualizar el NOMBRE de un
+producto (`_SQL_UPSERT_PRODUCTO`) y seguir mostrando los cuatro en cero, así que
+esto **no** es un no-op del pipeline entero — es exactamente lo que hace falta
+aquí, que ninguna vigencia se escriba ni se rechace. Para un no-op completo hay
+que mirar también `productos: nuevos=0 actualizados=0` en la misma salida.
 
 ## Correr los tests desde la máquina dev (túnel SSH)
 
