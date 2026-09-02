@@ -54,6 +54,11 @@
       "name": "orbit-06",
       "path": "plans/orbit-06.md",
       "description": "ORBIT 06 - consolidacion post-cutover: Fase 0 el dato (productos+costos, listings, allowlist y vinculo de product ads, FX, ledger con cargos, candado de cobertura), Fase 1 margen medible con rango de halo + digest + pantalla, Fase 2 margin-aware targets en shadow. La Fase 0 NO depende del flip"
+    },
+    {
+      "name": "campana-activa-01",
+      "path": "plans/campana-activa-01.md",
+      "description": "CAMPANA ACTIVA 01 - el motor solo toca campanas y ad groups ENABLED: gate de ancestros al decidir (cycle) y al liberar la cola (apply_cola), etiquetas en /salud. Origen: el primer ciclo live de ORBIT 05 (2026-09-02) aplico 2 de 20 bids en campanas PAUSED. URGENTE (cada cron gasta cupos ahi); GLM implementa 1.1-1.3, el lead despliega y verifica"
     }
   ],
   "active": "orbit-06"
