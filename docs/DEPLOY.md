@@ -657,6 +657,100 @@ campaign − (keyword+target) de (a) es el residuo declarado en la 0005. El
 `tacos_pct` publicado cambia de un día para otro (~mitad) — avisar al dueño
 ANTES de aplicar, no después.
 
+Migración `0011` (ORBIT 06 · palanca de mapeo, 2026-09-02) — **corrección de
+DATOS, la primera del repo**: siembra el costo histórico de
+`NH-GAM-NEG-PESETA-PLA` (325.00 MXN desde 2026-02-20) y
+`NH-NOG-VEN-PESETA-DOR` (458.00 MXN [2026-02-20, 2026-08-18), la vigente
+459.29 no se toca). Sin esa historia, los dos SKU sólo tenían costo desde el
+2026-08-18 y dejaban a los **seis grupos Arras MX** en `catalogo_parcial`
+(3,325.79 MXN/90d sin medir). Importes sellados por el dueño el 2026-09-02,
+derivados de los hermanos de familia con historia (`NH-GAM-NEG-MAX-PLA`,
+`NH-NOG-VEN-CEN-DOR`).
+
+**Lleva una excepción declarada.** El SKU de plata tiene el MISMO costo antes
+y después, y `colapsar()` fusiona tramos contiguos de igual costo: si se
+dejaran dos vigencias abutidas, cada `ingest costs` futuro rechazaría el SKU
+completo («origen reabre vigencia ya publicada») y ese producto dejaría de
+recibir actualizaciones para siempre. El estado correcto es UNA vigencia
+desde 2026-02-20, y llegar ahí exige BORRAR la fila publicada — lo que el
+trigger append-only prohíbe. 0011 lo apaga y lo re-enciende **dentro de la
+misma transacción** (un fallo entre ambos hace ROLLBACK y deja la tabla
+protegida). Es el único `DELETE` de `sku_cost` del repo y **no sienta
+precedente**: corregir un costo sigue siendo insertar una fila nueva.
+
+**NO es re-runnable** (guardas fail-closed: la segunda corrida aborta en vez
+de duplicar historia; también aborta si el estado de partida no es el
+medido). Las filas nuevas cuelgan de un `ingest_run` con
+`source = 'manual_costo_historico_0011'`. Candados en
+`tests/test_costo_historico_0011.py` (7 estáticos + 5 vivos; los estáticos
+tumban las tres mutaciones probadas: quitar el `ENABLE TRIGGER`, cambiar el
+importe histórico, soltar el `WHERE` del `DELETE`).
+
+**La reversa existe y se prueba** (`migrations/0011_reversa_costo_historico_peseta.sql`):
+la regla del repo es que ninguna acción irreversible se ejecuta sin su vuelta
+atrás YA implementada — la misma que obligó a `reponer-anuncios` antes de
+`archivar-anuncios` (hallazgo de CodeRabbit, PR #116). La reversa borra por
+**procedencia** (el `ingest_run` de 0011, no por importe), repone la vigencia
+de plata que 0011 borró, y deja el estado exacto previo: probado en vivo con un
+test de ida y vuelta que compara columna por columna, y con otro que confirma
+que tras revertir **0011 se puede volver a aplicar** (ese es el caso de uso:
+un importe mal, se revierte, se corrige con el dueño, se re-aplica). Único
+detalle declarado: la fila repuesta trae el `ingest_run` de la reversa, no el
+de la ingesta que la creó en su día — por eso el paso 0 de abajo captura el
+estado previo COMPLETO como evidencia.
+
+```bash
+# 0) EVIDENCIA del estado previo (incluye ingest_run_id: la reversa no lo repone)
+ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit -c "
+  SELECT p.odoo_sku, c.cost_amount, c.cost_currency, c.includes_tax,
+         c.valid_from, c.valid_to, c.ingest_run_id
+    FROM sku_cost c JOIN product p ON p.id = c.product_id
+   WHERE p.odoo_sku IN (''NH-GAM-NEG-PESETA-PLA'',''NH-NOG-VEN-PESETA-DOR'')
+   ORDER BY 1, 5;"'
+# 1) backup del esquema + datos de sku_cost ANTES (runbook 4.1)
+ssh goncloud 'docker exec orbit-db-1 pg_dump -U orbit -d orbit \
+  -t sku_cost --data-only -Fc > /mnt/data/appdata/orbit/backups/sku_cost-pre-0011.dump'
+# 2) aplicar (transacción única; -1 sobra porque el SQL trae BEGIN/COMMIT)
+ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit \
+  -v ON_ERROR_STOP=1' < migrations/0011_costo_historico_peseta.sql
+```
+
+Verificación post-aplicación (la migración ya se auto-verifica y revienta si
+algo no cuadra; esto es la lectura independiente):
+
+```sql
+-- (a) las vigencias finales, con su procedencia
+SELECT p.odoo_sku, c.cost_amount, c.valid_from, c.valid_to, r.source
+  FROM sku_cost c JOIN product p ON p.id = c.product_id
+  LEFT JOIN ingest_run r ON r.id = c.ingest_run_id
+ WHERE p.odoo_sku IN ('NH-GAM-NEG-PESETA-PLA','NH-NOG-VEN-PESETA-DOR')
+ ORDER BY 1, 3;
+-- (b) el append-only quedó ARMADO (esto es lo que no puede fallar)
+SELECT tgname, tgenabled FROM pg_trigger
+ WHERE tgrelid = 'sku_cost'::regclass AND NOT tgisinternal;
+```
+
+Si hay que dar marcha atrás (importe equivocado detectado tras aplicar):
+
+```bash
+ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit   -v ON_ERROR_STOP=1' < migrations/0011_reversa_costo_historico_peseta.sql
+```
+
+La reversa se auto-verifica y aborta sin escribir si el estado no es el que
+dejó 0011 (o si 0011 nunca se aplicó). Los dos `ingest_run` —el de 0011 y el
+de la reversa— se conservan: que se aplicó y se revirtió es historia real. Si
+se revierte, hay que deshacer también el cambio espejo en contabilidad (abajo),
+o el próximo `ingest costs` volverá a divergir.
+
+**Contabilidad, en el mismo cambio** (si no, el siguiente `ingest costs`
+rechaza los dos SKU por divergencia con el origen): al de plata se le corre
+`valid_from` a `2026-02-20` (queda UNA fila abierta, que es lo que produce el
+colapso) y al de oro se le agrega la fila cerrada 458.00
+`[2026-02-20, 2026-08-18)`. El sync horario de Odoo (`sync_cogs_odoo.py`)
+sólo mira `WHERE sku=? AND valid_to IS NULL`: no ve la fila cerrada y no toca
+la abierta si el costo no cambió. Tras ambos cambios, `ingest costs` debe
+salir **no-op** (`rows_written=0`).
+
 ## Correr los tests desde la máquina dev (túnel SSH)
 
 La suite de integración (`test_migracion_rechaza_en_vivo`) necesita un
