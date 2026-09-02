@@ -43,10 +43,21 @@
 --  campaña, el supuesto de grano también se rompió (doble conteo por el otro
 --  lado). Se sospecha en las dos direcciones.
 --
---  ORDEN DE LAS GUARDAS. `gasto_campaign_sin_contraparte` ya es NULL cuando
---  hay hueco de FX o de costo — y en ese caso `tacos_pct` YA era NULL por sus
---  propias guardas. Así que la regla nueva sólo puede morder cuando todo lo
---  demás está limpio: no oculta ningún fail-loud anterior ni lo duplica.
+--  TRES FORMAS DE CALLAR, no una (las dos últimas las encontró codex en la
+--  cross-review del 2026-09-02; ambas eran latentes: ningún mes de producción
+--  las tocaba, y arreglarlas no movió un solo número publicado):
+--    (a) el residuo SUPERA el umbral — el caso obvio;
+--    (b) el residuo es NULL: no hay contraparte a nivel campaña, o su lado
+--        tiene hueco de FX o de costo. La reconciliación es IMPOSIBLE, así
+--        que el grano no está verificado y el número no se publica;
+--    (c) `gasto_ads = 0` con residuo distinto de cero: la razón no se puede
+--        formar y el ELSE publicaría `100 * 0 / venta` = 0.00 % mientras la
+--        campaña gasta. Cero en las hojas con la campaña gastando es la
+--        pérdida TOTAL del grano — el síntoma más grave, no el más benigno.
+--
+--  ORDEN DE LAS GUARDAS. Los fail-loud previos (`filas_gasto_sin_tasa`,
+--  `filas_venta_sin_tasa`, `filas_gasto_sin_costo`) se evalúan ANTES: la
+--  regla nueva no oculta ninguno ni lo duplica.
 --
 --  Re-runnable (`CREATE OR REPLACE VIEW`). Las columnas existentes conservan
 --  nombre, orden y tipo; `residuo_pct` entra AL FINAL, así que ningún
@@ -165,16 +176,38 @@ SELECT b.platform                AS platform,
            WHEN b.gasto_sin_tasa > 0
                 OR b.ventas_sin_tasa > 0
                 OR b.gasto_sin_costo > 0 THEN NULL
-           -- 0012: el residuo del grano también calla el número. Ver cabecera:
-           -- umbral 1.00 % medido, ~13x sobre el peor mes real (0.0773 %).
-           WHEN b.gasto_campaign_sin_contraparte IS NOT NULL
-                AND NULLIF(b.gasto_ads, 0) IS NOT NULL
+           -- 0012: el residuo del grano también calla el número.
+           --
+           -- (a) RECONCILIACIÓN IMPOSIBLE. Si el residuo es NULL — no hay
+           --     contraparte a nivel campaña, o su lado tiene hueco de FX o
+           --     de costo — nadie pudo verificar el grano. Publicar aquí es
+           --     publicar con aplomo un número no verificable, justo lo
+           --     contrario de la disciplina del resto de la vista.
+           WHEN b.gasto_campaign_sin_contraparte IS NULL THEN NULL
+           -- (b) PÉRDIDA TOTAL DEL GRANO. Con gasto_ads = 0 la razón del
+           --     residuo no se puede formar (división por cero), y el ELSE
+           --     publicaría 100 * 0 / venta = 0.00 % mientras la campaña
+           --     quema dinero: el TACoS falsamente óptimo que esta migración
+           --     existe para impedir. Cero gasto en hojas con residuo ≠ 0 es
+           --     el síntoma más grave, no el más benigno.
+           WHEN b.gasto_ads = 0 AND b.gasto_campaign_sin_contraparte <> 0 THEN NULL
+           -- (c) El umbral. Ver cabecera: 1.00 % medido, ~13x sobre el peor
+           --     mes real (0.0773 %), en valor absoluto.
+           WHEN NULLIF(b.gasto_ads, 0) IS NOT NULL
                 AND ABS(100 * b.gasto_campaign_sin_contraparte / b.gasto_ads) > 1.00
                THEN NULL
            ELSE ROUND(100 * b.gasto_ads / b.venta_total, 2)
        END                       AS tacos_pct,
        b.gasto_campaign_sin_contraparte AS gasto_campaign_sin_contraparte,
-       -- 0012: la señal, siempre visible aunque tacos_pct sobreviva.
+       -- 0012: la señal, visible aunque tacos_pct sobreviva.
+       --
+       -- LÍMITE DECLARADO (hallazgo de grok, cross-review 2026-09-02): con
+       -- `gasto_ads = 0` la RAZÓN no existe —denominador cero— y esta columna
+       -- queda NULL justo en el caso más grave. No se fabrica un infinito ni
+       -- un centinela (regla 3): la señal ahí es el par visible
+       -- `gasto_ads = 0` con `gasto_campaign_sin_contraparte <> 0`, más
+       -- ruidoso que cualquier porcentaje, y `tacos_pct` ya está en NULL por
+       -- la rama (b) de arriba.
        CASE
            WHEN b.gasto_campaign_sin_contraparte IS NULL THEN NULL
            WHEN NULLIF(b.gasto_ads, 0) IS NULL THEN NULL
@@ -191,8 +224,16 @@ COMMENT ON VIEW v_tacos IS
   'SUM(keyword+target) en la misma (platform, mes), convertido a MXN con '
   'fx_resolve. NULL si hay hueco de FX o cost en cualquiera de los dos lados. '
   'FAIL-LOUD DEL RESIDUO (0012): residuo_pct = |residual| / gasto_ads en %, '
-  'siempre visible; si pasa de 1.00 % (umbral medido: el peor mes real es '
-  '0.0773 % — MX ago-2026 — y el resto 0.0000 %), tacos_pct se ANULA. Es el '
+  'siempre visible. tacos_pct se ANULA en TRES casos: (a) el residuo pasa de '
+  '1.00 % (umbral medido: el peor mes real es 0.0773 % — MX ago-2026 — y el '
+  'resto 0.0000 %); (b) el residuo es NULL (sin contraparte campaign, o hueco '
+  'de FX/costo de ese lado): la reconciliacion es IMPOSIBLE y el grano no '
+  'quedo verificado; (c) gasto_ads = 0 con residuo distinto de cero: la razon '
+  'no se puede formar y el ELSE publicaria 0.00 % mientras la campana gasta — '
+  'perdida TOTAL del grano. (b) y (c) los hallaron codex y grok en la '
+  'cross-review del 2026-09-02. LIMITE DECLARADO: en el caso (c) residuo_pct '
+  'queda NULL porque la razon no existe con denominador 0; la senal ahi es el '
+  'par gasto_ads = 0 con residuo <> 0. Es el '
   'sintoma de que la allowlist de kinds se quedo corta y gasto_ads '
   'SUBESTIMA: un numero confiado y equivocado es peor que ningun numero. '
   'Se mira en VALOR ABSOLUTO: hijas por encima de su campana rompe el '

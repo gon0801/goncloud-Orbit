@@ -697,6 +697,87 @@ def test_residuo_negativo_grande_tambien_anula(db):
     assert fila[0] is None, "un residuo negativo grande tampoco debe publicar tacos_pct"
 
 
+def test_gasto_ads_cero_con_campana_gastando_anula_tacos_pct(db):
+    """Hallazgo 1 de codex y 1 de grok (media) sobre 0012: PERDIDA TOTAL del
+    grano.
+
+    Si las hojas suman 0 pero la campana si gasto, el guard del residuo se
+    saltaba (division por cero evitada con NULLIF) y tacos_pct caia al ELSE:
+    100 * 0 / venta = 0.00. Un TACoS de 0.00 % publicado mientras la campana
+    quema dinero es EXACTAMENTE el numero falsamente optimo que esta
+    migracion existe para impedir.
+
+    La semilla se arma a mano y NO con _semilla_mx_completa + UPDATE: la
+    primera version de este test pisaba el costo de la observacion sembrada y
+    el candado append-only de ads_metric_observation la tumbo en CI, con
+    razon. `cost = 0` es un valor legitimo del origen (el CHECK
+    metric_no_negativos acepta >= 0), asi que se siembra directo.
+    """
+    rid = _run_id(db)
+    _, d_to = _ventana_madura()
+    dia = d_to - timedelta(days=5)
+    cam = _entidad(db, "amazon_mx", "campaign", "C-CERO")
+    ag = _entidad(db, "amazon_mx", "ad_group", "AG-CERO", cam)
+    kw = _entidad(db, "amazon_mx", "keyword", "KW-CERO", ag)
+    # la hoja existe pero gasta 0; la campana si gasta
+    db.execute(
+        "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
+        " metric_currency, cost, ingest_run_id) VALUES (%s, %s, now(), 'MXN', 0, %s)",
+        (kw, dia, rid),
+    )
+    db.execute(
+        "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
+        " metric_currency, cost, ingest_run_id) VALUES (%s, %s, now(), 'MXN', 50, %s)",
+        (cam, dia, rid),
+    )
+    # venta real: sin ella tacos_pct seria NULL por la primera rama y el test
+    # pasaria sin probar nada.
+    db.execute(
+        "INSERT INTO ledger_event (platform, kind, event_date, amount, amount_currency,"
+        " source_event_id, ingest_run_id)"
+        " VALUES ('amazon_mx', 'sale', %s, 500, 'MXN', 'S-CERO', %s)",
+        (dia, rid),
+    )
+    mes = dia.replace(day=1)
+    fila = db.execute(
+        "SELECT gasto_ads, venta_total, tacos_pct, gasto_campaign_sin_contraparte,"
+        " residuo_pct FROM v_tacos WHERE platform = 'amazon_mx' AND mes = %s",
+        (mes,),
+    ).fetchone()
+    assert fila is not None
+    assert fila[0] == 0, f"la semilla no dejo gasto_ads en 0: {fila[0]}"
+    assert fila[1] == Decimal("500.0000") or fila[1] == Decimal("500")
+    assert fila[3] == Decimal("50.0000") or fila[3] == Decimal("50")
+    assert fila[2] is None, f"tacos_pct publico {fila[2]} con el grano perdido entero"
+    # DECLARADO (hallazgo de grok): la RAZON no se puede formar con
+    # denominador 0, asi que residuo_pct queda NULL — inventar un infinito
+    # seria un numero fabricado (regla 3). La senal en este caso es el par
+    # visible (gasto_ads = 0, residuo <> 0), que es mas ruidoso que cualquier
+    # porcentaje.
+    assert fila[4] is None, f"residuo_pct fabrico un valor con denominador 0: {fila[4]}"
+
+
+def test_residuo_no_reconciliable_anula_tacos_pct(db):
+    """Hallazgo 2 de codex (media) sobre 0012: reconciliacion IMPOSIBLE.
+
+    Si no hay contraparte a nivel campana, el residuo sale NULL y el guard
+    (que exige residuo NOT NULL) no se aplicaba: tacos_pct se publicaba con
+    aplomo sobre un grano que NADIE pudo verificar. La disciplina del resto de
+    la vista es la contraria — sin dato verificable, no hay numero.
+    """
+    s = _semilla_mx_completa(db)  # keyword con gasto, campana SIN metrica
+    mes = s["dia"].replace(day=1)
+    fila = db.execute(
+        "SELECT gasto_ads, gasto_campaign_sin_contraparte, tacos_pct FROM v_tacos"
+        " WHERE platform = 'amazon_mx' AND mes = %s",
+        (mes,),
+    ).fetchone()
+    assert fila is not None
+    assert fila[0] is not None and fila[0] > 0
+    assert fila[1] is None, "la semilla si tiene contraparte campaign; el caso no se prueba"
+    assert fila[2] is None, f"tacos_pct publico {fila[2]} sin poder reconciliar el grano"
+
+
 def test_desfase_gasto_ads_contado(db):
     s = _semilla_mx_completa(db)
     db.execute(
