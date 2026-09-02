@@ -310,6 +310,8 @@ def test_escanear_secretos_detecta_patrones():
     hits = da.escanear_secretos(f"token {SECRETO} y Bearer x")
     assert hits, "Atza| y Bearer deben disparar el escaner"
     assert da.escanear_secretos("refresh Atzr|secreto"), "Atzr| (refresh LWA) debe disparar"
+    assert da.escanear_secretos("account_id=999")
+    assert da.escanear_estructura({"accountId": "999"})
 
 
 def test_escanear_case_insensitive():
@@ -317,6 +319,7 @@ def test_escanear_case_insensitive():
     assert da.escanear_secretos("profile_id=123")
     assert da.escanear_estructura({"nivel": {"AuThOrIzAtIoN": "secreto"}})
     assert da.escanear_estructura({"nivel": [{"PROFILE_ID": "123"}]})
+    assert da.escanear_estructura({"Account_Id": "abc"})
 
 
 def _registro_md(**overrides) -> dict:
@@ -391,7 +394,7 @@ def test_markdown_acos_invalido_no_tumba():
             }
         )
     )
-    assert "| 7 |" in fila
+    assert "| 7 | amazon_mx | camp | kw-fallback |" in fila
     assert "sin dato" in fila
 
 
@@ -399,6 +402,27 @@ def test_markdown_fila_rota_no_tumba():
     fila = da._fila_md({"decision": {"id": 99}})
     assert "| 99 |" in fila
     assert "sin dato" in fila
+
+
+def test_markdown_elige_intento_ok_reconciliado():
+    fila = da._fila_md(
+        _registro_md(
+            apply_attempts=[
+                {
+                    "id": 1,
+                    "seq": 1,
+                    "tipo": "normal",
+                    "quota_cobrada": True,
+                    "started_at": "2026-01-01T00:00:00+00:00",
+                    "finished_at": "2026-01-01T00:00:01+00:00",
+                    "resultado": "ok:reconciliado",
+                    "request_payload": {"keywordId": "42", "bid": "0.80"},
+                    "ack": {"keywordId": "42"},
+                }
+            ]
+        )
+    )
+    assert "→ 0.80 → 42 →" in fila
 
 
 def test_replay_no_ejecuta_inputs_con_clave_sensible(monkeypatch):
@@ -510,9 +534,12 @@ def test_dossier_aplicada_allowlist_replay_md_permisos(monkeypatch, tmp_path):
         rc = da.main(["--ciclos", str(ids["ciclo"]), "--out", str(out)])
         assert rc == 0
         assert stat.S_IMODE(out.stat().st_mode) == 0o700
-        fecha = dt.datetime.now(dt.UTC).strftime("%Y%m%d")
-        md = out / f"dossier_{fecha}.md"
-        js = out / f"dossier_{fecha}.json"
+        archivos_json = list(out.glob("dossier_*.json"))
+        archivos_md = list(out.glob("dossier_*.md"))
+        assert len(archivos_json) == 1
+        assert len(archivos_md) == 1
+        md = archivos_md[0]
+        js = archivos_json[0]
         prompt = out / "prompt_revisor.md"
         for archivo in (md, js, prompt):
             assert archivo.is_file(), archivo.name
@@ -562,8 +589,9 @@ def test_replay_inputs_invalidos_no_tumba_todo(monkeypatch, tmp_path):
         rc = da.main(["--ciclos", str(ids["ciclo"]), "--out", str(out)])
 
         assert rc == 0
-        fecha = dt.datetime.now(dt.UTC).strftime("%Y%m%d")
-        payload = json.loads((out / f"dossier_{fecha}.json").read_text(encoding="utf-8"))
+        archivos_json = list(out.glob("dossier_*.json"))
+        assert len(archivos_json) == 1
+        payload = json.loads(archivos_json[0].read_text(encoding="utf-8"))
         assert len(payload["registros"]) == 2
         por_id = {r["decision"]["id"]: r for r in payload["registros"]}
         replay = por_id[invalida]["replay"]

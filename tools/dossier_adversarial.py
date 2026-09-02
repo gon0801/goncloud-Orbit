@@ -99,6 +99,8 @@ _TEXTOS_SECRETO = (
     "Bearer ",
     "profileId",
     "profile_id",
+    "accountId",
+    "account_id",
     "Amazon-Advertising-API-",
     "access_token",
 )
@@ -114,10 +116,13 @@ _CLAVES_SENSIBLES = frozenset(
         "access_token",
         "profileid",
         "profile_id",
+        "accountid",
+        "account_id",
         "cookie",
         "set-cookie",
     }
 )
+_RESULTADOS_APLICADOS = frozenset({"ok", "ok:reconciliado"})
 _REPLAY_FALLIDO = {
     "kind": None,
     "new_value": None,
@@ -166,7 +171,7 @@ WHERE d.cycle_id = ANY(%s)
     SELECT 1 FROM apply_attempt a
     WHERE a.decision_id = d.id
       AND a.tipo = 'normal'
-      AND a.resultado = 'ok'
+      AND a.resultado IN ('ok', 'ok:reconciliado')
   )
 ORDER BY d.id
 """
@@ -435,7 +440,7 @@ def _fila_md(reg: dict) -> str:
         normales_ok = [
             intento
             for intento in intentos
-            if intento.get("tipo") == "normal" and intento.get("resultado") == "ok"
+            if intento.get("tipo") == "normal" and intento.get("resultado") in _RESULTADOS_APLICADOS
         ]
         intento = max(
             normales_ok,
@@ -524,7 +529,8 @@ def _render_prompt(registros: list[dict], fecha: str, ciclos: list[int]) -> str:
         f" <0.85× → +15%; piso/techo; quantize 2 dec)\n"
         f"- app/optimizer/goals.py\n"
         f"- app/apply.py\n"
-        f"- quota y cooldown no vienen en el dossier: marcarlos como no verificable\n"
+        f"- `quota_cobrada` viaja en cada apply_attempt (cruzable con reversas); "
+        f"cap diario y cooldown NO vienen: marcarlos como no verificable\n"
         f"\n"
         f"## Tarea por decision\n"
         f"Revisar cada kind presente sin asumir que todas las decisiones son bids. "
