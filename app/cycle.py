@@ -1181,7 +1181,7 @@ def _procesa_decisora(
         # veto vigente) — el ciclo NO re-decide esa clave. Salta la entidad
         # ENTERA del motor de bids (decide_bid evalua pause y banda en una
         # sola llamada; prohibir solo el pause exigiria inventar un umbral,
-        # regla 3 — declarado en el docstring del modulo). CAMPAÑA ACTIVA 01
+        # regla 3 — declarado en el docstring del modulo). CAMPANA ACTIVA 01
         # · 1.6: va DESPUES de los gates — una hoja en campana/grupo no
         # ENABLED se cuenta con el motivo del ANCESTRO, no como veto.
         contadores.skips_entidad[MOTIVO_VETO_PENDIENTE] += 1

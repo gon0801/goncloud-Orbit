@@ -2487,7 +2487,7 @@ def _fila_cola_corte(conn, ciclo_dec, config_id, entidad, kind, term=None) -> in
 
 
 def test_veto_pendiente_cuenta_el_ancestro_no_enabled():
-    """CAMPAÑA ACTIVA 01 · 1.6(b): el chequeo de claves bloqueadas va DESPUES
+    """CAMPANA ACTIVA 01 · 1.6(b): el chequeo de claves bloqueadas va DESPUES
     de los gates — una hoja con veto pendiente dentro de una campaña PAUSED
     se cuenta 'campana_no_enabled' (no 'veto_pendiente') y un grupo gateado
     cuenta TODOS sus terminos con el motivo del ancestro (incluidos los

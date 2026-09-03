@@ -171,7 +171,7 @@ UPDATE apply_queue SET estado = 'applying', applying_at = now()
 RETURNING id
 """
 
-# CAMPAÑA ACTIVA 01 · 1.6: espejo de apply_cola._SQL_DESCARTA (mismo ciclo de
+# CAMPANA ACTIVA 01 · 1.6: espejo de apply_cola._SQL_DESCARTA (mismo ciclo de
 # imports): discard PRE-claim del job cuya campana/grupo de ORIGEN dejo de
 # estar ENABLED mientras esperaba quota.
 _SQL_DESCARTA = """
@@ -1189,7 +1189,7 @@ def _reconcilia_negativas(conn: psycopg.Connection, aplicador, platform: str) ->
     existe → reintento (tope 3) o failed. El applying conserva su cobro:
     el reintento NO recobra.
 
-    CAMPAÑA ACTIVA 01 · 1.6: gate de ancestros PRIMERO (la fila ES el ad
+    CAMPANA ACTIVA 01 · 1.6: gate de ancestros PRIMERO (la fila ES el ad
     group, semantica D3): grupo o campaña no ENABLED en el cache → sello
     'fallo:ancestro_no_enabled' + fila failed, sin HTTP ni recobro."""
     confirmadas = fallidas = 0
@@ -1320,7 +1320,7 @@ def reconcilia_harvest(
     veto puede ganar el claim). Ambiguo por job → se salta al ciclo siguiente
     (la fila sin sello ES el rastro).
 
-    CAMPAÑA ACTIVA 01 · 1.6: gate de ancestros del ORIGEN (job.ad_entity_id,
+    CAMPANA ACTIVA 01 · 1.6: gate de ancestros del ORIGEN (job.ad_entity_id,
     el ad group de la fila, semantica D3; el destino del goal sigue SIN gate
     de codigo, D4) tras el chequeo de fila muerta y ANTES del cobro/claim/
     HTTP: job → failed, ledger pendiente sellado 'fallo:ancestro_no_enabled',

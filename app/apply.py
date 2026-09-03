@@ -210,7 +210,7 @@ ESTADO_WIRE_ENABLED = "ENABLED"
 ESTADO_WIRE_PAUSED = "PAUSED"
 ESTADO_WIRE_ARCHIVED = "ARCHIVED"
 
-# CAMPAÑA ACTIVA 01 · 1.6: ancestros no ENABLED (o sin fila de state, regla 3)
+# CAMPANA ACTIVA 01 · 1.6: ancestros no ENABLED (o sin fila de state, regla 3)
 # bloquean reintentos y liberaciones. Definidos AQUI (dueno del write client);
 # apply_cola/cycle los re-exportan como alias: cero cambio de vocabulario.
 MOTIVO_CAMPANA_NO_ENABLED = "campana_no_enabled"
@@ -556,7 +556,7 @@ SELECT id, decision_id, seq, tipo, request_payload, started_at
  ORDER BY started_at, id
 """
 
-# CAMPAÑA ACTIVA 01 · 1.6: status (cache ad_entity_state) del ad group y de la
+# CAMPANA ACTIVA 01 · 1.6: status (cache ad_entity_state) del ad group y de la
 # campaña de una entidad (hoja o ad group). Espejo de apply_cola._SQL_ANCESTROS
 # (la funcion compartida vive AQUI: apply_cola y apply_harvest ya importan este
 # modulo). Hoja: el grupo es su padre; ad group: el grupo es la propia entidad.
@@ -578,7 +578,7 @@ def intentos_sin_sello(conn: psycopg.Connection) -> list[tuple]:
 
 
 def gate_ancestros(conn: psycopg.Connection, ad_entity_id: int) -> str | None:
-    """CAMPAÑA ACTIVA 01 · 1.6: la UNICA fuente del gate de campaña/ad group
+    """CAMPANA ACTIVA 01 · 1.6: la UNICA fuente del gate de campaña/ad group
     ENABLED (cache ad_entity_state, sync diario; semantica D1/D3: sin fila de
     state = fuera, regla 3). Resuelve hoja vs ad group con el mismo CASE que
     trajo 1.2; la usan la cola (libera) y los TRES reconciliadores (reintentos
@@ -635,14 +635,17 @@ def reconcilia_bids(
     un ambiguo del reintento deja la fila nueva SIN sello: ES el rastro del
     proximo ciclo. Devuelve (confirmadas, fallidas).
 
-    CAMPAÑA ACTIVA 01 · 1.6: gate de ancestros PRIMERO, antes de cualquier
+    CAMPANA ACTIVA 01 · 1.6: gate de ancestros PRIMERO, antes de cualquier
     HTTP (readback incluido) — campaña/ad group no ENABLED en el cache sella
     'fallo:ancestro_no_enabled' y cubre tambien el reintento divergente (la
     entidad ya fue gateada antes de que nazca su fila de ledger)."""
     filas = conn.execute(_SQL_INTENTOS_BID_SIN_SELLO, (platform,)).fetchall()
     if not filas:
         return (0, 0)
-    cliente = aplicador._cliente()
+    # Revision PR #136 (CodeRabbit): el cliente nace LAZY, despues del gate y
+    # solo para la primera fila elegible — sin credenciales/profile, _cliente()
+    # lanza y dejaria sin sellar intentos que el gate ya habia cerrado.
+    cliente = None
     confirmadas = fallidas = 0
     for id_attempt, decision_id, payload, ad_entity_id, new_value, moneda in filas:
         if gate_ancestros(conn, ad_entity_id) is not None:
@@ -650,6 +653,8 @@ def reconcilia_bids(
                 _sella_ledger(conn, id_attempt, ack=None, resultado=RESULTADO_ANCESTRO_NO_ENABLED)
             fallidas += 1
             continue
+        if cliente is None:
+            cliente = aplicador._cliente()
         identidad = _identidad(conn, ad_entity_id)
         if identidad is None or identidad[0] not in _KINDS_DECISORAS or new_value is None:
             with conn.transaction():

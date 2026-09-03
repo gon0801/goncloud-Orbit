@@ -1610,19 +1610,19 @@ def test_readback_encuentra_el_bid_en_la_pagina_dos_del_list():
 
 
 # ---------------------------------------------------------------------------
-# CAMPAÑA ACTIVA 01 · 1.6: gate de ancestros en la reconciliacion de bids
+# CAMPANA ACTIVA 01 · 1.6: gate de ancestros en la reconciliacion de bids
 # ---------------------------------------------------------------------------
 
 
 def _handler_cero_api():
-    """Handler que SOLO sirve el token LWA: cualquier otro request a la API
-    revienta (con la campaña pausada la reconciliacion JAMAS sale por HTTP)."""
+    """Handler ESTRICTO: cualquier request, incluido el token LWA, revienta
+    (con la campana pausada la reconciliacion JAMAS sale por HTTP: el gate
+    corre antes de crear el cliente — revision PR #136)."""
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.host == "api.amazon.com":
-            return _token_response()
         raise AssertionError(
-            f"cero HTTP con ancestro no ENABLED: {request.method} {request.url.path}"
+            f"cero HTTP con ancestro no ENABLED: {request.method} {request.url.host}"
+            f"{request.url.path}"
         )
 
     return handler
@@ -1630,8 +1630,8 @@ def _handler_cero_api():
 
 @_skip_db
 def test_reconcilia_bids_campana_pausada_gate_ancestros():
-    """CAMPAÑA ACTIVA 01 · 1.6(a) (regla 9): un intento de bid sin sello cuya
-    CAMPAÑA esta PAUSED se sella 'fallo:ancestro_no_enabled' SIN ningun HTTP
+    """CAMPANA ACTIVA 01 · 1.6(a) (regla 9): un intento de bid sin sello cuya
+    CAMPANA esta PAUSED se sella 'fallo:ancestro_no_enabled' SIN ningun HTTP
     (ni readback ni reintento). Antes del fix la reconciliacion hacia el LIST
     de readback y, con divergencia, el PUT del reintento dentro de la campaña
     pausada (hallazgo codex r1 #1)."""
@@ -1670,7 +1670,7 @@ def test_reconcilia_bids_campana_pausada_gate_ancestros():
 
 @_skip_db
 def test_reconcilia_bids_campana_sin_state_gate_ancestros():
-    """CAMPAÑA ACTIVA 01 · 1.6(a): campaña SIN fila de state (regla 3:
+    """CAMPANA ACTIVA 01 · 1.6(a): campaña SIN fila de state (regla 3:
     ausencia = fuera) — mismo sello y cero HTTP que la campaña PAUSED."""
     from app.apply import reconcilia_bids
 

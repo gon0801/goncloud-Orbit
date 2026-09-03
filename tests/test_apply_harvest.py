@@ -2139,13 +2139,13 @@ def test_reversa_completa_con_delete_rechazado_no_borra_el_negativo():
 
 
 # ---------------------------------------------------------------------------
-# CAMPAÑA ACTIVA 01 · 1.6: gate de ancestros en la reconciliacion (origen)
+# CAMPANA ACTIVA 01 · 1.6: gate de ancestros en la reconciliacion (origen)
 # ---------------------------------------------------------------------------
 
 
 @_skip_db
 def test_reconcilia_negative_grupo_pausado_gate_ancestros():
-    """CAMPAÑA ACTIVA 01 · 1.6(a): cola applying huerfana de negative cuyo
+    """CAMPANA ACTIVA 01 · 1.6(a): cola applying huerfana de negative cuyo
     AD GROUP (la fila ES el grupo, semantica D3) esta PAUSED → sello
     'fallo:ancestro_no_enabled', fila failed, cero HTTP y sin recobro.
     Regla 9: antes del fix el reconciliador hacia el LIST y REINTENTABA el
@@ -2178,7 +2178,7 @@ def test_reconcilia_negative_grupo_pausado_gate_ancestros():
 
 @_skip_db
 def test_reconcilia_harvest_campana_origen_pausada_cierra_job():
-    """CAMPAÑA ACTIVA 01 · 1.6(a): job en vuelo (fila applying) cuya CAMPAÑA
+    """CAMPANA ACTIVA 01 · 1.6(a): job en vuelo (fila applying) cuya CAMPANA
     DE ORIGEN (job.ad_entity_id = el ad group de la fila) esta PAUSED → job
     failed + fila failed + sello 'fallo:ancestro_no_enabled', cero HTTP, sin
     quota y SIN alerta de Telegram (condicion esperada, no fallo operativo).
@@ -2216,7 +2216,7 @@ def test_reconcilia_harvest_campana_origen_pausada_cierra_job():
 
 @_skip_db
 def test_reconcilia_harvest_campana_pausada_fila_released_descarta_pre_claim():
-    """CAMPAÑA ACTIVA 01 · 1.6(a): job en vuelo con fila RELEASED (esperaba
+    """CAMPANA ACTIVA 01 · 1.6(a): job en vuelo con fila RELEASED (esperaba
     quota) y campaña de origen PAUSED → discard PRE-claim con motivo
     'campana_no_enabled' (la maquina de estados de 0002 no tiene
     released -> failed; released sigue vetable): sin quota, sin claim, sin
