@@ -4,8 +4,10 @@ import json
 from collections import Counter
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
+from typing import TYPE_CHECKING
 
-from app.ads.structure_api import EstructuraAds
+if TYPE_CHECKING:
+    from app.ads.structure_api import EstructuraAds
 
 # Etiquetas legibles para los motivos de skip (sin acronimos de tabla).
 _ETIQUETA_KIND = {

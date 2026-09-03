@@ -134,16 +134,17 @@ from app.ads.structure_api import (  # noqa: F401 - fachada sellada (ESTRUCTURA 
     EstructuraAds,
     EstructuraPerfil,
     PerfilAds,
+    _CLAVE_CONTENEDORA,
     evaluar_perfiles,
     fetch_structure,
     listar_todo,
     perfiles_aceptados,
 )
 
-# Plan puro (structure_plan): usados por reports.py y tests
-from app.ads.structure_plan import (  # noqa: F401 - fachada sellada (ESTRUCTURA 01)
+# Plan puro (structure_plan): usados por reports.py y tests;
+# todos estos nombres se usan tambien en sync_structure (sin noqa).
+from app.ads.structure_plan import (
     ESTADO_ARCHIVED,
-    _CLAVE_CONTENEDORA,
     _formato_skip_reason,
     _plan_items,
 )
@@ -154,7 +155,8 @@ Regla: TODO nombre que hoy alguien importe de `app.ads.structure` (lista de
 tests (`_plan_items`, `_CLAVE_CONTENEDORA`) se re-exportan igual (cambio
 mínimo) — alternativa aceptada: actualizar esos dos imports en
 `test_structure_sync.py` al módulo nuevo y NO re-exportarlos; decídelo en
-§Decisiones y sé consistente.
+§Decisiones y sé consistente. `_CLAVE_CONTENEDORA` vive en `structure_api`
+(junto a `PATH_*`); la fachada la re-exporta desde ahi, no desde el plan.
 
 ## Phase 1 — El corte [lane:gate]
 
@@ -173,18 +175,33 @@ fachada `app.ads.structure` (alternativa del plan, cambio minimo).
 `tests/test_structure_sync.py` no cambia sus imports. Consistente con
 «ningun importador de app/, tools/ ni tests/ cambia».
 
-**Ciclo `_CLAVE_CONTENEDORA`.** D2 la deja en `structure_plan.py`; D1 deja
-`_extraer_lista` / `listar_todo` en `structure_api.py`, que la leen.
-`structure_plan` importa `PATH_*` de `structure_api`. Para no romper el
-import circular, `structure_api` importa `_CLAVE_CONTENEDORA` DESPUES de
-definir `PATH_*` y las dataclasses (el binding existe cuando
-`structure_plan` carga). No es lazy import dentro de la funcion. Mismos
-cuerpos.
+**Desviacion `_CLAVE_CONTENEDORA`.** D2 la ponia en `structure_plan.py`, pero
+el unico lector es `_extraer_lista` (API) y las claves son `PATH_*` (API).
+Ponerla en plan crea un import circular API↔plan que ruff I (isort) sube
+al tope y rompe el load. Queda en `structure_api.py` junto a `PATH_*`.
+La fachada la re-exporta igual. `structure_plan` no la importa. No cambia
+el valor ni los cuerpos.
+
+**Pureza de `structure_plan` (cross-review codex+grok).** `EstructuraAds`
+solo aparece en anotaciones: el import runtime de `structure_api` arrastraba
+`AdsClient`/`httpx`. Queda bajo `TYPE_CHECKING`. Candado:
+`test_structure_plan_sin_io_en_runtime`.
+
+**D1 + `app.redaction`.** `structure_api` importa `scrub` porque
+`AdsStructureError` lo usa (MOVE fiel). Dependencia permitida ademas de
+`app.ads.client` y stdlib.
+
+**Monkeypatch en la fachada (residual).** Re-exportar no hace proxy:
+`fetch_structure` resuelve nombres en `structure_api.__dict__`. Parchear
+`app.ads.structure.evaluar_perfiles` / `listar_todo` no intercepta esas
+llamadas. Parchear donde se usa, o en el modulo dueño. Los `_SQL_*` y
+`_plan_items` siguen parcheables en la fachada porque `sync_structure`
+vive ahi. Ningun test actual parchea los helpers de API en la fachada.
 
 **Candado de motor puro.** `test_architecture` solo exige pureza en
 `app/optimizer/`. Meter `structure_plan.py` ahi exigiria cambiar el
-candado. D2: se declara y no se fuerza. La prueba operativa es que
-`structure_plan.py` no importa `psycopg` ni `httpx`.
+candado. D2: se declara y no se fuerza. La pureza operativa del plan es el
+candado AST propio (arriba).
 
 **Tabla simbolo → modulo**
 
@@ -216,13 +233,6 @@ E   assert not {'app/ads/structure.py': 1068}
 FAILED tests/test_architecture.py::test_presupuesto_de_tamano_por_modulo
 1 failed in 0.40s
 ```
-
-**Desviacion `_CLAVE_CONTENEDORA`.** D2 la ponia en `structure_plan.py`, pero
-el unico lector es `_extraer_lista` (API) y las claves son `PATH_*` (API).
-Ponerla en plan crea un import circular API↔plan que ruff I (isort) sube
-al tope y rompe el load. Queda en `structure_api.py` junto a `PATH_*`.
-La fachada la re-exporta igual. `structure_plan` no la importa. No cambia
-el valor ni los cuerpos.
 
 ## Reject (con razón)
 

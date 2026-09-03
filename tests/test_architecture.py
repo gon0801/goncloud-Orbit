@@ -221,6 +221,19 @@ def test_puerta_de_datos_sin_api_de_amazon():
     assert not fugas, f"la puerta de datos no habla con Amazon ni la ingesta: {fugas}"
 
 
+def test_structure_plan_sin_io_en_runtime():
+    """structure_plan es planificacion pura: sin httpx/psycopg/cliente Ads.
+
+    ESTRUCTURA 01 (cross-review): un import runtime de structure_api
+    arrastraba AdsClient -> httpx. EstructuraAds solo es anotacion.
+    """
+    plan = APP / "ads" / "structure_plan.py"
+    imp = _imports_runtime(plan)
+    prohibidos = ("httpx", "psycopg", "app.ads.client", "app.ads.structure_api", "app.db")
+    fugas = sorted(p for p in prohibidos if p in imp)
+    assert not fugas, f"structure_plan arrastra IO en runtime: {fugas} (imports={sorted(imp)})"
+
+
 # ORBIT 04 decision 9 (r2 codex 5): quien puede importar el cliente de
 # ESCRITURA de Amazon Ads. Tres importadores reales: apply (aplicador),
 # smoke_apply (probe 2.5) y archivar (limpieza operada). Crecer la
