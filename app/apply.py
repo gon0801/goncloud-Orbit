@@ -451,7 +451,15 @@ def bids_del_ciclo(conn: psycopg.Connection, cycle_id: int) -> list[DecisionBid]
 
 # Prioridad por urgencia de hemorragia (sellado 8): el motivo es el
 # vocabulario del motor de bids (bid.MOTIVO_* via _MOTIVO_BANDA).
-_PRIORIDAD_BANDA = {"banda_menos_25": 0, "banda_menos_12": 1, "banda_mas_15": 2}
+# BIDS 01: el motivo nuevo de cero ventas compite con la prioridad de -25%
+# (D6 sellado; literal porque este modulo no importa bid — el vocabulario
+# cerrado lo pinean los tests).
+_PRIORIDAD_BANDA = {
+    "banda_menos_25": 0,
+    "banda_menos_25_cero_ventas": 0,
+    "banda_menos_12": 1,
+    "banda_mas_15": 2,
+}
 # Clave de orden para costo desconocido (regla 3): dentro de SU banda, al
 # final — es una clave de ORDEN, no un valor de negocio.
 _COSTO_DESCONOCIDO = Decimal(-1)
@@ -471,9 +479,10 @@ def _clave_orden(decision: DecisionBid) -> tuple[int, Decimal]:
 
 
 def orden_bids(decisiones: list[DecisionBid]) -> list[DecisionBid]:
-    """Orden sellado de seleccion bajo cap: banda_menos_25 > banda_menos_12 >
-    banda_mas_15 y, dentro de cada banda, costo de la ventana DESC (la
-    hemorragia mas cara primero)."""
+    """Orden sellado de seleccion bajo cap: banda_menos_25 =
+    banda_menos_25_cero_ventas (BIDS 01) > banda_menos_12 > banda_mas_15 y,
+    dentro de cada banda, costo de la ventana DESC (la hemorragia mas cara
+    primero)."""
     return sorted(decisiones, key=_clave_orden)
 
 

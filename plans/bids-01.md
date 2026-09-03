@@ -119,7 +119,7 @@ decisión al día pasa de −12% a −25%.
 
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
-| 1.1 | **GLM — Regla A' en `bid.py`**: constante `MOTIVO_BANDA_MENOS_25_CERO_VENTAS = "banda_menos_25_cero_ventas"`; `decide_bid` gana `expected_clicks: Decimal \| None = None`; función pura `_factor_cero_ventas(bids, expected_clicks, cost_min)`; motivo del resultado = el nuevo cuando esa regla dispara, si no `_MOTIVO_BANDA[factor]`; `cycle._procesa_decisora` pasa `expected_clicks=corte_pause.expected_clicks`; `replay._replay_bid` lee `inputs.corte.expected_clicks`; `apply._PRIORIDAD_BANDA` con el motivo nuevo en prioridad 0; `api_dashboard.MOTIVOS_ES_DECISIONES` con su etiqueta; `docs/CONTEXTO.md` (umbrales sellados) con la regla. Guía en §1.1. `[tdd:required]` | Tests puros ROJOS contra master en `tests/test_optimizer_bid.py`: dispara en el borde exacto (clicks == expected, cost == cost_min) con factor −0.25 y motivo nuevo; NO dispara con clicks = expected − 1, con cost < cost_min, con `expected_clicks=None`, con orders=None o ad_revenue=None (siguen −12%/otro); PAUSE gana cuando aplica; replay: fila histórica sin la clave rejuega igual (golden intacto) y una decisión nueva congela/replayea el motivo nuevo (`tests/test_cycle.py`); logs rojos en §Decisiones | - | cc:TODO |
+| 1.1 | **GLM — Regla A' en `bid.py`**: constante `MOTIVO_BANDA_MENOS_25_CERO_VENTAS = "banda_menos_25_cero_ventas"`; `decide_bid` gana `expected_clicks: Decimal \| None = None`; función pura `_factor_cero_ventas(bids, expected_clicks, cost_min)`; motivo del resultado = el nuevo cuando esa regla dispara, si no `_MOTIVO_BANDA[factor]`; `cycle._procesa_decisora` pasa `expected_clicks=corte_pause.expected_clicks`; `replay._replay_bid` lee `inputs.corte.expected_clicks`; `apply._PRIORIDAD_BANDA` con el motivo nuevo en prioridad 0; `api_dashboard.MOTIVOS_ES_DECISIONES` con su etiqueta; `docs/CONTEXTO.md` (umbrales sellados) con la regla. Guía en §1.1. `[tdd:required]` | Tests puros ROJOS contra master en `tests/test_optimizer_bid.py`: dispara en el borde exacto (clicks == expected, cost == cost_min) con factor −0.25 y motivo nuevo; NO dispara con clicks = expected − 1, con cost < cost_min, con `expected_clicks=None`, con orders=None o ad_revenue=None (siguen −12%/otro); PAUSE gana cuando aplica; replay: fila histórica sin la clave rejuega igual (golden intacto) y una decisión nueva congela/replayea el motivo nuevo (`tests/test_cycle.py`); logs rojos en §Decisiones | - | cc:完了 Regla A' en el motor (PR por abrir; CI corre la bateria con DB) |
 | 1.2 | **GLM — Vista `v_entidad_inerte` + guarda `entidad_inerte`**: migración `migrations/0013_entidad_inerte.sql` (vista + `COMMENT ON VIEW` + `GRANT SELECT` con el mismo patrón de roles de `0006`), `cycle.MOTIVO_ENTIDAD_INERTE = "entidad_inerte"`, `_SQL_INERTES` + lectura en TX2 + skip en `_procesa_decisora` (D3), etiqueta en `MOTIVOS_ES_SALUD`, `docs/DASHBOARD.md` (lista de motivos), `docs/DATABASE.md` (la vista). Guía en §1.2. `[tdd:required]` | Test de la vista (`_db_temporal` + migración 0013 aplicada en el fixture) ROJO contra master: 3 hojas sembradas (sin impresiones 20 d con gasto 90 d → `gasto_sin_ventas`; sin impresiones y sin nada → `peso_muerto`; con impresiones hace 3 d → NO aparece) y N contado desde el watermark, no desde `now()`; test de ciclo ROJO: una hoja con métricas solo antiguas (ventana completa) decidía un bid y ahora es `skips.entidad.entidad_inerte = 1`, una con impresiones recientes sigue decidiendo; pglast de `_SQL_INERTES`; logs rojos | - | cc:TODO |
 
 ## Phase 2 — Superficie y herramienta [lane:gate]
@@ -460,8 +460,89 @@ archiva_inertes con ledger y reversa (BIDS 01 · 1.4)`.
 
 ## Decisiones y evidencia (GLM / DeepSeek escriben aquí ANTES del código)
 
-_(vacío: decisiones D-x con su razón, logs rojos de cada tarea y cualquier
-desviación del plan con su porqué)_
+### 1.1 — Regla A' (GLM, rama bids-01-1.1)
+
+- **D-1.1.1 · Plan-vs-código: CUADRA, sin parar.** `decide_bid` ya recibe
+  `cost_min` resuelto y congela `cost_min_usado`; `_corte_json` ya congela
+  `expected_clicks` como string (`app/cycle.py:517`); `corte_pause` es
+  `UmbralResuelto` con `.expected_clicks` (`app/optimizer/cortes.py:109`);
+  el replay vive en `app/optimizer/replay.py::_replay_bid` (donde el plan
+  dice); `_PRIORIDAD_BANDA` en `app/apply.py:454` y
+  `MOTIVOS_ES_DECISIONES` en `app/api_dashboard.py:187` existen. Desviación
+  menor YA PREVISTA por el plan (§1.1: "Si `_decide` no acepta
+  `umbral_pause`..."): el helper `_decide` de `tests/test_optimizer_bid.py`
+  no acepta `umbral_pause`/`expected_clicks`/`cost_min` como Decimal — se
+  extiende con defaults (`umbral_pause: int | None = None` →
+  `b.LEGACY_PAUSE`), no se para.
+- **D-1.1.2 · La regla compara contra el piso RESUELTO.** `decide_bid`
+  resuelve `costo_piso = cost_min or PAUSE_COST_MIN[platform]` antes de las
+  bandas; `_factor_cero_ventas` recibe ese `costo_piso` (el MISMO que usó el
+  pause, regla 2 — una sola fuente). La guarda `cost_min is None → None` se
+  conserva dentro de la función pura por regla 3 (insumo faltante = no
+  aplica), aunque el camino vivo nunca le pasa None.
+- **D-1.1.3 · `clicks` es `int | None`** (`windows.AgregadoMetricas:175`):
+  la comparación es `Decimal(agregado.clicks) >= expected_clicks`, exacta,
+  inclusiva (>=), sin dividir — igual que el esqueleto del plan.
+- **D-1.1.4 · `apply.py` NO importa `bid`** (solo `goals`; el write client
+  sí): `_PRIORIDAD_BANDA` gana el literal
+  `"banda_menos_25_cero_ventas": 0` sin import nuevo (diff mínimo; el
+  vocabulario cerrado lo pinean los tests literales). Caso del plan
+  ("si el módulo ya importa bid") no aplica.
+- **D-1.1.5 · Etiqueta ES sin acento y con `clicks`.** El plan trae
+  «clics»; el repo exige sin acentos/ñ en el código y los labels vecinos
+  usan `clicks` ("Pausa: sin ventas con clicks y costo sobre el umbral"):
+  `bid.MOTIVO_BANDA_MENOS_25_CERO_VENTAS: "Cero ventas con los clicks de
+  una venta y gasto sobre el piso: -25%"`.
+- **D-1.1.6 · Test de ciclo 1.1.** Grupo nuevo con evidencia elegible
+  mínima (60 clicks / 3 órdenes / 14 fechas → `expected_clicks = 20`) y
+  hoja de cero ventas (bids: clicks 25, cost 45 ≥ piso 40; cortes: clicks
+  < 100 para que NO pause). Aserta `motivo =
+  banda_menos_25_cero_ventas`, `inputs.corte.expected_clicks == "20"` y
+  `ciclo.reproduce(inputs) == (kind, new_value, moneda)`. Los goldens
+  viejos no cambian (sus hojas tienen ventas o no alcanzan expected).
+
+**Rojo 1.1** (tests nuevos contra `origin/master`, antes del fix; ver
+commit para el verde):
+
+```text
+$ .venv/bin/python -m pytest tests/test_optimizer_bid.py -q -k "cero_ventas or pause_gana"
+E       TypeError: decide_bid() got an unexpected keyword argument 'expected_clicks'
+tests/test_optimizer_bid.py:101: TypeError
+FAILED test_precedencia_pause_gana_a_banda_menos_25  (usa _decide: el helper
+  ya pasa expected_clicks; verde de nuevo tras el fix — no es regresion)
+FAILED test_cero_ventas_con_clics_esperados_y_gasto_sobre_piso_baja_25
+FAILED test_cero_ventas_un_click_bajo_los_esperados_sigue_menos_12
+FAILED test_cero_ventas_gasto_bajo_el_piso_sigue_menos_12
+FAILED test_cero_ventas_sin_expected_clicks_no_aplica
+FAILED test_cero_ventas_orders_o_revenue_desconocidos_no_aplica
+FAILED test_pause_gana_sobre_la_regla_de_cero_ventas
+7 failed, 38 deselected in 0.20s
+
+$ PYTHONPATH=. .venv/bin/python /tmp/rojo11.py   (regla 9: poder discriminante)
+codigo viejo: bid banda_menos_12 -0.12 0.8800
+DISCRIMINA: el codigo viejo da -12% donde el test 1 exige -25% + motivo nuevo
+```
+
+- **DESV-1.1.1 · El test 1 del plan (§1.1) NO CUADRA con el código real —
+  PARADO a pregunta del lead (regla 6).** El plan pasa `_cortes(cost=45,
+  clicks=120, orders=0)` SIN `umbral_pause`, o sea con el default vigente
+  `LEGACY_PAUSE = 100`: `120 >= 100 ∧ 45 >= 40 ∧ orders == 0` → **PAUSE
+  dispara** (`decide_bid` lo evalúa ANTES que las bandas, sellado). El test
+  aserta `kind == "bid"` + motivo nuevo: **fallaría ANTES y DESPUÉS del
+  fix** (el pause roba la decisión en ambos mundos) → test que no
+  discrimina, viola la regla 9. El propio rojo esperado del plan
+  (`'banda_menos_12' != 'banda_menos_25_cero_ventas'`) prueba que el autor
+  quería el camino de BANDAS puro (con pause, el motivo viejo sería
+  `pause_umbral`, no `banda_menos_12`). Corrección propuesta (mínima, fiel
+  a la intención): test 1 con `cortes=None` — la ASIMETRÍA INTENCIONAL del
+  motor (`bid.py`: cortes ausente NO impide bandas sobre bids) lo ampara, y
+  los tests 2–5 del plan ya usan `cortes=None`. Con `cortes=None`: código
+  viejo → `banda_menos_12` (rojo exacto del plan); código nuevo → `-25%`
+  con motivo nuevo (verde). **Sin veredicto del lead no hay código.**
+  (Tests 2–6 verificados a mano contra `bid.py`: con `cortes=None` dan el
+  rojo/verde esperado; el test 6-pause con `umbral_pause=180` cuadra.)
+- **Veredicto del lead (2026-09-03): `cortes=None`.** Se aplica la
+  corrección propuesta; el test 1 queda en camino de bandas puro.
 
 ## Reject (con razón)
 

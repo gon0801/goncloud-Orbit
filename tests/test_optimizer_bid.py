@@ -95,6 +95,8 @@ def _decide(
     floor: str = "0.40",
     ceiling: str = "2.50",
     cost_min: str | None = None,
+    expected_clicks: str | None = None,
+    umbral_pause: int | None = None,
 ) -> b.ResultadoBid:
     return b.decide_bid(
         platform=platform,
@@ -106,6 +108,8 @@ def _decide(
         floor=Decimal(floor),
         ceiling=Decimal(ceiling),
         cost_min=None if cost_min is None else Decimal(cost_min),
+        expected_clicks=None if expected_clicks is None else Decimal(expected_clicks),
+        umbral_pause=b.LEGACY_PAUSE if umbral_pause is None else umbral_pause,
     )
 
 
@@ -601,3 +605,91 @@ def test_orders_0_literal_no_habilita_menos_25_cae_a_menos_12():
     assert r.kind == "bid"
     assert r.motivo == "banda_menos_12"
     assert r.factor == Decimal("-0.12")
+
+
+# ---------------------------------------------------------------------------
+# BIDS 01 (regla A'): cero ventas con los clicks de una venta y gasto sobre
+# el piso -> -25% con motivo propio (antes solo podia dar -12%: la banda
+# -25 exigia orders >= 1 por construccion)
+# ---------------------------------------------------------------------------
+
+
+def test_cero_ventas_con_clics_esperados_y_gasto_sobre_piso_baja_25():
+    """BIDS 01 (regla 9): orders=0 y ad_revenue=0 con clicks >= expected_clicks
+    del grupo y cost >= cost_min -> -25% con motivo propio. Antes del fix el
+    motor solo podia dar -12% a cero ventas (-25% exigia orders >= 1)."""
+    r = _decide(
+        _bids(cost=Decimal("45"), ad_revenue=Decimal("0"), clicks=120, orders=0),
+        # DESV-1.1.1 (veredicto lead: cortes=None): con el _cortes del plan
+        # (clicks 120 >= LEGACY_PAUSE 100) el PAUSE robaba la decision antes y
+        # despues del fix; el camino de BANDAS puro es lo que el plan quiso
+        # pinear (su rojo esperado era 'banda_menos_12', no 'pause_umbral').
+        None,
+        cost_min="40",
+        expected_clicks="120",
+    )
+    assert r.kind == "bid"
+    assert r.factor == Decimal("-0.25")
+    assert r.motivo == "banda_menos_25_cero_ventas"
+    assert r.new_value == Decimal("0.75")
+
+
+def test_cero_ventas_un_click_bajo_los_esperados_sigue_menos_12():
+    r = _decide(
+        _bids(cost=Decimal("45"), ad_revenue=Decimal("0"), clicks=119, orders=0),
+        None,
+        cost_min="40",
+        expected_clicks="120",
+    )
+    assert (r.motivo, r.factor) == ("banda_menos_12", Decimal("-0.12"))
+
+
+def test_cero_ventas_gasto_bajo_el_piso_sigue_menos_12():
+    r = _decide(
+        _bids(cost=Decimal("39.99"), ad_revenue=Decimal("0"), clicks=200, orders=0),
+        None,
+        cost_min="40",
+        expected_clicks="120",
+    )
+    assert (r.motivo, r.factor) == ("banda_menos_12", Decimal("-0.12"))
+
+
+def test_cero_ventas_sin_expected_clicks_no_aplica():
+    """Grupo sin evidencia (expected None): regla 3, nada inventado -> -12%."""
+    r = _decide(
+        _bids(cost=Decimal("45"), ad_revenue=Decimal("0"), clicks=200, orders=0),
+        None,
+        cost_min="40",
+        expected_clicks=None,
+    )
+    assert r.motivo == "banda_menos_12"
+
+
+def test_cero_ventas_orders_o_revenue_desconocidos_no_aplica():
+    r1 = _decide(
+        _bids(cost=Decimal("45"), ad_revenue=Decimal("0"), clicks=200, orders=None),
+        None,
+        cost_min="40",
+        expected_clicks="120",
+    )
+    r2 = _decide(
+        _bids(cost=Decimal("45"), ad_revenue=None, clicks=200, orders=0),
+        None,
+        cost_min="40",
+        expected_clicks="120",
+    )
+    assert r1.motivo != "banda_menos_25_cero_ventas"
+    assert r2.motivo != "banda_menos_25_cero_ventas"
+
+
+def test_pause_gana_sobre_la_regla_de_cero_ventas():
+    """Al 1.5x (umbral_pause) con cost >= piso en la ventana de CORTES manda el
+    PAUSE (sin cambio): la regla nueva vive DESPUES del pause."""
+    r = _decide(
+        _bids(cost=Decimal("60"), ad_revenue=Decimal("0"), clicks=180, orders=0),
+        _cortes(cost=Decimal("60"), ad_revenue=Decimal("0"), clicks=180, orders=0),
+        cost_min="40",
+        expected_clicks="120",
+        umbral_pause=180,
+    )
+    assert r.kind == "pause"

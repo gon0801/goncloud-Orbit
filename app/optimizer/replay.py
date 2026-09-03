@@ -76,6 +76,14 @@ def _replay_bid(inputs: dict) -> bid.ResultadoBid:
         if corte is not None and "cost_min_usado" in corte
         else bid.REPLAY_PAUSE_COST_PRE_CORTES03[inputs["platform"]]
     )
+    # BIDS 01 (regla A'): el replay LEE inputs.corte.expected_clicks (el
+    # ciclo lo congela desde CORTES 01); fila historica sin la clave -> None
+    # -> la regla no aplica y rejuega IGUAL que antes (regla 3).
+    expected = (
+        _dec_de_json(corte.get("expected_clicks"))
+        if corte is not None and corte.get("expected_clicks") is not None
+        else None
+    )
     return bid.decide_bid(
         platform=inputs["platform"],
         bids=_agregado_sintetico(inputs["ventanas"]["bids"]),
@@ -87,6 +95,7 @@ def _replay_bid(inputs: dict) -> bid.ResultadoBid:
         ceiling=Decimal(goal["bid_ceiling"]),
         umbral_pause=umbral_pause,
         cost_min=cost_min,
+        expected_clicks=expected,
     )
 
 

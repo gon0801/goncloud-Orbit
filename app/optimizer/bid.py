@@ -31,7 +31,8 @@ diseno manda):
   PROHIBIDO dividir -- evita la division por cero (ad_revenue=0 con cost>0
   dispara la banda de baja) y mantiene Decimal exacto. target llega como
   pct (ej 25).
-- Precedencia EXPLICITA: PAUSE gana a cualquier ajuste; -25 gana a -12;
+- Precedencia EXPLICITA: PAUSE gana a cualquier ajuste; la regla A' de
+  cero ventas (BIDS 01) gana a las bandas; -25 gana a -12;
   -12 y +15 son mutuamente excluyentes (0.85 < 1.15 en aritmetica exacta).
 - Clamps: factor por decision a [-30%, +20%]; resultado a [floor, ceiling].
   El CAMBIO FINAL (new - bid_actual) tambien debe obedecer el clamp por
@@ -132,6 +133,9 @@ MIN_DELTA_ABSOLUTO = Decimal("0.01")  # |new - bid_actual| < 0.01 -> no-op (estr
 
 # Motivo de decision (vocabulario cerrado; los tests lo fijan literal)
 MOTIVO_PAUSE = "pause_umbral"
+# BIDS 01 (regla A', spec 2026-08-26 aprobada 2026-09-03): cero ventas con
+# los clicks de una venta y gasto sobre el piso -> -25% con motivo propio.
+MOTIVO_BANDA_MENOS_25_CERO_VENTAS = "banda_menos_25_cero_ventas"
 _MOTIVO_BANDA: dict[Decimal, str] = {
     FACTOR_BAJA_FUERTE: "banda_menos_25",
     FACTOR_BAJA_SUAVE: "banda_menos_12",
@@ -218,6 +222,27 @@ def _factor_banda(agregado: AgregadoMetricas, target_acos_pct: Decimal) -> Decim
     return None
 
 
+def _factor_cero_ventas(
+    agregado: AgregadoMetricas, expected_clicks: Decimal | None, cost_min: Decimal | None
+) -> Decimal | None:
+    """BIDS 01 (spec 2026-08-26 aprobada 2026-09-03, regla A'): gasto sin UNA
+    venta habiendo alcanzado los clicks que en ese grupo cuesta una venta y
+    el piso de costo de pausa -> -25%. Relativa al producto (expected_clicks
+    de CORTES 01), jamas un numero absoluto. Cualquier insumo None = no aplica
+    (regla 3). Se evalua DESPUES del pause y ANTES de las bandas."""
+    if expected_clicks is None or cost_min is None:
+        return None
+    if agregado.orders is None or agregado.ad_revenue is None:
+        return None
+    if agregado.clicks is None or agregado.cost is None:
+        return None
+    if agregado.orders != 0 or agregado.ad_revenue != 0:
+        return None
+    if Decimal(agregado.clicks) >= expected_clicks and agregado.cost >= cost_min:
+        return FACTOR_BAJA_FUERTE
+    return None
+
+
 def decide_bid(
     *,
     platform: str,
@@ -230,6 +255,7 @@ def decide_bid(
     ceiling: Decimal,
     umbral_pause: int = LEGACY_PAUSE,
     cost_min: Decimal | None = None,
+    expected_clicks: Decimal | None = None,
 ) -> ResultadoBid:
     """Decide PAUSE o ajuste de bid para UNA entidad, puro y determinista.
 
@@ -243,17 +269,21 @@ def decide_bid(
     inputs.corte.cost_min_usado, y apply_cola revalida vivo sin pasarlo;
     el replay pasa el congelado (cost_min_usado) o el historico de su era
     (REPLAY_PAUSE_COST_PRE_CORTES03). Este modulo jamas recalcula ninguno
-    de los dos.
+    de los dos. `expected_clicks` (BIDS 01, regla A') es el costo en clicks
+    de UNA venta en el grupo, YA RESUELTO (cortes.umbral_corte, None sin
+    evidencia): el orquestador lo pasa y el replay lee el congelado.
 
     Orden interno sellado:
     (1) PAUSE sobre el agregado de CORTES (si existe, esta completo, su
         moneda es la de la plataforma, orders==0, clicks>=umbral_pause y
         cost>= umbral de la plataforma) -> resultado pause con la ventana
         de CORTES.
-    (2) Si no: bandas sobre el agregado de BIDS (si existe, esta completo y
-        su moneda es la de la plataforma): evalua -25/-12/+15 con
-        precedencia, aplica factor -> clamp por decision [-0.30, +0.20] ->
-        clamp a [floor, ceiling] -> |delta| < 0.01 -> no-op.
+    (2) Si no: regla A' y luego bandas sobre el agregado de BIDS (si
+        existe, esta completo y su moneda es la de la plataforma): primero
+        cero ventas con clicks>=expected_clicks y cost>=piso -> -25% con
+        motivo propio; si no, -25/-12/+15 con precedencia. Despues: factor
+        -> clamp por decision [-0.30, +0.20] -> clamp a [floor, ceiling] ->
+        |delta| < 0.01 -> no-op.
     (3) Sin banda o con guarda bloqueada -> ResultadoBid(None, motivo, ...).
 
     ASIMETRIA INTENCIONAL: la ventana de cortes incompleta (o ausente) NO
@@ -315,7 +345,14 @@ def decide_bid(
     elif bids.cost is None or bids.ad_revenue is None:
         motivo_bids_bloqueado = MOTIVO_ACOS_DESCONOCIDO
     else:
-        factor = _factor_banda(bids, target_acos_pct)
+        # BIDS 01 (regla A'): cero ventas con los clicks de una venta y
+        # gasto sobre el piso (RESUELTO: el mismo costo_piso del pause) ->
+        # -25% con motivo propio; si no aplica, las bandas de siempre.
+        factor = _factor_cero_ventas(bids, expected_clicks, costo_piso)
+        motivo_banda = MOTIVO_BANDA_MENOS_25_CERO_VENTAS if factor is not None else None
+        if factor is None:
+            factor = _factor_banda(bids, target_acos_pct)
+            motivo_banda = _MOTIVO_BANDA.get(factor) if factor is not None else None
         if factor is None:
             motivo_bids_bloqueado = MOTIVO_SIN_BANDA
         elif bid_actual is None:
@@ -347,9 +384,10 @@ def decide_bid(
                     # [alta], cross-review ronda 1).
                     motivo_bids_bloqueado = MOTIVO_RANGO_BLOQUEA_AJUSTE
                 else:
+                    assert motivo_banda is not None  # factor no None implica motivo
                     return ResultadoBid(
                         kind="bid",
-                        motivo=_MOTIVO_BANDA[factor],
+                        motivo=motivo_banda,
                         old_value=bid_actual,
                         new_value=nuevo,  # sin quantize: presentacion la decide el apply (PR2)
                         value_currency=bid_moneda,

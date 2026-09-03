@@ -1180,6 +1180,10 @@ def _procesa_decisora(
         ceiling=ceiling,
         umbral_pause=corte_pause.umbral,
         cost_min=costo_piso,
+        # BIDS 01 (regla A'): el expected YA viaja congelado en
+        # inputs.corte.expected_clicks (nada que congelar: _corte_json lo
+        # sella con el mismo corte_pause).
+        expected_clicks=corte_pause.expected_clicks,
     )
     tick()
     if resultado.kind is None:

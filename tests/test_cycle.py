@@ -2141,3 +2141,103 @@ def test_gate_campana_y_grupo_no_enabled():
         assert con_decision.isdisjoint({kw_p, kw_g, kw_n, ag_p})
         # la campaña ENABLED de la fixture maestra sigue decidiendo igual que antes
         assert ids["kw_bid"] in con_decision
+
+
+# ---------------------------------------------------------------------------
+# BIDS 01 1.1: regla A' de punta a punta (congela expected y replayea fiel)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ciclo_cero_ventas_con_clics_esperados_baja_25_y_replayea():
+    """BIDS 01 (D1): hoja con cero ventas que alcanza los clicks esperados
+    del grupo (evidencia minima elegible 63/3/24 -> expected 21) y cost >=
+    piso de pausa -> bid -25% con motivo propio; inputs.corte congela
+    expected_clicks y reproduce() devuelve lo persistido. La hoja donante
+    de evidencia (sin metricas en ventanas de decision) no decide.
+
+    La siembra maestra pone el ancla fresca (max 08-19): sin ella el
+    watermark quedaria en 07-27 y la guarda lo saltaria todo (26 dias);
+    ademas las ventanas de BIDS/CORTES anclan en max-3d. La maestra aporta
+    sus 4 decisiones selladas; la nueva hoja aporta la quinta."""
+    with _db_temporal("orbit_ciclo_cero_ventas") as (conn, _c):
+        ids = _siembra_maestra(conn)
+        run_id = _run(conn)
+        camp = _entidad(conn, "amazon_us", "campaign", "9301")
+        ag = _entidad(conn, "amazon_us", "ad_group", "9302", parent=camp)
+        kw = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "9303",
+            parent=ag,
+            match_type="EXACT",
+            keyword_text="kw cero ventas",
+        )
+        donante = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "9304",
+            parent=ag,
+            match_type="EXACT",
+            keyword_text="kw donante",
+        )
+        synced = DECIDED_AT - dt.timedelta(hours=4)
+        _estado(conn, camp, synced_at=synced)
+        _estado(conn, ag, synced_at=synced)
+        _estado(conn, kw, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
+        _estado(conn, donante, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
+        # Hoja cero ventas: 10 fechas 07-18..07-27 (en BIDS y en CORTES),
+        # 23 clicks (< 100: NO pause) y cost 45.00 (>= piso 40).
+        for i, fecha in enumerate(_rango(dt.date(2026, 7, 18), dt.date(2026, 7, 27))):
+            _metrica(
+                conn,
+                run_id,
+                kw,
+                fecha,
+                _obs(fecha),
+                cost="4.50",
+                ad_revenue="0.00",
+                clicks=3 if i < 3 else 2,
+                orders=0,
+            )
+        # Donante de evidencia: 14 fechas 06-01..06-14, 40 clicks y 3
+        # ordenes. Evidencia del grupo: 63 clicks / 3 ordenes / 24 fechas ->
+        # expected 21, umbral pause 100 (piso).
+        for i, fecha in enumerate(_rango(dt.date(2026, 6, 1), dt.date(2026, 6, 14))):
+            _metrica(
+                conn,
+                run_id,
+                donante,
+                fecha,
+                _obs(fecha),
+                cost="1.00",
+                ad_revenue="10.00" if i < 3 else "0.00",
+                clicks=3 if i < 12 else 2,
+                orders=1 if i < 3 else 0,
+            )
+
+        res = _corre(conn)
+        assert res.status == "done"
+        # 4 selladas de la maestra + 1 de la hoja de cero ventas
+        assert res.decisions_count == 5
+        filas = _decisions_de(conn, res.cycle_id)
+        por = {(f[0], f[1], f[2]): f for f in filas}
+        # la maestra sigue igual: sin la regla nueva no hay cambio
+        assert por[(ids["kw_bid"], "bid", None)][9]["motivo"] == "banda_menos_25"
+        fila = por[(kw, "bid", None)]
+        assert fila[1] == "bid"
+        assert fila[4] == Decimal("0.75")
+        assert fila[5] == "USD"
+        ins = fila[9]
+        assert ins["motivo"] == "banda_menos_25_cero_ventas"
+        assert ins["factor"] == "-0.25"
+        assert ins["corte"]["expected_clicks"] == "21"
+        assert ins["corte"]["umbral_clicks_usado"] == 100
+        assert ins["corte"]["elegible"] is True
+        assert ins["corte"]["cost_min_usado"] == "40"
+        assert ciclo.reproduce(ins) == ("bid", Decimal("0.75"), "USD")
