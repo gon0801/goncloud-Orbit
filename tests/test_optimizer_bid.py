@@ -666,6 +666,9 @@ def test_cero_ventas_sin_expected_clicks_no_aplica():
 
 
 def test_cero_ventas_orders_o_revenue_desconocidos_no_aplica():
+    """Revision PR #132 (menor): resultado COMPLETO pineado, no solo !=.
+    orders None con revenue 0 cae a -12%; revenue None es ACoS desconocido
+    (no-op sin banda)."""
     r1 = _decide(
         _bids(cost=Decimal("45"), ad_revenue=Decimal("0"), clicks=200, orders=None),
         None,
@@ -678,8 +681,8 @@ def test_cero_ventas_orders_o_revenue_desconocidos_no_aplica():
         cost_min="40",
         expected_clicks="120",
     )
-    assert r1.motivo != "banda_menos_25_cero_ventas"
-    assert r2.motivo != "banda_menos_25_cero_ventas"
+    assert (r1.kind, r1.motivo, r1.factor) == ("bid", "banda_menos_12", Decimal("-0.12"))
+    assert (r2.kind, r2.motivo, r2.factor) == (None, b.MOTIVO_ACOS_DESCONOCIDO, None)
 
 
 def test_pause_gana_sobre_la_regla_de_cero_ventas():

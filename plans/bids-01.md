@@ -119,7 +119,7 @@ decisión al día pasa de −12% a −25%.
 
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
-| 1.1 | **GLM — Regla A' en `bid.py`**: constante `MOTIVO_BANDA_MENOS_25_CERO_VENTAS = "banda_menos_25_cero_ventas"`; `decide_bid` gana `expected_clicks: Decimal \| None = None`; función pura `_factor_cero_ventas(bids, expected_clicks, cost_min)`; motivo del resultado = el nuevo cuando esa regla dispara, si no `_MOTIVO_BANDA[factor]`; `cycle._procesa_decisora` pasa `expected_clicks=corte_pause.expected_clicks`; `replay._replay_bid` lee `inputs.corte.expected_clicks`; `apply._PRIORIDAD_BANDA` con el motivo nuevo en prioridad 0; `api_dashboard.MOTIVOS_ES_DECISIONES` con su etiqueta; `docs/CONTEXTO.md` (umbrales sellados) con la regla. Guía en §1.1. `[tdd:required]` | Tests puros ROJOS contra master en `tests/test_optimizer_bid.py`: dispara en el borde exacto (clicks == expected, cost == cost_min) con factor −0.25 y motivo nuevo; NO dispara con clicks = expected − 1, con cost < cost_min, con `expected_clicks=None`, con orders=None o ad_revenue=None (siguen −12%/otro); PAUSE gana cuando aplica; replay: fila histórica sin la clave rejuega igual (golden intacto) y una decisión nueva congela/replayea el motivo nuevo (`tests/test_cycle.py`); logs rojos en §Decisiones | - | cc:完了 Regla A' en el motor (PR por abrir; CI corre la bateria con DB) |
+| 1.1 | **GLM — Regla A' en `bid.py`**: constante `MOTIVO_BANDA_MENOS_25_CERO_VENTAS = "banda_menos_25_cero_ventas"`; `decide_bid` gana `expected_clicks: Decimal \| None = None`; función pura `_factor_cero_ventas(bids, expected_clicks, cost_min)`; motivo del resultado = el nuevo cuando esa regla dispara, si no `_MOTIVO_BANDA[factor]`; `cycle._procesa_decisora` pasa `expected_clicks=corte_pause.expected_clicks`; `replay._replay_bid` lee `inputs.corte.expected_clicks`; `apply._PRIORIDAD_BANDA` con el motivo nuevo en prioridad 0; `api_dashboard.MOTIVOS_ES_DECISIONES` con su etiqueta; `docs/CONTEXTO.md` (umbrales sellados) con la regla. Guía en §1.1. `[tdd:required]` | Tests puros ROJOS contra master en `tests/test_optimizer_bid.py`: dispara en el borde exacto (clicks == expected, cost == cost_min) con factor −0.25 y motivo nuevo; NO dispara con clicks = expected − 1, con cost < cost_min, con `expected_clicks=None`, con orders=None o ad_revenue=None (siguen −12%/otro); PAUSE gana cuando aplica; replay: fila histórica sin la clave rejuega igual (golden intacto) y una decisión nueva congela/replayea el motivo nuevo (`tests/test_cycle.py`); logs rojos en §Decisiones | - | cc:完了 Regla A' en el motor (PR #132, CI verde) |
 | 1.2 | **GLM — Vista `v_entidad_inerte` + guarda `entidad_inerte`**: migración `migrations/0013_entidad_inerte.sql` (vista + `COMMENT ON VIEW` + `GRANT SELECT` con el mismo patrón de roles de `0006`), `cycle.MOTIVO_ENTIDAD_INERTE = "entidad_inerte"`, `_SQL_INERTES` + lectura en TX2 + skip en `_procesa_decisora` (D3), etiqueta en `MOTIVOS_ES_SALUD`, `docs/DASHBOARD.md` (lista de motivos), `docs/DATABASE.md` (la vista). Guía en §1.2. `[tdd:required]` | Test de la vista (`_db_temporal` + migración 0013 aplicada en el fixture) ROJO contra master: 3 hojas sembradas (sin impresiones 20 d con gasto 90 d → `gasto_sin_ventas`; sin impresiones y sin nada → `peso_muerto`; con impresiones hace 3 d → NO aparece) y N contado desde el watermark, no desde `now()`; test de ciclo ROJO: una hoja con métricas solo antiguas (ventana completa) decidía un bid y ahora es `skips.entidad.entidad_inerte = 1`, una con impresiones recientes sigue decidiendo; pglast de `_SQL_INERTES`; logs rojos | - | cc:TODO |
 
 ## Phase 2 — Superficie y herramienta [lane:gate]
@@ -557,6 +557,55 @@ DISCRIMINA: el codigo viejo da -12% donde el test 1 exige -25% + motivo nuevo
   42.00 ≥ 40; división exacta 72/3). Lección para sembrar: cada hoja
   decide en SU ancla; el watermark global solo ordena evidencia y
   frescura.**
+
+> **Revisión del lead (PR #132): 1 MAJOR (fidelidad del replay) + 2
+> menores + marker + filas de secuencia.**
+
+- **D-1.1.8 · Marcador congelado `cero_ventas_expected_usado` (regla
+  4.4).** El lead midió 17 decisiones US que cambiarían (ej. 1994 del
+  live 33): `expected_clicks` se congela desde CORTES 01 en TODAS las
+  bids, así que leerlo en el replay contamina filas pre-BIDS. Fix mínimo
+  (propuesta del lead, se adopta tal cual): `_pendiente_bid` congela
+  ADEMÁS `inputs.corte.cero_ventas_expected_usado` (string Decimal o
+  null = exactamente lo consumido; `expected_clicks` queda informativo)
+  y `_replay_bid` pasa `expected_clicks` SOLO desde esa clave (ausente o
+  null → None). Filas viejas sin la clave rejuegan −12% como persistido;
+  filas nuevas la traen siempre (null = grupo sin evidencia = la regla
+  no aplicó, fiel por construcción). Sin sentinel en `_corte_json`: el
+  camino negative no consume decide_bid, así que `_pendiente_bid` añade
+  la clave DESPUÉS de llamar a `_corte_json` (una línea; el freeze de
+  negative queda idéntico). Test ROJO obligatorio (puro, corre en
+  local): fila pre-BIDS con `expected_clicks` no nulo + cero ventas
+  sobre umbrales, SIN la clave nueva → `reproduce` devuelve el
+  persistido (−12%), no −25%.
+- **D-1.1.9 · Menores.** (a) Pinear `r1`/`r2` completos en
+  `test_cero_ventas_orders_o_revenue_desconocidos_no_aplica`:
+  `r1 == ("bid", "banda_menos_12", -0.12)`,
+  `r2 == (None, "acos_desconocido", None)` (verificado contra `bid.py`:
+  revenue None → `ACOS_DESCONOCIDO`). (b) El test de ciclo distingue la
+  lectura congelada: copia de `ins` con la CLAVE NUEVA en `"33"` (> 32
+  clics de la hoja en su ventana) → `reproduce` devuelve `("bid", 0.88,
+  "USD")` (−12%), no el −25%. (c) Marker 1.1 → «PR #132, CI verde».
+- **D-1.1.10 · Filas de secuencia (aviso del lead en #132-4).** #133
+  fusiona antes: con la guarda, la hoja kw (impressions NULL hasta
+  07-27) sería inerte. Se siembran YA filas 08-06..08-12 con
+  `impressions=10, clicks=0, cost=0` (cero aporte: expected sigue 24,
+  72/3/31): pre-merge el test sigue en 5 (ancla propia pasa a 08-12;
+  verificado en CI) y post-merge la hoja no es inerte. Requiere extender
+  `_metrica` con `impressions=None` también en esta rama (igual que
+  D-1.2.3; compatible hacia atrás).
+
+**Rojo 1.1-revisión** (test puro obligatorio en local; DB en CI):
+
+```text
+$ .venv/bin/python -m pytest tests/test_cycle.py -q -k "pre_bids"
+E  AssertionError: assert ('bid', Decimal('0.750000'), 'USD') == ('bid', Decimal('0.88'), 'USD')
+E  At index 1 diff: Decimal('0.750000') != Decimal('0.88')
+FAILED test_replay_pre_bids_con_expected_congelado_no_aplica_regla_nueva
+```
+El replay viejo lee `expected_clicks` (120 ≥ 120, 45 ≥ 40) y rejuega −25%
+(0.75) sobre una fila persistida en −12% (0.88): exactamente las 17
+decisiones que midió el lead. El pin `r1/r2` ya pasa (es pin, no rojo).
 
 ## Reject (con razón)
 

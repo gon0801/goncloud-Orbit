@@ -76,12 +76,15 @@ def _replay_bid(inputs: dict) -> bid.ResultadoBid:
         if corte is not None and "cost_min_usado" in corte
         else bid.REPLAY_PAUSE_COST_PRE_CORTES03[inputs["platform"]]
     )
-    # BIDS 01 (regla A'): el replay LEE inputs.corte.expected_clicks (el
-    # ciclo lo congela desde CORTES 01); fila historica sin la clave -> None
-    # -> la regla no aplica y rejuega IGUAL que antes (regla 3).
+    # BIDS 01 revision (regla 4.4): el replay lee SOLO el marcador
+    # cero_ventas_expected_usado (lo que decide_bid consumio). expected_clicks
+    # se congela desde CORTES 01 en TODAS las bids: leerlo contaminaria las
+    # filas pre-BIDS (17 decisiones US medidas rejuegan -25% indebido). Fila
+    # sin la clave (toda la era anterior) o con null -> None -> la regla no
+    # aplica y rejuega IGUAL que lo persistido (regla 3).
     expected = (
-        _dec_de_json(corte.get("expected_clicks"))
-        if corte is not None and corte.get("expected_clicks") is not None
+        _dec_de_json(corte.get("cero_ventas_expected_usado"))
+        if corte is not None and corte.get("cero_ventas_expected_usado") is not None
         else None
     )
     return bid.decide_bid(

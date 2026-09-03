@@ -113,7 +113,11 @@ Reglas numéricas selladas (resumen; el documento manda):
 - **BIDS 01 (2026-09-03): cero ventas → −25%** con motivo propio
   (`banda_menos_25_cero_ventas`) cuando clicks ≥ `expected_clicks` del grupo
   (CORTES 01, relativo al producto) y cost ≥ piso de pausa (40 USD / 500
-  MXN); antes −12%; PAUSE al 1.5× sin cambio (se evalúa antes).
+  MXN); antes −12%; PAUSE al 1.5× sin cambio (se evalúa antes). El replay
+  rejuega por el marcador congelado `cero_ventas_expected_usado` (solo lo
+  escriben ciclos con la regla), no por `expected_clicks` informativo —
+  las filas pre-BIDS rejuegan lo persistido (revisión PR #132, 17
+  decisiones US).
 - **NEGATIVE_EXACT**: orders=0 ∧ clicks≥umbral_corte ∧ cost≥{us: 8, mx: 130};
   términos ASIN-like siempre skip. Umbral de clicks **adaptativo por
   producto** (CORTES 01): la evidencia del ad group (suma de sus hojas

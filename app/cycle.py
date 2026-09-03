@@ -632,7 +632,10 @@ def _pendiente_bid(
     lead 2026-08-28) congela ADEMAS `cost_min_usado`: el piso de costo que
     el ciclo le pasa a decide_bid (bid.PAUSE_COST_MIN[platform]) viaja por
     este parametro para que el freeze registre EXACTAMENTE el valor usado
-    (replay fiel por construccion). El sello bitemporal
+    (replay fiel por construccion). BIDS 01 revision (regla 4.4): congela
+    ADEMAS `cero_ventas_expected_usado` (lo que decide_bid consumio en
+    expected_clicks, null sin evidencia) — EL marcador que el replay lee;
+    `expected_clicks` queda informativo. El sello bitemporal
     (_sello_bitemporal) aplica al obs directo del
     agregado que decidio (cortes para pause, bids para bid) mezclado con la
     evidencia del grupo, clampeado a decided_at."""
@@ -650,7 +653,16 @@ def _pendiente_bid(
         "factor": _dec_str(resultado.factor),
         "motivo": resultado.motivo,
         "modo": modo,
-        "corte": _corte_json(corte, evidencia, cost_min=cost_min),
+        # BIDS 01 revision (regla 4.4): marcador que SOLO escriben los
+        # ciclos con la regla activa — exactamente lo que decide_bid
+        # consumio (None = grupo sin evidencia). El replay lee SOLO esta
+        # clave; expected_clicks queda informativo. Se añade AQUI (no en
+        # _corte_json): el camino negative no consume decide_bid y su
+        # freeze queda identico.
+        "corte": {
+            **_corte_json(corte, evidencia, cost_min=cost_min),
+            "cero_ventas_expected_usado": _dec_str(corte.expected_clicks),
+        },
     }
     return _Pendiente(
         ad_entity_id=entidad_id,
