@@ -406,6 +406,9 @@ def _archivar(args, conn_read: psycopg.Connection) -> int:
         args.min_dias_sin_impresiones,
         args.limite,
     )
+    # La lectura termino: se cierra su txn ANTES de la fase de red (el plan
+    # ya vive en memoria; nada que escribir en esta conn).
+    conn_read.commit()
     lote = _lote_hoy()
     for p in plan:
         print(_linea_plan(p), flush=True)
@@ -534,6 +537,9 @@ def _fila_reponer(f: tuple) -> dict:
 def _reponer(args) -> int:
     conn_admin = connect(_dsn_admin())
     filas = [_fila_reponer(f) for f in conn_admin.execute(_SQL_REPONER, (args.reponer,)).fetchall()]
+    # La lectura termino: se cierra su txn ANTES del bucle HTTP (las filas
+    # ya viven en memoria; los sellos commitean por separado).
+    conn_admin.commit()
     if not filas:
         raise Abortar(f"lote {args.reponer} sin filas 'applied': nada que reponer")
     for f in filas:

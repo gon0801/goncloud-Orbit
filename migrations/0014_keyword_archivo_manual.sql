@@ -25,7 +25,7 @@ CREATE TABLE keyword_archivo_manual (
   keyword_text       TEXT        NOT NULL,
   match_type         TEXT        NOT NULL,
   bid                NUMERIC(14,4),
-  bid_currency       TEXT,
+  bid_currency       currency,
   clasificacion      TEXT        NOT NULL,
   dias_sin_impresiones INT,
   go_literal         TEXT        NOT NULL,
@@ -38,6 +38,18 @@ CREATE TABLE keyword_archivo_manual (
     CHECK ((bid IS NULL) = (bid_currency IS NULL)),
   CONSTRAINT archivo_match_cerrado
     CHECK (match_type IN ('EXACT','PHRASE','BROAD')),
+  -- Cada estado carga su evidencia (PR #134): applied exige el ack y el
+  -- readback que lo confirmaron; repuesto exige el sello completo mas lo
+  -- heredado de applied. planeado/failed sin requisitos (failed puede no
+  -- traer readback si el POST lanzo).
+  CONSTRAINT archivo_evidencia_applied
+    CHECK (estado <> 'applied'
+           OR (ack IS NOT NULL AND readback_estado IS NOT NULL)),
+  CONSTRAINT archivo_evidencia_repuesto
+    CHECK (estado <> 'repuesto'
+           OR (repuesto_at IS NOT NULL AND repuesto_external IS NOT NULL
+               AND repuesto_ack IS NOT NULL
+               AND ack IS NOT NULL AND readback_estado IS NOT NULL)),
   repuesto_at        TIMESTAMPTZ,
   repuesto_external  TEXT,
   repuesto_ack       JSONB
