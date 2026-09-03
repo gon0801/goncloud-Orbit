@@ -112,7 +112,7 @@ def _metrica(
 def _filas_por_external(conn) -> dict:
     filas = conn.execute(
         "SELECT external_id, clasificacion, dias_sin_impresiones, watermark,"
-        " gasto_90d, ordenes_90d FROM v_entidad_inerte"
+        " gasto_90d, ordenes_90d, moneda FROM v_entidad_inerte"
     ).fetchall()
     return {f[0]: f[1:] for f in filas}
 
@@ -183,16 +183,18 @@ def test_vista_clasifica_tres_casos_y_excluye_reciente():
 
         por = _filas_por_external(conn)
         assert set(por) == {"9403", "9404"}
-        clas, dias, wm, gasto90, ord90 = por["9403"]
+        clas, dias, wm, gasto90, ord90, moneda = por["9403"]
         assert clas == "gasto_sin_ventas"
         assert dias is None  # nunca hubo impresion en 90d
         assert wm == dt.date(2026, 8, 16)
         assert gasto90 == Decimal("5")
         assert ord90 == 0
-        clas, dias, wm, gasto90, ord90 = por["9404"]
+        assert moneda == "USD"  # BIDS 01 revision: gasto con su moneda
+        clas, dias, wm, gasto90, ord90, moneda = por["9404"]
         assert clas == "peso_muerto"
         assert dias is None
         assert gasto90 == 0
+        assert moneda is None  # sin filas: no hay moneda que exponer
 
 
 @pytest.mark.skipif(
@@ -287,6 +289,7 @@ def test_vista_cuenta_desde_el_watermark_no_desde_now():
         assert "9504" not in por  # el ancla tambien tiene trafico reciente
         assert por["9505"][0] == "gasto_sin_ventas"
         assert por["9505"][2] == dt.date(2026, 8, 9)  # watermark POR plataforma
+        assert por["9505"][5] == "MXN"
         assert por["9506"][0] == "peso_muerto"
 
 
@@ -327,3 +330,144 @@ def test_vista_exige_enabled_en_hoja_grupo_y_campana():
 
         por = _filas_por_external(conn)
         assert por == {}
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_vista_impressions_desconocido_no_es_cero():
+    """Revision PR #133 (regla 3): observacion reciente con impressions NULL
+    (y clicks > 0) es dato DESCONOCIDO, no cero -> la hoja NO aparece (sigue
+    optimizandose). Control: hoja con impressions = 0 explicito SI aparece."""
+    with _db_inerte("orbit_inerte_null") as conn:
+        run_id = _run(conn)
+        camp = _entidad(conn, "amazon_us", "campaign", "9701")
+        ag = _entidad(conn, "amazon_us", "ad_group", "9702", parent=camp)
+        nula = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "9703",
+            parent=ag,
+            match_type="EXACT",
+            keyword_text="trafico desconocido",
+        )
+        cero = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "9704",
+            parent=ag,
+            match_type="EXACT",
+            keyword_text="cero explicito",
+        )
+        ancla = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "9705",
+            parent=ag,
+            match_type="EXACT",
+            keyword_text="ancla",
+        )
+        for eid in (camp, ag, nula, cero, ancla):
+            _estado(conn, eid)
+        # Watermark = 08-16; las tres hojas tienen fila reciente (> 08-02).
+        _metrica(
+            conn,
+            run_id,
+            nula,
+            dt.date(2026, 8, 15),
+            cost="5.00",
+            ad_revenue="0.00",
+            clicks=5,
+            orders=0,
+        )
+        _metrica(
+            conn,
+            run_id,
+            cero,
+            dt.date(2026, 8, 15),
+            cost="5.00",
+            ad_revenue="0.00",
+            clicks=0,
+            orders=0,
+            impressions=0,
+        )
+        _metrica(
+            conn,
+            run_id,
+            ancla,
+            dt.date(2026, 8, 16),
+            cost="1.00",
+            ad_revenue="0.00",
+            clicks=1,
+            orders=0,
+            impressions=50,
+        )
+
+        por = _filas_por_external(conn)
+        assert "9703" not in por  # NULL = desconocido, jamas inerte
+        assert "9705" not in por  # con trafico real
+        assert por["9704"][0] == "gasto_sin_ventas"  # cero EXPLICITO si es inerte
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_vista_mezcla_de_monedas_anula_gasto_y_moneda():
+    """Revision PR #133 (regla 4, fail-loud): una hoja con dos monedas en
+    90d expone moneda NULL y gasto_90d NULL (jamas una suma mezclada); la
+    clasificacion no depende de la moneda (gasto crudo > 0). La mezcla es
+    imposible por inserts normales (trigger metric_moneda_sellada): se
+    deshabilita en la DB temporal (somos duenos) y se rehabilita."""
+    with _db_inerte("orbit_inerte_moneda") as conn:
+        run_id = _run(conn)
+        camp = _entidad(conn, "amazon_us", "campaign", "9801")
+        ag = _entidad(conn, "amazon_us", "ad_group", "9802", parent=camp)
+        mezcla = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "9803",
+            parent=ag,
+            match_type="EXACT",
+            keyword_text="mezcla",
+        )
+        for eid in (camp, ag, mezcla):
+            _estado(conn, eid)
+        conn.execute("ALTER TABLE ads_metric_observation DISABLE TRIGGER metric_moneda_sellada")
+        try:
+            _metrica(
+                conn,
+                run_id,
+                mezcla,
+                dt.date(2026, 7, 1),
+                cost="3.00",
+                ad_revenue="0.00",
+                clicks=2,
+                orders=0,
+                impressions=0,
+            )
+            _metrica(
+                conn,
+                run_id,
+                mezcla,
+                dt.date(2026, 7, 2),
+                moneda="MXN",
+                cost="400.00",
+                ad_revenue="0.00",
+                clicks=2,
+                orders=0,
+                impressions=0,
+            )
+        finally:
+            conn.execute("ALTER TABLE ads_metric_observation ENABLE TRIGGER metric_moneda_sellada")
+
+        por = _filas_por_external(conn)
+        clas, dias, wm, gasto90, ord90, moneda = por["9803"]
+        assert clas == "gasto_sin_ventas"  # el crudo suma > 0: clasifica igual
+        assert gasto90 is None  # mezcla: jamas un numero mezclado
+        assert moneda is None

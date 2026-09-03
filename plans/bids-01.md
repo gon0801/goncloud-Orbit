@@ -552,6 +552,42 @@ Nada más falló: el resto de la batería (1030) sigue verde sin la guarda.
   Dashboard/notifica/preflight no corren TX2 con fixture propio sin la
   vista (usan los ya corregidos + maestra).
 
+> **Revisión del lead (PR #133): dos MAJOR por reglas selladas + marker.**
+> Se trabajan en esta rama antes del merge (#133 fusiona ANTES que #132).
+
+- **D-1.2.10 · `impressions` NULL = desconocido, no cero (regla 3).**
+  `coalesce(sum,0)=0` no distingue "sin filas en 14d" de "filas con NULL".
+  Fix en `reciente`: `filas_14d = count(v.ad_entity_id)` (0 sin filas;
+  el `count` ignora la fila NULL-extendida del LEFT JOIN) y `nulas_14d =
+  count(v.ad_entity_id) FILTER (WHERE v.impressions IS NULL)` (OJO:
+  `count(*)` filtrado contaría 1 con cero filas — por eso se cuenta la
+  columna, no `*`). Inerte ⇔ `filas_14d = 0 OR (nulas_14d = 0 AND
+  impresiones_14d = 0)`: con una sola observación reciente NULL la hoja
+  sigue optimizándose (mejor ruido que callar una viva). Verificado por
+  el lead: en producción hoy no hay NULLs recientes (0/893 MX, 0/470
+  US) — el cambio no mueve ningún conteo vivo, solo sella la semántica.
+  Tests viejos intactos (ninguno mete NULL reciente esperando inerte: la
+  hoja A del test de ciclo y las de la vista tienen sus NULLs FUERA de
+  la ventana). Test ROJO nuevo: hoja con observación reciente
+  `impressions=NULL, clicks>0` NO aparece (+ control con `impressions=0`
+  reciente que SÍ aparece).
+- **D-1.2.11 · `gasto_90d` con `moneda` (regla 4).** `historia` expone
+  `mon_min_90d/mon_max_90d` y la vista devuelve `moneda = (min si min =
+  max, si no NULL)` y `gasto_90d = NULL si hay mezcla, si no la suma`
+  (cero filas → 0, como antes: los tests de `peso_muerto` lo pinean). La
+  clasificación usa las sumas CRUDAS (el lead: no depende de la moneda).
+  Mezcla imposible por inserts normales (trigger `metric_moneda_sellada`):
+  el test ROJO de mezcla deshabilita el trigger en la DB temporal (es
+  dueño) y lo rehabilita; el de moneda única aserta `"USD"`.
+  `ordenes_90d` no lleva moneda (conteo, no dinero).
+- **D-1.2.12 · Marker 1.2** → «PR #133, CI verde».
+
+**Rojo 1.2-revisión** (commit solo-tests en CI):
+
+```text
+(pendiente: se pega el log del CI rojo tras el push de solo-tests)
+```
+
 ## Reject (con razón)
 
 - **Umbral absoluto de clicks (15/25)**: rechazado por el dueño — sus
