@@ -4,6 +4,8 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-03 — Primer ciclo del reloj en vivo con el gate de campañas activas: funcionó tal cual (CAMPAÑA ACTIVA 01 cerrada en producción; día 1 del monitoreo de ORBIT 05 limpio).** A las 08:40 UTC el motor corrió solo por primera vez en modo real. Saltó todo lo que vive en campañas pausadas (1,597 palabras/targets en US y 3,115 en México, más 92 y 100 términos) y ninguna de sus 93 decisiones cayó en una campaña o ad group pausado — ayer habían sido 12. Aplicó 10 pujas por país (el tope del día 1), todas confirmadas por Amazon y leídas de vuelta, ninguna repetida de ayer (el congelamiento de 7 días funciona), 19 bajadas suaves de −12% y una de −25%; cero pausas o negativos todavía (la cola de veto sigue vacía, así que no hay nada que revisar en «Cortes»). Quota exacta al tope, sin fallos ni divergencias. Con esto la tarea 1.4 de CAMPAÑA ACTIVA 01 queda cerrada (falta solo la 1.6, en manos de GLM) y ORBIT 05 suma su primer día de las 48 h sanas que exige el runbook para duplicar los cupos: si mañana sale igual, el viernes se decide la primera duplicación.
+
 **2026-09-03 — BIDS 01 tarea 1.3 lista para revisión: las palabras sin tráfico ya se ven en una página nueva con su clasificación (vendió antes / gastó sin vender / peso muerto) y el aviso diario de Telegram dice cuántas se saltó el motor.**
 
 **2026-09-03 — BIDS 01 tarea 1.4 lista para revisión: ya existe la herramienta que archiva por lote las palabras sin tráfico con el go del dueño y con reversa (cada lote queda anotado y se puede reponer). Por defecto solo ensaya; archiva de verdad únicamente cuando el conteo del ensayo coincide con el autorizado.**
