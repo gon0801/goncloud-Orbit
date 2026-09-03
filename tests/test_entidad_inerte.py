@@ -168,6 +168,9 @@ def test_vista_clasifica_tres_casos_y_excluye_reciente():
             ad_revenue="0.00",
             clicks=5,
             orders=0,
+            # Cross-review grok-3: impresion REAL fuera de 14d (forma de
+            # reporte) para pinear dias_sin_impresiones == 17.
+            impressions=50,
         )
         _metrica(
             conn,
@@ -185,7 +188,7 @@ def test_vista_clasifica_tres_casos_y_excluye_reciente():
         assert set(por) == {"9403", "9404"}
         clas, dias, wm, gasto90, ord90, moneda = por["9403"]
         assert clas == "gasto_sin_ventas"
-        assert dias is None  # nunca hubo impresion en 90d
+        assert dias == 17  # ultima impresion real 07-30, watermark 08-16
         assert wm == dt.date(2026, 8, 16)
         assert gasto90 == Decimal("5")
         assert ord90 == 0
@@ -246,7 +249,28 @@ def test_vista_cuenta_desde_el_watermark_no_desde_now():
             match_type="EXACT",
             keyword_text="muerta mx",
         )
-        for eid in (camp, ag, vieja, ancla, inerte, muerta):
+        # Cross-review grok-4: borde exacto de N con wm 08-09 (ventana >
+        # 07-26): impresion en wm-14 == 07-26 -> INERTE; en wm-13 == 07-27
+        # -> viva. Un `>=` en vez de `>` voltearia ambas.
+        borde_in = _entidad(
+            conn,
+            "amazon_mx",
+            "keyword",
+            "9507",
+            parent=ag,
+            match_type="EXACT",
+            keyword_text="borde dentro",
+        )
+        borde_out = _entidad(
+            conn,
+            "amazon_mx",
+            "keyword",
+            "9508",
+            parent=ag,
+            match_type="EXACT",
+            keyword_text="borde fuera",
+        )
+        for eid in (camp, ag, vieja, ancla, inerte, muerta, borde_in, borde_out):
             _estado(conn, eid)
         _metrica(
             conn,
@@ -283,14 +307,40 @@ def test_vista_cuenta_desde_el_watermark_no_desde_now():
             clicks=2,
             orders=0,
         )
+        _metrica(
+            conn,
+            run_id,
+            borde_in,
+            dt.date(2026, 7, 26),
+            moneda="MXN",
+            cost="1.00",
+            ad_revenue="0.00",
+            clicks=1,
+            orders=0,
+            impressions=5,
+        )
+        _metrica(
+            conn,
+            run_id,
+            borde_out,
+            dt.date(2026, 7, 27),
+            moneda="MXN",
+            cost="1.00",
+            ad_revenue="0.00",
+            clicks=1,
+            orders=0,
+            impressions=5,
+        )
 
         por = _filas_por_external(conn)
         assert "9503" not in por  # 2 dias desde SU watermark: con trafico
         assert "9504" not in por  # el ancla tambien tiene trafico reciente
+        assert "9508" not in por  # wm-13 == 07-27: dentro de 14d
         assert por["9505"][0] == "gasto_sin_ventas"
         assert por["9505"][2] == dt.date(2026, 8, 9)  # watermark POR plataforma
         assert por["9505"][5] == "MXN"
         assert por["9506"][0] == "peso_muerto"
+        assert "9507" in por  # wm-14 == 07-26: fuera de 14d, inerte
 
 
 @pytest.mark.skipif(

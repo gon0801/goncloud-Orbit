@@ -581,6 +581,18 @@ Nada más falló: el resto de la batería (1030) sigue verde sin la guarda.
   dueño) y lo rehabilita; el de moneda única aserta `"USD"`.
   `ordenes_90d` no lleva moneda (conteo, no dinero).
 - **D-1.2.12 · Marker 1.2** → «PR #133, CI verde».
+- **D-1.2.13 · Cross-review grok (única ronda; codex sin cuota en su
+  cuenta → bloqueado, y sin ALTA no hay segunda por tope): APRUEBA CON
+  MENORES, 0 ALTA.** Menores 1.2 aplicados aquí (solo tests, sin delta
+  de código: pinean comportamiento existente): (3) la hoja de gasto del
+  DoD lleva `impressions=50` real en su fila 07-30 → pinea
+  `dias_sin_impresiones == 17` (antes NULL; el camino `date - date` con
+  impresión real no estaba cubierto) y la semilla ya es forma de
+  reporte; (4) borde N en el test de watermark MX: impresión en wm−14
+  (07-26) → inerte, en wm−13 (07-27) → viva (`>` vs `>=` quedaría
+  atrapado). La BAJA 5 (control cero-explícito con cost 5 no es forma
+  SP) se deja como test puro del predicado SQL: el camino vivo
+  (`filas_14d=0`) lo cubre el test de ciclo.
 
 **Rojo 1.2-revisión** (commit solo-tests c5ca327, CI run 33716113970):
 
