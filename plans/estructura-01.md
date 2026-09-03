@@ -122,14 +122,30 @@ en `structure.py`** (el módulo que los consume): así el parche sigue mordiendo
 ```python
 # API (structure_api): usados por app/, tools/ y tests/
 from app.ads.structure_api import (  # noqa: F401 - fachada sellada (ESTRUCTURA 01)
-    MAX_PAGINAS, PATH_AD_GROUPS, PATH_CAMPAIGNS, PATH_KEYWORDS,
-    PATH_NEGATIVE_KEYWORDS, PATH_PRODUCT_ADS, PATH_PROFILES, PATH_TARGETS,
-    AdsStructureError, EstructuraAds, EstructuraPerfil, PerfilAds,
-    evaluar_perfiles, fetch_structure, listar_todo, perfiles_aceptados,
+    MAX_PAGINAS,
+    PATH_AD_GROUPS,
+    PATH_CAMPAIGNS,
+    PATH_KEYWORDS,
+    PATH_NEGATIVE_KEYWORDS,
+    PATH_PRODUCT_ADS,
+    PATH_PROFILES,
+    PATH_TARGETS,
+    AdsStructureError,
+    EstructuraAds,
+    EstructuraPerfil,
+    PerfilAds,
+    evaluar_perfiles,
+    fetch_structure,
+    listar_todo,
+    perfiles_aceptados,
 )
+
 # Plan puro (structure_plan): usados por reports.py y tests
 from app.ads.structure_plan import (  # noqa: F401 - fachada sellada (ESTRUCTURA 01)
-    ESTADO_ARCHIVED, _CLAVE_CONTENEDORA, _formato_skip_reason, _plan_items,
+    ESTADO_ARCHIVED,
+    _CLAVE_CONTENEDORA,
+    _formato_skip_reason,
+    _plan_items,
 )
 ```
 
@@ -149,9 +165,64 @@ mínimo) — alternativa aceptada: actualizar esos dos imports en
 
 ## Decisiones y evidencia (Cursor escribe aquí ANTES del código)
 
-_(vacío: tabla final símbolo → módulo, decisión sobre los privados
-re-exportados vs imports actualizados en tests, el rojo de la allowlist y
-cualquier desviación con su porqué)_
+Escritas 2026-09-03 ANTES de tocar `app/ads/structure.py`. MOVE literal. Cero
+cambio de comportamiento.
+
+**Privados `_plan_items` / `_CLAVE_CONTENEDORA`.** Se re-exportan desde la
+fachada `app.ads.structure` (alternativa del plan, cambio minimo).
+`tests/test_structure_sync.py` no cambia sus imports. Consistente con
+«ningun importador de app/, tools/ ni tests/ cambia».
+
+**Ciclo `_CLAVE_CONTENEDORA`.** D2 la deja en `structure_plan.py`; D1 deja
+`_extraer_lista` / `listar_todo` en `structure_api.py`, que la leen.
+`structure_plan` importa `PATH_*` de `structure_api`. Para no romper el
+import circular, `structure_api` importa `_CLAVE_CONTENEDORA` DESPUES de
+definir `PATH_*` y las dataclasses (el binding existe cuando
+`structure_plan` carga). No es lazy import dentro de la funcion. Mismos
+cuerpos.
+
+**Candado de motor puro.** `test_architecture` solo exige pureza en
+`app/optimizer/`. Meter `structure_plan.py` ahi exigiria cambiar el
+candado. D2: se declara y no se fuerza. La prueba operativa es que
+`structure_plan.py` no importa `psycopg` ni `httpx`.
+
+**Tabla simbolo → modulo**
+
+| Simbolo | Modulo |
+|---|---|
+| `PATH_*`, `MAX_PAGINAS`, `_PAIS_PLATAFORMA_MONEDA`, `_CLAVE_CONTENEDORA` | `structure_api` |
+| `AdsStructureError`, `PerfilAds`, `EstructuraPerfil`, `EstructuraAds` | `structure_api` |
+| `_json_de`, `_extraer_lista`, `listar_todo`, `_evaluar_perfil`, `evaluar_perfiles`, `perfiles_aceptados`, `fetch_structure` | `structure_api` |
+| `_ETIQUETA_KIND`, `_ETIQUETA_PADRE`, `_ESTADOS_PRODUCT_AD_VIVOS`, `ESTADO_ARCHIVED`, `_ItemEntidad` | `structure_plan` |
+| `_bid_decimal`, `_nombre_target`, `_item_product_ad`, `_archivados_por_plataforma`, `_plan_items`, `_formato_skip_reason` | `structure_plan` |
+| docstring cabecera + «Mapa de modulos», `SOURCE`, todos los `_SQL_*`, `ResultadoSync`, `_sellar_run`, `sync_structure`, `_imprimir_resumen`, `main` | `structure` (fachada + DB) |
+| re-export: `MAX_PAGINAS`, `PATH_*`, `_CLAVE_CONTENEDORA`, `AdsStructureError`, `EstructuraAds`, `EstructuraPerfil`, `PerfilAds`, `evaluar_perfiles`, `fetch_structure`, `listar_todo`, `perfiles_aceptados` | `structure` desde `structure_api` |
+| re-export: `ESTADO_ARCHIVED`, `_formato_skip_reason`, `_plan_items` | `structure` desde `structure_plan` |
+
+**Rojo honesto (allowlist).** Tras quitar `app/ads/structure.py` de
+`ALLOWLIST_TAMANO` y correr
+`pytest tests/test_architecture.py::test_presupuesto_de_tamano_por_modulo`
+ANTES del corte:
+
+```
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____________________ test_presupuesto_de_tamano_por_modulo _____________________
+tests/test_architecture.py:279: in test_presupuesto_de_tamano_por_modulo
+    assert not excedidos, (
+E   AssertionError: modulos sobre el presupuesto de 900 lineas sin entrada en la allowlist (agregar entrada CON razon o partir el modulo — jamas partir por partir): {'app/ads/structure.py': 1068}
+E   assert not {'app/ads/structure.py': 1068}
+=========================== short test summary info ============================
+FAILED tests/test_architecture.py::test_presupuesto_de_tamano_por_modulo
+1 failed in 0.40s
+```
+
+**Desviacion `_CLAVE_CONTENEDORA`.** D2 la ponia en `structure_plan.py`, pero
+el unico lector es `_extraer_lista` (API) y las claves son `PATH_*` (API).
+Ponerla en plan crea un import circular API↔plan que ruff I (isort) sube
+al tope y rompe el load. Queda en `structure_api.py` junto a `PATH_*`.
+La fachada la re-exporta igual. `structure_plan` no la importa. No cambia
+el valor ni los cuerpos.
 
 ## Reject (con razón)
 
