@@ -538,6 +538,17 @@ Regímenes de lectura, explícitos (reemplazan al "todo lee lo maduro"):
   plataforma es la métrica que no necesita suposición de atribución (meta
   declarada: 8–12%).
 - **`fx_resolve`** — ver sección `fx_rate`.
+- **`v_entidad_inerte`** (BIDS 01, migración `0013`) — **hojas sin tráfico**:
+  `keyword`/`product_target` con estado `ENABLED` propio, del ad group y de
+  la campaña, sin impresiones en los últimos **14 días contados desde el
+  watermark de su plataforma** (`max(metric_date)` en `v_metric_latest`,
+  jamás desde `now()`), con `watermark`, `ultima_impresion`,
+  `dias_sin_impresiones` (NULL si nunca hubo impresión en 90d),
+  `gasto_90d`, `ordenes_90d` y `clasificacion` (`con_ventas_previas` /
+  `gasto_sin_ventas` / `peso_muerto`, sobre 90 días desde el watermark).
+  **Fuente única** de «inerte» para el ciclo (guarda `entidad_inerte`), la
+  página `/inertes`, el digest y la herramienta de archivo; ausencia de
+  fila = NO inerte.
 
 ## Roles y candados
 

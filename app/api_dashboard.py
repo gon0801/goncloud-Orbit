@@ -226,6 +226,9 @@ MOTIVOS_ES_SALUD: dict[str, str] = {
     ciclo.MOTIVO_ESTADO_NO_ENABLED: "Entidad sin estado o no habilitada",
     ciclo.MOTIVO_CAMPANA_NO_ENABLED: "Campana no habilitada (pausada/archivada o sin estado)",
     ciclo.MOTIVO_GRUPO_NO_ENABLED: "Ad group no habilitado (pausado/archivado o sin estado)",
+    ciclo.MOTIVO_ENTIDAD_INERTE: (
+        "Entidad sin trafico reciente (sin impresiones en 14 dias): sin ajuste"
+    ),
     ciclo.MOTIVO_COOLDOWN_7D: "Cooldown 7d: apply verificado reciente",
     ciclo.MOTIVO_ESCALERA_OFF: "Escalera global off",
     # guardas de plataforma (windows.py; el envelope las persiste como

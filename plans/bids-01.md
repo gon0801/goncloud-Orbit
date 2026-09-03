@@ -120,7 +120,7 @@ decisión al día pasa de −12% a −25%.
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
 | 1.1 | **GLM — Regla A' en `bid.py`**: constante `MOTIVO_BANDA_MENOS_25_CERO_VENTAS = "banda_menos_25_cero_ventas"`; `decide_bid` gana `expected_clicks: Decimal \| None = None`; función pura `_factor_cero_ventas(bids, expected_clicks, cost_min)`; motivo del resultado = el nuevo cuando esa regla dispara, si no `_MOTIVO_BANDA[factor]`; `cycle._procesa_decisora` pasa `expected_clicks=corte_pause.expected_clicks`; `replay._replay_bid` lee `inputs.corte.expected_clicks`; `apply._PRIORIDAD_BANDA` con el motivo nuevo en prioridad 0; `api_dashboard.MOTIVOS_ES_DECISIONES` con su etiqueta; `docs/CONTEXTO.md` (umbrales sellados) con la regla. Guía en §1.1. `[tdd:required]` | Tests puros ROJOS contra master en `tests/test_optimizer_bid.py`: dispara en el borde exacto (clicks == expected, cost == cost_min) con factor −0.25 y motivo nuevo; NO dispara con clicks = expected − 1, con cost < cost_min, con `expected_clicks=None`, con orders=None o ad_revenue=None (siguen −12%/otro); PAUSE gana cuando aplica; replay: fila histórica sin la clave rejuega igual (golden intacto) y una decisión nueva congela/replayea el motivo nuevo (`tests/test_cycle.py`); logs rojos en §Decisiones | - | cc:TODO |
-| 1.2 | **GLM — Vista `v_entidad_inerte` + guarda `entidad_inerte`**: migración `migrations/0013_entidad_inerte.sql` (vista + `COMMENT ON VIEW` + `GRANT SELECT` con el mismo patrón de roles de `0006`), `cycle.MOTIVO_ENTIDAD_INERTE = "entidad_inerte"`, `_SQL_INERTES` + lectura en TX2 + skip en `_procesa_decisora` (D3), etiqueta en `MOTIVOS_ES_SALUD`, `docs/DASHBOARD.md` (lista de motivos), `docs/DATABASE.md` (la vista). Guía en §1.2. `[tdd:required]` | Test de la vista (`_db_temporal` + migración 0013 aplicada en el fixture) ROJO contra master: 3 hojas sembradas (sin impresiones 20 d con gasto 90 d → `gasto_sin_ventas`; sin impresiones y sin nada → `peso_muerto`; con impresiones hace 3 d → NO aparece) y N contado desde el watermark, no desde `now()`; test de ciclo ROJO: una hoja con métricas solo antiguas (ventana completa) decidía un bid y ahora es `skips.entidad.entidad_inerte = 1`, una con impresiones recientes sigue decidiendo; pglast de `_SQL_INERTES`; logs rojos | - | cc:TODO |
+| 1.2 | **GLM — Vista `v_entidad_inerte` + guarda `entidad_inerte`**: migración `migrations/0013_entidad_inerte.sql` (vista + `COMMENT ON VIEW` + `GRANT SELECT` con el mismo patrón de roles de `0006`), `cycle.MOTIVO_ENTIDAD_INERTE = "entidad_inerte"`, `_SQL_INERTES` + lectura en TX2 + skip en `_procesa_decisora` (D3), etiqueta en `MOTIVOS_ES_SALUD`, `docs/DASHBOARD.md` (lista de motivos), `docs/DATABASE.md` (la vista). Guía en §1.2. `[tdd:required]` | Test de la vista (`_db_temporal` + migración 0013 aplicada en el fixture) ROJO contra master: 3 hojas sembradas (sin impresiones 20 d con gasto 90 d → `gasto_sin_ventas`; sin impresiones y sin nada → `peso_muerto`; con impresiones hace 3 d → NO aparece) y N contado desde el watermark, no desde `now()`; test de ciclo ROJO: una hoja con métricas solo antiguas (ventana completa) decidía un bid y ahora es `skips.entidad.entidad_inerte = 1`, una con impresiones recientes sigue decidiendo; pglast de `_SQL_INERTES`; logs rojos | - | cc:完了 Vista + guarda entidad_inerte (PR #133; CI corre la bateria con DB) |
 
 ## Phase 2 — Superficie y herramienta [lane:gate]
 
@@ -513,12 +513,21 @@ archiva_inertes con ledger y reversa (BIDS 01 · 1.4)`.
   Archivo nuevo en vez de `test_schema.py`: la vista es de BIDS 01, no
   del esquema sellado original.
 
-**Rojo 1.2** (commit solo-tests en CI; ver commit de implementación
-para el verde):
+**Rojo 1.2** (commit solo-tests, CI run 33713121511 en PR #133 draft;
+ver commit de implementación para el verde):
 
 ```text
-(pendiente: se pega el log del CI rojo tras el push de solo-tests)
+4 failed, 1030 passed, 1 skipped, 2 warnings in 181.17s
+FAILED tests/test_cycle.py::test_ciclo_hoja_sin_impresiones_recientes_es_skip_entidad_inerte
+  assert res.decisions_count == 5
+  E  assert 6 == 5        <- el codigo viejo SI decide la hoja inerte (-12%):
+  DISCRIMINA (regla 9)
+FAILED tests/test_entidad_inerte.py::test_vista_clasifica_tres_casos_y_excluye_reciente
+FAILED tests/test_entidad_inerte.py::test_vista_cuenta_desde_el_watermark_no_desde_now
+FAILED tests/test_entidad_inerte.py::test_vista_exige_enabled_en_hoja_grupo_y_campana
+  E  psycopg.errors.UndefinedTable: relation "v_entidad_inerte" does not exist
 ```
+Nada más falló: el resto de la batería (1030) sigue verde sin la guarda.
 
 ## Reject (con razón)
 

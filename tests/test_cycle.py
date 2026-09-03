@@ -1271,6 +1271,7 @@ _SQL_CYCLE = (
     "_SQL_CAMPANAS",
     "_SQL_GOALS",
     "_SQL_DECISORAS",
+    "_SQL_INERTES",
     "_SQL_GRUPOS",
     "_SQL_INSERT_DECISION",
     "_SQL_OWNER_LOCK",

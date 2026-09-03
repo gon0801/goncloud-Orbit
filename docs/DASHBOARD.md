@@ -249,6 +249,7 @@ Respuesta 200:
   el texto del notes).
 - `skips`: los contadores del notes del ORQUESTADOR (`cycle.py`: sin_goal,
   goal_disabled, campana_no_enabled, grupo_no_enabled, estado_no_enabled,
+  entidad_inerte (BIDS 01: hoja sin impresiones en 14d desde el watermark),
   cooldown_7d, escalera_off, … + los
   `MOTIVO_*` de bid/hygiene que el orquestador importa a sus contadores) con su
   traducción `motivo_es`; DOS diccionarios de traducción (este y el de §3.4),
