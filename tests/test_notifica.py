@@ -211,6 +211,37 @@ def test_digest_ciclo_tolerante_a_claves_ausentes():
         assert "bids" not in texto and "cortes" not in texto
 
 
+def test_digest_sin_inertes_no_menciona_la_linea():
+    """BIDS 01 1.3 (regla 3): sin la clave skips.entidad.entidad_inerte la
+    linea de inertes NO aparece (ni con skips de otros motivos ni sin
+    skips); jamas un 0 inventado ni KeyError."""
+    base = {"cycle_id": 1, "plataforma": "amazon_us", "status": "done", "decisions_count": 0}
+    casos = [
+        base,
+        base | {"skips": {}},
+        base | {"skips": {"entidad": {"estado_no_enabled": 3}}},
+        base | {"skips": {"termino": {"asin_like": 2}}},
+    ]
+    for resumen in casos:
+        texto = notifica.digest_ciclo(resumen)
+        assert "entidades sin trafico" not in texto
+
+
+def test_digest_con_inertes_muestra_saltadas():
+    """BIDS 01 1.3: con skips.entidad.entidad_inerte el digest trae la
+    linea con el conteo entero."""
+    resumen = {
+        "cycle_id": 2,
+        "plataforma": "amazon_us",
+        "modo": "live",
+        "status": "done",
+        "decisions_count": 5,
+        "skips": {"entidad": {"entidad_inerte": 57, "estado_no_enabled": 3}},
+    }
+    texto = notifica.digest_ciclo(resumen)
+    assert "entidades sin trafico (saltadas): 57" in texto
+
+
 def test_digest_contribucion_rango_invertido_no_usa_notacion_acotada():
     resumen = {
         "cycle_id": 12,

@@ -126,7 +126,7 @@ decisión al día pasa de −12% a −25%.
 
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
-| 1.3 | **DeepSeek — `/inertes` + digest**: `api_dashboard.py` `GET /inertes` (lee `v_entidad_inerte`: items + totales por plataforma y clasificación; regla 22: la UI consume el endpoint); `ui.py` `GET /inertes` + `templates/inertes.html` (tabla: plataforma, campaña, ad group, keyword/target, clasificación, días sin impresiones, gasto/ventas 90 d; textos ESCAPADOS; sin JS inline; enlace en `base.html`); `notifica.digest_ciclo`: línea `entidades sin trafico (saltadas): N` SOLO si `skips.entidad.entidad_inerte` existe en el resumen. Guía en §1.3. `[tdd:required]` | Tests ROJOS: endpoint con filas sembradas devuelve el shape y los totales; página renderiza y escapa `<script>` en `keyword_text`; digest sin la clave NO imprime la línea y con la clave sí; CI verde | 1.2 | cc:TODO |
+| 1.3 | **DeepSeek — `/inertes` + digest**: `api_dashboard.py` `GET /inertes` (lee `v_entidad_inerte`: items + totales por plataforma y clasificación; regla 22: la UI consume el endpoint); `ui.py` `GET /inertes` + `templates/inertes.html` (tabla: plataforma, campaña, ad group, keyword/target, clasificación, días sin impresiones, gasto/ventas 90 d; textos ESCAPADOS; sin JS inline; enlace en `base.html`); `notifica.digest_ciclo`: línea `entidades sin trafico (saltadas): N` SOLO si `skips.entidad.entidad_inerte` existe en el resumen. Guía en §1.3. `[tdd:required]` | Tests ROJOS: endpoint con filas sembradas devuelve el shape y los totales; página renderiza y escapa `<script>` en `keyword_text`; digest sin la clave NO imprime la línea y con la clave sí; CI verde | 1.2 | cc:完了 /inertes + digest (PR #135, CI verde) |
 | 1.4 | **GLM — `tools/archiva_inertes.py` + reversa + ledger**: migración `migrations/0014_keyword_archivo_manual.sql` (tabla ledger, D5); herramienta con `--plataforma`, `--clasificacion peso_muerto` (default), `--min-dias-sin-impresiones 30`, `--limite N`, dry-run por defecto, `--acepto-mutacion-real --esperado N --go "<literal>"`, `--reponer <lote>`; solo `kind='keyword'`; una línea JSON por mutación (scrub); reconciliación final. Guía en §1.4. `[tdd:required]` | Tests ROJOS con `httpx.MockTransport` (patrón `tests/test_reactiva_campanas.py`): plan desde la vista; `--esperado` distinto → aborta sin HTTP; entidad no ENABLED en el LIST previo → se salta con nota; ledger ANTES del HTTP; readback `ARCHIVED` → `applied`; readback ≠ → `failed` y el lote se detiene; `--reponer` recrea con el `matchType` del ledger y sella `repuesto_*`; `test_architecture` sigue verde (sin `app.ads.write`); logs rojos | 1.2 | cc:完了 Herramienta + ledger + reversa (PR #134: revisión del lead adjudicada + 4 cambios; CI decide) |
 | 1.5 | **Lead — producción**: review de cada PR + cross-review codex (1 ronda); migraciones 0013/0014 por el runbook (`-1`, backup del schema antes); deploy al contenedor (DEPLOY.md: `git archive origin/master`, md5, `up --build`, `Recreated`); **contrafactual** read-only sobre los últimos ciclos live: cuántas decisiones pasan a `entidad_inerte` y cuántas −12% pasan a −25% (esperado ≈57/103 y ≈1); verificar el ciclo siguiente (`notes.skips.entidad_inerte`, motivos nuevos en `/salud` y en el feed); primer lote de archivo SOLO con go literal del dueño; AppFlowy. `[tdd:skip:ops]` | SELECTs del ciclo post-deploy en la evidencia; contrafactual entregado al dueño; `/inertes` visible; AppFlowy Done con evidencia | 1.1-1.4 | cc:TODO |
 
@@ -161,7 +161,9 @@ def test_cero_ventas_con_clics_esperados_y_gasto_sobre_piso_baja_25():
 def test_cero_ventas_un_click_bajo_los_esperados_sigue_menos_12():
     r = _decide(
         _bids(cost=Decimal("45"), ad_revenue=Decimal("0"), clicks=119, orders=0),
-        None, cost_min="40", expected_clicks="120",
+        None,
+        cost_min="40",
+        expected_clicks="120",
     )
     assert (r.motivo, r.factor) == ("banda_menos_12", Decimal("-0.12"))
 
@@ -169,7 +171,9 @@ def test_cero_ventas_un_click_bajo_los_esperados_sigue_menos_12():
 def test_cero_ventas_gasto_bajo_el_piso_sigue_menos_12():
     r = _decide(
         _bids(cost=Decimal("39.99"), ad_revenue=Decimal("0"), clicks=200, orders=0),
-        None, cost_min="40", expected_clicks="120",
+        None,
+        cost_min="40",
+        expected_clicks="120",
     )
     assert (r.motivo, r.factor) == ("banda_menos_12", Decimal("-0.12"))
 
@@ -178,14 +182,26 @@ def test_cero_ventas_sin_expected_clicks_no_aplica():
     """Grupo sin evidencia (expected None): regla 3, nada inventado -> -12%."""
     r = _decide(
         _bids(cost=Decimal("45"), ad_revenue=Decimal("0"), clicks=200, orders=0),
-        None, cost_min="40", expected_clicks=None,
+        None,
+        cost_min="40",
+        expected_clicks=None,
     )
     assert r.motivo == "banda_menos_12"
 
 
 def test_cero_ventas_orders_o_revenue_desconocidos_no_aplica():
-    r1 = _decide(_bids(cost=Decimal("45"), ad_revenue=Decimal("0"), clicks=200, orders=None), None, cost_min="40", expected_clicks="120")
-    r2 = _decide(_bids(cost=Decimal("45"), ad_revenue=None, clicks=200, orders=0), None, cost_min="40", expected_clicks="120")
+    r1 = _decide(
+        _bids(cost=Decimal("45"), ad_revenue=Decimal("0"), clicks=200, orders=None),
+        None,
+        cost_min="40",
+        expected_clicks="120",
+    )
+    r2 = _decide(
+        _bids(cost=Decimal("45"), ad_revenue=None, clicks=200, orders=0),
+        None,
+        cost_min="40",
+        expected_clicks="120",
+    )
     assert r1.motivo != "banda_menos_25_cero_ventas"
     assert r2.motivo != "banda_menos_25_cero_ventas"
 
@@ -196,7 +212,9 @@ def test_pause_gana_sobre_la_regla_de_cero_ventas():
     r = _decide(
         _bids(cost=Decimal("60"), ad_revenue=Decimal("0"), clicks=180, orders=0),
         _cortes(cost=Decimal("60"), ad_revenue=Decimal("0"), clicks=180, orders=0),
-        cost_min="40", expected_clicks="120", umbral_pause=180,
+        cost_min="40",
+        expected_clicks="120",
+        umbral_pause=180,
     )
     assert r.kind == "pause"
 ```
@@ -459,6 +477,91 @@ al lado de «Limpieza de product ads muertos». Commit: `feat(tools):
 archiva_inertes con ledger y reversa (BIDS 01 · 1.4)`.
 
 ## Decisiones y evidencia (GLM / DeepSeek escriben aquí ANTES del código)
+
+### 1.3 — `/inertes` y digest (DeepSeek, rama bids-01-1-3)
+
+- **D-1.3.1 · Plan-vs-código: CUADRA con 5 precisiones mínimas** (cada una
+  con precedente explícito en el repo; si el lead discrepa se revierte en
+  review):
+  1. `api_dashboard.cortes` existe (`app/api_dashboard.py:824`, patrón
+     `dict_row` + `{"items": [...]}`) y `ui.pagina_cortes`
+     (`app/ui.py:340`) + `app/templates/cortes.html` existen: se copian
+     tal cual. La UI consume el endpoint con la misma `ConexionLectura`
+     (regla 22: ningún SQL en `ui.py`).
+  2. Columnas de la vista verificadas en
+     `migrations/0013_entidad_inerte.sql:63-80`: id, platform, kind,
+     keyword_text, name, external_id, ad_group_id, ad_group_name,
+     campaign_id, campaign_name, watermark (wm), ultima_impresion,
+     dias_sin_impresiones, gasto_90d, moneda, ordenes_90d,
+     clasificacion. Coinciden con el contrato de la tarea.
+  3. `skips` NO viaja hoy al digest (verificado: `_fase_notifica` en
+     `app/cycle.py:1595` arma el resumen solo con
+     cycle_id/plataforma/modo/status/decisions_count/apply; los
+     contadores viven en `cuerpo["skips"]` en el llamador
+     `_corre_fases`, `app/cycle.py:1728`). Se lleva por el MISMO camino
+     que `apply`: parámetro nuevo `skips` en `_fase_notifica` (default
+     None: `tests/test_preflight_1_4.py:383` la llama con kwargs y debe
+     seguir pasando) + `resumen["skips"]`, y `digest_ciclo` lee
+     `skips.entidad.entidad_inerte`.
+  4. Presupuesto de tamaño (`tests/test_architecture.py`, 900 líneas):
+     `app/api_dashboard.py` tiene 849. El endpoint cabe en ~44 líneas
+     (SQL 9 + endpoint ~35 con docstring de 3 líneas); se verifica que
+     queda ≤ 900 corriendo ese test en local. El racional largo vive
+     aquí y en el `COMMENT ON VIEW` de la 0013, no en el endpoint.
+  5. Orden con NULLs: `gasto_90d` puede ser NULL (mezcla de monedas,
+     fail-loud de la 0013; `DESC` solo pondría los NULL primero).
+     `ORDER BY platform, clasificacion, gasto_90d DESC NULLS LAST, id`:
+     NULLs al final e `id` como desempate estable.
+- **D-1.3.2 · Shape del endpoint** (plan §1.3 + moneda por regla 4):
+  `{"totales": {plataforma: {clasificacion: n}}, "items": [{plataforma,
+  kind, texto (keyword_text o name), external_id, campana, ad_group,
+  clasificacion, dias_sin_impresiones (int|null),
+  ultima_impresion (iso|null), gasto_90d (str|null vía `_dec_str`),
+  moneda (str|null), ordenes_90d (int)}]}`. `gasto_90d` NULL viaja null
+  (regla 3, jamás 0); `ordenes_90d` es conteo (la vista lo coalescea,
+  nunca null).
+- **D-1.3.3 · Tests.** En `tests/test_api_dashboard.py` se aplica el
+  texto de la 0013 sobre el fixture (precedente `test_cycle.py:SQL13`) y
+  se extiende `_metrica` con `impressions`/`orders` (default None,
+  precedente D-1.2.3, compatible hacia atrás); los ENABLED se siembran
+  con `_estado_acos(..., None)`. Dos hojas inertes (`gasto_sin_ventas`
+  con impresión vieja real + `peso_muerto`) + ancla de watermark + hoja
+  con tráfico reciente que NO aparece; aserta shape y totales. En
+  `tests/test_ui.py`: render de `inertes.html` con payload `<script>` en
+  el texto (escapado) + ruta `/inertes` 200 por TestClient. En
+  `tests/test_notifica.py`: digest puro sin la clave (no menciona la
+  línea) y con `skips: {"entidad": {"entidad_inerte": N}}` (línea
+  exacta).
+- **D-1.3.4 · Digest.** Línea literal
+  `entidades sin trafico (saltadas): N` (sin acentos: viaja al código).
+  SOLO si existe `skips.entidad.entidad_inerte`; N es el conteo entero.
+  `skips` ausente, no-dict o sin `entidad` = no se menciona (regla 3,
+  sin KeyError).
+
+**Rojo 1.3** (tests nuevos contra `origin/master`, antes del fix; Postgres
+local 16 disponible, nada skipea):
+
+```text
+$ .venv/bin/python -m pytest tests/test_api_dashboard.py -q -k "inertes" \
+    tests/test_ui.py -q -k "inertes" tests/test_notifica.py -q -k "inertes"
+FAILED tests/test_api_dashboard.py::test_router_dashboard_expone_inertes_get
+  E AssertionError: falta la ruta de inertes en el router
+FAILED tests/test_api_dashboard.py::test_inertes_devuelve_shape_y_totales
+  E AssertionError: {"detail":"Not Found"} / assert 404 == 200
+FAILED tests/test_ui.py::test_ui_inertes_xss_texto_escapado
+  E jinja2.exceptions.TemplateNotFound: 'inertes.html' not found
+FAILED tests/test_ui.py::test_ui_inertes_200_con_clasificacion_y_escape
+  E AssertionError: {"detail":"Not Found"} / assert 404 == 200
+FAILED tests/test_notifica.py::test_digest_con_inertes_muestra_saltadas
+  E AssertionError: assert 'entidades sin trafico (saltadas): 57'
+    in '[Orbit] digest ciclo #2 amazon_us [live] — done\ndecisiones: 5'
+5 failed, 3 passed (los 3 guards de regla 3 ya pasan: sin la clave nada se
+menciona — el que discrimina es el positivo de cada archivo)
+```
+
+Poder discriminante: el 404 del endpoint prueba que la siembra (vista 0013
++ 2 hojas) es valida antes del fix — con el fix el mismo seed da 200 con
+shape y totales (regla 9).
 
 ### 1.4 — `tools/archiva_inertes.py` + ledger (GLM, rama bids-01-1-4)
 

@@ -30,11 +30,15 @@ import jinja2
 import pytest
 from fastapi.testclient import TestClient
 from test_api_dashboard import (
+    SQL13,
     _campana,
     _ciclo,
     _config_version,
     _db_temporal,
     _decision,
+    _estado_acos,
+    _grupo,
+    _keyword,
     _metrica,
     _run,
 )
@@ -818,3 +822,92 @@ def test_ui_campanas_vocabulario_query_cerrado(monkeypatch):
     assert _html_campanas(monkeypatch, lote, estado="ON").status_code == 422
     assert _html_campanas(monkeypatch, lote, ordenar="impressions").status_code == 422
     assert _html_campanas(monkeypatch, lote, dir="up").status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Pantalla de inertes (BIDS 01 1.3): resumen + tabla, XSS escapado
+# ---------------------------------------------------------------------------
+
+
+def _ctx_inertes(texto: str = PAYLOAD_XSS) -> dict:
+    """Contexto minimo del template de inertes (render sin DB): una hoja
+    gasto_sin_ventas cuyo texto es el payload XSS (keyword_text es el
+    vector real de esta pantalla)."""
+    return {
+        "pantalla": "inertes",
+        "totales": {"amazon_us": {"gasto_sin_ventas": 1}},
+        "items": [
+            {
+                "plataforma": "amazon_us",
+                "kind": "keyword",
+                "texto": texto,
+                "external_id": "8103",
+                "campana": "Campana A",
+                "ad_group": "Grupo A",
+                "clasificacion": "gasto_sin_ventas",
+                "dias_sin_impresiones": 19,
+                "ultima_impresion": "2026-07-28",
+                "gasto_90d": "12.50",
+                "moneda": "USD",
+                "ordenes_90d": 0,
+            }
+        ],
+    }
+
+
+def test_ui_inertes_xss_texto_escapado():
+    """Regla 9: el texto de la hoja (keyword_text libre, el vector XSS de
+    esta pantalla) va por {{ }} en inertes.html y el entorno REAL lo
+    escapa; el HTML servido jamas contiene el <script> crudo."""
+    html = ui.templates.env.get_template("inertes.html").render(**_ctx_inertes())
+    assert PAYLOAD_XSS not in html
+    assert "&lt;script&gt;" in html
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ui_inertes_200_con_clasificacion_y_escape(monkeypatch):
+    """BIDS 01 1.3 por el camino REAL (TestClient -> pagina_inertes ->
+    endpoint -> vista): 200 con la clasificacion y el keyword_text con
+    <script> escapado en el HTML servido."""
+    with _db_temporal("orbit_ui_inertes") as (conn, dsn):
+        conn.execute(SQL13)
+        run = _run(conn)
+        camp = _campana(conn, "amazon_us", "8201", name="Campana B")
+        ag = _grupo(conn, "amazon_us", "8202", camp)
+        kw = _keyword(conn, "amazon_us", "8203", ag, PAYLOAD_XSS)
+        ancla = _keyword(conn, "amazon_us", "8204", ag, "ancla")
+        for eid in (camp, ag, kw, ancla):
+            _estado_acos(conn, eid, None)
+        _metrica(
+            conn,
+            run,
+            kw,
+            dt.date(2026, 7, 28),
+            cost="5.00",
+            ad_revenue="0.00",
+            clicks=2,
+            orders=0,
+            impressions=20,
+            moneda="USD",
+        )
+        _metrica(
+            conn,
+            run,
+            ancla,
+            dt.date(2026, 8, 16),
+            cost="1.00",
+            ad_revenue="0.00",
+            clicks=1,
+            orders=0,
+            impressions=10,
+            moneda="USD",
+        )
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn)
+        resp = TestClient(app).get("/inertes")
+        assert resp.status_code == 200, resp.text
+        assert "gasto_sin_ventas" in resp.text
+        assert PAYLOAD_XSS not in resp.text
+        assert "&lt;script&gt;" in resp.text

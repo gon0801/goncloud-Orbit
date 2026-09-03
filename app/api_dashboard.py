@@ -821,6 +821,22 @@ SELECT q.id, q.platform::text, q.familia, q.kind, q.ad_entity_id, e.external_id,
 """
 
 
+# ---------------------------------------------------------------------------
+# BIDS 01 1.3 - /inertes: diagnostico de hojas sin trafico (solo lectura)
+# ---------------------------------------------------------------------------
+
+# Lee v_entidad_inerte (migracion 0013, UNICA fuente D2): nada se diagnostica
+# aqui. NULLS LAST (gasto NULL = mezcla de monedas, fail-loud) e id de
+# desempate estable.
+_SQL_INERTES = """
+SELECT platform::text, kind::text, keyword_text, name, external_id,
+       campaign_name, ad_group_name, clasificacion, dias_sin_impresiones,
+       ultima_impresion, gasto_90d, moneda::text, ordenes_90d
+  FROM v_entidad_inerte
+ ORDER BY platform, clasificacion, gasto_90d DESC NULLS LAST, id
+"""
+
+
 @router.get("/cortes")
 def cortes(conn: ConexionLectura) -> dict:
     """Cortes pendientes de veto con su vencimiento (regla 22: la UI CONSUME
@@ -847,3 +863,34 @@ def cortes(conn: ConexionLectura) -> dict:
             for fila in filas
         ]
     }
+
+
+@router.get("/inertes")
+def inertes(conn: ConexionLectura) -> dict:
+    """Hojas sin trafico con su clasificacion (regla 22: la UI CONSUME este
+    endpoint). Dinero con moneda y NULL como null (reglas 3-4)."""
+    conn.row_factory = dict_row
+    items = [
+        {
+            "plataforma": fila["platform"],
+            "kind": fila["kind"],
+            "texto": fila["keyword_text"] or fila["name"],
+            "external_id": fila["external_id"],
+            "campana": fila["campaign_name"],
+            "ad_group": fila["ad_group_name"],
+            "clasificacion": fila["clasificacion"],
+            "dias_sin_impresiones": fila["dias_sin_impresiones"],
+            "ultima_impresion": (
+                fila["ultima_impresion"].isoformat() if fila["ultima_impresion"] else None
+            ),
+            "gasto_90d": _dec_str(fila["gasto_90d"]),
+            "moneda": fila["moneda"],
+            "ordenes_90d": int(fila["ordenes_90d"]),
+        }
+        for fila in conn.execute(_SQL_INERTES).fetchall()
+    ]
+    totales: dict[str, dict[str, int]] = {}
+    for item in items:
+        por_clase = totales.setdefault(item["plataforma"], {})
+        por_clase[item["clasificacion"]] = por_clase.get(item["clasificacion"], 0) + 1
+    return {"totales": totales, "items": items}

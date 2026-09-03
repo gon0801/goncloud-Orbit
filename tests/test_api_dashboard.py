@@ -64,6 +64,12 @@ SQL_MIGRACION = (
     Path(__file__).resolve().parent.parent / "migrations" / "0001_initial.sql"
 ).read_text(encoding="utf-8")
 
+# BIDS 01 1.3: la vista v_entidad_inerte (migracion 0013) es la UNICA fuente
+# de "inerte" (D2 sellada); el endpoint la lee, no reimplementa el diagnostico.
+SQL13 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0013_entidad_inerte.sql"
+).read_text(encoding="utf-8")
+
 
 def _obs(fecha: dt.date, hora: int = 1) -> dt.datetime:
     """observed_at de una observacion: medianoche + hora UTC (>= metric_date)."""
@@ -147,13 +153,28 @@ def _keyword(conn, platform: str, external: str, parent: int, text: str) -> int:
 
 
 def _metrica(
-    conn, run_id, ad_entity_id, fecha, *, cost, ad_revenue, clicks, moneda, observed_at=None
+    conn,
+    run_id,
+    ad_entity_id,
+    fecha,
+    *,
+    cost,
+    ad_revenue,
+    clicks,
+    moneda,
+    observed_at=None,
+    impressions=None,
+    orders=None,
 ) -> None:
-    """Una observacion de metricas (bitemporal: observed_at controlable)."""
+    """Una observacion de metricas (bitemporal: observed_at controlable).
+
+    BIDS 01 1.3: `impressions`/`orders` explicitos (default None =
+    comportamiento de antes) para sembrar hojas inertes con forma de
+    reporte (impresiones reales viejas) o peso muerto (sin filas)."""
     conn.execute(
         "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
         " metric_currency, cost, ad_revenue, impressions, clicks, orders, ingest_run_id)"
-        " VALUES (%s, %s, %s, %s, %s, %s, NULL, %s, NULL, %s)",
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
         (
             ad_entity_id,
             fecha,
@@ -161,7 +182,9 @@ def _metrica(
             moneda,
             None if cost is None else Decimal(cost),
             None if ad_revenue is None else Decimal(ad_revenue),
+            impressions,
             clicks,
+            orders,
             run_id,
         ),
     )
@@ -1576,3 +1599,106 @@ def test_motivo_cero_ventas_tiene_etiqueta_en_decisiones():
     assert MOTIVOS_ES_DECISIONES[bid_mod.MOTIVO_BANDA_MENOS_25_CERO_VENTAS].startswith(
         "Cero ventas"
     )
+
+
+# ---------------------------------------------------------------------------
+# BIDS 01 1.3 - /inertes: lee v_entidad_inerte (regla 2: la vista es la
+# UNICA fuente; el endpoint no reimplementa el diagnostico)
+# ---------------------------------------------------------------------------
+
+
+def _siembra_inertes(conn):
+    """Dos hojas inertes de distinta clasificacion + ancla de watermark +
+    hoja con trafico reciente (NO aparece)."""
+    run = _run(conn)
+    camp = _campana(conn, "amazon_us", "8101", name="Campana Inerte")
+    ag = _grupo(conn, "amazon_us", "8102", camp)
+    gasto = _keyword(conn, "amazon_us", "8103", ag, "gasto sin ventas")
+    muerto = _keyword(conn, "amazon_us", "8104", ag, "peso muerto")
+    viva = _keyword(conn, "amazon_us", "8105", ag, "con trafico")
+    ancla = _keyword(conn, "amazon_us", "8106", ag, "ancla")
+    for eid in (camp, ag, gasto, muerto, viva, ancla):
+        _estado_acos(conn, eid, None)
+    # Watermark US = 08-16 (viva + ancla). Ventana 14d: metric_date > 08-02.
+    _metrica(
+        conn,
+        run,
+        gasto,
+        dt.date(2026, 7, 28),
+        cost="12.50",
+        ad_revenue="0.00",
+        clicks=4,
+        orders=0,
+        impressions=40,
+        moneda="USD",
+    )
+    _metrica(
+        conn,
+        run,
+        viva,
+        dt.date(2026, 8, 16),
+        cost="3.00",
+        ad_revenue="0.00",
+        clicks=2,
+        orders=0,
+        impressions=30,
+        moneda="USD",
+    )
+    _metrica(
+        conn,
+        run,
+        ancla,
+        dt.date(2026, 8, 16),
+        cost="1.00",
+        ad_revenue="0.00",
+        clicks=1,
+        orders=0,
+        impressions=10,
+        moneda="USD",
+    )
+
+
+def test_router_dashboard_expone_inertes_get():
+    """Superficie: GET /api/dashboard/inertes existe y es solo GET (el
+    candado de solo-GET lo cubre el test de superficie existente)."""
+    rutas = app.openapi()["paths"]
+    assert "/api/dashboard/inertes" in rutas, "falta la ruta de inertes en el router"
+    assert set(rutas["/api/dashboard/inertes"]) == {"get"}
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_inertes_devuelve_shape_y_totales(monkeypatch):
+    """BIDS 01 1.3: dos hojas inertes de distinta clasificacion -> shape con
+    items + totales por plataforma y clasificacion; la hoja con trafico
+    reciente NO aparece; dinero con moneda y NULL como null."""
+    with _db_temporal("orbit_dash_inertes") as (conn, dsn):
+        conn.execute(SQL13)
+        _siembra_inertes(conn)
+        resp = _cliente(dsn, monkeypatch).get("/api/dashboard/inertes")
+        assert resp.status_code == 200, resp.text
+        cuerpo = resp.json()
+        assert cuerpo["totales"] == {"amazon_us": {"gasto_sin_ventas": 1, "peso_muerto": 1}}
+        items = cuerpo["items"]
+        assert [i["texto"] for i in items] == ["gasto sin ventas", "peso muerto"]
+        gasto = items[0]
+        assert gasto["plataforma"] == "amazon_us"
+        assert gasto["kind"] == "keyword"
+        assert gasto["external_id"] == "8103"
+        assert gasto["campana"] == "Campana Inerte"
+        assert gasto["clasificacion"] == "gasto_sin_ventas"
+        assert gasto["dias_sin_impresiones"] == 19
+        assert gasto["ultima_impresion"] == "2026-07-28"
+        assert gasto["gasto_90d"] == "12.5000"
+        assert gasto["moneda"] == "USD"
+        assert gasto["ordenes_90d"] == 0
+        muerto = items[1]
+        assert muerto["texto"] == "peso muerto"
+        assert muerto["clasificacion"] == "peso_muerto"
+        assert muerto["dias_sin_impresiones"] is None
+        assert muerto["ultima_impresion"] is None
+        assert muerto["gasto_90d"] == "0"
+        assert muerto["moneda"] is None
+        assert muerto["ordenes_90d"] == 0

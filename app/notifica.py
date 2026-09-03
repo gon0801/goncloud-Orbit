@@ -388,6 +388,13 @@ def digest_ciclo(resumen: dict) -> str:
         lineas.append(f"apply_error: {apply['apply_error']}")
     if apply.get("apply_abortado_owner"):
         lineas.append("apply_abortado_owner: true")
+    # BIDS 01 1.3: hojas sin trafico saltadas por la guarda entidad_inerte.
+    # Regla 3: clave ausente = no se menciona (jamas un 0 inventado).
+    skips = resumen.get("skips")
+    if isinstance(skips, dict):
+        skips_entidad = skips.get("entidad")
+        if isinstance(skips_entidad, dict) and "entidad_inerte" in skips_entidad:
+            lineas.append(f"entidades sin trafico (saltadas): {skips_entidad['entidad_inerte']}")
     contrib = resumen.get("contribucion")
     if isinstance(contrib, ContribucionDigest):
         linea = _linea_contribucion(contrib)
