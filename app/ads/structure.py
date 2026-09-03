@@ -152,7 +152,7 @@ from app.ads.structure_api import (  # noqa: F401 - fachada sellada (ESTRUCTURA 
     listar_todo,
     perfiles_aceptados,
 )
-from app.ads.structure_plan import (  # noqa: F401 - fachada sellada (ESTRUCTURA 01)
+from app.ads.structure_plan import (
     _ETIQUETA_KIND,
     _ETIQUETA_PADRE,
     ESTADO_ARCHIVED,

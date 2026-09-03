@@ -1,8 +1,3 @@
-"""Planificacion pura de items de estructura Amazon Ads (ESTRUCTURA 01).
-
-Sin psycopg ni httpx. Consume dataclasses de structure_api.
-"""
-
 from __future__ import annotations
 
 import json

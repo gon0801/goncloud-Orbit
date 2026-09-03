@@ -1,8 +1,3 @@
-"""IO de API del sync de estructura Amazon Ads (ESTRUCTURA 01).
-
-PATH_*, gate de perfiles y fetch_structure. Sin psycopg.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
