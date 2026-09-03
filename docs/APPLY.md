@@ -457,6 +457,18 @@ matchType, state}`. La tarea 1.3 amplía `LIST_REQUEST_TYPES` con este path.
 
 Reglas de la matriz:
 
+- **Gate de ancestros en los REINTENTOS (CAMPANA ACTIVA 01 · 1.6):** antes de
+  cualquier HTTP de reconciliación que pueda reintentar una mutación (bids sin
+  sello en `reconcilia_bids`, negatives applying huérfanos en
+  `_reconcilia_negativas`, jobs en vuelo de `reconcilia_harvest`), se verifica
+  campaña y ad group ENABLED en el cache `ad_entity_state` con la MISMA
+  función que la cola al liberar (`apply.gate_ancestros`; sin fila de state =
+  fuera, regla 3). Si falla: sello `fallo:ancestro_no_enabled`, fila/job
+  `failed` (una fila `applying` NO puede pasar a `discarded`; una `released`
+  se descarta PRE-claim), sin HTTP ni cobro de cuota. Para harvest el ancestro
+  gateado es el ORIGEN (el ad group de la fila); el destino del goal sigue
+  sin gate de código (residual declarado). Las pausas applying huérfanas no se
+  gatean: solo LEEN estado, jamás reintentan mutación.
 - La reconciliación NO reintenta mutaciones ambiguas: cierra el estado
   (`failed`); el ciclo siguiente re-decide la clave con datos frescos si
   sigue calificando (la clave terminal ya no está en vuelo).

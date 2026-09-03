@@ -121,7 +121,7 @@ contadas aquí están ENABLED: hoy ni siquiera se saltaban, decidían).
 | 1.3 | **Superficie y docs**: `MOTIVOS_ES_SALUD` con los dos motivos (D5) + test puro en `tests/test_api_dashboard.py`; `docs/DASHBOARD.md` (lista de motivos del orquestador, ~línea 251) y `docs/APPLY.md` (una bala en la sección de la cola/re-validación: el gate de ancestros al liberar) al día; línea en `docs/CHAT-CONTEXT.md`; markers 1.1-1.3 a `cc:完了`; PR abierto contra `master` con CI verde. `[tdd:required]` | Test del diccionario ROJO contra master (KeyError) y verde; docs citados en el diff; CI batería completa verde; candado de frescura verde | 1.2 | cc:完了 [2026-09-02, GLM. Test del diccionario ROJO (KeyError) y verde; MOTIVOS_ES_SALUD con los 2 motivos; DASHBOARD.md y APPLY.md al día; línea en CHAT-CONTEXT; PR #123 abierto contra master con los 3 commits; CI batería completa verde; fusionado por el lead tras la cross-review] |
 | 1.4 | **Lead — revisión, deploy y verificación en vivo**: review del PR contra `origin/master` + reviewer fresco + cross-review codex (1 ronda); merge; deploy al contenedor por el runbook `docs/DEPLOY.md` (imagen nueva, md5 de `app/` vs master, respaldo del `app/` anterior); verificación DENTRO del contenedor de que `_gates_entidad` nuevo está vivo; esperar el ciclo del cron (no forzar `/run`) y comparar `notes.skips` contra §Estado medido (≈299 US / 10 MX `campana_no_enabled`); `/salud` muestra la etiqueta. `[tdd:skip:ops]` | SELECT del ciclo post-deploy con los contadores nuevos en la evidencia; cero decisiones en campañas no ENABLED (`SELECT` de conciliación por `parent_id`); AppFlowy anotado | 1.3 | cc:WIP [2026-09-02: revisión del lead contra la base viva (todas las campañas/ad groups tienen fila de state → esperado exacto 299 US / 10 MX); CodeRabbit (8 comentarios) + codex (2 hallazgos, veredicto «mergeable con fixes») adjudicados en §Cross-review; conflicto de CHAT-CONTEXT con #124 resuelto por el lead; #123 fusionado. PENDIENTE: deploy al contenedor, verificación del ciclo 2026-09-03 08:40 UTC, AppFlowy] |
 | 1.5 | **Lead + dueño — las 2 mutaciones ya aplicadas en campañas pausadas** (decisiones 1989 y 2104): el dueño decide conservar o revertir; si revierte, `POST /reversa/bid` por decisión (ledger + readback), evidencia en `plans/orbit-05.md` 1.5. `[tdd:skip:checkpoint-humano]` | Decisión literal del dueño registrada; si hubo reversa: readback = bid original, ledger sellado | - | cc:完了 [2026-09-02: decisión literal del dueño "dejalas asi" — las 2 pujas (1989 US 0.99→0.74 USD, 2104 MX 13.64→10.23 MXN) se conservan; sin reversa; registrado en CHAT-CONTEXT] |
-| 1.6 | **GLM — gate de ancestros en la RECONCILIACIÓN + orden de contadores con veto pendiente** (hallazgos codex r1, §Cross-review): (a) `apply.reconcilia_bids` (reintento divergente `_reintento_divergente`), `apply_harvest.reconcilia_harvest` (jobs en vuelo) y `_reconcilia_negativas` reintentan mutaciones de intentos SIN sello (crash a mitad de un apply) sin consultar campaña/ad group → ANTES de cualquier reintento HTTP, comprobación de ancestros con la misma semántica de D1/D3 (cache `ad_entity_state`; una sola función compartida por `ad_entity_id`, reusada por `apply_cola._revalida_ancestros`); si falla: sellar el intento como `fallo:ancestro_no_enabled`, cerrar fila/job como `failed` (una fila `applying` NO puede pasar a `discarded`), sin HTTP ni cuota; (b) `cycle._procesa_decisora` / `_procesa_grupo`: el chequeo `bloqueadas` (veto_pendiente) va DESPUÉS de goal/ancestros/estado, y un grupo gateado cuenta TODOS sus términos con el motivo del ancestro (hoy los bloqueados se descuentan antes). Mismas reglas de proceso que 1.1-1.3. `[tdd:required]` | Regresiones ROJAS contra master: bid, negative y harvest en reconciliación con campaña `PAUSED` y con ancestro SIN fila de state → cero HTTP de mutación, intento sellado, `failed`; ciclo con veto pendiente + campaña pausada → `campana_no_enabled` (no `veto_pendiente`) y contador del grupo = todos sus términos; suites completas verdes en CI; logs rojos en §Decisiones | 1.4 | cc:TODO |
+| 1.6 | **GLM — gate de ancestros en la RECONCILIACIÓN + orden de contadores con veto pendiente** (hallazgos codex r1, §Cross-review): (a) `apply.reconcilia_bids` (reintento divergente `_reintento_divergente`), `apply_harvest.reconcilia_harvest` (jobs en vuelo) y `_reconcilia_negativas` reintentan mutaciones de intentos SIN sello (crash a mitad de un apply) sin consultar campaña/ad group → ANTES de cualquier reintento HTTP, comprobación de ancestros con la misma semántica de D1/D3 (cache `ad_entity_state`; una sola función compartida por `ad_entity_id`, reusada por `apply_cola._revalida_ancestros`); si falla: sellar el intento como `fallo:ancestro_no_enabled`, cerrar fila/job como `failed` (una fila `applying` NO puede pasar a `discarded`), sin HTTP ni cuota; (b) `cycle._procesa_decisora` / `_procesa_grupo`: el chequeo `bloqueadas` (veto_pendiente) va DESPUÉS de goal/ancestros/estado, y un grupo gateado cuenta TODOS sus términos con el motivo del ancestro (hoy los bloqueados se descuentan antes). Mismas reglas de proceso que 1.1-1.3. `[tdd:required]` | Regresiones ROJAS contra master: bid, negative y harvest en reconciliación con campaña `PAUSED` y con ancestro SIN fila de state → cero HTTP de mutación, intento sellado, `failed`; ciclo con veto pendiente + campaña pausada → `campana_no_enabled` (no `veto_pendiente`) y contador del grupo = todos sus términos; suites completas verdes en CI; logs rojos en §Decisiones | 1.4 | cc:完了 [2026-09-03, GLM. Funcion UNICA apply.gate_ancestros (D-GLM-5, reusada por apply_cola y los 3 reconciliadores); 6 regresiones ROJAS contra master (logs en §Decisiones) y verdes con el fix; camino feliz (5) = goldens existentes con seed ENABLED, verdes; suites apply/apply_harvest/cycle/apply_cola/cycle_apply/architecture 180 passed local; ancestro de harvest = ORIGEN, fila released se descarta PRE-claim (D-GLM-8); veto_pendiente ahora DESPUES de los gates (D-GLM-9). PR #136] |
 
 ## Guía de implementación (GLM)
 
@@ -627,6 +627,100 @@ FAILED tests/test_api_dashboard.py::test_motivos_salud_traducen_los_gates_de_anc
 1 failed, 34 deselected in 1.45s
 ```
 
+### Logs rojos 1.6 (regla 9, contra el codigo viejo, 2026-09-03)
+
+Bids campana PAUSED y campana SIN state
+(`pytest tests/test_apply.py -q -k gate_ancestros`, 2 failed):
+
+```text
+E       AssertionError: cero HTTP con ancestro no ENABLED: POST /sp/keywords/list
+FAILED tests/test_apply.py::test_reconcilia_bids_campana_pausada_gate_ancestros
+FAILED tests/test_apply.py::test_reconcilia_bids_campana_sin_state_gate_ancestros
+```
+
+Negative con ad group PAUSED (`pytest tests/test_apply_harvest.py -k gate_neg`):
+
+```text
+E           assert resumen.negativas_fallidas == 1 and resumen.negativas_confirmadas == 0
+E           assert (0 == 1)
+E            +  where 0 = ResumenReconciliacion(... negativas_confirmadas=1, negativas_fallidas=0 ...).negativas_fallidas
+FAILED tests/test_apply_harvest.py::test_reconcilia_negative_grupo_pausado_gate_ancestros
+```
+
+Jobs en vuelo con campana de origen PAUSED (fila applying y fila released):
+
+```text
+E           assert 0 == 1
+E            +  where 0 = ResumenReconciliacion(jobs_done=1, jobs_failed=0, ...).jobs_failed
+FAILED tests/test_apply_harvest.py::test_reconcilia_harvest_campana_origen_pausada_cierra_job
+FAILED tests/test_apply_harvest.py::test_reconcilia_harvest_campana_pausada_fila_released_descarta_pre_claim
+```
+
+Ciclo, veto pendiente + campana PAUSED (`pytest tests/test_cycle.py -k cuenta_el_ancestro`):
+
+```text
+E           assert skips["entidad"]["campana_no_enabled"] == 2  # kw_bid (bloqueada) y kw_pause
+E           assert 1 == 2
+FAILED tests/test_cycle.py::test_veto_pendiente_cuenta_el_ancestro_no_enabled
+```
+
+Camino feliz (5): los goldens existentes (`test_reconcilia_bids_get_igual_confirma`,
+`test_reconcilia_bids_divergencia_reintenta_bajo_tope_y_falla`,
+`test_matriz_applying_huerfano_negative_ausente_reintenta_bajo_tope`,
+`test_reconcilia_cobra_quota_la_primera_vez...`) corren con campaña y grupo
+ENABLED de la seed y siguen verde con el gate (verificados en verde, no rojos:
+no cambian).
+
+### Decisiones 1.6 (escritas ANTES del codigo, 2026-09-03)
+
+**D-GLM-5 (hogar de la funcion compartida):** vive en `app/apply.py` como
+`gate_ancestros(conn, ad_entity_id) -> str | None` (mismo SQL/semantica que
+`apply_cola._SQL_ANCESTROS`: resuelve hoja vs ad group con CASE; sin fila de
+state = fuera, regla 3). `apply.py` es el dueno del write client y tanto
+`apply_cola` como `apply_harvest` ya lo importan, asi que el candado de
+imports de `tests/test_architecture.py` (solo prohíbe IO en el motor puro)
+no se toca. Las constantes `MOTIVO_CAMPANA/GRUPO_NO_ENABLED` pasan a
+definirse en `app/apply.py`; `apply_cola` las re-exporta como alias (sus
+tests y `cycle` las importan de ahi; cero cambio de vocabulario).
+
+**D-GLM-6 (reconcilia_bids):** el gate va al TOPE del loop, antes incluso
+del readback GET: sella `fallo:ancestro_no_enabled`, fallidas += 1, cero
+HTTP de cualquier tipo. Con eso el reintento divergente queda cubierto por
+construccion (la misma entidad ya fue gateada antes de que nazca la fila
+nueva del ledger).
+
+**D-GLM-7 (_reconcilia_negativas):** gate sobre `fila.ad_entity_id` (la
+fila ES el ad group, semantica D3) antes de crear el cliente y de cualquier
+LIST/POST: sella pendientes `fallo:ancestro_no_enabled`, fila
+`applying` -> `failed`. `_reconcilia_pauses` NO se toca: no reintenta
+mutaciones (solo LIST de estado y veredicto), el GET siempre esta permitido.
+
+**D-GLM-8 (harvest, ancestro que aplica):** el ORIGEN. `job.ad_entity_id`
+es el ad group de la fila (misma semantica D3 que la cola); el DESTINO del
+goal sigue SIN gate de codigo (D4, residual declarado). En
+`reconcilia_harvest` el gate corre tras el chequeo vetoed/discarded y ANTES
+del cobro de quota/claim/HTTP: job -> `failed`, ledger pendiente sellado
+`fallo:ancestro_no_enabled`; fila `applying` -> `failed`; fila `released` ->
+`discarded` con `discard_motivo` (la maquina de estados de 0002 NO tiene
+`released -> failed` y released sigue vetable: el discard PRE-claim es la
+transicion legal y no quema quota). Cuenta en `jobs_failed` SIN alerta de
+Telegram: campana pausada por el dueno es condicion esperada, no fallo
+operativo (las demas alertas de job siguen igual).
+
+**D-GLM-9 (orden de contadores):** en `_procesa_decisora` el chequeo
+`bloqueadas` pasa a justo DESPUES de `_gates_entidad` (goal -> ancestros ->
+estado -> cooldown) y antes de `inertes` (conserva el orden relativo
+veto/inerte de hoy); en `_procesa_grupo` los gates corren primero y, con
+motivo de ancestro, cuentan TODOS los terminos (incluidos los bloqueados);
+solo despues del gate se filtran los bloqueados como `veto_pendiente`.
+Solo cambian contadores de `notes.skips` (bala "Orden de gates" del
+docstring del modulo).
+
+**Seed (igual que 1.2):** `_semilla` de `tests/test_apply.py` gana state
+ENABLED de campana y ad group (hoy no lo tienen; sin eso el gate nuevo
+romperia los goldens de reconciliacion de bids). Se commita ANTES del gate,
+en verde.
+
 ### Desviaciones del plan
 
 **D-GLM-3 (tests 1.2):** el snippet del plan escribe
@@ -681,10 +775,23 @@ declara en §Residuales.
 3. Las 2 mutaciones ya aplicadas en campañas pausadas quedan como las dejó el
    ciclo 33/34 por decisión del dueño (1.5, 2026-09-02, "dejalas asi"): si un
    día reactiva esas campañas, esas dos pujas arrancan 25% más bajas.
-4. Hasta que 1.6(a) aterrice, la reconciliación post-crash (intentos sin
-   sello) puede reintentar una mutación sin mirar campaña/ad group (codex r1).
-5. Hasta 1.6(b), una entidad con veto pendiente dentro de una campaña
-   pausada se cuenta como `veto_pendiente` (solo contadores).
+4. CERRADO por 1.6(a) (2026-09-03): la reconciliación post-crash ahora gatea
+   campaña/ad group (apply.gate_ancestros) antes de cualquier HTTP de
+   reintento.
+5. CERRADO por 1.6(b) (2026-09-03): el veto pendiente se evalúa después de
+   los gates; una entidad bloqueada en campaña/grupo apagado se cuenta con el
+   motivo del ancestro.
+6. Las pausas applying huérfanas (`_reconcilia_pauses`) no se gatean: solo
+   LEEN estado por LIST (GET siempre permitido), jamás reintentan mutación.
+7. El gate de los jobs en vuelo de harvest SIN fila de cola (`queue_id`
+   None) cierra solo el job; sin fila no hay transición de cola que hacer.
+8. Declarado (review del PR #136): un intento sin sello cuyo PUT/POST SÍ
+   llegó a Amazon antes del crash se sella `fallo:ancestro_no_enabled` sin
+   verificar el side effect (cero HTTP por diseño). Mientras la campaña está
+   pausada el efecto es inerte; al re-activar, el cache de state y la
+   re-decisión del ciclo absorben los bids y la identidad del término
+   detecta el negativo (misma regla que las ambiguas de §6.1: cerrar y
+   re-decidir).
 
 ## 事前確認
 

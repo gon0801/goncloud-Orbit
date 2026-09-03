@@ -4,6 +4,8 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-03 — CAMPAÑA ACTIVA 01 · 1.6: cerrado el último hueco del gate de campañas activas — también el reintento automático tras un crash consulta la campaña antes de tocar Amazon.** El motor ya no tocaba campañas pausadas ni al decidir ni al liberar cortes, pero si un ciclo se caía a mitad de una mutación, el reintento del ciclo siguiente no miraba la campaña (camino rarísimo: exige crash + pausa en medio; hoy 0 casos). Ahora ese reintento también exige campaña y ad group activos y, si no, cierra el intento como fallido sin gastar cupo ni llamadas. Además, los contadores de la pantalla de salud dejaron de mentir: una palabra con veto pendiente dentro de una campaña pausada ahora se cuenta como «campaña no habilitada» (antes inflaba el veto).
+
 **2026-09-03 — BIDS 01 tarea 1.3 lista para revisión: las palabras sin tráfico ya se ven en una página nueva con su clasificación (vendió antes / gastó sin vender / peso muerto) y el aviso diario de Telegram dice cuántas se saltó el motor.**
 
 **2026-09-03 — BIDS 01 tarea 1.4 lista para revisión: ya existe la herramienta que archiva por lote las palabras sin tráfico con el go del dueño y con reversa (cada lote queda anotado y se puede reponer). Por defecto solo ensaya; archiva de verdad únicamente cuando el conteo del ensayo coincide con el autorizado.**
