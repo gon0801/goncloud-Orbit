@@ -379,6 +379,16 @@ def test_migracion_0014_crea_el_ledger_con_grants_y_estados():
     assert "archivo_bid_con_moneda" in texto, (
         "regla 4 por schema (precedente estado_bid_con_moneda): bid y moneda NULL parejos"
     )
+    assert "archivo_match_cerrado" in texto, "match con dominio cerrado"
+
+
+def test_moneda_del_tool_iguala_la_de_la_capa_http():
+    """MONEDA_POR_PLATAFORMA no puede divergir del mapa canonico en
+    silencio (hallazgo de GLM): lo pinea este test. Import solo de
+    tests (el candado de test_architecture cubre app/ y tools/)."""
+    from app.ads.write import PLATAFORMA_MONEDA
+
+    assert dict(PLATAFORMA_MONEDA) == ar.MONEDA_POR_PLATAFORMA
 
 
 def test_modulo_no_importa_write_ni_apply():

@@ -36,6 +36,8 @@ CREATE TABLE keyword_archivo_manual (
     CHECK (estado IN ('planeado','applied','failed','repuesto')),
   CONSTRAINT archivo_bid_con_moneda
     CHECK ((bid IS NULL) = (bid_currency IS NULL)),
+  CONSTRAINT archivo_match_cerrado
+    CHECK (match_type IN ('EXACT','PHRASE','BROAD')),
   repuesto_at        TIMESTAMPTZ,
   repuesto_external  TEXT,
   repuesto_ack       JSONB

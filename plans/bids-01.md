@@ -594,6 +594,38 @@ ERROR tests/test_archiva_inertes.py
   segunda ronda (tope del repo): los fix van en el commit de
   adjudicación y el lead decide si re-abre.
 
+- **D-1.4.8 · Adjudicación GLM (ronda única del kit: 0 ALTAS, 2 MEDIAS +
+  1 MEDIA/VERIFICAR + resto BAJAS; proceso colgado al final y terminado
+  a mano, veredicto completo en archivo).** Veredictos:
+  1. MEDIA (`_sella` sin try → `planeado` colgado): cierta en el caso
+     DB-caída, pero la ventana es mínima y la recuperación es un UPDATE
+     manual declarado (misma familia que el residual de D-1.4.7.3); el
+     readback post-DELETE ya va por `_readback_salvo`. Sin código nuevo.
+  2. MEDIA (readback único sin reintento): diseño sellado (igual que
+     `reactiva_campanas` y que el plan §1.4); no se cambia. Cobertura
+     operativa: DEPLOY trae la recuperación (`failed` con ARCHIVED en
+     consola → UPDATE manual a `applied`).
+  3. MEDIA/VERIFICAR (JOIN multiplica si state no es 1:1): REFUTADO con
+     evidencia (`ad_entity_id BIGINT PRIMARY KEY`, `0001:645`).
+  4. BAJA (lote compartido el mismo día): cierto y por diseño (el lote
+     es la unidad); documentado en DEPLOY (un lote por día).
+  5. BAJA (reponer sin dedup): misma familia que D-1.4.7.3, ya mitigada
+     y con residual declarado; sin dedup por LIST de grupo porque
+     `adGroupIdFilter` no tiene precedente sellado (D-1.4.1.3).
+  6. BAJA/VERIFICAR (USAGE a tres roles): REFUTADO como desviación (el
+     precedente `0002:712` otorga a los tres; se sigue el patrón).
+  7. BAJA (match TEXT sin dominio): cierto; fix: CONSTRAINT
+     `archivo_match_cerrado` en 0014 + assert estático.
+  8. BAJA (`--go ""`): ya corregida en D-1.4.7 (grok la vio primero).
+  9. BAJA (bid cuantizado en la reversa): por diseño (presentación
+     sellada `write._bid_wire`; el ledger guarda el NUMERIC exacto).
+  10. BAJA/VERIFICAR (tests fuera de su diff): artefacto de mi partición
+      del diff por el tope de 60KB del kit; grok sí revisó los tests.
+  11. BAJA/VERIFICAR (mapa de moneda duplicado): cierto; fix: test que
+      pinea `MONEDA_POR_PLATAFORMA == dict(write.PLATAFORMA_MONEDA)`
+      (import solo en tests, fuera del candado).
+  Tests tras adjudicar: 19 passed + 14 de `test_architecture`.
+
 ### 1.2 — Vista + guarda (GLM, rama bids-01-1.2)
 
 - **D-1.2.1 · Plan-vs-código: CUADRA, sin parar.** `v_metric_latest` =

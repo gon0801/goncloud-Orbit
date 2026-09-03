@@ -1179,6 +1179,20 @@ docker exec -i orbit-app-1 python - --reponer inertes-2026-09-05 \
 Sin bid en el ledger la fila no se repone (no se inventa: queda
 `applied` y el lote se detiene declarándolo).
 
+Dos notas de operación (cross-review, residuales declarados):
+
+- El lote es la unidad: dos corridas autorizadas el mismo día comparten
+  `lote = inertes-YYYY-MM-DD` y `--reponer` las revierte juntas. Un lote
+  por día; si hace falta partir por plataforma, se opera un día cada una.
+- `reponer` no es idempotente entre el CREATE y el sello: ante
+  `lote_detenido` en reposición, verificar en consola lo ya creado (el
+  log trae ack + id nuevo) antes de reintentar. Igual para un `failed`
+  con sospecha de eventual-consistency: si la consola muestra ARCHIVED,
+  sellar a mano `UPDATE keyword_archivo_manual SET estado = 'applied',
+  readback_estado = 'ARCHIVED' WHERE id = <fila>;` y reintentar el resto
+  en un lote nuevo (la fila ya archivada se salta con nota por el LIST
+  previo).
+
 ## Limpieza de product ads muertos (ORBIT 06)
 
 Un product ad "muerto" apunta a una publicación que ya no existe: no gasta
