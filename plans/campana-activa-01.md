@@ -785,6 +785,13 @@ declara en §Residuales.
    LEEN estado por LIST (GET siempre permitido), jamás reintentan mutación.
 7. El gate de los jobs en vuelo de harvest SIN fila de cola (`queue_id`
    None) cierra solo el job; sin fila no hay transición de cola que hacer.
+8. Declarado (review del PR #136): un intento sin sello cuyo PUT/POST SÍ
+   llegó a Amazon antes del crash se sella `fallo:ancestro_no_enabled` sin
+   verificar el side effect (cero HTTP por diseño). Mientras la campaña está
+   pausada el efecto es inerte; al re-activar, el cache de state y la
+   re-decisión del ciclo absorben los bids y la identidad del término
+   detecta el negativo (misma regla que las ambiguas de §6.1: cerrar y
+   re-decidir).
 
 ## 事前確認
 

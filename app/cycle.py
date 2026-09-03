@@ -220,9 +220,10 @@ MOTIVO_GOAL_MODE_OFF = "goal_mode_off"
 MOTIVO_ESTADO_NO_ENABLED = "estado_no_enabled"
 # CAMPANA ACTIVA 01: ancestros no ENABLED (o sin fila de state) sacan a la
 # hoja/grupo del motor ANTES de mirar su propio estado. Fuente: el cache
-# ad_entity_state (sync diario; guarda de 48h del ciclo).
-MOTIVO_CAMPANA_NO_ENABLED = "campana_no_enabled"
-MOTIVO_GRUPO_NO_ENABLED = "grupo_no_enabled"
+# ad_entity_state (sync diario; guarda de 48h del ciclo). Desde 1.6 son alias
+# de apply (funcion UNICA gate_ancestros): UNA fuente del vocabulario.
+MOTIVO_CAMPANA_NO_ENABLED = apply.MOTIVO_CAMPANA_NO_ENABLED
+MOTIVO_GRUPO_NO_ENABLED = apply.MOTIVO_GRUPO_NO_ENABLED
 # BIDS 01 (D3): hoja sin impresiones en 14d desde el watermark (vista
 # v_entidad_inerte, migracion 0013): ajustar su bid seria inerte, Amazon no
 # la sirve. Se salta ANTES de resolver ventanas (no gasta consultas ni cupo).
