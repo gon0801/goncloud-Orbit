@@ -856,11 +856,15 @@ def test_orden_bids_prioridad_de_hemorragia_sellada():
     d25_200 = _bid_manual(2, "banda_menos_25", "200")
     d12_999 = _bid_manual(3, "banda_menos_12", "999")
     d15_500 = _bid_manual(4, "banda_mas_15", "500")
+    # BIDS 01 (cross-review grok-1): el motivo nuevo compite en la banda 0;
+    # si el literal de _PRIORIDAD_BANDA tuviera un typo caeria al final.
+    d25c_150 = _bid_manual(7, "banda_menos_25_cero_ventas", "150")
 
-    orden = orden_bids([d15_500, d12_999, d25_100, d25_200])
+    orden = orden_bids([d15_500, d12_999, d25_100, d25_200, d25c_150])
 
-    assert [d.id for d in orden] == [2, 1, 3, 4], (
-        "banda_menos_25 > banda_menos_12 > banda_mas_15; dentro de banda, cost DESC"
+    assert [d.id for d in orden] == [2, 7, 1, 3, 4], (
+        "banda_menos_25 = banda_menos_25_cero_ventas > banda_menos_12 > "
+        "banda_mas_15; dentro de banda, cost DESC"
     )
 
     # cost None (regla 3: costo desconocido) queda al final de SU banda; un

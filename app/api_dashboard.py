@@ -188,6 +188,9 @@ MOTIVOS_ES_DECISIONES: dict[str, str] = {
     bid.MOTIVO_PAUSE: "Pausa: sin ventas con clicks y costo sobre el umbral",
     bid._MOTIVO_BANDA[bid.FACTOR_BAJA_FUERTE]: "ACoS sobre 1.35x del target: -25%",
     bid._MOTIVO_BANDA[bid.FACTOR_BAJA_SUAVE]: "ACoS sobre 1.15x del target: -12%",
+    bid.MOTIVO_BANDA_MENOS_25_CERO_VENTAS: (
+        "Cero ventas con los clicks de una venta y gasto sobre el piso: -25%"
+    ),
     bid._MOTIVO_BANDA[bid.FACTOR_SUBIDA]: "ACoS bajo 0.85x del target: +15%",
     hygiene.MOTIVO_NEGATIVE: "Negativo: termino sin ventas con clicks y costo sobre el umbral",
     hygiene.MOTIVO_HARVEST: "Harvest: termino con ACoS bajo el tope hacia campana manual",

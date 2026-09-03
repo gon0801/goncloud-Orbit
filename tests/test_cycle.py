@@ -2271,3 +2271,190 @@ def test_ciclo_hoja_sin_impresiones_recientes_es_skip_entidad_inerte():
         por = {(f[0], f[1], f[2]): f for f in filas}
         assert (inerte, "bid", None) not in por
         assert por[(viva, "bid", None)][9]["motivo"] == "banda_menos_12"
+
+
+# ---------------------------------------------------------------------------
+# BIDS 01 1.1: regla A' de punta a punta (congela expected y replayea fiel)
+# ---------------------------------------------------------------------------
+
+
+def _inputs_pre_bids() -> dict:
+    """Fila pre-BIDS (regla 4.4): cero ventas sobre umbrales con
+    inputs.corte.expected_clicks NO NULO (congelado desde CORTES 01) pero
+    SIN la clave del marcador (los ciclos viejos no la escribian). El
+    replay debe devolver lo persistido (-12%), jamas -25%."""
+    return {
+        "motor": "bid",
+        "platform": "amazon_us",
+        "target_acos_pct_usado": "25.00",
+        "bid_actual": "1.0000",
+        "bid_moneda": "USD",
+        "goal": {"bid_floor": "0.4000", "bid_ceiling": "2.5000"},
+        "ventanas": {
+            "bids": {
+                "window_start": "2026-07-18",
+                "window_end": "2026-08-16",
+                "fechas": 30,
+                "moneda": "USD",
+                "cost": "45.0000",
+                "ad_revenue": "0.0000",
+                "revenue_same_sku": None,
+                "clicks": 120,
+                "orders": 0,
+                "observed_at_max": "2026-08-20T06:00:00+00:00",
+            },
+            "cortes": {
+                "window_start": "2026-07-14",
+                "window_end": "2026-08-12",
+                "fechas": 30,
+                "moneda": "USD",
+                "cost": "20.0000",
+                "ad_revenue": "0.0000",
+                "revenue_same_sku": None,
+                "clicks": 50,
+                "orders": 0,
+                "observed_at_max": "2026-08-19T07:30:00+00:00",
+            },
+        },
+        "corte": {
+            "umbral_clicks_usado": 100,
+            "elegible": True,
+            "expected_clicks": "120",
+            "evidencia": None,
+            "cost_min_usado": "40",
+        },
+    }
+
+
+def test_replay_pre_bids_con_expected_congelado_no_aplica_regla_nueva():
+    """Revision PR #132 (MAJOR, regla 4.4, PURO: corre en local): sin la
+    clave del marcador el replay pasa expected None aunque expected_clicks
+    venga congelado — la fila rejuega su -12% persistido, no -25%."""
+    assert ciclo.reproduce(_inputs_pre_bids()) == ("bid", Decimal("0.88"), "USD")
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ciclo_cero_ventas_con_clics_esperados_baja_25_y_replayea():
+    """BIDS 01 (D1): hoja con cero ventas que alcanza los clicks esperados
+    del grupo (evidencia elegible 72/3/31 -> expected 24) y cost >= piso de
+    pausa -> bid -25% con motivo propio; inputs.corte congela el marcador y
+    reproduce() devuelve lo persistido. La hoja donante de evidencia (sin
+    state: aporta pero no decide) no decide.
+
+    La siembra maestra pone el ancla fresca (max 08-19): sin ella el
+    watermark quedaria en 07-27 y la guarda lo saltaria todo (26 dias);
+    ademas las ventanas de BIDS/CORTES anclan en max-3d. La maestra aporta
+    sus 4 decisiones selladas; la nueva hoja aporta la quinta."""
+    with _db_temporal("orbit_ciclo_cero_ventas") as (conn, _c):
+        ids = _siembra_maestra(conn)
+        run_id = _run(conn)
+        camp = _entidad(conn, "amazon_us", "campaign", "9301")
+        ag = _entidad(conn, "amazon_us", "ad_group", "9302", parent=camp)
+        kw = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "9303",
+            parent=ag,
+            match_type="EXACT",
+            keyword_text="kw cero ventas",
+        )
+        donante = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "9304",
+            parent=ag,
+            match_type="EXACT",
+            keyword_text="kw donante",
+        )
+        synced = DECIDED_AT - dt.timedelta(hours=4)
+        _estado(conn, camp, synced_at=synced)
+        _estado(conn, ag, synced_at=synced)
+        _estado(conn, kw, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
+        # D-1.1.7: el donante NO lleva fila de state (precedente
+        # kw_solo_evidencia): aporta a la evidencia del grupo pero NO decide
+        # (estado_no_enabled). Con state decidiria un -25% clasico en SU
+        # propia ventana: las ventanas de decision anclan en el
+        # max(metric_date) DE LA ENTIDAD (_ventanas_metricas), no en el
+        # watermark global.
+        # Hoja cero ventas: 10 fechas 07-18..07-27 (32 clicks, cost 60.00)
+        # + 7 filas 08-06..08-12 de SECUENCIA (D-1.1.10: impressions=10 con
+        # clicks/cost 0 — cero aporte a clicks, costo y expected, pero la
+        # hoja deja de ser inerte cuando #133 fusione). Con las filas extra
+        # el ancla propia pasa a 08-12 y SU ventana trae 14 fechas con los
+        # mismos 32 clicks / 60.00 (cortes: 32 < 100).
+        for i, fecha in enumerate(_rango(dt.date(2026, 7, 18), dt.date(2026, 7, 27))):
+            _metrica(
+                conn,
+                run_id,
+                kw,
+                fecha,
+                _obs(fecha),
+                cost="6.00",
+                ad_revenue="0.00",
+                clicks=(4 if i < 5 else 3) if i < 7 else 2,
+                orders=0,
+            )
+        for fecha in _rango(dt.date(2026, 8, 6), dt.date(2026, 8, 12)):
+            _metrica(
+                conn,
+                run_id,
+                kw,
+                fecha,
+                _obs(fecha),
+                cost="0.00",
+                ad_revenue="0.00",
+                clicks=0,
+                orders=0,
+                impressions=10,
+            )
+        # Donante de evidencia: 14 fechas 06-01..06-14, 40 clicks y 3
+        # ordenes. Evidencia del grupo: 72 clicks / 3 ordenes / 24 fechas ->
+        # expected 24 exacto, umbral pause 100 (piso).
+        for i, fecha in enumerate(_rango(dt.date(2026, 6, 1), dt.date(2026, 6, 14))):
+            _metrica(
+                conn,
+                run_id,
+                donante,
+                fecha,
+                _obs(fecha),
+                cost="1.00",
+                ad_revenue="10.00" if i < 3 else "0.00",
+                clicks=3 if i < 12 else 2,
+                orders=1 if i < 3 else 0,
+            )
+
+        res = _corre(conn)
+        assert res.status == "done"
+        filas = _decisions_de(conn, res.cycle_id)
+        # 4 selladas de la maestra + 1 de la hoja de cero ventas
+        assert res.decisions_count == 5
+        # el donante sin state skipea (aporta evidencia pero no decide)
+        assert json.loads(res.notes)["skips"]["entidad"].get("estado_no_enabled") == 1
+        por = {(f[0], f[1], f[2]): f for f in filas}
+        # la maestra sigue igual: sin la regla nueva no hay cambio
+        assert por[(ids["kw_bid"], "bid", None)][9]["motivo"] == "banda_menos_25"
+        fila = por[(kw, "bid", None)]
+        assert fila[1] == "bid"
+        assert fila[4] == Decimal("0.75")
+        assert fila[5] == "USD"
+        ins = fila[9]
+        assert ins["motivo"] == "banda_menos_25_cero_ventas"
+        assert ins["factor"] == "-0.25"
+        assert ins["corte"]["expected_clicks"] == "24"
+        # Revision PR #132: el marcador que el replay consume (regla 4.4).
+        assert ins["corte"]["cero_ventas_expected_usado"] == "24"
+        assert ins["corte"]["umbral_clicks_usado"] == 100
+        assert ins["corte"]["elegible"] is True
+        assert ins["corte"]["cost_min_usado"] == "40"
+        assert ciclo.reproduce(ins) == ("bid", Decimal("0.75"), "USD")
+        # El replay lee el MARCADOR, no expected_clicks: con el marcador en
+        # 33 (> 32 clicks de la hoja en su ventana) la regla no dispara y
+        # vuelve el -12% persistido por el camino clasico.
+        alterado = dict(ins)
+        alterado["corte"] = dict(ins["corte"], cero_ventas_expected_usado="33")
+        assert ciclo.reproduce(alterado) == ("bid", Decimal("0.88"), "USD")

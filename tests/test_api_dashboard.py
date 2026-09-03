@@ -1565,3 +1565,14 @@ def test_motivos_salud_traducen_los_gates_de_ancestros():
 
     assert MOTIVOS_ES_SALUD[ciclo.MOTIVO_CAMPANA_NO_ENABLED].startswith("Campana")
     assert MOTIVOS_ES_SALUD[ciclo.MOTIVO_GRUPO_NO_ENABLED].startswith("Ad group")
+
+
+def test_motivo_cero_ventas_tiene_etiqueta_en_decisiones():
+    """BIDS 01: el motivo nuevo de cero ventas tiene traduccion en el feed
+    (sin ella la pantalla mostraria el id crudo)."""
+    from app.api_dashboard import MOTIVOS_ES_DECISIONES
+    from app.optimizer import bid as bid_mod
+
+    assert MOTIVOS_ES_DECISIONES[bid_mod.MOTIVO_BANDA_MENOS_25_CERO_VENTAS].startswith(
+        "Cero ventas"
+    )
