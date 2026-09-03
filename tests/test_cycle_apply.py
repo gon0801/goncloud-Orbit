@@ -216,6 +216,8 @@ def _siembra_kw2_bid_puro(conn, run_id, kw2) -> None:
             ad_revenue="8.75",
             clicks=6,
             orders=0,
+            # BIDS 01: hoja servida -> impressions reales (espera un bid).
+            impressions=60,
         )
     for fecha in _rango(dt.date(2026, 8, 17), dt.date(2026, 8, 19)):
         _metrica(
@@ -228,6 +230,7 @@ def _siembra_kw2_bid_puro(conn, run_id, kw2) -> None:
             ad_revenue="0.10",
             clicks=1,
             orders=0,
+            impressions=10,
         )
 
 

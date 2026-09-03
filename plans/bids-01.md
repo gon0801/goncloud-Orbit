@@ -536,6 +536,21 @@ Nada más falló: el resto de la batería (1030) sigue verde sin la guarda.
   `test_cycle.py` y de `test_cycle_apply.py` (el otro que corre
   `corre_ciclo` de verdad; el CLI lo mockea). Ningún otro fixture corre
   TX2. El plan estaba bien; el error fue mío al implementarlo.**
+- **D-1.2.9 · Segunda oleada del mismo CI (run 33713841740, 26 fallos, una
+  sola causa): las semillas viejas traen `impressions NULL` y la vista
+  las marca inertes.** En producción eso no pasa (las mediciones del lead
+  distinguen 183/172 con/sin impresiones: los reportes traen el número;
+  NULL con clicks > 0 es artefacto del helper viejo que fijaba
+  `impressions=None`). Fix honesto con la forma real del dato (regla 8):
+  las siembras de hojas SERVIDAS llevan impressions > 0 (10x clicks) en
+  `_siembra_kw_bid`, `_siembra_kw_pause`, `_siembra_guarda`, el helper de
+  bloqueo (test_cycle.py) y el helper kw2 (test_cycle_apply.py); lo que
+  modela ausencia sigue NULL (mi hoja inerte 1.2, `kw_solo_evidencia`).
+  El freeze NO pineaba impressions (`app/cycle.py` no la menciona): los
+  goldens no se tocan. Fixtures que corren ciclo y faltaban: también
+  `SQL13` en `_db_con_rol_admin` (test_api_write, lo usa goals_write).
+  Dashboard/notifica/preflight no corren TX2 con fixture propio sin la
+  vista (usan los ya corregidos + maestra).
 
 ## Reject (con razón)
 

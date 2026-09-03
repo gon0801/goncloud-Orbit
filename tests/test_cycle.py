@@ -313,6 +313,9 @@ def _siembra_kw_bid(conn, run_id, kw) -> None:
             ad_revenue="2.50",
             clicks=1,
             orders=1 if i < 5 else 0,
+            # BIDS 01: hoja servida -> impressions reales (sin ellas la
+            # vista la marcaria inerte; NULL es ausencia, no cero).
+            impressions=10,
         )
     for fecha in _rango(dt.date(2026, 8, 13), dt.date(2026, 8, 16)):
         _metrica(
@@ -325,6 +328,7 @@ def _siembra_kw_bid(conn, run_id, kw) -> None:
             ad_revenue="8.75",
             clicks=6,
             orders=0,
+            impressions=60,
         )
     for fecha in _rango(dt.date(2026, 8, 17), dt.date(2026, 8, 19)):
         _metrica(
@@ -337,6 +341,7 @@ def _siembra_kw_bid(conn, run_id, kw) -> None:
             ad_revenue="0.10",
             clicks=1,
             orders=0,
+            impressions=10,
         )
 
 
@@ -360,6 +365,8 @@ def _siembra_kw_pause(conn, run_id, kw) -> None:
             ad_revenue="1.00",
             clicks=3 if i % 2 == 0 else 4,
             orders=0,
+            # BIDS 01: hoja servida -> impressions reales (ver _siembra_kw_bid).
+            impressions=30 if i % 2 == 0 else 40,
         )
     for fecha in _rango(dt.date(2026, 8, 13), dt.date(2026, 8, 19)):
         _metrica(
@@ -372,6 +379,7 @@ def _siembra_kw_pause(conn, run_id, kw) -> None:
             ad_revenue="0.10",
             clicks=1,
             orders=0,
+            impressions=10,
         )
 
 
@@ -982,6 +990,9 @@ def _siembra_guarda(conn, *, metric_date, synced_at) -> None:
         ad_revenue="3.00",
         clicks=1,
         orders=1,
+        # BIDS 01: dia servido -> impressions reales (la guarda inerte no
+        # debe cambiar el motivo de estos tests de guardas).
+        impressions=10,
     )
 
 
@@ -1659,11 +1670,30 @@ def _siembra_bid_bloquea_pause(conn) -> dict:
     _estado(conn, kw, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
     for fecha in _rango(dt.date(2026, 7, 14), dt.date(2026, 8, 12)):
         _metrica(
-            conn, run_id, kw, fecha, _obs(fecha), cost="0.50", ad_revenue="1.00", clicks=1, orders=0
+            conn,
+            run_id,
+            kw,
+            fecha,
+            _obs(fecha),
+            cost="0.50",
+            ad_revenue="1.00",
+            clicks=1,
+            orders=0,
+            # BIDS 01: hoja servida -> impressions reales (espera un bid).
+            impressions=10,
         )
     for fecha in _rango(dt.date(2026, 8, 13), dt.date(2026, 8, 16)):
         _metrica(
-            conn, run_id, kw, fecha, _obs(fecha), cost="2.50", ad_revenue="0.10", clicks=6, orders=1
+            conn,
+            run_id,
+            kw,
+            fecha,
+            _obs(fecha),
+            cost="2.50",
+            ad_revenue="0.10",
+            clicks=6,
+            orders=1,
+            impressions=60,
         )
     return {"camp": camp, "ag": ag, "kw": kw}
 
