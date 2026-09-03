@@ -127,7 +127,7 @@ decisión al día pasa de −12% a −25%.
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
 | 1.3 | **DeepSeek — `/inertes` + digest**: `api_dashboard.py` `GET /inertes` (lee `v_entidad_inerte`: items + totales por plataforma y clasificación; regla 22: la UI consume el endpoint); `ui.py` `GET /inertes` + `templates/inertes.html` (tabla: plataforma, campaña, ad group, keyword/target, clasificación, días sin impresiones, gasto/ventas 90 d; textos ESCAPADOS; sin JS inline; enlace en `base.html`); `notifica.digest_ciclo`: línea `entidades sin trafico (saltadas): N` SOLO si `skips.entidad.entidad_inerte` existe en el resumen. Guía en §1.3. `[tdd:required]` | Tests ROJOS: endpoint con filas sembradas devuelve el shape y los totales; página renderiza y escapa `<script>` en `keyword_text`; digest sin la clave NO imprime la línea y con la clave sí; CI verde | 1.2 | cc:TODO |
-| 1.4 | **GLM — `tools/archiva_inertes.py` + reversa + ledger**: migración `migrations/0014_keyword_archivo_manual.sql` (tabla ledger, D5); herramienta con `--plataforma`, `--clasificacion peso_muerto` (default), `--min-dias-sin-impresiones 30`, `--limite N`, dry-run por defecto, `--acepto-mutacion-real --esperado N --go "<literal>"`, `--reponer <lote>`; solo `kind='keyword'`; una línea JSON por mutación (scrub); reconciliación final. Guía en §1.4. `[tdd:required]` | Tests ROJOS con `httpx.MockTransport` (patrón `tests/test_reactiva_campanas.py`): plan desde la vista; `--esperado` distinto → aborta sin HTTP; entidad no ENABLED en el LIST previo → se salta con nota; ledger ANTES del HTTP; readback `ARCHIVED` → `applied`; readback ≠ → `failed` y el lote se detiene; `--reponer` recrea con el `matchType` del ledger y sella `repuesto_*`; `test_architecture` sigue verde (sin `app.ads.write`); logs rojos | 1.2 | cc:TODO |
+| 1.4 | **GLM — `tools/archiva_inertes.py` + reversa + ledger**: migración `migrations/0014_keyword_archivo_manual.sql` (tabla ledger, D5); herramienta con `--plataforma`, `--clasificacion peso_muerto` (default), `--min-dias-sin-impresiones 30`, `--limite N`, dry-run por defecto, `--acepto-mutacion-real --esperado N --go "<literal>"`, `--reponer <lote>`; solo `kind='keyword'`; una línea JSON por mutación (scrub); reconciliación final. Guía en §1.4. `[tdd:required]` | Tests ROJOS con `httpx.MockTransport` (patrón `tests/test_reactiva_campanas.py`): plan desde la vista; `--esperado` distinto → aborta sin HTTP; entidad no ENABLED en el LIST previo → se salta con nota; ledger ANTES del HTTP; readback `ARCHIVED` → `applied`; readback ≠ → `failed` y el lote se detiene; `--reponer` recrea con el `matchType` del ledger y sella `repuesto_*`; `test_architecture` sigue verde (sin `app.ads.write`); logs rojos | 1.2 | cc:完了 Herramienta + ledger + reversa (PR en revisión, CI decide) |
 | 1.5 | **Lead — producción**: review de cada PR + cross-review codex (1 ronda); migraciones 0013/0014 por el runbook (`-1`, backup del schema antes); deploy al contenedor (DEPLOY.md: `git archive origin/master`, md5, `up --build`, `Recreated`); **contrafactual** read-only sobre los últimos ciclos live: cuántas decisiones pasan a `entidad_inerte` y cuántas −12% pasan a −25% (esperado ≈57/103 y ≈1); verificar el ciclo siguiente (`notes.skips.entidad_inerte`, motivos nuevos en `/salud` y en el feed); primer lote de archivo SOLO con go literal del dueño; AppFlowy. `[tdd:skip:ops]` | SELECTs del ciclo post-deploy en la evidencia; contrafactual entregado al dueño; `/inertes` visible; AppFlowy Done con evidencia | 1.1-1.4 | cc:TODO |
 
 ## Guía de implementación
@@ -459,6 +459,105 @@ al lado de «Limpieza de product ads muertos». Commit: `feat(tools):
 archiva_inertes con ledger y reversa (BIDS 01 · 1.4)`.
 
 ## Decisiones y evidencia (GLM / DeepSeek escriben aquí ANTES del código)
+
+### 1.4 — `tools/archiva_inertes.py` + ledger (GLM, rama bids-01-1-4)
+
+- **D-1.4.1 · Plan-vs-código: CUADRA con 4 adiciones mínimas, no se para**
+  (cada una con precedente explícito en el repo; si el lead discrepa se
+  revierte en review):
+  1. El plan §1.4 no dice de dónde salen `bid`, `match_type` ni los
+     externals de campaña/grupo. Código real: `bid` ←
+     `ad_entity_state.current_bid` + `bid_currency` (`0001:644`, dominio
+     `money_amount` = NUMERIC(14,4) + enum `currency`, con CHECK parejo
+     `estado_bid_con_moneda` — regla 4 ya sellada); `match_type` ←
+     `ad_entity.match_type` (NOT NULL para `keyword` por CHECK
+     `ad_entity_keyword_coherente`, `0001:250`); externals por JOIN a
+     `ad_entity` vía `ad_group_id`/`campaign_id` de la vista. La vista
+     0013 trae lo demás (id, platform, kind, texto, clasificación, días,
+     gasto+moneda 90d). Nada inventado.
+  2. La migración suma `GRANT USAGE ON ALL SEQUENCES IN SCHEMA public`
+     (precedente `0002:712`; `0001:1517` explica por qué: las identity
+     columns no necesitan grant por separado pero se deja explícito).
+     Sin esa línea el INSERT como `app_admin` revienta en el `nextval`
+     del BIGSERIAL. El DDL del plan por lo demás va literal.
+  3. `--reponer`: readback por `keywordIdFilter` con el id que trae el
+     ack del create (criterio `_id_de_ack` de `apply_harvest.py:471`,
+     reimplementado mínimo sin importar `write`/`apply` por el candado),
+     verificando texto+match+grupo contra el ledger. `adGroupIdFilter`
+     no lo usa NINGÚN camino sellado del repo (grep: cero hits en
+     app/tools/tests): el plan pide "readback por texto+match en el
+     grupo" y eso se cumple verificando esos 3 campos en el objeto del
+     LIST, no por el nombre del filtro.
+  4. `dias_sin_impresiones` NULL (= nunca impresionó en 90d, el caso más
+     muerto) PASA el filtro `--min-dias-sin-impresiones` (se trata como
+     infinito): excluirlo vaciaría el default `peso_muerto` (165 MX +
+     134 US "nada en 90d" de la medición del plan). `bid` NULL en el
+     state: se archiva igual (el DELETE no necesita bid); `--reponer`
+     aborta esa fila fail-closed (el POST create exige bid; regla 3, no
+     se inventa) y la fila queda `applied` declarándolo.
+- **D-1.4.2 · Lote autogenerado.** El contrato no define flag `--lote`:
+  `lote = 'inertes-YYYY-MM-DD'` (fecha UTC del día de la corrida);
+  `--reponer <lote>` lo consume literal. `go_literal` = el `--go` tal
+  cual.
+- **D-1.4.3 · Disciplina del flujo (copia `reactiva_campanas.py`).**
+  Dry-run por defecto (tabla del plan + excluidos). Mutación exige
+  `--acepto-mutacion-real` + `--esperado N` (`len(plan) == N` o aborta
+  SIN abrir HTTP ni token) + `--go` literal (se guarda en
+  `go_literal`). LIST previo por keyword: vivo != ENABLED → SKIP con
+  nota y sigue el lote (distinto de reactiva, que aborta: el plan aquí
+  es un reporte vivo y archivar una ya-muerta sería pisar decisión
+  ajena — se declara y se sigue). Fila `planeado` + commit ANTES del
+  POST. POST `/sp/keywords/delete` `{"keywordIdFilter": {"include":
+  ["<id>"]}}` (id STRING, vendor spkeyword v3 en Content-Type Y Accept).
+  Readback LIST por id: ARCHIVED → `applied`; distinto (o POST que
+  lanza) → `failed` y el lote SE DETIENE. Una línea JSON por mutación
+  pasada por `scrub`; reconciliación final. DSNs: `ORBIT_DSN_READ`
+  (plan) + `ORBIT_DSN_ADMIN` (ledger). Sin `app.ads.write`/`app.apply`
+  (candado `test_architecture`); módulo ≤ 900 líneas.
+- **D-1.4.4 · Tests (`tests/test_archiva_inertes.py`, patrón reactiva:**
+  conn falsa + AdsClient falso + `httpx.MockTransport` para el POST de
+  mutación y el token LWA — "sin HTTP" = transporte sin requests
+  grabados). Casos: plan desde la vista con filtros (plataforma,
+  clasificación, min-días con NULL que pasa, límite; `product_target`
+  excluido con conteo); `--esperado` distinto → aborta sin HTTP; no
+  ENABLED en LIST previo → skip con nota y sigue; ledger ANTES del
+  HTTP (POST 500 → la fila `planeado` existe y queda `failed`);
+  readback ARCHIVED → `applied`; readback distinto → `failed` + break
+  (la 2ª keyword sin HTTP); `--reponer` recrea con el `matchType` del
+  ledger (PHRASE en el test, para discriminar del EXACT fijo de
+  `crear_keyword_exacta`) y sella `repuesto_*`; regla 4 (bid+moneda
+  juntos, NULL parejo) y regla 3 (ningún NULL → 0). `test_architecture`
+  lo corre el CI (batería completa una vez, regla 4 del plan).
+- **D-1.4.5 · `--reponer` también es dry-run por defecto.** Crea en
+  Amazon, así que exige `--acepto-mutacion-real` igual que archivar;
+  sin el flag solo lista lo que repondría (filas `applied` del lote).
+  `--esperado` / `--go` NO aplican a reponer: el anti-typo ahí es el
+  nombre del lote (conjunto cerrado de filas `applied`) más el readback
+  por id. Fallo en una fila de reposición (sin id en el ack, readback
+  distinto, bid NULL) → se declara y el lote SE DETIENE igual que en
+  archivar.
+
+**Rojo 1.4** (tests nuevos contra `origin/master`, antes del fix;
+el módulo no existe: la colección revienta — rojo honesto de archivo
+nuevo; el poder discriminante de cada assert lo pinean el verde + la
+pasada de mutación de D-1.4.6):
+
+```text
+$ .venv/bin/python -m pytest tests/test_archiva_inertes.py -q
+E   ModuleNotFoundError: No module named 'archiva_inertes'
+ERROR tests/test_archiva_inertes.py
+1 error in 0.09s
+```
+
+- **D-1.4.6 · Poder discriminante verificado por mutación en local
+  (sin commits, archivo restaurado después).** (1) `matchType` fijo a
+  `"EXACT"` en el create → cae `test_reponer_recrea...` (el test siembra
+  PHRASE del ledger); (2) gate de readback debilitado a `is None` →
+  cae `test_main_readback_distinto_falla_y_detiene_el_lote` (un ENABLED
+  ya no detiene). Verde final: `15 passed`. Tres fallos intermedios
+  fueron míos, no del diseño (doble lectura de capsys, índice de params
+  del INSERT, token antes de validar el lote en `--reponer` — este
+  último sí mejoró el módulo: validación sin HTTP antes del token).
 
 ### 1.2 — Vista + guarda (GLM, rama bids-01-1.2)
 

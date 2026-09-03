@@ -1125,6 +1125,59 @@ reconstrucción deliberada. Pasos:
    aplica nada en automático.
 5. Verificar como siempre: suite por túnel + smoke de candados.
 
+## Archivo manual de keywords inertes (BIDS 01)
+
+Las hojas sin tráfico no se ajustan (guarda `entidad_inerte` del ciclo):
+se diagnostican en `v_entidad_inerte` (página `/inertes`) y, con go del
+dueño, se archivan por lote con `tools/archiva_inertes.py`. Archivar en
+Amazon es ARCHIVED (POST `/sp/keywords/delete`) y no se deshace: la
+vuelta atrás es volver a crear la keyword (`--reponer`, invariante 7).
+Cada lote exige su go literal y queda en el ledger
+`keyword_archivo_manual` (migración `0014`).
+
+```sh
+# 1) ENSAYO (default): imprime la tabla del plan, cero HTTP.
+#    Filtros: --plataforma amazon_mx|amazon_us (default: las dos),
+#    --clasificacion (default: peso_muerto), --min-dias-sin-impresiones
+#    (default: 30), --limite N. Solo kind='keyword'; los product_target
+#    salen como excluidos (solo se reportan).
+docker exec -i orbit-app-1 python tools/archiva_inertes.py
+
+# 2) De verdad. --esperado N debe igualar las candidatas del ensayo
+#    (anti-typo: si el plan cambió, se re-autoriza) y --go lleva el
+#    literal que el dueño autorizó viendo el ensayo.
+docker exec -i orbit-app-1 python tools/archiva_inertes.py \
+  --acepto-mutacion-real --esperado 12 --go "<literal del dueño>"
+```
+
+Por keyword: LIST previo (si ya no está ENABLED se salta con nota, no
+se pisa decisión ajena) → fila `planeado` en el ledger con commit
+(intención durable antes del HTTP) → DELETE → readback LIST: ARCHIVED
+→ `applied`; distinto → `failed` y el lote SE DETIENE (se revisa antes
+de seguir). Cada mutación imprime una línea JSON (scrub) y al final la
+reconciliación. DSNs: `ORBIT_DSN_READ` para el plan, `ORBIT_DSN_ADMIN`
+para el ledger (los dos viven en el contenedor, como reactiva_campanas).
+
+### La reversa: `--reponer <lote>`
+
+Recrea cada fila `applied` del lote con su identidad del ledger
+(adGroupId, campaignId, texto, matchType, bid con su moneda) en ENABLED
+y la sella `repuesto` con el external nuevo. CREA keywords: habilita
+gasto (igual que el harvest).
+
+```sh
+# ENSAYO (default): lista lo que repondría, cero HTTP.
+docker exec -i orbit-app-1 python tools/archiva_inertes.py \
+  --reponer inertes-2026-09-05
+
+# De verdad.
+docker exec -i orbit-app-1 python tools/archiva_inertes.py \
+  --reponer inertes-2026-09-05 --acepto-mutacion-real
+```
+
+Sin bid en el ledger la fila no se repone (no se inventa: queda
+`applied` y el lote se detiene declarándolo).
+
 ## Limpieza de product ads muertos (ORBIT 06)
 
 Un product ad "muerto" apunta a una publicación que ya no existe: no gasta
