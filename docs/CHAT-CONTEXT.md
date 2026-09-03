@@ -4,6 +4,8 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-03 — BIDS 01 tarea 1.4 lista para revisión: ya existe la herramienta que archiva por lote las palabras sin tráfico con el go del dueño y con reversa (cada lote queda anotado y se puede reponer). Por defecto solo ensaya; archiva de verdad únicamente cuando el conteo del ensayo coincide con el autorizado.**
+
 **2026-09-03 — BIDS 01 tarea 1.1 lista para revisión: la palabra que gasta sin vender ya puede bajar −25% cuando trae los clics que en su producto cuesta una venta y gasto sobre el piso (antes solo −12%); la pausa manda igual y lo viejo se sigue leyendo igual.**
 
 **2026-09-03 — BIDS 01 tarea 1.2 lista para revisión: las palabras sin impresiones en 14 días ya no reciben ajustes del motor (se saltan con motivo visible en salud) y hay una sola lista que las clasifica (vendió antes / gastó sin vender / peso muerto) para decidir cuáles revivir o archivar.**
