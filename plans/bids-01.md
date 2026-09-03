@@ -460,8 +460,65 @@ archiva_inertes con ledger y reversa (BIDS 01 · 1.4)`.
 
 ## Decisiones y evidencia (GLM / DeepSeek escriben aquí ANTES del código)
 
-_(vacío: decisiones D-x con su razón, logs rojos de cada tarea y cualquier
-desviación del plan con su porqué)_
+### 1.2 — Vista + guarda (GLM, rama bids-01-1.2)
+
+- **D-1.2.1 · Plan-vs-código: CUADRA, sin parar.** `v_metric_latest` =
+  última observación por (entidad, fecha) (`0001:1159`); `ad_entity`
+  tiene `name`/`keyword_text`/`external_id`/`parent_id`, `ad_entity_state`
+  el `status` cache, enum `platform` con `amazon_mx/amazon_us/meli`, enum
+  de kind con los 5 valores; `_recorre_plataforma` lee
+  `evidencia_ad_groups` en TX2 (`app/cycle.py:1316`) y `comunes` alimenta
+  a AMBOS caminos; `MOTIVOS_ES_SALUD` importa `ciclo.MOTIVO_*`
+  (`app/api_dashboard.py:221`); GRANT-patrón en `0006:782`
+  (`TO app_read, app_ingest, app_decide, app_admin`); cabecera-patrón en
+  `0007`; tupla pglast literal en `tests/test_cycle.py:1259`.
+- **D-1.2.2 · `inertes` NO va en `comunes`.** `comunes` también alimenta a
+  `_procesa_grupo` (camino de términos, D3: la guarda NO aplica ahí);
+  pasarle `inertes` le exigiría un parámetro que no usa. Se lee el set en
+  `_recorre_plataforma` (TX2, junto a la evidencia) y se pasa EXPLÍCITO
+  solo a `_procesa_decisora` (`inertes: set[int]`).
+- **D-1.2.3 · `_metrica` fija `impressions=None`.** El test de la vista
+  necesita hojas CON impresiones recientes (caso "no aparece") y el de
+  ciclo una hoja de control con impresiones en ventana. Se extiende
+  `_metrica` en AMBOS archivos de test con `impressions=None` por
+  default (compatible hacia atrás: todo lo sembrado antes sigue NULL).
+  No se toca helper de producción: no hay.
+- **D-1.2.4 · Sin Postgres ni Docker en el sandbox: el rojo corre en CI.**
+  La regla 4 del plan ("local solo tu archivo, batería UNA vez en CI")
+  no deja correr el rojo DB en local. TDD honesto con dos pushes: (1)
+  commit SOLO tests → CI rojo (la vista no existe / la guarda no salta);
+  log pegado aquí; (2) implementación → CI verde. Desviación declarada
+  del "UNA vez": sin PG local no hay otro rojo real; un rojo simulado
+  sería teatro (regla 9).
+- **D-1.2.5 · Detalles SQL sellados.** `date - date = integer`
+  (`dias_sin_impresiones`; NULL si nunca hubo impresión en 90d);
+  `w.wm - 14` con `>` deja la ventana wm-13..wm = 14 fechas exactas;
+  `platform = %s::platform` como el resto del módulo; GRANT copia la
+  línea de `0006`; `COMMENT ON VIEW` explica N-desde-watermark (por qué
+  no `now()`), fuente única D2 y ausencia-de-fila = NO inerte. Migración
+  sin acentos (aunque `0001` trae alguno, el código va sin).
+- **D-1.2.6 · Test de ciclo (discrimina).** Con ancla maestra (max
+  08-19): hoja A con 10 fechas 07-20..07-29 (clicks 50, cost 50,
+  impressions NULL) + hoja B de control 08-06..08-15 (igual pero
+  impressions 100) en grupo/campaña nuevos (no tocan la evidencia
+  131/9/30 de la maestra). Código viejo: A decide bid (−12%) → 6
+  decisiones; código nuevo: A es `skips.entidad.entidad_inerte == 1`,
+  B decide → 5 decisiones.
+- **D-1.2.7 · Test de la vista (archivo nuevo
+  `tests/test_entidad_inerte.py`).** Fixture `_db_temporal` propio
+  (SQL+SQL2+SQL3+texto de `0013`): US con `gasto_sin_ventas`,
+  `peso_muerto` y hoja reciente que NO aparece; MX con watermark viejo
+  (max 08-09, impresiones 08-07 → NO inerte: 12−10=2 ≤ 14 desde el
+  watermark, aunque desde `now()` parezca muerta) + inerte de control.
+  Archivo nuevo en vez de `test_schema.py`: la vista es de BIDS 01, no
+  del esquema sellado original.
+
+**Rojo 1.2** (commit solo-tests en CI; ver commit de implementación
+para el verde):
+
+```text
+(pendiente: se pega el log del CI rojo tras el push de solo-tests)
+```
 
 ## Reject (con razón)
 
