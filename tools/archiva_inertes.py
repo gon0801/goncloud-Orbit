@@ -31,13 +31,15 @@ QUE HACE, EN ORDEN:
     nuevo. Sin bid en el ledger no se repone (regla 3: no se inventa).
 
 CORRIDA (en el server, dentro del contenedor app - ahi viven secrets y
-DSN; corre dentro del contenedor, como reactiva_campanas):
+DSN; la imagen solo trae app/, asi que el tool entra por stdin, como
+reactiva_campanas):
 
-    docker exec -i orbit-app-1 python tools/archiva_inertes.py
-    docker exec -i orbit-app-1 python tools/archiva_inertes.py \
-      --acepto-mutacion-real --esperado 12 --go "<literal del dueno>"
-    docker exec -i orbit-app-1 python tools/archiva_inertes.py \
-      --reponer inertes-2026-09-05 --acepto-mutacion-real
+    docker exec -i orbit-app-1 python - < tools/archiva_inertes.py
+    docker exec -i orbit-app-1 python - --acepto-mutacion-real \
+      --esperado 12 --go "<literal del dueno>" < tools/archiva_inertes.py
+    docker exec -i orbit-app-1 python - \
+      --reponer inertes-2026-09-05 --acepto-mutacion-real \
+      < tools/archiva_inertes.py
 
 HTTP propio con el sello v3 (igual que reactiva_campanas): el POST de
 mutacion va directo con httpx (el guard read-only del cliente no cubre
@@ -257,9 +259,15 @@ def _post(
     profile: int,
     path: str,
     payload: dict,
+    envolver: str | None = None,
 ) -> dict:
     """POST de mutacion con el vendor v3 EXACTO en Content-Type Y Accept
-    (sin Accept la API responde 415 - sello de reactiva_campanas)."""
+    (sin Accept la API responde 415 - sello de reactiva_campanas). Con
+    `envolver`, el objeto viaja como unica entrada de la lista bajo esa
+    clave (sello del probe 2.5: objeto desnudo = 400); sin el, viaja tal
+    cual (filtros de /delete, sello de borrar_keyword)."""
+    if envolver is not None:
+        payload = {envolver: [payload]}
     resp = client.post(
         f"{API}{path}",
         headers={
@@ -292,6 +300,16 @@ def _errores_207(ack: dict) -> list:
 
 def _ack_ok(ack: dict) -> bool:
     return ack.get("status") in (200, 207) and not _errores_207(ack)
+
+
+def _readback_salvo(cliente_lectura: AdsClient, profile: int, keyword_external: str) -> dict | None:
+    """LIST que no lanza: el cliente real lanza AdsApiError en >=400, asi
+    que un error de red/API es None y el caller lo trata como readback
+    ausente (fail-closed), jamas como traceback crudo."""
+    try:
+        return _readback_keyword(cliente_lectura, profile, keyword_external)
+    except Exception:
+        return None
 
 
 def _readback_keyword(
@@ -407,8 +425,8 @@ def _archivar(args, conn_read: psycopg.Connection) -> int:
 
     if args.esperado is None:
         raise Abortar("mutacion real exige --esperado N (anti-typo del lote)")
-    if args.go is None:
-        raise Abortar("mutacion real exige --go con el literal del dueno")
+    if not args.go:
+        raise Abortar("mutacion real exige --go con el literal del dueno (no vacio)")
     if len(plan) != args.esperado:
         raise Abortar(
             f"--esperado {args.esperado} != candidatas del plan {len(plan)}: "
@@ -432,7 +450,7 @@ def _archivar(args, conn_read: psycopg.Connection) -> int:
     saltadas = 0
     for p in plan:
         profile = perfiles[p["platform"]]
-        vivo = _readback_keyword(cliente_lectura, profile, p["external_id"])
+        vivo = _readback_salvo(cliente_lectura, profile, p["external_id"])
         if vivo is None:
             raise Abortar(
                 f"LIST previo de {p['external_id']} no respondio: sin estado vivo no se muta"
@@ -472,12 +490,13 @@ def _archivar(args, conn_read: psycopg.Connection) -> int:
             )
             raise Abortar(motivo)
         time.sleep(0.3)  # cortesia de rate limit
-        leido = _readback_keyword(cliente_lectura, profile, p["external_id"])
+        leido = _readback_salvo(cliente_lectura, profile, p["external_id"])
         readback = leido.get("state") if leido else None
         _log(
             "archivo",
             external_id=p["external_id"],
             texto=p["texto"],
+            ack=ack["cuerpo"],
             readback=readback,
             ok=readback == _ESTADO_ARCHIVADO,
         )
@@ -592,6 +611,7 @@ def _reponer(args) -> int:
                     "state": _ESTADO_VIVO,
                     "bid": _bid_wire(f["bid"]),
                 },
+                envolver="keywords",
             )
         except Exception as exc:
             ack = {"status": "excepcion", "cuerpo": {}, "texto": scrub(str(exc))[:300]}
@@ -600,7 +620,13 @@ def _reponer(args) -> int:
                 f"CREATE de {f['keyword_external']} rechazado "
                 f"(status {ack.get('status')}): el lote se detiene"
             )
-            _log("reponer", external_id=f["keyword_external"], ok=False, motivo=motivo)
+            _log(
+                "reponer",
+                external_id=f["keyword_external"],
+                ack=ack["cuerpo"],
+                ok=False,
+                motivo=motivo,
+            )
             _log("lote_detenido", lote=args.reponer, motivo=motivo, repuestas=repuestas)
             raise Abortar(motivo)
         nuevo = _id_creado_de_ack(ack)
@@ -609,11 +635,17 @@ def _reponer(args) -> int:
                 f"el ack del CREATE de {f['keyword_external']} no trae "
                 "keywordId: sin id no hay readback, el lote se detiene"
             )
-            _log("reponer", external_id=f["keyword_external"], ok=False, motivo=motivo)
+            _log(
+                "reponer",
+                external_id=f["keyword_external"],
+                ack=ack["cuerpo"],
+                ok=False,
+                motivo=motivo,
+            )
             _log("lote_detenido", lote=args.reponer, motivo=motivo, repuestas=repuestas)
             raise Abortar(motivo)
         time.sleep(0.3)  # cortesia de rate limit
-        leido = _readback_keyword(cliente_lectura, profile, nuevo)
+        leido = _readback_salvo(cliente_lectura, profile, nuevo)
         cuadra = (
             leido is not None
             and leido.get("state") == _ESTADO_VIVO
@@ -621,7 +653,14 @@ def _reponer(args) -> int:
             and leido.get("matchType") == f["match"]
             and str(leido.get("adGroupId")) == str(f["ad_group_external"])
         )
-        _log("reponer", external_id=f["keyword_external"], nuevo_external=nuevo, ok=cuadra)
+        _log(
+            "reponer",
+            external_id=f["keyword_external"],
+            nuevo_external=nuevo,
+            ack=ack["cuerpo"],
+            leido=leido,
+            ok=cuadra,
+        )
         if not cuadra:
             motivo = (
                 f"readback de la repuesta {nuevo} no cuadra con el ledger "

@@ -191,7 +191,10 @@ class _ClienteFalso:
         kw_id = body["keywordIdFilter"]["include"][0]
         cola = self._colas.get(kw_id, [])
         assert cola, f"LIST inesperado para {kw_id}"
-        return _Respuesta(200, {"keywords": [cola.pop(0)]}, texto='{"state": "ok"}')
+        siguiente = cola.pop(0)
+        if isinstance(siguiente, Exception):
+            raise siguiente  # el cliente real lanza AdsApiError en >=400
+        return _Respuesta(200, {"keywords": [siguiente]}, texto='{"state": "ok"}')
 
     def get(self, *a, **kw):
         raise AssertionError("GET inesperado en el camino del archivo")
@@ -373,6 +376,9 @@ def test_migracion_0014_crea_el_ledger_con_grants_y_estados():
     for rol in ("app_read", "app_ingest", "app_decide", "app_admin"):
         assert rol in texto
     assert "GRANT INSERT" in texto and "app_admin" in texto
+    assert "archivo_bid_con_moneda" in texto, (
+        "regla 4 por schema (precedente estado_bid_con_moneda): bid y moneda NULL parejos"
+    )
 
 
 def test_modulo_no_importa_write_ni_apply():
@@ -674,15 +680,22 @@ def test_reponer_recrea_con_el_match_del_ledger_y_sella_repuesto(
     creates = [p for p in red.pedidos if p.url.path == "/sp/keywords"]
     assert len(creates) == 1
     cuerpo = json.loads(creates[0].content.decode())
+    # Objeto envuelto en {"keywords": [...]}: sello del probe 2.5
+    # (objeto desnudo = 400). Hallazgo ALTA de grok en cross-review.
     assert cuerpo == {
-        "adGroupId": "ag-ext-5",
-        "campaignId": "camp-ext-2",
-        "keywordText": "arras de plata",
-        "matchType": "PHRASE",
-        "state": "ENABLED",
-        "bid": 12.5,
+        "keywords": [
+            {
+                "adGroupId": "ag-ext-5",
+                "campaignId": "camp-ext-2",
+                "keywordText": "arras de plata",
+                "matchType": "PHRASE",
+                "state": "ENABLED",
+                "bid": 12.5,
+            }
+        ]
     }
-    assert isinstance(cuerpo["bid"], float), "el wire lleva numero (sello)"
+    interno = cuerpo["keywords"][0]
+    assert isinstance(interno["bid"], float), "el wire lleva numero (sello)"
     ups = [u for u in conn_admin.updates if "'repuesto'" in u[0]]
     assert len(ups) == 1
     assert "kw-nuevo-1" in str(ups[0][1])
@@ -742,3 +755,91 @@ def test_reponer_bid_null_aborta_fail_closed(monkeypatch, capsys):
         ar.main()
     assert red.pedidos == [], "sin bid no hay create"
     assert conn_admin.updates == [], "la fila sigue 'applied', sin sello falso"
+
+
+# ---------------------------------------------------------------------------
+# 14-16. Adjudicacion grok (cross-review, 1 ALTA + 2 menores).
+# ---------------------------------------------------------------------------
+
+
+def test_main_go_vacio_aborta(monkeypatch):
+    """--go "" no autoriza: el literal del dueno no puede ser vacio."""
+    red = _RedFalsa()
+    _fakea_frontera(
+        monkeypatch,
+        _ConnFalsa(plan=[_FILA_KW_MX]),
+        _ConnFalsa(),
+        _ClienteFalso({}),
+        red,
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["archiva_inertes.py", "--acepto-mutacion-real", "--esperado", "1", "--go", ""],
+    )
+    with pytest.raises(ar.Abortar, match="[Gg]o"):
+        ar.main()
+    assert red.pedidos == []
+
+
+def test_main_readback_que_lanza_sella_failed_y_detiene(monkeypatch, capsys):
+    """El LIST real lanza en >=400 (no retorna status): si el readback
+    post-DELETE lanza, la fila queda 'failed' (no 'planeado' colgado) y
+    el lote se detiene."""
+    from app.ads.client import AdsApiError
+
+    red = _RedFalsa(deletes=[_ACK_DELETE_OK])
+    cliente = _ClienteFalso(
+        {
+            "kw-ext-11": [
+                _obj_kw("kw-ext-11", "ENABLED"),
+                AdsApiError("status=500: POST /sp/keywords/list"),
+            ],
+        }
+    )
+    conn_admin = _ConnFalsa()
+    _fakea_frontera(
+        monkeypatch,
+        _ConnFalsa(plan=[_FILA_KW_MX]),
+        conn_admin,
+        cliente,
+        red,
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["archiva_inertes.py", "--acepto-mutacion-real", "--esperado", "1", "--go", GO],
+    )
+    with pytest.raises(ar.Abortar):
+        ar.main()
+    sqls = [u[0] for u in conn_admin.updates]
+    assert len(sqls) == 1 and "'failed'" in sqls[0]
+
+
+def test_main_linea_de_mutacion_lleva_el_ack(monkeypatch, capsys):
+    """La linea JSON de archivo trae request-identidad + ack + readback
+    (el operador concilia sin abrir el ledger)."""
+    red = _RedFalsa(deletes=[_ACK_DELETE_OK])
+    cliente = _ClienteFalso(
+        {
+            "kw-ext-11": [_obj_kw("kw-ext-11", "ENABLED"), _obj_kw("kw-ext-11", "ARCHIVED")],
+        }
+    )
+    _fakea_frontera(
+        monkeypatch,
+        _ConnFalsa(plan=[_FILA_KW_MX]),
+        _ConnFalsa(),
+        cliente,
+        red,
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["archiva_inertes.py", "--acepto-mutacion-real", "--esperado", "1", "--go", GO],
+    )
+    assert ar.main() == 0
+    fuera = capsys.readouterr().out
+    eventos = [json.loads(linea) for linea in fuera.splitlines() if linea.startswith("{")]
+    muts = [e for e in eventos if e["evento"] == "archivo"]
+    assert len(muts) == 1 and muts[0]["ok"] is True
+    assert "ack" in muts[0] and "success" in str(muts[0]["ack"])

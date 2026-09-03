@@ -559,6 +559,41 @@ ERROR tests/test_archiva_inertes.py
   del INSERT, token antes de validar el lote en `--reponer` — este
   último sí mejoró el módulo: validación sin HTTP antes del token).
 
+- **D-1.4.7 · Adjudicación grok (ronda única del kit: 2 ALTAS + 3 MEDIAS
+  + 2 BAJAS).** Cada hallazgo verificado contra el código real ANTES de
+  tocar nada; todos ciertos:
+  1. ALTA: el CREATE de `--reponer` iba desnudo y `_mutate` envuelve por
+     defecto ("objeto desnudo = 400", `write.py:568`). Fix: `_post` gana
+     `envolver` (`"keywords"` en el create; el DELETE sigue desnudo,
+     sello `borrar_keyword`) + test pineando el shape envuelto. El test
+     viejo pineaba el shape roto: el cross-review mordió donde mis tests
+     no (lección: el wire sellado se pineaba contra el probe, no contra
+     mi suposición).
+  2. ALTA: el runbook corría `python tools/...` dentro del contenedor
+     pero la imagen solo trae `app/` (`Dockerfile:21`, compose sin
+     montes). Fix: runbook por stdin (precedente `reactiva_campanas`)
+     en DEPLOY y docstring.
+  3. MEDIA (mitigada): reponer sin sello de fallo post-CREATE (fila
+     queda `applied`, un reintento duplicaría). Mitigación mínima: los
+     eventos de fallo llevan ack + id nuevo + objeto leído para
+     conciliar a mano. RESIDUAL DECLARADO: reponer no es idempotente
+     entre CREATE y sello; ante `lote_detenido` en reponer, verificar en
+     consola lo ya creado antes de reintentar (lo opera el lead, 1.5).
+  4. MEDIA: ledger sin CHECK parejo (regla 4 > plan por precedencia;
+     precedente `estado_bid_con_moneda`). Fix: CONSTRAINT
+     `archivo_bid_con_moneda` en 0014 + assert estático. Se mantiene
+     `bid_currency TEXT` del plan (cambio mínimo).
+  5. MEDIA: `list_objects` lanza en >=400 (`client.py:286`); el `!= 200`
+     era muerto y el readback post-DELETE dejaba `planeado` colgado.
+     Fix: `_readback_salvo` (try/except → None) en los 3 readbacks +
+     test con `AdsApiError` real.
+  6-7. BAJAS: línea de mutación sin ack (fix: `ack` en eventos
+     `archivo`/`reponer` + test) y `--go ""` que autorizaba (fix: `if
+     not args.go` + test).
+  Tests tras adjudicar: 18 passed + 14 de `test_architecture`. Sin
+  segunda ronda (tope del repo): los fix van en el commit de
+  adjudicación y el lead decide si re-abre.
+
 ### 1.2 — Vista + guarda (GLM, rama bids-01-1.2)
 
 - **D-1.2.1 · Plan-vs-código: CUADRA, sin parar.** `v_metric_latest` =

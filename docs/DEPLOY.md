@@ -1140,14 +1140,15 @@ Cada lote exige su go literal y queda en el ledger
 #    Filtros: --plataforma amazon_mx|amazon_us (default: las dos),
 #    --clasificacion (default: peso_muerto), --min-dias-sin-impresiones
 #    (default: 30), --limite N. Solo kind='keyword'; los product_target
-#    salen como excluidos (solo se reportan).
-docker exec -i orbit-app-1 python tools/archiva_inertes.py
+#    salen como excluidos (solo se reportan). El tool entra por stdin
+#    (la imagen solo trae app/, como reactiva_campanas).
+docker exec -i orbit-app-1 python - < tools/archiva_inertes.py
 
 # 2) De verdad. --esperado N debe igualar las candidatas del ensayo
 #    (anti-typo: si el plan cambió, se re-autoriza) y --go lleva el
 #    literal que el dueño autorizó viendo el ensayo.
-docker exec -i orbit-app-1 python tools/archiva_inertes.py \
-  --acepto-mutacion-real --esperado 12 --go "<literal del dueño>"
+docker exec -i orbit-app-1 python - --acepto-mutacion-real \
+  --esperado 12 --go "<literal del dueño>" < tools/archiva_inertes.py
 ```
 
 Por keyword: LIST previo (si ya no está ENABLED se salta con nota, no
@@ -1167,12 +1168,12 @@ gasto (igual que el harvest).
 
 ```sh
 # ENSAYO (default): lista lo que repondría, cero HTTP.
-docker exec -i orbit-app-1 python tools/archiva_inertes.py \
-  --reponer inertes-2026-09-05
+docker exec -i orbit-app-1 python - --reponer inertes-2026-09-05 \
+  < tools/archiva_inertes.py
 
 # De verdad.
-docker exec -i orbit-app-1 python tools/archiva_inertes.py \
-  --reponer inertes-2026-09-05 --acepto-mutacion-real
+docker exec -i orbit-app-1 python - --reponer inertes-2026-09-05 \
+  --acepto-mutacion-real < tools/archiva_inertes.py
 ```
 
 Sin bid en el ledger la fila no se repone (no se inventa: queda
