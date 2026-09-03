@@ -120,7 +120,7 @@ decisión al día pasa de −12% a −25%.
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
 | 1.1 | **GLM — Regla A' en `bid.py`**: constante `MOTIVO_BANDA_MENOS_25_CERO_VENTAS = "banda_menos_25_cero_ventas"`; `decide_bid` gana `expected_clicks: Decimal \| None = None`; función pura `_factor_cero_ventas(bids, expected_clicks, cost_min)`; motivo del resultado = el nuevo cuando esa regla dispara, si no `_MOTIVO_BANDA[factor]`; `cycle._procesa_decisora` pasa `expected_clicks=corte_pause.expected_clicks`; `replay._replay_bid` lee `inputs.corte.expected_clicks`; `apply._PRIORIDAD_BANDA` con el motivo nuevo en prioridad 0; `api_dashboard.MOTIVOS_ES_DECISIONES` con su etiqueta; `docs/CONTEXTO.md` (umbrales sellados) con la regla. Guía en §1.1. `[tdd:required]` | Tests puros ROJOS contra master en `tests/test_optimizer_bid.py`: dispara en el borde exacto (clicks == expected, cost == cost_min) con factor −0.25 y motivo nuevo; NO dispara con clicks = expected − 1, con cost < cost_min, con `expected_clicks=None`, con orders=None o ad_revenue=None (siguen −12%/otro); PAUSE gana cuando aplica; replay: fila histórica sin la clave rejuega igual (golden intacto) y una decisión nueva congela/replayea el motivo nuevo (`tests/test_cycle.py`); logs rojos en §Decisiones | - | cc:TODO |
-| 1.2 | **GLM — Vista `v_entidad_inerte` + guarda `entidad_inerte`**: migración `migrations/0013_entidad_inerte.sql` (vista + `COMMENT ON VIEW` + `GRANT SELECT` con el mismo patrón de roles de `0006`), `cycle.MOTIVO_ENTIDAD_INERTE = "entidad_inerte"`, `_SQL_INERTES` + lectura en TX2 + skip en `_procesa_decisora` (D3), etiqueta en `MOTIVOS_ES_SALUD`, `docs/DASHBOARD.md` (lista de motivos), `docs/DATABASE.md` (la vista). Guía en §1.2. `[tdd:required]` | Test de la vista (`_db_temporal` + migración 0013 aplicada en el fixture) ROJO contra master: 3 hojas sembradas (sin impresiones 20 d con gasto 90 d → `gasto_sin_ventas`; sin impresiones y sin nada → `peso_muerto`; con impresiones hace 3 d → NO aparece) y N contado desde el watermark, no desde `now()`; test de ciclo ROJO: una hoja con métricas solo antiguas (ventana completa) decidía un bid y ahora es `skips.entidad.entidad_inerte = 1`, una con impresiones recientes sigue decidiendo; pglast de `_SQL_INERTES`; logs rojos | - | cc:完了 Vista + guarda entidad_inerte (PR #133; CI corre la bateria con DB) |
+| 1.2 | **GLM — Vista `v_entidad_inerte` + guarda `entidad_inerte`**: migración `migrations/0013_entidad_inerte.sql` (vista + `COMMENT ON VIEW` + `GRANT SELECT` con el mismo patrón de roles de `0006`), `cycle.MOTIVO_ENTIDAD_INERTE = "entidad_inerte"`, `_SQL_INERTES` + lectura en TX2 + skip en `_procesa_decisora` (D3), etiqueta en `MOTIVOS_ES_SALUD`, `docs/DASHBOARD.md` (lista de motivos), `docs/DATABASE.md` (la vista). Guía en §1.2. `[tdd:required]` | Test de la vista (`_db_temporal` + migración 0013 aplicada en el fixture) ROJO contra master: 3 hojas sembradas (sin impresiones 20 d con gasto 90 d → `gasto_sin_ventas`; sin impresiones y sin nada → `peso_muerto`; con impresiones hace 3 d → NO aparece) y N contado desde el watermark, no desde `now()`; test de ciclo ROJO: una hoja con métricas solo antiguas (ventana completa) decidía un bid y ahora es `skips.entidad.entidad_inerte = 1`, una con impresiones recientes sigue decidiendo; pglast de `_SQL_INERTES`; logs rojos | - | cc:完了 Vista + guarda entidad_inerte (PR #133, CI verde) |
 
 ## Phase 2 — Superficie y herramienta [lane:gate]
 
@@ -582,11 +582,21 @@ Nada más falló: el resto de la batería (1030) sigue verde sin la guarda.
   `ordenes_90d` no lleva moneda (conteo, no dinero).
 - **D-1.2.12 · Marker 1.2** → «PR #133, CI verde».
 
-**Rojo 1.2-revisión** (commit solo-tests en CI):
+**Rojo 1.2-revisión** (commit solo-tests c5ca327, CI run 33716113970):
 
 ```text
-(pendiente: se pega el log del CI rojo tras el push de solo-tests)
+5 failed, 1031 passed, 1 skipped, 2 warnings in 102.03s
+FAILED test_vista_clasifica_tres_casos_y_excluye_reciente
+FAILED test_vista_cuenta_desde_el_watermark_no_desde_now
+FAILED test_vista_exige_enabled_en_hoja_grupo_y_campana
+FAILED test_vista_impressions_desconocido_no_es_cero
+FAILED test_vista_mezcla_de_monedas_anula_gasto_y_moneda
+  E  psycopg.errors.UndefinedColumn: column "moneda" does not exist
 ```
+Los 5 son la columna nueva ausente (el SELECT la pide); la discriminación
+semántica (nula-reciente ausente vs cero-explícito presente) la pinean los
+mismos tests en verde + la tabla de verdad del predicado verificada en
+local (`filas=0→inerte; nulas>0→activa; suma=0 conocida→inerte`).
 
 ## Reject (con razón)
 

@@ -544,8 +544,11 @@ Regímenes de lectura, explícitos (reemplazan al "todo lee lo maduro"):
   watermark de su plataforma** (`max(metric_date)` en `v_metric_latest`,
   jamás desde `now()`), con `watermark`, `ultima_impresion`,
   `dias_sin_impresiones` (NULL si nunca hubo impresión en 90d),
-  `gasto_90d`, `ordenes_90d` y `clasificacion` (`con_ventas_previas` /
-  `gasto_sin_ventas` / `peso_muerto`, sobre 90 días desde el watermark).
+  `gasto_90d` + `moneda` (única en 90d; con mezcla ambas NULL, fail-loud),
+  `ordenes_90d` y `clasificacion` (`con_ventas_previas` /
+  `gasto_sin_ventas` / `peso_muerto`, sobre 90 días desde el watermark con
+  los crudos). Regla 3: `impressions` NULL es desconocido, no cero — solo
+  es inerte sin filas en 14d o con filas todas conocidas sumando 0.
   **Fuente única** de «inerte» para el ciclo (guarda `entidad_inerte`), la
   página `/inertes`, el digest y la herramienta de archivo; ausencia de
   fila = NO inerte.
