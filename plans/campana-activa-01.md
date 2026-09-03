@@ -627,6 +627,56 @@ FAILED tests/test_api_dashboard.py::test_motivos_salud_traducen_los_gates_de_anc
 1 failed, 34 deselected in 1.45s
 ```
 
+### Decisiones 1.6 (escritas ANTES del codigo, 2026-09-03)
+
+**D-GLM-5 (hogar de la funcion compartida):** vive en `app/apply.py` como
+`gate_ancestros(conn, ad_entity_id) -> str | None` (mismo SQL/semantica que
+`apply_cola._SQL_ANCESTROS`: resuelve hoja vs ad group con CASE; sin fila de
+state = fuera, regla 3). `apply.py` es el dueno del write client y tanto
+`apply_cola` como `apply_harvest` ya lo importan, asi que el candado de
+imports de `tests/test_architecture.py` (solo prohíbe IO en el motor puro)
+no se toca. Las constantes `MOTIVO_CAMPANA/GRUPO_NO_ENABLED` pasan a
+definirse en `app/apply.py`; `apply_cola` las re-exporta como alias (sus
+tests y `cycle` las importan de ahi; cero cambio de vocabulario).
+
+**D-GLM-6 (reconcilia_bids):** el gate va al TOPE del loop, antes incluso
+del readback GET: sella `fallo:ancestro_no_enabled`, fallidas += 1, cero
+HTTP de cualquier tipo. Con eso el reintento divergente queda cubierto por
+construccion (la misma entidad ya fue gateada antes de que nazca la fila
+nueva del ledger).
+
+**D-GLM-7 (_reconcilia_negativas):** gate sobre `fila.ad_entity_id` (la
+fila ES el ad group, semantica D3) antes de crear el cliente y de cualquier
+LIST/POST: sella pendientes `fallo:ancestro_no_enabled`, fila
+`applying` -> `failed`. `_reconcilia_pauses` NO se toca: no reintenta
+mutaciones (solo LIST de estado y veredicto), el GET siempre esta permitido.
+
+**D-GLM-8 (harvest, ancestro que aplica):** el ORIGEN. `job.ad_entity_id`
+es el ad group de la fila (misma semantica D3 que la cola); el DESTINO del
+goal sigue SIN gate de codigo (D4, residual declarado). En
+`reconcilia_harvest` el gate corre tras el chequeo vetoed/discarded y ANTES
+del cobro de quota/claim/HTTP: job -> `failed`, ledger pendiente sellado
+`fallo:ancestro_no_enabled`; fila `applying` -> `failed`; fila `released` ->
+`discarded` con `discard_motivo` (la maquina de estados de 0002 NO tiene
+`released -> failed` y released sigue vetable: el discard PRE-claim es la
+transicion legal y no quema quota). Cuenta en `jobs_failed` SIN alerta de
+Telegram: campana pausada por el dueno es condicion esperada, no fallo
+operativo (las demas alertas de job siguen igual).
+
+**D-GLM-9 (orden de contadores):** en `_procesa_decisora` el chequeo
+`bloqueadas` pasa a justo DESPUES de `_gates_entidad` (goal -> ancestros ->
+estado -> cooldown) y antes de `inertes` (conserva el orden relativo
+veto/inerte de hoy); en `_procesa_grupo` los gates corren primero y, con
+motivo de ancestro, cuentan TODOS los terminos (incluidos los bloqueados);
+solo despues del gate se filtran los bloqueados como `veto_pendiente`.
+Solo cambian contadores de `notes.skips` (bala "Orden de gates" del
+docstring del modulo).
+
+**Seed (igual que 1.2):** `_semilla` de `tests/test_apply.py` gana state
+ENABLED de campana y ad group (hoy no lo tienen; sin eso el gate nuevo
+romperia los goldens de reconciliacion de bids). Se commita ANTES del gate,
+en verde.
+
 ### Desviaciones del plan
 
 **D-GLM-3 (tests 1.2):** el snippet del plan escribe

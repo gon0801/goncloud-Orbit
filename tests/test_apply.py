@@ -178,7 +178,9 @@ def _semilla(
     ag = _entidad(conn, "ad_group", "7101", parent=camp)
     kw = _entidad(conn, "keyword", "7201", parent=ag)
     kw2 = _entidad(conn, "keyword", "7202", parent=ag)
-    for entidad in (kw, kw2):
+    # CAMPANA ACTIVA 01 (1.6): la reconciliacion de bids exige campaña y
+    # grupo ENABLED en el cache antes de cualquier HTTP.
+    for entidad in (camp, ag, kw, kw2):
         conn.execute(
             "INSERT INTO ad_entity_state (ad_entity_id, current_bid, bid_currency, status,"
             " synced_at) VALUES (%s, 1.00, 'USD', 'ENABLED', now())",
