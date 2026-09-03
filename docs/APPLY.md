@@ -342,7 +342,7 @@ hueco (r2 grok 13); el mapeo es EXPLÍCITO y testeado.
 - **Bids fuera de cap se DESCARTAN** (jamás reintentados): la selección
   bajo cap es sellada — prioridad por urgencia de hemorragia:
   **banda_menos_25 > banda_menos_12 > banda_mas_15**, y dentro de cada
-  banda por **costo de la ventana descendente**. Los descartados se
+  banda por **costo de la ventana de CORTES descendente** (`inputs.ventanas.cortes.cost`, la que mide la hemorragia; la banda se calcula sobre la ventana de bids — aclarado en la adjudicación 2.1 de ORBIT 05, H3). Los descartados se
   cuentan en el digest ("N bids fuera de cap hoy") — la ausencia de fila
   no se confunde con un bug porque el conteo lo declara.
 
