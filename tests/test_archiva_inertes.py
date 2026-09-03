@@ -21,13 +21,20 @@ from __future__ import annotations
 
 import ast
 import json
+import os
+import re
+import socket
 import sys
+from contextlib import contextmanager
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
+import psycopg
 import pytest
+from psycopg import sql as pgsql
+from test_schema import SQL, _postgres_obligatorio_ausente, _test_dsn
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 
@@ -380,6 +387,11 @@ def test_migracion_0014_crea_el_ledger_con_grants_y_estados():
         "regla 4 por schema (precedente estado_bid_con_moneda): bid y moneda NULL parejos"
     )
     assert "archivo_match_cerrado" in texto, "match con dominio cerrado"
+    assert re.search(r"\bbid_currency\s+currency\b", texto), (
+        "regla 4 por schema (PR #134): la moneda es enum currency, no TEXT"
+    )
+    assert "archivo_evidencia_applied" in texto, "applied exige ack+readback"
+    assert "archivo_evidencia_repuesto" in texto, "repuesto exige sello completo"
 
 
 def test_moneda_del_tool_iguala_la_de_la_capa_http():
@@ -417,9 +429,10 @@ def test_main_dry_run_imprime_el_plan_sin_http(monkeypatch, capsys):
     """Sin --acepto-mutacion-real: tabla del plan + evento dry_run y el
     transporte no graba NI UN request (ni token LWA)."""
     red = _RedFalsa()
+    conn_read = _ConnFalsa(plan=[_FILA_KW_MX], excluidos=1)
     _fakea_frontera(
         monkeypatch,
-        _ConnFalsa(plan=[_FILA_KW_MX], excluidos=1),
+        conn_read,
         _ConnFalsa(),
         _ClienteFalso({}),
         red,
@@ -427,6 +440,7 @@ def test_main_dry_run_imprime_el_plan_sin_http(monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["archiva_inertes.py"])
     assert ar.main() == 0
     assert red.pedidos == [], "dry-run no abre HTTP"
+    assert conn_read.commits >= 1, "la txn de lectura se cierra (PR #134)"
     fuera = capsys.readouterr().out  # una sola lectura: _eventos consume
     eventos = [json.loads(linea) for linea in fuera.splitlines() if linea.startswith("{")]
     secos = [e for e in eventos if e["evento"] == "dry_run"]
@@ -717,16 +731,18 @@ def test_reponer_recrea_con_el_match_del_ledger_y_sella_repuesto(
 def test_reponer_sin_mutacion_es_dry_run(monkeypatch, capsys):
     """--reponer sin --acepto-mutacion-real solo lista (cero HTTP)."""
     red = _RedFalsa()
+    conn_admin = _ConnFalsa(reponer=[_FILA_REPONER])
     _fakea_frontera(
         monkeypatch,
         _ConnFalsa(),
-        _ConnFalsa(reponer=[_FILA_REPONER]),
+        conn_admin,
         _ClienteFalso({}),
         red,
     )
     monkeypatch.setattr(sys, "argv", ["archiva_inertes.py", "--reponer", LOTE])
     assert ar.main() == 0
     assert red.pedidos == []
+    assert conn_admin.commits >= 1, "la txn de lectura se cierra (PR #134)"
     assert "kw-ext-11" in capsys.readouterr().out
 
 
@@ -853,3 +869,129 @@ def test_main_linea_de_mutacion_lleva_el_ack(monkeypatch, capsys):
     muts = [e for e in eventos if e["evento"] == "archivo"]
     assert len(muts) == 1 and muts[0]["ok"] is True
     assert "ack" in muts[0] and "success" in str(muts[0]["ack"])
+
+
+# ---------------------------------------------------------------------------
+# 17. Migracion 0014 contra Postgres real (PR #134): cada estado exige su
+# evidencia por schema, la moneda es enum y el dinero va parejo.
+# ---------------------------------------------------------------------------
+
+ROOT = Path(__file__).resolve().parents[1]
+SQL14 = (ROOT / "migrations" / "0014_keyword_archivo_manual.sql").read_text(encoding="utf-8")
+
+
+@contextmanager
+def _db_ledger(prefijo):
+    """DB temporal con el esquema + la migracion 0014 (patron _db_inerte)."""
+    dsn = _test_dsn()
+    db = f"{prefijo}_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(dsn, dbname=db, autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        conn.execute(SQL)
+        conn.execute(SQL14)
+        yield conn
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()
+
+
+def _kw_ledger(conn):
+    """Keyword minima para referenciar desde el ledger."""
+    return conn.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id, match_type, keyword_text)"
+        " VALUES ('amazon_mx', 'keyword', 'kw-ledger-1', 'EXACT', 'arras de plata')"
+        " RETURNING id"
+    ).fetchone()[0]
+
+
+_BASE_FILA = {
+    "lote": "inertes-2026-09-05",
+    "platform": "amazon_mx",
+    "campaign_external": "camp-ext-2",
+    "ad_group_external": "ag-ext-5",
+    "keyword_external": "kw-ledger-1",
+    "keyword_text": "arras de plata",
+    "match_type": "EXACT",
+    "clasificacion": "peso_muerto",
+    "go_literal": "go de prueba",
+    "estado": "planeado",
+}
+
+
+def _inserta(conn, ad_entity_id, **cambios):
+    cols = dict(_BASE_FILA, ad_entity_id=ad_entity_id, **cambios)
+    nombres = ", ".join(cols)
+    marcas = ", ".join(["%s"] * len(cols))
+    return conn.execute(
+        f"INSERT INTO keyword_archivo_manual ({nombres}) VALUES ({marcas}) RETURNING id",
+        tuple(cols.values()),
+    ).fetchone()[0]
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ledger_0014_exige_evidencia_por_estado_moneda_y_parejo():
+    """PR #134: planeado admite NULLs; applied sin ack/readback revienta;
+    repuesto sin sello completo revienta; bid sin moneda revienta; moneda
+    fuera del enum revienta; match fuera de dominio revienta."""
+    with _db_ledger("ledger14") as conn:
+        kw = _kw_ledger(conn)
+
+        # Validas: planeado con NULLs, applied y repuesto completos.
+        _inserta(conn, kw)
+        _inserta(
+            conn,
+            kw,
+            estado="applied",
+            bid=Decimal("12.5000"),
+            bid_currency="MXN",
+            dias_sin_impresiones=45,
+            ack='{"status": 200}',
+            readback_estado="ARCHIVED",
+        )
+        _inserta(
+            conn,
+            kw,
+            estado="repuesto",
+            bid=Decimal("12.5000"),
+            bid_currency="MXN",
+            ack='{"status": 200}',
+            readback_estado="ARCHIVED",
+            repuesto_at="2026-09-05T00:00:00+00:00",
+            repuesto_external="kw-nuevo-1",
+            repuesto_ack='{"status": 207}',
+        )
+
+        # Invalidas: cada una revienta por su CHECK o su tipo.
+        with pytest.raises(psycopg.errors.CheckViolation):
+            _inserta(conn, kw, estado="applied", readback_estado="ARCHIVED")
+        with pytest.raises(psycopg.errors.CheckViolation):
+            _inserta(conn, kw, estado="applied", ack='{"status": 200}')
+        with pytest.raises(psycopg.errors.CheckViolation):
+            _inserta(
+                conn,
+                kw,
+                estado="repuesto",
+                ack='{"status": 200}',
+                readback_estado="ARCHIVED",
+                repuesto_external="kw-nuevo-1",
+                repuesto_ack='{"status": 207}',
+            )
+        with pytest.raises(psycopg.errors.CheckViolation):
+            _inserta(conn, kw, bid=Decimal("12.5000"))
+        with pytest.raises(psycopg.errors.CheckViolation):
+            _inserta(conn, kw, match_type="INVALID")
+        with pytest.raises(psycopg.Error):
+            _inserta(conn, kw, bid=Decimal("12.5000"), bid_currency="XXX")
+
+        assert conn.execute("SELECT count(*) FROM keyword_archivo_manual").fetchone()[0] == 3

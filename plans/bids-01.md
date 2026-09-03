@@ -626,6 +626,48 @@ ERROR tests/test_archiva_inertes.py
       (import solo en tests, fuera del candado).
   Tests tras adjudicar: 19 passed + 14 de `test_architecture`.
 
+- **D-1.4.9 · Revisión del lead (PR #134): 4 cambios antes del merge,
+  sin nueva ronda.**
+  1. `bid_currency TEXT` → `currency` (enum `0001:37`): regla 4 por
+     schema, igual que `ad_entity_state.bid_currency`. El INSERT sigue
+     con `%s` plano (sin cast): el precedente `_metrica` de
+     `test_entidad_inerte.py` inserta `"USD"` string en columna
+     `currency` y pasa en CI — unknown → enum coerciona en asignación.
+  2. CHECKs de evidencia por estado (la tabla se vuelve append-only de
+     hecho salvo el avance de su propia máquina):
+     `archivo_evidencia_applied`: `applied` exige `ack` + `readback` no
+     nulos; `archivo_evidencia_repuesto`: `repuesto` exige `repuesto_at`
+     + `repuesto_external` + `repuesto_ack` (+ `ack`/`readback`
+     heredados). `planeado`/`failed` sin requisitos (`failed` puede no
+     tener readback si el POST lanzó). Los tres `_sella` del tool ya los
+     cumplen (verificado a mano antes de codificar).
+  3. Test de la migración contra Postgres real (fixture `_db_ledger`:
+     0001 + texto de 0014; patrón `_db_inerte` + skipif de
+     `test_schema`): filas válidas por estado + cada inválida revienta
+     (`applied` sin ack, `repuesto` sin external, bid sin moneda, match
+     fuera de dominio, moneda `'XXX'`). TDD honesto de dos pushes
+     (precedente D-1.2.4, sin PG local): commit A solo-tests → rojo
+     local (estáticos) + rojo CI (PG); commit B implementación → verde.
+  4. `commit()` de la txn de lectura antes del bucle HTTP: en
+     `_archivar` tras `_plan_inertes`, en `_reponer` tras el SELECT de
+     filas — cierra snapshot/locks antes de la fase larga de red (las
+     dos conns solo habían leído hasta ahí). Asserts con el contador
+     `commits` de la conn falsa.
+
+**Rojo 1.4-revisión-lead** (commit A solo-tests, local; el PG skipea
+sin servidor y da rojo en CI):
+
+```text
+$ .venv/bin/python -m pytest tests/test_archiva_inertes.py -q
+FAILED test_migracion_0014_crea_el_ledger_con_grants_y_estados
+FAILED test_main_dry_run_imprime_el_plan_sin_http
+FAILED test_reponer_sin_mutacion_es_dry_run
+3 failed, 16 passed, 1 skipped in 2.39s
+```
+Los 3: la migración vieja trae `bid_currency TEXT` sin CHECKs de
+evidencia y el tool no commitea la lectura. El PG skipeado corre en CI
+contra la migración vieja (sus `pytest.raises` no muerden).
+
 ### 1.2 — Vista + guarda (GLM, rama bids-01-1.2)
 
 - **D-1.2.1 · Plan-vs-código: CUADRA, sin parar.** `v_metric_latest` =
