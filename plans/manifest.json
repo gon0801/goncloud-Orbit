@@ -59,6 +59,11 @@
       "name": "campana-activa-01",
       "path": "plans/campana-activa-01.md",
       "description": "CAMPANA ACTIVA 01 - el motor solo toca campanas y ad groups ENABLED: gate de ancestros al decidir (cycle) y al liberar la cola (apply_cola), etiquetas en /salud. Origen: el primer ciclo live de ORBIT 05 (2026-09-02) aplico 2 de 20 bids en campanas PAUSED. URGENTE (cada cron gasta cupos ahi); GLM implementa 1.1-1.3, el lead despliega y verifica"
+    },
+    {
+      "name": "bids-01",
+      "path": "plans/bids-01.md",
+      "description": "BIDS 01 - decision del dueno 2026-09-03 sobre la propuesta del 2026-08-26: cero ventas baja -25% cuando alcanza los clics esperados por venta del grupo y gasto >= piso de pausa (1.1 GLM); vista v_entidad_inerte + guarda entidad_inerte N=14 desde el watermark (1.2 GLM); pagina /inertes + digest (1.3 DeepSeek); tools/archiva_inertes con ledger y reversa (1.4 GLM); migraciones, contrafactual y deploy (1.5 lead)"
     }
   ],
   "active": "orbit-06"

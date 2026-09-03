@@ -1,4 +1,77 @@
-# Banda de cero ventas + guarda de entidad sin trafico — PROPUESTA (no aprobada)
+# Banda de cero ventas + guarda de entidad sin trafico — APROBADA por el dueno el 2026-09-03 (A' + C; B no)
+
+> **ESTADO: APROBADA (2026-09-03).** Lo de abajo es la propuesta original del
+> 2026-08-26 tal cual se escribio; las decisiones selladas del dueno y los
+> ajustes que cambian la propuesta van en esta seccion, que MANDA sobre el
+> resto. Plan de implementacion: `plans/bids-01.md`.
+
+## Decision del dueno (2026-09-03) — SELLADO
+
+Disparador: la verificacion adversarial triple de ORBIT 05 (tarea 2.1, tres
+revisores, 0 divergencias) mostro EN VIVO los dos huecos de esta propuesta:
+8 de las 10 pujas aplicadas en MX el 2026-09-02 fueron -12% a entidades con
+gasto y cero ventas, y 2 de ellas (2059 `arras matrimoniales`, 2078 `arras de
+boda plata`) no tenian trafico desde junio (ajuste inerte que quemo 2/10
+cupos). Mediciones del lead (regla 8, base viva, SELECT read-only):
+
+- De las 123 decisiones de bid de los ciclos live 33/34, **103 eran de cero
+  ventas** (39 MX, 64 US); clicks mediana 7 (MX) / 2 (US); 57 de esas 103
+  tenian `window_end` de hace mas de 30 dias (inertes).
+- Opcion A LITERAL (clicks >= umbral_pause/2 y cost >= piso de pausa) habria
+  movido a -25% solo 1 de las 103. Con umbrales absolutos bajos (15 clicks)
+  el dueno objeto: sus productos necesitan ~120 clicks por venta, y bajar
+  al 10% de lo necesario para una venta es prematuro.
+- Regla relativa al producto (clicks >= expected_clicks del grupo, CORTES
+  01): 1 caso (US 1994: 111 clicks vs 92 esperados, 87 USD, 0 ventas).
+- Hojas ENABLED (campana y grupo ENABLED) sin impresiones en 30d: **MX 172
+  de 272, US 167 de 247** (14d: 183 / 170). Ninguna con ventas en 90d; 7 MX +
+  33 US gastaron sin vender y murieron; 165 MX + 134 US sin nada en 90d.
+
+**Decision 1 — literal del dueno: "si que puedan bajar 25%"**, con la regla
+relativa al producto que eligio en la pregunta guiada: *"Si, con gasto >=
+piso de pausa"*. Sellado (A'):
+
+    orders == 0 AND ad_revenue == 0 (ventana de BIDS)
+    AND expected_clicks del grupo NO es None (grupo con evidencia 3/60/14)
+    AND clicks >= expected_clicks
+    AND cost >= piso de pausa de la plataforma (40 USD / 500 MXN, CORTES 03)
+    -> factor -25%, motivo `banda_menos_25_cero_ventas`
+
+Antes de alcanzar los clicks esperados por venta sigue el -12% de hoy; al
+1.5x (umbral_pause) sigue mandando el PAUSE (evaluado antes, sin cambio).
+Grupo sin evidencia -> la regla no aplica (regla 3: nada de numeros
+inventados). `expected_clicks` ya viaja congelado en `inputs.corte`; el
+replay lo lee y las filas historicas sin la clave rejuegan igual.
+
+**Decision 2 — literal del dueno: "las palabras sin trafico no se tendrian
+que ver porque no tienen trafico y ver si subir bid o eliminar o algo"**,
+concretado en la pregunta guiada como *"Reporte + herramienta de archivo por
+lote"*. Sellado (C):
+
+1. Guarda de ajuste inerte: hoja ENABLED (campana y grupo ENABLED — las de
+   campana pausada ya las cubre CAMPANA ACTIVA 01) con CERO impresiones en
+   los ultimos **N = 14 dias contados desde el watermark de metricas de la
+   plataforma** (max(metric_date) en v_metric_latest; jamas desde hoy, para
+   no confundir retraso de ingesta con inactividad) -> el ciclo NO propone
+   bid; motivo cerrado `entidad_inerte` en los contadores. Fuente UNICA:
+   vista SQL `v_entidad_inerte` (migracion), que tambien alimenta el reporte
+   y la herramienta (regla 2).
+2. Reporte por causa: pagina `/inertes` (server-rendered) + linea en el
+   digest. Clasificacion: `gasto_sin_ventas` (gasto > 0 y 0 ordenes en 90d),
+   `con_ventas_previas` (ordenes > 0 en 90d), `peso_muerto` (nada en 90d).
+   Revivir (subir bid) NO es automatico: decision humana desde el reporte.
+3. Herramienta de archivo por lote con REVERSA (regla 7): `tools/
+   archiva_inertes.py`, dry-run por defecto, ejecuta solo con go literal del
+   dueno y conteo esperado anti-typo; archiva keywords (v3 delete =
+   ARCHIVED) con readback y ledger propio con la identidad completa
+   (campana, grupo, texto, match type, bid) para poder REPONERLAS
+   (`--reponer <lote>` recrea por POST /sp/keywords). Alcance v1: keywords;
+   los product targets solo se reportan.
+
+**Opcion B: NO por ahora** (queda la prueba de fuego empirica descrita
+abajo). **Rechazos declarados**: se conservan.
+
+
 
 > Propuesta del lead (2026-08-26) tras auditar las 627 decisiones shadow del
 > motor (2026-08-24 a 2026-08-26). NO es spec aprobado: los numeros y la
