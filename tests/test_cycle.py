@@ -2154,10 +2154,10 @@ def test_gate_campana_y_grupo_no_enabled():
 )
 def test_ciclo_cero_ventas_con_clics_esperados_baja_25_y_replayea():
     """BIDS 01 (D1): hoja con cero ventas que alcanza los clicks esperados
-    del grupo (evidencia minima elegible 63/3/24 -> expected 21) y cost >=
+    del grupo (evidencia minima elegible 72/3/24 -> expected 24) y cost >=
     piso de pausa -> bid -25% con motivo propio; inputs.corte congela
     expected_clicks y reproduce() devuelve lo persistido. La hoja donante
-    de evidencia (sin metricas en ventanas de decision) no decide.
+    de evidencia (sin state: aporta pero no decide) no decide.
 
     La siembra maestra pone el ancla fresca (max 08-19): sin ella el
     watermark quedaria en 07-27 y la guarda lo saltaria todo (26 dias);
@@ -2190,9 +2190,15 @@ def test_ciclo_cero_ventas_con_clics_esperados_baja_25_y_replayea():
         _estado(conn, camp, synced_at=synced)
         _estado(conn, ag, synced_at=synced)
         _estado(conn, kw, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
-        _estado(conn, donante, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
-        # Hoja cero ventas: 10 fechas 07-18..07-27 (en BIDS y en CORTES),
-        # 23 clicks (< 100: NO pause) y cost 45.00 (>= piso 40).
+        # D-1.1.7: el donante NO lleva fila de state (precedente
+        # kw_solo_evidencia): aporta a la evidencia del grupo pero NO decide
+        # (estado_no_enabled). Con state decidiria un -25% clasico en SU
+        # propia ventana: las ventanas de decision anclan en el
+        # max(metric_date) DE LA ENTIDAD (_ventanas_metricas), no en el
+        # watermark global.
+        # Hoja cero ventas: 10 fechas 07-18..07-27; SU ventana de bids es
+        # 06-25..07-24 (ancla propia 07-27): 7 fechas con 26 clicks (>=
+        # expected 24) y cost 42.00 (>= piso 40). Cortes: 26 clicks (< 100).
         for i, fecha in enumerate(_rango(dt.date(2026, 7, 18), dt.date(2026, 7, 27))):
             _metrica(
                 conn,
@@ -2200,14 +2206,14 @@ def test_ciclo_cero_ventas_con_clics_esperados_baja_25_y_replayea():
                 kw,
                 fecha,
                 _obs(fecha),
-                cost="4.50",
+                cost="6.00",
                 ad_revenue="0.00",
-                clicks=3 if i < 3 else 2,
+                clicks=(4 if i < 5 else 3) if i < 7 else 2,
                 orders=0,
             )
         # Donante de evidencia: 14 fechas 06-01..06-14, 40 clicks y 3
-        # ordenes. Evidencia del grupo: 63 clicks / 3 ordenes / 24 fechas ->
-        # expected 21, umbral pause 100 (piso).
+        # ordenes. Evidencia del grupo: 72 clicks / 3 ordenes / 24 fechas ->
+        # expected 24 exacto, umbral pause 100 (piso).
         for i, fecha in enumerate(_rango(dt.date(2026, 6, 1), dt.date(2026, 6, 14))):
             _metrica(
                 conn,
@@ -2224,11 +2230,10 @@ def test_ciclo_cero_ventas_con_clics_esperados_baja_25_y_replayea():
         res = _corre(conn)
         assert res.status == "done"
         filas = _decisions_de(conn, res.cycle_id)
-        # DEBUG CI (D-1.1.7): el run 33712909099 dio 6 en vez de 5; volcar
-        # (entidad, kind, motivo) para ver la sexta. Se quita al entender.
-        resumen = sorted((f[0], f[1], f[9].get("motivo")) for f in filas)
         # 4 selladas de la maestra + 1 de la hoja de cero ventas
-        assert res.decisions_count == 5, resumen
+        assert res.decisions_count == 5
+        # el donante sin state skipea (aporta evidencia pero no decide)
+        assert json.loads(res.notes)["skips"]["entidad"].get("estado_no_enabled") == 1
         por = {(f[0], f[1], f[2]): f for f in filas}
         # la maestra sigue igual: sin la regla nueva no hay cambio
         assert por[(ids["kw_bid"], "bid", None)][9]["motivo"] == "banda_menos_25"
@@ -2239,7 +2244,7 @@ def test_ciclo_cero_ventas_con_clics_esperados_baja_25_y_replayea():
         ins = fila[9]
         assert ins["motivo"] == "banda_menos_25_cero_ventas"
         assert ins["factor"] == "-0.25"
-        assert ins["corte"]["expected_clicks"] == "21"
+        assert ins["corte"]["expected_clicks"] == "24"
         assert ins["corte"]["umbral_clicks_usado"] == 100
         assert ins["corte"]["elegible"] is True
         assert ins["corte"]["cost_min_usado"] == "40"

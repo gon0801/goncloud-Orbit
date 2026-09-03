@@ -494,10 +494,11 @@ archiva_inertes con ledger y reversa (BIDS 01 · 1.4)`.
   `bid.MOTIVO_BANDA_MENOS_25_CERO_VENTAS: "Cero ventas con los clicks de
   una venta y gasto sobre el piso: -25%"`.
 - **D-1.1.6 · Test de ciclo 1.1.** Grupo nuevo con evidencia elegible
-  mínima (60 clicks / 3 órdenes / 14 fechas → `expected_clicks = 20`) y
-  hoja de cero ventas (bids: clicks 25, cost 45 ≥ piso 40; cortes: clicks
-  < 100 para que NO pause). Aserta `motivo =
-  banda_menos_25_cero_ventas`, `inputs.corte.expected_clicks == "20"` y
+  (72 clicks / 3 órdenes / 24 fechas → `expected_clicks = 24`) y hoja de
+  cero ventas que en SU ventana (ancla propia) trae clicks/cost sobre los
+  umbrales; donante de evidencia SIN state (precedente `kw_solo_evidencia`).
+  Aserta `motivo = banda_menos_25_cero_ventas`,
+  `inputs.corte.expected_clicks == "24"` y
   `ciclo.reproduce(inputs) == (kind, new_value, moneda)`. Los goldens
   viejos no cambian (sus hojas tienen ventas o no alcanzan expected).
 
@@ -544,11 +545,18 @@ DISCRIMINA: el codigo viejo da -12% donde el test 1 exige -25% + motivo nuevo
 - **Veredicto del lead (2026-09-03): `cortes=None`.** Se aplica la
   corrección propuesta; el test 1 queda en camino de bandas puro.
 - **D-1.1.7 · El CI del PR (run 33712909099) dio `decisions_count == 6`
-  en el test de ciclo (esperaba 5 = 4 maestra + 1 nueva); el resto de la
-  batería (1037) verde.** Sospechosos: la hoja donante (debería skipear
-  sin métricas en ventana) o un cambio de conteo en la maestra bajo el
-  código 1.1. Se agregó volcado temporal de (entidad, kind, motivo) al
-  assert para ver la sexta en el próximo run; se quita al entender.
+  (esperaba 5); el volcado mostró `(donante, bid, banda_menos_25)` y la
+  hoja nueva en `-12%`. Causa (modelo mental mío, no bug del motor): las
+  ventanas de DECISIÓN anclan en el `max(metric_date) DE LA ENTIDAD`
+  (`_ventanas_metricas`, ORBIT 03 punto 8) — no en el watermark global
+  (ese solo da frescura y la ventana de EVIDENCIA sí es global
+  D-90..D-10). El donante (junio) decidía un −25% clásico en su propia
+  ventana y mi hoja solo metía 17 clics en la suya (< 21). Fix del test:
+  donante SIN state (aporta evidencia, skipea `estado_no_enabled`) y
+  clics/costo de la hoja concentrados en su ventana propia (26 ≥ 24,
+  42.00 ≥ 40; división exacta 72/3). Lección para sembrar: cada hoja
+  decide en SU ancla; el watermark global solo ordena evidencia y
+  frescura.**
 
 ## Reject (con razón)
 
