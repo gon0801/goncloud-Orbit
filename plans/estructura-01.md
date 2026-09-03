@@ -122,14 +122,34 @@ en `structure.py`** (el módulo que los consume): así el parche sigue mordiendo
 ```python
 # API (structure_api): usados por app/, tools/ y tests/
 from app.ads.structure_api import (  # noqa: F401 - fachada sellada (ESTRUCTURA 01)
-    MAX_PAGINAS, PATH_AD_GROUPS, PATH_CAMPAIGNS, PATH_KEYWORDS,
-    PATH_NEGATIVE_KEYWORDS, PATH_PRODUCT_ADS, PATH_PROFILES, PATH_TARGETS,
-    AdsStructureError, EstructuraAds, EstructuraPerfil, PerfilAds,
-    evaluar_perfiles, fetch_structure, listar_todo, perfiles_aceptados,
+    MAX_PAGINAS,
+    PATH_AD_GROUPS,
+    PATH_CAMPAIGNS,
+    PATH_KEYWORDS,
+    PATH_NEGATIVE_KEYWORDS,
+    PATH_PRODUCT_ADS,
+    PATH_PROFILES,
+    PATH_TARGETS,
+    AdsStructureError,
+    EstructuraAds,
+    EstructuraPerfil,
+    PerfilAds,
+    _CLAVE_CONTENEDORA,
+    evaluar_perfiles,
+    fetch_structure,
+    listar_todo,
+    perfiles_aceptados,
 )
-# Plan puro (structure_plan): usados por reports.py y tests
-from app.ads.structure_plan import (  # noqa: F401 - fachada sellada (ESTRUCTURA 01)
-    ESTADO_ARCHIVED, _CLAVE_CONTENEDORA, _formato_skip_reason, _plan_items,
+
+# Plan puro (structure_plan): usados por reports.py y tests;
+# todos estos nombres se usan tambien en sync_structure (sin noqa).
+from app.ads.structure_plan import (
+    _ETIQUETA_KIND,
+    _ETIQUETA_PADRE,
+    ESTADO_ARCHIVED,
+    _archivados_por_plataforma,
+    _formato_skip_reason,
+    _plan_items,
 )
 ```
 
@@ -138,20 +158,109 @@ Regla: TODO nombre que hoy alguien importe de `app.ads.structure` (lista de
 tests (`_plan_items`, `_CLAVE_CONTENEDORA`) se re-exportan igual (cambio
 mínimo) — alternativa aceptada: actualizar esos dos imports en
 `test_structure_sync.py` al módulo nuevo y NO re-exportarlos; decídelo en
-§Decisiones y sé consistente.
+§Decisiones y sé consistente. `_CLAVE_CONTENEDORA` vive en `structure_api`
+(junto a `PATH_*`); la fachada la re-exporta desde ahi, no desde el plan.
+
+### Revisión del lead (2026-09-03, PR #139)
+
+- **MOVE probado, no afirmado**: comparación AST símbolo por símbolo entre
+  `origin/master:app/ads/structure.py` y los tres módulos de la rama —
+  **46 de 46 símbolos con cuerpo idéntico, ninguno ausente** (cero cambio de
+  comportamiento, D5 cumplido). Tamaños: 483 / 303 / 330 líneas (tope 900).
+- **Fachada completa verificada por import real**: todos los nombres que
+  `app/`, `tools/` y `tests/` importan de `app.ads.structure` resuelven; los
+  7 `_SQL_*` siguen en la fachada (los mismos 7 de master), así que el
+  parche de `_SQL_UPSERT_STATE` y el barrido pglast de `test_structure_sync`
+  siguen mordiendo.
+- Desviación `_CLAVE_CONTENEDORA` a `structure_api`: **aceptada** (su único
+  lector es `_extraer_lista`, que es API, y en `structure_plan` creaba ciclo
+  de imports). El §Fachada de arriba se corrigió para reflejar el código
+  real (hallazgo menor de CodeRabbit): el bloque del plan omitía
+  `_ETIQUETA_KIND`, `_ETIQUETA_PADRE` y `_archivados_por_plataforma`.
+- Residual declarado por Cursor y confirmado por el lead: re-exportar NO
+  hace proxy — parchear `app.ads.structure.evaluar_perfiles` / `listar_todo`
+  no intercepta las llamadas internas de `structure_api`. Verificado que
+  **ningún test actual lo hace**; queda anotado para quien escriba tests
+  nuevos (parchear en el módulo dueño).
+- Candado nuevo `test_structure_plan_sin_io_en_runtime` (pureza por AST):
+  buen añadido; `EstructuraAds` bajo `TYPE_CHECKING` evita arrastrar
+  `httpx`. `structure_plan` no importa `psycopg` ni `httpx`.
 
 ## Phase 1 — El corte [lane:gate]
 
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
-| 1.1 | **Cursor — partir `structure.py`** según D1-D4: crear `structure_api.py` y `structure_plan.py` moviendo literal los símbolos listados; dejar `structure.py` como fachada + IO de DB; actualizar `test_architecture.py` (allowlist de tamaño y moneda); docstring de cabecera con «Mapa de módulos»; `docs/DEPLOY.md`/`docs/CONTEXTO.md` solo si citan símbolos por ruta que cambie (grep antes). `[tdd:required]` | (1) `tests/test_architecture.py` ROJO antes del corte por la entrada sobrante de la allowlist SOLO tras quitarla (el rojo honesto de esta tarea es: quitar la entrada primero → el test de tamaño falla con 1,068 líneas → hacer el corte → verde); (2) batería completa verde en CI sin tocar asserts de `test_structure_sync`; (3) los 3 módulos ≤ 900 líneas y `structure_plan.py` sin `psycopg`/`httpx`; (4) diff revisable como MOVE (`--color-moved`); (5) §Decisiones con la tabla final símbolo → módulo | - | cc:TODO |
+| 1.1 | **Cursor — partir `structure.py`** según D1-D4: crear `structure_api.py` y `structure_plan.py` moviendo literal los símbolos listados; dejar `structure.py` como fachada + IO de DB; actualizar `test_architecture.py` (allowlist de tamaño y moneda); docstring de cabecera con «Mapa de módulos»; `docs/DEPLOY.md`/`docs/CONTEXTO.md` solo si citan símbolos por ruta que cambie (grep antes). `[tdd:required]` | (1) `tests/test_architecture.py` ROJO antes del corte por la entrada sobrante de la allowlist SOLO tras quitarla (el rojo honesto de esta tarea es: quitar la entrada primero → el test de tamaño falla con 1,068 líneas → hacer el corte → verde); (2) batería completa verde en CI sin tocar asserts de `test_structure_sync`; (3) los 3 módulos ≤ 900 líneas y `structure_plan.py` sin `psycopg`/`httpx`; (4) diff revisable como MOVE (`--color-moved`); (5) §Decisiones con la tabla final símbolo → módulo | - | cc:完了 [2026-09-03 Cursor: rojo allowlist 1,068; corte a structure_api/structure_plan + fachada; 53 tests locales verdes; _CLAVE_CONTENEDORA en api por ciclo de import] |
 | 1.2 | **Lead — review, merge, deploy con BIDS 01 · 1.5 y verificación**: conteos de `ad_entity`/`ad_entity_state` por plataforma y kind antes y después de un `ingest structure` post-deploy (idénticos); `tools/snapshot_listas.py` sigue corriendo en el contenedor; AppFlowy. `[tdd:skip:ops]` | Conteos idénticos en la evidencia; snapshot ok; AppFlowy Done | 1.1 | cc:TODO |
 
 ## Decisiones y evidencia (Cursor escribe aquí ANTES del código)
 
-_(vacío: tabla final símbolo → módulo, decisión sobre los privados
-re-exportados vs imports actualizados en tests, el rojo de la allowlist y
-cualquier desviación con su porqué)_
+Escritas 2026-09-03 ANTES de tocar `app/ads/structure.py`. MOVE literal. Cero
+cambio de comportamiento.
+
+**Privados `_plan_items` / `_CLAVE_CONTENEDORA`.** Se re-exportan desde la
+fachada `app.ads.structure` (alternativa del plan, cambio minimo).
+`tests/test_structure_sync.py` no cambia sus imports. Consistente con
+«ningun importador de app/, tools/ ni tests/ cambia».
+
+**Desviacion `_CLAVE_CONTENEDORA`.** D2 la ponia en `structure_plan.py`, pero
+el unico lector es `_extraer_lista` (API) y las claves son `PATH_*` (API).
+Ponerla en plan crea un import circular API↔plan que ruff I (isort) sube
+al tope y rompe el load. Queda en `structure_api.py` junto a `PATH_*`.
+La fachada la re-exporta igual. `structure_plan` no la importa. No cambia
+el valor ni los cuerpos.
+
+**Pureza de `structure_plan` (cross-review codex+grok).** `EstructuraAds`
+solo aparece en anotaciones: el import runtime de `structure_api` arrastraba
+`AdsClient`/`httpx`. Queda bajo `TYPE_CHECKING`. Candado:
+`test_structure_plan_sin_io_en_runtime`.
+
+**D1 + `app.redaction`.** `structure_api` importa `scrub` porque
+`AdsStructureError` lo usa (MOVE fiel). Dependencia permitida ademas de
+`app.ads.client` y stdlib.
+
+**Monkeypatch en la fachada (residual).** Re-exportar no hace proxy:
+`fetch_structure` resuelve nombres en `structure_api.__dict__`. Parchear
+`app.ads.structure.evaluar_perfiles` / `listar_todo` no intercepta esas
+llamadas. Parchear donde se usa, o en el modulo dueño. Los `_SQL_*` y
+`_plan_items` siguen parcheables en la fachada porque `sync_structure`
+vive ahi. Ningun test actual parchea los helpers de API en la fachada.
+
+**Candado de motor puro.** `test_architecture` solo exige pureza en
+`app/optimizer/`. Meter `structure_plan.py` ahi exigiria cambiar el
+candado. D2: se declara y no se fuerza. La pureza operativa del plan es el
+candado AST propio (arriba).
+
+**Tabla simbolo → modulo**
+
+| Simbolo | Modulo |
+|---|---|
+| `PATH_*`, `MAX_PAGINAS`, `_PAIS_PLATAFORMA_MONEDA`, `_CLAVE_CONTENEDORA` | `structure_api` |
+| `AdsStructureError`, `PerfilAds`, `EstructuraPerfil`, `EstructuraAds` | `structure_api` |
+| `_json_de`, `_extraer_lista`, `listar_todo`, `_evaluar_perfil`, `evaluar_perfiles`, `perfiles_aceptados`, `fetch_structure` | `structure_api` |
+| `_ETIQUETA_KIND`, `_ETIQUETA_PADRE`, `_ESTADOS_PRODUCT_AD_VIVOS`, `ESTADO_ARCHIVED`, `_ItemEntidad` | `structure_plan` |
+| `_bid_decimal`, `_nombre_target`, `_item_product_ad`, `_archivados_por_plataforma`, `_plan_items`, `_formato_skip_reason` | `structure_plan` |
+| docstring cabecera + «Mapa de modulos», `SOURCE`, todos los `_SQL_*`, `ResultadoSync`, `_sellar_run`, `sync_structure`, `_imprimir_resumen`, `main` | `structure` (fachada + DB) |
+| re-export: `MAX_PAGINAS`, `PATH_*`, `_CLAVE_CONTENEDORA`, `AdsStructureError`, `EstructuraAds`, `EstructuraPerfil`, `PerfilAds`, `evaluar_perfiles`, `fetch_structure`, `listar_todo`, `perfiles_aceptados` | `structure` desde `structure_api` |
+| re-export: `ESTADO_ARCHIVED`, `_formato_skip_reason`, `_plan_items` | `structure` desde `structure_plan` |
+
+**Rojo honesto (allowlist).** Tras quitar `app/ads/structure.py` de
+`ALLOWLIST_TAMANO` y correr
+`pytest tests/test_architecture.py::test_presupuesto_de_tamano_por_modulo`
+ANTES del corte:
+
+```
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____________________ test_presupuesto_de_tamano_por_modulo _____________________
+tests/test_architecture.py:279: in test_presupuesto_de_tamano_por_modulo
+    assert not excedidos, (
+E   AssertionError: modulos sobre el presupuesto de 900 lineas sin entrada en la allowlist (agregar entrada CON razon o partir el modulo — jamas partir por partir): {'app/ads/structure.py': 1068}
+E   assert not {'app/ads/structure.py': 1068}
+=========================== short test summary info ============================
+FAILED tests/test_architecture.py::test_presupuesto_de_tamano_por_modulo
+1 failed in 0.40s
+```
 
 ## Reject (con razón)
 
