@@ -1602,6 +1602,7 @@ def _fase_notifica(
     status: str,
     decisions_count: int,
     notas_apply: dict,
+    skips: dict | None = None,
     caps_saturados: tuple = (),
     tick: Callable[[], None] | None = None,
 ) -> dict:
@@ -1670,6 +1671,10 @@ def _fase_notifica(
             "decisions_count": decisions_count,
             "apply": notas_apply,
         }
+        # BIDS 01 1.3: los skips viajan por el mismo camino que apply
+        # (regla 3: ausentes = el digest no los menciona).
+        if skips is not None:
+            resumen["skips"] = skips
         if not notifica.notifica_digest(resumen):
             notas["digest"] = "fallo: digest del ciclo no enviado por Telegram"
         _latido()
@@ -1770,6 +1775,7 @@ def _corre_fases(
         status=status,
         decisions_count=len(pendientes),
         notas_apply=notas_apply,
+        skips=cuerpo["skips"],
         tick=tick,
     )
     if notas_apply or telegram:

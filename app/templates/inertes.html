@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block contenido %}
+<h2>Entidades sin trafico</h2>
+<p class="mutado">
+  Hojas activas que Amazon no sirve desde hace 14 dias o mas (contados desde
+  el watermark de cada plataforma). Revivirlas es decision humana desde este
+  reporte: el motor ya no las ajusta.
+</p>
+<div class="tarjeta">
+  <h3>Resumen por plataforma y clasificacion</h3>
+  {% if totales %}
+  <table>
+    <thead>
+      <tr>
+        <th>Plataforma</th>
+        <th>Clasificacion</th>
+        <th class="num">Hojas</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for plataforma, por_clase in totales.items() %}
+      {% for clasificacion, n in por_clase.items() %}
+      <tr>
+        <td>{{ plataforma }}</td>
+        <td><span class="chip">{{ clasificacion }}</span></td>
+        <td class="num">{{ n }}</td>
+      </tr>
+      {% endfor %}
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>sin entidades inertes: todo lo activo tiene trafico reciente.</p>
+  {% endif %}
+</div>
+<div class="tarjeta">
+  {% if items %}
+  <table>
+    <thead>
+      <tr>
+        <th>Plataforma</th>
+        <th>Campana</th>
+        <th>Ad group</th>
+        <th>Keyword/target</th>
+        <th>Clasificacion</th>
+        <th class="num">Dias sin impresiones</th>
+        <th class="num">Gasto 90d</th>
+        <th class="num">Ordenes 90d</th>
+        <th>Ultima impresion</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td>{{ item.plataforma }}</td>
+        <td>{{ item.campana or "—" }}</td>
+        <td>{{ item.ad_group or "—" }}</td>
+        {# El texto es libre (keyword_text del anunciante): AUTOESCAPE lo escapa #}
+        <td>{{ item.texto or "—" }}</td>
+        <td><span class="chip">{{ item.clasificacion }}</span></td>
+        <td class="num">{% if item.dias_sin_impresiones is none %}<span class="mutado">—</span>{% else %}{{ item.dias_sin_impresiones }}{% endif %}</td>
+        <td class="num">{% if item.gasto_90d is none %}<span class="mutado">—</span>{% else %}{{ item.gasto_90d }}{% if item.moneda %} {{ item.moneda }}{% endif %}{% endif %}</td>
+        <td class="num">{{ item.ordenes_90d }}</td>
+        <td class="mutado">{{ item.ultima_impresion or "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>sin entidades inertes: todo lo activo tiene trafico reciente.</p>
+  {% endif %}
+</div>
+{% endblock %}
