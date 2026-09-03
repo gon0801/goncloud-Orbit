@@ -43,6 +43,7 @@ import socket
 import threading
 from contextlib import contextmanager
 from decimal import Decimal
+from pathlib import Path
 
 import pglast
 import psycopg
@@ -54,6 +55,12 @@ from app import cycle as ciclo
 from app.optimizer import bid as bid_mod
 from app.optimizer import cortes
 from app.optimizer import windows as w
+
+# BIDS 01 (1.2): la DB de prueba ES la de produccion — el ciclo lee
+# v_entidad_inerte en TX2, asi que el fixture la aplica igual que SQL3.
+SQL13 = (Path(__file__).resolve().parents[1] / "migrations" / "0013_entidad_inerte.sql").read_text(
+    encoding="utf-8"
+)
 
 # ---------------------------------------------------------------------------
 # Reloj FIJO y ventanas derivadas (mismas constantes que test_optimizer_windows)
@@ -122,6 +129,9 @@ def _db_temporal(prefijo: str):
         # ORBIT 05 preflight 1.2: la DB de prueba ES la de produccion —
         # ads_optimizer_goal sin DEFAULT en piso/techo (0003).
         conn.execute(SQL3)
+        # BIDS 01 (1.2): la guarda entidad_inerte lee v_entidad_inerte en
+        # TX2 — sin esta migracion TODO ciclo revienta con UndefinedTable.
+        conn.execute(SQL13)
         yield conn, conectar_extra
     finally:
         if conn is not None:

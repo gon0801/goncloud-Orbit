@@ -529,6 +529,14 @@ FAILED tests/test_entidad_inerte.py::test_vista_exige_enabled_en_hoja_grupo_y_ca
 ```
 Nada más falló: el resto de la batería (1030) sigue verde sin la guarda.
 
+- **D-1.2.8 · Omisión propia atrapada por el CI (no por el lead): el plan
+  §1.2 SÍ pedía aplicar 0013 en el fixture de `test_cycle.py` y no lo
+  hice en el commit de implementación → todo ciclo reventó con
+  `UndefinedTable` (run 33713521180). Fix: `SQL13` en `_db_temporal` de
+  `test_cycle.py` y de `test_cycle_apply.py` (el otro que corre
+  `corre_ciclo` de verdad; el CLI lo mockea). Ningún otro fixture corre
+  TX2. El plan estaba bien; el error fue mío al implementarlo.**
+
 ## Reject (con razón)
 
 - **Umbral absoluto de clicks (15/25)**: rechazado por el dueño — sus
