@@ -144,7 +144,10 @@ from app.ads.structure_api import (  # noqa: F401 - fachada sellada (ESTRUCTURA 
 # Plan puro (structure_plan): usados por reports.py y tests;
 # todos estos nombres se usan tambien en sync_structure (sin noqa).
 from app.ads.structure_plan import (
+    _ETIQUETA_KIND,
+    _ETIQUETA_PADRE,
     ESTADO_ARCHIVED,
+    _archivados_por_plataforma,
     _formato_skip_reason,
     _plan_items,
 )
@@ -157,6 +160,31 @@ mínimo) — alternativa aceptada: actualizar esos dos imports en
 `test_structure_sync.py` al módulo nuevo y NO re-exportarlos; decídelo en
 §Decisiones y sé consistente. `_CLAVE_CONTENEDORA` vive en `structure_api`
 (junto a `PATH_*`); la fachada la re-exporta desde ahi, no desde el plan.
+
+### Revisión del lead (2026-09-03, PR #139)
+
+- **MOVE probado, no afirmado**: comparación AST símbolo por símbolo entre
+  `origin/master:app/ads/structure.py` y los tres módulos de la rama —
+  **46 de 46 símbolos con cuerpo idéntico, ninguno ausente** (cero cambio de
+  comportamiento, D5 cumplido). Tamaños: 483 / 303 / 330 líneas (tope 900).
+- **Fachada completa verificada por import real**: todos los nombres que
+  `app/`, `tools/` y `tests/` importan de `app.ads.structure` resuelven; los
+  7 `_SQL_*` siguen en la fachada (los mismos 7 de master), así que el
+  parche de `_SQL_UPSERT_STATE` y el barrido pglast de `test_structure_sync`
+  siguen mordiendo.
+- Desviación `_CLAVE_CONTENEDORA` a `structure_api`: **aceptada** (su único
+  lector es `_extraer_lista`, que es API, y en `structure_plan` creaba ciclo
+  de imports). El §Fachada de arriba se corrigió para reflejar el código
+  real (hallazgo menor de CodeRabbit): el bloque del plan omitía
+  `_ETIQUETA_KIND`, `_ETIQUETA_PADRE` y `_archivados_por_plataforma`.
+- Residual declarado por Cursor y confirmado por el lead: re-exportar NO
+  hace proxy — parchear `app.ads.structure.evaluar_perfiles` / `listar_todo`
+  no intercepta las llamadas internas de `structure_api`. Verificado que
+  **ningún test actual lo hace**; queda anotado para quien escriba tests
+  nuevos (parchear en el módulo dueño).
+- Candado nuevo `test_structure_plan_sin_io_en_runtime` (pureza por AST):
+  buen añadido; `EstructuraAds` bajo `TYPE_CHECKING` evita arrastrar
+  `httpx`. `structure_plan` no importa `psycopg` ni `httpx`.
 
 ## Phase 1 — El corte [lane:gate]
 
