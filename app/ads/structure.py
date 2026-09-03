@@ -112,22 +112,54 @@ error claro.
 DSN de ORBIT_DSN_INGEST (via app.db.connect), corre fetch+sync e imprime por
 stdout un resumen SIN secretos. Sin ORBIT_DSN_INGEST -> mensaje claro y
 exit != 0 (fail-closed).
+
+Mapa de modulos (ESTRUCTURA 01): IO de API en app.ads.structure_api
+(PATH_*, perfiles, listar_todo, fetch_structure); planificacion pura en
+app.ads.structure_plan (items y skips, sin psycopg ni httpx); este modulo
+queda como fachada + IO de DB (SQL sellada, sync_structure, main) y
+re-exporta los nombres que importan app/, tools/ y tests/.
+
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import sys
 from collections import Counter
-from dataclasses import dataclass, field, replace
-from decimal import Decimal, InvalidOperation
+from dataclasses import dataclass
 
 import psycopg
 
 from app.ads.client import AdsClient
 from app.ads.config import AdsCredentials
+from app.ads.structure_api import (  # noqa: F401 - fachada sellada (ESTRUCTURA 01)
+    _CLAVE_CONTENEDORA,
+    MAX_PAGINAS,
+    PATH_AD_GROUPS,
+    PATH_CAMPAIGNS,
+    PATH_KEYWORDS,
+    PATH_NEGATIVE_KEYWORDS,
+    PATH_PRODUCT_ADS,
+    PATH_PROFILES,
+    PATH_TARGETS,
+    AdsStructureError,
+    EstructuraAds,
+    EstructuraPerfil,
+    PerfilAds,
+    evaluar_perfiles,
+    fetch_structure,
+    listar_todo,
+    perfiles_aceptados,
+)
+from app.ads.structure_plan import (  # noqa: F401 - fachada sellada (ESTRUCTURA 01)
+    _ETIQUETA_KIND,
+    _ETIQUETA_PADRE,
+    ESTADO_ARCHIVED,
+    _archivados_por_plataforma,
+    _formato_skip_reason,
+    _plan_items,
+)
 from app.db import connect
 from app.redaction import install_scrub_filter, scrub
 
@@ -135,65 +167,6 @@ logger = logging.getLogger(__name__)
 install_scrub_filter(logger)
 
 SOURCE = "amazon_ads_structure_v2"
-
-# Unico GET v2 que sigue vivo. Los list v3 de abajo (salvo negativeKeywords,
-# que solo consume el snapshot) los pide fetch_structure. Vendor types en
-# app.ads.client.
-PATH_PROFILES = "/v2/profiles"
-PATH_CAMPAIGNS = "/sp/campaigns/list"
-PATH_AD_GROUPS = "/sp/adGroups/list"
-PATH_KEYWORDS = "/sp/keywords/list"
-PATH_TARGETS = "/sp/targets/list"
-PATH_PRODUCT_ADS = "/sp/productAds/list"
-# Evidencia REGLA 8 en vivo (lead, 2026-08-25; log out/regla8-negkeywords.log):
-# POST /sp/negativeKeywords/list con el vendor vnd.spnegativekeyword.v3+json
-# (allowlist de app.ads.client) responde 200 en AMBOS perfiles (US y MX);
-# contenedor `negativeKeywords`, paginacion nextToken+totalResults. Lo consume
-# el snapshot read-only de listas (ORBIT 05 preflight 1.3,
-# tools/snapshot_listas.py); el sync de estructura NO lo lista.
-PATH_NEGATIVE_KEYWORDS = "/sp/negativeKeywords/list"
-
-# Tope de seguridad de la paginacion nextToken: una lista que nunca termina
-# (bug de la API o de este codigo) no debe colgar la corrida para siempre.
-MAX_PAGINAS = 100
-
-# countryCode -> (platform, moneda esperada). Fuera de aqui, perfil rechazado.
-_PAIS_PLATAFORMA_MONEDA: dict[str, tuple[str, str]] = {
-    "US": ("amazon_us", "USD"),
-    "MX": ("amazon_mx", "MXN"),
-}
-
-# Etiquetas legibles para los motivos de skip (sin acronimos de tabla).
-_ETIQUETA_KIND = {
-    "campaign": "campana",
-    "ad_group": "ad group",
-    "keyword": "keyword",
-    "product_target": "target",
-    "product_ad": "product ad",
-}
-_ETIQUETA_PADRE = {
-    "campaign": "campana",
-    "ad_group": "campana",
-    "keyword": "ad group",
-    "product_target": "ad group",
-    "product_ad": "ad group",
-}
-# Solo estos estados se materializan. ARCHIVED (75% MX) queda fuera: no
-# upsert, no listing_id. Cualquier otro valor es "estado desconocido".
-_ESTADOS_PRODUCT_AD_VIVOS = frozenset({"ENABLED", "PAUSED"})
-ESTADO_ARCHIVED = "ARCHIVED"
-
-# Clave contenedora de cada respuesta (ojo targets: "targetingClauses";
-# negativeKeywords: evidencia regla 8, comentario en PATH_NEGATIVE_KEYWORDS).
-_CLAVE_CONTENEDORA = {
-    PATH_PROFILES: "profiles",
-    PATH_CAMPAIGNS: "campaigns",
-    PATH_AD_GROUPS: "adGroups",
-    PATH_KEYWORDS: "keywords",
-    PATH_TARGETS: "targetingClauses",
-    PATH_NEGATIVE_KEYWORDS: "negativeKeywords",
-    PATH_PRODUCT_ADS: "productAds",
-}
 
 _SQL_ABRIR_RUN = "INSERT INTO ingest_run (source) VALUES (%s) RETURNING id"
 
@@ -267,78 +240,6 @@ _SQL_CARGAR_LISTINGS = """
 """
 
 
-class AdsStructureError(Exception):
-    """Error de forma en la respuesta de la API o en un payload.
-
-    El mensaje no toca secretos por construccion (paths sin query, sin
-    headers); `scrub()` como ultima linea de defensa.
-    """
-
-    def __init__(self, message: str) -> None:
-        super().__init__(scrub(message))
-
-
-@dataclass(frozen=True)
-class PerfilAds:
-    """Evidencia de un perfil visto en GET /v2/profiles y su tratamiento.
-
-    Formas REALES del payload (corrida 2026-08-22): countryCode en vez de
-    country, accountInfo en vez de account, sin campo `valid` (se registra
-    validPaymentMethod como evidencia, sin gatearlo). `motivo` es la razon
-    del rechazo (None si fue aceptado); `platform` y `moneda` solo se fijan
-    al aceptar.
-    """
-
-    profile_id: int | None
-    country: str | None
-    currency_code: str | None
-    account_type: str | None
-    valid_payment_method: bool | None
-    account_name: str | None
-    aceptado: bool
-    platform: str | None = None
-    moneda: str | None = None
-    motivo: str | None = None
-
-
-@dataclass
-class EstructuraPerfil:
-    """Payloads crudos de un perfil aceptado, agrupados por kind."""
-
-    perfil: PerfilAds
-    campanas: list[dict]
-    ad_groups: list[dict]
-    keywords: list[dict]
-    targets: list[dict]
-    product_ads: list[dict] = field(default_factory=list)
-
-
-@dataclass
-class EstructuraAds:
-    """Salida de fetch_structure: evidencia de TODOS los perfiles + payloads."""
-
-    perfiles: list[PerfilAds]
-    estructuras: list[EstructuraPerfil]
-
-
-@dataclass
-class _ItemEntidad:
-    """Un item planificado: lo que se escribe si ningun gate lo salta."""
-
-    platform: str
-    kind: str
-    external_id: str
-    parent_ref: tuple[str, str, str] | None  # (platform, kind, external_id) del padre
-    name: str | None
-    match_type: str | None
-    keyword_text: str | None
-    status: str | None
-    targeting_type: str | None
-    bid: Decimal | None
-    bid_currency: str | None
-    asin: str | None = None  # solo product_ad; llave de join a listing.external_id
-
-
 @dataclass
 class ResultadoSync:
     """Outcome contable de la corrida (espejo de la ingest_run sellada)."""
@@ -350,492 +251,6 @@ class ResultadoSync:
     skip_reason: str | None
     counts: dict[tuple[str, str], int]  # (platform, kind) -> items escritos
     entidades_nuevas: int
-
-
-# ---------------------------------------------------------------------------
-# IO de API: fetch_structure
-# ---------------------------------------------------------------------------
-
-
-def _json_de(resp, metodo: str, path: str):
-    try:
-        return resp.json()
-    except ValueError:
-        raise AdsStructureError(f"respuesta no-JSON de {metodo} {path}") from None
-
-
-def _extraer_lista(data: object, path: str) -> list[dict]:
-    """Acepta lista JSON o dict con clave contenedora; cualquier otra forma, error."""
-    clave = _CLAVE_CONTENEDORA[path]
-    lista: list | None = None
-    if isinstance(data, list):
-        lista = data
-    elif isinstance(data, dict):
-        valor = data.get(clave)
-        if isinstance(valor, list):
-            lista = valor
-        else:
-            listas = [v for v in data.values() if isinstance(v, list)]
-            if len(listas) == 1:
-                lista = listas[0]
-    if lista is None:
-        raise AdsStructureError(
-            f"respuesta inesperada de {path}: se esperaba una lista JSON "
-            f"o un dict con la clave '{clave}'"
-        )
-    for item in lista:
-        if not isinstance(item, dict):
-            raise AdsStructureError(f"{path}: item de la lista no es un objeto JSON")
-    return lista
-
-
-def listar_todo(client: AdsClient, path: str, *, profile_id: int) -> list[dict]:
-    """Lectura paginada v3 COMPLETA (publica para consumidores read-only).
-
-    Itera la paginacion v3 por nextToken hasta que falta (tope MAX_PAGINAS).
-    Consumidores: fetch_structure y el snapshot read-only de listas
-    (tools/snapshot_listas.py, ORBIT 05 preflight 1.3). El `path` debe estar
-    en _CLAVE_CONTENEDORA y en el allowlist de lectura del cliente
-    (app.ads.client.LIST_REQUEST_TYPES); el guard de totalResults vive aqui,
-    asi que todo consumidor hereda la verificacion de lista completa.
-
-    Primera pagina con body {} (pageSize se ignora, corrida real); las
-    siguientes piden {"nextToken": ...}. La clave es nextToken, NO
-    nextPageToken. Si la respuesta declara totalResults (int), el acumulado
-    final tiene que cuadrar: "falta nextToken" ya no basta como prueba de
-    lista completa (hallazgo cross-review codex, ronda 3).
-    """
-    items: list[dict] = []
-    next_token: str | None = None
-    for _ in range(MAX_PAGINAS):
-        body = {"nextToken": next_token} if next_token else {}
-        data = _json_de(client.list_objects(path, body, profile_id=profile_id), "POST", path)
-        items.extend(_extraer_lista(data, path))
-        if not isinstance(data, dict) or "nextToken" not in data or data["nextToken"] is None:
-            next_token = None
-        else:
-            # Fin de paginacion SOLO por clave ausente o None (hallazgo
-            # CodeRabbit): un nextToken malformado (false, "", numero) tratado
-            # como fin dejaba estructura parcial sellada ok -- fail-closed.
-            candidato = data["nextToken"]
-            if not isinstance(candidato, str) or not candidato:
-                raise AdsStructureError(f"nextToken malformado en POST {path}: {candidato!r}")
-            next_token = candidato
-        if next_token is None:
-            total = data.get("totalResults") if isinstance(data, dict) else None
-            # Solo se exige cuando totalResults viene como int: dato faltante o
-            # de otro tipo = sin prueba, se mantiene el comportamiento actual.
-            if isinstance(total, int) and not isinstance(total, bool) and total != len(items):
-                raise AdsStructureError(
-                    f"paginacion incompleta de POST {path}: {len(items)} acumulados"
-                    f" de {total} segun totalResults"
-                )
-            return items
-    raise AdsStructureError(f"paginacion de POST {path} excede el tope de {MAX_PAGINAS} paginas")
-
-
-def _evaluar_perfil(raw: dict) -> PerfilAds:
-    """Sello de perfil: seller + countryCode en {US, MX} + moneda coherente.
-
-    El payload real trae countryCode y accountInfo (sin country/valid/account:
-    ver docstring del modulo). validPaymentMethod se registra como evidencia,
-    sin gatearlo.
-    """
-    profile_id = raw.get("profileId")
-    country = raw.get("countryCode")
-    currency_code = raw.get("currencyCode")
-    account = raw.get("accountInfo")
-    account_type = account.get("type") if isinstance(account, dict) else None
-    valid_payment = account.get("validPaymentMethod") if isinstance(account, dict) else None
-    account_name = account.get("name") if isinstance(account, dict) else None
-
-    def perfil(
-        aceptado: bool,
-        platform: str | None = None,
-        moneda: str | None = None,
-        motivo: str | None = None,
-    ) -> PerfilAds:
-        return PerfilAds(
-            profile_id=profile_id,
-            country=country,
-            currency_code=currency_code,
-            account_type=account_type,
-            valid_payment_method=valid_payment,
-            account_name=account_name,
-            aceptado=aceptado,
-            platform=platform,
-            moneda=moneda,
-            motivo=motivo,
-        )
-
-    if not isinstance(profile_id, int) or isinstance(profile_id, bool):
-        return perfil(False, motivo="perfil sin profileId")
-    if account_type != "seller":
-        return perfil(False, motivo=f"perfil no seller (accountInfo.type={account_type!r})")
-    if not isinstance(country, str):
-        return perfil(False, motivo=f"pais no soportado: {country!r}")
-    mapeo = _PAIS_PLATAFORMA_MONEDA.get(country)
-    if mapeo is None:
-        return perfil(False, motivo=f"pais no soportado: {country}")
-    platform, moneda_esperada = mapeo
-    if currency_code != moneda_esperada:
-        return perfil(
-            False,
-            motivo=(
-                f"moneda {currency_code!r} no corresponde al pais {country} "
-                f"(se esperaba {moneda_esperada})"
-            ),
-        )
-    return perfil(True, platform=platform, moneda=moneda_esperada)
-
-
-def evaluar_perfiles(client: AdsClient) -> list[PerfilAds]:
-    """GET /v2/profiles + sello: TODOS los perfiles vistos, ya evaluados.
-
-    Unica fuente del gate seller/pais/moneda/1-pais-por-pais (regla 2): la
-    usan fetch_structure (evidencia completa) y perfiles_aceptados (la vista
-    de los syncs que solo necesitan los aceptados, p.ej. app.ads.reports).
-    Los rechazados llevan su motivo en el propio PerfilAds.
-    """
-    perfiles: list[PerfilAds] = []
-    paises_aceptados: set[str] = set()
-    for raw in _extraer_lista(
-        _json_de(client.get(PATH_PROFILES), "GET", PATH_PROFILES), PATH_PROFILES
-    ):
-        perfil = _evaluar_perfil(raw)
-        if perfil.aceptado and perfil.country in paises_aceptados:
-            # GUARD (no supuesto): la platform (amazon_us/amazon_mx) es una
-            # sola por pais; dos perfiles del mismo pais romperian el mapeo
-            # entidad->plataforma. Gana el PRIMERO visto en el payload.
-            perfil = replace(
-                perfil,
-                aceptado=False,
-                platform=None,
-                moneda=None,
-                motivo=f"pais duplicado: ya se acepto otro perfil {perfil.country}",
-            )
-        perfiles.append(perfil)
-        if perfil.aceptado:
-            paises_aceptados.add(perfil.country)
-    return perfiles
-
-
-def perfiles_aceptados(client: AdsClient) -> list[PerfilAds]:
-    """GET /v2/profiles -> SOLO los perfiles aceptados por el sello.
-
-    Vista de evaluar_perfiles para los syncs que no necesitan la evidencia
-    de rechazo (task 1.3: metricas de reporting v3). Los perfiles aceptados
-    traen profile_id/platform/moneda fijados.
-    """
-    return [perfil for perfil in evaluar_perfiles(client) if perfil.aceptado]
-
-
-def fetch_structure(client: AdsClient) -> EstructuraAds:
-    """GET /v2/profiles + los 5 POST list v3 por cada perfil aceptado.
-
-    Los perfiles rechazados (seller/pais/moneda/pais duplicado) NO generan
-    llamadas de lista: su evidencia queda en `perfiles` con el motivo. El
-    gate vive en evaluar_perfiles (unica fuente, regla 2).
-    """
-    perfiles = evaluar_perfiles(client)
-    estructuras: list[EstructuraPerfil] = []
-    for perfil in perfiles:
-        if not perfil.aceptado:
-            continue
-        # aceptado implica profile_id/platform/moneda fijados por _evaluar_perfil
-        estructuras.append(
-            EstructuraPerfil(
-                perfil=perfil,
-                campanas=listar_todo(client, PATH_CAMPAIGNS, profile_id=perfil.profile_id),
-                ad_groups=listar_todo(client, PATH_AD_GROUPS, profile_id=perfil.profile_id),
-                keywords=listar_todo(client, PATH_KEYWORDS, profile_id=perfil.profile_id),
-                targets=listar_todo(client, PATH_TARGETS, profile_id=perfil.profile_id),
-                product_ads=listar_todo(client, PATH_PRODUCT_ADS, profile_id=perfil.profile_id),
-            )
-        )
-    return EstructuraAds(perfiles=perfiles, estructuras=estructuras)
-
-
-# ---------------------------------------------------------------------------
-# Planificacion pura (sin DB): items validos + skips con motivo
-# ---------------------------------------------------------------------------
-
-
-def _bid_decimal(valor: object, campo: str) -> Decimal | None:
-    """Convierte un bid del payload a Decimal (via str, sin meter float a NUMERIC).
-
-    None (ausente o null) -> None (regla 3: en keywords de campanas AUTO y en
-    parte de los targets la API NO trae `bid`; corrida real 2026-08-22).
-    Un valor presente pero no numerico (o no finito) es dato corrupto:
-    ValueError para que el item se salte con motivo, no un numero inventado.
-    Un bid <= 0 tambien es payload invalido (hallazgo CodeRabbit): Amazon no
-    publica pujas no positivas y el esquema sella la positividad donde puede
-    (goal_bids_positivos); para el cache, la puerta es esta.
-    """
-    if valor is None:
-        return None
-    if isinstance(valor, bool) or not isinstance(valor, (int, float, str, Decimal)):
-        raise ValueError(f"{campo} no numerico")
-    try:
-        numero = Decimal(str(valor))
-    except (InvalidOperation, ValueError):
-        raise ValueError(f"{campo} no numerico") from None
-    if not numero.is_finite() or numero <= 0:
-        raise ValueError(f"{campo} no numerico o no positivo")
-    return numero
-
-
-def _nombre_target(expression: object) -> str | None:
-    """JSON compacto y determinista de `expression` (None si no viene)."""
-    if expression is None:
-        return None
-    return json.dumps(expression, separators=(",", ":"), sort_keys=True)
-
-
-def _item_product_ad(
-    payload: dict,
-    *,
-    platform: str,
-    conocidos: set[tuple[str, str, str]],
-    campana_del_ad_group: dict[str, str],
-) -> _ItemEntidad | str:
-    """Filtra un product ad en el borde: item listo o motivo de skip."""
-    external = payload.get("adId")
-    if external is None:
-        return "product ad sin adId"
-    asin_crudo = payload.get("asin")
-    asin = asin_crudo.strip() if isinstance(asin_crudo, str) else ""
-    if not asin:
-        return "product ad sin asin"
-    estado = payload.get("state")
-    if estado == ESTADO_ARCHIVED:
-        return "product ad archivado"
-    if estado not in _ESTADOS_PRODUCT_AD_VIVOS:
-        return "product ad estado desconocido"
-    ad_group_id = str(payload.get("adGroupId"))
-    if (platform, "ad_group", ad_group_id) not in conocidos:
-        return "product ad sin ad group planificado"
-    campaign_id = payload.get("campaignId")
-    if campaign_id is not None and str(campaign_id) != campana_del_ad_group[ad_group_id]:
-        return "product ad con campaignId distinto al de su ad group (payload incoherente)"
-    return _ItemEntidad(
-        platform=platform,
-        kind="product_ad",
-        external_id=str(external),
-        parent_ref=(platform, "ad_group", ad_group_id),
-        name=asin,
-        match_type=None,
-        keyword_text=None,
-        status=estado,
-        targeting_type=None,
-        bid=None,
-        bid_currency=None,
-        asin=asin,
-    )
-
-
-def _archivados_por_plataforma(estructura: EstructuraAds) -> dict[str, list[str]]:
-    """adIds que el payload reporta ARCHIVED, por plataforma.
-
-    Los usa `sync_structure` para poner al dia el cache de los product ads
-    que YA seguimos (ver _SQL_MARCAR_ARCHIVADOS). Se leen del payload crudo
-    y no de los items porque `_plan_items` descarta los archivados al borde.
-    """
-    archivados: dict[str, list[str]] = {}
-    for est in estructura.estructuras:
-        platform = est.perfil.platform or ""
-        ids = [
-            str(p.get("adId"))
-            for p in est.product_ads
-            if p.get("state") == ESTADO_ARCHIVED and p.get("adId") is not None
-        ]
-        if ids:
-            archivados.setdefault(platform, []).extend(ids)
-    return archivados
-
-
-def _plan_items(estructura: EstructuraAds) -> tuple[list[_ItemEntidad], Counter[str]]:
-    """Valida la coherencia de cada item ANTES de tocar la base.
-
-    Orden por perfil: campanas -> ad groups -> product ads -> keywords ->
-    targets (el padre siempre se planifica antes que el hijo). Un item solo
-    entra si su padre esta entre los items ya planificados DE ESTA CORRIDA y,
-    para keywords, targets y product ads, si el campaignId que el payload
-    trae DE MAS no contradice al del ad group padre planificado (hallazgo
-    cross-review codex, ronda 3). Claves v3: ids string planos, defaultBid
-    escalar, bid OPCIONAL (su ausencia no es skip). Product ads: solo
-    ENABLED/PAUSED; asin obligatorio; bid tipicamente ausente.
-    """
-    items: list[_ItemEntidad] = []
-    skips: Counter[str] = Counter()
-
-    for est in estructura.estructuras:
-        platform = est.perfil.platform or ""
-        moneda = est.perfil.moneda
-        conocidos: set[tuple[str, str, str]] = set()
-        # adGroupId -> campaignId con el que se planifico el ad group (para
-        # validar la coherencia del campaignId que keyword/target traen DE
-        # MAS en su payload; hallazgo cross-review codex, ronda 3).
-        campana_del_ad_group: dict[str, str] = {}
-
-        for payload in est.campanas:
-            external = payload.get("campaignId")
-            if external is None:
-                skips["campana sin campaignId"] += 1
-                continue
-            items.append(
-                _ItemEntidad(
-                    platform=platform,
-                    kind="campaign",
-                    external_id=str(external),
-                    parent_ref=None,
-                    name=payload.get("name"),
-                    match_type=None,
-                    keyword_text=None,
-                    status=payload.get("state"),
-                    targeting_type=payload.get("targetingType"),
-                    bid=None,  # budget sin moneda: no se guarda (docstring)
-                    bid_currency=None,
-                )
-            )
-            conocidos.add((platform, "campaign", str(external)))
-
-        for payload in est.ad_groups:
-            external = payload.get("adGroupId")
-            if external is None:
-                skips["ad group sin adGroupId"] += 1
-                continue
-            if (platform, "campaign", str(payload.get("campaignId"))) not in conocidos:
-                skips["ad group sin campana planificada"] += 1
-                continue
-            try:
-                bid = _bid_decimal(payload.get("defaultBid"), "defaultBid")
-            except ValueError:
-                skips["ad group con defaultBid no numerico o no positivo"] += 1
-                continue
-            items.append(
-                _ItemEntidad(
-                    platform=platform,
-                    kind="ad_group",
-                    external_id=str(external),
-                    parent_ref=(platform, "campaign", str(payload.get("campaignId"))),
-                    name=payload.get("name"),
-                    match_type=None,
-                    keyword_text=None,
-                    status=payload.get("state"),
-                    targeting_type=None,
-                    bid=bid,
-                    bid_currency=moneda if bid is not None else None,
-                )
-            )
-            conocidos.add((platform, "ad_group", str(external)))
-            campana_del_ad_group[str(external)] = str(payload.get("campaignId"))
-
-        for payload in est.product_ads:
-            resultado = _item_product_ad(
-                payload,
-                platform=platform,
-                conocidos=conocidos,
-                campana_del_ad_group=campana_del_ad_group,
-            )
-            if isinstance(resultado, str):
-                skips[resultado] += 1
-                continue
-            items.append(resultado)
-            conocidos.add((platform, "product_ad", resultado.external_id))
-
-        for payload in est.keywords:
-            external = payload.get("keywordId")
-            if external is None:
-                skips["keyword sin keywordId"] += 1
-                continue
-            keyword_text = payload.get("keywordText")
-            if not keyword_text:
-                skips["keyword sin keywordText"] += 1
-                continue
-            match_type = payload.get("matchType")
-            if not match_type:
-                skips["keyword sin matchType"] += 1
-                continue
-            ad_group_id = str(payload.get("adGroupId"))
-            if (platform, "ad_group", ad_group_id) not in conocidos:
-                skips["keyword sin ad group planificado"] += 1
-                continue
-            campaign_id = payload.get("campaignId")
-            if campaign_id is not None and str(campaign_id) != campana_del_ad_group[ad_group_id]:
-                skips[
-                    "keyword con campaignId distinto al de su ad group (payload incoherente)"
-                ] += 1
-                continue
-            try:
-                bid = _bid_decimal(payload.get("bid"), "bid")
-            except ValueError:
-                skips["keyword con bid no numerico o no positivo"] += 1
-                continue
-            items.append(
-                _ItemEntidad(
-                    platform=platform,
-                    kind="keyword",
-                    external_id=str(external),
-                    parent_ref=(platform, "ad_group", ad_group_id),
-                    name=None,  # keyword_text es la fuente unica (regla 2)
-                    match_type=match_type,
-                    keyword_text=keyword_text,
-                    status=payload.get("state"),
-                    targeting_type=None,
-                    bid=bid,
-                    bid_currency=moneda if bid is not None else None,
-                )
-            )
-            conocidos.add((platform, "keyword", str(external)))
-
-        for payload in est.targets:
-            external = payload.get("targetId")
-            if external is None:
-                skips["target sin targetId"] += 1
-                continue
-            ad_group_id = str(payload.get("adGroupId"))
-            if (platform, "ad_group", ad_group_id) not in conocidos:
-                skips["target sin ad group planificado"] += 1
-                continue
-            campaign_id = payload.get("campaignId")
-            if campaign_id is not None and str(campaign_id) != campana_del_ad_group[ad_group_id]:
-                skips["target con campaignId distinto al de su ad group (payload incoherente)"] += 1
-                continue
-            try:
-                bid = _bid_decimal(payload.get("bid"), "bid")
-            except ValueError:
-                skips["target con bid no numerico o no positivo"] += 1
-                continue
-            items.append(
-                _ItemEntidad(
-                    platform=platform,
-                    kind="product_target",
-                    external_id=str(external),
-                    parent_ref=(platform, "ad_group", ad_group_id),
-                    name=_nombre_target(payload.get("expression")),
-                    match_type=None,
-                    keyword_text=None,
-                    status=payload.get("state"),
-                    targeting_type=None,
-                    bid=bid,
-                    bid_currency=moneda if bid is not None else None,
-                )
-            )
-            conocidos.add((platform, "product_target", str(external)))
-
-    return items, skips
-
-
-def _formato_skip_reason(skips: Counter[str]) -> str | None:
-    """Concatena motivos con contador, deterministicamente (mas frecuentes primero)."""
-    if not skips:
-        return None
-    partes = [
-        f"{cantidad}x {motivo}"
-        for motivo, cantidad in sorted(skips.items(), key=lambda par: (-par[1], par[0]))
-    ]
-    return ", ".join(partes)
 
 
 # ---------------------------------------------------------------------------

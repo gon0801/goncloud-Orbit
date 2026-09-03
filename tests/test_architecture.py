@@ -474,7 +474,7 @@ def test_allowlist_snapshot_caza_import_de_escritura(tmp_path):
 #     ley"). DEUDA CONOCIDA: consolidarla con la del motor es candidato de
 #     revision, pero NO se toca el cliente de escritura sellado por una
 #     constante — se declara y se revisa en su fase.
-#   - app/ads/structure.py : _PAIS_PLATAFORMA_MONEDA, forma DISTINTA
+#   - app/ads/structure_api.py : _PAIS_PLATAFORMA_MONEDA, forma DISTINTA
 #     (codigo de pais -> (plataforma, moneda)) y proposito distinto: resolver
 #     el perfil de Amazon durante el discovery, no decidir dinero. Se declara
 #     porque codifica la misma ley en otra forma. (Hallazgo de la cross-review
@@ -483,7 +483,7 @@ def test_allowlist_snapshot_caza_import_de_escritura(tmp_path):
 #     solo habia tres definiciones. Eran CUATRO, y el comentario original de
 #     app/listings.py que la citaba tenia razon.)
 DEFINICIONES_MONEDA_DECLARADAS = frozenset(
-    {"app/optimizer/bid.py", "app/ads/write.py", "app/ads/structure.py"}
+    {"app/optimizer/bid.py", "app/ads/write.py", "app/ads/structure_api.py"}
 )
 
 _MONEDAS_CONOCIDAS = ("MXN", "USD")
