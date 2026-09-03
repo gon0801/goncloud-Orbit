@@ -695,4 +695,6 @@ def test_pause_gana_sobre_la_regla_de_cero_ventas():
         expected_clicks="120",
         umbral_pause=180,
     )
-    assert r.kind == "pause"
+    # Cross-review grok-2: motivo pineado (kind solo no distingue el pause
+    # que gana del que se bloquea).
+    assert (r.kind, r.motivo) == ("pause", b.MOTIVO_PAUSE)

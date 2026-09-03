@@ -557,6 +557,14 @@ DISCRIMINA: el codigo viejo da -12% donde el test 1 exige -25% + motivo nuevo
   42.00 ≥ 40; división exacta 72/3). Lección para sembrar: cada hoja
   decide en SU ancla; el watermark global solo ordena evidencia y
   frescura.**
+- **D-1.1.11 · Cross-review grok (misma ronda única): 2 menores 1.1
+  aplicados aquí (solo tests, sin delta de código): (1) el motivo nuevo
+  entra a `test_orden_bids_prioridad_de_hemorragia_sellada` (banda 0,
+  cost DESC; un typo en el literal caería al final); (2) el test
+  pause-gana pinea `(kind, motivo)`. La BAJA 2b (4 guards pasarían sin
+  `_factor_cero_ventas`) es por diseño: son guards, el que discrimina es
+  el test 1 + ciclo + replay pre-BIDS (veredicto grok: APRUEBA CON
+  MENORES, 0 ALTA).**
 
 > **Revisión del lead (PR #132): 1 MAJOR (fidelidad del replay) + 2
 > menores + marker + filas de secuencia.**
