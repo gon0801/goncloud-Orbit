@@ -27,7 +27,7 @@ Preconditions:
 
 - **Partir de Resumen.** Corre `curl -sS "$BASE/"`. Status 200 y `data-pantalla="resumen"`.
 - **Seguir el nav.** Corre `curl -sS -D - "$BASE/campanas"`. Status 200. El HTML contiene `data-pantalla="campanas"`, `h2` `Campanas — metricas 30d y target efectivo con procedencia`, `href="/campanas"` junto a `aria-current="page"`, y `class="filtros"` con `name="estado"` / `name="procedencia"` y boton `Filtrar`.
-- **Leer la fila sembrada.** El HTML contiene `Campana A`, chip `activa`, `amazon_us · USD`, `12.3400`, `45.6700`, target `25.00%`, chip `goal_plataforma`.
+- **Leer la fila sembrada.** El HTML contiene `Campana A`, chip `activa`, `amazon_us · USD`, `12.34`, `45.67` (presentacion a 2 decimales; el JSON gemelo sigue en 4), target `25.00%`, chip `goal_plataforma`.
 - **Filtrar.** Corre `curl -sS "$BASE/campanas?estado=ENABLED&procedencia=goal_plataforma"`. Status 200 y sigue mostrando `Campana A`. Corre `curl -sS "$BASE/campanas?estado=PAUSED"`: el HTML contiene `Ninguna campana coincide con el filtro.` (semilla ENABLED).
 - **Confirmar lado JSON.** Corre `curl -sS "$BASE/api/dashboard/campanas"`. Status 200. Un item tiene `nombre` `Campana A`, `status` `ENABLED`, `metricas_30d.cost` `12.3400`, `metricas_30d.clicks` `8`, `metricas_30d.acos` no nulo, `target_efectivo.peldano` `goal_plataforma`.
 - **Proof.** Artefactos en `evidence/<run_id>/campanas/` (HTML de `/` y `/campanas`, headers, JSON, screenshot). O corre `.cursor/skills/verify-orbit/helpers/orbit-verify drive-campanas`.

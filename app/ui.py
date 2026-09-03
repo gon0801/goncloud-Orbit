@@ -49,6 +49,19 @@ _TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 # de 1.6 lo VERIFICAN, no lo asumen — regla 9).
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
+
+def dinero_ui(valor: str | None) -> str | None:
+    """Presentacion a 2 decimales. None queda None; si no parsea, se deja igual."""
+    if valor is None:
+        return None
+    try:
+        return f"{Decimal(valor):.2f}"
+    except (InvalidOperation, ValueError):
+        return valor
+
+
+templates.env.filters["dinero_ui"] = dinero_ui
+
 # Columnas que YA estan en campanas.html. No se inventan orders/impressions.
 COLUMNAS_ORDEN = (
     "nombre",

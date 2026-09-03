@@ -103,11 +103,12 @@ def test_ui_contribucion_rango_se_ve_como_rango(monkeypatch):
     assert 'data-pantalla="contribucion"' in html
     assert ETIQUETA in html
     fila = _fila_de(html, "Camp MX")
-    assert "26.0000" in fila and "50.0000" in fila
-    assert "26.0000 .. 50.0000" in fila or (
-        "26.0000" in fila and ".." in fila and "50.0000" in fila
-    )
-    assert "MXN" in fila
+    assert "26.00" in fila and "50.00" in fila
+    assert "26.0000" not in fila and "50.0000" not in fila
+    assert "26.00 .. 50.00" in fila or ("26.00" in fila and ".." in fila and "50.00" in fila)
+    assert "MXN" in html
+    tarjeta_mx = html.split("<h2>amazon_mx")[1].split("<h2>amazon_us")[0]
+    assert "MXN" in tarjeta_mx
     assert "2026-05-28" in html and "2026-08-16" in html
 
 
@@ -181,7 +182,7 @@ def test_ui_contribucion_rango_parcial_declara_motivo(monkeypatch):
         _payload(mx_items=[item]),
     )
     fila = _fila_de(html, "Camp MX")
-    assert "26.0000 .. 50.0000" in fila
+    assert "26.00 .. 50.00" in fila
     assert "catalogo parcial" in fila or "catalogo_parcial" in fila
 
 
@@ -197,6 +198,20 @@ def test_ui_contribucion_multilisting_marcado(monkeypatch):
     )
     fila = _fila_de(html, "Camp US")
     assert "precio min multilisting" in fila
+
+
+def test_ui_contribucion_etiqueta_una_vez_por_plataforma(monkeypatch):
+    filas = [
+        _item_con_rango(nombre="Camp MX"),
+        _item_con_rango(nombre="Camp MX 2", sin_halo="1.0000", con_halo="2.0000"),
+        _item_con_rango(nombre="Camp MX 3", sin_halo="3.0000", con_halo="4.0000"),
+    ]
+    html = _contribucion_html_fakeado(monkeypatch, _payload(mx_items=filas))
+    assert html.count(ETIQUETA) == 1
+    assert 'class="leyenda"' in html
+    assert ETIQUETA not in _fila_de(html, "Camp MX")
+    assert ETIQUETA not in _fila_de(html, "Camp MX 2")
+    assert ETIQUETA not in _fila_de(html, "Camp MX 3")
 
 
 def test_ui_contribucion_sin_marca_multilisting_no_la_pinta(monkeypatch):
