@@ -2458,3 +2458,64 @@ def test_ciclo_cero_ventas_con_clics_esperados_baja_25_y_replayea():
         alterado = dict(ins)
         alterado["corte"] = dict(ins["corte"], cero_ventas_expected_usado="33")
         assert ciclo.reproduce(alterado) == ("bid", Decimal("0.88"), "USD")
+
+
+def _fila_cola_corte(conn, ciclo_dec, config_id, entidad, kind, term=None) -> int:
+    """Fila pending_veto de un corte (siembra directa: el ciclo de test no
+    encola; sirve para bloquear la clave de efecto antes de correr)."""
+    dec = dt.datetime(2026, 8, 22, 12, 0, tzinfo=dt.UTC) - dt.timedelta(days=3)
+    decision_id = conn.execute(
+        "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
+        " data_observed_at, window_start, window_end, search_term, inputs)"
+        " VALUES (%s, %s, %s, %s, %s, %s - interval '1 day', %s - 60, %s - 30, %s, '{}'::jsonb)"
+        " RETURNING id",
+        (ciclo_dec, entidad, kind, dec, config_id, dec, dec.date(), dec.date(), term),
+    ).fetchone()[0]
+    return conn.execute(
+        "INSERT INTO apply_queue (platform, ad_entity_id, kind, search_term, decision_id,"
+        " modo, estado, vence_el, encolado_at, request_payload) VALUES ('amazon_us', %s, %s, %s,"
+        " %s, 'live', 'pending_veto', %s, %s, '{}'::jsonb) RETURNING id",
+        (
+            entidad,
+            kind,
+            term,
+            decision_id,
+            dt.datetime(2026, 8, 23, 12, 0, tzinfo=dt.UTC),
+            dec,
+        ),
+    ).fetchone()[0]
+
+
+def test_veto_pendiente_cuenta_el_ancestro_no_enabled():
+    """CAMPAÑA ACTIVA 01 · 1.6(b): el chequeo de claves bloqueadas va DESPUES
+    de los gates — una hoja con veto pendiente dentro de una campaña PAUSED
+    se cuenta 'campana_no_enabled' (no 'veto_pendiente') y un grupo gateado
+    cuenta TODOS sus terminos con el motivo del ancestro (incluidos los
+    bloqueados). Solo cambian contadores: ninguna decision ni mutacion.
+    Regla 9: antes del fix kw_bid contaba 'veto_pendiente' (1, no 2) y el
+    termino bloqueado se descontaba antes del gate (6, no 7)."""
+    with _db_temporal("orbit_ciclo_veto_anc") as (conn, _c):
+        ids = _siembra_maestra(conn)
+        ciclo_dec = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        # claves de efecto en vuelo: entity_cut de kw_bid y term_cut de un termino
+        _fila_cola_corte(conn, ciclo_dec, ids["config_id"], ids["kw_bid"], "pause")
+        _fila_cola_corte(
+            conn, ciclo_dec, ids["config_id"], ids["ag"], "negative", term="tortugas ninja calzas"
+        )
+        n_terminos = len(w.terminos_cortes(conn, ids["ag"], DECIDED_AT).terminos)
+        assert n_terminos > 1
+        conn.execute(
+            "UPDATE ad_entity_state SET status = 'PAUSED' WHERE ad_entity_id = %s",
+            (ids["camp"],),
+        )
+
+        res = _corre(conn)
+
+        assert res.status == "done"
+        skips = json.loads(res.notes)["skips"]
+        assert skips["entidad"]["campana_no_enabled"] == 2  # kw_bid (bloqueada) y kw_pause
+        assert "veto_pendiente" not in skips["entidad"]
+        assert skips["termino"]["campana_no_enabled"] == n_terminos  # TODOS, incluido el bloqueado
+        assert "veto_pendiente" not in skips["termino"]

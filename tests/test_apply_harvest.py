@@ -2136,3 +2136,111 @@ def test_reversa_completa_con_delete_rechazado_no_borra_el_negativo():
         assert filas[0][1].startswith("fallo:reversa_rechazada"), (
             "el ledger declara el rechazo con el cuerpo del ack"
         )
+
+
+# ---------------------------------------------------------------------------
+# CAMPAÑA ACTIVA 01 · 1.6: gate de ancestros en la reconciliacion (origen)
+# ---------------------------------------------------------------------------
+
+
+@_skip_db
+def test_reconcilia_negative_grupo_pausado_gate_ancestros():
+    """CAMPAÑA ACTIVA 01 · 1.6(a): cola applying huerfana de negative cuyo
+    AD GROUP (la fila ES el grupo, semantica D3) esta PAUSED → sello
+    'fallo:ancestro_no_enabled', fila failed, cero HTTP y sin recobro.
+    Regla 9: antes del fix el reconciliador hacia el LIST y REINTENTABA el
+    POST del negativo dentro de un grupo apagado (hallazgo codex r1 #1)."""
+    with _db_temporal("orbit_har_gate_neg") as conn:
+        ids = _semilla(conn)
+        conn.execute(
+            "UPDATE ad_entity_state SET status = 'PAUSED' WHERE ad_entity_id = %s",
+            (ids["ag"],),
+        )
+        dec = _decision_negative(conn, ids["ciclo_dec"], ids["config"], ids["ag"])
+        q = _encola_fila(conn, dec, ids["ag"], kind="negative", term=TERMINO)
+        _libera_fila(conn, q)
+        _claim_fila(conn, q)
+        _fila_ledger_abierta(conn, dec)
+        handler, vistos = _handler_harvest()
+
+        resumen = _reconcilia(conn, handler, ids["ciclo_ejec"])
+
+        assert resumen.negativas_fallidas == 1 and resumen.negativas_confirmadas == 0
+        assert vistos == [], "ni el LIST: el gate va antes de crear el cliente"
+        cola = conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()
+        assert cola == ("failed",)
+        resultado = conn.execute(
+            "SELECT resultado, finished_at IS NOT NULL FROM apply_attempt WHERE decision_id = %s",
+            (dec,),
+        ).fetchone()
+        assert resultado == ("fallo:ancestro_no_enabled", True)
+
+
+@_skip_db
+def test_reconcilia_harvest_campana_origen_pausada_cierra_job():
+    """CAMPAÑA ACTIVA 01 · 1.6(a): job en vuelo (fila applying) cuya CAMPAÑA
+    DE ORIGEN (job.ad_entity_id = el ad group de la fila) esta PAUSED → job
+    failed + fila failed + sello 'fallo:ancestro_no_enabled', cero HTTP, sin
+    quota y SIN alerta de Telegram (condicion esperada, no fallo operativo).
+    El destino del goal NO se gatea (D4, residual declarado). Regla 9: antes
+    del fix el job reintentaba el POST del negativo en la campaña pausada."""
+    with _db_temporal("orbit_har_gate_job") as conn:
+        ids = _semilla(conn)
+        conn.execute(
+            "UPDATE ad_entity_state SET status = 'PAUSED' WHERE ad_entity_id = %s",
+            (ids["camp"],),
+        )
+        dec = _decision_harvest(conn, ids["ciclo_dec"], ids["config"], ids["ag"])
+        q = _encola_fila(conn, dec, ids["ag"], term=TERMINO)
+        _libera_fila(conn, q)
+        _claim_fila(conn, q)
+        _job_en(conn, dec, ids["ag"], "pending")
+        _fila_ledger_abierta(conn, dec)
+        handler, vistos = _handler_harvest()
+
+        resumen = _reconcilia(conn, handler, ids["ciclo_ejec"])
+
+        assert resumen.jobs_failed == 1 and resumen.jobs_done == 0
+        assert resumen.alertas == (), "campana pausada por el dueno no es alerta"
+        assert vistos == []
+        job = conn.execute("SELECT fase FROM harvest_job WHERE decision_id = %s", (dec,)).fetchone()
+        assert job == ("failed",)
+        cola = conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()
+        assert cola == ("failed",)
+        resultado = conn.execute(
+            "SELECT resultado FROM apply_attempt WHERE decision_id = %s", (dec,)
+        ).fetchone()
+        assert resultado == ("fallo:ancestro_no_enabled",)
+        assert conn.execute("SELECT count(*) FROM apply_quota_state").fetchone()[0] == 0
+
+
+@_skip_db
+def test_reconcilia_harvest_campana_pausada_fila_released_descarta_pre_claim():
+    """CAMPAÑA ACTIVA 01 · 1.6(a): job en vuelo con fila RELEASED (esperaba
+    quota) y campaña de origen PAUSED → discard PRE-claim con motivo
+    'campana_no_enabled' (la maquina de estados de 0002 no tiene
+    released -> failed; released sigue vetable): sin quota, sin claim, sin
+    HTTP, job failed."""
+    with _db_temporal("orbit_har_gate_rel") as conn:
+        ids = _semilla(conn)
+        conn.execute(
+            "UPDATE ad_entity_state SET status = 'PAUSED' WHERE ad_entity_id = %s",
+            (ids["camp"],),
+        )
+        dec = _decision_harvest(conn, ids["ciclo_dec"], ids["config"], ids["ag"])
+        q = _encola_fila(conn, dec, ids["ag"], term=TERMINO)
+        _libera_fila(conn, q)
+        _job_en(conn, dec, ids["ag"], "pending")
+        handler, vistos = _handler_harvest()
+
+        resumen = _reconcilia(conn, handler, ids["ciclo_ejec"])
+
+        assert resumen.jobs_failed == 1
+        assert vistos == []
+        job = conn.execute("SELECT fase FROM harvest_job WHERE decision_id = %s", (dec,)).fetchone()
+        assert job == ("failed",)
+        fila = conn.execute(
+            "SELECT estado, discard_motivo FROM apply_queue WHERE id = %s", (q,)
+        ).fetchone()
+        assert fila == ("discarded", "campana_no_enabled")
+        assert conn.execute("SELECT count(*) FROM apply_quota_state").fetchone()[0] == 0

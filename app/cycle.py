@@ -56,9 +56,13 @@ Diseño sellado (plans/orbit-03.md task 3.1 + diseno v2):
   v_entidad_inerte leida UNA vez por ciclo en TX2; salta ANTES de resolver
   ventanas, no aplica al camino de terminos); cooldown 7d -> 'cooldown_7d'.
   Orden de gates del orquestador: campaña (goal) primero (la hace invisible al
-  optimizador por completo), luego ancestros, luego estado, luego cooldown (la
-  ultima guarda
-  por decision). Desviacion declarada del orden literal del spec (que lista
+  optimizador por completo), luego ancestros, luego estado, luego cooldown; y
+  solo DESPUES de todos ellos el veto pendiente por clave de efecto
+  (CAMPANA ACTIVA 01 · 1.6: una hoja o termino dentro de una campana/grupo
+  apagado se cuenta con el motivo del ANCESTRO, y un grupo gateado cuenta
+  TODOS sus terminos con ese motivo — incluidos los bloqueados; solo cambian
+  contadores de notes.skips, ninguna decision ni mutacion). Desviacion
+  declarada del orden literal del spec (que lista
   el cooldown antes): en shadow el cooldown JAMAS dispara (solo cuentan
   applies de ciclos live, regla 2.4) y asi no se paga una query EXISTS por
   entidad de campañas fuera del ciclo.
@@ -1154,15 +1158,6 @@ def _procesa_decisora(
         status_grupo,
         status_campana,
     ) = fila
-    if (entidad_id, "entity_cut", None) in bloqueadas:
-        # 2.2 sellado 5 / 2.4: clave de efecto en vuelo (fila NO terminal o
-        # veto vigente) — el ciclo NO re-decide esa clave. Salta la entidad
-        # ENTERA del motor de bids (decide_bid evalua pause y banda en una
-        # sola llamada; prohibir solo el pause exigiria inventar un umbral,
-        # regla 3 — declarado en el docstring del modulo).
-        contadores.skips_entidad[MOTIVO_VETO_PENDIENTE] += 1
-        tick()
-        return
     goal, motivo = _gates_entidad(
         conn,
         goals,
@@ -1180,6 +1175,17 @@ def _procesa_decisora(
         tick()
         return
     assert goal is not None  # _porta_goal_campana: motivo None implica goal
+    if (entidad_id, "entity_cut", None) in bloqueadas:
+        # 2.2 sellado 5 / 2.4: clave de efecto en vuelo (fila NO terminal o
+        # veto vigente) — el ciclo NO re-decide esa clave. Salta la entidad
+        # ENTERA del motor de bids (decide_bid evalua pause y banda en una
+        # sola llamada; prohibir solo el pause exigiria inventar un umbral,
+        # regla 3 — declarado en el docstring del modulo). CAMPAÑA ACTIVA 01
+        # · 1.6: va DESPUES de los gates — una hoja en campana/grupo no
+        # ENABLED se cuenta con el motivo del ANCESTRO, no como veto.
+        contadores.skips_entidad[MOTIVO_VETO_PENDIENTE] += 1
+        tick()
+        return
     if entidad_id in inertes:
         # BIDS 01 (D3): sin impresiones en 14d desde el watermark -> el ajuste
         # seria inerte (Amazon no sirve la hoja); no gasta consultas ni cupo.
@@ -1261,6 +1267,23 @@ def _procesa_grupo(
     grupo_id, campaign_id, status, status_campana = fila
     terminos = windows.terminos_cortes(conn, grupo_id, decided_at)
     contadores.terminos += len(terminos.terminos)
+    goal, motivo = _gates_entidad(
+        conn,
+        goals,
+        campaign_id=campaign_id,
+        entidad_id=grupo_id,
+        status=status,
+        ancestros=((MOTIVO_CAMPANA_NO_ENABLED, status_campana),),
+        decided_at=decided_at,
+    )
+    if motivo is not None:
+        # ad group fuera: sus terminos TODOS skip con ese motivo (CAMPAÑA
+        # ACTIVA 01 · 1.6: incluidos los de clave bloqueada — el gate corre
+        # ANTES del veto, que seria moot dentro de una campana apagada)
+        contadores.skips_termino[motivo] += len(terminos.terminos)
+        tick()
+        return
+    assert goal is not None
     # 2.2 sellado 5 / 2.4: los terminos cuya clave de efecto (grupo,
     # term_cut, search_term) esta bloqueada NO se re-deciden; los demas
     # avanzan. La ventana/fechas de la entidad se conservan: el filtro es de
@@ -1272,21 +1295,6 @@ def _procesa_grupo(
     if bloqueados:
         contadores.skips_termino[MOTIVO_VETO_PENDIENTE] += bloqueados
         terminos = replace(terminos, terminos=libres)
-    goal, motivo = _gates_entidad(
-        conn,
-        goals,
-        campaign_id=campaign_id,
-        entidad_id=grupo_id,
-        status=status,
-        ancestros=((MOTIVO_CAMPANA_NO_ENABLED, status_campana),),
-        decided_at=decided_at,
-    )
-    if motivo is not None:
-        # ad group fuera: sus terminos TODOS skip con ese motivo
-        contadores.skips_termino[motivo] += len(terminos.terminos)
-        tick()
-        return
-    assert goal is not None
     # CORTES 01 (1.2/1.4): umbral de clicks Y piso de cost del GRUPO
     # resueltos UNA vez por ciclo (misma evidencia de la ventana D-90..D-10;
     # grupo ausente del dict -> evidencia None -> fallback/respaldo con piso
