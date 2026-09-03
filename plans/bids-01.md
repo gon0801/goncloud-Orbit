@@ -543,6 +543,12 @@ DISCRIMINA: el codigo viejo da -12% donde el test 1 exige -25% + motivo nuevo
   rojo/verde esperado; el test 6-pause con `umbral_pause=180` cuadra.)
 - **Veredicto del lead (2026-09-03): `cortes=None`.** Se aplica la
   corrección propuesta; el test 1 queda en camino de bandas puro.
+- **D-1.1.7 · El CI del PR (run 33712909099) dio `decisions_count == 6`
+  en el test de ciclo (esperaba 5 = 4 maestra + 1 nueva); el resto de la
+  batería (1037) verde.** Sospechosos: la hoja donante (debería skipear
+  sin métricas en ventana) o un cambio de conteo en la maestra bajo el
+  código 1.1. Se agregó volcado temporal de (entidad, kind, motivo) al
+  assert para ver la sexta en el próximo run; se quita al entender.
 
 ## Reject (con razón)
 

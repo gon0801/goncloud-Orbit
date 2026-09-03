@@ -2223,9 +2223,12 @@ def test_ciclo_cero_ventas_con_clics_esperados_baja_25_y_replayea():
 
         res = _corre(conn)
         assert res.status == "done"
-        # 4 selladas de la maestra + 1 de la hoja de cero ventas
-        assert res.decisions_count == 5
         filas = _decisions_de(conn, res.cycle_id)
+        # DEBUG CI (D-1.1.7): el run 33712909099 dio 6 en vez de 5; volcar
+        # (entidad, kind, motivo) para ver la sexta. Se quita al entender.
+        resumen = sorted((f[0], f[1], f[9].get("motivo")) for f in filas)
+        # 4 selladas de la maestra + 1 de la hoja de cero ventas
+        assert res.decisions_count == 5, resumen
         por = {(f[0], f[1], f[2]): f for f in filas}
         # la maestra sigue igual: sin la regla nueva no hay cambio
         assert por[(ids["kw_bid"], "bid", None)][9]["motivo"] == "banda_menos_25"
