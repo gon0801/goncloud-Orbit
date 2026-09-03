@@ -171,6 +171,14 @@ UPDATE apply_queue SET estado = 'applying', applying_at = now()
 RETURNING id
 """
 
+# CAMPANA ACTIVA 01 · 1.6: espejo de apply_cola._SQL_DESCARTA (mismo ciclo de
+# imports): discard PRE-claim del job cuya campana/grupo de ORIGEN dejo de
+# estar ENABLED mientras esperaba quota.
+_SQL_DESCARTA = """
+UPDATE apply_queue SET estado = 'discarded', discarded_at = now(), discard_motivo = %s
+ WHERE id = %s AND estado = 'released'
+"""
+
 _SQL_EXTERNALES = """
 SELECT grp.external_id, cam.external_id
   FROM ad_entity grp
@@ -1179,11 +1187,21 @@ def _reconcilia_negativas(conn: psycopg.Connection, aplicador, platform: str) ->
     """Cola applying huerfana kind NEGATIVE (matriz §6.1): existe con
     identidad → confirmar; SOLO en otro ad group (señuelo) → failed; no
     existe → reintento (tope 3) o failed. El applying conserva su cobro:
-    el reintento NO recobra."""
+    el reintento NO recobra.
+
+    CAMPANA ACTIVA 01 · 1.6: gate de ancestros PRIMERO (la fila ES el ad
+    group, semantica D3): grupo o campaña no ENABLED en el cache → sello
+    'fallo:ancestro_no_enabled' + fila failed, sin HTTP ni recobro."""
     confirmadas = fallidas = 0
     cliente = None
     filas = conn.execute(_SQL_NEGATIVAS_APLICANDO, (platform,)).fetchall()
     for q_id, entidad, term, decision_id in filas:
+        if apply.gate_ancestros(conn, entidad) is not None:
+            with conn.transaction():
+                _sella_pendientes(conn, decision_id, apply.RESULTADO_ANCESTRO_NO_ENABLED)
+                _termina_cola(conn, q_id, "failed")
+            fallidas += 1
+            continue
         if cliente is None:
             cliente = aplicador._cliente()
         externos = conn.execute(_SQL_EXTERNALES, (entidad,)).fetchone()
@@ -1300,7 +1318,15 @@ def reconcilia_harvest(
     la red de seguridad de filas harvest applying sin job vivo (GK4).
     Quota SOLO la primera vez; antes de cualquier HTTP reclama la fila (el
     veto puede ganar el claim). Ambiguo por job → se salta al ciclo siguiente
-    (la fila sin sello ES el rastro)."""
+    (la fila sin sello ES el rastro).
+
+    CAMPANA ACTIVA 01 · 1.6: gate de ancestros del ORIGEN (job.ad_entity_id,
+    el ad group de la fila, semantica D3; el destino del goal sigue SIN gate
+    de codigo, D4) tras el chequeo de fila muerta y ANTES del cobro/claim/
+    HTTP: job → failed, ledger pendiente sellado 'fallo:ancestro_no_enabled',
+    fila applying → failed / fila released → discarded PRE-claim (la maquina
+    de estados de 0002 no tiene released → failed). Cuenta en jobs_failed SIN
+    alerta de Telegram: campana pausada por el dueno es condicion esperada."""
     alertas: list[AlertaHarvest] = []
     caps_saturados: list[CapSaturado] = []
     jobs_done = jobs_failed = cerrados = 0
@@ -1310,6 +1336,18 @@ def reconcilia_harvest(
         if queue_estado in ("vetoed", "discarded"):
             conn.execute(_SQL_JOB_FAILED, (job.id,))
             cerrados += 1
+            continue
+        motivo_gate = apply.gate_ancestros(conn, job.ad_entity_id)
+        if motivo_gate is not None:
+            with conn.transaction():
+                conn.execute(_SQL_JOB_FAILED, (job.id,))
+                _sella_pendientes(conn, job.decision_id, apply.RESULTADO_ANCESTRO_NO_ENABLED)
+                if queue_id is not None:
+                    if queue_estado == "released":
+                        conn.execute(_SQL_DESCARTA, (motivo_gate, queue_id))
+                    else:
+                        _termina_cola(conn, queue_id, "failed")
+            jobs_failed += 1
             continue
         if queue_estado == "released":
             usada, saturada = apply.consume_quota_y_sello(conn, platform, "harvest")

@@ -117,11 +117,13 @@ MOTIVO_VENDIO_EN_VENTANA = "vendio_en_ventana"
 MOTIVO_YA_NO_CALIFICA = "ya_no_califica"
 MOTIVO_ENTIDAD_NO_VIVA = "entidad_no_viva"
 MOTIVO_REACTIVACION_MANUAL = "reactivacion_manual"
-# CAMPANA ACTIVA 01: espejo de cycle.MOTIVO_CAMPANA/GRUPO_NO_ENABLED (cycle
-# importa de este modulo, no al reves): un corte cuya campaña o ad group dejo
-# de estar ENABLED durante la ventana de veto es moot -> discard PRE-claim.
-MOTIVO_CAMPANA_NO_ENABLED = "campana_no_enabled"
-MOTIVO_GRUPO_NO_ENABLED = "grupo_no_enabled"
+# CAMPANA ACTIVA 01 · 1.6: alias de apply.MOTIVO_CAMPANA/GRUPO_NO_ENABLED
+# (la funcion compartida del gate vive en apply, dueno del write client; cycle
+# y los tests siguen importando de AQUI): un corte cuya campaña o ad group
+# dejo de estar ENABLED durante la ventana de veto es moot -> discard
+# PRE-claim.
+MOTIVO_CAMPANA_NO_ENABLED = apply.MOTIVO_CAMPANA_NO_ENABLED
+MOTIVO_GRUPO_NO_ENABLED = apply.MOTIVO_GRUPO_NO_ENABLED
 
 # La re-decision de la regla llama al motor PURO por su firma completa; la
 # rama pause/negative NO consume target/floor/ceiling (bids=None cierra la
@@ -223,17 +225,9 @@ _SQL_PADRE = """
 SELECT parent_id FROM ad_entity WHERE id = %s
 """
 
-# CAMPANA ACTIVA 01: status (cache) del ad group y de la campaña de la fila.
-# Hoja (pause): el grupo es su padre; ad group (negative/harvest): el grupo
-# es la propia fila. LEFT JOIN: sin fila de state = NULL = fuera (regla 3).
-_SQL_ANCESTROS = """
-SELECT sg.status, sc.status
-  FROM ad_entity e
-  JOIN ad_entity g ON g.id = CASE WHEN e.kind = 'ad_group' THEN e.id ELSE e.parent_id END
-  LEFT JOIN ad_entity_state sg ON sg.ad_entity_id = g.id
-  LEFT JOIN ad_entity_state sc ON sc.ad_entity_id = g.parent_id
- WHERE e.id = %s
-"""
+# CAMPANA ACTIVA 01 · 1.6: el SQL y la semantica del gate de ancestros viven
+# en apply.gate_ancestros (funcion UNICA, reusada por los reconciliadores);
+# este modulo ya importa apply.
 
 _SQL_EXTERNALES_GRUPO = """
 SELECT grp.external_id, cam.external_id
@@ -669,14 +663,9 @@ def _revalida_ancestros(conn: psycopg.Connection, fila: FilaCola) -> str | None:
     el cache de estructura (sync diario; guarda de 48h del ciclo) — no un
     LIST fresco de campañas (residual declarado en el plan). Corre ANTES del
     dispatch por kind: sin LIST de la hoja, sin cobro, sin claim. Entidad sin
-    fila o ancestro sin state -> fuera (regla 3)."""
-    fila_anc = conn.execute(_SQL_ANCESTROS, (fila.ad_entity_id,)).fetchone()
-    status_grupo, status_campana = fila_anc if fila_anc is not None else (None, None)
-    if status_campana != "ENABLED":
-        return MOTIVO_CAMPANA_NO_ENABLED
-    if status_grupo != "ENABLED":
-        return MOTIVO_GRUPO_NO_ENABLED
-    return None
+    fila o ancestro sin state -> fuera (regla 3). Desde 1.6 delega en
+    apply.gate_ancestros (funcion UNICA compartida con los reconciliadores)."""
+    return apply.gate_ancestros(conn, fila.ad_entity_id)
 
 
 def _revalida(
