@@ -779,9 +779,7 @@ def cmd_drive_resumen(args: argparse.Namespace) -> None:
     checks["seed_cost_us"] = (fila_seed_us or {}).get("cost") == "12.3400"
     checks["seed_revenue_us"] = (fila_seed_us or {}).get("ad_revenue") == "45.6700"
     checks["missing_us_is_none"] = any(
-        r.get("fecha") != seed_metric_date
-        and r.get("cost") is None
-        and r.get("ad_revenue") is None
+        r.get("fecha") != seed_metric_date and r.get("cost") is None and r.get("ad_revenue") is None
         for r in series_us
     )
 
@@ -933,9 +931,7 @@ def cmd_drive_salud(args: argparse.Namespace) -> None:
         _die("drive-salud FALLA: no encontre script#datos-skips-amazon_us")
     raw = html_lib.unescape(skip_script.group(1).strip())
     skip_data = json.loads(raw)
-    motivo_es = (
-        (skip_data.get("entidad") or {}).get("estado_no_enabled") or {}
-    ).get("motivo_es")
+    motivo_es = ((skip_data.get("entidad") or {}).get("estado_no_enabled") or {}).get("motivo_es")
     checks["skips_motivo_es_human"] = isinstance(motivo_es, str) and (
         "no habilitada" in motivo_es or "no habilitado" in motivo_es
     )
@@ -1054,7 +1050,7 @@ def cmd_drive_cortes(args: argparse.Namespace) -> None:
         "zapato_blanco": "zapato blanco" in texto,
         "button_vetar": 'data-vetar="' in texto,
         "form_veto": 'data-veto="' in texto,
-        "dias_value_30": re.search(r'name=\"dias\"[^>]*value=\"30\"', texto) is not None,
+        "dias_value_30": re.search(r"name=\"dias\"[^>]*value=\"30\"", texto) is not None,
         "actor_input": 'name="actor"' in texto,
         "token_input": 'name="token"' in texto,
     }
