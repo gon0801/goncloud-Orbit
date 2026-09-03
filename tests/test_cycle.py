@@ -43,6 +43,7 @@ import socket
 import threading
 from contextlib import contextmanager
 from decimal import Decimal
+from pathlib import Path
 
 import pglast
 import psycopg
@@ -54,6 +55,12 @@ from app import cycle as ciclo
 from app.optimizer import bid as bid_mod
 from app.optimizer import cortes
 from app.optimizer import windows as w
+
+# BIDS 01 (1.2): la DB de prueba ES la de produccion — el ciclo lee
+# v_entidad_inerte en TX2, asi que el fixture la aplica igual que SQL3.
+SQL13 = (Path(__file__).resolve().parents[1] / "migrations" / "0013_entidad_inerte.sql").read_text(
+    encoding="utf-8"
+)
 
 # ---------------------------------------------------------------------------
 # Reloj FIJO y ventanas derivadas (mismas constantes que test_optimizer_windows)
@@ -122,6 +129,9 @@ def _db_temporal(prefijo: str):
         # ORBIT 05 preflight 1.2: la DB de prueba ES la de produccion —
         # ads_optimizer_goal sin DEFAULT en piso/techo (0003).
         conn.execute(SQL3)
+        # BIDS 01 (1.2): la guarda entidad_inerte lee v_entidad_inerte en
+        # TX2 — sin esta migracion TODO ciclo revienta con UndefinedTable.
+        conn.execute(SQL13)
         yield conn, conectar_extra
     finally:
         if conn is not None:
@@ -163,6 +173,9 @@ def _metrica(
     ad_revenue=None,
     clicks=None,
     orders=None,
+    # BIDS 01 (1.2): la vista v_entidad_inerte lee impressions; el default
+    # None conserva lo sembrado antes (regla 3: ausente, no cero).
+    impressions=None,
 ) -> None:
     conn.execute(
         "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
@@ -175,7 +188,7 @@ def _metrica(
             moneda,
             Decimal(cost) if cost is not None else None,
             Decimal(ad_revenue) if ad_revenue is not None else None,
-            None,
+            impressions,
             clicks,
             orders,
             run_id,
@@ -300,6 +313,9 @@ def _siembra_kw_bid(conn, run_id, kw) -> None:
             ad_revenue="2.50",
             clicks=1,
             orders=1 if i < 5 else 0,
+            # BIDS 01: hoja servida -> impressions reales (sin ellas la
+            # vista la marcaria inerte; NULL es ausencia, no cero).
+            impressions=10,
         )
     for fecha in _rango(dt.date(2026, 8, 13), dt.date(2026, 8, 16)):
         _metrica(
@@ -312,6 +328,7 @@ def _siembra_kw_bid(conn, run_id, kw) -> None:
             ad_revenue="8.75",
             clicks=6,
             orders=0,
+            impressions=60,
         )
     for fecha in _rango(dt.date(2026, 8, 17), dt.date(2026, 8, 19)):
         _metrica(
@@ -324,6 +341,7 @@ def _siembra_kw_bid(conn, run_id, kw) -> None:
             ad_revenue="0.10",
             clicks=1,
             orders=0,
+            impressions=10,
         )
 
 
@@ -347,6 +365,8 @@ def _siembra_kw_pause(conn, run_id, kw) -> None:
             ad_revenue="1.00",
             clicks=3 if i % 2 == 0 else 4,
             orders=0,
+            # BIDS 01: hoja servida -> impressions reales (ver _siembra_kw_bid).
+            impressions=30 if i % 2 == 0 else 40,
         )
     for fecha in _rango(dt.date(2026, 8, 13), dt.date(2026, 8, 19)):
         _metrica(
@@ -359,6 +379,7 @@ def _siembra_kw_pause(conn, run_id, kw) -> None:
             ad_revenue="0.10",
             clicks=1,
             orders=0,
+            impressions=10,
         )
 
 
@@ -969,6 +990,9 @@ def _siembra_guarda(conn, *, metric_date, synced_at) -> None:
         ad_revenue="3.00",
         clicks=1,
         orders=1,
+        # BIDS 01: dia servido -> impressions reales (la guarda inerte no
+        # debe cambiar el motivo de estos tests de guardas).
+        impressions=10,
     )
 
 
@@ -1268,6 +1292,7 @@ _SQL_CYCLE = (
     "_SQL_CAMPANAS",
     "_SQL_GOALS",
     "_SQL_DECISORAS",
+    "_SQL_INERTES",
     "_SQL_GRUPOS",
     "_SQL_INSERT_DECISION",
     "_SQL_OWNER_LOCK",
@@ -1645,11 +1670,30 @@ def _siembra_bid_bloquea_pause(conn) -> dict:
     _estado(conn, kw, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
     for fecha in _rango(dt.date(2026, 7, 14), dt.date(2026, 8, 12)):
         _metrica(
-            conn, run_id, kw, fecha, _obs(fecha), cost="0.50", ad_revenue="1.00", clicks=1, orders=0
+            conn,
+            run_id,
+            kw,
+            fecha,
+            _obs(fecha),
+            cost="0.50",
+            ad_revenue="1.00",
+            clicks=1,
+            orders=0,
+            # BIDS 01: hoja servida -> impressions reales (espera un bid).
+            impressions=10,
         )
     for fecha in _rango(dt.date(2026, 8, 13), dt.date(2026, 8, 16)):
         _metrica(
-            conn, run_id, kw, fecha, _obs(fecha), cost="2.50", ad_revenue="0.10", clicks=6, orders=1
+            conn,
+            run_id,
+            kw,
+            fecha,
+            _obs(fecha),
+            cost="2.50",
+            ad_revenue="0.10",
+            clicks=6,
+            orders=1,
+            impressions=60,
         )
     return {"camp": camp, "ag": ag, "kw": kw}
 
@@ -2141,3 +2185,89 @@ def test_gate_campana_y_grupo_no_enabled():
         assert con_decision.isdisjoint({kw_p, kw_g, kw_n, ag_p})
         # la campaña ENABLED de la fixture maestra sigue decidiendo igual que antes
         assert ids["kw_bid"] in con_decision
+
+
+# ---------------------------------------------------------------------------
+# BIDS 01 1.2: guarda entidad_inerte (hoja sin impresiones en 14d no decide)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ciclo_hoja_sin_impresiones_recientes_es_skip_entidad_inerte():
+    """BIDS 01 (D3): hoja con metricas en ventana (el codigo viejo le
+    decidia un bid -12%) pero sin impresiones en 14d desde el watermark ->
+    skip entidad_inerte ANTES de decidir; la hoja gemela CON impresiones
+    recientes sigue decidiendo. Grupo y campana nuevos para no mover la
+    evidencia 131/9/30 de la maestra (el ancla max 08-19 la pone ella)."""
+    with _db_temporal("orbit_ciclo_inerte") as (conn, _c):
+        _siembra_maestra(conn)
+        run_id = _run(conn)
+        camp = _entidad(conn, "amazon_us", "campaign", "9401")
+        ag = _entidad(conn, "amazon_us", "ad_group", "9402", parent=camp)
+        inerte = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "9403",
+            parent=ag,
+            match_type="EXACT",
+            keyword_text="kw inerte",
+        )
+        viva = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "9404",
+            parent=ag,
+            match_type="EXACT",
+            keyword_text="kw viva",
+        )
+        synced = DECIDED_AT - dt.timedelta(hours=4)
+        _estado(conn, camp, synced_at=synced)
+        _estado(conn, ag, synced_at=synced)
+        _estado(conn, inerte, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
+        _estado(conn, viva, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
+        # Inerte: 10 fechas 07-20..07-29 (en BIDS 07-18..08-16 y en CORTES
+        # 07-14..08-12), clicks 50 y cost 50.00, impressions NULL. El codigo
+        # viejo decide bid -12%; el nuevo la salta sin gastar consultas.
+        for fecha in _rango(dt.date(2026, 7, 20), dt.date(2026, 7, 29)):
+            _metrica(
+                conn,
+                run_id,
+                inerte,
+                fecha,
+                _obs(fecha),
+                cost="5.00",
+                ad_revenue="0.00",
+                clicks=5,
+                orders=0,
+            )
+        # Viva: lo mismo 08-06..08-15 pero CON impresiones (decide en los
+        # dos mundos).
+        for fecha in _rango(dt.date(2026, 8, 6), dt.date(2026, 8, 15)):
+            _metrica(
+                conn,
+                run_id,
+                viva,
+                fecha,
+                _obs(fecha),
+                cost="5.00",
+                ad_revenue="0.00",
+                clicks=5,
+                orders=0,
+                impressions=100,
+            )
+
+        res = _corre(conn)
+        assert res.status == "done"
+        # 4 selladas de la maestra + la viva; la inerte es skip, no decision
+        assert res.decisions_count == 5
+        skips = json.loads(res.notes)["skips"]
+        assert skips["entidad"]["entidad_inerte"] == 1
+        filas = _decisions_de(conn, res.cycle_id)
+        por = {(f[0], f[1], f[2]): f for f in filas}
+        assert (inerte, "bid", None) not in por
+        assert por[(viva, "bid", None)][9]["motivo"] == "banda_menos_12"

@@ -51,7 +51,10 @@ Diseño sellado (plans/orbit-03.md task 3.1 + diseno v2):
   'campana_no_enabled' / 'grupo_no_enabled' (CAMPANA ACTIVA 01: el cache de
   estructura, no un LIST; un ancestro pausado hace moot todo lo de abajo);
   entidad sin state o status != ENABLED -> 'estado_no_enabled' (para ad
-  groups: sus terminos TODOS skip con ese motivo); cooldown 7d -> 'cooldown_7d'.
+  groups: sus terminos TODOS skip con ese motivo); hoja sin impresiones en
+  14d desde el watermark -> 'entidad_inerte' (BIDS 01: vista
+  v_entidad_inerte leida UNA vez por ciclo en TX2; salta ANTES de resolver
+  ventanas, no aplica al camino de terminos); cooldown 7d -> 'cooldown_7d'.
   Orden de gates del orquestador: campaña (goal) primero (la hace invisible al
   optimizador por completo), luego ancestros, luego estado, luego cooldown (la
   ultima guarda
@@ -216,6 +219,10 @@ MOTIVO_ESTADO_NO_ENABLED = "estado_no_enabled"
 # ad_entity_state (sync diario; guarda de 48h del ciclo).
 MOTIVO_CAMPANA_NO_ENABLED = "campana_no_enabled"
 MOTIVO_GRUPO_NO_ENABLED = "grupo_no_enabled"
+# BIDS 01 (D3): hoja sin impresiones en 14d desde el watermark (vista
+# v_entidad_inerte, migracion 0013): ajustar su bid seria inerte, Amazon no
+# la sirve. Se salta ANTES de resolver ventanas (no gasta consultas ni cupo).
+MOTIVO_ENTIDAD_INERTE = "entidad_inerte"
 MOTIVO_COOLDOWN_7D = "cooldown_7d"
 MOTIVO_ESCALERA_OFF = "escalera_off"
 MOTIVO_VETO_PENDIENTE = apply_cola.MOTIVO_VETO_PENDIENTE
@@ -405,6 +412,13 @@ SELECT k.id, k.parent_id AS ad_group_id, ag.parent_id AS campaign_id,
   LEFT JOIN ad_entity_state sc ON sc.ad_entity_id = ag.parent_id
  WHERE k.platform = %s::platform AND k.kind IN ('keyword', 'product_target')
  ORDER BY k.id
+"""
+
+# BIDS 01 (D2/D3): conjunto de hojas inertes de LA plataforma, UNA consulta
+# por ciclo en TX2 junto a la evidencia (misma fuente que la pagina, el
+# digest y la herramienta: v_entidad_inerte, migracion 0013).
+_SQL_INERTES = """
+SELECT id FROM v_entidad_inerte WHERE platform = %s::platform
 """
 
 # Ad groups con SU campaña y state: son las entidades que portean terminos.
@@ -1115,6 +1129,7 @@ def _procesa_decisora(
     evidencia_ad_groups: dict[int, windows.EvidenciaAdGroup],
     corte_pause_por_grupo: dict[int, tuple[cortes.UmbralResuelto, windows.EvidenciaAdGroup | None]],
     bloqueadas: set[tuple[int, str, str | None]],
+    inertes: set[int],
 ) -> None:
     (
         entidad_id,
@@ -1153,6 +1168,12 @@ def _procesa_decisora(
         tick()
         return
     assert goal is not None  # _porta_goal_campana: motivo None implica goal
+    if entidad_id in inertes:
+        # BIDS 01 (D3): sin impresiones en 14d desde el watermark -> el ajuste
+        # seria inerte (Amazon no sirve la hoja); no gasta consultas ni cupo.
+        contadores.skips_entidad[MOTIVO_ENTIDAD_INERTE] += 1
+        tick()
+        return
     # CORTES 01 (1.3): umbral pause del GRUPO (k.parent_id de
     # _SQL_DECISORAS) resuelto con LA MISMA funcion que negative, UNA vez
     # por ad group y ciclo (cache lazy del recorrido); entidad cuyo grupo
@@ -1314,6 +1335,10 @@ def _recorre_plataforma(
     }
     goals = _lee_goals(conn, platform, list(acos_campanas))
     evidencia_ad_groups = windows.ventanas_evidencia_ad_group(conn, platform, decided_at)
+    # BIDS 01 (D3): hojas inertes de la plataforma, UNA vez por ciclo en TX2
+    # (mismo snapshot que la evidencia). Se pasa EXPLICITO a
+    # _procesa_decisora (no en `comunes`: el camino de terminos no lo usa).
+    inertes = {f[0] for f in conn.execute(_SQL_INERTES, (platform,)).fetchall()}
     # CORTES 01 (1.2/1.3): evidencia por ad group, UNA consulta por
     # plataforma DENTRO de TX2 junto a las demas lecturas (mismo snapshot
     # REPEATABLE READ; spec: una ventana, una elegibilidad, un multiplicador).
@@ -1340,7 +1365,9 @@ def _recorre_plataforma(
     )
     for fila in conn.execute(_SQL_DECISORAS, (platform,)).fetchall():
         contadores.entidades += 1
-        _procesa_decisora(conn, fila=fila, corte_pause_por_grupo=corte_pause_por_grupo, **comunes)
+        _procesa_decisora(
+            conn, fila=fila, corte_pause_por_grupo=corte_pause_por_grupo, inertes=inertes, **comunes
+        )
     for fila in conn.execute(_SQL_GRUPOS, (platform,)).fetchall():
         contadores.ad_groups += 1
         _procesa_grupo(conn, fila=fila, acos_campanas=acos_campanas, **comunes)

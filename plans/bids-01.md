@@ -120,7 +120,7 @@ decisión al día pasa de −12% a −25%.
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
 | 1.1 | **GLM — Regla A' en `bid.py`**: constante `MOTIVO_BANDA_MENOS_25_CERO_VENTAS = "banda_menos_25_cero_ventas"`; `decide_bid` gana `expected_clicks: Decimal \| None = None`; función pura `_factor_cero_ventas(bids, expected_clicks, cost_min)`; motivo del resultado = el nuevo cuando esa regla dispara, si no `_MOTIVO_BANDA[factor]`; `cycle._procesa_decisora` pasa `expected_clicks=corte_pause.expected_clicks`; `replay._replay_bid` lee `inputs.corte.expected_clicks`; `apply._PRIORIDAD_BANDA` con el motivo nuevo en prioridad 0; `api_dashboard.MOTIVOS_ES_DECISIONES` con su etiqueta; `docs/CONTEXTO.md` (umbrales sellados) con la regla. Guía en §1.1. `[tdd:required]` | Tests puros ROJOS contra master en `tests/test_optimizer_bid.py`: dispara en el borde exacto (clicks == expected, cost == cost_min) con factor −0.25 y motivo nuevo; NO dispara con clicks = expected − 1, con cost < cost_min, con `expected_clicks=None`, con orders=None o ad_revenue=None (siguen −12%/otro); PAUSE gana cuando aplica; replay: fila histórica sin la clave rejuega igual (golden intacto) y una decisión nueva congela/replayea el motivo nuevo (`tests/test_cycle.py`); logs rojos en §Decisiones | - | cc:TODO |
-| 1.2 | **GLM — Vista `v_entidad_inerte` + guarda `entidad_inerte`**: migración `migrations/0013_entidad_inerte.sql` (vista + `COMMENT ON VIEW` + `GRANT SELECT` con el mismo patrón de roles de `0006`), `cycle.MOTIVO_ENTIDAD_INERTE = "entidad_inerte"`, `_SQL_INERTES` + lectura en TX2 + skip en `_procesa_decisora` (D3), etiqueta en `MOTIVOS_ES_SALUD`, `docs/DASHBOARD.md` (lista de motivos), `docs/DATABASE.md` (la vista). Guía en §1.2. `[tdd:required]` | Test de la vista (`_db_temporal` + migración 0013 aplicada en el fixture) ROJO contra master: 3 hojas sembradas (sin impresiones 20 d con gasto 90 d → `gasto_sin_ventas`; sin impresiones y sin nada → `peso_muerto`; con impresiones hace 3 d → NO aparece) y N contado desde el watermark, no desde `now()`; test de ciclo ROJO: una hoja con métricas solo antiguas (ventana completa) decidía un bid y ahora es `skips.entidad.entidad_inerte = 1`, una con impresiones recientes sigue decidiendo; pglast de `_SQL_INERTES`; logs rojos | - | cc:TODO |
+| 1.2 | **GLM — Vista `v_entidad_inerte` + guarda `entidad_inerte`**: migración `migrations/0013_entidad_inerte.sql` (vista + `COMMENT ON VIEW` + `GRANT SELECT` con el mismo patrón de roles de `0006`), `cycle.MOTIVO_ENTIDAD_INERTE = "entidad_inerte"`, `_SQL_INERTES` + lectura en TX2 + skip en `_procesa_decisora` (D3), etiqueta en `MOTIVOS_ES_SALUD`, `docs/DASHBOARD.md` (lista de motivos), `docs/DATABASE.md` (la vista). Guía en §1.2. `[tdd:required]` | Test de la vista (`_db_temporal` + migración 0013 aplicada en el fixture) ROJO contra master: 3 hojas sembradas (sin impresiones 20 d con gasto 90 d → `gasto_sin_ventas`; sin impresiones y sin nada → `peso_muerto`; con impresiones hace 3 d → NO aparece) y N contado desde el watermark, no desde `now()`; test de ciclo ROJO: una hoja con métricas solo antiguas (ventana completa) decidía un bid y ahora es `skips.entidad.entidad_inerte = 1`, una con impresiones recientes sigue decidiendo; pglast de `_SQL_INERTES`; logs rojos | - | cc:完了 Vista + guarda entidad_inerte (PR #133, CI verde) |
 
 ## Phase 2 — Superficie y herramienta [lane:gate]
 
@@ -460,8 +460,155 @@ archiva_inertes con ledger y reversa (BIDS 01 · 1.4)`.
 
 ## Decisiones y evidencia (GLM / DeepSeek escriben aquí ANTES del código)
 
-_(vacío: decisiones D-x con su razón, logs rojos de cada tarea y cualquier
-desviación del plan con su porqué)_
+### 1.2 — Vista + guarda (GLM, rama bids-01-1.2)
+
+- **D-1.2.1 · Plan-vs-código: CUADRA, sin parar.** `v_metric_latest` =
+  última observación por (entidad, fecha) (`0001:1159`); `ad_entity`
+  tiene `name`/`keyword_text`/`external_id`/`parent_id`, `ad_entity_state`
+  el `status` cache, enum `platform` con `amazon_mx/amazon_us/meli`, enum
+  de kind con los 5 valores; `_recorre_plataforma` lee
+  `evidencia_ad_groups` en TX2 (`app/cycle.py:1316`) y `comunes` alimenta
+  a AMBOS caminos; `MOTIVOS_ES_SALUD` importa `ciclo.MOTIVO_*`
+  (`app/api_dashboard.py:221`); GRANT-patrón en `0006:782`
+  (`TO app_read, app_ingest, app_decide, app_admin`); cabecera-patrón en
+  `0007`; tupla pglast literal en `tests/test_cycle.py:1259`.
+- **D-1.2.2 · `inertes` NO va en `comunes`.** `comunes` también alimenta a
+  `_procesa_grupo` (camino de términos, D3: la guarda NO aplica ahí);
+  pasarle `inertes` le exigiría un parámetro que no usa. Se lee el set en
+  `_recorre_plataforma` (TX2, junto a la evidencia) y se pasa EXPLÍCITO
+  solo a `_procesa_decisora` (`inertes: set[int]`).
+- **D-1.2.3 · `_metrica` fija `impressions=None`.** El test de la vista
+  necesita hojas CON impresiones recientes (caso "no aparece") y el de
+  ciclo una hoja de control con impresiones en ventana. Se extiende
+  `_metrica` en AMBOS archivos de test con `impressions=None` por
+  default (compatible hacia atrás: todo lo sembrado antes sigue NULL).
+  No se toca helper de producción: no hay.
+- **D-1.2.4 · Sin Postgres ni Docker en el sandbox: el rojo corre en CI.**
+  La regla 4 del plan ("local solo tu archivo, batería UNA vez en CI")
+  no deja correr el rojo DB en local. TDD honesto con dos pushes: (1)
+  commit SOLO tests → CI rojo (la vista no existe / la guarda no salta);
+  log pegado aquí; (2) implementación → CI verde. Desviación declarada
+  del "UNA vez": sin PG local no hay otro rojo real; un rojo simulado
+  sería teatro (regla 9).
+- **D-1.2.5 · Detalles SQL sellados.** `date - date = integer`
+  (`dias_sin_impresiones`; NULL si nunca hubo impresión en 90d);
+  `w.wm - 14` con `>` deja la ventana wm-13..wm = 14 fechas exactas;
+  `platform = %s::platform` como el resto del módulo; GRANT copia la
+  línea de `0006`; `COMMENT ON VIEW` explica N-desde-watermark (por qué
+  no `now()`), fuente única D2 y ausencia-de-fila = NO inerte. Migración
+  sin acentos (aunque `0001` trae alguno, el código va sin).
+- **D-1.2.6 · Test de ciclo (discrimina).** Con ancla maestra (max
+  08-19): hoja A con 10 fechas 07-20..07-29 (clicks 50, cost 50,
+  impressions NULL) + hoja B de control 08-06..08-15 (igual pero
+  impressions 100) en grupo/campaña nuevos (no tocan la evidencia
+  131/9/30 de la maestra). Código viejo: A decide bid (−12%) → 6
+  decisiones; código nuevo: A es `skips.entidad.entidad_inerte == 1`,
+  B decide → 5 decisiones.
+- **D-1.2.7 · Test de la vista (archivo nuevo
+  `tests/test_entidad_inerte.py`).** Fixture `_db_temporal` propio
+  (SQL+SQL2+SQL3+texto de `0013`): US con `gasto_sin_ventas`,
+  `peso_muerto` y hoja reciente que NO aparece; MX con watermark viejo
+  (max 08-09, impresiones 08-07 → NO inerte: 12−10=2 ≤ 14 desde el
+  watermark, aunque desde `now()` parezca muerta) + inerte de control.
+  Archivo nuevo en vez de `test_schema.py`: la vista es de BIDS 01, no
+  del esquema sellado original.
+
+**Rojo 1.2** (commit solo-tests, CI run 33713121511 en PR #133 draft;
+ver commit de implementación para el verde):
+
+```text
+4 failed, 1030 passed, 1 skipped, 2 warnings in 181.17s
+FAILED tests/test_cycle.py::test_ciclo_hoja_sin_impresiones_recientes_es_skip_entidad_inerte
+  assert res.decisions_count == 5
+  E  assert 6 == 5        <- el codigo viejo SI decide la hoja inerte (-12%):
+  DISCRIMINA (regla 9)
+FAILED tests/test_entidad_inerte.py::test_vista_clasifica_tres_casos_y_excluye_reciente
+FAILED tests/test_entidad_inerte.py::test_vista_cuenta_desde_el_watermark_no_desde_now
+FAILED tests/test_entidad_inerte.py::test_vista_exige_enabled_en_hoja_grupo_y_campana
+  E  psycopg.errors.UndefinedTable: relation "v_entidad_inerte" does not exist
+```
+Nada más falló: el resto de la batería (1030) sigue verde sin la guarda.
+
+- **D-1.2.8 · Omisión propia atrapada por el CI (no por el lead): el plan
+  §1.2 SÍ pedía aplicar 0013 en el fixture de `test_cycle.py` y no lo
+  hice en el commit de implementación → todo ciclo reventó con
+  `UndefinedTable` (run 33713521180). Fix: `SQL13` en `_db_temporal` de
+  `test_cycle.py` y de `test_cycle_apply.py` (el otro que corre
+  `corre_ciclo` de verdad; el CLI lo mockea). Ningún otro fixture corre
+  TX2. El plan estaba bien; el error fue mío al implementarlo.**
+- **D-1.2.9 · Segunda oleada del mismo CI (run 33713841740, 26 fallos, una
+  sola causa): las semillas viejas traen `impressions NULL` y la vista
+  las marca inertes.** En producción eso no pasa (las mediciones del lead
+  distinguen 183/172 con/sin impresiones: los reportes traen el número;
+  NULL con clicks > 0 es artefacto del helper viejo que fijaba
+  `impressions=None`). Fix honesto con la forma real del dato (regla 8):
+  las siembras de hojas SERVIDAS llevan impressions > 0 (10x clicks) en
+  `_siembra_kw_bid`, `_siembra_kw_pause`, `_siembra_guarda`, el helper de
+  bloqueo (test_cycle.py) y el helper kw2 (test_cycle_apply.py); lo que
+  modela ausencia sigue NULL (mi hoja inerte 1.2, `kw_solo_evidencia`).
+  El freeze NO pineaba impressions (`app/cycle.py` no la menciona): los
+  goldens no se tocan. Fixtures que corren ciclo y faltaban: también
+  `SQL13` en `_db_con_rol_admin` (test_api_write, lo usa goals_write).
+  Dashboard/notifica/preflight no corren TX2 con fixture propio sin la
+  vista (usan los ya corregidos + maestra).
+
+> **Revisión del lead (PR #133): dos MAJOR por reglas selladas + marker.**
+> Se trabajan en esta rama antes del merge (#133 fusiona ANTES que #132).
+
+- **D-1.2.10 · `impressions` NULL = desconocido, no cero (regla 3).**
+  `coalesce(sum,0)=0` no distingue "sin filas en 14d" de "filas con NULL".
+  Fix en `reciente`: `filas_14d = count(v.ad_entity_id)` (0 sin filas;
+  el `count` ignora la fila NULL-extendida del LEFT JOIN) y `nulas_14d =
+  count(v.ad_entity_id) FILTER (WHERE v.impressions IS NULL)` (OJO:
+  `count(*)` filtrado contaría 1 con cero filas — por eso se cuenta la
+  columna, no `*`). Inerte ⇔ `filas_14d = 0 OR (nulas_14d = 0 AND
+  impresiones_14d = 0)`: con una sola observación reciente NULL la hoja
+  sigue optimizándose (mejor ruido que callar una viva). Verificado por
+  el lead: en producción hoy no hay NULLs recientes (0/893 MX, 0/470
+  US) — el cambio no mueve ningún conteo vivo, solo sella la semántica.
+  Tests viejos intactos (ninguno mete NULL reciente esperando inerte: la
+  hoja A del test de ciclo y las de la vista tienen sus NULLs FUERA de
+  la ventana). Test ROJO nuevo: hoja con observación reciente
+  `impressions=NULL, clicks>0` NO aparece (+ control con `impressions=0`
+  reciente que SÍ aparece).
+- **D-1.2.11 · `gasto_90d` con `moneda` (regla 4).** `historia` expone
+  `mon_min_90d/mon_max_90d` y la vista devuelve `moneda = (min si min =
+  max, si no NULL)` y `gasto_90d = NULL si hay mezcla, si no la suma`
+  (cero filas → 0, como antes: los tests de `peso_muerto` lo pinean). La
+  clasificación usa las sumas CRUDAS (el lead: no depende de la moneda).
+  Mezcla imposible por inserts normales (trigger `metric_moneda_sellada`):
+  el test ROJO de mezcla deshabilita el trigger en la DB temporal (es
+  dueño) y lo rehabilita; el de moneda única aserta `"USD"`.
+  `ordenes_90d` no lleva moneda (conteo, no dinero).
+- **D-1.2.12 · Marker 1.2** → «PR #133, CI verde».
+- **D-1.2.13 · Cross-review grok (única ronda; codex sin cuota en su
+  cuenta → bloqueado, y sin ALTA no hay segunda por tope): APRUEBA CON
+  MENORES, 0 ALTA.** Menores 1.2 aplicados aquí (solo tests, sin delta
+  de código: pinean comportamiento existente): (3) la hoja de gasto del
+  DoD lleva `impressions=50` real en su fila 07-30 → pinea
+  `dias_sin_impresiones == 17` (antes NULL; el camino `date - date` con
+  impresión real no estaba cubierto) y la semilla ya es forma de
+  reporte; (4) borde N en el test de watermark MX: impresión en wm−14
+  (07-26) → inerte, en wm−13 (07-27) → viva (`>` vs `>=` quedaría
+  atrapado). La BAJA 5 (control cero-explícito con cost 5 no es forma
+  SP) se deja como test puro del predicado SQL: el camino vivo
+  (`filas_14d=0`) lo cubre el test de ciclo.
+
+**Rojo 1.2-revisión** (commit solo-tests c5ca327, CI run 33716113970):
+
+```text
+5 failed, 1031 passed, 1 skipped, 2 warnings in 102.03s
+FAILED test_vista_clasifica_tres_casos_y_excluye_reciente
+FAILED test_vista_cuenta_desde_el_watermark_no_desde_now
+FAILED test_vista_exige_enabled_en_hoja_grupo_y_campana
+FAILED test_vista_impressions_desconocido_no_es_cero
+FAILED test_vista_mezcla_de_monedas_anula_gasto_y_moneda
+  E  psycopg.errors.UndefinedColumn: column "moneda" does not exist
+```
+Los 5 son la columna nueva ausente (el SELECT la pide); la discriminación
+semántica (nula-reciente ausente vs cero-explícito presente) la pinean los
+mismos tests en verde + la tabla de verdad del predicado verificada en
+local (`filas=0→inerte; nulas>0→activa; suma=0 conocida→inerte`).
 
 ## Reject (con razón)
 

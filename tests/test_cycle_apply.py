@@ -54,6 +54,7 @@ import pytest
 from test_cycle import (
     DECIDED_AT,
     JOB_KEY,
+    SQL13,
     _config_version,
     _entidad,
     _estado,
@@ -138,6 +139,7 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL)  # 0001: roles, esquema sellado, grants
         conn.execute(SQL2)  # 0002: cola de cortes, ledger, sellos de quota
         conn.execute(SQL3)  # 0003: ads_optimizer_goal sin DEFAULT en piso/techo
+        conn.execute(SQL13)  # 0013 (BIDS 01): la guarda entidad_inerte lee la vista en TX2
         yield conn, conectar_extra
     finally:
         if conn is not None:
@@ -214,6 +216,8 @@ def _siembra_kw2_bid_puro(conn, run_id, kw2) -> None:
             ad_revenue="8.75",
             clicks=6,
             orders=0,
+            # BIDS 01: hoja servida -> impressions reales (espera un bid).
+            impressions=60,
         )
     for fecha in _rango(dt.date(2026, 8, 17), dt.date(2026, 8, 19)):
         _metrica(
@@ -226,6 +230,7 @@ def _siembra_kw2_bid_puro(conn, run_id, kw2) -> None:
             ad_revenue="0.10",
             clicks=1,
             orders=0,
+            impressions=10,
         )
 
 
