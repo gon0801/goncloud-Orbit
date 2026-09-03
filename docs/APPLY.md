@@ -350,14 +350,28 @@ hueco (r2 grok 13); el mapeo es EXPLÍCITO y testeado.
 
 - **Día 1 (por día y plataforma): 10 bids / 2 pauses / 5 negatives /
   2 harvests** (seeds 4.2).
-- **Duplicación MANUAL cada 48h sanas**. "48h sanas" = **ventana móvil de
-  48h sin incidentes SIN resolver**: un incidente nuevo sin resolver dentro
-  de la ventana BLOQUEA la duplicación; un incidente histórico ya resuelto
-  NO bloquea. Señales que cuentan como incidente (las audtables del
-  sistema): fila `failed` en la cola o el ledger, divergencia de readback
-  (`verify_ok=false`) sin resolver, alerta de harvest failed. La
-  catalogación fina de "resuelto" es del operador (la duplicación es
-  manual); la evidencia son las filas. Éxito = "avanza sin incidentes".
+- **Subida MANUAL por decisión del dueño tras un ciclo sin incidentes**
+  (enmienda del dueño 2026-09-03, literal «no podemos ser ultra
+  conservadores… un test es suficiente»; reemplaza la regla anterior de
+  «duplicación cada 48h sanas»). "Sin incidentes" = ningún incidente NUEVO
+  sin resolver: fila `failed` en la cola o el ledger, divergencia de
+  readback (`verify_ok=false`) sin resolver, alerta de harvest failed. La
+  catalogación fina de "resuelto" es del operador; la evidencia son las
+  filas. El tamaño del salto lo fija el dueño, no una tabla.
+- **El cap de bids es un FUSIBLE, no un freno** (sellado 2026-09-03): con la
+  guarda `entidad_inerte` (BIDS 01) el motor decide ~13 bids US / ~31 MX por
+  día, así que un cap de 40+ no bloquea operación normal — su función es
+  cortar una avalancha anómala (bug o dato corrupto que quiera mover
+  cientos). Por eso NO se retira: cuesta cero cuando todo va bien. Lo que
+  protege de verdad cada mutación sigue siendo el readback por fila, el
+  cooldown 7d y —para cortes— la ventana de veto.
+- **Los caps de pause/negative/harvest miden "cuántos te pongo a revisar",
+  no riesgo inmediato** (los cortes esperan 48h vetables). Medido
+  2026-09-03: en los 4 ciclos live NO se generó ningún corte (la cola sigue
+  vacía) — el cap 5/15 no ata nada; lo que ata es el umbral de CORTES 03
+  (100 clicks + 40 USD/500 MXN: 1 sola hoja lo cumple en toda la cuenta).
+  Decisión del dueño: no tocar cap ni umbral hasta tener una semana con la
+  regla A' de BIDS 01 (que ataca a la misma población desde el bid).
 - Cómo se duplica: nueva `config_version` (append-only, `app_admin`) con
   las claves `ads_apply_cap_*` mayores. OJO: el cap de una fila del día ya
   nacida NO se puede subir (sellado 8; PK `(motor, quota_date)`); el efecto
