@@ -13,7 +13,7 @@ Este directorio es la fuente mantenida del comportamiento que un usuario ve en e
 
 - Parte siempre de `GET /` (Resumen) salvo que la feature diga otra cosa.
 - Handles estables: `data-pantalla`, `href` del nav, `aria-current="page"`, ids de canvas, `data-vetar` / `data-veto`.
-- Comandos literales. El harness es curl (y `orbit-verify drive-campanas` para esa pantalla).
+- Comandos literales. El harness es curl (y `orbit-verify drive-*` para cada pantalla).
 - Tras una mutacion habria que restaurar la semilla. El baseline de este mapa es de lectura: no POSTees veto.
 - Cleanup no borra `.cursor/skills/verify-orbit/evidence/<run_id>/`.
 

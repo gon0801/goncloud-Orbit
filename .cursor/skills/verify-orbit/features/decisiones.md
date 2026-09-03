@@ -1,6 +1,6 @@
 # Decisiones
 
-Decisiones es el feed de entidades que SI decidieron (una fila por `decision`). Motivo en espanol. El search_term del comprador va escapado. La paginacion es por cursor (`id <`), nunca offset.
+Decisiones es el feed de entidades que SI decidieron (una fila por `decision`). Motivo en espanol cuando aplica; para algunos motivos el UI renderiza directamente la clave `motivo_es` (ej `term_sin_ventas`). El search_term del comprador va escapado. La paginacion es por cursor (`id <`), nunca offset.
 
 ## Sub-features
 
@@ -22,7 +22,7 @@ Preconditions:
 - Semilla: al menos una decision bid sobre `Campana A` con motivo `banda_menos_12` y `target_acos_pct_usado` 25.00.
 
 - **Abrir el feed.** Corre `curl -sS "$BASE/decisiones"`. Status 200. El HTML contiene `data-pantalla="decisiones"` y `h2` `Decisiones — feed por cursor (solo entidades que decidieron)`.
-- **Leer la fila sembrada.** El HTML contiene `Campana A`, chip `bid`, `25.00%` (o el target usado), y un motivo en espanol (no un stacktrace). `old_value`/`new_value` de la semilla son `1.00` / `0.88` en USD.
+- **Leer la fila sembrada.** El HTML contiene `Campana A`, chip `bid`, `25.00%` (o el target usado), y un motivo en espanol (o la clave `motivo_es` si aplica; no un stacktrace). `old_value`/`new_value` de la semilla son `1.00` / `0.88` en USD.
 - **Cursor (si `#btn-mas` existe).** Lee `data-cursor` del boton. Corre `curl -sS "$BASE/decisiones?cursor=<ese-id>"`. La pagina solo trae ids menores. Si no hay boton, el feed cabe en una pagina: anotalo, no inventes un cursor.
 - **Confirmar lado JSON.** Corre `curl -sS "$BASE/api/dashboard/decisiones"`. Status 200. `items` incluye la bid de `Campana A`; `has_more`/`next_cursor` coinciden con la presencia de `#btn-mas`.
 - **Proof.** Guarda HTML ± cursor y el JSON bajo `evidence/<run_id>/decisiones/`.

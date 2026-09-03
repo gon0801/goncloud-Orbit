@@ -4,7 +4,14 @@
 Subcomandos:
   launch          Postgres desechable + migraciones + semilla + uvicorn local
   doctor          Chequeo de solo lectura: proceso, puerto, build, DSN
+  drive-resumen   Receta curl de la pantalla Resumen + evidencia (canvas y JSON)
+  drive-decisiones Receta curl de la pantalla Decisiones + evidencia (HTML y JSON)
+  drive-salud     Receta curl de la pantalla Salud + evidencia (canvas, HTML y JSON)
+  drive-contribucion Receta curl de la pantalla Contribucion + evidencia (HTML y JSON)
+  drive-cortes    Receta curl de la pantalla Cortes + evidencia (HTML y JSON)
   drive-campanas  Receta curl de la pantalla Campanas + captura de evidencia
+  maintain-verification-skill
+                 Orquesta launch + doctor + drives y hace teardown al final
   cleanup         Tira SOLO la instancia de este run_id; no borra evidencia
 
 Estado scratch: /tmp/orbit-verify/<run_id>/
@@ -14,8 +21,10 @@ Evidencia:      .cursor/skills/verify-orbit/evidence/<run_id>/
 from __future__ import annotations
 
 import argparse
+import html as html_lib
 import json
 import os
+import re
 import shutil
 import signal
 import socket
@@ -296,6 +305,40 @@ def _http(url: str, timeout: float = 5.0) -> tuple[int, dict[str, str], bytes]:
     except urllib.error.HTTPError as exc:
         headers = {k.lower(): v for k, v in exc.headers.items()} if exc.headers else {}
         return exc.code, headers, exc.read()
+
+
+def _chrome_screenshot(url: str, png: Path, stderr_path: Path, timeout_s: int = 30) -> bool:
+    """Toma screenshot con Chrome headless.
+
+    Retorna true solo si el png existe y tiene tamano > 0.
+    """
+
+    chrome = os.environ.get("ORBIT_VERIFY_CHROME", "google-chrome")
+    try:
+        shot = subprocess.run(
+            [
+                chrome,
+                "--headless=new",
+                "--disable-gpu",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--hide-scrollbars",
+                "--window-size=1280,900",
+                f"--screenshot={png}",
+                url,
+            ],
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+        )
+        if shot.returncode != 0:
+            stderr_path.write_text(shot.stderr, encoding="utf-8")
+    except subprocess.TimeoutExpired as exc:
+        stderr_path.write_text(f"chrome timeout {timeout_s}s: {exc}\n", encoding="utf-8")
+    except OSError as exc:
+        stderr_path.write_text(f"chrome no ejecutable ({chrome}): {exc}\n", encoding="utf-8")
+    return png.is_file() and png.stat().st_size > 0
 
 
 def _cmdline(pid: int) -> str:
@@ -680,6 +723,415 @@ def cmd_drive_campanas(args: argparse.Namespace) -> None:
         _die("drive-campanas FALLA: " + ", ".join(fallaron))
 
 
+def _get_html(base_url: str, path: str, timeout_s: float = 5.0) -> tuple[int, bytes]:
+    st, _, body = _http(f"{base_url}{path}", timeout=timeout_s)
+    return st, body
+
+
+def cmd_drive_resumen(args: argparse.Namespace) -> None:
+    run_id = args.run_id or _latest_run_id()
+    state = _load_state(run_id)
+    base = state["base_url"]
+    if any(h in base for h in FORBIDDEN_HOSTS) or state["port"] in FORBIDDEN_PORTS:
+        _die(f"rehuso conducir {base}: no es instancia local de verificacion")
+
+    evidence = _evidence_dir(run_id) / "resumen"
+    evidence.mkdir(parents=True, exist_ok=True)
+
+    st_html, html = _get_html(base, "/")
+    (evidence / "01-resumen.html").write_bytes(html)
+    texto = html.decode("utf-8", errors="replace")
+
+    checks: dict[str, bool] = {
+        "http_200": st_html == 200,
+        "data-pantalla=resumen": 'data-pantalla="resumen"' in texto,
+        "titulo_Orbit": "Orbit — Dashboard" in texto,
+        "nav_resumen_activa": 'href="/"' in texto and 'aria-current="page"' in texto,
+        "ventana_efectiva": "Ventana efectiva:" in texto,
+        "inmaduros": "inmaduros" in texto,
+        "h2_au_us": "amazon_us (USD) — spend y revenue" in texto,
+        "h2_am_mx": "amazon_mx (MXN) — spend y revenue" in texto,
+        "canvas_us": 'id="serie-amazon_us"' in texto,
+        "canvas_acos_us": 'id="serie-acos-amazon_us"' in texto,
+        "script_us": 'id="datos-serie-amazon_us"' in texto,
+        "canvas_mx": 'id="serie-amazon_mx"' in texto,
+        "canvas_acos_mx": 'id="serie-acos-amazon_mx"' in texto,
+        "script_mx": 'id="datos-serie-amazon_mx"' in texto,
+    }
+
+    seed_metric_date = state["seed"]["metric_date"]
+
+    # JSON series por plataforma
+    st_us, _, raw_us = _http(
+        f"{base}/api/dashboard/series/plataforma?platform=amazon_us",
+    )
+    (evidence / "02-series-amazon_us.json").write_bytes(raw_us)
+    data_us = {}
+    if st_us == 200:
+        data_us = json.loads(raw_us.decode("utf-8"))
+    checks["series_us_http_200"] = st_us == 200
+    checks["series_us_plataforma"] = data_us.get("plataforma") == "amazon_us"
+    checks["series_us_moneda"] = data_us.get("moneda") == "USD"
+
+    series_us = data_us.get("series") or []
+    fila_seed_us = next((r for r in series_us if r.get("fecha") == seed_metric_date), None)
+    checks["seed_fila_us_presente"] = fila_seed_us is not None
+    checks["seed_cost_us"] = (fila_seed_us or {}).get("cost") == "12.3400"
+    checks["seed_revenue_us"] = (fila_seed_us or {}).get("ad_revenue") == "45.6700"
+    checks["missing_us_is_none"] = any(
+        r.get("fecha") != seed_metric_date
+        and r.get("cost") is None
+        and r.get("ad_revenue") is None
+        for r in series_us
+    )
+
+    st_mx, _, raw_mx = _http(
+        f"{base}/api/dashboard/series/plataforma?platform=amazon_mx",
+    )
+    (evidence / "03-series-amazon_mx.json").write_bytes(raw_mx)
+    data_mx = {}
+    if st_mx == 200:
+        data_mx = json.loads(raw_mx.decode("utf-8"))
+    checks["series_mx_http_200"] = st_mx == 200
+    checks["series_mx_plataforma"] = data_mx.get("plataforma") == "amazon_mx"
+    checks["series_mx_moneda"] = data_mx.get("moneda") == "MXN"
+    series_mx = data_mx.get("series") or []
+    checks["mx_all_cost_none"] = all(
+        r.get("cost") is None and r.get("ad_revenue") is None for r in series_mx
+    )
+
+    png = evidence / "04-resumen.png"
+    stderr = evidence / "04-chrome.stderr.txt"
+    checks["screenshot"] = _chrome_screenshot(base + "/", png, stderr, timeout_s=30)
+
+    prueba = {
+        "feature": "resumen",
+        "entry_point": "nav / (Resumen) en el dashboard",
+        "base_url": base,
+        "action": "GET / y GET /api/dashboard/series/plataforma (amazon_us, amazon_mx)",
+        "checks": checks,
+        "ok": all(v for k, v in checks.items() if k != "screenshot"),
+        "evidence_dir": str(evidence),
+        "seed": {"metric_date": seed_metric_date},
+    }
+    (evidence / "PROOF.json").write_text(json.dumps(prueba, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(prueba, indent=2))
+    if not prueba["ok"]:
+        fallaron = [k for k, v in checks.items() if not v and k != "screenshot"]
+        _die("drive-resumen FALLA: " + ", ".join(fallaron))
+
+
+def cmd_drive_decisiones(args: argparse.Namespace) -> None:
+    run_id = args.run_id or _latest_run_id()
+    state = _load_state(run_id)
+    base = state["base_url"]
+    if any(h in base for h in FORBIDDEN_HOSTS) or state["port"] in FORBIDDEN_PORTS:
+        _die(f"rehuso conducir {base}: no es instancia local de verificacion")
+
+    evidence = _evidence_dir(run_id) / "decisiones"
+    evidence.mkdir(parents=True, exist_ok=True)
+
+    st0, html0 = _get_html(base, "/")
+    (evidence / "01-resumen.html").write_bytes(html0)
+    if st0 != 200 or 'data-pantalla="resumen"' not in html0.decode("utf-8", errors="replace"):
+        _die(f"punto de partida GET / fallo: {st0}")
+
+    st_html, html = _get_html(base, "/decisiones")
+    (evidence / "02-decisiones.html").write_bytes(html)
+    texto = html.decode("utf-8", errors="replace")
+
+    checks: dict[str, bool] = {
+        "http_200": st_html == 200,
+        "data-pantalla=decisiones": 'data-pantalla="decisiones"' in texto,
+        "h2_feed": "Decisiones — feed por cursor" in texto,
+        "campana_a": "Campana A" in texto,
+        "target_25": "25.00%" in texto,
+        "old_1_00": ">1.00<" in texto or "1.00" in texto,
+        "new_0_88": ">0.88<" in texto or "0.88" in texto,
+        "neg_zapato": "zapato blanco" in texto,
+        "motive_acos": "ACoS sobre 1.15x del target" in texto,
+        "motive_term_sin_ventas": "term_sin_ventas" in texto,
+    }
+
+    stj, _, rawj = _http(f"{base}/api/dashboard/decisiones")
+    (evidence / "03-decisiones.json").write_bytes(rawj)
+    data = {}
+    if stj == 200:
+        data = json.loads(rawj.decode("utf-8"))
+
+    items = data.get("items") or []
+    checks["api_http_200"] = stj == 200
+    checks["api_has_more_false"] = data.get("has_more") is False and data.get("next_cursor") is None
+    checks["api_has_bid_campana_a"] = any(
+        i.get("kind") == "bid"
+        and i.get("nombre") == "Campana A"
+        and i.get("target_acos_pct_usado") == "25.00"
+        and i.get("old_value") == "1.00"
+        and i.get("new_value") == "0.88"
+        and i.get("value_currency") == "USD"
+        for i in items
+    )
+    checks["api_has_negative_zapato"] = any(
+        i.get("kind") == "negative"
+        and i.get("search_term") == "zapato blanco"
+        and i.get("motivo_es") == "term_sin_ventas"
+        for i in items
+    )
+
+    prueba = {
+        "feature": "decisiones",
+        "entry_point": "nav /decisiones",
+        "base_url": base,
+        "action": "GET /decisiones y GET /api/dashboard/decisiones",
+        "checks": checks,
+        "ok": all(checks.values()),
+        "evidence_dir": str(evidence),
+    }
+    (evidence / "PROOF.json").write_text(json.dumps(prueba, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(prueba, indent=2))
+    if not prueba["ok"]:
+        fallaron = [k for k, v in checks.items() if not v]
+        _die("drive-decisiones FALLA: " + ", ".join(fallaron))
+
+
+def cmd_drive_salud(args: argparse.Namespace) -> None:
+    run_id = args.run_id or _latest_run_id()
+    state = _load_state(run_id)
+    base = state["base_url"]
+    if any(h in base for h in FORBIDDEN_HOSTS) or state["port"] in FORBIDDEN_PORTS:
+        _die(f"rehuso conducir {base}: no es instancia local de verificacion")
+
+    evidence = _evidence_dir(run_id) / "salud"
+    evidence.mkdir(parents=True, exist_ok=True)
+
+    st0, html0 = _get_html(base, "/")
+    (evidence / "01-resumen.html").write_bytes(html0)
+    if st0 != 200 or 'data-pantalla="resumen"' not in html0.decode("utf-8", errors="replace"):
+        _die(f"punto de partida GET / fallo: {st0}")
+
+    st_html, html = _get_html(base, "/salud")
+    (evidence / "02-salud.html").write_bytes(html)
+    texto = html.decode("utf-8", errors="replace")
+
+    checks: dict[str, bool] = {
+        "http_200": st_html == 200,
+        "data-pantalla=salud": 'data-pantalla="salud"' in texto,
+        "h2_salud": "Salud — ultimo ciclo" in texto,
+        "decisiones_2": "decisiones: 2" in texto,
+        "applies_0": "applies: 0" in texto,
+        "canvas_skips_amazon_us": 'id="skips-amazon_us"' in texto,
+        "script_skips_amazon_us": 'id="datos-skips-amazon_us"' in texto,
+    }
+
+    # Validacion de motivo_es en script del canvas de skips.
+    skip_script = re.search(
+        r'<script[^>]*id="datos-skips-amazon_us"[^>]*>(.*?)</script>',
+        texto,
+        flags=re.S,
+    )
+    if not skip_script:
+        _die("drive-salud FALLA: no encontre script#datos-skips-amazon_us")
+    raw = html_lib.unescape(skip_script.group(1).strip())
+    skip_data = json.loads(raw)
+    motivo_es = (
+        (skip_data.get("entidad") or {}).get("estado_no_enabled") or {}
+    ).get("motivo_es")
+    checks["skips_motivo_es_human"] = isinstance(motivo_es, str) and (
+        "no habilitada" in motivo_es or "no habilitado" in motivo_es
+    )
+
+    stj, _, rawj = _http(f"{base}/api/dashboard/salud")
+    (evidence / "03-salud.json").write_bytes(rawj)
+    data = {}
+    if stj == 200:
+        data = json.loads(rawj.decode("utf-8"))
+    ultimo_ciclo = (data.get("plataformas") or {}).get("amazon_us", {}).get("ultimo_ciclo") or {}
+    checks["api_http_200"] = stj == 200
+    checks["api_status_done"] = ultimo_ciclo.get("status") == "done"
+    checks["api_decisions_count_2"] = ultimo_ciclo.get("decisions_count") == 2
+    checks["api_applied_count_0"] = ultimo_ciclo.get("applied_count") == 0
+
+    png = evidence / "04-salud.png"
+    stderr = evidence / "04-chrome.stderr.txt"
+    checks["screenshot"] = _chrome_screenshot(base + "/salud", png, stderr, timeout_s=30)
+
+    prueba = {
+        "feature": "salud",
+        "entry_point": "nav /salud",
+        "base_url": base,
+        "action": "GET /salud y GET /api/dashboard/salud",
+        "checks": checks,
+        "ok": all(v for k, v in checks.items() if k != "screenshot"),
+        "evidence_dir": str(evidence),
+    }
+    (evidence / "PROOF.json").write_text(json.dumps(prueba, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(prueba, indent=2))
+    if not prueba["ok"]:
+        fallaron = [k for k, v in checks.items() if not v and k != "screenshot"]
+        _die("drive-salud FALLA: " + ", ".join(fallaron))
+
+
+def cmd_drive_contribucion(args: argparse.Namespace) -> None:
+    run_id = args.run_id or _latest_run_id()
+    state = _load_state(run_id)
+    base = state["base_url"]
+    if any(h in base for h in FORBIDDEN_HOSTS) or state["port"] in FORBIDDEN_PORTS:
+        _die(f"rehuso conducir {base}: no es instancia local de verificacion")
+
+    evidence = _evidence_dir(run_id) / "contribucion"
+    evidence.mkdir(parents=True, exist_ok=True)
+
+    st0, html0 = _get_html(base, "/")
+    (evidence / "01-resumen.html").write_bytes(html0)
+    if st0 != 200 or 'data-pantalla="resumen"' not in html0.decode("utf-8", errors="replace"):
+        _die(f"punto de partida GET / fallo: {st0}")
+
+    st_html, html = _get_html(base, "/contribucion", timeout_s=15.0)
+    (evidence / "02-contribucion.html").write_bytes(html)
+    texto = html.decode("utf-8", errors="replace")
+
+    checks: dict[str, bool] = {
+        "http_200": st_html == 200,
+        "data-pantalla=contribucion": 'data-pantalla="contribucion"' in texto,
+        "h2_contribucion": "Contribucion por campana" in texto,
+        "no_hay_filas": "Sin campanas con actividad madura en la ventana." in texto,
+    }
+
+    stj, _, rawj = _http(f"{base}/api/dashboard/contribucion")
+    (evidence / "03-contribucion.json").write_bytes(rawj)
+    data = {}
+    if stj == 200:
+        data = json.loads(rawj.decode("utf-8"))
+
+    plataformas = data.get("plataformas") or {}
+    checks["api_http_200"] = stj == 200
+    for p in ("amazon_us", "amazon_mx"):
+        plat = plataformas.get(p) or {}
+        filas = plat.get("filas") or []
+        ventana = plat.get("ventana") or {}
+        checks[f"api_{p}_filas_vacias"] = filas == []
+        checks[f"api_{p}_ventana_keys"] = "desde" in ventana and "hasta" in ventana
+
+    prueba = {
+        "feature": "contribucion",
+        "entry_point": "nav /contribucion",
+        "base_url": base,
+        "action": "GET /contribucion y GET /api/dashboard/contribucion",
+        "checks": checks,
+        "ok": all(checks.values()),
+        "evidence_dir": str(evidence),
+    }
+    (evidence / "PROOF.json").write_text(json.dumps(prueba, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(prueba, indent=2))
+    if not prueba["ok"]:
+        fallaron = [k for k, v in checks.items() if not v]
+        _die("drive-contribucion FALLA: " + ", ".join(fallaron))
+
+
+def cmd_drive_cortes(args: argparse.Namespace) -> None:
+    run_id = args.run_id or _latest_run_id()
+    state = _load_state(run_id)
+    base = state["base_url"]
+    if any(h in base for h in FORBIDDEN_HOSTS) or state["port"] in FORBIDDEN_PORTS:
+        _die(f"rehuso conducir {base}: no es instancia local de verificacion")
+
+    evidence = _evidence_dir(run_id) / "cortes"
+    evidence.mkdir(parents=True, exist_ok=True)
+
+    st0, html0 = _get_html(base, "/")
+    (evidence / "01-resumen.html").write_bytes(html0)
+    if st0 != 200 or 'data-pantalla="resumen"' not in html0.decode("utf-8", errors="replace"):
+        _die(f"punto de partida GET / fallo: {st0}")
+
+    st_html, html = _get_html(base, "/cortes")
+    (evidence / "02-cortes.html").write_bytes(html)
+    texto = html.decode("utf-8", errors="replace")
+
+    checks: dict[str, bool] = {
+        "http_200": st_html == 200,
+        "data-pantalla=cortes": 'data-pantalla="cortes"' in texto,
+        "h2_cortes": "Cortes pendientes de veto" in texto,
+        "zapato_blanco": "zapato blanco" in texto,
+        "button_vetar": 'data-vetar="' in texto,
+        "form_veto": 'data-veto="' in texto,
+        "dias_value_30": re.search(r'name=\"dias\"[^>]*value=\"30\"', texto) is not None,
+        "actor_input": 'name="actor"' in texto,
+        "token_input": 'name="token"' in texto,
+    }
+
+    stj, _, rawj = _http(f"{base}/api/dashboard/cortes")
+    (evidence / "03-cortes.json").write_bytes(rawj)
+    data = {}
+    if stj == 200:
+        data = json.loads(rawj.decode("utf-8"))
+    items = data.get("items") or []
+    checks["api_http_200"] = stj == 200
+    checks["api_has_negative_pending_veto"] = any(
+        i.get("kind") == "negative"
+        and i.get("search_term") == "zapato blanco"
+        and i.get("estado") == "pending_veto"
+        for i in items
+    )
+
+    prueba = {
+        "feature": "cortes",
+        "entry_point": "nav /cortes",
+        "base_url": base,
+        "action": "GET /cortes y GET /api/dashboard/cortes",
+        "checks": checks,
+        "ok": all(checks.values()),
+        "evidence_dir": str(evidence),
+    }
+    (evidence / "PROOF.json").write_text(json.dumps(prueba, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(prueba, indent=2))
+    if not prueba["ok"]:
+        fallaron = [k for k, v in checks.items() if not v]
+        _die("drive-cortes FALLA: " + ", ".join(fallaron))
+
+
+def cmd_drive_maintain_verification_skill(args: argparse.Namespace) -> None:
+    run_id = args.run_id or _run_id()
+    port = args.port
+
+    # Lanzar con run_id fijo para que evidence y teardown apunten al mismo.
+    launch_args = argparse.Namespace(run_id=run_id, port=port, force=args.force)
+
+    launched = False
+    try:
+        cmd_launch(launch_args)
+        launched = True
+        doctor_args = argparse.Namespace(run_id=run_id)
+        cmd_doctor(doctor_args)
+
+        drive_args = argparse.Namespace(run_id=run_id)
+        for drive in (
+            cmd_drive_resumen,
+            cmd_drive_campanas,
+            cmd_drive_decisiones,
+            cmd_drive_salud,
+            cmd_drive_contribucion,
+            cmd_drive_cortes,
+        ):
+            try:
+                drive(drive_args)
+            except SystemExit:
+                # Captura de evidencia adicional luego del fallo.
+                cmd_doctor(doctor_args)
+                raise
+
+    finally:
+        if launched:
+            cmd_cleanup(argparse.Namespace(run_id=run_id))
+
+    out = {
+        "ok": True,
+        "run_id": run_id,
+        "evidence_root": str(_evidence_dir(run_id)),
+        "scratch_dir": str(_scratch(run_id)),
+    }
+    print(json.dumps(out, indent=2))
+
+
 def cmd_cleanup(args: argparse.Namespace) -> None:
     run_id = args.run_id or _latest_run_id()
     ruta = _state_path(run_id)
@@ -743,9 +1195,41 @@ def main() -> None:
     p_doc.add_argument("--run-id", default=None)
     p_doc.set_defaults(func=cmd_doctor)
 
+    p_drive_resumen = sub.add_parser("drive-resumen", help="Conduce la pantalla Resumen")
+    p_drive_resumen.add_argument("--run-id", default=None)
+    p_drive_resumen.set_defaults(func=cmd_drive_resumen)
+
+    p_drive_decisiones = sub.add_parser("drive-decisiones", help="Conduce la pantalla Decisiones")
+    p_drive_decisiones.add_argument("--run-id", default=None)
+    p_drive_decisiones.set_defaults(func=cmd_drive_decisiones)
+
+    p_drive_salud = sub.add_parser("drive-salud", help="Conduce la pantalla Salud")
+    p_drive_salud.add_argument("--run-id", default=None)
+    p_drive_salud.set_defaults(func=cmd_drive_salud)
+
+    p_drive_contribucion = sub.add_parser(
+        "drive-contribucion",
+        help="Conduce la pantalla Contribucion",
+    )
+    p_drive_contribucion.add_argument("--run-id", default=None)
+    p_drive_contribucion.set_defaults(func=cmd_drive_contribucion)
+
+    p_drive_cortes = sub.add_parser("drive-cortes", help="Conduce la pantalla Cortes")
+    p_drive_cortes.add_argument("--run-id", default=None)
+    p_drive_cortes.set_defaults(func=cmd_drive_cortes)
+
     p_drive = sub.add_parser("drive-campanas", help="Conduce la pantalla Campanas")
     p_drive.add_argument("--run-id", default=None)
     p_drive.set_defaults(func=cmd_drive_campanas)
+
+    p_maint = sub.add_parser(
+        "maintain-verification-skill",
+        help="Orquesta launch + doctor + drives y hace teardown al final",
+    )
+    p_maint.add_argument("--run-id", default=None)
+    p_maint.add_argument("--port", type=int, default=DEFAULT_PORT)
+    p_maint.add_argument("--force", action="store_true")
+    p_maint.set_defaults(func=cmd_drive_maintain_verification_skill)
 
     p_clean = sub.add_parser("cleanup", help="Tira la instancia de este run")
     p_clean.add_argument("--run-id", default=None)
