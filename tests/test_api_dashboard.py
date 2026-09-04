@@ -2113,3 +2113,26 @@ def test_cortes_ui01_etiqueta_direccion_efecto_e_indicador(monkeypatch):
         }
         sin = [i for i in harv if i["search_term"] == "otro termino"][0]
         assert sin["indicador"] is None, "sin termino no hay indicador"
+        assert sin["etiqueta"] == "Capturar termino que vende"
+        assert sin["direccion"] == "crece"
+        assert sin["efecto_rechazo"] == "Rechazar: la palabra NO se creara"
+
+
+def test_cortes_ui01_indicador_exige_termino_completo():
+    """Regla 3 (grok): termino ausente o parcial -> indicador None, jamas
+    un dict hueco que la plantilla pintaria como ' ordenes - de ingreso'."""
+    from app import api_dashboard as dash
+
+    base = {"search_term": "t", "cost": "1.0000", "clicks": 5, "moneda": "USD"}
+    lleno = dict(base, orders=2, ad_revenue="203.2000")
+    assert dash._indicador_harvest("harvest", {"termino": lleno}) == {
+        "ordenes": 2,
+        "ingreso": "203.2000",
+        "clics": 5,
+        "moneda": "USD",
+    }
+    assert dash._indicador_harvest("harvest", {}) is None
+    assert dash._indicador_harvest("harvest", {"termino": {}}) is None
+    assert dash._indicador_harvest("harvest", {"termino": {"orders": 2}}) is None
+    assert dash._indicador_harvest("harvest", None) is None
+    assert dash._indicador_harvest("pause", {"termino": lleno}) is None

@@ -383,8 +383,9 @@ Forma real observada:
 
 ## 7.5 Pantalla de Propuestas (CORTES UI 01, 2026-09-04)
 
-La cola `apply_queue` mezcla tres familias y la pantalla anterior las
-presentaba como recortes bajo el nombre «Cortes» (incidente 2026-09-04:
+La cola `apply_queue` mezcla tres kinds en dos familias y la pantalla
+anterior las presentaba como recortes bajo el nombre «Cortes»
+(incidente 2026-09-04:
 el dueño veto por error un harvest de 2 ordenes y 203.20 USD porque todo
 parecia recorte). La pantalla se llama **Propuestas** (rutas `/cortes` y
 alias `/propuestas`, misma vista) y agrupa por direccion:

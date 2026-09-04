@@ -915,17 +915,23 @@ EFECTO_RECHAZO_POR_KIND = {
 def _indicador_harvest(kind: str, decision_inputs: dict | None) -> dict | None:
     """Indicador que justifica el harvest (D2): ordenes e ingreso de la
     ventana desde decision.inputs->'termino'. Solo kind='harvest' y solo
-    con termino presente; sin el: None (regla 3, jamas inventado).
+    con termino COMPLETO (ordenes + ingreso + moneda); sin el o parcial:
+    None (regla 3: un dict hueco pintaria " ordenes - de ingreso").
     Dinero = (valor string, moneda); NULL como null (regla 4)."""
     if kind != "harvest" or not isinstance(decision_inputs, dict):
         return None
     termino = decision_inputs.get("termino")
     if not isinstance(termino, dict):
         return None
-    ingreso = termino.get("ad_revenue")
+    if (
+        termino.get("orders") is None
+        or termino.get("ad_revenue") is None
+        or termino.get("moneda") is None
+    ):
+        return None
     return {
         "ordenes": termino.get("orders"),
-        "ingreso": _dec_str(ingreso) if ingreso is not None else None,
+        "ingreso": _dec_str(termino.get("ad_revenue")),
         "clics": termino.get("clicks"),
         "moneda": termino.get("moneda"),
     }

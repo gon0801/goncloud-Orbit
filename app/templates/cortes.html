@@ -13,7 +13,7 @@
       <tr>
         <td>{{ item.id }}</td>
         <td>{{ item.plataforma }}</td>
-        <td><span class="chip">{{ item.direccion }}</span> {{ item.etiqueta or "—" }}</td>
+        <td><span class="chip">{{ item.direccion|capitalize }}</span> {{ item.etiqueta or "—" }}</td>
         <td>{{ item.nombre or "—" }} <span class="mutado">#{{ item.ad_entity_id }}</span></td>
         {# El search_term es texto libre del comprador: AUTOESCAPE lo escapa #}
         <td>{{ item.search_term or "—" }}</td>
@@ -25,7 +25,7 @@
           {% endif %}
         </td>
         <td><span class="chip">{{ item.estado }}</span></td>
-        <td class="mutado">se aplica solo el {{ item.vence_el }}</td>
+        <td class="mutado">se aplica solo el {{ item.vence_el|ts_ui }}</td>
         <td class="mutado">{{ item.encolado_at }}</td>
         <td>
           {# el click lo cablea /static/js/cortes.js (onclick= inline lo bloquea la CSP) #}
@@ -35,10 +35,12 @@
       <tr hidden id="form-{{ item.id }}">
         <td colspan="10">
           <form data-veto="{{ item.id }}">
-            <p>{{ item.efecto_rechazo or "Rechazar esta propuesta" }}</p>
+            {% if item.efecto_rechazo %}
+            <p>{{ item.efecto_rechazo }}</p>
+            {% endif %}
             <p class="mutado">
               Este rechazo NO se puede deshacer y bloquea la propuesta
-              hasta el {{ item.vence_el }}.
+              hasta el {{ item.vence_el|ts_ui }}.
             </p>
             <label>Dias <input type="number" name="dias" min="1" max="365" value="30"></label>
             <label>Actor <input type="text" name="actor" maxlength="200" placeholder="quien rechaza" required></label>

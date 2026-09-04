@@ -1112,9 +1112,10 @@ def _ctx_propuestas() -> dict:
     }
 
 
-def test_ui_propuestas_etiquetas_exactas_por_familia():
+def test_ui_propuestas_etiquetas_exactas_por_kind():
     """D2: cada fila declara su tipo con la etiqueta exacta (efecto
-    primero); el harvest trae su indicador de ordenes e ingreso."""
+    primero); el harvest trae su indicador de ordenes e ingreso. Por
+    KIND: negative y harvest comparten familia term_cut (grok)."""
     html = ui.templates.env.get_template("cortes.html").render(**_ctx_propuestas())
     assert "Apagar palabra" in html
     assert "Bloquear busqueda" in html
@@ -1130,10 +1131,13 @@ def test_ui_propuestas_separa_crecen_de_recortan():
     assert "Recortan" in html
     crecen = html.index("Crecen")
     recortan = html.index("Recortan")
-    assert html.index("Capturar termino que vende", crecen) < recortan, (
+    assert crecen < html.index("Capturar termino que vende") < recortan, (
         "el harvest vive en la seccion Crecen"
     )
-    assert html.index("Apagar palabra", recortan) > 0, "el pause vive en Recortan"
+    assert html.index("Apagar palabra") > recortan, "el pause vive en Recortan"
+    assert html.index("Bloquear busqueda") > recortan, "el negative vive en Recortan"
+    assert "Bloquear busqueda" not in html[crecen:recortan]
+    assert "Crece" in html and "Recorta" in html, "el chip dice la direccion"
 
 
 def test_ui_propuestas_rechazar_con_efecto_e_irreversibilidad():
@@ -1144,12 +1148,12 @@ def test_ui_propuestas_rechazar_con_efecto_e_irreversibilidad():
     assert "Rechazar" in html
     assert ">Vetar<" not in html
     assert "Confirmar veto" not in html
-    assert "se aplica solo el 2026-09-25T12:00:00+00:00" in html
+    assert "se aplica solo el 2026-09-25 12:00" in html
     assert "Rechazar: la palabra NO se creara" in html
     assert "Rechazar: la palabra NO se apagara (seguira gastando)" in html
     assert "Rechazar: la busqueda NO se bloqueara" in html
     assert "NO se puede deshacer" in html
-    assert "hasta el 2026-09-25T12:00:00+00:00" in html
+    assert "hasta el 2026-09-25 12:00" in html
 
 
 def test_ui_propuestas_titulo_y_menu_d1():
@@ -1172,6 +1176,25 @@ def test_ui_propuestas_alias_mismo_contenido_que_cortes(monkeypatch):
     with _db_temporal("orbit_ui_propuestas") as (conn, dsn):
         conn.execute(SQL02)
         _siembra_ui(conn)
+        ciclo = _ciclo(conn, platform="amazon_us")
+        config = _config_version(conn, {"ads_optimizer_mode": "shadow"})
+        camp = _campana(conn, "amazon_us", "9002", name="Campana B")
+        dec = _decision(
+            conn,
+            ciclo,
+            camp,
+            kind="pause",
+            config_id=config,
+            inputs={"motivo": "x"},
+            window_end=dt.date(2026, 8, 1),
+        )
+        conn.execute(
+            "INSERT INTO apply_queue (platform, ad_entity_id, kind, decision_id,"
+            " modo, estado, vence_el, request_payload)"
+            " VALUES ('amazon_us', %s, 'pause', %s, 'live', 'pending_veto',"
+            " now() + interval '48 hours', '{}'::jsonb)",
+            (camp, dec),
+        )
         monkeypatch.setenv("ORBIT_DSN_READ", dsn)
         cliente = TestClient(app)
         r_cortes = cliente.get("/cortes")
@@ -1179,3 +1202,4 @@ def test_ui_propuestas_alias_mismo_contenido_que_cortes(monkeypatch):
         assert r_cortes.status_code == 200, r_cortes.text
         assert r_prop.status_code == 200, r_prop.text
         assert r_prop.text == r_cortes.text
+        assert "Apagar palabra" in r_prop.text, "el alias sirve contenido NO vacio"
