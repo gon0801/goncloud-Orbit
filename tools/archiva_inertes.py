@@ -92,6 +92,12 @@ MONEDA_POR_PLATAFORMA = {"amazon_mx": "MXN", "amazon_us": "USD"}
 _ESTADO_VIVO = "ENABLED"
 _ESTADO_ARCHIVADO = "ARCHIVED"
 
+# Revision del lead 2026-09-04: el primer parametro va CASTEADO
+# (`%s::platform IS NULL`). Sin el cast Postgres no puede inferir su tipo y la
+# consulta revienta con `IndeterminateDatatype: could not determine data type
+# of parameter $1` — la herramienta NUNCA habia corrido contra una base real
+# porque sus tests usan una conexion falsa (`_ConnFalsa`): validaban el
+# plumbing de Python, jamas el SQL. Hay un test contra Postgres de verdad.
 _SQL_PLAN = """
 SELECT v.id, v.platform, v.kind, v.keyword_text, e.match_type, v.external_id,
        v.ad_group_id, g.external_id, v.campaign_id, c.external_id,
@@ -102,7 +108,7 @@ SELECT v.id, v.platform, v.kind, v.keyword_text, e.match_type, v.external_id,
   JOIN ad_entity c ON c.id = v.campaign_id
   LEFT JOIN ad_entity_state s ON s.ad_entity_id = v.id
  WHERE v.kind = 'keyword'
-   AND (%s IS NULL OR v.platform = %s::platform)
+   AND (%s::platform IS NULL OR v.platform = %s::platform)
    AND v.clasificacion = %s
    AND (v.dias_sin_impresiones IS NULL OR v.dias_sin_impresiones >= %s)
  ORDER BY v.platform, v.dias_sin_impresiones NULLS FIRST, v.id
@@ -111,7 +117,7 @@ SELECT v.id, v.platform, v.kind, v.keyword_text, e.match_type, v.external_id,
 _SQL_EXCLUIDOS = """
 SELECT count(*) FROM v_entidad_inerte
  WHERE kind = 'product_target'
-   AND (%s IS NULL OR platform = %s::platform)
+   AND (%s::platform IS NULL OR platform = %s::platform)
    AND clasificacion = %s
    AND (dias_sin_impresiones IS NULL OR dias_sin_impresiones >= %s)
 """
