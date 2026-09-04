@@ -67,6 +67,12 @@ SQL13 = (Path(__file__).resolve().parents[1] / "migrations" / "0013_entidad_iner
 SQL15 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0015_target_margen_plataforma.sql"
 ).read_text(encoding="utf-8")
+# Cross-review de la implementacion (kimi + grok): 0016 REEMPLAZA la vista de
+# 0015 (frescura desde la corrida de ingesta; guard de cargo sin tipo en los
+# tres kinds). Se aplican EN ORDEN, como en produccion.
+SQL16 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0016_target_margen_correcciones.sql"
+).read_text(encoding="utf-8")
 
 # ---------------------------------------------------------------------------
 # Reloj FIJO y ventanas derivadas (mismas constantes que test_optimizer_windows)
@@ -140,6 +146,7 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL13)
         # ORBIT 06 (2.3): el peldano margen_plataforma lee su vista en TX2.
         conn.execute(SQL15)
+        conn.execute(SQL16)
         yield conn, conectar_extra
     finally:
         if conn is not None:
@@ -2553,6 +2560,13 @@ def _goal_plataforma_sin_target(conn) -> int:
 def _siembra_ledger_feliz(conn, hoy: dt.date) -> None:
     """Ledger feliz relativo a hoy (vista 0015): 70 ventas x100 con costo 50
     + 7 fees x-100 + 1 fee ads: margen 40, cobertura 1, dias 70."""
+    # Frescura de v_target_margen_plataforma: sale de la corrida de ingesta
+    # del ledger (cross-review grok H5), no de max(observed_at) — una venta
+    # nueva blanqueaba la guarda `ledger_rancio`. La siembra la sella.
+    conn.execute(
+        "INSERT INTO ingest_run (source, finished_at, ok) VALUES"
+        " ('accounting_ledger_events', now(), true)"
+    )
     run = _run(conn)
     prod = conn.execute(
         "INSERT INTO product (odoo_sku, name) VALUES ('PM1', 'PM1') RETURNING id"

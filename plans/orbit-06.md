@@ -1256,6 +1256,85 @@ números (40.0308 / 36.0802), las suites de la fase pasan en local (162) y
 se añadieron dos regresiones del lead —una por cada arreglo de
 comportamiento—, ambas verificadas por mutación.
 
+### Cross-review de la IMPLEMENTACIÓN (kimi + grok, 1 ronda, 2026-09-04)
+
+Pedida por el dueño antes del encendido. Ronda permitida: la primera de este
+PR (CodeRabbit) halló severidad alta. Los dos veredictos:
+**«encenderlo con correcciones»**. Adjudicación del lead, con medición en la
+base viva donde aplicaba:
+
+**BLOQUEANTES (los cuatro corregidos ANTES del go):**
+
+1. **Latiguazo de la abstención** (kimi H1 alta + grok H2 alta,
+   convergentes). El paso máximo de ±0.5 solo protegía **mientras el peldaño
+   ganaba**: al abstenerse por datos inválidos la cascada caía al setting
+   **sin tope**. Es el MISMO precipicio que la adjudicación A1 eliminó para
+   la banda, dejado intacto en la otra puerta. Escenario: a los tres meses
+   el aplicado vive en 28 y el setting sigue en 20; muere el cron del ledger
+   → `ledger_rancio` → target 20 de un salto (umbral −12 % de 32.2 a 23) →
+   recorte en masa de pujas reales; al recuperarse, latiguazo de vuelta.
+   Hoy el daño es ~0 (20.02 vs 20) y se carga solo con el tiempo. **Arreglo**:
+   con ancla previa, la abstención ya no devuelve None: **converge** al
+   setting a ≤0.5/ciclo (`ResolucionMargen.convergiendo`, declarado en
+   `notes.target.convergiendo_a_setting`). La fracción AUSENTE sigue
+   apagando en seco: es el interruptor y una decisión humana.
+2. **La sombra era ciega a los no-op** (grok H1 alta). `decide_bid` no
+   persiste una decisión cuando no hay banda, así que el «0 de 93» del lead
+   se midió SOLO sobre entidades que ya decidían — justo las quietas son las
+   que se vuelven recorte al bajar el target. **Rehecha sobre las 135 hojas
+   elegibles** (ENABLED en campaña y grupo ENABLED, no inertes, con métricas
+   en la ventana literal del motor 2026-07-29..2026-08-27): **2 de 135
+   cambian**, las dos en US y las dos de «quieta» a −12 %
+   (`ad_entity` 5891: ACoS 21.4 %, gasto 25.26 USD; `ad_entity` 4927: ACoS
+   21.5 %, gasto 24.79 USD). MX: 0 de 90. Con el paso máximo no disparan el
+   día 1 (target 19.5 → umbral 22.4) sino cuando el aplicado baja de ~18.7,
+   es decir al **tercer ciclo**. El harvest también se endurece: su tope
+   `min(35, target)` pasa de 20 a 18.04.
+3. **El dashboard no era equivalente al motor** (grok H3 media).
+   `api_dashboard._fila_campana` llamaba `cascada_target_acos_con_procedencia`
+   **sin** `target_margen` (default None), así que la tabla de campañas
+   habría mostrado 20 / `setting_plataforma` mientras el motor decidía con el
+   derivado: dos verdades en pantallas distintas y el dueño creyendo que no
+   encendió. **Arreglo**: la web lee el aplicado del último ciclo `done`
+   (`notes.target`, fuente única — no re-resuelve la vista ni el paso) y se
+   lo pasa a la MISMA cascada.
+4. **La guarda de frescura no podía disparar** (grok H5 media).
+   `ledger_fresco_at` salía de `MAX(observed_at)` sobre TODO el ledger: una
+   venta nueva de hoy la «blanqueaba» aunque los cargos de la ventana madura
+   no hubieran llegado nunca. Medido el 2026-09-04: sobre toda la tabla,
+   fresco = hoy en ambas; sobre la ventana madura, **MX estaba en 08-31**.
+   **Arreglo** (migración 0016): se mide sobre la **corrida de ingesta** del
+   ledger, que es exactamente lo que la guarda dice medir.
+
+**NO bloqueantes, corregidos igual:** ancla del paso clampeada a la banda
+antes de aplicarla (kimi H4: con un setting de 50 el paso producía un
+aplicado de 49.5 y el clamp quedaba anulado); `fees_sin_tipo` cubre los TRES
+kinds, no solo `fee` (kimi H8); el scan del ancla del aviso solo mira ciclos
+`done` (kimi H10a).
+
+**REFUTADOS por medición del lead:** (a) traslape de `sku_cost` que
+duplicaría ventas (kimi H3) — existe el índice de exclusión
+`sku_cost_product_id_daterange_excl`, **0 solapes** y el JOIN da 417 filas
+sobre 417 ventas; (b) cargos con `amount_currency` NULL que esquivarían el
+guard (kimi H7) — la columna es **NOT NULL** en el esquema; (c) pedidos
+mixtos que cargarían fees completos contra la parte cubierta (grok H4 /
+kimi H6) — **0 pedidos mixtos** de 263 MX y 154 US; (d) el `ValueError` de
+la fracción tumbando el ciclo entero (kimi H5) — los ciclos corren como
+**procesos separados por plataforma** (cron 08:40 US / 08:41 MX), así que el
+radio es una plataforma y es el fail-loud buscado.
+
+**DECLARADOS sin cambio:** el medidor del supuesto A7 queda mudo en US
+porque las métricas van en USD y el ledger en MXN (kimi + grok convergen);
+el sesgo estructural de los pedidos mixtos (hoy exactamente 0); y la
+procedencia a nivel plataforma es el CANDIDATO del peldaño — la procedencia
+por entidad vive en `decision.inputs` (kimi H2).
+
+**Verificación del lead:** replay confirmado íntegro (`replay.py` no importa
+`goals` ni llama a la cascada; los dos caminos leen el congelado); suite
+completa local **1152 passed**; las dos correcciones de comportamiento
+llevan regresión propia y **ambas verificadas por mutación**; la vista
+corregida devuelve los MISMOS números en producción (40.0308 / 36.0802).
+
 **Rojos 2.3** (contra origin/master, antes del fix; Postgres local 16):
 
 ```text

@@ -53,7 +53,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query
@@ -514,12 +514,43 @@ def _goal_estado(goal: g.Goal | None) -> dict | None:
     }
 
 
+_SQL_TARGET_MARGEN_ULTIMO = """
+SELECT notes
+  FROM optimizer_cycle
+ WHERE platform = %s::platform AND motor = 'ads_optimizer' AND status = 'done'
+ ORDER BY id DESC
+ LIMIT 1
+"""
+
+
+def _target_margen_del_ciclo(conn, plataforma: str) -> Decimal | None:
+    """Aplicado del peldano `margen_plataforma` segun el ULTIMO ciclo done de
+    la plataforma (cross-review grok H3). Fuente UNICA: notes.target, lo que el
+    ciclo resolvio — la web NO re-resuelve la vista ni el paso maximo. Sin
+    ciclo, sin notes, sin bloque o con el peldano abstenido -> None y la
+    cascada sigue como hoy (regla 3)."""
+    fila = conn.execute(_SQL_TARGET_MARGEN_ULTIMO, (plataforma,)).fetchone()
+    if not fila or not isinstance(fila[0], dict):
+        return None
+    bloque = fila[0].get("target")
+    if not isinstance(bloque, dict) or bloque.get("procedencia") != "margen_plataforma":
+        return None
+    valor = bloque.get("target_aplicado")
+    if valor is None:
+        return None
+    try:
+        return Decimal(str(valor))
+    except (InvalidOperation, ValueError, ArithmeticError):
+        return None
+
+
 def _fila_campana(
     fila,
     goals_campana: dict[int, g.Goal],
     goal_plataforma: g.Goal | None,
     settings: dict,
     plataforma: str,
+    target_margen: Decimal | None = None,
 ) -> dict:
     """Fila del resumen: metricas 30d (grano campaign, dinero string) + target
     EFECTIVO con PROCEDENCIA (cascada de 1.2 REUTILIZADA, jamas
@@ -527,7 +558,7 @@ def _fila_campana(
     camp_id, nombre, _plataforma, acos_cache, estado, cost, revenue, clicks = fila
     goal_campana = goals_campana.get(camp_id)
     valor, peldano = g.cascada_target_acos_con_procedencia(
-        goal_campana, goal_plataforma, settings, acos_cache, plataforma
+        goal_campana, goal_plataforma, settings, acos_cache, plataforma, target_margen
     )
     acos, sin_ventas = _acoso(cost, revenue)
     return {
@@ -572,10 +603,23 @@ def campanas(
     items: list[dict] = []
     plataformas = (platform,) if platform is not None else tuple(PLATAFORMAS_MONEDA)
     for plataforma in plataformas:
+        # ORBIT 06 2.3 (cross-review grok H3): el peldano `margen_plataforma`
+        # lo resuelve el CICLO, no la web (la vista y el paso maximo exigen
+        # estado). La tabla lee el aplicado del ultimo ciclo de esa plataforma
+        # y se lo pasa a la MISMA cascada que usa el motor. Sin esto el
+        # dashboard llamaba con target_margen=None y mostraba el setting (20)
+        # mientras el motor ya decidia con el derivado: dos verdades en
+        # pantallas distintas, y el dueno creeria que no encendio.
+        target_margen = _target_margen_del_ciclo(conn, plataforma)
         for fila in conn.execute(_SQL_CAMPANAS_30D, (plataforma, desde, hasta)).fetchall():
             items.append(
                 _fila_campana(
-                    fila, goals_campana, goals_plataforma.get(plataforma), settings, plataforma
+                    fila,
+                    goals_campana,
+                    goals_plataforma.get(plataforma),
+                    settings,
+                    plataforma,
+                    target_margen,
                 )
             )
     return {"items": items}
