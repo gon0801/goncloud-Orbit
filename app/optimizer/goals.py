@@ -230,7 +230,7 @@ def cascada_target_acos(
     target_goal: Decimal | None,
     setting_plataforma: Decimal | None,
     cache_acos_target: Decimal | None,
-    margen_plataforma: Decimal | None = None,
+    target_margen: Decimal | None = None,
     scope_goal: str | None = None,
 ) -> Decimal:
     """Cascada sellada, peldano por peldano: goal resuelto -> margen_plataforma
@@ -245,7 +245,7 @@ def cascada_target_acos(
     sus peldanos con sus mensajes historicos (el setting que llega directo
     tambien se valida: sin candado en JSONB/cache)."""
     t_goal = _valida_target_peldano(target_goal, "goal.target_acos_pct")
-    margen = _valida_target_peldano(margen_plataforma, "margen_plataforma")
+    margen = _valida_target_peldano(target_margen, "target_margen")
     setting = _valida_target_peldano(setting_plataforma, "setting ads_target_acos_pct")
     cache = _valida_target_peldano(cache_acos_target, "ad_entity_state.acos_target")
     return _nucleo_target_acos(t_goal, _nombre_goal(scope_goal), margen, setting, cache)[0]
@@ -274,7 +274,7 @@ PELDANOS_CASCADA = (
 def _nucleo_target_acos(
     target_goal: Decimal | None,
     nombre_goal: str | None,
-    margen_plataforma: Decimal | None,
+    target_margen: Decimal | None,
     setting_plataforma: Decimal | None,
     cache_acos_target: Decimal | None,
 ) -> tuple[Decimal, str | None]:
@@ -286,8 +286,8 @@ def _nucleo_target_acos(
     el peldano sale None y el motor lo descarta)."""
     if target_goal is not None:
         return (target_goal, nombre_goal)
-    if margen_plataforma is not None:
-        return (margen_plataforma, "margen_plataforma")
+    if target_margen is not None:
+        return (target_margen, "margen_plataforma")
     if setting_plataforma is not None:
         return (setting_plataforma, "setting_plataforma")
     if cache_acos_target is not None:
@@ -307,7 +307,7 @@ def _nombre_goal(scope_goal: str | None) -> str | None:
 def peldano_target_acos(
     target_goal: Decimal | None,
     scope_goal: str | None,
-    margen_plataforma: Decimal | None,
+    target_margen: Decimal | None,
     setting_plataforma: Decimal | None,
     cache_acos_target: Decimal | None,
 ) -> str:
@@ -317,7 +317,7 @@ def peldano_target_acos(
     tiene: goal.scope); sin el, ValueError ruidoso en vez de un nombre
     inventado."""
     t_goal = _valida_target_peldano(target_goal, "goal.target_acos_pct")
-    margen = _valida_target_peldano(margen_plataforma, "margen_plataforma")
+    margen = _valida_target_peldano(target_margen, "target_margen")
     setting = _valida_target_peldano(setting_plataforma, "setting ads_target_acos_pct")
     cache = _valida_target_peldano(cache_acos_target, "ad_entity_state.acos_target")
     _valor, peldano = _nucleo_target_acos(t_goal, _nombre_goal(scope_goal), margen, setting, cache)
@@ -332,7 +332,7 @@ def cascada_target_acos_con_procedencia(
     settings: Mapping,
     cache_acos_target: Decimal | None,
     platform: str,
-    margen_plataforma: Decimal | None = None,
+    target_margen: Decimal | None = None,
 ) -> tuple[Decimal, str]:
     """Cascada sellada con PROCEDENCIA: devuelve (valor, peldaño) con los
     SEIS peldanos y estos nombres EXACTOS (ORBIT 06 2.3 suma
@@ -345,12 +345,14 @@ def cascada_target_acos_con_procedencia(
 
     SEMANTICA DE LOS DOS GOALS, identica al camino del motor: el goal de
     campana PISA SIEMPRE que exista (resuelve_goal, INCLUIDO enabled); si su
-    target es None, el target del goal de plataforma NO entra -- el motor
-    resuelve goal_campana y su cascada vieja salta el target None al setting.
-    El peldaño goal_plataforma solo gana cuando NO existe goal de campana.
-    Reportar 'goal_plataforma' cuando existe un goal de campana con target
-    None mentiria sobre lo que el motor decidio (regla 2: un numero, una
-    fuente; el test de equivalencia lo sella)."""
+    target es None, el target del goal de plataforma NO entra -- pero el
+    peldano target_margen (candidato ya resuelto por el orquestador, None =
+    no aplica) SIGUE en juego igual que el setting: un goal de campana sin
+    target bloquea goal_plataforma, jamas a margen_plataforma (A2,
+    D-2.3.13). El peldano goal_plataforma solo gana cuando NO existe goal
+    de campana. Reportar 'goal_plataforma' cuando existe un goal de campana
+    con target None mentiria sobre lo que el motor decidio (regla 2: un
+    numero, una fuente; el test de equivalencia lo sella)."""
     if goal_campana is not None:
         objetivo = _valida_target_peldano(goal_campana.target_acos_pct, "goal_campana")
         nombre = "goal_campana" if objetivo is not None else None
@@ -360,7 +362,7 @@ def cascada_target_acos_con_procedencia(
     else:
         objetivo, nombre = None, None
     setting = target_desde_settings(settings, platform)
-    margen = _valida_target_peldano(margen_plataforma, "margen_plataforma")
+    margen = _valida_target_peldano(target_margen, "target_margen")
     cache = _valida_target_peldano(cache_acos_target, "cache_estado")
     valor, peldano = _nucleo_target_acos(objetivo, nombre, margen, setting, cache)
     assert peldano is not None  # con goals el nombre siempre se resuelve
@@ -518,7 +520,6 @@ MOTIVOS_ABSTENCION = (
     "ventana_corta",
     "sin_fraccion",
     "ledger_rancio",
-    "fuera_de_banda",
 )
 
 ETIQUETA_ABSTENCION = {
@@ -527,19 +528,19 @@ ETIQUETA_ABSTENCION = {
     "ventana_corta": "pocos dias con venta en la ventana",
     "sin_fraccion": "sin fraccion configurada para la plataforma",
     "ledger_rancio": "ledger sin refrescar mas de 3 dias",
-    "fuera_de_banda": "derivado fuera de la banda 10 a 45",
 }
 
 
 @dataclass(frozen=True)
 class MedicionMargen:
     """Espejo puro de UNA fila de v_target_margen_plataforma (D-2.3.4).
-    Dinero en Decimal, fechas en date/datetime; faltante = None (regla 3)."""
+    Dinero en Decimal, fechas en date/datetime; faltante = None (regla 3).
+    cobertura es POR MONTO (venta_cubierta/venta_total, A3)."""
 
     margen_neto_pct: Decimal | None
     cobertura: Decimal | None
     dias_con_venta: int | None
-    venta: Decimal | None
+    venta_cubierta: Decimal | None
     ledger_fresco_at: dt.datetime | None
     moneda: str | None
     ventana_desde: dt.date | None
@@ -549,52 +550,66 @@ class MedicionMargen:
 @dataclass(frozen=True)
 class ResolucionMargen:
     """Salida del resolver: aplicado (lo que entra a la cascada) + derivado
-    (sin clamp, para el snapshot) + motivo (None = aplica)."""
+    CRUDO (snapshot + linea fuera-de-banda) + motivo (None = aplica)."""
 
     aplicado: Decimal | None
     derivado: Decimal | None
     motivo: str | None
 
 
-def hoy_de_ventana(ventana) -> dt.date:
-    """hoy desde el daterange [hoy-105, hoy-15) de la vista: el bound
-    superior exclusivo es hoy-15 (D-2.3.4: la ventana es la UNICA fuente)."""
-    return ventana.upper + dt.timedelta(days=15)
+def hoy_de_ventana(ventana_hasta: dt.date) -> dt.date:
+    """hoy desde la ventana [hoy-105, hoy-15) de la vista: el bound superior
+    exclusivo es hoy-15 (D-2.3.4: la ventana es la UNICA fuente)."""
+    return ventana_hasta + dt.timedelta(days=15)
 
 
 def medicion_desde_fila(fila: Mapping) -> MedicionMargen:
-    """Fila dict de v_target_margen_plataforma -> MedicionMargen (bounds del
-    daterange, numericos tal cual, None como None)."""
-    ventana = fila["ventana"]
+    """Fila dict de v_target_margen_plataforma -> MedicionMargen (columnas
+    DATE literales del spec §3, numericos tal cual, None como None)."""
     return MedicionMargen(
         margen_neto_pct=fila["margen_neto_pct"],
         cobertura=fila["cobertura"],
         dias_con_venta=fila["dias_con_venta"],
-        venta=fila["venta"],
+        venta_cubierta=fila["venta_cubierta"],
         ledger_fresco_at=fila["ledger_fresco_at"],
         moneda=fila["moneda"],
-        ventana_desde=ventana.lower if ventana is not None else None,
-        ventana_hasta=ventana.upper if ventana is not None else None,
+        ventana_desde=fila["ventana_desde"],
+        ventana_hasta=fila["ventana_hasta"],
     )
 
 
 def fraccion_desde_settings(settings: Mapping, platform: str) -> Decimal | None:
     """Fraccion del target de margen (clave ads_target_fraccion_margen_<plat>;
-    string decimal; numero JSON tolerado como el target). Ausente, vacia,
-    no-parseable o fuera de (0, 1] (NaN/Inf caen aqui) -> None: el peldano
-    NO aplica (abstencion suave sin_fraccion, D-2.3.3 — NO crash: el spec
-    lista 'ausente/invalida' en el vocabulario, no en config corrupta)."""
-    valor = settings.get(f"ads_target_fraccion_margen_{platform}")
+    string decimal; numero JSON tolerado como el target). Ausente (o JSON
+    null) -> None: el peldano NO aplica (abstencion sin_fraccion, el
+    interruptor de la fase). PRESENTE pero invalida (no numerica incl.
+    "0,5" con coma, NaN/Inf, <= 0, > 1) -> ValueError ruidoso que tumba el
+    ciclo, identico a target_desde_settings (A4, D-2.3.12: config CORRUPTA,
+    no dato faltante — camuflarla de ausente decidiria con un target que
+    nadie configuro, regla 3)."""
+    clave = f"ads_target_fraccion_margen_{platform}"
+    valor = settings.get(clave)
     if valor is None:
         return None
     try:
         fraccion = Decimal(str(valor).strip())
-        if not Decimal(0) < fraccion <= Decimal(1):
-            return None
-    except InvalidOperation:
-        # NaN no solo noParsea: COMPARARLO tambien senala (a diferencia de
-        # float) — cae aqui igual que el resto de lo invalido.
+    except InvalidOperation as exc:
+        raise ValueError(f"setting {clave}: fraccion no numerica: {valor!r}") from exc
+    if not fraccion.is_finite() or not Decimal(0) < fraccion <= Decimal(1):
+        # NaN: Decimal senala al comparar (a diferencia de float) — cae
+        # aqui igual que el resto de lo invalido.
+        raise ValueError(f"setting {clave}: fraccion debe estar en (0, 1], llego {valor!r}")
+    return fraccion
+
+
+def _valida_fraccion(fraccion: Decimal | None) -> Decimal | None:
+    """Fraccion YA parseada: None pasa (ausencia = interruptor, abstencion
+    sin_fraccion); presente pero no finita, <= 0 o > 1 revienta (A4,
+    D-2.3.12: config corrupta, no dato faltante)."""
+    if fraccion is None:
         return None
+    if not fraccion.is_finite() or not Decimal(0) < fraccion <= Decimal(1):
+        raise ValueError(f"fraccion de margen invalida: {fraccion!r} (debe estar en (0, 1])")
     return fraccion
 
 
@@ -606,27 +621,31 @@ def resuelve_target_margen(
 ) -> ResolucionMargen:
     """Resolver PURO del peldano (D-2.3.2: LA fuente; el ciclo lo llama UNA
     vez por plataforma y el dashboard no lo reimplementa). Primer match del
-    vocabulario cerrado (D-2.3.3); banda [10, 45] inclusiva sobre el
-    derivado ANTES del clamp; paso maximo ±0.5 desde `ultimo` (None = sin
-    ancla: aplicado = derivado). Sin redondeos: Decimal exacto de punta a
-    punta (la escala del snapshot es artefacto deterministico)."""
-    if medicion.venta is None or medicion.venta <= 0:
+    vocabulario cerrado (D-2.3.3, orden D-2.3.11: dias ANTES de margen-None
+    porque la vista nulifica el margen ante dias cortos); banda [10, 45]
+    CLAMPEA sobre el derivado (A1, D-2.3.10) y LUEGO aplica el paso maximo
+    ±0.5 desde `ultimo` (None = sin ancla: aplicado = derivado clampeado).
+    Sin redondeos: Decimal exacto de punta a punta (la escala del snapshot
+    es artefacto deterministico)."""
+    fraccion = _valida_fraccion(fraccion)
+    if medicion.venta_cubierta is None or medicion.venta_cubierta <= 0:
         return ResolucionMargen(None, None, "sin_margen")
     if medicion.cobertura is None or medicion.cobertura < MARGEN_COBERTURA_MIN:
         return ResolucionMargen(None, None, "cobertura_baja")
-    if medicion.margen_neto_pct is None:
-        return ResolucionMargen(None, None, "sin_margen")
     if medicion.dias_con_venta is None or medicion.dias_con_venta < MARGEN_DIAS_MIN:
         return ResolucionMargen(None, None, "ventana_corta")
+    if medicion.margen_neto_pct is None:
+        return ResolucionMargen(None, None, "sin_margen")
     if fraccion is None:
         return ResolucionMargen(None, None, "sin_fraccion")
     fresco = medicion.ledger_fresco_at
     if fresco is None or fresco.date() < hoy - dt.timedelta(days=MARGEN_RANCIO_DIAS):
         return ResolucionMargen(None, None, "ledger_rancio")
     derivado = fraccion * medicion.margen_neto_pct
-    if derivado < MARGEN_BANDA_MIN or derivado > MARGEN_BANDA_MAX:
-        return ResolucionMargen(None, derivado, "fuera_de_banda")
+    # derivado se DEVUELVE crudo (snapshot + linea fuera-de-banda); el
+    # clamp solo alimenta al aplicado (D-2.3.10).
+    recortado = min(max(derivado, MARGEN_BANDA_MIN), MARGEN_BANDA_MAX)
     if ultimo is None:
-        return ResolucionMargen(derivado, derivado, None)
-    aplicado = min(max(derivado, ultimo - MARGEN_PASO_MAX), ultimo + MARGEN_PASO_MAX)
+        return ResolucionMargen(recortado, derivado, None)
+    aplicado = min(max(recortado, ultimo - MARGEN_PASO_MAX), ultimo + MARGEN_PASO_MAX)
     return ResolucionMargen(aplicado, derivado, None)

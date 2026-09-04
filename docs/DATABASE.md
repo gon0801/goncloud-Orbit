@@ -554,17 +554,23 @@ Regímenes de lectura, explícitos (reemplazan al "todo lee lo maduro"):
   fila = NO inerte.
 - **`v_target_margen_plataforma`** (ORBIT 06, migración `0015`) — **margen
   neto %** por plataforma sobre la ventana **[D-105, D-15)** con hoy =
-  `CURRENT_DATE` UTC (15 días de maduración, regla 6; 90 de historia):
-  `venta` (SUM de sales), `cargos` (fee/withholding/refund **excluyendo
-  `fee_type = 'ads'`** — el target es pre-ads), `cogs` (costo vigente a
-  `event_date` × cantidad **solo en la misma moneda**, sin FX; la línea sin
-  costo cuenta sin costo), **`margen_neto_pct` = 100 × (venta + cargos −
-  cogs) / venta, NULL con cobertura < 95 %** (fail-loud) o ventana vacía,
-  `cobertura` (líneas con costo / líneas de venta), `dias_con_venta`,
-  `ledger_fresco_at` (máximo de TODA la plataforma, sin ventana) y `moneda`
-  (única en la ventana, NULL si mezcla — canario). La vista SOLO MIDE:
-  fracción, banda [10, 45] y paso ±0.5 viven en
-  `goals.resuelve_target_margen`; el ciclo la lee UNA vez por ciclo en TX2.
+  `CURRENT_DATE` UTC (15 días de maduración, regla 6; 90 de historia;
+  la evidencia auditada es el freeze de `ventana_desde/hasta`, no la vista).
+  `venta_cubierta` (SUM solo de ventas CON costo: misma moneda, sin FX ni
+  relleno), `cobertura` POR MONTO (cubierta/total), `cargos_con_orden`
+  (fee/withholding/refund no-ads con `order_id` de venta cubierta, sin
+  filtro de fecha propio) y `cargos_sin_orden` (los de plataforma sin
+  `order_id`, **prorrateados por cobertura dentro del margen**),
+  `fees_sin_tipo` (fee con `fee_type` NULL), `dias_con_venta`,
+  `ledger_fresco_at` (máximo de TODA la plataforma — `observed_at` solo
+  avanza con filas nuevas) y `moneda` (única en la ventana, NULL si mezcla
+  — canario). **`margen_neto_pct` = 100 × (cubierta + con_orden +
+  sin_orden × cobertura − cogs) / cubierta, NULL ante cualquier condición
+  §5** (mezcla, `fees_sin_tipo` > 0, cobertura < 95 %, días < 60, cubierta
+  ≤ 0; fail-loud). El ISR retenido va como costo (decisión consciente).
+  La vista SOLO MIDE: fracción, banda [10, 45] (clampea) y paso ±0.5 viven
+  en `goals.resuelve_target_margen`; el ciclo la lee UNA vez por ciclo
+  en TX2.
 
 ## Roles y candados
 

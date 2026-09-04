@@ -287,13 +287,58 @@ def _linea_contribucion(datos: ContribucionDigest) -> str | None:
     return f"{ETIQUETA_CONTRIBUCION}: {cuerpo}"
 
 
-def _linea_target_margen(plataforma, target, previo) -> str | None:
-    """Linea del target de margen para el digest (ORBIT 06 2.3, D-2.3.7,
-    spec §9): `target margen {plat}: {prev} -> {nuevo}` si el aplicado
-    cambia >= 1 punto contra el previo; `target margen {plat}: abstencion
-    {motivo} ({etiqueta})` si el peldano se abstiene. Cualquier ausente
-    (sin bloque, sin aplicado, previo ilegible, motivo sin etiqueta
-    conocida -> id crudo) = None: la linea no sale (regla 3). Pura."""
+def decide_aviso_target(aplicado, ancla) -> tuple[bool, str | None]:
+    """Logica UNICA del aviso por cambio (ORBIT 06 2.3 segunda vuelta, A8,
+    D-2.3.14): el umbral >= 1 punto corre sobre el ACUMULADO desde el ultimo
+    aviso emitido (el paso maximo 0.5 jamas dispara solo). Devuelve (emitir,
+    nuevo_ancla). Sin ancla (primera vez) se avisa; sin aplicado
+    (abstencion) jamas se avisa ni el ancla avanza. Pura; el ciclo la usa
+    para persistir `ultimo_avisado` y el digest para renderizar (cero
+    duplicados). Valores ilegibles = no avisar, ancla intacta (regla 3)."""
+    if aplicado is None:
+        return (False, ancla)
+    if ancla is None:
+        return (True, str(aplicado))
+    try:
+        delta = abs(Decimal(str(aplicado)) - Decimal(str(ancla)))
+    except Exception:  # noqa: BLE001 - ilegible: sin linea, ancla intacta
+        return (False, ancla)
+    if delta < 1:
+        return (False, ancla)
+    return (True, str(aplicado))
+
+
+def _linea_banda_margen(plataforma, target: dict) -> str | None:
+    """Linea por derivado fuera de banda (A1, D-2.3.10): UNA por ciclo con
+    derivado presente y fuera de [10, 45], con el valor crudo (el aplicado
+    ya viene clampeado). Bordes de goals (cero segundas fuentes)."""
+    from app.optimizer import goals as g
+
+    plat = plataforma if isinstance(plataforma, str) and plataforma else "?"
+    crudo = target.get("target_derivado")
+    if crudo is None:
+        return None
+    try:
+        numero = Decimal(str(crudo))
+    except Exception:  # noqa: BLE001 - ilegible: sin linea
+        return None
+    if g.MARGEN_BANDA_MIN <= numero <= g.MARGEN_BANDA_MAX:
+        return None
+    return (
+        f"target margen {plat}: derivado {crudo} fuera de banda "
+        f"[{g.MARGEN_BANDA_MIN}, {g.MARGEN_BANDA_MAX}] "
+        f"(aplicado {target.get('target_aplicado')})"
+    )
+
+
+def _linea_target_margen(plataforma, target, ancla) -> str | None:
+    """Linea del target de margen para el digest (ORBIT 06 2.3 segunda
+    vuelta, D-2.3.7/D-2.3.14, spec §9): `target margen {plat}: {ancla} ->
+    {nuevo}` si el aplicado acumula >= 1 punto desde el ultimo aviso;
+    `target margen {plat}: abstencion {motivo} ({etiqueta})` si el peldano
+    se abstiene. Cualquier ausente (sin bloque, sin aplicado, motivo sin
+    etiqueta conocida -> id crudo) = None: la linea no sale (regla 3).
+    Pura."""
     from app.optimizer import goals as g
 
     if not isinstance(target, dict):
@@ -303,16 +348,13 @@ def _linea_target_margen(plataforma, target, previo) -> str | None:
     if motivo:
         etiqueta = g.ETIQUETA_ABSTENCION.get(motivo, motivo)
         return f"target margen {plat}: abstencion {motivo} ({etiqueta})"
+    emitir, _ = decide_aviso_target(target.get("target_aplicado"), ancla)
+    if not emitir:
+        return None
     nuevo = target.get("target_aplicado")
-    if nuevo is None or previo is None:
-        return None
-    try:
-        delta = abs(Decimal(str(nuevo)) - Decimal(str(previo)))
-    except Exception:  # noqa: BLE001 - previo/aplicado ilegible: sin linea
-        return None
-    if delta < 1:
-        return None
-    return f"target margen {plat}: {previo} -> {nuevo}"
+    if ancla is None:
+        return f"target margen {plat}: {nuevo} (primer aviso)"
+    return f"target margen {plat}: {ancla} -> {nuevo}"
 
 
 def _arma_contribucion_digest(
@@ -423,14 +465,20 @@ def digest_ciclo(resumen: dict) -> str:
         skips_entidad = skips.get("entidad")
         if isinstance(skips_entidad, dict) and "entidad_inerte" in skips_entidad:
             lineas.append(f"entidades sin trafico (saltadas): {skips_entidad['entidad_inerte']}")
-    # ORBIT 06 2.3 (D-2.3.7, spec §9): linea del target solo cuando cambia
-    # >= 1 punto contra el ciclo previo o cuando el peldano se abstiene
-    # (motivo + etiqueta). Ausentes = no se menciona (regla 3).
-    linea_target = _linea_target_margen(
-        resumen.get("plataforma"), resumen.get("target"), resumen.get("target_previo")
-    )
-    if linea_target:
-        lineas.append(linea_target)
+    # ORBIT 06 2.3 segunda vuelta (D-2.3.7/D-2.3.10/D-2.3.14, spec §9):
+    # linea por cambio ACUMULADO >= 1 punto desde el ultimo aviso (o
+    # abstencion con motivo) + linea por derivado fuera de banda (valor
+    # crudo). Ausentes = no se menciona (regla 3).
+    bloque_target = resumen.get("target")
+    if isinstance(bloque_target, dict):
+        linea_target = _linea_target_margen(
+            resumen.get("plataforma"), bloque_target, resumen.get("target_ancla")
+        )
+        if linea_target:
+            lineas.append(linea_target)
+        linea_banda = _linea_banda_margen(resumen.get("plataforma"), bloque_target)
+        if linea_banda:
+            lineas.append(linea_banda)
     contrib = resumen.get("contribucion")
     if isinstance(contrib, ContribucionDigest):
         linea = _linea_contribucion(contrib)

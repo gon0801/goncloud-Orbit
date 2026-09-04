@@ -234,7 +234,7 @@ Respuesta 200:
       "ultimo_ciclo": {"id": 5, "mode": "shadow", "status": "done", "started_at": "2026-08-22T00:46:00Z", "finished_at": "2026-08-22T00:50:00Z", "decisions_count": 124, "applied_count": 0, "notes": {"skips": {"entidad": {"estado_no_enabled": 3200}}, "decisiones": {"bid": 124}}},
       "historico_14d": [{"cycle_id": 5, "fecha": "2026-08-22T00:46:00Z", "status": "done", "decisions_count": 124}, {"cycle_id": 4, "fecha": "2026-08-21T00:47:00Z", "status": "degraded", "decisions_count": 0, "motivo": "Watermark de la plataforma vencido"}],
       "skips": {"entidad": {"estado_no_enabled": {"count": 3200, "motivo_es": "Entidad sin estado o no habilitada"}}, "termino": {"asin_like": {"count": 84, "motivo_es": "Termino ASIN-like: se salta siempre"}}},
-      "target_margen": {"target_vigente": "20", "procedencia": "margen_plataforma", "margen_neto_pct": "40", "fraccion": "0.5", "ventana_desde": "2026-05-22", "ventana_hasta": "2026-08-20", "ledger_edad_dias": 1, "motivo_abstencion": null, "motivo_etiqueta": null}
+      "target_margen": {"target_vigente": "20", "procedencia": "margen_plataforma", "margen_neto_pct": "40", "fraccion": "0.5", "cobertura": "0.98", "ventana_desde": "2026-05-22", "ventana_hasta": "2026-08-20", "ledger_edad_dias": 1, "ratio_ads_venta": "0.104", "motivo_abstencion": null, "motivo_etiqueta": null}
     }
   }
 }
@@ -260,9 +260,12 @@ Respuesta 200:
   `notes.target` del último ciclo (constructor puro en `app/api_common.py`, sin
   re-resolver): `target_vigente` (el aplicado si el peldaño ganó, `null` si se
   abstuvo — la cascada por entidad no tiene usado único), `procedencia`,
-  `margen_neto_pct`, `fraccion`, ventana (`ventana_desde`/`ventana_hasta`),
-  `ledger_edad_dias` (días desde `ledger_fresco_at`) y `motivo_abstencion` +
-  `motivo_etiqueta` en español. Sin ciclo o sin la clave → todo `null` (regla 3).
+  `margen_neto_pct`, `fraccion`, `cobertura` por monto, ventana
+  (`ventana_desde`/`ventana_hasta`), `ledger_edad_dias` (días desde
+  `ledger_fresco_at`), `ratio_ads_venta` (ad revenue de la ventana sobre la
+  venta total: denominadores distintos a la vista, se vigila — §9) y
+  `motivo_abstencion` + `motivo_etiqueta` en español. Sin ciclo o sin la
+  clave → todo `null` (regla 3).
 
 ### 3.6 Reglas transversales de las series (selladas)
 

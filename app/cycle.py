@@ -430,10 +430,25 @@ SELECT id FROM v_entidad_inerte WHERE platform = %s::platform
 # ORBIT 06 2.3: medicion del margen, UNA fila por plataforma (la vista SOLO
 # MIDE; la resolucion es goals.resuelve_target_margen en Python).
 _SQL_TARGET_MARGEN = """
-SELECT platform, ventana, venta, cargos, cogs, margen_neto_pct, cobertura,
-       dias_con_venta, ledger_fresco_at, moneda
+SELECT platform, ventana_desde, ventana_hasta, venta_total, venta_cubierta,
+       cargos_con_orden, cargos_sin_orden, cogs, cobertura, dias_con_venta,
+       fees_sin_tipo, margen_neto_pct, ledger_fresco_at, moneda
   FROM v_target_margen_plataforma
  WHERE platform = %s::platform
+"""
+
+# Ad revenue de la ventana del margen (A7, D-2.3.15): SUM sobre
+# v_metric_latest al grano keyword+product_target (el mismo grano
+# anti-duplicado de v_tacos: las filas campaign repiten el dinero) con los
+# bounds DE LA FILA de la vista, nunca recalculados. Sin filas -> NULL
+# (regla 3: el ratio no se inventa).
+_SQL_AD_REVENUE_VENTANA = """
+SELECT SUM(m.ad_revenue)
+  FROM v_metric_latest m
+  JOIN ad_entity e ON e.id = m.ad_entity_id
+ WHERE e.platform = %s::platform
+   AND e.kind IN ('keyword', 'product_target')
+   AND m.metric_date >= %s AND m.metric_date < %s
 """
 
 # Notas de ciclos previos (misma plataforma+motor, anteriores al actual):
@@ -1405,11 +1420,11 @@ def _procesa_grupo(
 class _TargetCiclo:
     """El peldano a nivel ciclo (ORBIT 06 2.3, calculado UNA vez en TX2):
     valor que entra a las cascadas + snapshot para el freeze y notes.target
-    + aplicado del ciclo anterior para el digest."""
+    + ancla del ultimo aviso del digest (ultimo_avisado, D-2.3.14)."""
 
     margen: Decimal | None
     snapshot: dict
-    previo: str | None
+    ancla: str | None
 
 
 def _target_de_notas(notes) -> dict | None:
@@ -1441,19 +1456,20 @@ def _resuelve_target_ciclo(
     Sin fila en la vista (ledger vacio) = medicion en nulls con ventana de
     decided_at -> abstencion sin_margen. `ultimo` = aplicado del ultimo live
     done con el peldano ganado (fail-closed ruidoso si esta corrupto: lo
-    escribimos nosotros) -> setting -> sin ancla. `previo` = aplicado del
-    ciclo inmediatamente anterior con aplicado presente (LIMIT 1 estricto)."""
+    escribimos nosotros) -> setting -> sin ancla. `ancla` = ultimo_avisado
+    mas reciente (el acumulado del digest, D-2.3.14; ausente = primera vez
+    y se avisa)."""
     with conn.cursor(row_factory=dict_row) as cur:
         fila = cur.execute(_SQL_TARGET_MARGEN, (platform,)).fetchone()
     previas = conn.execute(_SQL_NOTAS_PREVIAS, (platform, cycle_id)).fetchall()
     ultimo: Decimal | None = None
-    previo: str | None = None
-    for i, (mode, status, notes) in enumerate(previas):
+    ancla: str | None = None
+    for mode, status, notes in previas:
         target = _target_de_notas(notes)
         if target is None:
             continue
-        if i == 0 and target.get("target_aplicado") is not None:
-            previo = target["target_aplicado"]
+        if ancla is None and target.get("ultimo_avisado") is not None:
+            ancla = target["ultimo_avisado"]
         if (
             ultimo is None
             and mode == "live"
@@ -1471,15 +1487,22 @@ def _resuelve_target_ciclo(
             margen_neto_pct=None,
             cobertura=None,
             dias_con_venta=None,
-            venta=None,
+            venta_cubierta=None,
             ledger_fresco_at=None,
             moneda=None,
             ventana_desde=None,
             ventana_hasta=None,
         )
+        venta_total = None
+        ad_revenue_ventana = None
     else:
-        hoy = g.hoy_de_ventana(fila["ventana"])
+        hoy = g.hoy_de_ventana(fila["ventana_hasta"])
         medicion = g.medicion_desde_fila(fila)
+        venta_total = fila["venta_total"]
+        ad_revenue_ventana = conn.execute(
+            _SQL_AD_REVENUE_VENTANA,
+            (platform, fila["ventana_desde"], fila["ventana_hasta"]),
+        ).fetchone()[0]
     res = g.resuelve_target_margen(medicion, fraccion, hoy, ultimo)
     snapshot = {
         "procedencia": "margen_plataforma" if res.motivo is None else None,
@@ -1492,10 +1515,13 @@ def _resuelve_target_ciclo(
         "target_derivado": _dec_str(res.derivado),
         "target_aplicado": _dec_str(res.aplicado),
         "setting": _dec_str(setting_target),
+        "venta_total": _dec_str(venta_total),
+        "ad_revenue_ventana": _dec_str(ad_revenue_ventana),
+        "ultimo_avisado": ancla,
         "ledger_fresco_at": _ts(medicion.ledger_fresco_at),
         "moneda": medicion.moneda,
     }
-    return _TargetCiclo(res.aplicado, snapshot, previo)
+    return _TargetCiclo(res.aplicado, snapshot, ancla)
 
 
 def _recorre_plataforma(
@@ -1786,7 +1812,7 @@ def _fase_notifica(
     notas_apply: dict,
     skips: dict | None = None,
     target: dict | None = None,
-    target_previo: str | None = None,
+    target_ancla: str | None = None,
     caps_saturados: tuple = (),
     tick: Callable[[], None] | None = None,
 ) -> dict:
@@ -1859,12 +1885,18 @@ def _fase_notifica(
         # (regla 3: ausentes = el digest no los menciona).
         if skips is not None:
             resumen["skips"] = skips
-        # ORBIT 06 2.3: el bloque target y el aplicado previo, por el mismo
-        # camino (ausentes = el digest no menciona el target).
+        # ORBIT 06 2.3 segunda vuelta (D-2.3.14): el bloque target y el
+        # ancla del acumulado, por el mismo camino (ausentes = el digest no
+        # menciona el target). El ancla persiste AQUI (el digest solo
+        # renderiza): si se emitio linea, ultimo_avisado avanza al aplicado.
         if target is not None:
             resumen["target"] = target
-        if target_previo is not None:
-            resumen["target_previo"] = target_previo
+            aplicado = target.get("target_aplicado")
+            emitir, nuevo_ancla = notifica.decide_aviso_target(aplicado, target_ancla)
+            if emitir:
+                target["ultimo_avisado"] = nuevo_ancla
+            if target_ancla is not None:
+                resumen["target_ancla"] = target_ancla
         if not notifica.notifica_digest(resumen):
             notas["digest"] = "fallo: digest del ciclo no enviado por Telegram"
         _latido()
@@ -1968,13 +2000,21 @@ def _corre_fases(
         decisions_count=len(pendientes),
         notas_apply=notas_apply,
         skips=cuerpo["skips"],
-        # ORBIT 06 2.3: el digest compara el aplicado contra el previo por
-        # el mismo camino que apply/skips (ausentes = no se menciona).
+        # ORBIT 06 2.3 segunda vuelta: el digest compara contra el ancla
+        # del acumulado (ausente = primera vez y se avisa).
         target=cuerpo.get("target"),
-        target_previo=target_ciclo.previo if target_ciclo is not None else None,
+        target_ancla=target_ciclo.ancla if target_ciclo is not None else None,
         tick=tick,
     )
-    if notas_apply or telegram:
+    # ORBIT 06 2.3 segunda vuelta: si el ancla del digest avanzo, el sello
+    # principal (previo al digest) lleva el ancla vieja y HAY que re-sellar
+    # aunque el ciclo este silencioso (sin apply ni fallos de canal).
+    ancla_avanzo = (
+        target_ciclo is not None
+        and isinstance(cuerpo.get("target"), dict)
+        and cuerpo["target"].get("ultimo_avisado") != target_ciclo.ancla
+    )
+    if notas_apply or telegram or ancla_avanzo:
         if telegram:
             cuerpo["telegram"] = telegram
         notas = json.dumps(cuerpo, ensure_ascii=False, default=str)

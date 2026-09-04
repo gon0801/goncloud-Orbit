@@ -1794,6 +1794,21 @@ def test_salud_bloque_target_abstencion_con_etiqueta():
     assert isinstance(bloque["motivo_etiqueta"], str) and "cobertura" in bloque["motivo_etiqueta"]
 
 
+def test_salud_bloque_target_cobertura_y_ratio():
+    """Rojo (h, §9): cobertura por monto pasa tal cual; ratio_ads_venta =
+    ad_revenue_ventana / venta_total (None si falta un lado o venta 0)."""
+    from app import api_common
+
+    base = _notas_con_target()
+    base["target"].update({"cobertura": "0.98", "venta_total": "7000", "ad_revenue_ventana": "728"})
+    bloque = api_common.bloque_target_margen({"notes": base}, hoy=dt.date(2026, 9, 4))
+    assert bloque["cobertura"] == "0.98"
+    assert bloque["ratio_ads_venta"] == Decimal("728") / Decimal("7000")
+    sin = api_common.bloque_target_margen({"notes": _notas_con_target()}, hoy=dt.date(2026, 9, 4))
+    assert sin["cobertura"] == "1"
+    assert sin["ratio_ads_venta"] is None
+
+
 def test_salud_bloque_target_sin_clave_da_nulls():
     """Rojo (e) regla 3: ciclos viejos sin notes.target -> todo null, sin
     reventar (ni ciclo, ni notes, ni notes no-dict)."""

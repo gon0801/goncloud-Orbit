@@ -4,7 +4,7 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
-**2026-09-04 — ORBIT 06 tarea 2.3 lista para revisión: el tope de publicidad por país ya se calcula solo desde el margen real (una fracción del margen medido en 90 días de ventas, moviéndose máximo medio punto por día). La pantalla de salud muestra el valor vigente con su fundamento (margen medido, ventana y frescura del dato) y el aviso diario de Telegram solo molesta cuando el tope cambia de punto entero o cuando no hay dato suficiente —diciendo por qué—. Para el go del dueño queda una herramienta que compara, decisión por decisión, qué cambiaría contra el tope puesto a mano.**
+**2026-09-04 — ORBIT 06 tarea 2.3 lista para revisión (segunda vuelta tras la revisión del diseño): el tope de publicidad por país ya se calcula solo desde el margen real —solo sobre ventas con costo conocido, con los cargos de plataforma prorrateados— y si el cálculo se sale del rango [10, 45] se recorta en vez de saltar al valor manual. La pantalla de salud muestra el valor vigente con su fundamento y el aviso diario solo molesta cuando el cambio acumulado llega a un punto entero, cuando el cálculo se sale del rango o cuando no hay dato suficiente —diciendo por qué—. Para el go del dueño queda una herramienta que compara, decisión por decisión, qué cambiaría contra el tope puesto a mano.**
 
 **2026-09-03 — El código que baja campañas, palabras y anuncios de Amazon se partió en tres archivos sin cambiar lo que hace: uno habla con Amazon, otro arma la lista de qué guardar, y el de siempre escribe la base.** Quien ya importaba desde el módulo de siempre no tiene que cambiar nada.
 

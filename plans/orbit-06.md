@@ -977,7 +977,7 @@ la ventana → 0 filas o falla (supuesto orders≈unidades; la vista no usa
 |---|---|---|---|---|
 | 2.1 | **Diseño del target margin-aware**, con el dueño. `[tdd:skip:decision-dueno]` | La regla escrita en `docs/CONTEXTO.md` con el texto literal de la decisión del dueño, incluyendo qué pasa ante señal ausente o contradictoria | 1.2, ORBIT 05 en live | cc:完了 [2026-09-03, lead con el dueño. Medido en la base viva: margen uniforme por campaña (un target por campaña no discrimina) y margen neto por plataforma 40.2 % MX / 35.9 % US (cargos sin ads 33.6 % / 48.9 %; el envío cross-border de US = 21 % de la venta, explicado al dueño). Decisiones literales: «La mitad (utilidad)» (fracción 0.5), «ok va asi» (camino A: peldaño `margen_plataforma` en la cascada, banda [10,45], paso ≤0.5 pt/ciclo, abstención → setting), requisito literal «se va a ir ajustando automaticamente no?» → frescura obligatoria (cron de ledger+fx, hoy manuales: última 08-31/08-28). Contradicción con/sin halo: irrelevante para esta fuente (ledger sin atribución); `v_contribucion_entidad` sigue no decisoria. Spec: `docs/superpowers/specs/2026-09-03-target-margen-plataforma-design.md`; CONTEXTO sellado en el mismo PR. **Cross-review adversaria del DISEÑO (kimi, 1 ronda, 2026-09-04)**: veredicto «implementable con correcciones», 4 bloqueantes; TODOS adjudicados y corregidos en el spec §10.bis antes de que la 2.3 avanzara — el hallazgo A1 (la banda abstenía en vez de clampear: precipicio de 25 puntos y latiguazo diario de pujas) era un fallo real del diseño del lead. A9 verificado y descartado por el lead contra el código. Sin segunda ronda (tope de CLAUDE.md)] |
 | 2.2 | **Infra — frescura del ledger y del FX** (Grok o lead): los dos pipelines leen el MISMO snapshot SQLite de accounting que ya usa `refresh_costos.sh` (07:30 UTC: copia `accounting.db` → `docker cp` → `ingest costs --sqlite`); extender ese script (o uno hermano con el mismo `trap` de limpieza) para correr también `ingest fx --sqlite $SNAP` e `ingest ledger --sqlite $SNAP` (flags exactos según el runbook de `docs/DEPLOY.md` y `app/cli.py`, regla 8), ANTES del ciclo 08:40 UTC y DESPUÉS del sync de accounting (`sync_ads_to_ledger.py`, cada 6 h); un fallo de un pipeline NO debe tumbar los otros (cada uno con su `ingest_run` ok o false); log propio en `logs/`; corrida manual de estreno con `ingest_run` ok=true. `[tdd:skip:ops]` | `crontab -l -u gon` con las dos líneas; `ingest_run` de ledger y fx con `ok=true` y fecha de hoy; `max(observed_at)` del ledger = hoy; sin tocar el resto del crontab (disciplina aditiva) | 2.1 | cc:完了 [2026-09-04. Script extendido in-place + estreno como gon: costs run 74 ok no-op, fx run 75 ok +3 (max 09-02), ledger run 76 ok +217 (8,041 -> 8,258, max observed hoy); crontab byte-identico (cero lineas nuevas); PR #144, CI verde. Cross-review ronda unica: kimi APRUEBA CON MENORES (4 BAJAS; se aplican comentario de contexto-`\|\|` y `\|\| true` en el trap; DoD y ruta fija quedan como estan, declarado); grok no entrego (2 intentos, solo preambulo sin lecturas)] |
-| 2.3 | **GLM — vista + peldaño + guardas + superficie** según el spec §3-§9: migración `0015_target_margen_plataforma.sql` (vista `v_target_margen_plataforma`, GRANT a los roles de lectura, COMMENT con la fórmula y el lag); setting `ads_target_fraccion_margen_<platform>`; peldaño `margen_plataforma` en `cascada_target_acos` Y `cascada_target_acos_con_procedencia` (equivalencia extendida); abstenciones con vocabulario cerrado; paso máximo desde `notes.target.aplicado` del último ciclo live; freeze `target_procedencia` + snapshot en `decision.inputs` y `notes.target`; `/salud` y digest (§9); `docs/DASHBOARD.md`, `docs/DATABASE.md`, `docs/APPLY.md` al día; SELECT de comparación sombra (§10.2) como `tools/compara_target_margen.py` read-only. Mismas reglas de proceso que BIDS 01 (prohibido tocar producción; decisiones ANTES del código; rojo antes del verde; 1 PR). `[tdd:required]` | Rojos contra master: (a) cascada con fracción presente y margen válido devuelve `margen_plataforma`; (b) cada motivo de abstención cae al setting (6 casos); (c) banda y paso máximo; (d) freeze lleva procedencia y snapshot; (e) replay golden intacto; (f) equivalencia motor↔dashboard con el peldaño; (g) vista: cobertura por MONTO <95 % → NULL, mezcla de moneda → NULL, `fees_sin_tipo` > 0 → NULL, ventana exacta [D-105, D-15), `fee_type=ads` excluido, margen sobre venta CUBIERTA con cargos de plataforma prorrateados y cargos con `order_id` atados a su venta (no a su propia fecha); (h) **enmiendas de la cross-review (spec §10.bis, OBLIGATORIAS)**: la banda [10,45] CLAMPEA (test: derivado 45.2 → aplicado 45, NO abstención al setting; y derivado 9 → aplicado 10), fracción presente e inválida → `ValueError` (ausente → abstención), un goal de campaña con target NULL NO bloquea el peldaño (test con los goals reales 6 y 7), digest por cambio ACUMULADO ≥1 punto, y test de que el replay ignora la vista (correrlo con la vista vacía y comprobar decisiones idénticas); suite completa verde en CI; herramienta de comparación produce la tabla sobre la base de tests | 2.2 | cc:TODO |
+| 2.3 | **GLM — vista + peldaño + guardas + superficie** según el spec §3-§9: migración `0015_target_margen_plataforma.sql` (vista `v_target_margen_plataforma`, GRANT a los roles de lectura, COMMENT con la fórmula y el lag); setting `ads_target_fraccion_margen_<platform>`; peldaño `margen_plataforma` en `cascada_target_acos` Y `cascada_target_acos_con_procedencia` (equivalencia extendida); abstenciones con vocabulario cerrado; paso máximo desde `notes.target.aplicado` del último ciclo live; freeze `target_procedencia` + snapshot en `decision.inputs` y `notes.target`; `/salud` y digest (§9); `docs/DASHBOARD.md`, `docs/DATABASE.md`, `docs/APPLY.md` al día; SELECT de comparación sombra (§10.2) como `tools/compara_target_margen.py` read-only. Mismas reglas de proceso que BIDS 01 (prohibido tocar producción; decisiones ANTES del código; rojo antes del verde; 1 PR). `[tdd:required]` | Rojos contra master: (a) cascada con fracción presente y margen válido devuelve `margen_plataforma`; (b) cada motivo de abstención cae al setting (6 casos); (c) banda y paso máximo; (d) freeze lleva procedencia y snapshot; (e) replay golden intacto; (f) equivalencia motor↔dashboard con el peldaño; (g) vista: cobertura por MONTO <95 % → NULL, mezcla de moneda → NULL, `fees_sin_tipo` > 0 → NULL, ventana exacta [D-105, D-15), `fee_type=ads` excluido, margen sobre venta CUBIERTA con cargos de plataforma prorrateados y cargos con `order_id` atados a su venta (no a su propia fecha); (h) **enmiendas de la cross-review (spec §10.bis, OBLIGATORIAS)**: la banda [10,45] CLAMPEA (test: derivado 45.2 → aplicado 45, NO abstención al setting; y derivado 9 → aplicado 10), fracción presente e inválida → `ValueError` (ausente → abstención), un goal de campaña con target NULL NO bloquea el peldaño (test con los goals reales 6 y 7), digest por cambio ACUMULADO ≥1 punto, y test de que el replay ignora la vista (correrlo con la vista vacía y comprobar decisiones idénticas); suite completa verde en CI; herramienta de comparación produce la tabla sobre la base de tests | 2.2 | cc:完了 |
 | 2.4 | **Lead — entrada** (spec §10): review + CodeRabbit (1 ronda), deploy con migración 0015 primero, **un ciclo sombra comparado** (tabla manual vs derivado con el SELECT en la evidencia), go literal del dueño, `config_version` nueva con `ads_target_fraccion_margen_*` = "0.5" (el interruptor), verificación del primer ciclo con procedencia `margen_plataforma` en `notes.target` y en el freeze, `/salud` y digest, AppFlowy. `[tdd:skip:ops]` | Evidencia: tabla sombra, go literal, `config_version` id, `SELECT` del primer ciclo con `target_procedencia = 'margen_plataforma'` y `target_aplicado` ≈ 20 MX / 18 US; AppFlowy Done | 2.3 | cc:TODO |
 
 ### Decisiones de la 2.2 (antes del estreno, 2026-09-04)
@@ -1128,6 +1128,76 @@ la ventana → 0 filas o falla (supuesto orders≈unidades; la vista no usa
   visible en /salud si aparece. (iii) Margen <= 0 (plataforma en rojo)
   cae en fuera_de_banda por la banda, no necesita motivo propio.
 
+### Decisiones de la 2.3, segunda vuelta (spec adjudicado §10.bis, antes del
+codigo, 2026-09-04; lo anterior sigue salvo lo enmendado aqui)
+
+- **D-2.3.10 · Banda CLAMPEA (A1).** Orden: derivado -> clamp [10, 45] ->
+  paso maximo desde ultimo (None = sin ancla: aplicado = derivado
+  clampeado). El motivo `fuera_de_banda` DESAPARECE del vocabulario y de
+  `ETIQUETA_ABSTENCION` (test (b) pasa de 6 a 5 casos). Linea de digest
+  por derivado fuera de banda, formato fijado aqui (el spec no lo fija):
+  `target margen {plat}: derivado {crudo} fuera de banda [10, 45]
+  (aplicado {aplicado})`, UNA por ciclo con derivado presente y fuera
+  (con abstencion el derivado es None y no hay linea: mutuamente
+  excluyentes por construccion). `notifica` lee los bordes de
+  `goals.MARGEN_BANDA_MIN/MAX` (cero segundas fuentes).
+- **D-2.3.11 · Formula (A3/A5/A6).** La vista expone las columnas
+  literales del spec §3 (`venta_total, venta_cubierta, cargos_con_orden,
+  cargos_sin_orden, cobertura` por MONTO, `dias_con_venta, fees_sin_tipo`,
+  `margen_neto_pct`, `ledger_fresco_at, moneda`) con `ventana_desde/hasta`
+  como DATE (el spec lista columnas, no daterange: se abandona el
+  daterange; `hoy = ventana_hasta + 15`, misma D-2.3.4). El prorrateo
+  (`sin_orden x cobertura`) vive EN LA VISTA dentro de `margen_neto_pct`
+  (las columnas crudas quedan expuestas para auditar). La vista NULIFICA
+  el margen ante CUALQUIER condicion §5 de datos (mezcla, fees_sin_tipo >
+  0, cobertura < 0.95, dias < 60, venta_cubierta <= 0 — literal §3); el
+  resolver conserva el motivo fino con las columnas crudas, en orden
+  venta_cubierta -> cobertura -> dias -> margen -> fraccion -> fresco
+  (dias ANTES de margen-None: con la vista nulificando, el orden viejo
+  etiquetaria ventana_corta como sin_margen). `fee_type` NULL se trata
+  con `coalesce(fee_type,'') <> 'ads'` en los cargos Y se cuenta en
+  `fees_sin_tipo`. COMMENT con A10-A13 (observed_at solo avanza con filas
+  nuevas; ISR como costo consciente; evidencia auditada = freeze).
+- **D-2.3.12 · Fraccion (A4).** `fraccion_desde_settings` lanza ValueError
+  con clave presente e invalida (no numerica incl. "0,5", NaN/Inf, <= 0,
+  > 1; mismo molde que `target_desde_settings`); ausente/None -> None
+  (abstencion sin_fraccion). El resolver TAMBIEN valida (fraccion non-None
+  invalida -> ValueError: defensa en el nucleo puro, testeable sin
+  settings). El ciclo NO captura: cae en `_sello_fallido` + re-raise como
+  cualquier setting corrupto (tumba el ciclo por construccion, identico a
+  `target_desde_settings`).
+- **D-2.3.13 · NULL-goal y plumbing puro (A2).** El parametro del candidato
+  se renombra `margen_plataforma` -> `target_margen` en las dos cascadas,
+  `peldano_target_acos` y el nucleo (fidelidad al spec; `None` = peldano
+  no aplica, motivo aparte). Semantica sellada con test espejo de prod
+  (goals 6/7: campana, target NULL, floor/ceiling; `enabled` irrelevante:
+  la cascada no lo lee): goal campana NULL bloquea goal_plataforma pero
+  el nucleo SIGUE a target_margen y luego a setting. Frase rancia del
+  docstring ("salta el target None al setting") se actualiza. Equivalencia
+  (f) pasando el MISMO target_margen a ambas variantes. El candado de
+  pureza no se toca (cero imports nuevos en goals).
+- **D-2.3.14 · Digest acumulado (A8).** Ancla `notes.target.ultimo_avisado`
+  (string del aplicado de la ultima linea emitida; ausente = primera vez
+  -> se avisa). Helper puro `notifica.decide_aviso_target(aplicado,
+  ancla)` -> (emitir, nuevo_ancla): logica UNICA; el ciclo la usa para
+  persistir el ancla y notifica para renderizar (cero duplicados). Sin
+  aplicado (abstencion) no hay linea de cambio y el ancla NO avanza. El
+  `previo` del ciclo anterior SE ELIMINA (scan de previas queda en ultimo
+  + ancla). La linea de abstencion no cambia.
+- **D-2.3.15 · Ratio A7 y replay (h).** El ciclo congela en notes.target
+  `venta_total` (de la vista) + `ad_revenue_ventana` (SUM ad_revenue en
+  [ventana_desde, ventana_hasta) sobre v_metric_latest al grano
+  keyword+product_target — el mismo grano anti-duplicado de v_tacos — con
+  los bounds DE LA FILA, nunca recalculados); /salud expone
+  `ratio_ads_venta` = ad_revenue/venta_total (None si falta un lado o
+  venta 0; division en Python sobre Decimal). Mismo dict de snapshot para
+  notes e inputs (reproduce ignora claves de mas). Test replay-ignora-vista:
+  vaciar el ledger tras el ciclo y replayear inputs persistidos ->
+  identico (el replay nunca abre la vista por construccion).
+- **D-2.3.16 · Supersede de D-2.3.9(iii).** Con clamp ya no hay
+  fuera_de_banda: margen <= 0 -> derivado <= 0 -> clamp a 10 (mas paso
+  maximo). Sin motivo propio, sin abstencion.
+
 **Rojos 2.3** (contra origin/master, antes del fix; Postgres local 16):
 
 ```text
@@ -1155,6 +1225,29 @@ seed con cost 3.33 asumia multiplicador de banda 1.12 y el motor sellado
 usa 1.15 (con 3.33 ninguna rama dispara): seed a 3.40 (ACoS 34 %: sin
 banda con manual 30, -12 % con derivado 29.5). Firma real del tool:
 compara(conn, cycle_id) -> (filas, resumen).
+
+SEGUNDA VUELTA (spec adjudicado §10.bis, 2026-09-04, contra el codigo de la
+primera vuelta; Postgres local 16):
+
+```text
+FAILED 8 vista (columnas nuevas venta_total/cubierta/con_orden/sin_orden/
+  fees_sin_tipo/ventana DATEs) - UndefinedColumn / AssertionError
+FAILED test_resolver_cinco_abstenciones (fuera_de_banda eliminado) +
+  test_resolver_banda_clampea (45.2 abstiene, no clampa) +
+  test_resolver_banda_antes_que_paso - AssertionError
+FAILED test_resolver_fraccion_invalida_revienta (devuelve None, no levanta)
+  + test_resuelve_target_margen_valida_fraccion - AssertionError/None
+FAILED test_peldano_margen_no_lo_bloquea_goal_campana_sin_target -
+  TypeError target_margen inesperado (el comportamiento ya era correcto:
+  verde previo, sella la semantica + el rename del parametro)
+FAILED test_decide_aviso_target (ImportError) + 3 digest acumulado/banda -
+  AssertionError (linea ausente; el guard sin claves ya pasa)
+FAILED test_salud_bloque_target_cobertura_y_ratio - KeyError 'cobertura'
+FAILED test_ancla_ultimo_avisado (KeyError 'ultimo_avisado') +
+  test_replay_ignora_la_vista (pasa: caracteriza que el replay es
+  conn-free; lo sella contra un replay futuro que lea la vista)
+NOTA: test_peldano_gana_con_goal_campana_sin_target (ciclo) verde previo:
+  caracteriza; el (h) exige el espejo prod 6/7 a nivel cascada (arriba).
 ```
 
 

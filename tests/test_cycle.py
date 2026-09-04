@@ -1309,6 +1309,8 @@ _SQL_CYCLE = (
     # ORBIT 06 2.3: el peldano lee su vista + las notas previas en TX2.
     "_SQL_TARGET_MARGEN",
     "_SQL_NOTAS_PREVIAS",
+    # ORBIT 06 2.3 segunda vuelta: ad revenue de la ventana (ratio A7).
+    "_SQL_AD_REVENUE_VENTANA",
 )
 
 
@@ -2615,7 +2617,7 @@ def _siembra_margen(conn, *, con_ledger: bool = True) -> dict:
     if con_ledger:
         hoy = conn.execute("SELECT CURRENT_DATE").fetchone()[0]
         _siembra_ledger_feliz(conn, hoy)
-    return {"config_id": config_id, "kw": kw}
+    return {"config_id": config_id, "kw": kw, "camp": camp}
 
 
 @pytest.mark.skipif(
@@ -2671,3 +2673,79 @@ def test_freeze_margen_abstencion_sin_ledger():
         assert inputs["target_acos_pct_usado"] == "30"
         assert inputs["target_procedencia"] == "setting_plataforma"
         assert "target_snapshot" not in inputs
+
+
+def _goal_campana_sin_target(conn, camp_id: int) -> int:
+    """Goal de campana habilitado SIN target (espejo de prod 6/7: solo
+    floor/ceiling): bloquea goal_plataforma pero NO al peldano margen."""
+    return conn.execute(
+        "INSERT INTO ads_optimizer_goal (scope, ad_entity_id, target_acos_pct, bid_floor,"
+        " bid_ceiling, bid_currency, harvest_campaign_id, harvest_ad_group_id,"
+        " harvest_default_bid, enabled, mode)"
+        " VALUES ('campaign', %s, NULL, 0.40, 2.50, 'USD', '9002', '9102',"
+        " 0.75, true, 'live') RETURNING id",
+        (camp_id,),
+    ).fetchone()[0]
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_peldano_gana_con_goal_campana_sin_target():
+    """Rojo (h, A2): con goal de campana NULL (prod 6/7), el peldano gana
+    igual: procedencia margen_plataforma y aplicado 29.5 en freeze y notes."""
+    with _db_temporal("orbit_c_margen_camp") as (conn, _c):
+        mundo = _siembra_margen(conn, con_ledger=False)
+        _goal_campana_sin_target(conn, mundo["camp"])
+        hoy = conn.execute("SELECT CURRENT_DATE").fetchone()[0]
+        _siembra_ledger_feliz(conn, hoy)
+        res = _corre(conn)
+        assert res.status == "done", res.notes
+        target = json.loads(res.notes)["target"]
+        assert target["procedencia"] == "margen_plataforma"
+        assert target["target_aplicado"] == "29.5"
+        bids = [d for d in _decisions_de(conn, res.cycle_id) if d[1] == "bid"]
+        assert len(bids) == 1
+        assert bids[0][9]["target_procedencia"] == "margen_plataforma"
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ancla_ultimo_avisado_se_lee_y_persiste():
+    """Rojo (h, D-2.3.14): primer ciclo sin ancla -> avisa y persiste
+    ultimo_avisado = aplicado; segundo ciclo sin deriva -> el ancla NO
+    avanza (el acumulado manda, no el previo)."""
+    with _db_temporal("orbit_c_ancla") as (conn, _c):
+        _siembra_margen(conn)
+        res1 = _corre(conn)
+        assert res1.status == "done", res1.notes
+        assert json.loads(res1.notes)["target"]["ultimo_avisado"] == "29.5"
+        res2 = _corre(conn)
+        assert res2.status == "done", res2.notes
+        assert json.loads(res2.notes)["target"]["ultimo_avisado"] == "29.5"
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_replay_ignora_la_vista():
+    """Rojo (h): reproduce() sobre inputs persistidos devuelve EXACTO lo
+    decidido aunque la vista este VACIA (segunda base sin una sola fila de
+    ledger; el DELETE esta prohibido: ledger append-only). El replay no
+    recibe conexion por construccion: este test lo sella contra un replay
+    futuro que lea margen vivo (ahi no habria filas que leer)."""
+    from app.optimizer.replay import reproduce
+
+    with _db_temporal("orbit_c_replay_vista") as (conn, _c):
+        _siembra_margen(conn)
+        res = _corre(conn)
+        assert res.status == "done", res.notes
+        bids = [d for d in _decisions_de(conn, res.cycle_id) if d[1] == "bid"]
+        assert len(bids) == 1
+        inputs, esperado = bids[0][9], (bids[0][1], bids[0][4], bids[0][5])
+    with _db_temporal("orbit_c_replay_vacia") as (_conn2, _c2):
+        assert reproduce(inputs) == esperado

@@ -1,39 +1,44 @@
 -- =============================================================================
 -- ORBIT 06 2.3 — vista v_target_margen_plataforma (la vista SOLO MIDE).
 -- Spec: docs/superpowers/specs/2026-09-03-target-margen-plataforma-design.md
--- §3 (formula literal, aprobada por el dueno 2026-09-03). La vista NO conoce
+-- §3 (formula literal adjudicada §10.bis, 2026-09-04). La vista NO conoce
 -- fraccion ni target: eso lo resuelve goals.resuelve_target_margen en Python.
 --
--- Ventana [D-105, D-15) con hoy = CURRENT_DATE UTC (estable dentro de
--- REPEATABLE READ): 15 dias de maduracion (regla 6) y 90 de historia.
--- COGS por LINEA de venta: costo vigente A LA FECHA (EXCLUDE de sku_cost
--- garantiza a lo mas uno), en la MISMA moneda o la linea cuenta SIN costo
--- (sin conversion FX: aqui no, por el spec; v_margen_plataforma si
--- convierte). Cobertura por LINEA (COUNT(*)/COUNT(cogs), precedente
--- v_margen_plataforma). El margen SOLO existe con cobertura >= 95 %
--- (fail-loud, precedente v_margen_plataforma que exige 100 %): con menos
--- cobertura es NULL y el resolver se abstiene con cobertura_baja.
--- moneda = unica amount_currency en la ventana, NULL si mezcla (canario:
--- el vocabulario de abstenciones es cerrado y no la incluye, D-2.3.9).
--- cargos excluye fee_type = 'ads' (la plataforma cobra su publicidad aparte;
--- el target es pre-ads). venta/cargos/cogs con COALESCE parcial: cargos y
--- cogs ausentes son 0 (una ventana sin fees es fees = 0); venta NULL
--- distingue ventana vacia (margen NULL -> sin_margen).
+-- Ventana [D-105, D-15) con hoy = CURRENT_DATE UTC: 15 dias de maduracion
+-- (regla 6) y 90 de historia. NOTA (A10, declaracion): CURRENT_DATE se
+-- evalua en la TimeZone de la sesion — la evidencia auditada es el freeze
+-- de ventana_desde/hasta en decision.inputs, no esta vista.
+-- VENTAS partidas por cobertura (A3, regla 3: una venta sin costo NO se
+-- cuenta con costo cero; solo la venta CUBIERTA entra al margen).
+-- cobertura = POR MONTO (venta_cubierta/venta_total), no por conteo.
+-- CARGOS con order_id pertenecen a SU venta cubierta aunque caigan fuera
+-- de la ventana (A5: la ventana la fija su venta); sin order_id son de
+-- plataforma y se prorratean por cobertura (el prorrateo vive AQUI, en el
+-- margen; las columnas crudas quedan para auditar). fee_type NULL se trata
+-- como no-ads en los cargos Y se cuenta en fees_sin_tipo (A6: doble
+-- castigo potencial -> margen NULL, fail-loud como la mezcla de moneda).
+-- El margen se NULIFICA ante CUALQUIER condicion §5 de datos (mezcla,
+-- fees_sin_tipo > 0, cobertura < 0.95, dias < 60, venta_cubierta <= 0):
+-- el resolver conserva el motivo fino con las columnas crudas.
+-- ISR retenido como costo: decision consciente y conservadora (A10).
+-- observed_at solo avanza con filas nuevas: ledger_fresco_at = max sobre
+-- TODA la plataforma, sin ventana (A10).
 -- =============================================================================
 
 CREATE VIEW v_target_margen_plataforma AS
 WITH ventana AS (
     SELECT CURRENT_DATE - 105 AS desde, CURRENT_DATE - 15 AS hasta
 ),
-lineas AS (
+ventas AS (
+    -- Ventas de la ventana con su COGS de linea (costo vigente a la fecha,
+    -- MISMA moneda o la venta es NO CUBIERTA: jamas se convierte ni rellena).
     SELECT l.platform,
-           l.kind,
            l.event_date,
            l.amount,
            l.amount_currency,
-           l.fee_type,
+           l.order_id,
            CASE
-               WHEN l.kind = 'sale' AND c.id IS NOT NULL
+               WHEN c.id IS NOT NULL
                     AND c.cost_currency = l.amount_currency
                    THEN c.cost_amount * l.quantity
                ELSE NULL
@@ -44,21 +49,53 @@ lineas AS (
         ON c.product_id = l.product_id
        AND l.event_date >= c.valid_from
        AND (c.valid_to IS NULL OR l.event_date < c.valid_to)
-     WHERE l.event_date >= v.desde AND l.event_date < v.hasta
+     WHERE l.kind = 'sale'
+       AND l.event_date >= v.desde AND l.event_date < v.hasta
+),
+ordenes_cubiertas AS (
+    SELECT DISTINCT platform, order_id
+      FROM ventas
+     WHERE cogs_linea IS NOT NULL AND order_id IS NOT NULL
+),
+cargos_orden AS (
+    -- Cargos atados a su venta cubierta: SIN filtro de fecha propio.
+    SELECT l.platform, SUM(l.amount) AS monto
+      FROM ledger_event l
+      JOIN ordenes_cubiertas o
+        ON o.platform = l.platform AND o.order_id = l.order_id
+     WHERE l.kind IN ('fee', 'refund', 'withholding')
+       AND COALESCE(l.fee_type, '') <> 'ads'
+     GROUP BY l.platform
+),
+cargos_plataforma AS (
+    -- Cargos sin order_id: de plataforma, SOLO dentro de la ventana.
+    SELECT l.platform, SUM(l.amount) AS monto
+      FROM ledger_event l
+      CROSS JOIN ventana v
+     WHERE l.kind IN ('fee', 'refund', 'withholding')
+       AND COALESCE(l.fee_type, '') <> 'ads'
+       AND l.order_id IS NULL
+       AND l.event_date >= v.desde AND l.event_date < v.hasta
+     GROUP BY l.platform
 ),
 ag AS (
-    SELECT platform,
-           SUM(amount) FILTER (WHERE kind = 'sale') AS venta,
-           SUM(amount) FILTER (WHERE kind IN ('fee', 'withholding', 'refund')
-                                 AND fee_type IS DISTINCT FROM 'ads') AS cargos,
-           SUM(cogs_linea) AS cogs_conocido,
-           COUNT(*) FILTER (WHERE kind = 'sale') AS ventas_totales,
-           COUNT(cogs_linea) FILTER (WHERE kind = 'sale') AS ventas_con_costo,
-           COUNT(DISTINCT event_date) FILTER (WHERE kind = 'sale') AS dias_con_venta,
-           COUNT(DISTINCT amount_currency) AS n_monedas,
-           MAX(amount_currency) AS moneda_unica
-      FROM lineas
-     GROUP BY platform
+    SELECT v.platform,
+           SUM(v.amount) AS venta_total,
+           SUM(v.amount) FILTER (WHERE v.cogs_linea IS NOT NULL) AS venta_cubierta,
+           SUM(v.cogs_linea) AS cogs_conocido,
+           COUNT(DISTINCT v.event_date) AS dias_con_venta,
+           COUNT(DISTINCT v.amount_currency) AS n_monedas,
+           MAX(v.amount_currency) AS moneda_unica
+      FROM ventas v
+     GROUP BY v.platform
+),
+fees AS (
+    SELECT l.platform, COUNT(*) AS n
+      FROM ledger_event l
+      CROSS JOIN ventana v
+     WHERE l.kind = 'fee' AND l.fee_type IS NULL
+       AND l.event_date >= v.desde AND l.event_date < v.hasta
+     GROUP BY l.platform
 ),
 fresco AS (
     SELECT platform, MAX(observed_at) AS ledger_fresco_at
@@ -66,40 +103,55 @@ fresco AS (
      GROUP BY platform
 )
 SELECT a.platform,
-       daterange((SELECT desde FROM ventana), (SELECT hasta FROM ventana), '[)') AS ventana,
-       a.venta,
-       COALESCE(a.cargos, 0) AS cargos,
+       (SELECT desde FROM ventana) AS ventana_desde,
+       (SELECT hasta FROM ventana) AS ventana_hasta,
+       a.venta_total,
+       a.venta_cubierta,
+       COALESCE(o.monto, 0) AS cargos_con_orden,
+       COALESCE(p.monto, 0) AS cargos_sin_orden,
        COALESCE(a.cogs_conocido, 0) AS cogs,
        CASE
-           WHEN a.venta IS NULL OR a.venta <= 0 THEN NULL
-           WHEN a.ventas_con_costo::numeric / NULLIF(a.ventas_totales, 0) < 0.95 THEN NULL
-           ELSE 100.0 * (a.venta + COALESCE(a.cargos, 0) - COALESCE(a.cogs_conocido, 0))
-                / a.venta
-       END AS margen_neto_pct,
-       CASE
-           WHEN a.ventas_totales > 0
-           THEN a.ventas_con_costo::numeric / a.ventas_totales
+           WHEN a.venta_total > 0
+           THEN a.venta_cubierta / a.venta_total
        END AS cobertura,
        a.dias_con_venta,
-       f.ledger_fresco_at,
+       COALESCE(f.n, 0) AS fees_sin_tipo,
+       CASE
+           WHEN a.n_monedas <> 1 THEN NULL
+           WHEN COALESCE(f.n, 0) > 0 THEN NULL
+           WHEN a.venta_cubierta IS NULL OR a.venta_cubierta <= 0 THEN NULL
+           WHEN a.venta_cubierta / NULLIF(a.venta_total, 0) < 0.95 THEN NULL
+           WHEN a.dias_con_venta < 60 THEN NULL
+           ELSE 100.0 * (a.venta_cubierta + COALESCE(o.monto, 0)
+                + COALESCE(p.monto, 0)
+                  * (a.venta_cubierta / NULLIF(a.venta_total, 0))
+                - COALESCE(a.cogs_conocido, 0)) / a.venta_cubierta
+       END AS margen_neto_pct,
+       fr.ledger_fresco_at,
        CASE WHEN a.n_monedas = 1 THEN a.moneda_unica END AS moneda
   FROM ag a
-  JOIN fresco f USING (platform);
+  JOIN fresco fr USING (platform)
+  LEFT JOIN cargos_orden o USING (platform)
+  LEFT JOIN cargos_plataforma p USING (platform)
+  LEFT JOIN fees f USING (platform);
 
 COMMENT ON VIEW v_target_margen_plataforma IS
   'ORBIT 06 2.3 (spec 2026-09-03-target-margen-plataforma-design.md §3, '
-  'formula literal): margen neto % por plataforma sobre la ventana '
-  '[D-105, D-15) con hoy = CURRENT_DATE UTC — 15 dias de maduracion '
-  '(regla 6) y 90 de historia. venta = SUM(amount) de sales; cargos = SUM '
-  'de fee/withholding/refund EXCLUYENDO fee_type = ads (negativos por '
-  'convencion); cogs = costo vigente a event_date x quantity SOLO en la '
-  'misma moneda (linea sin costo = sin costo, sin FX). margen = 100 x '
-  '(venta + cargos - cogs) / venta, SIN redondear; NULL si ventana vacia o '
-  'cobertura < 95 % (fail-loud). cobertura = lineas con costo / lineas de '
-  'venta (sin redondear: el borde 0.95 es guarda). dias_con_venta = fechas '
-  'distintas con sale. ledger_fresco_at = max(observed_at) de TODA la '
-  'plataforma (sin ventana). moneda = unica amount_currency, NULL si mezcla '
-  '(canario). La vista SOLO MIDE: fraccion, banda y paso viven en '
-  'goals.resuelve_target_margen; el ciclo la lee UNA vez por ciclo en TX2.';
+  'formula literal adjudicada §10.bis 2026-09-04): margen neto % por '
+  'plataforma sobre la ventana [D-105, D-15) con hoy = CURRENT_DATE UTC — '
+  '15 dias de maduracion (regla 6) y 90 de historia. venta_cubierta = SUM de '
+  'ventas CON costo (misma moneda, sin FX ni relleno); cobertura = POR MONTO '
+  '(cubierta/total); cargos_con_orden = fee/refund/withholding no-ads con '
+  'order_id de venta CUBIERTA (sin filtro de fecha propio); '
+  'cargos_sin_orden = los de plataforma sin order_id en ventana, '
+  'PRORRATEADOS por cobertura dentro del margen; fee_type NULL cuenta en '
+  'fees_sin_tipo. margen = 100 x (cubierta + con_orden + sin_orden x '
+  'cobertura - cogs) / cubierta, SIN redondear; NULL ante cualquier '
+  'condicion §5 (mezcla, fees_sin_tipo > 0, cobertura < 0.95, dias < 60, '
+  'cubierta <= 0). ISR retenido como costo: decision consciente. '
+  'observed_at solo avanza con filas nuevas. La evidencia auditada es el '
+  'freeze de ventana_desde/hasta, no esta vista. La vista SOLO MIDE: '
+  'fraccion, banda y paso viven en goals.resuelve_target_margen; el ciclo '
+  'la lee UNA vez por ciclo en TX2.';
 
 GRANT SELECT ON v_target_margen_plataforma TO app_read, app_ingest, app_decide, app_admin;

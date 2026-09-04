@@ -94,26 +94,44 @@ def _producto(conn, sku: str, costo: str, moneda: str, desde: dt.date) -> int:
     return pid
 
 
-def _venta(conn, run: int, pid: int | None, fecha: dt.date, monto: str, moneda: str) -> None:
+def _venta(
+    conn,
+    run: int,
+    pid: int | None,
+    fecha: dt.date,
+    monto: str,
+    moneda: str,
+    order_id: str | None = None,
+) -> None:
     conn.execute(
         "INSERT INTO ledger_event (platform, kind, event_date, product_id, quantity,"
-        " amount, amount_currency, ingest_run_id)"
-        " VALUES ('amazon_us', 'sale', %s, %s, 1, %s, %s, %s)",
-        (fecha, pid, Decimal(monto), moneda, run),
+        " amount, amount_currency, order_id, ingest_run_id)"
+        " VALUES ('amazon_us', 'sale', %s, %s, 1, %s, %s, %s, %s)",
+        (fecha, pid, Decimal(monto), moneda, order_id, run),
     )
 
 
-def _cargo(conn, run: int, fecha: dt.date, monto: str, fee_type: str, moneda: str = "MXN") -> None:
+def _cargo(
+    conn,
+    run: int,
+    fecha: dt.date,
+    monto: str,
+    fee_type: str | None,
+    moneda: str = "MXN",
+    kind: str = "fee",
+    order_id: str | None = None,
+) -> None:
     conn.execute(
         "INSERT INTO ledger_event (platform, kind, event_date, amount, amount_currency,"
-        " fee_type, ingest_run_id) VALUES ('amazon_us', 'fee', %s, %s, %s, %s, %s)",
-        (fecha, Decimal(monto), moneda, fee_type, run),
+        " fee_type, order_id, ingest_run_id) VALUES ('amazon_us', %s, %s, %s, %s, %s, %s, %s)",
+        (kind, fecha, Decimal(monto), moneda, fee_type, order_id, run),
     )
 
 
 def _siembra_feliz(conn, hoy: dt.date) -> None:
     """70 ventas x100 con costo 50 + 7 fees x-100 + 1 fee ads x-9999:
-    venta 7000, cargos -700, cogs 3500, margen 40, cobertura 1, dias 70."""
+    venta_total = cubierta = 7000, con_orden 0, sin_orden -700, cogs 3500,
+    margen 40, cobertura 1, dias 70, fees_sin_tipo 0."""
     run = _run(conn)
     pid = _producto(conn, "P1", "50", "MXN", hoy - dt.timedelta(days=200))
     for i in range(70):
@@ -155,20 +173,25 @@ def test_migracion_0015_parsea_con_grants_y_comment():
 
 @pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres")
 def test_vista_una_fila_por_plataforma_con_numeros_exactos(conn15):
-    """Rojo (a): ventana [H-105, H-15), venta 7000, cargos -700 (el fee ads
-    NO entra), cogs 3500, margen 40 exacto, cobertura 1, dias 70, MXN."""
+    """Rojo (a/g): ventana [H-105, H-15) como DATEs, venta_total 7000 =
+    cubierta (cobertura 1), cargos_con_orden 0, cargos_sin_orden -700 (el
+    fee ads NO entra), cogs 3500, margen 40 exacto, dias 70, MXN,
+    fees_sin_tipo 0."""
     hoy = _hoy(conn15)
     _siembra_feliz(conn15, hoy)
     fila = _fila_vista(conn15)
     assert fila is not None
-    assert fila["ventana"].lower == hoy - dt.timedelta(days=105)
-    assert fila["ventana"].upper == hoy - dt.timedelta(days=15)
-    assert fila["venta"] == Decimal("7000")
-    assert fila["cargos"] == Decimal("-700")
+    assert fila["ventana_desde"] == hoy - dt.timedelta(days=105)
+    assert fila["ventana_hasta"] == hoy - dt.timedelta(days=15)
+    assert fila["venta_total"] == Decimal("7000")
+    assert fila["venta_cubierta"] == Decimal("7000")
+    assert fila["cargos_con_orden"] == Decimal("0")
+    assert fila["cargos_sin_orden"] == Decimal("-700")
     assert fila["cogs"] == Decimal("3500")
     assert fila["margen_neto_pct"] == Decimal("40")
     assert fila["cobertura"] == Decimal("1")
     assert fila["dias_con_venta"] == 70
+    assert fila["fees_sin_tipo"] == 0
     assert fila["moneda"] == "MXN"
     assert fila["ledger_fresco_at"] is not None
     # MX sin filas no sale (GROUP BY): una fila por plataforma CON dato
@@ -185,53 +208,132 @@ def test_vista_bordes_de_ventana_incluye_h105_excluye_h15(conn15):
     _venta(conn15, run, pid, hoy - dt.timedelta(days=15), "100", "MXN")
     conn15.commit()
     fila = _fila_vista(conn15)
-    assert fila["venta"] == Decimal("100")
+    assert fila["venta_total"] == Decimal("100")
+    assert fila["venta_cubierta"] == Decimal("100")
     assert fila["dias_con_venta"] == 1
 
 
 @pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres")
-def test_vista_cobertura_baja_nulifica_margen(conn15):
-    """Rojo (a): 90 lineas con costo + 10 sin costo -> cobertura 0.9 y
-    margen NULL (fail-loud, precedente v_margen_plataforma)."""
+def test_vista_cobertura_por_monto_baja_nulifica_margen(conn15):
+    """Rojo (g): cobertura POR MONTO 5400/6000 = 0.9 -> margen NULL
+    (fail-loud) con dias sanos (60 fechas: el gate que nulifica es la
+    cobertura, no los dias). El conteo (60/60 lineas) daria 1: la trampa A3."""
     hoy = _hoy(conn15)
     run = _run(conn15)
     pid = _producto(conn15, "PC", "10", "MXN", hoy - dt.timedelta(days=200))
-    for i in range(90):
-        _venta(conn15, run, pid, hoy - dt.timedelta(days=105 - i), "100", "MXN")
-    for i in range(10):
-        conn15.execute(
-            "INSERT INTO ledger_event (platform, kind, event_date, amount,"
-            " amount_currency, ingest_run_id)"
-            " VALUES ('amazon_us', 'sale', %s, 101, 'MXN', %s)",
-            (hoy - dt.timedelta(days=30 - i), run),
-        )
+    for i in range(54):
+        _venta(conn15, run, pid, hoy - dt.timedelta(days=100 - i), "100", "MXN")
+    for i in range(6):
+        _venta(conn15, run, None, hoy - dt.timedelta(days=46 - i), "100", "MXN")
     conn15.commit()
     fila = _fila_vista(conn15)
+    assert fila["dias_con_venta"] == 60
+    assert fila["venta_total"] == Decimal("6000")
+    assert fila["venta_cubierta"] == Decimal("5400")
     assert fila["cobertura"] == Decimal("0.9")
     assert fila["margen_neto_pct"] is None
     assert fila["moneda"] == "MXN"
 
 
 @pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres")
-def test_vista_mezcla_de_moneda_nulifica_moneda(conn15):
-    """Rojo (a): dos monedas en la ventana -> moneda NULL (canario; el
-    margen se calcula igual por vocabulario cerrado, D-2.3.9). Cobertura
-    20/21 para que el gate no lo nulifique por otra causa."""
+def test_vista_cargos_plataforma_se_prorratean(conn15):
+    """Rojo (g): 57 ventas x100 cubiertas + 3 x100 sin costo (cobertura
+    0.95, en el borde: el margen APLICA; 60 fechas, dias OK) + fee
+    plataforma -300: el margen usa -300 x 0.95 = -285 ->
+    100 x (5700 - 285 - 2850)/5700 = 45."""
+    hoy = _hoy(conn15)
+    run = _run(conn15)
+    pid = _producto(conn15, "PP", "50", "MXN", hoy - dt.timedelta(days=200))
+    for i in range(57):
+        _venta(conn15, run, pid, hoy - dt.timedelta(days=100 - i), "100", "MXN")
+    for i in range(3):
+        _venta(conn15, run, None, hoy - dt.timedelta(days=43 - i), "100", "MXN")
+    _cargo(conn15, run, hoy - dt.timedelta(days=90), "-300", "closing")
+    conn15.commit()
+    fila = _fila_vista(conn15)
+    assert fila["dias_con_venta"] == 60
+    assert fila["cobertura"] == Decimal("0.95")
+    assert fila["cargos_sin_orden"] == Decimal("-300")
+    assert fila["margen_neto_pct"] == Decimal("45")
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres")
+def test_vista_cargos_con_orden_atados_a_su_venta(conn15):
+    """Rojo (g, A5): el cargo con order_id pertenece a SU venta aunque caiga
+    fuera de la ventana; con order de venta NO cubierta o inexistente no
+    cuenta."""
+    hoy = _hoy(conn15)
+    run = _run(conn15)
+    pid = _producto(conn15, "PO", "10", "MXN", hoy - dt.timedelta(days=200))
+    _venta(conn15, run, pid, hoy - dt.timedelta(days=100), "100", "MXN", order_id="O1")
+    _venta(conn15, run, None, hoy - dt.timedelta(days=99), "100", "MXN", order_id="O2")
+    # fuera de la ventana (H-10) pero de venta cubierta -> CUENTA
+    _cargo(conn15, run, hoy - dt.timedelta(days=10), "-50", "closing", order_id="O1")
+    # de venta no cubierta -> NO cuenta
+    _cargo(conn15, run, hoy - dt.timedelta(days=98), "-30", "closing", order_id="O2")
+    # de orden inexistente -> NO cuenta
+    _cargo(conn15, run, hoy - dt.timedelta(days=98), "-10", "closing", order_id="OX")
+    # refund con orden cubierta tambien es cargo con orden
+    _cargo(conn15, run, hoy - dt.timedelta(days=97), "-5", "closing", kind="refund", order_id="O1")
+    conn15.commit()
+    fila = _fila_vista(conn15)
+    assert fila["cargos_con_orden"] == Decimal("-55")
+    assert fila["cargos_sin_orden"] == Decimal("0")
+    assert fila["venta_cubierta"] == Decimal("100")
+    assert fila["venta_total"] == Decimal("200")
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres")
+def test_vista_fee_sin_tipo_nulifica_margen(conn15):
+    """Rojo (g, A6): un fee con fee_type NULL cuenta fees_sin_tipo y deja
+    el margen NULL (doble castigo potencial: fail-loud)."""
+    hoy = _hoy(conn15)
+    _siembra_feliz(conn15, hoy)
+    run = _run(conn15)
+    _cargo(conn15, run, hoy - dt.timedelta(days=40), "-1", None)
+    conn15.commit()
+    fila = _fila_vista(conn15)
+    assert fila["fees_sin_tipo"] == 1
+    assert fila["margen_neto_pct"] is None
+    assert fila["venta_cubierta"] == Decimal("7000")
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres")
+def test_vista_dias_cortos_nulifican_margen(conn15):
+    """Rojo (g): 59 fechas con venta (< 60) -> margen NULL aunque todo lo
+    demas este sano."""
+    hoy = _hoy(conn15)
+    run = _run(conn15)
+    pid = _producto(conn15, "PD", "10", "MXN", hoy - dt.timedelta(days=200))
+    for i in range(59):
+        _venta(conn15, run, pid, hoy - dt.timedelta(days=100 - i), "100", "MXN")
+    conn15.commit()
+    fila = _fila_vista(conn15)
+    assert fila["dias_con_venta"] == 59
+    assert fila["cobertura"] == Decimal("1")
+    assert fila["margen_neto_pct"] is None
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres")
+def test_vista_mezcla_de_moneda_nulifica_margen(conn15):
+    """Rojo (g): dos monedas en la ventana -> moneda NULL (canario) Y
+    margen NULL (fail-loud, spec adjudicado: antes se calculaba igual)."""
     hoy = _hoy(conn15)
     run = _run(conn15)
     pid = _producto(conn15, "PM", "10", "MXN", hoy - dt.timedelta(days=200))
-    for i in range(20):
-        _venta(conn15, run, pid, hoy - dt.timedelta(days=50 - i), "100", "MXN")
+    for i in range(60):
+        _venta(conn15, run, pid, hoy - dt.timedelta(days=100 - i), "100", "MXN")
     conn15.execute(
         "INSERT INTO ledger_event (platform, kind, event_date, amount,"
         " amount_currency, ingest_run_id)"
         " VALUES ('amazon_us', 'sale', %s, 100, 'USD', %s)",
-        (hoy - dt.timedelta(days=51), run),
+        (hoy - dt.timedelta(days=40), run),
     )
     conn15.commit()
     fila = _fila_vista(conn15)
+    assert fila["dias_con_venta"] == 61
     assert fila["moneda"] is None
-    assert fila["margen_neto_pct"] is not None
+    assert fila["margen_neto_pct"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -244,7 +346,7 @@ def _medicion(
     margen=Decimal("40"),
     cobertura=Decimal("1"),
     dias=70,
-    venta=Decimal("7000"),
+    venta_cubierta=Decimal("7000"),
     fresco_hoy_menos=1,
 ) -> object:
     """Medicion feliz y parametrizable (sin DB)."""
@@ -254,7 +356,7 @@ def _medicion(
         margen_neto_pct=margen,
         cobertura=cobertura,
         dias_con_venta=dias,
-        venta=venta,
+        venta_cubierta=venta_cubierta,
         ledger_fresco_at=(
             dt.datetime(2026, 9, 4, 12, 0) - dt.timedelta(days=fresco_hoy_menos)
             if fresco_hoy_menos is not None
@@ -279,51 +381,73 @@ def test_resolver_feliz_aplica_derivado_con_ultimo_cercano():
     assert res.aplicado == Decimal("20")
 
 
-def test_resolver_seis_abstenciones_aisladas():
-    """Rojo (c): cada motivo con TODO lo demas sano (un caso por motivo)."""
+def test_resolver_cinco_abstenciones_aisladas():
+    """Rojo (c/h): cada motivo con TODO lo demas sano (un caso por motivo).
+    fuera_de_banda YA NO EXISTE (A1: la banda clampe, D-2.3.10)."""
     from app.optimizer import goals as g
 
     hoy = dt.date(2026, 9, 4)
     casos = [
-        ("sin_margen", _medicion(margen=None, venta=None, cobertura=None, dias=None)),
+        ("sin_margen", _medicion(margen=None, venta_cubierta=None, cobertura=None, dias=None)),
         ("cobertura_baja", _medicion(cobertura=Decimal("0.9"))),
         ("ventana_corta", _medicion(dias=59)),
         ("sin_fraccion", _medicion()),
         ("ledger_rancio", _medicion(fresco_hoy_menos=4)),
-        ("fuera_de_banda", _medicion(margen=Decimal("100"))),
     ]
     for motivo, med in casos:
         fraccion = None if motivo == "sin_fraccion" else Decimal("0.5")
         res = g.resuelve_target_margen(med, fraccion, hoy, Decimal("20"))
         assert res.motivo == motivo, motivo
         assert res.aplicado is None, motivo
+        assert res.derivado is None, motivo
 
 
-def test_resolver_banda_inclusiva_y_bordes():
-    """Rojo (c): derivado 10 y 45 aplican; 9.99 y 45.01 abstienen."""
+def test_resolver_dias_antes_que_margen_nulo():
+    """Rojo (h, D-2.3.11): con la vista nulificando el margen ante dias
+    cortos, el resolver debe etiquetar ventana_corta (no sin_margen)."""
+    from app.optimizer import goals as g
+
+    res = g.resuelve_target_margen(
+        _medicion(margen=None, cobertura=Decimal("1"), dias=59, venta_cubierta=Decimal("100")),
+        Decimal("0.5"),
+        dt.date(2026, 9, 4),
+        Decimal("20"),
+    )
+    assert res.motivo == "ventana_corta"
+    assert res.aplicado is None
+
+
+def test_resolver_banda_clampea_no_abstiene():
+    """Rojo (h, A1): derivado 45.2 -> aplicado 45 y 9 -> 10 con ultimo
+    None (sin ancla); bordes 10/45 exactos aplican sin motivo."""
     from app.optimizer import goals as g
 
     hoy = dt.date(2026, 9, 4)
-    # margen 20 x 0.5 = 10 (borde bajo) con ultimo 10 -> aplica
+    res = g.resuelve_target_margen(_medicion(margen=Decimal("90.4")), Decimal("0.5"), hoy, None)
+    assert res.motivo is None
+    assert res.derivado == Decimal("45.2")
+    assert res.aplicado == Decimal("45")
+    res = g.resuelve_target_margen(_medicion(margen=Decimal("18")), Decimal("0.5"), hoy, None)
+    assert res.motivo is None
+    assert res.derivado == Decimal("9")
+    assert res.aplicado == Decimal("10")
+    res = g.resuelve_target_margen(_medicion(margen=Decimal("20")), Decimal("0.5"), hoy, None)
+    assert (res.derivado, res.aplicado, res.motivo) == (Decimal("10"), Decimal("10"), None)
+    res = g.resuelve_target_margen(_medicion(margen=Decimal("90")), Decimal("0.5"), hoy, None)
+    assert (res.derivado, res.aplicado, res.motivo) == (Decimal("45"), Decimal("45"), None)
+
+
+def test_resolver_banda_antes_que_paso():
+    """Rojo (h, A1): con ultimo 30 y derivado 45.2, primero clamp a 45 y
+    luego paso a 30.5 (el paso no congela el crudo fuera de banda)."""
+    from app.optimizer import goals as g
+
     res = g.resuelve_target_margen(
-        _medicion(margen=Decimal("20")), Decimal("0.5"), hoy, Decimal("10")
+        _medicion(margen=Decimal("90.4")), Decimal("0.5"), dt.date(2026, 9, 4), Decimal("30")
     )
-    assert res.aplicado == Decimal("10") and res.motivo is None
-    # margen 90 x 0.5 = 45 (borde alto) con ultimo 45 -> aplica
-    res = g.resuelve_target_margen(
-        _medicion(margen=Decimal("90")), Decimal("0.5"), hoy, Decimal("45")
-    )
-    assert res.aplicado == Decimal("45") and res.motivo is None
-    # 19.98 x 0.5 = 9.99 -> fuera
-    res = g.resuelve_target_margen(
-        _medicion(margen=Decimal("19.98")), Decimal("0.5"), hoy, Decimal("10")
-    )
-    assert res.motivo == "fuera_de_banda" and res.aplicado is None
-    # 90.02 x 0.5 = 45.01 -> fuera
-    res = g.resuelve_target_margen(
-        _medicion(margen=Decimal("90.02")), Decimal("0.5"), hoy, Decimal("45")
-    )
-    assert res.motivo == "fuera_de_banda" and res.aplicado is None
+    assert res.motivo is None
+    assert res.derivado == Decimal("45.2")
+    assert res.aplicado == Decimal("30.5")
 
 
 def test_resolver_paso_maximo_medio_punto():
@@ -343,12 +467,12 @@ def test_resolver_paso_maximo_medio_punto():
     assert sin.aplicado == Decimal("20") and sin.motivo is None
 
 
-def test_resolver_fraccion_variantes():
-    """Rojo (c): ausente/vacia/basura/fuera de rango -> sin_fraccion;
-    '0.5' en settings -> 0.5."""
+def test_resolver_fraccion_ausente_abstiene():
+    """Rojo (c/h): clave ausente (o JSON null) -> None -> sin_fraccion;
+    '0.5' (string o numero) -> 0.5."""
     from app.optimizer import goals as g
 
-    for settings in ({}, {"k": "x"}, {"ads_target_fraccion_margen_amazon_us": ""}):
+    for settings in ({}, {"k": "x"}, {"ads_target_fraccion_margen_amazon_us": None}):
         assert g.fraccion_desde_settings(settings, "amazon_us") is None
     assert g.fraccion_desde_settings(
         {"ads_target_fraccion_margen_amazon_us": "0.5"}, "amazon_us"
@@ -356,11 +480,28 @@ def test_resolver_fraccion_variantes():
     assert g.fraccion_desde_settings(
         {"ads_target_fraccion_margen_amazon_us": 0.5}, "amazon_us"
     ) == Decimal("0.5")
-    for mala in ("abc", "0", "-0.2", "1.5", "NaN", "Infinity"):
-        f = g.fraccion_desde_settings({"ads_target_fraccion_margen_amazon_us": mala}, "amazon_us")
-        assert f is None, mala
-        res = g.resuelve_target_margen(_medicion(), f, dt.date(2026, 9, 4), Decimal("20"))
-        assert res.motivo == "sin_fraccion", mala
+    res = g.resuelve_target_margen(_medicion(), None, dt.date(2026, 9, 4), Decimal("20"))
+    assert res.motivo == "sin_fraccion" and res.aplicado is None
+
+
+def test_resolver_fraccion_invalida_revienta():
+    """Rojo (h, A4): clave PRESENTE pero invalida (basura, coma decimal,
+    cero, negativa, > 1, NaN/Inf) -> ValueError ruidoso, NO abstencion."""
+    from app.optimizer import goals as g
+
+    for mala in ("abc", "", "0,5", "0", "-0.2", "1.5", "NaN", "Infinity", "-Infinity"):
+        with pytest.raises(ValueError, match="fraccion"):
+            g.fraccion_desde_settings({"ads_target_fraccion_margen_amazon_us": mala}, "amazon_us")
+
+
+def test_resuelve_target_margen_valida_fraccion():
+    """Rojo (h, D-2.3.12): el nucleo tambien valida (defensa sin settings):
+    fraccion non-None invalida -> ValueError."""
+    from app.optimizer import goals as g
+
+    for mala in (Decimal("0"), Decimal("-0.5"), Decimal("1.5"), Decimal("NaN")):
+        with pytest.raises(ValueError, match="fraccion"):
+            g.resuelve_target_margen(_medicion(), mala, dt.date(2026, 9, 4), Decimal("20"))
 
 
 def test_resolver_fresco_al_borde_no_es_rancio():
