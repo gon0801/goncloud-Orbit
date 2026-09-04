@@ -172,6 +172,42 @@ vivo son dos huecos de diseño ya conocidos y documentados como propuesta el
 5. El expediente adversarial no incluye descartadas por tope, quota ni el
    status del ad group (H3/H4): mejoras de la herramienta 2.1a, no bloquean.
 
+## Decisión diferida cerrada: AGM2M reactivada (2026-09-04)
+
+Go literal del dueño: «si la reactivamos». Ejecutado por el dueño con el
+runbook sellado de `tools/reactiva_campanas.py --solo-campana 165
+--esperado-external 186754400178437 --acepto-mutacion-real` (el candado del
+harness impide al lead mutar la cuenta de Amazon; el lead preparó y validó
+el ensayo). Evidencia: `estado_vivo` PAUSED verificado contra Amazon antes de
+mutar, `resume` con **readback ENABLED**, `reconciliacion_final ok: true`,
+0 pausas y 1 resume.
+
+**Lo que de verdad se reactivó, medido por el lead DESPUÉS** (importa porque
+cambia el riesgo): la campaña tiene 4 product_target y **dos de los tres que
+queman dinero están pausados a nivel de hoja**, así que el resume de la
+campaña NO los revive:
+
+| Hoja | Estado propio | Gasto 90d | Ingreso 90d | Órdenes | ACoS |
+|---|---|---|---|---|---|
+| 3861 `ASIN_SUBSTITUTE_RELATED` | **ENABLED** | 2,154 | 5,179 | 4 | 42 % |
+| 3860 `ASIN_ACCESSORY_RELATED` | **ENABLED** | 8 | 0 | 0 | — |
+| 3859 `QUERY_BROAD_REL_MATCHES` | PAUSED | 2,022 | **0** | 0 | ∞ |
+| 3858 `QUERY_HIGH_REL_MATCHES` | PAUSED | 1,078 | 663 | 1 | 163 % |
+
+El 90 % de ACoS de la campaña lo causaban 3859 (2,022 MXN sin una sola venta)
+y 3858 (163 %), y los dos siguen apagados. Lo que revive es el target que sí
+vende (42 %) más uno de 8 MXN. El bid de 3861 ya arranca 25 % más bajo: es
+una de las dos mutaciones que el motor aplicó en campañas pausadas el
+2026-09-02 y que el dueño decidió conservar (13.64 → 10.23 MXN).
+
+**Efecto en el motor, con su reloj:** el gate de ancestros lee el cache
+`ad_entity_state` (sync diario 06:45 UTC), que a las 03:45 seguía diciendo
+PAUSED — correcto y conservador. El sync de las 06:45 lo pondrá ENABLED y el
+ciclo MX de las 08:41 ya la verá. Como sus hojas no tienen impresiones desde
+el 2026-06-16..26, la guarda `entidad_inerte` las saltará hasta que vuelvan a
+servir y acumulen impresiones (≈14 días): el motor no ajusta pujas de algo
+que aún no se sirve, que es exactamente lo que la guarda debe hacer.
+
 ## 事前確認
 
 - 事項: destructive/external-send — **MUTACIONES REALES a Amazon Ads** por el motor en modo live (bids automáticos; cortes tras 48h de ventana), con caps de día 1 y solo en los goals firmados por el dueño
