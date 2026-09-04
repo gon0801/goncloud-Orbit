@@ -75,6 +75,7 @@ from app.dashboard_pagina import (
     _SQL_DECISIONES_TOTAL,
     PageWindow,
 )
+from app.etiqueta_entidad import etiqueta_entidad, linea_entidad
 from app.optimizer import bid, hygiene
 from app.optimizer import goals as g
 from app.optimizer.bid import PLATAFORMAS_MONEDA
@@ -621,7 +622,12 @@ def _fila_decision(fila) -> dict:
         "id": fila[0],
         "cycle_id": fila[1],
         "ad_entity_id": fila[2],
-        "nombre": fila[3],  # ad_entity.name nullable -> null, no revienta
+        "nombre": linea_entidad(
+            kind=fila[12],
+            name=fila[3],
+            keyword_text=fila[13],
+            campana=fila[14],
+        ),
         "plataforma": fila[4],
         "kind": fila[5],
         "decided_at": fila[6],
@@ -814,9 +820,17 @@ def contribucion_campanas(conn: ConexionLectura) -> dict:
 # primero. LEFT JOIN ad_entity por el external_id (nullable por schema).
 _SQL_CORTES_PENDIENTES = """
 SELECT q.id, q.platform::text, q.familia, q.kind, q.ad_entity_id, e.external_id,
-       q.search_term, q.estado, q.vence_el, q.encolado_at, q.decision_id
+       q.search_term, q.estado, q.vence_el, q.encolado_at, q.decision_id,
+       e.kind::text AS entidad_kind, e.name, e.keyword_text,
+       CASE e.kind
+         WHEN 'campaign' THEN e.name
+         WHEN 'ad_group' THEN padre.name
+         ELSE abuelo.name
+       END AS campana
   FROM apply_queue q
   LEFT JOIN ad_entity e ON e.id = q.ad_entity_id
+  LEFT JOIN ad_entity padre ON padre.id = e.parent_id
+  LEFT JOIN ad_entity abuelo ON abuelo.id = padre.parent_id
  WHERE q.estado IN ('pending_veto', 'released')
  ORDER BY q.vence_el, q.id
 """
@@ -855,6 +869,12 @@ def cortes(conn: ConexionLectura) -> dict:
                 "kind": fila["kind"],
                 "ad_entity_id": fila["ad_entity_id"],
                 "external_id": fila["external_id"],
+                "nombre": linea_entidad(
+                    kind=fila["entidad_kind"],
+                    name=fila["name"],
+                    keyword_text=fila["keyword_text"],
+                    campana=fila["campana"],
+                ),
                 "search_term": fila["search_term"],
                 "estado": fila["estado"],
                 "vence_el": fila["vence_el"].isoformat(),
@@ -875,7 +895,12 @@ def inertes(conn: ConexionLectura) -> dict:
         {
             "plataforma": fila["platform"],
             "kind": fila["kind"],
-            "texto": fila["keyword_text"] or fila["name"],
+            "texto": etiqueta_entidad(
+                kind=fila["kind"],
+                name=fila["name"],
+                keyword_text=fila["keyword_text"],
+                campana=fila["campaign_name"],
+            ).hoja,
             "external_id": fila["external_id"],
             "campana": fila["campaign_name"],
             "ad_group": fila["ad_group_name"],
