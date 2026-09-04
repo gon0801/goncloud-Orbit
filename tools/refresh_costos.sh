@@ -23,7 +23,7 @@ SNAP=/tmp/accounting-snapshot.db
 LOGDIR=/mnt/data/appdata/orbit/logs
 HOY=$(date -u +%F)
 limpiar() {
-  rm -f "$SNAP"
+  rm -f "$SNAP" 2>/dev/null || true
   docker exec -u 0 orbit-app-1 rm -f "$SNAP" 2>/dev/null || true
 }
 trap limpiar EXIT
@@ -41,6 +41,8 @@ corre() {
   return $sal
 }
 rc=0
+# OJO: `corre` SIEMPRE en lista `||` — solo asi `set -e` queda suspendido
+# en su cuerpo y el fallo llega a `sal`; una llamada pelada abortaria.
 corre costs costos.log || rc=1
 corre fx fx.log || rc=1
 corre ledger ledger.log || rc=1
