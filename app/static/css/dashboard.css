@@ -137,9 +137,16 @@ input, select {
   margin-top: 0.75rem;
 }
 .paginador [aria-current="page"] { color: var(--color-acento); }
-col.estrecha { width: 6%; }
-col.media { width: 14%; }
-col.ancha { width: 18%; }
+col.c-id { width: 5%; }
+col.c-entidad { width: 14%; }
+col.c-kind { width: 6%; }
+col.c-fecha { width: 11%; }
+col.c-term { width: 8%; }
+col.c-target { width: 8%; }
+col.c-motivo { width: 18%; }
+col.c-old, col.c-new, col.c-moneda { width: 10%; }
+th.dinero, td.dinero { text-align: left; }
+td.dinero + td.dinero { border-left: 1px solid var(--color-borde); }
 .grafica {
   background: var(--color-tarjeta);
   border: 1px solid var(--color-borde);

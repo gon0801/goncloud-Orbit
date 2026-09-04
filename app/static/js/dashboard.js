@@ -77,6 +77,7 @@ function graficarSeries(canvasId, datosId, seriesClaves, etiquetas) {
         label: etiqueta,
         data: columnas[seriesClaves[i]],
         borderWidth: 2,
+        pointRadius: 3,
         spanGaps: false,
         fill: false,
         segment: {

@@ -62,6 +62,17 @@ def dinero_ui(valor: str | None) -> str | None:
 
 templates.env.filters["dinero_ui"] = dinero_ui
 
+
+def ts_ui(valor) -> str:
+    """Fecha de decision para la tabla: YYYY-MM-DD HH:MM, sin microsegundos."""
+    if valor is None:
+        return "—"
+    texto = valor.isoformat() if hasattr(valor, "isoformat") else str(valor)
+    return texto.replace("T", " ")[:16]
+
+
+templates.env.filters["ts_ui"] = ts_ui
+
 # Columnas que YA estan en campanas.html. No se inventan orders/impressions.
 COLUMNAS_ORDEN = (
     "nombre",

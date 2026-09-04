@@ -54,6 +54,7 @@ def test_tema_js_persiste_y_invalido_es_dia():
     assert 'TEMA_DIA = "dia"' in fuente
     assert 'TEMA_NOCHE = "noche"' in fuente
     assert "temaValido" in fuente
+    assert 'params.get("tema")' in fuente
     assert "valor === TEMA_NOCHE ? TEMA_NOCHE : TEMA_DIA" in fuente
 
 
@@ -88,6 +89,11 @@ def test_dinero_ui_presentacion_sin_inventar():
     assert dinero_ui("26.0000") == "26.00"
     assert dinero_ui(None) is None
     assert dinero_ui("x") == "x"
+
+
+def test_ts_ui_recorta_microsegundos():
+    assert ui.ts_ui("2026-09-04 01:40:19.865606+00:00") == "2026-09-04 01:40"
+    assert ui.ts_ui(None) == "—"
 
 
 def test_campanas_html_dinero_a_2_decimales_clicks_enteros(monkeypatch):

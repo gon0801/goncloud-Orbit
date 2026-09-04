@@ -107,6 +107,8 @@ def test_ui_xss_search_term_demostrado_fallando_con_autoescape_off():
     on, cubierto por el test anterior)."""
     loader = jinja2.FileSystemLoader(str(ui._TEMPLATES_DIR))
     sin_escape = jinja2.Environment(loader=loader, autoescape=False)
+    sin_escape.filters["dinero_ui"] = ui.dinero_ui
+    sin_escape.filters["ts_ui"] = ui.ts_ui
     html = sin_escape.get_template("decisiones.html").render(**_ctx_decisiones())
     assert PAYLOAD_XSS in html, "con autoescape off el payload DEBE aparecer crudo"
 
@@ -426,13 +428,14 @@ def test_ui_old_new_en_dos_columnas_con_dinero_ui():
     ctx["items"][0]["value_currency"] = "USD"
     html = ui.templates.env.get_template("decisiones.html").render(**ctx)
     assert ">Old</th>" in html and ">New</th>" in html
+    assert 'class="num dinero">Old</th>' in html.replace("'", '"')
     assert "old / new" not in html
-    assert 'class="num">1.00<' in html.replace("</td>", "<")
-    assert 'class="num">0.88<' in html.replace("</td>", "<")
+    assert 'class="num dinero">1.00<' in html.replace("</td>", "<")
+    assert 'class="num dinero">0.88<' in html.replace("</td>", "<")
     assert "1.0000 / 0.8800" not in html
     pause = _ctx_decisiones()
     html_pause = ui.templates.env.get_template("decisiones.html").render(**pause)
-    assert html_pause.count('<td class="num"><span class="mutado">—</span></td>') == 2
+    assert html_pause.count('<td class="num dinero"><span class="mutado">—</span></td>') == 2
     assert "0.00 /" not in html_pause and "/ 0.00" not in html_pause
 
 
