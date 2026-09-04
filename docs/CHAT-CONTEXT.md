@@ -4,6 +4,8 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-05 — BIDS 01 tarea 2.2 lista para revisión: dos seguros para que archivar palabras no cause duplicados.** Primero, quedó por escrito y con prueba que el sistema SÍ ve las palabras archivadas al decidir qué cosechar —si alguien "limpia" esa lista, el cosechador volvería a crear lo archivado—. Segundo, si una palabra se archiva justo cuando el cosechador ya va en camino a crearla, el sistema ya no la crea: cierra el trabajo avisando el motivo en vez de duplicar. Nada se archiva todavía; esto solo tapa los huecos antes del primer lote.
+
 **2026-09-04 — ORBIT 06 tarea 2.3 lista para revisión (segunda vuelta tras la revisión del diseño): el tope de publicidad por país ya se calcula solo desde el margen real —solo sobre ventas con costo conocido, con los cargos de plataforma prorrateados— y si el cálculo se sale del rango [10, 45] se recorta en vez de saltar al valor manual. La pantalla de salud muestra el valor vigente con su fundamento y el aviso diario solo molesta cuando el cambio acumulado llega a un punto entero, cuando el cálculo se sale del rango o cuando no hay dato suficiente —diciendo por qué—. Para el go del dueño queda una herramienta que compara, decisión por decisión, qué cambiaría contra el tope puesto a mano.**
 
 **2026-09-03 — El código que baja campañas, palabras y anuncios de Amazon se partió en tres archivos sin cambiar lo que hace: uno habla con Amazon, otro arma la lista de qué guardar, y el de siempre escribe la base.** Quien ya importaba desde el módulo de siempre no tiene que cambiar nada.

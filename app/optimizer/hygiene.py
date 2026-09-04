@@ -393,7 +393,13 @@ def keywords_campana_destino(
     frozenset vacio (ausencia declarada, regla 3: el dedupe no bloquea nada).
     La plataforma se valida TEMPRANO igual que en las funciones hermanas (un
     valor fuera del vocabulo revienta con ValueError claro, no con el error
-    de enum de la DB; hallazgo qwen, ronda 3)."""
+    de enum de la DB; hallazgo qwen, ronda 3).
+    CIEGA AL ESTADO A PROPOSITO (BIDS 01 2.2, H2 acotado): NO filtra por
+    ad_entity_state. Una keyword ARCHIVADA conserva su fila en ad_entity (el
+    sync solo marca el estado) y DEBE seguir en el set: es lo que impide el
+    bucle archivar->recrear (el ciclo no decide harvest para un texto ya
+    archivado en destino). Excluir archivadas aqui ABRE ese bucle; el test
+    test_ciclo_harvest_no_duplica_texto_archivado_en_destino lo clava."""
     if platform not in PLATAFORMAS_MONEDA:
         raise ValueError(
             f"plataforma fuera del vocabulario sellado {{amazon_us, amazon_mx}}: {platform!r}"

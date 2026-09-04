@@ -47,6 +47,7 @@ import os
 import socket
 from contextlib import contextmanager
 from decimal import Decimal
+from pathlib import Path
 
 import httpx
 import psycopg
@@ -68,6 +69,10 @@ from test_schema import SQL, SQL2, SQL3, _postgres_obligatorio_ausente, _test_ds
 from app import cycle as ciclo
 from app.ads.config import AdsCredentials
 from app.apply import Aplicador
+
+SQL14 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0014_keyword_archivo_manual.sql"
+).read_text(encoding="utf-8")
 
 FAKE_CLIENT_ID = "fake-client-id-123"
 FAKE_CLIENT_SECRET = "fake-client-secret-XYZ"
@@ -142,6 +147,7 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL3)  # 0003: ads_optimizer_goal sin DEFAULT en piso/techo
         conn.execute(SQL13)  # 0013 (BIDS 01): la guarda entidad_inerte lee la vista en TX2
         conn.execute(SQL15)  # 0015 (ORBIT 06 2.3): el peldano margen lee su vista en TX2
+        conn.execute(SQL14)  # 0014 (BIDS 01 2.2): _paso_keyword lee el ledger anti-duplicado
         yield conn, conectar_extra
     finally:
         if conn is not None:
