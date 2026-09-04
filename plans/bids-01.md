@@ -1076,6 +1076,38 @@ El replay viejo lee `expected_clicks` (120 ≥ 120, 45 ≥ 40) y rejuega −25%
 (0.75) sobre una fila persistida en −12% (0.88): exactamente las 17
 decisiones que midió el lead. El pin `r1/r2` ya pasa (es pin, no rojo).
 
+### 2.1 — Sellar la edad (rama bids-01-2-1)
+
+- **D-2.1.1 · Columna, no derivación.** `ALTER TABLE ad_entity ADD COLUMN
+  first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()` (migración 0017). El
+  DEFAULT permanente cumple tres funciones: backfill de las existentes a
+  la hora de la migración (una sola txn → un solo valor), red para seeds
+  de test que insertan directo (nacen "vistas ahora", honesto), y red para
+  cualquier escritor futuro que olvide la columna. El upsert de
+  `structure.py` fija `first_seen_at = now()` SOLO en el INSERT; el
+  `DO UPDATE SET name` ni la nombra → jamás se pisa por sync. Sin GRANTs
+  nuevos (la columna hereda los de la tabla). COMMENT declara que el
+  backfill es un PISO, no la verdad (las 133 sin métricas podrían ser más
+  viejas).
+- **D-2.1.2 · El filtro vive en el plan, con fecha UTC fijada.** `_SQL_PLAN`
+  suma `AND e.first_seen_at <= (now() AT TIME ZONE 'UTC')::date - %s`
+  (precedente `v_metric_mature`: UTC en la expresión, nunca
+  `CURRENT_DATE` de sesión). N por CLI `--min-antiguedad-dias` (default
+  30, mismo molde que `--min-dias-sin-impresiones`). La exclusión se
+  REPORTA: `_SQL_EXCLUIDOS_JOVENES` cuenta keywords que pasan todo menos
+  la edad, y el dry-run las imprime (una exclusión invisible es trampa de
+  soporte). La línea del plan muestra `edad=Nd`.
+- **D-2.1.3 · `--reponer` no filtra por edad** (trabaja del ledger, no de
+  la vista). El filtro solo toca el camino de archivo.
+- **D-2.1.4 · Tests contra Postgres de verdad** (proceso: la `_ConnFalsa`
+  no ejecuta SQL). Tres rojos + backfill: (1) keyword inerte insertada
+  "hoy" NO entra al plan (joven contada aparte); (2) con `first_seen_at`
+  viejo SÍ entra; (3) sync real DOS veces (`sync_structure` con el mismo
+  payload) deja `first_seen_at` idéntico; (4) migración sobre 0001 con
+  fila previa → la fila amanece con `first_seen_at NOT NULL` (≈ hora de
+  la migración, PISO). Estático: la 0017 parsea, trae COMMENT de piso y
+  no nombra la columna en ningún UPDATE.
+
 ### 2.2 — Candado del dedupe + carrera del apply (rama bids-01-2-2)
 
 - **D-2.2.1 · El brief cuadra con el código: NO se para.** Verificado en
@@ -1250,7 +1282,21 @@ bueno: verificar QUÉ archivo entra al contenedor antes de un go.
 | 2.1 | **Sellar la edad de las entidades** (H1). **Medido por el lead 2026-09-04: hoy la edad es INDERIVABLE**, así que la redacción anterior de esta tarea («derivar de la primera métrica o del ingest_run») era irrealizable — `ad_entity` **no tiene ninguna columna de tiempo**; `ad_entity_state.synced_at` se **sobrescribe** en cada sync (3 fechas distintas en toda la tabla, la más vieja 2026-08-31: es «último visto», no «primero visto»); el historial de `ingest_run` de estructura solo llega al 2026-08-22; y **133 de las 166 candidatas MX no tienen NI UNA métrica** de la cual inferir nada. Trabajo real: migración que añade `ad_entity.first_seen_at timestamptz` **poblada en el INSERT y JAMÁS en el UPDATE** (el upsert de `structure.py` ya distingue la fila nueva con `(xmax = 0) AS es_nueva`), backfill honesto de las existentes a la fecha de la migración con un COMMENT que declare que es un piso, no la verdad; y la herramienta excluye del plan toda hoja con `first_seen_at` posterior a `hoy - N` (N configurable, default 30). Así el caso que de verdad importa —una keyword recién creada por harvest— queda protegido desde el día uno. `[tdd:required]` | Rojo: keyword insertada hoy por el sync NO entra al plan; una con `first_seen_at` viejo SÍ; el UPDATE del upsert no pisa `first_seen_at` (test que corre el sync dos veces y compara) | - | cc:TODO |
 | 2.2 | **Candado del dedupe + carrera del apply** (H2 acotado por el lead): (a) test que CLAVA que `keywords_campana_destino` incluye keywords archivadas —es lo que hoy impide el bucle archivar→recrear, y hoy es accidental: nada lo documenta ni lo prueba—, con el porqué en el docstring; (b) `apply_harvest` no recrea una identidad con fila `applied` en `keyword_archivo_manual` sin `repuesto_at`, cerrando la carrera del job en vuelo. `[tdd:required]` | Rojo (a): quitar del dedupe las archivadas hace que el ciclo decida un harvest duplicado. Rojo (b): job en vuelo cuya keyword se archivó → cero POST y cierre declarado. Ambos verdes con el fix; suites de hygiene, cycle y apply_harvest completas | - | cc:完了 candado + carrera (PR, CI verde) |
 | 2.3 | **Reconciliación del ledger** (H3): `--reconciliar` que cruza `planeado`/`failed` contra el LIST real de Amazon y promueve a `applied` lo que ya está `ARCHIVED`; `--reponer` lo incluye. `[tdd:required]` | Rojo: fila `failed` cuya keyword está ARCHIVED en Amazon se recupera y es reponible | - | cc:TODO |
+
+### 2.3 — Reconciliación del ledger (rama bids-01-2-3; base origin/master sin 2.1: no la toca)
+
+- **D-2.3.1 · `--reconciliar [--lote X]` solo lee Amazon y solo escribe el ledger.** Por cada fila `planeado`/`failed` (del lote dado o de todos): LIST por `keywordIdFilter`; si `state == ARCHIVED` → UPDATE a `applied`; si sigue viva (ENABLED/PAUSED/otra) → intacta (el DELETE no se aplicó: queda pendiente visible, re-correr el archivo la retoma); si el LIST no responde → intacta y se REPORTA. Nunca DELETE ni CREATE desde este camino. Es idempotente y re-corrible: solo mira pendientes.
+- **D-2.3.2 · La promoción carga evidencia honesta.** El CHECK `archivo_evidencia_applied` exige `ack` + `readback_estado` NOT NULL: se fijan `readback_estado = 'ARCHIVED'` y `ack = {"fuente": "reconciliar", "state": "ARCHIVED", ...}` con lo leído del LIST. JAMÁS se fabrica el ack del DELETE: el ledger distingue "confirmado por readback del archivo" de "recuperado por reconciliación".
+- **D-2.3.3 · `--reponer` con mutación real reconcilia su lote ANTES del SELECT `applied`.** Las filas recuperadas entran a la reversa en la misma corrida (H3 pedía exactamente eso: lo archivado fuera de la reversa). El dry-run de `--reponer` NO reconcilia: cero escrituras sin `--acepto-mutacion-real`. Si alguna fila del lote queda sin verificar (LIST caído), el reponer aborta fail-closed antes de crear nada.
+- **D-2.3.4 · Tests con fakes + uno real.** El LIST va por `AdsClient` falso con colas por keyword (patrón del archivo) y el ledger por `_ConnFalsa`: rojo = fila `failed` + LIST ARCHIVED → `applied` y `_SQL_REPONER` la trae; viva → intacta; LIST caído → intacta + aborto. Un test contra Postgres de verdad ejecuta el UPDATE de promoción (el CHECK de evidencia muerde si falta ack/readback) y el `SELECT` de pendientes.
 | 2.4 | **Autorizar por identidad, no por conteo** (H4): `--ids-file` o hash ordenado de `external_id` del ensayo; el go aborta si el conjunto cambió. `[tdd:required]` | Rojo: mismo N con un conjunto distinto → aborta | - | cc:TODO |
+
+### 2.4 — Autorizar por identidad (rama bids-01-2-4; base origin/master sin 2.1/2.3: no las toca)
+
+- **D-2.4.1 · Hash, no ids-file.** Huella = sha256 hex (completa, sin truncar) de `platform:external_id` ordenadas, unidas con `\n`. Se incluye la plataforma porque `external_id` solo es único con `(platform, kind)`: el mismo id numérico puede existir en MX y US. Un solo literal en el CLI, nada de archivos sueltos que se pierden entre el ensayo y el go.
+- **D-2.4.2 · El dry-run publica la huella.** Se imprime `huella del conjunto: <hex>` y viaja en el evento `dry_run`: el dueño la pega en `--huella` del go. `--esperado N` SE MANTIENE (defensa en profundidad: conteo + conjunto).
+- **D-2.4.3 · Verificación temprana y fail-closed.** En modo real `--huella` es obligatoria (ausente = aborta) y se compara ANTES de credenciales, token y cualquier HTTP: si difiere, aborta mostrando esperada vs calculada, sin haber tocado nada.
+- **D-2.4.4 · Tests con fórmula local.** Helper del test que replica la fórmula (pin: si el módulo la cambia sin querer, caen); rojo = mismo N con conjunto distinto → `Abortar` con cero HTTP; los argv de mutación existentes se actualizan con su huella.
 | 2.5 | **La reposición no gasta** (H5): `--reponer` crea en **PAUSED** (precedente `archivar.py`), exige `--go`, verifica bid y campaña en el readback, y registra el `external_id` nuevo. Documentar que el archivo de Amazon es **irreversible en la práctica**. `[tdd:required]` | Rojo: la repuesta nace PAUSED con bid y campaña verificados | - | cc:TODO |
 
 ### 2.5 — La reposición no gasta (rama bids-01-2-5; base origin/master sin 2.1/2.3/2.4: no las toca)
