@@ -31,5 +31,5 @@ Preconditions:
 
 - Sin `ORBIT_DSN_READ` esta ruta es 503: no es un fallo de template, es fail-closed de conexion.
 - `amazon_mx` puede no tener filas de metrica: igual debe existir el bloque de plataforma (el template itera `PLATAFORMAS_MONEDA`). Hueco = spine con null, no un 0 pintado.
-- ACoS con revenue 0 conocido se ve como `sin ventas` / `acos` null, nunca 0%.
+- ACoS con revenue 0 conocido: JSON `sin_ventas` true y `acos` null; el canvas deja hueco. No hay chip `sin ventas` aqui (eso es Campanas). Jamas 0%.
 - Chart.js vive en `/static/vendor/chart.umd.min.js`. La CSP `default-src 'self'` bloquea CDN: un HTML con `https://` en el dashboard es regresion.

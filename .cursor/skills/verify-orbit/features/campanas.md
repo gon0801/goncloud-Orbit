@@ -1,6 +1,6 @@
 # Campanas
 
-Campanas lista cada campana con metricas 30d (cost, revenue, clicks, ACoS), el target efectivo y el peldaño de procedencia (cinco: goal_campana, goal_plataforma, setting_plataforma, cache_estado, default). Cada fila lleva su moneda. No hay total al pie. La UI filtra y ordena en memoria via query GET (form `class="filtros"` + headers sort); el JSON gemelo solo lista (filtro opcional `?platform=`).
+Campanas lista cada campana con metricas 30d (cost, revenue, clicks, ACoS), el target efectivo y el peldaño de procedencia (seis: goal_campana, goal_plataforma, margen_plataforma, setting_plataforma, cache_estado, default). Cada fila lleva su moneda. No hay total al pie. La UI filtra y ordena en memoria via query GET (form `class="filtros"` + headers sort); el JSON gemelo solo lista (filtro opcional `?platform=`).
 
 ## Sub-features
 
