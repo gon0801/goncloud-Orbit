@@ -12,7 +12,7 @@ Este directorio es la fuente mantenida del comportamiento que un usuario ve en e
 ## Convenciones
 
 - Parte siempre de `GET /` (Resumen) salvo que la feature diga otra cosa.
-- Handles estables: `data-pantalla`, `href` del nav, `aria-current="page"`, ids de canvas, `data-vetar` / `data-veto`.
+- Handles estables: `data-pantalla`, `href` del nav, `aria-current="page"`, ids de canvas, `data-vetar` / `data-veto`, `#btn-tema`.
 - Comandos literales. El harness es curl (y `orbit-verify drive-*` para cada pantalla).
 - Tras una mutacion habria que restaurar la semilla. El baseline de este mapa es de lectura: no POSTees veto.
 - Cleanup no borra `.cursor/skills/verify-orbit/evidence/<run_id>/`.
@@ -33,3 +33,4 @@ Este directorio es la fuente mantenida del comportamiento que un usuario ve en e
 - [Salud](./salud.md) — ultimo ciclo, historico 14d, skips y quota.
 - [Contribucion](./contribucion.md) — rango pre-cargos por campana (90d maduros).
 - [Cortes](./cortes.md) — cola de veto (lectura). El POST Vetar queda fuera del baseline.
+- [Inertes](./inertes.md) — hojas sin trafico 14d (lectura). La semilla baseline llega vacia.

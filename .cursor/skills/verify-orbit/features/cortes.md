@@ -5,7 +5,7 @@ Cortes lista la cola de pause/negative/harvest en `pending_veto` o `released`. E
 ## Sub-features
 
 - `cortes-nav` abre `/cortes` y marca `aria-current="page"`.
-- `cortes-tabla` lista id, plataforma, kind (+ familia, p.ej. `term_cut`), entidad (`external_id` o `#id`), search_term, estado, vence, encolado, boton Vetar.
+- `cortes-tabla` lista id, plataforma, kind (+ familia, p.ej. `term_cut`), entidad (`linea_entidad` + `#id`, no el JSON de targeting), search_term, estado, vence, encolado, boton Vetar.
 - `cortes-vacio` sin filas muestra `sin cortes pendientes: la cola no tiene filas esperando ventana de veto.`
 - `cortes-form` el boton `data-vetar="<id>"` revela `form[data-veto="<id>"]` (dias, actor, token).
 - `cortes-api` `GET /api/dashboard/cortes` es la misma cola.
@@ -25,7 +25,7 @@ Preconditions:
 - Si falta 0002, `apply_queue` no existe y `/cortes` devuelve 500; ese run no es valido.
 
 - **Abrir Cortes.** Corre `curl -sS "$BASE/cortes"`. Status 200. El HTML contiene `data-pantalla="cortes"` y `h2` `Cortes pendientes de veto`.
-- **Leer la fila sembrada.** El HTML contiene chip `negative`, `zapato blanco`, chip `pending_veto`, `button` con `data-vetar=`, y `form` con `data-veto=`, inputs `name="dias"` (value 30), `name="actor"`, `name="token"`.
+- **Leer la fila sembrada.** El HTML contiene chip `negative`, `zapato blanco`, chip `pending_veto`, entidad `Campana A` (etiqueta del ad_group sembrado), `button` con `data-vetar=`, y `form` con `data-veto=`, inputs `name="dias"` (value 30), `name="actor"`, `name="token"`.
 - **Estado vacio (solo si dropeas la cola).** El HTML entonces contiene el parrafo `sin cortes pendientes`. No lo afirmes contra la semilla baseline.
 - **Confirmar lado JSON.** Corre `curl -sS "$BASE/api/dashboard/cortes"`. Status 200. Un item tiene `kind` `negative`, `search_term` `zapato blanco`, `estado` `pending_veto`.
 - **Proof.** Guarda HTML y JSON bajo `evidence/<run_id>/cortes/`. No POSTees `/api/ads-optimizer/veto` salvo que el run tenga `ORBIT_SECRETS_DIR` y `ORBIT_DSN_ADMIN` desechables y lo declares.

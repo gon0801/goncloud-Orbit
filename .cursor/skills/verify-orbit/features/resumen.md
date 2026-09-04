@@ -21,7 +21,7 @@ Preconditions:
 - Doctor en verde sobre la instancia de este run.
 - Semilla presente (amazon_us tiene al menos un dia con cost/revenue).
 
-- **Abrir Resumen.** Corre `curl -sS -D - "$BASE/"`. Status 200. El HTML contiene `data-pantalla="resumen"`, `h1` Orbit — Dashboard, y `nav a[href="/"]` con `aria-current="page"`.
+- **Abrir Resumen.** Corre `curl -sS -D - "$BASE/"`. Status 200. El HTML contiene `data-pantalla="resumen"`, `h1` Orbit — Dashboard, `nav a[href="/"]` con `aria-current="page"`, `href="/inertes"` en el nav, `html[data-tema="dia"]` y `button#btn-tema`.
 - **Ver series.** El HTML contiene `h2` `amazon_us (USD) — spend y revenue` y `amazon_mx (MXN) — spend y revenue`, mas `Ventana efectiva:` y `inmaduros D-8..D-1`.
 - **Ver handles de grafica.** El HTML contiene `id="serie-amazon_us"`, `id="serie-acos-amazon_us"`, `data-serie="datos-serie-amazon_us"` y `<script type="application/json" id="datos-serie-amazon_us">`.
 - **Confirmar lado JSON.** Corre `curl -sS "$BASE/api/dashboard/series/plataforma?platform=amazon_us"`. Status 200. `plataforma` es `amazon_us`, `moneda` es `USD`, `series` es un spine de fechas, y el dia sembrado (`seed.metric_date`) tiene `cost` `12.3400` y `ad_revenue` `45.6700`.

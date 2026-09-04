@@ -31,7 +31,7 @@ Preconditions:
 - **Filtrar.** Corre `curl -sS "$BASE/campanas?plataforma=amazon_mx"`. Status 200. El HTML contiene `Ninguna campana coincide con el filtro.` y no contiene `Campana A`. Corre `curl -sS "$BASE/campanas?plataforma=amazon_us"`: vuelve `Campana A`. Corre `curl -sS "$BASE/campanas?estado=ENABLED&procedencia=goal_plataforma"`: sigue `Campana A`. Corre `curl -sS "$BASE/campanas?estado=PAUSED"`: `Ninguna campana coincide con el filtro.`
 - **Ordenar.** Corre `curl -sS "$BASE/campanas?ordenar=cost&dir=desc"`. Status 200. El `th` de Cost lleva `aria-sort="descending"` y la fila `Campana A` sigue ahi.
 - **Confirmar lado JSON.** Corre `curl -sS "$BASE/api/dashboard/campanas"`. Status 200. Un item tiene `nombre` `Campana A`, `status` `ENABLED`, `metricas_30d.cost` `12.3400`, `metricas_30d.clicks` `8`, `metricas_30d.acos` no nulo, `target_efectivo.peldano` `goal_plataforma`.
-- **Proof.** Artefactos en `evidence/<run_id>/campanas/` (HTML de `/` y `/campanas`, headers, JSON, screenshot, filtro mx). O corre `.cursor/skills/verify-orbit/helpers/orbit-verify drive-campanas`.
+- **Proof.** Artefactos en `evidence/<run_id>/campanas/` (HTML de `/` y `/campanas`, headers, JSON, screenshot, filtro mx y us). O corre `.cursor/skills/verify-orbit/helpers/orbit-verify drive-campanas`.
 
 ## Gotchas
 

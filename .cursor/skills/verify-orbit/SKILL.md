@@ -1,6 +1,6 @@
 ---
 name: verify-orbit
-description: Verifica Orbit (dashboard web Jinja2 de Amazon Ads) como lo toca un usuario — Resumen, Campanas, Decisiones, Salud, Contribucion y Cortes. Usala para probar UI, regresiones de pantallas o el camino real del dashboard, nunca el bind de produccion 10.13.13.1:8010.
+description: Verifica Orbit (dashboard web Jinja2 de Amazon Ads) como lo toca un usuario — Resumen, Campanas, Decisiones, Salud, Contribucion, Cortes e Inertes. Usala para probar UI, regresiones de pantallas o el camino real del dashboard, nunca el bind de produccion 10.13.13.1:8010.
 ---
 
 # Verificar Orbit
@@ -13,7 +13,7 @@ Mantenimiento del mapa: `/maintain-verification-skill`.
 
 ## Entrevista (lo que hay en este repo)
 
-- **Surface.** Dashboard HTML server-rendered (Jinja2). El usuario toca el `<nav>` de `app/templates/base.html`: Resumen `/`, Campanas `/campanas`, Decisiones `/decisiones`, Salud `/salud`, Contribucion `/contribucion`, Cortes `/cortes`. El `<body>` lleva `data-pantalla`. Secundario: JSON en `/api/dashboard/*` (la UI lo consume; un camino) y CLI `python -m app.cli` (crons; no es la superficie de esta skill).
+- **Surface.** Dashboard HTML server-rendered (Jinja2). El usuario toca el `<nav>` de `app/templates/base.html`: Resumen `/`, Campanas `/campanas`, Decisiones `/decisiones`, Salud `/salud`, Contribucion `/contribucion`, Cortes `/cortes`, Inertes `/inertes`. El `<body>` lleva `data-pantalla`. Chrome de todas las pantallas: `#btn-tema` y `html[data-tema]` (`app/static/js/tema.js`). Secundario: JSON en `/api/dashboard/*` (la UI lo consume; un camino) y CLI `python -m app.cli` (crons; no es la superficie de esta skill).
 - **Run.** No hay `npm run dev`. El entorno Cursor deja Postgres 16 en `127.0.0.1:5432` con `orbit`/`orbit` via `.cursor/start.sh`. La app es `uvicorn app.main:app --host 127.0.0.1 --port <libre>`. Las pantallas HTML exigen `ORBIT_DSN_READ` (sin DSN → 503). `/health` no necesita DB. No hay seed de producto: esta skill crea una base desechable y siembra el fixture. Auth de lectura: ninguna (en prod el candado es VPN). Escritura (`POST /api/ads-optimizer/veto`) pide header `x-orbit-token`; **no la conduzcas** en el baseline de lectura.
 - **Drive.** No hay Playwright/Cypress. El harness existente es curl (y TestClient en pytest). Receta: curl a las rutas HTML reales. Chrome headless solo para capturar canvases de Chart.js (`drive-campanas`, `drive-resumen`, `drive-salud` con tope de 30s en este entorno).
 - **Observe.** HTML (`data-pantalla`, `aria-current="page"`, h2, chips, celdas), JSON gemelo `/api/dashboard/...`, headers CSP/`no-store`, screenshot, log de uvicorn en `/tmp/orbit-verify/<run_id>/`.
@@ -72,11 +72,12 @@ Harness: **curl** (mismo transporte que `docs/DEPLOY.md` y que TestClient). Sele
 
 | Handle | Donde |
 |---|---|
-| `body[data-pantalla="resumen"\|"campanas"\|"decisiones"\|"salud"\|"contribucion"\|"cortes"]` | `app/templates/base.html` |
-| `nav a[href="/"]`, `/campanas`, `/decisiones`, `/salud`, `/contribucion`, `/cortes` | mismo |
+| `body[data-pantalla="resumen"\|"campanas"\|"decisiones"\|"salud"\|"contribucion"\|"cortes"\|"inertes"]` | `app/templates/base.html` |
+| `nav a[href="/"]`, `/campanas`, `/decisiones`, `/salud`, `/contribucion`, `/cortes`, `/inertes` | mismo |
 | `nav a[aria-current="page"]` | pagina activa |
+| `html[data-tema]`, `button#btn-tema` | chrome tema dia/noche |
 | `h1` = `Orbit — Dashboard` | header |
-| `h2` Resumen / Campanas / Decisiones / Salud / Contribucion / Cortes | cada template |
+| `h2` Resumen / Campanas / Decisiones / Salud / Contribucion / Cortes / Entidades sin trafico | cada template |
 | `form.filtros[action="/campanas"]`, `th[aria-sort]`, `a[href^="/campanas?ordenar="]` | `campanas.html` |
 | `canvas#serie-amazon_us`, `#serie-amazon_mx`, `#serie-acos-amazon_us` | `resumen.html` |
 | `script#datos-serie-amazon_us[type=application/json]` | datos de grafica |
@@ -84,7 +85,7 @@ Harness: **curl** (mismo transporte que `docs/DEPLOY.md` y que TestClient). Sele
 | `script#datos-skips-amazon_us[type=application/json]` | datos de skips |
 | `nav.paginador a[rel="next"]`, `a[rel="prev"]`, `[aria-current="page"]` | `decisiones.html` |
 | `button[data-vetar="<id>"]`, `form[data-veto="<id>"]` | `cortes.html` |
-| `GET /api/dashboard/campanas` (y series/decisiones/salud/contribucion/cortes) | JSON gemelo; no es endpoint de test |
+| `GET /api/dashboard/campanas` (y series/decisiones/salud/contribucion/cortes/inertes) | JSON gemelo; no es endpoint de test |
 
 Receta minima (tras doctor OK):
 
@@ -164,6 +165,11 @@ Directorio nombrado (sobrevive cleanup):
     02-cortes.html
     03-cortes.json
     PROOF.json
+  inertes/
+    01-resumen.html
+    02-inertes.html
+    03-inertes.json
+    PROOF.json
 ```
 
 Estandares de prueba:
@@ -197,6 +203,7 @@ Todos viven en `.cursor/skills/verify-orbit/helpers/orbit-verify` (ejecutable):
 .cursor/skills/verify-orbit/helpers/orbit-verify drive-salud [--run-id ID]
 .cursor/skills/verify-orbit/helpers/orbit-verify drive-contribucion [--run-id ID]
 .cursor/skills/verify-orbit/helpers/orbit-verify drive-cortes [--run-id ID]
+.cursor/skills/verify-orbit/helpers/orbit-verify drive-inertes [--run-id ID]
 .cursor/skills/verify-orbit/helpers/orbit-verify maintain-verification-skill [--run-id ID] [--port 18010] [--force]
 .cursor/skills/verify-orbit/helpers/orbit-verify cleanup [--run-id ID]
 ```
