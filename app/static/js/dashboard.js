@@ -14,6 +14,19 @@ function numero(s) {
   return Number(s);
 }
 
+function colorCss(nombre, respaldo) {
+  var valor = getComputedStyle(document.documentElement).getPropertyValue(nombre).trim();
+  return valor || respaldo;
+}
+
+function coloresGrafica() {
+  return {
+    texto: colorCss("--color-texto", "#1a1a1a"),
+    mutado: colorCss("--color-mutado", "#5c574f"),
+    alerta: colorCss("--color-alerta", "#a11f1f")
+  };
+}
+
 function datosDe(id) {
   var el = document.getElementById(id);
   if (!el) return null;
@@ -40,6 +53,7 @@ function graficarSeries(canvasId, datosId, seriesClaves, etiquetas) {
       columnas[clave].push(numero(fila[clave]));
     });
   });
+  var tinta = coloresGrafica();
   new Chart(canvas, {
     type: "line",
     data: { labels: fechas, datasets: etiquetas.map(function (etiqueta, i) {
@@ -55,9 +69,9 @@ function graficarSeries(canvasId, datosId, seriesClaves, etiquetas) {
         }
       };
     }) },
-    options: { responsive: true, plugins: { legend: { labels: { color: "#e2e8f0" } } },
-               scales: { x: { ticks: { color: "#94a3b8", maxTicksLimit: 8 } },
-                         y: { ticks: { color: "#94a3b8" } } } }
+    options: { responsive: true, plugins: { legend: { labels: { color: tinta.texto } } },
+               scales: { x: { ticks: { color: tinta.mutado, maxTicksLimit: 8 } },
+                         y: { ticks: { color: tinta.mutado } } } } }
   });
 }
 
@@ -65,11 +79,13 @@ function graficarSeries(canvasId, datosId, seriesClaves, etiquetas) {
 function graficarBarras(canvasId, etiquetas, valores, color) {
   var canvas = document.getElementById(canvasId);
   if (!canvas) return;
+  var tinta = coloresGrafica();
   new Chart(canvas, {
     type: "bar",
     data: { labels: etiquetas, datasets: [{ label: "conteo", data: valores, backgroundColor: color }] },
     options: { responsive: true, plugins: { legend: { display: false } },
-               scales: { x: { ticks: { color: "#94a3b8" } }, y: { ticks: { color: "#94a3b8" } } } }
+               scales: { x: { ticks: { color: tinta.mutado } },
+                         y: { ticks: { color: tinta.mutado } } } } }
   });
 }
 
@@ -105,7 +121,7 @@ document.addEventListener("DOMContentLoaded", function () {
           valores.push(datos[lado][motivo].count);
         });
       });
-      if (etiquetas.length) graficarBarras("skips-" + plataforma, etiquetas, valores, "#f87171");
+      if (etiquetas.length) graficarBarras("skips-" + plataforma, etiquetas, valores, coloresGrafica().alerta);
     }
   );
   // Decisiones: el boton de paginacion se cablea aqui (onclick= inline lo
