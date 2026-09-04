@@ -207,14 +207,19 @@ class _ClienteFalso:
         raise AssertionError("GET inesperado en el camino del archivo")
 
 
-def _obj_kw(kw_id, estado, texto="t", match="EXACT", ad_group="ag"):
-    return {
+def _obj_kw(kw_id, estado, texto="t", match="EXACT", ad_group="ag", bid=None, campaign=None):
+    obj = {
         "keywordId": kw_id,
         "state": estado,
         "keywordText": texto,
         "matchType": match,
         "adGroupId": ad_group,
     }
+    if campaign is not None:
+        obj["campaignId"] = campaign
+    if bid is not None:
+        obj["bid"] = bid
+    return obj
 
 
 class _RedFalsa:
@@ -677,13 +682,21 @@ def test_reponer_recrea_con_el_match_del_ledger_y_sella_repuesto(
     capsys,
 ):
     """--reponer crea con {adGroupId, campaignId, keywordText, matchType
-    del ledger (PHRASE, no el EXACT fijo del harvest), state ENABLED,
+    del ledger (PHRASE, no el EXACT fijo del harvest), state PAUSED,
     bid} y sella repuesto_* con el external nuevo del ack."""
     red = _RedFalsa(creates=[_ACK_CREATE_OK])
     cliente = _ClienteFalso(
         {
             "kw-nuevo-1": [
-                _obj_kw("kw-nuevo-1", "ENABLED", "arras de plata", "PHRASE", "ag-ext-5")
+                _obj_kw(
+                    "kw-nuevo-1",
+                    "PAUSED",
+                    "arras de plata",
+                    "PHRASE",
+                    "ag-ext-5",
+                    bid=12.5,
+                    campaign="camp-ext-2",
+                )
             ],
         }
     )
@@ -698,7 +711,7 @@ def test_reponer_recrea_con_el_match_del_ledger_y_sella_repuesto(
     monkeypatch.setattr(
         sys,
         "argv",
-        ["archiva_inertes.py", "--reponer", LOTE, "--acepto-mutacion-real"],
+        ["archiva_inertes.py", "--reponer", LOTE, "--acepto-mutacion-real", "--go", GO],
     )
     assert ar.main() == 0
     creates = [p for p in red.pedidos if p.url.path == "/sp/keywords"]
@@ -713,7 +726,7 @@ def test_reponer_recrea_con_el_match_del_ledger_y_sella_repuesto(
                 "campaignId": "camp-ext-2",
                 "keywordText": "arras de plata",
                 "matchType": "PHRASE",
-                "state": "ENABLED",
+                "state": "PAUSED",
                 "bid": 12.5,
             }
         ]
@@ -775,7 +788,7 @@ def test_reponer_bid_null_aborta_fail_closed(monkeypatch, capsys):
     monkeypatch.setattr(
         sys,
         "argv",
-        ["archiva_inertes.py", "--reponer", LOTE, "--acepto-mutacion-real"],
+        ["archiva_inertes.py", "--reponer", LOTE, "--acepto-mutacion-real", "--go", GO],
     )
     with pytest.raises(ar.Abortar, match="[Bb]id"):
         ar.main()
@@ -1039,3 +1052,127 @@ def test_sql_del_plan_corre_contra_postgres_de_verdad():
         admin = psycopg.connect(_test_dsn(), autocommit=True)
         admin.execute(f'DROP DATABASE IF EXISTS "{nombre}"')
         admin.close()
+
+
+# ---------------------------------------------------------------------------
+# BIDS 01 2.5: la reposicion no gasta (H5).
+# ---------------------------------------------------------------------------
+
+
+def _argv_reponer(*extra):
+    return ["archiva_inertes.py", "--reponer", LOTE, "--acepto-mutacion-real", *extra]
+
+
+def _cliente_repuesta(
+    estado="PAUSED", texto="arras de plata", match="PHRASE", bid=12.5, campaign="camp-ext-2"
+):
+    return _ClienteFalso(
+        {
+            "kw-nuevo-1": [
+                _obj_kw("kw-nuevo-1", estado, texto, match, "ag-ext-5", bid=bid, campaign=campaign)
+            ],
+        }
+    )
+
+
+def test_25_reponer_sin_go_aborta(monkeypatch):
+    """Recrear sin el literal del dueno no pasa (H5: reponer es mutacion).
+
+    Rojo contra el codigo previo (D-1.4.5: --go no aplicaba a reponer)."""
+    _fakea_frontera(
+        monkeypatch,
+        _ConnFalsa(),
+        _ConnFalsa(reponer=[_FILA_REPONER]),
+        _ClienteFalso({}),
+        _RedFalsa(),
+    )
+    monkeypatch.setattr(sys, "argv", _argv_reponer())
+    with pytest.raises(ar.Abortar, match="--go"):
+        ar.main()
+
+
+def _fila_ledger_minima():
+    return {
+        "texto": "arras de plata",
+        "match": "PHRASE",
+        "ad_group_external": "ag-ext-5",
+        "campaign_external": "camp-ext-2",
+        "bid": Decimal("12.5000"),
+    }
+
+
+def test_25_unidad_campana_distinta_no_cuadra():
+    """Rojo contra el codigo previo (sin la funcion): AttributeError."""
+    leido = _obj_kw("x", "PAUSED", "arras de plata", "PHRASE", "ag-ext-5", 12.5, "camp-otra")
+    assert ar._readback_reponer_cuadra(leido, _fila_ledger_minima()) is False
+
+
+def test_25_unidad_bid_distinto_no_cuadra():
+    """Rojo contra el codigo previo (sin la funcion): AttributeError."""
+    leido = _obj_kw("x", "PAUSED", "arras de plata", "PHRASE", "ag-ext-5", 99.0, "camp-ext-2")
+    assert ar._readback_reponer_cuadra(leido, _fila_ledger_minima()) is False
+
+
+def test_25_unidad_todo_cuadra():
+    """El caso bueno sella (pin contra un fail-closed demasiado bravo)."""
+    leido = _obj_kw("x", "PAUSED", "arras de plata", "PHRASE", "ag-ext-5", 12.5, 123)
+    fila = _fila_ledger_minima()
+    fila["campaign_external"] = "123"  # campaignId INT del LIST pasa por str
+    assert ar._readback_reponer_cuadra(leido, fila) is True
+
+
+def test_25_readback_campana_distinta_detiene(monkeypatch):
+    """La repuesta en OTRA campana no se sella: el lote se detiene."""
+    red = _RedFalsa(creates=[_ACK_CREATE_OK])
+    conn_admin = _ConnFalsa(reponer=[_FILA_REPONER])
+    _fakea_frontera(
+        monkeypatch, _ConnFalsa(), conn_admin, _cliente_repuesta(campaign="camp-otra"), red
+    )
+    monkeypatch.setattr(sys, "argv", _argv_reponer("--go", GO))
+    with pytest.raises(ar.Abortar, match="no cuadra"):
+        ar.main()
+    assert [u for u in conn_admin.updates if "'repuesto'" in u[0]] == []
+
+
+def test_25_readback_bid_distinto_detiene(monkeypatch):
+    """La repuesta con OTRO bid no se sella: el lote se detiene."""
+    red = _RedFalsa(creates=[_ACK_CREATE_OK])
+    conn_admin = _ConnFalsa(reponer=[_FILA_REPONER])
+    _fakea_frontera(monkeypatch, _ConnFalsa(), conn_admin, _cliente_repuesta(bid=99.0), red)
+    monkeypatch.setattr(sys, "argv", _argv_reponer("--go", GO))
+    with pytest.raises(ar.Abortar, match="no cuadra"):
+        ar.main()
+    assert [u for u in conn_admin.updates if "'repuesto'" in u[0]] == []
+
+
+def test_25_readback_enabled_no_cuadra(monkeypatch):
+    """La repuesta nace PAUSED: si Amazon la devuelve ENABLED, no cuadra.
+
+    Rojo contra el codigo previo (creaba y exigia ENABLED): gastaba sola."""
+    red = _RedFalsa(creates=[_ACK_CREATE_OK])
+    conn_admin = _ConnFalsa(reponer=[_FILA_REPONER])
+    _fakea_frontera(monkeypatch, _ConnFalsa(), conn_admin, _cliente_repuesta("ENABLED"), red)
+    monkeypatch.setattr(sys, "argv", _argv_reponer("--go", GO))
+    with pytest.raises(ar.Abortar, match="no cuadra"):
+        ar.main()
+    assert [u for u in conn_admin.updates if "'repuesto'" in u[0]] == []
+
+
+def test_25_bid_readback_unidad():
+    """Comparacion via str contra el wire cuantizado a 2; ausente o
+    ilegible = no cuadra (fail-closed)."""
+    assert ar._bid_readback_cuadra({"bid": 12.5}, Decimal("12.5000")) is True
+    assert ar._bid_readback_cuadra({"bid": "12.50"}, Decimal("12.5000")) is True
+    assert ar._bid_readback_cuadra({"bid": 12.51}, Decimal("12.5000")) is False
+    assert ar._bid_readback_cuadra({}, Decimal("12.5000")) is False
+    assert ar._bid_readback_cuadra({"bid": None}, Decimal("12.5000")) is False
+    assert ar._bid_readback_cuadra({"bid": "no-numero"}, Decimal("12.5000")) is False
+    assert ar._bid_readback_cuadra(None, Decimal("12.5000")) is False
+
+
+def test_25_docs_declaran_irreversible():
+    """Pin de docs honestos (H5): la herramienta dice que Amazon no
+    des-archiva y que reponer CREA otra keyword PAUSED."""
+    doc = ar.__doc__
+    assert "NO des-archiva" in doc and "IRREVERSIBLE" in doc
+    assert "PAUSED" in doc

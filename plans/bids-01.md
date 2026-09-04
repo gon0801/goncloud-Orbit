@@ -1253,6 +1253,14 @@ bueno: verificar QUÉ archivo entra al contenedor antes de un go.
 | 2.4 | **Autorizar por identidad, no por conteo** (H4): `--ids-file` o hash ordenado de `external_id` del ensayo; el go aborta si el conjunto cambió. `[tdd:required]` | Rojo: mismo N con un conjunto distinto → aborta | - | cc:TODO |
 | 2.5 | **La reposición no gasta** (H5): `--reponer` crea en **PAUSED** (precedente `archivar.py`), exige `--go`, verifica bid y campaña en el readback, y registra el `external_id` nuevo. Documentar que el archivo de Amazon es **irreversible en la práctica**. `[tdd:required]` | Rojo: la repuesta nace PAUSED con bid y campaña verificados | - | cc:TODO |
 
+### 2.5 — La reposición no gasta (rama bids-01-2-5; base origin/master sin 2.1/2.3/2.4: no las toca)
+
+- **D-2.5.1 · PAUSED al crear, como `archivar.py`.** El CREATE de `--reponer` lleva `"state": "PAUSED"` (razón del precedente: repuesto en ENABLED empieza a gastar solo; que lo encienda un humano). El readback exige `state == PAUSED`.
+- **D-2.5.2 · `--go` obligatorio en modo real.** D-1.4.5 decía que `--esperado`/`--go` no aplicaban a reponer; H5 lo revierte para `--go`: recrear keywords es mutación real y lleva el literal del dueño (el dry-run no lo exige). `--esperado` sigue sin aplicar (el conjunto lo fija el lote del ledger, no un conteo).
+- **D-2.5.3 · Readback verifica bid y campaña.** Además de texto+match+grupo: `str(campaignId)` igual al del ledger (`campaignId` viene string o INT en el LIST: comparar por str, precedente `_obj_kw`/snapshot) y `Decimal(str(bid))` igual al bid del ledger cuantizado a 2 (el wire se envía así; conversión vía str, precedente `_bid_decimal`). Si el LIST no trae bid, no cuadra: fail-closed (creamos MANUAL con bid explícito; si Amazon no lo devuelve, no se sella).
+- **D-2.5.4 · Docs honestos en la herramienta.** Docstring del módulo + help de `--reponer`: Amazon NO des-archiva; archivar es irreversible en la práctica y reponer CREA otra keyword PAUSED sin historia ni ranking. El `external_id` nuevo ya se registra (`repuesto_external`): se pinea con test.
+- **D-2.5.5 · Tests con fakes.** Rojo: CREATE con ENABLED / sin `--go` pasa / readback con campaña o bid distintos sella. Verde: camino feliz PAUSED con bid+campaña verificados + `repuesto_external` registrado.
+
 ## Reject (con razón)
 
 - **Umbral absoluto de clicks (15/25)**: rechazado por el dueño — sus

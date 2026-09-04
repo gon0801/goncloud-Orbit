@@ -24,11 +24,16 @@ QUE HACE, EN ORDEN:
     -> readback LIST: ARCHIVED -> 'applied'; distinto -> 'failed' y el
     lote SE DETIENE. Una linea JSON por mutacion (scrub) y
     reconciliacion final.
- 4. Reversa (--reponer <lote>): por cada fila 'applied', POST
-    /sp/keywords con {adGroupId, campaignId, keywordText, matchType del
-    ledger, state ENABLED, bid} y readback por el id creado (texto+match
-    +grupo contra el ledger); la fila pasa a 'repuesto' con el external
-    nuevo. Sin bid en el ledger no se repone (regla 3: no se inventa).
+ 4. Reversa (--reponer <lote> --acepto-mutacion-real --go "<literal>"):
+    Amazon NO des-archiva: archivar es IRREVERSIBLE en la practica y esto
+    CREA otra keyword (keywordId nuevo, sin historia ni ranking; el motor
+    sigue apuntando al id muerto porque external_id es inmutable). Por
+    cada fila 'applied': POST /sp/keywords con {adGroupId, campaignId,
+    keywordText, matchType del ledger, state PAUSED, bid} (pausada para
+    no gastar sola: que la encienda un humano) y readback por el id
+    creado (texto+match+grupo+campana+bid contra el ledger, PAUSED); la
+    fila pasa a 'repuesto' con el external nuevo. Sin bid en el ledger
+    no se repone (regla 3: no se inventa).
 
 CORRIDA (en el server, dentro del contenedor app - ahi viven secrets y
 DSN; la imagen solo trae app/, asi que el tool entra por stdin, como
@@ -39,6 +44,7 @@ reactiva_campanas):
       --esperado 12 --go "<literal del dueno>" < tools/archiva_inertes.py
     docker exec -i orbit-app-1 python - \
       --reponer inertes-2026-09-05 --acepto-mutacion-real \
+      --go "<literal del dueno>" \
       < tools/archiva_inertes.py
 
 HTTP propio con el sello v3 (igual que reactiva_campanas): el POST de
@@ -58,7 +64,7 @@ import logging
 import os
 import sys
 import time
-from decimal import ROUND_HALF_EVEN, Decimal
+from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 from typing import Any
 
 import httpx
@@ -91,6 +97,10 @@ MONEDA_POR_PLATAFORMA = {"amazon_mx": "MXN", "amazon_us": "USD"}
 
 _ESTADO_VIVO = "ENABLED"
 _ESTADO_ARCHIVADO = "ARCHIVED"
+# BIDS 01 2.5 (H5): la repuesta nace PAUSED. Precedente app/ads/archivar.py
+# (ESTADO_PAUSADO): repuesto en ENABLED empieza a gastar solo; que lo
+# encienda un humano.
+_ESTADO_REPUESTO = "PAUSED"
 
 # Revision del lead 2026-09-04: el primer parametro va CASTEADO
 # (`%s::platform IS NULL`). Sin el cast Postgres no puede inferir su tipo y la
@@ -360,6 +370,40 @@ def _id_creado_de_ack(ack: dict) -> str | None:
     return None
 
 
+def _bid_readback_cuadra(leido: dict | None, esperado: Decimal) -> bool:
+    """El bid del LIST contra el del ledger (BIDS 01 2.5, H5).
+
+    El wire se envia cuantizado a 2 (`_bid_wire`): se compara contra eso,
+    via str (precedente `_bid_decimal`: float a NUMERIC solo via str).
+    Ausente o ilegible = NO cuadra (fail-closed: creamos MANUAL con bid
+    explicito; si Amazon no lo devuelve, no se sella)."""
+    if not isinstance(leido, dict):
+        return False
+    crudo = leido.get("bid")
+    if crudo is None:
+        return False
+    try:
+        return Decimal(str(crudo)) == esperado.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
+    except (InvalidOperation, ValueError):
+        return False
+
+
+def _readback_reponer_cuadra(leido: dict | None, f: dict) -> bool:
+    """El readback de la repuesta contra el ledger (BIDS 01 2.5, H5).
+
+    PAUSED (no gasta sola) + texto + match + grupo + campana (str: el
+    LIST trae INT o string) + bid (via `_bid_readback_cuadra`)."""
+    return (
+        leido is not None
+        and leido.get("state") == _ESTADO_REPUESTO
+        and str(leido.get("keywordText")) == f["texto"]
+        and leido.get("matchType") == f["match"]
+        and str(leido.get("adGroupId")) == str(f["ad_group_external"])
+        and str(leido.get("campaignId")) == str(f["campaign_external"])
+        and _bid_readback_cuadra(leido, f["bid"])
+    )
+
+
 def _bid_wire(bid: Decimal) -> float:
     """Bid para el PAYLOAD JSON: NUMERO cuantizado a 2 decimales (misma
     presentacion sellada que el cliente de escritura: el NUMERIC del
@@ -567,6 +611,9 @@ def _reponer(args) -> int:
         )
         return 0
 
+    if not args.go:
+        raise Abortar("reponer real exige --go con el literal del dueno (recrear es mutacion)")
+
     cred = AdsCredentials.from_secrets_dir()
     cliente_lectura = AdsClient(cred)
     http = httpx.Client(timeout=httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0))
@@ -620,7 +667,7 @@ def _reponer(args) -> int:
                     "campaignId": str(f["campaign_external"]),
                     "keywordText": f["texto"],
                     "matchType": f["match"],
-                    "state": _ESTADO_VIVO,
+                    "state": _ESTADO_REPUESTO,
                     "bid": _bid_wire(f["bid"]),
                 },
                 envolver="keywords",
@@ -658,13 +705,7 @@ def _reponer(args) -> int:
             raise Abortar(motivo)
         time.sleep(0.3)  # cortesia de rate limit
         leido = _readback_salvo(cliente_lectura, profile, nuevo)
-        cuadra = (
-            leido is not None
-            and leido.get("state") == _ESTADO_VIVO
-            and str(leido.get("keywordText")) == f["texto"]
-            and leido.get("matchType") == f["match"]
-            and str(leido.get("adGroupId")) == str(f["ad_group_external"])
-        )
+        cuadra = _readback_reponer_cuadra(leido, f)
         _log(
             "reponer",
             external_id=f["keyword_external"],
@@ -676,7 +717,7 @@ def _reponer(args) -> int:
         if not cuadra:
             motivo = (
                 f"readback de la repuesta {nuevo} no cuadra con el ledger "
-                "(texto+match+grupo): el lote se detiene"
+                "(texto+match+grupo+campana+bid, PAUSED): el lote se detiene"
             )
             _log("lote_detenido", lote=args.reponer, motivo=motivo, repuestas=repuestas)
             raise Abortar(motivo)
@@ -712,7 +753,13 @@ def main() -> int:
     ap.add_argument(
         "--go", default=None, help="literal del dueno que autoriza el lote (va al ledger)"
     )
-    ap.add_argument("--reponer", default=None, help="lote del ledger a recrear (reversa)")
+    ap.add_argument(
+        "--reponer",
+        default=None,
+        help="lote del ledger a recrear. OJO: Amazon no des-archiva; CREA "
+        "otra keyword PAUSED sin historia (archivar es irreversible). "
+        "En modo real exige --go",
+    )
     args = ap.parse_args()
 
     if args.reponer is not None:
