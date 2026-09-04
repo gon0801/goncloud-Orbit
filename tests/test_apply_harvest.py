@@ -1155,6 +1155,62 @@ def test_matriz_keyword_archivada_en_vuelo_cero_post_y_cierre_declarado():
 
 
 @_skip_db
+def test_matriz_keyword_archivada_planeado_tambien_bloquea_el_post():
+    """Revision del PR #155 (CodeRabbit Major): la CARRERA. El archivador
+    commitea `planeado` ANTES del DELETE y solo sella `applied` tras el
+    readback; con el filtro `estado = \'applied\'` esa ventana HTTP dejaba
+    pasar el POST y duplicaba lo que se estaba archivando. Ahora bloquea
+    CUALQUIER fila no repuesta. Es seguro porque este chequeo solo se alcanza
+    con `_identidad` ya fallida (la keyword no esta viva). Rojo con el filtro
+    de `applied`: jobs_failed 0 == 1."""
+    with _db_temporal("orbit_har_archvuelo") as conn:
+        ids = _semilla(conn)
+        dec = _decision_harvest(conn, ids["ciclo_dec"], ids["config"], ids["ag"])
+        q = _encola_fila(conn, dec, ids["ag"], term=TERMINO)
+        _libera_fila(conn, q)
+        _claim_fila(conn, q)
+        _job_en(conn, dec, ids["ag"], "negative_created")
+        conn.execute(
+            "INSERT INTO keyword_archivo_manual (lote, ad_entity_id, platform,"
+            " campaign_external, ad_group_external, keyword_external, keyword_text,"
+            " match_type, clasificacion, go_literal, ack, readback_estado, estado)"
+            " VALUES ('lote-1', %s, 'amazon_us', %s, %s, 'k-7', %s, 'EXACT',"
+            " 'peso_muerto', 'go', '{\"ok\": true}', 'ARCHIVED', 'planeado')",
+            (ids["ag"], DESTINO_CAMPANA, DESTINO_GRUPO, TERMINO),
+        )
+        handler, vistos = _handler_harvest(
+            negatives=[
+                {
+                    "adGroupId": ORIGEN_GRUPO,
+                    "campaignId": ORIGEN_CAMPANA,
+                    "keywordId": "n-9",
+                    "keywordText": TERMINO,
+                    "matchType": "EXACT",
+                    "state": "enabled",
+                }
+            ],
+            keywords=[
+                {
+                    "adGroupId": DESTINO_GRUPO,
+                    "campaignId": DESTINO_CAMPANA,
+                    "keywordId": "k-7",
+                    "keywordText": TERMINO,
+                    "matchType": "EXACT",
+                    "state": "ARCHIVED",
+                }
+            ],
+        )
+
+        resumen = _reconcilia(conn, handler, ids["ciclo_ejec"])
+
+        assert resumen.jobs_failed == 1 and resumen.jobs_done == 0
+        assert resumen.alertas and resumen.alertas[0].motivo == MOTIVO_ARCHIVADO_EN_VUELO
+        assert _mutaciones(vistos) == [], "archivada en vuelo: CERO POSTs"
+        job = conn.execute("SELECT fase FROM harvest_job WHERE decision_id = %s", (dec,)).fetchone()
+        assert job == ("failed",)
+
+
+@_skip_db
 def test_matriz_archivo_repuesto_no_bloquea_harvest():
     """BIDS 01 2.2 (b), D-2.2.5: fila applied CON repuesto (la reversa ya
     repuso con otro external) -> el chequeo NO bloquea y el harvest crea

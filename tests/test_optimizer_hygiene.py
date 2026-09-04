@@ -830,6 +830,7 @@ def test_keywords_campana_destino_en_vivo():
         assert h.keywords_campana_destino(conn, "amazon_us", "9999") == frozenset()
 
 
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
 def test_keywords_campana_destino_incluye_archivadas():
     """BIDS 01 2.2 (a), H2 acotado: una keyword EXACT ARCHIVADA en destino
     SIGUE en el set. Es lo que impide el bucle archivar->recrear: el sync

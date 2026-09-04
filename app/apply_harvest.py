@@ -157,21 +157,29 @@ _SQL_AVANZA_FASE = """
 UPDATE harvest_job SET fase = %s, external_ids = %s, updated_at = now() WHERE id = %s
 """
 
-# BIDS 01 2.2 (b), H2 acotado: la keyword YA fue archivada a mano (fila
-# applied sin repuesto) entre la decision y el apply. _identidad la ve
-# AUSENTE (sellado probe 2.5 para reconciliacion: NO se toca); este chequeo
-# del LEDGER es lo que impide el POST duplicado. Identidad = la de
-# _identidad (mismo ad group + mismo texto + EXACT) + plataforma; texto
-# comparado con lower+btrim, coherente con la normalizacion del dedupe de
-# decision. repuesto_at con valor = la reversa ya repuso y el harvest puede
-# recrear: NO bloquea.
+# BIDS 01 2.2 (b), H2 acotado: la keyword YA fue archivada a mano entre la
+# decision y el apply. _identidad la ve AUSENTE (sellado probe 2.5 para
+# reconciliacion: NO se toca); este chequeo del LEDGER es lo que impide el
+# POST duplicado. Identidad = la de _identidad (mismo ad group + mismo texto
+# + EXACT) + plataforma; texto comparado con lower+btrim, coherente con la
+# normalizacion del dedupe de decision.
+#
+# CUALQUIER estado no repuesto bloquea (revision del PR #155, CodeRabbit
+# Major): con `estado = 'applied'` quedaba una carrera real — el archivador
+# commitea `planeado` ANTES del DELETE y solo sella `applied` tras el
+# readback, asi que en esa ventana (el ida y vuelta HTTP) el harvest no veia
+# nada y creaba el duplicado. Ampliarlo es SEGURO porque este chequeo solo se
+# alcanza cuando `_identidad` YA fallo, es decir cuando la keyword no esta
+# viva en el destino: si el archivo se quedo en `planeado` o `failed` pero la
+# keyword sigue viva, `_identidad` la encuentra y reconcilia sin llegar aqui.
+# Y cubre el residual H3 de grok (archivada en Amazon con el sello sin
+# promover). repuesto_at con valor = la reversa ya repuso: NO bloquea.
 _SQL_ARCHIVO_APLICADO = """
-SELECT id FROM keyword_archivo_manual
+SELECT id, estado FROM keyword_archivo_manual
  WHERE platform = %s::platform
    AND ad_group_external = %s
    AND btrim(lower(keyword_text)) = btrim(lower(%s))
    AND match_type = 'EXACT'
-   AND estado = 'applied'
    AND repuesto_at IS NULL
  LIMIT 1
 """
@@ -963,15 +971,18 @@ def _paso_keyword(
         # BIDS 01 2.2 (b): archivada ENTRE la decision y el apply (el LIST
         # la trae ARCHIVED e _identidad la ve ausente, sellado probe 2.5).
         # Recrearla seria duplicar lo archivado a mano: NO hay POST y el
-        # job cierra declarando el motivo (terminal, sin reintento).
+        # job cierra declarando el motivo (terminal, sin reintento). El
+        # estado del archivo viaja al detalle: `planeado` significa que el
+        # archivador esta en su ventana HTTP justo ahora.
         return _falla_job(
             conn,
             job,
             MOTIVO_ARCHIVADO_EN_VUELO,
             queue_id=queue_id,
             detalle=(
-                "keyword archivada en vuelo: fila applied sin repuesto en"
-                " keyword_archivo_manual para la identidad; no se recrea"
+                "keyword archivada en vuelo: fila"
+                f" {archivada[1]} sin reponer en keyword_archivo_manual"
+                " para la identidad; no se recrea"
             ),
         )
     sugerido = bid_sugerido(cliente)  # PENDIENTE-DE-REGLA-8: sin id del termino pre-creacion

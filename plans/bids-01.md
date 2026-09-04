@@ -1119,6 +1119,42 @@ decisiones que midió el lead. El pin `r1/r2` ya pasa (es pin, no rojo).
   readback. `repuesto_at` con valor = la reversa ya repuso → el chequeo
   NO bloquea (el harvest puede recrear tras reposición deliberada).
 
+### Revisión del lead sobre el PR #155 (2026-09-04)
+
+**Verificación del diagnóstico antes de revisar el código.** El hook
+`context-docs-budget` que GLM declaró como ambiental falla IGUAL en
+`origin/master` (`Executable python not found`: es la máquina del lead, no el
+repo). Declaración honesta, confirmada.
+
+**Auditoría del poder discriminante** (cuatro mutaciones, las cuatro
+cazadas): (1) excluir archivadas del dedupe → rojo en DOS niveles
+(`test_keywords_campana_destino_incluye_archivadas` unitario y
+`test_ciclo_harvest_no_duplica_texto_archivado_en_destino` de ciclo completo);
+(2) quitar el chequeo del ledger en el apply → rojo; (3) quitar la cláusula
+`repuesto_at IS NULL` → rojo en el pin de la reposición deliberada; (4)
+posición del chequeo verificada estáticamente: va DESPUÉS de `_identidad` y
+de la rama de reconciliación, antes del POST. `_identidad` intacta.
+
+**Adjudicación de CodeRabbit (2, ambos ACEPTADOS y corregidos por el lead):**
+
+1. **Major · la carrera seguía abierta.** El chequeo filtraba
+   `estado = 'applied'`, pero el archivador commitea **`planeado` ANTES del
+   DELETE** y solo sella `applied` tras el readback: en esa ventana (el ida y
+   vuelta HTTP) el harvest no veía nada y creaba el duplicado —justo lo que
+   la tarea venía a cerrar—. **Arreglo**: bloquea CUALQUIER fila no repuesta,
+   sin filtrar estado. Es seguro porque el chequeo solo se alcanza con
+   `_identidad` ya fallida (la keyword no está viva en el destino): si el
+   archivo se quedó en `planeado`/`failed` pero la keyword sigue viva,
+   `_identidad` la encuentra y reconcilia sin llegar aquí. **De paso cierra
+   el residual H3 de grok** (archivada en Amazon con el sello sin promover).
+   El estado viaja al detalle del cierre. Regresión propia con fila
+   `planeado`, verificada por mutación.
+2. **Minor · guard fail-closed de Postgres** en el test nuevo de hygiene
+   (`_postgres_obligatorio_ausente`), como el resto del archivo: sin driver,
+   CI falla en vez de saltar en silencio.
+
+Suite completa local tras las correcciones: **1158 passed**.
+
 **Rojos 2.2** (contra `origin/master` + tests nuevos, antes del fix;
 Postgres local):
 
