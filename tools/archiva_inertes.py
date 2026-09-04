@@ -55,6 +55,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import datetime
+import hashlib
 import json
 import logging
 import os
@@ -305,6 +306,14 @@ def _plan_inertes(
     return plan, excluidos, jovenes
 
 
+def _huella_conjunto(plan: list[dict]) -> str:
+    """Huella del CONJUNTO autorizado (BIDS 01 2.4, H4): sha256 de
+    `platform:external_id` ordenadas. Con `platform` porque el external_id
+    solo es unico con ella (mismo id en MX y US es posible)."""
+    ids = sorted(f"{p['platform']}:{p['external_id']}" for p in plan)
+    return hashlib.sha256("\n".join(ids).encode("utf-8")).hexdigest()
+
+
 def _linea_plan(p: dict) -> str:
     bid = f"{p['bid']} {p['bid_currency']}" if p["bid"] is not None else "sin bid"
     edad = _edad_dias(p.get("primera_vista"))
@@ -486,12 +495,15 @@ def _archivar(args, conn_read: psycopg.Connection) -> int:
             f"{jovenes}",
             flush=True,
         )
+    huella = _huella_conjunto(plan)
+    print(f"huella del conjunto: {huella}", flush=True)
     _log(
         "plan",
         lote=lote,
         candidatas=len(plan),
         excluidas_targets=excluidos,
         excluidas_jovenes=jovenes,
+        huella=huella,
     )
 
     if not args.acepto_mutacion_real:
@@ -501,6 +513,7 @@ def _archivar(args, conn_read: psycopg.Connection) -> int:
             candidatas=len(plan),
             excluidas_targets=excluidos,
             excluidas_jovenes=jovenes,
+            huella=huella,
             nota="sin --acepto-mutacion-real no se toca Amazon",
         )
         return 0
@@ -513,6 +526,13 @@ def _archivar(args, conn_read: psycopg.Connection) -> int:
         raise Abortar(
             f"--esperado {args.esperado} != candidatas del plan {len(plan)}: "
             "el plan cambio, se re-autoriza con el dueno"
+        )
+    if not args.huella:
+        raise Abortar("mutacion real exige --huella del dry-run (autorizacion por conjunto)")
+    if args.huella != huella:
+        raise Abortar(
+            f"--huella {args.huella} != huella del plan {huella}: "
+            "el conjunto cambio (salen y entran con el mismo N), se re-autoriza con el dueno"
         )
 
     cred = AdsCredentials.from_secrets_dir()
@@ -892,6 +912,12 @@ def main() -> int:
     )
     ap.add_argument(
         "--go", default=None, help="literal del dueno que autoriza el lote (va al ledger)"
+    )
+    ap.add_argument(
+        "--huella",
+        default=None,
+        help="huella del conjunto que publico el dry-run (si el conjunto "
+        "cambio, el go aborta aunque N coincida)",
     )
     ap.add_argument("--reponer", default=None, help="lote del ledger a recrear (reversa)")
     ap.add_argument(

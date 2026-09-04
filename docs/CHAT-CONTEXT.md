@@ -4,6 +4,8 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-04 — BIDS 01 tarea 2.4 lista para revisión: autorizar un archivado ahora amarra cuáles palabras, no solo cuántas.** Antes el visto bueno fijaba el número y si la lista cambiaba entre el ensayo y la ejecución (salen unas, entran otras) nadie se daba cuenta. Ahora el ensayo publica una huella del conjunto y la ejecución la verifica antes de tocar nada: si cambió, se frena y se pide autorización nueva. Nada se archiva todavía; esto tapa el hueco antes del primer lote.**
+
 **2026-09-04 — BIDS 01 tarea 2.3 lista para revisión: si archivar se interrumpe a la mitad, lo ya archivado ya no se pierde del registro.** Antes, si la herramienta se detenía entre el borrado y el sello, esa palabra quedaba archivada en Amazon pero fuera de la lista de recuperables. Ahora hay un comando que cruza los pendientes contra Amazon y recupera lo que sí quedó archivado, y la recuperación corre sola antes de cada intento de reponer. Nada se archiva todavía; esto tapa el hueco antes del primer lote.**
 
 

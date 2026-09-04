@@ -1290,6 +1290,13 @@ bueno: verificar QUÉ archivo entra al contenedor antes de un go.
 - **D-2.3.3 · `--reponer` con mutación real reconcilia su lote ANTES del SELECT `applied`.** Las filas recuperadas entran a la reversa en la misma corrida (H3 pedía exactamente eso: lo archivado fuera de la reversa). El dry-run de `--reponer` NO reconcilia: cero escrituras sin `--acepto-mutacion-real`. Si alguna fila del lote queda sin verificar (LIST caído), el reponer aborta fail-closed antes de crear nada.
 - **D-2.3.4 · Tests con fakes + uno real.** El LIST va por `AdsClient` falso con colas por keyword (patrón del archivo) y el ledger por `_ConnFalsa`: rojo = fila `failed` + LIST ARCHIVED → `applied` y `_SQL_REPONER` la trae; viva → intacta; LIST caído → intacta + aborto. Un test contra Postgres de verdad ejecuta el UPDATE de promoción (el CHECK de evidencia muerde si falta ack/readback) y el `SELECT` de pendientes.
 | 2.4 | **Autorizar por identidad, no por conteo** (H4): `--ids-file` o hash ordenado de `external_id` del ensayo; el go aborta si el conjunto cambió. `[tdd:required]` | Rojo: mismo N con un conjunto distinto → aborta | - | cc:TODO |
+
+### 2.4 — Autorizar por identidad (rama bids-01-2-4; base origin/master sin 2.1/2.3: no las toca)
+
+- **D-2.4.1 · Hash, no ids-file.** Huella = sha256 hex (completa, sin truncar) de `platform:external_id` ordenadas, unidas con `\n`. Se incluye la plataforma porque `external_id` solo es único con `(platform, kind)`: el mismo id numérico puede existir en MX y US. Un solo literal en el CLI, nada de archivos sueltos que se pierden entre el ensayo y el go.
+- **D-2.4.2 · El dry-run publica la huella.** Se imprime `huella del conjunto: <hex>` y viaja en el evento `dry_run`: el dueño la pega en `--huella` del go. `--esperado N` SE MANTIENE (defensa en profundidad: conteo + conjunto).
+- **D-2.4.3 · Verificación temprana y fail-closed.** En modo real `--huella` es obligatoria (ausente = aborta) y se compara ANTES de credenciales, token y cualquier HTTP: si difiere, aborta mostrando esperada vs calculada, sin haber tocado nada.
+- **D-2.4.4 · Tests con fórmula local.** Helper del test que replica la fórmula (pin: si el módulo la cambia sin querer, caen); rojo = mismo N con conjunto distinto → `Abortar` con cero HTTP; los argv de mutación existentes se actualizan con su huella.
 | 2.5 | **La reposición no gasta** (H5): `--reponer` crea en **PAUSED** (precedente `archivar.py`), exige `--go`, verifica bid y campaña en el readback, y registra el `external_id` nuevo. Documentar que el archivo de Amazon es **irreversible en la práctica**. `[tdd:required]` | Rojo: la repuesta nace PAUSED con bid y campaña verificados | - | cc:TODO |
 
 ## Reject (con razón)
