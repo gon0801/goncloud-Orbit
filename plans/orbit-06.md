@@ -998,6 +998,19 @@ la ventana → 0 filas o falla (supuesto orders≈unidades; la vista no usa
 - **D-2.2.4 · Logs.** Detalle por pipeline (`costos.log`/`fx.log`/
   `ledger.log`) + una linea resumen por pipeline a stdout (llega a
   `costos.log` por el redirect del cron, que no se toca).
+- **D-2.2.6 · Hora corregida en la review del lead (2026-09-04).** El
+  script quedó bien; la HORA no: a las 07:30 el snapshot se tomaba 30 min
+  ANTES de `sync_fx_rates.py` (08:00, accounting), así que el FX de Orbit
+  quedaba estructuralmente un día atrasado — justo lo que la tarea venía a
+  cerrar. La línea pasa a **08:15** (después de los DOS syncs upstream,
+  25 min antes de los ciclos; los tres pipelines tardan segundos). Respaldo
+  `archive/crontab-gon.20260904-021331.lead-fx-orden`; un solo renglón
+  cambiado, verificado con `diff`. No afecta al ledger (su sync de las
+  06:30 ya estaba antes en ambos horarios).
+  Verificación del lead tras el cambio: corrida completa del script
+  desplegado (md5 idéntico al repo) con `exit=0` y los tres pipelines en
+  `rc=0` — runs 77/78/79 `ok=true` con `rows_written=0` (no-op puro: el
+  re-ingest no duplica nada, 13,346 conflictos contados en `rows_skipped`).
 - **D-2.2.5 · DoD "las dos lineas".** Sin lineas nuevas de cron: la
   evidencia muestra `crontab -l -u gon` con la linea 07:30 y la de
   `sync_ads_to_ledger.py` (:30 c/6h), que prueban el orden exigido.

@@ -193,11 +193,14 @@ runbook de arriba vive en `/mnt/data/appdata/orbit/refresh_costos.sh` (los 4
 pasos con `trap` de limpieza) y corre por el crontab de `gon`:
 
 ```
-30 7 * * * /mnt/data/appdata/orbit/refresh_costos.sh >> /mnt/data/appdata/orbit/logs/costos.log 2>&1
+15 8 * * * /mnt/data/appdata/orbit/refresh_costos.sh >> /mnt/data/appdata/orbit/logs/costos.log 2>&1
 ```
 
-Las **07:30 UTC** caen entre la ingesta de métricas (07:10) y los ciclos
-(08:40/08:41): los costos llegan frescos antes de que el motor decida.
+Las **08:15 UTC** caen después de los dos syncs de accounting
+(`sync_ads_to_ledger.py` 06:30, `sync_fx_rates.py` 08:00) y 25 min antes de
+los ciclos (08:40/08:41): costos, FX y ledger llegan frescos —del MISMO
+día— antes de que el motor decida. Hasta la review del PR #144 corría a las
+07:30, media hora ANTES del sync de FX: ver §Refresco diario contable.
 
 Por qué diaria y no semanal, **medido**: los costos rotan poco —15 días con
 cambios en 6.5 meses, casi siempre de 1 a 6 SKUs— pero el **2026-08-18
@@ -252,7 +255,7 @@ docker exec -u 0 orbit-app-1 rm /tmp/accounting-snapshot.db
 ```
 
 Cadencia: **DIARIA desde ORBIT 06 2.2 (2026-09-04)** — `refresh_costos.sh`
-(07:30 UTC) corre `costs` + `fx` + `ledger` del MISMO snapshot, cada uno a
+(08:15 UTC) corre `costs` + `fx` + `ledger` del MISMO snapshot, cada uno a
 su log (`costos.log`/`fx.log`/`ledger.log`), sin tumbarse entre si. Re-correr
 es no-op por PK.
 
@@ -284,7 +287,7 @@ docker exec -u 0 orbit-app-1 rm /tmp/accounting-snapshot.db
 ```
 
 Cadencia: **DIARIA desde ORBIT 06 2.2 (2026-09-04)** — `refresh_costos.sh`
-(07:30 UTC) corre `costs` + `fx` + `ledger` del MISMO snapshot, cada uno a
+(08:15 UTC) corre `costs` + `fx` + `ledger` del MISMO snapshot, cada uno a
 su log (`costos.log`/`fx.log`/`ledger.log`), sin tumbarse entre si.
 Re-correr es no-op por los tres índices de dedupe (`rows_written=0`,
 conflictos contados en `rows_skipped`). En el cron NO se reescribe el DSN:
@@ -312,17 +315,23 @@ la misma fuente que el CLI. Los de ingesta quedan como comentario en el
 crontab y como `ingest_run.source` (`amazon_ads_structure_v2` /
 `amazon_ads_reports_v3`).
 
-### Refresco diario contable 07:30 (ORBIT 06 2.2)
+### Refresco diario contable 08:15 (ORBIT 06 2.2)
 
-La línea `30 7 * * * .../refresh_costos.sh` (que ya existía para costos)
+La línea `15 8 * * * .../refresh_costos.sh` (que ya existía para costos, a
+las 07:30 hasta la review del PR #144)
 corre ahora los tres pipelines del MISMO snapshot, en este orden: `costs`,
 `fx`, `ledger` — cada uno a su log (`costos.log`/`fx.log`/`ledger.log`)
 más una línea resumen a stdout (llega a `costos.log`). Un pipeline caído
 NO tumba a los otros (cada uno sella su `ingest_run` ok/false); el exit
 final es != 0 si alguno falló. El script versionado vive en
 `tools/refresh_costos.sh` (la copia del server es la desplegada).
-07:30 UTC cae después del sync de accounting de las 06:30
-(`sync_ads_to_ledger.py`, :30 cada 6 h) y antes de los ciclos 08:40/08:41.
+**Orden de la cadena (corregido por el lead en la review):** 08:15 UTC cae
+después de los DOS syncs de accounting — `sync_ads_to_ledger.py` (:30 cada
+6 h → 06:30) y `sync_fx_rates.py` (08:00) — y 25 min antes de los ciclos
+08:40/08:41 (los tres pipelines tardan segundos). A las 07:30 el snapshot se
+tomaba 30 min ANTES del sync de FX: el FX de Orbit quedaba estructuralmente
+un día atrasado. Respaldo del crontab previo:
+`archive/crontab-gon.20260904-021331.lead-fx-orden`.
 Estreno 2026-09-04: costs run 74 ok no-op; fx run 75 ok +3 tasas (máx
 2026-09-02); ledger run 76 ok +217 eventos (8,041 → 8,258).
 

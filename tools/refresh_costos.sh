@@ -9,9 +9,13 @@
 # Despliegue (server goncloud): copia canonica en
 # /mnt/data/appdata/orbit/refresh_costos.sh, cron del usuario `gon`
 # (la linea NO se toca):
-#   30 7 * * * /mnt/data/appdata/orbit/refresh_costos.sh >> /mnt/data/appdata/orbit/logs/costos.log 2>&1
-# 07:30 UTC: despues del sync de accounting de las 06:30
-# (`sync_ads_to_ledger.py`, :30 cada 6 h) y antes de los ciclos 08:40/08:41.
+#   15 8 * * * /mnt/data/appdata/orbit/refresh_costos.sh >> /mnt/data/appdata/orbit/logs/costos.log 2>&1
+# 08:15 UTC (movido del 07:30 por el lead en la review del PR #144): la
+# cadena completa exige correr DESPUES de los DOS syncs de accounting —
+# `sync_ads_to_ledger.py` (:30 cada 6 h -> 06:30) Y `sync_fx_rates.py`
+# (08:00). A las 07:30 el snapshot se tomaba 30 min ANTES del sync de FX,
+# asi que el FX de Orbit quedaba siempre un dia atrasado. 08:15 deja 25 min
+# antes de los ciclos 08:40/08:41 y los tres pipelines tardan segundos.
 #
 # Un pipeline caido NO tumba a los otros: cada uno sella su propio
 # ingest_run ok/false y el script sigue con el siguiente; el exit final es
