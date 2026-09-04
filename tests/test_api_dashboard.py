@@ -417,11 +417,14 @@ def test_feed_sql_compuesto_parsea_con_todos_los_filtros():
 def test_sql_del_modulo_dashboard_parsea_como_postgres():
     """Sintaxis de las SQL del modulo (patron test_api): pglast valida que las
     constantes parsean como Postgres real (un typo muere en CI, no en prod)."""
-    nombres = sorted(n for n in vars(dash) if n.startswith("_SQL_"))
-    assert nombres, "no se encontraron constantes _SQL_* en app/api_dashboard"
-    for nombre in nombres:
-        sql = getattr(dash, nombre).replace("%s", "NULL").replace("{filtros}", "true")
-        assert pglast.parse_sql(sql), f"{nombre} no parseo"
+    from app import dashboard_pagina as pagina
+
+    for modulo, etiqueta in ((dash, "api_dashboard"), (pagina, "dashboard_pagina")):
+        nombres = sorted(n for n in vars(modulo) if n.startswith("_SQL_"))
+        assert nombres, f"no se encontraron constantes _SQL_* en app/{etiqueta}"
+        for nombre in nombres:
+            sql = getattr(modulo, nombre).replace("%s", "NULL").replace("{filtros}", "true")
+            assert pglast.parse_sql(sql), f"{etiqueta}.{nombre} no parseo"
 
 
 def test_router_dashboard_solo_registra_get():
