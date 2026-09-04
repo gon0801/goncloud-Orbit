@@ -12,8 +12,10 @@ QUE HACE, EN ORDEN:
  1. Plan desde la BASE (ORBIT_DSN_READ read-only): keywords de
     v_entidad_inerte con los filtros (--plataforma, --clasificacion con
     default peso_muerto, --min-dias-sin-impresiones con default 30,
-    --limite). Solo kind='keyword': los product_target se cuentan como
-    excluidos (residual 1: solo se reportan, jamas se archivan).
+    --min-antiguedad-dias con default 30, --limite). Solo kind='keyword':
+    los product_target se cuentan como excluidos (residual 1: solo se
+    reportan, jamas se archivan) y las keywords mas jovenes que hoy - N
+    (first_seen_at, BIDS 01 2.1 H1) se cuentan aparte y NO entran al plan.
  2. Dry-run por defecto: imprime la tabla del plan y no toca Amazon.
  3. Mutacion (--acepto-mutacion-real --esperado N --go "<literal>"):
     len(plan) == N o aborta SIN abrir HTTP. Por keyword: LIST previo
@@ -101,7 +103,8 @@ _ESTADO_ARCHIVADO = "ARCHIVED"
 _SQL_PLAN = """
 SELECT v.id, v.platform, v.kind, v.keyword_text, e.match_type, v.external_id,
        v.ad_group_id, g.external_id, v.campaign_id, c.external_id,
-       s.current_bid, s.bid_currency, v.clasificacion, v.dias_sin_impresiones
+       s.current_bid, s.bid_currency, v.clasificacion, v.dias_sin_impresiones,
+       e.first_seen_at
   FROM v_entidad_inerte v
   JOIN ad_entity e ON e.id = v.id
   JOIN ad_entity g ON g.id = v.ad_group_id
@@ -111,6 +114,7 @@ SELECT v.id, v.platform, v.kind, v.keyword_text, e.match_type, v.external_id,
    AND (%s::platform IS NULL OR v.platform = %s::platform)
    AND v.clasificacion = %s
    AND (v.dias_sin_impresiones IS NULL OR v.dias_sin_impresiones >= %s)
+   AND e.first_seen_at <= (now() AT TIME ZONE 'UTC')::date - %s
  ORDER BY v.platform, v.dias_sin_impresiones NULLS FIRST, v.id
 """
 
@@ -120,6 +124,21 @@ SELECT count(*) FROM v_entidad_inerte
    AND (%s::platform IS NULL OR platform = %s::platform)
    AND clasificacion = %s
    AND (dias_sin_impresiones IS NULL OR dias_sin_impresiones >= %s)
+"""
+
+# BIDS 01 2.1 (H1): keywords que pasan TODO menos la edad (first_seen_at
+# posterior al corte). No entran al plan, pero SE REPORTAN: una exclusion
+# invisible es trampa de soporte (el operador debe ver que estan en espera,
+# no archivadas).
+_SQL_EXCLUIDOS_JOVENES = """
+SELECT count(*)
+  FROM v_entidad_inerte v
+  JOIN ad_entity e ON e.id = v.id
+ WHERE v.kind = 'keyword'
+   AND (%s::platform IS NULL OR v.platform = %s::platform)
+   AND v.clasificacion = %s
+   AND (v.dias_sin_impresiones IS NULL OR v.dias_sin_impresiones >= %s)
+   AND e.first_seen_at > (now() AT TIME ZONE 'UTC')::date - %s
 """
 
 _SQL_INSERT_PLANEADO = """
@@ -227,19 +246,32 @@ def _perfiles(cliente_lectura: AdsClient) -> dict[str, int]:
     return out
 
 
+def _edad_dias(primera_vista) -> int | None:
+    """Edad en dias desde first_seen_at hasta hoy UTC (None si ausente:
+    viaja, no se inventa)."""
+    if primera_vista is None:
+        return None
+    if isinstance(primera_vista, datetime.datetime):
+        primera_vista = primera_vista.date()
+    return (datetime.datetime.now(datetime.UTC).date() - primera_vista).days
+
+
 def _plan_inertes(
     conn: psycopg.Connection,
     plataforma: str | None,
     clasificacion: str,
     min_dias: int,
     limite: int | None,
-) -> tuple[list[dict], int]:
+    min_antiguedad: int = 30,
+) -> tuple[list[dict], int, int]:
     """Candidatas a archivar desde v_entidad_inerte (regla 2: la vista es
     la unica fuente) + conteo de product_target excluidos con los MISMOS
-    filtros. dias NULL = nunca impresiono en 90d: pasa como infinito (es
-    el caso mas muerto; excluirlo vaciaria peso_muerto)."""
+    filtros + conteo de keywords JOVENES (pasan todo menos la edad, BIDS 01
+    2.1 H1: first_seen_at posterior a hoy - N; archivar una recien creada
+    es irreversible). dias NULL = nunca impresiono en 90d: pasa como
+    infinito (es el caso mas muerto; excluirlo vaciaria peso_muerto)."""
     sql = _SQL_PLAN + (" LIMIT %s" if limite is not None else "")
-    params: tuple = (plataforma, plataforma, clasificacion, min_dias)
+    params: tuple = (plataforma, plataforma, clasificacion, min_dias, min_antiguedad)
     if limite is not None:
         params = (*params, limite)
     filas = conn.execute(sql, params).fetchall()
@@ -259,21 +291,28 @@ def _plan_inertes(
             "bid_currency": f[11],
             "clasificacion": f[12],
             "dias": f[13],
+            "primera_vista": f[14],
         }
         for f in filas
     ]
     excluidos = conn.execute(
         _SQL_EXCLUIDOS, (plataforma, plataforma, clasificacion, min_dias)
     ).fetchone()[0]
-    return plan, excluidos
+    jovenes = conn.execute(
+        _SQL_EXCLUIDOS_JOVENES,
+        (plataforma, plataforma, clasificacion, min_dias, min_antiguedad),
+    ).fetchone()[0]
+    return plan, excluidos, jovenes
 
 
 def _linea_plan(p: dict) -> str:
     bid = f"{p['bid']} {p['bid_currency']}" if p["bid"] is not None else "sin bid"
+    edad = _edad_dias(p.get("primera_vista"))
+    edad_txt = f"edad={edad}d" if edad is not None else "edad=?d"
     return (
         f"{p['platform']} | {p['campaign_external']} | {p['ad_group_external']} | "
         f"{p['texto']} | {p['match']} | {p['external_id']} | "
-        f"{p['clasificacion']} | dias={p['dias']} | {bid}"
+        f"{p['clasificacion']} | dias={p['dias']} | {edad_txt} | {bid}"
     )
 
 
@@ -424,12 +463,13 @@ def _sella(conn: psycopg.Connection, sql: str, params: tuple) -> None:
 
 
 def _archivar(args, conn_read: psycopg.Connection) -> int:
-    plan, excluidos = _plan_inertes(
+    plan, excluidos, jovenes = _plan_inertes(
         conn_read,
         args.plataforma,
         args.clasificacion,
         args.min_dias_sin_impresiones,
         args.limite,
+        args.min_antiguedad_dias,
     )
     # La lectura termino: se cierra su txn ANTES de la fase de red (el plan
     # ya vive en memoria; nada que escribir en esta conn).
@@ -439,7 +479,20 @@ def _archivar(args, conn_read: psycopg.Connection) -> int:
         print(_linea_plan(p), flush=True)
     if excluidos:
         print(f"excluidas product_target (solo se reportan): {excluidos}", flush=True)
-    _log("plan", lote=lote, candidatas=len(plan), excluidas_targets=excluidos)
+    if jovenes:
+        print(
+            f"excluidas jovenes (first_seen_at posterior a hoy - {args.min_antiguedad_dias}d,"
+            " en espera, NO archivadas): "
+            f"{jovenes}",
+            flush=True,
+        )
+    _log(
+        "plan",
+        lote=lote,
+        candidatas=len(plan),
+        excluidas_targets=excluidos,
+        excluidas_jovenes=jovenes,
+    )
 
     if not args.acepto_mutacion_real:
         _log(
@@ -447,6 +500,7 @@ def _archivar(args, conn_read: psycopg.Connection) -> int:
             lote=lote,
             candidatas=len(plan),
             excluidas_targets=excluidos,
+            excluidas_jovenes=jovenes,
             nota="sin --acepto-mutacion-real no se toca Amazon",
         )
         return 0
@@ -814,6 +868,16 @@ def main() -> int:
     )
     ap.add_argument("--clasificacion", default="peso_muerto", choices=CLASIFICACIONES)
     ap.add_argument("--min-dias-sin-impresiones", type=int, default=30)
+    ap.add_argument(
+        "--min-antiguedad-dias",
+        type=int,
+        default=30,
+        help=(
+            "edad minima de la entidad (first_seen_at <= hoy - N): "
+            "lo mas joven se excluye del plan (H1: archivar una "
+            "recien creada es irreversible)"
+        ),
+    )
     ap.add_argument("--limite", type=int, default=None)
     ap.add_argument(
         "--acepto-mutacion-real",
