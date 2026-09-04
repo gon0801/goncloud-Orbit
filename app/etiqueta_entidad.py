@@ -1,18 +1,10 @@
-"""Etiqueta humana de una ad_entity para el dashboard.
-
-`ad_entity.name` de un product_target es el JSON compacto de `expression`
-(structure_plan._nombre_target). Eso es identidad de ingesta, no texto de UI.
-Este modulo traduce kind + name + keyword_text + campana ancestro a partes
-legibles. Ninguna etiqueta contiene el JSON crudo.
-"""
+"""Etiqueta humana de una ad_entity para el dashboard."""
 
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
 
-# Tipos de expression de Sponsored Products -> texto que un humano escanea.
-# Lo que no esta aqui cae a _tipo_desconocido (nunca al JSON).
 TIPOS_TARGET: dict[str, str] = {
     "ASIN_SAME_AS": "mismo ASIN",
     "ASIN_ACCESSORY_RELATED": "accesorio",
@@ -37,8 +29,6 @@ TIPOS_TARGET: dict[str, str] = {
 
 @dataclass(frozen=True, slots=True)
 class EtiquetaEntidad:
-    """Partes de display. `linea` junta hoja y campana; inertes usa solo hoja."""
-
     hoja: str | None
     campana: str | None
 

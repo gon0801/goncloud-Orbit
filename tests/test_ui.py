@@ -156,7 +156,6 @@ def test_ui_cortes_xss_search_term_escapado():
 
 
 def test_ui_cortes_entidad_muestra_nombre_no_external_id():
-    """Entidad de Cortes es campana/keyword, no el id de Amazon."""
     html = ui.templates.env.get_template("cortes.html").render(**_ctx_cortes())
     assert "Campana A" in html
     assert "7101" not in html
@@ -518,7 +517,6 @@ def test_ui_decisiones_pagina_2_trae_los_ids_siguientes(monkeypatch):
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 def test_ui_decisiones_entidad_no_vuelca_json_de_target(monkeypatch):
-    """GET /decisiones pinta campana + ASIN, jamas el JSON de expression."""
     with _db_temporal("orbit_ui_etiqueta") as (conn, dsn):
         config_id = _config_version(conn, {"ads_optimizer_mode": "shadow"})
         camp = _campana(conn, "amazon_us", "9001", name="Campana A")

@@ -70,6 +70,8 @@ from app.api_common import (
 from app.apply import KINDS_QUOTA, estado_quota
 from app.dashboard_contribucion import contribucion_campanas as _contribucion_campanas
 from app.dashboard_pagina import (
+    _CAMPANA_ANCESTRO,
+    _JOINS_ANCESTROS,
     _SQL_DECISIONES_FEED,
     _SQL_DECISIONES_PAGINA,
     _SQL_DECISIONES_TOTAL,
@@ -817,23 +819,24 @@ def contribucion_campanas(conn: ConexionLectura) -> dict:
 # SOLO los estados vetables (sellado 4): pending_veto (en ventana) y released
 # (espera quota FIFO y SIGUE vetable, r2 grok); applying es punto de no retorno
 # y los terminales no se vetan. ORDER BY vence_el: lo que vence primero se ve
-# primero. LEFT JOIN ad_entity por el external_id (nullable por schema).
-_SQL_CORTES_PENDIENTES = """
+# primero.
+_SQL_CORTES_PENDIENTES = (
+    """
 SELECT q.id, q.platform::text, q.familia, q.kind, q.ad_entity_id, e.external_id,
        q.search_term, q.estado, q.vence_el, q.encolado_at, q.decision_id,
        e.kind::text AS entidad_kind, e.name, e.keyword_text,
-       CASE e.kind
-         WHEN 'campaign' THEN e.name
-         WHEN 'ad_group' THEN padre.name
-         ELSE abuelo.name
-       END AS campana
+       """
+    + _CAMPANA_ANCESTRO
+    + """ AS campana
   FROM apply_queue q
   LEFT JOIN ad_entity e ON e.id = q.ad_entity_id
-  LEFT JOIN ad_entity padre ON padre.id = e.parent_id
-  LEFT JOIN ad_entity abuelo ON abuelo.id = padre.parent_id
+"""
+    + _JOINS_ANCESTROS
+    + """
  WHERE q.estado IN ('pending_veto', 'released')
  ORDER BY q.vence_el, q.id
 """
+)
 
 
 # ---------------------------------------------------------------------------

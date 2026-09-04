@@ -1,9 +1,4 @@
-"""Etiqueta humana de ad_entity: NUNCA el JSON de expression en la UI.
-
-Regla 9: si _fila_decision / inertes / cortes volvieran a pasar e.name crudo,
-estas filas fallan. Los tipos del screenshot de Decisiones (ASIN_SAME_AS,
-ASIN_ACCESSORY_RELATED, QUERY_HIGH_REL_MATCHES) son el contrato.
-"""
+"""Etiqueta humana de ad_entity: NUNCA el JSON de expression en la UI."""
 
 from __future__ import annotations
 

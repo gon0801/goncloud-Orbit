@@ -10,14 +10,21 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 # Origen unico del JOIN: el feed JSON y la pagina HTML leen las mismas
-# columnas (las que _fila_decision toma por indice). padre/abuelo resuelven
-# la campana de una hoja (keyword/target cuelga de ad_group).
-_DECISIONES_FROM = """
-  FROM decision d
-  JOIN ad_entity e ON e.id = d.ad_entity_id
+# columnas (las que _fila_decision toma por indice).
+_CAMPANA_ANCESTRO = (
+    "CASE e.kind WHEN 'campaign' THEN e.name WHEN 'ad_group' THEN padre.name ELSE abuelo.name END"
+)
+_JOINS_ANCESTROS = """
   LEFT JOIN ad_entity padre ON padre.id = e.parent_id
   LEFT JOIN ad_entity abuelo ON abuelo.id = padre.parent_id
 """
+_DECISIONES_FROM = (
+    """
+  FROM decision d
+  JOIN ad_entity e ON e.id = d.ad_entity_id
+"""
+    + _JOINS_ANCESTROS
+)
 
 _SQL_DECISIONES_SELECT = (
     """
@@ -25,12 +32,8 @@ SELECT d.id, d.cycle_id, d.ad_entity_id, e.name, e.platform, d.kind,
        d.decided_at, d.search_term, d.old_value, d.new_value, d.value_currency,
        d.inputs,
        e.kind::text, e.keyword_text,
-       CASE e.kind
-         WHEN 'campaign' THEN e.name
-         WHEN 'ad_group' THEN padre.name
-         ELSE abuelo.name
-       END
-"""
+       """
+    + _CAMPANA_ANCESTRO
     + _DECISIONES_FROM
 )
 

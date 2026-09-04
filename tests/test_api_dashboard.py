@@ -1339,9 +1339,6 @@ def test_decisiones_motivo_desconocido_fallback_y_nombre_null(monkeypatch):
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 def test_decisiones_entidad_humana_no_vuelca_json_de_target(monkeypatch):
-    """Regresion del dump ASIN_* en Entidad: product_target guarda expression
-    como name (structure_plan._nombre_target) y keyword guarda texto en
-    keyword_text. El feed debe mostrar campana + hoja, jamas el JSON."""
     with _db_temporal("orbit_dash_etiqueta") as (conn, dsn):
         config_id = _config_version(conn, {})
         camp = _campana(conn, "amazon_us", "9001", name="Campana A")
