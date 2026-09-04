@@ -975,10 +975,59 @@ la ventana → 0 filas o falla (supuesto orders≈unidades; la vista no usa
 
 | Task | Contenido | DoD | Depends | Status |
 |---|---|---|---|---|
-| 2.1 | **Diseño del target margin-aware**, con el dueño. `[tdd:skip:decision-dueno]` | La regla escrita en `docs/CONTEXTO.md` con el texto literal de la decisión del dueño, incluyendo qué pasa ante señal ausente o contradictoria | 1.2, ORBIT 05 en live | cc:完了 [2026-09-03, lead con el dueño. Medido en la base viva: margen uniforme por campaña (un target por campaña no discrimina) y margen neto por plataforma 40.2 % MX / 35.9 % US (cargos sin ads 33.6 % / 48.9 %; el envío cross-border de US = 21 % de la venta, explicado al dueño). Decisiones literales: «La mitad (utilidad)» (fracción 0.5), «ok va asi» (camino A: peldaño `margen_plataforma` en la cascada, banda [10,45], paso ≤0.5 pt/ciclo, abstención → setting), requisito literal «se va a ir ajustando automaticamente no?» → frescura obligatoria (cron de ledger+fx, hoy manuales: última 08-31/08-28). Contradicción con/sin halo: irrelevante para esta fuente (ledger sin atribución); `v_contribucion_entidad` sigue no decisoria. Spec: `docs/superpowers/specs/2026-09-03-target-margen-plataforma-design.md`; CONTEXTO sellado en el mismo PR] |
-| 2.2 | **Infra — frescura del ledger y del FX** (Grok o lead): los dos pipelines leen el MISMO snapshot SQLite de accounting que ya usa `refresh_costos.sh` (07:30 UTC: copia `accounting.db` → `docker cp` → `ingest costs --sqlite`); extender ese script (o uno hermano con el mismo `trap` de limpieza) para correr también `ingest fx --sqlite $SNAP` e `ingest ledger --sqlite $SNAP` (flags exactos según el runbook de `docs/DEPLOY.md` y `app/cli.py`, regla 8), ANTES del ciclo 08:40 UTC y DESPUÉS del sync de accounting (`sync_ads_to_ledger.py`, cada 6 h); un fallo de un pipeline NO debe tumbar los otros (cada uno con su `ingest_run` ok/false); log propio en `logs/`; corrida manual de estreno con `ingest_run` ok=true. `[tdd:skip:ops]` | `crontab -l -u gon` con las dos líneas; `ingest_run` de ledger y fx con `ok=true` y fecha de hoy; `max(observed_at)` del ledger = hoy; sin tocar el resto del crontab (disciplina aditiva) | 2.1 | cc:TODO |
-| 2.3 | **GLM — vista + peldaño + guardas + superficie** según el spec §3-§9: migración `0015_target_margen_plataforma.sql` (vista `v_target_margen_plataforma`, GRANT a los roles de lectura, COMMENT con la fórmula y el lag); setting `ads_target_fraccion_margen_<platform>`; peldaño `margen_plataforma` en `cascada_target_acos` Y `cascada_target_acos_con_procedencia` (equivalencia extendida); abstenciones con vocabulario cerrado; paso máximo desde `notes.target.aplicado` del último ciclo live; freeze `target_procedencia` + snapshot en `decision.inputs` y `notes.target`; `/salud` y digest (§9); `docs/DASHBOARD.md`, `docs/DATABASE.md`, `docs/APPLY.md` al día; SELECT de comparación sombra (§10.2) como `tools/compara_target_margen.py` read-only. Mismas reglas de proceso que BIDS 01 (prohibido tocar producción; decisiones ANTES del código; rojo antes del verde; 1 PR). `[tdd:required]` | Rojos contra master: (a) cascada con fracción presente y margen válido devuelve `margen_plataforma`; (b) cada motivo de abstención cae al setting (6 casos); (c) banda y paso máximo; (d) freeze lleva procedencia y snapshot; (e) replay golden intacto; (f) equivalencia motor↔dashboard con el peldaño; (g) vista: cobertura <95 % → NULL, mezcla de moneda → NULL, ventana exacta [D-105, D-15), `fee_type=ads` excluido; suite completa verde en CI; herramienta de comparación produce la tabla sobre la base de tests | 2.2 | cc:完了 |
+| 2.1 | **Diseño del target margin-aware**, con el dueño. `[tdd:skip:decision-dueno]` | La regla escrita en `docs/CONTEXTO.md` con el texto literal de la decisión del dueño, incluyendo qué pasa ante señal ausente o contradictoria | 1.2, ORBIT 05 en live | cc:完了 [2026-09-03, lead con el dueño. Medido en la base viva: margen uniforme por campaña (un target por campaña no discrimina) y margen neto por plataforma 40.2 % MX / 35.9 % US (cargos sin ads 33.6 % / 48.9 %; el envío cross-border de US = 21 % de la venta, explicado al dueño). Decisiones literales: «La mitad (utilidad)» (fracción 0.5), «ok va asi» (camino A: peldaño `margen_plataforma` en la cascada, banda [10,45], paso ≤0.5 pt/ciclo, abstención → setting), requisito literal «se va a ir ajustando automaticamente no?» → frescura obligatoria (cron de ledger+fx, hoy manuales: última 08-31/08-28). Contradicción con/sin halo: irrelevante para esta fuente (ledger sin atribución); `v_contribucion_entidad` sigue no decisoria. Spec: `docs/superpowers/specs/2026-09-03-target-margen-plataforma-design.md`; CONTEXTO sellado en el mismo PR. **Cross-review adversaria del DISEÑO (kimi, 1 ronda, 2026-09-04)**: veredicto «implementable con correcciones», 4 bloqueantes; TODOS adjudicados y corregidos en el spec §10.bis antes de que la 2.3 avanzara — el hallazgo A1 (la banda abstenía en vez de clampear: precipicio de 25 puntos y latiguazo diario de pujas) era un fallo real del diseño del lead. A9 verificado y descartado por el lead contra el código. Sin segunda ronda (tope de CLAUDE.md)] |
+| 2.2 | **Infra — frescura del ledger y del FX** (Grok o lead): los dos pipelines leen el MISMO snapshot SQLite de accounting que ya usa `refresh_costos.sh` (07:30 UTC: copia `accounting.db` → `docker cp` → `ingest costs --sqlite`); extender ese script (o uno hermano con el mismo `trap` de limpieza) para correr también `ingest fx --sqlite $SNAP` e `ingest ledger --sqlite $SNAP` (flags exactos según el runbook de `docs/DEPLOY.md` y `app/cli.py`, regla 8), ANTES del ciclo 08:40 UTC y DESPUÉS del sync de accounting (`sync_ads_to_ledger.py`, cada 6 h); un fallo de un pipeline NO debe tumbar los otros (cada uno con su `ingest_run` ok o false); log propio en `logs/`; corrida manual de estreno con `ingest_run` ok=true. `[tdd:skip:ops]` | `crontab -l -u gon` con las dos líneas; `ingest_run` de ledger y fx con `ok=true` y fecha de hoy; `max(observed_at)` del ledger = hoy; sin tocar el resto del crontab (disciplina aditiva) | 2.1 | cc:完了 [2026-09-04. Script extendido in-place + estreno como gon: costs run 74 ok no-op, fx run 75 ok +3 (max 09-02), ledger run 76 ok +217 (8,041 -> 8,258, max observed hoy); crontab byte-identico (cero lineas nuevas); PR #144, CI verde. Cross-review ronda unica: kimi APRUEBA CON MENORES (4 BAJAS; se aplican comentario de contexto-`\|\|` y `\|\| true` en el trap; DoD y ruta fija quedan como estan, declarado); grok no entrego (2 intentos, solo preambulo sin lecturas)] |
+| 2.3 | **GLM — vista + peldaño + guardas + superficie** según el spec §3-§9: migración `0015_target_margen_plataforma.sql` (vista `v_target_margen_plataforma`, GRANT a los roles de lectura, COMMENT con la fórmula y el lag); setting `ads_target_fraccion_margen_<platform>`; peldaño `margen_plataforma` en `cascada_target_acos` Y `cascada_target_acos_con_procedencia` (equivalencia extendida); abstenciones con vocabulario cerrado; paso máximo desde `notes.target.aplicado` del último ciclo live; freeze `target_procedencia` + snapshot en `decision.inputs` y `notes.target`; `/salud` y digest (§9); `docs/DASHBOARD.md`, `docs/DATABASE.md`, `docs/APPLY.md` al día; SELECT de comparación sombra (§10.2) como `tools/compara_target_margen.py` read-only. Mismas reglas de proceso que BIDS 01 (prohibido tocar producción; decisiones ANTES del código; rojo antes del verde; 1 PR). `[tdd:required]` | Rojos contra master: (a) cascada con fracción presente y margen válido devuelve `margen_plataforma`; (b) cada motivo de abstención cae al setting (6 casos); (c) banda y paso máximo; (d) freeze lleva procedencia y snapshot; (e) replay golden intacto; (f) equivalencia motor↔dashboard con el peldaño; (g) vista: cobertura por MONTO <95 % → NULL, mezcla de moneda → NULL, `fees_sin_tipo` > 0 → NULL, ventana exacta [D-105, D-15), `fee_type=ads` excluido, margen sobre venta CUBIERTA con cargos de plataforma prorrateados y cargos con `order_id` atados a su venta (no a su propia fecha); (h) **enmiendas de la cross-review (spec §10.bis, OBLIGATORIAS)**: la banda [10,45] CLAMPEA (test: derivado 45.2 → aplicado 45, NO abstención al setting; y derivado 9 → aplicado 10), fracción presente e inválida → `ValueError` (ausente → abstención), un goal de campaña con target NULL NO bloquea el peldaño (test con los goals reales 6 y 7), digest por cambio ACUMULADO ≥1 punto, y test de que el replay ignora la vista (correrlo con la vista vacía y comprobar decisiones idénticas); suite completa verde en CI; herramienta de comparación produce la tabla sobre la base de tests | 2.2 | cc:TODO |
 | 2.4 | **Lead — entrada** (spec §10): review + CodeRabbit (1 ronda), deploy con migración 0015 primero, **un ciclo sombra comparado** (tabla manual vs derivado con el SELECT en la evidencia), go literal del dueño, `config_version` nueva con `ads_target_fraccion_margen_*` = "0.5" (el interruptor), verificación del primer ciclo con procedencia `margen_plataforma` en `notes.target` y en el freeze, `/salud` y digest, AppFlowy. `[tdd:skip:ops]` | Evidencia: tabla sombra, go literal, `config_version` id, `SELECT` del primer ciclo con `target_procedencia = 'margen_plataforma'` y `target_aplicado` ≈ 20 MX / 18 US; AppFlowy Done | 2.3 | cc:TODO |
+
+### Decisiones de la 2.2 (antes del estreno, 2026-09-04)
+
+- **D-2.2.1 · Extender in-place, no hermano.** Un solo snapshot compartido
+  (la fila y el spec exigen el MISMO) y cero diff de crontab (disciplina
+  aditiva maxima: la linea 07:30 sigue byte-igual). El nombre historico se
+  conserva; el header declara los tres pipelines.
+- **D-2.2.2 · Sin rewrite de DSN en el cron.** `app/db.py` ya reescribe
+  `@127.0.0.1:` → `@db:` con `ORBIT_PG_HOST` (verificado en codigo y en
+  vivo: `costos.log` diario ok=True por `docker exec` plano). El truco
+  `-e ORBIT_DSN_INGEST=...sed...` del runbook de ledger queda como
+  alternativa manual, no se usa en el cron.
+- **D-2.2.3 · Aislamiento.** Cada pipeline corre con `||` + rc bajo
+  `set -e` (el `-e` no toca listas `||`); exit final != 0 si alguno fallo.
+  La fase de snapshot sigue bajo `set -e`: sin snapshot no hay corrida
+  honesta (no es "un pipeline caido", es infra compartida).
+- **D-2.2.4 · Logs.** Detalle por pipeline (`costos.log`/`fx.log`/
+  `ledger.log`) + una linea resumen por pipeline a stdout (llega a
+  `costos.log` por el redirect del cron, que no se toca).
+- **D-2.2.6 · Hora corregida en la review del lead (2026-09-04).** El
+  script quedó bien; la HORA no: a las 07:30 el snapshot se tomaba 30 min
+  ANTES de `sync_fx_rates.py` (08:00, accounting), así que el FX de Orbit
+  quedaba estructuralmente un día atrasado — justo lo que la tarea venía a
+  cerrar. La línea pasa a **08:15** (después de los DOS syncs upstream,
+  25 min antes de los ciclos; los tres pipelines tardan segundos). Respaldo
+  `archive/crontab-gon.20260904-021331.lead-fx-orden`; un solo renglón
+  cambiado, verificado con `diff`. No afecta al ledger (su sync de las
+  06:30 ya estaba antes en ambos horarios).
+  Verificación del lead tras el cambio: corrida completa del script
+  desplegado (md5 idéntico al repo) con `exit=0` y los tres pipelines en
+  `rc=0` — runs 77/78/79 `ok=true` con `rows_written=0` (no-op puro: el
+  re-ingest no duplica nada, 13,346 conflictos contados en `rows_skipped`).
+- **D-2.2.7 · Endurecimiento en la review (CodeRabbit, 2 Major + 1 del
+  lead).** (a) **Snapshot unico por corrida** (`mktemp`): con la ruta fija
+  `/tmp/accounting-snapshot.db`, una corrida manual y la del cron se
+  pisaban — el `docker cp` de una reemplazaba el archivo que la otra leia y
+  su `trap` lo borraba a media corrida. Probado: dos corridas simultaneas,
+  las seis fases `rc=0`. (b) **Permisos**: el archivo del host nace 600
+  (`mktemp`); el 644 que necesita el UID 10001 se aplica DENTRO del
+  contenedor tras el `docker cp` — los datos contables ya no quedan
+  legibles para todo el mundo en `/tmp` del host. (c) **Fuga de laterales
+  SQLite** (hallazgo del lead, no de CodeRabbit): `limpiar` solo borraba el
+  `.db`, asi que cada corrida dejaba un par `-wal`/`-shm` dentro del
+  contenedor para siempre; ahora se borran los tres en host y contenedor.
+  Verificado: tras una corrida completa, CERO residuos en ambos lados. De
+  paso se borro basura previa (99 MB de un snapshot manual del 2026-08-31).
+- **D-2.2.5 · DoD "las dos lineas".** Sin lineas nuevas de cron: la
+  evidencia muestra `crontab -l -u gon` con la linea 07:30 y la de
+  `sync_ads_to_ledger.py` (:30 c/6h), que prueban el orden exigido.
 
 ### Decisiones de la 2.3 (antes del codigo, 2026-09-04; el spec manda, esto solo fija lo que el spec deja abierto)
 
@@ -1107,6 +1156,7 @@ usa 1.15 (con 3.33 ninguna rama dispara): seed a 3.40 (ACoS 34 %: sin
 banda con manual 30, -12 % con derivado 29.5). Firma real del tool:
 compara(conn, cycle_id) -> (filas, resumen).
 ```
+
 
 ## Reject (con razón)
 

@@ -52,24 +52,46 @@ fuera). Ventana fija de **90 días maduros**: `event_date >= hoy − 105` y
 madura al día 15). `hoy` = `CURRENT_DATE` UTC en el momento del ciclo.
 
 ```
-venta            = Σ amount  WHERE kind = 'sale'
-cargos_sin_ads   = Σ amount  WHERE kind IN ('fee','refund','withholding')
-                             AND coalesce(fee_type,'') <> 'ads'        -- con o sin order_id
-cogs             = Σ cost_amount × quantity  (costo vigente a la fecha de la venta,
-                   MISMA moneda que la venta; línea con costo en otra moneda o sin
-                   costo → cuenta como SIN costo, jamás se convierte ni se rellena)
-ventas_con_costo / ventas_totales = cobertura
-margen_neto_pct  = 100 × (venta + cargos_sin_ads − cogs) / venta     -- cargos son negativos
-dias_con_venta   = count(DISTINCT event_date) WHERE kind = 'sale'
+-- VENTAS de la ventana, partidas por si su COGS es conocido (regla 3: una
+-- venta sin costo NO se cuenta con costo cero; se saca de AMBOS lados).
+ventas_ventana   = kind = 'sale' AND event_date ∈ [D-105, D-15)
+cogs_i           = cost_amount × quantity  (costo vigente a la fecha de la venta,
+                   MISMA moneda que la venta; en otra moneda o ausente → la venta
+                   es NO CUBIERTA, jamás se convierte ni se rellena)
+venta_total      = Σ amount de ventas_ventana
+venta_cubierta   = Σ amount de ventas_ventana con cogs_i conocido
+cogs             = Σ cogs_i
+cobertura        = venta_cubierta / venta_total          -- POR MONTO, no por conteo
+
+-- CARGOS. Los que traen order_id pertenecen a SU venta (aunque el cargo caiga
+-- fuera de la ventana); los de plataforma sin order_id se prorratean.
+cargos_con_orden = Σ amount WHERE kind IN ('fee','refund','withholding')
+                     AND coalesce(fee_type,'') <> 'ads'
+                     AND order_id ∈ (order_id de ventas_ventana CUBIERTAS)
+                     -- SIN filtro de fecha propio: la ventana la fija su venta
+cargos_sin_orden = Σ amount WHERE kind IN ('fee','refund','withholding')
+                     AND coalesce(fee_type,'') <> 'ads' AND order_id IS NULL
+                     AND event_date ∈ [D-105, D-15)
+cargos_prorrateados = cargos_sin_orden × cobertura
+
+margen_neto_pct  = 100 × (venta_cubierta + cargos_con_orden + cargos_prorrateados
+                          − cogs) / venta_cubierta        -- los cargos son negativos
+dias_con_venta   = count(DISTINCT event_date) de ventas_ventana
 ledger_fresco_at = max(observed_at) del ledger de la plataforma
+fees_sin_tipo    = count(*) WHERE kind = 'fee' AND fee_type IS NULL
+                            AND event_date ∈ [D-105, D-15)
 ```
 
-Columnas: `platform, ventana_desde, ventana_hasta, venta, cargos_sin_ads,
-cogs, cobertura, dias_con_venta, margen_neto_pct, ledger_fresco_at,
-moneda` (`moneda` = la única `amount_currency` de la ventana; si hay mezcla
+Columnas: `platform, ventana_desde, ventana_hasta, venta_total,
+venta_cubierta, cargos_con_orden, cargos_sin_orden, cogs, cobertura,
+dias_con_venta, fees_sin_tipo, margen_neto_pct, ledger_fresco_at, moneda` (`moneda` = la única `amount_currency` de la ventana; si hay mezcla
 → **NULL fail-loud**, mismo patrón que `v_entidad_inerte.moneda`).
 Cualquier condición de §5 deja `margen_neto_pct` **NULL** (regla 3: hueco,
-jamás cero). La vista NO conoce la fracción ni el target: solo mide.
+jamás cero), y también lo deja NULL `fees_sin_tipo > 0`: un cargo de
+publicidad que llegue sin clasificar se restaría del margen Y se cobraría en
+el ACoS del motor — doble castigo sobre la misma puja (fail-loud, mismo
+patrón que la mezcla de moneda; medido 2026-09-04: 0 de 1,226 fees sin tipo).
+La vista NO conoce la fracción ni el target: solo mide.
 
 `v_margen_plataforma` (0001) **no se reusa**: no tiene ventana, no separa la
 publicidad de los demás cargos y su `margen_contribucion` exige cobertura
@@ -82,8 +104,12 @@ publicidad de los demás cargos y su `margen_contribucion` exige cobertura
 **`ads_target_fraccion_margen_<platform>`** (string decimal, como los demás
 settings; hoy `"0.5"` para ambas plataformas por decisión literal del dueño).
 Se cambia como los caps: `config_version` nueva, append-only, `app_admin`.
-Clave ausente o no numérica en (0, 1] → el peldaño **no aplica** (§5), no
-revienta el ciclo.
+Clave **ausente** → el peldaño no aplica (§5): esa ausencia ES el
+interruptor de la fase. Clave **presente pero inválida** (no numérica, NaN,
+<= 0, > 1) → **ValueError ruidoso que tumba el ciclo**, idéntico a
+`target_desde_settings` ("config CORRUPTA, no dato faltante": camuflarla de
+ausente dejaría al motor decidiendo con un target que nadie configuró,
+regla 3). Un `"0,5"` con coma no puede quedar en silencio.
 
 ## 5. D3 · Peldaño nuevo en la cascada de targets
 
@@ -95,25 +121,55 @@ goal_plataforma → setting_plataforma → cache_estado → default`. Pasa a
 goal_campana → goal_plataforma → margen_plataforma → setting_plataforma → cache_estado → default
 ```
 
-- `goal_campana` **sigue pisando** siempre que exista (override manual por
+- `goal_campana` con **target explícito** pisa siempre (override manual por
   campaña: lanzamientos, defensa). `goal_plataforma` con target explícito
-  también pisa. El peldaño nuevo solo gana cuando los dos anteriores son
-  None: es la fuente **medida** que reemplaza al 20 manual, y el setting
-  queda como red de seguridad.
+  también pisa.
+- **Semántica de un goal de campaña con `target_acos_pct` NULL** (hallazgo
+  A2 de la cross-review; el spec era ambiguo y hoy hay DOS goals así en
+  producción: ids 6 y 7, campañas 3909 y 3926, creados para floor/ceiling).
+  Regla sellada: `margen_plataforma` **se comporta exactamente como
+  `setting_plataforma`** — es su reemplazo medido, no un peldaño de goal.
+  Un goal de campaña sin target bloquea `goal_plataforma` (semántica
+  existente, intacta) pero **NO** bloquea `margen_plataforma`: la cascada
+  sigue bajando igual que hoy baja hasta el setting. Consecuencia
+  deliberada: esas dos campañas pasan del 20 manual al derivado, que es el
+  objetivo de la fase.
+- **Plumbing** (A2b): las dos funciones de cascada siguen **puras**. El
+  orquestador (`app/cycle.py`) lee la vista y el `ultimo` de `notes` UNA vez
+  por ciclo y por plataforma, calcula el candidato del peldaño (derivado ->
+  clamp de banda -> paso máximo) y se lo pasa ya resuelto a ambas variantes
+  como un parámetro nuevo `target_margen: Decimal | None` (None = el
+  peldaño no aplica; el motivo viaja aparte para `notes`). Ninguna cascada
+  abre conexión ni conoce `platform`: el candado de pureza de
+  `tests/test_architecture.py` no se toca, y la equivalencia motor-dashboard
+  se prueba pasando el MISMO `target_margen` a las dos.
 - Las DOS variantes (`cascada_target_acos` del motor y
   `cascada_target_acos_con_procedencia` del dashboard) ganan el peldaño; el
   test de equivalencia existente se extiende (regla 2: un número, una
   fuente). El nombre `margen_plataforma` entra al vocabulario cerrado de
   procedencias del dashboard y a `MOTIVOS_ES_SALUD`/etiquetas.
 - El peldaño **se abstiene** (devuelve None y la cascada sigue al setting)
-  ante CUALQUIERA de: `margen_neto_pct` NULL; `cobertura < 0.95`;
-  `dias_con_venta < 60`; `venta <= 0`; fracción ausente/inválida;
-  `ledger_fresco_at < hoy − 3 días` (ledger rancio, §6);
-  `target_derivado_pct` fuera de la **banda dura [10, 45]**. Cada abstención
-  deja su motivo en `notes.target.motivo_abstencion` del ciclo (vocabulario
-  cerrado: `sin_margen`, `cobertura_baja`, `ventana_corta`, `sin_fraccion`,
-  `ledger_rancio`, `fuera_de_banda`) y una línea en el digest. **Nunca
-  cae a cero**; cae al setting de hoy.
+  SOLO por datos inválidos: `margen_neto_pct` NULL (incluye moneda mezclada
+  y `fees_sin_tipo > 0`); `cobertura < 0.95` **por monto**;
+  `dias_con_venta < 60`; `venta_cubierta <= 0`; fracción ausente;
+  `ledger_fresco_at < hoy − 3 días` (ledger rancio, §6). Cada abstención
+  deja su motivo en `notes.target.motivo_abstencion` (vocabulario cerrado:
+  `sin_margen`, `cobertura_baja`, `ventana_corta`, `sin_fraccion`,
+  `ledger_rancio`) y una línea en el digest. **Nunca cae a cero**; cae al
+  setting de hoy.
+- **La banda [10, 45] CLAMPEA, no abstiene** (enmienda por la cross-review
+  de kimi, hallazgo A1 alta): un `target_derivado_pct` fuera de la banda se
+  recorta al extremo, y solo después se aplica el paso máximo. Abstenerse
+  por banda creaba un precipicio: con un derivado de 45.2 el target caía de
+  golpe al setting (20) — 25 puntos en un ciclo, disparando la banda -25 %
+  en masa —, y al día siguiente, con 44.9, volvía a ~44.8: latiguazo diario
+  de pujas reales por un artefacto de frontera. El caso simétrico era peor:
+  un margen realmente colapsado (derivado 9) abstenía y dejaba al motor
+  pujando con el setting manual justo cuando más urgía recortar. Con clamp
+  no hay salto en ningún borde, y la protección contra un dato corrupto la
+  da el paso máximo (0.5/ciclo) más el aviso: **cada ciclo cuyo derivado
+  cae fuera de la banda emite línea de digest** (`derivado_fuera_de_banda`
+  con el valor crudo), aunque el target aplicado sea el clampeado.
 - **Paso máximo**: `target_aplicado = clamp(target_derivado, ultimo − 0.5,
   ultimo + 0.5)` puntos por ciclo (≈ 3.5 por semana natural; el promedio de
   90 días se mueve mucho menos). `ultimo` = `notes.target.aplicado` del
@@ -159,9 +215,23 @@ plataforma (fuente del paso máximo y de `/salud`).
 ## 9. D6 · Superficie
 
 - `/salud`: por plataforma, target vigente + procedencia + margen medido +
-  fracción + ventana + edad del ledger; etiqueta española del peldaño.
-- Digest (Telegram): línea cuando el target aplicado cambia ≥ 1 punto
-  respecto al ciclo anterior o cuando el peldaño se abstiene (motivo).
+  fracción + ventana + edad del ledger + cobertura por monto; etiqueta
+  española del peldaño. Además el ratio **`ad_revenue` de la ventana sobre
+  `venta_total`** (hallazgo A7): el margen se mide sobre la venta TOTAL de
+  la plataforma mientras el target se aplica contra el ACoS, que es
+  `cost / ad_revenue` (solo lo atribuido a anuncios). La equivalencia "la
+  mitad del margen" vale para la mezcla ads/orgánico de hoy (publicidad =
+  10.4 % MX / 22.3 % US de la venta total); si esa mezcla se mueve mucho, el
+  mismo derivado deja de significar lo mismo. Supuesto declarado, con su
+  medidor a la vista: no se corrige en código, se vigila.
+- Digest (Telegram): línea cuando el peldaño se abstiene (con motivo),
+  cuando el derivado cae fuera de la banda (valor crudo), y cuando el target
+  aplicado **acumula** un cambio >= 1 punto desde la última línea emitida.
+  El acumulado es obligatorio (hallazgo A8): como el paso máximo es 0.5 por
+  ciclo, un umbral "cambio >= 1 punto respecto al ciclo anterior" **no
+  dispara nunca** y el target podría derivar 3.5 puntos por semana en
+  silencio. El ancla del acumulado (`notes.target.ultimo_avisado`) viaja en
+  `notes` junto al resto.
 - `docs/CONTEXTO.md`: la cascada pasa a seis peldaños con el literal del
   dueño (DoD de la 2.1).
 
@@ -180,6 +250,34 @@ casi nula por diseño. Criterio nuevo, sellado con el dueño:
 3. **Go literal del dueño** con los números en la mano → `config_version`
    nueva con `ads_target_fraccion_margen_*` = "0.5" (sin la clave, el
    peldaño no existe: ese es el interruptor).
+
+## 10.bis Adjudicación de la cross-review (kimi, 1 ronda, 2026-09-04)
+
+Revisión adversaria del DISEÑO antes de implementarlo (la ronda que permite
+`CLAUDE.md`; no habrá segunda: los bloqueantes se resolvieron aquí). Veredicto
+de kimi: *implementable con correcciones*, 4 bloqueantes. Adjudicación del
+lead, con medición en la base viva donde aplicaba:
+
+| # | Hallazgo | Veredicto del lead | Dónde quedó |
+|---|---|---|---|
+| A1 alta | La banda [10,45] **abstenía** en vez de clampear: precipicio de 25 puntos y latiguazo diario de pujas reales; y con el margen realmente colapsado el motor se quedaba en el setting manual justo cuando urgía recortar | **ACEPTADO**, es un fallo real del diseño del lead | §5: la banda clampea; la abstención queda solo para datos inválidos; línea de digest cuando el derivado sale de la banda |
+| A2 alta | Cascada: (a) el spec no fijaba si un goal de campaña con target NULL bloquea el peldaño nuevo — hay **2 goals así en producción** (ids 6 y 7); (b) `cascada_target_acos` es pura y no puede leer vista ni `notes` con su firma actual | **ACEPTADO** las dos partes | §5: `margen_plataforma` se comporta como `setting_plataforma` (un goal sin target NO lo bloquea); el orquestador resuelve el candidato y lo pasa como `target_margen` a ambas cascadas, que siguen puras |
+| A3 media-alta | COGS de cobertura parcial: las ventas sin costo aportaban venta sin costo — el cero disfrazado de dato que la regla 3 prohíbe — inflando margen y pujas; y la cobertura se medía por CONTEO | **ACEPTADO**. Medido: cobertura por monto 98.22 % MX / 100 % US; el sesgo vale **0.47 puntos de margen** en MX hoy | §3: cobertura por MONTO; el margen se calcula solo sobre la venta cubierta, con los cargos de plataforma prorrateados |
+| A4 media | Fracción presente pero inválida se tragaba en silencio, contra el patrón sellado de `target_desde_settings` | **ACEPTADO** | §4: ausente = interruptor; presente e inválida = `ValueError` |
+| A5 media | Refunds cuya venta original cae fuera de la ventana restan sin su ingreso | **ACEPTADO**. Medido: **4 de 6** refunds MX y **11 de 29** US son huérfanos (−1,588 MXN y −6,814 MXN: 1.7 % de la venta US) | §3: los cargos con `order_id` pertenecen a SU venta (sin filtro de fecha propio); los de plataforma sin `order_id` se prorratean |
+| A6 media | `fee_type` NULL se contaba como cargo no-publicitario: un cargo de ads sin clasificar se restaría del margen Y se cobraría en el ACoS (doble castigo) | **ACEPTADO** como seguro barato. Medido: **0 de 1,226** fees sin tipo hoy | §3: `fees_sin_tipo > 0` deja el margen NULL (fail-loud, como la mezcla de moneda) |
+| A7 media | Denominadores distintos: margen sobre venta total, ACoS sobre revenue atribuido | **ACEPTADO como supuesto declarado**, no como corrección de fórmula: por peso de ingreso anunciado la cuenta es coherente; lo que cambia con la mezcla es la equivalencia | §9: se publica el ratio `ad_revenue / venta_total` en `/salud` para vigilarlo |
+| A8 media | El digest exigía un salto >= 1 punto que el paso máximo (0.5) **nunca** produce: la deriva sería invisible | **ACEPTADO** | §9: umbral sobre el cambio ACUMULADO desde el último aviso |
+| A9 baja | "Replay idéntico por construcción": kimi no pudo verificarlo | **VERIFICADO por el lead y descartado**: `app/optimizer/replay.py` no importa `goals` ni llama a la cascada; sus dos caminos leen `inputs["target_acos_pct_usado"]` (líneas 94 y 154). Los dos call sites de la cascada (`cycle.py` 1209 y 1308) están en `_procesa_decisora` y `_procesa_grupo`: ambos camino vivo | Sin cambio; el DoD 2.3(e) lo sella con un test |
+| A10-A13 bajas | `ultimo` viejo tras pausas; `ledger_fresco_at` mide ingesta y no datos nuevos; ISR retenido tratado como costo; `CURRENT_DATE` de la vista vs el ciclo | **ACEPTADOS como declaraciones** | Van al COMMENT de la vista y al docstring: el invariante "`observed_at` solo avanza con filas nuevas", el ISR como decisión consciente y conservadora, y que la evidencia auditada es el freeze de `ventana_desde/hasta`, no la vista |
+
+Lo que kimi revisó y confirmó bien: la exclusión de la publicidad por
+`fee_type` es el punto correcto y no hay doble conteo dentro de la vista; no
+hay FX en la razón (MXN/MXN) y se rechaza convertir; la memoria en
+`optimizer_cycle.notes` sin tabla nueva respeta la regla 2; no reutilizar
+`v_margen_plataforma` ni tocar `v_contribucion_entidad` es lo correcto; la
+entrada gradual desde el setting evita el salto inicial; madurez D-15 y
+ventana de 90 días cumplen la regla 6.
 
 ## 11. Reject (con razón)
 
