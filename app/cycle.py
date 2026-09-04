@@ -442,8 +442,16 @@ SELECT platform, ventana_desde, ventana_hasta, venta_total, venta_cubierta,
 # anti-duplicado de v_tacos: las filas campaign repiten el dinero) con los
 # bounds DE LA FILA de la vista, nunca recalculados. Sin filas -> NULL
 # (regla 3: el ratio no se inventa).
+# Revision del PR #147 (CodeRabbit Major): el ratio ad_revenue/venta_total
+# es un MEDIDOR del supuesto A7 y sus dos puntas venian de fuentes con
+# MONEDA DISTINTA -- las metricas de amazon_us estan en USD y su ledger en
+# MXN (medido 2026-09-04: 29,236 USD contra 394,406 MXN), asi que el ratio
+# salia ~18x mal. Se devuelve tambien la moneda de las metricas: el lector
+# solo publica el ratio cuando coincide con la del ledger (regla 4: dinero
+# con su moneda, jamas mezclado; convertir aqui exigiria FX y este numero
+# es de vigilancia, no de decision).
 _SQL_AD_REVENUE_VENTANA = """
-SELECT SUM(m.ad_revenue)
+SELECT SUM(m.ad_revenue), COUNT(DISTINCT m.metric_currency), MAX(m.metric_currency::text)
   FROM v_metric_latest m
   JOIN ad_entity e ON e.id = m.ad_entity_id
  WHERE e.platform = %s::platform
@@ -1499,10 +1507,15 @@ def _resuelve_target_ciclo(
         hoy = g.hoy_de_ventana(fila["ventana_hasta"])
         medicion = g.medicion_desde_fila(fila)
         venta_total = fila["venta_total"]
-        ad_revenue_ventana = conn.execute(
+        suma_ads, n_monedas_ads, moneda_ads = conn.execute(
             _SQL_AD_REVENUE_VENTANA,
             (platform, fila["ventana_desde"], fila["ventana_hasta"]),
-        ).fetchone()[0]
+        ).fetchone()
+        # Solo se publica si es UNA moneda y la MISMA del ledger; si no, el
+        # medidor se calla (regla 4) y /salud lo muestra como no disponible.
+        ad_revenue_ventana = g.ratio_ads_publicable(
+            suma_ads, n_monedas_ads, moneda_ads, medicion.moneda
+        )
     res = g.resuelve_target_margen(medicion, fraccion, hoy, ultimo)
     snapshot = {
         "procedencia": "margen_plataforma" if res.motivo is None else None,
@@ -1889,16 +1902,23 @@ def _fase_notifica(
         # ancla del acumulado, por el mismo camino (ausentes = el digest no
         # menciona el target). El ancla persiste AQUI (el digest solo
         # renderiza): si se emitio linea, ultimo_avisado avanza al aplicado.
+        emitir = False
+        nuevo_ancla = None
         if target is not None:
             resumen["target"] = target
             aplicado = target.get("target_aplicado")
             emitir, nuevo_ancla = notifica.decide_aviso_target(aplicado, target_ancla)
-            if emitir:
-                target["ultimo_avisado"] = nuevo_ancla
             if target_ancla is not None:
                 resumen["target_ancla"] = target_ancla
         if not notifica.notifica_digest(resumen):
             notas["digest"] = "fallo: digest del ciclo no enviado por Telegram"
+        elif emitir and target is not None:
+            # Revision del PR #147 (CodeRabbit Major): el ancla del acumulado
+            # avanza SOLO si el digest se envio de verdad. Avanzarla antes
+            # perdia el aviso: con el digest caido (fail-silent, sellado 3.3)
+            # el ciclo siguiente ya no veria el punto acumulado y el drift
+            # del target quedaria mudo justo cuando nadie lo esta viendo.
+            target["ultimo_avisado"] = nuevo_ancla
         _latido()
     except Exception as exc:  # noqa: BLE001 - jamas rompe el ciclo (docstring)
         notas["digest"] = "fallo: el digest del ciclo no salio (ver log)"

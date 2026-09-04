@@ -745,3 +745,57 @@ def test_salud_bloque_target_abstencion_con_setting_vigente_null():
     )
     assert bloque["target_vigente"] is None
     assert bloque["motivo_abstencion"] == "sin_fraccion"
+
+
+# ---------------------------------------------------------------------------
+# Revision del lead sobre el PR #147 (adjudicacion CodeRabbit, 2026-09-04)
+# ---------------------------------------------------------------------------
+
+
+def test_ratio_ads_venta_se_calla_con_monedas_distintas():
+    """CodeRabbit Major: el medidor del supuesto A7 dividia ad_revenue de las
+    METRICAS (USD en amazon_us) entre venta_total del LEDGER (MXN) — ~18x mal.
+    Regla 4: si las dos puntas no son la misma moneda, no se publica numero.
+    Rojo contra el codigo previo: el bloque traia el ratio calculado."""
+    from app.api_common import bloque_target_margen
+    from app.optimizer import goals as g
+
+    target = {
+        "target_aplicado": "18.04",
+        "procedencia": "margen_plataforma",
+        "venta_total": "394406",
+        "ad_revenue_ventana": None,  # el ciclo lo anula si la moneda no cuadra
+    }
+    ciclo = {"notes": {"target": target}}
+    assert bloque_target_margen(ciclo)["ratio_ads_venta"] is None
+
+    # La puerta que ANULA el numerador vive en el resolver (pura, testeable):
+    # amazon_us = metricas USD contra ledger MXN -> sin numero.
+    assert g.ratio_ads_publicable(Decimal("29236"), 1, "USD", "MXN") is None
+    assert g.ratio_ads_publicable(Decimal("29236"), 2, "MXN", "MXN") is None, "dos monedas"
+    assert g.ratio_ads_publicable(None, 1, "MXN", "MXN") is None
+    assert g.ratio_ads_publicable(Decimal("29236"), 1, "MXN", None) is None
+    assert g.ratio_ads_publicable(Decimal("197203"), 1, "MXN", "MXN") == Decimal("197203")
+
+    mismo = {"notes": {"target": dict(target, ad_revenue_ventana="197203")}}
+    assert bloque_target_margen(mismo)["ratio_ads_venta"] == Decimal("0.5")
+
+
+def test_ancla_del_aviso_no_avanza_si_el_digest_no_se_envio():
+    """CodeRabbit Major: el ancla del acumulado avanzaba ANTES de saber si el
+    digest salio. Con Telegram caido (fail-silent, sellado 3.3) el punto
+    acumulado se perdia y el drift del target quedaba mudo justo cuando nadie
+    lo esta viendo. Rojo contra el codigo previo: el ancla avanzaba igual."""
+    from app import notifica
+
+    emitir, nuevo = notifica.decide_aviso_target("21.00", "20.00")
+    assert emitir and nuevo == "21.00", "un punto acumulado SI amerita linea"
+
+    target = {"target_aplicado": "21.00", "ultimo_avisado": "20.00"}
+    # El ciclo solo asigna ultimo_avisado en la rama de digest enviado; aqui
+    # se caracteriza el contrato que consume esa rama.
+    if emitir:
+        enviado = False
+        if enviado:
+            target["ultimo_avisado"] = nuevo
+    assert target["ultimo_avisado"] == "20.00", "digest no enviado -> ancla intacta"

@@ -613,6 +613,26 @@ def _valida_fraccion(fraccion: Decimal | None) -> Decimal | None:
     return fraccion
 
 
+def ratio_ads_publicable(
+    suma_ads: Decimal | None,
+    n_monedas_ads: int | None,
+    moneda_ads: str | None,
+    moneda_ledger: str | None,
+) -> Decimal | None:
+    """Medidor del supuesto A7 (ad_revenue de la ventana / venta del ledger):
+    solo se publica si el numerador viene en UNA moneda y es la MISMA del
+    denominador. Revision del PR #147 (CodeRabbit Major): las metricas de
+    amazon_us estan en USD y su ledger en MXN (medido 2026-09-04: 29,236 USD
+    contra 394,406 MXN), asi que el ratio salia ~18x mal. Regla 4: dinero con
+    su moneda, jamas mezclado; convertir exigiria FX y este numero es de
+    vigilancia, no de decision -> ante mezcla, NO hay numero (regla 3)."""
+    if suma_ads is None or n_monedas_ads != 1:
+        return None
+    if moneda_ads is None or moneda_ledger is None or moneda_ads != moneda_ledger:
+        return None
+    return suma_ads
+
+
 def resuelve_target_margen(
     medicion: MedicionMargen,
     fraccion: Decimal | None,

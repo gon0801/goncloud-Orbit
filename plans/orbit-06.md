@@ -1198,6 +1198,64 @@ codigo, 2026-09-04; lo anterior sigue salvo lo enmendado aqui)
   fuera_de_banda: margen <= 0 -> derivado <= 0 -> clamp a 10 (mas paso
   maximo). Sin motivo propio, sin abstencion.
 
+### Revisión del lead sobre el PR #147 (2026-09-04)
+
+**Verificación independiente de la vista (regla 8).** Corrí la 0015 como
+TEMP view contra la base viva y la comparé con una consulta que escribí
+aparte, sin mirar la suya: **coinciden al cuarto decimal** — margen
+**40.0308 % MX** (cobertura por monto 98.22 %, 85 días con venta) y
+**36.0802 % US** (100 %, 74 días), `fees_sin_tipo` 0 en ambas, moneda MXN.
+Con fracción 0.5: derivado 20.02 MX / 18.04 US; primer ciclo con el paso
+máximo desde el setting 20 → 20.02 MX y 19.50 US (converge a 18.04 en tres
+ciclos). La entrada gradual del spec queda demostrada con números reales.
+
+**Auditoría del poder discriminante de los tests** (la debilidad común de
+todos los implementadores). Muté el código a propósito y las tres las cazó
+la suite: (a) devolver la abstención por banda en vez del clamp →
+`test_resolver_banda_clampea_no_abstiene`; (b) fracción inválida que
+devuelve None en vez de reventar → `test_resuelve_target_margen_valida_fraccion`;
+(c) quitar el paso máximo → `test_resolver_paso_maximo_medio_punto` y
+`test_resolver_banda_antes_que_paso`. Los rojos declarados por GLM son
+honestos: incluye dos tests propios que estaban mal escritos y corrigió, y
+marca como «verde previo: caracteriza» los que no eran regresión.
+
+**Adjudicación de CodeRabbit (5 Major, todos ACEPTADOS y corregidos por el
+lead en la misma rama):**
+
+1. **`ratio_ads_venta` mezclaba monedas.** El medidor del supuesto A7
+   dividía `ad_revenue` de las MÉTRICAS (USD en `amazon_us`) entre
+   `venta_total` del LEDGER (MXN). Medido: 29,236 USD contra 394,406 MXN —
+   el número salía ~18x mal en la pantalla de salud. Arreglo: el SQL
+   devuelve también la moneda y el numerador se anula si no coincide
+   (`goals.ratio_ads_publicable`, función pura extraída para poder
+   probarla; regla 4 y regla 3, sin FX: es vigilancia, no decisión).
+2. **El ancla del aviso avanzaba antes de enviar el digest.** Con Telegram
+   caído (fail-silent, sellado 3.3) el punto acumulado se perdía y la
+   deriva del target quedaba muda justo cuando nadie la está viendo.
+   Arreglo: `ultimo_avisado` se asigna SOLO en la rama de digest enviado.
+3. **Cargos de monedas distintas se sumaban.** Los CTE agrupaban solo por
+   plataforma y `n_monedas` solo miraba las VENTAS: un cargo en otra moneda
+   se habría sumado a ventas MXN y el margen habría salido publicado como
+   MXN. Hoy todo el ledger es MXN (medido: 8,258 filas), así que era
+   latente — pero es exactamente la regla 4. Arreglo: los cargos viven en
+   UN solo conjunto con su moneda, y el margen es NULL si hay más de una o
+   no coincide con la de las ventas.
+4. **`fees_sin_tipo` no cubría lo que se suma.** Contaba solo dentro de la
+   ventana, mientras que los cargos con `order_id` entran SIN filtro de
+   fecha (enmienda A5): un fee sin clasificar, ligado a una venta cubierta
+   pero fechado fuera, entraba al margen sin disparar el guard. Hoy 0 casos
+   (medido). Arreglo: el guard se cuenta sobre EXACTAMENTE el mismo
+   conjunto de cargos que se suma.
+5. **`CURRENT_DATE` depende de la TimeZone de la sesión.** Verificado en
+   producción: `SHOW TimeZone` = `Etc/UTC`, así que hoy no hay desfase; ya
+   estaba declarado (A13) y la evidencia auditada es el freeze de
+   `ventana_desde/hasta`, no la vista.
+
+Tras las correcciones: la vista sigue dando **exactamente** los mismos
+números (40.0308 / 36.0802), las suites de la fase pasan en local (162) y
+se añadieron dos regresiones del lead —una por cada arreglo de
+comportamiento—, ambas verificadas por mutación.
+
 **Rojos 2.3** (contra origin/master, antes del fix; Postgres local 16):
 
 ```text

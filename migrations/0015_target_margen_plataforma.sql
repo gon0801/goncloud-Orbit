@@ -57,26 +57,40 @@ ordenes_cubiertas AS (
       FROM ventas
      WHERE cogs_linea IS NOT NULL AND order_id IS NOT NULL
 ),
-cargos_orden AS (
-    -- Cargos atados a su venta cubierta: SIN filtro de fecha propio.
-    SELECT l.platform, SUM(l.amount) AS monto
+cargos AS (
+    -- TODOS los cargos que entran al margen, en UN solo conjunto (revision
+    -- del PR #147, CodeRabbit): asi el guard de moneda y el de fee_type sin
+    -- clasificar cubren EXACTAMENTE lo que se suma, ni mas ni menos.
+    --   con_orden: atados a su venta cubierta, SIN filtro de fecha propio
+    --              (A5: la ventana la fija su venta).
+    --   sin_orden: de plataforma, SOLO dentro de la ventana.
+    SELECT l.platform, l.amount, l.amount_currency, l.kind, l.fee_type, true AS con_orden
       FROM ledger_event l
       JOIN ordenes_cubiertas o
         ON o.platform = l.platform AND o.order_id = l.order_id
      WHERE l.kind IN ('fee', 'refund', 'withholding')
        AND COALESCE(l.fee_type, '') <> 'ads'
-     GROUP BY l.platform
-),
-cargos_plataforma AS (
-    -- Cargos sin order_id: de plataforma, SOLO dentro de la ventana.
-    SELECT l.platform, SUM(l.amount) AS monto
+    UNION ALL
+    SELECT l.platform, l.amount, l.amount_currency, l.kind, l.fee_type, false
       FROM ledger_event l
       CROSS JOIN ventana v
      WHERE l.kind IN ('fee', 'refund', 'withholding')
        AND COALESCE(l.fee_type, '') <> 'ads'
        AND l.order_id IS NULL
        AND l.event_date >= v.desde AND l.event_date < v.hasta
-     GROUP BY l.platform
+),
+cargos_ag AS (
+    SELECT platform,
+           SUM(amount) FILTER (WHERE con_orden) AS monto_con_orden,
+           SUM(amount) FILTER (WHERE NOT con_orden) AS monto_sin_orden,
+           COUNT(DISTINCT amount_currency) AS n_monedas_cargos,
+           MAX(amount_currency::text) AS moneda_cargos,
+           -- fee sin clasificar DENTRO del conjunto que se suma: un cargo de
+           -- ads mal tipado se restaria del margen Y se cobraria en el ACoS
+           -- del motor (A6, doble castigo) -> margen NULL, fail-loud.
+           COUNT(*) FILTER (WHERE kind = 'fee' AND fee_type IS NULL) AS fees_sin_tipo
+      FROM cargos
+     GROUP BY platform
 ),
 ag AS (
     SELECT v.platform,
@@ -89,14 +103,6 @@ ag AS (
       FROM ventas v
      GROUP BY v.platform
 ),
-fees AS (
-    SELECT l.platform, COUNT(*) AS n
-      FROM ledger_event l
-      CROSS JOIN ventana v
-     WHERE l.kind = 'fee' AND l.fee_type IS NULL
-       AND l.event_date >= v.desde AND l.event_date < v.hasta
-     GROUP BY l.platform
-),
 fresco AS (
     SELECT platform, MAX(observed_at) AS ledger_fresco_at
       FROM ledger_event
@@ -107,23 +113,28 @@ SELECT a.platform,
        (SELECT hasta FROM ventana) AS ventana_hasta,
        a.venta_total,
        a.venta_cubierta,
-       COALESCE(o.monto, 0) AS cargos_con_orden,
-       COALESCE(p.monto, 0) AS cargos_sin_orden,
+       COALESCE(cg.monto_con_orden, 0) AS cargos_con_orden,
+       COALESCE(cg.monto_sin_orden, 0) AS cargos_sin_orden,
        COALESCE(a.cogs_conocido, 0) AS cogs,
        CASE
            WHEN a.venta_total > 0
            THEN a.venta_cubierta / a.venta_total
        END AS cobertura,
        a.dias_con_venta,
-       COALESCE(f.n, 0) AS fees_sin_tipo,
+       COALESCE(cg.fees_sin_tipo, 0) AS fees_sin_tipo,
        CASE
            WHEN a.n_monedas <> 1 THEN NULL
-           WHEN COALESCE(f.n, 0) > 0 THEN NULL
+           -- Los cargos se SUMAN a la venta: si traen otra moneda (o mas de
+           -- una) el numero seria una mezcla (regla 4, revision PR #147).
+           WHEN COALESCE(cg.n_monedas_cargos, 0) > 1 THEN NULL
+           WHEN cg.moneda_cargos IS NOT NULL
+                AND cg.moneda_cargos <> a.moneda_unica::text THEN NULL
+           WHEN COALESCE(cg.fees_sin_tipo, 0) > 0 THEN NULL
            WHEN a.venta_cubierta IS NULL OR a.venta_cubierta <= 0 THEN NULL
            WHEN a.venta_cubierta / NULLIF(a.venta_total, 0) < 0.95 THEN NULL
            WHEN a.dias_con_venta < 60 THEN NULL
-           ELSE 100.0 * (a.venta_cubierta + COALESCE(o.monto, 0)
-                + COALESCE(p.monto, 0)
+           ELSE 100.0 * (a.venta_cubierta + COALESCE(cg.monto_con_orden, 0)
+                + COALESCE(cg.monto_sin_orden, 0)
                   * (a.venta_cubierta / NULLIF(a.venta_total, 0))
                 - COALESCE(a.cogs_conocido, 0)) / a.venta_cubierta
        END AS margen_neto_pct,
@@ -131,9 +142,7 @@ SELECT a.platform,
        CASE WHEN a.n_monedas = 1 THEN a.moneda_unica END AS moneda
   FROM ag a
   JOIN fresco fr USING (platform)
-  LEFT JOIN cargos_orden o USING (platform)
-  LEFT JOIN cargos_plataforma p USING (platform)
-  LEFT JOIN fees f USING (platform);
+  LEFT JOIN cargos_ag cg USING (platform);
 
 COMMENT ON VIEW v_target_margen_plataforma IS
   'ORBIT 06 2.3 (spec 2026-09-03-target-margen-plataforma-design.md §3, '
@@ -145,7 +154,10 @@ COMMENT ON VIEW v_target_margen_plataforma IS
   'order_id de venta CUBIERTA (sin filtro de fecha propio); '
   'cargos_sin_orden = los de plataforma sin order_id en ventana, '
   'PRORRATEADOS por cobertura dentro del margen; fee_type NULL cuenta en '
-  'fees_sin_tipo. margen = 100 x (cubierta + con_orden + sin_orden x '
+  'fees_sin_tipo (contado sobre EXACTAMENTE los cargos que se suman, no '
+  'solo los de la ventana). Los cargos deben venir en UNA moneda y ser '
+  'la misma de las ventas, o el margen es NULL (regla 4). margen = 100 x '
+  '(cubierta + con_orden + sin_orden x '
   'cobertura - cogs) / cubierta, SIN redondear; NULL ante cualquier '
   'condicion §5 (mezcla, fees_sin_tipo > 0, cobertura < 0.95, dias < 60, '
   'cubierta <= 0). ISR retenido como costo: decision consciente. '
