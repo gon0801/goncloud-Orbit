@@ -417,11 +417,14 @@ def test_feed_sql_compuesto_parsea_con_todos_los_filtros():
 def test_sql_del_modulo_dashboard_parsea_como_postgres():
     """Sintaxis de las SQL del modulo (patron test_api): pglast valida que las
     constantes parsean como Postgres real (un typo muere en CI, no en prod)."""
-    nombres = sorted(n for n in vars(dash) if n.startswith("_SQL_"))
-    assert nombres, "no se encontraron constantes _SQL_* en app/api_dashboard"
-    for nombre in nombres:
-        sql = getattr(dash, nombre).replace("%s", "NULL").replace("{filtros}", "true")
-        assert pglast.parse_sql(sql), f"{nombre} no parseo"
+    from app import dashboard_pagina as pagina
+
+    for modulo, etiqueta in ((dash, "api_dashboard"), (pagina, "dashboard_pagina")):
+        nombres = sorted(n for n in vars(modulo) if n.startswith("_SQL_"))
+        assert nombres, f"no se encontraron constantes _SQL_* en app/{etiqueta}"
+        for nombre in nombres:
+            sql = getattr(modulo, nombre).replace("%s", "NULL").replace("{filtros}", "true")
+            assert pglast.parse_sql(sql), f"{etiqueta}.{nombre} no parseo"
 
 
 def test_router_dashboard_solo_registra_get():
@@ -887,6 +890,32 @@ def test_sql_feed_decisiones_por_cursor_sin_offset_y_con_join_nombre():
     assert "order by d.id desc" in normalizada, "el feed ordena por id DESC (cursor)"
     assert "offset" not in normalizada, "el feed JAMAS pagina por offset"
     assert "limit" in normalizada
+
+
+def test_page_window_clampa_y_deriva():
+    v = dash.PageWindow.desde_total(total=101, page=99, page_size=50)
+    assert (v.page, v.pages, v.offset, v.prev, v.next) == (3, 3, 100, 2, None)
+    vacia = dash.PageWindow.desde_total(total=0, page=1, page_size=50)
+    assert (vacia.pages, vacia.prev, vacia.next) == (1, None, None)
+    with pytest.raises(ValueError):
+        dash.PageWindow.desde_total(total=1, page=1, page_size=0)
+
+
+def test_sql_pagina_decisiones_offset_sobre_el_mismo_from():
+    sql = dash._SQL_DECISIONES_PAGINA.replace("%s", "NULL")
+    normalizada = " ".join(pglast.prettify(sql).lower().split())
+    assert "join ad_entity" in normalizada
+    assert "order by d.id desc" in normalizada
+    assert "offset" in normalizada
+    assert "limit" in normalizada
+    feed = " ".join(
+        pglast.prettify(
+            dash._SQL_DECISIONES_FEED.replace("%s", "NULL").replace("{filtros}", "true")
+        )
+        .lower()
+        .split()
+    )
+    assert "offset" not in feed
 
 
 # ---------------------------------------------------------------------------

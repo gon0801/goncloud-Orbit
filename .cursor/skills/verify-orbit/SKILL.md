@@ -79,7 +79,7 @@ Harness: **curl** (mismo transporte que `docs/DEPLOY.md` y que TestClient). Sele
 | `h2` Resumen / Campanas / Decisiones / Salud / Contribucion / Cortes | cada template |
 | `canvas#serie-amazon_us`, `#serie-amazon_mx`, `#serie-acos-amazon_us` | `resumen.html` |
 | `script#datos-serie-amazon_us[type=application/json]` | datos de grafica |
-| `button#btn-mas[data-cursor]` | `decisiones.html` (solo si hay mas paginas) |
+| `nav.paginador a[rel="next"]`, `a[rel="prev"]`, `[aria-current="page"]` | `decisiones.html` |
 | `button[data-vetar="<id>"]`, `form[data-veto="<id>"]` | `cortes.html` |
 | `GET /api/dashboard/campanas` (y series/decisiones/salud/contribucion/cortes) | JSON gemelo; no es endpoint de test |
 

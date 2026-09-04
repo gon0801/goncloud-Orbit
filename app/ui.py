@@ -62,6 +62,17 @@ def dinero_ui(valor: str | None) -> str | None:
 
 templates.env.filters["dinero_ui"] = dinero_ui
 
+
+def ts_ui(valor) -> str:
+    """Fecha de decision para la tabla: YYYY-MM-DD HH:MM, sin microsegundos."""
+    if valor is None:
+        return "—"
+    texto = valor.isoformat() if hasattr(valor, "isoformat") else str(valor)
+    return texto.replace("T", " ")[:16]
+
+
+templates.env.filters["ts_ui"] = ts_ui
+
 # Columnas que YA estan en campanas.html. No se inventan orders/impressions.
 COLUMNAS_ORDEN = (
     "nombre",
@@ -309,22 +320,17 @@ def pagina_campanas(
 def pagina_decisiones(
     request: Request,
     conn: ConexionLectura,
-    cursor: Annotated[int | None, Query(ge=1)] = None,
+    page: Annotated[int, Query(ge=1)] = 1,
 ) -> HTMLResponse:
-    """Decisiones: feed por cursor con motivo en espanol; el search_term se
-    renderiza ESCAPADO ({{ }}) — es el vector XSS real del dominio. El
-    `?cursor=` del boton 'Cargar mas' se PROPAGA al feed (hallazgo alta de
-    codex: ignorarlo recargaba la primera pagina por siempre)."""
-    datos = dash.decisiones(conn=conn, cursor=cursor)
+    """Decisiones: pagina numerada. El search_term se renderiza ESCAPADO.
+    `?page=` es un GET sin JS (reemplaza el boton Cargar mas)."""
+    items, ventana = dash.decisiones_pagina(
+        conn=conn, page=page, page_size=dash.LIMITE_FEED_DEFAULT
+    )
     return templates.TemplateResponse(
         request,
         "decisiones.html",
-        {
-            "pantalla": "decisiones",
-            "items": datos["items"],
-            "next_cursor": datos["next_cursor"],
-            "has_more": datos["has_more"],
-        },
+        {"pantalla": "decisiones", "items": items, "ventana": ventana},
     )
 
 

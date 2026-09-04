@@ -69,6 +69,12 @@ from app.api_common import (
 )
 from app.apply import KINDS_QUOTA, estado_quota
 from app.dashboard_contribucion import contribucion_campanas as _contribucion_campanas
+from app.dashboard_pagina import (
+    _SQL_DECISIONES_FEED,
+    _SQL_DECISIONES_PAGINA,
+    _SQL_DECISIONES_TOTAL,
+    PageWindow,
+)
 from app.optimizer import bid, hygiene
 from app.optimizer import goals as g
 from app.optimizer.bid import PLATAFORMAS_MONEDA
@@ -162,21 +168,6 @@ SELECT scope, ad_entity_id, platform, target_acos_pct, bid_floor, bid_ceiling,
 
 _SQL_CONFIG_VIGENTE = """
 SELECT settings FROM config_version ORDER BY id DESC LIMIT 1
-"""
-
-# Feed de decisiones por CURSOR: ORDER BY id DESC, id < cursor, LIMIT. Sin
-# OFFSET (decision 8): offset sobre la tabla append-only produce
-# huecos/duplicados entre paginas. JOIN a ad_entity para el nombre (nullable
-# por schema) y la plataforma.
-_SQL_DECISIONES_FEED = """
-SELECT d.id, d.cycle_id, d.ad_entity_id, e.name, e.platform, d.kind,
-       d.decided_at, d.search_term, d.old_value, d.new_value, d.value_currency,
-       d.inputs
-  FROM decision d
-  JOIN ad_entity e ON e.id = d.ad_entity_id
- WHERE {filtros}
- ORDER BY d.id DESC
- LIMIT %s
 """
 
 # Motivos de DECISION -> espanol (decisión 11 del header): dict que IMPORTA
@@ -606,6 +597,16 @@ def _filtros_feed(platform, kind) -> tuple[list[str], list]:
         clausulas.append("d.kind = %s::decision_kind")
         params.append(kind)
     return (clausulas, params)
+
+
+def decisiones_pagina(
+    conn: ConexionLectura, page: int, page_size: int
+) -> tuple[list[dict], PageWindow]:
+    """Pagina HTML: count -> ventana clampada -> LIMIT/OFFSET. No es ruta."""
+    total = conn.execute(_SQL_DECISIONES_TOTAL).fetchone()[0]
+    ventana = PageWindow.desde_total(total=total, page=page, page_size=page_size)
+    filas = conn.execute(_SQL_DECISIONES_PAGINA, (ventana.page_size, ventana.offset)).fetchall()
+    return [_fila_decision(fila) for fila in filas], ventana
 
 
 def _fila_decision(fila) -> dict:

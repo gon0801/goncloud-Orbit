@@ -13,7 +13,9 @@
      Sync estructura: {{ datos.synced_at or "—" }}</p>
 
   <h3>Skips del ultimo ciclo</h3>
-  <canvas id="skips-{{ plataforma }}" height="160"></canvas>
+  <div class="lienzo">
+  <canvas id="skips-{{ plataforma }}"></canvas>
+  </div>
   <script type="application/json" id="datos-skips-{{ plataforma }}">{{ datos.skips | tojson }}</script>
 
   {% if datos.ultimo_ciclo %}

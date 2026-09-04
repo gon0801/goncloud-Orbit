@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from app import ui
 from app.api import _conexion_lectura
+from app.api_dashboard import PageWindow
 from app.main import app
 from app.ui import dinero_ui
 
@@ -53,6 +54,7 @@ def test_tema_js_persiste_y_invalido_es_dia():
     assert 'TEMA_DIA = "dia"' in fuente
     assert 'TEMA_NOCHE = "noche"' in fuente
     assert "temaValido" in fuente
+    assert 'params.get("tema")' in fuente
     assert "valor === TEMA_NOCHE ? TEMA_NOCHE : TEMA_DIA" in fuente
 
 
@@ -62,6 +64,18 @@ def test_css_tokens_noche_y_celdas_envuelven():
     assert "overflow-wrap" in css
     assert "--color-borde" in css
     assert "--color-acento: #e08a4a" in css
+    tokens = (
+        "--color-texto",
+        "--color-mutado",
+        "--color-borde",
+        "--color-acento",
+        "--color-ok",
+        "--color-alerta",
+    )
+    dia, noche = css.split('data-tema="noche"', 1)
+    for token in tokens:
+        assert token in dia
+        assert token in noche
     assert "overflow-x: hidden" not in css
     assert not re.search(r"th,\s*td\s*\{[^}]*white-space:\s*nowrap", css)
     assert "white-space: nowrap" not in css
@@ -75,6 +89,11 @@ def test_dinero_ui_presentacion_sin_inventar():
     assert dinero_ui("26.0000") == "26.00"
     assert dinero_ui(None) is None
     assert dinero_ui("x") == "x"
+
+
+def test_ts_ui_recorta_microsegundos():
+    assert ui.ts_ui("2026-09-04 01:40:19.865606+00:00") == "2026-09-04 01:40"
+    assert ui.ts_ui(None) == "—"
 
 
 def test_campanas_html_dinero_a_2_decimales_clicks_enteros(monkeypatch):
@@ -113,11 +132,10 @@ def test_paginas_siguen_200_con_data_pantalla(monkeypatch):
     html_decisiones = _html_sin_db(
         monkeypatch,
         "/decisiones",
-        decisiones=lambda conn, cursor=None: {
-            "items": [],
-            "next_cursor": None,
-            "has_more": False,
-        },
+        decisiones_pagina=lambda conn, page=1, page_size=50: (
+            [],
+            PageWindow.desde_total(total=0, page=page, page_size=page_size),
+        ),
     )
     assert 'data-pantalla="decisiones"' in html_decisiones
     html_contrib = _html_sin_db(

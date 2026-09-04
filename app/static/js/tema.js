@@ -37,6 +37,14 @@ function syncBoton(tema) {
   boton.setAttribute("aria-pressed", tema === TEMA_NOCHE ? "true" : "false");
 }
 
+(function () {
+  var params = new URLSearchParams(window.location.search);
+  var pedido = params.get("tema");
+  if (pedido === TEMA_NOCHE || pedido === TEMA_DIA) {
+    persistirTema(pedido);
+  }
+})();
+
 aplicarTema(leerTema());
 
 document.addEventListener("DOMContentLoaded", function () {

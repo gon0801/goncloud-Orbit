@@ -25,6 +25,7 @@ Contrato sellado (plan 1.6 + brief §2/§6):
 from __future__ import annotations
 
 import datetime as dt
+import re
 
 import jinja2
 import pytest
@@ -46,6 +47,7 @@ from test_schema import _postgres_obligatorio_ausente
 
 from app import ui
 from app.api import _conexion_lectura
+from app.api_dashboard import PageWindow
 from app.main import app
 
 PANTALLAS = {
@@ -85,8 +87,7 @@ def _ctx_decisiones() -> dict:
                 "motivo_es": "Negativo: termino sin ventas",
             }
         ],
-        "next_cursor": None,
-        "has_more": False,
+        "ventana": PageWindow.desde_total(total=1, page=1, page_size=50),
     }
 
 
@@ -106,6 +107,8 @@ def test_ui_xss_search_term_demostrado_fallando_con_autoescape_off():
     on, cubierto por el test anterior)."""
     loader = jinja2.FileSystemLoader(str(ui._TEMPLATES_DIR))
     sin_escape = jinja2.Environment(loader=loader, autoescape=False)
+    sin_escape.filters["dinero_ui"] = ui.dinero_ui
+    sin_escape.filters["ts_ui"] = ui.ts_ui
     html = sin_escape.get_template("decisiones.html").render(**_ctx_decisiones())
     assert PAYLOAD_XSS in html, "con autoescape off el payload DEBE aparecer crudo"
 
@@ -396,6 +399,65 @@ def test_ui_js_parsea_dinero_string_con_number():
     fuente = js.read_text(encoding="utf-8")
     assert "Number(" in fuente, "el cliente debe parsear los strings con Number()"
     assert "JSON.parse" in fuente, "los datos inertes se leen con JSON.parse"
+    assert "maintainAspectRatio: false" in fuente
+    assert "borderColor" in fuente
+    assert "MutationObserver" in fuente
+    assert '"data-tema"' in fuente
+    assert "cargarMas" not in fuente
+    assert "btn-mas" not in fuente
+
+
+def test_ui_decisiones_paginador_es_html_sin_js():
+    """El paginador es un GET. Falla contra a658f2b: el template pinta #btn-mas."""
+    html = ui.templates.env.get_template("decisiones.html").render(
+        pantalla="decisiones",
+        items=[],
+        ventana=PageWindow.desde_total(total=120, page=1, page_size=50),
+    )
+    assert 'rel="next" href="?page=2"' in html
+    assert 'id="btn-mas"' not in html
+    assert "data-cursor" not in html
+    assert "pagina 1 de 3" in html
+
+
+def test_ui_old_new_en_dos_columnas_con_dinero_ui():
+    """Old y New son dos columnas. Falla contra a658f2b: una celda 'old / new'."""
+    ctx = _ctx_decisiones()
+    ctx["items"][0]["old_value"] = "1.0000"
+    ctx["items"][0]["new_value"] = "0.8800"
+    ctx["items"][0]["value_currency"] = "USD"
+    html = ui.templates.env.get_template("decisiones.html").render(**ctx)
+    assert ">Old</th>" in html and ">New</th>" in html
+    assert 'class="num dinero">Old</th>' in html.replace("'", '"')
+    assert "old / new" not in html
+    assert 'class="num dinero">1.00<' in html.replace("</td>", "<")
+    assert 'class="num dinero">0.88<' in html.replace("</td>", "<")
+    assert "1.0000 / 0.8800" not in html
+    pause = _ctx_decisiones()
+    html_pause = ui.templates.env.get_template("decisiones.html").render(**pause)
+    assert html_pause.count('<td class="num dinero"><span class="mutado">—</span></td>') == 2
+    assert "0.00 /" not in html_pause and "/ 0.00" not in html_pause
+
+
+def test_ui_canvas_siempre_dentro_de_lienzo():
+    """Cada canvas vive en .lienzo y no declara height. Falla contra a658f2b."""
+    import re
+
+    for nombre in ("resumen.html", "salud.html"):
+        fuente = (ui._TEMPLATES_DIR / nombre).read_text(encoding="utf-8")
+        for tag in re.findall(r"<canvas\b[^>]*>", fuente):
+            assert "height=" not in tag, tag
+        assert fuente.count("<canvas") == fuente.count('<div class="lienzo">')
+
+
+def test_css_lienzo_y_sin_max_width_en_canvas():
+    css = (ui._TEMPLATES_DIR.parent / "static" / "css" / "dashboard.css").read_text(
+        encoding="utf-8"
+    )
+    assert re.search(r"\.lienzo\s*\{[^}]*aspect-ratio", css)
+    assert re.search(r"\.lienzo\s*\{[^}]*position:\s*relative", css)
+    assert "canvas { max-width" not in css
+    assert ".paginador" in css
 
 
 # ---------------------------------------------------------------------------
@@ -407,16 +469,14 @@ def test_ui_js_parsea_dinero_string_con_number():
     _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
-def test_ui_decisiones_propaga_el_cursor(monkeypatch):
-    """Regla 9 (hallazgo ALTA de codex): la ruta UI ignoraba ?cursor= —
-    'Cargar mas' recargaba la misma pagina por siempre. Con cursor=<id>, la
-    pagina solo muestra ids MENORES."""
-    with _db_temporal("orbit_ui_cursor") as (conn, dsn):
+def test_ui_decisiones_pagina_2_trae_los_ids_siguientes(monkeypatch):
+    """GET /decisiones?page=2 con page_size=2 siembra 3 ids (DESC): pagina 2
+    trae solo el id mas viejo. ?page=9 clampa a la ultima. Falla contra el
+    feed por cursor: ?page= se ignoraba y salian los 3 ids."""
+    with _db_temporal("orbit_ui_pagina") as (conn, dsn):
         config_id = _config_version(conn, {"ads_optimizer_mode": "shadow"})
         camp = _campana(conn, "amazon_us", "9001", name="Campana A")
         inputs = {"motivo": "banda_menos_12", "target_acos_pct_usado": "20"}
-        # un ciclo por decision: el schema sella UNA decision por entidad
-        # por ciclo (decision_unica_entidad_ciclo)
         ids = [
             _decision(
                 conn,
@@ -432,11 +492,16 @@ def test_ui_decisiones_propaga_el_cursor(monkeypatch):
             for _ in range(3)
         ]
         monkeypatch.setenv("ORBIT_DSN_READ", dsn)
-        html = TestClient(app).get("/decisiones", params={"cursor": ids[1]}).text
-        assert f"<td>{ids[0]}</td>" in html, "la pagina con cursor debe traer los ids menores"
-        assert f"<td>{ids[1]}</td>" not in html and f"<td>{ids[2]}</td>" not in html, (
-            "la ruta UI debe propagar el cursor al feed (id < cursor)"
-        )
+        monkeypatch.setattr(ui.dash, "LIMITE_FEED_DEFAULT", 2)
+        html = TestClient(app).get("/decisiones", params={"page": 2}).text
+        assert f"<td>{ids[0]}</td>" in html
+        assert f"<td>{ids[1]}</td>" not in html and f"<td>{ids[2]}</td>" not in html
+        assert 'rel="prev" href="?page=1"' in html
+        assert 'rel="next"' not in html
+        assert "pagina 2 de 2" in html
+        html_clamp = TestClient(app).get("/decisiones", params={"page": 9}).text
+        assert "pagina 2 de 2" in html_clamp
+        assert f"<td>{ids[0]}</td>" in html_clamp
 
 
 @pytest.mark.skipif(

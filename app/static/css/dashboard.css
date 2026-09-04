@@ -109,7 +109,7 @@ button {
   padding: 0.35rem 0.7rem;
   cursor: pointer;
 }
-#btn-tema, #btn-mas, .filtros button {
+#btn-tema, .filtros button, .paginador a {
   color: var(--color-acento);
   border-color: var(--color-acento);
   background: var(--color-tarjeta);
@@ -122,8 +122,31 @@ input, select {
   border-radius: 2px;
   padding: 0.3rem 0.45rem;
 }
-canvas { max-width: 100%; }
+.lienzo {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 2 / 1;
+}
+.lienzo canvas { display: block; width: 100%; height: 100%; }
 .graficas { display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); gap: 1rem; }
+.paginador {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: baseline;
+  margin-top: 0.75rem;
+}
+.paginador [aria-current="page"] { color: var(--color-acento); }
+col.c-id { width: 5%; }
+col.c-entidad { width: 14%; }
+col.c-kind { width: 6%; }
+col.c-fecha { width: 11%; }
+col.c-term { width: 8%; }
+col.c-target { width: 8%; }
+col.c-motivo { width: 18%; }
+col.c-old, col.c-new, col.c-moneda { width: 10%; }
+th.dinero, td.dinero { text-align: left; }
+td.dinero + td.dinero { border-left: 1px solid var(--color-borde); }
 .grafica {
   background: var(--color-tarjeta);
   border: 1px solid var(--color-borde);
