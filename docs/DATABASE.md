@@ -552,6 +552,19 @@ Regímenes de lectura, explícitos (reemplazan al "todo lee lo maduro"):
   **Fuente única** de «inerte» para el ciclo (guarda `entidad_inerte`), la
   página `/inertes`, el digest y la herramienta de archivo; ausencia de
   fila = NO inerte.
+- **`v_target_margen_plataforma`** (ORBIT 06, migración `0015`) — **margen
+  neto %** por plataforma sobre la ventana **[D-105, D-15)** con hoy =
+  `CURRENT_DATE` UTC (15 días de maduración, regla 6; 90 de historia):
+  `venta` (SUM de sales), `cargos` (fee/withholding/refund **excluyendo
+  `fee_type = 'ads'`** — el target es pre-ads), `cogs` (costo vigente a
+  `event_date` × cantidad **solo en la misma moneda**, sin FX; la línea sin
+  costo cuenta sin costo), **`margen_neto_pct` = 100 × (venta + cargos −
+  cogs) / venta, NULL con cobertura < 95 %** (fail-loud) o ventana vacía,
+  `cobertura` (líneas con costo / líneas de venta), `dias_con_venta`,
+  `ledger_fresco_at` (máximo de TODA la plataforma, sin ventana) y `moneda`
+  (única en la ventana, NULL si mezcla — canario). La vista SOLO MIDE:
+  fracción, banda [10, 45] y paso ±0.5 viven en
+  `goals.resuelve_target_margen`; el ciclo la lee UNA vez por ciclo en TX2.
 
 ## Roles y candados
 

@@ -287,6 +287,34 @@ def _linea_contribucion(datos: ContribucionDigest) -> str | None:
     return f"{ETIQUETA_CONTRIBUCION}: {cuerpo}"
 
 
+def _linea_target_margen(plataforma, target, previo) -> str | None:
+    """Linea del target de margen para el digest (ORBIT 06 2.3, D-2.3.7,
+    spec §9): `target margen {plat}: {prev} -> {nuevo}` si el aplicado
+    cambia >= 1 punto contra el previo; `target margen {plat}: abstencion
+    {motivo} ({etiqueta})` si el peldano se abstiene. Cualquier ausente
+    (sin bloque, sin aplicado, previo ilegible, motivo sin etiqueta
+    conocida -> id crudo) = None: la linea no sale (regla 3). Pura."""
+    from app.optimizer import goals as g
+
+    if not isinstance(target, dict):
+        return None
+    plat = plataforma if isinstance(plataforma, str) and plataforma else "?"
+    motivo = target.get("motivo_abstencion")
+    if motivo:
+        etiqueta = g.ETIQUETA_ABSTENCION.get(motivo, motivo)
+        return f"target margen {plat}: abstencion {motivo} ({etiqueta})"
+    nuevo = target.get("target_aplicado")
+    if nuevo is None or previo is None:
+        return None
+    try:
+        delta = abs(Decimal(str(nuevo)) - Decimal(str(previo)))
+    except Exception:  # noqa: BLE001 - previo/aplicado ilegible: sin linea
+        return None
+    if delta < 1:
+        return None
+    return f"target margen {plat}: {previo} -> {nuevo}"
+
+
 def _arma_contribucion_digest(
     filas_rango: list[tuple],
     filas_ausentes: list[tuple],
@@ -395,6 +423,14 @@ def digest_ciclo(resumen: dict) -> str:
         skips_entidad = skips.get("entidad")
         if isinstance(skips_entidad, dict) and "entidad_inerte" in skips_entidad:
             lineas.append(f"entidades sin trafico (saltadas): {skips_entidad['entidad_inerte']}")
+    # ORBIT 06 2.3 (D-2.3.7, spec §9): linea del target solo cuando cambia
+    # >= 1 punto contra el ciclo previo o cuando el peldano se abstiene
+    # (motivo + etiqueta). Ausentes = no se menciona (regla 3).
+    linea_target = _linea_target_margen(
+        resumen.get("plataforma"), resumen.get("target"), resumen.get("target_previo")
+    )
+    if linea_target:
+        lineas.append(linea_target)
     contrib = resumen.get("contribucion")
     if isinstance(contrib, ContribucionDigest):
         linea = _linea_contribucion(contrib)

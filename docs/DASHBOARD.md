@@ -23,7 +23,7 @@ dónde y cómo la cumple este dashboard. Verificable punto por punto.
 | 2 | **Grano (anti-doble-conteo)**: `ads_metric_observation` mezcla filas de campaña/keywords/targets; toda serie o agregado filtra por `kind` EXPLÍCITO (columna de `ad_entity`, vía JOIN — no existe en la tabla de métricas). Resumen y por-campaña: SOLO `kind='campaign'`. Sellado con test regla 9 | §3.1/§3.2: ambas queries de serie hacen `JOIN ad_entity e ON e.id = v.ad_entity_id WHERE e.kind = 'campaign'`. Test anti-doble-conteo en `tests/test_api_dashboard.py` (fixture con fila campaign + fila keyword del mismo día → la serie usa SOLO campaign; demostrado fallando contra el SQL sin el filtro, regla 9). |
 | 3 | **Ventanas**: series diarias en UTC, rango default [D-30, D-1]; el día en curso EXCLUIDO (vintage parcial, regla 6); días D-8..D-1 marcados como "inmaduros" (atribución madura 5–8d, costo hasta D+15) | §3.1/§3.2: default [D-30, D-1] UTC relativo a hoy; `hasta` se recorta a D-1 (el día en curso jamás se sirve, ni con `hasta` explícito); cada fila lleva `inmaduro: true/false` para [D-8, D-1] y la respuesta declara `ventana_inmaduros`. La fecha "hoy" es UTC (`_hoy_utc` en `app/api_dashboard.py`, inyectable en tests). |
 | 4 | **NULL y ceros (regla 3)**: métrica NULL = hueco visible "sin dato", JAMÁS un 0 pintado; ACoS con revenue=0 y cost>0 = "sin ventas" (∞), nunca división ni cero engañoso | §3.6: cost/ad_revenue/clicks `null` = hueco (fecha sin fila O métrica NULL en alguna campaña del día — agregado envenenado con `bool_and`, mismo criterio que `windows.py`). `sin_ventas: true` cuando `ad_revenue == 0` conocido → `acos: null`. Jamás se emite 0 por dato faltante. |
-| 5 | **Procedencia del target (regla 2)**: CINCO peldaños — goal de campaña, goal de plataforma, setting de config, cache del estado, default 55 — expuestos por `goals.py` (variante valor+peldaño), JAMÁS reimplementados en la capa web | `app/optimizer/goals.py` (1.2): `cascada_target_acos_con_procedencia(...) -> (valor, peldaño)` con los cinco nombres exactos `goal_campana`, `goal_plataforma`, `setting_plataforma`, `cache_estado`, `default`. Compatible con el camino del motor (cero cambio de comportamiento; la clave del setting sale de `clave_target_plataforma()` — `ads_target_acos_pct_amazon_us` / `_amazon_mx`). La pantalla Campañas (1.4) la REUTILIZA, no la reimplementa. |
+| 5 | **Procedencia del target (regla 2)**: SEIS peldaños — goal de campaña, goal de plataforma, setting de config, cache del estado, default 55, más `margen_plataforma` (ORBIT 06 2.3: fracción del margen neto medido por plataforma) — expuestos por `goals.py` (variante valor+peldaño), JAMÁS reimplementados en la capa web | `app/optimizer/goals.py` (1.2): `cascada_target_acos_con_procedencia(...) -> (valor, peldaño)` con los seis nombres exactos `goal_campana`, `goal_plataforma`, `setting_plataforma`, `cache_estado`, `default` + `margen_plataforma` (2.3). Compatible con el camino del motor (cero cambio de comportamiento; la clave del setting sale de `clave_target_plataforma()` — `ads_target_acos_pct_amazon_us` / `_amazon_mx`). La pantalla Campañas (1.4) la REUTILIZA, no la reimplementa. |
 | 6 | **Reuso (reglas 1-2)**: los helpers que ya existen en `app/api.py` (`_parse_notes` de formato mixto, SQL de último ciclo por plataforma, serialización de dinero como STRING) se EXTRAEN y comparten con `app/api_dashboard.py` — nunca dos copias | `app/api_common.py` (creado en 1.3): `_dec_str` (dinero→string) extraído de `api.py` y compartido. `_parse_notes` y el SQL de último ciclo se suman al mismo módulo en 1.5 (salud), con los tests de 3.2 intactos. La conexión de lectura `_conexion_lectura` SIGUE en `api.py` (el test de superficie 3.2 la introspecciona como `api._conexion_lectura` y parchea `api.connect`; moverla rompería ese candado): `api_dashboard.py` reutiliza el tipo `ConexionLectura` importándolo de `app.api`. |
 | 7 | **Dinero en JSON = STRING** en todos los endpoints nuevos (patrón sellado de 3.2). Para las gráficas (que exigen números): la conversión string→número ocurre EN el cliente (JS parsea el string de la API) — representación intermedia documentada; el backend jamás emite floats de dinero | §3.6: todo monto (cost, ad_revenue, targets, floor/ceiling, bids, valores de decisión) viaja como string NUMERIC tal cual sale ("363.1400"). El cliente gráfica con `Number(string)`. El backend no emite floats de dinero en NINGÚN endpoint nuevo. |
 | 8 | **Paginación del feed JSON por CURSOR** (`id <` último visto, DESC): offset sobre una tabla append-only produce huecos/duplicados entre páginas. La página HTML `/decisiones?page=` pagina por OFFSET con `count(*)` y `PageWindow` (un lector humano; el ciclo inserta una vez al día) | §3.4 API JSON: cursor `id <`, `next_cursor` + `has_more`, prohibido offset. HTML: `decisiones_pagina` + `?page=` (prev/next + pagina N de M). |
@@ -60,8 +60,8 @@ Fuente: `GET /api/dashboard/series/plataforma` (§3.1).
 
 ### 2.2 Campañas
 Tabla 30d por campaña: métricas colapsadas (mismo grano campaign, misma ventana
-e inmadurez), **target efectivo CON procedencia de 5 peldaños** (decisión 5, vía
-`goals.py` 1.2) y estado del goal (enabled / floor / ceiling / mode). Cada fila
+e inmadurez), **target efectivo CON procedencia de 6 peldaños** (decisión 5, vía
+`goals.py` 1.2 + `margen_plataforma` de ORBIT 06 2.3) y estado del goal (enabled / floor / ceiling / mode). Cada fila
 lleva su moneda; sin total al pie que mezcle monedas (regla 4).
 Fuente: `GET /api/dashboard/campanas` (§3.3, 1.4).
 
@@ -168,7 +168,7 @@ Respuesta 200:
 ```
 - `metricas_30d`: misma semántica de grano/ventana/NULL/dinero-string que §3.1/§3.2
   (ventana fija [D-30, D-1]; `inmaduro` = el agregado incluye días D-8..D-1).
-- `target_efectivo.peldano` ∈ exactamente `{goal_campana, goal_plataforma, setting_plataforma, cache_estado, default}` (función de 1.2, REUTILIZADA; valor `str` de Decimal). La clave es `peldano` (convención del repo: sin acentos en el código).
+- `target_efectivo.peldano` ∈ exactamente `{goal_campana, goal_plataforma, setting_plataforma, cache_estado, default, margen_plataforma}` (función de 1.2, REUTILIZADA; el sexto lo suma ORBIT 06 2.3; valor `str` de Decimal). La clave es `peldano` (convención del repo: sin acentos en el código).
 - `goal` es el estado VIVO del goal RESUELTO (`resuelve_goal`: campaña > plataforma; decisión 17): `enabled`, `floor`, `ceiling`, `mode`, `scope`; `null` si no hay goal (regla 3). `target_acos_pct` del goal NO se expone como target efectivo (eso es la cascada), solo via `target_efectivo`.
 - Cada fila lleva su `moneda`; **NO existe total al pie que sume filas de monedas distintas** (regla 4 — test anti-mezcla).
 
@@ -233,7 +233,8 @@ Respuesta 200:
       "synced_at": "2026-08-23T00:46:00Z",
       "ultimo_ciclo": {"id": 5, "mode": "shadow", "status": "done", "started_at": "2026-08-22T00:46:00Z", "finished_at": "2026-08-22T00:50:00Z", "decisions_count": 124, "applied_count": 0, "notes": {"skips": {"entidad": {"estado_no_enabled": 3200}}, "decisiones": {"bid": 124}}},
       "historico_14d": [{"cycle_id": 5, "fecha": "2026-08-22T00:46:00Z", "status": "done", "decisions_count": 124}, {"cycle_id": 4, "fecha": "2026-08-21T00:47:00Z", "status": "degraded", "decisions_count": 0, "motivo": "Watermark de la plataforma vencido"}],
-      "skips": {"entidad": {"estado_no_enabled": {"count": 3200, "motivo_es": "Entidad sin estado o no habilitada"}}, "termino": {"asin_like": {"count": 84, "motivo_es": "Termino ASIN-like: se salta siempre"}}}
+      "skips": {"entidad": {"estado_no_enabled": {"count": 3200, "motivo_es": "Entidad sin estado o no habilitada"}}, "termino": {"asin_like": {"count": 84, "motivo_es": "Termino ASIN-like: se salta siempre"}}},
+      "target_margen": {"target_vigente": "20", "procedencia": "margen_plataforma", "margen_neto_pct": "40", "fraccion": "0.5", "ventana_desde": "2026-05-22", "ventana_hasta": "2026-08-20", "ledger_edad_dias": 1, "motivo_abstencion": null, "motivo_etiqueta": null}
     }
   }
 }
@@ -255,6 +256,13 @@ Respuesta 200:
   traducción `motivo_es`; DOS diccionarios de traducción (este y el de §3.4),
   cada uno importando su fuente (decisión 11); motivo desconocido → fallback sin
   crash.
+- `target_margen` (2.3): el resultado DEL PELDAÑO a nivel plataforma desde
+  `notes.target` del último ciclo (constructor puro en `app/api_common.py`, sin
+  re-resolver): `target_vigente` (el aplicado si el peldaño ganó, `null` si se
+  abstuvo — la cascada por entidad no tiene usado único), `procedencia`,
+  `margen_neto_pct`, `fraccion`, ventana (`ventana_desde`/`ventana_hasta`),
+  `ledger_edad_dias` (días desde `ledger_fresco_at`) y `motivo_abstencion` +
+  `motivo_etiqueta` en español. Sin ciclo o sin la clave → todo `null` (regla 3).
 
 ### 3.6 Reglas transversales de las series (selladas)
 
@@ -376,9 +384,9 @@ Forma real observada:
 |---------|-------|--------|
 | `docs/DASHBOARD.md` | 1.1 | Este brief (contrato fino). |
 | `docs/CONTEXTO.md` | 1.1 | Spec delta: sección "Módulo dashboard" (apunta a este brief). |
-| `app/optimizer/goals.py` | 1.2 | `cascada_target_acos_con_procedencia` (5 peldaños, valor+peldaño). |
+| `app/optimizer/goals.py` | 1.2 | `cascada_target_acos_con_procedencia` (6 peldaños desde 2.3, valor+peldaño). |
 | `app/api_common.py` | 1.3 | Helpers compartidos de la capa API (extracción sellada, decisión 6). |
 | `app/api_dashboard.py` | 1.3 | Módulo nuevo: series por plataforma y por campaña (+ 1.4, 1.5). |
 | `app/main.py` | 1.3 | Incluye el router `/api/dashboard`. |
-| `tests/test_optimizer_goals.py` | 1.2 | Tests de los 5 peldaños (se agregan; los de 2.4 no se tocan). |
+| `tests/test_optimizer_goals.py` | 1.2 | Tests de los 6 peldaños (se agregan; los de 2.4 no se tocan). |
 | `tests/test_api_dashboard.py` | 1.3 | Tests de series + superficie OpenAPI solo-GET + SQL pglast. |

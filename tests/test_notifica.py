@@ -242,6 +242,52 @@ def test_digest_con_inertes_muestra_saltadas():
     assert "entidades sin trafico (saltadas): 57" in texto
 
 
+def _resumen_target(aplicado=None, motivo=None, previo=None) -> dict:
+    """Resumen con bloque target (ORBIT 06 2.3): aplicado/motivo del ciclo
+    actual + aplicado del ciclo anterior."""
+    target = {
+        "procedencia": "margen_plataforma" if motivo is None else None,
+        "motivo_abstencion": motivo,
+        "margen_neto_pct": "40",
+        "fraccion": "0.5",
+        "target_derivado": "20",
+        "target_aplicado": aplicado,
+    }
+    resumen = {
+        "cycle_id": 3,
+        "plataforma": "amazon_us",
+        "status": "done",
+        "decisions_count": 5,
+        "target": target,
+    }
+    if previo is not None:
+        resumen["target_previo"] = previo
+    return resumen
+
+
+def test_digest_target_cambio_mayor_un_punto():
+    """Rojo (e): aplicado 21.5 vs previo 20 -> linea con ambos."""
+    texto = notifica.digest_ciclo(_resumen_target(aplicado="21.5", previo="20"))
+    assert "target margen amazon_us: 20 -> 21.5" in texto
+
+
+def test_digest_target_sin_cambio_no_menciona():
+    """Rojo (e): |21.5 - 21.2| < 1 y sin previo -> sin linea."""
+    texto = notifica.digest_ciclo(_resumen_target(aplicado="21.5", previo="21.2"))
+    assert "target margen" not in texto
+    assert "target margen" not in notifica.digest_ciclo(_resumen_target(aplicado="21.5"))
+    assert "target margen" not in notifica.digest_ciclo(
+        {"cycle_id": 3, "plataforma": "amazon_us", "status": "done", "decisions_count": 0}
+    )
+
+
+def test_digest_target_abstencion_con_motivo():
+    """Rojo (e): motivo presente -> linea con motivo y etiqueta ES."""
+    texto = notifica.digest_ciclo(_resumen_target(motivo="cobertura_baja", previo="20"))
+    assert "abstencion cobertura_baja" in texto
+    assert "cobertura" in texto
+
+
 def test_digest_contribucion_rango_invertido_no_usa_notacion_acotada():
     resumen = {
         "cycle_id": 12,
