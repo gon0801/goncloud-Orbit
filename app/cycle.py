@@ -468,6 +468,7 @@ _SQL_NOTAS_PREVIAS = """
 SELECT mode, status, notes
   FROM optimizer_cycle
  WHERE platform = %s::platform AND motor = 'ads_optimizer' AND id < %s
+   AND status = 'done'
  ORDER BY id DESC
  LIMIT 200
 """
@@ -1516,10 +1517,16 @@ def _resuelve_target_ciclo(
         ad_revenue_ventana = g.ratio_ads_publicable(
             suma_ads, n_monedas_ads, moneda_ads, medicion.moneda
         )
-    res = g.resuelve_target_margen(medicion, fraccion, hoy, ultimo)
+    res = g.resuelve_target_margen(medicion, fraccion, hoy, ultimo, setting_target)
     snapshot = {
         "procedencia": "margen_plataforma" if res.motivo is None else None,
         "motivo_abstencion": res.motivo,
+        # Cross-review kimi H1 / grok H2: con datos invalidos y ancla previa
+        # el peldano CONVERGE al setting a <=0.5/ciclo en vez de saltar. El
+        # valor sigue gobernando (aplicado no es None) pero ya no lo manda el
+        # margen: se declara aqui y el scan de `ultimo` NO lo toma como ancla
+        # de margen (procedencia None).
+        "convergiendo_a_setting": res.convergiendo,
         "margen_neto_pct": _dec_str(medicion.margen_neto_pct),
         "fraccion": _dec_str(fraccion),
         "cobertura": _dec_str(medicion.cobertura),

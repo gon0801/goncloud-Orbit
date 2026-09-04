@@ -550,11 +550,16 @@ class MedicionMargen:
 @dataclass(frozen=True)
 class ResolucionMargen:
     """Salida del resolver: aplicado (lo que entra a la cascada) + derivado
-    CRUDO (snapshot + linea fuera-de-banda) + motivo (None = aplica)."""
+    CRUDO (snapshot + linea fuera-de-banda) + motivo (None = aplica) +
+    convergiendo (cross-review kimi H1 / grok H2: con datos invalidos y un
+    ancla previa, el peldano NO se abstiene en seco — devuelve un aplicado
+    que camina hacia el setting a <=0.5/ciclo; el valor ya no lo manda el
+    margen y el snapshot lo declara)."""
 
     aplicado: Decimal | None
     derivado: Decimal | None
     motivo: str | None
+    convergiendo: bool = False
 
 
 def hoy_de_ventana(ventana_hasta: dt.date) -> dt.date:
@@ -638,6 +643,7 @@ def resuelve_target_margen(
     fraccion: Decimal | None,
     hoy: dt.date,
     ultimo: Decimal | None,
+    setting: Decimal | None = None,
 ) -> ResolucionMargen:
     """Resolver PURO del peldano (D-2.3.2: LA fuente; el ciclo lo llama UNA
     vez por plataforma y el dashboard no lo reimplementa). Primer match del
@@ -648,24 +654,54 @@ def resuelve_target_margen(
     Sin redondeos: Decimal exacto de punta a punta (la escala del snapshot
     es artefacto deterministico)."""
     fraccion = _valida_fraccion(fraccion)
-    if medicion.venta_cubierta is None or medicion.venta_cubierta <= 0:
-        return ResolucionMargen(None, None, "sin_margen")
-    if medicion.cobertura is None or medicion.cobertura < MARGEN_COBERTURA_MIN:
-        return ResolucionMargen(None, None, "cobertura_baja")
-    if medicion.dias_con_venta is None or medicion.dias_con_venta < MARGEN_DIAS_MIN:
-        return ResolucionMargen(None, None, "ventana_corta")
-    if medicion.margen_neto_pct is None:
-        return ResolucionMargen(None, None, "sin_margen")
+    # La fraccion AUSENTE es el interruptor de la fase: se apaga en seco, sin
+    # convergencia (es una decision humana deliberada y debe surtir efecto ya).
     if fraccion is None:
-        return ResolucionMargen(None, None, "sin_fraccion")
-    fresco = medicion.ledger_fresco_at
-    if fresco is None or fresco.date() < hoy - dt.timedelta(days=MARGEN_RANCIO_DIAS):
-        return ResolucionMargen(None, None, "ledger_rancio")
+        return ResolucionMargen(None, None, "sin_fraccion", False)
+    # `ultimo` es el ancla del paso. Se clampea a la banda ANTES de usarlo
+    # (cross-review kimi H4): si viene del setting manual y alguien dejo ahi
+    # un 50, el paso anclado a 50 produciria un aplicado de 49.5 y el clamp de
+    # banda quedaria anulado por el paso.
+    if ultimo is not None:
+        ultimo = min(max(ultimo, MARGEN_BANDA_MIN), MARGEN_BANDA_MAX)
+    motivo = _motivo_dato_invalido(medicion, hoy)
+    if motivo is not None:
+        # CROSS-REVIEW kimi H1 / grok H2 (ALTA): abstenerse por datos malos
+        # NO puede tirar el target al setting de un salto. Es el mismo
+        # precipicio que la adjudicacion A1 elimino para la banda, dejado
+        # intacto aqui: con el aplicado en 28 y el setting en 20, un cron de
+        # ledger caido bajaba el target 8 puntos en UN ciclo (umbral -12%
+        # de 32.2 a 23) -> recorte en masa de pujas reales; al recuperarse,
+        # latiguazo de vuelta. Ahora el peldano CONVERGE al setting a
+        # <=0.5/ciclo: sin salto de salida ni de re-entrada, y en pocos dias
+        # queda en el setting si el dato no vuelve. `retorno` marca que el
+        # valor ya no lo manda el margen (el snapshot lo declara).
+        if ultimo is None or setting is None or ultimo == setting:
+            return ResolucionMargen(None, None, motivo, False)
+        hacia = min(max(setting, ultimo - MARGEN_PASO_MAX), ultimo + MARGEN_PASO_MAX)
+        return ResolucionMargen(hacia, None, motivo, True)
     derivado = fraccion * medicion.margen_neto_pct
     # derivado se DEVUELVE crudo (snapshot + linea fuera-de-banda); el
     # clamp solo alimenta al aplicado (D-2.3.10).
     recortado = min(max(derivado, MARGEN_BANDA_MIN), MARGEN_BANDA_MAX)
     if ultimo is None:
-        return ResolucionMargen(recortado, derivado, None)
+        return ResolucionMargen(recortado, derivado, None, False)
     aplicado = min(max(recortado, ultimo - MARGEN_PASO_MAX), ultimo + MARGEN_PASO_MAX)
-    return ResolucionMargen(aplicado, derivado, None)
+    return ResolucionMargen(aplicado, derivado, None, False)
+
+
+def _motivo_dato_invalido(medicion: MedicionMargen, hoy: dt.date) -> str | None:
+    """Vocabulario cerrado de datos invalidos (orden D-2.3.11: dias ANTES de
+    margen-None porque la vista nulifica el margen ante dias cortos)."""
+    if medicion.venta_cubierta is None or medicion.venta_cubierta <= 0:
+        return "sin_margen"
+    if medicion.cobertura is None or medicion.cobertura < MARGEN_COBERTURA_MIN:
+        return "cobertura_baja"
+    if medicion.dias_con_venta is None or medicion.dias_con_venta < MARGEN_DIAS_MIN:
+        return "ventana_corta"
+    if medicion.margen_neto_pct is None:
+        return "sin_margen"
+    fresco = medicion.ledger_fresco_at
+    if fresco is None or fresco.date() < hoy - dt.timedelta(days=MARGEN_RANCIO_DIAS):
+        return "ledger_rancio"
+    return None

@@ -22,10 +22,16 @@ SQL_BASE = (RAIZ / "migrations" / "0001_initial.sql").read_text(encoding="utf-8"
 
 
 def _sql15() -> str:
-    """La migracion 0015 (lectura perezosa: sin ella, cada test de vista
-    falla en su fixture con FileNotFoundError en vez de romper la
-    coleccion del archivo)."""
-    return (RAIZ / "migrations" / "0015_target_margen_plataforma.sql").read_text(encoding="utf-8")
+    """Las migraciones de la vista, EN ORDEN: 0015 la crea y 0016 la reemplaza
+    con las correcciones de la cross-review (frescura desde la corrida de
+    ingesta; guard de cargo sin tipo en los tres kinds). Lectura perezosa: sin
+    ellas cada test de vista falla en su fixture con FileNotFoundError en vez
+    de romper la coleccion del archivo."""
+    return (
+        (RAIZ / "migrations" / "0015_target_margen_plataforma.sql").read_text(encoding="utf-8")
+        + "\n"
+        + (RAIZ / "migrations" / "0016_target_margen_correcciones.sql").read_text(encoding="utf-8")
+    )
 
 
 def _postgres_obligatorio_ausente() -> bool:
@@ -77,6 +83,14 @@ def _hoy(conn) -> dt.date:
 
 
 def _run(conn) -> int:
+    # La frescura de la vista sale de la corrida de ingesta del ledger
+    # (cross-review grok H5), asi que la semilla sella una corrida ok con esa
+    # fuente: sin ella la vista no tiene ledger_fresco_at y el resolver
+    # abstiene por ledger_rancio.
+    conn.execute(
+        "INSERT INTO ingest_run (source, finished_at, ok) VALUES"
+        " ('accounting_ledger_events', now(), true)"
+    )
     return conn.execute("INSERT INTO ingest_run (source) VALUES ('test') RETURNING id").fetchone()[
         0
     ]
@@ -799,3 +813,50 @@ def test_ancla_del_aviso_no_avanza_si_el_digest_no_se_envio():
         if enviado:
             target["ultimo_avisado"] = nuevo
     assert target["ultimo_avisado"] == "20.00", "digest no enviado -> ancla intacta"
+
+
+# ---------------------------------------------------------------------------
+# Cross-review de la implementacion (kimi + grok, 2026-09-04): regresiones
+# ---------------------------------------------------------------------------
+
+
+def test_abstencion_converge_al_setting_sin_precipicio():
+    """kimi H1 / grok H2 (ALTA): abstenerse por datos malos NO puede tirar el
+    target al setting de un salto. Con el aplicado en 28 y el setting en 20,
+    un ledger rancio bajaba 8 puntos en UN ciclo (umbral -12 % de 32.2 a 23):
+    recorte en masa de pujas reales por una falla de infraestructura, y
+    latiguazo de vuelta al recuperarse. Rojo contra el codigo previo:
+    devolvia aplicado None y la cascada caia al setting."""
+    from app.optimizer import goals as g
+
+    hoy = dt.date(2026, 9, 4)
+    rancia = _medicion(margen=Decimal("56"), fresco_hoy_menos=40)  # ledger_rancio
+    res = g.resuelve_target_margen(rancia, Decimal("0.5"), hoy, Decimal("28"), Decimal("20"))
+    assert res.motivo == "ledger_rancio"
+    assert res.convergiendo is True
+    assert res.aplicado == Decimal("27.5"), "camina 0.5 hacia el setting, no salta a 20"
+
+    # y al dia siguiente sigue caminando
+    res2 = g.resuelve_target_margen(rancia, Decimal("0.5"), hoy, Decimal("27.5"), Decimal("20"))
+    assert res2.aplicado == Decimal("27.0")
+
+    # cuando ya llego al setting, se abstiene de verdad (no hay nada que caminar)
+    res3 = g.resuelve_target_margen(rancia, Decimal("0.5"), hoy, Decimal("20"), Decimal("20"))
+    assert res3.aplicado is None and res3.convergiendo is False
+
+    # el interruptor (fraccion ausente) apaga en SECO: es decision humana
+    sana = _medicion(margen=Decimal("40"))
+    apagado = g.resuelve_target_margen(sana, None, hoy, Decimal("28"), Decimal("20"))
+    assert apagado.aplicado is None and apagado.motivo == "sin_fraccion"
+
+
+def test_ancla_fuera_de_banda_no_anula_el_clamp():
+    """kimi H4: `ultimo` puede venir del setting manual, que solo exige > 0.
+    Con setting 50, el paso anclado a 50 producia aplicado 49.5 y el clamp de
+    banda [10,45] quedaba anulado por el paso. Rojo contra el codigo previo."""
+    from app.optimizer import goals as g
+
+    sana = _medicion(margen=Decimal("36"))  # derivado 18
+    res = g.resuelve_target_margen(sana, Decimal("0.5"), dt.date(2026, 9, 4), Decimal("50"), None)
+    assert res.aplicado == Decimal("44.5"), "el ancla se clampea a 45 antes del paso"
+    assert res.aplicado <= g.MARGEN_BANDA_MAX
