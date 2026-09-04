@@ -174,11 +174,13 @@ _SQL_ABRIR_RUN = "INSERT INTO ingest_run (source) VALUES (%s) RETURNING id"
 # transaccion en curso). DO UPDATE solo toca `name`: parent_id, match_type y
 # keyword_text vuelven con el valor EXISTENTE, que es justo lo que hay que
 # comparar contra el payload (divergencia de inmutables = skip, jamas UPDATE;
-# hallazgo cross-review codex, ronda 3).
+# hallazgo cross-review codex, ronda 3). first_seen_at (BIDS 01 2.1) va SOLO
+# en el INSERT: el UPDATE ni la nombra, asi que el sync jamas la pisa.
 _SQL_UPSERT_ENTIDAD = """
     INSERT INTO ad_entity
-        (platform, kind, external_id, parent_id, name, match_type, keyword_text)
-    VALUES (%s, %s, %s, %s, %s, %s, %s)
+        (platform, kind, external_id, parent_id, name, match_type, keyword_text,
+         first_seen_at)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, now())
     ON CONFLICT (platform, kind, external_id) DO UPDATE SET name = EXCLUDED.name
     RETURNING id, parent_id, match_type, keyword_text, (xmax = 0) AS es_nueva
 """
