@@ -251,9 +251,10 @@ rm /tmp/accounting-snapshot.db
 docker exec -u 0 orbit-app-1 rm /tmp/accounting-snapshot.db
 ```
 
-Cadencia: **manual** por ahora (la fuente ya es diaria en contabilidad; los
-huecos medidos caben en el `nearest_prior` de 7 días). Re-correr es no-op
-por PK. Cron diario se propone cuando la 0.7 lo pida.
+Cadencia: **DIARIA desde ORBIT 06 2.2 (2026-09-04)** — `refresh_costos.sh`
+(07:30 UTC) corre `costs` + `fx` + `ledger` del MISMO snapshot, cada uno a
+su log (`costos.log`/`fx.log`/`ledger.log`), sin tumbarse entre si. Re-correr
+es no-op por PK.
 
 ## Ingesta del ledger desde contabilidad (ORBIT 06 0.6)
 
@@ -282,9 +283,14 @@ rm /tmp/accounting-snapshot.db
 docker exec -u 0 orbit-app-1 rm /tmp/accounting-snapshot.db
 ```
 
-Cadencia: **manual** por ahora. Re-correr es no-op por los tres índices de
-dedupe (`rows_written=0`, conflictos contados en `rows_skipped`). Alternativa
-sin reescribir DSN: correr desde el host contra el puerto publicado
+Cadencia: **DIARIA desde ORBIT 06 2.2 (2026-09-04)** — `refresh_costos.sh`
+(07:30 UTC) corre `costs` + `fx` + `ledger` del MISMO snapshot, cada uno a
+su log (`costos.log`/`fx.log`/`ledger.log`), sin tumbarse entre si.
+Re-correr es no-op por los tres índices de dedupe (`rows_written=0`,
+conflictos contados en `rows_skipped`). En el cron NO se reescribe el DSN:
+`app/db.py` ya mapea `@127.0.0.1:` → `@db:` con `ORBIT_PG_HOST`; el truco
+`-e ORBIT_DSN_INGEST=...` de arriba queda como alternativa manual.
+Alternativa sin reescribir DSN: correr desde el host contra el puerto publicado
 (`127.0.0.1:5432`) con `ORBIT_DSN_INGEST` del `.env`.
 
 ## Crons de Orbit (crontab de `gon`, ADITIVO)
@@ -305,6 +311,20 @@ El server está en UTC: estas horas SON UTC.
 la misma fuente que el CLI. Los de ingesta quedan como comentario en el
 crontab y como `ingest_run.source` (`amazon_ads_structure_v2` /
 `amazon_ads_reports_v3`).
+
+### Refresco diario contable 07:30 (ORBIT 06 2.2)
+
+La línea `30 7 * * * .../refresh_costos.sh` (que ya existía para costos)
+corre ahora los tres pipelines del MISMO snapshot, en este orden: `costs`,
+`fx`, `ledger` — cada uno a su log (`costos.log`/`fx.log`/`ledger.log`)
+más una línea resumen a stdout (llega a `costos.log`). Un pipeline caído
+NO tumba a los otros (cada uno sella su `ingest_run` ok/false); el exit
+final es != 0 si alguno falló. El script versionado vive en
+`tools/refresh_costos.sh` (la copia del server es la desplegada).
+07:30 UTC cae después del sync de accounting de las 06:30
+(`sync_ads_to_ledger.py`, :30 cada 6 h) y antes de los ciclos 08:40/08:41.
+Estreno 2026-09-04: costs run 74 ok no-op; fx run 75 ok +3 tasas (máx
+2026-09-02); ledger run 76 ok +217 eventos (8,041 → 8,258).
 
 ### Profundidad de la tirada diaria de métricas (sello 4.2)
 

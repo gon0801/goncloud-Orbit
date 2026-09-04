@@ -980,6 +980,28 @@ la ventana → 0 filas o falla (supuesto orders≈unidades; la vista no usa
 | 2.3 | **GLM — vista + peldaño + guardas + superficie** según el spec §3-§9: migración `0015_target_margen_plataforma.sql` (vista `v_target_margen_plataforma`, GRANT a los roles de lectura, COMMENT con la fórmula y el lag); setting `ads_target_fraccion_margen_<platform>`; peldaño `margen_plataforma` en `cascada_target_acos` Y `cascada_target_acos_con_procedencia` (equivalencia extendida); abstenciones con vocabulario cerrado; paso máximo desde `notes.target.aplicado` del último ciclo live; freeze `target_procedencia` + snapshot en `decision.inputs` y `notes.target`; `/salud` y digest (§9); `docs/DASHBOARD.md`, `docs/DATABASE.md`, `docs/APPLY.md` al día; SELECT de comparación sombra (§10.2) como `tools/compara_target_margen.py` read-only. Mismas reglas de proceso que BIDS 01 (prohibido tocar producción; decisiones ANTES del código; rojo antes del verde; 1 PR). `[tdd:required]` | Rojos contra master: (a) cascada con fracción presente y margen válido devuelve `margen_plataforma`; (b) cada motivo de abstención cae al setting (6 casos); (c) banda y paso máximo; (d) freeze lleva procedencia y snapshot; (e) replay golden intacto; (f) equivalencia motor↔dashboard con el peldaño; (g) vista: cobertura <95 % → NULL, mezcla de moneda → NULL, ventana exacta [D-105, D-15), `fee_type=ads` excluido; suite completa verde en CI; herramienta de comparación produce la tabla sobre la base de tests | 2.2 | cc:TODO |
 | 2.4 | **Lead — entrada** (spec §10): review + CodeRabbit (1 ronda), deploy con migración 0015 primero, **un ciclo sombra comparado** (tabla manual vs derivado con el SELECT en la evidencia), go literal del dueño, `config_version` nueva con `ads_target_fraccion_margen_*` = "0.5" (el interruptor), verificación del primer ciclo con procedencia `margen_plataforma` en `notes.target` y en el freeze, `/salud` y digest, AppFlowy. `[tdd:skip:ops]` | Evidencia: tabla sombra, go literal, `config_version` id, `SELECT` del primer ciclo con `target_procedencia = 'margen_plataforma'` y `target_aplicado` ≈ 20 MX / 18 US; AppFlowy Done | 2.3 | cc:TODO |
 
+### Decisiones de la 2.2 (antes del estreno, 2026-09-04)
+
+- **D-2.2.1 · Extender in-place, no hermano.** Un solo snapshot compartido
+  (la fila y el spec exigen el MISMO) y cero diff de crontab (disciplina
+  aditiva maxima: la linea 07:30 sigue byte-igual). El nombre historico se
+  conserva; el header declara los tres pipelines.
+- **D-2.2.2 · Sin rewrite de DSN en el cron.** `app/db.py` ya reescribe
+  `@127.0.0.1:` → `@db:` con `ORBIT_PG_HOST` (verificado en codigo y en
+  vivo: `costos.log` diario ok=True por `docker exec` plano). El truco
+  `-e ORBIT_DSN_INGEST=...sed...` del runbook de ledger queda como
+  alternativa manual, no se usa en el cron.
+- **D-2.2.3 · Aislamiento.** Cada pipeline corre con `||` + rc bajo
+  `set -e` (el `-e` no toca listas `||`); exit final != 0 si alguno fallo.
+  La fase de snapshot sigue bajo `set -e`: sin snapshot no hay corrida
+  honesta (no es "un pipeline caido", es infra compartida).
+- **D-2.2.4 · Logs.** Detalle por pipeline (`costos.log`/`fx.log`/
+  `ledger.log`) + una linea resumen por pipeline a stdout (llega a
+  `costos.log` por el redirect del cron, que no se toca).
+- **D-2.2.5 · DoD "las dos lineas".** Sin lineas nuevas de cron: la
+  evidencia muestra `crontab -l -u gon` con la linea 07:30 y la de
+  `sync_ads_to_ledger.py` (:30 c/6h), que prueban el orden exigido.
+
 ## Reject (con razón)
 
 - **Un solo número de margen por campaña.** Viola el sellado 5 y la decisión
