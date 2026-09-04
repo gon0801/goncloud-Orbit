@@ -17,6 +17,7 @@ importandolo de app.api (una sola implementacion, cero copias).
 from __future__ import annotations
 
 import json
+from decimal import Decimal, InvalidOperation
 
 
 def _dec_str(valor) -> str | None:
@@ -71,3 +72,83 @@ def _fila_ciclo(fila) -> dict:
         "status": fila[7],
         "notes": _parse_notes(fila[8]),
     }
+
+
+def bloque_target_margen(ultimo_ciclo: dict | None, hoy=None) -> dict:
+    """Bloque target del ULTIMO ciclo para /salud (ORBIT 06 2.3, spec §9):
+    target vigente + procedencia + margen medido + fraccion + cobertura por
+    monto + ventana + edad del ledger + ratio ads/venta (A7) + motivo con
+    etiqueta. Fuente UNICA: notes.target del ciclo (lo que el ciclo
+    resolvio, no una re-resolucion viva). Sin ciclo, sin notes o sin la
+    clave -> todo null (regla 3: lo ausente no se menciona ni revienta el
+    endpoint). `hoy` por parametro para tests puros (default: hoy UTC)."""
+    import datetime as dt
+
+    vacio = {
+        "target_vigente": None,
+        "procedencia": None,
+        "margen_neto_pct": None,
+        "fraccion": None,
+        "cobertura": None,
+        "ventana_desde": None,
+        "ventana_hasta": None,
+        "ledger_edad_dias": None,
+        "ratio_ads_venta": None,
+        "motivo_abstencion": None,
+        "motivo_etiqueta": None,
+    }
+    if not isinstance(ultimo_ciclo, dict):
+        return vacio
+    notes = ultimo_ciclo.get("notes")
+    if not isinstance(notes, dict):
+        return vacio
+    bloque = notes.get("target")
+    if not isinstance(bloque, dict):
+        return vacio
+    from app.optimizer import goals as g
+
+    motivo = bloque.get("motivo_abstencion")
+    fresco = bloque.get("ledger_fresco_at")
+    edad = None
+    if isinstance(fresco, str) and fresco:
+        try:
+            dia = dt.datetime.fromisoformat(fresco).date()
+            ref = hoy if hoy is not None else dt.datetime.now(dt.UTC).date()
+            edad = (ref - dia).days
+        except ValueError:
+            edad = None
+    # Vigente = el resultado DEL PELDANO a nivel plataforma: el aplicado
+    # si gano, null si se abstuvo (la cascada por entidad puede haber usado
+    # el setting o un goal: eso vive en inputs, no aqui; regla 3).
+    # ratio_ads_venta (A7, D-2.3.15): ad_revenue de la ventana sobre la
+    # venta total (denominadores distintos a la vista: se vigila, no se
+    # corrige); None si falta un lado o la venta es 0.
+    ratio = _ratio_ads_venta(bloque.get("ad_revenue_ventana"), bloque.get("venta_total"))
+    return {
+        "target_vigente": bloque.get("target_aplicado"),
+        "procedencia": bloque.get("procedencia"),
+        "margen_neto_pct": bloque.get("margen_neto_pct"),
+        "fraccion": bloque.get("fraccion"),
+        "cobertura": bloque.get("cobertura"),
+        "ventana_desde": bloque.get("ventana_desde"),
+        "ventana_hasta": bloque.get("ventana_hasta"),
+        "ledger_edad_dias": edad,
+        "ratio_ads_venta": ratio,
+        "motivo_abstencion": motivo,
+        "motivo_etiqueta": g.ETIQUETA_ABSTENCION.get(motivo, motivo) if motivo else None,
+    }
+
+
+def _ratio_ads_venta(ad_revenue, venta_total):
+    """ad_revenue_ventana / venta_total en Decimal (strings del freeze);
+    ausentes, ilegibles o venta 0 -> None (regla 3)."""
+    if ad_revenue is None or venta_total is None:
+        return None
+    try:
+        numerador = Decimal(str(ad_revenue))
+        denominador = Decimal(str(venta_total))
+        if denominador == 0:
+            return None
+        return numerador / denominador
+    except (InvalidOperation, ValueError, ArithmeticError):
+        return None

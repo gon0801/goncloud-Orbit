@@ -62,6 +62,12 @@ SQL13 = (Path(__file__).resolve().parents[1] / "migrations" / "0013_entidad_iner
     encoding="utf-8"
 )
 
+# ORBIT 06 (2.3): el ciclo lee v_target_margen_plataforma UNA vez por ciclo
+# en TX2 — sin esta migracion TODO ciclo revienta con UndefinedTable.
+SQL15 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0015_target_margen_plataforma.sql"
+).read_text(encoding="utf-8")
+
 # ---------------------------------------------------------------------------
 # Reloj FIJO y ventanas derivadas (mismas constantes que test_optimizer_windows)
 # ---------------------------------------------------------------------------
@@ -132,6 +138,8 @@ def _db_temporal(prefijo: str):
         # BIDS 01 (1.2): la guarda entidad_inerte lee v_entidad_inerte en
         # TX2 — sin esta migracion TODO ciclo revienta con UndefinedTable.
         conn.execute(SQL13)
+        # ORBIT 06 (2.3): el peldano margen_plataforma lee su vista en TX2.
+        conn.execute(SQL15)
         yield conn, conectar_extra
     finally:
         if conn is not None:
@@ -1298,6 +1306,11 @@ _SQL_CYCLE = (
     "_SQL_OWNER_LOCK",
     "_SQL_SELLA_APPLY",
     "_SQL_APPLIED_COUNT_CICLO",
+    # ORBIT 06 2.3: el peldano lee su vista + las notas previas en TX2.
+    "_SQL_TARGET_MARGEN",
+    "_SQL_NOTAS_PREVIAS",
+    # ORBIT 06 2.3 segunda vuelta: ad revenue de la ventana (ratio A7).
+    "_SQL_AD_REVENUE_VENTANA",
 )
 
 
@@ -2519,3 +2532,220 @@ def test_veto_pendiente_cuenta_el_ancestro_no_enabled():
         assert "veto_pendiente" not in skips["entidad"]
         assert skips["termino"]["campana_no_enabled"] == n_terminos  # TODOS, incluido el bloqueado
         assert "veto_pendiente" not in skips["termino"]
+
+
+# ---------------------------------------------------------------------------
+# ORBIT 06 2.3 - freeze del peldano margen_plataforma (rojo d)
+# ---------------------------------------------------------------------------
+
+
+def _goal_plataforma_sin_target(conn) -> int:
+    """Goal de plataforma habilitado SIN target: el peldano margen puede ganar."""
+    return conn.execute(
+        "INSERT INTO ads_optimizer_goal (scope, platform, target_acos_pct, bid_floor,"
+        " bid_ceiling, bid_currency, harvest_campaign_id, harvest_ad_group_id,"
+        " harvest_default_bid, enabled, mode)"
+        " VALUES ('platform', 'amazon_us', NULL, 0.40, 2.50, 'USD', '9002', '9102',"
+        " 0.75, true, 'live') RETURNING id"
+    ).fetchone()[0]
+
+
+def _siembra_ledger_feliz(conn, hoy: dt.date) -> None:
+    """Ledger feliz relativo a hoy (vista 0015): 70 ventas x100 con costo 50
+    + 7 fees x-100 + 1 fee ads: margen 40, cobertura 1, dias 70."""
+    run = _run(conn)
+    prod = conn.execute(
+        "INSERT INTO product (odoo_sku, name) VALUES ('PM1', 'PM1') RETURNING id"
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO sku_cost (product_id, cost_amount, cost_currency, includes_tax,"
+        " valid_from) VALUES (%s, 50, 'MXN', true, %s)",
+        (prod, hoy - dt.timedelta(days=200)),
+    )
+    for i in range(70):
+        conn.execute(
+            "INSERT INTO ledger_event (platform, kind, event_date, product_id, quantity,"
+            " amount, amount_currency, ingest_run_id)"
+            " VALUES ('amazon_us', 'sale', %s, %s, 1, 100, 'MXN', %s)",
+            (hoy - dt.timedelta(days=100 - i), prod, run),
+        )
+    for i in range(7):
+        conn.execute(
+            "INSERT INTO ledger_event (platform, kind, event_date, amount,"
+            " amount_currency, fee_type, ingest_run_id)"
+            " VALUES ('amazon_us', 'fee', %s, -100, 'MXN', 'closing', %s)",
+            (hoy - dt.timedelta(days=90 - i), run),
+        )
+    conn.execute(
+        "INSERT INTO ledger_event (platform, kind, event_date, amount,"
+        " amount_currency, fee_type, ingest_run_id)"
+        " VALUES ('amazon_us', 'fee', %s, -9999, 'MXN', 'ads', %s)",
+        (hoy - dt.timedelta(days=50), run),
+    )
+
+
+def _siembra_margen(conn, *, con_ledger: bool = True) -> dict:
+    """Mundo minimo donde el peldano gana: config con manual 30 + fraccion
+    0.5, goal de plataforma SIN target, una keyword con metricas de bid.
+    Primer ciclo: ultimo = setting 30, derivado 20 -> aplicado 29.5."""
+    run_id = _run(conn)
+    config_id = _config_version(
+        conn,
+        {
+            "ads_optimizer_mode": "shadow",
+            "ads_target_acos_pct_amazon_us": 30,
+            "ads_target_fraccion_margen_amazon_us": "0.5",
+        },
+    )
+    _goal_plataforma_sin_target(conn)
+    camp = _entidad(conn, "amazon_us", "campaign", "9301")
+    ag = _entidad(conn, "amazon_us", "ad_group", "9302", parent=camp)
+    kw = _entidad(
+        conn,
+        "amazon_us",
+        "keyword",
+        "9303",
+        parent=ag,
+        match_type="EXACT",
+        keyword_text="kw margen",
+    )
+    synced = DECIDED_AT - dt.timedelta(hours=4)
+    _estado(conn, kw, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
+    _estado(conn, ag, synced_at=synced)
+    _estado(conn, camp, synced_at=synced)
+    _siembra_kw_bid(conn, run_id, kw)
+    if con_ledger:
+        hoy = conn.execute("SELECT CURRENT_DATE").fetchone()[0]
+        _siembra_ledger_feliz(conn, hoy)
+    return {"config_id": config_id, "kw": kw, "camp": camp}
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_freeze_margen_gana_con_procedencia_y_snapshot():
+    """Rojo (d): el peldano gana (aplicado 29.5): inputs con procedencia +
+    snapshot, notes.target con aplicado, y reproduce() intacto."""
+    from app.optimizer.replay import reproduce
+
+    with _db_temporal("orbit_c_margen") as (conn, _c):
+        _siembra_margen(conn)
+        res = _corre(conn)
+        assert res.status == "done", res.notes
+        target = json.loads(res.notes)["target"]
+        assert target["procedencia"] == "margen_plataforma"
+        assert target["motivo_abstencion"] is None
+        # D-2.3.2: Decimal exacto sin redondeos; la escala del snapshot es
+        # artefacto deterministico del NUMERIC de la vista -> estos dos se
+        # comparan numericos, no como string (20.000...0 == 20).
+        assert Decimal(target["target_derivado"]) == 20
+        assert target["target_aplicado"] == "29.5"
+        assert Decimal(target["margen_neto_pct"]) == 40
+        bids = [d for d in _decisions_de(conn, res.cycle_id) if d[1] == "bid"]
+        assert len(bids) == 1
+        inputs = bids[0][9]
+        assert inputs["target_acos_pct_usado"] == "29.5"
+        assert inputs["target_procedencia"] == "margen_plataforma"
+        assert Decimal(inputs["target_snapshot"]["margen_neto_pct"]) == 40
+        assert inputs["target_snapshot"]["target_aplicado"] == "29.5"
+        assert reproduce(inputs) == (bids[0][1], bids[0][4], bids[0][5])
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_freeze_margen_abstencion_sin_ledger():
+    """Rojo (d): sin filas de ledger -> sin_margen: las entidades caen al
+    setting (procedencia setting, sin snapshot) y notes.target lo declara."""
+    with _db_temporal("orbit_c_margen_abs") as (conn, _c):
+        _siembra_margen(conn, con_ledger=False)
+        res = _corre(conn)
+        assert res.status == "done", res.notes
+        target = json.loads(res.notes)["target"]
+        assert target["procedencia"] is None
+        assert target["motivo_abstencion"] == "sin_margen"
+        assert target["target_aplicado"] is None
+        bids = [d for d in _decisions_de(conn, res.cycle_id) if d[1] == "bid"]
+        assert len(bids) == 1
+        inputs = bids[0][9]
+        assert inputs["target_acos_pct_usado"] == "30"
+        assert inputs["target_procedencia"] == "setting_plataforma"
+        assert "target_snapshot" not in inputs
+
+
+def _goal_campana_sin_target(conn, camp_id: int) -> int:
+    """Goal de campana habilitado SIN target (espejo de prod 6/7: solo
+    floor/ceiling): bloquea goal_plataforma pero NO al peldano margen."""
+    return conn.execute(
+        "INSERT INTO ads_optimizer_goal (scope, ad_entity_id, target_acos_pct, bid_floor,"
+        " bid_ceiling, bid_currency, harvest_campaign_id, harvest_ad_group_id,"
+        " harvest_default_bid, enabled, mode)"
+        " VALUES ('campaign', %s, NULL, 0.40, 2.50, 'USD', '9002', '9102',"
+        " 0.75, true, 'live') RETURNING id",
+        (camp_id,),
+    ).fetchone()[0]
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_peldano_gana_con_goal_campana_sin_target():
+    """Rojo (h, A2): con goal de campana NULL (prod 6/7), el peldano gana
+    igual: procedencia margen_plataforma y aplicado 29.5 en freeze y notes."""
+    with _db_temporal("orbit_c_margen_camp") as (conn, _c):
+        mundo = _siembra_margen(conn, con_ledger=False)
+        _goal_campana_sin_target(conn, mundo["camp"])
+        hoy = conn.execute("SELECT CURRENT_DATE").fetchone()[0]
+        _siembra_ledger_feliz(conn, hoy)
+        res = _corre(conn)
+        assert res.status == "done", res.notes
+        target = json.loads(res.notes)["target"]
+        assert target["procedencia"] == "margen_plataforma"
+        assert target["target_aplicado"] == "29.5"
+        bids = [d for d in _decisions_de(conn, res.cycle_id) if d[1] == "bid"]
+        assert len(bids) == 1
+        assert bids[0][9]["target_procedencia"] == "margen_plataforma"
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ancla_ultimo_avisado_se_lee_y_persiste():
+    """Rojo (h, D-2.3.14): primer ciclo sin ancla -> avisa y persiste
+    ultimo_avisado = aplicado; segundo ciclo sin deriva -> el ancla NO
+    avanza (el acumulado manda, no el previo)."""
+    with _db_temporal("orbit_c_ancla") as (conn, _c):
+        _siembra_margen(conn)
+        res1 = _corre(conn)
+        assert res1.status == "done", res1.notes
+        assert json.loads(res1.notes)["target"]["ultimo_avisado"] == "29.5"
+        res2 = _corre(conn)
+        assert res2.status == "done", res2.notes
+        assert json.loads(res2.notes)["target"]["ultimo_avisado"] == "29.5"
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_replay_ignora_la_vista():
+    """Rojo (h): reproduce() sobre inputs persistidos devuelve EXACTO lo
+    decidido aunque la vista este VACIA (segunda base sin una sola fila de
+    ledger; el DELETE esta prohibido: ledger append-only). El replay no
+    recibe conexion por construccion: este test lo sella contra un replay
+    futuro que lea margen vivo (ahi no habria filas que leer)."""
+    from app.optimizer.replay import reproduce
+
+    with _db_temporal("orbit_c_replay_vista") as (conn, _c):
+        _siembra_margen(conn)
+        res = _corre(conn)
+        assert res.status == "done", res.notes
+        bids = [d for d in _decisions_de(conn, res.cycle_id) if d[1] == "bid"]
+        assert len(bids) == 1
+        inputs, esperado = bids[0][9], (bids[0][1], bids[0][4], bids[0][5])
+    with _db_temporal("orbit_c_replay_vacia") as (_conn2, _c2):
+        assert reproduce(inputs) == esperado

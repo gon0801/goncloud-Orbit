@@ -290,12 +290,16 @@ manda para la implementación; este párrafo es el spec delta sellado:
   de la plataforma (ledger, 90 días maduros `[D-105, D-15)`, cargos sin
   `fee_type = ads`, COGS a la fecha, misma moneda, cobertura ≥ 95 %), con
   `fraccion` en `ads_target_fraccion_margen_<platform>` (dueño: **«La mitad
-  (utilidad)»** = 0.5 → ≈ 20 MX / ≈ 18 US). Señal ausente, rancia (> 3 días),
-  corta (< 60 días con venta), con cobertura baja o fuera de la banda
-  [10, 45] → el peldaño **se abstiene** y la cascada sigue al setting; jamás
-  cero (regla 3). Paso máximo 0.5 puntos por ciclo. Requisito literal del
-  dueño: «se va a ir ajustando automaticamente» → ledger y FX en cron
-  diario. `v_contribucion_entidad` (por palabra) sigue NO decisoria.
+  (utilidad)»** = 0.5 → ≈ 20 MX / ≈ 18 US; ausente = interruptor, presente
+  e inválida = ValueError). Señal ausente, rancia (> 3 días), corta (< 60
+  días con venta), con cobertura por monto baja, moneda mezclada o cargo
+  sin clasificar → el peldaño **se abstiene** y la cascada sigue al
+  setting; jamás cero (regla 3). El derivado fuera de la banda [10, 45]
+  NO abstiene: **clampea** al extremo (más paso máximo 0.5 puntos por
+  ciclo). Margen sobre venta CUBIERTA con cargos de plataforma prorrateados
+  (cross-review §10.bis del spec, 2026-09-04). Requisito literal del dueño:
+  «se va a ir ajustando automaticamente» → ledger y FX en cron diario.
+  `v_contribucion_entidad` (por palabra) sigue NO decisoria.
   Spec: `docs/superpowers/specs/2026-09-03-target-margen-plataforma-design.md`.
 - **Módulo nuevo** `app/api_dashboard.py` desde el inicio; helpers de
   `app/api.py` extraídos a `app/api_common.py` (nunca dos copias).

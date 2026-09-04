@@ -66,6 +66,7 @@ from app.api_common import (
     _dec_str,
     _fila_ciclo,
     _parse_notes,
+    bloque_target_margen,
 )
 from app.apply import KINDS_QUOTA, estado_quota
 from app.dashboard_contribucion import contribucion_campanas as _contribucion_campanas
@@ -780,6 +781,7 @@ def salud(conn: ConexionLectura) -> dict:
             "historico_14d": [_fila_historico(fila) for fila in historico],
             "skips": _skips_de(ultimo),
             "quota": _quota_de(conn, plataforma),
+            "target_margen": bloque_target_margen(ultimo),
         }
     return {"plataformas": plataformas}
 

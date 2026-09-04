@@ -242,6 +242,89 @@ def test_digest_con_inertes_muestra_saltadas():
     assert "entidades sin trafico (saltadas): 57" in texto
 
 
+def _resumen_target(aplicado=None, motivo=None, ancla=None, derivado="20") -> dict:
+    """Resumen con bloque target (ORBIT 06 2.3 segunda vuelta): aplicado /
+    motivo / derivado del ciclo actual + ancla del ultimo aviso emitido
+    (ultimo_avisado; ausente = primera vez)."""
+    target = {
+        "procedencia": "margen_plataforma" if motivo is None else None,
+        "motivo_abstencion": motivo,
+        "margen_neto_pct": "40",
+        "fraccion": "0.5",
+        "target_derivado": derivado,
+        "target_aplicado": aplicado,
+    }
+    resumen = {
+        "cycle_id": 3,
+        "plataforma": "amazon_us",
+        "status": "done",
+        "decisions_count": 5,
+        "target": target,
+    }
+    if ancla is not None:
+        resumen["target_ancla"] = ancla
+    return resumen
+
+
+def test_decide_aviso_target_logica_unica():
+    """Rojo (h, D-2.3.14): sin ancla se avisa; |aplicado - ancla| >= 1
+    avisa y avanza el ancla; < 1 no avisa y el ancla NO avanza; sin
+    aplicado (abstencion) nunca avisa ni avanza."""
+    from app.notifica import decide_aviso_target
+
+    assert decide_aviso_target(Decimal("20"), None) == (True, "20")
+    assert decide_aviso_target(Decimal("21.5"), "20") == (True, "21.5")
+    assert decide_aviso_target(Decimal("20.4"), "20") == (False, "20")
+    assert decide_aviso_target(None, "20") == (False, "20")
+    assert decide_aviso_target(None, None) == (False, None)
+
+
+def test_digest_target_acumulado_emite_y_repite_no():
+    """Rojo (h, A8): aplicado 20.4 con ancla 20 -> silencio (el paso 0.5
+    jamas dispara solo); con ancla 19.2 -> linea (acumulado 1.2)."""
+    assert "target margen" not in notifica.digest_ciclo(
+        _resumen_target(aplicado="20.4", ancla="20")
+    )
+    texto = notifica.digest_ciclo(_resumen_target(aplicado="20.4", ancla="19.2"))
+    assert "target margen amazon_us: 19.2 -> 20.4" in texto
+
+
+def test_digest_target_primera_vez_avisa():
+    """Rojo (h): sin ancla (primera linea) el aplicado sale aunque no haya
+    contra que comparar."""
+    texto = notifica.digest_ciclo(_resumen_target(aplicado="29.5"))
+    assert "target margen amazon_us: 29.5 (primer aviso)" in texto
+
+
+def test_digest_target_sin_bloque_no_menciona():
+    """Rojo (e): sin bloque target no hay linea (regla 3)."""
+    assert "target margen" not in notifica.digest_ciclo(
+        {"cycle_id": 3, "plataforma": "amazon_us", "status": "done", "decisions_count": 0}
+    )
+
+
+def test_digest_target_abstencion_con_motivo():
+    """Rojo (e): motivo presente -> linea con motivo y etiqueta ES (el
+    ancla no importa)."""
+    texto = notifica.digest_ciclo(_resumen_target(motivo="cobertura_baja", ancla="20"))
+    assert "abstencion cobertura_baja" in texto
+    assert "cobertura" in texto
+
+
+def test_digest_derivado_fuera_de_banda():
+    """Rojo (h, D-2.3.10): derivado 45.2 con aplicado 45 -> linea con el
+    crudo; derivado en banda -> silencio; sin derivado -> silencio."""
+    texto = notifica.digest_ciclo(_resumen_target(aplicado="45", derivado="45.2", ancla="45"))
+    assert "derivado 45.2 fuera de banda" in texto
+    assert "aplicado 45" in texto
+    assert "fuera de banda" not in notifica.digest_ciclo(
+        _resumen_target(aplicado="20", derivado="20", ancla="20")
+    )
+    assert "fuera de banda" not in notifica.digest_ciclo(
+        _resumen_target(motivo="sin_margen", ancla="20")
+    )
+
+
 def test_digest_contribucion_rango_invertido_no_usa_notacion_acotada():
     resumen = {
         "cycle_id": 12,

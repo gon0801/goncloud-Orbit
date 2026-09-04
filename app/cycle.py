@@ -183,6 +183,7 @@ from decimal import Decimal
 import httpx
 import psycopg
 from psycopg.conninfo import make_conninfo
+from psycopg.rows import dict_row
 from psycopg.types.json import Json
 
 from app import apply, apply_cola, apply_harvest, notifica
@@ -426,6 +427,51 @@ _SQL_INERTES = """
 SELECT id FROM v_entidad_inerte WHERE platform = %s::platform
 """
 
+# ORBIT 06 2.3: medicion del margen, UNA fila por plataforma (la vista SOLO
+# MIDE; la resolucion es goals.resuelve_target_margen en Python).
+_SQL_TARGET_MARGEN = """
+SELECT platform, ventana_desde, ventana_hasta, venta_total, venta_cubierta,
+       cargos_con_orden, cargos_sin_orden, cogs, cobertura, dias_con_venta,
+       fees_sin_tipo, margen_neto_pct, ledger_fresco_at, moneda
+  FROM v_target_margen_plataforma
+ WHERE platform = %s::platform
+"""
+
+# Ad revenue de la ventana del margen (A7, D-2.3.15): SUM sobre
+# v_metric_latest al grano keyword+product_target (el mismo grano
+# anti-duplicado de v_tacos: las filas campaign repiten el dinero) con los
+# bounds DE LA FILA de la vista, nunca recalculados. Sin filas -> NULL
+# (regla 3: el ratio no se inventa).
+# Revision del PR #147 (CodeRabbit Major): el ratio ad_revenue/venta_total
+# es un MEDIDOR del supuesto A7 y sus dos puntas venian de fuentes con
+# MONEDA DISTINTA -- las metricas de amazon_us estan en USD y su ledger en
+# MXN (medido 2026-09-04: 29,236 USD contra 394,406 MXN), asi que el ratio
+# salia ~18x mal. Se devuelve tambien la moneda de las metricas: el lector
+# solo publica el ratio cuando coincide con la del ledger (regla 4: dinero
+# con su moneda, jamas mezclado; convertir aqui exigiria FX y este numero
+# es de vigilancia, no de decision).
+_SQL_AD_REVENUE_VENTANA = """
+SELECT SUM(m.ad_revenue), COUNT(DISTINCT m.metric_currency), MAX(m.metric_currency::text)
+  FROM v_metric_latest m
+  JOIN ad_entity e ON e.id = m.ad_entity_id
+ WHERE e.platform = %s::platform
+   AND e.kind IN ('keyword', 'product_target')
+   AND m.metric_date >= %s AND m.metric_date < %s
+"""
+
+# Notas de ciclos previos (misma plataforma+motor, anteriores al actual):
+# el paso maximo lee notes.target.aplicado del ultimo live done con el
+# peldano ganado; el digest compara contra el ciclo inmediatamente anterior.
+# LIMIT acotado: el scan a Python es barato y las notes viejas no tienen la
+# clave (regla 3: ausente = no hay ancla).
+_SQL_NOTAS_PREVIAS = """
+SELECT mode, status, notes
+  FROM optimizer_cycle
+ WHERE platform = %s::platform AND motor = 'ads_optimizer' AND id < %s
+ ORDER BY id DESC
+ LIMIT 200
+"""
+
 # Ad groups con SU campaña y state: son las entidades que portean terminos.
 _SQL_GRUPOS = """
 SELECT ag.id, ag.parent_id AS campaign_id, s.status, sc.status AS status_campana
@@ -635,6 +681,8 @@ def _pendiente_bid(
     goal: g.Goal,
     ventanas: windows.VentanasEntidad,
     target: Decimal,
+    procedencia: str,
+    snapshot: dict | None,
     bid_actual: Decimal | None,
     bid_moneda: str | None,
     decided_at: dt.datetime,
@@ -667,6 +715,10 @@ def _pendiente_bid(
         },
         "goal": _goal_json(goal, PLATAFORMAS_MONEDA[platform]),
         "target_acos_pct_usado": _dec_str(target),
+        # ORBIT 06 2.3: peldano ganador + snapshot SOLO si gana el margen
+        # (replay no lee estas claves: reproduce() intacto).
+        "target_procedencia": procedencia,
+        **({"target_snapshot": snapshot} if snapshot is not None else {}),
         "bid_actual": _dec_str(bid_actual),
         "bid_moneda": bid_moneda,
         "factor": _dec_str(resultado.factor),
@@ -707,6 +759,8 @@ def _pendiente_termino(
     goal: g.Goal,
     terminos: windows.TerminosCortes,
     target: Decimal,
+    procedencia: str,
+    snapshot: dict | None,
     decided_at: dt.datetime,
     corte: cortes.UmbralResuelto | None = None,
     evidencia: windows.EvidenciaAdGroup | None = None,
@@ -741,6 +795,9 @@ def _pendiente_termino(
         },
         "goal": _goal_json(goal, PLATAFORMAS_MONEDA[platform]),
         "target_acos_pct_usado": _dec_str(target),
+        # ORBIT 06 2.3: peldano ganador + snapshot SOLO si gana el margen.
+        "target_procedencia": procedencia,
+        **({"target_snapshot": snapshot} if snapshot is not None else {}),
         "motivo": resultado.motivo,
         "modo": modo,
     }
@@ -769,6 +826,7 @@ def _notas_cuerpo(
     degradacion_live: str | None,
     motivo_skip: str | None,
     detalle: str | None,
+    target: dict | None = None,
 ) -> dict:
     cuerpo = {
         "skips": {
@@ -782,6 +840,10 @@ def _notas_cuerpo(
         "ciclos_muertos": ciclos_muertos,
         "degradacion_live": degradacion_live,
     }
+    # ORBIT 06 2.3: snapshot del peldano a nivel ciclo (siempre que el
+    # recorrido corrio; los ciclos muertos/saltados no lo llevan, regla 3).
+    if target is not None:
+        cuerpo["target"] = target
     if motivo_skip is not None:
         cuerpo["motivo_skip"] = motivo_skip
         cuerpo["detalle"] = detalle
@@ -1147,6 +1209,8 @@ def _procesa_decisora(
     corte_pause_por_grupo: dict[int, tuple[cortes.UmbralResuelto, windows.EvidenciaAdGroup | None]],
     bloqueadas: set[tuple[int, str, str | None]],
     inertes: set[int],
+    margen_plataforma: Decimal | None,
+    snapshot_margen: dict,
 ) -> None:
     (
         entidad_id,
@@ -1206,7 +1270,14 @@ def _procesa_decisora(
         corte_pause_por_grupo[ad_group_id] = (cortes.umbral_corte(evidencia, "pause"), evidencia)
     corte_pause, evidencia = corte_pause_por_grupo[ad_group_id]
     ventanas = windows.ventanas_entidad(conn, entidad_id, decided_at)
-    target = g.cascada_target_acos(goal.target_acos_pct, setting_target, acos_cache)
+    # ORBIT 06 2.3: el peldano entra a la cascada del motor; la procedencia
+    # sale del mismo nucleo (peldano_target_acos) para el freeze.
+    target = g.cascada_target_acos(
+        goal.target_acos_pct, setting_target, acos_cache, margen_plataforma, goal.scope
+    )
+    procedencia = g.peldano_target_acos(
+        goal.target_acos_pct, goal.scope, margen_plataforma, setting_target, acos_cache
+    )
     floor, ceiling = g.resuelve_floor_ceiling(goal, PLATAFORMAS_MONEDA[platform])
     costo_piso = bid.PAUSE_COST_MIN[platform]
     resultado = bid.decide_bid(
@@ -1238,6 +1309,8 @@ def _procesa_decisora(
             goal=goal,
             ventanas=ventanas,
             target=target,
+            procedencia=procedencia,
+            snapshot=(snapshot_margen if procedencia == "margen_plataforma" else None),
             bid_actual=current_bid,
             bid_moneda=bid_currency,
             decided_at=decided_at,
@@ -1264,6 +1337,8 @@ def _procesa_grupo(
     tick,
     evidencia_ad_groups: dict[int, windows.EvidenciaAdGroup],
     bloqueadas: set[tuple[int, str, str | None]],
+    margen_plataforma: Decimal | None,
+    snapshot_margen: dict,
 ) -> None:
     grupo_id, campaign_id, status, status_campana = fila
     terminos = windows.terminos_cortes(conn, grupo_id, decided_at)
@@ -1305,7 +1380,12 @@ def _procesa_grupo(
     corte_negativo = cortes.umbral_corte(evidencia, "negative")
     piso_neg = cortes.piso_corte(evidencia, platform)
     cache_campana = acos_campanas.get(campaign_id)
-    target = g.cascada_target_acos(goal.target_acos_pct, setting_target, cache_campana)
+    target = g.cascada_target_acos(
+        goal.target_acos_pct, setting_target, cache_campana, margen_plataforma, goal.scope
+    )
+    procedencia = g.peldano_target_acos(
+        goal.target_acos_pct, goal.scope, margen_plataforma, setting_target, cache_campana
+    )
     config_harvest, keywords = _config_harvest_de(conn, goal, platform)
     resultados = hygiene.decide_hygiene(
         platform=platform,
@@ -1331,6 +1411,8 @@ def _procesa_grupo(
                 goal=goal,
                 terminos=terminos,
                 target=target,
+                procedencia=procedencia,
+                snapshot=(snapshot_margen if procedencia == "margen_plataforma" else None),
                 decided_at=decided_at,
                 # el freeze SOLO en decisiones que consultan umbral de
                 # clicks: negative (las harvest NO llevan inputs.corte)
@@ -1340,6 +1422,119 @@ def _procesa_grupo(
             )
         )
         contadores.decisiones[resultado.kind] += 1
+
+
+@dataclass(frozen=True)
+class _TargetCiclo:
+    """El peldano a nivel ciclo (ORBIT 06 2.3, calculado UNA vez en TX2):
+    valor que entra a las cascadas + snapshot para el freeze y notes.target
+    + ancla del ultimo aviso del digest (ultimo_avisado, D-2.3.14)."""
+
+    margen: Decimal | None
+    snapshot: dict
+    ancla: str | None
+
+
+def _target_de_notas(notes) -> dict | None:
+    """notes.target de un ciclo previo, o None (TEXT no-JSON, no-dict o sin
+    la clave: regla 3, lo ausente no se menciona ni rompe el scan)."""
+    if not isinstance(notes, str):
+        return None
+    try:
+        cuerpo = json.loads(notes)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(cuerpo, dict):
+        return None
+    target = cuerpo.get("target")
+    return target if isinstance(target, dict) else None
+
+
+def _resuelve_target_ciclo(
+    conn: psycopg.Connection,
+    *,
+    platform: str,
+    settings: dict,
+    setting_target: Decimal | None,
+    cycle_id: int,
+    decided_at: dt.datetime,
+) -> _TargetCiclo:
+    """Lee la vista + notes previas (mismo snapshot TX2) y resuelve el
+    peldano con goals.resuelve_target_margen (D-2.3.2: UNA vez por ciclo).
+    Sin fila en la vista (ledger vacio) = medicion en nulls con ventana de
+    decided_at -> abstencion sin_margen. `ultimo` = aplicado del ultimo live
+    done con el peldano ganado (fail-closed ruidoso si esta corrupto: lo
+    escribimos nosotros) -> setting -> sin ancla. `ancla` = ultimo_avisado
+    mas reciente (el acumulado del digest, D-2.3.14; ausente = primera vez
+    y se avisa)."""
+    with conn.cursor(row_factory=dict_row) as cur:
+        fila = cur.execute(_SQL_TARGET_MARGEN, (platform,)).fetchone()
+    previas = conn.execute(_SQL_NOTAS_PREVIAS, (platform, cycle_id)).fetchall()
+    ultimo: Decimal | None = None
+    ancla: str | None = None
+    for mode, status, notes in previas:
+        target = _target_de_notas(notes)
+        if target is None:
+            continue
+        if ancla is None and target.get("ultimo_avisado") is not None:
+            ancla = target["ultimo_avisado"]
+        if (
+            ultimo is None
+            and mode == "live"
+            and status == "done"
+            and target.get("procedencia") == "margen_plataforma"
+            and target.get("target_aplicado") is not None
+        ):
+            ultimo = Decimal(target["target_aplicado"])
+    if ultimo is None:
+        ultimo = setting_target
+    fraccion = g.fraccion_desde_settings(settings, platform)
+    if fila is None:
+        hoy = decided_at.astimezone(dt.UTC).date()
+        medicion = g.MedicionMargen(
+            margen_neto_pct=None,
+            cobertura=None,
+            dias_con_venta=None,
+            venta_cubierta=None,
+            ledger_fresco_at=None,
+            moneda=None,
+            ventana_desde=None,
+            ventana_hasta=None,
+        )
+        venta_total = None
+        ad_revenue_ventana = None
+    else:
+        hoy = g.hoy_de_ventana(fila["ventana_hasta"])
+        medicion = g.medicion_desde_fila(fila)
+        venta_total = fila["venta_total"]
+        suma_ads, n_monedas_ads, moneda_ads = conn.execute(
+            _SQL_AD_REVENUE_VENTANA,
+            (platform, fila["ventana_desde"], fila["ventana_hasta"]),
+        ).fetchone()
+        # Solo se publica si es UNA moneda y la MISMA del ledger; si no, el
+        # medidor se calla (regla 4) y /salud lo muestra como no disponible.
+        ad_revenue_ventana = g.ratio_ads_publicable(
+            suma_ads, n_monedas_ads, moneda_ads, medicion.moneda
+        )
+    res = g.resuelve_target_margen(medicion, fraccion, hoy, ultimo)
+    snapshot = {
+        "procedencia": "margen_plataforma" if res.motivo is None else None,
+        "motivo_abstencion": res.motivo,
+        "margen_neto_pct": _dec_str(medicion.margen_neto_pct),
+        "fraccion": _dec_str(fraccion),
+        "cobertura": _dec_str(medicion.cobertura),
+        "ventana_desde": _fecha_iso(medicion.ventana_desde),
+        "ventana_hasta": _fecha_iso(medicion.ventana_hasta),
+        "target_derivado": _dec_str(res.derivado),
+        "target_aplicado": _dec_str(res.aplicado),
+        "setting": _dec_str(setting_target),
+        "venta_total": _dec_str(venta_total),
+        "ad_revenue_ventana": _dec_str(ad_revenue_ventana),
+        "ultimo_avisado": ancla,
+        "ledger_fresco_at": _ts(medicion.ledger_fresco_at),
+        "moneda": medicion.moneda,
+    }
+    return _TargetCiclo(res.aplicado, snapshot, ancla)
 
 
 def _recorre_plataforma(
@@ -1353,8 +1548,19 @@ def _recorre_plataforma(
     pendientes: list[_Pendiente],
     tick,
     bloqueadas: set[tuple[int, str, str | None]],
-) -> None:
+    cycle_id: int,
+) -> _TargetCiclo:
     setting_target = g.target_desde_settings(settings, platform)
+    # ORBIT 06 2.3: el peldano se resuelve UNA vez por ciclo en TX2 (misma
+    # lectura que la evidencia) y viaja EXPLICITO a los dos caminos.
+    target_ciclo = _resuelve_target_ciclo(
+        conn,
+        platform=platform,
+        settings=settings,
+        setting_target=setting_target,
+        cycle_id=cycle_id,
+        decided_at=decided_at,
+    )
     acos_campanas = {
         fila[0]: fila[1] for fila in conn.execute(_SQL_CAMPANAS, (platform,)).fetchall()
     }
@@ -1387,6 +1593,8 @@ def _recorre_plataforma(
         tick=tick,
         evidencia_ad_groups=evidencia_ad_groups,
         bloqueadas=bloqueadas,
+        margen_plataforma=target_ciclo.margen,
+        snapshot_margen=target_ciclo.snapshot,
     )
     for fila in conn.execute(_SQL_DECISORAS, (platform,)).fetchall():
         contadores.entidades += 1
@@ -1396,6 +1604,7 @@ def _recorre_plataforma(
     for fila in conn.execute(_SQL_GRUPOS, (platform,)).fetchall():
         contadores.ad_groups += 1
         _procesa_grupo(conn, fila=fila, acos_campanas=acos_campanas, **comunes)
+    return target_ciclo
 
 
 def _fase_lecturas(
@@ -1408,18 +1617,20 @@ def _fase_lecturas(
     contadores: _Contadores,
     pendientes: list[_Pendiente],
     tick,
-) -> windows.MotivoSkip | None:
+    cycle_id: int,
+) -> tuple[windows.MotivoSkip | None, _TargetCiclo | None]:
     """TX2: guarda de plataforma + claves de efecto bloqueadas + recorrido
     completo, TODO en una transaccion REPEATABLE READ (snapshot uniforme; SET
-    TRANSACTION como PRIMERA sentencia). Devuelve la guarda disparada (None =
-    ciclo completo)."""
+    TRANSACTION como PRIMERA sentencia). Devuelve (guarda disparada, peldano
+    resuelto): guarda None = ciclo completo; con guarda, el recorrido no
+    corre y el peldano es None (el ciclo saltado no resuelve target)."""
     with conn.transaction():
         conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
         guarda = windows.guarda_plataforma(conn, platform, ahora=decided_at)
         if guarda is not None:
-            return guarda
+            return (guarda, None)
         bloqueadas = apply_cola.claves_bloqueadas(conn, platform, decided_at)
-        _recorre_plataforma(
+        target_ciclo = _recorre_plataforma(
             conn,
             platform=platform,
             settings=settings,
@@ -1429,8 +1640,9 @@ def _fase_lecturas(
             pendientes=pendientes,
             tick=tick,
             bloqueadas=bloqueadas,
+            cycle_id=cycle_id,
         )
-    return None
+        return (None, target_ciclo)
 
 
 # ---------------------------------------------------------------------------
@@ -1612,6 +1824,8 @@ def _fase_notifica(
     decisions_count: int,
     notas_apply: dict,
     skips: dict | None = None,
+    target: dict | None = None,
+    target_ancla: str | None = None,
     caps_saturados: tuple = (),
     tick: Callable[[], None] | None = None,
 ) -> dict:
@@ -1684,8 +1898,27 @@ def _fase_notifica(
         # (regla 3: ausentes = el digest no los menciona).
         if skips is not None:
             resumen["skips"] = skips
+        # ORBIT 06 2.3 segunda vuelta (D-2.3.14): el bloque target y el
+        # ancla del acumulado, por el mismo camino (ausentes = el digest no
+        # menciona el target). El ancla persiste AQUI (el digest solo
+        # renderiza): si se emitio linea, ultimo_avisado avanza al aplicado.
+        emitir = False
+        nuevo_ancla = None
+        if target is not None:
+            resumen["target"] = target
+            aplicado = target.get("target_aplicado")
+            emitir, nuevo_ancla = notifica.decide_aviso_target(aplicado, target_ancla)
+            if target_ancla is not None:
+                resumen["target_ancla"] = target_ancla
         if not notifica.notifica_digest(resumen):
             notas["digest"] = "fallo: digest del ciclo no enviado por Telegram"
+        elif emitir and target is not None:
+            # Revision del PR #147 (CodeRabbit Major): el ancla del acumulado
+            # avanza SOLO si el digest se envio de verdad. Avanzarla antes
+            # perdia el aviso: con el digest caido (fail-silent, sellado 3.3)
+            # el ciclo siguiente ya no veria el punto acumulado y el drift
+            # del target quedaria mudo justo cuando nadie lo esta viendo.
+            target["ultimo_avisado"] = nuevo_ancla
         _latido()
     except Exception as exc:  # noqa: BLE001 - jamas rompe el ciclo (docstring)
         notas["digest"] = "fallo: el digest del ciclo no salio (ver log)"
@@ -1728,7 +1961,7 @@ def _corre_fases(
         return ResultadoCiclo(cycle_id, "skipped", 0, notas)
     tick = _tick_heartbeat(hb, job_key, owner, heartbeat_cada)
     pendientes: list[_Pendiente] = []
-    guarda = _fase_lecturas(
+    guarda, target_ciclo = _fase_lecturas(
         conn,
         platform=platform,
         settings=settings,
@@ -1737,6 +1970,7 @@ def _corre_fases(
         contadores=contadores,
         pendientes=pendientes,
         tick=tick,
+        cycle_id=cycle_id,
     )
     motivo = f"guarda_{guarda.guarda}" if guarda is not None else None
     cuerpo = _notas_cuerpo(
@@ -1745,6 +1979,7 @@ def _corre_fases(
         modo.nota,
         motivo,
         guarda.detalle if guarda is not None else None,
+        target_ciclo.snapshot if target_ciclo is not None else None,
     )
     status = "degraded" if guarda is not None else "done"
     notas = json.dumps(cuerpo, ensure_ascii=False, default=str)
@@ -1785,9 +2020,21 @@ def _corre_fases(
         decisions_count=len(pendientes),
         notas_apply=notas_apply,
         skips=cuerpo["skips"],
+        # ORBIT 06 2.3 segunda vuelta: el digest compara contra el ancla
+        # del acumulado (ausente = primera vez y se avisa).
+        target=cuerpo.get("target"),
+        target_ancla=target_ciclo.ancla if target_ciclo is not None else None,
         tick=tick,
     )
-    if notas_apply or telegram:
+    # ORBIT 06 2.3 segunda vuelta: si el ancla del digest avanzo, el sello
+    # principal (previo al digest) lleva el ancla vieja y HAY que re-sellar
+    # aunque el ciclo este silencioso (sin apply ni fallos de canal).
+    ancla_avanzo = (
+        target_ciclo is not None
+        and isinstance(cuerpo.get("target"), dict)
+        and cuerpo["target"].get("ultimo_avisado") != target_ciclo.ancla
+    )
+    if notas_apply or telegram or ancla_avanzo:
         if telegram:
             cuerpo["telegram"] = telegram
         notas = json.dumps(cuerpo, ensure_ascii=False, default=str)

@@ -55,6 +55,7 @@ from test_cycle import (
     DECIDED_AT,
     JOB_KEY,
     SQL13,
+    SQL15,
     _config_version,
     _entidad,
     _estado,
@@ -140,6 +141,7 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL2)  # 0002: cola de cortes, ledger, sellos de quota
         conn.execute(SQL3)  # 0003: ads_optimizer_goal sin DEFAULT en piso/techo
         conn.execute(SQL13)  # 0013 (BIDS 01): la guarda entidad_inerte lee la vista en TX2
+        conn.execute(SQL15)  # 0015 (ORBIT 06 2.3): el peldano margen lee su vista en TX2
         yield conn, conectar_extra
     finally:
         if conn is not None:

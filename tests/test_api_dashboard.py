@@ -1784,3 +1784,91 @@ def test_inertes_devuelve_shape_y_totales(monkeypatch):
         assert muerto["gasto_90d"] == "0"
         assert muerto["moneda"] is None
         assert muerto["ordenes_90d"] == 0
+
+
+# ---------------------------------------------------------------------------
+# ORBIT 06 2.3 - bloque target en /salud (rojo e, tests puros)
+# ---------------------------------------------------------------------------
+
+
+def _notas_con_target(**campos) -> dict:
+    base = {
+        "procedencia": "margen_plataforma",
+        "motivo_abstencion": None,
+        "margen_neto_pct": "40",
+        "fraccion": "0.5",
+        "cobertura": "1",
+        "ventana_desde": "2026-05-22",
+        "ventana_hasta": "2026-08-20",
+        "target_derivado": "20",
+        "target_aplicado": "20",
+        "ledger_fresco_at": "2026-09-03T12:00:00+00:00",
+        "moneda": "MXN",
+    }
+    base.update(campos)
+    return {"target": base}
+
+
+def test_salud_bloque_target_desde_notes():
+    """Rojo (e): el bloque target de /salud sale de notes.target del ultimo
+    ciclo: vigente + procedencia + margen + fraccion + ventana + edad."""
+    from app import api_common
+
+    bloque = api_common.bloque_target_margen(
+        {"notes": _notas_con_target()}, hoy=dt.date(2026, 9, 4)
+    )
+    assert bloque["target_vigente"] == "20"
+    assert bloque["procedencia"] == "margen_plataforma"
+    assert bloque["margen_neto_pct"] == "40"
+    assert bloque["fraccion"] == "0.5"
+    assert bloque["ventana_desde"] == "2026-05-22"
+    assert bloque["ventana_hasta"] == "2026-08-20"
+    assert bloque["ledger_edad_dias"] == 1
+    assert bloque["motivo_abstencion"] is None
+
+
+def test_salud_bloque_target_abstencion_con_etiqueta():
+    """Rojo (e): abstencion -> vigente null + motivo con etiqueta ES."""
+    from app import api_common
+
+    bloque = api_common.bloque_target_margen(
+        {
+            "notes": _notas_con_target(
+                procedencia=None,
+                motivo_abstencion="cobertura_baja",
+                target_derivado=None,
+                target_aplicado=None,
+            )
+        },
+        hoy=dt.date(2026, 9, 4),
+    )
+    assert bloque["target_vigente"] is None
+    assert bloque["motivo_abstencion"] == "cobertura_baja"
+    assert isinstance(bloque["motivo_etiqueta"], str) and "cobertura" in bloque["motivo_etiqueta"]
+
+
+def test_salud_bloque_target_cobertura_y_ratio():
+    """Rojo (h, §9): cobertura por monto pasa tal cual; ratio_ads_venta =
+    ad_revenue_ventana / venta_total (None si falta un lado o venta 0)."""
+    from app import api_common
+
+    base = _notas_con_target()
+    base["target"].update({"cobertura": "0.98", "venta_total": "7000", "ad_revenue_ventana": "728"})
+    bloque = api_common.bloque_target_margen({"notes": base}, hoy=dt.date(2026, 9, 4))
+    assert bloque["cobertura"] == "0.98"
+    assert bloque["ratio_ads_venta"] == Decimal("728") / Decimal("7000")
+    sin = api_common.bloque_target_margen({"notes": _notas_con_target()}, hoy=dt.date(2026, 9, 4))
+    assert sin["cobertura"] == "1"
+    assert sin["ratio_ads_venta"] is None
+
+
+def test_salud_bloque_target_sin_clave_da_nulls():
+    """Rojo (e) regla 3: ciclos viejos sin notes.target -> todo null, sin
+    reventar (ni ciclo, ni notes, ni notes no-dict)."""
+    from app import api_common
+
+    for ultimo in (None, {}, {"notes": None}, {"notes": {"texto": "rastro: x"}}, {"notes": {}}):
+        bloque = api_common.bloque_target_margen(ultimo, hoy=dt.date(2026, 9, 4))
+        assert bloque["target_vigente"] is None
+        assert bloque["procedencia"] is None
+        assert bloque["motivo_abstencion"] is None

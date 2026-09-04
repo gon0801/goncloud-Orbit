@@ -54,7 +54,7 @@ def _agregado_sintetico(d: dict | None) -> windows.AgregadoMetricas | None:
     )
 
 
-def _replay_bid(inputs: dict) -> bid.ResultadoBid:
+def _replay_bid(inputs: dict, target: Decimal | None = None) -> bid.ResultadoBid:
     goal = inputs["goal"]
     # CORTES 01 (spec) + cierre CORTES 03: umbral de clicks =
     # inputs.corte.umbral_clicks_usado; piso de costo = inputs.corte.cost_min_usado
@@ -91,7 +91,7 @@ def _replay_bid(inputs: dict) -> bid.ResultadoBid:
         platform=inputs["platform"],
         bids=_agregado_sintetico(inputs["ventanas"]["bids"]),
         cortes=_agregado_sintetico(inputs["ventanas"]["cortes"]),
-        target_acos_pct=Decimal(inputs["target_acos_pct_usado"]),
+        target_acos_pct=target if target is not None else Decimal(inputs["target_acos_pct_usado"]),
         bid_actual=_dec_de_json(inputs["bid_actual"]),
         bid_moneda=inputs["bid_moneda"],
         floor=Decimal(goal["bid_floor"]),
@@ -160,6 +160,16 @@ def _replay_hygiene(inputs: dict) -> hygiene.ResultadoTermino:
         piso_negative=piso,
     )
     return resultado
+
+
+def replay_bid_con_target(inputs: dict, target_acos_pct: Decimal) -> bid.ResultadoBid:
+    """Re-decide UNA bid desde sus inputs congelados bajo un target DADO
+    (ORBIT 06 2.3, D-2.3.8: el tool compara_target_margen compara el target
+    manual vs el derivado sobre las MISMAS entradas). Misma reconstruccion
+    que _replay_bid (cero copias: es el mismo codigo con el target
+    inyectado); devuelve el ResultadoBid COMPLETO (kind/new/factor).
+    El target se valida en decide_bid (> 0, como el spot-check)."""
+    return _replay_bid(inputs, target_acos_pct)
 
 
 def reproduce(inputs: dict) -> tuple[str | None, Decimal | None, str | None]:
