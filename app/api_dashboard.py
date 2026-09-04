@@ -914,7 +914,7 @@ SELECT v.platform::text, v.kind::text, v.keyword_text, v.name, v.external_id,
 # 0014): por lote, la fecha del primer intento y conteos por estado; los 5
 # mas recientes. Tabla vacia -> cero filas (sin fila inventada, regla 3).
 _SQL_LOTES_INERTES = """
-SELECT lote, min(intentado_at) AS primer_intento,
+SELECT lote, (min(intentado_at) AT TIME ZONE 'UTC')::date AS primer_intento,
        count(*) FILTER (WHERE estado = 'planeado') AS planeado,
        count(*) FILTER (WHERE estado = 'applied') AS applied,
        count(*) FILTER (WHERE estado = 'failed') AS failed,
