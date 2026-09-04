@@ -1,9 +1,10 @@
 "use strict";
-// JS de la pantalla de cortes (ORBIT 04 3.1). Vive en /static por la CSP
-// `default-src 'self'`: los <script> inline y los handlers on*= quedan
-// BLOQUEADOS por esa politica. El boton "Vetar" abre el mini-form de su fila
-// y el submit hace fetch POST /api/ads-optimizer/veto con el token en el
-// header x-orbit-token (la query string JAMAS autentica, sellado 18).
+// JS de la pantalla de propuestas (ORBIT 04 3.1; CORTES UI 01: el boton dice
+// Rechazar). Vive en /static por la CSP `default-src 'self'`: los <script>
+// inline y los handlers on*= quedan BLOQUEADOS por esa politica. El boton
+// abre el mini-form de su fila y el submit hace fetch POST
+// /api/ads-optimizer/veto con el token en el header x-orbit-token (la query
+// string JAMAS autentica, sellado 18). El fetch y el payload NO cambian.
 
 function vetar(form) {
   var estado = form.querySelector("[data-estado]");
@@ -28,13 +29,13 @@ function vetar(form) {
     })
     .then(function (r) {
       if (r.ok) {
-        estado.textContent = "Vetado hasta " + (r.data.vence_el || "?") + ".";
+        estado.textContent = "Rechazado hasta " + (r.data.vence_el || "?") + ".";
       } else {
         estado.textContent = "Error: " + (r.data.detail || r.data) + ".";
       }
     })
     .catch(function () {
-      estado.textContent = "Error de red al vetar.";
+      estado.textContent = "Error de red al rechazar.";
     });
 }
 

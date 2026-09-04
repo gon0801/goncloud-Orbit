@@ -31,6 +31,7 @@ import jinja2
 import pytest
 from fastapi.testclient import TestClient
 from test_api_dashboard import (
+    SQL02,
     SQL13,
     SQL14,
     SQL17,
@@ -123,7 +124,8 @@ def test_ui_xss_search_term_demostrado_fallando_con_autoescape_off():
 
 def _ctx_cortes(search_term: str = PAYLOAD_XSS) -> dict:
     """Contexto minimo del template de cortes (render sin DB): una fila
-    pendiente de veto cuyo search_term es el payload XSS (el vector real)."""
+    pendiente de veto cuyo search_term es el payload XSS (el vector real).
+    Con el shape del endpoint (CORTES UI 01): la fila negative es Recorta."""
     return {
         "pantalla": "cortes",
         "items": [
@@ -140,6 +142,10 @@ def _ctx_cortes(search_term: str = PAYLOAD_XSS) -> dict:
                 "vence_el": "2026-09-25T12:00:00+00:00",
                 "encolado_at": "2026-08-26T12:00:00+00:00",
                 "decision_id": 99,
+                "etiqueta": "Bloquear busqueda",
+                "direccion": "recorta",
+                "efecto_rechazo": "Rechazar: la busqueda NO se bloqueara",
+                "indicador": None,
             }
         ],
     }
@@ -165,9 +171,11 @@ def test_ui_cortes_entidad_muestra_nombre_no_external_id():
 
 def test_ui_cortes_vacio_muestra_sin_pendientes():
     """Estado vacio de la matriz: cola sin pendientes -> mensaje explicito,
-    jamas una tabla mentirosa."""
+    jamas una tabla mentirosa. CORTES UI 01 D1: la pantalla se llama
+    Propuestas tambien en el vacio."""
     html = ui.templates.env.get_template("cortes.html").render(pantalla="cortes", items=[])
-    assert "sin cortes pendientes" in html
+    assert "sin propuestas pendientes" in html
+    assert "sin cortes pendientes" not in html
 
 
 # ---------------------------------------------------------------------------
@@ -1028,3 +1036,146 @@ def test_ui_inertes_200_con_clasificacion_y_escape(monkeypatch):
         assert "gasto_sin_ventas" in resp.text
         assert PAYLOAD_XSS not in resp.text
         assert "&lt;script&gt;" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# CORTES UI 01 1.1: la pantalla de propuestas no miente (D1-D5)
+# ---------------------------------------------------------------------------
+
+
+def _ctx_propuestas() -> dict:
+    """Tres filas con el shape del endpoint: etiqueta, direccion, efecto
+    de rechazo e indicador solo en el harvest."""
+    return {
+        "pantalla": "cortes",
+        "items": [
+            {
+                "id": 11,
+                "plataforma": "amazon_us",
+                "familia": "entity_cut",
+                "kind": "pause",
+                "ad_entity_id": 3,
+                "external_id": "9201",
+                "nombre": "zapato",
+                "search_term": None,
+                "estado": "pending_veto",
+                "vence_el": "2026-09-25T12:00:00+00:00",
+                "encolado_at": "2026-08-26T12:00:00+00:00",
+                "decision_id": 99,
+                "etiqueta": "Apagar palabra",
+                "direccion": "recorta",
+                "efecto_rechazo": "Rechazar: la palabra NO se apagara (seguira gastando)",
+                "indicador": None,
+            },
+            {
+                "id": 12,
+                "plataforma": "amazon_us",
+                "familia": "term_cut",
+                "kind": "negative",
+                "ad_entity_id": 3,
+                "external_id": "9201",
+                "nombre": "zapato",
+                "search_term": "tenis blancos",
+                "estado": "pending_veto",
+                "vence_el": "2026-09-25T12:00:00+00:00",
+                "encolado_at": "2026-08-26T12:00:00+00:00",
+                "decision_id": 100,
+                "etiqueta": "Bloquear busqueda",
+                "direccion": "recorta",
+                "efecto_rechazo": "Rechazar: la busqueda NO se bloqueara",
+                "indicador": None,
+            },
+            {
+                "id": 13,
+                "plataforma": "amazon_us",
+                "familia": "term_cut",
+                "kind": "harvest",
+                "ad_entity_id": 5,
+                "external_id": "9101",
+                "nombre": "Campana A",
+                "search_term": "arras para boda cristiana",
+                "estado": "pending_veto",
+                "vence_el": "2026-09-25T12:00:00+00:00",
+                "encolado_at": "2026-08-26T12:00:00+00:00",
+                "decision_id": 101,
+                "etiqueta": "Capturar termino que vende",
+                "direccion": "crece",
+                "efecto_rechazo": "Rechazar: la palabra NO se creara",
+                "indicador": {
+                    "ordenes": 2,
+                    "ingreso": "203.2000",
+                    "clics": 63,
+                    "moneda": "USD",
+                },
+            },
+        ],
+    }
+
+
+def test_ui_propuestas_etiquetas_exactas_por_familia():
+    """D2: cada fila declara su tipo con la etiqueta exacta (efecto
+    primero); el harvest trae su indicador de ordenes e ingreso."""
+    html = ui.templates.env.get_template("cortes.html").render(**_ctx_propuestas())
+    assert "Apagar palabra" in html
+    assert "Bloquear busqueda" in html
+    assert "Capturar termino que vende" in html
+    assert "2 ordenes" in html
+    assert "203.2000 USD" in html
+
+
+def test_ui_propuestas_separa_crecen_de_recortan():
+    """D3: Crecen y Recortan se distinguen por texto, nunca solo color."""
+    html = ui.templates.env.get_template("cortes.html").render(**_ctx_propuestas())
+    assert "Crecen" in html
+    assert "Recortan" in html
+    crecen = html.index("Crecen")
+    recortan = html.index("Recortan")
+    assert html.index("Capturar termino que vende", crecen) < recortan, (
+        "el harvest vive en la seccion Crecen"
+    )
+    assert html.index("Apagar palabra", recortan) > 0, "el pause vive en Recortan"
+
+
+def test_ui_propuestas_rechazar_con_efecto_e_irreversibilidad():
+    """D4/D5: el boton dice Rechazar (no Vetar); cada fila dice que se
+    aplica sola al vencer; la confirmacion nombra el efecto de ESA fila
+    y declara que no se puede deshacer + hasta cuando bloquea."""
+    html = ui.templates.env.get_template("cortes.html").render(**_ctx_propuestas())
+    assert "Rechazar" in html
+    assert ">Vetar<" not in html
+    assert "Confirmar veto" not in html
+    assert "se aplica solo el 2026-09-25T12:00:00+00:00" in html
+    assert "Rechazar: la palabra NO se creara" in html
+    assert "Rechazar: la palabra NO se apagara (seguira gastando)" in html
+    assert "Rechazar: la busqueda NO se bloqueara" in html
+    assert "NO se puede deshacer" in html
+    assert "hasta el 2026-09-25T12:00:00+00:00" in html
+
+
+def test_ui_propuestas_titulo_y_menu_d1():
+    """D1: titulo y menu dicen Propuestas; la ruta /cortes sigue viva en
+    el href y el JS sigue en /static (CSP)."""
+    html = ui.templates.env.get_template("cortes.html").render(**_ctx_propuestas())
+    assert "Propuestas" in html
+    assert "Cortes pendientes de veto" not in html
+    assert 'href="/cortes"' in html, "el href NO cambia (enlaces vivos)"
+    assert ">Propuestas</a>" in html, "el nav de base.html dice Propuestas"
+    assert 'src="/static/js/cortes.js"' in html
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ui_propuestas_alias_mismo_contenido_que_cortes(monkeypatch):
+    """D1: /propuestas es alias de /cortes: 200 ambas y mismo contenido."""
+    with _db_temporal("orbit_ui_propuestas") as (conn, dsn):
+        conn.execute(SQL02)
+        _siembra_ui(conn)
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn)
+        cliente = TestClient(app)
+        r_cortes = cliente.get("/cortes")
+        r_prop = cliente.get("/propuestas")
+        assert r_cortes.status_code == 200, r_cortes.text
+        assert r_prop.status_code == 200, r_prop.text
+        assert r_prop.text == r_cortes.text

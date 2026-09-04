@@ -381,6 +381,24 @@ Forma real observada:
   product_target 39.02) → SUM sin filtro de kind = 2×.
 - Cobertura amazon_mx: 95 días continuos (2026-05-20 → 2026-08-22).
 
+## 7.5 Pantalla de Propuestas (CORTES UI 01, 2026-09-04)
+
+La cola `apply_queue` mezcla tres familias y la pantalla anterior las
+presentaba como recortes bajo el nombre «Cortes» (incidente 2026-09-04:
+el dueño veto por error un harvest de 2 ordenes y 203.20 USD porque todo
+parecia recorte). La pantalla se llama **Propuestas** (rutas `/cortes` y
+alias `/propuestas`, misma vista) y agrupa por direccion:
+
+- **Crecen** (harvest): etiqueta «Capturar termino que vende» + indicador
+  de ordenes e ingreso de la ventana (de `decision.inputs->'termino'`).
+- **Recortan** (pause/negative): «Apagar palabra» / «Bloquear busqueda».
+- Cada fila dice «se aplica solo el <vence_el>»; el boton dice
+  **Rechazar** y la confirmacion nombra el efecto de esa fila + declara
+  que no se puede deshacer y hasta cuando bloquea. Sin boton aprobar
+  (no actuar ya es aprobar). El endpoint `GET /api/dashboard/cortes`
+  expone por item `etiqueta`, `direccion`, `efecto_rechazo` e
+  `indicador` (regla 22: la UI consume, no reimplementa).
+
 ## 8. Archivos
 
 | Archivo | Tarea | Qué es |

@@ -866,16 +866,23 @@ def contribucion_campanas(conn: ConexionLectura) -> dict:
 # (espera quota FIFO y SIGUE vetable, r2 grok); applying es punto de no retorno
 # y los terminales no se vetan. ORDER BY vence_el: lo que vence primero se ve
 # primero.
+#
+# CORTES UI 01: el indicador del harvest se lee de decision.inputs->'termino'
+# (shape real en app/cycle.py: termino = {search_term, cost, ad_revenue,
+# clicks, orders, fechas_distintas, moneda, ...}). Se trae el JSON entero y
+# se extrae en Python (NULL = termino ausente -> indicador None, regla 3).
 _SQL_CORTES_PENDIENTES = (
     """
 SELECT q.id, q.platform::text, q.familia, q.kind, q.ad_entity_id, e.external_id,
        q.search_term, q.estado, q.vence_el, q.encolado_at, q.decision_id,
        e.kind::text AS entidad_kind, e.name, e.keyword_text,
+       d.inputs AS decision_inputs,
        """
     + _CAMPANA_ANCESTRO
     + """ AS campana
   FROM apply_queue q
   LEFT JOIN ad_entity e ON e.id = q.ad_entity_id
+  JOIN decision d ON d.id = q.decision_id
 """
     + _JOINS_ANCESTROS
     + """
@@ -883,6 +890,45 @@ SELECT q.id, q.platform::text, q.familia, q.kind, q.ad_entity_id, e.external_id,
  ORDER BY q.vence_el, q.id
 """
 )
+
+# CORTES UI 01 (D2-D4): la pantalla se llama Propuestas y cada fila declara
+# su tipo por KIND (pause/negative/harvest: familia solo distingue
+# entity_cut/term_cut y no alcanza para tres etiquetas). Espanol llano, sin
+# acentos; strings exactos pineados por tests.
+ETIQUETA_POR_KIND = {
+    "pause": "Apagar palabra",
+    "negative": "Bloquear busqueda",
+    "harvest": "Capturar termino que vende",
+}
+DIRECCION_POR_KIND = {
+    "pause": "recorta",
+    "negative": "recorta",
+    "harvest": "crece",
+}
+EFECTO_RECHAZO_POR_KIND = {
+    "pause": "Rechazar: la palabra NO se apagara (seguira gastando)",
+    "negative": "Rechazar: la busqueda NO se bloqueara",
+    "harvest": "Rechazar: la palabra NO se creara",
+}
+
+
+def _indicador_harvest(kind: str, decision_inputs: dict | None) -> dict | None:
+    """Indicador que justifica el harvest (D2): ordenes e ingreso de la
+    ventana desde decision.inputs->'termino'. Solo kind='harvest' y solo
+    con termino presente; sin el: None (regla 3, jamas inventado).
+    Dinero = (valor string, moneda); NULL como null (regla 4)."""
+    if kind != "harvest" or not isinstance(decision_inputs, dict):
+        return None
+    termino = decision_inputs.get("termino")
+    if not isinstance(termino, dict):
+        return None
+    ingreso = termino.get("ad_revenue")
+    return {
+        "ordenes": termino.get("orders"),
+        "ingreso": _dec_str(ingreso) if ingreso is not None else None,
+        "clics": termino.get("clicks"),
+        "moneda": termino.get("moneda"),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -954,6 +1000,10 @@ def cortes(conn: ConexionLectura) -> dict:
                 "vence_el": fila["vence_el"].isoformat(),
                 "encolado_at": fila["encolado_at"].isoformat(),
                 "decision_id": fila["decision_id"],
+                "etiqueta": ETIQUETA_POR_KIND.get(fila["kind"]),
+                "direccion": DIRECCION_POR_KIND.get(fila["kind"]),
+                "efecto_rechazo": EFECTO_RECHAZO_POR_KIND.get(fila["kind"]),
+                "indicador": _indicador_harvest(fila["kind"], fila["decision_inputs"]),
             }
             for fila in filas
         ]
