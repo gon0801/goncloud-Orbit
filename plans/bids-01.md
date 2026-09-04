@@ -1076,6 +1076,64 @@ El replay viejo lee `expected_clicks` (120 ≥ 120, 45 ≥ 40) y rejuega −25%
 (0.75) sobre una fila persistida en −12% (0.88): exactamente las 17
 decisiones que midió el lead. El pin `r1/r2` ya pasa (es pin, no rojo).
 
+## Cross-review del lote de archivo (grok, 2026-09-04) — VEREDICTO: NO CORRERLO
+
+Pedida por el dueño antes de autorizar el lote real de 160 keywords.
+Veredicto de grok: **«no correrlo»**. **El lead lo comparte y el lote queda
+BLOQUEADO** hasta que se arreglen los puntos de abajo. Razón de fondo del
+lead, además de los hallazgos: **el beneficio medido del lote es CERO pesos**
+— las 160 `peso_muerto` gastaron **0** en 90 días (el gasto de las inertes
+vive en `gasto_sin_ventas`: 248 MXN y 54 USD, que son 8 keywords, no 160).
+Archivar es higiene, no ahorro; el riesgo, en cambio, es real e irreversible.
+
+**H1 (alta) · `dias_sin_impresiones IS NULL` = "infinitamente muerta".**
+`ad_entity` **no tiene `created_at`**, así que no hay forma de distinguir una
+keyword recién creada de uso una que lleva años sin servir. Medido:
+**133 de las 166 candidatas MX no tienen NI UNA fila de métricas jamás**;
+las 33 con historia dejaron de imprimir el 2026-08-15. Hoy el riesgo es
+teórico (`harvest_job` done = **0**: el harvest nunca ha corrido), pero se
+vuelve trampa viva en cuanto aterrice ORBIT 05 · 2.3: harvest crea un EXACT
+que convierte → a las 24 h es `peso_muerto | dias=None` → el tool lo archiva.
+
+**H2 (alta) · el harvest recrea lo que se archivó.** `apply_harvest._identidad`
+salta `state = ARCHIVED`, así que un EXACT archivado no cuenta como identidad
+viva y el siguiente harvest del mismo término+grupo vuelve a hacer POST. Con
+H1 se cierra el bucle: archivar → recrear → archivar.
+
+**H3 (alta) · ventana post-HTTP sin sello.** El ledger inserta `planeado`,
+sale el POST y luego sella `applied`/`failed`. Un kill, un timeout con el POST
+ya enviado, o un LIST que aún no confirma dejan la fila sin `applied` — y
+`--reponer` **solo lee `applied`**. Esa keyword queda archivada en Amazon y
+fuera de la reversa.
+
+**H4 (media-alta) · `--esperado N` fija el CONTEO, no el conjunto.** Entre el
+ensayo y el go, `v_entidad_inerte` puede cambiar (watermark, ingesta, sync de
+status): si salen 3 y entran 3, N sigue siendo 160 y se archivan OTRAS.
+
+**H5 (alta) · `--reponer` NO es una reversa.** Amazon no des-archiva: el
+`--reponer` **crea otra keyword** con `keywordId` NUEVO, **ENABLED** (gastando
+desde el minuto uno), sin la historia de métricas ni el ranking interno de la
+identidad muerta; `ad_entity.external_id` es inmutable, así que el motor sigue
+apuntando al id muerto. Además `--reponer` no exige `--esperado` ni `--go`, y
+su readback no verifica bid ni campaña. **Precedente del propio repo**:
+`app/ads/archivar.py` repone product ads en **PAUSED**, justo para no empezar
+a gastar. La "reversa" que el lead le describió al dueño es más débil de lo
+anunciado: corregir esa descripción es parte del arreglo.
+
+**H6 · falsa alarma, verificada por el lead.** grok leyó el árbol principal
+(`/Users/dn/dev/goncloud-Orbit`, desactualizado porque el lead trabaja en el
+worktree de papeleo) y vio el SQL sin el cast. En `origin/master` el cast
+está (3 ocurrencias) desde el PR #151. El punto de fondo de grok sigue siendo
+bueno: verificar QUÉ archivo entra al contenedor antes de un go.
+
+| Task | Contenido | DoD | Depends | Status |
+|---|---|---|---|---|
+| 2.1 | **Edad mínima real antes de archivar** (H1): sin `created_at` en `ad_entity`, derivar la edad de la primera métrica observada o del `ingest_run` que insertó la entidad, y **excluir del plan toda hoja sin edad demostrable**; `dias IS NULL` deja de ser "infinitamente muerta". `[tdd:required]` | Rojo: una hoja sin métricas creada hoy NO entra al plan; una con última impresión > umbral SÍ | - | cc:TODO |
+| 2.2 | **Harvest respeta el archivo** (H2): `apply_harvest` no recrea una identidad con fila `applied` en `keyword_archivo_manual` sin `repuesto`. `[tdd:required]` | Rojo: harvest del mismo término+grupo tras archivar NO hace POST | - | cc:TODO |
+| 2.3 | **Reconciliación del ledger** (H3): `--reconciliar` que cruza `planeado`/`failed` contra el LIST real de Amazon y promueve a `applied` lo que ya está `ARCHIVED`; `--reponer` lo incluye. `[tdd:required]` | Rojo: fila `failed` cuya keyword está ARCHIVED en Amazon se recupera y es reponible | - | cc:TODO |
+| 2.4 | **Autorizar por identidad, no por conteo** (H4): `--ids-file` o hash ordenado de `external_id` del ensayo; el go aborta si el conjunto cambió. `[tdd:required]` | Rojo: mismo N con un conjunto distinto → aborta | - | cc:TODO |
+| 2.5 | **La reposición no gasta** (H5): `--reponer` crea en **PAUSED** (precedente `archivar.py`), exige `--go`, verifica bid y campaña en el readback, y registra el `external_id` nuevo. Documentar que el archivo de Amazon es **irreversible en la práctica**. `[tdd:required]` | Rojo: la repuesta nace PAUSED con bid y campaña verificados | - | cc:TODO |
+
 ## Reject (con razón)
 
 - **Umbral absoluto de clicks (15/25)**: rechazado por el dueño — sus
