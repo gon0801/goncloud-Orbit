@@ -178,6 +178,25 @@ UPDATE keyword_archivo_manual
  WHERE id = %s
 """
 
+# BIDS 01 2.3 (H3): pendientes de reconciliacion. El primer parametro va
+# casteado (%s::text IS NULL): sin contexto de tipo Postgres no infiere
+# (mismo IndeterminateDatatype que tumbo el plan antes del cast).
+_SQL_PENDIENTES = """
+SELECT id, lote, platform, keyword_external
+  FROM keyword_archivo_manual
+ WHERE estado IN ('planeado', 'failed')
+   AND (%s::text IS NULL OR lote = %s)
+ ORDER BY id
+"""
+
+# La guarda `estado IN` evita pisar una fila que otro proceso ya movio
+# entre el SELECT y el UPDATE (la herramienta es manual, un operador).
+_SQL_PROMUEVE_APPLIED = """
+UPDATE keyword_archivo_manual
+   SET estado = 'applied', ack = %s::jsonb, readback_estado = %s
+ WHERE id = %s AND estado IN ('planeado', 'failed')
+"""
+
 
 class Abortar(RuntimeError):
     """Fail-closed: la realidad difiere del plan o la API rechaza."""
@@ -577,6 +596,85 @@ def _archivar(args, conn_read: psycopg.Connection) -> int:
     return 0
 
 
+def _reconciliar(
+    conn_admin: psycopg.Connection,
+    cliente_lectura: AdsClient,
+    perfiles: dict[str, int],
+    lote: str | None,
+) -> dict:
+    """Cruza pendientes (`planeado`/`failed`) contra el LIST real (H3).
+
+    Solo lee Amazon y solo escribe el ledger: promueve a `applied` lo que
+    ya esta ARCHIVED (el DELETE si se aplico aunque el sello no). Lo que
+    sigue vivo queda intacto; lo que no se pudo verificar (LIST caido o
+    sin perfil) queda intacto y se REPORTA. Idempotente: re-correr solo
+    revisa las aun pendientes. Aborta fail-closed si algo quedo sin
+    verificar (despues de procesar TODAS, no a la primera)."""
+    filas = conn_admin.execute(_SQL_PENDIENTES, (lote, lote)).fetchall()
+    conn_admin.commit()
+    resumen = {"pendientes": len(filas), "recuperadas": 0, "vivas": 0, "sin_verificar": 0}
+    for fid, lote_fila, platform, kw_ext in filas:
+        plataforma = str(platform)
+        profile = perfiles.get(plataforma)
+        if profile is None:
+            _log(
+                "reconciliar_sin_perfil",
+                fila=fid,
+                lote=lote_fila,
+                platform=plataforma,
+                external_id=str(kw_ext),
+                nota="sin perfil aceptado no hay LIST: intacta",
+            )
+            resumen["sin_verificar"] += 1
+            continue
+        vivo = _readback_salvo(cliente_lectura, profile, str(kw_ext))
+        if vivo is None:
+            _log(
+                "reconciliar_sin_verificar",
+                fila=fid,
+                lote=lote_fila,
+                external_id=str(kw_ext),
+                nota="el LIST no respondio: intacta, se re-corre",
+            )
+            resumen["sin_verificar"] += 1
+            continue
+        estado = vivo.get("state")
+        if estado != _ESTADO_ARCHIVADO:
+            _log(
+                "reconciliar_viva",
+                fila=fid,
+                lote=lote_fila,
+                external_id=str(kw_ext),
+                estado=estado,
+                nota="el DELETE no se aplico: intacta, el archivo la retoma",
+            )
+            resumen["vivas"] += 1
+            continue
+        ack = {
+            "fuente": "reconciliar",
+            "state": _ESTADO_ARCHIVADO,
+            "keyword_external": str(kw_ext),
+            "lote": lote_fila,
+        }
+        conn_admin.execute(_SQL_PROMUEVE_APPLIED, (json.dumps(ack), _ESTADO_ARCHIVADO, fid))
+        conn_admin.commit()
+        _log(
+            "reconciliar_recuperada",
+            fila=fid,
+            lote=lote_fila,
+            external_id=str(kw_ext),
+            nota="archivada en Amazon sin sello: promovida a applied",
+        )
+        resumen["recuperadas"] += 1
+    _log("reconciliacion", lote=lote, **resumen)
+    if resumen["sin_verificar"]:
+        raise Abortar(
+            f"reconciliacion con {resumen['sin_verificar']} fila(s) sin verificar "
+            f"(de {resumen['pendientes']}): se re-corre, nada se promovio a ciegas"
+        )
+    return resumen
+
+
 def _fila_reponer(f: tuple) -> dict:
     return {
         "id": f[0],
@@ -594,8 +692,27 @@ def _fila_reponer(f: tuple) -> dict:
     }
 
 
+def _reconciliar_cmd(args) -> int:
+    """`--reconciliar [--lote X]`: solo LISTs + promociones del ledger."""
+    conn_admin = connect(_dsn_admin())
+    cred = AdsCredentials.from_secrets_dir()
+    cliente_lectura = AdsClient(cred)
+    perfiles = _perfiles(cliente_lectura)
+    _log("perfiles", perfiles=perfiles)
+    _reconciliar(conn_admin, cliente_lectura, perfiles, args.lote)
+    return 0
+
+
 def _reponer(args) -> int:
     conn_admin = connect(_dsn_admin())
+    if args.acepto_mutacion_real:
+        # H3: lo archivado sin sello entra a la reversa en esta misma
+        # corrida (reconcilia ANTES de leer `applied`). Aborta fail-closed
+        # si algo queda sin verificar: no se crea nada a ciegas. El
+        # dry-run no pasa por aqui: cero escrituras sin mutacion real.
+        cred_rec = AdsCredentials.from_secrets_dir()
+        cliente_rec = AdsClient(cred_rec)
+        _reconciliar(conn_admin, cliente_rec, _perfiles(cliente_rec), args.reponer)
     filas = [_fila_reponer(f) for f in conn_admin.execute(_SQL_REPONER, (args.reponer,)).fetchall()]
     # La lectura termino: se cierra su txn ANTES del bucle HTTP (las filas
     # ya viven en memoria; los sellos commitean por separado).
@@ -777,8 +894,19 @@ def main() -> int:
         "--go", default=None, help="literal del dueno que autoriza el lote (va al ledger)"
     )
     ap.add_argument("--reponer", default=None, help="lote del ledger a recrear (reversa)")
+    ap.add_argument(
+        "--reconciliar",
+        action="store_true",
+        help="cruza planeado/failed contra el LIST real y promueve a applied "
+        "lo ya ARCHIVED (con --lote X acota a un lote)",
+    )
+    ap.add_argument(
+        "--lote", default=None, help="lote del ledger para --reconciliar (default: todos)"
+    )
     args = ap.parse_args()
 
+    if args.reconciliar:
+        return _reconciliar_cmd(args)
     if args.reponer is not None:
         return _reponer(args)
     conn_read = connect(_dsn_read())

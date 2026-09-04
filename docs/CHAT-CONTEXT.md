@@ -4,6 +4,9 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-04 — BIDS 01 tarea 2.3 lista para revisión: si archivar se interrumpe a la mitad, lo ya archivado ya no se pierde del registro.** Antes, si la herramienta se detenía entre el borrado y el sello, esa palabra quedaba archivada en Amazon pero fuera de la lista de recuperables. Ahora hay un comando que cruza los pendientes contra Amazon y recupera lo que sí quedó archivado, y la recuperación corre sola antes de cada intento de reponer. Nada se archiva todavía; esto tapa el hueco antes del primer lote.**
+
+
 **2026-09-04 — BIDS 01 tarea 2.1 lista para revisión: el sistema ya sabe cuántos años tiene cada palabra y no archiva recién nacidas.** Antes era imposible distinguir una palabra creada ayer de una muerta hace meses, y archivar es irreversible en Amazon. Ahora cada palabra trae anotada su primera aparición (las viejas sin registro quedaron marcadas con la fecha del arreglo, como piso y no como verdad), y el plan de archivado solo trae palabras con al menos 30 días de vida; las más jóvenes se muestran aparte como "en espera", no escondidas. Verificado con pruebas contra base de datos real, incluyendo que sincronizar dos veces no rejuvenece a nadie. Nada se archiva todavía; este era el primer candado antes del primer lote.**
 
 **2026-09-05 — BIDS 01 tarea 2.2 lista para revisión: dos seguros para que archivar palabras no cause duplicados.** Primero, quedó por escrito y con prueba que el sistema SÍ ve las palabras archivadas al decidir qué cosechar —si alguien "limpia" esa lista, el cosechador volvería a crear lo archivado—. Segundo, si una palabra se archiva justo cuando el cosechador ya va en camino a crearla, el sistema ya no la crea: cierra el trabajo avisando el motivo en vez de duplicar. Nada se archiva todavía; esto solo tapa los huecos antes del primer lote.
