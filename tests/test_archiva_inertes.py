@@ -20,6 +20,7 @@ la intencion es durable antes de mutar Amazon).
 from __future__ import annotations
 
 import ast
+import datetime as dt
 import json
 import os
 import re
@@ -41,7 +42,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 import archiva_inertes as ar  # noqa: E402
 
 from app.ads.config import AdsCredentials  # noqa: E402
-from app.ads.structure import PerfilAds  # noqa: E402
+from app.ads.structure import (  # noqa: E402
+    EstructuraAds,
+    EstructuraPerfil,
+    PerfilAds,
+    sync_structure,
+)
 
 LOTE = "inertes-2026-09-05"
 GO = "go lote de prueba"
@@ -68,6 +74,7 @@ _FILA_KW_MX = (
     "MXN",
     "peso_muerto",
     45,
+    dt.datetime(2026, 1, 5, 12, 0),
 )
 _FILA_KW_MX_NULA = (
     12,
@@ -84,6 +91,7 @@ _FILA_KW_MX_NULA = (
     None,
     "peso_muerto",
     None,  # sin bid cacheado, nunca impresiono
+    dt.datetime(2026, 1, 5, 12, 0),
 )
 _FILA_KW_US = (
     21,
@@ -100,6 +108,7 @@ _FILA_KW_US = (
     "USD",
     "gasto_sin_ventas",
     31,
+    dt.datetime(2026, 1, 5, 12, 0),
 )
 
 # Fila de reposicion (SELECT del ledger): id_fila, ad_entity_id, platform,
@@ -135,10 +144,11 @@ class _ConnFalsa:
     """Conexion enlatada: sirve el plan / el conteo de excluidos / las filas
     a reponer y GRABA inserts/updates del ledger + commits."""
 
-    def __init__(self, plan=(), excluidos=0, reponer=()):
+    def __init__(self, plan=(), excluidos=0, reponer=(), jovenes=0):
         self._plan = list(plan)
         self._excluidos = excluidos
         self._reponer = list(reponer)
+        self._jovenes = jovenes
         self.queries = []
         self.inserts = []  # params de cada INSERT al ledger
         self.updates = []  # (sql, params) de cada UPDATE al ledger
@@ -150,6 +160,8 @@ class _ConnFalsa:
         self.queries.append((plano, params))
         bajo = plano.lower()
         if "count(" in bajo and "v_entidad_inerte" in bajo:
+            if "first_seen_at" in bajo:
+                return _CursorFalso([(self._jovenes,)])
             return _CursorFalso([(self._excluidos,)])
         if "v_entidad_inerte" in bajo:
             return _CursorFalso(self._plan)
@@ -317,8 +329,8 @@ def test_plan_sql_filtra_solo_keywords_y_cuenta_excluidos():
     """El plan sale de v_entidad_inerte con kind='keyword' fijo y los
     product_target se cuentan como excluidos (residual 1: solo se
     reportan, jamas se archivan)."""
-    conn = _ConnFalsa(plan=[_FILA_KW_MX], excluidos=3)
-    plan, excluidos = ar._plan_inertes(
+    conn = _ConnFalsa(plan=[_FILA_KW_MX], excluidos=3, jovenes=2)
+    plan, excluidos, jovenes = ar._plan_inertes(
         conn,
         plataforma="amazon_mx",
         clasificacion="peso_muerto",
@@ -332,7 +344,9 @@ def test_plan_sql_filtra_solo_keywords_y_cuenta_excluidos():
     assert item["bid"] == Decimal("12.5000") and item["bid_currency"] == "MXN"
     assert item["dias"] == 45
     assert item["campaign_external"] == "camp-ext-2"
+    assert item["primera_vista"] == dt.datetime(2026, 1, 5, 12, 0)
     assert excluidos == 3, "los 3 product_target se declaran, no se tocan"
+    assert jovenes == 2, "las jovenes se cuentan aparte, no entran al plan"
     sql_plan = conn.queries[0][0].lower()
     assert "v_entidad_inerte" in sql_plan
     assert "kind = 'keyword'" in sql_plan, "el filtro de kind vive en SQL"
@@ -346,7 +360,7 @@ def test_plan_sql_min_dias_deja_pasar_null_y_limite_agrega_limit():
     """dias NULL = nunca impresiono en 90d (el caso mas muerto): pasa el
     filtro como infinito. Con --limite el SQL trae LIMIT."""
     conn = _ConnFalsa(plan=[_FILA_KW_MX_NULA])
-    plan, _ = ar._plan_inertes(
+    plan, _, _ = ar._plan_inertes(
         conn,
         plataforma=None,
         clasificacion="peso_muerto",
@@ -878,6 +892,7 @@ def test_main_linea_de_mutacion_lleva_el_ack(monkeypatch, capsys):
 
 ROOT = Path(__file__).resolve().parents[1]
 SQL14 = (ROOT / "migrations" / "0014_keyword_archivo_manual.sql").read_text(encoding="utf-8")
+SQL17 = (ROOT / "migrations" / "0017_first_seen_at.sql").read_text(encoding="utf-8")
 
 
 @contextmanager
@@ -1024,18 +1039,249 @@ def test_sql_del_plan_corre_contra_postgres_de_verdad():
     try:
         conn.execute(base)
         conn.execute(inerte)
+        conn.execute(SQL17)
         conn.commit()
         for plataforma in ("amazon_mx", None):
             filas = conn.execute(
-                ar._SQL_PLAN, (plataforma, plataforma, "peso_muerto", 30)
+                ar._SQL_PLAN, (plataforma, plataforma, "peso_muerto", 30, 30)
             ).fetchall()
             assert filas == [], "base vacia: la consulta CORRE y no devuelve nada"
             excl = conn.execute(
                 ar._SQL_EXCLUIDOS, (plataforma, plataforma, "peso_muerto", 30)
             ).fetchone()[0]
             assert excl == 0
+            jovenes = conn.execute(
+                ar._SQL_EXCLUIDOS_JOVENES, (plataforma, plataforma, "peso_muerto", 30, 30)
+            ).fetchone()[0]
+            assert jovenes == 0
     finally:
         conn.close()
         admin = psycopg.connect(_test_dsn(), autocommit=True)
         admin.execute(f'DROP DATABASE IF EXISTS "{nombre}"')
+        admin.close()
+
+
+# ---------------------------------------------------------------------------
+# 18. BIDS 01 2.1 contra Postgres real: la edad sella el plan.
+# ---------------------------------------------------------------------------
+
+SQL13 = (ROOT / "migrations" / "0013_entidad_inerte.sql").read_text(encoding="utf-8")
+
+
+@contextmanager
+def _db_21(prefijo):
+    """DB temporal con esquema + vista inerte + ledger + first_seen_at."""
+    dsn = _test_dsn()
+    db = f"{prefijo}_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(dsn, dbname=db, autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        conn.execute(SQL)
+        conn.execute(SQL13)
+        conn.execute(SQL14)
+        conn.execute(SQL17)
+        yield conn
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()
+
+
+def _siembra_campana_21(conn):
+    """Jerarquia amazon_mx campana > ad group + watermark viejo de metricas.
+
+    El watermark de la plataforma sale de v_metric_latest: una sola fila de
+    hace 100 dias en la campana basta. Las keywords NO llevan metricas:
+    quedan peso_muerto con dias NULL (pasa como infinito): una vieja de
+    40d y una joven de 5d. Devuelve el id de la campana."""
+    hoy = dt.datetime.now(dt.UTC).date()
+    camp = conn.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id, name, first_seen_at)"
+        " VALUES ('amazon_mx', 'campaign', 'CMP21', 'Camp 21', %s) RETURNING id",
+        (hoy - dt.timedelta(days=40),),
+    ).fetchone()[0]
+    ag = conn.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id, parent_id, name, first_seen_at)"
+        " VALUES ('amazon_mx', 'ad_group', 'AG21', %s, 'AG 21', %s) RETURNING id",
+        (camp, hoy - dt.timedelta(days=40)),
+    ).fetchone()[0]
+    for ext, texto, hace in (("KWVIEJA", "vieja", 40), ("KWJOVEN", "joven", 5)):
+        kw = conn.execute(
+            "INSERT INTO ad_entity"
+            " (platform, kind, external_id, parent_id, match_type, keyword_text, first_seen_at)"
+            " VALUES ('amazon_mx', 'keyword', %s, %s, 'EXACT', %s, %s) RETURNING id",
+            (ext, ag, texto, hoy - dt.timedelta(days=hace)),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+            " VALUES (%s, 'ENABLED', now())",
+            (kw,),
+        )
+    for eid in (camp, ag):
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+            " VALUES (%s, 'ENABLED', now())",
+            (eid,),
+        )
+    run = conn.execute(
+        "INSERT INTO ingest_run (source) VALUES ('seed-21') RETURNING id"
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO ads_metric_observation"
+        " (ad_entity_id, metric_date, observed_at, metric_currency,"
+        "  impressions, clicks, orders, ingest_run_id)"
+        " VALUES (%s, %s, now(), 'MXN', 7, 1, 0, %s)",
+        (camp, hoy - dt.timedelta(days=100), run),
+    )
+    return camp
+
+
+def _textos(plan):
+    return {p["texto"] for p in plan}
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
+def test_21_plan_excluye_joven_y_la_reporta():
+    """La joven pasa todo menos la edad: fuera del plan, contada aparte.
+
+    Rojo contra el codigo previo (sin filtro first_seen_at): la joven
+    aparecia en el plan y _SQL_EXCLUIDOS_JOVENES no existia."""
+    with _db_21("orbit21plan") as conn:
+        _siembra_campana_21(conn)
+        plan, _exc, jovenes = ar._plan_inertes(conn, "amazon_mx", "peso_muerto", 30, None, 30)
+        assert _textos(plan) == {"vieja"}, f"el plan solo trae la vieja: {_textos(plan)}"
+        assert jovenes == 1, "la joven se reporta, no se esconde"
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
+def test_21_puerta_de_edad_obedece_el_parametro():
+    """--min-antiguedad-dias chico (3) deja entrar a la joven de 5 dias."""
+    with _db_21("orbit21puerta") as conn:
+        _siembra_campana_21(conn)
+        plan, _exc, jovenes = ar._plan_inertes(conn, "amazon_mx", "peso_muerto", 30, None, 3)
+        assert _textos(plan) == {"vieja", "joven"}
+        assert jovenes == 0
+
+
+def _estructura_21_minima():
+    perfil = PerfilAds(
+        profile_id=202,
+        country="MX",
+        currency_code="MXN",
+        account_type="seller",
+        valid_payment_method=True,
+        account_name="Cuenta Test",
+        aceptado=True,
+        platform="amazon_mx",
+        moneda="MXN",
+    )
+    return EstructuraAds(
+        perfiles=[perfil],
+        estructuras=[
+            EstructuraPerfil(
+                perfil=perfil,
+                campanas=[
+                    {
+                        "campaignId": "CMP21S",
+                        "name": "Camp sync",
+                        "targetingType": "MANUAL",
+                        "state": "ENABLED",
+                        "budget": {"budget": 10.0, "budgetType": "DAILY"},
+                    }
+                ],
+                ad_groups=[
+                    {
+                        "adGroupId": "AG21S",
+                        "name": "AG sync",
+                        "campaignId": "CMP21S",
+                        "state": "ENABLED",
+                        "defaultBid": 0.75,
+                    }
+                ],
+                keywords=[
+                    {
+                        "keywordId": "KW21S",
+                        "adGroupId": "AG21S",
+                        "campaignId": "CMP21S",
+                        "keywordText": "sincronizada",
+                        "matchType": "EXACT",
+                        "state": "ENABLED",
+                        "bid": 0.5,
+                    }
+                ],
+                targets=[],
+                product_ads=[],
+            )
+        ],
+    )
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
+def test_21_doble_sync_preserva_first_seen():
+    """El re-sync NO rejuvenece: first_seen_at queda con la fecha vieja.
+
+    Rojo contra el codigo previo (upsert sin first_seen_at o con
+    now() tambien en UPDATE): el segundo sync movia la marca a hoy."""
+    with _db_21("orbit21sync") as conn:
+        assert sync_structure(conn, _estructura_21_minima()).ok is True
+        vieja = dt.datetime.now(dt.UTC) - dt.timedelta(days=40)
+        conn.execute(
+            "UPDATE ad_entity SET first_seen_at = %s"
+            " WHERE platform = 'amazon_mx' AND kind = 'keyword'",
+            (vieja,),
+        )
+        assert sync_structure(conn, _estructura_21_minima()).ok is True
+        marca = conn.execute(
+            "SELECT first_seen_at FROM ad_entity WHERE platform = 'amazon_mx' AND kind = 'keyword'"
+        ).fetchone()[0]
+        assert marca == vieja, f"el re-sync debe preservar, no rejuvenecer: {marca}"
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
+def test_21_migracion_rellena_sin_nulos_y_fija_default():
+    """Backfill = piso de migracion: filas viejas quedan selladas NOT NULL
+    y la fila nueva trae DEFAULT now() sin que nadie lo pida."""
+    dsn = _test_dsn()
+    db = f"orbit21back_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(dsn, dbname=db, autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        conn.execute(SQL)
+        conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id)"
+            " VALUES ('amazon_mx', 'campaign', 'PREVIA')"
+        )
+        conn.execute(SQL17)
+        nulos = conn.execute(
+            "SELECT count(*) FROM ad_entity WHERE first_seen_at IS NULL"
+        ).fetchone()[0]
+        assert nulos == 0, "backfill: ninguna fila vieja queda sin marca"
+        notnull = conn.execute(
+            "SELECT is_nullable FROM information_schema.columns"
+            " WHERE table_name = 'ad_entity' AND column_name = 'first_seen_at'"
+        ).fetchone()[0]
+        assert notnull == "NO"
+        conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id)"
+            " VALUES ('amazon_mx', 'campaign', 'NUEVA')"
+        )
+        marca = conn.execute(
+            "SELECT first_seen_at FROM ad_entity WHERE external_id = 'NUEVA'"
+        ).fetchone()[0]
+        assert marca.date() == dt.datetime.now(dt.UTC).date(), f"default now(): {marca}"
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
         admin.close()

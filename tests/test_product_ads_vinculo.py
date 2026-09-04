@@ -8,11 +8,18 @@ from __future__ import annotations
 
 import os
 import socket
+from pathlib import Path as _Path
 
 import pytest
 from test_schema import SQL, SQL4, _hay_postgres_local, _test_dsn
 
 from app.ads.structure import EstructuraAds, EstructuraPerfil, PerfilAds, sync_structure
+
+# BIDS 01 2.1: sync_structure escribe first_seen_at; sin la 0017 el upsert
+# real revienta con UndefinedColumn.
+_SQL17 = (_Path(__file__).resolve().parents[1] / "migrations" / "0017_first_seen_at.sql").read_text(
+    encoding="utf-8"
+)
 
 _DSN_EXPLICITO = bool(os.environ.get("ORBIT_TEST_DSN"))
 
@@ -75,6 +82,7 @@ def _conectar_base_con_0004():
     conn.execute("SET TIME ZONE 'UTC'")
     conn.execute(SQL)
     conn.execute(SQL4)
+    conn.execute(_SQL17)  # BIDS 01 2.1: first_seen_at
     return psycopg, pgsql, admin, conn, db
 
 

@@ -1076,6 +1076,38 @@ El replay viejo lee `expected_clicks` (120 ≥ 120, 45 ≥ 40) y rejuega −25%
 (0.75) sobre una fila persistida en −12% (0.88): exactamente las 17
 decisiones que midió el lead. El pin `r1/r2` ya pasa (es pin, no rojo).
 
+### 2.1 — Sellar la edad (rama bids-01-2-1)
+
+- **D-2.1.1 · Columna, no derivación.** `ALTER TABLE ad_entity ADD COLUMN
+  first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()` (migración 0017). El
+  DEFAULT permanente cumple tres funciones: backfill de las existentes a
+  la hora de la migración (una sola txn → un solo valor), red para seeds
+  de test que insertan directo (nacen "vistas ahora", honesto), y red para
+  cualquier escritor futuro que olvide la columna. El upsert de
+  `structure.py` fija `first_seen_at = now()` SOLO en el INSERT; el
+  `DO UPDATE SET name` ni la nombra → jamás se pisa por sync. Sin GRANTs
+  nuevos (la columna hereda los de la tabla). COMMENT declara que el
+  backfill es un PISO, no la verdad (las 133 sin métricas podrían ser más
+  viejas).
+- **D-2.1.2 · El filtro vive en el plan, con fecha UTC fijada.** `_SQL_PLAN`
+  suma `AND e.first_seen_at <= (now() AT TIME ZONE 'UTC')::date - %s`
+  (precedente `v_metric_mature`: UTC en la expresión, nunca
+  `CURRENT_DATE` de sesión). N por CLI `--min-antiguedad-dias` (default
+  30, mismo molde que `--min-dias-sin-impresiones`). La exclusión se
+  REPORTA: `_SQL_EXCLUIDOS_JOVENES` cuenta keywords que pasan todo menos
+  la edad, y el dry-run las imprime (una exclusión invisible es trampa de
+  soporte). La línea del plan muestra `edad=Nd`.
+- **D-2.1.3 · `--reponer` no filtra por edad** (trabaja del ledger, no de
+  la vista). El filtro solo toca el camino de archivo.
+- **D-2.1.4 · Tests contra Postgres de verdad** (proceso: la `_ConnFalsa`
+  no ejecuta SQL). Tres rojos + backfill: (1) keyword inerte insertada
+  "hoy" NO entra al plan (joven contada aparte); (2) con `first_seen_at`
+  viejo SÍ entra; (3) sync real DOS veces (`sync_structure` con el mismo
+  payload) deja `first_seen_at` idéntico; (4) migración sobre 0001 con
+  fila previa → la fila amanece con `first_seen_at NOT NULL` (≈ hora de
+  la migración, PISO). Estático: la 0017 parsea, trae COMMENT de piso y
+  no nombra la columna en ningún UPDATE.
+
 ### 2.2 — Candado del dedupe + carrera del apply (rama bids-01-2-2)
 
 - **D-2.2.1 · El brief cuadra con el código: NO se para.** Verificado en
