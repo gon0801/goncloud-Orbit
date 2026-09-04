@@ -152,6 +152,14 @@ def _keyword(conn, platform: str, external: str, parent: int, text: str) -> int:
     ).fetchone()[0]
 
 
+def _product_target(conn, platform: str, external: str, parent: int, name: str) -> int:
+    return conn.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id, parent_id, name)"
+        " VALUES (%s, 'product_target', %s, %s, %s) RETURNING id",
+        (platform, external, parent, name),
+    ).fetchone()[0]
+
+
 def _metrica(
     conn,
     run_id,
@@ -1324,6 +1332,51 @@ def test_decisiones_motivo_desconocido_fallback_y_nombre_null(monkeypatch):
         item = _cliente(dsn, monkeypatch).get("/api/dashboard/decisiones").json()["items"][0]
         assert item["nombre"] is None  # name NULL no revienta
         assert item["motivo_es"] == "motivo_futuro_desconocido"  # fallback sin crash
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_decisiones_entidad_humana_no_vuelca_json_de_target(monkeypatch):
+    with _db_temporal("orbit_dash_etiqueta") as (conn, dsn):
+        config_id = _config_version(conn, {})
+        camp = _campana(conn, "amazon_us", "9001", name="Campana A")
+        ag = _grupo(conn, "amazon_us", "9101", parent=camp)
+        kw = _keyword(conn, "amazon_us", "9201", ag, "zapato blanco")
+        target = _product_target(
+            conn,
+            "amazon_us",
+            "9301",
+            ag,
+            '[{"type":"ASIN_SAME_AS","value":"B086TVLJ43"}]',
+        )
+        ciclo = _ciclo(conn, platform="amazon_us")
+        id_kw = _decision(
+            conn,
+            ciclo,
+            kw,
+            kind="bid",
+            config_id=config_id,
+            moneda="USD",
+            inputs={"motor": "bid", "motivo": "banda_menos_12", "target_acos_pct_usado": "25.00"},
+        )
+        id_tg = _decision(
+            conn,
+            ciclo,
+            target,
+            kind="bid",
+            config_id=config_id,
+            moneda="USD",
+            inputs={"motor": "bid", "motivo": "banda_menos_12", "target_acos_pct_usado": "25.00"},
+        )
+        items = _cliente(dsn, monkeypatch).get("/api/dashboard/decisiones").json()["items"]
+        por_id = {i["id"]: i for i in items}
+        assert por_id[id_kw]["nombre"] == "zapato blanco · Campana A"
+        assert por_id[id_tg]["nombre"] == "mismo ASIN B086TVLJ43 · Campana A"
+        for item in items:
+            assert "ASIN_SAME_AS" not in (item["nombre"] or "")
+            assert "[" not in (item["nombre"] or "")
 
 
 @pytest.mark.skipif(
