@@ -1095,10 +1095,25 @@ teórico (`harvest_job` done = **0**: el harvest nunca ha corrido), pero se
 vuelve trampa viva en cuanto aterrice ORBIT 05 · 2.3: harvest crea un EXACT
 que convierte → a las 24 h es `peso_muerto | dias=None` → el tool lo archiva.
 
-**H2 (alta) · el harvest recrea lo que se archivó.** `apply_harvest._identidad`
-salta `state = ARCHIVED`, así que un EXACT archivado no cuenta como identidad
-viva y el siguiente harvest del mismo término+grupo vuelve a hacer POST. Con
-H1 se cierra el bucle: archivar → recrear → archivar.
+**H2 · VERIFICADO POR EL LEAD Y ACOTADO (grok lo exageró).** grok afirmó
+que «el harvest recrea lo archivado» y cierra un bucle. Medido en el código:
+**el camino de DECISIÓN ya está protegido**. El dedupe de harvest
+(`hygiene.keywords_campana_destino` → `decide_hygiene.keywords_existentes` →
+skip `harvest_duplicado`) lee `ad_entity` **sin filtrar por estado**, y una
+keyword archivada CONSERVA su fila en `ad_entity` (el sync solo marca
+`ad_entity_state`, y su `_SQL_MARCAR_ARCHIVADOS` ni siquiera cubre keywords:
+es solo para `product_ad`). Así que el ciclo NO va a decidir un harvest nuevo
+para un texto ya archivado. Lo que sí queda expuesto son dos cosas más
+pequeñas:
+
+- **(a) Carrera del camino de APLICACIÓN.** `apply_harvest._identidad` sí
+  trata `ARCHIVED` como ausente (sellado por el probe 2.5, con razón para su
+  caso). Un job de harvest YA en vuelo cuya keyword se archive entre la
+  decisión y el apply volvería a hacer POST. Ventana estrecha pero real.
+- **(b) La protección es ACCIDENTAL.** Nada documenta ni prueba que el
+  dedupe deba seguir siendo ciego al estado. Una «mejora» razonable
+  —excluir archivadas de `keywords_campana_destino`— abriría el bucle que
+  grok describe. Sin un candado, esto se rompe solo con el tiempo.
 
 **H3 (alta) · ventana post-HTTP sin sello.** El ledger inserta `planeado`,
 sale el POST y luego sella `applied`/`failed`. Un kill, un timeout con el POST
@@ -1129,7 +1144,7 @@ bueno: verificar QUÉ archivo entra al contenedor antes de un go.
 | Task | Contenido | DoD | Depends | Status |
 |---|---|---|---|---|
 | 2.1 | **Edad mínima real antes de archivar** (H1): sin `created_at` en `ad_entity`, derivar la edad de la primera métrica observada o del `ingest_run` que insertó la entidad, y **excluir del plan toda hoja sin edad demostrable**; `dias IS NULL` deja de ser "infinitamente muerta". `[tdd:required]` | Rojo: una hoja sin métricas creada hoy NO entra al plan; una con última impresión > umbral SÍ | - | cc:TODO |
-| 2.2 | **Harvest respeta el archivo** (H2): `apply_harvest` no recrea una identidad con fila `applied` en `keyword_archivo_manual` sin `repuesto`. `[tdd:required]` | Rojo: harvest del mismo término+grupo tras archivar NO hace POST | - | cc:TODO |
+| 2.2 | **Candado del dedupe + carrera del apply** (H2 acotado por el lead): (a) test que CLAVA que `keywords_campana_destino` incluye keywords archivadas —es lo que hoy impide el bucle archivar→recrear, y hoy es accidental: nada lo documenta ni lo prueba—, con el porqué en el docstring; (b) `apply_harvest` no recrea una identidad con fila `applied` en `keyword_archivo_manual` sin `repuesto_at`, cerrando la carrera del job en vuelo. `[tdd:required]` | Rojo (a): quitar del dedupe las archivadas hace que el ciclo decida un harvest duplicado. Rojo (b): job en vuelo cuya keyword se archivó → cero POST y cierre declarado. Ambos verdes con el fix; suites de hygiene, cycle y apply_harvest completas | - | cc:TODO |
 | 2.3 | **Reconciliación del ledger** (H3): `--reconciliar` que cruza `planeado`/`failed` contra el LIST real de Amazon y promueve a `applied` lo que ya está `ARCHIVED`; `--reponer` lo incluye. `[tdd:required]` | Rojo: fila `failed` cuya keyword está ARCHIVED en Amazon se recupera y es reponible | - | cc:TODO |
 | 2.4 | **Autorizar por identidad, no por conteo** (H4): `--ids-file` o hash ordenado de `external_id` del ensayo; el go aborta si el conjunto cambió. `[tdd:required]` | Rojo: mismo N con un conjunto distinto → aborta | - | cc:TODO |
 | 2.5 | **La reposición no gasta** (H5): `--reponer` crea en **PAUSED** (precedente `archivar.py`), exige `--go`, verifica bid y campaña en el readback, y registra el `external_id` nuevo. Documentar que el archivo de Amazon es **irreversible en la práctica**. `[tdd:required]` | Rojo: la repuesta nace PAUSED con bid y campaña verificados | - | cc:TODO |
