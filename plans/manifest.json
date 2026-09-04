@@ -69,6 +69,11 @@
       "name": "estructura-01",
       "path": "plans/estructura-01.md",
       "description": "ESTRUCTURA 01 - partir app/ads/structure.py (1,068 lineas, allowlist de tamano) en structure_api (IO de API) + structure_plan (puro) + structure.py como fachada e IO de DB, sin cambio de comportamiento; Cursor implementa, el lead despliega con BIDS 01 1.5 y verifica conteos idempotentes"
+    },
+    {
+      "name": "cortes-ui-01",
+      "path": "plans/cortes-ui-01.md",
+      "description": "CORTES UI 01 - la pantalla de propuestas dejo de mentir: el dueño veto por error el primer cosechado porque «Cortes» y «vetar» sugerian que toda fila era un recorte; se renombra a Propuestas, cada fila declara su tipo y efecto, y el rechazo declara que es irreversible"
     }
   ],
   "active": "orbit-06"
