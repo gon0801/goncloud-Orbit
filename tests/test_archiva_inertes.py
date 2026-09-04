@@ -995,3 +995,47 @@ def test_ledger_0014_exige_evidencia_por_estado_moneda_y_parejo():
             _inserta(conn, kw, bid=Decimal("12.5000"), bid_currency="XXX")
 
         assert conn.execute("SELECT count(*) FROM keyword_archivo_manual").fetchone()[0] == 3
+
+
+# ---------------------------------------------------------------------------
+# Revision del lead 2026-09-04: el SQL contra Postgres DE VERDAD
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
+def test_sql_del_plan_corre_contra_postgres_de_verdad():
+    """El resto de este archivo usa `_ConnFalsa`: valida el plumbing de Python
+    y JAMAS el SQL. Por eso nadie vio que `(%s IS NULL OR ...)` sin cast
+    revienta con `IndeterminateDatatype: could not determine data type of
+    parameter $1` — la herramienta no habia corrido nunca contra una base
+    real. Este test ejecuta las DOS consultas con parametro presente Y con
+    parametro NULL. Rojo contra el codigo previo: IndeterminateDatatype."""
+    import psycopg
+
+    raiz = Path(__file__).resolve().parents[1]
+    base = SQL
+    inerte = (raiz / "migrations" / "0013_entidad_inerte.sql").read_text(encoding="utf-8")
+    nombre = "orbit_archiva_sql"
+    admin = psycopg.connect(_test_dsn(), autocommit=True)
+    admin.execute(f'DROP DATABASE IF EXISTS "{nombre}"')
+    admin.execute(f'CREATE DATABASE "{nombre}"')
+    admin.close()
+    conn = psycopg.connect(_test_dsn().rsplit("/", 1)[0] + f"/{nombre}")
+    try:
+        conn.execute(base)
+        conn.execute(inerte)
+        conn.commit()
+        for plataforma in ("amazon_mx", None):
+            filas = conn.execute(
+                ar._SQL_PLAN, (plataforma, plataforma, "peso_muerto", 30)
+            ).fetchall()
+            assert filas == [], "base vacia: la consulta CORRE y no devuelve nada"
+            excl = conn.execute(
+                ar._SQL_EXCLUIDOS, (plataforma, plataforma, "peso_muerto", 30)
+            ).fetchone()[0]
+            assert excl == 0
+    finally:
+        conn.close()
+        admin = psycopg.connect(_test_dsn(), autocommit=True)
+        admin.execute(f'DROP DATABASE IF EXISTS "{nombre}"')
+        admin.close()
