@@ -133,3 +133,25 @@ def test_paginas_siguen_200_con_data_pantalla(monkeypatch):
     assert 'data-pantalla="contribucion"' in html_contrib
     assert 'data-tema="dia"' in html_campanas
     assert 'id="btn-tema"' in html_decisiones
+
+
+def test_css_campanas_apila_tabla_en_40rem():
+    css = (_RAIZ / "static" / "css" / "dashboard.css").read_text(encoding="utf-8")
+    assert 'body[data-pantalla="campanas"]' in css
+    bloque = re.search(
+        r'@media\s*\(\s*max-width:\s*40rem\s*\)\s*\{'
+        r'(?:(?!@media).)*'
+        r'body\[data-pantalla="campanas"\]\s+table,'
+        r'(?:(?!@media).)*'
+        r'display:\s*block',
+        css,
+        re.S,
+    )
+    assert bloque is not None, "falta la regla que apila la tabla de campanas en 40rem"
+    assert "flex-wrap" in bloque.group(0)
+    assert re.search(r"td\.num\s*\{\s*text-align:\s*left", bloque.group(0))
+    assert re.search(
+        r"\.filtros input,\s*\n?\s*body\[data-pantalla=\"campanas\"\]\s+\.filtros select\s*\{"
+        r"[^}]*min-width:\s*0[^}]*max-width:\s*100%",
+        bloque.group(0),
+    )
