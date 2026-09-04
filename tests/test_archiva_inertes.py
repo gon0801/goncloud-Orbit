@@ -135,10 +135,11 @@ class _ConnFalsa:
     """Conexion enlatada: sirve el plan / el conteo de excluidos / las filas
     a reponer y GRABA inserts/updates del ledger + commits."""
 
-    def __init__(self, plan=(), excluidos=0, reponer=()):
+    def __init__(self, plan=(), excluidos=0, reponer=(), pendientes=()):
         self._plan = list(plan)
         self._excluidos = excluidos
         self._reponer = list(reponer)
+        self._pendientes = list(pendientes)
         self.queries = []
         self.inserts = []  # params de cada INSERT al ledger
         self.updates = []  # (sql, params) de cada UPDATE al ledger
@@ -160,6 +161,8 @@ class _ConnFalsa:
         if bajo.startswith("update keyword_archivo_manual"):
             self.updates.append((plano, params))
             return _CursorFalso([])
+        if "estado in" in bajo and "from keyword_archivo_manual" in bajo:
+            return _CursorFalso(self._pendientes)
         if "from keyword_archivo_manual" in bajo:
             return _CursorFalso(self._reponer)
         raise AssertionError(f"SQL inesperado: {plano[:120]}")
@@ -1034,6 +1037,193 @@ def test_sql_del_plan_corre_contra_postgres_de_verdad():
                 ar._SQL_EXCLUIDOS, (plataforma, plataforma, "peso_muerto", 30)
             ).fetchone()[0]
             assert excl == 0
+    finally:
+        conn.close()
+        admin = psycopg.connect(_test_dsn(), autocommit=True)
+        admin.execute(f'DROP DATABASE IF EXISTS "{nombre}"')
+        admin.close()
+
+
+# ---------------------------------------------------------------------------
+# BIDS 01 2.3: reconciliacion del ledger (H3).
+# ---------------------------------------------------------------------------
+
+# Fila pendiente (SELECT id, lote, platform, keyword_external).
+_PENDIENTE_FAILED = (7, LOTE, "amazon_mx", "kw-ext-12")
+
+_FILA_REPONER_2 = (
+    101,
+    12,
+    "amazon_mx",
+    "camp-ext-2",
+    "ag-ext-5",
+    "kw-ext-12",
+    "collar rojo",
+    "EXACT",
+    Decimal("9.0000"),
+    "MXN",
+    "peso_muerto",
+    45,
+)
+
+_ACK_CREATE_OK_2 = (207, {"keywords": {"success": [{"keyword": {"keywordId": "kw-nuevo-2"}}]}})
+
+
+def test_23_reconciliar_recupera_failed_archived():
+    """Fila `failed` cuya keyword esta ARCHIVED en Amazon -> `applied`.
+
+    Rojo contra el codigo previo (sin _reconciliar): la fila quedaba
+    fuera de la reversa para siempre (H3: archivada en Amazon e
+    invisible para --reponer)."""
+    conn = _ConnFalsa(pendientes=[_PENDIENTE_FAILED])
+    cliente = _ClienteFalso({"kw-ext-12": [_obj_kw("kw-ext-12", "ARCHIVED")]})
+    resumen = ar._reconciliar(conn, cliente, {"amazon_mx": 101}, None)
+    assert resumen == {"pendientes": 1, "recuperadas": 1, "vivas": 0, "sin_verificar": 0}
+    assert len(conn.updates) == 1
+    plano, params = conn.updates[0]
+    assert "'applied'" in plano
+    assert params[1] == "ARCHIVED" and params[2] == 7
+    ack = json.loads(params[0])
+    assert ack["fuente"] == "reconciliar", "evidencia honesta, no el ack del DELETE"
+    assert ack["keyword_external"] == "kw-ext-12"
+
+
+def test_23_reconciliar_viva_queda_intacta():
+    """LIST ENABLED = el DELETE no se aplico: sin UPDATE, contada aparte."""
+    conn = _ConnFalsa(pendientes=[_PENDIENTE_FAILED])
+    cliente = _ClienteFalso({"kw-ext-12": [_obj_kw("kw-ext-12", "ENABLED")]})
+    resumen = ar._reconciliar(conn, cliente, {"amazon_mx": 101}, LOTE)
+    assert resumen["vivas"] == 1 and resumen["recuperadas"] == 0
+    assert conn.updates == []
+    assert conn.queries[0][1] == (LOTE, LOTE), "el filtro de lote viaja"
+
+
+def test_23_reconciliar_list_caido_aborta_sin_tocar():
+    """LIST caido: la fila queda intacta y el comando aborta fail-closed."""
+    conn = _ConnFalsa(pendientes=[_PENDIENTE_FAILED])
+    cliente = _ClienteFalso({"kw-ext-12": [RuntimeError("red caida")]})
+    with pytest.raises(ar.Abortar):
+        ar._reconciliar(conn, cliente, {"amazon_mx": 101}, None)
+    assert conn.updates == [], "a ciegas no se promueve nada"
+
+
+def test_23_reconciliar_sin_perfil_aborta_sin_tocar():
+    """Sin perfil aceptado no hay LIST posible: intacta + aborto."""
+    conn = _ConnFalsa(pendientes=[_PENDIENTE_FAILED])
+    cliente = _ClienteFalso({})
+    with pytest.raises(ar.Abortar):
+        ar._reconciliar(conn, cliente, {}, None)
+    assert conn.updates == []
+    assert cliente.llamadas == [], "sin perfil ni se pregunta"
+
+
+def test_23_reponer_incluye_recuperadas_del_lote(monkeypatch, capsys):
+    """--reponer con mutacion reconcilia su lote ANTES de leer `applied`:
+    la failed recuperada se crea junto a la applied (2 CREATEs)."""
+    red = _RedFalsa(creates=[_ACK_CREATE_OK, _ACK_CREATE_OK_2])
+    cliente = _ClienteFalso(
+        {
+            "kw-ext-12": [_obj_kw("kw-ext-12", "ARCHIVED")],
+            "kw-nuevo-1": [
+                _obj_kw("kw-nuevo-1", "ENABLED", "arras de plata", "PHRASE", "ag-ext-5")
+            ],
+            "kw-nuevo-2": [_obj_kw("kw-nuevo-2", "ENABLED", "collar rojo", "EXACT", "ag-ext-5")],
+        }
+    )
+    conn_admin = _ConnFalsa(
+        reponer=[_FILA_REPONER, _FILA_REPONER_2], pendientes=[_PENDIENTE_FAILED]
+    )
+    _fakea_frontera(monkeypatch, _ConnFalsa(), conn_admin, cliente, red)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["archiva_inertes.py", "--reponer", LOTE, "--acepto-mutacion-real"],
+    )
+    assert ar.main() == 0
+    promo = [u for u in conn_admin.updates if "'applied'" in u[0]]
+    assert len(promo) == 1, "la failed se promovio antes de leer applied"
+    creates = [p for p in red.pedidos if p.url.path == "/sp/keywords"]
+    assert len(creates) == 2, "applied + recuperada se crean"
+    eventos = _eventos(capsys)
+    fin = [e for e in eventos if e["evento"] == "reconciliacion_final"]
+    assert len(fin) == 1 and fin[0]["repuestas"] == 2
+
+
+def test_23_reconciliar_cmd_solo_lee_amazon(monkeypatch, capsys):
+    """--reconciliar standalone no hace DELETE ni CREATE (cero POSTs mutantes)."""
+    red = _RedFalsa()
+    cliente = _ClienteFalso({"kw-ext-12": [_obj_kw("kw-ext-12", "ARCHIVED")]})
+    conn_admin = _ConnFalsa(pendientes=[_PENDIENTE_FAILED])
+    _fakea_frontera(monkeypatch, _ConnFalsa(), conn_admin, cliente, red)
+    monkeypatch.setattr(sys, "argv", ["archiva_inertes.py", "--reconciliar", "--lote", LOTE])
+    assert ar.main() == 0
+    assert red.pedidos == [], "sin token ni mutaciones: solo LISTs"
+    assert len([u for u in conn_admin.updates if "'applied'" in u[0]]) == 1
+    eventos = _eventos(capsys)
+    rec = [e for e in eventos if e["evento"] == "reconciliacion"]
+    assert len(rec) == 1 and rec[0]["recuperadas"] == 1
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
+def test_23_promocion_corre_en_postgres_de_verdad():
+    """El UPDATE de promocion + el SELECT de pendientes contra Postgres
+    real: el CHECK de evidencia muerde sin ack/readback, y la fila
+    promovida la trae _SQL_REPONER (es reponible)."""
+    import psycopg
+
+    raiz = Path(__file__).resolve().parents[1]
+    base = SQL
+    inerte = (raiz / "migrations" / "0013_entidad_inerte.sql").read_text(encoding="utf-8")
+    ledger = (raiz / "migrations" / "0014_keyword_archivo_manual.sql").read_text(encoding="utf-8")
+    nombre = "orbit_reconcilia_sql"
+    admin = psycopg.connect(_test_dsn(), autocommit=True)
+    admin.execute(f'DROP DATABASE IF EXISTS "{nombre}"')
+    admin.execute(f'CREATE DATABASE "{nombre}"')
+    admin.close()
+    conn = psycopg.connect(_test_dsn().rsplit("/", 1)[0] + f"/{nombre}")
+    try:
+        conn.execute(base)
+        conn.execute(inerte)
+        conn.execute(ledger)
+        ent = conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id, parent_id,"
+            " match_type, keyword_text)"
+            " VALUES ('amazon_mx', 'campaign', 'CMP23', NULL, NULL, NULL)"
+            " RETURNING id"
+        ).fetchone()[0]
+        kw = conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id, parent_id,"
+            " match_type, keyword_text)"
+            " VALUES ('amazon_mx', 'keyword', 'KW23', %s, 'EXACT', 'collar')"
+            " RETURNING id",
+            (ent,),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO keyword_archivo_manual"
+            " (lote, ad_entity_id, platform, campaign_external, ad_group_external,"
+            "  keyword_external, keyword_text, match_type, clasificacion, go_literal, estado)"
+            " VALUES ('lote23', %s, 'amazon_mx', 'CMP23', 'AG23', 'KW23',"
+            "  'collar', 'EXACT', 'peso_muerto', 'go', 'failed')"
+            " RETURNING id",
+            (kw,),
+        ).fetchone()[0]
+        conn.commit()
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(
+                "UPDATE keyword_archivo_manual SET estado = 'applied'"
+                " WHERE keyword_external = 'KW23'"
+            )
+        conn.rollback()
+        fila = conn.execute(ar._SQL_PENDIENTES, ("lote23", "lote23")).fetchone()
+        assert fila[0] is not None and fila[3] == "KW23"
+        assert conn.execute(ar._SQL_PENDIENTES, ("otro", "otro")).fetchall() == []
+        conn.execute(
+            ar._SQL_PROMUEVE_APPLIED,
+            (json.dumps({"fuente": "reconciliar"}), "ARCHIVED", fila[0]),
+        )
+        conn.commit()
+        trae = conn.execute(ar._SQL_REPONER, ("lote23",)).fetchall()
+        assert len(trae) == 1 and trae[0][5] == "KW23", "recuperada = reponible"
     finally:
         conn.close()
         admin = psycopg.connect(_test_dsn(), autocommit=True)
