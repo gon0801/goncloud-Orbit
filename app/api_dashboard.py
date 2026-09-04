@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, Literal
 
@@ -164,20 +165,29 @@ _SQL_CONFIG_VIGENTE = """
 SELECT settings FROM config_version ORDER BY id DESC LIMIT 1
 """
 
-# Feed de decisiones por CURSOR: ORDER BY id DESC, id < cursor, LIMIT. Sin
-# OFFSET (decision 8): offset sobre la tabla append-only produce
-# huecos/duplicados entre paginas. JOIN a ad_entity para el nombre (nullable
-# por schema) y la plataforma.
-_SQL_DECISIONES_FEED = """
+# Origen unico del JOIN: el feed JSON y la pagina HTML leen las mismas
+# columnas (las que _fila_decision toma por indice).
+_SQL_DECISIONES_FROM = """
+  FROM decision d
+  JOIN ad_entity e ON e.id = d.ad_entity_id
+"""
+
+_SQL_DECISIONES_SELECT = (
+    """
 SELECT d.id, d.cycle_id, d.ad_entity_id, e.name, e.platform, d.kind,
        d.decided_at, d.search_term, d.old_value, d.new_value, d.value_currency,
        d.inputs
-  FROM decision d
-  JOIN ad_entity e ON e.id = d.ad_entity_id
- WHERE {filtros}
- ORDER BY d.id DESC
- LIMIT %s
 """
+    + _SQL_DECISIONES_FROM
+)
+
+# Feed JSON: CURSOR, jamas OFFSET (decision 8). Candado pglast existente.
+_SQL_DECISIONES_FEED = _SQL_DECISIONES_SELECT + " WHERE {filtros}\n ORDER BY d.id DESC\n LIMIT %s\n"
+
+# Pagina HTML: OFFSET sobre una PageWindow ya clampada. Candado propio.
+_SQL_DECISIONES_PAGINA = _SQL_DECISIONES_SELECT + " ORDER BY d.id DESC\n LIMIT %s OFFSET %s\n"
+
+_SQL_DECISIONES_TOTAL = "SELECT count(*)" + _SQL_DECISIONES_FROM
 
 # Motivos de DECISION -> espanol (decisión 11 del header): dict que IMPORTA
 # las constantes MOTIVO_* de bid/hygiene (los que persisten en inputs.motivo
@@ -606,6 +616,59 @@ def _filtros_feed(platform, kind) -> tuple[list[str], list]:
         clausulas.append("d.kind = %s::decision_kind")
         params.append(kind)
     return (clausulas, params)
+
+
+@dataclass(frozen=True, slots=True)
+class PageWindow:
+    """Ventana de la pagina HTML de decisiones. page/page_size/total se
+    almacenan; pages/offset/prev/next se derivan. Construir con desde_total."""
+
+    page: int
+    page_size: int
+    total: int
+
+    def __post_init__(self) -> None:
+        if self.page_size < 1:
+            raise ValueError("page_size")
+        if self.total < 0:
+            raise ValueError("total")
+        if self.page < 1 or self.page > self.pages:
+            raise ValueError("page")
+
+    @property
+    def pages(self) -> int:
+        return max(1, (self.total + self.page_size - 1) // self.page_size)
+
+    @property
+    def offset(self) -> int:
+        return (self.page - 1) * self.page_size
+
+    @property
+    def prev(self) -> int | None:
+        return self.page - 1 if self.page > 1 else None
+
+    @property
+    def next(self) -> int | None:
+        return self.page + 1 if self.page < self.pages else None
+
+    @classmethod
+    def desde_total(cls, total: int, page: int, page_size: int) -> PageWindow:
+        if page_size < 1:
+            raise ValueError("page_size")
+        if total < 0:
+            raise ValueError("total")
+        pages = max(1, (total + page_size - 1) // page_size)
+        return cls(page=min(max(1, page), pages), page_size=page_size, total=total)
+
+
+def decisiones_pagina(
+    conn: ConexionLectura, page: int, page_size: int
+) -> tuple[list[dict], PageWindow]:
+    """Pagina HTML: count -> ventana clampada -> LIMIT/OFFSET. No es ruta."""
+    total = conn.execute(_SQL_DECISIONES_TOTAL).fetchone()[0]
+    ventana = PageWindow.desde_total(total=total, page=page, page_size=page_size)
+    filas = conn.execute(_SQL_DECISIONES_PAGINA, (ventana.page_size, ventana.offset)).fetchall()
+    return [_fila_decision(fila) for fila in filas], ventana
 
 
 def _fila_decision(fila) -> dict:

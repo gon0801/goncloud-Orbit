@@ -1,14 +1,10 @@
 "use strict";
-// JS del dashboard (ORBIT 16). Vive en /static por la CSP `default-src
-// 'self'`: los <script> inline y los handlers on*= quedan BLOQUEADOS por esa
-// politica (hallazgo mayor de la review del bloque 2). El cableado por pagina
-// es DECLARATIVO: los canvas llevan data-serie/data-claves/data-etiquetas y
-// los datos viajan en bloques INERTES <script type="application/json"> (esos
-// no los toca la CSP: no son ejecutables).
+// JS del dashboard. Vive en /static por la CSP default-src 'self'.
+// Los canvas declaran data-serie/data-claves/data-etiquetas; los datos
+// viajan en <script type="application/json"> (no ejecutables).
 
-// Decision 7 del header: el dinero viaja como STRING desde la API
-// ("363.1400"); el cliente lo parsea con Number() para graficar. El backend
-// jamas emite floats de dinero.
+var graficas = [];
+
 function numero(s) {
   if (s === null || s === undefined || s === "") return null;
   return Number(s);
@@ -19,11 +15,16 @@ function colorCss(nombre, respaldo) {
   return valor || respaldo;
 }
 
-function coloresGrafica() {
+function pintura() {
   return {
     texto: colorCss("--color-texto", "#1a1a1a"),
     mutado: colorCss("--color-mutado", "#5c574f"),
-    alerta: colorCss("--color-alerta", "#a11f1f")
+    borde: colorCss("--color-borde", "#c8c2b6"),
+    series: [
+      colorCss("--color-acento", "#9c3d12"),
+      colorCss("--color-ok", "#2d6a3a"),
+      colorCss("--color-alerta", "#a11f1f")
+    ]
   };
 }
 
@@ -33,10 +34,25 @@ function datosDe(id) {
   return JSON.parse(el.textContent);
 }
 
-// Grafica de lineas (spend/revenue/ACoS): un hueco (null) jamas se pinta
-// como 0 (regla 3, spanGaps false). Los dias INMADUROS (D-8..D-1) se marcan
-// con "*" en la etiqueta y tramo punteado (hallazgo media de codex: los
-// flags de la API no se reflejaban en la grafica).
+function vestir(chart, tinta) {
+  (chart.data.datasets || []).forEach(function (ds, i) {
+    var color = tinta.series[i % tinta.series.length];
+    ds.borderColor = color;
+    ds.backgroundColor = color;
+  });
+  if (chart.options.plugins && chart.options.plugins.legend && chart.options.plugins.legend.labels) {
+    chart.options.plugins.legend.labels.color = tinta.texto;
+  }
+  ["x", "y"].forEach(function (eje) {
+    var escala = chart.options.scales && chart.options.scales[eje];
+    if (!escala) return;
+    if (escala.ticks) escala.ticks.color = tinta.mutado;
+    if (!escala.grid) escala.grid = {};
+    escala.grid.color = tinta.borde;
+  });
+  chart.update("none");
+}
+
 function graficarSeries(canvasId, datosId, seriesClaves, etiquetas) {
   var canvas = document.getElementById(canvasId);
   if (!canvas) return;
@@ -53,15 +69,16 @@ function graficarSeries(canvasId, datosId, seriesClaves, etiquetas) {
       columnas[clave].push(numero(fila[clave]));
     });
   });
-  var tinta = coloresGrafica();
-  new Chart(canvas, {
+  var tinta = pintura();
+  var chart = new Chart(canvas, {
     type: "line",
     data: { labels: fechas, datasets: etiquetas.map(function (etiqueta, i) {
       return {
         label: etiqueta,
         data: columnas[seriesClaves[i]],
-        borderWidth: 1.5,
+        borderWidth: 2,
         spanGaps: false,
+        fill: false,
         segment: {
           borderDash: function (ctx) {
             return inmaduros[ctx.p1DataIndex] ? [4, 3] : undefined;
@@ -69,36 +86,53 @@ function graficarSeries(canvasId, datosId, seriesClaves, etiquetas) {
         }
       };
     }) },
-    options: { responsive: true, plugins: { legend: { labels: { color: tinta.texto } } },
-               scales: { x: { ticks: { color: tinta.mutado, maxTicksLimit: 8 } },
-                         y: { ticks: { color: tinta.mutado } } } } }
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: tinta.texto } } },
+      scales: {
+        x: { ticks: { color: tinta.mutado, maxTicksLimit: 8 }, grid: { color: tinta.borde } },
+        y: { ticks: { color: tinta.mutado }, grid: { color: tinta.borde } }
+      }
+    }
   });
+  vestir(chart, tinta);
+  graficas.push(chart);
 }
 
-// Grafica de barras (skips, decisiones por kind).
 function graficarBarras(canvasId, etiquetas, valores, color) {
   var canvas = document.getElementById(canvasId);
   if (!canvas) return;
-  var tinta = coloresGrafica();
-  new Chart(canvas, {
+  var tinta = pintura();
+  var chart = new Chart(canvas, {
     type: "bar",
-    data: { labels: etiquetas, datasets: [{ label: "conteo", data: valores, backgroundColor: color }] },
-    options: { responsive: true, plugins: { legend: { display: false } },
-               scales: { x: { ticks: { color: tinta.mutado } },
-                         y: { ticks: { color: tinta.mutado } } } } }
+    data: { labels: etiquetas, datasets: [{ label: "conteo", data: valores, backgroundColor: color || tinta.series[2] }] },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: tinta.mutado }, grid: { color: tinta.borde } },
+        y: { ticks: { color: tinta.mutado }, grid: { color: tinta.borde } }
+      }
+    }
   });
+  vestir(chart, tinta);
+  graficas.push(chart);
 }
 
-// Cursor del feed: la pagina siguiente pide id < next_cursor (decision 8).
-function cargarMas() {
-  var boton = document.getElementById("btn-mas");
-  if (!boton) return;
-  var cursor = boton.dataset.cursor;
-  window.location.href = "/decisiones?cursor=" + encodeURIComponent(cursor);
+function observarTema() {
+  var ultimo = document.documentElement.dataset.tema;
+  new MutationObserver(function () {
+    var ahora = document.documentElement.dataset.tema;
+    if (ahora === ultimo) return;
+    ultimo = ahora;
+    var tinta = pintura();
+    graficas.forEach(function (g) { vestir(g, tinta); });
+  }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-tema"] });
 }
 
 document.addEventListener("DOMContentLoaded", function () {
-  // Resumen: cada canvas declara su serie en data-attributes.
   document.querySelectorAll("canvas[data-serie]").forEach(function (canvas) {
     graficarSeries(
       canvas.id,
@@ -107,8 +141,6 @@ document.addEventListener("DOMContentLoaded", function () {
       canvas.dataset.etiquetas.split(",")
     );
   });
-  // Salud: skips por motivo, etiquetados con su TRADUCCION motivo_es
-  // (hallazgo baja de codex: el id crudo es vocabulario interno).
   document.querySelectorAll('script[type="application/json"][id^="datos-skips-"]').forEach(
     function (el) {
       var plataforma = el.id.slice("datos-skips-".length);
@@ -121,11 +153,8 @@ document.addEventListener("DOMContentLoaded", function () {
           valores.push(datos[lado][motivo].count);
         });
       });
-      if (etiquetas.length) graficarBarras("skips-" + plataforma, etiquetas, valores, coloresGrafica().alerta);
+      if (etiquetas.length) graficarBarras("skips-" + plataforma, etiquetas, valores, pintura().series[2]);
     }
   );
-  // Decisiones: el boton de paginacion se cablea aqui (onclick= inline lo
-  // bloquea la CSP).
-  var boton = document.getElementById("btn-mas");
-  if (boton) boton.addEventListener("click", cargarMas);
+  observarTema();
 });

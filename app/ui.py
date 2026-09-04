@@ -309,22 +309,17 @@ def pagina_campanas(
 def pagina_decisiones(
     request: Request,
     conn: ConexionLectura,
-    cursor: Annotated[int | None, Query(ge=1)] = None,
+    page: Annotated[int, Query(ge=1)] = 1,
 ) -> HTMLResponse:
-    """Decisiones: feed por cursor con motivo en espanol; el search_term se
-    renderiza ESCAPADO ({{ }}) — es el vector XSS real del dominio. El
-    `?cursor=` del boton 'Cargar mas' se PROPAGA al feed (hallazgo alta de
-    codex: ignorarlo recargaba la primera pagina por siempre)."""
-    datos = dash.decisiones(conn=conn, cursor=cursor)
+    """Decisiones: pagina numerada. El search_term se renderiza ESCAPADO.
+    `?page=` es un GET sin JS (reemplaza el boton Cargar mas)."""
+    items, ventana = dash.decisiones_pagina(
+        conn=conn, page=page, page_size=dash.LIMITE_FEED_DEFAULT
+    )
     return templates.TemplateResponse(
         request,
         "decisiones.html",
-        {
-            "pantalla": "decisiones",
-            "items": datos["items"],
-            "next_cursor": datos["next_cursor"],
-            "has_more": datos["has_more"],
-        },
+        {"pantalla": "decisiones", "items": items, "ventana": ventana},
     )
 
 

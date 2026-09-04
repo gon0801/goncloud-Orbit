@@ -889,6 +889,32 @@ def test_sql_feed_decisiones_por_cursor_sin_offset_y_con_join_nombre():
     assert "limit" in normalizada
 
 
+def test_page_window_clampa_y_deriva():
+    v = dash.PageWindow.desde_total(total=101, page=99, page_size=50)
+    assert (v.page, v.pages, v.offset, v.prev, v.next) == (3, 3, 100, 2, None)
+    vacia = dash.PageWindow.desde_total(total=0, page=1, page_size=50)
+    assert (vacia.pages, vacia.prev, vacia.next) == (1, None, None)
+    with pytest.raises(ValueError):
+        dash.PageWindow.desde_total(total=1, page=1, page_size=0)
+
+
+def test_sql_pagina_decisiones_offset_sobre_el_mismo_from():
+    sql = dash._SQL_DECISIONES_PAGINA.replace("%s", "NULL")
+    normalizada = " ".join(pglast.prettify(sql).lower().split())
+    assert "join ad_entity" in normalizada
+    assert "order by d.id desc" in normalizada
+    assert "offset" in normalizada
+    assert "limit" in normalizada
+    feed = " ".join(
+        pglast.prettify(
+            dash._SQL_DECISIONES_FEED.replace("%s", "NULL").replace("{filtros}", "true")
+        )
+        .lower()
+        .split()
+    )
+    assert "offset" not in feed
+
+
 # ---------------------------------------------------------------------------
 # 1.4 - INTEGRACION /campanas: procedencia en los 5 peldanos, goal, anti-mezcla
 # ---------------------------------------------------------------------------
