@@ -358,14 +358,21 @@ def pagina_contribucion(request: Request, conn: ConexionLectura) -> HTMLResponse
 
 @router.get("/inertes", response_class=HTMLResponse)
 def pagina_inertes(request: Request, conn: ConexionLectura) -> HTMLResponse:
-    """Inertes: hojas sin trafico con su clasificacion (BIDS 01 1.3).
-    Server-rendered desde el endpoint (regla 22); el texto de la hoja se
-    renderiza ESCAPADO ({{ }}) — keyword_text es el vector XSS real."""
+    """Inertes: hojas sin trafico con su clasificacion (BIDS 01 1.3), su
+    puerta de antiguedad (en espera / archivable desde) y el resumen de
+    lotes de archivado (BIDS 01 2.6). Server-rendered desde el endpoint
+    (regla 22); el texto de la hoja se renderiza ESCAPADO ({{ }}) —
+    keyword_text es el vector XSS real."""
     datos = dash.inertes(conn=conn)
     return templates.TemplateResponse(
         request,
         "inertes.html",
-        {"pantalla": "inertes", "totales": datos["totales"], "items": datos["items"]},
+        {
+            "pantalla": "inertes",
+            "totales": datos["totales"],
+            "items": datos["items"],
+            "lotes": datos["lotes"],
+        },
     )
 
 
