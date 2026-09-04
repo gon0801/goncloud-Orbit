@@ -126,6 +126,7 @@ MOTIVO_FALLO_NEGATIVE = "fallo_negative"
 MOTIVO_FALLO_KEYWORD = "fallo_keyword"
 MOTIVO_KEYWORD_AUSENTE = "keyword_ausente"
 MOTIVO_TOPE_INTENTOS = "tope_intentos"
+MOTIVO_ARCHIVADO_EN_VUELO = "archivado_en_vuelo"
 
 # ---------------------------------------------------------------------------
 # SQL del modulo (misma maquina de estados que apply_cola; ver docstring)
@@ -154,6 +155,25 @@ SELECT id, decision_id, search_term, ad_entity_id, fase, external_ids, platform:
 
 _SQL_AVANZA_FASE = """
 UPDATE harvest_job SET fase = %s, external_ids = %s, updated_at = now() WHERE id = %s
+"""
+
+# BIDS 01 2.2 (b), H2 acotado: la keyword YA fue archivada a mano (fila
+# applied sin repuesto) entre la decision y el apply. _identidad la ve
+# AUSENTE (sellado probe 2.5 para reconciliacion: NO se toca); este chequeo
+# del LEDGER es lo que impide el POST duplicado. Identidad = la de
+# _identidad (mismo ad group + mismo texto + EXACT) + plataforma; texto
+# comparado con lower+btrim, coherente con la normalizacion del dedupe de
+# decision. repuesto_at con valor = la reversa ya repuso y el harvest puede
+# recrear: NO bloquea.
+_SQL_ARCHIVO_APLICADO = """
+SELECT id FROM keyword_archivo_manual
+ WHERE platform = %s::platform
+   AND ad_group_external = %s
+   AND btrim(lower(keyword_text)) = btrim(lower(%s))
+   AND match_type = 'EXACT'
+   AND estado = 'applied'
+   AND repuesto_at IS NULL
+ LIMIT 1
 """
 
 _SQL_UPDATE_IDS = """
@@ -936,6 +956,24 @@ def _paso_keyword(
         _sella_pendientes(conn, job.decision_id, "ok:reconciliado")
         _avanza(conn, job, "exact_created", {"keyword_id": encontrado.get("keywordId")})
         return "avanza", None
+    archivada = conn.execute(
+        _SQL_ARCHIVO_APLICADO, (job.plataforma, ctx.destino_grupo, job.search_term)
+    ).fetchone()
+    if archivada is not None:
+        # BIDS 01 2.2 (b): archivada ENTRE la decision y el apply (el LIST
+        # la trae ARCHIVED e _identidad la ve ausente, sellado probe 2.5).
+        # Recrearla seria duplicar lo archivado a mano: NO hay POST y el
+        # job cierra declarando el motivo (terminal, sin reintento).
+        return _falla_job(
+            conn,
+            job,
+            MOTIVO_ARCHIVADO_EN_VUELO,
+            queue_id=queue_id,
+            detalle=(
+                "keyword archivada en vuelo: fila applied sin repuesto en"
+                " keyword_archivo_manual para la identidad; no se recrea"
+            ),
+        )
     sugerido = bid_sugerido(cliente)  # PENDIENTE-DE-REGLA-8: sin id del termino pre-creacion
     try:
         bid = bid_efectivo(sugerido, ctx.default_bid, ctx.floor, ctx.ceiling)

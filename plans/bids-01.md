@@ -1076,6 +1076,74 @@ El replay viejo lee `expected_clicks` (120 ≥ 120, 45 ≥ 40) y rejuega −25%
 (0.75) sobre una fila persistida en −12% (0.88): exactamente las 17
 decisiones que midió el lead. El pin `r1/r2` ya pasa (es pin, no rojo).
 
+### 2.2 — Candado del dedupe + carrera del apply (rama bids-01-2-2)
+
+- **D-2.2.1 · El brief cuadra con el código: NO se para.** Verificado en
+  `origin/master` antes de programar: (1) `_SQL_KEYWORDS_CAMPANA`
+  (`app/optimizer/hygiene.py:375-385`) lee `ad_entity` sin JOIN a
+  `ad_entity_state` ni filtro de estado — la archivada está en el set;
+  (2) `_SQL_MARCAR_ARCHIVADOS` (`app/ads/structure.py:213-222`) es
+  `UPDATE ad_entity_state` (la fila de `ad_entity` se conserva) y filtra
+  `e.kind = 'product_ad'` — ni cubre keywords; (3) `apply_harvest._identidad`
+  (`app/apply_harvest.py:446-447`) salta `ARCHIVED` como ausente, sellado
+  por el probe 2.5 en su docstring; (4) `keyword_archivo_manual` (0014)
+  trae `platform/ad_group_external/keyword_text/match_type/estado/
+  repuesto_at` — todo lo que el chequeo necesita, sin migración.
+- **D-2.2.2 · Alcance de (a): candado a dos niveles.** Test de higiene:
+  una EXACT archivada en destino SÍ sale en `keywords_campana_destino`.
+  Test de ciclo: el término harvestable con su texto archivado NO se
+  decide y cae `skips.termino.harvest_duplicado = 1`. El rojo se produce
+  con la "mejora" literal que abriría el bucle (JOIN a `ad_entity_state`
+  + `status = 'ENABLED'` en `_SQL_KEYWORDS_CAMPANA`) y el log muestra el
+  harvest duplicado decidido. Docstring de la función con el porqué (la
+  protección es ciega al estado A PROPÓSITO).
+- **D-2.2.3 · Alcance de (b): el ledger manda donde se decide crear.** En
+  `_paso_keyword`, tras el miss de `_identidad` y ANTES de bid/ledger/POST:
+  si hay fila en `keyword_archivo_manual` con `platform` + mismo ad group
+  + mismo texto + `match_type = 'EXACT'` (la identidad de `_identidad`;
+  PHRASE archivada NO bloquea un EXACT, coherente con (a)) +
+  `estado = 'applied'` + `repuesto_at IS NULL` → NO hay POST y se cierra
+  con `_falla_job` y motivo nuevo. Comparación de texto con
+  `lower+btrim` en SQL, coherente con la normalización del dedupe de
+  decisión. `_identidad` y `_solo_en_otro_ad_group` NO se tocan (sellados
+  para reconciliación).
+- **D-2.2.4 · Cierre con `_falla_job`: declarado y terminal.** `failed`
+  solo lo conducen las fases en vuelo (`fase IN (pending,
+  negative_created, exact_created)`); nada re-conduce un `failed`, así que
+  el cierre es estable y el chequeo lo hace idempotente ante reintentos
+  manuales. La alerta de Telegram es lo correcto aquí (no ruido): archivar
+  con un job en vuelo es anomalía operativa accionable. Motivo nuevo
+  `archivado_en_vuelo` (constante `MOTIVO_ARCHIVADO_EN_VUELO`).
+- **D-2.2.5 · Lo que NO se hace.** Sin cambios en `cycle.py` (la decisión
+  ya está bien), sin migración, sin tocar el camino negative ni el
+  readback. `repuesto_at` con valor = la reversa ya repuso → el chequeo
+  NO bloquea (el harvest puede recrear tras reposición deliberada).
+
+**Rojos 2.2** (contra `origin/master` + tests nuevos, antes del fix;
+Postgres local):
+
+```text
+ROJO (a) — _SQL_KEYWORDS_CAMPANA con JOIN ad_entity_state + status='ENABLED':
+>  assert harvests == [], "el texto archivado NO se vuelve a cosechar"
+E  AssertionError: el texto archivado NO se vuelve a cosechar
+E  assert [(2, 'harvest', 'buena yarda', None, Decimal('0.7500'), 'USD', ...)] == []
+FAILED test_ciclo_harvest_no_duplica_texto_archivado_en_destino
+(restaurado el SQL: 2 passed — el candado verdea)
+
+ROJO (b) — sin chequeo del ledger (job negative_created + ARCHIVED en
+Amazon + fila applied sin repuesto):
+>  assert resumen.jobs_failed == 1 and resumen.jobs_done == 0
+E  assert (0 == 1)
+E  + where 0 = ResumenReconciliacion(jobs_done=1, jobs_failed=0, ...).jobs_failed
+FAILED test_matriz_keyword_archivada_en_vuelo_cero_post_y_cierre_declarado
+(jobs_done=1 = el POST duplico lo archivado; con el fix: failed +
+alerta archivado_en_vuelo + cero POSTs)
+
+PIN (b2) — sin `AND repuesto_at IS NULL`:
+FAILED test_matriz_archivo_repuesto_no_bloquea_harvest
+(restaurada la clausula: pasa — la reposicion deliberada NO bloquea)
+```
+
 ## Cross-review del lote de archivo (grok, 2026-09-04) — VEREDICTO: NO CORRERLO
 
 Pedida por el dueño antes de autorizar el lote real de 160 keywords.
@@ -1144,7 +1212,7 @@ bueno: verificar QUÉ archivo entra al contenedor antes de un go.
 | Task | Contenido | DoD | Depends | Status |
 |---|---|---|---|---|
 | 2.1 | **Edad mínima real antes de archivar** (H1): sin `created_at` en `ad_entity`, derivar la edad de la primera métrica observada o del `ingest_run` que insertó la entidad, y **excluir del plan toda hoja sin edad demostrable**; `dias IS NULL` deja de ser "infinitamente muerta". `[tdd:required]` | Rojo: una hoja sin métricas creada hoy NO entra al plan; una con última impresión > umbral SÍ | - | cc:TODO |
-| 2.2 | **Candado del dedupe + carrera del apply** (H2 acotado por el lead): (a) test que CLAVA que `keywords_campana_destino` incluye keywords archivadas —es lo que hoy impide el bucle archivar→recrear, y hoy es accidental: nada lo documenta ni lo prueba—, con el porqué en el docstring; (b) `apply_harvest` no recrea una identidad con fila `applied` en `keyword_archivo_manual` sin `repuesto_at`, cerrando la carrera del job en vuelo. `[tdd:required]` | Rojo (a): quitar del dedupe las archivadas hace que el ciclo decida un harvest duplicado. Rojo (b): job en vuelo cuya keyword se archivó → cero POST y cierre declarado. Ambos verdes con el fix; suites de hygiene, cycle y apply_harvest completas | - | cc:TODO |
+| 2.2 | **Candado del dedupe + carrera del apply** (H2 acotado por el lead): (a) test que CLAVA que `keywords_campana_destino` incluye keywords archivadas —es lo que hoy impide el bucle archivar→recrear, y hoy es accidental: nada lo documenta ni lo prueba—, con el porqué en el docstring; (b) `apply_harvest` no recrea una identidad con fila `applied` en `keyword_archivo_manual` sin `repuesto_at`, cerrando la carrera del job en vuelo. `[tdd:required]` | Rojo (a): quitar del dedupe las archivadas hace que el ciclo decida un harvest duplicado. Rojo (b): job en vuelo cuya keyword se archivó → cero POST y cierre declarado. Ambos verdes con el fix; suites de hygiene, cycle y apply_harvest completas | - | cc:完了 candado + carrera (PR, CI verde) |
 | 2.3 | **Reconciliación del ledger** (H3): `--reconciliar` que cruza `planeado`/`failed` contra el LIST real de Amazon y promueve a `applied` lo que ya está `ARCHIVED`; `--reponer` lo incluye. `[tdd:required]` | Rojo: fila `failed` cuya keyword está ARCHIVED en Amazon se recupera y es reponible | - | cc:TODO |
 | 2.4 | **Autorizar por identidad, no por conteo** (H4): `--ids-file` o hash ordenado de `external_id` del ensayo; el go aborta si el conjunto cambió. `[tdd:required]` | Rojo: mismo N con un conjunto distinto → aborta | - | cc:TODO |
 | 2.5 | **La reposición no gasta** (H5): `--reponer` crea en **PAUSED** (precedente `archivar.py`), exige `--go`, verifica bid y campaña en el readback, y registra el `external_id` nuevo. Documentar que el archivo de Amazon es **irreversible en la práctica**. `[tdd:required]` | Rojo: la repuesta nace PAUSED con bid y campaña verificados | - | cc:TODO |

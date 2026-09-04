@@ -743,6 +743,45 @@ def test_ciclo_shadow_completo_decisiones_y_notes_exactos():
         assert notes["ad_groups"] == 1
         assert notes["terminos"] == 7
         assert notes["ciclos_muertos"] == []
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ciclo_harvest_no_duplica_texto_archivado_en_destino():
+    """BIDS 01 2.2 (a), H2 acotado: el termino harvestable "buena yarda"
+    YA existe como EXACT ARCHIVADA en la campana destino (9002) -> el ciclo
+    NO decide harvest y cae skips.termino.harvest_duplicado. Rojo: excluir
+    archivadas del dedupe hace que el ciclo decida el duplicado (log en el
+    plan); la archivada conserva su fila (el sync solo marca el estado)."""
+    with _db_temporal("orbit_ciclo_harv_arch") as (conn, _c):
+        _siembra_maestra(conn)
+        camp_dest = _entidad(conn, "amazon_us", "campaign", "9002")
+        ag_dest = _entidad(conn, "amazon_us", "ad_group", "9102", parent=camp_dest)
+        kw_arch = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "9209",
+            parent=ag_dest,
+            match_type="EXACT",
+            keyword_text="buena yarda",
+        )
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, current_bid, bid_currency,"
+            " status, synced_at) VALUES (%s, 0.75, 'USD', 'ARCHIVED', now())",
+            (kw_arch,),
+        )
+        res = _corre(conn)
+
+        assert res.status == "done"
+        filas = _decisions_de(conn, res.cycle_id)
+        harvests = [f for f in filas if f[1] == "harvest"]
+        assert harvests == [], "el texto archivado NO se vuelve a cosechar"
+        notes = json.loads(res.notes)
+        assert notes["skips"]["termino"]["harvest_duplicado"] == 1
+        assert notes["decisiones"] == {"bid": 1, "pause": 1, "negative": 1}
         assert notes["degradacion_live"] is None
 
         # lock liberado al terminar

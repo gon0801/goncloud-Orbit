@@ -830,6 +830,33 @@ def test_keywords_campana_destino_en_vivo():
         assert h.keywords_campana_destino(conn, "amazon_us", "9999") == frozenset()
 
 
+def test_keywords_campana_destino_incluye_archivadas():
+    """BIDS 01 2.2 (a), H2 acotado: una keyword EXACT ARCHIVADA en destino
+    SIGUE en el set. Es lo que impide el bucle archivar->recrear: el sync
+    solo marca ad_entity_state y la fila de ad_entity se conserva, asi que
+    el dedupe la ve. Si alguien excluye archivadas del SQL, el ciclo
+    decide un harvest duplicado (rojo en el plan)."""
+    with _db_temporal("orbit_hyg_archivada") as conn:
+        _run(conn)
+        camp = _entidad(conn, "amazon_us", "campaign", "9002")
+        ag = _entidad(conn, "amazon_us", "ad_group", "9102", parent=camp)
+        kw = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "9202",
+            parent=ag,
+            match_type="EXACT",
+            keyword_text="zapato rojo",
+        )
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, current_bid, bid_currency,"
+            " status, synced_at) VALUES (%s, 1.00, 'USD', 'ARCHIVED', now())",
+            (kw,),
+        )
+        assert h.keywords_campana_destino(conn, "amazon_us", "9002") == frozenset({"zapato rojo"})
+
+
 def test_negative_cost_129_99_no_mx():
     """Un centavo bajo el umbral MX (129.99, umbral 130): NO negativiza
     (simetria con test_negative_borde_exacto_mx_cost_130; review 2.2-2.4)."""

@@ -48,6 +48,7 @@ import os
 import socket
 from contextlib import contextmanager
 from decimal import Decimal
+from pathlib import Path
 
 import httpx
 import psycopg
@@ -59,6 +60,7 @@ from app.ads.config import AdsCredentials
 from app.apply import Aplicador
 from app.apply_cola import fila_cola, libera_vencidos
 from app.apply_harvest import (
+    MOTIVO_ARCHIVADO_EN_VUELO,
     MOTIVO_FALLO_KEYWORD,
     MOTIVO_FALLO_NEGATIVE,
     MOTIVO_KEYWORD_AUSENTE,
@@ -70,6 +72,10 @@ from app.apply_harvest import (
     reversa_harvest_completo,
     reversa_harvest_parcial,
 )
+
+SQL14 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0014_keyword_archivo_manual.sql"
+).read_text(encoding="utf-8")
 
 FAKE_CLIENT_ID = "fake-client-id-123"
 FAKE_CLIENT_SECRET = "fake-client-secret-XYZ"
@@ -111,6 +117,7 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL)  # 0001: roles, esquema sellado, grants
         conn.execute(SQL2)  # 0002: cola de cortes, ledger, sellos de quota
         conn.execute(SQL3)  # 0003: ads_optimizer_goal sin DEFAULT en piso/techo
+        conn.execute(SQL14)  # 0014: ledger keyword_archivo_manual (BIDS 01 2.2)
         yield conn
     finally:
         if conn is not None:
@@ -1090,6 +1097,103 @@ def test_matriz_negative_created_keyword_ya_en_destino_done_sin_mutaciones():
             (dec,),
         ).fetchone()
         assert resumen_dec == (True, ids["ciclo_ejec"]), "confirmacion tardia: sello igual"
+
+
+@_skip_db
+def test_matriz_keyword_archivada_en_vuelo_cero_post_y_cierre_declarado():
+    """BIDS 01 2.2 (b), H2 acotado: job negative_created cuya keyword YA fue
+    archivada (ARCHIVED en Amazon + fila applied sin repuesto en el ledger)
+    entre la decision y el apply -> CERO POSTs (ni keyword ni nada nuevo) y
+    cierre failed con motivo archivado_en_vuelo. Rojo: sin el chequeo del
+    ledger, _identidad ve AUSENTE y el POST duplica lo archivado (log en el
+    plan). _identidad NO se toca (sigue ciega para reconciliacion)."""
+    with _db_temporal("orbit_har_archvuelo") as conn:
+        ids = _semilla(conn)
+        dec = _decision_harvest(conn, ids["ciclo_dec"], ids["config"], ids["ag"])
+        q = _encola_fila(conn, dec, ids["ag"], term=TERMINO)
+        _libera_fila(conn, q)
+        _claim_fila(conn, q)
+        _job_en(conn, dec, ids["ag"], "negative_created")
+        conn.execute(
+            "INSERT INTO keyword_archivo_manual (lote, ad_entity_id, platform,"
+            " campaign_external, ad_group_external, keyword_external, keyword_text,"
+            " match_type, clasificacion, go_literal, ack, readback_estado, estado)"
+            " VALUES ('lote-1', %s, 'amazon_us', %s, %s, 'k-7', %s, 'EXACT',"
+            " 'peso_muerto', 'go', '{\"ok\": true}', 'ARCHIVED', 'applied')",
+            (ids["ag"], DESTINO_CAMPANA, DESTINO_GRUPO, TERMINO),
+        )
+        handler, vistos = _handler_harvest(
+            negatives=[
+                {
+                    "adGroupId": ORIGEN_GRUPO,
+                    "campaignId": ORIGEN_CAMPANA,
+                    "keywordId": "n-9",
+                    "keywordText": TERMINO,
+                    "matchType": "EXACT",
+                    "state": "enabled",
+                }
+            ],
+            keywords=[
+                {
+                    "adGroupId": DESTINO_GRUPO,
+                    "campaignId": DESTINO_CAMPANA,
+                    "keywordId": "k-7",
+                    "keywordText": TERMINO,
+                    "matchType": "EXACT",
+                    "state": "ARCHIVED",
+                }
+            ],
+        )
+
+        resumen = _reconcilia(conn, handler, ids["ciclo_ejec"])
+
+        assert resumen.jobs_failed == 1 and resumen.jobs_done == 0
+        assert resumen.alertas and resumen.alertas[0].motivo == MOTIVO_ARCHIVADO_EN_VUELO
+        assert _mutaciones(vistos) == [], "archivada en vuelo: CERO POSTs"
+        job = conn.execute("SELECT fase FROM harvest_job WHERE decision_id = %s", (dec,)).fetchone()
+        assert job == ("failed",)
+
+
+@_skip_db
+def test_matriz_archivo_repuesto_no_bloquea_harvest():
+    """BIDS 01 2.2 (b), D-2.2.5: fila applied CON repuesto (la reversa ya
+    repuso con otro external) -> el chequeo NO bloquea y el harvest crea
+    normal. Clava el repuesto_at IS NULL del SQL."""
+    with _db_temporal("orbit_har_archrep") as conn:
+        ids = _semilla(conn)
+        dec = _decision_harvest(conn, ids["ciclo_dec"], ids["config"], ids["ag"])
+        q = _encola_fila(conn, dec, ids["ag"], term=TERMINO)
+        _libera_fila(conn, q)
+        _claim_fila(conn, q)
+        _job_en(conn, dec, ids["ag"], "negative_created")
+        conn.execute(
+            "INSERT INTO keyword_archivo_manual (lote, ad_entity_id, platform,"
+            " campaign_external, ad_group_external, keyword_external, keyword_text,"
+            " match_type, clasificacion, go_literal, ack, readback_estado, estado,"
+            " repuesto_at, repuesto_external, repuesto_ack)"
+            " VALUES ('lote-1', %s, 'amazon_us', %s, %s, 'k-7', %s, 'EXACT',"
+            " 'peso_muerto', 'go', '{\"ok\": true}', 'ARCHIVED', 'applied', now(),"
+            " 'k-8', '{\"ok\": true}')",
+            (ids["ag"], DESTINO_CAMPANA, DESTINO_GRUPO, TERMINO),
+        )
+        handler, vistos = _handler_harvest(
+            negatives=[
+                {
+                    "adGroupId": ORIGEN_GRUPO,
+                    "campaignId": ORIGEN_CAMPANA,
+                    "keywordId": "n-9",
+                    "keywordText": TERMINO,
+                    "matchType": "EXACT",
+                    "state": "enabled",
+                }
+            ]
+        )
+
+        resumen = _reconcilia(conn, handler, ids["ciclo_ejec"])
+
+        assert resumen.jobs_done == 1 and resumen.jobs_failed == 0
+        posts_kw = [r for r in _mutaciones(vistos) if r.url.path == "/sp/keywords"]
+        assert len(posts_kw) == 1, "repuesto: el harvest si crea"
 
 
 @_skip_db
