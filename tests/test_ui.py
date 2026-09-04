@@ -41,6 +41,7 @@ from test_api_dashboard import (
     _grupo,
     _keyword,
     _metrica,
+    _product_target,
     _run,
 )
 from test_schema import _postgres_obligatorio_ausente
@@ -131,6 +132,7 @@ def _ctx_cortes(search_term: str = PAYLOAD_XSS) -> dict:
                 "kind": "negative",
                 "ad_entity_id": 3,
                 "external_id": "7101",
+                "nombre": "Campana A",
                 "search_term": search_term,
                 "estado": "pending_veto",
                 "vence_el": "2026-09-25T12:00:00+00:00",
@@ -151,6 +153,12 @@ def test_ui_cortes_xss_search_term_escapado():
     assert "&lt;script&gt;" in html
     assert 'href="/cortes"' in html, "el nav del dashboard enlaza la pantalla de cortes"
     assert 'src="/static/js/cortes.js"' in html, "el JS del veto vive en /static (CSP 'self')"
+
+
+def test_ui_cortes_entidad_muestra_nombre_no_external_id():
+    html = ui.templates.env.get_template("cortes.html").render(**_ctx_cortes())
+    assert "Campana A" in html
+    assert "7101" not in html
 
 
 def test_ui_cortes_vacio_muestra_sin_pendientes():
@@ -502,6 +510,41 @@ def test_ui_decisiones_pagina_2_trae_los_ids_siguientes(monkeypatch):
         html_clamp = TestClient(app).get("/decisiones", params={"page": 9}).text
         assert "pagina 2 de 2" in html_clamp
         assert f"<td>{ids[0]}</td>" in html_clamp
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ui_decisiones_entidad_no_vuelca_json_de_target(monkeypatch):
+    with _db_temporal("orbit_ui_etiqueta") as (conn, dsn):
+        config_id = _config_version(conn, {"ads_optimizer_mode": "shadow"})
+        camp = _campana(conn, "amazon_us", "9001", name="Campana A")
+        ag = _grupo(conn, "amazon_us", "9101", parent=camp)
+        target = _product_target(
+            conn,
+            "amazon_us",
+            "9301",
+            ag,
+            '[{"type":"ASIN_SAME_AS","value":"B086TVLJ43"}]',
+        )
+        _decision(
+            conn,
+            _ciclo(conn, platform="amazon_us"),
+            target,
+            kind="bid",
+            config_id=config_id,
+            inputs={"motivo": "banda_menos_12", "target_acos_pct_usado": "25.00"},
+            old_value="1.00",
+            new_value="0.88",
+            moneda="USD",
+        )
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn)
+        html = TestClient(app).get("/decisiones").text
+        assert "mismo ASIN B086TVLJ43" in html
+        assert "Campana A" in html
+        assert "ASIN_SAME_AS" not in html
+        assert "B086TVLJ43" in html
 
 
 @pytest.mark.skipif(

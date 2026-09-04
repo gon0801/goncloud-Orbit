@@ -90,6 +90,12 @@ ALLOWLIST_TAMANO = {
         "de la maquina de encolado/liberacion la proxima vez que se toque en "
         "grande; partir por partir esta prohibido por la regla anti-Goodhart"
     ),
+    "app/api_dashboard.py": (
+        "Feed de Decisiones/Cortes/Inertes (SQL + _fila_* + filtros). "
+        "El wiring de Entidad (kind/keyword_text + JOINs de campana) "
+        "lo empujo 25 lineas sobre 900. Candidato a partir cortes/"
+        "inertes del feed de decisiones; no se parte por partir."
+    ),
 }
 
 
