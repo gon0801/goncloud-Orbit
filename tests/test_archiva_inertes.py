@@ -20,6 +20,7 @@ la intencion es durable antes de mutar Amazon).
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import os
 import re
@@ -205,6 +206,14 @@ class _ClienteFalso:
 
     def get(self, *a, **kw):
         raise AssertionError("GET inesperado en el camino del archivo")
+
+
+def _huella_de(*filas):
+    """Huella del conjunto con la formula del modulo (D-2.4.1), calculada
+    desde las tuplas del plan: platform = f[1], external = f[5]. Pin: si
+    el modulo cambia la formula sin querer, estos tests caen."""
+    ids = sorted(f"{f[1]}:{f[5]}" for f in filas)
+    return hashlib.sha256("\n".join(ids).encode("utf-8")).hexdigest()
 
 
 def _obj_kw(kw_id, estado, texto="t", match="EXACT", ad_group="ag"):
@@ -517,7 +526,16 @@ def test_main_keyword_no_enabled_se_salta_con_nota_y_sigue(monkeypatch, capsys):
     monkeypatch.setattr(
         sys,
         "argv",
-        ["archiva_inertes.py", "--acepto-mutacion-real", "--esperado", "2", "--go", GO],
+        [
+            "archiva_inertes.py",
+            "--acepto-mutacion-real",
+            "--esperado",
+            "2",
+            "--go",
+            GO,
+            "--huella",
+            _huella_de(_FILA_KW_MX, _FILA_KW_US),
+        ],
     )
     assert ar.main() == 0
     eventos = _eventos(capsys)
@@ -549,7 +567,16 @@ def test_main_ledger_antes_del_http_post_falla_deja_failed(monkeypatch, capsys):
     monkeypatch.setattr(
         sys,
         "argv",
-        ["archiva_inertes.py", "--acepto-mutacion-real", "--esperado", "1", "--go", GO],
+        [
+            "archiva_inertes.py",
+            "--acepto-mutacion-real",
+            "--esperado",
+            "1",
+            "--go",
+            GO,
+            "--huella",
+            _huella_de(_FILA_KW_MX),
+        ],
     )
     with pytest.raises(ar.Abortar):
         ar.main()
@@ -579,7 +606,16 @@ def test_main_readback_archived_aplica_y_reconcilia(monkeypatch, capsys):
     monkeypatch.setattr(
         sys,
         "argv",
-        ["archiva_inertes.py", "--acepto-mutacion-real", "--esperado", "1", "--go", GO],
+        [
+            "archiva_inertes.py",
+            "--acepto-mutacion-real",
+            "--esperado",
+            "1",
+            "--go",
+            GO,
+            "--huella",
+            _huella_de(_FILA_KW_MX),
+        ],
     )
     assert ar.main() == 0
     assert len(conn_admin.inserts) == 1
@@ -628,7 +664,16 @@ def test_main_readback_distinto_falla_y_detiene_el_lote(monkeypatch, capsys):
     monkeypatch.setattr(
         sys,
         "argv",
-        ["archiva_inertes.py", "--acepto-mutacion-real", "--esperado", "2", "--go", GO],
+        [
+            "archiva_inertes.py",
+            "--acepto-mutacion-real",
+            "--esperado",
+            "2",
+            "--go",
+            GO,
+            "--huella",
+            _huella_de(_FILA_KW_MX, _FILA_KW_US),
+        ],
     )
     with pytest.raises(ar.Abortar, match="ARCHIVED"):
         ar.main()
@@ -659,7 +704,16 @@ def test_main_nulos_viajan_sin_convertirse_en_cero(monkeypatch, capsys):
     monkeypatch.setattr(
         sys,
         "argv",
-        ["archiva_inertes.py", "--acepto-mutacion-real", "--esperado", "1", "--go", GO],
+        [
+            "archiva_inertes.py",
+            "--acepto-mutacion-real",
+            "--esperado",
+            "1",
+            "--go",
+            GO,
+            "--huella",
+            _huella_de(_FILA_KW_MX_NULA),
+        ],
     )
     assert ar.main() == 0
     fila = conn_admin.inserts[0]
@@ -834,7 +888,16 @@ def test_main_readback_que_lanza_sella_failed_y_detiene(monkeypatch, capsys):
     monkeypatch.setattr(
         sys,
         "argv",
-        ["archiva_inertes.py", "--acepto-mutacion-real", "--esperado", "1", "--go", GO],
+        [
+            "archiva_inertes.py",
+            "--acepto-mutacion-real",
+            "--esperado",
+            "1",
+            "--go",
+            GO,
+            "--huella",
+            _huella_de(_FILA_KW_MX),
+        ],
     )
     with pytest.raises(ar.Abortar):
         ar.main()
@@ -861,7 +924,16 @@ def test_main_linea_de_mutacion_lleva_el_ack(monkeypatch, capsys):
     monkeypatch.setattr(
         sys,
         "argv",
-        ["archiva_inertes.py", "--acepto-mutacion-real", "--esperado", "1", "--go", GO],
+        [
+            "archiva_inertes.py",
+            "--acepto-mutacion-real",
+            "--esperado",
+            "1",
+            "--go",
+            GO,
+            "--huella",
+            _huella_de(_FILA_KW_MX),
+        ],
     )
     assert ar.main() == 0
     fuera = capsys.readouterr().out
@@ -1039,3 +1111,86 @@ def test_sql_del_plan_corre_contra_postgres_de_verdad():
         admin = psycopg.connect(_test_dsn(), autocommit=True)
         admin.execute(f'DROP DATABASE IF EXISTS "{nombre}"')
         admin.close()
+
+
+# ---------------------------------------------------------------------------
+# BIDS 01 2.4: autorizacion por identidad, no por conteo (H4).
+# ---------------------------------------------------------------------------
+
+
+def test_24_mismo_n_distinto_conjunto_aborta_sin_http(monkeypatch, capsys):
+    """H4: salen 3 y entran 3 con el mismo N — el go aborta aunque el
+    conteo coincida, sin haber tocado nada (cero HTTP, cero inserts).
+
+    Rojo contra el codigo previo (solo --esperado N): el lote pasaba y
+    archivaba OTRAS keywords."""
+    red = _RedFalsa()
+    cliente = _ClienteFalso({})
+    conn_admin = _ConnFalsa()
+    _fakea_frontera(monkeypatch, _ConnFalsa(plan=[_FILA_KW_MX]), conn_admin, cliente, red)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "archiva_inertes.py",
+            "--acepto-mutacion-real",
+            "--esperado",
+            "1",
+            "--go",
+            GO,
+            "--huella",
+            _huella_de(_FILA_KW_US),  # mismo N=1, OTRO conjunto
+        ],
+    )
+    with pytest.raises(ar.Abortar, match="huella"):
+        ar.main()
+    assert red.pedidos == [], "la verificacion es antes de cualquier HTTP"
+    assert conn_admin.inserts == [], "ni la intencion planeado se escribe"
+    assert cliente.llamadas == [], "ni el LIST previo sale"
+
+
+def test_24_sin_huella_aborta(monkeypatch):
+    """Modo real sin --huella: aborta (la autorizacion por conjunto no
+    es opcional)."""
+    _fakea_frontera(
+        monkeypatch, _ConnFalsa(plan=[_FILA_KW_MX]), _ConnFalsa(), _ClienteFalso({}), _RedFalsa()
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["archiva_inertes.py", "--acepto-mutacion-real", "--esperado", "1", "--go", GO],
+    )
+    with pytest.raises(ar.Abortar, match="huella"):
+        ar.main()
+
+
+def test_24_dry_run_publica_la_huella(monkeypatch):
+    """El ensayo imprime y loguea la huella que el go debe pegar."""
+    import io
+    from contextlib import redirect_stdout
+
+    _fakea_frontera(
+        monkeypatch, _ConnFalsa(plan=[_FILA_KW_MX]), _ConnFalsa(), _ClienteFalso({}), _RedFalsa()
+    )
+    monkeypatch.setattr(sys, "argv", ["archiva_inertes.py"])
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        assert ar.main() == 0
+    fuera = buf.getvalue()
+    esperada = _huella_de(_FILA_KW_MX)
+    assert f"huella del conjunto: {esperada}" in fuera
+    eventos = [json.loads(linea) for linea in fuera.splitlines() if linea.startswith("{")]
+    secos = [e for e in eventos if e["evento"] == "dry_run"]
+    assert len(secos) == 1 and secos[0]["huella"] == esperada
+
+
+def test_24_huella_ordena_y_cubre_plataforma():
+    """Invariante al orden del plan; MX y US con el mismo external_id
+    dan huellas distintas (el id solo es unico con su plataforma)."""
+    a = {"platform": "amazon_mx", "external_id": "kw-1"}
+    b = {"platform": "amazon_us", "external_id": "kw-2"}
+    assert ar._huella_conjunto([a, b]) == ar._huella_conjunto([b, a])
+    assert len(ar._huella_conjunto([a])) == 64, "sha256 completa, sin truncar"
+    misma_mx = {"platform": "amazon_mx", "external_id": "kw-9"}
+    misma_us = {"platform": "amazon_us", "external_id": "kw-9"}
+    assert ar._huella_conjunto([misma_mx]) != ar._huella_conjunto([misma_us])
