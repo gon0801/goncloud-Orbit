@@ -126,6 +126,7 @@ MOTIVO_FALLO_NEGATIVE = "fallo_negative"
 MOTIVO_FALLO_KEYWORD = "fallo_keyword"
 MOTIVO_KEYWORD_AUSENTE = "keyword_ausente"
 MOTIVO_TOPE_INTENTOS = "tope_intentos"
+MOTIVO_ARCHIVADO_EN_VUELO = "archivado_en_vuelo"
 
 # ---------------------------------------------------------------------------
 # SQL del modulo (misma maquina de estados que apply_cola; ver docstring)
@@ -156,6 +157,33 @@ _SQL_AVANZA_FASE = """
 UPDATE harvest_job SET fase = %s, external_ids = %s, updated_at = now() WHERE id = %s
 """
 
+# BIDS 01 2.2 (b), H2 acotado: la keyword YA fue archivada a mano entre la
+# decision y el apply. _identidad la ve AUSENTE (sellado probe 2.5 para
+# reconciliacion: NO se toca); este chequeo del LEDGER es lo que impide el
+# POST duplicado. Identidad = la de _identidad (mismo ad group + mismo texto
+# + EXACT) + plataforma; texto comparado con lower+btrim, coherente con la
+# normalizacion del dedupe de decision.
+#
+# CUALQUIER estado no repuesto bloquea (revision del PR #155, CodeRabbit
+# Major): con `estado = 'applied'` quedaba una carrera real — el archivador
+# commitea `planeado` ANTES del DELETE y solo sella `applied` tras el
+# readback, asi que en esa ventana (el ida y vuelta HTTP) el harvest no veia
+# nada y creaba el duplicado. Ampliarlo es SEGURO porque este chequeo solo se
+# alcanza cuando `_identidad` YA fallo, es decir cuando la keyword no esta
+# viva en el destino: si el archivo se quedo en `planeado` o `failed` pero la
+# keyword sigue viva, `_identidad` la encuentra y reconcilia sin llegar aqui.
+# Y cubre el residual H3 de grok (archivada en Amazon con el sello sin
+# promover). repuesto_at con valor = la reversa ya repuso: NO bloquea.
+_SQL_ARCHIVO_APLICADO = """
+SELECT id, estado FROM keyword_archivo_manual
+ WHERE platform = %s::platform
+   AND ad_group_external = %s
+   AND btrim(lower(keyword_text)) = btrim(lower(%s))
+   AND match_type = 'EXACT'
+   AND repuesto_at IS NULL
+ LIMIT 1
+"""
+
 _SQL_UPDATE_IDS = """
 UPDATE harvest_job SET external_ids = %s, updated_at = now() WHERE id = %s
 """
@@ -169,6 +197,14 @@ _SQL_CLAIM = """
 UPDATE apply_queue SET estado = 'applying', applying_at = now()
  WHERE id = %s AND estado = 'released'
 RETURNING id
+"""
+
+# CAMPANA ACTIVA 01 · 1.6: espejo de apply_cola._SQL_DESCARTA (mismo ciclo de
+# imports): discard PRE-claim del job cuya campana/grupo de ORIGEN dejo de
+# estar ENABLED mientras esperaba quota.
+_SQL_DESCARTA = """
+UPDATE apply_queue SET estado = 'discarded', discarded_at = now(), discard_motivo = %s
+ WHERE id = %s AND estado = 'released'
 """
 
 _SQL_EXTERNALES = """
@@ -928,6 +964,27 @@ def _paso_keyword(
         _sella_pendientes(conn, job.decision_id, "ok:reconciliado")
         _avanza(conn, job, "exact_created", {"keyword_id": encontrado.get("keywordId")})
         return "avanza", None
+    archivada = conn.execute(
+        _SQL_ARCHIVO_APLICADO, (job.plataforma, ctx.destino_grupo, job.search_term)
+    ).fetchone()
+    if archivada is not None:
+        # BIDS 01 2.2 (b): archivada ENTRE la decision y el apply (el LIST
+        # la trae ARCHIVED e _identidad la ve ausente, sellado probe 2.5).
+        # Recrearla seria duplicar lo archivado a mano: NO hay POST y el
+        # job cierra declarando el motivo (terminal, sin reintento). El
+        # estado del archivo viaja al detalle: `planeado` significa que el
+        # archivador esta en su ventana HTTP justo ahora.
+        return _falla_job(
+            conn,
+            job,
+            MOTIVO_ARCHIVADO_EN_VUELO,
+            queue_id=queue_id,
+            detalle=(
+                "keyword archivada en vuelo: fila"
+                f" {archivada[1]} sin reponer en keyword_archivo_manual"
+                " para la identidad; no se recrea"
+            ),
+        )
     sugerido = bid_sugerido(cliente)  # PENDIENTE-DE-REGLA-8: sin id del termino pre-creacion
     try:
         bid = bid_efectivo(sugerido, ctx.default_bid, ctx.floor, ctx.ceiling)
@@ -1179,11 +1236,21 @@ def _reconcilia_negativas(conn: psycopg.Connection, aplicador, platform: str) ->
     """Cola applying huerfana kind NEGATIVE (matriz §6.1): existe con
     identidad → confirmar; SOLO en otro ad group (señuelo) → failed; no
     existe → reintento (tope 3) o failed. El applying conserva su cobro:
-    el reintento NO recobra."""
+    el reintento NO recobra.
+
+    CAMPANA ACTIVA 01 · 1.6: gate de ancestros PRIMERO (la fila ES el ad
+    group, semantica D3): grupo o campaña no ENABLED en el cache → sello
+    'fallo:ancestro_no_enabled' + fila failed, sin HTTP ni recobro."""
     confirmadas = fallidas = 0
     cliente = None
     filas = conn.execute(_SQL_NEGATIVAS_APLICANDO, (platform,)).fetchall()
     for q_id, entidad, term, decision_id in filas:
+        if apply.gate_ancestros(conn, entidad) is not None:
+            with conn.transaction():
+                _sella_pendientes(conn, decision_id, apply.RESULTADO_ANCESTRO_NO_ENABLED)
+                _termina_cola(conn, q_id, "failed")
+            fallidas += 1
+            continue
         if cliente is None:
             cliente = aplicador._cliente()
         externos = conn.execute(_SQL_EXTERNALES, (entidad,)).fetchone()
@@ -1300,7 +1367,15 @@ def reconcilia_harvest(
     la red de seguridad de filas harvest applying sin job vivo (GK4).
     Quota SOLO la primera vez; antes de cualquier HTTP reclama la fila (el
     veto puede ganar el claim). Ambiguo por job → se salta al ciclo siguiente
-    (la fila sin sello ES el rastro)."""
+    (la fila sin sello ES el rastro).
+
+    CAMPANA ACTIVA 01 · 1.6: gate de ancestros del ORIGEN (job.ad_entity_id,
+    el ad group de la fila, semantica D3; el destino del goal sigue SIN gate
+    de codigo, D4) tras el chequeo de fila muerta y ANTES del cobro/claim/
+    HTTP: job → failed, ledger pendiente sellado 'fallo:ancestro_no_enabled',
+    fila applying → failed / fila released → discarded PRE-claim (la maquina
+    de estados de 0002 no tiene released → failed). Cuenta en jobs_failed SIN
+    alerta de Telegram: campana pausada por el dueno es condicion esperada."""
     alertas: list[AlertaHarvest] = []
     caps_saturados: list[CapSaturado] = []
     jobs_done = jobs_failed = cerrados = 0
@@ -1310,6 +1385,18 @@ def reconcilia_harvest(
         if queue_estado in ("vetoed", "discarded"):
             conn.execute(_SQL_JOB_FAILED, (job.id,))
             cerrados += 1
+            continue
+        motivo_gate = apply.gate_ancestros(conn, job.ad_entity_id)
+        if motivo_gate is not None:
+            with conn.transaction():
+                conn.execute(_SQL_JOB_FAILED, (job.id,))
+                _sella_pendientes(conn, job.decision_id, apply.RESULTADO_ANCESTRO_NO_ENABLED)
+                if queue_id is not None:
+                    if queue_estado == "released":
+                        conn.execute(_SQL_DESCARTA, (motivo_gate, queue_id))
+                    else:
+                        _termina_cola(conn, queue_id, "failed")
+            jobs_failed += 1
             continue
         if queue_estado == "released":
             usada, saturada = apply.consume_quota_y_sello(conn, platform, "harvest")

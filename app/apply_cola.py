@@ -117,6 +117,13 @@ MOTIVO_VENDIO_EN_VENTANA = "vendio_en_ventana"
 MOTIVO_YA_NO_CALIFICA = "ya_no_califica"
 MOTIVO_ENTIDAD_NO_VIVA = "entidad_no_viva"
 MOTIVO_REACTIVACION_MANUAL = "reactivacion_manual"
+# CAMPANA ACTIVA 01 · 1.6: alias de apply.MOTIVO_CAMPANA/GRUPO_NO_ENABLED
+# (la funcion compartida del gate vive en apply, dueno del write client; cycle
+# y los tests siguen importando de AQUI): un corte cuya campaña o ad group
+# dejo de estar ENABLED durante la ventana de veto es moot -> discard
+# PRE-claim.
+MOTIVO_CAMPANA_NO_ENABLED = apply.MOTIVO_CAMPANA_NO_ENABLED
+MOTIVO_GRUPO_NO_ENABLED = apply.MOTIVO_GRUPO_NO_ENABLED
 
 # La re-decision de la regla llama al motor PURO por su firma completa; la
 # rama pause/negative NO consume target/floor/ceiling (bids=None cierra la
@@ -217,6 +224,10 @@ INSERT INTO reactivacion_manual (ad_entity_id) VALUES (%s) ON CONFLICT DO NOTHIN
 _SQL_PADRE = """
 SELECT parent_id FROM ad_entity WHERE id = %s
 """
+
+# CAMPANA ACTIVA 01 · 1.6: el SQL y la semantica del gate de ancestros viven
+# en apply.gate_ancestros (funcion UNICA, reusada por los reconciliadores);
+# este modulo ya importa apply.
 
 _SQL_EXTERNALES_GRUPO = """
 SELECT grp.external_id, cam.external_id
@@ -647,6 +658,16 @@ def _revalida_negative(
     return MOTIVO_YA_NO_CALIFICA
 
 
+def _revalida_ancestros(conn: psycopg.Connection, fila: FilaCola) -> str | None:
+    """CAMPANA ACTIVA 01: gate de campaña y ad group ENABLED al LIBERAR, con
+    el cache de estructura (sync diario; guarda de 48h del ciclo) — no un
+    LIST fresco de campañas (residual declarado en el plan). Corre ANTES del
+    dispatch por kind: sin LIST de la hoja, sin cobro, sin claim. Entidad sin
+    fila o ancestro sin state -> fuera (regla 3). Desde 1.6 delega en
+    apply.gate_ancestros (funcion UNICA compartida con los reconciliadores)."""
+    return apply.gate_ancestros(conn, fila.ad_entity_id)
+
+
 def _revalida(
     conn: psycopg.Connection,
     aplicador: Aplicador,
@@ -655,11 +676,15 @@ def _revalida(
     ahora: dt.datetime,
 ) -> str | None:
     """None = el corte sigue calificando. Un motivo = discard (PRE-claim: el
-    descarte ocurre SIEMPRE antes del cobro, brief §3). El harvest delega en
-    apply_harvest.revalida_harvest (ADV-05 de la review adversaria: la regla
-    se re-evalua con evidencia FRESCA al reloj de liberacion — jamas se
-    cosecha por silencio contra la regla lo que vendio/dejo de calificar
-    durante la ventana)."""
+    descarte ocurre SIEMPRE antes del cobro, brief §3). El gate de ancestros
+    (campaña/ad group ENABLED en el cache) va PRIMERO para todos los kinds.
+    El harvest delega en apply_harvest.revalida_harvest (ADV-05 de la review
+    adversaria: la regla se re-evalua con evidencia FRESCA al reloj de
+    liberacion — jamas se cosecha por silencio contra la regla lo que
+    vendio/dejo de calificar durante la ventana)."""
+    motivo = _revalida_ancestros(conn, fila)
+    if motivo is not None:
+        return motivo
     if fila.kind == "pause":
         return _revalida_pause(conn, aplicador, platform, fila, ahora)
     if fila.kind == "negative":
@@ -793,8 +818,9 @@ def libera_vencidos(
 
     1. liberacion atomica pending_veto -> released (la fila que YA viene
        released NO se re-libera y JAMAS cuenta como carrera: esperaba FIFO);
-    2. re-validacion PRE-claim SOBRE la fila released (evidencia FRESCA al
-       reloj de LIBERACION + LIST fresco de estado vivo): motivo -> discard
+    2. re-validacion PRE-claim SOBRE la fila released (gate de ancestros
+       CAMPANA ACTIVA 01 + evidencia FRESCA al reloj de LIBERACION + LIST
+       fresco de estado vivo): motivo -> discard
        (un descarte SIEMPRE antes del claim, NUNCA despues del cobro);
     3. cobro de quota (apply.consume_quota_y_sello): sin quota la fila QUEDA en
        released (espera FIFO y SIGUE vetable, §5.4). Se cobra ANTES del claim

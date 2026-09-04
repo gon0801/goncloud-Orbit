@@ -43,6 +43,7 @@ import socket
 import threading
 from contextlib import contextmanager
 from decimal import Decimal
+from pathlib import Path
 
 import pglast
 import psycopg
@@ -54,6 +55,24 @@ from app import cycle as ciclo
 from app.optimizer import bid as bid_mod
 from app.optimizer import cortes
 from app.optimizer import windows as w
+
+# BIDS 01 (1.2): la DB de prueba ES la de produccion — el ciclo lee
+# v_entidad_inerte en TX2, asi que el fixture la aplica igual que SQL3.
+SQL13 = (Path(__file__).resolve().parents[1] / "migrations" / "0013_entidad_inerte.sql").read_text(
+    encoding="utf-8"
+)
+
+# ORBIT 06 (2.3): el ciclo lee v_target_margen_plataforma UNA vez por ciclo
+# en TX2 — sin esta migracion TODO ciclo revienta con UndefinedTable.
+SQL15 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0015_target_margen_plataforma.sql"
+).read_text(encoding="utf-8")
+# Cross-review de la implementacion (kimi + grok): 0016 REEMPLAZA la vista de
+# 0015 (frescura desde la corrida de ingesta; guard de cargo sin tipo en los
+# tres kinds). Se aplican EN ORDEN, como en produccion.
+SQL16 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0016_target_margen_correcciones.sql"
+).read_text(encoding="utf-8")
 
 # ---------------------------------------------------------------------------
 # Reloj FIJO y ventanas derivadas (mismas constantes que test_optimizer_windows)
@@ -122,6 +141,12 @@ def _db_temporal(prefijo: str):
         # ORBIT 05 preflight 1.2: la DB de prueba ES la de produccion —
         # ads_optimizer_goal sin DEFAULT en piso/techo (0003).
         conn.execute(SQL3)
+        # BIDS 01 (1.2): la guarda entidad_inerte lee v_entidad_inerte en
+        # TX2 — sin esta migracion TODO ciclo revienta con UndefinedTable.
+        conn.execute(SQL13)
+        # ORBIT 06 (2.3): el peldano margen_plataforma lee su vista en TX2.
+        conn.execute(SQL15)
+        conn.execute(SQL16)
         yield conn, conectar_extra
     finally:
         if conn is not None:
@@ -163,6 +188,9 @@ def _metrica(
     ad_revenue=None,
     clicks=None,
     orders=None,
+    # BIDS 01 (1.2): la vista v_entidad_inerte lee impressions; el default
+    # None conserva lo sembrado antes (regla 3: ausente, no cero).
+    impressions=None,
 ) -> None:
     conn.execute(
         "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
@@ -175,7 +203,7 @@ def _metrica(
             moneda,
             Decimal(cost) if cost is not None else None,
             Decimal(ad_revenue) if ad_revenue is not None else None,
-            None,
+            impressions,
             clicks,
             orders,
             run_id,
@@ -300,6 +328,9 @@ def _siembra_kw_bid(conn, run_id, kw) -> None:
             ad_revenue="2.50",
             clicks=1,
             orders=1 if i < 5 else 0,
+            # BIDS 01: hoja servida -> impressions reales (sin ellas la
+            # vista la marcaria inerte; NULL es ausencia, no cero).
+            impressions=10,
         )
     for fecha in _rango(dt.date(2026, 8, 13), dt.date(2026, 8, 16)):
         _metrica(
@@ -312,6 +343,7 @@ def _siembra_kw_bid(conn, run_id, kw) -> None:
             ad_revenue="8.75",
             clicks=6,
             orders=0,
+            impressions=60,
         )
     for fecha in _rango(dt.date(2026, 8, 17), dt.date(2026, 8, 19)):
         _metrica(
@@ -324,6 +356,7 @@ def _siembra_kw_bid(conn, run_id, kw) -> None:
             ad_revenue="0.10",
             clicks=1,
             orders=0,
+            impressions=10,
         )
 
 
@@ -347,6 +380,8 @@ def _siembra_kw_pause(conn, run_id, kw) -> None:
             ad_revenue="1.00",
             clicks=3 if i % 2 == 0 else 4,
             orders=0,
+            # BIDS 01: hoja servida -> impressions reales (ver _siembra_kw_bid).
+            impressions=30 if i % 2 == 0 else 40,
         )
     for fecha in _rango(dt.date(2026, 8, 13), dt.date(2026, 8, 19)):
         _metrica(
@@ -359,6 +394,7 @@ def _siembra_kw_pause(conn, run_id, kw) -> None:
             ad_revenue="0.10",
             clicks=1,
             orders=0,
+            impressions=10,
         )
 
 
@@ -707,6 +743,45 @@ def test_ciclo_shadow_completo_decisiones_y_notes_exactos():
         assert notes["ad_groups"] == 1
         assert notes["terminos"] == 7
         assert notes["ciclos_muertos"] == []
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ciclo_harvest_no_duplica_texto_archivado_en_destino():
+    """BIDS 01 2.2 (a), H2 acotado: el termino harvestable "buena yarda"
+    YA existe como EXACT ARCHIVADA en la campana destino (9002) -> el ciclo
+    NO decide harvest y cae skips.termino.harvest_duplicado. Rojo: excluir
+    archivadas del dedupe hace que el ciclo decida el duplicado (log en el
+    plan); la archivada conserva su fila (el sync solo marca el estado)."""
+    with _db_temporal("orbit_ciclo_harv_arch") as (conn, _c):
+        _siembra_maestra(conn)
+        camp_dest = _entidad(conn, "amazon_us", "campaign", "9002")
+        ag_dest = _entidad(conn, "amazon_us", "ad_group", "9102", parent=camp_dest)
+        kw_arch = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "9209",
+            parent=ag_dest,
+            match_type="EXACT",
+            keyword_text="buena yarda",
+        )
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, current_bid, bid_currency,"
+            " status, synced_at) VALUES (%s, 0.75, 'USD', 'ARCHIVED', now())",
+            (kw_arch,),
+        )
+        res = _corre(conn)
+
+        assert res.status == "done"
+        filas = _decisions_de(conn, res.cycle_id)
+        harvests = [f for f in filas if f[1] == "harvest"]
+        assert harvests == [], "el texto archivado NO se vuelve a cosechar"
+        notes = json.loads(res.notes)
+        assert notes["skips"]["termino"]["harvest_duplicado"] == 1
+        assert notes["decisiones"] == {"bid": 1, "pause": 1, "negative": 1}
         assert notes["degradacion_live"] is None
 
         # lock liberado al terminar
@@ -969,6 +1044,9 @@ def _siembra_guarda(conn, *, metric_date, synced_at) -> None:
         ad_revenue="3.00",
         clicks=1,
         orders=1,
+        # BIDS 01: dia servido -> impressions reales (la guarda inerte no
+        # debe cambiar el motivo de estos tests de guardas).
+        impressions=10,
     )
 
 
@@ -1268,11 +1346,17 @@ _SQL_CYCLE = (
     "_SQL_CAMPANAS",
     "_SQL_GOALS",
     "_SQL_DECISORAS",
+    "_SQL_INERTES",
     "_SQL_GRUPOS",
     "_SQL_INSERT_DECISION",
     "_SQL_OWNER_LOCK",
     "_SQL_SELLA_APPLY",
     "_SQL_APPLIED_COUNT_CICLO",
+    # ORBIT 06 2.3: el peldano lee su vista + las notas previas en TX2.
+    "_SQL_TARGET_MARGEN",
+    "_SQL_NOTAS_PREVIAS",
+    # ORBIT 06 2.3 segunda vuelta: ad revenue de la ventana (ratio A7).
+    "_SQL_AD_REVENUE_VENTANA",
 )
 
 
@@ -1645,11 +1729,30 @@ def _siembra_bid_bloquea_pause(conn) -> dict:
     _estado(conn, kw, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
     for fecha in _rango(dt.date(2026, 7, 14), dt.date(2026, 8, 12)):
         _metrica(
-            conn, run_id, kw, fecha, _obs(fecha), cost="0.50", ad_revenue="1.00", clicks=1, orders=0
+            conn,
+            run_id,
+            kw,
+            fecha,
+            _obs(fecha),
+            cost="0.50",
+            ad_revenue="1.00",
+            clicks=1,
+            orders=0,
+            # BIDS 01: hoja servida -> impressions reales (espera un bid).
+            impressions=10,
         )
     for fecha in _rango(dt.date(2026, 8, 13), dt.date(2026, 8, 16)):
         _metrica(
-            conn, run_id, kw, fecha, _obs(fecha), cost="2.50", ad_revenue="0.10", clicks=6, orders=1
+            conn,
+            run_id,
+            kw,
+            fecha,
+            _obs(fecha),
+            cost="2.50",
+            ad_revenue="0.10",
+            clicks=6,
+            orders=1,
+            impressions=60,
         )
     return {"camp": camp, "ag": ag, "kw": kw}
 
@@ -2072,3 +2175,630 @@ def test_bitemporal_pause_clamp_observed_at_futuro_a_decided_at():
         # el bid tambien sella con la evidencia: max(bids 08-16, futuro) =
         # futuro -> clamp a decided_at
         assert bid[0] == DECIDED_AT
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_gate_campana_y_grupo_no_enabled():
+    """CAMPANA ACTIVA 01 (regla 9): una hoja ENABLED dentro de una campaña
+    PAUSED, de una campaña SIN state o de un ad group PAUSED NO decide, y los
+    terminos del ad group de una campaña pausada tampoco. Antes del fix el
+    ciclo decidia (y en live APLICABA) bids en campañas pausadas: ciclos 33/34
+    del 2026-09-02, 12 decisiones y 2 aplicadas (1989 y 2104)."""
+    with _db_temporal("orbit_ciclo_campana") as (conn, _c):
+        ids = _siembra_maestra(conn)  # campaña 9001 ENABLED: sigue decidiendo igual
+        run_id = conn.execute("SELECT id FROM ingest_run LIMIT 1").fetchone()[0]
+        synced = DECIDED_AT - dt.timedelta(hours=4)
+
+        # P: campaña PAUSED, ad group y keyword ENABLED (el caso real del 2026-09-02)
+        camp_p = _entidad(conn, "amazon_us", "campaign", "9701")
+        ag_p = _entidad(conn, "amazon_us", "ad_group", "9711", parent=camp_p)
+        kw_p = _entidad(
+            conn, "amazon_us", "keyword", "9721", parent=ag_p, match_type="EXACT", keyword_text="p"
+        )
+        _estado(conn, camp_p, synced_at=synced, status="PAUSED")
+        _estado(conn, ag_p, synced_at=synced)
+        _estado(conn, kw_p, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
+        _siembra_kw_bid(conn, run_id, kw_p)
+        _siembra_terminos(conn, run_id, ag_p)
+
+        # G: campaña ENABLED, ad group PAUSED, keyword ENABLED
+        camp_g = _entidad(conn, "amazon_us", "campaign", "9702")
+        ag_g = _entidad(conn, "amazon_us", "ad_group", "9712", parent=camp_g)
+        kw_g = _entidad(
+            conn, "amazon_us", "keyword", "9722", parent=ag_g, match_type="EXACT", keyword_text="g"
+        )
+        _estado(conn, camp_g, synced_at=synced)
+        _estado(conn, ag_g, synced_at=synced, status="PAUSED")
+        _estado(conn, kw_g, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
+        _siembra_kw_bid(conn, run_id, kw_g)
+
+        # N: campaña SIN fila de state (regla 3: ausencia = fuera), resto ENABLED
+        camp_n = _entidad(conn, "amazon_us", "campaign", "9703")
+        ag_n = _entidad(conn, "amazon_us", "ad_group", "9713", parent=camp_n)
+        kw_n = _entidad(
+            conn, "amazon_us", "keyword", "9723", parent=ag_n, match_type="EXACT", keyword_text="n"
+        )
+        _estado(conn, ag_n, synced_at=synced)
+        _estado(conn, kw_n, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
+        _siembra_kw_bid(conn, run_id, kw_n)
+
+        n_terminos_p = len(w.terminos_cortes(conn, ag_p, DECIDED_AT).terminos)
+        assert n_terminos_p > 0  # la siembra de terminos del grupo pausado es real
+
+        res = _corre(conn)
+        assert res.status == "done"
+        skips = json.loads(res.notes)["skips"]
+        assert skips["entidad"]["campana_no_enabled"] == 2  # kw_p y kw_n
+        assert skips["entidad"]["grupo_no_enabled"] == 1  # kw_g
+        assert skips["termino"]["campana_no_enabled"] == n_terminos_p
+        con_decision = {
+            r[0]
+            for r in conn.execute(
+                "SELECT ad_entity_id FROM decision WHERE cycle_id = %s", (res.cycle_id,)
+            )
+        }
+        # ninguna hoja gateada decide; el grupo de la campaña pausada tampoco
+        assert con_decision.isdisjoint({kw_p, kw_g, kw_n, ag_p})
+        # la campaña ENABLED de la fixture maestra sigue decidiendo igual que antes
+        assert ids["kw_bid"] in con_decision
+
+
+# ---------------------------------------------------------------------------
+# BIDS 01 1.2: guarda entidad_inerte (hoja sin impresiones en 14d no decide)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ciclo_hoja_sin_impresiones_recientes_es_skip_entidad_inerte():
+    """BIDS 01 (D3): hoja con metricas en ventana (el codigo viejo le
+    decidia un bid -12%) pero sin impresiones en 14d desde el watermark ->
+    skip entidad_inerte ANTES de decidir; la hoja gemela CON impresiones
+    recientes sigue decidiendo. Grupo y campana nuevos para no mover la
+    evidencia 131/9/30 de la maestra (el ancla max 08-19 la pone ella)."""
+    with _db_temporal("orbit_ciclo_inerte") as (conn, _c):
+        _siembra_maestra(conn)
+        run_id = _run(conn)
+        camp = _entidad(conn, "amazon_us", "campaign", "9401")
+        ag = _entidad(conn, "amazon_us", "ad_group", "9402", parent=camp)
+        inerte = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "9403",
+            parent=ag,
+            match_type="EXACT",
+            keyword_text="kw inerte",
+        )
+        viva = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "9404",
+            parent=ag,
+            match_type="EXACT",
+            keyword_text="kw viva",
+        )
+        synced = DECIDED_AT - dt.timedelta(hours=4)
+        _estado(conn, camp, synced_at=synced)
+        _estado(conn, ag, synced_at=synced)
+        _estado(conn, inerte, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
+        _estado(conn, viva, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
+        # Inerte: 10 fechas 07-20..07-29 (en BIDS 07-18..08-16 y en CORTES
+        # 07-14..08-12), clicks 50 y cost 50.00, impressions NULL. El codigo
+        # viejo decide bid -12%; el nuevo la salta sin gastar consultas.
+        for fecha in _rango(dt.date(2026, 7, 20), dt.date(2026, 7, 29)):
+            _metrica(
+                conn,
+                run_id,
+                inerte,
+                fecha,
+                _obs(fecha),
+                cost="5.00",
+                ad_revenue="0.00",
+                clicks=5,
+                orders=0,
+            )
+        # Viva: lo mismo 08-06..08-15 pero CON impresiones (decide en los
+        # dos mundos).
+        for fecha in _rango(dt.date(2026, 8, 6), dt.date(2026, 8, 15)):
+            _metrica(
+                conn,
+                run_id,
+                viva,
+                fecha,
+                _obs(fecha),
+                cost="5.00",
+                ad_revenue="0.00",
+                clicks=5,
+                orders=0,
+                impressions=100,
+            )
+
+        res = _corre(conn)
+        assert res.status == "done"
+        # 4 selladas de la maestra + la viva; la inerte es skip, no decision
+        assert res.decisions_count == 5
+        skips = json.loads(res.notes)["skips"]
+        assert skips["entidad"]["entidad_inerte"] == 1
+        filas = _decisions_de(conn, res.cycle_id)
+        por = {(f[0], f[1], f[2]): f for f in filas}
+        assert (inerte, "bid", None) not in por
+        assert por[(viva, "bid", None)][9]["motivo"] == "banda_menos_12"
+
+
+# ---------------------------------------------------------------------------
+# BIDS 01 1.1: regla A' de punta a punta (congela expected y replayea fiel)
+# ---------------------------------------------------------------------------
+
+
+def _inputs_pre_bids() -> dict:
+    """Fila pre-BIDS (regla 4.4): cero ventas sobre umbrales con
+    inputs.corte.expected_clicks NO NULO (congelado desde CORTES 01) pero
+    SIN la clave del marcador (los ciclos viejos no la escribian). El
+    replay debe devolver lo persistido (-12%), jamas -25%."""
+    return {
+        "motor": "bid",
+        "platform": "amazon_us",
+        "target_acos_pct_usado": "25.00",
+        "bid_actual": "1.0000",
+        "bid_moneda": "USD",
+        "goal": {"bid_floor": "0.4000", "bid_ceiling": "2.5000"},
+        "ventanas": {
+            "bids": {
+                "window_start": "2026-07-18",
+                "window_end": "2026-08-16",
+                "fechas": 30,
+                "moneda": "USD",
+                "cost": "45.0000",
+                "ad_revenue": "0.0000",
+                "revenue_same_sku": None,
+                "clicks": 120,
+                "orders": 0,
+                "observed_at_max": "2026-08-20T06:00:00+00:00",
+            },
+            "cortes": {
+                "window_start": "2026-07-14",
+                "window_end": "2026-08-12",
+                "fechas": 30,
+                "moneda": "USD",
+                "cost": "20.0000",
+                "ad_revenue": "0.0000",
+                "revenue_same_sku": None,
+                "clicks": 50,
+                "orders": 0,
+                "observed_at_max": "2026-08-19T07:30:00+00:00",
+            },
+        },
+        "corte": {
+            "umbral_clicks_usado": 100,
+            "elegible": True,
+            "expected_clicks": "120",
+            "evidencia": None,
+            "cost_min_usado": "40",
+        },
+    }
+
+
+def test_replay_pre_bids_con_expected_congelado_no_aplica_regla_nueva():
+    """Revision PR #132 (MAJOR, regla 4.4, PURO: corre en local): sin la
+    clave del marcador el replay pasa expected None aunque expected_clicks
+    venga congelado — la fila rejuega su -12% persistido, no -25%."""
+    assert ciclo.reproduce(_inputs_pre_bids()) == ("bid", Decimal("0.88"), "USD")
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ciclo_cero_ventas_con_clics_esperados_baja_25_y_replayea():
+    """BIDS 01 (D1): hoja con cero ventas que alcanza los clicks esperados
+    del grupo (evidencia elegible 72/3/31 -> expected 24) y cost >= piso de
+    pausa -> bid -25% con motivo propio; inputs.corte congela el marcador y
+    reproduce() devuelve lo persistido. La hoja donante de evidencia (sin
+    state: aporta pero no decide) no decide.
+
+    La siembra maestra pone el ancla fresca (max 08-19): sin ella el
+    watermark quedaria en 07-27 y la guarda lo saltaria todo (26 dias);
+    ademas las ventanas de BIDS/CORTES anclan en max-3d. La maestra aporta
+    sus 4 decisiones selladas; la nueva hoja aporta la quinta."""
+    with _db_temporal("orbit_ciclo_cero_ventas") as (conn, _c):
+        ids = _siembra_maestra(conn)
+        run_id = _run(conn)
+        camp = _entidad(conn, "amazon_us", "campaign", "9301")
+        ag = _entidad(conn, "amazon_us", "ad_group", "9302", parent=camp)
+        kw = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "9303",
+            parent=ag,
+            match_type="EXACT",
+            keyword_text="kw cero ventas",
+        )
+        donante = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "9304",
+            parent=ag,
+            match_type="EXACT",
+            keyword_text="kw donante",
+        )
+        synced = DECIDED_AT - dt.timedelta(hours=4)
+        _estado(conn, camp, synced_at=synced)
+        _estado(conn, ag, synced_at=synced)
+        _estado(conn, kw, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
+        # D-1.1.7: el donante NO lleva fila de state (precedente
+        # kw_solo_evidencia): aporta a la evidencia del grupo pero NO decide
+        # (estado_no_enabled). Con state decidiria un -25% clasico en SU
+        # propia ventana: las ventanas de decision anclan en el
+        # max(metric_date) DE LA ENTIDAD (_ventanas_metricas), no en el
+        # watermark global.
+        # Hoja cero ventas: 10 fechas 07-18..07-27 (32 clicks, cost 60.00)
+        # + 7 filas 08-06..08-12 de SECUENCIA (D-1.1.10: impressions=10 con
+        # clicks/cost 0 — cero aporte a clicks, costo y expected, pero la
+        # hoja deja de ser inerte cuando #133 fusione). Con las filas extra
+        # el ancla propia pasa a 08-12 y SU ventana trae 14 fechas con los
+        # mismos 32 clicks / 60.00 (cortes: 32 < 100).
+        for i, fecha in enumerate(_rango(dt.date(2026, 7, 18), dt.date(2026, 7, 27))):
+            _metrica(
+                conn,
+                run_id,
+                kw,
+                fecha,
+                _obs(fecha),
+                cost="6.00",
+                ad_revenue="0.00",
+                clicks=(4 if i < 5 else 3) if i < 7 else 2,
+                orders=0,
+            )
+        for fecha in _rango(dt.date(2026, 8, 6), dt.date(2026, 8, 12)):
+            _metrica(
+                conn,
+                run_id,
+                kw,
+                fecha,
+                _obs(fecha),
+                cost="0.00",
+                ad_revenue="0.00",
+                clicks=0,
+                orders=0,
+                impressions=10,
+            )
+        # Donante de evidencia: 14 fechas 06-01..06-14, 40 clicks y 3
+        # ordenes. Evidencia del grupo: 72 clicks / 3 ordenes / 24 fechas ->
+        # expected 24 exacto, umbral pause 100 (piso).
+        for i, fecha in enumerate(_rango(dt.date(2026, 6, 1), dt.date(2026, 6, 14))):
+            _metrica(
+                conn,
+                run_id,
+                donante,
+                fecha,
+                _obs(fecha),
+                cost="1.00",
+                ad_revenue="10.00" if i < 3 else "0.00",
+                clicks=3 if i < 12 else 2,
+                orders=1 if i < 3 else 0,
+            )
+
+        res = _corre(conn)
+        assert res.status == "done"
+        filas = _decisions_de(conn, res.cycle_id)
+        # 4 selladas de la maestra + 1 de la hoja de cero ventas
+        assert res.decisions_count == 5
+        # el donante sin state skipea (aporta evidencia pero no decide)
+        assert json.loads(res.notes)["skips"]["entidad"].get("estado_no_enabled") == 1
+        por = {(f[0], f[1], f[2]): f for f in filas}
+        # la maestra sigue igual: sin la regla nueva no hay cambio
+        assert por[(ids["kw_bid"], "bid", None)][9]["motivo"] == "banda_menos_25"
+        fila = por[(kw, "bid", None)]
+        assert fila[1] == "bid"
+        assert fila[4] == Decimal("0.75")
+        assert fila[5] == "USD"
+        ins = fila[9]
+        assert ins["motivo"] == "banda_menos_25_cero_ventas"
+        assert ins["factor"] == "-0.25"
+        assert ins["corte"]["expected_clicks"] == "24"
+        # Revision PR #132: el marcador que el replay consume (regla 4.4).
+        assert ins["corte"]["cero_ventas_expected_usado"] == "24"
+        assert ins["corte"]["umbral_clicks_usado"] == 100
+        assert ins["corte"]["elegible"] is True
+        assert ins["corte"]["cost_min_usado"] == "40"
+        assert ciclo.reproduce(ins) == ("bid", Decimal("0.75"), "USD")
+        # El replay lee el MARCADOR, no expected_clicks: con el marcador en
+        # 33 (> 32 clicks de la hoja en su ventana) la regla no dispara y
+        # vuelve el -12% persistido por el camino clasico.
+        alterado = dict(ins)
+        alterado["corte"] = dict(ins["corte"], cero_ventas_expected_usado="33")
+        assert ciclo.reproduce(alterado) == ("bid", Decimal("0.88"), "USD")
+
+
+def _fila_cola_corte(conn, ciclo_dec, config_id, entidad, kind, term=None) -> int:
+    """Fila pending_veto de un corte (siembra directa: el ciclo de test no
+    encola; sirve para bloquear la clave de efecto antes de correr)."""
+    dec = dt.datetime(2026, 8, 22, 12, 0, tzinfo=dt.UTC) - dt.timedelta(days=3)
+    decision_id = conn.execute(
+        "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
+        " data_observed_at, window_start, window_end, search_term, inputs)"
+        " VALUES (%s, %s, %s, %s, %s, %s - interval '1 day', %s - 60, %s - 30, %s, '{}'::jsonb)"
+        " RETURNING id",
+        (ciclo_dec, entidad, kind, dec, config_id, dec, dec.date(), dec.date(), term),
+    ).fetchone()[0]
+    return conn.execute(
+        "INSERT INTO apply_queue (platform, ad_entity_id, kind, search_term, decision_id,"
+        " modo, estado, vence_el, encolado_at, request_payload) VALUES ('amazon_us', %s, %s, %s,"
+        " %s, 'live', 'pending_veto', %s, %s, '{}'::jsonb) RETURNING id",
+        (
+            entidad,
+            kind,
+            term,
+            decision_id,
+            dt.datetime(2026, 8, 23, 12, 0, tzinfo=dt.UTC),
+            dec,
+        ),
+    ).fetchone()[0]
+
+
+def test_veto_pendiente_cuenta_el_ancestro_no_enabled():
+    """CAMPANA ACTIVA 01 · 1.6(b): el chequeo de claves bloqueadas va DESPUES
+    de los gates — una hoja con veto pendiente dentro de una campaña PAUSED
+    se cuenta 'campana_no_enabled' (no 'veto_pendiente') y un grupo gateado
+    cuenta TODOS sus terminos con el motivo del ancestro (incluidos los
+    bloqueados). Solo cambian contadores: ninguna decision ni mutacion.
+    Regla 9: antes del fix kw_bid contaba 'veto_pendiente' (1, no 2) y el
+    termino bloqueado se descontaba antes del gate (6, no 7)."""
+    with _db_temporal("orbit_ciclo_veto_anc") as (conn, _c):
+        ids = _siembra_maestra(conn)
+        ciclo_dec = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        # claves de efecto en vuelo: entity_cut de kw_bid y term_cut de un termino
+        _fila_cola_corte(conn, ciclo_dec, ids["config_id"], ids["kw_bid"], "pause")
+        _fila_cola_corte(
+            conn, ciclo_dec, ids["config_id"], ids["ag"], "negative", term="tortugas ninja calzas"
+        )
+        n_terminos = len(w.terminos_cortes(conn, ids["ag"], DECIDED_AT).terminos)
+        assert n_terminos > 1
+        conn.execute(
+            "UPDATE ad_entity_state SET status = 'PAUSED' WHERE ad_entity_id = %s",
+            (ids["camp"],),
+        )
+
+        res = _corre(conn)
+
+        assert res.status == "done"
+        skips = json.loads(res.notes)["skips"]
+        assert skips["entidad"]["campana_no_enabled"] == 2  # kw_bid (bloqueada) y kw_pause
+        assert "veto_pendiente" not in skips["entidad"]
+        assert skips["termino"]["campana_no_enabled"] == n_terminos  # TODOS, incluido el bloqueado
+        assert "veto_pendiente" not in skips["termino"]
+
+
+# ---------------------------------------------------------------------------
+# ORBIT 06 2.3 - freeze del peldano margen_plataforma (rojo d)
+# ---------------------------------------------------------------------------
+
+
+def _goal_plataforma_sin_target(conn) -> int:
+    """Goal de plataforma habilitado SIN target: el peldano margen puede ganar."""
+    return conn.execute(
+        "INSERT INTO ads_optimizer_goal (scope, platform, target_acos_pct, bid_floor,"
+        " bid_ceiling, bid_currency, harvest_campaign_id, harvest_ad_group_id,"
+        " harvest_default_bid, enabled, mode)"
+        " VALUES ('platform', 'amazon_us', NULL, 0.40, 2.50, 'USD', '9002', '9102',"
+        " 0.75, true, 'live') RETURNING id"
+    ).fetchone()[0]
+
+
+def _siembra_ledger_feliz(conn, hoy: dt.date) -> None:
+    """Ledger feliz relativo a hoy (vista 0015): 70 ventas x100 con costo 50
+    + 7 fees x-100 + 1 fee ads: margen 40, cobertura 1, dias 70."""
+    # Frescura de v_target_margen_plataforma: sale de la corrida de ingesta
+    # del ledger (cross-review grok H5), no de max(observed_at) — una venta
+    # nueva blanqueaba la guarda `ledger_rancio`. La siembra la sella.
+    conn.execute(
+        "INSERT INTO ingest_run (source, finished_at, ok) VALUES"
+        " ('accounting_ledger_events', now(), true)"
+    )
+    run = _run(conn)
+    prod = conn.execute(
+        "INSERT INTO product (odoo_sku, name) VALUES ('PM1', 'PM1') RETURNING id"
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO sku_cost (product_id, cost_amount, cost_currency, includes_tax,"
+        " valid_from) VALUES (%s, 50, 'MXN', true, %s)",
+        (prod, hoy - dt.timedelta(days=200)),
+    )
+    for i in range(70):
+        conn.execute(
+            "INSERT INTO ledger_event (platform, kind, event_date, product_id, quantity,"
+            " amount, amount_currency, ingest_run_id)"
+            " VALUES ('amazon_us', 'sale', %s, %s, 1, 100, 'MXN', %s)",
+            (hoy - dt.timedelta(days=100 - i), prod, run),
+        )
+    for i in range(7):
+        conn.execute(
+            "INSERT INTO ledger_event (platform, kind, event_date, amount,"
+            " amount_currency, fee_type, ingest_run_id)"
+            " VALUES ('amazon_us', 'fee', %s, -100, 'MXN', 'closing', %s)",
+            (hoy - dt.timedelta(days=90 - i), run),
+        )
+    conn.execute(
+        "INSERT INTO ledger_event (platform, kind, event_date, amount,"
+        " amount_currency, fee_type, ingest_run_id)"
+        " VALUES ('amazon_us', 'fee', %s, -9999, 'MXN', 'ads', %s)",
+        (hoy - dt.timedelta(days=50), run),
+    )
+
+
+def _siembra_margen(conn, *, con_ledger: bool = True) -> dict:
+    """Mundo minimo donde el peldano gana: config con manual 30 + fraccion
+    0.5, goal de plataforma SIN target, una keyword con metricas de bid.
+    Primer ciclo: ultimo = setting 30, derivado 20 -> aplicado 29.5."""
+    run_id = _run(conn)
+    config_id = _config_version(
+        conn,
+        {
+            "ads_optimizer_mode": "shadow",
+            "ads_target_acos_pct_amazon_us": 30,
+            "ads_target_fraccion_margen_amazon_us": "0.5",
+        },
+    )
+    _goal_plataforma_sin_target(conn)
+    camp = _entidad(conn, "amazon_us", "campaign", "9301")
+    ag = _entidad(conn, "amazon_us", "ad_group", "9302", parent=camp)
+    kw = _entidad(
+        conn,
+        "amazon_us",
+        "keyword",
+        "9303",
+        parent=ag,
+        match_type="EXACT",
+        keyword_text="kw margen",
+    )
+    synced = DECIDED_AT - dt.timedelta(hours=4)
+    _estado(conn, kw, synced_at=synced, current_bid=Decimal("1.00"), bid_currency="USD")
+    _estado(conn, ag, synced_at=synced)
+    _estado(conn, camp, synced_at=synced)
+    _siembra_kw_bid(conn, run_id, kw)
+    if con_ledger:
+        hoy = conn.execute("SELECT CURRENT_DATE").fetchone()[0]
+        _siembra_ledger_feliz(conn, hoy)
+    return {"config_id": config_id, "kw": kw, "camp": camp}
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_freeze_margen_gana_con_procedencia_y_snapshot():
+    """Rojo (d): el peldano gana (aplicado 29.5): inputs con procedencia +
+    snapshot, notes.target con aplicado, y reproduce() intacto."""
+    from app.optimizer.replay import reproduce
+
+    with _db_temporal("orbit_c_margen") as (conn, _c):
+        _siembra_margen(conn)
+        res = _corre(conn)
+        assert res.status == "done", res.notes
+        target = json.loads(res.notes)["target"]
+        assert target["procedencia"] == "margen_plataforma"
+        assert target["motivo_abstencion"] is None
+        # D-2.3.2: Decimal exacto sin redondeos; la escala del snapshot es
+        # artefacto deterministico del NUMERIC de la vista -> estos dos se
+        # comparan numericos, no como string (20.000...0 == 20).
+        assert Decimal(target["target_derivado"]) == 20
+        assert target["target_aplicado"] == "29.5"
+        assert Decimal(target["margen_neto_pct"]) == 40
+        bids = [d for d in _decisions_de(conn, res.cycle_id) if d[1] == "bid"]
+        assert len(bids) == 1
+        inputs = bids[0][9]
+        assert inputs["target_acos_pct_usado"] == "29.5"
+        assert inputs["target_procedencia"] == "margen_plataforma"
+        assert Decimal(inputs["target_snapshot"]["margen_neto_pct"]) == 40
+        assert inputs["target_snapshot"]["target_aplicado"] == "29.5"
+        assert reproduce(inputs) == (bids[0][1], bids[0][4], bids[0][5])
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_freeze_margen_abstencion_sin_ledger():
+    """Rojo (d): sin filas de ledger -> sin_margen: las entidades caen al
+    setting (procedencia setting, sin snapshot) y notes.target lo declara."""
+    with _db_temporal("orbit_c_margen_abs") as (conn, _c):
+        _siembra_margen(conn, con_ledger=False)
+        res = _corre(conn)
+        assert res.status == "done", res.notes
+        target = json.loads(res.notes)["target"]
+        assert target["procedencia"] is None
+        assert target["motivo_abstencion"] == "sin_margen"
+        assert target["target_aplicado"] is None
+        bids = [d for d in _decisions_de(conn, res.cycle_id) if d[1] == "bid"]
+        assert len(bids) == 1
+        inputs = bids[0][9]
+        assert inputs["target_acos_pct_usado"] == "30"
+        assert inputs["target_procedencia"] == "setting_plataforma"
+        assert "target_snapshot" not in inputs
+
+
+def _goal_campana_sin_target(conn, camp_id: int) -> int:
+    """Goal de campana habilitado SIN target (espejo de prod 6/7: solo
+    floor/ceiling): bloquea goal_plataforma pero NO al peldano margen."""
+    return conn.execute(
+        "INSERT INTO ads_optimizer_goal (scope, ad_entity_id, target_acos_pct, bid_floor,"
+        " bid_ceiling, bid_currency, harvest_campaign_id, harvest_ad_group_id,"
+        " harvest_default_bid, enabled, mode)"
+        " VALUES ('campaign', %s, NULL, 0.40, 2.50, 'USD', '9002', '9102',"
+        " 0.75, true, 'live') RETURNING id",
+        (camp_id,),
+    ).fetchone()[0]
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_peldano_gana_con_goal_campana_sin_target():
+    """Rojo (h, A2): con goal de campana NULL (prod 6/7), el peldano gana
+    igual: procedencia margen_plataforma y aplicado 29.5 en freeze y notes."""
+    with _db_temporal("orbit_c_margen_camp") as (conn, _c):
+        mundo = _siembra_margen(conn, con_ledger=False)
+        _goal_campana_sin_target(conn, mundo["camp"])
+        hoy = conn.execute("SELECT CURRENT_DATE").fetchone()[0]
+        _siembra_ledger_feliz(conn, hoy)
+        res = _corre(conn)
+        assert res.status == "done", res.notes
+        target = json.loads(res.notes)["target"]
+        assert target["procedencia"] == "margen_plataforma"
+        assert target["target_aplicado"] == "29.5"
+        bids = [d for d in _decisions_de(conn, res.cycle_id) if d[1] == "bid"]
+        assert len(bids) == 1
+        assert bids[0][9]["target_procedencia"] == "margen_plataforma"
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ancla_ultimo_avisado_se_lee_y_persiste():
+    """Rojo (h, D-2.3.14): primer ciclo sin ancla -> avisa y persiste
+    ultimo_avisado = aplicado; segundo ciclo sin deriva -> el ancla NO
+    avanza (el acumulado manda, no el previo)."""
+    with _db_temporal("orbit_c_ancla") as (conn, _c):
+        _siembra_margen(conn)
+        res1 = _corre(conn)
+        assert res1.status == "done", res1.notes
+        assert json.loads(res1.notes)["target"]["ultimo_avisado"] == "29.5"
+        res2 = _corre(conn)
+        assert res2.status == "done", res2.notes
+        assert json.loads(res2.notes)["target"]["ultimo_avisado"] == "29.5"
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_replay_ignora_la_vista():
+    """Rojo (h): reproduce() sobre inputs persistidos devuelve EXACTO lo
+    decidido aunque la vista este VACIA (segunda base sin una sola fila de
+    ledger; el DELETE esta prohibido: ledger append-only). El replay no
+    recibe conexion por construccion: este test lo sella contra un replay
+    futuro que lea margen vivo (ahi no habria filas que leer)."""
+    from app.optimizer.replay import reproduce
+
+    with _db_temporal("orbit_c_replay_vista") as (conn, _c):
+        _siembra_margen(conn)
+        res = _corre(conn)
+        assert res.status == "done", res.notes
+        bids = [d for d in _decisions_de(conn, res.cycle_id) if d[1] == "bid"]
+        assert len(bids) == 1
+        inputs, esperado = bids[0][9], (bids[0][1], bids[0][4], bids[0][5])
+    with _db_temporal("orbit_c_replay_vacia") as (_conn2, _c2):
+        assert reproduce(inputs) == esperado

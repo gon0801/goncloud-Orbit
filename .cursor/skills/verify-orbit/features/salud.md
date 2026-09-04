@@ -34,3 +34,4 @@ Preconditions:
 - Quota con `cap` null se muestra `— (sin clave)` o `— (config rota)`, nunca un tope 0 inventado.
 - La nota `telegram` es la unica visibilidad del canal caido. Si el JSON trae `notes.telegram` y el HTML no la muestra, es regresion.
 - Watermark (`v_metric_latest`) y `synced_at` pueden ser `—` si no hay estado: eso es dato faltante, no fallo.
+- CAMPANA ACTIVA 01 agrego dos motivos de skip en `MOTIVOS_ES_SALUD` (`campana_no_enabled` → «Campana no habilitada…», `grupo_no_enabled` → «Ad group no habilitado…»). La semilla baseline sigue usando solo `estado_no_enabled`; si el JSON trae los nuevos, el canvas debe mostrar el `motivo_es` en español, no el id crudo.

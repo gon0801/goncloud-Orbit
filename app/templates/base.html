@@ -1,12 +1,14 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" data-tema="dia">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Orbit — Dashboard</title>
   {# CSS y JS EXTERNOS en /static: la CSP default-src 'self' bloquea todo lo
      inline (hallazgo mayor de la review del bloque 2). Los unicos bloques de
-     script inline permitidos son los INERTES type="application/json". #}
+     script inline permitidos son los INERTES type="application/json".
+     tema.js va en HEAD para aplicar data-tema antes del primer paint. #}
+  <script src="/static/js/tema.js"></script>
   <link rel="stylesheet" href="/static/css/dashboard.css">
 </head>
 <body data-pantalla="{{ pantalla }}">
@@ -19,7 +21,9 @@
       <a href="/salud" {% if pantalla == "salud" %}aria-current="page"{% endif %}>Salud</a>
       <a href="/contribucion" {% if pantalla == "contribucion" %}aria-current="page"{% endif %}>Contribucion</a>
       <a href="/cortes" {% if pantalla == "cortes" %}aria-current="page"{% endif %}>Cortes</a>
+      <a href="/inertes" {% if pantalla == "inertes" %}aria-current="page"{% endif %}>Inertes</a>
     </nav>
+    <button type="button" id="btn-tema" aria-pressed="false">Tema: dia</button>
   </header>
   <main>
     {% block contenido %}{% endblock %}

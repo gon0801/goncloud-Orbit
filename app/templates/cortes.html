@@ -28,9 +28,7 @@
         <td>{{ item.id }}</td>
         <td>{{ item.plataforma }}</td>
         <td><span class="chip">{{ item.kind }}</span> <span class="mutado">{{ item.familia }}</span></td>
-        <td class="num">
-          {% if item.external_id %}{{ item.external_id }}{% else %}<span class="mutado">#{{ item.ad_entity_id }}</span>{% endif %}
-        </td>
+        <td>{{ item.nombre or "—" }} <span class="mutado">#{{ item.ad_entity_id }}</span></td>
         {# El search_term es texto libre del comprador: AUTOESCAPE lo escapa #}
         <td>{{ item.search_term or "—" }}</td>
         <td><span class="chip">{{ item.estado }}</span></td>

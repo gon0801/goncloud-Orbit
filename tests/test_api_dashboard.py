@@ -64,6 +64,12 @@ SQL_MIGRACION = (
     Path(__file__).resolve().parent.parent / "migrations" / "0001_initial.sql"
 ).read_text(encoding="utf-8")
 
+# BIDS 01 1.3: la vista v_entidad_inerte (migracion 0013) es la UNICA fuente
+# de "inerte" (D2 sellada); el endpoint la lee, no reimplementa el diagnostico.
+SQL13 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0013_entidad_inerte.sql"
+).read_text(encoding="utf-8")
+
 
 def _obs(fecha: dt.date, hora: int = 1) -> dt.datetime:
     """observed_at de una observacion: medianoche + hora UTC (>= metric_date)."""
@@ -146,14 +152,37 @@ def _keyword(conn, platform: str, external: str, parent: int, text: str) -> int:
     ).fetchone()[0]
 
 
+def _product_target(conn, platform: str, external: str, parent: int, name: str) -> int:
+    return conn.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id, parent_id, name)"
+        " VALUES (%s, 'product_target', %s, %s, %s) RETURNING id",
+        (platform, external, parent, name),
+    ).fetchone()[0]
+
+
 def _metrica(
-    conn, run_id, ad_entity_id, fecha, *, cost, ad_revenue, clicks, moneda, observed_at=None
+    conn,
+    run_id,
+    ad_entity_id,
+    fecha,
+    *,
+    cost,
+    ad_revenue,
+    clicks,
+    moneda,
+    observed_at=None,
+    impressions=None,
+    orders=None,
 ) -> None:
-    """Una observacion de metricas (bitemporal: observed_at controlable)."""
+    """Una observacion de metricas (bitemporal: observed_at controlable).
+
+    BIDS 01 1.3: `impressions`/`orders` explicitos (default None =
+    comportamiento de antes) para sembrar hojas inertes con forma de
+    reporte (impresiones reales viejas) o peso muerto (sin filas)."""
     conn.execute(
         "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
         " metric_currency, cost, ad_revenue, impressions, clicks, orders, ingest_run_id)"
-        " VALUES (%s, %s, %s, %s, %s, %s, NULL, %s, NULL, %s)",
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
         (
             ad_entity_id,
             fecha,
@@ -161,7 +190,9 @@ def _metrica(
             moneda,
             None if cost is None else Decimal(cost),
             None if ad_revenue is None else Decimal(ad_revenue),
+            impressions,
             clicks,
+            orders,
             run_id,
         ),
     )
@@ -394,11 +425,14 @@ def test_feed_sql_compuesto_parsea_con_todos_los_filtros():
 def test_sql_del_modulo_dashboard_parsea_como_postgres():
     """Sintaxis de las SQL del modulo (patron test_api): pglast valida que las
     constantes parsean como Postgres real (un typo muere en CI, no en prod)."""
-    nombres = sorted(n for n in vars(dash) if n.startswith("_SQL_"))
-    assert nombres, "no se encontraron constantes _SQL_* en app/api_dashboard"
-    for nombre in nombres:
-        sql = getattr(dash, nombre).replace("%s", "NULL").replace("{filtros}", "true")
-        assert pglast.parse_sql(sql), f"{nombre} no parseo"
+    from app import dashboard_pagina as pagina
+
+    for modulo, etiqueta in ((dash, "api_dashboard"), (pagina, "dashboard_pagina")):
+        nombres = sorted(n for n in vars(modulo) if n.startswith("_SQL_"))
+        assert nombres, f"no se encontraron constantes _SQL_* en app/{etiqueta}"
+        for nombre in nombres:
+            sql = getattr(modulo, nombre).replace("%s", "NULL").replace("{filtros}", "true")
+            assert pglast.parse_sql(sql), f"{etiqueta}.{nombre} no parseo"
 
 
 def test_router_dashboard_solo_registra_get():
@@ -866,6 +900,32 @@ def test_sql_feed_decisiones_por_cursor_sin_offset_y_con_join_nombre():
     assert "limit" in normalizada
 
 
+def test_page_window_clampa_y_deriva():
+    v = dash.PageWindow.desde_total(total=101, page=99, page_size=50)
+    assert (v.page, v.pages, v.offset, v.prev, v.next) == (3, 3, 100, 2, None)
+    vacia = dash.PageWindow.desde_total(total=0, page=1, page_size=50)
+    assert (vacia.pages, vacia.prev, vacia.next) == (1, None, None)
+    with pytest.raises(ValueError):
+        dash.PageWindow.desde_total(total=1, page=1, page_size=0)
+
+
+def test_sql_pagina_decisiones_offset_sobre_el_mismo_from():
+    sql = dash._SQL_DECISIONES_PAGINA.replace("%s", "NULL")
+    normalizada = " ".join(pglast.prettify(sql).lower().split())
+    assert "join ad_entity" in normalizada
+    assert "order by d.id desc" in normalizada
+    assert "offset" in normalizada
+    assert "limit" in normalizada
+    feed = " ".join(
+        pglast.prettify(
+            dash._SQL_DECISIONES_FEED.replace("%s", "NULL").replace("{filtros}", "true")
+        )
+        .lower()
+        .split()
+    )
+    assert "offset" not in feed
+
+
 # ---------------------------------------------------------------------------
 # 1.4 - INTEGRACION /campanas: procedencia en los 5 peldanos, goal, anti-mezcla
 # ---------------------------------------------------------------------------
@@ -1278,6 +1338,51 @@ def test_decisiones_motivo_desconocido_fallback_y_nombre_null(monkeypatch):
     _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
+def test_decisiones_entidad_humana_no_vuelca_json_de_target(monkeypatch):
+    with _db_temporal("orbit_dash_etiqueta") as (conn, dsn):
+        config_id = _config_version(conn, {})
+        camp = _campana(conn, "amazon_us", "9001", name="Campana A")
+        ag = _grupo(conn, "amazon_us", "9101", parent=camp)
+        kw = _keyword(conn, "amazon_us", "9201", ag, "zapato blanco")
+        target = _product_target(
+            conn,
+            "amazon_us",
+            "9301",
+            ag,
+            '[{"type":"ASIN_SAME_AS","value":"B086TVLJ43"}]',
+        )
+        ciclo = _ciclo(conn, platform="amazon_us")
+        id_kw = _decision(
+            conn,
+            ciclo,
+            kw,
+            kind="bid",
+            config_id=config_id,
+            moneda="USD",
+            inputs={"motor": "bid", "motivo": "banda_menos_12", "target_acos_pct_usado": "25.00"},
+        )
+        id_tg = _decision(
+            conn,
+            ciclo,
+            target,
+            kind="bid",
+            config_id=config_id,
+            moneda="USD",
+            inputs={"motor": "bid", "motivo": "banda_menos_12", "target_acos_pct_usado": "25.00"},
+        )
+        items = _cliente(dsn, monkeypatch).get("/api/dashboard/decisiones").json()["items"]
+        por_id = {i["id"]: i for i in items}
+        assert por_id[id_kw]["nombre"] == "zapato blanco · Campana A"
+        assert por_id[id_tg]["nombre"] == "mismo ASIN B086TVLJ43 · Campana A"
+        for item in items:
+            assert "ASIN_SAME_AS" not in (item["nombre"] or "")
+            assert "[" not in (item["nombre"] or "")
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
 def test_decisiones_filtros_platform_kind_y_vocabulario_cerrado(monkeypatch):
     """Filtros por platform y kind; vocabulario cerrado: valores ajenos -> 422
     (jamas un filtro vacio que mienta, patron /audit)."""
@@ -1555,3 +1660,215 @@ def test_salud_nota_telegram_visible_en_la_respuesta(monkeypatch):
         assert ultimo["status"] == "done"
         assert ultimo["notes"]["telegram"]["aviso_encola"].startswith("fallo:")
         assert ultimo["notes"]["telegram"]["digest"].startswith("fallo:")
+
+
+def test_motivos_salud_traducen_los_gates_de_ancestros():
+    """CAMPANA ACTIVA 01: los dos motivos nuevos del orquestador tienen
+    traduccion en /salud (sin ella la pantalla mostraria el id crudo)."""
+    from app import cycle as ciclo
+    from app.api_dashboard import MOTIVOS_ES_SALUD
+
+    assert MOTIVOS_ES_SALUD[ciclo.MOTIVO_CAMPANA_NO_ENABLED].startswith("Campana")
+    assert MOTIVOS_ES_SALUD[ciclo.MOTIVO_GRUPO_NO_ENABLED].startswith("Ad group")
+
+
+def test_motivo_cero_ventas_tiene_etiqueta_en_decisiones():
+    """BIDS 01: el motivo nuevo de cero ventas tiene traduccion en el feed
+    (sin ella la pantalla mostraria el id crudo)."""
+    from app.api_dashboard import MOTIVOS_ES_DECISIONES
+    from app.optimizer import bid as bid_mod
+
+    assert MOTIVOS_ES_DECISIONES[bid_mod.MOTIVO_BANDA_MENOS_25_CERO_VENTAS].startswith(
+        "Cero ventas"
+    )
+
+
+# ---------------------------------------------------------------------------
+# BIDS 01 1.3 - /inertes: lee v_entidad_inerte (regla 2: la vista es la
+# UNICA fuente; el endpoint no reimplementa el diagnostico)
+# ---------------------------------------------------------------------------
+
+
+def _siembra_inertes(conn):
+    """Dos hojas inertes de distinta clasificacion + ancla de watermark +
+    hoja con trafico reciente (NO aparece)."""
+    run = _run(conn)
+    camp = _campana(conn, "amazon_us", "8101", name="Campana Inerte")
+    ag = _grupo(conn, "amazon_us", "8102", camp)
+    gasto = _keyword(conn, "amazon_us", "8103", ag, "gasto sin ventas")
+    muerto = _keyword(conn, "amazon_us", "8104", ag, "peso muerto")
+    viva = _keyword(conn, "amazon_us", "8105", ag, "con trafico")
+    ancla = _keyword(conn, "amazon_us", "8106", ag, "ancla")
+    for eid in (camp, ag, gasto, muerto, viva, ancla):
+        _estado_acos(conn, eid, None)
+    # Watermark US = 08-16 (viva + ancla). Ventana 14d: metric_date > 08-02.
+    _metrica(
+        conn,
+        run,
+        gasto,
+        dt.date(2026, 7, 28),
+        cost="12.50",
+        ad_revenue="0.00",
+        clicks=4,
+        orders=0,
+        impressions=40,
+        moneda="USD",
+    )
+    _metrica(
+        conn,
+        run,
+        viva,
+        dt.date(2026, 8, 16),
+        cost="3.00",
+        ad_revenue="0.00",
+        clicks=2,
+        orders=0,
+        impressions=30,
+        moneda="USD",
+    )
+    _metrica(
+        conn,
+        run,
+        ancla,
+        dt.date(2026, 8, 16),
+        cost="1.00",
+        ad_revenue="0.00",
+        clicks=1,
+        orders=0,
+        impressions=10,
+        moneda="USD",
+    )
+
+
+def test_router_dashboard_expone_inertes_get():
+    """Superficie: GET /api/dashboard/inertes existe y es solo GET (el
+    candado de solo-GET lo cubre el test de superficie existente)."""
+    rutas = app.openapi()["paths"]
+    assert "/api/dashboard/inertes" in rutas, "falta la ruta de inertes en el router"
+    assert set(rutas["/api/dashboard/inertes"]) == {"get"}
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_inertes_devuelve_shape_y_totales(monkeypatch):
+    """BIDS 01 1.3: dos hojas inertes de distinta clasificacion -> shape con
+    items + totales por plataforma y clasificacion; la hoja con trafico
+    reciente NO aparece; dinero con moneda y NULL como null."""
+    with _db_temporal("orbit_dash_inertes") as (conn, dsn):
+        conn.execute(SQL13)
+        _siembra_inertes(conn)
+        resp = _cliente(dsn, monkeypatch).get("/api/dashboard/inertes")
+        assert resp.status_code == 200, resp.text
+        cuerpo = resp.json()
+        assert cuerpo["totales"] == {"amazon_us": {"gasto_sin_ventas": 1, "peso_muerto": 1}}
+        items = cuerpo["items"]
+        assert [i["texto"] for i in items] == ["gasto sin ventas", "peso muerto"]
+        gasto = items[0]
+        assert gasto["plataforma"] == "amazon_us"
+        assert gasto["kind"] == "keyword"
+        assert gasto["external_id"] == "8103"
+        assert gasto["campana"] == "Campana Inerte"
+        assert gasto["clasificacion"] == "gasto_sin_ventas"
+        assert gasto["dias_sin_impresiones"] == 19
+        assert gasto["ultima_impresion"] == "2026-07-28"
+        assert gasto["gasto_90d"] == "12.5000"
+        assert gasto["moneda"] == "USD"
+        assert gasto["ordenes_90d"] == 0
+        muerto = items[1]
+        assert muerto["texto"] == "peso muerto"
+        assert muerto["clasificacion"] == "peso_muerto"
+        assert muerto["dias_sin_impresiones"] is None
+        assert muerto["ultima_impresion"] is None
+        assert muerto["gasto_90d"] == "0"
+        assert muerto["moneda"] is None
+        assert muerto["ordenes_90d"] == 0
+
+
+# ---------------------------------------------------------------------------
+# ORBIT 06 2.3 - bloque target en /salud (rojo e, tests puros)
+# ---------------------------------------------------------------------------
+
+
+def _notas_con_target(**campos) -> dict:
+    base = {
+        "procedencia": "margen_plataforma",
+        "motivo_abstencion": None,
+        "margen_neto_pct": "40",
+        "fraccion": "0.5",
+        "cobertura": "1",
+        "ventana_desde": "2026-05-22",
+        "ventana_hasta": "2026-08-20",
+        "target_derivado": "20",
+        "target_aplicado": "20",
+        "ledger_fresco_at": "2026-09-03T12:00:00+00:00",
+        "moneda": "MXN",
+    }
+    base.update(campos)
+    return {"target": base}
+
+
+def test_salud_bloque_target_desde_notes():
+    """Rojo (e): el bloque target de /salud sale de notes.target del ultimo
+    ciclo: vigente + procedencia + margen + fraccion + ventana + edad."""
+    from app import api_common
+
+    bloque = api_common.bloque_target_margen(
+        {"notes": _notas_con_target()}, hoy=dt.date(2026, 9, 4)
+    )
+    assert bloque["target_vigente"] == "20"
+    assert bloque["procedencia"] == "margen_plataforma"
+    assert bloque["margen_neto_pct"] == "40"
+    assert bloque["fraccion"] == "0.5"
+    assert bloque["ventana_desde"] == "2026-05-22"
+    assert bloque["ventana_hasta"] == "2026-08-20"
+    assert bloque["ledger_edad_dias"] == 1
+    assert bloque["motivo_abstencion"] is None
+
+
+def test_salud_bloque_target_abstencion_con_etiqueta():
+    """Rojo (e): abstencion -> vigente null + motivo con etiqueta ES."""
+    from app import api_common
+
+    bloque = api_common.bloque_target_margen(
+        {
+            "notes": _notas_con_target(
+                procedencia=None,
+                motivo_abstencion="cobertura_baja",
+                target_derivado=None,
+                target_aplicado=None,
+            )
+        },
+        hoy=dt.date(2026, 9, 4),
+    )
+    assert bloque["target_vigente"] is None
+    assert bloque["motivo_abstencion"] == "cobertura_baja"
+    assert isinstance(bloque["motivo_etiqueta"], str) and "cobertura" in bloque["motivo_etiqueta"]
+
+
+def test_salud_bloque_target_cobertura_y_ratio():
+    """Rojo (h, §9): cobertura por monto pasa tal cual; ratio_ads_venta =
+    ad_revenue_ventana / venta_total (None si falta un lado o venta 0)."""
+    from app import api_common
+
+    base = _notas_con_target()
+    base["target"].update({"cobertura": "0.98", "venta_total": "7000", "ad_revenue_ventana": "728"})
+    bloque = api_common.bloque_target_margen({"notes": base}, hoy=dt.date(2026, 9, 4))
+    assert bloque["cobertura"] == "0.98"
+    assert bloque["ratio_ads_venta"] == Decimal("728") / Decimal("7000")
+    sin = api_common.bloque_target_margen({"notes": _notas_con_target()}, hoy=dt.date(2026, 9, 4))
+    assert sin["cobertura"] == "1"
+    assert sin["ratio_ads_venta"] is None
+
+
+def test_salud_bloque_target_sin_clave_da_nulls():
+    """Rojo (e) regla 3: ciclos viejos sin notes.target -> todo null, sin
+    reventar (ni ciclo, ni notes, ni notes no-dict)."""
+    from app import api_common
+
+    for ultimo in (None, {}, {"notes": None}, {"notes": {"texto": "rastro: x"}}, {"notes": {}}):
+        bloque = api_common.bloque_target_margen(ultimo, hoy=dt.date(2026, 9, 4))
+        assert bloque["target_vigente"] is None
+        assert bloque["procedencia"] is None
+        assert bloque["motivo_abstencion"] is None

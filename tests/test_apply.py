@@ -178,7 +178,9 @@ def _semilla(
     ag = _entidad(conn, "ad_group", "7101", parent=camp)
     kw = _entidad(conn, "keyword", "7201", parent=ag)
     kw2 = _entidad(conn, "keyword", "7202", parent=ag)
-    for entidad in (kw, kw2):
+    # CAMPANA ACTIVA 01 (1.6): la reconciliacion de bids exige campaña y
+    # grupo ENABLED en el cache antes de cualquier HTTP.
+    for entidad in (camp, ag, kw, kw2):
         conn.execute(
             "INSERT INTO ad_entity_state (ad_entity_id, current_bid, bid_currency, status,"
             " synced_at) VALUES (%s, 1.00, 'USD', 'ENABLED', now())",
@@ -856,11 +858,15 @@ def test_orden_bids_prioridad_de_hemorragia_sellada():
     d25_200 = _bid_manual(2, "banda_menos_25", "200")
     d12_999 = _bid_manual(3, "banda_menos_12", "999")
     d15_500 = _bid_manual(4, "banda_mas_15", "500")
+    # BIDS 01 (cross-review grok-1): el motivo nuevo compite en la banda 0;
+    # si el literal de _PRIORIDAD_BANDA tuviera un typo caeria al final.
+    d25c_150 = _bid_manual(7, "banda_menos_25_cero_ventas", "150")
 
-    orden = orden_bids([d15_500, d12_999, d25_100, d25_200])
+    orden = orden_bids([d15_500, d12_999, d25_100, d25_200, d25c_150])
 
-    assert [d.id for d in orden] == [2, 1, 3, 4], (
-        "banda_menos_25 > banda_menos_12 > banda_mas_15; dentro de banda, cost DESC"
+    assert [d.id for d in orden] == [2, 7, 1, 3, 4], (
+        "banda_menos_25 = banda_menos_25_cero_ventas > banda_menos_12 > "
+        "banda_mas_15; dentro de banda, cost DESC"
     )
 
     # cost None (regla 3: costo desconocido) queda al final de SU banda; un
@@ -1601,3 +1607,89 @@ def test_readback_encuentra_el_bid_en_la_pagina_dos_del_list():
         assert resultado == "ok", "la entidad de la pagina 2 se lee: NO es divergencia"
         lists = [r for r in vistos if r.method == "POST" and r.url.path.endswith("/list")]
         assert len(lists) == 2, "pagino: pagina 1 (senuelo) + pagina 2 (la pedida)"
+
+
+# ---------------------------------------------------------------------------
+# CAMPANA ACTIVA 01 · 1.6: gate de ancestros en la reconciliacion de bids
+# ---------------------------------------------------------------------------
+
+
+def _handler_cero_api():
+    """Handler ESTRICTO: cualquier request, incluido el token LWA, revienta
+    (con la campana pausada la reconciliacion JAMAS sale por HTTP: el gate
+    corre antes de crear el cliente — revision PR #136)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(
+            f"cero HTTP con ancestro no ENABLED: {request.method} {request.url.host}"
+            f"{request.url.path}"
+        )
+
+    return handler
+
+
+@_skip_db
+def test_reconcilia_bids_campana_pausada_gate_ancestros():
+    """CAMPANA ACTIVA 01 · 1.6(a) (regla 9): un intento de bid sin sello cuya
+    CAMPANA esta PAUSED se sella 'fallo:ancestro_no_enabled' SIN ningun HTTP
+    (ni readback ni reintento). Antes del fix la reconciliacion hacia el LIST
+    de readback y, con divergencia, el PUT del reintento dentro de la campaña
+    pausada (hallazgo codex r1 #1)."""
+    from app.apply import reconcilia_bids
+
+    with _db_temporal("orbit_apply_rbid_gate1") as conn:
+        ids = _semilla(conn)
+        conn.execute(
+            "UPDATE ad_entity_state SET status = 'PAUSED' WHERE ad_entity_id = %s",
+            (ids["camp"],),
+        )
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], new="0.85")
+        conn.execute(
+            "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada)"
+            " VALUES (%s, 1, 'normal', %s, true)",
+            (dec, Json({"keywordId": "7201", "bid": "0.85"})),
+        )
+
+        confirmadas, fallidas = reconcilia_bids(
+            conn, _aplicador(conn, _handler_cero_api(), ids["ciclo_ejec"]), "amazon_us"
+        )
+
+        assert (confirmadas, fallidas) == (0, 1)
+        fila = conn.execute(
+            "SELECT resultado, finished_at IS NOT NULL FROM apply_attempt WHERE decision_id = %s",
+            (dec,),
+        ).fetchone()
+        assert fila == ("fallo:ancestro_no_enabled", True)
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM decision_application WHERE decision_id = %s", (dec,)
+            ).fetchone()[0]
+            == 0
+        )
+
+
+@_skip_db
+def test_reconcilia_bids_campana_sin_state_gate_ancestros():
+    """CAMPANA ACTIVA 01 · 1.6(a): campaña SIN fila de state (regla 3:
+    ausencia = fuera) — mismo sello y cero HTTP que la campaña PAUSED."""
+    from app.apply import reconcilia_bids
+
+    with _db_temporal("orbit_apply_rbid_gate2") as conn:
+        ids = _semilla(conn)
+        conn.execute("DELETE FROM ad_entity_state WHERE ad_entity_id = %s", (ids["camp"],))
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], new="0.85")
+        conn.execute(
+            "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada)"
+            " VALUES (%s, 1, 'normal', %s, true)",
+            (dec, Json({"keywordId": "7201", "bid": "0.85"})),
+        )
+
+        confirmadas, fallidas = reconcilia_bids(
+            conn, _aplicador(conn, _handler_cero_api(), ids["ciclo_ejec"]), "amazon_us"
+        )
+
+        assert (confirmadas, fallidas) == (0, 1)
+        resultado = conn.execute(
+            "SELECT resultado FROM apply_attempt WHERE decision_id = %s", (dec,)
+        ).fetchone()[0]
+        assert resultado == "fallo:ancestro_no_enabled"

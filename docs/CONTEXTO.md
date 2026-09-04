@@ -110,6 +110,14 @@ Reglas numéricas selladas (resumen; el documento manda):
 - **−25%** si ACoS > 1.35×target (orders≥1); **−12%** si > 1.15×target;
   **+15%** si ACoS < 0.85×target ∧ orders≥3. Clamp por decisión ∈ [−30%, +20%],
   resultado ∈ [floor, ceiling] (defaults de goal POR MONEDA, regla 4).
+- **BIDS 01 (2026-09-03): cero ventas → −25%** con motivo propio
+  (`banda_menos_25_cero_ventas`) cuando clicks ≥ `expected_clicks` del grupo
+  (CORTES 01, relativo al producto) y cost ≥ piso de pausa (40 USD / 500
+  MXN); antes −12%; PAUSE al 1.5× sin cambio (se evalúa antes). El replay
+  rejuega por el marcador congelado `cero_ventas_expected_usado` (solo lo
+  escriben ciclos con la regla), no por `expected_clicks` informativo —
+  las filas pre-BIDS rejuegan lo persistido (revisión PR #132, 17
+  decisiones US).
 - **NEGATIVE_EXACT**: orders=0 ∧ clicks≥umbral_corte ∧ cost≥{us: 8, mx: 130};
   términos ASIN-like siempre skip. Umbral de clicks **adaptativo por
   producto** (CORTES 01): la evidencia del ad group (suma de sus hojas
@@ -275,6 +283,24 @@ manda para la implementación; este párrafo es el spec delta sellado:
   variante valor+peldaño con CINCO peldaños (goal_campana, goal_plataforma,
   setting_plataforma, cache_estado, default), compatible con el camino del
   motor — la capa web jamás la reimplementa.
+- **Target derivado del margen (ORBIT 06 Fase 2, sello del dueño 2026-09-03)**:
+  la cascada pasa a SEIS peldaños — `goal_campana → goal_plataforma →
+  margen_plataforma → setting_plataforma → cache_estado → default`. El
+  peldaño `margen_plataforma` = `fraccion × margen neto antes de publicidad`
+  de la plataforma (ledger, 90 días maduros `[D-105, D-15)`, cargos sin
+  `fee_type = ads`, COGS a la fecha, misma moneda, cobertura ≥ 95 %), con
+  `fraccion` en `ads_target_fraccion_margen_<platform>` (dueño: **«La mitad
+  (utilidad)»** = 0.5 → ≈ 20 MX / ≈ 18 US; ausente = interruptor, presente
+  e inválida = ValueError). Señal ausente, rancia (> 3 días), corta (< 60
+  días con venta), con cobertura por monto baja, moneda mezclada o cargo
+  sin clasificar → el peldaño **se abstiene** y la cascada sigue al
+  setting; jamás cero (regla 3). El derivado fuera de la banda [10, 45]
+  NO abstiene: **clampea** al extremo (más paso máximo 0.5 puntos por
+  ciclo). Margen sobre venta CUBIERTA con cargos de plataforma prorrateados
+  (cross-review §10.bis del spec, 2026-09-04). Requisito literal del dueño:
+  «se va a ir ajustando automaticamente» → ledger y FX en cron diario.
+  `v_contribucion_entidad` (por palabra) sigue NO decisoria.
+  Spec: `docs/superpowers/specs/2026-09-03-target-margen-plataforma-design.md`.
 - **Módulo nuevo** `app/api_dashboard.py` desde el inicio; helpers de
   `app/api.py` extraídos a `app/api_common.py` (nunca dos copias).
 

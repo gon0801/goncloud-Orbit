@@ -49,6 +49,30 @@ _TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 # de 1.6 lo VERIFICAN, no lo asumen — regla 9).
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
+
+def dinero_ui(valor: str | None) -> str | None:
+    """Presentacion a 2 decimales. None queda None; si no parsea, se deja igual."""
+    if valor is None:
+        return None
+    try:
+        return f"{Decimal(valor):.2f}"
+    except (InvalidOperation, ValueError):
+        return valor
+
+
+templates.env.filters["dinero_ui"] = dinero_ui
+
+
+def ts_ui(valor) -> str:
+    """Fecha de decision para la tabla: YYYY-MM-DD HH:MM, sin microsegundos."""
+    if valor is None:
+        return "—"
+    texto = valor.isoformat() if hasattr(valor, "isoformat") else str(valor)
+    return texto.replace("T", " ")[:16]
+
+
+templates.env.filters["ts_ui"] = ts_ui
+
 # Columnas que YA estan en campanas.html. No se inventan orders/impressions.
 COLUMNAS_ORDEN = (
     "nombre",
@@ -296,22 +320,17 @@ def pagina_campanas(
 def pagina_decisiones(
     request: Request,
     conn: ConexionLectura,
-    cursor: Annotated[int | None, Query(ge=1)] = None,
+    page: Annotated[int, Query(ge=1)] = 1,
 ) -> HTMLResponse:
-    """Decisiones: feed por cursor con motivo en espanol; el search_term se
-    renderiza ESCAPADO ({{ }}) — es el vector XSS real del dominio. El
-    `?cursor=` del boton 'Cargar mas' se PROPAGA al feed (hallazgo alta de
-    codex: ignorarlo recargaba la primera pagina por siempre)."""
-    datos = dash.decisiones(conn=conn, cursor=cursor)
+    """Decisiones: pagina numerada. El search_term se renderiza ESCAPADO.
+    `?page=` es un GET sin JS (reemplaza el boton Cargar mas)."""
+    items, ventana = dash.decisiones_pagina(
+        conn=conn, page=page, page_size=dash.LIMITE_FEED_DEFAULT
+    )
     return templates.TemplateResponse(
         request,
         "decisiones.html",
-        {
-            "pantalla": "decisiones",
-            "items": datos["items"],
-            "next_cursor": datos["next_cursor"],
-            "has_more": datos["has_more"],
-        },
+        {"pantalla": "decisiones", "items": items, "ventana": ventana},
     )
 
 
@@ -334,6 +353,19 @@ def pagina_contribucion(request: Request, conn: ConexionLectura) -> HTMLResponse
         request,
         "contribucion.html",
         {"pantalla": "contribucion", "plataformas": datos["plataformas"]},
+    )
+
+
+@router.get("/inertes", response_class=HTMLResponse)
+def pagina_inertes(request: Request, conn: ConexionLectura) -> HTMLResponse:
+    """Inertes: hojas sin trafico con su clasificacion (BIDS 01 1.3).
+    Server-rendered desde el endpoint (regla 22); el texto de la hoja se
+    renderiza ESCAPADO ({{ }}) — keyword_text es el vector XSS real."""
+    datos = dash.inertes(conn=conn)
+    return templates.TemplateResponse(
+        request,
+        "inertes.html",
+        {"pantalla": "inertes", "totales": datos["totales"], "items": datos["items"]},
     )
 
 

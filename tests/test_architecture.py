@@ -42,18 +42,6 @@ MAX_LINEAS_MODULO = 900
 # path relativo (posix) -> razon escrita. Sacar una entrada exige que el
 # modulo haya bajado del umbral; agregarla exige razon y review.
 ALLOWLIST_TAMANO = {
-    "app/ads/structure.py": (
-        "ORBIT 05 preflight 1.3: al modulo del sync de estructura se le sumo "
-        "PATH_NEGATIVE_KEYWORDS (evidencia regla 8, 2026-08-25) y la "
-        "paginacion promovida a API publica (listar_todo) para el snapshot "
-        "read-only de listas (tools/snapshot_listas.py); el modulo ya vivia "
-        "al tope del presupuesto (900). Candidato DECLARADO a partirse la "
-        "proxima vez que se toque en grande: IO de API (evaluar_perfiles + "
-        "listar_todo + fetch_structure) de IO de DB (SQL sellada + "
-        "_plan_items + sync_structure) — la frontera ya esta marcada en el "
-        "propio modulo; partir por partir esta prohibido por la regla "
-        "anti-Goodhart"
-    ),
     "app/ads/reports.py": (
         "pipeline compartido de reporting v3 (metricas + search terms + "
         "fusion de grano); candidato DECLARADO a partirse en "
@@ -62,15 +50,14 @@ ALLOWLIST_TAMANO = {
     "app/cycle.py": (
         "ORBIT 03 task 3.1: orquestador del ciclo, ubicacion SELLADA por el "
         "plan (importa psycopg, fuera del motor puro) y API publica sellada "
-        "(corre_ciclo + reproduce para el spot-check 4.4). ORBIT 04 2.4 "
+        "(corre_ciclo + reexport de reproduce para el spot-check 4.4). "
+        "ORBIT 04 2.4 "
         "agrego la fase de apply dentro del lock (TX4 + aplicador + guard de "
         "ownership). Sus piezas (SQL sellada de claim/envelope/rastro, fases "
-        "de transaccion, serializacion congelada de inputs, replay y la fase "
+        "de transaccion, serializacion congelada de inputs y la fase "
         "de apply) no tienen frontera coherente para partirse sin romper el "
         "sellado; partir por partir esta prohibido por la regla "
-        "anti-Goodhart. Candidato DECLARADO (hallazgo reviewer 3.1): el codec "
-        "de inputs congelados (serializacion + replay, par freeze<->replay de "
-        "~300 lineas)"
+        "anti-Goodhart. El replay puro ya vive en app/optimizer/replay.py"
     ),
     "app/apply_harvest.py": (
         "ORBIT 04 2.3: ejecucion del corte harvest (cadena de fases del job, "
@@ -102,6 +89,12 @@ ALLOWLIST_TAMANO = {
         "apply: partir la ejecucion sellada por fila (_revalida*/_ejecuta_*) "
         "de la maquina de encolado/liberacion la proxima vez que se toque en "
         "grande; partir por partir esta prohibido por la regla anti-Goodhart"
+    ),
+    "app/api_dashboard.py": (
+        "Feed de Decisiones/Cortes/Inertes (SQL + _fila_* + filtros). "
+        "El wiring de Entidad (kind/keyword_text + JOINs de campana) "
+        "lo empujo 25 lineas sobre 900. Candidato a partir cortes/"
+        "inertes del feed de decisiones; no se parte por partir."
     ),
 }
 
@@ -232,6 +225,19 @@ def test_puerta_de_datos_sin_api_de_amazon():
     """windows.py puede leer la base (es la puerta), pero JAMAS la API/ingesta."""
     fugas = _violaciones(_imports_runtime(OPTIMIZER / "windows.py"), PROHIBIDOS_PUERTA)
     assert not fugas, f"la puerta de datos no habla con Amazon ni la ingesta: {fugas}"
+
+
+def test_structure_plan_sin_io_en_runtime():
+    """structure_plan es planificacion pura: sin httpx/psycopg/cliente Ads.
+
+    ESTRUCTURA 01 (cross-review): un import runtime de structure_api
+    arrastraba AdsClient -> httpx. EstructuraAds solo es anotacion.
+    """
+    plan = APP / "ads" / "structure_plan.py"
+    imp = _imports_runtime(plan)
+    prohibidos = ("httpx", "psycopg", "app.ads.client", "app.ads.structure_api", "app.db")
+    fugas = sorted(p for p in prohibidos if p in imp)
+    assert not fugas, f"structure_plan arrastra IO en runtime: {fugas} (imports={sorted(imp)})"
 
 
 # ORBIT 04 decision 9 (r2 codex 5): quien puede importar el cliente de
@@ -487,7 +493,7 @@ def test_allowlist_snapshot_caza_import_de_escritura(tmp_path):
 #     ley"). DEUDA CONOCIDA: consolidarla con la del motor es candidato de
 #     revision, pero NO se toca el cliente de escritura sellado por una
 #     constante — se declara y se revisa en su fase.
-#   - app/ads/structure.py : _PAIS_PLATAFORMA_MONEDA, forma DISTINTA
+#   - app/ads/structure_api.py : _PAIS_PLATAFORMA_MONEDA, forma DISTINTA
 #     (codigo de pais -> (plataforma, moneda)) y proposito distinto: resolver
 #     el perfil de Amazon durante el discovery, no decidir dinero. Se declara
 #     porque codifica la misma ley en otra forma. (Hallazgo de la cross-review
@@ -496,7 +502,7 @@ def test_allowlist_snapshot_caza_import_de_escritura(tmp_path):
 #     solo habia tres definiciones. Eran CUATRO, y el comentario original de
 #     app/listings.py que la citaba tenia razon.)
 DEFINICIONES_MONEDA_DECLARADAS = frozenset(
-    {"app/optimizer/bid.py", "app/ads/write.py", "app/ads/structure.py"}
+    {"app/optimizer/bid.py", "app/ads/write.py", "app/ads/structure_api.py"}
 )
 
 _MONEDAS_CONOCIDAS = ("MXN", "USD")

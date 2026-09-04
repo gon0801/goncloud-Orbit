@@ -24,6 +24,7 @@ import os
 import socket
 from collections import Counter
 from decimal import Decimal
+from pathlib import Path as _Path
 
 import httpx
 import pytest
@@ -46,6 +47,12 @@ from app.ads.structure import (
     fetch_structure,
     main,
     sync_structure,
+)
+
+# BIDS 01 2.1: sync_structure escribe first_seen_at; sin la 0017 el upsert
+# real revienta con UndefinedColumn (el mock nunca lo vio).
+_SQL17 = (_Path(__file__).resolve().parents[1] / "migrations" / "0017_first_seen_at.sql").read_text(
+    encoding="utf-8"
 )
 
 FAKE_CLIENT_ID = "fake-client-id-123"
@@ -1250,6 +1257,7 @@ def test_sync_y_resync_estructura_en_vivo(monkeypatch):
         conn = psycopg.connect(dsn, dbname=db, autocommit=True)
         conn.execute("SET TIME ZONE 'UTC'")
         conn.execute(SQL)  # la migracion entera
+        conn.execute(_SQL17)  # BIDS 01 2.1: first_seen_at
 
         # ------------------------------------------------------------------
         # SYNC 1
@@ -1529,6 +1537,7 @@ def test_product_ad_archivado_en_amazon_deja_de_figurar_vivo_en_el_cache():
         conn.execute(SQL)
         # 0004: sin ella el enum ad_entity_kind no conoce 'product_ad'.
         conn.execute(SQL4)
+        conn.execute(_SQL17)  # BIDS 01 2.1: first_seen_at
 
         # --- corrida 1: el anuncio esta vivo ---
         sync_structure(conn, _estructura_con_product_ad("ENABLED"))

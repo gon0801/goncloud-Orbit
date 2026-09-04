@@ -179,9 +179,11 @@ ni por kind). Un veto VENCIDO no bloquea: al vencer, el motor re-propone
 ## 3. Orden sellado del apply de un corte (sellados 6, 13, 17)
 
 ```
-1. re-validación sobre la fila released (PRE-claim)
-2. claim atómico          released -> applying   (UPDATE ... WHERE estado='released')
-3. cobro de quota         (una operación lógica; §5)
+1. re-validación sobre la fila released (PRE-claim): gate de ancestros
+                          (CAMPANA ACTIVA 01) + regla con evidencia fresca
+2. cobro de quota         (una operación lógica; §5) — ANTES del claim: la
+                          máquina no tiene applying -> released (0002)
+3. claim atómico          released -> applying   (UPDATE ... WHERE estado='released')
 4. fila del ledger        apply_attempt ANTES del HTTP (§4)
 5. HTTP de mutación       (write client, §8; heartbeat y ownership-check, §9)
 6. readback + sello       ack/resultado/finished_at una vez; resumen y
@@ -198,6 +200,9 @@ ni por kind). Un veto VENCIDO no bloquea: al vencer, el motor re-propone
 Re-evalúa el corte contra la **ventana FRESCA** de datos — jamás reusa los
 insumos congelados de la decisión:
 
+- **Gate de ancestros (CAMPAÑA ACTIVA 01)**: campaña o ad group no ENABLED
+  en el cache → discard PRE-claim `campana_no_enabled`/`grupo_no_enabled`,
+  antes del LIST fresco y del cobro.
 - **Regla re-evaluada completa**: PAUSE `orders=0 ∧ clicks≥umbral_corte ∧
   cost≥{us: 40 USD, mx: 500 MXN}` (CORTES 03; antes 12/200); NEGATIVE
   `orders=0 ∧ clicks≥umbral_corte
@@ -337,7 +342,7 @@ hueco (r2 grok 13); el mapeo es EXPLÍCITO y testeado.
 - **Bids fuera de cap se DESCARTAN** (jamás reintentados): la selección
   bajo cap es sellada — prioridad por urgencia de hemorragia:
   **banda_menos_25 > banda_menos_12 > banda_mas_15**, y dentro de cada
-  banda por **costo de la ventana descendente**. Los descartados se
+  banda por **costo de la ventana de CORTES descendente** (`inputs.ventanas.cortes.cost`, la que mide la hemorragia; la banda se calcula sobre la ventana de bids — aclarado en la adjudicación 2.1 de ORBIT 05, H3). Los descartados se
   cuentan en el digest ("N bids fuera de cap hoy") — la ausencia de fila
   no se confunde con un bug porque el conteo lo declara.
 
@@ -345,14 +350,28 @@ hueco (r2 grok 13); el mapeo es EXPLÍCITO y testeado.
 
 - **Día 1 (por día y plataforma): 10 bids / 2 pauses / 5 negatives /
   2 harvests** (seeds 4.2).
-- **Duplicación MANUAL cada 48h sanas**. "48h sanas" = **ventana móvil de
-  48h sin incidentes SIN resolver**: un incidente nuevo sin resolver dentro
-  de la ventana BLOQUEA la duplicación; un incidente histórico ya resuelto
-  NO bloquea. Señales que cuentan como incidente (las audtables del
-  sistema): fila `failed` en la cola o el ledger, divergencia de readback
-  (`verify_ok=false`) sin resolver, alerta de harvest failed. La
-  catalogación fina de "resuelto" es del operador (la duplicación es
-  manual); la evidencia son las filas. Éxito = "avanza sin incidentes".
+- **Subida MANUAL por decisión del dueño tras un ciclo sin incidentes**
+  (enmienda del dueño 2026-09-03, literal «no podemos ser ultra
+  conservadores… un test es suficiente»; reemplaza la regla anterior de
+  «duplicación cada 48h sanas»). "Sin incidentes" = ningún incidente NUEVO
+  sin resolver: fila `failed` en la cola o el ledger, divergencia de
+  readback (`verify_ok=false`) sin resolver, alerta de harvest failed. La
+  catalogación fina de "resuelto" es del operador; la evidencia son las
+  filas. El tamaño del salto lo fija el dueño, no una tabla.
+- **El cap de bids es un FUSIBLE, no un freno** (sellado 2026-09-03): con la
+  guarda `entidad_inerte` (BIDS 01) el motor decide ~13 bids US / ~31 MX por
+  día, así que un cap de 40+ no bloquea operación normal — su función es
+  cortar una avalancha anómala (bug o dato corrupto que quiera mover
+  cientos). Por eso NO se retira: cuesta cero cuando todo va bien. Lo que
+  protege de verdad cada mutación sigue siendo el readback por fila, el
+  cooldown 7d y —para cortes— la ventana de veto.
+- **Los caps de pause/negative/harvest miden "cuántos te pongo a revisar",
+  no riesgo inmediato** (los cortes esperan 48h vetables). Medido
+  2026-09-03: en los 4 ciclos live NO se generó ningún corte (la cola sigue
+  vacía) — el cap 5/15 no ata nada; lo que ata es el umbral de CORTES 03
+  (100 clicks + 40 USD/500 MXN: 1 sola hoja lo cumple en toda la cuenta).
+  Decisión del dueño: no tocar cap ni umbral hasta tener una semana con la
+  regla A' de BIDS 01 (que ataca a la misma población desde el bid).
 - Cómo se duplica: nueva `config_version` (append-only, `app_admin`) con
   las claves `ads_apply_cap_*` mayores. OJO: el cap de una fila del día ya
   nacida NO se puede subir (sellado 8; PK `(motor, quota_date)`); el efecto
@@ -452,6 +471,18 @@ matchType, state}`. La tarea 1.3 amplía `LIST_REQUEST_TYPES` con este path.
 
 Reglas de la matriz:
 
+- **Gate de ancestros en los REINTENTOS (CAMPANA ACTIVA 01 · 1.6):** antes de
+  cualquier HTTP de reconciliación que pueda reintentar una mutación (bids sin
+  sello en `reconcilia_bids`, negatives applying huérfanos en
+  `_reconcilia_negativas`, jobs en vuelo de `reconcilia_harvest`), se verifica
+  campaña y ad group ENABLED en el cache `ad_entity_state` con la MISMA
+  función que la cola al liberar (`apply.gate_ancestros`; sin fila de state =
+  fuera, regla 3). Si falla: sello `fallo:ancestro_no_enabled`, fila/job
+  `failed` (una fila `applying` NO puede pasar a `discarded`; una `released`
+  se descarta PRE-claim), sin HTTP ni cobro de cuota. Para harvest el ancestro
+  gateado es el ORIGEN (el ad group de la fila); el destino del goal sigue
+  sin gate de código (residual declarado). Las pausas applying huérfanas no se
+  gatean: solo LEEN estado, jamás reintentan mutación.
 - La reconciliación NO reintenta mutaciones ambiguas: cierra el estado
   (`failed`); el ciclo siguiente re-decide la clave con datos frescos si
   sigue calificando (la clave terminal ya no está en vuelo).

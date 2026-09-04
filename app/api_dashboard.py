@@ -53,7 +53,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query
@@ -66,9 +66,19 @@ from app.api_common import (
     _dec_str,
     _fila_ciclo,
     _parse_notes,
+    bloque_target_margen,
 )
 from app.apply import KINDS_QUOTA, estado_quota
 from app.dashboard_contribucion import contribucion_campanas as _contribucion_campanas
+from app.dashboard_pagina import (
+    _CAMPANA_ANCESTRO,
+    _JOINS_ANCESTROS,
+    _SQL_DECISIONES_FEED,
+    _SQL_DECISIONES_PAGINA,
+    _SQL_DECISIONES_TOTAL,
+    PageWindow,
+)
+from app.etiqueta_entidad import etiqueta_entidad, linea_entidad
 from app.optimizer import bid, hygiene
 from app.optimizer import goals as g
 from app.optimizer.bid import PLATAFORMAS_MONEDA
@@ -164,21 +174,6 @@ _SQL_CONFIG_VIGENTE = """
 SELECT settings FROM config_version ORDER BY id DESC LIMIT 1
 """
 
-# Feed de decisiones por CURSOR: ORDER BY id DESC, id < cursor, LIMIT. Sin
-# OFFSET (decision 8): offset sobre la tabla append-only produce
-# huecos/duplicados entre paginas. JOIN a ad_entity para el nombre (nullable
-# por schema) y la plataforma.
-_SQL_DECISIONES_FEED = """
-SELECT d.id, d.cycle_id, d.ad_entity_id, e.name, e.platform, d.kind,
-       d.decided_at, d.search_term, d.old_value, d.new_value, d.value_currency,
-       d.inputs
-  FROM decision d
-  JOIN ad_entity e ON e.id = d.ad_entity_id
- WHERE {filtros}
- ORDER BY d.id DESC
- LIMIT %s
-"""
-
 # Motivos de DECISION -> espanol (decisión 11 del header): dict que IMPORTA
 # las constantes MOTIVO_* de bid/hygiene (los que persisten en inputs.motivo
 # de filas en `decision`). Si el vocabulario cambia, falla RUIDOSO en import
@@ -188,6 +183,9 @@ MOTIVOS_ES_DECISIONES: dict[str, str] = {
     bid.MOTIVO_PAUSE: "Pausa: sin ventas con clicks y costo sobre el umbral",
     bid._MOTIVO_BANDA[bid.FACTOR_BAJA_FUERTE]: "ACoS sobre 1.35x del target: -25%",
     bid._MOTIVO_BANDA[bid.FACTOR_BAJA_SUAVE]: "ACoS sobre 1.15x del target: -12%",
+    bid.MOTIVO_BANDA_MENOS_25_CERO_VENTAS: (
+        "Cero ventas con los clicks de una venta y gasto sobre el piso: -25%"
+    ),
     bid._MOTIVO_BANDA[bid.FACTOR_SUBIDA]: "ACoS bajo 0.85x del target: +15%",
     hygiene.MOTIVO_NEGATIVE: "Negativo: termino sin ventas con clicks y costo sobre el umbral",
     hygiene.MOTIVO_HARVEST: "Harvest: termino con ACoS bajo el tope hacia campana manual",
@@ -224,6 +222,11 @@ MOTIVOS_ES_SALUD: dict[str, str] = {
     ciclo.MOTIVO_GOAL_DISABLED: "Goal de campana deshabilitado (opt-out)",
     ciclo.MOTIVO_GOAL_MODE_OFF: "Goal en modo off",
     ciclo.MOTIVO_ESTADO_NO_ENABLED: "Entidad sin estado o no habilitada",
+    ciclo.MOTIVO_CAMPANA_NO_ENABLED: "Campana no habilitada (pausada/archivada o sin estado)",
+    ciclo.MOTIVO_GRUPO_NO_ENABLED: "Ad group no habilitado (pausado/archivado o sin estado)",
+    ciclo.MOTIVO_ENTIDAD_INERTE: (
+        "Entidad sin trafico reciente (sin impresiones en 14 dias): sin ajuste"
+    ),
     ciclo.MOTIVO_COOLDOWN_7D: "Cooldown 7d: apply verificado reciente",
     ciclo.MOTIVO_ESCALERA_OFF: "Escalera global off",
     # guardas de plataforma (windows.py; el envelope las persiste como
@@ -511,12 +514,43 @@ def _goal_estado(goal: g.Goal | None) -> dict | None:
     }
 
 
+_SQL_TARGET_MARGEN_ULTIMO = """
+SELECT notes
+  FROM optimizer_cycle
+ WHERE platform = %s::platform AND motor = 'ads_optimizer' AND status = 'done'
+ ORDER BY id DESC
+ LIMIT 1
+"""
+
+
+def _target_margen_del_ciclo(conn, plataforma: str) -> Decimal | None:
+    """Aplicado del peldano `margen_plataforma` segun el ULTIMO ciclo done de
+    la plataforma (cross-review grok H3). Fuente UNICA: notes.target, lo que el
+    ciclo resolvio — la web NO re-resuelve la vista ni el paso maximo. Sin
+    ciclo, sin notes, sin bloque o con el peldano abstenido -> None y la
+    cascada sigue como hoy (regla 3)."""
+    fila = conn.execute(_SQL_TARGET_MARGEN_ULTIMO, (plataforma,)).fetchone()
+    if not fila or not isinstance(fila[0], dict):
+        return None
+    bloque = fila[0].get("target")
+    if not isinstance(bloque, dict) or bloque.get("procedencia") != "margen_plataforma":
+        return None
+    valor = bloque.get("target_aplicado")
+    if valor is None:
+        return None
+    try:
+        return Decimal(str(valor))
+    except (InvalidOperation, ValueError, ArithmeticError):
+        return None
+
+
 def _fila_campana(
     fila,
     goals_campana: dict[int, g.Goal],
     goal_plataforma: g.Goal | None,
     settings: dict,
     plataforma: str,
+    target_margen: Decimal | None = None,
 ) -> dict:
     """Fila del resumen: metricas 30d (grano campaign, dinero string) + target
     EFECTIVO con PROCEDENCIA (cascada de 1.2 REUTILIZADA, jamas
@@ -524,7 +558,7 @@ def _fila_campana(
     camp_id, nombre, _plataforma, acos_cache, estado, cost, revenue, clicks = fila
     goal_campana = goals_campana.get(camp_id)
     valor, peldano = g.cascada_target_acos_con_procedencia(
-        goal_campana, goal_plataforma, settings, acos_cache, plataforma
+        goal_campana, goal_plataforma, settings, acos_cache, plataforma, target_margen
     )
     acos, sin_ventas = _acoso(cost, revenue)
     return {
@@ -569,10 +603,23 @@ def campanas(
     items: list[dict] = []
     plataformas = (platform,) if platform is not None else tuple(PLATAFORMAS_MONEDA)
     for plataforma in plataformas:
+        # ORBIT 06 2.3 (cross-review grok H3): el peldano `margen_plataforma`
+        # lo resuelve el CICLO, no la web (la vista y el paso maximo exigen
+        # estado). La tabla lee el aplicado del ultimo ciclo de esa plataforma
+        # y se lo pasa a la MISMA cascada que usa el motor. Sin esto el
+        # dashboard llamaba con target_margen=None y mostraba el setting (20)
+        # mientras el motor ya decidia con el derivado: dos verdades en
+        # pantallas distintas, y el dueno creeria que no encendio.
+        target_margen = _target_margen_del_ciclo(conn, plataforma)
         for fila in conn.execute(_SQL_CAMPANAS_30D, (plataforma, desde, hasta)).fetchall():
             items.append(
                 _fila_campana(
-                    fila, goals_campana, goals_plataforma.get(plataforma), settings, plataforma
+                    fila,
+                    goals_campana,
+                    goals_plataforma.get(plataforma),
+                    settings,
+                    plataforma,
+                    target_margen,
                 )
             )
     return {"items": items}
@@ -600,6 +647,16 @@ def _filtros_feed(platform, kind) -> tuple[list[str], list]:
     return (clausulas, params)
 
 
+def decisiones_pagina(
+    conn: ConexionLectura, page: int, page_size: int
+) -> tuple[list[dict], PageWindow]:
+    """Pagina HTML: count -> ventana clampada -> LIMIT/OFFSET. No es ruta."""
+    total = conn.execute(_SQL_DECISIONES_TOTAL).fetchone()[0]
+    ventana = PageWindow.desde_total(total=total, page=page, page_size=page_size)
+    filas = conn.execute(_SQL_DECISIONES_PAGINA, (ventana.page_size, ventana.offset)).fetchall()
+    return [_fila_decision(fila) for fila in filas], ventana
+
+
 def _fila_decision(fila) -> dict:
     """Una decision del feed. Trampas reales de la evidencia: el target se lee
     de inputs.target_acos_pct_usado (JAMAS de inputs.goal.target_acos_pct,
@@ -612,7 +669,12 @@ def _fila_decision(fila) -> dict:
         "id": fila[0],
         "cycle_id": fila[1],
         "ad_entity_id": fila[2],
-        "nombre": fila[3],  # ad_entity.name nullable -> null, no revienta
+        "nombre": linea_entidad(
+            kind=fila[12],
+            name=fila[3],
+            keyword_text=fila[13],
+            campana=fila[14],
+        ),
         "plataforma": fila[4],
         "kind": fila[5],
         "decided_at": fila[6],
@@ -763,6 +825,7 @@ def salud(conn: ConexionLectura) -> dict:
             "historico_14d": [_fila_historico(fila) for fila in historico],
             "skips": _skips_de(ultimo),
             "quota": _quota_de(conn, plataforma),
+            "target_margen": bloque_target_margen(ultimo),
         }
     return {"plataformas": plataformas}
 
@@ -802,14 +865,39 @@ def contribucion_campanas(conn: ConexionLectura) -> dict:
 # SOLO los estados vetables (sellado 4): pending_veto (en ventana) y released
 # (espera quota FIFO y SIGUE vetable, r2 grok); applying es punto de no retorno
 # y los terminales no se vetan. ORDER BY vence_el: lo que vence primero se ve
-# primero. LEFT JOIN ad_entity por el external_id (nullable por schema).
-_SQL_CORTES_PENDIENTES = """
+# primero.
+_SQL_CORTES_PENDIENTES = (
+    """
 SELECT q.id, q.platform::text, q.familia, q.kind, q.ad_entity_id, e.external_id,
-       q.search_term, q.estado, q.vence_el, q.encolado_at, q.decision_id
+       q.search_term, q.estado, q.vence_el, q.encolado_at, q.decision_id,
+       e.kind::text AS entidad_kind, e.name, e.keyword_text,
+       """
+    + _CAMPANA_ANCESTRO
+    + """ AS campana
   FROM apply_queue q
   LEFT JOIN ad_entity e ON e.id = q.ad_entity_id
+"""
+    + _JOINS_ANCESTROS
+    + """
  WHERE q.estado IN ('pending_veto', 'released')
  ORDER BY q.vence_el, q.id
+"""
+)
+
+
+# ---------------------------------------------------------------------------
+# BIDS 01 1.3 - /inertes: diagnostico de hojas sin trafico (solo lectura)
+# ---------------------------------------------------------------------------
+
+# Lee v_entidad_inerte (migracion 0013, UNICA fuente D2): nada se diagnostica
+# aqui. NULLS LAST (gasto NULL = mezcla de monedas, fail-loud) e id de
+# desempate estable.
+_SQL_INERTES = """
+SELECT platform::text, kind::text, keyword_text, name, external_id,
+       campaign_name, ad_group_name, clasificacion, dias_sin_impresiones,
+       ultima_impresion, gasto_90d, moneda::text, ordenes_90d
+  FROM v_entidad_inerte
+ ORDER BY platform, clasificacion, gasto_90d DESC NULLS LAST, id
 """
 
 
@@ -830,6 +918,12 @@ def cortes(conn: ConexionLectura) -> dict:
                 "kind": fila["kind"],
                 "ad_entity_id": fila["ad_entity_id"],
                 "external_id": fila["external_id"],
+                "nombre": linea_entidad(
+                    kind=fila["entidad_kind"],
+                    name=fila["name"],
+                    keyword_text=fila["keyword_text"],
+                    campana=fila["campana"],
+                ),
                 "search_term": fila["search_term"],
                 "estado": fila["estado"],
                 "vence_el": fila["vence_el"].isoformat(),
@@ -839,3 +933,39 @@ def cortes(conn: ConexionLectura) -> dict:
             for fila in filas
         ]
     }
+
+
+@router.get("/inertes")
+def inertes(conn: ConexionLectura) -> dict:
+    """Hojas sin trafico con su clasificacion (regla 22: la UI CONSUME este
+    endpoint). Dinero con moneda y NULL como null (reglas 3-4)."""
+    conn.row_factory = dict_row
+    items = [
+        {
+            "plataforma": fila["platform"],
+            "kind": fila["kind"],
+            "texto": etiqueta_entidad(
+                kind=fila["kind"],
+                name=fila["name"],
+                keyword_text=fila["keyword_text"],
+                campana=fila["campaign_name"],
+            ).hoja,
+            "external_id": fila["external_id"],
+            "campana": fila["campaign_name"],
+            "ad_group": fila["ad_group_name"],
+            "clasificacion": fila["clasificacion"],
+            "dias_sin_impresiones": fila["dias_sin_impresiones"],
+            "ultima_impresion": (
+                fila["ultima_impresion"].isoformat() if fila["ultima_impresion"] else None
+            ),
+            "gasto_90d": _dec_str(fila["gasto_90d"]),
+            "moneda": fila["moneda"],
+            "ordenes_90d": int(fila["ordenes_90d"]),
+        }
+        for fila in conn.execute(_SQL_INERTES).fetchall()
+    ]
+    totales: dict[str, dict[str, int]] = {}
+    for item in items:
+        por_clase = totales.setdefault(item["plataforma"], {})
+        por_clase[item["clasificacion"]] = por_clase.get(item["clasificacion"], 0) + 1
+    return {"totales": totales, "items": items}

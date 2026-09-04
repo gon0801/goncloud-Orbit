@@ -28,8 +28,8 @@ Este directorio es la fuente mantenida del comportamiento que un usuario ve en e
 ## Features
 
 - [Resumen](./resumen.md) — series spend/revenue/ACoS por plataforma.
-- [Campanas](./campanas.md) — tabla 30d, target efectivo, procedencia, filtro y sort.
-- [Decisiones](./decisiones.md) — feed por cursor de entidades que decidieron.
+- [Campanas](./campanas.md) — tabla 30d, target efectivo/procedencia, filtros GET y sort por headers.
+- [Decisiones](./decisiones.md) — pagina numerada de entidades que decidieron.
 - [Salud](./salud.md) — ultimo ciclo, historico 14d, skips y quota.
 - [Contribucion](./contribucion.md) — rango pre-cargos por campana (90d maduros).
 - [Cortes](./cortes.md) — cola de veto (lectura). El POST Vetar queda fuera del baseline.

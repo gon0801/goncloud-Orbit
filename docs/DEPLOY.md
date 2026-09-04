@@ -193,11 +193,14 @@ runbook de arriba vive en `/mnt/data/appdata/orbit/refresh_costos.sh` (los 4
 pasos con `trap` de limpieza) y corre por el crontab de `gon`:
 
 ```
-30 7 * * * /mnt/data/appdata/orbit/refresh_costos.sh >> /mnt/data/appdata/orbit/logs/costos.log 2>&1
+15 8 * * * /mnt/data/appdata/orbit/refresh_costos.sh >> /mnt/data/appdata/orbit/logs/costos.log 2>&1
 ```
 
-Las **07:30 UTC** caen entre la ingesta de métricas (07:10) y los ciclos
-(08:40/08:41): los costos llegan frescos antes de que el motor decida.
+Las **08:15 UTC** caen después de los dos syncs de accounting
+(`sync_ads_to_ledger.py` 06:30, `sync_fx_rates.py` 08:00) y 25 min antes de
+los ciclos (08:40/08:41): costos, FX y ledger llegan frescos —del MISMO
+día— antes de que el motor decida. Hasta la review del PR #144 corría a las
+07:30, media hora ANTES del sync de FX: ver §Refresco diario contable.
 
 Por qué diaria y no semanal, **medido**: los costos rotan poco —15 días con
 cambios en 6.5 meses, casi siempre de 1 a 6 SKUs— pero el **2026-08-18
@@ -251,9 +254,10 @@ rm /tmp/accounting-snapshot.db
 docker exec -u 0 orbit-app-1 rm /tmp/accounting-snapshot.db
 ```
 
-Cadencia: **manual** por ahora (la fuente ya es diaria en contabilidad; los
-huecos medidos caben en el `nearest_prior` de 7 días). Re-correr es no-op
-por PK. Cron diario se propone cuando la 0.7 lo pida.
+Cadencia: **DIARIA desde ORBIT 06 2.2 (2026-09-04)** — `refresh_costos.sh`
+(08:15 UTC) corre `costs` + `fx` + `ledger` del MISMO snapshot, cada uno a
+su log (`costos.log`/`fx.log`/`ledger.log`), sin tumbarse entre si. Re-correr
+es no-op por PK.
 
 ## Ingesta del ledger desde contabilidad (ORBIT 06 0.6)
 
@@ -282,9 +286,14 @@ rm /tmp/accounting-snapshot.db
 docker exec -u 0 orbit-app-1 rm /tmp/accounting-snapshot.db
 ```
 
-Cadencia: **manual** por ahora. Re-correr es no-op por los tres índices de
-dedupe (`rows_written=0`, conflictos contados en `rows_skipped`). Alternativa
-sin reescribir DSN: correr desde el host contra el puerto publicado
+Cadencia: **DIARIA desde ORBIT 06 2.2 (2026-09-04)** — `refresh_costos.sh`
+(08:15 UTC) corre `costs` + `fx` + `ledger` del MISMO snapshot, cada uno a
+su log (`costos.log`/`fx.log`/`ledger.log`), sin tumbarse entre si.
+Re-correr es no-op por los tres índices de dedupe (`rows_written=0`,
+conflictos contados en `rows_skipped`). En el cron NO se reescribe el DSN:
+`app/db.py` ya mapea `@127.0.0.1:` → `@db:` con `ORBIT_PG_HOST`; el truco
+`-e ORBIT_DSN_INGEST=...` de arriba queda como alternativa manual.
+Alternativa sin reescribir DSN: correr desde el host contra el puerto publicado
 (`127.0.0.1:5432`) con `ORBIT_DSN_INGEST` del `.env`.
 
 ## Crons de Orbit (crontab de `gon`, ADITIVO)
@@ -305,6 +314,26 @@ El server está en UTC: estas horas SON UTC.
 la misma fuente que el CLI. Los de ingesta quedan como comentario en el
 crontab y como `ingest_run.source` (`amazon_ads_structure_v2` /
 `amazon_ads_reports_v3`).
+
+### Refresco diario contable 08:15 (ORBIT 06 2.2)
+
+La línea `15 8 * * * .../refresh_costos.sh` (que ya existía para costos, a
+las 07:30 hasta la review del PR #144)
+corre ahora los tres pipelines del MISMO snapshot, en este orden: `costs`,
+`fx`, `ledger` — cada uno a su log (`costos.log`/`fx.log`/`ledger.log`)
+más una línea resumen a stdout (llega a `costos.log`). Un pipeline caído
+NO tumba a los otros (cada uno sella su `ingest_run` ok/false); el exit
+final es != 0 si alguno falló. El script versionado vive en
+`tools/refresh_costos.sh` (la copia del server es la desplegada).
+**Orden de la cadena (corregido por el lead en la review):** 08:15 UTC cae
+después de los DOS syncs de accounting — `sync_ads_to_ledger.py` (:30 cada
+6 h → 06:30) y `sync_fx_rates.py` (08:00) — y 25 min antes de los ciclos
+08:40/08:41 (los tres pipelines tardan segundos). A las 07:30 el snapshot se
+tomaba 30 min ANTES del sync de FX: el FX de Orbit quedaba estructuralmente
+un día atrasado. Respaldo del crontab previo:
+`archive/crontab-gon.20260904-021331.lead-fx-orden`.
+Estreno 2026-09-04: costs run 74 ok no-op; fx run 75 ok +3 tasas (máx
+2026-09-02); ledger run 76 ok +217 eventos (8,041 → 8,258).
 
 ### Profundidad de la tirada diaria de métricas (sello 4.2)
 
@@ -1124,6 +1153,74 @@ reconstrucción deliberada. Pasos:
    para revisión manual de qué migraciones faltan sobre el dump — no se
    aplica nada en automático.
 5. Verificar como siempre: suite por túnel + smoke de candados.
+
+## Archivo manual de keywords inertes (BIDS 01)
+
+Las hojas sin tráfico no se ajustan (guarda `entidad_inerte` del ciclo):
+se diagnostican en `v_entidad_inerte` (página `/inertes`) y, con go del
+dueño, se archivan por lote con `tools/archiva_inertes.py`. Archivar en
+Amazon es ARCHIVED (POST `/sp/keywords/delete`) y no se deshace: la
+vuelta atrás es volver a crear la keyword (`--reponer`, invariante 7).
+Cada lote exige su go literal y queda en el ledger
+`keyword_archivo_manual` (migración `0014`).
+
+```sh
+# 1) ENSAYO (default): imprime la tabla del plan, cero HTTP.
+#    Filtros: --plataforma amazon_mx|amazon_us (default: las dos),
+#    --clasificacion (default: peso_muerto), --min-dias-sin-impresiones
+#    (default: 30), --limite N. Solo kind='keyword'; los product_target
+#    salen como excluidos (solo se reportan). El tool entra por stdin
+#    (la imagen solo trae app/, como reactiva_campanas).
+docker exec -i orbit-app-1 python - < tools/archiva_inertes.py
+
+# 2) De verdad. --esperado N debe igualar las candidatas del ensayo
+#    (anti-typo: si el plan cambió, se re-autoriza) y --go lleva el
+#    literal que el dueño autorizó viendo el ensayo.
+docker exec -i orbit-app-1 python - --acepto-mutacion-real \
+  --esperado 12 --go "<literal del dueño>" < tools/archiva_inertes.py
+```
+
+Por keyword: LIST previo (si ya no está ENABLED se salta con nota, no
+se pisa decisión ajena) → fila `planeado` en el ledger con commit
+(intención durable antes del HTTP) → DELETE → readback LIST: ARCHIVED
+→ `applied`; distinto → `failed` y el lote SE DETIENE (se revisa antes
+de seguir). Cada mutación imprime una línea JSON (scrub) y al final la
+reconciliación. DSNs: `ORBIT_DSN_READ` para el plan, `ORBIT_DSN_ADMIN`
+para el ledger (los dos viven en el contenedor, como reactiva_campanas).
+
+### La reversa: `--reponer <lote>`
+
+Recrea cada fila `applied` del lote con su identidad del ledger
+(adGroupId, campaignId, texto, matchType, bid con su moneda) en ENABLED
+y la sella `repuesto` con el external nuevo. CREA keywords: habilita
+gasto (igual que el harvest).
+
+```sh
+# ENSAYO (default): lista lo que repondría, cero HTTP.
+docker exec -i orbit-app-1 python - --reponer inertes-2026-09-05 \
+  < tools/archiva_inertes.py
+
+# De verdad.
+docker exec -i orbit-app-1 python - --reponer inertes-2026-09-05 \
+  --acepto-mutacion-real < tools/archiva_inertes.py
+```
+
+Sin bid en el ledger la fila no se repone (no se inventa: queda
+`applied` y el lote se detiene declarándolo).
+
+Dos notas de operación (cross-review, residuales declarados):
+
+- El lote es la unidad: dos corridas autorizadas el mismo día comparten
+  `lote = inertes-YYYY-MM-DD` y `--reponer` las revierte juntas. Un lote
+  por día; si hace falta partir por plataforma, se opera un día cada una.
+- `reponer` no es idempotente entre el CREATE y el sello: ante
+  `lote_detenido` en reposición, verificar en consola lo ya creado (el
+  log trae ack + id nuevo) antes de reintentar. Igual para un `failed`
+  con sospecha de eventual-consistency: si la consola muestra ARCHIVED,
+  sellar a mano `UPDATE keyword_archivo_manual SET estado = 'applied',
+  readback_estado = 'ARCHIVED' WHERE id = <fila>;` y reintentar el resto
+  en un lote nuevo (la fila ya archivada se salta con nota por el LIST
+  previo).
 
 ## Limpieza de product ads muertos (ORBIT 06)
 

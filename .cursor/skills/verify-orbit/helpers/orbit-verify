@@ -60,16 +60,30 @@ ADMIN_DSN = os.environ.get("ORBIT_TEST_DSN", "postgresql://orbit:orbit@127.0.0.1
 FORBIDDEN_HOSTS = ("10.13.13.1",)
 FORBIDDEN_PORTS = {8010}
 
+# Migraciones de DATOS (no esquema): exigen filas de produccion (SKU, costos).
+# La base desechable no las tiene — misma excepcion que test_schema.py (0011
+# no entra al arbol de esquema). Incluye la reversa: tampoco aplica en vacio.
+MIGRACIONES_DATOS = frozenset(
+    {
+        "0011_costo_historico_peseta.sql",
+        "0011_reversa_costo_historico_peseta.sql",
+    }
+)
+
 
 def _migration_files() -> list[Path]:
     """SQL de esquema, en orden de nombre.
 
-    Si un prefijo NNNN tiene un sibling `*_reversa_*`, ese prefijo es un
-    parche de catalogo vivo (hoy 0011) y no aplica en una base vacia.
-    tests/test_schema.py omite 0011 por la misma razon.
+    Omite nombres en MIGRACIONES_DATOS. Si un prefijo NNNN tiene un sibling
+    `*_reversa_*`, ese prefijo es un parche de catalogo vivo (hoy 0011) y no
+    aplica en una base vacia. tests/test_schema.py omite 0011 por la misma razon.
     """
     files = sorted(
-        (p for p in MIGRATIONS.glob("*.sql") if p.name[:4].isdigit()),
+        (
+            p
+            for p in MIGRATIONS.glob("*.sql")
+            if p.name[:4].isdigit() and p.name not in MIGRACIONES_DATOS
+        ),
         key=lambda p: p.name,
     )
     if not files:
@@ -633,8 +647,8 @@ def cmd_drive_campanas(args: argparse.Namespace) -> None:
         "fila_campana_a": "Campana A" in texto,
         "chip_activa": "activa" in texto,
         "plataforma_usd": "amazon_us · USD" in texto,
-        "cost_semilla": "12.3400" in texto,
-        "revenue_semilla": "45.6700" in texto,
+        "cost_semilla": ">12.34<" in texto and "12.3400" not in texto,
+        "revenue_semilla": ">45.67<" in texto and "45.6700" not in texto,
         "target_25": "25.00%" in texto or ">25.00%<" in texto,
         "peldano_goal_plataforma": "goal_plataforma" in texto,
         "th_procedencia": "Procedencia" in texto,

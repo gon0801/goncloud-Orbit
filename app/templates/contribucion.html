@@ -11,15 +11,17 @@
     {% endif %}
   </h2>
   {% if datos.filas %}
+  <p class="leyenda">
+    {{ datos.filas[0].etiqueta }}
+    · {{ datos.filas[0].moneda or "—" }}
+    · FX aproximado se marca en la fila
+  </p>
   <table>
     <thead>
       <tr>
         <th>Campana</th>
-        <th class="num">Contribucion (sin .. con halo)</th>
-        <th>Moneda</th>
+        <th class="num">Contribucion</th>
         <th>Datos</th>
-        <th>FX</th>
-        <th>Etiqueta</th>
       </tr>
     </thead>
     <tbody>
@@ -28,7 +30,7 @@
         <td>{{ item.nombre or "—" }}</td>
         <td class="num">
           {% if item.contrib_sin_halo is not none and item.contrib_con_halo is not none %}
-            {{ item.contrib_sin_halo }} .. {{ item.contrib_con_halo }}
+            {{ item.contrib_sin_halo | dinero_ui }} .. {{ item.contrib_con_halo | dinero_ui }}
             {% if item.precio_min_multilisting %}
             <br><span class="chip alerta">precio min multilisting</span>
             {% endif %}
@@ -39,24 +41,16 @@
             <span class="mutado">—{% if item.motivo_ausencia %} ({{ item.motivo_ausencia }}){% endif %}</span>
           {% endif %}
         </td>
-        <td>{{ item.moneda or "—" }}</td>
         <td>
           {% if item.metric_date_from and item.metric_date_to %}
             {{ item.metric_date_from }} .. {{ item.metric_date_to }}
           {% else %}
             <span class="mutado">—</span>
           {% endif %}
-        </td>
-        <td>
           {% if item.fx_source == "nearest_prior" %}
-            <span class="chip alerta">FX aproximado · {{ item.fx_source }}</span>
-          {% elif item.fx_source %}
-            <span class="chip">{{ item.fx_source }}</span>
-          {% else %}
-            <span class="mutado">—</span>
+            <br><span class="chip alerta">FX aproximado · {{ item.fx_source }}</span>
           {% endif %}
         </td>
-        <td><span class="chip mutado">{{ item.etiqueta }}</span></td>
       </tr>
       {% endfor %}
     </tbody>

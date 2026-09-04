@@ -210,6 +210,14 @@ ESTADO_WIRE_ENABLED = "ENABLED"
 ESTADO_WIRE_PAUSED = "PAUSED"
 ESTADO_WIRE_ARCHIVED = "ARCHIVED"
 
+# CAMPANA ACTIVA 01 · 1.6: ancestros no ENABLED (o sin fila de state, regla 3)
+# bloquean reintentos y liberaciones. Definidos AQUI (dueno del write client);
+# apply_cola/cycle los re-exportan como alias: cero cambio de vocabulario.
+MOTIVO_CAMPANA_NO_ENABLED = "campana_no_enabled"
+MOTIVO_GRUPO_NO_ENABLED = "grupo_no_enabled"
+# Sello del ledger cuando el gate corta una reconciliacion (1.6a).
+RESULTADO_ANCESTRO_NO_ENABLED = "fallo:ancestro_no_enabled"
+
 # Vocabulario cerrado de motivos del aplicador (skips y descartes
 # estructurados; el digest de 3.3 los consume tal cual).
 MOTIVO_MODO_NO_LIVE = "modo_no_live"
@@ -451,7 +459,15 @@ def bids_del_ciclo(conn: psycopg.Connection, cycle_id: int) -> list[DecisionBid]
 
 # Prioridad por urgencia de hemorragia (sellado 8): el motivo es el
 # vocabulario del motor de bids (bid.MOTIVO_* via _MOTIVO_BANDA).
-_PRIORIDAD_BANDA = {"banda_menos_25": 0, "banda_menos_12": 1, "banda_mas_15": 2}
+# BIDS 01: el motivo nuevo de cero ventas compite con la prioridad de -25%
+# (D6 sellado; literal porque este modulo no importa bid — el vocabulario
+# cerrado lo pinean los tests).
+_PRIORIDAD_BANDA = {
+    "banda_menos_25": 0,
+    "banda_menos_25_cero_ventas": 0,
+    "banda_menos_12": 1,
+    "banda_mas_15": 2,
+}
 # Clave de orden para costo desconocido (regla 3): dentro de SU banda, al
 # final — es una clave de ORDEN, no un valor de negocio.
 _COSTO_DESCONOCIDO = Decimal(-1)
@@ -471,9 +487,10 @@ def _clave_orden(decision: DecisionBid) -> tuple[int, Decimal]:
 
 
 def orden_bids(decisiones: list[DecisionBid]) -> list[DecisionBid]:
-    """Orden sellado de seleccion bajo cap: banda_menos_25 > banda_menos_12 >
-    banda_mas_15 y, dentro de cada banda, costo de la ventana DESC (la
-    hemorragia mas cara primero)."""
+    """Orden sellado de seleccion bajo cap: banda_menos_25 =
+    banda_menos_25_cero_ventas (BIDS 01) > banda_menos_12 > banda_mas_15 y,
+    dentro de cada banda, costo de la ventana DESC (la hemorragia mas cara
+    primero)."""
     return sorted(decisiones, key=_clave_orden)
 
 
@@ -539,11 +556,41 @@ SELECT id, decision_id, seq, tipo, request_payload, started_at
  ORDER BY started_at, id
 """
 
+# CAMPANA ACTIVA 01 · 1.6: status (cache ad_entity_state) del ad group y de la
+# campaña de una entidad (hoja o ad group). Espejo de apply_cola._SQL_ANCESTROS
+# (la funcion compartida vive AQUI: apply_cola y apply_harvest ya importan este
+# modulo). Hoja: el grupo es su padre; ad group: el grupo es la propia entidad.
+# LEFT JOIN: sin fila de state = NULL = fuera (regla 3).
+_SQL_ANCESTROS = """
+SELECT sg.status, sc.status
+  FROM ad_entity e
+  JOIN ad_entity g ON g.id = CASE WHEN e.kind = 'ad_group' THEN e.id ELSE e.parent_id END
+  LEFT JOIN ad_entity_state sg ON sg.ad_entity_id = g.id
+  LEFT JOIN ad_entity_state sc ON sc.ad_entity_id = g.parent_id
+ WHERE e.id = %s
+"""
+
 
 def intentos_sin_sello(conn: psycopg.Connection) -> list[tuple]:
     """Filas del ledger nacidas PRE-HTTP que nunca se sellaron (crash entre
     ledger y HTTP, o 5xx ambiguo): la entrada de la reconciliacion."""
     return conn.execute(_SQL_INTENTOS_SIN_SELLO).fetchall()
+
+
+def gate_ancestros(conn: psycopg.Connection, ad_entity_id: int) -> str | None:
+    """CAMPANA ACTIVA 01 · 1.6: la UNICA fuente del gate de campaña/ad group
+    ENABLED (cache ad_entity_state, sync diario; semantica D1/D3: sin fila de
+    state = fuera, regla 3). Resuelve hoja vs ad group con el mismo CASE que
+    trajo 1.2; la usan la cola (libera) y los TRES reconciliadores (reintentos
+    post-crash, hallazgo codex r1 #1). None = ancestros ENABLED; motivo = el
+    ancestro de afuera hacia adentro manda."""
+    fila_anc = conn.execute(_SQL_ANCESTROS, (ad_entity_id,)).fetchone()
+    status_grupo, status_campana = fila_anc if fila_anc is not None else (None, None)
+    if status_campana != "ENABLED":
+        return MOTIVO_CAMPANA_NO_ENABLED
+    if status_grupo != "ENABLED":
+        return MOTIVO_GRUPO_NO_ENABLED
+    return None
 
 
 # ADV-04 (review adversaria, matriz §6.1 "Ledger sin sello - bid"): los BIDS
@@ -586,13 +633,28 @@ def reconcilia_bids(
 
     El reintento divergente se resuelve en la MISMA pasada (PUT + readback);
     un ambiguo del reintento deja la fila nueva SIN sello: ES el rastro del
-    proximo ciclo. Devuelve (confirmadas, fallidas)."""
+    proximo ciclo. Devuelve (confirmadas, fallidas).
+
+    CAMPANA ACTIVA 01 · 1.6: gate de ancestros PRIMERO, antes de cualquier
+    HTTP (readback incluido) — campaña/ad group no ENABLED en el cache sella
+    'fallo:ancestro_no_enabled' y cubre tambien el reintento divergente (la
+    entidad ya fue gateada antes de que nazca su fila de ledger)."""
     filas = conn.execute(_SQL_INTENTOS_BID_SIN_SELLO, (platform,)).fetchall()
     if not filas:
         return (0, 0)
-    cliente = aplicador._cliente()
+    # Revision PR #136 (CodeRabbit): el cliente nace LAZY, despues del gate y
+    # solo para la primera fila elegible — sin credenciales/profile, _cliente()
+    # lanza y dejaria sin sellar intentos que el gate ya habia cerrado.
+    cliente = None
     confirmadas = fallidas = 0
     for id_attempt, decision_id, payload, ad_entity_id, new_value, moneda in filas:
+        if gate_ancestros(conn, ad_entity_id) is not None:
+            with conn.transaction():
+                _sella_ledger(conn, id_attempt, ack=None, resultado=RESULTADO_ANCESTRO_NO_ENABLED)
+            fallidas += 1
+            continue
+        if cliente is None:
+            cliente = aplicador._cliente()
         identidad = _identidad(conn, ad_entity_id)
         if identidad is None or identidad[0] not in _KINDS_DECISORAS or new_value is None:
             with conn.transaction():

@@ -41,6 +41,7 @@ import os
 import secrets as mod_secrets
 import socket
 from contextlib import contextmanager
+from pathlib import Path
 
 import httpx
 import psycopg
@@ -54,6 +55,17 @@ from test_schema import SQL, SQL2, SQL3, _postgres_obligatorio_ausente, _test_ds
 from app import apply
 from app.ads.config import AdsCredentials
 from app.main import app
+
+# BIDS 01 (1.2): los ciclos reales leen v_entidad_inerte en TX2 (lo usa
+# goals_write): la DB de prueba ES la de produccion.
+SQL13 = (Path(__file__).resolve().parents[1] / "migrations" / "0013_entidad_inerte.sql").read_text(
+    encoding="utf-8"
+)
+
+# ORBIT 06 (2.3): los ciclos reales leen v_target_margen_plataforma en TX2.
+SQL15 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0015_target_margen_plataforma.sql"
+).read_text(encoding="utf-8")
 
 TOKEN = "token-escritura-de-test-314159"
 
@@ -381,6 +393,8 @@ def _db_con_rol_admin(prefijo: str, *, con_decide: bool = False):
         conn.execute(SQL)  # 0001: roles, esquema sellado, grants
         conn.execute(SQL2)  # 0002: cola de cortes, ledger, sellos de quota
         conn.execute(SQL3)  # 0003: ads_optimizer_goal sin DEFAULT en piso/techo
+        conn.execute(SQL13)  # 0013 (BIDS 01): los ciclos reales leen la vista en TX2
+        conn.execute(SQL15)  # 0015 (ORBIT 06 2.3): el peldano margen lee su vista en TX2
         # CREATE ROLE es utility statement: NO admite parametros posicionales
         # (revienta con syntax error en $1); la password va como sql.Literal
         # (composicion segura de psycopg, no interpolacion de strings).

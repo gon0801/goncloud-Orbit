@@ -64,13 +64,17 @@
         <th class="num" aria-sort="{% if vista.ordenar == 'acos' %}{% if vista.dir == 'desc' %}descending{% else %}ascending{% endif %}{% else %}none{% endif %}"><a href="{{ vista.hrefs_orden.acos }}">ACoS{% if vista.ordenar == 'acos' %}{% if vista.dir == 'desc' %} ↓{% else %} ↑{% endif %}{% endif %}</a></th>
         <th class="num" aria-sort="{% if vista.ordenar == 'target' %}{% if vista.dir == 'desc' %}descending{% else %}ascending{% endif %}{% else %}none{% endif %}"><a href="{{ vista.hrefs_orden.target }}">Target efectivo{% if vista.ordenar == 'target' %}{% if vista.dir == 'desc' %} ↓{% else %} ↑{% endif %}{% endif %}</a></th>
         <th aria-sort="{% if vista.ordenar == 'procedencia' %}{% if vista.dir == 'desc' %}descending{% else %}ascending{% endif %}{% else %}none{% endif %}"><a href="{{ vista.hrefs_orden.procedencia }}">Procedencia{% if vista.ordenar == 'procedencia' %}{% if vista.dir == 'desc' %} ↓{% else %} ↑{% endif %}{% endif %}</a></th>
-        <th>Goal</th>
       </tr>
     </thead>
     <tbody>
       {% for item in items %}
       <tr>
-        <td>{{ item.nombre or "—" }}</td>
+        <td>{{ item.nombre or "—" }}
+          {% if item.goal %}
+          <div class="mutado">{{ item.goal.scope }} · {{ item.goal.mode }}
+            · floor {{ item.goal.floor }} · ceiling {{ item.goal.ceiling }}{% if not item.goal.enabled %} · <span class="alerta">disabled</span>{% endif %}</div>
+          {% else %}<div class="mutado">sin goal</div>{% endif %}
+        </td>
         <td>
           {% if item.status == "ENABLED" %}<span class="chip ok">activa</span>
           {% elif item.status == "PAUSED" %}<span class="chip">pausada</span>
@@ -81,8 +85,8 @@
         <td>{{ item.plataforma }} · {{ item.moneda }}</td>
         {# regla 3 en presentacion (hallazgo codex): `or "—"` pintaba el 0
            como faltante; el cero ES dato — solo None es hueco #}
-        <td class="num">{% if item.metricas_30d.cost is none %}<span class="mutado">—</span>{% else %}{{ item.metricas_30d.cost }}{% endif %}</td>
-        <td class="num">{% if item.metricas_30d.ad_revenue is none %}<span class="mutado">—</span>{% else %}{{ item.metricas_30d.ad_revenue }}{% endif %}</td>
+        <td class="num">{% if item.metricas_30d.cost is none %}<span class="mutado">—</span>{% else %}{{ item.metricas_30d.cost | dinero_ui }}{% endif %}</td>
+        <td class="num">{% if item.metricas_30d.ad_revenue is none %}<span class="mutado">—</span>{% else %}{{ item.metricas_30d.ad_revenue | dinero_ui }}{% endif %}</td>
         <td class="num">{% if item.metricas_30d.clicks is none %}<span class="mutado">—</span>{% else %}{{ item.metricas_30d.clicks }}{% endif %}</td>
         <td class="num">
           {% if item.metricas_30d.sin_ventas %}<span class="chip chip-sinventas">sin ventas</span>
@@ -91,12 +95,6 @@
         </td>
         <td class="num">{{ item.target_efectivo.valor }}%</td>
         <td><span class="chip">{{ item.target_efectivo.peldano }}</span></td>
-        <td>
-          {% if item.goal %}
-            {{ item.goal.scope }} · {{ item.goal.mode }} ·
-            <span class="mutado">floor {{ item.goal.floor }} · ceiling {{ item.goal.ceiling }}</span>{% if not item.goal.enabled %} · <span class="alerta">disabled</span>{% endif %}
-          {% else %}<span class="mutado">sin goal</span>{% endif %}
-        </td>
       </tr>
       {% endfor %}
     </tbody>

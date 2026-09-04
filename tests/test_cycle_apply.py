@@ -47,6 +47,7 @@ import os
 import socket
 from contextlib import contextmanager
 from decimal import Decimal
+from pathlib import Path
 
 import httpx
 import psycopg
@@ -54,6 +55,8 @@ import pytest
 from test_cycle import (
     DECIDED_AT,
     JOB_KEY,
+    SQL13,
+    SQL15,
     _config_version,
     _entidad,
     _estado,
@@ -66,6 +69,10 @@ from test_schema import SQL, SQL2, SQL3, _postgres_obligatorio_ausente, _test_ds
 from app import cycle as ciclo
 from app.ads.config import AdsCredentials
 from app.apply import Aplicador
+
+SQL14 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0014_keyword_archivo_manual.sql"
+).read_text(encoding="utf-8")
 
 FAKE_CLIENT_ID = "fake-client-id-123"
 FAKE_CLIENT_SECRET = "fake-client-secret-XYZ"
@@ -138,6 +145,9 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL)  # 0001: roles, esquema sellado, grants
         conn.execute(SQL2)  # 0002: cola de cortes, ledger, sellos de quota
         conn.execute(SQL3)  # 0003: ads_optimizer_goal sin DEFAULT en piso/techo
+        conn.execute(SQL13)  # 0013 (BIDS 01): la guarda entidad_inerte lee la vista en TX2
+        conn.execute(SQL15)  # 0015 (ORBIT 06 2.3): el peldano margen lee su vista en TX2
+        conn.execute(SQL14)  # 0014 (BIDS 01 2.2): _paso_keyword lee el ledger anti-duplicado
         yield conn, conectar_extra
     finally:
         if conn is not None:
@@ -214,6 +224,8 @@ def _siembra_kw2_bid_puro(conn, run_id, kw2) -> None:
             ad_revenue="8.75",
             clicks=6,
             orders=0,
+            # BIDS 01: hoja servida -> impressions reales (espera un bid).
+            impressions=60,
         )
     for fecha in _rango(dt.date(2026, 8, 17), dt.date(2026, 8, 19)):
         _metrica(
@@ -226,6 +238,7 @@ def _siembra_kw2_bid_puro(conn, run_id, kw2) -> None:
             ad_revenue="0.10",
             clicks=1,
             orders=0,
+            impressions=10,
         )
 
 

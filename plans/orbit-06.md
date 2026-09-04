@@ -963,10 +963,430 @@ la ventana → 0 filas o falla (supuesto orders≈unidades; la vista no usa
 
 `[lane:release]` — no arranca sin Fases 0 y 1 cerradas Y ≥1 semana post-flip.
 
+> **Enmienda del dueño (2026-09-03)**: arranca el día 2 post-flip por su
+> decisión de cadencia («no podemos ser ultra conservadores… un test es
+> suficiente»). Diseño aprobado con literales en `docs/superpowers/specs/2026-09-03-target-margen-plataforma-design.md`.
+> **Cambio de planteamiento medido**: el margen por campaña es uniforme
+> (≈0.69 MX / ≈0.79 US antes de cargos) → el target se deriva del **margen
+> neto por plataforma del ledger** (40.2 % MX / 35.9 % US antes de
+> publicidad), no de `v_contribucion_entidad` (sigue no decisoria). Fracción
+> del dueño: **la mitad** → ≈ 20 MX / ≈ 18 US, casi el manual de hoy; el
+> valor es que quede medido, con procedencia y auto-ajustable.
+
 | Task | Contenido | DoD | Depends | Status |
 |---|---|---|---|---|
-| 2.1 | **Diseño del target margin-aware**, con el dueño: cómo se convierte un margen-en-rango en un target de ACoS por campaña, y qué hace el motor cuando los dos extremos dan decisiones OPUESTAS (el ±1,671/−2,238 USD garantiza que va a ocurrir). Propuesta por defecto del lead: **abstenerse** — máximo comportamiento de una señal que no discrimina. `[tdd:skip:decision-dueno]` | La regla escrita en `docs/CONTEXTO.md` con el texto literal de la decisión del dueño, incluyendo qué pasa ante rangos que se contradicen | 1.2, ORBIT 05 en live ≥1 semana | cc:TODO |
-| 2.2 | **Implementación en shadow y prueba de que sirve.** Decide en paralelo al target actual sin aplicarse, y se mide si AUMENTA la tasa de acción útil. Si no lo demuestra, **no entra**: se declara y se retira. `[tdd:required]` | Rojo antes del código. Golden replay: las decisiones existentes NO cambian mientras la señal esté en shadow. Comparación medida entre el target actual y el margin-aware sobre las mismas entradas, con el `SELECT` en la evidencia. Decisión de entrar/retirar firmada por el dueño | 2.1 | cc:TODO |
+| 2.1 | **Diseño del target margin-aware**, con el dueño. `[tdd:skip:decision-dueno]` | La regla escrita en `docs/CONTEXTO.md` con el texto literal de la decisión del dueño, incluyendo qué pasa ante señal ausente o contradictoria | 1.2, ORBIT 05 en live | cc:完了 [2026-09-03, lead con el dueño. Medido en la base viva: margen uniforme por campaña (un target por campaña no discrimina) y margen neto por plataforma 40.2 % MX / 35.9 % US (cargos sin ads 33.6 % / 48.9 %; el envío cross-border de US = 21 % de la venta, explicado al dueño). Decisiones literales: «La mitad (utilidad)» (fracción 0.5), «ok va asi» (camino A: peldaño `margen_plataforma` en la cascada, banda [10,45], paso ≤0.5 pt/ciclo, abstención → setting), requisito literal «se va a ir ajustando automaticamente no?» → frescura obligatoria (cron de ledger+fx, hoy manuales: última 08-31/08-28). Contradicción con/sin halo: irrelevante para esta fuente (ledger sin atribución); `v_contribucion_entidad` sigue no decisoria. Spec: `docs/superpowers/specs/2026-09-03-target-margen-plataforma-design.md`; CONTEXTO sellado en el mismo PR. **Cross-review adversaria del DISEÑO (kimi, 1 ronda, 2026-09-04)**: veredicto «implementable con correcciones», 4 bloqueantes; TODOS adjudicados y corregidos en el spec §10.bis antes de que la 2.3 avanzara — el hallazgo A1 (la banda abstenía en vez de clampear: precipicio de 25 puntos y latiguazo diario de pujas) era un fallo real del diseño del lead. A9 verificado y descartado por el lead contra el código. Sin segunda ronda (tope de CLAUDE.md)] |
+| 2.2 | **Infra — frescura del ledger y del FX** (Grok o lead): los dos pipelines leen el MISMO snapshot SQLite de accounting que ya usa `refresh_costos.sh` (07:30 UTC: copia `accounting.db` → `docker cp` → `ingest costs --sqlite`); extender ese script (o uno hermano con el mismo `trap` de limpieza) para correr también `ingest fx --sqlite $SNAP` e `ingest ledger --sqlite $SNAP` (flags exactos según el runbook de `docs/DEPLOY.md` y `app/cli.py`, regla 8), ANTES del ciclo 08:40 UTC y DESPUÉS del sync de accounting (`sync_ads_to_ledger.py`, cada 6 h); un fallo de un pipeline NO debe tumbar los otros (cada uno con su `ingest_run` ok o false); log propio en `logs/`; corrida manual de estreno con `ingest_run` ok=true. `[tdd:skip:ops]` | `crontab -l -u gon` con las dos líneas; `ingest_run` de ledger y fx con `ok=true` y fecha de hoy; `max(observed_at)` del ledger = hoy; sin tocar el resto del crontab (disciplina aditiva) | 2.1 | cc:完了 [2026-09-04. Script extendido in-place + estreno como gon: costs run 74 ok no-op, fx run 75 ok +3 (max 09-02), ledger run 76 ok +217 (8,041 -> 8,258, max observed hoy); crontab byte-identico (cero lineas nuevas); PR #144, CI verde. Cross-review ronda unica: kimi APRUEBA CON MENORES (4 BAJAS; se aplican comentario de contexto-`\|\|` y `\|\| true` en el trap; DoD y ruta fija quedan como estan, declarado); grok no entrego (2 intentos, solo preambulo sin lecturas)] |
+| 2.3 | **GLM — vista + peldaño + guardas + superficie** según el spec §3-§9: migración `0015_target_margen_plataforma.sql` (vista `v_target_margen_plataforma`, GRANT a los roles de lectura, COMMENT con la fórmula y el lag); setting `ads_target_fraccion_margen_<platform>`; peldaño `margen_plataforma` en `cascada_target_acos` Y `cascada_target_acos_con_procedencia` (equivalencia extendida); abstenciones con vocabulario cerrado; paso máximo desde `notes.target.aplicado` del último ciclo live; freeze `target_procedencia` + snapshot en `decision.inputs` y `notes.target`; `/salud` y digest (§9); `docs/DASHBOARD.md`, `docs/DATABASE.md`, `docs/APPLY.md` al día; SELECT de comparación sombra (§10.2) como `tools/compara_target_margen.py` read-only. Mismas reglas de proceso que BIDS 01 (prohibido tocar producción; decisiones ANTES del código; rojo antes del verde; 1 PR). `[tdd:required]` | Rojos contra master: (a) cascada con fracción presente y margen válido devuelve `margen_plataforma`; (b) cada motivo de abstención cae al setting (6 casos); (c) banda y paso máximo; (d) freeze lleva procedencia y snapshot; (e) replay golden intacto; (f) equivalencia motor↔dashboard con el peldaño; (g) vista: cobertura por MONTO <95 % → NULL, mezcla de moneda → NULL, `fees_sin_tipo` > 0 → NULL, ventana exacta [D-105, D-15), `fee_type=ads` excluido, margen sobre venta CUBIERTA con cargos de plataforma prorrateados y cargos con `order_id` atados a su venta (no a su propia fecha); (h) **enmiendas de la cross-review (spec §10.bis, OBLIGATORIAS)**: la banda [10,45] CLAMPEA (test: derivado 45.2 → aplicado 45, NO abstención al setting; y derivado 9 → aplicado 10), fracción presente e inválida → `ValueError` (ausente → abstención), un goal de campaña con target NULL NO bloquea el peldaño (test con los goals reales 6 y 7), digest por cambio ACUMULADO ≥1 punto, y test de que el replay ignora la vista (correrlo con la vista vacía y comprobar decisiones idénticas); suite completa verde en CI; herramienta de comparación produce la tabla sobre la base de tests | 2.2 | cc:完了 |
+| 2.4 | **Lead — entrada** (spec §10): review + CodeRabbit (1 ronda), deploy con migración 0015 primero, **un ciclo sombra comparado** (tabla manual vs derivado con el SELECT en la evidencia), go literal del dueño, `config_version` nueva con `ads_target_fraccion_margen_*` = "0.5" (el interruptor), verificación del primer ciclo con procedencia `margen_plataforma` en `notes.target` y en el freeze, `/salud` y digest, AppFlowy. `[tdd:skip:ops]` | Evidencia: tabla sombra, go literal, `config_version` id, `SELECT` del primer ciclo con `target_procedencia = 'margen_plataforma'` y `target_aplicado` ≈ 20 MX / 18 US; AppFlowy Done | 2.3 | cc:完了 [**2026-09-04, lead. Migración + deploy + sombra HECHOS; falta SOLO el go del dueño.** Respaldo del esquema (`backups/schema-pre-0015-20260904.sql`); 0015 aplicada en transacción única y verificada en prod: vista legible por `app_read` y desde el contenedor, GRANT a los 4 roles, **margen 40.0308 % MX / 36.0802 % US**, cobertura por monto 98.22 % / 100 %, 85 / 74 días con venta, `fees_sin_tipo` 0, moneda MXN. Deploy: respaldo `app.bak-predeploy-20260904`, imagen 793922a→fdb17c5, **md5 40/40 = master 266354d**, health 200, `/salud` 200, cero errores; verificado dentro del contenedor (banda 10-45, paso 0.5, cobertura 0.95, días 60; el ratio con monedas distintas devuelve None y la fracción inválida revienta). **CICLO SOMBRA COMPARADO** (herramienta sobre los inputs CONGELADOS de los ciclos live 35 US y 36 MX, cero mutaciones, retirada del contenedor al terminar): con el derivado real (18.0401 US / 20.0154 MX) contra el manual 20, **CERO decisiones cambian de banda** — 0 de 57 en US y 0 de 36 en MX. Sensibilidad: US sigue en 0 con derivado 15 y solo **1 de 57** cambia con derivado 12; MX sigue en 0 con derivado 25 y 30. Estado tras el deploy: config 12 SIN la clave de fracción (el interruptor sigue apagado: el peldaño se abstendrá con `sin_fraccion` y la cascada usa el setting de hoy), cola live 0, intentos sin sello 0. **ENCENDIDO 2026-09-04 04:25 UTC, go literal del dueño «enciende»** (tras la cross-review de la implementación con kimi y grok, y con la evidencia de la sombra COMPLETA en la mano: 2 de 135 entidades cambian, ambas en US, al tercer ciclo). Orden respetado: (1) merge de las correcciones (#149), (2) **deploy del código corregido** (respaldo `app.bak-xr`, md5 40/40 = master 95c7055, imagen fdb17c5→000a8f0, health y `/salud` y `/campanas` 200, cero errores) — encender ANTES habría dejado vivo el latiguazo de la abstención; (3) migración 0016 ya aplicada; (4) preflight de grok verificado DENTRO del contenedor: las dos correcciones vivas (abstención rancia con ancla 28 → **27.5**, no 20; ancla 50 → **44.5**, no 49.5), ledger de **0 días** de edad en ambas plataformas, cobertura 98.22 %/100 %, `fees_sin_tipo` 0, **ningún goal con target explícito** que pisara el peldaño en silencio (los 4 goals traen `target_acos_pct` NULL), y los `ads_target_acos_pct_*` manuales **intactos** (grok H7: son el ancla, la red y el último piso antes del default 55). (5) `config_version` **13** «enciende el target por margen (go del dueno 2026-09-04, fraccion 0.5)»: append-only, +2 claves, escalera `live` y los 8 caps intactos. **Verificado tras el encendido** (resolución real del motor, sin correr ciclo): MX margen 40.0308 → derivado 20.0154 → aplicado **20.0154**; US margen 36.0802 → derivado 18.0401 → aplicado **19.5** (paso máximo desde el ancla 20: entrada gradual, converge a 18.04 en 3 ciclos); la cascada devuelve esos valores por el peldaño **`margen_plataforma`** en ambas. **VERIFICADO EN EL CICLO DEL CRON 2026-09-04 (37 US 08:40:02 / 38 MX 08:41:02, live, done)**: el peldaño **GOBERNÓ** en ambas plataformas. US margen 36.0802 → derivado 18.0401 → **aplicado 19.5** (paso máximo desde el ancla 20: entrada gradual como se diseñó); MX margen 40.0308 → derivado 20.0154 → **aplicado 20.0154** (dentro del paso). `procedencia = margen_plataforma`, `motivo_abstencion` null, `convergiendo_a_setting` false, cobertura 1.00 / 0.9822 en ambos. **El target quedó CONGELADO en las 31 decisiones** (`target_acos_pct_usado` 19.5 en las 8 de US y 20.0154 en las 23 de MX, con `target_procedencia = margen_plataforma`), así que el replay es fiel por construcción. Las 2 hojas US que la sombra completa marcó (5891 y 4927, ACoS 21.4 y 21.5) **NO recibieron decisión**, exactamente como se predijo: con el aplicado en 19.5 el umbral de −12 % es 22.4 y no las alcanza; empezarán a recortarse cuando el aplicado baje de ~18.7, al tercer ciclo. El medidor `ad_revenue_ventana` salió **null** en US: la puerta de moneda funcionando (métricas USD contra ledger MXN, regla 4). Tarea CERRADA] |
+
+### Decisiones de la 2.2 (antes del estreno, 2026-09-04)
+
+- **D-2.2.1 · Extender in-place, no hermano.** Un solo snapshot compartido
+  (la fila y el spec exigen el MISMO) y cero diff de crontab (disciplina
+  aditiva maxima: la linea 07:30 sigue byte-igual). El nombre historico se
+  conserva; el header declara los tres pipelines.
+- **D-2.2.2 · Sin rewrite de DSN en el cron.** `app/db.py` ya reescribe
+  `@127.0.0.1:` → `@db:` con `ORBIT_PG_HOST` (verificado en codigo y en
+  vivo: `costos.log` diario ok=True por `docker exec` plano). El truco
+  `-e ORBIT_DSN_INGEST=...sed...` del runbook de ledger queda como
+  alternativa manual, no se usa en el cron.
+- **D-2.2.3 · Aislamiento.** Cada pipeline corre con `||` + rc bajo
+  `set -e` (el `-e` no toca listas `||`); exit final != 0 si alguno fallo.
+  La fase de snapshot sigue bajo `set -e`: sin snapshot no hay corrida
+  honesta (no es "un pipeline caido", es infra compartida).
+- **D-2.2.4 · Logs.** Detalle por pipeline (`costos.log`/`fx.log`/
+  `ledger.log`) + una linea resumen por pipeline a stdout (llega a
+  `costos.log` por el redirect del cron, que no se toca).
+- **D-2.2.6 · Hora corregida en la review del lead (2026-09-04).** El
+  script quedó bien; la HORA no: a las 07:30 el snapshot se tomaba 30 min
+  ANTES de `sync_fx_rates.py` (08:00, accounting), así que el FX de Orbit
+  quedaba estructuralmente un día atrasado — justo lo que la tarea venía a
+  cerrar. La línea pasa a **08:15** (después de los DOS syncs upstream,
+  25 min antes de los ciclos; los tres pipelines tardan segundos). Respaldo
+  `archive/crontab-gon.20260904-021331.lead-fx-orden`; un solo renglón
+  cambiado, verificado con `diff`. No afecta al ledger (su sync de las
+  06:30 ya estaba antes en ambos horarios).
+  Verificación del lead tras el cambio: corrida completa del script
+  desplegado (md5 idéntico al repo) con `exit=0` y los tres pipelines en
+  `rc=0` — runs 77/78/79 `ok=true` con `rows_written=0` (no-op puro: el
+  re-ingest no duplica nada, 13,346 conflictos contados en `rows_skipped`).
+- **D-2.2.7 · Endurecimiento en la review (CodeRabbit, 2 Major + 1 del
+  lead).** (a) **Snapshot unico por corrida** (`mktemp`): con la ruta fija
+  `/tmp/accounting-snapshot.db`, una corrida manual y la del cron se
+  pisaban — el `docker cp` de una reemplazaba el archivo que la otra leia y
+  su `trap` lo borraba a media corrida. Probado: dos corridas simultaneas,
+  las seis fases `rc=0`. (b) **Permisos**: el archivo del host nace 600
+  (`mktemp`); el 644 que necesita el UID 10001 se aplica DENTRO del
+  contenedor tras el `docker cp` — los datos contables ya no quedan
+  legibles para todo el mundo en `/tmp` del host. (c) **Fuga de laterales
+  SQLite** (hallazgo del lead, no de CodeRabbit): `limpiar` solo borraba el
+  `.db`, asi que cada corrida dejaba un par `-wal`/`-shm` dentro del
+  contenedor para siempre; ahora se borran los tres en host y contenedor.
+  Verificado: tras una corrida completa, CERO residuos en ambos lados. De
+  paso se borro basura previa (99 MB de un snapshot manual del 2026-08-31).
+- **D-2.2.5 · DoD "las dos lineas".** Sin lineas nuevas de cron: la
+  evidencia muestra `crontab -l -u gon` con la linea 07:30 y la de
+  `sync_ads_to_ledger.py` (:30 c/6h), que prueban el orden exigido.
+
+### Decisiones de la 2.3 (antes del codigo, 2026-09-04; el spec manda, esto solo fija lo que el spec deja abierto)
+
+- **D-2.3.1 · Un solo nucleo de precedencia.** Las dos cascadas y el freeze
+  comparten un nucleo privado sobre (target_goal, scope, margen, setting,
+  cache); `cascada_target_acos` gana `margen_plataforma=None` (+ scope
+  opcional, solo para nombrar) y `cascada_target_acos_con_procedencia` gana
+  `margen_plataforma=None`; nuevo `peldano_target_acos` (solo nombre) para
+  el freeze del motor. Sin el parametro, las tres devuelven EXACTO lo de
+  hoy (compatibilidad hacia atras). La equivalencia se extiende con casos
+  con margen (rojo f).
+- **D-2.3.2 · Resolucion pura y unica.** `goals.resuelve_target_margen`
+  (medicion espejo de la vista + fraccion + hoy + ultimo) devuelve
+  (aplicado, derivado, motivo) y es LA fuente: el ciclo la llama UNA vez
+  por plataforma en TX2 y el dashboard NO la reimplementa (/campanas no
+  cambia — corte explicito: no esta en la lista (1)-(9); si el peldano
+  gana en el motor, `target_efectivo` de /campanas sigue mostrando el
+  setting hasta que el lead pida la resolucion viva en web).
+- **D-2.3.3 · Vista fail-loud + guardas en orden.** La vista NULIFICA
+  margen_neto_pct si cobertura < 0.95 (precedente v_margen_plataforma: sin
+  cobertura no hay margen que valga; DoD (g) lo exige) pero SIEMPRE expone
+  cobertura cruda SIN redondear (redondear voltearia el borde 0.95). El
+  resolver decide por primer match: venta NULL/<=0 → sin_margen (cubre
+  ventana vacia) → cobertura NULL/<0.95 → cobertura_baja → margen NULL
+  (defensivo: la vista COALESCE(cargos,0)/COALESCE(cogs,0) como
+  v_margen_plataforma — una ventana sin fees es fees=0, no dato
+  faltante; venta NULL no se coalescea para distinguir vacio) →
+  sin_margen → dias NULL/<60 →
+  ventana_corta → fraccion ausente/vacia/no-parseable/fuera de (0,1] →
+  sin_fraccion (suave, el spec lista "ausente/invalida", no crash) →
+  fresco NULL/<hoy-3 → ledger_rancio → derivado fuera de [10,45]
+  inclusivo → fuera_de_banda (ANTES del clamp). Outcomes identicos al
+  orden §5 en todo estado alcanzable.
+- **D-2.3.4 · Ventana y hoy con UNA fuente: la vista.** La vista expone
+  `ventana` daterange [hoy-105, hoy-15) con hoy=CURRENT_DATE (estable en
+  REPEATABLE READ); el ciclo deriva hoy = upper(ventana)+15 y copia los
+  bounds al snapshot verbatim. Cobertura por LINEA (el spec dice "linea";
+  coincide con v_margen_plataforma: COUNT(*) vs COUNT(cogs)). COGS =
+  costo vigente a event_date × quantity, MISMA moneda o NULL (sin FX, por
+  el spec; v_margen_plataforma convierte, aqui no). Sin fila para la
+  plataforma (ledger vacio) = abstencion sin_margen con snapshot en
+  nulls y ventana desde decided_at.
+- **D-2.3.5 · Paso maximo a nivel ciclo.** El clamp vive en el resolver
+  sobre el aplicado DEL CICLO; ultimo = notes.target.aplicado del ultimo
+  live done con procedencia margen_plataforma (scan Python, LIMIT 200 ≈
+  6 meses; mas alla = fallback) → setting_target → sin clamp
+  (aplicado=derivado, sin ancla no hay paso). Primer ciclo = setting
+  (parentesis literal del spec). Digest compara contra el ciclo
+  inmediatamente anterior con aplicado presente (LIMIT 1 estricto; sin
+  aplicado en alguno = sin linea, regla 3).
+- **D-2.3.6 · Dos granularidades de procedencia.** notes.target =
+  resultado DEL CICLO: win → procedencia margen_plataforma + aplicado;
+  abstencion → procedencia NULL + motivo (los abstemios jamas matchean el
+  lookup del paso). El snapshot lleva ADEMAS "setting" = setting_target
+  (el manual del tool compara cuando el ciclo lo trae; /salud NO lo usa
+  como vigente: la cascada es por entidad y no hay "usado" unico de ciclo).
+  inputs.target_procedencia = peldano ganador POR
+  ENTIDAD (los 6 nombres); inputs.target_snapshot SOLO si gana el
+  peldano (en _pendiente_bid Y _pendiente_termino, donde ya se congela
+  target_acos_pct_usado). reproduce() no lee las claves nuevas.
+- **D-2.3.7 · Superficie.** Bloque target en /salud desde
+  notes.target del ultimo ciclo via constructor puro en api_common
+  (tests puros; api_dashboard esta en 896/900 y NO se le suman ~40
+  lineas: el builder vive en api_common con 1 linea de llamada).
+  Digest (notifica, puro): `target margen {plat}: {prev} -> {nuevo}`
+  si |Δ|>=1; `target margen {plat}: abstencion {motivo} ({etiqueta})`
+  si hay motivo. Etiquetas ES en goals.py (fuente unica; notifica puede
+  importar goals: solo stdlib, sin ciclo). Etiqueta del motivo tambien
+  en el bloque de salud.
+- **D-2.3.8 · Tool read-only.** tools/compara_target_margen.py reejecuta
+  bid.decide_bid (API publica) por decision bid del ultimo ciclo con
+  inputs congelados (agregados + floor/ceiling efectivos + umbral +
+  cost_min + expected) bajo target manual vs derivado; tabla por entidad
+  (kind/new/factor c/u + cambia) + resumen (cuantas cambian de banda).
+  Solo SELECTs; compara() testeable + main() que imprime.
+  Enmienda de implementacion (2026-09-04, sin cambio de contrato): la
+  reconstruccion de inputs congelados NO se duplica en el tool (el par
+  freeze<->replay es unico por diseno): el tool llama a la NUEVA funcion
+  publica `replay.replay_bid_con_target(inputs, target)` (envoltura fina
+  sobre `_replay_bid` con target inyectado, devuelve el ResultadoBid
+  completo con factor) y es por esa via que decide_bid se reejecuta.
+  Firma real: `compara(conn, cycle_id, *, manual=None, derivado=None)` ->
+  (filas, resumen) con claves `cambia_banda`/`factor_manual`/
+  `factor_derivado`/`decisiones`/`cambian_banda` (las fija el rojo (g)).
+  Fuentes de targets: `--manual/--derivado` explicitos; defaults:
+  derivado = notes.target.target_aplicado del ciclo, manual =
+  notes.target.setting del ciclo (el setting que la cascada usa cuando el
+  peldano no gana); sin setting y sin --manual el tool falla en voz alta
+  (regla 3: el manual no se inventa). `cambia_banda` = difieren kind o
+  factor (nivel banda, literal del spec §10); la fila muestra ambos new
+  para que el clamp absorbido quede auditable.
+- **D-2.3.9 · Riesgos declarados, no bloqueantes.** (i) Spec §2 dice US
+  en USD pero el ledger vivo es 100 % MXN en ambas plataformas
+  (SELECT regla 8, 2026-09-04): sin impacto operativo (todo el diseno es
+  adimensional), pero el "Estado medido" esta rancio. (ii) Mezcla de
+  monedas: literal del spec (moneda NULL informativa, sin guarda por
+  vocabulario cerrado); imposible hoy (una moneda por plataforma) y
+  visible en /salud si aparece. (iii) Margen <= 0 (plataforma en rojo)
+  cae en fuera_de_banda por la banda, no necesita motivo propio.
+
+### Decisiones de la 2.3, segunda vuelta (spec adjudicado §10.bis, antes del
+codigo, 2026-09-04; lo anterior sigue salvo lo enmendado aqui)
+
+- **D-2.3.10 · Banda CLAMPEA (A1).** Orden: derivado -> clamp [10, 45] ->
+  paso maximo desde ultimo (None = sin ancla: aplicado = derivado
+  clampeado). El motivo `fuera_de_banda` DESAPARECE del vocabulario y de
+  `ETIQUETA_ABSTENCION` (test (b) pasa de 6 a 5 casos). Linea de digest
+  por derivado fuera de banda, formato fijado aqui (el spec no lo fija):
+  `target margen {plat}: derivado {crudo} fuera de banda [10, 45]
+  (aplicado {aplicado})`, UNA por ciclo con derivado presente y fuera
+  (con abstencion el derivado es None y no hay linea: mutuamente
+  excluyentes por construccion). `notifica` lee los bordes de
+  `goals.MARGEN_BANDA_MIN/MAX` (cero segundas fuentes).
+- **D-2.3.11 · Formula (A3/A5/A6).** La vista expone las columnas
+  literales del spec §3 (`venta_total, venta_cubierta, cargos_con_orden,
+  cargos_sin_orden, cobertura` por MONTO, `dias_con_venta, fees_sin_tipo`,
+  `margen_neto_pct`, `ledger_fresco_at, moneda`) con `ventana_desde/hasta`
+  como DATE (el spec lista columnas, no daterange: se abandona el
+  daterange; `hoy = ventana_hasta + 15`, misma D-2.3.4). El prorrateo
+  (`sin_orden x cobertura`) vive EN LA VISTA dentro de `margen_neto_pct`
+  (las columnas crudas quedan expuestas para auditar). La vista NULIFICA
+  el margen ante CUALQUIER condicion §5 de datos (mezcla, fees_sin_tipo >
+  0, cobertura < 0.95, dias < 60, venta_cubierta <= 0 — literal §3); el
+  resolver conserva el motivo fino con las columnas crudas, en orden
+  venta_cubierta -> cobertura -> dias -> margen -> fraccion -> fresco
+  (dias ANTES de margen-None: con la vista nulificando, el orden viejo
+  etiquetaria ventana_corta como sin_margen). `fee_type` NULL se trata
+  con `coalesce(fee_type,'') <> 'ads'` en los cargos Y se cuenta en
+  `fees_sin_tipo`. COMMENT con A10-A13 (observed_at solo avanza con filas
+  nuevas; ISR como costo consciente; evidencia auditada = freeze).
+- **D-2.3.12 · Fraccion (A4).** `fraccion_desde_settings` lanza ValueError
+  con clave presente e invalida (no numerica incl. "0,5", NaN/Inf, <= 0,
+  > 1; mismo molde que `target_desde_settings`); ausente/None -> None
+  (abstencion sin_fraccion). El resolver TAMBIEN valida (fraccion non-None
+  invalida -> ValueError: defensa en el nucleo puro, testeable sin
+  settings). El ciclo NO captura: cae en `_sello_fallido` + re-raise como
+  cualquier setting corrupto (tumba el ciclo por construccion, identico a
+  `target_desde_settings`).
+- **D-2.3.13 · NULL-goal y plumbing puro (A2).** El parametro del candidato
+  se renombra `margen_plataforma` -> `target_margen` en las dos cascadas,
+  `peldano_target_acos` y el nucleo (fidelidad al spec; `None` = peldano
+  no aplica, motivo aparte). Semantica sellada con test espejo de prod
+  (goals 6/7: campana, target NULL, floor/ceiling; `enabled` irrelevante:
+  la cascada no lo lee): goal campana NULL bloquea goal_plataforma pero
+  el nucleo SIGUE a target_margen y luego a setting. Frase rancia del
+  docstring ("salta el target None al setting") se actualiza. Equivalencia
+  (f) pasando el MISMO target_margen a ambas variantes. El candado de
+  pureza no se toca (cero imports nuevos en goals).
+- **D-2.3.14 · Digest acumulado (A8).** Ancla `notes.target.ultimo_avisado`
+  (string del aplicado de la ultima linea emitida; ausente = primera vez
+  -> se avisa). Helper puro `notifica.decide_aviso_target(aplicado,
+  ancla)` -> (emitir, nuevo_ancla): logica UNICA; el ciclo la usa para
+  persistir el ancla y notifica para renderizar (cero duplicados). Sin
+  aplicado (abstencion) no hay linea de cambio y el ancla NO avanza. El
+  `previo` del ciclo anterior SE ELIMINA (scan de previas queda en ultimo
+  + ancla). La linea de abstencion no cambia.
+- **D-2.3.15 · Ratio A7 y replay (h).** El ciclo congela en notes.target
+  `venta_total` (de la vista) + `ad_revenue_ventana` (SUM ad_revenue en
+  [ventana_desde, ventana_hasta) sobre v_metric_latest al grano
+  keyword+product_target — el mismo grano anti-duplicado de v_tacos — con
+  los bounds DE LA FILA, nunca recalculados); /salud expone
+  `ratio_ads_venta` = ad_revenue/venta_total (None si falta un lado o
+  venta 0; division en Python sobre Decimal). Mismo dict de snapshot para
+  notes e inputs (reproduce ignora claves de mas). Test replay-ignora-vista:
+  vaciar el ledger tras el ciclo y replayear inputs persistidos ->
+  identico (el replay nunca abre la vista por construccion).
+- **D-2.3.16 · Supersede de D-2.3.9(iii).** Con clamp ya no hay
+  fuera_de_banda: margen <= 0 -> derivado <= 0 -> clamp a 10 (mas paso
+  maximo). Sin motivo propio, sin abstencion.
+
+### Revisión del lead sobre el PR #147 (2026-09-04)
+
+**Verificación independiente de la vista (regla 8).** Corrí la 0015 como
+TEMP view contra la base viva y la comparé con una consulta que escribí
+aparte, sin mirar la suya: **coinciden al cuarto decimal** — margen
+**40.0308 % MX** (cobertura por monto 98.22 %, 85 días con venta) y
+**36.0802 % US** (100 %, 74 días), `fees_sin_tipo` 0 en ambas, moneda MXN.
+Con fracción 0.5: derivado 20.02 MX / 18.04 US; primer ciclo con el paso
+máximo desde el setting 20 → 20.02 MX y 19.50 US (converge a 18.04 en tres
+ciclos). La entrada gradual del spec queda demostrada con números reales.
+
+**Auditoría del poder discriminante de los tests** (la debilidad común de
+todos los implementadores). Muté el código a propósito y las tres las cazó
+la suite: (a) devolver la abstención por banda en vez del clamp →
+`test_resolver_banda_clampea_no_abstiene`; (b) fracción inválida que
+devuelve None en vez de reventar → `test_resuelve_target_margen_valida_fraccion`;
+(c) quitar el paso máximo → `test_resolver_paso_maximo_medio_punto` y
+`test_resolver_banda_antes_que_paso`. Los rojos declarados por GLM son
+honestos: incluye dos tests propios que estaban mal escritos y corrigió, y
+marca como «verde previo: caracteriza» los que no eran regresión.
+
+**Adjudicación de CodeRabbit (5 Major, todos ACEPTADOS y corregidos por el
+lead en la misma rama):**
+
+1. **`ratio_ads_venta` mezclaba monedas.** El medidor del supuesto A7
+   dividía `ad_revenue` de las MÉTRICAS (USD en `amazon_us`) entre
+   `venta_total` del LEDGER (MXN). Medido: 29,236 USD contra 394,406 MXN —
+   el número salía ~18x mal en la pantalla de salud. Arreglo: el SQL
+   devuelve también la moneda y el numerador se anula si no coincide
+   (`goals.ratio_ads_publicable`, función pura extraída para poder
+   probarla; regla 4 y regla 3, sin FX: es vigilancia, no decisión).
+2. **El ancla del aviso avanzaba antes de enviar el digest.** Con Telegram
+   caído (fail-silent, sellado 3.3) el punto acumulado se perdía y la
+   deriva del target quedaba muda justo cuando nadie la está viendo.
+   Arreglo: `ultimo_avisado` se asigna SOLO en la rama de digest enviado.
+3. **Cargos de monedas distintas se sumaban.** Los CTE agrupaban solo por
+   plataforma y `n_monedas` solo miraba las VENTAS: un cargo en otra moneda
+   se habría sumado a ventas MXN y el margen habría salido publicado como
+   MXN. Hoy todo el ledger es MXN (medido: 8,258 filas), así que era
+   latente — pero es exactamente la regla 4. Arreglo: los cargos viven en
+   UN solo conjunto con su moneda, y el margen es NULL si hay más de una o
+   no coincide con la de las ventas.
+4. **`fees_sin_tipo` no cubría lo que se suma.** Contaba solo dentro de la
+   ventana, mientras que los cargos con `order_id` entran SIN filtro de
+   fecha (enmienda A5): un fee sin clasificar, ligado a una venta cubierta
+   pero fechado fuera, entraba al margen sin disparar el guard. Hoy 0 casos
+   (medido). Arreglo: el guard se cuenta sobre EXACTAMENTE el mismo
+   conjunto de cargos que se suma.
+5. **`CURRENT_DATE` depende de la TimeZone de la sesión.** Verificado en
+   producción: `SHOW TimeZone` = `Etc/UTC`, así que hoy no hay desfase; ya
+   estaba declarado (A13) y la evidencia auditada es el freeze de
+   `ventana_desde/hasta`, no la vista.
+
+Tras las correcciones: la vista sigue dando **exactamente** los mismos
+números (40.0308 / 36.0802), las suites de la fase pasan en local (162) y
+se añadieron dos regresiones del lead —una por cada arreglo de
+comportamiento—, ambas verificadas por mutación.
+
+### Cross-review de la IMPLEMENTACIÓN (kimi + grok, 1 ronda, 2026-09-04)
+
+Pedida por el dueño antes del encendido. Ronda permitida: la primera de este
+PR (CodeRabbit) halló severidad alta. Los dos veredictos:
+**«encenderlo con correcciones»**. Adjudicación del lead, con medición en la
+base viva donde aplicaba:
+
+**BLOQUEANTES (los cuatro corregidos ANTES del go):**
+
+1. **Latiguazo de la abstención** (kimi H1 alta + grok H2 alta,
+   convergentes). El paso máximo de ±0.5 solo protegía **mientras el peldaño
+   ganaba**: al abstenerse por datos inválidos la cascada caía al setting
+   **sin tope**. Es el MISMO precipicio que la adjudicación A1 eliminó para
+   la banda, dejado intacto en la otra puerta. Escenario: a los tres meses
+   el aplicado vive en 28 y el setting sigue en 20; muere el cron del ledger
+   → `ledger_rancio` → target 20 de un salto (umbral −12 % de 32.2 a 23) →
+   recorte en masa de pujas reales; al recuperarse, latiguazo de vuelta.
+   Hoy el daño es ~0 (20.02 vs 20) y se carga solo con el tiempo. **Arreglo**:
+   con ancla previa, la abstención ya no devuelve None: **converge** al
+   setting a ≤0.5/ciclo (`ResolucionMargen.convergiendo`, declarado en
+   `notes.target.convergiendo_a_setting`). La fracción AUSENTE sigue
+   apagando en seco: es el interruptor y una decisión humana.
+2. **La sombra era ciega a los no-op** (grok H1 alta). `decide_bid` no
+   persiste una decisión cuando no hay banda, así que el «0 de 93» del lead
+   se midió SOLO sobre entidades que ya decidían — justo las quietas son las
+   que se vuelven recorte al bajar el target. **Rehecha sobre las 135 hojas
+   elegibles** (ENABLED en campaña y grupo ENABLED, no inertes, con métricas
+   en la ventana literal del motor 2026-07-29..2026-08-27): **2 de 135
+   cambian**, las dos en US y las dos de «quieta» a −12 %
+   (`ad_entity` 5891: ACoS 21.4 %, gasto 25.26 USD; `ad_entity` 4927: ACoS
+   21.5 %, gasto 24.79 USD). MX: 0 de 90. Con el paso máximo no disparan el
+   día 1 (target 19.5 → umbral 22.4) sino cuando el aplicado baja de ~18.7,
+   es decir al **tercer ciclo**. El harvest también se endurece: su tope
+   `min(35, target)` pasa de 20 a 18.04.
+3. **El dashboard no era equivalente al motor** (grok H3 media).
+   `api_dashboard._fila_campana` llamaba `cascada_target_acos_con_procedencia`
+   **sin** `target_margen` (default None), así que la tabla de campañas
+   habría mostrado 20 / `setting_plataforma` mientras el motor decidía con el
+   derivado: dos verdades en pantallas distintas y el dueño creyendo que no
+   encendió. **Arreglo**: la web lee el aplicado del último ciclo `done`
+   (`notes.target`, fuente única — no re-resuelve la vista ni el paso) y se
+   lo pasa a la MISMA cascada.
+4. **La guarda de frescura no podía disparar** (grok H5 media).
+   `ledger_fresco_at` salía de `MAX(observed_at)` sobre TODO el ledger: una
+   venta nueva de hoy la «blanqueaba» aunque los cargos de la ventana madura
+   no hubieran llegado nunca. Medido el 2026-09-04: sobre toda la tabla,
+   fresco = hoy en ambas; sobre la ventana madura, **MX estaba en 08-31**.
+   **Arreglo** (migración 0016): se mide sobre la **corrida de ingesta** del
+   ledger, que es exactamente lo que la guarda dice medir.
+
+**NO bloqueantes, corregidos igual:** ancla del paso clampeada a la banda
+antes de aplicarla (kimi H4: con un setting de 50 el paso producía un
+aplicado de 49.5 y el clamp quedaba anulado); `fees_sin_tipo` cubre los TRES
+kinds, no solo `fee` (kimi H8); el scan del ancla del aviso solo mira ciclos
+`done` (kimi H10a).
+
+**REFUTADOS por medición del lead:** (a) traslape de `sku_cost` que
+duplicaría ventas (kimi H3) — existe el índice de exclusión
+`sku_cost_product_id_daterange_excl`, **0 solapes** y el JOIN da 417 filas
+sobre 417 ventas; (b) cargos con `amount_currency` NULL que esquivarían el
+guard (kimi H7) — la columna es **NOT NULL** en el esquema; (c) pedidos
+mixtos que cargarían fees completos contra la parte cubierta (grok H4 /
+kimi H6) — **0 pedidos mixtos** de 263 MX y 154 US; (d) el `ValueError` de
+la fracción tumbando el ciclo entero (kimi H5) — los ciclos corren como
+**procesos separados por plataforma** (cron 08:40 US / 08:41 MX), así que el
+radio es una plataforma y es el fail-loud buscado.
+
+**DECLARADOS sin cambio:** el medidor del supuesto A7 queda mudo en US
+porque las métricas van en USD y el ledger en MXN (kimi + grok convergen);
+el sesgo estructural de los pedidos mixtos (hoy exactamente 0); y la
+procedencia a nivel plataforma es el CANDIDATO del peldaño — la procedencia
+por entidad vive en `decision.inputs` (kimi H2).
+
+**Verificación del lead:** replay confirmado íntegro (`replay.py` no importa
+`goals` ni llama a la cascada; los dos caminos leen el congelado); suite
+completa local **1152 passed**; las dos correcciones de comportamiento
+llevan regresión propia y **ambas verificadas por mutación**; la vista
+corregida devuelve los MISMOS números en producción (40.0308 / 36.0802).
+
+**Rojos 2.3** (contra origin/master, antes del fix; Postgres local 16):
+
+```text
+FASE 1 (sin la migracion 0015 ni el codigo):
+FAILED test_migracion_0015_parsea_con_grants_y_comment - FileNotFoundError 0015
+FAILED 6 resolver puros - AttributeError goals.resuelve_target_margen/fraccion
+ERROR 4 vista DB - FileNotFoundError 0015 en el fixture
+FAILED test_compara_... - FileNotFoundError 0015 (fixture del ciclo)
+FAILED 5 goals (vocabulario + 4 TypeError por los params nuevos)
+ERROR tests/test_cycle.py - FileNotFoundError 0015 (SQL15 a nivel modulo)
+ERROR tests/test_notifica.py - FileNotFoundError 0015 (cadena de imports)
+FAILED 3 salud bloque_target - AttributeError api_common.bloque_target_margen
+FASE 2 (tras crear SOLO la migracion; el codigo app sigue viejo):
+FAILED 2 freeze - KeyError 'target' (el ciclo corre done con el seed: el
+  seed es valido, falta el codigo)
+FAILED 2 digest_target - AssertionError (linea ausente; el guard sin claves
+  ya pasa) + 3 salud AttributeError api_common.bloque_target_margen
+FAILED test_compara_... - ModuleNotFoundError tools.compara_target_margen
+NOTA: 2 seeds de test fallaron primero por mi aritmetica de bordes
+(dedupe sin_orden y H-15 exclusivo); el mecanismo discrimina bien.
+CORRECCIONES al rojo (g) durante la implementacion (2026-09-04, el rojo
+original jamas podia verdear): (i) esperaba factor_derivado 0.88 pero el
+factor sellado es el delta de banda (-0.12), no el multiplicador; (ii) el
+seed con cost 3.33 asumia multiplicador de banda 1.12 y el motor sellado
+usa 1.15 (con 3.33 ninguna rama dispara): seed a 3.40 (ACoS 34 %: sin
+banda con manual 30, -12 % con derivado 29.5). Firma real del tool:
+compara(conn, cycle_id) -> (filas, resumen).
+
+SEGUNDA VUELTA (spec adjudicado §10.bis, 2026-09-04, contra el codigo de la
+primera vuelta; Postgres local 16):
+
+```text
+FAILED 8 vista (columnas nuevas venta_total/cubierta/con_orden/sin_orden/
+  fees_sin_tipo/ventana DATEs) - UndefinedColumn / AssertionError
+FAILED test_resolver_cinco_abstenciones (fuera_de_banda eliminado) +
+  test_resolver_banda_clampea (45.2 abstiene, no clampa) +
+  test_resolver_banda_antes_que_paso - AssertionError
+FAILED test_resolver_fraccion_invalida_revienta (devuelve None, no levanta)
+  + test_resuelve_target_margen_valida_fraccion - AssertionError/None
+FAILED test_peldano_margen_no_lo_bloquea_goal_campana_sin_target -
+  TypeError target_margen inesperado (el comportamiento ya era correcto:
+  verde previo, sella la semantica + el rename del parametro)
+FAILED test_decide_aviso_target (ImportError) + 3 digest acumulado/banda -
+  AssertionError (linea ausente; el guard sin claves ya pasa)
+FAILED test_salud_bloque_target_cobertura_y_ratio - KeyError 'cobertura'
+FAILED test_ancla_ultimo_avisado (KeyError 'ultimo_avisado') +
+  test_replay_ignora_la_vista (pasa: caracteriza que el replay es
+  conn-free; lo sella contra un replay futuro que lea la vista)
+NOTA: test_peldano_gana_con_goal_campana_sin_target (ciclo) verde previo:
+  caracteriza; el (h) exige el espejo prod 6/7 a nivel cascada (arriba).
+```
+
 
 ## Reject (con razón)
 
