@@ -32,6 +32,8 @@ import pytest
 from fastapi.testclient import TestClient
 from test_api_dashboard import (
     SQL13,
+    SQL14,
+    SQL17,
     _campana,
     _ciclo,
     _config_version,
@@ -940,7 +942,8 @@ def test_ui_campanas_vocabulario_query_cerrado(monkeypatch):
 def _ctx_inertes(texto: str = PAYLOAD_XSS) -> dict:
     """Contexto minimo del template de inertes (render sin DB): una hoja
     gasto_sin_ventas cuyo texto es el payload XSS (keyword_text es el
-    vector real de esta pantalla)."""
+    vector real de esta pantalla). Incluye los campos de 2.6 (puerta de
+    antiguedad + lotes) con el shape real del endpoint."""
     return {
         "pantalla": "inertes",
         "totales": {"amazon_us": {"gasto_sin_ventas": 1}},
@@ -958,8 +961,12 @@ def _ctx_inertes(texto: str = PAYLOAD_XSS) -> dict:
                 "gasto_90d": "12.50",
                 "moneda": "USD",
                 "ordenes_90d": 0,
+                "first_seen_at": "2026-09-04",
+                "en_espera": True,
+                "archivable_desde": "2026-10-04",
             }
         ],
+        "lotes": [],
     }
 
 
@@ -982,6 +989,8 @@ def test_ui_inertes_200_con_clasificacion_y_escape(monkeypatch):
     <script> escapado en el HTML servido."""
     with _db_temporal("orbit_ui_inertes") as (conn, dsn):
         conn.execute(SQL13)
+        conn.execute(SQL17)
+        conn.execute(SQL14)
         run = _run(conn)
         camp = _campana(conn, "amazon_us", "8201", name="Campana B")
         ag = _grupo(conn, "amazon_us", "8202", camp)

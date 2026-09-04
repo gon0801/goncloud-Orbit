@@ -70,6 +70,16 @@ SQL13 = (
     Path(__file__).resolve().parent.parent / "migrations" / "0013_entidad_inerte.sql"
 ).read_text(encoding="utf-8")
 
+# BIDS 01 2.6: /inertes muestra la puerta de antiguedad del archivado
+# (first_seen_at, migracion 0017) y el resumen del ledger de lotes
+# (keyword_archivo_manual, migracion 0014).
+SQL14 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0014_keyword_archivo_manual.sql"
+).read_text(encoding="utf-8")
+SQL17 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0017_first_seen_at.sql"
+).read_text(encoding="utf-8")
+
 
 def _obs(fecha: dt.date, hora: int = 1) -> dt.datetime:
     """observed_at de una observacion: medianoche + hora UTC (>= metric_date)."""
@@ -1758,6 +1768,8 @@ def test_inertes_devuelve_shape_y_totales(monkeypatch):
     reciente NO aparece; dinero con moneda y NULL como null."""
     with _db_temporal("orbit_dash_inertes") as (conn, dsn):
         conn.execute(SQL13)
+        conn.execute(SQL17)
+        conn.execute(SQL14)
         _siembra_inertes(conn)
         resp = _cliente(dsn, monkeypatch).get("/api/dashboard/inertes")
         assert resp.status_code == 200, resp.text
@@ -1784,6 +1796,111 @@ def test_inertes_devuelve_shape_y_totales(monkeypatch):
         assert muerto["gasto_90d"] == "0"
         assert muerto["moneda"] is None
         assert muerto["ordenes_90d"] == 0
+
+
+def _siembra_lotes_archivo(conn, keyword_id: int) -> None:
+    """Dos lotes en el ledger keyword_archivo_manual (0014): uno viejo con
+    applied + failed y uno nuevo planeado. `applied` exige ack y readback
+    (CONSTRAINT archivo_evidencia_applied)."""
+    conn.execute(
+        "INSERT INTO keyword_archivo_manual (lote, ad_entity_id, platform,"
+        " campaign_external, ad_group_external, keyword_external, keyword_text,"
+        " match_type, clasificacion, go_literal, intentado_at, ack,"
+        " readback_estado, estado)"
+        " VALUES ('inertes-2026-09-01', %s, 'amazon_us', '8101', '8102', '8103',"
+        " 'gasto sin ventas', 'EXACT', 'gasto_sin_ventas', 'si, archivala',"
+        " '2026-09-01 10:00+00', '{}'::jsonb, 'ARCHIVED', 'applied')",
+        (keyword_id,),
+    )
+    conn.execute(
+        "INSERT INTO keyword_archivo_manual (lote, ad_entity_id, platform,"
+        " campaign_external, ad_group_external, keyword_external, keyword_text,"
+        " match_type, clasificacion, go_literal, intentado_at, estado)"
+        " VALUES ('inertes-2026-09-01', %s, 'amazon_us', '8101', '8102', '8104',"
+        " 'peso muerto', 'EXACT', 'peso_muerto', 'si, archivala',"
+        " '2026-09-01 10:05+00', 'failed')",
+        (keyword_id,),
+    )
+    conn.execute(
+        "INSERT INTO keyword_archivo_manual (lote, ad_entity_id, platform,"
+        " campaign_external, ad_group_external, keyword_external, keyword_text,"
+        " match_type, clasificacion, go_literal, intentado_at, estado)"
+        " VALUES ('inertes-2026-09-04', %s, 'amazon_us', '8101', '8102', '8103',"
+        " 'gasto sin ventas', 'EXACT', 'gasto_sin_ventas', 'dale',"
+        " '2026-09-04 09:00+00', 'planeado')",
+        (keyword_id,),
+    )
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_inertes_en_espera_por_antiguedad(monkeypatch):
+    """BIDS 01 2.6: en_espera es ESPEJO del predicado del tool
+    (tools/archiva_inertes.py _SQL_PLAN, default --min-antiguedad-dias=30):
+    hoja recien vista (first_seen_at = hoy, default del seed) -> en_espera
+    true y archivable_desde = hoy + 30; hoja vieja (60d, pisada con UPDATE)
+    -> en_espera false. Sin lotes sembrados -> lotes = []."""
+    with _db_temporal("orbit_dash_inertes_espera") as (conn, dsn):
+        conn.execute(SQL13)
+        conn.execute(SQL17)
+        conn.execute(SQL14)
+        _siembra_inertes(conn)
+        conn.execute(
+            "UPDATE ad_entity SET first_seen_at = (now() AT TIME ZONE 'UTC')::date - 60"
+            " WHERE external_id = '8104'"
+        )
+        # El reloj lo da la DB (misma base del predicado SQL): nada de
+        # dt.date.today() del lado de Python.
+        hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+        resp = _cliente(dsn, monkeypatch).get("/api/dashboard/inertes")
+        assert resp.status_code == 200, resp.text
+        cuerpo = resp.json()
+        por_texto = {i["texto"]: i for i in cuerpo["items"]}
+        reciente = por_texto["gasto sin ventas"]
+        assert reciente["first_seen_at"] == hoy.isoformat()
+        assert reciente["en_espera"] is True
+        assert reciente["archivable_desde"] == (hoy + dt.timedelta(days=30)).isoformat()
+        vieja = por_texto["peso muerto"]
+        assert vieja["first_seen_at"] == (hoy - dt.timedelta(days=60)).isoformat()
+        assert vieja["en_espera"] is False
+        assert vieja["archivable_desde"] == (hoy - dt.timedelta(days=30)).isoformat()
+        assert cuerpo["lotes"] == []
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_inertes_lotes_resumen_por_lote(monkeypatch):
+    """BIDS 01 2.6: lotes resume keyword_archivo_manual por lote (conteos por
+    estado, min(intentado_at) como fecha ISO, mas reciente primero, tope 5)."""
+    with _db_temporal("orbit_dash_inertes_lotes") as (conn, dsn):
+        conn.execute(SQL13)
+        conn.execute(SQL17)
+        conn.execute(SQL14)
+        _siembra_inertes(conn)
+        keyword_id = conn.execute("SELECT id FROM ad_entity WHERE external_id = '8103'").fetchone()[
+            0
+        ]
+        _siembra_lotes_archivo(conn, keyword_id)
+        resp = _cliente(dsn, monkeypatch).get("/api/dashboard/inertes")
+        assert resp.status_code == 200, resp.text
+        lotes = resp.json()["lotes"]
+        assert [lote["lote"] for lote in lotes] == ["inertes-2026-09-04", "inertes-2026-09-01"]
+        nuevo = lotes[0]
+        assert nuevo["fecha"].startswith("2026-09-04")
+        assert nuevo["planeado"] == 1
+        assert nuevo["applied"] == 0
+        assert nuevo["failed"] == 0
+        assert nuevo["repuesto"] == 0
+        viejo = lotes[1]
+        assert viejo["fecha"].startswith("2026-09-01")
+        assert viejo["planeado"] == 0
+        assert viejo["applied"] == 1
+        assert viejo["failed"] == 1
+        assert viejo["repuesto"] == 0
 
 
 # ---------------------------------------------------------------------------

@@ -892,12 +892,37 @@ SELECT q.id, q.platform::text, q.familia, q.kind, q.ad_entity_id, e.external_id,
 # Lee v_entidad_inerte (migracion 0013, UNICA fuente D2): nada se diagnostica
 # aqui. NULLS LAST (gasto NULL = mezcla de monedas, fail-loud) e id de
 # desempate estable.
+# BIDS 01 2.6: JOIN a ad_entity por first_seen_at (migracion 0017) para
+# mostrar la puerta de antiguedad del archivado. `en_espera` es ESPEJO EXACTO
+# del predicado del tool (tools/archiva_inertes.py, _SQL_PLAN /
+# _SQL_EXCLUIDOS_JOVENES) con el DEFAULT --min-antiguedad-dias=30: ese default
+# es la fuente del numero (regla 2); si cambia, ESTE 30 se toca aqui.
+# `archivable_desde` es informativo (primera vista + 30 dias, fecha UTC).
 _SQL_INERTES = """
-SELECT platform::text, kind::text, keyword_text, name, external_id,
-       campaign_name, ad_group_name, clasificacion, dias_sin_impresiones,
-       ultima_impresion, gasto_90d, moneda::text, ordenes_90d
-  FROM v_entidad_inerte
- ORDER BY platform, clasificacion, gasto_90d DESC NULLS LAST, id
+SELECT v.platform::text, v.kind::text, v.keyword_text, v.name, v.external_id,
+       v.campaign_name, v.ad_group_name, v.clasificacion, v.dias_sin_impresiones,
+       v.ultima_impresion, v.gasto_90d, v.moneda::text, v.ordenes_90d,
+       (e.first_seen_at AT TIME ZONE 'UTC')::date AS first_seen_fecha,
+       e.first_seen_at > (now() AT TIME ZONE 'UTC')::date - 30 AS en_espera,
+       (e.first_seen_at AT TIME ZONE 'UTC')::date + 30 AS archivable_desde
+  FROM v_entidad_inerte v
+  JOIN ad_entity e ON e.id = v.id
+ ORDER BY v.platform, v.clasificacion, v.gasto_90d DESC NULLS LAST, v.id
+"""
+
+# BIDS 01 2.6: resumen del ledger de lotes (keyword_archivo_manual, migracion
+# 0014): por lote, la fecha del primer intento y conteos por estado; los 5
+# mas recientes. Tabla vacia -> cero filas (sin fila inventada, regla 3).
+_SQL_LOTES_INERTES = """
+SELECT lote, (min(intentado_at) AT TIME ZONE 'UTC')::date AS primer_intento,
+       count(*) FILTER (WHERE estado = 'planeado') AS planeado,
+       count(*) FILTER (WHERE estado = 'applied') AS applied,
+       count(*) FILTER (WHERE estado = 'failed') AS failed,
+       count(*) FILTER (WHERE estado = 'repuesto') AS repuesto
+  FROM keyword_archivo_manual
+ GROUP BY lote
+ ORDER BY min(intentado_at) DESC
+ LIMIT 5
 """
 
 
@@ -938,7 +963,11 @@ def cortes(conn: ConexionLectura) -> dict:
 @router.get("/inertes")
 def inertes(conn: ConexionLectura) -> dict:
     """Hojas sin trafico con su clasificacion (regla 22: la UI CONSUME este
-    endpoint). Dinero con moneda y NULL como null (reglas 3-4)."""
+    endpoint). Dinero con moneda y NULL como null (reglas 3-4).
+
+    BIDS 01 2.6: ademas first_seen_at / en_espera / archivable_desde por item
+    (puerta de antiguedad del archivado, espejo del default del tool) y
+    `lotes`: resumen de keyword_archivo_manual (tabla vacia -> [])."""
     conn.row_factory = dict_row
     items = [
         {
@@ -961,6 +990,13 @@ def inertes(conn: ConexionLectura) -> dict:
             "gasto_90d": _dec_str(fila["gasto_90d"]),
             "moneda": fila["moneda"],
             "ordenes_90d": int(fila["ordenes_90d"]),
+            "first_seen_at": (
+                fila["first_seen_fecha"].isoformat() if fila["first_seen_fecha"] else None
+            ),
+            "en_espera": bool(fila["en_espera"]) if fila["en_espera"] is not None else None,
+            "archivable_desde": (
+                fila["archivable_desde"].isoformat() if fila["archivable_desde"] else None
+            ),
         }
         for fila in conn.execute(_SQL_INERTES).fetchall()
     ]
@@ -968,4 +1004,15 @@ def inertes(conn: ConexionLectura) -> dict:
     for item in items:
         por_clase = totales.setdefault(item["plataforma"], {})
         por_clase[item["clasificacion"]] = por_clase.get(item["clasificacion"], 0) + 1
-    return {"totales": totales, "items": items}
+    lotes = [
+        {
+            "lote": fila["lote"],
+            "fecha": fila["primer_intento"].isoformat(),
+            "planeado": fila["planeado"],
+            "applied": fila["applied"],
+            "failed": fila["failed"],
+            "repuesto": fila["repuesto"],
+        }
+        for fila in conn.execute(_SQL_LOTES_INERTES).fetchall()
+    ]
+    return {"totales": totales, "items": items, "lotes": lotes}

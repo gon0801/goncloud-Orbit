@@ -47,6 +47,7 @@
         <th class="num">Gasto 90d</th>
         <th class="num">Ordenes 90d</th>
         <th>Ultima impresion</th>
+        <th>Archivable desde</th>
       </tr>
     </thead>
     <tbody>
@@ -57,17 +58,54 @@
         <td>{{ item.ad_group or "—" }}</td>
         {# El texto es libre (keyword_text del anunciante): AUTOESCAPE lo escapa #}
         <td>{{ item.texto or "—" }}</td>
-        <td><span class="chip">{{ item.clasificacion }}</span></td>
+        <td>
+          <span class="chip">{{ item.clasificacion }}</span>
+          {% if item.en_espera %}
+          <span class="chip" title="Recien vista por el sistema; se puede archivar 30 dias despues de su primera vista">en espera</span>
+          {% endif %}
+        </td>
         <td class="num">{% if item.dias_sin_impresiones is none %}<span class="mutado">—</span>{% else %}{{ item.dias_sin_impresiones }}{% endif %}</td>
         <td class="num">{% if item.gasto_90d is none %}<span class="mutado">—</span>{% else %}{{ item.gasto_90d }}{% if item.moneda %} {{ item.moneda }}{% endif %}{% endif %}</td>
         <td class="num">{{ item.ordenes_90d }}</td>
         <td class="mutado">{{ item.ultima_impresion or "—" }}</td>
+        <td class="mutado">{{ item.archivable_desde or "—" }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
   {% else %}
   <p>sin entidades inertes: todo lo activo tiene trafico reciente.</p>
+  {% endif %}
+</div>
+<div class="tarjeta">
+  <h3>Lotes de archivado</h3>
+  {% if lotes %}
+  <table>
+    <thead>
+      <tr>
+        <th>Lote</th>
+        <th>Fecha</th>
+        <th class="num">Planeado</th>
+        <th class="num">Applied</th>
+        <th class="num">Failed</th>
+        <th class="num">Repuesto</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for lote in lotes %}
+      <tr>
+        <td>{{ lote.lote }}</td>
+        <td class="mutado">{{ lote.fecha }}</td>
+        <td class="num">{{ lote.planeado }}</td>
+        <td class="num">{{ lote.applied }}</td>
+        <td class="num">{{ lote.failed }}</td>
+        <td class="num">{{ lote.repuesto }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>sin lotes de archivado todavia.</p>
   {% endif %}
 </div>
 {% endblock %}
