@@ -167,6 +167,35 @@ def test_proxima_config_exige_ack_si_manual_con_margen_on():
     assert "respaldo" in str(exc.value).lower() or "gobierna" in str(exc.value).lower()
 
 
+def test_proxima_config_manual_igual_con_margen_on_no_exige_ack():
+    """E2 es sobre EDITAR el manual: reenviar el mismo valor (el form manda
+    el campo prellenado) con el margen encendido no es una edicion y no pide
+    ack; el cambio real (un cap) pasa solo."""
+    import app.config_write as config_write
+
+    actual = {CLAVE_TARGET: "20", CLAVE_FRACCION: "0.5"}
+    nuevo, cambios = config_write.proxima_config(
+        actual, PLAT, target_manual_pct=Decimal("20"), caps={"bid": 3}, ack_respaldo=False
+    )
+    assert nuevo[CLAVE_TARGET] == "20" and nuevo[f"ads_apply_cap_{PLAT}_bid"] == "3"
+    assert cambios == ["cap bid ausente -> 3"]
+
+
+def test_proxima_config_fraccion_null_cuenta_como_apagada():
+    """Una clave con JSON null es margen APAGADO para el resolver
+    (fraccion_desde_settings -> None): editar el manual no pide ack y apagar
+    limpia la clave a medias."""
+    import app.config_write as config_write
+
+    actual = {CLAVE_TARGET: "20", CLAVE_FRACCION: None}
+    assert g.fraccion_desde_settings(actual, PLAT) is None
+    nuevo, _ = config_write.proxima_config(actual, PLAT, target_manual_pct=Decimal("25"))
+    assert nuevo[CLAVE_TARGET] == "25"
+    nuevo, cambios = config_write.proxima_config(actual, PLAT, margen_habilitado=False)
+    assert CLAVE_FRACCION not in nuevo
+    assert cambios == ["margen apagado (fraccion None -> ausente)"]
+
+
 # ---------------------------------------------------------------------------
 # 3. Config = fila NUEVA (append-only)
 # ---------------------------------------------------------------------------

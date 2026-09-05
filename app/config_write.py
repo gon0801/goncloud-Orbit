@@ -98,12 +98,13 @@ def proxima_config(
 ) -> tuple[dict, list[str]]:
     """Config NUEVA a partir de la vigente + la lista legible de cambios.
 
-    PURA (sin I/O). `None` = no tocar. Copia TODA la config (las claves de
-    otras plataformas y `ads_optimizer_mode` viajan intactas). El margen se
-    resuelve PRIMERO: la exigencia de ack_respaldo se evalua sobre la config
-    RESULTANTE (apagar el margen y editar el manual en la misma edicion no
-    pide ack: el manual va a gobernar). Una edicion que no cambia nada es
-    invalida (una fila identica seria un rastro que miente)."""
+    PURA (sin I/O). `None` = no tocar; un valor igual al vigente tampoco es
+    cambio. Copia TODA la config (las claves de otras plataformas y
+    `ads_optimizer_mode` viajan intactas). El margen se resuelve PRIMERO: la
+    exigencia de ack_respaldo se evalua sobre la config RESULTANTE y solo
+    cuando el manual CAMBIA (apagar el margen y editar el manual en la misma
+    edicion no pide ack: el manual va a gobernar). Una edicion que no cambia
+    nada es invalida (una fila identica seria un rastro que miente)."""
     nuevo = dict(actual)
     cambios: list[str] = []
 
@@ -127,13 +128,13 @@ def proxima_config(
 
     k_target = g.clave_target_plataforma(platform)
     if target_manual_pct is not None:
-        if k_fraccion in nuevo and not ack_respaldo:
-            raise SettingsInvalido(
-                f"target manual con el margen encendido: {ADVERTENCIA_RESPALDO}."
-                " Confirma con ack_respaldo para guardarlo como respaldo"
-            )
         valor = _texto(target_manual_pct)
         if nuevo.get(k_target) != valor:
+            if nuevo.get(k_fraccion) is not None and not ack_respaldo:
+                raise SettingsInvalido(
+                    f"target manual con el margen encendido: {ADVERTENCIA_RESPALDO}."
+                    " Confirma con ack_respaldo para guardarlo como respaldo"
+                )
             cambios.append(f"target manual {_antes(nuevo.get(k_target))} -> {valor}")
             nuevo[k_target] = valor
 
