@@ -116,7 +116,8 @@ def proxima_config(
             raise SettingsInvalido("margen encendido exige una fraccion en (0, 1]")
         valor = _texto(fraccion)
         if nuevo.get(k_fraccion) != valor:
-            cambios.append(f"margen encendido (fraccion {_antes(nuevo.get(k_fraccion))} -> {valor})")
+            antes = _antes(nuevo.get(k_fraccion))
+            cambios.append(f"margen encendido (fraccion {antes} -> {valor})")
             nuevo[k_fraccion] = valor
     else:
         if fraccion is not None:
