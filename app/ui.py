@@ -377,10 +377,13 @@ def pagina_inertes(request: Request, conn: ConexionLectura) -> HTMLResponse:
 
 
 @router.get("/cortes", response_class=HTMLResponse)
+@router.get("/propuestas", response_class=HTMLResponse)
 def pagina_cortes(request: Request, conn: ConexionLectura) -> HTMLResponse:
-    """Cortes pendientes de veto (ORBIT 04 3.1, sellado 20): tabla de
-    pending_veto/released con su vencimiento y boton Vetar (mini-form inline
-    con dias/actor/token). El submit lo cablea /static/js/cortes.js contra el
+    """Propuestas pendientes de decision (ORBIT 04 3.1, sellado 20; CORTES UI
+    01 D1: la pantalla se llama Propuestas, la ruta /cortes sigue viva y
+    /propuestas es alias de la misma vista). Tabla de pending_veto/released
+    con su vencimiento y boton Rechazar (mini-form inline con
+    dias/actor/token). El submit lo cablea /static/js/cortes.js contra el
     endpoint autenticado de app/api_write.py (la CSP prohibe JS inline). El
     search_term se renderiza ESCAPADO ({{ }}) — es el vector XSS real."""
     datos = dash.cortes(conn=conn)

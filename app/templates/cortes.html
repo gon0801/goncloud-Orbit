@@ -1,21 +1,69 @@
 {% extends "base.html" %}
 {% block contenido %}
-<h2>Cortes pendientes de veto</h2>
+<h2>Propuestas pendientes de decision</h2>
 <p class="mutado">
-  Los cortes encolados aplican solos al vencer su ventana. Vetarlos los bloquea
-  de forma durable (30 dias por defecto, editable): el motor no vuelve a
-  proponer ese corte hasta que venza el bloqueo.
+  Lo que CRECE (terminos que venden) y lo que RECORTA (palabras que se apagan
+  o busquedas que se bloquean). Si no rechazas una propuesta, se aplica sola
+  al vencer su ventana. Rechazarla la bloquea de forma durable (30 dias por
+  defecto, editable): el motor no vuelve a proponerla hasta que venza el
+  bloqueo, y el rechazo no se puede deshacer.
 </p>
+{% macro filas(direccion) %}
+  {% for item in items if item.direccion == direccion %}
+      <tr>
+        <td>{{ item.id }}</td>
+        <td>{{ item.plataforma }}</td>
+        <td><span class="chip">{{ item.direccion|capitalize }}</span> {{ item.etiqueta or "—" }}</td>
+        <td>{{ item.nombre or "—" }} <span class="mutado">#{{ item.ad_entity_id }}</span></td>
+        {# El search_term es texto libre del comprador: AUTOESCAPE lo escapa #}
+        <td>{{ item.search_term or "—" }}</td>
+        <td>
+          {% if item.indicador %}
+          {{ item.indicador.ordenes }} ordenes · {{ item.indicador.ingreso }} {{ item.indicador.moneda }} de ingreso
+          {% else %}
+          —
+          {% endif %}
+        </td>
+        <td><span class="chip">{{ item.estado }}</span></td>
+        <td class="mutado">se aplica solo el {{ item.vence_el|ts_ui }}</td>
+        <td class="mutado">{{ item.encolado_at }}</td>
+        <td>
+          {# el click lo cablea /static/js/cortes.js (onclick= inline lo bloquea la CSP) #}
+          <button type="button" data-vetar="{{ item.id }}">Rechazar</button>
+        </td>
+      </tr>
+      <tr hidden id="form-{{ item.id }}">
+        <td colspan="10">
+          <form data-veto="{{ item.id }}">
+            {% if item.efecto_rechazo %}
+            <p>{{ item.efecto_rechazo }}</p>
+            {% endif %}
+            <p class="mutado">
+              Este rechazo NO se puede deshacer y bloquea la propuesta
+              hasta el {{ item.vence_el|ts_ui }}.
+            </p>
+            <label>Dias <input type="number" name="dias" min="1" max="365" value="30"></label>
+            <label>Actor <input type="text" name="actor" maxlength="200" placeholder="quien rechaza" required></label>
+            <label>Token <input type="password" name="token" placeholder="x-orbit-token" required></label>
+            <button type="submit">Confirmar rechazo</button>
+            <span data-estado class="mutado"></span>
+          </form>
+        </td>
+      </tr>
+  {% endfor %}
+{% endmacro %}
+{% if items %}
 <div class="tarjeta">
-  {% if items %}
+  <h3>Crecen</h3>
   <table>
     <thead>
       <tr>
         <th>#</th>
         <th>Plataforma</th>
-        <th>Kind</th>
+        <th>Tipo</th>
         <th>Entidad</th>
         <th>Search term</th>
+        <th>Por que</th>
         <th>Estado</th>
         <th>Vence</th>
         <th>Encolado</th>
@@ -23,38 +71,33 @@
       </tr>
     </thead>
     <tbody>
-      {% for item in items %}
-      <tr>
-        <td>{{ item.id }}</td>
-        <td>{{ item.plataforma }}</td>
-        <td><span class="chip">{{ item.kind }}</span> <span class="mutado">{{ item.familia }}</span></td>
-        <td>{{ item.nombre or "—" }} <span class="mutado">#{{ item.ad_entity_id }}</span></td>
-        {# El search_term es texto libre del comprador: AUTOESCAPE lo escapa #}
-        <td>{{ item.search_term or "—" }}</td>
-        <td><span class="chip">{{ item.estado }}</span></td>
-        <td class="mutado">{{ item.vence_el }}</td>
-        <td class="mutado">{{ item.encolado_at }}</td>
-        <td>
-          {# el click lo cablea /static/js/cortes.js (onclick= inline lo bloquea la CSP) #}
-          <button type="button" data-vetar="{{ item.id }}">Vetar</button>
-        </td>
-      </tr>
-      <tr hidden id="form-{{ item.id }}">
-        <td colspan="9">
-          <form data-veto="{{ item.id }}">
-            <label>Dias <input type="number" name="dias" min="1" max="365" value="30"></label>
-            <label>Actor <input type="text" name="actor" maxlength="200" placeholder="quien veta" required></label>
-            <label>Token <input type="password" name="token" placeholder="x-orbit-token" required></label>
-            <button type="submit">Confirmar veto</button>
-            <span data-estado class="mutado"></span>
-          </form>
-        </td>
-      </tr>
-      {% endfor %}
+      {{ filas("crece") }}
     </tbody>
   </table>
-  {% else %}
-  <p>sin cortes pendientes: la cola no tiene filas esperando ventana de veto.</p>
-  {% endif %}
 </div>
+<div class="tarjeta">
+  <h3>Recortan</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Plataforma</th>
+        <th>Tipo</th>
+        <th>Entidad</th>
+        <th>Search term</th>
+        <th>Por que</th>
+        <th>Estado</th>
+        <th>Vence</th>
+        <th>Encolado</th>
+        <th>Accion</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ filas("recorta") }}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p>sin propuestas pendientes: la cola no tiene filas esperando decision.</p>
+{% endif %}
 {% endblock %}

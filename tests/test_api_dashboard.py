@@ -64,6 +64,11 @@ SQL_MIGRACION = (
     Path(__file__).resolve().parent.parent / "migrations" / "0001_initial.sql"
 ).read_text(encoding="utf-8")
 
+# CORTES UI 01: la cola apply_queue vive en la migracion 0002.
+SQL02 = (Path(__file__).resolve().parent.parent / "migrations" / "0002_apply.sql").read_text(
+    encoding="utf-8"
+)
+
 # BIDS 01 1.3: la vista v_entidad_inerte (migracion 0013) es la UNICA fuente
 # de "inerte" (D2 sellada); el endpoint la lee, no reimplementa el diagnostico.
 SQL13 = (
@@ -1989,3 +1994,145 @@ def test_salud_bloque_target_sin_clave_da_nulls():
         assert bloque["target_vigente"] is None
         assert bloque["procedencia"] is None
         assert bloque["motivo_abstencion"] is None
+
+
+# ---------------------------------------------------------------------------
+# CORTES UI 01 1.1: el endpoint declara etiqueta, direccion, efecto e
+# indicador (la UI consume, no reimplementa: regla 22).
+# ---------------------------------------------------------------------------
+
+
+def _encola_corte(conn, plataforma, entidad, kind, decision_id, term=None):
+    return conn.execute(
+        "INSERT INTO apply_queue (platform, ad_entity_id, kind, search_term,"
+        " decision_id, modo, estado, vence_el, request_payload)"
+        " VALUES (%s, %s, %s, %s, %s, 'live', 'pending_veto',"
+        " now() + interval '48 hours', '{}'::jsonb) RETURNING id",
+        (plataforma, entidad, kind, term, decision_id),
+    ).fetchone()[0]
+
+
+def _siembra_cortes_ui01(conn):
+    ciclo = _ciclo(conn, platform="amazon_us")
+    config = _config_version(conn, {})
+    camp = _campana(conn, "amazon_us", "9001", name="Campana A")
+    ag = _grupo(conn, "amazon_us", "9101", camp)
+    kw = _keyword(conn, "amazon_us", "9201", ag, "zapato")
+    madura = dt.date(2026, 8, 1)  # trigger decision_madurez_corte: window_end <= decided_at - 10d
+    dec_pause = _decision(
+        conn,
+        ciclo,
+        kw,
+        kind="pause",
+        config_id=config,
+        inputs={"motivo": "x"},
+        window_end=madura,
+    )
+    dec_neg = _decision(
+        conn,
+        ciclo,
+        kw,
+        kind="negative",
+        config_id=config,
+        inputs={},
+        search_term="tenis blancos",
+        window_end=madura,
+    )
+    termino = {
+        "search_term": "arras para boda cristiana",
+        "cost": "28.2200",
+        "ad_revenue": "203.2000",
+        "clicks": 63,
+        "orders": 2,
+        "fechas_distintas": 9,
+        "moneda": "USD",
+    }
+    dec_harv = _decision(
+        conn,
+        ciclo,
+        ag,
+        kind="harvest",
+        config_id=config,
+        inputs={"termino": termino},
+        search_term="arras para boda cristiana",
+        moneda="USD",
+        window_end=madura,
+    )
+    dec_harv_sin = _decision(
+        conn,
+        ciclo,
+        ag,
+        kind="harvest",
+        config_id=config,
+        inputs={},
+        moneda="USD",
+        search_term="otro termino",
+        window_end=madura,
+    )
+    _encola_corte(conn, "amazon_us", kw, "pause", dec_pause)
+    _encola_corte(conn, "amazon_us", kw, "negative", dec_neg, "tenis blancos")
+    _encola_corte(conn, "amazon_us", ag, "harvest", dec_harv, "arras para boda cristiana")
+    _encola_corte(conn, "amazon_us", ag, "harvest", dec_harv_sin, "otro termino")
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
+def test_cortes_ui01_etiqueta_direccion_efecto_e_indicador(monkeypatch):
+    """CORTES UI 01: cada item declara etiqueta exacta por kind (D2),
+    direccion (D3), efecto del rechazo (D4) y, solo el harvest con
+    termino, el indicador leido de decision.inputs->'termino'.
+    Sin termino: indicador None (regla 3, jamas inventado)."""
+    with _db_temporal("orbit_dash_cortesui") as (conn, dsn):
+        conn.execute(SQL02)
+        _siembra_cortes_ui01(conn)
+        resp = _cliente(dsn, monkeypatch).get("/api/dashboard/cortes")
+        assert resp.status_code == 200, resp.text
+        por_kind = {}
+        for item in resp.json()["items"]:
+            por_kind.setdefault(item["kind"], item)
+        pause = por_kind["pause"]
+        assert pause["etiqueta"] == "Apagar palabra"
+        assert pause["direccion"] == "recorta"
+        assert pause["indicador"] is None
+        assert pause["efecto_rechazo"] == "Rechazar: la palabra NO se apagara (seguira gastando)"
+        neg = por_kind["negative"]
+        assert neg["etiqueta"] == "Bloquear busqueda"
+        assert neg["direccion"] == "recorta"
+        assert neg["indicador"] is None
+        assert neg["efecto_rechazo"] == "Rechazar: la busqueda NO se bloqueara"
+        harv = [i for i in resp.json()["items"] if i["kind"] == "harvest"]
+        assert len(harv) == 2
+        con = [i for i in harv if i["search_term"] == "arras para boda cristiana"][0]
+        assert con["etiqueta"] == "Capturar termino que vende"
+        assert con["direccion"] == "crece"
+        assert con["efecto_rechazo"] == "Rechazar: la palabra NO se creara"
+        assert con["indicador"] == {
+            "ordenes": 2,
+            "ingreso": "203.2000",
+            "clics": 63,
+            "moneda": "USD",
+        }
+        sin = [i for i in harv if i["search_term"] == "otro termino"][0]
+        assert sin["indicador"] is None, "sin termino no hay indicador"
+        assert sin["etiqueta"] == "Capturar termino que vende"
+        assert sin["direccion"] == "crece"
+        assert sin["efecto_rechazo"] == "Rechazar: la palabra NO se creara"
+
+
+def test_cortes_ui01_indicador_exige_termino_completo():
+    """Regla 3 (grok): termino ausente o parcial -> indicador None, jamas
+    un dict hueco que la plantilla pintaria como ' ordenes - de ingreso'."""
+    from app import api_dashboard as dash
+
+    base = {"search_term": "t", "cost": "1.0000", "clicks": 5, "moneda": "USD"}
+    lleno = dict(base, orders=2, ad_revenue="203.2000")
+    assert dash._indicador_harvest("harvest", {"termino": lleno}) == {
+        "ordenes": 2,
+        "ingreso": "203.2000",
+        "clics": 5,
+        "moneda": "USD",
+    }
+    assert dash._indicador_harvest("harvest", {}) is None
+    assert dash._indicador_harvest("harvest", {"termino": {}}) is None
+    assert dash._indicador_harvest("harvest", {"termino": {"orders": 2}}) is None
+    assert dash._indicador_harvest("harvest", None) is None
+    assert dash._indicador_harvest("pause", {"termino": lleno}) is None
