@@ -13,6 +13,13 @@
 > seteada en el test de doble corrida; `--registrar` rechaza lotes `desarmado` (no resucita
 > un grupo pausado). Bajas: el readback exige también `defaultBid` y `budget.budget`;
 > divergencia conservadora de `_cumple_harvest` en (cost=0, revenue=0) declarada.
+>
+> **v4 tras ronda 3 de cross-review (codex 2026-09-05: 2 ALTA + 4 MEDIA — todo incorporado).**
+> Altas: desarmar cubre campañas creadas con readback fallido (paso failed CON external);
+> guards de moneda en los denominadores del prorrateo de v_margen_producto (orden y
+> plataforma). Medias: desempate source_report_id DESC NULLS LAST del colapso bitemporal;
+> reconciliar por plataforma con su propio perfil; row_factory tuple_row defensivo en
+> --registrar; test ledger pre-HTTP con secuencia compartida sql/http.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -934,6 +941,57 @@ def test_v_margen_producto_sin_costo_no_cubre_y_sin_venta_no_existe():
             .fetchone()[0]
             == 0
         )
+
+
+@_skip_db
+def test_v_margen_producto_mezcla_de_moneda_en_denominadores_es_null():
+    """r3 codex 2 (regla 4): los DENOMINADORES del prorrateo tambien hacen
+    guard. (i) una unica venta USD de OTRO producto en la plataforma NULLea
+    el margen del producto puro MXN (venta_plataforma quedo en 2 monedas);
+    (ii) una orden con lineas cubiertas en dos monedas NULLea por
+    n_monedas_orden (la misma linea USD tambien enciende el guard de
+    plataforma: ambos guards son fail-closed sobre el mismo hecho)."""
+    hoy = dt.date.today()
+    with db_fabrica() as conn:  # (i) denominador de la plataforma
+        pa, _ = _producto(conn)
+        _ledger_producto(conn, pa, hoy=hoy)  # puro MXN: margen 40 sin la mezcla
+        pb, _ = _producto(conn, sku="USD", asin="B0USDUSDUS", seller_sku="SUSD")
+        run = conn.execute(
+            "INSERT INTO ingest_run (source) VALUES ('t') RETURNING id"
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO ledger_event (platform, kind, event_date, order_id, product_id,"
+            " quantity, amount, amount_currency, ingest_run_id)"
+            " VALUES ('amazon_mx', 'sale', %s, 'o-usd', %s, 1, 25, 'USD', %s)",
+            (hoy - dt.timedelta(days=50), pb, run),
+        )
+        fila = conn.execute(
+            "SELECT margen_neto_pct FROM v_margen_producto WHERE product_id = %s", (pa,)
+        ).fetchone()
+        assert fila[0] is None  # venta_plataforma en 2 monedas
+    with db_fabrica() as conn:  # (ii) denominador de la orden
+        pa, _ = _producto(conn)
+        _ledger_producto(conn, pa, hoy=hoy)
+        pb, _ = _producto(conn, sku="USD", asin="B0USDUSDUS", seller_sku="SUSD")
+        run = conn.execute(
+            "INSERT INTO ingest_run (source) VALUES ('t') RETURNING id"
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO sku_cost (product_id, cost_amount, cost_currency, includes_tax,"
+            " valid_from) VALUES (%s, 10, 'USD', true, %s)",
+            (pb, hoy - dt.timedelta(days=200)),
+        )
+        for pid, monto, moneda in ((pb, 25, "USD"), (pa, 100, "MXN")):
+            conn.execute(
+                "INSERT INTO ledger_event (platform, kind, event_date, order_id, product_id,"
+                " quantity, amount, amount_currency, ingest_run_id)"
+                " VALUES ('amazon_mx', 'sale', %s, 'o-mixta', %s, 1, %s, %s, %s)",
+                (hoy - dt.timedelta(days=50), pid, monto, moneda, run),
+            )
+        fila = conn.execute(
+            "SELECT margen_neto_pct FROM v_margen_producto WHERE product_id = %s", (pa,)
+        ).fetchone()
+        assert fila[0] is None  # orden cubierta en 2 monedas (n_monedas_orden)
 ```
 
 - [ ] **Step 2: Correr y ver el rojo**
@@ -984,8 +1042,11 @@ ventas AS (
        AND l.event_date >= v.desde AND l.event_date < v.hasta
 ),
 orden_cubierta AS (
-    -- venta cubierta por orden: base del prorrateo de sus cargos
-    SELECT platform, order_id, SUM(amount) AS venta_orden
+    -- venta cubierta por orden: base del prorrateo de sus cargos. n_monedas:
+    -- guard del DENOMINADOR (r3 codex 2): una orden con lineas cubiertas en
+    -- dos monedas no puede prorratear (regla 4 — NULL, no suma a ciegas).
+    SELECT platform, order_id, SUM(amount) AS venta_orden,
+           COUNT(DISTINCT amount_currency) AS n_monedas
       FROM ventas
      WHERE order_id IS NOT NULL AND cogs_linea IS NOT NULL
      GROUP BY platform, order_id
@@ -1007,6 +1068,7 @@ cargos_producto AS (
            SUM(co.monto * v.amount / o.venta_orden) AS cargos_con_orden,
            SUM(co.fees_sin_tipo) AS fees_sin_tipo,
            MAX(co.n_monedas) AS n_monedas_cargos,
+           MAX(o.n_monedas) AS n_monedas_orden,
            MAX(co.moneda) AS moneda_cargos
       FROM ventas v
       JOIN orden_cubierta o ON o.platform = v.platform AND o.order_id = v.order_id
@@ -1029,7 +1091,12 @@ plataforma AS (
      GROUP BY l.platform
 ),
 venta_plataforma AS (
-    SELECT platform, SUM(amount) AS venta_total FROM ventas GROUP BY platform
+    -- n_monedas: guard del DENOMINADOR (r3 codex 2): el sistema viejo
+    -- reportaba MXN hasta en amazon_us; con ventas de la plataforma en dos
+    -- monedas la fraccion no puede calcularse (regla 4).
+    SELECT platform, SUM(amount) AS venta_total,
+           COUNT(DISTINCT amount_currency) AS n_monedas
+      FROM ventas GROUP BY platform
 ),
 ag AS (
     SELECT platform, product_id,
@@ -1070,6 +1137,8 @@ SELECT a.platform,
            WHEN a.venta_cubierta IS NULL OR a.venta_cubierta <= 0 THEN NULL
            WHEN a.venta_cubierta / NULLIF(a.venta_total, 0) < 0.95 THEN NULL
            WHEN a.dias_con_venta < 60 THEN NULL
+           WHEN COALESCE(cp.n_monedas_orden, 0) > 1 THEN NULL
+           WHEN vp.n_monedas > 1 THEN NULL
            ELSE 100.0 * (a.venta_cubierta
                 + COALESCE(cp.cargos_con_orden, 0)
                 + COALESCE(p.monto_sin_orden, 0) * a.venta_cubierta / NULLIF(vp.venta_total, 0)
@@ -1089,7 +1158,9 @@ COMMENT ON VIEW v_margen_producto IS
   'fecha en la misma moneda, cobertura por monto, cargos no-ads con order_id '
   'prorrateados por el monto del producto dentro de su orden (solo lineas '
   'cubiertas), cargos sin order_id prorrateados por la participacion del '
-  'producto en la venta de la plataforma. NULL ante mezcla de moneda, '
+  'producto en la venta de la plataforma. NULL ante mezcla de moneda '
+  '(incluidos los DENOMINADORES del prorrateo: la orden cubierta o la venta '
+  'total de la plataforma en mas de una moneda — regla 4), '
   'fees_sin_tipo > 0, cobertura < 0.95, dias < 60 o cubierta <= 0 (regla 3). '
   'fees_sin_tipo es un COUNT de guard fail-closed (se infla con varias '
   'lineas de cargo de una misma orden; intencional, no es dinero). Las '
@@ -1105,7 +1176,7 @@ Nota de regla 2: el guard `dias < 60` se queda en 60 salvo decisión escrita de 
 - [ ] **Step 4: Correr y ver el verde**
 
 Run: `pytest tests/test_fabrica_migracion.py -v`
-Expected: PASS (9 tests). Si `test_v_margen_producto_un_producto_reproduce_la_plataforma` difiere de la plataforma, el bug está en el prorrateo: con un producto y cobertura 1, `cargos_sin_orden` debe ser exactamente el total de plataforma.
+Expected: PASS (10 tests). Si `test_v_margen_producto_un_producto_reproduce_la_plataforma` difiere de la plataforma, el bug está en el prorrateo: con un producto y cobertura 1, `cargos_sin_orden` debe ser exactamente el total de plataforma.
 
 - [ ] **Step 5: Commit (misma rama que la tarea 2, mismo PR)**
 
@@ -2503,7 +2574,11 @@ class _ConnFalsa:
     """Sirve el plan enlatado por consulta y GRABA escrituras + commits."""
 
     def __init__(self, *, settings=None, productos=(), terminos=(), terminos_exact=None,
-                 biblioteca=([], []), existentes=(), grupo=None, pendientes=(), lote_fila=None):
+                 biblioteca=([], []), existentes=(), grupo=None, pendientes=(), lote_fila=None,
+                 secuencia=None):
+        # r3 codex 6: lista OPCIONAL compartida con _Amazon para afirmar el
+        # orden global sql/http (ledger ANTES de cada POST)
+        self.secuencia = secuencia if secuencia is not None else []
         self.settings = settings
         self.productos = list(productos)
         self.terminos = list(terminos)
@@ -2524,6 +2599,7 @@ class _ConnFalsa:
     def execute(self, sql, params=None):
         plano = " ".join(str(sql).split())
         self.queries.append((plano, params))
+        self.secuencia.append(("sql", plano))
         bajo = plano.lower()
         if bajo.startswith(("insert", "update")):
             self.escrituras.append((plano, params))
@@ -2545,6 +2621,13 @@ class _ConnFalsa:
             return _Cursor(self.existentes)
         if "from fabrica_lote_paso" in bajo and "recurso = 'campaign'" in bajo:
             return _Cursor(self.grupo or [])  # _SQL_CAMPANAS_DEL_LOTE (desarmar, tarea 9)
+        if "from fabrica_lote_paso" in bajo and "join fabrica_lote" in bajo:
+            # _SQL_PENDIENTES (r3 codex 4): el fake aplica el WHERE de
+            # plataforma igual que el SQL real (params: lote, lote, plat, plat)
+            pend = self.pendientes
+            if params is not None and len(params) > 2 and params[2] is not None:
+                pend = [f for f in pend if f[3] == params[2]]
+            return _Cursor(pend)
         if "join campana_grupo_rol" in bajo or "from campana_grupo_rol" in bajo:
             return _Cursor(self.grupo or [])
         if "from ads_optimizer_goal" in bajo:
@@ -2726,6 +2809,7 @@ from typing import Any
 
 import httpx
 import psycopg
+from psycopg.rows import tuple_row
 
 from app import fabrica_plan as fp
 from app import goals_write
@@ -2798,7 +2882,11 @@ ultimas AS (
       CROSS JOIN ventana v
      WHERE s.platform = %s::platform
        AND s.metric_date >= v.desde AND s.metric_date < v.hasta
-     ORDER BY s.ad_entity_id, s.search_term, s.metric_date, s.observed_at DESC
+     ORDER BY s.ad_entity_id, s.search_term, s.metric_date, s.observed_at DESC,
+              -- desempate bitemporal sellado (r3 codex 3): mismo observed_at
+              -- en dos reportes = gana el reporte mas reciente (patron de
+              -- app/optimizer/windows.py, colapso de observaciones)
+              s.source_report_id DESC NULLS LAST
 )
 SELECT search_term, bool_or(is_asin_like), SUM(orders), SUM(cost), SUM(ad_revenue)
   FROM ultimas
@@ -3170,19 +3258,23 @@ class _Amazon:
     sello del probe 2.5; los shapes reales se sellan (o corrigen) con el log
     de la sonda."""
 
-    def __init__(self, fallar_en=None, readback_malo=None):
+    def __init__(self, fallar_en=None, readback_malo=None, secuencia=None):
         self.pedidos = []
         self.creados = {}  # path -> contador
         self.fallar_en = fallar_en  # (path, n-esimo POST de ese path) que responde 400
         self.readback_malo = readback_malo  # external que el LIST devuelve PAUSED
         self.objetos = {}  # external -> payload creado (el LIST lo devuelve tal cual)
+        # r3 codex 6: orden global sql/http cuando el test comparte la lista
+        self.secuencia = secuencia if secuencia is not None else []
 
     def __call__(self, request):
         self.pedidos.append(request)
         url = str(request.url)
         if "auth/o2/token" in url:
+            self.secuencia.append(("http", "lwa"))
             return httpx.Response(200, json={"access_token": "tok"})
         path = url.replace(fc.API, "")
+        self.secuencia.append(("http", path))
         if path.endswith("/list"):
             return self._list(path, json.loads(request.content))
         assert path in fp.VENDOR_POR_PATH, path
@@ -3281,11 +3373,15 @@ def test_go_exige_esperado_huella_y_literal(monkeypatch, capsys):
 def test_mutacion_orden_fijo_ledger_pre_http_y_readback(monkeypatch, capsys):
     """exact -> phrase -> broad -> product -> auto; por campana: campaign,
     ad group, product ad, semillas; cada POST tiene su fila planeado ANTES
-    (commit) y su sello applied DESPUES del readback."""
+    (commit) y su sello applied DESPUES del readback. r3 codex 6: la lista
+    `secuencia` compartida entre _ConnFalsa (sql) y _Amazon (http) AFIRMA el
+    orden — contar inserts/sellos al final no discriminaba un POST antes del
+    INSERT del paso."""
     _huella_de(monkeypatch)
     huella = [x for x in capsys.readouterr().out.splitlines() if x.startswith("huella")][0].split(": ")[1]
-    conn_admin = _ConnFalsa()
-    amazon = _Amazon()
+    secuencia = []
+    conn_admin = _ConnFalsa(secuencia=secuencia)
+    amazon = _Amazon(secuencia=secuencia)
     _frontera_mutacion(monkeypatch, _conn_plan(), conn_admin, amazon)
     monkeypatch.setattr(sys, "argv", _args_go(huella))
     assert fc.main() == 0
@@ -3305,6 +3401,24 @@ def test_mutacion_orden_fijo_ledger_pre_http_y_readback(monkeypatch, capsys):
     assert len(lote) == 1 and lote[0][4] == "go" and lote[0][5] == huella
     # el lote y cada paso commitean ANTES de su POST: mas commits que POSTs
     assert conn_admin.commits >= 1 + 2 * total_posts
+    # orden global (r3 codex 6): el INSERT del lote precede a TODO POST de
+    # creacion y el primer INSERT de paso precede al primer POST /sp/campaigns
+    i_lote = next(
+        i for i, (t, x) in enumerate(secuencia)
+        if t == "sql" and x.lower().startswith("insert into fabrica_lote ")
+    )
+    i_paso = next(
+        i for i, (t, x) in enumerate(secuencia)
+        if t == "sql" and x.lower().startswith("insert into fabrica_lote_paso")
+    )
+    i_campana = next(i for i, (t, x) in enumerate(secuencia) if (t, x) == ("http", "/sp/campaigns"))
+    posts_creacion = [
+        i for i, (t, x) in enumerate(secuencia)
+        if t == "http" and x != "lwa" and not x.endswith("/list")
+    ]
+    assert posts_creacion, "no hubo POSTs de creacion"
+    assert all(i_lote < i for i in posts_creacion), "un POST corrio antes del INSERT del lote"
+    assert i_paso < i_campana, "el POST /sp/campaigns corrio antes del INSERT del paso"
     eventos = _eventos(capsys)
     assert eventos[-1]["evento"] == "reconciliacion_final" and eventos[-1]["ok"] is True
 
@@ -3984,6 +4098,11 @@ def _registrar_cmd(args) -> int:
     ad groups YA estan applied en el ledger (el registro interno fallo
     despues del HTTP)."""
     conn_admin = connect(_dsn_admin())
+    # r3 codex 5: crea_goal/edita_goal mutan la row_factory de la conexion a
+    # dict_row; los SELECTs de este tool desestructuran tuplas -> la fijamos
+    # defensivamente tras el connect (_desarmar/_reconciliar_cmd no la
+    # necesitan: sus SELECTs corren antes de cualquier goals_write)
+    conn_admin.row_factory = tuple_row
     fila = conn_admin.execute(
         "SELECT plan, estado FROM fabrica_lote WHERE lote = %s", (args.registrar,)
     ).fetchone()
@@ -4102,6 +4221,10 @@ def test_registrar_cmd_doble_corrida_es_idempotente(monkeypatch):
         monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", "--registrar", "L1"])
         assert fc.main() == 0
         conn.execute("UPDATE fabrica_lote SET estado = 'failed' WHERE lote = 'L1'")
+        # r3 codex 5: la PRIMERA corrida dejo conn.row_factory=dict_row (la
+        # muta crea_goal); sin reset, los SELECTs de la segunda desestructuran
+        # filas dict y el desempaquetado calla o revienta
+        conn.row_factory = tuple_row
         assert fc.main() == 0  # segunda corrida: idempotente, no duplica
         conn.row_factory = tuple_row  # crea_goal deja dict_row en la conexion
         filas = conn.execute(
@@ -4158,7 +4281,7 @@ git commit -m "feat(fabrica): sync de estructura y registro interno del grupo co
 
 **Interfaces:**
 - Consumes: `fabrica_lote_paso` applied (externos de las campañas — durable desde ANTES del HTTP: cubre lotes muertos a medias, sin grupo), `campana_grupo_rol` + `ads_optimizer_goal` solo para enriquecer (goal_id), `goals_write.edita_goal(conn, goal_id, enabled=False, updated_at=...)`, PUT `/sp/campaigns` con vendor `spcampaign` (sello de `reactiva_campanas`: `{"campaigns": [{"campaignId": "<str>", "state": "PAUSED"}]}`), `fabrica_lote_paso` pendientes.
-- Produces: `_desarmar(args) -> int`, `_put_estado_campana(ctx, external, estado) -> dict`, `_reconciliar_cmd(args) -> int`, `_reconciliar(conn_admin, cliente_lectura, profile, lote) -> dict`, `_SQL_CAMPANAS_DEL_LOTE` (base `fabrica_lote_paso` con `recurso='campaign' AND estado='applied'`; LEFT JOIN a `campana_grupo`/`campana_grupo_rol`/`ads_optimizer_goal` solo para el `goal_id`), `_SQL_PENDIENTES`, `_SQL_PROMUEVE_APPLIED`.
+- Produces: `_desarmar(args) -> int`, `_put_estado_campana(ctx, external, estado) -> dict`, `_reconciliar_cmd(args) -> int`, `_reconciliar(conn_admin, cliente_lectura, perfiles, lote, plataforma) -> dict`, `_SQL_CAMPANAS_DEL_LOTE` (base `fabrica_lote_paso` con `recurso='campaign' AND estado IN ('applied','failed') AND external_id IS NOT NULL` — failed con external = creada en Amazon con readback fallido, se pausa; failed sin external = POST rechazado, no existe; r3 codex 1; LEFT JOIN a `campana_grupo`/`campana_grupo_rol`/`ads_optimizer_goal` solo para el `goal_id`), `_SQL_PENDIENTES` (JOIN a `fabrica_lote` por la plataforma del paso; filtro opcional `--plataforma`, r3 codex 4), `_SQL_PROMUEVE_APPLIED`.
 
 - [ ] **Step 1: Tests (fallan: stubs)**
 
@@ -4231,13 +4354,20 @@ def test_desarmar_lote_sin_pasos_applied_aborta(monkeypatch):
         fc.main()
 
 
-def test_desarmar_lote_failed_a_medias_pausa_lo_applied(monkeypatch, capsys):
-    """Regla 7 (lote muerto ANTES del registro): 3 campanas applied en
-    fabrica_lote_paso y NINGUNA fila en campana_grupo — el viejo JOIN abortaba
-    'sin grupo registrado' mientras las campanas seguian ENABLED gastando.
-    La fuente es el ledger de pasos: se pausan las 3 con readback; goal_id
-    None (nunca hubo goals) y el lote se sella desarmado."""
+def test_desarmar_lote_failed_a_medias_pausa_lo_applied_y_lo_failed_con_external(
+    monkeypatch, capsys
+):
+    """Regla 7 (lote muerto ANTES del registro): 3 campanas applied + 1 failed
+    CON external (creada en Amazon, readback no cuadro — r3 codex 1: sigue
+    ENABLED gastando y el desarmar la cubre) y NINGUNA fila en campana_grupo
+    — el viejo JOIN abortaba 'sin grupo registrado' mientras las campanas
+    seguian ENABLED gastando. La fuente es el ledger de pasos: se pausan las
+    4 con readback (un paso failed SIN external NO devuelve fila: el POST fue
+    rechazado, la campana no existe en Amazon); goal_id None (nunca hubo
+    goals) y el lote se sella desarmado."""
     filas = [(rol, f"c-{rol}", None) for rol in fp.ROLES_ORDEN_CREACION[:3]]
+    rol_broad = fp.ROLES_ORDEN_CREACION[3]
+    filas.append((rol_broad, f"c-{rol_broad}", None))  # failed CON external
     conn_admin = _ConnFalsa(grupo=filas)
     amazon = _AmazonDesarme()
     apagados = []
@@ -4253,7 +4383,7 @@ def test_desarmar_lote_failed_a_medias_pausa_lo_applied(monkeypatch, capsys):
         ["fabrica_campanas.py", "--desarmar", "L7", "--acepto-mutacion-real", "--go", "pausa"],
     )
     assert fc.main() == 0
-    assert len(amazon.puts) == 3  # las 3 applied, no las 5 del grupo
+    assert len(amazon.puts) == 4  # las 3 applied + la failed con external
     assert apagados == []  # goal_id None: el registro nunca corrio, no hay goals
     sellos = [
         p for s, p in conn_admin.escrituras
@@ -4263,11 +4393,15 @@ def test_desarmar_lote_failed_a_medias_pausa_lo_applied(monkeypatch, capsys):
     assert _eventos(capsys)[-1]["evento"] == "reconciliacion_final"
 
 
-# Filas de _SQL_PENDIENTES: (id, lote, rol, recurso, path_create, external_id, request_payload)
+# Filas de _SQL_PENDIENTES: (id, lote, rol, platform, recurso, path_create,
+# external_id, request_payload) — platform viene del JOIN a fabrica_lote
+# (r3 codex 4)
 _PENDIENTES = [
-    (1, "L1", "category_exact", "campaign", "/sp/campaigns", "campaigns-1", {"name": "x"}),
-    (2, "L1", "category_exact", "ad_group", "/sp/adGroups", None, {"name": "y"}),
-    (3, "L1", "category_phrase", "keyword", "/sp/keywords", "keywords-9", {"keywordText": "k", "matchType": "PHRASE"}),
+    (1, "L1", "category_exact", "amazon_mx", "campaign", "/sp/campaigns", "campaigns-1",
+     {"name": "x"}),
+    (2, "L1", "category_exact", "amazon_mx", "ad_group", "/sp/adGroups", None, {"name": "y"}),
+    (3, "L1", "category_phrase", "amazon_mx", "keyword", "/sp/keywords", "keywords-9",
+     {"keywordText": "k", "matchType": "PHRASE"}),
 ]
 
 
@@ -4308,12 +4442,46 @@ def test_reconciliar_aborta_si_vive_pero_no_cuadra(monkeypatch, capsys):
     assert resumen["ausentes"] == 1 and resumen["sin_verificar"] == 1
 
 
+def test_reconciliar_con_plataforma_excluye_la_otra_y_no_la_cuenta(monkeypatch, capsys):
+    """r3 codex 4: `--reconciliar --plataforma amazon_mx` con pasos pendientes
+    de DOS plataformas solo LISTea/promueve los MX; los US quedan intactos y
+    NO cuentan como sin_verificar aunque no haya perfil US (el filtro SQL los
+    excluye; sin el filtro se LISTeaban con el perfil equivocado)."""
+    pendientes = _PENDIENTES + [
+        (4, "L2", "category_exact", "amazon_us", "campaign", "/sp/campaigns",
+         "campaigns-9", {"name": "us"}),
+    ]
+    conn_admin = _ConnFalsa(pendientes=pendientes)
+    amazon = _Amazon()
+    amazon.objetos = {
+        "campaigns-1": {"name": "x"},
+        "keywords-9": {"keywordText": "k", "matchType": "PHRASE"},
+        "campaigns-9": {"name": "us"},
+    }
+    _frontera_mutacion(monkeypatch, _ConnFalsa(), conn_admin, amazon)
+    monkeypatch.setattr(
+        sys, "argv",
+        ["fabrica_campanas.py", "--reconciliar", "--plataforma", "amazon_mx"],
+    )
+    with pytest.raises(fc.Abortar, match="sin verificar"):
+        fc.main()  # el paso 2 (sin external) sigue disparando el abort
+    assert amazon.posts("/sp/campaigns") == []  # ningun POST de creacion
+    lists = [p for p in amazon.pedidos if str(p.url).endswith("/list")]
+    assert all(b"campaigns-9" not in p.content for p in lists), "el paso US no se LISTea"
+    promovidos = [p for s, p in conn_admin.escrituras if "estado = 'applied'" in s.lower()]
+    assert [p[-1] for p in promovidos] == [1, 3]  # solo los MX
+    resumen = [e for e in _eventos(capsys) if e["evento"] == "reconciliacion"][0]
+    assert resumen["pendientes"] == 3 and resumen["recuperadas"] == 2
+    assert resumen["sin_verificar"] == 1  # el paso sin external, no los US
+
+
 @_skip_db
 def test_sql_del_ledger_contra_postgres_real():
     """Los INSERT/UPDATE/SELECT de mutacion del ledger contra Postgres REAL
     (el _ConnFalsa no caza un IndeterminateDatatype ni el ORDER BY del ENUM):
-    lote, pasos planeado/applied/failed, campanas del lote (desde pasos),
-    pendientes, promocion y sello."""
+    lote, pasos planeado/applied/failed, campanas del lote (desde pasos:
+    applied + failed CON external, r3 codex 1), pendientes (con la platform
+    del paso por el JOIN al lote, r3 codex 4), promocion y sello."""
     with db_fabrica("orbit_fab_sql") as conn:
         fc._inserta_lote(conn, "L1", _plan_min(), "h", "go")
         ctx = fc._Ctx(None, "tok", None, None, 101, conn, "L1")
@@ -4325,14 +4493,30 @@ def test_sql_del_ledger_contra_postgres_real():
         # failed CON external (el readback no cuadro): promoverlo luego no
         # viola paso_evidencia_applied (applied exige external+ack+readback)
         fc._sella_paso(ctx, pid2, False, "ag-2", {"status": 207}, "PAUSED")
+        paso_c2 = fp.Paso("category_broad", "campaign", "/sp/campaigns", {"name": "z"}, "c")
+        pid3 = fc._inserta_paso(ctx, paso_c2, {"name": "z"})
+        fc._sella_paso(ctx, pid3, False, "c-3", {"status": 207}, "PAUSED")
+        paso_c3 = fp.Paso("auto_discovery", "campaign", "/sp/campaigns", {"name": "w"}, "c")
+        pid4 = fc._inserta_paso(ctx, paso_c3, {"name": "w"})
+        fc._sella_paso(ctx, pid4, False, None, {"status": 400}, None)  # POST rechazado
         filas = conn.execute(fc._SQL_CAMPANAS_DEL_LOTE, ("L1",)).fetchall()
-        assert [(f[0], f[1], f[2]) for f in filas] == [("category_exact", "c-1", None)]
-        pend = conn.execute(fc._SQL_PENDIENTES, ("L1", "L1")).fetchall()
-        esperado = [(pid2, "ad_group", "/sp/adGroups", "ag-2")]
-        assert [(p[0], p[3], p[4], p[5]) for p in pend] == esperado
+        # r3 codex 1: applied + failed CON external; el failed SIN external no existe
+        assert [(f[0], f[1], f[2]) for f in filas] == [
+            ("category_exact", "c-1", None), ("category_broad", "c-3", None)
+        ]
+        pend = conn.execute(fc._SQL_PENDIENTES, ("L1", "L1", None, None)).fetchall()
+        esperado = [
+            (pid2, "ad_group", "/sp/adGroups", "ag-2"),
+            (pid3, "campaign", "/sp/campaigns", "c-3"),
+            (pid4, "campaign", "/sp/campaigns", None),
+        ]
+        assert [(p[0], p[4], p[5], p[6]) for p in pend] == esperado
+        assert {p[3] for p in pend} == {"amazon_mx"}  # platform viene del JOIN al lote
         conn.execute(fc._SQL_PROMUEVE_APPLIED, (json.dumps({"fuente": "t"}), "ENABLED", pid2))
+        conn.execute(fc._SQL_PROMUEVE_APPLIED, (json.dumps({"fuente": "t"}), "ENABLED", pid3))
         conn.commit()
-        assert conn.execute(fc._SQL_PENDIENTES, ("L1", "L1")).fetchall() == []
+        pend_final = conn.execute(fc._SQL_PENDIENTES, ("L1", "L1", None, None)).fetchall()
+        assert [(p[0], p[6]) for p in pend_final] == [(pid4, None)]
         fc._sella_lote(conn, "L1", "failed", "detalle")
         fila = conn.execute("SELECT estado, detalle FROM fabrica_lote WHERE lote = 'L1'").fetchone()
         assert fila == ("failed", "detalle")
@@ -4348,32 +4532,38 @@ Expected: FAIL (`Abortar: --desarmar: pendiente de la tarea 9`).
 ```python
 # tools/fabrica_campanas.py — reversa y reconciliacion (tarea 9)
 # La fuente de las campanas a pausar es el LEDGER DE PASOS (recurso=
-# 'campaign', estado applied, external_id): es durable desde ANTES del HTTP,
-# asi un lote muerto a medias — antes del registro en campana_grupo — se
-# puede desarmar (regla 7). campana_grupo/_rol/goal solo enriquecen (goal_id;
-# el rol ya esta en la fila del paso). ORDER BY p.orden = orden de CREACION
-# (exact primero): no depende del orden de declaracion del ENUM campana_rol
-# (que no coincide con ROLES_ORDEN_CREACION; para desarmar el orden no es
-# critico, pero el de creacion es el mas legible en el log).
+# 'campaign', estado applied O failed CON external_id — r3 codex 1: failed
+# con external = la campana se creo en Amazon pero el readback no cuadro y
+# sigue ENABLED gastando; dejarla fuera era un hueco de la regla 7. failed
+# SIN external = POST rechazado: no existe en Amazon, no se toca): es durable
+# desde ANTES del HTTP, asi un lote muerto a medias — antes del registro en
+# campana_grupo — se puede desarmar (regla 7). campana_grupo/_rol/goal solo
+# enriquecen (goal_id; el rol ya esta en la fila del paso). ORDER BY p.orden
+# = orden de CREACION (exact primero): no depende del orden de declaracion
+# del ENUM campana_rol (que no coincide con ROLES_ORDEN_CREACION; para
+# desarmar el orden no es critico, pero el de creacion es el mas legible).
 _SQL_CAMPANAS_DEL_LOTE = """
 SELECT p.rol::text, p.external_id, g.id
   FROM fabrica_lote_paso p
   LEFT JOIN campana_grupo cg ON cg.lote = p.lote
   LEFT JOIN campana_grupo_rol r ON r.grupo_id = cg.id AND r.rol = p.rol
   LEFT JOIN ads_optimizer_goal g ON g.ad_entity_id = r.ad_entity_id AND g.scope = 'campaign'
- WHERE p.lote = %s AND p.recurso = 'campaign' AND p.estado = 'applied'
+ WHERE p.lote = %s AND p.recurso = 'campaign'
+   AND p.estado IN ('applied', 'failed') AND p.external_id IS NOT NULL
  ORDER BY p.orden
 """
 _SQL_PENDIENTES = """
-SELECT id, lote, rol::text, recurso, CASE recurso
+SELECT p.id, p.lote, p.rol::text, l.platform::text, p.recurso, CASE p.recurso
          WHEN 'campaign' THEN '/sp/campaigns' WHEN 'ad_group' THEN '/sp/adGroups'
          WHEN 'product_ad' THEN '/sp/productAds' WHEN 'keyword' THEN '/sp/keywords'
          WHEN 'target' THEN '/sp/targets' ELSE '/sp/negativeKeywords' END,
-       external_id, request_payload
-  FROM fabrica_lote_paso
- WHERE estado IN ('planeado', 'failed')
-   AND (%s::text IS NULL OR lote = %s)
- ORDER BY id
+       p.external_id, p.request_payload
+  FROM fabrica_lote_paso p
+  JOIN fabrica_lote l ON l.lote = p.lote
+ WHERE p.estado IN ('planeado', 'failed')
+   AND (%s::text IS NULL OR p.lote = %s)
+   AND (%s::platform IS NULL OR l.platform = %s::platform)
+ ORDER BY p.id
 """
 _SQL_PROMUEVE_APPLIED = """
 UPDATE fabrica_lote_paso
@@ -4403,17 +4593,20 @@ def _put_estado_campana(ctx: _Ctx, external: str, estado: str) -> dict:
 
 
 def _desarmar(args) -> int:
-    """Reversa (regla 7): PAUSA las campanas applied del lote (nunca archiva)
-    y pone enabled=false en sus goals. La fuente es fabrica_lote_paso
-    (durable pre-HTTP): un lote failed a medias, SIN grupo registrado, se
-    desarma igual. Dry-run sin --acepto-mutacion-real."""
+    """Reversa (regla 7): PAUSA las campanas del lote que EXISTEN en Amazon —
+    pasos applied y tambien failed CON external (la campana se creo pero el
+    readback no cuadro; sigue ENABLED gastando; r3 codex 1)— y pone
+    enabled=false en sus goals (failed SIN external = POST rechazado, no
+    existe, no se toca). La fuente es fabrica_lote_paso (durable pre-HTTP):
+    un lote failed a medias, SIN grupo registrado, se desarma igual.
+    Dry-run sin --acepto-mutacion-real."""
     conn_admin = connect(_dsn_admin())
     filas = conn_admin.execute(_SQL_CAMPANAS_DEL_LOTE, (args.desarmar,)).fetchall()
     conn_admin.commit()
     if not filas:
         raise Abortar(
-            f"lote {args.desarmar} sin campanas applied en fabrica_lote_paso:"
-            " nada que desarmar"
+            f"lote {args.desarmar} sin campanas que pausar en fabrica_lote_paso"
+            " (applied, o failed con external): nada que desarmar"
         )
     for rol, external, goal_id in filas:
         print(f"{rol} | {external} | goal={goal_id} -> PAUSED + enabled=false", flush=True)
@@ -4451,34 +4644,50 @@ def _desarmar(args) -> int:
     return 0
 
 
-def _reconciliar(conn_admin, cliente_lectura, profile: int, lote: str | None) -> dict:
+def _reconciliar(conn_admin, cliente_lectura, perfiles: dict, lote: str | None,
+                 plataforma: str | None) -> dict:
     """Cruza pasos planeado/failed contra el LIST real: promueve a applied lo
     que vive con el texto pedido; sin external (el POST lanzo) o LIST caido
     = sin_verificar (intacto, se reporta); el objeto vive pero NO cuadra con
-    el payload del ledger = ausentes. Aborta al final si quedo alguno de
-    AMBOS (fail-closed: salir 0 solo si todo quedo verificado)."""
-    filas = conn_admin.execute(_SQL_PENDIENTES, (lote, lote)).fetchall()
+    el payload del ledger = ausentes. Cada paso se LISTea con el perfil de SU
+    plataforma (r3 codex 4: reconciliar todo con el unico perfil MX listaba
+    pasos de US con el perfil equivocado); plataforma sin perfil aceptado =
+    sin_verificar (patron archiva_inertes). Aborta al final si quedo alguno
+    de AMBOS (fail-closed: salir 0 solo si todo quedo verificado)."""
+    filas = conn_admin.execute(_SQL_PENDIENTES, (lote, lote, plataforma, plataforma)).fetchall()
     conn_admin.commit()
     resumen = {"pendientes": len(filas), "recuperadas": 0, "sin_verificar": 0, "ausentes": 0}
-    for fid, lote_fila, rol, recurso, path, external, payload in filas:
-        if external is None:
-            _log("reconciliar_sin_external", paso=fid, lote=lote_fila, rol=rol, recurso=recurso,
-                 nota="el POST no dejo id: verificar a mano por nombre en la consola")
-            resumen["sin_verificar"] += 1
+    por_plataforma: dict[str, list] = {}
+    for fila in filas:
+        por_plataforma.setdefault(fila[3], []).append(fila)
+    for plataforma_fila, pasos in por_plataforma.items():
+        profile = perfiles.get(plataforma_fila)
+        if profile is None:
+            _log("reconciliar_sin_perfil", plataforma=plataforma_fila, pasos=len(pasos),
+                 nota="sin perfil aceptado: quedan sin verificar")
+            resumen["sin_verificar"] += len(pasos)
             continue
-        leido = _readback(cliente_lectura, profile, path, external)
-        if leido is None:
-            resumen["sin_verificar"] += 1
-            _log("reconciliar_sin_verificar", paso=fid, external=external, nota="el LIST no respondio o no lo trae")
-            continue
-        if not _readback_cuadra(leido, payload if isinstance(payload, dict) else {}):
-            resumen["ausentes"] += 1
-            _log("reconciliar_no_cuadra", paso=fid, external=external, estado=leido.get("state"))
-            continue
-        ack = {"fuente": "reconciliar", "external": external, "lote": lote_fila}
-        conn_admin.execute(_SQL_PROMUEVE_APPLIED, (json.dumps(ack), leido.get("state"), fid))
-        conn_admin.commit()
-        resumen["recuperadas"] += 1
+        for fid, lote_fila, rol, _plat, recurso, path, external, payload in pasos:
+            if external is None:
+                _log("reconciliar_sin_external", paso=fid, lote=lote_fila, rol=rol, recurso=recurso,
+                     nota="el POST no dejo id: verificar a mano por nombre en la consola")
+                resumen["sin_verificar"] += 1
+                continue
+            leido = _readback(cliente_lectura, profile, path, external)
+            if leido is None:
+                resumen["sin_verificar"] += 1
+                _log("reconciliar_sin_verificar", paso=fid, external=external,
+                     nota="el LIST no respondio o no lo trae")
+                continue
+            if not _readback_cuadra(leido, payload if isinstance(payload, dict) else {}):
+                resumen["ausentes"] += 1
+                _log("reconciliar_no_cuadra", paso=fid, external=external,
+                     estado=leido.get("state"))
+                continue
+            ack = {"fuente": "reconciliar", "external": external, "lote": lote_fila}
+            conn_admin.execute(_SQL_PROMUEVE_APPLIED, (json.dumps(ack), leido.get("state"), fid))
+            conn_admin.commit()
+            resumen["recuperadas"] += 1
     _log("reconciliacion", lote=lote, **resumen)
     if resumen["ausentes"]:
         raise Abortar(
@@ -4499,13 +4708,15 @@ def _reconciliar_cmd(args) -> int:
         raise Abortar("--reconciliar exige --lote X o --plataforma (para elegir el perfil)")
     platform = args.plataforma
     if platform is None:
+        # solo --lote: la plataforma del lote ES el filtro (r3 codex 4: sin
+        # el filtro se LISTeaban pasos de la otra plataforma con este perfil)
         fila = conn_admin.execute("SELECT platform::text FROM fabrica_lote WHERE lote = %s", (args.lote,)).fetchone()
         if fila is None:
             raise Abortar(f"lote {args.lote} no existe")
         platform = fila[0]
     if platform not in perfiles:
         raise Abortar(f"sin perfil aceptado para {platform}")
-    _reconciliar(conn_admin, cliente_lectura, perfiles[platform], args.lote)
+    _reconciliar(conn_admin, cliente_lectura, perfiles, args.lote, platform)
     return 0
 ```
 
@@ -4569,6 +4780,8 @@ ALLOWLIST_IMPORTS_FABRICA_CAMPANAS = frozenset(
         "typing.Any",
         "httpx",
         "psycopg",
+        "psycopg.rows",
+        "psycopg.rows.tuple_row",
         "app",
         "app.fabrica_plan",
         "app.goals_write",
