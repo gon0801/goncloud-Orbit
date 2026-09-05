@@ -1,5 +1,7 @@
 # ORBIT 06 — consolidación post-cutover: el margen deja de ser una promesa
 
+> **CERRADO 2026-09-04**: las tres fases completas (todas las tareas `cc:完了`). El target por margen gobierna en live desde el ciclo 37/38 del 2026-09-04 (go del dueño, config 13, fracción 0.5; verificado: cero decisiones cambian en sombra antes del encendido y los bids del 09-04 ya salieron con el target derivado del margen).
+
 > **Propósito**: la Fase 3 del diseño v2 (`docs/CONTEXTO.md` §Fases) pide
 > "digest diario por Telegram, vista de lectura, **margin-aware targets**".
 > El lead verificó el 2026-08-30 que **margin-aware hoy no tiene piso**: las

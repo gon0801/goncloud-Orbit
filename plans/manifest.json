@@ -48,12 +48,12 @@
     {
       "name": "orbit-05",
       "path": "plans/orbit-05.md",
-      "description": "ORBIT 05 — cutover a LIVE con rampa: backup real -> discard masivo shadow (app_admin) -> flip doble (escalera + goal.mode por goal firmado) -> primer ciclo live con caps 10/2/5/2; 48h live con adversarial triple, spot-check del dueno y primer harvest a mano. Arranca tras ~2026-09-07 y preflight Done"
+      "description": "ORBIT 05 — cutover a LIVE con rampa: backup real -> discard masivo shadow (app_admin) -> flip doble (escalera + goal.mode por goal firmado) -> primer ciclo live con caps 10/2/5/2; 48h live con adversarial triple, spot-check del dueno y primer harvest a mano. Arranca tras ~2026-09-07 y preflight Done — CASI CERRADO 2026-09-04: 2.4 completada; quedan 2.3 (exige un harvest que el MOTOR aplique de punta a punta; el primero se veto por error y se creo a mano, readback verificado) y 2.5 (cierre formal, depende de 2.3)"
     },
     {
       "name": "orbit-06",
       "path": "plans/orbit-06.md",
-      "description": "ORBIT 06 - consolidacion post-cutover: Fase 0 el dato (productos+costos, listings, allowlist y vinculo de product ads, FX, ledger con cargos, candado de cobertura), Fase 1 margen medible con rango de halo + digest + pantalla, Fase 2 margin-aware targets en shadow. La Fase 0 NO depende del flip"
+      "description": "ORBIT 06 - consolidacion post-cutover: Fase 0 el dato (productos+costos, listings, allowlist y vinculo de product ads, FX, ledger con cargos, candado de cobertura), Fase 1 margen medible con rango de halo + digest + pantalla, Fase 2 margin-aware targets en shadow. La Fase 0 NO depende del flip — CERRADO 2026-09-04 (target por margen gobernando en live)"
     },
     {
       "name": "campana-activa-01",
@@ -74,7 +74,12 @@
       "name": "cortes-ui-01",
       "path": "plans/cortes-ui-01.md",
       "description": "CORTES UI 01 - la pantalla de propuestas dejo de mentir: el dueño veto por error el primer cosechado porque «Cortes» y «vetar» sugerian que toda fila era un recorte; se renombra a Propuestas, cada fila declara su tipo y efecto, y el rechazo declara que es irreversible"
+    },
+    {
+      "name": "cortes-ui-01",
+      "path": "plans/cortes-ui-01.md",
+      "description": "CORTES UI 01 - la pantalla /cortes pasa a Propuestas y deja de mentir (origen: veto por error del primer harvest, 2026-09-04). 1.1 Spark (completada, PR #165 desplegado); 1.2 lead: falta SOLO la confirmacion del dueno con una propuesta real en pantalla"
     }
   ],
-  "active": "orbit-06"
+  "active": "cortes-ui-01"
 }
