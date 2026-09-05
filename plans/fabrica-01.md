@@ -4,6 +4,15 @@
 > incorporado o declarado).** Altas: desarmar desde `fabrica_lote_paso` (cubre lote a
 > medias), multi-listing fail-loud, `--registrar` idempotente, `_registrar` en try con
 > rollback previo al sello, reconciliar aborta también con `ausentes`.
+>
+> **v3 tras ronda 2 de cross-review (glm 2026-09-05: 1 ALTA + 2 MEDIA + 2 BAJA — todo
+> incorporado).** Alta: el guard `if __name__ == "__main__":` es SIEMPRE lo último del
+> archivo (los stubs y sus reemplazos van antes de `main()`; con el layout anterior toda
+> corrida real por stdin reventaba con NameError y la suite — que importa el módulo — quedaba
+> verde; candado `test_fabrica_guard_main_es_lo_ultimo_del_archivo`). Medias: `ORBIT_DSN_ADMIN`
+> seteada en el test de doble corrida; `--registrar` rechaza lotes `desarmado` (no resucita
+> un grupo pausado). Bajas: el readback exige también `defaultBid` y `budget.budget`;
+> divergencia conservadora de `_cumple_harvest` en (cost=0, revenue=0) declarada.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -1952,10 +1961,13 @@ def nombre_ad_group(tipo: str, base: str, rol: str, fecha) -> str:
 
 
 def _cumple_harvest(t: TerminoProducto, target: Decimal) -> bool:
-    """Mismo criterio del motor (hygiene.py camino (6), SIN dividir):
+    """Criterio HARVEST del motor (hygiene.py camino (6), SIN dividir):
     orders >= HARVEST_ORDERS_MIN y cost * 100 <= min(tope_fijo, target) *
     revenue (el motor salta cuando cost * _CIEN > tope * ad_revenue).
-    orders/cost/revenue None o revenue <= 0 -> no (regla 3)."""
+    orders/cost/revenue None o revenue <= 0 -> no (regla 3).
+    Divergencia declarada y conservadora (r2 glm 5): el motor harvestea
+    "ventas gratis" (cost=0, revenue=0 pasa su cruce); la fabrica NO siembra
+    exact con revenue <= 0 — sembrar menos, jamas de mas."""
     if t.orders is None or t.orders < hygiene.HARVEST_ORDERS_MIN:
         return False
     if t.cost is None or t.revenue is None or t.revenue <= 0:
@@ -3094,7 +3106,7 @@ if __name__ == "__main__":
         sys.exit(2)
 ```
 
-Para que el archivo importe en esta tarea, agregar stubs explícitos que las tareas 7 y 9 reemplazan:
+Para que el archivo importe en esta tarea, agregar stubs explícitos que las tareas 7 y 9 reemplazan. **Layout innegociable del archivo: los stubs (y sus reemplazos de las tareas 7/8/9) van ANTES de `def main()`; el bloque `if __name__ == "__main__":` es SIEMPRE lo último del archivo.** `main()` despacha `_mutar`/`_desarmar`/`_reconciliar_cmd`/`_registrar_cmd`: si esas funciones quedan texturalmente DESPUÉS del guard, toda corrida real por stdin (`python - < tools/fabrica_campanas.py ...`) revienta con `NameError` (el guard ejecuta `main()` antes de que existan los nombres) mientras la suite — que importa el módulo completo — queda verde (cross-review r2 glm, hallazgo 1):
 
 ```python
 def _mutar(args, plan, huella) -> int:  # tarea 7
@@ -3108,6 +3120,8 @@ def _desarmar(args) -> int:  # tarea 9
 def _reconciliar_cmd(args) -> int:  # tarea 9
     raise Abortar("--reconciliar: pendiente de la tarea 9 del plan")
 ```
+
+El candado `test_fabrica_guard_main_es_lo_ultimo_del_archivo` de la tarea 10 pinea este layout.
 
 - [ ] **Step 4: Verde**
 
@@ -3132,7 +3146,7 @@ git commit -m "feat(fabrica): tools/fabrica_campanas.py — plan desde la base y
 
 **Interfaces:**
 - Consumes: `fp.pasos_del_rol`, `fp.VENDOR_POR_PATH`, `fp.ENVOLTURA_POR_PATH`, `fp.CLAVE_ID_POR_PATH`, `fp.LIST_POR_PATH`, `fp.FILTRO_ID_POR_LIST`, `fp.CONTENEDOR_POR_LIST`, `fp.ack_ok`, `fp.id_creado`, `fp.plan_como_json`; `AdsCredentials.from_secrets_dir`, `AdsClient.list_objects`, `evaluar_perfiles`; tablas `fabrica_lote`, `fabrica_lote_paso`.
-- Produces: `_mutar(args, plan, huella) -> int`, `_token_lwa(cred, http)`, `_perfiles(cliente_lectura)`, `_post(http, token, cred, profile, path, payload)`, `_readback(cliente_lectura, profile, path_create, external) -> dict | None`, `_inserta_lote`, `_inserta_paso`, `_sella_paso`, `_sella_lote`, `_ejecuta_rol(ctx, plan, rol) -> dict` (externos del rol: `{"rol": rol, "campaign": id, "ad_group": id, "product_ads": [...], "semillas": [...]}`), `_readback_cuadra(leido, payload) -> bool`, `_expresion_normalizada`, `_bid_readback_cuadra`, dataclass `_Ctx(http, token, cred, cliente_lectura, profile, conn_admin, lote)`. `_mutar` queda en su forma FINAL: token LWA ANTES de `_inserta_lote` (la intención durable se exige antes del primer POST de MUTACIÓN, no antes del token) y `_registrar(ctx, plan, creadas)` dentro de un `try` propio con `conn_admin.rollback()` ANTES del sello `failed` (la tarea 8 solo completa `_registrar`; en esta tarea es un stub que solo loguea).
+- Produces: `_mutar(args, plan, huella) -> int`, `_token_lwa(cred, http)`, `_perfiles(cliente_lectura)`, `_post(http, token, cred, profile, path, payload)`, `_readback(cliente_lectura, profile, path_create, external) -> dict | None`, `_inserta_lote`, `_inserta_paso`, `_sella_paso`, `_sella_lote`, `_ejecuta_rol(ctx, plan, rol) -> dict` (externos del rol: `{"rol": rol, "campaign": id, "ad_group": id, "product_ads": [...], "semillas": [...]}`), `_readback_cuadra(leido, payload) -> bool`, `_expresion_normalizada`, `_monto_wire_cuadra`, dataclass `_Ctx(http, token, cred, cliente_lectura, profile, conn_admin, lote)`. `_mutar` queda en su forma FINAL: token LWA ANTES de `_inserta_lote` (la intención durable se exige antes del primer POST de MUTACIÓN, no antes del token) y `_registrar(ctx, plan, creadas)` dentro de un `try` propio con `conn_admin.rollback()` ANTES del sello `failed` (la tarea 8 solo completa `_registrar`; en esta tarea es un stub que solo loguea).
 
 - [ ] **Step 1: Tests de mutación con MockTransport (fallan: `_mutar` es stub)**
 
@@ -3344,9 +3358,10 @@ def test_sin_perfil_aceptado_no_muta(monkeypatch, capsys):
 
 def test_readback_cuadra_exige_expresion_y_bid():
     """El readback verifica TAMBIEN la expresion del target (un ASIN distinto
-    no puede pasar) y el bid cuantizado (patron _bid_readback_cuadra de
-    archiva_inertes: quantize 2, HALF_EVEN, via str); bid ausente en el LIST
-    cuando el payload lo pedia = no cuadra (fail-closed)."""
+    no puede pasar) y TODO monto pedido (bid/defaultBid/budget.budget;
+    patron _bid_readback_cuadra de archiva_inertes: quantize 2, HALF_EVEN,
+    via str); monto ausente en el LIST cuando el payload lo pedia = no cuadra
+    (fail-closed)."""
     payload_t = {
         "expressionType": "MANUAL",
         "expression": [{"type": "ASIN_SAME_AS", "value": "B0X"}],
@@ -3367,6 +3382,18 @@ def test_readback_cuadra_exige_expresion_y_bid():
     leido_kw = {"keywordText": "k", "matchType": "PHRASE", "state": "ENABLED", "bid": 6.0}
     assert fc._readback_cuadra(leido_kw, payload_kw)
     assert not fc._readback_cuadra({**leido_kw, "matchType": "EXACT"}, payload_kw)
+    # r2 glm 4: defaultBid del ad group y budget.budget de la campana tambien se exigen
+    payload_ag = {"name": "g", "state": "ENABLED", "defaultBid": 4.5}
+    leido_ag = {"name": "g", "state": "ENABLED", "defaultBid": 4.5}
+    assert fc._readback_cuadra(leido_ag, payload_ag)
+    assert not fc._readback_cuadra({**leido_ag, "defaultBid": 4.0}, payload_ag)
+    assert not fc._readback_cuadra({"name": "g", "state": "ENABLED"}, payload_ag)
+    payload_c = {"name": "c", "state": "ENABLED", "budget": {"budgetType": "DAILY", "budget": 150.0}}
+    leido_c = {"name": "c", "state": "ENABLED", "budget": {"budgetType": "DAILY", "budget": 150.0}}
+    assert fc._readback_cuadra(leido_c, payload_c)
+    assert not fc._readback_cuadra(
+        {**leido_c, "budget": {"budgetType": "DAILY", "budget": 100.0}}, payload_c
+    )
 
 
 def test_fallo_de_registro_sella_failed_con_rollback_previo(monkeypatch, capsys):
@@ -3518,29 +3545,27 @@ def _expresion_normalizada(exp: Any) -> tuple:
     )
 
 
-def _bid_readback_cuadra(leido: dict, payload: dict) -> bool:
-    """Si el payload pedia bid, el LIST debe traerlo y cuadrar (patron
-    _bid_readback_cuadra de archiva_inertes: cuantizado a 2, HALF_EVEN, via
-    str — el wire viaja cuantizado por monto_wire). El LIST sin bid cuando se
-    pidio = NO cuadra (fail-closed; la sonda de la tarea 11 confirma que el
-    LIST devuelve bid con la misma escala)."""
-    if "bid" not in payload:
-        return True
-    crudo = leido.get("bid")
-    if crudo is None:
+def _monto_wire_cuadra(crudo_leido: Any, crudo_pedido: Any) -> bool:
+    """Monto del LIST contra el pedido (patron _bid_readback_cuadra de
+    archiva_inertes: cuantizado a 2, HALF_EVEN, via str — el wire viaja
+    cuantizado por monto_wire). Ausente o ilegible = NO cuadra (fail-closed;
+    la sonda de la tarea 11 confirma que el LIST devuelve los montos con la
+    misma escala)."""
+    if crudo_leido is None:
         return False
     try:
-        pedido = Decimal(str(payload["bid"])).quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
-        leido_bid = Decimal(str(crudo)).quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
+        pedido = Decimal(str(crudo_pedido)).quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
+        leido = Decimal(str(crudo_leido)).quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
     except (InvalidOperation, ValueError):
         return False
-    return leido_bid == pedido
+    return leido == pedido
 
 
 def _readback_cuadra(leido: dict | None, payload: dict) -> bool:
     """Vivo, ENABLED y con el texto/match/sku/nombre/targeting que se pidio;
-    en targets tambien la expresion (el ASIN), y si el payload traia bid, el
-    del LIST cuantizado (2, HALF_EVEN)."""
+    en targets tambien la expresion (el ASIN), y TODO monto pedido: `bid`,
+    `defaultBid` del ad group y `budget.budget` de la campana (r2 glm 4: un
+    objeto creado con otro monto no puede sellarse applied)."""
     if not isinstance(leido, dict) or leido.get("state") != fp.ESTADO_NUEVO:
         return False
     for clave in ("keywordText", "matchType", "sku", "name", "targetingType"):
@@ -3551,7 +3576,17 @@ def _readback_cuadra(leido: dict | None, payload: dict) -> bool:
         != _expresion_normalizada(payload["expression"])
     ):
         return False
-    return _bid_readback_cuadra(leido, payload)
+    for clave in ("bid", "defaultBid"):
+        if clave in payload and not _monto_wire_cuadra(leido.get(clave), payload[clave]):
+            return False
+    pedido_budget = payload.get("budget")
+    if isinstance(pedido_budget, dict) and "budget" in pedido_budget:
+        leido_budget = leido.get("budget")
+        if not isinstance(leido_budget, dict) or not _monto_wire_cuadra(
+            leido_budget.get("budget"), pedido_budget["budget"]
+        ):
+            return False
+    return True
 
 
 def _inserta_lote(conn, lote: str, plan: fp.PlanGrupo, huella: str, go: str) -> None:
@@ -3957,6 +3992,13 @@ def _registrar_cmd(args) -> int:
     plan_json, estado = fila
     if estado == "applied":
         raise Abortar(f"lote {args.registrar} ya esta applied: nada que registrar")
+    if estado == "desarmado":
+        # r2 glm: registrar un desarmado crearia goals enabled=true sobre
+        # campanas PAUSED y sellaria 'applied' un grupo pausado (fail-open).
+        raise Abortar(
+            f"lote {args.registrar} esta desarmado (campanas PAUSED): registrarlo "
+            "lo resucitaria a medias; si se quiere vivo, es decision nueva del dueno"
+        )
     pasos = conn_admin.execute(_SQL_CAMPANAS_APPLIED, (args.registrar,)).fetchall()
     conn_admin.commit()
     creadas: dict[str, dict] = {}
@@ -4052,6 +4094,7 @@ def test_registrar_cmd_doble_corrida_es_idempotente(monkeypatch):
                     (orden, c["rol"], recurso, ext),
                 )
         monkeypatch.setattr(fc, "connect", lambda dsn: conn)
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", "postgresql://fake")  # _dsn_admin aborta sin ella
         monkeypatch.setattr(fc.AdsCredentials, "from_secrets_dir", classmethod(lambda cls: _CREDS))
         monkeypatch.setattr(fc, "AdsClient", lambda cred: None)
         monkeypatch.setattr(fc, "evaluar_perfiles", lambda c: [_perfil()])
@@ -4079,6 +4122,17 @@ def test_registrar_cmd_doble_corrida_es_idempotente(monkeypatch):
             (grupo,),
         ).fetchone()[0]
         assert (n_roles, n_prods, n_goals) == (5, 1, 5)
+
+
+def test_registrar_rechaza_lote_desarmado(monkeypatch):
+    """r2 glm 3: `--registrar` sobre un lote 'desarmado' crearia goals
+    enabled=true sobre campanas PAUSED y sellaria 'applied' un grupo pausado
+    (fail-open). El guard lo rechaza antes de tocar nada."""
+    conn_admin = _ConnFalsa(lote_fila=({"x": 1}, "desarmado"))
+    _frontera_mutacion(monkeypatch, _ConnFalsa(), conn_admin, _Amazon())
+    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", "--registrar", "L9"])
+    with pytest.raises(fc.Abortar, match="desarmado"):
+        fc.main()
 ```
 
 - [ ] **Step 4: Verde**
@@ -4551,6 +4605,28 @@ def test_fabrica_campanas_solo_importa_lo_declarado():
     fuente = (RAIZ / "tools" / "fabrica_campanas.py").read_text(encoding="utf-8")
     for patron in ("__import__(", "import_module(", "app.apply"):
         assert patron not in fuente, f"tools/fabrica_campanas.py usa {patron!r}"
+
+
+def test_fabrica_guard_main_es_lo_ultimo_del_archivo():
+    """FABRICA 01 (r2 glm 1): el tool entra por stdin (`python - < file`) y
+    `main()` despacha funciones definidas mas abajo; si el bloque
+    `if __name__ == "__main__":` no es LO ULTIMO del archivo, toda corrida
+    real revienta con NameError mientras la suite (que importa el modulo
+    completo) queda verde. El guard va al final, siempre."""
+    lineas = [
+        linea
+        for linea in (RAIZ / "tools" / "fabrica_campanas.py")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if linea.strip() and not linea.strip().startswith("#")
+    ]
+    idx = next(
+        i for i, linea in enumerate(lineas) if linea.startswith('if __name__ == "__main__":')
+    )
+    resto = lineas[idx + 1 :]
+    assert all(linea.startswith((" ", "\t")) for linea in resto), (
+        f"codigo top-level despues del guard __main__ (linea {idx}): {resto}"
+    )
 
 
 def test_allowlist_fabrica_caza_import_de_escritura(tmp_path):
