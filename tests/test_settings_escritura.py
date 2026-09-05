@@ -416,6 +416,44 @@ def test_target_margen_del_ciclo_acepta_notes_como_string_json():
 
 
 @_skip_db
+def test_endpoint_post_settings_guarda_fila_nueva_y_409_si_base_obsoleta(tmp_path, monkeypatch):
+    """Camino feliz por HTTP: token + body -> fila NUEVA con label settings-ui,
+    la vieja intacta; repetir con la base ya superada -> 409 sin fila."""
+    with _db_con_rol_admin("orbit_cfg_http") as (conn, dsn_admin, _dsn_l):
+        id_viejo = conn.execute(
+            "INSERT INTO config_version (label, settings) VALUES (%s, %s) RETURNING id",
+            ("m", Json({CLAVE_TARGET: "20", CLAVE_FRACCION: "0.5", "ads_optimizer_mode": "live"})),
+        ).fetchone()[0]
+        _secrets_token(tmp_path, monkeypatch)
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
+        cliente = TestClient(app)
+        cuerpo = {
+            "base_config_version_id": id_viejo,
+            "margen": {"habilitado": False},
+            "caps": {"bid": 7},
+        }
+        resp = cliente.post(
+            f"/api/ads-optimizer/settings/{PLAT}", json=cuerpo, headers={"x-orbit-token": TOKEN}
+        )
+        assert resp.status_code == 200, resp.text
+        nuevo_id = resp.json()["config_version_id"]
+        assert nuevo_id > id_viejo and "settings-ui" in resp.json()["label"]
+        settings = conn.execute(
+            "SELECT settings FROM config_version WHERE id = %s", (nuevo_id,)
+        ).fetchone()[0]
+        assert CLAVE_FRACCION not in settings
+        assert settings[f"ads_apply_cap_{PLAT}_bid"] == "7"
+        assert settings["ads_optimizer_mode"] == "live"
+        # La misma base ya no es la vigente: 409 y ninguna fila mas.
+        resp = cliente.post(
+            f"/api/ads-optimizer/settings/{PLAT}", json=cuerpo, headers={"x-orbit-token": TOKEN}
+        )
+        assert resp.status_code == 409, resp.text
+        assert str(nuevo_id) in resp.json()["detail"]
+        assert conn.execute("SELECT count(*) FROM config_version").fetchone()[0] == 2
+
+
+@_skip_db
 def test_endpoint_post_settings_sin_ack_con_margen_422(tmp_path, monkeypatch):
     """E2 en el wire: target_manual con margen ON y sin ack_respaldo -> 422."""
     with _db_con_rol_admin("orbit_cfg_ack") as (conn, dsn_admin, _dsn_l):
