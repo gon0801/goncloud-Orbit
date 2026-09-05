@@ -104,9 +104,52 @@
 
 ## Phase 3 — Settings de ESCRITURA [lane:gate] — BLOQUEADA por ORBIT 04
 
+### Enmienda 2026-09-04 — convivencia con el target por margen (ORBIT 06)
+
+El plan original es de ANTES de ORBIT 06: hoy el target de plataforma lo
+puede gobernar el peldaño `margen_plataforma` (config 13, claves
+`ads_target_fraccion_margen_<plat>` en la config vigente). La cascada real
+(6 peldaños, `app/optimizer/goals.py` docstring): goal campaña → goal
+plataforma → **margen** → setting manual `ads_target_acos_pct_<plat>` →
+cache → default 55. La pantalla de settings tiene que decir esa verdad o
+repite el incidente de la pantalla que mentía (CORTES UI 01). Decisiones:
+
+- **E1 · Procedencia visible, no solo valores.** Por plataforma se muestra
+  el target VIGENTE y de qué peldaño sale. Reusa
+  `cascada_target_acos_con_procedencia` (ya existe, ORBIT 16 1.2): la capa
+  web la consume, jamás la reimplementa.
+- **E2 · Editar el setting manual con el margen encendido exige advertencia
+  previa**: «este valor NO gobierna mientras el target por margen esté
+  encendido; queda de respaldo para cuando lo apagues». Se declara ANTES de
+  guardar, no en la letra chica.
+- **E3 · El interruptor del margen ES la fracción**: clave presente =
+  peldaño encendido; ausente = apagado (abstención `sin_fraccion`, el motor
+  cae al setting manual). La pantalla lo ofrece como toggle + número en
+  (0, 1] EN LA MISMA pantalla de settings, junto al target manual, con la
+  verdad al lado: «apagado → gobierna el target manual». Al apagar, la
+  clave se OMITE en la config NUEVA (no se escribe NULL a medias: la
+  ausencia es el apagado, sellado A4/D-2.3.12).
+- **E4 · Goal de campaña pisa TODO, incluido el margen** (precedencia
+  sellada, incluido `enabled=false` como opt-out). La pantalla de override
+  dice a quién pisa («pisa al target por margen de la plataforma»).
+- **E5 · Escritura como manda el schema**: config = fila NUEVA de
+  `config_version` (append-only por trigger) con label legible
+  («settings UI · settings-ui · <fecha> · qué cambió» — el actor es el
+  literal `settings-ui`: el token ya es del dueño y la pantalla no pide
+  nombre); goal = UPDATE con `updated_at` explícito en el SQL. Auth = el token de escritura sellado 18
+  (`app/api_write.py`); cero escritura sin credencial. Server-rendered,
+  CSP `default-src 'self'` (JS solo en `/static`).
+- **E6 · Alcance de la v1**: se editan target manual por plataforma,
+  fracción del margen (toggle + valor), caps (8 claves), y de los goals:
+  target/enabled/floor/ceiling (plataforma y campaña). **NO se edita en v1**:
+  `ads_optimizer_mode` (la escalera off/shadow/live es operación de runbook,
+  no control diario — se MUESTRA de solo lectura) ni los campos harvest del
+  goal (`harvest_campaign_id`/`ad_group_id`/`default_bid`: ya sembrados;
+  cambiarlos es decisión aparte).
+
 | Task | 内容 | DoD | Depends | Status |
 |------|------|-----|---------|--------|
-| 3.1 | Con la auth propia de ORBIT 04: edición de settings respetando el schema sellado — **goal = UPDATE** (mutable por diseño, únicos parciales; historia vía `config_version` + `decision.inputs`) y **config de plataforma = fila NUEVA de `config_version`** (append-only por trigger); todo UPDATE de goal toca `updated_at` explícitamente en el SQL (no hay trigger que lo haga — historia falsa si se omite, afinación grok r2); pantalla de settings: target por plataforma, override por campaña (mostrando procedencia y a quién pisa), enabled, floor/ceiling; harvest config cuando el apply exista. CERO escritura antes de esa auth. `[tdd:required]` | Tests: sin credencial → rechazado; edición de goal = UPDATE visible en el ciclo siguiente con su rastro en `decision.inputs`; cambio de config = fila nueva (el trigger append-only lo exige); sign-off del dueño sobre la primera edición real; `ORBIT 16` → Done con notas completas al cerrar | ORBIT 04 | cc:TODO — **parqueada en el tracker**: vive en la tarea `ORBIT 16 — Dashboard del optimizador (lectura, VPN y settings)` (In progress). Es trabajo de OTRA fase, no deuda del preflight: no arrastra a ORBIT 05 ni lo bloquea |
+| 3.1 | Con la auth propia de ORBIT 04: edición de settings respetando el schema sellado — **goal = UPDATE** (mutable por diseño, únicos parciales; historia vía `config_version` + `decision.inputs`) y **config de plataforma = fila NUEVA de `config_version`** (append-only por trigger); todo UPDATE de goal toca `updated_at` explícitamente en el SQL (no hay trigger que lo haga — historia falsa si se omite, afinación grok r2); pantalla de settings: target por plataforma, override por campaña (mostrando procedencia y a quién pisa), enabled, floor/ceiling; harvest config cuando el apply exista. CERO escritura antes de esa auth. **+ Enmienda 2026-09-04 (E1-E6 de arriba): cascada con procedencia visible, advertencia al editar el manual bajo el margen, toggle de la fracción como interruptor del peldaño, alcance v1 sin `mode` ni campos harvest.** `[tdd:required]` | Tests: sin credencial → rechazado; edición de goal = UPDATE visible en el ciclo siguiente con su rastro en `decision.inputs`; cambio de config = fila nueva (el trigger append-only lo exige); con el margen encendido, editar el manual muestra la advertencia ANTES de guardar; apagar la fracción = config nueva SIN la clave y el resolver cae al manual (test del resolver: fracción ausente → abstención `sin_fraccion`); la pantalla muestra la procedencia del target vigente por plataforma; sign-off del dueño sobre la primera edición real; `ORBIT 16` → Done con notas completas al cerrar | ORBIT 04 | cc:TODO — **parqueada en el tracker**: vive en la tarea `ORBIT 16 — Dashboard del optimizador (lectura, VPN y settings)` (In progress). Es trabajo de OTRA fase, no deuda del preflight: no arrastra a ORBIT 05 ni lo bloquea |
 
 ## Priorización
 
