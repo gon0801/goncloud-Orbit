@@ -29,7 +29,7 @@ Preconditions:
 - **Partir de Resumen.** Corre `curl -sS "$BASE/"`. Status 200 y `data-pantalla="resumen"`.
 - **Seguir el nav.** Corre `curl -sS -D - "$BASE/contribucion"`. Status 200. El HTML contiene `data-pantalla="contribucion"`, `h2` `Contribucion por campana — rango pre-cargos (90d maduros)`, `href="/contribucion"` junto a `aria-current="page"`, y bloques `amazon_us` / `amazon_mx`.
 - **Leer el vacio de la semilla.** El HTML contiene `Sin campanas con actividad madura en la ventana.` No afirma un rango numerico contra esta semilla.
-- **Confirmar lado JSON.** Corre `curl -sS "$BASE/api/dashboard/contribucion"`. Status 200. `plataformas.amazon_us.filas` y `plataformas.amazon_mx.filas` son listas vacias. `ventana.desde` / `ventana.hasta` estan presentes (D-15 y D-15-89 UTC).
+- **Confirmar lado JSON.** Corre `curl -sS "$BASE/api/dashboard/contribucion"`. Status 200. `plataformas.amazon_us.filas` y `plataformas.amazon_mx.filas` son listas vacias. `plataformas.amazon_us.ventana.desde` / `.hasta` estan presentes (D-15-89 y D-15 UTC). No hay `ventana` en la raiz del JSON.
 - **Proof.** Guarda HTML de `/` y `/contribucion` mas el JSON bajo `evidence/<run_id>/contribucion/`.
 
 ## Gotchas

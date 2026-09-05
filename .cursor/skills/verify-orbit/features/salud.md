@@ -7,7 +7,7 @@ Salud muestra, por plataforma, el ultimo ciclo (status, mode, decisiones, applie
 - `salud-nav` abre `/salud` y marca `aria-current="page"`.
 - `salud-ciclo` muestra `#<id>`, started_at, `decisiones:` y `applies:` (el 0 de shadow es dato).
 - `salud-skips` dibuja `canvas#skips-<plataforma>` desde `script#datos-skips-<plataforma>`.
-- `salud-telegram` si `notes.telegram` existe, aparece `p.alerta` `telegram: fallo del canal`.
+- `salud-telegram` si `notes.telegram` existe, aparece `p.alerta` cuyo texto empieza `telegram: fallo del canal (` y lista las claves del dict (digest, …) `sin entregar — ver notes`. El chip `done` del h2 no pasa a alerta.
 - `salud-api` `GET /api/dashboard/salud` es el mismo snapshot.
 
 ## How to get to it (user POV)
@@ -29,8 +29,9 @@ Preconditions:
 
 ## Gotchas
 
+- El h3 dice `Historico (14d)`. El SQL es `ORDER BY id DESC LIMIT 14` (ultimos 14 ciclos, no 14 dias de calendario).
 - `applied_count=0` en shadow es el caso normal. Pintarlo como `—` fue un bug de presentacion.
 - Quota con `cap` null se muestra `— (sin clave)` o `— (config rota)`, nunca un tope 0 inventado.
-- La nota `telegram` es la unica visibilidad del canal caido. Si el JSON trae `notes.telegram` y el HTML no la muestra, es regresion.
+- La nota `telegram` es la unica visibilidad del canal caido. El HTML no es la frase corta `telegram: fallo del canal`: concatena las keys. Si el JSON trae `notes.telegram` y no hay `p.alerta`, es regresion. La semilla baseline no trae esa nota.
 - Watermark (`v_metric_latest`) y `synced_at` pueden ser `—` si no hay estado: eso es dato faltante, no fallo.
 - CAMPANA ACTIVA 01 agrego dos motivos de skip en `MOTIVOS_ES_SALUD` (`campana_no_enabled` → «Campana no habilitada…», `grupo_no_enabled` → «Ad group no habilitado…»). La semilla baseline sigue usando solo `estado_no_enabled`; si el JSON trae los nuevos, el canvas debe mostrar el `motivo_es` en español, no el id crudo.
