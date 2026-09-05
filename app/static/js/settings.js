@@ -22,36 +22,51 @@ function postJson(url, cuerpo) {
   });
 }
 
+// Solo viaja lo que el operador CAMBIO respecto a lo que el servidor pinto
+// (defaultValue/defaultChecked): reenviar el form entero pediria el ack por
+// un target que nadie toco y moveria updated_at de un goal sin edicion.
+// Un campo vaciado no viaja (la API no des-configura; None = no tocar).
+function cambio(el) {
+  if (!el) return false;
+  if (el.type === "checkbox") return el.checked !== el.defaultChecked;
+  return el.value.trim() !== el.defaultValue.trim() && el.value.trim() !== "";
+}
+
 function guardarConfig(form) {
   var estado = form.querySelector("[data-estado]");
   var plataforma = form.getAttribute("data-settings-config");
   var baseId = Number(form.getAttribute("data-config-id"));
-  var margenOn = form.elements.margen_habilitado && form.elements.margen_habilitado.checked;
-  var target = (form.elements.target_manual_pct.value || "").trim();
+  var target = form.elements.target_manual_pct;
+  var toggle = form.elements.margen_habilitado;
+  var fraccion = form.elements.fraccion;
+  var margenOn = toggle.checked;
   var ack = form.elements.ack_respaldo && form.elements.ack_respaldo.checked;
 
-  if (margenOn && target && !ack) {
+  if (margenOn && cambio(target) && !ack) {
     estado.textContent =
       "Marca el ack: el target manual NO gobierna mientras el margen este encendido.";
     return;
   }
 
-  var cuerpo = {
-    base_config_version_id: baseId,
-    ack_respaldo: !!ack,
-    margen: {
-      habilitado: !!margenOn,
-      fraccion: margenOn ? (form.elements.fraccion.value || null) : null,
-    },
-  };
-  if (target) cuerpo.target_manual_pct = target;
+  var cuerpo = { base_config_version_id: baseId, ack_respaldo: !!ack };
+  if (cambio(target)) cuerpo.target_manual_pct = target.value.trim();
+  if (cambio(toggle) || (margenOn && cambio(fraccion))) {
+    cuerpo.margen = margenOn
+      ? { habilitado: true, fraccion: fraccion.value.trim() || null }
+      : { habilitado: false };
+  }
 
   var caps = {};
   ["bid", "pause", "negative", "harvest"].forEach(function (kind) {
     var el = form.elements["cap_" + kind];
-    if (el && el.value !== "") caps[kind] = Number(el.value);
+    if (cambio(el)) caps[kind] = Number(el.value);
   });
   if (Object.keys(caps).length) cuerpo.caps = caps;
+
+  if (!cuerpo.target_manual_pct && !cuerpo.margen && !cuerpo.caps) {
+    estado.textContent = "Nada que cambiar.";
+    return;
+  }
 
   estado.textContent = "Enviando…";
   postJson("/api/ads-optimizer/settings/" + plataforma, cuerpo)
@@ -71,15 +86,16 @@ function guardarConfig(form) {
 function guardarGoal(form) {
   var estado = form.querySelector("[data-estado]");
   var goalId = form.getAttribute("data-settings-goal");
-  var cuerpo = {
-    enabled: !!(form.elements.enabled && form.elements.enabled.checked),
-  };
-  var t = (form.elements.target_acos_pct.value || "").trim();
-  var f = (form.elements.bid_floor.value || "").trim();
-  var c = (form.elements.bid_ceiling.value || "").trim();
-  if (t) cuerpo.target_acos_pct = t;
-  if (f) cuerpo.bid_floor = f;
-  if (c) cuerpo.bid_ceiling = c;
+  var cuerpo = {};
+  if (cambio(form.elements.enabled)) cuerpo.enabled = form.elements.enabled.checked;
+  ["target_acos_pct", "bid_floor", "bid_ceiling"].forEach(function (nombre) {
+    var el = form.elements[nombre];
+    if (cambio(el)) cuerpo[nombre] = el.value.trim();
+  });
+  if (!Object.keys(cuerpo).length) {
+    estado.textContent = "Nada que cambiar.";
+    return;
+  }
 
   estado.textContent = "Enviando…";
   postJson("/api/ads-optimizer/goals/" + goalId, cuerpo)

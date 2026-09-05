@@ -57,7 +57,7 @@
       <legend>Caps diarios</legend>
       {% for kind, valor in p.caps.items() %}
       <label>{{ kind }}
-        <input type="number" name="cap_{{ kind }}" min="0" value="{{ valor or '' }}">
+        <input type="number" name="cap_{{ kind }}" min="0" step="1" value="{{ valor or '' }}">
       </label>
       {% endfor %}
     </fieldset>
@@ -92,10 +92,17 @@
 
 <section class="tarjeta">
   <h3>Goals de campana</h3>
-  <p class="mutado">Un target de campana pisa al target por margen de la plataforma.</p>
+  <p class="mutado">
+    Un goal de campana pisa TODO lo de abajo (goal de plataforma, margen y
+    target manual), incluido enabled=false como opt-out; cada uno dice a
+    quien pisa hoy.
+  </p>
   {% for goal in datos.goals if goal.scope == "campaign" %}
   <form data-settings-goal="{{ goal.id }}">
-    <h4>Goal #{{ goal.id }} · {{ goal.plataforma or "?" }} · entidad {{ goal.ad_entity_id }}</h4>
+    <h4>
+      Goal #{{ goal.id }} · {{ goal.plataforma or "?" }} ·
+      {{ goal.nombre or "campana sin nombre" }} <span class="mutado">#{{ goal.ad_entity_id }}</span>
+    </h4>
     {% if goal.pisa_a %}<p class="alerta">{{ goal.pisa_a }}</p>{% endif %}
     <p class="mutado">mode (solo lectura): {{ goal.mode }}</p>
     <label>Target ACoS
