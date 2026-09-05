@@ -52,7 +52,6 @@ sesion).
 from __future__ import annotations
 
 import datetime as dt
-import json
 import logging
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Annotated, Literal
@@ -539,19 +538,14 @@ def _target_margen_del_ciclo(conn, plataforma: str) -> Decimal | None:
     ciclo, sin notes, sin bloque o con el peldano abstenido -> None y la
     cascada sigue como hoy (regla 3).
 
-    `notes` puede llegar como dict (jsonb tipado) o como string JSON (driver
-    sin codec): ambas formas se aceptan; sin eso la pantalla mentia
-    setting_plataforma mientras el motor ya gobernaba con margen."""
+    `notes` es TEXT de formato mixto (JSON del envelope o texto plano del
+    rastro): se parsea con `_parse_notes`, la MISMA rutina de /status y
+    /salud (decision 6, jamas dos copias). Comparar el valor crudo con dict
+    descartaba TODOS los ciclos y la pantalla mentia setting_plataforma
+    mientras el motor ya gobernaba con margen."""
     fila = conn.execute(_SQL_TARGET_MARGEN_ULTIMO, (plataforma,)).fetchone()
-    if not fila or fila[0] is None:
-        return None
-    notes = fila[0]
-    if isinstance(notes, str):
-        try:
-            notes = json.loads(notes)
-        except (TypeError, ValueError, json.JSONDecodeError):
-            return None
-    if not isinstance(notes, dict):
+    notes = _parse_notes(fila[0]) if fila else None
+    if notes is None:
         return None
     bloque = notes.get("target")
     if not isinstance(bloque, dict) or bloque.get("procedencia") != "margen_plataforma":
