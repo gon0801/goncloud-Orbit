@@ -52,6 +52,7 @@ sesion).
 from __future__ import annotations
 
 import datetime as dt
+import json
 import logging
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Annotated, Literal
@@ -536,11 +537,23 @@ def _target_margen_del_ciclo(conn, plataforma: str) -> Decimal | None:
     la plataforma (cross-review grok H3). Fuente UNICA: notes.target, lo que el
     ciclo resolvio — la web NO re-resuelve la vista ni el paso maximo. Sin
     ciclo, sin notes, sin bloque o con el peldano abstenido -> None y la
-    cascada sigue como hoy (regla 3)."""
+    cascada sigue como hoy (regla 3).
+
+    `notes` puede llegar como dict (jsonb tipado) o como string JSON (driver
+    sin codec): ambas formas se aceptan; sin eso la pantalla mentia
+    setting_plataforma mientras el motor ya gobernaba con margen."""
     fila = conn.execute(_SQL_TARGET_MARGEN_ULTIMO, (plataforma,)).fetchone()
-    if not fila or not isinstance(fila[0], dict):
+    if not fila or fila[0] is None:
         return None
-    bloque = fila[0].get("target")
+    notes = fila[0]
+    if isinstance(notes, str):
+        try:
+            notes = json.loads(notes)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
+    if not isinstance(notes, dict):
+        return None
+    bloque = notes.get("target")
     if not isinstance(bloque, dict) or bloque.get("procedencia") != "margen_plataforma":
         return None
     valor = bloque.get("target_aplicado")

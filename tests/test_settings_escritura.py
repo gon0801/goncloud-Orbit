@@ -394,6 +394,25 @@ def test_endpoint_get_settings_expone_procedencia_por_plataforma(monkeypatch):
         assert plats[PLAT]["margen_habilitado"] is False
 
 
+def test_target_margen_del_ciclo_acepta_notes_como_string_json():
+    """Regresion: notes jsonb a veces llega como str (driver sin codec).
+    Antes se descartaba y la UI mentia setting_plataforma (regla 9)."""
+    from app import api_dashboard as dash
+
+    class _Conn:
+        def execute(self, sql, params=None):
+            class _R:
+                def fetchone(self_inner):
+                    return (
+                        '{"target": {"procedencia": "margen_plataforma",'
+                        ' "target_aplicado": "19.5"}}',
+                    )
+
+            return _R()
+
+    assert dash._target_margen_del_ciclo(_Conn(), "amazon_us") == Decimal("19.5")
+
+
 @_skip_db
 def test_endpoint_post_settings_sin_ack_con_margen_422(tmp_path, monkeypatch):
     """E2 en el wire: target_manual con margen ON y sin ack_respaldo -> 422."""
