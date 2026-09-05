@@ -38,8 +38,7 @@ PLAT = "amazon_us"
 CLAVE_TARGET = f"ads_target_acos_pct_{PLAT}"
 CLAVE_FRACCION = f"ads_target_fraccion_margen_{PLAT}"
 ADVERTENCIA_RESPALDO = (
-    "este valor NO gobierna mientras el target por margen este encendido;"
-    " queda de respaldo"
+    "este valor NO gobierna mientras el target por margen este encendido; queda de respaldo"
 )
 
 
@@ -149,9 +148,7 @@ def test_proxima_config_no_toca_mode():
     import app.config_write as config_write
 
     actual = {"ads_optimizer_mode": "shadow", CLAVE_TARGET: "20"}
-    nuevo, _ = config_write.proxima_config(
-        actual, PLAT, target_manual_pct=Decimal("22")
-    )
+    nuevo, _ = config_write.proxima_config(actual, PLAT, target_manual_pct=Decimal("22"))
     assert nuevo["ads_optimizer_mode"] == "shadow"
 
 
@@ -283,16 +280,12 @@ def test_edicion_goal_desde_settings_actualiza_updated_at():
 
 
 @_skip_db
-def test_pagina_settings_muestra_procedencia_y_advertencia_con_margen():
+def test_pagina_settings_muestra_procedencia_y_advertencia_con_margen(monkeypatch):
     """E1 + E2: /settings muestra peldano vigente y la advertencia de respaldo
     cuando el margen esta encendido."""
     from test_api_dashboard import _campana, _config_version, _db_temporal, _goal_db
 
     with _db_temporal("orbit_set_ui") as (conn, dsn_read):
-        import os
-
-        from app.api import _conexion_lectura
-
         settings = {
             "ads_optimizer_mode": "live",
             CLAVE_TARGET: "20",
@@ -327,14 +320,9 @@ def test_pagina_settings_muestra_procedencia_y_advertencia_con_margen():
                 ),
             ),
         )
-        os.environ["ORBIT_DSN_READ"] = dsn_read
-        # Forzar que la dependencia use este DSN
-        from app import api as api_mod
-
-        # La UI usa ConexionLectura -> ORBIT_DSN_READ
-        client = TestClient(app)
-        # Monkeypatch connect via env already set; need app to pick it up
-        resp = client.get("/settings")
+        # La UI abre ConexionLectura -> ORBIT_DSN_READ (mismo patron que test_ui)
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn_read)
+        resp = TestClient(app).get("/settings")
         assert resp.status_code == 200, resp.text
         html = resp.text
         assert 'data-pantalla="settings"' in html
@@ -348,13 +336,11 @@ def test_pagina_settings_muestra_procedencia_y_advertencia_con_margen():
 
 
 @_skip_db
-def test_endpoint_get_settings_expone_procedencia_por_plataforma():
+def test_endpoint_get_settings_expone_procedencia_por_plataforma(monkeypatch):
     """GET /api/dashboard/settings trae peldano por plataforma (E1)."""
     from test_api_dashboard import _config_version, _db_temporal, _goal_db
 
     with _db_temporal("orbit_set_api") as (conn, dsn_read):
-        import os
-
         _config_version(
             conn,
             {
@@ -365,7 +351,7 @@ def test_endpoint_get_settings_expone_procedencia_por_plataforma():
         )
         _goal_db(conn, scope="platform", platform=PLAT, target=None)
         _goal_db(conn, scope="platform", platform="amazon_mx", target=None)
-        os.environ["ORBIT_DSN_READ"] = dsn_read
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn_read)
         resp = TestClient(app).get("/api/dashboard/settings")
         assert resp.status_code == 200, resp.text
         cuerpo = resp.json()
