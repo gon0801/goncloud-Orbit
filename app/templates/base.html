@@ -22,6 +22,7 @@
       <a href="/contribucion" {% if pantalla == "contribucion" %}aria-current="page"{% endif %}>Contribucion</a>
       <a href="/cortes" {% if pantalla == "cortes" %}aria-current="page"{% endif %}>Propuestas</a>
       <a href="/inertes" {% if pantalla == "inertes" %}aria-current="page"{% endif %}>Inertes</a>
+      <a href="/settings" {% if pantalla == "settings" %}aria-current="page"{% endif %}>Settings</a>
     </nav>
     <button type="button" id="btn-tema" aria-pressed="false">Tema: dia</button>
   </header>
@@ -31,5 +32,6 @@
   <script src="/static/vendor/chart.umd.min.js"></script>
   <script src="/static/js/dashboard.js"></script>
   <script src="/static/js/cortes.js"></script>
+  <script src="/static/js/settings.js"></script>
 </body>
 </html>

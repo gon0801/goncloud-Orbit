@@ -69,6 +69,7 @@ from app.api_common import (
     bloque_target_margen,
 )
 from app.apply import KINDS_QUOTA, estado_quota
+from app.config_write import ADVERTENCIA_RESPALDO, clave_cap, clave_fraccion
 from app.dashboard_contribucion import contribucion_campanas as _contribucion_campanas
 from app.dashboard_pagina import (
     _CAMPANA_ANCESTRO,
@@ -171,7 +172,7 @@ SELECT scope, ad_entity_id, platform, target_acos_pct, bid_floor, bid_ceiling,
 """
 
 _SQL_CONFIG_VIGENTE = """
-SELECT settings FROM config_version ORDER BY id DESC LIMIT 1
+SELECT id, settings FROM config_version ORDER BY id DESC LIMIT 1
 """
 
 # Motivos de DECISION -> espanol (decisión 11 del header): dict que IMPORTA
@@ -490,11 +491,18 @@ def _carga_goals(conn) -> tuple[dict[int, g.Goal], dict[str, g.Goal]]:
     return goals_campana, goals_plataforma
 
 
-def _config_vigente(conn) -> dict:
-    """settings de la config_version VIGENTE (la de mayor id); sin config ->
-    {} (el setting no gana y la cascada sigue a cache/default, regla 3)."""
+def _config_vigente_con_id(conn) -> tuple[int | None, dict]:
+    """(id, settings) de la config_version VIGENTE (la de mayor id); sin
+    config -> (None, {}) (el setting no gana y la cascada sigue a
+    cache/default, regla 3). El id es la base de la edicion optimista de
+    /settings (config_write.guarda_config)."""
     fila = conn.execute(_SQL_CONFIG_VIGENTE).fetchone()
-    return fila[0] if fila is not None else {}
+    return (fila[0], fila[1]) if fila is not None else (None, {})
+
+
+def _config_vigente(conn) -> dict:
+    """settings de la config_version VIGENTE (ver _config_vigente_con_id)."""
+    return _config_vigente_con_id(conn)[1]
 
 
 def _goal_estado(goal: g.Goal | None) -> dict | None:
@@ -1072,3 +1080,106 @@ def inertes(conn: ConexionLectura) -> dict:
         for fila in conn.execute(_SQL_LOTES_INERTES).fetchall()
     ]
     return {"totales": totales, "items": items, "lotes": lotes}
+
+
+# ---------------------------------------------------------------------------
+# 3.1 - /settings: la verdad de la cascada por plataforma + goals editables
+# ---------------------------------------------------------------------------
+
+# Goals CON id (la UI los edita via POST /api/ads-optimizer/goals/{id}) y la
+# plataforma/nombre de la campana para los de scope campaign (su fila trae
+# platform NULL por el CHECK del schema).
+_SQL_GOALS_SETTINGS = """
+SELECT g.id, g.scope, g.ad_entity_id, g.platform, g.target_acos_pct, g.bid_floor,
+       g.bid_ceiling, g.bid_currency, g.harvest_campaign_id, g.harvest_ad_group_id,
+       g.harvest_default_bid, g.enabled, g.mode, e.platform, e.name
+  FROM ads_optimizer_goal g
+  LEFT JOIN ad_entity e ON e.id = g.ad_entity_id
+ ORDER BY g.id
+"""
+
+# E4: el goal de campana pisa TODO lo de abajo (incluido el margen); la
+# pantalla dice a QUIEN pisa segun el peldano que gobierna la plataforma sin
+# ese goal. Peldano fuera del vocabulario -> KeyError ruidoso, no un texto
+# inventado.
+PISA_POR_PELDANO: dict[str, str] = {
+    "goal_plataforma": "pisa al goal de la plataforma",
+    "margen_plataforma": "pisa al target por margen de la plataforma",
+    "setting_plataforma": "pisa al target manual de la plataforma",
+    "cache_estado": "pisa al target cacheado del estado de Amazon",
+    "default": "pisa al default",
+}
+
+
+def _goal_editable(goal_id: int, goal: g.Goal, plataforma, nombre, pisa_a) -> dict:
+    """Goal con id y estado VIVO (_goal_estado) para el form de la pantalla.
+    Sin campos harvest: no se editan en v1 (E6)."""
+    return {
+        "id": goal_id,
+        "plataforma": plataforma,
+        "ad_entity_id": goal.ad_entity_id,
+        "nombre": nombre,
+        "target": _dec_str(goal.target_acos_pct),
+        "moneda": goal.bid_currency,
+        "pisa_a": pisa_a,
+        **_goal_estado(goal),
+    }
+
+
+@router.get("/settings")
+def settings(conn: ConexionLectura) -> dict:
+    """Lo que la pantalla /settings edita, con la verdad al lado (E1): por
+    plataforma el target VIGENTE y su peldano (la MISMA cascada del motor,
+    cascada_target_acos_con_procedencia, con el aplicado del margen del
+    ultimo ciclo), el target manual, el interruptor del margen (E3: clave
+    presente = encendido) con su fraccion, los caps y el goal de plataforma;
+    `modo_global` de SOLO lectura (E6; ausente -> null, jamas inventado); y
+    los goals con id y, en los de campana, a quien pisan (E4)."""
+    config_id, settings = _config_vigente_con_id(conn)
+    goals = [
+        (fila[0], _goal_desde_fila(fila[1:13]), fila[13], fila[14])
+        for fila in conn.execute(_SQL_GOALS_SETTINGS).fetchall()
+    ]
+    goal_plataforma = {
+        goal.platform: (goal_id, goal) for goal_id, goal, _, _ in goals if goal.scope == "platform"
+    }
+    plataformas: list[dict] = []
+    peldanos: dict[str, str] = {}
+    for plataforma in PLATAFORMAS_MONEDA:
+        goal_id, goal = goal_plataforma.get(plataforma, (None, None))
+        valor, peldano = g.cascada_target_acos_con_procedencia(
+            None, goal, settings, None, plataforma, _target_margen_del_ciclo(conn, plataforma)
+        )
+        peldanos[plataforma] = peldano
+        fraccion = settings.get(clave_fraccion(plataforma))
+        caps = {kind: settings.get(clave_cap(plataforma, kind)) for kind in KINDS_QUOTA}
+        plataformas.append(
+            {
+                "plataforma": plataforma,
+                "moneda": PLATAFORMAS_MONEDA[plataforma],
+                "target_vigente": {"valor": _dec_str(valor), "peldano": peldano},
+                "target_manual_pct": _dec_str(settings.get(g.clave_target_plataforma(plataforma))),
+                "margen_habilitado": fraccion is not None,
+                "fraccion_margen": _dec_str(fraccion),
+                "caps": {kind: _dec_str(cap) for kind, cap in caps.items()},
+                "goal": (_goal_editable(goal_id, goal, plataforma, None, None) if goal else None),
+            }
+        )
+    return {
+        "config_version_id": config_id,
+        "modo_global": settings.get(g.CLAVE_SETTING_MODO),
+        "advertencia_respaldo": ADVERTENCIA_RESPALDO,
+        "plataformas": plataformas,
+        "goals": [
+            _goal_editable(
+                goal_id,
+                goal,
+                goal.platform or plataforma_campana,
+                nombre,
+                PISA_POR_PELDANO[peldanos[plataforma_campana]]
+                if goal.scope == "campaign" and plataforma_campana in peldanos
+                else None,
+            )
+            for goal_id, goal, plataforma_campana, nombre in goals
+        ],
+    }
