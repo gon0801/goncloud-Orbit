@@ -47,14 +47,14 @@ import logging
 import os
 from decimal import Decimal
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Request
 from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
-from app import apply, goals_write
+from app import apply, config_write, goals_write
 from app.db import OrbitDbError, connect
 from app.redaction import install_scrub_filter, register_secret
 
@@ -185,6 +185,29 @@ class CuerpoGoal(BaseModel):
     harvest_ad_group_id: str | None = Field(default=None, min_length=1)
     harvest_default_bid: Decimal | None = Field(default=None, gt=0)
     harvest_limpia: bool = False
+
+
+class CuerpoMargen(BaseModel):
+    """Interruptor del peldano margen (E3): encendido lleva fraccion en
+    (0, 1]; apagado la omite (la clave desaparece de la config nueva)."""
+
+    habilitado: bool
+    fraccion: Decimal | None = Field(default=None, gt=0, le=1)
+
+
+class CuerpoSettings(BaseModel):
+    """Edicion de settings de UNA plataforma (DASHBOARD 01 3.1, E1-E6):
+    campos opcionales, None = no tocar. `base_config_version_id` es la config
+    sobre la que el operador edito (409 si ya no es la vigente);
+    `ack_respaldo` confirma la advertencia E2 al editar el manual con el
+    margen encendido. Caps por kind (KINDS_QUOTA) como enteros >= 0.
+    `ads_optimizer_mode` NO se acepta (E6): un extra se ignora."""
+
+    base_config_version_id: int = Field(ge=1)
+    target_manual_pct: Decimal | None = Field(default=None, gt=0)
+    margen: CuerpoMargen | None = None
+    caps: dict[str, Annotated[int, Field(ge=0)] | None] | None = None
+    ack_respaldo: bool = False
 
 
 # Transicion atomica del veto: el WHERE de estados ES la carrera contra el
@@ -342,3 +365,36 @@ def editar_goal(
         )
     except tuple(_ERRORES_GOAL) as exc:
         raise HTTPException(status_code=_ERRORES_GOAL[type(exc)], detail=str(exc)) from None
+
+
+_ERRORES_SETTINGS: dict[type[Exception], int] = {
+    config_write.SettingsInvalido: 422,
+    config_write.ConfigObsoleta: 409,
+}
+
+
+@router.post("/settings/{platform}")
+def editar_settings(
+    _token: Annotated[str, Depends(exige_token)],
+    conn: ConexionEscritura,
+    platform: Literal["amazon_us", "amazon_mx"],
+    cuerpo: CuerpoSettings,
+) -> dict:
+    """Edita los settings de una plataforma = fila NUEVA de config_version
+    (E5, append-only). DESPACHA a `config_write.guarda_config`, el UNICO
+    escritor de config_version de la app (regla 1). Respuesta:
+    {config_version_id, created, label}."""
+    try:
+        return config_write.guarda_config(
+            conn,
+            platform=platform,
+            base_config_version_id=cuerpo.base_config_version_id,
+            ahora=dt.datetime.now(dt.UTC),
+            target_manual_pct=cuerpo.target_manual_pct,
+            margen_habilitado=None if cuerpo.margen is None else cuerpo.margen.habilitado,
+            fraccion=None if cuerpo.margen is None else cuerpo.margen.fraccion,
+            caps=cuerpo.caps,
+            ack_respaldo=cuerpo.ack_respaldo,
+        )
+    except tuple(_ERRORES_SETTINGS) as exc:
+        raise HTTPException(status_code=_ERRORES_SETTINGS[type(exc)], detail=str(exc)) from None

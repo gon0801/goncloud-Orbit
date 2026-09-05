@@ -390,3 +390,14 @@ def pagina_cortes(request: Request, conn: ConexionLectura) -> HTMLResponse:
     return templates.TemplateResponse(
         request, "cortes.html", {"pantalla": "cortes", "items": datos["items"]}
     )
+
+
+@router.get("/settings", response_class=HTMLResponse)
+def pagina_settings(request: Request, conn: ConexionLectura) -> HTMLResponse:
+    """Settings de escritura (DASHBOARD 01 3.1, E1-E6): target vigente con
+    procedencia, caps, fraccion del margen y goals (sin harvest ni mode).
+    La escritura la dispara /static/js/settings.js con x-orbit-token."""
+    datos = dash.settings(conn=conn)
+    return templates.TemplateResponse(
+        request, "settings.html", {"pantalla": "settings", "datos": datos}
+    )

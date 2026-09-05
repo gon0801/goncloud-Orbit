@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block contenido %}
+<h2>Settings</h2>
+<p class="mutado">
+  Target vigente por plataforma con su procedencia (cascada). Editar config
+  escribe una fila NUEVA; editar un goal hace UPDATE. Auth: header
+  x-orbit-token (campo Token abajo). Mode global y harvest son solo lectura.
+</p>
+
+<p>
+  Config vigente: <code>{{ datos.config_version_id or "—" }}</code>
+  · Modo global (solo lectura): <strong>{{ datos.modo_global or "—" }}</strong>
+</p>
+
+<label>Token
+  <input type="password" id="settings-token" name="token" placeholder="x-orbit-token" required>
+</label>
+
+{% for p in datos.plataformas %}
+<section class="tarjeta" data-plataforma="{{ p.plataforma }}">
+  <h3>{{ p.plataforma }} <span class="mutado">({{ p.moneda }})</span></h3>
+  <p>
+    Target vigente:
+    <strong>{{ p.target_vigente.valor }}</strong>
+    · procedencia <code>{{ p.target_vigente.peldano }}</code>
+  </p>
+
+  <form data-settings-config="{{ p.plataforma }}" data-config-id="{{ datos.config_version_id }}">
+    {% if p.margen_habilitado %}
+    <p class="alerta" data-advertencia-respaldo>
+      {{ datos.advertencia_respaldo }}
+    </p>
+    <label>
+      <input type="checkbox" name="ack_respaldo" value="true">
+      Entiendo: este valor NO gobierna mientras el margen este encendido (queda de respaldo)
+    </label>
+    {% endif %}
+
+    <label>Target manual (respaldo)
+      <input type="text" name="target_manual_pct" value="{{ p.target_manual_pct or '' }}" inputmode="decimal">
+    </label>
+
+    <fieldset>
+      <legend>Margen (fraccion)</legend>
+      <label>
+        <input type="checkbox" name="margen_habilitado" value="true"
+          {% if p.margen_habilitado %}checked{% endif %}>
+        Encendido
+      </label>
+      <label>Fraccion (0, 1]
+        <input type="text" name="fraccion" value="{{ p.fraccion_margen or '' }}" inputmode="decimal">
+      </label>
+      <p class="mutado">Apagado → gobierna el target manual.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Caps diarios</legend>
+      {% for kind, valor in p.caps.items() %}
+      <label>{{ kind }}
+        <input type="number" name="cap_{{ kind }}" min="0" step="1" value="{{ valor or '' }}">
+      </label>
+      {% endfor %}
+    </fieldset>
+
+    <button type="submit">Guardar config {{ p.plataforma }}</button>
+    <span data-estado class="mutado"></span>
+  </form>
+
+  {% if p.goal %}
+  <form data-settings-goal="{{ p.goal.id }}">
+    <h4>Goal de plataforma #{{ p.goal.id }}</h4>
+    <p class="mutado">mode (solo lectura): {{ p.goal.mode }}</p>
+    <label>Target ACoS
+      <input type="text" name="target_acos_pct" value="{{ p.goal.target or '' }}">
+    </label>
+    <label>
+      <input type="checkbox" name="enabled" value="true" {% if p.goal.enabled %}checked{% endif %}>
+      Enabled
+    </label>
+    <label>Floor
+      <input type="text" name="bid_floor" value="{{ p.goal.floor or '' }}">
+    </label>
+    <label>Ceiling
+      <input type="text" name="bid_ceiling" value="{{ p.goal.ceiling or '' }}">
+    </label>
+    <button type="submit">Guardar goal plataforma</button>
+    <span data-estado class="mutado"></span>
+  </form>
+  {% endif %}
+</section>
+{% endfor %}
+
+<section class="tarjeta">
+  <h3>Goals de campana</h3>
+  <p class="mutado">
+    Un goal de campana pisa TODO lo de abajo (goal de plataforma, margen y
+    target manual), incluido enabled=false como opt-out; cada uno dice a
+    quien pisa hoy.
+  </p>
+  {% for goal in datos.goals if goal.scope == "campaign" %}
+  <form data-settings-goal="{{ goal.id }}">
+    <h4>
+      Goal #{{ goal.id }} · {{ goal.plataforma or "?" }} ·
+      {{ goal.nombre or "campana sin nombre" }} <span class="mutado">#{{ goal.ad_entity_id }}</span>
+    </h4>
+    {% if goal.pisa_a %}<p class="alerta">{{ goal.pisa_a }}</p>{% endif %}
+    <p class="mutado">mode (solo lectura): {{ goal.mode }}</p>
+    <label>Target ACoS
+      <input type="text" name="target_acos_pct" value="{{ goal.target or '' }}">
+    </label>
+    <label>
+      <input type="checkbox" name="enabled" value="true" {% if goal.enabled %}checked{% endif %}>
+      Enabled
+    </label>
+    <label>Floor
+      <input type="text" name="bid_floor" value="{{ goal.floor or '' }}">
+    </label>
+    <label>Ceiling
+      <input type="text" name="bid_ceiling" value="{{ goal.ceiling or '' }}">
+    </label>
+    <button type="submit">Guardar goal campana</button>
+    <span data-estado class="mutado"></span>
+  </form>
+  {% else %}
+  <p class="mutado">sin goals de campana</p>
+  {% endfor %}
+</section>
+{% endblock %}
