@@ -571,6 +571,22 @@ Regímenes de lectura, explícitos (reemplazan al "todo lee lo maduro"):
   La vista SOLO MIDE: fracción, banda [10, 45] (clampea) y paso ±0.5 viven
   en `goals.resuelve_target_margen`; el ciclo la lee UNA vez por ciclo
   en TX2.
+- **Migración `0018` (FABRICA 01)** — grupos de campañas creados por
+  `tools/fabrica_campanas.py`: `campana_grupo` (target CONGELADO al crear =
+  clamp(fracción × margen mínimo, [10, 45]) con `target_procedencia`),
+  `campana_grupo_rol` (EL vínculo campaña↔grupo; `UNIQUE(ad_entity_id)`;
+  guarda también el ad group; trigger `campana_grupo_rol_kinds`),
+  `campana_grupo_producto` (snapshot de margen y `seller_sku`),
+  `keyword_biblioteca`/`negative_biblioteca` por `(tipo_producto, platform,
+  texto)` (F1 lee; F2 escribe), `harvest_excepcion` (schema; se puebla en
+  F2), ledger `fabrica_lote`/`fabrica_lote_paso` (patrón
+  `keyword_archivo_manual`: `planeado` antes del HTTP, `applied` exige
+  external+ack+readback). **`v_margen_producto`**: la maquinaria de
+  `v_target_margen_plataforma` con grano `ledger_event.product_id`; cargos
+  con `order_id` prorrateados por el monto del producto dentro de su orden,
+  sin `order_id` por participación en la venta de la plataforma; mismos
+  guards → `margen_neto_pct` NULL (regla 3). La escribe `app_admin`;
+  `app_decide` solo lee (`campana_grupo_rol` es el destino de harvest de F2).
 
 ## Roles y candados
 

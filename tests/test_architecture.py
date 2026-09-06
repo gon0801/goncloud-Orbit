@@ -491,6 +491,112 @@ def test_allowlist_snapshot_caza_import_de_escritura(tmp_path):
     assert "app.ads.write" in extras and "app.ads.write.AdsWriteClient" in extras
 
 
+# FABRICA 01 (plans/fabrica-01.md tarea 10): allowlist POSITIVA de los imports
+# de runtime de tools/fabrica_campanas.py (mismo trato que snapshot_listas).
+# El tool MUTA Amazon con HTTP propio: jamas app.ads.write (candado
+# test_imports_del_cliente_de_escritura_acotados) y sus escrituras internas
+# van SOLO por los caminos unicos: app.goals_write (goals) y
+# app.ads.structure.sync_structure (ad_entity). Ampliarla = editar este
+# archivo a proposito. D-GLM-7-10-7: lista = imports REALES post 7-9.
+ALLOWLIST_IMPORTS_FABRICA_CAMPANAS = frozenset(
+    {
+        "__future__",
+        "__future__.annotations",
+        "argparse",
+        "contextlib",
+        "dataclasses",
+        "dataclasses.dataclass",
+        "datetime",
+        "decimal",
+        "decimal.Decimal",
+        "decimal.InvalidOperation",
+        "decimal.ROUND_HALF_EVEN",
+        "json",
+        "logging",
+        "os",
+        "sys",
+        "time",
+        "typing",
+        "typing.Any",
+        "httpx",
+        "psycopg",
+        "psycopg.rows",
+        "psycopg.rows.tuple_row",
+        "app",
+        "app.fabrica_plan",
+        "app.goals_write",
+        "app.ads.client",
+        "app.ads.client.DEFAULT_BASE_URL",
+        "app.ads.client.AdsClient",
+        "app.ads.config",
+        "app.ads.config.AdsCredentials",
+        "app.ads.structure",
+        "app.ads.structure.evaluar_perfiles",
+        "app.ads.structure.fetch_structure",
+        "app.ads.structure.sync_structure",
+        "app.db",
+        "app.db.connect",
+        "app.optimizer.goals",
+        "app.optimizer.goals.fraccion_desde_settings",
+        "app.redaction",
+        "app.redaction.install_scrub_filter",
+        "app.redaction.register_secret",
+        "app.redaction.scrub",
+    }
+)
+
+
+def test_fabrica_campanas_solo_importa_lo_declarado():
+    extras = (
+        _imports_runtime(RAIZ / "tools" / "fabrica_campanas.py")
+        - ALLOWLIST_IMPORTS_FABRICA_CAMPANAS
+    )
+    assert not extras, (
+        f"tools/fabrica_campanas.py importa por fuera de su allowlist: {sorted(extras)} — "
+        "ampliar ALLOWLIST_IMPORTS_FABRICA_CAMPANAS exige editar tests/test_architecture.py"
+    )
+    assert "tools/fabrica_campanas.py" not in PERMITIDOS_IMPORTAR_ADS_WRITE
+    fuente = (RAIZ / "tools" / "fabrica_campanas.py").read_text(encoding="utf-8")
+    for patron in ("__import__(", "import_module(", "app.apply"):
+        assert patron not in fuente, f"tools/fabrica_campanas.py usa {patron!r}"
+
+
+def test_fabrica_guard_main_es_lo_ultimo_del_archivo():
+    """FABRICA 01: el tool entra por stdin (`python - < file`) y main()
+    despacha funciones definidas mas abajo; el guard __main__ es LO ULTIMO."""
+    lineas = [
+        linea
+        for linea in (RAIZ / "tools" / "fabrica_campanas.py")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if linea.strip() and not linea.strip().startswith("#")
+    ]
+    idx = next(
+        i for i, linea in enumerate(lineas) if linea.startswith('if __name__ == "__main__":')
+    )
+    resto = lineas[idx + 1 :]
+    assert all(linea.startswith((" ", "\t")) for linea in resto), (
+        f"codigo top-level despues del guard __main__ (linea {idx}): {resto}"
+    )
+
+
+def test_allowlist_fabrica_caza_import_de_escritura(tmp_path):
+    """Regla 9: la copia del tool con `from app.ads.write import AdsWriteClient`
+    queda fuera de la allowlist Y dispara el candado general."""
+    fuente = (RAIZ / "tools" / "fabrica_campanas.py").read_text(encoding="utf-8")
+    fuga = tmp_path / "fabrica_fuga.py"
+    fuga.write_text(fuente + "from app.ads.write import AdsWriteClient\n", encoding="utf-8")
+    imp = _imports_runtime(fuga)
+    assert "app.ads.write" in _violaciones(imp, ("app.ads.write",))
+    assert "app.ads.write" in imp - ALLOWLIST_IMPORTS_FABRICA_CAMPANAS
+
+
+def test_fabrica_plan_es_puro():
+    """app/fabrica_plan.py no importa IO (misma frontera que el motor)."""
+    fugas = _violaciones(_imports_runtime(RAIZ / "app" / "fabrica_plan.py"), PROHIBIDOS_MOTOR)
+    assert not fugas, f"app/fabrica_plan.py debe ser puro: {fugas}"
+
+
 # ---------------------------------------------------------------------------
 # UNA SOLA FUENTE DE MONEDA POR PLATAFORMA (correccion del lead, ORBIT 06 0.2)
 # ---------------------------------------------------------------------------
