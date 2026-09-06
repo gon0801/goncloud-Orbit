@@ -254,6 +254,183 @@ COMMENT ON FUNCTION harvest_excepcion_kind IS
   'sola admite cualquier entidad).';
 
 -- ---------------------------------------------------------------------------
+-- v_margen_producto: v_target_margen_plataforma (0016) con grano product_id.
+--   ventas: solo lineas con product_id; cobertura por MONTO; COGS vigente a
+--           la fecha en la MISMA moneda (o la linea es NO cubierta).
+--   cargos con order_id: pertenecen a su orden (sin filtro de fecha propio,
+--           A5) y se PRORRATEAN a cada producto por su monto de venta dentro
+--           de la orden (spec §8), contando solo lineas CUBIERTAS.
+--   cargos sin order_id: de plataforma, en ventana, prorrateados por la
+--           participacion de la venta cubierta del producto en la venta
+--           total de la plataforma.
+--   guards de la plataforma (moneda unica, fees_sin_tipo = 0,
+--           cobertura >= 0.95, cubierta > 0) + guard PROPIO dias >= 30 sobre
+--           la ventana [2026-02-20, D-15) con arranque FIJO (decision escrita
+--           del dueno, tarea 1; pineados contra app/fabrica_plan.py por test)
+--           -> margen NULL.
+--   ads (fee_type = 'ads') EXCLUIDO: es el numerador del ACoS del motor.
+--   fees_sin_tipo es un COUNT de GUARD fail-loud, NO dinero: se infla cuando
+--           una orden trae varias lineas de cargo del mismo producto (cuenta
+--           lineas, no montos). Es intencional: cualquier fee sin tipo anula
+--           el margen (NULL); no hay doble conteo de dinero.
+--   cargos_con_orden/cargos_sin_orden/cogs publican 0 por COALESCE cuando no
+--           hay cargos (igual que v_target_margen_plataforma): esas columnas
+--           MIDEN y no son NULL-aware; el MARGEN si va NULL ante cada guard.
+-- ---------------------------------------------------------------------------
+CREATE VIEW v_margen_producto AS
+WITH ventana AS (
+    -- arranque FIJO 2026-02-20 (= al primer valid_from de sku_cost; decision
+    -- escrita del dueno, tarea 1). Es un literal, NO se deriva de sku_cost.
+    SELECT DATE '2026-02-20' AS desde, CURRENT_DATE - 15 AS hasta
+),
+ventas AS (
+    SELECT l.platform, l.product_id, l.event_date, l.order_id,
+           l.amount, l.amount_currency,
+           CASE WHEN c.id IS NOT NULL AND c.cost_currency = l.amount_currency
+                THEN c.cost_amount * l.quantity END AS cogs_linea
+      FROM ledger_event l
+      CROSS JOIN ventana v
+      LEFT JOIN sku_cost c
+        ON c.product_id = l.product_id
+       AND l.event_date >= c.valid_from
+       AND (c.valid_to IS NULL OR l.event_date < c.valid_to)
+     WHERE l.kind = 'sale' AND l.product_id IS NOT NULL
+       AND l.event_date >= v.desde AND l.event_date < v.hasta
+),
+orden_cubierta AS (
+    -- venta cubierta por orden: base del prorrateo de sus cargos. n_monedas:
+    -- guard del DENOMINADOR (r3 codex 2): una orden con lineas cubiertas en
+    -- dos monedas no puede prorratear (regla 4 — NULL, no suma a ciegas).
+    SELECT platform, order_id, SUM(amount) AS venta_orden,
+           COUNT(DISTINCT amount_currency) AS n_monedas
+      FROM ventas
+     WHERE order_id IS NOT NULL AND cogs_linea IS NOT NULL
+     GROUP BY platform, order_id
+),
+cargos_orden AS (
+    SELECT l.platform, l.order_id,
+           SUM(l.amount) AS monto,
+           COUNT(DISTINCT l.amount_currency) AS n_monedas,
+           MAX(l.amount_currency::text) AS moneda,
+           COUNT(*) FILTER (WHERE l.fee_type IS NULL) AS fees_sin_tipo
+      FROM ledger_event l
+      JOIN orden_cubierta o ON o.platform = l.platform AND o.order_id = l.order_id
+     WHERE l.kind IN ('fee', 'refund', 'withholding')
+       AND COALESCE(l.fee_type, '') <> 'ads'
+     GROUP BY l.platform, l.order_id
+),
+cargos_producto AS (
+    SELECT v.platform, v.product_id,
+           SUM(co.monto * v.amount / o.venta_orden) AS cargos_con_orden,
+           SUM(co.fees_sin_tipo) AS fees_sin_tipo,
+           -- COUNT DISTINCT (no MAX del conteo por orden): fees del producto en
+           -- dos monedas, AUN en ordenes distintas, no pueden sumarse (regla 4;
+           -- D-3 review PR #172 -- MAX(moneda) era lexicografico y fail-open).
+           COUNT(DISTINCT co.moneda) AS n_monedas_cargos,
+           MAX(o.n_monedas) AS n_monedas_orden,
+           MAX(co.moneda) AS moneda_cargos
+      FROM ventas v
+      JOIN orden_cubierta o ON o.platform = v.platform AND o.order_id = v.order_id
+      JOIN cargos_orden co ON co.platform = v.platform AND co.order_id = v.order_id
+     WHERE v.cogs_linea IS NOT NULL
+     GROUP BY v.platform, v.product_id
+),
+plataforma AS (
+    SELECT l.platform,
+           SUM(l.amount) AS monto_sin_orden,
+           COUNT(*) FILTER (WHERE l.fee_type IS NULL) AS fees_sin_tipo,
+           COUNT(DISTINCT l.amount_currency) AS n_monedas,
+           MAX(l.amount_currency::text) AS moneda
+      FROM ledger_event l
+      CROSS JOIN ventana v
+     WHERE l.kind IN ('fee', 'refund', 'withholding')
+       AND COALESCE(l.fee_type, '') <> 'ads'
+       AND l.order_id IS NULL
+       AND l.event_date >= v.desde AND l.event_date < v.hasta
+     GROUP BY l.platform
+),
+venta_plataforma AS (
+    -- n_monedas: guard del DENOMINADOR (r3 codex 2): el sistema viejo
+    -- reportaba MXN hasta en amazon_us; con ventas de la plataforma en dos
+    -- monedas la fraccion no puede calcularse (regla 4).
+    SELECT platform, SUM(amount) AS venta_total,
+           COUNT(DISTINCT amount_currency) AS n_monedas
+      FROM ventas GROUP BY platform
+),
+ag AS (
+    SELECT platform, product_id,
+           SUM(amount) AS venta_total,
+           SUM(amount) FILTER (WHERE cogs_linea IS NOT NULL) AS venta_cubierta,
+           SUM(cogs_linea) AS cogs_conocido,
+           COUNT(DISTINCT event_date) AS dias_con_venta,
+           COUNT(DISTINCT amount_currency) AS n_monedas,
+           MAX(amount_currency) AS moneda_unica
+      FROM ventas
+     GROUP BY platform, product_id
+),
+fresco AS (
+    SELECT MAX(started_at) AS ledger_fresco_at
+      FROM ingest_run
+     WHERE source = 'accounting_ledger_events' AND ok
+)
+SELECT a.platform,
+       a.product_id,
+       (SELECT desde FROM ventana) AS ventana_desde,
+       (SELECT hasta FROM ventana) AS ventana_hasta,
+       a.venta_total,
+       a.venta_cubierta,
+       COALESCE(cp.cargos_con_orden, 0) AS cargos_con_orden,
+       COALESCE(p.monto_sin_orden, 0) * COALESCE(a.venta_cubierta, 0)
+           / NULLIF(vp.venta_total, 0) AS cargos_sin_orden,
+       COALESCE(a.cogs_conocido, 0) AS cogs,
+       CASE WHEN a.venta_total > 0 THEN COALESCE(a.venta_cubierta, 0) / a.venta_total END
+           AS cobertura,
+       a.dias_con_venta,
+       COALESCE(cp.fees_sin_tipo, 0) + COALESCE(p.fees_sin_tipo, 0) AS fees_sin_tipo,
+       CASE
+           WHEN a.n_monedas <> 1 THEN NULL
+           WHEN COALESCE(cp.n_monedas_cargos, 0) > 1 OR COALESCE(p.n_monedas, 0) > 1 THEN NULL
+           WHEN cp.moneda_cargos IS NOT NULL AND cp.moneda_cargos <> a.moneda_unica::text THEN NULL
+           WHEN p.moneda IS NOT NULL AND p.moneda <> a.moneda_unica::text THEN NULL
+           WHEN COALESCE(cp.fees_sin_tipo, 0) + COALESCE(p.fees_sin_tipo, 0) > 0 THEN NULL
+           WHEN a.venta_cubierta IS NULL OR a.venta_cubierta <= 0 THEN NULL
+           WHEN a.venta_cubierta / NULLIF(a.venta_total, 0) < 0.95 THEN NULL
+           WHEN a.dias_con_venta < 30 THEN NULL
+           WHEN COALESCE(cp.n_monedas_orden, 0) > 1 THEN NULL
+           WHEN vp.n_monedas > 1 THEN NULL
+           ELSE 100.0 * (a.venta_cubierta
+                + COALESCE(cp.cargos_con_orden, 0)
+                + COALESCE(p.monto_sin_orden, 0) * a.venta_cubierta / NULLIF(vp.venta_total, 0)
+                - COALESCE(a.cogs_conocido, 0)) / a.venta_cubierta
+       END AS margen_neto_pct,
+       fr.ledger_fresco_at,
+       CASE WHEN a.n_monedas = 1 THEN a.moneda_unica END AS moneda
+  FROM ag a
+  JOIN venta_plataforma vp ON vp.platform = a.platform
+  CROSS JOIN fresco fr
+  LEFT JOIN cargos_producto cp ON cp.platform = a.platform AND cp.product_id = a.product_id
+  LEFT JOIN plataforma p ON p.platform = a.platform;
+
+COMMENT ON VIEW v_margen_producto IS
+  'FABRICA 01 §4/§8: margen neto % POR PRODUCTO con la maquinaria de '
+  'v_target_margen_plataforma (0016) salvo la ventana: [2026-02-20, D-15) UTC '
+  '(arranque fijo, decision escrita del dueno 2026-09-05), COGS a la '
+  'fecha en la misma moneda, cobertura por monto, cargos no-ads con order_id '
+  'prorrateados por el monto del producto dentro de su orden (solo lineas '
+  'cubiertas), cargos sin order_id prorrateados por la participacion del '
+  'producto en la venta de la plataforma. NULL ante mezcla de moneda '
+  '(incluidos los DENOMINADORES del prorrateo: la orden cubierta o la venta '
+  'total de la plataforma en mas de una moneda — regla 4), '
+  'fees_sin_tipo > 0, cobertura < 0.95, dias < 30 o cubierta <= 0 (regla 3). '
+  'fees_sin_tipo es un COUNT de guard fail-closed (se infla con varias '
+  'lineas de cargo de una misma orden; intencional, no es dinero). Las '
+  'columnas cargos_*/cogs publican 0 por COALESCE (miden); solo el margen '
+  'usa NULL. Solo MIDE: el target del grupo lo deriva app/fabrica_plan.py y '
+  'queda congelado en campana_grupo.';
+
+GRANT SELECT ON v_margen_producto TO app_read, app_ingest, app_decide, app_admin;
+
+-- ---------------------------------------------------------------------------
 -- GRANTs: app_admin escribe (la fabrica corre con ORBIT_DSN_ADMIN); el motor
 -- (app_decide) y la lectura solo leen. USAGE SOLO de las secuencias de las
 -- tablas nuevas y SOLO para app_admin (el unico que inserta; app_ingest y
