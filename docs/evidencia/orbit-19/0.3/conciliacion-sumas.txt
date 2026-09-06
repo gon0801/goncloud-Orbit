@@ -28,8 +28,11 @@ delta_clicks=0
 delta_impressions=-1
 
 sales30d gzip (3427.58) vs ad_revenue campana (1972.41) y purchases 2 vs orders 1:
-no se igualan. La columna 30d sigue creciendo; el gzip se pidio ~3h despues
-del watermark de campana. Cost/clicks (estables) si se concilian.
+Gasto y clics estan conciliados; ventas y compras difieren y no estan
+conciliadas. La actualizacion de atribucion es una hipotesis, no demostrada
+con esta muestra. No se registro aqui la fecha de observacion del agregado
+de campana; la hora del SELECT no acredita la antiguedad de ese dato.
+La causa de la diferencia sigue pendiente de verificar.
 
 Cobertura de ausentes: no demostrada. 767 filas vs 7709 product_ad MX.
 El gzip es solo-actividad. COMPLETED no prueba «sin actividad».

@@ -2,8 +2,9 @@
 
 Estado: **cerrada**. Ads MX **verificada** en 0.3 (forma, permisos,
 cost/clicks; `conciliacion-sumas.txt`). Residual `delta_impressions=-1`.
-`sales30d` no igualadas (vintage). D1–D4 cerradas (0.2). No bloquea la
-fase A. B.1 implementa la ingesta y reconcilia la tabla persistida; no
+Ventas y compras sin conciliar; actualizacion de atribucion como hipotesis
+no demostrada (falta la fecha de observacion del agregado de campana).
+D1–D4 cerradas (0.2). No bloquea la fase A. B.1 implementa la ingesta y reconcilia la tabla persistida; no
 es candado de esta politica. Por probar no se asigna hasta cobertura
 demostrada (regla cerrada, no tarea abierta de 0.4).
 

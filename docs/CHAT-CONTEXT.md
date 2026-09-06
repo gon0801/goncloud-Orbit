@@ -4,6 +4,12 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-06 — ORBIT 19: precision documental tras review del bloque 1.**
+Gasto y clics conciliados; ventas y compras siguen sin conciliar. La
+actualizacion de atribucion es una hipotesis, no una causa demostrada.
+Se retira la diferencia temporal no acreditada de ~3h. Sin cambios de
+codigo ni inicio del bloque 2.
+
 **2026-09-06 — ORBIT 19: gzip conciliado; 0.4 cerrada; B.1 puede arrancar.**
 Ads MX verificada: cost/clicks delta 0, impressions -1. Ausente = Sin datos.
 0.4 no espera B.1. PR #185 se actualiza con esta rama para CI.
