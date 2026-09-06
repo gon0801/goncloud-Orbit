@@ -1,0 +1,3 @@
+cuando|etapa|decision|por_que|evidencia|resultado
+2026-09-06T04:49:48Z|verify|Verifier PASS: 42 test_fabrica_campanas + 4 architecture fabrica; #176 dry-run closes intactos; sin app.ads.write|Evidencia local del verifier antes de reviewer y PR; CI completa al abrir PR|pytest test_fabrica_campanas 42 passed; architecture -k fabrica 4 passed; ruff clean; commits 3014204 5a46d74|ok
+2026-09-06T04:53:44Z|verify|Adversary 4 findings (1 high, 2 medium, 1 low): POST incierto sin external; readback sin padres/budgetType; reconciliar lote+plataforma cruzados exit 0; registrar salta goals disabled|Obligatorio por datos preexistentes/goals; adjudica el reviewer antes de PR|.saikit/findings/adversary-fabrica-01-7-10.json|ok
