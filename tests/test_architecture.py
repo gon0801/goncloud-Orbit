@@ -506,6 +506,7 @@ ALLOWLIST_IMPORTS_FABRICA_CAMPANAS = frozenset(
         "contextlib",
         "dataclasses",
         "dataclasses.dataclass",
+        "dataclasses.field",
         "datetime",
         "decimal",
         "decimal.Decimal",
