@@ -2430,7 +2430,7 @@ git commit -m "feat(fabrica): nucleo puro del plan — target por margen minimo,
 - Consumes: `app.fabrica_plan` (tarea 5), `app.db.connect`, `app.optimizer.goals.fraccion_desde_settings`, `app.redaction` (`install_scrub_filter`, `scrub`), `v_margen_producto` (tarea 3), `keyword_biblioteca`/`negative_biblioteca` (tarea 2), `search_term_observation`, `ad_entity`, `ad_entity_state`, `listing`, `config_version`.
 - Produces: funciones del tool `_dsn_read()`, `_fraccion(conn, platform)`, `_productos(conn, platform, ids)`, `_terminos_producto(conn, platform, listing_ids, *, sql=_SQL_TERMINOS, ventana=fp.VENTANA_DIAS)`, `_biblioteca(conn, tipo, platform)`, `_existentes(conn, platform, listing_ids)`, `_arma_plan(args, conn_read) -> PlanGrupo`, `_lote_nuevo(plan) -> str`, `_log(evento, **campos)`, `Abortar`, `_parser() -> argparse.ArgumentParser`, `main()`; SQL `_SQL_TERMINOS` (ventana del margen) y `_SQL_TERMINOS_EXACT` (ventana de CORTES del motor para los candidatos a exact). El dry-run imprime `lineas_dry_run` + `huella del conjunto: <sha>` y un JSON `{"evento": "dry_run", ...}`.
 
-- [ ] **Step 1: Tests de SQL contra Postgres real y de dry-run sin HTTP (fallan: el tool no existe)**
+- [x] **Step 1: Tests de SQL contra Postgres real y de dry-run sin HTTP (fallan: el tool no existe)**
 
 ```python
 # tests/test_fabrica_campanas.py
@@ -2802,12 +2802,12 @@ def test_modo_es_obligatorio_y_cerrado(monkeypatch):
         fc.main()
 ```
 
-- [ ] **Step 2: Rojo**
+- [x] **Step 2: Rojo**
 
 Run: `pytest tests/test_fabrica_campanas.py -v`
 Expected: FAIL con `ModuleNotFoundError: No module named 'fabrica_campanas'`.
 
-- [ ] **Step 3: Implementar el tool (primera mitad: plan + dry-run)**
+- [x] **Step 3: Implementar el tool (primera mitad: plan + dry-run)**
 
 ```python
 #!/usr/bin/env python3
@@ -3273,18 +3273,84 @@ def _reconciliar_cmd(args) -> int:  # tarea 9
 
 El candado `test_fabrica_guard_main_es_lo_ultimo_del_archivo` de la tarea 10 pinea este layout.
 
-- [ ] **Step 4: Verde**
+- [x] **Step 4: Verde**
 
 Run: `pytest tests/test_fabrica_campanas.py -v && ruff check tools/fabrica_campanas.py`
 Expected: PASS (4 de Postgres + 4 sin HTTP). Los unused imports (`httpx`, `contextlib`, `time`, `register_secret`, `AdsClient`, `evaluar_perfiles`, `fetch_structure`, `sync_structure`, `goals_write`) disparan F401 en esta tarea: dejarlos con `# noqa: F401  # tarea 7/8` SOLO hasta la tarea 7, que los usa y quita el noqa.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git checkout -b fabrica-01-6-dry-run origin/master
 git add tools/fabrica_campanas.py tests/test_fabrica_campanas.py
 git commit -m "feat(fabrica): tools/fabrica_campanas.py — plan desde la base y dry-run con huella (spec §5.1-5.2)"
 ```
+
+#### Decisiones y evidencia (ejecucion GLM, tarea 6)
+
+- **D-GLM-6-1 (UTC en SQL).** El bloque del plan usaba `CURRENT_DATE` en el CTE
+  `ventana`: la fecha de la SESION (timezone del servidor/conexion) moveria las
+  ventanas [D-105, D-15) y [D-39, D-9) sin dejar rastro. Desviacion aplicada: el
+  dia de referencia es UN parametro calculado en Python con
+  `datetime.datetime.now(datetime.UTC).date()` y casteado en SQL (`%s::date`);
+  los offsets siguen viniendo de `fp.VENTANA_DIAS` / `fp.VENTANA_CORTES_DIAS`
+  (regla 2). Test: `SET TIME ZONE` a una zona cuya fecha local DIFIERE de la
+  UTC en el momento de la corrida (elegida dinamicamente entre Etc/GMT*) y
+  semilla en los bordes HOY-16 (dentro) y HOY-15 (fuera).
+- **D-GLM-6-2 (sin imports de tarea 7).** El plan pedia dejar `httpx`,
+  `AdsClient`, `goals_write`, etc. con `# noqa: F401` "hasta la tarea 7". El
+  brief lo PROHIBE: esta fase importa solo lo que usa (argparse, datetime, json,
+  logging, os, sys, Decimal/InvalidOperation, typing.Any, psycopg, fp, connect,
+  `fraccion_desde_settings`, `install_scrub_filter`/`scrub`). La tarea 7 agrega
+  sus imports cuando los use. Sin `_dsn_admin`/`_dsn_ingest` (tarea 7).
+- **D-GLM-6-3 (cierre de conexion).** `_crear` abre `connect(_dsn_read())`
+  dentro de `try/finally` con `conn.close()`: la conexion de lectura se cierra
+  en EXITO y en ERROR. `_arma_plan` cierra su transaccion en `finally`
+  (`conn_read.commit()`, no-op en autocommit real) ANTES de cualquier salida;
+  el `_ConnFalsa` de los tests cuenta commits y closes.
+- **D-GLM-6-4 (desempate source_report_id no sembrable).** La PK de
+  `search_term_observation` es (platform, ad_entity_id, search_term,
+  metric_date, observed_at): NO se pueden sembrar dos filas con el MISMO
+  observed_at (revienta la PK), asi que el desempate `source_report_id DESC
+  NULLS LAST` no es discriminable por fixture. Queda sellado en el SQL (mismo
+  patron que app/optimizer/windows.py) y cubierto por el test de re-observacion
+  (observed_at distinto SI manda); sin test dedicado al empate exacto.
+- **D-GLM-6-5 (fechas de fixture).** `HOY` en los tests es la fecha UTC (no
+  `date.today()` local) y las siembras usan dias bien dentro/fuera de ventana
+  (40/120/5/12) para que el cruce de medianoche UTC no flakee la suite.
+- **D-GLM-6-6 (test UTC de CLI).** El CLI end-to-end corre por stdin
+  (`python -`) y por archivo sobre la DB temporal; el DSN de la DB temporal se
+  reconstruye desde `_test_dsn()` cambiando el dbname (conn.info.dsn omite el
+  password del DSN de prueba).
+
+Evidencia de ejecucion (2026-09-05, rama `fabrica-01-6-dry-run` desde
+`origin/master` = `a54a15f`):
+
+- Rojo inicial (tests primero, regla 9):
+  `PYTHONPATH=. .venv/bin/python -m pytest tests/test_fabrica_campanas.py -q`
+  -> `ModuleNotFoundError: No module named 'fabrica_campanas'` (1 error en
+  coleccion). Ajuste de fixture documentado: en
+  `test_productos_exige_margen_y_seller_sku` la segunda siembra de ledger usa
+  `fee_desfase=10` (dos `_ledger_producto` en la MISMA DB chocan el indice
+  `ledger_dedupe_sin_orden` con los 7 cargos sin orden).
+- Regresiones discriminadas (logica alterada, asercion intacta; restaurado
+  tras cada rojo):
+  1. UNION del grano campana en `origenes` ->
+     `test_terminos_del_producto_colapsan_bitemporal_y_suman_en_ventana`
+     FAILED (aparece "grano campana").
+  2. `_terminos_producto` ignorando la ventana pedida (usa siempre
+     VENTANA_DIAS) -> `test_terminos_exact_usan_la_ventana_de_cortes` FAILED
+     (exact vacio).
+  3. `%s::date` reemplazado por `CURRENT_DATE` ->
+     `test_las_ventanas_no_dependen_del_timezone_de_la_sesion` FAILED (la
+     sesion en otra zona mueve la ventana).
+- Verde final: `PYTHONPATH=. .venv/bin/python -m pytest
+  tests/test_fabrica_campanas.py tests/test_fabrica_plan.py
+  tests/test_architecture.py -q -rs` -> **54 passed, 0 skipped** (13 nuevos
+  de la tarea 6: 7 contra Postgres real sin skips + 6 de dry-run/CLI; el CLI
+  end-to-end corre por stdin y por archivo).
+- `ruff check` y `ruff format --check` verdes en lo nuevo; `git diff --check`
+  limpio.
 
 ---
 
