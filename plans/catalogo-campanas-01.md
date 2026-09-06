@@ -91,7 +91,7 @@ Purpose: seleccionar publicaciones sin exigir historial y registrar lo creado si
 
 | Task | Contenido | DoD | Depends | Status |
 |---|---|---|---|---|
-| A.1 | [stage:implementacion] [lane:gate] [tdd:required] Plan versionado y migracion expansiva | pytest_focal sobre plan/migracion pasa; v1 mantiene huella exacta; v2 permite null real y varios listings/producto; reorden no cambia hash y objetivo distinto si; integridad SQL rechaza mercado/SKU invalidos; E/A.1 contiene pruebas | 0.2 | cc:WIP |
+| A.1 | [stage:implementacion] [lane:gate] [tdd:required] Plan versionado y migracion expansiva | pytest_focal sobre plan/migracion pasa; v1 mantiene huella exacta; v2 permite null real y varios listings/producto; reorden no cambia hash y objetivo distinto si; integridad SQL rechaza mercado/SKU invalidos; E/A.1 contiene pruebas | 0.2 | cc:完了 [03256e0] |
 | A.2 | [stage:implementacion] [lane:gate] [tdd:required] Normalizacion comun CLI/API/motor | pytest_focal de fabrica/API pasa; fixtures sin ventas, margen negativo y varios ASIN alcanzan preview; contratos mezclados y SKU duplicados fallan con cero POST; el target del grupo mixto permanece explicito | A.1 | cc:TODO |
 | A.3 | [stage:implementacion] [lane:gate] [tdd:required] Registro, idempotencia y recuperacion | pytest_focal de fabrica pasa con dos listings/producto, doble envio, orden distinto y fallo parcial; v1/v2 pueden registrar/reconciliar/pausar con mismos IDs y sin POST duplicado; evidencias E/A.3 | A.2 | cc:TODO |
 | A.4 | [stage:implementacion] [lane:gate] [tdd:required] Selector, objetivo y revision | pytest_focal UI pasa; casosAC1–AC5/AC7/AC10 verificados en navegador teclado/movil; foto/ASIN/SKU y target visibles; cambiar parametros invalida preview; capturas E/A.4 | A.2,A.3 | cc:TODO |

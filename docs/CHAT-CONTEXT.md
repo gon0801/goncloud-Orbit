@@ -4,6 +4,13 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-06 — ORBIT 19 A.1 cerrada en revisión.** El plan de fábrica ya
+puede serializar v2 por publicación, con margen ausente real y una huella
+estable ante reorden. La migración 0019 admite varios listings por producto,
+mantiene v1 y su reversa solo deshabilita altas v2. Pruebas focales: 31 pasan;
+las pruebas PostgreSQL quedan para la batería única de CI. A.2 es el siguiente
+bloque: normalizador común API/CLI/motor; no se han creado campañas.
+
 **2026-09-06 — ORBIT 19: precision documental tras review del bloque 1.**
 Gasto y clics conciliados; ventas y compras siguen sin conciliar. La
 actualizacion de atribucion es una hipotesis, no una causa demostrada.

@@ -52,6 +52,10 @@ All checks passed!
 3 files already formatted
 ```
 
+Revision independiente: APPROVE despues de corregir la cobertura de dos
+listings del mismo producto, el CHECK de objetivo manual/medido y la regresion
+conductual 0018 -> 0019. La revision no ejecuto PostgreSQL local.
+
 ## Fuente y limites
 
 El contrato base es `E/0.2/contrato-api-cli-v2.md` y la reversa acordada esta
