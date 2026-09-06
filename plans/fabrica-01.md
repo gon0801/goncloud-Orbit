@@ -1216,7 +1216,7 @@ Nota de regla 2: el guard `dias < 30` y el arranque `DATE '2026-02-20'` son la d
 - [ ] **Step 4: Correr y ver el verde**
 
 Run: `pytest tests/test_fabrica_migracion.py -v`
-Expected: PASS (11 tests). Si `test_v_margen_producto_un_producto_reproduce_la_plataforma` difiere de la plataforma, el bug está en el prorrateo: con un producto y cobertura 1, `cargos_sin_orden` debe ser exactamente el total de plataforma.
+Expected: PASS (13 tests: 8 de la tarea 2 + 5 de la vista; 12 exigen Postgres). Si `test_v_margen_producto_un_producto_reproduce_la_plataforma` difiere de la plataforma, el bug está en el prorrateo: con un producto y cobertura 1, `cargos_sin_orden` debe ser exactamente el total de plataforma.
 
 - [ ] **Step 5: Commit (misma rama que la tarea 2, mismo PR)**
 
@@ -5008,6 +5008,90 @@ Marker `cc:完了` en las 11 tareas de este plan + línea final en `docs/CHAT-CO
 
 ---
 
+## Brief para el implementador — tareas 2 y 3 (una rama, un PR, en ese orden)
+
+> **Reparto** (`CLAUDE.md` global): **GLM o Cursor implementa la 2 y la 3** (esquema
+> nuevo y la vista que mide dinero). **Van en SERIE, no en paralelo**: comparten
+> `migrations/0018_fabrica_campanas.sql` y `tests/test_fabrica_migracion.py`, y una
+> migración es UN archivo (no se parte el 0018 en dos). Lo único que puede correr a la
+> vez con otro implementador es la **tarea 4** (`crea_goal`: archivos distintos, usa el
+> esquema existente vía `_db_temporal`, no depende de 0018). La **tarea 5** espera a que
+> 2-3 estén en master (sus tests pinean contra el SQL de 0018). El lead revisa la entrega
+> contra `origin/master` + reviewer fresco (kimi o codex, 1 ronda; 2ª SOLO si la 1ª halla
+> severidad alta; jamás 3ª) + bots, y hace la corrida real (tarea 11).
+
+### Reglas de proceso (NO negociables)
+
+1. **Rama desde `origin/master`** DESPUÉS de que el PR #171 (tarea 1) esté mergeado:
+   `git fetch origin && git switch -c fabrica-01-2-migracion origin/master`. Antes del PR:
+   `git log origin/master..HEAD` lista SOLO los commits de las tareas 2 y 3.
+2. **Prohibido tocar producción**: cero `ssh goncloud`, cero `docker exec` al contenedor,
+   cero SELECT a la base viva, cero AppFlowy. Los números de regla 8 ya están en
+   "Decisiones y evidencia — Tarea 1"; se usan, no se re-miden. La corrida real es del lead.
+3. **TDD con log rojo** (regla 9): los Steps 2 de la tarea 2 y de la tarea 3 son
+   obligatorios y su salida (el error exacto: `FileNotFoundError` / `UndefinedTable`) se pega
+   en "Decisiones y evidencia — Tareas 2-3". Un test que pasa igual sin la migración no cuenta.
+4. **Local: solo `tests/test_fabrica_migracion.py`**. La batería completa corre UNA vez, en
+   CI, al abrir el PR (`quality.yml` levanta Postgres 16 y exporta `ORBIT_TEST_DSN`). **Un
+   skip NO es verde**: 12 de los 13 tests exigen Postgres; sin uno local, levantarlo igual
+   al de CI (`docker run -d --name orbit-test-pg -e POSTGRES_USER=orbit -e
+   POSTGRES_PASSWORD=orbit -e POSTGRES_DB=postgres -p 5432:5432 postgres:16` y
+   `export ORBIT_TEST_DSN=postgresql://orbit:orbit@localhost:5432/postgres`; el usuario
+   necesita `CREATEDB`: `db_fabrica` crea y tira una base por test).
+5. `ruff check --fix . && ruff format . && pre-commit run --all-files` antes de cada
+   commit; **jamás `--no-verify`**. Sin acentos en código ni SQL. Commits exactamente los
+   de los Steps 5 (Conventional Commits en español) con los trailers `Co-Authored-By` y
+   `Claude-Session` de "Global Constraints".
+6. **Decisiones escritas ANTES del código** en "Decisiones y evidencia — Tareas 2-3"
+   (patrón `D-GLM-n` de `plans/campana-activa-01.md`). Si el plan no cuadra con el esquema
+   real de 0001-0017 (nombre de columna, tipo, trigger que ya existe), se escribe ahí y se
+   PARA a preguntar al lead; no se "interpreta". Copiar el código del plan tal cual salvo
+   lo que la evidencia obligue a cambiar, y declararlo.
+7. **Alcance cerrado**: solo los 2 archivos del mapa (migración y su test). NO crear
+   `app/fabrica_plan.py` (tarea 5, aunque el test que pinea constantes lo cite), NO tocar
+   `docs/DATABASE.md` (tarea 10), NO tocar el tracker.
+
+### Lo que ya está decidido (no re-decidir)
+
+- **Ventana y guard de `v_margen_producto`**: `SELECT DATE '2026-02-20' AS desde,
+  CURRENT_DATE - 15 AS hasta` y `WHEN a.dias_con_venta < 30 THEN NULL` — decisión escrita
+  del dueño (tarea 1). Literales en el SQL; las constantes que los pinean llegan en la 5.
+- **Cobertura** `< 0.95` literal (= `MARGEN_COBERTURA_MIN` del motor; el pin es de la 5).
+- **Orden de migraciones** `ORDEN` del test (0001, 0002, 0003, 0004, 0013, 0014, 0015,
+  0016, 0017, 0018): 0018 asume el enum `product_ad` (0004), `first_seen_at` (0017) y la
+  maquinaria de `v_target_margen_plataforma` (0015/0016), que se COPIA, no se reinventa.
+- **Prorrateo por orden** (spec §8) se implementa aunque hoy no haya órdenes
+  multi-producto (evidencia (a)): el test lo siembra y lo exige.
+- **Triggers**: patrón `goal_scope_campana_real` (la FK sola no garantiza kinds).
+- **GRANTs**: `app_admin` escribe (la fábrica corre con `ORBIT_DSN_ADMIN`); el motor y la
+  API solo leen; la vista al `GRANT SELECT` de vistas.
+
+### Trampas conocidas
+
+- Tests de SQL contra Postgres REAL (precedente `%s::platform` IndeterminateDatatype);
+  el estático con pglast no sustituye al vivo.
+- `test_v_margen_producto_un_producto_reproduce_la_plataforma`: con un producto y
+  cobertura 1 el margen debe ser EXACTAMENTE el de `v_target_margen_plataforma`; si
+  difiere, el bug está en el prorrateo, no en el test.
+- `test_v_margen_producto_guard_30_dias_y_arranque_fijo_de_ventana` usa el parámetro
+  `costo_desde` del helper `_ledger_producto` (ya en el plan) para que la venta del
+  2026-02-20 quede cubierta.
+- La vista va ANTES del bloque de GRANTs de 0018 y se suma al `GRANT SELECT` (Step 3 de
+  la tarea 3); el COMMENT de la vista es parte del DDL que el test estático revisa.
+
+### DoD (las dos tareas, un PR)
+
+- `pytest tests/test_fabrica_migracion.py -v` → 13 passed (con Postgres), y en CI la
+  batería completa verde.
+- Logs rojos de los dos Steps 2 pegados en "Decisiones y evidencia — Tareas 2-3".
+- Markers `cc:完了 [resumen]` en las tareas 2 y 3 de este plan + **una línea en
+  `docs/CHAT-CONTEXT.md`** en lenguaje de negocio (el candado de frescura del CI la exige).
+- PR contra `master` con título `feat(fabrica): migracion 0018 + v_margen_producto (tareas 2-3)`,
+  2 commits (los de los Steps 5), `pre-commit` verde, sin `--no-verify`.
+- Reporte al lead: número de PR, desviaciones `D-…` y qué NO se hizo, si algo quedó fuera.
+
+---
+
 ## Decisiones y evidencia (se llena durante la ejecución; el implementador escribe AQUÍ antes del código)
 
 ### Tarea 1 — SELECTs regla 8 (lead)
@@ -5135,6 +5219,10 @@ Corridos el 2026-09-05 contra produccion (`ssh goncloud`, `docker exec -i orbit-
 ```
 
 > **Decision (f):** produccion tiene UN solo grano (`ad_group`) → en la tarea 6 la CTE `origenes` de `_SQL_TERMINOS` se simplifica a ese SELECT (grano ad_group; la campana se deduce por `parent_id`) y el UNION se elimina. `test_terminos_del_producto_colapsan_bitemporal_y_suman_en_ventana` se ajusta a esa variante (deja de ejercitar la hipotesis UNION de ambos granos).
+
+### Tareas 2-3 — migración 0018 y `v_margen_producto` (implementador escribe AQUÍ antes del código)
+
+_(pendiente: decisiones `D-…`, logs rojos de los dos Steps 2, desviaciones del plan)_
 
 ### Tarea 11 — sonda (lead)
 
