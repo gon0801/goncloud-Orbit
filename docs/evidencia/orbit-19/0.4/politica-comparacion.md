@@ -1,19 +1,21 @@
 # ORBIT 19 / 0.4 — Politica de comparacion
 
-Estado: **pendiente** (Ads MX `verificada_parcial` en 0.3: permisos y
-forma, sin conciliacion de sumas ni cobertura de ausentes). D1–D4
-cerradas (0.2). No bloquea la fase A. B.1 debe conciliar y demostrar
-cobertura antes de asignar Por probar.
+Estado: **cerrada**. Ads MX **verificada** en 0.3 (forma, permisos,
+cost/clicks; `conciliacion-sumas.txt`). Residual `delta_impressions=-1`.
+`sales30d` no igualadas (vintage). D1–D4 cerradas (0.2). No bloquea la
+fase A. B.1 implementa la ingesta y reconcilia la tabla persistida; no
+es candado de esta politica. Por probar no se asigna hasta cobertura
+demostrada (regla cerrada, no tarea abierta de 0.4).
 
 Fuentes: `docs/evidencia/orbit-19/0.3/reporte.md` y spec
 `docs/superpowers/specs/2026-09-06-catalogo-campanas-abierto-design.md`.
 
-## 1. Campos del reporte Ads (forma MX; conciliacion pendiente)
+## 1. Campos del reporte Ads (forma MX; conciliacion 0.3 hecha)
 
 `reportTypeId=spAdvertisedProduct`, `groupBy=["advertiser"]`,
 `adProduct=SPONSORED_PRODUCTS`, `timeUnit=DAILY`, `format=GZIP_JSON`.
 
-Contrato minimo de B.1 (30d):
+Contrato minimo de ingesta B.1 (30d):
 
 | campo API | uso |
 |---|---|
@@ -28,9 +30,8 @@ Contrato minimo de B.1 (30d):
 | attributedSalesSameSku30d | Revenue Ads promovido (mismo SKU) |
 
 Prohibido pedir `salesSameSku30d` (400 vivo, `columnas-api-400.txt`).
-`attributedSalesSameSku30d` esta en el allowlist; la sonda de 0.3 no la
-descargo (el retry no la pidio). B.1 la pide y concilia. Si falta en una
-fila, promovido = null, no cero.
+`attributedSalesSameSku30d` esta en el allowlist; la sonda 22:08 la pidio
+y vino en 767/767. Si falta en una fila, promovido = null, no cero.
 
 Halo nombrado por API: `salesOtherSku7d` / `unitsSoldOtherSku7d` **solo 7d**.
 No mezclar con totales 30d. Halo 30d solo si ambas `sales30d` y
@@ -50,7 +51,7 @@ si 400/403, US queda no_verificada y no se inventan filas.
 |---|---|
 | Ventana de request | igual al cron actual: max 31 dias, re-pedir D-31..D-1 |
 | Retencion | 95d API (help consola 90d). Backfill no diario. |
-| Cobertura | COMPLETED **no** demuestra cobertura. El gzip SP actual solo trae filas con actividad (sonda 0.3 + docs Amazon). ASIN ausente del gzip = **Sin datos**, no Por probar, hasta que B.1 demuestre un universo exhaustivo (fila por ASIN anunciado, incluidos ceros, o cruce cuyo contrato garantice exhaustividad). 7709 product_ad MX vs 767 filas el 2026-09-03 no prueba «sin actividad». |
+| Cobertura | COMPLETED **no** demuestra cobertura. El gzip SP actual solo trae filas con actividad (sonda 0.3 + docs Amazon). ASIN ausente del gzip = **Sin datos**, no Por probar, hasta que un reporte o cruce demuestre universo exhaustivo (fila por ASIN anunciado, incluidos ceros). Eso lo implementa B.1; no es candado de 0.4. 7709 product_ad MX vs 767 filas el 2026-09-03 no prueba «sin actividad». |
 | Grano de comparacion | (platform, advertisedAsin, advertisedSku) agregado por suma de filas compatibles. No repartir cost/sales de campana entre ASIN. |
 | Madurez atribucion | columnas 30d siguen creciendo ~30d. Una fila de `metric_date` D es madura para columnas 30d **solo** si existe observacion con `observed_at` (UTC) **>= D + 30 dias**. El paso del calendario no basta: un gzip de D+1 consultado 30 dias despues sigue provisional. Los 10 dias del motor de cortes no cierran esta columna. |
 | Muestra | count de fechas con fila y sumas. 1 compra visible junto al ACoS, no como mala nota. |
@@ -73,8 +74,8 @@ varias campanas. El objetivo no acredita rentabilidad.
 2. **Por probar en esta ventana** solo si la cobertura del universo de
    ASINs anunciados en esa ventana esta **demostrada** (no solo COMPLETED)
    y no hay actividad Ads en esa ventana. Hoy esa demostracion no existe.
-   No implica producto nuevo ni que nunca se haya anunciado. Hasta B.1
-   demuestre cobertura, no se asigna Por probar.
+   No implica producto nuevo ni que nunca se haya anunciado. Hasta que
+   exista esa demostracion, no se asigna Por probar.
 3. Gasto observado > 0 y sales30d observado = 0 → **Gasto sin ventas**,
    ACoS = null. Cero en la fila es observado, no ausencia.
 4. sales30d > 0 → ACoS = 100 * suma(cost) / suma(sales30d).
@@ -148,11 +149,11 @@ Cifras ilustrativas, nunca valores sembrados en produccion.
 ## 9. Que puede continuar
 
 - **Fase A** no espera 0.4 ni Ads.
-- B.1 debe conciliar sumas del gzip vs campana (misma ventana/moneda) y
-  demostrar cobertura antes de Por probar. Hasta entonces Ads MX es
-  `verificada_parcial`.
+- **0.4 cerrada.** B.1 puede arrancar (Depends 0.4). Reconcilia la tabla
+  ingerida vs gzip; no reabre este documento ni 0.3.
 - B.2 no espera Ads.
 - B.4/B.5 no asignan Por probar hasta cobertura demostrada.
 - B.3 stock: FBA/FBM; Featured Offer Sin verificar.
+- Ads MX verificada; US no_verificada hasta la primera ingesta.
 
 No se implementa codigo en esta tarea.

@@ -28,7 +28,7 @@ No autoriza gasto, sonda Amazon ni implementar A/B en este acto.
 | Compatibilidad v1 (`productos` / `--productos`, huella intacta) | idem | Cerrado |
 | Preview declara margen 0 / neg / inferior al objetivo | idem | Cerrado |
 | Reserva 0019 (grupo/listing, margen nullable, origen) | `migracion-rollback.md` | Cerrado; A.1. F2 ya no usa 0019 |
-| Reserva 0020 (metricas producto anunciado) | idem | Cerrado; aplica B.1 (Ads MX verificada_parcial) |
+| Reserva 0020 (metricas producto anunciado) | idem | Cerrado; aplica B.1 (Ads MX verificada en 0.3: cost/clicks) |
 | 0021 disponibilidad | idem | Opcional; Featured Offer no verificada |
 | Reversa: `fabrica.creacion=v1` deshabilita altas v2; lector/registrar/reconciliar/pausar v2 siguen | idem | Cerrado; prueba en A.1/A.5 |
 | Spec ORBIT19 + enmienda FABRICA 01 / UI 01 | `docs/superpowers/specs/` | Cerrado; codigo de produccion no cambia hasta A |

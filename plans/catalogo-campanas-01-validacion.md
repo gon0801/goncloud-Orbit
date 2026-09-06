@@ -73,5 +73,6 @@ no autoriza implementacion/despliegue/gasto.
 
 Verificacion mecanica: 17 tareas con ID unico, dependencias existentes y sin ciclos;
 todas con stage/lane/TDD. Snapshot: cc:TODO. Cierre vivo: 0.1–0.4
-`cc:完了` en el plan. Manifest: orbit-ui-01.
-Ruff y pre-commit completos correctos; suite del repo en CI del PR185.
+`cc:完了` en el plan. 0.4 no espera B.1 (B.1 Depends 0.4). Manifest: orbit-ui-01.
+Ruff y pre-commit locales; CI de esta rama se corre al publicar el PR #185
+(el verde de `4c09189` era el plan anterior).

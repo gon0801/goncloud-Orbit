@@ -222,9 +222,10 @@ Fixtures de aceptacion con cifras ilustrativas, nunca valores sembrados:
 ### Resolucion de fuentes
 
 0.3 cierra la investigacion con verificada, verificada_parcial o
-no_verificada y motivo. Ads MX 2026-09-06: **verificada_parcial** (forma y
-permisos; sin conciliacion de gzip ni cobertura de ausentes). B.1 concilia
-y demuestra cobertura; sin eso no hay Por probar ni fuente Ads completa.
+no_verificada y motivo. Ads MX 2026-09-06: **verificada** (forma, permisos,
+conciliacion cost/clicks; impressions -1 declarado; gzip solo-actividad).
+US no_verificada. Por probar exige cobertura demostrada (regla de 0.4);
+B.1 implementa la ingesta y reconcilia lo persistido, no cierra 0.4.
 Mostrar null no completa el reporte Ads.
 Disponibilidad es recomendada: su ausencia admite el estado Sin verificar, sin
 bloquear B.4/B.5. Featured Offer no verificada. Margen con muestra limitada

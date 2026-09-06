@@ -4,11 +4,15 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-06 — ORBIT 19: gzip conciliado; 0.4 cerrada; B.1 puede arrancar.**
+Ads MX verificada: cost/clicks delta 0, impressions -1. Ausente = Sin datos.
+0.4 no espera B.1. PR #185 se actualiza con esta rama para CI.
+
 **2026-09-06 — ORBIT 19: Ads MX parcial; 0.4 no cierra B.**
 COMPLETED no demuestra cobertura: ASIN ausente = Sin datos, no Por probar.
 Madurez 30d exige observacion con observed_at >= metric_date+30d, no el
-calendario. El gzip no se concilio; 0.3 = verificada_parcial. Fase A no
-espera 0.4. Esta rama no es el CI verde del PR #185.
+calendario. Superado: gzip conciliado en 0.3; 0.4 cerrada. Fase A no
+espera Ads.
 
 **2026-09-06 — ORBIT 19 review: 0019 es de A.1, no de F2.**
 F2 deja de reservar 0019. FABRICA 01 §1 decisiones 2/14 y residual 7

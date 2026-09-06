@@ -1,13 +1,19 @@
 # ORBIT 19 / 0.3 — Contratos de reporte Ads y disponibilidad comercial
 
-Fecha de evidencia: 2026-09-06 21:03–21:08 UTC. Rama: `feat/orbit-19-catalogo-fase0`.
-Investigacion. Cero codigo de ingesta. Cero POST comerciales. Cero commits.
+Fecha de evidencia: 2026-09-06 21:03–21:08 UTC (forma) y 22:08–22:11 UTC
+(conciliacion de sumas). Rama: `feat/orbit-19-catalogo-fase0`.
+Investigacion. Cero codigo de ingesta. Cero POST comerciales.
 
-Sello lead: Ads MX es **verificada_parcial**. Permisos y forma (POST 200,
-COMPLETED, 767 filas) si; **no** se sumo el gzip contra campana; cobertura
-de ausentes **no** demostrada (COMPLETED ≠ universo). `attributedSalesSameSku30d`
-en allowlist, no en el gzip. US no se descargo. Stock bridge observado;
-conciliacion SKU/SP-API en B.3. Featured Offer no_verificada.
+Sello lead: Ads MX es **verificada**. Permisos, forma (POST 200, COMPLETED,
+767 filas) y conciliacion de gasto/clics (`delta_cost=0`, `delta_clicks=0`).
+Residual declarado: `delta_impressions=-1` (11717 gzip vs 11718 campana).
+`sales30d` gzip (3427.58) no se iguala a `ad_revenue` campana (1972.41):
+columnas 30d siguen creciendo; el gzip 22:11 es vintage posterior. Cobertura
+de ausentes: contrato solo-actividad verificado (767 filas vs 7709
+`product_ad`); COMPLETED no prueba «sin actividad»; ausente = Sin datos.
+`attributedSalesSameSku30d` presente en la sonda 22:08 (767/767). US no se
+descargo = no_verificada. Stock bridge observado; conciliacion SKU/SP-API
+en B.3. Featured Offer no_verificada.
 
 `REPORTES_CFG` en `app/ads/reports.py` es `(spCampaigns, spTargeting, spTargeting, spSearchTerm)`. **No hay `spAdvertisedProduct`**. El cliente (`app/ads/client.py`) permite GET siempre y POST solo a `/reporting/reports` + LIST v3; superficie `create_report` / `get_report` / `download` usada en la sonda.
 
@@ -17,7 +23,7 @@ conciliacion SKU/SP-API en B.3. Featured Offer no_verificada.
 
 | fuente | estado | motivo | grano | ventana | atribucion | permisos | conciliacion |
 |---|---|---|---|---|---|---|---|
-| (a) `spAdvertisedProduct` Ads API | **verificada_parcial** (amazon_mx) | Docs + POST 200 + COMPLETED + 767 filas. **No** conciliacion de sumas del gzip (filas no persistidas; DoD 0.3 la pedia). COMPLETED no demuestra cobertura de ausentes. US no sondada = no_verificada. | Fila = (date, advertisedAsin, advertisedSku, campaignId, adGroupId, adId). `groupBy=["advertiser"]`. | API: max 31d, retencion 95d. Sonda: 1 dia DAILY `2026-09-03`. | 1/7/14/30d. Total=`sales30d`. Promovido=`attributedSalesSameSku30d` (allowlist, no en gzip). Halo=`salesOtherSku7d` solo 7d. `salesSameSku30d` 400. Madurez: observacion con `observed_at >= metric_date+30d`, no el calendario. | POST 200 amazon_mx. 400 por columna, no por scope. | **No hecha.** Campana MX ese dia cost=362.06 impressions=11718 (16 campanas). El gzip no se sumo. B.1 concilia misma ventana/moneda o Ads sigue parcial. Prohibido repartir agregado a ASIN. |
+| (a) `spAdvertisedProduct` Ads API | **verificada** (amazon_mx) | Docs + POST 200 + COMPLETED + 767 filas + sumas. cost y clicks cuadran vs `v_metric_latest` campana 2026-09-03. Impressions -1 declarado. COMPLETED no demuestra cobertura de ausentes. US no sondada = no_verificada. | Fila = (date, advertisedAsin, advertisedSku, campaignId, adGroupId, adId). `groupBy=["advertiser"]`. | API: max 31d, retencion 95d. Sondas: 1 dia DAILY `2026-09-03` (21:03 forma; 22:08 sumas). | 1/7/14/30d. Total=`sales30d`. Promovido=`attributedSalesSameSku30d` (sonda 22:08: 767/767). Halo=`salesOtherSku7d` solo 7d. `salesSameSku30d` 400. Madurez: observacion con `observed_at >= metric_date+30d`, no el calendario. | POST 200 amazon_mx. 400 por columna, no por scope. | **Hecha** (`conciliacion-sumas.txt`). gzip vs campana MX 2026-09-03: cost 362.06=362.06, clicks 116=116, impressions 11717 vs 11718. sales30d no se iguala (vintage/atribucion). Prohibido repartir agregado a ASIN. |
 | (b) metricas actuales campaign/keyword | **no_verificada** (para rendimiento por ASIN) | Orbit ya ingiere `spCampaigns` / `spTargeting` / `spSearchTerm`. `v_metric_latest` el 2026-09-03 MX no tiene `kind=product_ad` (0 filas). Hay 7709 `product_ad` MX en estructura, 0 metricas. Insuficiente para ASIN. | campana / keyword / product_target. No ASIN. | misma que el cron (D-31..D-1, columnas 30d). Watermark MX/US `2026-09-04`. | 30d (`purchases30d`, `sales30d`, `attributedSalesSameSku30d`). | Ya operativos para esos report types. No autorizan inferir ASIN. | keyword+target cost = campana cost ese dia (362.06). Eso no da un numero por ASIN. Ausencia de metrica ASIN = desconocido, no ACoS 0. |
 | (c) stock / inventario bridge | **verificada** (FBA y FBM por separado) | Snapshot `mode=ro` + `.backup()` 2026-09-06. Hay `amazon_listing_prices.quantity` (FBM) y `amazon_fba_inventory.quantity_available` (FBA fresco ese dia). `amazon_inventory_cache.qty` inutilizable (806 filas, todas 0, `updated_at=2026-08-10`). Orbit no ingiere stock. | seller_sku + marketplace. FBA y FBM no se suman. | frescura por tabla: FBA `fetched_at` 2026-09-06 18:36Z; listing `fetched_at` 2026-04-13 .. 2026-09-06 (por fila). | N/A | Lectura snapshot bridge. SP-API Inventory Summary no sondado desde Orbit. Accounting no se toco. | Semantica observada, no vs SP-API: `quantity` SIEMPRE NULL en `AMAZON_NA` (359/359) y NUNCA NULL en `DEFAULT` (450: 242 cero, 208 >0). FBA 2142 filas, 1800 ceros observados, 342 >0. NULL/fila ausente ≠ 0. |
 | (d) Featured Offer / eligibility | **no_verificada** | Cero columnas `featured` / `buybox` / `eligibility` en el snapshot. No inferir. Sin fuente = Sin verificar. | — | — | — | No hay permiso ni tabla. | No hay serie que conciliar. |
@@ -70,6 +76,12 @@ Muestra (5 filas): `muestra-ads.json`. ASIN/SKU se dejan. Cero tokens, `client_i
 
 Las 5 filas tienen `impressions>0` y `cost=clicks=sales30d=purchases30d=purchasesSameSku30d=0`. Un cero en la fila es observado. No se conto cuantas de las 767 traen impressions 0.
 
+Sonda de conciliacion (22:08–22:11 UTC), mismo dia/perfil/DAILY: POST 200,
+COMPLETED, 767 filas / 251 ASIN. Esta vez se pidio `attributedSalesSameSku30d`
+y vino en 767/767. Sumas del gzip vs `v_metric_latest` campana: ver
+`conciliacion-sumas.txt`. B.1 reconcilia la tabla persistida; no reabre esta
+investigacion.
+
 ## Fila ausente no es cero
 
 - Estructura MX: 7709 `product_ad`. Reporte D-3: 767 filas / 251 ASIN. Los ~7458 ads sin fila ese dia no son gasto 0 demostrado para siempre; no estuvieron en el archivo de ese dia.
@@ -106,13 +118,13 @@ Puede continuar:
 
 - **Fase A** (catalogo abierto): no depende de Ads por ASIN ni de stock.
 - **B.2** (economia observada): no depende de (a); margen/ventas contables.
-- **B.1** (ingesta Ads por producto anunciado): fuente (a) **verificada_parcial**. Debe conciliar sumas del gzip vs campana y demostrar cobertura de ausentes. Contrato minimo 30d (pedir, no dar por observado): `date, advertisedAsin, advertisedSku, campaignId, adGroupId, adId, impressions, clicks, cost, purchases30d, sales30d, purchasesSameSku30d, attributedSalesSameSku30d`. No pedir `salesSameSku30d`. Append-only. No repartir campana.
-- **0.4**: politica escrita; Ads/Por probar **pendiente** hasta conciliacion y cobertura.
+- **B.1** (ingesta Ads por producto anunciado): fuente (a) **verificada** en esta investigacion. Implementa la ingesta y reconcilia la tabla persistida vs gzip (misma ventana/moneda). No reabre 0.3 ni 0.4. Contrato minimo 30d (pedir, no dar por observado): `date, advertisedAsin, advertisedSku, campaignId, adGroupId, adId, impressions, clicks, cost, purchases30d, sales30d, purchasesSameSku30d, attributedSalesSameSku30d`. No pedir `salesSameSku30d`. Append-only. No repartir campana. Por probar exige cobertura demostrada del universo anunciado (regla de 0.4); si no, Sin datos.
+- **0.4**: politica cerrada. No espera a B.1. Por probar sigue prohibido hasta cobertura demostrada.
 - **B.3 stock**: puede mapear FBA y FBM por separado con frescura y 0-vs-ausente-vs-desconocido. No usar cache. No declarar integracion Featured Offer.
 
 No bloqueado por esta tarea:
 
-- B.1 no se bloquea para **disenar** la ingesta (permisos y forma MX existen). No se declara fuente Ads verificada de punta a punta.
+- B.1 puede arrancar cuando 0.4 este cerrada (Depends 0.4). La conciliacion de investigacion ya esta en `conciliacion-sumas.txt`.
 - B.3 stock no se bloquea por "no hay tabla": si hay. Featured Offer queda ampliacion / Sin verificar; no bloquea B.4/B.5.
 
 Sigue prohibido: crear/pausar anuncios; tocar accounting; tratar `no_verificada` o NULL como cero; mezclar halo 7d con totales 30d.
@@ -121,5 +133,6 @@ Sigue prohibido: crear/pausar anuncios; tocar accounting; tratar `no_verificada`
 
 - `muestra-ads.json` — 5 filas redactadas + conteos
 - `columnas-api-400.txt` — allowlist vivo (cuerpo 400)
+- `conciliacion-sumas.txt` — gzip vs campana 2026-09-03 MX (22:08 UTC)
 - `bridge-observado.txt` — tablas, columnas, cruces FBA/FBM
 - `orbit-select.sql` / `orbit-select.out.txt` — kinds y metricas 2026-09-03 MX
