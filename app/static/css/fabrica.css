@@ -49,3 +49,8 @@
 .fabrica-presupuestos td:last-child input { width: 80px; }
 .fabrica-total { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; border-top: 1px solid var(--o-borde); margin: 14px 0 4px; padding-top: 12px; }
 .fabrica-total output { font-weight: 650; }
+
+.fabrica-publicacion { display: grid; grid-template-columns: 96px minmax(0, 1fr); column-gap: 12px; }
+.fabrica-publicacion-foto { grid-row: 1 / span 3; width: 96px; height: 96px; display: grid; place-items: center; background: var(--o-bg); border: 1px solid var(--o-borde); border-radius: 6px; overflow: hidden; }
+.fabrica-publicacion-foto img { width: 96px; height: 96px; object-fit: contain; background: white; }
+.fabrica-publicacion-foto span { font-size: 12px; color: var(--o-ink2); }

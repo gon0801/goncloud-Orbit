@@ -213,6 +213,17 @@ document.addEventListener("DOMContentLoaded", function () {
         const publicaciones = nodo("ul");
         (producto.publicaciones || []).forEach(publicacion => {
           const fila = nodo("li");
+          fila.className = "fabrica-publicacion";
+          const foto = nodo("div"), imagen = nodo("img"), sinFoto = nodo("span", "Sin foto");
+          foto.className = "fabrica-publicacion-foto";
+          sinFoto.hidden = true;
+          imagen.alt = "Foto de la publicación " + valor(publicacion.asin);
+          imagen.width = 96; imagen.height = 96;
+          imagen.loading = "lazy"; imagen.decoding = "async";
+          imagen.addEventListener("error", () => { imagen.hidden = true; sinFoto.hidden = false; });
+          imagen.src = "/api/fabrica/publicaciones/" + encodeURIComponent(publicacion.id) + "/imagen";
+          foto.append(imagen, sinFoto);
+          fila.append(foto);
           fila.append(nodo("span", "ASIN: " + valor(publicacion.asin)),
             nodo("span", "SKU de Amazon: " + valor(publicacion.seller_sku)));
           // Los enlaces estan fuera del label: abrir Amazon no selecciona el producto.
