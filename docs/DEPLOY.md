@@ -12,7 +12,8 @@
   `accounting`, como manda `docs/CONTEXTO.md`.
 - **Dir de deploy:** `/mnt/data/appdata/orbit/`
   - `docker-compose.yml` — copia del repo (fuente de verdad: el repo).
-  - `Dockerfile`, `pyproject.toml`, `uv.lock`, `app/` — contexto de build
+  - `Dockerfile`, `pyproject.toml`, `uv.lock`, `app/`,
+    `tools/fabrica_campanas.py` — contexto de build
     de la imagen `app` (se copian del repo; ver "Servicio app").
   - `.env` — `POSTGRES_USER=orbit` + `POSTGRES_PASSWORD` + los DSN por
     servicio (incluido `ORBIT_DSN_TEST`). Permisos `600`, **nunca se
@@ -122,7 +123,8 @@ cd /mnt/data/appdata/orbit
 #    del lead (git archive, no scp: garantiza finales de linea LF):
 #
 #      git archive --format=tar origin/master app Dockerfile .dockerignore \
-#        pyproject.toml uv.lock | ssh goncloud "cd /mnt/data/appdata/orbit && tar -xf -"
+#        pyproject.toml uv.lock tools/fabrica_campanas.py \
+#        | ssh goncloud "cd /mnt/data/appdata/orbit && tar -xf -"
 #
 #    OJO: `origin/master`, NO `master` — con el checkout en otra rama el ref
 #    local queda viejo (paso el 2026-08-30: se copio un master de 12 h antes).
@@ -140,6 +142,31 @@ ss -lntp | grep 8010    # debe decir 127.0.0.1:8010, NUNCA *:8010
 stat -c '%a %U:%G %n' /mnt/data/appdata/orbit/secrets \
   /mnt/data/appdata/orbit/secrets/*
 ```
+
+### Crear campanas desde el dashboard
+
+En **Campañas → Crear campañas** (`/campanas/nuevas`) se elige Amazon MX o US,
+los productos elegibles y los presupuestos y pujas de las cinco campanas del grupo.
+**Revisar plan** consulta los datos de Orbit sin escribir ni llamar a Amazon.
+La revision muestra el target calculado, su procedencia, semillas y presupuesto
+diario total en la moneda de la plataforma.
+
+Crear exige el mismo token de escritura de Settings y la confirmacion literal
+`CREAR 5 CAMPAÑAS`. El token viaja solo en `x-orbit-token` y no se guarda en el
+navegador. Las campanas nacen **activas** y pueden gastar: `shadow` significa que
+el optimizador observa sus ajustes, no que la campana de Amazon esta pausada.
+
+El historial permite consultar el lote despues de recargar o perder la conexion.
+Un segundo envio del mismo plan devuelve el lote ya registrado sin repetir POSTs
+de creacion. Si hubo un resultado incierto, revisar el detalle y reconciliar antes
+de completar el registro; **Pausar grupo** pausa las campanas con ID conocido.
+Los resultados inciertos sin ID requieren verificar la consola de Amazon.
+
+La API web reutiliza `tools/fabrica_campanas.py`, incluido en la imagen: al copiar
+el build se debe incluir ese archivo, ademas de `app/`. No requiere nuevas
+credenciales ni migracion. La validacion de deploy puede usar health, paginas,
+catalogo y previsualizacion; nunca crear campanas automaticamente como smoke test.
+La sonda real del motor de fabrica sigue pendiente por decision del dueno.
 
 CLI (el mismo camino que el cron; `exec` hereda el env del contenedor,
 incluido `ORBIT_PG_HOST` y los DSN):

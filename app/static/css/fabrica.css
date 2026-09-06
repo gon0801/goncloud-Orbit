@@ -1,0 +1,34 @@
+.fabrica { max-width: 84rem; margin: 0 auto; }
+.fabrica [hidden] { display: none; }
+.fabrica fieldset { min-width: 0; border: 1px solid var(--color-borde); padding: 1rem; }
+.fabrica legend { color: var(--color-acento); padding: 0 0.4rem; }
+.fabrica label { display: flex; flex-direction: column; gap: 0.4rem; margin: 0.6rem 0; }
+.fabrica input, .fabrica select { max-width: 100%; min-width: 0; }
+.fabrica button { margin-top: 0.5rem; }
+.fabrica button:disabled { cursor: not-allowed; opacity: 0.6; }
+.fabrica :focus-visible { outline: 2px solid var(--color-acento); outline-offset: 3px; }
+.fabrica-campos, .fabrica-roles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: 0.8rem;
+  margin-bottom: 1rem;
+}
+.fabrica-aviso { border-left: 4px solid var(--color-acento); padding: 0.8rem 1rem; }
+.fabrica-productos { max-height: 26rem; overflow: auto; }
+.fabrica-productos label { flex-direction: row; align-items: baseline; overflow-wrap: anywhere; }
+.fabrica-productos input { flex-shrink: 0; }
+.fabrica .fabrica-tabla { overflow-x: auto; margin: 0.8rem 0; }
+.fabrica .fabrica-tabla table { min-width: 35rem; }
+.fabrica pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+.fabrica dl { display: grid; grid-template-columns: minmax(8rem, 1fr) 3fr; gap: 0.5rem 1rem; }
+.fabrica dd { margin: 0; overflow-wrap: anywhere; }
+.fabrica dt { color: var(--color-mutado); }
+.fabrica [role="status"] { overflow-wrap: anywhere; }
+.fabrica #fabrica-lote-id,
+.fabrica #fabrica-historial a { overflow-wrap: anywhere; }
+.fabrica #fabrica-token { width: 30rem; }
+@media (max-width: 40rem) {
+  .fabrica fieldset { padding: 0.6rem; }
+  .fabrica dl { grid-template-columns: 1fr; gap: 0.3rem; }
+  .fabrica dd { margin-bottom: 0.7rem; }
+}
