@@ -4994,7 +4994,7 @@ Corridos el 2026-09-05 contra produccion (`ssh goncloud`, `docker exec -i orbit-
 (6 rows)
 ```
 
-**(c) dias_con_venta por producto (ventana de 90 dias, sin el curso):** maximo 27 dias (amazon_mx, `PERS-CAR-AZU-SAN-DOR`) y 17 dias (amazon_us, `NH-PERS-ITA-CEN-DOR`). **NINGUN producto llega a 60** → ver decision pendiente abajo. Venta 100% cubierta por `sku_cost` en moneda y una sola moneda por plataforma (MX en MXN, US en USD; `n_monedas = 1` en todas las filas). Extracto (top 10 por plataforma; salida completa: 132 filas):
+**(c) dias_con_venta por producto (ventana de 90 dias, sin el curso):** maximo 27 dias (amazon_mx, `PERS-CAR-AZU-SAN-DOR`) y 17 dias (amazon_us, `NH-PERS-ITA-CEN-DOR`). **NINGUN producto llega a 60 EN LA VENTANA DE 90 DIAS** → ver decision pendiente abajo. Venta 100% cubierta por `sku_cost` en moneda y una sola moneda por plataforma (MX en MXN, US en USD; `n_monedas = 1` en todas las filas); denominador: ventas con `product_id` — quedan fuera 3 ventas amazon_mx sin `product_id` por MXN 5,664.00 en la ventana (residuo fuera del prorrateo por producto). Extracto (top 10 por plataforma; salida completa: 132 filas):
 
 ```
  platform  | product_id |           odoo_sku            | dias_con_venta | venta_total | venta_cubierta | n_monedas
@@ -5021,9 +5021,25 @@ Corridos el 2026-09-05 contra produccion (`ssh goncloud`, `docker exec -i orbit-
  amazon_us |        335 | NH-PERS-CAR-AZU-COR-DOR       |              4 |   9949.2200 |      9949.2200 |         1
 ```
 
-> **PENDIENTE DECISION DEL DUENO (60 vs 30):** ningun producto alcanza `dias_con_venta >= 60` en la ventana; si el guard queda en 60, la tarea 3 no deja ningun candidato vivo. Cambiar `MARGEN_DIAS_MIN_PRODUCTO` a 30 requiere decision escrita del dueno aqui (regla 2). Hasta entonces NO se decide.
+> **PENDIENTE DECISION DEL DUENO (60 vs 30, Y LA VENTANA):** en la ventana de 90 dias del plan ningun producto alcanza `dias_con_venta >= 60` (max 27). El umbral NO es inalcanzable por negocio: es la ventana la que lo mata. Con ventana de 365 dias (siempre sin el curso), 8 productos llegan a >= 30 y uno cruza 60:
+>
+> ```
+>  platform  | product_id |        odoo_sku         | dias_con_venta
+> -----------+------------+-------------------------+----------------
+>  amazon_mx |       1621 | PERS-CAR-AZU-SAN-DOR    |             62
+>  amazon_mx |        207 | NH-CAR-ROJ-VCO-DOR      |             56
+>  amazon_mx |       333 | NH-PERS-CAR-AZU-CEN-DOR |             53
+>  amazon_mx |       185 | NH-CAR-ROJ-CEN-DOR      |             50
+>  amazon_us |        359 | NH-PERS-NOG-SIN-CEN-DOR |             40
+>  amazon_us |        369 | NH-PERS-NOG-SIN-VBU-DOR |             38
+>  amazon_mx |        335 | NH-PERS-CAR-AZU-COR-DOR |             36
+>  amazon_mx |        203 | NH-CAR-ROJ-SAN-DOR      |             35
+> (8 rows)
+> ```
+>
+> La decision del dueno es DOBLE: el valor de `MARGEN_DIAS_MIN_PRODUCTO` (60 o 30) Y la ventana sobre la que se cuenta (90 o 365 dias, siempre sin el curso). Cambiar cualquiera requiere decision escrita del dueno aqui (regla 2). Hasta entonces NO se decide.
 
-**(d) Listings y productos multi-listing:** todos los listings tienen `seller_sku` en ambas plataformas.
+**(d) Listings y productos multi-listing:** todos los listings tienen `seller_sku` en ambas plataformas. La columna `productos` cuenta solo productos CON listing en esa plataforma (universo relevante para la fabrica), no el catalogo completo (1,087 productos en `product`).
 
 ```
  platform  | listings | con_sku
