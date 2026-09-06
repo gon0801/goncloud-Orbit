@@ -548,6 +548,32 @@ def test_cli_v2_manual_normaliza_listing_sin_margen_sin_http(monkeypatch, capsys
     assert conn.escrituras == []
 
 
+def test_cli_v2_con_mutacion_exige_interruptor_antes_de_http(monkeypatch):
+    args = ARGS_BASE.copy()
+    indice = args.index("--productos")
+    args[indice : indice + 2] = ["--listing-ids", "11"]
+    args.extend(
+        [
+            "--target-acos",
+            "25.00",
+            "--acepto-mutacion-real",
+            "--esperado",
+            "5",
+            "--huella",
+            "a" * 64,
+            "--go",
+            "prueba",
+        ]
+    )
+    conn = _ConnFalsa(publicaciones=[(11, 1, "B0AAAAAAAA", "SS-1", None)], settings={})
+    _frontera_lectura(monkeypatch, conn)
+    _sin_red(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *args])
+    with pytest.raises(fc.Abortar, match="altas v2 deshabilitadas"):
+        fc.main()
+    assert conn.escrituras == []
+
+
 def test_sin_fraccion_o_bid_fuera_de_banda_aborta_sin_http(monkeypatch):
     conn = _ConnFalsa(settings={}, productos=[FILA_PRODUCTO])
     _frontera_lectura(monkeypatch, conn)
@@ -1197,6 +1223,27 @@ def _plan_min():
     )
 
 
+def _plan_v2_min():
+    return fp.PlanGrupoV2(
+        platform="amazon_mx",
+        tipo_producto="collar_perro",
+        nombre_base="Collar",
+        fecha=HOY,
+        moneda="MXN",
+        modo="shadow",
+        publicaciones=(
+            fp.PublicacionGrupoV2(11, 1, "B0AAAAAAAA", "SS-1", "amazon_mx", None),
+            fp.PublicacionGrupoV2(12, 1, "B0AAAAAAAB", "SS-2", "amazon_mx", Decimal("-5")),
+        ),
+        parametros={
+            rol: fp.ParametrosRol(rol, Decimal("120"), Decimal("6.00"))
+            for rol in fp.ROLES_ORDEN_CREACION
+        },
+        objetivo=fp.ObjetivoPlanV2("manual_lanzamiento", Decimal("25.00"), "confirmado"),
+        semillas=fp.Semillas((), (), (), ()),
+    )
+
+
 def _plan_con_semillas():
     return dataclasses.replace(
         _plan_min(),
@@ -1364,6 +1411,57 @@ def test_registrar_sincroniza_antes_de_escribir(monkeypatch):
     fc._registrar(ctx, _plan_min(), _CREADAS)
     assert llamadas[0] == "sync" and llamadas.count("goal") == 5
     assert any(s.lower().startswith("insert into campana_grupo ") for s, _ in conn.escrituras)
+
+
+def test_registrar_v2_conserva_dos_listings_y_objetivo_manual(monkeypatch):
+    llamadas = []
+    conn = _ConnFalsa()
+    monkeypatch.setattr(fc, "_sync", lambda cliente: llamadas.append("sync"))
+    monkeypatch.setattr(fc, "_id_entidad", lambda c, p, k, e: 7)
+    monkeypatch.setattr(
+        fc.goals_write, "crea_goal", lambda c, **kw: llamadas.append(kw) or {"id": 1}
+    )
+    ctx = fc._Ctx(None, "tok", None, "cliente", 101, conn, "L2")
+    fc._registrar(ctx, _plan_v2_min(), _CREADAS)
+    grupo = next(
+        params for sql, params in conn.escrituras if "insert into campana_grupo " in sql.lower()
+    )
+    productos = [
+        params
+        for sql, params in conn.escrituras
+        if "insert into campana_grupo_producto" in sql.lower()
+    ]
+    assert grupo[4:9] == (Decimal("25.00"), None, None, "manual_lanzamiento", "confirmado")
+    assert [(fila[2], fila[3], fila[4]) for fila in productos] == [
+        (11, "SS-1", None),
+        (12, "SS-2", Decimal("-5")),
+    ]
+    assert len(llamadas) == 6
+
+
+def test_registrar_cmd_lee_lote_v2_con_interruptor_v1_y_no_repite_post(monkeypatch):
+    plan = _plan_v2_min()
+    ledger = _filas_ledger(plan)
+    conn_admin = _ConnFalsa(
+        settings={"fabrica.creacion": "v1"},
+        lote_fila=(fp.plan_v2_como_json(plan), "failed"),
+        pendientes=_camp_ag_de_ledger(ledger),
+        pasos_ledger=ledger,
+    )
+    amazon = _Amazon()
+    _frontera_mutacion(monkeypatch, _ConnFalsa(), conn_admin, amazon, stub_registrar=False)
+    monkeypatch.setattr(fc, "_sync", lambda cliente: None)
+    monkeypatch.setattr(fc, "_id_entidad", lambda c, p, k, e: 7)
+    monkeypatch.setattr(fc.goals_write, "crea_goal", lambda c, **kw: {"id": 1})
+    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", "--registrar", "L2"])
+    assert fc.main() == 0
+    assert amazon.pedidos == []
+    productos = [
+        params
+        for sql, params in conn_admin.escrituras
+        if "insert into campana_grupo_producto" in sql.lower()
+    ]
+    assert len(productos) == 2
 
 
 def test_sync_usa_dsn_ingest_y_el_escritor_unico(monkeypatch):

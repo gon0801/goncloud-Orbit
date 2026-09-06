@@ -294,6 +294,12 @@ def test_huella_v2_no_depende_del_orden_y_cambia_con_el_objetivo():
     assert fp.huella_plan_v2(base) != fp.huella_plan_v2(_plan_v2(objetivo="26.00"))
 
 
+def test_pasos_v2_crean_un_product_ad_por_publicacion():
+    pasos = fp.pasos_del_rol(_plan_v2(), "category_exact")
+    anuncios = [paso for paso in pasos if paso.recurso == "product_ad"]
+    assert [paso.payload["sku"] for paso in anuncios] == ["SKU-A", "SKU-B"]
+
+
 def test_configuracion_de_creacion_v2_es_fail_closed_y_v1_por_ausencia():
     assert fp.version_creacion_desde_settings({}) == "v1"
     assert fp.version_creacion_desde_settings({"fabrica.creacion": "v2"}) == "v2"

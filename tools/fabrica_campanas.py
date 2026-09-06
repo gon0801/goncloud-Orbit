@@ -249,8 +249,9 @@ SELECT id FROM ad_entity WHERE platform = %s::platform AND kind = %s AND externa
 """
 _SQL_INSERTA_GRUPO = """
 INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote, target_acos_pct,
-                           target_derivado_pct, fraccion, target_procedencia, go_literal)
-SELECT %s::platform, %s, %s, %s, %s, %s, %s, %s, go_literal
+                           target_derivado_pct, fraccion, target_origen, target_procedencia,
+                           go_literal)
+SELECT %s::platform, %s, %s, %s, %s, %s, %s, %s, %s, go_literal
   FROM fabrica_lote WHERE lote = %s
 ON CONFLICT (lote) DO UPDATE SET lote = EXCLUDED.lote
 RETURNING id
@@ -336,6 +337,12 @@ def _fraccion(conn: psycopg.Connection, platform: str) -> Decimal:
             f"sin fraccion: ads_target_fraccion_margen_{platform} ausente en la config vigente"
         )
     return fraccion
+
+
+def _creacion_v2_habilitada(conn: psycopg.Connection) -> bool:
+    fila = conn.execute(_SQL_SETTINGS).fetchone()
+    settings = fila[1] if fila is not None else {}
+    return fp.version_creacion_desde_settings(settings or {}) == "v2"
 
 
 def _productos(conn: psycopg.Connection, platform: str, ids: list[int]) -> list[fp.ProductoGrupo]:
@@ -620,6 +627,12 @@ def _crear(args) -> int:
             fp.huella_plan_v2(plan) if isinstance(plan, fp.PlanGrupoV2) else fp.huella_plan(plan)
         )
         _imprime_dry_run(plan, huella)
+        if (
+            args.acepto_mutacion_real
+            and isinstance(plan, fp.PlanGrupoV2)
+            and not _creacion_v2_habilitada(conn_read)
+        ):
+            raise Abortar("altas v2 deshabilitadas por fabrica.creacion=v1")
     finally:
         conn_read.close()
     if not args.acepto_mutacion_real:
@@ -837,7 +850,35 @@ def _readback_cuadra(leido: dict | None, payload: dict) -> bool:
     return True
 
 
-def _inserta_lote(conn, lote: str, plan: fp.PlanGrupo, huella: str, go: str) -> None:
+def _plan_como_json(plan: fp.PlanCanonico) -> dict:
+    if isinstance(plan, fp.PlanGrupoV2):
+        return fp.plan_v2_como_json(plan)
+    return fp.plan_como_json(plan)
+
+
+def _datos_objetivo(
+    plan: fp.PlanCanonico,
+) -> tuple[Decimal, Decimal | None, Decimal | None, str, str]:
+    if isinstance(plan, fp.PlanGrupoV2):
+        objetivo = plan.objetivo
+        return (
+            objetivo.acos_pct,
+            objetivo.derivado,
+            objetivo.fraccion,
+            objetivo.origen,
+            objetivo.procedencia,
+        )
+    target = plan.target
+    return target.aplicado, target.derivado, target.fraccion, "margen_medido", target.procedencia
+
+
+def _publicaciones_del_plan(plan: fp.PlanCanonico):
+    if isinstance(plan, fp.PlanGrupoV2):
+        return tuple(sorted(plan.publicaciones, key=lambda publicacion: publicacion.listing_id))
+    return plan.productos
+
+
+def _inserta_lote(conn, lote: str, plan: fp.PlanCanonico, huella: str, go: str) -> None:
     conn.execute(
         _SQL_INSERTA_LOTE,
         (
@@ -847,7 +888,7 @@ def _inserta_lote(conn, lote: str, plan: fp.PlanGrupo, huella: str, go: str) -> 
             plan.nombre_base,
             go,
             huella,
-            json.dumps(fp.plan_como_json(plan)),
+            json.dumps(_plan_como_json(plan)),
             plan.modo,
         ),
     )
@@ -955,7 +996,7 @@ def _ejecuta_paso(ctx: _Ctx, paso: fp.Paso, padres: dict) -> str:
     return external
 
 
-def _ejecuta_rol(ctx: _Ctx, plan: fp.PlanGrupo, rol: str) -> dict:
+def _ejecuta_rol(ctx: _Ctx, plan: fp.PlanCanonico, rol: str) -> dict:
     pasos = fp.pasos_del_rol(plan, rol)
     externos: dict = {"rol": rol, "product_ads": [], "semillas": []}
     externos["campaign"] = _ejecuta_paso(ctx, pasos[0], {})
@@ -999,7 +1040,7 @@ def _id_entidad(conn, platform: str, kind: str, external: str) -> int:
     return fila[0] if not isinstance(fila, dict) else fila["id"]
 
 
-def _registrar(ctx: _Ctx, plan: fp.PlanGrupo, creadas: list[dict]) -> int:
+def _registrar(ctx: _Ctx, plan: fp.PlanCanonico, creadas: list[dict]) -> int:
     _sync(ctx.cliente_lectura)
     conn = ctx.conn_admin
     exact = next(c for c in creadas if c["rol"] == "category_exact")
@@ -1010,6 +1051,7 @@ def _registrar(ctx: _Ctx, plan: fp.PlanGrupo, creadas: list[dict]) -> int:
         )
         for c in creadas
     }
+    target, derivado, fraccion, origen, procedencia = _datos_objetivo(plan)
     grupo = conn.execute(
         _SQL_INSERTA_GRUPO,
         (
@@ -1017,10 +1059,11 @@ def _registrar(ctx: _Ctx, plan: fp.PlanGrupo, creadas: list[dict]) -> int:
             plan.tipo_producto,
             plan.nombre_base,
             ctx.lote,
-            plan.target.aplicado,
-            plan.target.derivado,
-            plan.target.fraccion,
-            plan.target.procedencia,
+            target,
+            derivado,
+            fraccion,
+            origen,
+            procedencia,
             ctx.lote,
         ),
     ).fetchone()[0]
@@ -1028,7 +1071,7 @@ def _registrar(ctx: _Ctx, plan: fp.PlanGrupo, creadas: list[dict]) -> int:
         grupo = grupo["id"]
     for rol, (camp_id, ag_id) in ids.items():
         conn.execute(_SQL_INSERTA_ROL, (grupo, rol, camp_id, ag_id))
-    for p in plan.productos:
+    for p in _publicaciones_del_plan(plan):
         conn.execute(
             _SQL_INSERTA_PRODUCTO,
             (grupo, p.product_id, p.listing_id, p.seller_sku, p.margen_neto_pct),
@@ -1065,7 +1108,7 @@ def _registrar(ctx: _Ctx, plan: fp.PlanGrupo, creadas: list[dict]) -> int:
         goal = goals_write.crea_goal(
             conn,
             ad_entity_id=camp_id,
-            target_acos_pct=plan.target.aplicado,
+            target_acos_pct=target,
             bid_currency=plan.moneda,
             mode=plan.modo,
             harvest_campaign_id=exact["campaign"],
@@ -1074,7 +1117,7 @@ def _registrar(ctx: _Ctx, plan: fp.PlanGrupo, creadas: list[dict]) -> int:
             created_at=ahora,
         )
         _log("goal_creado", lote=ctx.lote, rol=rol, goal_id=goal["id"], mode=plan.modo)
-    _log("grupo_registrado", lote=ctx.lote, grupo_id=grupo, target=str(plan.target.aplicado))
+    _log("grupo_registrado", lote=ctx.lote, grupo_id=grupo, target=str(target))
     return grupo
 
 
@@ -1133,7 +1176,7 @@ def _identidad_coincide(recurso: str, pedido: dict, guardado: Any) -> bool:
     return True
 
 
-def _exige_ledger_completo(conn, plan: fp.PlanGrupo, lote: str) -> None:
+def _exige_ledger_completo(conn, plan: fp.PlanCanonico, lote: str) -> None:
     """D-CURSOR-177-F1: todos los pasos de pasos_del_rol deben estar applied."""
     filas = [_fila_paso(f) for f in conn.execute(_SQL_PASOS_LOTE, (lote,)).fetchall()]
     camp_ag: dict[str, dict[str, str]] = {}
@@ -1197,7 +1240,11 @@ def _registrar_cmd(args) -> int:
                 f"lote {args.registrar} esta desarmado (campanas PAUSED): registrarlo "
                 "lo resucitaria a medias; si se quiere vivo, es decision nueva del dueno"
             )
-        plan = fp.plan_desde_json(plan_json)
+        plan = (
+            fp.plan_v2_desde_json(plan_json)
+            if plan_json.get("schema_version") == 2
+            else fp.plan_desde_json(plan_json)
+        )
         _exige_ledger_completo(conn_admin, plan, args.registrar)
         pasos = conn_admin.execute(_SQL_CAMPANAS_APPLIED, (args.registrar,)).fetchall()
         conn_admin.commit()
@@ -1227,7 +1274,7 @@ def _registrar_cmd(args) -> int:
         _cierra(conn_admin)
 
 
-def _mutar(args, plan: fp.PlanGrupo, huella: str, *, lote: str | None = None) -> int:
+def _mutar(args, plan: fp.PlanCanonico, huella: str, *, lote: str | None = None) -> int:
     _valida_go(args, huella)
     # D-CURSOR-177-F3: falla cerrado antes de LWA/lote/POST (spec §5.1).
     _dsn_ingest()

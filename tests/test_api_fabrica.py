@@ -249,6 +249,30 @@ def test_crear_v2_exige_interruptor_y_target_valido_sin_mutar(escenario, monkeyp
     assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone()[0] == 0
 
 
+def test_reenvio_v2_reordena_listings_y_no_duplica_mutacion(escenario, monkeypatch):
+    cliente, conn, solicitud, fw, ids = escenario
+    listing_ids = [
+        fila[0]
+        for fila in conn.execute(
+            "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx' ORDER BY id",
+            (ids[2],),
+        ).fetchall()
+    ]
+    conn.execute(
+        "INSERT INTO config_version(label, settings) VALUES ('v2', %s)",
+        (Json({"ads_target_fraccion_margen_amazon_mx": "0.5", "fabrica.creacion": "v2"}),),
+    )
+    v2 = _solicitud_v2(solicitud, list(reversed(listing_ids)))
+    vista = _preview(cliente, v2)
+    llamadas = _motor_simulado(monkeypatch, fw, conn)
+    primera = _crear(cliente, v2, vista["huella"])
+    v2["listing_ids"] = listing_ids
+    segunda = _crear(cliente, v2, vista["huella"])
+    assert primera.status_code == segunda.status_code == 200
+    assert primera.json() == segunda.json()
+    assert llamadas == [vista["lote"]]
+
+
 @pytest.mark.parametrize(
     "valor", [1.5, True, "NaN", "Infinity", "1e99999", "0", "-1", "1.001", "9999999999999"]
 )

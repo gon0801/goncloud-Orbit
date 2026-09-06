@@ -218,6 +218,9 @@ class PlanGrupoV2:
     existentes: tuple[dict, ...] = field(default_factory=tuple)
 
 
+PlanCanonico = PlanGrupo | PlanGrupoV2
+
+
 @dataclass(frozen=True)
 class Paso:
     """Un POST del lote: recurso + path + payload SIN los ids del padre
@@ -626,7 +629,7 @@ def plan_desde_json(d: dict) -> PlanGrupo:
 # ---------------------------------------------------------------------------
 
 
-def _payload_campana(plan: PlanGrupo, rol: str) -> dict:
+def _payload_campana(plan: PlanCanonico, rol: str) -> dict:
     p = plan.parametros[rol]
     return {  # HIPOTESIS hasta la sonda: startDate ISO, budget anidado, dynamicBidding
         "name": nombre_campana(plan.tipo_producto, plan.nombre_base, rol, plan.fecha),
@@ -638,7 +641,7 @@ def _payload_campana(plan: PlanGrupo, rol: str) -> dict:
     }
 
 
-def _payload_ad_group(plan: PlanGrupo, rol: str) -> dict:
+def _payload_ad_group(plan: PlanCanonico, rol: str) -> dict:
     return {  # HIPOTESIS hasta la sonda: defaultBid numero
         "name": nombre_ad_group(plan.tipo_producto, plan.nombre_base, rol, plan.fecha),
         "state": ESTADO_NUEVO,
@@ -646,7 +649,7 @@ def _payload_ad_group(plan: PlanGrupo, rol: str) -> dict:
     }
 
 
-def _pasos_keywords(plan: PlanGrupo, rol: str) -> list[Paso]:
+def _pasos_keywords(plan: PlanCanonico, rol: str) -> list[Paso]:
     bid = monto_wire(plan.parametros[rol].bid)
     textos = plan.semillas.exact if rol == "category_exact" else plan.semillas.keywords
     return [
@@ -661,7 +664,7 @@ def _pasos_keywords(plan: PlanGrupo, rol: str) -> list[Paso]:
     ]
 
 
-def _semillas_del_rol(plan: PlanGrupo, rol: str) -> list[Paso]:
+def _semillas_del_rol(plan: PlanCanonico, rol: str) -> list[Paso]:
     if rol in MATCH_POR_ROL:
         return _pasos_keywords(plan, rol)
     if rol == "product_targeting":
@@ -693,8 +696,13 @@ def _semillas_del_rol(plan: PlanGrupo, rol: str) -> list[Paso]:
     ]
 
 
-def pasos_del_rol(plan: PlanGrupo, rol: str) -> list[Paso]:
-    """campana -> ad group -> un product ad por producto -> semillas del rol."""
+def pasos_del_rol(plan: PlanCanonico, rol: str) -> list[Paso]:
+    """Campana, ad group y un product ad por identidad elegida del plan."""
+    publicaciones = (
+        tuple(sorted(plan.publicaciones, key=lambda publicacion: publicacion.listing_id))
+        if isinstance(plan, PlanGrupoV2)
+        else plan.productos
+    )
     pasos = [
         Paso(
             rol, "campaign", PATH_CREATE["campaign"], _payload_campana(plan, rol), f"campana {rol}"
@@ -715,7 +723,7 @@ def pasos_del_rol(plan: PlanGrupo, rol: str) -> list[Paso]:
             {"sku": p.seller_sku, "state": ESTADO_NUEVO},
             f"product ad sku {p.seller_sku}",
         )
-        for p in plan.productos
+        for p in publicaciones
     )
     pasos.extend(_semillas_del_rol(plan, rol))
     return pasos
