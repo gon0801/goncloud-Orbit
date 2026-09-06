@@ -1,8 +1,3 @@
-"""Copia visible: campana/campanas ASCII no puede quedar en texto que lee
-una persona. Identificadores (rutas, keys, item.campana) viven dentro de
-tags/jinja y este chequeo los ignora.
-"""
-
 from __future__ import annotations
 
 import re
@@ -26,7 +21,6 @@ def _texto_visible(fuente: str) -> str:
 
 
 def test_templates_sin_campana_ascii_en_copia_visible():
-    """Tras quitar jinja y tags HTML, el texto restante no tiene campana ASCII."""
     restos: list[str] = []
     for path in sorted(_TEMPLATES.glob("*.html")):
         visible = _texto_visible(path.read_text(encoding="utf-8"))
@@ -36,7 +30,6 @@ def test_templates_sin_campana_ascii_en_copia_visible():
 
 
 def test_motivos_es_sin_campana_ascii():
-    """Los valores de MOTIVOS_ES_* (copia visible) no usan campana ASCII."""
     restos: list[str] = []
     for nombre, tabla in (
         ("MOTIVOS_ES_DECISIONES", MOTIVOS_ES_DECISIONES),
