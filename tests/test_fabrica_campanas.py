@@ -26,6 +26,7 @@ from psycopg.types.json import Json
 from test_fabrica_migracion import _entidad, _ledger_producto, _producto, db_fabrica
 from test_schema import _postgres_obligatorio_ausente, _test_dsn
 
+from app.ads.client import AdsClient
 from app.ads.config import AdsCredentials
 from app.ads.structure_api import PerfilAds
 
@@ -661,6 +662,14 @@ class _Amazon:
         self.readback_malo = readback_malo
         self.objetos = {}
         self.secuencia = secuencia if secuencia is not None else []
+        # P2 #1 (cross review kimi): todo request no-LWA del tool lleva el
+        # sello de identidad; el LIST no porque viaja por AdsClient real.
+        self.perfil_esperado = 101
+
+    def _sello(self, request):
+        assert request.headers["Amazon-Advertising-API-ClientId"] == _CREDS.client_id
+        assert request.headers["Amazon-Advertising-API-Scope"] == str(self.perfil_esperado)
+        assert request.headers["Authorization"] == "Bearer tok"
 
     def __call__(self, request):
         self.pedidos.append(request)
@@ -672,6 +681,7 @@ class _Amazon:
         self.secuencia.append(("http", path))
         if path.endswith("/list"):
             return self._list(path, json.loads(request.content))
+        self._sello(request)
         assert path in fp.VENDOR_POR_PATH, path
         assert request.headers["Content-Type"] == fp.VENDOR_POR_PATH[path]
         assert request.headers["Accept"] == fp.VENDOR_POR_PATH[path]
@@ -717,6 +727,36 @@ class _ClienteLectura:
         return self._c.post(f"{fc.API}{path}", json=body)
 
 
+def test_readback_contra_ads_client_real():
+    """P2 #2 (cross review kimi): `_readback` ejercitado contra el AdsClient
+    REAL (no el stub): el LIST sale al endpoint v3 con el filtro include y el
+    sello de identidad que construye el propio cliente."""
+    pedidos = []
+
+    def handler(request):
+        pedidos.append(request)
+        if "auth/o2/token" in str(request.url):
+            return httpx.Response(200, json={"access_token": "tok-r", "expires_in": 3600})
+        return httpx.Response(
+            200, json={"campaigns": [{"campaignId": "camp-77", "state": "ENABLED", "name": "n"}]}
+        )
+
+    cliente = AdsClient(_CREDS, transport=httpx.MockTransport(handler), sleep=lambda s: None)
+    assert fc._readback(cliente, 101, "/sp/campaigns", "camp-77") == {
+        "campaignId": "camp-77",
+        "state": "ENABLED",
+        "name": "n",
+    }
+    assert fc._readback(cliente, 101, "/sp/campaigns", "no-esta") is None
+    (lista, segunda) = [p for p in pedidos if str(p.url).endswith("/sp/campaigns/list")]
+    assert json.loads(segunda.content) == {"campaignIdFilter": {"include": ["no-esta"]}}
+    assert json.loads(lista.content) == {"campaignIdFilter": {"include": ["camp-77"]}}
+    assert lista.headers["Amazon-Advertising-API-ClientId"] == "cid"
+    assert lista.headers["Amazon-Advertising-API-Scope"] == "101"
+    assert lista.headers["Authorization"] == "Bearer tok-r"
+    assert lista.headers["Content-Type"] == "application/vnd.spcampaign.v3+json"
+
+
 def _frontera_mutacion(
     monkeypatch, conn_read, conn_admin, amazon, perfiles=None, stub_registrar=True
 ):
@@ -729,6 +769,7 @@ def _frontera_mutacion(
         AdsCredentials, "from_secrets_dir", classmethod(lambda cls, *a, **k: _CREDS)
     )
     transporte = httpx.MockTransport(amazon)
+    amazon.perfil_esperado = (perfiles if perfiles is not None else [_perfil()])[0].profile_id
     monkeypatch.setattr(fc, "AdsClient", lambda cred: _ClienteLectura(transporte))
     monkeypatch.setattr(
         fc, "evaluar_perfiles", lambda c: perfiles if perfiles is not None else [_perfil()]
@@ -1315,6 +1356,7 @@ class _AmazonDesarme(_Amazon):
     def __call__(self, request):
         if request.method == "PUT":
             self.puts.append(request)
+            self._sello(request)
             assert request.headers["Content-Type"] == fp.VENDOR_POR_PATH["/sp/campaigns"]
             cuerpo = json.loads(request.content)["campaigns"][0]
             assert cuerpo["state"] == "PAUSED" and isinstance(cuerpo["campaignId"], str)

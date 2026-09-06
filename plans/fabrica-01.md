@@ -5624,21 +5624,45 @@ AttributeError: module 'fabrica_campanas' has no attribute '_readback_cuadra'
 8 failed, 19 deselected
 ```
 
-Verde final (Postgres 16 local, DSN por defecto de `test_schema`):
+Verde final (Postgres 16 local, DSN por defecto de `test_schema`), actualizado al
+HEAD de `fabrica-01-7-10-ejecucion` tras el cross review kimi (2026-09-05):
 
 ```
-$ .venv/bin/python -m pytest tests/test_fabrica_campanas.py -q -rs
-42 passed in 2.99s
-$ .venv/bin/python -m pytest tests/test_architecture.py -k fabrica -q
-4 passed, 15 deselected
-$ .venv/bin/ruff check tools/fabrica_campanas.py tests/test_fabrica_campanas.py tests/test_architecture.py
-All checks passed!
-$ .venv/bin/ruff format --check tools/fabrica_campanas.py tests/test_fabrica_campanas.py tests/test_architecture.py
-3 files already formatted
+$ PYTHONPATH=. .venv/bin/python -m pytest tests/test_fabrica_campanas.py tests/test_fabrica_plan.py tests/test_architecture.py -q -rs
+91 passed in 3.47s
+$ .venv/bin/ruff check --fix . && .venv/bin/ruff format .
+All checks passed! / 156 files left unchanged
+$ git diff --check
+(sin output)
 ```
 
-0 skipped en `test_fabrica_campanas.py` (los de DB corrieron contra PG 16 local).
+0 skipped (los de DB corrieron contra PG 16 local).
 Tareas 7-10 cerradas. Tarea 11 (sonda) y ORBIT 17 siguen pendientes.
+
+**Cross review kimi (APPROVE 8b9066b) — 2 P2 de cobertura corregidos
+(2026-09-05, misma rama):** no eran defectos del tool, sino huecos de test.
+
+P2 #1 — sello de identidad asertado en los mocks (`_Amazon._sello` y el PUT
+de `_AmazonDesarme`): todo request no-LWA del tool lleva
+`Amazon-Advertising-API-ClientId` (== credenciales), `Amazon-Advertising-API-Scope`
+(== profile como string) y `Authorization: Bearer tok`. Rojo (tool mutado para
+omitir ClientId en `_post`, restaurado despues):
+
+```
+$ pytest tests/test_fabrica_campanas.py::test_mutacion_orden_fijo_ledger_pre_http_y_readback -q
+E   fabrica_campanas.Abortar: campana category_exact ... INCERTO (status excepcion)
+1 failed  (verde tras restaurar: passed)
+```
+
+P2 #2 — `_readback` ejercitado contra el `AdsClient` REAL
+(`test_readback_contra_ads_client_real`: MockTransport responde LWA + LIST v3).
+Rojo (filtro de `_readback` mutado a `filtroEquivocado`, restaurado despues):
+
+```
+$ pytest tests/test_fabrica_campanas.py::test_readback_contra_ads_client_real -q --tb=line
+E   AssertionError: assert {'filtroEquiv... ['no-esta']}} == {'campaignIdF... ['no-esta']}}
+1 failed  (verde tras restaurar: passed)
+```
 
 ### Tarea 11 — sonda (lead)
 
