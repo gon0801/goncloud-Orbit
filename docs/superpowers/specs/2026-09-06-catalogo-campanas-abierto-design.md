@@ -1,6 +1,7 @@
 # ORBIT 19 — Catalogo abierto y comparacion para campanas
 
-Estado: BORRADOR para decision del dueno, 2026-09-06. Solo planificacion.
+Estado: ESPECIFICACION FORMAL v1, 2026-09-06; decisiones de negocio pendientes.
+Formalizada con harness-plan; solo planificacion, no aprobacion de ejecucion.
 Solicitud: todos los articulos deben poder anadirse a campanas, con metricas
 que ayuden a distinguir cuales conviene anunciar. No autoriza crear anuncios.
 
@@ -75,10 +76,12 @@ fuente de calculo comun debe distinguir medicion disponible de evidencia madura.
 
 MVP sin nota opaca 0–100 ni pesos inventados:
 
-- Por probar: sin historial Ads observado en una cobertura verificada.
+- Por probar: sin actividad Ads observada en la ventana completa verificada.
+  No implica que el articulo sea nuevo o nunca haya tenido anuncios.
 - Sin datos / datos incompletos: reporte faltante o sin cobertura; no afirmar cero.
 - Dentro del objetivo / por encima del objetivo: comparar ACoS con un objetivo
-  explicito identificado; sin objetivo solo mostrar metricas, no calificacion.
+  explicito identificado; sin objetivo solo mostrar metricas, no calificacion. No promediar los
+  objetivos de varias campanas para fabricar uno por ASIN.
 - Gasto sin ventas: gasto observado con ventas cero, ACoS indefinido, no cero.
 - Margen observado positivo/negativo/no calculable como eje separado.
 - Muestra y antiguedad siempre junto al resultado; no afirmar probabilidad de
@@ -135,6 +138,91 @@ No hay spec.md raiz en esta base; se usan los specs existentes del proyecto.
 Pendientes consultados al dueno: objetivo prioritario; target manual de prueba
 frente a margen proyectado previo; nuevas campanas solamente o tambien existentes.
 Hasta resolverlos, las alternativas figuran como propuestas, no como aprobaciones.
+La solicitud de formalizar el plan no cuenta como respuesta a esas decisiones.
+
+## Contratos verificables de la formalizacion
+
+### API, CLI y snapshots v2 (propuesta tecnica)
+
+- API nueva: `listing_ids: list[int]`, sin duplicados; objetivo discriminado como
+  `objetivo: {origen: "margen_medido"}` o
+  `objetivo: {origen: "manual_lanzamiento", acos_pct: "25.00"}`. El porcentaje
+  del ejemplo es un fixture, nunca default. Rechazar entradas que mezclen
+  `productos` con `listing_ids` o margen derivado con un objetivo manual.
+- Compatibilidad: aceptar el contrato antiguo `productos` y CLI `--productos`
+  con su semantica anterior, sin convertir silenciosamente productos ambiguos.
+  CLI nuevo propone `--listing-ids` y `--target-acos` explicito. Un unico
+  normalizador produce el plan canonico, no dos motores de creacion.
+- Persistido v2: `schema_version=2`, publicaciones resueltas con listing_id,
+  product_id, ASIN, seller SKU y plataforma; snapshot del objetivo y evidencia
+  financiera realmente usada. Campo medido ausente se serializa como null.
+- Persistido sin version: lector v1 conserva exactamente su comportamiento y
+  huella. Las nuevas solicitudes v2 ordenan por listing_id antes del hash;
+  cambiar objetivo, publicacion o gasto cambia la huella. No rehashear lotes v1.
+- Migracion expansiva y lector v1/v2 antes de habilitar nuevas creaciones. La
+  version de reversa debe deshabilitar creaciones v2 y conservar lectura,
+  registro, reconciliacion y pausa de v2; no volver al binario viejo incompatible.
+  El mecanismo concreto de deshabilitacion y su prueba se cierran en 0.2.
+
+### Comparacion y evidencia
+
+Un objetivo de comparacion puede ser el del grupo que el dueno esta preparando,
+identificado como tal. Antes de capturarlo, ACoS se muestra sin etiqueta de
+cumplimiento. No se deriva un target comun mezclando los objetivos de campanas.
+La comparacion describe resultados observados, no una probabilidad de exito.
+
+Orden de evaluacion, con cobertura/madurez como ejes separados:
+
+1. Reporte faltante o cobertura no verificada: datos incompletos; sin etiqueta
+   dentro/fuera. Los subtotales disponibles se identifican como parciales.
+2. Cobertura completa y sin actividad observada: Por probar en esta ventana.
+3. Gasto positivo y Revenue Ads cero observado: Gasto sin ventas; ACoS=null.
+4. Revenue Ads positivo: ACoS=100*suma(gasto)/suma(Revenue Ads). Con objetivo
+   explicito, igualdad cuenta Dentro del objetivo y mayor cuenta Por encima.
+   Sin objetivo, solo ACoS. Evidencia inmadura se etiqueta provisional.
+5. Combinaciones restantes conservan sus datos, sin forzar una etiqueta. Una
+   fila inexistente solo permite inferir cero si el contrato del reporte y su
+   cobertura lo demuestran; de otro modo es desconocido.
+
+CPC=suma(gasto)/suma(clicks), CVR=100*suma(compras)/suma(clicks), con denominador
+positivo y cobertura compatible; en otro caso null. Los campos de compras y
+ventas, su componente promovido/halo y la ventana exacta de atribucion quedan
+sellados en 0.4 tras la muestra de fuente0.3. No construir B con ese contrato
+sin resolver ni combinar columnas de atribucion incompatible.
+
+Ordenes soportados: margen observado, ventas totales, Revenue Ads, gasto,
+ACoS, CPC, CVR y compras; ascendente/descendente visible. Solo filas comparables
+por mercado, moneda, grano y ventana. Null al final en ambas direcciones,
+desempate estable por listing_id. No usar el orden como nota global de calidad.
+Orden inicial pendiente de preferencia; fallback tecnico neutral por SKU/ASIN.
+
+Evidencia siempre separa: (a) madurez de atribucion, (b) tamano de muestra y
+cobertura, (c) frescura de ingesta. No calificar confianza alta/media/baja sin
+una politica adicional; no reutilizar 30 fechas financieras como umbral Ads.
+Disponibilidad Sin verificar no impide comparar economia/Ads ni seleccionar.
+
+Fixtures de aceptacion con cifras ilustrativas, nunca valores sembrados:
+
+| Caso | Entrada | Resultado esperado |
+|---|---|---|
+| Ratios desde sumas | Gasto10/ventas100 y gasto90/ventas300, misma moneda/ventana | ACoS25%, no promedio20%; muestras y cobertura visibles |
+| Igualdad | ACoS25%, objetivo explicito25% | Dentro del objetivo |
+| Distintos objetivos de campana | Una publicacion aparece en dos campanas con targets distintos; sin objetivo de comparacion | ACoS sin etiqueta dentro/fuera; no target promedio |
+| Cero y ausencia | Gasto10, ventas0 observadas vs reporte ausente | Primero Gasto sin ventas/ACoSnull; segundo Sin datos |
+| Muestra | Dos ASIN con ACoS25%, compras1 y100 | Mismo resultado frente al target; conteos diferentes visibles |
+| Mismo producto | Dos listings comparten venta financiera100 y margen20% del producto | Se muestra el grano compartido; total financiero100, no200 |
+| Historia fuera de ventana | Reporte completo sin actividad actual, actividad antigua conocida | Por probar en esta ventana; no llamarlo producto nuevo |
+| Orden estable | Igual metrica o null | Desempate listing_id; null al final; seleccion preservada |
+
+### Resolucion de fuentes
+
+0.3 puede cerrar la investigacion con estado verificada o no_verificada y motivo
+por fuente. La implementacion Ads exige fuente verificada: si no hay acceso,
+B.1 y la entrega B siguen pendientes. Mostrar null no completa el reporte Ads.
+Disponibilidad es recomendada: su ausencia admite el estado Sin verificar, sin
+bloquear B.4/B.5. La entrega completa debe declarar si integra disponibilidad
+real o si esa ampliacion queda pendiente. Margen con muestra limitada es
+propuesta de negocio en 0.2, no relajacion tacita del calculo del motor.
 
 ## Fuentes y evidencia
 

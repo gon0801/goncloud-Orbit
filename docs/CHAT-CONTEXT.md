@@ -4,6 +4,12 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-06 — ORBIT 19 formalizado con harness-plan.**
+Plan formal y spec incluyen stages, archivos por tarea, evidencia y DoD binarios,
+contrato v2/compatibilidad y rollback, fixtures de comparacion y evaluacion de
+alternativas por tres perspectivas. Negocio pendiente en0.2; formalizar no aprueba
+objetivos ni gasto. PR185 conserva solo documentacion y plan activo sin cambios.
+
 **2026-09-06 — ORBIT 19, borrador de catalogo abierto y evaluacion.**
 El dueno pide seleccionar todos los articulos y comparar su conveniencia para
 campanas. Plan catalogo-campanas-01: seleccion por publicacion, objetivo manual
