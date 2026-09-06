@@ -30,12 +30,12 @@ no se inventa producto/SKU para poder anunciarlas.
 
 ## Decisiones pendientes y criterio de cierre
 
-| ID | Decision | Propuesta del plan | Recomendacion 2026-09-06 (NO aprobada) | Evidencia necesaria |
+| ID | Decision | Propuesta del plan | Recomendacion (NO aprobada; conteos por mercado) | Evidencia necesaria |
 |---|---|---|---|---|
-| D1 | Prioridad de comparacion | Rentabilidad con espacio para explorar | Orden inicial: margen observado desc + seccion Por probar visible. Fallback tecnico `listing_id`. Sin nota 0–100. | Respuesta del dueno; ver E/0.2/decisiones-propuestas.md |
-| D2 | Lanzamientos sin margen | ACoS manual del grupo, presupuesto/bids explicitos | Aceptar. Manual obligatorio si algun producto no tiene margen maduro. No derivar el minimo omitiendo nulls. No margen proyectado previo. | Respuesta del dueno; target no se representa como margen |
-| D3 | Nuevas o existentes | Crear nuevas primero | Solo campanas nuevas (igual FABRICA 01). Existentes = otro plan con reversa. | Respuesta; si incluye existentes, replanificar antes de cerrar 0.2 |
-| D4 | Detalle economico con poca muestra | Mostrar margen observado con guardas de integridad, separado del maduro | Aceptar en UI. `v_margen_producto` y el motor no se relajan. 116 productos hoy tienen 1–29 fechas. | Ratificacion; no afecta el motor |
+| D1 | Prioridad de comparacion | Rentabilidad con espacio para explorar | Orden por `margen_neto_pct` maduro (porcentaje, ventana `[2026-02-20, D-15)`). Muestra `dias_con_venta` visible. NULL al final, no como 0%. MX/US no se mezclan. Por probar (Ads) aparte. | Confirmacion del dueno; E/0.2/decisiones-propuestas.md |
+| D2 | Lanzamientos sin margen, cero o negativo | ACoS manual del grupo, presupuesto/bids explicitos | Manual si algun producto tiene margen NULL, =0 o <0, o si el clamp a 10% supera el margen conocido. Hoy 0 filas cero/neg; MX 244 y US 117 son ausente. | Confirmacion del dueno; target no se representa como margen |
+| D3 | Nuevas o existentes | Crear nuevas primero | Sigue propuesta: solo campanas nuevas. Existentes = otro plan. | Respuesta; si incluye existentes, replanificar antes de cerrar 0.2 |
+| D4 | Detalle economico con poca muestra | Mostrar margen observado con guardas de integridad, separado del maduro | Sigue propuesta. Muestra limitada no entra al sort D1. MX 136 / US 51 con 1–29 fechas (lectura B). | Ratificacion; no afecta el motor |
 
 0.2 solo termina con respuestas atribuibles al dueno para D1–D3 y contrato D4
 ratificado. Contratos API/CLI/migracion en E/0.2 son **propuestos**. Si elige
@@ -52,8 +52,10 @@ ni estas recomendaciones como aprobacion.
   **verificada** (amazon_mx D-3, 767 filas / 251 ASIN). `salesSameSku30d`
   no existe (400). Stock FBA/FBM en bridge, separados; Featured Offer
   **no_verificada**. Sonda US pendiente.
-- 0.2 `docs/evidencia/orbit-19/0.2/` — propuestas D1–D4, API/CLI v2,
-  reserva 0019/0020 y rollback. **No cierra la tarea.**
+- 0.2 `docs/evidencia/orbit-19/0.2/` — D1/D2 precisadas (porcentaje,
+  ventana, muestra, ausentes; cero y negativo). D3/D4 siguen propuesta.
+  Correccion: el 175 era solo MX. **No cierra la tarea.** SELECT signo
+  21:24 UTC: MX 5 pos / 0 cero / 0 neg / 244 null; US 2 / 0 / 0 / 117.
 - 0.4 `docs/evidencia/orbit-19/0.4/politica-comparacion.md` — campos,
   ventana, cobertura, fixtures. Orden/objetivo siguen D1/D2. **No cierra
   la tarea** (Depends 0.2).

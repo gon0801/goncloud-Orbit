@@ -117,9 +117,11 @@ gasto, ACoS, CPC, CVR, compras. Asc/desc visible.
 Null al final en ambas direcciones. Desempate estable `listing_id`.
 Filtros/orden no pierden la seleccion (AC10).
 
-Propuesta D1 (no aprobada): margen observado desc + seccion Por probar
-visible. Fallback tecnico si D1 no se cierra antes de B.5: `listing_id`
-ascendente (neutral, no es nota de calidad).
+Propuesta D1 (no aprobada): orden por `margen_neto_pct` maduro
+(porcentaje, ventana `[2026-02-20, D-15)` UTC). `dias_con_venta` visible.
+NULL al final, nunca como 0%. MX y US no se mezclan. Por probar (Ads)
+en seccion propia. Fallback tecnico si D1 no se cierra: `listing_id`
+ascendente. La muestra 1–29 no entra al sort salvo D4 ratificada.
 
 ## 8. Fixtures del spec — resultado esperado
 

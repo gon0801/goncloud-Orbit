@@ -4,6 +4,13 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-06 — ORBIT 19 D1/D2 corregidas, sin cerrar 0.2.**
+El 175 era solo MX (84+91). Por mercado, margen maduro positivo: MX 5 / US 2;
+cero y negativo: 0 y 0; ausente: MX 244 / US 117. D1: porcentaje
+`margen_neto_pct`, ventana `[2026-02-20, D-15)`, muestra visible, NULL no es 0%.
+D2 cubre ausente, cero y negativo (clamp a 10% mentiria). D3/D4 siguen
+propuesta. A/B no arrancan.
+
 **2026-09-06 — ORBIT 19 Fase 0: catalogo y fuentes (0.1/0.3).**
 SELECT 21:00 UTC: MX 249 productos / 3 elegibles, US 119 / 2; 115 multilisting;
 291 listings del bridge sin mapa Odoo (23 Active). `fabrica_lote` vacia.

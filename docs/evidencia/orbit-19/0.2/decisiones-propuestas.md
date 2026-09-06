@@ -1,86 +1,129 @@
 # ORBIT 19 / 0.2 — D1–D4 (PROPUESTAS, no aprobadas)
 
-Estado: **pendiente de respuesta del dueno**. Este archivo no cierra 0.2.
-La solicitud de formalizar el plan y estas recomendaciones **no cuentan**
-como aprobacion. Silencio o tiempo tampoco.
+Estado: **pendiente de confirmacion del dueno**. Este archivo no cierra 0.2.
+Formalizar, recomendar o corregir numeros **no cuenta** como aprobacion.
 
-Evidencia de catalogo: `docs/evidencia/orbit-19/0.1/reporte.md`
-(2026-09-06 21:00:01 UTC). 3+2 productos elegibles hoy; 115 multilisting;
-175 sin margen maduro (84+48 sin ventas + 91+25 con &lt;30 fechas).
+Conteos: SELECT 2026-09-06 21:24:52 UTC, `orbit_read`, ventana
+`[2026-02-20, 2026-08-22)`. Detalle: `select-margen-signo.out.txt`.
+Selector exclusivo (0.1): `docs/evidencia/orbit-19/0.1/reporte.md`.
 
-## D1 — Prioridad de comparacion
+Correccion: el "175 sin margen maduro" de la propuesta anterior era solo
+MX (84+91, productos de un listing). No se suma MX+US. Abajo todo va
+**por mercado**.
+
+## Conteos por mercado (no mezclar)
+
+Dos lecturas. No son el mismo numero.
+
+**A. Bloqueo del selector actual** (mutuamente excluyente, orden de
+`fabrica_web.py`: multilisting → sin margen → sin SKU):
+
+| Mercado | Productos | Elegibles hoy | Multilisting | Sin ventas (un listing) | &lt;30 fechas (un listing) |
+|---|---:|---:|---:|---:|---:|
+| amazon_mx | 249 | 3 | 71 | 84 | 91 |
+| amazon_us | 119 | 2 | 44 | 48 | 25 |
+
+MX 3+71+84+91=249. US 2+44+48+25=119.
+
+**B. Margen maduro de `v_margen_producto.margen_neto_pct`** (todos los
+productos con listing; un producto puede ser multilisting **y** sin margen):
+
+| Mercado | Positivo | Cero | Negativo | Null | de esos null: sin ventas | de esos null: &lt;30 fechas |
+|---|---:|---:|---:|---:|---:|---:|
+| amazon_mx | 5 | 0 | 0 | 244 | 108 | 136 |
+| amazon_us | 2 | 0 | 0 | 117 | 66 | 51 |
+
+MX 5+244=249. US 2+117=119. De los 5 positivos MX, 3 tienen un listing
+(elegibles) y 2 son multilisting. US: los 2 positivos son de un listing.
+Hoy no hay margen 0 ni negativo; el contrato los cubre igual.
+
+No se usa un total combinado MX+US para decidir.
+
+## D1 — Prioridad de comparacion (para confirmar)
 
 Propuesta del plan: rentabilidad con espacio para explorar.
 
-**Recomendacion:** orden inicial por **margen observado descendente**
-(solo filas con margen calculable), seccion **Por probar** visible y
-seleccionable aparte, desempate `listing_id`. No hay nota 0–100 ni pesos.
-Sin objetivo de comparacion, no etiquetar dentro/fuera de ACoS.
+**Recomendacion a confirmar:**
 
-Motivo: el dueno pidio distinguir conveniencia, no un score. El catalogo
-tiene 175 productos sin margen maduro; si el orden inicial es solo Ads o
-solo ventas, esos quedan al fondo y se confunden con malos. Por probar
-tiene que verse, no esconderse.
+1. **Metrica de orden inicial:** `margen_neto_pct` de `v_margen_producto`
+   (porcentaje neto, grano producto+plataforma). No es pesos de
+   contribucion, no es ACoS, no es ventas en dinero.
+2. **Ventana del porcentaje:** `[2026-02-20, D-15)` UTC, la de la vista.
+   Hoy: `[2026-02-20, 2026-08-22)`. Visible junto al numero.
+3. **Muestra:** `dias_con_venta` siempre visible. El orden D1 usa solo
+   el porcentaje **maduro** (`dias_con_venta >= 30` y el resto de guardas
+   de la vista). La muestra 1–29 es D4 (sigue propuesta) y **no** entra
+   al sort hasta que D4 se ratifique.
+4. **Datos ausentes:** `margen_neto_pct` NULL al **final**, en las dos
+   direcciones. NULL no es 0%, no es peor que un negativo, no es "malo".
+   Sin fila de la vista = ausente, no cero. MX y US no se mezclan (moneda
+   distinta). Desempate `listing_id`.
+5. **Por probar** (Ads, sin actividad en la ventana del reporte) va en
+   seccion propia, seleccionable. No se esconde por no tener margen.
 
-**No aprobado.** Si el dueno prefiere ventas, ACoS o evidencia primero,
-se cambia el orden inicial en 0.4 sin tocar el motor.
+Motivo: MX 244/249 y US 117/119 no tienen porcentaje maduro. Si el
+ausente se ordena como 0%, todos caen al fondo y se leen como ruina.
+Los 5+2 que si tienen numero (MX 33–43%, US 37–39%) pueden ir primero
+sin inventar ranking para el resto.
 
-## D2 — Lanzamientos sin margen
+**No aprobado.** Si preferis ventas, ACoS o evidencia primero, se cambia
+el orden inicial en 0.4 sin tocar el motor.
+
+## D2 — Lanzamientos sin margen, con margen cero o negativo (para confirmar)
 
 Propuesta del plan: ACoS manual del grupo, presupuestos/bids explicitos.
 
-**Recomendacion:** aceptar. Obligatorio `objetivo.origen=manual_lanzamiento`
-si **algun** producto del grupo no tiene margen maduro. No derivar el
-minimo omitiendo nulls. No inventar margen proyectado como prerequisito
-(eso replanifica fuentes: precio actual, comisiones, fees).
+**Recomendacion a confirmar:** `objetivo.origen=manual_lanzamiento` es
+**obligatorio** si **algun** producto del grupo esta en cualquiera de
+estos casos:
 
-El target manual es intencion, no medicion. `margen_neto_pct` en el
-snapshot puede ser null. `v_margen_producto` y el motor no se relajan.
+| Caso | Que es | Por que no se deriva target |
+|---|---|---|
+| Ausente | `margen_neto_pct` NULL (sin ventas, &lt;30 fechas u otra guarda) | No hay medicion. Omitir nulls para tomar el minimo de los que si tienen numero inventa un grupo mas sano. |
+| Cero | `margen_neto_pct = 0` | `fraccion × 0 = 0` y el clamp a 10% (`MARGEN_BANDA_MIN`) presentaria el piso como rentabilidad. |
+| Negativo | `margen_neto_pct < 0` | El minimo seria negativo; el mismo clamp a 10% mentiria. Seleccionable (AC3), no se bloquea. |
 
-Hoy `target_del_grupo` aborta si hay un None. Eso es correcto para v1;
-v2 lo sustituye por objetivo manual explicito, no por un default 25%.
+Hoy: 0 filas con cero o negativo. MX 244 y US 117 son ausente. El
+contrato vale igual cuando aparezca un 0 o un negativo.
 
-**No aprobado.** Si el dueno exige margen proyectado previo, se para A
-hasta replanificar.
+Tambien manual si el margen es positivo pero `fraccion × margen` al
+clampear **supera** el margen conocido (piso 10% sobre un margen p.ej.
+de 8%). El target manual es intencion, no medicion. Sin default 25%.
+Presupuestos y bids siguen explicitos. `v_margen_producto` y el motor
+no se relajan.
 
-## D3 — Nuevas o existentes
+**No aprobado.** Si exigis margen proyectado previo, se para A y se
+replanifican comisiones/precio/costo actual.
+
+## D3 — Nuevas o existentes (sigue propuesta)
 
 Propuesta del plan: crear nuevas primero.
 
-**Recomendacion:** **solo campanas nuevas** en este plan (igual que
-FABRICA 01 decision 1). Anadir a existentes queda como ampliacion con
-reversa propia; no se mete en A.1–A.5.
+**Recomendacion (sin cambio):** solo campanas nuevas en este plan.
+Existentes = otro plan con reversa. `fabrica_lote` esta vacia.
 
-Motivo: no hay lote fabrica todavia (`fabrica_lote` vacia). Mezclar
-adopcion de campanas viejas con el cambio de PK por listing duplica
-el riesgo de rollback. El selector actual ya reporta existentes y no
-las toca.
+**No aprobado.**
 
-**No aprobado.** Si el dueno incluye existentes, 0.2 se replanifica
-antes de implementar.
+## D4 — Detalle economico con poca muestra (sigue propuesta)
 
-## D4 — Detalle economico con poca muestra
+Propuesta del plan: mostrar margen observado con guardas, separado del maduro.
 
-Propuesta del plan: mostrar margen observado con guardas de integridad,
-separado del maduro.
+**Recomendacion (sin cambio de fondo; conteos por mercado):**
 
-**Recomendacion:** aceptar como contrato de UI/comparacion, **sin**
-cambiar `v_margen_producto` (sigue exigiendo >=30 fechas para el
-numero que gobierna target por margen).
+- Muestra limitada: integridad OK y `dias_con_venta` 1–29. Se muestra el
+  % con etiqueta y el conteo de fechas. **No** gobierna target ni el
+  sort D1.
+- Maduro: la vista actual (>=30).
+- No calculable: sin ventas u otras guardas.
 
-- Muestra limitada: integridad OK (moneda unica, cobertura >=0.95,
-  fees_sin_tipo=0, cubierta>0) y `dias_con_venta` 1–29. Se muestra
-  el % con etiqueta "muestra limitada" y el conteo de fechas.
-- Maduro: el de la vista actual (>=30).
-- No calculable: el resto (sin ventas, mezcla de moneda, cobertura baja).
+Hoy, por mercado (lectura B, no el cubo exclusivo del selector):
+MX 136 con &lt;30 fechas; US 51. El cubo exclusivo (un listing, despues
+de sacar multilisting) sigue siendo MX 91 / US 25.
 
-91+25 productos caen hoy en 1–29 fechas. Mostrarlos como null esconde
-informacion; usarlos para derivar target automatico mentiria.
-
-**No ratificado.** 0.2 no cierra D4 sin esa ratificacion.
+**No ratificado.**
 
 ## Como se cierra 0.2
 
-Hace falta respuesta atribuible al dueno para D1, D2 y D3, y ratificacion
-de D4. Hasta entonces los contratos de API/CLI/migracion de esta carpeta
-son **propuestos**, no vigentes.
+Confirmacion atribuible del dueno a D1 y D2 (esta redaccion), y a D3/D4
+que siguen como propuestas. Hasta entonces API/CLI/migracion de E/0.2
+siguen **propuestos**. Cero implementacion.
