@@ -36,7 +36,7 @@ function datosDe(id) {
 
 function vestir(chart, tinta) {
   (chart.data.datasets || []).forEach(function (ds, i) {
-    var color = tinta.series[i % tinta.series.length];
+    var color = ds.colorToken ? colorCss(ds.colorToken, tinta.series[0]) : tinta.series[i % tinta.series.length];
     ds.borderColor = color;
     ds.backgroundColor = color;
   });
@@ -58,6 +58,7 @@ function graficarSeries(canvasId, datosId, seriesClaves, etiquetas) {
   if (!canvas) return;
   var datos = datosDe(datosId);
   if (!datos) return;
+  var spark = canvas.dataset.spark === "true";
   var fechas = [];
   var inmaduros = [];
   var columnas = {};
@@ -77,7 +78,8 @@ function graficarSeries(canvasId, datosId, seriesClaves, etiquetas) {
         label: etiqueta,
         data: columnas[seriesClaves[i]],
         borderWidth: 2,
-        pointRadius: 3,
+        pointRadius: spark ? 0 : 1.5,
+        colorToken: spark ? ({cost: "--o-ac", ad_revenue: "--o-ok", acos: "--o-oro", clicks: "--o-azul"})[seriesClaves[i]] : null,
         spanGaps: false,
         fill: false,
         segment: {
@@ -87,13 +89,25 @@ function graficarSeries(canvasId, datosId, seriesClaves, etiquetas) {
         }
       };
     }) },
+    plugins: spark ? [] : [{
+      id: "franjaInmadura",
+      beforeDraw: function (grafica) {
+        var inicio = inmaduros.indexOf(true);
+        if (inicio < 0 || !grafica.chartArea) return;
+        var x = grafica.scales.x.getPixelForValue(inicio);
+        var area = grafica.chartArea, ctx = grafica.ctx;
+        ctx.save(); ctx.fillStyle = colorCss("--o-ac", "#6c5ce7"); ctx.globalAlpha = 0.05;
+        ctx.fillRect(x, area.top, area.right - x, area.bottom - area.top); ctx.restore();
+      }
+    }],
     options: {
+      animation: false,
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: tinta.texto } } },
+      plugins: { legend: { display: !spark, position: "top", align: "end", labels: { color: tinta.texto, usePointStyle: true, pointStyle: "line", boxWidth: 18 } }, tooltip: { enabled: !spark } },
       scales: {
-        x: { ticks: { color: tinta.mutado, maxTicksLimit: 8 }, grid: { color: tinta.borde } },
-        y: { ticks: { color: tinta.mutado }, grid: { color: tinta.borde } }
+        x: { display: !spark, ticks: { color: tinta.mutado, maxTicksLimit: 4 }, grid: { color: tinta.borde } },
+        y: { display: !spark, ticks: { color: tinta.mutado }, grid: { color: tinta.borde } }
       }
     }
   });
@@ -109,6 +123,8 @@ function graficarBarras(canvasId, etiquetas, valores, color) {
     type: "bar",
     data: { labels: etiquetas, datasets: [{ label: "conteo", data: valores, backgroundColor: color || tinta.series[2] }] },
     options: {
+      indexAxis: "y",
+      animation: false,
       responsive: true,
       maintainAspectRatio: false,
       plugins: { legend: { display: false } },

@@ -4,6 +4,13 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-06 — ORBIT 18: rediseno visual del dashboard en preparacion de PR.**
+Las nueve pantallas existentes adoptan sidebar, paleta morada, tarjetas compactas
+y temas dia/noche del handoff del dueno. KPIs conservan monedas separadas,
+propuestas y salud del sidebar usan las APIs existentes y el presupuesto de
+creacion suma centavos exactos. Repricing queda marcado como proximo modulo;
+no se habilitan cambios de precio. Detalles: `docs/diseno/orbit-ui.md`.
+
 **2026-09-06 — El selector de campanas muestra el mapeo a Amazon.**
 Cada producto muestra nombre interno, SKU de Odoo y todas sus publicaciones
 vinculadas (ASIN, SKU de Amazon y enlace MX/US), incluso si no es elegible.

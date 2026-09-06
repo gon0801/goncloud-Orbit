@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% block contenido %}
 <h2>Decisiones</h2>
-<p class="mutado">Solo entidades que decidieron. Una fila por decision.</p>
 <div class="tarjeta">
   <nav class="paginador" aria-label="Paginas">
     {% if ventana.prev %}<a rel="prev" href="?page={{ ventana.prev }}">anterior</a>{% else %}<span class="mutado">anterior</span>{% endif %}
@@ -9,49 +8,28 @@
     {% if ventana.next %}<a rel="next" href="?page={{ ventana.next }}">siguiente</a>{% else %}<span class="mutado">siguiente</span>{% endif %}
     <span class="mutado">{{ ventana.total }} decisiones</span>
   </nav>
+  <div class="tabla-scroll" role="region" aria-label="Decisiones" tabindex="0">
   <table>
-    <colgroup>
-      <col class="c-id"><col class="c-entidad"><col class="c-kind"><col class="c-fecha">
-      <col class="c-term"><col class="c-target"><col class="c-motivo">
-      <col class="c-old"><col class="c-new"><col class="c-moneda">
-    </colgroup>
-    <thead>
-      <tr>
-        <th>#</th>
-        <th>Entidad</th>
-        <th>Kind</th>
-        <th>Decidida</th>
-        <th>Search term</th>
-        <th class="num">Target usado</th>
-        <th>Motivo</th>
-        <th class="num dinero">Old</th>
-        <th class="num dinero">New</th>
-        <th>Moneda</th>
-      </tr>
-    </thead>
+    <thead><tr><th>Entidad</th><th>Kind</th><th>Search term</th><th>Motivo</th><th class="num">Target usado</th><th>Bid</th><th>Decidida</th></tr></thead>
     <tbody>
       {% for item in items %}
       <tr>
-        <td>{{ item.id }}</td>
-        <td>{{ item.nombre or "—" }} <span class="mutado">#{{ item.ad_entity_id }}</span></td>
+        <td>{{ item.nombre or "—" }} <span class="detalle-celda mono">#{{ item.ad_entity_id }} · decision #{{ item.id }}</span></td>
         <td><span class="chip">{{ item.kind }}</span></td>
-        <td class="mutado">{{ item.decided_at | ts_ui }}</td>
-        {# El search_term es texto libre del comprador: AUTOESCAPE lo escapa #}
         <td>{{ item.search_term or "—" }}</td>
-        <td class="num">{% if item.target_acos_pct_usado is none %}<span class="mutado">—</span>{% else %}{{ item.target_acos_pct_usado }}%{% endif %}</td>
         <td>{{ item.motivo_es or "—" }}</td>
-        <td class="num dinero">{% if item.old_value is none %}<span class="mutado">—</span>{% else %}{{ item.old_value | dinero_ui }}{% endif %}</td>
-        <td class="num dinero">{% if item.new_value is none %}<span class="mutado">—</span>{% else %}{{ item.new_value | dinero_ui }}{% endif %}</td>
-        <td>{{ item.value_currency or "—" }}</td>
+        <td class="num">{% if item.target_acos_pct_usado is none %}<span class="mutado">—</span>{% else %}{{ item.target_acos_pct_usado }}%{% endif %}</td>
+        <td class="cambio">
+          <span class="cambio-anterior">{{ item.old_value | dinero_ui if item.old_value is not none else '—' }}</span>
+          <span aria-label="a">→</span>
+          <span class="{{ item.new_value | clase_cambio(item.old_value) }}">{{ item.new_value | dinero_ui if item.new_value is not none else '—' }}</span>
+          <small class="detalle-celda">{{ item.value_currency or "—" }}</small>
+        </td>
+        <td class="mutado">{{ item.decided_at | ts_ui }}</td>
       </tr>
-      {% endfor %}
+      {% else %}<tr><td colspan="7" class="mutado">Sin decisiones en esta pagina.</td></tr>{% endfor %}
     </tbody>
   </table>
-  <nav class="paginador" aria-label="Paginas">
-    {% if ventana.prev %}<a rel="prev" href="?page={{ ventana.prev }}">anterior</a>{% else %}<span class="mutado">anterior</span>{% endif %}
-    <span aria-current="page">pagina {{ ventana.page }} de {{ ventana.pages }}</span>
-    {% if ventana.next %}<a rel="next" href="?page={{ ventana.next }}">siguiente</a>{% else %}<span class="mutado">siguiente</span>{% endif %}
-    <span class="mutado">{{ ventana.total }} decisiones</span>
-  </nav>
+  </div>
 </div>
 {% endblock %}

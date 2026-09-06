@@ -1,28 +1,40 @@
 {% extends "base.html" %}
 {% block contenido %}
 <h2>Resumen — series diarias (D-30..D-1, dia en curso excluido)</h2>
+{% for plataforma, datos in series.items() %}
+{% set total = datos | kpis_serie %}
+<h2>{{ plataforma }} <span class="mutado">· {{ datos.moneda }}</span></h2>
+<div class="kpis">
+  {% for clave, etiqueta, color in [('cost', 'Cost 30d', ''), ('ad_revenue', 'Revenue 30d', 'ok'), ('acos', 'ACoS 30d', ''), ('clicks', 'Clicks 30d', '')] %}
+  <section class="kpi" aria-label="{{ etiqueta }} {{ plataforma }}">
+    <p class="kpi-etiqueta">{{ etiqueta }}</p>
+    <div class="kpi-valor {{ color }}">{% if total[clave] is none %}—{% else %}{{ total[clave] }}{% if clave == 'acos' %}%{% endif %}{% endif %}</div>
+    <div class="kpi-contexto">{% if clave in ('cost', 'ad_revenue') %}{{ datos.moneda }} · {% endif %}{{ total.cobertura[clave] }}/{{ total.dias }} dias{% if clave == 'acos' %} comparables{% else %} con datos{% endif %}</div>
+    <div class="kpi-spark"><canvas id="spark-{{ clave }}-{{ plataforma }}" data-serie="datos-serie-{{ plataforma }}" data-claves="{{ clave }}" data-etiquetas="{{ etiqueta }}" data-spark="true" aria-label="Tendencia diaria de {{ etiqueta }}" role="img"></canvas></div>
+  </section>
+  {% endfor %}
+</div>
 <div class="graficas">
-  {% for plataforma, datos in series.items() %}
   <div class="grafica">
     <h2>{{ plataforma }} ({{ datos.moneda }}) — spend y revenue</h2>
     <div class="lienzo">
-    <canvas id="serie-{{ plataforma }}" data-serie="datos-serie-{{ plataforma }}"
-            data-claves="cost,ad_revenue" data-etiquetas="Cost,Revenue"></canvas>
+      <canvas id="serie-{{ plataforma }}" data-serie="datos-serie-{{ plataforma }}"
+              data-claves="cost,ad_revenue" data-etiquetas="Cost,Revenue" role="img" aria-label="Gasto e ingreso diarios en {{ datos.moneda }}"></canvas>
     </div>
     <p class="mutado">Ventana efectiva: {{ datos.desde }} .. {{ datos.hasta }} ·
-       inmaduros D-8..D-1: {{ datos.ventana_inmaduros.desde }} .. {{ datos.ventana_inmaduros.hasta }}</p>
-    <!-- Decision 12: los datos hacia JS pasan EXCLUSIVAMENTE por |tojson -->
+       franja punteada = inmaduros D-8..D-1: {{ datos.ventana_inmaduros.desde }} .. {{ datos.ventana_inmaduros.hasta }}.
+       Los totales aun maduran; dias sin dato quedan como huecos.</p>
     <script type="application/json" id="datos-serie-{{ plataforma }}">{{ datos | tojson }}</script>
   </div>
   <div class="grafica">
-    <h2>{{ plataforma }} ({{ datos.moneda }}) — ACoS %</h2>
+    <h2>{{ plataforma }} ({{ datos.moneda }}) — ACoS % <span class="chip acento">{{ datos.series | selectattr("sin_ventas", "equalto", true) | list | length }} dias sin ventas</span></h2>
     <div class="lienzo">
-    <canvas id="serie-acos-{{ plataforma }}" data-serie="datos-serie-{{ plataforma }}"
-            data-claves="acos" data-etiquetas="ACoS %"></canvas>
+      <canvas id="serie-acos-{{ plataforma }}" data-serie="datos-serie-{{ plataforma }}"
+              data-claves="acos" data-etiquetas="ACoS %" role="img" aria-label="ACoS diario de {{ plataforma }}"></canvas>
     </div>
     <p class="mutado">* / tramo punteado = dia inmaduro (D-8..D-1) · ACoS null = sin dato
-       (hueco) o sin ventas (revenue 0 visible en la grafica de arriba) — jamas 0 enganoso</p>
+       (hueco) o sin ventas (revenue 0 visible en la grafica de arriba) — jamas 0 enganoso.</p>
   </div>
-  {% endfor %}
 </div>
+{% endfor %}
 {% endblock %}

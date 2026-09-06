@@ -51,7 +51,10 @@
       <h3>Presupuesto diario y puja inicial por campaña</h3>
       <p>Moneda: <strong id="fabrica-moneda">—</strong>. Captura importes con punto decimal.
         No se asignan importes automáticamente.</p>
-      <div class="fabrica-roles">
+      <div class="tabla-scroll" role="region" aria-label="Presupuestos de las cinco campañas" tabindex="0">
+      <table class="fabrica-presupuestos">
+        <thead><tr><th>Campaña</th><th class="num">Presupuesto diario</th><th class="num">Puja inicial</th></tr></thead>
+        <tbody>
         {% for rol, etiqueta in [
           ('category_exact', 'Categoría · exacta'),
           ('category_phrase', 'Categoría · frase'),
@@ -59,19 +62,20 @@
           ('product_targeting', 'Segmentación por producto'),
           ('auto_discovery', 'Descubrimiento automático')
         ] %}
-        <fieldset>
-          <legend>{{ etiqueta }}</legend>
-          <label for="{{ rol }}-budget">Presupuesto diario
-            <input id="{{ rol }}-budget" name="{{ rol }}_budget" inputmode="decimal"
-                   pattern="[0-9]+([.][0-9]{1,2})?" maxlength="14" required autocomplete="off">
-          </label>
-          <label for="{{ rol }}-bid">Puja inicial
-            <input id="{{ rol }}-bid" name="{{ rol }}_bid" inputmode="decimal"
-                   pattern="[0-9]+([.][0-9]{1,2})?" maxlength="14" required autocomplete="off">
-          </label>
-        </fieldset>
+        <tr>
+          <td>{{ etiqueta }}</td>
+          <td class="num"><input id="{{ rol }}-budget" name="{{ rol }}_budget" inputmode="decimal"
+                   aria-label="Presupuesto diario {{ etiqueta }}"
+                   pattern="[0-9]+([.][0-9]{1,2})?" maxlength="14" required autocomplete="off"></td>
+          <td class="num"><input id="{{ rol }}-bid" name="{{ rol }}_bid" inputmode="decimal"
+                   aria-label="Puja inicial {{ etiqueta }}"
+                   pattern="[0-9]+([.][0-9]{1,2})?" maxlength="14" required autocomplete="off"></td>
+        </tr>
         {% endfor %}
+        </tbody>
+      </table>
       </div>
+      <p class="fabrica-total">Presupuesto diario total <output id="fabrica-presupuesto-total" aria-live="polite">Completa los cinco presupuestos</output></p>
       <button id="fabrica-previsualizar" type="submit" disabled>Revisar plan</button>
     </fieldset>
   </form>

@@ -247,6 +247,12 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
   for (const rol of roles) {
     ids[rol + "-budget"].value = "120.00"; ids[rol + "-bid"].value = "4.00";
   }
+  await emit("plan", "input");
+  assert.equal(el("presupuesto-total").textContent, "600.00 MXN");
+  ids[roles[0] + "-budget"].value = "";
+  await emit("plan", "input");
+  assert.match(el("presupuesto-total").textContent, /Completa/);
+  ids[roles[0] + "-budget"].value = "120.00";
   await emit("plan");
   assert.equal(el("preview").hidden, false); assert.equal(el("crear-boton").disabled, false);
   const solicitud = JSON.parse(calls.find(c => c.url.endsWith("/plan")).options.body);

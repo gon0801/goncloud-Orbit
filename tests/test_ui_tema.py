@@ -63,7 +63,7 @@ def test_css_tokens_noche_y_celdas_envuelven():
     assert 'data-tema="noche"' in css
     assert "overflow-wrap" in css
     assert "--color-borde" in css
-    assert "--color-acento: #e08a4a" in css
+    assert "--color-acento: #9385f8" in css
     tokens = (
         "--color-texto",
         "--color-mutado",

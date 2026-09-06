@@ -113,6 +113,7 @@ def test_ui_xss_search_term_demostrado_fallando_con_autoescape_off():
     sin_escape = jinja2.Environment(loader=loader, autoescape=False)
     sin_escape.filters["dinero_ui"] = ui.dinero_ui
     sin_escape.filters["ts_ui"] = ui.ts_ui
+    sin_escape.filters["clase_cambio"] = ui.clase_cambio
     html = sin_escape.get_template("decisiones.html").render(**_ctx_decisiones())
     assert PAYLOAD_XSS in html, "con autoescape off el payload DEBE aparecer crudo"
 
@@ -438,23 +439,18 @@ def test_ui_decisiones_paginador_es_html_sin_js():
     assert "pagina 1 de 3" in html
 
 
-def test_ui_old_new_en_dos_columnas_con_dinero_ui():
-    """Old y New son dos columnas. Falla contra a658f2b: una celda 'old / new'."""
+def test_ui_cambio_en_una_celda_con_moneda_y_ausencia_explicita():
+    """Handoff ORBIT 18: old -> new conserva moneda y ausencia en PAUSE."""
     ctx = _ctx_decisiones()
-    ctx["items"][0]["old_value"] = "1.0000"
-    ctx["items"][0]["new_value"] = "0.8800"
-    ctx["items"][0]["value_currency"] = "USD"
+    ctx["items"][0].update(old_value="1.0000", new_value="0.8800", value_currency="USD")
     html = ui.templates.env.get_template("decisiones.html").render(**ctx)
-    assert ">Old</th>" in html and ">New</th>" in html
-    assert 'class="num dinero">Old</th>' in html.replace("'", '"')
-    assert "old / new" not in html
-    assert 'class="num dinero">1.00<' in html.replace("</td>", "<")
-    assert 'class="num dinero">0.88<' in html.replace("</td>", "<")
-    assert "1.0000 / 0.8800" not in html
-    pause = _ctx_decisiones()
-    html_pause = ui.templates.env.get_template("decisiones.html").render(**pause)
-    assert html_pause.count('<td class="num dinero"><span class="mutado">—</span></td>') == 2
-    assert "0.00 /" not in html_pause and "/ 0.00" not in html_pause
+    assert ">Bid</th>" in html
+    assert 'class="cambio-anterior">1.00</span>' in html
+    assert 'class="alerta">0.88</span>' in html
+    assert "USD</small>" in html
+    html_pause = ui.templates.env.get_template("decisiones.html").render(**_ctx_decisiones())
+    assert 'class="cambio-anterior">—</span>' in html_pause
+    assert 'class="mutado">—</span>' in html_pause
 
 
 def test_ui_canvas_siempre_dentro_de_lienzo():
@@ -465,14 +461,16 @@ def test_ui_canvas_siempre_dentro_de_lienzo():
         fuente = (ui._TEMPLATES_DIR / nombre).read_text(encoding="utf-8")
         for tag in re.findall(r"<canvas\b[^>]*>", fuente):
             assert "height=" not in tag, tag
-        assert fuente.count("<canvas") == fuente.count('<div class="lienzo">')
+        assert fuente.count("<canvas") == fuente.count('<div class="lienzo">') + fuente.count(
+            '<div class="kpi-spark">'
+        )
 
 
 def test_css_lienzo_y_sin_max_width_en_canvas():
     css = (ui._TEMPLATES_DIR.parent / "static" / "css" / "dashboard.css").read_text(
         encoding="utf-8"
     )
-    assert re.search(r"\.lienzo\s*\{[^}]*aspect-ratio", css)
+    assert re.search(r"\.lienzo\s*\{[^}]*height:", css)
     assert re.search(r"\.lienzo\s*\{[^}]*position:\s*relative", css)
     assert "canvas { max-width" not in css
     assert ".paginador" in css
@@ -512,14 +510,14 @@ def test_ui_decisiones_pagina_2_trae_los_ids_siguientes(monkeypatch):
         monkeypatch.setenv("ORBIT_DSN_READ", dsn)
         monkeypatch.setattr(ui.dash, "LIMITE_FEED_DEFAULT", 2)
         html = TestClient(app).get("/decisiones", params={"page": 2}).text
-        assert f"<td>{ids[0]}</td>" in html
-        assert f"<td>{ids[1]}</td>" not in html and f"<td>{ids[2]}</td>" not in html
+        assert f"decision #{ids[0]}</span>" in html
+        assert f"decision #{ids[1]}</span>" not in html and f"decision #{ids[2]}</span>" not in html
         assert 'rel="prev" href="?page=1"' in html
         assert 'rel="next"' not in html
         assert "pagina 2 de 2" in html
         html_clamp = TestClient(app).get("/decisiones", params={"page": 9}).text
         assert "pagina 2 de 2" in html_clamp
-        assert f"<td>{ids[0]}</td>" in html_clamp
+        assert f"decision #{ids[0]}</span>" in html_clamp
 
 
 @pytest.mark.skipif(
@@ -1163,7 +1161,7 @@ def test_ui_propuestas_titulo_y_menu_d1():
     assert "Propuestas" in html
     assert "Cortes pendientes de veto" not in html
     assert 'href="/cortes"' in html, "el href NO cambia (enlaces vivos)"
-    assert ">Propuestas</a>" in html, "el nav de base.html dice Propuestas"
+    assert ">Propuestas<span" in html, "el nav de base.html dice Propuestas"
     assert 'src="/static/js/cortes.js"' in html
 
 
