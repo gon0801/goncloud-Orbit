@@ -947,6 +947,8 @@ def test_rechazo_sella_failed_y_detiene_declarando_lo_creado(monkeypatch, capsys
 
 
 def test_readback_que_no_cuadra_detiene(monkeypatch, capsys):
+    """Readback malo: sella failed CON external; el resumen declara el id
+    (conocidos) para no empujar a re-autorizar otro grupo (Grok SF1)."""
     _huella_de(monkeypatch)
     huella = [x for x in capsys.readouterr().out.splitlines() if x.startswith("huella")][0].split(
         ": "
@@ -955,10 +957,21 @@ def test_readback_que_no_cuadra_detiene(monkeypatch, capsys):
     amazon = _Amazon(readback_malo="campaigns-1")
     _frontera_mutacion(monkeypatch, _conn_plan(), conn_admin, amazon)
     monkeypatch.setattr(sys, "argv", _args_go(huella))
-    with pytest.raises(fc.Abortar, match="readback"):
+    with pytest.raises(fc.Abortar, match="external_id=campaigns-1"):
         fc.main()
     assert len(amazon.posts("/sp/campaigns")) == 1 and amazon.posts("/sp/adGroups") == []
     assert len(_sellos(conn_admin, "failed")) == 1
+    detenido = [e for e in _eventos(capsys) if e["evento"] == "lote_detenido"][0]
+    assert detenido["conocidos"] == [
+        {"rol": "category_exact", "recurso": "campaign", "external": "campaigns-1"}
+    ]
+    assert "campaigns-1" in detenido["motivo"]
+    lote_failed = [
+        p
+        for s, p in conn_admin.escrituras
+        if s.lower().startswith("update fabrica_lote ") and p[0] == "failed"
+    ]
+    assert len(lote_failed) == 1 and "campaigns-1" in lote_failed[0][1]
 
 
 def test_sin_perfil_aceptado_no_muta(monkeypatch, capsys):

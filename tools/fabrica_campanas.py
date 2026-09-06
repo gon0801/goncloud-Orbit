@@ -765,9 +765,16 @@ def _ejecuta_paso(ctx: _Ctx, paso: fp.Paso, padres: dict) -> str:
         ok=cuadra,
     )
     _sella_paso(ctx, paso_id, cuadra, external, ack, readback)
-    if not cuadra:
-        raise Abortar(f"readback de {paso.descripcion} ({paso.rol}) no cuadra ({readback})")
+    # Aunque el readback no cuadre, el id ya existe en Amazon y en el ledger
+    # (failed CON external): --desarmar lo ve. Declararlo en conocidos/motivo
+    # evita que el resumen parezca vacio y se re-autorice otro grupo (Grok SF1).
     ctx.conocidos.append({"rol": paso.rol, "recurso": paso.recurso, "external": str(external)})
+    if not cuadra:
+        raise Abortar(
+            f"readback de {paso.descripcion} ({paso.rol}) no cuadra ({readback});"
+            f" external_id={external} queda en el ledger (failed) y en --desarmar;"
+            " no reintentar este POST"
+        )
     return external
 
 
