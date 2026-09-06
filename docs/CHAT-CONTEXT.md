@@ -4,6 +4,13 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-06 — ORBIT 19, borrador de catalogo abierto y evaluacion.**
+El dueno pide seleccionar todos los articulos y comparar su conveniencia para
+campanas. Plan catalogo-campanas-01: seleccion por publicacion, objetivo manual
+propuesto si falta margen, evidencia separada y nueva fuente Ads por producto.
+Solo planificacion; objetivo prioritario, politica de lanzamiento y campanas
+existentes siguen pendientes de respuesta. Produccion y plan activo sin cambios.
+
 **2026-09-06 — Fotos de publicaciones en Crear campanas.**
 El selector muestra la imagen MAIN real de cada ASIN y marketplace mediante
 SP-API Catalog Items y las credenciales existentes. Miniaturas bajo demanda,

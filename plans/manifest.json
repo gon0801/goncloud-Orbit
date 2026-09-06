@@ -94,6 +94,11 @@
       "name": "orbit-ui-01",
       "path": "plans/orbit-ui-01.md",
       "description": "ORBIT 18 — rediseno del dashboard existente segun handoff UI; catalogo futuro identificado, sin motor Repricing."
+    },
+    {
+      "name": "catalogo-campanas-01",
+      "path": "plans/catalogo-campanas-01.md",
+      "description": "ORBIT 19 - BORRADOR: catalogo seleccionable por publicacion y evaluacion explicada para campanas; decisiones de lanzamiento y alcance pendientes."
     }
   ],
   "active": "orbit-ui-01"
