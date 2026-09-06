@@ -911,6 +911,9 @@ def test_mutacion_orden_fijo_ledger_pre_http_y_readback(monkeypatch, capsys):
         p for s, p in conn_admin.escrituras if s.lower().startswith("insert into fabrica_lote ")
     ]
     assert len(lote) == 1 and lote[0][4] == "go" and lote[0][5] == huella
+    prefijo_cli = "fabrica-amazon_mx-collar_perro-"
+    assert lote[0][0].startswith(prefijo_cli)
+    dt.datetime.strptime(lote[0][0].removeprefix(prefijo_cli), "%Y%m%d-%H%M%S")
     assert conn_admin.commits >= 1 + 2 * total_posts
     i_lote = next(
         i
@@ -933,6 +936,39 @@ def test_mutacion_orden_fijo_ledger_pre_http_y_readback(monkeypatch, capsys):
     assert i_paso < i_campana, "el POST /sp/campaigns corrio antes del INSERT del paso"
     eventos = _eventos(capsys)
     assert eventos[-1]["evento"] == "reconciliacion_final" and eventos[-1]["ok"] is True
+
+
+@_skip_db
+def test_mutacion_persiste_lote_web_antes_de_crear_campanas(monkeypatch):
+    """El lote web no se reemplaza por el timestamp y es durable antes del POST."""
+    import psycopg
+
+    with db_fabrica("orbit_fab_web") as conn:
+        plan = _plan_min()
+        huella = fp.huella_plan(plan)
+        lote_web = "web-" + huella
+        args = SimpleNamespace(esperado=5, huella=huella, go="crear desde web")
+
+        class _AmazonConLedger(_Amazon):
+            def __call__(self, request):
+                if request.url.path == "/sp/campaigns":
+                    assert conn.execute(
+                        "SELECT lote, huella, go_literal FROM fabrica_lote"
+                    ).fetchall() == [(lote_web, huella, "crear desde web")]
+                return super().__call__(request)
+
+        with psycopg.connect(_test_dsn(), dbname=conn.info.dbname) as conn_motor:
+            amazon = _AmazonConLedger()
+            _frontera_mutacion(monkeypatch, _conn_plan(), conn_motor, amazon)
+            assert fc._mutar(args, plan, huella, lote=lote_web) == 0
+
+        assert conn.execute("SELECT lote, estado FROM fabrica_lote").fetchall() == [
+            (lote_web, "applied")
+        ]
+        assert conn.execute("SELECT DISTINCT lote FROM fabrica_lote_paso").fetchall() == [
+            (lote_web,)
+        ]
+        assert len(amazon.posts("/sp/campaigns")) == 5
 
 
 def test_rechazo_sella_failed_y_detiene_declarando_lo_creado(monkeypatch, capsys):

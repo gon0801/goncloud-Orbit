@@ -316,6 +316,12 @@ def pagina_campanas(
     )
 
 
+@router.get("/campanas/nuevas", response_class=HTMLResponse)
+def pagina_fabrica(request: Request) -> HTMLResponse:
+    """Formulario de fabrica; catalogo y operaciones usan su API unica."""
+    return templates.TemplateResponse(request, "fabrica.html", {"pantalla": "fabrica"})
+
+
 @router.get("/decisiones", response_class=HTMLResponse)
 def pagina_decisiones(
     request: Request,

@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block estilos %}<link rel="stylesheet" href="/static/css/fabrica.css">{% endblock %}
+{% block contenido %}
+<div class="fabrica">
+  <p><a href="/campanas">← Volver a campañas</a></p>
+  <h2>Crear campañas</h2>
+  <p>Configura un grupo de cinco campañas de Sponsored Products, revisa el plan y confirma.</p>
+  <p class="fabrica-aviso"><strong>Las campañas se crean ACTIVAS y pueden gastar en ambos modos.</strong>
+    En shadow, el optimizador observa los ajustes sin aplicarlos. En live, puede aplicarlos según
+    sus reglas y límites. Shadow no es una simulación de la creación.</p>
+  <noscript>Esta pantalla necesita JavaScript para consultar productos y revisar el plan.</noscript>
+
+  <form id="fabrica-plan" class="tarjeta">
+    <fieldset id="fabrica-configuracion">
+      <legend>1. Productos y configuración</legend>
+      <div class="fabrica-campos">
+        <label for="fabrica-plataforma">Plataforma
+          <select id="fabrica-plataforma" name="plataforma" required>
+            <option value="amazon_mx">Amazon México</option>
+            <option value="amazon_us">Amazon Estados Unidos</option>
+          </select>
+        </label>
+        <label for="fabrica-tipo">Tipo de producto
+          <input id="fabrica-tipo" name="tipo_producto" list="fabrica-tipos"
+                 pattern="[a-z0-9_]+" maxlength="60" required autocomplete="off"
+                 aria-describedby="fabrica-tipo-ayuda">
+          <datalist id="fabrica-tipos"></datalist>
+          <span id="fabrica-tipo-ayuda" class="mutado">Escribe un tipo o elige una sugerencia.
+            Usa minúsculas, números y guion bajo.</span>
+        </label>
+        <label for="fabrica-nombre">Nombre del grupo
+          <input id="fabrica-nombre" name="nombre_base" required maxlength="100" autocomplete="off">
+        </label>
+        <label for="fabrica-modo">Modo del optimizador
+          <select id="fabrica-modo" name="modo" required>
+            <option value="">Selecciona un modo</option>
+            <option value="shadow">shadow — observar ajustes</option>
+            <option value="live">live — aplicar ajustes</option>
+          </select>
+        </label>
+      </div>
+      <p id="fabrica-catalogo-estado" role="status" aria-live="polite"></p>
+      <button id="fabrica-recargar-catalogo" type="button">Actualizar productos</button>
+      <h3>Productos</h3>
+      <p class="mutado">Selecciona al menos un producto elegible. Los excluidos muestran el motivo;
+        un margen ausente permanece sin dato.</p>
+      <div id="fabrica-productos" class="fabrica-productos"></div>
+      <h3>Presupuesto diario y puja inicial por campaña</h3>
+      <p>Moneda: <strong id="fabrica-moneda">—</strong>. Captura importes con punto decimal.
+        No se asignan importes automáticamente.</p>
+      <div class="fabrica-roles">
+        {% for rol, etiqueta in [
+          ('category_exact', 'Categoría · exacta'),
+          ('category_phrase', 'Categoría · frase'),
+          ('category_broad', 'Categoría · amplia'),
+          ('product_targeting', 'Segmentación por producto'),
+          ('auto_discovery', 'Descubrimiento automático')
+        ] %}
+        <fieldset>
+          <legend>{{ etiqueta }}</legend>
+          <label for="{{ rol }}-budget">Presupuesto diario
+            <input id="{{ rol }}-budget" name="{{ rol }}_budget" inputmode="decimal"
+                   pattern="[0-9]+([.][0-9]{1,2})?" maxlength="14" required autocomplete="off">
+          </label>
+          <label for="{{ rol }}-bid">Puja inicial
+            <input id="{{ rol }}-bid" name="{{ rol }}_bid" inputmode="decimal"
+                   pattern="[0-9]+([.][0-9]{1,2})?" maxlength="14" required autocomplete="off">
+          </label>
+        </fieldset>
+        {% endfor %}
+      </div>
+      <button id="fabrica-previsualizar" type="submit" disabled>Revisar plan</button>
+    </fieldset>
+  </form>
+  <p id="fabrica-estado" role="status" aria-live="polite" tabindex="-1"></p>
+
+  <section id="fabrica-preview" class="tarjeta" aria-labelledby="fabrica-preview-titulo" hidden>
+    <h3 id="fabrica-preview-titulo" tabindex="-1">2. Revisar las cinco campañas</h3>
+    <div id="fabrica-preview-datos"></div>
+    <p>Cualquier cambio en la configuración exige revisar de nuevo el plan.</p>
+  </section>
+
+  <section class="tarjeta" aria-labelledby="fabrica-confirmar-titulo">
+    <h3 id="fabrica-confirmar-titulo">3. Confirmar una operación</h3>
+    <label for="fabrica-token">Token de Orbit
+      <input id="fabrica-token" type="password" autocomplete="off" spellcheck="false">
+    </label>
+    <p class="mutado">Se usa solo para la operación, en el encabezado de la solicitud.
+      Se borra al enviarla y no se guarda al recargar. También se necesita para las acciones del lote.</p>
+    <form id="fabrica-crear" autocomplete="off">
+      <label for="fabrica-confirmacion">Escribe CREAR 5 CAMPAÑAS
+        <input id="fabrica-confirmacion" required autocomplete="off" spellcheck="false"
+               aria-describedby="fabrica-crear-aviso">
+      </label>
+      <p id="fabrica-crear-aviso">La confirmación crea campañas ACTIVAS con gasto real.
+        Revisa el presupuesto diario total antes de continuar.</p>
+      <button id="fabrica-crear-boton" type="submit" disabled>Crear las cinco campañas</button>
+    </form>
+  </section>
+
+  <section class="tarjeta" aria-labelledby="fabrica-historial-titulo">
+    <h3 id="fabrica-historial-titulo">Historial de lotes</h3>
+    <p>Últimos 50 lotes de la plataforma seleccionada. Abre un lote para consultar sus pasos.</p>
+    <button id="fabrica-historial-recargar" type="button">Actualizar historial</button>
+    <p id="fabrica-historial-estado" role="status" aria-live="polite"></p>
+    <div id="fabrica-historial"></div>
+  </section>
+
+  <section id="fabrica-lote" class="tarjeta" aria-labelledby="fabrica-lote-titulo" hidden>
+    <h3 id="fabrica-lote-titulo" tabindex="-1">Detalle del lote</h3>
+    <p id="fabrica-lote-id"></p>
+    <p>Este enlace conserva el lote al recargar. Si se interrumpe una operación, consulta su estado.
+      La creación nunca se reintenta automáticamente.</p>
+    <button id="fabrica-lote-recargar" type="button">Consultar estado del lote</button>
+    <p id="fabrica-lote-estado" role="status" aria-live="polite"></p>
+    <div id="fabrica-lote-datos"></div>
+    <form id="fabrica-accion" autocomplete="off">
+      <fieldset id="fabrica-recuperacion" disabled>
+        <legend>Recuperar o pausar este lote</legend>
+        <p>Pausar detiene las campañas conocidas del lote. Reconciliar comprueba lo creado en Amazon.
+          Registrar completa el registro local de un lote reconciliado. Ninguna acción recrea campañas.</p>
+        <label for="fabrica-accion-tipo">Acción
+          <select id="fabrica-accion-tipo" required>
+            <option value="">Selecciona una acción</option>
+            <option value="pausar">Pausar · PAUSAR GRUPO</option>
+            <option value="reconciliar">Reconciliar · RECONCILIAR GRUPO</option>
+            <option value="registrar">Completar registro · REGISTRAR GRUPO</option>
+          </select>
+        </label>
+        <label for="fabrica-accion-confirmacion">Escribe la frase de la acción seleccionada
+          <input id="fabrica-accion-confirmacion" required autocomplete="off" spellcheck="false">
+        </label>
+        <button id="fabrica-accion-boton" type="submit">Confirmar acción del lote</button>
+      </fieldset>
+    </form>
+  </section>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/js/fabrica.js"></script>{% endblock %}

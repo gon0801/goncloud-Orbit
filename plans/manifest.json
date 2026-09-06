@@ -83,8 +83,13 @@
     {
       "name": "fabrica-01",
       "path": "plans/fabrica-01.md",
-      "description": "FABRICA 01 — fábrica de campañas Amazon SP por grupo con target por margen mínimo (F1 proposal-only: migración 0018, crea_goal, tools/fabrica_campanas.py con ledger, readback, sync y reversa; F2 harvest por grupo es otro plan)"
+      "description": "FABRICA 01 — fábrica de campañas Amazon SP por grupo con target por margen mínimo (migración 0018, crea_goal, tools/fabrica_campanas.py con ledger, readback, sync y reversa; sonda real diferida; UI en fabrica-ui-01; F2 harvest por grupo es otro plan)"
+    },
+    {
+      "name": "fabrica-ui-01",
+      "path": "plans/fabrica-ui-01.md",
+      "description": "ORBIT 17 — creacion de grupos de cinco campanas desde el dashboard: productos, presupuestos, revision, confirmacion, historial y recuperacion. Reutiliza FABRICA 01; sonda real diferida."
     }
   ],
-  "active": "cortes-ui-01"
+  "active": "fabrica-ui-01"
 }

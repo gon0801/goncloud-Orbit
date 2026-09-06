@@ -24,7 +24,8 @@ QUE HACE, EN ORDEN:
 Shapes de campanas/adGroups/targets y el camino feliz de productAds son
 HIPOTESIS hasta la sonda (tarea 11).
 
-CORRIDA (dentro del contenedor app, por stdin; la imagen solo trae app/):
+La imagen incluye esta herramienta para la UI; el CLI conserva la corrida
+por stdin dentro del contenedor app:
 
     docker exec -i orbit-app-1 python - --plataforma amazon_mx \
       --tipo-producto collar_perro --nombre-base "Collar reflectante" \
@@ -1093,7 +1094,7 @@ def _registrar_cmd(args) -> int:
         _cierra(conn_admin)
 
 
-def _mutar(args, plan: fp.PlanGrupo, huella: str) -> int:
+def _mutar(args, plan: fp.PlanGrupo, huella: str, *, lote: str | None = None) -> int:
     _valida_go(args, huella)
     # D-CURSOR-177-F3: falla cerrado antes de LWA/lote/POST (spec §5.1).
     _dsn_ingest()
@@ -1109,7 +1110,8 @@ def _mutar(args, plan: fp.PlanGrupo, huella: str) -> int:
         conn_admin = connect(_dsn_admin())
         http = httpx.Client(timeout=httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0))
         token = _token_lwa(cred, http)
-        lote = _lote_nuevo(plan)
+        if lote is None:
+            lote = _lote_nuevo(plan)
         _inserta_lote(conn_admin, lote, plan, huella, args.go)
         ctx = _Ctx(http, token, cred, cliente_lectura, perfiles[plan.platform], conn_admin, lote)
         creadas: list[dict] = []

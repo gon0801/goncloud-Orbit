@@ -4,6 +4,22 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-06 — FABRICA UI 01 implementada por pedido del dueno.**
+La pantalla **Campañas → Crear campañas** permite seleccionar productos, configurar
+presupuestos y pujas de las cinco campanas, revisar el plan y confirmar con el
+token de escritura. El historial permite consultar fallos, reconciliar, completar
+el registro y pausar lo creado. Reutiliza la fabrica existente; shadow describe
+los ajustes del optimizador, las campanas nuevas nacen activas y pueden gastar.
+La sonda real de Amazon sigue aplazada expresamente; no forma parte de las pruebas
+de esta pantalla. Plan activo: `plans/fabrica-ui-01.md`.
+La previsualizacion no escribe ni llama a Amazon. El mismo plan conserva un lote
+durable y el servidor impide repetir la creacion ante envios duplicados. Se prueban
+la API con PostgreSQL temporal y el flujo de navegador con Amazon simulado.
+
+Los PR #177, #121 y #175 ya quedaron integrados a master; #177 fue desplegado.
+#121 agrega verificacion real del dashboard y #175 Orbit Bench. Las notas anteriores
+de "sin merge" describen el momento de cada revision, no el estado actual.
+
 **2026-09-06 — FABRICA 01 (PR #177 correcciones F1-F4): cuatro candados del
 registro/mutacion ya no dejan pasar lotes incompletos ni IDs perdidos.**
 `--registrar` exige el ledger completo (product ads y semillas, no solo
