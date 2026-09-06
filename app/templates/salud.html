@@ -1,11 +1,12 @@
 {% extends "base.html" %}
 {% block contenido %}
 <h2>Salud — ultimo ciclo, historico 14d y skips</h2>
+<div class="salud-grid">
 {% for plataforma, datos in plataformas.items() %}
 <div class="tarjeta">
   <h2>{{ plataforma }}
     {% if datos.ultimo_ciclo %}
-      <span class="chip">{{ datos.ultimo_ciclo.status }}</span>
+      <span class="chip {% if datos.ultimo_ciclo.status == 'done' %}ok{% elif datos.ultimo_ciclo.status in ('degraded', 'failed') %}alerta{% endif %}">{{ datos.ultimo_ciclo.status }}</span>
       <span class="chip">{{ datos.ultimo_ciclo.mode }}</span>
     {% endif %}
   </h2>
@@ -39,6 +40,7 @@
      se muestra como — CON su etiqueta. used >= cap con cap no nulo es el
      estado que dispara el aviso Telegram de 1.4: se ve SATURADA. #}
   <h3>Quota del dia</h3>
+  <div class="tabla-scroll" role="region" aria-label="Tabla de datos" tabindex="0">
   <table>
     <thead><tr><th>Forma</th><th class="num">Usado</th><th class="num">Cap</th><th>Estado</th></tr></thead>
     <tbody>
@@ -52,9 +54,11 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% endif %}
 
   <h3>Historico (14d)</h3>
+  <div class="tabla-scroll" role="region" aria-label="Tabla de datos" tabindex="0">
   <table>
     <thead><tr><th>Ciclo</th><th>Fecha</th><th>Status</th><th class="num">Decisiones</th><th>Motivo</th></tr></thead>
     <tbody>
@@ -69,6 +73,8 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 </div>
 {% endfor %}
+</div>
 {% endblock %}

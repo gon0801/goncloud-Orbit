@@ -18,24 +18,71 @@
   {% block estilos %}{% endblock %}
 </head>
 <body data-pantalla="{{ pantalla }}">
-  <header>
-    <h1>Orbit — Dashboard</h1>
-    <nav>
-      <a href="/" {% if pantalla == "resumen" %}aria-current="page"{% endif %}>Resumen</a>
-      <a href="/campanas" {% if pantalla in ("campanas", "fabrica") %}aria-current="page"{% endif %}>Campañas</a>
-      <a href="/decisiones" {% if pantalla == "decisiones" %}aria-current="page"{% endif %}>Decisiones</a>
-      <a href="/salud" {% if pantalla == "salud" %}aria-current="page"{% endif %}>Salud</a>
-      <a href="/contribucion" {% if pantalla == "contribucion" %}aria-current="page"{% endif %}>Contribucion</a>
-      <a href="/cortes" {% if pantalla == "cortes" %}aria-current="page"{% endif %}>Propuestas</a>
-      <a href="/inertes" {% if pantalla == "inertes" %}aria-current="page"{% endif %}>Inertes</a>
-      <a href="/settings" {% if pantalla == "settings" %}aria-current="page"{% endif %}>Settings</a>
+  {% set paginas = {
+    'resumen': ('Resumen', 'Series diarias D-30..D-1 · dia en curso excluido'),
+    'campanas': ('Campañas', 'Metricas 30d y target efectivo con su procedencia'),
+    'decisiones': ('Decisiones', 'Solo entidades que decidieron · una fila por decision'),
+    'salud': ('Salud', 'Ultimo ciclo, historico 14d, quota y skips'),
+    'contribucion': ('Contribucion', 'Rango pre-cargos · 90d maduros con vintage D-15 UTC'),
+    'cortes': ('Propuestas', 'Pendientes de decision · se aplican solas al vencer'),
+    'inertes': ('Inertes', 'Hojas activas sin trafico desde 14 dias o mas'),
+    'settings': ('Settings', 'Cascada de targets, caps diarios y goals'),
+    'fabrica': ('Crear campañas', 'Un grupo de cinco campañas de Sponsored Products')
+  } %}
+  <a class="saltar-contenido" href="#contenido">Saltar al contenido</a>
+  <aside class="sidebar" aria-label="Navegacion principal">
+    <a class="marca" href="/" aria-label="Orbit, inicio">
+      <span class="marca-icono" aria-hidden="true">O</span>
+      <span><strong>ORBIT</strong><small>Ads y marketplaces</small></span>
+    </a>
+    <div class="canal-actual">Amazon Ads · MX + US</div>
+    <button type="button" id="nav-toggle" aria-expanded="false" aria-controls="nav-secciones" hidden>Menu</button>
+    <nav id="nav-secciones" class="navegacion" aria-label="Secciones">
+      {% for grupo, enlaces in [
+        ('Panel', [('resumen', '/', 'Resumen'), ('campanas', '/campanas', 'Campañas'),
+                   ('decisiones', '/decisiones', 'Decisiones'), ('salud', '/salud', 'Salud'),
+                   ('contribucion', '/contribucion', 'Contribucion')]),
+        ('Decidir', [('cortes', '/cortes', 'Propuestas'), ('inertes', '/inertes', 'Inertes'),
+                    ('fabrica', '/campanas/nuevas', 'Crear campañas')])
+      ] %}
+      <div class="nav-grupo">
+        <p class="nav-etiqueta">{{ grupo }}</p>
+        {% for id, href, nombre in enlaces %}
+        <a href="{{ href }}" {% if pantalla == id %}aria-current="page"{% endif %}>{{ nombre }}{% if id == 'cortes' %}<span id="propuestas-contador" class="contador" hidden></span>{% endif %}</a>
+        {% endfor %}
+      </div>
+      {% endfor %}
+      <div class="nav-grupo">
+        <p class="nav-etiqueta">Catalogo</p>
+        {% for nombre in ['Repricing', 'Reviews', 'Reputacion'] %}
+        <span class="nav-proximo">{{ nombre }} <span class="chip-proximo">pronto</span></span>
+        {% endfor %}
+      </div>
+      <div class="nav-pie">
+        <a href="/settings" {% if pantalla == 'settings' %}aria-current="page"{% endif %}>Settings</a>
+      </div>
     </nav>
-    <button type="button" id="btn-tema" aria-pressed="false">Tema: dia</button>
-  </header>
-  <main>
+    <div class="ultimo-ciclo">
+      <p class="nav-etiqueta">Ultimo ciclo</p>
+      <div id="ciclo-resumen" role="status"><span class="mutado">Sin consultar</span></div>
+      <a href="/salud">Ver salud por plataforma</a>
+    </div>
+  </aside>
+  <div class="app-contenido">
+    <header class="pagina-header">
+      <div><h1>{{ paginas[pantalla][0] }}</h1><p>{{ paginas[pantalla][1] }}</p></div>
+      <div class="header-acciones">
+        <span id="watermark-resumen" class="chip-watermark">Watermark: sin consultar</span>
+        <span class="alcance">Amazon MX · Amazon US</span>
+        <button type="button" id="btn-tema" aria-pressed="false">Tema: dia</button>
+      </div>
+    </header>
+    <main id="contenido" tabindex="-1">
     {% block contenido %}{% endblock %}
-  </main>
+    </main>
+  </div>
   <script src="/static/vendor/chart.umd.min.js"></script>
+  <script src="/static/js/shell.js"></script>
   <script src="/static/js/dashboard.js"></script>
   <script src="/static/js/cortes.js"></script>
   <script src="/static/js/settings.js"></script>

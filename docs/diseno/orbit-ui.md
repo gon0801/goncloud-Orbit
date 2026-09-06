@@ -1,0 +1,47 @@
+# ORBIT 18 — Rediseno del dashboard
+
+Referencia: `Orbit app UI mockups.zip`, handoff del dueno del 2026-09-06.
+La implementacion usa Jinja2, CSS local y Chart.js vendoreado. No incorpora
+el runtime `support.js` del prototipo.
+
+## Entrega
+
+- Nueve pantallas existentes con sidebar agrupado, encabezado propio, paleta
+  morada, tipografia sans, tarjetas, tablas y temas dia/noche.
+- Datos monetarios separados por plataforma/moneda. KPI de resumen calcula
+  sumas Decimal y ACoS ponderado por ingreso; los dias sin observacion se
+  declaran por metrica y no se reemplazan por cero. ACoS exige coberturas
+  compatibles de gasto e ingreso. Sparklines conservan huecos.
+- Sidebar consulta las APIs existentes de Salud y Propuestas. Fallo de
+  lectura se muestra como no disponible; un contador cero es un dato valido.
+- Filtros adicionales de campanas plegables, sin perder sort ni filtros GET.
+  Decisiones presenta anterior → nuevo con moneda en una celda.
+- Inertes conserva resumen de clasificacion y lotes. El KPI dice
+  "Antiguedad cumplida": eso solo no asegura que una entidad sea archivable.
+- Total de cinco presupuestos con centavos BigInt. Campo incompleto no se
+  convierte en cero. Cambiar plataforma limpia los importes existentes.
+- Formularios de rechazo, settings y creacion conservan la autenticacion,
+  confirmaciones y avisos existentes. Rechazar sigue siendo irreversible.
+- Tablas con scroll propio y foco de teclado; navegacion compacta en movil.
+
+## Limites respecto al prototipo
+
+Repricing requiere modelo, sincronizacion y reversas, fuera del cambio de piel;
+se muestra como proximo modulo, al igual que Reviews y Reputacion. Amazon Ads
+es el unico canal actual: el alcance MX + US es una etiqueta, no un selector
+que simule filtrar canales inexistentes.
+
+No se dibuja un target historico inventado: las series actuales no traen el
+target efectivo por fecha. El target por campana conserva su fuente actual en
+Campanas y Settings. No se agregan APIs ni consultas SQL para este rediseno.
+
+El prototipo suma monedas en una tarjeta de ejemplo; Orbit mantiene MXN y USD
+separados, sin conversion implicita. El gasto de Inertes es suma de importes
+observados, con la moneda visible.
+
+## Validacion
+
+Pruebas focalizadas de templates, XSS, paginacion, paleta, KPI y flujo de fabrica.
+Regresiones de la nueva presentacion demostradas en rojo antes del cambio.
+Ruff y pre-commit locales. Bateria completa y harness con PostgreSQL en Quality
+CI del PR. Comprobacion visual local con Edge sobre base desechable del harness.

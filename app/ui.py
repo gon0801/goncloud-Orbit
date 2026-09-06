@@ -40,6 +40,7 @@ from app import api_dashboard as dash
 from app.api import ConexionLectura
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.goals import PELDANOS_CASCADA
+from app.ui_metricas import clase_cambio, kpis_inertes, kpis_serie
 
 router = APIRouter(prefix="", tags=["dashboard-ui"])
 
@@ -61,6 +62,9 @@ def dinero_ui(valor: str | None) -> str | None:
 
 
 templates.env.filters["dinero_ui"] = dinero_ui
+templates.env.filters["kpis_serie"] = kpis_serie
+templates.env.filters["clase_cambio"] = clase_cambio
+templates.env.filters["kpis_inertes"] = kpis_inertes
 
 
 def ts_ui(valor) -> str:

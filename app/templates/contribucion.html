@@ -16,6 +16,7 @@
     · {{ datos.filas[0].moneda or "—" }}
     · FX aproximado se marca en la fila
   </p>
+  <div class="tabla-scroll" role="region" aria-label="Tabla de datos" tabindex="0">
   <table>
     <thead>
       <tr>
@@ -48,13 +49,14 @@
             <span class="mutado">—</span>
           {% endif %}
           {% if item.fx_source == "nearest_prior" %}
-            <br><span class="chip alerta">FX aproximado · {{ item.fx_source }}</span>
+            <br><span class="chip aviso">FX aproximado · {{ item.fx_source }}</span>
           {% endif %}
         </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% else %}
   <p class="mutado">Sin campañas con actividad madura en la ventana.</p>
   {% endif %}

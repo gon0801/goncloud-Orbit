@@ -89,7 +89,12 @@
       "name": "fabrica-ui-01",
       "path": "plans/fabrica-ui-01.md",
       "description": "ORBIT 17 — creacion de grupos de cinco campanas desde el dashboard: productos, presupuestos, revision, confirmacion, historial y recuperacion. Reutiliza FABRICA 01; sonda real diferida."
+    },
+    {
+      "name": "orbit-ui-01",
+      "path": "plans/orbit-ui-01.md",
+      "description": "ORBIT 18 — rediseno del dashboard existente segun handoff UI; catalogo futuro identificado, sin motor Repricing."
     }
   ],
-  "active": "fabrica-ui-01"
+  "active": "orbit-ui-01"
 }

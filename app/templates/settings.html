@@ -7,6 +7,7 @@
   x-orbit-token (campo Token abajo). Mode global y harvest son solo lectura.
 </p>
 
+<section class="tarjeta settings-sesion">
 <p>
   Config vigente: <code>{{ datos.config_version_id or "—" }}</code>
   · Modo global (solo lectura): <strong>{{ datos.modo_global or "—" }}</strong>
@@ -15,6 +16,8 @@
 <label>Token
   <input type="password" id="settings-token" name="token" placeholder="x-orbit-token" required>
 </label>
+
+</section>
 
 {% for p in datos.plataformas %}
 <section class="tarjeta" data-plataforma="{{ p.plataforma }}">
@@ -27,7 +30,7 @@
 
   <form data-settings-config="{{ p.plataforma }}" data-config-id="{{ datos.config_version_id }}">
     {% if p.margen_habilitado %}
-    <p class="alerta" data-advertencia-respaldo>
+    <p class="aviso" data-advertencia-respaldo>
       {{ datos.advertencia_respaldo }}
     </p>
     <label>

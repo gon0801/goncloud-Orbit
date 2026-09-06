@@ -6,15 +6,13 @@
   o busquedas que se bloquean). Si no rechazas una propuesta, se aplica sola
   al vencer su ventana. Rechazarla la bloquea de forma durable (30 dias por
   defecto, editable): el motor no vuelve a proponerla hasta que venza el
-  bloqueo, y el rechazo no se puede deshacer.
+  bloqueo, y el rechazo <strong>no se puede deshacer.</strong>
 </p>
 {% macro filas(direccion) %}
   {% for item in items if item.direccion == direccion %}
       <tr>
-        <td>{{ item.id }}</td>
-        <td>{{ item.plataforma }}</td>
         <td><span class="chip">{{ item.direccion|capitalize }}</span> {{ item.etiqueta or "—" }}</td>
-        <td>{{ item.nombre or "—" }} <span class="mutado">#{{ item.ad_entity_id }}</span></td>
+        <td>{{ item.nombre or "—" }} <span class="detalle-celda mono">#{{ item.ad_entity_id }} · propuesta #{{ item.id }}</span><span class="detalle-celda">{{ item.plataforma }}</span></td>
         {# El search_term es texto libre del comprador: AUTOESCAPE lo escapa #}
         <td>{{ item.search_term or "—" }}</td>
         <td>
@@ -24,16 +22,14 @@
           —
           {% endif %}
         </td>
-        <td><span class="chip">{{ item.estado }}</span></td>
-        <td class="mutado">se aplica solo el {{ item.vence_el|ts_ui }}</td>
-        <td class="mutado">{{ item.encolado_at }}</td>
+        <td class="mutado">se aplica solo el {{ item.vence_el|ts_ui }}<span class="detalle-celda">{{ item.estado }} · encolado {{ item.encolado_at|ts_ui }}</span></td>
         <td>
           {# el click lo cablea /static/js/cortes.js (onclick= inline lo bloquea la CSP) #}
           <button type="button" data-vetar="{{ item.id }}">Rechazar</button>
         </td>
       </tr>
       <tr hidden id="form-{{ item.id }}">
-        <td colspan="10">
+        <td colspan="6">
           <form data-veto="{{ item.id }}">
             {% if item.efecto_rechazo %}
             <p>{{ item.efecto_rechazo }}</p>
@@ -54,19 +50,16 @@
 {% endmacro %}
 {% if items %}
 <div class="tarjeta">
-  <h3>Crecen</h3>
+  <h3><span class="ok">●</span> Crecen <span class="chip">{{ items | selectattr("direccion", "equalto", "crece") | list | length }}</span></h3>
+  <div class="tabla-scroll" role="region" aria-label="Tabla de datos" tabindex="0">
   <table>
     <thead>
       <tr>
-        <th>#</th>
-        <th>Plataforma</th>
         <th>Tipo</th>
         <th>Entidad</th>
         <th>Search term</th>
         <th>Por que</th>
-        <th>Estado</th>
         <th>Vence</th>
-        <th>Encolado</th>
         <th>Accion</th>
       </tr>
     </thead>
@@ -74,21 +67,19 @@
       {{ filas("crece") }}
     </tbody>
   </table>
+  </div>
 </div>
 <div class="tarjeta">
-  <h3>Recortan</h3>
+  <h3><span class="alerta">●</span> Recortan <span class="chip">{{ items | selectattr("direccion", "equalto", "recorta") | list | length }}</span></h3>
+  <div class="tabla-scroll" role="region" aria-label="Tabla de datos" tabindex="0">
   <table>
     <thead>
       <tr>
-        <th>#</th>
-        <th>Plataforma</th>
         <th>Tipo</th>
         <th>Entidad</th>
         <th>Search term</th>
         <th>Por que</th>
-        <th>Estado</th>
         <th>Vence</th>
-        <th>Encolado</th>
         <th>Accion</th>
       </tr>
     </thead>
@@ -96,6 +87,7 @@
       {{ filas("recorta") }}
     </tbody>
   </table>
+  </div>
 </div>
 {% else %}
 <p>sin propuestas pendientes: la cola no tiene filas esperando decision.</p>

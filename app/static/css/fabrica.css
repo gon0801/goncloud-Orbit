@@ -13,7 +13,7 @@
   gap: 0.8rem;
   margin-bottom: 1rem;
 }
-.fabrica-aviso { border-left: 4px solid var(--color-acento); padding: 0.8rem 1rem; }
+.fabrica-aviso { padding: 12px 16px; }
 .fabrica-productos { max-height: 26rem; overflow: auto; }
 .fabrica-productos label { flex-direction: row; align-items: baseline; overflow-wrap: anywhere; }
 .fabrica-productos input { flex-shrink: 0; }
@@ -36,3 +36,16 @@
   .fabrica dl { grid-template-columns: 1fr; gap: 0.3rem; }
   .fabrica dd { margin-bottom: 0.7rem; }
 }
+
+.fabrica > p { color: var(--o-ink2); }
+.fabrica fieldset { border-radius: 8px; }
+.fabrica #fabrica-configuracion { border: 0; padding: 0; }
+.fabrica legend { font-weight: 600; font-size: 14px; }
+.fabrica-campos { grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); }
+.fabrica-producto:has(input:disabled) { opacity: .6; }
+.fabrica-producto ul { display: flex; flex-wrap: wrap; gap: 16px; padding-left: 20px; }
+.fabrica .fabrica-presupuestos { min-width: 440px; }
+.fabrica-presupuestos input { width: 96px; text-align: right; font-variant-numeric: tabular-nums; }
+.fabrica-presupuestos td:last-child input { width: 80px; }
+.fabrica-total { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; border-top: 1px solid var(--o-borde); margin: 14px 0 4px; padding-top: 12px; }
+.fabrica-total output { font-weight: 650; }

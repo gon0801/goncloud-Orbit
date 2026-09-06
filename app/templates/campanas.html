@@ -27,6 +27,18 @@
     <label>Campaña
       <input type="search" name="nombre" value="{{ vista.filtros.nombre or "" }}" placeholder="nombre">
     </label>
+    <label>Procedencia
+      <select name="procedencia">
+        <option value="">todas</option>
+        {% for p in vista.peldanos %}
+        <option value="{{ p }}"{% if vista.filtros.procedencia == p %} selected{% endif %}>{{ p }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Filtrar</button>
+    {% if vista.activo %}<a href="{{ vista.href_limpiar }}">Limpiar</a>{% endif %}
+    <details class="filtros-avanzados" {% if vista.filtros.cost or vista.filtros.revenue or vista.filtros.clicks or vista.filtros.acos or vista.filtros.target %}open{% endif %}>
+      <summary>Filtros por metricas</summary><div>
     <label>Cost
       <input type="search" name="cost" value="{{ vista.filtros.cost or "" }}" placeholder="30d">
     </label>
@@ -42,17 +54,11 @@
     <label>Target
       <input type="search" name="target" value="{{ vista.filtros.target or "" }}">
     </label>
-    <label>Procedencia
-      <select name="procedencia">
-        <option value="">todas</option>
-        {% for p in vista.peldanos %}
-        <option value="{{ p }}"{% if vista.filtros.procedencia == p %} selected{% endif %}>{{ p }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <button type="submit">Filtrar</button>
-    {% if vista.activo %}<a href="{{ vista.href_limpiar }}">Limpiar</a>{% endif %}
+      </div>
+    </details>
   </form>
+  <p class="leyenda">{{ items | length }} campañas · ventana 30d incluye inmaduros</p>
+  <div class="tabla-scroll" role="region" aria-label="Tabla de datos" tabindex="0">
   <table>
     <thead>
       <tr>
@@ -100,6 +106,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% if vista.activo and not items %}
   <p class="mutado">Ninguna campaña coincide con el filtro.</p>
   {% endif %}

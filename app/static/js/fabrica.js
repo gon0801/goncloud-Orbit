@@ -88,7 +88,25 @@ document.addEventListener("DOMContentLoaded", function () {
     porId("historial-recargar").disabled = mutando;
   }
 
+  function actualizarTotal() {
+    const salida = porId("presupuesto-total");
+    const moneda = porId("moneda").textContent;
+    let centavos = 0n;
+    for (const rol of roles) {
+      const valor = formulario.elements[rol + "_budget"].value.trim();
+      if (!/^[0-9]+([.][0-9]{1,2})?$/.test(valor) || valor.length > 14) {
+        salida.textContent = "Completa los cinco presupuestos";
+        return;
+      }
+      const [entero, fraccion = ""] = valor.split(".");
+      centavos += BigInt(entero) * 100n + BigInt(fraccion.padEnd(2, "0"));
+    }
+    salida.textContent = moneda === "—" ? "Moneda sin consultar"
+      : (centavos / 100n) + "." + String(centavos % 100n).padStart(2, "0") + " " + moneda;
+  }
+
   function invalidar() {
+    actualizarTotal();
     revision += 1;
     preview = null;
     porId("preview").hidden = true;
@@ -173,12 +191,14 @@ document.addEventListener("DOMContentLoaded", function () {
     porId("productos").replaceChildren();
     porId("tipos").replaceChildren();
     porId("moneda").textContent = "—";
+    actualizarTotal();
     actualizarBotones();
     estado("catalogo-estado", "Consultando productos…");
     try {
       const datos = await solicitar("/catalogo?plataforma=" + encodeURIComponent(porId("plataforma").value));
       if (version !== versionCatalogo) return;
       porId("moneda").textContent = datos.moneda;
+      actualizarTotal();
       datos.tipos_producto.forEach(tipo => { const opcion = nodo("option"); opcion.value = tipo; porId("tipos").append(opcion); });
       datos.productos.forEach(producto => {
         const tarjeta = nodo("div"), label = nodo("label"), input = nodo("input");
