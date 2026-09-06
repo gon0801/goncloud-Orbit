@@ -4,6 +4,13 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-06 — ORBIT 19: tres precisiones al contrato, 0.2 sigue abierto.**
+Por probar exige cobertura Ads verificada (si no, Sin datos; no prueba
+«nunca anunciado»). El objetivo manual no acredita rentabilidad; cero,
+negativo o inferior al objetivo se declaran en la revision y siguen
+seleccionables. Confirmar D1–D4 no cierra 0.2: faltan API/CLI v2,
+compatibilidad, migraciones y reversa con recuperacion v2.
+
 **2026-09-06 — ORBIT 19 D1/D2 corregidas, sin cerrar 0.2.**
 El 175 era solo MX (84+91). Por mercado, margen maduro positivo: MX 5 / US 2;
 cero y negativo: 0 y 0; ausente: MX 244 / US 117. D1: porcentaje

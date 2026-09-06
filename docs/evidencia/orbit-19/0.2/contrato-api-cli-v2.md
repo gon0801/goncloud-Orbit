@@ -39,11 +39,18 @@ Reglas:
   ID inexistente, seller_sku vacio o SKU duplicado en el mismo grupo:
   422 **antes** del primer POST.
 - Varios listings del mismo `product_id` son legales.
-- `origen=margen_medido` solo si **todos** tienen margen maduro de
-  `v_margen_producto`. Si falta uno: 422 pidiendo `manual_lanzamiento`.
+- `origen=margen_medido` solo si **todos** tienen margen maduro **y
+  positivo** de `v_margen_producto`, y el objetivo derivado no supera
+  ese margen. Si alguno esta ausente, es 0, es negativo, o el clamp
+  superaria el margen: 422 pidiendo `manual_lanzamiento`.
 - `acos_pct` decimal positivo, mismo rango/precision que
   `ads_optimizer_goal.target_acos_pct` (NUMERIC(6,2) > 0). Sin clamp
-  silencioso a 10%.
+  silencioso a 10%. El objetivo manual **no acredita rentabilidad**.
+- Preview y revision declaran por publicacion: margen maduro / muestra
+  limitada / ausente / cero / negativo, y si el margen conocido es
+  **inferior al objetivo**. Cero, negativo o inferior al objetivo no
+  deshabilitan la seleccion. No se presenta el grupo como rentable
+  por tener target manual.
 - Preview invalida si cambia listing, objetivo, budget, bid, modo o fecha.
 
 CLI propuesto: `--listing-ids 1190,1206` y `--target-acos 25.00`.

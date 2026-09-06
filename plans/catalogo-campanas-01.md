@@ -32,16 +32,23 @@ no se inventa producto/SKU para poder anunciarlas.
 
 | ID | Decision | Propuesta del plan | Recomendacion (NO aprobada; conteos por mercado) | Evidencia necesaria |
 |---|---|---|---|---|
-| D1 | Prioridad de comparacion | Rentabilidad con espacio para explorar | Orden por `margen_neto_pct` maduro (porcentaje, ventana `[2026-02-20, D-15)`). Muestra `dias_con_venta` visible. NULL al final, no como 0%. MX/US no se mezclan. Por probar (Ads) aparte. | Confirmacion del dueno; E/0.2/decisiones-propuestas.md |
-| D2 | Lanzamientos sin margen, cero o negativo | ACoS manual del grupo, presupuesto/bids explicitos | Manual si algun producto tiene margen NULL, =0 o <0, o si el clamp a 10% supera el margen conocido. Hoy 0 filas cero/neg; MX 244 y US 117 son ausente. | Confirmacion del dueno; target no se representa como margen |
+| D1 | Prioridad de comparacion | Rentabilidad con espacio para explorar | Orden por `margen_neto_pct` maduro (porcentaje, ventana `[2026-02-20, D-15)`). Muestra visible. NULL al final, no 0%. MX/US no se mezclan. Por probar solo con cobertura Ads verificada; si no, Sin datos. | Confirmacion del dueno; E/0.2/decisiones-propuestas.md |
+| D2 | Lanzamientos sin margen, cero o negativo | ACoS manual del grupo, presupuesto/bids explicitos | Manual si NULL, =0, <0 o clamp > margen conocido. El manual no acredita rentabilidad; preview declara cero/negativo/inferior al objetivo; sigue seleccionable. | Confirmacion del dueno; target no se representa como margen |
 | D3 | Nuevas o existentes | Crear nuevas primero | Sigue propuesta: solo campanas nuevas. Existentes = otro plan. | Respuesta; si incluye existentes, replanificar antes de cerrar 0.2 |
 | D4 | Detalle economico con poca muestra | Mostrar margen observado con guardas de integridad, separado del maduro | Sigue propuesta. Muestra limitada no entra al sort D1. MX 136 / US 51 con 1–29 fechas (lectura B). | Ratificacion; no afecta el motor |
 
-0.2 solo termina con respuestas atribuibles al dueno para D1–D3 y contrato D4
-ratificado. Contratos API/CLI/migracion en E/0.2 son **propuestos**. Si elige
-margen proyectado previo o campanas existentes, se replanifica ese alcance antes
-de implementar. No interpretar silencio, tiempo, la solicitud de formalizacion
-ni estas recomendaciones como aprobacion.
+0.2 no termina solo con confirmar D1–D4. Hace falta **ademas** dejar
+cerrados en E/0.2: API/CLI v2, compatibilidad v1, reserva de migraciones y
+reversa que conserve registrar/reconciliar/pausar lotes v2. Precisiones de
+revision (contrato): Por probar exige cobertura verificada (si no, Sin
+datos; no demuestra «nunca anunciado»); el objetivo manual no acredita
+rentabilidad (cero, negativo o inferior al objetivo se declaran en la
+revision; siguen seleccionables).
+
+Contratos API/CLI/migracion en E/0.2 siguen **propuestos** hasta ese cierre.
+Si elige margen proyectado previo o campanas existentes, se replanifica
+ese alcance antes de implementar. No interpretar silencio, tiempo, la
+solicitud de formalizacion ni estas recomendaciones como aprobacion.
 
 ### Evidencia Fase 0 (2026-09-06)
 
@@ -76,7 +83,7 @@ Purpose: separar hechos disponibles, decisiones y dependencias externas.
 | Task | Contenido | DoD | Depends | Status |
 |---|---|---|---|---|
 | 0.1 | [stage:investigacion] [lane:gate] [tdd:skip:investigacion] Catalogo/SKU/margen/lotes actuales | E/0.1 contiene SELECT y salida UTC con conteos por mercado, IDs ambiguos/omitidos y lotes recuperables; ninguna mutacion Amazon | - | cc:完了 [2026-09-06 21:00 UTC, E/0.1] |
-| 0.2 | [stage:planificacion] [lane:gate] [tdd:skip:docs-contract] Cerrar negocio, API/CLI v2, migracion y rollback | D1–D4 resueltas segun contrato; campos v2 y compatibilidad antigua definidos; numeros/rutas de migraciones reservados; reversa conserva lector v2; respuestas y spec enlazados en E/0.2 | 0.1 | cc:WIP [contratos propuestos E/0.2; espera dueno D1–D4] |
+| 0.2 | [stage:planificacion] [lane:gate] [tdd:skip:docs-contract] Cerrar negocio, API/CLI v2, migracion y rollback | D1–D4 resueltas segun contrato **y** API/CLI v2 + compatibilidad + migraciones + reversa con recuperacion v2 cerrados en E/0.2. Confirmar D1–D4 no basta. | 0.1 | cc:WIP [D1–D4 pendientes; contrato tecnico propuesto; no cerrado] |
 | 0.3 | [stage:investigacion] [lane:gate] [tdd:skip:investigacion] Contratos de reporte Ads y disponibilidad | E/0.3 asigna verificada/no_verificada con motivo por fuente; disponible incluye docs, muestra redactada, grano, atribucion, permisos y conciliacion; no_verificada no se trata como cero | - | cc:完了 [2026-09-06 21:03 UTC, E/0.3; Ads MX verificada, US no sondada] |
 | 0.4 | [stage:planificacion] [lane:gate] [tdd:skip:docs-contract] Cerrar politica de comparacion | E/0.4 fija campos/ventana/cobertura/madurez del reporte verificado, objetivo de comparacion, igualdad, precedencias y ordenes; cada fixture del spec tiene resultado; si Ads no verificada, permanece pendiente | 0.2,0.3 | cc:WIP [politica Ads en E/0.4; espera D1/D2] |
 

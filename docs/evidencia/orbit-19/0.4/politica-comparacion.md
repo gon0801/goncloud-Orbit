@@ -70,10 +70,12 @@ Si D2 se rechaza, se replanifica.
 ## 4. Precedencia de etiquetas Ads
 
 1. Reporte faltante o cobertura no verificada → **Sin datos**. Subtotales
-   parciales se marcan parciales. No etiqueta dentro/fuera.
-2. Cobertura completa del request y sin actividad observada (cero filas
-   para ese ASIN/SKU en toda la ventana pedida) → **Por probar en esta
-   ventana**. No implica producto nuevo.
+   parciales se marcan parciales. No etiqueta dentro/fuera. **No** se
+   llama Por probar: esa etiqueta exige evidencia de cobertura.
+2. Cobertura **verificada** (request COMPLETED del contrato 0.4) y sin
+   actividad observada (cero filas para ese ASIN/SKU en toda la ventana
+   pedida) → **Por probar en esta ventana**. Significa solo eso. No
+   implica producto nuevo ni que nunca se haya anunciado.
 3. Gasto observado > 0 y sales30d observado = 0 → **Gasto sin ventas**,
    ACoS = null. Cero en la fila es observado, no ausencia.
 4. sales30d > 0 → ACoS = 100 * suma(cost) / suma(sales30d).
@@ -120,8 +122,9 @@ Filtros/orden no pierden la seleccion (AC10).
 Propuesta D1 (no aprobada): orden por `margen_neto_pct` maduro
 (porcentaje, ventana `[2026-02-20, D-15)` UTC). `dias_con_venta` visible.
 NULL al final, nunca como 0%. MX y US no se mezclan. Por probar (Ads)
-en seccion propia. Fallback tecnico si D1 no se cierra: `listing_id`
-ascendente. La muestra 1–29 no entra al sort salvo D4 ratificada.
+solo con cobertura verificada; si no, Sin datos. Fallback tecnico si
+D1 no se cierra: `listing_id` ascendente. La muestra 1–29 no entra al
+sort salvo D4 ratificada.
 
 ## 8. Fixtures del spec — resultado esperado
 
@@ -132,10 +135,12 @@ Cifras ilustrativas, nunca valores sembrados en produccion.
 | Ratios desde sumas | Gasto 10 / ventas 100 y gasto 90 / ventas 300, misma moneda/ventana | ACoS 25% (100/400), no promedio 20%. Muestras y cobertura visibles. |
 | Igualdad | ACoS 25%, objetivo explicito 25% | Dentro del objetivo |
 | Distintos objetivos de campana | Una publicacion en dos campanas con targets distintos; sin objetivo de comparacion | ACoS sin etiqueta dentro/fuera; no target promedio. Sumar cost/sales de las filas del ASIN. |
-| Cero y ausencia | (1) gasto 10, sales30d 0 observado (2) ASIN ausente del gzip | (1) Gasto sin ventas, ACoS null (2) Sin datos / Por probar segun cobertura del request |
+| Cero y ausencia | (1) gasto 10, sales30d 0 observado (2) ASIN ausente del gzip con cobertura verificada (3) reporte faltante | (1) Gasto sin ventas, ACoS null (2) Por probar en esta ventana (3) Sin datos. (2) no prueba «nunca anunciado» |
+| Margen vs objetivo | Preview con target manual y margen 0, negativo o 8% vs objetivo 25% | Seleccionable. Revision muestra el margen y que es inferior/no positivo. No se presenta como rentable |
 | Muestra | Dos ASIN ACoS 25%, compras 1 y 100 | Mismo resultado frente al target; conteos distintos visibles |
 | Mismo producto | Dos listings, venta financiera 100 y margen 20% del producto | Grano compartido; total financiero 100, no 200 |
-| Historia fuera de ventana | Request cubierto, cero actividad actual, actividad antigua conocida | Por probar en esta ventana; no "producto nuevo" |
+| Historia fuera de ventana | Request cubierto, cero actividad actual, actividad antigua conocida | Por probar en esta ventana; no "producto nuevo"; no "nunca anunciado" |
+| Reporte faltante | Sin gzip / cobertura no verificada, aunque el ASIN exista en estructura | Sin datos. Prohibido etiquetar Por probar |
 | Orden estable | Misma metrica o null | Desempate listing_id; null al final; seleccion preservada |
 | Columna promovida ausente | sales30d presente, attributedSalesSameSku30d null | Total visible; promovido/halo 30d desconocidos; no restar |
 | salesSameSku30d | cualquier request | No se pide. 400 documentado. |

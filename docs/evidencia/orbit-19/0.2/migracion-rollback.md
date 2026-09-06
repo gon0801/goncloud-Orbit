@@ -60,8 +60,13 @@ Mecanismo propuesto (cerrar prueba en A.1):
 4. Ensayo A.5: lote v2 parcial (pasos applied + failed) se pausa y
    reconcilia despues de poner `fabrica.creacion=v1`.
 
+Cerrar 0.2 exige este mecanismo **escrito y con prueba prevista**
+(A.1/A.5), no solo D1–D4 confirmadas. Confirmar negocio no sustituye
+reserva 0019, lector v1/v2 ni reversa que conserve recuperacion v2.
+
 Reversa de 0019: no se plantea DROP. Es expansiva. Si hay que volver
-atras, se deja de crear v2; las tablas se quedan.
+atras, se deja de crear v2; las tablas se quedan. El lector v2 sigue
+sirviendo lotes ya escritos.
 
 ## Lotes recuperables hoy
 

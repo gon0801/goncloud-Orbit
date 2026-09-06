@@ -1,8 +1,8 @@
 # ORBIT 19 / 0.2 — indice (NO CERRADO)
 
-Esta tarea **no termina** hasta confirmacion del dueno. D1 y D2 se
-corrigieron (conteos por mercado; porcentaje/ventana/muestra/ausentes;
-cero y negativo). D3 y D4 siguen propuesta. Cero implementacion.
+Esta tarea **no termina** con confirmar D1–D4. Tambien hay que cerrar
+API/CLI v2, compatibilidad v1, migraciones y reversa con recuperacion
+v2. D3 y D4 siguen propuesta. Cero implementacion.
 
 | Archivo | Contenido |
 |---|---|

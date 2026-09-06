@@ -58,8 +58,12 @@ Propuesta del plan: rentabilidad con espacio para explorar.
    direcciones. NULL no es 0%, no es peor que un negativo, no es "malo".
    Sin fila de la vista = ausente, no cero. MX y US no se mezclan (moneda
    distinta). Desempate `listing_id`.
-5. **Por probar** (Ads, sin actividad en la ventana del reporte) va en
-   seccion propia, seleccionable. No se esconde por no tener margen.
+5. **Por probar** exige evidencia de cobertura. Solo significa «sin
+   actividad Ads en la ventana consultada» cuando el reporte de esa
+   ventana esta **verificado** (request COMPLETED y cobertura del
+   contrato 0.4). Si falta el reporte o la cobertura no esta
+   verificada: **Sin datos**, no Por probar. Tampoco demuestra que
+   nunca se haya anunciado. Va en seccion propia, seleccionable.
 
 Motivo: MX 244/249 y US 117/119 no tienen porcentaje maduro. Si el
 ausente se ordena como 0%, todos caen al fondo y se leen como ruina.
@@ -88,9 +92,15 @@ contrato vale igual cuando aparezca un 0 o un negativo.
 
 Tambien manual si el margen es positivo pero `fraccion × margen` al
 clampear **supera** el margen conocido (piso 10% sobre un margen p.ej.
-de 8%). El target manual es intencion, no medicion. Sin default 25%.
-Presupuestos y bids siguen explicitos. `v_margen_producto` y el motor
-no se relajan.
+de 8%).
+
+El objetivo manual **no acredita rentabilidad**. Es intencion de ACoS,
+no medicion de margen. En preview y revision, si hay margen cero,
+negativo o **inferior al objetivo**, esa situacion se muestra
+explicita (numero + etiqueta). El producto sigue seleccionable. No
+se presenta el grupo como rentable por el hecho de tener target
+manual. Sin default 25%. Presupuestos y bids siguen explicitos.
+`v_margen_producto` y el motor no se relajan.
 
 **No aprobado.** Si exigis margen proyectado previo, se para A y se
 replanifican comisiones/precio/costo actual.
@@ -122,8 +132,27 @@ de sacar multilisting) sigue siendo MX 91 / US 25.
 
 **No ratificado.**
 
+## Precisiones de revision (contrato)
+
+1. Por probar requiere evidencia de cobertura. Reporte faltante =
+   Sin datos. No implica «nunca anunciado».
+2. Objetivo manual no acredita rentabilidad. Margen cero, negativo o
+   inferior al objetivo se declara en la revision; el producto sigue
+   seleccionable.
+3. Confirmar D1–D4 **no completa 0.2**. Falta cerrar API/CLI v2,
+   compatibilidad v1, migraciones reservadas y reversa que conserve
+   lectura/registro/reconciliacion/pausa de lotes v2.
+
 ## Como se cierra 0.2
 
-Confirmacion atribuible del dueno a D1 y D2 (esta redaccion), y a D3/D4
-que siguen como propuestas. Hasta entonces API/CLI/migracion de E/0.2
-siguen **propuestos**. Cero implementacion.
+Las dos cosas, no una:
+
+1. Confirmacion atribuible del dueno a D1–D3 y ratificacion de D4,
+   con las tres precisiones de arriba.
+2. Contrato tecnico cerrado en esta carpeta: API/CLI v2, rechazo de
+   cuerpos mezclados, lector v1 intacto, reserva 0019/0020, setting
+   de deshabilitar creacion v2, y reversa que **no** abandona lotes v2
+   (sigue registrar/reconciliar/pausar).
+
+Confirmar negocio sin (2) deja 0.2 en WIP. Cerrar (2) sin (1) tambien.
+Cero implementacion de A/B en esta tarea.
