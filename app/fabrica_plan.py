@@ -324,7 +324,16 @@ def semillas_desde_terminos(
             continue
         if _cumple_harvest(t, target_acos_pct):
             exact.add(limpio.lower())
-    negativos = sorted({n.strip().lower() for n in biblioteca_negativos if n.strip()})
+    # Negativos = SOLO keywords (spec §6): las entradas ASIN-like de la
+    # biblioteca se excluyen con el MISMO criterio con que la biblioteca de
+    # keywords separa keywords/ASINs (D-GLM-4-5-6, revision PR 174).
+    negativos = sorted(
+        {
+            n.strip().lower()
+            for n in biblioteca_negativos
+            if n.strip() and not PATRON_ASIN.match(n.strip())
+        }
+    )
     return Semillas(
         tuple(sorted(keywords)), tuple(sorted(asins)), tuple(negativos), tuple(sorted(exact))
     )

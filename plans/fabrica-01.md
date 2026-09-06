@@ -5409,6 +5409,35 @@ consumen las tareas 6-9). El test que pinea contra
 - `_semillas_del_rol` quedo dentro del presupuesto de complejidad sin cambios
   adicionales.
 
+**D-GLM-4-5-6 (revision PR 174, hallazgos P2):**
+- *Hallazgo 1 (ASIN como negativos).* `semillas_desde_terminos` normalizaba
+  `biblioteca_negativos` sin el filtro ASIN: una entrada `B0AAAAAAAA` caia en
+  `semillas.negativos` (en minusculas) y el rol `auto_discovery` generaba un
+  payload `/sp/negativeKeywords` con `matchType NEGATIVE_EXACT` y texto
+  ASIN-like, violando el contrato (spec §6: negativos = SOLO keywords). Fix
+  minimo: la normalizacion excluye las entradas que matchean `PATRON_ASIN`
+  (mismo criterio con que la biblioteca de keywords separa keywords/ASINs),
+  vacios fuera, resto lower. Regresion
+  `test_negativos_de_biblioteca_excluyen_entradas_asin` (test_fabrica_plan.py):
+  (a) el ASIN no esta en `semillas.negativos`, (b) ningun payload de
+  negative_keyword del rol (via `pasos_del_rol(plan, "auto_discovery")`)
+  contiene texto ASIN-like. ROJO (regla 9, ANTES del fix):
+  `AssertionError: assert 'b0aaaaaaaa' not in ('b0aaaaaaaa', 'gato')` —
+  FAILED test_negativos_de_biblioteca_excluyen_entradas_asin. Tras el fix:
+  verde.
+- *Hallazgo 2 (INSERT en USD sin prueba commiteada).* El test del INSERT de
+  `crea_goal` solo cubria MXN; se parametrizo
+  `test_crea_goal_inserta_con_defaults_de_su_moneda_y_terna_completa` para
+  cubrir tambien USD: plataforma `amazon_us`, `bid_currency` USD persistida,
+  piso `Decimal("0.10")` y techo `Decimal("2.50")` (defaults de SU moneda, NO
+  1.00/45.00), mas el shape ya probado (mode, enabled, terna harvest,
+  created_at/updated_at). Evidencia de que discrimina (no tautologia):
+  mutando temporalmente la asercion del techo a `Decimal("45.00")`, el caso
+  USD revienta `AssertionError: assert Decimal('2.5000') == Decimal('45.00')`
+  (FAILED ...[amazon_us-USD-piso1-techo1]) y el MXN sigue pasando; asercion
+  restaurada y todo verde. `crea_goal` NO se toco (el INSERT ya persiste la
+  moneda que llega): hallazgo de prueba faltante, no de codigo.
+
 ### Tarea 11 — sonda (lead)
 
 _(pendiente; extracto scrubbed del log, shapes confirmados o corregidos, lote y grupo_id)_

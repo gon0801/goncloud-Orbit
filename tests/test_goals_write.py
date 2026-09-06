@@ -747,24 +747,36 @@ def test_crea_goal_valida_sin_io():
 
 
 @_skip_db
-def test_crea_goal_inserta_con_defaults_de_su_moneda_y_terna_completa():
-    """PG real: INSERT de goal de campana MXN con floor/ceiling de
-    DEFAULTS_POR_MONEDA (1.00/45.00, jamas 0.10/2.50), enabled, mode y la
-    terna harvest completa; created_at/updated_at = el instante pasado."""
+@pytest.mark.parametrize(
+    ("plataforma", "moneda", "piso", "techo"),
+    [
+        ("amazon_mx", "MXN", Decimal("1.00"), Decimal("45.00")),
+        ("amazon_us", "USD", Decimal("0.10"), Decimal("2.50")),
+    ],
+)
+def test_crea_goal_inserta_con_defaults_de_su_moneda_y_terna_completa(
+    plataforma, moneda, piso, techo
+):
+    """PG real: INSERT de goal de campana con floor/ceiling de
+    DEFAULTS_POR_MONEDA de SU moneda (MXN 1.00/45.00; USD 0.10/2.50, jamas
+    1.00/45.00), enabled, mode, bid_currency persistida y la terna harvest
+    completa; created_at/updated_at = el instante pasado. D-GLM-4-5-6: el caso
+    USD es la prueba commiteada que antes faltaba (solo se probaba MXN)."""
     from test_cycle import _db_temporal, _entidad
 
     with _db_temporal("orbit_goals_crea") as (conn, _):
-        camp = _entidad(conn, "amazon_mx", "campaign", "c-1")
-        fila = goals_write.crea_goal(conn, **_kw_crea(ad_entity_id=camp))
-        assert Decimal(fila["bid_floor"]) == Decimal("1.00")
-        assert Decimal(fila["bid_ceiling"]) == Decimal("45.00")
+        camp = _entidad(conn, plataforma, "campaign", "c-1")
+        fila = goals_write.crea_goal(conn, **_kw_crea(ad_entity_id=camp, bid_currency=moneda))
+        assert Decimal(fila["bid_floor"]) == piso
+        assert Decimal(fila["bid_ceiling"]) == techo
+        assert fila["bid_currency"] == moneda
         assert fila["mode"] == "shadow" and fila["enabled"] is True
         assert fila["harvest_campaign_id"] == "c-exact"
         assert Decimal(fila["harvest_default_bid"]) == Decimal("6.00")
         assert fila["created_at"] == T_CREADO and fila["updated_at"] == T_CREADO
         # segundo goal para la MISMA campana: goal_unico_campana -> GoalInvalido
         with pytest.raises(goals_write.GoalInvalido, match="ya tiene goal"):
-            goals_write.crea_goal(conn, **_kw_crea(ad_entity_id=camp))
+            goals_write.crea_goal(conn, **_kw_crea(ad_entity_id=camp, bid_currency=moneda))
 
 
 @_skip_db

@@ -182,6 +182,29 @@ def test_semillas_reparten_biblioteca_y_terminos_por_rol():
     assert s.exact == ("collar noche",)
 
 
+def test_negativos_de_biblioteca_excluyen_entradas_asin():
+    """Regresion D-GLM-4-5-6 (revision PR 174): la biblioteca de negativos
+    puede traer ASINs mezclados y el contrato (spec §6) es negativos = SOLO
+    keywords. (a) el ASIN no cae en semillas.negativos, (b) ningun payload de
+    negative_keyword del rol auto_discovery lleva texto ASIN-like."""
+    s = fp.semillas_desde_terminos(
+        terminos=[_termino("collar perro")],
+        biblioteca_keywords=["collar reflectante"],
+        biblioteca_negativos=["B0AAAAAAAA", "gato"],
+        target_acos_pct=Decimal("19.10"),
+    )
+    assert "b0aaaaaaaa" not in s.negativos
+    assert s.negativos == ("gato",)
+    plan = _plan(semillas=s)
+    negativos = [
+        paso.payload["keywordText"]
+        for paso in fp.pasos_del_rol(plan, "auto_discovery")
+        if paso.recurso == "negative_keyword"
+    ]
+    assert "gato" in negativos
+    assert not [texto for texto in negativos if fp.PATRON_ASIN.match(texto)]
+
+
 def test_semilla_exact_usa_el_criterio_harvest_del_motor():
     """orders >= HARVEST_ORDERS_MIN y cost*100 <= min(35, target)*revenue
     (comparacion cruzada SIN dividir, hygiene.py camino (6)): mismas
