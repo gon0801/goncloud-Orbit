@@ -79,8 +79,9 @@ fuente de calculo comun debe distinguir medicion disponible de evidencia madura.
 MVP sin nota opaca 0–100 ni pesos inventados:
 
 - Por probar: sin actividad Ads en la ventana consultada **y** cobertura
-  verificada. No implica producto nuevo ni que nunca se haya anunciado.
-  Si falta el reporte: **Sin datos**, no Por probar.
+  del universo **demostrada** (no basta COMPLETED). El gzip SP actual
+  solo trae actividad: ASIN ausente = **Sin datos**. No implica producto
+  nuevo ni que nunca se haya anunciado.
 - Sin datos / datos incompletos: reporte faltante o sin cobertura; no afirmar cero.
 - Dentro del objetivo / por encima del objetivo: comparar ACoS con un objetivo
   explicito identificado; sin objetivo solo mostrar metricas, no calificacion. No promediar los
@@ -93,8 +94,7 @@ MVP sin nota opaca 0–100 ni pesos inventados:
 Ordenes explicitos por margen observado, ventas, rendimiento Ads y cantidad de
 evidencia. Orden inicial (D1): `margen_neto_pct` maduro, ventana
 `[2026-02-20, D-15)`, `dias_con_venta` visible, NULL al final (no 0%),
-MX/US no se mezclan. Por probar (Ads) solo con cobertura verificada; si
-falta el reporte: Sin datos. No demuestra que nunca se haya anunciado.
+MX/US no se mezclan. Ads ausente = Sin datos hasta cobertura demostrada. No demuestra que nunca se haya anunciado.
 
 Reglas de datos: ratios desde sumas compatibles, no promedios de porcentajes;
 monedas separadas; no sumar grano producto repetido por cada ASIN. Revenue Ads
@@ -176,10 +176,12 @@ La comparacion describe resultados observados, no una probabilidad de exito.
 
 Orden de evaluacion, con cobertura/madurez como ejes separados:
 
-1. Reporte faltante o cobertura no verificada: datos incompletos; sin etiqueta
-   dentro/fuera. Los subtotales disponibles se identifican como parciales.
-2. Cobertura verificada y sin actividad observada: Por probar en esta ventana.
-   No implica «nunca anunciado». Reporte faltante = Sin datos, no Por probar.
+1. Reporte faltante, cobertura no demostrada, o ASIN ausente de un gzip
+   solo-actividad (COMPLETED no cuenta): **Sin datos**; sin etiqueta
+   dentro/fuera. Subtotales parciales se identifican como parciales.
+2. Por probar solo con cobertura **demostrada** (universo exhaustivo, no
+   COMPLETED). Hoy el gzip es solo-actividad: ASIN ausente = Sin datos.
+   No implica «nunca anunciado».
 3. Gasto positivo y Revenue Ads cero observado: Gasto sin ventas; ACoS=null.
 4. Revenue Ads positivo: ACoS=100*suma(gasto)/suma(Revenue Ads). Con objetivo
    explicito, igualdad cuenta Dentro del objetivo y mayor cuenta Por encima.
@@ -210,17 +212,20 @@ Fixtures de aceptacion con cifras ilustrativas, nunca valores sembrados:
 | Ratios desde sumas | Gasto10/ventas100 y gasto90/ventas300, misma moneda/ventana | ACoS25%, no promedio20%; muestras y cobertura visibles |
 | Igualdad | ACoS25%, objetivo explicito25% | Dentro del objetivo |
 | Distintos objetivos de campana | Una publicacion aparece en dos campanas con targets distintos; sin objetivo de comparacion | ACoS sin etiqueta dentro/fuera; no target promedio |
-| Cero y ausencia | (1) gasto10, ventas0 observadas (2) ASIN ausente del gzip con cobertura verificada (3) reporte faltante | (1) Gasto sin ventas, ACoS null (2) Por probar en esta ventana; no «nunca anunciado» (3) Sin datos |
+| Cero y ausencia | (1) gasto10, ventas0 observadas (2) ASIN ausente del gzip COMPLETED solo-actividad (3) reporte faltante | (1) Gasto sin ventas, ACoS null (2) Sin datos (3) Sin datos. COMPLETED no hace Por probar |
 | Muestra | Dos ASIN con ACoS25%, compras1 y100 | Mismo resultado frente al target; conteos diferentes visibles |
 | Mismo producto | Dos listings comparten venta financiera100 y margen20% del producto | Se muestra el grano compartido; total financiero100, no200 |
-| Historia fuera de ventana | Reporte completo sin actividad actual, actividad antigua conocida | Por probar en esta ventana; no llamarlo producto nuevo |
+| Historia fuera de ventana | Gzip solo-actividad COMPLETED, ASIN ausente ahora, actividad antigua conocida | Sin datos en esta ventana; no Por probar; no producto nuevo |
+| Madurez sin observacion posterior | metric_date D, sola observacion en D+1, consulta en D+40 | Provisional: falta observed_at >= D+30 |
 | Orden estable | Igual metrica o null | Desempate listing_id; null al final; seleccion preservada |
 
 ### Resolucion de fuentes
 
-0.3 puede cerrar la investigacion con estado verificada o no_verificada y motivo
-por fuente. La implementacion Ads exige fuente verificada: si no hay acceso,
-B.1 y la entrega B siguen pendientes. Mostrar null no completa el reporte Ads.
+0.3 cierra la investigacion con verificada, verificada_parcial o
+no_verificada y motivo. Ads MX 2026-09-06: **verificada_parcial** (forma y
+permisos; sin conciliacion de gzip ni cobertura de ausentes). B.1 concilia
+y demuestra cobertura; sin eso no hay Por probar ni fuente Ads completa.
+Mostrar null no completa el reporte Ads.
 Disponibilidad es recomendada: su ausencia admite el estado Sin verificar, sin
 bloquear B.4/B.5. Featured Offer no verificada. Margen con muestra limitada
 (D4) es UI, no relajacion del calculo del motor.

@@ -1,8 +1,9 @@
 # ORBIT 19 — Plan formal de catalogo abierto y evaluacion
 
-Version: 1.2, 2026-09-06. Workflow: `harness-work` sobre 0.1–0.4 del PR185.
-Estado: Fase 0 cerrada. D1–D4 confirmadas 21:31 UTC. 0.2 y 0.4 `cc:完了`.
-No se implementan A/B en este acto. F1 de produccion sigue vigente.
+Version: 1.3, 2026-09-06. Workflow: `harness-work` sobre 0.1–0.4.
+Estado: 0.1 y 0.2 cerradas. 0.3 cerrada con Ads MX **verificada_parcial**.
+0.4 **pendiente** (cobertura/madurez/conciliacion). Fase A no espera 0.4.
+Esta rama local no es el verde del PR #185 (ese CI es el plan anterior).
 Solicitud del dueno: todos los articulos seleccionables, con metricas para comparar
 su conveniencia publicitaria. Formalizar no equivale a aprobar objetivos ni gasto.
 
@@ -36,7 +37,7 @@ Acta: `docs/evidencia/orbit-19/0.2/confirmacion.md`.
 
 | ID | Cierre |
 |---|---|
-| D1 | Orden por `margen_neto_pct` maduro (porcentaje, `[2026-02-20, D-15)`). Muestra visible. NULL al final, no 0%. MX/US no se mezclan. Por probar solo con cobertura Ads verificada; si no, Sin datos. |
+| D1 | Orden por `margen_neto_pct` maduro (porcentaje, `[2026-02-20, D-15)`). Muestra visible. NULL al final, no 0%. MX/US no se mezclan. Ads ausente = Sin datos; COMPLETED no basta para Por probar. |
 | D2 | Manual si NULL, =0, <0 o clamp > margen conocido. El manual no acredita rentabilidad; preview declara cero/negativo/inferior al objetivo; sigue seleccionable. |
 | D3 | Solo campanas nuevas. Existentes = otro plan. |
 | D4 | Muestra limitada visible, no entra al sort ni al target. Motor intacto. |
@@ -52,14 +53,15 @@ de creacion real ni de deploy.
   elegibles, US 119/2. 115 multilisting. 291 listings bridge sin mapa Odoo
   (23 Active). `fabrica_lote` vacia. Cero mutacion Amazon.
 - 0.3 `docs/evidencia/orbit-19/0.3/reporte.md` — `spAdvertisedProduct`
-  **verificada** (amazon_mx D-3, 767 filas / 251 ASIN). `salesSameSku30d`
-  no existe (400). Stock FBA/FBM en bridge, separados; Featured Offer
-  **no_verificada**. Sonda US pendiente.
+  **verificada_parcial** (amazon_mx: forma y permisos; gzip no sumado;
+  cobertura de ausentes no demostrada). `salesSameSku30d` 400. US no
+  sondada. Stock FBA/FBM observados; Featured Offer no_verificada.
 - 0.2 `docs/evidencia/orbit-19/0.2/confirmacion.md` — D1–D4 + API/CLI +
   migracion/reversa. SELECT signo 21:24 UTC: MX 5 pos / 0 cero / 0 neg /
   244 null; US 2 / 0 / 0 / 117.
-- 0.4 `docs/evidencia/orbit-19/0.4/politica-comparacion.md` — campos,
-  ventana, cobertura, fixtures, orden D1, objetivo D2.
+- 0.4 `docs/evidencia/orbit-19/0.4/politica-comparacion.md` — pendiente
+  Ads. Por probar no se asigna con COMPLETED. Madurez exige observacion
+  posterior al cierre de atribucion.
 
 ## Etapas y tareas
 
@@ -78,8 +80,8 @@ Purpose: separar hechos disponibles, decisiones y dependencias externas.
 |---|---|---|---|---|
 | 0.1 | [stage:investigacion] [lane:gate] [tdd:skip:investigacion] Catalogo/SKU/margen/lotes actuales | E/0.1 contiene SELECT y salida UTC con conteos por mercado, IDs ambiguos/omitidos y lotes recuperables; ninguna mutacion Amazon | - | cc:完了 [2026-09-06 21:00 UTC, E/0.1] |
 | 0.2 | [stage:planificacion] [lane:gate] [tdd:skip:docs-contract] Cerrar negocio, API/CLI v2, migracion y rollback | D1–D4 resueltas segun contrato **y** API/CLI v2 + compatibilidad + migraciones + reversa con recuperacion v2 cerrados en E/0.2. Confirmar D1–D4 no basta. | 0.1 | cc:完了 [2026-09-06 21:31 UTC, E/0.2/confirmacion.md] |
-| 0.3 | [stage:investigacion] [lane:gate] [tdd:skip:investigacion] Contratos de reporte Ads y disponibilidad | E/0.3 asigna verificada/no_verificada con motivo por fuente; disponible incluye docs, muestra redactada, grano, atribucion, permisos y conciliacion; no_verificada no se trata como cero | - | cc:完了 [2026-09-06 21:03 UTC, E/0.3; Ads MX verificada, US no sondada] |
-| 0.4 | [stage:planificacion] [lane:gate] [tdd:skip:docs-contract] Cerrar politica de comparacion | E/0.4 fija campos/ventana/cobertura/madurez del reporte verificado, objetivo de comparacion, igualdad, precedencias y ordenes; cada fixture del spec tiene resultado; si Ads no verificada, permanece pendiente | 0.2,0.3 | cc:完了 [2026-09-06 21:31 UTC, E/0.4] |
+| 0.3 | [stage:investigacion] [lane:gate] [tdd:skip:investigacion] Contratos de reporte Ads y disponibilidad | E/0.3 asigna verificada/verificada_parcial/no_verificada con motivo por fuente; disponible incluye docs, muestra, grano, atribucion, permisos y conciliacion; no_verificada no se trata como cero | - | cc:完了 [Ads MX verificada_parcial: forma/permisos; conciliacion y cobertura pendientes] |
+| 0.4 | [stage:planificacion] [lane:gate] [tdd:skip:docs-contract] Cerrar politica de comparacion | E/0.4 fija campos/ventana/cobertura/madurez del reporte **verificado**, objetivo, igualdad, precedencias y ordenes; cada fixture del spec tiene resultado; si Ads no verificada, permanece pendiente | 0.2,0.3 | cc:WIP [Ads parcial; Por probar/cobertura/madurez corregidas; no cierra B] |
 
 ### Fase A — Catalogo abierto
 
@@ -188,10 +190,11 @@ investigacion no sustituye la reconciliacion de la implementacion futura.
 
 ## Inicio de una sesion de ejecucion
 
-- Fase 0 cerrada. Siguiente: A.1 (migracion 0019 + plan v2) cuando se
-  pida implementar. Produccion F1 intacta hasta A.5.
-- Ads MX verificada: B.1 no esta bloqueada por fuente. US se confirma en
-  la primera ingesta. Featured Offer sigue Sin verificar (no bloquea B.4).
+- 0.2 cerrado: A.1 se puede pedir. 0.4 no bloquea A.
+- Ads MX verificada_parcial: B.1 puede disenarse; no hay fuente Ads
+  completa hasta conciliar gzip y demostrar cobertura. US no sondada.
+  Featured Offer Sin verificar (no bloquea B.4). Produccion F1 intacta
+  hasta A.5.
 
 En Codex puede darse la misma instruccion con el nombre completo del plan.
 El plan activo del manifest sigue siendo orbit-ui-01; usar seleccion explicita

@@ -4,6 +4,12 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-06 — ORBIT 19: Ads MX parcial; 0.4 no cierra B.**
+COMPLETED no demuestra cobertura: ASIN ausente = Sin datos, no Por probar.
+Madurez 30d exige observacion con observed_at >= metric_date+30d, no el
+calendario. El gzip no se concilio; 0.3 = verificada_parcial. Fase A no
+espera 0.4. Esta rama no es el CI verde del PR #185.
+
 **2026-09-06 — ORBIT 19 review: 0019 es de A.1, no de F2.**
 F2 deja de reservar 0019. FABRICA 01 §1 decisiones 2/14 y residual 7
 quedan F1 historico; el contrato de A es D2. API v2: mismas rutas,

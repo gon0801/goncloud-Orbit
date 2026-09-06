@@ -55,12 +55,10 @@ No se usa un total combinado MX+US para decidir.
    direcciones. NULL no es 0%, no es peor que un negativo, no es "malo".
    Sin fila de la vista = ausente, no cero. MX y US no se mezclan (moneda
    distinta). Desempate `listing_id`.
-5. **Por probar** exige evidencia de cobertura. Solo significa «sin
-   actividad Ads en la ventana consultada» cuando el reporte de esa
-   ventana esta **verificado** (request COMPLETED y cobertura del
-   contrato 0.4). Si falta el reporte o la cobertura no esta
-   verificada: **Sin datos**, no Por probar. Tampoco demuestra que
-   nunca se haya anunciado. Va en seccion propia, seleccionable.
+5. **Por probar** exige cobertura **demostrada**, no un COMPLETED.
+   El gzip SP actual solo trae actividad: ASIN ausente = **Sin datos**.
+   No se asigna Por probar hasta que B.1 demuestre universo exhaustivo.
+   Tampoco prueba que nunca se haya anunciado.
 
 Motivo: MX 244/249 y US 117/119 no tienen porcentaje maduro. Si el
 ausente se ordena como 0%, todos caen al fondo y se leen como ruina.

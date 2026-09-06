@@ -1,13 +1,14 @@
 # ORBIT 19 / 0.4 — Politica de comparacion
 
-Estado: **cerrada** 2026-09-06 21:31 UTC. Ads MX verificada (0.3). D1–D4
-cerradas (0.2). US Ads se confirma en la primera ingesta B.1.
+Estado: **pendiente** (Ads MX `verificada_parcial` en 0.3: permisos y
+forma, sin conciliacion de sumas ni cobertura de ausentes). D1–D4
+cerradas (0.2). No bloquea la fase A. B.1 debe conciliar y demostrar
+cobertura antes de asignar Por probar.
 
-Fuentes: `docs/evidencia/orbit-19/0.3/reporte.md` (Ads verificada
-2026-09-06 21:03 UTC, amazon_mx D-3) y spec
+Fuentes: `docs/evidencia/orbit-19/0.3/reporte.md` y spec
 `docs/superpowers/specs/2026-09-06-catalogo-campanas-abierto-design.md`.
 
-## 1. Campos del reporte Ads verificado
+## 1. Campos del reporte Ads (forma MX; conciliacion pendiente)
 
 `reportTypeId=spAdvertisedProduct`, `groupBy=["advertiser"]`,
 `adProduct=SPONSORED_PRODUCTS`, `timeUnit=DAILY`, `format=GZIP_JSON`.
@@ -49,9 +50,9 @@ si 400/403, US queda no_verificada y no se inventan filas.
 |---|---|
 | Ventana de request | igual al cron actual: max 31 dias, re-pedir D-31..D-1 |
 | Retencion | 95d API (help consola 90d). Backfill no diario. |
-| Cobertura | el gzip cubre ASINs con actividad en el rango. 7709 product_ad MX vs 767 filas el 2026-09-03: la ausencia de fila **no** es gasto 0. |
+| Cobertura | COMPLETED **no** demuestra cobertura. El gzip SP actual solo trae filas con actividad (sonda 0.3 + docs Amazon). ASIN ausente del gzip = **Sin datos**, no Por probar, hasta que B.1 demuestre un universo exhaustivo (fila por ASIN anunciado, incluidos ceros, o cruce cuyo contrato garantice exhaustividad). 7709 product_ad MX vs 767 filas el 2026-09-03 no prueba «sin actividad». |
 | Grano de comparacion | (platform, advertisedAsin, advertisedSku) agregado por suma de filas compatibles. No repartir cost/sales de campana entre ASIN. |
-| Madurez atribucion | columnas 30d siguen creciendo ~30d. Fecha > hoy_utc-30 = provisional. Los 10 dias del motor de cortes no cierran esta columna. |
+| Madurez atribucion | columnas 30d siguen creciendo ~30d. Una fila de `metric_date` D es madura para columnas 30d **solo** si existe observacion con `observed_at` (UTC) **>= D + 30 dias**. El paso del calendario no basta: un gzip de D+1 consultado 30 dias despues sigue provisional. Los 10 dias del motor de cortes no cierran esta columna. |
 | Muestra | count de fechas con fila y sumas. 1 compra visible junto al ACoS, no como mala nota. |
 | Frescura | `observed_at` de la ingesta. Append-only. |
 
@@ -66,13 +67,14 @@ varias campanas. El objetivo no acredita rentabilidad.
 
 ## 4. Precedencia de etiquetas Ads
 
-1. Reporte faltante o cobertura no verificada → **Sin datos**. Subtotales
-   parciales se marcan parciales. No etiqueta dentro/fuera. **No** se
-   llama Por probar: esa etiqueta exige evidencia de cobertura.
-2. Cobertura **verificada** (request COMPLETED del contrato 0.4) y sin
-   actividad observada (cero filas para ese ASIN/SKU en toda la ventana
-   pedida) → **Por probar en esta ventana**. Significa solo eso. No
-   implica producto nuevo ni que nunca se haya anunciado.
+1. Reporte faltante, cobertura no demostrada, o ASIN/SKU ausente de un
+   gzip que solo trae actividad → **Sin datos**. Subtotales parciales se
+   marcan parciales. No etiqueta dentro/fuera. COMPLETED no basta.
+2. **Por probar en esta ventana** solo si la cobertura del universo de
+   ASINs anunciados en esa ventana esta **demostrada** (no solo COMPLETED)
+   y no hay actividad Ads en esa ventana. Hoy esa demostracion no existe.
+   No implica producto nuevo ni que nunca se haya anunciado. Hasta B.1
+   demuestre cobertura, no se asigna Por probar.
 3. Gasto observado > 0 y sales30d observado = 0 → **Gasto sin ventas**,
    ACoS = null. Cero en la fila es observado, no ausencia.
 4. sales30d > 0 → ACoS = 100 * suma(cost) / suma(sales30d).
@@ -118,9 +120,9 @@ Filtros/orden no pierden la seleccion (AC10).
 
 Orden inicial: `margen_neto_pct` maduro (porcentaje, ventana
 `[2026-02-20, D-15)` UTC). `dias_con_venta` visible. NULL al final,
-nunca como 0%. MX y US no se mezclan. Por probar (Ads) solo con
-cobertura verificada; si no, Sin datos. La muestra 1–29 no entra al
-sort (D4). Desempate `listing_id`.
+nunca como 0%. MX y US no se mezclan. Ausencia Ads = Sin datos hasta
+cobertura demostrada. La muestra 1–29 no entra al sort (D4). Desempate
+`listing_id`.
 
 ## 8. Fixtures del spec — resultado esperado
 
@@ -131,21 +133,26 @@ Cifras ilustrativas, nunca valores sembrados en produccion.
 | Ratios desde sumas | Gasto 10 / ventas 100 y gasto 90 / ventas 300, misma moneda/ventana | ACoS 25% (100/400), no promedio 20%. Muestras y cobertura visibles. |
 | Igualdad | ACoS 25%, objetivo explicito 25% | Dentro del objetivo |
 | Distintos objetivos de campana | Una publicacion en dos campanas con targets distintos; sin objetivo de comparacion | ACoS sin etiqueta dentro/fuera; no target promedio. Sumar cost/sales de las filas del ASIN. |
-| Cero y ausencia | (1) gasto 10, sales30d 0 observado (2) ASIN ausente del gzip con cobertura verificada (3) reporte faltante | (1) Gasto sin ventas, ACoS null (2) Por probar en esta ventana (3) Sin datos. (2) no prueba «nunca anunciado» |
+| Cero y ausencia | (1) gasto 10, sales30d 0 observado (2) ASIN ausente del gzip COMPLETED de un reporte solo-actividad (3) reporte faltante | (1) Gasto sin ventas, ACoS null (2) **Sin datos** (3) Sin datos. COMPLETED no convierte (2) en Por probar |
 | Margen vs objetivo | Preview con target manual y margen 0, negativo o 8% vs objetivo 25% | Seleccionable. Revision muestra el margen y que es inferior/no positivo. No se presenta como rentable |
 | Muestra | Dos ASIN ACoS 25%, compras 1 y 100 | Mismo resultado frente al target; conteos distintos visibles |
 | Mismo producto | Dos listings, venta financiera 100 y margen 20% del producto | Grano compartido; total financiero 100, no 200 |
-| Historia fuera de ventana | Request cubierto, cero actividad actual, actividad antigua conocida | Por probar en esta ventana; no "producto nuevo"; no "nunca anunciado" |
-| Reporte faltante | Sin gzip / cobertura no verificada, aunque el ASIN exista en estructura | Sin datos. Prohibido etiquetar Por probar |
+| Historia fuera de ventana | Gzip solo-actividad COMPLETED, ASIN ausente ahora, actividad antigua conocida | **Sin datos** en esta ventana; no Por probar; no "producto nuevo" |
+| Reporte faltante | Sin gzip / cobertura no demostrada, aunque el ASIN exista en estructura | Sin datos. Prohibido etiquetar Por probar |
+| Madurez sin observacion posterior | metric_date D, unica observacion observed_at = D+1, consulta en D+40 | Provisional. No maduro: falta observacion con observed_at >= D+30 |
+| Madurez con observacion posterior | metric_date D, observacion observed_at >= D+30 | Maduro para columnas 30d |
 | Orden estable | Misma metrica o null | Desempate listing_id; null al final; seleccion preservada |
 | Columna promovida ausente | sales30d presente, attributedSalesSameSku30d null | Total visible; promovido/halo 30d desconocidos; no restar |
 | salesSameSku30d | cualquier request | No se pide. 400 documentado. |
 
 ## 9. Que puede continuar
 
-- B.1 puede disenarse con este contrato (MX verificado; US en primera ingesta).
+- **Fase A** no espera 0.4 ni Ads.
+- B.1 debe conciliar sumas del gzip vs campana (misma ventana/moneda) y
+  demostrar cobertura antes de Por probar. Hasta entonces Ads MX es
+  `verificada_parcial`.
 - B.2 no espera Ads.
-- B.4/B.5 pueden usar este orden y objetivo. No se implementan aqui.
-- B.3 stock puede mapear FBA/FBM; Featured Offer queda Sin verificar.
+- B.4/B.5 no asignan Por probar hasta cobertura demostrada.
+- B.3 stock: FBA/FBM; Featured Offer Sin verificar.
 
 No se implementa codigo en esta tarea.
