@@ -1,7 +1,8 @@
 # ORBIT 19 — Validacion formal de harness-plan
 
-Fecha2026-09-06. `team_validation_mode: subagent`.
-Referencias: spec ORBIT19 y plans/catalogo-campanas-01.md.
+Snapshot del scoring **pre-cierre 0.2** (2026-09-06). No es estado vivo:
+D1–D4 y 0.1–0.4 cerraron despues. Ver `plans/catalogo-campanas-01.md`.
+`team_validation_mode: subagent`. Referencias: spec ORBIT19 y el plan.
 
 ## Evidencia y memoria consultadas
 
@@ -49,13 +50,14 @@ verificabilidad(D). No se usa una suma para ocultar un eje insuficiente.
 
 Las opciones con E<=2 no son Required. Riesgos de regresion se preceden con
 contrato, migracion expansiva y fixtures; no se rebajan candados para hacer pasar
-una puntuacion. D1–D4 siguen pendientes y ninguna puntuacion responde por el dueno.
+una puntuacion. **Snapshot:** al escribir este archivo D1–D4 estaban
+pendientes; el cierre vivo esta en E/0.2/confirmacion.md.
 
 ## Gates de planificacion
 
 | Gate | Evidencia / limite | Estado |
 |---|---|---|
-| Spec/Plans fit | Contrato y DoD incluyen casos, API/CLI, fuentes, A+B y decisiones pendientes | Documentado; cierre de negocio0.2 pendiente |
+| Spec/Plans fit | Contrato y DoD incluyen casos, API/CLI, fuentes, A+B y decisiones | Snapshot: 0.2 pendiente. Cierre vivo: plan 1.2 / E/0.2 |
 | Memory/wheel | Reusa fabrica, goals, reporting y recuperacion; enmienda residual conocido | Revisado |
 | Product fit | Todo producto valido seleccionable; comparacion asesora y no bloqueo economico | Revisado |
 | Security fit | Sin secretos publicados, sin escritura comercial como smoke; autorizaciones no inventadas | Revisado |
@@ -70,5 +72,6 @@ DoD, compatibilidad y ausencia de aprobaciones fingidas. Valida planificacion,
 no autoriza implementacion/despliegue/gasto.
 
 Verificacion mecanica: 17 tareas con ID unico, dependencias existentes y sin ciclos;
-todas con stage/lane/TDD y estado cc:TODO. Manifest mantiene orbit-ui-01 activo.
+todas con stage/lane/TDD. Snapshot: cc:TODO. Cierre vivo: 0.1–0.4
+`cc:完了` en el plan. Manifest: orbit-ui-01.
 Ruff y pre-commit completos correctos; suite del repo en CI del PR185.

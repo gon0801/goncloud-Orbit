@@ -210,7 +210,7 @@ Fixtures de aceptacion con cifras ilustrativas, nunca valores sembrados:
 | Ratios desde sumas | Gasto10/ventas100 y gasto90/ventas300, misma moneda/ventana | ACoS25%, no promedio20%; muestras y cobertura visibles |
 | Igualdad | ACoS25%, objetivo explicito25% | Dentro del objetivo |
 | Distintos objetivos de campana | Una publicacion aparece en dos campanas con targets distintos; sin objetivo de comparacion | ACoS sin etiqueta dentro/fuera; no target promedio |
-| Cero y ausencia | Gasto10, ventas0 observadas vs reporte ausente | Primero Gasto sin ventas/ACoSnull; segundo Sin datos |
+| Cero y ausencia | (1) gasto10, ventas0 observadas (2) ASIN ausente del gzip con cobertura verificada (3) reporte faltante | (1) Gasto sin ventas, ACoS null (2) Por probar en esta ventana; no «nunca anunciado» (3) Sin datos |
 | Muestra | Dos ASIN con ACoS25%, compras1 y100 | Mismo resultado frente al target; conteos diferentes visibles |
 | Mismo producto | Dos listings comparten venta financiera100 y margen20% del producto | Se muestra el grano compartido; total financiero100, no200 |
 | Historia fuera de ventana | Reporte completo sin actividad actual, actividad antigua conocida | Por probar en esta ventana; no llamarlo producto nuevo |

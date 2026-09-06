@@ -9,8 +9,9 @@ su conveniencia publicitaria. Formalizar no equivale a aprobar objetivos ni gast
 Spec delta: `docs/superpowers/specs/2026-09-06-catalogo-campanas-abierto-design.md`.
 No existe spec.md raiz en la base revisada; se usa la convencion de specs del repo.
 Precedencia: contrato del proyecto → spec aprobado ORBIT19 → este registro de tareas.
-El spec ORBIT19 sustituye las restricciones F1 de exclusion por margen y
-multilisting a partir de este cierre; el codigo de produccion no cambia hasta A.
+F1 (§1–§10 de FABRICA 01 + API UI) es el contrato de produccion **hasta
+A.5**. ORBIT 19 es el contrato de la fase A; no sustituye F1 hoy. El
+codigo no cambia hasta A.
 `team_validation_mode: subagent`: Producto/datos, Arquitectura, Seguridad/QA/esceptico.
 
 ## Resultado y limites

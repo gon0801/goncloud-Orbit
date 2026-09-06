@@ -53,8 +53,9 @@ Ventana [2026-02-20, 2026-08-22).
 | 359 | NH-PERS-NOG-SIN-CEN-DOR | amazon_us | 1461 | B0BVQFLTLQ | 37.32 | 32 |
 | 369 | NH-PERS-NOG-SIN-VBU-DOR | amazon_us | 1463 | B0BVQKMXXP | 38.58 | 32 |
 
-Abrir seleccion por publicacion desbloquea 115 productos hoy cortados solo
-por multilisting, mas 132 sin ventas vinculadas y 116 con muestra &lt;30 fechas.
+Abrir seleccion por publicacion desbloquea, por mercado, los cortados solo
+por multilisting (MX 71, US 44), mas sin ventas de un listing (MX 84, US 48)
+y muestra &lt;30 fechas de un listing (MX 91, US 25). No se suma MX+US.
 Ninguno de esos bloqueos es identidad invalida: todos tienen ASIN y seller_sku.
 
 ## IDs ambiguos (multilisting)
@@ -147,15 +148,15 @@ Ventana [2026-02-20, 2026-08-22): MX **7** sin product_id / 734 con;
 US **0** / 357. No entran a `v_margen_producto` (la vista exige product_id
 NOT NULL). Las 7 (todas amazon_mx):
 
-| id | event_date | order_id | sku en source_event_id | amount MXN |
+| id | event_date | order_id (ultimos 4) | sku | amount MXN |
 |---:|---|---|---|---:|
-| 848 | 2026-03-15 | 701-3148843-0417034 | NA-15WK-8U1A | 988 |
-| 2042 | 2026-04-11 | 701-1038019-8965003 | NA-15WK-8U1A | 988 |
-| 3164 | 2026-05-14 | 701-1278805-1320232 | NT-PPM2-94N3 | 1988 |
-| 3358 | 2026-05-21 | 702-6213858-4350600 | SET-CAR-AZU-PEZ-DOR | 989 |
-| 3688 | 2026-06-08 | 702-0357138-0880217 | 6M-0KK7-8OAK | 1988 |
-| 6701 | 2026-07-14 | 702-6771817-2308227 | OZ-KHZX-VIQF | 1988 |
-| 6931 | 2026-07-22 | 701-7584794-5593830 | L2-N1V2-3RZG | 1688 |
+| 848 | 2026-03-15 | …7034 | NA-15WK-8U1A | 988 |
+| 2042 | 2026-04-11 | …5003 | NA-15WK-8U1A | 988 |
+| 3164 | 2026-05-14 | …0232 | NT-PPM2-94N3 | 1988 |
+| 3358 | 2026-05-21 | …0600 | SET-CAR-AZU-PEZ-DOR | 989 |
+| 3688 | 2026-06-08 | …0217 | 6M-0KK7-8OAK | 1988 |
+| 6701 | 2026-07-14 | …8227 | OZ-KHZX-VIQF | 1988 |
+| 6931 | 2026-07-22 | …3830 | L2-N1V2-3RZG | 1688 |
 
 `NT-PPM2-94N3` y `OZ-KHZX-VIQF` estan Active sin mapa en el bridge.
 `6M-0KK7-8OAK` esta Inactive sin mapa. Coherente: venta sin producto

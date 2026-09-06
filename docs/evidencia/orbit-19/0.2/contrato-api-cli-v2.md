@@ -14,7 +14,12 @@ CLI `--productos` igual. Huella v1 no se rehashea. Lotes existentes
 
 Rechazar cuerpo que mezcle `productos` y `listing_ids`.
 
-## API v2 (nueva, misma ruta o campo discriminado)
+## API v2 (mismas rutas; discriminacion por campos)
+
+Mismos `POST /api/fabrica/plan` y `POST /api/fabrica/crear`.
+v1: cuerpo con `productos`, sin `listing_ids` ni `objetivo`.
+v2: cuerpo con `listing_ids` y `objetivo`, sin `productos`.
+Mezclar ambos → 422. Un normalizador, no una ruta nueva.
 
 ```
 {
@@ -76,11 +81,14 @@ obligatorio, un listing por producto).
 
 ## GET /catalogo
 
-Hoy: `elegible=false` si multilisting o sin margen.
+Misma ruta `GET /catalogo?plataforma=`. F1 vigente hasta A.5: `elegible`
+por producto (false si multilisting o sin margen).
 
-Propuesto (fase A, no 0.2 codigo): cada publicacion es seleccionable si
-tiene identidad (listing_id, ASIN, seller_sku, plataforma). `elegible` de
-producto desaparece o pasa a ser por listing. Motivos se vuelven
-informativos (sin margen, multilisting, sin ventas), no bloqueo.
+Fase A (un solo shape): cada publicacion es seleccionable si tiene
+identidad (`listing_id`, ASIN, seller_sku, plataforma). `elegible` pasa
+a ser **por listing** (true si la identidad es valida). Motivos
+(sin margen, multilisting, sin ventas, cero, negativo) son informativos,
+no bloqueo. El producto agrupa publicaciones; no hay `elegible` de
+producto que tape un listing valido.
 
 GET sigue sin HTTP Amazon.

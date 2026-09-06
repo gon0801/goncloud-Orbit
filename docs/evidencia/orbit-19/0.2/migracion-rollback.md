@@ -17,7 +17,10 @@ Si 0.3 deja Ads `no_verificada`, **0020 no se escribe**. No hay hueco
 vacio a proposito: el numero se confirma al abrir B.1.
 
 Hoy el ultimo archivo en `migrations/` es `0018_fabrica_campanas.sql`.
-No existe 0019 en el arbol (verificado 2026-09-06).
+A.1 toma **0019** porque es el siguiente archivo libre (F1 ya aplico 0018;
+F2 no ha escrito SQL). FABRICA 01 F2 **ya no reserva 0019**: su migracion
+de `harvest_job` se numera al aplicar F2, posterior a 0019/0020 (y 0021
+si B.3 existe). Verificado 2026-09-06: no hay `0019_*.sql` en el arbol.
 
 ## 0019 — cambios previstos (no implementados)
 

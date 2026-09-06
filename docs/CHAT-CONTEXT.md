@@ -4,6 +4,11 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-06 — ORBIT 19 review: 0019 es de A.1, no de F2.**
+F2 deja de reservar 0019. FABRICA 01 §1 decisiones 2/14 y residual 7
+quedan F1 historico; el contrato de A es D2. API v2: mismas rutas,
+`listing_ids` vs `productos`. F1 vigente hasta A.5.
+
 **2026-09-06 — ORBIT 19 Fase 0 cerrada (D1–D4 + contrato 0.2/0.4).**
 Confirmado 21:31 UTC. Orden por margen % maduro; ACoS manual si NULL/0/neg
 o clamp > margen; solo campanas nuevas; muestra limitada en UI. Por probar

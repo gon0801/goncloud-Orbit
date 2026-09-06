@@ -27,7 +27,7 @@ No autoriza gasto, sonda Amazon ni implementar A/B en este acto.
 | API/CLI v2, rechazo de cuerpos mezclados, un normalizador | `contrato-api-cli-v2.md` | Cerrado |
 | Compatibilidad v1 (`productos` / `--productos`, huella intacta) | idem | Cerrado |
 | Preview declara margen 0 / neg / inferior al objetivo | idem | Cerrado |
-| Reserva 0019 (grupo/listing, margen nullable, origen) | `migracion-rollback.md` | Cerrado; aplica A.1 |
+| Reserva 0019 (grupo/listing, margen nullable, origen) | `migracion-rollback.md` | Cerrado; A.1. F2 ya no usa 0019 |
 | Reserva 0020 (metricas producto anunciado) | idem | Cerrado; aplica B.1 (Ads MX verificada) |
 | 0021 disponibilidad | idem | Opcional; Featured Offer no verificada |
 | Reversa: `fabrica.creacion=v1` deshabilita altas v2; lector/registrar/reconciliar/pausar v2 siguen | idem | Cerrado; prueba en A.1/A.5 |

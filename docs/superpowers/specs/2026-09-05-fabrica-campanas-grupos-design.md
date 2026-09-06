@@ -4,13 +4,18 @@
 formal, una pregunta a la vez); revision del lead contra el repo vivo con ok
 del dueno (decisiones 12-14 y correcciones en §2-§10).
 
-**Enmienda ORBIT 19 / 0.2 (2026-09-06).** No cambia el codigo F1 en
-produccion. Para la fase A: decisiones 2 y 14 dejan de excluir productos
-sin margen maduro, con margen 0 o negativo, o con varios listings; el
-target derivado solo aplica si todos tienen margen maduro **positivo** y
-el aplicado no supera ese margen; si no, ACoS manual (residual 7 absorbido).
-El manual no acredita rentabilidad. Decision 1 (solo campanas nuevas) se
-confirma (D3). Spec: `2026-09-06-catalogo-campanas-abierto-design.md`.
+**Enmienda ORBIT 19 / 0.2 (2026-09-06, review).** F1 (§1–§10) es el contrato
+de **produccion hasta que A.5 despliegue**. ORBIT 19 es el contrato de la
+fase A, no sustituye F1 hoy. Decisiones 2 y 14 y residual 7 abajo quedan
+como **F1 historico**: en F1 el producto sin margen no entra y no hay
+`--target-acos`. En A: seleccion por listing; ACoS manual si margen NULL,
+0, negativo o clamp > margen conocido; el manual no acredita rentabilidad
+(D2). Decision 1 (solo campanas nuevas) se confirma (D3). Un product ad
+**por listing**, no por producto. Spec:
+`2026-09-06-catalogo-campanas-abierto-design.md`.
+La migracion **0019** la toma ORBIT 19 A.1 (grupo/listing v2). F2 ya no
+reserva 0019: usa el siguiente numero libre al aplicar, posterior a
+0019/0020 (y 0021 si B.3 existe).
 Precedencia: `docs/CONTEXTO.md` (reglas 1-10) > `docs/traspaso/ADS_OPTIMIZER_V2_DESIGN.md` > este spec.
 Modulo 2 del roadmap (`docs/traspaso/MODULOS-AVANZADOS.md` §"Creación de
 Campañas por API"), acotado a Amazon SP con estructura fija; SB/SD y MeLi
@@ -25,6 +30,8 @@ quedan FUERA (MeLi Ads es proposal-only a nivel cuenta, Traspaso 1 §4).
    `target = fraccion × margen MINIMO del grupo` (conservador: nadie puja por
    encima de lo que soporta el margen mas bajo). Producto sin margen medible
    NO entra al grupo (regla 3).
+   **F1 historico.** Fase A: ORBIT 19 D2 (seleccionable; ACoS manual si
+   falta margen fiable, es 0, es negativo o el clamp supera el margen).
 3. **Margen por producto desde el ledger** (misma maquinaria de ORBIT 06
    Fase 2: ventas con `order_id`, COGS a la fecha, cargos de la venta,
    ventana madura), no de economics proyectados. Vista nueva
@@ -75,7 +82,9 @@ quedan FUERA (MeLi Ads es proposal-only a nivel cuenta, Traspaso 1 §4).
     venta sobre la ventana **`[2026-02-20, D-15)`** (arranque fijo = primer
     `valid_from` de `sku_cost`). Evidencia: con `[D-105, D-15)` y 60 dias
     ningun producto entraba (max 27), y con 365 dias ninguno cubria costo
-    (64-90 % < 0.95). La consecuencia (productos nuevos fuera) se mantiene.
+    (64-90 % < 0.95). La consecuencia (productos nuevos fuera) se mantiene
+    **en F1**.
+    **F1 historico.** Fase A: residual 7 absorbido por ORBIT 19 D2.
 
 ## 2. Alcance y phases
 
@@ -86,16 +95,18 @@ quedan FUERA (MeLi Ads es proposal-only a nivel cuenta, Traspaso 1 §4).
   de semillas (lectura; la escritura por harvest/negative llega con F2).
   El primer grupo real ES la sonda de los shapes nuevos (§5.5).
 - **F2 — Enrutamiento de harvest por grupo + negative cruzado** (toca el
-  motor, TDD estricto, regla 9 demostrada): migracion 0019 (fase nueva de
-  `harvest_job` + candado `goal_harvest_completo` relajado); resolucion de
+  motor, TDD estricto, regla 9 demostrada): migracion **posterior a ORBIT 19
+  0019/0020** (fase nueva de `harvest_job` + candado `goal_harvest_completo`
+  relajado; el numero se fija al aplicar F2, no 0019); resolucion de
   destino grupo > excepcion > skip; negative-exact cruzado en las hermanas
   con su reversa; alimentacion de la biblioteca desde harvest/negatives
   aplicados; migracion de las existentes a `harvest_excepcion` con go.
 
 Fuera de alcance (las dos phases): adopcion de campañas existentes a grupos,
 MeLi, SB/SD, pausa de campañas viejas, budgets en el motor (M4 sigue fuera),
-productos sin margen maduro en el ledger (decision 14), cualquier escritura
-que no sea la creacion del grupo y su reversa.
+cualquier escritura que no sea la creacion del grupo y su reversa.
+**F1:** productos sin margen maduro (decision 14). **Fase A:** esos
+productos si entran, con ACoS manual (ORBIT 19 D2).
 
 ## 3. Estructura fija del grupo
 
@@ -112,11 +123,13 @@ Cada grupo crea exactamente 5 campañas SP, una por rol:
 Nombre en Amazon (la API lo exige; NO es el vinculo — el vinculo es la tabla):
 `<tipo_producto> | <nombre_base> | <rol> | <YYYY-MM-DD>`.
 
-Cada campaña lleva UN ad group y un product ad POR PRODUCTO del grupo
-(POST `/sp/productAds` con `sku` = `listing.seller_sku` de la plataforma;
-shape sellado por la sonda 2026-08-31, solo camino de error). Sin anuncio la
-campaña no sirve nada: producto sin `seller_sku` en esa plataforma no entra
-al grupo (validacion sin HTTP, §5.1).
+Cada campaña lleva UN ad group. **F1:** un product ad POR PRODUCTO (un
+listing). **Fase A:** un product ad POR LISTING (varios ASIN del mismo
+producto son legales). POST `/sp/productAds` con `sku` =
+`listing.seller_sku` de la plataforma (shape sellado por la sonda
+2026-08-31, solo camino de error). Sin anuncio la campaña no sirve nada:
+listing sin `seller_sku` en esa plataforma no entra (validacion sin HTTP,
+§5.1).
 
 ## 4. Target del grupo y `v_margen_producto`
 
@@ -255,7 +268,7 @@ idempotente).
 
 `goal.harvest_campaign_id / harvest_ad_group_id` dejan de ser camino de
 config nueva; `harvest_default_bid` SIGUE fijando el monto (la fabrica lo
-siembra con `--bid-exact`). Migracion 0019 (F2): el CHECK
+siembra con `--bid-exact`). Migracion de F2 (numero al aplicar, no 0019): el CHECK
 `goal_harvest_completo` se reemplaza por un trigger que admite
 `harvest_default_bid` solo (campaign/ad_group NULL) unicamente si la campaña
 esta en `campana_grupo_rol`; `edita_goal` valida lo mismo. La terna
@@ -265,7 +278,7 @@ mismo go.
 **Negative cruzado**: la primera fase del harvest ya crea el negative-exact
 en la campaña ORIGEN (sellado ORBIT 04, fases `negative_created ->
 exact_created -> done`). F2 agrega la fase `hermanas_negadas` entre
-`exact_created` y `done` (migracion 0019: CHECK de `harvest_job.fase` y
+`exact_created` y `done` (migracion F2: CHECK de `harvest_job.fase` y
 trigger `harvest_job_sella_fases`): creada y verificada la keyword en la
 exact del grupo, se crea negative-exact del MISMO termino en las hermanas
 (auto, phrase, broad, product targeting — decision 10), ids en
@@ -351,6 +364,7 @@ que confirma la forma real del dato en produccion (regla 8).
 7. **Productos sin margen maduro** (decision 14): fuera. Un `--target-acos`
    manual con go para productos nuevos contradice la decision 3 y seria un
    spec propio.
+   **F1 historico.** Absorbido por ORBIT 19 D2 (fase A).
 8. **Negative keyword en la hermana `product_targeting`**: pendiente de la
    sonda en vivo de §7; hasta entonces la decision 10 se implementa con
    skip declarado si Amazon rechaza el shape.

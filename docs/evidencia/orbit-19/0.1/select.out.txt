@@ -199,10 +199,10 @@ n_lotes=0 n_pasos=0
 
 === SALES SIN PRODUCT_ID (muestra completa, 7 filas) ===
 id | platform | event_date | order_id | source_event_id | quantity | amount | amount_currency | product_id
-848 | amazon_mx | 2026-03-15 | 701-3148843-0417034 | amazon|sale_gross|701-3148843-0417034||NA-15WK-8U1A | 1 | 988.0000 | MXN |
-2042 | amazon_mx | 2026-04-11 | 701-1038019-8965003 | amazon|sale_gross|701-1038019-8965003||NA-15WK-8U1A | 1 | 988.0000 | MXN |
-3164 | amazon_mx | 2026-05-14 | 701-1278805-1320232 | amazon|sale_gross|701-1278805-1320232||NT-PPM2-94N3 | 1 | 1988.0000 | MXN |
-3358 | amazon_mx | 2026-05-21 | 702-6213858-4350600 | amazon|sale_gross|702-6213858-4350600||SET-CAR-AZU-PEZ-DOR | 1 | 989.0000 | MXN |
-3688 | amazon_mx | 2026-06-08 | 702-0357138-0880217 | amazon|sale_gross|702-0357138-0880217||6M-0KK7-8OAK | 1 | 1988.0000 | MXN |
-6701 | amazon_mx | 2026-07-14 | 702-6771817-2308227 | amazon|sale_gross|702-6771817-2308227||OZ-KHZX-VIQF | 1 | 1988.0000 | MXN |
-6931 | amazon_mx | 2026-07-22 | 701-7584794-5593830 | amazon|sale_gross|701-7584794-5593830||L2-N1V2-3RZG | 1 | 1688.0000 | MXN |
+848 | amazon_mx | 2026-03-15 | …7034 | amazon|sale_gross|…7034||NA-15WK-8U1A | 1 | 988.0000 | MXN |
+2042 | amazon_mx | 2026-04-11 | …5003 | amazon|sale_gross|…5003||NA-15WK-8U1A | 1 | 988.0000 | MXN |
+3164 | amazon_mx | 2026-05-14 | …0232 | amazon|sale_gross|…0232||NT-PPM2-94N3 | 1 | 1988.0000 | MXN |
+3358 | amazon_mx | 2026-05-21 | …0600 | amazon|sale_gross|…0600||SET-CAR-AZU-PEZ-DOR | 1 | 989.0000 | MXN |
+3688 | amazon_mx | 2026-06-08 | …0217 | amazon|sale_gross|…0217||6M-0KK7-8OAK | 1 | 1988.0000 | MXN |
+6701 | amazon_mx | 2026-07-14 | …8227 | amazon|sale_gross|…8227||OZ-KHZX-VIQF | 1 | 1988.0000 | MXN |
+6931 | amazon_mx | 2026-07-22 | …3830 | amazon|sale_gross|…3830||L2-N1V2-3RZG | 1 | 1688.0000 | MXN |
