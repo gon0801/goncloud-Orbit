@@ -62,6 +62,12 @@ quedan FUERA (MeLi Ads es proposal-only a nivel cuenta, Traspaso 1 §4).
     con >= 60 dias cubiertos deja fuera a todo producto nuevo (el caso
     «Nuevo» del roadmap). Consecuencia aceptada de las decisiones 2 y 3; un
     `--target-acos` manual con go seria otro spec (residual 7).
+    **Enmienda 2026-09-05 (decision escrita del dueno, tarea 1 de
+    `plans/fabrica-01.md`):** el guard por producto es >= **30** dias con
+    venta sobre la ventana **`[2026-02-20, D-15)`** (arranque fijo = primer
+    `valid_from` de `sku_cost`). Evidencia: con `[D-105, D-15)` y 60 dias
+    ningun producto entraba (max 27), y con 365 dias ninguno cubria costo
+    (64-90 % < 0.95). La consecuencia (productos nuevos fuera) se mantiene.
 
 ## 2. Alcance y phases
 
@@ -107,8 +113,9 @@ al grupo (validacion sin HTTP, §5.1).
 ## 4. Target del grupo y `v_margen_producto`
 
 Vista nueva por producto con la MISMA maquinaria sellada de
-`v_target_margen_plataforma` (spec ORBIT 06 Fase 2): ledger, ventana de 90
-dias maduros `[D-105, D-15)`, COGS vigente a la fecha de la venta en MISMA
+`v_target_margen_plataforma` (spec ORBIT 06 Fase 2): ledger, ventana
+`[2026-02-20, D-15)` con guard de 30 dias (enmienda de la decision 14; la
+plataforma sigue con `[D-105, D-15)` y 60), COGS vigente a la fecha de la venta en MISMA
 moneda, cargos con `order_id` de ventas cubiertas, cobertura por monto; sin
 margen medible la fila no existe (regla 3), jamas cero.
 

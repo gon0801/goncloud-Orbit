@@ -45,11 +45,11 @@
 - **Orden de creación fijo**: `category_exact → category_phrase → category_broad → product_targeting → auto_discovery`.
 - **HTTP propio**: `httpx` directo con `Content-Type` Y `Accept` = vendor v3 exacto del path; el objeto viaja envuelto en su clave de lista; ids como STRING. Readback SOLO por `AdsClient.list_objects` (POST `/sp/*/list`). PROHIBIDO importar `app.ads.write` (candado `test_imports_del_cliente_de_escritura_acotados` ya escanea `tools/`).
 - **Shapes sin sellar en vivo** (POST `/sp/campaigns`, `/sp/adGroups`, `/sp/targets`, camino feliz de `/sp/productAds`): son hipótesis documentadas hasta la sonda de la tarea 11; se marcan `# HIPOTESIS hasta la sonda` en el código y se sellan (o corrigen) con el log de la sonda.
-- **Ventanas (dos, no una)**: margen, biblioteca y términos phrase/broad/product usan `[CURRENT_DATE - 105, CURRENT_DATE - 15)` UTC (la misma de `v_target_margen_plataforma`); los **candidatos a semilla exact** se evalúan con la **ventana de CORTES del motor** (`VENTANA_CORTES_DIAS`, agregado separado con `window_end <= hoy - 10d`, regla 6 — pineada contra `app/optimizer/windows.py` por test).
+- **Ventanas (tres, no una)**: biblioteca y términos phrase/broad/product usan `[CURRENT_DATE - 105, CURRENT_DATE - 15)` UTC (la misma de `v_target_margen_plataforma`); el **margen por producto** (`v_margen_producto`) usa `[2026-02-20, CURRENT_DATE - 15)` con guard de **30** días con venta (decisión escrita del dueño en la tarea 1: arranque FIJO = primer `valid_from` de `sku_cost`; con `[D-105, D-15)` y 60 días ningún producto entraba, y con 365 días ninguno cubría costo); los **candidatos a semilla exact** se evalúan con la **ventana de CORTES del motor** (`VENTANA_CORTES_DIAS`, agregado separado con `window_end <= hoy - 10d`, regla 6 — pineada contra `app/optimizer/windows.py` por test).
 - **Módulos de `app/` ≤ 900 líneas** (`test_presupuesto_de_tamano_por_modulo`); complejidad bajo los topes de ruff (C901 22, PLR0912 25, PLR0915 80). `tools/` no tiene tope de líneas pero sí ruff.
 - **Proceso**: rama por tarea desde `origin/master` (`git fetch` primero); un PR por tarea; CI corre la batería completa (no correr la suite entera local, solo el archivo de test que se toca); `pre-commit run --all-files` verde; JAMÁS `--no-verify`. Cross-review: 1 ronda por PR de código; 2ª SOLO si la 1ª halla severidad alta; jamás 3ª. Prohibido tocar el contenedor de producción: la corrida real (tarea 11) es del lead.
 - **Commits**: Conventional Commits en español (`feat(fabrica): ...`, `test(fabrica): ...`, `docs: ...`) con los trailers `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>` y `Claude-Session: https://claude.ai/code/session_016wRNF2Uuu7fJoQAJ5tPZU5`.
-- **Registro**: fila `ORBIT NN — Fábrica de campañas por grupo (FABRICA 01)` en EHV Tasks (NN = el siguiente libre en el grid; el último visto en el repo es ORBIT 16): `In progress` al arrancar la tarea 1, `Done` con notas completas al cerrar la 11 (skill `appflowy-ehv-task`). Cada tarea cerrada agrega su marker `cc:完了` en este plan y actualiza `docs/CHAT-CONTEXT.md` (candado `tools/check_chat_context_fresh.py`).
+- **Registro**: fila `ORBIT 17 — Fábrica de campañas por grupo (FABRICA 01)` en EHV Tasks (17 = el siguiente libre en el grid, verificado contra el grid completo el 2026-09-05; row_id `032b2432-5cec-477a-bfa2-f7892175f2be`): `In progress` al arrancar la tarea 1, `Done` con notas completas al cerrar la 11 (skill `appflowy-ehv-task`). Cada tarea cerrada agrega su marker `cc:完了` en este plan y actualiza `docs/CHAT-CONTEXT.md` (candado `tools/check_chat_context_fresh.py`).
 
 ## Mapa de archivos
 
@@ -70,6 +70,8 @@
 
 ### Task 1: Regla 8 — SELECTs contra producción (lead, sin código)
 
+> cc:完了 [2026-09-05: (a)-(f) corridos y re-verificados contra producción por el lead; decisión (c) escrita por el dueño (30 días, ventana desde 2026-02-20) y propagada a tareas 3, 5 y 6 y al spec; (d) y (f) aplicadas]
+
 **Files:**
 - Modify: `plans/fabrica-01.md` (sección "Decisiones y evidencia" al final)
 
@@ -80,7 +82,7 @@
 - [x] **Step 1: Marcar la tarea en AppFlowy**
 
 ```bash
-ssh goncloud "python3 /mnt/data/appdata/appflowy/_migrate/add_ehv_task.py --name 'ORBIT NN — Fábrica de campañas por grupo (FABRICA 01)' --status 'In progress' --notes 'Arranque F1: SELECTs regla 8 contra produccion (tarea 1 del plan plans/fabrica-01.md). Spec: docs/superpowers/specs/2026-09-05-fabrica-campanas-grupos-design.md'"
+ssh goncloud "python3 /mnt/data/appdata/appflowy/_migrate/add_ehv_task.py --name 'ORBIT 17 — Fábrica de campañas por grupo (FABRICA 01)' --status 'In progress' --notes 'Arranque F1: SELECTs regla 8 contra produccion (tarea 1 del plan plans/fabrica-01.md). Spec: docs/superpowers/specs/2026-09-05-fabrica-campanas-grupos-design.md'"
 ```
 
 - [x] **Step 2: Correr los SELECTs (read-only) y pegar la salida en "Decisiones y evidencia"**
@@ -797,7 +799,7 @@ git commit -m "feat(fabrica): migracion 0018 — grupo, biblioteca y ledger de c
 - Modify: `tests/test_fabrica_migracion.py`
 
 **Interfaces:**
-- Consumes: `ledger_event`, `sku_cost`, `ingest_run` (source `accounting_ledger_events`); constantes de guard de `app/optimizer/goals.py` (`MARGEN_COBERTURA_MIN = 0.95`, `MARGEN_DIAS_MIN = 60`).
+- Consumes: `ledger_event`, `sku_cost`, `ingest_run` (source `accounting_ledger_events`); constante de guard `MARGEN_COBERTURA_MIN = 0.95` de `app/optimizer/goals.py`. El guard de días del producto NO es `MARGEN_DIAS_MIN` (60, plataforma) sino `MARGEN_DIAS_MIN_PRODUCTO = 30` sobre la ventana `[2026-02-20, D-15)` (decisión escrita del dueño, tarea 1; constantes en la tarea 5, pineadas contra el SQL por test).
 - Produces: vista `v_margen_producto(platform, product_id, ventana_desde, ventana_hasta, venta_total, venta_cubierta, cargos_con_orden, cargos_sin_orden, cogs, cobertura, dias_con_venta, fees_sin_tipo, margen_neto_pct, ledger_fresco_at, moneda)`. `margen_neto_pct` NULL ante cualquier guard (regla 3); la fila existe solo si el producto vendió en ventana.
 
 - [ ] **Step 1: Escribir los tests de la vista (fallan: la vista no existe)**
@@ -806,7 +808,7 @@ git commit -m "feat(fabrica): migracion 0018 — grupo, biblioteca y ledger de c
 # agregar a tests/test_fabrica_migracion.py
 
 
-def _ledger_producto(conn, pid, *, hoy, platform="amazon_mx", ventas=70, precio=100, costo=50):
+def _ledger_producto(conn, pid, *, hoy, platform="amazon_mx", ventas=70, precio=100, costo=50, costo_desde=None):
     """`ventas` dias consecutivos con UNA venta de `precio` y costo `costo`
     (misma moneda), todas con order_id propio; 7 cargos de plataforma sin
     orden (-100) y 1 cargo ads (-9999, EXCLUIDO). Cobertura 1, margen por
@@ -819,7 +821,7 @@ def _ledger_producto(conn, pid, *, hoy, platform="amazon_mx", ventas=70, precio=
     conn.execute(
         "INSERT INTO sku_cost (product_id, cost_amount, cost_currency, includes_tax, valid_from)"
         " VALUES (%s, %s, 'MXN', true, %s)",
-        (pid, costo, hoy - dt.timedelta(days=200)),
+        (pid, costo, costo_desde or hoy - dt.timedelta(days=200)),
     )
     for i in range(ventas):
         conn.execute(
@@ -870,7 +872,7 @@ def test_v_margen_producto_un_producto_reproduce_la_plataforma():
 def test_v_margen_producto_prorratea_cargos_con_orden_por_monto():
     """Orden multi-producto (spec §8): un cargo -30 con order_id de una orden
     donde A vendio 100 y B vendio 200 se reparte 1/3 a A y 2/3 a B. Solo una
-    venta por producto -> dias < 60 -> margen NULL (guard), pero las columnas
+    venta por producto -> dias < 30 -> margen NULL (guard), pero las columnas
     de cargos si se publican (la vista MIDE)."""
     hoy = dt.date.today()
     with db_fabrica() as conn:
@@ -911,7 +913,40 @@ def test_v_margen_producto_prorratea_cargos_con_orden_por_monto():
         margenes = dict(
             conn.execute("SELECT product_id, margen_neto_pct FROM v_margen_producto").fetchall()
         )
-        assert margenes[pa] is None and margenes[pb] is None  # dias_con_venta = 1 < 60
+        assert margenes[pa] is None and margenes[pb] is None  # dias_con_venta = 1 < 30
+
+
+@_skip_db
+def test_v_margen_producto_guard_30_dias_y_arranque_fijo_de_ventana():
+    """Decision escrita del dueno (tarea 1, 2026-09-05): guard
+    `dias_con_venta < 30` y ventana `[2026-02-20, D-15)` con arranque FIJO.
+    A: 29 ventas recientes + una del 2026-02-20 -> 30 dias -> margen medible
+    (discrimina el 30 Y el arranque fijo: con [D-105, D-15) esa venta no
+    contaria). B: 29 recientes + una del 2026-02-19 -> 29 -> NULL (discrimina
+    el borde). Costo vigente desde 2026-01-01 para que ambas esten cubiertas."""
+    hoy = dt.date.today()
+    with db_fabrica() as conn:
+        pa, _ = _producto(conn, sku="A", asin="B0AAAAAAAA", seller_sku="SA")
+        pb, _ = _producto(conn, sku="B", asin="B0BBBBBBBB", seller_sku="SB")
+        run = _ledger_producto(conn, pa, hoy=hoy, ventas=29, costo_desde=dt.date(2026, 1, 1))
+        _ledger_producto(conn, pb, hoy=hoy, ventas=29, costo_desde=dt.date(2026, 1, 1))
+        for pid, fecha in ((pa, dt.date(2026, 2, 20)), (pb, dt.date(2026, 2, 19))):
+            conn.execute(
+                "INSERT INTO ledger_event (platform, kind, event_date, order_id, product_id, quantity,"
+                " amount, amount_currency, ingest_run_id)"
+                " VALUES ('amazon_mx', 'sale', %s, %s, %s, 1, 100, 'MXN', %s)",
+                (fecha, f"o-borde-{pid}", pid, run),
+            )
+        filas = {
+            r[0]: (r[1], r[2])
+            for r in conn.execute(
+                "SELECT product_id, dias_con_venta, margen_neto_pct FROM v_margen_producto"
+                " WHERE product_id = ANY(%s)",
+                ([pa, pb],),
+            ).fetchall()
+        }
+        assert filas[pa][0] == 30 and filas[pa][1] is not None  # 2026-02-20 cuenta; 30 pasa
+        assert filas[pb][0] == 29 and filas[pb][1] is None  # 2026-02-19 no cuenta; 29 < 30
 
 
 @_skip_db
@@ -1012,8 +1047,11 @@ Expected: FAIL con `UndefinedTable: relation "v_margen_producto" does not exist`
 --   cargos sin order_id: de plataforma, en ventana, prorrateados por la
 --           participacion de la venta cubierta del producto en la venta
 --           total de la plataforma.
---   guards identicos a la plataforma (moneda unica, fees_sin_tipo = 0,
---           cobertura >= 0.95, dias >= 60, cubierta > 0) -> margen NULL.
+--   guards de la plataforma (moneda unica, fees_sin_tipo = 0,
+--           cobertura >= 0.95, cubierta > 0) + guard PROPIO dias >= 30 sobre
+--           la ventana [2026-02-20, D-15) con arranque FIJO (decision escrita
+--           del dueno, tarea 1; pineados contra app/fabrica_plan.py por test)
+--           -> margen NULL.
 --   ads (fee_type = 'ads') EXCLUIDO: es el numerador del ACoS del motor.
 --   fees_sin_tipo es un COUNT de GUARD fail-loud, NO dinero: se infla cuando
 --           una orden trae varias lineas de cargo del mismo producto (cuenta
@@ -1025,7 +1063,8 @@ Expected: FAIL con `UndefinedTable: relation "v_margen_producto" does not exist`
 -- ---------------------------------------------------------------------------
 CREATE VIEW v_margen_producto AS
 WITH ventana AS (
-    SELECT CURRENT_DATE - 105 AS desde, CURRENT_DATE - 15 AS hasta
+    -- arranque FIJO = primer valid_from de sku_cost (decision del dueno, tarea 1)
+    SELECT DATE '2026-02-20' AS desde, CURRENT_DATE - 15 AS hasta
 ),
 ventas AS (
     SELECT l.platform, l.product_id, l.event_date, l.order_id,
@@ -1136,7 +1175,7 @@ SELECT a.platform,
            WHEN COALESCE(cp.fees_sin_tipo, 0) + COALESCE(p.fees_sin_tipo, 0) > 0 THEN NULL
            WHEN a.venta_cubierta IS NULL OR a.venta_cubierta <= 0 THEN NULL
            WHEN a.venta_cubierta / NULLIF(a.venta_total, 0) < 0.95 THEN NULL
-           WHEN a.dias_con_venta < 60 THEN NULL
+           WHEN a.dias_con_venta < 30 THEN NULL
            WHEN COALESCE(cp.n_monedas_orden, 0) > 1 THEN NULL
            WHEN vp.n_monedas > 1 THEN NULL
            ELSE 100.0 * (a.venta_cubierta
@@ -1154,14 +1193,15 @@ SELECT a.platform,
 
 COMMENT ON VIEW v_margen_producto IS
   'FABRICA 01 §4/§8: margen neto % POR PRODUCTO con la maquinaria de '
-  'v_target_margen_plataforma (0016): ventana [D-105, D-15) UTC, COGS a la '
+  'v_target_margen_plataforma (0016) salvo la ventana: [2026-02-20, D-15) UTC '
+  '(arranque fijo, decision escrita del dueno 2026-09-05), COGS a la '
   'fecha en la misma moneda, cobertura por monto, cargos no-ads con order_id '
   'prorrateados por el monto del producto dentro de su orden (solo lineas '
   'cubiertas), cargos sin order_id prorrateados por la participacion del '
   'producto en la venta de la plataforma. NULL ante mezcla de moneda '
   '(incluidos los DENOMINADORES del prorrateo: la orden cubierta o la venta '
   'total de la plataforma en mas de una moneda — regla 4), '
-  'fees_sin_tipo > 0, cobertura < 0.95, dias < 60 o cubierta <= 0 (regla 3). '
+  'fees_sin_tipo > 0, cobertura < 0.95, dias < 30 o cubierta <= 0 (regla 3). '
   'fees_sin_tipo es un COUNT de guard fail-closed (se infla con varias '
   'lineas de cargo de una misma orden; intencional, no es dinero). Las '
   'columnas cargos_*/cogs publican 0 por COALESCE (miden); solo el margen '
@@ -1171,12 +1211,12 @@ COMMENT ON VIEW v_margen_producto IS
 GRANT SELECT ON v_margen_producto TO app_read, app_ingest, app_decide, app_admin;
 ```
 
-Nota de regla 2: el guard `dias < 60` se queda en 60 salvo decisión escrita de la tarea 1 (si cambia, cambia AQUÍ y la constante `MARGEN_DIAS_MIN_PRODUCTO` de la tarea 5 con su test que pinea el número del SQL).
+Nota de regla 2: el guard `dias < 30` y el arranque `DATE '2026-02-20'` son la decisión escrita del dueño de la tarea 1 ("Decisiones y evidencia"); viven AQUÍ y en `MARGEN_DIAS_MIN_PRODUCTO` / `MARGEN_VENTANA_DESDE` de la tarea 5, con tests que pinean ambos contra el SQL. Cambiar cualquiera = nueva decisión escrita del dueño.
 
 - [ ] **Step 4: Correr y ver el verde**
 
 Run: `pytest tests/test_fabrica_migracion.py -v`
-Expected: PASS (10 tests). Si `test_v_margen_producto_un_producto_reproduce_la_plataforma` difiere de la plataforma, el bug está en el prorrateo: con un producto y cobertura 1, `cargos_sin_orden` debe ser exactamente el total de plataforma.
+Expected: PASS (11 tests). Si `test_v_margen_producto_un_producto_reproduce_la_plataforma` difiere de la plataforma, el bug está en el prorrateo: con un producto y cobertura 1, `cargos_sin_orden` debe ser exactamente el total de plataforma.
 
 - [ ] **Step 5: Commit (misma rama que la tarea 2, mismo PR)**
 
@@ -1444,7 +1484,7 @@ git commit -m "feat(goals): crea_goal — alta de goal de campana por el camino 
 **Interfaces:**
 - Consumes: `app.optimizer.goals` (`DEFAULTS_POR_MONEDA`, `MARGEN_BANDA_MIN`, `MARGEN_BANDA_MAX`, `_valida_fraccion`), `app.optimizer.hygiene` (`HARVEST_ORDERS_MIN`, `HARVEST_ACOS_TOPE_FIJO_PCT`). Sin psycopg ni httpx (es lógica pura; NO vive en `app/optimizer/`, así que el candado del motor no aplica, pero se mantiene pura a propósito).
 - Produces (nombres EXACTOS que usan las tareas 6-9):
-  - constantes `ROLES_ORDEN_CREACION`, `MATCH_POR_ROL`, `TARGETING_POR_ROL`, `MONEDA_POR_PLATAFORMA`, `MODOS_GOAL`, `ESTADO_NUEVO`, `PATH_CREATE`, `VENDOR_POR_PATH`, `ENVOLTURA_POR_PATH`, `CLAVE_ID_POR_PATH`, `LIST_POR_PATH`, `FILTRO_ID_POR_LIST`, `CONTENEDOR_POR_LIST`, `PATRON_ASIN`, `MARGEN_DIAS_MIN_PRODUCTO`, `VENTANA_DIAS = (105, 15)`, `VENTANA_CORTES_DIAS = (39, 9)`.
+  - constantes `ROLES_ORDEN_CREACION`, `MATCH_POR_ROL`, `TARGETING_POR_ROL`, `MONEDA_POR_PLATAFORMA`, `MODOS_GOAL`, `ESTADO_NUEVO`, `PATH_CREATE`, `VENDOR_POR_PATH`, `ENVOLTURA_POR_PATH`, `CLAVE_ID_POR_PATH`, `LIST_POR_PATH`, `FILTRO_ID_POR_LIST`, `CONTENEDOR_POR_LIST`, `PATRON_ASIN`, `MARGEN_DIAS_MIN_PRODUCTO = 30`, `MARGEN_VENTANA_DESDE = dt.date(2026, 2, 20)`, `VENTANA_DIAS = (105, 15)`, `VENTANA_CORTES_DIAS = (39, 9)`.
   - dataclasses `ProductoGrupo`, `ParametrosRol`, `TerminoProducto`, `Semillas`, `ResultadoTarget`, `PlanGrupo`, `Paso`.
   - `PlanInvalido(ValueError)`.
   - funciones `valida_tipo_producto`, `target_del_grupo`, `valida_parametros`, `nombre_campana`, `nombre_ad_group`, `semillas_desde_terminos`, `huella_plan`, `plan_como_json`, `plan_desde_json`, `monto_wire`, `pasos_del_rol`, `id_creado`, `errores_207`, `ack_ok`, `lineas_dry_run`.
@@ -1818,14 +1858,19 @@ TARGETING_POR_ROL["auto_discovery"] = "AUTO"
 MONEDA_POR_PLATAFORMA = {"amazon_mx": "MXN", "amazon_us": "USD"}
 MODOS_GOAL = ("shadow", "live")
 ESTADO_NUEVO = "ENABLED"  # decision 8: nacen ENABLED
-VENTANA_DIAS = (105, 15)  # [D-105, D-15), la misma de v_target_margen_plataforma
+VENTANA_DIAS = (105, 15)  # [D-105, D-15): biblioteca y terminos (NO el margen por producto)
 # Candidatos a semilla EXACT: la ventana de CORTES del motor (spec §6: "mismo
 # criterio HARVEST... ventana y madurez ya selladas"), NO la del margen.
 # [D-39, D-10] inclusive = 30 dias (DIAS_VENTANA) con madurez >= 10d
 # (DIAS_MADUREZ_CORTES, regla 6) de app/optimizer/windows.py; en el SQL:
 # metric_date >= CURRENT_DATE - 39 AND metric_date < CURRENT_DATE - 9.
 VENTANA_CORTES_DIAS = (39, 9)  # pineada contra windows.py por test (regla 2)
-MARGEN_DIAS_MIN_PRODUCTO = 60  # pineado contra el SQL de v_margen_producto por test
+# Margen por producto (v_margen_producto): decision ESCRITA del dueno 2026-09-05
+# (tarea 1, "Decisiones y evidencia"): guard de 30 dias con venta sobre la
+# ventana [MARGEN_VENTANA_DESDE, D-15) con arranque FIJO = primer valid_from
+# de sku_cost. Ambos pineados contra el SQL de 0018 por test (regla 2).
+MARGEN_VENTANA_DESDE = dt.date(2026, 2, 20)
+MARGEN_DIAS_MIN_PRODUCTO = 30
 
 PATRON_TIPO_PRODUCTO = re.compile(r"^[a-z0-9_]+$")
 PATRON_ASIN = re.compile(r"^b0[a-z0-9]{8}$", re.IGNORECASE)
@@ -2321,15 +2366,19 @@ Expected: PASS; sin hallazgos de ruff (si `_semillas_del_rol` dispara C901, part
 
 ```python
 # agregar a tests/test_fabrica_plan.py
-def test_dias_minimos_por_producto_pineados_contra_el_sql():
+def test_dias_minimos_y_arranque_de_ventana_pineados_contra_el_sql():
     """Regla 2 (un numero, una fuente): la constante del nucleo y el guard
-    `dias_con_venta < N` de v_margen_producto son el MISMO numero."""
+    `dias_con_venta < N` de v_margen_producto son el MISMO numero, y el
+    arranque fijo de la ventana es la MISMA fecha (decision del dueno,
+    tarea 1)."""
     from pathlib import Path
 
     sql = (Path(__file__).resolve().parents[1] / "migrations" / "0018_fabrica_campanas.sql").read_text(
         encoding="utf-8"
     )
+    assert fp.MARGEN_DIAS_MIN_PRODUCTO == 30 and fp.MARGEN_VENTANA_DESDE == dt.date(2026, 2, 20)
     assert f"a.dias_con_venta < {fp.MARGEN_DIAS_MIN_PRODUCTO} THEN NULL" in sql
+    assert f"SELECT DATE '{fp.MARGEN_VENTANA_DESDE.isoformat()}' AS desde, CURRENT_DATE - 15 AS hasta" in sql
 
 
 def test_cobertura_minima_pineada_contra_el_sql():
@@ -2494,25 +2543,25 @@ def test_productos_multi_listing_aborta_nombrando_el_producto():
 
 @_skip_db
 def test_terminos_del_producto_colapsan_bitemporal_y_suman_en_ventana():
-    """Solo terminos de campanas con product_ad del listing; ultima
-    observacion por (origen, termino, dia) (regla 5); ventana [D-105, D-15).
-    NOTA (tarea 1 (f)): ejercita filas en AMBOS granos (campana + ad group)
-    sumadas — la hipotesis del UNION. Si la evidencia de la tarea 1 muestra
-    ambos granos en produccion, la CTE `origenes` queda SOLO con ad_group y
-    este test se ajusta (el grano campana se elimina del sembrado)."""
+    """Solo terminos de los AD GROUPS de campanas con product_ad del listing
+    (grano unico sellado por la tarea 1 (f)); ultima observacion por
+    (origen, termino, dia) (regla 5); ventana [D-105, D-15). Una fila en el
+    grano campana NO cuenta: discrimina el UNION (si alguien lo regresa,
+    'grano campana' aparece y este test truena)."""
     with db_fabrica("orbit_fab_term") as conn:
         pid, lid = _producto(conn)
         camp, ag = _campana_con_producto(conn, lid)
-        otra, _ = _campana_con_producto(conn, None, external="c-ajena")
+        _otra, otra_ag = _campana_con_producto(conn, None, external="c-ajena")
         run = _run(conn)
         d = HOY - dt.timedelta(days=40)
-        _termino(conn, run, camp, "collar perro", d, 1, 10, 100, obs=1)
-        _termino(conn, run, camp, "collar perro", d, 2, 12, 150, obs=2)  # re-observacion: manda
+        _termino(conn, run, ag, "collar perro", d, 1, 10, 100, obs=1)
+        _termino(conn, run, ag, "collar perro", d, 2, 12, 150, obs=2)  # re-observacion: manda
         _termino(conn, run, ag, "collar perro", d + dt.timedelta(days=1), 1, 5, 50)
-        _termino(conn, run, camp, "b0zzzzzzzz", d, 1, 1, 10, asin_like=True)
-        _termino(conn, run, otra, "ajeno", d, 5, 1, 10)
-        _termino(conn, run, camp, "viejo", HOY - dt.timedelta(days=120), 5, 1, 10)
-        _termino(conn, run, camp, "inmaduro", HOY - dt.timedelta(days=5), 5, 1, 10)
+        _termino(conn, run, ag, "b0zzzzzzzz", d, 1, 1, 10, asin_like=True)
+        _termino(conn, run, otra_ag, "ajeno", d, 5, 1, 10)
+        _termino(conn, run, ag, "viejo", HOY - dt.timedelta(days=120), 5, 1, 10)
+        _termino(conn, run, ag, "inmaduro", HOY - dt.timedelta(days=5), 5, 1, 10)
+        _termino(conn, run, camp, "grano campana", d, 5, 1, 10)  # grano que produccion NO tiene
         terminos = {t.texto: t for t in fc._terminos_producto(conn, "amazon_mx", [lid])}
         assert set(terminos) == {"collar perro", "b0zzzzzzzz"}
         assert terminos["collar perro"].orders == 3
@@ -2528,10 +2577,10 @@ def test_terminos_exact_usan_la_ventana_de_cortes():
     margen; uno de hace 5 dias no entra a ninguna (inmaduro)."""
     with db_fabrica("orbit_fab_term2") as conn:
         _pid, lid = _producto(conn)
-        camp, _ag = _campana_con_producto(conn, lid)
+        _camp, ag = _campana_con_producto(conn, lid)
         run = _run(conn)
-        _termino(conn, run, camp, "doce dias", HOY - dt.timedelta(days=12), 2, 10, 100)
-        _termino(conn, run, camp, "cinco dias", HOY - dt.timedelta(days=5), 2, 10, 100)
+        _termino(conn, run, ag, "doce dias", HOY - dt.timedelta(days=12), 2, 10, 100)
+        _termino(conn, run, ag, "cinco dias", HOY - dt.timedelta(days=5), 2, 10, 100)
         margen = {t.texto for t in fc._terminos_producto(conn, "amazon_mx", [lid])}
         exact = {
             t.texto
@@ -2847,16 +2896,13 @@ SELECT p.id, p.odoo_sku, l.id, l.external_id, l.seller_sku, m.margen_neto_pct
 """
 
 # Terminos de las campanas del producto: campanas con un product_ad ligado
-# al listing. GRANO DEL ORIGEN (depende de la evidencia de la tarea 1 (f),
-# registrada en "Decisiones y evidencia"): el UNION campana + ad group de la
-# CTE `origenes` DUPLICA orders/cost si search_term_observation tiene filas
-# en AMBOS granos de la misma campana. Variantes:
-#   (a) UN solo grano en produccion -> `origenes` se simplifica a ese SELECT;
-#   (b) AMBOS granos -> SOLO el grano ad_group (mas fino): `origenes` queda
-#       SELECT ag.id FROM ad_entity ag JOIN campanas c
-#         ON c.campaign_id = ag.parent_id WHERE ag.kind = 'ad_group'
-# Hasta que la tarea 1 cierre (f) se mantiene el UNION (peor caso: infla
-# orders/cost de las semillas; el target no lo toca).
+# al listing. GRANO DEL ORIGEN sellado por la evidencia de la tarea 1 (f)
+# ("Decisiones y evidencia"): search_term_observation tiene UN solo grano en
+# produccion, ad_group (34,045 filas en 105 dias; cero con kind = 'campaign').
+# La CTE `origenes` es SOLO los ad groups de las campanas del producto — SIN
+# UNION con la campana: un UNION duplicaria orders/cost si algun dia
+# apareciera el grano campana. El test siembra una fila en ese grano y exige
+# que NO cuente (si alguien regresa el UNION, truena).
 _SQL_TERMINOS = """
 WITH ventana AS (
     SELECT CURRENT_DATE - %s AS desde, CURRENT_DATE - %s AS hasta
@@ -2869,8 +2915,6 @@ campanas AS (
        AND pa.listing_id = ANY(%s)
 ),
 origenes AS (
-    SELECT campaign_id AS id FROM campanas
-    UNION
     SELECT ag.id FROM ad_entity ag JOIN campanas c ON c.campaign_id = ag.parent_id
      WHERE ag.kind = 'ad_group'
 ),
@@ -4957,7 +5001,7 @@ Con `--modo shadow`, el siguiente ciclo debe listar las 5 campañas nuevas como 
 - [ ] **Step 5: Cerrar**
 
 ```bash
-ssh goncloud "python3 /mnt/data/appdata/appflowy/_migrate/add_ehv_task.py --name 'ORBIT NN — Fábrica de campañas por grupo (FABRICA 01)' --status 'Done' --notes '<qué se hizo, comandos y resultados de la sonda, decisiones (fracción, producto, budgets, bids, modo), PRs #..., pendiente: F2 (harvest por grupo, negative cruzado, biblioteca escrita por el motor) con su propio spec/plan>'"
+ssh goncloud "python3 /mnt/data/appdata/appflowy/_migrate/add_ehv_task.py --name 'ORBIT 17 — Fábrica de campañas por grupo (FABRICA 01)' --status 'Done' --notes '<qué se hizo, comandos y resultados de la sonda, decisiones (fracción, producto, budgets, bids, modo), PRs #..., pendiente: F2 (harvest por grupo, negative cruzado, biblioteca escrita por el motor) con su propio spec/plan>'"
 ```
 
 Marker `cc:完了` en las 11 tareas de este plan + línea final en `docs/CHAT-CONTEXT.md` + commit `plan: fabrica-01 cerrada — sonda verificada`.
@@ -4968,7 +5012,7 @@ Marker `cc:完了` en las 11 tareas de este plan + línea final en `docs/CHAT-CO
 
 ### Tarea 1 — SELECTs regla 8 (lead)
 
-Corridos el 2026-09-05 contra produccion (`ssh goncloud`, `docker exec -i orbit-db-1 psql -U orbit_read -d orbit`; el contenedor se llama `orbit-db-1`, no `orbit-postgres-1`). AppFlowy: fila creada con status `In progress` (row_id `b414bf4b-613e-4eae-9fb3-dde7b2262baa`).
+Corridos el 2026-09-05 contra produccion (`ssh goncloud`, `docker exec -i orbit-db-1 psql -U orbit_read -d orbit`; el contenedor se llama `orbit-db-1`, no `orbit-postgres-1`). AppFlowy: fila `ORBIT 17 — Fábrica de campañas por grupo (FABRICA 01)` en `In progress` (row_id `032b2432-5cec-477a-bfa2-f7892175f2be`). Incidente: la primera corrida creó por error una fila con el placeholder literal `ORBIT NN` (row_id `b414bf4b-613e-4eae-9fb3-dde7b2262baa`); no hay API de borrado en este AppFlowy, quedó en `Not started` con la nota "borrar desde la UI".
 
 **(a) Ordenes multi-producto (grano del prorrateo):** ninguna orden trae mas de un producto.
 
@@ -4994,7 +5038,7 @@ Corridos el 2026-09-05 contra produccion (`ssh goncloud`, `docker exec -i orbit-
 (6 rows)
 ```
 
-**(c) dias_con_venta por producto (ventana de 90 dias, sin el curso):** maximo 27 dias (amazon_mx, `PERS-CAR-AZU-SAN-DOR`) y 17 dias (amazon_us, `NH-PERS-ITA-CEN-DOR`). **NINGUN producto llega a 60 EN LA VENTANA DE 90 DIAS** → ver decision pendiente abajo. Venta 100% cubierta por `sku_cost` en moneda y una sola moneda por plataforma (MX en MXN, US en USD; `n_monedas = 1` en todas las filas); denominador: ventas con `product_id` — quedan fuera 3 ventas amazon_mx sin `product_id` por MXN 5,664.00 en la ventana (residuo fuera del prorrateo por producto). Extracto (top 10 por plataforma; salida completa: 132 filas):
+**(c) dias_con_venta por producto (ventana de 90 dias `[D-105, D-15)`, es decir sin los ultimos 15 dias):** maximo 27 dias (amazon_mx, `PERS-CAR-AZU-SAN-DOR`) y 17 dias (amazon_us, `NH-PERS-ITA-CEN-DOR`). **NINGUN producto llega a 60 EN LA VENTANA DE 90 DIAS** → ver decision pendiente abajo. Venta 100% cubierta por `sku_cost` en moneda y una sola moneda por plataforma (MX en MXN, US en USD; `n_monedas = 1` en todas las filas); denominador: ventas con `product_id` — quedan fuera 3 ventas amazon_mx sin `product_id` por MXN 5,664.00 en la ventana (residuo fuera del prorrateo por producto). Extracto (top 10 por plataforma; salida completa: 132 filas):
 
 ```
  platform  | product_id |           odoo_sku            | dias_con_venta | venta_total | venta_cubierta | n_monedas
@@ -5021,23 +5065,38 @@ Corridos el 2026-09-05 contra produccion (`ssh goncloud`, `docker exec -i orbit-
  amazon_us |        335 | NH-PERS-CAR-AZU-COR-DOR       |              4 |   9949.2200 |      9949.2200 |         1
 ```
 
-> **PENDIENTE DECISION DEL DUENO (60 vs 30, Y LA VENTANA):** en la ventana de 90 dias del plan ningun producto alcanza `dias_con_venta >= 60` (max 27). El umbral NO es inalcanzable por negocio: es la ventana la que lo mata. Con ventana de 365 dias (siempre sin el curso), 8 productos llegan a >= 30 y uno cruza 60:
+> **Verificacion del lead (2026-09-05, review de la tarea):** los seis SELECTs se re-corrieron contra produccion y reproducen exactos (a)-(f), incluidos el residuo sin `product_id` y la variante de 365 dias. En la ventana de 90 dias ningun producto alcanza `dias_con_venta >= 60` (max 27) ni >= 30. La variante de 365 dias (`[D-380, D-15)`) da 8 productos >= 30 y uno >= 60, pero NO es viable tal cual: `sku_cost` de los 8 arranca el 2026-02-20 y las ventas anteriores quedan sin costo — cobertura 64.5 % a 89.8 %, todas debajo del guard 0.95 de la vista:
 >
 > ```
->  platform  | product_id |        odoo_sku         | dias_con_venta
-> -----------+------------+-------------------------+----------------
->  amazon_mx |       1621 | PERS-CAR-AZU-SAN-DOR    |             62
->  amazon_mx |        207 | NH-CAR-ROJ-VCO-DOR      |             56
->  amazon_mx |       333 | NH-PERS-CAR-AZU-CEN-DOR |             53
->  amazon_mx |       185 | NH-CAR-ROJ-CEN-DOR      |             50
->  amazon_us |        359 | NH-PERS-NOG-SIN-CEN-DOR |             40
->  amazon_us |        369 | NH-PERS-NOG-SIN-VBU-DOR |             38
->  amazon_mx |        335 | NH-PERS-CAR-AZU-COR-DOR |             36
->  amazon_mx |        203 | NH-CAR-ROJ-SAN-DOR      |             35
+>  platform  | product_id |        odoo_sku         | dias | venta_total | venta_cubierta | cobertura_pct | primera_venta
+> -----------+------------+-------------------------+------+-------------+----------------+---------------+---------------
+>  amazon_mx |       1621 | PERS-CAR-AZU-SAN-DOR    |   62 |  89930.2200 |     76202.2200 |          84.7 | 2025-12-07
+>  amazon_mx |        207 | NH-CAR-ROJ-VCO-DOR      |   56 |  63932.6000 |     42372.6000 |          66.3 | 2025-11-18
+>  amazon_mx |        333 | NH-PERS-CAR-AZU-CEN-DOR |   53 |  75517.3500 |     56797.3500 |          75.2 | 2025-12-05
+>  amazon_mx |        185 | NH-CAR-ROJ-CEN-DOR      |   50 |  63522.0000 |     40982.0000 |          64.5 | 2025-12-01
+>  amazon_us |        359 | NH-PERS-NOG-SIN-CEN-DOR |   40 | 107127.7400 |     85790.4000 |          80.1 | 2025-12-04
+>  amazon_us |        369 | NH-PERS-NOG-SIN-VBU-DOR |   38 | 104646.6800 |     89076.6800 |          85.1 | 2025-12-04
+>  amazon_mx |        335 | NH-PERS-CAR-AZU-COR-DOR |   36 |  49878.6900 |     44803.2000 |          89.8 | 2025-12-04
+>  amazon_mx |        203 | NH-CAR-ROJ-SAN-DOR      |   35 |  40876.7500 |     32027.7500 |          78.4 | 2025-12-02
 > (8 rows)
 > ```
 >
-> La decision del dueno es DOBLE: el valor de `MARGEN_DIAS_MIN_PRODUCTO` (60 o 30) Y la ventana sobre la que se cuenta (90 o 365 dias, siempre sin el curso). Cambiar cualquiera requiere decision escrita del dueno aqui (regla 2). Hasta entonces NO se decide.
+> Ventana que `sku_cost` SI cubre, `[2026-02-20, CURRENT_DATE - 15)` (primer `valid_from` de los 8 = 2026-02-20; el ledger de ventas arranca 2025-11-14/20): 7 productos con >= 30 dias y cobertura 100 %; ninguno llega a 60 (max 52):
+>
+> ```
+>  platform  | product_id |        odoo_sku         | dias | cobertura_pct
+> -----------+------------+-------------------------+------+---------------
+>  amazon_mx |       1621 | PERS-CAR-AZU-SAN-DOR    |   52 |         100.0
+>  amazon_mx |        333 | NH-PERS-CAR-AZU-CEN-DOR |   40 |         100.0
+>  amazon_mx |        207 | NH-CAR-ROJ-VCO-DOR      |   36 |         100.0
+>  amazon_mx |        185 | NH-CAR-ROJ-CEN-DOR      |   34 |         100.0
+>  amazon_mx |        335 | NH-PERS-CAR-AZU-COR-DOR |   32 |         100.0
+>  amazon_us |        359 | NH-PERS-NOG-SIN-CEN-DOR |   32 |         100.0
+>  amazon_us |        369 | NH-PERS-NOG-SIN-VBU-DOR |   32 |         100.0
+> (7 rows)
+> ```
+>
+> **DECISION ESCRITA DEL DUENO (2026-09-05, regla 2):** `MARGEN_DIAS_MIN_PRODUCTO = 30` y la ventana del margen por producto es `[2026-02-20, CURRENT_DATE - 15)` — arranque FIJO igual al primer `valid_from` de `sku_cost`; el cierre sigue excluyendo los ultimos 15 dias. Con 60 dias no habia candidato en ninguna ventana con cobertura valida. Aplicado en: tarea 3 (CTE `ventana` = `DATE '2026-02-20'`, guard `dias_con_venta < 30`, COMMENT y test nuevo del borde 2026-02-19/20 y 29/30), tarea 5 (`MARGEN_DIAS_MIN_PRODUCTO = 30`, `MARGEN_VENTANA_DESDE = date(2026, 2, 20)`, test que pinea ambos contra el SQL) y spec decision 14 / §4 (enmienda). Las ventanas de biblioteca y terminos phrase/broad/product NO cambian (`[D-105, D-15)`: no dependen de `sku_cost`). Consecuencia declarada: la ventana CRECE con el tiempo (arranque fijo); volver a una ventana relativa es otra decision escrita, cuando 90 dias cubiertos ya den >= 30 dias con venta.
 
 **(d) Listings y productos multi-listing:** todos los listings tienen `seller_sku` en ambas plataformas. La columna `productos` cuenta solo productos CON listing en esa plataforma (universo relevante para la fabrica), no el catalogo completo (1,087 productos en `product`).
 

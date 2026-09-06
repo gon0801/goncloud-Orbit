@@ -4,6 +4,8 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-05 — FABRICA 01 arrancó (ORBIT 17): la fábrica de campañas por grupo ya tiene plan sellado y su primera tarea cerrada.** El plan (crear, con autorización literal del dueño, un grupo de cinco campañas por tipo de producto con el objetivo derivado del margen mínimo del grupo) pasó tres rondas de revisión cruzada. La primera tarea fue medir contra la base real antes de escribir código, y salió algo que cambió una regla: con la ventana de 90 días ningún producto llega a 60 días con venta, y con un año atrás ninguno tiene costo cargado antes del 20 de febrero. Decisión del dueño: el margen por producto se mide desde el 2026-02-20 y basta con 30 días con venta; hoy califican 7 productos (5 en México, 2 en Estados Unidos). También se confirmó que los términos de búsqueda vienen por grupo de anuncios, no por campaña, y que hay productos con más de un listing (71 en México, 44 en Estados Unidos) que la fábrica no acepta todavía. Nada se ha creado en Amazon; siguen las tareas de código.
+
 **2026-09-04 — ORBIT 16 cerrada completa: ya hay una pantalla de Configuración donde se ajustan los controles del optimizador, y el dueño ya la usó en vivo.** La pantalla (solo alcanzable por la VPN) muestra por país de dónde sale el tope de publicidad vigente — si lo gobierna el margen automático o el valor manual — y avisa antes de guardar cuando el manual no manda porque el margen está encendido. Apagar el margen es un interruptor en la misma pantalla y el sistema vuelve al valor manual. Todo cambio queda registrado como versión nueva con su etiqueta (la primera real: «settings UI · settings-ui · 2026-09-05 · amazon_us: cap bid 40 -> 45», verificada en la base) y toda escritura sigue exigiendo el token. Lo que no se edita ahí: el modo del optimizador (se muestra, pero cambiarlo es operación de runbook) ni los datos de cosecha de cada meta.
 
 **2026-09-04 — ORBIT 06 cerrada: el tope de publicidad por país ya se calcula solo desde el margen real y así está gobernando en vivo.** Fue la última pieza grande: el sistema ya no usa topes puestos a mano, los deriva del margen neto de cada plataforma (ventas con costo conocido, cargos prorrateados, tipo de cambio). Los bids del 04-sep ya salieron con ese cálculo. También quedó casi cerrada ORBIT 05 (el cutover a vivo): el monitoreo de las 48h pasó limpio. Solo le queda un pendiente: todavía no ha salido un cosechado que el motor aplique completamente solo, de punta a punta — el primero se vetó por error y se creó a mano (ya verificado en Amazon, sin duplicados) — y cuando eso pase, se cierra formal.
@@ -580,6 +582,12 @@ escribe nada a Amazon hasta pasar validación humana (el "apply" llega en PR2).
   (shadow, targets 20/20) y 4.4 primer shadow real VALIDADO (133
   decisiones, triple verificación adversarial limpia). Falta solo el
   merge (4.5).
+- **FABRICA 01 (ORBIT 17, en curso, 2026-09-05)**: plan `plans/fabrica-01.md`
+  sellado tras 3 rondas de cross-review; tarea 1 cerrada (SELECTs regla 8
+  verificados contra producción; decisión escrita del dueño: guard de 30 días
+  con venta y ventana `[2026-02-20, D-15)` para el margen por producto).
+  Siguen las tareas 2-11 (migración 0018, `crea_goal`, núcleo puro, tool,
+  sonda). Nada creado en Amazon todavía.
 - **Datos reales ya en la base viva** (Postgres en el server `goncloud`):
   5,897 entidades, ~22,000 observaciones de métricas, ~6,900 de search terms.
 
