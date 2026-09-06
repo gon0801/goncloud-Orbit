@@ -119,7 +119,7 @@ plataforma sigue con `[D-105, D-15)` y 60), COGS vigente a la fecha de la venta 
 moneda, cargos con `order_id` de ventas cubiertas, cobertura por monto; sin
 margen medible la fila no existe (regla 3), jamas cero.
 
-```
+```text
 target_grupo = fraccion × min(margen_neto_pct de los productos del grupo)
 ```
 
@@ -143,7 +143,7 @@ como): plan desde la base con `ORBIT_DSN_READ`, dry-run por defecto con
 tabla + huella del conjunto (sha256 de los elementos autorizados), mutacion
 solo con `--acepto-mutacion-real --esperado N --huella H --go "<literal>"`.
 
-```
+```bash
 docker exec -i orbit-app-1 python - --plataforma amazon_mx \
   --tipo-producto collar_perro --nombre-base "Collar reflectante" \
   --productos <product_id,...> --modo shadow \
@@ -159,9 +159,11 @@ En orden:
 1. **Validacion SIN HTTP** (fail-closed temprano): perfil aceptado de
    `evaluar_perfiles`; cada producto con margen en `v_margen_producto` y con
    `listing.seller_sku` en la plataforma (sin SKU no hay anuncio); target
-   derivado y clampeado (§4); moneda por plataforma (regla 4); bids y
-   budgets > 0 y dentro de piso/techo por moneda (USD 0.10/2.50, MXN
-   1.00/45.00 — mismos defaults de goal, regla 4); `--productos` no vacio;
+   derivado y clampeado (§4); moneda por plataforma (regla 4); bids > 0 y
+   dentro de piso/techo por moneda (USD 0.10/2.50, MXN 1.00/45.00 — mismos
+   defaults de goal, regla 4); budgets > 0 y >= su bid (el piso/techo es
+   SOLO de bids: `--budget-auto 150` con `--bid-auto 45` en MXN es valido;
+   sin techo de budget, el tope real es el go del dueño); `--productos` no vacio;
    `--modo` en {shadow, live}; `ORBIT_DSN_INGEST` presente (lo exige el
    paso 4).
 2. **Dry-run**: las 5 campañas (nombre, rol, budget, bid, targeting, SKUs de
