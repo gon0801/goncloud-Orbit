@@ -332,6 +332,7 @@ class _ConnFalsa:
         pendientes=(),
         grupo=(),
         lote_platform="amazon_mx",
+        goals=(),
     ):
         self.settings = settings
         self.productos = list(productos)
@@ -345,6 +346,7 @@ class _ConnFalsa:
         self.pendientes = list(pendientes)
         self.grupo = list(grupo)
         self.lote_platform = lote_platform
+        self.goals = list(goals)
         self.escrituras = []  # (sql plano, params)
         self.commits = 0
         self.closes = 0
@@ -390,7 +392,7 @@ class _ConnFalsa:
         if "from fabrica_lote" in bajo and "platform" in bajo:
             return _Cursor([(self.lote_platform,)])
         if "from ads_optimizer_goal" in bajo:
-            return _Cursor([])
+            return _Cursor(self.goals)
         if "from ad_entity" in bajo:
             return _Cursor([])
         raise AssertionError(f"SQL inesperado: {plano[:140]}")
@@ -970,6 +972,48 @@ def test_readback_cuadra_exige_expresion_y_bid():
     assert not fc._readback_cuadra(
         {**leido_c, "budget": {"budgetType": "DAILY", "budget": 100.0}}, payload_c
     )
+    assert not fc._readback_cuadra(
+        {**leido_c, "budget": {"budgetType": "LIFETIME", "budget": 150.0}}, payload_c
+    )
+    payload_hijo = {
+        "name": "g",
+        "state": "ENABLED",
+        "defaultBid": 4.5,
+        "campaignId": "camp-A",
+        "adGroupId": "ag-A",
+    }
+    leido_hijo = {
+        "name": "g",
+        "state": "ENABLED",
+        "defaultBid": 4.5,
+        "campaignId": "camp-A",
+        "adGroupId": "ag-A",
+    }
+    assert fc._readback_cuadra(leido_hijo, payload_hijo)
+    assert not fc._readback_cuadra({**leido_hijo, "campaignId": "camp-OTRA"}, payload_hijo)
+    assert not fc._readback_cuadra({**leido_hijo, "adGroupId": "ag-OTRA"}, payload_hijo)
+
+
+def test_post_incierto_declara_incierto_no_rechazado(monkeypatch, capsys):
+    """Timeout/excepcion en POST: Abortar dice INCERTO, no 'rechazado'."""
+    _huella_de(monkeypatch)
+    huella = [x for x in capsys.readouterr().out.splitlines() if x.startswith("huella")][0].split(
+        ": "
+    )[1]
+    conn_admin = _ConnFalsa()
+    amazon = _Amazon()
+    _frontera_mutacion(monkeypatch, _conn_plan(), conn_admin, amazon)
+
+    def _boom(*_a, **_k):
+        raise TimeoutError("simulado")
+
+    monkeypatch.setattr(fc, "_post", _boom)
+    monkeypatch.setattr(sys, "argv", _args_go(huella))
+    with pytest.raises(fc.Abortar, match="INCERTO"):
+        fc.main()
+    detenido = [e for e in _eventos(capsys) if e["evento"] == "lote_detenido"][0]
+    assert "INCERTO" in detenido["motivo"]
+    assert "rechazado" not in detenido["motivo"].lower()
 
 
 def test_fallo_de_registro_sella_failed_con_rollback_previo(monkeypatch, capsys):
@@ -1234,6 +1278,29 @@ def test_registrar_rechaza_lote_desarmado(monkeypatch):
         fc.main()
 
 
+def test_registrar_aborta_si_goal_existente_apagado(monkeypatch):
+    plan_json = fp.plan_como_json(_plan_min())
+    pasos = [
+        (rol, recurso, f"{prefijo}-{rol}")
+        for rol in fp.ROLES_ORDEN_CREACION
+        for recurso, prefijo in (("campaign", "c"), ("ad_group", "ag"))
+    ]
+    goals = [(50, False, "shadow", "c-category_exact", "ag-category_exact", Decimal("6.00"))]
+    conn_admin = _ConnFalsa(lote_fila=(plan_json, "failed"), pendientes=pasos, goals=goals)
+    _frontera_mutacion(monkeypatch, _ConnFalsa(), conn_admin, _Amazon(), stub_registrar=False)
+    monkeypatch.setattr(fc, "_sync", lambda cliente: None)
+    monkeypatch.setattr(fc, "_id_entidad", lambda c, p, k, e: 7)
+    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", "--registrar", "L1"])
+    with pytest.raises(fc.Abortar, match="no esta listo"):
+        fc.main()
+    sellos = [
+        p
+        for s, p in conn_admin.escrituras
+        if s.lower().startswith("update fabrica_lote ") and p[0] == "applied"
+    ]
+    assert sellos == []
+
+
 # ---------------------------------------------------------------------------
 # Reversa y reconciliacion (tarea 9)
 # ---------------------------------------------------------------------------
@@ -1461,6 +1528,18 @@ def test_reconciliar_con_plataforma_excluye_la_otra_y_no_la_cuenta(monkeypatch, 
     resumen = [e for e in _eventos(capsys) if e["evento"] == "reconciliacion"][0]
     assert resumen["pendientes"] == 3 and resumen["recuperadas"] == 2
     assert resumen["sin_verificar"] == 1
+
+
+def test_reconciliar_lote_y_plataforma_cruzados_aborta(monkeypatch):
+    conn_admin = _ConnFalsa(lote_platform="amazon_mx", pendientes=_PENDIENTES)
+    _frontera_mutacion(monkeypatch, _ConnFalsa(), conn_admin, _Amazon())
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["fabrica_campanas.py", "--reconciliar", "--lote", "L1", "--plataforma", "amazon_us"],
+    )
+    with pytest.raises(fc.Abortar, match="contradictorios"):
+        fc.main()
 
 
 @_skip_db

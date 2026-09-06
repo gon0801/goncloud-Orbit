@@ -51,7 +51,7 @@ import logging
 import os
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 from typing import Any
 
@@ -249,7 +249,8 @@ VALUES (%s, %s, %s, %s, %s)
 ON CONFLICT DO NOTHING
 """
 _SQL_GOAL_EXISTENTE = """
-SELECT id FROM ads_optimizer_goal WHERE ad_entity_id = %s AND scope = 'campaign'
+SELECT id, enabled, mode, harvest_campaign_id, harvest_ad_group_id, harvest_default_bid
+  FROM ads_optimizer_goal WHERE ad_entity_id = %s AND scope = 'campaign'
 """
 _SQL_CAMPANAS_APPLIED = """
 SELECT rol::text, recurso, external_id
@@ -556,6 +557,7 @@ class _Ctx:
     conn_admin: psycopg.Connection
     lote: str
     orden: int = 0
+    conocidos: list = field(default_factory=list)
 
 
 def _token_lwa(cred: AdsCredentials, client) -> str:
@@ -643,7 +645,15 @@ def _monto_wire_cuadra(crudo_leido: Any, crudo_pedido: Any) -> bool:
 def _readback_cuadra(leido: dict | None, payload: dict) -> bool:
     if not isinstance(leido, dict) or leido.get("state") != fp.ESTADO_NUEVO:
         return False
-    for clave in ("keywordText", "matchType", "sku", "name", "targetingType"):
+    for clave in (
+        "keywordText",
+        "matchType",
+        "sku",
+        "name",
+        "targetingType",
+        "campaignId",
+        "adGroupId",
+    ):
         if clave in payload and str(leido.get(clave)) != str(payload[clave]):
             return False
     if "expression" in payload and (
@@ -659,6 +669,10 @@ def _readback_cuadra(leido: dict | None, payload: dict) -> bool:
         leido_budget = leido.get("budget")
         if not isinstance(leido_budget, dict) or not _monto_wire_cuadra(
             leido_budget.get("budget"), pedido_budget["budget"]
+        ):
+            return False
+        if "budgetType" in pedido_budget and str(leido_budget.get("budgetType")) != str(
+            pedido_budget["budgetType"]
         ):
             return False
     return True
@@ -714,14 +728,16 @@ def _ejecuta_paso(ctx: _Ctx, paso: fp.Paso, padres: dict) -> str:
     except Exception as exc:
         ack = {"status": "excepcion", "cuerpo": {}, "texto": scrub(str(exc))[:300]}
     if not fp.ack_ok(ack):
-        _falla_paso(
-            ctx,
-            paso,
-            paso_id,
-            ack,
-            None,
-            f"{paso.descripcion} ({paso.rol}) rechazado (status {ack.get('status')})",
-        )
+        # excepcion/timeout = resultado INCERTO (Amazon pudo crear); 4xx = rechazo
+        if ack.get("status") == "excepcion":
+            motivo = (
+                f"{paso.descripcion} ({paso.rol}) INCERTO (status excepcion):"
+                " Amazon pudo crear un ENABLED; no reintentar este POST;"
+                " --desarmar solo pausa filas con external_id"
+            )
+        else:
+            motivo = f"{paso.descripcion} ({paso.rol}) rechazado (status {ack.get('status')})"
+        _falla_paso(ctx, paso, paso_id, ack, None, motivo)
     external = fp.id_creado(ack, fp.CLAVE_ID_POR_PATH[paso.path])
     if external is None:
         _falla_paso(
@@ -730,7 +746,9 @@ def _ejecuta_paso(ctx: _Ctx, paso: fp.Paso, padres: dict) -> str:
             paso_id,
             ack,
             None,
-            f"{paso.descripcion} ({paso.rol}): el ack no trae {fp.CLAVE_ID_POR_PATH[paso.path]}",
+            f"{paso.descripcion} ({paso.rol}) INCERTO: ack sin"
+            f" {fp.CLAVE_ID_POR_PATH[paso.path]}; Amazon pudo crear;"
+            " no reintentar este POST; --desarmar solo pausa filas con external_id",
         )
     time.sleep(0.3)
     leido = _readback(ctx.cliente_lectura, ctx.profile, paso.path, external)
@@ -749,6 +767,7 @@ def _ejecuta_paso(ctx: _Ctx, paso: fp.Paso, padres: dict) -> str:
     _sella_paso(ctx, paso_id, cuadra, external, ack, readback)
     if not cuadra:
         raise Abortar(f"readback de {paso.descripcion} ({paso.rol}) no cuadra ({readback})")
+    ctx.conocidos.append({"rol": paso.rol, "recurso": paso.recurso, "external": str(external)})
     return external
 
 
@@ -836,7 +855,27 @@ def _registrar(ctx: _Ctx, plan: fp.PlanGrupo, creadas: list[dict]) -> int:
     for rol, (camp_id, _ag_id) in ids.items():
         previo = conn.execute(_SQL_GOAL_EXISTENTE, (camp_id,)).fetchone()
         if previo is not None:
-            goal_previo = previo["id"] if isinstance(previo, dict) else previo[0]
+            if isinstance(previo, dict):
+                goal_previo = previo["id"]
+                enabled = previo["enabled"]
+                mode = previo["mode"]
+                h_camp = previo["harvest_campaign_id"]
+                h_ag = previo["harvest_ad_group_id"]
+                h_bid = previo["harvest_default_bid"]
+            else:
+                goal_previo, enabled, mode, h_camp, h_ag, h_bid = previo
+            if (
+                not enabled
+                or mode != plan.modo
+                or str(h_camp) != str(exact["campaign"])
+                or str(h_ag) != str(exact["ad_group"])
+                or h_bid is None
+            ):
+                raise Abortar(
+                    f"goal existente de {rol} (id={goal_previo}) no esta listo"
+                    f" (enabled={enabled}, mode={mode}): no se sella applied;"
+                    " no se reactiva por --registrar"
+                )
             _log("goal_ya_existe", lote=ctx.lote, rol=rol, goal_id=goal_previo)
             continue
         goal = goals_write.crea_goal(
@@ -924,14 +963,23 @@ def _mutar(args, plan: fp.PlanGrupo, huella: str) -> int:
                 creadas.append(_ejecuta_rol(ctx, plan, rol))
                 _log("campana_creada", lote=lote, rol=rol, external=creadas[-1]["campaign"])
         except Abortar as exc:
-            detalle = f"{exc} | creadas: {[c['rol'] for c in creadas]}"
+            detalle = f"{exc} | creadas: {[c['rol'] for c in creadas]} | conocidos: {ctx.conocidos}"
             _sella_lote(conn_admin, lote, "failed", detalle)
+            nota = (
+                "las creadas quedan ENABLED en Amazon; --desarmar <lote> las pausa"
+                if "INCERTO" not in str(exc)
+                else (
+                    "resultado INCERTO: no reintentar POST; --desarmar solo pausa"
+                    " filas con external_id; verificar consola Amazon por nombre"
+                )
+            )
             _log(
                 "lote_detenido",
                 lote=lote,
                 motivo=str(exc),
                 creadas=[c["rol"] for c in creadas],
-                nota="las creadas quedan ENABLED en Amazon; --desarmar <lote> las pausa",
+                conocidos=ctx.conocidos,
+                nota=nota,
             )
             raise
         try:
@@ -1135,13 +1183,20 @@ def _reconciliar_cmd(args) -> int:
         cliente_lectura = AdsClient(cred)
         perfiles = _perfiles(cliente_lectura)
         platform = args.plataforma
-        if platform is None:
+        if args.lote is not None:
             fila = conn_admin.execute(
                 "SELECT platform::text FROM fabrica_lote WHERE lote = %s", (args.lote,)
             ).fetchone()
             if fila is None:
                 raise Abortar(f"lote {args.lote} no existe")
-            platform = fila[0]
+            lote_platform = fila[0]
+            if platform is None:
+                platform = lote_platform
+            elif platform != lote_platform:
+                raise Abortar(
+                    f"--lote {args.lote} es {lote_platform} pero --plataforma"
+                    f" {platform}: filtros contradictorios"
+                )
         if platform not in perfiles:
             raise Abortar(f"sin perfil aceptado para {platform}")
         _reconciliar(conn_admin, cliente_lectura, perfiles, args.lote, platform)
