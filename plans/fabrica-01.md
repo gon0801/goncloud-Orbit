@@ -5664,6 +5664,18 @@ cualquier POST. Dry-run sigue sin DSNs de escritura.
 creacion se etiquetan INCERTO (como timeout): no reintento automatico, no
 "rechazado". 4xx sigue siendo rechazo.
 
+**D-CODEX-177-F4 (clase 5xx completa, revision final).** La lista anterior
+dejaba 501/507/520/599 como rechazo definitivo. Se sustituye por el rango
+500–599 completo, conservando el control 400 y el tratamiento de excepciones.
+Antes del cambio de codigo, `pytest tests/test_fabrica_campanas.py -k f4_ -q`
+contra `66a56d8` da `4 failed, 5 passed, 56 deselected`: fallan exactamente
+501, 507, 520 y 599 porque el motivo dice rechazado en lugar de INCERTO.
+Son pruebas del flujo de mutacion con HTTP simulado, sin acceder a produccion.
+Verde tras el fix: `pytest tests/test_fabrica_campanas.py -q -rs` da
+`65 passed`, sin skips, con Postgres real para los casos SQL. Ruff y formato
+verdes. Revision independiente del diff acotado: sin hallazgos. La bateria
+completa se ejecuta en CI del PR #177 al subir este cambio.
+
 **Evidencia F1-F4 (rojo contra d27fa80 / verde con fix):**
 
 ```

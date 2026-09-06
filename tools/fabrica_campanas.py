@@ -300,8 +300,8 @@ UPDATE fabrica_lote_paso
    SET estado = 'applied', ack = %s::jsonb, readback_estado = %s
  WHERE id = %s AND estado IN ('planeado', 'failed')
 """
-# D-CURSOR-177-F4: Amazon pudo crear aunque el HTTP diga 5xx.
-_HTTP_INCERTO = frozenset({500, 502, 503, 504})
+# D-CODEX-177-F4: Amazon pudo crear ante cualquier respuesta de la clase 5xx.
+_HTTP_INCERTO = range(500, 600)
 
 
 def _cierra(*recursos: Any) -> None:

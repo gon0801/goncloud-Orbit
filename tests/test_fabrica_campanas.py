@@ -1653,7 +1653,7 @@ def test_f3_dsn_ingest_antes_de_mutar(monkeypatch, capsys, ausente):
     assert conn_admin.escrituras == []
 
 
-@pytest.mark.parametrize("status", [500, 502, 503, 504])
+@pytest.mark.parametrize("status", [500, 501, 502, 503, 504, 507, 520, 599])
 def test_f4_http_5xx_es_incierto(monkeypatch, capsys, status):
     _huella_de(monkeypatch)
     huella = [x for x in capsys.readouterr().out.splitlines() if x.startswith("huella")][0].split(
