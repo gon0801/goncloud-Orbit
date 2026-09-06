@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -17,6 +18,16 @@ from app.api import _conexion_lectura
 from app.main import app
 
 RAIZ = Path(ui.__file__).resolve().parent
+
+
+def test_flujo_js_no_se_omite_en_ci_sin_node(monkeypatch):
+    monkeypatch.setenv("CI", "true")
+    monkeypatch.setattr(shutil, "which", lambda _: None)
+    try:
+        with pytest.raises(pytest.fail.Exception, match="Node"):
+            test_flujo_js_invalida_plan_bloquea_duplicados_y_recupera_lote()
+    except pytest.skip.Exception:
+        pytest.fail("CI no debe omitir la prueba JavaScript si falta Node")
 
 
 class Elementos(HTMLParser):
@@ -101,6 +112,8 @@ def test_flujo_js_invalida_plan_bloquea_duplicados_y_recupera_lote():
     assert archivo.exists(), "Falta el cliente de fabrica"
     node = shutil.which("node")
     if not node:
+        if "CI" in os.environ:
+            pytest.fail("Node es obligatorio en CI para verificar el flujo JavaScript")
         pytest.skip("Node no disponible; el navegador se verifica en integracion")
     html = TestClient(app).get("/campanas/nuevas").text
     elementos = [attrs for _, attrs in Elementos(html).elementos if "id" in attrs]
@@ -216,12 +229,17 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
   assert.match(text(el("productos")), /Nombre interno <img src=x>/);
   assert.match(text(el("productos")), /SKU de Odoo: GORRA <img src=x>/);
   assert.match(text(el("productos")), /SKU de Amazon: SKU-AMAZON-A/);
+  assert.match(text(el("productos")), /Nombre interno: Sin dato/);
+  assert.match(text(el("productos")), /SKU de Amazon: Sin dato/);
   assert.match(text(el("productos")), /ASIN: B0CCCCCCCC/);
   const enlaces = el("productos").querySelectorAll("*").filter(e => e.href);
   assert.deepEqual(enlaces.map(e => e.href), [
     "https://www.amazon.com.mx/dp/B0AAAAAAAA", "https://www.amazon.com.mx/dp/B0BBBBBBBB"]);
   assert.ok(enlaces.every(e => e.target === "_blank" && e.rel.includes("noopener")));
   assert.equal(el("productos").querySelectorAll("*").filter(e => e.htmlFor).length, 2);
+  const labels = el("productos").querySelectorAll("*").filter(e => e.htmlFor);
+  assert.ok(labels.every(label => !label.querySelectorAll("*").some(e => e.href)),
+    "Abrir Amazon no debe seleccionar un producto: los enlaces van fuera del label");
   assert.match(text(el("productos")), /40 %/);
   assert.ok(!text(el("productos")).includes("40.0000000"));
   productos[0].checked = true;
