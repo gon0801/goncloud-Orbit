@@ -590,7 +590,7 @@ def cmd_drive_campanas(args: argparse.Namespace) -> None:
     checks = {
         "http_200": st == 200,
         "data-pantalla=campanas": 'data-pantalla="campanas"' in texto,
-        "h2_campanas": "Campanas — metricas 30d y target efectivo con procedencia" in texto,
+        "h2_campanas": "Campañas — metricas 30d y target efectivo con procedencia" in texto,
         "nav_aria_current": 'href="/campanas"' in texto and 'aria-current="page"' in texto,
         "fila_campana_a": "Campana A" in texto,
         "chip_activa": "activa" in texto,

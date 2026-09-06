@@ -1683,7 +1683,7 @@ def test_motivos_salud_traducen_los_gates_de_ancestros():
     from app import cycle as ciclo
     from app.api_dashboard import MOTIVOS_ES_SALUD
 
-    assert MOTIVOS_ES_SALUD[ciclo.MOTIVO_CAMPANA_NO_ENABLED].startswith("Campana")
+    assert MOTIVOS_ES_SALUD[ciclo.MOTIVO_CAMPANA_NO_ENABLED].startswith("Campaña")
     assert MOTIVOS_ES_SALUD[ciclo.MOTIVO_GRUPO_NO_ENABLED].startswith("Ad group")
 
 
