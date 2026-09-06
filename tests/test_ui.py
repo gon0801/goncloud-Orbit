@@ -1210,20 +1210,23 @@ def test_ui_propuestas_alias_mismo_contenido_que_cortes(monkeypatch):
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 def test_ui_favicon_local_y_servido(monkeypatch):
-    """El HTML enlaza el favicon local (ico + PNG + apple-touch, todo en
-    /static: cero hosts externos) y cada archivo responde 200 con bytes."""
     with _db_temporal("orbit_ui_favicon") as (conn, dsn):
         _siembra_ui(conn)
         monkeypatch.setenv("ORBIT_DSN_READ", dsn)
         cliente = TestClient(app)
         html = cliente.get("/").text
         assert 'href="/static/favicon/favicon.ico"' in html
+        assert 'sizes="16x16 32x32 48x48"' in html
+        assert 'href="/static/favicon/favicon-16.png"' in html
         assert 'href="/static/favicon/favicon-32.png"' in html
+        assert 'href="/static/favicon/favicon-192.png"' in html
         assert 'href="/static/favicon/favicon-180.png"' in html
         for ruta in (
             "/static/favicon/favicon.ico",
             "/static/favicon/favicon-16.png",
             "/static/favicon/favicon-32.png",
+            "/static/favicon/favicon-48.png",
+            "/static/favicon/favicon-64.png",
             "/static/favicon/favicon-180.png",
             "/static/favicon/favicon-192.png",
             "/static/favicon/favicon-512.png",
