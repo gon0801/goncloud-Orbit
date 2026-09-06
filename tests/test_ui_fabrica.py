@@ -149,8 +149,14 @@ global.window = {
 };
 const calls = [];
 const catalogo = {plataforma: "amazon_mx", moneda: "MXN", tipos_producto: [],
-  productos: [{id: 1, sku: "GORRA <img src=x>", margen_neto_pct: "40.0000000", elegible: true},
-    {id: 2, sku: "SIN MARGEN", margen_neto_pct: null, elegible: false, motivo: "Sin margen"}]};
+  productos: [{id: 1, sku: "GORRA <img src=x>", nombre: "Nombre interno <img src=x>",
+    publicaciones: [{id: 11, asin: "B0AAAAAAAA", seller_sku: "SKU-AMAZON-A",
+      url: "https://www.amazon.com.mx/dp/B0AAAAAAAA"}],
+    margen_neto_pct: "40.0000000", elegible: true},
+    {id: 2, sku: "SIN MARGEN", nombre: null, publicaciones: [
+      {id: 12, asin: "B0BBBBBBBB", seller_sku: "SKU-AMAZON-B", url: "https://www.amazon.com.mx/dp/B0BBBBBBBB"},
+      {id: 13, asin: "B0CCCCCCCC", seller_sku: null, url: "javascript:alert(1)"}],
+      margen_neto_pct: null, elegible: false, motivo: "Sin margen"}]};
 const roles = ["category_exact", "category_phrase", "category_broad",
   "product_targeting", "auto_discovery"];
 const plan = {huella: "abc", lote: "web-abc", presupuesto_diario_total: "600.00", existentes: [],
@@ -207,6 +213,15 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
   assert.equal(el("tipo").disabled, false, "El primer tipo debe poder escribirse sin biblioteca");
   assert.equal(productos.length, 2); assert.equal(productos[1].disabled, true);
   assert.match(text(el("productos")), /Sin margen/);
+  assert.match(text(el("productos")), /Nombre interno <img src=x>/);
+  assert.match(text(el("productos")), /SKU de Odoo: GORRA <img src=x>/);
+  assert.match(text(el("productos")), /SKU de Amazon: SKU-AMAZON-A/);
+  assert.match(text(el("productos")), /ASIN: B0CCCCCCCC/);
+  const enlaces = el("productos").querySelectorAll("*").filter(e => e.href);
+  assert.deepEqual(enlaces.map(e => e.href), [
+    "https://www.amazon.com.mx/dp/B0AAAAAAAA", "https://www.amazon.com.mx/dp/B0BBBBBBBB"]);
+  assert.ok(enlaces.every(e => e.target === "_blank" && e.rel.includes("noopener")));
+  assert.equal(el("productos").querySelectorAll("*").filter(e => e.htmlFor).length, 2);
   assert.match(text(el("productos")), /40 %/);
   assert.ok(!text(el("productos")).includes("40.0000000"));
   productos[0].checked = true;

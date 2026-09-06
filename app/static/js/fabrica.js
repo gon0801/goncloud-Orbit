@@ -181,11 +181,31 @@ document.addEventListener("DOMContentLoaded", function () {
       porId("moneda").textContent = datos.moneda;
       datos.tipos_producto.forEach(tipo => { const opcion = nodo("option"); opcion.value = tipo; porId("tipos").append(opcion); });
       datos.productos.forEach(producto => {
-        const label = nodo("label"), input = nodo("input");
+        const tarjeta = nodo("div"), label = nodo("label"), input = nodo("input");
+        tarjeta.className = "fabrica-producto";
+        input.id = "fabrica-producto-" + producto.id;
+        label.htmlFor = input.id;
         input.type = "checkbox"; input.value = String(producto.id); input.disabled = !producto.elegible;
-        label.append(input, nodo("span", producto.sku + " · margen neto: " + porcentaje(producto.margen_neto_pct)
-          + (producto.elegible ? "" : " · No elegible: " + valor(producto.motivo))));
-        porId("productos").append(label);
+        label.append(input, nodo("strong", "Nombre interno: " + valor(producto.nombre)));
+        tarjeta.append(label, nodo("p", "SKU de Odoo: " + producto.sku),
+          nodo("p", "Margen neto: " + porcentaje(producto.margen_neto_pct)));
+        if (!producto.elegible) tarjeta.append(nodo("p", "No elegible: " + valor(producto.motivo)));
+        const publicaciones = nodo("ul");
+        (producto.publicaciones || []).forEach(publicacion => {
+          const fila = nodo("li");
+          fila.append(nodo("span", "ASIN: " + valor(publicacion.asin)),
+            nodo("span", "SKU de Amazon: " + valor(publicacion.seller_sku)));
+          // Los enlaces estan fuera del label: abrir Amazon no selecciona el producto.
+          if (/^https:\/\/www\.amazon\.com(?:\.mx)?\/dp\/[A-Za-z0-9]{10}$/.test(publicacion.url || "")) {
+            const enlace = nodo("a", "Abrir en Amazon");
+            enlace.href = publicacion.url; enlace.target = "_blank"; enlace.rel = "noopener noreferrer";
+            enlace.setAttribute("aria-label", "Abrir ASIN " + publicacion.asin + " en Amazon");
+            fila.append(enlace);
+          }
+          publicaciones.append(fila);
+        });
+        tarjeta.append(publicaciones);
+        porId("productos").append(tarjeta);
       });
       catalogoDisponible = true;
       estado("catalogo-estado", datos.productos.length + " productos. " + datos.productos.filter(p => p.elegible).length + " elegibles.");

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 from contextlib import contextmanager
 from decimal import Decimal
 from types import SimpleNamespace
@@ -36,7 +37,10 @@ FROM fabrica_lote l
 _SQL_LOTE = _SQL_RESUMEN_LOTE + " WHERE l.lote = %s"
 
 _SQL_CATALOGO = """
-SELECT p.id, p.odoo_sku, count(l.id), min(l.seller_sku), m.margen_neto_pct
+SELECT p.id, p.odoo_sku, count(l.id), min(l.seller_sku), m.margen_neto_pct,
+       p.name, jsonb_agg(jsonb_build_object(
+           'id', l.id, 'asin', l.external_id, 'seller_sku', l.seller_sku
+       ) ORDER BY l.external_id, l.id)
 FROM product p
 JOIN listing l ON l.product_id = p.id AND l.platform = %s::platform
 LEFT JOIN v_margen_producto m ON m.product_id = p.id AND m.platform = l.platform
@@ -104,7 +108,7 @@ def previsualizar(conn, solicitud: dict) -> dict:
 def catalogo(conn, plataforma: str) -> dict:
     conn.row_factory = tuple_row
     productos = []
-    for pid, sku, listings, seller_sku, margen in conn.execute(
+    for pid, sku, listings, seller_sku, margen, nombre, publicaciones in conn.execute(
         _SQL_CATALOGO, (plataforma,)
     ).fetchall():
         motivo = None
@@ -114,10 +118,20 @@ def catalogo(conn, plataforma: str) -> dict:
             motivo = "Sin margen medible."
         elif not seller_sku or not seller_sku.strip():
             motivo = "Sin seller_sku para crear el anuncio."
+        dominio = {"amazon_mx": "www.amazon.com.mx", "amazon_us": "www.amazon.com"}[plataforma]
+        for publicacion in publicaciones:
+            asin = publicacion["asin"]
+            publicacion["url"] = (
+                f"https://{dominio}/dp/{asin}"
+                if re.fullmatch(r"[A-Za-z0-9]{10}", asin or "")
+                else None
+            )
         productos.append(
             {
                 "id": pid,
                 "sku": sku,
+                "nombre": nombre,
+                "publicaciones": publicaciones,
                 "margen_neto_pct": str(margen) if margen is not None else None,
                 "elegible": motivo is None,
                 "motivo": motivo,

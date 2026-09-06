@@ -132,6 +132,32 @@ def test_catalogo_no_inventa_margenes_y_excluye_multilisting(escenario):
     assert not filas[2]["elegible"] and "listing" in filas[2]["motivo"].lower()
 
 
+def test_catalogo_identifica_todas_las_publicaciones_por_plataforma(escenario):
+    cliente, conn, _, _, ids = escenario
+    conn.execute("UPDATE product SET name = 'Nombre interno' WHERE id = %s", (ids[2],))
+    conn.execute(
+        "INSERT INTO listing(product_id,platform,external_id,seller_sku) "
+        "VALUES (%s,'amazon_us','B0EEEEEEEE','SKU-US')",
+        (ids[2],),
+    )
+    mx = cliente.get("/api/fabrica/catalogo?plataforma=amazon_mx").json()["productos"][2]
+    assert mx["nombre"] == "Nombre interno"
+    assert [(p["asin"], p["seller_sku"], p["url"]) for p in mx["publicaciones"]] == [
+        ("B0CCCCCCCC", "SC", "https://www.amazon.com.mx/dp/B0CCCCCCCC"),
+        ("B0DDDDDDDD", "SC2", "https://www.amazon.com.mx/dp/B0DDDDDDDD"),
+    ]
+    assert not mx["elegible"]
+    us = cliente.get("/api/fabrica/catalogo?plataforma=amazon_us").json()["productos"][0]
+    assert [(p["asin"], p["seller_sku"], p["url"]) for p in us["publicaciones"]] == [
+        ("B0EEEEEEEE", "SKU-US", "https://www.amazon.com/dp/B0EEEEEEEE"),
+    ]
+    conn.execute(
+        "UPDATE listing SET external_id = 'javascript:alert(1)' WHERE platform='amazon_us'"
+    )
+    invalido = cliente.get("/api/fabrica/catalogo?plataforma=amazon_us").json()["productos"][0]
+    assert invalido["publicaciones"][0]["url"] is None
+
+
 def test_preview_solo_lectura_sin_amazon_y_con_dinero_string(escenario):
     cliente, conn, solicitud, _, _ = escenario
     vista = _preview(cliente, solicitud)
