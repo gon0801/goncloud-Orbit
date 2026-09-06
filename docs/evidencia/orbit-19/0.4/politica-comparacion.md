@@ -1,8 +1,7 @@
 # ORBIT 19 / 0.4 — Politica de comparacion
 
-Estado: **contrato tecnico sellado sobre 0.3**. El orden inicial y el
-objetivo de comparacion siguen la propuesta D1/D2; **no estan aprobados
-por el dueno**. 0.4 no sustituye a 0.2.
+Estado: **cerrada** 2026-09-06 21:31 UTC. Ads MX verificada (0.3). D1–D4
+cerradas (0.2). US Ads se confirma en la primera ingesta B.1.
 
 Fuentes: `docs/evidencia/orbit-19/0.3/reporte.md` (Ads verificada
 2026-09-06 21:03 UTC, amazon_mx D-3) y spec
@@ -58,14 +57,12 @@ si 400/403, US queda no_verificada y no se inventan filas.
 
 Comparar solo filas del mismo mercado, moneda, grano y ventana.
 
-## 3. Objetivo de comparacion (depende D2, no aprobado)
+## 3. Objetivo de comparacion (D2 cerrada)
 
 Un objetivo es el del **grupo que el dueno esta preparando**, identificado
-como tal. Antes de capturarlo, se muestra ACoS sin etiqueta dentro/fuera.
-No se promedia el target de varias campanas para fabricar uno por ASIN.
-
-Si D2 se acepta: `manual_lanzamiento` o `margen_medido` del grupo en curso.
-Si D2 se rechaza, se replanifica.
+como tal (`manual_lanzamiento` o `margen_medido`). Antes de capturarlo, se
+muestra ACoS sin etiqueta dentro/fuera. No se promedia el target de
+varias campanas. El objetivo no acredita rentabilidad.
 
 ## 4. Precedencia de etiquetas Ads
 
@@ -92,8 +89,8 @@ Ratios desde **sumas**, nunca promedio de porcentajes.
 ## 5. Economia observada (no Ads)
 
 Vista madura `v_margen_producto` intacta (>=30 fechas, cobertura, moneda).
-Si D4 se ratifica, la UI puede mostrar muestra limitada (1–29 fechas,
-integridad OK) **aparte**, nunca como input de target automatico.
+La UI muestra muestra limitada (1–29 fechas, integridad OK) **aparte**,
+nunca como input de target automatico ni del sort D1 (D4).
 
 Dos listings del mismo producto comparten venta/margen del producto.
 No duplicar el total financiero.
@@ -111,7 +108,7 @@ Tres estados: 0 observado / ausente / desconocido (AC8).
 B.3 todavia debe conciliar SKU contra `listing` de Orbit y no afirmar
 que `quantity_available` = fulfillable SP-API.
 
-## 7. Ordenes (depende D1, no aprobado)
+## 7. Ordenes (D1 cerrada)
 
 Soportados: margen observado, ventas totales, Revenue Ads (`sales30d`),
 gasto, ACoS, CPC, CVR, compras. Asc/desc visible.
@@ -119,12 +116,11 @@ gasto, ACoS, CPC, CVR, compras. Asc/desc visible.
 Null al final en ambas direcciones. Desempate estable `listing_id`.
 Filtros/orden no pierden la seleccion (AC10).
 
-Propuesta D1 (no aprobada): orden por `margen_neto_pct` maduro
-(porcentaje, ventana `[2026-02-20, D-15)` UTC). `dias_con_venta` visible.
-NULL al final, nunca como 0%. MX y US no se mezclan. Por probar (Ads)
-solo con cobertura verificada; si no, Sin datos. Fallback tecnico si
-D1 no se cierra: `listing_id` ascendente. La muestra 1–29 no entra al
-sort salvo D4 ratificada.
+Orden inicial: `margen_neto_pct` maduro (porcentaje, ventana
+`[2026-02-20, D-15)` UTC). `dias_con_venta` visible. NULL al final,
+nunca como 0%. MX y US no se mezclan. Por probar (Ads) solo con
+cobertura verificada; si no, Sin datos. La muestra 1–29 no entra al
+sort (D4). Desempate `listing_id`.
 
 ## 8. Fixtures del spec — resultado esperado
 
@@ -149,8 +145,7 @@ Cifras ilustrativas, nunca valores sembrados en produccion.
 
 - B.1 puede disenarse con este contrato (MX verificado; US en primera ingesta).
 - B.2 no espera Ads.
-- B.4/B.5 esperan D1 (orden) y D2 (objetivo) para no construir un ranking
-  que el dueno no pidio. Los fixtures de arriba no dependen de D1.
+- B.4/B.5 pueden usar este orden y objetivo. No se implementan aqui.
 - B.3 stock puede mapear FBA/FBM; Featured Offer queda Sin verificar.
 
 No se implementa codigo en esta tarea.

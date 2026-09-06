@@ -1,12 +1,11 @@
-# ORBIT 19 / 0.2 — indice (NO CERRADO)
+# ORBIT 19 / 0.2 — indice (CERRADO 2026-09-06 21:31 UTC)
 
-Esta tarea **no termina** con confirmar D1–D4. Tambien hay que cerrar
-API/CLI v2, compatibilidad v1, migraciones y reversa con recuperacion
-v2. D3 y D4 siguen propuesta. Cero implementacion.
+Acta: `confirmacion.md`. Negocio y contrato tecnico. Cero codigo A/B.
 
 | Archivo | Contenido |
 |---|---|
-| `decisiones-propuestas.md` | D1–D4 para confirmar. No aprobadas. |
+| `confirmacion.md` | Acta del dueno + checklist DoD. |
+| `decisiones-propuestas.md` | D1–D4 cerradas. |
 | `select-margen-signo.sql` / `.out.txt` | Signo de margen por mercado, 21:24 UTC. |
 | `contrato-api-cli-v2.md` | API/CLI v2, compatibilidad v1, snapshot. |
 | `migracion-rollback.md` | Reserva 0019/0020. Rollback con lector v2. |

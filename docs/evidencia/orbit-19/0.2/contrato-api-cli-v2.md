@@ -1,7 +1,7 @@
-# ORBIT 19 / 0.2 — Contrato API/CLI v2 (PROPUESTO)
+# ORBIT 19 / 0.2 — Contrato API/CLI v2
 
-No vigente. Depende de D2/D3. Un solo normalizador produce el plan
-canonico; no hay segundo motor de creacion.
+Cerrado 2026-09-06 21:31 UTC (`confirmacion.md`). No hay codigo v2 en
+produccion hasta A. Un solo normalizador produce el plan canonico.
 
 ## Compatibilidad v1 (intacto)
 
@@ -53,7 +53,7 @@ Reglas:
   por tener target manual.
 - Preview invalida si cambia listing, objetivo, budget, bid, modo o fecha.
 
-CLI propuesto: `--listing-ids 1190,1206` y `--target-acos 25.00`.
+CLI v2: `--listing-ids 1190,1206` y `--target-acos 25.00`.
 `--productos` no se convierte a listing en silencio.
 
 ## Snapshot persistido

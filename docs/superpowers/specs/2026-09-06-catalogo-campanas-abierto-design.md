@@ -1,22 +1,22 @@
 # ORBIT 19 — Catalogo abierto y comparacion para campanas
 
-Estado: ESPECIFICACION FORMAL v1, 2026-09-06; decisiones de negocio pendientes.
-Formalizada con harness-plan; solo planificacion, no aprobacion de ejecucion.
+Estado: ESPECIFICACION FORMAL v1.1, 2026-09-06. D1–D4 cerradas en 0.2
+(21:31 UTC). No autoriza crear anuncios ni cambia el codigo F1 hasta A.
 Solicitud: todos los articulos deben poder anadirse a campanas, con metricas
 que ayuden a distinguir cuales conviene anunciar. No autoriza crear anuncios.
 
-## Contrato propuesto
+## Contrato
 
 Separar seleccion, condiciones tecnicas, evaluacion y evidencia. Un margen
 bajo/negativo, pocas ventas o falta de historial no deshabilitan la seleccion.
 Una recomendacion asesora no crea, pausa, cambia pujas ni decide por el dueno.
 
-Alcance base propuesto: publicaciones Amazon MX/US ya vinculadas al catalogo de
-Orbit y creacion de las cinco campanas existentes. No confundir con todo el
-catalogo de Amazon: listings sin mapa a producto pueden faltar en la ingesta.
+Alcance: publicaciones Amazon MX/US ya vinculadas al catalogo de Orbit y
+creacion de grupos nuevos de cinco campanas. No confundir con todo el catalogo
+de Amazon: listings sin mapa a producto pueden faltar en la ingesta.
 Inventariar esas omisiones y mostrarlas como problemas de vinculacion, sin
 asignarles un producto automaticamente. Anadidos a campanas existentes quedan
-como ampliacion pendiente de respuesta, no incluidos silenciosamente.
+fuera (D3).
 
 ### Seleccion por publicacion
 
@@ -36,9 +36,11 @@ como ampliacion pendiente de respuesta, no incluidos silenciosamente.
 
 ### Objetivo de campana para lanzamientos
 
-Propuesta pendiente de confirmacion: permitir un objetivo ACoS manual explicito
-para cualquier grupo, obligatorio si falta margen fiable en alguno de sus
-productos. Es intencion del dueno, nunca una medicion de margen.
+ACoS manual explicito para cualquier grupo, obligatorio si falta margen
+fiable, es 0, es negativo, o el clamp superaria el margen conocido (D2).
+Es intencion, nunca medicion ni acreditacion de rentabilidad. Preview y
+revision declaran cero / negativo / inferior al objetivo; el producto
+sigue seleccionable.
 
 - Mantener margen=None donde no se puede medir; guardar objetivo, procedencia,
   fecha y contexto de confirmacion. No inventar identidad de usuario: el sistema
@@ -76,8 +78,9 @@ fuente de calculo comun debe distinguir medicion disponible de evidencia madura.
 
 MVP sin nota opaca 0–100 ni pesos inventados:
 
-- Por probar: sin actividad Ads observada en la ventana completa verificada.
-  No implica que el articulo sea nuevo o nunca haya tenido anuncios.
+- Por probar: sin actividad Ads en la ventana consultada **y** cobertura
+  verificada. No implica producto nuevo ni que nunca se haya anunciado.
+  Si falta el reporte: **Sin datos**, no Por probar.
 - Sin datos / datos incompletos: reporte faltante o sin cobertura; no afirmar cero.
 - Dentro del objetivo / por encima del objetivo: comparar ACoS con un objetivo
   explicito identificado; sin objetivo solo mostrar metricas, no calificacion. No promediar los
@@ -88,9 +91,10 @@ MVP sin nota opaca 0–100 ni pesos inventados:
   exito ni rentabilidad neta a partir de una venta o del ACoS aislado.
 
 Ordenes explicitos por margen observado, ventas, rendimiento Ads y cantidad de
-evidencia. Seccion Por probar visible y seleccionable; ausencia de dato no se
-convierte en una mala nota. Propuesta inicial: priorizar rentabilidad y conservar
-espacio para exploracion, pendiente de preferencia del dueno.
+evidencia. Orden inicial (D1): `margen_neto_pct` maduro, ventana
+`[2026-02-20, D-15)`, `dias_con_venta` visible, NULL al final (no 0%),
+MX/US no se mezclan. Por probar (Ads) solo con cobertura verificada; si
+falta el reporte: Sin datos. No demuestra que nunca se haya anunciado.
 
 Reglas de datos: ratios desde sumas compatibles, no promedios de porcentajes;
 monedas separadas; no sumar grano producto repetido por cada ASIN. Revenue Ads
@@ -128,21 +132,18 @@ Sin doble POST ante doble click, cambio de orden o reintento. No recalcular targ
 historicos. Reversa antes de nuevas escrituras. Rollback no puede abandonar lotes
 v2 ni restaurar un lector v1 incompatible con los datos nuevos.
 
-## Spec delta propuesto y decisiones pendientes
+## Spec delta y decisiones (cerradas 0.2)
 
-Enmendar expresamente FABRICA 01 (exclusion por margen y multilisting, decisiones
-3/14 y residual de target manual) y FABRICA UI 01. Este borrador no cambia aun el
-contrato vigente de produccion ni los invariantes de dinero/maduracion del motor.
-No hay spec.md raiz en esta base; se usan los specs existentes del proyecto.
+Enmienda FABRICA 01 (decisiones 2/14 y residual 7 de target manual) y
+FABRICA UI 01 (exclusion por margen y multilisting). El codigo F1 de
+produccion no cambia hasta A. Invariantes de dinero/maduracion del motor
+intactos.
 
-Pendientes consultados al dueno: objetivo prioritario; target manual de prueba
-frente a margen proyectado previo; nuevas campanas solamente o tambien existentes.
-Hasta resolverlos, las alternativas figuran como propuestas, no como aprobaciones.
-La solicitud de formalizar el plan no cuenta como respuesta a esas decisiones.
+D1–D4 cerradas: acta `docs/evidencia/orbit-19/0.2/confirmacion.md`.
 
 ## Contratos verificables de la formalizacion
 
-### API, CLI y snapshots v2 (propuesta tecnica)
+### API, CLI y snapshots v2
 
 - API nueva: `listing_ids: list[int]`, sin duplicados; objetivo discriminado como
   `objetivo: {origen: "margen_medido"}` o
@@ -151,7 +152,7 @@ La solicitud de formalizar el plan no cuenta como respuesta a esas decisiones.
   `productos` con `listing_ids` o margen derivado con un objetivo manual.
 - Compatibilidad: aceptar el contrato antiguo `productos` y CLI `--productos`
   con su semantica anterior, sin convertir silenciosamente productos ambiguos.
-  CLI nuevo propone `--listing-ids` y `--target-acos` explicito. Un unico
+  CLI nuevo: `--listing-ids` y `--target-acos` explicito. Un unico
   normalizador produce el plan canonico, no dos motores de creacion.
 - Persistido v2: `schema_version=2`, publicaciones resueltas con listing_id,
   product_id, ASIN, seller SKU y plataforma; snapshot del objetivo y evidencia
@@ -162,7 +163,9 @@ La solicitud de formalizar el plan no cuenta como respuesta a esas decisiones.
 - Migracion expansiva y lector v1/v2 antes de habilitar nuevas creaciones. La
   version de reversa debe deshabilitar creaciones v2 y conservar lectura,
   registro, reconciliacion y pausa de v2; no volver al binario viejo incompatible.
-  El mecanismo concreto de deshabilitacion y su prueba se cierran en 0.2.
+  Mecanismo (0.2): setting `fabrica.creacion` = `v1`|`v2` (ausente = v1);
+  con v1 se rechazan altas `listing_ids`; lector/registrar/reconciliar/pausar
+  v2 siguen. Prueba en A.1/A.5.
 
 ### Comparacion y evidencia
 
@@ -175,7 +178,8 @@ Orden de evaluacion, con cobertura/madurez como ejes separados:
 
 1. Reporte faltante o cobertura no verificada: datos incompletos; sin etiqueta
    dentro/fuera. Los subtotales disponibles se identifican como parciales.
-2. Cobertura completa y sin actividad observada: Por probar en esta ventana.
+2. Cobertura verificada y sin actividad observada: Por probar en esta ventana.
+   No implica «nunca anunciado». Reporte faltante = Sin datos, no Por probar.
 3. Gasto positivo y Revenue Ads cero observado: Gasto sin ventas; ACoS=null.
 4. Revenue Ads positivo: ACoS=100*suma(gasto)/suma(Revenue Ads). Con objetivo
    explicito, igualdad cuenta Dentro del objetivo y mayor cuenta Por encima.
@@ -185,16 +189,14 @@ Orden de evaluacion, con cobertura/madurez como ejes separados:
    cobertura lo demuestran; de otro modo es desconocido.
 
 CPC=suma(gasto)/suma(clicks), CVR=100*suma(compras)/suma(clicks), con denominador
-positivo y cobertura compatible; en otro caso null. Los campos de compras y
-ventas, su componente promovido/halo y la ventana exacta de atribucion quedan
-sellados en 0.4 tras la muestra de fuente0.3. No construir B con ese contrato
-sin resolver ni combinar columnas de atribucion incompatible.
+positivo y cobertura compatible; en otro caso null. Campos 30d sellados en 0.4:
+`sales30d` total (incluye halo), `attributedSalesSameSku30d` promovido;
+`salesSameSku30d` no existe. Halo nombrado solo 7d. No mezclar ventanas.
 
 Ordenes soportados: margen observado, ventas totales, Revenue Ads, gasto,
 ACoS, CPC, CVR y compras; ascendente/descendente visible. Solo filas comparables
 por mercado, moneda, grano y ventana. Null al final en ambas direcciones,
-desempate estable por listing_id. No usar el orden como nota global de calidad.
-Orden inicial pendiente de preferencia; fallback tecnico neutral por SKU/ASIN.
+desempate estable por listing_id. Orden inicial D1: margen_neto_pct maduro.
 
 Evidencia siempre separa: (a) madurez de atribucion, (b) tamano de muestra y
 cobertura, (c) frescura de ingesta. No calificar confianza alta/media/baja sin
@@ -220,9 +222,8 @@ Fixtures de aceptacion con cifras ilustrativas, nunca valores sembrados:
 por fuente. La implementacion Ads exige fuente verificada: si no hay acceso,
 B.1 y la entrega B siguen pendientes. Mostrar null no completa el reporte Ads.
 Disponibilidad es recomendada: su ausencia admite el estado Sin verificar, sin
-bloquear B.4/B.5. La entrega completa debe declarar si integra disponibilidad
-real o si esa ampliacion queda pendiente. Margen con muestra limitada es
-propuesta de negocio en 0.2, no relajacion tacita del calculo del motor.
+bloquear B.4/B.5. Featured Offer no verificada. Margen con muestra limitada
+(D4) es UI, no relajacion del calculo del motor.
 
 ## Fuentes y evidencia
 

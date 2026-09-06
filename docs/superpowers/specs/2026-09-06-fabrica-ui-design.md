@@ -11,6 +11,10 @@ La sonda real de Amazon sigue diferida por instruccion explicita del dueno.
 - Amazon MX/US; cinco roles existentes, sin duplicar reglas del motor.
 - Productos reales, margen y causa de exclusion visibles. Sin inventar margenes,
   presupuestos, bids ni semillas. Productos con multiples listings no elegibles en F1.
+  **Enmienda ORBIT 19 / 0.2 (2026-09-06):** F1 vigente hasta A.4. Contrato nuevo:
+  checkbox por listing; multilisting y sin margen son seleccionables; preview
+  declara margen 0 / negativo / inferior al objetivo; API v1 `productos` se
+  conserva, v2 usa `listing_ids` + `objetivo`. Spec catalogo abierto.
 - Presupuestos y bids se capturan como strings decimales, moneda de la plataforma.
 - Modo shadow/live explicito: ambos crean campanas ACTIVAS y pueden gastar;
   shadow solo observa los ajustes del optimizador. La pantalla explica la diferencia.

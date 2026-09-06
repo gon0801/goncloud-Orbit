@@ -3,6 +3,14 @@
 **Estado: REVISADO (2026-09-05).** Decisiones del dueno en §1 (brainstorming
 formal, una pregunta a la vez); revision del lead contra el repo vivo con ok
 del dueno (decisiones 12-14 y correcciones en §2-§10).
+
+**Enmienda ORBIT 19 / 0.2 (2026-09-06).** No cambia el codigo F1 en
+produccion. Para la fase A: decisiones 2 y 14 dejan de excluir productos
+sin margen maduro, con margen 0 o negativo, o con varios listings; el
+target derivado solo aplica si todos tienen margen maduro **positivo** y
+el aplicado no supera ese margen; si no, ACoS manual (residual 7 absorbido).
+El manual no acredita rentabilidad. Decision 1 (solo campanas nuevas) se
+confirma (D3). Spec: `2026-09-06-catalogo-campanas-abierto-design.md`.
 Precedencia: `docs/CONTEXTO.md` (reglas 1-10) > `docs/traspaso/ADS_OPTIMIZER_V2_DESIGN.md` > este spec.
 Modulo 2 del roadmap (`docs/traspaso/MODULOS-AVANZADOS.md` §"Creación de
 Campañas por API"), acotado a Amazon SP con estructura fija; SB/SD y MeLi

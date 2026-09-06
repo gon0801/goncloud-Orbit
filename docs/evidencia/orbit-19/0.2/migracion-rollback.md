@@ -1,4 +1,7 @@
-# ORBIT 19 / 0.2 — Migraciones reservadas y rollback (PROPUESTO)
+# ORBIT 19 / 0.2 — Migraciones reservadas y rollback
+
+Cerrado 2026-09-06 21:31 UTC (`confirmacion.md`). 0018 sellada. 0019
+aplica en A.1; 0020 en B.1.
 
 0018 queda sellada. No se edita.
 
@@ -6,7 +9,7 @@
 
 | N | Alcance | Quien la aplica | Condicion |
 |---|---|---|---|
-| **0019** | Grupo/publicacion v2: PK por listing, margen nullable, origen de objetivo | A.1 | D2/D3 resueltos; no antes |
+| **0019** | Grupo/publicacion v2: PK por listing, margen nullable, origen de objetivo | A.1 | D2/D3 cerrados |
 | **0020** | Tabla append-only de metricas de producto anunciado (Ads) | B.1 | fuente Ads **verificada** en 0.3 |
 | **0021** | (opcional) snapshot de disponibilidad comercial | B.3 | fuente stock verificada; si no, no se reserva en firme |
 

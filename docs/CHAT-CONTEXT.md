@@ -4,6 +4,13 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-06 — ORBIT 19 Fase 0 cerrada (D1–D4 + contrato 0.2/0.4).**
+Confirmado 21:31 UTC. Orden por margen % maduro; ACoS manual si NULL/0/neg
+o clamp > margen; solo campanas nuevas; muestra limitada en UI. Por probar
+exige cobertura; el manual no acredita rentabilidad. API/CLI v2, 0019/0020
+y reversa v2 cerrados en papel. F1 de produccion intacto. A/B no arrancan
+hasta que se pida implementar. PR #185.
+
 **2026-09-06 — ORBIT 19: tres precisiones al contrato, 0.2 sigue abierto.**
 Por probar exige cobertura Ads verificada (si no, Sin datos; no prueba
 «nunca anunciado»). El objetivo manual no acredita rentabilidad; cero,
