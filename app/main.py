@@ -37,6 +37,9 @@ class _HeadersDashboard(BaseHTTPMiddleware):
             if not request.url.path.startswith(("/docs", "/redoc")):
                 response.headers["Content-Security-Policy"] = "default-src 'self'"
             response.headers["Cache-Control"] = "no-store"
+        if request.url.path.startswith("/static/"):
+            # Tambien aplica a 304: las URLs sin version deben revalidarse.
+            response.headers["Cache-Control"] = "no-cache"
         return response
 
 

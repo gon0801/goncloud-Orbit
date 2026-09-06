@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block estilos %}<link rel="stylesheet" href="/static/css/fabrica.css">{% endblock %}
+{% block estilos %}<link rel="stylesheet" href="/static/css/fabrica.css?v={{ asset_version }}">{% endblock %}
 {% block contenido %}
 <div class="fabrica">
   <p><a href="/campanas">← Volver a campañas</a></p>
@@ -143,4 +143,4 @@
   </section>
 </div>
 {% endblock %}
-{% block scripts %}<script src="/static/js/fabrica.js"></script>{% endblock %}
+{% block scripts %}<script src="/static/js/fabrica.js?v={{ asset_version }}"></script>{% endblock %}

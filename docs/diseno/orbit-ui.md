@@ -45,3 +45,13 @@ Pruebas focalizadas de templates, XSS, paginacion, paleta, KPI y flujo de fabric
 Regresiones de la nueva presentacion demostradas en rojo antes del cambio.
 Ruff y pre-commit locales. Bateria completa y harness con PostgreSQL en Quality
 CI del PR. Comprobacion visual local con Edge sobre base desechable del harness.
+
+## Correccion de cache tras el despliegue
+
+Un navegador con CSS/JS previos guardados mostraba el HTML nuevo con la piel
+anterior. Todos los CSS/JS locales llevan ahora `?v=<huella>` calculada desde
+sus contenidos al arrancar la app. Un cambio de archivo cambia la URL sin
+actualizar una version manual. `/static/` exige revalidacion mediante
+`Cache-Control: no-cache`, incluso en respuestas 304; el HTML sigue no-store.
+La prueba incluye contenido distinto con igual tamano/mtime y navegador con
+CSS anterior en cache. Los deploys deben reiniciar la app tras copiar codigo.
