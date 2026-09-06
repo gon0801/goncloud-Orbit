@@ -15,9 +15,14 @@ QUE HACE, EN ORDEN:
     productos con margen y seller_sku, semillas, campanas existentes de los
     mismos productos (SOLO se reportan, decision 9). Validacion SIN HTTP.
  2. Dry-run por defecto: lineas del plan + huella del conjunto; cero HTTP.
-    ESTA ENTREGA (tarea 6) TERMINA AQUI: unicamente lectura de DB.
- 3. Mutacion (--acepto-mutacion-real ...): pendiente de la tarea 7.
- 4. Reversa (--desarmar) y --reconciliar: pendientes de la tarea 9.
+ 3. Mutacion (--acepto-mutacion-real --esperado 5 --huella --go): ledger
+    pre-HTTP, POST propio (no app.ads.write), readback por LIST, sync y
+    registro del grupo con 5 goals. --registrar reintenta solo el registro.
+ 4. Reversa (--desarmar <lote>) y --reconciliar: pausa verificada y
+    promocion solo de lo verificado.
+
+Shapes de campanas/adGroups/targets y el camino feliz de productAds son
+HIPOTESIS hasta la sonda (tarea 11).
 
 CORRIDA (dentro del contenedor app, por stdin; la imagen solo trae app/):
 
@@ -39,20 +44,29 @@ tarea 11).
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime
 import json
 import logging
 import os
 import sys
-from decimal import Decimal, InvalidOperation
+import time
+from dataclasses import dataclass
+from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 from typing import Any
 
+import httpx
 import psycopg
+from psycopg.rows import tuple_row
 
 from app import fabrica_plan as fp
+from app import goals_write
+from app.ads.client import DEFAULT_BASE_URL, AdsClient
+from app.ads.config import AdsCredentials
+from app.ads.structure import evaluar_perfiles, fetch_structure, sync_structure
 from app.db import connect
 from app.optimizer.goals import fraccion_desde_settings
-from app.redaction import install_scrub_filter, scrub
+from app.redaction import install_scrub_filter, register_secret, scrub
 
 install_scrub_filter(logging.getLogger())
 
@@ -174,6 +188,113 @@ def _dsn(nombre: str) -> str:
 
 def _dsn_read() -> str:
     return _dsn("ORBIT_DSN_READ")
+
+
+def _dsn_admin() -> str:
+    return _dsn("ORBIT_DSN_ADMIN")
+
+
+def _dsn_ingest() -> str:
+    return _dsn("ORBIT_DSN_INGEST")
+
+
+API = DEFAULT_BASE_URL
+LWA_TOKEN_URL = "https://api.amazon.com/auth/o2/token"
+VENDOR_CAMPANAS = fp.VENDOR_POR_PATH["/sp/campaigns"]
+_ESPERADO_ROLES = 5
+_PAUSADA = "PAUSED"
+
+_SQL_INSERTA_LOTE = """
+INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal, huella,
+                          plan, modo_goal, estado)
+VALUES (%s, %s::platform, %s, %s, %s, %s, %s::jsonb, %s, 'planeado')
+"""
+_SQL_SELLA_LOTE = """
+UPDATE fabrica_lote SET estado = %s, detalle = %s, finished_at = now() WHERE lote = %s
+"""
+_SQL_INSERTA_PASO = """
+INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload, estado)
+VALUES (%s, %s, %s::campana_rol, %s, %s::jsonb, 'planeado')
+RETURNING id
+"""
+_SQL_SELLA_PASO_APPLIED = """
+UPDATE fabrica_lote_paso
+   SET estado = 'applied', external_id = %s, ack = %s::jsonb, readback_estado = %s
+ WHERE id = %s
+"""
+_SQL_SELLA_PASO_FAILED = """
+UPDATE fabrica_lote_paso
+   SET estado = 'failed', external_id = %s, ack = %s::jsonb, readback_estado = %s
+ WHERE id = %s
+"""
+_SQL_ID_ENTIDAD = """
+SELECT id FROM ad_entity WHERE platform = %s::platform AND kind = %s AND external_id = %s
+"""
+_SQL_INSERTA_GRUPO = """
+INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote, target_acos_pct,
+                           target_derivado_pct, fraccion, target_procedencia, go_literal)
+SELECT %s::platform, %s, %s, %s, %s, %s, %s, %s, go_literal
+  FROM fabrica_lote WHERE lote = %s
+ON CONFLICT (lote) DO UPDATE SET lote = EXCLUDED.lote
+RETURNING id
+"""
+_SQL_INSERTA_ROL = """
+INSERT INTO campana_grupo_rol (grupo_id, rol, ad_entity_id, ad_group_ad_entity_id)
+VALUES (%s, %s::campana_rol, %s, %s)
+ON CONFLICT DO NOTHING
+"""
+_SQL_INSERTA_PRODUCTO = """
+INSERT INTO campana_grupo_producto (grupo_id, product_id, listing_id, seller_sku, margen_neto_pct)
+VALUES (%s, %s, %s, %s, %s)
+ON CONFLICT DO NOTHING
+"""
+_SQL_GOAL_EXISTENTE = """
+SELECT id FROM ads_optimizer_goal WHERE ad_entity_id = %s AND scope = 'campaign'
+"""
+_SQL_CAMPANAS_APPLIED = """
+SELECT rol::text, recurso, external_id
+  FROM fabrica_lote_paso
+ WHERE lote = %s AND estado = 'applied' AND recurso IN ('campaign', 'ad_group')
+ ORDER BY orden
+"""
+_SQL_CAMPANAS_DEL_LOTE = """
+SELECT p.rol::text, p.external_id, g.id
+  FROM fabrica_lote_paso p
+  LEFT JOIN campana_grupo cg ON cg.lote = p.lote
+  LEFT JOIN campana_grupo_rol r ON r.grupo_id = cg.id AND r.rol = p.rol
+  LEFT JOIN ads_optimizer_goal g ON g.ad_entity_id = r.ad_entity_id AND g.scope = 'campaign'
+ WHERE p.lote = %s AND p.recurso = 'campaign'
+   AND p.estado IN ('applied', 'failed') AND p.external_id IS NOT NULL
+ ORDER BY p.orden
+"""
+_SQL_PENDIENTES = """
+SELECT p.id, p.lote, p.rol::text, l.platform::text, p.recurso, CASE p.recurso
+         WHEN 'campaign' THEN '/sp/campaigns' WHEN 'ad_group' THEN '/sp/adGroups'
+         WHEN 'product_ad' THEN '/sp/productAds' WHEN 'keyword' THEN '/sp/keywords'
+         WHEN 'target' THEN '/sp/targets' ELSE '/sp/negativeKeywords' END,
+       p.external_id, p.request_payload
+  FROM fabrica_lote_paso p
+  JOIN fabrica_lote l ON l.lote = p.lote
+ WHERE p.estado IN ('planeado', 'failed')
+   AND (%s::text IS NULL OR p.lote = %s)
+   AND (%s::platform IS NULL OR l.platform = %s::platform)
+ ORDER BY p.id
+"""
+_SQL_PROMUEVE_APPLIED = """
+UPDATE fabrica_lote_paso
+   SET estado = 'applied', ack = %s::jsonb, readback_estado = %s
+ WHERE id = %s AND estado IN ('planeado', 'failed')
+"""
+
+
+def _cierra(*recursos: Any) -> None:
+    """Cierra httpx/psycopg si tienen close. No inventa AdsClient.close."""
+    for recurso in recursos:
+        closer = getattr(recurso, "close", None)
+        if closer is None:
+            continue
+        with contextlib.suppress(Exception):
+            closer()
 
 
 # --- lecturas ----------------------------------------------------------------
@@ -398,7 +519,12 @@ def _parser() -> argparse.ArgumentParser:
     ap.add_argument("--esperado", type=int, default=None, help="campanas autorizadas (5)")
     ap.add_argument("--huella", default=None, help="huella del dry-run")
     ap.add_argument("--go", default=None, help="literal del dueno (va al ledger)")
-    ap.add_argument("--desarmar", default=None, help="lote a pausar (reversa, tarea 9)")
+    ap.add_argument(
+        "--registrar",
+        default=None,
+        help="lote failed cuyas campanas ya existen: reintenta solo sync + registro",
+    )
+    ap.add_argument("--desarmar", default=None, help="lote a pausar (reversa)")
     ap.add_argument("--reconciliar", action="store_true")
     ap.add_argument("--lote", default=None)
     return ap
@@ -420,27 +546,618 @@ def _valida_args_creacion(args) -> None:
         raise SystemExit(f"faltan argumentos obligatorios: {', '.join(faltan)}")
 
 
-# --- pendientes de tareas 7-9: rechazo explicito, esta entrega es solo lectura
+@dataclass
+class _Ctx:
+    http: Any
+    token: str
+    cred: AdsCredentials
+    cliente_lectura: Any
+    profile: int
+    conn_admin: psycopg.Connection
+    lote: str
+    orden: int = 0
 
 
-def _mutar(args, plan, huella) -> int:  # tarea 7
-    raise Abortar("--acepto-mutacion-real: pendiente de la tarea 7; esta entrega es solo lectura")
+def _token_lwa(cred: AdsCredentials, client) -> str:
+    resp = client.post(
+        LWA_TOKEN_URL,
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": cred.refresh_token,
+            "client_id": cred.client_id,
+            "client_secret": cred.client_secret,
+        },
+    )
+    if resp.status_code != 200:
+        raise Abortar(f"LWA {resp.status_code}: {scrub(resp.text[:300])}")
+    token = resp.json()["access_token"]
+    register_secret(token)
+    return token
 
 
-def _desarmar(args) -> int:  # tarea 9
-    raise Abortar("--desarmar: pendiente de la tarea 9; esta entrega es solo lectura")
+def _perfiles(cliente_lectura) -> dict[str, int]:
+    return {
+        p.platform: p.profile_id
+        for p in evaluar_perfiles(cliente_lectura)
+        if p.aceptado and p.platform and p.profile_id is not None
+    }
 
 
-def _reconciliar_cmd(args) -> int:  # tarea 9
-    raise Abortar("--reconciliar: pendiente de la tarea 9; esta entrega es solo lectura")
+def _post(client, token: str, cred: AdsCredentials, profile: int, path: str, payload: dict) -> dict:
+    vendor = fp.VENDOR_POR_PATH[path]
+    resp = client.post(
+        f"{API}{path}",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Amazon-Advertising-API-ClientId": cred.client_id,
+            "Amazon-Advertising-API-Scope": str(profile),
+            "Content-Type": vendor,
+            "Accept": vendor,
+        },
+        json={fp.ENVOLTURA_POR_PATH[path]: [payload]},
+    )
+    cuerpo: dict = {}
+    with contextlib.suppress(ValueError):
+        cuerpo = resp.json()
+    return {"status": resp.status_code, "cuerpo": cuerpo, "texto": scrub(resp.text[:400])}
+
+
+def _readback(cliente_lectura, profile: int, path_create: str, external: str) -> dict | None:
+    path_list = fp.LIST_POR_PATH[path_create]
+    clave = fp.CLAVE_ID_POR_PATH[path_create]
+    try:
+        resp = cliente_lectura.list_objects(
+            path_list,
+            {fp.FILTRO_ID_POR_LIST[path_list]: {"include": [str(external)]}},
+            profile_id=profile,
+        )
+    except Exception:
+        return None
+    if resp.status_code != 200:
+        return None
+    for fila in resp.json().get(fp.CONTENEDOR_POR_LIST[path_list]) or []:
+        if str(fila.get(clave)) == str(external):
+            return fila
+    return None
+
+
+def _expresion_normalizada(exp: Any) -> tuple:
+    if not isinstance(exp, list):
+        return ()
+    return tuple(
+        sorted((str(e.get("type")), str(e.get("value"))) for e in exp if isinstance(e, dict))
+    )
+
+
+def _monto_wire_cuadra(crudo_leido: Any, crudo_pedido: Any) -> bool:
+    if crudo_leido is None:
+        return False
+    try:
+        pedido = Decimal(str(crudo_pedido)).quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
+        leido = Decimal(str(crudo_leido)).quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
+    except (InvalidOperation, ValueError):
+        return False
+    return leido == pedido
+
+
+def _readback_cuadra(leido: dict | None, payload: dict) -> bool:
+    if not isinstance(leido, dict) or leido.get("state") != fp.ESTADO_NUEVO:
+        return False
+    for clave in ("keywordText", "matchType", "sku", "name", "targetingType"):
+        if clave in payload and str(leido.get(clave)) != str(payload[clave]):
+            return False
+    if "expression" in payload and (
+        _expresion_normalizada(leido.get("expression"))
+        != _expresion_normalizada(payload["expression"])
+    ):
+        return False
+    for clave in ("bid", "defaultBid"):
+        if clave in payload and not _monto_wire_cuadra(leido.get(clave), payload[clave]):
+            return False
+    pedido_budget = payload.get("budget")
+    if isinstance(pedido_budget, dict) and "budget" in pedido_budget:
+        leido_budget = leido.get("budget")
+        if not isinstance(leido_budget, dict) or not _monto_wire_cuadra(
+            leido_budget.get("budget"), pedido_budget["budget"]
+        ):
+            return False
+    return True
+
+
+def _inserta_lote(conn, lote: str, plan: fp.PlanGrupo, huella: str, go: str) -> None:
+    conn.execute(
+        _SQL_INSERTA_LOTE,
+        (
+            lote,
+            plan.platform,
+            plan.tipo_producto,
+            plan.nombre_base,
+            go,
+            huella,
+            json.dumps(fp.plan_como_json(plan)),
+            plan.modo,
+        ),
+    )
+    conn.commit()
+
+
+def _sella_lote(conn, lote: str, estado: str, detalle: str | None) -> None:
+    conn.execute(_SQL_SELLA_LOTE, (estado, detalle, lote))
+    conn.commit()
+
+
+def _inserta_paso(ctx: _Ctx, paso: fp.Paso, payload: dict) -> int:
+    ctx.orden += 1
+    fila = ctx.conn_admin.execute(
+        _SQL_INSERTA_PASO, (ctx.lote, ctx.orden, paso.rol, paso.recurso, json.dumps(payload))
+    ).fetchone()
+    ctx.conn_admin.commit()
+    return fila[0]
+
+
+def _sella_paso(ctx: _Ctx, paso_id: int, ok: bool, external, ack: dict, readback) -> None:
+    sql = _SQL_SELLA_PASO_APPLIED if ok else _SQL_SELLA_PASO_FAILED
+    ctx.conn_admin.execute(sql, (external, json.dumps(ack, default=str), readback, paso_id))
+    ctx.conn_admin.commit()
+
+
+def _falla_paso(ctx: _Ctx, paso: fp.Paso, paso_id: int, ack: dict, external, motivo: str) -> None:
+    _sella_paso(ctx, paso_id, False, external, ack, None)
+    raise Abortar(motivo)
+
+
+def _ejecuta_paso(ctx: _Ctx, paso: fp.Paso, padres: dict) -> str:
+    payload = {**padres, **paso.payload}
+    paso_id = _inserta_paso(ctx, paso, payload)
+    try:
+        ack = _post(ctx.http, ctx.token, ctx.cred, ctx.profile, paso.path, payload)
+    except Exception as exc:
+        ack = {"status": "excepcion", "cuerpo": {}, "texto": scrub(str(exc))[:300]}
+    if not fp.ack_ok(ack):
+        _falla_paso(
+            ctx,
+            paso,
+            paso_id,
+            ack,
+            None,
+            f"{paso.descripcion} ({paso.rol}) rechazado (status {ack.get('status')})",
+        )
+    external = fp.id_creado(ack, fp.CLAVE_ID_POR_PATH[paso.path])
+    if external is None:
+        _falla_paso(
+            ctx,
+            paso,
+            paso_id,
+            ack,
+            None,
+            f"{paso.descripcion} ({paso.rol}): el ack no trae {fp.CLAVE_ID_POR_PATH[paso.path]}",
+        )
+    time.sleep(0.3)
+    leido = _readback(ctx.cliente_lectura, ctx.profile, paso.path, external)
+    readback = leido.get("state") if isinstance(leido, dict) else None
+    cuadra = _readback_cuadra(leido, payload)
+    _log(
+        "paso",
+        lote=ctx.lote,
+        rol=paso.rol,
+        recurso=paso.recurso,
+        external=external,
+        ack=ack["cuerpo"],
+        readback=readback,
+        ok=cuadra,
+    )
+    _sella_paso(ctx, paso_id, cuadra, external, ack, readback)
+    if not cuadra:
+        raise Abortar(f"readback de {paso.descripcion} ({paso.rol}) no cuadra ({readback})")
+    return external
+
+
+def _ejecuta_rol(ctx: _Ctx, plan: fp.PlanGrupo, rol: str) -> dict:
+    pasos = fp.pasos_del_rol(plan, rol)
+    externos: dict = {"rol": rol, "product_ads": [], "semillas": []}
+    externos["campaign"] = _ejecuta_paso(ctx, pasos[0], {})
+    padres = {"campaignId": externos["campaign"]}
+    externos["ad_group"] = _ejecuta_paso(ctx, pasos[1], padres)
+    padres["adGroupId"] = externos["ad_group"]
+    for paso in pasos[2:]:
+        ext = _ejecuta_paso(ctx, paso, padres)
+        destino = externos["product_ads"] if paso.recurso == "product_ad" else externos["semillas"]
+        destino.append({"recurso": paso.recurso, "external": ext})
+    return externos
+
+
+def _valida_go(args, huella: str) -> None:
+    if args.esperado is None:
+        raise Abortar("mutacion real exige --esperado 5 (las 5 campanas del grupo)")
+    if args.esperado != _ESPERADO_ROLES:
+        raise Abortar(f"--esperado {args.esperado} != {_ESPERADO_ROLES} campanas del grupo")
+    if not args.huella:
+        raise Abortar("mutacion real exige --huella del dry-run (autorizacion por conjunto)")
+    if args.huella != huella:
+        raise Abortar(
+            f"--huella {args.huella} != huella del plan {huella}: el plan cambio, se re-autoriza"
+        )
+    if not args.go or not args.go.strip():
+        raise Abortar("mutacion real exige --go con el literal del dueno (no vacio)")
+
+
+def _sync(cliente_lectura) -> None:
+    conn_ingest = connect(_dsn_ingest())
+    try:
+        sync_structure(conn_ingest, fetch_structure(cliente_lectura))
+    finally:
+        _cierra(conn_ingest)
+
+
+def _id_entidad(conn, platform: str, kind: str, external: str) -> int:
+    fila = conn.execute(_SQL_ID_ENTIDAD, (platform, kind, external)).fetchone()
+    if fila is None:
+        raise Abortar(f"{kind} {external} no esta en ad_entity tras el sync: registro detenido")
+    return fila[0] if not isinstance(fila, dict) else fila["id"]
+
+
+def _registrar(ctx: _Ctx, plan: fp.PlanGrupo, creadas: list[dict]) -> int:
+    _sync(ctx.cliente_lectura)
+    conn = ctx.conn_admin
+    exact = next(c for c in creadas if c["rol"] == "category_exact")
+    ids = {
+        c["rol"]: (
+            _id_entidad(conn, plan.platform, "campaign", c["campaign"]),
+            _id_entidad(conn, plan.platform, "ad_group", c["ad_group"]),
+        )
+        for c in creadas
+    }
+    grupo = conn.execute(
+        _SQL_INSERTA_GRUPO,
+        (
+            plan.platform,
+            plan.tipo_producto,
+            plan.nombre_base,
+            ctx.lote,
+            plan.target.aplicado,
+            plan.target.derivado,
+            plan.target.fraccion,
+            plan.target.procedencia,
+            ctx.lote,
+        ),
+    ).fetchone()[0]
+    if isinstance(grupo, dict):
+        grupo = grupo["id"]
+    for rol, (camp_id, ag_id) in ids.items():
+        conn.execute(_SQL_INSERTA_ROL, (grupo, rol, camp_id, ag_id))
+    for p in plan.productos:
+        conn.execute(
+            _SQL_INSERTA_PRODUCTO,
+            (grupo, p.product_id, p.listing_id, p.seller_sku, p.margen_neto_pct),
+        )
+    conn.commit()
+    ahora = datetime.datetime.now(datetime.UTC)
+    bid_exact = plan.parametros["category_exact"].bid
+    for rol, (camp_id, _ag_id) in ids.items():
+        previo = conn.execute(_SQL_GOAL_EXISTENTE, (camp_id,)).fetchone()
+        if previo is not None:
+            goal_previo = previo["id"] if isinstance(previo, dict) else previo[0]
+            _log("goal_ya_existe", lote=ctx.lote, rol=rol, goal_id=goal_previo)
+            continue
+        goal = goals_write.crea_goal(
+            conn,
+            ad_entity_id=camp_id,
+            target_acos_pct=plan.target.aplicado,
+            bid_currency=plan.moneda,
+            mode=plan.modo,
+            harvest_campaign_id=exact["campaign"],
+            harvest_ad_group_id=exact["ad_group"],
+            harvest_default_bid=bid_exact,
+            created_at=ahora,
+        )
+        _log("goal_creado", lote=ctx.lote, rol=rol, goal_id=goal["id"], mode=plan.modo)
+    _log("grupo_registrado", lote=ctx.lote, grupo_id=grupo, target=str(plan.target.aplicado))
+    return grupo
+
+
+def _registrar_cmd(args) -> int:
+    conn_admin = connect(_dsn_admin())
+    try:
+        conn_admin.row_factory = tuple_row
+        fila = conn_admin.execute(
+            "SELECT plan, estado FROM fabrica_lote WHERE lote = %s", (args.registrar,)
+        ).fetchone()
+        if fila is None:
+            raise Abortar(f"lote {args.registrar} no existe")
+        plan_json, estado = fila
+        if estado == "applied":
+            raise Abortar(f"lote {args.registrar} ya esta applied: nada que registrar")
+        if estado == "desarmado":
+            raise Abortar(
+                f"lote {args.registrar} esta desarmado (campanas PAUSED): registrarlo "
+                "lo resucitaria a medias; si se quiere vivo, es decision nueva del dueno"
+            )
+        pasos = conn_admin.execute(_SQL_CAMPANAS_APPLIED, (args.registrar,)).fetchall()
+        conn_admin.commit()
+        creadas: dict[str, dict] = {}
+        for rol, recurso, external in pasos:
+            creadas.setdefault(rol, {"rol": rol, "product_ads": [], "semillas": []})[recurso] = (
+                external
+            )
+        faltan = [r for r in fp.ROLES_ORDEN_CREACION if "ad_group" not in creadas.get(r, {})]
+        if faltan:
+            raise Abortar(
+                f"lote {args.registrar} sin campana+ad group applied para"
+                f" {faltan}: --reconciliar primero"
+            )
+        plan = fp.plan_desde_json(plan_json)
+        cred = AdsCredentials.from_secrets_dir()
+        cliente_lectura = AdsClient(cred)
+        perfiles = _perfiles(cliente_lectura)
+        if plan.platform not in perfiles:
+            raise Abortar(f"sin perfil aceptado para {plan.platform}")
+        ctx = _Ctx(
+            None, "", cred, cliente_lectura, perfiles[plan.platform], conn_admin, args.registrar
+        )
+        _registrar(ctx, plan, [creadas[r] for r in fp.ROLES_ORDEN_CREACION])
+        _sella_lote(conn_admin, args.registrar, "applied", "registro reintentado")
+        return 0
+    finally:
+        _cierra(conn_admin)
+
+
+def _mutar(args, plan: fp.PlanGrupo, huella: str) -> int:
+    _valida_go(args, huella)
+    cred = AdsCredentials.from_secrets_dir()
+    cliente_lectura = AdsClient(cred)
+    perfiles = _perfiles(cliente_lectura)
+    _log("perfiles", perfiles=perfiles)
+    if plan.platform not in perfiles:
+        raise Abortar(f"sin perfil aceptado para {plan.platform}: no se muta")
+    conn_admin = None
+    http = None
+    try:
+        conn_admin = connect(_dsn_admin())
+        http = httpx.Client(timeout=httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0))
+        token = _token_lwa(cred, http)
+        lote = _lote_nuevo(plan)
+        _inserta_lote(conn_admin, lote, plan, huella, args.go)
+        ctx = _Ctx(http, token, cred, cliente_lectura, perfiles[plan.platform], conn_admin, lote)
+        creadas: list[dict] = []
+        try:
+            for rol in fp.ROLES_ORDEN_CREACION:
+                creadas.append(_ejecuta_rol(ctx, plan, rol))
+                _log("campana_creada", lote=lote, rol=rol, external=creadas[-1]["campaign"])
+        except Abortar as exc:
+            detalle = f"{exc} | creadas: {[c['rol'] for c in creadas]}"
+            _sella_lote(conn_admin, lote, "failed", detalle)
+            _log(
+                "lote_detenido",
+                lote=lote,
+                motivo=str(exc),
+                creadas=[c["rol"] for c in creadas],
+                nota="las creadas quedan ENABLED en Amazon; --desarmar <lote> las pausa",
+            )
+            raise
+        try:
+            _registrar(ctx, plan, creadas)
+        except Exception as exc:
+            conn_admin.rollback()
+            _sella_lote(
+                conn_admin,
+                lote,
+                "failed",
+                f"campanas creadas en Amazon, registro interno incompleto: {exc}",
+            )
+            _log(
+                "lote_detenido",
+                lote=lote,
+                motivo=f"registro: {exc}",
+                creadas=[c["rol"] for c in creadas],
+                nota="--registrar <lote> reintenta SOLO el registro (no toca Amazon)",
+            )
+            raise Abortar(f"registro interno incompleto: {exc}") from exc
+        _sella_lote(conn_admin, lote, "applied", None)
+        _log("reconciliacion_final", lote=lote, campanas=[c["campaign"] for c in creadas], ok=True)
+        return 0
+    finally:
+        _cierra(http, conn_admin)
+
+
+def _put_estado_campana(ctx: _Ctx, external: str, estado: str) -> dict:
+    resp = ctx.http.put(
+        f"{API}/sp/campaigns",
+        headers={
+            "Authorization": f"Bearer {ctx.token}",
+            "Amazon-Advertising-API-ClientId": ctx.cred.client_id,
+            "Amazon-Advertising-API-Scope": str(ctx.profile),
+            "Content-Type": VENDOR_CAMPANAS,
+            "Accept": VENDOR_CAMPANAS,
+        },
+        json={"campaigns": [{"campaignId": str(external), "state": estado}]},
+    )
+    cuerpo: dict = {}
+    with contextlib.suppress(ValueError):
+        cuerpo = resp.json()
+    return {"status": resp.status_code, "cuerpo": cuerpo, "texto": scrub(resp.text[:400])}
+
+
+def _pausa_una(ctx: _Ctx, rol: str, external: str, goal_id) -> None:
+    ack = _put_estado_campana(ctx, external, _PAUSADA)
+    if not fp.ack_ok(ack):
+        _log("lote_detenido", lote=ctx.lote, motivo=f"PUT PAUSED de {rol} rechazado")
+        raise Abortar(f"PUT PAUSED de {external} ({rol}) rechazado (status {ack.get('status')})")
+    time.sleep(0.3)
+    leido = _readback(ctx.cliente_lectura, ctx.profile, "/sp/campaigns", external)
+    estado = leido.get("state") if isinstance(leido, dict) else None
+    _log(
+        "desarmar",
+        lote=ctx.lote,
+        rol=rol,
+        external=external,
+        ack=ack["cuerpo"],
+        readback=estado,
+        ok=estado == _PAUSADA,
+    )
+    if estado != _PAUSADA:
+        raise Abortar(f"readback de {external} ({rol}) != PAUSED ({estado}): se detiene")
+    if goal_id is not None:
+        goals_write.edita_goal(
+            ctx.conn_admin,
+            goal_id,
+            enabled=False,
+            updated_at=datetime.datetime.now(datetime.UTC),
+        )
+
+
+def _desarmar(args) -> int:
+    conn_admin = None
+    http = None
+    try:
+        conn_admin = connect(_dsn_admin())
+        filas = conn_admin.execute(_SQL_CAMPANAS_DEL_LOTE, (args.desarmar,)).fetchall()
+        conn_admin.commit()
+        if not filas:
+            raise Abortar(
+                f"lote {args.desarmar} sin campanas que pausar en fabrica_lote_paso"
+                " (applied, o failed con external): nada que desarmar"
+            )
+        for rol, external, goal_id in filas:
+            print(f"{rol} | {external} | goal={goal_id} -> PAUSED + enabled=false", flush=True)
+        _log("plan_desarmar", lote=args.desarmar, campanas=len(filas))
+        if not args.acepto_mutacion_real:
+            _log(
+                "dry_run",
+                modo="desarmar",
+                lote=args.desarmar,
+                nota="sin --acepto-mutacion-real no se pausa nada",
+            )
+            return 0
+        if not args.go or not args.go.strip():
+            raise Abortar("desarmar real exige --go con el literal del dueno")
+        cred = AdsCredentials.from_secrets_dir()
+        cliente_lectura = AdsClient(cred)
+        perfiles = _perfiles(cliente_lectura)
+        platform = conn_admin.execute(
+            "SELECT platform::text FROM fabrica_lote WHERE lote = %s", (args.desarmar,)
+        ).fetchone()
+        if platform is None or platform[0] not in perfiles:
+            raise Abortar(f"sin perfil aceptado para el lote {args.desarmar}")
+        http = httpx.Client(timeout=httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0))
+        ctx = _Ctx(
+            http,
+            _token_lwa(cred, http),
+            cred,
+            cliente_lectura,
+            perfiles[platform[0]],
+            conn_admin,
+            args.desarmar,
+        )
+        pausadas = 0
+        for rol, external, goal_id in filas:
+            _pausa_una(ctx, rol, external, goal_id)
+            pausadas += 1
+        _sella_lote(conn_admin, args.desarmar, "desarmado", f"go: {args.go}")
+        _log("reconciliacion_final", lote=args.desarmar, pausadas=pausadas, ok=True)
+        return 0
+    finally:
+        _cierra(http, conn_admin)
+
+
+def _reconciliar(
+    conn_admin, cliente_lectura, perfiles: dict, lote: str | None, plataforma: str | None
+) -> dict:
+    filas = conn_admin.execute(_SQL_PENDIENTES, (lote, lote, plataforma, plataforma)).fetchall()
+    conn_admin.commit()
+    resumen = {"pendientes": len(filas), "recuperadas": 0, "sin_verificar": 0, "ausentes": 0}
+    por_plataforma: dict[str, list] = {}
+    for fila in filas:
+        por_plataforma.setdefault(fila[3], []).append(fila)
+    for plataforma_fila, pasos in por_plataforma.items():
+        profile = perfiles.get(plataforma_fila)
+        if profile is None:
+            _log(
+                "reconciliar_sin_perfil",
+                plataforma=plataforma_fila,
+                pasos=len(pasos),
+                nota="sin perfil aceptado: quedan sin verificar",
+            )
+            resumen["sin_verificar"] += len(pasos)
+            continue
+        for fid, lote_fila, rol, _plat, recurso, path, external, payload in pasos:
+            if external is None:
+                _log(
+                    "reconciliar_sin_external",
+                    paso=fid,
+                    lote=lote_fila,
+                    rol=rol,
+                    recurso=recurso,
+                    nota="el POST no dejo id: verificar a mano por nombre en la consola",
+                )
+                resumen["sin_verificar"] += 1
+                continue
+            leido = _readback(cliente_lectura, profile, path, external)
+            if leido is None:
+                resumen["sin_verificar"] += 1
+                _log(
+                    "reconciliar_sin_verificar",
+                    paso=fid,
+                    external=external,
+                    nota="el LIST no respondio o no lo trae",
+                )
+                continue
+            if not _readback_cuadra(leido, payload if isinstance(payload, dict) else {}):
+                resumen["ausentes"] += 1
+                _log(
+                    "reconciliar_no_cuadra", paso=fid, external=external, estado=leido.get("state")
+                )
+                continue
+            ack = {"fuente": "reconciliar", "external": external, "lote": lote_fila}
+            conn_admin.execute(_SQL_PROMUEVE_APPLIED, (json.dumps(ack), leido.get("state"), fid))
+            conn_admin.commit()
+            resumen["recuperadas"] += 1
+    _log("reconciliacion", lote=lote, **resumen)
+    if resumen["ausentes"]:
+        raise Abortar(
+            f"reconciliacion con {resumen['ausentes']} paso(s) que viven pero no cuadran"
+            " con el payload del ledger: verificacion manual (no se promueve a ciegas)"
+        )
+    if resumen["sin_verificar"]:
+        raise Abortar(
+            f"reconciliacion con {resumen['sin_verificar']} paso(s) sin verificar:"
+            " nada se promovio a ciegas"
+        )
+    return resumen
+
+
+def _reconciliar_cmd(args) -> int:
+    conn_admin = None
+    try:
+        if args.plataforma is None and args.lote is None:
+            raise Abortar("--reconciliar exige --lote X o --plataforma (para elegir el perfil)")
+        conn_admin = connect(_dsn_admin())
+        cred = AdsCredentials.from_secrets_dir()
+        cliente_lectura = AdsClient(cred)
+        perfiles = _perfiles(cliente_lectura)
+        platform = args.plataforma
+        if platform is None:
+            fila = conn_admin.execute(
+                "SELECT platform::text FROM fabrica_lote WHERE lote = %s", (args.lote,)
+            ).fetchone()
+            if fila is None:
+                raise Abortar(f"lote {args.lote} no existe")
+            platform = fila[0]
+        if platform not in perfiles:
+            raise Abortar(f"sin perfil aceptado para {platform}")
+        _reconciliar(conn_admin, cliente_lectura, perfiles, args.lote, platform)
+        return 0
+    finally:
+        _cierra(conn_admin)
 
 
 def main() -> int:
     args = _parser().parse_args()
     if args.reconciliar:
-        return _reconciliar_cmd(args)  # tarea 9
+        return _reconciliar_cmd(args)
+    if args.registrar is not None:
+        return _registrar_cmd(args)
     if args.desarmar is not None:
-        return _desarmar(args)  # tarea 9
+        return _desarmar(args)
     _valida_args_creacion(args)
     return _crear(args)
 
