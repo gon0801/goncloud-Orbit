@@ -96,10 +96,14 @@ def perforar_esquinas(im, *, forzar: bool = False):
         if not es_lienzo(r, g, b, a):
             continue
         pix[x, y] = (0, 0, 0, 0)
-        for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
-            if 0 <= nx < ancho and 0 <= ny < alto and not visitado[ny][nx]:
-                visitado[ny][nx] = True
-                cola.append((nx, ny))
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                if dx == 0 and dy == 0:
+                    continue
+                nx, ny = x + dx, y + dy
+                if 0 <= nx < ancho and 0 <= ny < alto and not visitado[ny][nx]:
+                    visitado[ny][nx] = True
+                    cola.append((nx, ny))
     suavizar_halo(pix, ancho, alto)
     return im
 

@@ -126,6 +126,25 @@ def _fallos_png(ruta: Path, px_esperado: int | None) -> list[str]:
             fallos.append(f"{ruta.name}: esquina ({x},{y}) alpha={a} (esperado 0)")
         if (r, g, b) == (255, 255, 255) and a == 255:
             fallos.append(f"{ruta.name}: esquina ({x},{y}) es blanco opaco")
+    fallos.extend(_orejas_blancas_en_borde(ruta.name, png))
+    return fallos
+
+
+def _orejas_blancas_en_borde(nombre: str, png: dict) -> list[str]:
+    """Blanco opaco pegado a transparente: oreja residual en el borde del squircle."""
+    w, h = png["ancho"], png["alto"]
+    vecinos = ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1))
+    fallos: list[str] = []
+    for y in range(h):
+        for x in range(w):
+            r, g, b, a = _pixel(png, x, y)
+            if a != 255 or r < 248 or g < 248 or b < 248:
+                continue
+            if any(
+                0 <= x + dx < w and 0 <= y + dy < h and _pixel(png, x + dx, y + dy)[3] == 0
+                for dx, dy in vecinos
+            ):
+                fallos.append(f"{nombre}: oreja blanca en ({x},{y}) rgba=({r},{g},{b},{a})")
     return fallos
 
 
@@ -237,4 +256,5 @@ def test_favicon_ico_frames_con_transparencia():
                 fallos.append(f"{etiqueta}: esquina ({x},{y}) alpha={a}")
             if (r, g, b) == (255, 255, 255) and a == 255:
                 fallos.append(f"{etiqueta}: esquina ({x},{y}) es blanco opaco")
+        fallos.extend(_orejas_blancas_en_borde(etiqueta, fr))
     assert not fallos, "favicon.ico invalido:\n" + "\n".join(fallos)

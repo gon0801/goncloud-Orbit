@@ -1218,6 +1218,7 @@ def test_ui_favicon_local_y_servido(monkeypatch):
         cliente = TestClient(app)
         html = cliente.get("/").text
         assert 'href="/static/favicon/favicon.ico"' in html
+        assert 'sizes="16x16 32x32 48x48"' in html
         assert 'href="/static/favicon/favicon-16.png"' in html
         assert 'href="/static/favicon/favicon-32.png"' in html
         assert 'href="/static/favicon/favicon-192.png"' in html
