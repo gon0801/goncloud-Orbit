@@ -111,8 +111,14 @@ def _grupo(conn, lote) -> int:
 
 
 def test_0018_parsea_y_trae_el_ddl_del_spec():
-    pglast.parse_sql(SQL18)  # revienta si no parsea
-    for tabla in (
+    """Estatico sobre el AST de pglast, NO sobre el texto (CodeRabbit PR #172:
+    los comentarios tambien dicen 'app_decide' y 'category_exact', asi que
+    `in SQL18` no probaba ningun invariante). GRANTs y triggers se ejercitan
+    de verdad contra Postgres en (b); aqui se fija su FORMA en el DDL."""
+    from pglast import ast, enums
+
+    stmts = [s.stmt for s in pglast.parse_sql(SQL18)]
+    tablas = {
         "fabrica_lote",
         "fabrica_lote_paso",
         "campana_grupo",
@@ -121,25 +127,67 @@ def test_0018_parsea_y_trae_el_ddl_del_spec():
         "keyword_biblioteca",
         "negative_biblioteca",
         "harvest_excepcion",
-    ):
-        assert f"CREATE TABLE {tabla}" in SQL18, tabla
-        assert f"COMMENT ON TABLE {tabla}" in SQL18, f"{tabla} sin COMMENT"
-    assert "CREATE TYPE campana_rol AS ENUM" in SQL18
-    for rol in (
+    }
+    creadas = {s.relation.relname for s in stmts if isinstance(s, ast.CreateStmt)}
+    assert tablas <= creadas, tablas - creadas
+    comentadas = set()
+    for s in stmts:
+        if isinstance(s, ast.CommentStmt) and s.objtype == enums.ObjectType.OBJECT_TABLE:
+            o = s.object
+            comentadas.add(getattr(o, "relname", None) or ".".join(x.sval for x in o))
+    assert tablas <= comentadas, f"sin COMMENT: {tablas - comentadas}"
+    enumerados = {
+        ".".join(n.sval for n in s.typeName): [v.sval for v in s.vals]
+        for s in stmts
+        if isinstance(s, ast.CreateEnumStmt)
+    }
+    assert enumerados["campana_rol"] == [
         "auto_discovery",
         "category_phrase",
         "product_targeting",
         "category_broad",
         "category_exact",
-    ):
-        assert f"'{rol}'" in SQL18
-    assert "paso_evidencia_applied" in SQL18, "applied exige external_id+ack+readback"
-    assert "grupo_rol_kinds" in SQL18, "trigger: campana y ad group con kind correcto"
-    assert "campana_grupo_producto_listing" in SQL18, "trigger: listing DEL producto y plataforma"
-    assert "harvest_excepcion_kind" in SQL18, "trigger: excepcion solo sobre kind=campaign"
-    for rol in ("app_read", "app_ingest", "app_decide", "app_admin"):
-        assert rol in SQL18
-    assert "GRANT INSERT, UPDATE ON" in SQL18 and "TO app_admin" in SQL18
+    ]
+    constraints = {
+        c.conname
+        for s in stmts
+        if isinstance(s, ast.CreateStmt)
+        for c in (s.tableElts or [])
+        if isinstance(c, ast.Constraint) and c.conname
+    }
+    assert "paso_evidencia_applied" in constraints, "applied exige external_id+ack+readback"
+    triggers = {s.trigname: s.relation.relname for s in stmts if isinstance(s, ast.CreateTrigStmt)}
+    assert triggers == {
+        "campana_grupo_rol_kinds": "campana_grupo_rol",
+        "campana_grupo_producto_listing": "campana_grupo_producto",
+        "harvest_excepcion_kind": "harvest_excepcion",
+    }
+    grants = [s for s in stmts if isinstance(s, ast.GrantStmt) and s.is_grant]
+
+    def objetos(g):
+        return {o.relname for o in g.objects}
+
+    def privilegios(g):
+        return {p.priv_name for p in (g.privileges or [])}
+
+    def roles(g):
+        return {r.rolename for r in g.grantees}
+
+    lectores = {"app_read", "app_ingest", "app_decide", "app_admin"}
+    con_select = set().union(
+        *[objetos(g) for g in grants if privilegios(g) == {"select"} and roles(g) == lectores]
+    )
+    assert tablas | {"v_margen_producto"} <= con_select, (
+        tablas | {"v_margen_producto"}
+    ) - con_select
+    escritura = [g for g in grants if privilegios(g) & {"insert", "update", "delete", "truncate"}]
+    assert escritura and all(roles(g) == {"app_admin"} for g in escritura), "solo app_admin escribe"
+    assert all(privilegios(g) == {"insert", "update"} for g in escritura), "sin DELETE/TRUNCATE"
+    assert set().union(*[objetos(g) for g in escritura]) == tablas
+    usos = [g for g in grants if privilegios(g) == {"usage"}]
+    assert usos and all(roles(g) == {"app_admin"} for g in usos), (
+        "USAGE de secuencias solo app_admin"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -524,7 +572,13 @@ def test_v_margen_producto_mezcla_de_moneda_en_denominadores_es_null():
     el margen del producto puro MXN (venta_plataforma quedo en 2 monedas);
     (ii) una orden con lineas cubiertas en dos monedas NULLea por
     n_monedas_orden (la misma linea USD tambien enciende el guard de
-    plataforma: ambos guards son fail-closed sobre el mismo hecho)."""
+    plataforma: ambos guards son fail-closed sobre el mismo hecho).
+    DECLARADO (CodeRabbit PR #172): el guard de la orden NO se puede aislar
+    por construccion — las lineas de una orden viven en la MISMA plataforma,
+    asi que toda orden mixta deja venta_plataforma en dos monedas y el guard
+    vp.n_monedas > 1 tambien dispara. Se conserva como defensa en
+    profundidad (si venta_plataforma filtrara por moneda algun dia, este
+    guard seguiria mordiendo); este test NO pretende discriminarlo."""
     hoy = dt.date.today()
     with db_fabrica() as conn:  # (i) denominador de la plataforma
         pa, _ = _producto(conn)
@@ -661,3 +715,25 @@ def test_v_margen_producto_fees_de_una_orden_en_dos_monedas_es_null():
             (pid,),
         ).fetchone()
         assert fila[0] is None, f"margen calculado sumando USD+MXN: {fila}"
+
+
+@_skip_db
+def test_v_margen_producto_ventana_no_depende_de_la_timezone_de_sesion():
+    """D-6 (CodeRabbit PR #172): `hasta` se calcula con la fecha UTC FIJADA en
+    la expresion, no con CURRENT_DATE (que sigue la TimeZone de la sesion y
+    haria que el mismo producto entre o salga del guard de 30 dias segun
+    quien consulte). En runtime se elige una zona cuya fecha local difiere
+    HOY de la UTC (UTC-12 por la manana UTC, UTC+14 por la tarde) y se exige
+    ventana_hasta = fecha UTC - 15, no la local - 15."""
+    ahora = dt.datetime.now(dt.UTC)
+    zona = "Etc/GMT+12" if ahora.hour < 12 else "Etc/GMT-14"  # POSIX: GMT+12 = UTC-12
+    with db_fabrica() as conn:
+        pid, _ = _producto(conn)
+        _ledger_producto(conn, pid, hoy=ahora.date())
+        conn.execute(f"SET TIME ZONE '{zona}'")
+        local = conn.execute("SELECT CURRENT_DATE").fetchone()[0]
+        assert local != ahora.date(), f"la zona {zona} debia mover la fecha local"
+        hasta = conn.execute(
+            "SELECT ventana_hasta FROM v_margen_producto WHERE product_id = %s", (pid,)
+        ).fetchone()[0]
+        assert hasta == ahora.date() - dt.timedelta(days=15), f"hasta={hasta} sigue la TZ local"

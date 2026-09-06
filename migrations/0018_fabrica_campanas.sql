@@ -284,7 +284,9 @@ CREATE VIEW v_margen_producto AS
 WITH ventana AS (
     -- arranque FIJO 2026-02-20 (= al primer valid_from de sku_cost; decision
     -- escrita del dueno, tarea 1). Es un literal, NO se deriva de sku_cost.
-    SELECT DATE '2026-02-20' AS desde, CURRENT_DATE - 15 AS hasta
+    -- hoy = fecha UTC FIJADA en la expresion (D-6): CURRENT_DATE sigue la
+    -- TimeZone de la sesion y moveria el guard de 30 dias segun quien consulte.
+    SELECT DATE '2026-02-20' AS desde, (now() AT TIME ZONE 'UTC')::date - 15 AS hasta
 ),
 ventas AS (
     SELECT l.platform, l.product_id, l.event_date, l.order_id,

@@ -1072,7 +1072,9 @@ CREATE VIEW v_margen_producto AS
 WITH ventana AS (
     -- arranque FIJO 2026-02-20 (= al primer valid_from de sku_cost; decision
     -- escrita del dueno, tarea 1). Es un literal, NO se deriva de sku_cost.
-    SELECT DATE '2026-02-20' AS desde, CURRENT_DATE - 15 AS hasta
+    -- hoy = fecha UTC FIJADA en la expresion (D-6): CURRENT_DATE sigue la
+    -- TimeZone de la sesion y moveria el guard de 30 dias segun quien consulte.
+    SELECT DATE '2026-02-20' AS desde, (now() AT TIME ZONE 'UTC')::date - 15 AS hasta
 ),
 ventas AS (
     SELECT l.platform, l.product_id, l.event_date, l.order_id,
@@ -1229,7 +1231,7 @@ Nota de regla 2: el guard `dias < 30` y el arranque `DATE '2026-02-20'` son la d
 - [x] **Step 4: Correr y ver el verde**
 
 Run: `pytest tests/test_fabrica_migracion.py -v`
-Expected: PASS (15 tests: 8 de la tarea 2 + 5 de la vista + 2 de regresión de moneda D-3/D-4; 14 exigen Postgres). Si `test_v_margen_producto_un_producto_reproduce_la_plataforma` difiere de la plataforma, el bug está en el prorrateo: con un producto y cobertura 1, `cargos_sin_orden` debe ser exactamente el total de plataforma.
+Expected: PASS (16 tests: 8 de la tarea 2 + 5 de la vista + 2 de regresión de moneda D-3/D-4 + 1 de TimeZone D-6; 15 exigen Postgres). Si `test_v_margen_producto_un_producto_reproduce_la_plataforma` difiere de la plataforma, el bug está en el prorrateo: con un producto y cobertura 1, `cargos_sin_orden` debe ser exactamente el total de plataforma.
 
 - [x] **Step 5: Commit (misma rama que la tarea 2, mismo PR)**
 
@@ -2391,7 +2393,10 @@ def test_dias_minimos_y_arranque_de_ventana_pineados_contra_el_sql():
     )
     assert fp.MARGEN_DIAS_MIN_PRODUCTO == 30 and fp.MARGEN_VENTANA_DESDE == dt.date(2026, 2, 20)
     assert f"a.dias_con_venta < {fp.MARGEN_DIAS_MIN_PRODUCTO} THEN NULL" in sql
-    assert f"SELECT DATE '{fp.MARGEN_VENTANA_DESDE.isoformat()}' AS desde, CURRENT_DATE - 15 AS hasta" in sql
+    assert (
+        f"SELECT DATE '{fp.MARGEN_VENTANA_DESDE.isoformat()}' AS desde,"
+        " (now() AT TIME ZONE 'UTC')::date - 15 AS hasta"
+    ) in sql
 
 
 def test_cobertura_minima_pineada_contra_el_sql():
@@ -5046,7 +5051,7 @@ Marker `cc:完了` en las 11 tareas de este plan + línea final en `docs/CHAT-CO
    en "Decisiones y evidencia — Tareas 2-3". Un test que pasa igual sin la migración no cuenta.
 4. **Local: solo `tests/test_fabrica_migracion.py`**. La batería completa corre UNA vez, en
    CI, al abrir el PR (`quality.yml` levanta Postgres 16 y exporta `ORBIT_TEST_DSN`). **Un
-   skip NO es verde**: 14 de los 15 tests exigen Postgres; sin uno local, levantarlo igual
+   skip NO es verde**: 15 de los 16 tests exigen Postgres; sin uno local, levantarlo igual
    al de CI (`docker run -d --name orbit-test-pg -e POSTGRES_USER=orbit -e
    POSTGRES_PASSWORD=orbit -e POSTGRES_DB=postgres -p 5432:5432 postgres:16` y
    `export ORBIT_TEST_DSN=postgresql://orbit:orbit@localhost:5432/postgres`; el usuario
@@ -5067,7 +5072,7 @@ Marker `cc:完了` en las 11 tareas de este plan + línea final en `docs/CHAT-CO
 ### Lo que ya está decidido (no re-decidir)
 
 - **Ventana y guard de `v_margen_producto`**: `SELECT DATE '2026-02-20' AS desde,
-  CURRENT_DATE - 15 AS hasta` y `WHEN a.dias_con_venta < 30 THEN NULL` — decisión escrita
+  (now() AT TIME ZONE 'UTC')::date - 15 AS hasta` (fecha UTC fijada, D-6) y `WHEN a.dias_con_venta < 30 THEN NULL` — decisión escrita
   del dueño (tarea 1). Literales en el SQL; las constantes que los pinean llegan en la 5.
 - **Cobertura** `< 0.95` literal (= `MARGEN_COBERTURA_MIN` del motor; el pin es de la 5).
 - **Orden de migraciones** `ORDEN` del test (0001, 0002, 0003, 0004, 0013, 0014, 0015,
@@ -5260,6 +5265,10 @@ tests/test_fabrica_migracion.py:656: AssertionError
 ```
 
 **D-5 (CodeRabbit PR #172, Major, aplicada por el lead):** `campana_grupo_producto` guarda `seller_sku` aparte de `listing_id` y el trigger `campana_grupo_producto_listing` validaba producto y plataforma pero NO que `seller_sku` fuera el del listing: un snapshot desalineado produciría un `POST /sp/productAds` con un SKU inexistente y el error aparecería hasta el HTTP (contra el fail-closed temprano del spec §5.1). Fix: `AND l.seller_sku = NEW.seller_sku` en el trigger (migración y bloque del plan) + aserción de regresión en `test_grupo_producto_exige_listing_del_producto_y_plataforma` demostrada roja (`Failed: DID NOT RAISE CheckViolation`) antes del fix. La tarea 8 (registro interno) hereda el guard: el snapshot se escribe con el `seller_sku` que la tarea 6 leyó del mismo listing. El menor de CodeRabbit (conteo de tests en `docs/CHAT-CONTEXT.md`) también corregido.
+
+**D-6 (CodeRabbit PR #172, Major, aplicada por el lead):** el `COMMENT` de la vista declara la ventana en UTC pero `CURRENT_DATE` sigue la `TimeZone` de la sesión: una sesión en `America/Mexico_City` resolvería otro `hasta` y el mismo producto entraría o saldría del guard de 30 días según quién consulte. En producción hoy no muerde (DB `Etc/UTC`, contenedor app sin `TZ`), pero es la regla sellada del repo (invariantes con UTC fijado en la expresión). Fix: `(now() AT TIME ZONE 'UTC')::date - 15` en la CTE `ventana` (migración, bloque del plan, cadena del test que pinea en la tarea 5 y brief) + `test_v_margen_producto_ventana_no_depende_de_la_timezone_de_sesion`, que elige en runtime una zona cuya fecha local difiere de la UTC y exige `ventana_hasta = UTC - 15`; demostrado rojo contra `CURRENT_DATE`. Deuda declarada, fuera de este PR: `v_target_margen_plataforma` (0015/0016) usa `CURRENT_DATE` con la misma suposición (A10 de 0015); `test_v_margen_producto_un_producto_reproduce_la_plataforma` compara ambas bajo `SET TIME ZONE 'UTC'`, donde son idénticas.
+
+**D-7 (CodeRabbit PR #172, Major + Minor, aplicadas por el lead):** el test estático buscaba subcadenas en el archivo completo (comentarios incluidos: `app_decide` y `category_exact` aparecen en COMMENTs), así que no probaba ningún invariante. Reescrito sobre el AST de pglast: `CreateStmt` (8 tablas), `CommentStmt` (COMMENT de cada tabla), `CreateEnumStmt` (los 5 roles en orden), `Constraint` (`paso_evidencia_applied`), `CreateTrigStmt` (3 triggers con su tabla) y `GrantStmt` (SELECT a los 4 roles sobre tablas y vista; INSERT/UPDATE SOLO a `app_admin`, sin DELETE/TRUNCATE; USAGE de secuencias solo `app_admin`). Minor: el caso (ii) de `test_v_margen_producto_mezcla_de_moneda_en_denominadores_es_null` no puede aislar el guard `n_monedas_orden` por construcción (las líneas de una orden viven en la misma plataforma, así que `vp.n_monedas > 1` dispara siempre a la vez); queda declarado en el docstring como defensa en profundidad, no como guard discriminado. A partir de aquí `tests/test_fabrica_migracion.py` es la fuente de verdad de los tests de 0018; el bloque de tests del plan (tareas 2-3) queda como fue escrito originalmente. Conteo final: 16 tests (1 estático + 15 Postgres).
 
 **Nota menor:** ruff (corrido tras escribir solo la parte de la tarea 2) autoremovió `import datetime as dt` y `from decimal import Decimal` por no usarse aún; se restauraron al agregar los tests de la vista. Sin efecto en el código copiado.
 
