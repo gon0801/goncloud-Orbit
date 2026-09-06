@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block contenido %}
-<h2>Campanas — metricas 30d y target efectivo con procedencia</h2>
+<h2>Campañas — metricas 30d y target efectivo con procedencia</h2>
 <p class="mutado">La ventana 30d incluye siempre dias inmaduros (D-8..D-1):
    los totales y el ACoS aun maduran.</p>
 <div class="tarjeta">
@@ -23,7 +23,7 @@
         <option value="ARCHIVED"{% if vista.filtros.estado == "ARCHIVED" %} selected{% endif %}>archivada</option>
       </select>
     </label>
-    <label>Campana
+    <label>Campaña
       <input type="search" name="nombre" value="{{ vista.filtros.nombre or "" }}" placeholder="nombre">
     </label>
     <label>Cost
@@ -55,7 +55,7 @@
   <table>
     <thead>
       <tr>
-        <th aria-sort="{% if vista.ordenar == 'nombre' %}{% if vista.dir == 'desc' %}descending{% else %}ascending{% endif %}{% else %}none{% endif %}"><a href="{{ vista.hrefs_orden.nombre }}">Campana{% if vista.ordenar == 'nombre' %}{% if vista.dir == 'desc' %} ↓{% else %} ↑{% endif %}{% endif %}</a></th>
+        <th aria-sort="{% if vista.ordenar == 'nombre' %}{% if vista.dir == 'desc' %}descending{% else %}ascending{% endif %}{% else %}none{% endif %}"><a href="{{ vista.hrefs_orden.nombre }}">Campaña{% if vista.ordenar == 'nombre' %}{% if vista.dir == 'desc' %} ↓{% else %} ↑{% endif %}{% endif %}</a></th>
         <th aria-sort="{% if vista.ordenar == 'estado' %}{% if vista.dir == 'desc' %}descending{% else %}ascending{% endif %}{% else %}none{% endif %}"><a href="{{ vista.hrefs_orden.estado }}">Estado{% if vista.ordenar == 'estado' %}{% if vista.dir == 'desc' %} ↓{% else %} ↑{% endif %}{% endif %}</a></th>
         <th aria-sort="{% if vista.ordenar == 'plataforma' %}{% if vista.dir == 'desc' %}descending{% else %}ascending{% endif %}{% else %}none{% endif %}"><a href="{{ vista.hrefs_orden.plataforma }}">Plataforma{% if vista.ordenar == 'plataforma' %}{% if vista.dir == 'desc' %} ↓{% else %} ↑{% endif %}{% endif %}</a></th>
         <th class="num" aria-sort="{% if vista.ordenar == 'cost' %}{% if vista.dir == 'desc' %}descending{% else %}ascending{% endif %}{% else %}none{% endif %}"><a href="{{ vista.hrefs_orden.cost }}">Cost (30d){% if vista.ordenar == 'cost' %}{% if vista.dir == 'desc' %} ↓{% else %} ↑{% endif %}{% endif %}</a></th>
@@ -100,7 +100,7 @@
     </tbody>
   </table>
   {% if vista.activo and not items %}
-  <p class="mutado">Ninguna campana coincide con el filtro.</p>
+  <p class="mutado">Ninguna campaña coincide con el filtro.</p>
   {% endif %}
 </div>
 {% endblock %}

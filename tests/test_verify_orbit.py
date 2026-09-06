@@ -68,8 +68,11 @@ def test_drive_cortes_conduce_la_pantalla_vigente(dashboard):
     assert prueba["ok"] is True
 
 
-@pytest.mark.parametrize("pantalla", ["decisiones", "contribucion", "inertes"])
-def test_drives_conducen_el_dashboard_vigente(dashboard, pantalla):
+@pytest.mark.parametrize(
+    "pantalla", ["decisiones", "contribucion", "inertes", "campanas", "resumen", "salud"]
+)
+def test_drives_conducen_el_dashboard_vigente(dashboard, monkeypatch, pantalla):
+    monkeypatch.setattr(dashboard, "_chrome_screenshot", lambda *args, **kwargs: True)
     getattr(dashboard, "cmd_drive_" + pantalla)(argparse.Namespace(run_id="prueba"))
     prueba = json.loads((dashboard.EVIDENCE_ROOT / f"prueba/{pantalla}/PROOF.json").read_text())
     assert prueba["ok"] is True

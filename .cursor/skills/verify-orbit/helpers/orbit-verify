@@ -646,7 +646,7 @@ def cmd_drive_campanas(args: argparse.Namespace) -> None:
     checks = {
         "http_200": st == 200,
         "data-pantalla=campanas": 'data-pantalla="campanas"' in texto,
-        "h2_campanas": "Campanas — metricas 30d y target efectivo con procedencia" in texto,
+        "h2_campanas": "Campañas — metricas 30d y target efectivo con procedencia" in texto,
         "nav_aria_current": 'href="/campanas"' in texto and 'aria-current="page"' in texto,
         "fila_campana_a": "Campana A" in texto,
         "chip_activa": "activa" in texto,
@@ -679,7 +679,7 @@ def cmd_drive_campanas(args: argparse.Namespace) -> None:
     (evidence / "05-campanas-filtro-mx.html").write_bytes(html_mx)
     texto_mx = html_mx.decode("utf-8", errors="replace")
     checks["filtro_mx_200"] = st_mx == 200
-    checks["filtro_mx_vacio"] = "Ninguna campana coincide con el filtro." in texto_mx
+    checks["filtro_mx_vacio"] = "Ninguna campaña coincide con el filtro." in texto_mx
     checks["filtro_mx_sin_campana_a"] = "Campana A" not in texto_mx
 
     st_us, _, html_us = _http(f"{base}/campanas?plataforma=amazon_us")
@@ -991,8 +991,8 @@ def cmd_drive_contribucion(args: argparse.Namespace) -> None:
     checks: dict[str, bool] = {
         "http_200": st_html == 200,
         "data-pantalla=contribucion": 'data-pantalla="contribucion"' in texto,
-        "h2_contribucion": "Contribucion por campana" in texto,
-        "no_hay_filas": "Sin campanas con actividad madura en la ventana." in texto,
+        "h2_contribucion": "Contribucion por campaña" in texto,
+        "no_hay_filas": "Sin campañas con actividad madura en la ventana." in texto,
     }
 
     stj, _, rawj = _http(f"{base}/api/dashboard/contribucion")

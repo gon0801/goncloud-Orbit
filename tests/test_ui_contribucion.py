@@ -134,7 +134,7 @@ def test_ui_contribucion_plataforma_vacia_no_rompe(monkeypatch):
     )
     assert "<h2>amazon_mx" in html
     assert "<h2>amazon_us" in html
-    assert "sin campanas con actividad" in html.lower() or "—" in html
+    assert "sin campañas con actividad" in html.lower() or "—" in html
 
 
 def test_ui_contribucion_fx_source_visible_cuando_aplica(monkeypatch):

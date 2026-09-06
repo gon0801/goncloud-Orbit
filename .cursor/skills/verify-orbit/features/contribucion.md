@@ -8,7 +8,7 @@ Sin JS: tabla server-rendered. No es decisoria (etiqueta fija).
 ## Sub-features
 
 - `contribucion-nav` abre `/contribucion` desde el nav y marca `aria-current="page"`.
-- `contribucion-vacio` sin hijas con metrica madura muestra `Sin campanas con actividad madura en la ventana.`
+- `contribucion-vacio` sin hijas con metrica madura muestra `Sin campañas con actividad madura en la ventana.`
 - `contribucion-rango` si hay fila, el rango se ve como `contrib_sin_halo .. contrib_con_halo` con moneda y etiqueta; ausencia es `—` mas motivo, nunca 0.
 - `contribucion-api` `GET /api/dashboard/contribucion` es el mismo snapshot.
 
@@ -27,8 +27,8 @@ Preconditions:
   (`tests/test_ui_contribucion.py`); eso no va en este fixture (regla 3).
 
 - **Partir de Resumen.** Corre `curl -sS "$BASE/"`. Status 200 y `data-pantalla="resumen"`.
-- **Seguir el nav.** Corre `curl -sS -D - "$BASE/contribucion"`. Status 200. El HTML contiene `data-pantalla="contribucion"`, `h2` `Contribucion por campana — rango pre-cargos (90d maduros)`, `href="/contribucion"` junto a `aria-current="page"`, y bloques `amazon_us` / `amazon_mx`.
-- **Leer el vacio de la semilla.** El HTML contiene `Sin campanas con actividad madura en la ventana.` No afirma un rango numerico contra esta semilla.
+- **Seguir el nav.** Corre `curl -sS -D - "$BASE/contribucion"`. Status 200. El HTML contiene `data-pantalla="contribucion"`, `h2` `Contribucion por campaña — rango pre-cargos (90d maduros)`, `href="/contribucion"` junto a `aria-current="page"`, y bloques `amazon_us` / `amazon_mx`.
+- **Leer el vacio de la semilla.** El HTML contiene `Sin campañas con actividad madura en la ventana.` No afirma un rango numerico contra esta semilla.
 - **Confirmar lado JSON.** Corre `curl -sS "$BASE/api/dashboard/contribucion"`. Status 200. `plataformas.amazon_us.filas` y `plataformas.amazon_mx.filas` son listas vacias. `plataformas.amazon_us.ventana.desde` / `.hasta` estan presentes (D-15-89 y D-15 UTC). No hay `ventana` en la raiz del JSON.
 - **Proof.** Guarda HTML de `/` y `/contribucion` mas el JSON bajo `evidence/<run_id>/contribucion/`.
 
