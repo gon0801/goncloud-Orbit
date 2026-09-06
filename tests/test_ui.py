@@ -161,7 +161,7 @@ def test_ui_cortes_xss_search_term_escapado():
     assert PAYLOAD_XSS not in html
     assert "&lt;script&gt;" in html
     assert 'href="/cortes"' in html, "el nav del dashboard enlaza la pantalla de cortes"
-    assert 'src="/static/js/cortes.js"' in html, "el JS del veto vive en /static (CSP 'self')"
+    assert 'src="/static/js/cortes.js?v=' in html, "el JS del veto vive en /static (CSP 'self')"
 
 
 def test_ui_cortes_entidad_muestra_nombre_no_external_id():
@@ -1162,7 +1162,7 @@ def test_ui_propuestas_titulo_y_menu_d1():
     assert "Cortes pendientes de veto" not in html
     assert 'href="/cortes"' in html, "el href NO cambia (enlaces vivos)"
     assert ">Propuestas<span" in html, "el nav de base.html dice Propuestas"
-    assert 'src="/static/js/cortes.js"' in html
+    assert 'src="/static/js/cortes.js?v=' in html
 
 
 @pytest.mark.skipif(

@@ -28,6 +28,7 @@ DETERMINISMO: las paginas delegan en los endpoints (que ya usan `_hoy_utc`).
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
+from hashlib import sha256
 from pathlib import Path
 from typing import Annotated
 from urllib.parse import urlencode
@@ -49,6 +50,20 @@ _TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 # el search_term del comprador nunca se inyecta crudo en el HTML (los tests
 # de 1.6 lo VERIFICAN, no lo asumen — regla 9).
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+
+
+def version_estaticos(raiz: Path) -> str:
+    """Huella de CSS/JS al arrancar: un deploy nuevo no hereda la cache vieja."""
+    huella = sha256()
+    for archivo in sorted(raiz.rglob("*")):
+        if archivo.is_file() and archivo.suffix in (".css", ".js"):
+            huella.update(archivo.relative_to(raiz).as_posix().encode())
+            huella.update(b"\0")
+            huella.update(sha256(archivo.read_bytes()).digest())
+    return huella.hexdigest()[:16]
+
+
+templates.env.globals["asset_version"] = version_estaticos(_TEMPLATES_DIR.parent / "static")
 
 
 def dinero_ui(valor: str | None) -> str | None:

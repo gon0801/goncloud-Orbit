@@ -41,7 +41,7 @@ def test_ui_html_default_dia_y_boton_tema(monkeypatch):
     html = _html_sin_db(monkeypatch, "/", serie_plataforma=_serie_vacia)
     assert 'data-tema="dia"' in html
     assert 'id="btn-tema"' in html
-    assert 'src="/static/js/tema.js"' in html
+    assert 'src="/static/js/tema.js?v=' in html
     assert "onclick=" not in html
     assert "<style" not in html
     assert "http://" not in html and "https://" not in html

@@ -60,8 +60,8 @@ def test_pantalla_sin_db_con_semantica_de_gasto_y_activos_locales():
     assert "CREAR 5 CAMPAÑAS" in respuesta.text
     assert "default-src 'self'" in respuesta.headers["content-security-policy"]
     assert respuesta.headers["cache-control"] == "no-store"
-    assert 'src="/static/js/fabrica.js"' in respuesta.text
-    assert 'href="/static/css/fabrica.css"' in respuesta.text
+    assert 'src="/static/js/fabrica.js?v=' in respuesta.text
+    assert 'href="/static/css/fabrica.css?v=' in respuesta.text
     for tag, attrs in Elementos(respuesta.text).elementos:
         assert not any(nombre.startswith("on") for nombre in attrs)
         assert "style" not in attrs

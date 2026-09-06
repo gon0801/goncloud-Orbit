@@ -4,6 +4,11 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-06 — Correccion de cache del rediseno.**
+El navegador del dueno reutilizo CSS/JS viejos con HTML nuevo. Los recursos
+locales ganan URLs versionadas por contenido y revalidacion explicita.
+Verificado en navegador con la hoja de estilos anterior guardada en cache.
+
 **2026-09-06 — ORBIT 18: rediseno visual del dashboard en preparacion de PR.**
 Las nueve pantallas existentes adoptan sidebar, paleta morada, tarjetas compactas
 y temas dia/noche del handoff del dueno. KPIs conservan monedas separadas,
