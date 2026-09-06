@@ -4,6 +4,14 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-06 — FABRICA 01 (PR #177 correcciones F1-F4): cuatro candados del
+registro/mutacion ya no dejan pasar lotes incompletos ni IDs perdidos.**
+`--registrar` exige el ledger completo (product ads y semillas, no solo
+campaign/ad_group). Tras un POST exitoso el ID+ACK se graba antes del LIST; un
+JSON malformado sella failed con el id durable. `ORBIT_DSN_INGEST` se valida
+antes de mutar. HTTP 5xx se declara INCERTO (no rechazo). Sin merge ni deploy;
+la sonda (tarea 11) sigue pendiente.
+
 **2026-09-06 — FABRICA 01 (F1) lista para revisión: ya existe la herramienta que crea un grupo de 5 campañas nuevas (auto, phrase, broad, productos, exact) para un tipo de producto, con el target sacado del margen real más bajo del grupo y con anuncios por producto.** No crea nada sola: ensaya, muestra la huella, y solo con tu literal crea, verifica cada pieza contra Amazon y registra el grupo con sus metas. Si algo sale mal, se detiene y dice qué quedó creado; `--desarmar` pausa las 5. Nada se ha creado todavía en producción: el primer grupo real es la sonda que corre el lead con un producto y presupuestos mínimos. Los formatos que Amazon espera siguen siendo hipótesis hasta esa sonda.
 
 **2026-09-06 — FABRICA 01 (revisión de tarea 6): la simulación ya conserva los datos faltantes.** Si falta gasto, ingreso u órdenes en uno de los días, esa métrica queda desconocida y no permite proponer el término para exact con una rentabilidad inventada. El gasto cero sigue siendo válido y una observación completa posterior corrige el dato. Se comprobó el fallo antes del arreglo y se añadieron pruebas del CLI para México y Estados Unidos, incluido el margen del ledger en pesos para campañas con pujas en dólares. Las 61 pruebas del bloque pasan contra Postgres real; la tarea sigue en revisión en el PR #176.

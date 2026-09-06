@@ -5639,6 +5639,42 @@ $ git diff --check
 0 skipped (los de DB corrieron contra PG 16 local).
 Tareas 7-10 cerradas. Tarea 11 (sonda) y ORBIT 17 siguen pendientes.
 
+### Decisiones D-CURSOR-177 (correcciones F1-F4 sobre #177)
+
+**D-CURSOR-177-F1 (registro exige ledger completo).** `--registrar` solo
+procede si el ledger del lote contiene **todos** los pasos que
+`pasos_del_rol` + `ROLES_ORDEN_CREACION` exigen, cada uno en `applied` con
+`external_id` + `ack` + `readback_estado` no vacios. La identidad del paso se
+compara por campos (name/sku/keywordText/matchType/expression + padres), no
+por `json.dumps` completo. Si falta alguno: aborta antes de sync/goals;
+estado del lote no pasa a `applied`.
+
+**D-CURSOR-177-F2 (ACK durable antes del LIST).** Tras POST 207 OK, se hace
+`UPDATE` de `external_id`+`ack` + `COMMIT` **antes** de `sleep`/LIST, con el
+paso aun no-`applied` (sigue `planeado` hasta verificar). LIST con JSON
+invalido o shape malformado no escapa: sella `failed` CON el `external_id`
+ya durable, aborta INCERTO, no hay siguiente POST. `--desarmar` ve el id.
+No se inventan estados nuevos del CHECK.
+
+**D-CURSOR-177-F3 (DSN ingest antes de mutar).** `_mutar` autorizado valida
+`ORBIT_DSN_INGEST` no vacio via `_dsn_ingest()` **antes** de LWA, lote o
+cualquier POST. Dry-run sigue sin DSNs de escritura.
+
+**D-CURSOR-177-F4 (5xx = INCERTO).** HTTP 500/502/503/504 en el POST de
+creacion se etiquetan INCERTO (como timeout): no reintento automatico, no
+"rechazado". 4xx sigue siendo rechazo.
+
+**Evidencia F1-F4 (rojo contra d27fa80 / verde con fix):**
+
+```
+$ git stash push -- tools/fabrica_campanas.py   # codigo d27fa80
+$ PYTHONPATH=. .venv/bin/python -m pytest tests/test_fabrica_campanas.py -k "f1_ or f2_ or f3_ or f4_" -q
+14 failed, 1 passed, 46 deselected   # f4_400 ya era rechazo correcto
+$ git stash pop
+$ PYTHONPATH=. .venv/bin/python -m pytest tests/test_fabrica_campanas.py tests/test_architecture.py -q
+80 passed
+```
+
 **Cross review kimi (APPROVE 8b9066b) — 2 P2 de cobertura corregidos
 (2026-09-05, misma rama):** no eran defectos del tool, sino huecos de test.
 

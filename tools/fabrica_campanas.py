@@ -227,6 +227,13 @@ UPDATE fabrica_lote_paso
    SET estado = 'failed', external_id = %s, ack = %s::jsonb, readback_estado = %s
  WHERE id = %s
 """
+# D-CURSOR-177-F2: ID+ACK durables ANTES del LIST; el paso sigue planeado
+# hasta que el readback verifique (applied exige readback_estado en el CHECK).
+_SQL_SELLA_PASO_ACK = """
+UPDATE fabrica_lote_paso
+   SET external_id = %s, ack = %s::jsonb
+ WHERE id = %s AND estado = 'planeado'
+"""
 _SQL_ID_ENTIDAD = """
 SELECT id FROM ad_entity WHERE platform = %s::platform AND kind = %s AND external_id = %s
 """
@@ -258,6 +265,13 @@ SELECT rol::text, recurso, external_id
  WHERE lote = %s AND estado = 'applied' AND recurso IN ('campaign', 'ad_group')
  ORDER BY orden
 """
+# D-CURSOR-177-F1: ledger completo (no solo campaign/ad_group) para --registrar.
+_SQL_PASOS_LOTE = """
+SELECT orden, rol::text, recurso, estado, external_id, request_payload, ack, readback_estado
+  FROM fabrica_lote_paso
+ WHERE lote = %s
+ ORDER BY orden
+"""
 _SQL_CAMPANAS_DEL_LOTE = """
 SELECT p.rol::text, p.external_id, g.id
   FROM fabrica_lote_paso p
@@ -286,6 +300,8 @@ UPDATE fabrica_lote_paso
    SET estado = 'applied', ack = %s::jsonb, readback_estado = %s
  WHERE id = %s AND estado IN ('planeado', 'failed')
 """
+# D-CURSOR-177-F4: Amazon pudo crear aunque el HTTP diga 5xx.
+_HTTP_INCERTO = frozenset({500, 502, 503, 504})
 
 
 def _cierra(*recursos: Any) -> None:
@@ -617,8 +633,17 @@ def _readback(cliente_lectura, profile: int, path_create: str, external: str) ->
         return None
     if resp.status_code != 200:
         return None
-    for fila in resp.json().get(fp.CONTENEDOR_POR_LIST[path_list]) or []:
-        if str(fila.get(clave)) == str(external):
+    try:
+        cuerpo = resp.json()
+    except Exception:
+        return None
+    if not isinstance(cuerpo, dict):
+        return None
+    contenedor = cuerpo.get(fp.CONTENEDOR_POR_LIST[path_list])
+    if not isinstance(contenedor, list):
+        return None
+    for fila in contenedor:
+        if isinstance(fila, dict) and str(fila.get(clave)) == str(external):
             return fila
     return None
 
@@ -715,9 +740,26 @@ def _sella_paso(ctx: _Ctx, paso_id: int, ok: bool, external, ack: dict, readback
     ctx.conn_admin.commit()
 
 
+def _guarda_ack(ctx: _Ctx, paso_id: int, external: str, ack: dict) -> None:
+    """D-CURSOR-177-F2: persiste ID+ACK con COMMIT antes del sleep/LIST."""
+    ctx.conn_admin.execute(_SQL_SELLA_PASO_ACK, (external, json.dumps(ack, default=str), paso_id))
+    ctx.conn_admin.commit()
+
+
 def _falla_paso(ctx: _Ctx, paso: fp.Paso, paso_id: int, ack: dict, external, motivo: str) -> None:
     _sella_paso(ctx, paso_id, False, external, ack, None)
     raise Abortar(motivo)
+
+
+def _motivo_post_fallido(paso: fp.Paso, ack: dict) -> str:
+    status = ack.get("status")
+    if status == "excepcion" or status in _HTTP_INCERTO:
+        return (
+            f"{paso.descripcion} ({paso.rol}) INCERTO (status {status}):"
+            " Amazon pudo crear un ENABLED; no reintentar este POST;"
+            " --desarmar solo pausa filas con external_id"
+        )
+    return f"{paso.descripcion} ({paso.rol}) rechazado (status {status})"
 
 
 def _ejecuta_paso(ctx: _Ctx, paso: fp.Paso, padres: dict) -> str:
@@ -728,16 +770,7 @@ def _ejecuta_paso(ctx: _Ctx, paso: fp.Paso, padres: dict) -> str:
     except Exception as exc:
         ack = {"status": "excepcion", "cuerpo": {}, "texto": scrub(str(exc))[:300]}
     if not fp.ack_ok(ack):
-        # excepcion/timeout = resultado INCERTO (Amazon pudo crear); 4xx = rechazo
-        if ack.get("status") == "excepcion":
-            motivo = (
-                f"{paso.descripcion} ({paso.rol}) INCERTO (status excepcion):"
-                " Amazon pudo crear un ENABLED; no reintentar este POST;"
-                " --desarmar solo pausa filas con external_id"
-            )
-        else:
-            motivo = f"{paso.descripcion} ({paso.rol}) rechazado (status {ack.get('status')})"
-        _falla_paso(ctx, paso, paso_id, ack, None, motivo)
+        _falla_paso(ctx, paso, paso_id, ack, None, _motivo_post_fallido(paso, ack))
     external = fp.id_creado(ack, fp.CLAVE_ID_POR_PATH[paso.path])
     if external is None:
         _falla_paso(
@@ -750,8 +783,22 @@ def _ejecuta_paso(ctx: _Ctx, paso: fp.Paso, padres: dict) -> str:
             f" {fp.CLAVE_ID_POR_PATH[paso.path]}; Amazon pudo crear;"
             " no reintentar este POST; --desarmar solo pausa filas con external_id",
         )
+    # ID confirmado: durable ANTES del LIST (sigue planeado hasta verificar).
+    _guarda_ack(ctx, paso_id, str(external), ack)
+    ctx.conocidos.append({"rol": paso.rol, "recurso": paso.recurso, "external": str(external)})
     time.sleep(0.3)
-    leido = _readback(ctx.cliente_lectura, ctx.profile, paso.path, external)
+    try:
+        leido = _readback(ctx.cliente_lectura, ctx.profile, paso.path, external)
+    except Exception as exc:
+        leido = None
+        _log(
+            "readback_excepcion",
+            lote=ctx.lote,
+            rol=paso.rol,
+            recurso=paso.recurso,
+            external=external,
+            error=scrub(str(exc))[:200],
+        )
     readback = leido.get("state") if isinstance(leido, dict) else None
     cuadra = _readback_cuadra(leido, payload)
     _log(
@@ -765,10 +812,6 @@ def _ejecuta_paso(ctx: _Ctx, paso: fp.Paso, padres: dict) -> str:
         ok=cuadra,
     )
     _sella_paso(ctx, paso_id, cuadra, external, ack, readback)
-    # Aunque el readback no cuadre, el id ya existe en Amazon y en el ledger
-    # (failed CON external): --desarmar lo ve. Declararlo en conocidos/motivo
-    # evita que el resumen parezca vacio y se re-autorice otro grupo (Grok SF1).
-    ctx.conocidos.append({"rol": paso.rol, "recurso": paso.recurso, "external": str(external)})
     if not cuadra:
         raise Abortar(
             f"readback de {paso.descripcion} ({paso.rol}) no cuadra ({readback});"
@@ -901,6 +944,108 @@ def _registrar(ctx: _Ctx, plan: fp.PlanGrupo, creadas: list[dict]) -> int:
     return grupo
 
 
+def _payload_como_dict(raw: Any) -> dict:
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        return json.loads(raw)
+    if raw is None:
+        return {}
+    return dict(raw)
+
+
+def _fila_paso(fila) -> dict:
+    if isinstance(fila, dict):
+        return fila
+    claves = (
+        "orden",
+        "rol",
+        "recurso",
+        "estado",
+        "external_id",
+        "request_payload",
+        "ack",
+        "readback_estado",
+    )
+    return dict(zip(claves, fila, strict=True))
+
+
+def _pedido_con_padres(paso: fp.Paso, camp: str | None, ag: str | None) -> dict:
+    if paso.recurso == "campaign":
+        return dict(paso.payload)
+    if paso.recurso == "ad_group":
+        return {**paso.payload, "campaignId": camp}
+    return {**paso.payload, "campaignId": camp, "adGroupId": ag}
+
+
+def _identidad_coincide(recurso: str, pedido: dict, guardado: Any) -> bool:
+    """Compara identidad del paso (campos), no el JSON serializado completo."""
+    g = _payload_como_dict(guardado)
+    claves = {
+        "campaign": ("name", "targetingType"),
+        "ad_group": ("name", "campaignId"),
+        "product_ad": ("sku", "campaignId", "adGroupId"),
+        "keyword": ("keywordText", "matchType", "campaignId", "adGroupId"),
+        "target": ("campaignId", "adGroupId"),
+        "negative_keyword": ("keywordText", "matchType", "campaignId", "adGroupId"),
+    }
+    for clave in claves.get(recurso, ()):
+        if clave in pedido and str(g.get(clave)) != str(pedido[clave]):
+            return False
+    if recurso == "target" and "expression" in pedido:
+        return _expresion_normalizada(g.get("expression")) == _expresion_normalizada(
+            pedido["expression"]
+        )
+    return True
+
+
+def _exige_ledger_completo(conn, plan: fp.PlanGrupo, lote: str) -> None:
+    """D-CURSOR-177-F1: todos los pasos de pasos_del_rol deben estar applied."""
+    filas = [_fila_paso(f) for f in conn.execute(_SQL_PASOS_LOTE, (lote,)).fetchall()]
+    camp_ag: dict[str, dict[str, str]] = {}
+    for f in filas:
+        if (
+            f["estado"] == "applied"
+            and f["external_id"]
+            and f["recurso"] in ("campaign", "ad_group")
+        ):
+            camp_ag.setdefault(f["rol"], {})[f["recurso"]] = str(f["external_id"])
+    usados: set[int] = set()
+    faltan: list[str] = []
+    for rol in fp.ROLES_ORDEN_CREACION:
+        ids = camp_ag.get(rol, {})
+        if "campaign" not in ids or "ad_group" not in ids:
+            faltan.append(f"{rol}: falta campaign/ad_group applied")
+            continue
+        camp, ag = ids["campaign"], ids["ad_group"]
+        for paso in fp.pasos_del_rol(plan, rol):
+            pedido = _pedido_con_padres(paso, camp, ag)
+            match_i = None
+            for i, f in enumerate(filas):
+                if i in usados or f["rol"] != rol or f["recurso"] != paso.recurso:
+                    continue
+                if not _identidad_coincide(paso.recurso, pedido, f["request_payload"]):
+                    continue
+                match_i = i
+                break
+            if match_i is None:
+                faltan.append(f"{rol}/{paso.recurso}: ausente en ledger")
+                continue
+            usados.add(match_i)
+            f = filas[match_i]
+            if (
+                f["estado"] != "applied"
+                or not f["external_id"]
+                or f["ack"] is None
+                or not f["readback_estado"]
+            ):
+                faltan.append(
+                    f"{rol}/{paso.recurso}: estado={f['estado']} (exige applied con evidencia)"
+                )
+    if faltan:
+        raise Abortar(f"lote {lote} incompleto para registrar: {'; '.join(faltan)}")
+
+
 def _registrar_cmd(args) -> int:
     conn_admin = connect(_dsn_admin())
     try:
@@ -918,6 +1063,8 @@ def _registrar_cmd(args) -> int:
                 f"lote {args.registrar} esta desarmado (campanas PAUSED): registrarlo "
                 "lo resucitaria a medias; si se quiere vivo, es decision nueva del dueno"
             )
+        plan = fp.plan_desde_json(plan_json)
+        _exige_ledger_completo(conn_admin, plan, args.registrar)
         pasos = conn_admin.execute(_SQL_CAMPANAS_APPLIED, (args.registrar,)).fetchall()
         conn_admin.commit()
         creadas: dict[str, dict] = {}
@@ -931,7 +1078,6 @@ def _registrar_cmd(args) -> int:
                 f"lote {args.registrar} sin campana+ad group applied para"
                 f" {faltan}: --reconciliar primero"
             )
-        plan = fp.plan_desde_json(plan_json)
         cred = AdsCredentials.from_secrets_dir()
         cliente_lectura = AdsClient(cred)
         perfiles = _perfiles(cliente_lectura)
@@ -949,6 +1095,8 @@ def _registrar_cmd(args) -> int:
 
 def _mutar(args, plan: fp.PlanGrupo, huella: str) -> int:
     _valida_go(args, huella)
+    # D-CURSOR-177-F3: falla cerrado antes de LWA/lote/POST (spec §5.1).
+    _dsn_ingest()
     cred = AdsCredentials.from_secrets_dir()
     cliente_lectura = AdsClient(cred)
     perfiles = _perfiles(cliente_lectura)

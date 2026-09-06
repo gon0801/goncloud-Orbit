@@ -331,6 +331,7 @@ class _ConnFalsa:
         secuencia=None,
         lote_fila=None,
         pendientes=(),
+        pasos_ledger=(),
         grupo=(),
         lote_platform="amazon_mx",
         goals=(),
@@ -345,6 +346,7 @@ class _ConnFalsa:
         self.secuencia = secuencia
         self.lote_fila = lote_fila
         self.pendientes = list(pendientes)
+        self.pasos_ledger = list(pasos_ledger)
         self.grupo = list(grupo)
         self.lote_platform = lote_platform
         self.goals = list(goals)
@@ -388,6 +390,8 @@ class _ConnFalsa:
             return _Cursor(self._pendientes_filtrados(params))
         if "from fabrica_lote_paso" in bajo and "recurso in" in bajo:
             return _Cursor(self.pendientes)
+        if "from fabrica_lote_paso" in bajo and "request_payload" in bajo:
+            return _Cursor(self.pasos_ledger)
         if "from fabrica_lote" in bajo and "plan" in bajo:
             return _Cursor([self.lote_fila] if self.lote_fila is not None else [])
         if "from fabrica_lote" in bajo and "platform" in bajo:
@@ -762,8 +766,16 @@ def _frontera_mutacion(
 ):
     _frontera_lectura(monkeypatch, conn_read)
     monkeypatch.setenv("ORBIT_DSN_ADMIN", "dsn-admin")
+    # D-CURSOR-177-F3: mutacion autorizada exige INGEST antes de POST.
+    monkeypatch.setenv("ORBIT_DSN_INGEST", "dsn-ingest")
     monkeypatch.setattr(
-        fc, "connect", lambda dsn: {"dsn-read": conn_read, "dsn-admin": conn_admin}[dsn]
+        fc,
+        "connect",
+        lambda dsn: {
+            "dsn-read": conn_read,
+            "dsn-admin": conn_admin,
+            "dsn-ingest": conn_admin,
+        }[dsn],
     )
     monkeypatch.setattr(
         AdsCredentials, "from_secrets_dir", classmethod(lambda cls, *a, **k: _CREDS)
@@ -1122,6 +1134,79 @@ def _plan_min():
     )
 
 
+def _plan_con_semillas():
+    return dataclasses.replace(
+        _plan_min(),
+        semillas=fp.Semillas(("kw1",), ("B0ASINSAME1",), ("neg1",), ("exact1",)),
+    )
+
+
+def _filas_ledger(
+    plan,
+    *,
+    omitir=None,
+    forzar_estado=None,
+    solo_camp_ag=False,
+):
+    """Filas (orden, rol, recurso, estado, external_id, payload, ack, readback).
+
+    omitir: set de (rol, recurso) que nunca se insertan.
+    forzar_estado: {(rol, recurso): estado} sobreescribe el estado applied.
+    """
+    omitir = omitir or set()
+    forzar_estado = forzar_estado or {}
+    filas = []
+    orden = 0
+    for rol in fp.ROLES_ORDEN_CREACION:
+        camp, ag = f"c-{rol}", f"ag-{rol}"
+        for paso in fp.pasos_del_rol(plan, rol):
+            if solo_camp_ag and paso.recurso not in ("campaign", "ad_group"):
+                continue
+            orden += 1
+            if (rol, paso.recurso) in omitir:
+                continue
+            if paso.recurso == "campaign":
+                pedido, ext = dict(paso.payload), camp
+            elif paso.recurso == "ad_group":
+                pedido, ext = {**paso.payload, "campaignId": camp}, ag
+            else:
+                pedido = {**paso.payload, "campaignId": camp, "adGroupId": ag}
+                ext = f"{paso.recurso}-{rol}-{orden}"
+            estado = forzar_estado.get((rol, paso.recurso), "applied")
+            ack = {"status": 207} if estado != "planeado" or ext else None
+            readback = "ENABLED" if estado == "applied" else None
+            filas.append((orden, rol, paso.recurso, estado, ext, pedido, ack, readback))
+    return filas
+
+
+def _camp_ag_de_ledger(filas):
+    return [
+        (rol, recurso, ext)
+        for _o, rol, recurso, estado, ext, *_rest in filas
+        if recurso in ("campaign", "ad_group") and estado == "applied"
+    ]
+
+
+def _siembra_ledger_pg(conn, lote, filas):
+    for orden, rol, recurso, estado, ext, pedido, ack, readback in filas:
+        conn.execute(
+            "INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload,"
+            " external_id, ack, readback_estado, estado) VALUES (%s, %s, %s::campana_rol,"
+            " %s, %s::jsonb, %s, %s::jsonb, %s, %s)",
+            (
+                lote,
+                orden,
+                rol,
+                recurso,
+                Json(pedido),
+                ext,
+                Json(ack) if ack is not None else None,
+                readback,
+                estado,
+            ),
+        )
+
+
 @_skip_db
 def test_registrar_escribe_grupo_roles_productos_y_goals(monkeypatch):
     with db_fabrica("orbit_fab_reg") as conn:
@@ -1233,13 +1318,14 @@ def test_sync_usa_dsn_ingest_y_el_escritor_unico(monkeypatch):
 
 
 def test_registrar_cmd_reintenta_solo_el_registro(monkeypatch):
-    plan_json = fp.plan_como_json(_plan_min())
-    pasos = [
-        (rol, recurso, f"{prefijo}-{rol}")
-        for rol in fp.ROLES_ORDEN_CREACION
-        for recurso, prefijo in (("campaign", "c"), ("ad_group", "ag"))
-    ]
-    conn_admin = _ConnFalsa(lote_fila=(plan_json, "failed"), pendientes=pasos)
+    plan = _plan_min()
+    plan_json = fp.plan_como_json(plan)
+    ledger = _filas_ledger(plan)
+    conn_admin = _ConnFalsa(
+        lote_fila=(plan_json, "failed"),
+        pendientes=_camp_ag_de_ledger(ledger),
+        pasos_ledger=ledger,
+    )
     amazon = _Amazon()
     llamadas = []
     _frontera_mutacion(monkeypatch, _ConnFalsa(), conn_admin, amazon, stub_registrar=False)
@@ -1279,16 +1365,7 @@ def test_registrar_cmd_doble_corrida_es_idempotente(monkeypatch):
             " 'Collar', 'go', 'h', %s, 'shadow', 'failed')",
             (Json(fp.plan_como_json(plan)),),
         )
-        orden = 0
-        for c in _CREADAS:
-            for recurso, ext in (("campaign", c["campaign"]), ("ad_group", c["ad_group"])):
-                orden += 1
-                conn.execute(
-                    "INSERT INTO fabrica_lote_paso (lote, orden, rol, recurso, request_payload,"
-                    " external_id, ack, readback_estado, estado) VALUES ('L1', %s,"
-                    " %s::campana_rol, %s, '{}'::jsonb, %s, '{}'::jsonb, 'ENABLED', 'applied')",
-                    (orden, c["rol"], recurso, ext),
-                )
+        _siembra_ledger_pg(conn, "L1", _filas_ledger(plan))
         monkeypatch.setattr(fc, "connect", lambda dsn: conn)
         conn.close = lambda: None  # el cmd cierra; la fixture reusa esta conn
         monkeypatch.setenv("ORBIT_DSN_ADMIN", "postgresql://fake")
@@ -1333,14 +1410,16 @@ def test_registrar_rechaza_lote_desarmado(monkeypatch):
 
 
 def test_registrar_aborta_si_goal_existente_apagado(monkeypatch):
-    plan_json = fp.plan_como_json(_plan_min())
-    pasos = [
-        (rol, recurso, f"{prefijo}-{rol}")
-        for rol in fp.ROLES_ORDEN_CREACION
-        for recurso, prefijo in (("campaign", "c"), ("ad_group", "ag"))
-    ]
+    plan = _plan_min()
+    plan_json = fp.plan_como_json(plan)
+    ledger = _filas_ledger(plan)
     goals = [(50, False, "shadow", "c-category_exact", "ag-category_exact", Decimal("6.00"))]
-    conn_admin = _ConnFalsa(lote_fila=(plan_json, "failed"), pendientes=pasos, goals=goals)
+    conn_admin = _ConnFalsa(
+        lote_fila=(plan_json, "failed"),
+        pendientes=_camp_ag_de_ledger(ledger),
+        pasos_ledger=ledger,
+        goals=goals,
+    )
     _frontera_mutacion(monkeypatch, _ConnFalsa(), conn_admin, _Amazon(), stub_registrar=False)
     monkeypatch.setattr(fc, "_sync", lambda cliente: None)
     monkeypatch.setattr(fc, "_id_entidad", lambda c, p, k, e: 7)
@@ -1353,6 +1432,274 @@ def test_registrar_aborta_si_goal_existente_apagado(monkeypatch):
         if s.lower().startswith("update fabrica_lote ") and p[0] == "applied"
     ]
     assert sellos == []
+
+
+def test_f1_registrar_aborta_si_ultimo_product_ad_failed(monkeypatch):
+    plan = _plan_min()
+    ultimo = fp.ROLES_ORDEN_CREACION[-1]
+    ledger = _filas_ledger(plan, forzar_estado={(ultimo, "product_ad"): "failed"})
+    conn_admin = _ConnFalsa(
+        lote_fila=(fp.plan_como_json(plan), "failed"),
+        pendientes=_camp_ag_de_ledger(ledger),
+        pasos_ledger=ledger,
+    )
+    llamadas = []
+    _frontera_mutacion(monkeypatch, _ConnFalsa(), conn_admin, _Amazon(), stub_registrar=False)
+    monkeypatch.setattr(fc, "_sync", lambda c: llamadas.append("sync"))
+    monkeypatch.setattr(
+        fc.goals_write, "crea_goal", lambda c, **kw: llamadas.append("goal") or {"id": 1}
+    )
+    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", "--registrar", "L1"])
+    with pytest.raises(fc.Abortar, match="incompleto"):
+        fc.main()
+    assert llamadas == []
+    assert not any(
+        p[0] == "applied"
+        for s, p in conn_admin.escrituras
+        if s.lower().startswith("update fabrica_lote ")
+    )
+
+
+def test_f1_registrar_aborta_si_semilla_final_planeada(monkeypatch):
+    plan = _plan_con_semillas()
+    ledger = _filas_ledger(plan, forzar_estado={("auto_discovery", "negative_keyword"): "planeado"})
+    conn_admin = _ConnFalsa(
+        lote_fila=(fp.plan_como_json(plan), "failed"),
+        pendientes=_camp_ag_de_ledger(ledger),
+        pasos_ledger=ledger,
+    )
+    llamadas = []
+    _frontera_mutacion(monkeypatch, _ConnFalsa(), conn_admin, _Amazon(), stub_registrar=False)
+    monkeypatch.setattr(fc, "_sync", lambda c: llamadas.append("sync"))
+    monkeypatch.setattr(
+        fc.goals_write, "crea_goal", lambda c, **kw: llamadas.append("goal") or {"id": 1}
+    )
+    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", "--registrar", "L1"])
+    with pytest.raises(fc.Abortar, match="incompleto"):
+        fc.main()
+    assert llamadas == []
+
+
+def test_f1_registrar_aborta_si_paso_nunca_insertado(monkeypatch):
+    plan = _plan_min()
+    ultimo = fp.ROLES_ORDEN_CREACION[-1]
+    ledger = _filas_ledger(plan, omitir={(ultimo, "product_ad")})
+    conn_admin = _ConnFalsa(
+        lote_fila=(fp.plan_como_json(plan), "failed"),
+        pendientes=_camp_ag_de_ledger(ledger),
+        pasos_ledger=ledger,
+    )
+    llamadas = []
+    _frontera_mutacion(monkeypatch, _ConnFalsa(), conn_admin, _Amazon(), stub_registrar=False)
+    monkeypatch.setattr(fc, "_sync", lambda c: llamadas.append("sync"))
+    monkeypatch.setattr(
+        fc.goals_write, "crea_goal", lambda c, **kw: llamadas.append("goal") or {"id": 1}
+    )
+    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", "--registrar", "L1"])
+    with pytest.raises(fc.Abortar, match="ausente"):
+        fc.main()
+    assert llamadas == []
+
+
+@_skip_db
+def test_f1_exige_ledger_completo_contra_postgres(monkeypatch):
+    with db_fabrica("orbit_fab_f1") as conn:
+        plan = _plan_min()
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado) VALUES ('L1', 'amazon_mx', 'collar_perro',"
+            " 'Collar', 'go', 'h', %s, 'shadow', 'failed')",
+            (Json(fp.plan_como_json(plan)),),
+        )
+        omitir_pa = {(r, "product_ad") for r in fp.ROLES_ORDEN_CREACION}
+        _siembra_ledger_pg(conn, "L1", _filas_ledger(plan, omitir=omitir_pa))
+        with pytest.raises(fc.Abortar, match="incompleto|ausente"):
+            fc._exige_ledger_completo(conn, plan, "L1")
+        assert conn.execute("SELECT estado FROM fabrica_lote WHERE lote='L1'").fetchone()[0] == (
+            "failed"
+        )
+        _siembra_ledger_pg(conn, "L1", [f for f in _filas_ledger(plan) if f[2] == "product_ad"])
+        fc._exige_ledger_completo(conn, plan, "L1")  # completo: no aborta
+
+
+# ---------------------------------------------------------------------------
+# D-CURSOR-177 F2/F3/F4
+# ---------------------------------------------------------------------------
+
+
+class _AmazonReadbackMalformado(_Amazon):
+    def __init__(self, modo="not_json"):
+        super().__init__()
+        self.modo = modo
+
+    def _list(self, path, body):
+        if self.modo == "not_json":
+            return httpx.Response(200, content=b"not json")
+        if self.modo == "raiz_lista":
+            return httpx.Response(200, json=["no-dict"])
+        return httpx.Response(200, json={"campaigns": {"no": "lista"}})
+
+
+def test_f2_json_malformado_sella_failed_con_id_sin_siguiente_post(monkeypatch, capsys):
+    _huella_de(monkeypatch)
+    huella = [x for x in capsys.readouterr().out.splitlines() if x.startswith("huella")][0].split(
+        ": "
+    )[1]
+    conn_admin = _ConnFalsa()
+    amazon = _AmazonReadbackMalformado("not_json")
+    visto_en_list = []
+
+    def _list_con_orden(path, body):
+        acks = [
+            p
+            for s, p in conn_admin.escrituras
+            if "set external_id" in s.lower() and "readback_estado" not in s.lower()
+        ]
+        visto_en_list.append((conn_admin.commits, acks[:]))
+        return httpx.Response(200, content=b"not json")
+
+    amazon._list = _list_con_orden
+    _frontera_mutacion(monkeypatch, _conn_plan(), conn_admin, amazon)
+    monkeypatch.setattr(sys, "argv", _args_go(huella))
+    with pytest.raises(fc.Abortar, match="external_id="):
+        fc.main()
+    assert visto_en_list, "LIST debio invocarse"
+    commits_antes, acks_antes = visto_en_list[0]
+    assert commits_antes >= 1 and acks_antes, "ID/ACK durables ANTES del LIST"
+    assert len(amazon.posts("/sp/campaigns")) == 1
+    assert amazon.posts("/sp/adGroups") == []
+    failed = _sellos(conn_admin, "failed")
+    assert failed and failed[0][0] is not None
+    detenido = [e for e in _eventos(capsys) if e["evento"] == "lote_detenido"]
+    assert detenido and detenido[0]["conocidos"]
+
+
+@pytest.mark.parametrize("modo", ["raiz_lista", "contenedor_dict"])
+def test_f2_shape_malformado_no_escapa(monkeypatch, capsys, modo):
+    _huella_de(monkeypatch)
+    huella = [x for x in capsys.readouterr().out.splitlines() if x.startswith("huella")][0].split(
+        ": "
+    )[1]
+    conn_admin = _ConnFalsa()
+    amazon = _AmazonReadbackMalformado(modo)
+    _frontera_mutacion(monkeypatch, _conn_plan(), conn_admin, amazon)
+    monkeypatch.setattr(sys, "argv", _args_go(huella))
+    with pytest.raises(fc.Abortar, match="external_id=|no cuadra"):
+        fc.main()
+    assert _sellos(conn_admin, "failed")
+    assert len(amazon.posts("/sp/campaigns")) == 1
+
+
+@_skip_db
+def test_f2_ack_visible_en_otra_conexion_antes_de_list(monkeypatch):
+    import psycopg
+
+    with db_fabrica("orbit_fab_f2") as conn:
+        plan = _plan_min()
+        fc._inserta_lote(conn, "L2", plan, "h", "go")
+        visto = {}
+
+        class _Cliente:
+            def list_objects(self, path, body, *, profile_id):
+                with psycopg.connect(_test_dsn(), dbname=conn.info.dbname, autocommit=True) as c2:
+                    c2.row_factory = tuple_row
+                    visto["fila"] = c2.execute(
+                        "SELECT external_id, ack IS NOT NULL, estado"
+                        " FROM fabrica_lote_paso WHERE lote='L2' ORDER BY id"
+                    ).fetchone()
+                return httpx.Response(200, content=b"not json")
+
+        class _Http:
+            def post(self, url, headers=None, json=None):
+                return httpx.Response(
+                    207,
+                    json={
+                        "campaigns": {
+                            "success": [{"index": 0, "campaignId": "camp-f2"}],
+                            "error": [],
+                        }
+                    },
+                )
+
+        ctx = fc._Ctx(_Http(), "tok", _CREDS, _Cliente(), 101, conn, "L2")
+        monkeypatch.setattr(fc.time, "sleep", lambda s: None)
+        paso = fp.pasos_del_rol(plan, "category_exact")[0]
+        with pytest.raises(fc.Abortar, match="external_id=camp-f2"):
+            fc._ejecuta_paso(ctx, paso, {})
+        assert visto["fila"] == ("camp-f2", True, "planeado")
+        final = conn.execute(
+            "SELECT external_id, estado FROM fabrica_lote_paso WHERE lote='L2'"
+        ).fetchone()
+        assert final == ("camp-f2", "failed")
+
+
+@pytest.mark.parametrize("ausente", [True, False])
+def test_f3_dsn_ingest_antes_de_mutar(monkeypatch, capsys, ausente):
+    _huella_de(monkeypatch)
+    huella = [x for x in capsys.readouterr().out.splitlines() if x.startswith("huella")][0].split(
+        ": "
+    )[1]
+    conn_admin = _ConnFalsa()
+    amazon = _Amazon()
+    _frontera_mutacion(monkeypatch, _conn_plan(), conn_admin, amazon)
+    if ausente:
+        monkeypatch.delenv("ORBIT_DSN_INGEST", raising=False)
+    else:
+        monkeypatch.setenv("ORBIT_DSN_INGEST", "")
+    monkeypatch.setattr(sys, "argv", _args_go(huella))
+    with pytest.raises(fc.Abortar, match="ORBIT_DSN_INGEST"):
+        fc.main()
+    assert amazon.pedidos == []
+    assert conn_admin.escrituras == []
+
+
+@pytest.mark.parametrize("status", [500, 502, 503, 504])
+def test_f4_http_5xx_es_incierto(monkeypatch, capsys, status):
+    _huella_de(monkeypatch)
+    huella = [x for x in capsys.readouterr().out.splitlines() if x.startswith("huella")][0].split(
+        ": "
+    )[1]
+    conn_admin = _ConnFalsa()
+
+    class _Amazon5xx(_Amazon):
+        def __call__(self, request):
+            if "auth/o2/token" in str(request.url):
+                return super().__call__(request)
+            if str(request.url).endswith("/sp/campaigns") and not str(request.url).endswith(
+                "/list"
+            ):
+                self.pedidos.append(request)
+                self._sello(request)
+                return httpx.Response(status, json={"error": "internal"})
+            return super().__call__(request)
+
+    amazon = _Amazon5xx()
+    _frontera_mutacion(monkeypatch, _conn_plan(), conn_admin, amazon)
+    monkeypatch.setattr(sys, "argv", _args_go(huella))
+    with pytest.raises(fc.Abortar, match="INCERTO"):
+        fc.main()
+    detenido = [e for e in _eventos(capsys) if e["evento"] == "lote_detenido"][0]
+    assert "INCERTO" in detenido["motivo"]
+    assert "rechazado" not in detenido["motivo"].lower()
+    assert "no reintentar" in str(detenido).lower()
+    assert len(amazon.posts("/sp/campaigns")) == 1
+    assert amazon.posts("/sp/adGroups") == []
+    assert _sellos(conn_admin, "failed")
+
+
+def test_f4_http_400_sigue_rechazado(monkeypatch, capsys):
+    _huella_de(monkeypatch)
+    huella = [x for x in capsys.readouterr().out.splitlines() if x.startswith("huella")][0].split(
+        ": "
+    )[1]
+    conn_admin = _ConnFalsa()
+    amazon = _Amazon(fallar_en=("/sp/campaigns", 1))
+    _frontera_mutacion(monkeypatch, _conn_plan(), conn_admin, amazon)
+    monkeypatch.setattr(sys, "argv", _args_go(huella))
+    with pytest.raises(fc.Abortar, match="rechazado"):
+        fc.main()
+    detenido = [e for e in _eventos(capsys) if e["evento"] == "lote_detenido"][0]
+    assert "INCERTO" not in detenido["motivo"]
 
 
 # ---------------------------------------------------------------------------
