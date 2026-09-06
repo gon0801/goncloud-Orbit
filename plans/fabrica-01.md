@@ -1252,7 +1252,7 @@ git commit -m "feat(fabrica): v_margen_producto — margen por producto con la m
 - Consumes: `_valida_pre_editar`, `_fila_respuesta`, `_COLUMNAS`, `resuelve_floor_ceiling` (ya en el módulo); trigger `goal_scope_campana_real` y `goal_unico_campana` (0001).
 - Produces: `crea_goal(conn, *, ad_entity_id: int, target_acos_pct: Decimal, bid_currency: str, mode: str, harvest_campaign_id: str, harvest_ad_group_id: str, harvest_default_bid: Decimal, created_at: dt.datetime, enabled: bool = True) -> dict` (shape de GET /goals). Excepciones: `GoalInvalido` (uso), `ValueError` (`created_at` None/naive).
 
-- [ ] **Step 1: Tests (fallan: `crea_goal` no existe)**
+- [x] **Step 1: Tests (fallan: `crea_goal` no existe)**
 
 ```python
 # agregar a tests/test_goals_write.py
@@ -1346,12 +1346,12 @@ def test_crea_goal_rechaza_entidad_que_no_es_campana():
 
 (La conexion falsa es `_ConnMuda`, definida arriba: `_ConnFake` de `test_api_write` solo expone `close` — sin `execute` ni `ejecutadas` — asi que no sirve para esta guarda.)
 
-- [ ] **Step 2: Rojo**
+- [x] **Step 2: Rojo**
 
 Run: `pytest tests/test_goals_write.py -k crea_goal -v`
 Expected: FAIL con `AttributeError: module 'app.goals_write' has no attribute 'crea_goal'`.
 
-- [ ] **Step 3: Implementar**
+- [x] **Step 3: Implementar**
 
 Además del código de abajo, actualizar el docstring del MÓDULO `app/goals_write.py`: la frase «`edita_goal` es la UNICA escritura de `ads_optimizer_goal`» deja de ser cierta con `crea_goal` — debe quedar «la escritura de `ads_optimizer_goal` vive SOLO en este módulo: `edita_goal` (UPDATE) y `crea_goal` (INSERT, FABRICA 01); cli/api_write/tools despachan, jamas duplican SQL».
 
@@ -1452,7 +1452,7 @@ def crea_goal(
     return _fila_respuesta(fila)
 ```
 
-- [ ] **Step 4: Verde + candados**
+- [x] **Step 4: Verde + candados**
 
 El candado `test_escritura_de_goals_vive_solo_en_goals_write` (tests/test_architecture.py) solo vigilaba el `UPDATE`; con `crea_goal` el INSERT también es escritura y se extiende aquí (misma tarea, regla 2 del quality-kit):
 
@@ -1480,7 +1480,7 @@ _PATRON_INSERT_GOAL = re.compile(_SQL_INSERT_GOAL, re.IGNORECASE)
 Run: `pytest tests/test_goals_write.py tests/test_architecture.py -v`
 Expected: PASS. `test_escritura_de_goals_vive_solo_en_goals_write` sigue verde (el INSERT vive en `goals_write.py`, el único dueño).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git checkout -b fabrica-01-4-crea-goal origin/master
@@ -5294,6 +5294,62 @@ psycopg.errors.UndefinedTable: relation "v_margen_producto" does not exist
 ```
 tests/test_fabrica_migracion.py — 13 passed in 1.74s (pre-D-3); 14 passed tras D-3
 ```
+
+### Tareas 4-5 — decisiones y evidencia (GLM escribe AQUÍ antes del código)
+
+Base comprobada: rama `fabrica-01-4-5-goals-nucleo` desde `origin/master` en `b6eaeea`
+(PR #172, tareas 1-3 cerradas, `migrations/0018_fabrica_campanas.sql` presente).
+Postgres de pruebas: local 127.0.0.1:5432 (PG 16.15, DSN por defecto de `test_schema`).
+
+**D-GLM-4-5-1 (percy-check 0018 + 0 SQL nuevo):** las tareas 4-5 no tocan migraciones
+ni agregan SELECTs; consumen la 0018 ya revisada en master. La evidencia de producción
+que exigen los invariantes nuevos (constantes pineadas contra el SQL de `v_margen_producto`)
+es la migración REAL en la rama, leída por test desde `migrations/` — mismo mecanismo
+que la tarea 3. Cero SSH, cero Amazon.
+
+**D-GLM-4-5-2 (`_ConnMuda` local):** el plan define el fake `_ConnMuda` dentro de
+`tests/test_goals_write.py` porque `_ConnFake` de `test_api_write` solo expone `close`.
+Se copia tal cual; no se refactoriza el fixture compartido (cambio mínimo).
+
+**D-GLM-4-5-3 (frontera `monto_wire`):** la regla 4 del repo prohíbe float para
+guardar o decidir; `monto_wire` devuelve float SOLO en la frontera del wire JSON,
+mismo criterio y misma cuantización (2 decimales, HALF_EVEN) que `_bid_wire` del
+write client, y rechaza no-Decimal con TypeError. El JSON persistible
+(`plan_como_json`) lleva el dinero como STRING. Sin conflicto con el contrato; no se
+cambia nada del plan.
+
+**D-GLM-4-5-4 (tests de DB en local):** los tests de `crea_goal` contra Postgres real
+corren contra el PG 16 local por el DSN por defecto de `test_schema`
+(`postgresql://orbit:orbit@localhost:5432/postgres`); sin `ORBIT_TEST_DSN` en el
+entorno. Los skips de DB, si aparecieran, se reportan (skip no demuestra que pasa);
+en la corrida local no hubo skips.
+
+**Evidencia tarea 4 (regla 9, rojo antes):**
+
+```
+$ ./.venv/bin/python -m pytest tests/test_goals_write.py -k crea_goal -v
+E               AttributeError: module 'app.goals_write' has no attribute 'crea_goal'
+FAILED tests/test_goals_write.py::test_crea_goal_valida_sin_io - AttributeError
+FAILED tests/test_goals_write.py::test_crea_goal_inserta_con_defaults_de_su_moneda_y_terna_completa
+FAILED tests/test_goals_write.py::test_crea_goal_rechaza_entidad_que_no_es_campana
+================== 3 failed, 21 deselected, 1 warning in 0.75s ==================
+```
+
+Verde tras implementar `crea_goal` + el candado INSERT en test_architecture:
+
+```
+$ ./.venv/bin/python -m pytest tests/test_goals_write.py tests/test_architecture.py -v
+tests/test_goals_write.py::test_crea_goal_valida_sin_io PASSED
+tests/test_goals_write.py::test_crea_goal_inserta_con_defaults_de_su_moneda_y_terna_completa PASSED
+tests/test_goals_write.py::test_crea_goal_rechaza_entidad_que_no_es_campana PASSED
+tests/test_architecture.py::test_escritura_de_goals_vive_solo_en_goals_write PASSED
+======================== 39 passed, 1 warning in 1.92s =========================
+```
+
+39 passed, 0 skipped: los dos tests de PG corrieron reales contra el PG 16 local
+(D-GLM-4-5-4). MXN cubierto por el INSERT de `crea_goal`; USD ya lo cubria la
+suite existente de `edita_goal` (defaults por moneda en `_fila_mxn`/DEFAULTS_POR_MONEDA
+y `test_valida_parametros` de la tarea 5 cubre USD en el nucleo).
 
 ### Tarea 11 — sonda (lead)
 

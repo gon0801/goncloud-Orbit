@@ -339,6 +339,8 @@ _PATRONES_SQL_GOALS = tuple(
 # El candado del escritor unico usa SOLO el UPDATE (SELECT si puede leer):
 # mismo patron compilado, no una segunda copia del texto.
 _PATRON_UPDATE_GOAL = re.compile(_SQL_UPDATE_GOAL, re.IGNORECASE)
+_SQL_INSERT_GOAL = r"INSERT\s+INTO\s+ads_optimizer_goal"
+_PATRON_INSERT_GOAL = re.compile(_SQL_INSERT_GOAL, re.IGNORECASE)
 MODULOS_DESPACHAN_GOALS = ("app/cli.py", "app/api_write.py")
 
 
@@ -346,8 +348,8 @@ def test_escritura_de_goals_vive_solo_en_goals_write():
     """Candado de camino unico de goals (3.2): cli.py y api_write.py (a) NO
     contienen SQL contra ads_optimizer_goal y (b) importan app.goals_write en
     runtime; y NINGUN modulo de app/ fuera de goals_write.py escribe
-    `UPDATE ads_optimizer_goal` (las lecturas de cycle/api_dashboard/apply si
-    pueden: SELECT no es escritura)."""
+    `UPDATE` o `INSERT` de ads_optimizer_goal (las lecturas de
+    cycle/api_dashboard/apply si pueden: SELECT no es escritura)."""
     for rel in MODULOS_DESPACHAN_GOALS:
         fuente = (RAIZ / rel).read_text(encoding="utf-8")
         sql_encontrado = [p.pattern for p in _PATRONES_SQL_GOALS if p.search(fuente)]
@@ -368,6 +370,16 @@ def test_escritura_de_goals_vive_solo_en_goals_write():
     assert escritores == ["app/goals_write.py"], (
         f"UPDATE de ads_optimizer_goal fuera de app/goals_write.py (decision "
         f"26, un solo dueno): {escritores}"
+    )
+
+    escritores_insert = [
+        p.relative_to(RAIZ).as_posix()
+        for p in APP.rglob("*.py")
+        if _PATRON_INSERT_GOAL.search(p.read_text(encoding="utf-8"))
+    ]
+    assert escritores_insert == ["app/goals_write.py"], (
+        f"INSERT de ads_optimizer_goal fuera de app/goals_write.py (crea_goal, "
+        f"FABRICA 01): {escritores_insert}"
     )
 
 
