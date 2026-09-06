@@ -5,7 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Path, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -14,6 +14,7 @@ from app import fabrica_plan as fp
 from app import fabrica_web as fw
 from app.api import ConexionLectura
 from app.api_write import exige_token
+from app.publicacion_fotos import FotoNoDisponible, fotos_publicacion
 
 
 class _RutaFabrica(APIRoute):
@@ -105,6 +106,34 @@ class Confirmacion(_Cuerpo):
 @router.get("/catalogo")
 def catalogo(conn: ConexionLectura, plataforma: Plataforma):
     return fw.catalogo(conn, plataforma)
+
+
+@router.get("/publicaciones/{listing_id}/imagen")
+def imagen_publicacion(
+    listing_id: Annotated[int, Path(ge=1, le=9223372036854775807)], conn: ConexionLectura
+):
+    fila = conn.execute(
+        "SELECT platform::text, external_id FROM listing WHERE id = %s", (listing_id,)
+    ).fetchone()
+    if fila is None:
+        raise HTTPException(404, "Publicacion sin foto disponible.")
+    try:
+        foto = fotos_publicacion.obtener(fila[0], fila[1])
+    except FotoNoDisponible:
+        raise HTTPException(
+            503, "Foto temporalmente no disponible.", headers={"Retry-After": "60"}
+        ) from None
+    if foto is None:
+        raise HTTPException(404, "Publicacion sin foto disponible.")
+    contenido, mime = foto
+    return Response(
+        contenido,
+        media_type=mime,
+        headers={
+            "Cache-Control": "private, max-age=3600",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.post("/plan")

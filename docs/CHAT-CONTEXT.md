@@ -4,6 +4,11 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-06 — Fotos de publicaciones en Crear campanas.**
+El selector muestra la imagen MAIN real de cada ASIN y marketplace mediante
+SP-API Catalog Items y las credenciales existentes. Miniaturas bajo demanda,
+cache acotada, proxy de imagen del mismo origen y Sin foto si falta o falla.
+
 **2026-09-06 — Correccion de cache del rediseno.**
 El navegador del dueno reutilizo CSS/JS viejos con HTML nuevo. Los recursos
 locales ganan URLs versionadas por contenido y revalidacion explicita.

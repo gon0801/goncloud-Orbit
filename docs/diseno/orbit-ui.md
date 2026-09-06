@@ -55,3 +55,17 @@ actualizar una version manual. `/static/` exige revalidacion mediante
 `Cache-Control: no-cache`, incluso en respuestas 304; el HTML sigue no-store.
 La prueba incluye contenido distinto con igual tamano/mtime y navegador con
 CSS anterior en cache. Los deploys deben reiniciar la app tras copiar codigo.
+
+## Fotos de publicaciones al crear campanas
+
+Cada ASIN del selector muestra su imagen MAIN del marketplace elegido.
+Fuente: SP-API Catalog Items 2022-04-01, GET por ASIN con includedData=images;
+contrato y credenciales amazon_credentials.json existentes verificados en produccion.
+Referencia: https://developer-docs.amazon/sp-api/lang-US/docs/catalog-items-api-rate-limits
+
+El navegador carga miniaturas bajo demanda mediante Orbit (misma CSP). El servidor
+solo descarga raster de hosts de imagen Amazon permitidos, sin redirecciones,
+con limite de 256 KiB. Cache en memoria: maximo 128 fotos durante 24 horas;
+ausencias 15 minutos y fallos 60 segundos. Consultas serializadas, separadas
+por al menos 0.6 segundos; las fotos faltantes muestran Sin foto sin afectar
+la elegibilidad ni la seleccion. No se escribe en Amazon ni se altera su cliente Ads.

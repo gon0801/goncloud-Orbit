@@ -232,6 +232,18 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
   assert.match(text(el("productos")), /Nombre interno: Sin dato/);
   assert.match(text(el("productos")), /SKU de Amazon: Sin dato/);
   assert.match(text(el("productos")), /ASIN: B0CCCCCCCC/);
+  const fotos = el("productos").querySelectorAll("*").filter(e => e.src);
+  assert.deepEqual(fotos.map(e => e.src),
+    [11, 12, 13].map(id => `/api/fabrica/publicaciones/${id}/imagen`));
+  assert.ok(fotos.every(e => e.loading === "lazy" && e.width === 96 &&
+    e.alt.includes("publicación")));
+  fotos[0].events.error();
+  assert.equal(fotos[0].hidden, true);
+  const cajas = el("productos").querySelectorAll("*")
+    .filter(e => e.className === "fabrica-publicacion-foto");
+  assert.equal(cajas[0].children[1].hidden, false, "Foto fallida muestra Sin foto");
+  assert.equal(productos[0].checked, false, "El fallo de foto no selecciona el producto");
+  assert.equal(productos[0].disabled, false, "El fallo de foto no cambia elegibilidad");
   const enlaces = el("productos").querySelectorAll("*").filter(e => e.href);
   assert.deepEqual(enlaces.map(e => e.href), [
     "https://www.amazon.com.mx/dp/B0AAAAAAAA", "https://www.amazon.com.mx/dp/B0BBBBBBBB"]);
