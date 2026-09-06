@@ -1,0 +1,208 @@
+SET
+=== OBSERVED_AT UTC ===
+      observed_at_utc       |  hoy_utc   | ventana_desde | ventana_hasta
+----------------------------+------------+---------------+---------------
+ 2026-09-06 21:00:14.892102 | 2026-09-06 | 2026-02-20    | 2026-08-22
+(1 row)
+
+=== LISTINGS Y PRODUCTOS POR MERCADO ===
+ platform  | listings | productos | sin_seller_sku | sin_asin | sin_precio
+-----------+----------+-----------+----------------+----------+------------
+ amazon_mx |      342 |       249 |              0 |        0 |          0
+ amazon_us |      176 |       119 |              0 |        0 |          0
+(2 rows)
+
+=== CATALOGO DEL SELECTOR (mismo JOIN que app/fabrica_web.py) ===
+ platform  | productos | elegibles_selector | multilisting | sin_ventas_vinculadas | menos_30_fechas | margen_null_otras_guardas | sin_seller_sku
+-----------+-----------+--------------------+--------------+-----------------------+-----------------+---------------------------+----------------
+ amazon_mx |       249 |                  3 |           71 |                    84 |              91 |                         0 |              0
+ amazon_us |       119 |                  2 |           44 |                    48 |              25 |                         0 |              0
+(2 rows)
+
+=== MULTILISTING: IDS AMBIGUOS ===
+ platform  | product_id |               odoo_sku                | n_listings |      listing_ids      |                     asins                     |                      seller_skus
+-----------+------------+---------------------------------------+------------+-----------------------+-----------------------------------------------+-------------------------------------------------------
+ amazon_mx |        245 | NH-EUM-VIN-CEN-DOR                    |          4 | {1036,1052,1115,1231} | {B086M31F8H,B0877XXNR5,B0BLMHQ7TG,B0C9PDL3PW} | {9U-IM2D-W4BH,WL-WJTK-PE3X,NO-501T-PVXP,CV-PX9V-CPA8}
+ amazon_mx |        246 | NH-EUM-VIN-CEN-PLA                    |          4 | {1055,1112,1155,1268} | {B08NT1YSBJ,B0BHCSP6CK,B0BXCN6K33,B0CJTDNM4X} | {YJ-4TKU-86K5,6T-6EU2-WJGL,DX-WO2W-ZOD4,IC-AUUL-G44D}
+ amazon_mx |        749 | SET-EUM-VIN-SAN-PLA                   |          4 | {1057,1111,1160,1250} | {B08NTBY186,B0BHCR13Q1,B0BXCPQGNP,B0CJT5D4VM} | {XA-3K2X-O4FP,JV-YZ7F-9H9T,7H-93DD-GSZY,90-L7TN-78SH}
+ amazon_mx |        832 | SET-PLA-M-SAN-DOR                     |          4 | {1027,1033,1095,1219} | {B0849JWYD8,B084B1CYCW,B0BG7V393W,B0C8S6FDKP} | {3G-66XE-4S83,GA-LSPK-IV7O,0Y-K77R-F4E2,ZU-8248-Y5J2}
+ amazon_mx |        138 | NH-CAR-AZU-CEN-PLA                    |          3 | {1058,1074,1126}      | {B08NTD3716,B09LLKKMRW,B0BX8VT8FR}            | {1B-R34T-1VZ5,SE-PWPS-CCRP,9L-URD9-1LNC}
+ amazon_mx |        143 | NH-CAR-AZU-REP-CEN-DOR                |          3 | {1067,1080,1175}      | {B09DK6ZFJH,B09M5Z9SPG,B0BXCTNQPR}            | {D0-KYU5-58K9,TX-FVN6-JBH6,30-6P0A-NRDX}
+ amazon_mx |        144 | NH-CAR-AZU-REP-CEN-PLA                |          3 | {1059,1078,1177}      | {B09DJC3G6J,B09M5SV58W,B0BXCWBNCP}            | {KR-ABSX-583M,3O-929O-JIOU,67-J31L-BKJW}
+ amazon_mx |        263 | NH-EUR-VIN-M-REP-CEN-DOR              |          3 | {1066,1181,1186}      | {B09DK5J1M1,B0BXFSB4FR,B0BXFVZMWK}            | {EI-RBOM-7B96,RG-HAZX-RXWD,IL-I6QE-8WXY}
+ amazon_mx |        319 | NH-NOG-VEN-CEN-DOR                    |          3 | {1544,1107,1235}      | {B086MFVJLP,B0BGCZHLSP,B0C9PHYQFJ}            | {EQ-3EBF-0HLM,K1-6Q03-NHTS,AZ-RE6Q-E9OV}
+ amazon_mx |        327 | NH-NOG-VEN-SAN-DOR                    |          3 | {1038,1105,1234}      | {B086M6YW3Y,B0BGCXRFXJ,B0C9PHV6DX}            | {Y5-LP3V-DWL3,P6-3WMI-CTBS,9L-63OP-ME6D}
+ amazon_mx |        665 | SET-CAO-SAN-PLA                       |          3 | {1041,1099,1242}      | {B086M9DNKK,B0BGCTZPJ4,B0C9PMFY9R}            | {U0-W8C9-ST2P,C7-ZQAE-QP26,0X-MX5B-0D61}
+ amazon_mx |        669 | SET-CAO-VCO-PLA                       |          3 | {1045,1100,1241}      | {B086MPDYNX,B0BGCVR8K7,B0C9PM3TY2}            | {P1-NULO-VX9V,II-AXIL-Q6IX,1X-9MPP-46OA}
+ amazon_mx |        676 | SET-CAR-AZU-REP-SAN-DOR               |          3 | {1064,1079,1178}      | {B09DK1X6WB,B09M5V1TYP,B0BXCWXP1K}            | {O2-6H06-O2CI,1F-OSCN-XRMR,SQ-KKER-IFMW}
+ amazon_mx |        677 | SET-CAR-AZU-REP-SAN-PLA               |          3 | {1068,1077,1176}      | {B09DK8MWVJ,B09M5QRPZ9,B0BXCTVPD8}            | {LN-0P06-UN8O,Z7-KIL2-Q9FA,MQ-JE80-ACUN}
+ amazon_mx |       1739 | SET-CAR-AZU-SAN-DOR                   |          3 | {1035,1094,1138}      | {B085VJ8DVX,B0BG4GKHQT,B0BX8Z4QMR}            | {4A-REHV-WQ36,0J-W71Z-AYV0,GD-XBC3-YIHX}
+ amazon_mx |       1740 | SET-CAR-AZU-SAN-PLA                   |          3 | {1054,1076,1125}      | {B08NST8LNS,B09LM7HXZR,B0BX8V7MB7}            | {H2-ZI6Z-3GQQ,5B-YTEM-PBR2,D2-KL09-H6IP}
+ amazon_mx |        748 | SET-EUM-VIN-SAN-DOR                   |          3 | {1044,1114,1229}      | {B086MP8TJG,B0BLMF5VXT,B0C9P8KH4Z}            | {1J-8B50-YY64,DL-1AP2-HGA9,7T-ERD8-JZDQ}
+ amazon_mx |        760 | SET-EUR-VIN-M-REP-SAN-DOR             |          3 | {1072,1182,1188}      | {B09DKFVNJC,B0BXFSNTQD,B0BXFW8SWV}            | {12-P13M-IHF9,JY-QACI-6ABZ,T9-NHBE-EQX4}
+ amazon_mx |        123 | NH-CAO-CEN-DOR                        |          2 | {1096,1120}           | {B0BGBS2Q1N,B0BX8SZ1DZ}                       | {AM-2LWU-HPUV,FF-U998-C4IQ}
+ amazon_mx |        124 | NH-CAO-CEN-PLA                        |          2 | {1101,1243}           | {B0BGCVX4QJ,B0C9PMP9TV}                       | {17-QXDL-PB6O,FM-GQ8B-ZRSM}
+ amazon_mx |        137 | NH-CAR-AZU-CEN-DOR                    |          2 | {1093,1134}           | {B0BG4G3KTN,B0BX8YT3NK}                       | {8V-TNEI-9VH5,LW-YF9R-6TYL}
+ amazon_mx |        151 | NH-CAR-AZU-REP-VBU-DOR                |          2 | {1062,1082}           | {B09DJRCZ28,B09M6MNH1H}                       | {NF-Q037-UXP2,EE-PVSE-RMAZ}
+ amazon_mx |        152 | NH-CAR-AZU-REP-VBU-PLA                |          2 | {1070,1081}           | {B09DK9K2RC,B09M642GSX}                       | {EE-ZBFM-K7SA,RE-WVJN-FYQJ}
+ amazon_mx |        158 | NH-CAR-AZU-VBU-PLA                    |          2 | {1056,1075}           | {B08NTBVTBM,B09LLP8FR7}                       | {1T-T1QG-6610,DG-4IBT-6XZA}
+ amazon_mx |        161 | NH-CAR-BLA-CEN-DOR                    |          2 | {1084,1270}           | {B09PYNPZL1,B0CJTFTQ3R}                       | {9H-RO3W-KI8Y,X5-HOYV-5YZ2}
+ amazon_mx |        162 | NH-CAR-BLA-CEN-PLA                    |          2 | {1087,1140}           | {B09Q88CGY5,B0BX8ZGC38}                       | {9X-LA4S-Y77Q,GV-A9YS-EWMX}
+ amazon_mx |        179 | NH-CAR-BLA-SAN-DOR                    |          2 | {1085,1255}           | {B09PYQP7LH,B0CJT6J2XL}                       | {JV-AABK-ZJG3,67-U5IS-E2XV}
+ amazon_mx |        180 | NH-CAR-BLA-SAN-PLA                    |          2 | {1088,1135}           | {B09Q8C5XN5,B0BX8YWFD6}                       | {Q0-YIBM-IP8I,5Y-P50D-3XIL}
+ amazon_mx |        185 | NH-CAR-ROJ-CEN-DOR                    |          2 | {1150,1265}           | {B0BX92KYMC,B0CJTB31HJ}                       | {S8-JGKJ-A9OQ,LQ-FV4D-DY2I}
+ amazon_mx |        187 | NH-CAR-ROJ-COR-DOR                    |          2 | {1147,1251}           | {B0BX922WGV,B0CJT5TMP5}                       | {K6-4F52-BLRJ,Y5-1M27-5WIY}
+ amazon_mx |        203 | NH-CAR-ROJ-SAN-DOR                    |          2 | {1133,1260}           | {B0BX8Y8BJ9,B0CJT8SXS8}                       | {8P-6SQS-B79F,Z6-2B1O-CV5D}
+ amazon_mx |        204 | NH-CAR-ROJ-SAN-PLA                    |          2 | {1034,1269}           | {B0851SXVXJ,B0CJTF4M1Q}                       | {1Q-EVYS-KZ4G,VM-UYMP-V8EN}
+ amazon_mx |        207 | NH-CAR-ROJ-VCO-DOR                    |          2 | {1142,1256}           | {B0BX8ZSN2D,B0CJT6KW6M}                       | {DC-H8LG-NATY,Y4-FB35-N645}
+ amazon_mx |        209 | NH-DIA-CEN-DOR                        |          2 | {1110,1244}           | {B0BGDJ4LW1,B0C9PN8661}                       | {S0-0C2J-JJ6V,E5-LT8L-GR8Y}
+ amazon_mx |        235 | NH-EUM-BLA-CEN-DOR                    |          2 | {1046,1275}           | {B086QC5PWX,B0CJTHVGDQ}                       | {1N-LPPP-KR9C,WS-ZEAY-DMXR}
+ amazon_mx |        237 | NH-EUM-BLA-COR-DOR                    |          2 | {1048,1267}           | {B086QCPWSP,B0CJTDMGLJ}                       | {IN-TBB3-KL2V,NY-YIAW-00TT}
+ amazon_mx |        247 | NH-EUM-VIN-COR-DOR                    |          2 | {1037,1232}           | {B086M6LV6F,B0C9PF1YKV}                       | {7Q-22PZ-CT73,EM-03GP-9JNI}
+ amazon_mx |        248 | NH-EUM-VIN-COR-PLA                    |          2 | {1153,1254}           | {B0BXCLJRQT,B0CJT6GZRN}                       | {9H-1YK1-W0CT,7H-OLR6-OW2D}
+ amazon_mx |        253 | NH-EUM-VIN-VBU-DOR                    |          2 | {1039,1116}           | {B086M87DTS,B0BLMJ9S8V}                       | {J6-FE99-G67K,PF-3K6H-JFVX}
+ amazon_mx |        254 | NH-EUM-VIN-VBU-PLA                    |          2 | {1053,1113}           | {B08NSJH5RX,B0BHCY1JC1}                       | {2F-SLPW-KLHJ,0P-82Z8-YXD7}
+ amazon_mx |        265 | NH-EUR-VIN-M-REP-COR-DOR              |          2 | {1183,1187}           | {B0BXFSQZH3,B0BXFW847S}                       | {TL-W800-6LEU,4J-QTGI-WHZQ}
+ amazon_mx |        294 | NH-GAM-NEG-COR-PLA                    |          2 | {1540,1362}           | {B0851SSBL6,B0D9F4V1CC}                       | {KQ-5BXO-THDH,XM-20QN-2YJR}
+ amazon_mx |        305 | NH-ITA-CEN-DOR                        |          2 | {1169,1220}           | {B0BXCR4PHZ,B0C8S6L1BK}                       | {XM-GNWZ-2J4G,N3-DIHH-JI1Y}
+ amazon_mx |        306 | NH-ITA-CEN-PLA                        |          2 | {1166,1211}           | {B0BXCQHK4Z,B0C8RS5TGQ}                       | {V5-TEZX-OBBP,R8-1D4Y-EH9N}
+ amazon_mx |        307 | NH-ITA-COR-DOR                        |          2 | {1167,1209}           | {B0BXCQR4QG,B0C8RP526Z}                       | {6R-XKAV-8L7C,KM-P891-0MY5}
+ amazon_mx |        308 | NH-ITA-COR-PLA                        |          2 | {1172,1213}           | {B0BXCSM34P,B0C8RVWG4F}                       | {CG-6783-PMGQ,SK-YBQX-XQWV}
+ amazon_mx |        313 | NH-ITA-SAN-DOR                        |          2 | {1156,1210}           | {B0BXCNZRSK,B0C8RPB6SM}                       | {3M-HSVP-YXSZ,JJ-ZFJQ-C9ZC}
+ amazon_mx |        314 | NH-ITA-SAN-PLA                        |          2 | {1162,1212}           | {B0BXCQ19JY,B0C8RVSDW9}                       | {CL-QQI5-E715,RK-BCI1-AL54}
+ amazon_mx |        317 | NH-ITA-VCO-DOR                        |          2 | {1171,1214}           | {B0BXCRT8GR,B0C8RX7TSH}                       | {PC-MYYZ-2L7M,IF-88UP-AFT1}
+ amazon_mx |        318 | NH-ITA-VCO-PLA                        |          2 | {1170,1216}           | {B0BXCRDNS6,B0C8S1PHCL}                       | {5Y-Y2PW-EZBX,AS-B6C1-L7Y3}
+ amazon_mx |        320 | NH-NOG-VEN-CEN-PLA                    |          2 | {1065,1143}           | {B09DK2TXM3,B0BX8ZVXBH}                       | {8T-02AR-7KP7,5Y-Q2HB-NIJZ}
+ amazon_mx |        328 | NH-NOG-VEN-SAN-PLA                    |          2 | {1060,1146}           | {B09DJMYB9Z,B0BX91L8GN}                       | {H3-4EM5-RS1Q,01-5LZU-V9KZ}
+ amazon_mx |        329 | NH-NOG-VEN-VBU-DOR                    |          2 | {1040,1104}           | {B086M8C52G,B0BGCXCL4V}                       | {U0-455F-KA5M,1X-3R3K-FQCA}
+ amazon_mx |        375 | NH-PLA-CH-CEN-DOR                     |          2 | {1090,1221}           | {B0B2VH74LV,B0C8SHHYSY}                       | {9M-ULI8-YE1L,K4-WBTE-9PWR}
+ amazon_mx |        383 | NH-PLA-CH-SAN-DOR                     |          2 | {1089,1223}           | {B0B2V7MRC6,B0C8SHVTFK}                       | {OH-NDX9-CENZ,NR-ESUP-XSTX}
+ amazon_mx |        384 | NH-PLA-CH-SAN-PLA                     |          2 | {1050,1227}           | {B086TVLJ43,B0C8SMDQ22}                       | {DH-N1J8-6LGE,87-RIK9-VTJQ}
+ amazon_mx |        387 | NH-PLA-CH-VCO-DOR                     |          2 | {1091,1225}           | {B0B2VKWCG6,B0C8SK6JN9}                       | {TR-F1VH-BX11,F1-T78C-AZMG}
+ amazon_mx |        389 | NH-PLA-M-CEN-DOR                      |          2 | {1030,1215}           | {B0849MTQ1D,B0C8RZCZ19}                       | {TV-ASOE-3CG2,N3-9EZ5-C788}
+ amazon_mx |        390 | NH-PLA-M-CEN-PLA                      |          2 | {1103,1152}           | {B0BGCX221F,B0BX942YG9}                       | {EL-OL1V-D3PW,CH-0GV7-QRPO}
+ amazon_mx |        391 | NH-PLA-M-COR-DOR                      |          2 | {1031,1217}           | {B0849RF9PF,B0C8S45MQB}                       | {2L-ZLFN-R9R5,50-16TH-AZPE}
+ amazon_mx |        616 | SET-ARR-22-DOR-MAX-COF-22-CHA-RED-DOR |          2 | {1263,1276}           | {B0CJT99QM8,B0CJTHY13F}                       | {WE-YMYU-9NGK,W8-OBAE-HLLV}
+ amazon_mx |        664 | SET-CAO-SAN-DOR                       |          2 | {1097,1119}           | {B0BGBVXXZG,B0BX8SYV62}                       | {0E-HPK5-9K3I,8V-H317-IM6F}
+ amazon_mx |        712 | SET-DIA-SAN-DOR                       |          2 | {1109,1237}           | {B0BGDGVCTN,B0C9PJDXHT}                       | {5I-D336-ARBI,1F-6UAF-5JOO}
+ amazon_mx |        716 | SET-DIA-VCO-DOR                       |          2 | {1028,1233}           | {B0849KPBG9,B0C9PH9STR}                       | {OB-ZSBE-HCS7,C9-I05U-1AFG}
+ amazon_mx |        736 | SET-EUM-BLA-SAN-DOR                   |          2 | {1047,1252}           | {B086QCPMT3,B0CJT5TNVQ}                       | {NT-NAY3-85H8,CY-2H0B-IWL0}
+ amazon_mx |        740 | SET-EUM-BLA-VCO-DOR                   |          2 | {1049,1266}           | {B086QDKCPQ,B0CJTBD5DG}                       | {ED-ZP9M-NFQR,DH-VEVA-2Z23}
+ amazon_mx |        752 | SET-EUM-VIN-VCO-DOR                   |          2 | {1043,1230}           | {B086MNR6DH,B0C9PCLKL5}                       | {1W-L3CX-P8A6,WR-NWRB-W6S9}
+ amazon_mx |        753 | SET-EUM-VIN-VCO-PLA                   |          2 | {1154,1261}           | {B0BXCN42HX,B0CJT8T9GD}                       | {IO-O87P-JWST,RR-OCHB-O2OH}
+ amazon_mx |        764 | SET-EUR-VIN-M-REP-VCO-DOR             |          2 | {1184,1185}           | {B0BXFT41F8,B0BXFT9KT2}                       | {OO-0DJV-OKN3,F3-VGLB-S5N0}
+ amazon_mx |        833 | SET-PLA-M-SAN-PLA                     |          2 | {1106,1145}           | {B0BGCZD2G1,B0BX91L7B4}                       | {VC-YO9D-VAMG,QZ-3F3X-JCEN}
+ amazon_mx |        836 | SET-PLA-M-VCO-DOR                     |          2 | {1032,1218}           | {B084B18416,B0C8S4WNQC}                       | {VB-FY6G-OMOE,6W-BX00-DCPB}
+ amazon_us |        138 | NH-CAR-AZU-CEN-PLA                    |          4 | {1371,1387,1472,1490} | {B08NTD3716,B09LLKKMRW,B0CH956ZLG,B0CPW8ZN6G} | {1B-R34T-1VZ5,SE-PWPS-CCRP,F7-0Y75-4PLD,HN-F22T-GIRS}
+ amazon_us |        158 | NH-CAR-AZU-VBU-PLA                    |          4 | {1369,1388,1476,1489} | {B08NTBVTBM,B09LLP8FR7,B0CH97FGSY,B0CPW7X2LK} | {1T-T1QG-6610,DG-4IBT-6XZA,Q3-FHIB-X95Y,Z0-A09M-AG5Q}
+ amazon_us |       1740 | SET-CAR-AZU-SAN-PLA                   |          4 | {1367,1389,1474,1488} | {B08NST8LNS,B09LM7HXZR,B0CH96ZVPF,B0CPW7KKMS} | {H2-ZI6Z-3GQQ,5B-YTEM-PBR2,ED-3SZW-SESM,1N-25OG-6TI8}
+ amazon_us |        143 | NH-CAR-AZU-REP-CEN-DOR                |          3 | {1380,1393,1527}      | {B09DK6ZFJH,B09M5Z9SPG,B0CR727JYN}            | {D0-KYU5-58K9,TX-FVN6-JBH6,3P-YWC7-4SCY}
+ amazon_us |        144 | NH-CAR-AZU-REP-CEN-PLA                |          3 | {1372,1391,1528}      | {B09DJC3G6J,B09M5SV58W,B0CR78BZBR}            | {KR-ABSX-583M,3O-929O-JIOU,HU-P79S-AL9P}
+ amazon_us |        151 | NH-CAR-AZU-REP-VBU-DOR                |          3 | {1375,1395,1521}      | {B09DJRCZ28,B09M6MNH1H,B0CR6Z7CM4}            | {NF-Q037-UXP2,EE-PVSE-RMAZ,BV-ZFT8-7LO8}
+ amazon_us |        152 | NH-CAR-AZU-REP-VBU-PLA                |          3 | {1383,1394,1532}      | {B09DK9K2RC,B09M642GSX,B0CR798XW8}            | {EE-ZBFM-K7SA,RE-WVJN-FYQJ,0P-AA1Z-D5LJ}
+ amazon_us |        676 | SET-CAR-AZU-REP-SAN-DOR               |          3 | {1377,1392,1525}      | {B09DK1X6WB,B09M5V1TYP,B0CR71119W}            | {O2-6H06-O2CI,1F-OSCN-XRMR,8F-69M5-T8Q1}
+ amazon_us |        677 | SET-CAR-AZU-REP-SAN-PLA               |          3 | {1381,1390,1533}      | {B09DK8MWVJ,B09M5QRPZ9,B0CR79DSRJ}            | {LN-0P06-UN8O,Z7-KIL2-Q9FA,33-KYO4-TF6H}
+ amazon_us |       1739 | SET-CAR-AZU-SAN-DOR                   |          3 | {1364,1434,1491}      | {B085VJ8DVX,B0BG4GKHQT,B0CPW9C2N9}            | {4A-REHV-WQ36,0J-W71Z-AYV0,SQ-WFR4-HASK}
+ amazon_us |        109 | NH-BLA-BRO-CEN-DOR                    |          2 | {1405,1517}           | {B09QBZ1G1J,B0CR6YHD9T}                       | {4M-U1Z0-HMX9,22-9FUT-YSSI}
+ amazon_us |        110 | NH-BLA-BRO-CEN-PLA                    |          2 | {1404,1518}           | {B09QBX3XNV,B0CR6YQ2MJ}                       | {K8-KF5Z-H8MT,KN-V8NQ-XDWN}
+ amazon_us |        118 | NH-BLA-BRO-SAN-PLA                    |          2 | {1402,1524}           | {B09QBSWTX9,B0CR6ZXNFK}                       | {WB-7YRA-MTAK,PV-WORJ-ETTV}
+ amazon_us |        120 | NH-BLA-BRO-VBU-PLA                    |          2 | {1406,1520}           | {B09QC3X991,B0CR6YYSHP}                       | {FY-KLOG-DLH5,YC-E4ZP-5KCT}
+ amazon_us |        137 | NH-CAR-AZU-CEN-DOR                    |          2 | {1433,1484}           | {B0BG4G3KTN,B0CPW6KJM4}                       | {8V-TNEI-9VH5,7D-ZL0F-LQJI}
+ amazon_us |        140 | NH-CAR-AZU-COR-PLA                    |          2 | {1473,1486}           | {B0CH96SDS7,B0CPW7B3M4}                       | {NM-XVSA-IX0L,K2-JC2O-OLSZ}
+ amazon_us |        157 | NH-CAR-AZU-VBU-DOR                    |          2 | {1431,1487}           | {B0BG4D3MFH,B0CPW7FLZD}                       | {C1-Q1PO-M73C,JB-KYVI-13P9}
+ amazon_us |        161 | NH-CAR-BLA-CEN-DOR                    |          2 | {1397,1496}           | {B09PYNPZL1,B0CR5L1RVF}                       | {9H-RO3W-KI8Y,UX-5A44-JPOH}
+ amazon_us |        162 | NH-CAR-BLA-CEN-PLA                    |          2 | {1400,1492}           | {B09Q88CGY5,B0CR5JCXQZ}                       | {9X-LA4S-Y77Q,L0-K1N9-8X2T}
+ amazon_us |        179 | NH-CAR-BLA-SAN-DOR                    |          2 | {1398,1503}           | {B09PYQP7LH,B0CR5Q74G5}                       | {JV-AABK-ZJG3,QC-48H9-2DBH}
+ amazon_us |        180 | NH-CAR-BLA-SAN-PLA                    |          2 | {1401,1498}           | {B09Q8C5XN5,B0CR5MTJFY}                       | {Q0-YIBM-IP8I,NY-30ZJ-IX1F}
+ amazon_us |        181 | NH-CAR-BLA-VBU-DOR                    |          2 | {1396,1494}           | {B09PYM8QR3,B0CR5KDT7M}                       | {Y1-TG1F-AGVA,VG-JLRB-9YVR}
+ amazon_us |        182 | NH-CAR-BLA-VBU-PLA                    |          2 | {1399,1499}           | {B09Q86Q7L9,B0CR5N7J9D}                       | {BP-0AP0-PC9H,YX-FLCK-UWHH}
+ amazon_us |        245 | NH-EUM-VIN-CEN-DOR                    |          2 | {1365,1459}           | {B0877XXNR5,B0BLMHQ7TG}                       | {WL-WJTK-PE3X,NO-501T-PVXP}
+ amazon_us |        246 | NH-EUM-VIN-CEN-PLA                    |          2 | {1368,1456}           | {B08NT1YSBJ,B0BHCSP6CK}                       | {YJ-4TKU-86K5,6T-6EU2-WJGL}
+ amazon_us |        254 | NH-EUM-VIN-VBU-PLA                    |          2 | {1366,1457}           | {B08NSJH5RX,B0BHCY1JC1}                       | {2F-SLPW-KLHJ,0P-82Z8-YXD7}
+ amazon_us |        263 | NH-EUR-VIN-M-REP-CEN-DOR              |          2 | {1379,1531}           | {B09DK5J1M1,B0CR7948VT}                       | {EI-RBOM-7B96,9P-C0NN-HCR9}
+ amazon_us |        264 | NH-EUR-VIN-M-REP-CEN-PLA              |          2 | {1384,1538}           | {B09DKFSMZ3,B0CR7D55BV}                       | {9O-8F1H-F6BJ,WP-XOYQ-TZ1B}
+ amazon_us |        273 | NH-EUR-VIN-M-REP-VBU-DOR              |          2 | {1382,1530}           | {B09DK8NN1T,B0CR78WCH5}                       | {Q3-RLC0-7RNW,97-FWRA-RBM9}
+ amazon_us |        274 | NH-EUR-VIN-M-REP-VBU-PLA              |          2 | {1374,1537}           | {B09DJQBFDQ,B0CR7D1R8L}                       | {IJ-L6WR-HSNY,PV-AVJL-I78M}
+ amazon_us |        305 | NH-ITA-CEN-DOR                        |          2 | {1403,1478}           | {B09QBTDHY6,B0CH97XPM6}                       | {S5-P3XQ-A6A6,UT-S0ZQ-2FAO}
+ amazon_us |        313 | NH-ITA-SAN-DOR                        |          2 | {1408,1479}           | {B09QC97SBN,B0CH97YQ2P}                       | {1B-J83K-7VFL,M7-Y4MO-ID7F}
+ amazon_us |        315 | NH-ITA-VBU-DOR                        |          2 | {1407,1477}           | {B09QC5PK3S,B0CH97L6WW}                       | {L3-Y2YN-IRYX,Q2-2IMG-250B}
+ amazon_us |        346 | NH-PERS-ITA-CEN-PLA                   |          2 | {1411,1481}           | {B0B36QG6QW,B0CKB2N5TC}                       | {WR-03JD-YKTV,69-ZYFY-S8JM}
+ amazon_us |        354 | NH-PERS-ITA-SAN-PLA                   |          2 | {1410,1482}           | {B0B36PVSV8,B0CKBJ8LCL}                       | {5J-VRP9-WMNO,W5-XH59-R1FN}
+ amazon_us |        356 | NH-PERS-ITA-VBU-PLA                   |          2 | {1409,1480}           | {B0B36NHWY5,B0CKB2413S}                       | {YE-W20B-JW6U,EI-67PP-ARMD}
+ amazon_us |        619 | SET-ARR-22-DOR-SAN-COF-22-CHA-RED-DOR |          2 | {1425,1465}           | {B0B6S2ZMD8,B0CF187NFR}                       | {UN-G9LH-KH5G,UN-4O7B-FJ96}
+ amazon_us |        627 | SET-ARR-22-PLA-SAN-COF-22-CHA-RED-PLA |          2 | {1424,1468}           | {B0B6S2HPYY,B0CF1CCT1P}                       | {T5-TQA3-5QM5,DZ-4DLR-XZUE}
+ amazon_us |        635 | SET-ARR-COF-22-MAX-PLA                |          2 | {1430,1469}           | {B0BFL347R9,B0CF1CF6NZ}                       | {Q7-0261-KZSQ,HQ-2UL8-XYFJ}
+ amazon_us |        640 | SET-ARR-COF-22-SAN-DOR                |          2 | {1428,1470}           | {B0BFK4LSLH,B0CF1CFY2T}                       | {6F-9HTY-E69F,QS-Y0TK-KLMX}
+ amazon_us |        641 | SET-ARR-COF-22-SAN-PLA                |          2 | {1429,1471}           | {B0BFL2ZFQN,B0CF1CMG26}                       | {RC-ACHV-FVKX,0I-M6SQ-YYO7}
+ amazon_us |        749 | SET-EUM-VIN-SAN-PLA                   |          2 | {1370,1455}           | {B08NTBY186,B0BHCR13Q1}                       | {XA-3K2X-O4FP,JV-YZ7F-9H9T}
+ amazon_us |        760 | SET-EUR-VIN-M-REP-SAN-DOR             |          2 | {1385,1534}           | {B09DKFVNJC,B0CR79GCDP}                       | {12-P13M-IHF9,VR-QI3Y-C9WW}
+ amazon_us |        761 | SET-EUR-VIN-M-REP-SAN-PLA             |          2 | {1386,1536}           | {B09DKFXKGL,B0CR7CDSVD}                       | {Z1-A7V3-AVC3,VE-WHOW-U0CA}
+(115 rows)
+
+=== PRODUCT ADS SIN LISTING (OMISION DE MAPA EN ANUNCIOS) ===
+ERROR:  column e.state does not exist
+LINE 2:        e.state,
+               ^
+
+=== CONTINUACION UTC (select-restante.sql; ad_entity_state.status) ===
+SET
+=== ELEGIBLES ACTUALES (IDs) ===
+ product_id |        odoo_sku         | platform  | n_listings |  seller_sku  | listing_id |    asin    |   margen_neto_pct    | dias_con_venta
+------------+-------------------------+-----------+------------+--------------+------------+------------+----------------------+----------------
+        333 | NH-PERS-CAR-AZU-CEN-DOR | amazon_mx |          1 | FZ-4QXB-23FK |       1190 | B0BXHS56ZH | 40.79912716572756032 |             40
+        335 | NH-PERS-CAR-AZU-COR-DOR | amazon_mx |          1 | AL-WD43-AH4T |       1206 | B0BXHVT1MG | 43.30323569095447257 |             32
+       1621 | PERS-CAR-AZU-SAN-DOR    | amazon_mx |          1 | GE-YXVC-R5BR |       1204 | B0BXHV2D76 | 42.11470824057802650 |             52
+        359 | NH-PERS-NOG-SIN-CEN-DOR | amazon_us |          1 | 2W-B7K3-MMOK |       1461 | B0BVQFLTLQ | 37.31634718565998758 |             32
+        369 | NH-PERS-NOG-SIN-VBU-DOR | amazon_us |          1 | UT-6NDI-O3IP |       1463 | B0BVQKMXXP | 38.57683176270595995 |             32
+(5 rows)
+
+=== PRODUCT ADS SIN LISTING ===
+ platform  |  status  | product_ads | sin_listing_id | con_listing_id
+-----------+----------+-------------+----------------+----------------
+ amazon_mx | ARCHIVED |        1362 |           1063 |            299
+ amazon_mx | ENABLED  |        4768 |           1168 |           3600
+ amazon_mx | PAUSED   |        1579 |            429 |           1150
+ amazon_us | ARCHIVED |         264 |            264 |              0
+ amazon_us | ENABLED  |        4090 |            920 |           3170
+ amazon_us | PAUSED   |         464 |             23 |            441
+(6 rows)
+
+=== LEDGER SALES SIN PRODUCTO ===
+ platform  | sales_sin_product_id | sales_con_product_id
+-----------+----------------------+----------------------
+ amazon_mx |                    7 |                  734
+ amazon_us |                    0 |                  357
+(2 rows)
+
+=== LOTES FABRICA ===
+ lote | platform | estado | created_at | finished_at | pasos | applied | failed | planeado | incierto_sin_id | tiene_ids_externos
+------+----------+--------+------------+-------------+-------+---------+--------+----------+-----------------+--------------------
+(0 rows)
+
+=== CONTEO MULTILISTING ===
+ platform  | productos_multilisting | listings_en_ellos
+-----------+------------------------+-------------------
+ amazon_mx |                     71 |               164
+ amazon_us |                     44 |               101
+(2 rows)
+
+
+=== VENTANA MARGEN + TOTALES ADS + SALES SIN PRODUCTO (UTC 2026-09-06 21:03) ===
+ventana_desde | ventana_hasta | ledger_fresco_at
+2026-02-20 | 2026-08-22 | 2026-09-06 08:15:04.628154+00
+
+platform | product_ads | sin_listing_id | con_listing_id
+amazon_mx | 7709 | 2660 | 5049
+amazon_us | 4818 | 1207 | 3611
+
+n_lotes=0 n_pasos=0
+
+=== SALES SIN PRODUCT_ID (muestra completa, 7 filas) ===
+id | platform | event_date | order_id | source_event_id | quantity | amount | amount_currency | product_id
+848 | amazon_mx | 2026-03-15 | 701-3148843-0417034 | amazon|sale_gross|701-3148843-0417034||NA-15WK-8U1A | 1 | 988.0000 | MXN |
+2042 | amazon_mx | 2026-04-11 | 701-1038019-8965003 | amazon|sale_gross|701-1038019-8965003||NA-15WK-8U1A | 1 | 988.0000 | MXN |
+3164 | amazon_mx | 2026-05-14 | 701-1278805-1320232 | amazon|sale_gross|701-1278805-1320232||NT-PPM2-94N3 | 1 | 1988.0000 | MXN |
+3358 | amazon_mx | 2026-05-21 | 702-6213858-4350600 | amazon|sale_gross|702-6213858-4350600||SET-CAR-AZU-PEZ-DOR | 1 | 989.0000 | MXN |
+3688 | amazon_mx | 2026-06-08 | 702-0357138-0880217 | amazon|sale_gross|702-0357138-0880217||6M-0KK7-8OAK | 1 | 1988.0000 | MXN |
+6701 | amazon_mx | 2026-07-14 | 702-6771817-2308227 | amazon|sale_gross|702-6771817-2308227||OZ-KHZX-VIQF | 1 | 1988.0000 | MXN |
+6931 | amazon_mx | 2026-07-22 | 701-7584794-5593830 | amazon|sale_gross|701-7584794-5593830||L2-N1V2-3RZG | 1 | 1688.0000 | MXN |

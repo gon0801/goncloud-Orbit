@@ -4,6 +4,13 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-06 — ORBIT 19 Fase 0: catalogo y fuentes (0.1/0.3).**
+SELECT 21:00 UTC: MX 249 productos / 3 elegibles, US 119 / 2; 115 multilisting;
+291 listings del bridge sin mapa Odoo (23 Active). `fabrica_lote` vacia.
+`spAdvertisedProduct` verificado en amazon_mx (D-3, 767 filas); `salesSameSku30d`
+no existe. Stock FBA/FBM en bridge, separados. Featured Offer sin verificar.
+D1–D4 siguen pendientes del dueno; A/B no se implementan. PR #185.
+
 **2026-09-06 — ORBIT 19 formalizado con harness-plan.**
 Plan formal y spec incluyen stages, archivos por tarea, evidencia y DoD binarios,
 contrato v2/compatibilidad y rollback, fixtures de comparacion y evaluacion de

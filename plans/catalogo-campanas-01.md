@@ -1,7 +1,8 @@
 # ORBIT 19 — Plan formal de catalogo abierto y evaluacion
 
-Version: 1.0, 2026-09-06. Workflow: `harness-plan create` sobre el borrador del PR185.
-Estado: PLAN FORMAL; decisiones de negocio pendientes en 0.2, ejecucion no iniciada.
+Version: 1.1, 2026-09-06. Workflow: `harness-work` sobre 0.1–0.4 del PR185.
+Estado: Fase 0 en curso. 0.1 y 0.3 cerradas con evidencia. D1–D4 **no aprobadas**.
+0.2/0.4 tienen contratos propuestos; no se implementan A/B.
 Solicitud del dueno: todos los articulos seleccionables, con metricas para comparar
 su conveniencia publicitaria. Formalizar no equivale a aprobar objetivos ni gasto.
 
@@ -29,17 +30,33 @@ no se inventa producto/SKU para poder anunciarlas.
 
 ## Decisiones pendientes y criterio de cierre
 
-| ID | Decision | Propuesta del plan | Evidencia necesaria |
-|---|---|---|---|
-| D1 | Prioridad de comparacion | Rentabilidad con espacio para explorar | Respuesta del dueno registrada; orden inicial acorde |
-| D2 | Lanzamientos sin margen | ACoS manual del grupo, presupuesto/bids explicitos | Respuesta del dueno; target no se representa como margen |
-| D3 | Nuevas o existentes | Crear nuevas primero | Respuesta; si incluye existentes, ampliar tasks y reversa antes de cerrar0.2 |
-| D4 | Detalle economico con poca muestra | Mostrar margen observado con guardas de integridad, separado del maduro | Ratificacion del contrato en0.2; no afecta el motor |
+| ID | Decision | Propuesta del plan | Recomendacion 2026-09-06 (NO aprobada) | Evidencia necesaria |
+|---|---|---|---|---|
+| D1 | Prioridad de comparacion | Rentabilidad con espacio para explorar | Orden inicial: margen observado desc + seccion Por probar visible. Fallback tecnico `listing_id`. Sin nota 0–100. | Respuesta del dueno; ver E/0.2/decisiones-propuestas.md |
+| D2 | Lanzamientos sin margen | ACoS manual del grupo, presupuesto/bids explicitos | Aceptar. Manual obligatorio si algun producto no tiene margen maduro. No derivar el minimo omitiendo nulls. No margen proyectado previo. | Respuesta del dueno; target no se representa como margen |
+| D3 | Nuevas o existentes | Crear nuevas primero | Solo campanas nuevas (igual FABRICA 01). Existentes = otro plan con reversa. | Respuesta; si incluye existentes, replanificar antes de cerrar 0.2 |
+| D4 | Detalle economico con poca muestra | Mostrar margen observado con guardas de integridad, separado del maduro | Aceptar en UI. `v_margen_producto` y el motor no se relajan. 116 productos hoy tienen 1–29 fechas. | Ratificacion; no afecta el motor |
 
 0.2 solo termina con respuestas atribuibles al dueno para D1–D3 y contrato D4
-ratificado. Si elige margen proyectado previo o campanas existentes, se replanifica
-ese alcance antes de implementar. No interpretar silencio, tiempo o la solicitud de
-formalizacion como aprobacion. Investigaciones0.1/0.3 pueden avanzar independientemente.
+ratificado. Contratos API/CLI/migracion en E/0.2 son **propuestos**. Si elige
+margen proyectado previo o campanas existentes, se replanifica ese alcance antes
+de implementar. No interpretar silencio, tiempo, la solicitud de formalizacion
+ni estas recomendaciones como aprobacion.
+
+### Evidencia Fase 0 (2026-09-06)
+
+- 0.1 `docs/evidencia/orbit-19/0.1/reporte.md` — SELECT 21:00 UTC. MX 249/3
+  elegibles, US 119/2. 115 multilisting. 291 listings bridge sin mapa Odoo
+  (23 Active). `fabrica_lote` vacia. Cero mutacion Amazon.
+- 0.3 `docs/evidencia/orbit-19/0.3/reporte.md` — `spAdvertisedProduct`
+  **verificada** (amazon_mx D-3, 767 filas / 251 ASIN). `salesSameSku30d`
+  no existe (400). Stock FBA/FBM en bridge, separados; Featured Offer
+  **no_verificada**. Sonda US pendiente.
+- 0.2 `docs/evidencia/orbit-19/0.2/` — propuestas D1–D4, API/CLI v2,
+  reserva 0019/0020 y rollback. **No cierra la tarea.**
+- 0.4 `docs/evidencia/orbit-19/0.4/politica-comparacion.md` — campos,
+  ventana, cobertura, fixtures. Orden/objetivo siguen D1/D2. **No cierra
+  la tarea** (Depends 0.2).
 
 ## Etapas y tareas
 
@@ -56,10 +73,10 @@ Purpose: separar hechos disponibles, decisiones y dependencias externas.
 
 | Task | Contenido | DoD | Depends | Status |
 |---|---|---|---|---|
-| 0.1 | [stage:investigacion] [lane:gate] [tdd:skip:investigacion] Catalogo/SKU/margen/lotes actuales | E/0.1 contiene SELECT y salida UTC con conteos por mercado, IDs ambiguos/omitidos y lotes recuperables; ninguna mutacion Amazon | - | cc:TODO |
-| 0.2 | [stage:planificacion] [lane:gate] [tdd:skip:docs-contract] Cerrar negocio, API/CLI v2, migracion y rollback | D1–D4 resueltas segun contrato; campos v2 y compatibilidad antigua definidos; numeros/rutas de migraciones reservados; reversa conserva lector v2; respuestas y spec enlazados en E/0.2 | 0.1 | cc:TODO |
-| 0.3 | [stage:investigacion] [lane:gate] [tdd:skip:investigacion] Contratos de reporte Ads y disponibilidad | E/0.3 asigna verificada/no_verificada con motivo por fuente; disponible incluye docs, muestra redactada, grano, atribucion, permisos y conciliacion; no_verificada no se trata como cero | - | cc:TODO |
-| 0.4 | [stage:planificacion] [lane:gate] [tdd:skip:docs-contract] Cerrar politica de comparacion | E/0.4 fija campos/ventana/cobertura/madurez del reporte verificado, objetivo de comparacion, igualdad, precedencias y ordenes; cada fixture del spec tiene resultado; si Ads no verificada, permanece pendiente | 0.2,0.3 | cc:TODO |
+| 0.1 | [stage:investigacion] [lane:gate] [tdd:skip:investigacion] Catalogo/SKU/margen/lotes actuales | E/0.1 contiene SELECT y salida UTC con conteos por mercado, IDs ambiguos/omitidos y lotes recuperables; ninguna mutacion Amazon | - | cc:完了 [2026-09-06 21:00 UTC, E/0.1] |
+| 0.2 | [stage:planificacion] [lane:gate] [tdd:skip:docs-contract] Cerrar negocio, API/CLI v2, migracion y rollback | D1–D4 resueltas segun contrato; campos v2 y compatibilidad antigua definidos; numeros/rutas de migraciones reservados; reversa conserva lector v2; respuestas y spec enlazados en E/0.2 | 0.1 | cc:WIP [contratos propuestos E/0.2; espera dueno D1–D4] |
+| 0.3 | [stage:investigacion] [lane:gate] [tdd:skip:investigacion] Contratos de reporte Ads y disponibilidad | E/0.3 asigna verificada/no_verificada con motivo por fuente; disponible incluye docs, muestra redactada, grano, atribucion, permisos y conciliacion; no_verificada no se trata como cero | - | cc:完了 [2026-09-06 21:03 UTC, E/0.3; Ads MX verificada, US no sondada] |
+| 0.4 | [stage:planificacion] [lane:gate] [tdd:skip:docs-contract] Cerrar politica de comparacion | E/0.4 fija campos/ventana/cobertura/madurez del reporte verificado, objetivo de comparacion, igualdad, precedencias y ordenes; cada fixture del spec tiene resultado; si Ads no verificada, permanece pendiente | 0.2,0.3 | cc:WIP [politica Ads en E/0.4; espera D1/D2] |
 
 ### Fase A — Catalogo abierto
 
@@ -168,10 +185,10 @@ investigacion no sustituye la reconciliacion de la implementacion futura.
 
 ## Inicio de una sesion de ejecucion
 
-- Comando de nueva sesion: `claude` desde la rama que contiene este plan.
-- Primera entrada: `/harness-work 0.1 --plan catalogo-campanas-01`.
-- Uso: comenzar por evidencia independiente; detener tareas dependientes hasta
-  resolver0.2/0.4, sin reinterpretar preguntas pendientes como aprobaciones.
+- 0.1 y 0.3 ya tienen evidencia. Siguiente: respuesta del dueno a D1–D4
+  (cierra 0.2) y luego 0.4. No arrancar A/B sin 0.2 cerrado.
+- Ads MX verificada: B.1 no esta bloqueada por fuente. US se confirma en
+  la primera ingesta. Featured Offer sigue Sin verificar (no bloquea B.4).
 
 En Codex puede darse la misma instruccion con el nombre completo del plan.
 El plan activo del manifest sigue siendo orbit-ui-01; usar seleccion explicita

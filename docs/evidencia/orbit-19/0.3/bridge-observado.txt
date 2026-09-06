@@ -1,0 +1,47 @@
+ORBIT 19 / 0.3 — snapshot read-only del bridge
+utc_now=2026-09-06T21:08:24Z
+src=file:/mnt/data/appdata/bridge/data/bridge.db?mode=ro
+metodo=sqlite3 backup() a /tmp/bridge-snapshot-orbit19.db (PrivateTmp por sesion SSH; no reutilizar entre sesiones)
+NO_WRITE_BRIDGE=1 NO_INGEST=1 accounting no tocado
+
+TABLES=amazon_fba_inventory,amazon_inbound_events,amazon_inbound_orders_state,amazon_inbound_sales_orders,amazon_inventory_cache,amazon_inventory_cache_old,amazon_inventory_cache_staging,amazon_job_payloads,amazon_listing_prices,amazon_metrics,amazon_orders_state,amazon_processed_events,amazon_processed_inbound_events,amazon_processing_locks,amazon_sku_mapping,amazon_sku_marketplace,bridge_metrics,bridge_settings,events,inbound_allowed_skus,inbound_events,inbound_job_payloads,inbound_metrics,inbound_orders_state,inbound_processing_locks,inbound_sales_orders,inbound_stock_deltas,inbound_stock_deltas_snapshot_20260203,known_skus,meli_listings_cache,meli_sku_mapping,meli_variation_mapping_backup_20260208,processed_events,processed_inbound_events,rejected_skus,sku_mapping,sku_mapping_audit,sku_mapping_backup_20260208,sku_mapping_old,snapshot_items,sqlite_sequence
+
+amazon_listing_prices (809 filas; mx=548 us=261)
+  columnas: id INTEGER PK, seller_sku TEXT NOT NULL, asin TEXT, listing_id TEXT,
+            marketplace_id TEXT NOT NULL, marketplace_name TEXT, price REAL,
+            quantity INTEGER, fulfillment_channel TEXT, item_name TEXT,
+            status TEXT, fetched_at TEXT
+  UNIQUE observado por uso: (seller_sku, marketplace_id) en el fixture de tests
+  quantity x fulfillment_channel:
+    AMAZON_NA n=359 null=359 zero=0 pos=0   ← quantity SIEMPRE NULL en FBA
+    DEFAULT   n=450 null=0   zero=242 pos=208 ← FBM; 0 es cero observado, no NULL
+  status x channel: AMAZON_NA Active 171 / Inactive 186 / Incomplete 2
+                    DEFAULT   Active 207 / Inactive 112 / Incomplete 131
+  fetched_at min=2026-04-13 04:01:06 max=2026-09-06 18:36:52
+  muestra: (amazon_mx, B0BX91L8GN, 01-5LZU-V9KZ, price=1483.2, qty=9, DEFAULT, Active, 2026-09-06 18:35:49)
+           (amazon_mx, B0CJT6BK86, 0O-B6OS-8RRE, price=848.0, qty=None, AMAZON_NA, Active, 2026-09-06 18:35:49)
+  Orbit ingest (app/listings.py) SOLO lee seller_sku, asin, marketplace_name, price.
+  listing.listing_price existe; quantity NO se ingiere.
+
+amazon_fba_inventory (2142 filas; uniq seller_sku|marketplace_id = 2142)
+  columnas: id, seller_sku, fnsku, asin, marketplace_id, marketplace_name,
+            condition_type, quantity_available INTEGER, fetched_at
+  markets: amazon_mx A1AM78C64UM0Y8 1071; amazon_us ATVPDKIKX0DER 1071
+  quantity_available: null=0 zero=1800 pos=342 min=0 max=207
+  fetched_at min=2026-09-06 18:36:21 max=2026-09-06 18:37:24 (fresco el dia de la sonda)
+  muestra: (amazon_mx, B081S92DSY, 1X-FZW9-3XZ0, qty_avail=0, 2026-09-06 18:36:21)
+  semantica: columna quantity_available, NO se confirmo que sea fulfillable SP-API.
+  no sumar con listing.quantity (FBA vs FBM).
+
+amazon_inventory_cache (806 filas) — NO USAR
+  columnas: seller_sku PK, asin, product_name, qty INTEGER DEFAULT 0,
+            marketplace TEXT DEFAULT 'MX', updated_at
+  markets: MX 548, US 258
+  qty: null=0 zero=806 pos=0 (TODAS cero)
+  updated_at min=max=2026-08-10 06:14:34 (stale ~27d)
+  tratar este 0 como stock vendible seria inventar un cero.
+
+featured / buybox / eligibility: CERO columnas en todo el snapshot (HITS=[]).
+
+skus distintos: listing 735, fba 1071, cache 732.
+inbound_stock_deltas es MeLi inbound, no catalogo Amazon.

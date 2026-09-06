@@ -1,0 +1,42 @@
+
+=== CONTINUACION UTC (select-restante.sql; ad_entity_state.status) ===
+SET
+=== ELEGIBLES ACTUALES (IDs) ===
+ product_id |        odoo_sku         | platform  | n_listings |  seller_sku  | listing_id |    asin    |   margen_neto_pct    | dias_con_venta
+------------+-------------------------+-----------+------------+--------------+------------+------------+----------------------+----------------
+        333 | NH-PERS-CAR-AZU-CEN-DOR | amazon_mx |          1 | FZ-4QXB-23FK |       1190 | B0BXHS56ZH | 40.79912716572756032 |             40
+        335 | NH-PERS-CAR-AZU-COR-DOR | amazon_mx |          1 | AL-WD43-AH4T |       1206 | B0BXHVT1MG | 43.30323569095447257 |             32
+       1621 | PERS-CAR-AZU-SAN-DOR    | amazon_mx |          1 | GE-YXVC-R5BR |       1204 | B0BXHV2D76 | 42.11470824057802650 |             52
+        359 | NH-PERS-NOG-SIN-CEN-DOR | amazon_us |          1 | 2W-B7K3-MMOK |       1461 | B0BVQFLTLQ | 37.31634718565998758 |             32
+        369 | NH-PERS-NOG-SIN-VBU-DOR | amazon_us |          1 | UT-6NDI-O3IP |       1463 | B0BVQKMXXP | 38.57683176270595995 |             32
+(5 rows)
+
+=== PRODUCT ADS SIN LISTING ===
+ platform  |  status  | product_ads | sin_listing_id | con_listing_id
+-----------+----------+-------------+----------------+----------------
+ amazon_mx | ARCHIVED |        1362 |           1063 |            299
+ amazon_mx | ENABLED  |        4768 |           1168 |           3600
+ amazon_mx | PAUSED   |        1579 |            429 |           1150
+ amazon_us | ARCHIVED |         264 |            264 |              0
+ amazon_us | ENABLED  |        4090 |            920 |           3170
+ amazon_us | PAUSED   |         464 |             23 |            441
+(6 rows)
+
+=== LEDGER SALES SIN PRODUCTO ===
+ platform  | sales_sin_product_id | sales_con_product_id
+-----------+----------------------+----------------------
+ amazon_mx |                    7 |                  734
+ amazon_us |                    0 |                  357
+(2 rows)
+
+=== LOTES FABRICA ===
+ lote | platform | estado | created_at | finished_at | pasos | applied | failed | planeado | incierto_sin_id | tiene_ids_externos
+------+----------+--------+------------+-------------+-------+---------+--------+----------+-----------------+--------------------
+(0 rows)
+
+=== CONTEO MULTILISTING ===
+ platform  | productos_multilisting | listings_en_ellos
+-----------+------------------------+-------------------
+ amazon_mx |                     71 |               164
+ amazon_us |                     44 |               101
+(2 rows)
