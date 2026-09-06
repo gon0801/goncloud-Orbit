@@ -77,13 +77,13 @@
 - Consumes: `orbit_read` en el server (`ssh goncloud`, `docker exec -i orbit-postgres-1 psql ...` o el DSN de lectura del contenedor app).
 - Produces: números que fijan dos decisiones de la tarea 3 (guard `dias_con_venta >= 60` por producto y cobertura por producto) y confirman el grano del ledger.
 
-- [ ] **Step 1: Marcar la tarea en AppFlowy**
+- [x] **Step 1: Marcar la tarea en AppFlowy**
 
 ```bash
 ssh goncloud "python3 /mnt/data/appdata/appflowy/_migrate/add_ehv_task.py --name 'ORBIT NN — Fábrica de campañas por grupo (FABRICA 01)' --status 'In progress' --notes 'Arranque F1: SELECTs regla 8 contra produccion (tarea 1 del plan plans/fabrica-01.md). Spec: docs/superpowers/specs/2026-09-05-fabrica-campanas-grupos-design.md'"
 ```
 
-- [ ] **Step 2: Correr los SELECTs (read-only) y pegar la salida en "Decisiones y evidencia"**
+- [x] **Step 2: Correr los SELECTs (read-only) y pegar la salida en "Decisiones y evidencia"**
 
 ```sql
 -- (a) ¿Cuantas ordenes de venta traen mas de un producto? (grano del prorrateo, spec §8)
@@ -144,7 +144,7 @@ SELECT e.kind, COUNT(*) FROM search_term_observation s JOIN ad_entity e ON e.id 
  WHERE s.metric_date >= CURRENT_DATE - 105 GROUP BY e.kind;
 ```
 
-- [ ] **Step 3: Anotar las decisiones que salen de (c), (d) y (f)**
+- [x] **Step 3: Anotar las decisiones que salen de (c), (d) y (f)**
 
 Si NINGÚN producto llega a 60 días con venta, el guard por producto de la tarea 3 se cambia a `MARGEN_DIAS_MIN_PRODUCTO = 30` **solo con decisión escrita del dueño** en "Decisiones y evidencia" (regla 2: un número, una fuente; la constante vive en la vista y en `app/fabrica_plan.py` con un test que las pinea). Si sí hay candidatos, el guard queda en 60 (misma maquinaria que la plataforma).
 
@@ -152,7 +152,7 @@ De (d): si hay productos multi-listing en la plataforma de la sonda, el `--produ
 
 De (f): registrar en "Decisiones y evidencia" el grano real de `search_term_observation` y aplicarlo a la CTE `origenes` de `_SQL_TERMINOS` (tarea 6): UN solo grano en producción → `origenes` se simplifica a ese SELECT; AMBOS granos → se usa SOLO el grano `ad_group` (más fino; la campaña se deduce por `parent_id`) y el UNION se elimina. El test `test_terminos_del_producto_colapsan_bitemporal_y_suman_en_ventana` se ajusta a la variante elegida (hoy ejercita ambos granos sumados, la hipótesis UNION).
 
-- [ ] **Step 4: Commit de la evidencia**
+- [x] **Step 4: Commit de la evidencia**
 
 ```bash
 git checkout -b fabrica-01-1-evidencia origin/master
@@ -4968,7 +4968,98 @@ Marker `cc:完了` en las 11 tareas de este plan + línea final en `docs/CHAT-CO
 
 ### Tarea 1 — SELECTs regla 8 (lead)
 
-_(pendiente de correr; pegar salida de (a)-(f) y la decisión sobre `dias_con_venta >= 60` por producto)_
+Corridos el 2026-09-05 contra produccion (`ssh goncloud`, `docker exec -i orbit-db-1 psql -U orbit_read -d orbit`; el contenedor se llama `orbit-db-1`, no `orbit-postgres-1`). AppFlowy: fila creada con status `In progress` (row_id `b414bf4b-613e-4eae-9fb3-dde7b2262baa`).
+
+**(a) Ordenes multi-producto (grano del prorrateo):** ninguna orden trae mas de un producto.
+
+```
+ platform  | ordenes_multi | ordenes
+-----------+---------------+---------
+ amazon_mx |             0 |     261
+ amazon_us |             0 |     154
+(2 rows)
+```
+
+**(b) Cargos sin product_id (esperado: NO traen; solo ventas lo resuelven):** confirmado — `con_producto = 0` en fee/refund/withholding; withholding casi siempre con `order_id` (prorrateo por orden aplica).
+
+```
+ platform  |    kind     | con_producto | con_orden | total
+-----------+-------------+--------------+-----------+-------
+ amazon_mx | fee         |            0 |       566 |   658
+ amazon_mx | refund      |            0 |         6 |     6
+ amazon_mx | withholding |            0 |       272 |   276
+ amazon_us | fee         |            0 |       478 |   567
+ amazon_us | refund      |            0 |        29 |    29
+ amazon_us | withholding |            0 |       270 |   274
+(6 rows)
+```
+
+**(c) dias_con_venta por producto (ventana de 90 dias, sin el curso):** maximo 27 dias (amazon_mx, `PERS-CAR-AZU-SAN-DOR`) y 17 dias (amazon_us, `NH-PERS-ITA-CEN-DOR`). **NINGUN producto llega a 60** → ver decision pendiente abajo. Venta 100% cubierta por `sku_cost` en moneda y una sola moneda por plataforma (MX en MXN, US en USD; `n_monedas = 1` en todas las filas). Extracto (top 10 por plataforma; salida completa: 132 filas):
+
+```
+ platform  | product_id |           odoo_sku            | dias_con_venta | venta_total | venta_cubierta | n_monedas
+-----------+------------+-------------------------------+----------------+-------------+----------------+-----------
+ amazon_mx |       1621 | PERS-CAR-AZU-SAN-DOR          |             27 |  35069.6700 |     35069.6700 |         1
+ amazon_mx |        185 | NH-CAR-ROJ-CEN-DOR            |             14 |  14841.0000 |     14841.0000 |         1
+ amazon_mx |        207 | NH-CAR-ROJ-VCO-DOR            |             12 |  14327.2000 |     14327.2000 |         1
+ amazon_mx |       1625 | PERS-CAR-AZU-VCO-DOR          |             10 |  13728.0000 |     13728.0000 |         1
+ amazon_mx |        203 | NH-CAR-ROJ-SAN-DOR            |              9 |  10686.0000 |     10686.0000 |         1
+ amazon_mx |        335 | NH-PERS-CAR-AZU-COR-DOR       |              7 |   9984.0000 |      9984.0000 |         1
+ amazon_mx |        187 | NH-CAR-ROJ-COR-DOR            |              7 |   7520.0000 |      7520.0000 |         1
+ amazon_mx |        616 | SET-ARR-22-DOR-MAX-COF-22-CHA-RED-DOR |      6 |   5263.7900 |      5263.7900 |         1
+ amazon_mx |       1740 | SET-CAR-AZU-SAN-PLA           |              6 |   5934.0000 |      5934.0000 |         1
+ amazon_mx |        371 | NH-PERS-NOG-SIN-VCO-DOR       |              6 |  10367.5800 |     10367.5800 |         1
+ amazon_us |        345 | NH-PERS-ITA-CEN-DOR           |             17 |  49312.1100 |     49312.1100 |         1
+ amazon_us |        369 | NH-PERS-NOG-SIN-VBU-DOR       |             17 |  47763.5800 |     47763.5800 |         1
+ amazon_us |        263 | NH-EUR-VIN-M-REP-CEN-DOR      |             15 |  49711.2900 |     49711.2900 |         1
+ amazon_us |        355 | NH-PERS-ITA-VBU-DOR           |             11 |  27941.4300 |     27941.4300 |         1
+ amazon_us |        359 | NH-PERS-NOG-SIN-CEN-DOR       |             10 |  29237.1100 |     29237.1100 |         1
+ amazon_us |        273 | NH-EUR-VIN-M-REP-VBU-DOR      |              8 |  23454.6100 |     23454.6100 |         1
+ amazon_us |        367 | NH-PERS-NOG-SIN-SAN-DOR       |              8 |  20874.2200 |     20874.2200 |         1
+ amazon_us |        354 | NH-PERS-ITA-SAN-PLA           |              5 |  12465.1800 |     12465.1800 |         1
+ amazon_us |        356 | NH-PERS-ITA-VBU-PLA           |              4 |   9905.3100 |      9905.3100 |         1
+ amazon_us |        335 | NH-PERS-CAR-AZU-COR-DOR       |              4 |   9949.2200 |      9949.2200 |         1
+```
+
+> **PENDIENTE DECISION DEL DUENO (60 vs 30):** ningun producto alcanza `dias_con_venta >= 60` en la ventana; si el guard queda en 60, la tarea 3 no deja ningun candidato vivo. Cambiar `MARGEN_DIAS_MIN_PRODUCTO` a 30 requiere decision escrita del dueno aqui (regla 2). Hasta entonces NO se decide.
+
+**(d) Listings y productos multi-listing:** todos los listings tienen `seller_sku` en ambas plataformas.
+
+```
+ platform  | listings | con_sku
+-----------+----------+---------
+ amazon_us |      176 |     176
+ amazon_mx |      342 |     342
+(2 rows)
+
+ platform  | productos_multi_listing | productos
+-----------+-------------------------+-----------
+ amazon_us |                      44 |       119
+ amazon_mx |                      71 |       249
+(2 rows)
+```
+
+> **Decision (d):** hay multi-listing en AMBAS plataformas (71/249 en amazon_mx; 44/119 en amazon_us) → el `--productos` de la sonda (tarea 11) los EXCLUYE; el tool aborta nombrandolos si se piden; residual `--listing` explicito queda fuera de F1.
+
+**(e) Setting de fraccion vigente (config_version id 14):**
+
+```
+ id | mx  | us
+----+-----+-----
+ 14 | 0.5 | 0.5
+(1 row)
+```
+
+**(f) Grano de `search_term_observation`:** UN solo grano — `ad_group` (34,045 filas en la ventana de 105 dias; cero filas con `kind = 'campaign'`).
+
+```
+    kind    | count
+------------+-------
+ ad_group   | 34045
+(1 row)
+```
+
+> **Decision (f):** produccion tiene UN solo grano (`ad_group`) → en la tarea 6 la CTE `origenes` de `_SQL_TERMINOS` se simplifica a ese SELECT (grano ad_group; la campana se deduce por `parent_id`) y el UNION se elimina. `test_terminos_del_producto_colapsan_bitemporal_y_suman_en_ventana` se ajusta a esa variante (deja de ejercitar la hipotesis UNION de ambos granos).
 
 ### Tarea 11 — sonda (lead)
 
