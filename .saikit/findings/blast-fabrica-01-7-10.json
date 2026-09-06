@@ -1,0 +1,1 @@
+{"hecho":"Gaps 1-4 cerrados; reviewer LGTM @ 8b9066b; 45 tests fabrica; #176 dry-run intacto; listo para PR/CI","comando":".venv/bin/python -m pytest tests/test_fabrica_campanas.py -q","salida":"45 passed in 3.08s","nivel":4}

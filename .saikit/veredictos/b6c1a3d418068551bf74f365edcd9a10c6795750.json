@@ -1,0 +1,8 @@
+{
+  "sha": "b6c1a3d418068551bf74f365edcd9a10c6795750",
+  "pr": 177,
+  "verdict": "LGTM",
+  "quality_ci": "pass",
+  "run": "34013038868",
+  "note": "fabrica 7-10; no merge; residual ASK huella-bloquea-reintento"
+}

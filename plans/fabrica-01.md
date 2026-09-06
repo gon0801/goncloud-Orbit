@@ -3418,7 +3418,7 @@ cobertura de docstrings es informativa, no un candado del repositorio.
 - Consumes: `fp.pasos_del_rol`, `fp.VENDOR_POR_PATH`, `fp.ENVOLTURA_POR_PATH`, `fp.CLAVE_ID_POR_PATH`, `fp.LIST_POR_PATH`, `fp.FILTRO_ID_POR_LIST`, `fp.CONTENEDOR_POR_LIST`, `fp.ack_ok`, `fp.id_creado`, `fp.plan_como_json`; `AdsCredentials.from_secrets_dir`, `AdsClient.list_objects`, `evaluar_perfiles`; tablas `fabrica_lote`, `fabrica_lote_paso`.
 - Produces: `_mutar(args, plan, huella) -> int`, `_token_lwa(cred, http)`, `_perfiles(cliente_lectura)`, `_post(http, token, cred, profile, path, payload)`, `_readback(cliente_lectura, profile, path_create, external) -> dict | None`, `_inserta_lote`, `_inserta_paso`, `_sella_paso`, `_sella_lote`, `_ejecuta_rol(ctx, plan, rol) -> dict` (externos del rol: `{"rol": rol, "campaign": id, "ad_group": id, "product_ads": [...], "semillas": [...]}`), `_readback_cuadra(leido, payload) -> bool`, `_expresion_normalizada`, `_monto_wire_cuadra`, dataclass `_Ctx(http, token, cred, cliente_lectura, profile, conn_admin, lote)`. `_mutar` queda en su forma FINAL: token LWA ANTES de `_inserta_lote` (la intención durable se exige antes del primer POST de MUTACIÓN, no antes del token) y `_registrar(ctx, plan, creadas)` dentro de un `try` propio con `conn_admin.rollback()` ANTES del sello `failed` (la tarea 8 solo completa `_registrar`; en esta tarea es un stub que solo loguea).
 
-- [ ] **Step 1: Tests de mutación con MockTransport (fallan: `_mutar` es stub)**
+- [x] **Step 1: Tests de mutación con MockTransport (fallan: `_mutar` es stub)**
 
 ```python
 # agregar a tests/test_fabrica_campanas.py
@@ -3717,12 +3717,12 @@ def test_fallo_de_registro_sella_failed_con_rollback_previo(monkeypatch, capsys)
     assert conn_admin.rollbacks >= 1, "rollback antes de sellar (la txn pudo quedar abortada)"
 ```
 
-- [ ] **Step 2: Rojo**
+- [x] **Step 2: Rojo**
 
 Run: `pytest tests/test_fabrica_campanas.py -k "go_exige or mutacion or rechazo or readback or perfil" -v`
 Expected: FAIL (`Abortar: mutacion real: pendiente de la tarea 7`).
 
-- [ ] **Step 3: Implementar `_mutar` y sus piezas (reemplaza el stub)**
+- [x] **Step 3: Implementar `_mutar` y sus piezas (reemplaza el stub)**
 
 ```python
 # tools/fabrica_campanas.py — bloque de mutacion (tarea 7)
@@ -4022,12 +4022,12 @@ def _registrar(ctx: _Ctx, plan: fp.PlanGrupo, creadas: list[dict]) -> None:  # t
     _log("registro_pendiente", lote=ctx.lote, nota="tarea 8 del plan")
 ```
 
-- [ ] **Step 4: Verde + ruff (quitar los `noqa: F401` de la tarea 6 que ya no aplican)**
+- [x] **Step 4: Verde + ruff (quitar los `noqa: F401` de la tarea 6 que ya no aplican)**
 
 Run: `pytest tests/test_fabrica_campanas.py -v && ruff check tools/fabrica_campanas.py && ruff format --check tools/fabrica_campanas.py`
 Expected: PASS. Si `_ejecuta_paso` pasa PLR0915/C901, extraer `_falla_paso(ctx, paso_id, ack, motivo)` que sella y levanta.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git checkout -b fabrica-01-7-mutacion origin/master
@@ -4049,7 +4049,7 @@ Nota de regla 7 para el PR: este PR NO se mergea solo — se mergea junto con el
 - Consumes: `fetch_structure(AdsClient)`, `sync_structure(conn_ingest, estructura)` (`app/ads/structure.py`, rol `app_ingest`), `goals_write.crea_goal` (tarea 4), tablas `campana_grupo`, `campana_grupo_rol`, `campana_grupo_producto`, `ad_entity`.
 - Produces: `_registrar(ctx, plan, creadas) -> int` (grupo_id, IDEMPOTENTE: re-correrlo sobre el mismo lote no duplica ni revienta), `_sync(cliente_lectura)`, `_id_entidad(conn, platform, kind, external) -> int`, `_SQL_INSERTA_GRUPO` (ON CONFLICT por lote), `_SQL_INSERTA_ROL`/`_SQL_INSERTA_PRODUCTO` (ON CONFLICT DO NOTHING), `_SQL_GOAL_EXISTENTE`, `_SQL_ID_ENTIDAD`, `_SQL_CAMPANAS_APPLIED` (reintento `--registrar`), `_registrar_cmd(args) -> int`.
 
-- [ ] **Step 1: Tests (Postgres real para el registro; fake para el orden sync→registro)**
+- [x] **Step 1: Tests (Postgres real para el registro; fake para el orden sync→registro)**
 
 ```python
 # agregar a tests/test_fabrica_campanas.py
@@ -4153,12 +4153,12 @@ def test_sync_usa_dsn_ingest_y_el_escritor_unico(monkeypatch):
     assert llamadas == {"dsn": "dsn-ingest", "sync": ("conn-ingest", "estructura")}
 ```
 
-- [ ] **Step 2: Rojo**
+- [x] **Step 2: Rojo**
 
 Run: `pytest tests/test_fabrica_campanas.py -k "registrar or sync_usa" -v`
 Expected: FAIL (`AttributeError: module 'fabrica_campanas' has no attribute '_sync'` y el registro no escribe nada).
 
-- [ ] **Step 3: Implementar (reemplaza el stub `_registrar`)**
+- [x] **Step 3: Implementar (reemplaza el stub `_registrar`)**
 
 ```python
 # tools/fabrica_campanas.py — registro (tarea 8)
@@ -4440,12 +4440,12 @@ def test_registrar_rechaza_lote_desarmado(monkeypatch):
         fc.main()
 ```
 
-- [ ] **Step 4: Verde**
+- [x] **Step 4: Verde**
 
 Run: `pytest tests/test_fabrica_campanas.py -v && ruff check tools/fabrica_campanas.py`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git checkout -b fabrica-01-8-registro origin/master
@@ -4465,7 +4465,7 @@ git commit -m "feat(fabrica): sync de estructura y registro interno del grupo co
 - Consumes: `fabrica_lote_paso` applied (externos de las campañas — durable desde ANTES del HTTP: cubre lotes muertos a medias, sin grupo), `campana_grupo_rol` + `ads_optimizer_goal` solo para enriquecer (goal_id), `goals_write.edita_goal(conn, goal_id, enabled=False, updated_at=...)`, PUT `/sp/campaigns` con vendor `spcampaign` (sello de `reactiva_campanas`: `{"campaigns": [{"campaignId": "<str>", "state": "PAUSED"}]}`), `fabrica_lote_paso` pendientes.
 - Produces: `_desarmar(args) -> int`, `_put_estado_campana(ctx, external, estado) -> dict`, `_reconciliar_cmd(args) -> int`, `_reconciliar(conn_admin, cliente_lectura, perfiles, lote, plataforma) -> dict`, `_SQL_CAMPANAS_DEL_LOTE` (base `fabrica_lote_paso` con `recurso='campaign' AND estado IN ('applied','failed') AND external_id IS NOT NULL` — failed con external = creada en Amazon con readback fallido, se pausa; failed sin external = POST rechazado, no existe; r3 codex 1; LEFT JOIN a `campana_grupo`/`campana_grupo_rol`/`ads_optimizer_goal` solo para el `goal_id`), `_SQL_PENDIENTES` (JOIN a `fabrica_lote` por la plataforma del paso; filtro opcional `--plataforma`, r3 codex 4), `_SQL_PROMUEVE_APPLIED`.
 
-- [ ] **Step 1: Tests (fallan: stubs)**
+- [x] **Step 1: Tests (fallan: stubs)**
 
 ```python
 # agregar a tests/test_fabrica_campanas.py
@@ -4704,12 +4704,12 @@ def test_sql_del_ledger_contra_postgres_real():
         assert fila == ("failed", "detalle")
 ```
 
-- [ ] **Step 2: Rojo**
+- [x] **Step 2: Rojo**
 
 Run: `pytest tests/test_fabrica_campanas.py -k "desarmar or reconciliar" -v`
 Expected: FAIL (`Abortar: --desarmar: pendiente de la tarea 9`).
 
-- [ ] **Step 3: Implementar (reemplaza los stubs)**
+- [x] **Step 3: Implementar (reemplaza los stubs)**
 
 ```python
 # tools/fabrica_campanas.py — reversa y reconciliacion (tarea 9)
@@ -4902,12 +4902,12 @@ def _reconciliar_cmd(args) -> int:
     return 0
 ```
 
-- [ ] **Step 4: Verde + ruff**
+- [x] **Step 4: Verde + ruff**
 
 Run: `pytest tests/test_fabrica_campanas.py -v && ruff check tools/fabrica_campanas.py && ruff format --check tools/fabrica_campanas.py`
 Expected: PASS. `_desarmar` roza PLR0915: si dispara, extraer `_pausa_una(ctx, rol, external, goal_id)`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git checkout -b fabrica-01-9-reversa origin/master
@@ -4928,7 +4928,7 @@ git commit -m "feat(fabrica): --desarmar (pausa + goals off) y --reconciliar (sp
 - Consumes: `_imports_runtime`, `_violaciones`, `PERMITIDOS_IMPORTAR_ADS_WRITE`, `RAIZ` (ya en el módulo).
 - Produces: `ALLOWLIST_IMPORTS_FABRICA_CAMPANAS`, `test_fabrica_campanas_solo_importa_lo_declarado`, `test_allowlist_fabrica_caza_import_de_escritura`, `test_fabrica_plan_es_puro`.
 
-- [ ] **Step 1: Tests del candado (el de allowlist falla hasta que la lista coincida con los imports reales del tool)**
+- [x] **Step 1: Tests del candado (el de allowlist falla hasta que la lista coincida con los imports reales del tool)**
 
 ```python
 # agregar a tests/test_architecture.py
@@ -5042,14 +5042,14 @@ def test_fabrica_plan_es_puro():
     assert not fugas, f"app/fabrica_plan.py debe ser puro: {fugas}"
 ```
 
-- [ ] **Step 2: Correr y ajustar la allowlist a los imports REALES del tool**
+- [x] **Step 2: Correr y ajustar la allowlist a los imports REALES del tool**
 
 Run: `pytest tests/test_architecture.py -k fabrica -v`
 Expected: PASS si la allowlist coincide; si `test_fabrica_campanas_solo_importa_lo_declarado` lista extras, son imports que el tool agregó en 7-9 (p.ej. `dataclasses`): agregarlos a la allowlist SOLO si son stdlib o caminos únicos; un `app.ads.write` o `app.apply` es un error del tool, no de la lista.
 
 Verificar también que el candado extendido de la tarea 4 siga verde con el tool completo: `pytest tests/test_architecture.py -k escritura_de_goals -v` — el INSERT de `ads_optimizer_goal` existe SOLO en `app/goals_write.py` (`_SQL_CREA`); el tool nunca lo contiene (despacha `crea_goal`).
 
-- [ ] **Step 3: Documentar 0018 en `docs/DATABASE.md`**
+- [x] **Step 3: Documentar 0018 en `docs/DATABASE.md`**
 
 Agregar, junto a la entrada de `v_target_margen_plataforma` (línea ~555), un bloque con este contenido:
 
@@ -5072,13 +5072,13 @@ Agregar, junto a la entrada de `v_target_margen_plataforma` (línea ~555), un bl
   `app_decide` solo lee (`campana_grupo_rol` es el destino de harvest de F2).
 ```
 
-- [ ] **Step 4: Línea de estado en `docs/CHAT-CONTEXT.md`** (arriba, estilo de las líneas BIDS 01, en español sencillo):
+- [x] **Step 4: Línea de estado en `docs/CHAT-CONTEXT.md`** (arriba, estilo de las líneas BIDS 01, en español sencillo):
 
 ```markdown
 **2026-09-XX — FABRICA 01 (F1) lista para revisión: ya existe la herramienta que crea un grupo de 5 campañas nuevas (auto, phrase, broad, productos, exact) para un tipo de producto, con el target sacado del margen real más bajo del grupo y con anuncios por producto.** No crea nada sola: ensaya, muestra la huella, y solo con tu literal crea, verifica cada pieza contra Amazon y registra el grupo con sus metas. Si algo sale mal, se detiene y dice qué quedó creado; `--desarmar` pausa las 5. Nada se ha creado todavía en producción: el primer grupo real es la sonda que corre el lead con un producto y presupuestos mínimos.
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git checkout -b fabrica-01-10-candados origin/master
@@ -5557,6 +5557,160 @@ consumen las tareas 6-9). El test que pinea contra
   (FAILED ...[amazon_us-USD-piso1-techo1]) y el MXN sigue pasando; asercion
   restaurada y todo verde. `crea_goal` NO se toco (el INSERT ya persiste la
   moneda que llega): hallazgo de prueba faltante, no de codigo.
+
+### Tareas 7-10 — mutacion, registro, reversa, candados (GLM escribe AQUI antes del codigo)
+
+Base: rama `fabrica-01-7-10-ejecucion` desde `origin/master` = `41bfabb`
+(PR #176, tareas 1-6 cerradas). Brief: `plans/brief-fabrica-01-7-10-glm.md`.
+Sintesis: `/tmp/arena-fabrica-7-10/SYNTHESIS.md` (plan-verbatim + try/finally
++ `_ConnFalsa` extendida; sin adapters). Postgres de pruebas: local 127.0.0.1:5432
+(DSN por defecto de `test_schema`). Cero SSH, cero Amazon real.
+
+**D-GLM-7-10-1 (valida go antes de admin/HTTP).** `_valida_go` corre al entrar
+a `_mutar`, despues del dry-run embebido en `_crear` y ANTES de abrir
+`AdsCredentials`/`AdsClient`/`connect(admin)`/`httpx`. Un `--esperado` distinto
+de 5, huella distinta o `--go` vacio no deja rastro en el ledger.
+
+**D-GLM-7-10-2 (despacho).** `main` despacha en este orden: `--reconciliar` →
+`--registrar` → `--desarmar` → crear. `--registrar` se agrega al parser
+(lote failed cuyas campanas ya existen: solo sync + registro, sin POST de
+creacion). El test temporal de tarea 6 que rechazaba las opciones futuras se
+reemplaza por autorizacion (`test_go_exige_*`) y despacho
+(`test_despacho_prioriza_reconciliar_registrar_y_desarmar`).
+
+**D-GLM-7-10-3 (cierre en escritura).** Se extiende el invariante #176: helper
+`_cierra(*recursos)` + `try/finally` en `_mutar`, `_registrar_cmd`,
+`_desarmar` y `_reconciliar_cmd`. Cierra `httpx.Client` y `conn_admin` (y
+`conn_ingest` en `_sync`). No se inventa `AdsClient.close`.
+
+**D-GLM-7-10-4 (`_ConnFalsa` extendida).** kwargs opcionales `secuencia`,
+`lote_fila`, `pendientes`, `grupo`, `lote_platform`; contador `rollbacks`;
+RETURNING sintetico para `INSERT ... fabrica_lote_paso` (id incremental) y
+`INSERT ... campana_grupo` (id=1). Los SELECT del ledger se enrutan por
+fragmentos del SQL (applied de campana/ad_group, pendientes, campanas del
+lote, plan/estado, platform). No rompe el dry-run de #176.
+
+**D-GLM-7-10-5 (`_frontera_mutacion` no stubee `_registrar` por defecto en
+cmd de registro).** La frontera de mutacion parchea HTTP/creds/perfiles y,
+por defecto, stubee `_registrar` (los tests de creacion no ejercitan el
+registro real). `stub_registrar=False` para `--registrar` (el cmd debe
+correr el registro de verdad). `from_secrets_dir` acepta `*a, **k` (la
+firma real tiene `secrets_dir` opcional).
+
+**D-GLM-7-10-6 (constantes y vendor).** `VENDOR_CAMPANAS = fp.VENDOR_POR_PATH["/sp/campaigns"]`;
+`_ESPERADO_ROLES = 5`; `_PAUSADA = "PAUSED"`; `API = DEFAULT_BASE_URL`;
+LWA y readback por `AdsClient.list_objects` (devuelve `httpx.Response`).
+Shapes de POST campaigns/adGroups/targets y el camino feliz de productAds
+siguen **HIPOTESIS hasta la sonda** (tarea 11).
+
+**D-GLM-7-10-7 (allowlist = imports reales).** `ALLOWLIST_IMPORTS_FABRICA_CAMPANAS`
+se ajusta a los imports REALES del tool post 7-9 (stdlib + httpx/psycopg +
+caminos unicos `app.goals_write` / `app.ads.structure` / `app.ads.client`).
+Un `app.ads.write` o `app.apply` es error del tool, no de la lista.
+
+**D-GLM-7-10-8 (sin adapters).** Se descarta `AmazonMutator`/`LedgerStore`
+(candidato-3): anaden capas sin cambiar el contrato del plan (Laziness
+Protocol). Un solo archivo ejecutable por stdin.
+
+**Evidencia tareas 7-10 (rojo antes / verde despues):**
+
+Rojo inicial (stubs de #176, tests de mutacion escritos):
+
+```
+$ .venv/bin/python -m pytest tests/test_fabrica_campanas.py -k "go_exige or mutacion or rechazo or readback or perfil or fallo_de_registro or despacho" -q
+AttributeError: module 'fabrica_campanas' has no attribute '_registrar_cmd'
+AttributeError: module 'fabrica_campanas' has no attribute 'AdsClient'
+AttributeError: module 'fabrica_campanas' has no attribute '_readback_cuadra'
+8 failed, 19 deselected
+```
+
+Verde final (Postgres 16 local, DSN por defecto de `test_schema`), actualizado al
+HEAD de `fabrica-01-7-10-ejecucion` tras el cross review kimi (2026-09-05):
+
+```
+$ PYTHONPATH=. .venv/bin/python -m pytest tests/test_fabrica_campanas.py tests/test_fabrica_plan.py tests/test_architecture.py -q -rs
+91 passed in 3.47s
+$ .venv/bin/ruff check --fix . && .venv/bin/ruff format .
+All checks passed! / 156 files left unchanged
+$ git diff --check
+(sin output)
+```
+
+0 skipped (los de DB corrieron contra PG 16 local).
+Tareas 7-10 cerradas. Tarea 11 (sonda) y ORBIT 17 siguen pendientes.
+
+### Decisiones D-CURSOR-177 (correcciones F1-F4 sobre #177)
+
+**D-CURSOR-177-F1 (registro exige ledger completo).** `--registrar` solo
+procede si el ledger del lote contiene **todos** los pasos que
+`pasos_del_rol` + `ROLES_ORDEN_CREACION` exigen, cada uno en `applied` con
+`external_id` + `ack` + `readback_estado` no vacios. La identidad del paso se
+compara por campos (name/sku/keywordText/matchType/expression + padres), no
+por `json.dumps` completo. Si falta alguno: aborta antes de sync/goals;
+estado del lote no pasa a `applied`.
+
+**D-CURSOR-177-F2 (ACK durable antes del LIST).** Tras POST 207 OK, se hace
+`UPDATE` de `external_id`+`ack` + `COMMIT` **antes** de `sleep`/LIST, con el
+paso aun no-`applied` (sigue `planeado` hasta verificar). LIST con JSON
+invalido o shape malformado no escapa: sella `failed` CON el `external_id`
+ya durable, aborta INCERTO, no hay siguiente POST. `--desarmar` ve el id.
+No se inventan estados nuevos del CHECK.
+
+**D-CURSOR-177-F3 (DSN ingest antes de mutar).** `_mutar` autorizado valida
+`ORBIT_DSN_INGEST` no vacio via `_dsn_ingest()` **antes** de LWA, lote o
+cualquier POST. Dry-run sigue sin DSNs de escritura.
+
+**D-CURSOR-177-F4 (5xx = INCERTO).** HTTP 500/502/503/504 en el POST de
+creacion se etiquetan INCERTO (como timeout): no reintento automatico, no
+"rechazado". 4xx sigue siendo rechazo.
+
+**D-CODEX-177-F4 (clase 5xx completa, revision final).** La lista anterior
+dejaba 501/507/520/599 como rechazo definitivo. Se sustituye por el rango
+500–599 completo, conservando el control 400 y el tratamiento de excepciones.
+Antes del cambio de codigo, `pytest tests/test_fabrica_campanas.py -k f4_ -q`
+contra `66a56d8` da `4 failed, 5 passed, 56 deselected`: fallan exactamente
+501, 507, 520 y 599 porque el motivo dice rechazado en lugar de INCERTO.
+Son pruebas del flujo de mutacion con HTTP simulado, sin acceder a produccion.
+Verde tras el fix: `pytest tests/test_fabrica_campanas.py -q -rs` da
+`65 passed`, sin skips, con Postgres real para los casos SQL. Ruff y formato
+verdes. Revision independiente del diff acotado: sin hallazgos. La bateria
+completa se ejecuta en CI del PR #177 al subir este cambio.
+
+**Evidencia F1-F4 (rojo contra d27fa80 / verde con fix):**
+
+```
+$ git stash push -- tools/fabrica_campanas.py   # codigo d27fa80
+$ PYTHONPATH=. .venv/bin/python -m pytest tests/test_fabrica_campanas.py -k "f1_ or f2_ or f3_ or f4_" -q
+14 failed, 1 passed, 46 deselected   # f4_400 ya era rechazo correcto
+$ git stash pop
+$ PYTHONPATH=. .venv/bin/python -m pytest tests/test_fabrica_campanas.py tests/test_architecture.py -q
+80 passed
+```
+
+**Cross review kimi (APPROVE 8b9066b) — 2 P2 de cobertura corregidos
+(2026-09-05, misma rama):** no eran defectos del tool, sino huecos de test.
+
+P2 #1 — sello de identidad asertado en los mocks (`_Amazon._sello` y el PUT
+de `_AmazonDesarme`): todo request no-LWA del tool lleva
+`Amazon-Advertising-API-ClientId` (== credenciales), `Amazon-Advertising-API-Scope`
+(== profile como string) y `Authorization: Bearer tok`. Rojo (tool mutado para
+omitir ClientId en `_post`, restaurado despues):
+
+```
+$ pytest tests/test_fabrica_campanas.py::test_mutacion_orden_fijo_ledger_pre_http_y_readback -q
+E   fabrica_campanas.Abortar: campana category_exact ... INCERTO (status excepcion)
+1 failed  (verde tras restaurar: passed)
+```
+
+P2 #2 — `_readback` ejercitado contra el `AdsClient` REAL
+(`test_readback_contra_ads_client_real`: MockTransport responde LWA + LIST v3).
+Rojo (filtro de `_readback` mutado a `filtroEquivocado`, restaurado despues):
+
+```
+$ pytest tests/test_fabrica_campanas.py::test_readback_contra_ads_client_real -q --tb=line
+E   AssertionError: assert {'filtroEquiv... ['no-esta']}} == {'campaignIdF... ['no-esta']}}
+1 failed  (verde tras restaurar: passed)
+```
 
 ### Tarea 11 — sonda (lead)
 
