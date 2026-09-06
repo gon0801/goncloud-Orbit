@@ -17,6 +17,10 @@
 .fabrica-productos { max-height: 26rem; overflow: auto; }
 .fabrica-productos label { flex-direction: row; align-items: baseline; overflow-wrap: anywhere; }
 .fabrica-productos input { flex-shrink: 0; }
+.fabrica-producto { border-bottom: 1px solid var(--color-borde); padding: 0.7rem 0; overflow-wrap: anywhere; }
+.fabrica-producto p { margin: 0.35rem 0; }
+.fabrica-producto li { margin: 0.65rem 0; }
+.fabrica-producto li span, .fabrica-producto li a { display: block; }
 .fabrica .fabrica-tabla { overflow-x: auto; margin: 0.8rem 0; }
 .fabrica .fabrica-tabla table { min-width: 35rem; }
 .fabrica pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }

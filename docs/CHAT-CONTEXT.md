@@ -4,6 +4,12 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-06 — El selector de campanas muestra el mapeo a Amazon.**
+Cada producto muestra nombre interno, SKU de Odoo y todas sus publicaciones
+vinculadas (ASIN, SKU de Amazon y enlace MX/US), incluso si no es elegible.
+Orbit todavia no importa el titulo de Amazon: el nombre interno esta etiquetado
+como tal. Abrir un enlace no selecciona el producto ni modifica campanas.
+
 **2026-09-06 — FABRICA UI 01 implementada por pedido del dueno.**
 La pantalla **Campañas → Crear campañas** permite seleccionar productos, configurar
 presupuestos y pujas de las cinco campanas, revisar el plan y confirmar con el
