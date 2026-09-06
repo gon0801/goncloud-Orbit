@@ -296,7 +296,8 @@ def semillas_desde_terminos(
     """phrase/broad = biblioteca + terminos con orders >= 1 (sin ASIN-like);
     product targeting = ASIN-like de terminos + entradas ASIN de biblioteca;
     exact = terminos_exact que YA cumplen HARVEST; auto = negativos de
-    biblioteca. `terminos_exact` es el MISMO agregado pero sobre la ventana
+    biblioteca, SOLO keywords (sin ASIN-like: un ASIN no se niega con
+    negativeKeywords; revisión PR 174). `terminos_exact` es el MISMO agregado pero sobre la ventana
     de CORTES del motor (VENTANA_CORTES_DIAS, regla 6: madurez >= 10d); None
     = evaluar exact sobre `terminos` (compat hacia atras en tests del nucleo).
     Todo normalizado (strip, keywords en minusculas, ASIN en mayusculas),
