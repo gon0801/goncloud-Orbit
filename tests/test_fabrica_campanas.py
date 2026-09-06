@@ -193,6 +193,58 @@ def test_terminos_exact_usan_la_ventana_de_cortes():
 
 
 @_skip_db
+@pytest.mark.parametrize("metrica", ["orders", "cost", "revenue"])
+@pytest.mark.parametrize("cortes", [False, True], ids=["historial", "exact"])
+def test_terminos_incompletos_conservan_none_y_no_siembran_exact(metrica, cortes):
+    """SUM sin guarda inventaba un ACoS con datos parciales (revision #176).
+
+    Solo la metrica faltante queda desconocida. Cero no es NULL y una
+    reobservacion completa sana el dia antes de agregar la ventana.
+    """
+    with db_fabrica("orbit_fab_null") as conn:
+        _pid, lid = _producto(conn)
+        _camp, ag = _campana_con_producto(conn, lid)
+        run = _run(conn)
+        fecha = HOY - dt.timedelta(days=20)
+        parcial = {"orders": 1, "cost": 10, "revenue": 100, metrica: None}
+        _termino(conn, run, ag, "incompleto", fecha, **parcial)
+        _termino(conn, run, ag, "incompleto", fecha - dt.timedelta(days=1), 2, 10, 100)
+        _termino(conn, run, ag, "cero real", fecha, 2, 0, 100)
+        _termino(conn, run, ag, "corregido", fecha, **parcial)
+        _termino(conn, run, ag, "corregido", fecha, 2, 10, 100, obs=2)
+
+        terminos = fc._terminos_producto(
+            conn,
+            "amazon_mx",
+            [lid],
+            sql=fc._SQL_TERMINOS_EXACT if cortes else fc._SQL_TERMINOS,
+            ventana=fp.VENTANA_CORTES_DIAS if cortes else fp.VENTANA_DIAS,
+        )
+        por_texto = {t.texto: t for t in terminos}
+        esperado = {"orders": 3, "cost": Decimal("20"), "revenue": Decimal("200")}
+        esperado[metrica] = None
+        incompleto = por_texto["incompleto"]
+        assert (incompleto.orders, incompleto.cost, incompleto.revenue) == (
+            esperado["orders"],
+            esperado["cost"],
+            esperado["revenue"],
+        )
+        assert por_texto["cero real"].cost == Decimal("0")
+        corregido = por_texto["corregido"]
+        assert (corregido.orders, corregido.cost, corregido.revenue) == (
+            2,
+            Decimal("10"),
+            Decimal("100"),
+        )
+        semillas = fp.semillas_desde_terminos(
+            terminos, [], [], Decimal("20"), terminos_exact=terminos
+        )
+        assert semillas.exact == ("cero real", "corregido")
+        if metrica == "orders":
+            assert "incompleto" not in semillas.keywords
+
+
+@_skip_db
 def test_las_ventanas_no_dependen_del_timezone_de_la_sesion():
     """D-GLM-6-1: el dia de referencia es un parametro UTC calculado en
     Python; si el SQL volviera a CURRENT_DATE, la fecha de la SESION moveria
@@ -452,15 +504,27 @@ def test_opciones_de_mutacion_se_rechazan_explicito(monkeypatch, capsys):
 
 
 @_skip_db
-def test_cli_dry_run_end_to_end_por_stdin_y_por_archivo():
+@pytest.mark.parametrize(
+    ("plataforma", "moneda", "bid"),
+    [("amazon_mx", "MXN", "5.00"), ("amazon_us", "USD", "0.50")],
+)
+def test_cli_dry_run_end_to_end_por_stdin_y_por_archivo(plataforma, moneda, bid):
+    """El margen del ledger MXN sirve tambien al plan US, cuyos bids son USD."""
     with db_fabrica("orbit_fab_cli") as conn:
-        pid, lid = _producto(conn, sku="CLI", asin="B0CLICLI01", seller_sku="SS-CLI")
-        _ledger_producto(conn, pid, hoy=HOY)
-        _config(conn, "0.5")
-        _campana_con_producto(conn, lid, external="c-vieja", status="PAUSED")
+        pid, lid = _producto(
+            conn, sku="CLI", asin="B0CLICLI01", seller_sku="SS-CLI", platform=plataforma
+        )
+        _ledger_producto(conn, pid, hoy=HOY, platform=plataforma)
+        _config(conn, "0.5", platform=plataforma)
+        _campana_con_producto(conn, lid, external="c-vieja", status="PAUSED", platform=plataforma)
         dsn_db = _test_dsn().rsplit("/", 1)[0] + "/" + conn.info.dbname
-        args = [a if a != "1" else str(pid) for a in ARGS_BASE]
-        env = {**os.environ, "ORBIT_DSN_READ": dsn_db, "PYTHONPATH": str(RAIZ)}
+        args = ARGS_BASE.copy()
+        args[args.index("--productos") + 1] = str(pid)
+        args[args.index("--plataforma") + 1] = plataforma
+        for rol in ("auto", "phrase", "product", "broad", "exact"):
+            args[args.index(f"--bid-{rol}") + 1] = bid
+        env = {k: v for k, v in os.environ.items() if not k.startswith("ORBIT_")}
+        env.update(ORBIT_DSN_READ=dsn_db, PYTHONPATH=str(RAIZ))
         fuente = (RAIZ / "tools" / "fabrica_campanas.py").read_text(encoding="utf-8")
         for argv in (
             [sys.executable, "-", *args],  # por stdin (como en el contenedor)
@@ -469,8 +533,14 @@ def test_cli_dry_run_end_to_end_por_stdin_y_por_archivo():
             corrida = subprocess.run(argv, input=fuente, env=env, capture_output=True, text=True)
             assert corrida.returncode == 0, corrida.stderr
             assert "huella del conjunto:" in corrida.stdout
+            assert f"moneda={moneda}" in corrida.stdout
+            assert f"bid={bid}" in corrida.stdout
+            assert "target=20.00" in corrida.stdout
             eventos = [
                 json.loads(linea) for linea in corrida.stdout.splitlines() if linea.startswith("{")
             ]
-            assert any(e["evento"] == "dry_run" for e in eventos)
+            assert any(
+                e["evento"] == "dry_run" and e["platform"] == plataforma and e["target"] == "20.00"
+                for e in eventos
+            )
             assert "existente (solo se informa" in corrida.stdout

@@ -86,6 +86,9 @@ SELECT p.id, p.odoo_sku, l.id, l.external_id, l.seller_sku, m.margen_neto_pct
 # D-GLM-6-1: el dia de referencia es un PARAMETRO UTC calculado en Python
 # (`%s::date`), NO CURRENT_DATE: la zona horaria de la sesion no puede mover
 # las ventanas [D-105, D-15) / [D-39, D-9) en silencio.
+# Revision #176: despues de colapsar, un NULL conserva desconocida SOLO
+# su metrica (mismo patron que optimizer/windows.py). SUM solo ignoraria
+# el dia incompleto e inventaria un total para decidir las semillas exact.
 _SQL_TERMINOS = """
 WITH ventana AS (
     SELECT %s::date - %s AS desde, %s::date - %s AS hasta
@@ -115,7 +118,10 @@ ultimas AS (
               -- app/optimizer/windows.py, colapso de observaciones)
               s.source_report_id DESC NULLS LAST
 )
-SELECT search_term, bool_or(is_asin_like), SUM(orders), SUM(cost), SUM(ad_revenue)
+SELECT search_term, bool_or(is_asin_like),
+       CASE WHEN bool_and(orders IS NOT NULL) THEN SUM(orders) END,
+       CASE WHEN bool_and(cost IS NOT NULL) THEN SUM(cost) END,
+       CASE WHEN bool_and(ad_revenue IS NOT NULL) THEN SUM(ad_revenue) END
   FROM ultimas
  GROUP BY search_term
 HAVING COALESCE(SUM(orders), 0) >= 1

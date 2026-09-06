@@ -3288,6 +3288,25 @@ git commit -m "feat(fabrica): tools/fabrica_campanas.py — plan desde la base y
 
 #### Decisiones y evidencia (ejecucion GLM, tarea 6)
 
+- **D-CODEX-6-7 (revision #176, agregados incompletos).** Antes del fix,
+  `SUM` ignoraba NULL parciales de orders/cost/ad_revenue y podia autorizar
+  una semilla exact con ACoS inventado. Se conserva NULL POR METRICA con
+  `bool_and(... IS NOT NULL)`, el mismo patron de `optimizer/windows.py`,
+  despues del colapso bitemporal. Las metricas completas y el cero real se
+  conservan; una reobservacion completa reemplaza la anterior incompleta.
+  El filtro HAVING solo selecciona terminos con alguna venta observada;
+  un total de orders desconocido viaja como None y no produce semillas.
+  **Regla 8, SELECT de solo lectura en produccion, 2026-09-06 UTC:**
+  ventana `[D-105, D-9)`: MX 11,672 filas, US 20,293; cero NULL en esas tres
+  metricas hoy. `information_schema.columns` confirma `is_nullable=YES`
+  para orders, cost y ad_revenue. Es una forma permitida por el esquema,
+  no un incidente observado en esas filas actuales. La regresion usa
+  Postgres temporal y cubre ambas ventanas y cada metrica por separado.
+- **D-CODEX-6-8 (CLI US).** Parametrizar el test end-to-end en MXN y USD,
+  con ledger MXN en ambos casos como ocurre en produccion. Cada caso
+  ejecuta por stdin y archivo, sin ORBIT_DSN_ADMIN/INGEST ni otros
+  ORBIT_*; solo ORBIT_DSN_READ, con montos explicitos por mercado.
+
 - **D-GLM-6-1 (UTC en SQL).** El bloque del plan usaba `CURRENT_DATE` en el CTE
   `ventana`: la fecha de la SESION (timezone del servidor/conexion) moveria las
   ventanas [D-105, D-15) y [D-39, D-9) sin dejar rastro. Desviacion aplicada: el
@@ -3351,6 +3370,33 @@ Evidencia de ejecucion (2026-09-05, rama `fabrica-01-6-dry-run` desde
   end-to-end corre por stdin y por archivo).
 - `ruff check` y `ruff format --check` verdes en lo nuevo; `git diff --check`
   limpio.
+
+**Correccion de revision #176 (2026-09-06 UTC, D-CODEX-6-7/8):**
+
+Antes de editar el SQL, con las regresiones nuevas sobre `108c7c8`:
+
+```text
+python -m pytest tests/test_fabrica_campanas.py -k 'incompletos or end_to_end' -q -rs
+6 failed, 2 passed, 12 deselected
+```
+
+Los seis fallos son las tres metricas (orders, cost, revenue) en las dos
+ventanas (historial y exact). El agregado devolvia el subtotal conocido
+en vez de None: p. ej. `Decimal('10.0000') != None` para cost. Los dos
+casos del CLI ya pasaban: se agrego cobertura persistente, no un cambio
+del comportamiento USD. El fix agrega `CASE WHEN bool_and(... IS NOT NULL)`
+a las tres sumas; ambas consultas usan esa misma definicion.
+
+Verde tras el fix y formato:
+
+```text
+python -m pytest tests/test_fabrica_campanas.py tests/test_fabrica_plan.py tests/test_architecture.py -q -rs
+61 passed in 2.37s
+```
+
+Cero skips. Incluye cero real, correccion por reobservacion completa y
+ejecucion del CLI por stdin/archivo para MXN y USD sin credenciales de
+Amazon ni DSN de escritura. Revision independiente del diff: sin hallazgos.
 
 ---
 
