@@ -4,6 +4,12 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-06 — Backlog de automatizacion registrado para planes futuros.**
+`docs/PENDIENTES-AUTOMATIZACION.md` conserva nueve gaps: harvest real y por
+grupos, decisiones por producto, placements, presupuestos, reactivacion/limpieza,
+repricing, promociones y reputacion. Enlaza pendientes existentes; no amplia
+ORBIT 19 ni inicia implementacion.
+
 **2026-09-06 — Fotos de publicaciones en Crear campanas.**
 El selector muestra la imagen MAIN real de cada ASIN y marketplace mediante
 SP-API Catalog Items y las credenciales existentes. Miniaturas bajo demanda,
