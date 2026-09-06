@@ -260,6 +260,46 @@ def test_plan_como_json_lleva_dinero_como_string():
     assert j["productos"][0]["margen_neto_pct"] == "38.20"
 
 
+def _plan_v2(*, objetivo="25.00", orden=(22, 11)):
+    publicaciones = {
+        11: fp.PublicacionGrupoV2(11, 1, "B0AAAAAAAA", "SKU-A", "amazon_mx", None),
+        22: fp.PublicacionGrupoV2(22, 1, "B0BBBBBBBB", "SKU-B", "amazon_mx", Decimal("18.50")),
+    }
+    return fp.PlanGrupoV2(
+        "amazon_mx",
+        "collar_perro",
+        "Collar reflectante",
+        FECHA,
+        "MXN",
+        "shadow",
+        tuple(publicaciones[listing_id] for listing_id in orden),
+        _parametros(),
+        fp.ObjetivoPlanV2("manual_lanzamiento", Decimal(objetivo), "confirmado por el dueno"),
+        fp.Semillas(keywords=(), asins=(), negativos=(), exact=()),
+    )
+
+
+def test_plan_v2_acepta_margen_nulo_y_varios_listings_del_mismo_producto():
+    plan = _plan_v2()
+    serializado = fp.plan_v2_como_json(plan)
+    assert serializado["schema_version"] == 2
+    assert serializado["publicaciones"][0]["margen_neto_pct"] is None
+    assert [p["product_id"] for p in serializado["publicaciones"]] == [1, 1]
+    assert [p.listing_id for p in fp.plan_v2_desde_json(serializado).publicaciones] == [11, 22]
+
+
+def test_huella_v2_no_depende_del_orden_y_cambia_con_el_objetivo():
+    base = _plan_v2(orden=(22, 11))
+    assert fp.huella_plan_v2(base) == fp.huella_plan_v2(_plan_v2(orden=(11, 22)))
+    assert fp.huella_plan_v2(base) != fp.huella_plan_v2(_plan_v2(objetivo="26.00"))
+
+
+def test_configuracion_de_creacion_v2_es_fail_closed_y_v1_por_ausencia():
+    assert fp.version_creacion_desde_settings({}) == "v1"
+    assert fp.version_creacion_desde_settings({"fabrica.creacion": "v2"}) == "v2"
+    assert fp.version_creacion_desde_settings({"fabrica.creacion": "invalida"}) == "v1"
+
+
 def test_plan_json_ida_y_vuelta():
     """fabrica_lote.plan -> PlanGrupo -> misma huella (lo que --registrar
     reconstruye es EXACTAMENTE lo autorizado)."""
