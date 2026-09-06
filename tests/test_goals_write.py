@@ -687,3 +687,106 @@ def test_endpoint_pg_harvest_whitespace_422_sin_tocar_la_fila(tmp_path, monkeypa
             (goal_id,),
         ).fetchone()
         assert en_db == (None, T_SEMBRADO)
+
+
+# ---------------------------------------------------------------------------
+# crea_goal: alta de goal de campana (FABRICA 01 tarea 4)
+# ---------------------------------------------------------------------------
+
+T_CREADO = dt.datetime(2026, 9, 5, 12, 0, tzinfo=dt.UTC)
+
+
+def _kw_crea(**cambios):
+    base = dict(
+        ad_entity_id=1,
+        target_acos_pct=Decimal("19.10"),
+        bid_currency="MXN",
+        mode="shadow",
+        harvest_campaign_id="c-exact",
+        harvest_ad_group_id="ag-exact",
+        harvest_default_bid=Decimal("6.00"),
+        created_at=T_CREADO,
+    )
+    base.update(cambios)
+    return base
+
+
+class _ConnMuda:
+    """Fail-closed: la validacion pura de crea_goal NO abre SQL — cualquier
+    execute revienta el test. (`_ConnFake` de test_api_write solo expone
+    `close`: no tiene `execute` ni `ejecutadas`, asi que la guarda es este
+    fake local.)"""
+
+    row_factory = None
+
+    def execute(self, *a):
+        raise AssertionError("SQL prohibido en la validacion pura de crea_goal")
+
+
+def test_crea_goal_valida_sin_io():
+    """Validacion PURA antes de tocar la base: modo fuera de shadow/live,
+    target <= 0, bid <= 0, ids vacios, moneda desconocida y created_at naive.
+    Si cualquier rama abriera SQL, _ConnMuda.execute ya revento."""
+    conn = _ConnMuda()
+    for malo in (
+        _kw_crea(mode="off"),
+        _kw_crea(mode="LIVE"),
+        _kw_crea(target_acos_pct=Decimal("0")),
+        _kw_crea(harvest_default_bid=Decimal("-1")),
+        _kw_crea(harvest_campaign_id="  "),
+        _kw_crea(harvest_ad_group_id=""),
+        _kw_crea(target_acos_pct=Decimal("Infinity")),
+    ):
+        with pytest.raises(goals_write.GoalInvalido):
+            goals_write.crea_goal(conn, **malo)
+    with pytest.raises(goals_write.GoalInvalido, match="moneda"):
+        goals_write.crea_goal(conn, **_kw_crea(bid_currency="EUR"))
+    with pytest.raises(ValueError, match="created_at"):
+        goals_write.crea_goal(conn, **_kw_crea(created_at=dt.datetime(2026, 9, 5, 12, 0)))
+    # nada que afirmar sobre la conexion: _ConnMuda.execute revienta solo
+
+
+@_skip_db
+@pytest.mark.parametrize(
+    ("plataforma", "moneda", "piso", "techo"),
+    [
+        ("amazon_mx", "MXN", Decimal("1.00"), Decimal("45.00")),
+        ("amazon_us", "USD", Decimal("0.10"), Decimal("2.50")),
+    ],
+)
+def test_crea_goal_inserta_con_defaults_de_su_moneda_y_terna_completa(
+    plataforma, moneda, piso, techo
+):
+    """PG real: INSERT de goal de campana con floor/ceiling de
+    DEFAULTS_POR_MONEDA de SU moneda (MXN 1.00/45.00; USD 0.10/2.50, jamas
+    1.00/45.00), enabled, mode, bid_currency persistida y la terna harvest
+    completa; created_at/updated_at = el instante pasado. D-GLM-4-5-6: el caso
+    USD es la prueba commiteada que antes faltaba (solo se probaba MXN)."""
+    from test_cycle import _db_temporal, _entidad
+
+    with _db_temporal("orbit_goals_crea") as (conn, _):
+        camp = _entidad(conn, plataforma, "campaign", "c-1")
+        fila = goals_write.crea_goal(conn, **_kw_crea(ad_entity_id=camp, bid_currency=moneda))
+        assert Decimal(fila["bid_floor"]) == piso
+        assert Decimal(fila["bid_ceiling"]) == techo
+        assert fila["bid_currency"] == moneda
+        assert fila["mode"] == "shadow" and fila["enabled"] is True
+        assert fila["harvest_campaign_id"] == "c-exact"
+        assert Decimal(fila["harvest_default_bid"]) == Decimal("6.00")
+        assert fila["created_at"] == T_CREADO and fila["updated_at"] == T_CREADO
+        # segundo goal para la MISMA campana: goal_unico_campana -> GoalInvalido
+        with pytest.raises(goals_write.GoalInvalido, match="ya tiene goal"):
+            goals_write.crea_goal(conn, **_kw_crea(ad_entity_id=camp, bid_currency=moneda))
+
+
+@_skip_db
+def test_crea_goal_rechaza_entidad_que_no_es_campana():
+    """Trigger goal_scope_campana_real traducido a GoalInvalido (no un
+    CheckViolation crudo)."""
+    from test_cycle import _db_temporal, _entidad
+
+    with _db_temporal("orbit_goals_crea_kind") as (conn, _):
+        camp = _entidad(conn, "amazon_mx", "campaign", "c-1")
+        ag = _entidad(conn, "amazon_mx", "ad_group", "ag-1", parent=camp)
+        with pytest.raises(goals_write.GoalInvalido, match="kind=campaign"):
+            goals_write.crea_goal(conn, **_kw_crea(ad_entity_id=ag))

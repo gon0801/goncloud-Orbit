@@ -1252,7 +1252,7 @@ git commit -m "feat(fabrica): v_margen_producto — margen por producto con la m
 - Consumes: `_valida_pre_editar`, `_fila_respuesta`, `_COLUMNAS`, `resuelve_floor_ceiling` (ya en el módulo); trigger `goal_scope_campana_real` y `goal_unico_campana` (0001).
 - Produces: `crea_goal(conn, *, ad_entity_id: int, target_acos_pct: Decimal, bid_currency: str, mode: str, harvest_campaign_id: str, harvest_ad_group_id: str, harvest_default_bid: Decimal, created_at: dt.datetime, enabled: bool = True) -> dict` (shape de GET /goals). Excepciones: `GoalInvalido` (uso), `ValueError` (`created_at` None/naive).
 
-- [ ] **Step 1: Tests (fallan: `crea_goal` no existe)**
+- [x] **Step 1: Tests (fallan: `crea_goal` no existe)**
 
 ```python
 # agregar a tests/test_goals_write.py
@@ -1346,12 +1346,12 @@ def test_crea_goal_rechaza_entidad_que_no_es_campana():
 
 (La conexion falsa es `_ConnMuda`, definida arriba: `_ConnFake` de `test_api_write` solo expone `close` — sin `execute` ni `ejecutadas` — asi que no sirve para esta guarda.)
 
-- [ ] **Step 2: Rojo**
+- [x] **Step 2: Rojo**
 
 Run: `pytest tests/test_goals_write.py -k crea_goal -v`
 Expected: FAIL con `AttributeError: module 'app.goals_write' has no attribute 'crea_goal'`.
 
-- [ ] **Step 3: Implementar**
+- [x] **Step 3: Implementar**
 
 Además del código de abajo, actualizar el docstring del MÓDULO `app/goals_write.py`: la frase «`edita_goal` es la UNICA escritura de `ads_optimizer_goal`» deja de ser cierta con `crea_goal` — debe quedar «la escritura de `ads_optimizer_goal` vive SOLO en este módulo: `edita_goal` (UPDATE) y `crea_goal` (INSERT, FABRICA 01); cli/api_write/tools despachan, jamas duplican SQL».
 
@@ -1452,7 +1452,7 @@ def crea_goal(
     return _fila_respuesta(fila)
 ```
 
-- [ ] **Step 4: Verde + candados**
+- [x] **Step 4: Verde + candados**
 
 El candado `test_escritura_de_goals_vive_solo_en_goals_write` (tests/test_architecture.py) solo vigilaba el `UPDATE`; con `crea_goal` el INSERT también es escritura y se extiende aquí (misma tarea, regla 2 del quality-kit):
 
@@ -1480,7 +1480,7 @@ _PATRON_INSERT_GOAL = re.compile(_SQL_INSERT_GOAL, re.IGNORECASE)
 Run: `pytest tests/test_goals_write.py tests/test_architecture.py -v`
 Expected: PASS. `test_escritura_de_goals_vive_solo_en_goals_write` sigue verde (el INSERT vive en `goals_write.py`, el único dueño).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git checkout -b fabrica-01-4-crea-goal origin/master
@@ -1504,7 +1504,7 @@ git commit -m "feat(goals): crea_goal — alta de goal de campana por el camino 
   - `PlanInvalido(ValueError)`.
   - funciones `valida_tipo_producto`, `target_del_grupo`, `valida_parametros`, `nombre_campana`, `nombre_ad_group`, `semillas_desde_terminos`, `huella_plan`, `plan_como_json`, `plan_desde_json`, `monto_wire`, `pasos_del_rol`, `id_creado`, `errores_207`, `ack_ok`, `lineas_dry_run`.
 
-- [ ] **Step 1: Tests del núcleo (fallan: el módulo no existe)**
+- [x] **Step 1: Tests del núcleo (fallan: el módulo no existe)**
 
 ```python
 # tests/test_fabrica_plan.py
@@ -1815,12 +1815,12 @@ def test_lineas_dry_run_declaran_semillas_cero():
     assert any("target=19.10" in linea for linea in lineas)
 ```
 
-- [ ] **Step 2: Rojo**
+- [x] **Step 2: Rojo**
 
 Run: `pytest tests/test_fabrica_plan.py -v`
 Expected: FAIL con `ModuleNotFoundError: No module named 'app.fabrica_plan'`.
 
-- [ ] **Step 3: Implementar el módulo**
+- [x] **Step 3: Implementar el módulo**
 
 ```python
 # app/fabrica_plan.py
@@ -2372,12 +2372,12 @@ def lineas_dry_run(plan: PlanGrupo) -> list[str]:
     return lineas
 ```
 
-- [ ] **Step 4: Verde + ruff**
+- [x] **Step 4: Verde + ruff**
 
 Run: `pytest tests/test_fabrica_plan.py -v && ruff check app/fabrica_plan.py && ruff format --check app/fabrica_plan.py`
 Expected: PASS; sin hallazgos de ruff (si `_semillas_del_rol` dispara C901, partir el `if` de keywords en `_pasos_keywords(plan, rol)`; jamás `noqa` sin razón).
 
-- [ ] **Step 5: Agregar los tests que pinean las constantes contra el SQL de la vista**
+- [x] **Step 5: Agregar los tests que pinean las constantes contra el SQL de la vista**
 
 ```python
 # agregar a tests/test_fabrica_plan.py
@@ -2410,7 +2410,7 @@ def test_cobertura_minima_pineada_contra_el_sql():
 
 Run: `pytest tests/test_fabrica_plan.py -v` → PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git checkout -b fabrica-01-5-nucleo origin/master
@@ -5294,6 +5294,149 @@ psycopg.errors.UndefinedTable: relation "v_margen_producto" does not exist
 ```
 tests/test_fabrica_migracion.py — 13 passed in 1.74s (pre-D-3); 14 passed tras D-3
 ```
+
+### Tareas 4-5 — decisiones y evidencia (GLM escribe AQUÍ antes del código)
+
+Base comprobada: rama `fabrica-01-4-5-goals-nucleo` desde `origin/master` en `b6eaeea`
+(PR #172, tareas 1-3 cerradas, `migrations/0018_fabrica_campanas.sql` presente).
+Postgres de pruebas: local 127.0.0.1:5432 (PG 16.15, DSN por defecto de `test_schema`).
+
+**D-GLM-4-5-1 (percy-check 0018 + 0 SQL nuevo):** las tareas 4-5 no tocan migraciones
+ni agregan SELECTs; consumen la 0018 ya revisada en master. La evidencia de producción
+que exigen los invariantes nuevos (constantes pineadas contra el SQL de `v_margen_producto`)
+es la migración REAL en la rama, leída por test desde `migrations/` — mismo mecanismo
+que la tarea 3. Cero SSH, cero Amazon.
+
+**D-GLM-4-5-2 (`_ConnMuda` local):** el plan define el fake `_ConnMuda` dentro de
+`tests/test_goals_write.py` porque `_ConnFake` de `test_api_write` solo expone `close`.
+Se copia tal cual; no se refactoriza el fixture compartido (cambio mínimo).
+
+**D-GLM-4-5-3 (frontera `monto_wire`):** la regla 4 del repo prohíbe float para
+guardar o decidir; `monto_wire` devuelve float SOLO en la frontera del wire JSON,
+mismo criterio y misma cuantización (2 decimales, HALF_EVEN) que `_bid_wire` del
+write client, y rechaza no-Decimal con TypeError. El JSON persistible
+(`plan_como_json`) lleva el dinero como STRING. Sin conflicto con el contrato; no se
+cambia nada del plan.
+
+**D-GLM-4-5-4 (tests de DB en local):** los tests de `crea_goal` contra Postgres real
+corren contra el PG 16 local por el DSN por defecto de `test_schema`
+(`postgresql://orbit:orbit@localhost:5432/postgres`); sin `ORBIT_TEST_DSN` en el
+entorno. Los skips de DB, si aparecieran, se reportan (skip no demuestra que pasa);
+en la corrida local no hubo skips.
+
+**Evidencia tarea 4 (regla 9, rojo antes):**
+
+```
+$ ./.venv/bin/python -m pytest tests/test_goals_write.py -k crea_goal -v
+E               AttributeError: module 'app.goals_write' has no attribute 'crea_goal'
+FAILED tests/test_goals_write.py::test_crea_goal_valida_sin_io - AttributeError
+FAILED tests/test_goals_write.py::test_crea_goal_inserta_con_defaults_de_su_moneda_y_terna_completa
+FAILED tests/test_goals_write.py::test_crea_goal_rechaza_entidad_que_no_es_campana
+================== 3 failed, 21 deselected, 1 warning in 0.75s ==================
+```
+
+Verde tras implementar `crea_goal` + el candado INSERT en test_architecture:
+
+```
+$ ./.venv/bin/python -m pytest tests/test_goals_write.py tests/test_architecture.py -v
+tests/test_goals_write.py::test_crea_goal_valida_sin_io PASSED
+tests/test_goals_write.py::test_crea_goal_inserta_con_defaults_de_su_moneda_y_terna_completa PASSED
+tests/test_goals_write.py::test_crea_goal_rechaza_entidad_que_no_es_campana PASSED
+tests/test_architecture.py::test_escritura_de_goals_vive_solo_en_goals_write PASSED
+======================== 39 passed, 1 warning in 1.92s =========================
+```
+
+39 passed, 0 skipped: los dos tests de PG corrieron reales contra el PG 16 local
+(D-GLM-4-5-4). MXN cubierto por el INSERT de `crea_goal`; USD ya lo cubria la
+suite existente de `edita_goal` (defaults por moneda en `_fila_mxn`/DEFAULTS_POR_MONEDA
+y `test_valida_parametros` de la tarea 5 cubre USD en el nucleo).
+
+**Evidencia tarea 5 (regla 9, rojo antes):**
+
+```
+$ ./.venv/bin/python -m pytest tests/test_fabrica_plan.py -q
+E   ImportError: cannot import name 'fabrica_plan' from 'app' (/Users/dn/dev/goncloud-Orbit/app/__init__.py)
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+1 error in 0.07s
+```
+
+(El plan esperaba `ModuleNotFoundError`; el rojo real se manifesta como el
+`ImportError` equivalente en la coleccion — mismo motivo: el modulo no existe.)
+
+Verde tras crear `app/fabrica_plan.py` (incluye los tests de acoplamiento del
+Step 5 contra `migrations/0018_fabrica_campanas.sql`):
+
+```
+$ ./.venv/bin/python -m pytest tests/test_fabrica_plan.py -q
+.........................                [100%]
+25 passed in 0.10s
+$ ./.venv/bin/ruff check app/fabrica_plan.py tests/
+All checks passed!
+$ ./.venv/bin/ruff format --check app/fabrica_plan.py tests/
+57 files already formatted
+```
+
+Discriminacion de los tests de acoplamiento (comprobado, sin dejar rastro):
+mutar la asercion del guard `dias_con_venta < 30` a `< 31` revienta
+`test_dias_minimos_y_arranque_de_ventana_pineados_contra_el_sql`; restaurada,
+pasa.
+
+Bateria focal final:
+
+```
+$ ./.venv/bin/python -m pytest tests/test_goals_write.py tests/test_fabrica_plan.py tests/test_architecture.py -q
+64 passed, 1 warning in 2.08s
+```
+
+64 passed, 0 skipped (verificado con -rs: sin lineas de skip).
+
+**D-GLM-4-5-5 (candado de moneda unica):** el plan definia
+`MONEDA_POR_PLATAFORMA = {"amazon_mx": "MXN", "amazon_us": "USD"}` literal, y
+el candado existente `test_una_sola_fuente_de_moneda_por_plataforma`
+(test_architecture) lo cazo (`mapa de moneda por plataforma NO declarado en:
+['app/fabrica_plan.py']`). Ajuste mecanico minimo siguiendo el propio mensaje
+del candado: importar `PLATAFORMAS_MONEDA` de `app/optimizer/bid.py` y
+aliasar (`MONEDA_POR_PLATAFORMA = PLATAFORMAS_MONEDA`, mismo nombre que
+consumen las tareas 6-9). El test que pinea contra
+`app.ads.write.PLATAFORMA_MONEDA` sigue verde; el nucleo sigue sin psycopg/httpx
+(optimizer.bid es motor puro).
+
+**Desviaciones mecanicas menores (sin cambio de contrato):**
+- E501/SIM300 de ruff (line-length 100) obligaron a refluir lineas del codigo
+  del plan y a partir el `if` de keywords en `_pasos_keywords` (tal como
+  anticipaba el propio Step 4); la asercion de fecha del test de acoplamiento
+  usa `isoformat()` para no disparar SIM300. Cero noqa.
+- `_semillas_del_rol` quedo dentro del presupuesto de complejidad sin cambios
+  adicionales.
+
+**D-GLM-4-5-6 (revision PR 174, hallazgos P2):**
+- *Hallazgo 1 (ASIN como negativos).* `semillas_desde_terminos` normalizaba
+  `biblioteca_negativos` sin el filtro ASIN: una entrada `B0AAAAAAAA` caia en
+  `semillas.negativos` (en minusculas) y el rol `auto_discovery` generaba un
+  payload `/sp/negativeKeywords` con `matchType NEGATIVE_EXACT` y texto
+  ASIN-like, violando el contrato (spec §6: negativos = SOLO keywords). Fix
+  minimo: la normalizacion excluye las entradas que matchean `PATRON_ASIN`
+  (mismo criterio con que la biblioteca de keywords separa keywords/ASINs),
+  vacios fuera, resto lower. Regresion
+  `test_negativos_de_biblioteca_excluyen_entradas_asin` (test_fabrica_plan.py):
+  (a) el ASIN no esta en `semillas.negativos`, (b) ningun payload de
+  negative_keyword del rol (via `pasos_del_rol(plan, "auto_discovery")`)
+  contiene texto ASIN-like. ROJO (regla 9, ANTES del fix):
+  `AssertionError: assert 'b0aaaaaaaa' not in ('b0aaaaaaaa', 'gato')` —
+  FAILED test_negativos_de_biblioteca_excluyen_entradas_asin. Tras el fix:
+  verde.
+- *Hallazgo 2 (INSERT en USD sin prueba commiteada).* El test del INSERT de
+  `crea_goal` solo cubria MXN; se parametrizo
+  `test_crea_goal_inserta_con_defaults_de_su_moneda_y_terna_completa` para
+  cubrir tambien USD: plataforma `amazon_us`, `bid_currency` USD persistida,
+  piso `Decimal("0.10")` y techo `Decimal("2.50")` (defaults de SU moneda, NO
+  1.00/45.00), mas el shape ya probado (mode, enabled, terna harvest,
+  created_at/updated_at). Evidencia de que discrimina (no tautologia):
+  mutando temporalmente la asercion del techo a `Decimal("45.00")`, el caso
+  USD revienta `AssertionError: assert Decimal('2.5000') == Decimal('45.00')`
+  (FAILED ...[amazon_us-USD-piso1-techo1]) y el MXN sigue pasando; asercion
+  restaurada y todo verde. `crea_goal` NO se toco (el INSERT ya persiste la
+  moneda que llega): hallazgo de prueba faltante, no de codigo.
 
 ### Tarea 11 — sonda (lead)
 

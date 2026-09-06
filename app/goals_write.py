@@ -1,12 +1,13 @@
 """Escritura amigable de goals del optimizador (ORBIT 04, task 3.2; sellado 26).
 
-UN solo camino (regla 1): `edita_goal` es la UNICA escritura de
-`ads_optimizer_goal` del codigo (candado en tests/test_architecture.py) — el
+UN solo camino (regla 1): la escritura de `ads_optimizer_goal` vive SOLO en
+este modulo: `edita_goal` (UPDATE) y `crea_goal` (INSERT, FABRICA 01); el
 endpoint POST `/api/ads-optimizer/goals/{goal_id}` (app/api_write.py, auth
-sellada 18) y el CLI `goals set` (app/cli.py) DESPACHAN a esta funcion, jamas
-duplican su SQL. Los goals los escribe `app_admin` (GRANT de 0001); el motor
-solo lee (`_SQL_GOALS` de app/cycle) y la edicion es visible al ciclo
-siguiente porque la decision congela en `inputs` lo que leyo (regla 2: la
+sellada 18), el CLI `goals set` (app/cli.py) y los tools despachan, jamas
+duplican SQL (candado en tests/test_architecture.py). Los goals los escribe
+`app_admin` (GRANT de 0001); el motor solo lee (`_SQL_GOALS` de app/cycle) y
+la edicion es visible al ciclo siguiente porque la decision congela en
+`inputs` lo que leyo (regla 2: la
 fuente es la fila, no un cache).
 
 CONTRATO DEL UPDATE (dashboard-01 r2): `updated_at` es parametro OBLIGATORIO
@@ -263,3 +264,97 @@ def edita_goal(
     fila_nueva = conn.execute(sql, (*cambios.values(), updated_at, goal_id)).fetchone()
     conn.commit()
     return _fila_respuesta(fila_nueva)
+
+
+MODOS_CREACION = ("shadow", "live")
+
+_SQL_CREA = (
+    "INSERT INTO ads_optimizer_goal (scope, ad_entity_id, target_acos_pct, bid_floor,"
+    " bid_ceiling, bid_currency, harvest_campaign_id, harvest_ad_group_id,"
+    " harvest_default_bid, enabled, mode, created_at, updated_at)"
+    " VALUES ('campaign', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+    f" RETURNING {_COLUMNAS}"
+)
+
+
+def crea_goal(
+    conn: psycopg.Connection,
+    *,
+    ad_entity_id: int,
+    target_acos_pct: Decimal,
+    bid_currency: str,
+    mode: str,
+    harvest_campaign_id: str,
+    harvest_ad_group_id: str,
+    harvest_default_bid: Decimal,
+    created_at: dt.datetime,
+    enabled: bool = True,
+) -> dict:
+    """Crea el goal de scope campana de una campana NUEVA (FABRICA 01, spec
+    §4, decisiones 12 y 13): terna harvest COMPLETA obligatoria, `mode`
+    explicito en {shadow, live} (nunca `off`: un goal apagado al nacer es
+    una campana que el motor jamas toca), piso/techo de DEFAULTS_POR_MONEDA
+    de SU moneda. Camino unico de escritura de goals (sellado 26 de ORBIT 04,
+    docs/APPLY.md §10.3): la fabrica despacha aqui, jamas duplica el INSERT.
+
+    Validacion PURA antes de I/O (mismo criterio que edita_goal); los
+    rechazos de la base (goal_unico_campana, goal_scope_campana_real) se
+    traducen a GoalInvalido con mensaje en espanol.
+    """
+    if created_at is None or created_at.tzinfo is None:
+        raise ValueError("created_at es obligatorio y tz-aware")
+    if mode not in MODOS_CREACION:
+        raise GoalInvalido(f"mode debe ser uno de {MODOS_CREACION}, llego {mode!r}")
+    for nombre, valor in (
+        ("target_acos_pct", target_acos_pct),
+        ("harvest_default_bid", harvest_default_bid),
+    ):
+        if not isinstance(valor, Decimal) or not valor.is_finite():
+            raise GoalInvalido(f"{nombre} debe ser un Decimal finito, llego {valor!r}")
+    for nombre, valor in (
+        ("harvest_campaign_id", harvest_campaign_id),
+        ("harvest_ad_group_id", harvest_ad_group_id),
+    ):
+        if not isinstance(valor, str) or not valor.strip():
+            raise GoalInvalido(f"{nombre} no puede ser vacio: la terna harvest va completa")
+    try:
+        piso, techo = resuelve_floor_ceiling(None, bid_currency)
+    except ValueError as exc:
+        raise GoalInvalido(f"moneda sin defaults: {exc}") from exc
+    fila_nueva = {
+        "target_acos_pct": target_acos_pct,
+        "bid_floor": piso,
+        "bid_ceiling": techo,
+        "harvest_campaign_id": harvest_campaign_id.strip(),
+        "harvest_ad_group_id": harvest_ad_group_id.strip(),
+        "harvest_default_bid": harvest_default_bid,
+    }
+    _valida_pre_editar(fila_nueva, {})  # mismos espejos de CHECK que la edicion
+
+    conn.row_factory = dict_row
+    try:
+        fila = conn.execute(
+            _SQL_CREA,
+            (
+                ad_entity_id,
+                target_acos_pct,
+                piso,
+                techo,
+                bid_currency,
+                fila_nueva["harvest_campaign_id"],
+                fila_nueva["harvest_ad_group_id"],
+                harvest_default_bid,
+                enabled,
+                mode,
+                created_at,
+                created_at,
+            ),
+        ).fetchone()
+    except psycopg.errors.UniqueViolation as exc:
+        conn.rollback()
+        raise GoalInvalido(f"la campana {ad_entity_id} ya tiene goal (goal_unico_campana)") from exc
+    except psycopg.errors.CheckViolation as exc:
+        conn.rollback()
+        raise GoalInvalido(f"la base rechazo el goal: {exc.diag.message_primary}") from exc
+    conn.commit()
+    return _fila_respuesta(fila)
