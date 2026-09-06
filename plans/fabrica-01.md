@@ -1504,7 +1504,7 @@ git commit -m "feat(goals): crea_goal — alta de goal de campana por el camino 
   - `PlanInvalido(ValueError)`.
   - funciones `valida_tipo_producto`, `target_del_grupo`, `valida_parametros`, `nombre_campana`, `nombre_ad_group`, `semillas_desde_terminos`, `huella_plan`, `plan_como_json`, `plan_desde_json`, `monto_wire`, `pasos_del_rol`, `id_creado`, `errores_207`, `ack_ok`, `lineas_dry_run`.
 
-- [ ] **Step 1: Tests del núcleo (fallan: el módulo no existe)**
+- [x] **Step 1: Tests del núcleo (fallan: el módulo no existe)**
 
 ```python
 # tests/test_fabrica_plan.py
@@ -1815,12 +1815,12 @@ def test_lineas_dry_run_declaran_semillas_cero():
     assert any("target=19.10" in linea for linea in lineas)
 ```
 
-- [ ] **Step 2: Rojo**
+- [x] **Step 2: Rojo**
 
 Run: `pytest tests/test_fabrica_plan.py -v`
 Expected: FAIL con `ModuleNotFoundError: No module named 'app.fabrica_plan'`.
 
-- [ ] **Step 3: Implementar el módulo**
+- [x] **Step 3: Implementar el módulo**
 
 ```python
 # app/fabrica_plan.py
@@ -2372,12 +2372,12 @@ def lineas_dry_run(plan: PlanGrupo) -> list[str]:
     return lineas
 ```
 
-- [ ] **Step 4: Verde + ruff**
+- [x] **Step 4: Verde + ruff**
 
 Run: `pytest tests/test_fabrica_plan.py -v && ruff check app/fabrica_plan.py && ruff format --check app/fabrica_plan.py`
 Expected: PASS; sin hallazgos de ruff (si `_semillas_del_rol` dispara C901, partir el `if` de keywords en `_pasos_keywords(plan, rol)`; jamás `noqa` sin razón).
 
-- [ ] **Step 5: Agregar los tests que pinean las constantes contra el SQL de la vista**
+- [x] **Step 5: Agregar los tests que pinean las constantes contra el SQL de la vista**
 
 ```python
 # agregar a tests/test_fabrica_plan.py
@@ -2410,7 +2410,7 @@ def test_cobertura_minima_pineada_contra_el_sql():
 
 Run: `pytest tests/test_fabrica_plan.py -v` → PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git checkout -b fabrica-01-5-nucleo origin/master
@@ -5350,6 +5350,64 @@ tests/test_architecture.py::test_escritura_de_goals_vive_solo_en_goals_write PAS
 (D-GLM-4-5-4). MXN cubierto por el INSERT de `crea_goal`; USD ya lo cubria la
 suite existente de `edita_goal` (defaults por moneda en `_fila_mxn`/DEFAULTS_POR_MONEDA
 y `test_valida_parametros` de la tarea 5 cubre USD en el nucleo).
+
+**Evidencia tarea 5 (regla 9, rojo antes):**
+
+```
+$ ./.venv/bin/python -m pytest tests/test_fabrica_plan.py -q
+E   ImportError: cannot import name 'fabrica_plan' from 'app' (/Users/dn/dev/goncloud-Orbit/app/__init__.py)
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+1 error in 0.07s
+```
+
+(El plan esperaba `ModuleNotFoundError`; el rojo real se manifesta como el
+`ImportError` equivalente en la coleccion — mismo motivo: el modulo no existe.)
+
+Verde tras crear `app/fabrica_plan.py` (incluye los tests de acoplamiento del
+Step 5 contra `migrations/0018_fabrica_campanas.sql`):
+
+```
+$ ./.venv/bin/python -m pytest tests/test_fabrica_plan.py -q
+.........................                [100%]
+25 passed in 0.10s
+$ ./.venv/bin/ruff check app/fabrica_plan.py tests/
+All checks passed!
+$ ./.venv/bin/ruff format --check app/fabrica_plan.py tests/
+57 files already formatted
+```
+
+Discriminacion de los tests de acoplamiento (comprobado, sin dejar rastro):
+mutar la asercion del guard `dias_con_venta < 30` a `< 31` revienta
+`test_dias_minimos_y_arranque_de_ventana_pineados_contra_el_sql`; restaurada,
+pasa.
+
+Bateria focal final:
+
+```
+$ ./.venv/bin/python -m pytest tests/test_goals_write.py tests/test_fabrica_plan.py tests/test_architecture.py -q
+64 passed, 1 warning in 2.08s
+```
+
+64 passed, 0 skipped (verificado con -rs: sin lineas de skip).
+
+**D-GLM-4-5-5 (candado de moneda unica):** el plan definia
+`MONEDA_POR_PLATAFORMA = {"amazon_mx": "MXN", "amazon_us": "USD"}` literal, y
+el candado existente `test_una_sola_fuente_de_moneda_por_plataforma`
+(test_architecture) lo cazo (`mapa de moneda por plataforma NO declarado en:
+['app/fabrica_plan.py']`). Ajuste mecanico minimo siguiendo el propio mensaje
+del candado: importar `PLATAFORMAS_MONEDA` de `app/optimizer/bid.py` y
+aliasar (`MONEDA_POR_PLATAFORMA = PLATAFORMAS_MONEDA`, mismo nombre que
+consumen las tareas 6-9). El test que pinea contra
+`app.ads.write.PLATAFORMA_MONEDA` sigue verde; el nucleo sigue sin psycopg/httpx
+(optimizer.bid es motor puro).
+
+**Desviaciones mecanicas menores (sin cambio de contrato):**
+- E501/SIM300 de ruff (line-length 100) obligaron a refluir lineas del codigo
+  del plan y a partir el `if` de keywords en `_pasos_keywords` (tal como
+  anticipaba el propio Step 4); la asercion de fecha del test de acoplamiento
+  usa `isoformat()` para no disparar SIM300. Cero noqa.
+- `_semillas_del_rol` quedo dentro del presupuesto de complejidad sin cambios
+  adicionales.
 
 ### Tarea 11 — sonda (lead)
 
