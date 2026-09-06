@@ -8,22 +8,14 @@ y habria fallado contra ese pack.
 from __future__ import annotations
 
 import struct
+import sys
 import zlib
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
-DIR_FAVICON = RAIZ / "app" / "static" / "favicon"
+sys.path.insert(0, str(RAIZ / "tools"))
 
-TAMANOS = (
-    ("favicon-16.png", 16),
-    ("favicon-32.png", 32),
-    ("favicon-48.png", 48),
-    ("favicon-64.png", 64),
-    ("favicon-180.png", 180),
-    ("favicon-192.png", 192),
-    ("favicon-512.png", 512),
-)
-ICO_TAMANOS = (16, 32, 48)
+from gen_favicons import DIR_FAVICON, ICO_TAMANOS, TAMANOS  # noqa: E402
 
 _PNG_SIG = b"\x89PNG\r\n\x1a\n"
 _CANALES = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}

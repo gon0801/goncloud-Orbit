@@ -1218,12 +1218,16 @@ def test_ui_favicon_local_y_servido(monkeypatch):
         cliente = TestClient(app)
         html = cliente.get("/").text
         assert 'href="/static/favicon/favicon.ico"' in html
+        assert 'href="/static/favicon/favicon-16.png"' in html
         assert 'href="/static/favicon/favicon-32.png"' in html
+        assert 'href="/static/favicon/favicon-192.png"' in html
         assert 'href="/static/favicon/favicon-180.png"' in html
         for ruta in (
             "/static/favicon/favicon.ico",
             "/static/favicon/favicon-16.png",
             "/static/favicon/favicon-32.png",
+            "/static/favicon/favicon-48.png",
+            "/static/favicon/favicon-64.png",
             "/static/favicon/favicon-180.png",
             "/static/favicon/favicon-192.png",
             "/static/favicon/favicon-512.png",
