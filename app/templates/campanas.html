@@ -42,7 +42,7 @@
     <label>Cost
       <input type="search" name="cost" value="{{ vista.filtros.cost or "" }}" placeholder="30d">
     </label>
-    <label>Revenue
+    <label>Revenue Ads
       <input type="search" name="revenue" value="{{ vista.filtros.revenue or "" }}" placeholder="30d">
     </label>
     <label>Clicks
@@ -66,7 +66,7 @@
         <th aria-sort="{% if vista.ordenar == 'estado' %}{% if vista.dir == 'desc' %}descending{% else %}ascending{% endif %}{% else %}none{% endif %}"><a href="{{ vista.hrefs_orden.estado }}">Estado{% if vista.ordenar == 'estado' %}{% if vista.dir == 'desc' %} ↓{% else %} ↑{% endif %}{% endif %}</a></th>
         <th aria-sort="{% if vista.ordenar == 'plataforma' %}{% if vista.dir == 'desc' %}descending{% else %}ascending{% endif %}{% else %}none{% endif %}"><a href="{{ vista.hrefs_orden.plataforma }}">Plataforma{% if vista.ordenar == 'plataforma' %}{% if vista.dir == 'desc' %} ↓{% else %} ↑{% endif %}{% endif %}</a></th>
         <th class="num" aria-sort="{% if vista.ordenar == 'cost' %}{% if vista.dir == 'desc' %}descending{% else %}ascending{% endif %}{% else %}none{% endif %}"><a href="{{ vista.hrefs_orden.cost }}">Cost (30d){% if vista.ordenar == 'cost' %}{% if vista.dir == 'desc' %} ↓{% else %} ↑{% endif %}{% endif %}</a></th>
-        <th class="num" aria-sort="{% if vista.ordenar == 'revenue' %}{% if vista.dir == 'desc' %}descending{% else %}ascending{% endif %}{% else %}none{% endif %}"><a href="{{ vista.hrefs_orden.revenue }}">Revenue (30d){% if vista.ordenar == 'revenue' %}{% if vista.dir == 'desc' %} ↓{% else %} ↑{% endif %}{% endif %}</a></th>
+        <th class="num" aria-sort="{% if vista.ordenar == 'revenue' %}{% if vista.dir == 'desc' %}descending{% else %}ascending{% endif %}{% else %}none{% endif %}"><a href="{{ vista.hrefs_orden.revenue }}">Revenue Ads (30d){% if vista.ordenar == 'revenue' %}{% if vista.dir == 'desc' %} ↓{% else %} ↑{% endif %}{% endif %}</a></th>
         <th class="num" aria-sort="{% if vista.ordenar == 'clicks' %}{% if vista.dir == 'desc' %}descending{% else %}ascending{% endif %}{% else %}none{% endif %}"><a href="{{ vista.hrefs_orden.clicks }}">Clicks{% if vista.ordenar == 'clicks' %}{% if vista.dir == 'desc' %} ↓{% else %} ↑{% endif %}{% endif %}</a></th>
         <th class="num" aria-sort="{% if vista.ordenar == 'acos' %}{% if vista.dir == 'desc' %}descending{% else %}ascending{% endif %}{% else %}none{% endif %}"><a href="{{ vista.hrefs_orden.acos }}">ACoS{% if vista.ordenar == 'acos' %}{% if vista.dir == 'desc' %} ↓{% else %} ↑{% endif %}{% endif %}</a></th>
         <th class="num" aria-sort="{% if vista.ordenar == 'target' %}{% if vista.dir == 'desc' %}descending{% else %}ascending{% endif %}{% else %}none{% endif %}"><a href="{{ vista.hrefs_orden.target }}">Target efectivo{% if vista.ordenar == 'target' %}{% if vista.dir == 'desc' %} ↓{% else %} ↑{% endif %}{% endif %}</a></th>
