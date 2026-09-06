@@ -324,6 +324,7 @@ class _ConnFalsa:
         *,
         settings=None,
         productos=(),
+        publicaciones=(),
         terminos=(),
         terminos_exact=None,
         biblioteca=([], []),
@@ -338,6 +339,7 @@ class _ConnFalsa:
     ):
         self.settings = settings
         self.productos = list(productos)
+        self.publicaciones = list(publicaciones)
         self.terminos = list(terminos)
         # candidatos a exact (ventana de cortes): por default los mismos terminos
         self.terminos_exact = list(terminos) if terminos_exact is None else list(terminos_exact)
@@ -372,6 +374,8 @@ class _ConnFalsa:
             return _Cursor([])
         if "from config_version" in bajo:
             return _Cursor([(1, self.settings)] if self.settings is not None else [])
+        if "from listing l" in bajo and "join product p" in bajo:
+            return _Cursor(self.publicaciones)
         if "v_margen_producto" in bajo:
             return _Cursor(self.productos)
         if "ventana_cortes" in bajo:  # _SQL_TERMINOS_EXACT (ventana de cortes)
@@ -519,6 +523,29 @@ def test_dry_run_dice_semillas_cero_explicito(monkeypatch, capsys):
     assert fc.main() == 0
     salida = capsys.readouterr().out
     assert "category_phrase" in salida and "semillas=0" in salida
+
+
+def test_cli_v2_manual_normaliza_listing_sin_margen_sin_http(monkeypatch, capsys):
+    args = ARGS_BASE.copy()
+    indice = args.index("--productos")
+    args[indice : indice + 2] = ["--listing-ids", "11,12"]
+    args.extend(["--target-acos", "25.00"])
+    conn = _ConnFalsa(
+        publicaciones=[
+            (11, 1, "B0AAAAAAAA", "SS-1", None),
+            (12, 1, "B0AAAAAAAB", "SS-2", Decimal("-5")),
+        ],
+        biblioteca=([], []),
+    )
+    _frontera_lectura(monkeypatch, conn)
+    _sin_red(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *args])
+    assert fc.main() == 0
+    salida = capsys.readouterr().out
+    assert "target=25.00" in salida
+    assert "publicacion=11" in salida and "margen=None" in salida
+    assert "publicacion=12" in salida and "margen=-5" in salida
+    assert conn.escrituras == []
 
 
 def test_sin_fraccion_o_bid_fuera_de_banda_aborta_sin_http(monkeypatch):

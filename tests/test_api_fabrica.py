@@ -96,6 +96,13 @@ def _crear(cliente, solicitud, huella):
     )
 
 
+def _solicitud_v2(solicitud, listing_ids, *, objetivo=None):
+    datos = {clave: valor for clave, valor in solicitud.items() if clave != "productos"}
+    datos["listing_ids"] = listing_ids
+    datos["objetivo"] = objetivo or {"origen": "manual_lanzamiento", "acos_pct": "25.00"}
+    return datos
+
+
 def _motor_simulado(monkeypatch, fw, conn, *, error=False):
     llamadas = []
 
@@ -167,6 +174,78 @@ def test_preview_solo_lectura_sin_amazon_y_con_dinero_string(escenario):
     assert vista["plan"]["target_acos_pct"] == "20.00"
     assert vista["plan"]["semillas"]["keywords"] == ["collar"]
     assert all(p["budget"] == "120.00" and p["bid"] == "4.00" for p in vista["campanas"])
+    assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone()[0] == 0
+
+
+def test_preview_v2_acepta_sin_margen_y_varios_listings_sin_escribir(escenario):
+    cliente, conn, solicitud, _, ids = escenario
+    listing_sin_margen = conn.execute(
+        "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx'", (ids[1],)
+    ).fetchone()[0]
+    listing_multiple = [
+        fila[0]
+        for fila in conn.execute(
+            "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx' ORDER BY id",
+            (ids[2],),
+        ).fetchall()
+    ]
+    vista = _preview(cliente, _solicitud_v2(solicitud, [listing_sin_margen, *listing_multiple]))
+    assert vista["plan"]["schema_version"] == 2
+    assert vista["plan"]["objetivo"] == {
+        "origen": "manual_lanzamiento",
+        "acos_pct": "25.00",
+        "procedencia": "manual_lanzamiento confirmado",
+        "fraccion": None,
+        "derivado": None,
+    }
+    assert [p["margen_neto_pct"] for p in vista["plan"]["publicaciones"]] == [None, None, None]
+    assert len({p["product_id"] for p in vista["plan"]["publicaciones"]}) == 2
+    assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone()[0] == 0
+
+
+def test_preview_v2_rechaza_mezcla_y_sku_duplicado_sin_escribir(escenario):
+    cliente, conn, solicitud, _, ids = escenario
+    listing = conn.execute(
+        "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx'", (ids[0],)
+    ).fetchone()[0]
+    mezclada = _solicitud_v2(solicitud, [listing])
+    mezclada["productos"] = [ids[0]]
+    assert cliente.post("/api/fabrica/plan", json=mezclada).status_code == 422
+    conn.execute(
+        "UPDATE listing SET seller_sku = 'DUPLICADO' "
+        "WHERE product_id = %s AND platform = 'amazon_mx'",
+        (ids[2],),
+    )
+    multiples = [
+        fila[0]
+        for fila in conn.execute(
+            "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx' ORDER BY id",
+            (ids[2],),
+        ).fetchall()
+    ]
+    respuesta = cliente.post("/api/fabrica/plan", json=_solicitud_v2(solicitud, multiples))
+    assert respuesta.status_code == 422
+    assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone()[0] == 0
+
+
+def test_crear_v2_exige_interruptor_y_target_valido_sin_mutar(escenario, monkeypatch):
+    cliente, conn, solicitud, fw, ids = escenario
+    listing = conn.execute(
+        "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx'", (ids[0],)
+    ).fetchone()[0]
+    v2 = _solicitud_v2(solicitud, [listing])
+    vista = _preview(cliente, v2)
+    llamadas = []
+    monkeypatch.setattr(fw.fc, "_mutar", lambda *args, **kwargs: llamadas.append(args))
+    bloqueada = _crear(cliente, v2, vista["huella"])
+    assert bloqueada.status_code == 409
+    assert llamadas == []
+    invalida = _solicitud_v2(
+        solicitud,
+        [listing],
+        objetivo={"origen": "manual_lanzamiento", "acos_pct": "25.123"},
+    )
+    assert cliente.post("/api/fabrica/plan", json=invalida).status_code == 422
     assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone()[0] == 0
 
 

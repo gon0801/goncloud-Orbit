@@ -89,6 +89,15 @@ SELECT p.id, p.odoo_sku, l.id, l.external_id, l.seller_sku, m.margen_neto_pct
  ORDER BY p.id
 """
 
+_SQL_PUBLICACIONES = """
+SELECT l.id, p.id, l.external_id, l.seller_sku, m.margen_neto_pct
+  FROM listing l
+  JOIN product p ON p.id = l.product_id
+  LEFT JOIN v_margen_producto m ON m.product_id = p.id AND m.platform = l.platform
+ WHERE l.platform = %s::platform AND l.id = ANY(%s)
+ ORDER BY l.id
+"""
+
 # Terminos de las campanas del producto: campanas con un product_ad ligado
 # al listing. GRANO DEL ORIGEN sellado por la evidencia de la tarea 1 (f)
 # ("Decisiones y evidencia"): search_term_observation tiene UN solo grano en
@@ -360,6 +369,30 @@ def _productos(conn: psycopg.Connection, platform: str, ids: list[int]) -> list[
     return out
 
 
+def _publicaciones_v2(
+    conn: psycopg.Connection, platform: str, ids: list[int]
+) -> list[fp.PublicacionGrupoV2]:
+    filas = conn.execute(_SQL_PUBLICACIONES, (platform, ids)).fetchall()
+    vistos = {fila[0] for fila in filas}
+    faltan = sorted(set(ids) - vistos)
+    if faltan:
+        raise Abortar(f"listing(s) {faltan} no existe(n) en {platform}")
+    skus = [str(fila[3]).strip() if fila[3] else "" for fila in filas]
+    if not all(skus) or len(skus) != len(set(skus)):
+        raise Abortar("seller_sku ausente o duplicado en publicaciones v2")
+    return [
+        fp.PublicacionGrupoV2(
+            listing_id=fila[0],
+            product_id=fila[1],
+            asin=fila[2],
+            seller_sku=str(fila[3]).strip(),
+            platform=platform,
+            margen_neto_pct=Decimal(fila[4]) if fila[4] is not None else None,
+        )
+        for fila in filas
+    ]
+
+
 def _terminos_producto(
     conn: psycopg.Connection,
     platform: str,
@@ -438,13 +471,27 @@ def _ids_productos(texto: str) -> list[int]:
     return ids
 
 
-def _arma_plan(args, conn_read: psycopg.Connection) -> fp.PlanGrupo:
+def _ids_listings(texto: str) -> list[int]:
+    try:
+        ids = [int(p) for p in texto.split(",") if p.strip()]
+    except ValueError:
+        raise Abortar(f"--listing-ids debe ser ids enteros separados por coma: {texto!r}") from None
+    if not ids or len(ids) != len(set(ids)):
+        raise Abortar("--listing-ids no puede ser vacio ni contener duplicados")
+    return sorted(ids)
+
+
+def _arma_plan(args, conn_read: psycopg.Connection) -> fp.PlanGrupo | fp.PlanGrupoV2:
     """Plan completo desde la base + validacion SIN HTTP (spec §5.1)."""
     try:
         tipo = fp.valida_tipo_producto(args.tipo_producto)
         moneda = fp.MONEDA_POR_PLATAFORMA[args.plataforma]
         parametros = _parametros(args)
         fp.valida_parametros(parametros, moneda)
+        if not args.nombre_base or not args.nombre_base.strip():
+            raise Abortar("--nombre-base no puede ser vacio")
+        if getattr(args, "listing_ids", None) is not None:
+            return _arma_plan_v2(args, conn_read, tipo, moneda, parametros)
         ids = _ids_productos(args.productos)
         fraccion = _fraccion(conn_read, args.plataforma)
         productos = _productos(conn_read, args.plataforma, ids)
@@ -467,8 +514,6 @@ def _arma_plan(args, conn_read: psycopg.Connection) -> fp.PlanGrupo:
         raise Abortar(str(exc)) from exc
     finally:
         conn_read.commit()  # la lectura cierra su txn ANTES de cualquier salida
-    if not args.nombre_base or not args.nombre_base.strip():
-        raise Abortar("--nombre-base no puede ser vacio")
     return fp.PlanGrupo(
         platform=args.plataforma,
         tipo_producto=tipo,
@@ -484,12 +529,84 @@ def _arma_plan(args, conn_read: psycopg.Connection) -> fp.PlanGrupo:
     )
 
 
-def _lote_nuevo(plan: fp.PlanGrupo) -> str:
+def _arma_plan_v2(args, conn_read, tipo: str, moneda: str, parametros: dict) -> fp.PlanGrupoV2:
+    ids = _ids_listings(args.listing_ids)
+    publicaciones = _publicaciones_v2(conn_read, args.plataforma, ids)
+    origen = getattr(args, "origen_objetivo", None)
+    if origen is None and getattr(args, "target_acos", None) is not None:
+        origen = "manual_lanzamiento"
+    if origen == "manual_lanzamiento":
+        try:
+            target = _decimal(args.target_acos, "--target-acos")
+        except (InvalidOperation, TypeError):
+            raise Abortar("--target-acos invalido") from None
+        objetivo = fp.ObjetivoPlanV2(origen, target, "manual_lanzamiento confirmado")
+    elif origen == "margen_medido":
+        fraccion = _fraccion(conn_read, args.plataforma)
+        margenes = [p.margen_neto_pct for p in publicaciones]
+        resultado = fp.target_del_grupo(margenes, fraccion)
+        objetivo = fp.ObjetivoPlanV2(
+            origen,
+            resultado.aplicado,
+            resultado.procedencia,
+            resultado.fraccion,
+            resultado.derivado,
+        )
+    else:
+        raise Abortar("v2 exige objetivo manual_lanzamiento o margen_medido")
+    listings = [p.listing_id for p in publicaciones]
+    terminos = _terminos_producto(conn_read, args.plataforma, listings)
+    terminos_exact = _terminos_producto(
+        conn_read,
+        args.plataforma,
+        listings,
+        sql=_SQL_TERMINOS_EXACT,
+        ventana=fp.VENTANA_CORTES_DIAS,
+    )
+    kws, negs = _biblioteca(conn_read, tipo, args.plataforma)
+    semillas = fp.semillas_desde_terminos(
+        terminos, kws, negs, objetivo.acos_pct, terminos_exact=terminos_exact
+    )
+    plan = fp.PlanGrupoV2(
+        args.plataforma,
+        tipo,
+        args.nombre_base.strip(),
+        datetime.datetime.now(datetime.UTC).date(),
+        moneda,
+        args.modo,
+        tuple(publicaciones),
+        parametros,
+        objetivo,
+        semillas,
+        tuple(_existentes(conn_read, args.plataforma, listings)),
+    )
+    fp._valida_plan_v2(plan)
+    return plan
+
+
+def _lote_nuevo(plan: fp.PlanGrupo | fp.PlanGrupoV2) -> str:
     marca = datetime.datetime.now(datetime.UTC).strftime("%Y%m%d-%H%M%S")
     return f"fabrica-{plan.platform}-{plan.tipo_producto}-{marca}"
 
 
-def _imprime_dry_run(plan: fp.PlanGrupo, huella: str) -> None:
+def _imprime_dry_run(plan: fp.PlanGrupo | fp.PlanGrupoV2, huella: str) -> None:
+    if isinstance(plan, fp.PlanGrupoV2):
+        for rol in fp.ROLES_ORDEN_CREACION:
+            parametro = plan.parametros[rol]
+            print(
+                f"{rol}: budget={parametro.budget} bid={parametro.bid} "
+                f"target={plan.objetivo.acos_pct} semillas=0",
+                flush=True,
+            )
+        for publicacion in plan.publicaciones:
+            margen = publicacion.margen_neto_pct
+            print(
+                f"publicacion={publicacion.listing_id} asin={publicacion.asin} "
+                f"seller_sku={publicacion.seller_sku} margen={margen}",
+                flush=True,
+            )
+        print(f"huella del conjunto: {huella}", flush=True)
+        return
     for linea in fp.lineas_dry_run(plan):
         print(linea, flush=True)
     print(f"huella del conjunto: {huella}", flush=True)
@@ -499,17 +616,27 @@ def _crear(args) -> int:
     conn_read = connect(_dsn_read())
     try:  # D-GLM-6-3: la conexion de lectura se cierra en exito y en error
         plan = _arma_plan(args, conn_read)
-        huella = fp.huella_plan(plan)
+        huella = (
+            fp.huella_plan_v2(plan) if isinstance(plan, fp.PlanGrupoV2) else fp.huella_plan(plan)
+        )
         _imprime_dry_run(plan, huella)
     finally:
         conn_read.close()
     if not args.acepto_mutacion_real:
+        target = (
+            plan.objetivo.acos_pct if isinstance(plan, fp.PlanGrupoV2) else plan.target.aplicado
+        )
+        publicaciones = (
+            [p.listing_id for p in plan.publicaciones]
+            if isinstance(plan, fp.PlanGrupoV2)
+            else [p.listing_id for p in plan.productos]
+        )
         _log(
             "dry_run",
             platform=plan.platform,
             tipo_producto=plan.tipo_producto,
-            target=str(plan.target.aplicado),
-            productos=[p.product_id for p in plan.productos],
+            target=str(target),
+            publicaciones=publicaciones,
             existentes=len(plan.existentes),
             huella=huella,
             nota="sin --acepto-mutacion-real no se toca Amazon",
@@ -524,6 +651,8 @@ def _parser() -> argparse.ArgumentParser:
     ap.add_argument("--tipo-producto", default=None)
     ap.add_argument("--nombre-base", default=None)
     ap.add_argument("--productos", default=None, help="ids de product separados por coma")
+    ap.add_argument("--listing-ids", default=None, help="ids de listing v2 separados por coma")
+    ap.add_argument("--target-acos", default=None, help="objetivo manual v2 explicito")
     ap.add_argument(
         "--modo",
         choices=fp.MODOS_GOAL,
@@ -551,9 +680,13 @@ def _parser() -> argparse.ArgumentParser:
 def _valida_args_creacion(args) -> None:
     faltan = [
         nombre
-        for nombre in ("plataforma", "tipo_producto", "nombre_base", "productos", "modo")
+        for nombre in ("plataforma", "tipo_producto", "nombre_base", "modo")
         if getattr(args, nombre) is None
     ]
+    if (args.productos is None) == (args.listing_ids is None):
+        faltan.append("exactamente uno de --productos o --listing-ids")
+    if args.listing_ids is not None and args.target_acos is None:
+        faltan.append("--target-acos para --listing-ids")
     faltan += [
         f"{k}_{s}"
         for k in ("budget", "bid")

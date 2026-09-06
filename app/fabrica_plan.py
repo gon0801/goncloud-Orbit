@@ -465,6 +465,10 @@ def _valida_plan_v2(plan: PlanGrupoV2) -> None:
         raise PlanInvalido("origen de objetivo v2 invalido")
     if not plan.objetivo.acos_pct.is_finite() or plan.objetivo.acos_pct <= 0:
         raise PlanInvalido("objetivo ACoS v2 debe ser Decimal finito > 0")
+    if plan.objetivo.acos_pct.as_tuple().exponent < -2 or plan.objetivo.acos_pct > Decimal(
+        "9999.99"
+    ):
+        raise PlanInvalido("objetivo ACoS v2 fuera de NUMERIC(6,2)")
     if plan.objetivo.origen == "margen_medido":
         if plan.objetivo.fraccion is None or plan.objetivo.derivado is None:
             raise PlanInvalido("objetivo por margen v2 requiere fraccion y derivado")
