@@ -1210,8 +1210,6 @@ def test_ui_propuestas_alias_mismo_contenido_que_cortes(monkeypatch):
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 def test_ui_favicon_local_y_servido(monkeypatch):
-    """El HTML enlaza el favicon local (ico + PNG + apple-touch, todo en
-    /static: cero hosts externos) y cada archivo responde 200 con bytes."""
     with _db_temporal("orbit_ui_favicon") as (conn, dsn):
         _siembra_ui(conn)
         monkeypatch.setenv("ORBIT_DSN_READ", dsn)

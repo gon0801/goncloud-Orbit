@@ -1,11 +1,4 @@
 #!/usr/bin/env python3
-"""Genera el pack de favicons RGBA con esquinas transparentes.
-
-Carga favicon-512.png (o una fuente), convierte a RGBA, perfora el lienzo
-blanco desde las cuatro esquinas y escribe cada tamano del registro mas
-el ICO. Pillow es herramienta de sesion: no va en pyproject.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -29,7 +22,6 @@ ICO_TAMANOS = (16, 32, 48)
 FUENTE_DEFAULT = DIR_FAVICON / "favicon-512.png"
 MASTER_RGBA = DIR_FAVICON / "orbit-icon-source.png"
 
-# Casi-blanco del lienzo; un color-key global perforaria el naranja del icono.
 UMBRAL_BLANCO = 248
 
 
@@ -52,7 +44,6 @@ def es_lienzo(r: int, g: int, b: int, a: int) -> bool:
 
 
 def suavizar_halo(pix, ancho: int, alto: int) -> None:
-    """Desmezcla blanco del borde anti-alias para no dejar oreja clara."""
     vecinos = ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1))
     for _ in range(2):
         candidatos: list[tuple[int, int]] = []

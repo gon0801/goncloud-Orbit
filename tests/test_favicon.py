@@ -1,10 +1,3 @@
-"""Invariante de los favicons: PNG RGBA con esquinas transparentes.
-
-El pack RGB (color type 2, esquinas 255,255,255 opacas) dejaba orejas
-blancas en el chrome del navegador. Este test lee IHDR/IDAT con stdlib
-y habria fallado contra ese pack.
-"""
-
 from __future__ import annotations
 
 import struct
@@ -131,7 +124,6 @@ def _fallos_png(ruta: Path, px_esperado: int | None) -> list[str]:
 
 
 def _orejas_blancas_en_borde(nombre: str, png: dict) -> list[str]:
-    """Blanco opaco pegado a transparente: oreja residual en el borde del squircle."""
     w, h = png["ancho"], png["alto"]
     vecinos = ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1))
     fallos: list[str] = []
@@ -148,55 +140,6 @@ def _orejas_blancas_en_borde(nombre: str, png: dict) -> list[str]:
     return fallos
 
 
-def _leer_dib(blob: bytes, w_dir: int, h_dir: int) -> dict:
-    """DIB clasico de ICO (XOR + mascara AND)."""
-    cab = struct.unpack_from("<IiiHHIIiiII", blob, 0)
-    bitcount = cab[4]
-    alto_dib = abs(cab[2])
-    alto = alto_dib // 2 if alto_dib == h_dir * 2 else h_dir
-    ancho = cab[1] if cab[1] else w_dir
-    off = cab[0]
-    row_xor = ((ancho * bitcount + 31) // 32) * 4
-    filas: list[bytes] = []
-    for y in range(alto):
-        # Filas DIB van de abajo hacia arriba.
-        src = blob[off + (alto - 1 - y) * row_xor : off + (alto - y) * row_xor]
-        if bitcount == 32:
-            # BGRA
-            fila = bytearray()
-            for x in range(ancho):
-                b, g, r, a = src[x * 4 : x * 4 + 4]
-                fila.extend((r, g, b, a))
-            filas.append(bytes(fila))
-        elif bitcount == 24:
-            fila = bytearray()
-            for x in range(ancho):
-                b, g, r = src[x * 3 : x * 3 + 3]
-                fila.extend((r, g, b, 255))
-            filas.append(bytes(fila))
-        else:
-            raise AssertionError(f"ICO DIB bitcount {bitcount} no soportado")
-    and_off = off + row_xor * alto
-    row_and = ((ancho + 31) // 32) * 4
-    if and_off + row_and * alto <= len(blob) and bitcount != 32:
-        for y in range(alto):
-            src = blob[and_off + (alto - 1 - y) * row_and : and_off + (alto - y) * row_and]
-            fila = bytearray(filas[y])
-            for x in range(ancho):
-                bit = (src[x // 8] >> (7 - (x % 8))) & 1
-                if bit:
-                    fila[x * 4 + 3] = 0
-            filas[y] = bytes(fila)
-    return {
-        "ancho": ancho,
-        "alto": alto,
-        "color": 6,
-        "bpp": 4,
-        "filas": filas,
-        "via": "dib",
-    }
-
-
 def _leer_ico(ruta: Path) -> list[dict]:
     data = ruta.read_bytes()
     _reserved, tipo, count = struct.unpack_from("<HHH", data, 0)
@@ -209,12 +152,10 @@ def _leer_ico(ruta: Path) -> list[dict]:
         w = 256 if w == 0 else w
         h = 256 if h == 0 else h
         blob = data[offset : offset + size]
-        if blob[:8] == _PNG_SIG:
-            png = _leer_png(blob)
-            png["via"] = "png"
-            frames.append(png)
-        else:
-            frames.append(_leer_dib(blob, w, h))
+        assert blob[:8] == _PNG_SIG, f"{ruta.name}: frame {w}x{h} no es PNG"
+        png = _leer_png(blob)
+        png["via"] = "png"
+        frames.append(png)
     return frames
 
 
