@@ -168,6 +168,8 @@ git commit -m "plan: fabrica-01 — evidencia regla 8 (tarea 1)"
 
 ### Task 2: Migración 0018 — tablas del grupo, biblioteca y ledger de creación
 
+> cc:完了 [2026-09-05: 8/8 tests verdes con Postgres real local; rojo del Step 2 (FileNotFoundError) pegado abajo; commit `feat(fabrica): migracion 0018 — grupo, biblioteca y ledger de creacion (spec §8)`]
+
 **Files:**
 - Create: `migrations/0018_fabrica_campanas.sql`
 - Create: `tests/test_fabrica_migracion.py`
@@ -176,7 +178,7 @@ git commit -m "plan: fabrica-01 — evidencia regla 8 (tarea 1)"
 - Consumes: tipos `platform`, `currency`, dominio `money_amount`, tablas `ad_entity`, `product`, `listing` (0001); roles `app_read/app_ingest/app_decide/app_admin`.
 - Produces: ENUM `campana_rol` (5 valores), tablas `fabrica_lote(lote PK)`, `fabrica_lote_paso(id, lote, orden, rol, recurso, request_payload, external_id, ack, readback_estado, estado)`, `campana_grupo(id, platform, tipo_producto, nombre_base, lote, target_acos_pct, target_derivado_pct, fraccion, target_procedencia, go_literal, created_at)`, `campana_grupo_rol(grupo_id, rol, ad_entity_id, ad_group_ad_entity_id)`, `campana_grupo_producto(grupo_id, product_id, listing_id, seller_sku, margen_neto_pct)`, `keyword_biblioteca`, `negative_biblioteca`, `harvest_excepcion`; triggers `campana_grupo_rol_kinds`, `campana_grupo_producto_listing` (listing↔producto y plataforma), `harvest_excepcion_kind` (kind='campaign'). La vista `v_margen_producto` se agrega al MISMO archivo en la tarea 3.
 
-- [ ] **Step 1: Escribir el test estático (pglast) y el de Postgres real, que fallan porque la migración no existe**
+- [x] **Step 1: Escribir el test estático (pglast) y el de Postgres real, que fallan porque la migración no existe**
 
 ```python
 # tests/test_fabrica_migracion.py
@@ -497,12 +499,12 @@ def test_grants_0018():
         assert ("app_read", "fabrica_lote_paso", "INSERT") not in privs
 ```
 
-- [ ] **Step 2: Correr el test y verificar que falla**
+- [x] **Step 2: Correr el test y verificar que falla**
 
 Run: `pytest tests/test_fabrica_migracion.py -v`
 Expected: FAIL en la colección con `FileNotFoundError: .../0018_fabrica_campanas.sql`.
 
-- [ ] **Step 3: Escribir la migración (tablas; la vista llega en la tarea 3)**
+- [x] **Step 3: Escribir la migración (tablas; la vista llega en la tarea 3)**
 
 ```sql
 -- migrations/0018_fabrica_campanas.sql
@@ -669,11 +671,13 @@ BEGIN
       JOIN campana_grupo cg ON cg.id = NEW.grupo_id
      WHERE l.id = NEW.listing_id
        AND l.product_id = NEW.product_id
-       AND l.platform = cg.platform;
+       AND l.platform = cg.platform
+       AND l.seller_sku = NEW.seller_sku;
     IF NOT FOUND THEN
         RAISE EXCEPTION
             'campana_grupo_producto: listing % no es del producto % en la '
-            'plataforma del grupo %', NEW.listing_id, NEW.product_id, NEW.grupo_id
+            'plataforma del grupo %, o seller_sku % no es el del listing',
+            NEW.listing_id, NEW.product_id, NEW.grupo_id, NEW.seller_sku
             USING ERRCODE = 'check_violation';
     END IF;
     RETURN NEW;
@@ -684,7 +688,8 @@ CREATE TRIGGER campana_grupo_producto_listing
     FOR EACH ROW EXECUTE FUNCTION campana_grupo_producto_listing();
 COMMENT ON FUNCTION campana_grupo_producto_listing IS
   'FABRICA 01: el listing del snapshot pertenece AL producto y a la '
-  'plataforma del grupo (la FK sola no lo garantiza).';
+  'plataforma del grupo, y seller_sku es EL del listing (la FK sola no lo '
+  'garantiza; sin el SKU el POST /sp/productAds fallaria hasta el HTTP).';
 
 -- ---------------------------------------------------------------------------
 -- Biblioteca acumulativa por tipo_producto (decision 6)
@@ -777,12 +782,12 @@ GRANT USAGE ON SEQUENCE fabrica_lote_paso_id_seq, campana_grupo_id_seq,
     keyword_biblioteca_id_seq, negative_biblioteca_id_seq TO app_admin;
 ```
 
-- [ ] **Step 4: Correr el test y verificar que pasa**
+- [x] **Step 4: Correr el test y verificar que pasa**
 
 Run: `pytest tests/test_fabrica_migracion.py -v`
 Expected: PASS los 8 tests (el estático siempre; los de Postgres si hay servidor local o `ORBIT_TEST_DSN`).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git checkout -b fabrica-01-2-migracion origin/master
@@ -794,6 +799,8 @@ git commit -m "feat(fabrica): migracion 0018 — grupo, biblioteca y ledger de c
 
 ### Task 3: `v_margen_producto` (misma migración 0018)
 
+> cc:完了 [2026-09-05: 13/13 tests verdes (5 de la vista incluidos) con Postgres real local; rojo del Step 2 (UndefinedTable) pegado abajo; D-1/D-2 declaradas en "Decisiones y evidencia — Tareas 2-3". Review del lead 2026-09-06: D-4 (guard de moneda dentro Y entre órdenes) aplicada, 15/15 verdes, vista verificada contra producción]
+
 **Files:**
 - Modify: `migrations/0018_fabrica_campanas.sql` (agregar la vista al final, antes de los GRANTs de vistas)
 - Modify: `tests/test_fabrica_migracion.py`
@@ -802,7 +809,7 @@ git commit -m "feat(fabrica): migracion 0018 — grupo, biblioteca y ledger de c
 - Consumes: `ledger_event`, `sku_cost`, `ingest_run` (source `accounting_ledger_events`); constante de guard `MARGEN_COBERTURA_MIN = 0.95` de `app/optimizer/goals.py`. El guard de días del producto NO es `MARGEN_DIAS_MIN` (60, plataforma) sino `MARGEN_DIAS_MIN_PRODUCTO = 30` sobre la ventana `[2026-02-20, D-15)` (decisión escrita del dueño, tarea 1; constantes en la tarea 5, pineadas contra el SQL por test).
 - Produces: vista `v_margen_producto(platform, product_id, ventana_desde, ventana_hasta, venta_total, venta_cubierta, cargos_con_orden, cargos_sin_orden, cogs, cobertura, dias_con_venta, fees_sin_tipo, margen_neto_pct, ledger_fresco_at, moneda)`. `margen_neto_pct` NULL ante cualquier guard (regla 3); la fila existe solo si el producto vendió en ventana.
 
-- [ ] **Step 1: Escribir los tests de la vista (fallan: la vista no existe)**
+- [x] **Step 1: Escribir los tests de la vista (fallan: la vista no existe)**
 
 ```python
 # agregar a tests/test_fabrica_migracion.py
@@ -1029,12 +1036,12 @@ def test_v_margen_producto_mezcla_de_moneda_en_denominadores_es_null():
         assert fila[0] is None  # orden cubierta en 2 monedas (n_monedas_orden)
 ```
 
-- [ ] **Step 2: Correr y ver el rojo**
+- [x] **Step 2: Correr y ver el rojo**
 
 Run: `pytest tests/test_fabrica_migracion.py -k v_margen_producto -v`
 Expected: FAIL con `UndefinedTable: relation "v_margen_producto" does not exist`.
 
-- [ ] **Step 3: Agregar la vista a la migración (antes del bloque de GRANTs, y sumar la vista al GRANT SELECT)**
+- [x] **Step 3: Agregar la vista a la migración (antes del bloque de GRANTs, y sumar la vista al GRANT SELECT)**
 
 ```sql
 -- ---------------------------------------------------------------------------
@@ -1063,8 +1070,11 @@ Expected: FAIL con `UndefinedTable: relation "v_margen_producto" does not exist`
 -- ---------------------------------------------------------------------------
 CREATE VIEW v_margen_producto AS
 WITH ventana AS (
-    -- arranque FIJO = primer valid_from de sku_cost (decision del dueno, tarea 1)
-    SELECT DATE '2026-02-20' AS desde, CURRENT_DATE - 15 AS hasta
+    -- arranque FIJO 2026-02-20 (= al primer valid_from de sku_cost; decision
+    -- escrita del dueno, tarea 1). Es un literal, NO se deriva de sku_cost.
+    -- hoy = fecha UTC FIJADA en la expresion (D-6): CURRENT_DATE sigue la
+    -- TimeZone de la sesion y moveria el guard de 30 dias segun quien consulte.
+    SELECT DATE '2026-02-20' AS desde, (now() AT TIME ZONE 'UTC')::date - 15 AS hasta
 ),
 ventas AS (
     SELECT l.platform, l.product_id, l.event_date, l.order_id,
@@ -1106,7 +1116,12 @@ cargos_producto AS (
     SELECT v.platform, v.product_id,
            SUM(co.monto * v.amount / o.venta_orden) AS cargos_con_orden,
            SUM(co.fees_sin_tipo) AS fees_sin_tipo,
-           MAX(co.n_monedas) AS n_monedas_cargos,
+           -- Guard de moneda de los cargos, DOS casos (regla 4): MAX(co.n_monedas)
+           -- = fees en dos monedas DENTRO de una orden (co.moneda es MAX por orden
+           -- y colapsaria el caso); COUNT(DISTINCT co.moneda) = fees en dos monedas
+           -- ENTRE ordenes (D-3: MAX(moneda) era lexicografico y fail-open). Solo
+           -- uno de los dos deja un hueco (D-4, review del lead PR #172).
+           GREATEST(MAX(co.n_monedas), COUNT(DISTINCT co.moneda)) AS n_monedas_cargos,
            MAX(o.n_monedas) AS n_monedas_orden,
            MAX(co.moneda) AS moneda_cargos
       FROM ventas v
@@ -1213,12 +1228,12 @@ GRANT SELECT ON v_margen_producto TO app_read, app_ingest, app_decide, app_admin
 
 Nota de regla 2: el guard `dias < 30` y el arranque `DATE '2026-02-20'` son la decisión escrita del dueño de la tarea 1 ("Decisiones y evidencia"); viven AQUÍ y en `MARGEN_DIAS_MIN_PRODUCTO` / `MARGEN_VENTANA_DESDE` de la tarea 5, con tests que pinean ambos contra el SQL. Cambiar cualquiera = nueva decisión escrita del dueño.
 
-- [ ] **Step 4: Correr y ver el verde**
+- [x] **Step 4: Correr y ver el verde**
 
 Run: `pytest tests/test_fabrica_migracion.py -v`
-Expected: PASS (13 tests: 8 de la tarea 2 + 5 de la vista; 12 exigen Postgres). Si `test_v_margen_producto_un_producto_reproduce_la_plataforma` difiere de la plataforma, el bug está en el prorrateo: con un producto y cobertura 1, `cargos_sin_orden` debe ser exactamente el total de plataforma.
+Expected: PASS (16 tests: 8 de la tarea 2 + 5 de la vista + 2 de regresión de moneda D-3/D-4 + 1 de TimeZone D-6; 15 exigen Postgres). Si `test_v_margen_producto_un_producto_reproduce_la_plataforma` difiere de la plataforma, el bug está en el prorrateo: con un producto y cobertura 1, `cargos_sin_orden` debe ser exactamente el total de plataforma.
 
-- [ ] **Step 5: Commit (misma rama que la tarea 2, mismo PR)**
+- [x] **Step 5: Commit (misma rama que la tarea 2, mismo PR)**
 
 ```bash
 git add migrations/0018_fabrica_campanas.sql tests/test_fabrica_migracion.py
@@ -2378,7 +2393,10 @@ def test_dias_minimos_y_arranque_de_ventana_pineados_contra_el_sql():
     )
     assert fp.MARGEN_DIAS_MIN_PRODUCTO == 30 and fp.MARGEN_VENTANA_DESDE == dt.date(2026, 2, 20)
     assert f"a.dias_con_venta < {fp.MARGEN_DIAS_MIN_PRODUCTO} THEN NULL" in sql
-    assert f"SELECT DATE '{fp.MARGEN_VENTANA_DESDE.isoformat()}' AS desde, CURRENT_DATE - 15 AS hasta" in sql
+    assert (
+        f"SELECT DATE '{fp.MARGEN_VENTANA_DESDE.isoformat()}' AS desde,"
+        " (now() AT TIME ZONE 'UTC')::date - 15 AS hasta"
+    ) in sql
 
 
 def test_cobertura_minima_pineada_contra_el_sql():
@@ -5033,7 +5051,7 @@ Marker `cc:完了` en las 11 tareas de este plan + línea final en `docs/CHAT-CO
    en "Decisiones y evidencia — Tareas 2-3". Un test que pasa igual sin la migración no cuenta.
 4. **Local: solo `tests/test_fabrica_migracion.py`**. La batería completa corre UNA vez, en
    CI, al abrir el PR (`quality.yml` levanta Postgres 16 y exporta `ORBIT_TEST_DSN`). **Un
-   skip NO es verde**: 12 de los 13 tests exigen Postgres; sin uno local, levantarlo igual
+   skip NO es verde**: 15 de los 16 tests exigen Postgres; sin uno local, levantarlo igual
    al de CI (`docker run -d --name orbit-test-pg -e POSTGRES_USER=orbit -e
    POSTGRES_PASSWORD=orbit -e POSTGRES_DB=postgres -p 5432:5432 postgres:16` y
    `export ORBIT_TEST_DSN=postgresql://orbit:orbit@localhost:5432/postgres`; el usuario
@@ -5054,7 +5072,7 @@ Marker `cc:完了` en las 11 tareas de este plan + línea final en `docs/CHAT-CO
 ### Lo que ya está decidido (no re-decidir)
 
 - **Ventana y guard de `v_margen_producto`**: `SELECT DATE '2026-02-20' AS desde,
-  CURRENT_DATE - 15 AS hasta` y `WHEN a.dias_con_venta < 30 THEN NULL` — decisión escrita
+  (now() AT TIME ZONE 'UTC')::date - 15 AS hasta` (fecha UTC fijada, D-6) y `WHEN a.dias_con_venta < 30 THEN NULL` — decisión escrita
   del dueño (tarea 1). Literales en el SQL; las constantes que los pinean llegan en la 5.
 - **Cobertura** `< 0.95` literal (= `MARGEN_COBERTURA_MIN` del motor; el pin es de la 5).
 - **Orden de migraciones** `ORDEN` del test (0001, 0002, 0003, 0004, 0013, 0014, 0015,
@@ -5122,7 +5140,7 @@ Corridos el 2026-09-05 contra produccion (`ssh goncloud`, `docker exec -i orbit-
 (6 rows)
 ```
 
-**(c) dias_con_venta por producto (ventana de 90 dias `[D-105, D-15)`, es decir sin los ultimos 15 dias):** maximo 27 dias (amazon_mx, `PERS-CAR-AZU-SAN-DOR`) y 17 dias (amazon_us, `NH-PERS-ITA-CEN-DOR`). **NINGUN producto llega a 60 EN LA VENTANA DE 90 DIAS** → ver decision pendiente abajo. Venta 100% cubierta por `sku_cost` en moneda y una sola moneda por plataforma (MX en MXN, US en USD; `n_monedas = 1` en todas las filas); denominador: ventas con `product_id` — quedan fuera 3 ventas amazon_mx sin `product_id` por MXN 5,664.00 en la ventana (residuo fuera del prorrateo por producto). Extracto (top 10 por plataforma; salida completa: 132 filas):
+**(c) dias_con_venta por producto (ventana de 90 dias `[D-105, D-15)`, es decir sin los ultimos 15 dias):** maximo 27 dias (amazon_mx, `PERS-CAR-AZU-SAN-DOR`) y 17 dias (amazon_us, `NH-PERS-ITA-CEN-DOR`). **NINGUN producto llega a 60 EN LA VENTANA DE 90 DIAS** → ver decision pendiente abajo. Venta 100% cubierta por `sku_cost` en moneda y una sola moneda por plataforma (`n_monedas = 1` en todas las filas). **Corrección del lead (review PR #172):** el ledger contable reporta TODO en MXN, también `amazon_us` (ventas, fees, refunds y withholdings: 0 filas en USD), así que `v_margen_producto.moneda` es la moneda del LEDGER (MXN en ambas plataformas), NO la del wire de Amazon (`MONEDA_POR_PLATAFORMA`, USD para US); el margen es un porcentaje y no le afecta, pero NADIE debe filtrar la vista por la moneda de la plataforma; denominador: ventas con `product_id` — quedan fuera 3 ventas amazon_mx sin `product_id` por MXN 5,664.00 en la ventana (residuo fuera del prorrateo por producto). Extracto (top 10 por plataforma; salida completa: 132 filas):
 
 ```
  platform  | product_id |           odoo_sku            | dias_con_venta | venta_total | venta_cubierta | n_monedas
@@ -5222,7 +5240,60 @@ Corridos el 2026-09-05 contra produccion (`ssh goncloud`, `docker exec -i orbit-
 
 ### Tareas 2-3 — migración 0018 y `v_margen_producto` (implementador escribe AQUÍ antes del código)
 
-_(pendiente: decisiones `D-…`, logs rojos de los dos Steps 2, desviaciones del plan)_
+**D-1 (proceso):** el brief ordena ramificar desde `origin/master` DESPUÉS de que el PR #171 (tarea 1) esté mergeado, pero #171 seguía OPEN al arrancar y `plans/fabrica-01.md` no existe en master (los markers cc:完了 y esta sección viven en ese archivo). La rama `fabrica-01-2-migracion` se cortó de `origin/fabrica-01-1-evidencia` (PR apilado): cuando #171 fusione, `git log origin/master..HEAD` queda solo con los commits de las tareas 2-3. Los dos commits son exactamente los de los Steps 5.
+
+**D-2 (fixture vs esquema real):** el helper `_ledger_producto` del plan, llamado dos veces en `test_v_margen_producto_guard_30_dias_y_arranque_fijo_de_ventana` (productos A y B), choca con el índice REAL `ledger_dedupe_sin_orden` de 0001: los 7 cargos sin order_id y el cargo ads son idénticos en (plataforma, fee_type, fecha, monto, moneda) porque los cargos de plataforma no llevan producto. Fix mínimo: parámetro `fee_desfase` que corre los días de los cargos (B usa `fee_desfase=7`); no toca el SQL de la migración ni los valores esperados (los asserts del test solo chequean `dias_con_venta` y NULL-ness del margen). El código de la migración y de la vista es copia literal del plan.
+
+**D-3 (review PR #172, severidad ALTA):** el guard de moneda de `cargos_producto` del plan era fail-open: `MAX(co.moneda)` es lexicografico, asi que un producto USD con fees de sus ordenes en MXN+USD pasaba el guard (`MAX('MXN','USD') = 'USD' = moneda_unica`) y `cargos_con_orden` sumaba monedas (regla 4 rota). Fix: `COUNT(DISTINCT co.moneda) AS n_monedas_cargos` (cuenta monedas de los cargos del producto, entre y dentro de ordenes) sobre el guard existente `> 1`; correccion aplicada al SQL del plan y de la migracion, con test de regresion `test_v_margen_producto_mezcla_de_moneda_en_cargos_del_producto_es_null` demostrado fallando contra la vista anterior (log abajo). El conteo de tests pasa de 13 a 14. Tambien se corrije (BAJA) el comentario de la CTE `ventana`: el arranque es el LITERAL `DATE '2026-02-20'` (= al primer valid_from de sku_cost), no algo derivado.
+
+**Log rojo D-3** — test nuevo contra la vista ANTES del fix:
+
+```
+tests/test_fabrica_migracion.py:610: AssertionError
+FAILED tests/test_fabrica_migracion.py::test_v_margen_producto_mezcla_de_moneda_en_cargos_del_producto_es_null
+======================= 1 failed, 13 deselected in 0.37s ======================
+```
+
+**D-4 (review del lead, PR #172, severidad ALTA):** la D-3 cambió un hueco por otro. `COUNT(DISTINCT co.moneda)` cuenta monedas ENTRE órdenes, pero `co.moneda` es `MAX(amount_currency)` POR orden: una orden con fees en USD y MXN colapsa a `'USD'` y pasaba el guard sumando las dos monedas en `cargos_con_orden` (el `MAX(co.n_monedas)` original del plan cubría justo ese caso y no el de entre órdenes). Fix: `GREATEST(MAX(co.n_monedas), COUNT(DISTINCT co.moneda)) AS n_monedas_cargos` (los dos casos), aplicado a la migración y al bloque del plan, con test de regresión `test_v_margen_producto_fees_de_una_orden_en_dos_monedas_es_null` demostrado fallando contra la vista de la D-3 (log abajo). Verificación contra producción (SELECT read-only del cuerpo de la vista entregada, `orbit_read`): margen para EXACTAMENTE los 7 productos de la decisión de la tarea 1 (amazon_mx 33.14–43.30 %, amazon_us 37.32–38.58 %), `fees_sin_tipo = 0` en los 194 productos con venta en ventana, cobertura 1.000 en los 7. Hallazgo colateral: el ledger reporta todo en MXN también para `amazon_us` (corregido en la evidencia (c) de la tarea 1). El conteo de tests pasa de 14 a 15.
+
+**Log rojo D-4** — test nuevo contra la vista de la D-3:
+
+```
+E   AssertionError: margen calculado sumando USD+MXN: (Decimal('89.428571428571428571429'), Decimal('-20.0000000000000000'))
+tests/test_fabrica_migracion.py:656: AssertionError
+1 failed, 14 deselected in 0.34s
+```
+
+**D-5 (CodeRabbit PR #172, Major, aplicada por el lead):** `campana_grupo_producto` guarda `seller_sku` aparte de `listing_id` y el trigger `campana_grupo_producto_listing` validaba producto y plataforma pero NO que `seller_sku` fuera el del listing: un snapshot desalineado produciría un `POST /sp/productAds` con un SKU inexistente y el error aparecería hasta el HTTP (contra el fail-closed temprano del spec §5.1). Fix: `AND l.seller_sku = NEW.seller_sku` en el trigger (migración y bloque del plan) + aserción de regresión en `test_grupo_producto_exige_listing_del_producto_y_plataforma` demostrada roja (`Failed: DID NOT RAISE CheckViolation`) antes del fix. La tarea 8 (registro interno) hereda el guard: el snapshot se escribe con el `seller_sku` que la tarea 6 leyó del mismo listing. El menor de CodeRabbit (conteo de tests en `docs/CHAT-CONTEXT.md`) también corregido.
+
+**D-6 (CodeRabbit PR #172, Major, aplicada por el lead):** el `COMMENT` de la vista declara la ventana en UTC pero `CURRENT_DATE` sigue la `TimeZone` de la sesión: una sesión en `America/Mexico_City` resolvería otro `hasta` y el mismo producto entraría o saldría del guard de 30 días según quién consulte. En producción hoy no muerde (DB `Etc/UTC`, contenedor app sin `TZ`), pero es la regla sellada del repo (invariantes con UTC fijado en la expresión). Fix: `(now() AT TIME ZONE 'UTC')::date - 15` en la CTE `ventana` (migración, bloque del plan, cadena del test que pinea en la tarea 5 y brief) + `test_v_margen_producto_ventana_no_depende_de_la_timezone_de_sesion`, que elige en runtime una zona cuya fecha local difiere de la UTC y exige `ventana_hasta = UTC - 15`; demostrado rojo contra `CURRENT_DATE`. Deuda declarada, fuera de este PR: `v_target_margen_plataforma` (0015/0016) usa `CURRENT_DATE` con la misma suposición (A10 de 0015); `test_v_margen_producto_un_producto_reproduce_la_plataforma` compara ambas bajo `SET TIME ZONE 'UTC'`, donde son idénticas.
+
+**D-7 (CodeRabbit PR #172, Major + Minor, aplicadas por el lead):** el test estático buscaba subcadenas en el archivo completo (comentarios incluidos: `app_decide` y `category_exact` aparecen en COMMENTs), así que no probaba ningún invariante. Reescrito sobre el AST de pglast: `CreateStmt` (8 tablas), `CommentStmt` (COMMENT de cada tabla), `CreateEnumStmt` (los 5 roles en orden), `Constraint` (`paso_evidencia_applied`), `CreateTrigStmt` (3 triggers con su tabla) y `GrantStmt` (SELECT a los 4 roles sobre tablas y vista; INSERT/UPDATE SOLO a `app_admin`, sin DELETE/TRUNCATE; USAGE de secuencias solo `app_admin`). Minor: el caso (ii) de `test_v_margen_producto_mezcla_de_moneda_en_denominadores_es_null` no puede aislar el guard `n_monedas_orden` por construcción (las líneas de una orden viven en la misma plataforma, así que `vp.n_monedas > 1` dispara siempre a la vez); queda declarado en el docstring como defensa en profundidad, no como guard discriminado. A partir de aquí `tests/test_fabrica_migracion.py` es la fuente de verdad de los tests de 0018; el bloque de tests del plan (tareas 2-3) queda como fue escrito originalmente. Conteo final: 16 tests (1 estático + 15 Postgres).
+
+**Nota menor:** ruff (corrido tras escribir solo la parte de la tarea 2) autoremovió `import datetime as dt` y `from decimal import Decimal` por no usarse aún; se restauraron al agregar los tests de la vista. Sin efecto en el código copiado.
+
+**Log rojo Step 2 (tarea 2)** — `pytest tests/test_fabrica_migracion.py -v` con el test escrito y sin la migración:
+
+```
+ERROR collecting tests/test_fabrica_migracion.py
+tests/test_fabrica_migracion.py:40: in <module>
+    SQL18 = (MIGRACIONES / "0018_fabrica_campanas.sql").read_text(encoding="utf-8")
+E   FileNotFoundError: [Errno 2] No such file or directory: '/Users/dn/dev/goncloud-Orbit/migrations/0018_fabrica_campanas.sql'
+=========================== 1 error in 0.32s ===============================
+```
+
+**Log rojo Step 2 (tarea 3)** — `pytest tests/test_fabrica_migracion.py -k v_margen_producto -v` con la migración de tablas aplicada y sin la vista:
+
+```
+psycopg.errors.UndefinedTable: relation "v_margen_producto" does not exist
+======================= 5 failed, 8 deselected in 0.19s ======================
+```
+
+**Verde final (Postgres 16 real local, DSN por defecto de `test_schema`):**
+
+```
+tests/test_fabrica_migracion.py — 13 passed in 1.74s (pre-D-3); 14 passed tras D-3
+```
 
 ### Tarea 11 — sonda (lead)
 
