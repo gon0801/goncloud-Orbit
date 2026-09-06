@@ -11,6 +11,7 @@ import psycopg
 import pytest
 from fastapi.testclient import TestClient
 from psycopg import sql
+from psycopg.conninfo import make_conninfo
 
 from app.main import app
 from tests.test_schema import _hay_postgres_local, _test_dsn
@@ -40,7 +41,7 @@ def dashboard(harness, monkeypatch):
                 conn.execute("SET TIME ZONE 'UTC'")
                 harness._aplicar_migraciones(conn)
                 semilla = harness._sembrar(conn)
-                dsn = conn.info.dsn
+                dsn = make_conninfo(_test_dsn(), dbname=nombre)
             monkeypatch.setenv("ORBIT_DSN_READ", dsn)
             harness._save_state(
                 {
