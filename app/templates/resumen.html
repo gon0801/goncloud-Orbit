@@ -5,7 +5,7 @@
 {% set total = datos | kpis_serie %}
 <h2>{{ plataforma }} <span class="mutado">· {{ datos.moneda }}</span></h2>
 <div class="kpis">
-  {% for clave, etiqueta, color in [('cost', 'Cost 30d', ''), ('ad_revenue', 'Revenue 30d', 'ok'), ('acos', 'ACoS 30d', ''), ('clicks', 'Clicks 30d', '')] %}
+  {% for clave, etiqueta, color in [('cost', 'Cost 30d', ''), ('ad_revenue', 'Revenue Ads 30d', 'ok'), ('acos', 'ACoS 30d', ''), ('clicks', 'Clicks 30d', '')] %}
   <section class="kpi" aria-label="{{ etiqueta }} {{ plataforma }}">
     <p class="kpi-etiqueta">{{ etiqueta }}</p>
     <div class="kpi-valor {{ color }}">{% if total[clave] is none %}—{% else %}{{ total[clave] }}{% if clave == 'acos' %}%{% endif %}{% endif %}</div>
@@ -16,10 +16,10 @@
 </div>
 <div class="graficas">
   <div class="grafica">
-    <h2>{{ plataforma }} ({{ datos.moneda }}) — spend y revenue</h2>
+    <h2>{{ plataforma }} ({{ datos.moneda }}) — spend y Revenue Ads</h2>
     <div class="lienzo">
       <canvas id="serie-{{ plataforma }}" data-serie="datos-serie-{{ plataforma }}"
-              data-claves="cost,ad_revenue" data-etiquetas="Cost,Revenue" role="img" aria-label="Gasto e ingreso diarios en {{ datos.moneda }}"></canvas>
+              data-claves="cost,ad_revenue" data-etiquetas="Cost,Revenue Ads" role="img" aria-label="Gasto e ingreso atribuido a Ads diarios en {{ datos.moneda }}"></canvas>
     </div>
     <p class="mutado">Ventana efectiva: {{ datos.desde }} .. {{ datos.hasta }} ·
        franja punteada = inmaduros D-8..D-1: {{ datos.ventana_inmaduros.desde }} .. {{ datos.ventana_inmaduros.hasta }}.
@@ -33,7 +33,7 @@
               data-claves="acos" data-etiquetas="ACoS %" role="img" aria-label="ACoS diario de {{ plataforma }}"></canvas>
     </div>
     <p class="mutado">* / tramo punteado = dia inmaduro (D-8..D-1) · ACoS null = sin dato
-       (hueco) o sin ventas (revenue 0 visible en la grafica de arriba) — jamas 0 enganoso.</p>
+       (hueco) o sin ventas (Revenue Ads 0 visible en la grafica de arriba) — jamas 0 enganoso.</p>
   </div>
 </div>
 {% endfor %}
