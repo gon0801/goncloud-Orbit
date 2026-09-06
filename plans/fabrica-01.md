@@ -3398,6 +3398,14 @@ Cero skips. Incluye cero real, correccion por reobservacion completa y
 ejecucion del CLI por stdin/archivo para MXN y USD sin credenciales de
 Amazon ni DSN de escritura. Revision independiente del diff: sin hallazgos.
 
+**CodeRabbit (2026-09-06, PR #176):** sin defecto bloqueante; se agregan
+aserciones de cierre de conexion en los abortos por fraccion ausente y bid
+fuera de banda. El comportamiento ya era correcto; la cobertura nueva se
+demostro roja con un mutante que cierra solo en exito (`1 failed`,
+`assert 0 >= 1`). Restaurado el `finally` original: `20 passed` en
+`tests/test_fabrica_campanas.py`, sin skips. La advertencia automatica de
+cobertura de docstrings es informativa, no un candado del repositorio.
+
 ---
 
 ### Task 7: mutación real — ledger pre-HTTP, orden fijo, readback y detención

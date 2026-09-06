@@ -457,6 +457,7 @@ def test_sin_fraccion_o_bid_fuera_de_banda_aborta_sin_http(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *ARGS_BASE])
     with pytest.raises(fc.Abortar, match="fraccion"):
         fc.main()
+    assert conn.closes >= 1
     conn = _ConnFalsa(
         settings={"ads_target_fraccion_margen_amazon_mx": "0.5"}, productos=[FILA_PRODUCTO]
     )
@@ -465,6 +466,7 @@ def test_sin_fraccion_o_bid_fuera_de_banda_aborta_sin_http(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *args])
     with pytest.raises(fc.Abortar, match="bid"):
         fc.main()
+    assert conn.closes >= 1
 
 
 def test_modo_es_obligatorio_y_cerrado(monkeypatch):
