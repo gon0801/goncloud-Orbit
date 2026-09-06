@@ -923,14 +923,14 @@ def test_ui_campanas_query_filtra_y_ordena_en_el_html(monkeypatch):
     assert "Beta US" in filtrado
     assert "Alfa US" not in filtrado
     assert "Gama MX" not in filtrado
-    assert "Ninguna campana coincide" not in filtrado
+    assert "Ninguna campaña coincide" not in filtrado
     ordenado = _html_campanas(monkeypatch, lote, ordenar="clicks", dir="desc").text
     assert ordenado.index("Alfa US") < ordenado.index("Gama MX") < ordenado.index("Beta US")
     assert 'aria-sort="descending"' in ordenado
     mx = _html_campanas(monkeypatch, lote, plataforma="amazon_mx").text
     assert "Gama MX" in mx and "Alfa US" not in mx
     vacio = _html_campanas(monkeypatch, lote, estado="ARCHIVED").text
-    assert "Ninguna campana coincide con el filtro." in vacio
+    assert "Ninguna campaña coincide con el filtro." in vacio
 
 
 def test_ui_campanas_vocabulario_query_cerrado(monkeypatch):

@@ -189,7 +189,7 @@ MOTIVOS_ES_DECISIONES: dict[str, str] = {
     ),
     bid._MOTIVO_BANDA[bid.FACTOR_SUBIDA]: "ACoS bajo 0.85x del target: +15%",
     hygiene.MOTIVO_NEGATIVE: "Negativo: termino sin ventas con clicks y costo sobre el umbral",
-    hygiene.MOTIVO_HARVEST: "Harvest: termino con ACoS bajo el tope hacia campana manual",
+    hygiene.MOTIVO_HARVEST: "Harvest: termino con ACoS bajo el tope hacia campaña manual",
 }
 
 # ---------------------------------------------------------------------------
@@ -219,11 +219,11 @@ SELECT id, mode, platform, started_at, finished_at, decisions_count,
 # importando su fuente. Motivo desconocido -> id crudo (fallback sin crash).
 MOTIVOS_ES_SALUD: dict[str, str] = {
     # motivos del ORQUESTADOR (cycle.py; su fuente)
-    ciclo.MOTIVO_SIN_GOAL: "Entidad sin goal (la campana no esta configurada)",
-    ciclo.MOTIVO_GOAL_DISABLED: "Goal de campana deshabilitado (opt-out)",
+    ciclo.MOTIVO_SIN_GOAL: "Entidad sin goal (la campaña no esta configurada)",
+    ciclo.MOTIVO_GOAL_DISABLED: "Goal de campaña deshabilitado (opt-out)",
     ciclo.MOTIVO_GOAL_MODE_OFF: "Goal en modo off",
     ciclo.MOTIVO_ESTADO_NO_ENABLED: "Entidad sin estado o no habilitada",
-    ciclo.MOTIVO_CAMPANA_NO_ENABLED: "Campana no habilitada (pausada/archivada o sin estado)",
+    ciclo.MOTIVO_CAMPANA_NO_ENABLED: "Campaña no habilitada (pausada/archivada o sin estado)",
     ciclo.MOTIVO_GRUPO_NO_ENABLED: "Ad group no habilitado (pausado/archivado o sin estado)",
     ciclo.MOTIVO_ENTIDAD_INERTE: (
         "Entidad sin trafico reciente (sin impresiones en 14 dias): sin ajuste"
@@ -258,7 +258,7 @@ MOTIVOS_ES_SALUD: dict[str, str] = {
     hygiene.MOTIVO_DATO_FALTANTE: "Dato faltante del termino",
     hygiene.MOTIVO_SIN_UMBRAL_NEGATIVE: "Sin umbral de negative (clicks o costo bajo)",
     hygiene.MOTIVO_ACOS_SOBRE_TOPE: "ACoS sobre el tope de harvest",
-    hygiene.MOTIVO_HARVEST_SIN_CONFIG: "Harvest sin config de campana manual",
+    hygiene.MOTIVO_HARVEST_SIN_CONFIG: "Harvest sin config de campaña manual",
     hygiene.MOTIVO_HARVEST_DUPLICADO: "Harvest duplicado: ya existe la keyword",
     hygiene.MOTIVO_HARVEST_MONEDA_INCOHERENTE: "Harvest con moneda incoherente",
     hygiene.MOTIVO_MONEDA_INCOHERENTE: "Moneda incoherente",
