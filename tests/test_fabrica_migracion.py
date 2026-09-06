@@ -271,7 +271,15 @@ def test_grupo_producto_exige_listing_del_producto_y_plataforma():
                 "INSERT INTO campana_grupo_producto VALUES (%s, %s, %s, 'SS-US', 1)",
                 (grupo, pid, lid_us),
             )
-        conn.execute(  # listing correcto: pasa
+        with pytest.raises(psycopg.errors.CheckViolation):  # SKU que no es el del listing
+            # D-5 (CodeRabbit PR #172): el snapshot guarda seller_sku aparte del
+            # listing; sin este guard el POST /sp/productAds sale con un SKU
+            # inexistente y el error aparece hasta el HTTP.
+            conn.execute(
+                "INSERT INTO campana_grupo_producto VALUES (%s, %s, %s, 'OTRO-SKU', 1)",
+                (grupo, pid, lid),
+            )
+        conn.execute(  # listing correcto y SU seller_sku: pasa
             "INSERT INTO campana_grupo_producto VALUES (%s, %s, %s, 'SS-1', 38.2)",
             (grupo, pid, lid),
         )

@@ -161,11 +161,13 @@ BEGIN
       JOIN campana_grupo cg ON cg.id = NEW.grupo_id
      WHERE l.id = NEW.listing_id
        AND l.product_id = NEW.product_id
-       AND l.platform = cg.platform;
+       AND l.platform = cg.platform
+       AND l.seller_sku = NEW.seller_sku;
     IF NOT FOUND THEN
         RAISE EXCEPTION
             'campana_grupo_producto: listing % no es del producto % en la '
-            'plataforma del grupo %', NEW.listing_id, NEW.product_id, NEW.grupo_id
+            'plataforma del grupo %, o seller_sku % no es el del listing',
+            NEW.listing_id, NEW.product_id, NEW.grupo_id, NEW.seller_sku
             USING ERRCODE = 'check_violation';
     END IF;
     RETURN NEW;
@@ -176,7 +178,8 @@ CREATE TRIGGER campana_grupo_producto_listing
     FOR EACH ROW EXECUTE FUNCTION campana_grupo_producto_listing();
 COMMENT ON FUNCTION campana_grupo_producto_listing IS
   'FABRICA 01: el listing del snapshot pertenece AL producto y a la '
-  'plataforma del grupo (la FK sola no lo garantiza).';
+  'plataforma del grupo, y seller_sku es EL del listing (la FK sola no lo '
+  'garantiza; sin el SKU el POST /sp/productAds fallaria hasta el HTTP).';
 
 -- ---------------------------------------------------------------------------
 -- Biblioteca acumulativa por tipo_producto (decision 6)

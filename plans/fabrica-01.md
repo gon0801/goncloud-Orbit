@@ -671,11 +671,13 @@ BEGIN
       JOIN campana_grupo cg ON cg.id = NEW.grupo_id
      WHERE l.id = NEW.listing_id
        AND l.product_id = NEW.product_id
-       AND l.platform = cg.platform;
+       AND l.platform = cg.platform
+       AND l.seller_sku = NEW.seller_sku;
     IF NOT FOUND THEN
         RAISE EXCEPTION
             'campana_grupo_producto: listing % no es del producto % en la '
-            'plataforma del grupo %', NEW.listing_id, NEW.product_id, NEW.grupo_id
+            'plataforma del grupo %, o seller_sku % no es el del listing',
+            NEW.listing_id, NEW.product_id, NEW.grupo_id, NEW.seller_sku
             USING ERRCODE = 'check_violation';
     END IF;
     RETURN NEW;
@@ -686,7 +688,8 @@ CREATE TRIGGER campana_grupo_producto_listing
     FOR EACH ROW EXECUTE FUNCTION campana_grupo_producto_listing();
 COMMENT ON FUNCTION campana_grupo_producto_listing IS
   'FABRICA 01: el listing del snapshot pertenece AL producto y a la '
-  'plataforma del grupo (la FK sola no lo garantiza).';
+  'plataforma del grupo, y seller_sku es EL del listing (la FK sola no lo '
+  'garantiza; sin el SKU el POST /sp/productAds fallaria hasta el HTTP).';
 
 -- ---------------------------------------------------------------------------
 -- Biblioteca acumulativa por tipo_producto (decision 6)
@@ -5255,6 +5258,8 @@ E   AssertionError: margen calculado sumando USD+MXN: (Decimal('89.4285714285714
 tests/test_fabrica_migracion.py:656: AssertionError
 1 failed, 14 deselected in 0.34s
 ```
+
+**D-5 (CodeRabbit PR #172, Major, aplicada por el lead):** `campana_grupo_producto` guarda `seller_sku` aparte de `listing_id` y el trigger `campana_grupo_producto_listing` validaba producto y plataforma pero NO que `seller_sku` fuera el del listing: un snapshot desalineado produciría un `POST /sp/productAds` con un SKU inexistente y el error aparecería hasta el HTTP (contra el fail-closed temprano del spec §5.1). Fix: `AND l.seller_sku = NEW.seller_sku` en el trigger (migración y bloque del plan) + aserción de regresión en `test_grupo_producto_exige_listing_del_producto_y_plataforma` demostrada roja (`Failed: DID NOT RAISE CheckViolation`) antes del fix. La tarea 8 (registro interno) hereda el guard: el snapshot se escribe con el `seller_sku` que la tarea 6 leyó del mismo listing. El menor de CodeRabbit (conteo de tests en `docs/CHAT-CONTEXT.md`) también corregido.
 
 **Nota menor:** ruff (corrido tras escribir solo la parte de la tarea 2) autoremovió `import datetime as dt` y `from decimal import Decimal` por no usarse aún; se restauraron al agregar los tests de la vista. Sin efecto en el código copiado.
 
