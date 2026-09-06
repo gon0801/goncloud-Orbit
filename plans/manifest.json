@@ -79,6 +79,11 @@
       "name": "cortes-ui-01",
       "path": "plans/cortes-ui-01.md",
       "description": "CORTES UI 01 - la pantalla /cortes pasa a Propuestas y deja de mentir (origen: veto por error del primer harvest, 2026-09-04). 1.1 Spark (completada, PR #165 desplegado); 1.2 lead: falta SOLO la confirmacion del dueno con una propuesta real en pantalla"
+    },
+    {
+      "name": "fabrica-01",
+      "path": "plans/fabrica-01.md",
+      "description": "FABRICA 01 — fábrica de campañas Amazon SP por grupo con target por margen mínimo (F1 proposal-only: migración 0018, crea_goal, tools/fabrica_campanas.py con ledger, readback, sync y reversa; F2 harvest por grupo es otro plan)"
     }
   ],
   "active": "cortes-ui-01"
