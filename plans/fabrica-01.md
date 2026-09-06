@@ -796,7 +796,7 @@ git commit -m "feat(fabrica): migracion 0018 — grupo, biblioteca y ledger de c
 
 ### Task 3: `v_margen_producto` (misma migración 0018)
 
-> cc:完了 [2026-09-05: 13/13 tests verdes (5 de la vista incluidos) con Postgres real local; rojo del Step 2 (UndefinedTable) pegado abajo; D-1/D-2 declaradas en "Decisiones y evidencia — Tareas 2-3"]
+> cc:完了 [2026-09-05: 13/13 tests verdes (5 de la vista incluidos) con Postgres real local; rojo del Step 2 (UndefinedTable) pegado abajo; D-1/D-2 declaradas en "Decisiones y evidencia — Tareas 2-3". Review del lead 2026-09-06: D-4 (guard de moneda dentro Y entre órdenes) aplicada, 15/15 verdes, vista verificada contra producción]
 
 **Files:**
 - Modify: `migrations/0018_fabrica_campanas.sql` (agregar la vista al final, antes de los GRANTs de vistas)
@@ -1111,10 +1111,12 @@ cargos_producto AS (
     SELECT v.platform, v.product_id,
            SUM(co.monto * v.amount / o.venta_orden) AS cargos_con_orden,
            SUM(co.fees_sin_tipo) AS fees_sin_tipo,
-           -- COUNT DISTINCT (no MAX del conteo por orden): fees del producto en
-           -- dos monedas, AUN en ordenes distintas, no pueden sumarse (regla 4;
-           -- D-3 review PR #172 -- MAX(moneda) era lexicografico y fail-open).
-           COUNT(DISTINCT co.moneda) AS n_monedas_cargos,
+           -- Guard de moneda de los cargos, DOS casos (regla 4): MAX(co.n_monedas)
+           -- = fees en dos monedas DENTRO de una orden (co.moneda es MAX por orden
+           -- y colapsaria el caso); COUNT(DISTINCT co.moneda) = fees en dos monedas
+           -- ENTRE ordenes (D-3: MAX(moneda) era lexicografico y fail-open). Solo
+           -- uno de los dos deja un hueco (D-4, review del lead PR #172).
+           GREATEST(MAX(co.n_monedas), COUNT(DISTINCT co.moneda)) AS n_monedas_cargos,
            MAX(o.n_monedas) AS n_monedas_orden,
            MAX(co.moneda) AS moneda_cargos
       FROM ventas v
@@ -1224,7 +1226,7 @@ Nota de regla 2: el guard `dias < 30` y el arranque `DATE '2026-02-20'` son la d
 - [x] **Step 4: Correr y ver el verde**
 
 Run: `pytest tests/test_fabrica_migracion.py -v`
-Expected: PASS (13 tests: 8 de la tarea 2 + 5 de la vista; 12 exigen Postgres). Si `test_v_margen_producto_un_producto_reproduce_la_plataforma` difiere de la plataforma, el bug está en el prorrateo: con un producto y cobertura 1, `cargos_sin_orden` debe ser exactamente el total de plataforma.
+Expected: PASS (15 tests: 8 de la tarea 2 + 5 de la vista + 2 de regresión de moneda D-3/D-4; 14 exigen Postgres). Si `test_v_margen_producto_un_producto_reproduce_la_plataforma` difiere de la plataforma, el bug está en el prorrateo: con un producto y cobertura 1, `cargos_sin_orden` debe ser exactamente el total de plataforma.
 
 - [x] **Step 5: Commit (misma rama que la tarea 2, mismo PR)**
 
@@ -5041,7 +5043,7 @@ Marker `cc:完了` en las 11 tareas de este plan + línea final en `docs/CHAT-CO
    en "Decisiones y evidencia — Tareas 2-3". Un test que pasa igual sin la migración no cuenta.
 4. **Local: solo `tests/test_fabrica_migracion.py`**. La batería completa corre UNA vez, en
    CI, al abrir el PR (`quality.yml` levanta Postgres 16 y exporta `ORBIT_TEST_DSN`). **Un
-   skip NO es verde**: 12 de los 13 tests exigen Postgres; sin uno local, levantarlo igual
+   skip NO es verde**: 14 de los 15 tests exigen Postgres; sin uno local, levantarlo igual
    al de CI (`docker run -d --name orbit-test-pg -e POSTGRES_USER=orbit -e
    POSTGRES_PASSWORD=orbit -e POSTGRES_DB=postgres -p 5432:5432 postgres:16` y
    `export ORBIT_TEST_DSN=postgresql://orbit:orbit@localhost:5432/postgres`; el usuario
@@ -5130,7 +5132,7 @@ Corridos el 2026-09-05 contra produccion (`ssh goncloud`, `docker exec -i orbit-
 (6 rows)
 ```
 
-**(c) dias_con_venta por producto (ventana de 90 dias `[D-105, D-15)`, es decir sin los ultimos 15 dias):** maximo 27 dias (amazon_mx, `PERS-CAR-AZU-SAN-DOR`) y 17 dias (amazon_us, `NH-PERS-ITA-CEN-DOR`). **NINGUN producto llega a 60 EN LA VENTANA DE 90 DIAS** → ver decision pendiente abajo. Venta 100% cubierta por `sku_cost` en moneda y una sola moneda por plataforma (MX en MXN, US en USD; `n_monedas = 1` en todas las filas); denominador: ventas con `product_id` — quedan fuera 3 ventas amazon_mx sin `product_id` por MXN 5,664.00 en la ventana (residuo fuera del prorrateo por producto). Extracto (top 10 por plataforma; salida completa: 132 filas):
+**(c) dias_con_venta por producto (ventana de 90 dias `[D-105, D-15)`, es decir sin los ultimos 15 dias):** maximo 27 dias (amazon_mx, `PERS-CAR-AZU-SAN-DOR`) y 17 dias (amazon_us, `NH-PERS-ITA-CEN-DOR`). **NINGUN producto llega a 60 EN LA VENTANA DE 90 DIAS** → ver decision pendiente abajo. Venta 100% cubierta por `sku_cost` en moneda y una sola moneda por plataforma (`n_monedas = 1` en todas las filas). **Corrección del lead (review PR #172):** el ledger contable reporta TODO en MXN, también `amazon_us` (ventas, fees, refunds y withholdings: 0 filas en USD), así que `v_margen_producto.moneda` es la moneda del LEDGER (MXN en ambas plataformas), NO la del wire de Amazon (`MONEDA_POR_PLATAFORMA`, USD para US); el margen es un porcentaje y no le afecta, pero NADIE debe filtrar la vista por la moneda de la plataforma; denominador: ventas con `product_id` — quedan fuera 3 ventas amazon_mx sin `product_id` por MXN 5,664.00 en la ventana (residuo fuera del prorrateo por producto). Extracto (top 10 por plataforma; salida completa: 132 filas):
 
 ```
  platform  | product_id |           odoo_sku            | dias_con_venta | venta_total | venta_cubierta | n_monedas
@@ -5242,6 +5244,16 @@ Corridos el 2026-09-05 contra produccion (`ssh goncloud`, `docker exec -i orbit-
 tests/test_fabrica_migracion.py:610: AssertionError
 FAILED tests/test_fabrica_migracion.py::test_v_margen_producto_mezcla_de_moneda_en_cargos_del_producto_es_null
 ======================= 1 failed, 13 deselected in 0.37s ======================
+```
+
+**D-4 (review del lead, PR #172, severidad ALTA):** la D-3 cambió un hueco por otro. `COUNT(DISTINCT co.moneda)` cuenta monedas ENTRE órdenes, pero `co.moneda` es `MAX(amount_currency)` POR orden: una orden con fees en USD y MXN colapsa a `'USD'` y pasaba el guard sumando las dos monedas en `cargos_con_orden` (el `MAX(co.n_monedas)` original del plan cubría justo ese caso y no el de entre órdenes). Fix: `GREATEST(MAX(co.n_monedas), COUNT(DISTINCT co.moneda)) AS n_monedas_cargos` (los dos casos), aplicado a la migración y al bloque del plan, con test de regresión `test_v_margen_producto_fees_de_una_orden_en_dos_monedas_es_null` demostrado fallando contra la vista de la D-3 (log abajo). Verificación contra producción (SELECT read-only del cuerpo de la vista entregada, `orbit_read`): margen para EXACTAMENTE los 7 productos de la decisión de la tarea 1 (amazon_mx 33.14–43.30 %, amazon_us 37.32–38.58 %), `fees_sin_tipo = 0` en los 194 productos con venta en ventana, cobertura 1.000 en los 7. Hallazgo colateral: el ledger reporta todo en MXN también para `amazon_us` (corregido en la evidencia (c) de la tarea 1). El conteo de tests pasa de 14 a 15.
+
+**Log rojo D-4** — test nuevo contra la vista de la D-3:
+
+```
+E   AssertionError: margen calculado sumando USD+MXN: (Decimal('89.428571428571428571429'), Decimal('-20.0000000000000000'))
+tests/test_fabrica_migracion.py:656: AssertionError
+1 failed, 14 deselected in 0.34s
 ```
 
 **Nota menor:** ruff (corrido tras escribir solo la parte de la tarea 2) autoremovió `import datetime as dt` y `from decimal import Decimal` por no usarse aún; se restauraron al agregar los tests de la vista. Sin efecto en el código copiado.

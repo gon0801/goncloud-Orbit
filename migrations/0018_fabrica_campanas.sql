@@ -323,10 +323,12 @@ cargos_producto AS (
     SELECT v.platform, v.product_id,
            SUM(co.monto * v.amount / o.venta_orden) AS cargos_con_orden,
            SUM(co.fees_sin_tipo) AS fees_sin_tipo,
-           -- COUNT DISTINCT (no MAX del conteo por orden): fees del producto en
-           -- dos monedas, AUN en ordenes distintas, no pueden sumarse (regla 4;
-           -- D-3 review PR #172 -- MAX(moneda) era lexicografico y fail-open).
-           COUNT(DISTINCT co.moneda) AS n_monedas_cargos,
+           -- Guard de moneda de los cargos, DOS casos (regla 4): MAX(co.n_monedas)
+           -- = fees en dos monedas DENTRO de una orden (co.moneda es MAX por orden
+           -- y colapsaria el caso); COUNT(DISTINCT co.moneda) = fees en dos monedas
+           -- ENTRE ordenes (D-3: MAX(moneda) era lexicografico y fail-open). Solo
+           -- uno de los dos deja un hueco (D-4, review del lead PR #172).
+           GREATEST(MAX(co.n_monedas), COUNT(DISTINCT co.moneda)) AS n_monedas_cargos,
            MAX(o.n_monedas) AS n_monedas_orden,
            MAX(co.moneda) AS moneda_cargos
       FROM ventas v

@@ -608,3 +608,48 @@ def test_v_margen_producto_mezcla_de_moneda_en_cargos_del_producto_es_null():
             "SELECT margen_neto_pct FROM v_margen_producto WHERE product_id = %s", (pid,)
         ).fetchone()
         assert fila[0] is None
+
+
+@_skip_db
+def test_v_margen_producto_fees_de_una_orden_en_dos_monedas_es_null():
+    """D-4 (review del lead, PR #172, regla 4): fees de UNA MISMA orden en dos
+    monedas. La D-3 (COUNT DISTINCT de `co.moneda`) cuenta monedas ENTRE
+    ordenes, pero `co.moneda` es MAX por orden: USD+MXN dentro de la orden
+    colapsa a 'USD' y pasaba el guard sumando monedas en cargos_con_orden.
+    El guard debe cubrir los dos casos (GREATEST del conteo por orden y del
+    conteo entre ordenes)."""
+    hoy = dt.date.today()
+    with db_fabrica() as conn:
+        pid, _ = _producto(conn, sku="USFEE2", asin="B0USFEE002", seller_sku="SUSFEE2")
+        conn.execute(
+            "INSERT INTO ingest_run (source, finished_at, ok) VALUES"
+            " ('accounting_ledger_events', now(), true)"
+        )
+        run = conn.execute("INSERT INTO ingest_run (source) VALUES ('t') RETURNING id").fetchone()[
+            0
+        ]
+        conn.execute(
+            "INSERT INTO sku_cost (product_id, cost_amount, cost_currency, includes_tax,"
+            " valid_from) VALUES (%s, 10, 'USD', true, %s)",
+            (pid, hoy - dt.timedelta(days=200)),
+        )
+        for i in range(35):
+            conn.execute(
+                "INSERT INTO ledger_event (platform, kind, event_date, order_id, product_id,"
+                " quantity, amount, amount_currency, ingest_run_id)"
+                " VALUES ('amazon_us', 'sale', %s, %s, %s, 1, 100, 'USD', %s)",
+                (hoy - dt.timedelta(days=100 - i), f"o-usd-{i}", pid, run),
+            )
+        # DOS fees de la MISMA orden o-usd-0: una USD y otra MXN
+        for moneda in ("USD", "MXN"):
+            conn.execute(
+                "INSERT INTO ledger_event (platform, kind, event_date, order_id, amount,"
+                " amount_currency, fee_type, ingest_run_id)"
+                " VALUES ('amazon_us', 'fee', %s, 'o-usd-0', -10, %s, 'closing', %s)",
+                (hoy - dt.timedelta(days=100), moneda, run),
+            )
+        fila = conn.execute(
+            "SELECT margen_neto_pct, cargos_con_orden FROM v_margen_producto WHERE product_id = %s",
+            (pid,),
+        ).fetchone()
+        assert fila[0] is None, f"margen calculado sumando USD+MXN: {fila}"
