@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import datetime as dt
 import gzip
+import inspect
 import json
 import os
 import socket
@@ -471,6 +472,29 @@ def test_0020_parsea_y_sella_append_only():
     assert "PRIMARY KEY (platform, advertised_asin, advertised_sku, metric_date, observed_at)"
     assert "apm_dedupe_reporte" in SQL20
     assert "salesSameSku30d" not in PRODUCTOS_CFG["columns"]
+
+
+def test_poll_de_productos_usa_presupuesto_mayor():
+    """Regresion del hallazgo productivo 2026-09-07: el primer reporte
+    spAdvertisedProduct real tardo ~25 min en salir de PENDING y la corrida
+    aborto fail-closed con el tope estandar de 120 intentos (10 min). El sync
+    debe pedir INTENTOS_POLL_PRODUCTOS (>= 300) SOLO para spAdvertisedProduct,
+    sin tocar el presupuesto de los 4 reportes estandar."""
+    import re
+
+    import app.ads.reports as reports
+
+    assert reports.INTENTOS_POLL_PRODUCTOS >= 300
+    # La rama del sync elige por reportTypeId, no globalmente.
+    fuente = inspect.getsource(reports.sync_metrics)
+    assert 'cfg.get("reportTypeId") == "spAdvertisedProduct"' in fuente
+    assert "INTENTOS_POLL_PRODUCTOS" in fuente
+    assert re.search(r"else\s+INTENTOS_POLL\b", fuente)
+    # esperar_reporte sigue honrando el default estandar.
+    assert (
+        inspect.signature(reports.esperar_reporte).parameters["intentos"].default
+        == reports.INTENTOS_POLL
+    )
 
 
 # ---------------------------------------------------------------------------
