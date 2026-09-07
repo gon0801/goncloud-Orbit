@@ -171,6 +171,11 @@ def test_catalogo_identifica_todas_las_publicaciones_por_plataforma(escenario):
     assert invalido["publicaciones"][0]["url"] is None
     assert not invalido["publicaciones"][0]["elegible"]
     assert "ASIN invalido." in invalido["publicaciones"][0]["motivos"]
+    conn.execute("UPDATE listing SET external_id = 'A0AAAAAAAA' WHERE platform='amazon_us'")
+    catalogo_us = cliente.get("/api/fabrica/catalogo?plataforma=amazon_us").json()
+    fuera_de_patron = catalogo_us["productos"][0]
+    assert not fuera_de_patron["publicaciones"][0]["elegible"]
+    assert "ASIN invalido." in fuera_de_patron["publicaciones"][0]["motivos"]
 
 
 def test_preview_solo_lectura_sin_amazon_y_con_dinero_string(escenario):

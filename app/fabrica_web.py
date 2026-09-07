@@ -144,7 +144,7 @@ def catalogo(conn, plataforma: str) -> dict:
             margen = publicacion["margen_neto_pct"]
             margen_valor = Decimal(margen) if margen is not None else None
             motivos = []
-            asin_valido = bool(re.fullmatch(r"[A-Za-z0-9]{10}", asin or ""))
+            asin_valido = bool(fp.PATRON_ASIN.fullmatch(asin or ""))
             if not asin:
                 motivos.append("ASIN ausente.")
             elif not asin_valido:
