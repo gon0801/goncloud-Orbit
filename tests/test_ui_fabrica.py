@@ -712,6 +712,18 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
   await emit("plan", "submit");
   assert.ok(consultas().some(c => c.url.includes("objetivo=20")),
     "el objetivo derivado del margen llega al comparador");
+  // Cambiar los productos seleccionados invalida el preview: el comparador NO
+  // conserva las etiquetas del objetivo derivado viejo (hallazgo 2a ronda).
+  const antesInvalidar = consultas().length;
+  await emit("plan", "change");  // el checkbox de un producto burbujea al form
+  await new Promise(resolve => setTimeout(resolve, 500));
+  assert.ok(consultas().length > antesInvalidar, "invalidar el preview consulta de nuevo");
+  assert.ok(!consultas().at(-1).url.includes("objetivo="),
+    "sin objetivo tras invalidar el preview");
+  // Un preview nuevo restablece el objetivo derivado para el comparador.
+  await emit("plan", "submit");
+  assert.ok(consultas().some(c => c.url.includes("objetivo=20")),
+    "el preview reconsulta con el objetivo derivado");
   // Cambiar el ACoS manual a 10 refresca el comparador con objetivo=10.
   el("objetivo-origen").value = "manual_lanzamiento";
   el("objetivo-acos").value = "10";
@@ -852,9 +864,19 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
   assert.match(ficha, /Actualización del margen 2026-09-05T10:00:00\+00:00/);
   await emit("comparador-recargar", "click");
   const variada = text(datos);
-  assert.match(variada, /Ventana del margen Varia por publicacion/);
-  assert.match(variada, /Cobertura del margen Varia por publicacion/);
-  assert.match(variada, /Actualización del margen Varia por publicacion/);
+  // Al variar se DECLARA y ademas se listan los valores individuales para
+  // poder consultarlos sin salir de la ficha (observacion cross-review 2a ronda).
+  assert.match(
+    variada,
+    /Ventana del margen Varia por publicacion: 2026-02-20 a 2026-08-22; 2026-03-01 a 2026-08-30/,
+  );
+  assert.match(variada, /Cobertura del margen Varia por publicacion: 1; 0\.5/);
+  assert.match(
+    variada,
+    new RegExp(
+      "Actualización del margen Varia por publicacion: 2026-09-05T10:00:00\\+00:00; "
+      + "2026-09-01T09:00:00\\+00:00"),
+  );
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """
     resultado = subprocess.run(

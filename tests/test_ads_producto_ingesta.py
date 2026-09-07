@@ -316,6 +316,41 @@ def test_plan_productos_fila_invalida_envenena_la_clave():
     assert skips["fila de clave envenenada (subtotal parcial)"] == 1
 
 
+def test_plan_productos_same_sku_mayor_que_total_envenena_la_clave():
+    """Hallazgo cross-review 2026-09-07 (2a ronda): una fila con ventas
+    promovidas MAYORES que las totales se descarta por el pre-check del
+    CHECK apm_same_sku_cabe; sin envenenar la clave, otra campana valida
+    del MISMO (asin, sku, fecha) publicaria su subtotal como completo y
+    podria etiquetar 'Gasto sin ventas' con ventas reales desconocidas."""
+    hoy = dt.date(2026, 9, 4)
+    rango = dict(hoy=hoy, fecha_ini=dt.date(2026, 9, 3), fecha_fin=dt.date(2026, 9, 3))
+    valida = {
+        "date": "2026-09-03",
+        "advertisedAsin": "B0EEEEEEE1",
+        "advertisedSku": "SKU-E",
+        "campaignId": 111,
+        "adGroupId": 1111,
+        "adId": 11,
+        "cost": 5,
+        "sales30d": 0.0,
+    }
+    corrupta = {
+        **valida,
+        "campaignId": 222,
+        "adGroupId": 2222,
+        "adId": 22,
+        "sales30d": 100.0,
+        "attributedSalesSameSku30d": 150.0,  # promovidas > totales
+    }
+    for filas in ([valida, corrupta], [corrupta, valida]):
+        plan, skips = _planea_filas_productos(filas, **rango)
+        assert plan == [], f"subtotal parcial publicado: {plan}"
+        assert skips["fila con metrica same_sku mayor que el total"] == 1
+    # corrupta primero: la fila valida posterior topa contra la clave envenenada
+    _, skips = _planea_filas_productos([corrupta, valida], **rango)
+    assert skips["fila de clave envenenada (subtotal parcial)"] == 1
+
+
 def test_plan_productos_dos_campanas_del_mismo_asin_suman():
     """DoD B.1: filas del MISMO asin/sku en campanas DISTINTAS se SUMAN hacia
     el grano (platform, asin, sku, fecha); la metrica que un aporte trajo

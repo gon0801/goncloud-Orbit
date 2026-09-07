@@ -42,6 +42,7 @@ document.addEventListener("DOMContentLoaded", function () {
   let versionComparador = 0;
   let comparadorDatos = null;
   const intentados = new Set();
+  let temporizadorInvalidacion = null;
 
   function nodo(tag, texto) {
     const elemento = document.createElement(tag);
@@ -121,6 +122,14 @@ document.addEventListener("DOMContentLoaded", function () {
   function invalidar() {
     actualizarTotal();
     revision += 1;
+    if (preview !== null) {
+      // El objetivo derivado del margen vivia en el preview que se descarta:
+      // el comparador no puede conservar etiquetas calculadas con el (hallazgo
+      // cross-review 2026-09-07, 2a ronda). Debounce: invalidar dispara con
+      // cada cambio del formulario, la consulta va una sola vez.
+      clearTimeout(temporizadorInvalidacion);
+      temporizadorInvalidacion = setTimeout(cargarComparador, 400);
+    }
     preview = null;
     porId("preview").hidden = true;
     porId("confirmacion").value = "";
@@ -307,7 +316,9 @@ document.addEventListener("DOMContentLoaded", function () {
       publicaciones.map(p => (p.economia ? sacar(p.economia) : null))
         .filter(v => v !== null && v !== undefined))];
     if (!valores.length) return null;  // ficha lo pinta como "Sin dato"
-    return valores.length === 1 ? valores[0] : "Varia por publicacion";
+    // Al variar se DECLARA y se listan los valores para consultarlos sin
+    // salir de la ficha (observacion cross-review 2026-09-07, 2a ronda).
+    return valores.length === 1 ? valores[0] : "Varia por publicacion: " + valores.join("; ");
   }
 
   function ventanaMargen(publicaciones) {
@@ -316,7 +327,7 @@ document.addEventListener("DOMContentLoaded", function () {
         .filter(p => p.economia && p.economia.ventana_desde && p.economia.ventana_hasta)
         .map(p => p.economia.ventana_desde + " a " + p.economia.ventana_hasta))];
     if (!pares.length) return null;
-    return pares.length === 1 ? pares[0] : "Varia por publicacion";
+    return pares.length === 1 ? pares[0] : "Varia por publicacion: " + pares.join("; ");
   }
 
   function pasaFiltro(publicacion, filtro) {

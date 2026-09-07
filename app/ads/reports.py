@@ -1272,7 +1272,10 @@ def _planea_filas_productos(
             and purchases_same_sku > purchases
         ):
             # Pre-check por fila cruda (vocabulario CERRADO): sin el, el CHECK
-            # apm_same_sku_cabe abortaria el LOTE entero en la base.
+            # apm_same_sku_cabe abortaria el LOTE entero en la base. La fila se
+            # descarta y ENVENENA la clave: sus ventas son ininterpretables, y
+            # el subtotal de otra campana no puede publicarse como completo
+            # (hallazgo cross-review 2026-09-07, 2a ronda).
             skips["fila con metrica same_sku mayor que el total"] += 1
             logger.debug(
                 "same_sku > total en producto %s/%s (%s/%s vs %s/%s)",
@@ -1282,6 +1285,9 @@ def _planea_filas_productos(
                 purchases_same_sku,
                 sales,
                 purchases,
+            )
+            _envenenar_clave_producto(
+                asin, sku, metric_date, por_clave=por_clave, plan=plan, envenenadas=envenenadas
             )
             continue
         # Negativos = dato corrupto y la corrida ABORTA (fail-closed): la
