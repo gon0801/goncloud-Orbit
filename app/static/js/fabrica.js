@@ -368,15 +368,27 @@ document.addEventListener("DOMContentLoaded", function () {
     contenedor.append(envoltura);
   }
 
+  // Objetivo del grupo que el dueno ESTA preparando (D2/0.4 §3): el manual
+  // del formulario viaja a /evaluacion; sin el, la API solo usa grupos con
+  // lote 'planeado' (que en el flujo real aun no existen).
+  function objetivoFormulario() {
+    if (porId("objetivo-origen").value !== "manual_lanzamiento") return null;
+    const valor = Number(porId("objetivo-acos").value);
+    return Number.isFinite(valor) && valor > 0 && valor <= 100 ? valor : null;
+  }
+
   async function cargarComparador() {
     const version = ++versionComparador;
     porId("comparador-datos").replaceChildren();
     estado("comparador-estado", "Consultando la comparación…");
     try {
-      const datos = await solicitar("/evaluacion?plataforma="
+      let url = "/evaluacion?plataforma="
         + encodeURIComponent(porId("plataforma").value)
         + "&orden=" + encodeURIComponent(porId("comparador-orden").value)
-        + "&direccion=" + encodeURIComponent(porId("comparador-direccion").value));
+        + "&direccion=" + encodeURIComponent(porId("comparador-direccion").value);
+      const objetivo = objetivoFormulario();
+      if (objetivo !== null) url += "&objetivo=" + encodeURIComponent(String(objetivo));
+      const datos = await solicitar(url);
       if (version !== versionComparador) return;
       comparadorDatos = datos;
       renderComparador();
@@ -384,6 +396,7 @@ document.addEventListener("DOMContentLoaded", function () {
         + " publicaciones. Sin dato al final del orden.");
     } catch (error) {
       if (version === versionComparador) estado("comparador-estado", error.message, true);
+      comparadorDatos = null;
     }
   }
 

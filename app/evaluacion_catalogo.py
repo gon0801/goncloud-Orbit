@@ -122,14 +122,13 @@ def _suma(valores: Iterable[Decimal | None]) -> Decimal | None:
     return total if hay else None
 
 
-def _es_madura(fechas: Sequence[dt.date], max_observed_at: dt.datetime) -> bool:
-    """§2: fecha D madura para columnas 30d solo si alguna observacion de la
-    clave tiene observed_at >= D + 30 dias (basta el maximo observado)."""
-    for fecha in fechas:
-        limite = dt.datetime.combine(fecha + dt.timedelta(days=30), dt.time.min, dt.UTC)
-        if max_observed_at < limite:
-            return False
-    return True
+def _fecha_madura(fecha: dt.date, observed_at: dt.datetime) -> bool:
+    """§2: fecha D es madura para columnas 30d solo si SU observacion (la mas
+    reciente de esa fecha tras el colapso) tiene observed_at >= D + 30 dias.
+    El maximo global de la ventana NO vale: otra fecha observada tarde no
+    madura a esta (hallazgo cross-review codex 2026-09-07)."""
+    limite = dt.datetime.combine(fecha + dt.timedelta(days=30), dt.time.min, dt.UTC)
+    return observed_at >= limite
 
 
 def evaluar_ads(
@@ -163,8 +162,10 @@ def evaluar_ads(
             por_fecha[f.metric_date] = f
     en_ventana = list(por_fecha.values())
 
-    fechas = sorted({f.metric_date for f in en_ventana})
-    maduro = _es_madura(fechas, max(f.observed_at for f in en_ventana))
+    # Madurez POR FECHA con la observacion colapsada de cada fecha (§2): la
+    # fecha observada solo en D+1 no madura porque otra fecha se observara
+    # >= D+30 (hallazgo cross-review: el maximo global mentia).
+    maduro = all(_fecha_madura(f.metric_date, f.observed_at) for f in en_ventana)
 
     cost = _suma(f.cost for f in en_ventana)
     clicks_m = _suma(Decimal(f.clicks) if f.clicks is not None else None for f in en_ventana)
@@ -204,7 +205,7 @@ def evaluar_ads(
         etiqueta=etiqueta,
         maduro=maduro,
         provisional=not maduro,
-        muestra=len(fechas),
+        muestra=len(en_ventana),
         moneda=moneda,
         cost=cost,
         clicks=clicks,

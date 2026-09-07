@@ -161,11 +161,19 @@ def evaluacion(
     plataforma: Plataforma,
     orden: OrdenEvaluacion = "margen_observado",
     direccion: Literal["asc", "desc"] = "desc",
+    objetivo: Decimal | None = None,
 ):
     """Evaluacion completa por publicacion (ORBIT 19 B.4): economia observada
     + Ads + disponibilidad + objetivo del grupo en preparacion. Orden estable
-    con NULL al final; ninguna etiqueta bloquea la seleccion."""
-    return fw.evaluacion(conn, plataforma, orden=orden, direccion=direccion)
+    con NULL al final; ninguna etiqueta bloquea la seleccion.
+
+    `objetivo` es el objetivo manual del grupo que el dueno ESTA preparando
+    (D2/0.4 §3): toma precedencia sobre grupos con lote 'planeado' porque en
+    el flujo real el grupo solo existe al crear campanas. No acredita
+    rentabilidad; fuera de (0, 100] rechaza con 422."""
+    if objetivo is not None and not (Decimal(0) < objetivo <= Decimal(100)):
+        raise HTTPException(422, "El objetivo debe estar en (0, 100].")
+    return fw.evaluacion(conn, plataforma, orden=orden, direccion=direccion, objetivo=objetivo)
 
 
 @router.get("/publicaciones/{listing_id}/imagen")

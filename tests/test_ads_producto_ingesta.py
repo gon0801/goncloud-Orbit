@@ -50,6 +50,11 @@ from app.ads.structure import PerfilAds
 ROOT = Path(__file__).resolve().parents[1]
 SQL20 = (ROOT / "migrations" / "0020_ads_producto_metrica.sql").read_text(encoding="utf-8")
 
+_skip_db = pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+
 FAKE_CLIENT_ID = "fake-client-id-123"
 FAKE_CLIENT_SECRET = "fake-client-secret-XYZ"
 FAKE_REFRESH_TOKEN = "fake-refresh-token-ABC"
@@ -217,6 +222,62 @@ def test_plan_productos_campana_multiproducto_no_reparte_agregados():
     # cada producto cita SOLO la campana que la API le atribuyo
     assert a.campaign_ids == ["111"] and b.campaign_ids == ["111"]
     assert a.ad_ids == ["11"] and b.ad_ids == ["12"]
+
+
+def test_plan_productos_clave_envenenada_no_resucita():
+    """Hallazgo cross-review codex 2026-09-07: una clave cuya fusion queda
+    100% vacia se descarta; una fila POSTERIOR del mismo (asin, sku, fecha)
+    no puede recrearla con solo sus valores (publicaria un subtotal parcial
+    como completo, dependiendo del orden del gzip). El veneno es adhesivo."""
+    base = {"date": "2026-09-03", "advertisedAsin": "B0CCCCCCC1", "advertisedSku": "SKU-C"}
+    filas = [
+        {
+            **base,
+            "campaignId": 111,
+            "adGroupId": 1111,
+            "adId": 11,
+            "impressions": None,
+            "clicks": None,
+            "cost": 10,
+            "purchases30d": None,
+            "sales30d": None,
+            "purchasesSameSku30d": None,
+            "attributedSalesSameSku30d": None,
+        },
+        {
+            **base,
+            "campaignId": 222,
+            "adGroupId": 2222,
+            "adId": 22,
+            "impressions": 3,
+            "clicks": None,
+            "cost": None,
+            "purchases30d": None,
+            "sales30d": None,
+            "purchasesSameSku30d": None,
+            "attributedSalesSameSku30d": None,
+        },
+        # tercera fila con datos: NO resucita la clave envenenada
+        {
+            **base,
+            "campaignId": 333,
+            "adGroupId": 3333,
+            "adId": 33,
+            "impressions": 7,
+            "clicks": 1,
+            "cost": 4,
+            "purchases30d": 0,
+            "sales30d": 9,
+            "purchasesSameSku30d": 0,
+            "attributedSalesSameSku30d": 9,
+        },
+    ]
+    plan, skips = _planea_filas_productos(
+        filas, hoy=dt.date(2026, 9, 4), fecha_ini=dt.date(2026, 9, 3), fecha_fin=dt.date(2026, 9, 3)
+    )
+    assert plan == []
+    assert skips["fila sin ninguna metrica"] == 1
+    assert skips["fila de clave envenenada (subtotal parcial)"] == 1
 
 
 def test_plan_productos_dos_campanas_del_mismo_asin_suman():
@@ -469,9 +530,62 @@ def test_0020_parsea_y_sella_append_only():
         if isinstance(g, ast.GrantStmt) and g.is_grant:
             nombres = {p.priv_name for p in (g.privileges or [])}
             assert not nombres & {"update", "delete", "truncate"}, nombres
-    assert "PRIMARY KEY (platform, advertised_asin, advertised_sku, metric_date, observed_at)"
+    assert (
+        "PRIMARY KEY (platform, advertised_asin, advertised_sku, metric_date, observed_at)" in SQL20
+    )
     assert "apm_dedupe_reporte" in SQL20
     assert "salesSameSku30d" not in PRODUCTOS_CFG["columns"]
+
+
+@_skip_db
+def test_0023_triggers_append_only_bloquean_mutacion():
+    """Hallazgo cross-review codex: 0020/0022 declaraban append-only solo con
+    GRANTs. 0023 anade prohibir_mutacion (0001 §16): UPDATE, DELETE y TRUNCATE
+    reventan aunque el rol los tengan."""
+    import psycopg
+    from psycopg import sql as pgsql
+
+    SQL22 = (ROOT / "migrations" / "0022_disponibilidad_snapshot.sql").read_text(encoding="utf-8")
+    SQL23 = (ROOT / "migrations" / "0023_append_only_bloque_b.sql").read_text(encoding="utf-8")
+
+    SQL22 = (ROOT / "migrations" / "0022_disponibilidad_snapshot.sql").read_text(encoding="utf-8")
+    SQL23 = (ROOT / "migrations" / "0023_append_only_bloque_b.sql").read_text(encoding="utf-8")
+    dsn = _test_dsn()
+    db = f"orbit_apm23_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(dsn, dbname=db, autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        conn.execute(SQL)
+        conn.execute(SQL20)
+        conn.execute(SQL22)
+        conn.execute(SQL23)
+        run = conn.execute(
+            "INSERT INTO ingest_run (source) VALUES ('t23') RETURNING id"
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO ads_product_metric_observation (platform, advertised_asin,"
+            " advertised_sku, metric_date, observed_at, metric_currency, clicks, ingest_run_id)"
+            " VALUES ('amazon_mx', 'B0T23AAAA1', 'S', '2026-09-01', now(), 'MXN', 1, %s)",
+            (run,),
+        )
+        with pytest.raises(psycopg.errors.RestrictViolation):
+            conn.execute("UPDATE ads_product_metric_observation SET clicks = 99")
+        with pytest.raises(psycopg.errors.RestrictViolation):
+            conn.execute("DELETE FROM ads_product_metric_observation")
+        with pytest.raises(psycopg.errors.RestrictViolation):
+            conn.execute("TRUNCATE ads_product_metric_observation")
+        with pytest.raises(psycopg.errors.RestrictViolation):
+            conn.execute("TRUNCATE disponibilidad_observation")
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()
 
 
 def test_poll_de_productos_usa_presupuesto_mayor():
