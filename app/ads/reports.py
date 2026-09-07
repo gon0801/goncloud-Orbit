@@ -256,6 +256,12 @@ MAX_RANGO_DIAS = 31
 INTENTOS_POLL = 120
 ESPERA_POLL_SEGUNDOS = 5.0
 
+# La corrida de productos anunciados (ORBIT 19 B.1) usa un presupuesto MAYOR:
+# el 2026-09-07 el primer reporte spAdvertisedProduct productivo tardo ~25 min
+# en salir de PENDING (la sonda de 0.3 tardo ~110 s: la latencia de la cola de
+# Amazon varia por orden de magnitud). 300 x 5s = 25 min por reporte.
+INTENTOS_POLL_PRODUCTOS = 300
+
 # Tope de descarga (hallazgo codex): un backfill legitimo de 31 dias son unos
 # pocos MB; 512 MB solo lo alcanza un gzip anormal (bug de la API o payload
 # corrupto). Dos guardas fail-closed: el fileSize del poll ANTES de descargar
@@ -1644,7 +1650,14 @@ def sync_metrics(
         for perfil in perfiles:
             for cfg in reportes:
                 report_id = solicitar_reporte(client, perfil, cfg, fecha_ini, fecha_fin)
-                url = esperar_reporte(client, perfil, report_id, sleep=sleep)
+                # spAdvertisedProduct pasa hoy por colas mucho mas lentas que
+                # los 4 reportes estandar (ver INTENTOS_POLL_PRODUCTOS).
+                intentos = (
+                    INTENTOS_POLL_PRODUCTOS
+                    if cfg.get("reportTypeId") == "spAdvertisedProduct"
+                    else INTENTOS_POLL
+                )
+                url = esperar_reporte(client, perfil, report_id, sleep=sleep, intentos=intentos)
                 descargados.append((perfil, cfg, report_id, descargar_filas(client, url)))
     except BaseException as exc:
         _run_de_fallo_de_api(conn, exc)
