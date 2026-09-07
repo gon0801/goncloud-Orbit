@@ -635,6 +635,12 @@ def test_cli_v2_con_mutacion_exige_interruptor_antes_de_http(monkeypatch):
 def test_cli_rechaza_objetivo_manual_con_productos_antes_de_abrir_conexion(monkeypatch):
     args = [*ARGS_BASE, "--target-acos", "25.00"]
     _sin_red(monkeypatch)
+    monkeypatch.setenv("ORBIT_DSN_READ", "dsn-read")
+
+    def conexion_prohibida(dsn):
+        raise AssertionError(f"se abrio conexion antes de validar: {dsn}")
+
+    monkeypatch.setattr(fc, "connect", conexion_prohibida)
     monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *args])
     with pytest.raises(fc.Abortar, match="target-acos"):
         fc.main()
@@ -2030,6 +2036,34 @@ class _AmazonDesarme(_Amazon):
         return super().__call__(request)
 
 
+class _AmazonRecuperacion(_Amazon):
+    """Doble que refleja cada pausa para que el readback la compruebe."""
+
+    def __init__(self):
+        super().__init__()
+        self.puts = []
+        self.pausadas = set()
+
+    def __call__(self, request):
+        if request.method == "PUT":
+            self.puts.append(request)
+            self._sello(request)
+            externo = json.loads(request.content)["campaigns"][0]["campaignId"]
+            self.pausadas.add(externo)
+            return httpx.Response(
+                207,
+                json={"campaigns": {"success": [{"index": 0, "campaignId": externo}], "error": []}},
+            )
+        if str(request.url).endswith("/sp/campaigns/list"):
+            externo = json.loads(request.content)["campaignIdFilter"]["include"][0]
+            estado = "PAUSED" if externo in self.pausadas else "ENABLED"
+            return httpx.Response(
+                200,
+                json={"campaigns": [{"campaignId": externo, "state": estado}]},
+            )
+        return super().__call__(request)
+
+
 _FILAS_LOTE = [(rol, f"c-{rol}", 50 + i) for i, rol in enumerate(fp.ROLES_ORDEN_CREACION)]
 
 
@@ -2161,33 +2195,6 @@ def test_lote_v2_parcial_se_recupera_con_interruptor_v1_sin_post_de_creacion(mon
                 return _Cursor(_camp_ag_de_ledger(self.pasos_ledger))
             return super().execute(sql, params)
 
-    class _AmazonRecuperacion(_Amazon):
-        def __init__(self):
-            super().__init__()
-            self.puts = []
-            self.pausadas = set()
-
-        def __call__(self, request):
-            if request.method == "PUT":
-                self.puts.append(request)
-                self._sello(request)
-                externo = json.loads(request.content)["campaigns"][0]["campaignId"]
-                self.pausadas.add(externo)
-                return httpx.Response(
-                    207,
-                    json={
-                        "campaigns": {"success": [{"index": 0, "campaignId": externo}], "error": []}
-                    },
-                )
-            if str(request.url).endswith("/sp/campaigns/list"):
-                externo = json.loads(request.content)["campaignIdFilter"]["include"][0]
-                estado = "PAUSED" if externo in self.pausadas else "ENABLED"
-                return httpx.Response(
-                    200,
-                    json={"campaigns": [{"campaignId": externo, "state": estado}]},
-                )
-            return super().__call__(request)
-
     plan = _plan_v2_min()
     ledger = _filas_ledger(plan)
     orden, rol, recurso, _estado, external, payload, _ack, _readback = ledger[-1]
@@ -2310,7 +2317,7 @@ def test_ensayo_staging_lote_v2_parcial_se_recupera_con_v1_sin_post_de_creacion(
         assert fp.version_creacion_desde_settings(settings) == "v1"
         assert fc._creacion_v2_habilitada(conn) is False
 
-        amazon = _AmazonDesarme()
+        amazon = _AmazonRecuperacion()
         amazon.objetos[external] = payload
         _frontera_mutacion(monkeypatch, _ConnFalsa(), _ConnFalsa(), amazon, stub_registrar=False)
         monkeypatch.setattr(fc, "_sync", lambda cliente: None)
