@@ -39,7 +39,9 @@ _SQL_LOTE = _SQL_RESUMEN_LOTE + " WHERE l.lote = %s"
 _SQL_CATALOGO = """
 SELECT p.id, p.odoo_sku, p.name, jsonb_agg(jsonb_build_object(
            'id', l.id, 'asin', l.external_id, 'seller_sku', l.seller_sku,
-           'platform', l.platform::text, 'margen_neto_pct', m.margen_neto_pct,
+           'platform', l.platform::text, 'margen_neto_pct', m.margen_neto_pct::text,
+           'dias_con_venta', m.dias_con_venta,
+           'ventana_desde', m.ventana_desde::text, 'ventana_hasta', m.ventana_hasta::text,
            'historial_ads', NULL
        ) ORDER BY l.external_id, l.id)
 FROM product p
@@ -140,18 +142,22 @@ def catalogo(conn, plataforma: str) -> dict:
             asin = publicacion["asin"]
             sku_amazon = publicacion["seller_sku"]
             margen = publicacion["margen_neto_pct"]
+            margen_valor = Decimal(margen) if margen is not None else None
             motivos = []
+            asin_valido = bool(re.fullmatch(r"[A-Za-z0-9]{10}", asin or ""))
             if not asin:
                 motivos.append("ASIN ausente.")
+            elif not asin_valido:
+                motivos.append("ASIN invalido.")
             if not sku_amazon or not sku_amazon.strip():
                 motivos.append("SKU de Amazon ausente.")
-            if margen is None:
+            if margen_valor is None:
                 motivos.append("Margen sin medir.")
-            elif margen == 0:
+            elif margen_valor == 0:
                 motivos.append("Margen cero.")
-            elif margen < 0:
+            elif margen_valor < 0:
                 motivos.append("Margen negativo.")
-            publicacion["elegible"] = not any((not asin, not sku_amazon or not sku_amazon.strip()))
+            publicacion["elegible"] = bool(asin_valido and sku_amazon and sku_amazon.strip())
             publicacion["motivos"] = motivos
             publicacion["url"] = (
                 f"https://{dominio}/dp/{asin}"

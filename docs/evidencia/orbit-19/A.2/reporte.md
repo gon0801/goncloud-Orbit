@@ -11,39 +11,37 @@ Fecha: 2026-09-06 UTC.
   `tools/fabrica_campanas._arma_plan`; el motor construye el plan v2 canonico.
   El CLI v2 exige `--listing-ids` y `--target-acos`; no transforma
   `--productos` en listings.
-- El objetivo manual admite `NUMERIC(6,2)` positivo sin default. El objetivo
-  medido sigue usando la fraccion vigente y rechaza un margen ausente, cero o
-  negativo en vez de inventar rentabilidad.
-- Las publicaciones v2 se validan por plataforma, identidad y `seller_sku`
+- La ruta medida v2 exige todos los margenes positivos y que el ACoS aplicado
+  no supere el menor. Si falta margen, es cero, negativo o el clamp lo supera,
+  rechaza con `manual_lanzamiento`; v1 conserva su regla y huella.
+- La identidad v2 exige listing de la plataforma, ASIN valido y `seller_sku`
   unico antes de cualquier POST. Margen `NULL` y varios listings del mismo
-  producto llegan al preview manual y se conservan como `null` en su snapshot.
+  producto llegan al preview manual y se guardan como `null` en el snapshot.
+- El dry-run v2 muestra el origen, la procedencia y los conteos reales de
+  semillas por rol. No declara una simulacion vacia si el plan contiene datos.
 - El interruptor `fabrica.creacion` es fail-closed: ausente o invalido equivale
   a `v1` y bloquea solo altas v2. El preview y las rutas de recuperacion no
   dependen de ese interruptor.
 
-## Regresion y pruebas focalizadas
+## Regresion y pruebas focales
 
-La prueba CLI nueva se ejecuto inicialmente en rojo: el doble de conexion de
-prueba no conocia el resultado SQL por publicacion y fallo con
-`TypeError: unexpected keyword argument 'publicaciones'`. Tras extender el
-doble para representar esa consulta, el mismo caso verifica una seleccion de
-dos listings del mismo producto, uno sin margen y otro negativo, con objetivo
-manual, sin red ni escrituras.
+`regresiones-red.txt` conserva la salida contra `e6c462d`, antes de estas
+correcciones. El mismo conjunto falla porque acepta ASIN vacio, margen medido
+cero/negativo/inferior al ACoS y reporta `semillas=0` aun con semillas reales.
+No hubo HTTP ni escrituras durante la reproduccion.
 
-Resultados locales:
+Tras el cambio:
 
 ```text
-tests/test_fabrica_campanas.py  45 passed, 22 skipped
-tests/test_fabrica_plan.py      29 passed
-tests/test_api_fabrica.py       37 skipped (ORBIT_TEST_DSN no disponible)
-ruff check                      passed
-ruff format --check             passed
+PYTHONPATH=. .venv/bin/python -m pytest -q \\
+  tests/test_fabrica_campanas.py tests/test_fabrica_plan.py
+107 passed
 ```
 
-Los tres casos de API agregados usan PostgreSQL real y cubren preview v2 con
-NULL/multilisting, rechazo de mezcla y SKU duplicado sin escribir lote, y
-bloqueo de alta v2 con el interruptor ausente. Se ejecutan en la bateria
-completa unica del PR; no se duplican localmente.
+Las pruebas de API con PostgreSQL real cubren preview v2 con
+NULL/multilisting, rechazo de mezcla y SKU duplicado sin escribir lote, el
+contrato decimal del catalogo y bloqueo de alta v2 con el interruptor ausente.
+Se ejecutan en la bateria completa unica del PR; no se duplica localmente.
 
 ## Limite deliberado
 

@@ -157,6 +157,16 @@ document.addEventListener("DOMContentLoaded", function () {
     return avisos.length ? avisos.join(" ") : "Margen medido disponible.";
   }
 
+  function muestraMargen(publicacion) {
+    const dias = publicacion.dias_con_venta;
+    const desde = publicacion.ventana_desde;
+    const hasta = publicacion.ventana_hasta;
+    if (dias === null || dias === undefined || !desde || !hasta) return "Muestra de margen: sin dato.";
+    const limitada = Number(dias) < 30 || publicacion.margen_neto_pct === null;
+    return (limitada ? "Muestra limitada: " : "Muestra de margen: ") + dias
+      + " dias con venta, ventana [" + desde + ", " + hasta + ").";
+  }
+
   function mostrarPlan(contenedor, plan) {
     const esV2 = plan.schema_version === 2;
     const objetivo = esV2 ? plan.objetivo : null;
@@ -262,6 +272,7 @@ document.addEventListener("DOMContentLoaded", function () {
           fila.append(nodo("span", "ASIN: " + valor(publicacion.asin)),
             nodo("span", "SKU de Amazon: " + valor(publicacion.seller_sku)),
             nodo("span", "Margen neto: " + porcentaje(publicacion.margen_neto_pct)),
+            nodo("span", muestraMargen(publicacion)),
             nodo("span", avisoMargen(publicacion)));
           // Los enlaces estan fuera del label: abrir Amazon no selecciona el producto.
           if (/^https:\/\/www\.amazon\.com(?:\.mx)?\/dp\/[A-Za-z0-9]{10}$/.test(publicacion.url || "")) {

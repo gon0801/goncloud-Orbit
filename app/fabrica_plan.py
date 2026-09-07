@@ -270,6 +270,16 @@ def target_del_grupo(margenes: list[Decimal | None], fraccion: Decimal | None) -
     return ResultadoTarget(aplicado, derivado, minimo, fraccion, procedencia)
 
 
+def valida_objetivo_margen_v2(
+    margenes: list[Decimal | None], acos_pct: Decimal | None = None
+) -> None:
+    """La ruta medida v2 no convierte ausencias o margen insuficiente en target valido."""
+    if not margenes or any(margen is None or margen <= 0 for margen in margenes):
+        raise PlanInvalido("objetivo por margen v2 exige margen positivo; usa manual_lanzamiento")
+    if acos_pct is not None and acos_pct > min(margenes):
+        raise PlanInvalido("objetivo por margen v2 supera el margen minimo; usa manual_lanzamiento")
+
+
 def valida_parametros(parametros: dict[str, ParametrosRol], moneda: str) -> None:
     """Bids dentro de [piso, techo] de SU moneda (DEFAULTS_POR_MONEDA, regla 4)
     y budgets > 0 y >= bid; los 5 roles presentes."""
@@ -462,6 +472,10 @@ def _valida_plan_v2(plan: PlanGrupoV2) -> None:
         raise PlanInvalido("listing_id repetido en el grupo v2")
     if not all(p.platform == plan.platform for p in plan.publicaciones):
         raise PlanInvalido("publicacion v2 de otra plataforma")
+    if not all(
+        isinstance(p.asin, str) and PATRON_ASIN.fullmatch(p.asin) for p in plan.publicaciones
+    ):
+        raise PlanInvalido("ASIN ausente o invalido en publicaciones v2")
     if not all(seller_skus) or len(seller_skus) != len(set(seller_skus)):
         raise PlanInvalido("seller_sku ausente o repetido en el grupo v2")
     if plan.objetivo.origen not in ("margen_medido", "manual_lanzamiento"):
@@ -475,6 +489,10 @@ def _valida_plan_v2(plan: PlanGrupoV2) -> None:
     if plan.objetivo.origen == "margen_medido":
         if plan.objetivo.fraccion is None or plan.objetivo.derivado is None:
             raise PlanInvalido("objetivo por margen v2 requiere fraccion y derivado")
+        valida_objetivo_margen_v2(
+            [publicacion.margen_neto_pct for publicacion in plan.publicaciones],
+            plan.objetivo.acos_pct,
+        )
     elif plan.objetivo.fraccion is not None or plan.objetivo.derivado is not None:
         raise PlanInvalido("objetivo manual v2 no lleva fraccion ni derivado")
     valida_tipo_producto(plan.tipo_producto)

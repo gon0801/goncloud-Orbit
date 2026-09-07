@@ -384,6 +384,9 @@ def _publicaciones_v2(
     faltan = sorted(set(ids) - vistos)
     if faltan:
         raise Abortar(f"listing(s) {faltan} no existe(n) en {platform}")
+    asins = [str(fila[2]).strip() if fila[2] else "" for fila in filas]
+    if not all(fp.PATRON_ASIN.fullmatch(asin) for asin in asins):
+        raise Abortar("ASIN ausente o invalido en publicaciones v2")
     skus = [str(fila[3]).strip() if fila[3] else "" for fila in filas]
     if not all(skus) or len(skus) != len(set(skus)):
         raise Abortar("seller_sku ausente o duplicado en publicaciones v2")
@@ -391,12 +394,12 @@ def _publicaciones_v2(
         fp.PublicacionGrupoV2(
             listing_id=fila[0],
             product_id=fila[1],
-            asin=fila[2],
+            asin=asins[indice],
             seller_sku=str(fila[3]).strip(),
             platform=platform,
             margen_neto_pct=Decimal(fila[4]) if fila[4] is not None else None,
         )
-        for fila in filas
+        for indice, fila in enumerate(filas)
     ]
 
 
@@ -551,6 +554,7 @@ def _arma_plan_v2(args, conn_read, tipo: str, moneda: str, parametros: dict) -> 
     elif origen == "margen_medido":
         fraccion = _fraccion(conn_read, args.plataforma)
         margenes = [p.margen_neto_pct for p in publicaciones]
+        fp.valida_objetivo_margen_v2(margenes)
         resultado = fp.target_del_grupo(margenes, fraccion)
         objetivo = fp.ObjetivoPlanV2(
             origen,
@@ -600,9 +604,14 @@ def _imprime_dry_run(plan: fp.PlanGrupo | fp.PlanGrupoV2, huella: str) -> None:
     if isinstance(plan, fp.PlanGrupoV2):
         for rol in fp.ROLES_ORDEN_CREACION:
             parametro = plan.parametros[rol]
+            semillas = sum(
+                paso.recurso in ("keyword", "target", "negative_keyword")
+                for paso in fp.pasos_del_rol(plan, rol)
+            )
             print(
                 f"{rol}: budget={parametro.budget} bid={parametro.bid} "
-                f"target={plan.objetivo.acos_pct} semillas=0",
+                f"target={plan.objetivo.acos_pct} origen={plan.objetivo.origen} "
+                f"procedencia={plan.objetivo.procedencia} semillas={semillas}",
                 flush=True,
             )
         for publicacion in plan.publicaciones:

@@ -136,6 +136,9 @@ def test_catalogo_no_inventa_margenes_y_abre_multilisting_por_publicacion(escena
     assert "elegible" not in filas[0] and "margen_neto_pct" not in filas[0]
     assert filas[0]["publicaciones"][0]["elegible"]
     assert filas[0]["publicaciones"][0]["margen_neto_pct"] == "40.00000000000000000"
+    assert filas[0]["publicaciones"][0]["dias_con_venta"] == 70
+    assert filas[0]["publicaciones"][0]["ventana_desde"]
+    assert filas[0]["publicaciones"][0]["ventana_hasta"]
     assert filas[1]["publicaciones"][0]["margen_neto_pct"] is None
     assert filas[1]["publicaciones"][0]["elegible"]
     assert "margen" in filas[1]["publicaciones"][0]["motivos"][0].lower()
@@ -166,6 +169,8 @@ def test_catalogo_identifica_todas_las_publicaciones_por_plataforma(escenario):
     )
     invalido = cliente.get("/api/fabrica/catalogo?plataforma=amazon_us").json()["productos"][0]
     assert invalido["publicaciones"][0]["url"] is None
+    assert not invalido["publicaciones"][0]["elegible"]
+    assert "ASIN invalido." in invalido["publicaciones"][0]["motivos"]
 
 
 def test_preview_solo_lectura_sin_amazon_y_con_dinero_string(escenario):

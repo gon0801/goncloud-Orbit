@@ -288,6 +288,13 @@ def test_plan_v2_acepta_margen_nulo_y_varios_listings_del_mismo_producto():
     assert [p.listing_id for p in fp.plan_v2_desde_json(serializado).publicaciones] == [11, 22]
 
 
+def test_plan_v2_rechaza_asin_ausente_al_deserializar():
+    serializado = fp.plan_v2_como_json(_plan_v2())
+    serializado["publicaciones"][0]["asin"] = ""
+    with pytest.raises(fp.PlanInvalido, match="ASIN"):
+        fp.plan_v2_desde_json(serializado)
+
+
 def test_huella_v2_no_depende_del_orden_y_cambia_con_el_objetivo():
     base = _plan_v2(orden=(22, 11))
     assert fp.huella_plan_v2(base) == fp.huella_plan_v2(_plan_v2(orden=(11, 22)))

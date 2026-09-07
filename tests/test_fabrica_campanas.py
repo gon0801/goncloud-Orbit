@@ -548,6 +548,60 @@ def test_cli_v2_manual_normaliza_listing_sin_margen_sin_http(monkeypatch, capsys
     assert conn.escrituras == []
 
 
+def test_cli_v2_rechaza_asin_ausente_antes_de_http(monkeypatch):
+    args = ARGS_BASE.copy()
+    indice = args.index("--productos")
+    args[indice : indice + 2] = ["--listing-ids", "11"]
+    args.extend(["--target-acos", "25.00"])
+    conn = _ConnFalsa(publicaciones=[(11, 1, "", "SS-1", None)], biblioteca=([], []))
+    _frontera_lectura(monkeypatch, conn)
+    _sin_red(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *args])
+    with pytest.raises(fc.Abortar, match="ASIN"):
+        fc.main()
+    assert conn.escrituras == []
+
+
+def test_cli_v2_dry_run_muestra_semillas_y_procedencia_reales(monkeypatch, capsys):
+    args = ARGS_BASE.copy()
+    indice = args.index("--productos")
+    args[indice : indice + 2] = ["--listing-ids", "11"]
+    args.extend(["--target-acos", "25.00"])
+    conn = _ConnFalsa(
+        publicaciones=[(11, 1, "B0AAAAAAAA", "SS-1", None)],
+        biblioteca=(["semilla real"], ["bloquear"]),
+    )
+    _frontera_lectura(monkeypatch, conn)
+    _sin_red(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *args])
+    assert fc.main() == 0
+    salida = capsys.readouterr().out
+    assert "category_phrase: budget=120 bid=5.00 target=25.00 origen=manual_lanzamiento" in salida
+    assert "category_phrase: budget=120" in salida and "semillas=1" in salida
+    assert "category_broad: budget=120" in salida and "semillas=1" in salida
+    assert "auto_discovery: budget=150" in salida and "semillas=1" in salida
+    assert "procedencia=manual_lanzamiento confirmado" in salida
+    assert conn.escrituras == []
+
+
+@pytest.mark.parametrize("margen", [None, Decimal("0"), Decimal("-5"), Decimal("5")])
+def test_plan_v2_margen_medido_rechaza_margen_no_rentable_sin_http(monkeypatch, margen):
+    args = ARGS_BASE.copy()
+    indice = args.index("--productos")
+    args[indice : indice + 2] = ["--listing-ids", "11"]
+    parsed = fc._parser().parse_args(args)
+    parsed.origen_objetivo = "margen_medido"
+    conn = _ConnFalsa(
+        settings={"ads_target_fraccion_margen_amazon_mx": "0.5"},
+        publicaciones=[(11, 1, "B0AAAAAAAA", "SS-1", margen)],
+        biblioteca=([], []),
+    )
+    _sin_red(monkeypatch)
+    with pytest.raises(fc.Abortar, match="manual_lanzamiento"):
+        fc._arma_plan(parsed, conn)
+    assert conn.escrituras == []
+
+
 def test_cli_v2_con_mutacion_exige_interruptor_antes_de_http(monkeypatch):
     args = ARGS_BASE.copy()
     indice = args.index("--productos")

@@ -4,6 +4,8 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-06 — ORBIT 19 Fase A implementada, pendiente de CI y deploy.** El catalogo selecciona publicaciones con ASIN y SKU validos; margen e historial ausentes son avisos para un objetivo manual explicito. El plan v2 conserva huella estable, idempotencia y recuperacion al deshabilitar nuevas altas. No se crearon campanas ni se inicio Fase B. La revision independiente detecto y cerro validaciones de margen/ASIN, conteos de semillas, precision decimal y evidencia visual; falta re-revision, CI, merge y despliegue de 0019.
+
 **2026-09-06 — ORBIT 19 A.1 cerrada en revisión.** El plan de fábrica ya
 puede serializar v2 por publicación, con margen ausente real y una huella
 estable ante reorden. La migración 0019 admite varios listings por producto,

@@ -189,11 +189,14 @@ const calls = [];
 const catalogo = {plataforma: "amazon_mx", moneda: "MXN", tipos_producto: [],
   productos: [{id: 1, sku: "GORRA <img src=x>", nombre: "Nombre interno <img src=x>",
     publicaciones: [{id: 11, asin: "B0AAAAAAAA", seller_sku: "SKU-AMAZON-A",
-      platform: "amazon_mx", margen_neto_pct: "40.0000000", historial_ads: null,
+      platform: "amazon_mx", margen_neto_pct: "40.0000000", dias_con_venta: 70,
+      ventana_desde: "2026-02-20", ventana_hasta: "2026-08-22", historial_ads: null,
       elegible: true, motivos: [], url: "https://www.amazon.com.mx/dp/B0AAAAAAAA"}]},
     {id: 2, sku: "SIN MARGEN", nombre: null, publicaciones: [
       {id: 12, asin: "B0BBBBBBBB", seller_sku: "SKU-AMAZON-B", platform: "amazon_mx",
-        margen_neto_pct: null, historial_ads: null, elegible: true, motivos: ["Margen sin medir."],
+        margen_neto_pct: null, dias_con_venta: 12, ventana_desde: "2026-02-20",
+        ventana_hasta: "2026-08-22", historial_ads: null, elegible: true,
+        motivos: ["Margen sin medir."],
         url: "https://www.amazon.com.mx/dp/B0BBBBBBBB"},
       {id: 13, asin: "B0CCCCCCCC", seller_sku: null, platform: "amazon_mx",
         margen_neto_pct: null, historial_ads: null, elegible: false,
@@ -284,6 +287,8 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
   assert.ok(labels.every(label => !label.querySelectorAll("*").some(e => e.href)),
     "Abrir Amazon no debe seleccionar un producto: los enlaces van fuera del label");
   assert.match(text(el("productos")), /40 %/);
+  assert.match(text(el("productos")), /Muestra de margen: 70 dias con venta/);
+  assert.match(text(el("productos")), /Muestra limitada: 12 dias con venta/);
   assert.ok(!text(el("productos")).includes("40.0000000"));
   productos[0].checked = true;
   el("tipo").value = "gorras"; el("nombre").value = "Gorras"; el("modo").value = "shadow";
