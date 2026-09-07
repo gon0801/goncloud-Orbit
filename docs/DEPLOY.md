@@ -335,6 +335,7 @@ El server está en UTC: estas horas SON UTC.
 |-------|---------|---------|
 | 06:45 | `ingest:structure` | `python -m app.cli ingest structure` |
 | 07:10 | `ingest:metrics` | `python -m app.cli ingest metrics --fecha D-31 --fecha-fin D-1` |
+| 07:20 | `ingest:metrics:productos` | `python -m app.cli ingest metrics --fecha D-31 --fecha-fin D-1 --productos` (ORBIT 19 B.1; el reporte `spAdvertisedProduct` puede tardar hasta ~25 min por perfil, presupuesto de poll propio) |
 | 08:40 | `ads_optimizer:amazon_us` + `ads_optimizer:amazon_mx` | `python -m app.cli cycle --platform …` (los dos, en serie) |
 
 `job_key` del ciclo es `app.cycle.job_key_de` (`ads_optimizer:<platform>`),
@@ -401,6 +402,8 @@ ORBIT_BLOCK=$(cat <<'CRON'
 # job_key=ingest:metrics  profundidad D-31..D-1 (sello 4.2; max API 31d cubre atribucion 30d)
 # Vixie cron: % sin escapar se vuelve newline y trunca el comando (hallazgo codex).
 10 7 * * * FECHA=$(date -u -d "31 days ago" +\%F) FECHA_FIN=$(date -u -d "1 day ago" +\%F) && docker exec orbit-app-1 python -m app.cli ingest metrics --fecha "$FECHA" --fecha-fin "$FECHA_FIN" >> /mnt/data/appdata/orbit/logs/ingest-metrics.log 2>&1
+# job_key=ingest:metrics:productos  ORBIT 19 B.1 (spAdvertisedProduct por ASIN/SKU; poll hasta 25 min/reporte)
+20 7 * * * FECHA=$(date -u -d "31 days ago" +\%F) FECHA_FIN=$(date -u -d "1 day ago" +\%F) && docker exec orbit-app-1 python -m app.cli ingest metrics --fecha "$FECHA" --fecha-fin "$FECHA_FIN" --productos >> /mnt/data/appdata/orbit/logs/ingest-productos.log 2>&1
 # job_key=ads_optimizer:amazon_us + ads_optimizer:amazon_mx
 40 8 * * * docker exec orbit-app-1 python -m app.cli cycle --platform amazon_us >> /mnt/data/appdata/orbit/logs/optimizer.log 2>&1
 41 8 * * * docker exec orbit-app-1 python -m app.cli cycle --platform amazon_mx >> /mnt/data/appdata/orbit/logs/optimizer.log 2>&1

@@ -65,3 +65,25 @@ PYTHONPATH=. .venv/bin/python tools/disponibilidad_snapshot.py \
 Salida esperada del paso 4: `run_id=... ok=True`, `filas_insertadas=N`,
 `rows_skipped=M` con motivos (`seller_sku sin listing en Orbit` esperado por
 los 291 listings sin mapa de 0.1). Pegar la salida real aqui cuando corra.
+
+## Resultado en vivo: productivo, 2026-09-07 (cerrado por el lead)
+
+Snapshot real del bridge (`sqlite3 .backup()` en modo ro, patron de
+`docs/DEPLOY.md`), copiado al contenedor y corrido con el tool:
+
+```
+$ cat tools/disponibilidad_snapshot.py | ssh goncloud \
+    'docker exec -i orbit-app-1 python - --snapshot /tmp/bridge-snapshot-b3.db'
+run_id=115 ok=True
+filas_insertadas=546
+filas_idempotentes=0
+rows_skipped=2046
+skips: 1828x fba: seller_sku sin listing en Orbit, 218x fbm: seller_sku sin listing en Orbit
+```
+
+- 2046 SKUs del bridge sin listing en Orbit quedaron FUERA, contados, sin
+  inventar filas (regla 3). El snapshot temporal se borro del contenedor.
+- Verificacion via API productiva `GET /api/fabrica/evaluacion?plataforma=amazon_mx`:
+  las 342 publicaciones MX traen disponibilidad con dato real; ejemplo
+  B0BXHVT1MG estado=positivo, cantidad fbm=46, freshness 2026-09-07T12:40Z
+  (hoy). Featured Offer sigue Sin verificar (ampliacion abierta).
