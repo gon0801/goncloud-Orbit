@@ -270,13 +270,22 @@ def _serializar_evaluacion(e: ec.EvaluacionListing) -> dict:
     }
 
 
-def evaluacion(conn, plataforma: str, orden: str = "margen_observado", direccion: str = "desc"):
+def evaluacion(
+    conn,
+    plataforma: str,
+    orden: str = "margen_observado",
+    direccion: str = "desc",
+    objetivo: Decimal | None = None,
+):
     """Evaluacion completa por listing (B.2 + Ads B.1 + B.3 + objetivo D2).
 
     Ventana Ads igual al cron (0.4 §2): max 31 dias, D-31..D-1 UTC.
     El objetivo por listing viene de grupos en preparacion (lote 'planeado'
     con target_origen manual_lanzamiento o margen_medido, CHECK de 0019);
     targets distintos entre grupos => sin objetivo, jamas promedio (D2/§3).
+    `objetivo` explicito (el del formulario, grupo AUN sin crear) toma
+    precedencia sobre la consulta de grupos: es el grupo que el dueno esta
+    preparando (hallazgo cross-review codex 2026-09-07).
     """
     if orden not in ec.METRICAS_ORDEN:
         raise error(422, "El criterio de orden no es válido.")
@@ -286,6 +295,8 @@ def evaluacion(conn, plataforma: str, orden: str = "margen_observado", direccion
     hoy = dt.datetime.now(dt.UTC).date()
     hasta = hoy - dt.timedelta(days=1)
     desde = hasta - dt.timedelta(days=30)
+    # Mismo formato que el NUMERIC(5,2) de campana_grupo: "10" -> "10.00".
+    objetivo = objetivo.quantize(Decimal("0.01")) if objetivo is not None else None
 
     try:
         listings = conn.execute(
@@ -340,7 +351,9 @@ def evaluacion(conn, plataforma: str, orden: str = "margen_observado", direccion
                 disponibilidad=disponibilidad
                 if disponibilidad is not None
                 else {"estado": "desconocido"},
-                objetivos_grupos=objetivos.get(listing_id, ()),
+                objetivos_grupos=(objetivo,)
+                if objetivo is not None
+                else objetivos.get(listing_id, ()),
             )
         )
     ordenadas = ec.ordenar(evaluaciones, orden, descendente=direccion == "desc")
