@@ -37,3 +37,27 @@ implementacion de Fase B ni llamadas de Amazon en estas comprobaciones.
 
 El review no ejecuta la suite completa. CI, backup, ensayo de rollback,
 migracion y despliegue quedan para A.5.
+
+## Revision correctiva posterior a la PR 187
+
+Revision realizada sobre `911aaa2..746b56a`, antes de la integracion de
+[PR 187](https://github.com/gon0801/goncloud-Orbit/pull/187).
+
+Resultado: `APPROVE`. El reviewer de seguridad/regresion verifico el lote CLI
+estable `cli-<huella>`, advisory lock antes de credenciales, rechazo de
+`--productos` con `--target-acos` antes de abrir conexion, token en crear y
+recuperar, y que reconciliar/registrar/pausar no llaman al motor de creacion.
+El reviewer de codigo aprobo la evidencia RED contra `911aaa2` y el ensayo
+PostgreSQL temporal. El reviewer del plan aprobo AC9: un snapshot v2 parcial
+se recupera con configuracion v1, con reconciliacion, registro, cinco pausas y
+cero POST de creacion. El alcance completo se valido en CI de la PR 187.
+
+Se aceptaron tres correcciones del review automatizado: demostrar cero
+conexiones en el rechazo CLI, leer `PAUSED` solo despues del PUT simulado y
+precisar que la evidencia RED no alcanza el segundo reintento. No se aplico la
+sugerencia de normalizar globalmente settings JSON no objeto a `{}`: convertir
+configuracion corrupta en configuracion ausente ocultaria un error y cambiaria
+la semantica establecida del optimizador. El interruptor de creacion mantiene
+el fallback localizado a v1. El aviso de cobertura de docstrings y una
+observacion Node preexistente estaban fuera del diff y no son candados del
+repositorio.

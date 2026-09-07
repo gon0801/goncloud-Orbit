@@ -49,3 +49,9 @@ PATH=".venv/bin:$PATH" pre-commit run --all-files           todos los candados p
 La suite completa se ejecuta en CI del PR de esta correccion. El resultado,
 SHA desplegado, backup y smoke se agregan al cerrar A.5 despues de esa
 ejecucion y del despliegue.
+
+## Cierre
+
+La [CI final de PR 187](https://github.com/gon0801/goncloud-Orbit/actions/runs/34088493597)
+termino en `success`. El despliegue, resguardo, smoke sin mutacion y capturas
+productivas estan archivados en `despliegue-final.md`.

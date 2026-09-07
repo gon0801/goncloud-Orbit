@@ -4,7 +4,7 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
-**2026-09-06 — ORBIT 19 Fase A implementada, pendiente de CI y deploy.** El catalogo selecciona publicaciones con ASIN y SKU validos; margen e historial ausentes son avisos para un objetivo manual explicito. El plan v2 conserva huella estable, idempotencia y recuperacion al deshabilitar nuevas altas. No se crearon campanas ni se inicio Fase B. La revision independiente detecto y cerro validaciones de margen/ASIN, conteos de semillas, precision decimal y evidencia visual; A.R esta aprobada. El preflight confirma F1 presente, cero lotes/grupos y 0019 pendiente; `fabrica.creacion` queda en v1. Faltan CI, merge y despliegue de 0019.
+**2026-09-07 — ORBIT 19 Fase A cerrada y desplegada.** PR #187 se integro en `78fcbd7`; la suite completa de CI finalizo verde en el run 34088493597. El catalogo permite seleccionar publicaciones con ASIN y SKU validos aunque margen e historial esten ausentes: son avisos bajo objetivo manual explicito. El plan v2 conserva huella estable, idempotencia y recuperacion de lotes v1/v2; el ensayo controlado cubre reconciliar, registrar y pausar un lote v2 parcial mientras `fabrica.creacion` permanece v1. Produccion responde salud, mantiene `target_origen` y cero lotes/grupos/publicaciones despues del smoke GET/preview. Se verifico la interfaz con capturas; no hubo `/crear`, campanas reales ni inicio de Fase B.
 
 **2026-09-06 — ORBIT 19 A.1 cerrada en revisión.** El plan de fábrica ya
 puede serializar v2 por publicación, con margen ausente real y una huella
