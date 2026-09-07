@@ -10,6 +10,8 @@ Subcomandos:
   drive-contribucion Receta curl de la pantalla Contribucion + evidencia (HTML y JSON)
   drive-cortes    Receta curl de la pantalla Cortes + evidencia (HTML y JSON)
   drive-inertes   Receta curl de la pantalla Inertes + evidencia (HTML y JSON)
+  drive-fabrica   Receta curl de Crear campanas + evidencia (HTML y JSON)
+  drive-settings  Receta curl de Settings + evidencia (HTML y JSON)
   drive-campanas  Receta curl de la pantalla Campanas + captura de evidencia
   maintain-verification-skill
                  Orquesta launch + doctor + drives y hace teardown al final
@@ -656,6 +658,8 @@ def cmd_drive_campanas(args: argparse.Namespace) -> None:
         "target_25": "25.00%" in texto or ">25.00%<" in texto,
         "peldano_goal_plataforma": "goal_plataforma" in texto,
         "th_procedencia": "Procedencia" in texto,
+        "enlace_crear": 'href="/campanas/nuevas"' in texto,
+        "filtros_avanzados": "Filtros por metricas" in texto,
     }
 
     stj, _, rawj = _http(f"{base}/api/dashboard/campanas")
@@ -742,14 +746,21 @@ def cmd_drive_resumen(args: argparse.Namespace) -> None:
         "http_200": st_html == 200,
         "data-pantalla=resumen": 'data-pantalla="resumen"' in texto,
         "titulo_Orbit": "Orbit — Dashboard" in texto,
+        "h1_resumen": "<h1>Resumen</h1>" in texto,
+        "sidebar": 'class="sidebar"' in texto,
         "nav_resumen_activa": 'href="/"' in texto and 'aria-current="page"' in texto,
         "nav_inertes": 'href="/inertes"' in texto,
+        "nav_fabrica": 'href="/campanas/nuevas"' in texto,
+        "nav_settings": 'href="/settings"' in texto,
         "tema_dia": 'data-tema="dia"' in texto,
         "btn_tema": 'id="btn-tema"' in texto,
         "ventana_efectiva": "Ventana efectiva:" in texto,
         "inmaduros": "inmaduros" in texto,
         "h2_au_us": "amazon_us (USD) — spend y Revenue Ads" in texto,
         "h2_am_mx": "amazon_mx (MXN) — spend y Revenue Ads" in texto,
+        "kpi_cost_30d": "Cost 30d" in texto,
+        "spark_cost_us": 'id="spark-cost-amazon_us"' in texto,
+        "chip_dias_sin_ventas": "dias sin ventas" in texto,
         "canvas_us": 'id="serie-amazon_us"' in texto,
         "canvas_acos_us": 'id="serie-acos-amazon_us"' in texto,
         "script_us": 'id="datos-serie-amazon_us"' in texto,
@@ -841,6 +852,8 @@ def cmd_drive_decisiones(args: argparse.Namespace) -> None:
         "http_200": st_html == 200,
         "data-pantalla=decisiones": 'data-pantalla="decisiones"' in texto,
         "h2_feed": "<h2>Decisiones</h2>" in texto,
+        "columna_bid": "<th>Bid</th>" in texto,
+        "total_2_decisiones": "2 decisiones" in texto,
         "paginador": 'class="paginador"' in texto,
         "pagina_1_de_1": "pagina 1 de 1" in texto,
         "sin_rel_next": 'rel="next"' not in texto,
@@ -921,6 +934,9 @@ def cmd_drive_salud(args: argparse.Namespace) -> None:
         "applies_0": "applies: 0" in texto,
         "canvas_skips_amazon_us": 'id="skips-amazon_us"' in texto,
         "script_skips_amazon_us": 'id="datos-skips-amazon_us"' in texto,
+        "quota_del_dia": "Quota del dia" in texto,
+        "quota_sin_clave": "— (sin clave)" in texto,
+        "historico_14d": "Historico (14d)" in texto,
     }
 
     # Validacion de motivo_es en script del canvas de skips.
@@ -1049,6 +1065,10 @@ def cmd_drive_cortes(args: argparse.Namespace) -> None:
         "http_200": st_html == 200,
         "data-pantalla=cortes": 'data-pantalla="cortes"' in texto,
         "h2_cortes": "Propuestas pendientes de decision" in texto,
+        "bloque_crecen": "Crecen" in texto,
+        "bloque_recortan": "Recortan" in texto,
+        "columna_por_que": "Por que" in texto,
+        "confirmar_rechazo": "Confirmar rechazo" in texto,
         "zapato_blanco": "zapato blanco" in texto,
         "entidad_campana_a": "Campana A" in texto,
         "button_vetar": 'data-vetar="' in texto,
@@ -1114,6 +1134,9 @@ def cmd_drive_inertes(args: argparse.Namespace) -> None:
         "h2_inertes": "<h2>Entidades sin trafico</h2>" in texto,
         "nav_aria_current": 'href="/inertes"' in texto and 'aria-current="page"' in texto,
         "vacio_semilla": "sin entidades inertes: todo lo activo tiene trafico reciente." in texto,
+        "kpi_hojas": "Hojas sin trafico" in texto,
+        "h3_lotes": "Lotes de archivado" in texto,
+        "vacio_lotes": "sin lotes de archivado todavia." in texto,
     }
 
     stj, _, rawj = _http(f"{base}/api/dashboard/inertes")
@@ -1124,6 +1147,7 @@ def cmd_drive_inertes(args: argparse.Namespace) -> None:
     checks["api_http_200"] = stj == 200
     checks["api_items_vacios"] = data.get("items") == []
     checks["api_totales_vacios"] = data.get("totales") == {}
+    checks["api_lotes_vacios"] = data.get("lotes") == []
 
     prueba = {
         "feature": "inertes",
@@ -1139,6 +1163,131 @@ def cmd_drive_inertes(args: argparse.Namespace) -> None:
     if not prueba["ok"]:
         fallaron = [k for k, v in checks.items() if not v]
         _die("drive-inertes FALLA: " + ", ".join(fallaron))
+
+
+def cmd_drive_fabrica(args: argparse.Namespace) -> None:
+    run_id = args.run_id or _latest_run_id()
+    state = _load_state(run_id)
+    base = state["base_url"]
+    if any(h in base for h in FORBIDDEN_HOSTS) or state["port"] in FORBIDDEN_PORTS:
+        _die(f"rehuso conducir {base}: no es instancia local de verificacion")
+
+    evidence = _evidence_dir(run_id) / "fabrica"
+    evidence.mkdir(parents=True, exist_ok=True)
+
+    st0, html0 = _get_html(base, "/")
+    (evidence / "01-resumen.html").write_bytes(html0)
+    if st0 != 200 or 'data-pantalla="resumen"' not in html0.decode("utf-8", errors="replace"):
+        _die(f"punto de partida GET / fallo: {st0}")
+
+    st_html, html = _get_html(base, "/campanas/nuevas")
+    (evidence / "02-fabrica.html").write_bytes(html)
+    texto = html.decode("utf-8", errors="replace")
+
+    checks: dict[str, bool] = {
+        "http_200": st_html == 200,
+        "data-pantalla=fabrica": 'data-pantalla="fabrica"' in texto,
+        "h1_crear": "<h1>Crear campañas</h1>" in texto,
+        "h2_crear": "<h2>Crear campañas</h2>" in texto,
+        "nav_aria_current": 'href="/campanas/nuevas"' in texto and 'aria-current="page"' in texto,
+        "form_plan": 'id="fabrica-plan"' in texto,
+        "select_plataforma": 'id="fabrica-plataforma"' in texto,
+        "input_token": 'id="fabrica-token"' in texto,
+        "frase_crear": "CREAR 5 CAMPAÑAS" in texto,
+        "aviso_activas": "Las campañas se crean ACTIVAS" in texto,
+    }
+
+    stc, _, rawc = _http(f"{base}/api/fabrica/catalogo?plataforma=amazon_us")
+    (evidence / "03-catalogo-amazon_us.json").write_bytes(rawc)
+    catalogo = json.loads(rawc.decode("utf-8")) if stc == 200 else {}
+    checks["catalogo_http_200"] = stc == 200
+    checks["catalogo_productos_vacios"] = catalogo.get("productos") == []
+    checks["catalogo_tipos_vacios"] = catalogo.get("tipos_producto") == []
+
+    stl, _, rawl = _http(f"{base}/api/fabrica/lotes?plataforma=amazon_us")
+    (evidence / "04-lotes-amazon_us.json").write_bytes(rawl)
+    lotes = json.loads(rawl.decode("utf-8")) if stl == 200 else {}
+    checks["lotes_http_200"] = stl == 200
+    checks["lotes_items_vacios"] = lotes.get("items") == []
+
+    prueba = {
+        "feature": "fabrica",
+        "entry_point": "nav /campanas/nuevas",
+        "base_url": base,
+        "action": "GET /campanas/nuevas, GET /api/fabrica/catalogo y /lotes",
+        "checks": checks,
+        "ok": all(checks.values()),
+        "evidence_dir": str(evidence),
+    }
+    (evidence / "PROOF.json").write_text(json.dumps(prueba, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(prueba, indent=2))
+    if not prueba["ok"]:
+        fallaron = [k for k, v in checks.items() if not v]
+        _die("drive-fabrica FALLA: " + ", ".join(fallaron))
+
+
+def cmd_drive_settings(args: argparse.Namespace) -> None:
+    run_id = args.run_id or _latest_run_id()
+    state = _load_state(run_id)
+    base = state["base_url"]
+    if any(h in base for h in FORBIDDEN_HOSTS) or state["port"] in FORBIDDEN_PORTS:
+        _die(f"rehuso conducir {base}: no es instancia local de verificacion")
+
+    evidence = _evidence_dir(run_id) / "settings"
+    evidence.mkdir(parents=True, exist_ok=True)
+
+    st0, html0 = _get_html(base, "/")
+    (evidence / "01-resumen.html").write_bytes(html0)
+    if st0 != 200 or 'data-pantalla="resumen"' not in html0.decode("utf-8", errors="replace"):
+        _die(f"punto de partida GET / fallo: {st0}")
+
+    st_html, html = _get_html(base, "/settings")
+    (evidence / "02-settings.html").write_bytes(html)
+    texto = html.decode("utf-8", errors="replace")
+
+    checks: dict[str, bool] = {
+        "http_200": st_html == 200,
+        "data-pantalla=settings": 'data-pantalla="settings"' in texto,
+        "h1_settings": "<h1>Settings</h1>" in texto,
+        "h2_settings": "<h2>Settings</h2>" in texto,
+        "nav_aria_current": 'href="/settings"' in texto and 'aria-current="page"' in texto,
+        "token_input": 'id="settings-token"' in texto,
+        "plataforma_us": 'data-plataforma="amazon_us"' in texto,
+        "peldano_goal_plataforma": "goal_plataforma" in texto,
+        "target_25": "25.00" in texto,
+        "sin_goals_campana": "sin goals de campaña" in texto,
+    }
+
+    stj, _, rawj = _http(f"{base}/api/dashboard/settings")
+    (evidence / "03-settings.json").write_bytes(rawj)
+    data = json.loads(rawj.decode("utf-8")) if stj == 200 else {}
+    checks["api_http_200"] = stj == 200
+    checks["api_modo_shadow"] = data.get("modo_global") == "shadow"
+    plats = {p.get("plataforma"): p for p in (data.get("plataformas") or [])}
+    us = plats.get("amazon_us") or {}
+    vigente = us.get("target_vigente") or {}
+    checks["api_us_target_25"] = vigente.get("valor") == "25.00"
+    checks["api_us_peldano"] = vigente.get("peldano") == "goal_plataforma"
+    goals = data.get("goals") or []
+    checks["api_goal_plataforma_us"] = any(
+        g.get("scope") == "platform" and g.get("plataforma") == "amazon_us" for g in goals
+    )
+    checks["api_sin_goal_campana"] = all(g.get("scope") != "campaign" for g in goals)
+
+    prueba = {
+        "feature": "settings",
+        "entry_point": "nav /settings",
+        "base_url": base,
+        "action": "GET /settings y GET /api/dashboard/settings",
+        "checks": checks,
+        "ok": all(checks.values()),
+        "evidence_dir": str(evidence),
+    }
+    (evidence / "PROOF.json").write_text(json.dumps(prueba, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(prueba, indent=2))
+    if not prueba["ok"]:
+        fallaron = [k for k, v in checks.items() if not v]
+        _die("drive-settings FALLA: " + ", ".join(fallaron))
 
 
 def cmd_drive_maintain_verification_skill(args: argparse.Namespace) -> None:
@@ -1164,6 +1313,8 @@ def cmd_drive_maintain_verification_skill(args: argparse.Namespace) -> None:
             cmd_drive_contribucion,
             cmd_drive_cortes,
             cmd_drive_inertes,
+            cmd_drive_fabrica,
+            cmd_drive_settings,
         ):
             try:
                 drive(drive_args)
@@ -1274,6 +1425,14 @@ def main() -> None:
     p_drive_inertes = sub.add_parser("drive-inertes", help="Conduce la pantalla Inertes")
     p_drive_inertes.add_argument("--run-id", default=None)
     p_drive_inertes.set_defaults(func=cmd_drive_inertes)
+
+    p_drive_fabrica = sub.add_parser("drive-fabrica", help="Conduce Crear campanas")
+    p_drive_fabrica.add_argument("--run-id", default=None)
+    p_drive_fabrica.set_defaults(func=cmd_drive_fabrica)
+
+    p_drive_settings = sub.add_parser("drive-settings", help="Conduce Settings")
+    p_drive_settings.add_argument("--run-id", default=None)
+    p_drive_settings.set_defaults(func=cmd_drive_settings)
 
     p_drive = sub.add_parser("drive-campanas", help="Conduce la pantalla Campanas")
     p_drive.add_argument("--run-id", default=None)

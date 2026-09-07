@@ -6,8 +6,10 @@ Inertes lista hojas (`keyword` / `product_target`) ENABLED cuya campana y ad gro
 
 - `inertes-nav` abre `/inertes` y marca `aria-current="page"`.
 - `inertes-vacio` sin filas muestra `sin entidades inertes: todo lo activo tiene trafico reciente.` (el parrafo se pinta dos veces: resumen y tabla).
-- `inertes-fila` si hay hoja, muestra plataforma, campana, ad group, texto de keyword/target (`etiqueta_entidad.hoja`), clasificacion (`con_ventas_previas` / `gasto_sin_ventas` / `peso_muerto`), dias sin impresiones, gasto 90d, ordenes 90d, ultima impresion.
-- `inertes-api` `GET /api/dashboard/inertes` es el mismo snapshot (`totales` + `items`).
+- `inertes-kpis` pinta Hojas sin trafico, Antiguedad cumplida, En espera y Gasto 90d inmovil.
+- `inertes-fila` si hay hoja, muestra plataforma, campana, ad group, texto de keyword/target (`etiqueta_entidad.hoja`), clasificacion (`con_ventas_previas` / `gasto_sin_ventas` / `peso_muerto`), chip `en espera` si aplica, dias sin impresiones, gasto 90d, ordenes 90d, ultima impresion y `Archivable desde`.
+- `inertes-lotes` seccion `Lotes de archivado`. Sin lotes muestra `sin lotes de archivado todavia.`
+- `inertes-api` `GET /api/dashboard/inertes` es el mismo snapshot (`totales` + `items` + `lotes`).
 
 ## How to get to it (user POV)
 
@@ -23,7 +25,7 @@ Preconditions:
 
 - **Partir de Resumen.** Corre `curl -sS "$BASE/"`. Status 200 y `data-pantalla="resumen"`.
 - **Seguir el nav.** Corre `curl -sS "$BASE/inertes"`. Status 200. El HTML contiene `data-pantalla="inertes"`, `h2` `Entidades sin trafico`, `href="/inertes"` junto a `aria-current="page"`.
-- **Leer el vacio de la semilla.** El HTML contiene `sin entidades inertes: todo lo activo tiene trafico reciente.` No afirma una clasificacion contra esta semilla.
+- **Leer el vacio de la semilla.** El HTML contiene `sin entidades inertes: todo lo activo tiene trafico reciente.`, KPIs `Hojas sin trafico` y `h3` `Lotes de archivado` con `sin lotes de archivado todavia.` No afirma una clasificacion contra esta semilla.
 - **Confirmar lado JSON.** Corre `curl -sS "$BASE/api/dashboard/inertes"`. Status 200. `items` es `[]` y `totales` es `{}`.
 - **Proof.** Guarda HTML de `/` y `/inertes` mas el JSON bajo `evidence/<run_id>/inertes/`. O corre `.cursor/skills/verify-orbit/helpers/orbit-verify drive-inertes`.
 

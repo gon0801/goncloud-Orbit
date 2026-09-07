@@ -1,14 +1,16 @@
 # Salud
 
-Salud muestra, por plataforma, el ultimo ciclo (status, mode, decisiones, applies), skips del ciclo, quota del dia, watermark/sync y el historico de 14 dias. Un ciclo `done` con Telegram caido debe verse en rojo, no "perfecto".
+Salud muestra, por plataforma, el ultimo ciclo (status, mode, decisiones, applies), skips del ciclo, quota del dia, watermark/sync y el historico de 14 ciclos (el h3 dice `Historico (14d)`). Un ciclo `done` con Telegram caido debe verse en rojo, no "perfecto".
 
 ## Sub-features
 
 - `salud-nav` abre `/salud` y marca `aria-current="page"`.
 - `salud-ciclo` muestra `#<id>`, started_at, `decisiones:` y `applies:` (el 0 de shadow es dato).
 - `salud-skips` dibuja `canvas#skips-<plataforma>` desde `script#datos-skips-<plataforma>`.
+- `salud-quota` tabla `Quota del dia` (usado / cap / fuente). Cap nulo se pinta `— (sin clave)` o `— (config rota)`.
+- `salud-historico` tabla `Historico (14d)`: ultimos 14 ciclos, no 14 dias de calendario.
 - `salud-telegram` si `notes.telegram` existe, aparece `p.alerta` cuyo texto empieza `telegram: fallo del canal (` y lista las claves del dict (digest, …) `sin entregar — ver notes`. El chip `done` del h2 no pasa a alerta.
-- `salud-api` `GET /api/dashboard/salud` es el mismo snapshot.
+- `salud-api` `GET /api/dashboard/salud` trae el mismo ciclo, skips, quota e historico. El JSON tambien lleva `target_margen`; el HTML no lo pinta.
 
 ## How to get to it (user POV)
 
@@ -24,6 +26,7 @@ Preconditions:
 - **Abrir Salud.** Corre `curl -sS "$BASE/salud"`. Status 200. El HTML contiene `data-pantalla="salud"` y `h2` `Salud — ultimo ciclo, historico 14d y skips`.
 - **Leer el ultimo ciclo.** Hay una tarjeta `amazon_us` con chips `done` y `shadow`, texto `decisiones: 2` y `applies: 0` (no `—`).
 - **Ver skips.** Existe `id="skips-amazon_us"` y `id="datos-skips-amazon_us"`.
+- **Ver quota e historico.** El HTML contiene `Quota del dia`, `— (sin clave)` (la semilla no pone caps) y `Historico (14d)`. Hay tarjeta `amazon_mx` aunque no tenga ciclo.
 - **Confirmar lado JSON.** Corre `curl -sS "$BASE/api/dashboard/salud"`. Status 200. `plataformas.amazon_us.ultimo_ciclo.status` es `done`, `decisions_count` es `2` y `applied_count` es `0`.
 - **Proof.** Guarda HTML y JSON bajo `evidence/<run_id>/salud/`.
 
