@@ -143,6 +143,31 @@ def catalogo(conn: ConexionLectura, plataforma: Plataforma):
     return fw.catalogo(conn, plataforma)
 
 
+OrdenEvaluacion = Literal[
+    "margen_observado",
+    "ventas_totales",
+    "revenue_ads",
+    "gasto",
+    "acos",
+    "cpc",
+    "cvr",
+    "compras",
+]
+
+
+@router.get("/evaluacion")
+def evaluacion(
+    conn: ConexionLectura,
+    plataforma: Plataforma,
+    orden: OrdenEvaluacion = "margen_observado",
+    direccion: Literal["asc", "desc"] = "desc",
+):
+    """Evaluacion completa por publicacion (ORBIT 19 B.4): economia observada
+    + Ads + disponibilidad + objetivo del grupo en preparacion. Orden estable
+    con NULL al final; ninguna etiqueta bloquea la seleccion."""
+    return fw.evaluacion(conn, plataforma, orden=orden, direccion=direccion)
+
+
 @router.get("/publicaciones/{listing_id}/imagen")
 def imagen_publicacion(
     listing_id: Annotated[int, Path(ge=1, le=9223372036854775807)], conn: ConexionLectura
