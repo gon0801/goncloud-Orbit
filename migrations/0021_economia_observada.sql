@@ -10,9 +10,12 @@
 -- puede alterarse ni parameterizarse, el bloque `muestra` de esta migracion
 -- replica VERBATIM los CTE de 0018 (misma ventana de arranque fijo
 -- [2026-02-20, D-15) UTC, mismo prorrateo, mismos guards) salvo ese guard.
--- El riesgo de deriva se pinea con test (tests/test_economia_observada.py):
--- con dias >= 30 e integridad OK, muestra_margen == margen_neto_pct de
--- v_margen_producto. Cualquier cambio futuro a 0018 debe espejarse aqui.
+-- El riesgo de deriva se mitiga con tests (tests/test_economia_observada.py):
+-- (a) snapshot antes/despues: v_margen_producto conserva valores previos tras
+-- aplicar 0021; (b) pineo de valores exactos de la muestra (60% / -50%) sobre
+-- fixture sembrado. Nota: muestra_margen_neto_pct es NULL con >= 30 dias por
+-- diseno (D4), asi que NO existe un pineo muestra == madura; el pineo cubre el
+-- rango 1-29. Cualquier cambio futuro a 0018 debe espejarse aqui.
 --
 -- ADR B.2-2 (grano y duplicacion): el grano es (platform, product_id); dos
 -- listings del mismo producto COMPARTEN la fila (politica 0.4 §5: "Dos

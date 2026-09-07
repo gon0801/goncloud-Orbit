@@ -347,6 +347,46 @@ def test_madurez_con_observacion_posterior_es_maduro():
     assert res.muestra == 1  # re-lectura: misma fecha, no duplica muestra
 
 
+def test_relecturas_de_la_misma_fecha_se_colapsan_no_se_suman():
+    """Hallazgo bloqueante B.R: la tabla es append-only y el cron re-observa
+    cada fecha ~31 veces. El consumidor (fabrica_web, DISTINCT ON) colapsa a la
+    observacion MAS RECIENTE por fecha; aqui se ejercita ese contrato: valores
+    DISTINTOS en dos re-lecturas no se suman (cost 10 -> 12, no 22)."""
+    d = dt.date(2026, 8, 10)
+    colapsadas = [
+        ObservacionAds(  # re-lectura vieja, descartada por el colapso
+            metric_date=d,
+            observed_at=dt.datetime(2026, 8, 11, tzinfo=UTC),
+            cost=Decimal("10"),
+            sales30d=Decimal("40"),
+        ),
+        ObservacionAds(  # observacion mas reciente: la que cuenta
+            metric_date=d,
+            observed_at=dt.datetime.combine(d + dt.timedelta(days=30), dt.time.min, UTC),
+            cost=Decimal("12"),
+            sales30d=Decimal("48"),
+        ),
+    ]
+    res = evaluar_ads(colapsadas, VENTANA)
+    assert res.cost == Decimal("12")
+    assert res.sales30d == Decimal("48")
+    assert res.acos_pct == Decimal("25")
+
+
+def test_metrica_ausente_en_una_fecha_envenena_el_subtotal():
+    """Hallazgo menor B.R (0.4 §4.1): subtotal parcial = desconocido, no la
+    suma de las presentes. sales30d ausente en una fecha y 0 en la otra NO es
+    'gasto sin ventas'."""
+    filas = [
+        _obs(dt.date(2026, 8, 5), cost=Decimal("10"), sales30d=Decimal("0")),
+        _obs(dt.date(2026, 8, 6), cost=Decimal("5"), sales30d=None),
+    ]
+    res = evaluar_ads(filas, VENTANA, objetivo=Decimal("25"))
+    assert res.sales30d is None
+    assert res.acos_pct is None
+    assert res.etiqueta != "gasto_sin_ventas"
+
+
 def test_madurez_exactamente_d_mas_30_cuenta():
     """Limite inclusive (§2: observed_at >= D + 30 dias)."""
     d = dt.date(2026, 8, 1)

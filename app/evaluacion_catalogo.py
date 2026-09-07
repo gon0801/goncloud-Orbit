@@ -109,12 +109,14 @@ class EvaluacionAds:
 
 
 def _suma(valores: Iterable[Decimal | None]) -> Decimal | None:
-    """Suma ignorando ausencias; None solo si TODAS son ausencia (regla 3)."""
+    """Suma con envenenamiento de ausencias (regla 3; 0.4 §4.1): si ALGUNA
+    fila de la ventana trae la metrica ausente, el subtotal es parcial y se
+    reporta como desconocido (None), no como la suma de las presentes."""
     total = Decimal("0")
     hay = False
     for valor in valores:
         if valor is None:
-            continue
+            return None
         hay = True
         total += valor
     return total if hay else None
@@ -151,12 +153,22 @@ def evaluar_ads(
             etiqueta=ETIQUETA_SIN_DATOS, maduro=False, provisional=False, muestra=0
         )
 
+    # Colapso append-only: de cada fecha cuenta SOLO la observacion mas
+    # reciente (max observed_at); el cron D-31..D-1 re-observa cada fecha ~31
+    # veces y sin colapso el gasto/ventas se inflaria (hallazgo B.R).
+    por_fecha: dict[dt.date, ObservacionAds] = {}
+    for f in en_ventana:
+        actual = por_fecha.get(f.metric_date)
+        if actual is None or f.observed_at > actual.observed_at:
+            por_fecha[f.metric_date] = f
+    en_ventana = list(por_fecha.values())
+
     fechas = sorted({f.metric_date for f in en_ventana})
     maduro = _es_madura(fechas, max(f.observed_at for f in en_ventana))
 
     cost = _suma(f.cost for f in en_ventana)
-    clicks_obs = [f.clicks for f in en_ventana if f.clicks is not None]
-    clicks = Decimal(sum(clicks_obs)) if clicks_obs else None
+    clicks_m = _suma(Decimal(f.clicks) if f.clicks is not None else None for f in en_ventana)
+    clicks = clicks_m
     sales = _suma(f.sales30d for f in en_ventana)
     purchases = _suma(f.purchases30d for f in en_ventana)
     promoted = _suma(f.attributed_sales_same_sku30d for f in en_ventana)

@@ -194,11 +194,16 @@ def catalogo(conn, plataforma: str) -> dict:
 # ratios vive en el modulo puro (sin IO).
 # ---------------------------------------------------------------------------
 
+# Colapso a la observacion mas reciente por (asin, sku, metric_date): la tabla
+# es append-only y el cron D-31..D-1 re-observa cada fecha ~31 veces; sin este
+# colapso, sumar doblaria gasto/ventas (hallazgo bloqueante B.R).
 _SQL_ADS_VENTANA = """
-SELECT advertised_asin, advertised_sku, metric_date, observed_at, clicks, cost,
+SELECT DISTINCT ON (advertised_asin, advertised_sku, metric_date)
+       advertised_asin, advertised_sku, metric_date, observed_at, clicks, cost,
        purchases30d, sales30d, attributed_sales_same_sku_30d
 FROM ads_product_metric_observation
 WHERE platform = %s AND metric_date BETWEEN %s AND %s
+ORDER BY advertised_asin, advertised_sku, metric_date, observed_at DESC
 """
 
 _SQL_OBJETIVOS_GRUPO = """
