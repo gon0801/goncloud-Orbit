@@ -10,6 +10,12 @@
 
 **2026-09-07 — ORBIT 19 Fase A cerrada y desplegada.** PR #187 se integro en `78fcbd7`; la suite completa de CI finalizo verde en el run 34088493597. El catalogo permite seleccionar publicaciones con ASIN y SKU validos aunque margen e historial esten ausentes: son avisos bajo objetivo manual explicito. El plan v2 conserva huella estable, idempotencia y recuperacion de lotes v1/v2; el ensayo controlado cubre reconciliar, registrar y pausar un lote v2 parcial mientras `fabrica.creacion` permanece v1. Produccion responde salud, mantiene `target_origen` y cero lotes/grupos/publicaciones despues del smoke GET/preview. Se verifico la interfaz con capturas; no hubo `/crear`, campanas reales ni inicio de Fase B.
 
+**2026-09-06 — Backlog de automatizacion registrado para planes futuros.**
+`docs/PENDIENTES-AUTOMATIZACION.md` conserva nueve gaps: harvest real y por
+grupos, decisiones por producto, placements, presupuestos, reactivacion/limpieza,
+repricing, promociones y reputacion. Enlaza pendientes existentes; no amplia
+ORBIT 19 ni inicia implementacion.
+
 **2026-09-06 — ORBIT 19 A.1 cerrada en revisión.** El plan de fábrica ya
 puede serializar v2 por publicación, con margen ausente real y una huella
 estable ante reorden. La migración 0019 admite varios listings por producto,
