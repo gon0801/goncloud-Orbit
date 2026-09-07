@@ -89,6 +89,15 @@ SELECT p.id, p.odoo_sku, l.id, l.external_id, l.seller_sku, m.margen_neto_pct
  ORDER BY p.id
 """
 
+_SQL_PUBLICACIONES = """
+SELECT l.id, p.id, l.external_id, l.seller_sku, m.margen_neto_pct
+  FROM listing l
+  JOIN product p ON p.id = l.product_id
+  LEFT JOIN v_margen_producto m ON m.product_id = p.id AND m.platform = l.platform
+ WHERE l.platform = %s::platform AND l.id = ANY(%s)
+ ORDER BY l.id
+"""
+
 # Terminos de las campanas del producto: campanas con un product_ad ligado
 # al listing. GRANO DEL ORIGEN sellado por la evidencia de la tarea 1 (f)
 # ("Decisiones y evidencia"): search_term_observation tiene UN solo grano en
@@ -210,6 +219,8 @@ INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal
                           plan, modo_goal, estado)
 VALUES (%s, %s::platform, %s, %s, %s, %s, %s::jsonb, %s, 'planeado')
 """
+_SQL_BLOQUEA_LOTE = "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))"
+_SQL_ESTADO_LOTE = "SELECT estado FROM fabrica_lote WHERE lote = %s"
 _SQL_SELLA_LOTE = """
 UPDATE fabrica_lote SET estado = %s, detalle = %s, finished_at = now() WHERE lote = %s
 """
@@ -240,8 +251,9 @@ SELECT id FROM ad_entity WHERE platform = %s::platform AND kind = %s AND externa
 """
 _SQL_INSERTA_GRUPO = """
 INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote, target_acos_pct,
-                           target_derivado_pct, fraccion, target_procedencia, go_literal)
-SELECT %s::platform, %s, %s, %s, %s, %s, %s, %s, go_literal
+                           target_derivado_pct, fraccion, target_origen, target_procedencia,
+                           go_literal)
+SELECT %s::platform, %s, %s, %s, %s, %s, %s, %s, %s, go_literal
   FROM fabrica_lote WHERE lote = %s
 ON CONFLICT (lote) DO UPDATE SET lote = EXCLUDED.lote
 RETURNING id
@@ -329,6 +341,12 @@ def _fraccion(conn: psycopg.Connection, platform: str) -> Decimal:
     return fraccion
 
 
+def _creacion_v2_habilitada(conn: psycopg.Connection) -> bool:
+    fila = conn.execute(_SQL_SETTINGS).fetchone()
+    settings = fila[1] if fila is not None else {}
+    return fp.version_creacion_desde_settings(settings or {}) == "v2"
+
+
 def _productos(conn: psycopg.Connection, platform: str, ids: list[int]) -> list[fp.ProductoGrupo]:
     filas = conn.execute(_SQL_PRODUCTOS, (platform, platform, ids)).fetchall()
     vistos = {f[0] for f in filas}
@@ -358,6 +376,33 @@ def _productos(conn: psycopg.Connection, platform: str, ids: list[int]) -> list[
             )
         out.append(fp.ProductoGrupo(pid, odoo, lid, asin, str(sku).strip(), Decimal(margen)))
     return out
+
+
+def _publicaciones_v2(
+    conn: psycopg.Connection, platform: str, ids: list[int]
+) -> list[fp.PublicacionGrupoV2]:
+    filas = conn.execute(_SQL_PUBLICACIONES, (platform, ids)).fetchall()
+    vistos = {fila[0] for fila in filas}
+    faltan = sorted(set(ids) - vistos)
+    if faltan:
+        raise Abortar(f"listing(s) {faltan} no existe(n) en {platform}")
+    asins = [str(fila[2]).strip() if fila[2] else "" for fila in filas]
+    if not all(fp.PATRON_ASIN.fullmatch(asin) for asin in asins):
+        raise Abortar("ASIN ausente o invalido en publicaciones v2")
+    skus = [str(fila[3]).strip() if fila[3] else "" for fila in filas]
+    if not all(skus) or len(skus) != len(set(skus)):
+        raise Abortar("seller_sku ausente o duplicado en publicaciones v2")
+    return [
+        fp.PublicacionGrupoV2(
+            listing_id=fila[0],
+            product_id=fila[1],
+            asin=asins[indice],
+            seller_sku=str(fila[3]).strip(),
+            platform=platform,
+            margen_neto_pct=Decimal(fila[4]) if fila[4] is not None else None,
+        )
+        for indice, fila in enumerate(filas)
+    ]
 
 
 def _terminos_producto(
@@ -438,13 +483,27 @@ def _ids_productos(texto: str) -> list[int]:
     return ids
 
 
-def _arma_plan(args, conn_read: psycopg.Connection) -> fp.PlanGrupo:
+def _ids_listings(texto: str) -> list[int]:
+    try:
+        ids = [int(p) for p in texto.split(",") if p.strip()]
+    except ValueError:
+        raise Abortar(f"--listing-ids debe ser ids enteros separados por coma: {texto!r}") from None
+    if not ids or len(ids) != len(set(ids)):
+        raise Abortar("--listing-ids no puede ser vacio ni contener duplicados")
+    return sorted(ids)
+
+
+def _arma_plan(args, conn_read: psycopg.Connection) -> fp.PlanGrupo | fp.PlanGrupoV2:
     """Plan completo desde la base + validacion SIN HTTP (spec §5.1)."""
     try:
         tipo = fp.valida_tipo_producto(args.tipo_producto)
         moneda = fp.MONEDA_POR_PLATAFORMA[args.plataforma]
         parametros = _parametros(args)
         fp.valida_parametros(parametros, moneda)
+        if not args.nombre_base or not args.nombre_base.strip():
+            raise Abortar("--nombre-base no puede ser vacio")
+        if getattr(args, "listing_ids", None) is not None:
+            return _arma_plan_v2(args, conn_read, tipo, moneda, parametros)
         ids = _ids_productos(args.productos)
         fraccion = _fraccion(conn_read, args.plataforma)
         productos = _productos(conn_read, args.plataforma, ids)
@@ -467,8 +526,6 @@ def _arma_plan(args, conn_read: psycopg.Connection) -> fp.PlanGrupo:
         raise Abortar(str(exc)) from exc
     finally:
         conn_read.commit()  # la lectura cierra su txn ANTES de cualquier salida
-    if not args.nombre_base or not args.nombre_base.strip():
-        raise Abortar("--nombre-base no puede ser vacio")
     return fp.PlanGrupo(
         platform=args.plataforma,
         tipo_producto=tipo,
@@ -484,12 +541,90 @@ def _arma_plan(args, conn_read: psycopg.Connection) -> fp.PlanGrupo:
     )
 
 
-def _lote_nuevo(plan: fp.PlanGrupo) -> str:
-    marca = datetime.datetime.now(datetime.UTC).strftime("%Y%m%d-%H%M%S")
-    return f"fabrica-{plan.platform}-{plan.tipo_producto}-{marca}"
+def _arma_plan_v2(args, conn_read, tipo: str, moneda: str, parametros: dict) -> fp.PlanGrupoV2:
+    ids = _ids_listings(args.listing_ids)
+    publicaciones = _publicaciones_v2(conn_read, args.plataforma, ids)
+    origen = getattr(args, "origen_objetivo", None)
+    if origen is None and getattr(args, "target_acos", None) is not None:
+        origen = "manual_lanzamiento"
+    if origen == "manual_lanzamiento":
+        try:
+            target = _decimal(args.target_acos, "--target-acos")
+        except (InvalidOperation, TypeError):
+            raise Abortar("--target-acos invalido") from None
+        objetivo = fp.ObjetivoPlanV2(origen, target, "manual_lanzamiento confirmado")
+    elif origen == "margen_medido":
+        fraccion = _fraccion(conn_read, args.plataforma)
+        margenes = [p.margen_neto_pct for p in publicaciones]
+        fp.valida_objetivo_margen_v2(margenes)
+        resultado = fp.target_del_grupo(margenes, fraccion)
+        objetivo = fp.ObjetivoPlanV2(
+            origen,
+            resultado.aplicado,
+            resultado.procedencia,
+            resultado.fraccion,
+            resultado.derivado,
+        )
+    else:
+        raise Abortar("v2 exige objetivo manual_lanzamiento o margen_medido")
+    listings = [p.listing_id for p in publicaciones]
+    terminos = _terminos_producto(conn_read, args.plataforma, listings)
+    terminos_exact = _terminos_producto(
+        conn_read,
+        args.plataforma,
+        listings,
+        sql=_SQL_TERMINOS_EXACT,
+        ventana=fp.VENTANA_CORTES_DIAS,
+    )
+    kws, negs = _biblioteca(conn_read, tipo, args.plataforma)
+    semillas = fp.semillas_desde_terminos(
+        terminos, kws, negs, objetivo.acos_pct, terminos_exact=terminos_exact
+    )
+    plan = fp.PlanGrupoV2(
+        args.plataforma,
+        tipo,
+        args.nombre_base.strip(),
+        datetime.datetime.now(datetime.UTC).date(),
+        moneda,
+        args.modo,
+        tuple(publicaciones),
+        parametros,
+        objetivo,
+        semillas,
+        tuple(_existentes(conn_read, args.plataforma, listings)),
+    )
+    fp._valida_plan_v2(plan)
+    return plan
 
 
-def _imprime_dry_run(plan: fp.PlanGrupo, huella: str) -> None:
+def _lote_nuevo(huella: str) -> str:
+    """Identidad durable de la corrida CLI autorizada por una huella."""
+    return f"cli-{huella}"
+
+
+def _imprime_dry_run(plan: fp.PlanGrupo | fp.PlanGrupoV2, huella: str) -> None:
+    if isinstance(plan, fp.PlanGrupoV2):
+        for rol in fp.ROLES_ORDEN_CREACION:
+            parametro = plan.parametros[rol]
+            semillas = sum(
+                paso.recurso in ("keyword", "target", "negative_keyword")
+                for paso in fp.pasos_del_rol(plan, rol)
+            )
+            print(
+                f"{rol}: budget={parametro.budget} bid={parametro.bid} "
+                f"target={plan.objetivo.acos_pct} origen={plan.objetivo.origen} "
+                f"procedencia={plan.objetivo.procedencia} semillas={semillas}",
+                flush=True,
+            )
+        for publicacion in plan.publicaciones:
+            margen = publicacion.margen_neto_pct
+            print(
+                f"publicacion={publicacion.listing_id} asin={publicacion.asin} "
+                f"seller_sku={publicacion.seller_sku} margen={margen}",
+                flush=True,
+            )
+        print(f"huella del conjunto: {huella}", flush=True)
+        return
     for linea in fp.lineas_dry_run(plan):
         print(linea, flush=True)
     print(f"huella del conjunto: {huella}", flush=True)
@@ -499,17 +634,33 @@ def _crear(args) -> int:
     conn_read = connect(_dsn_read())
     try:  # D-GLM-6-3: la conexion de lectura se cierra en exito y en error
         plan = _arma_plan(args, conn_read)
-        huella = fp.huella_plan(plan)
+        huella = (
+            fp.huella_plan_v2(plan) if isinstance(plan, fp.PlanGrupoV2) else fp.huella_plan(plan)
+        )
         _imprime_dry_run(plan, huella)
+        if (
+            args.acepto_mutacion_real
+            and isinstance(plan, fp.PlanGrupoV2)
+            and not _creacion_v2_habilitada(conn_read)
+        ):
+            raise Abortar("altas v2 deshabilitadas por fabrica.creacion=v1")
     finally:
         conn_read.close()
     if not args.acepto_mutacion_real:
+        target = (
+            plan.objetivo.acos_pct if isinstance(plan, fp.PlanGrupoV2) else plan.target.aplicado
+        )
+        publicaciones = (
+            [p.listing_id for p in plan.publicaciones]
+            if isinstance(plan, fp.PlanGrupoV2)
+            else [p.listing_id for p in plan.productos]
+        )
         _log(
             "dry_run",
             platform=plan.platform,
             tipo_producto=plan.tipo_producto,
-            target=str(plan.target.aplicado),
-            productos=[p.product_id for p in plan.productos],
+            target=str(target),
+            publicaciones=publicaciones,
             existentes=len(plan.existentes),
             huella=huella,
             nota="sin --acepto-mutacion-real no se toca Amazon",
@@ -524,6 +675,8 @@ def _parser() -> argparse.ArgumentParser:
     ap.add_argument("--tipo-producto", default=None)
     ap.add_argument("--nombre-base", default=None)
     ap.add_argument("--productos", default=None, help="ids de product separados por coma")
+    ap.add_argument("--listing-ids", default=None, help="ids de listing v2 separados por coma")
+    ap.add_argument("--target-acos", default=None, help="objetivo manual v2 explicito")
     ap.add_argument(
         "--modo",
         choices=fp.MODOS_GOAL,
@@ -551,9 +704,13 @@ def _parser() -> argparse.ArgumentParser:
 def _valida_args_creacion(args) -> None:
     faltan = [
         nombre
-        for nombre in ("plataforma", "tipo_producto", "nombre_base", "productos", "modo")
+        for nombre in ("plataforma", "tipo_producto", "nombre_base", "modo")
         if getattr(args, nombre) is None
     ]
+    if (args.productos is None) == (args.listing_ids is None):
+        faltan.append("exactamente uno de --productos o --listing-ids")
+    if args.listing_ids is not None and args.target_acos is None:
+        faltan.append("--target-acos para --listing-ids")
     faltan += [
         f"{k}_{s}"
         for k in ("budget", "bid")
@@ -562,6 +719,8 @@ def _valida_args_creacion(args) -> None:
     ]
     if faltan:
         raise SystemExit(f"faltan argumentos obligatorios: {', '.join(faltan)}")
+    if args.productos is not None and args.target_acos is not None:
+        raise Abortar("--target-acos solo se permite con --listing-ids")
 
 
 @dataclass
@@ -704,7 +863,35 @@ def _readback_cuadra(leido: dict | None, payload: dict) -> bool:
     return True
 
 
-def _inserta_lote(conn, lote: str, plan: fp.PlanGrupo, huella: str, go: str) -> None:
+def _plan_como_json(plan: fp.PlanCanonico) -> dict:
+    if isinstance(plan, fp.PlanGrupoV2):
+        return fp.plan_v2_como_json(plan)
+    return fp.plan_como_json(plan)
+
+
+def _datos_objetivo(
+    plan: fp.PlanCanonico,
+) -> tuple[Decimal, Decimal | None, Decimal | None, str, str]:
+    if isinstance(plan, fp.PlanGrupoV2):
+        objetivo = plan.objetivo
+        return (
+            objetivo.acos_pct,
+            objetivo.derivado,
+            objetivo.fraccion,
+            objetivo.origen,
+            objetivo.procedencia,
+        )
+    target = plan.target
+    return target.aplicado, target.derivado, target.fraccion, "margen_medido", target.procedencia
+
+
+def _publicaciones_del_plan(plan: fp.PlanCanonico):
+    if isinstance(plan, fp.PlanGrupoV2):
+        return tuple(sorted(plan.publicaciones, key=lambda publicacion: publicacion.listing_id))
+    return plan.productos
+
+
+def _inserta_lote(conn, lote: str, plan: fp.PlanCanonico, huella: str, go: str) -> None:
     conn.execute(
         _SQL_INSERTA_LOTE,
         (
@@ -714,11 +901,23 @@ def _inserta_lote(conn, lote: str, plan: fp.PlanGrupo, huella: str, go: str) -> 
             plan.nombre_base,
             go,
             huella,
-            json.dumps(fp.plan_como_json(plan)),
+            json.dumps(_plan_como_json(plan)),
             plan.modo,
         ),
     )
     conn.commit()
+
+
+def _estado_lote(conn, lote: str) -> str | None:
+    fila = conn.execute(_SQL_ESTADO_LOTE, (lote,)).fetchone()
+    if fila is None:
+        return None
+    return fila[0] if not isinstance(fila, dict) else fila["estado"]
+
+
+def _bloquea_lote(conn, lote: str) -> None:
+    """Serializa una huella hasta que su ledger quede durable."""
+    conn.execute(_SQL_BLOQUEA_LOTE, (lote,))
 
 
 def _sella_lote(conn, lote: str, estado: str, detalle: str | None) -> None:
@@ -822,7 +1021,7 @@ def _ejecuta_paso(ctx: _Ctx, paso: fp.Paso, padres: dict) -> str:
     return external
 
 
-def _ejecuta_rol(ctx: _Ctx, plan: fp.PlanGrupo, rol: str) -> dict:
+def _ejecuta_rol(ctx: _Ctx, plan: fp.PlanCanonico, rol: str) -> dict:
     pasos = fp.pasos_del_rol(plan, rol)
     externos: dict = {"rol": rol, "product_ads": [], "semillas": []}
     externos["campaign"] = _ejecuta_paso(ctx, pasos[0], {})
@@ -866,7 +1065,7 @@ def _id_entidad(conn, platform: str, kind: str, external: str) -> int:
     return fila[0] if not isinstance(fila, dict) else fila["id"]
 
 
-def _registrar(ctx: _Ctx, plan: fp.PlanGrupo, creadas: list[dict]) -> int:
+def _registrar(ctx: _Ctx, plan: fp.PlanCanonico, creadas: list[dict]) -> int:
     _sync(ctx.cliente_lectura)
     conn = ctx.conn_admin
     exact = next(c for c in creadas if c["rol"] == "category_exact")
@@ -877,6 +1076,7 @@ def _registrar(ctx: _Ctx, plan: fp.PlanGrupo, creadas: list[dict]) -> int:
         )
         for c in creadas
     }
+    target, derivado, fraccion, origen, procedencia = _datos_objetivo(plan)
     grupo = conn.execute(
         _SQL_INSERTA_GRUPO,
         (
@@ -884,10 +1084,11 @@ def _registrar(ctx: _Ctx, plan: fp.PlanGrupo, creadas: list[dict]) -> int:
             plan.tipo_producto,
             plan.nombre_base,
             ctx.lote,
-            plan.target.aplicado,
-            plan.target.derivado,
-            plan.target.fraccion,
-            plan.target.procedencia,
+            target,
+            derivado,
+            fraccion,
+            origen,
+            procedencia,
             ctx.lote,
         ),
     ).fetchone()[0]
@@ -895,7 +1096,7 @@ def _registrar(ctx: _Ctx, plan: fp.PlanGrupo, creadas: list[dict]) -> int:
         grupo = grupo["id"]
     for rol, (camp_id, ag_id) in ids.items():
         conn.execute(_SQL_INSERTA_ROL, (grupo, rol, camp_id, ag_id))
-    for p in plan.productos:
+    for p in _publicaciones_del_plan(plan):
         conn.execute(
             _SQL_INSERTA_PRODUCTO,
             (grupo, p.product_id, p.listing_id, p.seller_sku, p.margen_neto_pct),
@@ -932,7 +1133,7 @@ def _registrar(ctx: _Ctx, plan: fp.PlanGrupo, creadas: list[dict]) -> int:
         goal = goals_write.crea_goal(
             conn,
             ad_entity_id=camp_id,
-            target_acos_pct=plan.target.aplicado,
+            target_acos_pct=target,
             bid_currency=plan.moneda,
             mode=plan.modo,
             harvest_campaign_id=exact["campaign"],
@@ -941,7 +1142,7 @@ def _registrar(ctx: _Ctx, plan: fp.PlanGrupo, creadas: list[dict]) -> int:
             created_at=ahora,
         )
         _log("goal_creado", lote=ctx.lote, rol=rol, goal_id=goal["id"], mode=plan.modo)
-    _log("grupo_registrado", lote=ctx.lote, grupo_id=grupo, target=str(plan.target.aplicado))
+    _log("grupo_registrado", lote=ctx.lote, grupo_id=grupo, target=str(target))
     return grupo
 
 
@@ -1000,7 +1201,7 @@ def _identidad_coincide(recurso: str, pedido: dict, guardado: Any) -> bool:
     return True
 
 
-def _exige_ledger_completo(conn, plan: fp.PlanGrupo, lote: str) -> None:
+def _exige_ledger_completo(conn, plan: fp.PlanCanonico, lote: str) -> None:
     """D-CURSOR-177-F1: todos los pasos de pasos_del_rol deben estar applied."""
     filas = [_fila_paso(f) for f in conn.execute(_SQL_PASOS_LOTE, (lote,)).fetchall()]
     camp_ag: dict[str, dict[str, str]] = {}
@@ -1064,7 +1265,11 @@ def _registrar_cmd(args) -> int:
                 f"lote {args.registrar} esta desarmado (campanas PAUSED): registrarlo "
                 "lo resucitaria a medias; si se quiere vivo, es decision nueva del dueno"
             )
-        plan = fp.plan_desde_json(plan_json)
+        plan = (
+            fp.plan_v2_desde_json(plan_json)
+            if plan_json.get("schema_version") == 2
+            else fp.plan_desde_json(plan_json)
+        )
         _exige_ledger_completo(conn_admin, plan, args.registrar)
         pasos = conn_admin.execute(_SQL_CAMPANAS_APPLIED, (args.registrar,)).fetchall()
         conn_admin.commit()
@@ -1094,24 +1299,30 @@ def _registrar_cmd(args) -> int:
         _cierra(conn_admin)
 
 
-def _mutar(args, plan: fp.PlanGrupo, huella: str, *, lote: str | None = None) -> int:
+def _mutar(args, plan: fp.PlanCanonico, huella: str, *, lote: str | None = None) -> int:
     _valida_go(args, huella)
     # D-CURSOR-177-F3: falla cerrado antes de LWA/lote/POST (spec §5.1).
     _dsn_ingest()
-    cred = AdsCredentials.from_secrets_dir()
-    cliente_lectura = AdsClient(cred)
-    perfiles = _perfiles(cliente_lectura)
-    _log("perfiles", perfiles=perfiles)
-    if plan.platform not in perfiles:
-        raise Abortar(f"sin perfil aceptado para {plan.platform}: no se muta")
+    if lote is None:
+        lote = _lote_nuevo(huella)
     conn_admin = None
     http = None
     try:
         conn_admin = connect(_dsn_admin())
+        _bloquea_lote(conn_admin, lote)
+        estado = _estado_lote(conn_admin, lote)
+        if estado is not None:
+            raise Abortar(
+                f"lote {lote} ya existe ({estado}): usa --reconciliar, --registrar o --desarmar"
+            )
+        cred = AdsCredentials.from_secrets_dir()
+        cliente_lectura = AdsClient(cred)
+        perfiles = _perfiles(cliente_lectura)
+        _log("perfiles", perfiles=perfiles)
+        if plan.platform not in perfiles:
+            raise Abortar(f"sin perfil aceptado para {plan.platform}: no se muta")
         http = httpx.Client(timeout=httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0))
         token = _token_lwa(cred, http)
-        if lote is None:
-            lote = _lote_nuevo(plan)
         _inserta_lote(conn_admin, lote, plan, huella, args.go)
         ctx = _Ctx(http, token, cred, cliente_lectura, perfiles[plan.platform], conn_admin, lote)
         creadas: list[dict] = []

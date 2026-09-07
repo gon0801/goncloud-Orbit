@@ -1,0 +1,279 @@
+=== OBSERVED_AT UTC ===
+2026-09-06 21:05:26.368628 UTC
+snapshot: /tmp/bridge-snapshot-orbit19.db (mode=ro; solo SELECT; se borra al terminar)
+fuente: /mnt/data/appdata/bridge/data/bridge.db?mode=ro
+mutaciones: ninguna (sqlite backup API + SELECT). NO ingest listings. NO docker cp al contenedor app.
+
+=== SQLITE TABLES ===
+n_tables=41
+table | n_rows
+amazon_fba_inventory | 2142
+amazon_inbound_events | 0
+amazon_inbound_orders_state | 7
+amazon_inbound_sales_orders | 7
+amazon_inventory_cache | 806
+amazon_inventory_cache_old | 541
+amazon_inventory_cache_staging | 0
+amazon_job_payloads | 135
+amazon_listing_prices | 809
+amazon_metrics | 864
+amazon_orders_state | 1418
+amazon_processed_events | 1008
+amazon_processed_inbound_events | 7
+amazon_processing_locks | 0
+amazon_sku_mapping | 455
+amazon_sku_marketplace | 118
+bridge_metrics | 16
+bridge_settings | 40
+events | 51706
+inbound_allowed_skus | 1071
+inbound_events | 5489
+inbound_job_payloads | 0
+inbound_metrics | 497
+inbound_orders_state | 500
+inbound_processing_locks | 0
+inbound_sales_orders | 32
+inbound_stock_deltas | 17
+inbound_stock_deltas_snapshot_20260203 | 16
+known_skus | 130
+meli_listings_cache | 137
+meli_sku_mapping | 0
+meli_variation_mapping_backup_20260208 | 2
+processed_events | 3219098
+processed_inbound_events | 1534
+rejected_skus | 1
+sku_mapping | 336
+sku_mapping_audit | 241952
+sku_mapping_backup_20260208 | 189
+sku_mapping_old | 11
+snapshot_items | 9539988
+sqlite_sequence | 5
+
+=== TABLES MATCHING inventory/stock/quantity/fba ===
+amazon_fba_inventory
+amazon_inventory_cache
+amazon_inventory_cache_old
+amazon_inventory_cache_staging
+inbound_stock_deltas
+inbound_stock_deltas_snapshot_20260203
+
+=== COLUMNS MATCHING inventory/stock/quantity/fba ===
+amazon_fba_inventory: ['quantity_available']
+  cid=0 name=id type=INTEGER notnull=0 dflt=None pk=1
+  cid=1 name=seller_sku type=TEXT notnull=1 dflt=None pk=0
+  cid=2 name=fnsku type=TEXT notnull=0 dflt=None pk=0
+  cid=3 name=asin type=TEXT notnull=0 dflt=None pk=0
+  cid=4 name=marketplace_id type=TEXT notnull=1 dflt=None pk=0
+  cid=5 name=marketplace_name type=TEXT notnull=0 dflt=None pk=0
+  cid=6 name=condition_type type=TEXT notnull=0 dflt=None pk=0
+  cid=7 name=quantity_available type=INTEGER notnull=0 dflt=None pk=0
+  cid=8 name=fetched_at type=TEXT notnull=0 dflt="datetime('now')" pk=0
+amazon_listing_prices: ['quantity']
+  cid=0 name=id type=INTEGER notnull=0 dflt=None pk=1
+  cid=1 name=seller_sku type=TEXT notnull=1 dflt=None pk=0
+  cid=2 name=asin type=TEXT notnull=0 dflt=None pk=0
+  cid=3 name=listing_id type=TEXT notnull=0 dflt=None pk=0
+  cid=4 name=marketplace_id type=TEXT notnull=1 dflt=None pk=0
+  cid=5 name=marketplace_name type=TEXT notnull=0 dflt=None pk=0
+  cid=6 name=price type=REAL notnull=0 dflt=None pk=0
+  cid=7 name=quantity type=INTEGER notnull=0 dflt=None pk=0
+  cid=8 name=fulfillment_channel type=TEXT notnull=0 dflt=None pk=0
+  cid=9 name=item_name type=TEXT notnull=0 dflt=None pk=0
+  cid=10 name=status type=TEXT notnull=0 dflt=None pk=0
+  cid=11 name=fetched_at type=TEXT notnull=0 dflt="datetime('now')" pk=0
+
+=== PRAGMA table_info amazon_listing_prices ===
+  cid=0 name=id type=INTEGER notnull=0 dflt=None pk=1
+  cid=1 name=seller_sku type=TEXT notnull=1 dflt=None pk=0
+  cid=2 name=asin type=TEXT notnull=0 dflt=None pk=0
+  cid=3 name=listing_id type=TEXT notnull=0 dflt=None pk=0
+  cid=4 name=marketplace_id type=TEXT notnull=1 dflt=None pk=0
+  cid=5 name=marketplace_name type=TEXT notnull=0 dflt=None pk=0
+  cid=6 name=price type=REAL notnull=0 dflt=None pk=0
+  cid=7 name=quantity type=INTEGER notnull=0 dflt=None pk=0
+  cid=8 name=fulfillment_channel type=TEXT notnull=0 dflt=None pk=0
+  cid=9 name=item_name type=TEXT notnull=0 dflt=None pk=0
+  cid=10 name=status type=TEXT notnull=0 dflt=None pk=0
+  cid=11 name=fetched_at type=TEXT notnull=0 dflt="datetime('now')" pk=0
+
+=== PRAGMA table_info amazon_sku_mapping ===
+  cid=0 name=seller_sku type=TEXT notnull=0 dflt=None pk=1
+  cid=1 name=odoo_product_id type=INTEGER notnull=0 dflt=None pk=0
+  cid=2 name=odoo_default_code type=TEXT notnull=0 dflt=None pk=0
+  cid=3 name=notes type=TEXT notnull=0 dflt=None pk=0
+  cid=4 name=created_at type=TEXT notnull=0 dflt="datetime('now')" pk=0
+  cid=5 name=asin type=TEXT notnull=0 dflt=None pk=0
+  cid=6 name=keepa_domain type=INTEGER notnull=0 dflt='11' pk=0
+  cid=7 name=parent_asin type=TEXT notnull=0 dflt=None pk=0
+
+=== PRAGMA table_info amazon_inventory_cache ===
+  cid=0 name=seller_sku type=TEXT notnull=1 dflt=None pk=1
+  cid=1 name=asin type=TEXT notnull=0 dflt=None pk=0
+  cid=2 name=product_name type=TEXT notnull=0 dflt=None pk=0
+  cid=3 name=qty type=INTEGER notnull=1 dflt='0' pk=0
+  cid=4 name=marketplace type=TEXT notnull=1 dflt="'MX'" pk=2
+  cid=5 name=updated_at type=TEXT notnull=0 dflt=None pk=0
+n_rows=806
+max(updated_at)=2026-08-10 06:14:34
+
+=== PRAGMA table_info amazon_fba_inventory ===
+  cid=0 name=id type=INTEGER notnull=0 dflt=None pk=1
+  cid=1 name=seller_sku type=TEXT notnull=1 dflt=None pk=0
+  cid=2 name=fnsku type=TEXT notnull=0 dflt=None pk=0
+  cid=3 name=asin type=TEXT notnull=0 dflt=None pk=0
+  cid=4 name=marketplace_id type=TEXT notnull=1 dflt=None pk=0
+  cid=5 name=marketplace_name type=TEXT notnull=0 dflt=None pk=0
+  cid=6 name=condition_type type=TEXT notnull=0 dflt=None pk=0
+  cid=7 name=quantity_available type=INTEGER notnull=0 dflt=None pk=0
+  cid=8 name=fetched_at type=TEXT notnull=0 dflt="datetime('now')" pk=0
+n_rows=2142
+min(fetched_at)=2026-09-06 18:36:21
+max(fetched_at)=2026-09-06 18:37:24
+marketplace_name | n | qty_null | qty_cero | qty_pos
+amazon_mx | 1071 | 0 | 900 | 171
+amazon_us | 1071 | 0 | 900 | 171
+
+=== amazon_listing_prices: seller_sku distintos por marketplace_name ===
+marketplace_name | filas | seller_sku_distintos | asin_distintos
+amazon_mx | 548 | 548 | 548
+amazon_us | 261 | 261 | 261
+TOTAL | 809 | 735 | 735
+min(fetched_at)=2026-04-13 04:01:06
+max(fetched_at)=2026-09-06 18:36:52
+
+=== amazon_sku_mapping ===
+filas_mapping=455
+seller_sku_distintos=455
+con_odoo_code=455
+sin_odoo_code=0
+
+=== COBERTURA MAPA: listings CON / SIN fila en amazon_sku_mapping ===
+marketplace_name | listings | sku_distintos | con_fila_mapa | sin_fila_mapa | con_odoo_code | mapa_sin_odoo
+amazon_mx | 548 | 548 | 342 | 206 | 342 | 0
+amazon_us | 261 | 261 | 176 | 85 | 176 | 0
+TOTAL | 809 | - | 518 | 291 | 518
+nota: union por seller_sku (PK de amazon_sku_mapping). Unir por texto de SKU esta prohibido.
+
+=== STATUS / FULFILLMENT / QUANTITY (amazon_listing_prices) ===
+-- status --
+status | n
+Active | 378
+Inactive | 298
+Incomplete | 133
+-- fulfillment_channel --
+fulfillment_channel | n
+DEFAULT | 450
+AMAZON_NA | 359
+-- quantity --
+marketplace_name | qty_null | qty_cero | qty_pos | qty_neg
+amazon_mx | 276 | 166 | 106 | 0
+amazon_us | 83 | 76 | 102 | 0
+
+=== OMISIONES: listings SIN fila en amazon_sku_mapping ===
+listings_sin_mapa=291
+seller_sku_distintos_sin_mapa=280
+sku_sin_mapa_en_ambos_mercados=11
+
+=== OMISIONES POR MARKETPLACE ===
+marketplace_name | listings | sku_distintos
+amazon_mx | 206 | 206
+amazon_us | 85 | 85
+
+=== OMISIONES POR STATUS x MARKETPLACE ===
+marketplace_name | status | n
+amazon_mx | Active | 20
+amazon_mx | Inactive | 111
+amazon_mx | Incomplete | 75
+amazon_us | Active | 3
+amazon_us | Inactive | 24
+amazon_us | Incomplete | 58
+
+=== MAPEADOS POR STATUS x MARKETPLACE ===
+marketplace_name | status | n
+amazon_mx | Active | 256
+amazon_mx | Inactive | 86
+amazon_us | Active | 99
+amazon_us | Inactive | 77
+
+=== OMISIONES TOP 50 (seller_sku, asin, marketplace_name, status, quantity) ===
+seller_sku | asin | marketplace_name | status | quantity
+04-WUOG-3RXZ | B093QNLC5N | amazon_mx | Inactive | None
+0G-0ADM-C5WZ | B083TNPBCL | amazon_mx | Incomplete | 0
+0T-OGP8-47QG | B0851SC5YL | amazon_mx | Inactive | 0
+13-6P10-8QTI | B086MT3PFL | amazon_mx | Inactive | 0
+15-9A1Y-IV74 | B0849MBYS1 | amazon_mx | Inactive | 0
+1D-MM44-H6BY | B0D9D4MVX8 | amazon_mx | Active | None
+1F-SCYB-ZV3S | B0851SJT74 | amazon_mx | Inactive | 0
+1L-NOYO-L917 | B08F74GFFF | amazon_mx | Inactive | None
+1Q-BN7H-0GBX | B0D9D3X738 | amazon_mx | Active | None
+1Q-VVRZ-A4DZ | B08F796HWZ | amazon_mx | Inactive | None
+1X-K120-0ZKL | B086ML7R36 | amazon_mx | Inactive | 0
+1Z-ZEE8-JIHA | B0D89VN5CH | amazon_mx | Incomplete | 0
+2B-ZUQS-9PU2 | B0BXFSZRM3 | amazon_mx | Inactive | 0
+2E-PDXS-XK8M | B0BXCSRX2P | amazon_mx | Incomplete | 0
+2K-9XK1-FAST | B086MLN1QF | amazon_mx | Inactive | 0
+2M-DNCG-OAKS | B09LLY5GMC | amazon_mx | Inactive | None
+2T-1IS5-TONT | B093QS968J | amazon_mx | Inactive | None
+37-FB4Q-CI4F | B09DKJ5CKJ | amazon_mx | Inactive | None
+3C-IHZ8-1DIK | B086MLXWLB | amazon_mx | Inactive | 0
+3D-RIB7-ZNQE | B0BXHTDZM3 | amazon_mx | Incomplete | 0
+3E-H2T6-5YA8 | B08F3CYK7S | amazon_mx | Inactive | None
+3J-EH56-A2HH | B0BXCSYBFK | amazon_mx | Incomplete | 0
+3K-CISX-4IDH | B086QDG3WG | amazon_mx | Inactive | 0
+3T-N82J-WLEU | B0D839X5YP | amazon_mx | Incomplete | 0
+3X-M5PO-1P2Q | B084B13HG9 | amazon_mx | Inactive | 0
+43-K3G0-Z2BB | B086MM6LWL | amazon_mx | Inactive | 0
+44-421E-IA77 | B08F721CGL | amazon_mx | Inactive | None
+4I-25A5-HFCC | B0851SJJPJ | amazon_mx | Inactive | 0
+4P-YO3I-SZBI | B0D9F52XKH | amazon_mx | Incomplete | 0
+51-1J5G-QLTU | B0849SSPG9 | amazon_mx | Inactive | 0
+53-MRVW-MX8J | B0877BKGZ8 | amazon_mx | Inactive | None
+56-LVOH-16WI | B086V1WTDZ | amazon_mx | Inactive | 0
+58-POWW-A2U8 | B0D9D5M2YR | amazon_mx | Active | None
+5D-3EGE-2IXZ | B0851T2GMS | amazon_mx | Inactive | 0
+5L-IQ17-Q4ZM | B0BXFRLGMF | amazon_mx | Incomplete | 0
+5U-K4OL-WOA9 | B09DK7XQ51 | amazon_mx | Inactive | None
+5Y-UNF0-FP1O | B0CJTKXMMP | amazon_mx | Incomplete | 0
+65-OBLP-MJ4Y | B0BXFRNSGD | amazon_mx | Inactive | 0
+67-AWJZ-TEKX | B08F7BRW72 | amazon_mx | Inactive | None
+6L-HQP0-905R | B093RT71B5 | amazon_mx | Inactive | None
+6M-0KK7-8OAK | B0849LTF5H | amazon_mx | Inactive | 0
+6N-GJO6-HCZX | B08F7KC8WD | amazon_mx | Inactive | None
+6O-C9VY-3H33 | B0851SN7D7 | amazon_mx | Inactive | None
+6Q-CEL4-7JIN | B0849M3MC6 | amazon_mx | Inactive | 0
+71-0RYN-KKMK | B0851S4QYZ | amazon_mx | Inactive | 0
+7G-71B4-MTZ9 | B0BX9229PX | amazon_mx | Incomplete | 0
+7H-0H7Y-S1JG | B0877DF2CV | amazon_mx | Inactive | None
+7J-3B6Z-P3QE | B086TVSS99 | amazon_mx | Inactive | 0
+7R-N08R-YMTI | B086MCG6Z4 | amazon_mx | Inactive | 0
+7V-MALM-XTQD | B0D9D492TX | amazon_mx | Active | None
+(mostradas 50 de 291 listings sin mapa; dump completo no archivado)
+
+=== OMISIONES Active (todas; las relevantes para anunciar) ===
+seller_sku | asin | marketplace_name | status | quantity
+1D-MM44-H6BY | B0D9D4MVX8 | amazon_mx | Active | None
+1Q-BN7H-0GBX | B0D9D3X738 | amazon_mx | Active | None
+58-POWW-A2U8 | B0D9D5M2YR | amazon_mx | Active | None
+7V-MALM-XTQD | B0D9D492TX | amazon_mx | Active | None
+9A-AY0I-7VQ8 | B0D9D4S37C | amazon_mx | Active | None
+G8-QQUC-1UCT | B0D9D465ZZ | amazon_mx | Active | None
+IO-9TMY-TDO8 | B0D9D4GSYZ | amazon_mx | Active | None
+K5-8CQW-D58O | B0D9CXRK59 | amazon_mx | Active | None
+MO-FONT-USV0 | B0D9CY42WH | amazon_mx | Active | None
+NH-CAR-AZU-CEN-DOR | B0GR8SDFPZ | amazon_mx | Active | 1
+NH-CAR-AZU-COR-DOR | B0GR8TF2ZC | amazon_mx | Active | 1
+NH-CAR-AZU-VBU-DOR | B0GR8YBK93 | amazon_mx | Active | 1
+NT-PPM2-94N3 | B086M53P42 | amazon_mx | Active | 199
+O6-BV2E-VB2P | B0D9D3VMZY | amazon_mx | Active | None
+O7-TB12-HU7A | B0D9D49C7G | amazon_mx | Active | None
+OZ-KHZX-VIQF | B0849KM5KW | amazon_mx | Active | 99
+SET-CAR-AZU-SAN-DOR | B0GR8X9B9J | amazon_mx | Active | 1
+SET-CAR-AZU-VCO-DOR | B0GR8KX8ZD | amazon_mx | Active | 1
+YA-HH94-I0SF | B0D9D3PQN3 | amazon_mx | Active | None
+YM-5NR3-NOB7 | B0D9D22WLR | amazon_mx | Active | None
+H7-DQQ6-NW00 | B0B6S5DHSG | amazon_us | Active | 200
+ST-MV02-LRFL | B0B385R1HJ | amazon_us | Active | 199
+VO-0U7E-EWSL | B0B385HRZJ | amazon_us | Active | 199
+n_active_sin_mapa=23
+
+=== FIN SELECT; snapshot se borra a continuacion ===

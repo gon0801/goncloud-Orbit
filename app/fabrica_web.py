@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import os
 import re
@@ -14,8 +15,11 @@ import psycopg
 from fastapi import HTTPException
 from psycopg.rows import tuple_row
 
+from app import economia_observada
+from app import evaluacion_catalogo as ec
 from app import fabrica_plan as fp
 from app.db import OrbitDbError, connect
+from app.disponibilidad import estado_disponibilidad
 from app.redaction import scrub
 from tools import fabrica_campanas as fc
 
@@ -37,14 +41,17 @@ FROM fabrica_lote l
 _SQL_LOTE = _SQL_RESUMEN_LOTE + " WHERE l.lote = %s"
 
 _SQL_CATALOGO = """
-SELECT p.id, p.odoo_sku, count(l.id), min(l.seller_sku), m.margen_neto_pct,
-       p.name, jsonb_agg(jsonb_build_object(
-           'id', l.id, 'asin', l.external_id, 'seller_sku', l.seller_sku
+SELECT p.id, p.odoo_sku, p.name, jsonb_agg(jsonb_build_object(
+           'id', l.id, 'asin', l.external_id, 'seller_sku', l.seller_sku,
+           'platform', l.platform::text, 'margen_neto_pct', m.margen_neto_pct::text,
+           'dias_con_venta', m.dias_con_venta,
+           'ventana_desde', m.ventana_desde::text, 'ventana_hasta', m.ventana_hasta::text,
+           'historial_ads', NULL
        ) ORDER BY l.external_id, l.id)
 FROM product p
 JOIN listing l ON l.product_id = p.id AND l.platform = %s::platform
 LEFT JOIN v_margen_producto m ON m.product_id = p.id AND m.platform = l.platform
-GROUP BY p.id, p.odoo_sku, m.margen_neto_pct
+GROUP BY p.id, p.odoo_sku
 ORDER BY p.odoo_sku, p.id
 """
 _SQL_TIPOS = """
@@ -53,6 +60,7 @@ UNION SELECT tipo_producto FROM negative_biblioteca WHERE platform = %s::platfor
 UNION SELECT tipo_producto FROM campana_grupo WHERE platform = %s::platform
 ORDER BY tipo_producto
 """
+_SQL_CONFIG_VIGENTE = "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
 
 
 def error(codigo: int, mensaje: str, lote: str | None = None) -> HTTPException:
@@ -61,14 +69,20 @@ def error(codigo: int, mensaje: str, lote: str | None = None) -> HTTPException:
 
 def argumentos(solicitud: dict) -> SimpleNamespace:
     datos = {k: v for k, v in solicitud.items() if k != "parametros"}
-    datos["productos"] = ",".join(str(pid) for pid in sorted(solicitud["productos"]))
+    productos = solicitud.get("productos")
+    listings = solicitud.get("listing_ids")
+    datos["productos"] = ",".join(str(pid) for pid in sorted(productos)) if productos else None
+    datos["listing_ids"] = ",".join(str(lid) for lid in sorted(listings)) if listings else None
+    objetivo = solicitud.get("objetivo")
+    datos["target_acos"] = objetivo.get("acos_pct") if objetivo else None
+    datos["origen_objetivo"] = objetivo.get("origen") if objetivo else None
     for rol, sufijo in SUFIJOS.items():
         for monto in ("budget", "bid"):
             datos[f"{monto}_{sufijo}"] = solicitud["parametros"][rol][monto]
     return SimpleNamespace(**datos)
 
 
-def planificar(conn, solicitud: dict) -> fp.PlanGrupo:
+def planificar(conn, solicitud: dict) -> fp.PlanGrupo | fp.PlanGrupoV2:
     conn.row_factory = tuple_row
     try:
         return fc._arma_plan(argumentos(solicitud), conn)
@@ -82,13 +96,25 @@ def planificar(conn, solicitud: dict) -> fp.PlanGrupo:
         raise error(503, "No se pudo consultar la información del plan.") from None
 
 
+def _huella_plan(plan: fp.PlanGrupo | fp.PlanGrupoV2) -> str:
+    if isinstance(plan, fp.PlanGrupoV2):
+        return fp.huella_plan_v2(plan)
+    return fp.huella_plan(plan)
+
+
+def _plan_como_json(plan: fp.PlanGrupo | fp.PlanGrupoV2) -> dict:
+    if isinstance(plan, fp.PlanGrupoV2):
+        return fp.plan_v2_como_json(plan)
+    return fp.plan_como_json(plan)
+
+
 def previsualizar(conn, solicitud: dict) -> dict:
     plan = planificar(conn, solicitud)
-    huella = fp.huella_plan(plan)
+    huella = _huella_plan(plan)
     return {
         "huella": huella,
         "lote": f"web-{huella}",
-        "plan": fp.plan_como_json(plan),
+        "plan": _plan_como_json(plan),
         "campanas": [
             {
                 "rol": rol,
@@ -105,22 +131,38 @@ def previsualizar(conn, solicitud: dict) -> dict:
     }
 
 
+def _creacion_v2_habilitada(conn) -> bool:
+    fila = conn.execute(_SQL_CONFIG_VIGENTE).fetchone()
+    settings = fila[0] if fila is not None else {}
+    return fp.version_creacion_desde_settings(settings or {}) == "v2"
+
+
 def catalogo(conn, plataforma: str) -> dict:
     conn.row_factory = tuple_row
     productos = []
-    for pid, sku, listings, seller_sku, margen, nombre, publicaciones in conn.execute(
-        _SQL_CATALOGO, (plataforma,)
-    ).fetchall():
-        motivo = None
-        if listings != 1:
-            motivo = "Tiene varios listings; esta versión requiere uno por producto."
-        elif margen is None:
-            motivo = "Sin margen medible."
-        elif not seller_sku or not seller_sku.strip():
-            motivo = "Sin seller_sku para crear el anuncio."
+    for pid, sku, nombre, publicaciones in conn.execute(_SQL_CATALOGO, (plataforma,)).fetchall():
         dominio = {"amazon_mx": "www.amazon.com.mx", "amazon_us": "www.amazon.com"}[plataforma]
         for publicacion in publicaciones:
             asin = publicacion["asin"]
+            sku_amazon = publicacion["seller_sku"]
+            margen = publicacion["margen_neto_pct"]
+            margen_valor = Decimal(margen) if margen is not None else None
+            motivos = []
+            asin_valido = bool(fp.PATRON_ASIN.fullmatch(asin or ""))
+            if not asin:
+                motivos.append("ASIN ausente.")
+            elif not asin_valido:
+                motivos.append("ASIN invalido.")
+            if not sku_amazon or not sku_amazon.strip():
+                motivos.append("SKU de Amazon ausente.")
+            if margen_valor is None:
+                motivos.append("Margen sin medir.")
+            elif margen_valor == 0:
+                motivos.append("Margen cero.")
+            elif margen_valor < 0:
+                motivos.append("Margen negativo.")
+            publicacion["elegible"] = bool(asin_valido and sku_amazon and sku_amazon.strip())
+            publicacion["motivos"] = motivos
             publicacion["url"] = (
                 f"https://{dominio}/dp/{asin}"
                 if re.fullmatch(r"[A-Za-z0-9]{10}", asin or "")
@@ -132,9 +174,6 @@ def catalogo(conn, plataforma: str) -> dict:
                 "sku": sku,
                 "nombre": nombre,
                 "publicaciones": publicaciones,
-                "margen_neto_pct": str(margen) if margen is not None else None,
-                "elegible": motivo is None,
-                "motivo": motivo,
             }
         )
     tipos = [
@@ -146,6 +185,184 @@ def catalogo(conn, plataforma: str) -> dict:
         "moneda": fp.MONEDA_POR_PLATAFORMA[plataforma],
         "productos": productos,
         "tipos_producto": tipos,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Evaluacion del catalogo (ORBIT 19 B.4): adaptador DB -> modulo puro
+# app/evaluacion_catalogo.py. Aqui SOLO consultas; la logica de etiquetas y
+# ratios vive en el modulo puro (sin IO).
+# ---------------------------------------------------------------------------
+
+# Colapso a la observacion mas reciente por (asin, sku, metric_date): la tabla
+# es append-only y el cron D-31..D-1 re-observa cada fecha ~31 veces; sin este
+# colapso, sumar doblaria gasto/ventas (hallazgo bloqueante B.R).
+_SQL_ADS_VENTANA = """
+SELECT DISTINCT ON (advertised_asin, advertised_sku, metric_date)
+       advertised_asin, advertised_sku, metric_date, observed_at, clicks, cost,
+       purchases30d, sales30d, attributed_sales_same_sku_30d
+FROM ads_product_metric_observation
+WHERE platform = %s AND metric_date BETWEEN %s AND %s
+ORDER BY advertised_asin, advertised_sku, metric_date, observed_at DESC
+"""
+
+_SQL_OBJETIVOS_GRUPO = """
+SELECT p.listing_id, g.target_acos_pct
+FROM campana_grupo g
+JOIN campana_grupo_producto p ON p.grupo_id = g.id
+JOIN fabrica_lote l ON l.lote = g.lote
+WHERE g.platform = %s AND l.estado = 'planeado'
+"""
+
+
+def _fecha_o_texto(valor):
+    return valor.isoformat() if valor is not None else None
+
+
+def _monto_o_texto(valor: Decimal | None) -> str | None:
+    return str(valor) if valor is not None else None
+
+
+def _serializar_evaluacion(e: ec.EvaluacionListing) -> dict:
+    econ = e.economia
+    ads = e.ads
+    return {
+        "listing_id": e.listing_id,
+        "platform": e.platform,
+        "product_id": e.product_id,
+        "asin": e.asin,
+        "seller_sku": e.seller_sku,
+        "seleccionable": e.seleccionable,
+        "motivos": list(e.motivos),
+        "objetivo_acos_pct": _monto_o_texto(e.objetivo_acos_pct),
+        "economia": {
+            "ventana_desde": _fecha_o_texto(econ.ventana_desde),
+            "ventana_hasta": _fecha_o_texto(econ.ventana_hasta),
+            "moneda": econ.moneda,
+            "venta_total": _monto_o_texto(econ.venta_total),
+            "venta_cubierta": _monto_o_texto(econ.venta_cubierta),
+            "cobertura": _monto_o_texto(econ.cobertura),
+            "dias_con_venta": econ.dias_con_venta,
+            "margen_neto_pct": _monto_o_texto(econ.margen_neto_pct),
+            "integridad_ok": econ.integridad_ok,
+            "muestra_limitada": econ.muestra_limitada,
+            "muestra_venta": _monto_o_texto(econ.muestra_venta),
+            "muestra_margen_neto_pct": _monto_o_texto(econ.muestra_margen_neto_pct),
+            "ledger_fresco_at": _fecha_o_texto(econ.ledger_fresco_at),
+        },
+        "ads": {
+            "etiqueta": ads.etiqueta,
+            "maduro": ads.maduro,
+            "provisional": ads.provisional,
+            "muestra": ads.muestra,
+            "moneda": ads.moneda,
+            "cost": _monto_o_texto(ads.cost),
+            "clicks": int(ads.clicks) if ads.clicks is not None else None,
+            "sales30d": _monto_o_texto(ads.sales30d),
+            "purchases30d": _monto_o_texto(ads.purchases30d),
+            "promoted30d": _monto_o_texto(ads.promoted30d),
+            "halo30d": _monto_o_texto(ads.halo30d),
+            "acos_pct": _monto_o_texto(ads.acos_pct),
+            "cpc": _monto_o_texto(ads.cpc),
+            "cvr_pct": _monto_o_texto(ads.cvr_pct),
+        },
+        "disponibilidad": e.disponibilidad,
+    }
+
+
+def evaluacion(
+    conn,
+    plataforma: str,
+    orden: str = "margen_observado",
+    direccion: str = "desc",
+    objetivo: Decimal | None = None,
+):
+    """Evaluacion completa por listing (B.2 + Ads B.1 + B.3 + objetivo D2).
+
+    Ventana Ads igual al cron (0.4 §2): max 31 dias, D-31..D-1 UTC.
+    El objetivo por listing viene de grupos en preparacion (lote 'planeado'
+    con target_origen manual_lanzamiento o margen_medido, CHECK de 0019);
+    targets distintos entre grupos => sin objetivo, jamas promedio (D2/§3).
+    `objetivo` explicito (el del formulario, grupo AUN sin crear) toma
+    precedencia sobre la consulta de grupos: es el grupo que el dueno esta
+    preparando (hallazgo cross-review codex 2026-09-07).
+    """
+    if orden not in ec.METRICAS_ORDEN:
+        raise error(422, "El criterio de orden no es válido.")
+    if direccion not in ("asc", "desc"):
+        raise error(422, "La dirección del orden no es válida.")
+    conn.row_factory = tuple_row
+    hoy = dt.datetime.now(dt.UTC).date()
+    hasta = hoy - dt.timedelta(days=1)
+    desde = hasta - dt.timedelta(days=30)
+    # Mismo formato que el NUMERIC(5,2) de campana_grupo: "10" -> "10.00".
+    objetivo = objetivo.quantize(Decimal("0.01")) if objetivo is not None else None
+
+    try:
+        listings = conn.execute(
+            "SELECT id, product_id, external_id, seller_sku FROM listing"
+            " WHERE platform = %s::platform ORDER BY id",
+            (plataforma,),
+        ).fetchall()
+        filas_ads = conn.execute(_SQL_ADS_VENTANA, (plataforma, desde, hasta)).fetchall()
+        objetivos: dict[int, list[Decimal]] = {}
+        for listing_id, target in conn.execute(_SQL_OBJETIVOS_GRUPO, (plataforma,)).fetchall():
+            objetivos.setdefault(listing_id, []).append(target)
+    except psycopg.Error:
+        raise error(503, "No se pudo consultar la evaluación del catálogo.") from None
+
+    # Grano de comparacion (0.4 §2): filas sumadas por (asin, sku); las filas
+    # del mismo ASIN en varias campanas se SUMAN, jamas se reparten.
+    por_clave: dict[tuple[str | None, str | None], list[ec.ObservacionAds]] = {}
+    for asin, sku, metric_date, observed_at, clicks, cost, p30, s30, prom in filas_ads:
+        por_clave.setdefault((asin, sku), []).append(
+            ec.ObservacionAds(
+                metric_date=metric_date,
+                observed_at=observed_at,
+                clicks=clicks,
+                cost=cost,
+                purchases30d=p30,
+                sales30d=s30,
+                attributed_sales_same_sku30d=prom,
+            )
+        )
+
+    economia = economia_observada.por_listing(conn, plataforma)
+    evaluaciones = []
+    for listing_id, product_id, asin, seller_sku in listings:
+        try:
+            disponibilidad = (
+                estado_disponibilidad(conn, plataforma, seller_sku) if seller_sku else None
+            )
+        except psycopg.Error:
+            raise error(503, "No se pudo consultar la evaluación del catálogo.") from None
+        evaluaciones.append(
+            ec.evaluar_listing(
+                listing_id=listing_id,
+                platform=plataforma,
+                product_id=product_id,
+                asin=asin,
+                seller_sku=seller_sku,
+                filas_ads=por_clave.get((asin, seller_sku), []),
+                ventana=(desde, hasta),
+                economia=economia.get(
+                    listing_id, economia_observada.EconomiaProducto.vacio(plataforma, product_id)
+                ),
+                disponibilidad=disponibilidad
+                if disponibilidad is not None
+                else {"estado": "desconocido"},
+                objetivos_grupos=(objetivo,)
+                if objetivo is not None
+                else objetivos.get(listing_id, ()),
+            )
+        )
+    ordenadas = ec.ordenar(evaluaciones, orden, descendente=direccion == "desc")
+    return {
+        "plataforma": plataforma,
+        "ventana_ads": {"desde": desde.isoformat(), "hasta": hasta.isoformat()},
+        "orden": orden,
+        "direccion": direccion,
+        "publicaciones": [_serializar_evaluacion(e) for e in ordenadas],
     }
 
 
@@ -266,8 +483,14 @@ def crear(solicitud: dict, huella: str, confirmacion: str) -> dict:
         if existente is not None:
             return existente
         with _conexion("ORBIT_DSN_READ", lote) as lectura:
+            if solicitud.get("listing_ids") is not None and not _creacion_v2_habilitada(lectura):
+                raise error(
+                    409,
+                    "Altas por publicacion deshabilitadas; conserva el lote para recuperacion.",
+                    lote,
+                )
             plan = planificar(lectura, solicitud)
-        if fp.huella_plan(plan) != huella:
+        if _huella_plan(plan) != huella:
             raise error(409, "El plan cambió. Vuelve a previsualizar antes de crear.", lote)
         args = argumentos(solicitud)
         args.acepto_mutacion_real = True

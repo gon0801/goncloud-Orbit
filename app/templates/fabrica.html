@@ -12,7 +12,7 @@
 
   <form id="fabrica-plan" class="tarjeta">
     <fieldset id="fabrica-configuracion">
-      <legend>1. Productos y configuración</legend>
+      <legend>1. Publicaciones y configuración</legend>
       <div class="fabrica-campos">
         <label for="fabrica-plataforma">Plataforma
           <select id="fabrica-plataforma" name="plataforma" required>
@@ -38,15 +38,30 @@
             <option value="live">live — aplicar ajustes</option>
           </select>
         </label>
+        <label for="fabrica-objetivo-origen">Objetivo ACoS
+          <select id="fabrica-objetivo-origen" required aria-describedby="fabrica-objetivo-ayuda">
+            <option value="">Selecciona el origen del objetivo</option>
+            <option value="manual_lanzamiento">Manual de lanzamiento</option>
+            <option value="margen_medido">Derivado del margen medido</option>
+          </select>
+          <span id="fabrica-objetivo-ayuda" class="mutado">El objetivo manual no acredita rentabilidad.
+            El derivado exige margen positivo y medido en cada publicación.</span>
+        </label>
+        <label for="fabrica-objetivo-acos">ACoS manual (%)
+          <input id="fabrica-objetivo-acos" inputmode="decimal" pattern="[0-9]+([.][0-9]{1,2})?"
+                 maxlength="14" autocomplete="off" aria-describedby="fabrica-objetivo-manual-ayuda">
+          <span id="fabrica-objetivo-manual-ayuda" class="mutado">Obligatorio solo para objetivo manual.
+            No se completa automáticamente.</span>
+        </label>
       </div>
       <p id="fabrica-catalogo-estado" role="status" aria-live="polite"></p>
       <button id="fabrica-recargar-catalogo" type="button">Actualizar productos</button>
-      <h3>Productos</h3>
+      <h3>Publicaciones</h3>
       <p>El nombre interno y el SKU de Odoo identifican tu producto. Debajo aparecen
         todas sus publicaciones vinculadas, con ASIN, SKU de Amazon y enlace.
         El título de Amazon se consulta al abrir la publicación.</p>
-      <p class="mutado">Selecciona al menos un producto elegible. Los excluidos muestran el motivo;
-        un margen ausente permanece sin dato.</p>
+      <p class="mutado">Selecciona una o más publicaciones con identidad completa. Margen ausente,
+        margen negativo o historial sin dato son avisos: no bloquean una selección con objetivo manual.</p>
       <div id="fabrica-productos" class="fabrica-productos"></div>
       <h3>Presupuesto diario y puja inicial por campaña</h3>
       <p>Moneda: <strong id="fabrica-moneda">—</strong>. Captura importes con punto decimal.
@@ -79,6 +94,43 @@
       <button id="fabrica-previsualizar" type="submit" disabled>Revisar plan</button>
     </fieldset>
   </form>
+  <section id="fabrica-comparador" class="tarjeta" aria-labelledby="fabrica-comparador-titulo">
+    <h3 id="fabrica-comparador-titulo">Comparar publicaciones</h3>
+    <p>Economía observada, Ads y disponibilidad por publicación. Solo lectura: ordenar o
+      filtrar no crea ni modifica campañas y no pierde la selección del paso 1.</p>
+    <div class="fabrica-campos fabrica-comparador-controles">
+      <label for="fabrica-comparador-orden">Ordenar por
+        <select id="fabrica-comparador-orden">
+          <option value="margen_observado">Margen observado</option>
+          <option value="ventas_totales">Ventas totales</option>
+          <option value="revenue_ads">Revenue Ads</option>
+          <option value="gasto">Gasto</option>
+          <option value="acos">ACoS</option>
+          <option value="cpc">CPC</option>
+          <option value="cvr">CVR</option>
+          <option value="compras">Compras</option>
+        </select>
+      </label>
+      <label for="fabrica-comparador-direccion">Dirección del orden
+        <select id="fabrica-comparador-direccion">
+          <option value="desc">De mayor a menor (sin dato al final)</option>
+          <option value="asc">De menor a mayor (sin dato al final)</option>
+        </select>
+      </label>
+      <label for="fabrica-comparador-filtro">Mostrar
+        <select id="fabrica-comparador-filtro">
+          <option value="todas">Todas las publicaciones</option>
+          <option value="con_ads">Con datos de Ads</option>
+          <option value="sin_datos_ads">Sin datos de Ads</option>
+          <option value="muestra_limitada">Con muestra limitada</option>
+        </select>
+      </label>
+    </div>
+    <button id="fabrica-comparador-recargar" type="button">Actualizar comparación</button>
+    <p id="fabrica-comparador-estado" role="status" aria-live="polite"></p>
+    <div id="fabrica-comparador-datos"></div>
+  </section>
+
   <p id="fabrica-estado" role="status" aria-live="polite" tabindex="-1"></p>
 
   <section id="fabrica-preview" class="tarjeta" aria-labelledby="fabrica-preview-titulo" hidden>

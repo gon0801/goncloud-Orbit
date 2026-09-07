@@ -5718,6 +5718,6 @@ _(pendiente; extracto scrubbed del log, shapes confirmados o corregidos, lote y 
 
 ## Fuera de este plan (F2, spec §7)
 
-Reruteo del harvest por `campana_grupo_rol`, negative cruzado en las hermanas con fase `hermanas_negadas` (migración 0019), relajación del CHECK `goal_harvest_completo`, biblioteca escrita desde harvest/negatives aplicados, migración de las existentes a `harvest_excepcion`. Depende de la sonda de la tarea 11 (si Amazon rechaza negative keywords en el ad group de product targeting, la decisión 10 queda en 3 hermanas).
+Reruteo del harvest por `campana_grupo_rol`, negative cruzado en las hermanas con fase `hermanas_negadas` (migración **posterior a ORBIT 19 0019/0020**; el número se fija al aplicar F2, ya no 0019), relajación del CHECK `goal_harvest_completo`, biblioteca escrita desde harvest/negatives aplicados, migración de las existentes a `harvest_excepcion`. Depende de la sonda de la tarea 11 (si Amazon rechaza negative keywords en el ad group de product targeting, la decisión 10 queda en 3 hermanas).
 
-**Residual declarado de F1**: un producto multi-listing (más de un `listing` en la plataforma del grupo) NO puede entrar a un grupo — `_productos` aborta nombrándolo (regla 3: la fábrica no elige listing). Queda fuera hasta que exista `--listing <id>` explícito (flag nuevo, su propia tarea fuera de F1).
+**Residual declarado de F1**: un producto multi-listing (más de un `listing` en la plataforma del grupo) NO puede entrar a un grupo — `_productos` aborta nombrándolo (regla 3: la fábrica no elige listing). **F1.** Fase A: ORBIT 19 selecciona por `listing_id` (D2/A).

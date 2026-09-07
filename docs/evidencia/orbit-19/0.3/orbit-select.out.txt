@@ -1,0 +1,31 @@
+ORBIT 19 / 0.3 — salida SELECT (orbit_read). observed_at_utc=2026-09-06 21:07:07 UTC
+
+=== kinds en ad_entity ===
+kind            platform    count
+ad_group        amazon_mx     188
+ad_group        amazon_us      79
+campaign        amazon_mx     167
+campaign        amazon_us      74
+keyword         amazon_mx    2645
+keyword         amazon_us    1337
+product_ad      amazon_mx    7709
+product_ad      amazon_us    4818
+product_target  amazon_mx     861
+product_target  amazon_us     549
+
+=== v_metric_latest 2026-09-03 amazon_mx ===
+kind            filas  entidades  cost      ad_revenue  orders  impressions
+campaign           16         16  362.0600   1972.4100       1        11718
+keyword            36         36  345.3400   1972.4100       1         8909
+product_target     27         27   16.7200      0.0000       0         2809
+(product_ad: CERO filas de metrica)
+
+keyword.cost + product_target.cost = 345.34 + 16.72 = 362.06 = campaign.cost
+(no se pueden sumar campana + hijos; regla de v_tacos).
+
+=== product_ad amazon_mx ===
+product_ads=7709  con_listing=5049  listings_distintos=342
+
+=== watermark metricas ===
+amazon_mx max_metric_date=2026-09-04  max_observed_at=2026-09-05 07:51:03 UTC
+amazon_us max_metric_date=2026-09-04  max_observed_at=2026-09-05 07:51:03 UTC

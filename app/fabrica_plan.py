@@ -175,6 +175,53 @@ class PlanGrupo:
 
 
 @dataclass(frozen=True)
+class PublicacionGrupoV2:
+    """Snapshot de una publicacion elegida en un plan v2.
+
+    El margen es un dato observado: None conserva que no se pudo medir y no
+    se sustituye por cero. Un producto puede aportar varias publicaciones.
+    """
+
+    listing_id: int
+    product_id: int
+    asin: str
+    seller_sku: str
+    platform: str
+    margen_neto_pct: Decimal | None
+
+
+@dataclass(frozen=True)
+class ObjetivoPlanV2:
+    """Objetivo confirmado para un lanzamiento, sin rentabilidad ficticia."""
+
+    origen: str
+    acos_pct: Decimal
+    procedencia: str
+    fraccion: Decimal | None = None
+    derivado: Decimal | None = None
+
+
+@dataclass(frozen=True)
+class PlanGrupoV2:
+    """Plan v2 por publicacion; no altera el formato ni la huella v1."""
+
+    platform: str
+    tipo_producto: str
+    nombre_base: str
+    fecha: Any
+    moneda: str
+    modo: str
+    publicaciones: tuple[PublicacionGrupoV2, ...]
+    parametros: dict[str, ParametrosRol]
+    objetivo: ObjetivoPlanV2
+    semillas: Semillas
+    existentes: tuple[dict, ...] = field(default_factory=tuple)
+
+
+PlanCanonico = PlanGrupo | PlanGrupoV2
+
+
+@dataclass(frozen=True)
 class Paso:
     """Un POST del lote: recurso + path + payload SIN los ids del padre
     (campaignId/adGroupId los completa el tool con los externos creados)."""
@@ -221,6 +268,16 @@ def target_del_grupo(margenes: list[Decimal | None], fraccion: Decimal | None) -
     if aplicado != clampeado:
         procedencia += f" -> redondeo NUMERIC(6,2) = {aplicado}"
     return ResultadoTarget(aplicado, derivado, minimo, fraccion, procedencia)
+
+
+def valida_objetivo_margen_v2(
+    margenes: list[Decimal | None], acos_pct: Decimal | None = None
+) -> None:
+    """La ruta medida v2 no convierte ausencias o margen insuficiente en target valido."""
+    if not margenes or any(margen is None or margen <= 0 for margen in margenes):
+        raise PlanInvalido("objetivo por margen v2 exige margen positivo; usa manual_lanzamiento")
+    if acos_pct is not None and acos_pct > min(margenes):
+        raise PlanInvalido("objetivo por margen v2 supera el margen minimo; usa manual_lanzamiento")
 
 
 def valida_parametros(parametros: dict[str, ParametrosRol], moneda: str) -> None:
@@ -388,6 +445,164 @@ def huella_plan(plan: PlanGrupo) -> str:
     return hashlib.sha256(canonico.encode("utf-8")).hexdigest()
 
 
+CLAVE_CREACION = "fabrica.creacion"
+VERSIONES_CREACION = ("v1", "v2")
+
+
+def version_creacion_desde_settings(settings: object) -> str:
+    """Version de altas nuevas; ausencia o corrupcion se quedan en v1.
+
+    Es un interruptor fail-closed: no afecta lectura, registro,
+    reconciliacion ni pausa de lotes existentes v2.
+    """
+    if not isinstance(settings, dict):
+        return "v1"
+    version = settings.get(CLAVE_CREACION, "v1")
+    return version if version in VERSIONES_CREACION else "v1"
+
+
+def _valida_plan_v2(plan: PlanGrupoV2) -> None:
+    if plan.platform not in MONEDA_POR_PLATAFORMA:
+        raise PlanInvalido(f"plataforma v2 invalida: {plan.platform!r}")
+    if plan.moneda != MONEDA_POR_PLATAFORMA[plan.platform]:
+        raise PlanInvalido("moneda v2 no corresponde a la plataforma")
+    if not plan.publicaciones:
+        raise PlanInvalido("v2 requiere al menos una publicacion")
+    listing_ids = [p.listing_id for p in plan.publicaciones]
+    seller_skus = [p.seller_sku.strip() for p in plan.publicaciones]
+    if len(listing_ids) != len(set(listing_ids)):
+        raise PlanInvalido("listing_id repetido en el grupo v2")
+    if not all(p.platform == plan.platform for p in plan.publicaciones):
+        raise PlanInvalido("publicacion v2 de otra plataforma")
+    if not all(
+        isinstance(p.asin, str) and PATRON_ASIN.fullmatch(p.asin) for p in plan.publicaciones
+    ):
+        raise PlanInvalido("ASIN ausente o invalido en publicaciones v2")
+    if not all(seller_skus) or len(seller_skus) != len(set(seller_skus)):
+        raise PlanInvalido("seller_sku ausente o repetido en el grupo v2")
+    if plan.objetivo.origen not in ("margen_medido", "manual_lanzamiento"):
+        raise PlanInvalido("origen de objetivo v2 invalido")
+    if not plan.objetivo.acos_pct.is_finite() or plan.objetivo.acos_pct <= 0:
+        raise PlanInvalido("objetivo ACoS v2 debe ser Decimal finito > 0")
+    if plan.objetivo.acos_pct.as_tuple().exponent < -2 or plan.objetivo.acos_pct > Decimal(
+        "9999.99"
+    ):
+        raise PlanInvalido("objetivo ACoS v2 fuera de NUMERIC(6,2)")
+    if plan.objetivo.origen == "margen_medido":
+        if plan.objetivo.fraccion is None or plan.objetivo.derivado is None:
+            raise PlanInvalido("objetivo por margen v2 requiere fraccion y derivado")
+        valida_objetivo_margen_v2(
+            [publicacion.margen_neto_pct for publicacion in plan.publicaciones],
+            plan.objetivo.acos_pct,
+        )
+    elif plan.objetivo.fraccion is not None or plan.objetivo.derivado is not None:
+        raise PlanInvalido("objetivo manual v2 no lleva fraccion ni derivado")
+    valida_tipo_producto(plan.tipo_producto)
+    valida_parametros(plan.parametros, plan.moneda)
+
+
+def _publicacion_v2_como_json(publicacion: PublicacionGrupoV2) -> dict:
+    return {
+        "listing_id": publicacion.listing_id,
+        "product_id": publicacion.product_id,
+        "asin": publicacion.asin,
+        "seller_sku": publicacion.seller_sku,
+        "platform": publicacion.platform,
+        "margen_neto_pct": (
+            str(publicacion.margen_neto_pct) if publicacion.margen_neto_pct is not None else None
+        ),
+    }
+
+
+def plan_v2_como_json(plan: PlanGrupoV2) -> dict:
+    """Serializa v2 sin reusar el shape v1 ni convertir ausencias en cero."""
+    _valida_plan_v2(plan)
+    return {
+        "schema_version": 2,
+        "platform": plan.platform,
+        "tipo_producto": plan.tipo_producto,
+        "nombre_base": plan.nombre_base,
+        "fecha": plan.fecha.isoformat(),
+        "moneda": plan.moneda,
+        "modo": plan.modo,
+        "publicaciones": [
+            _publicacion_v2_como_json(p)
+            for p in sorted(plan.publicaciones, key=lambda publicacion: publicacion.listing_id)
+        ],
+        "parametros": {
+            rol: {"budget": str(parametro.budget), "bid": str(parametro.bid)}
+            for rol, parametro in sorted(plan.parametros.items())
+        },
+        "objetivo": {
+            "origen": plan.objetivo.origen,
+            "acos_pct": str(plan.objetivo.acos_pct),
+            "procedencia": plan.objetivo.procedencia,
+            "fraccion": str(plan.objetivo.fraccion) if plan.objetivo.fraccion is not None else None,
+            "derivado": str(plan.objetivo.derivado) if plan.objetivo.derivado is not None else None,
+        },
+        "semillas": {
+            "keywords": list(plan.semillas.keywords),
+            "asins": list(plan.semillas.asins),
+            "negativos": list(plan.semillas.negativos),
+            "exact": list(plan.semillas.exact),
+        },
+    }
+
+
+def huella_plan_v2(plan: PlanGrupoV2) -> str:
+    """Huella de altas v2: el orden visual no cambia lo que se crea."""
+    canonico = json.dumps(plan_v2_como_json(plan), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonico.encode("utf-8")).hexdigest()
+
+
+def plan_v2_desde_json(datos: dict) -> PlanGrupoV2:
+    """Lector de lotes v2 para registro, reconciliacion y pausa despues del rollback."""
+    if datos.get("schema_version") != 2:
+        raise PlanInvalido("schema_version v2 requerida")
+    publicaciones = tuple(
+        PublicacionGrupoV2(
+            p["listing_id"],
+            p["product_id"],
+            p["asin"],
+            p["seller_sku"],
+            p["platform"],
+            Decimal(p["margen_neto_pct"]) if p["margen_neto_pct"] is not None else None,
+        )
+        for p in datos["publicaciones"]
+    )
+    objetivo_json = datos["objetivo"]
+    objetivo = ObjetivoPlanV2(
+        objetivo_json["origen"],
+        Decimal(objetivo_json["acos_pct"]),
+        objetivo_json["procedencia"],
+        Decimal(objetivo_json["fraccion"]) if objetivo_json["fraccion"] is not None else None,
+        Decimal(objetivo_json["derivado"]) if objetivo_json["derivado"] is not None else None,
+    )
+    semillas = datos["semillas"]
+    plan = PlanGrupoV2(
+        datos["platform"],
+        datos["tipo_producto"],
+        datos["nombre_base"],
+        dt.date.fromisoformat(datos["fecha"]),
+        datos["moneda"],
+        datos["modo"],
+        publicaciones,
+        {
+            rol: ParametrosRol(rol, Decimal(valor["budget"]), Decimal(valor["bid"]))
+            for rol, valor in datos["parametros"].items()
+        },
+        objetivo,
+        Semillas(
+            tuple(semillas["keywords"]),
+            tuple(semillas["asins"]),
+            tuple(semillas["negativos"]),
+            tuple(semillas["exact"]),
+        ),
+    )
+    _valida_plan_v2(plan)
+    return plan
+
+
 def plan_desde_json(d: dict) -> PlanGrupo:
     """Inverso de plan_como_json (fabrica_lote.plan -> PlanGrupo) para el
     reintento del registro (--registrar): dinero vuelve a Decimal, fecha a
@@ -434,7 +649,7 @@ def plan_desde_json(d: dict) -> PlanGrupo:
 # ---------------------------------------------------------------------------
 
 
-def _payload_campana(plan: PlanGrupo, rol: str) -> dict:
+def _payload_campana(plan: PlanCanonico, rol: str) -> dict:
     p = plan.parametros[rol]
     return {  # HIPOTESIS hasta la sonda: startDate ISO, budget anidado, dynamicBidding
         "name": nombre_campana(plan.tipo_producto, plan.nombre_base, rol, plan.fecha),
@@ -446,7 +661,7 @@ def _payload_campana(plan: PlanGrupo, rol: str) -> dict:
     }
 
 
-def _payload_ad_group(plan: PlanGrupo, rol: str) -> dict:
+def _payload_ad_group(plan: PlanCanonico, rol: str) -> dict:
     return {  # HIPOTESIS hasta la sonda: defaultBid numero
         "name": nombre_ad_group(plan.tipo_producto, plan.nombre_base, rol, plan.fecha),
         "state": ESTADO_NUEVO,
@@ -454,7 +669,7 @@ def _payload_ad_group(plan: PlanGrupo, rol: str) -> dict:
     }
 
 
-def _pasos_keywords(plan: PlanGrupo, rol: str) -> list[Paso]:
+def _pasos_keywords(plan: PlanCanonico, rol: str) -> list[Paso]:
     bid = monto_wire(plan.parametros[rol].bid)
     textos = plan.semillas.exact if rol == "category_exact" else plan.semillas.keywords
     return [
@@ -469,7 +684,7 @@ def _pasos_keywords(plan: PlanGrupo, rol: str) -> list[Paso]:
     ]
 
 
-def _semillas_del_rol(plan: PlanGrupo, rol: str) -> list[Paso]:
+def _semillas_del_rol(plan: PlanCanonico, rol: str) -> list[Paso]:
     if rol in MATCH_POR_ROL:
         return _pasos_keywords(plan, rol)
     if rol == "product_targeting":
@@ -501,8 +716,13 @@ def _semillas_del_rol(plan: PlanGrupo, rol: str) -> list[Paso]:
     ]
 
 
-def pasos_del_rol(plan: PlanGrupo, rol: str) -> list[Paso]:
-    """campana -> ad group -> un product ad por producto -> semillas del rol."""
+def pasos_del_rol(plan: PlanCanonico, rol: str) -> list[Paso]:
+    """Campana, ad group y un product ad por identidad elegida del plan."""
+    publicaciones = (
+        tuple(sorted(plan.publicaciones, key=lambda publicacion: publicacion.listing_id))
+        if isinstance(plan, PlanGrupoV2)
+        else plan.productos
+    )
     pasos = [
         Paso(
             rol, "campaign", PATH_CREATE["campaign"], _payload_campana(plan, rol), f"campana {rol}"
@@ -523,7 +743,7 @@ def pasos_del_rol(plan: PlanGrupo, rol: str) -> list[Paso]:
             {"sku": p.seller_sku, "state": ESTADO_NUEVO},
             f"product ad sku {p.seller_sku}",
         )
-        for p in plan.productos
+        for p in publicaciones
     )
     pasos.extend(_semillas_del_rol(plan, rol))
     return pasos

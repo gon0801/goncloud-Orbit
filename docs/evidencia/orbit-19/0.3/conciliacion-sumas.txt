@@ -1,0 +1,41 @@
+ORBIT 19 / 0.3 — conciliacion de sumas advertised product vs campana
+observed_at_utc: 2026-09-06 22:08–22:11 UTC
+fecha_reporte: 2026-09-03
+plataforma: amazon_mx (MXN)
+mutaciones Amazon: POST /reporting/reports (solo reporting); cero escritura de anuncios
+
+Gzip spAdvertisedProduct DAILY, groupBy advertiser.
+Columnas presentes: adGroupId, adId, advertisedAsin, advertisedSku,
+attributedSalesSameSku30d, campaignId, clicks, cost, date, impressions,
+purchases30d, purchasesSameSku30d, sales30d
+n_filas=767 n_asin=251  (igual que la sonda 21:03)
+attributedSalesSameSku30d: SI vino (esta corrida la pidio; la de 21:03 no)
+
+sum_cost=362.06
+sum_impressions=11717
+sum_clicks=116
+sum_sales30d=3427.58
+sum_purchases30d=2
+sum_attributedSalesSameSku30d=1455.17
+n_cost_null=0 n_sales_null=0 n_promo_null=0 n_promo_present=767
+
+Referencia v_metric_latest amazon_mx metric_date=2026-09-03 (orbit_read, 22:08 UTC):
+  campaign: filas=16 cost=362.0600 impressions=11718 clicks=116 ad_revenue=1972.4100 orders=1
+  keyword+product_target cost=345.34+16.72=362.06 (cuadra con campana)
+
+delta_cost=0.0000
+delta_clicks=0
+delta_impressions=-1
+
+sales30d gzip (3427.58) vs ad_revenue campana (1972.41) y purchases 2 vs orders 1:
+Gasto y clics estan conciliados; ventas y compras difieren y no estan
+conciliadas. La actualizacion de atribucion es una hipotesis, no demostrada
+con esta muestra. No se registro aqui la fecha de observacion del agregado
+de campana; la hora del SELECT no acredita la antiguedad de ese dato.
+La causa de la diferencia sigue pendiente de verificar.
+
+Cobertura de ausentes: no demostrada. 767 filas vs 7709 product_ad MX.
+El gzip es solo-actividad. COMPLETED no prueba «sin actividad».
+
+Esta conciliacion cierra el DoD de investigacion 0.3. B.1 reconcilia la
+tabla persistida; no reabre 0.3 ni bloquea el cierre de 0.4.

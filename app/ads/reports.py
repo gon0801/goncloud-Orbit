@@ -189,6 +189,19 @@ Search terms (task 1.4):
   fusion del planificador ya hace imposible dos inserts de la misma clave
   dentro de un reporte).
 
+Productos anunciados (ORBIT 19 B.1):
+
+- 5to reporte spAdvertisedProduct (verificado en vivo 2026-09-06, evidencia
+  docs/evidencia/orbit-19/0.3) a tabla PROPIA ads_product_metric_observation
+  (migracion 0020), grano (platform, advertisedAsin, advertisedSku,
+  metric_date): las filas del mismo asin/sku en varias campanas se SUMAN;
+  JAMAS se reparte un agregado de campana entre productos (politica 0.4 §2).
+  NO entra en REPORTES_CFG: corre como corrida propia (main --productos,
+  misma ventana D-31..D-1 que el cron de metricas para re-pedir las 30d).
+  campaignId/adGroupId/adId viajan como JSONB de trazabilidad. "salesSameSku30d"
+  NO se pide (400 vivo); attributedSalesSameSku30d/purchasesSameSku30d si.
+  Moneda: la del perfil (mx->MXN, us->USD), sellada por el trigger compartido.
+
 `python -m app.ads.reports`: carga AdsCredentials.from_secrets_dir()
 (ORBIT_SECRETS_DIR) y la DSN de ORBIT_DSN_INGEST (via app.db.connect),
 sincroniza por defecto AYER UTC (--fecha / --fecha-fin, max 31 dias, el tope
@@ -215,6 +228,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 
 import psycopg
+from psycopg.types.json import Jsonb
 
 from app.ads.client import AdsClient
 from app.ads.config import AdsCredentials
@@ -241,6 +255,12 @@ MAX_RANGO_DIAS = 31
 # corrida para siempre).
 INTENTOS_POLL = 120
 ESPERA_POLL_SEGUNDOS = 5.0
+
+# La corrida de productos anunciados (ORBIT 19 B.1) usa un presupuesto MAYOR:
+# el 2026-09-07 el primer reporte spAdvertisedProduct productivo tardo ~25 min
+# en salir de PENDING (la sonda de 0.3 tardo ~110 s: la latencia de la cola de
+# Amazon varia por orden de magnitud). 300 x 5s = 25 min por reporte.
+INTENTOS_POLL_PRODUCTOS = 300
 
 # Tope de descarga (hallazgo codex): un backfill legitimo de 31 dias son unos
 # pocos MB; 512 MB solo lo alcanza un gzip anormal (bug de la API o payload
@@ -313,6 +333,39 @@ SEARCH_TERMS_CFG = {
     "tabla": "search_term_observation",
 }
 REPORTES_CFG = (CAMPANAS_CFG, KEYWORDS_CFG, TARGETS_CFG, SEARCH_TERMS_CFG)
+# 5to reporte (ORBIT 19 B.1): metricas por PRODUCTO ANUNCIADO a grano
+# (platform, advertisedAsin, advertisedSku) -> tabla PROPIA
+# ads_product_metric_observation (migracion 0020). NO entra en REPORTES_CFG:
+# su ingesta no resuelve ad_entity (el producto anunciado no es entidad) y va
+# en corrida propia (sync_metrics(reportes=(PRODUCTOS_CFG,)) / --productos),
+# mismo patron de fase API/DB y misma ventana del cron (D-31..D-1). Forma
+# verificada en vivo 2026-09-06 (docs/evidencia/orbit-19/0.3/reporte.md):
+# reportTypeId spAdvertisedProduct, groupBy ["advertiser"], 767 filas MX,
+# cost/clicks conciliados. PROHIBIDO pedir "salesSameSku30d" (400 vivo);
+# attributedSalesSameSku30d y purchasesSameSku30d SI estan en el allowlist.
+# campaignId/adGroupId/adId se guardan SOLO como trazabilidad JSONB, jamas
+# para repartir agregados de campana (politica 0.4 §2).
+PRODUCTOS_CFG = {
+    "nombre": "productos",
+    "reportTypeId": "spAdvertisedProduct",
+    "groupBy": ["advertiser"],
+    "columns": [
+        "date",
+        "advertisedAsin",
+        "advertisedSku",
+        "campaignId",
+        "adGroupId",
+        "adId",
+        "impressions",
+        "clicks",
+        "cost",
+        "purchases30d",
+        "sales30d",
+        "purchasesSameSku30d",
+        "attributedSalesSameSku30d",
+    ],
+    "tabla": "ads_product_metric_observation",
+}
 
 # Resolucion de entidades en un solo SELECT por reporte (las filas de un
 # reporte comparten platform/kind; los external_id van de a miles).
@@ -363,6 +416,25 @@ _SQL_INSERT_TERMINO = """
     RETURNING search_term
 """
 
+# Espejo append-only para ads_product_metric_observation (ORBIT 19 B.1): mismo
+# patron de dedupe por source_report_id. platform va en la fila (la PK la
+# incluye); la moneda es la del perfil y la sella el trigger compartido
+# metric_moneda_de_plataforma (migracion 0020). campaign_ids/ad_ids viajan
+# como JSONB de trazabilidad. RETURNING advertised_asin solo distingue insert
+# de absorbida.
+_SQL_INSERT_PRODUCTO = """
+    INSERT INTO ads_product_metric_observation
+        (platform, advertised_asin, advertised_sku, metric_date, observed_at,
+         metric_currency, impressions, clicks, cost, purchases30d, sales30d,
+         purchases_same_sku30d, attributed_sales_same_sku_30d,
+         campaign_ids, ad_ids, source_report_id, ingest_run_id)
+    VALUES (%s, %s, %s, %s, now(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    ON CONFLICT (platform, advertised_asin, advertised_sku, metric_date, source_report_id)
+        WHERE source_report_id IS NOT NULL
+    DO NOTHING
+    RETURNING advertised_asin
+"""
+
 
 class AdsReportsError(Exception):
     """Error de forma en la respuesta de la API de reportes.
@@ -407,6 +479,29 @@ class _FilaTermino:
     ad_revenue: Decimal | None
     clicks: int | None
     orders: int | None
+
+
+@dataclass
+class _FilaProducto:
+    """Una fila de producto anunciado planificada (ORBIT 19 B.1).
+
+    Identidad del grano sellado (asin, sku, fecha); `campaign_ids`/`ad_ids`
+    son trazabilidad de que filas de la API aportaron a la clave (strings,
+    sin repeticion) -- JAMAS insumo para repartir agregados de campana.
+    """
+
+    asin: str
+    sku: str
+    metric_date: dt.date
+    impressions: int | None
+    clicks: int | None
+    cost: Decimal | None
+    purchases30d: Decimal | None
+    sales30d: Decimal | None
+    purchases_same_sku30d: Decimal | None
+    attributed_sales_same_sku_30d: Decimal | None
+    campaign_ids: list[str]
+    ad_ids: list[str]
 
 
 @dataclass
@@ -969,6 +1064,263 @@ def _planea_filas_terminos(
     return plan, skips
 
 
+def _fusionar_fila_producto(
+    previa: _FilaProducto,
+    *,
+    asin: str,
+    sku: str,
+    metric_date: dt.date,
+    impressions: int | None,
+    clicks: int | None,
+    cost: Decimal | None,
+    purchases: Decimal | None,
+    sales: Decimal | None,
+    purchases_same_sku: Decimal | None,
+    sales_same_sku: Decimal | None,
+    campaign_id: str | None,
+    ad_id: str | None,
+    por_clave: dict[tuple[str, str, dt.date], _FilaProducto],
+    plan: list[_FilaProducto],
+    envenenadas: set[tuple[str, str, dt.date]],
+    skips: Counter[str],
+) -> None:
+    """Absorbe una fila duplicada (mismo asin/sku/fecha, otra campana) hacia
+    el grano sellado: los aportes son disjuntos -> se SUMAN con
+    envenenamiento de None. Un par complementario que deja la clave SIN
+    ninguna metrica la descarta y la marca envenenada: una fila posterior no
+    puede recrearla con solo sus valores (hallazgo cross-review codex)."""
+    previa.impressions = _sumar_entero(previa.impressions, impressions)
+    previa.clicks = _sumar_entero(previa.clicks, clicks)
+    previa.cost = _sumar_decimal(previa.cost, cost)
+    previa.purchases30d = _sumar_decimal(previa.purchases30d, purchases)
+    previa.sales30d = _sumar_decimal(previa.sales30d, sales)
+    previa.purchases_same_sku30d = _sumar_decimal(previa.purchases_same_sku30d, purchases_same_sku)
+    previa.attributed_sales_same_sku_30d = _sumar_decimal(
+        previa.attributed_sales_same_sku_30d, sales_same_sku
+    )
+    if campaign_id is not None and campaign_id not in previa.campaign_ids:
+        previa.campaign_ids.append(campaign_id)
+    if ad_id is not None and ad_id not in previa.ad_ids:
+        previa.ad_ids.append(ad_id)
+    skips["fila agregada por clave duplicada en el reporte"] += 1
+    logger.debug(
+        "fila agregada por clave duplicada en el reporte: %s/%s %s", asin, sku, metric_date
+    )
+    # Gate POST-fusion (mismo sellado que terminos): una observacion 100%
+    # vacia no se escribe (taparia datos completos anteriores en el colapso
+    # a-la-mas-reciente).
+    if all(
+        valor is None
+        for valor in (
+            previa.impressions,
+            previa.clicks,
+            previa.cost,
+            previa.purchases30d,
+            previa.sales30d,
+            previa.purchases_same_sku30d,
+            previa.attributed_sales_same_sku_30d,
+        )
+    ):
+        del por_clave[(asin, sku, metric_date)]
+        plan.remove(previa)
+        envenenadas.add((asin, sku, metric_date))
+        skips["fila sin ninguna metrica"] += 1
+        logger.debug(
+            "fusion dejo la clave sin ninguna metrica (par envenenado), no se escribe: %s/%s %s",
+            asin,
+            sku,
+            metric_date,
+        )
+
+
+def _planea_filas_productos(
+    filas: list[dict],
+    *,
+    hoy: dt.date,
+    fecha_ini: dt.date,
+    fecha_fin: dt.date,
+) -> tuple[list[_FilaProducto], Counter[str]]:
+    """Valida y AGREGA las filas de spAdvertisedProduct por SUMA al grano
+    (asin, sku, fecha) ANTES de la base (ORBIT 19 B.1, politica 0.4 §2).
+
+    El reporte trae una fila por (date, asin, sku, campaignId, adGroupId,
+    adId); la tabla sella el grano (platform, asin, sku, fecha), asi que las
+    filas del MISMO asin/sku en varias campanas (o varios ads) se FUSIONAN
+    SUMANDO metricas (via _sumar_decimal/_sumar_entero con ENVENENAMIENTO de
+    None: si algun aporte trajo la metrica ausente, la fusionada queda None --
+    regla 3). NUNCA se reparte un agregado de campana entre productos: este
+    planificador no ve agregados de campana, solo filas por producto.
+
+    Espejo de _planea_filas_terminos (vocabulario CERRADO de skips): asin/sku
+    ausentes, date invalida, metric_date futura, fuera del rango solicitado,
+    metricas no numericas/fraccionarias, fila sin NINGUNA metrica y la fila
+    absorbida por la fusion. Metrica NEGATIVA en fila cruda aborta fail-closed
+    (la fusion podria compensarla bajo el CHECK apm_no_negativos). Pre-check
+    same_sku <= total por fila cruda (el CHECK apm_same_sku_cabe abortaria el
+    lote entero si llegara al INSERT).
+    """
+    plan: list[_FilaProducto] = []
+    skips: Counter[str] = Counter()
+    por_clave: dict[tuple[str, str, dt.date], _FilaProducto] = {}
+    # Veneno ADHESIVO (hallazgo cross-review codex 2026-09-07): una clave cuya
+    # fusion quedo 100% vacia se descarta, pero una fila posterior del mismo
+    # (asin, sku, fecha) NO puede recrearla con solo sus valores: publicaria
+    # un subtotal parcial como completo dependiendo del orden del gzip.
+    envenenadas: set[tuple[str, str, dt.date]] = set()
+
+    for fila in filas:
+        raw_asin = fila.get("advertisedAsin")
+        if not isinstance(raw_asin, str) or not raw_asin.strip():
+            skips["fila de productos sin advertisedAsin"] += 1
+            continue
+        raw_sku = fila.get("advertisedSku")
+        if not isinstance(raw_sku, str) or not raw_sku.strip():
+            skips["fila de productos sin advertisedSku"] += 1
+            continue
+        asin = raw_asin.strip()
+        sku = raw_sku.strip()
+        raw_date = fila.get("date")
+        try:
+            if not isinstance(raw_date, str):
+                raise ValueError
+            metric_date = dt.date.fromisoformat(raw_date)
+        except ValueError:
+            skips["fila con date invalida"] += 1
+            logger.debug("date invalida en fila de productos: %r", raw_date)
+            continue
+        if metric_date > hoy:
+            skips["fila con metric_date futura"] += 1
+            logger.debug("metric_date futura en productos: %s > %s", metric_date, hoy)
+            continue
+        if metric_date < fecha_ini or metric_date > fecha_fin:
+            skips["fila con metric_date fuera del rango solicitado"] += 1
+            logger.debug(
+                "metric_date %s fuera del rango %s..%s en producto %s/%s",
+                metric_date,
+                fecha_ini,
+                fecha_fin,
+                asin,
+                sku,
+            )
+            continue
+        try:
+            impressions = _entero_reporte(fila.get("impressions"), "impressions")
+            clicks = _entero_reporte(fila.get("clicks"), "clicks")
+            cost = _decimal_reporte(fila.get("cost"), "cost")
+            purchases = _decimal_reporte(fila.get("purchases30d"), "purchases30d")
+            sales = _decimal_reporte(fila.get("sales30d"), "sales30d")
+            purchases_same_sku = _decimal_reporte(
+                fila.get("purchasesSameSku30d"), "purchasesSameSku30d"
+            )
+            sales_same_sku = _decimal_reporte(
+                fila.get("attributedSalesSameSku30d"), "attributedSalesSameSku30d"
+            )
+        except ValueError:
+            skips["fila de productos con metrica no numerica o fraccionaria"] += 1
+            continue
+        if all(
+            valor is None
+            for valor in (
+                impressions,
+                clicks,
+                cost,
+                purchases,
+                sales,
+                purchases_same_sku,
+                sales_same_sku,
+            )
+        ):
+            skips["fila sin ninguna metrica"] += 1
+            logger.debug("fila sin ninguna metrica: producto %s/%s %s", asin, sku, metric_date)
+            continue
+        if (sales_same_sku is not None and sales is not None and sales_same_sku > sales) or (
+            purchases_same_sku is not None
+            and purchases is not None
+            and purchases_same_sku > purchases
+        ):
+            # Pre-check por fila cruda (vocabulario CERRADO): sin el, el CHECK
+            # apm_same_sku_cabe abortaria el LOTE entero en la base.
+            skips["fila con metrica same_sku mayor que el total"] += 1
+            logger.debug(
+                "same_sku > total en producto %s/%s (%s/%s vs %s/%s)",
+                asin,
+                sku,
+                sales_same_sku,
+                purchases_same_sku,
+                sales,
+                purchases,
+            )
+            continue
+        # Negativos = dato corrupto y la corrida ABORTA (fail-closed): la
+        # FUSION podria compensar un negativo con un positivo hermano y
+        # colarlo bajo el CHECK apm_no_negativos (mismo sellado que terminos).
+        if any(
+            valor is not None and valor < 0
+            for valor in (
+                impressions,
+                clicks,
+                cost,
+                purchases,
+                sales,
+                purchases_same_sku,
+                sales_same_sku,
+            )
+        ):
+            raise AdsReportsError(
+                "fila de productos con metrica negativa (dato corrupto): "
+                "la corrida aborta fail-closed"
+            )
+        # Trazabilidad: ids de la API como strings, sin repeticion (regla 1:
+        # no se usan para repartir, solo para auditar de donde salio la suma).
+        campaign_id = str(fila["campaignId"]) if fila.get("campaignId") is not None else None
+        ad_id = str(fila["adId"]) if fila.get("adId") is not None else None
+
+        previa = por_clave.get((asin, sku, metric_date))
+        if (asin, sku, metric_date) in envenenadas:
+            skips["fila de clave envenenada (subtotal parcial)"] += 1
+            logger.debug("fila descartada por clave envenenada: %s/%s %s", asin, sku, metric_date)
+            continue
+        if previa is not None:
+            _fusionar_fila_producto(
+                previa,
+                asin=asin,
+                sku=sku,
+                metric_date=metric_date,
+                impressions=impressions,
+                clicks=clicks,
+                cost=cost,
+                purchases=purchases,
+                sales=sales,
+                purchases_same_sku=purchases_same_sku,
+                sales_same_sku=sales_same_sku,
+                campaign_id=campaign_id,
+                ad_id=ad_id,
+                por_clave=por_clave,
+                plan=plan,
+                envenenadas=envenenadas,
+                skips=skips,
+            )
+            continue
+        nueva = _FilaProducto(
+            asin=asin,
+            sku=sku,
+            metric_date=metric_date,
+            impressions=impressions,
+            clicks=clicks,
+            cost=cost,
+            purchases30d=purchases,
+            sales30d=sales,
+            purchases_same_sku30d=purchases_same_sku,
+            attributed_sales_same_sku_30d=sales_same_sku,
+            campaign_ids=[campaign_id] if campaign_id is not None else [],
+            ad_ids=[ad_id] if ad_id is not None else [],
+        )
+        por_clave[(asin, sku, metric_date)] = nueva
+        plan.append(nueva)
+
+    return plan, skips
+
+
 # ---------------------------------------------------------------------------
 # IO de DB: ingest_metrics
 # ---------------------------------------------------------------------------
@@ -1165,6 +1517,76 @@ def ingest_search_terms(
     )
 
 
+def ingest_productos(
+    conn: psycopg.Connection,
+    perfil: PerfilAds,
+    reporte_cfg: dict,
+    report_id: str,
+    filas: list[dict],
+    *,
+    run_id: int,
+    hoy: dt.date,
+    fecha_ini: dt.date,
+    fecha_fin: dt.date,
+) -> ResultadoIngesta:
+    """Inserta las filas de UN reporte spAdvertisedProduct en
+    ads_product_metric_observation (append-only, ORBIT 19 B.1).
+
+    Diferencias selladas con ingest_metrics: NO resuelve ad_entity (el grano
+    es platform/asin/sku, el producto anunciado no es entidad) y el
+    PLANIFICADOR ya agrego por SUMA las filas del mismo (asin, sku, fecha) --
+    las de varias campanas suman, los agregados de campana jamas se reparten.
+    campaign_ids/ad_ids viajan como JSONB de trazabilidad. La moneda es la
+    del perfil y la sella el trigger compartido metric_moneda_de_plataforma.
+
+    `run_id`/`hoy`/`fecha_ini`/`fecha_fin`: misma semantica que ingest_metrics
+    (una ingest_run por corrida; el guard de fecha futura usa el MISMO reloj
+    que escribe observed_at).
+    """
+    if not perfil.aceptado or perfil.platform is None or perfil.moneda is None:
+        raise AdsReportsError(
+            f"ingest_productos exige un perfil aceptado (profile_id={perfil.profile_id!r})"
+        )
+    plan, skips = _planea_filas_productos(filas, hoy=hoy, fecha_ini=fecha_ini, fecha_fin=fecha_fin)
+
+    written = 0
+    for fila in plan:
+        insertado = conn.execute(
+            _SQL_INSERT_PRODUCTO,
+            (
+                perfil.platform,
+                fila.asin,
+                fila.sku,
+                fila.metric_date,
+                perfil.moneda,
+                fila.impressions,
+                fila.clicks,
+                fila.cost,
+                fila.purchases30d,
+                fila.sales30d,
+                fila.purchases_same_sku30d,
+                fila.attributed_sales_same_sku_30d,
+                Jsonb(fila.campaign_ids),
+                Jsonb(fila.ad_ids),
+                report_id,
+                run_id,
+            ),
+        ).fetchone()
+        if insertado is None:
+            skips[f"fila duplicada del reporte {report_id}"] += 1
+            continue
+        written += 1
+
+    return ResultadoIngesta(
+        report_id=report_id,
+        filas=len(filas),
+        rows_written=written,
+        rows_skipped=sum(skips.values()),
+        skip_reason=_formato_skip_reason(skips),
+        skips=skips,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Orquestador + rango de fechas
 # ---------------------------------------------------------------------------
@@ -1212,8 +1634,14 @@ def sync_metrics(
     fecha_ini: dt.date,
     fecha_fin: dt.date,
     sleep=time.sleep,
+    reportes: tuple[dict, ...] = REPORTES_CFG,
 ) -> ResultadoSync:
-    """Orquestador: perfiles aceptados -> 4 reportes por perfil -> ingesta.
+    """Orquestador: perfiles aceptados -> reportes por perfil -> ingesta.
+
+    `reportes` despacha la corrida: REPORTES_CFG (default, campanas/keywords/
+    targets/search terms) o (PRODUCTOS_CFG,) para la corrida de productos
+    anunciados de ORBIT 19 B.1 (main --productos): misma disciplina de fases,
+    misma ingest_run por corrida.
 
     Fase de API COMPLETA antes de la fase de DB (ninguna transaccion queda
     abierta durante el polling) y ENVUELTA: todo fallo de esa fase abre una
@@ -1267,9 +1695,16 @@ def sync_metrics(
                 perfiles_rechazados=perfiles_rechazados,
             )
         for perfil in perfiles:
-            for cfg in REPORTES_CFG:
+            for cfg in reportes:
                 report_id = solicitar_reporte(client, perfil, cfg, fecha_ini, fecha_fin)
-                url = esperar_reporte(client, perfil, report_id, sleep=sleep)
+                # spAdvertisedProduct pasa hoy por colas mucho mas lentas que
+                # los 4 reportes estandar (ver INTENTOS_POLL_PRODUCTOS).
+                intentos = (
+                    INTENTOS_POLL_PRODUCTOS
+                    if cfg.get("reportTypeId") == "spAdvertisedProduct"
+                    else INTENTOS_POLL
+                )
+                url = esperar_reporte(client, perfil, report_id, sleep=sleep, intentos=intentos)
                 descargados.append((perfil, cfg, report_id, descargar_filas(client, url)))
     except BaseException as exc:
         _run_de_fallo_de_api(conn, exc)
@@ -1309,6 +1744,18 @@ def sync_metrics(
                     )
                 elif tabla == "search_term_observation":
                     resultado = ingest_search_terms(
+                        conn,
+                        perfil,
+                        cfg,
+                        report_id,
+                        filas,
+                        run_id=run_id,
+                        hoy=hoy,
+                        fecha_ini=fecha_ini,
+                        fecha_fin=fecha_fin,
+                    )
+                elif tabla == "ads_product_metric_observation":
+                    resultado = ingest_productos(
                         conn,
                         perfil,
                         cfg,
@@ -1447,6 +1894,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--fecha-fin", help="YYYY-MM-DD del dia final (rango max 31 dias; requiere --fecha)"
     )
+    parser.add_argument(
+        "--productos",
+        action="store_true",
+        help=(
+            "solo el reporte spAdvertisedProduct (ORBIT 19 B.1) a "
+            "ads_product_metric_observation; sin el, los 4 reportes de siempre"
+        ),
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -1468,7 +1923,10 @@ def main(argv: list[str] | None = None) -> int:
         client = AdsClient(AdsCredentials.from_secrets_dir())
         conn = connect(dsn)
         try:
-            resultado = sync_metrics(conn, client, fecha_ini=fecha_ini, fecha_fin=fecha_fin)
+            reportes = (PRODUCTOS_CFG,) if args.productos else REPORTES_CFG
+            resultado = sync_metrics(
+                conn, client, fecha_ini=fecha_ini, fecha_fin=fecha_fin, reportes=reportes
+            )
         finally:
             conn.close()
     except Exception as exc:

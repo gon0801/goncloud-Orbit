@@ -335,6 +335,7 @@ El server está en UTC: estas horas SON UTC.
 |-------|---------|---------|
 | 06:45 | `ingest:structure` | `python -m app.cli ingest structure` |
 | 07:10 | `ingest:metrics` | `python -m app.cli ingest metrics --fecha D-31 --fecha-fin D-1` |
+| 07:20 | `ingest:metrics:productos` | `python -m app.cli ingest metrics --fecha D-31 --fecha-fin D-1 --productos` (ORBIT 19 B.1; el reporte `spAdvertisedProduct` puede tardar hasta ~25 min por perfil, presupuesto de poll propio) |
 | 08:40 | `ads_optimizer:amazon_us` + `ads_optimizer:amazon_mx` | `python -m app.cli cycle --platform …` (los dos, en serie) |
 
 `job_key` del ciclo es `app.cycle.job_key_de` (`ads_optimizer:<platform>`),
@@ -401,6 +402,8 @@ ORBIT_BLOCK=$(cat <<'CRON'
 # job_key=ingest:metrics  profundidad D-31..D-1 (sello 4.2; max API 31d cubre atribucion 30d)
 # Vixie cron: % sin escapar se vuelve newline y trunca el comando (hallazgo codex).
 10 7 * * * FECHA=$(date -u -d "31 days ago" +\%F) FECHA_FIN=$(date -u -d "1 day ago" +\%F) && docker exec orbit-app-1 python -m app.cli ingest metrics --fecha "$FECHA" --fecha-fin "$FECHA_FIN" >> /mnt/data/appdata/orbit/logs/ingest-metrics.log 2>&1
+# job_key=ingest:metrics:productos  ORBIT 19 B.1 (spAdvertisedProduct por ASIN/SKU; poll hasta 25 min/reporte)
+20 7 * * * FECHA=$(date -u -d "31 days ago" +\%F) FECHA_FIN=$(date -u -d "1 day ago" +\%F) && docker exec orbit-app-1 python -m app.cli ingest metrics --fecha "$FECHA" --fecha-fin "$FECHA_FIN" --productos >> /mnt/data/appdata/orbit/logs/ingest-productos.log 2>&1
 # job_key=ads_optimizer:amazon_us + ads_optimizer:amazon_mx
 40 8 * * * docker exec orbit-app-1 python -m app.cli cycle --platform amazon_us >> /mnt/data/appdata/orbit/logs/optimizer.log 2>&1
 41 8 * * * docker exec orbit-app-1 python -m app.cli cycle --platform amazon_mx >> /mnt/data/appdata/orbit/logs/optimizer.log 2>&1
@@ -848,6 +851,94 @@ producto (`_SQL_UPSERT_PRODUCTO`) y seguir mostrando los cuatro en cero, así qu
 esto **no** es un no-op del pipeline entero — es exactamente lo que hace falta
 aquí, que ninguna vigencia se escriba ni se rechace. Para un no-op completo hay
 que mirar también `productos: nuevos=0 actualizados=0` en la misma salida.
+
+### Migracion 0019: fabrica v2 por publicacion (ORBIT 19 A)
+
+`0019_fabrica_grupo_publicacion_v2.sql` se aplica una sola vez, despues de
+`0018_fabrica_campanas.sql`. Es expansiva: conserva lotes y grupos v1; solo
+habilita snapshots por `listing_id` y objetivos manuales con margen real
+`NULL`. No recrear ni borrar tablas para revertirla.
+
+Preflight de produccion, antes de tocar el esquema. Debe existir el esquema
+F1, `target_origen` debe ser falso y los tres conteos deben ser cero. Si
+alguna condicion difiere, detener el despliegue y conciliar el estado antes
+de aplicar una DDL no reejecutable.
+
+```bash
+ssh goncloud 'docker exec orbit-db-1 psql -U orbit -d orbit -P pager=off -F "|" -At -c "
+SELECT to_regclass('"'"'public.campana_grupo'"'"'),
+       EXISTS (SELECT 1 FROM information_schema.columns
+                WHERE table_schema='"'"'public'"'"' AND table_name='"'"'campana_grupo'"'"'
+                  AND column_name='"'"'target_origen'"'"'),
+       (SELECT count(*) FROM fabrica_lote),
+       (SELECT count(*) FROM campana_grupo),
+       (SELECT count(*) FROM campana_grupo_producto);"'
+```
+
+Crear backup de schema con staging y validacion. Aunque los grupos estan
+vacios en el preflight de ORBIT 19, se conserva su contrato previo y el
+archivo final solo aparece despues de validar el dump completo.
+
+```bash
+ssh goncloud 'set -eu; D=/mnt/data/appdata/orbit/backups; \
+  STAMP=$(date -u +%Y%m%d-%H%M%S); TMP="$D/.pre0019_$STAMP.sql.tmp"; \
+  OUT="$D/pre0019_fabrica_grupo_$STAMP.sql"; \
+  docker exec orbit-db-1 pg_dump -U orbit -d orbit --schema-only \
+    -t public.campana_grupo -t public.campana_grupo_producto > "$TMP"; \
+  [ -s "$TMP" ] \
+    && grep -q "CREATE TABLE public.campana_grupo" "$TMP" \
+    && grep -q "CREATE TABLE public.campana_grupo_producto" "$TMP" \
+    && tail -5 "$TMP" | grep -q "PostgreSQL database dump complete" \
+    || { echo "DUMP INVALIDO"; rm -f "$TMP"; exit 1; }; \
+  chmod 600 "$TMP"; mv "$TMP" "$OUT"; ls -l "$OUT"'
+```
+
+Aplicar la DDL en transaccion unica y comprobar columnas, constraints y filas:
+
+```bash
+ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit \
+  -v ON_ERROR_STOP=1 -1' < migrations/0019_fabrica_grupo_publicacion_v2.sql
+
+ssh goncloud 'docker exec orbit-db-1 psql -U orbit -d orbit -P pager=off -c "
+SELECT column_name, is_nullable, column_default
+  FROM information_schema.columns
+ WHERE table_schema='"'"'public'"'"' AND table_name IN ('"'"'campana_grupo'"'"','"'"'campana_grupo_producto'"'"')
+   AND column_name IN ('"'"'target_origen'"'"','"'"'target_derivado_pct'"'"','"'"'fraccion'"'"','"'"'margen_neto_pct'"'"')
+ ORDER BY table_name, column_name;
+SELECT conname FROM pg_constraint
+ WHERE conrelid IN ('"'"'public.campana_grupo'"'"'::regclass,
+                    '"'"'public.campana_grupo_producto'"'"'::regclass)
+   AND conname IN ('"'"'campana_grupo_objetivo_v2'"'"','"'"'campana_grupo_producto_seller_sku_unico'"'"')
+ ORDER BY conname;
+SELECT (SELECT count(*) FROM fabrica_lote) AS lotes,
+       (SELECT count(*) FROM campana_grupo) AS grupos,
+       (SELECT count(*) FROM campana_grupo_producto) AS publicaciones;"'
+```
+
+Desplegar la aplicacion solo desde `origin/master` ya integrado, sin tocar
+`bridge`, `accounting` ni `orbit-db-1`:
+
+```bash
+git archive --format=tar origin/master app Dockerfile .dockerignore \
+  pyproject.toml uv.lock tools/fabrica_campanas.py \
+  | ssh goncloud 'cd /mnt/data/appdata/orbit && tar -xf -'
+ssh goncloud 'cd /mnt/data/appdata/orbit && docker compose up -d --no-deps --build app'
+ssh goncloud 'curl -fsS http://127.0.0.1:8010/health'
+```
+
+La configuracion vigente sin `fabrica.creacion` vale `v1`; se deja asi en este
+corte. No insertar una configuracion `v2` ni llamar `/crear`: el smoke usa
+solo `GET /api/fabrica/catalogo` y `POST /api/fabrica/plan`. El lector,
+registro, reconciliacion y pausa de un lote v2 permanecen disponibles con
+ese interruptor, por lo que la reversa operativa es conservar este binario y
+mantener `fabrica.creacion=v1`, nunca volver a un binario que no lea v2.
+
+El ensayo de lote v2 parcial
+`test_ensayo_staging_lote_v2_parcial_se_recupera_con_v1_sin_post_de_creacion`
+corre contra PostgreSQL temporal con las migraciones de dependencia de fabrica
+hasta 0019 y `httpx.MockTransport`: parte de pasos `applied + failed`,
+reconcilia, registra y pausa despues de `fabrica.creacion=v1`, sin POST de
+creacion. No se usa una campana real como sonda de produccion.
 
 ## Correr los tests desde la máquina dev (túnel SSH)
 

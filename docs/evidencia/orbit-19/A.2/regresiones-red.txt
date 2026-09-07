@@ -1,0 +1,165 @@
+FFFFFFF                                                                  [100%]
+=================================== FAILURES ===================================
+_____ test_plan_v2_margen_medido_rechaza_margen_no_rentable_sin_http[None] _____
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109afd810>
+margen = None
+
+    @pytest.mark.parametrize("margen", [None, Decimal("0"), Decimal("-5"), Decimal("5")])
+    def test_plan_v2_margen_medido_rechaza_margen_no_rentable_sin_http(monkeypatch, margen):
+        args = ARGS_BASE.copy()
+        indice = args.index("--productos")
+        args[indice : indice + 2] = ["--listing-ids", "11"]
+        parsed = fc._parser().parse_args(args)
+        parsed.origen_objetivo = "margen_medido"
+        conn = _ConnFalsa(
+            settings={"ads_target_fraccion_margen_amazon_mx": "0.5"},
+            publicaciones=[(11, 1, "B0AAAAAAAA", "SS-1", margen)],
+            biblioteca=([], []),
+        )
+        _sin_red(monkeypatch)
+>       with pytest.raises(fc.Abortar, match="manual_lanzamiento"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: Regex pattern did not match.
+E         Expected regex: 'manual_lanzamiento'
+E         Actual message: 'todo producto del grupo necesita margen medible (regla 3)'
+
+tests/test_fabrica_campanas.py:601: AssertionError
+___ test_plan_v2_margen_medido_rechaza_margen_no_rentable_sin_http[margen1] ____
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109afd5b0>
+margen = Decimal('0')
+
+    @pytest.mark.parametrize("margen", [None, Decimal("0"), Decimal("-5"), Decimal("5")])
+    def test_plan_v2_margen_medido_rechaza_margen_no_rentable_sin_http(monkeypatch, margen):
+        args = ARGS_BASE.copy()
+        indice = args.index("--productos")
+        args[indice : indice + 2] = ["--listing-ids", "11"]
+        parsed = fc._parser().parse_args(args)
+        parsed.origen_objetivo = "margen_medido"
+        conn = _ConnFalsa(
+            settings={"ads_target_fraccion_margen_amazon_mx": "0.5"},
+            publicaciones=[(11, 1, "B0AAAAAAAA", "SS-1", margen)],
+            biblioteca=([], []),
+        )
+        _sin_red(monkeypatch)
+>       with pytest.raises(fc.Abortar, match="manual_lanzamiento"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE Abortar
+
+tests/test_fabrica_campanas.py:601: Failed
+___ test_plan_v2_margen_medido_rechaza_margen_no_rentable_sin_http[margen2] ____
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109173ad0>
+margen = Decimal('-5')
+
+    @pytest.mark.parametrize("margen", [None, Decimal("0"), Decimal("-5"), Decimal("5")])
+    def test_plan_v2_margen_medido_rechaza_margen_no_rentable_sin_http(monkeypatch, margen):
+        args = ARGS_BASE.copy()
+        indice = args.index("--productos")
+        args[indice : indice + 2] = ["--listing-ids", "11"]
+        parsed = fc._parser().parse_args(args)
+        parsed.origen_objetivo = "margen_medido"
+        conn = _ConnFalsa(
+            settings={"ads_target_fraccion_margen_amazon_mx": "0.5"},
+            publicaciones=[(11, 1, "B0AAAAAAAA", "SS-1", margen)],
+            biblioteca=([], []),
+        )
+        _sin_red(monkeypatch)
+>       with pytest.raises(fc.Abortar, match="manual_lanzamiento"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE Abortar
+
+tests/test_fabrica_campanas.py:601: Failed
+___ test_plan_v2_margen_medido_rechaza_margen_no_rentable_sin_http[margen3] ____
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109a819d0>
+margen = Decimal('5')
+
+    @pytest.mark.parametrize("margen", [None, Decimal("0"), Decimal("-5"), Decimal("5")])
+    def test_plan_v2_margen_medido_rechaza_margen_no_rentable_sin_http(monkeypatch, margen):
+        args = ARGS_BASE.copy()
+        indice = args.index("--productos")
+        args[indice : indice + 2] = ["--listing-ids", "11"]
+        parsed = fc._parser().parse_args(args)
+        parsed.origen_objetivo = "margen_medido"
+        conn = _ConnFalsa(
+            settings={"ads_target_fraccion_margen_amazon_mx": "0.5"},
+            publicaciones=[(11, 1, "B0AAAAAAAA", "SS-1", margen)],
+            biblioteca=([], []),
+        )
+        _sin_red(monkeypatch)
+>       with pytest.raises(fc.Abortar, match="manual_lanzamiento"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE Abortar
+
+tests/test_fabrica_campanas.py:601: Failed
+________________ test_cli_v2_rechaza_asin_ausente_antes_de_http ________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109a827a0>
+
+    def test_cli_v2_rechaza_asin_ausente_antes_de_http(monkeypatch):
+        args = ARGS_BASE.copy()
+        indice = args.index("--productos")
+        args[indice : indice + 2] = ["--listing-ids", "11"]
+        args.extend(["--target-acos", "25.00"])
+        conn = _ConnFalsa(publicaciones=[(11, 1, "", "SS-1", None)], biblioteca=([], []))
+        _frontera_lectura(monkeypatch, conn)
+        _sin_red(monkeypatch)
+        monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *args])
+>       with pytest.raises(fc.Abortar, match="ASIN"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE Abortar
+
+tests/test_fabrica_campanas.py:560: Failed
+----------------------------- Captured stdout call -----------------------------
+category_exact: budget=150 bid=6.00 target=25.00 semillas=0
+category_phrase: budget=120 bid=5.00 target=25.00 semillas=0
+category_broad: budget=120 bid=4.00 target=25.00 semillas=0
+product_targeting: budget=120 bid=5.00 target=25.00 semillas=0
+auto_discovery: budget=150 bid=4.50 target=25.00 semillas=0
+publicacion=11 asin= seller_sku=SS-1 margen=None
+huella del conjunto: 39cd497f352d73f9a4edf4b576a12afce865dfc5b95504905d84fbad8fdff084
+{"evento": "dry_run", "platform": "amazon_mx", "tipo_producto": "collar_perro", "target": "25.00", "publicaciones": [11], "existentes": 0, "huella": "39cd497f352d73f9a4edf4b576a12afce865dfc5b95504905d84fbad8fdff084", "nota": "sin --acepto-mutacion-real no se toca Amazon"}
+__________ test_cli_v2_dry_run_muestra_semillas_y_procedencia_reales ___________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109b5eb50>
+capsys = <_pytest.capture.CaptureFixture object at 0x1091b3770>
+
+    def test_cli_v2_dry_run_muestra_semillas_y_procedencia_reales(monkeypatch, capsys):
+        args = ARGS_BASE.copy()
+        indice = args.index("--productos")
+        args[indice : indice + 2] = ["--listing-ids", "11"]
+        args.extend(["--target-acos", "25.00"])
+        conn = _ConnFalsa(
+            publicaciones=[(11, 1, "B0AAAAAAAA", "SS-1", None)],
+            biblioteca=(["semilla real"], ["bloquear"]),
+        )
+        _frontera_lectura(monkeypatch, conn)
+        _sin_red(monkeypatch)
+        monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *args])
+        assert fc.main() == 0
+        salida = capsys.readouterr().out
+>       assert "category_phrase: budget=120 bid=5.00 target=25.00 origen=manual_lanzamiento" in salida
+E       assert 'category_phrase: budget=120 bid=5.00 target=25.00 origen=manual_lanzamiento' in 'category_exact: budget=150 bid=6.00 target=25.00 semillas=0\ncategory_phrase: budget=120 bid=5.00 target=25.00 semill...9d1e4d8461a798f52bfe598931632deb9e5e35885a2a2e1b02eea04a44", "nota": "sin --acepto-mutacion-real no se toca Amazon"}\n'
+
+tests/test_fabrica_campanas.py:579: AssertionError
+______________ test_plan_v2_rechaza_asin_ausente_al_deserializar _______________
+
+    def test_plan_v2_rechaza_asin_ausente_al_deserializar():
+        serializado = fp.plan_v2_como_json(_plan_v2())
+        serializado["publicaciones"][0]["asin"] = ""
+>       with pytest.raises(fp.PlanInvalido, match="ASIN"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE PlanInvalido
+
+tests/test_fabrica_plan.py:294: Failed
+=========================== short test summary info ============================
+FAILED tests/test_fabrica_campanas.py::test_plan_v2_margen_medido_rechaza_margen_no_rentable_sin_http[None]
+FAILED tests/test_fabrica_campanas.py::test_plan_v2_margen_medido_rechaza_margen_no_rentable_sin_http[margen1]
+FAILED tests/test_fabrica_campanas.py::test_plan_v2_margen_medido_rechaza_margen_no_rentable_sin_http[margen2]
+FAILED tests/test_fabrica_campanas.py::test_plan_v2_margen_medido_rechaza_margen_no_rentable_sin_http[margen3]
+FAILED tests/test_fabrica_campanas.py::test_cli_v2_rechaza_asin_ausente_antes_de_http
+FAILED tests/test_fabrica_campanas.py::test_cli_v2_dry_run_muestra_semillas_y_procedencia_reales
+FAILED tests/test_fabrica_plan.py::test_plan_v2_rechaza_asin_ausente_al_deserializar
+7 failed in 0.23s
