@@ -6,13 +6,12 @@
 
 **2026-09-07 — ORBIT 19 Fase B cerrada y desplegada.** PRs #190 y #191 (CI verde) integrados; SHA productivo 7331740. Migraciones 0020-0022 aplicadas con backup (metricas Ads por producto append-only, economia observada, disponibilidad). Primera ingesta productiva `--productos` exitosa: US cuadra exacto contra el agregado de campana; MX cuadra en ventas con residual solo-actividad declarado (clicks -5, costo -33.08 MXN del 2026-09-06, nunca por encima). Disponibilidad real cargada del bridge (546 filas; Featured Offer sigue Sin verificar, ampliacion abierta). Cron diario 07:20 UTC `ingest:metrics:productos`. Comparador visible en Crear campañas con datos reales de las tres fuentes. Cero campanas reales creadas; sonda de gasto sigue diferida. Nucleo A+B de ORBIT 19 completo.
 
-**2026-09-07 — REPUTACION 01: plan formal v1.1 cerrado (borrador).**
-Reputación v1 solo-lectura: snapshots rating/count, reviews con texto (Apify,
-condicionado a fuente verificada + presupuesto D6), reputación y preguntas MeLi,
-alertas en el digest Telegram y pantalla /reputacion. Basado en tablas reales de
-competitive intel (texto completo MX/US/MeLi; scraping Amazon muerto desde 06-02).
-Cross-review atendido (AUTO-09 vive en PR #186, sondas candidatas agregadas).
-Pendiente: mergear PR #186 y cerrar D1–D7 en 0.5. Sin código ni migraciones.
+**2026-09-07 — REPUTACION 01: plan formal v1.2 aprobado.**
+Reputación v1 solo-lectura: snapshots rating/count, reviews con texto (Apify),
+reputación y preguntas MeLi, alertas en el digest Telegram y pantalla
+/reputacion. D1–D5 y D7 cerradas como propuestas; D6 (presupuesto Apify)
+abierta hasta que 0.2 dé costos — A.3 bloqueada. Siguiente: sondas 0.1–0.4
+del lead y acta 0.5. Sin código ni migraciones.
 
 **2026-09-07 — ORBIT 19 Fase B implementada (PR #190).** El bloque B completa la comparacion con evidencia: metricas Ads por producto anunciado (`spAdvertisedProduct`, migracion 0020, corrida propia `--productos`, append-only sin repartir agregados de campana), economia observada por producto (0021, `v_margen_producto` intacta, muestra limitada visible aparte), disponibilidad comercial desde snapshot bridge (0022, FBA/FBM separados, NULL≠0, Featured Offer Sin verificar como ampliacion abierta), evaluacion pura con precedencia 0.4 (Sin datos / Gasto sin ventas / Dentro / Por encima; sin "Por probar"; colapso de re-observaciones tras hallazgo bloqueante de la revision B.R, APPROVE sobre `8b407cc`) y el comparador UI "Comparar publicaciones" (solo lectura, AC6/AC8/AC10 verificados en navegador con capturas). Pendientes declarados: conciliacion viva gzip-tabla y snapshot bridge en produccion, entrada de cron `--productos` en DEPLOY.md, Ads US no sondada (fail-closed). Cero campanas reales creadas.
 

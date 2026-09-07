@@ -1,15 +1,15 @@
 # REPUTACION 01 — Plan formal del módulo Reputación
 
-Versión: 1.1, 2026-09-07. Redacción del lead (sustituye el brief
+Versión: 1.2, 2026-09-07. Redacción del lead (sustituye el brief
 `plans/brief-reputacion-01-deepseek.md`, conservado como antecedente).
-Atiende cross-review (2 majors + 4 minors).
-Estado: **borrador, redacción cerrada 2026-09-07** (v1.1, cross-review
-atendido). D1–D7 abiertas; nada es implementable hasta 0.5. No autoriza gasto
-(D6), deploy ni escrituras. Pre-requisito: mergear PR #186. Pendiente:
-aprobación del dueño.
+Atiende cross-review (2 majors + 4 minors). D1–D5 y D7 cerradas por el dueño;
+D6 abierta hasta 0.2 (requiere costos).
+Estado: **aprobado por el dueño 2026-09-07**. Nada es implementable hasta 0.5.
+No autoriza gasto (D6), deploy ni escrituras. Pre-requisito PR #186: cumplido
+(mergeado). Pendiente: sondas 0.1–0.4 y acta 0.5.
 
-Origen: AUTO-09 (PR #186 `docs/PENDIENTES-AUTOMATIZACION.md`, pendiente de
-merge al aprobar este plan), Módulo 3 de
+Origen: AUTO-09 (`docs/PENDIENTES-AUTOMATIZACION.md`, mergeado vía PR #186),
+Módulo 3 de
 `docs/traspaso/MODULOS-AVANZADOS.md` (fuente verbatim, no contrato sellado),
 tablas reales del sistema anterior (ver Hechos base).
 Precedencia: contrato del proyecto (AGENTS.md, CONTEXTO.md) → este plan →
@@ -53,18 +53,19 @@ oficial barata (si no, v2). Cero escrituras a Amazon/MeLi en v1.
 
 ## Decisiones (abiertas, cierran en 0.5 con acta)
 
-Acta futura: `docs/evidencia/reputacion-01/0.5/confirmacion.md`. Propuesta del
-lead en cada fila; el dueño confirma o cambia con valor explícito.
+Decisiones del dueño 2026-09-07 (acepta propuestas salvo D6, que requiere
+costos de 0.2). Acta formal en 0.5:
+`docs/evidencia/reputacion-01/0.5/confirmacion.md`.
 
-| ID | Pregunta | Propuesta |
-|---|---|---|
-| D1 | Cadencia de ingesta | Diaria ~09:30 UTC (tras optimizador 08:40) + bajo demanda por CLI |
-| D2 | Alcance | Solo listings propios vinculados (bridge con mapa Odoo) + items MeLi propios; ASIN sueltos fuera |
-| D3 | Umbrales de alerta | rating < 4.2; review nueva 1★ (**condicionada a A.3**: sin texto, la alerta usa solo rating/count/reclamos); claims sube >1pt vs semana previa; caída rating ≥0.3 en 7d |
-| D4 | Canal de alerta | Líneas nuevas en el digest Telegram existente, sin canal nuevo |
-| D5 | Preguntas MeLi v1 | Solo lectura + conteo de pendientes; borrador IA = v2 |
-| D6 | Presupuesto Apify | Tope USD/mes + recurrencia del scraping; **sin D6 no hay corridas con costo** |
-| D7 | Texto visible en UI | Completo con truncado ("ver más"), reviewer visible (dato público) |
+| ID | Pregunta | Propuesta | Cierre 2026-09-07 |
+|---|---|---|---|
+| D1 | Cadencia de ingesta | Diaria ~09:30 UTC (tras optimizador 08:40) + bajo demanda por CLI | Aprobada como propuesta |
+| D2 | Alcance | Solo listings propios vinculados (bridge con mapa Odoo) + items MeLi propios; ASIN sueltos fuera | Aprobada como propuesta |
+| D3 | Umbrales de alerta | rating < 4.2; review nueva 1★ (**condicionada a A.3**: sin texto, la alerta usa solo rating/count/reclamos); claims sube >1pt vs semana previa; caída rating ≥0.3 en 7d | Aprobada como propuesta |
+| D4 | Canal de alerta | Líneas nuevas en el digest Telegram existente, sin canal nuevo | Aprobada como propuesta |
+| D5 | Preguntas MeLi v1 | Solo lectura + conteo de pendientes; borrador IA = v2 | Aprobada como propuesta |
+| D6 | Presupuesto Apify | Tope USD/mes + recurrencia del scraping; **sin D6 no hay corridas con costo** | ABIERTA: sin tope aprobado; A.3 bloqueada hasta que 0.2 dé costos y el dueño fije tope + recurrencia |
+| D7 | Texto visible en UI | Completo con truncado ("ver más"), reviewer visible (dato público) | Aprobada como propuesta |
 
 ## Convenciones de evidencia y pruebas
 
@@ -88,7 +89,7 @@ Purpose: saber qué fuente da qué dato, a qué costo, antes de prometer v1.
 | 0.2 | [stage:investigacion] [lane:gate] [tdd:skip:investigacion] Sonda Apify (lead): actor vigente, cobertura amazon.com.mx/com, shape, costo por corrida | E/0.2 con doc + muestra scrubbed + costo; no verificada → ampliación abierta, v1 sigue con Keepa+MeLi | - | cc:TODO |
 | 0.3 | [stage:investigacion] [lane:gate] [tdd:skip:investigacion] Sonda MeLi (lead): reputación seller, preguntas, opiniones; endpoints, permisos, shape | E/0.3 asigna verificada/no_verificada con motivo por endpoint; muestra scrubbed | - | cc:TODO |
 | 0.4 | [stage:investigacion] [lane:gate] [tdd:skip:investigacion] Sonda Keepa + Account Health SP-API (lead): rating/historial, salud de cuenta si es oficial y barata | E/0.4 con fuente, grano, costo y muestra; lo no verificado queda fuera de v1 declarado | - | cc:TODO |
-| 0.5 | [stage:planificacion] [lane:gate] [tdd:skip:docs-contract] Cerrar D1–D7, API/pantalla, migración, cron y reversa | Acta E/0.5 con D1–D7 en valores; plan actualizado; sin D6 no hay A.3 con costo | 0.1–0.4 | cc:TODO |
+| 0.5 | [stage:planificacion] [lane:gate] [tdd:skip:docs-contract] Cerrar D1–D7, API/pantalla, migración, cron y reversa | Acta E/0.5 (ratifica D1–D5/D7, cierra D6 con valores tras 0.2) + contrato API/pantalla/migración/cron/reversa; sin D6 no hay A.3 con costo | 0.1–0.4 | cc:TODO |
 
 ### Sondas candidatas (0.2–0.4; a confirmar en la sonda)
 
