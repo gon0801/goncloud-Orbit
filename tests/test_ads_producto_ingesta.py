@@ -280,6 +280,42 @@ def test_plan_productos_clave_envenenada_no_resucita():
     assert skips["fila de clave envenenada (subtotal parcial)"] == 1
 
 
+def test_plan_productos_fila_invalida_envenena_la_clave():
+    """Hallazgo cross-review codex 2026-09-07: una fila con metrica no
+    numerica (o sin NINGUNA metrica) ENVENENA la clave (asin, sku, fecha):
+    si otra campana del mismo producto trae datos validos, el subtotal
+    parcial NO se publica como completo. Ambos ordenes del gzip dan igual."""
+    hoy = dt.date(2026, 9, 4)
+    rango = dict(hoy=hoy, fecha_ini=dt.date(2026, 9, 3), fecha_fin=dt.date(2026, 9, 3))
+    valida = {
+        "date": "2026-09-03",
+        "advertisedAsin": "B0EEEEEEE1",
+        "advertisedSku": "SKU-E",
+        "campaignId": 111,
+        "adGroupId": 1111,
+        "adId": 11,
+        "cost": 5,
+    }
+    # (1) metrica no numerica en otra campana del MISMO (asin, sku, fecha)
+    no_numerica = {**valida, "campaignId": 222, "adGroupId": 2222, "adId": 22, "cost": "abc"}
+    for filas in ([valida, no_numerica], [no_numerica, valida]):
+        plan, skips = _planea_filas_productos(filas, **rango)
+        assert plan == [], f"subtotal parcial publicado: {plan}"
+        assert skips["fila de productos con metrica no numerica o fraccionaria"] == 1
+    # invalida primero: la fila valida posterior topa contra la clave envenenada
+    _, skips = _planea_filas_productos([no_numerica, valida], **rango)
+    assert skips["fila de clave envenenada (subtotal parcial)"] == 1
+    # (2) fila sin NINGUNA metrica en otra campana del MISMO (asin, sku, fecha)
+    sin_metricas = {k: v for k, v in valida.items() if k not in ("cost",)}
+    sin_metricas.update({"campaignId": 222, "adGroupId": 2222, "adId": 22})
+    for filas in ([valida, sin_metricas], [sin_metricas, valida]):
+        plan, skips = _planea_filas_productos(filas, **rango)
+        assert plan == [], f"subtotal parcial publicado: {plan}"
+        assert skips["fila sin ninguna metrica"] == 1
+    _, skips = _planea_filas_productos([sin_metricas, valida], **rango)
+    assert skips["fila de clave envenenada (subtotal parcial)"] == 1
+
+
 def test_plan_productos_dos_campanas_del_mismo_asin_suman():
     """DoD B.1: filas del MISMO asin/sku en campanas DISTINTAS se SUMAN hacia
     el grano (platform, asin, sku, fecha); la metrica que un aporte trajo

@@ -399,10 +399,12 @@ def estado_desde_observaciones(
 ) -> dict:
     """Etiqueta pura a partir de (fuente, quantity, fetched_at) observados.
 
-    Contrato (AC8): 'positivo' si alguna fuente observo >0; 'cero' si toda
-    fuente observada trae 0; 'desconocido' sin filas o con solo NULL.
-    `cantidad` y `freshness` van por fuente: FBA y FBM no se suman.
-    Ningun estado bloquea la seleccion de publicaciones.
+    Contrato (AC8): 'positivo' si alguna fuente observo >0; 'cero' SOLO si
+    TODAS las fuentes observadas trajeron cantidad no-NULL y todas son 0; si
+    alguna fuente trajo NULL junto a otras en 0 la incertidumbre se preserva
+    como 'desconocido' (regla 3: NULL jamas 0). Sin filas o con solo NULL:
+    'desconocido'. `cantidad` y `freshness` van por fuente: FBA y FBM no se
+    suman. Ningun estado bloquea la seleccion de publicaciones.
     """
     if not observaciones:
         return {
@@ -413,12 +415,12 @@ def estado_desde_observaciones(
         }
     cantidad = {fuente: qty for fuente, qty, _ in observaciones}
     freshness = {fuente: fetched.isoformat() for fuente, _, fetched in observaciones}
-    cantidades = [qty for qty in cantidad.values() if qty is not None]
-    if any(qty is not None and qty > 0 for qty in cantidad.values()):
+    valores = list(cantidad.values())
+    if any(qty is not None and qty > 0 for qty in valores):
         estado = ESTADO_POSITIVO
-    elif cantidades:  # observadas y todas en 0
+    elif all(qty is not None and qty == 0 for qty in valores):  # todas 0 OBSERVADOS
         estado = ESTADO_CERO
-    else:  # filas presentes pero solo NULL: desconocido, no cero
+    else:  # alguna fuente NULL (o todas NULL): desconocido, no cero
         estado = ESTADO_DESCONOCIDO
     return {
         "estado": estado,

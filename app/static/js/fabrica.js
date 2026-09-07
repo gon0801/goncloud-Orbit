@@ -299,6 +299,26 @@ document.addEventListener("DOMContentLoaded", function () {
     return valores.map(v => v + " %").join(", ");
   }
 
+  // Ficha del margen (hallazgo cross-review 2026-09-07): el payload trae por
+  // publicacion ventana/cobertura/ledger_fresco_at en economia; si varia entre
+  // publicaciones se DECLARA, no se inventa un valor unico.
+  function valorUnicoMargen(publicaciones, sacar) {
+    const valores = [...new Set(
+      publicaciones.map(p => (p.economia ? sacar(p.economia) : null))
+        .filter(v => v !== null && v !== undefined))];
+    if (!valores.length) return null;  // ficha lo pinta como "Sin dato"
+    return valores.length === 1 ? valores[0] : "Varia por publicacion";
+  }
+
+  function ventanaMargen(publicaciones) {
+    const pares = [...new Set(
+      publicaciones
+        .filter(p => p.economia && p.economia.ventana_desde && p.economia.ventana_hasta)
+        .map(p => p.economia.ventana_desde + " a " + p.economia.ventana_hasta))];
+    if (!pares.length) return null;
+    return pares.length === 1 ? pares[0] : "Varia por publicacion";
+  }
+
   function pasaFiltro(publicacion, filtro) {
     if (filtro === "con_ads") return publicacion.ads.muestra > 0;
     if (filtro === "sin_datos_ads") return publicacion.ads.muestra === 0;
@@ -316,6 +336,9 @@ document.addEventListener("DOMContentLoaded", function () {
         ? comparadorDatos.ventana_ads.desde + " a " + comparadorDatos.ventana_ads.hasta : "Sin dato"],
       ["Grano de comparación", "Publicación (ASIN + SKU de Amazon), sumas por fila"],
       ["Objetivo ACoS del grupo en preparación", objetivoComparador(publicaciones)],
+      ["Ventana del margen", ventanaMargen(publicaciones)],
+      ["Cobertura del margen", valorUnicoMargen(publicaciones, e => e.cobertura)],
+      ["Actualización del margen", valorUnicoMargen(publicaciones, e => e.ledger_fresco_at)],
       ["Muestra limitada", "Visible aparte; no entra al orden (D4)"],
     ]);
     if (!publicaciones.length) {
@@ -377,6 +400,21 @@ document.addEventListener("DOMContentLoaded", function () {
     return Number.isFinite(valor) && valor > 0 && valor <= 100 ? valor : null;
   }
 
+  // Objetivo que viaja a /evaluacion (hallazgo cross-review 2026-09-07): el
+  // manual del formulario cuando el origen es manual; si el origen es
+  // margen_medido, el DERIVADO del preview vigente (schema v2); si no, null.
+  // Sin esto el comparador conservaba el objetivo anterior o nunca recibia el
+  // derivado del margen.
+  function objetivoConsultaComparador() {
+    if (porId("objetivo-origen").value === "manual_lanzamiento") return objetivoFormulario();
+    if (preview && preview.plan && preview.plan.schema_version === 2
+      && preview.plan.objetivo && preview.plan.objetivo.origen === "margen_medido") {
+      const derivado = Number(preview.plan.objetivo.acos_pct);
+      return Number.isFinite(derivado) && derivado > 0 && derivado <= 100 ? derivado : null;
+    }
+    return null;
+  }
+
   async function cargarComparador() {
     const version = ++versionComparador;
     porId("comparador-datos").replaceChildren();
@@ -386,7 +424,7 @@ document.addEventListener("DOMContentLoaded", function () {
         + encodeURIComponent(porId("plataforma").value)
         + "&orden=" + encodeURIComponent(porId("comparador-orden").value)
         + "&direccion=" + encodeURIComponent(porId("comparador-direccion").value);
-      const objetivo = objetivoFormulario();
+      const objetivo = objetivoConsultaComparador();
       if (objetivo !== null) url += "&objetivo=" + encodeURIComponent(String(objetivo));
       const datos = await solicitar(url);
       if (version !== versionComparador) return;
@@ -503,6 +541,9 @@ document.addEventListener("DOMContentLoaded", function () {
       if (version !== revision) { estado("estado", "La configuración cambió. Revisa el plan de nuevo."); return; }
       preview = {...datos, solicitud};
       mostrarPreview(datos);
+      // El preview puede traer el objetivo DERIVADO del margen (schema v2):
+      // refresca el comparador con el objetivo vigente del grupo en preparacion.
+      cargarComparador();
       estado("estado", intentados.has(datos.huella)
         ? "Este plan ya se envió. Consulta el lote; no vuelvas a crear el grupo."
         : "Plan listo para revisar. Todavía no se ha creado ninguna campaña.");
@@ -658,7 +699,18 @@ document.addEventListener("DOMContentLoaded", function () {
   formulario.addEventListener("input", invalidar);
   formulario.addEventListener("change", invalidar);
   formulario.addEventListener("submit", revisar);
-  porId("objetivo-origen").addEventListener("change", actualizarObjetivoManual);
+  // El objetivo del grupo en preparacion cambia => el comparador vuelve a
+  // consultar (solo GET /evaluacion). El tipeo manual lleva debounce (~400 ms)
+  // para no disparar una consulta por cada tecla.
+  let temporizadorObjetivo = null;
+  porId("objetivo-acos").addEventListener("input", () => {
+    clearTimeout(temporizadorObjetivo);
+    temporizadorObjetivo = setTimeout(cargarComparador, 400);
+  });
+  porId("objetivo-origen").addEventListener("change", () => {
+    actualizarObjetivoManual();
+    cargarComparador();
+  });
   porId("crear").addEventListener("submit", crear);
   porId("accion").addEventListener("submit", ejecutarAccion);
   porId("accion-tipo").addEventListener("change", () => { porId("accion-confirmacion").value = ""; });

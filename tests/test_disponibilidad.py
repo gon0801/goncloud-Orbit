@@ -30,6 +30,7 @@ from test_schema import _postgres_obligatorio_ausente, _test_dsn
 
 from app.disponibilidad import (
     ASPECTO_FEATURED_OFFER,
+    ESTADO_CERO,
     ESTADO_DESCONOCIDO,
     ESTADO_POSITIVO,
     ESTADO_SIN_VERIFICAR,
@@ -255,6 +256,19 @@ def test_estado_desconocido_sin_filas_o_solo_null():
     res = estado_desde_observaciones([_t("fba", None)])
     assert res["estado"] == ESTADO_DESCONOCIDO
     assert res["cantidad"] == {"fba": None}  # NULL no se convierte en 0
+
+
+def test_estado_cero_exige_todas_las_fuentes_con_cantidad():
+    """Hallazgo cross-review codex 2026-09-07: FBA=0 y FBM=NULL NO es cero --
+    'cero' exige que TODAS las fuentes observadas trajeron cantidad no-NULL y
+    todas en 0; la incertidumbre de una fuente se preserva (regla 3: NULL
+    jamas se convierte en 0)."""
+    mixto = estado_desde_observaciones([_t("fba", 0), _t("fbm", None)])
+    assert mixto["estado"] == ESTADO_DESCONOCIDO
+    assert mixto["cantidad"] == {"fba": 0, "fbm": None}
+    assert estado_desde_observaciones([_t("fba", 0)])["estado"] == ESTADO_CERO
+    assert estado_desde_observaciones([_t("fba", None)])["estado"] == ESTADO_DESCONOCIDO
+    assert estado_desde_observaciones([_t("fba", 3)])["estado"] == ESTADO_POSITIVO
 
 
 def test_estado_tres_estados_distinguibles():
