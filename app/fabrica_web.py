@@ -18,7 +18,6 @@ from psycopg.rows import tuple_row
 from app import economia_observada
 from app import evaluacion_catalogo as ec
 from app import fabrica_plan as fp
-from app.ads.write import PLATAFORMA_MONEDA
 from app.db import OrbitDbError, connect
 from app.disponibilidad import estado_disponibilidad
 from app.redaction import scrub
@@ -357,9 +356,10 @@ def evaluacion(
                 else objetivos.get(listing_id, ()),
                 # Moneda de Ads = la del PERFIL (amazon_us -> USD), no la de la
                 # economia: para US el ledger puede venir en MXN y las cifras
-                # Ads son USD (hallazgo cross-review codex 2026-09-07). Mapa
-                # sellado de app.ads.write: misma ley que el motor, capa web.
-                moneda_ads=PLATAFORMA_MONEDA[plataforma],
+                # Ads son USD (hallazgo cross-review codex 2026-09-07). El mapa
+                # de esta capa es fp.MONEDA_POR_PLATAFORMA (alias sellado del
+                # del motor); app.ads.write esta fuera por el guard de imports.
+                moneda_ads=fp.MONEDA_POR_PLATAFORMA[plataforma],
             )
         )
     ordenadas = ec.ordenar(evaluaciones, orden, descendente=direccion == "desc")
