@@ -42,7 +42,7 @@
 .fabrica #fabrica-configuracion { border: 0; padding: 0; }
 .fabrica legend { font-weight: 600; font-size: 14px; }
 .fabrica-campos { grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); }
-.fabrica-producto:has(input:disabled) { opacity: .6; }
+.fabrica-publicacion:has(input:disabled) { opacity: .6; }
 .fabrica-producto ul { display: flex; flex-wrap: wrap; gap: 16px; padding-left: 20px; }
 .fabrica .fabrica-presupuestos { min-width: 440px; }
 .fabrica-presupuestos input { width: 96px; text-align: right; font-variant-numeric: tabular-nums; }
@@ -54,3 +54,11 @@
 .fabrica-publicacion-foto { grid-row: 1 / span 3; width: 96px; height: 96px; display: grid; place-items: center; background: var(--o-bg); border: 1px solid var(--o-borde); border-radius: 6px; overflow: hidden; }
 .fabrica-publicacion-foto img { width: 96px; height: 96px; object-fit: contain; background: white; }
 .fabrica-publicacion-foto span { font-size: 12px; color: var(--o-ink2); }
+.fabrica-publicacion label { grid-column: 2; flex-direction: row; align-items: baseline; }
+.fabrica-publicacion > span, .fabrica-publicacion > a { grid-column: 2; }
+
+@media (max-width: 40rem) {
+  .fabrica-publicacion { grid-template-columns: 64px minmax(0, 1fr); column-gap: 8px; }
+  .fabrica-publicacion-foto,
+  .fabrica-publicacion-foto img { width: 64px; height: 64px; }
+}

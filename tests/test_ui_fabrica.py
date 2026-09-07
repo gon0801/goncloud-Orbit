@@ -69,11 +69,27 @@ def test_pantalla_sin_db_con_semantica_de_gasto_y_activos_locales():
             assert attrs.get("src", "").startswith("/static/")
 
 
+def test_selector_v2_exige_objetivo_y_envia_listings_no_productos():
+    respuesta = TestClient(app).get("/campanas/nuevas")
+    assert respuesta.status_code == 200
+    elementos = Elementos(respuesta.text).elementos
+    ids = {atributos.get("id") for _, atributos in elementos}
+    assert {"fabrica-objetivo-origen", "fabrica-objetivo-acos"} <= ids
+    codigo = (RAIZ / "static/js/fabrica.js").read_text()
+    assert "listing_ids" in codigo
+    assert "objetivo: objetivo" in codigo
+    assert "productos:" not in codigo
+
+
 def test_dinero_vacio_y_token_sin_nombre_para_no_enviarlo_por_formulario():
     respuesta = TestClient(app).get("/campanas/nuevas")
     assert respuesta.status_code == 200
     elementos = Elementos(respuesta.text).elementos
-    dinero = [a for t, a in elementos if t == "input" and a.get("inputmode") == "decimal"]
+    dinero = [
+        a
+        for t, a in elementos
+        if t == "input" and a.get("inputmode") == "decimal" and a.get("name")
+    ]
     assert len(dinero) == 10
     assert all(a.get("value", "") == "" and "required" in a for a in dinero)
     token = [a for t, a in elementos if a.get("id") == "fabrica-token"]
@@ -104,6 +120,15 @@ def test_hash_del_lote_envuelve_en_movil_sin_quitar_scroll_de_tablas():
         css,
     )
     assert re.search(r"\.fabrica-tabla\s*\{\s*overflow-x:\s*auto;", css)
+
+
+def test_selector_publicaciones_se_adapta_a_movil():
+    css = (RAIZ / "static/css/fabrica.css").read_text()
+    assert re.search(
+        r"@media \(max-width: 40rem\) \{[\s\S]*?\.fabrica-publicacion \{\s*"
+        r"grid-template-columns: 64px minmax\(0, 1fr\);",
+        css,
+    )
 
 
 def test_flujo_js_invalida_plan_bloquea_duplicados_y_recupera_lote():
@@ -164,22 +189,27 @@ const calls = [];
 const catalogo = {plataforma: "amazon_mx", moneda: "MXN", tipos_producto: [],
   productos: [{id: 1, sku: "GORRA <img src=x>", nombre: "Nombre interno <img src=x>",
     publicaciones: [{id: 11, asin: "B0AAAAAAAA", seller_sku: "SKU-AMAZON-A",
-      url: "https://www.amazon.com.mx/dp/B0AAAAAAAA"}],
-    margen_neto_pct: "40.0000000", elegible: true},
+      platform: "amazon_mx", margen_neto_pct: "40.0000000", historial_ads: null,
+      elegible: true, motivos: [], url: "https://www.amazon.com.mx/dp/B0AAAAAAAA"}]},
     {id: 2, sku: "SIN MARGEN", nombre: null, publicaciones: [
-      {id: 12, asin: "B0BBBBBBBB", seller_sku: "SKU-AMAZON-B", url: "https://www.amazon.com.mx/dp/B0BBBBBBBB"},
-      {id: 13, asin: "B0CCCCCCCC", seller_sku: null, url: "javascript:alert(1)"}],
-      margen_neto_pct: null, elegible: false, motivo: "Sin margen"}]};
+      {id: 12, asin: "B0BBBBBBBB", seller_sku: "SKU-AMAZON-B", platform: "amazon_mx",
+        margen_neto_pct: null, historial_ads: null, elegible: true, motivos: ["Margen sin medir."],
+        url: "https://www.amazon.com.mx/dp/B0BBBBBBBB"},
+      {id: 13, asin: "B0CCCCCCCC", seller_sku: null, platform: "amazon_mx",
+        margen_neto_pct: null, historial_ads: null, elegible: false,
+        motivos: ["SKU de Amazon ausente."],
+        url: "javascript:alert(1)"}]}]};
 const roles = ["category_exact", "category_phrase", "category_broad",
   "product_targeting", "auto_discovery"];
 const plan = {huella: "abc", lote: "web-abc", presupuesto_diario_total: "600.00", existentes: [],
   campanas: roles.map(rol => ({rol, nombre: rol, budget: "120.00", bid: "4.00"})),
-  plan: {platform: "amazon_mx", moneda: "MXN", modo: "shadow", fecha: "2026-09-06",
-    nombre_base: "Gorras", tipo_producto: "gorras", target_acos_pct: "20",
-    target_derivado_pct: "20",
-    target_procedencia: "margen_producto", fraccion: "0.5", productos: [
-      {product_id: 1, odoo_sku: "GORRA <img src=x>", seller_sku: "GORRA",
-        asin: "B01", margen_neto_pct: "40"}],
+  plan: {schema_version: 2, platform: "amazon_mx", moneda: "MXN", modo: "shadow",
+    fecha: "2026-09-06",
+    nombre_base: "Gorras", tipo_producto: "gorras", objetivo: {origen: "manual_lanzamiento",
+      acos_pct: "25.00", procedencia: "confirmado", fraccion: null, derivado: null},
+    publicaciones: [
+      {listing_id: 11, product_id: 1, seller_sku: "SKU-AMAZON-A", asin: "B0AAAAAAAA",
+        margen_neto_pct: null, motivos: ["Margen sin medir."]}],
     semillas: {exact: ["gorra"], keywords: [], asins: [], negativos: []}}};
 const lote = {lote: "web-abc", plataforma: "amazon_mx", estado: "failed",
   detalle: "Error recuperable",
@@ -224,8 +254,9 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
   const productos = el("productos").querySelectorAll('input[type="checkbox"]');
   assert.equal(el("tipos").children.length, 0);
   assert.equal(el("tipo").disabled, false, "El primer tipo debe poder escribirse sin biblioteca");
-  assert.equal(productos.length, 2); assert.equal(productos[1].disabled, true);
-  assert.match(text(el("productos")), /Sin margen/);
+  assert.equal(productos.length, 3); assert.equal(productos[1].disabled, false);
+  assert.equal(productos[2].disabled, true);
+  assert.match(text(el("productos")), /Margen sin medir/);
   assert.match(text(el("productos")), /Nombre interno <img src=x>/);
   assert.match(text(el("productos")), /SKU de Odoo: GORRA <img src=x>/);
   assert.match(text(el("productos")), /SKU de Amazon: SKU-AMAZON-A/);
@@ -248,7 +279,7 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
   assert.deepEqual(enlaces.map(e => e.href), [
     "https://www.amazon.com.mx/dp/B0AAAAAAAA", "https://www.amazon.com.mx/dp/B0BBBBBBBB"]);
   assert.ok(enlaces.every(e => e.target === "_blank" && e.rel.includes("noopener")));
-  assert.equal(el("productos").querySelectorAll("*").filter(e => e.htmlFor).length, 2);
+  assert.equal(el("productos").querySelectorAll("*").filter(e => e.htmlFor).length, 3);
   const labels = el("productos").querySelectorAll("*").filter(e => e.htmlFor);
   assert.ok(labels.every(label => !label.querySelectorAll("*").some(e => e.href)),
     "Abrir Amazon no debe seleccionar un producto: los enlaces van fuera del label");
@@ -256,6 +287,9 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
   assert.ok(!text(el("productos")).includes("40.0000000"));
   productos[0].checked = true;
   el("tipo").value = "gorras"; el("nombre").value = "Gorras"; el("modo").value = "shadow";
+  el("objetivo-origen").value = "manual_lanzamiento";
+  await emit("objetivo-origen", "change");
+  el("objetivo-acos").value = "25.00";
   for (const rol of roles) {
     ids[rol + "-budget"].value = "120.00"; ids[rol + "-bid"].value = "4.00";
   }
@@ -269,9 +303,11 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
   assert.equal(el("preview").hidden, false); assert.equal(el("crear-boton").disabled, false);
   const solicitud = JSON.parse(calls.find(c => c.url.endsWith("/plan")).options.body);
   assert.equal(solicitud.parametros.category_exact.budget, "120.00");
-  assert.deepEqual(solicitud.productos, [1]); assert.equal(solicitud.modo, "shadow");
+  assert.deepEqual(solicitud.listing_ids, [11]); assert.deepEqual(solicitud.objetivo,
+    {origen: "manual_lanzamiento", acos_pct: "25.00"}); assert.equal(solicitud.modo, "shadow");
   assert.match(text(el("preview-datos")), /600.00 MXN/);
-  assert.match(text(el("preview-datos")), /GORRA <img src=x>/);
+  assert.match(text(el("preview-datos")), /SKU-AMAZON-A/);
+  assert.match(text(el("preview-datos")), /manual_lanzamiento/);
   await emit("plan", "input");
   assert.equal(el("preview").hidden, true); assert.equal(el("crear-boton").disabled, true);
   demorarPlan = true;

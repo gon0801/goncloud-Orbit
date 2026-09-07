@@ -37,14 +37,15 @@ FROM fabrica_lote l
 _SQL_LOTE = _SQL_RESUMEN_LOTE + " WHERE l.lote = %s"
 
 _SQL_CATALOGO = """
-SELECT p.id, p.odoo_sku, count(l.id), min(l.seller_sku), m.margen_neto_pct,
-       p.name, jsonb_agg(jsonb_build_object(
-           'id', l.id, 'asin', l.external_id, 'seller_sku', l.seller_sku
+SELECT p.id, p.odoo_sku, p.name, jsonb_agg(jsonb_build_object(
+           'id', l.id, 'asin', l.external_id, 'seller_sku', l.seller_sku,
+           'platform', l.platform::text, 'margen_neto_pct', m.margen_neto_pct,
+           'historial_ads', NULL
        ) ORDER BY l.external_id, l.id)
 FROM product p
 JOIN listing l ON l.product_id = p.id AND l.platform = %s::platform
 LEFT JOIN v_margen_producto m ON m.product_id = p.id AND m.platform = l.platform
-GROUP BY p.id, p.odoo_sku, m.margen_neto_pct
+GROUP BY p.id, p.odoo_sku
 ORDER BY p.odoo_sku, p.id
 """
 _SQL_TIPOS = """
@@ -133,19 +134,25 @@ def _creacion_v2_habilitada(conn) -> bool:
 def catalogo(conn, plataforma: str) -> dict:
     conn.row_factory = tuple_row
     productos = []
-    for pid, sku, listings, seller_sku, margen, nombre, publicaciones in conn.execute(
-        _SQL_CATALOGO, (plataforma,)
-    ).fetchall():
-        motivo = None
-        if listings != 1:
-            motivo = "Tiene varios listings; esta versión requiere uno por producto."
-        elif margen is None:
-            motivo = "Sin margen medible."
-        elif not seller_sku or not seller_sku.strip():
-            motivo = "Sin seller_sku para crear el anuncio."
+    for pid, sku, nombre, publicaciones in conn.execute(_SQL_CATALOGO, (plataforma,)).fetchall():
         dominio = {"amazon_mx": "www.amazon.com.mx", "amazon_us": "www.amazon.com"}[plataforma]
         for publicacion in publicaciones:
             asin = publicacion["asin"]
+            sku_amazon = publicacion["seller_sku"]
+            margen = publicacion["margen_neto_pct"]
+            motivos = []
+            if not asin:
+                motivos.append("ASIN ausente.")
+            if not sku_amazon or not sku_amazon.strip():
+                motivos.append("SKU de Amazon ausente.")
+            if margen is None:
+                motivos.append("Margen sin medir.")
+            elif margen == 0:
+                motivos.append("Margen cero.")
+            elif margen < 0:
+                motivos.append("Margen negativo.")
+            publicacion["elegible"] = not any((not asin, not sku_amazon or not sku_amazon.strip()))
+            publicacion["motivos"] = motivos
             publicacion["url"] = (
                 f"https://{dominio}/dp/{asin}"
                 if re.fullmatch(r"[A-Za-z0-9]{10}", asin or "")
@@ -157,9 +164,6 @@ def catalogo(conn, plataforma: str) -> dict:
                 "sku": sku,
                 "nombre": nombre,
                 "publicaciones": publicaciones,
-                "margen_neto_pct": str(margen) if margen is not None else None,
-                "elegible": motivo is None,
-                "motivo": motivo,
             }
         )
     tipos = [

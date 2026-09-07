@@ -125,7 +125,7 @@ def _motor_simulado(monkeypatch, fw, conn, *, error=False):
     return llamadas
 
 
-def test_catalogo_no_inventa_margenes_y_excluye_multilisting(escenario):
+def test_catalogo_no_inventa_margenes_y_abre_multilisting_por_publicacion(escenario):
     cliente, _, _, _, ids = escenario
     respuesta = cliente.get("/api/fabrica/catalogo?plataforma=amazon_mx")
     assert respuesta.status_code == 200
@@ -133,10 +133,13 @@ def test_catalogo_no_inventa_margenes_y_excluye_multilisting(escenario):
     assert data["moneda"] == "MXN" and data["tipos_producto"] == ["collar_perro"]
     filas = data["productos"]
     assert [p["id"] for p in filas] == list(ids)
-    assert filas[0]["elegible"] and filas[0]["margen_neto_pct"] == "40.00000000000000000"
-    assert filas[1]["margen_neto_pct"] is None and not filas[1]["elegible"]
-    assert "margen" in filas[1]["motivo"].lower()
-    assert not filas[2]["elegible"] and "listing" in filas[2]["motivo"].lower()
+    assert "elegible" not in filas[0] and "margen_neto_pct" not in filas[0]
+    assert filas[0]["publicaciones"][0]["elegible"]
+    assert filas[0]["publicaciones"][0]["margen_neto_pct"] == "40.00000000000000000"
+    assert filas[1]["publicaciones"][0]["margen_neto_pct"] is None
+    assert filas[1]["publicaciones"][0]["elegible"]
+    assert "margen" in filas[1]["publicaciones"][0]["motivos"][0].lower()
+    assert all(publicacion["elegible"] for publicacion in filas[2]["publicaciones"])
 
 
 def test_catalogo_identifica_todas_las_publicaciones_por_plataforma(escenario):
@@ -153,7 +156,7 @@ def test_catalogo_identifica_todas_las_publicaciones_por_plataforma(escenario):
         ("B0CCCCCCCC", "SC", "https://www.amazon.com.mx/dp/B0CCCCCCCC"),
         ("B0DDDDDDDD", "SC2", "https://www.amazon.com.mx/dp/B0DDDDDDDD"),
     ]
-    assert not mx["elegible"]
+    assert all(publicacion["elegible"] for publicacion in mx["publicaciones"])
     us = cliente.get("/api/fabrica/catalogo?plataforma=amazon_us").json()["productos"][0]
     assert [(p["asin"], p["seller_sku"], p["url"]) for p in us["publicaciones"]] == [
         ("B0EEEEEEEE", "SKU-US", "https://www.amazon.com/dp/B0EEEEEEEE"),

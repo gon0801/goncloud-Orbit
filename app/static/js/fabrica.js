@@ -114,6 +114,15 @@ document.addEventListener("DOMContentLoaded", function () {
     actualizarBotones();
   }
 
+  function actualizarObjetivoManual() {
+    const manual = porId("objetivo-origen").value === "manual_lanzamiento";
+    const campo = porId("objetivo-acos");
+    campo.disabled = !manual;
+    campo.required = manual;
+    if (!manual) campo.value = "";
+    invalidar();
+  }
+
   function tabla(contenedor, encabezados, filas) {
     const envoltura = nodo("div");
     envoltura.className = "fabrica-tabla";
@@ -137,18 +146,43 @@ document.addEventListener("DOMContentLoaded", function () {
     contenedor.append(dl);
   }
 
+  function avisoMargen(publicacion, objetivo) {
+    const margen = publicacion.margen_neto_pct;
+    const avisos = Array.isArray(publicacion.motivos) ? [...publicacion.motivos] : [];
+    if (publicacion.historial_ads === null) avisos.push("Historial Ads sin dato en este catálogo.");
+    if (margen === null || margen === undefined) avisos.push("Margen sin medir; el objetivo manual no acredita rentabilidad.");
+    else if (Number(margen) === 0) avisos.push("Margen cero; el objetivo manual no acredita rentabilidad.");
+    else if (Number(margen) < 0) avisos.push("Margen negativo; el objetivo manual no acredita rentabilidad.");
+    else if (objetivo && Number(margen) < Number(objetivo)) avisos.push("Margen inferior al objetivo manual.");
+    return avisos.length ? avisos.join(" ") : "Margen medido disponible.";
+  }
+
   function mostrarPlan(contenedor, plan) {
+    const esV2 = plan.schema_version === 2;
+    const objetivo = esV2 ? plan.objetivo : null;
+    const target = esV2 ? objetivo.acos_pct : plan.target_acos_pct;
     ficha(contenedor, [
       ["Grupo", plan.nombre_base], ["Tipo de producto", plan.tipo_producto],
       ["Plataforma / moneda", plan.platform + " / " + plan.moneda], ["Fecha del plan", plan.fecha],
-      ["Modo del optimizador", plan.modo], ["Target ACoS aplicado", porcentaje(plan.target_acos_pct)],
-      ["Target derivado del margen", porcentaje(plan.target_derivado_pct)],
-      ["Fracción del margen", plan.fraccion], ["Procedencia del target", plan.target_procedencia],
+      ["Modo del optimizador", plan.modo], ["Target ACoS aplicado", porcentaje(target)],
+      ["Origen del objetivo", esV2 ? objetivo.origen : "margen_medido"],
+      ["Target derivado del margen", esV2 ? porcentaje(objetivo.derivado) : porcentaje(plan.target_derivado_pct)],
+      ["Fracción del margen", esV2 ? objetivo.fraccion : plan.fraccion],
+      ["Procedencia del target", esV2 ? objetivo.procedencia : plan.target_procedencia],
     ]);
-    contenedor.append(nodo("h4", "Productos y márgenes netos"));
-    tabla(contenedor, ["SKU", "SKU de Amazon", "ASIN", "Margen neto"], plan.productos.map(producto => [
-      producto.odoo_sku, producto.seller_sku, producto.asin, porcentaje(producto.margen_neto_pct),
-    ]));
+    const publicaciones = esV2 ? plan.publicaciones : plan.productos;
+    contenedor.append(nodo("h4", esV2 ? "Publicaciones y márgenes netos" : "Productos y márgenes netos"));
+    tabla(
+      contenedor,
+      esV2 ? ["Listing", "Producto", "SKU de Amazon", "ASIN", "Margen neto", "Aviso"]
+        : ["SKU", "SKU de Amazon", "ASIN", "Margen neto"],
+      publicaciones.map(publicacion => esV2 ? [
+        publicacion.listing_id, publicacion.product_id, publicacion.seller_sku, publicacion.asin,
+        porcentaje(publicacion.margen_neto_pct), avisoMargen(publicacion, objetivo.origen === "manual_lanzamiento" ? target : null),
+      ] : [
+        publicacion.odoo_sku, publicacion.seller_sku, publicacion.asin, porcentaje(publicacion.margen_neto_pct),
+      ]),
+    );
     contenedor.append(nodo("h4", "Semillas del grupo"));
     const nombres = {exact: "Palabras exactas", keywords: "Palabras para frase y amplia", asins: "ASIN objetivo", negativos: "Negativos"};
     Object.keys(nombres).forEach(clave => {
@@ -201,19 +235,20 @@ document.addEventListener("DOMContentLoaded", function () {
       actualizarTotal();
       datos.tipos_producto.forEach(tipo => { const opcion = nodo("option"); opcion.value = tipo; porId("tipos").append(opcion); });
       datos.productos.forEach(producto => {
-        const tarjeta = nodo("div"), label = nodo("label"), input = nodo("input");
+        const tarjeta = nodo("div");
         tarjeta.className = "fabrica-producto";
-        input.id = "fabrica-producto-" + producto.id;
-        label.htmlFor = input.id;
-        input.type = "checkbox"; input.value = String(producto.id); input.disabled = !producto.elegible;
-        label.append(input, nodo("strong", "Nombre interno: " + valor(producto.nombre)));
-        tarjeta.append(label, nodo("p", "SKU de Odoo: " + producto.sku),
-          nodo("p", "Margen neto: " + porcentaje(producto.margen_neto_pct)));
-        if (!producto.elegible) tarjeta.append(nodo("p", "No elegible: " + valor(producto.motivo)));
+        tarjeta.append(nodo("h4", "Nombre interno: " + valor(producto.nombre)),
+          nodo("p", "SKU de Odoo: " + producto.sku));
         const publicaciones = nodo("ul");
         (producto.publicaciones || []).forEach(publicacion => {
           const fila = nodo("li");
           fila.className = "fabrica-publicacion";
+          const label = nodo("label"), input = nodo("input");
+          input.id = "fabrica-listing-" + publicacion.id;
+          label.htmlFor = input.id;
+          input.type = "checkbox"; input.value = String(publicacion.id);
+          input.disabled = !publicacion.elegible;
+          label.append(input, nodo("strong", "Seleccionar publicación " + valor(publicacion.asin)));
           const foto = nodo("div"), imagen = nodo("img"), sinFoto = nodo("span", "Sin foto");
           foto.className = "fabrica-publicacion-foto";
           sinFoto.hidden = true;
@@ -223,9 +258,11 @@ document.addEventListener("DOMContentLoaded", function () {
           imagen.addEventListener("error", () => { imagen.hidden = true; sinFoto.hidden = false; });
           imagen.src = "/api/fabrica/publicaciones/" + encodeURIComponent(publicacion.id) + "/imagen";
           foto.append(imagen, sinFoto);
-          fila.append(foto);
+          fila.append(foto, label);
           fila.append(nodo("span", "ASIN: " + valor(publicacion.asin)),
-            nodo("span", "SKU de Amazon: " + valor(publicacion.seller_sku)));
+            nodo("span", "SKU de Amazon: " + valor(publicacion.seller_sku)),
+            nodo("span", "Margen neto: " + porcentaje(publicacion.margen_neto_pct)),
+            nodo("span", avisoMargen(publicacion)));
           // Los enlaces estan fuera del label: abrir Amazon no selecciona el producto.
           if (/^https:\/\/www\.amazon\.com(?:\.mx)?\/dp\/[A-Za-z0-9]{10}$/.test(publicacion.url || "")) {
             const enlace = nodo("a", "Abrir en Amazon");
@@ -239,7 +276,8 @@ document.addEventListener("DOMContentLoaded", function () {
         porId("productos").append(tarjeta);
       });
       catalogoDisponible = true;
-      estado("catalogo-estado", datos.productos.length + " productos. " + datos.productos.filter(p => p.elegible).length + " elegibles.");
+      const publicaciones = datos.productos.flatMap(producto => producto.publicaciones || []);
+      estado("catalogo-estado", datos.productos.length + " productos. " + publicaciones.filter(p => p.elegible).length + " publicaciones seleccionables.");
     } catch (error) {
       if (version === versionCatalogo) estado("catalogo-estado", error.message, true);
     } finally { if (version === versionCatalogo) actualizarBotones(); }
@@ -253,10 +291,13 @@ document.addEventListener("DOMContentLoaded", function () {
         bid: formulario.elements[rol + "_bid"].value.trim(),
       };
     });
+    const objetivo = {origen: porId("objetivo-origen").value};
+    if (objetivo.origen === "manual_lanzamiento") objetivo.acos_pct = porId("objetivo-acos").value.trim();
     return {
       plataforma: porId("plataforma").value, tipo_producto: porId("tipo").value.trim(),
       nombre_base: porId("nombre").value.trim(), modo: porId("modo").value,
-      productos: Array.from(porId("productos").querySelectorAll('input[type="checkbox"]:checked')).map(input => Number(input.value)),
+      listing_ids: Array.from(porId("productos").querySelectorAll('input[type="checkbox"]:checked')).map(input => Number(input.value)),
+      objetivo: objetivo,
       parametros,
     };
   }
@@ -266,7 +307,11 @@ document.addEventListener("DOMContentLoaded", function () {
     if (mutando || consultandoPlan || !catalogoDisponible || !formulario.reportValidity()) return;
     invalidar();
     const solicitud = solicitudActual();
-    if (!solicitud.productos.length) { estado("estado", "Selecciona al menos un producto elegible.", true); return; }
+    if (!solicitud.listing_ids.length) { estado("estado", "Selecciona al menos una publicación.", true); return; }
+    if (!solicitud.objetivo.origen) { estado("estado", "Selecciona el origen del objetivo ACoS.", true); return; }
+    if (solicitud.objetivo.origen === "manual_lanzamiento" && !solicitud.objetivo.acos_pct) {
+      estado("estado", "Escribe un ACoS manual positivo con hasta dos decimales.", true); return;
+    }
     const version = revision;
     consultandoPlan = true; actualizarBotones();
     estado("estado", "Preparando la revisión sin crear campañas…");
@@ -430,6 +475,7 @@ document.addEventListener("DOMContentLoaded", function () {
   formulario.addEventListener("input", invalidar);
   formulario.addEventListener("change", invalidar);
   formulario.addEventListener("submit", revisar);
+  porId("objetivo-origen").addEventListener("change", actualizarObjetivoManual);
   porId("crear").addEventListener("submit", crear);
   porId("accion").addEventListener("submit", ejecutarAccion);
   porId("accion-tipo").addEventListener("change", () => { porId("accion-confirmacion").value = ""; });
@@ -444,6 +490,7 @@ document.addEventListener("DOMContentLoaded", function () {
   porId("historial-recargar").addEventListener("click", cargarHistorial);
   porId("lote-recargar").addEventListener("click", cargarLote);
   window.addEventListener("pagehide", () => { porId("token").value = ""; });
+  actualizarObjetivoManual();
   cargarCatalogo(); cargarHistorial();
   const lote = new URL(window.location.href).searchParams.get("lote");
   if (lote) { seleccionarLote(lote); cargarLote(); }
