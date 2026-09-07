@@ -1064,6 +1064,75 @@ def _planea_filas_terminos(
     return plan, skips
 
 
+def _fusionar_fila_producto(
+    previa: _FilaProducto,
+    *,
+    asin: str,
+    sku: str,
+    metric_date: dt.date,
+    impressions: int | None,
+    clicks: int | None,
+    cost: Decimal | None,
+    purchases: Decimal | None,
+    sales: Decimal | None,
+    purchases_same_sku: Decimal | None,
+    sales_same_sku: Decimal | None,
+    campaign_id: str | None,
+    ad_id: str | None,
+    por_clave: dict[tuple[str, str, dt.date], _FilaProducto],
+    plan: list[_FilaProducto],
+    envenenadas: set[tuple[str, str, dt.date]],
+    skips: Counter[str],
+) -> None:
+    """Absorbe una fila duplicada (mismo asin/sku/fecha, otra campana) hacia
+    el grano sellado: los aportes son disjuntos -> se SUMAN con
+    envenenamiento de None. Un par complementario que deja la clave SIN
+    ninguna metrica la descarta y la marca envenenada: una fila posterior no
+    puede recrearla con solo sus valores (hallazgo cross-review codex)."""
+    previa.impressions = _sumar_entero(previa.impressions, impressions)
+    previa.clicks = _sumar_entero(previa.clicks, clicks)
+    previa.cost = _sumar_decimal(previa.cost, cost)
+    previa.purchases30d = _sumar_decimal(previa.purchases30d, purchases)
+    previa.sales30d = _sumar_decimal(previa.sales30d, sales)
+    previa.purchases_same_sku30d = _sumar_decimal(previa.purchases_same_sku30d, purchases_same_sku)
+    previa.attributed_sales_same_sku_30d = _sumar_decimal(
+        previa.attributed_sales_same_sku_30d, sales_same_sku
+    )
+    if campaign_id is not None and campaign_id not in previa.campaign_ids:
+        previa.campaign_ids.append(campaign_id)
+    if ad_id is not None and ad_id not in previa.ad_ids:
+        previa.ad_ids.append(ad_id)
+    skips["fila agregada por clave duplicada en el reporte"] += 1
+    logger.debug(
+        "fila agregada por clave duplicada en el reporte: %s/%s %s", asin, sku, metric_date
+    )
+    # Gate POST-fusion (mismo sellado que terminos): una observacion 100%
+    # vacia no se escribe (taparia datos completos anteriores en el colapso
+    # a-la-mas-reciente).
+    if all(
+        valor is None
+        for valor in (
+            previa.impressions,
+            previa.clicks,
+            previa.cost,
+            previa.purchases30d,
+            previa.sales30d,
+            previa.purchases_same_sku30d,
+            previa.attributed_sales_same_sku_30d,
+        )
+    ):
+        del por_clave[(asin, sku, metric_date)]
+        plan.remove(previa)
+        envenenadas.add((asin, sku, metric_date))
+        skips["fila sin ninguna metrica"] += 1
+        logger.debug(
+            "fusion dejo la clave sin ninguna metrica (par envenenado), no se escribe: %s/%s %s",
+            asin,
+            sku,
+            metric_date,
+        )
+
+
 def _planea_filas_productos(
     filas: list[dict],
     *,
@@ -1093,6 +1162,11 @@ def _planea_filas_productos(
     plan: list[_FilaProducto] = []
     skips: Counter[str] = Counter()
     por_clave: dict[tuple[str, str, dt.date], _FilaProducto] = {}
+    # Veneno ADHESIVO (hallazgo cross-review codex 2026-09-07): una clave cuya
+    # fusion quedo 100% vacia se descarta, pero una fila posterior del mismo
+    # (asin, sku, fecha) NO puede recrearla con solo sus valores: publicaria
+    # un subtotal parcial como completo dependiendo del orden del gzip.
+    envenenadas: set[tuple[str, str, dt.date]] = set()
 
     for fila in filas:
         raw_asin = fila.get("advertisedAsin")
@@ -1202,57 +1276,30 @@ def _planea_filas_productos(
         ad_id = str(fila["adId"]) if fila.get("adId") is not None else None
 
         previa = por_clave.get((asin, sku, metric_date))
+        if (asin, sku, metric_date) in envenenadas:
+            skips["fila de clave envenenada (subtotal parcial)"] += 1
+            logger.debug("fila descartada por clave envenenada: %s/%s %s", asin, sku, metric_date)
+            continue
         if previa is not None:
-            # Filas del mismo asin/sku en varias campanas: los aportes al
-            # mismo hecho son disjuntos -> se SUMAN hacia el grano sellado.
-            previa.impressions = _sumar_entero(previa.impressions, impressions)
-            previa.clicks = _sumar_entero(previa.clicks, clicks)
-            previa.cost = _sumar_decimal(previa.cost, cost)
-            previa.purchases30d = _sumar_decimal(previa.purchases30d, purchases)
-            previa.sales30d = _sumar_decimal(previa.sales30d, sales)
-            previa.purchases_same_sku30d = _sumar_decimal(
-                previa.purchases_same_sku30d, purchases_same_sku
+            _fusionar_fila_producto(
+                previa,
+                asin=asin,
+                sku=sku,
+                metric_date=metric_date,
+                impressions=impressions,
+                clicks=clicks,
+                cost=cost,
+                purchases=purchases,
+                sales=sales,
+                purchases_same_sku=purchases_same_sku,
+                sales_same_sku=sales_same_sku,
+                campaign_id=campaign_id,
+                ad_id=ad_id,
+                por_clave=por_clave,
+                plan=plan,
+                envenenadas=envenenadas,
+                skips=skips,
             )
-            previa.attributed_sales_same_sku_30d = _sumar_decimal(
-                previa.attributed_sales_same_sku_30d, sales_same_sku
-            )
-            if campaign_id is not None and campaign_id not in previa.campaign_ids:
-                previa.campaign_ids.append(campaign_id)
-            if ad_id is not None and ad_id not in previa.ad_ids:
-                previa.ad_ids.append(ad_id)
-            skips["fila agregada por clave duplicada en el reporte"] += 1
-            logger.debug(
-                "fila agregada por clave duplicada en el reporte: %s/%s %s",
-                asin,
-                sku,
-                metric_date,
-            )
-            # Gate POST-fusion (mismo sellado que terminos): un par
-            # complementario envenenado deja la clave SIN ninguna metrica; una
-            # observacion 100% vacia no se escribe (taparia datos completos
-            # anteriores en el colapso a-la-mas-reciente).
-            if all(
-                valor is None
-                for valor in (
-                    previa.impressions,
-                    previa.clicks,
-                    previa.cost,
-                    previa.purchases30d,
-                    previa.sales30d,
-                    previa.purchases_same_sku30d,
-                    previa.attributed_sales_same_sku_30d,
-                )
-            ):
-                del por_clave[(asin, sku, metric_date)]
-                plan.remove(previa)
-                skips["fila sin ninguna metrica"] += 1
-                logger.debug(
-                    "fusion dejo la clave sin ninguna metrica (par envenenado), "
-                    "no se escribe: %s/%s %s",
-                    asin,
-                    sku,
-                    metric_date,
-                )
             continue
         nueva = _FilaProducto(
             asin=asin,

@@ -404,6 +404,31 @@ def test_madurez_exactamente_d_mas_30_cuenta():
     assert res.maduro
 
 
+def test_madurez_es_por_fecha_no_por_maximo_global():
+    """Contraejemplo del cross-review codex 2026-09-07: D1 observada solo en
+    D1+1 NO madura porque D2 se observara en D2+35. El maximo global de la
+    ventana no madura fechas ajenas (0.4 §2 es por fecha)."""
+    d1 = dt.date(2026, 8, 1)
+    d2 = dt.date(2026, 8, 5)
+    filas = [
+        ObservacionAds(
+            metric_date=d1,
+            observed_at=dt.datetime(2026, 8, 2, tzinfo=UTC),  # D1+1: inmadura
+            cost=Decimal("10"),
+            sales30d=Decimal("40"),
+        ),
+        ObservacionAds(
+            metric_date=d2,
+            observed_at=dt.datetime.combine(d2 + dt.timedelta(days=35), dt.time.min, UTC),
+            cost=Decimal("5"),
+            sales30d=Decimal("20"),
+        ),
+    ]
+    res = evaluar_ads(filas, VENTANA)
+    assert res.maduro is False
+    assert res.provisional is True
+
+
 # ---------------------------------------------------------------------------
 # §8: orden estable con nulls y desempate listing_id (§7 D1)
 # ---------------------------------------------------------------------------
@@ -689,6 +714,14 @@ def test_endpoint_evaluacion_integra_ads_economia_disponibilidad_y_objetivo():
         # ASIN sin filas en la ventana: Sin datos, jamas Por probar.
         assert por_id[sin_ads]["ads"]["etiqueta"] == ETIQUETA_SIN_DATOS
         assert por_id[sin_ads]["seleccionable"] is True
+
+        # Hallazgo cross-review codex: en el flujo real no hay grupo 'planeado'
+        # durante la preparacion; el objetivo EXPLICITO del formulario es el
+        # del grupo que el dueno esta preparando (D2/0.4 §3) y toma precedencia.
+        res_explicito = fw.evaluacion(conn, "amazon_mx", objetivo=Decimal("10"))
+        anunciado_10 = next(p for p in res_explicito["publicaciones"] if p["listing_id"] == con_ads)
+        assert anunciado_10["objetivo_acos_pct"] == "10.00"
+        assert anunciado_10["ads"]["etiqueta"] == "por_encima_del_objetivo"  # 25 > 10
 
         with pytest.raises(Exception, match="criterio de orden"):
             fw.evaluacion(conn, "amazon_mx", orden="muestra_limitada")
