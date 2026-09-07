@@ -96,6 +96,13 @@ def _crear(cliente, solicitud, huella):
     )
 
 
+def _solicitud_v2(solicitud, listing_ids, *, objetivo=None):
+    datos = {clave: valor for clave, valor in solicitud.items() if clave != "productos"}
+    datos["listing_ids"] = listing_ids
+    datos["objetivo"] = objetivo or {"origen": "manual_lanzamiento", "acos_pct": "25.00"}
+    return datos
+
+
 def _motor_simulado(monkeypatch, fw, conn, *, error=False):
     llamadas = []
 
@@ -118,7 +125,7 @@ def _motor_simulado(monkeypatch, fw, conn, *, error=False):
     return llamadas
 
 
-def test_catalogo_no_inventa_margenes_y_excluye_multilisting(escenario):
+def test_catalogo_no_inventa_margenes_y_abre_multilisting_por_publicacion(escenario):
     cliente, _, _, _, ids = escenario
     respuesta = cliente.get("/api/fabrica/catalogo?plataforma=amazon_mx")
     assert respuesta.status_code == 200
@@ -126,10 +133,16 @@ def test_catalogo_no_inventa_margenes_y_excluye_multilisting(escenario):
     assert data["moneda"] == "MXN" and data["tipos_producto"] == ["collar_perro"]
     filas = data["productos"]
     assert [p["id"] for p in filas] == list(ids)
-    assert filas[0]["elegible"] and filas[0]["margen_neto_pct"] == "40.00000000000000000"
-    assert filas[1]["margen_neto_pct"] is None and not filas[1]["elegible"]
-    assert "margen" in filas[1]["motivo"].lower()
-    assert not filas[2]["elegible"] and "listing" in filas[2]["motivo"].lower()
+    assert "elegible" not in filas[0] and "margen_neto_pct" not in filas[0]
+    assert filas[0]["publicaciones"][0]["elegible"]
+    assert filas[0]["publicaciones"][0]["margen_neto_pct"] == "40.00000000000000000"
+    assert filas[0]["publicaciones"][0]["dias_con_venta"] == 70
+    assert filas[0]["publicaciones"][0]["ventana_desde"]
+    assert filas[0]["publicaciones"][0]["ventana_hasta"]
+    assert filas[1]["publicaciones"][0]["margen_neto_pct"] is None
+    assert filas[1]["publicaciones"][0]["elegible"]
+    assert "margen" in filas[1]["publicaciones"][0]["motivos"][0].lower()
+    assert all(publicacion["elegible"] for publicacion in filas[2]["publicaciones"])
 
 
 def test_catalogo_identifica_todas_las_publicaciones_por_plataforma(escenario):
@@ -146,7 +159,7 @@ def test_catalogo_identifica_todas_las_publicaciones_por_plataforma(escenario):
         ("B0CCCCCCCC", "SC", "https://www.amazon.com.mx/dp/B0CCCCCCCC"),
         ("B0DDDDDDDD", "SC2", "https://www.amazon.com.mx/dp/B0DDDDDDDD"),
     ]
-    assert not mx["elegible"]
+    assert all(publicacion["elegible"] for publicacion in mx["publicaciones"])
     us = cliente.get("/api/fabrica/catalogo?plataforma=amazon_us").json()["productos"][0]
     assert [(p["asin"], p["seller_sku"], p["url"]) for p in us["publicaciones"]] == [
         ("B0EEEEEEEE", "SKU-US", "https://www.amazon.com/dp/B0EEEEEEEE"),
@@ -156,6 +169,13 @@ def test_catalogo_identifica_todas_las_publicaciones_por_plataforma(escenario):
     )
     invalido = cliente.get("/api/fabrica/catalogo?plataforma=amazon_us").json()["productos"][0]
     assert invalido["publicaciones"][0]["url"] is None
+    assert not invalido["publicaciones"][0]["elegible"]
+    assert "ASIN invalido." in invalido["publicaciones"][0]["motivos"]
+    conn.execute("UPDATE listing SET external_id = 'A0AAAAAAAA' WHERE platform='amazon_us'")
+    catalogo_us = cliente.get("/api/fabrica/catalogo?plataforma=amazon_us").json()
+    fuera_de_patron = catalogo_us["productos"][0]
+    assert not fuera_de_patron["publicaciones"][0]["elegible"]
+    assert "ASIN invalido." in fuera_de_patron["publicaciones"][0]["motivos"]
 
 
 def test_preview_solo_lectura_sin_amazon_y_con_dinero_string(escenario):
@@ -168,6 +188,102 @@ def test_preview_solo_lectura_sin_amazon_y_con_dinero_string(escenario):
     assert vista["plan"]["semillas"]["keywords"] == ["collar"]
     assert all(p["budget"] == "120.00" and p["bid"] == "4.00" for p in vista["campanas"])
     assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone()[0] == 0
+
+
+def test_preview_v2_acepta_sin_margen_y_varios_listings_sin_escribir(escenario):
+    cliente, conn, solicitud, _, ids = escenario
+    listing_sin_margen = conn.execute(
+        "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx'", (ids[1],)
+    ).fetchone()[0]
+    listing_multiple = [
+        fila[0]
+        for fila in conn.execute(
+            "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx' ORDER BY id",
+            (ids[2],),
+        ).fetchall()
+    ]
+    vista = _preview(cliente, _solicitud_v2(solicitud, [listing_sin_margen, *listing_multiple]))
+    assert vista["plan"]["schema_version"] == 2
+    assert vista["plan"]["objetivo"] == {
+        "origen": "manual_lanzamiento",
+        "acos_pct": "25.00",
+        "procedencia": "manual_lanzamiento confirmado",
+        "fraccion": None,
+        "derivado": None,
+    }
+    assert [p["margen_neto_pct"] for p in vista["plan"]["publicaciones"]] == [None, None, None]
+    assert len({p["product_id"] for p in vista["plan"]["publicaciones"]}) == 2
+    assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone()[0] == 0
+
+
+def test_preview_v2_rechaza_mezcla_y_sku_duplicado_sin_escribir(escenario):
+    cliente, conn, solicitud, _, ids = escenario
+    listing = conn.execute(
+        "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx'", (ids[0],)
+    ).fetchone()[0]
+    mezclada = _solicitud_v2(solicitud, [listing])
+    mezclada["productos"] = [ids[0]]
+    assert cliente.post("/api/fabrica/plan", json=mezclada).status_code == 422
+    conn.execute(
+        "UPDATE listing SET seller_sku = 'DUPLICADO' "
+        "WHERE product_id = %s AND platform = 'amazon_mx'",
+        (ids[2],),
+    )
+    multiples = [
+        fila[0]
+        for fila in conn.execute(
+            "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx' ORDER BY id",
+            (ids[2],),
+        ).fetchall()
+    ]
+    respuesta = cliente.post("/api/fabrica/plan", json=_solicitud_v2(solicitud, multiples))
+    assert respuesta.status_code == 422
+    assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone()[0] == 0
+
+
+def test_crear_v2_exige_interruptor_y_target_valido_sin_mutar(escenario, monkeypatch):
+    cliente, conn, solicitud, fw, ids = escenario
+    listing = conn.execute(
+        "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx'", (ids[0],)
+    ).fetchone()[0]
+    v2 = _solicitud_v2(solicitud, [listing])
+    vista = _preview(cliente, v2)
+    llamadas = []
+    monkeypatch.setattr(fw.fc, "_mutar", lambda *args, **kwargs: llamadas.append(args))
+    bloqueada = _crear(cliente, v2, vista["huella"])
+    assert bloqueada.status_code == 409
+    assert llamadas == []
+    invalida = _solicitud_v2(
+        solicitud,
+        [listing],
+        objetivo={"origen": "manual_lanzamiento", "acos_pct": "25.123"},
+    )
+    assert cliente.post("/api/fabrica/plan", json=invalida).status_code == 422
+    assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone()[0] == 0
+
+
+def test_reenvio_v2_reordena_listings_y_no_duplica_mutacion(escenario, monkeypatch):
+    cliente, conn, solicitud, fw, ids = escenario
+    listing_ids = [
+        fila[0]
+        for fila in conn.execute(
+            "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx' ORDER BY id",
+            (ids[2],),
+        ).fetchall()
+    ]
+    conn.execute(
+        "INSERT INTO config_version(label, settings) VALUES ('v2', %s)",
+        (Json({"ads_target_fraccion_margen_amazon_mx": "0.5", "fabrica.creacion": "v2"}),),
+    )
+    v2 = _solicitud_v2(solicitud, list(reversed(listing_ids)))
+    vista = _preview(cliente, v2)
+    llamadas = _motor_simulado(monkeypatch, fw, conn)
+    primera = _crear(cliente, v2, vista["huella"])
+    v2["listing_ids"] = listing_ids
+    segunda = _crear(cliente, v2, vista["huella"])
+    assert primera.status_code == segunda.status_code == 200
+    assert primera.json() == segunda.json()
+    assert llamadas == [vista["lote"]]
 
 
 @pytest.mark.parametrize(

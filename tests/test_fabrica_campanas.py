@@ -324,6 +324,7 @@ class _ConnFalsa:
         *,
         settings=None,
         productos=(),
+        publicaciones=(),
         terminos=(),
         terminos_exact=None,
         biblioteca=([], []),
@@ -338,6 +339,7 @@ class _ConnFalsa:
     ):
         self.settings = settings
         self.productos = list(productos)
+        self.publicaciones = list(publicaciones)
         self.terminos = list(terminos)
         # candidatos a exact (ventana de cortes): por default los mismos terminos
         self.terminos_exact = list(terminos) if terminos_exact is None else list(terminos_exact)
@@ -372,6 +374,8 @@ class _ConnFalsa:
             return _Cursor([])
         if "from config_version" in bajo:
             return _Cursor([(1, self.settings)] if self.settings is not None else [])
+        if "from listing l" in bajo and "join product p" in bajo:
+            return _Cursor(self.publicaciones)
         if "v_margen_producto" in bajo:
             return _Cursor(self.productos)
         if "ventana_cortes" in bajo:  # _SQL_TERMINOS_EXACT (ventana de cortes)
@@ -519,6 +523,109 @@ def test_dry_run_dice_semillas_cero_explicito(monkeypatch, capsys):
     assert fc.main() == 0
     salida = capsys.readouterr().out
     assert "category_phrase" in salida and "semillas=0" in salida
+
+
+def test_cli_v2_manual_normaliza_listing_sin_margen_sin_http(monkeypatch, capsys):
+    args = ARGS_BASE.copy()
+    indice = args.index("--productos")
+    args[indice : indice + 2] = ["--listing-ids", "11,12"]
+    args.extend(["--target-acos", "25.00"])
+    conn = _ConnFalsa(
+        publicaciones=[
+            (11, 1, "B0AAAAAAAA", "SS-1", None),
+            (12, 1, "B0AAAAAAAB", "SS-2", Decimal("-5")),
+        ],
+        biblioteca=([], []),
+    )
+    _frontera_lectura(monkeypatch, conn)
+    _sin_red(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *args])
+    assert fc.main() == 0
+    salida = capsys.readouterr().out
+    assert "target=25.00" in salida
+    assert "publicacion=11" in salida and "margen=None" in salida
+    assert "publicacion=12" in salida and "margen=-5" in salida
+    assert conn.escrituras == []
+
+
+def test_cli_v2_rechaza_asin_ausente_antes_de_http(monkeypatch):
+    args = ARGS_BASE.copy()
+    indice = args.index("--productos")
+    args[indice : indice + 2] = ["--listing-ids", "11"]
+    args.extend(["--target-acos", "25.00"])
+    conn = _ConnFalsa(publicaciones=[(11, 1, "", "SS-1", None)], biblioteca=([], []))
+    _frontera_lectura(monkeypatch, conn)
+    _sin_red(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *args])
+    with pytest.raises(fc.Abortar, match="ASIN"):
+        fc.main()
+    assert conn.escrituras == []
+
+
+def test_cli_v2_dry_run_muestra_semillas_y_procedencia_reales(monkeypatch, capsys):
+    args = ARGS_BASE.copy()
+    indice = args.index("--productos")
+    args[indice : indice + 2] = ["--listing-ids", "11"]
+    args.extend(["--target-acos", "25.00"])
+    conn = _ConnFalsa(
+        publicaciones=[(11, 1, "B0AAAAAAAA", "SS-1", None)],
+        biblioteca=(["semilla real"], ["bloquear"]),
+    )
+    _frontera_lectura(monkeypatch, conn)
+    _sin_red(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *args])
+    assert fc.main() == 0
+    salida = capsys.readouterr().out
+    assert "category_phrase: budget=120 bid=5.00 target=25.00 origen=manual_lanzamiento" in salida
+    assert "category_phrase: budget=120" in salida and "semillas=1" in salida
+    assert "category_broad: budget=120" in salida and "semillas=1" in salida
+    assert "auto_discovery: budget=150" in salida and "semillas=1" in salida
+    assert "procedencia=manual_lanzamiento confirmado" in salida
+    assert conn.escrituras == []
+
+
+@pytest.mark.parametrize("margen", [None, Decimal("0"), Decimal("-5"), Decimal("5")])
+def test_plan_v2_margen_medido_rechaza_margen_no_rentable_sin_http(monkeypatch, margen):
+    args = ARGS_BASE.copy()
+    indice = args.index("--productos")
+    args[indice : indice + 2] = ["--listing-ids", "11"]
+    parsed = fc._parser().parse_args(args)
+    parsed.origen_objetivo = "margen_medido"
+    conn = _ConnFalsa(
+        settings={"ads_target_fraccion_margen_amazon_mx": "0.5"},
+        publicaciones=[(11, 1, "B0AAAAAAAA", "SS-1", margen)],
+        biblioteca=([], []),
+    )
+    _sin_red(monkeypatch)
+    with pytest.raises(fc.Abortar, match="manual_lanzamiento"):
+        fc._arma_plan(parsed, conn)
+    assert conn.escrituras == []
+
+
+def test_cli_v2_con_mutacion_exige_interruptor_antes_de_http(monkeypatch):
+    args = ARGS_BASE.copy()
+    indice = args.index("--productos")
+    args[indice : indice + 2] = ["--listing-ids", "11"]
+    args.extend(
+        [
+            "--target-acos",
+            "25.00",
+            "--acepto-mutacion-real",
+            "--esperado",
+            "5",
+            "--huella",
+            "a" * 64,
+            "--go",
+            "prueba",
+        ]
+    )
+    conn = _ConnFalsa(publicaciones=[(11, 1, "B0AAAAAAAA", "SS-1", None)], settings={})
+    _frontera_lectura(monkeypatch, conn)
+    _sin_red(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *args])
+    with pytest.raises(fc.Abortar, match="altas v2 deshabilitadas"):
+        fc.main()
+    assert conn.escrituras == []
 
 
 def test_sin_fraccion_o_bid_fuera_de_banda_aborta_sin_http(monkeypatch):
@@ -1170,6 +1277,27 @@ def _plan_min():
     )
 
 
+def _plan_v2_min():
+    return fp.PlanGrupoV2(
+        platform="amazon_mx",
+        tipo_producto="collar_perro",
+        nombre_base="Collar",
+        fecha=HOY,
+        moneda="MXN",
+        modo="shadow",
+        publicaciones=(
+            fp.PublicacionGrupoV2(11, 1, "B0AAAAAAAA", "SS-1", "amazon_mx", None),
+            fp.PublicacionGrupoV2(12, 1, "B0AAAAAAAB", "SS-2", "amazon_mx", Decimal("-5")),
+        ),
+        parametros={
+            rol: fp.ParametrosRol(rol, Decimal("120"), Decimal("6.00"))
+            for rol in fp.ROLES_ORDEN_CREACION
+        },
+        objetivo=fp.ObjetivoPlanV2("manual_lanzamiento", Decimal("25.00"), "confirmado"),
+        semillas=fp.Semillas((), (), (), ()),
+    )
+
+
 def _plan_con_semillas():
     return dataclasses.replace(
         _plan_min(),
@@ -1337,6 +1465,57 @@ def test_registrar_sincroniza_antes_de_escribir(monkeypatch):
     fc._registrar(ctx, _plan_min(), _CREADAS)
     assert llamadas[0] == "sync" and llamadas.count("goal") == 5
     assert any(s.lower().startswith("insert into campana_grupo ") for s, _ in conn.escrituras)
+
+
+def test_registrar_v2_conserva_dos_listings_y_objetivo_manual(monkeypatch):
+    llamadas = []
+    conn = _ConnFalsa()
+    monkeypatch.setattr(fc, "_sync", lambda cliente: llamadas.append("sync"))
+    monkeypatch.setattr(fc, "_id_entidad", lambda c, p, k, e: 7)
+    monkeypatch.setattr(
+        fc.goals_write, "crea_goal", lambda c, **kw: llamadas.append(kw) or {"id": 1}
+    )
+    ctx = fc._Ctx(None, "tok", None, "cliente", 101, conn, "L2")
+    fc._registrar(ctx, _plan_v2_min(), _CREADAS)
+    grupo = next(
+        params for sql, params in conn.escrituras if "insert into campana_grupo " in sql.lower()
+    )
+    productos = [
+        params
+        for sql, params in conn.escrituras
+        if "insert into campana_grupo_producto" in sql.lower()
+    ]
+    assert grupo[4:9] == (Decimal("25.00"), None, None, "manual_lanzamiento", "confirmado")
+    assert [(fila[2], fila[3], fila[4]) for fila in productos] == [
+        (11, "SS-1", None),
+        (12, "SS-2", Decimal("-5")),
+    ]
+    assert len(llamadas) == 6
+
+
+def test_registrar_cmd_lee_lote_v2_con_interruptor_v1_y_no_repite_post(monkeypatch):
+    plan = _plan_v2_min()
+    ledger = _filas_ledger(plan)
+    conn_admin = _ConnFalsa(
+        settings={"fabrica.creacion": "v1"},
+        lote_fila=(fp.plan_v2_como_json(plan), "failed"),
+        pendientes=_camp_ag_de_ledger(ledger),
+        pasos_ledger=ledger,
+    )
+    amazon = _Amazon()
+    _frontera_mutacion(monkeypatch, _ConnFalsa(), conn_admin, amazon, stub_registrar=False)
+    monkeypatch.setattr(fc, "_sync", lambda cliente: None)
+    monkeypatch.setattr(fc, "_id_entidad", lambda c, p, k, e: 7)
+    monkeypatch.setattr(fc.goals_write, "crea_goal", lambda c, **kw: {"id": 1})
+    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", "--registrar", "L2"])
+    assert fc.main() == 0
+    assert amazon.pedidos == []
+    productos = [
+        params
+        for sql, params in conn_admin.escrituras
+        if "insert into campana_grupo_producto" in sql.lower()
+    ]
+    assert len(productos) == 2
 
 
 def test_sync_usa_dsn_ingest_y_el_escritor_unico(monkeypatch):

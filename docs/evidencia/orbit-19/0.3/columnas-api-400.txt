@@ -1,0 +1,12 @@
+ORBIT 19 / 0.3 — cuerpo 400 de POST /reporting/reports (redactado).
+utc 2026-09-06T21:03:38Z. Perfil amazon_mx. Columna invalida: salesSameSku30d.
+
+{"code":"400","detail":"configuration columns includes invalid values: (salesSameSku30d). Allowed values: (date, attributedSalesSameSku1d, roasClicks14d, endDate, unitsSoldClicks1d, attributedSalesSameSku14d, sales7d, attributedSalesSameSku30d, kindleEditionNormalizedPagesRoyalties14d, campaignStatus, unitsSoldSameSku1d, advertisedSku, purchasesSameSku7d, salesOtherSku7d, campaignBudgetAmount, purchases7d, unitsSoldSameSku30d, costPerClick, unitsSoldClicks14d, adGroupName, campaignId, clickThroughRate, kindleEditionNormalizedPagesRead14d, unitsSoldClicks30d, qualifiedBorrows, acosClicks14d, adId, portfolioId, campaignBudgetCurrencyCode, startDate, unitsSoldClicks7d, unitsSoldSameSku14d, roasClicks7d, attributedSalesSameSku7d, royaltyQualifiedBorrows, sales1d, adGroupId, addToList, purchasesSameSku14d, unitsSoldOtherSku7d, spend, campaignBudgetType, purchasesSameSku1d, advertisedAsin, purchases1d, unitsSoldSameSku7d, cost, retailer, sales14d, acosClicks7d, sales30d, impressions, purchasesSameSku30d, purchases14d, purchases30d, clicks, campaignName)"}
+
+Implicaciones selladas para B.1 / 0.4:
+- salesSameSku30d NO existe (igual que en spCampaigns).
+- Ventas promovidas 30d = attributedSalesSameSku30d (API la acepta; no vino en la muestra porque el retry no la pidio).
+- Compras promovidas 30d = purchasesSameSku30d (vino en la muestra).
+- Ventas totales 30d = sales30d (incluye halo).
+- Halo nombrado por la API: salesOtherSku7d y unitsSoldOtherSku7d (solo 7d). No hay salesOtherSku30d en el allowlist.
+- No mezclar salesOtherSku7d con sales30d.

@@ -37,14 +37,17 @@ FROM fabrica_lote l
 _SQL_LOTE = _SQL_RESUMEN_LOTE + " WHERE l.lote = %s"
 
 _SQL_CATALOGO = """
-SELECT p.id, p.odoo_sku, count(l.id), min(l.seller_sku), m.margen_neto_pct,
-       p.name, jsonb_agg(jsonb_build_object(
-           'id', l.id, 'asin', l.external_id, 'seller_sku', l.seller_sku
+SELECT p.id, p.odoo_sku, p.name, jsonb_agg(jsonb_build_object(
+           'id', l.id, 'asin', l.external_id, 'seller_sku', l.seller_sku,
+           'platform', l.platform::text, 'margen_neto_pct', m.margen_neto_pct::text,
+           'dias_con_venta', m.dias_con_venta,
+           'ventana_desde', m.ventana_desde::text, 'ventana_hasta', m.ventana_hasta::text,
+           'historial_ads', NULL
        ) ORDER BY l.external_id, l.id)
 FROM product p
 JOIN listing l ON l.product_id = p.id AND l.platform = %s::platform
 LEFT JOIN v_margen_producto m ON m.product_id = p.id AND m.platform = l.platform
-GROUP BY p.id, p.odoo_sku, m.margen_neto_pct
+GROUP BY p.id, p.odoo_sku
 ORDER BY p.odoo_sku, p.id
 """
 _SQL_TIPOS = """
@@ -53,6 +56,7 @@ UNION SELECT tipo_producto FROM negative_biblioteca WHERE platform = %s::platfor
 UNION SELECT tipo_producto FROM campana_grupo WHERE platform = %s::platform
 ORDER BY tipo_producto
 """
+_SQL_CONFIG_VIGENTE = "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
 
 
 def error(codigo: int, mensaje: str, lote: str | None = None) -> HTTPException:
@@ -61,14 +65,20 @@ def error(codigo: int, mensaje: str, lote: str | None = None) -> HTTPException:
 
 def argumentos(solicitud: dict) -> SimpleNamespace:
     datos = {k: v for k, v in solicitud.items() if k != "parametros"}
-    datos["productos"] = ",".join(str(pid) for pid in sorted(solicitud["productos"]))
+    productos = solicitud.get("productos")
+    listings = solicitud.get("listing_ids")
+    datos["productos"] = ",".join(str(pid) for pid in sorted(productos)) if productos else None
+    datos["listing_ids"] = ",".join(str(lid) for lid in sorted(listings)) if listings else None
+    objetivo = solicitud.get("objetivo")
+    datos["target_acos"] = objetivo.get("acos_pct") if objetivo else None
+    datos["origen_objetivo"] = objetivo.get("origen") if objetivo else None
     for rol, sufijo in SUFIJOS.items():
         for monto in ("budget", "bid"):
             datos[f"{monto}_{sufijo}"] = solicitud["parametros"][rol][monto]
     return SimpleNamespace(**datos)
 
 
-def planificar(conn, solicitud: dict) -> fp.PlanGrupo:
+def planificar(conn, solicitud: dict) -> fp.PlanGrupo | fp.PlanGrupoV2:
     conn.row_factory = tuple_row
     try:
         return fc._arma_plan(argumentos(solicitud), conn)
@@ -82,13 +92,25 @@ def planificar(conn, solicitud: dict) -> fp.PlanGrupo:
         raise error(503, "No se pudo consultar la información del plan.") from None
 
 
+def _huella_plan(plan: fp.PlanGrupo | fp.PlanGrupoV2) -> str:
+    if isinstance(plan, fp.PlanGrupoV2):
+        return fp.huella_plan_v2(plan)
+    return fp.huella_plan(plan)
+
+
+def _plan_como_json(plan: fp.PlanGrupo | fp.PlanGrupoV2) -> dict:
+    if isinstance(plan, fp.PlanGrupoV2):
+        return fp.plan_v2_como_json(plan)
+    return fp.plan_como_json(plan)
+
+
 def previsualizar(conn, solicitud: dict) -> dict:
     plan = planificar(conn, solicitud)
-    huella = fp.huella_plan(plan)
+    huella = _huella_plan(plan)
     return {
         "huella": huella,
         "lote": f"web-{huella}",
-        "plan": fp.plan_como_json(plan),
+        "plan": _plan_como_json(plan),
         "campanas": [
             {
                 "rol": rol,
@@ -105,22 +127,38 @@ def previsualizar(conn, solicitud: dict) -> dict:
     }
 
 
+def _creacion_v2_habilitada(conn) -> bool:
+    fila = conn.execute(_SQL_CONFIG_VIGENTE).fetchone()
+    settings = fila[0] if fila is not None else {}
+    return fp.version_creacion_desde_settings(settings or {}) == "v2"
+
+
 def catalogo(conn, plataforma: str) -> dict:
     conn.row_factory = tuple_row
     productos = []
-    for pid, sku, listings, seller_sku, margen, nombre, publicaciones in conn.execute(
-        _SQL_CATALOGO, (plataforma,)
-    ).fetchall():
-        motivo = None
-        if listings != 1:
-            motivo = "Tiene varios listings; esta versión requiere uno por producto."
-        elif margen is None:
-            motivo = "Sin margen medible."
-        elif not seller_sku or not seller_sku.strip():
-            motivo = "Sin seller_sku para crear el anuncio."
+    for pid, sku, nombre, publicaciones in conn.execute(_SQL_CATALOGO, (plataforma,)).fetchall():
         dominio = {"amazon_mx": "www.amazon.com.mx", "amazon_us": "www.amazon.com"}[plataforma]
         for publicacion in publicaciones:
             asin = publicacion["asin"]
+            sku_amazon = publicacion["seller_sku"]
+            margen = publicacion["margen_neto_pct"]
+            margen_valor = Decimal(margen) if margen is not None else None
+            motivos = []
+            asin_valido = bool(fp.PATRON_ASIN.fullmatch(asin or ""))
+            if not asin:
+                motivos.append("ASIN ausente.")
+            elif not asin_valido:
+                motivos.append("ASIN invalido.")
+            if not sku_amazon or not sku_amazon.strip():
+                motivos.append("SKU de Amazon ausente.")
+            if margen_valor is None:
+                motivos.append("Margen sin medir.")
+            elif margen_valor == 0:
+                motivos.append("Margen cero.")
+            elif margen_valor < 0:
+                motivos.append("Margen negativo.")
+            publicacion["elegible"] = bool(asin_valido and sku_amazon and sku_amazon.strip())
+            publicacion["motivos"] = motivos
             publicacion["url"] = (
                 f"https://{dominio}/dp/{asin}"
                 if re.fullmatch(r"[A-Za-z0-9]{10}", asin or "")
@@ -132,9 +170,6 @@ def catalogo(conn, plataforma: str) -> dict:
                 "sku": sku,
                 "nombre": nombre,
                 "publicaciones": publicaciones,
-                "margen_neto_pct": str(margen) if margen is not None else None,
-                "elegible": motivo is None,
-                "motivo": motivo,
             }
         )
     tipos = [
@@ -266,8 +301,14 @@ def crear(solicitud: dict, huella: str, confirmacion: str) -> dict:
         if existente is not None:
             return existente
         with _conexion("ORBIT_DSN_READ", lote) as lectura:
+            if solicitud.get("listing_ids") is not None and not _creacion_v2_habilitada(lectura):
+                raise error(
+                    409,
+                    "Altas por publicacion deshabilitadas; conserva el lote para recuperacion.",
+                    lote,
+                )
             plan = planificar(lectura, solicitud)
-        if fp.huella_plan(plan) != huella:
+        if _huella_plan(plan) != huella:
             raise error(409, "El plan cambió. Vuelve a previsualizar antes de crear.", lote)
         args = argumentos(solicitud)
         args.acepto_mutacion_real = True

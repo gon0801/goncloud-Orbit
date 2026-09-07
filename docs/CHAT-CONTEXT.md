@@ -4,6 +4,77 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-06 — ORBIT 19 Fase A implementada, pendiente de CI y deploy.** El catalogo selecciona publicaciones con ASIN y SKU validos; margen e historial ausentes son avisos para un objetivo manual explicito. El plan v2 conserva huella estable, idempotencia y recuperacion al deshabilitar nuevas altas. No se crearon campanas ni se inicio Fase B. La revision independiente detecto y cerro validaciones de margen/ASIN, conteos de semillas, precision decimal y evidencia visual; A.R esta aprobada. El preflight confirma F1 presente, cero lotes/grupos y 0019 pendiente; `fabrica.creacion` queda en v1. Faltan CI, merge y despliegue de 0019.
+
+**2026-09-06 — ORBIT 19 A.1 cerrada en revisión.** El plan de fábrica ya
+puede serializar v2 por publicación, con margen ausente real y una huella
+estable ante reorden. La migración 0019 admite varios listings por producto,
+mantiene v1 y su reversa solo deshabilita altas v2. Pruebas focales: 31 pasan;
+las pruebas PostgreSQL quedan para la batería única de CI. A.2 es el siguiente
+bloque: normalizador común API/CLI/motor; no se han creado campañas.
+
+**2026-09-06 — ORBIT 19: precision documental tras review del bloque 1.**
+Gasto y clics conciliados; ventas y compras siguen sin conciliar. La
+actualizacion de atribucion es una hipotesis, no una causa demostrada.
+Se retira la diferencia temporal no acreditada de ~3h. Sin cambios de
+codigo ni inicio del bloque 2.
+
+**2026-09-06 — ORBIT 19: gzip conciliado; 0.4 cerrada; B.1 puede arrancar.**
+Ads MX verificada: cost/clicks delta 0, impressions -1. Ausente = Sin datos.
+0.4 no espera B.1. PR #185 se actualiza con esta rama para CI.
+
+**2026-09-06 — ORBIT 19: Ads MX parcial; 0.4 no cierra B.**
+COMPLETED no demuestra cobertura: ASIN ausente = Sin datos, no Por probar.
+Madurez 30d exige observacion con observed_at >= metric_date+30d, no el
+calendario. Superado: gzip conciliado en 0.3; 0.4 cerrada. Fase A no
+espera Ads.
+
+**2026-09-06 — ORBIT 19 review: 0019 es de A.1, no de F2.**
+F2 deja de reservar 0019. FABRICA 01 §1 decisiones 2/14 y residual 7
+quedan F1 historico; el contrato de A es D2. API v2: mismas rutas,
+`listing_ids` vs `productos`. F1 vigente hasta A.5.
+
+**2026-09-06 — ORBIT 19 Fase 0 cerrada (D1–D4 + contrato 0.2/0.4).**
+Confirmado 21:31 UTC. Orden por margen % maduro; ACoS manual si NULL/0/neg
+o clamp > margen; solo campanas nuevas; muestra limitada en UI. Por probar
+exige cobertura; el manual no acredita rentabilidad. API/CLI v2, 0019/0020
+y reversa v2 cerrados en papel. F1 de produccion intacto. A/B no arrancan
+hasta que se pida implementar. PR #185.
+
+**2026-09-06 — ORBIT 19: tres precisiones al contrato, 0.2 sigue abierto.**
+Por probar exige cobertura Ads verificada (si no, Sin datos; no prueba
+«nunca anunciado»). El objetivo manual no acredita rentabilidad; cero,
+negativo o inferior al objetivo se declaran en la revision y siguen
+seleccionables. Confirmar D1–D4 no cierra 0.2: faltan API/CLI v2,
+compatibilidad, migraciones y reversa con recuperacion v2.
+
+**2026-09-06 — ORBIT 19 D1/D2 corregidas, sin cerrar 0.2.**
+El 175 era solo MX (84+91). Por mercado, margen maduro positivo: MX 5 / US 2;
+cero y negativo: 0 y 0; ausente: MX 244 / US 117. D1: porcentaje
+`margen_neto_pct`, ventana `[2026-02-20, D-15)`, muestra visible, NULL no es 0%.
+D2 cubre ausente, cero y negativo (clamp a 10% mentiria). D3/D4 siguen
+propuesta. A/B no arrancan.
+
+**2026-09-06 — ORBIT 19 Fase 0: catalogo y fuentes (0.1/0.3).**
+SELECT 21:00 UTC: MX 249 productos / 3 elegibles, US 119 / 2; 115 multilisting;
+291 listings del bridge sin mapa Odoo (23 Active). `fabrica_lote` vacia.
+`spAdvertisedProduct` verificado en amazon_mx (D-3, 767 filas); `salesSameSku30d`
+no existe. Stock FBA/FBM en bridge, separados. Featured Offer sin verificar.
+D1–D4 siguen pendientes del dueno; A/B no se implementan. PR #185.
+
+**2026-09-06 — ORBIT 19 formalizado con harness-plan.**
+Plan formal y spec incluyen stages, archivos por tarea, evidencia y DoD binarios,
+contrato v2/compatibilidad y rollback, fixtures de comparacion y evaluacion de
+alternativas por tres perspectivas. Negocio pendiente en0.2; formalizar no aprueba
+objetivos ni gasto. PR185 conserva solo documentacion y plan activo sin cambios.
+
+**2026-09-06 — ORBIT 19, borrador de catalogo abierto y evaluacion.**
+El dueno pide seleccionar todos los articulos y comparar su conveniencia para
+campanas. Plan catalogo-campanas-01: seleccion por publicacion, objetivo manual
+propuesto si falta margen, evidencia separada y nueva fuente Ads por producto.
+Solo planificacion; objetivo prioritario, politica de lanzamiento y campanas
+existentes siguen pendientes de respuesta. Produccion y plan activo sin cambios.
+
 **2026-09-06 — Fotos de publicaciones en Crear campanas.**
 El selector muestra la imagen MAIN real de cada ASIN y marketplace mediante
 SP-API Catalog Items y las credenciales existentes. Miniaturas bajo demanda,

@@ -94,6 +94,11 @@
       "name": "orbit-ui-01",
       "path": "plans/orbit-ui-01.md",
       "description": "ORBIT 18 — rediseno del dashboard existente segun handoff UI; catalogo futuro identificado, sin motor Repricing."
+    },
+    {
+      "name": "catalogo-campanas-01",
+      "path": "plans/catalogo-campanas-01.md",
+      "description": "ORBIT 19 - Plan formal harness-plan: catalogo seleccionable por publicacion y evaluacion Ads trazable; cierre de negocio0.2 pendiente, ejecucion no iniciada."
     }
   ],
   "active": "orbit-ui-01"

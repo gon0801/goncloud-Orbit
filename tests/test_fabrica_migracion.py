@@ -36,14 +36,16 @@ ORDEN = (
     "0016_target_margen_correcciones.sql",
     "0017_first_seen_at.sql",
     "0018_fabrica_campanas.sql",
+    "0019_fabrica_grupo_publicacion_v2.sql",
 )
 SQL18 = (MIGRACIONES / "0018_fabrica_campanas.sql").read_text(encoding="utf-8")
+SQL19 = (MIGRACIONES / "0019_fabrica_grupo_publicacion_v2.sql").read_text(encoding="utf-8")
 
 _skip_db = pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres")
 
 
 @contextmanager
-def db_fabrica(prefijo: str = "orbit_fabrica"):
+def db_fabrica(prefijo: str = "orbit_fabrica", hasta: str | None = None):
     """DB temporal con las migraciones de ORDEN; yields conn autocommit."""
     dsn = _test_dsn()
     db = f"{prefijo}_{socket.gethostname().lower()}_{os.getpid()}"
@@ -55,6 +57,8 @@ def db_fabrica(prefijo: str = "orbit_fabrica"):
         conn.execute("SET TIME ZONE 'UTC'")
         for nombre in ORDEN:
             conn.execute((MIGRACIONES / nombre).read_text(encoding="utf-8"))
+            if nombre == hasta:
+                break
         yield conn
     finally:
         if conn is not None:
@@ -737,3 +741,151 @@ def test_v_margen_producto_ventana_no_depende_de_la_timezone_de_sesion():
             "SELECT ventana_hasta FROM v_margen_producto WHERE product_id = %s", (pid,)
         ).fetchone()[0]
         assert hasta == ahora.date() - dt.timedelta(days=15), f"hasta={hasta} sigue la TZ local"
+
+
+def test_0019_es_expansiva_y_sella_listings_v2():
+    """A.1: una publicacion, no el producto, identifica la pertenencia v2.
+    La migracion conserva datos: la reversa deshabilita altas, no borra lotes."""
+    from pglast import ast
+
+    stmts = [s.stmt for s in pglast.parse_sql(SQL19)]
+    eliminaciones_tabla = [
+        s for s in stmts if isinstance(s, ast.DropStmt) and s.removeType.name == "OBJECT_TABLE"
+    ]
+    assert not eliminaciones_tabla
+    assert "target_origen" in SQL19
+    assert "manual_lanzamiento" in SQL19
+    assert "PRIMARY KEY (grupo_id, listing_id)" in SQL19
+    assert "UNIQUE (grupo_id, seller_sku)" in SQL19
+
+
+@_skip_db
+def test_0019_permite_dos_listings_y_rechaza_identidad_invalida():
+    """El trigger conserva producto y marketplace; el nuevo PK admite
+    publicaciones hermanas y el UNIQUE evita dos anuncios para el mismo SKU."""
+    with db_fabrica() as conn:
+        producto_a, listing_a = _producto(conn, sku="A1", asin="B0V2A00001", seller_sku="SS-A")
+        lote = _lote(conn, lote="fabrica-amazon_mx-v2-20260905-120000")
+        grupo = _grupo(conn, lote)
+        conn.execute(
+            "INSERT INTO campana_grupo_producto "
+            "(grupo_id, product_id, listing_id, seller_sku, margen_neto_pct) "
+            "VALUES (%s, %s, %s, 'SS-A', NULL)",
+            (grupo, producto_a, listing_a),
+        )
+        listing_a_segundo = conn.execute(
+            "INSERT INTO listing (product_id, platform, external_id, seller_sku) "
+            "VALUES (%s, 'amazon_mx', 'B0V2A00002', 'SS-A2') RETURNING id",
+            (producto_a,),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO campana_grupo_producto "
+            "(grupo_id, product_id, listing_id, seller_sku, margen_neto_pct) "
+            "VALUES (%s, %s, %s, 'SS-A2', 20)",
+            (grupo, producto_a, listing_a_segundo),
+        )
+        cantidad = conn.execute(
+            "SELECT count(*) FROM campana_grupo_producto WHERE grupo_id = %s AND product_id = %s",
+            (grupo, producto_a),
+        ).fetchone()[0]
+        assert cantidad == 2
+        producto_b, listing_b = _producto(conn, sku="B1", asin="B0V2B00001", seller_sku="SS-B")
+        conn.execute(
+            "INSERT INTO campana_grupo_producto "
+            "(grupo_id, product_id, listing_id, seller_sku, margen_neto_pct) "
+            "VALUES (%s, %s, %s, 'SS-B', 20)",
+            (grupo, producto_b, listing_b),
+        )
+        producto_duplicado, listing_duplicado = _producto(
+            conn, sku="C1", asin="B0V2C00001", seller_sku="SS-A"
+        )
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            conn.execute(
+                "INSERT INTO campana_grupo_producto "
+                "(grupo_id, product_id, listing_id, seller_sku, margen_neto_pct) "
+                "VALUES (%s, %s, %s, 'SS-A', 20)",
+                (grupo, producto_duplicado, listing_duplicado),
+            )
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(
+                "INSERT INTO campana_grupo_producto "
+                "(grupo_id, product_id, listing_id, seller_sku, margen_neto_pct) "
+                "VALUES (%s, %s, %s, 'SS-B', 20)",
+                (grupo, producto_a, listing_b),
+            )
+        producto_us, listing_us = _producto(
+            conn, sku="US1", asin="B0V2US0001", platform="amazon_us", seller_sku="SS-US"
+        )
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(
+                "INSERT INTO campana_grupo_producto "
+                "(grupo_id, product_id, listing_id, seller_sku, margen_neto_pct) "
+                "VALUES (%s, %s, %s, 'SS-US', 20)",
+                (grupo, producto_us, listing_us),
+            )
+
+
+@_skip_db
+def test_0019_regresion_v1_y_objetivo_manual_se_prueban_contra_los_dos_esquemas():
+    """El segundo listing falla bajo 0018 y pasa despues de 0019. La misma
+    corrida demuestra que 0019 conserva una fila v1 y sella ambos objetivos."""
+    with db_fabrica(hasta="0018_fabrica_campanas.sql") as conn:
+        producto, primer_listing = _producto(conn, sku="REG1", asin="B0REG00001", seller_sku="SS-1")
+        lote_v1 = _lote(conn, lote="fabrica-amazon_mx-v1-20260905-120000")
+        grupo_v1 = _grupo(conn, lote_v1)
+        conn.execute(
+            "INSERT INTO campana_grupo_producto "
+            "(grupo_id, product_id, listing_id, seller_sku, margen_neto_pct) "
+            "VALUES (%s, %s, %s, 'SS-1', 20)",
+            (grupo_v1, producto, primer_listing),
+        )
+        segundo_listing = conn.execute(
+            "INSERT INTO listing (product_id, platform, external_id, seller_sku) "
+            "VALUES (%s, 'amazon_mx', 'B0REG00002', 'SS-2') RETURNING id",
+            (producto,),
+        ).fetchone()[0]
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            conn.execute(
+                "INSERT INTO campana_grupo_producto "
+                "(grupo_id, product_id, listing_id, seller_sku, margen_neto_pct) "
+                "VALUES (%s, %s, %s, 'SS-2', 20)",
+                (grupo_v1, producto, segundo_listing),
+            )
+        conn.execute(SQL19)
+        conn.execute(
+            "INSERT INTO campana_grupo_producto "
+            "(grupo_id, product_id, listing_id, seller_sku, margen_neto_pct) "
+            "VALUES (%s, %s, %s, 'SS-2', NULL)",
+            (grupo_v1, producto, segundo_listing),
+        )
+        assert conn.execute(
+            "SELECT target_origen, target_derivado_pct, fraccion FROM campana_grupo WHERE id = %s",
+            (grupo_v1,),
+        ).fetchone() == ("margen_medido", Decimal("19.1040"), Decimal("0.5000"))
+
+        lote_manual = _lote(conn, lote="fabrica-amazon_mx-manual-20260905-120000")
+        conn.execute(
+            "INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote, "
+            "target_acos_pct, target_derivado_pct, fraccion, target_procedencia, go_literal, "
+            "target_origen) VALUES ('amazon_mx', 'collar_perro', 'Manual', %s, 25, NULL, NULL, "
+            "'confirmado', 'go', 'manual_lanzamiento')",
+            (lote_manual,),
+        )
+        lote_invalido = _lote(conn, lote="fabrica-amazon_mx-invalido-20260905-120000")
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(
+                "INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote, "
+                "target_acos_pct, target_derivado_pct, fraccion, target_procedencia, go_literal, "
+                "target_origen) VALUES ('amazon_mx', 'collar_perro', 'Manual invalido', %s, 25, "
+                "NULL, 0.5, 'confirmado', 'go', 'manual_lanzamiento')",
+                (lote_invalido,),
+            )
+        lote_medida = _lote(conn, lote="fabrica-amazon_mx-medido-20260905-120000")
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(
+                "INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote, "
+                "target_acos_pct, target_derivado_pct, fraccion, target_procedencia, go_literal, "
+                "target_origen) VALUES ('amazon_mx', 'collar_perro', 'Medido invalido', %s, 25, "
+                "NULL, NULL, 'faltante', 'go', 'margen_medido')",
+                (lote_medida,),
+            )

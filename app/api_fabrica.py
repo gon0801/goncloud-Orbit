@@ -57,11 +57,38 @@ class ParametrosRol(_Cuerpo):
         return valor
 
 
+class ObjetivoPlan(_Cuerpo):
+    origen: Literal["margen_medido", "manual_lanzamiento"]
+    acos_pct: str | None = Field(default=None, min_length=1, max_length=14)
+
+    @model_validator(mode="after")
+    def objetivo_valido(self):
+        if self.origen == "margen_medido" and self.acos_pct is not None:
+            raise ValueError("objetivo medido no recibe acos_pct manual")
+        if self.origen == "manual_lanzamiento":
+            if self.acos_pct is None:
+                raise ValueError("objetivo manual exige acos_pct")
+            try:
+                valor = Decimal(self.acos_pct)
+            except ArithmeticError as exc:
+                raise ValueError("acos_pct manual no es decimal") from exc
+            if (
+                not valor.is_finite()
+                or valor <= 0
+                or valor.as_tuple().exponent < -2
+                or valor > Decimal("9999.99")
+            ):
+                raise ValueError("acos_pct manual fuera de NUMERIC(6,2)")
+        return self
+
+
 class SolicitudPlan(_Cuerpo):
     plataforma: Plataforma
     tipo_producto: str = Field(min_length=1, max_length=60, pattern=r"^[a-z0-9_]+$")
     nombre_base: str = Field(min_length=1, max_length=100)
-    productos: list[Identificador] = Field(min_length=1, max_length=100)
+    productos: list[Identificador] | None = Field(default=None, min_length=1, max_length=100)
+    listing_ids: list[Identificador] | None = Field(default=None, min_length=1, max_length=100)
+    objetivo: ObjetivoPlan | None = None
     modo: Literal["shadow", "live"]
     parametros: dict[str, ParametrosRol]
 
@@ -72,15 +99,23 @@ class SolicitudPlan(_Cuerpo):
             raise ValueError("nombre vacio o con caracteres de control")
         return valor.strip()
 
-    @field_validator("productos")
+    @field_validator("productos", "listing_ids")
     @classmethod
     def productos_unicos(cls, valor):
+        if valor is None:
+            return valor
         if len(valor) != len(set(valor)):
             raise ValueError("productos repetidos")
         return valor
 
     @model_validator(mode="after")
     def parametros_validos(self):
+        es_v1 = self.productos is not None and self.listing_ids is None and self.objetivo is None
+        es_v2 = (
+            self.productos is None and self.listing_ids is not None and self.objetivo is not None
+        )
+        if not (es_v1 or es_v2):
+            raise ValueError("usa solo productos v1 o listing_ids y objetivo v2")
         if set(self.parametros) != set(fp.ROLES_ORDEN_CREACION):
             raise ValueError("se requieren exactamente los cinco roles")
         fp.valida_parametros(

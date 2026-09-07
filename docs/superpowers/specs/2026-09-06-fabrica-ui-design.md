@@ -11,6 +11,11 @@ La sonda real de Amazon sigue diferida por instruccion explicita del dueno.
 - Amazon MX/US; cinco roles existentes, sin duplicar reglas del motor.
 - Productos reales, margen y causa de exclusion visibles. Sin inventar margenes,
   presupuestos, bids ni semillas. Productos con multiples listings no elegibles en F1.
+  **Enmienda ORBIT 19 / 0.2 (2026-09-06, review):** F1 vigente hasta **A.5**.
+  Contrato de A: checkbox por listing; `elegible` por listing; multilisting y
+  sin margen seleccionables; preview declara margen 0 / negativo / inferior
+  al objetivo. Mismos `POST /plan` y `/crear`: v1 = `productos`; v2 =
+  `listing_ids` + `objetivo`; mezclar → 422. Spec catalogo abierto.
 - Presupuestos y bids se capturan como strings decimales, moneda de la plataforma.
 - Modo shadow/live explicito: ambos crean campanas ACTIVAS y pueden gastar;
   shadow solo observa los ajustes del optimizador. La pantalla explica la diferencia.
@@ -40,9 +45,12 @@ Valida extras, duplicados, identificadores, limites y decimales finitos.
 Devuelve `{huella,lote,plan,campanas:[{rol,nombre,budget,bid}],
 presupuesto_diario_total,existentes}`. `plan` es `fp.plan_como_json` sin alterar.
 
-`GET /catalogo?plataforma=amazon_mx`: `{plataforma,moneda,
+`GET /catalogo?plataforma=amazon_mx` **F1:** `{plataforma,moneda,
 productos:[{id,sku,margen_neto_pct:string|null,elegible:boolean,motivo:string|null}],
-tipos_producto:[string]}`. Incluye todos los productos de la plataforma, orden SKU.
+tipos_producto:[string]}`. Incluye todos los productos, orden SKU.
+**Fase A:** misma ruta; `elegible` y `motivo` van en cada publicacion
+(`publicaciones:[{id,asin,seller_sku,elegible,motivo}]`). Identidad valida
+⇒ seleccionable; margen/multilisting no bloquean.
 
 `POST /crear`: `{solicitud:<body /plan>,huella,confirmacion}`. Auth + confirmacion
 literal + comprobacion de huella; devuelve el mismo detalle de lote que GET.
