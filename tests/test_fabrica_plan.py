@@ -313,6 +313,11 @@ def test_configuracion_de_creacion_v2_es_fail_closed_y_v1_por_ausencia():
     assert fp.version_creacion_desde_settings({"fabrica.creacion": "invalida"}) == "v1"
 
 
+@pytest.mark.parametrize("settings", [None, [], "v2", 1])
+def test_configuracion_de_creacion_no_objeto_es_fail_closed_a_v1(settings):
+    assert fp.version_creacion_desde_settings(settings) == "v1"
+
+
 def test_plan_json_ida_y_vuelta():
     """fabrica_lote.plan -> PlanGrupo -> misma huella (lo que --registrar
     reconstruye es EXACTAMENTE lo autorizado)."""

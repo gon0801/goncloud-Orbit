@@ -398,6 +398,10 @@ class _ConnFalsa:
             return _Cursor(self.pasos_ledger)
         if "from fabrica_lote" in bajo and "plan" in bajo:
             return _Cursor([self.lote_fila] if self.lote_fila is not None else [])
+        if "pg_advisory_xact_lock" in bajo:
+            return _Cursor([(None,)])
+        if bajo.startswith("select estado from fabrica_lote"):
+            return _Cursor([])
         if "from fabrica_lote" in bajo and "platform" in bajo:
             return _Cursor([(self.lote_platform,)])
         if "from ads_optimizer_goal" in bajo:
@@ -626,6 +630,82 @@ def test_cli_v2_con_mutacion_exige_interruptor_antes_de_http(monkeypatch):
     with pytest.raises(fc.Abortar, match="altas v2 deshabilitadas"):
         fc.main()
     assert conn.escrituras == []
+
+
+def test_cli_rechaza_objetivo_manual_con_productos_antes_de_abrir_conexion(monkeypatch):
+    args = [*ARGS_BASE, "--target-acos", "25.00"]
+    _sin_red(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *args])
+    with pytest.raises(fc.Abortar, match="target-acos"):
+        fc.main()
+
+
+def test_cli_v2_reintento_reutiliza_lote_y_no_duplica_posts(monkeypatch):
+    class _ConnLoteDurable(_ConnFalsa):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.estados_lote = {}
+
+        def execute(self, sql, params=None):
+            plano = " ".join(str(sql).split())
+            bajo = plano.lower()
+            if bajo.startswith("select estado from fabrica_lote"):
+                estado = self.estados_lote.get(params[0])
+                return _Cursor([] if estado is None else [(estado,)])
+            if bajo.startswith("insert into fabrica_lote "):
+                self.estados_lote[params[0]] = "planeado"
+            elif bajo.startswith("update fabrica_lote "):
+                self.estados_lote[params[2]] = params[0]
+            return super().execute(sql, params)
+
+    args = ARGS_BASE.copy()
+    indice = args.index("--productos")
+    args[indice : indice + 2] = ["--listing-ids", "11,12"]
+    args.extend(["--target-acos", "25.00"])
+    publicaciones = [
+        (11, 1, "B0AAAAAAAA", "SS-1", None),
+        (12, 1, "B0AAAAAAAB", "SS-2", Decimal("-5")),
+    ]
+    plan = fc._arma_plan(
+        fc._parser().parse_args(args),
+        _ConnFalsa(settings={"fabrica.creacion": "v2"}, publicaciones=publicaciones),
+    )
+    huella = fp.huella_plan_v2(plan)
+    secuencia = []
+    conn_admin = _ConnLoteDurable(secuencia=secuencia)
+    amazon = _Amazon(secuencia=secuencia)
+    _frontera_mutacion(
+        monkeypatch,
+        _ConnFalsa(settings={"fabrica.creacion": "v2"}, publicaciones=publicaciones),
+        conn_admin,
+        amazon,
+    )
+    argv = [
+        "fabrica_campanas.py",
+        *args,
+        "--acepto-mutacion-real",
+        "--esperado",
+        "5",
+        "--huella",
+        huella,
+        "--go",
+        "go simulado",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+    assert fc.main() == 0
+    bloqueo = next(
+        indice
+        for indice, (tipo, valor) in enumerate(secuencia)
+        if tipo == "sql" and "pg_advisory_xact_lock" in valor.lower()
+    )
+    lwa = next(indice for indice, evento in enumerate(secuencia) if evento == ("http", "lwa"))
+    assert bloqueo < lwa
+    pedidos = list(amazon.pedidos)
+    with pytest.raises(fc.Abortar, match="ya existe"):
+        fc.main()
+    assert amazon.pedidos == pedidos
+    assert len(amazon.posts("/sp/campaigns")) == 5
+    assert len(conn_admin.estados_lote) == 1
 
 
 def test_sin_fraccion_o_bid_fuera_de_banda_aborta_sin_http(monkeypatch):
@@ -1018,9 +1098,7 @@ def test_mutacion_orden_fijo_ledger_pre_http_y_readback(monkeypatch, capsys):
         p for s, p in conn_admin.escrituras if s.lower().startswith("insert into fabrica_lote ")
     ]
     assert len(lote) == 1 and lote[0][4] == "go" and lote[0][5] == huella
-    prefijo_cli = "fabrica-amazon_mx-collar_perro-"
-    assert lote[0][0].startswith(prefijo_cli)
-    dt.datetime.strptime(lote[0][0].removeprefix(prefijo_cli), "%Y%m%d-%H%M%S")
+    assert lote[0][0] == "cli-" + huella
     assert conn_admin.commits >= 1 + 2 * total_posts
     i_lote = next(
         i
@@ -2048,6 +2126,117 @@ def test_desarmar_lote_failed_a_medias_pausa_lo_applied_y_lo_failed_con_external
     ]
     assert len(sellos) == 1
     assert _eventos(capsys)[-1]["evento"] == "reconciliacion_final"
+
+
+def test_lote_v2_parcial_se_recupera_con_interruptor_v1_sin_post_de_creacion(monkeypatch):
+    class _ConnParcialV2(_ConnFalsa):
+        def execute(self, sql, params=None):
+            plano = " ".join(str(sql).split())
+            bajo = plano.lower()
+            if bajo.startswith("update fabrica_lote_paso set estado = 'applied'"):
+                self.pasos_ledger = [
+                    (
+                        orden,
+                        rol,
+                        recurso,
+                        "applied" if recurso == "keyword" else estado,
+                        external,
+                        payload,
+                        ack,
+                        "ENABLED" if recurso == "keyword" else readback,
+                    )
+                    for (
+                        orden,
+                        rol,
+                        recurso,
+                        estado,
+                        external,
+                        payload,
+                        ack,
+                        readback,
+                    ) in self.pasos_ledger
+                ]
+            if "from fabrica_lote_paso" in bajo and "recurso in" in bajo:
+                return _Cursor(_camp_ag_de_ledger(self.pasos_ledger))
+            return super().execute(sql, params)
+
+    class _AmazonRecuperacion(_Amazon):
+        def __init__(self):
+            super().__init__()
+            self.puts = []
+            self.pausadas = set()
+
+        def __call__(self, request):
+            if request.method == "PUT":
+                self.puts.append(request)
+                self._sello(request)
+                externo = json.loads(request.content)["campaigns"][0]["campaignId"]
+                self.pausadas.add(externo)
+                return httpx.Response(
+                    207,
+                    json={
+                        "campaigns": {"success": [{"index": 0, "campaignId": externo}], "error": []}
+                    },
+                )
+            if str(request.url).endswith("/sp/campaigns/list"):
+                externo = json.loads(request.content)["campaignIdFilter"]["include"][0]
+                estado = "PAUSED" if externo in self.pausadas else "ENABLED"
+                return httpx.Response(
+                    200,
+                    json={"campaigns": [{"campaignId": externo, "state": estado}]},
+                )
+            return super().__call__(request)
+
+    plan = dataclasses.replace(_plan_v2_min(), semillas=fp.Semillas(("kw1",), (), (), ()))
+    ledger = _filas_ledger(plan, forzar_estado={("category_phrase", "keyword"): "failed"})
+    pendiente = next(fila for fila in ledger if fila[1:3] == ("category_phrase", "keyword"))
+    orden, rol, recurso, _estado, external, payload, _ack, _readback = pendiente
+    assert external is not None
+    conn_admin = _ConnParcialV2(
+        settings={"fabrica.creacion": "v1"},
+        lote_fila=(fp.plan_v2_como_json(plan), "failed"),
+        pendientes=[
+            (
+                orden,
+                "L2",
+                rol,
+                "amazon_mx",
+                recurso,
+                "/sp/keywords",
+                external,
+                payload,
+            )
+        ],
+        pasos_ledger=ledger,
+        grupo=[(rol, f"c-{rol}", None) for rol in fp.ROLES_ORDEN_CREACION],
+    )
+    amazon = _AmazonRecuperacion()
+    amazon.objetos[external] = payload
+    _frontera_mutacion(monkeypatch, _ConnFalsa(), conn_admin, amazon, stub_registrar=False)
+    monkeypatch.setattr(fc, "_sync", lambda cliente: None)
+    monkeypatch.setattr(fc, "_id_entidad", lambda c, p, k, e: 7)
+    monkeypatch.setattr(fc.goals_write, "crea_goal", lambda c, **kw: {"id": 1})
+    assert fp.version_creacion_desde_settings(conn_admin.settings) == "v1"
+
+    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", "--reconciliar", "--lote", "L2"])
+    assert fc.main() == 0
+    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", "--registrar", "L2"])
+    assert fc.main() == 0
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["fabrica_campanas.py", "--desarmar", "L2", "--acepto-mutacion-real", "--go", "pausa"],
+    )
+    assert fc.main() == 0
+
+    assert len(amazon.puts) == 5
+    assert not [
+        pedido
+        for pedido in amazon.pedidos
+        if pedido.method == "POST" and pedido.url.path in fp.VENDOR_POR_PATH
+    ]
+    assert any("estado = 'applied'" in sql.lower() for sql, _ in conn_admin.escrituras)
+    assert any("insert into campana_grupo " in sql.lower() for sql, _ in conn_admin.escrituras)
 
 
 _PENDIENTES = [

@@ -930,9 +930,10 @@ registro, reconciliacion y pausa de un lote v2 permanecen disponibles con
 ese interruptor, por lo que la reversa operativa es conservar este binario y
 mantener `fabrica.creacion=v1`, nunca volver a un binario que no lea v2.
 
-El ensayo de lote v2 parcial corre contra el doble controlado de CI: verifica
-`applied + failed`, reconciliacion y pausa despues de `fabrica.creacion=v1`.
-No se usa una campana real como sonda de produccion.
+El ensayo de lote v2 parcial `test_lote_v2_parcial_se_recupera_con_interruptor_v1_sin_post_de_creacion`
+corre contra el doble controlado de CI: parte de pasos `applied + failed`,
+reconcilia, registra y pausa despues de `fabrica.creacion=v1`, sin POST de
+creacion. No se usa una campana real como sonda de produccion.
 
 ## Correr los tests desde la máquina dev (túnel SSH)
 

@@ -449,12 +449,14 @@ CLAVE_CREACION = "fabrica.creacion"
 VERSIONES_CREACION = ("v1", "v2")
 
 
-def version_creacion_desde_settings(settings: dict) -> str:
+def version_creacion_desde_settings(settings: object) -> str:
     """Version de altas nuevas; ausencia o corrupcion se quedan en v1.
 
     Es un interruptor fail-closed: no afecta lectura, registro,
     reconciliacion ni pausa de lotes existentes v2.
     """
+    if not isinstance(settings, dict):
+        return "v1"
     version = settings.get(CLAVE_CREACION, "v1")
     return version if version in VERSIONES_CREACION else "v1"
 

@@ -162,7 +162,7 @@ document.addEventListener("DOMContentLoaded", function () {
     const desde = publicacion.ventana_desde;
     const hasta = publicacion.ventana_hasta;
     if (dias === null || dias === undefined || !desde || !hasta) return "Muestra de margen: sin dato.";
-    const limitada = Number(dias) < 30 || publicacion.margen_neto_pct === null;
+    const limitada = Number(dias) < 30;
     return (limitada ? "Muestra limitada: " : "Muestra de margen: ") + dias
       + " dias con venta, ventana [" + desde + ", " + hasta + ").";
   }
