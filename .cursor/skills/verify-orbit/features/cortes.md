@@ -5,9 +5,9 @@ Cortes lista la cola de pause/negative/harvest en `pending_veto` o `released`. E
 ## Sub-features
 
 - `cortes-nav` abre `/cortes` y marca `aria-current="page"`.
-- `cortes-tabla` lista id, plataforma, direccion y etiqueta de la propuesta, entidad (`linea_entidad` + `#id`, no el JSON de targeting), search_term, estado, vence, encolado, boton Rechazar.
+- `cortes-tabla` parte la cola en `Crecen` y `Recortan`. Columnas: Tipo (chip Crece/Recorta + etiqueta), Entidad (`linea_entidad` + ids), Search term, Por que, Vence (`se aplica solo el …` + estado y encolado en detalle), Accion.
 - `cortes-vacio` sin filas muestra `sin propuestas pendientes: la cola no tiene filas esperando decision.`
-- `cortes-form` el boton `data-vetar="<id>"` revela `form[data-veto="<id>"]` (dias, actor, token).
+- `cortes-form` el boton `data-vetar="<id>"` revela `form[data-veto="<id>"]` (efecto del rechazo, dias, actor, token, `Confirmar rechazo`).
 - `cortes-api` `GET /api/dashboard/cortes` es la misma cola.
 
 ## How to get to it (user POV)
@@ -25,7 +25,7 @@ Preconditions:
 - Si falta 0002, `apply_queue` no existe y `/cortes` devuelve 500; ese run no es valido.
 
 - **Abrir Cortes.** Corre `curl -sS "$BASE/cortes"`. Status 200. El HTML contiene `data-pantalla="cortes"` y `h2` `Propuestas pendientes de decision`.
-- **Leer la fila sembrada.** El HTML contiene la direccion `Recorta`, `zapato blanco`, chip `pending_veto`, entidad `Campana A` (etiqueta del ad_group sembrado), `button` con `data-vetar=`, y `form` con `data-veto=`, inputs `name="dias"` (value 30), `name="actor"`, `name="token"`.
+- **Leer la fila sembrada.** El HTML contiene bloques `Crecen` y `Recortan`, columnas `Tipo` / `Por que`, chip `Recorta`, `zapato blanco`, entidad `Campana A`, `pending_veto` en el detalle de Vence (no como chip), `button` con `data-vetar=`, y `form` con `data-veto=`, `Confirmar rechazo`, inputs `name="dias"` (value 30), `name="actor"`, `name="token"`.
 - **Estado vacio (solo si dropeas la cola).** El HTML entonces contiene el parrafo `sin propuestas pendientes`. No lo afirmes contra la semilla baseline.
 - **Confirmar lado JSON.** Corre `curl -sS "$BASE/api/dashboard/cortes"`. Status 200. Un item tiene `kind` `negative`, `search_term` `zapato blanco`, `estado` `pending_veto`.
 - **Proof.** Guarda HTML y JSON bajo `evidence/<run_id>/cortes/`. No POSTees `/api/ads-optimizer/veto` salvo que el run tenga `ORBIT_SECRETS_DIR` y `ORBIT_DSN_ADMIN` desechables y lo declares.

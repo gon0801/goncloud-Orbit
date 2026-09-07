@@ -658,6 +658,8 @@ def cmd_drive_campanas(args: argparse.Namespace) -> None:
         "target_25": "25.00%" in texto or ">25.00%<" in texto,
         "peldano_goal_plataforma": "goal_plataforma" in texto,
         "th_procedencia": "Procedencia" in texto,
+        "enlace_crear": 'href="/campanas/nuevas"' in texto,
+        "filtros_avanzados": "Filtros por metricas" in texto,
     }
 
     stj, _, rawj = _http(f"{base}/api/dashboard/campanas")
@@ -756,6 +758,9 @@ def cmd_drive_resumen(args: argparse.Namespace) -> None:
         "inmaduros": "inmaduros" in texto,
         "h2_au_us": "amazon_us (USD) — spend y Revenue Ads" in texto,
         "h2_am_mx": "amazon_mx (MXN) — spend y Revenue Ads" in texto,
+        "kpi_cost_30d": "Cost 30d" in texto,
+        "spark_cost_us": 'id="spark-cost-amazon_us"' in texto,
+        "chip_dias_sin_ventas": "dias sin ventas" in texto,
         "canvas_us": 'id="serie-amazon_us"' in texto,
         "canvas_acos_us": 'id="serie-acos-amazon_us"' in texto,
         "script_us": 'id="datos-serie-amazon_us"' in texto,
@@ -847,6 +852,8 @@ def cmd_drive_decisiones(args: argparse.Namespace) -> None:
         "http_200": st_html == 200,
         "data-pantalla=decisiones": 'data-pantalla="decisiones"' in texto,
         "h2_feed": "<h2>Decisiones</h2>" in texto,
+        "columna_bid": "<th>Bid</th>" in texto,
+        "total_2_decisiones": "2 decisiones" in texto,
         "paginador": 'class="paginador"' in texto,
         "pagina_1_de_1": "pagina 1 de 1" in texto,
         "sin_rel_next": 'rel="next"' not in texto,
@@ -927,6 +934,9 @@ def cmd_drive_salud(args: argparse.Namespace) -> None:
         "applies_0": "applies: 0" in texto,
         "canvas_skips_amazon_us": 'id="skips-amazon_us"' in texto,
         "script_skips_amazon_us": 'id="datos-skips-amazon_us"' in texto,
+        "quota_del_dia": "Quota del dia" in texto,
+        "quota_sin_clave": "— (sin clave)" in texto,
+        "historico_14d": "Historico (14d)" in texto,
     }
 
     # Validacion de motivo_es en script del canvas de skips.
@@ -1055,6 +1065,10 @@ def cmd_drive_cortes(args: argparse.Namespace) -> None:
         "http_200": st_html == 200,
         "data-pantalla=cortes": 'data-pantalla="cortes"' in texto,
         "h2_cortes": "Propuestas pendientes de decision" in texto,
+        "bloque_crecen": "Crecen" in texto,
+        "bloque_recortan": "Recortan" in texto,
+        "columna_por_que": "Por que" in texto,
+        "confirmar_rechazo": "Confirmar rechazo" in texto,
         "zapato_blanco": "zapato blanco" in texto,
         "entidad_campana_a": "Campana A" in texto,
         "button_vetar": 'data-vetar="' in texto,
