@@ -26,7 +26,8 @@ Postgres/fakes locales y `httpx.MockTransport`; no hubo POST a Amazon, llamada
 - `--target-acos` solo se acepta con `--listing-ids`.
 - El ensayo v2 parcial reconcilia el ultimo `product_ad` failed, registra el
   grupo y pausa las cinco campanas. Se ejecuta contra una base PostgreSQL
-  temporal con las migraciones 0001--0019 y `httpx.MockTransport`; verifica
+  temporal con las migraciones de dependencia de fabrica hasta 0019 y
+  `httpx.MockTransport`; verifica
   estado final, ledger, grupo, dos publicaciones y cinco goals apagados, sin
   POST de creacion.
 - Settings que no son objeto vuelven a `v1`; la etiqueta de muestra limitada
