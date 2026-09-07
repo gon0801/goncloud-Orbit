@@ -4,7 +4,7 @@ Resumen muestra las series diarias de spend, revenue y ACoS de `amazon_us` (USD)
 
 ## Sub-features
 
-- `resumen-nav` abre `/` desde el header y deja `aria-current="page"` en Resumen.
+- `resumen-nav` abre `/` desde el sidebar (`aside.sidebar`) y deja `aria-current="page"` en Resumen.
 - `resumen-series` renderiza un bloque por plataforma con ventana efectiva e inmaduros.
 - `resumen-canvas` declara `canvas#serie-<plataforma>` y `canvas#serie-acos-<plataforma>` leyendo `script#datos-serie-<plataforma>`.
 - `resumen-api` el JSON `GET /api/dashboard/series/plataforma?platform=amazon_us` describe la misma serie.
@@ -12,7 +12,7 @@ Resumen muestra las series diarias de spend, revenue y ACoS de `amazon_us` (USD)
 ## How to get to it (user POV)
 
 - Abrir `http://127.0.0.1:<puerto>/`.
-- Elegir el enlace `Resumen` del nav (`<a href="/">`).
+- Elegir el enlace `Resumen` del sidebar (`<a href="/">` dentro de `aside.sidebar`).
 
 ## Driving it with curl
 
@@ -21,7 +21,7 @@ Preconditions:
 - Doctor en verde sobre la instancia de este run.
 - Semilla presente (amazon_us tiene al menos un dia con cost/revenue).
 
-- **Abrir Resumen.** Corre `curl -sS -D - "$BASE/"`. Status 200. El HTML contiene `data-pantalla="resumen"`, `h1` Orbit — Dashboard, `nav a[href="/"]` con `aria-current="page"`, `href="/inertes"` en el nav, `html[data-tema="dia"]` y `button#btn-tema`.
+- **Abrir Resumen.** Corre `curl -sS -D - "$BASE/"`. Status 200. El HTML contiene `data-pantalla="resumen"`, `<title>` `Orbit — Dashboard`, `<h1>` `Resumen`, `aside.sidebar`, `nav a[href="/"]` con `aria-current="page"`, `href="/inertes"`, `href="/campanas/nuevas"` y `href="/settings"`, `html[data-tema="dia"]` y `button#btn-tema`.
 - **Ver series.** El HTML contiene `h2` `amazon_us (USD) — spend y Revenue Ads` y `amazon_mx (MXN) — spend y Revenue Ads`, mas `Ventana efectiva:` y `inmaduros D-8..D-1`.
 - **Ver handles de grafica.** El HTML contiene `id="serie-amazon_us"`, `id="serie-acos-amazon_us"`, `data-serie="datos-serie-amazon_us"` y `<script type="application/json" id="datos-serie-amazon_us">`.
 - **Confirmar lado JSON.** Corre `curl -sS "$BASE/api/dashboard/series/plataforma?platform=amazon_us"`. Status 200. `plataforma` es `amazon_us`, `moneda` es `USD`, `series` es un spine de fechas, y el dia sembrado (`seed.metric_date`) tiene `cost` `12.3400` y `ad_revenue` `45.6700`.

@@ -34,3 +34,5 @@ Este directorio es la fuente mantenida del comportamiento que un usuario ve en e
 - [Contribucion](./contribucion.md) — rango pre-cargos por campana (90d maduros).
 - [Propuestas](./cortes.md) — cola de decisiones pendientes (lectura). El POST Rechazar queda fuera del baseline.
 - [Inertes](./inertes.md) — hojas sin trafico 14d (lectura). La semilla baseline llega vacia.
+- [Crear campanas](./fabrica.md) — formulario de un grupo de cinco campanas (`/campanas/nuevas`). POST crear/plan/acciones queda fuera del baseline.
+- [Settings](./settings.md) — cascada de targets, caps y goals (lectura). POST de escritura queda fuera del baseline.

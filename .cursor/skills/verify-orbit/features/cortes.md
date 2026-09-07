@@ -12,7 +12,7 @@ Cortes lista la cola de pause/negative/harvest en `pending_veto` o `released`. E
 
 ## How to get to it (user POV)
 
-- Elegir `Propuestas` en el nav (`<a href="/cortes">`).
+- Elegir `Propuestas` en el sidebar (`<a href="/cortes">`). `/propuestas` es el mismo HTML.
 - Pulsar `Rechazar` en una fila para ver el form (el submit real queda fuera del baseline).
 
 ## Driving it with curl
