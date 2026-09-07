@@ -24,13 +24,16 @@ Postgres/fakes locales y `httpx.MockTransport`; no hubo POST a Amazon, llamada
   el lote ya existe, no crea y dirige a `--reconciliar`, `--registrar` o
   `--desarmar`.
 - `--target-acos` solo se acepta con `--listing-ids`.
-- El ensayo v2 parcial reconcilia el paso failed, registra el grupo y pausa las
-  cinco campanas en el doble controlado, sin POST de creacion.
+- El ensayo v2 parcial reconcilia el ultimo `product_ad` failed, registra el
+  grupo y pausa las cinco campanas. Se ejecuta contra una base PostgreSQL
+  temporal con las migraciones 0001--0019 y `httpx.MockTransport`; verifica
+  estado final, ledger, grupo, dos publicaciones y cinco goals apagados, sin
+  POST de creacion.
 - Settings que no son objeto vuelven a `v1`; la etiqueta de muestra limitada
   depende solo de menos de 30 dias con venta.
 
 ```text
-uv run python -m pytest -q tests/test_fabrica_campanas.py  79 passed
+uv run python -m pytest -q tests/test_fabrica_campanas.py  80 passed
 uv run python -m pytest -q tests/test_fabrica_plan.py tests/test_ui_fabrica.py  44 passed
 uv run ruff check ...                                      All checks passed
 uv run ruff format --check ...                             5 files already formatted

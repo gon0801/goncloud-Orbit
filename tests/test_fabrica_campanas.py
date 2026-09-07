@@ -2134,16 +2134,17 @@ def test_lote_v2_parcial_se_recupera_con_interruptor_v1_sin_post_de_creacion(mon
             plano = " ".join(str(sql).split())
             bajo = plano.lower()
             if bajo.startswith("update fabrica_lote_paso set estado = 'applied'"):
+                paso_id = params[-1]
                 self.pasos_ledger = [
                     (
                         orden,
                         rol,
                         recurso,
-                        "applied" if recurso == "keyword" else estado,
+                        "applied" if orden == paso_id else estado,
                         external,
                         payload,
                         ack,
-                        "ENABLED" if recurso == "keyword" else readback,
+                        "ENABLED" if orden == paso_id else readback,
                     )
                     for (
                         orden,
@@ -2187,9 +2188,11 @@ def test_lote_v2_parcial_se_recupera_con_interruptor_v1_sin_post_de_creacion(mon
                 )
             return super().__call__(request)
 
-    plan = dataclasses.replace(_plan_v2_min(), semillas=fp.Semillas(("kw1",), (), (), ()))
-    ledger = _filas_ledger(plan, forzar_estado={("category_phrase", "keyword"): "failed"})
-    pendiente = next(fila for fila in ledger if fila[1:3] == ("category_phrase", "keyword"))
+    plan = _plan_v2_min()
+    ledger = _filas_ledger(plan)
+    orden, rol, recurso, _estado, external, payload, _ack, _readback = ledger[-1]
+    ledger[-1] = (orden, rol, recurso, "failed", external, payload, {"status": 207}, None)
+    pendiente = ledger[-1]
     orden, rol, recurso, _estado, external, payload, _ack, _readback = pendiente
     assert external is not None
     conn_admin = _ConnParcialV2(
@@ -2202,7 +2205,7 @@ def test_lote_v2_parcial_se_recupera_con_interruptor_v1_sin_post_de_creacion(mon
                 rol,
                 "amazon_mx",
                 recurso,
-                "/sp/keywords",
+                "/sp/productAds",
                 external,
                 payload,
             )
@@ -2237,6 +2240,121 @@ def test_lote_v2_parcial_se_recupera_con_interruptor_v1_sin_post_de_creacion(mon
     ]
     assert any("estado = 'applied'" in sql.lower() for sql, _ in conn_admin.escrituras)
     assert any("insert into campana_grupo " in sql.lower() for sql, _ in conn_admin.escrituras)
+
+
+@_skip_db
+def test_ensayo_staging_lote_v2_parcial_se_recupera_con_v1_sin_post_de_creacion(monkeypatch):
+    """Ensayo aislado: recupera un lote v2 aunque la creacion nueva siga en v1."""
+    import psycopg
+
+    with db_fabrica("orbit_fab_rollback_v2") as conn:
+        product_id, listing_id_1 = _producto(conn, asin="B0AAAAAAAA", seller_sku="SS-1")
+        listing_id_2 = conn.execute(
+            "INSERT INTO listing (product_id, platform, external_id, seller_sku)"
+            " VALUES (%s, 'amazon_mx', 'B0AAAAAAAB', 'SS-2') RETURNING id",
+            (product_id,),
+        ).fetchone()[0]
+        plan = dataclasses.replace(
+            _plan_v2_min(),
+            publicaciones=(
+                fp.PublicacionGrupoV2(
+                    listing_id_1,
+                    product_id,
+                    "B0AAAAAAAA",
+                    "SS-1",
+                    "amazon_mx",
+                    None,
+                ),
+                fp.PublicacionGrupoV2(
+                    listing_id_2,
+                    product_id,
+                    "B0AAAAAAAB",
+                    "SS-2",
+                    "amazon_mx",
+                    Decimal("-5"),
+                ),
+            ),
+        )
+        ledger = _filas_ledger(plan)
+        orden, rol, recurso, _estado, external, payload, _ack, _readback = ledger[-1]
+        ledger[-1] = (orden, rol, recurso, "failed", external, payload, {"status": 207}, None)
+        assert external is not None
+        conn.execute(
+            "INSERT INTO config_version (label, settings) VALUES (%s, %s)",
+            ("rollback-v1", Json({"fabrica.creacion": "v1"})),
+        )
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado) VALUES"
+            " (%s, 'amazon_mx', 'collar_perro', 'Collar', 'go', 'h-v2', %s, 'shadow', 'failed')",
+            ("L2", Json(fp.plan_v2_como_json(plan))),
+        )
+        _siembra_ledger_pg(conn, "L2", ledger)
+        for rol_actual in fp.ROLES_ORDEN_CREACION:
+            campaign = next(
+                external_id
+                for _orden, rol_ledger, recurso_ledger, _estado, external_id, *_rest in ledger
+                if rol_ledger == rol_actual and recurso_ledger == "campaign"
+            )
+            ad_group = next(
+                external_id
+                for _orden, rol_ledger, recurso_ledger, _estado, external_id, *_rest in ledger
+                if rol_ledger == rol_actual and recurso_ledger == "ad_group"
+            )
+            campaign_id = _entidad(conn, "amazon_mx", "campaign", campaign)
+            _entidad(conn, "amazon_mx", "ad_group", ad_group, parent=campaign_id)
+
+        settings = conn.execute(
+            "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
+        ).fetchone()[0]
+        assert fp.version_creacion_desde_settings(settings) == "v1"
+        assert fc._creacion_v2_habilitada(conn) is False
+
+        amazon = _AmazonDesarme()
+        amazon.objetos[external] = payload
+        _frontera_mutacion(monkeypatch, _ConnFalsa(), _ConnFalsa(), amazon, stub_registrar=False)
+        monkeypatch.setattr(fc, "_sync", lambda cliente: None)
+
+        def conecta_admin(dsn):
+            assert dsn == "dsn-admin"
+            return psycopg.connect(_test_dsn(), dbname=conn.info.dbname)
+
+        monkeypatch.setattr(fc, "connect", conecta_admin)
+        monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", "--reconciliar", "--lote", "L2"])
+        assert fc.main() == 0
+        monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", "--registrar", "L2"])
+        assert fc.main() == 0
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["fabrica_campanas.py", "--desarmar", "L2", "--acepto-mutacion-real", "--go", "pausa"],
+        )
+        assert fc.main() == 0
+
+        assert conn.execute("SELECT estado FROM fabrica_lote WHERE lote = 'L2'").fetchone() == (
+            "desarmado",
+        )
+        assert conn.execute(
+            "SELECT count(*) FROM fabrica_lote_paso WHERE lote = 'L2' AND estado = 'applied'"
+        ).fetchone()[0] == len(ledger)
+        assert (
+            conn.execute("SELECT count(*) FROM campana_grupo WHERE lote = 'L2'").fetchone()[0] == 1
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM campana_grupo_producto p"
+                " JOIN campana_grupo g ON g.id = p.grupo_id WHERE g.lote = 'L2'"
+            ).fetchone()[0]
+            == 2
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM ads_optimizer_goal WHERE enabled = false"
+            ).fetchone()[0]
+            == 5
+        )
+        assert len(amazon.puts) == 5
+        assert amazon.posts("/sp/campaigns") == []
 
 
 _PENDIENTES = [
