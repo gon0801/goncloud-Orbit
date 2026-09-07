@@ -94,6 +94,43 @@
       <button id="fabrica-previsualizar" type="submit" disabled>Revisar plan</button>
     </fieldset>
   </form>
+  <section id="fabrica-comparador" class="tarjeta" aria-labelledby="fabrica-comparador-titulo">
+    <h3 id="fabrica-comparador-titulo">Comparar publicaciones</h3>
+    <p>Economía observada, Ads y disponibilidad por publicación. Solo lectura: ordenar o
+      filtrar no crea ni modifica campañas y no pierde la selección del paso 1.</p>
+    <div class="fabrica-campos fabrica-comparador-controles">
+      <label for="fabrica-comparador-orden">Ordenar por
+        <select id="fabrica-comparador-orden">
+          <option value="margen_observado">Margen observado</option>
+          <option value="ventas_totales">Ventas totales</option>
+          <option value="revenue_ads">Revenue Ads</option>
+          <option value="gasto">Gasto</option>
+          <option value="acos">ACoS</option>
+          <option value="cpc">CPC</option>
+          <option value="cvr">CVR</option>
+          <option value="compras">Compras</option>
+        </select>
+      </label>
+      <label for="fabrica-comparador-direccion">Dirección del orden
+        <select id="fabrica-comparador-direccion">
+          <option value="desc">De mayor a menor (sin dato al final)</option>
+          <option value="asc">De menor a mayor (sin dato al final)</option>
+        </select>
+      </label>
+      <label for="fabrica-comparador-filtro">Mostrar
+        <select id="fabrica-comparador-filtro">
+          <option value="todas">Todas las publicaciones</option>
+          <option value="con_ads">Con datos de Ads</option>
+          <option value="sin_datos_ads">Sin datos de Ads</option>
+          <option value="muestra_limitada">Con muestra limitada</option>
+        </select>
+      </label>
+    </div>
+    <button id="fabrica-comparador-recargar" type="button">Actualizar comparación</button>
+    <p id="fabrica-comparador-estado" role="status" aria-live="polite"></p>
+    <div id="fabrica-comparador-datos"></div>
+  </section>
+
   <p id="fabrica-estado" role="status" aria-live="polite" tabindex="-1"></p>
 
   <section id="fabrica-preview" class="tarjeta" aria-labelledby="fabrica-preview-titulo" hidden>

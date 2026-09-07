@@ -62,3 +62,21 @@
   .fabrica-publicacion-foto,
   .fabrica-publicacion-foto img { width: 64px; height: 64px; }
 }
+
+/* Comparador de publicaciones (ORBIT 19 B.5): solo lectura, tabla ancha con
+   scroll horizontal y muestra limitada visible aparte (D4). */
+.fabrica-comparador-controles { margin-bottom: 0; }
+.fabrica #fabrica-comparador-datos .fabrica-tabla table { min-width: 72rem; }
+.fabrica #fabrica-comparador-datos th,
+.fabrica #fabrica-comparador-datos td {
+  text-align: left;
+  vertical-align: top;
+  padding: 0.45rem 0.6rem 0.45rem 0;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.fabrica #fabrica-comparador-datos thead th {
+  border-bottom: 1px solid var(--o-borde);
+  font-size: 12px;
+}
+.fabrica #fabrica-comparador-datos tbody tr { border-bottom: 1px solid var(--o-borde); }

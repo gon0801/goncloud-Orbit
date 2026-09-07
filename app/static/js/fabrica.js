@@ -18,6 +18,17 @@ document.addEventListener("DOMContentLoaded", function () {
     planeado: "Pendiente de verificación",
   };
   const estadosPaso = {applied: "Verificado", failed: "Falló", planeado: "Pendiente"};
+  // Comparador (ORBIT 19 B.5): SOLO presenta lo que devuelve /evaluacion.
+  // El orden lo resuelve la API (null al final); el filtro es de presentacion
+  // y jamas toca la seleccion del catalogo (AC10). Cero escrituras.
+  const etiquetasAds = {
+    gasto_sin_ventas: "Gasto sin ventas",
+    dentro_del_objetivo: "Dentro del objetivo",
+    por_encima_del_objetivo: "Por encima del objetivo",
+  };
+  const estadosDisponibilidad = {
+    positivo: "Con stock", cero: "Stock en 0", desconocido: "Desconocido",
+  };
   let revision = 0;
   let versionCatalogo = 0;
   let versionHistorial = 0;
@@ -28,6 +39,8 @@ document.addEventListener("DOMContentLoaded", function () {
   let preview = null;
   let loteActual = null;
   let detalleDisponible = false;
+  let versionComparador = 0;
+  let comparadorDatos = null;
   const intentados = new Set();
 
   function nodo(tag, texto) {
@@ -226,6 +239,152 @@ document.addEventListener("DOMContentLoaded", function () {
     ficha(contenedor, [["Lote", datos.lote], ["Huella del plan", datos.huella]]);
     porId("preview").hidden = false;
     porId("preview-titulo").focus();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Comparador (B.5): tabla por publicacion con economia observada, Ads y
+  // disponibilidad. Solo GET /evaluacion; sin escrituras ni escritura a Amazon.
+  // ---------------------------------------------------------------------------
+
+  function seleccionadas() {
+    return new Set(
+      // NodeList no tiene .map en el navegador (si en el mock de Node del test).
+      Array.from(porId("productos").querySelectorAll('input[type="checkbox"]:checked'))
+        .map(input => Number(input.value)),
+    );
+  }
+
+  function dinero(monto, moneda) {
+    if (monto === null || monto === undefined) return "Sin dato";
+    return String(monto) + (moneda ? " " + moneda : "");
+  }
+
+  function textoEtiquetaAds(ads) {
+    // Precedencia 0.4 §4 presentada tal cual; sin cobertura demostrada no
+    // existe otra etiqueta que "Sin datos" (regla cerrada).
+    if (!ads || ads.muestra === 0) return "Sin datos";
+    const base = etiquetasAds[ads.etiqueta] || "Datos sin etiqueta";
+    return base + (ads.provisional ? " (provisional)" : "");
+  }
+
+  function textoMuestraMargen(econ) {
+    // D4: la muestra limitada se ve APARTE del margen maduro; no entra al sort.
+    if (econ && econ.muestra_limitada === true) {
+      return "Limitada: " + valor(econ.dias_con_venta) + " días con venta, margen "
+        + porcentaje(econ.muestra_margen_neto_pct) + " (no entra al orden)";
+    }
+    if (!econ || econ.dias_con_venta === null || econ.dias_con_venta === undefined) {
+      return "Sin dato";
+    }
+    return econ.dias_con_venta + " días con venta";
+  }
+
+  function textoDisponibilidad(disp) {
+    const featured = "Featured Offer: Sin verificar";
+    if (!disp || !disp.estado) return "Sin dato. " + featured;
+    const base = estadosDisponibilidad[disp.estado] || disp.estado;
+    const porFuente = disp.cantidad && typeof disp.cantidad === "object"
+      ? Object.keys(disp.cantidad).map(fuente =>
+        fuente.toUpperCase() + " " + valor(disp.cantidad[fuente]) + " (desde " + valor((disp.freshness || {})[fuente]) + ")")
+      : [];
+    return porFuente.length ? base + ": " + porFuente.join(", ") + ". " + featured
+      : base + ". " + featured;
+  }
+
+  function objetivoComparador(publicaciones) {
+    const valores = [...new Set(
+      publicaciones.filter(p => p.objetivo_acos_pct !== null && p.objetivo_acos_pct !== undefined)
+        .map(p => p.objetivo_acos_pct))];
+    if (!valores.length) return "Sin objetivo de comparación";
+    return valores.map(v => v + " %").join(", ");
+  }
+
+  function pasaFiltro(publicacion, filtro) {
+    if (filtro === "con_ads") return publicacion.ads.muestra > 0;
+    if (filtro === "sin_datos_ads") return publicacion.ads.muestra === 0;
+    if (filtro === "muestra_limitada") return publicacion.economia.muestra_limitada === true;
+    return true;
+  }
+
+  function renderComparador() {
+    const contenedor = porId("comparador-datos");
+    contenedor.replaceChildren();
+    if (!comparadorDatos) return;
+    const publicaciones = comparadorDatos.publicaciones || [];
+    ficha(contenedor, [
+      ["Ventana Ads", comparadorDatos.ventana_ads
+        ? comparadorDatos.ventana_ads.desde + " a " + comparadorDatos.ventana_ads.hasta : "Sin dato"],
+      ["Grano de comparación", "Publicación (ASIN + SKU de Amazon), sumas por fila"],
+      ["Objetivo ACoS del grupo en preparación", objetivoComparador(publicaciones)],
+      ["Muestra limitada", "Visible aparte; no entra al orden (D4)"],
+    ]);
+    if (!publicaciones.length) {
+      contenedor.append(nodo("p", "Sin datos."));
+      return;
+    }
+    const filtro = porId("comparador-filtro").value;
+    const visibles = publicaciones.filter(p => pasaFiltro(p, filtro));
+    const activas = seleccionadas();
+    const envoltura = nodo("div");
+    envoltura.className = "fabrica-tabla";
+    envoltura.tabIndex = 0;
+    envoltura.setAttribute("role", "region");
+    envoltura.setAttribute("aria-label", "Comparación de publicaciones ordenada por "
+      + porId("comparador-orden").value);
+    const tabla = nodo("table"), thead = nodo("thead"), tbody = nodo("tbody"), encabezado = nodo("tr");
+    ["Publicación", "Selección", "Margen neto maduro", "Aviso de margen", "Muestra de margen",
+      "Ventas totales", "Revenue Ads", "Gasto", "ACoS", "Etiqueta Ads", "CPC", "CVR", "Compras",
+      "Muestra Ads", "Disponibilidad", "Objetivo ACoS"].forEach(titulo => {
+      const th = nodo("th", titulo);
+      th.setAttribute("scope", "col");
+      encabezado.append(th);
+    });
+    thead.append(encabezado);
+    visibles.forEach(p => {
+      const fila = nodo("tr");
+      const th = nodo("th", valor(p.asin) + " / " + valor(p.seller_sku));
+      th.setAttribute("scope", "row");
+      fila.append(th);
+      [activas.has(p.listing_id) ? "Seleccionada" : "—",
+        porcentaje(p.economia.margen_neto_pct),
+        p.motivos && p.motivos.length ? p.motivos.join(" ") : "—",
+        textoMuestraMargen(p.economia),
+        dinero(p.economia.venta_total, p.economia.moneda),
+        dinero(p.ads.sales30d, p.ads.moneda),
+        dinero(p.ads.cost, p.ads.moneda),
+        p.ads.acos_pct === null || p.ads.acos_pct === undefined ? "Sin dato" : porcentaje(p.ads.acos_pct),
+        textoEtiquetaAds(p.ads),
+        p.ads.cpc === null || p.ads.cpc === undefined ? "Sin dato" : dinero(p.ads.cpc, p.ads.moneda),
+        p.ads.cvr_pct === null || p.ads.cvr_pct === undefined ? "Sin dato" : porcentaje(p.ads.cvr_pct),
+        p.ads.purchases30d === null || p.ads.purchases30d === undefined ? "Sin dato" : String(p.ads.purchases30d),
+        p.ads.muestra + (p.ads.muestra === 1 ? " fecha" : " fechas"),
+        textoDisponibilidad(p.disponibilidad),
+        porcentaje(p.objetivo_acos_pct),
+      ].forEach(celda => fila.append(nodo("td", celda)));
+      tbody.append(fila);
+    });
+    tabla.append(thead, tbody);
+    envoltura.append(tabla);
+    contenedor.append(envoltura);
+  }
+
+  async function cargarComparador() {
+    const version = ++versionComparador;
+    porId("comparador-datos").replaceChildren();
+    estado("comparador-estado", "Consultando la comparación…");
+    try {
+      const datos = await solicitar("/evaluacion?plataforma="
+        + encodeURIComponent(porId("plataforma").value)
+        + "&orden=" + encodeURIComponent(porId("comparador-orden").value)
+        + "&direccion=" + encodeURIComponent(porId("comparador-direccion").value));
+      if (version !== versionComparador) return;
+      comparadorDatos = datos;
+      renderComparador();
+      estado("comparador-estado", (datos.publicaciones || []).length
+        + " publicaciones. Sin dato al final del orden.");
+    } catch (error) {
+      if (version === versionComparador) estado("comparador-estado", error.message, true);
+    }
   }
 
   async function cargarCatalogo() {
@@ -495,14 +654,19 @@ document.addEventListener("DOMContentLoaded", function () {
       formulario.elements[rol + "_budget"].value = "";
       formulario.elements[rol + "_bid"].value = "";
     });
-    cargarCatalogo(); cargarHistorial();
+    cargarCatalogo(); cargarHistorial(); cargarComparador();
   });
   porId("recargar-catalogo").addEventListener("click", cargarCatalogo);
   porId("historial-recargar").addEventListener("click", cargarHistorial);
   porId("lote-recargar").addEventListener("click", cargarLote);
+  porId("comparador-recargar").addEventListener("click", cargarComparador);
+  porId("comparador-orden").addEventListener("change", cargarComparador);
+  porId("comparador-direccion").addEventListener("change", cargarComparador);
+  // El filtro no consulta de nuevo: la seleccion del catalogo queda intacta (AC10).
+  porId("comparador-filtro").addEventListener("change", renderComparador);
   window.addEventListener("pagehide", () => { porId("token").value = ""; });
   actualizarObjetivoManual();
-  cargarCatalogo(); cargarHistorial();
+  cargarCatalogo(); cargarHistorial(); cargarComparador();
   const lote = new URL(window.location.href).searchParams.get("lote");
   if (lote) { seleccionarLote(lote); cargarLote(); }
 });

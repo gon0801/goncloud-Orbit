@@ -223,6 +223,9 @@ const plan = {huella: "abc", lote: "web-abc", presupuesto_diario_total: "600.00"
 const lote = {lote: "web-abc", plataforma: "amazon_mx", estado: "failed",
   detalle: "Error recuperable",
   created_at: "2026-09-06", finished_at: null, plan: plan.plan, pasos: []};
+const evaluacionComparador = {plataforma: "amazon_mx",
+  ventana_ads: {desde: "2026-08-06", hasta: "2026-09-05"},
+  orden: "margen_observado", direccion: "desc", publicaciones: []};
 let crearPendiente, planPendiente, demorarPlan = false;
 let pausarPendiente, detallePendiente, demorarDetalle = false;
 let rechazarToken = true;
@@ -230,6 +233,7 @@ const ok = body => ({ok: true, status: 200, json: async () => body});
 global.fetch = async (url, options = {}) => {
   calls.push({url, options});
   if (url.includes("/catalogo")) return ok(catalogo);
+  if (url.includes("/evaluacion")) return ok(evaluacionComparador);
   if (url.includes("/lotes?")) return ok({items: []});
   if (url.endsWith("/plan")) {
     if (demorarPlan) return new Promise(resolve => { planPendiente = () => resolve(ok(plan)); });
@@ -375,6 +379,223 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
   assert.match(text(el("lote-datos")), /Pausa final/);
   assert.equal(calls.filter(c => c.url.endsWith("/crear")).length, 2);
   for (const call of calls) assert.ok(!call.url.includes("token"));
+})().catch(error => { console.error(error); process.exitCode = 1; });
+"""
+    resultado = subprocess.run(
+        [node, "-e", guion, json.dumps(elementos), str(archivo)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+    assert resultado.returncode == 0, resultado.stdout + resultado.stderr
+
+
+def test_comparador_renderiza_controles_de_orden_filtro_y_sin_por_probar():
+    """B.5: la seccion comparador existe con las 8 metricas de orden (§7 D1),
+    direccion, filtro, estado vivo y encabezado etiquetado. La etiqueta
+    'Por probar' no existe en la UI (regla cerrada 0.4 §4.2)."""
+    respuesta = TestClient(app).get("/campanas/nuevas")
+    assert respuesta.status_code == 200
+    m = re.search(
+        r'<section id="fabrica-comparador"[^>]*aria-labelledby="fabrica-comparador-titulo"',
+        respuesta.text,
+    )
+    assert m, "Falta la seccion comparador con encabezado etiquetado"
+    for orden in (
+        "margen_observado",
+        "ventas_totales",
+        "revenue_ads",
+        "gasto",
+        "acos",
+        "cpc",
+        "cvr",
+        "compras",
+    ):
+        assert f'<option value="{orden}">' in respuesta.text
+    for control in (
+        "fabrica-comparador-orden",
+        "fabrica-comparador-direccion",
+        "fabrica-comparador-filtro",
+        "fabrica-comparador-recargar",
+        "fabrica-comparador-estado",
+        "fabrica-comparador-datos",
+    ):
+        assert f'id="{control}"' in respuesta.text
+    js = (RAIZ / "static/js/fabrica.js").read_text()
+    assert "Por probar" not in js
+    assert "por_probar" not in js
+
+
+def test_flujo_js_comparador_etiquetas_orden_filtro_y_cero_escrituras():
+    """Comparador (B.5) con JS real: estados honestos (error/vacio/exito),
+    etiquetas por precedencia 0.4 seccion 4, muestra limitada aparte (D4),
+    disponibilidad tres estados (AC8), orden/filtros sin perder la
+    seleccion (AC10) y cero escrituras (0 POST)."""
+    archivo = RAIZ / "static/js/fabrica.js"
+    assert archivo.exists(), "Falta el cliente de fabrica"
+    node = shutil.which("node")
+    if not node:
+        if "CI" in os.environ:
+            pytest.fail("Node es obligatorio en CI para verificar el flujo JavaScript")
+        pytest.skip("Node no disponible; el navegador se verifica en integracion")
+    html = TestClient(app).get("/campanas/nuevas").text
+    elementos = [attrs for _, attrs in Elementos(html).elementos if "id" in attrs]
+    guion = r"""
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+class Element {
+  constructor(attrs = {}) {
+    Object.assign(this, attrs);
+    this.children = []; this.events = {}; this.value = attrs.value || "";
+    this.disabled = "disabled" in attrs; this.hidden = "hidden" in attrs;
+    this.checked = false; this.textContent = ""; this.dataset = {};
+  }
+  append(...items) { this.children.push(...items); }
+  appendChild(item) { this.append(item); return item; }
+  replaceChildren(...items) { this.children = items; this.textContent = ""; }
+  addEventListener(event, fn) { this.events[event] = fn; }
+  setAttribute(name, value) { this[name] = value; }
+  focus() {}
+  reportValidity() { return true; }
+  querySelectorAll(selector) {
+    const all = this.children.flatMap(child => [child, ...child.querySelectorAll("*")]);
+    if (selector === "*") return all;
+    return all.filter(child => child.type === "checkbox" &&
+      (!selector.includes(":checked") || child.checked));
+  }
+}
+const attrs = JSON.parse(process.argv[1]);
+const ids = Object.fromEntries(attrs.map(a => [a.id, new Element(a)]));
+const el = id => ids["fabrica-" + id];
+el("plataforma").value = "amazon_mx";
+// El navegador preselecciona la primera opcion de cada select; el mock no.
+el("comparador-orden").value = "margen_observado";
+el("comparador-direccion").value = "desc";
+el("comparador-filtro").value = "todas";
+el("plan").elements = Object.fromEntries(attrs.filter(a => a.name).map(a => [a.name, ids[a.id]]));
+const docEvents = {};
+global.document = {
+  getElementById: id => ids[id],
+  createElement: () => new Element(),
+  addEventListener: (event, fn) => { docEvents[event] = fn; },
+};
+global.window = {
+  location: {href: "http://orbit.test/campanas/nuevas", search: ""},
+  addEventListener: () => {},
+  history: { replaceState: () => {} },
+};
+const calls = [];
+const catalogo = {plataforma: "amazon_mx", moneda: "MXN", tipos_producto: [],
+  productos: [{id: 1, sku: "GORRA", nombre: "Gorras", publicaciones: [
+    {id: 11, asin: "B0AAAAAAAA", seller_sku: "SKU-AMAZON-A", platform: "amazon_mx",
+      margen_neto_pct: "40", dias_con_venta: 70, ventana_desde: "2026-02-20",
+      ventana_hasta: "2026-08-22", historial_ads: null, elegible: true, motivos: [],
+      url: null}]}]};
+const publica = (over, ads, econ, disp) => Object.assign({
+  listing_id: 99, platform: "amazon_mx", product_id: 1, asin: null, seller_sku: null,
+  seleccionable: true, motivos: [], objetivo_acos_pct: null,
+  economia: Object.assign({ventana_desde: "2026-02-20", ventana_hasta: "2026-08-22",
+    moneda: "MXN", venta_total: "7000", venta_cubierta: "7000", cobertura: "1",
+    dias_con_venta: 70, margen_neto_pct: "40", integridad_ok: true,
+    muestra_limitada: false, muestra_venta: null, muestra_margen_neto_pct: null,
+    ledger_fresco_at: "2026-09-05T10:00:00+00:00"}, econ),
+  ads: Object.assign({etiqueta: null, maduro: true, provisional: false, muestra: 5,
+    moneda: "MXN", cost: "100", clicks: 200, sales30d: "400", purchases30d: "4",
+    promoted30d: "350", halo30d: "50", acos_pct: "25", cpc: "0.5", cvr_pct: "2"}, ads),
+  disponibilidad: disp,
+}, over);
+const llena = {plataforma: "amazon_mx",
+  ventana_ads: {desde: "2026-08-06", hasta: "2026-09-05"},
+  orden: "margen_observado", direccion: "desc", publicaciones: [
+    publica({listing_id: 11, asin: "B0AAAAAAAA", seller_sku: "SKU-AMAZON-A",
+      objetivo_acos_pct: "25.00"},
+      {etiqueta: "dentro_del_objetivo", muestra: 10, purchases30d: "100",
+        cost: "250", sales30d: "1000", acos_pct: "25"},
+      {}, {estado: "positivo", cantidad: {fba: 12}, fuente: ["fba"],
+        freshness: {fba: "2026-09-05T00:00:00+00:00"}}),
+    publica({listing_id: 12, asin: "B0BBBBBBBB", seller_sku: "SKU-AMAZON-B"},
+      {etiqueta: "gasto_sin_ventas", muestra: 3, cost: "10", sales30d: "0",
+        purchases30d: "0", acos_pct: null},
+      {}, {estado: "cero", cantidad: {fba: 0}, fuente: ["fba"],
+        freshness: {fba: "2026-09-05T00:00:00+00:00"}}),
+    publica({listing_id: 13, asin: "B0CCCCCCCC", seller_sku: "SKU-AMAZON-C"},
+      {etiqueta: "sin_datos", maduro: false, muestra: 0, cost: null, clicks: null,
+        sales30d: null, purchases30d: null, acos_pct: null, cpc: null, cvr_pct: null},
+      {}, {estado: "desconocido", cantidad: null, fuente: null, freshness: null}),
+    publica({listing_id: 14, asin: "B0DDDDDDDD", seller_sku: "SKU-AMAZON-D",
+      objetivo_acos_pct: "25.00", motivos: ["Margen negativo."]},
+      {etiqueta: "por_encima_del_objetivo", provisional: true, muestra: 2,
+        cost: "40", sales30d: "100", acos_pct: "40"},
+      {margen_neto_pct: null, muestra_limitada: true, dias_con_venta: 12,
+        muestra_venta: "500", muestra_margen_neto_pct: "-5"},
+      {estado: "desconocido", cantidad: null, fuente: null, freshness: null}),
+  ]};
+const respuestas = [
+  {ok: false, status: 503, json: async () => (
+    {detail: {mensaje: "No se pudo consultar la evaluación del catálogo."}})},
+  {ok: true, status: 200, json: async () => ({plataforma: "amazon_mx",
+    ventana_ads: {desde: "2026-08-06", hasta: "2026-09-05"}, publicaciones: []})},
+  {ok: true, status: 200, json: async () => llena},
+  {ok: true, status: 200, json: async () => llena},
+];
+global.fetch = async (url, options = {}) => {
+  calls.push({url, options});
+  if (url.includes("/catalogo")) return {ok: true, status: 200, json: async () => catalogo};
+  if (url.includes("/lotes?")) return {ok: true, status: 200, json: async () => ({items: []})};
+  if (url.includes("/evaluacion")) return respuestas.shift();
+  return {ok: true, status: 200, json: async () => ({})};
+};
+const emit = async (id, event = "change") => {
+  const handler = el(id).events[event]; assert.ok(handler, `Falta evento ${id}:${event}`);
+  handler({preventDefault() {}, target: el(id)});
+  await new Promise(resolve => setImmediate(resolve));
+};
+const text = node => node.textContent + node.children.map(text).join(" ");
+vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
+(async () => {
+  await docEvents.DOMContentLoaded();
+  await new Promise(resolve => setImmediate(resolve));
+  const datos = el("comparador-datos"), estado = el("comparador-estado");
+  assert.match(estado.textContent, /No se pudo consultar la evaluación/, "503 honesto");
+  assert.equal(text(datos).trim(), "", "El error no inventa filas");
+  await emit("comparador-recargar", "click");
+  assert.match(text(datos), /Sin datos\./);
+  assert.match(text(datos), /2026-08-06 a 2026-09-05/, "Ventana siempre visible");
+  assert.match(text(datos), /Grano de comparación/);
+  await emit("comparador-recargar", "click");
+  const tabla = text(datos);
+  for (const esperado of ["Dentro del objetivo", "Gasto sin ventas", "Sin datos",
+    "Por encima del objetivo (provisional)"]) assert.ok(tabla.includes(esperado), esperado);
+  assert.ok(!tabla.includes("Por probar"), "Por probar no existe");
+  assert.match(tabla, /Limitada: 12 días con venta, margen -5 % \(no entra al orden\)/);
+  assert.match(tabla, /Margen negativo\./);
+  assert.match(tabla, /Stock en 0: FBA 0/);
+  assert.match(tabla, /Desconocido\. Featured Offer: Sin verificar/);
+  assert.match(tabla, /Con stock: FBA 12/);
+  assert.match(text(datos), /Objetivo ACoS del grupo en preparación\s*25\.00 %/);
+  assert.match(tabla, /70 días con venta/);
+  assert.match(estado.textContent, /4 publicaciones/);
+  // AC10: la seleccion del catalogo sobrevive a filtro y orden.
+  const caja = el("productos").querySelectorAll('input[type="checkbox"]')[0];
+  caja.checked = true;
+  await emit("comparador-filtro");
+  assert.ok(text(datos).includes("Seleccionada"), "La seleccion se ve en el comparador");
+  el("comparador-orden").value = "gasto";
+  await emit("comparador-orden");
+  const ultima = calls.filter(c => c.url.includes("/evaluacion")).at(-1);
+  assert.match(ultima.url, /orden=gasto&direccion=desc/);
+  assert.equal(caja.checked, true, "El orden no pierde la seleccion");
+  assert.ok(text(datos).includes("Seleccionada"), "La seleccion sigue visible tras reordenar");
+  el("comparador-filtro").value = "sin_datos_ads";
+  await emit("comparador-filtro");
+  const filtrada = text(datos);
+  assert.ok(filtrada.includes("B0CCCCCCCC"), "El filtro muestra el Sin datos");
+  assert.ok(!filtrada.includes("Gasto sin ventas"), "El filtro oculta los con Ads");
+  assert.equal(caja.checked, true, "El filtro no pierde la seleccion");
+  assert.equal(calls.filter(c => (c.options.method || "GET") === "GET").length, calls.length,
+    "Cero escrituras: ningun POST");
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """
     resultado = subprocess.run(
