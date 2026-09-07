@@ -398,6 +398,10 @@ class _ConnFalsa:
             return _Cursor(self.pasos_ledger)
         if "from fabrica_lote" in bajo and "plan" in bajo:
             return _Cursor([self.lote_fila] if self.lote_fila is not None else [])
+        if "pg_advisory_xact_lock" in bajo:
+            return _Cursor([(None,)])
+        if bajo.startswith("select estado from fabrica_lote"):
+            return _Cursor([])
         if "from fabrica_lote" in bajo and "platform" in bajo:
             return _Cursor([(self.lote_platform,)])
         if "from ads_optimizer_goal" in bajo:
@@ -626,6 +630,88 @@ def test_cli_v2_con_mutacion_exige_interruptor_antes_de_http(monkeypatch):
     with pytest.raises(fc.Abortar, match="altas v2 deshabilitadas"):
         fc.main()
     assert conn.escrituras == []
+
+
+def test_cli_rechaza_objetivo_manual_con_productos_antes_de_abrir_conexion(monkeypatch):
+    args = [*ARGS_BASE, "--target-acos", "25.00"]
+    _sin_red(monkeypatch)
+    monkeypatch.setenv("ORBIT_DSN_READ", "dsn-read")
+
+    def conexion_prohibida(dsn):
+        raise AssertionError(f"se abrio conexion antes de validar: {dsn}")
+
+    monkeypatch.setattr(fc, "connect", conexion_prohibida)
+    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *args])
+    with pytest.raises(fc.Abortar, match="target-acos"):
+        fc.main()
+
+
+def test_cli_v2_reintento_reutiliza_lote_y_no_duplica_posts(monkeypatch):
+    class _ConnLoteDurable(_ConnFalsa):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.estados_lote = {}
+
+        def execute(self, sql, params=None):
+            plano = " ".join(str(sql).split())
+            bajo = plano.lower()
+            if bajo.startswith("select estado from fabrica_lote"):
+                estado = self.estados_lote.get(params[0])
+                return _Cursor([] if estado is None else [(estado,)])
+            if bajo.startswith("insert into fabrica_lote "):
+                self.estados_lote[params[0]] = "planeado"
+            elif bajo.startswith("update fabrica_lote "):
+                self.estados_lote[params[2]] = params[0]
+            return super().execute(sql, params)
+
+    args = ARGS_BASE.copy()
+    indice = args.index("--productos")
+    args[indice : indice + 2] = ["--listing-ids", "11,12"]
+    args.extend(["--target-acos", "25.00"])
+    publicaciones = [
+        (11, 1, "B0AAAAAAAA", "SS-1", None),
+        (12, 1, "B0AAAAAAAB", "SS-2", Decimal("-5")),
+    ]
+    plan = fc._arma_plan(
+        fc._parser().parse_args(args),
+        _ConnFalsa(settings={"fabrica.creacion": "v2"}, publicaciones=publicaciones),
+    )
+    huella = fp.huella_plan_v2(plan)
+    secuencia = []
+    conn_admin = _ConnLoteDurable(secuencia=secuencia)
+    amazon = _Amazon(secuencia=secuencia)
+    _frontera_mutacion(
+        monkeypatch,
+        _ConnFalsa(settings={"fabrica.creacion": "v2"}, publicaciones=publicaciones),
+        conn_admin,
+        amazon,
+    )
+    argv = [
+        "fabrica_campanas.py",
+        *args,
+        "--acepto-mutacion-real",
+        "--esperado",
+        "5",
+        "--huella",
+        huella,
+        "--go",
+        "go simulado",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+    assert fc.main() == 0
+    bloqueo = next(
+        indice
+        for indice, (tipo, valor) in enumerate(secuencia)
+        if tipo == "sql" and "pg_advisory_xact_lock" in valor.lower()
+    )
+    lwa = next(indice for indice, evento in enumerate(secuencia) if evento == ("http", "lwa"))
+    assert bloqueo < lwa
+    pedidos = list(amazon.pedidos)
+    with pytest.raises(fc.Abortar, match="ya existe"):
+        fc.main()
+    assert amazon.pedidos == pedidos
+    assert len(amazon.posts("/sp/campaigns")) == 5
+    assert len(conn_admin.estados_lote) == 1
 
 
 def test_sin_fraccion_o_bid_fuera_de_banda_aborta_sin_http(monkeypatch):
@@ -1018,9 +1104,7 @@ def test_mutacion_orden_fijo_ledger_pre_http_y_readback(monkeypatch, capsys):
         p for s, p in conn_admin.escrituras if s.lower().startswith("insert into fabrica_lote ")
     ]
     assert len(lote) == 1 and lote[0][4] == "go" and lote[0][5] == huella
-    prefijo_cli = "fabrica-amazon_mx-collar_perro-"
-    assert lote[0][0].startswith(prefijo_cli)
-    dt.datetime.strptime(lote[0][0].removeprefix(prefijo_cli), "%Y%m%d-%H%M%S")
+    assert lote[0][0] == "cli-" + huella
     assert conn_admin.commits >= 1 + 2 * total_posts
     i_lote = next(
         i
@@ -1952,6 +2036,34 @@ class _AmazonDesarme(_Amazon):
         return super().__call__(request)
 
 
+class _AmazonRecuperacion(_Amazon):
+    """Doble que refleja cada pausa para que el readback la compruebe."""
+
+    def __init__(self):
+        super().__init__()
+        self.puts = []
+        self.pausadas = set()
+
+    def __call__(self, request):
+        if request.method == "PUT":
+            self.puts.append(request)
+            self._sello(request)
+            externo = json.loads(request.content)["campaigns"][0]["campaignId"]
+            self.pausadas.add(externo)
+            return httpx.Response(
+                207,
+                json={"campaigns": {"success": [{"index": 0, "campaignId": externo}], "error": []}},
+            )
+        if str(request.url).endswith("/sp/campaigns/list"):
+            externo = json.loads(request.content)["campaignIdFilter"]["include"][0]
+            estado = "PAUSED" if externo in self.pausadas else "ENABLED"
+            return httpx.Response(
+                200,
+                json={"campaigns": [{"campaignId": externo, "state": estado}]},
+            )
+        return super().__call__(request)
+
+
 _FILAS_LOTE = [(rol, f"c-{rol}", 50 + i) for i, rol in enumerate(fp.ROLES_ORDEN_CREACION)]
 
 
@@ -2048,6 +2160,208 @@ def test_desarmar_lote_failed_a_medias_pausa_lo_applied_y_lo_failed_con_external
     ]
     assert len(sellos) == 1
     assert _eventos(capsys)[-1]["evento"] == "reconciliacion_final"
+
+
+def test_lote_v2_parcial_se_recupera_con_interruptor_v1_sin_post_de_creacion(monkeypatch):
+    class _ConnParcialV2(_ConnFalsa):
+        def execute(self, sql, params=None):
+            plano = " ".join(str(sql).split())
+            bajo = plano.lower()
+            if bajo.startswith("update fabrica_lote_paso set estado = 'applied'"):
+                paso_id = params[-1]
+                self.pasos_ledger = [
+                    (
+                        orden,
+                        rol,
+                        recurso,
+                        "applied" if orden == paso_id else estado,
+                        external,
+                        payload,
+                        ack,
+                        "ENABLED" if orden == paso_id else readback,
+                    )
+                    for (
+                        orden,
+                        rol,
+                        recurso,
+                        estado,
+                        external,
+                        payload,
+                        ack,
+                        readback,
+                    ) in self.pasos_ledger
+                ]
+            if "from fabrica_lote_paso" in bajo and "recurso in" in bajo:
+                return _Cursor(_camp_ag_de_ledger(self.pasos_ledger))
+            return super().execute(sql, params)
+
+    plan = _plan_v2_min()
+    ledger = _filas_ledger(plan)
+    orden, rol, recurso, _estado, external, payload, _ack, _readback = ledger[-1]
+    ledger[-1] = (orden, rol, recurso, "failed", external, payload, {"status": 207}, None)
+    pendiente = ledger[-1]
+    orden, rol, recurso, _estado, external, payload, _ack, _readback = pendiente
+    assert external is not None
+    conn_admin = _ConnParcialV2(
+        settings={"fabrica.creacion": "v1"},
+        lote_fila=(fp.plan_v2_como_json(plan), "failed"),
+        pendientes=[
+            (
+                orden,
+                "L2",
+                rol,
+                "amazon_mx",
+                recurso,
+                "/sp/productAds",
+                external,
+                payload,
+            )
+        ],
+        pasos_ledger=ledger,
+        grupo=[(rol, f"c-{rol}", None) for rol in fp.ROLES_ORDEN_CREACION],
+    )
+    amazon = _AmazonRecuperacion()
+    amazon.objetos[external] = payload
+    _frontera_mutacion(monkeypatch, _ConnFalsa(), conn_admin, amazon, stub_registrar=False)
+    monkeypatch.setattr(fc, "_sync", lambda cliente: None)
+    monkeypatch.setattr(fc, "_id_entidad", lambda c, p, k, e: 7)
+    monkeypatch.setattr(fc.goals_write, "crea_goal", lambda c, **kw: {"id": 1})
+    assert fp.version_creacion_desde_settings(conn_admin.settings) == "v1"
+
+    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", "--reconciliar", "--lote", "L2"])
+    assert fc.main() == 0
+    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", "--registrar", "L2"])
+    assert fc.main() == 0
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["fabrica_campanas.py", "--desarmar", "L2", "--acepto-mutacion-real", "--go", "pausa"],
+    )
+    assert fc.main() == 0
+
+    assert len(amazon.puts) == 5
+    assert not [
+        pedido
+        for pedido in amazon.pedidos
+        if pedido.method == "POST" and pedido.url.path in fp.VENDOR_POR_PATH
+    ]
+    assert any("estado = 'applied'" in sql.lower() for sql, _ in conn_admin.escrituras)
+    assert any("insert into campana_grupo " in sql.lower() for sql, _ in conn_admin.escrituras)
+
+
+@_skip_db
+def test_ensayo_staging_lote_v2_parcial_se_recupera_con_v1_sin_post_de_creacion(monkeypatch):
+    """Ensayo aislado: recupera un lote v2 aunque la creacion nueva siga en v1."""
+    import psycopg
+
+    with db_fabrica("orbit_fab_rollback_v2") as conn:
+        product_id, listing_id_1 = _producto(conn, asin="B0AAAAAAAA", seller_sku="SS-1")
+        listing_id_2 = conn.execute(
+            "INSERT INTO listing (product_id, platform, external_id, seller_sku)"
+            " VALUES (%s, 'amazon_mx', 'B0AAAAAAAB', 'SS-2') RETURNING id",
+            (product_id,),
+        ).fetchone()[0]
+        plan = dataclasses.replace(
+            _plan_v2_min(),
+            publicaciones=(
+                fp.PublicacionGrupoV2(
+                    listing_id_1,
+                    product_id,
+                    "B0AAAAAAAA",
+                    "SS-1",
+                    "amazon_mx",
+                    None,
+                ),
+                fp.PublicacionGrupoV2(
+                    listing_id_2,
+                    product_id,
+                    "B0AAAAAAAB",
+                    "SS-2",
+                    "amazon_mx",
+                    Decimal("-5"),
+                ),
+            ),
+        )
+        ledger = _filas_ledger(plan)
+        orden, rol, recurso, _estado, external, payload, _ack, _readback = ledger[-1]
+        ledger[-1] = (orden, rol, recurso, "failed", external, payload, {"status": 207}, None)
+        assert external is not None
+        conn.execute(
+            "INSERT INTO config_version (label, settings) VALUES (%s, %s)",
+            ("rollback-v1", Json({"fabrica.creacion": "v1"})),
+        )
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado) VALUES"
+            " (%s, 'amazon_mx', 'collar_perro', 'Collar', 'go', 'h-v2', %s, 'shadow', 'failed')",
+            ("L2", Json(fp.plan_v2_como_json(plan))),
+        )
+        _siembra_ledger_pg(conn, "L2", ledger)
+        for rol_actual in fp.ROLES_ORDEN_CREACION:
+            campaign = next(
+                external_id
+                for _orden, rol_ledger, recurso_ledger, _estado, external_id, *_rest in ledger
+                if rol_ledger == rol_actual and recurso_ledger == "campaign"
+            )
+            ad_group = next(
+                external_id
+                for _orden, rol_ledger, recurso_ledger, _estado, external_id, *_rest in ledger
+                if rol_ledger == rol_actual and recurso_ledger == "ad_group"
+            )
+            campaign_id = _entidad(conn, "amazon_mx", "campaign", campaign)
+            _entidad(conn, "amazon_mx", "ad_group", ad_group, parent=campaign_id)
+
+        settings = conn.execute(
+            "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
+        ).fetchone()[0]
+        assert fp.version_creacion_desde_settings(settings) == "v1"
+        assert fc._creacion_v2_habilitada(conn) is False
+
+        amazon = _AmazonRecuperacion()
+        amazon.objetos[external] = payload
+        _frontera_mutacion(monkeypatch, _ConnFalsa(), _ConnFalsa(), amazon, stub_registrar=False)
+        monkeypatch.setattr(fc, "_sync", lambda cliente: None)
+
+        def conecta_admin(dsn):
+            assert dsn == "dsn-admin"
+            return psycopg.connect(_test_dsn(), dbname=conn.info.dbname)
+
+        monkeypatch.setattr(fc, "connect", conecta_admin)
+        monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", "--reconciliar", "--lote", "L2"])
+        assert fc.main() == 0
+        monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", "--registrar", "L2"])
+        assert fc.main() == 0
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["fabrica_campanas.py", "--desarmar", "L2", "--acepto-mutacion-real", "--go", "pausa"],
+        )
+        assert fc.main() == 0
+
+        assert conn.execute("SELECT estado FROM fabrica_lote WHERE lote = 'L2'").fetchone() == (
+            "desarmado",
+        )
+        assert conn.execute(
+            "SELECT count(*) FROM fabrica_lote_paso WHERE lote = 'L2' AND estado = 'applied'"
+        ).fetchone()[0] == len(ledger)
+        assert (
+            conn.execute("SELECT count(*) FROM campana_grupo WHERE lote = 'L2'").fetchone()[0] == 1
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM campana_grupo_producto p"
+                " JOIN campana_grupo g ON g.id = p.grupo_id WHERE g.lote = 'L2'"
+            ).fetchone()[0]
+            == 2
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM ads_optimizer_goal WHERE enabled = false"
+            ).fetchone()[0]
+            == 5
+        )
+        assert len(amazon.puts) == 5
+        assert amazon.posts("/sp/campaigns") == []
 
 
 _PENDIENTES = [

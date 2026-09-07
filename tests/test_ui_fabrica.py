@@ -201,7 +201,13 @@ const catalogo = {plataforma: "amazon_mx", moneda: "MXN", tipos_producto: [],
       {id: 13, asin: "B0CCCCCCCC", seller_sku: null, platform: "amazon_mx",
         margen_neto_pct: null, historial_ads: null, elegible: false,
         motivos: ["SKU de Amazon ausente."],
-        url: "javascript:alert(1)"}]}]};
+        url: "javascript:alert(1)"}]},
+    {id: 3, sku: "MARGEN DESCONOCIDO", nombre: null, publicaciones: [
+      {id: 14, asin: "B0DDDDDDDD", seller_sku: "SKU-AMAZON-D", platform: "amazon_mx",
+        margen_neto_pct: null, dias_con_venta: 70, ventana_desde: "2026-02-20",
+        ventana_hasta: "2026-08-22", historial_ads: null, elegible: true,
+        motivos: ["Margen sin medir."],
+        url: "https://www.amazon.com.mx/dp/B0DDDDDDDD"}]}]};
 const roles = ["category_exact", "category_phrase", "category_broad",
   "product_targeting", "auto_discovery"];
 const plan = {huella: "abc", lote: "web-abc", presupuesto_diario_total: "600.00", existentes: [],
@@ -257,7 +263,7 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
   const productos = el("productos").querySelectorAll('input[type="checkbox"]');
   assert.equal(el("tipos").children.length, 0);
   assert.equal(el("tipo").disabled, false, "El primer tipo debe poder escribirse sin biblioteca");
-  assert.equal(productos.length, 3); assert.equal(productos[1].disabled, false);
+  assert.equal(productos.length, 4); assert.equal(productos[1].disabled, false);
   assert.equal(productos[2].disabled, true);
   assert.match(text(el("productos")), /Margen sin medir/);
   assert.match(text(el("productos")), /Nombre interno <img src=x>/);
@@ -268,7 +274,7 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
   assert.match(text(el("productos")), /ASIN: B0CCCCCCCC/);
   const fotos = el("productos").querySelectorAll("*").filter(e => e.src);
   assert.deepEqual(fotos.map(e => e.src),
-    [11, 12, 13].map(id => `/api/fabrica/publicaciones/${id}/imagen`));
+    [11, 12, 13, 14].map(id => `/api/fabrica/publicaciones/${id}/imagen`));
   assert.ok(fotos.every(e => e.loading === "lazy" && e.width === 96 &&
     e.alt.includes("publicación")));
   fotos[0].events.error();
@@ -280,15 +286,21 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
   assert.equal(productos[0].disabled, false, "El fallo de foto no cambia elegibilidad");
   const enlaces = el("productos").querySelectorAll("*").filter(e => e.href);
   assert.deepEqual(enlaces.map(e => e.href), [
-    "https://www.amazon.com.mx/dp/B0AAAAAAAA", "https://www.amazon.com.mx/dp/B0BBBBBBBB"]);
+    "https://www.amazon.com.mx/dp/B0AAAAAAAA", "https://www.amazon.com.mx/dp/B0BBBBBBBB",
+    "https://www.amazon.com.mx/dp/B0DDDDDDDD"]);
   assert.ok(enlaces.every(e => e.target === "_blank" && e.rel.includes("noopener")));
-  assert.equal(el("productos").querySelectorAll("*").filter(e => e.htmlFor).length, 3);
+  assert.equal(el("productos").querySelectorAll("*").filter(e => e.htmlFor).length, 4);
   const labels = el("productos").querySelectorAll("*").filter(e => e.htmlFor);
   assert.ok(labels.every(label => !label.querySelectorAll("*").some(e => e.href)),
     "Abrir Amazon no debe seleccionar un producto: los enlaces van fuera del label");
   assert.match(text(el("productos")), /40 %/);
   assert.match(text(el("productos")), /Muestra de margen: 70 dias con venta/);
   assert.match(text(el("productos")), /Muestra limitada: 12 dias con venta/);
+  assert.equal(
+    (text(el("productos")).match(/Muestra de margen: 70 dias con venta/g) || []).length,
+    2,
+    "Un margen sin medir con 70 dias conserva muestra de margen normal",
+  );
   assert.ok(!text(el("productos")).includes("40.0000000"));
   productos[0].checked = true;
   el("tipo").value = "gorras"; el("nombre").value = "Gorras"; el("modo").value = "shadow";

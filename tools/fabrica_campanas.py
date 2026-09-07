@@ -219,6 +219,8 @@ INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal
                           plan, modo_goal, estado)
 VALUES (%s, %s::platform, %s, %s, %s, %s, %s::jsonb, %s, 'planeado')
 """
+_SQL_BLOQUEA_LOTE = "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))"
+_SQL_ESTADO_LOTE = "SELECT estado FROM fabrica_lote WHERE lote = %s"
 _SQL_SELLA_LOTE = """
 UPDATE fabrica_lote SET estado = %s, detalle = %s, finished_at = now() WHERE lote = %s
 """
@@ -595,9 +597,9 @@ def _arma_plan_v2(args, conn_read, tipo: str, moneda: str, parametros: dict) -> 
     return plan
 
 
-def _lote_nuevo(plan: fp.PlanGrupo | fp.PlanGrupoV2) -> str:
-    marca = datetime.datetime.now(datetime.UTC).strftime("%Y%m%d-%H%M%S")
-    return f"fabrica-{plan.platform}-{plan.tipo_producto}-{marca}"
+def _lote_nuevo(huella: str) -> str:
+    """Identidad durable de la corrida CLI autorizada por una huella."""
+    return f"cli-{huella}"
 
 
 def _imprime_dry_run(plan: fp.PlanGrupo | fp.PlanGrupoV2, huella: str) -> None:
@@ -717,6 +719,8 @@ def _valida_args_creacion(args) -> None:
     ]
     if faltan:
         raise SystemExit(f"faltan argumentos obligatorios: {', '.join(faltan)}")
+    if args.productos is not None and args.target_acos is not None:
+        raise Abortar("--target-acos solo se permite con --listing-ids")
 
 
 @dataclass
@@ -902,6 +906,18 @@ def _inserta_lote(conn, lote: str, plan: fp.PlanCanonico, huella: str, go: str) 
         ),
     )
     conn.commit()
+
+
+def _estado_lote(conn, lote: str) -> str | None:
+    fila = conn.execute(_SQL_ESTADO_LOTE, (lote,)).fetchone()
+    if fila is None:
+        return None
+    return fila[0] if not isinstance(fila, dict) else fila["estado"]
+
+
+def _bloquea_lote(conn, lote: str) -> None:
+    """Serializa una huella hasta que su ledger quede durable."""
+    conn.execute(_SQL_BLOQUEA_LOTE, (lote,))
 
 
 def _sella_lote(conn, lote: str, estado: str, detalle: str | None) -> None:
@@ -1287,20 +1303,26 @@ def _mutar(args, plan: fp.PlanCanonico, huella: str, *, lote: str | None = None)
     _valida_go(args, huella)
     # D-CURSOR-177-F3: falla cerrado antes de LWA/lote/POST (spec §5.1).
     _dsn_ingest()
-    cred = AdsCredentials.from_secrets_dir()
-    cliente_lectura = AdsClient(cred)
-    perfiles = _perfiles(cliente_lectura)
-    _log("perfiles", perfiles=perfiles)
-    if plan.platform not in perfiles:
-        raise Abortar(f"sin perfil aceptado para {plan.platform}: no se muta")
+    if lote is None:
+        lote = _lote_nuevo(huella)
     conn_admin = None
     http = None
     try:
         conn_admin = connect(_dsn_admin())
+        _bloquea_lote(conn_admin, lote)
+        estado = _estado_lote(conn_admin, lote)
+        if estado is not None:
+            raise Abortar(
+                f"lote {lote} ya existe ({estado}): usa --reconciliar, --registrar o --desarmar"
+            )
+        cred = AdsCredentials.from_secrets_dir()
+        cliente_lectura = AdsClient(cred)
+        perfiles = _perfiles(cliente_lectura)
+        _log("perfiles", perfiles=perfiles)
+        if plan.platform not in perfiles:
+            raise Abortar(f"sin perfil aceptado para {plan.platform}: no se muta")
         http = httpx.Client(timeout=httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=5.0))
         token = _token_lwa(cred, http)
-        if lote is None:
-            lote = _lote_nuevo(plan)
         _inserta_lote(conn_admin, lote, plan, huella, args.go)
         ctx = _Ctx(http, token, cred, cliente_lectura, perfiles[plan.platform], conn_admin, lote)
         creadas: list[dict] = []
