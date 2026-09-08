@@ -1,0 +1,19 @@
+{
+  "modo": "db_aislada_0028",
+  "listing_id_simulado": 1,
+  "asin": "B0C8RVWG4F",
+  "seller_sku": "SK-YBQX-XQWV",
+  "snapshot_id": 1,
+  "sku_cost_id": 1,
+  "oferta_observation_id": 1,
+  "fee_observation_id": 1,
+  "contribucion": "297.6710",
+  "contribucion_pct": "34.9492",
+  "procedencia": {
+    "oferta_fetched_at": "2026-09-08T18:35:40+00:00",
+    "fee_fees_estimated_at": "2026-09-08T19:10:55+00:00",
+    "costo_valid_from": "2026-08-18",
+    "politica_valid_from": "2026-01-01"
+  },
+  "match_hoja_ac14": true
+}

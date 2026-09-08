@@ -1023,7 +1023,7 @@ const sobre = (over = {}) => Object.assign({
     moneda_original: "MXN", importe_normalizado: "15.0000",
     moneda_normalizada: "MXN", fuente: "product_fees",
     fecha_fuente: "2026-09-08", observed_at: "2026-09-08T12:00:00+00:00",
-    vigencia: "2026-09-08", estado: "incluido", pertenencia: true}],
+    vigencia: "2026-09-08", estado: null, pertenencia: true}],
   exclusiones: ["iva_trasladado"], detalle: null,
 }, over);
 const pubCat = (id, asin, est, extra = {}) => Object.assign({
@@ -1149,8 +1149,8 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
   assert.match(desglose, /fecha 2026-09-08/);
   assert.match(desglose, /captura 2026-09-08T12:00:00/);
   assert.match(desglose, /vigencia 2026-09-08/);
-  assert.match(desglose, /estado incluido/);
   assert.match(desglose, /pertenece al total/);
+  assert.ok(!/estado incluido/.test(desglose), "estado no se inventa desde pertenencia");
   assert.match(desglose, /S3/);
   assert.match(desglose, /3/);
   const incompleta = all(productos).filter(e => e.tagName === "li")[2];

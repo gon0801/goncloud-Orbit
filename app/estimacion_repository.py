@@ -91,6 +91,24 @@ class ResultadoPersistenciaEscenario:
 
 
 @dataclass(frozen=True)
+class ProcedenciaRefs:
+    """Timestamps/vigencias reales de oferta, fee, costo y politica.
+
+    Se JOINean en el reader; la proyeccion S5 no inventa a partir del
+    observed_at del escenario ni de pertenencia.
+    """
+
+    oferta_fetched_at: datetime | None = None
+    oferta_observed_at: datetime | None = None
+    fee_fees_estimated_at: datetime | None = None
+    fee_observed_at: datetime | None = None
+    costo_valid_from: date | None = None
+    costo_valid_to: date | None = None
+    politica_valid_from: date | None = None
+    politica_valid_to: date | None = None
+
+
+@dataclass(frozen=True)
 class EscenarioLeido:
     id: int
     listing_id: int
@@ -108,6 +126,7 @@ class EscenarioLeido:
     context_fingerprint: str
     politica_version_id: int | None
     formula_version: str
+    procedencia: ProcedenciaRefs | None = None
 
 
 def resolver_politica_aplicable(
@@ -834,9 +853,15 @@ def leer_escenarios(
         " e.id, e.listing_id, e.canal, e.valoracion_date, e.observed_at, e.estado, e.motivos,"
         " e.contribucion, e.contribucion_pct, e.moneda, e.componentes, e.exclusiones,"
         " e.canonical_input, e.context_fingerprint, e.politica_version_id, e.formula_version,"
-        " o.fetched_at"
+        " o.fetched_at, o.observed_at,"
+        " f.fees_estimated_at, f.observed_at,"
+        " c.valid_from, c.valid_to,"
+        " p.valid_from, p.valid_to"
         " FROM estimacion_escenario e"
         " LEFT JOIN estimacion_oferta_observation o ON o.id = e.oferta_observation_id"
+        " LEFT JOIN estimacion_fee_observation f ON f.id = e.fee_observation_id"
+        " LEFT JOIN sku_cost c ON c.id = e.sku_cost_id"
+        " LEFT JOIN estimacion_politica_version p ON p.id = e.politica_version_id"
         " WHERE e.listing_id = ANY(%s) AND e.observed_at <= %s"
         " ORDER BY e.listing_id, e.observed_at DESC",
         (listing_ids, as_of_utc),
@@ -866,6 +891,16 @@ def leer_escenarios(
             contribucion = None
             contribucion_pct = None
             moneda = None
+        procedencia = ProcedenciaRefs(
+            oferta_fetched_at=f[16],
+            oferta_observed_at=f[17],
+            fee_fees_estimated_at=f[18],
+            fee_observed_at=f[19],
+            costo_valid_from=f[20],
+            costo_valid_to=f[21],
+            politica_valid_from=f[22],
+            politica_valid_to=f[23],
+        )
         resultado.append(
             EscenarioLeido(
                 id=f[0],
@@ -884,6 +919,7 @@ def leer_escenarios(
                 context_fingerprint=f[13],
                 politica_version_id=f[14],
                 formula_version=f[15],
+                procedencia=procedencia,
             )
         )
     return resultado

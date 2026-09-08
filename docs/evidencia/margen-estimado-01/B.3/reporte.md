@@ -13,7 +13,7 @@ No se crearon campañas Amazon. No se toco Reputacion, bridge ni accounting.
 | AC11 | Ya cubierto en bloque A (as-of / idempotencia). B.3 no lo reabre. | `tests/test_estimacion_venta.py` y schema A.1 |
 | AC12 | GET catalogo/evaluacion en B.1: solo DB, sin OAuth/HTTP de fees. | `test_get_estimacion_no_llama_http_oauth_ni_write` |
 | AC13 | UI B.2 (+ smoke navegador en `../B.2/`). | `tests/test_ui_fabrica.py`, evidencia B.2 |
-| AC14 | **Cerrado** con listing FBA MX 1213 sin ventas. | `conciliacion.md`, `calculo-independiente-1213.json`, `fees-product-fees-1213.json` |
+| AC14 | **Cerrado**: fuentes vivas + recorrido persistido en DB aislada. | `conciliacion.md`, `recorrido-persistido-1213.json`, test B.3 |
 
 ## AC14 — resumen numerico
 

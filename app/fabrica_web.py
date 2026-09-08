@@ -298,21 +298,22 @@ def evaluacion(
     `objetivo` explicito (el del formulario, grupo AUN sin crear) toma
     precedencia sobre la consulta de grupos: es el grupo que el dueno esta
     preparando (hallazgo cross-review codex 2026-09-07).
-    `as_of` alinea el corte de estimacion con catalogo cuando el cliente lo
-    reenvia desde la respuesta previa.
+    `as_of` alinea SOLO el corte de estimacion con catalogo. La ventana Ads
+    sigue el reloj UTC vigente (cron D-31..D-1); no se desplaza con as_of.
     """
     if orden not in ec.METRICAS_ORDEN:
         raise error(422, "El criterio de orden no es válido.")
     if direccion not in ("asc", "desc"):
         raise error(422, "La dirección del orden no es válida.")
     conn.row_factory = tuple_row
+    # Reloj Ads: siempre pared UTC. Independiente de as_of (AC10).
+    hoy = dt.datetime.now(dt.UTC).date()
+    hasta = hoy - dt.timedelta(days=1)
+    desde = hasta - dt.timedelta(days=30)
     corte = as_of if as_of is not None else dt.datetime.now(dt.UTC)
     if corte.tzinfo is None:
         raise error(422, "as_of debe incluir zona horaria.")
     corte = corte.astimezone(dt.UTC)
-    hoy = corte.date()
-    hasta = hoy - dt.timedelta(days=1)
-    desde = hasta - dt.timedelta(days=30)
     # Mismo formato que el NUMERIC(5,2) de campana_grupo: "10" -> "10.00".
     objetivo = objetivo.quantize(Decimal("0.01")) if objetivo is not None else None
 

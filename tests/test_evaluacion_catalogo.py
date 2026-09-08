@@ -787,6 +787,60 @@ class _Conn:
         return _Respuesta(self._respuestas.pop(0))
 
 
+def test_evaluacion_as_of_no_desplaza_ventana_ads(monkeypatch):
+    """as_of solo corta estimacion; Ads sigue D-31..D-1 del reloj vigente (AC10)."""
+    from app import fabrica_web as fw
+
+    reloj = dt.datetime(2026, 9, 8, 19, 0, tzinfo=UTC)
+    as_of_historico = dt.datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
+    hoy = reloj.date()
+    hasta = hoy - dt.timedelta(days=1)
+    desde = hasta - dt.timedelta(days=30)
+    params_ads = []
+    as_of_estimacion = []
+
+    class _Reloj(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return reloj
+
+    class _ConnCaptura(_Conn):
+        def execute(self, sql, params=()):
+            if "ads_product_metric_observation" in sql:
+                params_ads.append(params)
+            return super().execute(sql, params)
+
+    conn = _ConnCaptura(
+        [
+            [(7, 1, "B0TEST00009", "SS-MX")],
+            [],
+            [],
+        ]
+    )
+    monkeypatch.setattr(fw.dt, "datetime", _Reloj)
+    monkeypatch.setattr(
+        fw.economia_observada,
+        "por_listing",
+        lambda _conn, _plataforma: {
+            7: EconomiaProducto(platform="amazon_mx", product_id=1, moneda="MXN")
+        },
+    )
+    monkeypatch.setattr(fw, "estado_disponibilidad", lambda *_a, **_k: {"estado": "desconocido"})
+
+    def fake_adjuntar(_conn, listing_ids, *, as_of):
+        as_of_estimacion.append(as_of)
+        from app.estimacion_proyeccion import proyeccion_s5
+
+        return {lid: proyeccion_s5(None) for lid in listing_ids}
+
+    monkeypatch.setattr(fw, "adjuntar_estimaciones", fake_adjuntar)
+    res = fw.evaluacion(conn, "amazon_mx", as_of=as_of_historico)
+    assert res["ventana_ads"] == {"desde": desde.isoformat(), "hasta": hasta.isoformat()}
+    assert params_ads == [("amazon_mx", desde, hasta)]
+    assert as_of_estimacion == [as_of_historico]
+    assert res["as_of"] == as_of_historico.isoformat()
+
+
 def test_evaluacion_us_muestra_ads_en_usd_aunque_economia_venga_mxn(monkeypatch):
     """Hallazgo cross-review codex 2026-09-07 (sin DB, adaptador puro): el
     perfil manda la moneda de Ads; para amazon_us las cifras Ads (USD) no se

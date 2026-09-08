@@ -30,7 +30,7 @@ const componentes = [
     fecha_fuente: "2026-09-08",
     observed_at: "2026-09-08T12:00:00+00:00",
     vigencia: "2026-09-08",
-    estado: "incluido",
+    estado: null,
     pertenencia: true,
     unidad: "1",
   },
@@ -264,13 +264,38 @@ async function main() {
     for (const needle of [
       "fecha 2026-09-08",
       "vigencia 2026-09-08",
-      "estado incluido",
       "pertenece al total",
     ]) {
       if (!detalle.includes(needle)) {
         throw new Error("falta en desglose: " + needle);
       }
     }
+    if (/estado incluido/.test(detalle)) {
+      throw new Error("estado inventado desde pertenencia");
+    }
+
+    const pubs = page.locator("#fabrica-productos .fabrica-publicacion");
+    const card = pubs.nth(0);
+    const next = pubs.nth(1);
+    const detLoc = card.locator(":scope > details.fabrica-estimacion-detalle");
+    const [cardBox, detBox, nextBox] = await Promise.all([
+      card.boundingBox(),
+      detLoc.boundingBox(),
+      next.boundingBox(),
+    ]);
+    if (!cardBox || !detBox || !nextBox) throw new Error("faltan bounding boxes");
+    const tol = 1;
+    const detBottom = detBox.y + detBox.height;
+    const cardBottom = cardBox.y + cardBox.height;
+    if (detBottom > cardBottom + tol) {
+      throw new Error(`detalle fuera de la card: ${detBottom} > ${cardBottom}`);
+    }
+    if (nextBox.y + tol < detBottom) {
+      throw new Error(
+        `siguiente pub solapa detalle: top=${nextBox.y} detBottom=${detBottom}`,
+      );
+    }
+
     await page.locator("#fabrica-productos").screenshot({
       path: path.join(OUT, "detalle-abierto-noche-390.jpg"),
       type: "jpeg",

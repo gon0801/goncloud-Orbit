@@ -636,10 +636,14 @@ def test_catalogo_y_evaluacion_estimacion_mismo_snapshot(escenario, monkeypatch)
 
 
 def test_evaluacion_reutiliza_as_of_de_catalogo(escenario, monkeypatch):
-    """El cliente puede fijar el mismo corte sin depender de datetime.now."""
+    """El cliente puede fijar el mismo corte sin depender de datetime.now.
+
+    La ventana Ads sigue el reloj del segundo GET, no el as_of historico.
+    """
     cliente, conn, _, fw, ids = escenario
     lid = _listing_mx(conn, ids[0])
     corte_catalogo = dt.datetime(2026, 9, 8, 18, 0, tzinfo=dt.UTC)
+    reloj_eva = dt.datetime(2026, 9, 10, 19, 0, tzinfo=dt.UTC)
     llamadas = []
 
     def fake_leer(_conn, listing_ids, *, as_of):
@@ -657,19 +661,13 @@ def test_evaluacion_reutiliza_as_of_de_catalogo(escenario, monkeypatch):
     cat = cliente.get("/api/fabrica/catalogo?plataforma=amazon_mx")
     assert cat.status_code == 200
     as_of_iso = cat.json()["as_of"]
-    # Segundo GET con reloj distinto: sin as_of query fallaria el corte;
-    # con as_of del catalogo debe reutilizar el mismo instante.
     monkeypatch.setattr(
         fw.dt,
         "datetime",
         type(
             "_Reloj2",
             (dt.datetime,),
-            {
-                "now": classmethod(
-                    lambda cls, tz=None: dt.datetime(2026, 9, 8, 19, 0, tzinfo=dt.UTC)
-                )
-            },
+            {"now": classmethod(lambda cls, tz=None: reloj_eva)},
         ),
     )
     eva = cliente.get(
@@ -678,6 +676,13 @@ def test_evaluacion_reutiliza_as_of_de_catalogo(escenario, monkeypatch):
     )
     assert eva.status_code == 200, eva.text
     assert eva.json()["as_of"] == as_of_iso
+    hoy = reloj_eva.date()
+    hasta = hoy - dt.timedelta(days=1)
+    desde = hasta - dt.timedelta(days=30)
+    assert eva.json()["ventana_ads"] == {
+        "desde": desde.isoformat(),
+        "hasta": hasta.isoformat(),
+    }
     assert llamadas == [corte_catalogo, corte_catalogo]
 
 

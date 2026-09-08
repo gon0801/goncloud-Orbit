@@ -182,7 +182,8 @@ def test_proyeccion_s5_detalle_omitido_si_no_hay_numero_congelado():
     assert sobre["detalle"] is None
 
 
-def test_proyeccion_s5_preserva_procedencia_de_componentes():
+def test_proyeccion_s5_no_inventa_procedencia_sin_refs():
+    """Sin ProcedenciaRefs: solo fecha persistida y pertenencia; resto None."""
     from app.estimacion_proyeccion import proyeccion_s5
 
     observado = datetime(2026, 9, 8, 18, 0, tzinfo=UTC)
@@ -205,32 +206,40 @@ def test_proyeccion_s5_preserva_procedencia_de_componentes():
                     "moneda_normalizada": "MXN",
                     "fuente": "politica",
                     "tasa": "0.025",
-                    "fecha": "2026-09-08",
                     "pertenece_a_total": True,
+                },
+                {
+                    "nombre": "fx",
+                    "fecha": "2026-09-04",
+                    "fuente": "nearest_prior",
+                    "pertenece_a_total": False,
                 },
                 {"nombre": "costo_original", "pertenece_a_total": False},
                 {"nombre": "fee_detalle:ReferralFee", "pertenece_a_total": False},
+                {"nombre": "precio_bruto", "pertenece_a_total": True},
             ],
         )
     )
-    isr, costo, fee = sobre["componentes"]
-    for comp in (isr, costo, fee):
+    isr, fx, costo, fee, precio = sobre["componentes"]
+    for comp in (isr, fx, costo, fee, precio):
         assert set(CLAVES_COMPONENTE) <= set(comp)
         assert "tasa" not in comp
         assert "fecha" not in comp
         assert "pertenece_a_total" not in comp
-        assert comp["observed_at"] == observado.isoformat()
-    assert isr["fecha_fuente"] == "2026-09-08"
-    assert isr["vigencia"] == "2026-09-08"
-    assert isr["estado"] == "incluido"
+        assert comp["observed_at"] is None
+        assert comp["estado"] is None
+    assert isr["fecha_fuente"] is None
+    assert isr["vigencia"] is None
     assert isr["pertenencia"] is True
+    assert fx["fecha_fuente"] == "2026-09-04"
+    assert fx["vigencia"] is None
+    assert fx["pertenencia"] is False
     assert costo["pertenencia"] is False
-    assert costo["estado"] == "excluido_del_total"
-    assert costo["vigencia"] == "2026-09-08T08:15:02+00:00"
-    assert costo["importe_original"] is None
+    assert costo["vigencia"] is None
     assert fee["pertenencia"] is False
-    assert fee["estado"] == "excluido_del_total"
-    assert fee["vigencia"] == "2026-09-08"
+    assert fee["vigencia"] is None
+    assert precio["fecha_fuente"] is None
+    assert precio["pertenencia"] is True
     assert sobre["escenario"] == {
         "unidad": "1",
         "canal": "fba",
@@ -239,6 +248,46 @@ def test_proyeccion_s5_preserva_procedencia_de_componentes():
         "version_politica": 3,
     }
     assert sobre["exclusiones"] == ["ads"]
+
+
+def test_proyeccion_s5_mapea_procedencia_desde_refs_reales():
+    from app.estimacion_proyeccion import proyeccion_s5
+    from app.estimacion_repository import ProcedenciaRefs
+
+    refs = ProcedenciaRefs(
+        oferta_fetched_at=datetime(2026, 9, 8, 18, 35, 40, tzinfo=UTC),
+        oferta_observed_at=datetime(2026, 9, 8, 18, 40, 0, tzinfo=UTC),
+        fee_fees_estimated_at=datetime(2026, 9, 8, 19, 10, 55, tzinfo=UTC),
+        fee_observed_at=datetime(2026, 9, 8, 19, 11, 0, tzinfo=UTC),
+        costo_valid_from=date(2026, 8, 18),
+        costo_valid_to=None,
+        politica_valid_from=date(2026, 1, 1),
+        politica_valid_to=None,
+    )
+    sobre = proyeccion_s5(
+        _escenario(
+            procedencia=refs,
+            componentes=[
+                {"nombre": "precio_bruto", "pertenece_a_total": True},
+                {"nombre": "fee_total", "pertenece_a_total": True},
+                {"nombre": "costo_original", "pertenece_a_total": True},
+                {"nombre": "isr", "pertenece_a_total": True},
+            ],
+        )
+    )
+    precio, fee, costo, isr = sobre["componentes"]
+    assert precio["fecha_fuente"] == refs.oferta_fetched_at.isoformat()
+    assert precio["observed_at"] == refs.oferta_observed_at.isoformat()
+    assert precio["vigencia"] is None
+    assert precio["estado"] is None
+    assert fee["fecha_fuente"] == refs.fee_fees_estimated_at.isoformat()
+    assert fee["observed_at"] == refs.fee_observed_at.isoformat()
+    assert costo["vigencia"] == "2026-08-18"
+    assert costo["fecha_fuente"] is None
+    assert costo["observed_at"] is None
+    assert isr["vigencia"] == "2026-01-01"
+    assert isr["estado"] is None
+    assert isr["pertenencia"] is True
 
 
 def test_adjuntar_estimaciones_rechaza_as_of_naive():

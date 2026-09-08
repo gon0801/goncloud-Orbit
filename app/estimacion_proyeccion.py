@@ -4,20 +4,23 @@ GET catalogo/evaluacion no recalculan. Overlay de frescura vive en el reader.
 detalle siempre esta en el sobre: None si estado==disponible o si el
 resultado congelado no trae contribucion ni contribucion_pct.
 
-Procedencia de componentes: mapea `fecha` persistida a `fecha_fuente`, toma
-`observed_at` del escenario si el componente no lo trae, y deriva vigencia
-y estado desde el componente / entrada canónica sin inventar importes.
+Procedencia de componentes: solo campos reales.
+- `fecha` persistida -> `fecha_fuente` (p.ej. FX).
+- refs del reader (oferta/fee/costo/politica) rellenan fecha_fuente,
+  observed_at y vigencia cuando el JOIN las trae.
+- `estado` solo si viene en el componente; nunca se inventa desde pertenencia.
+- `pertenencia` renombra `pertenece_a_total`.
 unidad del escenario = "1" (acta 0.3: una unidad vendible por listing).
 """
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 import psycopg
 
-from app.estimacion_repository import EscenarioLeido, leer_escenarios
+from app.estimacion_repository import EscenarioLeido, ProcedenciaRefs, leer_escenarios
 
 # Acta 0.3 / spec S1: un listing modela una unidad vendible; no hay kits.
 UNIDAD_ESCENARIO_V1 = "1"
@@ -33,6 +36,12 @@ _CLAVES_ESCENARIO = (
 
 def _str_o_none(valor: Any) -> str | None:
     return str(valor) if valor is not None else None
+
+
+def _iso_o_none(valor: datetime | date | None) -> str | None:
+    if valor is None:
+        return None
+    return valor.isoformat()
 
 
 def _sobre_ausente() -> dict:
@@ -65,7 +74,7 @@ def _pertenencia(raw: dict[str, Any]) -> bool | None:
     return None
 
 
-def _fecha_fuente(raw: dict[str, Any]) -> str | None:
+def _fecha_fuente_persistida(raw: dict[str, Any]) -> str | None:
     if raw.get("fecha_fuente") is not None:
         return _str_o_none(raw.get("fecha_fuente"))
     if raw.get("fecha") is not None:
@@ -73,50 +82,56 @@ def _fecha_fuente(raw: dict[str, Any]) -> str | None:
     return None
 
 
-def _observed_at_componente(raw: dict[str, Any], escenario: EscenarioLeido) -> str | None:
-    if raw.get("observed_at") is not None:
-        return _str_o_none(raw.get("observed_at"))
-    if escenario.observed_at is not None:
-        return escenario.observed_at.isoformat()
-    return None
+def _es_precio(nombre: str) -> bool:
+    return nombre in ("precio_bruto", "ingreso_normalizado")
 
 
-def _vigencia_componente(raw: dict[str, Any], escenario: EscenarioLeido) -> str | None:
-    if raw.get("vigencia") is not None:
-        return _str_o_none(raw.get("vigencia"))
-    entrada = (escenario.canonical_input or {}).get("entrada") or {}
+def _es_fee(nombre: str) -> bool:
+    return nombre == "fee_total" or nombre.startswith("fee")
+
+
+def _es_costo(nombre: str) -> bool:
+    return nombre.startswith("costo")
+
+
+def _es_politica_comp(nombre: str) -> bool:
+    return nombre in ("isr", "logistica", "retencion_iva_conciliacion")
+
+
+def _procedencia_componente(
+    raw: dict[str, Any], refs: ProcedenciaRefs | None
+) -> tuple[str | None, str | None, str | None, str | None]:
+    """fecha_fuente, observed_at, vigencia, estado — sin inventar."""
+    fecha_fuente = _fecha_fuente_persistida(raw)
+    observed_at = _str_o_none(raw.get("observed_at"))
+    vigencia = _str_o_none(raw.get("vigencia"))
+    estado = _str_o_none(raw.get("estado"))
     nombre = raw.get("nombre") or ""
-    if nombre in ("costo_original", "costo_normalizado") or nombre.startswith("costo"):
-        return _str_o_none(entrada.get("costo_validated_at"))
-    if nombre == "fx":
-        return _str_o_none(entrada.get("fx_rate_date"))
-    if (
-        nombre.startswith("fee")
-        or nombre
-        in (
-            "precio_bruto",
-            "ingreso_normalizado",
-            "logistica",
-            "isr",
-            "retencion_iva_conciliacion",
-        )
-    ) and escenario.valoracion_date is not None:
-        return escenario.valoracion_date.isoformat()
-    return None
-
-
-def _estado_componente(raw: dict[str, Any]) -> str | None:
-    if raw.get("estado") is not None:
-        return _str_o_none(raw.get("estado"))
-    pertenencia = _pertenencia(raw)
-    if pertenencia is False:
-        return "excluido_del_total"
-    if pertenencia is True:
-        return "incluido"
-    return None
+    if refs is None:
+        return fecha_fuente, observed_at, vigencia, estado
+    if _es_precio(nombre):
+        if fecha_fuente is None:
+            fecha_fuente = _iso_o_none(refs.oferta_fetched_at)
+        if observed_at is None:
+            observed_at = _iso_o_none(refs.oferta_observed_at)
+    elif _es_fee(nombre):
+        if fecha_fuente is None:
+            fecha_fuente = _iso_o_none(refs.fee_fees_estimated_at)
+        if observed_at is None:
+            observed_at = _iso_o_none(refs.fee_observed_at)
+    elif _es_costo(nombre):
+        if vigencia is None:
+            vigencia = _iso_o_none(refs.costo_valid_from)
+    elif _es_politica_comp(nombre):
+        if vigencia is None:
+            vigencia = _iso_o_none(refs.politica_valid_from)
+    return fecha_fuente, observed_at, vigencia, estado
 
 
 def _componente_s5(raw: dict[str, Any], escenario: EscenarioLeido) -> dict[str, Any]:
+    fecha_fuente, observed_at, vigencia, estado = _procedencia_componente(
+        raw, escenario.procedencia
+    )
     return {
         "nombre": raw["nombre"],
         "importe_original": _str_o_none(raw.get("importe_original")),
@@ -124,10 +139,10 @@ def _componente_s5(raw: dict[str, Any], escenario: EscenarioLeido) -> dict[str, 
         "importe_normalizado": _str_o_none(raw.get("importe_normalizado")),
         "moneda_normalizada": raw.get("moneda_normalizada"),
         "fuente": raw.get("fuente"),
-        "fecha_fuente": _fecha_fuente(raw),
-        "observed_at": _observed_at_componente(raw, escenario),
-        "vigencia": _vigencia_componente(raw, escenario),
-        "estado": _estado_componente(raw),
+        "fecha_fuente": fecha_fuente,
+        "observed_at": observed_at,
+        "vigencia": vigencia,
+        "estado": estado,
         "pertenencia": _pertenencia(raw),
     }
 

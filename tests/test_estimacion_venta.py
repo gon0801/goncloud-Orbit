@@ -2042,3 +2042,122 @@ def test_pipeline_no_http_dentro_de_transaccion(tmp_path):
         ejecutar_ingesta(proxy, ruta_sqlite=snap, now_utc=NOW, client=client)
         conn.commit()
         assert not any(tx_durante_http), f"TX abierta durante HTTP: {tx_durante_http}"
+
+
+@_skip_db
+def test_b3_recorrido_persistido_proyeccion_s5_ac14():
+    """B.3: siembra→persist→reader→proyeccion S5 en DB aislada (0028+politica).
+
+    Numeros del caso vivo listing 1213 (P=988, C=341, F=191.76). Demuestra
+    snapshot_id y procedencia real sin desplegar produccion.
+    """
+    import json
+
+    from app.estimacion_proyeccion import proyeccion_s5
+    from app.estimacion_repository import (
+        leer_escenarios,
+        persistir_escenario,
+        sembrar_escenario_desde_refs,
+    )
+
+    p = Decimal("988.0000")
+    c = Decimal("341.0000")
+    f_total = Decimal("191.7600")
+    fees_json = [
+        {"fee_type": "ReferralFee", "final_fee": "127.7600", "tax_amount": None},
+        {"fee_type": "FBAFees", "final_fee": "64.0000", "tax_amount": None},
+    ]
+    fetch_oferta = datetime(2026, 9, 8, 18, 35, 40, tzinfo=UTC)
+    fee_time = datetime(2026, 9, 8, 19, 10, 55, tzinfo=UTC)
+    obs_oferta = datetime(2026, 9, 8, 18, 40, 0, tzinfo=UTC)
+    obs_fee = datetime(2026, 9, 8, 19, 11, 0, tzinfo=UTC)
+    obs_esc = obs_fee + timedelta(microseconds=1)
+
+    with db_estimacion(prefijo="orbit_margen_b3") as conn:
+        pid, lid = _sembrar_listing(
+            conn, odoo_sku="SK-YBQX", asin="B0C8RVWG4F", seller_sku="SK-YBQX-XQWV"
+        )
+        run_id = conn.execute(
+            "INSERT INTO ingest_run (source, started_at, finished_at, rows_written,"
+            " rows_skipped, ok) VALUES ('accounting_sku_costs', %s, %s, 1, 0, TRUE)"
+            " RETURNING id",
+            (FETCH, FETCH),
+        ).fetchone()[0]
+        cost_id = conn.execute(
+            "INSERT INTO sku_cost (product_id, cost_amount, cost_currency, includes_tax,"
+            " valid_from, ingest_run_id) VALUES (%s, %s, 'MXN', FALSE, '2026-08-18', %s)"
+            " RETURNING id",
+            (pid, c, run_id),
+        ).fetchone()[0]
+        huella = f"fba:{p}:MXN:{fetch_oferta.isoformat()}"
+        oid = conn.execute(
+            "INSERT INTO estimacion_oferta_observation"
+            " (listing_id, platform, seller_sku, asin, canal, price_amount, price_currency,"
+            " fetched_at, observed_at, source_event_id, canonical_input, context_fingerprint)"
+            " VALUES (%s, 'amazon_mx', 'SK-YBQX-XQWV', 'B0C8RVWG4F', 'fba', %s, 'MXN',"
+            " %s, %s, 'evt-b3-oferta', '{}'::jsonb, %s) RETURNING id",
+            (lid, p, fetch_oferta, obs_oferta, huella),
+        ).fetchone()[0]
+        fid = conn.execute(
+            "INSERT INTO estimacion_fee_observation"
+            " (oferta_observation_id, listing_id, platform, seller_sku, asin, canal,"
+            " quoted_price_amount, quoted_price_currency, total_fees, fees_estimated_at,"
+            " fetched_at, observed_at, estado, source_event_id, canonical_input,"
+            " context_fingerprint, fee_details)"
+            " VALUES (%s, %s, 'amazon_mx', 'SK-YBQX-XQWV', 'B0C8RVWG4F', 'fba', %s, 'MXN',"
+            " %s, %s, %s, %s, 'success', 'evt-b3-fee', '{}'::jsonb, %s, %s) RETURNING id",
+            (oid, lid, p, f_total, fee_time, obs_fee, obs_fee, huella, Json(fees_json)),
+        ).fetchone()[0]
+        conn.commit()
+        esc = sembrar_escenario_desde_refs(
+            conn,
+            listing_id=lid,
+            oferta_observation_id=oid,
+            fee_observation_id=fid,
+            valoracion_date=VALORACION,
+            observed_at=obs_esc,
+        )
+        pers = persistir_escenario(conn, esc)
+        conn.commit()
+        leidos = leer_escenarios(conn, [lid], as_of=obs_esc + timedelta(minutes=1))
+        assert len(leidos) == 1
+        leido = leidos[0]
+        assert leido.id == pers.id
+        assert leido.procedencia is not None
+        assert leido.procedencia.oferta_fetched_at == fetch_oferta
+        assert leido.procedencia.fee_fees_estimated_at == fee_time
+        assert leido.procedencia.costo_valid_from == date(2026, 8, 18)
+        assert leido.procedencia.politica_valid_from == date(2026, 1, 1)
+        sobre = proyeccion_s5(leido)
+        assert sobre["snapshot_id"] == pers.id
+        assert sobre["estado"] == "disponible"
+        assert Decimal(sobre["contribucion"]) == Decimal("297.6710")
+        assert Decimal(sobre["contribucion_pct"]) == Decimal("34.9492")
+        por_nombre = {c["nombre"]: c for c in sobre["componentes"]}
+        assert por_nombre["precio_bruto"]["fecha_fuente"] == fetch_oferta.isoformat()
+        assert por_nombre["precio_bruto"]["observed_at"] == obs_oferta.isoformat()
+        assert por_nombre["fee_total"]["fecha_fuente"] == fee_time.isoformat()
+        assert por_nombre["costo_original"]["vigencia"] == "2026-08-18"
+        assert por_nombre["isr"]["vigencia"] == "2026-01-01"
+        assert por_nombre["isr"]["estado"] is None
+        evidencia = {
+            "modo": "db_aislada_0028",
+            "listing_id_simulado": lid,
+            "asin": "B0C8RVWG4F",
+            "seller_sku": "SK-YBQX-XQWV",
+            "snapshot_id": pers.id,
+            "sku_cost_id": cost_id,
+            "oferta_observation_id": oid,
+            "fee_observation_id": fid,
+            "contribucion": sobre["contribucion"],
+            "contribucion_pct": sobre["contribucion_pct"],
+            "procedencia": {
+                "oferta_fetched_at": fetch_oferta.isoformat(),
+                "fee_fees_estimated_at": fee_time.isoformat(),
+                "costo_valid_from": "2026-08-18",
+                "politica_valid_from": "2026-01-01",
+            },
+            "match_hoja_ac14": True,
+        }
+        dest = ROOT / "docs/evidencia/margen-estimado-01/B.3/recorrido-persistido-1213.json"
+        dest.write_text(json.dumps(evidencia, indent=2) + "\n", encoding="utf-8")

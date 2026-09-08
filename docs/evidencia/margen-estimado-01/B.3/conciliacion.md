@@ -18,8 +18,20 @@ Universo: Amazon MX, canal FBA. FBM y US fuera. Sin relleno de ausencias.
 | seller_sku | SK-YBQX-XQWV | `listing.seller_sku` |
 | Canal | fba | `disponibilidad_observation.fuente='fba'` (qty 200) + bridge `AMAZON_NA` |
 | valoracion_date | 2026-09-08 | dia UTC de la conciliacion |
-| snapshot_id escenario | n/a | tablas 0028 ausentes en prod |
+| snapshot_id escenario | 1 (DB aislada) | `recorrido-persistido-1213.json`; prod sin 0028 |
 | Ventas observadas | ninguna | sin fila en `v_margen_producto` para `(product_id=308, amazon_mx)` |
+
+## Recorrido persistido (DB aislada, sin prod)
+
+En Postgres efímero con `0001`+`0028` y semilla de política FBA MX:
+
+1. Oferta/fee/costo sembrados con los mismos importes del caso vivo.
+2. `sembrar_escenario_desde_refs` → `persistir_escenario` → `snapshot_id=1`.
+3. `leer_escenarios` JOINea procedencia real (fetched_at, TimeOfFeesEstimation, valid_from).
+4. `proyeccion_s5` entrega contribucion **297.6710** / 34.9492% y timestamps reales.
+
+Evidencia: `recorrido-persistido-1213.json`. Test:
+`tests/test_estimacion_venta.py::test_b3_recorrido_persistido_proyeccion_s5_ac14`.
 
 ## Componentes (cada uno contra su origen)
 
@@ -61,8 +73,10 @@ conciliado con `Σ FinalFee`, `L = 0` porque FBA ya va en `F`,
 | ¿C cuadra con sku_cost del dia? | Si | 341.0000 vigente; corrida 124 ok |
 | ¿F cuadra con la quote del mismo snapshot? | Si | 191.76 = Σ FinalFee; echo precio/SKU/FBA |
 | ¿R cuadra con la politica? | Si | 21.2931 = 0.025 × 851.7241 |
-| ¿La contribucion de esta hoja cuadra con Orbit? | n/a (sin escenario en prod) | Cuadra con `calcular_contribucion`: estado `disponible`, 297.6710 MXN, 34.9492% |
+| ¿La contribucion de esta hoja cuadra con Orbit? | Si (DB aislada) | snapshot_id=1, misma formula; prod sin tablas 0028 |
 | ¿Hay ventas comparables para contrastar estimado vs real? | No | Sin ventas observadas; no se inventa contraste |
 
-Evidencia anexa: `fees-product-fees-1213.json`, `calculo-independiente-1213.json`.
-Estado: **AC14 cerrado en B.3** sin aplicar 0028 ni esperar B.5.
+Evidencia anexa: `fees-product-fees-1213.json`, `calculo-independiente-1213.json`,
+`recorrido-persistido-1213.json`.
+Estado: **AC14 cerrado en B.3** (fuentes vivas + recorrido persistido aislado)
+sin aplicar 0028 a produccion ni esperar B.5.

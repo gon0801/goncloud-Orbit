@@ -18,6 +18,7 @@ ORBIT_SMOKE_PORT=8767 node smoke_playwright.mjs
 | Etiqueta «Contribución estimada por venta · Antes de Ads» | OK |
 | Motivos legibles (`fee_ausente`, `politica_ausente` → español) | OK; sin codigos crudos |
 | Overflow horizontal a 390 px (`documentElement.scrollWidth ≤ clientWidth`) | OK |
+| Detalle abierto dentro de la card (bbox detalle ≤ card; no solapa siguiente) | OK |
 | Tema dia / noche (`data-tema`) + capturas | OK |
 | Foco teclado en `summary` del desglose + Enter abre | OK |
 | Desglose muestra fecha / vigencia / estado / pertenencia | OK |
