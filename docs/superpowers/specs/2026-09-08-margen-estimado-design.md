@@ -1,5 +1,9 @@
 # MARGEN ESTIMADO 01 — Estimacion por venta antes de Ads
 
+> Spec, insumo de `plans/margen-estimado-01.md` (plan propuesto,
+> no iniciado). El índice de planes/pendientes se escribe solo
+> en `plans/ROADMAP.md`.
+
 Estado: propuesta formal para ejecucion por bloques, 2026-09-08 UTC.
 Autorizacion: el dueno respondio «ok» a formalizar el margen estimado para
 productos nuevos. Esta entrega documenta el plan; no implementa ni autoriza gasto.

@@ -1,5 +1,8 @@
 # Banda de cero ventas + guarda de entidad sin trafico — APROBADA por el dueno el 2026-09-03 (A' + C; B no)
 
+> Spec histórico, insumo de `plans/bids-01.md`. El índice de
+> planes/pendientes se escribe solo en `plans/ROADMAP.md`.
+
 > **ESTADO: APROBADA (2026-09-03).** Lo de abajo es la propuesta original del
 > 2026-08-26 tal cual se escribio; las decisiones selladas del dueno y los
 > ajustes que cambian la propuesta van en esta seccion, que MANDA sobre el

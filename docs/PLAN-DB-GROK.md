@@ -1,5 +1,9 @@
 # Plan de implementación — correcciones del esquema (ronda cross-review grok)
 
+> HISTÓRICO, cerrado en PR #1 (esquema inicial). Los planes vivos
+> se escriben en `plans/` y el índice de planes/pendientes solo
+> en `plans/ROADMAP.md`.
+
 > **Para quien implementa (deepseek):** repo `C:/dev/goncloud-Orbit`, Windows,
 > Git Bash. Archivos a tocar: `migrations/0001_initial.sql`, `pyproject.toml`,
 > `docs/DATABASE.md`, y si algo cambia de invariantes, `tests/test_schema.py`.

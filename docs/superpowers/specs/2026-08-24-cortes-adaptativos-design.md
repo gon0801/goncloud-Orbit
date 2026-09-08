@@ -1,5 +1,8 @@
 # Cortes adaptativos per-producto (NEGATIVE_EXACT + PAUSE) — v4
 
+> Spec histórico, insumo de `plans/cortes-01.md`. El índice de
+> planes/pendientes se escribe solo en `plans/ROADMAP.md`.
+
 > Spec aprobado por el dueño (2026-08-24) vía brainstorming estructurado;
 > v2 tras ronda 1 de cross-review (codex 4A+4M, grok 3A+7M — todo
 > incorporado; el dueño selló además el PISO del umbral). Problema: los
