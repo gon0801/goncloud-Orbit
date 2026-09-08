@@ -4,6 +4,12 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-08 UTC — MARGEN ESTIMADO 01, bloque 0 investigado; A/B no liberados.**
+0.1/0.2 verificaron precio/canal fechado en bridge, costos/FX y Product Fees
+para FBM MX/US y FBA US. Faltan fuente prospectiva de retenciones y logística
+FBM, contexto FBA MX y cadencia de precio; `0.3/acta.md` deja A/B bloqueados.
+No se implementó cálculo ni se tocaron campañas, targets o Reputación.
+
 **2026-09-08 UTC — MARGEN ESTIMADO 01 formalizado, sin implementacion.**
 Plan `plans/margen-estimado-01.md`: 12 tareas en bloques 0/A/B. Propone
 contribucion estimada por venta antes de Ads, separada del margen observado.

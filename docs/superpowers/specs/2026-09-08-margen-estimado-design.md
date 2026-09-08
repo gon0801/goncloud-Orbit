@@ -230,3 +230,15 @@ Despliegue solo Orbit con backup y migracion aditiva; ensayo antes de publicar.
 Reversa desactiva la ingesta nueva y retira la proyeccion UI/API manteniendo
 observaciones y la recuperacion v1/v2. No DROP ni rollback del codigo de otra
 sesion. Reputacion, bridge y accounting permanecen fuera del alcance.
+
+## S8. Resultado del bloque 0 (2026-09-08 UTC)
+
+0.1 y 0.2 confirmaron precio/canal fechado en bridge, costo y FX reutilizables,
+y Product Fees accesible para FBM MX/US y FBA US. No completaron el contrato:
+retenciones prospectivas, logística FBM, contexto FBA MX y cadencia de precio
+siguen sin fuente vigente cerrada. Acta y evidencia:
+`docs/evidencia/margen-estimado-01/0.1/`, `0.2/`, `0.3/acta.md`.
+
+Por ello ninguna implementación A/B queda liberada. El estado correcto ante esos
+huecos sigue siendo `incompleta` o `desactualizada`, con principal `null`; no se
+degrada a precio menos costo ni se convierte la tarifa histórica en default.
