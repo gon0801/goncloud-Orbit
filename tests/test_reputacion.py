@@ -31,10 +31,14 @@ from app.reputacion import (
     MeliCredentials,
     ReputacionError,
     ejecuta_snapshot,
+    plan_question,
+    plan_seller,
     plan_snapshot_junglee,
     plan_snapshot_meli,
     sync_amazon,
     sync_meli,
+    sync_questions,
+    sync_seller,
 )
 
 _skip_db = pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres")
@@ -95,6 +99,48 @@ _REVIEWS_VACIAS = {
         "five_star": 0,
     },
     "reviews": [],
+}
+_USER_REP = {
+    "id": 135734858,
+    "seller_reputation": {
+        "level_id": "5_green",
+        "power_seller_status": "silver",
+        "transactions": {
+            "total": 662,
+            "completed": 635,
+            "canceled": 27,
+            "ratings": {"positive": 1, "neutral": 0, "negative": 0},
+        },
+    },
+}
+_CLAIMS = {
+    "paging": {"total": 2, "limit": 50, "offset": 0},
+    "data": [
+        {"id": 1, "resource": "order", "status": "open", "stage": "dispute"},
+        {"id": 2, "resource": "order", "status": "closed", "stage": "dispute"},
+    ],
+}
+_QUESTIONS = {
+    "total": 2,
+    "limit": 50,
+    "questions": [
+        {
+            "id": 13550511917,
+            "item_id": "MLM1",
+            "status": "UNANSWERED",
+            "date_created": "2026-03-25T12:31:13.243906-04:00",
+            "text": "Tiene costo extra?",
+            "answer": None,
+        },
+        {
+            "id": 13528531156,
+            "item_id": "MLM1",
+            "status": "ANSWERED",
+            "date_created": "2026-02-18T21:32:09.655275-04:00",
+            "text": "De que ciudad envian?",
+            "answer": {"text": "Se envia de CDMX", "date_created": "2026-02-19T11:57:00-04:00"},
+        },
+    ],
 }
 _JUNGLEE_ITEM = {
     "input": "https://www.amazon.com.mx/dp/B0HIJO",
@@ -331,7 +377,12 @@ def test_junglee_respuesta_no_lista(tmp_path):
 # ---------------------------------------------------------------------------
 
 ROOT = Path(__file__).resolve().parents[1]
-ORDEN = ("0001_initial.sql", "0024_reputacion.sql", "0025_reputacion_sin_fk.sql")
+ORDEN = (
+    "0001_initial.sql",
+    "0024_reputacion.sql",
+    "0025_reputacion_sin_fk.sql",
+    "0026_reputacion_preguntas_reobservacion.sql",
+)
 
 
 @contextmanager
@@ -384,6 +435,12 @@ def _mock_meli_completo():
             return httpx.Response(200, json={"id": "MLM0", "status": "active"})
         if path == "/reviews/item/MLM0":
             return httpx.Response(200, json=_REVIEWS_VACIAS)
+        if path == "/users/135734858":
+            return httpx.Response(200, json=_USER_REP)
+        if path == "/post-purchase/v1/claims/search":
+            return httpx.Response(200, json=_CLAIMS)
+        if path == "/questions/search":
+            return httpx.Response(200, json=_QUESTIONS)
         return httpx.Response(404, json={"error": "no mockeado"})
 
     return httpx.MockTransport(handler)
@@ -484,8 +541,11 @@ def test_ejecuta_snapshot_meli_fin_a_fin(tmp_path, monkeypatch, capsys):
         )
         assert codigo == 0
         resumen = json.loads(capsys.readouterr().out)
-        assert resumen["filas_insertadas"] == 4 and resumen["run_id"] is not None
+        # 4 snapshots/reviews + 1 seller + 2 questions.
+        assert resumen["filas_insertadas"] == 7
+        assert sorted(resumen["run_ids"]) == ["questions", "seller", "snapshots"]
         assert conn.execute("SELECT count(*) FROM review_event").fetchone()[0] == 2
+        assert conn.execute("SELECT count(*) FROM meli_question").fetchone()[0] == 2
 
 
 @_skip_db
@@ -512,3 +572,75 @@ def test_cli_snapshot_rechaza_rest_y_fecha(monkeypatch):
     monkeypatch.setenv("ORBIT_DSN_INGEST", "postgresql://u:p@h/db")
     assert app_cli.main(["reputacion", "snapshot", "--fuente", "meli", "--noexiste"]) == 2
     assert app_cli.main(["reputacion", "snapshot", "--fuente", "meli", "--fecha", "ayer"]) == 2
+
+
+# ---------------------------------------------------------------------------
+# A.4: seller + questions
+# ---------------------------------------------------------------------------
+
+
+def test_plan_seller_shape_e03():
+    plan = plan_seller(_USER_REP["seller_reputation"], _CLAIMS["data"], FETCH)
+    assert plan.level_id == "5_green"
+    assert plan.power_seller == "silver"
+    assert (plan.tx_total, plan.tx_completed, plan.tx_canceled) == (662, 635, 27)
+    assert (plan.ratings_positive, plan.ratings_neutral, plan.ratings_negative) == (1, 0, 0)
+    assert plan.disputas_total == 2
+    assert plan.disputas_abiertas == 1  # open si, closed no
+
+
+def test_plan_question_estados():
+    sin_responder = plan_question("MLM1", _QUESTIONS["questions"][0], FETCH)
+    assert sin_responder is not None
+    assert sin_responder.estado == "UNANSWERED"
+    assert sin_responder.respuesta is None
+    assert sin_responder.question_external_id == "13550511917"
+    respondida = plan_question("MLM1", _QUESTIONS["questions"][1], FETCH)
+    assert respondida is not None and respondida.estado == "ANSWERED"
+    assert respondida.respuesta == "Se envia de CDMX"
+    assert respondida.answered_at is not None
+
+
+def test_plan_question_desconocida_o_sin_id_es_none():
+    assert plan_question("MLM1", {"id": 1, "status": "PENDING"}, FETCH) is None
+    assert plan_question("MLM1", {"status": "UNANSWERED"}, FETCH) is None
+
+
+@_skip_db
+def test_sync_seller_una_fila_e_idempotente(tmp_path):
+    with db_reputacion() as (conn, _dsn):
+        cliente = ClienteMeli(
+            _creds_meli(tmp_path), transport=_mock_meli_completo(), backoff_base=0
+        )
+        r1 = sync_seller(conn, cliente, OBS, OBS.date())
+        assert r1.filas_insertadas == 1
+        fila = conn.execute(
+            "SELECT level_id, tx_total, disputas_total, disputas_abiertas"
+            " FROM seller_reputation_snapshot"
+        ).fetchone()
+        assert fila == ("5_green", 662, 2, 1)
+        r2 = sync_seller(conn, cliente, OBS, OBS.date())
+        assert (r2.filas_insertadas, r2.filas_idempotentes) == (0, 1)
+        cliente.close()
+
+
+@_skip_db
+def test_sync_questions_reobservacion_y_pendientes(tmp_path):
+    with db_reputacion() as (conn, _dsn):
+        cliente = ClienteMeli(
+            _creds_meli(tmp_path), transport=_mock_meli_completo(), backoff_base=0
+        )
+        r1 = sync_questions(conn, cliente, OBS, OBS.date())
+        assert r1.filas_insertadas == 2
+        # Misma corrida: idempotente; otra corrida: re-observa (0026).
+        r2 = sync_questions(conn, cliente, OBS, OBS.date())
+        assert (r2.filas_insertadas, r2.filas_idempotentes) == (0, 2)
+        obs2 = OBS + dt.timedelta(days=1)
+        r3 = sync_questions(conn, cliente, obs2, obs2.date())
+        assert r3.filas_insertadas == 2
+        pendientes = conn.execute(
+            "SELECT DISTINCT ON (question_external_id) question_external_id, estado"
+            " FROM meli_question ORDER BY question_external_id, observed_at DESC"
+        ).fetchall()
+        assert sorted(e for _, e in pendientes) == ["ANSWERED", "UNANSWERED"]
+        cliente.close()
