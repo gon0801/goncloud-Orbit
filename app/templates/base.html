@@ -27,7 +27,8 @@
     'cortes': ('Propuestas', 'Pendientes de decision · se aplican solas al vencer'),
     'inertes': ('Inertes', 'Hojas activas sin trafico desde 14 dias o mas'),
     'settings': ('Settings', 'Cascada de targets, caps diarios y goals'),
-    'fabrica': ('Crear campañas', 'Un grupo de cinco campañas de Sponsored Products')
+    'fabrica': ('Crear campañas', 'Un grupo de cinco campañas de Sponsored Products'),
+    'reputacion': ('Reputación', 'Rating, reviews, preguntas y alertas por listing')
   } %}
   <a class="saltar-contenido" href="#contenido">Saltar al contenido</a>
   <aside class="sidebar" aria-label="Navegacion principal">
@@ -54,7 +55,10 @@
       {% endfor %}
       <div class="nav-grupo">
         <p class="nav-etiqueta">Catalogo</p>
-        {% for nombre in ['Repricing', 'Reviews', 'Reputacion'] %}
+        {# REPUTACION 01 A.6 (acta 0.5 §6): Reputacion deja "pronto" y el
+           chip Reviews se retira (pestana dentro de /reputacion). #}
+        <a href="/reputacion" {% if pantalla == 'reputacion' %}aria-current="page"{% endif %}>Reputacion</a>
+        {% for nombre in ['Repricing'] %}
         <span class="nav-proximo">{{ nombre }} <span class="chip-proximo">pronto</span></span>
         {% endfor %}
       </div>
