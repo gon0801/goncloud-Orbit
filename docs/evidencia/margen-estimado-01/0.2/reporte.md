@@ -59,6 +59,27 @@ nunca como tasa prospectiva. Finances prueba el acceso técnico, pero no expone
 en esta sonda el RFC de la cuenta ni sustituye el certificado/política fiscal
 vigente que determina la retención siguiente.
 
+### Política MX cerrada
+
+El responsable declara persona física. El contraste de 1,000 órdenes que sí
+tienen `item_price` muestra 953 con IVA retenido dentro de `0.001` puntos de
+8%; el resto tiene ajustes y no define la regla. La noticia vigente de
+[Amazon Seller Central](https://sellercentral.amazon.com.mx/seller-forums/discussions/t/cd2f946a-8cc8-4ad8-b406-c763c7066d45?mons_sel_locale=en_MX)
+publica para persona física mexicana con RFC la retención de 8% IVA y 2.5% ISR
+desde 2026-01-01. Los cargos mensuales de ISR de abril a agosto quedan entre
+2.3496% y 2.7467% de la base `item_price` del mes previo; marzo es una excepción
+documentada y no se convierte en tasa.
+
+Se sella `amazon_mx_pf_rfc_valid_2026_01`: IVA 8% e ISR 2.5% sobre
+`item_price` sin impuesto, con vigencia desde 2026-01-01. La política se activa
+sólo mientras Seller Central mantenga RFC válido; cualquier cambio la deja sin
+política hasta versionarla de nuevo. Detalle sanitizado en
+`retencion-mx-2026-09-08.json`.
+
+No se sella política US: sus 522 ventas y 886 retenciones históricas no tienen
+`item_price` normalizado. No se aplican tasas MX a US ni se usa cero como
+retención.
+
 Que Amazon cobre el envío al comprador tampoco equivale a costo logístico cero.
 En el ledger, 133 de 1,179 ventas MX tienen `shipping_price` positivo; las 522
 US observadas lo tienen nulo. A la vez, Finances devolvió costos MFN
@@ -95,15 +116,15 @@ contrato contable siguen sin identificar. No se aplicó una tasa por suposición
 
 | Mercado/canal | Precio+fecha | Costo | Fee API | Logística | Retención | Estado |
 |---|---|---|---|---|---|---|
-| MX FBM | Bridge sí, cuando hay precio | sí | referencia sí | falta tarifa | falta política | incompleto |
-| MX FBA | Bridge sí, cuando hay precio fresco | sí | fees+FBAFees sí | incluida si el desglose lo acredita | falta política | incompleto |
-| US FBM | Bridge sí, salvo filas viejas/sin precio | sí, convertir MXN→USD | fees sí | falta tarifa | falta política | incompleto |
-| US FBA | Bridge sí, salvo filas viejas/sin precio | sí, convertir MXN→USD | fees+FBAFees sí | incluida sólo si el desglose lo acredita | falta política | incompleto |
+| MX FBM | Bridge sí, cuando hay precio | sí | referencia sí | guía sólo al vender | política PF sellada | incompleto antes de venta |
+| MX FBA | Bridge sí, cuando hay precio fresco | sí | fees+FBAFees sí | incluida si el desglose lo acredita | política PF sellada | soportado |
+| US FBM | Bridge sí, salvo filas viejas/sin precio | sí, convertir MXN→USD | fees sí | guía sólo al vender | sin política | incompleto |
+| US FBA | Bridge sí, salvo filas viejas/sin precio | sí, convertir MXN→USD | fees+FBAFees sí | incluida sólo si el desglose lo acredita | sin política | incompleto |
 
 **Dictamen:** la cotización oficial es viable y el total no se suma de nuevo con
 sus detalles. El costo directo se cubre con el COGS Odoo confirmado. El cálculo
-completo no se libera aún: logística FBM y retenciones no tienen fuente
-prospectiva verificada. Mientras tanto sólo se muestran componentes conocidos y
-el motivo de no calcular, nunca un subtotal llamado contribución completa.
+completo se libera sólo para FBA MX bajo la política sellada; FBM y US conservan
+componentes conocidos y el motivo de no calcular, nunca un subtotal llamado
+contribución completa.
 
 Consulta de respaldo: `select-ledger.sql`. No contiene importes ni IDs.

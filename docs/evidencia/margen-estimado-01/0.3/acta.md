@@ -17,10 +17,12 @@ autoriza implementación A/B, cambios a Ads, precios o campañas.
    detalle para FBM de MX/US y FBA MX/US cuando usa oferta, canal y precio fresco
    de bridge. El total y sus detalles son una misma representación del cargo y
    se deben reconciliar, nunca sumar dos veces.
-4. La liquidación histórica contiene fees, reembolsos y retenciones, pero no es
-   cotización actual ni una regla de cálculo de la siguiente venta. En especial,
-   `isr_withheld` llega sin `order_id`; no existe una base de prorrateo para una
-   publicación sin ventas.
+4. La liquidación histórica contiene fees, reembolsos y retenciones. Para MX,
+   el responsable declara persona física y la política Amazon vigente más las
+   retenciones observadas acreditan IVA 8% e ISR 2.5% sobre `item_price` sin
+   impuesto, con ISR liquidado mensualmente. `isr_withheld` sigue sin
+   `order_id`, por lo que el escenario guarda la retención estimada y concilia
+   contra el certificado mensual; no prorratea el bulto histórico.
 5. Finances Amazon es accesible en lectura y separa cobro de envío de cargos MFN
    variables. Que Amazon cobre el envío al cliente no convierte esos cargos en
    cero ni provee una tarifa prospectiva por oferta.
@@ -31,17 +33,17 @@ autoriza implementación A/B, cambios a Ads, precios o campañas.
    transporte de entrada y embalaje; no hay kits. Esos componentes no se suman
    por segunda vez.
 
-## Alcance que no puede liberar A/B aún
+## Alcance y exclusiones selladas
 
-| Decisión pendiente | Por qué es material | Evidencia necesaria |
+| Mercado/canal | Política sellada | Resultado antes de una venta |
 |---|---|---|
-| Retención prospectiva por mercado | Finances/ledger acreditan eventos reales, pero `isr_withheld` llega sin orden y los porcentajes históricos no son política vigente | Política fiscal vigente de la cuenta: fuente, régimen, base, tasas, vigencia, moneda y tratamiento de ISR/IVA |
-| Logística FBM | Amazon cobra envío al cliente y también registra cargos MFN variables; ninguno es tarifa futura por oferta | Cotización/tarifa vigente de envío/fulfilment/embalaje, o declaración documentada de que otro componente la incluye |
+| MX FBA | `amazon_mx_pf_rfc_valid_2026_01`: COGS completo, fee oficial, IVA 8% e ISR 2.5%; precio bridge fresco ≤6h | Contribución estimada completa, en MXN |
+| MX FBM | La guía depende de pedido/destino y Amazon la registra al vender | Principal `null`, motivo `logistica_fbm_pendiente`; continúa seleccionable y el margen observado usa el costo real después de vender |
+| US FBA/FBM | Ingesta histórica sin `item_price` normalizado ni política fiscal prospectiva US | Principal `null`, motivo `politica_retencion_us_ausente`; continúa seleccionable |
 
-Estas son decisiones de producto, fiscalidad o integración; no se resuelven con
-un default, una tasa histórica ni un cambio de código. Hasta entonces el estado
-correcto de cualquier publicación afectada es `incompleta`/`desactualizada`, con
-motivo, y los valores principales permanecen `null`.
+La exclusión de FBM/US es de la **estimación completa previa a venta**, no de
+catálogo ni campañas. Un componente ausente conserva el principal `null`; no se
+rellena con promedio histórico ni con cero.
 
 ## Contrato que queda sellado para la continuación
 
@@ -51,6 +53,10 @@ motivo, y los valores principales permanecen `null`.
 - Cálculo sólo si todos los componentes obligatorios del alcance acordado están
   completos y son compatibles: `I - C - F - L - R`. Dinero se conserva en su
   moneda de origen; conversión usa `fx_resolve` y guarda tasa/fecha/procedencia.
+- Política MX: aplica sólo con RFC de persona física válido; `R = 8% IVA +
+  2.5% ISR` sobre `item_price` sin impuesto, `effective_from=2026-01-01` y
+  conciliación mensual de ISR. Cambio del RFC o de su validez desactiva la
+  política hasta que se publique otra versión.
 - `margen_neto_pct` observado, muestra limitada, orden inicial, selección,
   objetivo manual, huella, bids, budgets, motor y recuperación permanecen
   intactos. El estimado no genera ACoS de equilibrio ni target.
@@ -62,9 +68,6 @@ motivo, y los valores principales permanecen `null`.
 
 ## Decisión de liberación
 
-**Bloque 0: investigación ejecutada; liberación de A/B bloqueada.** La evidencia
-demuestra factibilidad parcial, no el contrato económico completo. El siguiente
-paso es resolver las dos decisiones de la tabla con la persona responsable de
-fiscalidad/operación. Cuando existan, se enmienda esta acta, se fijan cadencias y
-universo soportado, y se habilita A.1. Si una fuente no se consigue, el alcance
-se reduce explícitamente por mercado/canal; no se rellena el cálculo.
+**Bloque 0: cerrado.** A.1 queda liberada sólo para el universo FBA MX sellado.
+La exclusión explícita de FBM/US satisface los faltantes sin crear cifras falsas;
+ampliar ese universo exige una enmienda de fuente/política antes de tocar A.3.
