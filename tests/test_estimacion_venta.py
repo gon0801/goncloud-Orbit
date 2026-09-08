@@ -883,6 +883,12 @@ def test_ac11_reader_as_of_sin_datos_futuros():
 
         filas = leer_escenarios(conn, [lid], as_of=corte)
         assert len(filas) == 1
+        pk = conn.execute(
+            "SELECT id FROM estimacion_escenario WHERE listing_id = %s"
+            " AND observed_at <= %s ORDER BY observed_at DESC LIMIT 1",
+            (lid, corte),
+        ).fetchone()[0]
+        assert filas[0].id == pk
         assert filas[0].observed_at <= corte
         assert Decimal(str(filas[0].contribucion)) == Decimal("42.5000")
 

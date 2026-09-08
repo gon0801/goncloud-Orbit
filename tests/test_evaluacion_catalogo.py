@@ -651,6 +651,7 @@ _ORDEN_DB = (
     "0020_ads_producto_metrica.sql",
     "0021_economia_observada.sql",
     "0022_disponibilidad_snapshot.sql",
+    "0028_estimacion_venta.sql",
 )
 
 
@@ -737,6 +738,8 @@ def test_endpoint_evaluacion_integra_ads_economia_disponibilidad_y_objetivo():
         assert res["ventana_ads"] == {"desde": desde.isoformat(), "hasta": hasta.isoformat()}
 
         anunciado = por_id[con_ads]
+        assert "estimacion" in anunciado
+        assert anunciado["estimacion"]["base_porcentaje"] == "ingreso_normalizado"
         assert anunciado["objetivo_acos_pct"] == "25.00"
         assert anunciado["ads"]["acos_pct"] == "25"
         assert anunciado["ads"]["etiqueta"] == ETIQUETA_DENTRO_DEL_OBJETIVO  # igualdad = Dentro
@@ -823,6 +826,13 @@ def test_evaluacion_us_muestra_ads_en_usd_aunque_economia_venga_mxn(monkeypatch)
         },
     )
     monkeypatch.setattr(fw, "estado_disponibilidad", lambda *_a, **_k: {"estado": "desconocido"})
+    from app.estimacion_proyeccion import proyeccion_s5
+
+    monkeypatch.setattr(
+        fw,
+        "adjuntar_estimaciones",
+        lambda _conn, listing_ids, *, as_of: {lid: proyeccion_s5(None) for lid in listing_ids},
+    )
     res = fw.evaluacion(conn, "amazon_us")
     (publicacion,) = res["publicaciones"]
     assert publicacion["economia"]["moneda"] == "MXN"

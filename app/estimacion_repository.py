@@ -92,6 +92,7 @@ class ResultadoPersistenciaEscenario:
 
 @dataclass(frozen=True)
 class EscenarioLeido:
+    id: int
     listing_id: int
     canal: str
     valoracion_date: date
@@ -830,7 +831,7 @@ def leer_escenarios(
     dia_as_of = as_of_utc.date()
     filas = conn.execute(
         "SELECT DISTINCT ON (e.listing_id)"
-        " e.listing_id, e.canal, e.valoracion_date, e.observed_at, e.estado, e.motivos,"
+        " e.id, e.listing_id, e.canal, e.valoracion_date, e.observed_at, e.estado, e.motivos,"
         " e.contribucion, e.contribucion_pct, e.moneda, e.componentes, e.exclusiones,"
         " e.canonical_input, e.context_fingerprint, e.politica_version_id, e.formula_version,"
         " o.fetched_at"
@@ -842,17 +843,17 @@ def leer_escenarios(
     ).fetchall()
     resultado: list[EscenarioLeido] = []
     for f in filas:
-        motivos_raw = f[5] or []
-        exclusiones_raw = f[10] or []
+        motivos_raw = f[6] or []
+        exclusiones_raw = f[11] or []
         motivos = tuple(motivos_raw)
-        estado = f[4]
-        contribucion = f[6]
-        contribucion_pct = f[7]
-        moneda = f[8]
-        componentes = list(f[9] or [])
-        oferta_fetched_at = f[15]
+        estado = f[5]
+        contribucion = f[7]
+        contribucion_pct = f[8]
+        moneda = f[9]
+        componentes = list(f[10] or [])
+        oferta_fetched_at = f[16]
         motivos_invalidacion: list[str] = []
-        if f[2] != dia_as_of:
+        if f[3] != dia_as_of:
             motivos_invalidacion.append("valoracion_desactualizada")
         if oferta_fetched_at is not None:
             if oferta_fetched_at > as_of_utc:
@@ -867,10 +868,11 @@ def leer_escenarios(
             moneda = None
         resultado.append(
             EscenarioLeido(
-                listing_id=f[0],
-                canal=f[1],
-                valoracion_date=f[2],
-                observed_at=f[3],
+                id=f[0],
+                listing_id=f[1],
+                canal=f[2],
+                valoracion_date=f[3],
+                observed_at=f[4],
                 estado=estado,
                 motivos=motivos,
                 contribucion=contribucion,
@@ -878,10 +880,10 @@ def leer_escenarios(
                 moneda=moneda,
                 componentes=componentes,
                 exclusiones=tuple(exclusiones_raw),
-                canonical_input=dict(f[11] or {}),
-                context_fingerprint=f[12],
-                politica_version_id=f[13],
-                formula_version=f[14],
+                canonical_input=dict(f[12] or {}),
+                context_fingerprint=f[13],
+                politica_version_id=f[14],
+                formula_version=f[15],
             )
         )
     return resultado

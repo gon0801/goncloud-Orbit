@@ -20,6 +20,7 @@ from app import evaluacion_catalogo as ec
 from app import fabrica_plan as fp
 from app.db import OrbitDbError, connect
 from app.disponibilidad import estado_disponibilidad
+from app.estimacion_proyeccion import adjuntar_estimaciones
 from app.redaction import scrub
 from tools import fabrica_campanas as fc
 
@@ -176,6 +177,12 @@ def catalogo(conn, plataforma: str) -> dict:
                 "publicaciones": publicaciones,
             }
         )
+    as_of = dt.datetime.now(dt.UTC)
+    listing_ids = [pub["id"] for prod in productos for pub in prod["publicaciones"]]
+    por_listing = adjuntar_estimaciones(conn, listing_ids, as_of=as_of)
+    for prod in productos:
+        for pub in prod["publicaciones"]:
+            pub["estimacion"] = por_listing[pub["id"]]
     tipos = [
         fila[0]
         for fila in conn.execute(_SQL_TIPOS, (plataforma, plataforma, plataforma)).fetchall()
@@ -363,12 +370,18 @@ def evaluacion(
             )
         )
     ordenadas = ec.ordenar(evaluaciones, orden, descendente=direccion == "desc")
+    publicaciones = [_serializar_evaluacion(e) for e in ordenadas]
+    as_of = dt.datetime.now(dt.UTC)
+    listing_ids = [p["listing_id"] for p in publicaciones]
+    por_listing = adjuntar_estimaciones(conn, listing_ids, as_of=as_of)
+    for p in publicaciones:
+        p["estimacion"] = por_listing[p["listing_id"]]
     return {
         "plataforma": plataforma,
         "ventana_ads": {"desde": desde.isoformat(), "hasta": hasta.isoformat()},
         "orden": orden,
         "direccion": direccion,
-        "publicaciones": [_serializar_evaluacion(e) for e in ordenadas],
+        "publicaciones": publicaciones,
     }
 
 

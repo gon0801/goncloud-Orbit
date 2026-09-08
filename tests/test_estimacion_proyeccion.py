@@ -271,9 +271,10 @@ def test_adjuntar_estimaciones_una_sola_llamada_a_leer_escenarios(monkeypatch):
 
 @_skip_db
 def test_adjuntar_as_of_temprano_no_usa_filas_futuras():
-    from app.estimacion_proyeccion import adjuntar_estimaciones
     from psycopg.types.json import Json
     from test_estimacion_venta import NOW, _sembrar_listing, db_estimacion
+
+    from app.estimacion_proyeccion import adjuntar_estimaciones
 
     corte = NOW + timedelta(minutes=30)
     futuro = NOW + timedelta(hours=2)
