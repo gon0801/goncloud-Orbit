@@ -75,6 +75,16 @@ harness (sin tasks propias); los stubs viven en `plans/`.
   meli-ads/promociones/envíos; REP-FOLLOW-1/3 (opcionales).
 - **Higiene**: `cortes-ui-01` duplicado en manifest (2 entries).
 
+## Backlog sin plan (no olvidar)
+
+- BK-1 Placements Amazon (multiplicadores Top of Search / Product
+  Pages): sonda de datos por campaña + reglas con reversa. Citado en
+  orbit-03:128 (fases 4-5, ORBIT 07/08 inexistentes) y
+  margen-estimado-01:156. Schema listo (`ad_entity_kind`).
+- BK-2 Budgets intradía + AMS/Stream (orbit-03:128, mismo futuro).
+- BK-3 Tokens cifrados at rest (transversal del doc master; hoy
+  600/uid sin cifrar).
+
 ## Verificación de completitud (2026-09-08)
 
 - Los 5 módulos + Fase 0 + transversales del doc tienen fila aquí.
