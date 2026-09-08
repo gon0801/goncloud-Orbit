@@ -21,6 +21,7 @@ team_validation_mode: not_required_lightweight (registro de la conversacion).
 | AUTO-07 | Repricing | Desarrollar el plan del motor de precios, con costos, margen, inventario, limites y reversa. | Modulos avanzados; no incluido en el selector de campanas. | Pendiente de plan formal |
 | AUTO-08 | Promociones | Desarrollar el plan de promociones y su efecto economico, con datos y autorizaciones explicitas. | Modulos avanzados; no incluido en ORBIT 19. | Pendiente de plan formal |
 | AUTO-09 | Reputacion | Desarrollar el plan de seguimiento y acciones de reputacion. Cualquier pausa derivada necesita contrato, evidencia y reversa. | Modulos avanzados; no incluido en ORBIT 19. | Pendiente de plan formal |
+| AUTO-10 | Estimacion por venta antes de Ads | Precio, costo, comisiones, logistica y retenciones verificables por publicacion; desglose y ausencias explicitas. Comparacion informativa, sin cambiar targets ni motor. | [MARGEN ESTIMADO 01](../plans/margen-estimado-01.md), formalizado 2026-09-08 UTC: 12 tareas, bloque 0 de fuentes antes de A/B. | Plan formal propuesto; implementacion no iniciada |
 
 AUTO-01 a AUTO-05 son los gaps principales de la revision. AUTO-06 a AUTO-09
 conservan los pendientes adicionales mencionados. La prioridad final y el orden
