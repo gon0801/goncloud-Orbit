@@ -304,8 +304,8 @@ def test_api_resumen_agrega_kpis_y_severidades():
             (HOY, FETCH, HOY, FETCH, HOY, FETCH),
         )
         _alerta(conn, "caida_rating", "critica", "meli", "MLM1", "bajo a 4.3")
-        _alerta(conn, "disputas", "aviso", "meli", None, "3 abiertas")
-        _alerta(conn, "ruido", "info", "meli", None, "menor")
+        _alerta(conn, "reclamos_suben", "aviso", "meli", None, "3 abiertas")
+        _alerta(conn, "salud_cuenta", "info", "meli", None, "menor")
         app.dependency_overrides[_conexion_lectura] = lambda: conn
         try:
             cuerpo = TestClient(app).get("/api/reputacion/resumen").json()
@@ -323,8 +323,8 @@ def test_api_resumen_agrega_kpis_y_severidades():
 def test_api_contador_alertas_abiertas():
     with db_reputacion("orbit_repui2") as (conn, _dsn):
         _alerta(conn, "caida_rating", "critica", "meli", "MLM1", "bajo a 4.3")
-        _alerta(conn, "disputas", "aviso", "meli", None, "3 abiertas")
-        _alerta(conn, "vieja", "aviso", "meli", None, "resuelta", resolved=True)
+        _alerta(conn, "reclamos_suben", "aviso", "meli", None, "3 abiertas")
+        _alerta(conn, "rating_bajo", "aviso", "meli", None, "resuelta", resolved=True)
         app.dependency_overrides[_conexion_lectura] = lambda: conn
         try:
             resp = TestClient(app).get("/api/reputacion/contador")
