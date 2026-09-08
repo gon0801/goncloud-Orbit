@@ -1,0 +1,79 @@
+{
+  "consulted_at_utc": "2026-09-08T14:42:19Z",
+  "role": "orbit_read",
+  "isolation": "REPEATABLE READ READ ONLY",
+  "command": "ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit_read -d orbit -v ON_ERROR_STOP=1 -P pager=off' < docs/evidencia/margen-estimado-01/B.3/select.sql",
+  "tables": {
+    "estimacion_escenario": null,
+    "estimacion_oferta_observation": null,
+    "estimacion_politica_version": null,
+    "disponibilidad_observation": "presente",
+    "v_margen_producto": "presente",
+    "listing": "presente"
+  },
+  "seccion_a": {
+    "listings": [
+      {"platform": "amazon_mx", "listings": 342, "con_sku": 342, "productos": 249},
+      {"platform": "amazon_us", "listings": 176, "con_sku": 176, "productos": 119}
+    ],
+    "fba_mx_disponibilidad": {
+      "listings_con_fila_fba": 247,
+      "quantity_conocida": 247,
+      "quantity_cero": 89,
+      "quantity_positiva": 158,
+      "fetched_at_max_utc": "2026-09-07T12:40:52Z",
+      "observed_at_max_utc": "2026-09-07T17:39:33.915314Z"
+    },
+    "v_margen_producto": [
+      {
+        "platform": "amazon_mx",
+        "filas_margen": 141,
+        "dias_null": 0,
+        "dias_cero": 0,
+        "dias_con_venta": 141,
+        "margen_null": 136,
+        "margen_presente": 5
+      },
+      {
+        "platform": "amazon_us",
+        "filas_margen": 53,
+        "dias_null": 0,
+        "dias_cero": 0,
+        "dias_con_venta": 53,
+        "margen_null": 51,
+        "margen_presente": 2
+      }
+    ],
+    "listings_sin_economia_observada": [
+      {"platform": "amazon_mx", "listings": 342, "sin_fila_margen": 139, "sin_dias_venta": 139},
+      {"platform": "amazon_us", "listings": 176, "sin_fila_margen": 89, "sin_dias_venta": 89}
+    ],
+    "universo_fba_mx_principal": {
+      "fba_mx_listings": 247,
+      "fba_mx_sin_fila_margen": 115,
+      "fba_mx_con_margen": 2,
+      "fba_mx_fila_sin_margen": 130,
+      "nota": "115 listings FBA MX sin fila en v_margen_producto son el universo sin ventas observado. La estimacion completa de esos casos no existe en produccion hasta aplicar 0028 e ingerir."
+    },
+    "disponibilidad_mx_obs": {
+      "obs_fba": 247,
+      "obs_fbm": 121,
+      "observed_at_max_utc": "2026-09-07T17:39:33.915314Z"
+    }
+  },
+  "seccion_b": {
+    "estado": "bloqueada",
+    "motivo": "to_regclass('public.estimacion_escenario') IS NULL. 0028/0029 no estan en produccion (deploy es B.5).",
+    "por_estado": null,
+    "por_motivo": null,
+    "por_platform_canal": null,
+    "universo_fba_mx_escenarios": null,
+    "muestras": {
+      "incompleta": null,
+      "desactualizada": null,
+      "identidad_ambigua": null,
+      "disponible_sin_ventas": null
+    },
+    "como_rellenar": "Tras B.5, repetir select.sql completo con orbit_read, pegar las filas B aqui y fechar consulted_at_utc."
+  }
+}
