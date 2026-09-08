@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import socket
 from contextlib import contextmanager
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
@@ -23,6 +24,7 @@ from test_schema import _postgres_obligatorio_ausente, _test_dsn
 
 ROOT = Path(__file__).resolve().parents[1]
 SQL28 = (ROOT / "migrations" / "0028_estimacion_venta.sql").read_text(encoding="utf-8")
+SQL29 = (ROOT / "migrations" / "0029_estimacion_politica_vigencia.sql").read_text(encoding="utf-8")
 
 _skip_db = pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres")
 
@@ -34,12 +36,13 @@ FETCH2 = "2026-09-08 10:00:00+00"
 VALORACION = "2026-09-08"
 
 POLITICA_FBA_MX = {
-    "universo": "fba_mx",
-    "formula_version": "I-C-F-L-R-v1",
+    "universo": "amazon_mx/fba",
+    "formula_version": "S3",
     "iva_divisor": "1.16",
     "isr_tasa": "0.025",
-    "logistica_fija": "0",
-    "retencion_iva_conciliacion_tasa": "0.08",
+    "logistica": "0",
+    "retencion_iva_reconciliacion": "0.08",
+    "precio_incluye_iva": True,
     "fee_tax_amount_requiere_politica": True,
 }
 
@@ -71,6 +74,9 @@ def test_migracion_trae_tablas_y_append_only_por_motor():
 def test_migracion_politica_versionada_sin_defaults_inventados():
     cuerpo = SQL28.split("CREATE TABLE estimacion_politica_version")[1].split("CREATE TABLE")[0]
     assert "settings" in cuerpo and "JSONB NOT NULL" in cuerpo
+    assert "valid_from" in cuerpo and "DATE NOT NULL" in cuerpo
+    assert "valid_to" in cuerpo
+    assert "estimacion_politica_vigencia_coherente" in cuerpo
     assert "DEFAULT" not in cuerpo.replace("DEFAULT now()", "")
     assert "estimacion_politica_version" in SQL28
     assert "GRANT INSERT ON estimacion_politica_version TO app_admin" in SQL28
@@ -122,11 +128,23 @@ def test_migracion_incluye_reversa_segura():
     assert "DELETE FROM estimacion_" not in SQL28
 
 
+def test_migracion_0029_existe_y_siembra_politica():
+    assert SQL29.strip(), "migrations/0029_estimacion_politica_vigencia.sql debe existir"
+    assert len(tuple(pglast.parse_sql(SQL29))) > 0
+    assert "ALTER TABLE" not in SQL29
+    assert "amazon_mx_pf_rfc_valid_2026_01" in SQL29
+    assert "'amazon_mx/fba'" in SQL29
+    assert "'S3'" in SQL29
+    assert "precio_incluye_iva" in SQL29
+    assert "fee_tax_amount_requiere_politica" in SQL29
+    assert "logistica_semantica" in SQL29
+
+
 # ---------------------------------------------------------------------------
 # (b) INTEGRACION
 # ---------------------------------------------------------------------------
 
-ORDEN = ("0001_initial.sql", "0028_estimacion_venta.sql")
+ORDEN = ("0001_initial.sql", "0028_estimacion_venta.sql", "0029_estimacion_politica_vigencia.sql")
 
 
 @contextmanager
@@ -169,8 +187,9 @@ def _sembrar_listing(
 def _politica(conn) -> int:
     return conn.execute(
         "INSERT INTO estimacion_politica_version"
-        " (created_at, label, universo, formula_version, settings)"
-        " VALUES (%s, 'fba-mx-sellada', 'fba_mx', 'I-C-F-L-R-v1', %s) RETURNING id",
+        " (created_at, label, universo, formula_version, settings, valid_from, valid_to)"
+        " VALUES (%s, 'fba-mx-test', 'amazon_mx/fba', 'S3', %s, '2026-01-01', NULL)"
+        " RETURNING id",
         (FETCH2, Json(POLITICA_FBA_MX)),
     ).fetchone()[0]
 
@@ -256,7 +275,18 @@ def test_grants_por_rol():
         conn.execute("SET ROLE app_admin")
         try:
             n_pol = conn.execute("SELECT count(*) FROM estimacion_politica_version").fetchone()[0]
-            assert n_pol == 1
+            assert n_pol == 2  # 0029 siembra una; _politica inserta otra de prueba
+            sellada = conn.execute(
+                "SELECT label, universo, formula_version, valid_from"
+                " FROM estimacion_politica_version"
+                " WHERE label = 'amazon_mx_pf_rfc_valid_2026_01'"
+            ).fetchone()
+            assert sellada == (
+                "amazon_mx_pf_rfc_valid_2026_01",
+                "amazon_mx/fba",
+                "S3",
+                date.fromisoformat("2026-01-01"),
+            )
         finally:
             conn.execute("RESET ROLE")
         conn.execute("SET ROLE app_ingest")
@@ -266,8 +296,8 @@ def test_grants_por_rol():
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
                 conn.execute(
                     "INSERT INTO estimacion_politica_version"
-                    " (label, universo, formula_version, settings)"
-                    " VALUES ('x', 'fba_mx', 'v1', '{}'::jsonb)"
+                    " (label, universo, formula_version, settings, valid_from)"
+                    " VALUES ('x', 'amazon_mx/fba', 'S3', '{}'::jsonb, '2026-01-01')"
                 )
         finally:
             conn.execute("RESET ROLE")
@@ -609,6 +639,16 @@ def test_escenario_as_of_y_incompleto_sin_cero_inventado():
             " WHERE estado = 'incompleta'"
         ).fetchone()
         assert incompleta == (None, None, None)
+
+
+@_skip_db
+def test_politica_vigencia_coherente():
+    with db_estimacion() as conn, pytest.raises(psycopg.errors.CheckViolation):
+        conn.execute(
+            "INSERT INTO estimacion_politica_version"
+            " (label, universo, formula_version, settings, valid_from, valid_to)"
+            " VALUES ('x', 'amazon_mx/fba', 'S3', '{}'::jsonb, '2026-06-01', '2026-01-01')"
+        )
 
 
 @_skip_db

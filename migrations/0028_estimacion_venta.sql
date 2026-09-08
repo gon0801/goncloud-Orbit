@@ -27,15 +27,26 @@ CREATE TABLE estimacion_politica_version (
     universo        TEXT NOT NULL,
     formula_version TEXT NOT NULL,
     settings        JSONB NOT NULL,
+    valid_from      DATE NOT NULL,
+    valid_to        DATE,
     CONSTRAINT estimacion_politica_settings_objeto CHECK (
         jsonb_typeof(settings) = 'object'
+    ),
+    CONSTRAINT estimacion_politica_vigencia_coherente CHECK (
+        valid_to IS NULL OR valid_to > valid_from
     )
 );
 
 COMMENT ON TABLE estimacion_politica_version IS
     'MARGEN ESTIMADO A.1: politica versionada append-only. Sin defaults de '
     'negocio en el esquema; settings documenta iva_divisor, isr_tasa, etc. '
-    'La vigente es la fila mas reciente por universo en lectura (A.4).';
+    'valid_from/valid_to acotan vigencia calendario. La vigente en lectura '
+    'as-of es la fila aplicable por universo (A.4).';
+
+COMMENT ON COLUMN estimacion_politica_version.valid_from IS
+    'MARGEN ESTIMADO A.1: inicio inclusive de vigencia (DATE calendario UTC).';
+COMMENT ON COLUMN estimacion_politica_version.valid_to IS
+    'Fin exclusive de vigencia; NULL = politica abierta.';
 
 -- Snapshot de oferta/precio fechado desde bridge (acta 0.3).
 CREATE TABLE estimacion_oferta_observation (

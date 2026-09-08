@@ -598,7 +598,12 @@ convertir ausencias en cero. No alimenta motor, targets ni ledger.
 **`estimacion_politica_version`** — Política fiscal/normalización versionada
 (append-only, `app_admin` INSERT). `settings` JSONB **sin defaults de negocio**
 en el esquema: expresa, por ejemplo, divisor IVA 1.16, tasa ISR 0.025 y reglas
-de fee con `TaxAmount` para FBA MX. Corrección = fila nueva.
+de fee con `TaxAmount` para FBA MX. `valid_from`/`valid_to` (DATE) acotan
+vigencia en `0028` (`valid_to > valid_from` cuando no NULL). La política FBA MX
+sellada (`amazon_mx/fba`, fórmula `S3`, label `amazon_mx_pf_rfc_valid_2026_01`,
+vigente desde 2026-01-01, `logistica: "0"` solo porque FBA está incluido en
+fees Amazon, `fee_tax_amount_requiere_politica: true`) se inserta en `0029`, no
+en código. Corrección = fila nueva.
 
 **`estimacion_oferta_observation`** — Snapshot append-only de oferta/precio
 desde bridge: `listing_id`, plataforma, `seller_sku`, `asin`, `canal`

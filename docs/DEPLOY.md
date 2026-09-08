@@ -263,6 +263,39 @@ rm /tmp/bridge-snapshot.db
 docker exec -u 0 orbit-app-1 rm /tmp/bridge-snapshot.db
 ```
 
+## Ingesta de estimación (MARGEN ESTIMADO A.3)
+
+Snapshot **del bridge** (mismo patrón `.backup()` que listings). Fuente:
+`amazon_listing_prices`; destino: `estimacion_oferta_observation` +
+`estimacion_fee_observation` vía Product Fees SP-API (consulta, universo FBA MX).
+No toca bridge ni accounting.
+
+```bash
+ssh goncloud
+# 1) snapshot del bridge (consistente con WAL)
+python3 -c "import sqlite3; src=sqlite3.connect('file:/mnt/data/appdata/bridge/data/bridge.db?mode=ro', uri=True); dst=sqlite3.connect('/tmp/bridge-estimacion-snapshot.db'); src.backup(dst); dst.close(); src.close()" \
+  && chmod 644 /tmp/bridge-estimacion-snapshot.db
+# 2) al contenedor y correr
+docker cp /tmp/bridge-estimacion-snapshot.db orbit-app-1:/tmp/bridge-estimacion-snapshot.db
+docker exec orbit-app-1 python -m app.cli ingest estimacion --sqlite /tmp/bridge-estimacion-snapshot.db
+# 3) limpieza
+rm /tmp/bridge-estimacion-snapshot.db
+docker exec -u 0 orbit-app-1 rm /tmp/bridge-estimacion-snapshot.db
+```
+
+Cadencia recomendada: **`refresh_estimacion.sh`** cada 6 h (:45), diez minutos
+después del refresco acreditado del bridge a :35, con snapshot único por corrida. Copia desplegada:
+`/mnt/data/appdata/orbit/refresh_estimacion.sh` (origen: `tools/refresh_estimacion.sh`).
+
+Cron sugerido (usuario `gon`):
+
+```cron
+45 */6 * * * /mnt/data/appdata/orbit/refresh_estimacion.sh >> /mnt/data/appdata/orbit/logs/estimacion.log 2>&1
+```
+
+Re-correr con el mismo evento fuente es no-op (dedupe por `source_event_id`).
+Cada listing falla aislado; la corrida sella `ingest_run` con filas/errores.
+
 ## Ingesta de tipos de cambio (ORBIT 06 0.5)
 
 Misma SQLite de contabilidad y mismo runbook de snapshot que los costos.

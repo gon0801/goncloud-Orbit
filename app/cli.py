@@ -34,7 +34,17 @@ import sys
 from decimal import Decimal
 from pathlib import Path
 
-from app import cobertura, costs, fx, goals_write, ledger, listings, reputacion, reputacion_alertas
+from app import (
+    cobertura,
+    costs,
+    estimacion_ingest,
+    fx,
+    goals_write,
+    ledger,
+    listings,
+    reputacion,
+    reputacion_alertas,
+)
 from app import cycle as ciclo
 from app.ads import archivar, reports, structure
 from app.db import connect
@@ -174,6 +184,9 @@ def _ingest(args, rest: list[str]) -> int:
         # ORBIT 06 0.6: ledger (ventas+cargos) desde contabilidad (snapshot
         # SQLite via --sqlite; runbook en docs/DEPLOY.md). Mismo patron.
         return ledger.main(rest)
+    if args.pipeline == "estimacion":
+        # MARGEN ESTIMADO A.3: ofertas frescas + Product Fees desde bridge.
+        return estimacion_ingest.main(rest)
     raise AssertionError(f"pipeline inalcanzable: {args.pipeline!r}")
 
 
@@ -409,17 +422,21 @@ def main(argv: list[str] | None = None) -> int:
 
     p_ingest = sub.add_parser(
         "ingest",
-        help="pipelines de ingesta (app/ads, app/costs, app/listings, app/fx, app/ledger)",
+        help=(
+            "pipelines de ingesta (app/ads, app/costs, app/listings, app/fx,"
+            " app/ledger, app/estimacion_ingest)"
+        ),
     )
     p_ingest.add_argument(
         "pipeline",
-        choices=("structure", "metrics", "costs", "listings", "fx", "ledger"),
+        choices=("structure", "metrics", "costs", "listings", "fx", "ledger", "estimacion"),
         help=(
             "structure: sync de estructura; metrics: metricas + search terms;"
             " costs: productos+costos desde contabilidad (--sqlite);"
             " listings: mapa de listings desde el bridge (--sqlite);"
             " fx: tipos de cambio desde contabilidad (--sqlite);"
-            " ledger: ventas+cargos desde contabilidad (--sqlite)"
+            " ledger: ventas+cargos desde contabilidad (--sqlite);"
+            " estimacion: ofertas+fees desde bridge (--sqlite)"
         ),
     )
 
