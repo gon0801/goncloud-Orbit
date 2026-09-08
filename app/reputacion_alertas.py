@@ -366,15 +366,17 @@ def carga_reputacion_digest(conn=None) -> list | None:
             if not dsn:
                 return None
             conn = connect(dsn)
-        filas = conn.execute(
-            "SELECT tipo, severidad, platform, external_id, mensaje"
-            " FROM reputation_alert WHERE NOT resolved"
-            " AND created_at >= now() - make_interval(hours => %s)"
-            " ORDER BY CASE severidad"
-            "  WHEN 'critica' THEN 0 WHEN 'aviso' THEN 1 ELSE 2 END,"
-            " created_at",
-            (VENTANA_DIGEST_HORAS,),
-        ).fetchall()
+        # A.7: tx propia (solo lectura; no dejar implicita abierta).
+        with conn.transaction():
+            filas = conn.execute(
+                "SELECT tipo, severidad, platform, external_id, mensaje"
+                " FROM reputation_alert WHERE NOT resolved"
+                " AND created_at >= now() - make_interval(hours => %s)"
+                " ORDER BY CASE severidad"
+                "  WHEN 'critica' THEN 0 WHEN 'aviso' THEN 1 ELSE 2 END,"
+                " created_at",
+                (VENTANA_DIGEST_HORAS,),
+            ).fetchall()
         return [
             {
                 "tipo": t,
