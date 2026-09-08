@@ -22,14 +22,15 @@ evidencia de implementación y validación.
 ### M1 Repricing — SIN PLAN (stub pendiente, AUTO-07)
 
 - Criterio doc: cambia precio en ambas plataformas con historial.
-- Realidad: 0%. Precondición `margen-estimado-01` (9 TODO).
+- Realidad: 0%. Precondición `margen-estimado-01` cerrada para FBA MX;
+  FBM y Amazon US siguen como ampliaciones explícitas.
 - Gaps: sin stub; necesita SP-API Pricing/Competitivo (ver Fase 0).
 
-### M2 Campañas por API — Amazon CERRADO / MeLi SIN PLAN
+### M2 Campañas por API — Amazon IMPLEMENTADO / CIERRE OPERATIVO PENDIENTE
 
 - Criterio doc: Auto + Exact + Product Targeting en Amazon y básica
   en MeLi.
-- Amazon: `fabrica-01` DONE + `fabrica-ui-01` en master verificado
+- Amazon: `fabrica-01` tareas 1–10 DONE + `fabrica-ui-01` en master verificado
   (13 passed) + `campanas-01`, `campana-activa-01`, `cortes-01`
   cerrados. Cumplido, EXCEPTO la sonda real (tarea 11, pendiente):
   shapes POST sellados como HIPOTESIS hasta la sonda; F2/AUTO-02
@@ -68,7 +69,8 @@ evidencia de implementación y validación.
 
 ## Secuencia propuesta (respeta dependencias)
 
-1. `margen-estimado-01` (9 TODO) — desbloquea M1 y M4.
+1. Cierres operativos: sonda real `fabrica-01` tarea 11 y después
+   `orbit-05` 2.3/2.5 cuando exista un harvest natural.
 2. SP-API auth + lecturas (stub nuevo: `sp-api-01`) — desbloquea M1,
    M5, reputación v2.
 3. `repricing-01` (stub nuevo) — M1.
@@ -83,8 +85,8 @@ evidencia de implementación y validación.
 
 - **Dueño**: subir plan Apify (REP-FOLLOW-2); confirmar pantalla
   cortes-ui (1.2); briefs v2/repricing/promos/envíos antes de cada
-  stub; `active` sigue en `reputacion-01` (mover al siguiente).
-- **Lead**: margen-estimado-01 A.1→B.5; colas chicas (orbit-05
+  stub.
+- **Lead**: colas chicas (orbit-05
   2.3/2.5, bids-01 1.5, orbit-02 3.4); sonda real fábrica (tarea
   11, decide el lead); causa conciliación ventas/compras
   (orbit-19/0.3, no demostrada); stubs SP-API/repricing/
@@ -111,7 +113,7 @@ histórica del registro:
 | AUTO-07 | Repricing | Plan del motor de precios, con costos, margen, inventario, límites y reversa. Ver M1 arriba. | Módulos avanzados; precondición margen-estimado-01. | Pendiente de plan formal |
 | AUTO-08 | Promociones | Plan de promociones y su efecto económico, con datos y autorizaciones explícitas. Ver M4 arriba. | Módulos avanzados; depende de Márgenes + Repricing. | Pendiente de plan formal |
 | AUTO-09 | Reputación | Seguimiento y acciones de reputación. v1 cerrada (reputacion-01); v2 = reputacion-02 (stub). Ver M3 arriba. | Módulos avanzados; v2 requiere SP-API + REP-FOLLOW-2. | Plan v2 pendiente de brief |
-| AUTO-10 | Estimación por venta antes de Ads | Precio, costo, comisiones, logística y retenciones verificables por publicación; desglose y ausencias explícitas. Comparación informativa. | `margen-estimado-01.md` (12 tareas, bloque 0 de fuentes). | Plan formal propuesto; no iniciado |
+| AUTO-10 | Estimación por venta antes de Ads | Precio, costo, comisiones, logística y retenciones verificables por publicación; desglose y ausencias explícitas. Comparación informativa. | `margen-estimado-01.md`; FBA MX desplegado. FBM/US quedan como ampliaciones. | Cerrado 2026-09-08 |
 
 AUTO-01 a AUTO-05 son los gaps principales de la revisión. AUTO-06
 a AUTO-09 conservan los pendientes adicionales mencionados. La
@@ -126,8 +128,9 @@ no se asignan fechas ni presupuestos aquí.
 - AUTO-01..10 absorbidos con su alcance, base y estado; BK
   temporales eliminados (plegados, cero pérdida).
 - Todos los TODO/WIP + follow-ups E/A.7 + gaps tienen dueño y
-  secuencia. Auditoría 2026-09-08: barridos plans/ (14 cc:TODO/WIP
-  vivos, todos cubiertos; 1 histórico en catval), docs/
+  secuencia. Auditoría 2026-09-08: cinco filas `cc:TODO/WIP` vivas
+  (`bids-01` 1.5, `cortes-ui-01` 1.2, `orbit-02` 3.4 y `orbit-05`
+  2.3/2.5), más la sonda `fabrica-01` tarea 11; docs/
   (specs/briefs/evidencia =
   históricos), AppFlowy y código (0 TODO reales). Faltantes
   hallados y agregados: sonda fábrica t11 + causa
