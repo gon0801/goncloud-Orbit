@@ -1,0 +1,13 @@
+{
+  "source": "goncloud crontab and deployed Orbit refresh_costos.sh",
+  "observed_at_utc": "2026-09-08",
+  "accounting_cogs_odoo": "hourly at minute 0",
+  "accounting_fx": "daily at 08:00 UTC",
+  "orbit_cost_fx_ledger": "daily at 08:15 UTC from one read-only accounting snapshot",
+  "observed_recent_cost_runs": [
+    {"date": "2026-09-05", "ok": true},
+    {"date": "2026-09-06", "ok": true},
+    {"date": "2026-09-07", "ok": true}
+  ],
+  "acceptance": "A cost/FX input is fresh only after the successful daily Orbit run for its UTC date; before that run, it is not current for a new estimate. FX additionally uses fx_resolve max_age=7 for its rate_date."
+}

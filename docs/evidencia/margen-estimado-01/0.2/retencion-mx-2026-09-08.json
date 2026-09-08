@@ -1,0 +1,27 @@
+{
+  "scope": "amazon_mx, persona_fisica",
+  "policy_id": "amazon_mx_pf_rfc_valid_2026_01",
+  "effective_from": "2026-01-01",
+  "iva_withholding": {
+    "rate_pct": "8.0",
+    "base": "item_price sin impuesto",
+    "observed_order_ratios": {
+      "orders_within_0_001_pct_of_8": 953,
+      "orders_outside_tolerance": 47
+    }
+  },
+  "isr_withholding": {
+    "rate_pct": "2.5",
+    "base": "item_price sin impuesto; liquidacion mensual",
+    "observed_previous_month_ratios_pct": ["2.5563", "2.5511", "2.3496", "2.7467", "2.4737"],
+    "exception": "marzo 2026: 4.9906; no se usa como regla"
+  },
+  "conditions": [
+    "persona_fisica declarada por el responsable del negocio",
+    "RFC vigente y validado en Seller Central",
+    "un cambio de estado fiscal desactiva esta politica hasta una nueva version"
+  ],
+  "unsupported": {
+    "amazon_us": "ventas y retenciones historicas sin item_price normalizado; no hay politica prospectiva aprobada"
+  }
+}

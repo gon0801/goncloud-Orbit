@@ -1,0 +1,26 @@
+{
+  "marketplace": "amazon_mx",
+  "source": "bridge.amazon_listing_prices",
+  "fulfillment_channel": "AMAZON_NA",
+  "candidates": 3,
+  "results": [
+    {
+      "http_status": 200,
+      "status": "Success",
+      "context_echo_matches": true,
+      "fee_types": ["FBAFees", "ReferralFee"]
+    },
+    {
+      "http_status": 200,
+      "status": "Success",
+      "context_echo_matches": true,
+      "fee_types": ["FBAFees", "ReferralFee"]
+    },
+    {
+      "http_status": 200,
+      "status": "Success",
+      "context_echo_matches": true,
+      "fee_types": ["FBAFees", "ReferralFee"]
+    }
+  ]
+}

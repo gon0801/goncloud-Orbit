@@ -1,0 +1,9 @@
+{
+  "source": "goncloud:/etc/systemd/system/amazon-prices-sync.timer",
+  "service": "amazon-prices-sync.service",
+  "timer": "amazon-prices-sync.timer",
+  "on_calendar": "*-*-* 00,06,12,18:35:00 UTC",
+  "persistent": true,
+  "bridge_table": "amazon_listing_prices",
+  "freshness_rule": "now_utc - fetched_at <= 6 hours"
+}
