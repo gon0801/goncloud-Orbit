@@ -1188,7 +1188,10 @@ def cmd_drive_fabrica(args: argparse.Namespace) -> None:
         "http_200": st_html == 200,
         "data-pantalla=fabrica": 'data-pantalla="fabrica"' in texto,
         "h1_crear": "<h1>Crear campañas</h1>" in texto,
-        "h2_crear": "<h2>Crear campañas</h2>" in texto,
+        "selector_publicaciones": 'id="fabrica-productos"' in texto
+        and 'class="fabrica-catalogo"' in texto,
+        "comparador_publicaciones": 'id="fabrica-comparador"' in texto
+        and 'id="fabrica-comparador-datos"' in texto,
         "nav_aria_current": 'href="/campanas/nuevas"' in texto and 'aria-current="page"' in texto,
         "form_plan": 'id="fabrica-plan"' in texto,
         "select_plataforma": 'id="fabrica-plataforma"' in texto,

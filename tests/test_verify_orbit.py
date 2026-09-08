@@ -128,3 +128,37 @@ def test_corte_no_combina_campos_de_filas_distintas(dashboard, monkeypatch):
         dashboard.cmd_drive_cortes(argparse.Namespace(run_id="prueba"))
     prueba = json.loads((dashboard.EVIDENCE_ROOT / "prueba/cortes/PROOF.json").read_text())
     assert prueba["checks"]["api_has_negative_pending_veto"] is False
+
+
+@pytest.mark.parametrize("ausente", [None, "selector", "comparador", "titulo"])
+def test_drive_fabrica_valida_redisenio_sin_exigir_titulo_duplicado(harness, monkeypatch, ausente):
+    """Conduce el HTML real y rechaza la ausencia de piezas del flujo nuevo."""
+    harness._save_state({"run_id": "prueba", "base_url": "http://127.0.0.1:18010", "port": 18010})
+    respuesta = TestClient(app).get("/campanas/nuevas")
+    assert respuesta.status_code == 200
+    html = respuesta.text
+    faltantes = {
+        "selector": 'id="fabrica-productos"',
+        "comparador": 'id="fabrica-comparador"',
+        "titulo": "<h1>Crear campañas</h1>",
+    }
+    if ausente:
+        html = html.replace(faltantes[ausente], "")
+
+    def http(url, timeout=5):
+        if "/api/fabrica/catalogo" in url:
+            return 200, {}, b'{"productos": [], "tipos_producto": []}'
+        if "/api/fabrica/lotes" in url:
+            return 200, {}, b'{"items": []}'
+        if url.endswith("/campanas/nuevas"):
+            return 200, {}, html.encode()
+        return 200, {}, b'<body data-pantalla="resumen"></body>'
+
+    monkeypatch.setattr(harness, "_http", http)
+    if ausente:
+        with pytest.raises(SystemExit):
+            harness.cmd_drive_fabrica(argparse.Namespace(run_id="prueba"))
+    else:
+        harness.cmd_drive_fabrica(argparse.Namespace(run_id="prueba"))
+    prueba = json.loads((harness.EVIDENCE_ROOT / "prueba/fabrica/PROOF.json").read_text())
+    assert prueba["ok"] is (ausente is None)

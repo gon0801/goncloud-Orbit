@@ -37,3 +37,13 @@
   selector-movil.png y comparador-noche.png. El 25% visible es una entrada de
   formulario de la comprobacion local; no se guardo ni se lanzo una campana.
 - La bateria completa se ejecuta una vez en la CI del PR; no se duplico localmente.
+
+## Ajuste del verificador tras CI
+
+CI 34177406373: la bateria paso (1590 passed, 1 skipped); el drive-fabrica
+fallo solamente porque exigia el h2 duplicado que el handoff elimina. Se
+actualizo el harness para conservar el h1 y exigir selector/comparador nuevos,
+sin omitir la verificacion del flujo. Prueba parametrizada del HTML real:
+RED (caso valido rechazado por el h2 antiguo), GREEN (4 casos, incluyendo
+rechazo si faltan titulo, selector o comparador). No cambia codigo productivo.
+Revision independiente del rediseño `33d7dec`: APPROVE, sin bloqueantes.
