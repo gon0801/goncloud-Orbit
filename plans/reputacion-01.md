@@ -225,3 +225,8 @@ Snippet para el lead al aprobar (no commitear antes de 0.5):
 v2 candidato (otro plan/brief): borrador IA de respuestas con checkpoint
 humano, Account Health, Buy Box, detección de fakes. Acciones sobre campañas
 por reputación exigen su propio contrato con reversa.
+
+Follow-ups fileados en E/A.7 (no bloquean cierre): REP-FOLLOW-1 (UNIQUE
+review_event + external_id, atribucion multi-item), REP-FOLLOW-2 (manual
+Amazon + cron semanal tras credito Apify), REP-FOLLOW-3 (lotes junglee si
+518 URLs exceden 300s).

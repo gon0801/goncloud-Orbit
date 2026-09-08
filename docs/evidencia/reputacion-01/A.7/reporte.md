@@ -49,3 +49,11 @@
 ## Reversa
 
 Acta §8.4 + DEPLOY.md (deshabilitar jobs, conservar datos/pantalla).
+
+## Artefactos (convencion plan §convenciones)
+
+- `verificacion.sql`: las 7 lecturas del deploy.
+- `salidas.md`: outputs fieles (runs, conteos, alertas, smoke, md5,
+  CI, backup, crons, follow-ups REP-FOLLOW-1/2/3 fileados).
+- Invariante ro: excepcion `:rw` documentada en DEPLOY.md (permisos
+  700/600 intactos); run 119 inerte (sin lectores externos).
