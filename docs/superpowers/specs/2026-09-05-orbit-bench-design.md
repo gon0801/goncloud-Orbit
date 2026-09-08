@@ -1,5 +1,8 @@
 # Orbit Bench v1
 
+> Spec histórico, insumo de `tools/orbit_bench/`. El índice de
+> planes/pendientes se escribe solo en `plans/ROADMAP.md`.
+
 El dueno aprobo implementar el diseno conversado: comparar modelos mediante
 tareas de Orbit y separar razonamiento, correccion, limpieza, arquitectura,
 diseno, mantenibilidad, autonomia y coste. No se ejecutan modelos en esta tarea.

@@ -1,5 +1,8 @@
 # ORBIT 06 Fase 2 — target de ACoS derivado del margen neto medido por plataforma
 
+> Spec histórico, insumo de `plans/orbit-06.md`. El índice de
+> planes/pendientes se escribe solo en `plans/ROADMAP.md`.
+
 **Estado: APROBADO por el dueño (2026-09-03).** Literales del dueño en §1.
 Precedencia: `docs/CONTEXTO.md` (reglas 1-10) > este spec > `plans/orbit-06.md`.
 

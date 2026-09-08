@@ -1,5 +1,9 @@
 # ORBIT 19 — Catalogo abierto y comparacion para campanas
 
+> Spec histórico, insumo de `plans/catalogo-campanas-01.md`. El
+> índice de planes/pendientes se escribe solo en
+> `plans/ROADMAP.md`.
+
 Estado: ESPECIFICACION FORMAL v1.1, 2026-09-06. D1–D4 cerradas en 0.2
 (21:31 UTC). No autoriza crear anuncios ni cambia el codigo F1 hasta A.
 Solicitud: todos los articulos deben poder anadirse a campanas, con metricas

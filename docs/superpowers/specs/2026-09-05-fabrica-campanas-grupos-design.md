@@ -1,5 +1,8 @@
 # FABRICA 01 — fabrica de campañas Amazon SP con estructura fija por grupo
 
+> Spec histórico, insumo de `plans/fabrica-01.md`. El índice de
+> planes/pendientes se escribe solo en `plans/ROADMAP.md`.
+
 **Estado: REVISADO (2026-09-05).** Decisiones del dueno en §1 (brainstorming
 formal, una pregunta a la vez); revision del lead contra el repo vivo con ok
 del dueno (decisiones 12-14 y correcciones en §2-§10).

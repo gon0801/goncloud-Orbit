@@ -84,6 +84,8 @@ f438c047 ui.py (server pre-A.6: db28437d)
 
 ## Follow-ups abiertos (no bloquean cierre)
 
+(Fileados en `plans/ROADMAP.md`, única fuente de pendientes.)
+
 - REP-FOLLOW-1 (H-A7-4): UNIQUE review_event + external_id
   (atribucion multi-item; hoy = primer item).
 - REP-FOLLOW-2: manual Amazon + cron semanal tras subir plan Apify

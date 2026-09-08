@@ -1,5 +1,8 @@
 # FABRICA UI 01 — Crear campanas desde Orbit
 
+> Spec histórico, insumo de `plans/fabrica-ui-01.md`. El índice
+> de planes/pendientes se escribe solo en `plans/ROADMAP.md`.
+
 El dueno pidio crear campanas desde el dashboard: el CLI ya existe, pero
 `/campanas` solo permite consultar. Se implementa el flujo previamente aprobado:
 seleccionar productos, configurar las cinco campanas del grupo, revisar y confirmar.

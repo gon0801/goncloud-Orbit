@@ -31,7 +31,10 @@ evidencia de implementación y validación.
   en MeLi.
 - Amazon: `fabrica-01` DONE + `fabrica-ui-01` en master verificado
   (13 passed) + `campanas-01`, `campana-activa-01`, `cortes-01`
-  cerrados. Cumplido.
+  cerrados. Cumplido, EXCEPTO la sonda real (tarea 11, pendiente):
+  shapes POST sellados como HIPOTESIS hasta la sonda; F2/AUTO-02
+  depende de ella. Seguimiento: tarea ORBIT 17 en AppFlowy
+  (In progress).
 - MeLi Ads (proposal-only, bloqueado a nivel cuenta): sin plan ni
   stub. Gap.
 
@@ -82,7 +85,9 @@ evidencia de implementación y validación.
   cortes-ui (1.2); briefs v2/repricing/promos/envíos antes de cada
   stub; `active` sigue en `reputacion-01` (mover al siguiente).
 - **Lead**: margen-estimado-01 A.1→B.5; colas chicas (orbit-05
-  2.3/2.5, bids-01 1.5, orbit-02 3.4); stubs SP-API/repricing/
+  2.3/2.5, bids-01 1.5, orbit-02 3.4); sonda real fábrica (tarea
+  11, decide el lead); causa conciliación ventas/compras
+  (orbit-19/0.3, no demostrada); stubs SP-API/repricing/
   meli-ads/promociones/envíos; REP-FOLLOW-1/3 (opcionales).
 - **Higiene**: `cortes-ui-01` deduplicado en manifest 2026-09-08
   (quedó la entry con 1.2 pendiente de confirmación del dueño).
@@ -121,5 +126,10 @@ no se asignan fechas ni presupuestos aquí.
 - AUTO-01..10 absorbidos con su alcance, base y estado; BK
   temporales eliminados (plegados, cero pérdida).
 - Todos los TODO/WIP + follow-ups E/A.7 + gaps tienen dueño y
-  secuencia. Cero huérfanos conocidos. Espejo AppFlowy: tareas
-  AUTO-01..10 + plan activo en EHV Tasks.
+  secuencia. Auditoría 2026-09-08: barridos plans/ (14 cc:TODO/WIP
+  vivos, todos cubiertos; 1 histórico en catval), docs/
+  (specs/briefs/evidencia =
+  históricos), AppFlowy y código (0 TODO reales). Faltantes
+  hallados y agregados: sonda fábrica t11 + causa
+  conciliación. Cero huérfanos conocidos. Espejo AppFlowy:
+  tareas AUTO-01..10 + plan activo en EHV Tasks.

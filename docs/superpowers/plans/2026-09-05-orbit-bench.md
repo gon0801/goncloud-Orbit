@@ -1,5 +1,9 @@
 # Orbit Bench Implementation Plan
 
+> EJECUTADO (vive en `tools/orbit_bench/` + `docs/orbit-bench.md`).
+> Los planes vivos se escriben en `plans/` y el índice de
+> planes/pendientes solo en `plans/ROADMAP.md`.
+
 > **For agentic workers:** Use superpowers:subagent-driven-development para las
 > dos piezas independientes y review final antes del PR.
 
