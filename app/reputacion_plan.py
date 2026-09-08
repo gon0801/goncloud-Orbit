@@ -75,9 +75,14 @@ def plan_snapshot_meli(
 ) -> tuple[PlanSnapshot | None, list[PlanReview], Counter]:
     """Snapshot + reviews de un item MeLi (shapes E/0.3). Puro."""
     skips: Counter = Counter()
-    total = (reviews.get("paging") or {}).get("total")
+    paging = reviews.get("paging")
+    total = paging.get("total") if isinstance(paging, dict) else None
+    if total is None:
+        # XR-1.3: paging ausente = sin dato (regla 3): no se escribe 0.
+        skips["meli: sin paging.total (sin dato, fila no escrita)"] += 1
+        return None, [], skips
     review_count = _entero_no_negativo(total)
-    if review_count is None and total is not None:
+    if review_count is None:
         skips["meli: paging.total invalido (se descarta)"] += 1
         return None, [], skips
     # E/0.3: total=0 trae avg=0; ese 0 es sin-dato, no rating.
@@ -97,7 +102,7 @@ def plan_snapshot_meli(
         plataforma="meli",
         external_id=item_id,
         rating=rating,
-        review_count=review_count if review_count is not None else 0,
+        review_count=review_count,
         fetched_at=fetched_at,
         extra=extra,
     )
@@ -146,13 +151,15 @@ def plan_snapshot_junglee(
     if review_count is None and item.get("reviewsCount") is not None:
         skips["amazon: reviewsCount invalido (NULL)"] += 1
     padre = item.get("asin")
+    # Grok XR-1 BAJA-7: acta/0024 dicen parent NULL = sin padre distinto.
+    parent_asin = str(padre) if padre and str(padre) != pedido else None
     return (
         PlanSnapshot(
             plataforma=plataforma,
             external_id=pedido,
             rating=rating,
             review_count=review_count,
-            parent_asin=str(padre) if padre else None,
+            parent_asin=parent_asin,
             fetched_at=fetched_at,
         ),
         skips,
@@ -212,21 +219,35 @@ def plan_seller(rep: dict, disputas: list[dict], fetched_at: dt.datetime) -> Pla
 _ESTADOS_PREGUNTA = ("ANSWERED", "UNANSWERED")
 
 
-def plan_question(item_id: str, pregunta: dict, fetched_at: dt.datetime) -> PlanQuestion | None:
-    """Una pregunta MeLi (shape E/0.3). Puro. Estado desconocido = None."""
+def plan_question(
+    item_id: str, pregunta: dict, fetched_at: dt.datetime
+) -> tuple[PlanQuestion | None, str | None]:
+    """Una pregunta MeLi (shape E/0.3). Puro. Devuelve (plan, motivo_skip).
+
+    XR-1.2: `answer` no-objeto ya no revienta (AttributeError que tumbaba
+    todo el sync): la respuesta queda NULL y se cuenta el skip.
+    """
     if pregunta.get("id") is None:
-        return None
+        return None, "meli: pregunta sin id (se descarta)"
     estado = pregunta.get("status")
     if estado not in _ESTADOS_PREGUNTA:
-        return None  # revienta visible en el sync via skip, no se cuela
-    respuesta = pregunta.get("answer") or {}
-    return PlanQuestion(
-        external_id=item_id,
-        question_external_id=str(pregunta["id"]),
-        estado=estado,
-        texto=pregunta.get("text") if isinstance(pregunta.get("text"), str) else None,
-        respuesta=respuesta.get("text") if isinstance(respuesta.get("text"), str) else None,
-        asked_at=_instante(pregunta.get("date_created")),
-        answered_at=_instante(respuesta.get("date_created")),
-        fetched_at=fetched_at,
+        return None, "meli: pregunta con estado desconocido (se descarta)"
+    cruda = pregunta.get("answer")
+    skip_respuesta: str | None = None
+    if cruda is not None and not isinstance(cruda, dict):
+        skip_respuesta = "meli: answer no-objeto (respuesta NULL, no inventada)"
+        cruda = {}
+    respuesta = cruda or {}
+    return (
+        PlanQuestion(
+            external_id=item_id,
+            question_external_id=str(pregunta["id"]),
+            estado=estado,
+            texto=pregunta.get("text") if isinstance(pregunta.get("text"), str) else None,
+            respuesta=respuesta.get("text") if isinstance(respuesta.get("text"), str) else None,
+            asked_at=_instante(pregunta.get("date_created")),
+            answered_at=_instante(respuesta.get("date_created")),
+            fetched_at=fetched_at,
+        ),
+        skip_respuesta,
     )

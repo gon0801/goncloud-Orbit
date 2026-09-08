@@ -58,14 +58,15 @@ def test_migracion_parsea_y_trae_invariantes():
     assert "seller_reputation_snapshot,\n    meli_question TO app_ingest" in SQL24
     assert "GRANT INSERT ON reputation_alert TO app_decide" in SQL24
     assert "GRANT UPDATE (resolved, resolved_at) ON reputation_alert" in SQL24
-    # Sin UPDATE ni DELETE de datos en el codigo: fuera comentarios, el
-    # BEFORE UPDATE OR DELETE de los triggers y el GRANT UPDATE por columna.
-    codigo = (
-        "\n".join(linea for linea in SQL24.splitlines() if not linea.strip().startswith("--"))
-        .replace("GRANT UPDATE", "")
-        .replace("BEFORE UPDATE OR DELETE", "")
-    )
-    assert "UPDATE" not in codigo
+    # Sin UPDATE ni DELETE de datos en el codigo: fuera comentarios y el
+    # BEFORE UPDATE OR DELETE de los triggers. Grok XR-1 BAJA-8: en vez
+    # de borrar "GRANT UPDATE" (un GRANT UPDATE extra pasaria), se exige
+    # EXACTAMENTE un GRANT UPDATE (el sellado de alertas por app_decide).
+    codigo = "\n".join(
+        linea for linea in SQL24.splitlines() if not linea.strip().startswith("--")
+    ).replace("BEFORE UPDATE OR DELETE", "")
+    assert codigo.count("GRANT UPDATE") == 1
+    assert "UPDATE" not in codigo.replace("GRANT UPDATE (resolved, resolved_at)", "")
     assert "DELETE" not in codigo
 
 
@@ -107,6 +108,67 @@ def _sembrar_listing(conn, odoo_sku="P-1", plataforma="amazon_mx", asin="B0X"):
         "INSERT INTO listing (product_id, platform, external_id) VALUES (%s, %s, %s)",
         (pid, plataforma, asin),
     )
+
+
+@_skip_db
+def test_grants_por_rol():
+    """XR-1.1 (ALTA): los GRANTs de 0024 se ejercen de verdad.
+
+    Mutante que este test atrapa: borrar cualquier GRANT de la
+    migracion -> la primera corrida muere en prod con permission
+    denied mientras la suite seguia verde (todo corria como owner).
+    """
+    with db_reputacion() as conn:
+        if conn.execute("SHOW is_superuser").fetchone()[0] != "on":
+            pytest.skip("SET ROLE exige superusuario de prueba")
+        _sembrar_listing(conn)
+        conn.execute("SET ROLE app_ingest")
+        try:
+            conn.execute(
+                "INSERT INTO reputation_snapshot (platform, external_id, alcance,"
+                f" metric_date, fetched_at, observed_at) VALUES ('amazon_mx', 'B0X',"
+                f" 'listing', '2026-09-08', '{FETCH}', '{OBS}')"
+            )
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute(
+                    "INSERT INTO reputation_alert (tipo, severidad, mensaje)"
+                    " VALUES ('rating_bajo', 'aviso', 'x')"
+                )
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute("UPDATE reputation_snapshot SET rating = 1.0 WHERE id = 1")
+        finally:
+            conn.execute("RESET ROLE")
+        conn.execute("SET ROLE app_decide")
+        try:
+            conn.execute(
+                "INSERT INTO reputation_alert (tipo, severidad, mensaje)"
+                " VALUES ('rating_bajo', 'aviso', 'x')"
+            )
+            conn.execute(
+                "UPDATE reputation_alert SET resolved = TRUE,"
+                " resolved_at = now() WHERE resolved = FALSE"
+            )
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute(
+                    "INSERT INTO reputation_snapshot (platform, alcance,"
+                    f" metric_date, fetched_at, observed_at) VALUES ('meli', 'cuenta',"
+                    f" '2026-09-08', '{FETCH}', '{OBS}')"
+                )
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute("UPDATE reputation_alert SET mensaje = 'y' WHERE id = 1")
+        finally:
+            conn.execute("RESET ROLE")
+        conn.execute("SET ROLE app_read")
+        try:
+            assert conn.execute("SELECT count(*) FROM reputation_snapshot").fetchone()[0] == 1
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute(
+                    "INSERT INTO review_event (platform, external_id,"
+                    " review_external_id, publicada, fetched_at, observed_at)"
+                    f" VALUES ('meli', 'B0X', 'R', TRUE, '{FETCH}', '{OBS}')"
+                )
+        finally:
+            conn.execute("RESET ROLE")
 
 
 @_skip_db
@@ -205,6 +267,9 @@ def test_snapshot_invariantes_muerden():
 
 @_skip_db
 def test_review_event_dedup_por_id_externo_y_rating():
+    # Pinza el estado 0024 (sin 0026/0027 en ORDEN): dedup estricto por id.
+    # El contrato vigente tras XR-1.4/0027 re-observa por observed_at
+    # (ver test_reputacion.py); este test no se toca al aplicar 0027.
     with db_reputacion() as conn:
         _sembrar_listing(conn, odoo_sku="P-1", plataforma="meli", asin="MLM1")
         base = (

@@ -193,6 +193,70 @@ def _escribe_hechos(
     return insertadas, idempotentes
 
 
+def _reviews_completas(
+    cliente: ClienteMeli, item_id: str, skips: Counter
+) -> tuple[dict | None, dt.datetime | None]:
+    """Todas las paginas de /reviews/item (Grok XR-1 ALTA-2: la primera
+    pagina sola dejaba fuera reviews y rompia resena_1)."""
+    opiniones, fetched = cliente.get(f"/reviews/item/{item_id}")
+    total = (opiniones.get("paging") or {}).get("total")
+    if not isinstance(total, int) or total <= 0:
+        return opiniones, fetched
+    vistos = {r.get("id") for r in (opiniones.get("reviews") or []) if isinstance(r, dict)}
+    combinadas = list(opiniones.get("reviews") or [])
+    offset = len(combinadas)
+    while offset < total:
+        pagina, _ = cliente.get(f"/reviews/item/{item_id}", {"limit": 50, "offset": offset})
+        lote = pagina.get("reviews") or []
+        if not isinstance(lote, list) or not lote:
+            break
+        for rv in lote:
+            if isinstance(rv, dict) and rv.get("id") not in vistos:
+                vistos.add(rv.get("id"))
+                combinadas.append(rv)
+        offset += len(lote)
+        if len(lote) < 50:
+            break
+    opiniones["reviews"] = combinadas
+    return opiniones, fetched
+
+
+def fetch_meli(
+    cliente: ClienteMeli, max_fallos_seguidos: int = 5
+) -> tuple[list[PlanSnapshot], list[PlanReview], Counter]:
+    """Fase red MeLi: items + reviews paginadas. Sin DB. Puro-red."""
+    skips: Counter = Counter()
+    yo, _ = cliente.get("/users/me")
+    seller_id = yo.get("id")
+    if not isinstance(seller_id, int):
+        raise ReputacionError("MeLi /users/me sin id entero")
+    snapshots: list[PlanSnapshot] = []
+    reviews: list[PlanReview] = []
+    fallos = 0
+    ids_items, scan_truncado = cliente.items_seller(seller_id)
+    if scan_truncado:
+        skips["meli: scan truncado a 50 paginas (items pendientes)"] += 1
+    for item_id in ids_items:
+        try:
+            item, _ = cliente.get(f"/items/{item_id}")
+            opiniones, fetched = _reviews_completas(cliente, item_id, skips)
+        except ReputacionError:
+            fallos += 1
+            skips["meli: item fallo (se reintenta manana)"] += 1
+            if fallos >= max_fallos_seguidos:
+                raise ReputacionError(f"meli: {fallos} fallos seguidos, aborto honesto") from None
+            continue
+        fallos = 0
+        snap, eventos, skips_item = plan_snapshot_meli(
+            item_id, item, opiniones or {}, fetched or dt.datetime.now(dt.UTC)
+        )
+        skips.update(skips_item)
+        if snap is not None:
+            snapshots.append(snap)
+        reviews.extend(eventos)
+    return snapshots, reviews, skips
+
+
 def sync_meli(
     conn: psycopg.Connection,
     cliente: ClienteMeli,
@@ -202,48 +266,15 @@ def sync_meli(
 ) -> ResultadoReputacion:
     """Snapshots + reviews MeLi. Fase red completa, luego UNA transaccion."""
     observed_at, metric_date = _reloj(observed_at, metric_date)
-    with conn.transaction():
-        run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE_MELI,)).fetchone()[0]
-    skips: Counter = Counter()
+    run_id = _abrir_run(conn, SOURCE_MELI)
     try:
-        yo, _ = cliente.get("/users/me")
-        seller_id = yo.get("id")
-        if not isinstance(seller_id, int):
-            raise ReputacionError("MeLi /users/me sin id entero")
-        snapshots: list[PlanSnapshot] = []
-        reviews: list[PlanReview] = []
-        fallos = 0
-        for item_id in cliente.items_seller(seller_id):
-            try:
-                item, _ = cliente.get(f"/items/{item_id}")
-                opiniones, fetched = cliente.get(f"/reviews/item/{item_id}")
-            except ReputacionError:
-                fallos += 1
-                skips["meli: item fallo (se reintenta manana)"] += 1
-                if fallos >= max_fallos_seguidos:
-                    raise ReputacionError(
-                        f"meli: {fallos} fallos seguidos, aborto honesto"
-                    ) from None
-                continue
-            fallos = 0
-            snap, eventos, skips_item = plan_snapshot_meli(item_id, item, opiniones, fetched)
-            skips.update(skips_item)
-            if snap is not None:
-                snapshots.append(snap)
-            reviews.extend(eventos)
+        snapshots, reviews, skips = fetch_meli(cliente, max_fallos_seguidos)
         insertadas, idempotentes = _escribe_hechos(
             conn, snapshots, reviews, metric_date, observed_at
         )
-        with conn.transaction():
-            conn.execute(
-                _SQL_SELLAR_RUN,
-                (insertadas, sum(skips.values()), _formato_skips(skips), True, run_id),
-            )
+        _sellar(conn, run_id, insertadas, skips, True)
     except Exception:
-        with conn.transaction():
-            conn.execute(
-                _SQL_SELLAR_RUN, (0, sum(skips.values()), "fallo la corrida", False, run_id)
-            )
+        _sellar(conn, run_id, 0, Counter(), False)
         raise
     return ResultadoReputacion(
         run_id=run_id,
@@ -278,17 +309,19 @@ def sync_amazon(
             " ORDER BY platform, external_id"
         ).fetchall()
         urls = [f"https://www.{_AMAZON_DOMINIOS[plat]}/dp/{asin}" for plat, asin in catalogo]
-        por_url = {url: (plat, asin) for (plat, asin), url in zip(catalogo, urls, strict=True)}
+        # Grok XR-1 MEDIA-3: conciliar por ASIN (input u originalAsin),
+        # no por string de URL (junglee normaliza: sin www, trailing /).
+        por_asin = {asin.upper(): (plat, asin) for plat, asin in catalogo}
         items, costo_est = cliente.scrape_productos(
             urls, max_productos=max_productos, tope_usd=tope_usd
         )
         fetched = dt.datetime.now(dt.UTC)
         snapshots: list[PlanSnapshot] = []
         for item in items:
-            pedido = _asin_de_input(item.get("input"))
-            conciliado = por_url.get(item.get("input") or "")
+            pedido = _asin_de_input(item.get("input")) or _asin_valido(item.get("originalAsin"))
+            conciliado = por_asin.get(pedido or "")
             if pedido is None or conciliado is None:
-                skips["amazon: item sin input conciliable (se descarta)"] += 1
+                skips["amazon: item sin ASIN conciliable (se descarta)"] += 1
                 continue
             snap, skips_item = plan_snapshot_junglee(pedido, item, fetched, conciliado[0])
             skips.update(skips_item)
@@ -324,8 +357,14 @@ def sync_amazon(
 def _asin_de_input(entrada) -> str | None:
     if not isinstance(entrada, str) or "/dp/" not in entrada:
         return None
-    asin = entrada.split("/dp/", 1)[1].split("/")[0].split("?")[0].strip()
-    return asin or None
+    return _asin_valido(entrada.split("/dp/", 1)[1].split("/")[0].split("?")[0].strip())
+
+
+def _asin_valido(valor) -> str | None:
+    if not isinstance(valor, str):
+        return None
+    asin = valor.strip().upper()
+    return asin if asin and all(c.isalnum() for c in asin) else None
 
 
 # ---------------------------------------------------------------------------
@@ -352,8 +391,13 @@ ON CONFLICT ON CONSTRAINT meli_question_anti_duplicado DO NOTHING
 
 def _pagina(
     cliente: ClienteMeli, path: str, params: dict, clave: str, max_paginas: int = 20
-) -> list[dict]:
-    """Paginado limit/offset con guardias (sin loop infinito)."""
+) -> tuple[list[dict], bool]:
+    """Paginado limit/offset con guardias. Devuelve (items, truncado).
+
+    XR-1.6: el total vive en `paging.total` (claims) o raiz (questions).
+    XR-1.7: si se agotan las paginas con datos pendientes, truncado=True
+    para contarlo como skip (nunca corte silencioso).
+    """
     items: list[dict] = []
     vistos: set[str] = set()
     offset = 0
@@ -361,20 +405,143 @@ def _pagina(
         data, _ = cliente.get(path, {**params, "limit": 50, "offset": offset})
         pagina = data.get(clave) or []
         if not isinstance(pagina, list) or not pagina:
-            break
+            return items, False
         nuevos = [p for p in pagina if isinstance(p, dict) and str(p.get("id")) not in vistos]
         if not nuevos:
-            break  # la API ignoro el offset: no repetir para siempre
+            return items, False  # la API ignoro el offset: no repetir para siempre
         for pregunta in nuevos:
             vistos.add(str(pregunta.get("id")))
         items.extend(nuevos)
-        total = (data.get("paging") or {}).get("total")
+        total = (data.get("paging") or {}).get("total", data.get("total"))
         offset += len(pagina)
         if isinstance(total, int) and offset >= total:
-            break
+            return items, False
         if len(pagina) < 50:
-            break
-    return items
+            return items, False
+    return items, True
+
+
+def fetch_seller(cliente: ClienteMeli) -> tuple[PlanSeller, Counter]:
+    """Fase red seller: cuenta + disputas. Sin DB."""
+    skips: Counter = Counter()
+    yo, _ = cliente.get("/users/me")
+    seller_id = yo.get("id")
+    if not isinstance(seller_id, int):
+        raise ReputacionError("MeLi /users/me sin id entero")
+    usuario, fetched = cliente.get(f"/users/{seller_id}")
+    rep = usuario.get("seller_reputation")
+    if not isinstance(rep, dict):
+        raise ReputacionError("MeLi /users/{id} sin seller_reputation")
+    disputas, truncadas = _pagina(
+        cliente,
+        "/post-purchase/v1/claims/search",
+        {"player": seller_id, "stage": "dispute"},
+        "data",
+    )
+    if truncadas:
+        skips["meli: claims truncados por max_paginas (total parcial)"] += 1
+    return plan_seller(rep, disputas, fetched), skips
+
+
+def fetch_questions(cliente: ClienteMeli) -> tuple[list[PlanQuestion], Counter]:
+    """Fase red questions: todas las del seller. Sin DB."""
+    skips: Counter = Counter()
+    yo, _ = cliente.get("/users/me")
+    seller_id = yo.get("id")
+    if not isinstance(seller_id, int):
+        raise ReputacionError("MeLi /users/me sin id entero")
+    crudas, truncadas = _pagina(cliente, "/questions/search", {"seller_id": seller_id}, "questions")
+    if truncadas:
+        skips["meli: questions truncadas por max_paginas (total parcial)"] += 1
+    fetched = dt.datetime.now(dt.UTC)
+    planes: list[PlanQuestion] = []
+    for pregunta in crudas:
+        item_id = pregunta.get("item_id")
+        if not isinstance(item_id, str) or not item_id:
+            skips["meli: pregunta sin item_id (se descarta)"] += 1
+            continue
+        plan, motivo = plan_question(item_id, pregunta, fetched)
+        if plan is None:
+            skips[motivo or "meli: pregunta descartada"] += 1
+            continue
+        if motivo is not None:
+            skips[motivo] += 1
+        planes.append(plan)
+    return planes, skips
+
+
+def _escribe_todo_meli(
+    conn: psycopg.Connection,
+    snapshots: list[PlanSnapshot],
+    reviews: list[PlanReview],
+    seller: PlanSeller | None,
+    questions: list[PlanQuestion],
+    metric_date: dt.date,
+    observed_at: dt.datetime,
+) -> tuple[int, int]:
+    """TODOS los hechos MeLi en UNA transaccion (Grok XR-1 ALTA-1: AC3
+    exige rollback total; 3 txs separadas dejaban corrida a medias)."""
+    insertadas = idempotentes = 0
+    with conn.transaction():
+        sub_ins, sub_idem = _escribe_hechos(conn, snapshots, reviews, metric_date, observed_at)
+        insertadas += sub_ins
+        idempotentes += sub_idem
+        if seller is not None:
+            cur = conn.execute(
+                _SQL_INSERT_SELLER,
+                (
+                    "meli",
+                    metric_date,
+                    seller.level_id,
+                    seller.power_seller,
+                    seller.tx_total,
+                    seller.tx_completed,
+                    seller.tx_canceled,
+                    seller.ratings_positive,
+                    seller.ratings_neutral,
+                    seller.ratings_negative,
+                    seller.disputas_total,
+                    seller.disputas_abiertas,
+                    seller.fetched_at,
+                    observed_at,
+                ),
+            )
+            if cur.rowcount == 0:
+                idempotentes += 1
+            else:
+                insertadas += 1
+        for plan in sorted(questions, key=lambda p: (p.external_id, p.question_external_id)):
+            cur = conn.execute(
+                _SQL_INSERT_QUESTION,
+                (
+                    "meli",
+                    plan.external_id,
+                    plan.question_external_id,
+                    plan.estado,
+                    plan.texto,
+                    plan.respuesta,
+                    plan.asked_at,
+                    plan.answered_at,
+                    plan.fetched_at,
+                    observed_at,
+                ),
+            )
+            if cur.rowcount == 0:
+                idempotentes += 1
+            else:
+                insertadas += 1
+    return insertadas, idempotentes
+
+
+def _abrir_run(conn: psycopg.Connection, source: str) -> int:
+    with conn.transaction():
+        return conn.execute(_SQL_ABRIR_RUN, (source,)).fetchone()[0]
+
+
+def _sellar(conn: psycopg.Connection, run_id: int, ins: int, skips: Counter, ok: bool) -> None:
+    motivo = _formato_skips(skips) if ok else "fallo la corrida"
+    with conn.transaction():
+        conn.execute(_SQL_SELLAR_RUN, (ins, sum(skips.values()), motivo, ok, run_id))
 
 
 def sync_seller(
@@ -385,63 +552,22 @@ def sync_seller(
 ) -> ResultadoReputacion:
     """Una fila diaria de cuenta MeLi (level, tx, disputas)."""
     observed_at, metric_date = _reloj(observed_at, metric_date)
-    with conn.transaction():
-        run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE_SELLER,)).fetchone()[0]
-    skips: Counter = Counter()
+    run_id = _abrir_run(conn, SOURCE_SELLER)
     try:
-        yo, _ = cliente.get("/users/me")
-        seller_id = yo.get("id")
-        if not isinstance(seller_id, int):
-            raise ReputacionError("MeLi /users/me sin id entero")
-        usuario, fetched = cliente.get(f"/users/{seller_id}")
-        rep = usuario.get("seller_reputation")
-        if not isinstance(rep, dict):
-            raise ReputacionError("MeLi /users/{id} sin seller_reputation")
-        disputas = _pagina(
-            cliente,
-            "/post-purchase/v1/claims/search",
-            {"player": seller_id, "stage": "dispute"},
-            "data",
+        plan, skips = fetch_seller(cliente)
+        insertadas, idempotentes = _escribe_todo_meli(
+            conn, [], [], plan, [], metric_date, observed_at
         )
-        plan = plan_seller(rep, disputas, fetched)
-        with conn.transaction():
-            cur = conn.execute(
-                _SQL_INSERT_SELLER,
-                (
-                    "meli",
-                    metric_date,
-                    plan.level_id,
-                    plan.power_seller,
-                    plan.tx_total,
-                    plan.tx_completed,
-                    plan.tx_canceled,
-                    plan.ratings_positive,
-                    plan.ratings_neutral,
-                    plan.ratings_negative,
-                    plan.disputas_total,
-                    plan.disputas_abiertas,
-                    plan.fetched_at,
-                    observed_at,
-                ),
-            )
-            insertadas = cur.rowcount
-        with conn.transaction():
-            conn.execute(
-                _SQL_SELLAR_RUN,
-                (insertadas, sum(skips.values()), _formato_skips(skips), True, run_id),
-            )
+        _sellar(conn, run_id, insertadas, skips, True)
     except Exception:
-        with conn.transaction():
-            conn.execute(
-                _SQL_SELLAR_RUN, (0, sum(skips.values()), "fallo la corrida", False, run_id)
-            )
+        _sellar(conn, run_id, 0, Counter(), False)
         raise
     return ResultadoReputacion(
         run_id=run_id,
         ok=True,
         fuente="meli_seller",
         filas_insertadas=insertadas,
-        filas_idempotentes=0 if insertadas else 1,
+        filas_idempotentes=idempotentes,
         skips=dict(sorted(skips.items())),
     )
 
@@ -454,59 +580,15 @@ def sync_questions(
 ) -> ResultadoReputacion:
     """Todas las preguntas del seller, una fila por pregunta y corrida."""
     observed_at, metric_date = _reloj(observed_at, metric_date)
-    with conn.transaction():
-        run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE_QUESTIONS,)).fetchone()[0]
-    skips: Counter = Counter()
+    run_id = _abrir_run(conn, SOURCE_QUESTIONS)
     try:
-        yo, _ = cliente.get("/users/me")
-        seller_id = yo.get("id")
-        if not isinstance(seller_id, int):
-            raise ReputacionError("MeLi /users/me sin id entero")
-        crudas = _pagina(cliente, "/questions/search", {"seller_id": seller_id}, "questions")
-        fetched = dt.datetime.now(dt.UTC)
-        planes: list[PlanQuestion] = []
-        for pregunta in crudas:
-            item_id = pregunta.get("item_id")
-            if not isinstance(item_id, str) or not item_id:
-                skips["meli: pregunta sin item_id (se descarta)"] += 1
-                continue
-            plan = plan_question(item_id, pregunta, fetched)
-            if plan is None:
-                skips["meli: pregunta sin id o estado desconocido (se descarta)"] += 1
-                continue
-            planes.append(plan)
-        insertadas = idempotentes = 0
-        with conn.transaction():
-            for plan in sorted(planes, key=lambda p: (p.external_id, p.question_external_id)):
-                cur = conn.execute(
-                    _SQL_INSERT_QUESTION,
-                    (
-                        "meli",
-                        plan.external_id,
-                        plan.question_external_id,
-                        plan.estado,
-                        plan.texto,
-                        plan.respuesta,
-                        plan.asked_at,
-                        plan.answered_at,
-                        plan.fetched_at,
-                        observed_at,
-                    ),
-                )
-                if cur.rowcount == 0:
-                    idempotentes += 1
-                else:
-                    insertadas += 1
-        with conn.transaction():
-            conn.execute(
-                _SQL_SELLAR_RUN,
-                (insertadas, sum(skips.values()), _formato_skips(skips), True, run_id),
-            )
+        planes, skips = fetch_questions(cliente)
+        insertadas, idempotentes = _escribe_todo_meli(
+            conn, [], [], None, planes, metric_date, observed_at
+        )
+        _sellar(conn, run_id, insertadas, skips, True)
     except Exception:
-        with conn.transaction():
-            conn.execute(
-                _SQL_SELLAR_RUN, (0, sum(skips.values()), "fallo la corrida", False, run_id)
-            )
+        _sellar(conn, run_id, 0, Counter(), False)
         raise
     return ResultadoReputacion(
         run_id=run_id,
@@ -595,14 +677,39 @@ def _corre_meli(
     observed_at: dt.datetime | None,
     metric_date: dt.date | None,
 ) -> dict:
-    """Corrida MeLi completa: snapshots + seller + questions en serie."""
+    """Corrida MeLi completa: red total, luego UNA tx de hechos (AC3).
+
+    Grok XR-1 ALTA-1: 3 syncs en serie dejaban corrida a medias (ej.
+    questions truena con snapshots ya escritos). Ahora: si CUALQUIERA
+    de las 3 fases red falla, cero hechos; si la escritura falla,
+    rollback total. Los 3 runs se sellan failed como evidencia.
+    """
     observed_at, metric_date = _reloj(observed_at, metric_date)
-    partes = [
-        ("snapshots", sync_meli(conn, cliente, observed_at, metric_date)),
-        ("seller", sync_seller(conn, cliente, observed_at, metric_date)),
-        ("questions", sync_questions(conn, cliente, observed_at, metric_date)),
-    ]
-    return _resumen("meli", partes)
+    run_id = _abrir_run(conn, SOURCE_MELI)
+    skips: Counter = Counter()
+    try:
+        snapshots, reviews, sk_snap = fetch_meli(cliente)
+        seller, sk_seller = fetch_seller(cliente)
+        questions, sk_questions = fetch_questions(cliente)
+        skips.update(sk_snap)
+        skips.update(sk_seller)
+        skips.update(sk_questions)
+        insertadas, idempotentes = _escribe_todo_meli(
+            conn, snapshots, reviews, seller, questions, metric_date, observed_at
+        )
+        _sellar(conn, run_id, insertadas, skips, True)
+    except Exception:
+        _sellar(conn, run_id, 0, Counter(), False)
+        raise
+    return {
+        "fuente": "meli",
+        "ok": True,
+        "run_ids": {"meli": run_id},
+        "filas_insertadas": insertadas,
+        "filas_idempotentes": idempotentes,
+        "skips": dict(sorted(skips.items())),
+        "costo_usd": None,
+    }
 
 
 def _resumen(fuente: str, partes: list[tuple[str, ResultadoReputacion]]) -> dict:
@@ -627,15 +734,18 @@ def _ensayo(
     observed_at: dt.datetime | None,
     metric_date: dt.date | None,
 ) -> dict:
-    """Dry-run: red + planes, CERO writes (ni ingest_run)."""
+    """Dry-run: CERO writes (ni ingest_run). Meli hace red completa;
+    amazon solo cuenta el catalogo (sin llamadas a junglee)."""
     observed_at, metric_date = _reloj(observed_at, metric_date)
     if fuente == "meli":
         assert isinstance(cliente, ClienteMeli)
         yo, _ = cliente.get("/users/me")
-        items = cliente.items_seller(yo["id"])
+        items, scan_truncado = cliente.items_seller(yo["id"])
         usuario, _ = cliente.get(f"/users/{yo['id']}")
         rep = usuario.get("seller_reputation") or {}
-        preguntas = _pagina(cliente, "/questions/search", {"seller_id": yo["id"]}, "questions")
+        preguntas, truncadas = _pagina(
+            cliente, "/questions/search", {"seller_id": yo["id"]}, "questions"
+        )
         return {
             "fuente": fuente,
             "ok": True,
@@ -643,6 +753,7 @@ def _ensayo(
             "items_vistos": len(items),
             "level": rep.get("level_id"),
             "preguntas_vistas": len(preguntas),
+            "paginado_truncado": truncadas or scan_truncado,
         }
     assert isinstance(cliente, ClienteJunglee)
     catalogo = conn.execute(
