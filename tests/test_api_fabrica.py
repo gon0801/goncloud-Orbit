@@ -36,6 +36,14 @@ def _modulos():
 def escenario(monkeypatch):
     api_fabrica, fw = _modulos()
     with db_fabrica("orbit_api_fabrica") as conn:
+        migraciones = Path(__file__).resolve().parents[1] / "migrations"
+        for nombre in (
+            "0020_ads_producto_metrica.sql",
+            "0021_economia_observada.sql",
+            "0022_disponibilidad_snapshot.sql",
+            "0028_estimacion_venta.sql",
+        ):
+            conn.execute((migraciones / nombre).read_text(encoding="utf-8"))
         conn.row_factory = tuple_row
         dsn = make_conninfo(_test_dsn(), dbname=conn.info.dbname)
         monkeypatch.setenv("ORBIT_DSN_READ", dsn)
@@ -544,3 +552,146 @@ def test_configuracion_motor_ausente_es_503_con_lote_recuperable(escenario, monk
     assert r.status_code == 503
     assert r.json()["detail"]["lote"] == vista["lote"]
     assert cliente.get("/api/fabrica/lotes/" + vista["lote"]).status_code == 200
+
+
+def _listing_mx(conn, product_id):
+    return conn.execute(
+        "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx' ORDER BY id",
+        (product_id,),
+    ).fetchone()[0]
+
+
+def _escenario_leido(listing_id, **overrides):
+    from decimal import Decimal
+
+    from app.estimacion_repository import EscenarioLeido
+
+    datos = dict(
+        id=99,
+        listing_id=listing_id,
+        canal="fba",
+        valoracion_date=dt.date(2026, 9, 8),
+        observed_at=dt.datetime(2026, 9, 8, 12, 0, tzinfo=dt.UTC),
+        estado="disponible",
+        motivos=(),
+        contribucion=Decimal("42.5000"),
+        contribucion_pct=Decimal("36.6379"),
+        moneda="MXN",
+        componentes=[],
+        exclusiones=(),
+        canonical_input={
+            "resultado": {
+                "estado": "disponible",
+                "contribucion": "42.5000",
+                "contribucion_pct": "36.6379",
+            }
+        },
+        context_fingerprint="fp-api",
+        politica_version_id=3,
+        formula_version="S3",
+    )
+    datos.update(overrides)
+    return EscenarioLeido(**datos)
+
+
+def test_catalogo_y_evaluacion_estimacion_mismo_snapshot(escenario, monkeypatch):
+    cliente, conn, _, fw, ids = escenario
+    lid = _listing_mx(conn, ids[0])
+    as_of = dt.datetime(2026, 9, 8, 18, 0, tzinfo=dt.UTC)
+    llamadas = []
+
+    def fake_leer(_conn, listing_ids, *, as_of):
+        llamadas.append((tuple(listing_ids), as_of))
+        return [_escenario_leido(lid)] if lid in listing_ids else []
+
+    monkeypatch.setattr("app.estimacion_proyeccion.leer_escenarios", fake_leer)
+
+    class _Reloj(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return as_of
+
+    monkeypatch.setattr(fw.dt, "datetime", _Reloj)
+    cat = cliente.get("/api/fabrica/catalogo?plataforma=amazon_mx")
+    eva = cliente.get("/api/fabrica/evaluacion?plataforma=amazon_mx")
+    assert cat.status_code == eva.status_code == 200, (cat.text, eva.text)
+    pub_cat = next(
+        p for prod in cat.json()["productos"] for p in prod["publicaciones"] if p["id"] == lid
+    )
+    pub_eva = next(p for p in eva.json()["publicaciones"] if p["listing_id"] == lid)
+    for pub in (pub_cat, pub_eva):
+        est = pub["estimacion"]
+        assert est["snapshot_id"] == 99
+        assert est["estado"] == "disponible"
+        assert est["contribucion"] == "42.5000"
+        assert est["contribucion_pct"] == "36.6379"
+    assert pub_cat["estimacion"]["snapshot_id"] == pub_eva["estimacion"]["snapshot_id"]
+    assert pub_cat["estimacion"]["estado"] == pub_eva["estimacion"]["estado"]
+    assert pub_cat["estimacion"]["contribucion"] == pub_eva["estimacion"]["contribucion"]
+    assert pub_cat["margen_neto_pct"] == "40.00000000000000000"
+    assert "economia" in pub_eva
+    assert [as_of for _ids, as_of in llamadas] == [as_of, as_of]
+
+
+def test_get_estimacion_decimal_como_cadena_y_null_se_queda_null(escenario, monkeypatch):
+    cliente, conn, _, _, ids = escenario
+    lid = _listing_mx(conn, ids[0])
+    lid_sin = _listing_mx(conn, ids[1])
+
+    def fake_leer(_conn, listing_ids, *, as_of):
+        return [_escenario_leido(lid)] if lid in listing_ids else []
+
+    monkeypatch.setattr("app.estimacion_proyeccion.leer_escenarios", fake_leer)
+    data = cliente.get("/api/fabrica/catalogo?plataforma=amazon_mx").json()
+    por_id = {p["id"]: p["estimacion"] for prod in data["productos"] for p in prod["publicaciones"]}
+    assert por_id[lid]["contribucion"] == "42.5000"
+    assert isinstance(por_id[lid]["contribucion"], str)
+    assert por_id[lid_sin]["contribucion"] is None
+    assert por_id[lid_sin]["estado"] == "incompleta"
+    assert por_id[lid_sin]["motivos"] == ["escenario_ausente"]
+
+
+def test_get_estimacion_no_llama_http_oauth_ni_write(escenario, monkeypatch):
+    cliente, _, _, fw, _ = escenario
+
+    def prohibido(*args, **kwargs):
+        raise AssertionError("GET no debe llamar red ni escritura")
+
+    monkeypatch.setattr(fw.fc, "_mutar", prohibido)
+    monkeypatch.setattr("app.estimacion_repository.persistir_escenario", prohibido)
+    monkeypatch.setattr("app.estimacion_fees.ProductFeesClient", prohibido)
+    cat = cliente.get("/api/fabrica/catalogo?plataforma=amazon_mx")
+    eva = cliente.get("/api/fabrica/evaluacion?plataforma=amazon_mx")
+    assert cat.status_code == eva.status_code == 200
+    assert "estimacion" in cat.json()["productos"][0]["publicaciones"][0]
+    assert "estimacion" in eva.json()["publicaciones"][0]
+
+
+def test_get_estimacion_leer_escenarios_una_vez_por_request(escenario, monkeypatch):
+    cliente, _, _, _, _ = escenario
+    llamadas = []
+
+    def fake_leer(_conn, listing_ids, *, as_of):
+        llamadas.append(list(listing_ids))
+        return []
+
+    monkeypatch.setattr("app.estimacion_proyeccion.leer_escenarios", fake_leer)
+    cat = cliente.get("/api/fabrica/catalogo?plataforma=amazon_mx")
+    eva = cliente.get("/api/fabrica/evaluacion?plataforma=amazon_mx")
+    assert cat.status_code == eva.status_code == 200
+    assert len(llamadas) == 2
+    assert len(llamadas[0]) >= 1
+    assert len(llamadas[1]) >= 1
+
+
+def test_catalogo_estimacion_stub_sin_fila(escenario):
+    cliente, _, _, _, _ = escenario
+    data = cliente.get("/api/fabrica/catalogo?plataforma=amazon_mx").json()
+    for prod in data["productos"]:
+        for pub in prod["publicaciones"]:
+            est = pub["estimacion"]
+            assert est["estado"] == "incompleta"
+            assert est["motivos"] == ["escenario_ausente"]
+            assert est["snapshot_id"] is None
+            assert est["contribucion"] is None
+            assert est["base_porcentaje"] == "ingreso_normalizado"
