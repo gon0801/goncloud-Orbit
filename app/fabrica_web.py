@@ -541,12 +541,17 @@ def detalle_lote(conn, lote: str) -> dict | None:
         return None
     datos = _fila_lote(fila)
     if datos["plan"]:
-        plan = (
-            fp.plan_v2_desde_json(datos["plan"])
-            if datos["plan"].get("schema_version") == 2
-            else fp.plan_desde_json(datos["plan"])
-        )
-        datos["bids"] = _bids_como_json(plan)
+        try:
+            plan = (
+                fp.plan_v2_desde_json(datos["plan"])
+                if datos["plan"].get("schema_version") == 2
+                else fp.plan_desde_json(datos["plan"])
+            )
+            datos["bids"] = _bids_como_json(plan)
+        except (KeyError, TypeError, ValueError, ArithmeticError):
+            # Un plan historico ilegible no puede ocultar estado ni pasos.
+            datos["plan"] = None
+            datos["bids"] = None
     datos["pasos"] = [
         dict(
             zip(
