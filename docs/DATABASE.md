@@ -588,10 +588,81 @@ Regímenes de lectura, explícitos (reemplazan al "todo lee lo maduro"):
   guards → `margen_neto_pct` NULL (regla 3). La escribe `app_admin`;
   `app_decide` solo lee (`campana_grupo_rol` es el destino de harvest de F2).
 
+### Estimación por venta antes de Ads (MARGEN ESTIMADO 01, migración `0028`)
+
+Medida **informativa** separada del margen observado: contribución estimada
+por una venta al precio y canal documentados. Universo inicial sellado en
+0.3: **FBA Amazon MX**; FBM/US quedan como `incompleta`/`desactualizada` sin
+convertir ausencias en cero. No alimenta motor, targets ni ledger.
+
+**`estimacion_politica_version`** — Política fiscal/normalización versionada
+(append-only, `app_admin` INSERT). `settings` JSONB **sin defaults de negocio**
+en el esquema: expresa, por ejemplo, divisor IVA 1.16, tasa ISR 0.025 y reglas
+de fee con `TaxAmount` para FBA MX. `valid_from`/`valid_to` (DATE) acotan
+vigencia en `0028` (`valid_to > valid_from` cuando no NULL). La política FBA MX
+sellada (`amazon_mx/fba`, fórmula `S3`, label `amazon_mx_pf_rfc_valid_2026_01`,
+vigente desde 2026-01-01, `logistica: "0"` solo porque FBA está incluido en
+fees Amazon, `fee_tax_amount_requiere_politica: true`) se inserta en `0029` con
+`created_at` por DEFAULT (`now()`), no con fecha histórica inventada. Corrección = fila nueva.
+
+**`estimacion_oferta_observation`** — Snapshot append-only de oferta/precio
+desde bridge: `listing_id`, plataforma, `seller_sku`, `asin`, `canal`
+(`estimacion_canal`: fba/fbm), importe+moneda originales, `fetched_at` (fecha
+fuente UTC), `observed_at` (captura Orbit), `canonical_input`, huella
+`context_fingerprint` y `source_event_id` **NOT NULL** (dedupe fuerte: repetir
+el mismo evento no rejuvenece; cambio real = otra fila con otro evento).
+Trigger `estimacion_oferta_listing_coherente` obliga a casar `listing_id` con
+`platform`/`asin`/`seller_sku`; `estimacion_fuente_no_futura` rechaza
+`fetched_at > observed_at`.
+
+**`estimacion_fee_observation`** — Cotización Product Fees append-only ligada
+al snapshot exacto de oferta vía **FK compuesta** (`oferta_observation_id` +
+listing/canal/precio/huella). Conserva total, desglose JSONB,
+`fees_estimated_at`, moneda del precio cotizado, estado `success`/`error`
+(intentos fallidos aparte del último éxito; `total_fees` NULL en error — regla
+3). `source_event_id` NOT NULL como la oferta. Trigger
+`estimacion_fee_temporal_coherente`: en `success`, `fees_estimated_at` no NULL,
+`>= fetched_at` de la oferta y `<= observed_at`; la oferta referenciada no puede
+haberse observado después del fee.
+
+**`estimacion_escenario`** — Escenario calculado append-only con referencias
+congeladas para reproducir **as-of**: ids de oferta/fee/costo/FX usados,
+`costo_validation_run_id` + `costo_validated_at` (corrida
+`accounting_sku_costs` ok del mismo día UTC que `valoracion_date`, sin skips),
+`costo_includes_tax` congelado en `canonical_input`, `politica_version_id`
+(NULL en incompletos; NOT NULL solo en `disponible`), `formula_version`,
+`valoracion_date`, `estado`
+(`disponible`/`incompleta`/`desactualizada`/`identidad_ambigua`), motivos y
+componentes JSONB. `source_event_id` NOT NULL UNIQUE dedupe idempotente (A.4):
+repetir el mismo evento congelado no rejuvenece; corrección real = otra fila. FKs por ID conservan las referencias y el trigger
+`estimacion_escenario_referencias_coherentes` impide mezclar listing/contexto;
+también exige que política/oferta/fee y costos con corrida de procedencia no
+estén observados/creados después del `observed_at` del escenario. En
+`disponible`, el trigger verifica `includes_tax=false`, vigencia del
+`sku_cost` en `valoracion_date` y que la corrida de validación sea
+`accounting_sku_costs` terminada (`finished_at` = `costo_validated_at`, no
+futura). **S5:**
+`disponible` exige `contribucion`,
+`contribucion_pct` y `moneda`; cualquier otro estado exige los tres NULL (no
+cero). `fx_rate` congelado como `NUMERIC(18,8)` (misma precisión que
+`fx_rate.rate`). Consulta as-of: `observed_at <= corte` ORDER BY
+`observed_at` DESC.
+
+**Reversa** — `estimacion_venta_reversa()` revoca INSERT/SEQUENCE a
+`app_ingest`/`app_admin`, verifica que los conteos de hechos no cambiaron y
+registra la operación en `estimacion_reversa_registro`. **No** hace DROP ni
+DELETE de observaciones.
+
+Permisos: `app_ingest` INSERT en las tres tablas de observación/escenario;
+`app_admin` INSERT en política; `app_read`/`app_decide` SELECT. Secuencias
+solo para roles que insertan. Candado append-only: trigger `prohibir_mutacion`
+(row + TRUNCATE) en las cuatro tablas de hechos desde el día 1.
+
 ## Roles y candados
 
 - **`app_ingest`** — sincronizadores: INSERT en hechos y catálogo (incluye
-  `external_reconciliation`); UPDATE genérico solo en cache (`ad_entity_state`)
+  `external_reconciliation` y, desde `0028`, observaciones/escenarios de
+  estimación); UPDATE genérico solo en cache (`ad_entity_state`)
   y catálogo (`product`, `listing`); `ad_entity` **solo por columnas
   (`name`, `listing_id`)** — `platform`/`kind`/`external_id`/`parent_id`/
   `match_type`/`keyword_text` son inmutables por permisos (mutarlos rompería
@@ -607,9 +678,9 @@ Regímenes de lectura, explícitos (reemplazan al "todo lee lo maduro"):
   `ads_optimizer_lock`. **No** escribe goals ni `config_version` (conserva
   SELECT).
 - **`app_admin`** (NOLOGIN) — config humana: escribe `ads_optimizer_goal`,
-  inserta `config_version` y `apply_quota_state` (fijar caps manualmente es
-  decisión de admin, no del motor) — escalera off→shadow→live. El endpoint
-  `/goals` corre como `app_admin`.
+  inserta `config_version`, `estimacion_politica_version` y `apply_quota_state`
+  (fijar caps manualmente es decisión de admin, no del motor) — escalera
+  off→shadow→live. El endpoint `/goals` corre como `app_admin`.
 - **`app_read`** — dashboard/análisis: SELECT.
 - Los permisos solos no bastan (un `GRANT ALL` futuro los derrotaría en
   silencio): el candado real es el trigger `prohibir_mutacion`, que bloquea

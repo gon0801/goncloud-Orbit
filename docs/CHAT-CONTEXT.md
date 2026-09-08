@@ -4,6 +4,16 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-08 UTC — MARGEN ESTIMADO 01, bloque A implementado; CI/merge en curso.**
+A.1–A.4 incorporan snapshots append-only de oferta y Product Fees, costo/FX y
+política versionada para FBA MX, además del calculador puro de contribución por
+venta antes de Ads. El principal queda NULL ante insumos ausentes, vencidos o
+incompatibles; cero y negativo se conservan. La lectura batch respeta as-of,
+TTL y transiciones a oferta ausente, ambigua, futura o FBM sin rejuvenecer el
+mismo snapshot. Revisión independiente aprobada y pruebas focales verdes. El
+bloque no está desplegado: publicación y smoke corresponden a B.5; campañas,
+motor Ads, Reputación, bridge y accounting no se modificaron.
+
 **2026-09-08 — Backlog consolidado: ROADMAP es la fuente única.**
 `plans/ROADMAP.md` absorbió AUTO-01..10 (placements = AUTO-04);
 `docs/PENDIENTES-AUTOMATIZACION.md` quedó como redirect y la
