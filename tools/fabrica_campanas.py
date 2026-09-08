@@ -531,6 +531,7 @@ def _arma_plan(args, conn_read: psycopg.Connection) -> fp.PlanGrupo | fp.PlanGru
         semillas = fp.semillas_desde_terminos(
             terminos, kws, negs, target.aplicado, terminos_exact=terminos_exact
         )
+        fp.valida_parametros(parametros, moneda, semillas)
         existentes = tuple(_existentes(conn_read, args.plataforma, listings))
     except fp.PlanInvalido as exc:
         raise Abortar(str(exc)) from exc
