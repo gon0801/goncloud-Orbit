@@ -4,6 +4,13 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-08 UTC — MARGEN ESTIMADO 01 formalizado, sin implementacion.**
+Plan `plans/margen-estimado-01.md`: 12 tareas en bloques 0/A/B. Propone
+contribucion estimada por venta antes de Ads, separada del margen observado.
+Bloque 0 debe verificar precio fechado, fees/logistica y contrato fiscal
+por mercado antes de liberar implementacion. D1–D4 y motor intactos;
+`plans/manifest.json` registra el plan sin cambiar el activo de Reputacion.
+
 **2026-09-08 — Crear campanas: rediseño del handoff UI (1).**
 Selector en tarjetas con fotos, margen neto antes de Ads, chips y contador de
 seleccion; comparador con cabeceras agrupadas, identidad fija y metadatos.
