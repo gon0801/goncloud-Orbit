@@ -34,6 +34,7 @@ autoriza implementación A/B, cambios a Ads, precios o campañas.
 |---|---|---|
 | Retención prospectiva por mercado | Finances/ledger acreditan eventos reales, pero `isr_withheld` llega sin orden y los porcentajes históricos no son política vigente | Política fiscal vigente de la cuenta: fuente, régimen, base, tasas, vigencia, moneda y tratamiento de ISR/IVA |
 | Logística FBM | Amazon cobra envío al cliente y también registra cargos MFN variables; ninguno es tarifa futura por oferta | Cotización/tarifa vigente de envío/fulfilment/embalaje, o declaración documentada de que otro componente la incluye |
+| Cobertura de costo directo | `sku_cost` acredita costo neto de IVA, pero no clasifica importación, transporte de entrada ni embalaje | Contrato Odoo/operativo que indique por componente si está incluido en COGS o aporte la fuente vigente separada |
 
 Estas son decisiones de producto, fiscalidad o integración; no se resuelven con
 un default, una tasa histórica ni un cambio de código. Hasta entonces el estado
@@ -61,7 +62,7 @@ motivo, y los valores principales permanecen `null`.
 
 **Bloque 0: investigación ejecutada; liberación de A/B bloqueada.** La evidencia
 demuestra factibilidad parcial, no el contrato económico completo. El siguiente
-paso es resolver las dos decisiones de la tabla con la persona responsable de
+paso es resolver las tres decisiones de la tabla con la persona responsable de
 fiscalidad/operación. Cuando existan, se enmienda esta acta, se fijan cadencias y
 universo soportado, y se habilita A.1. Si una fuente no se consigue, el alcance
 se reduce explícitamente por mercado/canal; no se rellena el cálculo.

@@ -71,7 +71,7 @@ Fees no devuelve esa cotización.
 
 | Componente | Evidencia | Uso prospectivo |
 |---|---|---|
-| Costo de producto | `sku_cost` vigente y neto de IVA para todo listing Orbit; no hay kits confirmados | Disponible por unidad uno, siempre con fecha de vigencia |
+| Costo de producto | `sku_cost` vigente y neto de IVA para todo listing Orbit; no hay kits confirmados | La unidad uno está disponible; falta clasificar importación, transporte de entrada y embalaje |
 | Comisión de referencia | Product Fees MX/US | Sólo para oferta/precio/canal que devuelva éxito |
 | Fulfilment FBA | Product Fees devuelve `FBAFees` en US y MX con oferta/canal/precio fresco | Disponible sólo si la cotización individual responde éxito |
 | Envío/fulfilment FBM | Finances/ledger muestran cobro al cliente y cargos MFN variables; Product Fees FBM no lo devuelve | Falta cotización/tarifa prospectiva; no usar histórico como tarifa |
@@ -101,9 +101,9 @@ contrato contable siguen sin identificar. No se aplicó una tasa por suposición
 | US FBA | Bridge sí, salvo filas viejas/sin precio | sí, convertir MXN→USD | fees+FBAFees sí | incluida sólo si el desglose lo acredita | falta política | incompleto |
 
 **Dictamen:** la cotización oficial es viable y el total no se suma de nuevo con
-sus detalles. El cálculo completo no se libera: logística FBM y retenciones no
-tienen fuente prospectiva verificada. Mientras tanto sólo se muestran componentes
-conocidos y el motivo de no calcular, nunca un subtotal llamado contribución
-completa.
+sus detalles. El cálculo completo no se libera: logística FBM, retenciones y
+cobertura de costos directos no tienen fuente prospectiva verificada. Mientras
+tanto sólo se muestran componentes conocidos y el motivo de no calcular, nunca
+un subtotal llamado contribución completa.
 
 Consulta de respaldo: `select-ledger.sql`. No contiene importes ni IDs.

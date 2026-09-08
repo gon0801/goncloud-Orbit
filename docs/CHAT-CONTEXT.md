@@ -9,7 +9,8 @@
 para FBM MX/US y FBA MX/US; Finances confirma que el cobro de envío y el costo
 MFN son conceptos distintos. FBA MX usa precio fresco bridge; el precio expira a
 las seis horas. No hay kits (unidad uno por listing). Faltan fuente prospectiva
-de retenciones y logística FBM; `0.3/acta.md` deja A/B bloqueados.
+de retenciones, logística FBM y cobertura de costos directos; `0.3/acta.md`
+deja A/B bloqueados.
 No se implementó cálculo ni se tocaron campañas, targets o Reputación.
 
 **2026-09-08 UTC — MARGEN ESTIMADO 01 formalizado, sin implementacion.**
