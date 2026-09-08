@@ -86,7 +86,11 @@ stat -c '%a %u:%g %n' /mnt/data/appdata/orbit/secrets \
 Si un secret NUEVO se crea como root (p. ej. al rotar el token), hay que
 darle el uid: `chown 10001:10001 secrets/<archivo>` tras escribirlo (el
 chmod 600 se mantiene). El mount es `:ro` (el contenedor no puede escribir
-ni relajar permisos).
+ni relajar permisos) — **excepción**: desde REPUTACION 01/A.7 es `:rw`
+para que el refresh OAuth MeLi persista `meli_tokens.json` (MeLi rota el
+refresh_token; con `:ro` el cron moriría al 2º día). Cambio autorizado por
+el dueño con respaldo y reversa (ver sección Reputación v1). El invariante
+"jamás relajar permisos de archivos" sigue intacto (700/600, uid 10001).
 
 **Env por servicio (4.1):** ni `db` ni `app` declaran `env_file: .env`
 (heredaban TODO). `db` recibe solo `POSTGRES_USER` / `POSTGRES_PASSWORD` /
@@ -96,7 +100,8 @@ ni relajar permisos).
 NO entra a ningún contenedor: su rol tiene `ADMIN OPTION` sobre `app_*`
 (escritura en prod) y solo lo usa la suite local por túnel.
 
-**Qué se monta:** SOLO `secrets/` (read-only). Ni backups, ni `.env`
+**Qué se monta:** SOLO `secrets/` (`:rw` desde A.7 por refresh OAuth
+MeLi; era read-only — ver excepción arriba). Ni backups, ni `.env`
 como archivo (los DSN llegan por interpolación). `.dockerignore`
 excluye `.env` y `secrets/` del contexto de build: no entran a la imagen.
 El mismo contenedor corre API (`ORBIT_DSN_READ` + `ORBIT_DSN_ADMIN` para
