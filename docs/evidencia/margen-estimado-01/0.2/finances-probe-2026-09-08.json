@@ -1,6 +1,9 @@
 {
   "token_status": 200,
   "http_status": 200,
+  "api_version": "Finances v0",
+  "method": "GET",
+  "path": "/finances/v0/financialEvents",
   "period": "2026-08-10T00:00:00Z/2026-08-12T00:00:00Z",
   "tax_withholding_event_group_advertised": true,
   "has_next_token": false,

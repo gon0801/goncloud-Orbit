@@ -43,12 +43,14 @@ una cadencia.
 ## Finances y cobros de envío reales
 
 Sí es posible investigar Amazon directamente: una llamada GET sanitizada a
-Finances devolvió HTTP 200 con el grupo `TaxWithholdingEventList` disponible.
+`/finances/v0/financialEvents` devolvió HTTP 200 con el grupo
+`TaxWithholdingEventList` disponible.
 El resultado de la ventana consultada y sólo sus conteos/tipos está en
 `finances-probe-2026-09-08.json`; no guarda órdenes, clientes, SKU, importes ni
-documentos fiscales. La guía oficial de [Finances
-v2024-06-19](https://developer-docs.amazon.com/sp-api/docs/finances-api-v2024-06-19-use-case-guide)
-confirma que la API se usa para transacciones por tiempo y marketplace.
+documentos fiscales. Esta sonda usa **Finances v0**, coherente con sus grupos
+`*EventList`; la referencia oficial de [Finances
+v0](https://developer-docs.amazon.com/sp-api/lang-es_ES/reference/finances-v0)
+describe la recuperación de eventos financieros de la cuenta.
 
 El histórico Orbit MX muestra `tax_withheld` en 1,201 filas con orden y
 `isr_withheld` en siete ajustes sin orden. Sus porcentajes mensuales observados
@@ -69,9 +71,9 @@ Fees no devuelve esa cotización.
 
 | Componente | Evidencia | Uso prospectivo |
 |---|---|---|
-| Costo de producto | `sku_cost` vigente y neto de IVA para todo listing Orbit | Disponible, siempre con fecha de vigencia y unidad por verificar |
+| Costo de producto | `sku_cost` vigente y neto de IVA para todo listing Orbit; no hay kits confirmados | Disponible por unidad uno, siempre con fecha de vigencia |
 | Comisión de referencia | Product Fees MX/US | Sólo para oferta/precio/canal que devuelva éxito |
-| Fulfilment FBA | Product Fees US devuelve `FBAFees` | Disponible US en la sonda; MX pendiente por contexto válido |
+| Fulfilment FBA | Product Fees devuelve `FBAFees` en US y MX con oferta/canal/precio fresco | Disponible sólo si la cotización individual responde éxito |
 | Envío/fulfilment FBM | Finances/ledger muestran cobro al cliente y cargos MFN variables; Product Fees FBM no lo devuelve | Falta cotización/tarifa prospectiva; no usar histórico como tarifa |
 | Retenciones | Finances es accesible; ledger tiene `tax_withheld` e `isr_withheld` | Falta política prospectiva de esta cuenta: base, tasa, vigencia y aplicabilidad |
 | Almacenamiento | `storage_fee` MX observado | Excluido de unidad hasta definir prorrateo o clase aparte |
@@ -100,8 +102,8 @@ contrato contable siguen sin identificar. No se aplicó una tasa por suposición
 
 **Dictamen:** la cotización oficial es viable y el total no se suma de nuevo con
 sus detalles. El cálculo completo no se libera: logística FBM y retenciones no
-tienen fuente prospectiva verificada; FBA MX requiere una sonda con oferta/contexto
-válido. Mientras tanto sólo se muestran componentes conocidos y el motivo de no
-calcular, nunca un subtotal llamado contribución completa.
+tienen fuente prospectiva verificada. Mientras tanto sólo se muestran componentes
+conocidos y el motivo de no calcular, nunca un subtotal llamado contribución
+completa.
 
 Consulta de respaldo: `select-ledger.sql`. No contiene importes ni IDs.
