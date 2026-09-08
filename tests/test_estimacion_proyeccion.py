@@ -228,16 +228,21 @@ def test_proyeccion_s5_no_inventa_procedencia_sin_refs():
         assert "pertenece_a_total" not in comp
         assert comp["observed_at"] is None
         assert comp["estado"] is None
+    assert isr["fuente"] == "politica"
     assert isr["fecha_fuente"] is None
     assert isr["vigencia"] is None
     assert isr["pertenencia"] is True
+    assert fx["fuente"] == "nearest_prior"
     assert fx["fecha_fuente"] == "2026-09-04"
     assert fx["vigencia"] is None
     assert fx["pertenencia"] is False
+    assert costo["fuente"] is None
     assert costo["pertenencia"] is False
     assert costo["vigencia"] is None
+    assert fee["fuente"] is None
     assert fee["pertenencia"] is False
     assert fee["vigencia"] is None
+    assert precio["fuente"] is None
     assert precio["fecha_fuente"] is None
     assert precio["pertenencia"] is True
     assert sobre["escenario"] == {
@@ -252,7 +257,12 @@ def test_proyeccion_s5_no_inventa_procedencia_sin_refs():
 
 def test_proyeccion_s5_mapea_procedencia_desde_refs_reales():
     from app.estimacion_proyeccion import proyeccion_s5
-    from app.estimacion_repository import ProcedenciaRefs
+    from app.estimacion_reader import (
+        FUENTE_OFERTA,
+        FUENTE_PRODUCT_FEES,
+        FUENTE_SKU_COST,
+        ProcedenciaRefs,
+    )
 
     refs = ProcedenciaRefs(
         oferta_fetched_at=datetime(2026, 9, 8, 18, 35, 40, tzinfo=UTC),
@@ -263,6 +273,7 @@ def test_proyeccion_s5_mapea_procedencia_desde_refs_reales():
         costo_valid_to=None,
         politica_valid_from=date(2026, 1, 1),
         politica_valid_to=None,
+        politica_label="fixture-fba-mx",
     )
     sobre = proyeccion_s5(
         _escenario(
@@ -276,18 +287,31 @@ def test_proyeccion_s5_mapea_procedencia_desde_refs_reales():
         )
     )
     precio, fee, costo, isr = sobre["componentes"]
+    assert precio["fuente"] == FUENTE_OFERTA
     assert precio["fecha_fuente"] == refs.oferta_fetched_at.isoformat()
     assert precio["observed_at"] == refs.oferta_observed_at.isoformat()
     assert precio["vigencia"] is None
     assert precio["estado"] is None
+    assert fee["fuente"] == FUENTE_PRODUCT_FEES
     assert fee["fecha_fuente"] == refs.fee_fees_estimated_at.isoformat()
     assert fee["observed_at"] == refs.fee_observed_at.isoformat()
+    assert costo["fuente"] == FUENTE_SKU_COST
     assert costo["vigencia"] == "2026-08-18"
     assert costo["fecha_fuente"] is None
     assert costo["observed_at"] is None
+    assert isr["fuente"] == "politica:fixture-fba-mx"
     assert isr["vigencia"] == "2026-01-01"
     assert isr["estado"] is None
     assert isr["pertenencia"] is True
+
+
+def test_proyeccion_s5_fuente_null_sin_refs():
+    from app.estimacion_proyeccion import proyeccion_s5
+
+    sobre = proyeccion_s5(
+        _escenario(componentes=[{"nombre": "precio_bruto", "pertenece_a_total": True}])
+    )
+    assert sobre["componentes"][0]["fuente"] is None
 
 
 def test_adjuntar_estimaciones_rechaza_as_of_naive():

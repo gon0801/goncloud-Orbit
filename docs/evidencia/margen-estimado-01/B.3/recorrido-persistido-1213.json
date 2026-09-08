@@ -9,11 +9,18 @@
   "fee_observation_id": 1,
   "contribucion": "297.6710",
   "contribucion_pct": "34.9492",
+  "fuentes": {
+    "precio_bruto": "oferta",
+    "fee_total": "product_fees",
+    "costo_original": "sku_cost",
+    "isr": "politica:fixture-fba-mx"
+  },
   "procedencia": {
     "oferta_fetched_at": "2026-09-08T18:35:40+00:00",
     "fee_fees_estimated_at": "2026-09-08T19:10:55+00:00",
     "costo_valid_from": "2026-08-18",
-    "politica_valid_from": "2026-01-01"
+    "politica_valid_from": "2026-01-01",
+    "politica_label": "fixture-fba-mx"
   },
   "match_hoja_ac14": true
 }

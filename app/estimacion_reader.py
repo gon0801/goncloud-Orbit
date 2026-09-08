@@ -32,6 +32,14 @@ class ProcedenciaRefs:
     costo_valid_to: date | None = None
     politica_valid_from: date | None = None
     politica_valid_to: date | None = None
+    politica_label: str | None = None
+
+
+# Fuentes S5 verificables (tablas/refs persistidas, no inventadas).
+FUENTE_OFERTA = "oferta"
+FUENTE_PRODUCT_FEES = "product_fees"
+FUENTE_SKU_COST = "sku_cost"
+FUENTE_POLITICA = "politica"
 
 
 @dataclass(frozen=True)
@@ -76,14 +84,14 @@ def leer_escenarios(
         " o.fetched_at, o.observed_at,"
         " f.fees_estimated_at, f.observed_at,"
         " c.valid_from, c.valid_to,"
-        " p.valid_from, p.valid_to"
+        " p.valid_from, p.valid_to, p.label"
         " FROM estimacion_escenario e"
         " LEFT JOIN estimacion_oferta_observation o ON o.id = e.oferta_observation_id"
         " LEFT JOIN estimacion_fee_observation f ON f.id = e.fee_observation_id"
         " LEFT JOIN sku_cost c ON c.id = e.sku_cost_id"
         " LEFT JOIN estimacion_politica_version p ON p.id = e.politica_version_id"
         " WHERE e.listing_id = ANY(%s) AND e.observed_at <= %s"
-        " ORDER BY e.listing_id, e.observed_at DESC",
+        " ORDER BY e.listing_id, e.observed_at DESC, e.id DESC",
         (listing_ids, as_of_utc),
     ).fetchall()
     resultado: list[EscenarioLeido] = []
@@ -120,6 +128,7 @@ def leer_escenarios(
             costo_valid_to=f[21],
             politica_valid_from=f[22],
             politica_valid_to=f[23],
+            politica_label=f[24],
         )
         resultado.append(
             EscenarioLeido(

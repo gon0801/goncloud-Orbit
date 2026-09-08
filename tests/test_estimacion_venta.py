@@ -2045,15 +2045,21 @@ def test_pipeline_no_http_dentro_de_transaccion(tmp_path):
 
 
 @_skip_db
-def test_b3_recorrido_persistido_proyeccion_s5_ac14():
+def test_b3_recorrido_persistido_proyeccion_s5_ac14(tmp_path):
     """B.3: siembra→persist→reader→proyeccion S5 en DB aislada (0028+politica).
 
     Numeros del caso vivo listing 1213 (P=988, C=341, F=191.76). Demuestra
-    snapshot_id y procedencia real sin desplegar produccion.
+    snapshot_id, fuentes y procedencia real sin desplegar produccion.
+    No escribe bajo docs/: evidencia opcional solo en tmp_path.
     """
     import json
 
     from app.estimacion_proyeccion import proyeccion_s5
+    from app.estimacion_reader import (
+        FUENTE_OFERTA,
+        FUENTE_PRODUCT_FEES,
+        FUENTE_SKU_COST,
+    )
     from app.estimacion_repository import (
         leer_escenarios,
         persistir_escenario,
@@ -2128,16 +2134,21 @@ def test_b3_recorrido_persistido_proyeccion_s5_ac14():
         assert leido.procedencia.fee_fees_estimated_at == fee_time
         assert leido.procedencia.costo_valid_from == date(2026, 8, 18)
         assert leido.procedencia.politica_valid_from == date(2026, 1, 1)
+        assert leido.procedencia.politica_label == "fixture-fba-mx"
         sobre = proyeccion_s5(leido)
         assert sobre["snapshot_id"] == pers.id
         assert sobre["estado"] == "disponible"
         assert Decimal(sobre["contribucion"]) == Decimal("297.6710")
         assert Decimal(sobre["contribucion_pct"]) == Decimal("34.9492")
         por_nombre = {c["nombre"]: c for c in sobre["componentes"]}
+        assert por_nombre["precio_bruto"]["fuente"] == FUENTE_OFERTA
         assert por_nombre["precio_bruto"]["fecha_fuente"] == fetch_oferta.isoformat()
         assert por_nombre["precio_bruto"]["observed_at"] == obs_oferta.isoformat()
+        assert por_nombre["fee_total"]["fuente"] == FUENTE_PRODUCT_FEES
         assert por_nombre["fee_total"]["fecha_fuente"] == fee_time.isoformat()
+        assert por_nombre["costo_original"]["fuente"] == FUENTE_SKU_COST
         assert por_nombre["costo_original"]["vigencia"] == "2026-08-18"
+        assert por_nombre["isr"]["fuente"] == "politica:fixture-fba-mx"
         assert por_nombre["isr"]["vigencia"] == "2026-01-01"
         assert por_nombre["isr"]["estado"] is None
         evidencia = {
@@ -2151,13 +2162,90 @@ def test_b3_recorrido_persistido_proyeccion_s5_ac14():
             "fee_observation_id": fid,
             "contribucion": sobre["contribucion"],
             "contribucion_pct": sobre["contribucion_pct"],
+            "fuentes": {
+                "precio_bruto": por_nombre["precio_bruto"]["fuente"],
+                "fee_total": por_nombre["fee_total"]["fuente"],
+                "costo_original": por_nombre["costo_original"]["fuente"],
+                "isr": por_nombre["isr"]["fuente"],
+            },
             "procedencia": {
                 "oferta_fetched_at": fetch_oferta.isoformat(),
                 "fee_fees_estimated_at": fee_time.isoformat(),
                 "costo_valid_from": "2026-08-18",
                 "politica_valid_from": "2026-01-01",
+                "politica_label": "fixture-fba-mx",
             },
             "match_hoja_ac14": True,
         }
-        dest = ROOT / "docs/evidencia/margen-estimado-01/B.3/recorrido-persistido-1213.json"
-        dest.write_text(json.dumps(evidencia, indent=2) + "\n", encoding="utf-8")
+        (tmp_path / "recorrido-persistido-1213.json").write_text(
+            json.dumps(evidencia, indent=2) + "\n", encoding="utf-8"
+        )
+
+
+@_skip_db
+def test_leer_escenarios_desempata_mismo_observed_at_por_id_desc():
+    """Dos escenarios con el mismo observed_at: gana el id mayor (e.id DESC)."""
+    from app.estimacion_repository import (
+        leer_escenarios,
+        persistir_escenario,
+        sembrar_escenario_desde_refs,
+    )
+
+    mismo_obs = NOW + timedelta(seconds=1)
+    with db_estimacion(prefijo="orbit_margen_tie") as conn:
+        pid, lid = _sembrar_listing(conn)
+        _sembrar_costo(conn, pid)
+        oid1 = _sembrar_oferta(conn, lid, evento="evt-tie-oferta-1")
+        fid1 = _insertar_fee(
+            conn,
+            oid=oid1,
+            lid=lid,
+            total="15.0000",
+            detalles_json=FEE_DETALLES_15_JSON,
+            evento="evt-tie-fee-1",
+        )
+        conn.commit()
+        esc1 = sembrar_escenario_desde_refs(
+            conn,
+            listing_id=lid,
+            oferta_observation_id=oid1,
+            fee_observation_id=fid1,
+            valoracion_date=VALORACION,
+            observed_at=mismo_obs,
+        )
+        p1 = persistir_escenario(conn, esc1)
+        conn.commit()
+
+        oid2 = _sembrar_oferta(
+            conn,
+            lid,
+            evento="evt-tie-oferta-2",
+            observed_at=mismo_obs,
+            huella=f"fba:116.0000:MXN:{FETCH.isoformat()}:b",
+        )
+        fid2 = _insertar_fee(
+            conn,
+            oid=oid2,
+            lid=lid,
+            total="15.0000",
+            detalles_json=FEE_DETALLES_15_JSON,
+            evento="evt-tie-fee-2",
+            observed_at=mismo_obs,
+            huella=f"fba:116.0000:MXN:{FETCH.isoformat()}:b",
+        )
+        conn.commit()
+        esc2 = sembrar_escenario_desde_refs(
+            conn,
+            listing_id=lid,
+            oferta_observation_id=oid2,
+            fee_observation_id=fid2,
+            valoracion_date=VALORACION,
+            observed_at=mismo_obs,
+        )
+        p2 = persistir_escenario(conn, esc2)
+        conn.commit()
+        assert p2.id > p1.id
+        assert p1.observed_at == p2.observed_at == mismo_obs
+        leidos = leer_escenarios(conn, [lid], as_of=mismo_obs + timedelta(minutes=1))
+        assert len(leidos) == 1
+        assert leidos[0].id == p2.id

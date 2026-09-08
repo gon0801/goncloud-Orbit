@@ -5,9 +5,11 @@ detalle siempre esta en el sobre: None si estado==disponible o si el
 resultado congelado no trae contribucion ni contribucion_pct.
 
 Procedencia de componentes: solo campos reales.
+- `fuente` persistida o, si falta, desde refs del reader (oferta /
+  product_fees / sku_cost / politica:{label}).
 - `fecha` persistida -> `fecha_fuente` (p.ej. FX).
-- refs del reader (oferta/fee/costo/politica) rellenan fecha_fuente,
-  observed_at y vigencia cuando el JOIN las trae.
+- refs del reader rellenan fecha_fuente, observed_at y vigencia cuando
+  el JOIN las trae.
 - `estado` solo si viene en el componente; nunca se inventa desde pertenencia.
 - `pertenencia` renombra `pertenece_a_total`.
 unidad del escenario = "1" (acta 0.3: una unidad vendible por listing).
@@ -20,7 +22,15 @@ from typing import Any
 
 import psycopg
 
-from app.estimacion_reader import EscenarioLeido, ProcedenciaRefs, leer_escenarios
+from app.estimacion_reader import (
+    FUENTE_OFERTA,
+    FUENTE_POLITICA,
+    FUENTE_PRODUCT_FEES,
+    FUENTE_SKU_COST,
+    EscenarioLeido,
+    ProcedenciaRefs,
+    leer_escenarios,
+)
 
 # Acta 0.3 / spec S1: un listing modela una unidad vendible; no hay kits.
 UNIDAD_ESCENARIO_V1 = "1"
@@ -98,17 +108,37 @@ def _es_politica_comp(nombre: str) -> bool:
     return nombre in ("isr", "logistica", "retencion_iva_conciliacion")
 
 
+def _fuente_desde_refs(nombre: str, refs: ProcedenciaRefs | None) -> str | None:
+    """Fuente verificable solo si el JOIN del reader trajo la ref."""
+    if refs is None:
+        return None
+    if _es_precio(nombre) and refs.oferta_fetched_at is not None:
+        return FUENTE_OFERTA
+    if _es_fee(nombre) and refs.fee_fees_estimated_at is not None:
+        return FUENTE_PRODUCT_FEES
+    if _es_costo(nombre) and refs.costo_valid_from is not None:
+        return FUENTE_SKU_COST
+    if _es_politica_comp(nombre) and refs.politica_valid_from is not None:
+        if refs.politica_label:
+            return f"{FUENTE_POLITICA}:{refs.politica_label}"
+        return FUENTE_POLITICA
+    return None
+
+
 def _procedencia_componente(
     raw: dict[str, Any], refs: ProcedenciaRefs | None
-) -> tuple[str | None, str | None, str | None, str | None]:
-    """fecha_fuente, observed_at, vigencia, estado — sin inventar."""
+) -> tuple[str | None, str | None, str | None, str | None, str | None]:
+    """fuente, fecha_fuente, observed_at, vigencia, estado — sin inventar."""
+    fuente = raw.get("fuente")
+    if fuente is None:
+        fuente = _fuente_desde_refs(raw.get("nombre") or "", refs)
     fecha_fuente = _fecha_fuente_persistida(raw)
     observed_at = _str_o_none(raw.get("observed_at"))
     vigencia = _str_o_none(raw.get("vigencia"))
     estado = _str_o_none(raw.get("estado"))
     nombre = raw.get("nombre") or ""
     if refs is None:
-        return fecha_fuente, observed_at, vigencia, estado
+        return fuente, fecha_fuente, observed_at, vigencia, estado
     if _es_precio(nombre):
         if fecha_fuente is None:
             fecha_fuente = _iso_o_none(refs.oferta_fetched_at)
@@ -125,11 +155,11 @@ def _procedencia_componente(
     elif _es_politica_comp(nombre):
         if vigencia is None:
             vigencia = _iso_o_none(refs.politica_valid_from)
-    return fecha_fuente, observed_at, vigencia, estado
+    return fuente, fecha_fuente, observed_at, vigencia, estado
 
 
 def _componente_s5(raw: dict[str, Any], escenario: EscenarioLeido) -> dict[str, Any]:
-    fecha_fuente, observed_at, vigencia, estado = _procedencia_componente(
+    fuente, fecha_fuente, observed_at, vigencia, estado = _procedencia_componente(
         raw, escenario.procedencia
     )
     return {
@@ -138,7 +168,7 @@ def _componente_s5(raw: dict[str, Any], escenario: EscenarioLeido) -> dict[str, 
         "moneda_original": raw.get("moneda_original"),
         "importe_normalizado": _str_o_none(raw.get("importe_normalizado")),
         "moneda_normalizada": raw.get("moneda_normalizada"),
-        "fuente": raw.get("fuente"),
+        "fuente": fuente,
         "fecha_fuente": fecha_fuente,
         "observed_at": observed_at,
         "vigencia": vigencia,
