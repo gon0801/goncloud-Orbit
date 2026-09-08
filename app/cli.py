@@ -34,7 +34,7 @@ import sys
 from decimal import Decimal
 from pathlib import Path
 
-from app import cobertura, costs, fx, goals_write, ledger, listings, reputacion
+from app import cobertura, costs, fx, goals_write, ledger, listings, reputacion, reputacion_alertas
 from app import cycle as ciclo
 from app.ads import archivar, reports, structure
 from app.db import connect
@@ -118,6 +118,17 @@ def _cycle(args) -> int:
             motivo = notas.get("motivo_skip") or notas.get("error")
             print(f"motivo: {motivo or 'ver notes del ciclo'}")
     return 0
+
+
+def _reputacion_alertas(args) -> int:
+    """`reputacion alertas`: evaluacion A.5 (app/reputacion_alertas).
+
+    Envoltorio delgado: sin logica, solo despacho a ejecuta_alertas.
+    """
+    return reputacion_alertas.ejecuta_alertas(
+        fecha=args.fecha,
+        dry_run=args.dry_run,
+    )
 
 
 def _reputacion_snapshot(args) -> int:
@@ -514,6 +525,13 @@ def main(argv: list[str] | None = None) -> int:
     p_snap.add_argument("--dry-run", action="store_true", help="red+planes, cero writes")
     p_snap.add_argument("--max-productos", type=int, default=600)
     p_snap.add_argument("--tope-usd", type=float, default=2.0)
+    p_alert = reput_sub.add_parser(
+        "alertas",
+        help="evalua alertas con lo ultimo en DB (requiere ORBIT_DSN_DECIDE)",
+        allow_abbrev=False,
+    )
+    p_alert.add_argument("--fecha", default=None, help="hoy YYYY-MM-DD (default: hoy UTC)")
+    p_alert.add_argument("--dry-run", action="store_true", help="evalua, cero writes")
 
     p_rep = sub.add_parser(
         "reponer-anuncios",
@@ -571,6 +589,8 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         if args.subcomando == "snapshot":
             return _reputacion_snapshot(args)
+        if args.subcomando == "alertas":
+            return _reputacion_alertas(args)
         raise AssertionError(f"subcomando inalcanzable: {args.subcomando!r}")
     if args.comando == "archivar-anuncios":
         if rest:
