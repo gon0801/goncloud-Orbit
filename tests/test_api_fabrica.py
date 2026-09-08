@@ -574,7 +574,7 @@ def test_preview_v1_rechaza_cobertura_obsoleta_como_422(escenario):
     assert "semillas vigentes" in respuesta.json()["detail"]["mensaje"]
 
 
-@pytest.mark.parametrize("plan_ilegible", [{"schema_version": 2}, ["no es objeto"]])
+@pytest.mark.parametrize("plan_ilegible", [{"schema_version": 2}, ["no es objeto"], {}, []])
 def test_detalle_lote_con_plan_ilegible_conserva_estado_y_pasos(escenario, plan_ilegible):
     cliente, conn, _, _, _ = escenario
     conn.execute(
