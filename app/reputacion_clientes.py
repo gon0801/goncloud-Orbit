@@ -97,6 +97,9 @@ class MeliCredentials:
         data["refresh_token"] = refresh_token
         tmp = self.ruta.with_suffix(".tmp")
         tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        # XR-1.9: el .tmp hereda umask (tip. 644); el rename la preserva.
+        # Tokens solo para el dueño ANTES de mover.
+        os.chmod(tmp, 0o600)
         tmp.rename(self.ruta)
         self.access_token = access_token
         self.refresh_token = refresh_token
@@ -202,19 +205,28 @@ class ClienteMeli:
         data = self._request("GET", path, params)
         return data, dt.datetime.now(dt.UTC)
 
-    def items_seller(self, seller_id: int, max_paginas: int = 50) -> list[str]:
-        """IDs de items via scan paginado (E/0.3: 65 con scroll_id)."""
+    def items_seller(self, seller_id: int, max_paginas: int = 50) -> tuple[list[str], bool]:
+        """IDs de items via scan paginado. Devuelve (ids, truncado).
+
+        XR-1.8: corte a 50 paginas sin agotar = truncado para skip.
+        Grok XR-1 MEDIA-4: corta tambien si paging.total ya se alcanzo
+        (la pagina extra con scroll vivo puede dar 400/scan-expirado
+        y tumbaria la corrida entera).
+        """
         items: list[str] = []
         params: dict = {"search_type": "scan", "limit": 100}
         for _ in range(max_paginas):
             data, _ = self.get(f"/users/{seller_id}/items/search", params)
             resultados = data.get("results") or []
             items.extend(str(i) for i in resultados)
+            total = (data.get("paging") or {}).get("total")
+            if isinstance(total, int) and len(items) >= total:
+                return items, False
             scroll = data.get("scroll_id")
             if not scroll or not resultados:
-                break
+                return items, False
             params = {"search_type": "scan", "scroll_id": scroll}
-        return items
+        return items, True
 
 
 # ---------------------------------------------------------------------------
@@ -263,8 +275,11 @@ class ClienteJunglee:
             raise ReputacionError(
                 f"junglee: costo est ${costo_est:.2f} excede tope_usd=${tope_usd:.2f}"
             )
+        # Grok XR-1 MEDIA-5: token en header, jamas en query string
+        # (httpx loguea URLs en sus errores con otro logger sin scrub).
         resp = self._client.post(
-            f"/acts/{self._actor}/run-sync-get-dataset-items?token={self._creds.token}",
+            f"/acts/{self._actor}/run-sync-get-dataset-items",
+            headers={"Authorization": "Bearer " + self._creds.token},
             json={
                 "categoryOrProductUrls": [{"url": u} for u in urls],
                 "maxItemsPerStartUrl": max_items_por_url,
