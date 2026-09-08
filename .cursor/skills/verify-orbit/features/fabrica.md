@@ -23,7 +23,7 @@ Preconditions:
 - Semilla baseline: sin `listing` ni lotes de fabrica. El catalogo y el historial llegan vacios.
 
 - **Partir de Resumen.** Corre `curl -sS "$BASE/"`. Status 200 y `data-pantalla="resumen"`.
-- **Seguir el nav.** Corre `curl -sS "$BASE/campanas/nuevas"`. Status 200. El HTML contiene `data-pantalla="fabrica"`, `h1` `Crear campañas`, `h2` `Crear campañas`, `href="/campanas/nuevas"` junto a `aria-current="page"`, `form#fabrica-plan`, `#fabrica-plataforma`, `#fabrica-token` y la frase `CREAR 5 CAMPAÑAS`.
+- **Seguir el nav.** Corre `curl -sS "$BASE/campanas/nuevas"`. Status 200. El HTML contiene `data-pantalla="fabrica"`, `h1` `Crear campañas` (sin titulo duplicado), selector `#fabrica-productos` dentro de `.fabrica-catalogo`, comparador `#fabrica-comparador` con `#fabrica-comparador-datos`, `href="/campanas/nuevas"` junto a `aria-current="page"`, `form#fabrica-plan`, `#fabrica-plataforma`, `#fabrica-token` y la frase `CREAR 5 CAMPAÑAS`.
 - **Leer el vacio de la semilla.** Corre `curl -sS "$BASE/api/fabrica/catalogo?plataforma=amazon_us"`. Status 200. `productos` y `tipos_producto` son `[]`. Corre `curl -sS "$BASE/api/fabrica/lotes?plataforma=amazon_us"`. Status 200. `items` es `[]`.
 - **Proof.** Guarda HTML de `/` y `/campanas/nuevas` mas los JSON bajo `evidence/<run_id>/fabrica/`. O corre `.cursor/skills/verify-orbit/helpers/orbit-verify drive-fabrica`.
 

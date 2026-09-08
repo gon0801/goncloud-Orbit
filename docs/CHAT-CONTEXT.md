@@ -4,6 +4,13 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-08 — Crear campanas: rediseño del handoff UI (1).**
+Selector en tarjetas con fotos, margen neto antes de Ads, chips y contador de
+seleccion; comparador con cabeceras agrupadas, identidad fija y metadatos.
+Conserva objetivos, seleccion por listing, confirmacion y recuperacion v1/v2.
+Solo presentacion: sin cambios al motor, API, DB ni Reputacion. Evidencia:
+`docs/evidencia/crear-campanas-ui/validacion.md`. Deploy sujeto al CI de su PR.
+
 **2026-09-07 — ORBIT 19 Fase B cerrada y desplegada.** PRs #190 y #191 (CI verde) integrados; SHA productivo 7331740. Migraciones 0020-0022 aplicadas con backup (metricas Ads por producto append-only, economia observada, disponibilidad). Primera ingesta productiva `--productos` exitosa: US cuadra exacto contra el agregado de campana; MX cuadra en ventas con residual solo-actividad declarado (clicks -5, costo -33.08 MXN del 2026-09-06, nunca por encima). Disponibilidad real cargada del bridge (546 filas; Featured Offer sigue Sin verificar, ampliacion abierta). Cron diario 07:20 UTC `ingest:metrics:productos`. Comparador visible en Crear campañas con datos reales de las tres fuentes. Cero campanas reales creadas; sonda de gasto sigue diferida. Nucleo A+B de ORBIT 19 completo.
 
 **2026-09-07 — REPUTACION 01: plan formal v1.2 aprobado.**
