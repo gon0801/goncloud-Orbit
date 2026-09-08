@@ -10,6 +10,9 @@ Antecedente: REPUTACION 01 fase A cerrada 2026-09-08 (solo-lectura).
 2. Account Health Amazon (performance, violaciones, riesgo).
 3. Buy Box (quién la gana, a qué precio, alertas).
 4. Detección de fakes (patrones sospechosos de reviews).
+5. Sentimiento de reviews (del doc master M3).
+6. Vinculación con acciones: pausar/bajar campañas si rating cae,
+   no promocionar mala reputación (fase 6 del doc master).
 
 ## Precondiciones
 
