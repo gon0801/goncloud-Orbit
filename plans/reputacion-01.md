@@ -130,7 +130,7 @@ Purpose: dato fresco visible y alertas que avisan, tolerantes a fuente ausente.
 | A.5 | [stage:implementacion] [lane:gate] [tdd:required] Evaluación pura de alertas (D3, granularidad por tipo: qué fuente dispara cada alerta) + líneas en digest | fixtures 1★ (solo si A.3)/<4.2/spike/caída disparan SOLO en flanco (cambio de estado); sin datos no dispara; fixture sin-texto no rompe; digest solo imprime si hay alertas; E/A.5 | A.2,A.4,0.5 | cc:DONE |
 | A.6 | [stage:implementacion] [lane:gate] [tdd:required] API GET + pantalla /reputacion + sidebar (Reputación deja "pronto") | UI verificada en navegador; textContent para texto externo (+ snippet/images_json: solo enlaces https amazon/MeLi o sin enlace; imágenes fuera v1 o allowlist); escape según parse_mode del digest + tests; CSP sin inline; ausencia visible; no rompe sin texto; capturas E/A.6 | A.2,A.5 | cc:DONE |
 | A.R | [stage:revision] [lane:gate] [tdd:skip:revision] Revisión independiente de A | APPROVE sobre SHA; fuentes, idempotencia, XSS, secreto-fuera-de-logs; sin bloqueantes; E/A.R | A.6 | cc:DONE |
-| A.7 | [stage:cierre-pr] [lane:release] [tdd:skip:validacion-entrega] CI, integración y despliegue | ruff/pre-commit + suite CI verdes; backup; migración; smoke GET; cron en DEPLOY.md; E/A.7 | A.R | cc:TODO |
+| A.7 | [stage:cierre-pr] [lane:release] [tdd:skip:validacion-entrega] CI, integración y despliegue | ruff/pre-commit + suite CI verdes; backup; migración; smoke GET; cron en DEPLOY.md; E/A.7 | A.R | cc:DONE |
 
 A.3 no bloquea A.5/A.6: sin texto, la pantalla muestra snapshots/alertas y el
 texto como Sin verificar. A.6 tolera cualquier combinación de fuentes caídas.

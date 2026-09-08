@@ -1394,3 +1394,57 @@ empieza a gastar solo, y eso lo enciende un humano.
 
 Se crea por **SKU**, no por ASIN: la guía de Sponsored Products pide ASIN para
 vendors/KDP y SKU para *sellers*, y el gate de perfiles solo acepta seller.
+
+## Reputación v1 (REPUTACION 01 / A.7, lead 2026-09-08)
+
+Desplegado: migraciones 0024–0027, código master, smoke 200 en
+`/reputacion` y `/api/reputacion/resumen`.
+
+**Migraciones** (expansivas, NO re-runnables; aplicadas en serie con
+`-v ON_ERROR_STOP=1 -1`; los warnings de doble BEGIN son benignos):
+
+```bash
+for m in 0024_reputacion 0025_reputacion_sin_fk 0026_reputacion_preguntas_reobservacion 0027_reputacion_reviews_reobservacion; do
+  ssh goncloud "docker exec -i orbit-db-1 psql -U orbit -d orbit -v ON_ERROR_STOP=1 -1 -q" < migrations/$m.sql
+done
+```
+
+Backup pre-A.7: `backups/preA7_schema_<STAMP>.sql` (staging +
+verificado: no-vacío + `CREATE TABLE public.listing` + marcador de
+cierre) además del diario `orbit_2026-09-08/`.
+
+**Secretos** (`secrets/`, 600, dueño 10001):
+
+- `meli_tokens.json`: access/refresh + `client_id`/`client_secret`
+  (copiados de `accounting.env` con GO del dueño 2026-09-08; backup
+  `meli_tokens.json.bak-<STAMP>`). El refresh rota y reescribe el
+  archivo (tmp + rename atómico).
+- `apify_token.json`: `{"token": ...}` desde `APIFY_TOKEN` de
+  `third_party.env`.
+
+**Mount rw**: `docker-compose.yml` monta `secrets/` en `:rw` (antes
+`:ro`) para que el refresh OAuth MeLi persista. Cambio autorizado por
+el dueño; respaldo `docker-compose.yml.bak-A7-<STAMP>`; reversa =
+restaurar el respaldo + `up -d --no-deps app` (pero el cron MeLi
+moriría al 2º día: MeLi rota el refresh_token).
+
+**Crons** (crontab de `gon`, ADITIVOS; respaldo
+`archive/crontab-gon.<STAMP>`; accounting byte-igual verificado):
+
+| UTC | job_key | comando |
+|-----|---------|---------|
+| 30 9 * * * | `reputacion:meli` | `docker exec orbit-app-1 python -m app.cli reputacion snapshot --fuente meli` → `logs/reputacion-meli.log` |
+| 30 10 * * * | `reputacion:alertas` | `docker exec orbit-app-1 python -m app.cli reputacion alertas` → `logs/reputacion-alertas.log` |
+| 0 10 * * 1 | `reputacion:amazon` | **NO INSTALADO** (comentado en crontab): instalar tras manual sana con crédito Apify (ver pendiente). |
+
+**Reversa v1** (acta §8.4): deshabilitar los jobs reputación del
+crontab, conservar datos y pantalla (v1 solo-lectura: nada que
+deshacer). Código: `app.bak-predeploy-A7-<STAMP>` + rebuild.
+Schema: tablas nuevas, sin rollback (no se tocó nada existente).
+
+**Pendiente dueño**: subir plan Apify (cuenta en $0.000017,
+`not-enough-usage-to-run-paid-actor`) → manual
+`reputacion snapshot --fuente amazon` en lunes + instalar cron
+semanal (descomentar línea). Estreno MeLi 2026-09-08: run 117/118
+(236 filas: 65 snapshots + 119 reviews + 1 seller + 51 questions),
+4 alertas abiertas (1 aviso + 3 críticas).
