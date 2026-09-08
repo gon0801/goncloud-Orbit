@@ -14,7 +14,26 @@ código viejo. **Leer primero:** `docs/CONTEXTO.md` y `docs/traspaso/ADS_OPTIMIZ
 - **Responde siempre en español**; directo al grano, sin relleno.
 - **Código limpio y listo para usar**: completo (sin `...`), escrito a archivos con las herramientas.
 - Entiende antes de cambiar; prefiere patrones existentes; cambios mínimos; nunca inventes APIs/credenciales.
-- Antes de terminar: corre tests, ruff y pre-commit; jamás `--no-verify`.
+- Verifica con el flujo de abajo; jamás `--no-verify` ni repitas una batería sobre el mismo SHA.
+
+## Flujo de verificación
+
+- Durante la implementación, corre solo las pruebas focalizadas del archivo o comportamiento
+  modificado. Demuestra primero en rojo las regresiones, como exige la regla 9.
+- Agrupa todas las observaciones de una revisión antes de corregir. Haz una sola revisión cruzada
+  por bloque cuando el plan o el dueño la pidan y consolida sus hallazgos en una sola ronda.
+- Después del último cambio del bloque, corre Ruff y las pruebas focalizadas afectadas.
+- Ejecuta la batería completa una sola vez por bloque, sobre el commit final y preferentemente en
+  CI mediante PR. Si CI ya ejecutó tests, Ruff y pre-commit sobre ese SHA, no los repitas
+  localmente.
+- No vuelvas a ejecutar CI si el commit verificado no cambió. Si cambia, ejecuta de nuevo solo los
+  controles que el cambio pueda invalidar; una nueva batería completa corresponde únicamente a un
+  nuevo commit final.
+- Registra como pendiente una observación tardía menor. Abre otro ciclo antes del merge solo si
+  afecta seguridad, integridad de datos, una regla innegociable o el comportamiento solicitado.
+- Después de desplegar, ejecuta una sola vez el checklist del runbook: hashes, salud, contenedores,
+  puertos, permisos y un smoke funcional. No repitas una comprobación válida salvo que un cambio
+  posterior pueda invalidarla.
 
 ## Stack
 
