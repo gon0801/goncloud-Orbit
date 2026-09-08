@@ -98,8 +98,13 @@
     {
       "name": "catalogo-campanas-01",
       "path": "plans/catalogo-campanas-01.md",
-      "description": "ORBIT 19 - Plan formal harness-plan: catalogo seleccionable por publicacion y evaluacion Ads trazable; cierre de negocio0.2 pendiente, ejecucion no iniciada."
+      "description": "ORBIT 19 - CERRADO 2026-09-08 UTC: fases 0/A/B y correcciones del cross-review integradas; PR #195 desplegado. Featured Offer, cobertura solo-actividad y sonda de gasto siguen declarados en B.6."
+    },
+    {
+      "name": "reputacion-01",
+      "path": "plans/reputacion-01.md",
+      "description": "REPUTACION 01 - Plan oficial v1.4 aprobado, PR #197 integrado. Investigacion 0.1-0.4 y acta 0.5 pendientes de cierre; ninguna fase de implementacion iniciada por este registro."
     }
   ],
-  "active": "orbit-ui-01"
+  "active": "catalogo-campanas-01"
 }
