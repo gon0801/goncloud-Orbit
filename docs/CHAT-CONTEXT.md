@@ -4,6 +4,13 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-08 — Backlog consolidado: ROADMAP es la fuente única.**
+`plans/ROADMAP.md` absorbió AUTO-01..10 (placements = AUTO-04);
+`docs/PENDIENTES-AUTOMATIZACION.md` quedó como redirect y la
+evidencia del registro en `docs/evidencia/AUTO-registro-20260906.md`.
+Seguimiento espejado en AppFlowy (EHV Tasks: AUTO-01..10 + plan
+activo). Manifest deduplicado (cortes-ui-01).
+
 **2026-09-08 UTC — MARGEN ESTIMADO 01, bloque 0 cerrado para FBA MX; A/B no implementados.**
 0.1/0.2 verificaron precio/canal fechado en bridge, costos/FX y Product Fees
 para FBM MX/US y FBA MX/US; Finances confirma que el cobro de envío y el costo

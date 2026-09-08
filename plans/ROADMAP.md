@@ -1,14 +1,25 @@
 # ROADMAP maestro — Orbit (consolidado, lead 2026-09-08)
 
-Fuente: `docs/traspaso/MODULOS-AVANZADOS.md` (5 módulos, verbatim, NO
-editar) cruzado con `plans/manifest.json` (23 planes), TODOs por plan
+Fuente ÚNICA de planes y pendientes: este archivo absorbe
+`docs/PENDIENTES-AUTOMATIZACION.md` (AUTO-01..AUTO-10, registrado
+2026-09-06; el archivo viejo es solo un redirect). Base:
+`docs/traspaso/MODULOS-AVANZADOS.md` (5 módulos, verbatim, NO
+editar) cruzado con `plans/manifest.json`, TODOs por plan
 (auditados), y follow-ups de evidencia. Este archivo es el índice
 ejecutable: estado real + secuencia + pendientes. No es plan
 harness (sin tasks propias); los stubs viven en `plans/`.
+Espejo de seguimiento: grid EHV Tasks en AppFlowy (tareas AUTO-01..10
++ plan activo; el repo manda, AppFlowy refleja).
+
+Regla: antes de implementar cada función nueva, plan formal con
+alcance, fuente verificada, contrato de decisión, dependencias,
+pruebas, revisión y despliegue. No se marca completo por escribir
+el plan: se enlaza el plan y se conserva el seguimiento hasta
+evidencia de implementación y validación.
 
 ## Estado por módulo (criterio del doc vs realidad)
 
-### M1 Repricing — SIN PLAN (stub pendiente)
+### M1 Repricing — SIN PLAN (stub pendiente, AUTO-07)
 
 - Criterio doc: cambia precio en ambas plataformas con historial.
 - Realidad: 0%. Precondición `margen-estimado-01` (9 TODO).
@@ -24,7 +35,7 @@ harness (sin tasks propias); los stubs viven en `plans/`.
 - MeLi Ads (proposal-only, bloqueado a nivel cuenta): sin plan ni
   stub. Gap.
 
-### M3 Reputación — v1 CERRADA / v2 PENDIENTE
+### M3 Reputación — v1 CERRADA / v2 PENDIENTE (AUTO-09)
 
 - Criterio doc (rating + historial + ≥3 alertas): cumplido (5 tipos,
   pantalla, digest, cron en vivo).
@@ -34,7 +45,7 @@ harness (sin tasks propias); los stubs viven en `plans/`.
   campañas / no promocionar). Requiere SP-API (Buy Box, Account
   Health) + REP-FOLLOW-2 (datos Amazon).
 
-### M4 Promociones — SIN PLAN (stub pendiente)
+### M4 Promociones — SIN PLAN (stub pendiente, AUTO-08)
 
 - Criterio doc: crea descuento y simula margen.
 - Realidad: 0%. Depende: Márgenes + Repricing (simulación).
@@ -73,22 +84,42 @@ harness (sin tasks propias); los stubs viven en `plans/`.
 - **Lead**: margen-estimado-01 A.1→B.5; colas chicas (orbit-05
   2.3/2.5, bids-01 1.5, orbit-02 3.4); stubs SP-API/repricing/
   meli-ads/promociones/envíos; REP-FOLLOW-1/3 (opcionales).
-- **Higiene**: `cortes-ui-01` duplicado en manifest (2 entries).
+- **Higiene**: `cortes-ui-01` deduplicado en manifest 2026-09-08
+  (quedó la entry con 1.2 pendiente de confirmación del dueño).
 
-## Backlog sin plan (no olvidar)
+## Backlog oficial AUTO-01..AUTO-10 (no olvidar)
 
-- BK-1 Placements Amazon (multiplicadores Top of Search / Product
-  Pages): sonda de datos por campaña + reglas con reversa. Citado en
-  orbit-03:128 (fases 4-5, ORBIT 07/08 inexistentes) y
-  margen-estimado-01:156. Schema listo (`ad_entity_kind`).
-- BK-2 Budgets intradía + AMS/Stream (orbit-03:128, mismo futuro).
-- BK-3 Tokens cifrados at rest (transversal del doc master; hoy
-  600/uid sin cifrar).
+Registrado a solicitud del dueño 2026-09-06; absorbido aquí
+2026-09-08 (los BK-1/BK-2/BK-3 temporales se pliegan: BK-1 en
+AUTO-04, BK-2 en AUTO-05, BK-3 ya vivía en Fase 0). Evidencia
+histórica del registro:
+`docs/evidencia/AUTO-registro-20260906.md`.
 
-## Verificación de completitud (2026-09-08)
+| ID | Pendiente | Alcance del futuro plan | Base y dependencia | Estado |
+|---|---|---|---|---|
+| AUTO-01 | Verificar harvest automático completo | Seguir una propuesta real que cumpla las reglas: creación exacta, negativo de origen, readbacks, registro y recuperación. No forzar propuesta ni modificar vetos. | ORBIT 05 tareas 2.3/2.5; el mecanismo existe. No crear otro motor. | Pendiente de verificación operativa |
+| AUTO-02 | Harvest por grupo de campañas | Enrutar hacia la hermana exacta, negativos cruzados y actualización de bibliotecas; compatibilidad con campañas existentes y reversa. | FABRICA 01 F2, fuera de F1. Coordinar con publicaciones/lotes v2 de ORBIT 19. | Pendiente de plan formal |
+| AUTO-03 | Decisiones publicitarias por producto | Rendimiento Ads atribuible, margen, muestra, stock y disponibilidad para acciones y límites por producto. Distinguir pausar un product ad de desactivar la publicación. | ORBIT 19 entrega selector/comparación, no este motor. Fuentes por mercado conciliadas. | Pendiente de plan formal |
+| AUTO-04 | Ajustes de placements | Top of Search, Product Pages y otros placements soportados; datos por ubicación, efecto sobre la puja efectiva, límites y reversa. Citado en orbit-03:128 y margen-estimado-01:156; schema listo (`ad_entity_kind`). | No hay motor de placements en Orbit. Confirmar fuente y API vigentes al planificar; no reutilizar el sistema viejo. | Pendiente de plan formal |
+| AUTO-05 | Gestión de presupuestos | Redistribución entre campañas/grupos, ritmo de gasto y límites por moneda, con una sola autoridad de escritura y reversa. Incluye budgets intradía + AMS/Stream (orbit-03:128). | Hoy se capturan budgets al crear. Las cuotas de operaciones no son presupuestos de publicidad. | Pendiente de plan formal |
+| AUTO-06 | Reactivación y limpieza del catálogo publicitario | Cuándo reactivar keywords/targets/campañas y si automatizar limpieza. Pausa reversible vs archivado irreversible; reponer crea identidad nueva sin historia. | Ya hay herramientas manuales y BIDS 01. No convertirlas en automatismo por defecto. | Pendiente de evaluación y plan |
+| AUTO-07 | Repricing | Plan del motor de precios, con costos, margen, inventario, límites y reversa. Ver M1 arriba. | Módulos avanzados; precondición margen-estimado-01. | Pendiente de plan formal |
+| AUTO-08 | Promociones | Plan de promociones y su efecto económico, con datos y autorizaciones explícitas. Ver M4 arriba. | Módulos avanzados; depende de Márgenes + Repricing. | Pendiente de plan formal |
+| AUTO-09 | Reputación | Seguimiento y acciones de reputación. v1 cerrada (reputacion-01); v2 = reputacion-02 (stub). Ver M3 arriba. | Módulos avanzados; v2 requiere SP-API + REP-FOLLOW-2. | Plan v2 pendiente de brief |
+| AUTO-10 | Estimación por venta antes de Ads | Precio, costo, comisiones, logística y retenciones verificables por publicación; desglose y ausencias explícitas. Comparación informativa. | `margen-estimado-01.md` (12 tareas, bloque 0 de fuentes). | Plan formal propuesto; no iniciado |
+
+AUTO-01 a AUTO-05 son los gaps principales de la revisión. AUTO-06
+a AUTO-09 conservan los pendientes adicionales mencionados. La
+prioridad final y el orden entre planes se decidirán al planificar;
+no se asignan fechas ni presupuestos aquí.
+
+## Verificación de completitud (2026-09-08, rev 2)
 
 - Los 5 módulos + Fase 0 + transversales del doc tienen fila aquí.
-- Los 23 planes del manifest están clasificados (cerrados, con TODO
+- Los planes del manifest están clasificados (cerrados, con TODO
   contados, o stubs); `active` declarado.
-- Todos los TODO/WIP (14) + follow-ups E/A.7 (3) + gaps (5) tienen
-  dueño y secuencia. Cero huérfanos conocidos.
+- AUTO-01..10 absorbidos con su alcance, base y estado; BK
+  temporales eliminados (plegados, cero pérdida).
+- Todos los TODO/WIP + follow-ups E/A.7 + gaps tienen dueño y
+  secuencia. Cero huérfanos conocidos. Espejo AppFlowy: tareas
+  AUTO-01..10 + plan activo en EHV Tasks.
