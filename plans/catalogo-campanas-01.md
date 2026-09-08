@@ -1,19 +1,20 @@
 # ORBIT 19 — Plan formal de catalogo abierto y evaluacion
 
-Version: 1.4, 2026-09-06. Workflow: `harness-work` sobre 0.1–0.4.
-Estado: 0.1–0.4 cerradas. Ads MX **verificada** (cost/clicks; impressions -1
-declarado). Cobertura de ausentes = Sin datos (regla de 0.4, no candado de
-B.1 sobre 0.4). Fase A no espera Ads. PR #185: publicar esta rama para CI;
-el verde de `4c09189` era el plan anterior.
+Version: 1.5, 2026-09-08 UTC. Sincronizacion de cierre tras merge y deploy.
+Estado: **CERRADO (nucleo 0/A/B)**. PR #195 integrado y desplegado en
+`eead84e`; CI del codigo final `46b4c74`: 1583 passed, 1 skipped.
+Correcciones de Grok/Kimi verificadas con regresiones RED/GREEN y smoke
+productivo. Evidencia: `docs/evidencia/orbit-19/B.6/deploy-pr195.md`.
+Featured Offer, cobertura solo-actividad y sonda comercial siguen diferidos;
+no se presentan como capacidades completadas.
 Solicitud del dueno: todos los articulos seleccionables, con metricas para comparar
 su conveniencia publicitaria. Formalizar no equivale a aprobar objetivos ni gasto.
 
 Spec delta: `docs/superpowers/specs/2026-09-06-catalogo-campanas-abierto-design.md`.
 No existe spec.md raiz en la base revisada; se usa la convencion de specs del repo.
 Precedencia: contrato del proyecto → spec aprobado ORBIT19 → este registro de tareas.
-F1 (§1–§10 de FABRICA 01 + API UI) es el contrato de produccion **hasta
-A.5**. ORBIT 19 es el contrato de la fase A; no sustituye F1 hoy. El
-codigo no cambia hasta A.
+F1 (§1–§10 de FABRICA 01 + API UI) fue el contrato de produccion hasta
+A.5. ORBIT 19 ya gobierna la creacion v2; la recuperacion conserva v1/v2.
 `team_validation_mode: subagent`: Producto/datos, Arquitectura, Seguridad/QA/esceptico.
 
 ## Resultado y limites
@@ -190,17 +191,15 @@ motor intactos; pytest/Ruff/pre-commit/CI existentes; pruebas y reversa en DoD.
 Fuentes publicas y evidencia real de2026-09-06 estan en el spec. La evidencia de
 investigacion no sustituye la reconciliacion de la implementacion futura.
 
-## Inicio de una sesion de ejecucion
+## Estado para la siguiente sesion
 
-- 0.2 y 0.4 cerrados: A.1 y B.1 se pueden pedir. 0.4 no bloquea A.
-- Ads MX verificada en investigacion (cost/clicks). B.1 implementa la
-  ingesta y reconcilia la tabla persistida. US no sondada. Por probar
-  exige cobertura (regla de 0.4). Featured Offer Sin verificar (no
-  bloquea B.4). Produccion F1 intacta hasta A.5.
-
-En Codex puede darse la misma instruccion con el nombre completo del plan.
-El plan activo del manifest sigue siendo orbit-ui-01; usar seleccion explicita
-por nombre evita activar implementacion durante esta formalizacion.
-
-Siguiente apoyo opcional: harness-plan-brief para una vista HTML del alcance,
-las decisiones pendientes y los casos de aceptacion. No sustituye este contrato.
+- No quedan tareas de implementacion ni merges pendientes del nucleo ORBIT 19.
+- Fases A/B en produccion; creacion v2 habilitada en config 16. Recuperacion
+  v1/v2 conservada. No se crearon campanas durante este cierre.
+- Ads MX/US y disponibilidad se verificaron en B.1/B.3; las limitaciones de
+  cobertura y las fuentes opcionales siguen en E/B.6/cierre.md.
+- El manifest apunta a este plan cerrado para dejar explicito el cierre actual.
+  REPUTACION 01 esta registrado como plan siguiente; su acta 0.5 sigue siendo
+  requisito antes de implementar. Este cierre no inicia otra fase.
+- Ramas historicas integradas por squash y resguardos locales quedan
+  inventariados en E/B.6/deploy-pr195.md.
