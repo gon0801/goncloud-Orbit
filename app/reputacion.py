@@ -319,11 +319,17 @@ def sync_amazon(
         run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE_AMAZON,)).fetchone()[0]
     skips: Counter = Counter()
     try:
-        catalogo = conn.execute(
-            "SELECT platform, external_id FROM listing"
-            " WHERE platform IN ('amazon_mx', 'amazon_us')"
-            " ORDER BY platform, external_id"
-        ).fetchall()
+        # A.7: en tx PROPIA y corta. Un SELECT desnudo abria la tx
+        # implicita (prod corre sin autocommit) y el sello/hechos
+        # quedaban atrapados en ella: conn.close() los revertia
+        # (run 119 huerfano en el deploy). El scrape HTTP jamas va
+        # dentro de una tx (minutos con snapshot abierto).
+        with conn.transaction():
+            catalogo = conn.execute(
+                "SELECT platform, external_id FROM listing"
+                " WHERE platform IN ('amazon_mx', 'amazon_us')"
+                " ORDER BY platform, external_id"
+            ).fetchall()
         urls = [f"https://www.{_AMAZON_DOMINIOS[plat]}/dp/{asin}" for plat, asin in catalogo]
         # Grok XR-1 MEDIA-3: conciliar por ASIN (input u originalAsin),
         # no por string de URL (junglee normaliza: sin www, trailing /).
@@ -794,7 +800,10 @@ def _ensayo(
             "paginado_truncado": truncadas or scan_truncado,
         }
     assert isinstance(cliente, ClienteJunglee)
-    catalogo = conn.execute(
-        "SELECT count(*) FROM listing WHERE platform IN ('amazon_mx', 'amazon_us')"
-    ).fetchone()[0]
+    # A.7: tx propia (solo lectura, pero un SELECT desnudo deja la tx
+    # implicita abierta y atrapa writes posteriores: run 119).
+    with conn.transaction():
+        catalogo = conn.execute(
+            "SELECT count(*) FROM listing WHERE platform IN ('amazon_mx', 'amazon_us')"
+        ).fetchone()[0]
     return {"fuente": fuente, "ok": True, "dry_run": True, "asins_catalogo": catalogo}

@@ -542,6 +542,53 @@ def test_sync_amazon_concilia_padre_y_ausentes(tmp_path):
 
 
 @_skip_db
+def test_sync_amazon_failed_sella_sin_autocommit(tmp_path):
+    """A.7 (run 119 huerfano): prod corre SIN autocommit; un SELECT
+    desnudo abria la tx implicita y el sello failed se perdia en el
+    close(). Con mock 402 (camino real del deploy): tras close, el
+    run debe estar sellado failed. Falla sin el fix."""
+    with db_reputacion() as (conn, dsn_db):
+        _sembrar_listing(conn, odoo_sku="P-1", asin="B0X")
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(402, json={"error": "sin credito"})
+
+        prod = psycopg.connect(dsn_db)  # prod-like: sin autocommit
+        cliente = ClienteJunglee(_creds_apify(tmp_path), transport=httpx.MockTransport(handler))
+        with pytest.raises(ReputacionError):
+            sync_amazon(prod, cliente, OBS, OBS.date())
+        prod.close()
+        cliente.close()
+        fila = conn.execute(
+            "SELECT ok, rows_written FROM ingest_run WHERE source = 'reputacion_amazon'"
+        ).fetchone()
+        assert fila[0] is False and fila[1] == 0
+
+
+@_skip_db
+def test_sync_amazon_exito_persiste_sin_autocommit(tmp_path):
+    """A.7: el mismo bug revertia HECHOS en corrida exitosa (sello ok
+    atrapado en la tx implicita). Tras close, hechos + sello visibles."""
+    with db_reputacion() as (conn, dsn_db):
+        _sembrar_listing(conn, odoo_sku="P-1", asin="B0HIJO")
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(201, json=[_JUNGLEE_ITEM])
+
+        prod = psycopg.connect(dsn_db)
+        cliente = ClienteJunglee(_creds_apify(tmp_path), transport=httpx.MockTransport(handler))
+        resultado = sync_amazon(prod, cliente, OBS, OBS.date())
+        assert resultado.filas_insertadas == 1
+        prod.close()
+        cliente.close()
+        assert conn.execute("SELECT count(*) FROM reputation_snapshot").fetchone()[0] == 1
+        fila = conn.execute(
+            "SELECT ok, rows_written FROM ingest_run WHERE source = 'reputacion_amazon'"
+        ).fetchone()
+        assert fila[0] is True and fila[1] == 1
+
+
+@_skip_db
 def test_corte_a_mitad_deja_cero_filas_de_hechos(tmp_path):
     """DoD A.2: corte en plena escritura -> rollback total de hechos."""
     with db_reputacion() as (conn, _dsn):
