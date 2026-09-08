@@ -258,6 +258,18 @@ def test_resena_1_segunda_review_del_mismo_item_si_abre():
 
 
 @_skip_db
+def test_resena_1_moderada_no_alerta():
+    """Kimi A.R H1: review 1 estrella moderada (ultima fila publicada
+    FALSE) no dispara, aunque su fila vieja calificaba."""
+    with db_reputacion("orbit_repa5") as (conn, _dsn):
+        _review(conn, "MLM1", "R9", 1, True, FETCH - dt.timedelta(days=1))
+        _review(conn, "MLM1", "R9", 1, False, FETCH)
+        resultado = evalua_y_persiste(conn, HOY)
+        assert resultado["abiertas"] == 0
+        assert "resena_1" not in {a["tipo"] for a in resultado["alertas"]}
+
+
+@_skip_db
 def test_caida_rating_meli_ventana_7d():
     with db_reputacion("orbit_repa5") as (conn, _dsn):
         _snap(conn, "meli", "MLM1", HOY - dt.timedelta(days=7), 4.8)

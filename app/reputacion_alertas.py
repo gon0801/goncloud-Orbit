@@ -189,12 +189,17 @@ def _lee_reviews_1(conn) -> list:
 
     Grok XR-1 R2-2: 0027 permite N filas por review; DISTINCT ON por
     review toma la mas reciente por observed_at (A.5 duena).
+    Kimi A.R H1: el filtro va en el OUTER — filtrar antes del
+    DISTINCT ON resucitaba la fila vieja de una review moderada
+    (alerta critica fantasma que nunca se auto-resuelve).
     """
     return conn.execute(
-        "SELECT DISTINCT ON (platform, review_external_id)"
-        " external_id, review_external_id FROM review_event"
-        " WHERE platform = 'meli' AND rating = 1 AND publicada"
+        "SELECT external_id, review_external_id FROM ("
+        " SELECT DISTINCT ON (platform, review_external_id)"
+        " platform, external_id, review_external_id, rating, publicada"
+        " FROM review_event WHERE platform = 'meli'"
         " ORDER BY platform, review_external_id, observed_at DESC"
+        ") s WHERE rating = 1 AND publicada"
     ).fetchall()
 
 
