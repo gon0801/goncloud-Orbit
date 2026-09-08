@@ -1,0 +1,51 @@
+{
+  "_nota": "Sonda 0.3, 2026-09-07/08 UTC. Scrubbed: sin tokens ni order_id; textos truncados.",
+  "users_me": {"id": 135734858, "nickname": "ELECTRONICSHOUSE"},
+  "seller_reputation": {
+    "level_id": "5_green",
+    "power_seller_status": "silver",
+    "transactions": {
+      "total": 662, "completed": 635, "canceled": 27, "period": "historic",
+      "ratings": {"positive": 1, "neutral": 0, "negative": 0}
+    }
+  },
+  "items_search_scan": {
+    "total": 65, "tiene_scroll_id": true,
+    "ejemplo_ids": ["MLM2163404350", "MLM2158744542", "MLM2154113682"]
+  },
+  "item": {"health": 0.87, "status": "closed", "sub_status": []},
+  "reviews_item_con_datos": {
+    "item": "MLM2158744542",
+    "rating_average": 4.3, "paging_total": 4,
+    "rating_levels": {"one_star": 0, "two_star": 0, "three_star": 1, "four_star": 1, "five_star": 2},
+    "review_muestra": {
+      "id": 3025304027, "rate": 5, "title": "Excelente",
+      "content": "Buena calida buen diseno muy bonito.",
+      "date_created": "2026-07-25T15:38:54Z", "status": "published"
+    }
+  },
+  "reviews_item_sin_datos": {
+    "item": "MLM2163404350",
+    "rating_average": 0, "paging_total": 0, "reviews": [],
+    "regla": "total=0 -> rating NULL (el avg=0 NO es rating), review_count=0 observado"
+  },
+  "questions_search": {
+    "por_item": {"item": "MLM2163404350", "total": 4},
+    "por_seller": {"total": 51, "unanswered_total": 1},
+    "pregunta_muestra_keys": ["id", "item_id", "seller_id", "status", "date_created", "text", "answer"]
+  },
+  "claims_dispute": {
+    "query": "player=135734858&stage=dispute",
+    "paging_total": 22,
+    "claim_muestra": {
+      "id": 1023405323, "resource": "order", "resource_id": 1781590568,
+      "status": "closed", "type": "mediations", "stage": "dispute",
+      "reason_id": "PDD319", "fulfilled": false
+    }
+  },
+  "rutas_muertas": {
+    "/v1/claims/search": 404,
+    "/mediations/search": 404,
+    "/post-purchase/v1/claims/search sin stage": 400
+  }
+}
