@@ -6,9 +6,10 @@ antecedente). Atiende cross-review (2 majors + 4 minors) y validación
 multi-perspectiva (4 validadores + síntesis, REQUEST_CHANGES atendido).
 D1–D7 cerradas por el dueño (D6: tope $10 USD/mes; recurrencia la fija 0.2
 para caber en el tope).
-Estado: **aprobado por el dueño 2026-09-07**. Nada es implementable hasta 0.5.
+Estado: **aprobado por el dueño 2026-09-07**; **acta 0.5 aprobada
+2026-09-08** (Fase A liberada: A.1→A.2→A.4→A.5→A.6; A.3 bloqueada).
 No autoriza gasto (corridas Apify: requieren 0.2 + go explícito, tope $10 USD/mes), deploy ni escrituras. Pre-requisito PR #186: cumplido
-(mergeado). Pendiente: sondas 0.1–0.4 y acta 0.5.
+(mergeado). Fase 0 cerrada: E/0.1–E/0.5 en `docs/evidencia/reputacion-01/`.
 
 Origen: AUTO-09 (`docs/PENDIENTES-AUTOMATIZACION.md`, mergeado vía PR #186),
 Módulo 3 de
@@ -92,11 +93,11 @@ Purpose: saber qué fuente da qué dato, a qué costo, antes de prometer v1.
 
 | Task | Contenido | DoD | Depends | Status |
 |---|---|---|---|---|
-| 0.1 | [stage:investigacion] [lane:gate] [tdd:skip:investigacion] Inventario de alcance (lead): listings propios con mapa Odoo (fuente concreta o Por probar), ASIN MX/US, items MeLi | E/0.1 con SELECT y conteos por mercado; IDs ambiguos/omitidos reportados, nunca rellenados; cero mutaciones | - | cc:TODO |
-| 0.2 | [stage:investigacion] [lane:gate] [tdd:skip:investigacion] Sonda Apify (lead): 2-3 actores candidatos, cobertura amazon.com.mx/com, shape, costo por corrida | E/0.2 con actor elegido + corrida mínima (max_items/pages acotados) + costo real + tabla recurrencia×cobertura que cabe en $10 + muestra scrubbed; no verificada → ampliación abierta, v1 sigue con Keepa+MeLi | - | cc:TODO |
-| 0.3 | [stage:investigacion] [lane:gate] [tdd:skip:investigacion] Sonda MeLi (lead): reputación seller (seller_id vía `GET /users/me`, no el histórico), preguntas, opiniones; endpoints, permisos, shape | E/0.3 asigna verificada/no_verificada con motivo POR endpoint + shape JSON del comando + muestra real scrubbed | - | cc:TODO |
-| 0.4 | [stage:investigacion] [lane:gate] [tdd:skip:investigacion] Sonda Keepa + Account Health SP-API (lead): rating/historial, salud de cuenta si es oficial y barata | E/0.4 con fuente, grano, costo y muestra real; veredicto por fuente; costo >0 entra en D6; lo no verificado queda fuera de v1 declarado | - | cc:TODO |
-| 0.5 | [stage:planificacion] [lane:gate] [tdd:skip:docs-contract] Cerrar D1–D7, API/pantalla, migración, cron y reversa | Acta E/0.5 (ratifica D1–D7; fija recurrencia Apify dentro del tope $10 USD/mes; granularidad por alerta, ventanas, latencia, propiedad y concurrencia) + contrato API/pantalla/migración/cron/reversa; A.3 bloqueada hasta 0.2 | 0.1–0.4 | cc:TODO |
+| 0.1 | [stage:investigacion] [lane:gate] [tdd:skip:investigacion] Inventario de alcance (lead): listings propios con mapa Odoo (fuente concreta o Por probar), ASIN MX/US, items MeLi | E/0.1 con SELECT y conteos por mercado; IDs ambiguos/omitidos reportados, nunca rellenados; cero mutaciones | - | cc:DONE |
+| 0.2 | [stage:investigacion] [lane:gate] [tdd:skip:investigacion] Sonda Apify (lead): 2-3 actores candidatos, cobertura amazon.com.mx/com, shape, costo por corrida | E/0.2 con actor elegido + corrida mínima (max_items/pages acotados) + costo real + tabla recurrencia×cobertura que cabe en $10 + muestra scrubbed; no verificada → ampliación abierta, v1 sigue con Keepa+MeLi | - | cc:DONE |
+| 0.3 | [stage:investigacion] [lane:gate] [tdd:skip:investigacion] Sonda MeLi (lead): reputación seller (seller_id vía `GET /users/me`, no el histórico), preguntas, opiniones; endpoints, permisos, shape | E/0.3 asigna verificada/no_verificada con motivo POR endpoint + shape JSON del comando + muestra real scrubbed | - | cc:DONE |
+| 0.4 | [stage:investigacion] [lane:gate] [tdd:skip:investigacion] Sonda Keepa + Account Health SP-API (lead): rating/historial, salud de cuenta si es oficial y barata | E/0.4 con fuente, grano, costo y muestra real; veredicto por fuente; costo >0 entra en D6; lo no verificado queda fuera de v1 declarado | - | cc:DONE |
+| 0.5 | [stage:planificacion] [lane:gate] [tdd:skip:docs-contract] Cerrar D1–D7, API/pantalla, migración, cron y reversa | Acta E/0.5 (ratifica D1–D7; fija recurrencia Apify dentro del tope $10 USD/mes; granularidad por alerta, ventanas, latencia, propiedad y concurrencia) + contrato API/pantalla/migración/cron/reversa; A.3 bloqueada hasta 0.2 | 0.1–0.4 | cc:DONE |
 
 ### Sondas candidatas (0.2–0.4; a confirmar en la sonda)
 
