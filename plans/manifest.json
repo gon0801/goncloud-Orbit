@@ -73,11 +73,6 @@
     {
       "name": "cortes-ui-01",
       "path": "plans/cortes-ui-01.md",
-      "description": "CORTES UI 01 - la pantalla de propuestas dejo de mentir: el dueño veto por error el primer cosechado porque «Cortes» y «vetar» sugerian que toda fila era un recorte; se renombra a Propuestas, cada fila declara su tipo y efecto, y el rechazo declara que es irreversible"
-    },
-    {
-      "name": "cortes-ui-01",
-      "path": "plans/cortes-ui-01.md",
       "description": "CORTES UI 01 - la pantalla /cortes pasa a Propuestas y deja de mentir (origen: veto por error del primer harvest, 2026-09-04). 1.1 Spark (completada, PR #165 desplegado); 1.2 lead: falta SOLO la confirmacion del dueno con una propuesta real en pantalla"
     },
     {
