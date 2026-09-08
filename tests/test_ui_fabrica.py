@@ -927,3 +927,262 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
         timeout=15,
     )
     assert resultado.returncode == 0, resultado.stdout + resultado.stderr
+
+
+def test_ui_estimacion_etiqueta_separada_y_sin_columna_ancha():
+    """B.2: la estimacion tiene etiqueta propia, no se llama margen neto y
+    no abre un colgroup nuevo en el comparador."""
+    js = (RAIZ / "static/js/fabrica.js").read_text()
+    css = (RAIZ / "static/css/fabrica.css").read_text()
+    assert "Contribución estimada por venta" in js
+    assert "Antes de Ads" in js
+    assert "fabrica-estimacion" in js
+    assert "fabrica-estimacion" in css
+    assert re.search(
+        r"\.fabrica-estimacion[^{]*\{[^}]*overflow-wrap:\s*anywhere",
+        css,
+    )
+    assert "no disponible para anunciar" not in js.lower()
+    for prohibido in ("break-even", "rentable", "bueno", "malo"):
+        assert prohibido not in js.lower()
+    assert '["Publicación", 1, 2], ["Margen observado · antes de Ads", 3, 1]' in js
+    assert '["Estim' not in js
+    respuesta = TestClient(app).get("/campanas/nuevas")
+    assert 'value="margen_observado"' in respuesta.text
+    assert "estimacion" not in respuesta.text.lower()
+
+
+def test_flujo_js_estimacion_estados_detalle_y_seleccion():
+    """B.2 en JS real: estados, desglose fuera del checkbox, detalle congelado
+    nunca como principal, y seleccion intacta al filtrar/ordenar/actualizar."""
+    archivo = RAIZ / "static/js/fabrica.js"
+    assert archivo.exists(), "Falta el cliente de fabrica"
+    node = shutil.which("node")
+    if not node:
+        if "CI" in os.environ:
+            pytest.fail("Node es obligatorio en CI para verificar el flujo JavaScript")
+        pytest.skip("Node no disponible; el navegador se verifica en integracion")
+    html = TestClient(app).get("/campanas/nuevas").text
+    elementos = [attrs for _, attrs in Elementos(html).elementos if "id" in attrs]
+    guion = r"""
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+class Element {
+  constructor(attrs = {}) {
+    Object.assign(this, attrs);
+    this.children = []; this.events = {}; this.value = attrs.value || "";
+    this.disabled = "disabled" in attrs; this.hidden = "hidden" in attrs;
+    this.checked = false; this.textContent = ""; this.dataset = {};
+  }
+  append(...items) { this.children.push(...items); }
+  appendChild(item) { this.append(item); return item; }
+  replaceChildren(...items) { this.children = items; this.textContent = ""; }
+  addEventListener(event, fn) { this.events[event] = fn; }
+  setAttribute(name, value) { this[name] = value; }
+  focus() {}
+  reportValidity() { return true; }
+  querySelectorAll(selector) {
+    const all = this.children.flatMap(child => [child, ...child.querySelectorAll("*")]);
+    if (selector === "*") return all;
+    return all.filter(child => child.type === "checkbox" &&
+      (!selector.includes(":checked") || child.checked));
+  }
+}
+const attrs = JSON.parse(process.argv[1]);
+const ids = Object.fromEntries(attrs.map(a => [a.id, new Element(a)]));
+const el = id => ids["fabrica-" + id];
+el("plataforma").value = "amazon_mx";
+el("comparador-orden").value = "margen_observado";
+el("comparador-direccion").value = "desc";
+el("comparador-filtro").value = "todas";
+el("plan").elements = Object.fromEntries(attrs.filter(a => a.name).map(a => [a.name, ids[a.id]]));
+const docEvents = {};
+global.document = {
+  getElementById: id => ids[id],
+  createElement: tag => new Element({tagName: tag}),
+  addEventListener: (event, fn) => { docEvents[event] = fn; },
+};
+global.window = {
+  location: {href: "http://orbit.test/campanas/nuevas", search: ""},
+  addEventListener: () => {},
+  history: { replaceState: () => {} },
+};
+const sobre = (over = {}) => Object.assign({
+  estado: "disponible", motivos: [], snapshot_id: 1,
+  escenario: {unidad: "1", canal: "fba", fecha_valoracion: "2026-09-08",
+    version_formula: "S3", version_politica: 3},
+  moneda: "MXN", contribucion: "42.5000", contribucion_pct: "36.6379",
+  base_porcentaje: "ingreso_normalizado",
+  componentes: [{nombre: "referral", importe_original: "15.0000",
+    moneda_original: "MXN", importe_normalizado: "15.0000",
+    moneda_normalizada: "MXN", fuente: "product_fees",
+    fecha_fuente: "2026-09-08", observed_at: "2026-09-08T12:00:00+00:00",
+    vigencia: null, estado: "vigente", pertenencia: "fee"}],
+  exclusiones: ["iva_trasladado"], detalle: null,
+}, over);
+const pubCat = (id, asin, est, extra = {}) => Object.assign({
+  id, asin, seller_sku: "SKU-" + asin.slice(-1), platform: "amazon_mx",
+  margen_neto_pct: extra.margen_neto_pct !== undefined ? extra.margen_neto_pct : "40",
+  dias_con_venta: extra.dias_con_venta, ventana_desde: "2026-02-20",
+  ventana_hasta: "2026-08-22", historial_ads: null, elegible: true, motivos: [],
+  url: "https://www.amazon.com.mx/dp/" + asin, estimacion: est,
+}, extra);
+const catalogo = {plataforma: "amazon_mx", moneda: "MXN", tipos_producto: [],
+  productos: [{id: 1, sku: "GORRA", nombre: "Gorras", publicaciones: [
+    pubCat(11, "B0AAAAAAAA", sobre(), {dias_con_venta: 70}),
+    pubCat(12, "B0BBBBBBBB", sobre({contribucion: "39.0000", contribucion_pct: "39.0000"}),
+      {dias_con_venta: null, margen_neto_pct: null}),
+    pubCat(13, "B0CCCCCCCC", sobre({estado: "incompleta", contribucion: null,
+      contribucion_pct: null, motivos: ["falta_fee"],
+      detalle: {contribucion: "42.5000", contribucion_pct: "36.6379",
+        estado: "disponible"}})),
+    pubCat(14, "B0DDDDDDDD", sobre({estado: "desactualizada", contribucion: null,
+      contribucion_pct: null, motivos: ["oferta_vencida"], exclusiones: []})),
+    pubCat(15, "B0EEEEEEEE", sobre({estado: "identidad_ambigua", contribucion: null,
+      contribucion_pct: null, motivos: ["ofertas_multiples"], exclusiones: []})),
+    pubCat(16, "B0FFFFFFFF", sobre({contribucion: "0.0000", contribucion_pct: "0.0000",
+      exclusiones: []})),
+    pubCat(17, "B0GGGGGGGG", sobre({contribucion: "-10.0000", contribucion_pct: "-10.0000",
+      exclusiones: []})),
+  ]}]};
+const publica = (over, est) => Object.assign({
+  listing_id: 11, platform: "amazon_mx", product_id: 1, asin: "B0AAAAAAAA",
+  seller_sku: "SKU-A", seleccionable: true, motivos: [], objetivo_acos_pct: null,
+  economia: {ventana_desde: "2026-02-20", ventana_hasta: "2026-08-22",
+    moneda: "MXN", venta_total: "7000", venta_cubierta: "7000", cobertura: "1",
+    dias_con_venta: 70, margen_neto_pct: "40", integridad_ok: true,
+    muestra_limitada: false, muestra_venta: null, muestra_margen_neto_pct: null,
+    ledger_fresco_at: "2026-09-05T10:00:00+00:00"},
+  ads: {etiqueta: "dentro_del_objetivo", maduro: true, provisional: false,
+    muestra: 10, moneda: "MXN", cost: "250", clicks: 200, sales30d: "1000",
+    purchases30d: "100", promoted30d: "350", halo30d: "50", acos_pct: "25",
+    cpc: "0.5", cvr_pct: "2"},
+  disponibilidad: {estado: "positivo", cantidad: {fba: 12}, fuente: ["fba"],
+    freshness: {fba: "2026-09-05T00:00:00+00:00"}},
+  estimacion: est,
+}, over);
+const evaluacion = {plataforma: "amazon_mx",
+  ventana_ads: {desde: "2026-08-06", hasta: "2026-09-05"},
+  orden: "margen_observado", direccion: "desc", publicaciones: [
+    publica({listing_id: 11, asin: "B0AAAAAAAA", seller_sku: "SKU-A"}, sobre()),
+    publica({listing_id: 13, asin: "B0CCCCCCCC", seller_sku: "SKU-C",
+      ads: {etiqueta: "sin_datos", maduro: false, muestra: 0, cost: null,
+        clicks: null, sales30d: null, purchases30d: null, acos_pct: null,
+        cpc: null, cvr_pct: null}},
+      sobre({estado: "incompleta", contribucion: null, contribucion_pct: null,
+        motivos: ["falta_fee"],
+        detalle: {contribucion: "42.5000", contribucion_pct: "36.6379",
+          estado: "disponible"}})),
+  ]};
+global.fetch = async (url, options = {}) => {
+  if (url.includes("/catalogo")) return {ok: true, status: 200, json: async () => catalogo};
+  if (url.includes("/lotes?")) return {ok: true, status: 200, json: async () => ({items: []})};
+  if (url.includes("/evaluacion")) return {ok: true, status: 200, json: async () => evaluacion};
+  return {ok: true, status: 200, json: async () => ({})};
+};
+const emit = async (id, event = "change") => {
+  const handler = el(id).events[event]; assert.ok(handler, `Falta evento ${id}:${event}`);
+  handler({preventDefault() {}, target: el(id)});
+  await new Promise(resolve => setImmediate(resolve));
+};
+const text = node => node.textContent + node.children.map(text).join(" ");
+const all = node => node.querySelectorAll("*");
+vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
+(async () => {
+  await docEvents.DOMContentLoaded();
+  await new Promise(resolve => setImmediate(resolve));
+  const productos = el("productos");
+  const catalogoTxt = text(productos);
+  assert.match(catalogoTxt, /margen neto antes de Ads/);
+  assert.match(catalogoTxt, /Contribución estimada por venta/);
+  assert.match(catalogoTxt, /Antes de Ads/);
+  const bloques = all(productos).filter(e => e.className === "fabrica-estimacion");
+  assert.ok(bloques.length >= 7, "Cada publicacion muestra su bloque de estimacion");
+  for (const bloque of bloques) {
+    const t = text(bloque);
+    assert.match(t, /Contribución estimada por venta/);
+    assert.match(t, /Antes de Ads/);
+    assert.ok(!/margen neto/i.test(t), "la estimacion no se llama margen neto");
+  }
+  assert.match(catalogoTxt, /42\.50 MXN/);
+  assert.match(catalogoTxt, /36\.64\s*%/);
+  assert.match(catalogoTxt, /ingreso_normalizado/);
+  assert.match(catalogoTxt, /2026-09-08/);
+  assert.match(catalogoTxt, /fba/);
+  assert.match(catalogoTxt, /iva_trasladado/);
+  assert.match(catalogoTxt, /39\.00 MXN/, "sin ventas sigue mostrando el estimado");
+  assert.match(catalogoTxt, /Incompleta/);
+  assert.match(catalogoTxt, /Desactualizada/);
+  assert.match(catalogoTxt, /Identidad ambigua/);
+  assert.match(catalogoTxt, /0\.00 MXN/);
+  assert.match(catalogoTxt, /-10\.00 MXN/);
+  assert.ok(!/no disponible para anunciar/i.test(catalogoTxt));
+  assert.ok(!/break-even|rentable|\bbueno\b|\bmalo\b/i.test(catalogoTxt));
+  const cajas = productos.querySelectorAll('input[type="checkbox"]');
+  assert.equal(cajas.length, 7);
+  assert.ok(cajas.every(c => c.disabled === false), "Ningun estado de estimacion bloquea");
+  const labels = all(productos).filter(e => e.tagName === "label");
+  assert.ok(labels.every(l => !all(l).some(e => e.tagName === "details")),
+    "Abrir el desglose no vive dentro del label");
+  const detalles = all(productos).filter(e => e.tagName === "details");
+  assert.ok(detalles.length >= 7, "El desglose es plegable en cada tarjeta");
+  const desglose = text(detalles[0]);
+  assert.match(desglose, /referral/);
+  assert.match(desglose, /product_fees/);
+  assert.match(desglose, /15\.0000/);
+  assert.match(desglose, /S3/);
+  assert.match(desglose, /3/);
+  const incompleta = all(productos).filter(e => e.tagName === "li")[2];
+  const principalInc = text(all(incompleta).find(e => e.className === "fabrica-estimacion"));
+  assert.ok(!principalInc.includes("42.50"), "detalle congelado no es el principal");
+  assert.match(text(incompleta), /42\.5000/, "el numero congelado vive en el desglose");
+  const fotos = all(productos).filter(e => e.src);
+  fotos[0].events.error();
+  assert.equal(cajas[0].checked, false, "La foto no cambia la seleccion");
+  const enlaces = all(productos).filter(e => e.href);
+  assert.ok(enlaces.length);
+  assert.ok(labels.every(l => !all(l).some(e => e.href)),
+    "El enlace no selecciona");
+  cajas[0].checked = true;
+  await emit("productos");
+  const datos = el("comparador-datos");
+  const tabla = text(datos);
+  assert.match(tabla, /Contribución estimada por venta/);
+  assert.match(tabla, /Antes de Ads/);
+  const cabeceras = all(datos).filter(e => e.tagName === "thead")[0];
+  assert.deepEqual(cabeceras.children[0].children.map(e => Number(e.colspan || 1)),
+    [1, 3, 8, 1, 1], "Sin colgroup nuevo de estimacion");
+  const filas = all(datos).filter(e => e.tagName === "tbody")[0].children;
+  assert.ok(filas.every(f => f.children.length === 14));
+  const identidad = filas[0].children[0];
+  assert.ok(all(identidad).some(e => e.tagName === "details"),
+    "El desglose del comparador vive en la identidad fija");
+  assert.match(text(identidad), /42\.50 MXN/);
+  const idIncompleta = filas[1].children[0];
+  assert.match(text(idIncompleta), /Incompleta/);
+  const principalCmp = all(idIncompleta).find(e => e.className === "fabrica-estimacion");
+  assert.ok(!text(principalCmp).includes("42.50"));
+  await emit("comparador-filtro");
+  assert.equal(cajas[0].checked, true, "El filtro no pierde la seleccion");
+  el("comparador-orden").value = "gasto";
+  await emit("comparador-orden");
+  assert.equal(cajas[0].checked, true, "El orden no pierde la seleccion");
+  await emit("recargar-catalogo", "click");
+  const cajasTras = el("productos").querySelectorAll('input[type="checkbox"]');
+  assert.equal(cajasTras[0].checked, true, "Actualizar conserva la seleccion");
+  assert.equal(cajasTras[0].value, "11");
+  assert.match(text(el("productos")), /Contribución estimada por venta/);
+  await emit("comparador-recargar", "click");
+  assert.equal(cajasTras[0].checked, true, "Releer evaluacion no toca la seleccion");
+  assert.match(text(el("comparador-datos")), /Contribución estimada por venta/);
+})().catch(error => { console.error(error); process.exitCode = 1; });
+"""
+    resultado = subprocess.run(
+        [node, "-e", guion, json.dumps(elementos), str(archivo)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+    assert resultado.returncode == 0, resultado.stdout + resultado.stderr

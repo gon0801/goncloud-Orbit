@@ -29,6 +29,11 @@ document.addEventListener("DOMContentLoaded", function () {
   const estadosDisponibilidad = {
     positivo: "Con stock", cero: "Stock en 0", desconocido: "Desconocido",
   };
+  const estadosEstimacion = {
+    incompleta: "Incompleta",
+    desactualizada: "Desactualizada",
+    identidad_ambigua: "Identidad ambigua",
+  };
   let revision = 0;
   let versionCatalogo = 0;
   let versionHistorial = 0;
@@ -429,6 +434,74 @@ document.addEventListener("DOMContentLoaded", function () {
     return celda;
   }
 
+  function piezasEstimacion(est) {
+    if (!est) return null;
+    const escenario = est.escenario || {};
+    const principal = conClase("div", "fabrica-estimacion");
+    principal.setAttribute("aria-label", "Contribución estimada por venta · antes de Ads");
+    principal.append(
+      conClase("span", "fabrica-estimacion-titulo", "Contribución estimada por venta"),
+      conClase("span", "fabrica-estimacion-subtitulo", "Antes de Ads"),
+    );
+    if (est.estado === "disponible") {
+      principal.append(conClase("strong", tonoMargen(est.contribucion), dinero(est.contribucion, est.moneda)));
+      const meta = [];
+      if (est.contribucion_pct !== null && est.contribucion_pct !== undefined) {
+        meta.push(porcentaje(est.contribucion_pct));
+      }
+      if (est.base_porcentaje) meta.push("base " + est.base_porcentaje);
+      if (escenario.fecha_valoracion) meta.push(escenario.fecha_valoracion);
+      if (escenario.canal) meta.push(escenario.canal);
+      if (meta.length) principal.append(conClase("span", "fabrica-apoyo", meta.join(" · ")));
+    } else {
+      principal.append(conClase("strong", "fabrica-sin-dato",
+        estadosEstimacion[est.estado] || valor(est.estado)));
+      if (est.motivos && est.motivos.length) {
+        principal.append(conClase("span", "fabrica-apoyo", est.motivos.join(" ")));
+      }
+    }
+    if (est.exclusiones && est.exclusiones.length) {
+      principal.append(conClase("span", "fabrica-apoyo", "Exclusiones: " + est.exclusiones.join(", ")));
+    }
+    const detalle = conClase("details", "fabrica-estimacion-detalle");
+    detalle.append(nodo("summary", "Ver desglose de la estimación"));
+    (est.componentes || []).forEach(componente => {
+      const linea = conClase("div", "fabrica-estimacion-componente");
+      const fechas = [componente.fuente, componente.fecha_fuente, componente.observed_at]
+        .filter(Boolean).join(" · ");
+      linea.append(conClase("strong", "fabrica-estimacion-componente-nombre", valor(componente.nombre)));
+      if (fechas) linea.append(conClase("span", "fabrica-apoyo", fechas));
+      linea.append(
+        conClase("span", "fabrica-apoyo", "Original: " + valor(componente.importe_original)
+          + (componente.moneda_original ? " " + componente.moneda_original : "")),
+        conClase("span", "fabrica-apoyo", "Normalizado: " + valor(componente.importe_normalizado)
+          + (componente.moneda_normalizada ? " " + componente.moneda_normalizada : "")),
+      );
+      detalle.append(linea);
+    });
+    if (est.motivos && est.motivos.length) {
+      detalle.append(conClase("span", "fabrica-apoyo", "Motivos: " + est.motivos.join(" ")));
+    }
+    if (est.exclusiones && est.exclusiones.length) {
+      detalle.append(conClase("span", "fabrica-apoyo", "Exclusiones: " + est.exclusiones.join(", ")));
+    }
+    const versiones = [];
+    if (escenario.version_formula) versiones.push(escenario.version_formula);
+    if (escenario.version_politica !== null && escenario.version_politica !== undefined) {
+      versiones.push("politica " + escenario.version_politica);
+    }
+    if (versiones.length) detalle.append(conClase("span", "fabrica-apoyo", versiones.join(" · ")));
+    if (est.detalle) {
+      const partes = ["Numero congelado (no actual): " + valor(est.detalle.contribucion)];
+      if (est.detalle.contribucion_pct !== null && est.detalle.contribucion_pct !== undefined) {
+        partes.push(valor(est.detalle.contribucion_pct));
+      }
+      if (est.detalle.estado) partes.push(est.detalle.estado);
+      detalle.append(conClase("span", "fabrica-apoyo", partes.join(" · ")));
+    }
+    return {principal, detalle};
+  }
+
   function renderComparador() {
     const contenedor = porId("comparador-datos");
     contenedor.replaceChildren();
@@ -486,6 +559,8 @@ document.addEventListener("DOMContentLoaded", function () {
       identidad.append(fotoPublicacion(p.listing_id, p.asin, 34), nombre);
       publicacion.append(identidad);
       if (p.motivos && p.motivos.length) publicacion.append(conClase("span", "fabrica-apoyo fabrica-aviso-margen", p.motivos.join(" ")));
+      const piezas = piezasEstimacion(p.estimacion);
+      if (piezas) publicacion.append(piezas.principal, piezas.detalle);
       const tonoAds = p.ads.etiqueta === "dentro_del_objetivo" ? "positivo"
         : ["gasto_sin_ventas", "por_encima_del_objetivo"].includes(p.ads.etiqueta) ? "negativo" : "neutro";
       const etiqueta = nodo("td"); etiqueta.append(chip(textoEtiquetaAds(p.ads), tonoAds));
@@ -562,6 +637,7 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   async function cargarCatalogo() {
+    const previas = seleccionadas();
     const version = ++versionCatalogo;
     invalidar();
     catalogoDisponible = false;
@@ -602,10 +678,13 @@ document.addEventListener("DOMContentLoaded", function () {
           margen.append(conClase("strong", tonoMargen(publicacion.margen_neto_pct), monto),
             nodo("span", "margen neto antes de Ads"));
           datos.append(margen, conClase("span", "fabrica-apoyo", muestraMargen(publicacion)), chipsPublicacion(publicacion));
+          const piezas = piezasEstimacion(publicacion.estimacion);
+          if (piezas) datos.append(piezas.principal);
           if (!publicacion.elegible) datos.append(conClase("span", "fabrica-identidad-incompleta",
             "No seleccionable: " + (publicacion.motivos || []).join(" ")));
           label.append(input, fotoPublicacion(publicacion.id, publicacion.asin), datos);
           fila.append(label);
+          if (piezas) fila.append(piezas.detalle);
           // El enlace es hermano del label: abrir Amazon nunca cambia la seleccion.
           if (/^https:\/\/www\.amazon\.com(?:\.mx)?\/dp\/[A-Za-z0-9]{10}$/.test(publicacion.url || "")) {
             const enlace = conClase("a", "fabrica-publicacion-enlace", "Abrir en Amazon ↗");
@@ -619,9 +698,13 @@ document.addEventListener("DOMContentLoaded", function () {
         porId("productos").append(tarjeta);
       });
       catalogoDisponible = true;
+      porId("productos").querySelectorAll('input[type="checkbox"]').forEach(input => {
+        if (previas.has(Number(input.value)) && !input.disabled) input.checked = true;
+      });
       const publicaciones = datos.productos.flatMap(producto => producto.publicaciones || []);
       resumenCatalogo = {totalProductos: datos.productos.length, seleccionables: publicaciones.filter(p => p.elegible).length};
       actualizarResumenCatalogo();
+      renderComparador();
     } catch (error) {
       if (version === versionCatalogo) estado("catalogo-estado", error.message, true);
     } finally { if (version === versionCatalogo) actualizarBotones(); }
