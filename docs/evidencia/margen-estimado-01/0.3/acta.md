@@ -27,6 +27,7 @@ autoriza implementación A/B, cambios a Ads, precios o campañas.
 | Logística FBM | `shipping_fee` histórico no identifica tarifa actual por oferta/canal | Fuente vigente de envío/fulfilment/embalaje, o declaración documentada de que otro componente la incluye |
 | FBA MX | Una oferta con inventario FBA devolvió `InvalidParameterValue` al cotizar | Contexto FBA válido por SKU/precio o decisión explícita de dejar FBA MX fuera de v1 |
 | Frescura de precio | Hay tres filas US antiguas y no se acreditó cadencia contractual | Cadencia del bridge o regla de expiración basada en esa fuente; no TTL inventado |
+| Unidad/BOM del costo | Los esquemas de Orbit y accounting sólo vinculan costo con `product_id`/SKU; no describen kit, multiplicador ni unidad vendida | Fuente Odoo u operativa que pruebe oferta → producto → unidad/BOM, o exclusión explícita de ofertas sin esa equivalencia |
 
 Estas son decisiones de producto, fiscalidad o integración; no se resuelven con
 un default, una tasa histórica ni un cambio de código. Hasta entonces el estado
@@ -54,7 +55,7 @@ motivo, y los valores principales permanecen `null`.
 
 **Bloque 0: investigación ejecutada; liberación de A/B bloqueada.** La evidencia
 demuestra factibilidad parcial, no el contrato económico completo. El siguiente
-paso es resolver las cuatro decisiones de la tabla con la persona responsable de
+paso es resolver las cinco decisiones de la tabla con la persona responsable de
 fiscalidad/operación. Cuando existan, se enmienda esta acta, se fijan cadencias y
 universo soportado, y se habilita A.1. Si una fuente no se consigue, el alcance
 se reduce explícitamente por mercado/canal; no se rellena el cálculo.

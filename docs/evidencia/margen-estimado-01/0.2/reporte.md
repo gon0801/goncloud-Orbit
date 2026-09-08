@@ -11,8 +11,11 @@ importe se escribió en la salida.
 La credencial existente contiene las tres claves LWA requeridas por el cliente de
 fotos. El refresh LWA devolvió HTTP 200. `getMyFeesEstimateForSKU` devolvió HTTP
 200 y `FeesEstimateResult.Status=Success` en MX y US para
-`IsAmazonFulfilled=false`; total, desglose y moneda coincidieron con el contexto
-solicitado.
+`IsAmazonFulfilled=false`. La sonda sanitizada versionada en
+`product-fees-probe-2026-09-08.json` comprueba por escenario que el identificador,
+marketplace, fulfilment, precio y moneda devueltos reproducen el request; que el
+total y cada `FinalFee` son dinero de la moneda solicitada; y que la suma Decimal
+de los `FinalFee` coincide con el total. No conserva SKU, ASIN, precio ni importe.
 
 | Mercado | Escenario | Resultado | Clases devueltas |
 |---|---|---|---|

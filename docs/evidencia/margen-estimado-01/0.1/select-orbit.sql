@@ -32,4 +32,11 @@ SELECT source, max(finished_at), count(*) FILTER (WHERE ok),
                   'accounting_currency_rates', 'bridge_disponibilidad')
  GROUP BY source;
 
+SELECT table_name, string_agg(column_name, ', ' ORDER BY ordinal_position) AS columnas
+  FROM information_schema.columns
+ WHERE table_schema = 'public'
+   AND table_name IN ('product', 'listing', 'sku_cost')
+ GROUP BY table_name
+ ORDER BY table_name;
+
 ROLLBACK;

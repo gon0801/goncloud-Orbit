@@ -43,9 +43,17 @@ cantidad como tarifa. El contrato ya sellado de ORBIT 19 lee FBA desde
 
 El accounting origen tiene 2,711 vigencias MXN de 1,089 SKU, todas positivas.
 El costo de Odoo se publica como neto de IVA (`includes_tax=false`). No prueba
-que incluya importación, embalaje o transporte. La fuente de tasas tiene 215
+que incluya importación, embalaje o transporte. Tampoco prueba la unidad vendida:
+los esquemas inspeccionados de `product`, `listing`, `sku_cost` y
+`accounting.sku_costs` no tienen unidad, multiplicador, kit ni BOM. La fuente de
+tasas tiene 215
 filas `(MXN, USD)` que Orbit normaliza a `(USD, MXN)`; la conversión de costo
 MXN a una estimación USD debe dividir entre esa tasa y conservar fecha/origen.
+
+Por ello el costo vigente sólo es reutilizable después de acreditar que la oferta
+vende una unidad equivalente al `product_id` costeado. La fuente de esa relación
+debe ser Odoo u otro contrato operativo verificable; no se infiere de que
+`seller_sku` y `odoo_sku` tengan texto parecido.
 
 El ledger observado mantiene importes MXN aun para `amazon_us`. Es evidencia
 histórica para contrastar, no moneda ni tarifa de una cotización futura.
@@ -63,10 +71,11 @@ hay tres filas US antiguas: son `desactualizada`, no precio actual ni cero.
 
 ## Dictamen 0.1
 
-**Viable con cambio de fuente de lectura.** Precio, canal y fecha deben capturarse
-como observaciones nuevas por oferta. Costo y FX pueden reutilizarse con sus
-reglas actuales. No se libera ningún cálculo ni la sustitución de margen
-observado con estos hallazgos.
+**Viable con cambio de fuente de lectura y contrato de unidad/BOM.** Precio,
+canal y fecha deben capturarse como observaciones nuevas por oferta. Costo y FX
+pueden reutilizarse con sus reglas actuales sólo tras fijar esa equivalencia de
+unidad. No se libera ningún cálculo ni la sustitución de margen observado con
+estos hallazgos.
 
 Consultas reproducibles: `select-orbit.sql`; los conteos de bridge/accounting
 se obtuvieron con SQLite `mode=ro`, sin IDs, SKU, nombres, precios ni importes
