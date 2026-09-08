@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block contenido %}
+<nav aria-label="Secciones de reputacion">
+  <p>
+    <a href="#listings">Listings</a> ·
+    <a href="#reviews">Reviews</a> ·
+    <a href="#preguntas">Preguntas</a> ·
+    <a href="#alertas">Alertas</a> ·
+    <a href="#cuenta">Cuenta</a>
+  </p>
+</nav>
+
+<section id="listings" aria-label="Listings">
+  <h2>Listings</h2>
+  {% if resumen.listings %}
+  <div class="tabla-scroll" role="region" aria-label="Tabla de listings" tabindex="0">
+  <table>
+    <thead>
+      <tr>
+        <th>Plataforma</th>
+        <th>ID</th>
+        <th class="num">Rating</th>
+        <th class="num">Reviews</th>
+        <th>Tendencia</th>
+        <th>Fuente</th>
+        <th>Texto</th>
+        <th>Ver</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for li in resumen.listings %}
+      <tr>
+        <td>{{ li.platform }}</td>
+        <td>{{ li.external_id }}</td>
+        <td class="num">{{ li.rating if li.rating is not none else "—" }}</td>
+        <td class="num">{{ li.review_count if li.review_count is not none else "—" }}</td>
+        <td>{{ li.tendencia }}</td>
+        <td>{% if li.estado_fuente == "ok" %}OK{% else %}<span class="mutado">Sin datos</span>{% endif %}</td>
+        <td>{% if li.texto == "sin-verificar" %}<span class="mutado">Sin verificar</span>{% elif li.texto == "sin-reviews" %}<span class="mutado">Sin reviews</span>{% else %}Verificado{% endif %}</td>
+        <td>{% if li.url %}<a href="{{ li.url }}" rel="noopener">Abrir</a>{% else %}<span class="mutado">—</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p><span class="mutado">Sin datos</span></p>
+  {% endif %}
+  <p class="mutado">Texto Amazon: {% if resumen.amazon_texto == "sin-verificar" %}Sin verificar (A.3 bloqueada){% else %}{{ resumen.amazon_texto }}{% endif %}</p>
+</section>
+
+<section id="reviews" aria-label="Reviews">
+  <h2>Reviews (MeLi, verificadas)</h2>
+  {% if resumen.reviews_recientes %}
+  <ul>
+    {% for rv in resumen.reviews_recientes %}
+    <li>
+      <strong>{{ rv.rating if rv.rating is not none else "—" }}★</strong>
+      {{ rv.external_id }} · {{ rv.review_external_id }}
+      {% if rv.titulo %}<br>{{ rv.titulo }}{% endif %}
+      {% if rv.texto %}<br><span class="mutado">{{ rv.texto }}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p><span class="mutado">Sin datos</span></p>
+  {% endif %}
+</section>
+
+<section id="preguntas" aria-label="Preguntas pendientes">
+  <h2>Preguntas pendientes ({{ resumen.total_pendientes }})</h2>
+  {% if resumen.preguntas_pendientes %}
+  <ul>
+    {% for pg in resumen.preguntas_pendientes %}
+    <li>{{ pg.external_id }} · {{ pg.question_external_id }}{% if pg.texto %}<br><span class="mutado">{{ pg.texto }}</span>{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p><span class="mutado">Sin datos</span></p>
+  {% endif %}
+</section>
+
+<section id="alertas" aria-label="Alertas abiertas">
+  <h2>Alertas abiertas ({{ resumen.total_alertas }})</h2>
+  {% if resumen.alertas_abiertas %}
+  <ul>
+    {% for al in resumen.alertas_abiertas %}
+    <li>[{{ al.severidad }}] {{ al.tipo }} {{ al.external_id or "cuenta" }}: {{ al.mensaje }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p><span class="mutado">Sin datos</span></p>
+  {% endif %}
+</section>
+
+<section id="cuenta" aria-label="Cuenta MeLi">
+  <h2>Cuenta MeLi</h2>
+  {% if resumen.cuenta_meli %}
+  <p>
+    Level: {{ resumen.cuenta_meli.level_id or "—" }} ·
+    Power seller: {{ resumen.cuenta_meli.power_seller or "—" }} ·
+    Disputas abiertas: {{ resumen.cuenta_meli.disputas_abiertas if resumen.cuenta_meli.disputas_abiertas is not none else "—" }}
+    ({{ resumen.cuenta_meli.metric_date }})
+  </p>
+  {% else %}
+  <p><span class="mutado">Sin datos</span></p>
+  {% endif %}
+</section>
+{% endblock %}

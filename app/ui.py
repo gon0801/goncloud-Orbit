@@ -38,6 +38,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from app import api_dashboard as dash
+from app import api_reputacion as reput
 from app.api import ConexionLectura
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.goals import PELDANOS_CASCADA
@@ -425,4 +426,16 @@ def pagina_settings(request: Request, conn: ConexionLectura) -> HTMLResponse:
     datos = dash.settings(conn=conn)
     return templates.TemplateResponse(
         request, "settings.html", {"pantalla": "settings", "datos": datos}
+    )
+
+
+@router.get("/reputacion", response_class=HTMLResponse)
+def pagina_reputacion(request: Request, conn: ConexionLectura) -> HTMLResponse:
+    """Reputacion v1 (REPUTACION 01 A.6, acta 0.5 §6): listings, reviews
+    MeLi, preguntas pendientes, alertas abiertas y cuenta. Server-rendered
+    sin JS: el texto externo va por {{ }} (autoescape Jinja); imagenes
+    fuera de v1; enlaces solo allowlist Amazon dp (los arma la API)."""
+    resumen = reput.carga_resumen(conn=conn)
+    return templates.TemplateResponse(
+        request, "reputacion.html", {"pantalla": "reputacion", "resumen": resumen}
     )
