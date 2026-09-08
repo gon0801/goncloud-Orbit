@@ -107,3 +107,11 @@ Al aprobarse esta acta, el lead commitea la entrada `reputacion-01`
       (los briefs pre-0.5 quedaron descartados).
 
 Ajustes del dueno: ninguno.
+
+## 11. Adenda 2026-09-08 (D-LEAD-A2-1, aprobada por el dueno)
+
+48/65 items MeLi mapean a N SKUs Odoo (variaciones): no existe
+listing unico por item. Migracion 0025 suelta las 4 FKs a `listing`
+de 0024; la conciliacion pasa a codigo testeado (Amazon vs listing,
+MeLi vs API + mapa), patron 0022. §5 queda enmendado en ese punto;
+el resto del acta intacto.
