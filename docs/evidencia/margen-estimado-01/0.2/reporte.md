@@ -30,8 +30,12 @@ artefacto sanitizado es `fba-mx-fresh-probe-2026-09-08.json`. FBA MX queda
 soportado sólo cuando la oferta/precio/canal cumplen el contrato sellado. Un
 fallo individual queda `incompleta`. La sonda adicional de frescura
 `product-fees-freshness-probe-2026-09-08.json` confirma `Success`, total y
-`TimeOfFeesEstimation` posterior a la oferta fresca. La API puede cotizar por
-SKU y precio, pero Amazon advierte que los costos reales pueden variar; no
+`TimeOfFeesEstimation` posterior a la oferta fresca. La sonda de impuesto
+`product-fees-tax-probe-2026-09-08.json` verifica que el total coincide con sus
+`FinalFee` y que ninguno de los dos detalles FBA MX trae `TaxAmount`. Si una
+cotización futura trae impuesto no cero, queda `impuesto_fee_pendiente` y no se
+calcula hasta una política de recuperabilidad explícita. La API puede cotizar
+por SKU y precio, pero Amazon advierte que los costos reales pueden variar; no
 sustituye una liquidación ni autoriza llamarla «margen neto».
 
 Referencias: [SKU](https://developer-docs.amazon.com/sp-api/reference/getmyfeesestimateforsku),

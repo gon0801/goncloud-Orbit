@@ -31,8 +31,10 @@ No autoriza implementación A/B, cambios a Ads, precios o campañas.
    Seller Central que el RFC de persona física sigue válido y que todas las
    publicaciones MX vigentes usan IVA general de 16%.
 7. Una sonda FBA MX con oferta fresca devolvió `Success`, total y
-   `TimeOfFeesEstimation`. En producción, la coincidencia de precio se compara
-   como `Decimal`, no como texto con distinto número de decimales.
+   `TimeOfFeesEstimation`. Sus dos detalles (`FBAFees` y `ReferralFee`) no
+   traen `TaxAmount`; cada `FinalFee = FeeAmount - FeePromotion` y la suma de
+   `FinalFee` coincide con el total. En producción, precio e importes se
+   comparan como `Decimal`, no como texto con distinto número de decimales.
 
 ## Contrato ya cerrado
 
@@ -41,7 +43,7 @@ No autoriza implementación A/B, cambios a Ads, precios o campañas.
 | Oferta | `(marketplace, seller_sku, asin, canal, precio, fetched_at)` desde bridge; `now_utc - fetched_at <= 6h` | `oferta_desactualizada` o `oferta_ausente` |
 | FX | `fx_resolve(fecha_escenario, moneda, moneda_destino)`; exacta o anterior hasta 7 días | `fx_ausente` |
 | Costo | `sku_cost` positivo, moneda y unidad compatibles, vigente en la fecha de la oferta, de `ingest_run.ok`; corrida diaria Orbit posterior a 08:15 UTC | `costo_ausente`, `costo_no_vigente` o `costo_desactualizado` |
-| Fee | Cotización nueva ligada a **ese** snapshot de oferta: misma clave completa, `Success`, `TimeOfFeesEstimation >= fetched_at` y total reconciliado; no se reutiliza al cambiar precio/canal/SKU/marketplace | `fee_ausente` o `fee_incompatible` |
+| Fee | Cotización nueva ligada a **ese** snapshot de oferta: misma clave completa, `Success`, `TimeOfFeesEstimation >= fetched_at`, `TotalFeesEstimate = Σ FinalFee` y detalle reconciliado; no se reutiliza al cambiar precio/canal/SKU/marketplace | `fee_ausente` o `fee_incompatible` |
 | FBM | No hay tarifa prospectiva verificable | `logistica_fbm_pendiente` |
 
 La futura A.3 debe solicitar Product Fees después de capturar cada oferta
@@ -62,9 +64,12 @@ conciliación histórica de bridge, se fija para este universo:
 - `I = P / 1.16`, ingreso de venta sin IVA.
 - `C` es el COGS Odoo neto de IVA; no se vuelve a restar importación, entrada ni
   embalaje.
-- `F` es `TotalFeesEstimate` de Product Fees para el snapshot exacto. Incluye
-  una sola vez sus detalles (`ReferralFee` y `FBAFees`); no se agrega IVA de
-  comisión ni fulfillment fuera del total devuelto por Amazon.
+- `F` es `TotalFeesEstimate` de Product Fees para el snapshot exacto, sólo si
+  concilia con `Σ FinalFee`. En la sonda FBA MX, cada detalle cumple
+  `FinalFee = FeeAmount - FeePromotion` y no devuelve `TaxAmount`; por ello se
+  resta ese total una vez. Si una cotización futura devuelve `TaxAmount` no
+  cero, el principal queda `null` con `impuesto_fee_pendiente`: no se supone
+  que sea acreditable ni se resta hasta sellar una política fiscal nueva.
 - `L = 0` sólo porque FBA ya está dentro de `F`; no es una tarifa FBM cero.
 - `R = 0.025 * I` por ISR, que el contrato de Orbit trata como costo. La
   retención de IVA `0.08 * I` queda registrada para conciliación fiscal y no se
