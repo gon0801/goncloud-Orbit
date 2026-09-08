@@ -129,17 +129,23 @@ def carga_resumen(conn: Connection, hoy: dt.date | None = None) -> dict:
             "disputas_abiertas": seller[4],
         }
     )
-    pendientes = conn.execute(
+    # Kimi A.R H2: ultima observacion primero, filtro despues — una
+    # pregunta ya respondida no reaparece por su fila vieja UNANSWERED,
+    # y el total se deriva del mismo conjunto (no monotonically crece).
+    _ULTIMA_PREGUNTA = (
         "SELECT DISTINCT ON (external_id, question_external_id)"
-        " external_id, question_external_id, texto, observed_at"
-        " FROM meli_question WHERE estado = 'UNANSWERED'"
-        " ORDER BY external_id, question_external_id, observed_at DESC"
-        " LIMIT %s",
+        " external_id, question_external_id, texto, estado"
+        " FROM meli_question ORDER BY external_id, question_external_id,"
+        " observed_at DESC"
+    )
+    pendientes = conn.execute(
+        "SELECT external_id, question_external_id, texto FROM (" + _ULTIMA_PREGUNTA + ") s"
+        " WHERE estado = 'UNANSWERED'"
+        " ORDER BY external_id, question_external_id LIMIT %s",
         (_TOPE_PENDIENTES,),
     ).fetchall()
     total_pend = conn.execute(
-        "SELECT count(*) FROM (SELECT DISTINCT external_id, question_external_id"
-        " FROM meli_question WHERE estado = 'UNANSWERED') s"
+        "SELECT count(*) FROM (" + _ULTIMA_PREGUNTA + ") s WHERE estado = 'UNANSWERED'"
     ).fetchone()[0]
     alertas = conn.execute(
         "SELECT tipo, severidad, platform, external_id, mensaje, created_at"
@@ -151,19 +157,21 @@ def carga_resumen(conn: Connection, hoy: dt.date | None = None) -> dict:
     total_alertas = conn.execute(
         "SELECT count(*) FROM reputation_alert WHERE NOT resolved"
     ).fetchone()[0]
+    # Kimi A.R H3: solo publicadas bajo el encabezado "verificadas".
     reviews = conn.execute(
-        "SELECT DISTINCT ON (platform, review_external_id)"
-        " external_id, review_external_id, rating, titulo, texto, published_at"
-        " FROM review_event WHERE platform = 'meli'"
-        " ORDER BY platform, review_external_id, observed_at DESC"
-        " LIMIT %s",
+        "SELECT external_id, review_external_id, rating, titulo, texto, published_at"
+        " FROM (SELECT DISTINCT ON (platform, review_external_id)"
+        " external_id, review_external_id, rating, titulo, texto, published_at,"
+        " publicada FROM review_event WHERE platform = 'meli'"
+        " ORDER BY platform, review_external_id, observed_at DESC) s"
+        " WHERE publicada ORDER BY published_at DESC NULLS LAST LIMIT %s",
         (_TOPE_REVIEWS,),
     ).fetchall()
     return {
         "listings": listings,
         "cuenta_meli": cuenta,
         "preguntas_pendientes": [
-            {"external_id": e, "question_external_id": q, "texto": t} for e, q, t, _o in pendientes
+            {"external_id": e, "question_external_id": q, "texto": t} for e, q, t in pendientes
         ],
         "total_pendientes": total_pend,
         "alertas_abiertas": [

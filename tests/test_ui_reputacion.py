@@ -81,6 +81,37 @@ def test_api_preguntas_distinct_por_pregunta():
 
 
 @_skip_db
+def test_pregunta_respondida_no_pendiente_ni_total():
+    """Kimi A.R H2: pregunta respondida (ultima fila ANSWERED) no
+    reaparece por su fila vieja UNANSWERED; el total baja."""
+    with db_reputacion("orbit_repui") as (conn, _dsn):
+        _pregunta(conn, "MLM1", "Q9", "UNANSWERED")
+        _pregunta(conn, "MLM1", "Q9", "ANSWERED")
+        app.dependency_overrides[_conexion_lectura] = lambda: conn
+        try:
+            resp = TestClient(app).get("/api/reputacion/resumen")
+        finally:
+            app.dependency_overrides.pop(_conexion_lectura, None)
+        cuerpo = resp.json()
+        assert cuerpo["preguntas_pendientes"] == []
+        assert cuerpo["total_pendientes"] == 0
+
+
+@_skip_db
+def test_reviews_recientes_solo_publicadas():
+    """Kimi A.R H3: review moderada no sale como verificada."""
+    with db_reputacion("orbit_repui") as (conn, _dsn):
+        _review(conn, "MLM1", "R9", 5, True, FETCH - DIA)
+        _review(conn, "MLM1", "R9", 5, False, FETCH)
+        app.dependency_overrides[_conexion_lectura] = lambda: conn
+        try:
+            resp = TestClient(app).get("/api/reputacion/resumen")
+        finally:
+            app.dependency_overrides.pop(_conexion_lectura, None)
+        assert resp.json()["reviews_recientes"] == []
+
+
+@_skip_db
 def test_api_resumen_cuenta_pendientes_alertas():
     with db_reputacion("orbit_repui") as (conn, _dsn):
         _seller(conn, HOY, "5_green", 3)
