@@ -88,6 +88,9 @@ def test_migracion_dedupe_por_evento_fuente():
         assert "source_event_id" in cuerpo and "NOT NULL" in cuerpo
     assert "estimacion_oferta_evento_unico" in SQL28
     assert "estimacion_fee_evento_unico" in SQL28
+    esc_cuerpo = SQL28.split("CREATE TABLE estimacion_escenario")[1].split("CREATE TABLE")[0]
+    assert "source_event_id" in esc_cuerpo and "NOT NULL" in esc_cuerpo
+    assert "estimacion_escenario_evento_unico" in SQL28
     assert "WHERE source_event_id IS NOT NULL" not in SQL28
 
 
@@ -101,6 +104,8 @@ def test_migracion_referencias_reproducibles_y_huella():
         "oferta_observation_id",
         "fee_observation_id",
         "sku_cost_id",
+        "costo_validation_run_id",
+        "costo_validated_at",
         "fx_rate",
         "fx_rate_date",
         "fx_source",
@@ -167,6 +172,14 @@ def db_estimacion(prefijo: str = "orbit_margen_a1"):
             pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
         )
         admin.close()
+
+
+def _corrida_costos(conn, *, finished_at=FETCH2):
+    return conn.execute(
+        "INSERT INTO ingest_run (source, started_at, finished_at, rows_written, rows_skipped, ok)"
+        " VALUES ('accounting_sku_costs', %s, %s, 1, 0, TRUE) RETURNING id",
+        (finished_at, finished_at),
+    ).fetchone()[0]
 
 
 def _sembrar_listing(
@@ -463,11 +476,7 @@ def test_escenario_referencias_futuras_rechazadas():
     with db_estimacion() as conn:
         pid, lid = _sembrar_listing(conn)
         pol = _politica(conn)
-        run_id = conn.execute(
-            "INSERT INTO ingest_run (source, started_at, rows_written, rows_skipped, ok)"
-            " VALUES ('test', %s, 1, 0, TRUE) RETURNING id",
-            (FETCH2,),
-        ).fetchone()[0]
+        run_id = _corrida_costos(conn)
         cost_id = conn.execute(
             "INSERT INTO sku_cost (product_id, cost_amount, cost_currency, includes_tax,"
             " valid_from, ingest_run_id) VALUES (%s, 40.0000, 'MXN', FALSE, '2026-01-01', %s)"
@@ -536,10 +545,10 @@ def test_escenario_no_disponible_exige_totales_null(estado: str):
             "INSERT INTO estimacion_escenario"
             " (listing_id, platform, seller_sku, asin, canal, valoracion_date, observed_at,"
             " politica_version_id, formula_version, oferta_observation_id, estado, motivos,"
-            " canonical_input, context_fingerprint)"
+            " canonical_input, context_fingerprint, source_event_id)"
             " VALUES (%s, 'amazon_mx', 'SS-MX-1', 'B0EST01', 'fba', %s, %s,"
-            " %s, 'I-C-F-L-R-v1', %s, %s, '[]'::jsonb, '{}'::jsonb, %s)",
-            (lid, VALORACION, OBS, pol, oid, estado, huella),
+            " %s, 'I-C-F-L-R-v1', %s, %s, '[]'::jsonb, '{}'::jsonb, %s, %s)",
+            (lid, VALORACION, OBS, pol, oid, estado, huella, f"evt-escenario-{estado}"),
         )
         fila = conn.execute(
             "SELECT contribucion, contribucion_pct, moneda FROM estimacion_escenario"
@@ -552,10 +561,11 @@ def test_escenario_no_disponible_exige_totales_null(estado: str):
                 "INSERT INTO estimacion_escenario"
                 " (listing_id, platform, seller_sku, asin, canal, valoracion_date, observed_at,"
                 " politica_version_id, formula_version, oferta_observation_id, moneda,"
-                " contribucion, contribucion_pct, estado, canonical_input, context_fingerprint)"
+                " contribucion, contribucion_pct, estado, canonical_input, context_fingerprint,"
+                " source_event_id)"
                 " VALUES (%s, 'amazon_mx', 'SS-MX-1', 'B0EST01', 'fba', %s, %s,"
-                " %s, 'I-C-F-L-R-v1', %s, 'MXN', 1.0000, 1.0000, %s, '{}'::jsonb, %s)",
-                (lid, VALORACION, OBS2, pol, oid, estado, huella),
+                " %s, 'I-C-F-L-R-v1', %s, 'MXN', 1.0000, 1.0000, %s, '{}'::jsonb, %s, %s)",
+                (lid, VALORACION, OBS2, pol, oid, estado, huella, f"evt-total-{estado}"),
             )
 
 
@@ -572,10 +582,11 @@ def test_fx_rate_precision_round_trip():
             " (listing_id, platform, seller_sku, asin, canal, valoracion_date, observed_at,"
             " politica_version_id, formula_version, oferta_observation_id,"
             " fx_rate_date, fx_base, fx_quote, fx_rate, fx_source,"
-            " moneda, contribucion, contribucion_pct, estado, canonical_input, context_fingerprint)"
+            " estado, canonical_input, context_fingerprint,"
+            " source_event_id)"
             " VALUES (%s, 'amazon_mx', 'SS-MX-1', 'B0EST01', 'fba', %s, %s,"
-            " %s, 'I-C-F-L-R-v1', %s, '2026-09-08', 'USD', 'MXN', %s, 'test',"
-            " 'MXN', 42.5000, 42.5000, 'disponible', '{}'::jsonb, %s)",
+            " %s, 'S3', %s, '2026-09-08', 'USD', 'MXN', %s, 'test',"
+            " 'incompleta', '{}'::jsonb, %s, 'evt-escenario-fx')",
             (lid, VALORACION, OBS, pol, oid, tasa, huella),
         )
         leida = conn.execute(
@@ -590,11 +601,7 @@ def test_escenario_as_of_y_incompleto_sin_cero_inventado():
     with db_estimacion() as conn:
         pid, lid = _sembrar_listing(conn)
         pol = _politica(conn)
-        run_id = conn.execute(
-            "INSERT INTO ingest_run (source, started_at, rows_written, rows_skipped, ok)"
-            " VALUES ('test', %s, 1, 0, TRUE) RETURNING id",
-            (FETCH2,),
-        ).fetchone()[0]
+        run_id = _corrida_costos(conn)
         cost_id = conn.execute(
             "INSERT INTO sku_cost (product_id, cost_amount, cost_currency, includes_tax,"
             " valid_from, ingest_run_id) VALUES (%s, 40.0000, 'MXN', FALSE, '2026-01-01', %s)"
@@ -608,23 +615,25 @@ def test_escenario_as_of_y_incompleto_sin_cero_inventado():
             "INSERT INTO estimacion_escenario"
             " (listing_id, platform, seller_sku, asin, canal, valoracion_date, observed_at,"
             " politica_version_id, formula_version, oferta_observation_id, fee_observation_id,"
-            " sku_cost_id, fx_rate_date, fx_base, fx_quote, fx_rate, fx_source,"
+            " sku_cost_id, costo_validation_run_id, costo_validated_at,"
+            " fx_rate_date, fx_base, fx_quote, fx_rate, fx_source,"
             " moneda, contribucion, contribucion_pct, estado, motivos, componentes,"
-            " canonical_input, context_fingerprint)"
+            " canonical_input, context_fingerprint, source_event_id)"
             " VALUES (%s, 'amazon_mx', 'SS-MX-1', 'B0EST01', 'fba', %s, %s,"
-            " %s, 'I-C-F-L-R-v1', %s, %s, %s, NULL, NULL, NULL, NULL, NULL,"
+            " %s, 'S3', %s, %s, %s, %s, %s, NULL, NULL, NULL, NULL, NULL,"
             " 'MXN', 42.5000, 42.5000, 'disponible', '[]'::jsonb, '[]'::jsonb,"
-            " '{}'::jsonb, %s)",
-            (lid, VALORACION, OBS, pol, oid, fid, cost_id, huella),
+            " '{}'::jsonb, %s, 'evt-escenario-asof-disponible')",
+            (lid, VALORACION, OBS, pol, oid, fid, cost_id, run_id, FETCH2, huella),
         )
         conn.execute(
             "INSERT INTO estimacion_escenario"
             " (listing_id, platform, seller_sku, asin, canal, valoracion_date, observed_at,"
             " politica_version_id, formula_version, oferta_observation_id,"
-            " estado, motivos, componentes, canonical_input, context_fingerprint)"
+            " estado, motivos, componentes, canonical_input, context_fingerprint, source_event_id)"
             " VALUES (%s, 'amazon_mx', 'SS-MX-1', 'B0EST01', 'fba', %s, %s,"
             " %s, 'I-C-F-L-R-v1', %s, 'incompleta',"
-            " '[\"fee_ausente\"]'::jsonb, '[]'::jsonb, '{}'::jsonb, %s)",
+            " '[\"fee_ausente\"]'::jsonb, '[]'::jsonb, '{}'::jsonb, %s,"
+            " 'evt-escenario-asof-incompleto')",
             (lid, VALORACION, OBS2, pol, oid, huella),
         )
         fila = conn.execute(

@@ -18,7 +18,7 @@ import sys
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import psycopg
@@ -33,9 +33,15 @@ from app.estimacion_fees import (
 )
 from app.estimacion_insumos import (
     InsumosError,
+    construir_huella_snapshot_listing,
     leer_ofertas_bridge,
     persistir_oferta_observation,
     resolver_oferta_para_listing,
+)
+from app.estimacion_repository import (
+    persistir_escenario,
+    sembrar_escenario_desde_refs,
+    sembrar_escenario_negativo_transicion,
 )
 from app.redaction import install_scrub_filter, scrub
 
@@ -49,6 +55,18 @@ SKIP_OFERTA_EXCEPCION = "oferta_excepcion"
 SKIP_OFERTA_PERSISTENCIA = "oferta_persistencia"
 SKIP_FEE_EXCEPCION = "fee_excepcion"
 SKIP_FEE_PERSISTENCIA = "fee_persistencia"
+SKIP_ESCENARIO_EXCEPCION = "escenario_excepcion"
+SKIP_ESCENARIO_PERSISTENCIA = "escenario_persistencia"
+
+MOTIVOS_TRANSICION_NEGATIVA = frozenset(
+    {
+        "oferta_ausente",
+        "identidad_ambigua",
+        "oferta_futura",
+        "oferta_desactualizada",
+        "logistica_fbm_pendiente",
+    }
+)
 
 _SQL_ABRIR_RUN = "INSERT INTO ingest_run (source, started_at) VALUES (%s, %s) RETURNING id"
 _SQL_SELLAR_RUN = """
@@ -74,6 +92,8 @@ class ResultadoIngestaEstimacion:
     fees_nuevos: int
     fees_reutilizados: int
     fees_error: int
+    escenarios_nuevos: int
+    escenarios_reutilizados: int
 
 
 def _formato_skip_reason(skips: Counter[str]) -> str | None:
@@ -85,6 +105,141 @@ def _formato_skip_reason(skips: Counter[str]) -> str | None:
 
 def _log_excepcion_item(motivo: str, exc: BaseException) -> None:
     logger.warning("estimacion ingest item skip=%s detalle=%s", motivo, scrub(str(exc)))
+
+
+def _persistir_oferta_item(
+    conn: psycopg.Connection,
+    *,
+    oferta,
+    ahora: datetime,
+    run_id: int,
+) -> tuple[int, bool] | None:
+    """Persiste oferta; retorna (id, reutilizada) o None si falla."""
+    try:
+        with conn.transaction():
+            persistido = persistir_oferta_observation(
+                conn, oferta, observed_at=ahora, ingest_run_id=run_id
+            )
+        return persistido.id, persistido.reutilizada
+    except Exception as exc:
+        _log_excepcion_item(SKIP_OFERTA_PERSISTENCIA, exc)
+        return None
+
+
+def _persistir_fee_item(
+    conn: psycopg.Connection,
+    *,
+    oferta,
+    cotizacion,
+    oferta_id: int,
+    fee_observed_at: datetime,
+    run_id: int,
+) -> tuple[int, bool] | None:
+    """Persiste fee; retorna (id, reutilizada) o None si falla."""
+    canon_outcome = construir_fee_outcome_canonical(
+        oferta, cotizacion, attempted_at=fee_observed_at
+    )
+    evento = construir_fee_source_event_id(canon_outcome)
+    try:
+        with conn.transaction():
+            fee_row = persistir_fee_observation(
+                conn,
+                oferta_observation_id=oferta_id,
+                oferta=oferta,
+                resultado=cotizacion,
+                observed_at=fee_observed_at,
+                source_event_id=evento,
+                canonical_input=canon_outcome,
+                ingest_run_id=run_id,
+            )
+        return fee_row.id, fee_row.reutilizada
+    except Exception as exc:
+        _log_excepcion_item(SKIP_FEE_PERSISTENCIA, exc)
+        return None
+
+
+def _persistir_escenario_item(
+    conn: psycopg.Connection,
+    *,
+    listing_id: int,
+    oferta_id: int,
+    fee_id: int,
+    fee_observed_at: datetime,
+) -> tuple[bool, bool] | None:
+    """Sembra y persiste escenario; retorna (nuevo, reutilizado) o None si falla."""
+    escenario_observed_at = fee_observed_at + timedelta(microseconds=1)
+    valoracion = escenario_observed_at.astimezone(UTC).date()
+    try:
+        with conn.transaction():
+            esc = sembrar_escenario_desde_refs(
+                conn,
+                listing_id=listing_id,
+                oferta_observation_id=oferta_id,
+                fee_observation_id=fee_id,
+                valoracion_date=valoracion,
+                observed_at=escenario_observed_at,
+            )
+            esc_row = persistir_escenario(conn, esc)
+        return not esc_row.reutilizada, esc_row.reutilizada
+    except Exception as exc:
+        _log_excepcion_item(SKIP_ESCENARIO_PERSISTENCIA, exc)
+        return None
+
+
+def _persistir_escenario_negativo_item(
+    conn: psycopg.Connection,
+    *,
+    listing_id: int,
+    motivo: str,
+    snapshot_huella: str,
+    observed_at: datetime,
+) -> tuple[bool, bool] | None:
+    """Persiste escenario negativo de transicion; retorna (nuevo, reutilizado) o None."""
+    valoracion = observed_at.astimezone(UTC).date()
+    try:
+        with conn.transaction():
+            esc = sembrar_escenario_negativo_transicion(
+                conn,
+                listing_id=listing_id,
+                motivo=motivo,
+                snapshot_huella=snapshot_huella,
+                valoracion_date=valoracion,
+                observed_at=observed_at,
+            )
+            if esc is None:
+                return None
+            esc_row = persistir_escenario(conn, esc)
+        return not esc_row.reutilizada, esc_row.reutilizada
+    except Exception as exc:
+        _log_excepcion_item(SKIP_ESCENARIO_PERSISTENCIA, exc)
+        return None
+
+
+def _contar_transicion_negativa(
+    conn: psycopg.Connection,
+    *,
+    filas_bridge,
+    listing_id: int,
+    platform: str,
+    asin: str,
+    motivo: str,
+    observed_at: datetime,
+) -> tuple[int, int, int]:
+    """Retorna incrementos (nuevos, reutilizados, escritos) para un outcome negativo."""
+    if motivo not in MOTIVOS_TRANSICION_NEGATIVA:
+        return 0, 0, 0
+    huella = construir_huella_snapshot_listing(filas_bridge, platform=platform, asin=asin)
+    fila = _persistir_escenario_negativo_item(
+        conn,
+        listing_id=listing_id,
+        motivo=motivo,
+        snapshot_huella=huella,
+        observed_at=observed_at,
+    )
+    if fila is None:
+        return 0, 0, 0
+    nuevo, reutilizado = fila
+    return int(nuevo), int(reutilizado), int(nuevo)
 
 
 def ejecutar_ingesta(
@@ -111,6 +266,8 @@ def ejecutar_ingesta(
     fees_nuevos = 0
     fees_reutilizados = 0
     fees_error = 0
+    escenarios_nuevos = 0
+    escenarios_reutilizados = 0
     rows_written = 0
 
     with conn.transaction():
@@ -140,26 +297,34 @@ def ejecutar_ingesta(
             continue
 
         if resultado_oferta.motivo is not None:
+            neg_nuevos, neg_reutilizados, neg_escritos = _contar_transicion_negativa(
+                conn,
+                filas_bridge=filas_bridge,
+                listing_id=listing_id,
+                platform=platform,
+                asin=asin,
+                motivo=resultado_oferta.motivo,
+                observed_at=ahora,
+            )
+            escenarios_nuevos += neg_nuevos
+            escenarios_reutilizados += neg_reutilizados
+            rows_written += neg_escritos
             skips[resultado_oferta.motivo] += 1
             continue
 
         oferta = resultado_oferta.oferta
         assert oferta is not None
 
-        try:
-            with conn.transaction():
-                persistido = persistir_oferta_observation(
-                    conn, oferta, observed_at=ahora, ingest_run_id=run_id
-                )
-            if persistido.reutilizada:
-                ofertas_reutilizadas += 1
-            else:
-                ofertas_nuevas += 1
-                rows_written += 1
-        except Exception as exc:
-            _log_excepcion_item(SKIP_OFERTA_PERSISTENCIA, exc)
+        oferta_row = _persistir_oferta_item(conn, oferta=oferta, ahora=ahora, run_id=run_id)
+        if oferta_row is None:
             skips[SKIP_OFERTA_PERSISTENCIA] += 1
             continue
+        oferta_id, oferta_reutilizada = oferta_row
+        if oferta_reutilizada:
+            ofertas_reutilizadas += 1
+        else:
+            ofertas_nuevas += 1
+            rows_written += 1
 
         try:
             cotizacion = cotizar_oferta(fees_client, oferta, now_utc=reloj_fee)
@@ -169,34 +334,43 @@ def ejecutar_ingesta(
             continue
 
         fee_observed_at = cotizacion.fetched_at
-        canon_outcome = construir_fee_outcome_canonical(
-            oferta, cotizacion, attempted_at=fee_observed_at
+        fee_row = _persistir_fee_item(
+            conn,
+            oferta=oferta,
+            cotizacion=cotizacion,
+            oferta_id=oferta_id,
+            fee_observed_at=fee_observed_at,
+            run_id=run_id,
         )
-        evento = construir_fee_source_event_id(canon_outcome)
-
-        try:
-            with conn.transaction():
-                fee_row = persistir_fee_observation(
-                    conn,
-                    oferta_observation_id=persistido.id,
-                    oferta=oferta,
-                    resultado=cotizacion,
-                    observed_at=fee_observed_at,
-                    source_event_id=evento,
-                    canonical_input=canon_outcome,
-                    ingest_run_id=run_id,
-                )
-            if fee_row.reutilizada:
-                fees_reutilizados += 1
-            else:
-                fees_nuevos += 1
-                rows_written += 1
-            if cotizacion.estado == "error":
-                fees_error += 1
-                skips[cotizacion.error_code or "fee_error"] += 1
-        except Exception as exc:
-            _log_excepcion_item(SKIP_FEE_PERSISTENCIA, exc)
+        if fee_row is None:
             skips[SKIP_FEE_PERSISTENCIA] += 1
+            continue
+        fee_id, fee_reutilizada = fee_row
+        if fee_reutilizada:
+            fees_reutilizados += 1
+        else:
+            fees_nuevos += 1
+            rows_written += 1
+        if cotizacion.estado == "error":
+            fees_error += 1
+            skips[cotizacion.error_code or "fee_error"] += 1
+
+        esc_row = _persistir_escenario_item(
+            conn,
+            listing_id=listing_id,
+            oferta_id=oferta_id,
+            fee_id=fee_id,
+            fee_observed_at=fee_observed_at,
+        )
+        if esc_row is None:
+            skips[SKIP_ESCENARIO_PERSISTENCIA] += 1
+            continue
+        esc_nuevo, esc_reutilizado = esc_row
+        if esc_reutilizado:
+            escenarios_reutilizados += 1
+        else:
+            escenarios_nuevos += 1
+            rows_written += 1
 
     skip_reason = _formato_skip_reason(skips)
     ok = True
@@ -221,6 +395,8 @@ def ejecutar_ingesta(
         fees_nuevos=fees_nuevos,
         fees_reutilizados=fees_reutilizados,
         fees_error=fees_error,
+        escenarios_nuevos=escenarios_nuevos,
+        escenarios_reutilizados=escenarios_reutilizados,
     )
 
 
@@ -284,6 +460,10 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"fees nuevos={resultado.fees_nuevos} reutilizados={resultado.fees_reutilizados}"
         f" errores={resultado.fees_error}"
+    )
+    print(
+        f"escenarios nuevos={resultado.escenarios_nuevos}"
+        f" reutilizados={resultado.escenarios_reutilizados}"
     )
     if resultado.skip_reason:
         print(f"skip_reason: {resultado.skip_reason}")

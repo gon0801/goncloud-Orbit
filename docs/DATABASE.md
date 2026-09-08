@@ -602,8 +602,8 @@ de fee con `TaxAmount` para FBA MX. `valid_from`/`valid_to` (DATE) acotan
 vigencia en `0028` (`valid_to > valid_from` cuando no NULL). La política FBA MX
 sellada (`amazon_mx/fba`, fórmula `S3`, label `amazon_mx_pf_rfc_valid_2026_01`,
 vigente desde 2026-01-01, `logistica: "0"` solo porque FBA está incluido en
-fees Amazon, `fee_tax_amount_requiere_politica: true`) se inserta en `0029`, no
-en código. Corrección = fila nueva.
+fees Amazon, `fee_tax_amount_requiere_politica: true`) se inserta en `0029` con
+`created_at` por DEFAULT (`now()`), no con fecha histórica inventada. Corrección = fila nueva.
 
 **`estimacion_oferta_observation`** — Snapshot append-only de oferta/precio
 desde bridge: `listing_id`, plataforma, `seller_sku`, `asin`, `canal`
@@ -627,12 +627,21 @@ haberse observado después del fee.
 
 **`estimacion_escenario`** — Escenario calculado append-only con referencias
 congeladas para reproducir **as-of**: ids de oferta/fee/costo/FX usados,
-`politica_version_id`, `formula_version`, `valoracion_date`, `estado`
+`costo_validation_run_id` + `costo_validated_at` (corrida
+`accounting_sku_costs` ok del mismo día UTC que `valoracion_date`, sin skips),
+`costo_includes_tax` congelado en `canonical_input`, `politica_version_id`
+(NULL en incompletos; NOT NULL solo en `disponible`), `formula_version`,
+`valoracion_date`, `estado`
 (`disponible`/`incompleta`/`desactualizada`/`identidad_ambigua`), motivos y
-componentes JSONB. FKs por ID conservan las referencias y el trigger
+componentes JSONB. `source_event_id` NOT NULL UNIQUE dedupe idempotente (A.4):
+repetir el mismo evento congelado no rejuvenece; corrección real = otra fila. FKs por ID conservan las referencias y el trigger
 `estimacion_escenario_referencias_coherentes` impide mezclar listing/contexto;
 también exige que política/oferta/fee y costos con corrida de procedencia no
-estén observados/creados después del `observed_at` del escenario. **S5:**
+estén observados/creados después del `observed_at` del escenario. En
+`disponible`, el trigger verifica `includes_tax=false`, vigencia del
+`sku_cost` en `valoracion_date` y que la corrida de validación sea
+`accounting_sku_costs` terminada (`finished_at` = `costo_validated_at`, no
+futura). **S5:**
 `disponible` exige `contribucion`,
 `contribucion_pct` y `moneda`; cualquier otro estado exige los tres NULL (no
 cero). `fx_rate` congelado como `NUMERIC(18,8)` (misma precisión que

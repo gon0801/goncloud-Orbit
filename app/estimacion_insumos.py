@@ -257,6 +257,35 @@ def construir_source_event_id(canonical_input: dict[str, Any]) -> str:
     return f"bridge-oferta:{digest}"
 
 
+def construir_huella_snapshot_listing(
+    filas_bridge: tuple[FilaOfertaBridge, ...] | list[FilaOfertaBridge],
+    *,
+    platform: str,
+    asin: str,
+) -> str:
+    """Huella determinista de filas bridge para plataforma+ASIN (sin now/observed_at)."""
+    filas: list[dict[str, Any]] = []
+    for fila in filas_bridge:
+        if mapear_plataforma(fila.marketplace_id) != platform:
+            continue
+        if (fila.asin or "").strip() != asin.strip():
+            continue
+        filas.append(
+            {
+                "seller_sku": (fila.seller_sku or "").strip(),
+                "asin": (fila.asin or "").strip(),
+                "marketplace_id": (fila.marketplace_id or "").strip(),
+                "marketplace_name": (fila.marketplace_name or "").strip(),
+                "price": fila.price,
+                "fulfillment_channel": (fila.fulfillment_channel or "").strip(),
+                "fetched_at": (fila.fetched_at or "").strip(),
+            }
+        )
+    filas.sort(key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":")))
+    payload = json.dumps(filas, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode()).hexdigest()[:32]
+
+
 def _fila_coincide_plataforma_asin(
     fila: FilaOfertaBridge,
     *,
