@@ -34,6 +34,7 @@ document.addEventListener("DOMContentLoaded", function () {
   let versionHistorial = 0;
   let versionDetalle = 0;
   let catalogoDisponible = false;
+  let resumenCatalogo = null;
   let consultandoPlan = false;
   let mutando = false;
   let preview = null;
@@ -48,6 +49,59 @@ document.addEventListener("DOMContentLoaded", function () {
     const elemento = document.createElement(tag);
     if (texto !== undefined) elemento.textContent = String(texto);
     return elemento;
+  }
+
+  function conClase(tag, clase, texto) {
+    const elemento = nodo(tag, texto);
+    elemento.className = clase;
+    return elemento;
+  }
+
+  function chip(texto, tono = "neutro", detalle = texto) {
+    const elemento = conClase("span", "fabrica-chip fabrica-chip-" + tono, texto);
+    elemento.title = detalle;
+    return elemento;
+  }
+
+  function fotoPublicacion(id, asin, tamano = 72) {
+    const foto = conClase("span", "fabrica-publicacion-foto");
+    const imagen = nodo("img"), sinFoto = nodo("span", "Sin foto");
+    sinFoto.hidden = true;
+    imagen.alt = "Foto de la publicación " + valor(asin);
+    imagen.width = tamano; imagen.height = tamano;
+    imagen.loading = "lazy"; imagen.decoding = "async";
+    imagen.addEventListener("error", () => { imagen.hidden = true; sinFoto.hidden = false; });
+    imagen.src = "/api/fabrica/publicaciones/" + encodeURIComponent(id) + "/imagen";
+    foto.append(imagen, sinFoto);
+    return foto;
+  }
+
+  function tonoMargen(margen) {
+    if (margen === null || margen === undefined) return "fabrica-sin-dato";
+    return Number(margen) > 0 ? "fabrica-positivo" : "fabrica-negativo";
+  }
+
+  function chipsPublicacion(publicacion) {
+    const contenedor = conClase("span", "fabrica-chips");
+    const detalle = avisoMargen(publicacion), margen = publicacion.margen_neto_pct;
+    if (!publicacion.elegible) contenedor.append(chip("Identidad incompleta", "negativo", detalle));
+    if (margen === null || margen === undefined) contenedor.append(chip("Margen sin medir", "negativo", detalle));
+    else if (Number(margen) <= 0) contenedor.append(chip(Number(margen) === 0 ? "Margen cero" : "Margen negativo", "negativo", detalle));
+    else contenedor.append(chip("Margen medido", "positivo", detalle));
+    if (publicacion.dias_con_venta !== null && publicacion.dias_con_venta !== undefined
+      && Number(publicacion.dias_con_venta) < 30) contenedor.append(chip("Muestra limitada", "aviso", muestraMargen(publicacion)));
+    if (publicacion.historial_ads === null) contenedor.append(chip("Historial Ads sin dato", "neutro", detalle));
+    return contenedor;
+  }
+
+  function actualizarResumenCatalogo() {
+    if (!catalogoDisponible || !resumenCatalogo) return;
+    const cantidad = seleccionadas().size;
+    const contador = nodo("strong", cantidad);
+    porId("catalogo-estado").replaceChildren(contador,
+      nodo("span", (cantidad === 1 ? "publicación seleccionada de " : "publicaciones seleccionadas de ") + resumenCatalogo.seleccionables
+        + " seleccionables"),
+      conClase("span", "fabrica-catalogo-total", "· " + resumenCatalogo.totalProductos + " productos en el catálogo"));
   }
 
   function valor(dato) { return dato === null || dato === undefined ? "Sin dato" : String(dato); }
@@ -264,7 +318,15 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function dinero(monto, moneda) {
     if (monto === null || monto === undefined) return "Sin dato";
-    return String(monto) + (moneda ? " " + moneda : "");
+    // Redondeo solo visual a centavos, sin convertir dinero a float.
+    const partes = /^(-?)(\d+)(?:\.(\d+))?$/.exec(String(monto));
+    if (!partes) return String(monto) + (moneda ? " " + moneda : "");
+    const fraccion = partes[3] || "";
+    let centavos = BigInt(partes[2]) * 100n + BigInt((fraccion + "00").slice(0, 2));
+    if (fraccion.length > 2 && fraccion[2] >= "5") centavos += 1n;
+    const entero = (centavos / 100n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return (centavos === 0n ? "" : partes[1]) + entero + "."
+      + (centavos % 100n).toString().padStart(2, "0") + (moneda ? " " + moneda : "");
   }
 
   function textoEtiquetaAds(ads) {
@@ -336,12 +398,44 @@ document.addEventListener("DOMContentLoaded", function () {
     return true;
   }
 
+  function celdaNumero(texto, clase = "") {
+    return conClase("td", "num " + clase + (texto === "Sin dato" ? " fabrica-sin-dato" : ""), texto);
+  }
+
+  function celdaDinero(monto, moneda) {
+    const celda = celdaNumero(dinero(monto, moneda));
+    celda.title = valor(monto) + (moneda ? " " + moneda : "");
+    return celda;
+  }
+
+  function celdaMuestra(economia) {
+    const celda = conClase("td", "fabrica-muestra");
+    if (economia.muestra_limitada === true) {
+      celda.append(chip("Limitada", "aviso", textoMuestraMargen(economia)),
+        conClase("span", "fabrica-apoyo", valor(economia.dias_con_venta)
+          + " días con venta, margen " + porcentaje(economia.muestra_margen_neto_pct)));
+    } else celda.append(nodo("span", textoMuestraMargen(economia)));
+    return celda;
+  }
+
+  function celdaDisponibilidad(disp) {
+    const celda = conClase("td", "fabrica-disponibilidad");
+    const estadoStock = disp && disp.estado;
+    const etiqueta = estadosDisponibilidad[estadoStock] || "Sin dato";
+    const tono = estadoStock === "positivo" ? "positivo" : estadoStock === "cero" ? "negativo" : "neutro";
+    const detalle = textoDisponibilidad(disp);
+    celda.append(chip(etiqueta, tono, detalle),
+      conClase("span", "fabrica-apoyo", detalle.slice(etiqueta.length).replace(/^[:.]\s*/, "")));
+    return celda;
+  }
+
   function renderComparador() {
     const contenedor = porId("comparador-datos");
     contenedor.replaceChildren();
     if (!comparadorDatos) return;
     const publicaciones = comparadorDatos.publicaciones || [];
-    ficha(contenedor, [
+    const metadatos = conClase("dl", "fabrica-metadatos");
+    [
       ["Ventana Ads", comparadorDatos.ventana_ads
         ? comparadorDatos.ventana_ads.desde + " a " + comparadorDatos.ventana_ads.hasta : "Sin dato"],
       ["Grano de comparación", "Publicación (ASIN + SKU de Amazon), sumas por fila"],
@@ -349,56 +443,67 @@ document.addEventListener("DOMContentLoaded", function () {
       ["Ventana del margen", ventanaMargen(publicaciones)],
       ["Cobertura del margen", valorUnicoMargen(publicaciones, e => e.cobertura)],
       ["Actualización del margen", valorUnicoMargen(publicaciones, e => e.ledger_fresco_at)],
-      ["Muestra limitada", "Visible aparte; no entra al orden (D4)"],
-    ]);
+    ].forEach(([nombre, dato]) => {
+      const par = nodo("div");
+      par.append(nodo("dt", nombre), nodo("dd", valor(dato)));
+      metadatos.append(par);
+    });
+    contenedor.append(metadatos);
     if (!publicaciones.length) {
       contenedor.append(nodo("p", "Sin datos."));
       return;
     }
-    const filtro = porId("comparador-filtro").value;
-    const visibles = publicaciones.filter(p => pasaFiltro(p, filtro));
+    const visibles = publicaciones.filter(p => pasaFiltro(p, porId("comparador-filtro").value));
     const activas = seleccionadas();
-    const envoltura = nodo("div");
-    envoltura.className = "fabrica-tabla";
+    const envoltura = conClase("div", "fabrica-tabla fabrica-comparacion-scroll");
     envoltura.tabIndex = 0;
     envoltura.setAttribute("role", "region");
     envoltura.setAttribute("aria-label", "Comparación de publicaciones ordenada por "
       + porId("comparador-orden").value);
-    const tabla = nodo("table"), thead = nodo("thead"), tbody = nodo("tbody"), encabezado = nodo("tr");
-    ["Publicación", "Selección", "Margen neto maduro", "Aviso de margen", "Muestra de margen",
-      "Ventas totales", "Revenue Ads", "Gasto", "ACoS", "Etiqueta Ads", "CPC", "CVR", "Compras",
-      "Muestra Ads", "Disponibilidad", "Objetivo ACoS"].forEach(titulo => {
-      const th = nodo("th", titulo);
-      th.setAttribute("scope", "col");
-      encabezado.append(th);
+    const tabla = conClase("table", "fabrica-comparacion");
+    const thead = nodo("thead"), tbody = nodo("tbody"), grupos = nodo("tr"), encabezado = nodo("tr");
+    [["Publicación", 1, 2], ["Margen observado · antes de Ads", 3, 1],
+      ["Ads · 30 días", 8, 1], ["Disponibilidad", 1, 1], ["Objetivo ACoS", 1, 2]]
+      .forEach(([nombre, columnas, filas]) => {
+        const th = nodo("th", nombre);
+        th.setAttribute("scope", columnas > 1 ? "colgroup" : "col");
+        th.setAttribute("colspan", String(columnas)); th.setAttribute("rowspan", String(filas));
+        grupos.append(th);
+      });
+    ["Neto maduro", "Muestra", "Ventas totales", "Revenue Ads", "Gasto", "ACoS", "CPC", "CVR",
+      "Compras", "Muestra Ads", "Etiqueta", "Estado"].forEach(titulo => {
+      const th = nodo("th", titulo); th.setAttribute("scope", "col"); encabezado.append(th);
     });
-    thead.append(encabezado);
+    thead.append(grupos, encabezado);
     visibles.forEach(p => {
-      const fila = nodo("tr");
-      const th = nodo("th", valor(p.asin) + " / " + valor(p.seller_sku));
-      th.setAttribute("scope", "row");
-      fila.append(th);
-      [activas.has(p.listing_id) ? "Seleccionada" : "—",
-        porcentaje(p.economia.margen_neto_pct),
-        p.motivos && p.motivos.length ? p.motivos.join(" ") : "—",
-        textoMuestraMargen(p.economia),
-        dinero(p.economia.venta_total, p.economia.moneda),
-        dinero(p.ads.sales30d, p.ads.moneda),
-        dinero(p.ads.cost, p.ads.moneda),
-        p.ads.acos_pct === null || p.ads.acos_pct === undefined ? "Sin dato" : porcentaje(p.ads.acos_pct),
-        textoEtiquetaAds(p.ads),
-        p.ads.cpc === null || p.ads.cpc === undefined ? "Sin dato" : dinero(p.ads.cpc, p.ads.moneda),
-        p.ads.cvr_pct === null || p.ads.cvr_pct === undefined ? "Sin dato" : porcentaje(p.ads.cvr_pct),
-        p.ads.purchases30d === null || p.ads.purchases30d === undefined ? "Sin dato" : String(p.ads.purchases30d),
-        p.ads.muestra + (p.ads.muestra === 1 ? " fecha" : " fechas"),
-        textoDisponibilidad(p.disponibilidad),
-        porcentaje(p.objetivo_acos_pct),
-      ].forEach(celda => fila.append(nodo("td", celda)));
+      const fila = nodo("tr"), publicacion = conClase("th", "fabrica-identidad");
+      publicacion.setAttribute("scope", "row");
+      const identidad = conClase("div", "fabrica-identidad-cabecera");
+      const nombre = conClase("div", "fabrica-identidad-texto");
+      nombre.append(conClase("strong", "fabrica-mono", valor(p.asin)));
+      if (activas.has(p.listing_id)) nombre.append(chip("Seleccionada", "positivo"));
+      nombre.append(conClase("span", "fabrica-apoyo fabrica-mono", valor(p.seller_sku)));
+      identidad.append(fotoPublicacion(p.listing_id, p.asin, 34), nombre);
+      publicacion.append(identidad);
+      if (p.motivos && p.motivos.length) publicacion.append(conClase("span", "fabrica-apoyo fabrica-aviso-margen", p.motivos.join(" ")));
+      const tonoAds = p.ads.etiqueta === "dentro_del_objetivo" ? "positivo"
+        : ["gasto_sin_ventas", "por_encima_del_objetivo"].includes(p.ads.etiqueta) ? "negativo" : "neutro";
+      const etiqueta = nodo("td"); etiqueta.append(chip(textoEtiquetaAds(p.ads), tonoAds));
+      const superaObjetivo = p.objetivo_acos_pct !== null && p.objetivo_acos_pct !== undefined
+        && p.ads.acos_pct !== null && p.ads.acos_pct !== undefined
+        && Number(p.ads.acos_pct) > Number(p.objetivo_acos_pct);
+      fila.append(publicacion,
+        celdaNumero(porcentaje(p.economia.margen_neto_pct), tonoMargen(p.economia.margen_neto_pct)),
+        celdaMuestra(p.economia), celdaDinero(p.economia.venta_total, p.economia.moneda),
+        celdaDinero(p.ads.sales30d, p.ads.moneda), celdaDinero(p.ads.cost, p.ads.moneda),
+        celdaNumero(porcentaje(p.ads.acos_pct), superaObjetivo ? "fabrica-negativo" : ""),
+        celdaDinero(p.ads.cpc, p.ads.moneda), celdaNumero(porcentaje(p.ads.cvr_pct)),
+        celdaNumero(valor(p.ads.purchases30d)), celdaNumero(p.ads.muestra + (p.ads.muestra === 1 ? " fecha" : " fechas")),
+        etiqueta, celdaDisponibilidad(p.disponibilidad), celdaNumero(porcentaje(p.objetivo_acos_pct)));
       tbody.append(fila);
     });
-    tabla.append(thead, tbody);
-    envoltura.append(tabla);
-    contenedor.append(envoltura);
+    tabla.append(thead, tbody); envoltura.append(tabla); contenedor.append(envoltura);
+    if (!visibles.length) contenedor.append(nodo("p", "Ninguna publicación coincide con este filtro."));
   }
 
   // Objetivo del grupo que el dueno ESTA preparando (D2/0.4 §3): el manual
@@ -448,7 +553,7 @@ document.addEventListener("DOMContentLoaded", function () {
       comparadorDatos = datos;
       renderComparador();
       estado("comparador-estado", (datos.publicaciones || []).length
-        + " publicaciones. Sin dato al final del orden.");
+        + " publicaciones · sin dato al final del orden · muestra limitada fuera del orden.");
     } catch (error) {
       if (version !== versionComparador) return;
       comparadorDatos = null;
@@ -475,36 +580,35 @@ document.addEventListener("DOMContentLoaded", function () {
       datos.productos.forEach(producto => {
         const tarjeta = nodo("div");
         tarjeta.className = "fabrica-producto";
-        tarjeta.append(nodo("h4", "Nombre interno: " + valor(producto.nombre)),
-          nodo("p", "SKU de Odoo: " + producto.sku));
+        const cabecera = conClase("div", "fabrica-producto-cabecera");
+        cabecera.append(nodo("h4", "Nombre interno: " + valor(producto.nombre)),
+          conClase("span", "fabrica-mono fabrica-apoyo", "SKU de Odoo: " + producto.sku),
+          conClase("span", "fabrica-producto-conteo", (producto.publicaciones || []).length + ((producto.publicaciones || []).length === 1 ? " publicación" : " publicaciones")));
+        tarjeta.append(cabecera);
         const publicaciones = nodo("ul");
         (producto.publicaciones || []).forEach(publicacion => {
-          const fila = nodo("li");
-          fila.className = "fabrica-publicacion";
-          const label = nodo("label"), input = nodo("input");
-          input.id = "fabrica-listing-" + publicacion.id;
-          label.htmlFor = input.id;
+          const fila = conClase("li", "fabrica-publicacion");
+          const label = conClase("label", "fabrica-publicacion-tarjeta"), input = nodo("input");
+          input.id = "fabrica-listing-" + publicacion.id; label.htmlFor = input.id;
           input.type = "checkbox"; input.value = String(publicacion.id);
           input.disabled = !publicacion.elegible;
-          label.append(input, nodo("strong", "Seleccionar publicación " + valor(publicacion.asin)));
-          const foto = nodo("div"), imagen = nodo("img"), sinFoto = nodo("span", "Sin foto");
-          foto.className = "fabrica-publicacion-foto";
-          sinFoto.hidden = true;
-          imagen.alt = "Foto de la publicación " + valor(publicacion.asin);
-          imagen.width = 96; imagen.height = 96;
-          imagen.loading = "lazy"; imagen.decoding = "async";
-          imagen.addEventListener("error", () => { imagen.hidden = true; sinFoto.hidden = false; });
-          imagen.src = "/api/fabrica/publicaciones/" + encodeURIComponent(publicacion.id) + "/imagen";
-          foto.append(imagen, sinFoto);
-          fila.append(foto, label);
-          fila.append(nodo("span", "ASIN: " + valor(publicacion.asin)),
-            nodo("span", "SKU de Amazon: " + valor(publicacion.seller_sku)),
-            nodo("span", "Margen neto: " + porcentaje(publicacion.margen_neto_pct)),
-            nodo("span", muestraMargen(publicacion)),
-            nodo("span", avisoMargen(publicacion)));
-          // Los enlaces estan fuera del label: abrir Amazon no selecciona el producto.
+          input.setAttribute("aria-label", "Seleccionar publicación " + valor(publicacion.asin));
+          const datos = conClase("span", "fabrica-publicacion-datos");
+          datos.append(conClase("strong", "fabrica-mono fabrica-asin", "ASIN: " + valor(publicacion.asin)),
+            conClase("span", "fabrica-mono fabrica-apoyo", "SKU de Amazon: " + valor(publicacion.seller_sku)));
+          const margen = conClase("span", "fabrica-margen");
+          const monto = publicacion.margen_neto_pct === null || publicacion.margen_neto_pct === undefined
+            ? "—" : porcentaje(publicacion.margen_neto_pct);
+          margen.append(conClase("strong", tonoMargen(publicacion.margen_neto_pct), monto),
+            nodo("span", "margen neto antes de Ads"));
+          datos.append(margen, conClase("span", "fabrica-apoyo", muestraMargen(publicacion)), chipsPublicacion(publicacion));
+          if (!publicacion.elegible) datos.append(conClase("span", "fabrica-identidad-incompleta",
+            "No seleccionable: " + (publicacion.motivos || []).join(" ")));
+          label.append(input, fotoPublicacion(publicacion.id, publicacion.asin), datos);
+          fila.append(label);
+          // El enlace es hermano del label: abrir Amazon nunca cambia la seleccion.
           if (/^https:\/\/www\.amazon\.com(?:\.mx)?\/dp\/[A-Za-z0-9]{10}$/.test(publicacion.url || "")) {
-            const enlace = nodo("a", "Abrir en Amazon");
+            const enlace = conClase("a", "fabrica-publicacion-enlace", "Abrir en Amazon ↗");
             enlace.href = publicacion.url; enlace.target = "_blank"; enlace.rel = "noopener noreferrer";
             enlace.setAttribute("aria-label", "Abrir ASIN " + publicacion.asin + " en Amazon");
             fila.append(enlace);
@@ -516,7 +620,8 @@ document.addEventListener("DOMContentLoaded", function () {
       });
       catalogoDisponible = true;
       const publicaciones = datos.productos.flatMap(producto => producto.publicaciones || []);
-      estado("catalogo-estado", datos.productos.length + " productos. " + publicaciones.filter(p => p.elegible).length + " publicaciones seleccionables.");
+      resumenCatalogo = {totalProductos: datos.productos.length, seleccionables: publicaciones.filter(p => p.elegible).length};
+      actualizarResumenCatalogo();
     } catch (error) {
       if (version === versionCatalogo) estado("catalogo-estado", error.message, true);
     } finally { if (version === versionCatalogo) actualizarBotones(); }
@@ -734,6 +839,9 @@ document.addEventListener("DOMContentLoaded", function () {
       formulario.elements[rol + "_bid"].value = "";
     });
     cargarCatalogo(); cargarHistorial(); cargarComparador();
+  });
+  porId("productos").addEventListener("change", () => {
+    actualizarResumenCatalogo(); renderComparador();
   });
   porId("recargar-catalogo").addEventListener("click", cargarCatalogo);
   porId("historial-recargar").addEventListener("click", cargarHistorial);

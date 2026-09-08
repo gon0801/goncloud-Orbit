@@ -124,9 +124,10 @@ def test_hash_del_lote_envuelve_en_movil_sin_quitar_scroll_de_tablas():
 
 def test_selector_publicaciones_se_adapta_a_movil():
     css = (RAIZ / "static/css/fabrica.css").read_text()
+    assert "minmax(min(100%, 300px), 1fr)" in css
     assert re.search(
-        r"@media \(max-width: 40rem\) \{[\s\S]*?\.fabrica-publicacion \{\s*"
-        r"grid-template-columns: 64px minmax\(0, 1fr\);",
+        r"@media \(max-width: 40rem\) \{[\s\S]*?\.fabrica-publicacion-foto \{\s*"
+        r"width: 56px; height: 56px;",
         css,
     )
 
@@ -175,7 +176,7 @@ el("plan").elements = Object.fromEntries(attrs.filter(a => a.name).map(a => [a.n
 const docEvents = {}, windowEvents = {};
 global.document = {
   getElementById: id => ids[id],
-  createElement: () => new Element(),
+  createElement: tag => new Element({tagName: tag}),
   addEventListener: (event, fn) => { docEvents[event] = fn; },
 };
 global.window = {
@@ -276,10 +277,14 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
   assert.match(text(el("productos")), /Nombre interno: Sin dato/);
   assert.match(text(el("productos")), /SKU de Amazon: Sin dato/);
   assert.match(text(el("productos")), /ASIN: B0CCCCCCCC/);
+  assert.match(text(el("catalogo-estado")), /0 publicaciones seleccionadas de 3 seleccionables/);
+  const tarjetas = el("productos").querySelectorAll("*").filter(e => e.tagName === "label");
+  assert.ok(tarjetas.every(t => t.querySelectorAll("*").some(e => e.src)),
+    "Cada tarjeta seleccionable incluye su foto dentro del label");
   const fotos = el("productos").querySelectorAll("*").filter(e => e.src);
   assert.deepEqual(fotos.map(e => e.src),
     [11, 12, 13, 14].map(id => `/api/fabrica/publicaciones/${id}/imagen`));
-  assert.ok(fotos.every(e => e.loading === "lazy" && e.width === 96 &&
+  assert.ok(fotos.every(e => e.loading === "lazy" && e.width === 72 &&
     e.alt.includes("publicación")));
   fotos[0].events.error();
   assert.equal(fotos[0].hidden, true);
@@ -307,6 +312,8 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
   );
   assert.ok(!text(el("productos")).includes("40.0000000"));
   productos[0].checked = true;
+  await emit("productos", "change");
+  assert.match(text(el("catalogo-estado")), /1 publicación seleccionada de 3 seleccionables/);
   el("tipo").value = "gorras"; el("nombre").value = "Gorras"; el("modo").value = "shadow";
   el("objetivo-origen").value = "manual_lanzamiento";
   await emit("objetivo-origen", "change");
@@ -478,7 +485,7 @@ el("plan").elements = Object.fromEntries(attrs.filter(a => a.name).map(a => [a.n
 const docEvents = {};
 global.document = {
   getElementById: id => ids[id],
-  createElement: () => new Element(),
+  createElement: tag => new Element({tagName: tag}),
   addEventListener: (event, fn) => { docEvents[event] = fn; },
 };
 global.window = {
@@ -512,7 +519,7 @@ const llena = {plataforma: "amazon_mx",
     publica({listing_id: 11, asin: "B0AAAAAAAA", seller_sku: "SKU-AMAZON-A",
       objetivo_acos_pct: "25.00"},
       {etiqueta: "dentro_del_objetivo", muestra: 10, purchases30d: "100",
-        cost: "250", sales30d: "1000", acos_pct: "25"},
+        cost: "250", sales30d: "1000", acos_pct: "25", cpc: "3.06666666666666666666"},
       {}, {estado: "positivo", cantidad: {fba: 12}, fuente: ["fba"],
         freshness: {fba: "2026-09-05T00:00:00+00:00"}}),
     publica({listing_id: 12, asin: "B0BBBBBBBB", seller_sku: "SKU-AMAZON-B"},
@@ -565,15 +572,27 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
   assert.match(text(datos), /2026-08-06 a 2026-09-05/, "Ventana siempre visible");
   assert.match(text(datos), /Grano de comparación/);
   await emit("comparador-recargar", "click");
+  const nodosTabla = datos.querySelectorAll("*");
+  const cabeceras = nodosTabla.filter(e => e.tagName === "thead")[0];
+  assert.equal(cabeceras.children.length, 2, "Dos niveles de cabecera accesibles");
+  assert.deepEqual(cabeceras.children[0].children.map(e => Number(e.colspan || 1)),
+    [1, 3, 8, 1, 1], "Los grupos abarcan exactamente las 14 columnas");
+  const filas = nodosTabla.filter(e => e.tagName === "tbody")[0].children;
+  assert.ok(filas.every(f => f.children.length === 14), "Ningun dato se desplaza de columna");
+  assert.equal(filas[0].children[0].scope, "row", "Publicacion identifica la fila");
+  assert.match(text(filas[0].children[4]), /1,000\.00 MXN/, "Revenue Ads conserva moneda");
+  assert.match(text(filas[1].children[4]), /0\.00 MXN/, "Cero ventas sigue siendo cero");
+  assert.equal(text(filas[2].children[4]), "Sin dato", "Ausente no se convierte en cero");
+  assert.match(filas[3].children[6].className, /fabrica-negativo/, "ACoS sobre objetivo resaltado");
   const tabla = text(datos);
   for (const esperado of ["Dentro del objetivo", "Gasto sin ventas", "Sin datos",
     "Por encima del objetivo (provisional)"]) assert.ok(tabla.includes(esperado), esperado);
   assert.ok(!tabla.includes("Por probar"), "Por probar no existe");
-  assert.match(tabla, /Limitada: 12 días con venta, margen -5 % \(no entra al orden\)/);
+  assert.match(tabla, /Limitada\s+12 días con venta, margen -5 %/);
   assert.match(tabla, /Margen negativo\./);
-  assert.match(tabla, /Stock en 0: FBA 0/);
-  assert.match(tabla, /Desconocido\. Featured Offer: Sin verificar/);
-  assert.match(tabla, /Con stock: FBA 12/);
+  assert.match(tabla, /Stock en 0\s+FBA 0/);
+  assert.match(tabla, /Desconocido\s+Featured Offer: Sin verificar/);
+  assert.match(tabla, /Con stock\s+FBA 12/);
   assert.match(text(datos), /Objetivo ACoS del grupo en preparación\s*25\.00 %/);
   assert.match(tabla, /70 días con venta/);
   assert.match(estado.textContent, /4 publicaciones/);
@@ -675,7 +694,7 @@ el("plan").elements = Object.fromEntries(attrs.filter(a => a.name).map(a => [a.n
 const docEvents = {};
 global.document = {
   getElementById: id => ids[id],
-  createElement: () => new Element(),
+  createElement: tag => new Element({tagName: tag}),
   addEventListener: (event, fn) => { docEvents[event] = fn; },
 };
 global.window = {
@@ -826,7 +845,7 @@ el("plan").elements = Object.fromEntries(attrs.filter(a => a.name).map(a => [a.n
 const docEvents = {};
 global.document = {
   getElementById: id => ids[id],
-  createElement: () => new Element(),
+  createElement: tag => new Element({tagName: tag}),
   addEventListener: (event, fn) => { docEvents[event] = fn; },
 };
 global.window = {

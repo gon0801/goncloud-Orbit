@@ -3,8 +3,6 @@
 {% block contenido %}
 <div class="fabrica">
   <p><a href="/campanas">← Volver a campañas</a></p>
-  <h2>Crear campañas</h2>
-  <p>Configura un grupo de cinco campañas de Sponsored Products, revisa el plan y confirma.</p>
   <p class="fabrica-aviso"><strong>Las campañas se crean ACTIVAS y pueden gastar en ambos modos.</strong>
     En shadow, el optimizador observa los ajustes sin aplicarlos. En live, puede aplicarlos según
     sus reglas y límites. Shadow no es una simulación de la creación.</p>
@@ -12,7 +10,7 @@
 
   <form id="fabrica-plan" class="tarjeta">
     <fieldset id="fabrica-configuracion">
-      <legend>1. Publicaciones y configuración</legend>
+      <legend><span class="fabrica-paso" aria-hidden="true">1</span> Publicaciones y configuración</legend>
       <div class="fabrica-campos">
         <label for="fabrica-plataforma">Plataforma
           <select id="fabrica-plataforma" name="plataforma" required>
@@ -54,15 +52,20 @@
             No se completa automáticamente.</span>
         </label>
       </div>
-      <p id="fabrica-catalogo-estado" role="status" aria-live="polite"></p>
-      <button id="fabrica-recargar-catalogo" type="button">Actualizar productos</button>
       <h3>Publicaciones</h3>
       <p>El nombre interno y el SKU de Odoo identifican tu producto. Debajo aparecen
         todas sus publicaciones vinculadas, con ASIN, SKU de Amazon y enlace.
         El título de Amazon se consulta al abrir la publicación.</p>
       <p class="mutado">Selecciona una o más publicaciones con identidad completa. Margen ausente,
         margen negativo o historial sin dato son avisos: no bloquean una selección con objetivo manual.</p>
-      <div id="fabrica-productos" class="fabrica-productos"></div>
+      <div class="fabrica-catalogo">
+        <div class="fabrica-catalogo-barra">
+          <p id="fabrica-catalogo-estado" role="status" aria-live="polite"></p>
+          <button id="fabrica-recargar-catalogo" type="button">Actualizar productos</button>
+        </div>
+        <div id="fabrica-productos" class="fabrica-productos" role="region"
+             aria-label="Publicaciones agrupadas por producto" tabindex="0"></div>
+      </div>
       <h3>Presupuesto diario y puja inicial por campaña</h3>
       <p>Moneda: <strong id="fabrica-moneda">—</strong>. Captura importes con punto decimal.
         No se asignan importes automáticamente.</p>
@@ -98,49 +101,51 @@
     <h3 id="fabrica-comparador-titulo">Comparar publicaciones</h3>
     <p>Economía observada, Ads y disponibilidad por publicación. Solo lectura: ordenar o
       filtrar no crea ni modifica campañas y no pierde la selección del paso 1.</p>
-    <div class="fabrica-campos fabrica-comparador-controles">
-      <label for="fabrica-comparador-orden">Ordenar por
-        <select id="fabrica-comparador-orden">
-          <option value="margen_observado">Margen observado</option>
-          <option value="ventas_totales">Ventas totales</option>
-          <option value="revenue_ads">Revenue Ads</option>
-          <option value="gasto">Gasto</option>
-          <option value="acos">ACoS</option>
-          <option value="cpc">CPC</option>
-          <option value="cvr">CVR</option>
-          <option value="compras">Compras</option>
-        </select>
-      </label>
-      <label for="fabrica-comparador-direccion">Dirección del orden
-        <select id="fabrica-comparador-direccion">
-          <option value="desc">De mayor a menor (sin dato al final)</option>
-          <option value="asc">De menor a mayor (sin dato al final)</option>
-        </select>
-      </label>
-      <label for="fabrica-comparador-filtro">Mostrar
-        <select id="fabrica-comparador-filtro">
-          <option value="todas">Todas las publicaciones</option>
-          <option value="con_ads">Con datos de Ads</option>
-          <option value="sin_datos_ads">Sin datos de Ads</option>
-          <option value="muestra_limitada">Con muestra limitada</option>
-        </select>
-      </label>
+    <div class="fabrica-comparador-cabecera">
+      <div class="fabrica-campos fabrica-comparador-controles">
+        <label for="fabrica-comparador-orden">Ordenar por
+          <select id="fabrica-comparador-orden">
+            <option value="margen_observado">Margen observado</option>
+            <option value="ventas_totales">Ventas totales</option>
+            <option value="revenue_ads">Revenue Ads</option>
+            <option value="gasto">Gasto</option>
+            <option value="acos">ACoS</option>
+            <option value="cpc">CPC</option>
+            <option value="cvr">CVR</option>
+            <option value="compras">Compras</option>
+          </select>
+        </label>
+        <label for="fabrica-comparador-direccion">Dirección del orden
+          <select id="fabrica-comparador-direccion">
+            <option value="desc">De mayor a menor (sin dato al final)</option>
+            <option value="asc">De menor a mayor (sin dato al final)</option>
+          </select>
+        </label>
+        <label for="fabrica-comparador-filtro">Mostrar
+          <select id="fabrica-comparador-filtro">
+            <option value="todas">Todas las publicaciones</option>
+            <option value="con_ads">Con datos de Ads</option>
+            <option value="sin_datos_ads">Sin datos de Ads</option>
+            <option value="muestra_limitada">Con muestra limitada</option>
+          </select>
+        </label>
+      </div>
+      <button id="fabrica-comparador-recargar" type="button">Actualizar comparación</button>
+      <p id="fabrica-comparador-estado" role="status" aria-live="polite"></p>
     </div>
-    <button id="fabrica-comparador-recargar" type="button">Actualizar comparación</button>
-    <p id="fabrica-comparador-estado" role="status" aria-live="polite"></p>
     <div id="fabrica-comparador-datos"></div>
   </section>
 
   <p id="fabrica-estado" role="status" aria-live="polite" tabindex="-1"></p>
 
   <section id="fabrica-preview" class="tarjeta" aria-labelledby="fabrica-preview-titulo" hidden>
-    <h3 id="fabrica-preview-titulo" tabindex="-1">2. Revisar las cinco campañas</h3>
+    <h3 id="fabrica-preview-titulo" tabindex="-1"><span class="fabrica-paso" aria-hidden="true">2</span> Revisar las cinco campañas</h3>
     <div id="fabrica-preview-datos"></div>
     <p>Cualquier cambio en la configuración exige revisar de nuevo el plan.</p>
   </section>
 
   <section class="tarjeta" aria-labelledby="fabrica-confirmar-titulo">
-    <h3 id="fabrica-confirmar-titulo">3. Confirmar una operación</h3>
+    <h3 id="fabrica-confirmar-titulo"><span class="fabrica-paso" aria-hidden="true">3</span> Confirmar una operación</h3>
     <label for="fabrica-token">Token de Orbit
       <input id="fabrica-token" type="password" autocomplete="off" spellcheck="false">
     </label>
@@ -152,7 +157,7 @@
                aria-describedby="fabrica-crear-aviso">
       </label>
       <p id="fabrica-crear-aviso">La confirmación crea campañas ACTIVAS con gasto real.
-        Revisa el presupuesto diario total antes de continuar.</p>
+        Revisa el presupuesto diario total antes de continuar. La creación nunca se reintenta automáticamente.</p>
       <button id="fabrica-crear-boton" type="submit" disabled>Crear las cinco campañas</button>
     </form>
   </section>
