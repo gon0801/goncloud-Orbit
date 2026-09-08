@@ -20,7 +20,7 @@ from typing import Any
 
 import psycopg
 
-from app.estimacion_repository import EscenarioLeido, ProcedenciaRefs, leer_escenarios
+from app.estimacion_reader import EscenarioLeido, ProcedenciaRefs, leer_escenarios
 
 # Acta 0.3 / spec S1: un listing modela una unidad vendible; no hay kits.
 UNIDAD_ESCENARIO_V1 = "1"
