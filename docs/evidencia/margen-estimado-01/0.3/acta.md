@@ -9,25 +9,31 @@ autoriza implementación A/B, cambios a Ads, precios o campañas.
    ASIN, canal, precio y `fetched_at`. Orbit todavía no conserva las tres últimas
    dimensiones; `listing_price` es mutable y puede estar desfasado.
 2. Todos los listings Orbit de MX y US tienen costo vigente MXN, declarado neto
-   de IVA. La tasa USD→MXN vigente en la consulta tenía cuatro días de edad;
-   Orbit ya sabe resolverla con fecha y sin inventar una tasa.
+   de IVA. El responsable del negocio confirma que no hay kits: cada listing
+   actual tiene `product_id` y vende una unidad del producto costeado. La tasa
+   USD→MXN vigente en la consulta tenía cuatro días de edad; Orbit ya sabe
+   resolverla con fecha y sin inventar una tasa.
 3. La Product Fees API se autentica con el loader existente y devuelve total y
-   detalle para FBM de MX/US y FBA US. El total y sus detalles son una misma
-   representación del cargo y se deben reconciliar, nunca sumar dos veces.
+   detalle para FBM de MX/US y FBA MX/US cuando usa oferta, canal y precio fresco
+   de bridge. El total y sus detalles son una misma representación del cargo y
+   se deben reconciliar, nunca sumar dos veces.
 4. La liquidación histórica contiene fees, reembolsos y retenciones, pero no es
    cotización actual ni una regla de cálculo de la siguiente venta. En especial,
    `isr_withheld` llega sin `order_id`; no existe una base de prorrateo para una
    publicación sin ventas.
+5. Finances Amazon es accesible en lectura y separa cobro de envío de cargos MFN
+   variables. Que Amazon cobre el envío al cliente no convierte esos cargos en
+   cero ni provee una tarifa prospectiva por oferta.
+6. El bridge sincroniza precios cuatro veces al día. Precio vigente es el que
+   tenga `fetched_at` dentro de seis horas; una observación más vieja es
+   `desactualizada` y no puede producir contribución.
 
 ## Alcance que no puede liberar A/B aún
 
 | Decisión pendiente | Por qué es material | Evidencia necesaria |
 |---|---|---|
-| Retención prospectiva por mercado | Define R en `I - C - F - L - R`; cambiarla cambia el resultado y la etiqueta | Política fiscal vigente del negocio: fuente, régimen, base, tasas, vigencia, moneda y tratamiento de ISR/IVA |
-| Logística FBM | `shipping_fee` histórico no identifica tarifa actual por oferta/canal | Fuente vigente de envío/fulfilment/embalaje, o declaración documentada de que otro componente la incluye |
-| FBA MX | Una oferta con inventario FBA devolvió `InvalidParameterValue` al cotizar | Contexto FBA válido por SKU/precio o decisión explícita de dejar FBA MX fuera de v1 |
-| Frescura de precio | Hay tres filas US antiguas y no se acreditó cadencia contractual | Cadencia del bridge o regla de expiración basada en esa fuente; no TTL inventado |
-| Unidad/BOM del costo | Los esquemas de Orbit y accounting sólo vinculan costo con `product_id`/SKU; no describen kit, multiplicador ni unidad vendida | Fuente Odoo u operativa que pruebe oferta → producto → unidad/BOM, o exclusión explícita de ofertas sin esa equivalencia |
+| Retención prospectiva por mercado | Finances/ledger acreditan eventos reales, pero `isr_withheld` llega sin orden y los porcentajes históricos no son política vigente | Política fiscal vigente de la cuenta: fuente, régimen, base, tasas, vigencia, moneda y tratamiento de ISR/IVA |
+| Logística FBM | Amazon cobra envío al cliente y también registra cargos MFN variables; ninguno es tarifa futura por oferta | Cotización/tarifa vigente de envío/fulfilment/embalaje, o declaración documentada de que otro componente la incluye |
 
 Estas son decisiones de producto, fiscalidad o integración; no se resuelven con
 un default, una tasa histórica ni un cambio de código. Hasta entonces el estado
@@ -55,7 +61,7 @@ motivo, y los valores principales permanecen `null`.
 
 **Bloque 0: investigación ejecutada; liberación de A/B bloqueada.** La evidencia
 demuestra factibilidad parcial, no el contrato económico completo. El siguiente
-paso es resolver las cinco decisiones de la tabla con la persona responsable de
+paso es resolver las dos decisiones de la tabla con la persona responsable de
 fiscalidad/operación. Cuando existan, se enmienda esta acta, se fijan cadencias y
 universo soportado, y se habilita A.1. Si una fuente no se consigue, el alcance
 se reduce explícitamente por mercado/canal; no se rellena el cálculo.

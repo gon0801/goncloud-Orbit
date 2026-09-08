@@ -22,13 +22,15 @@ de los `FinalFee` coincide con el total. No conserva SKU, ASIN, precio ni import
 | MX | no Amazon-fulfilled | éxito | `ReferralFee` |
 | US | no Amazon-fulfilled | éxito | `PerItemFee`, `ReferralFee`, `VariableClosingFee` |
 | US | Amazon-fulfilled, SKU con observación FBA | éxito | `FBAFees`, `PerItemFee`, `ReferralFee`, `VariableClosingFee` |
-| MX | Amazon-fulfilled, SKU con observación FBA | `ClientError: InvalidParameterValue` | ninguna |
+| MX | Amazon-fulfilled, precio fresco de bridge y SKU FBA | éxito en 3/3 sondas | `FBAFees`, `ReferralFee` |
 
-La última fila sólo demuestra que esa oferta/contexto MX no puede cotizarse como
-se envió. Antes de soportar FBA MX hay que identificar una oferta válida y su
-contexto completo o registrar el canal como no soportado. La API puede cotizar
-por SKU y precio, pero Amazon advierte que los costos reales pueden variar; no
-sustituye una liquidación ni autoriza llamarla «margen neto».
+La primera sonda MX FBA falló con precio mutable de Orbit. Al repetirla con tres
+ofertas `AMAZON_NA` y precio fresco de bridge, las tres respondieron éxito; el
+artefacto sanitizado es `fba-mx-fresh-probe-2026-09-08.json`. FBA MX queda
+soportado sólo cuando la oferta/precio/canal cumplen ese contrato; un fallo
+individual queda `incompleta`. La API puede cotizar por SKU y precio, pero
+Amazon advierte que los costos reales pueden variar; no sustituye una liquidación
+ni autoriza llamarla «margen neto».
 
 Referencias: [SKU](https://developer-docs.amazon.com/sp-api/reference/getmyfeesestimateforsku),
 [batch](https://developer-docs.amazon.com/sp-api/reference/getmyfeesestimates),
@@ -38,6 +40,31 @@ La integración futura reutiliza el patrón LWA redactor de
 catálogo. La cuota/errores se medirán en implementación; estas sondas no fijan
 una cadencia.
 
+## Finances y cobros de envío reales
+
+Sí es posible investigar Amazon directamente: una llamada GET sanitizada a
+Finances devolvió HTTP 200 con el grupo `TaxWithholdingEventList` disponible.
+El resultado de la ventana consultada y sólo sus conteos/tipos está en
+`finances-probe-2026-09-08.json`; no guarda órdenes, clientes, SKU, importes ni
+documentos fiscales. La guía oficial de [Finances
+v2024-06-19](https://developer-docs.amazon.com/sp-api/docs/finances-api-v2024-06-19-use-case-guide)
+confirma que la API se usa para transacciones por tiempo y marketplace.
+
+El histórico Orbit MX muestra `tax_withheld` en 1,201 filas con orden y
+`isr_withheld` en siete ajustes sin orden. Sus porcentajes mensuales observados
+no son constantes y septiembre está incompleto; sólo sirven para conciliación,
+nunca como tasa prospectiva. Finances prueba el acceso técnico, pero no expone
+en esta sonda el RFC de la cuenta ni sustituye el certificado/política fiscal
+vigente que determina la retención siguiente.
+
+Que Amazon cobre el envío al comprador tampoco equivale a costo logístico cero.
+En el ledger, 133 de 1,179 ventas MX tienen `shipping_price` positivo; las 522
+US observadas lo tienen nulo. A la vez, Finances devolvió costos MFN
+`MFNPostageFee` y `PostageBilling_*` (combustible, rastreo, firma, arancel y
+otros) que dependen de envío concreto. Por ello el cobro al cliente pertenece a
+ingreso/orden y la logística sigue sin una tarifa prospectiva por oferta. Product
+Fees no devuelve esa cotización.
+
 ## Componentes observados y faltantes
 
 | Componente | Evidencia | Uso prospectivo |
@@ -45,8 +72,8 @@ una cadencia.
 | Costo de producto | `sku_cost` vigente y neto de IVA para todo listing Orbit | Disponible, siempre con fecha de vigencia y unidad por verificar |
 | Comisión de referencia | Product Fees MX/US | Sólo para oferta/precio/canal que devuelva éxito |
 | Fulfilment FBA | Product Fees US devuelve `FBAFees` | Disponible US en la sonda; MX pendiente por contexto válido |
-| Envío/fulfilment FBM | Ledger tiene `shipping_fee`; Product Fees FBM no lo devolvió | Falta tarifa prospectiva; no usar histórico como tarifa |
-| Retenciones | Ledger tiene `tax_withheld` e `isr_withheld` | Falta política prospectiva: base, tasa, vigencia y aplicabilidad |
+| Envío/fulfilment FBM | Finances/ledger muestran cobro al cliente y cargos MFN variables; Product Fees FBM no lo devuelve | Falta cotización/tarifa prospectiva; no usar histórico como tarifa |
+| Retenciones | Finances es accesible; ledger tiene `tax_withheld` e `isr_withheld` | Falta política prospectiva de esta cuenta: base, tasa, vigencia y aplicabilidad |
 | Almacenamiento | `storage_fee` MX observado | Excluido de unidad hasta definir prorrateo o clase aparte |
 | Reembolsos | `refund` ligado a orden | Excluido del escenario de venta cumplida; no se convierte en cero |
 | Ads | `fee_type=ads`, sin order_id | Excluido por definición «antes de Ads» |
@@ -67,7 +94,7 @@ contrato contable siguen sin identificar. No se aplicó una tasa por suposición
 | Mercado/canal | Precio+fecha | Costo | Fee API | Logística | Retención | Estado |
 |---|---|---|---|---|---|---|
 | MX FBM | Bridge sí, cuando hay precio | sí | referencia sí | falta tarifa | falta política | incompleto |
-| MX FBA | Bridge sí, cuando hay precio | sí | contexto FBA no validado | falta confirmar cotización | falta política | incompleto |
+| MX FBA | Bridge sí, cuando hay precio fresco | sí | fees+FBAFees sí | incluida si el desglose lo acredita | falta política | incompleto |
 | US FBM | Bridge sí, salvo filas viejas/sin precio | sí, convertir MXN→USD | fees sí | falta tarifa | falta política | incompleto |
 | US FBA | Bridge sí, salvo filas viejas/sin precio | sí, convertir MXN→USD | fees+FBAFees sí | incluida sólo si el desglose lo acredita | falta política | incompleto |
 

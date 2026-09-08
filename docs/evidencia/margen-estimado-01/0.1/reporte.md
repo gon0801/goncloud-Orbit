@@ -55,6 +55,15 @@ vende una unidad equivalente al `product_id` costeado. La fuente de esa relació
 debe ser Odoo u otro contrato operativo verificable; no se infiere de que
 `seller_sku` y `odoo_sku` tengan texto parecido.
 
+## Unidad de venta
+
+Decisión del responsable del negocio, 2026-09-08: no hay kits ni paquetes; una
+publicación vende una unidad del producto de Odoo. La consulta complementaria
+confirma que los 342 listings MX y 176 US tienen `product_id`; por tanto v1 fija
+multiplicador de costo igual a uno para ese universo. Un listing futuro sin
+`product_id` o un kit posterior queda `incompleta` hasta contar con su mapeo, no
+hereda el costo de otro SKU.
+
 El ledger observado mantiene importes MXN aun para `amazon_us`. Es evidencia
 histórica para contrastar, no moneda ni tarifa de una cotización futura.
 
@@ -65,17 +74,18 @@ el bridge observó ofertas el 2026-09-08. Este desfase prueba que un estimador n
 puede usar `listing.listing_price` como precio actual. Costos/FX se refrescaron
 el 2026-09-07; disponibilidad se cargó el mismo día.
 
-No se fija un TTL inventado. El bloque 0.3 debe usar la fecha real de cada
-observación y definir qué ocurre cuando no hay actualización verificable. Ya
-hay tres filas US antiguas: son `desactualizada`, no precio actual ni cero.
+El servicio `amazon-prices-sync.timer` del bridge ejecuta la sincronización a
+las `00:35`, `06:35`, `12:35` y `18:35` UTC. Se fija el contrato conservador:
+una oferta sólo está fresca si `now_utc - fetched_at <= 6 horas`; después queda
+`desactualizada` y el principal es `null`. No se añade tolerancia inventada.
+Ya hay tres filas US antiguas: son `desactualizada`, no precio actual ni cero.
 
 ## Dictamen 0.1
 
-**Viable con cambio de fuente de lectura y contrato de unidad/BOM.** Precio,
-canal y fecha deben capturarse como observaciones nuevas por oferta. Costo y FX
-pueden reutilizarse con sus reglas actuales sólo tras fijar esa equivalencia de
-unidad. No se libera ningún cálculo ni la sustitución de margen observado con
-estos hallazgos.
+**Viable con cambio de fuente de lectura.** Precio, canal y fecha deben
+capturarse como observaciones nuevas por oferta. Costo y FX pueden reutilizarse
+con sus reglas actuales para la unidad uno confirmada. No se libera ningún
+cálculo ni la sustitución de margen observado con estos hallazgos.
 
 Consultas reproducibles: `select-orbit.sql`; los conteos de bridge/accounting
 se obtuvieron con SQLite `mode=ro`, sin IDs, SKU, nombres, precios ni importes

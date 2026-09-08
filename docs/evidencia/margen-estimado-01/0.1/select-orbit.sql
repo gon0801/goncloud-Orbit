@@ -39,4 +39,12 @@ SELECT table_name, string_agg(column_name, ', ' ORDER BY ordinal_position) AS co
  GROUP BY table_name
  ORDER BY table_name;
 
+SELECT platform,
+       count(*) AS listings,
+       count(*) FILTER (WHERE product_id IS NOT NULL) AS con_producto,
+       count(*) FILTER (WHERE product_id IS NULL) AS sin_producto
+  FROM listing
+ WHERE platform IN ('amazon_mx', 'amazon_us')
+ GROUP BY platform;
+
 ROLLBACK;

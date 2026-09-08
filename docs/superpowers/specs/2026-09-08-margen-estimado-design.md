@@ -235,8 +235,10 @@ sesion. Reputacion, bridge y accounting permanecen fuera del alcance.
 
 0.1 y 0.2 confirmaron precio/canal fechado en bridge, costo y FX reutilizables,
 y Product Fees accesible para FBM MX/US y FBA US. No completaron el contrato:
-retenciones prospectivas, logística FBM, contexto FBA MX, cadencia de precio y
-unidad/BOM del costo siguen sin fuente vigente cerrada. Acta y evidencia:
+retenciones prospectivas y logística FBM siguen sin fuente vigente cerrada. FBA
+MX quedó validado con oferta/precio fresco de bridge, el precio expira a las seis
+horas y no hay kits: el dueño confirma unidad uno por listing con `product_id`.
+Acta y evidencia:
 `docs/evidencia/margen-estimado-01/0.1/`, `0.2/`, `0.3/acta.md`.
 
 Por ello ninguna implementación A/B queda liberada. El estado correcto ante esos

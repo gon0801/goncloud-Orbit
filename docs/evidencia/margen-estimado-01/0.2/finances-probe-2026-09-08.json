@@ -1,0 +1,29 @@
+{
+  "token_status": 200,
+  "http_status": 200,
+  "period": "2026-08-10T00:00:00Z/2026-08-12T00:00:00Z",
+  "tax_withholding_event_group_advertised": true,
+  "has_next_token": false,
+  "non_empty_groups": {
+    "ShipmentEventList": 10,
+    "ProductAdsPaymentEventList": 1,
+    "ServiceFeeEventList": 8,
+    "AdjustmentEventList": 83
+  },
+  "service_fee_type_counts": {
+    "MFNShippingChargeback": 5,
+    "MFNPostageFee": 5,
+    "Subscription": 3
+  },
+  "adjustment_type_counts": {
+    "PostageRefund_PostageAdjustment": 6,
+    "PostageBilling_PostageAdjustment": 2,
+    "PostageBilling_Tracking": 12,
+    "PostageBilling_SignatureConfirmation": 12,
+    "PostageBilling_Postage": 12,
+    "PostageBilling_FuelSurcharge": 12,
+    "PostageBilling_TransactionFee": 12,
+    "PostageBilling_ImportDuty": 12,
+    "MiscAdjustment": 3
+  }
+}

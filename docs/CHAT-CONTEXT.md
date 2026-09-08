@@ -6,9 +6,10 @@
 
 **2026-09-08 UTC — MARGEN ESTIMADO 01, bloque 0 investigado; A/B no liberados.**
 0.1/0.2 verificaron precio/canal fechado en bridge, costos/FX y Product Fees
-para FBM MX/US y FBA US. Faltan fuente prospectiva de retenciones y logística
-FBM, contexto FBA MX, cadencia de precio y unidad/BOM del costo; `0.3/acta.md`
-deja A/B bloqueados.
+para FBM MX/US y FBA MX/US; Finances confirma que el cobro de envío y el costo
+MFN son conceptos distintos. FBA MX usa precio fresco bridge; el precio expira a
+las seis horas. No hay kits (unidad uno por listing). Faltan fuente prospectiva
+de retenciones y logística FBM; `0.3/acta.md` deja A/B bloqueados.
 No se implementó cálculo ni se tocaron campañas, targets o Reputación.
 
 **2026-09-08 UTC — MARGEN ESTIMADO 01 formalizado, sin implementacion.**
