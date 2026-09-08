@@ -1133,6 +1133,33 @@ def _fusionar_fila_producto(
         )
 
 
+def _envenenar_clave_producto(
+    asin: str,
+    sku: str,
+    metric_date: dt.date,
+    *,
+    por_clave: dict[tuple[str, str, dt.date], _FilaProducto],
+    plan: list[_FilaProducto],
+    envenenadas: set[tuple[str, str, dt.date]],
+    skips: Counter[str],
+) -> None:
+    """Una fila INVALIDA (metrica no numerica o sin NINGUNA metrica) envenena
+    la clave (asin, sku, fecha): si otra campana del mismo producto trajo
+    datos validos, ese subtotal es PARCIAL y no se publica como completo
+    (hallazgo cross-review codex 2026-09-07; mismo veneno adhesivo que la
+    fusion 100% vacia de _fusionar_fila_producto)."""
+    clave = (asin, sku, metric_date)
+    previa = por_clave.pop(clave, None)
+    if previa is not None:
+        plan.remove(previa)
+        # Los aportes fusionados ya se contaron; falta solo la fila retirada.
+        skips["fila de clave envenenada (subtotal parcial)"] += 1
+    envenenadas.add(clave)
+    logger.debug(
+        "fila invalida envenena la clave (subtotal parcial): %s/%s %s", asin, sku, metric_date
+    )
+
+
 def _planea_filas_productos(
     filas: list[dict],
     *,
@@ -1154,7 +1181,10 @@ def _planea_filas_productos(
     Espejo de _planea_filas_terminos (vocabulario CERRADO de skips): asin/sku
     ausentes, date invalida, metric_date futura, fuera del rango solicitado,
     metricas no numericas/fraccionarias, fila sin NINGUNA metrica y la fila
-    absorbida por la fusion. Metrica NEGATIVA en fila cruda aborta fail-closed
+    absorbida por la fusion. Las filas con metrica no numerica o sin NINGUNA
+    metrica ENVENENAN la clave (asin, sku, fecha): el subtotal parcial de otra
+    campana no se publica como completo (hallazgo cross-review codex
+    2026-09-07). Metrica NEGATIVA en fila cruda aborta fail-closed
     (la fusion podria compensarla bajo el CHECK apm_no_negativos). Pre-check
     same_sku <= total por fila cruda (el CHECK apm_same_sku_cabe abortaria el
     lote entero si llegara al INSERT).
@@ -1217,6 +1247,15 @@ def _planea_filas_productos(
             )
         except ValueError:
             skips["fila de productos con metrica no numerica o fraccionaria"] += 1
+            _envenenar_clave_producto(
+                asin,
+                sku,
+                metric_date,
+                por_clave=por_clave,
+                plan=plan,
+                envenenadas=envenenadas,
+                skips=skips,
+            )
             continue
         if all(
             valor is None
@@ -1232,6 +1271,15 @@ def _planea_filas_productos(
         ):
             skips["fila sin ninguna metrica"] += 1
             logger.debug("fila sin ninguna metrica: producto %s/%s %s", asin, sku, metric_date)
+            _envenenar_clave_producto(
+                asin,
+                sku,
+                metric_date,
+                por_clave=por_clave,
+                plan=plan,
+                envenenadas=envenenadas,
+                skips=skips,
+            )
             continue
         if (sales_same_sku is not None and sales is not None and sales_same_sku > sales) or (
             purchases_same_sku is not None
@@ -1239,7 +1287,10 @@ def _planea_filas_productos(
             and purchases_same_sku > purchases
         ):
             # Pre-check por fila cruda (vocabulario CERRADO): sin el, el CHECK
-            # apm_same_sku_cabe abortaria el LOTE entero en la base.
+            # apm_same_sku_cabe abortaria el LOTE entero en la base. La fila se
+            # descarta y ENVENENA la clave: sus ventas son ininterpretables, y
+            # el subtotal de otra campana no puede publicarse como completo
+            # (hallazgo cross-review 2026-09-07, 2a ronda).
             skips["fila con metrica same_sku mayor que el total"] += 1
             logger.debug(
                 "same_sku > total en producto %s/%s (%s/%s vs %s/%s)",
@@ -1249,6 +1300,15 @@ def _planea_filas_productos(
                 purchases_same_sku,
                 sales,
                 purchases,
+            )
+            _envenenar_clave_producto(
+                asin,
+                sku,
+                metric_date,
+                por_clave=por_clave,
+                plan=plan,
+                envenenadas=envenenadas,
+                skips=skips,
             )
             continue
         # Negativos = dato corrupto y la corrida ABORTA (fail-closed): la

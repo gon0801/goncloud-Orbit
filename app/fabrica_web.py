@@ -354,6 +354,12 @@ def evaluacion(
                 objetivos_grupos=(objetivo,)
                 if objetivo is not None
                 else objetivos.get(listing_id, ()),
+                # Moneda de Ads = la del PERFIL (amazon_us -> USD), no la de la
+                # economia: para US el ledger puede venir en MXN y las cifras
+                # Ads son USD (hallazgo cross-review codex 2026-09-07). El mapa
+                # de esta capa es fp.MONEDA_POR_PLATAFORMA (alias sellado del
+                # del motor); app.ads.write esta fuera por el guard de imports.
+                moneda_ads=fp.MONEDA_POR_PLATAFORMA[plataforma],
             )
         )
     ordenadas = ec.ordenar(evaluaciones, orden, descendente=direccion == "desc")

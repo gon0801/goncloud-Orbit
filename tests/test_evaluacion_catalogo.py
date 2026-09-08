@@ -584,6 +584,40 @@ def test_evaluacion_listing_sin_grupo_muestra_acos_sin_etiqueta():
     assert evaluacion.ads.etiqueta is None
 
 
+def test_moneda_ads_del_perfil_no_hereda_la_de_economia():
+    """Hallazgo cross-review codex 2026-09-07: la moneda de Ads es la del
+    PERFIL (amazon_us -> USD), no la de la economia (que puede venir en MXN);
+    `moneda_ads` explicito manda y sin el se conserva la economia."""
+    filas = [_obs(dt.date(2026, 8, 15), cost=Decimal("5"), sales30d=Decimal("10"))]
+    us_mxn = evaluar_listing(
+        listing_id=1,
+        platform="amazon_us",
+        product_id=1,
+        asin="B000000009",
+        seller_sku="SS-9",
+        filas_ads=filas,
+        ventana=VENTANA,
+        economia=EconomiaProducto(platform="amazon_us", product_id=1, moneda="MXN"),
+        disponibilidad={"estado": ESTADO_DESCONOCIDO},
+        moneda_ads="USD",
+    )
+    assert us_mxn.ads.moneda == "USD"
+    assert us_mxn.economia.moneda == "MXN"  # la economia conserva SU moneda
+    # Sin moneda_ads (llamadores viejos): sigue la de la economia.
+    heredada = evaluar_listing(
+        listing_id=2,
+        platform="amazon_mx",
+        product_id=1,
+        asin="B000000001",
+        seller_sku="SS-1",
+        filas_ads=filas,
+        ventana=VENTANA,
+        economia=EconomiaProducto(platform="amazon_mx", product_id=1, moneda="MXN"),
+        disponibilidad={"estado": ESTADO_DESCONOCIDO},
+    )
+    assert heredada.ads.moneda == "MXN"
+
+
 # ---------------------------------------------------------------------------
 # (b) INTEGRACION del endpoint: adaptador fabrica_web.evaluacion contra
 # Postgres real con 0018/0019 (grupos) + 0020 (Ads) + 0021/0022. La logica
@@ -725,6 +759,74 @@ def test_endpoint_evaluacion_integra_ads_economia_disponibilidad_y_objetivo():
 
         with pytest.raises(Exception, match="criterio de orden"):
             fw.evaluacion(conn, "amazon_mx", orden="muestra_limitada")
+
+
+class _Respuesta:
+    """Cursor falso: fetchall/iteracion sobre filas prefijadas (sin DB)."""
+
+    def __init__(self, filas):
+        self._filas = filas
+
+    def fetchall(self):
+        return self._filas
+
+    def __iter__(self):
+        return iter(self._filas)
+
+
+class _Conn:
+    """Conn que responde cada execute con la fila prefijada SIGUIENTE."""
+
+    def __init__(self, respuestas):
+        self._respuestas = list(respuestas)
+
+    def execute(self, _sql, _params=()):
+        return _Respuesta(self._respuestas.pop(0))
+
+
+def test_evaluacion_us_muestra_ads_en_usd_aunque_economia_venga_mxn(monkeypatch):
+    """Hallazgo cross-review codex 2026-09-07 (sin DB, adaptador puro): el
+    perfil manda la moneda de Ads; para amazon_us las cifras Ads (USD) no se
+    muestran con la moneda de la economia aunque venga MXN."""
+    from app import fabrica_web as fw
+
+    hoy = dt.datetime.now(dt.UTC).date()
+    hasta = hoy - dt.timedelta(days=1)
+    conn = _Conn(
+        [
+            # listing: id, product_id, external_id, seller_sku
+            [(7, 1, "B0TEST00009", "SS-US")],
+            # _SQL_ADS_VENTANA: asin, sku, fecha, observed_at, clicks, cost, p30, s30, prom
+            [
+                (
+                    "B0TEST00009",
+                    "SS-US",
+                    hasta,
+                    dt.datetime.combine(hoy, dt.time.min, UTC),
+                    10,
+                    Decimal("2"),
+                    1,
+                    Decimal("8"),
+                    None,
+                )
+            ],
+            # _SQL_OBJETIVOS_GRUPO: sin grupos planeados
+            [],
+        ]
+    )
+    # La economia del producto llega en MXN (ledger del negocio); Ads es USD.
+    monkeypatch.setattr(
+        fw.economia_observada,
+        "por_listing",
+        lambda _conn, _plataforma: {
+            7: EconomiaProducto(platform="amazon_us", product_id=1, moneda="MXN")
+        },
+    )
+    monkeypatch.setattr(fw, "estado_disponibilidad", lambda *_a, **_k: {"estado": "desconocido"})
+    res = fw.evaluacion(conn, "amazon_us")
+    (publicacion,) = res["publicaciones"]
+    assert publicacion["economia"]["moneda"] == "MXN"
+    assert publicacion["ads"]["moneda"] == "USD"
 
 
 def test_modulo_es_puro_en_runtime():

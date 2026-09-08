@@ -594,8 +594,310 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
   assert.ok(filtrada.includes("B0CCCCCCCC"), "El filtro muestra el Sin datos");
   assert.ok(!filtrada.includes("Gasto sin ventas"), "El filtro oculta los con Ads");
   assert.equal(caja.checked, true, "El filtro no pierde la seleccion");
+  // Una consulta vieja que falla no borra los datos ni el estado de la nueva.
+  let rechazarVieja;
+  respuestas.push(
+    new Promise((resolve, reject) => { rechazarVieja = reject; }),
+    {ok: true, status: 200, json: async () => llena},
+  );
+  await emit("comparador-recargar", "click");
+  await emit("comparador-recargar", "click");
+  const tablaVigente = text(datos), estadoVigente = estado.textContent;
+  assert.ok(tablaVigente.includes("B0CCCCCCCC"), "La consulta nueva ya se mostro");
+  rechazarVieja(new Error("Fallo de una consulta anterior"));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(estado.textContent, estadoVigente, "El fallo antiguo no cambia el estado");
+  await emit("comparador-filtro");
+  assert.equal(text(datos), tablaVigente, "El fallo antiguo no borra la comparacion al filtrar");
+  assert.equal(caja.checked, true, "La seleccion sigue intacta");
   assert.equal(calls.filter(c => (c.options.method || "GET") === "GET").length, calls.length,
     "Cero escrituras: ningun POST");
+})().catch(error => { console.error(error); process.exitCode = 1; });
+"""
+    resultado = subprocess.run(
+        [node, "-e", guion, json.dumps(elementos), str(archivo)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+    assert resultado.returncode == 0, resultado.stdout + resultado.stderr
+
+
+def test_flujo_js_comparador_recibe_objetivo_manual_y_derivado():
+    """Hallazgo cross-review codex 2026-09-07 (JS real, DOM simulado): el
+    comparador refresca con el objetivo del grupo en preparacion -- el manual
+    del formulario (incluso al cambiarlo) y el derivado del margen del preview
+    (schema v2). Solo GET /evaluacion; cero escrituras."""
+    archivo = RAIZ / "static/js/fabrica.js"
+    assert archivo.exists(), "Falta el cliente de fabrica"
+    node = shutil.which("node")
+    if not node:
+        if "CI" in os.environ:
+            pytest.fail("Node es obligatorio en CI para verificar el flujo JavaScript")
+        pytest.skip("Node no disponible; el navegador se verifica en integracion")
+    html = TestClient(app).get("/campanas/nuevas").text
+    elementos = [attrs for _, attrs in Elementos(html).elementos if "id" in attrs]
+    guion = r"""
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+class Element {
+  constructor(attrs = {}) {
+    Object.assign(this, attrs);
+    this.children = []; this.events = {}; this.value = attrs.value || "";
+    this.disabled = "disabled" in attrs; this.hidden = "hidden" in attrs;
+    this.checked = false; this.textContent = ""; this.dataset = {};
+  }
+  append(...items) { this.children.push(...items); }
+  appendChild(item) { this.append(item); return item; }
+  replaceChildren(...items) { this.children = items; this.textContent = ""; }
+  addEventListener(event, fn) { this.events[event] = fn; }
+  setAttribute(name, value) { this[name] = value; }
+  focus() {}
+  reportValidity() { return true; }
+  querySelectorAll(selector) {
+    const all = this.children.flatMap(child => [child, ...child.querySelectorAll("*")]);
+    if (selector === "*") return all;
+    return all.filter(child => child.type === "checkbox" &&
+      (!selector.includes(":checked") || child.checked));
+  }
+}
+const attrs = JSON.parse(process.argv[1]);
+const ids = Object.fromEntries(attrs.map(a => [a.id, new Element(a)]));
+const el = id => ids["fabrica-" + id];
+el("plataforma").value = "amazon_mx";
+el("comparador-orden").value = "margen_observado";
+el("comparador-direccion").value = "desc";
+el("comparador-filtro").value = "todas";
+el("objetivo-origen").value = "margen_medido";
+el("plan").elements = Object.fromEntries(attrs.filter(a => a.name).map(a => [a.name, ids[a.id]]));
+const docEvents = {};
+global.document = {
+  getElementById: id => ids[id],
+  createElement: () => new Element(),
+  addEventListener: (event, fn) => { docEvents[event] = fn; },
+};
+global.window = {
+  location: {href: "http://orbit.test/campanas/nuevas", search: ""},
+  addEventListener: () => {},
+  history: { replaceState: () => {} },
+};
+const calls = [];
+const catalogo = {plataforma: "amazon_mx", moneda: "MXN", tipos_producto: [],
+  productos: [{id: 1, sku: "GORRA", nombre: "Gorras", publicaciones: [
+    {id: 11, asin: "B0AAAAAAAA", seller_sku: "SKU-AMAZON-A", platform: "amazon_mx",
+      margen_neto_pct: "40", dias_con_venta: 70, ventana_desde: "2026-02-20",
+      ventana_hasta: "2026-08-22", historial_ads: null, elegible: true, motivos: [],
+      url: null}]}]};
+const preview = {plan: {schema_version: 2, nombre_base: "Gorra", tipo_producto: "gorra",
+    platform: "amazon_mx", moneda: "MXN", fecha: "2026-09-07", modo: "shadow",
+    objetivo: {origen: "margen_medido", acos_pct: "20", derivado: "40", fraccion: "0.5",
+      procedencia: "margen_medido"},
+    publicaciones: [], semillas: {exact: [], keywords: [], asins: [], negativos: []}},
+  campanas: [], presupuesto_diario_total: "0", existentes: [], lote: "L1", huella: "H1"};
+const evaluacion = (over) => Object.assign({plataforma: "amazon_mx",
+  ventana_ads: {desde: "2026-08-06", hasta: "2026-09-05"}, publicaciones: []}, over);
+let respuestaEvaluacion = evaluacion();
+global.fetch = async (url, options = {}) => {
+  calls.push({url, options});
+  if (url.includes("/catalogo")) return {ok: true, status: 200, json: async () => catalogo};
+  if (url.includes("/lotes?")) return {ok: true, status: 200, json: async () => ({items: []})};
+  if (url.includes("/plan")) return {ok: true, status: 200, json: async () => preview};
+  if (url.includes("/evaluacion")) {
+    return {ok: true, status: 200, json: async () => respuestaEvaluacion};
+  }
+  return {ok: true, status: 200, json: async () => ({})};
+};
+const emit = async (id, event = "change") => {
+  const handler = el(id).events[event]; assert.ok(handler, `Falta evento ${id}:${event}`);
+  handler({preventDefault() {}, target: el(id)});
+  await new Promise(resolve => setImmediate(resolve));
+};
+const consultas = () => calls.filter(c => c.url.includes("/evaluacion"));
+vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
+(async () => {
+  await docEvents.DOMContentLoaded();
+  await new Promise(resolve => setImmediate(resolve));
+  // Sin manual y sin preview: la consulta inicial NO lleva objetivo.
+  assert.ok(!consultas().at(-1).url.includes("objetivo="), "sin objetivo sin preview");
+  // Preview con objetivo margen_medido (schema v2): el comparador lo recibe.
+  el("productos").querySelectorAll('input[type="checkbox"]')[0].checked = true;
+  el("nombre").value = "Gorra";
+  el("tipo").value = "gorra";
+  await emit("plan", "submit");
+  assert.ok(consultas().some(c => c.url.includes("objetivo=20")),
+    "el objetivo derivado del margen llega al comparador");
+  // Cambiar los productos seleccionados invalida el preview: el comparador NO
+  // conserva las etiquetas del objetivo derivado viejo (hallazgo 2a ronda).
+  const antesInvalidar = consultas().length;
+  await emit("plan", "change");  // el checkbox de un producto burbujea al form
+  await new Promise(resolve => setTimeout(resolve, 500));
+  assert.ok(consultas().length > antesInvalidar, "invalidar el preview consulta de nuevo");
+  assert.ok(!consultas().at(-1).url.includes("objetivo="),
+    "sin objetivo tras invalidar el preview");
+  // Un preview nuevo restablece el objetivo derivado para el comparador.
+  await emit("plan", "submit");
+  assert.ok(consultas().some(c => c.url.includes("objetivo=20")),
+    "el preview reconsulta con el objetivo derivado");
+  // Cambiar el ACoS manual a 10 refresca el comparador con objetivo=10.
+  el("objetivo-origen").value = "manual_lanzamiento";
+  el("objetivo-acos").value = "10";
+  const antesOrigen = consultas().length;
+  await emit("objetivo-origen");
+  assert.ok(consultas().some(c => c.url.includes("objetivo=10")),
+    "el manual del formulario llega al comparador");
+  await new Promise(resolve => setTimeout(resolve, 500));
+  assert.equal(consultas().length, antesOrigen + 1, "El cambio de origen hace un solo GET");
+  // El tipeo en el campo manual refresca con debounce (~400 ms).
+  await emit("plan", "submit");  // preview vigente antes de editar el objetivo
+  const antes = consultas().length;
+  el("objetivo-acos").value = "12";
+  await emit("objetivo-acos", "input");
+  await emit("plan", "input");  // burbujeo del mismo evento hasta el formulario
+  await new Promise(resolve => setTimeout(resolve, 500));
+  assert.equal(consultas().length, antes + 1, "El input y su burbujeo hacen un solo GET");
+  assert.ok(consultas().at(-1).url.includes("objetivo=12"), "el debounce manda el 12");
+  // El comparador jamas escribe: todas SUS consultas son GET (el POST /plan
+  // es del preview, no del comparador).
+  assert.ok(consultas().length > 0);
+  for (const consulta of consultas()) {
+    assert.equal(consulta.options.method || "GET", "GET", "el comparador solo consulta");
+  }
+})().catch(error => { console.error(error); process.exitCode = 1; });
+"""
+    resultado = subprocess.run(
+        [node, "-e", guion, json.dumps(elementos), str(archivo)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+    assert resultado.returncode == 0, resultado.stdout + resultado.stderr
+
+
+def test_flujo_js_comparador_muestra_ventana_cobertura_y_actualizacion_del_margen():
+    """Hallazgo cross-review codex 2026-09-07 (JS real, DOM simulado): la
+    ficha del comparador declara la ventana, la cobertura y la actualizacion
+    del margen (ledger_fresco_at) por publicacion; si varia entre publicaciones
+    se dice 'Varia por publicacion', sin inventar un valor unico."""
+    archivo = RAIZ / "static/js/fabrica.js"
+    assert archivo.exists(), "Falta el cliente de fabrica"
+    node = shutil.which("node")
+    if not node:
+        if "CI" in os.environ:
+            pytest.fail("Node es obligatorio en CI para verificar el flujo JavaScript")
+        pytest.skip("Node no disponible; el navegador se verifica en integracion")
+    html = TestClient(app).get("/campanas/nuevas").text
+    elementos = [attrs for _, attrs in Elementos(html).elementos if "id" in attrs]
+    guion = r"""
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+class Element {
+  constructor(attrs = {}) {
+    Object.assign(this, attrs);
+    this.children = []; this.events = {}; this.value = attrs.value || "";
+    this.disabled = "disabled" in attrs; this.hidden = "hidden" in attrs;
+    this.checked = false; this.textContent = ""; this.dataset = {};
+  }
+  append(...items) { this.children.push(...items); }
+  appendChild(item) { this.append(item); return item; }
+  replaceChildren(...items) { this.children = items; this.textContent = ""; }
+  addEventListener(event, fn) { this.events[event] = fn; }
+  setAttribute(name, value) { this[name] = value; }
+  focus() {}
+  reportValidity() { return true; }
+  querySelectorAll(selector) {
+    const all = this.children.flatMap(child => [child, ...child.querySelectorAll("*")]);
+    if (selector === "*") return all;
+    return all.filter(child => child.type === "checkbox" &&
+      (!selector.includes(":checked") || child.checked));
+  }
+}
+const attrs = JSON.parse(process.argv[1]);
+const ids = Object.fromEntries(attrs.map(a => [a.id, new Element(a)]));
+const el = id => ids["fabrica-" + id];
+el("plataforma").value = "amazon_mx";
+el("comparador-orden").value = "margen_observado";
+el("comparador-direccion").value = "desc";
+el("comparador-filtro").value = "todas";
+el("plan").elements = Object.fromEntries(attrs.filter(a => a.name).map(a => [a.name, ids[a.id]]));
+const docEvents = {};
+global.document = {
+  getElementById: id => ids[id],
+  createElement: () => new Element(),
+  addEventListener: (event, fn) => { docEvents[event] = fn; },
+};
+global.window = {
+  location: {href: "http://orbit.test/campanas/nuevas", search: ""},
+  addEventListener: () => {},
+  history: { replaceState: () => {} },
+};
+const catalogo = {plataforma: "amazon_mx", moneda: "MXN", tipos_producto: [], productos: []};
+const publica = (listing, econ) => ({
+  listing_id: listing, platform: "amazon_mx", product_id: 1,
+  asin: "B0AAAAAAAA", seller_sku: "SKU-" + listing, seleccionable: true, motivos: [],
+  objetivo_acos_pct: null,
+  economia: Object.assign({ventana_desde: "2026-02-20", ventana_hasta: "2026-08-22",
+    moneda: "MXN", venta_total: "7000", venta_cubierta: "7000", cobertura: "1",
+    dias_con_venta: 70, margen_neto_pct: "40", integridad_ok: true,
+    muestra_limitada: false, muestra_venta: null, muestra_margen_neto_pct: null,
+    ledger_fresco_at: "2026-09-05T10:00:00+00:00"}, econ),
+  ads: {etiqueta: null, maduro: false, provisional: false, muestra: 0, moneda: "MXN",
+    cost: null, clicks: null, sales30d: null, purchases30d: null, promoted30d: null,
+    halo30d: null, acos_pct: null, cpc: null, cvr_pct: null},
+  disponibilidad: {estado: "desconocido", cantidad: null, fuente: null, freshness: null},
+});
+const iguales = {plataforma: "amazon_mx",
+  ventana_ads: {desde: "2026-08-06", hasta: "2026-09-05"},
+  publicaciones: [publica(11), publica(12)]};
+const variadas = {plataforma: "amazon_mx",
+  ventana_ads: {desde: "2026-08-06", hasta: "2026-09-05"},
+  publicaciones: [publica(11), publica(12, {ventana_desde: "2026-03-01",
+    ventana_hasta: "2026-08-30", cobertura: "0.5",
+    ledger_fresco_at: "2026-09-01T09:00:00+00:00"})]};
+const respuestas = [iguales, variadas];
+global.fetch = async (url, options = {}) => {
+  if (url.includes("/catalogo")) return {ok: true, status: 200, json: async () => catalogo};
+  if (url.includes("/lotes?")) return {ok: true, status: 200, json: async () => ({items: []})};
+  if (url.includes("/evaluacion")) {
+    return {ok: true, status: 200, json: async () => respuestas.shift()};
+  }
+  return {ok: true, status: 200, json: async () => ({})};
+};
+const emit = async (id, event = "change") => {
+  const handler = el(id).events[event]; assert.ok(handler, `Falta evento ${id}:${event}`);
+  handler({preventDefault() {}, target: el(id)});
+  await new Promise(resolve => setImmediate(resolve));
+};
+const text = node => node.textContent + node.children.map(text).join(" ");
+vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
+(async () => {
+  await docEvents.DOMContentLoaded();
+  await new Promise(resolve => setImmediate(resolve));
+  const datos = el("comparador-datos");
+  const ficha = text(datos);
+  for (const esperado of ["Ventana del margen", "Cobertura del margen",
+    "Actualización del margen"]) assert.ok(ficha.includes(esperado), esperado);
+  assert.match(ficha, /Ventana del margen 2026-02-20 a 2026-08-22/);
+  assert.match(ficha, /Cobertura del margen 1\b/);
+  assert.match(ficha, /Actualización del margen 2026-09-05T10:00:00\+00:00/);
+  await emit("comparador-recargar", "click");
+  const variada = text(datos);
+  // Al variar se DECLARA y ademas se listan los valores individuales para
+  // poder consultarlos sin salir de la ficha (observacion cross-review 2a ronda).
+  assert.match(
+    variada,
+    /Ventana del margen Varia por publicacion: 2026-02-20 a 2026-08-22; 2026-03-01 a 2026-08-30/,
+  );
+  assert.match(variada, /Cobertura del margen Varia por publicacion: 1; 0\.5/);
+  assert.match(
+    variada,
+    new RegExp(
+      "Actualización del margen Varia por publicacion: 2026-09-05T10:00:00\\+00:00; "
+      + "2026-09-01T09:00:00\\+00:00"),
+  );
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """
     resultado = subprocess.run(

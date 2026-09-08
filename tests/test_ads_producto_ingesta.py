@@ -280,6 +280,111 @@ def test_plan_productos_clave_envenenada_no_resucita():
     assert skips["fila de clave envenenada (subtotal parcial)"] == 1
 
 
+def test_plan_productos_fila_invalida_envenena_la_clave():
+    """Hallazgo cross-review codex 2026-09-07: una fila con metrica no
+    numerica (o sin NINGUNA metrica) ENVENENA la clave (asin, sku, fecha):
+    si otra campana del mismo producto trae datos validos, el subtotal
+    parcial NO se publica como completo. Ambos ordenes del gzip dan igual."""
+    hoy = dt.date(2026, 9, 4)
+    rango = dict(hoy=hoy, fecha_ini=dt.date(2026, 9, 3), fecha_fin=dt.date(2026, 9, 3))
+    valida = {
+        "date": "2026-09-03",
+        "advertisedAsin": "B0EEEEEEE1",
+        "advertisedSku": "SKU-E",
+        "campaignId": 111,
+        "adGroupId": 1111,
+        "adId": 11,
+        "cost": 5,
+    }
+    # (1) metrica no numerica en otra campana del MISMO (asin, sku, fecha)
+    no_numerica = {**valida, "campaignId": 222, "adGroupId": 2222, "adId": 22, "cost": "abc"}
+    for filas in ([valida, no_numerica], [no_numerica, valida]):
+        plan, skips = _planea_filas_productos(filas, **rango)
+        assert plan == [], f"subtotal parcial publicado: {plan}"
+        assert skips["fila de productos con metrica no numerica o fraccionaria"] == 1
+    # invalida primero: la fila valida posterior topa contra la clave envenenada
+    _, skips = _planea_filas_productos([no_numerica, valida], **rango)
+    assert skips["fila de clave envenenada (subtotal parcial)"] == 1
+    # (2) fila sin NINGUNA metrica en otra campana del MISMO (asin, sku, fecha)
+    sin_metricas = {k: v for k, v in valida.items() if k not in ("cost",)}
+    sin_metricas.update({"campaignId": 222, "adGroupId": 2222, "adId": 22})
+    for filas in ([valida, sin_metricas], [sin_metricas, valida]):
+        plan, skips = _planea_filas_productos(filas, **rango)
+        assert plan == [], f"subtotal parcial publicado: {plan}"
+        assert skips["fila sin ninguna metrica"] == 1
+    _, skips = _planea_filas_productos([sin_metricas, valida], **rango)
+    assert skips["fila de clave envenenada (subtotal parcial)"] == 1
+
+
+def test_plan_productos_same_sku_mayor_que_total_envenena_la_clave():
+    """Hallazgo cross-review 2026-09-07 (2a ronda): una fila con ventas
+    promovidas MAYORES que las totales se descarta por el pre-check del
+    CHECK apm_same_sku_cabe; sin envenenar la clave, otra campana valida
+    del MISMO (asin, sku, fecha) publicaria su subtotal como completo y
+    podria etiquetar 'Gasto sin ventas' con ventas reales desconocidas."""
+    hoy = dt.date(2026, 9, 4)
+    rango = dict(hoy=hoy, fecha_ini=dt.date(2026, 9, 3), fecha_fin=dt.date(2026, 9, 3))
+    valida = {
+        "date": "2026-09-03",
+        "advertisedAsin": "B0EEEEEEE1",
+        "advertisedSku": "SKU-E",
+        "campaignId": 111,
+        "adGroupId": 1111,
+        "adId": 11,
+        "cost": 5,
+        "sales30d": 0.0,
+    }
+    corrupta = {
+        **valida,
+        "campaignId": 222,
+        "adGroupId": 2222,
+        "adId": 22,
+        "sales30d": 100.0,
+        "attributedSalesSameSku30d": 150.0,  # promovidas > totales
+    }
+    for filas in ([valida, corrupta], [corrupta, valida]):
+        plan, skips = _planea_filas_productos(filas, **rango)
+        assert plan == [], f"subtotal parcial publicado: {plan}"
+        assert skips["fila con metrica same_sku mayor que el total"] == 1
+    # corrupta primero: la fila valida posterior topa contra la clave envenenada
+    _, skips = _planea_filas_productos([corrupta, valida], **rango)
+    assert skips["fila de clave envenenada (subtotal parcial)"] == 1
+
+
+@pytest.mark.parametrize(
+    "metricas_invalidas",
+    [
+        {},
+        {"cost": "abc"},
+        {"sales30d": 10, "attributedSalesSameSku30d": 11},
+        {"purchases30d": 1, "purchasesSameSku30d": 2},
+    ],
+    ids=["sin_metricas", "no_numerica", "ventas_inconsistentes", "compras_inconsistentes"],
+)
+@pytest.mark.parametrize("orden", ["valida_primero", "invalida_primero", "fusion_y_reintentos"])
+def test_descartes_de_clave_invalida_cuentan_todas_las_filas(metricas_invalidas, orden):
+    """Cada fila cruda se cuenta una vez, incluso al retirar una fusion previa."""
+    identidad = {
+        "date": "2026-09-03",
+        "advertisedAsin": "B0EEEEEEE1",
+        "advertisedSku": "SKU-E",
+    }
+    valida = {**identidad, "cost": 5, "sales30d": 0}
+    invalida = {**identidad, **metricas_invalidas}
+    secuencias = {
+        "valida_primero": [valida, invalida],
+        "invalida_primero": [invalida, valida],
+        "fusion_y_reintentos": [valida, valida, invalida, valida, invalida],
+    }
+    independiente = {**valida, "advertisedSku": "SKU-INDEPENDIENTE"}
+    filas = [*secuencias[orden], independiente]
+    plan, skips = _planea_filas_productos(
+        filas, hoy=dt.date(2026, 9, 4), fecha_ini=dt.date(2026, 9, 3), fecha_fin=dt.date(2026, 9, 3)
+    )
+    assert [fila.sku for fila in plan] == ["SKU-INDEPENDIENTE"]
+    assert len(plan) + sum(skips.values()) == len(filas)
+
+
 def test_plan_productos_dos_campanas_del_mismo_asin_suman():
     """DoD B.1: filas del MISMO asin/sku en campanas DISTINTAS se SUMAN hacia
     el grano (platform, asin, sku, fecha); la metrica que un aporte trajo

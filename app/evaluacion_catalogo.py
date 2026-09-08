@@ -276,10 +276,15 @@ def evaluar_listing(
     economia: EconomiaProducto,
     disponibilidad: dict,
     objetivos_grupos: Iterable[Decimal | None] = (),
+    moneda_ads: str | None = None,
 ) -> EvaluacionListing:
-    """Capa de integracion pura: B.2 + B.3 + Ads + objetivo D2 por listing."""
+    """Capa de integracion pura: B.2 + B.3 + Ads + objetivo D2 por listing.
+
+    `moneda_ads` es la del PERFIL de Ads (amazon_us -> USD), que puede diferir
+    de la de la economia; si viene None se conserva la de la economia (regla
+    4: la moneda viaja con las cifras que etiqueta)."""
     objetivo = objetivo_comparacion(objetivos_grupos)
-    ads = evaluar_ads(filas_ads, ventana, objetivo=objetivo, moneda=economia.moneda)
+    ads = evaluar_ads(filas_ads, ventana, objetivo=objetivo, moneda=moneda_ads or economia.moneda)
     return EvaluacionListing(
         listing_id=listing_id,
         platform=platform,
