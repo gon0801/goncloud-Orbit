@@ -57,10 +57,29 @@
 .fabrica-producto-cabecera h4 { margin: 0; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
 .fabrica-producto-conteo { margin-left: auto; color: var(--o-ink3); font-size: 11.5px; }
 .fabrica-producto ul { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 10px; list-style: none; padding: 0; margin: 0; }
-.fabrica-publicacion { position: relative; min-width: 0; border: 1px solid var(--o-borde); border-radius: 10px; background: var(--o-card); }
+.fabrica-publicacion {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--o-borde);
+  border-radius: 10px;
+  background: var(--o-card);
+}
 .fabrica-publicacion:has(input:checked) { border-color: var(--o-ac); background: var(--o-ac-bg); }
 .fabrica-publicacion:has(input:disabled) { opacity: .55; }
-.fabrica .fabrica-publicacion-tarjeta { display: flex; flex-direction: row; align-items: flex-start; gap: 12px; padding: 12px 12px 34px; margin: 0; height: 100%; cursor: pointer; }
+/* Sin height:100%: el <details> es hermano del label; el % circular lo sacaba
+   de la card y solapaba la siguiente publicacion (B.2 390px). */
+.fabrica .fabrica-publicacion-tarjeta {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 12px 34px;
+  margin: 0;
+  flex: 1 0 auto;
+  cursor: pointer;
+}
 .fabrica .fabrica-publicacion-tarjeta:has(input:disabled) { cursor: not-allowed; }
 .fabrica-publicacion input { flex: none; accent-color: var(--o-ac); margin: 3px 0 0; }
 .fabrica-publicacion-datos { display: flex; flex-direction: column; gap: 5px; min-width: 0; overflow-wrap: anywhere; }
@@ -71,6 +90,17 @@
 .fabrica-margen { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 6px; }
 .fabrica-margen strong { font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .fabrica-margen > span { font-size: 11px; color: var(--o-ink2); }
+.fabrica-estimacion,
+.fabrica-estimacion-detalle { min-width: 0; overflow-wrap: anywhere; }
+.fabrica-estimacion { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--o-borde2); }
+.fabrica-estimacion-titulo { font-size: 11px; font-weight: 600; color: var(--o-ink2); }
+.fabrica-estimacion-subtitulo { font-size: 10.5px; color: var(--o-ink3); }
+.fabrica-estimacion strong { font-size: 14px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.fabrica-publicacion > .fabrica-estimacion-detalle { margin: 0 12px 28px; color: var(--o-ink2); font-size: 11px; }
+.fabrica-estimacion-detalle > summary { cursor: pointer; color: var(--o-ink); font-size: 11.5px; }
+.fabrica-estimacion-detalle > summary:focus-visible { outline: 2px solid var(--o-ac); outline-offset: 3px; }
+.fabrica-identidad .fabrica-estimacion { margin-top: 8px; }
+.fabrica-identidad .fabrica-estimacion-detalle { margin: 8px 0 0; color: var(--o-ink2); font-size: 11px; }
 .fabrica-publicacion-enlace { position: absolute; bottom: 10px; right: 12px; font-size: 11.5px; }
 .fabrica-identidad-incompleta { color: var(--o-mal-tx); font-size: 11px; }
 

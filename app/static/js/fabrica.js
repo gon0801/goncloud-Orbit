@@ -29,10 +29,46 @@ document.addEventListener("DOMContentLoaded", function () {
   const estadosDisponibilidad = {
     positivo: "Con stock", cero: "Stock en 0", desconocido: "Desconocido",
   };
+  const estadosEstimacion = {
+    incompleta: "Incompleta",
+    desactualizada: "Desactualizada",
+    identidad_ambigua: "Identidad ambigua",
+  };
+  const motivosEstimacion = {
+    escenario_ausente: "Sin escenario guardado para esta publicación",
+    oferta_ausente: "Falta la oferta de publicación",
+    oferta_desactualizada: "La oferta de publicación ya no está vigente",
+    oferta_futura: "La oferta de publicación es posterior al corte",
+    valoracion_desactualizada: "La fecha de valoración no coincide con el corte",
+    identidad_ambigua: "Hay más de una oferta compatible",
+    precio_ausente: "Falta el precio de publicación",
+    precio_invalido: "El precio de publicación no es válido",
+    costo_ausente: "Falta el costo del producto",
+    costo_invalido: "El costo del producto no es válido",
+    costo_desactualizado: "El costo no corresponde a la corrida del día",
+    costo_no_vigente: "El costo no está vigente en la fecha de valoración",
+    costo_impuesto_incompatible: "El costo incluye impuesto incompatible",
+    costo_base_fiscal_ausente: "Falta la base fiscal del costo",
+    fee_ausente: "Falta la cotización de comisiones",
+    fee_incompatible: "La cotización de comisiones no concilia",
+    fee_invalido: "La cotización de comisiones no es válida",
+    impuesto_fee_pendiente: "La cotización trae impuesto pendiente de política",
+    fx_ausente: "Falta el tipo de cambio",
+    fx_direccion_invalida: "El tipo de cambio no apunta a la moneda de venta",
+    fx_tasa_invalida: "La tasa de cambio no es válida",
+    politica_ausente: "Falta la política de cálculo",
+    politica_no_vigente: "La política de cálculo no está vigente",
+    politica_ambigua: "Hay más de una política aplicable",
+    politica_invalida: "La política de cálculo no es válida",
+    logistica_fbm_pendiente: "Falta la logística prospectiva FBM",
+    us_sin_politica_prospectiva: "Amazon US aún no tiene política prospectiva",
+    universo_no_soportado: "El canal o mercado no está en el universo liberado",
+  };
   let revision = 0;
   let versionCatalogo = 0;
   let versionHistorial = 0;
   let versionDetalle = 0;
+  let asOfEstimacion = null;
   let catalogoDisponible = false;
   let resumenCatalogo = null;
   let consultandoPlan = false;
@@ -429,6 +465,93 @@ document.addEventListener("DOMContentLoaded", function () {
     return celda;
   }
 
+  function textoMotivoEstimacion(codigo) {
+    return motivosEstimacion[codigo] || codigo;
+  }
+
+  function textosMotivosEstimacion(motivos) {
+    return (motivos || []).map(textoMotivoEstimacion);
+  }
+
+  function piezasEstimacion(est) {
+    if (!est) return null;
+    const escenario = est.escenario || {};
+    const principal = conClase("div", "fabrica-estimacion");
+    principal.setAttribute("aria-label", "Contribución estimada por venta · antes de Ads");
+    principal.append(
+      conClase("span", "fabrica-estimacion-titulo", "Contribución estimada por venta"),
+      conClase("span", "fabrica-estimacion-subtitulo", "Antes de Ads"),
+    );
+    if (est.estado === "disponible") {
+      principal.append(conClase("strong", tonoMargen(est.contribucion), dinero(est.contribucion, est.moneda)));
+      const meta = [];
+      if (est.contribucion_pct !== null && est.contribucion_pct !== undefined) {
+        meta.push(porcentaje(est.contribucion_pct));
+      }
+      if (est.base_porcentaje) meta.push("base " + est.base_porcentaje);
+      if (escenario.unidad) meta.push("unidad " + escenario.unidad);
+      if (escenario.fecha_valoracion) meta.push(escenario.fecha_valoracion);
+      if (escenario.canal) meta.push(escenario.canal);
+      if (meta.length) principal.append(conClase("span", "fabrica-apoyo", meta.join(" · ")));
+    } else {
+      principal.append(conClase("strong", "fabrica-sin-dato",
+        estadosEstimacion[est.estado] || valor(est.estado)));
+      const textos = textosMotivosEstimacion(est.motivos);
+      if (textos.length) {
+        principal.append(conClase("span", "fabrica-apoyo", textos.join(" · ")));
+      }
+    }
+    if (est.exclusiones && est.exclusiones.length) {
+      principal.append(conClase("span", "fabrica-apoyo", "Exclusiones: " + est.exclusiones.join(", ")));
+    }
+    const detalle = conClase("details", "fabrica-estimacion-detalle");
+    detalle.append(nodo("summary", "Ver desglose de la estimación"));
+    (est.componentes || []).forEach(componente => {
+      const linea = conClase("div", "fabrica-estimacion-componente");
+      const meta = [
+        componente.fuente,
+        componente.fecha_fuente ? ("fecha " + componente.fecha_fuente) : null,
+        componente.observed_at ? ("captura " + componente.observed_at) : null,
+        componente.vigencia ? ("vigencia " + componente.vigencia) : null,
+        componente.estado ? ("estado " + componente.estado) : null,
+        componente.pertenencia === true ? "pertenece al total"
+          : componente.pertenencia === false ? "fuera del total" : null,
+      ].filter(Boolean).join(" · ");
+      linea.append(conClase("strong", "fabrica-estimacion-componente-nombre", valor(componente.nombre)));
+      if (meta) linea.append(conClase("span", "fabrica-apoyo", meta));
+      linea.append(
+        conClase("span", "fabrica-apoyo", "Original: " + valor(componente.importe_original)
+          + (componente.moneda_original ? " " + componente.moneda_original : "")),
+        conClase("span", "fabrica-apoyo", "Normalizado: " + valor(componente.importe_normalizado)
+          + (componente.moneda_normalizada ? " " + componente.moneda_normalizada : "")),
+      );
+      detalle.append(linea);
+    });
+    const textosDetalle = textosMotivosEstimacion(est.motivos);
+    if (textosDetalle.length) {
+      detalle.append(conClase("span", "fabrica-apoyo", "Motivos: " + textosDetalle.join(" · ")));
+    }
+    if (est.exclusiones && est.exclusiones.length) {
+      detalle.append(conClase("span", "fabrica-apoyo", "Exclusiones: " + est.exclusiones.join(", ")));
+    }
+    const versiones = [];
+    if (escenario.version_formula) versiones.push(escenario.version_formula);
+    if (escenario.version_politica !== null && escenario.version_politica !== undefined) {
+      versiones.push("politica " + escenario.version_politica);
+    }
+    if (escenario.unidad) versiones.push("unidad " + escenario.unidad);
+    if (versiones.length) detalle.append(conClase("span", "fabrica-apoyo", versiones.join(" · ")));
+    if (est.detalle) {
+      const partes = ["Numero congelado (no actual): " + valor(est.detalle.contribucion)];
+      if (est.detalle.contribucion_pct !== null && est.detalle.contribucion_pct !== undefined) {
+        partes.push(valor(est.detalle.contribucion_pct));
+      }
+      if (est.detalle.estado) partes.push(est.detalle.estado);
+      detalle.append(conClase("span", "fabrica-apoyo", partes.join(" · ")));
+    }
+    return {principal, detalle};
+  }
+
   function renderComparador() {
     const contenedor = porId("comparador-datos");
     contenedor.replaceChildren();
@@ -486,6 +609,8 @@ document.addEventListener("DOMContentLoaded", function () {
       identidad.append(fotoPublicacion(p.listing_id, p.asin, 34), nombre);
       publicacion.append(identidad);
       if (p.motivos && p.motivos.length) publicacion.append(conClase("span", "fabrica-apoyo fabrica-aviso-margen", p.motivos.join(" ")));
+      const piezas = piezasEstimacion(p.estimacion);
+      if (piezas) publicacion.append(piezas.principal, piezas.detalle);
       const tonoAds = p.ads.etiqueta === "dentro_del_objetivo" ? "positivo"
         : ["gasto_sin_ventas", "por_encima_del_objetivo"].includes(p.ads.etiqueta) ? "negativo" : "neutro";
       const etiqueta = nodo("td"); etiqueta.append(chip(textoEtiquetaAds(p.ads), tonoAds));
@@ -548,9 +673,11 @@ document.addEventListener("DOMContentLoaded", function () {
         + "&direccion=" + encodeURIComponent(porId("comparador-direccion").value);
       const objetivo = objetivoConsultaComparador();
       if (objetivo !== null) url += "&objetivo=" + encodeURIComponent(String(objetivo));
+      if (asOfEstimacion) url += "&as_of=" + encodeURIComponent(asOfEstimacion);
       const datos = await solicitar(url);
       if (version !== versionComparador) return;
       comparadorDatos = datos;
+      if (datos.as_of) asOfEstimacion = datos.as_of;
       renderComparador();
       estado("comparador-estado", (datos.publicaciones || []).length
         + " publicaciones · sin dato al final del orden · muestra limitada fuera del orden.");
@@ -562,6 +689,7 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   async function cargarCatalogo() {
+    const previas = seleccionadas();
     const version = ++versionCatalogo;
     invalidar();
     catalogoDisponible = false;
@@ -574,6 +702,7 @@ document.addEventListener("DOMContentLoaded", function () {
     try {
       const datos = await solicitar("/catalogo?plataforma=" + encodeURIComponent(porId("plataforma").value));
       if (version !== versionCatalogo) return;
+      asOfEstimacion = datos.as_of || null;
       porId("moneda").textContent = datos.moneda;
       actualizarTotal();
       datos.tipos_producto.forEach(tipo => { const opcion = nodo("option"); opcion.value = tipo; porId("tipos").append(opcion); });
@@ -602,10 +731,13 @@ document.addEventListener("DOMContentLoaded", function () {
           margen.append(conClase("strong", tonoMargen(publicacion.margen_neto_pct), monto),
             nodo("span", "margen neto antes de Ads"));
           datos.append(margen, conClase("span", "fabrica-apoyo", muestraMargen(publicacion)), chipsPublicacion(publicacion));
+          const piezas = piezasEstimacion(publicacion.estimacion);
+          if (piezas) datos.append(piezas.principal);
           if (!publicacion.elegible) datos.append(conClase("span", "fabrica-identidad-incompleta",
             "No seleccionable: " + (publicacion.motivos || []).join(" ")));
           label.append(input, fotoPublicacion(publicacion.id, publicacion.asin), datos);
           fila.append(label);
+          if (piezas) fila.append(piezas.detalle);
           // El enlace es hermano del label: abrir Amazon nunca cambia la seleccion.
           if (/^https:\/\/www\.amazon\.com(?:\.mx)?\/dp\/[A-Za-z0-9]{10}$/.test(publicacion.url || "")) {
             const enlace = conClase("a", "fabrica-publicacion-enlace", "Abrir en Amazon ↗");
@@ -619,9 +751,13 @@ document.addEventListener("DOMContentLoaded", function () {
         porId("productos").append(tarjeta);
       });
       catalogoDisponible = true;
+      porId("productos").querySelectorAll('input[type="checkbox"]').forEach(input => {
+        if (previas.has(Number(input.value)) && !input.disabled) input.checked = true;
+      });
       const publicaciones = datos.productos.flatMap(producto => producto.publicaciones || []);
       resumenCatalogo = {totalProductos: datos.productos.length, seleccionables: publicaciones.filter(p => p.elegible).length};
       actualizarResumenCatalogo();
+      renderComparador();
     } catch (error) {
       if (version === versionCatalogo) estado("catalogo-estado", error.message, true);
     } finally { if (version === versionCatalogo) actualizarBotones(); }
@@ -838,12 +974,16 @@ document.addEventListener("DOMContentLoaded", function () {
       formulario.elements[rol + "_budget"].value = "";
       formulario.elements[rol + "_bid"].value = "";
     });
-    cargarCatalogo(); cargarHistorial(); cargarComparador();
+    // Catalogo fija asOfEstimacion; evaluacion reusa el mismo corte (S5).
+    cargarCatalogo().then(() => cargarComparador());
+    cargarHistorial();
   });
   porId("productos").addEventListener("change", () => {
     actualizarResumenCatalogo(); renderComparador();
   });
-  porId("recargar-catalogo").addEventListener("click", cargarCatalogo);
+  porId("recargar-catalogo").addEventListener("click", () => {
+    cargarCatalogo().then(() => cargarComparador());
+  });
   porId("historial-recargar").addEventListener("click", cargarHistorial);
   porId("lote-recargar").addEventListener("click", cargarLote);
   porId("comparador-recargar").addEventListener("click", cargarComparador);
@@ -853,7 +993,9 @@ document.addEventListener("DOMContentLoaded", function () {
   porId("comparador-filtro").addEventListener("change", renderComparador);
   window.addEventListener("pagehide", () => { porId("token").value = ""; });
   actualizarObjetivoManual();
-  cargarCatalogo(); cargarHistorial(); cargarComparador();
+  // Arranque en serie catalogo -> evaluacion para compartir as_of.
+  cargarCatalogo().then(() => cargarComparador());
+  cargarHistorial();
   const lote = new URL(window.location.href).searchParams.get("lote");
   if (lote) { seleccionarLote(lote); cargarLote(); }
 });

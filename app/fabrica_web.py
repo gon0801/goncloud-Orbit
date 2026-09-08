@@ -20,6 +20,7 @@ from app import evaluacion_catalogo as ec
 from app import fabrica_plan as fp
 from app.db import OrbitDbError, connect
 from app.disponibilidad import estado_disponibilidad
+from app.estimacion_proyeccion import adjuntar_estimaciones
 from app.redaction import scrub
 from tools import fabrica_campanas as fc
 
@@ -137,7 +138,7 @@ def _creacion_v2_habilitada(conn) -> bool:
     return fp.version_creacion_desde_settings(settings or {}) == "v2"
 
 
-def catalogo(conn, plataforma: str) -> dict:
+def catalogo(conn, plataforma: str, as_of: dt.datetime | None = None) -> dict:
     conn.row_factory = tuple_row
     productos = []
     for pid, sku, nombre, publicaciones in conn.execute(_SQL_CATALOGO, (plataforma,)).fetchall():
@@ -176,6 +177,15 @@ def catalogo(conn, plataforma: str) -> dict:
                 "publicaciones": publicaciones,
             }
         )
+    corte = as_of if as_of is not None else dt.datetime.now(dt.UTC)
+    if corte.tzinfo is None:
+        raise error(422, "as_of debe incluir zona horaria.")
+    corte = corte.astimezone(dt.UTC)
+    listing_ids = [pub["id"] for prod in productos for pub in prod["publicaciones"]]
+    por_listing = adjuntar_estimaciones(conn, listing_ids, as_of=corte)
+    for prod in productos:
+        for pub in prod["publicaciones"]:
+            pub["estimacion"] = por_listing[pub["id"]]
     tipos = [
         fila[0]
         for fila in conn.execute(_SQL_TIPOS, (plataforma, plataforma, plataforma)).fetchall()
@@ -183,6 +193,7 @@ def catalogo(conn, plataforma: str) -> dict:
     return {
         "plataforma": plataforma,
         "moneda": fp.MONEDA_POR_PLATAFORMA[plataforma],
+        "as_of": corte.isoformat(),
         "productos": productos,
         "tipos_producto": tipos,
     }
@@ -276,6 +287,7 @@ def evaluacion(
     orden: str = "margen_observado",
     direccion: str = "desc",
     objetivo: Decimal | None = None,
+    as_of: dt.datetime | None = None,
 ):
     """Evaluacion completa por listing (B.2 + Ads B.1 + B.3 + objetivo D2).
 
@@ -286,15 +298,22 @@ def evaluacion(
     `objetivo` explicito (el del formulario, grupo AUN sin crear) toma
     precedencia sobre la consulta de grupos: es el grupo que el dueno esta
     preparando (hallazgo cross-review codex 2026-09-07).
+    `as_of` alinea SOLO el corte de estimacion con catalogo. La ventana Ads
+    sigue el reloj UTC vigente (cron D-31..D-1); no se desplaza con as_of.
     """
     if orden not in ec.METRICAS_ORDEN:
         raise error(422, "El criterio de orden no es válido.")
     if direccion not in ("asc", "desc"):
         raise error(422, "La dirección del orden no es válida.")
     conn.row_factory = tuple_row
+    # Reloj Ads: siempre pared UTC. Independiente de as_of (AC10).
     hoy = dt.datetime.now(dt.UTC).date()
     hasta = hoy - dt.timedelta(days=1)
     desde = hasta - dt.timedelta(days=30)
+    corte = as_of if as_of is not None else dt.datetime.now(dt.UTC)
+    if corte.tzinfo is None:
+        raise error(422, "as_of debe incluir zona horaria.")
+    corte = corte.astimezone(dt.UTC)
     # Mismo formato que el NUMERIC(5,2) de campana_grupo: "10" -> "10.00".
     objetivo = objetivo.quantize(Decimal("0.01")) if objetivo is not None else None
 
@@ -363,12 +382,18 @@ def evaluacion(
             )
         )
     ordenadas = ec.ordenar(evaluaciones, orden, descendente=direccion == "desc")
+    publicaciones = [_serializar_evaluacion(e) for e in ordenadas]
+    listing_ids = [p["listing_id"] for p in publicaciones]
+    por_listing = adjuntar_estimaciones(conn, listing_ids, as_of=corte)
+    for p in publicaciones:
+        p["estimacion"] = por_listing[p["listing_id"]]
     return {
         "plataforma": plataforma,
         "ventana_ads": {"desde": desde.isoformat(), "hasta": hasta.isoformat()},
         "orden": orden,
         "direccion": direccion,
-        "publicaciones": [_serializar_evaluacion(e) for e in ordenadas],
+        "as_of": corte.isoformat(),
+        "publicaciones": publicaciones,
     }
 
 

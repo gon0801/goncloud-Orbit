@@ -1,7 +1,8 @@
-"""Repositorio MARGEN ESTIMADO 01 A.4 — persistencia y lectura batch de escenarios.
+"""Repositorio MARGEN ESTIMADO 01 A.4 — persistencia de escenarios.
 
 Carga politica/costo/FX via `app.estimacion_insumos`, construye entrada congelada,
 invoca calculador puro y persiste append-only en `estimacion_escenario`.
+La lectura batch vive en `app.estimacion_reader` (reexportada aqui).
 """
 
 from __future__ import annotations
@@ -9,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -17,6 +18,7 @@ import psycopg
 from psycopg.types.json import Json
 
 from app.estimacion_insumos import FRESHNESS_LIMIT, resolver_costo, resolver_fx
+from app.estimacion_reader import EscenarioLeido, ProcedenciaRefs, leer_escenarios
 from app.estimacion_venta import (
     ESTADOS_DESACTUALIZADA,
     EXCLUSIONES_FIJAS,
@@ -27,6 +29,9 @@ from app.estimacion_venta import (
     calcular_contribucion,
     validar_dinero,
 )
+
+# Callers historicos importan EscenarioLeido / leer_escenarios desde aqui.
+_ = (EscenarioLeido, ProcedenciaRefs, leer_escenarios)
 
 
 @dataclass(frozen=True)
@@ -88,25 +93,6 @@ class ResultadoPersistenciaEscenario:
     id: int
     observed_at: datetime
     reutilizada: bool
-
-
-@dataclass(frozen=True)
-class EscenarioLeido:
-    listing_id: int
-    canal: str
-    valoracion_date: date
-    observed_at: datetime
-    estado: str
-    motivos: tuple[str, ...]
-    contribucion: Decimal | None
-    contribucion_pct: Decimal | None
-    moneda: str | None
-    componentes: list[dict[str, Any]]
-    exclusiones: tuple[str, ...]
-    canonical_input: dict[str, Any]
-    context_fingerprint: str
-    politica_version_id: int | None
-    formula_version: str
 
 
 def resolver_politica_aplicable(
@@ -813,75 +799,3 @@ def sembrar_escenario_negativo_transicion(
         context_fingerprint=contexto["context_fingerprint"],
         source_event_id=_construir_source_event_id(id_canonica),
     )
-
-
-def leer_escenarios(
-    conn: psycopg.Connection,
-    listing_ids: list[int],
-    *,
-    as_of: datetime,
-) -> list[EscenarioLeido]:
-    """Reader batch: latest observed_at <= as_of por listing, sin N+1."""
-    if not listing_ids:
-        return []
-    if as_of.tzinfo is None:
-        raise ValueError("as_of debe incluir zona horaria")
-    as_of_utc = as_of.astimezone(UTC)
-    dia_as_of = as_of_utc.date()
-    filas = conn.execute(
-        "SELECT DISTINCT ON (e.listing_id)"
-        " e.listing_id, e.canal, e.valoracion_date, e.observed_at, e.estado, e.motivos,"
-        " e.contribucion, e.contribucion_pct, e.moneda, e.componentes, e.exclusiones,"
-        " e.canonical_input, e.context_fingerprint, e.politica_version_id, e.formula_version,"
-        " o.fetched_at"
-        " FROM estimacion_escenario e"
-        " LEFT JOIN estimacion_oferta_observation o ON o.id = e.oferta_observation_id"
-        " WHERE e.listing_id = ANY(%s) AND e.observed_at <= %s"
-        " ORDER BY e.listing_id, e.observed_at DESC",
-        (listing_ids, as_of_utc),
-    ).fetchall()
-    resultado: list[EscenarioLeido] = []
-    for f in filas:
-        motivos_raw = f[5] or []
-        exclusiones_raw = f[10] or []
-        motivos = tuple(motivos_raw)
-        estado = f[4]
-        contribucion = f[6]
-        contribucion_pct = f[7]
-        moneda = f[8]
-        componentes = list(f[9] or [])
-        oferta_fetched_at = f[15]
-        motivos_invalidacion: list[str] = []
-        if f[2] != dia_as_of:
-            motivos_invalidacion.append("valoracion_desactualizada")
-        if oferta_fetched_at is not None:
-            if oferta_fetched_at > as_of_utc:
-                motivos_invalidacion.append("oferta_futura")
-            elif as_of_utc - oferta_fetched_at > FRESHNESS_LIMIT:
-                motivos_invalidacion.append("oferta_desactualizada")
-        if motivos_invalidacion and estado == "disponible":
-            estado = "desactualizada"
-            motivos = tuple(dict.fromkeys((*motivos, *motivos_invalidacion)))
-            contribucion = None
-            contribucion_pct = None
-            moneda = None
-        resultado.append(
-            EscenarioLeido(
-                listing_id=f[0],
-                canal=f[1],
-                valoracion_date=f[2],
-                observed_at=f[3],
-                estado=estado,
-                motivos=motivos,
-                contribucion=contribucion,
-                contribucion_pct=contribucion_pct,
-                moneda=moneda,
-                componentes=componentes,
-                exclusiones=tuple(exclusiones_raw),
-                canonical_input=dict(f[11] or {}),
-                context_fingerprint=f[12],
-                politica_version_id=f[13],
-                formula_version=f[14],
-            )
-        )
-    return resultado
