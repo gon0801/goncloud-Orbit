@@ -27,10 +27,12 @@ de los `FinalFee` coincide con el total. No conserva SKU, ASIN, precio ni import
 La primera sonda MX FBA falló con precio mutable de Orbit. Al repetirla con tres
 ofertas `AMAZON_NA` y precio fresco de bridge, las tres respondieron éxito; el
 artefacto sanitizado es `fba-mx-fresh-probe-2026-09-08.json`. FBA MX queda
-soportado sólo cuando la oferta/precio/canal cumplen ese contrato; un fallo
-individual queda `incompleta`. La API puede cotizar por SKU y precio, pero
-Amazon advierte que los costos reales pueden variar; no sustituye una liquidación
-ni autoriza llamarla «margen neto».
+soportado sólo cuando la oferta/precio/canal cumplen el contrato sellado. Un
+fallo individual queda `incompleta`. La sonda adicional de frescura
+`product-fees-freshness-probe-2026-09-08.json` confirma `Success`, total y
+`TimeOfFeesEstimation` posterior a la oferta fresca. La API puede cotizar por
+SKU y precio, pero Amazon advierte que los costos reales pueden variar; no
+sustituye una liquidación ni autoriza llamarla «margen neto».
 
 Referencias: [SKU](https://developer-docs.amazon.com/sp-api/reference/getmyfeesestimateforsku),
 [batch](https://developer-docs.amazon.com/sp-api/reference/getmyfeesestimates),
@@ -59,7 +61,7 @@ nunca como tasa prospectiva. Finances prueba el acceso técnico, pero no expone
 en esta sonda el RFC de la cuenta ni sustituye el certificado/política fiscal
 vigente que determina la retención siguiente.
 
-### Política MX cerrada
+### Política MX sellada para FBA
 
 El responsable declara persona física. El contraste de 1,000 órdenes que sí
 tienen `item_price` muestra 953 con IVA retenido dentro de `0.001` puntos de
@@ -71,9 +73,12 @@ desde 2026-01-01. Los cargos mensuales de ISR de abril a agosto quedan entre
 documentada y no se convierte en tasa.
 
 Se sella `amazon_mx_pf_rfc_valid_2026_01`: IVA 8% e ISR 2.5% sobre
-`item_price` sin impuesto, con vigencia desde 2026-01-01. La política se activa
-sólo mientras Seller Central mantenga RFC válido; cualquier cambio la deja sin
-política hasta versionarla de nuevo. Detalle sanitizado en
+`item_price` sin impuesto, con vigencia desde 2026-01-01. El responsable
+confirmó RFC persona física válido en Seller Central y que todas las
+publicaciones MX vigentes gravan IVA 16%. Con la conciliación histórica de
+bridge, `price` se normaliza como precio con IVA sólo para ese universo FBA MX.
+Un cambio fiscal o una publicación con otra tasa desactiva la política hasta
+versionarla de nuevo. Detalle sanitizado en
 `retencion-mx-2026-09-08.json`.
 
 No se sella política US: sus 522 ventas y 886 retenciones históricas no tienen
@@ -116,15 +121,13 @@ contrato contable siguen sin identificar. No se aplicó una tasa por suposición
 
 | Mercado/canal | Precio+fecha | Costo | Fee API | Logística | Retención | Estado |
 |---|---|---|---|---|---|---|
-| MX FBM | Bridge sí, cuando hay precio | sí | referencia sí | guía sólo al vender | política PF sellada | incompleto antes de venta |
-| MX FBA | Bridge sí, cuando hay precio fresco | sí | fees+FBAFees sí | incluida si el desglose lo acredita | política PF sellada | soportado |
+| MX FBM | Bridge sí, cuando hay precio | sí | referencia sí | guía sólo al vender | política MX sellada | incompleto antes de venta |
+| MX FBA | Bridge sí, cuando hay precio fresco | sí | fees+FBAFees sí | incluida si el desglose lo acredita | política FBA MX sellada | soportado |
 | US FBM | Bridge sí, salvo filas viejas/sin precio | sí, convertir MXN→USD | fees sí | guía sólo al vender | sin política | incompleto |
 | US FBA | Bridge sí, salvo filas viejas/sin precio | sí, convertir MXN→USD | fees+FBAFees sí | incluida sólo si el desglose lo acredita | sin política | incompleto |
 
 **Dictamen:** la cotización oficial es viable y el total no se suma de nuevo con
-sus detalles. El costo directo se cubre con el COGS Odoo confirmado. El cálculo
-completo se libera sólo para FBA MX bajo la política sellada; FBM y US conservan
-componentes conocidos y el motivo de no calcular, nunca un subtotal llamado
-contribución completa.
+sus detalles. El costo directo se cubre con el COGS Odoo confirmado. El cálculo completo se libera sólo para FBA MX bajo esa política; FBM y US conservan componentes conocidos y el motivo de no
+calcular, nunca un subtotal llamado contribución completa.
 
 Consulta de respaldo: `select-ledger.sql`. No contiene importes ni IDs.

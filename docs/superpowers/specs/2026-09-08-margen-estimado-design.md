@@ -234,16 +234,15 @@ sesion. Reputacion, bridge y accounting permanecen fuera del alcance.
 ## S8. Resultado del bloque 0 (2026-09-08 UTC)
 
 0.1 y 0.2 confirmaron precio/canal fechado en bridge, costo y FX reutilizables,
-y Product Fees accesible para FBM MX/US y FBA US. No completaron el contrato:
-FBA MX queda como universo inicial: oferta/precio fresco de bridge, COGS completo,
-fees oficiales y política `persona_fisica` versionada. El precio expira a las seis
-horas y no hay kits: el dueño confirma unidad uno por listing con `product_id` y
+y Product Fees accesible para FBM MX/US y FBA MX/US. No completaron el contrato:
+bridge no conserva base fiscal de `price` ni RFC por API. El dueño confirmó RFC PF válido y 16% IVA para las publicaciones MX vigentes; FBA MX queda liberado bajo esa política. El precio
+expira a las seis horas y no hay kits: el dueño confirma unidad uno por listing con `product_id` y
 que el COGS incluye importación, transporte de entrada y embalaje. FBM queda sin
 principal antes de vender porque la guía depende del pedido; US queda sin política
 prospectiva compatible. Acta y evidencia:
 `docs/evidencia/margen-estimado-01/0.1/`, `0.2/`, `0.3/acta.md`.
 
-Por ello A.1 queda liberada únicamente para FBA MX. El estado correcto de FBM/US
+Por ello A.1 queda liberada únicamente para FBA MX. FBM y US siguen fuera del alcance. El estado correcto de FBM/US
 ante esos huecos sigue siendo `incompleta` o `desactualizada`, con principal
 `null`; no se degrada a precio menos costo ni se convierte la tarifa histórica en
 default.

@@ -1,0 +1,13 @@
+{
+  "marketplace": "amazon_mx",
+  "fulfillment": "FBA",
+  "source_offer": "bridge.amazon_listing_prices",
+  "offer_fresh_within_six_hours": true,
+  "http_status": 200,
+  "result_status": "Success",
+  "has_time_of_fees_estimation": true,
+  "has_total_fees_estimate": true,
+  "quote_not_before_offer": true,
+  "identifiers_and_amounts_redacted": true,
+  "conclusion": "The API returns a quote timestamp and total for a fresh FBA MX offer. A quote is accepted only when the persisted request context exactly equals the immutable offer snapshot; numeric values are compared as Decimal, never string formatting."
+}

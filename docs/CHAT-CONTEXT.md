@@ -4,14 +4,12 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
-**2026-09-08 UTC — MARGEN ESTIMADO 01, bloque 0 investigado; A/B no liberados.**
+**2026-09-08 UTC — MARGEN ESTIMADO 01, bloque 0 cerrado para FBA MX; A/B no implementados.**
 0.1/0.2 verificaron precio/canal fechado en bridge, costos/FX y Product Fees
 para FBM MX/US y FBA MX/US; Finances confirma que el cobro de envío y el costo
-MFN son conceptos distintos. FBA MX usa precio fresco bridge, expira a las seis
-horas y tiene política PF 8% IVA + 2.5% ISR desde 2026-01-01. No hay kits
-(unidad uno por listing) y el COGS cubre importación, transporte de entrada y
-embalaje. 0.3 cierra FBA MX; FBM y US quedan `incompleta` antes de vender sin
-impedir campañas.
+MFN son conceptos distintos. El precio bridge expira a las seis horas; no hay
+kits y el COGS cubre importación, transporte de entrada y embalaje. Una revisión
+detectó que bridge no guarda la base fiscal de `price` ni RFC por API. El dueño confirmó RFC PF válido y 16% IVA para el universo MX; junto con la conciliación, FBA MX queda normalizado. Cadencia diaria COGS/FX verificada. FBM y US no impiden campañas, pero no reciben una cifra inventada.
 No se implementó cálculo ni se tocaron campañas, targets o Reputación.
 
 **2026-09-08 UTC — MARGEN ESTIMADO 01 formalizado, sin implementacion.**

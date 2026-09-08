@@ -1,73 +1,94 @@
-# MARGEN ESTIMADO 01 · 0.3 — Acta de cierre del bloque 0
+# MARGEN ESTIMADO 01 · 0.3 — Acta de estado del bloque 0
 
-Fecha: 2026-09-08 UTC. Revisión de las evidencias 0.1 y 0.2. Este acta no
-autoriza implementación A/B, cambios a Ads, precios o campañas.
+Fecha: 2026-09-08 UTC. Estado: **cerrado para FBA MX; FBM y US excluidos**.
+Este acta conserva las comprobaciones y el contrato económico de 0.1 y 0.2.
+No autoriza implementación A/B, cambios a Ads, precios o campañas.
 
-## Lo que ya está comprobado
+## Hechos comprobados
 
-1. Existe una identidad verificable de oferta en bridge, con marketplace, SKU,
-   ASIN, canal, precio y `fetched_at`. Orbit todavía no conserva las tres últimas
-   dimensiones; `listing_price` es mutable y puede estar desfasado.
-2. Todos los listings Orbit de MX y US tienen costo vigente MXN, declarado neto
-   de IVA. El responsable del negocio confirma que no hay kits: cada listing
-   actual tiene `product_id` y vende una unidad del producto costeado. La tasa
-   USD→MXN vigente en la consulta tenía cuatro días de edad; Orbit ya sabe
-   resolverla con fecha y sin inventar una tasa.
-3. La Product Fees API se autentica con el loader existente y devuelve total y
-   detalle para FBM de MX/US y FBA MX/US cuando usa oferta, canal y precio fresco
-   de bridge. El total y sus detalles son una misma representación del cargo y
-   se deben reconciliar, nunca sumar dos veces.
-4. La liquidación histórica contiene fees, reembolsos y retenciones. Para MX,
-   el responsable declara persona física y la política Amazon vigente más las
-   retenciones observadas acreditan IVA 8% e ISR 2.5% sobre `item_price` sin
-   impuesto, con ISR liquidado mensualmente. `isr_withheld` sigue sin
-   `order_id`, por lo que el escenario guarda la retención estimada y concilia
-   contra el certificado mensual; no prorratea el bulto histórico.
-5. Finances Amazon es accesible en lectura y separa cobro de envío de cargos MFN
-   variables. Que Amazon cobre el envío al cliente no convierte esos cargos en
-   cero ni provee una tarifa prospectiva por oferta.
-6. El bridge sincroniza precios cuatro veces al día. Precio vigente es el que
-   tenga `fetched_at` dentro de seis horas; una observación más vieja es
-   `desactualizada` y no puede producir contribución.
-7. El responsable del negocio confirma que el COGS Odoo incluye importación,
-   transporte de entrada y embalaje; no hay kits. Esos componentes no se suman
-   por segunda vez.
+1. Bridge conserva una oferta verificable con marketplace, SKU, ASIN, canal,
+   precio y `fetched_at`; Orbit no conserva canal ni historial de precio.
+   El timer de bridge corre cada seis horas. Una oferta tiene que expirar al
+   cumplir seis horas; repetir una fila vieja no la rejuvenece.
+2. El productor bridge solicita `GET_MERCHANT_LISTINGS_ALL_DATA` y copia el
+   literal TSV `price`. Ese reporte almacenado no lleva marca de base fiscal,
+   IVA, promociones, ni envío. En 28 de 30 comparaciones recientes contra
+   ventas MX, `bridge.price = item_price + item_tax`; las otras dos difieren.
+   Es evidencia histórica, no una clasificación fiscal de cada oferta futura.
+3. Todos los listings actuales tienen `sku_cost` MXN neto de IVA y vigente en
+   la fecha consultada. El responsable confirmó que incluye importación,
+   transporte de entrada y embalaje, y que no hay kits: una oferta vende una
+   unidad del producto costeado.
+4. `fx_resolve` devuelve USD→MXN exacto o anterior de hasta siete días, con
+   fecha y procedencia. Ese máximo está documentado contra la cadencia real;
+   fuera de él devuelve ausencia, nunca una constante.
+5. Product Fees responde para MX/US y FBA/FBM cuando recibe la misma oferta,
+   canal, moneda y precio. El total concilia con sus `FinalFee`; es un único
+   cargo, nunca se suma de nuevo con su desglose. La API advierte que el cargo
+   real puede variar.
+6. Finances separa cobro de envío del cliente y cargos MFN variables. Por ello
+   no existe tarifa prospectiva FBM por oferta. El responsable confirmó en
+   Seller Central que el RFC de persona física sigue válido y que todas las
+   publicaciones MX vigentes usan IVA general de 16%.
+7. Una sonda FBA MX con oferta fresca devolvió `Success`, total y
+   `TimeOfFeesEstimation`. En producción, la coincidencia de precio se compara
+   como `Decimal`, no como texto con distinto número de decimales.
 
-## Alcance y exclusiones selladas
+## Contrato ya cerrado
 
-| Mercado/canal | Política sellada | Resultado antes de una venta |
+| Insumo | Clave y frescura | Resultado si falta o vence |
 |---|---|---|
-| MX FBA | `amazon_mx_pf_rfc_valid_2026_01`: COGS completo, fee oficial, IVA 8% e ISR 2.5%; precio bridge fresco ≤6h | Contribución estimada completa, en MXN |
-| MX FBM | La guía depende de pedido/destino y Amazon la registra al vender | Principal `null`, motivo `logistica_fbm_pendiente`; continúa seleccionable y el margen observado usa el costo real después de vender |
-| US FBA/FBM | Ingesta histórica sin `item_price` normalizado ni política fiscal prospectiva US | Principal `null`, motivo `politica_retencion_us_ausente`; continúa seleccionable |
+| Oferta | `(marketplace, seller_sku, asin, canal, precio, fetched_at)` desde bridge; `now_utc - fetched_at <= 6h` | `oferta_desactualizada` o `oferta_ausente` |
+| FX | `fx_resolve(fecha_escenario, moneda, moneda_destino)`; exacta o anterior hasta 7 días | `fx_ausente` |
+| Costo | `sku_cost` positivo, moneda y unidad compatibles, vigente en la fecha de la oferta, de `ingest_run.ok`; corrida diaria Orbit posterior a 08:15 UTC | `costo_ausente`, `costo_no_vigente` o `costo_desactualizado` |
+| Fee | Cotización nueva ligada a **ese** snapshot de oferta: misma clave completa, `Success`, `TimeOfFeesEstimation >= fetched_at` y total reconciliado; no se reutiliza al cambiar precio/canal/SKU/marketplace | `fee_ausente` o `fee_incompatible` |
+| FBM | No hay tarifa prospectiva verificable | `logistica_fbm_pendiente` |
 
-La exclusión de FBM/US es de la **estimación completa previa a venta**, no de
-catálogo ni campañas. Un componente ausente conserva el principal `null`; no se
-rellena con promedio histórico ni con cero.
+La futura A.3 debe solicitar Product Fees después de capturar cada oferta
+fresca, guardar ambas referencias append-only y usar la cotización sólo durante
+la vigencia de esa oferta. No hay TTL financiero independiente inventado.
+Costos, FX y ledger se refrescan diariamente a las 08:15 UTC desde un mismo
+snapshot de accounting, después de COGS horario y FX de las 08:00. Para una
+nueva estimación, un costo sólo está vigente y fresco si procede de la corrida
+`ok` de ese día UTC; antes de ella queda `costo_desactualizado`.
 
-## Contrato que queda sellado para la continuación
+## Normalización MX FBA sellada
 
-- Nombre v1: **Contribución estimada por venta · antes de Ads**, no margen neto.
-- Grano: oferta con contexto `(marketplace, seller_sku, ASIN, canal, precio,
-  fecha fuente)`, no producto ni listing sin contexto.
-- Cálculo sólo si todos los componentes obligatorios del alcance acordado están
-  completos y son compatibles: `I - C - F - L - R`. Dinero se conserva en su
-  moneda de origen; conversión usa `fx_resolve` y guarda tasa/fecha/procedencia.
-- Política MX: aplica sólo con RFC de persona física válido; `R = 8% IVA +
-  2.5% ISR` sobre `item_price` sin impuesto, `effective_from=2026-01-01` y
-  conciliación mensual de ISR. Cambio del RFC o de su validez desactiva la
-  política hasta que se publique otra versión.
-- `margen_neto_pct` observado, muestra limitada, orden inicial, selección,
-  objetivo manual, huella, bids, budgets, motor y recuperación permanecen
-  intactos. El estimado no genera ACoS de equilibrio ni target.
-- GET de catálogo sólo lee Orbit. Credenciales y Product Fees viven en una
-  ingesta separada, con respuestas sanitizadas y sin mutar bridge/accounting.
-- Un componente ausente no equivale a cero. Cero/negativo comprobado sí se
-  conserva. Reembolsos, almacenamiento y overhead quedan enumerados como
-  exclusiones, no ocultos.
+El dueño confirmó dos condiciones de cuenta: RFC persona física válido en Seller
+Central y 16% de IVA para todas las publicaciones MX vigentes. Junto con la
+conciliación histórica de bridge, se fija para este universo:
 
-## Decisión de liberación
+- `P` es `bridge.price`, precio de publicación **con IVA**.
+- `I = P / 1.16`, ingreso de venta sin IVA.
+- `C` es el COGS Odoo neto de IVA; no se vuelve a restar importación, entrada ni
+  embalaje.
+- `F` es `TotalFeesEstimate` de Product Fees para el snapshot exacto. Incluye
+  una sola vez sus detalles (`ReferralFee` y `FBAFees`); no se agrega IVA de
+  comisión ni fulfillment fuera del total devuelto por Amazon.
+- `L = 0` sólo porque FBA ya está dentro de `F`; no es una tarifa FBM cero.
+- `R = 0.025 * I` por ISR, que el contrato de Orbit trata como costo. La
+  retención de IVA `0.08 * I` queda registrada para conciliación fiscal y no se
+  resta de contribución: no es ingreso ni costo adicional sobre el IVA ya
+  excluido de `I`.
 
-**Bloque 0: cerrado.** A.1 queda liberada sólo para el universo FBA MX sellado.
-La exclusión explícita de FBM/US satisface los faltantes sin crear cifras falsas;
-ampliar ese universo exige una enmienda de fuente/política antes de tocar A.3.
+Ejemplo de control (MX FBA, valores de prueba): `P=116`, `I=100`, `C=40`,
+`F=15`, `L=0`, `R=2.50` → contribución `42.50 MXN` (42.50%). La retención IVA
+para conciliación es `8.00 MXN`, fuera de esa resta. El fixture ilustra la base;
+una cotización real se acepta sólo con las referencias y controles de la tabla.
+
+## Exclusiones selladas
+
+FBM y US siguen sin los componentes prospectivos necesarios. No se les asigna
+cero ni se les niega la selección para campañas.
+
+## Alcance actual
+
+La v1 seguirá llamándose **Contribución estimada por venta · antes de Ads** y
+usará `I - C - F - L - R` sólo si cada componente obligatorio está presente,
+normalizado a una base documentada y vigente. El resultado principal será
+`null` con motivo si cualquiera falta. No modifica `margen_neto_pct`, muestras,
+orden, selección, objetivo manual, huella, bids, budgets, motor ni recuperación.
+
+**Decisión de liberación: FBA MX queda liberado; bloque 0 sigue abierto para FBM y US.**
+A.1 puede implementar únicamente la política FBA MX sellada. Ampliar el universo
+requiere fuente y política nuevas, sin convertir ausencias en cero.
