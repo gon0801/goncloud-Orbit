@@ -11,11 +11,11 @@ import json
 import os
 import socket
 import sqlite3
-from contextlib import contextmanager
-from datetime import UTC, datetime, timedelta
+from contextlib import contextmanager, nullcontext
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from urllib.parse import unquote
 
 import httpx
@@ -39,6 +39,7 @@ from app.estimacion_fees import (
 )
 from app.estimacion_ingest import (
     SKIP_OFERTA_EXCEPCION,
+    _persistir_escenario_item,
     ejecutar_ingesta,
 )
 from app.estimacion_ingest import (
@@ -1187,6 +1188,29 @@ def test_cli_ingest_estimacion_despacha(monkeypatch):
     codigo = cli.main(["ingest", "estimacion", "--sqlite", "/tmp/bridge.db"])
     assert codigo == 0
     assert llamadas == [["--sqlite", "/tmp/bridge.db"]]
+
+
+def test_escenario_conserva_fecha_economica_si_fee_cruza_medianoche():
+    fee_observed_at = datetime(2026, 9, 8, 23, 59, 59, 999999, tzinfo=UTC)
+    conn = Mock()
+    conn.transaction.return_value = nullcontext()
+    persistido = Mock(reutilizada=False)
+
+    with (
+        patch("app.estimacion_ingest.sembrar_escenario_desde_refs") as sembrar,
+        patch("app.estimacion_ingest.persistir_escenario", return_value=persistido),
+    ):
+        resultado = _persistir_escenario_item(
+            conn,
+            listing_id=1,
+            oferta_id=2,
+            fee_id=3,
+            fee_observed_at=fee_observed_at,
+        )
+
+    assert resultado == (True, False)
+    assert sembrar.call_args.kwargs["valoracion_date"] == date(2026, 9, 8)
+    assert sembrar.call_args.kwargs["observed_at"] == datetime(2026, 9, 9, tzinfo=UTC)
 
 
 def test_ingest_main_sin_dsn(tmp_path, monkeypatch, capsys):

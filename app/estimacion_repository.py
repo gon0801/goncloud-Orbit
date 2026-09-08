@@ -696,15 +696,18 @@ def persistir_escenario(
 def _ultimo_contexto_fba_mx(
     conn: psycopg.Connection,
     listing_id: int,
+    *,
+    as_of: datetime,
 ) -> dict[str, Any] | None:
-    """Ultimo escenario amazon_mx/fba del listing; None si nunca hubo contexto soportado."""
+    """Ultimo escenario amazon_mx/fba observado hasta as_of; None si no hubo contexto."""
     fila = conn.execute(
         "SELECT canal, context_fingerprint, platform, seller_sku, asin, source_event_id"
         " FROM estimacion_escenario"
         " WHERE listing_id = %s AND platform = 'amazon_mx' AND canal = 'fba'"
         " AND estado = 'disponible'"
+        " AND observed_at <= %s"
         " ORDER BY observed_at DESC LIMIT 1",
-        (listing_id,),
+        (listing_id, as_of),
     ).fetchone()
     if fila is None:
         return None
@@ -741,7 +744,7 @@ def sembrar_escenario_negativo_transicion(
     if motivo not in motivos_admitidos:
         raise ValueError(f"motivo no soportado para transicion negativa: {motivo}")
 
-    contexto = _ultimo_contexto_fba_mx(conn, listing_id)
+    contexto = _ultimo_contexto_fba_mx(conn, listing_id, as_of=observed_at)
     if contexto is None:
         return None
 
