@@ -468,6 +468,16 @@ def _parametros(args) -> dict[str, fp.ParametrosRol]:
             rol=rol,
             budget=_decimal(getattr(args, f"budget_{s}"), f"--budget-{s}"),
             bid=_decimal(getattr(args, f"bid_{s}"), f"--bid-{s}"),
+            fuente_bid=getattr(args, f"fuente_bid_{s}", "manual"),
+            recomendaciones=tuple(
+                fp.Recomendacion(
+                    fp.Expresion(fila["tipo"], fila.get("valor")),
+                    _decimal(fila["minimo"], "minimo Amazon"),
+                    _decimal(fila["sugerido"], "sugerido Amazon"),
+                    _decimal(fila["maximo"], "maximo Amazon"),
+                )
+                for fila in getattr(args, f"recomendaciones_{s}", ())
+            ),
         )
         for rol, s in sufijo.items()
     }
@@ -541,7 +551,8 @@ def _arma_plan(args, conn_read: psycopg.Connection) -> fp.PlanGrupo | fp.PlanGru
     )
 
 
-def _arma_plan_v2(args, conn_read, tipo: str, moneda: str, parametros: dict) -> fp.PlanGrupoV2:
+def _datos_plan_v2(args, conn_read, tipo: str):
+    """Datos observados del plan v2; independientes de budgets y bids."""
     ids = _ids_listings(args.listing_ids)
     publicaciones = _publicaciones_v2(conn_read, args.plataforma, ids)
     origen = getattr(args, "origen_objetivo", None)
@@ -580,6 +591,12 @@ def _arma_plan_v2(args, conn_read, tipo: str, moneda: str, parametros: dict) -> 
     semillas = fp.semillas_desde_terminos(
         terminos, kws, negs, objetivo.acos_pct, terminos_exact=terminos_exact
     )
+    existentes = tuple(_existentes(conn_read, args.plataforma, listings))
+    return publicaciones, objetivo, semillas, existentes
+
+
+def _arma_plan_v2(args, conn_read, tipo: str, moneda: str, parametros: dict) -> fp.PlanGrupoV2:
+    publicaciones, objetivo, semillas, existentes = _datos_plan_v2(args, conn_read, tipo)
     plan = fp.PlanGrupoV2(
         args.plataforma,
         tipo,
@@ -591,7 +608,7 @@ def _arma_plan_v2(args, conn_read, tipo: str, moneda: str, parametros: dict) -> 
         parametros,
         objetivo,
         semillas,
-        tuple(_existentes(conn_read, args.plataforma, listings)),
+        existentes,
     )
     fp._valida_plan_v2(plan)
     return plan
@@ -613,6 +630,7 @@ def _imprime_dry_run(plan: fp.PlanGrupo | fp.PlanGrupoV2, huella: str) -> None:
             print(
                 f"{rol}: budget={parametro.budget} bid={parametro.bid} "
                 f"target={plan.objetivo.acos_pct} origen={plan.objetivo.origen} "
+                f"fuente_bid={parametro.fuente_bid} "
                 f"procedencia={plan.objetivo.procedencia} semillas={semillas}",
                 flush=True,
             )

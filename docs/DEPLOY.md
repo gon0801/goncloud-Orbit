@@ -152,7 +152,11 @@ stat -c '%a %U:%G %n' /mnt/data/appdata/orbit/secrets \
 
 En **Campañas → Crear campañas** (`/campanas/nuevas`) se elige Amazon MX o US,
 los productos elegibles y los presupuestos y pujas de las cinco campanas del grupo.
-**Revisar plan** consulta los datos de Orbit sin escribir ni llamar a Amazon.
+**Pujas sugeridas por Amazon** hace un POST de lectura al endpoint v4 de
+recomendaciones y rellena solo los roles con respuesta completa. Si Amazon
+omite un target, ese rol queda para captura manual; no hay fallback inventado.
+**Revisar plan** consulta los datos de Orbit sin escribir en Amazon y firma la
+fuente y las ternas de recomendacion junto con el resto del plan.
 La revision muestra el target calculado, su procedencia, semillas y presupuesto
 diario total en la moneda de la plataforma.
 

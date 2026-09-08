@@ -14,9 +14,10 @@ retiro el campaign management v2 con 404 y responde 415 sin el vendor type;
 corrida real 2026-08-22). PUT/PATCH/DELETE y cualquier otro metodo se
 rechazan siempre. Los POST de lista son lecturas sin efectos secundarios:
 idempotentes en la politica de retries (como un GET); el POST de
-`/reporting/reports` SIGUE fail-closed no-idempotente. La superficie
-publica expone solo `get`, `list_objects`, `create_report`, `get_report` y
-`download` -- nunca un metodo generico `request`/`post`.
+`/reporting/reports` SIGUE fail-closed no-idempotente. Las recomendaciones
+de puja usan un POST de lectura separado y fijado a una ruta literal. La
+superficie publica solo expone operaciones concretas, nunca un metodo
+generico `request`/`post`.
 
 Redaccion: las excepciones propias llevan SOLO metodo + path (sin query) +
 status; nunca headers ni body (los errores de LWA pueden ecoar el
@@ -49,6 +50,8 @@ TOKEN_EXPIRY_MARGIN_SECONDS = 60.0
 MAX_RETRIES = 4
 MAX_REDIRECTS = 5
 REPORT_REQUEST_PATH = "/reporting/reports"
+BID_RECOMMENDATION_PATH = "/sp/targets/bid/recommendations"
+BID_RECOMMENDATION_VENDOR = "application/vnd.spthemebasedbidrecommendation.v4+json"
 # POSTs de LECTURA (list v3): allowlist por igualdad literal EXACTA, igual que
 # REPORT_REQUEST_PATH. El valor es el vendor Content-Type/Accept que la API
 # exige (415 sin el; corrida real 2026-08-22). Amazon retiro v2 sp (404), asi
@@ -161,8 +164,7 @@ class AdsClient:
         self._token_expires_at: float | None = None  # timestamp en la escala de `clock`
 
     # ------------------------------------------------------------------
-    # Superficie publica (EXACTA: get, list_objects, create_report,
-    # get_report, download)
+    # Superficie publica exacta: cada POST tiene un proposito acotado.
     # ------------------------------------------------------------------
 
     def get(
@@ -193,6 +195,14 @@ class AdsClient:
                 f"list_objects solo acepta los list v3 de LIST_REQUEST_TYPES: {_clean_path(path)}"
             )
         return self._request("POST", path, json=body, profile_id=profile_id)
+
+    def recommend_bids(self, body: dict, *, profile_id: str | int) -> httpx.Response:
+        """Consulta sugerencias de puja para un ad group nuevo.
+
+        Es una lectura que Amazon implementa como POST. El path y vendor v4
+        se verificaron en vivo para MX el 2026-09-08.
+        """
+        return self._request("POST", BID_RECOMMENDATION_PATH, json=body, profile_id=profile_id)
 
     def create_report(self, body: dict, *, profile_id: str | int) -> httpx.Response:
         """Crea un reporte. Unico POST con efectos secundarios que el guard permite."""
@@ -249,7 +259,12 @@ class AdsClient:
         if method not in ("GET", "POST"):
             raise MutationNotAllowedError(f"metodo no permitido: {method} {_clean_path(path)}")
         _validate_relative_path(path)
-        if method == "POST" and path != REPORT_REQUEST_PATH and path not in LIST_REQUEST_TYPES:
+        if (
+            method == "POST"
+            and path != REPORT_REQUEST_PATH
+            and path not in LIST_REQUEST_TYPES
+            and path != BID_RECOMMENDATION_PATH
+        ):
             raise MutationNotAllowedError(
                 f"POST no permitido (solo {REPORT_REQUEST_PATH} y los list v3): {_clean_path(path)}"
             )
@@ -260,7 +275,9 @@ class AdsClient:
         # lista v3 SON lecturas sin efectos secundarios: idempotentes igual
         # que un GET (corrida real 2026-08-22: v2 sp retirado, estas listas
         # son el unico camino de estructura).
-        idempotent = method == "GET" or path in LIST_REQUEST_TYPES
+        idempotent = (
+            method == "GET" or path in LIST_REQUEST_TYPES or path == BID_RECOMMENDATION_PATH
+        )
         token = self._ensure_token()
         headers = self._build_headers(token, profile_id, path=path, method=method)
         resp = self._send_with_retries(
@@ -305,9 +322,13 @@ class AdsClient:
         # Vive aqui — y no en el caller — para que la re-emision tras un 401
         # tambien los lleve: ambas emisiones pasan por este metodo. httpx no
         # pisa un Content-Type explicito al serializar `json=`.
-        if method == "POST" and path in LIST_REQUEST_TYPES:
-            headers["Content-Type"] = LIST_REQUEST_TYPES[path]
-            headers["Accept"] = LIST_REQUEST_TYPES[path]
+        if method == "POST":
+            vendor = LIST_REQUEST_TYPES.get(path)
+            if path == BID_RECOMMENDATION_PATH:
+                vendor = BID_RECOMMENDATION_VENDOR
+            if vendor is not None:
+                headers["Content-Type"] = vendor
+                headers["Accept"] = vendor
         return headers
 
     # ------------------------------------------------------------------

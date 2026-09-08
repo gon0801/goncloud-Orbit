@@ -6,11 +6,13 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+from dataclasses import replace
 from decimal import Decimal
 
 import pytest
 
 from app import fabrica_plan as fp
+from app.fabrica_bids import Expresion, Recomendacion
 from app.optimizer import goals as g
 from app.optimizer import hygiene
 
@@ -253,6 +255,154 @@ def test_huella_cambia_con_bids_productos_o_semillas():
     assert fp.huella_plan(base) == hashlib.sha256(canonico.encode("utf-8")).hexdigest()
 
 
+def test_bids_amazon_van_por_objetivo_y_quedan_en_plan_firmado():
+    recomendaciones = (
+        Recomendacion(
+            Expresion("KEYWORD_EXACT_MATCH", "kw exact"),
+            Decimal("4.00"),
+            Decimal("5.00"),
+            Decimal("6.00"),
+        ),
+    )
+    parametros = _parametros()
+    parametros["category_exact"] = fp.ParametrosRol(
+        "category_exact",
+        Decimal("120"),
+        Decimal("5.00"),
+        fuente_bid="amazon_v4",
+        recomendaciones=recomendaciones,
+    )
+    plan = _plan(
+        parametros=parametros,
+        semillas=fp.Semillas(("kw phrase",), (), (), ("kw exact",)),
+    )
+
+    pasos = fp.pasos_del_rol(plan, "category_exact")
+    keyword = next(paso for paso in pasos if paso.recurso == "keyword")
+    assert keyword.payload["bid"] == 5.0
+    serializado = fp.plan_como_json(plan)
+    assert serializado["parametros"]["category_exact"]["fuente_bid"] == "amazon_v4"
+    assert serializado["parametros"]["category_exact"]["recomendaciones"] == [
+        {
+            "tipo": "KEYWORD_EXACT_MATCH",
+            "valor": "kw exact",
+            "minimo": "4.00",
+            "sugerido": "5.00",
+            "maximo": "6.00",
+        }
+    ]
+    assert fp.plan_desde_json(serializado).parametros["category_exact"].recomendaciones == (
+        recomendaciones[0],
+    )
+
+
+def test_plan_amazon_aborta_si_falta_bid_de_una_keyword():
+    parametros = _parametros()
+    parametros["category_exact"] = fp.ParametrosRol(
+        "category_exact",
+        Decimal("120"),
+        Decimal("5.00"),
+        fuente_bid="amazon_v4",
+        recomendaciones=(),
+    )
+    plan = _plan(
+        parametros=parametros,
+        semillas=fp.Semillas((), (), (), ("sin sugerencia",)),
+    )
+    with pytest.raises(fp.PlanInvalido, match="sin recomendaciones"):
+        fp.pasos_del_rol(plan, "category_exact")
+
+
+def test_plan_v1_rechaza_recomendaciones_de_semillas_anteriores_antes_de_pasos():
+    parametros = _parametros()
+    parametros["product_targeting"] = fp.ParametrosRol(
+        "product_targeting",
+        Decimal("120"),
+        Decimal("5.00"),
+        fuente_bid="amazon_v4",
+        recomendaciones=(
+            Recomendacion(
+                Expresion("PAT_ASIN", "B0BBBBBBBB"),
+                Decimal("4.00"),
+                Decimal("5.00"),
+                Decimal("6.00"),
+            ),
+        ),
+    )
+    plan = _plan(
+        parametros=parametros,
+        semillas=fp.Semillas((), ("B0BBBBBBBB", "B0CCCCCCCC"), (), ()),
+    )
+
+    with pytest.raises(fp.PlanInvalido, match="semillas vigentes"):
+        fp.pasos_del_rol(plan, "category_exact")
+
+
+def test_expresiones_bid_cubren_keywords_productos_y_cuatro_temas_auto():
+    semillas = fp.Semillas(("kw",), ("B0BBBBBBBB",), (), ("exacta",))
+    assert fp.expresiones_bid(semillas, "category_exact") == (
+        Expresion("KEYWORD_EXACT_MATCH", "exacta"),
+    )
+    assert fp.expresiones_bid(semillas, "category_phrase") == (
+        Expresion("KEYWORD_PHRASE_MATCH", "kw"),
+    )
+    assert fp.expresiones_bid(semillas, "category_broad") == (
+        Expresion("KEYWORD_BROAD_MATCH", "kw"),
+    )
+    assert fp.expresiones_bid(semillas, "product_targeting") == (
+        Expresion("PAT_ASIN", "B0BBBBBBBB"),
+    )
+    assert fp.expresiones_bid(semillas, "auto_discovery") == tuple(
+        Expresion(tipo) for tipo in ("CLOSE_MATCH", "LOOSE_MATCH", "SUBSTITUTES", "COMPLEMENTS")
+    )
+
+
+def test_bid_amazon_de_rol_debe_coincidir_con_mediana_firmada():
+    parametros = _parametros()
+    parametros["category_exact"] = fp.ParametrosRol(
+        "category_exact",
+        Decimal("120"),
+        Decimal("1.00"),
+        fuente_bid="amazon_v4",
+        recomendaciones=(
+            Recomendacion(
+                Expresion("KEYWORD_EXACT_MATCH", "arras"),
+                Decimal("8.00"),
+                Decimal("9.00"),
+                Decimal("10.00"),
+            ),
+        ),
+    )
+    with pytest.raises(fp.PlanInvalido, match="mediana"):
+        fp.valida_parametros(parametros, "MXN")
+
+
+def test_budget_amazon_cubre_cada_bid_de_objetivo():
+    parametros = _parametros()
+    parametros["category_exact"] = fp.ParametrosRol(
+        "category_exact",
+        Decimal("6.00"),
+        Decimal("5.00"),
+        fuente_bid="amazon_v4",
+        recomendaciones=(
+            Recomendacion(
+                Expresion("KEYWORD_EXACT_MATCH", "bajo"),
+                Decimal("1"),
+                Decimal("2"),
+                Decimal("3"),
+            ),
+            Recomendacion(
+                Expresion("KEYWORD_EXACT_MATCH", "alto"),
+                Decimal("7"),
+                Decimal("8"),
+                Decimal("9"),
+            ),
+        ),
+    )
+    with pytest.raises(fp.PlanInvalido, match="objetivo"):
+        fp.valida_parametros(parametros, "MXN")
+
+
 def test_plan_como_json_lleva_dinero_como_string():
     j = fp.plan_como_json(_plan())
     assert j["target_acos_pct"] == "19.10"
@@ -286,6 +436,33 @@ def test_plan_v2_acepta_margen_nulo_y_varios_listings_del_mismo_producto():
     assert serializado["publicaciones"][0]["margen_neto_pct"] is None
     assert [p["product_id"] for p in serializado["publicaciones"]] == [1, 1]
     assert [p.listing_id for p in fp.plan_v2_desde_json(serializado).publicaciones] == [11, 22]
+
+
+def test_plan_v2_rechaza_recomendaciones_de_semillas_anteriores():
+    plan = _plan_v2()
+    parametros = dict(plan.parametros)
+    parametros["product_targeting"] = fp.ParametrosRol(
+        "product_targeting",
+        Decimal("120"),
+        Decimal("5.00"),
+        fuente_bid="amazon_v4",
+        recomendaciones=(
+            Recomendacion(
+                Expresion("PAT_ASIN", "B0AAAAAAAA"),
+                Decimal("4.00"),
+                Decimal("5.00"),
+                Decimal("6.00"),
+            ),
+        ),
+    )
+    obsoleto = replace(
+        plan,
+        parametros=parametros,
+        semillas=fp.Semillas((), ("B0AAAAAAAA", "B0BBBBBBBB"), (), ()),
+    )
+
+    with pytest.raises(fp.PlanInvalido, match="semillas vigentes"):
+        fp.plan_v2_como_json(obsoleto)
 
 
 def test_plan_v2_rechaza_asin_ausente_al_deserializar():

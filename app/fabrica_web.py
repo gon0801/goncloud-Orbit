@@ -17,7 +17,10 @@ from psycopg.rows import tuple_row
 
 from app import economia_observada
 from app import evaluacion_catalogo as ec
+from app import fabrica_bids as br
 from app import fabrica_plan as fp
+from app.ads.client import AdsApiError, AdsClient
+from app.ads.config import AdsConfigError, AdsCredentials
 from app.db import OrbitDbError, connect
 from app.disponibilidad import estado_disponibilidad
 from app.estimacion_proyeccion import adjuntar_estimaciones
@@ -80,6 +83,8 @@ def argumentos(solicitud: dict) -> SimpleNamespace:
     for rol, sufijo in SUFIJOS.items():
         for monto in ("budget", "bid"):
             datos[f"{monto}_{sufijo}"] = solicitud["parametros"][rol][monto]
+        datos[f"fuente_bid_{sufijo}"] = solicitud["parametros"][rol].get("fuente_bid", "manual")
+        datos[f"recomendaciones_{sufijo}"] = solicitud["parametros"][rol].get("recomendaciones", [])
     return SimpleNamespace(**datos)
 
 
@@ -109,6 +114,28 @@ def _plan_como_json(plan: fp.PlanGrupo | fp.PlanGrupoV2) -> dict:
     return fp.plan_como_json(plan)
 
 
+def _bids_como_json(plan: fp.PlanGrupo | fp.PlanGrupoV2) -> dict[str, list[dict]]:
+    """Detalle auditable de cada objetivo Amazon y del bid que se enviaria."""
+    return {
+        rol: [
+            {
+                "tipo": recomendacion.expresion.tipo,
+                "valor": recomendacion.expresion.valor,
+                "minimo": str(recomendacion.minimo),
+                "sugerido": str(recomendacion.sugerido),
+                "maximo": str(recomendacion.maximo),
+                "bid_efectivo": str(
+                    plan.parametros[rol].bid
+                    if rol == "auto_discovery"
+                    else br.bid_objetivo(recomendacion, plan.moneda)
+                ),
+            }
+            for recomendacion in plan.parametros[rol].recomendaciones
+        ]
+        for rol in fp.ROLES_ORDEN_CREACION
+    }
+
+
 def previsualizar(conn, solicitud: dict) -> dict:
     plan = planificar(conn, solicitud)
     huella = _huella_plan(plan)
@@ -116,12 +143,14 @@ def previsualizar(conn, solicitud: dict) -> dict:
         "huella": huella,
         "lote": f"web-{huella}",
         "plan": _plan_como_json(plan),
+        "bids": _bids_como_json(plan),
         "campanas": [
             {
                 "rol": rol,
                 "nombre": fp.nombre_campana(plan.tipo_producto, plan.nombre_base, rol, plan.fecha),
                 "budget": str(plan.parametros[rol].budget),
                 "bid": str(plan.parametros[rol].bid),
+                "fuente_bid": plan.parametros[rol].fuente_bid,
             }
             for rol in fp.ROLES_ORDEN_CREACION
         ],
@@ -129,6 +158,79 @@ def previsualizar(conn, solicitud: dict) -> dict:
             sum((p.budget for p in plan.parametros.values()), Decimal("0"))
         ),
         "existentes": list(plan.existentes),
+    }
+
+
+def sugerir_bids(conn, solicitud: dict) -> dict:
+    """Obtiene bids iniciales de Amazon para el conjunto que se prepara."""
+    args = SimpleNamespace(
+        plataforma=solicitud["plataforma"],
+        listing_ids=",".join(str(i) for i in sorted(solicitud["listing_ids"])),
+        origen_objetivo=solicitud["objetivo"]["origen"],
+        target_acos=solicitud["objetivo"].get("acos_pct"),
+    )
+    try:
+        tipo = fp.valida_tipo_producto(solicitud["tipo_producto"])
+        publicaciones, _, semillas, _ = fc._datos_plan_v2(args, conn, tipo)
+        conn.commit()
+        credenciales = AdsCredentials.from_secrets_dir()
+        cliente = AdsClient(credenciales)
+        perfiles = fc._perfiles(cliente)
+        profile_id = perfiles.get(solicitud["plataforma"])
+        if profile_id is None:
+            raise br.RecomendacionIncompleta("sin perfil Amazon aceptado para la plataforma")
+        expresiones = {rol: fp.expresiones_bid(semillas, rol) for rol in fp.ROLES_ORDEN_CREACION}
+        resultados = br.consultar_roles(
+            cliente,
+            profile_id=profile_id,
+            moneda=fp.MONEDA_POR_PLATAFORMA[solicitud["plataforma"]],
+            asins=tuple(publicacion.asin for publicacion in publicaciones),
+            expresiones_por_rol=expresiones,
+        )
+    except fc.Abortar as exc:
+        raise error(422, scrub(str(exc))) from None
+    except fp.PlanInvalido as exc:
+        raise error(422, scrub(str(exc))) from None
+    except (br.RecomendacionIncompleta, AdsApiError, AdsConfigError, ValueError):
+        raise error(
+            503,
+            "Amazon no entregó sugerencias completas. No se asignó ninguna puja.",
+        ) from None
+    return {
+        "fuente": "amazon_v4",
+        "roles": {
+            rol: {
+                "disponible": resultado.bid is not None,
+                "bid": str(resultado.bid) if resultado.bid is not None else None,
+                "recomendaciones": [
+                    {
+                        "tipo": recomendacion.expresion.tipo,
+                        "valor": recomendacion.expresion.valor,
+                        "minimo": str(recomendacion.minimo),
+                        "sugerido": str(recomendacion.sugerido),
+                        "maximo": str(recomendacion.maximo),
+                        "bid_efectivo": (
+                            None
+                            if resultado.bid is None
+                            else str(resultado.bid)
+                            if rol == "auto_discovery"
+                            else str(
+                                br.bid_objetivo(
+                                    recomendacion,
+                                    fp.MONEDA_POR_PLATAFORMA[solicitud["plataforma"]],
+                                )
+                            )
+                        ),
+                    }
+                    for recomendacion in resultado.recomendaciones
+                ],
+                "faltantes": [
+                    {"tipo": expresion.tipo, "valor": expresion.valor}
+                    for expresion in resultado.faltantes
+                ],
+            }
+            for rol, resultado in resultados.items()
+        },
     }
 
 
@@ -438,6 +540,13 @@ def detalle_lote(conn, lote: str) -> dict | None:
     if fila is None:
         return None
     datos = _fila_lote(fila)
+    if datos["plan"]:
+        plan = (
+            fp.plan_v2_desde_json(datos["plan"])
+            if datos["plan"].get("schema_version") == 2
+            else fp.plan_desde_json(datos["plan"])
+        )
+        datos["bids"] = _bids_como_json(plan)
     datos["pasos"] = [
         dict(
             zip(

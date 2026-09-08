@@ -81,6 +81,23 @@ def test_selector_v2_exige_objetivo_y_envia_listings_no_productos():
     assert "productos:" not in codigo
 
 
+def test_pantalla_carga_bids_sugeridos_y_firma_su_fuente():
+    respuesta = TestClient(app).get("/campanas/nuevas")
+    assert respuesta.status_code == 200
+    assert 'id="fabrica-bids-amazon"' in respuesta.text
+    codigo = (RAIZ / "static/js/fabrica.js").read_text()
+    assert 'solicitar("/bids-sugeridos"' in codigo
+    assert 'fuente_bid: "amazon_v4"' in codigo
+    assert "sugerencias[rol].disponible" in codigo
+    assert "recomendaciones: sugerencias[rol].recomendaciones.map" in codigo
+    assert "invalidar(true);\n    const solicitud = solicitudActual();" in codigo
+    assert "if (version !== revision)" in codigo
+    assert 'nombre.endsWith("_bid")' in codigo
+    assert "sugerencias[rol] = {...sugerencias[rol], disponible: false}" in codigo
+    for titulo in ("Objetivo", "Mínimo", "Sugerido", "Máximo"):
+        assert titulo in codigo
+
+
 def test_dinero_vacio_y_token_sin_nombre_para_no_enviarlo_por_formulario():
     respuesta = TestClient(app).get("/campanas/nuevas")
     assert respuesta.status_code == 200

@@ -483,6 +483,31 @@ ARGS_BASE = [
 ]
 
 
+def test_parametros_conservan_fuente_y_ternas_amazon_en_plan():
+    args = fc._parser().parse_args(ARGS_BASE)
+    args.fuente_bid_exact = "amazon_v4"
+    args.recomendaciones_exact = [
+        {
+            "tipo": "KEYWORD_EXACT_MATCH",
+            "valor": "arras",
+            "minimo": "8.58",
+            "sugerido": "9.80",
+            "maximo": "11.37",
+        }
+    ]
+
+    parametro = fc._parametros(args)["category_exact"]
+    assert parametro.fuente_bid == "amazon_v4"
+    assert parametro.recomendaciones == (
+        fp.Recomendacion(
+            fp.Expresion("KEYWORD_EXACT_MATCH", "arras"),
+            Decimal("8.58"),
+            Decimal("9.80"),
+            Decimal("11.37"),
+        ),
+    )
+
+
 def _frontera_lectura(monkeypatch, conn_read):
     monkeypatch.setenv("ORBIT_DSN_READ", "dsn-read")
     monkeypatch.setattr(fc, "connect", lambda dsn: {"dsn-read": conn_read}[dsn])
@@ -581,6 +606,7 @@ def test_cli_v2_dry_run_muestra_semillas_y_procedencia_reales(monkeypatch, capsy
     assert fc.main() == 0
     salida = capsys.readouterr().out
     assert "category_phrase: budget=120 bid=5.00 target=25.00 origen=manual_lanzamiento" in salida
+    assert "fuente_bid=manual" in salida
     assert "category_phrase: budget=120" in salida and "semillas=1" in salida
     assert "category_broad: budget=120" in salida and "semillas=1" in salida
     assert "auto_discovery: budget=150" in salida and "semillas=1" in salida

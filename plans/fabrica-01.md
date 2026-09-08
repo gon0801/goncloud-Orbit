@@ -5090,6 +5090,13 @@ git commit -m "test(architecture): allowlist de imports de tools/fabrica_campana
 
 ### Task 11: despliegue, dry-run en producción y sonda (lead)
 
+> cc:WIP [2026-09-08: antes de la mutacion, el dueño rechazo el bid manual de
+> 1 MXN. Se verifico en Amazon MX el POST read-only
+> `/sp/targets/bid/recommendations` v4: keywords, automatico y `PAT_ASIN`.
+> La integracion UI/plan queda en PR propio; Amazon puede omitir temas auto o
+> targets de producto no aplicables, que se muestran como rol pendiente de
+> captura manual sin inventar fallback. La sonda real sigue sin autorizar.]
+
 **Files:**
 - Modify: `plans/fabrica-01.md` ("Decisiones y evidencia"), `docs/CHAT-CONTEXT.md`
 - Create: `out/fabrica-sonda-<fecha>.log` (evidencia; `out/` no se commitea si está en `.gitignore`: se cita el nombre y se pega el extracto en el plan)
@@ -5108,7 +5115,13 @@ ssh goncloud 'docker exec -i orbit-postgres-1 psql -U orbit -d orbit -c "SELECT 
 
 Pegar la salida en "Decisiones y evidencia". Si NINGÚN producto trae `margen_neto_pct` no nulo, F1 se detiene aquí (residual 6 del spec) y se reporta al dueño: no se siembra target inventado.
 
-- [ ] **Step 2: Dry-run real (cero HTTP) con el producto de la sonda**
+- [ ] **Step 2: Dry-run real con el producto de la sonda**
+
+Primero usar **Pujas sugeridas por Amazon** en la pantalla. Esa consulta hace
+POST read-only y firma en el plan la terna minimo/sugerido/maximo de cada
+objetivo. Amazon puede no recomendar todos los targets; el rol incompleto queda
+manual y visible, nunca recibe 1 MXN ni otro fallback. El dry-run posterior no
+hace HTTP y debe mostrar los bids ya confirmados.
 
 ```bash
 ssh goncloud 'docker exec -i orbit-app-1 python - --plataforma amazon_mx \
@@ -5118,7 +5131,10 @@ ssh goncloud 'docker exec -i orbit-app-1 python - --plataforma amazon_mx \
   < tools/fabrica_campanas.py | tee out/fabrica-dryrun-$(date +%Y%m%d).log
 ```
 
-El dueño elige etiqueta, producto, budgets y bids viendo esta salida (decisión 5: cero defaults) y da el literal. `--modo shadow` para la sonda: el motor decide sin escribir; el flip a `live` es por `/goals` después.
+El dueño elige etiqueta, producto y budgets, revisa los bids sugeridos/manuales
+viendo esta salida (decisión 5: cero defaults) y da el literal. `--modo shadow`
+para la sonda: el motor decide sin escribir; el flip a `live` es por `/goals`
+después.
 
 - [ ] **Step 3: Sonda = mutación real del primer grupo**
 
