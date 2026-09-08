@@ -103,12 +103,17 @@
     {
       "name": "reputacion-01",
       "path": "plans/reputacion-01.md",
-      "description": "REPUTACION 01 - Fase 0 cerrada 2026-09-08 (E/0.1-E/0.5, acta aprobada): MeLi verificado, rating Amazon via junglee semanal, texto Amazon y Keepa fuera de v1. Fase A liberada A.1-A.2-A.4-A.5-A.6; A.3 bloqueada."
+      "description": "REPUTACION 01 - CERRADA 2026-09-08 UTC (fase 0 + fase A: A.1/A.2/A.4/A.5/A.6/A.R/A.7; A.3 cerrada como ampliacion E/A.3). MeLi + alertas en vivo por cron; Amazon pendiente de credito Apify (REP-FOLLOW-2)."
     },
     {
       "name": "margen-estimado-01",
       "path": "plans/margen-estimado-01.md",
       "description": "MARGEN ESTIMADO 01 - plan formal: contribucion estimada por venta antes de Ads, separada del margen observado. 12 tareas en bloques 0/A/B; fuentes y fiscalidad por verificar antes de implementar. No cambia el plan activo de Reputacion."
+    },
+    {
+      "name": "reputacion-02",
+      "path": "plans/reputacion-02.md",
+      "description": "REPUTACION 02 - PENDIENTE OFICIAL v2 (stub, sin brief): borrador IA con checkpoint humano, Account Health, Buy Box, fakes. No iniciar sin brief del dueno."
     }
   ],
   "active": "reputacion-01"
