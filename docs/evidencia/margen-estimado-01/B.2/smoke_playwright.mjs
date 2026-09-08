@@ -222,22 +222,24 @@ async function main() {
       );
     }
 
-    // Tema dia
+    // Tema dia — recorte del catalogo (evidencia visual sin PNG >500KB)
     await page.evaluate(() => {
       document.documentElement.dataset.tema = "dia";
     });
-    await page.screenshot({
+    await page.locator("#fabrica-productos").screenshot({
       path: path.join(OUT, "dia-390.jpg"),
-      fullPage: false, type: "jpeg", quality: 70,
+      type: "jpeg",
+      quality: 70,
     });
 
     // Tema noche
     await page.evaluate(() => {
       document.documentElement.dataset.tema = "noche";
     });
-    await page.screenshot({
+    await page.locator("#fabrica-productos").screenshot({
       path: path.join(OUT, "noche-390.jpg"),
-      fullPage: false, type: "jpeg", quality: 70,
+      type: "jpeg",
+      quality: 70,
     });
 
     // Teclado / foco en el desglose
@@ -269,9 +271,10 @@ async function main() {
         throw new Error("falta en desglose: " + needle);
       }
     }
-    await page.screenshot({
+    await page.locator("#fabrica-productos").screenshot({
       path: path.join(OUT, "detalle-abierto-noche-390.jpg"),
-      fullPage: false, type: "jpeg", quality: 70,
+      type: "jpeg",
+      quality: 70,
     });
 
     // Contraste basico: color de titulo vs fondo
