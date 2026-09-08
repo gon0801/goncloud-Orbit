@@ -57,7 +57,7 @@
         <p class="nav-etiqueta">Catalogo</p>
         {# REPUTACION 01 A.6 (acta 0.5 §6): Reputacion deja "pronto" y el
            chip Reviews se retira (pestana dentro de /reputacion). #}
-        <a href="/reputacion" {% if pantalla == 'reputacion' %}aria-current="page"{% endif %}>Reputacion</a>
+        <a href="/reputacion" {% if pantalla == 'reputacion' %}aria-current="page"{% endif %}>Reputacion<span id="reputacion-contador" class="contador" hidden></span></a>
         {% for nombre in ['Repricing'] %}
         <span class="nav-proximo">{{ nombre }} <span class="chip-proximo">pronto</span></span>
         {% endfor %}

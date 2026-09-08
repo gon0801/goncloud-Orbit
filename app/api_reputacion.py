@@ -2,9 +2,14 @@
 
 `GET /api/reputacion/resumen`: por listing (rating, count,
 tendencia, estado de fuente incl. Sin-verificar Amazon-texto),
-cuenta MeLi, preguntas pendientes, alertas abiertas y reviews
-recientes. Solo lectura (ConexionLectura); `ui.py` reusa
-`carga_resumen` con la misma conexion, jamas reimplementa queries.
+cuenta MeLi, preguntas pendientes (con asked_at/observed_at para la
+antiguedad), alertas abiertas y reviews recientes, mas los derivados
+para los KPIs (`kpi_rating_meli`, `kpi_reviews_meli`,
+`alertas_por_severidad` con GROUP BY sobre la tabla completa, no
+sobre la lista topada). `GET /api/reputacion/contador`: solo el
+total de alertas abiertas para el sidebar. Solo lectura
+(ConexionLectura); `ui.py` reusa `carga_resumen` con la misma
+conexion, jamas reimplementa queries.
 
 Seguridad display: la API devuelve JSON crudo (strings intactos);
 el escape es del template (autoescape Jinja, pantalla sin JS).
@@ -134,12 +139,13 @@ def carga_resumen(conn: Connection, hoy: dt.date | None = None) -> dict:
     # y el total se deriva del mismo conjunto (no monotonically crece).
     _ULTIMA_PREGUNTA = (
         "SELECT DISTINCT ON (external_id, question_external_id)"
-        " external_id, question_external_id, texto, estado"
+        " external_id, question_external_id, texto, estado, asked_at, observed_at"
         " FROM meli_question ORDER BY external_id, question_external_id,"
         " observed_at DESC"
     )
     pendientes = conn.execute(
-        "SELECT external_id, question_external_id, texto FROM (" + _ULTIMA_PREGUNTA + ") s"
+        "SELECT external_id, question_external_id, texto, asked_at, observed_at"
+        " FROM (" + _ULTIMA_PREGUNTA + ") s"
         " WHERE estado = 'UNANSWERED'"
         " ORDER BY external_id, question_external_id LIMIT %s",
         (_TOPE_PENDIENTES,),
@@ -167,11 +173,28 @@ def carga_resumen(conn: Connection, hoy: dt.date | None = None) -> dict:
         " WHERE publicada ORDER BY published_at DESC NULLS LAST LIMIT %s",
         (_TOPE_REVIEWS,),
     ).fetchall()
+    ratings_meli = [
+        li["rating"] for li in listings if li["platform"] == "meli" and li["rating"] is not None
+    ]
+    # Desglose sobre la tabla completa, no sobre la lista topada a 50.
+    por_severidad = {"critica": 0, "aviso": 0, "info": 0}
+    for sev, n in conn.execute(
+        "SELECT severidad, count(*) FROM reputation_alert WHERE NOT resolved GROUP BY severidad"
+    ).fetchall():
+        if sev in por_severidad:
+            por_severidad[sev] = int(n)
     return {
         "listings": listings,
         "cuenta_meli": cuenta,
         "preguntas_pendientes": [
-            {"external_id": e, "question_external_id": q, "texto": t} for e, q, t in pendientes
+            {
+                "external_id": e,
+                "question_external_id": q,
+                "texto": t,
+                "asked_at": a.isoformat() if a else None,
+                "observed_at": o.isoformat() if o else None,
+            }
+            for e, q, t, a, o in pendientes
         ],
         "total_pendientes": total_pend,
         "alertas_abiertas": [
@@ -186,6 +209,18 @@ def carga_resumen(conn: Connection, hoy: dt.date | None = None) -> dict:
             for t, s, p, e, m, c in alertas
         ],
         "total_alertas": total_alertas,
+        "kpi_rating_meli": {
+            "promedio": round(sum(ratings_meli) / len(ratings_meli), 1) if ratings_meli else None,
+            "n": len(ratings_meli),
+        },
+        "kpi_reviews_meli": {
+            "total": sum(
+                li["review_count"]
+                for li in listings
+                if li["platform"] == "meli" and li["review_count"] is not None
+            )
+        },
+        "alertas_por_severidad": por_severidad,
         "reviews_recientes": [
             {
                 "external_id": e,
@@ -205,3 +240,11 @@ def carga_resumen(conn: Connection, hoy: dt.date | None = None) -> dict:
 def resumen(conn: ConexionLectura) -> dict:
     """Resumen de reputacion para /reputacion (acta 0.5 §6)."""
     return carga_resumen(conn)
+
+
+@router.get("/contador")
+def contador(conn: ConexionLectura) -> dict:
+    """Alertas abiertas para el contador del sidebar (un COUNT liviano,
+    no el resumen completo)."""
+    total = conn.execute("SELECT count(*) FROM reputation_alert WHERE NOT resolved").fetchone()[0]
+    return {"total_alertas": int(total)}

@@ -283,3 +283,225 @@ def test_digest_texto_plano_fija_contrato():
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+# ---------------------------------------------------------------------------
+# Rediseno /reputacion (handoff Orbit UI 2026-09-08): 4 KPIs, alertas
+# abiertas primero, listings con estrellas y chips, filtros GET, contador
+# de alertas en el sidebar. Mismos datos de carga_resumen, sin quitar.
+# ---------------------------------------------------------------------------
+
+
+@_skip_db
+def test_api_resumen_agrega_kpis_y_severidades():
+    with db_reputacion("orbit_repui2") as (conn, _dsn):
+        conn.execute(
+            "INSERT INTO reputation_snapshot"
+            " (platform, external_id, alcance, metric_date, rating, review_count, fetched_at)"
+            " VALUES ('meli', 'MLM1', 'listing', %s, 4.5, 400, %s),"
+            " ('meli', 'MLM2', 'listing', %s, 4.7, 800, %s),"
+            " ('amazon_mx', 'B0X', 'listing', %s, 4.9, 10, %s)",
+            (HOY, FETCH, HOY, FETCH, HOY, FETCH),
+        )
+        _alerta(conn, "caida_rating", "critica", "meli", "MLM1", "bajo a 4.3")
+        _alerta(conn, "disputas", "aviso", "meli", None, "3 abiertas")
+        _alerta(conn, "ruido", "info", "meli", None, "menor")
+        app.dependency_overrides[_conexion_lectura] = lambda: conn
+        try:
+            cuerpo = TestClient(app).get("/api/reputacion/resumen").json()
+        finally:
+            app.dependency_overrides.pop(_conexion_lectura, None)
+        assert cuerpo["kpi_rating_meli"] == {"promedio": 4.6, "n": 2}
+        assert cuerpo["kpi_reviews_meli"] == {"total": 1200}
+        assert cuerpo["alertas_por_severidad"] == {"critica": 1, "aviso": 1, "info": 1}
+        assert cuerpo["preguntas_pendientes"] == [] or all(
+            {"asked_at", "observed_at"} <= set(p) for p in cuerpo["preguntas_pendientes"]
+        )
+
+
+@_skip_db
+def test_api_contador_alertas_abiertas():
+    with db_reputacion("orbit_repui2") as (conn, _dsn):
+        _alerta(conn, "caida_rating", "critica", "meli", "MLM1", "bajo a 4.3")
+        _alerta(conn, "disputas", "aviso", "meli", None, "3 abiertas")
+        _alerta(conn, "vieja", "aviso", "meli", None, "resuelta", resolved=True)
+        app.dependency_overrides[_conexion_lectura] = lambda: conn
+        try:
+            resp = TestClient(app).get("/api/reputacion/contador")
+        finally:
+            app.dependency_overrides.pop(_conexion_lectura, None)
+        assert resp.status_code == 200
+        assert resp.json() == {"total_alertas": 2}
+
+
+@_skip_db
+def test_pagina_rediseno_kpis_alertas_primero_y_chips():
+    with db_reputacion("orbit_repui2") as (conn, _dsn):
+        _snap(conn, "meli", "MLM1", HOY, 4.5)
+        _pregunta(conn, "MLM1", "Q1", "UNANSWERED")
+        _alerta(conn, "caida_rating", "critica", "meli", "MLM1", "bajo a 4.3")
+        conn.execute(
+            "INSERT INTO seller_reputation_snapshot"
+            " (platform, metric_date, level_id, disputas_total, disputas_abiertas, fetched_at)"
+            " VALUES ('meli', %s, '5_green', 41, 3, %s)",
+            (HOY, FETCH),
+        )
+        html = _get_pagina(conn).text
+        for kpi in (
+            "Rating MeLi",
+            "Reviews verificadas",
+            "Preguntas pendientes",
+            "Alertas abiertas",
+        ):
+            assert kpi in html
+        assert html.index("Alertas abiertas") < html.index("Listings")
+        assert "★" in html and "Sin verificar" in html
+        assert "Disputas totales" in html and ">41<" in html
+        assert "No hay reviews de Amazon en esta versi" in html
+        assert 'id="reputacion-contador"' in html
+        assert "Responder en MeLi</span>" in html
+
+
+@_skip_db
+def test_pagina_filtros_listings_get():
+    with db_reputacion("orbit_repui2") as (conn, _dsn):
+        _snap(conn, "meli", "MLM1", HOY, 4.5)
+        _snap(conn, "amazon_mx", "B0X", HOY, 4.9)
+        app.dependency_overrides[_conexion_lectura] = lambda: conn
+        try:
+            cliente = TestClient(app)
+            solo_meli = cliente.get("/reputacion?plataforma=meli").text
+            assert "MLM1" in solo_meli and "B0X" not in solo_meli
+            por_q = cliente.get("/reputacion?q=B0X").text
+            assert "B0X" in por_q and "MLM1" not in por_q
+            assert cliente.get("/reputacion?tendencia=baja").status_code == 200
+            assert cliente.get("/reputacion?plataforma=noexiste").status_code == 422
+        finally:
+            app.dependency_overrides.pop(_conexion_lectura, None)
+
+
+@_skip_db
+def test_pagina_pregunta_muestra_antiguedad():
+    with db_reputacion("orbit_repui2") as (conn, _dsn):
+        conn.execute(
+            "INSERT INTO meli_question"
+            " (external_id, question_external_id, estado, texto, asked_at, fetched_at)"
+            " VALUES ('MLM1', 'Q7', 'UNANSWERED', 'texto?',"
+            " now() - interval '3 hours 50 minutes', now())"
+        )
+        assert "hace 3 h" in _get_pagina(conn).text
+
+
+def test_fecha_corta():
+    from app import ui
+
+    assert ui.fecha_corta("2026-09-06T04:10:00", True) == "6 sep 04:10"
+    assert ui.fecha_corta("2026-09-06") == "6 sep"
+    assert ui.fecha_corta(dt.date(2026, 9, 6)) == "6 sep"
+    assert ui.fecha_corta(None) == "—"
+
+
+def test_hace():
+    from app import ui
+
+    ahora = dt.datetime(2026, 9, 8, 12, 0, tzinfo=dt.UTC)
+    assert ui.hace("2026-09-08T08:00:00+00:00", ahora) == "hace 4 h"
+    assert ui.hace("2026-09-08T11:20:00+00:00", ahora) == "hace 40 min"
+    assert ui.hace("2026-09-07T11:00:00+00:00", ahora) == "ayer"
+    assert ui.hace("2026-09-05T12:00:00+00:00", ahora) == "hace 3 d"
+    assert ui.hace(None, ahora) == "—"
+    assert ui.hace("2026-09-09T12:00:00+00:00", ahora) == "—"
+
+
+def _resumen_fabricado() -> dict:
+    return {
+        "listings": [
+            {
+                "platform": "meli",
+                "external_id": "MLM1",
+                "rating": 4.3,
+                "review_count": 412,
+                "tendencia": "baja",
+                "estado_fuente": "ok",
+                "texto": "verificado",
+                "url": None,
+                "metric_date": "2026-09-06",
+            },
+        ],
+        "cuenta_meli": {
+            "metric_date": "2026-09-06",
+            "level_id": "5_green",
+            "power_scalar": None,
+            "power_seller": "platinum",
+            "disputas_total": 41,
+            "disputas_abiertas": 3,
+        },
+        "preguntas_pendientes": [
+            {
+                "external_id": "MLM1",
+                "question_external_id": "Q1",
+                "texto": "texto?",
+                "asked_at": "2026-09-08T08:00:00+00:00",
+                "observed_at": "2026-09-08T08:00:00+00:00",
+            }
+        ],
+        "total_pendientes": 18,
+        "alertas_abiertas": [
+            {
+                "tipo": "caida_rating",
+                "severidad": "critica",
+                "platform": "meli",
+                "external_id": "MLM1",
+                "mensaje": "bajo a 4.3",
+                "created_at": "2026-09-06T04:10:00",
+            }
+        ],
+        "total_alertas": 2,
+        "reviews_recientes": [
+            {
+                "external_id": "MLM1",
+                "review_external_id": "RV1",
+                "rating": 2,
+                "titulo": "titulo",
+                "texto": None,
+                "published_at": "2026-09-06T10:00:00",
+            }
+        ],
+        "amazon_texto": "sin-verificar",
+        "kpi_rating_meli": {"promedio": 4.3, "n": 1},
+        "kpi_reviews_meli": {"total": 412},
+        "alertas_por_severidad": {"critica": 1, "aviso": 1, "info": 0},
+    }
+
+
+def _render_reputacion(resumen: dict) -> str:
+    from app import ui
+
+    ahora = dt.datetime(2026, 9, 8, 12, 0, tzinfo=dt.UTC)
+    return ui.templates.env.get_template("reputacion.html").render(
+        pantalla="reputacion",
+        resumen=resumen,
+        ahora=ahora,
+        filtros={"q": None, "plataforma": None, "tendencia": None},
+    )
+
+
+def test_plantilla_reputacion_render_sin_db():
+    """Humo sin Postgres: KPIs, alertas primero, estrellas, chips y copias."""
+    import re
+
+    html = _render_reputacion(_resumen_fabricado())
+    for kpi in ("Rating MeLi", "Reviews verificadas", "Preguntas pendientes", "Alertas abiertas"):
+        assert kpi in html
+    assert "4.3" in html and "1 crítica · 1 aviso" in html
+    assert html.index("Alertas abiertas") < html.index("Listings")
+    assert 'aria-label="4.3 de 5"' in html
+    assert '<span class="chip alerta">baja</span>' in html
+    assert '<span class="chip aviso">Sin verificar</span>' not in html  # este listing es verificado
+    assert '<span class="chip ok">Verificado</span>' in html
+    assert "— sin URL" in html and "— sin texto" in html
+    assert "hace 4 h" in html and "Responder en MeLi</span>" in html
+    assert "No hay reviews de Amazon en esta versi" in html
+    assert 'href="http' not in html
+    inlines = [s for s in re.findall(r"<script[^>]*>", html) if "src=" not in s]
+    assert inlines == []

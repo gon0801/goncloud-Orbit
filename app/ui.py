@@ -27,6 +27,7 @@ DETERMINISMO: las paginas delegan en los endpoints (que ya usan `_hoy_utc`).
 
 from __future__ import annotations
 
+import datetime as dt
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 from pathlib import Path
@@ -92,6 +93,64 @@ def ts_ui(valor) -> str:
 
 
 templates.env.filters["ts_ui"] = ts_ui
+
+_MESES_CORTO = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
+
+
+def _parse_fecha(valor):
+    """ISO (fecha u hora, con o sin zona) o date/datetime a datetime UTC ingenuo."""
+    if valor is None:
+        return None
+    if isinstance(valor, dt.datetime):
+        momento = valor
+    elif isinstance(valor, dt.date):
+        momento = dt.datetime(valor.year, valor.month, valor.day)
+    else:
+        try:
+            momento = dt.datetime.fromisoformat(str(valor))
+        except ValueError:
+            return None
+    if momento.tzinfo is not None:
+        momento = momento.astimezone(dt.UTC).replace(tzinfo=None)
+    return momento
+
+
+def fecha_corta(valor, con_hora: bool = False) -> str:
+    """6 sep / 6 sep 04:10. None o inparseable = dato visible, no excepcion."""
+    momento = _parse_fecha(valor)
+    if momento is None:
+        return "—" if valor is None else str(valor)
+    base = f"{momento.day} {_MESES_CORTO[momento.month - 1]}"
+    if con_hora:
+        base += f" {momento.hour:02d}:{momento.minute:02d}"
+    return base
+
+
+def hace(valor, ahora=None) -> str:
+    """Antiguedad corta: ahorita / hace N min / hace N h / ayer / hace N d."""
+    momento = _parse_fecha(valor)
+    if momento is None:
+        return "—"
+    ref = _parse_fecha(ahora)
+    if ref is None:
+        ref = dt.datetime.now(dt.UTC).replace(tzinfo=None)
+    segundos = (ref - momento).total_seconds()
+    if segundos < 0:
+        return "—"
+    if segundos < 60:
+        return "ahorita"
+    if segundos < 3600:
+        return f"hace {int(segundos // 60)} min"
+    if segundos < 86400:
+        return f"hace {int(segundos // 3600)} h"
+    dias = int(segundos // 86400)
+    if dias == 1:
+        return "ayer"
+    return f"hace {dias} d"
+
+
+templates.env.filters["fecha_corta"] = fecha_corta
+templates.env.filters["hace"] = hace
 
 # Columnas que YA estan en campanas.html. No se inventan orders/impressions.
 COLUMNAS_ORDEN = (
@@ -429,13 +488,56 @@ def pagina_settings(request: Request, conn: ConexionLectura) -> HTMLResponse:
     )
 
 
+PLATAFORMAS_REPUTACION = frozenset({"meli", "amazon_mx", "amazon_us"})
+TENDENCIAS_REPUTACION = frozenset({"sube", "baja", "estable", "sin-dato"})
+
+
+def filtra_listings_reputacion(
+    listings: list[dict], q: str | None, plataforma: str | None, tendencia: str | None
+) -> list[dict]:
+    """Vista de la tabla: AND de los filtros presentes, en memoria."""
+    visibles = listings
+    if plataforma:
+        visibles = [li for li in visibles if li.get("platform") == plataforma]
+    if tendencia:
+        visibles = [li for li in visibles if li.get("tendencia") == tendencia]
+    if q:
+        pedido = q.casefold()
+        visibles = [li for li in visibles if pedido in (li.get("external_id") or "").casefold()]
+    return visibles
+
+
 @router.get("/reputacion", response_class=HTMLResponse)
-def pagina_reputacion(request: Request, conn: ConexionLectura) -> HTMLResponse:
-    """Reputacion v1 (REPUTACION 01 A.6, acta 0.5 §6): listings, reviews
-    MeLi, preguntas pendientes, alertas abiertas y cuenta. Server-rendered
-    sin JS: el texto externo va por {{ }} (autoescape Jinja); imagenes
-    fuera de v1; enlaces solo allowlist Amazon dp (los arma la API)."""
+def pagina_reputacion(
+    request: Request,
+    conn: ConexionLectura,
+    q: Annotated[str | None, Query()] = None,
+    plataforma: Annotated[str | None, Query()] = None,
+    tendencia: Annotated[str | None, Query()] = None,
+) -> HTMLResponse:
+    """Reputacion v1 (REPUTACION 01 A.6, acta 0.5 §6 + rediseno handoff
+    Orbit UI 2026-09-08): KPIs, alertas abiertas primero, listings con
+    estrellas y chips, reviews y preguntas en dos columnas, cuenta MeLi.
+    Server-rendered sin JS: el texto externo va por {{ }} (autoescape
+    Jinja); imagenes fuera de v1; enlaces solo allowlist Amazon dp (los
+    arma la API). Filtros GET de la tabla (q/plataforma/tendencia) con
+    vocabulario cerrado en los selects."""
+    filtros = {
+        "q": _limpia_query(q),
+        "plataforma": _vocab_o_422(plataforma, PLATAFORMAS_REPUTACION, "plataforma"),
+        "tendencia": _vocab_o_422(tendencia, TENDENCIAS_REPUTACION, "tendencia"),
+    }
     resumen = reput.carga_resumen(conn=conn)
+    resumen["listings"] = filtra_listings_reputacion(
+        resumen["listings"], filtros["q"], filtros["plataforma"], filtros["tendencia"]
+    )
     return templates.TemplateResponse(
-        request, "reputacion.html", {"pantalla": "reputacion", "resumen": resumen}
+        request,
+        "reputacion.html",
+        {
+            "pantalla": "reputacion",
+            "resumen": resumen,
+            "filtros": filtros,
+            "ahora": dt.datetime.now(dt.UTC),
+        },
     )

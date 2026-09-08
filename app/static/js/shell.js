@@ -12,6 +12,7 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   }
   const contador = document.getElementById("propuestas-contador");
+  const repContador = document.getElementById("reputacion-contador");
   const ciclo = document.getElementById("ciclo-resumen");
   const watermark = document.getElementById("watermark-resumen");
   if (!contador || !ciclo || !watermark) return;
@@ -31,6 +32,22 @@ document.addEventListener("DOMContentLoaded", function () {
     contador.setAttribute("aria-label", "Propuestas: no se pudo consultar");
     contador.hidden = false;
   });
+
+  // Contador de alertas de reputacion: el badge es aviso de accion, solo
+  // se muestra cuando hay abiertas; en cero o error queda oculto.
+  if (repContador) {
+    fetch("/api/reputacion/contador", {cache: "no-store"}).then(respuesta => {
+      if (!respuesta.ok) throw new Error("Lectura no disponible");
+      return respuesta.json();
+    }).then(datos => {
+      const total = Number(datos.total_alertas) || 0;
+      repContador.setAttribute("aria-label", total + " alertas abiertas");
+      if (total > 0) {
+        repContador.textContent = String(total);
+        repContador.hidden = false;
+      }
+    }).catch(() => {});
+  }
 
   leer("salud").then(datos => {
     ciclo.replaceChildren();

@@ -1,107 +1,171 @@
 {% extends "base.html" %}
+{% macro estrellas(valor) -%}
+{% if valor is none %}<span class="mutado">—</span>{% else %}<span class="rep-estrellas" role="img" aria-label="{{ valor }} de 5">{% for i in range(1, 6) %}<span class="{{ "llena" if i <= valor|round|int else "vacia" }}" aria-hidden="true">★</span>{% endfor %}</span>{% endif %}
+{%- endmacro %}
 {% block contenido %}
-<nav aria-label="Secciones de reputacion">
-  <p>
-    <a href="#listings">Listings</a> ·
-    <a href="#reviews">Reviews</a> ·
-    <a href="#preguntas">Preguntas</a> ·
-    <a href="#alertas">Alertas</a> ·
-    <a href="#cuenta">Cuenta</a>
-  </p>
-</nav>
+{% set kpi_rating = resumen.kpi_rating_meli %}
+{% set sev = resumen.alertas_por_severidad %}
+<div class="kpis">
+  <section class="kpi" aria-label="Rating MeLi">
+    <p class="kpi-etiqueta">Rating MeLi</p>
+    <div class="kpi-valor ok">{% if kpi_rating.promedio is none %}—{% else %}{{ kpi_rating.promedio }}{% endif %}</div>
+    <div class="kpi-contexto">{% if kpi_rating.n %}promedio de {{ kpi_rating.n }} listing{{ "s" if kpi_rating.n != 1 }} con dato{% else %}sin listings MeLi con dato{% endif %}</div>
+  </section>
+  <section class="kpi" aria-label="Reviews verificadas">
+    <p class="kpi-etiqueta">Reviews verificadas</p>
+    <div class="kpi-valor">{{ "{:,}".format(resumen.kpi_reviews_meli.total).replace(",", ".") }}</div>
+    <div class="kpi-contexto">MeLi · Amazon sin verificar</div>
+  </section>
+  <section class="kpi" aria-label="Preguntas pendientes">
+    <p class="kpi-etiqueta">Preguntas pendientes</p>
+    <div class="kpi-valor acento">{{ resumen.total_pendientes }}</div>
+    <div class="kpi-contexto">sin responder · tope de lista 50</div>
+  </section>
+  <section class="kpi" aria-label="Alertas abiertas">
+    <p class="kpi-etiqueta">Alertas abiertas</p>
+    <div class="kpi-valor alerta">{{ resumen.total_alertas }}</div>
+    <div class="kpi-contexto">{{ sev.critica }} crítica{{ "s" if sev.critica != 1 }} · {{ sev.aviso }} aviso{{ "s" if sev.aviso != 1 }}{% if sev.info %} · {{ sev.info }} info{% endif %}</div>
+  </section>
+</div>
 
-<section id="listings" aria-label="Listings">
-  <h2>Listings</h2>
+<section class="tarjeta-lista" aria-label="Alertas abiertas">
+  <div class="rep-cab">
+    <span class="dot dot-mal" aria-hidden="true"></span>
+    <h3>Alertas abiertas</h3>
+    <span class="mutado">· {{ resumen.total_alertas }} sin resolver · críticas primero</span>
+  </div>
+  {% for al in resumen.alertas_abiertas %}
+  <div class="rep-fila">
+    {% if al.severidad == "critica" %}<span class="chip alerta">crítica</span>
+    {% elif al.severidad == "aviso" %}<span class="chip aviso">aviso</span>
+    {% else %}<span class="chip">{{ al.severidad }}</span>{% endif %}
+    <div class="rep-crece">
+      <div><span class="rep-tipo">{{ al.tipo }}</span>
+        <span class="mono mutado">{{ al.external_id or "cuenta" }}</span></div>
+      <div class="rep-msg">{{ al.mensaje }}</div>
+    </div>
+    <span class="rep-tiempo">{{ al.created_at|fecha_corta(true) }}</span>
+  </div>
+  {% else %}
+  <p class="rep-vacio"><span class="mutado">Sin datos</span></p>
+  {% endfor %}
+</section>
+
+<section class="tarjeta-lista" aria-label="Listings">
+  <div class="rep-cab">
+    <h3>Listings</h3>
+    <form class="rep-toolbar" method="get" action="/reputacion" role="search">
+      <input type="search" name="q" value="{{ filtros.q or "" }}" placeholder="Buscar ID de publicación" aria-label="Buscar ID de publicación">
+      <select name="plataforma" aria-label="Plataforma">
+        <option value="">Plataforma · todas</option>
+        {% for p in ("meli", "amazon_mx", "amazon_us") %}
+        <option value="{{ p }}"{% if filtros.plataforma == p %} selected{% endif %}>{{ p }}</option>
+        {% endfor %}
+      </select>
+      <select name="tendencia" aria-label="Tendencia">
+        <option value="">Tendencia · todas</option>
+        {% for t in (("sube", "sube"), ("baja", "baja"), ("estable", "estable"), ("sin-dato", "sin dato")) %}
+        <option value="{{ t[0] }}"{% if filtros.tendencia == t[0] %} selected{% endif %}>{{ t[1] }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit">Filtrar</button>
+    </form>
+    <span class="rep-nota">{{ resumen.listings | length }} listings · tendencia MeLi contra hace 7 días, Amazon contra el snapshot anterior</span>
+  </div>
   {% if resumen.listings %}
   <div class="tabla-scroll" role="region" aria-label="Tabla de listings" tabindex="0">
-  <table>
+  <table class="tabla-reputacion">
     <thead>
       <tr>
-        <th>Plataforma</th>
-        <th>ID</th>
-        <th class="num">Rating</th>
-        <th class="num">Reviews</th>
-        <th>Tendencia</th>
-        <th>Fuente</th>
-        <th>Texto</th>
-        <th>Ver</th>
+        <th scope="col">Publicación</th>
+        <th scope="col">Rating</th>
+        <th scope="col" class="num">Reviews</th>
+        <th scope="col">Tendencia</th>
+        <th scope="col">Fuente</th>
+        <th scope="col">Texto</th>
+        <th scope="col" class="num">Ver</th>
       </tr>
     </thead>
     <tbody>
       {% for li in resumen.listings %}
       <tr>
-        <td>{{ li.platform }}</td>
-        <td>{{ li.external_id }}</td>
-        <td class="num">{{ li.rating if li.rating is not none else "—" }}</td>
-        <td class="num">{{ li.review_count if li.review_count is not none else "—" }}</td>
-        <td>{{ li.tendencia }}</td>
-        <td>{% if li.estado_fuente == "ok" %}OK{% else %}<span class="mutado">Sin datos</span>{% endif %}</td>
-        <td>{% if li.texto == "sin-verificar" %}<span class="mutado">Sin verificar</span>{% elif li.texto == "sin-reviews" %}<span class="mutado">Sin reviews</span>{% else %}Verificado{% endif %}</td>
-        <td>{% if li.url %}<a href="{{ li.url }}" rel="noopener">Abrir</a>{% else %}<span class="mutado">—</span>{% endif %}</td>
+        <td><span class="mono"><strong>{{ li.external_id }}</strong></span><span class="detalle-celda">{{ li.platform }} · snapshot {{ li.metric_date|fecha_corta }}</span></td>
+        <td>{% if li.rating is none %}<span class="mutado">—</span>{% else %}<span class="rep-rating-flex"><span class="rep-rating">{{ li.rating }}</span> {{ estrellas(li.rating) }}</span>{% endif %}</td>
+        <td class="num">{% if li.review_count is none %}<span class="mutado">—</span>{% else %}{{ li.review_count }}{% endif %}</td>
+        <td>{% if li.tendencia == "sube" %}<span class="chip ok">sube</span>
+          {% elif li.tendencia == "baja" %}<span class="chip alerta">baja</span>
+          {% elif li.tendencia == "estable" %}<span class="chip">estable</span>
+          {% else %}<span class="chip">sin dato</span>{% endif %}</td>
+        <td>{% if li.estado_fuente == "ok" %}<span class="chip ok">OK</span>{% else %}<span class="chip alerta">Sin datos</span>{% endif %}</td>
+        <td>{% if li.texto == "verificado" %}<span class="chip ok">Verificado</span>
+          {% elif li.texto == "sin-reviews" %}<span class="chip">Sin reviews</span>
+          {% else %}<span class="chip aviso">Sin verificar</span>{% endif %}</td>
+        <td class="num">{% if li.url %}<a href="{{ li.url }}" rel="noopener">Abrir</a>{% else %}<span class="mutado">— sin URL</span>{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
   </div>
   {% else %}
-  <p><span class="mutado">Sin datos</span></p>
+  <p class="rep-vacio"><span class="mutado">Sin datos</span></p>
   {% endif %}
-  <p class="mutado">Texto Amazon: {% if resumen.amazon_texto == "sin-verificar" %}Sin verificar (A.3 bloqueada){% else %}{{ resumen.amazon_texto }}{% endif %}</p>
+  <p class="rep-pie">Texto de Amazon: sin verificar. No hay reviews de Amazon en esta versión, así que "Sin verificar" no significa que no existan.</p>
 </section>
 
-<section id="reviews" aria-label="Reviews">
-  <h2>Reviews (MeLi, verificadas)</h2>
-  {% if resumen.reviews_recientes %}
-  <ul>
-    {% for rv in resumen.reviews_recientes %}
-    <li>
-      <strong>{{ rv.rating if rv.rating is not none else "—" }}★</strong>
-      {{ rv.external_id }} · {{ rv.review_external_id }}
-      {% if rv.titulo %}<br>{{ rv.titulo }}{% endif %}
-      {% if rv.texto %}<br><span class="mutado">{{ rv.texto }}</span>{% endif %}
-    </li>
-    {% endfor %}
-  </ul>
+<div class="rep-grid">
+<section class="tarjeta-lista" aria-label="Reviews recientes">
+  <div class="rep-cab">
+    <h3>Reviews recientes</h3>
+    <span class="mutado">· MeLi, solo publicadas · 20 más recientes</span>
+  </div>
+  {% for rv in resumen.reviews_recientes %}
+  <div class="rep-fila">
+    <div class="rep-crece">
+      <div class="rep-linea">
+        {% if rv.rating is none %}<span class="mutado">—</span>{% else %}<span class="rep-rating-chico">{{ rv.rating }}</span> {{ estrellas(rv.rating) }}{% endif %}
+        <span class="mono mutado">{{ rv.external_id }} · {{ rv.review_external_id }}</span>
+        <span class="rep-tiempo">{{ rv.published_at|fecha_corta }}</span>
+      </div>
+      {% if rv.titulo %}<div class="rep-titulo">{{ rv.titulo }}</div>{% endif %}
+      {% if rv.texto %}<div class="rep-msg">{{ rv.texto }}</div>{% else %}<div class="mutado">— sin texto</div>{% endif %}
+    </div>
+  </div>
   {% else %}
-  <p><span class="mutado">Sin datos</span></p>
-  {% endif %}
+  <p class="rep-vacio"><span class="mutado">Sin datos</span></p>
+  {% endfor %}
 </section>
 
-<section id="preguntas" aria-label="Preguntas pendientes">
-  <h2>Preguntas pendientes ({{ resumen.total_pendientes }})</h2>
-  {% if resumen.preguntas_pendientes %}
-  <ul>
-    {% for pg in resumen.preguntas_pendientes %}
-    <li>{{ pg.external_id }} · {{ pg.question_external_id }}{% if pg.texto %}<br><span class="mutado">{{ pg.texto }}</span>{% endif %}</li>
-    {% endfor %}
-  </ul>
+<section class="tarjeta-lista" aria-label="Preguntas pendientes">
+  <div class="rep-cab">
+    <span class="dot dot-ac" aria-hidden="true"></span>
+    <h3>Preguntas pendientes</h3>
+    <span class="mutado">· {{ resumen.total_pendientes }} sin responder</span>
+  </div>
+  {% for pg in resumen.preguntas_pendientes %}
+  <div class="rep-fila">
+    <div class="rep-crece">
+      <div class="mono mutado">{{ pg.external_id }} · {{ pg.question_external_id }}</div>
+      <div class="rep-pregunta">{{ pg.texto or "— sin texto" }}</div>
+      <div class="mutado">{{ (pg.asked_at or pg.observed_at)|hace(ahora) }}</div>
+    </div>
+    <span class="mutado" title="v1 es solo lectura: se responde en MeLi">Responder en MeLi</span>
+  </div>
   {% else %}
-  <p><span class="mutado">Sin datos</span></p>
-  {% endif %}
+  <p class="rep-vacio"><span class="mutado">Sin datos</span></p>
+  {% endfor %}
 </section>
+</div>
 
-<section id="alertas" aria-label="Alertas abiertas">
-  <h2>Alertas abiertas ({{ resumen.total_alertas }})</h2>
-  {% if resumen.alertas_abiertas %}
-  <ul>
-    {% for al in resumen.alertas_abiertas %}
-    <li>[{{ al.severidad }}] {{ al.tipo }} {{ al.external_id or "cuenta" }}: {{ al.mensaje }}</li>
-    {% endfor %}
-  </ul>
-  {% else %}
-  <p><span class="mutado">Sin datos</span></p>
-  {% endif %}
-</section>
-
-<section id="cuenta" aria-label="Cuenta MeLi">
-  <h2>Cuenta MeLi</h2>
+<section class="tarjeta" aria-label="Cuenta MeLi">
+  <h3>Cuenta MeLi{% if resumen.cuenta_meli %} <span class="mutado">· snapshot {{ resumen.cuenta_meli.metric_date|fecha_corta }}</span>{% endif %}</h3>
   {% if resumen.cuenta_meli %}
-  <p>
-    Level: {{ resumen.cuenta_meli.level_id or "—" }} ·
-    Power seller: {{ resumen.cuenta_meli.power_seller or "—" }} ·
-    Disputas abiertas: {{ resumen.cuenta_meli.disputas_abiertas if resumen.cuenta_meli.disputas_abiertas is not none else "—" }}
-    ({{ resumen.cuenta_meli.metric_date }})
-  </p>
+  {% set cuenta = resumen.cuenta_meli %}
+  <div class="rep-cuenta">
+    <div><p class="rep-dato-et">Level</p><p class="rep-dato-val">{{ cuenta.level_id or "—" }}</p></div>
+    <div><p class="rep-dato-et">Power seller</p><p class="rep-dato-val">{{ cuenta.power_seller or "—" }}</p></div>
+    <div><p class="rep-dato-et">Disputas abiertas</p><p class="rep-dato-val{% if cuenta.disputas_abiertas %} alerta{% endif %}">{% if cuenta.disputas_abiertas is none %}—{% else %}{{ cuenta.disputas_abiertas }}{% endif %}</p></div>
+    <div><p class="rep-dato-et">Disputas totales</p><p class="rep-dato-val">{% if cuenta.disputas_total is none %}—{% else %}{{ cuenta.disputas_total }}{% endif %}</p></div>
+  </div>
   {% else %}
   <p><span class="mutado">Sin datos</span></p>
   {% endif %}
