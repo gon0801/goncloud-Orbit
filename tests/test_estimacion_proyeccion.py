@@ -45,7 +45,7 @@ STUB = {
     "motivos": ["escenario_ausente"],
     "snapshot_id": None,
     "escenario": {
-        "unidad": None,
+        "unidad": "1",
         "canal": None,
         "fecha_valoracion": None,
         "version_formula": None,
@@ -182,11 +182,20 @@ def test_proyeccion_s5_detalle_omitido_si_no_hay_numero_congelado():
     assert sobre["detalle"] is None
 
 
-def test_proyeccion_s5_componente_pertenencia_sin_promover_fecha():
+def test_proyeccion_s5_preserva_procedencia_de_componentes():
     from app.estimacion_proyeccion import proyeccion_s5
 
+    observado = datetime(2026, 9, 8, 18, 0, tzinfo=UTC)
     sobre = proyeccion_s5(
         _escenario(
+            observed_at=observado,
+            canonical_input={
+                "entrada": {
+                    "costo_validated_at": "2026-09-08T08:15:02+00:00",
+                    "fx_rate_date": "2026-09-04",
+                },
+                "resultado": {"estado": "disponible", "contribucion": "42.5000"},
+            },
             componentes=[
                 {
                     "nombre": "isr",
@@ -200,28 +209,30 @@ def test_proyeccion_s5_componente_pertenencia_sin_promover_fecha():
                     "pertenece_a_total": True,
                 },
                 {"nombre": "costo_original", "pertenece_a_total": False},
-                {"nombre": "fee_detalle:ReferralFee"},
-            ]
+                {"nombre": "fee_detalle:ReferralFee", "pertenece_a_total": False},
+            ],
         )
     )
     isr, costo, fee = sobre["componentes"]
     for comp in (isr, costo, fee):
-        assert tuple(comp) == CLAVES_COMPONENTE or set(CLAVES_COMPONENTE) <= set(comp)
+        assert set(CLAVES_COMPONENTE) <= set(comp)
         assert "tasa" not in comp
         assert "fecha" not in comp
         assert "pertenece_a_total" not in comp
-        assert comp["fecha_fuente"] is None
-        assert comp["observed_at"] is None
-        assert comp["vigencia"] is None
-        assert comp["estado"] is None
-    assert isr["nombre"] == "isr"
-    assert isr["importe_original"] == "2.5000"
+        assert comp["observed_at"] == observado.isoformat()
+    assert isr["fecha_fuente"] == "2026-09-08"
+    assert isr["vigencia"] == "2026-09-08"
+    assert isr["estado"] == "incluido"
     assert isr["pertenencia"] is True
     assert costo["pertenencia"] is False
+    assert costo["estado"] == "excluido_del_total"
+    assert costo["vigencia"] == "2026-09-08T08:15:02+00:00"
     assert costo["importe_original"] is None
-    assert fee["pertenencia"] is None
+    assert fee["pertenencia"] is False
+    assert fee["estado"] == "excluido_del_total"
+    assert fee["vigencia"] == "2026-09-08"
     assert sobre["escenario"] == {
-        "unidad": None,
+        "unidad": "1",
         "canal": "fba",
         "fecha_valoracion": "2026-09-08",
         "version_formula": "S3",

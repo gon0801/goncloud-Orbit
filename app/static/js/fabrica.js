@@ -34,10 +34,41 @@ document.addEventListener("DOMContentLoaded", function () {
     desactualizada: "Desactualizada",
     identidad_ambigua: "Identidad ambigua",
   };
+  const motivosEstimacion = {
+    escenario_ausente: "Sin escenario guardado para esta publicación",
+    oferta_ausente: "Falta la oferta de publicación",
+    oferta_desactualizada: "La oferta de publicación ya no está vigente",
+    oferta_futura: "La oferta de publicación es posterior al corte",
+    valoracion_desactualizada: "La fecha de valoración no coincide con el corte",
+    identidad_ambigua: "Hay más de una oferta compatible",
+    precio_ausente: "Falta el precio de publicación",
+    precio_invalido: "El precio de publicación no es válido",
+    costo_ausente: "Falta el costo del producto",
+    costo_invalido: "El costo del producto no es válido",
+    costo_desactualizado: "El costo no corresponde a la corrida del día",
+    costo_no_vigente: "El costo no está vigente en la fecha de valoración",
+    costo_impuesto_incompatible: "El costo incluye impuesto incompatible",
+    costo_base_fiscal_ausente: "Falta la base fiscal del costo",
+    fee_ausente: "Falta la cotización de comisiones",
+    fee_incompatible: "La cotización de comisiones no concilia",
+    fee_invalido: "La cotización de comisiones no es válida",
+    impuesto_fee_pendiente: "La cotización trae impuesto pendiente de política",
+    fx_ausente: "Falta el tipo de cambio",
+    fx_direccion_invalida: "El tipo de cambio no apunta a la moneda de venta",
+    fx_tasa_invalida: "La tasa de cambio no es válida",
+    politica_ausente: "Falta la política de cálculo",
+    politica_no_vigente: "La política de cálculo no está vigente",
+    politica_ambigua: "Hay más de una política aplicable",
+    politica_invalida: "La política de cálculo no es válida",
+    logistica_fbm_pendiente: "Falta la logística prospectiva FBM",
+    us_sin_politica_prospectiva: "Amazon US aún no tiene política prospectiva",
+    universo_no_soportado: "El canal o mercado no está en el universo liberado",
+  };
   let revision = 0;
   let versionCatalogo = 0;
   let versionHistorial = 0;
   let versionDetalle = 0;
+  let asOfEstimacion = null;
   let catalogoDisponible = false;
   let resumenCatalogo = null;
   let consultandoPlan = false;
@@ -434,6 +465,14 @@ document.addEventListener("DOMContentLoaded", function () {
     return celda;
   }
 
+  function textoMotivoEstimacion(codigo) {
+    return motivosEstimacion[codigo] || codigo;
+  }
+
+  function textosMotivosEstimacion(motivos) {
+    return (motivos || []).map(textoMotivoEstimacion);
+  }
+
   function piezasEstimacion(est) {
     if (!est) return null;
     const escenario = est.escenario || {};
@@ -450,14 +489,16 @@ document.addEventListener("DOMContentLoaded", function () {
         meta.push(porcentaje(est.contribucion_pct));
       }
       if (est.base_porcentaje) meta.push("base " + est.base_porcentaje);
+      if (escenario.unidad) meta.push("unidad " + escenario.unidad);
       if (escenario.fecha_valoracion) meta.push(escenario.fecha_valoracion);
       if (escenario.canal) meta.push(escenario.canal);
       if (meta.length) principal.append(conClase("span", "fabrica-apoyo", meta.join(" · ")));
     } else {
       principal.append(conClase("strong", "fabrica-sin-dato",
         estadosEstimacion[est.estado] || valor(est.estado)));
-      if (est.motivos && est.motivos.length) {
-        principal.append(conClase("span", "fabrica-apoyo", est.motivos.join(" ")));
+      const textos = textosMotivosEstimacion(est.motivos);
+      if (textos.length) {
+        principal.append(conClase("span", "fabrica-apoyo", textos.join(" · ")));
       }
     }
     if (est.exclusiones && est.exclusiones.length) {
@@ -467,10 +508,17 @@ document.addEventListener("DOMContentLoaded", function () {
     detalle.append(nodo("summary", "Ver desglose de la estimación"));
     (est.componentes || []).forEach(componente => {
       const linea = conClase("div", "fabrica-estimacion-componente");
-      const fechas = [componente.fuente, componente.fecha_fuente, componente.observed_at]
-        .filter(Boolean).join(" · ");
+      const meta = [
+        componente.fuente,
+        componente.fecha_fuente ? ("fecha " + componente.fecha_fuente) : null,
+        componente.observed_at ? ("captura " + componente.observed_at) : null,
+        componente.vigencia ? ("vigencia " + componente.vigencia) : null,
+        componente.estado ? ("estado " + componente.estado) : null,
+        componente.pertenencia === true ? "pertenece al total"
+          : componente.pertenencia === false ? "fuera del total" : null,
+      ].filter(Boolean).join(" · ");
       linea.append(conClase("strong", "fabrica-estimacion-componente-nombre", valor(componente.nombre)));
-      if (fechas) linea.append(conClase("span", "fabrica-apoyo", fechas));
+      if (meta) linea.append(conClase("span", "fabrica-apoyo", meta));
       linea.append(
         conClase("span", "fabrica-apoyo", "Original: " + valor(componente.importe_original)
           + (componente.moneda_original ? " " + componente.moneda_original : "")),
@@ -479,8 +527,9 @@ document.addEventListener("DOMContentLoaded", function () {
       );
       detalle.append(linea);
     });
-    if (est.motivos && est.motivos.length) {
-      detalle.append(conClase("span", "fabrica-apoyo", "Motivos: " + est.motivos.join(" ")));
+    const textosDetalle = textosMotivosEstimacion(est.motivos);
+    if (textosDetalle.length) {
+      detalle.append(conClase("span", "fabrica-apoyo", "Motivos: " + textosDetalle.join(" · ")));
     }
     if (est.exclusiones && est.exclusiones.length) {
       detalle.append(conClase("span", "fabrica-apoyo", "Exclusiones: " + est.exclusiones.join(", ")));
@@ -490,6 +539,7 @@ document.addEventListener("DOMContentLoaded", function () {
     if (escenario.version_politica !== null && escenario.version_politica !== undefined) {
       versiones.push("politica " + escenario.version_politica);
     }
+    if (escenario.unidad) versiones.push("unidad " + escenario.unidad);
     if (versiones.length) detalle.append(conClase("span", "fabrica-apoyo", versiones.join(" · ")));
     if (est.detalle) {
       const partes = ["Numero congelado (no actual): " + valor(est.detalle.contribucion)];
@@ -623,9 +673,11 @@ document.addEventListener("DOMContentLoaded", function () {
         + "&direccion=" + encodeURIComponent(porId("comparador-direccion").value);
       const objetivo = objetivoConsultaComparador();
       if (objetivo !== null) url += "&objetivo=" + encodeURIComponent(String(objetivo));
+      if (asOfEstimacion) url += "&as_of=" + encodeURIComponent(asOfEstimacion);
       const datos = await solicitar(url);
       if (version !== versionComparador) return;
       comparadorDatos = datos;
+      if (datos.as_of) asOfEstimacion = datos.as_of;
       renderComparador();
       estado("comparador-estado", (datos.publicaciones || []).length
         + " publicaciones · sin dato al final del orden · muestra limitada fuera del orden.");
@@ -650,6 +702,7 @@ document.addEventListener("DOMContentLoaded", function () {
     try {
       const datos = await solicitar("/catalogo?plataforma=" + encodeURIComponent(porId("plataforma").value));
       if (version !== versionCatalogo) return;
+      asOfEstimacion = datos.as_of || null;
       porId("moneda").textContent = datos.moneda;
       actualizarTotal();
       datos.tipos_producto.forEach(tipo => { const opcion = nodo("option"); opcion.value = tipo; porId("tipos").append(opcion); });
@@ -921,12 +974,16 @@ document.addEventListener("DOMContentLoaded", function () {
       formulario.elements[rol + "_budget"].value = "";
       formulario.elements[rol + "_bid"].value = "";
     });
-    cargarCatalogo(); cargarHistorial(); cargarComparador();
+    // Catalogo fija asOfEstimacion; evaluacion reusa el mismo corte (S5).
+    cargarCatalogo().then(() => cargarComparador());
+    cargarHistorial();
   });
   porId("productos").addEventListener("change", () => {
     actualizarResumenCatalogo(); renderComparador();
   });
-  porId("recargar-catalogo").addEventListener("click", cargarCatalogo);
+  porId("recargar-catalogo").addEventListener("click", () => {
+    cargarCatalogo().then(() => cargarComparador());
+  });
   porId("historial-recargar").addEventListener("click", cargarHistorial);
   porId("lote-recargar").addEventListener("click", cargarLote);
   porId("comparador-recargar").addEventListener("click", cargarComparador);
@@ -936,7 +993,9 @@ document.addEventListener("DOMContentLoaded", function () {
   porId("comparador-filtro").addEventListener("change", renderComparador);
   window.addEventListener("pagehide", () => { porId("token").value = ""; });
   actualizarObjetivoManual();
-  cargarCatalogo(); cargarHistorial(); cargarComparador();
+  // Arranque en serie catalogo -> evaluacion para compartir as_of.
+  cargarCatalogo().then(() => cargarComparador());
+  cargarHistorial();
   const lote = new URL(window.location.href).searchParams.get("lote");
   if (lote) { seleccionarLote(lote); cargarLote(); }
 });

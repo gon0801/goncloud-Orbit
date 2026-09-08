@@ -53,7 +53,7 @@
       "fba_mx_sin_fila_margen": 115,
       "fba_mx_con_margen": 2,
       "fba_mx_fila_sin_margen": 130,
-      "nota": "115 listings FBA MX sin fila en v_margen_producto son el universo sin ventas observado. La estimacion completa de esos casos no existe en produccion hasta aplicar 0028 e ingerir."
+      "nota": "115 listings FBA MX sin fila en v_margen_producto son el universo sin ventas observado. AC14 se cerro conciliando listing 1213 contra fuentes externas sin esperar 0028."
     },
     "disponibilidad_mx_obs": {
       "obs_fba": 247,
@@ -62,8 +62,21 @@
     }
   },
   "seccion_b": {
-    "estado": "bloqueada",
+    "estado": "escenarios_ausentes_en_prod",
     "motivo": "to_regclass('public.estimacion_escenario') IS NULL. 0028/0029 no estan en produccion (deploy es B.5).",
+    "ac14_independiente": {
+      "listing_id": 1213,
+      "asin": "B0C8RVWG4F",
+      "seller_sku": "SK-YBQX-XQWV",
+      "canal": "fba",
+      "sin_ventas": true,
+      "contribucion_mxn": "297.6710",
+      "evidencia": [
+        "conciliacion.md",
+        "calculo-independiente-1213.json",
+        "fees-product-fees-1213.json"
+      ]
+    },
     "por_estado": null,
     "por_motivo": null,
     "por_platform_canal": null,
@@ -72,7 +85,10 @@
       "incompleta": null,
       "desactualizada": null,
       "identidad_ambigua": null,
-      "disponible_sin_ventas": null
+      "disponible_sin_ventas": {
+        "listing_id": 1213,
+        "nota": "Conciliado fuera de Orbit escenario (AC14); no hay fila estimacion_escenario en prod"
+      }
     },
     "como_rellenar": "Tras B.5, repetir select.sql completo con orbit_read, pegar las filas B aqui y fechar consulted_at_utc."
   }

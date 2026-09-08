@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Response
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -15,6 +16,22 @@ from app import fabrica_web as fw
 from app.api import ConexionLectura
 from app.api_write import exige_token
 from app.publicacion_fotos import FotoNoDisponible, fotos_publicacion
+
+
+def _as_of_consulta(valor: str | None) -> datetime | None:
+    """ISO-8601 con zona; None = el adaptador usa ahora UTC."""
+    if valor is None or not valor.strip():
+        return None
+    texto = valor.strip()
+    if texto.endswith("Z"):
+        texto = texto[:-1] + "+00:00"
+    try:
+        corte = datetime.fromisoformat(texto)
+    except ValueError as exc:
+        raise HTTPException(422, "as_of debe ser una fecha-hora ISO-8601 con zona.") from exc
+    if corte.tzinfo is None:
+        raise HTTPException(422, "as_of debe incluir zona horaria.")
+    return corte.astimezone(UTC)
 
 
 class _RutaFabrica(APIRoute):
@@ -139,8 +156,12 @@ class Confirmacion(_Cuerpo):
 
 
 @router.get("/catalogo")
-def catalogo(conn: ConexionLectura, plataforma: Plataforma):
-    return fw.catalogo(conn, plataforma)
+def catalogo(
+    conn: ConexionLectura,
+    plataforma: Plataforma,
+    as_of: Annotated[str | None, Query(max_length=64)] = None,
+):
+    return fw.catalogo(conn, plataforma, as_of=_as_of_consulta(as_of))
 
 
 OrdenEvaluacion = Literal[
@@ -162,6 +183,7 @@ def evaluacion(
     orden: OrdenEvaluacion = "margen_observado",
     direccion: Literal["asc", "desc"] = "desc",
     objetivo: Decimal | None = None,
+    as_of: Annotated[str | None, Query(max_length=64)] = None,
 ):
     """Evaluacion completa por publicacion (ORBIT 19 B.4): economia observada
     + Ads + disponibilidad + objetivo del grupo en preparacion. Orden estable
@@ -170,10 +192,19 @@ def evaluacion(
     `objetivo` es el objetivo manual del grupo que el dueno ESTA preparando
     (D2/0.4 §3): toma precedencia sobre grupos con lote 'planeado' porque en
     el flujo real el grupo solo existe al crear campanas. No acredita
-    rentabilidad; fuera de (0, 100] rechaza con 422."""
+    rentabilidad; fuera de (0, 100] rechaza con 422.
+
+    `as_of` alinea el corte de estimacion con el de catalogo (mismo ISO UTC)."""
     if objetivo is not None and not (Decimal(0) < objetivo <= Decimal(100)):
         raise HTTPException(422, "El objetivo debe estar en (0, 100].")
-    return fw.evaluacion(conn, plataforma, orden=orden, direccion=direccion, objetivo=objetivo)
+    return fw.evaluacion(
+        conn,
+        plataforma,
+        orden=orden,
+        direccion=direccion,
+        objetivo=objetivo,
+        as_of=_as_of_consulta(as_of),
+    )
 
 
 @router.get("/publicaciones/{listing_id}/imagen")

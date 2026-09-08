@@ -1,0 +1,65 @@
+{
+  "consulted_at_utc": "2026-09-08T19:10:55Z",
+  "listing_id": 1213,
+  "asin": "B0C8RVWG4F",
+  "seller_sku": "SK-YBQX-XQWV",
+  "canal": "fba",
+  "platform": "amazon_mx",
+  "sin_ventas_observadas": true,
+  "fuentes": {
+    "P": {
+      "bridge_price": "988.0000",
+      "bridge_fetched_at": "2026-09-08 18:35:40",
+      "bridge_fulfillment_channel": "AMAZON_NA",
+      "orbit_listing_price": "988.0000",
+      "orbit_price_currency": "MXN",
+      "match": true
+    },
+    "C": {
+      "sku_cost_id": 2068,
+      "cost_amount": "341.0000",
+      "cost_currency": "MXN",
+      "includes_tax": false,
+      "valid_from": "2026-08-18",
+      "row_ingest_run_id": 28,
+      "dia_ingest_run_id": 124,
+      "dia_ingest_ok": true,
+      "dia_ingest_rows_skipped": 0
+    },
+    "F": {
+      "source": "docs/evidencia/margen-estimado-01/B.3/fees-product-fees-1213.json",
+      "TimeOfFeesEstimation": "2026-09-08T19:10:55.000Z",
+      "TotalFeesEstimate": "191.76",
+      "sum_final_fee": "191.76",
+      "ReferralFee": "127.76",
+      "FBAFees": "64.0",
+      "total_equals_sum_final_fee": true,
+      "tax_amount_nonzero": false
+    },
+    "politica": {
+      "label": "amazon_mx_pf_rfc_valid_2026_01",
+      "universo": "amazon_mx/fba",
+      "formula_version": "S3",
+      "iva_divisor": "1.16",
+      "isr_tasa": "0.025",
+      "logistica": "0"
+    }
+  },
+  "hoja_decimal": {
+    "P": "988.0000",
+    "I": "851.7241",
+    "C": "341.0000",
+    "F": "191.7600",
+    "L": "0",
+    "R": "21.2931",
+    "contribucion": "297.6710",
+    "contribucion_pct": "34.9492"
+  },
+  "calcular_contribucion": {
+    "estado": "disponible",
+    "motivos": [],
+    "contribucion": "297.6710",
+    "contribucion_pct": "34.9492",
+    "match_hoja": true
+  }
+}

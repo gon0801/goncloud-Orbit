@@ -1,0 +1,22 @@
+{
+  "ok": true,
+  "viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "overflow": {
+    "scrollWidth": 390,
+    "clientWidth": 390,
+    "bodyScroll": 390
+  },
+  "contraste": {
+    "color": "rgb(174, 172, 187)",
+    "bg": "rgb(19, 19, 24)",
+    "fontSize": "11px"
+  },
+  "screenshots": [
+    "screenshots/dia-390.jpg",
+    "screenshots/noche-390.jpg",
+    "screenshots/detalle-abierto-noche-390.jpg"
+  ]
+}

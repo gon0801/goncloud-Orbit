@@ -1,0 +1,63 @@
+{
+  "token_status": 200,
+  "http_status": 200,
+  "result_status": "Success",
+  "seller_sku": "SK-YBQX-XQWV",
+  "asin": "B0C8RVWG4F",
+  "listing_id_orbit": 1213,
+  "requested_price": "988.0000",
+  "requested_currency": "MXN",
+  "requested_identifier": "b3-ac14-1213",
+  "is_amazon_fulfilled": true,
+  "marketplace_id": "A1AM78C64UM0Y8",
+  "echo_id_value": "SK-YBQX-XQWV",
+  "echo_identifier": "b3-ac14-1213",
+  "echo_marketplace": "A1AM78C64UM0Y8",
+  "echo_fulfilled": true,
+  "echo_price": {
+    "CurrencyCode": "MXN",
+    "Amount": "988"
+  },
+  "TimeOfFeesEstimation": "2026-09-08T19:10:55.000Z",
+  "TotalFeesEstimate": {
+    "CurrencyCode": "MXN",
+    "Amount": "191.76"
+  },
+  "FeeDetailList": [
+    {
+      "FeeType": "ReferralFee",
+      "FeeAmount": {
+        "CurrencyCode": "MXN",
+        "Amount": "127.76"
+      },
+      "FeePromotion": {
+        "CurrencyCode": "MXN",
+        "Amount": "0.0"
+      },
+      "FinalFee": {
+        "CurrencyCode": "MXN",
+        "Amount": "127.76"
+      },
+      "TaxAmount": null
+    },
+    {
+      "FeeType": "FBAFees",
+      "FeeAmount": {
+        "CurrencyCode": "MXN",
+        "Amount": "64.0"
+      },
+      "FeePromotion": {
+        "CurrencyCode": "MXN",
+        "Amount": "0.0"
+      },
+      "FinalFee": {
+        "CurrencyCode": "MXN",
+        "Amount": "64.0"
+      },
+      "TaxAmount": null
+    }
+  ],
+  "sum_final_fee": "191.76",
+  "total_equals_sum_final_fee": true,
+  "tax_amount_nonzero": false
+}

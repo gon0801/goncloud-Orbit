@@ -615,6 +615,8 @@ def test_catalogo_y_evaluacion_estimacion_mismo_snapshot(escenario, monkeypatch)
     cat = cliente.get("/api/fabrica/catalogo?plataforma=amazon_mx")
     eva = cliente.get("/api/fabrica/evaluacion?plataforma=amazon_mx")
     assert cat.status_code == eva.status_code == 200, (cat.text, eva.text)
+    assert cat.json()["as_of"] == as_of.isoformat()
+    assert eva.json()["as_of"] == as_of.isoformat()
     pub_cat = next(
         p for prod in cat.json()["productos"] for p in prod["publicaciones"] if p["id"] == lid
     )
@@ -631,6 +633,52 @@ def test_catalogo_y_evaluacion_estimacion_mismo_snapshot(escenario, monkeypatch)
     assert pub_cat["margen_neto_pct"] == "40.00000000000000000"
     assert "economia" in pub_eva
     assert [as_of for _ids, as_of in llamadas] == [as_of, as_of]
+
+
+def test_evaluacion_reutiliza_as_of_de_catalogo(escenario, monkeypatch):
+    """El cliente puede fijar el mismo corte sin depender de datetime.now."""
+    cliente, conn, _, fw, ids = escenario
+    lid = _listing_mx(conn, ids[0])
+    corte_catalogo = dt.datetime(2026, 9, 8, 18, 0, tzinfo=dt.UTC)
+    llamadas = []
+
+    def fake_leer(_conn, listing_ids, *, as_of):
+        llamadas.append(as_of)
+        return [_escenario_leido(lid)] if lid in listing_ids else []
+
+    monkeypatch.setattr("app.estimacion_proyeccion.leer_escenarios", fake_leer)
+
+    class _Reloj(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return corte_catalogo
+
+    monkeypatch.setattr(fw.dt, "datetime", _Reloj)
+    cat = cliente.get("/api/fabrica/catalogo?plataforma=amazon_mx")
+    assert cat.status_code == 200
+    as_of_iso = cat.json()["as_of"]
+    # Segundo GET con reloj distinto: sin as_of query fallaria el corte;
+    # con as_of del catalogo debe reutilizar el mismo instante.
+    monkeypatch.setattr(
+        fw.dt,
+        "datetime",
+        type(
+            "_Reloj2",
+            (dt.datetime,),
+            {
+                "now": classmethod(
+                    lambda cls, tz=None: dt.datetime(2026, 9, 8, 19, 0, tzinfo=dt.UTC)
+                )
+            },
+        ),
+    )
+    eva = cliente.get(
+        "/api/fabrica/evaluacion",
+        params={"plataforma": "amazon_mx", "as_of": as_of_iso},
+    )
+    assert eva.status_code == 200, eva.text
+    assert eva.json()["as_of"] == as_of_iso
+    assert llamadas == [corte_catalogo, corte_catalogo]
 
 
 def test_get_estimacion_decimal_como_cadena_y_null_se_queda_null(escenario, monkeypatch):

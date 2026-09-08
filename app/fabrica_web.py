@@ -138,7 +138,7 @@ def _creacion_v2_habilitada(conn) -> bool:
     return fp.version_creacion_desde_settings(settings or {}) == "v2"
 
 
-def catalogo(conn, plataforma: str) -> dict:
+def catalogo(conn, plataforma: str, as_of: dt.datetime | None = None) -> dict:
     conn.row_factory = tuple_row
     productos = []
     for pid, sku, nombre, publicaciones in conn.execute(_SQL_CATALOGO, (plataforma,)).fetchall():
@@ -177,9 +177,12 @@ def catalogo(conn, plataforma: str) -> dict:
                 "publicaciones": publicaciones,
             }
         )
-    as_of = dt.datetime.now(dt.UTC)
+    corte = as_of if as_of is not None else dt.datetime.now(dt.UTC)
+    if corte.tzinfo is None:
+        raise error(422, "as_of debe incluir zona horaria.")
+    corte = corte.astimezone(dt.UTC)
     listing_ids = [pub["id"] for prod in productos for pub in prod["publicaciones"]]
-    por_listing = adjuntar_estimaciones(conn, listing_ids, as_of=as_of)
+    por_listing = adjuntar_estimaciones(conn, listing_ids, as_of=corte)
     for prod in productos:
         for pub in prod["publicaciones"]:
             pub["estimacion"] = por_listing[pub["id"]]
@@ -190,6 +193,7 @@ def catalogo(conn, plataforma: str) -> dict:
     return {
         "plataforma": plataforma,
         "moneda": fp.MONEDA_POR_PLATAFORMA[plataforma],
+        "as_of": corte.isoformat(),
         "productos": productos,
         "tipos_producto": tipos,
     }
@@ -283,6 +287,7 @@ def evaluacion(
     orden: str = "margen_observado",
     direccion: str = "desc",
     objetivo: Decimal | None = None,
+    as_of: dt.datetime | None = None,
 ):
     """Evaluacion completa por listing (B.2 + Ads B.1 + B.3 + objetivo D2).
 
@@ -293,13 +298,19 @@ def evaluacion(
     `objetivo` explicito (el del formulario, grupo AUN sin crear) toma
     precedencia sobre la consulta de grupos: es el grupo que el dueno esta
     preparando (hallazgo cross-review codex 2026-09-07).
+    `as_of` alinea el corte de estimacion con catalogo cuando el cliente lo
+    reenvia desde la respuesta previa.
     """
     if orden not in ec.METRICAS_ORDEN:
         raise error(422, "El criterio de orden no es válido.")
     if direccion not in ("asc", "desc"):
         raise error(422, "La dirección del orden no es válida.")
     conn.row_factory = tuple_row
-    hoy = dt.datetime.now(dt.UTC).date()
+    corte = as_of if as_of is not None else dt.datetime.now(dt.UTC)
+    if corte.tzinfo is None:
+        raise error(422, "as_of debe incluir zona horaria.")
+    corte = corte.astimezone(dt.UTC)
+    hoy = corte.date()
     hasta = hoy - dt.timedelta(days=1)
     desde = hasta - dt.timedelta(days=30)
     # Mismo formato que el NUMERIC(5,2) de campana_grupo: "10" -> "10.00".
@@ -371,9 +382,8 @@ def evaluacion(
         )
     ordenadas = ec.ordenar(evaluaciones, orden, descendente=direccion == "desc")
     publicaciones = [_serializar_evaluacion(e) for e in ordenadas]
-    as_of = dt.datetime.now(dt.UTC)
     listing_ids = [p["listing_id"] for p in publicaciones]
-    por_listing = adjuntar_estimaciones(conn, listing_ids, as_of=as_of)
+    por_listing = adjuntar_estimaciones(conn, listing_ids, as_of=corte)
     for p in publicaciones:
         p["estimacion"] = por_listing[p["listing_id"]]
     return {
@@ -381,6 +391,7 @@ def evaluacion(
         "ventana_ads": {"desde": desde.isoformat(), "hasta": hasta.isoformat()},
         "orden": orden,
         "direccion": direccion,
+        "as_of": corte.isoformat(),
         "publicaciones": publicaciones,
     }
 

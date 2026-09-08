@@ -945,6 +945,11 @@ def test_ui_estimacion_etiqueta_separada_y_sin_columna_ancha():
     assert "no disponible para anunciar" not in js.lower()
     for prohibido in ("break-even", "rentable", "bueno", "malo"):
         assert prohibido not in js.lower()
+    assert "motivosEstimacion" in js
+    assert "asOfEstimacion" in js
+    assert "pertenece al total" in js or "fuera del total" in js
+    assert "politica_ausente" in js
+    assert "Falta la política de cálculo" in js
     assert '["Publicación", 1, 2], ["Margen observado · antes de Ads", 3, 1]' in js
     assert '["Estim' not in js
     respuesta = TestClient(app).get("/campanas/nuevas")
@@ -1018,7 +1023,7 @@ const sobre = (over = {}) => Object.assign({
     moneda_original: "MXN", importe_normalizado: "15.0000",
     moneda_normalizada: "MXN", fuente: "product_fees",
     fecha_fuente: "2026-09-08", observed_at: "2026-09-08T12:00:00+00:00",
-    vigencia: null, estado: "vigente", pertenencia: "fee"}],
+    vigencia: "2026-09-08", estado: "incluido", pertenencia: true}],
   exclusiones: ["iva_trasladado"], detalle: null,
 }, over);
 const pubCat = (id, asin, est, extra = {}) => Object.assign({
@@ -1028,19 +1033,20 @@ const pubCat = (id, asin, est, extra = {}) => Object.assign({
   ventana_hasta: "2026-08-22", historial_ads: null, elegible: true, motivos: [],
   url: "https://www.amazon.com.mx/dp/" + asin, estimacion: est,
 }, extra);
-const catalogo = {plataforma: "amazon_mx", moneda: "MXN", tipos_producto: [],
+const catalogo = {plataforma: "amazon_mx", moneda: "MXN",
+  as_of: "2026-09-08T18:00:00+00:00", tipos_producto: [],
   productos: [{id: 1, sku: "GORRA", nombre: "Gorras", publicaciones: [
     pubCat(11, "B0AAAAAAAA", sobre(), {dias_con_venta: 70}),
     pubCat(12, "B0BBBBBBBB", sobre({contribucion: "39.0000", contribucion_pct: "39.0000"}),
       {dias_con_venta: null, margen_neto_pct: null}),
     pubCat(13, "B0CCCCCCCC", sobre({estado: "incompleta", contribucion: null,
-      contribucion_pct: null, motivos: ["falta_fee"],
+      contribucion_pct: null, motivos: ["fee_ausente"],
       detalle: {contribucion: "42.5000", contribucion_pct: "36.6379",
         estado: "disponible"}})),
     pubCat(14, "B0DDDDDDDD", sobre({estado: "desactualizada", contribucion: null,
-      contribucion_pct: null, motivos: ["oferta_vencida"], exclusiones: []})),
+      contribucion_pct: null, motivos: ["oferta_desactualizada"], exclusiones: []})),
     pubCat(15, "B0EEEEEEEE", sobre({estado: "identidad_ambigua", contribucion: null,
-      contribucion_pct: null, motivos: ["ofertas_multiples"], exclusiones: []})),
+      contribucion_pct: null, motivos: ["identidad_ambigua"], exclusiones: []})),
     pubCat(16, "B0FFFFFFFF", sobre({contribucion: "0.0000", contribucion_pct: "0.0000",
       exclusiones: []})),
     pubCat(17, "B0GGGGGGGG", sobre({contribucion: "-10.0000", contribucion_pct: "-10.0000",
@@ -1063,6 +1069,7 @@ const publica = (over, est) => Object.assign({
   estimacion: est,
 }, over);
 const evaluacion = {plataforma: "amazon_mx",
+  as_of: "2026-09-08T18:00:00+00:00",
   ventana_ads: {desde: "2026-08-06", hasta: "2026-09-05"},
   orden: "margen_observado", direccion: "desc", publicaciones: [
     publica({listing_id: 11, asin: "B0AAAAAAAA", seller_sku: "SKU-A"}, sobre()),
@@ -1071,11 +1078,13 @@ const evaluacion = {plataforma: "amazon_mx",
         clicks: null, sales30d: null, purchases30d: null, acos_pct: null,
         cpc: null, cvr_pct: null}},
       sobre({estado: "incompleta", contribucion: null, contribucion_pct: null,
-        motivos: ["falta_fee"],
+        motivos: ["fee_ausente"],
         detalle: {contribucion: "42.5000", contribucion_pct: "36.6379",
           estado: "disponible"}})),
   ]};
+const llamadas = [];
 global.fetch = async (url, options = {}) => {
+  llamadas.push(String(url));
   if (url.includes("/catalogo")) return {ok: true, status: 200, json: async () => catalogo};
   if (url.includes("/lotes?")) return {ok: true, status: 200, json: async () => ({items: []})};
   if (url.includes("/evaluacion")) return {ok: true, status: 200, json: async () => evaluacion};
@@ -1113,10 +1122,16 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
   assert.match(catalogoTxt, /iva_trasladado/);
   assert.match(catalogoTxt, /39\.00 MXN/, "sin ventas sigue mostrando el estimado");
   assert.match(catalogoTxt, /Incompleta/);
+  assert.match(catalogoTxt, /Falta la cotización de comisiones/);
   assert.match(catalogoTxt, /Desactualizada/);
+  assert.match(catalogoTxt, /La oferta de publicación ya no está vigente/);
   assert.match(catalogoTxt, /Identidad ambigua/);
+  assert.match(catalogoTxt, /Hay más de una oferta compatible/);
   assert.match(catalogoTxt, /0\.00 MXN/);
   assert.match(catalogoTxt, /-10\.00 MXN/);
+  assert.ok(!/fee_ausente|oferta_desactualizada/.test(catalogoTxt)
+    || /Falta la cotización/.test(catalogoTxt),
+    "los motivos internos se traducen a texto legible");
   assert.ok(!/no disponible para anunciar/i.test(catalogoTxt));
   assert.ok(!/break-even|rentable|\bbueno\b|\bmalo\b/i.test(catalogoTxt));
   const cajas = productos.querySelectorAll('input[type="checkbox"]');
@@ -1131,6 +1146,11 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
   assert.match(desglose, /referral/);
   assert.match(desglose, /product_fees/);
   assert.match(desglose, /15\.0000/);
+  assert.match(desglose, /fecha 2026-09-08/);
+  assert.match(desglose, /captura 2026-09-08T12:00:00/);
+  assert.match(desglose, /vigencia 2026-09-08/);
+  assert.match(desglose, /estado incluido/);
+  assert.match(desglose, /pertenece al total/);
   assert.match(desglose, /S3/);
   assert.match(desglose, /3/);
   const incompleta = all(productos).filter(e => e.tagName === "li")[2];
@@ -1173,6 +1193,8 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
   assert.equal(cajasTras[0].checked, true, "Actualizar conserva la seleccion");
   assert.equal(cajasTras[0].value, "11");
   assert.match(text(el("productos")), /Contribución estimada por venta/);
+  assert.ok(llamadas.some(u => u.includes("/evaluacion") && u.includes("as_of=")),
+    "evaluacion reusa el as_of del catalogo");
   await emit("comparador-recargar", "click");
   assert.equal(cajasTras[0].checked, true, "Releer evaluacion no toca la seleccion");
   assert.match(text(el("comparador-datos")), /Contribución estimada por venta/);
