@@ -1,0 +1,41 @@
+{
+  "observed_at_utc": "2026-09-08T06:41:17Z",
+  "sources": {
+    "bridge": "SQLite consistente creado con backup() y leido mode=ro",
+    "orbit": "PostgreSQL produccion, SELECT solamente"
+  },
+  "bridge_rows": 809,
+  "orbit_amazon_listings": 518,
+  "offer_resolution": {
+    "amazon_mx_fba_resuelta": 221,
+    "amazon_mx_fbm_logistica_pendiente": 121,
+    "amazon_us_politica_pendiente": 176,
+    "oferta_ausente": 0,
+    "oferta_desactualizada": 0,
+    "identidad_ambigua": 0
+  },
+  "price_reconciliation": {
+    "resolved": 221,
+    "exact_decimal_matches": 221,
+    "all_resolved_match": true,
+    "freshest_source_fetched_at_utc": "2026-09-08T06:36:47Z"
+  },
+  "cost_validation": {
+    "latest_run_id": 109,
+    "latest_run_started_at_utc": "2026-09-07T08:15:02.734248Z",
+    "latest_run_finished_at_utc": "2026-09-07T08:15:02.736306Z",
+    "latest_run_ok": true,
+    "latest_run_rows_skipped": 0,
+    "active_cost_rows": 1089,
+    "result_for_valuation_date_2026_09_08": "costo_desactualizado",
+    "reason": "la corrida limpia del 2026-09-08 se ejecuta a las 08:15 UTC"
+  },
+  "fx_resolution": {
+    "valuation_date": "2026-09-08",
+    "pair": "USD/MXN",
+    "rate": "16.89910000",
+    "rate_date": "2026-09-04",
+    "source": "nearest_prior",
+    "within_max_age_days": 7
+  }
+}
