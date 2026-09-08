@@ -1,0 +1,514 @@
+"""Tests de la ingesta A.2 (app/reputacion.py + CLI snapshot).
+
+(a) UNITARIOS: planes puros con los shapes E/0.2-E/0.3.
+(b) CLIENTES: MockTransport (jamas red real); guardia, refresh, topes.
+(c) INTEGRACION: PG real desechable (0001+0024+0025); transaccion,
+    idempotencia, conciliacion, redaction y CLI ejecutado de verdad.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import json
+import os
+import socket
+from contextlib import contextmanager
+from pathlib import Path
+from unittest import mock
+
+import httpx
+import psycopg
+import pytest
+from psycopg import sql as pgsql
+from test_schema import _postgres_obligatorio_ausente, _test_dsn
+
+from app import cli as app_cli
+from app.redaction import REDACTED, register_secret, scrub
+from app.reputacion import (
+    ApifyCredentials,
+    ClienteJunglee,
+    ClienteMeli,
+    MeliCredentials,
+    ReputacionError,
+    ejecuta_snapshot,
+    plan_snapshot_junglee,
+    plan_snapshot_meli,
+    sync_amazon,
+    sync_meli,
+)
+
+_skip_db = pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres")
+
+UTC = dt.UTC
+OBS = dt.datetime(2026, 9, 8, 22, 0, 0, tzinfo=UTC)
+FETCH = dt.datetime(2026, 9, 8, 21, 30, 0, tzinfo=UTC)
+
+# ---------------------------------------------------------------------------
+# Fakes con los shapes E/0.3 (MeLi) y E/0.2 (junglee)
+# ---------------------------------------------------------------------------
+
+_ME = {"id": 135734858, "nickname": "ELECTRONICSHOUSE"}
+_SCAN_1 = {
+    "results": ["MLM1"],
+    "paging": {"total": 2},
+    "scroll_id": "SCROLL1",
+}
+_SCAN_2 = {"results": ["MLM0"], "paging": {"total": 2}}
+_ITEM = {"id": "MLM1", "health": 0.87, "status": "active", "sub_status": []}
+_REVIEWS_CON_DATOS = {
+    "rating_average": 4.3,
+    "paging": {"total": 4, "limit": 50, "offset": 0},
+    "rating_levels": {
+        "one_star": 0,
+        "two_star": 0,
+        "three_star": 1,
+        "four_star": 1,
+        "five_star": 2,
+    },
+    "reviews": [
+        {
+            "id": 3025304027,
+            "rate": 5,
+            "title": "Excelente",
+            "content": "Buena compra.",
+            "date_created": "2026-07-25T15:38:54Z",
+            "status": "published",
+        },
+        {
+            "id": 3025304028,
+            "rate": 1,
+            "title": "Malo",
+            "content": "Llego roto.",
+            "date_created": "2026-08-01T10:00:00Z",
+            "status": "published",
+        },
+    ],
+}
+_REVIEWS_VACIAS = {
+    "rating_average": 0,
+    "paging": {"total": 0, "limit": 50, "offset": 0},
+    "rating_levels": {
+        "one_star": 0,
+        "two_star": 0,
+        "three_star": 0,
+        "four_star": 0,
+        "five_star": 0,
+    },
+    "reviews": [],
+}
+_JUNGLEE_ITEM = {
+    "input": "https://www.amazon.com.mx/dp/B0HIJO",
+    "originalAsin": "B0HIJO",
+    "asin": "B0PADRE",
+    "title": "Arras de Boda",
+    "stars": 4.2,
+    "reviewsCount": 59,
+    "hasReviews": True,
+    "loadedCountryCode": "MX",
+    "price": {"value": 1248, "currency": "$"},
+    "brand": "EHV",
+}
+
+
+def _creds_meli(tmp_path: Path) -> MeliCredentials:
+    (tmp_path / "meli_tokens.json").write_text(
+        json.dumps(
+            {
+                "access_token": "ACCESO",
+                "refresh_token": "REFRESCO",
+                "client_id": "CID",
+                "client_secret": "CSEC",
+            }
+        ),
+        encoding="utf-8",
+    )
+    return MeliCredentials.from_secrets_dir(tmp_path)
+
+
+def _creds_apify(tmp_path: Path) -> ApifyCredentials:
+    (tmp_path / "apify_token.json").write_text(json.dumps({"token": "APIFY"}), encoding="utf-8")
+    return ApifyCredentials.from_secrets_dir(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# (a) UNITARIOS: planes puros
+# ---------------------------------------------------------------------------
+
+
+def test_plan_meli_total_cero_rating_null_count_cero():
+    """E/0.3: avg=0 con total=0 es sin-dato: NULL, no rating 0."""
+    snap, eventos, skips = plan_snapshot_meli("MLM0", {"id": "MLM0"}, _REVIEWS_VACIAS, FETCH)
+    assert snap is not None
+    assert snap.rating is None
+    assert snap.review_count == 0
+    assert eventos == []
+    assert not skips
+
+
+def test_plan_meli_con_datos_y_reviews():
+    snap, eventos, skips = plan_snapshot_meli("MLM1", _ITEM, _REVIEWS_CON_DATOS, FETCH)
+    assert snap is not None
+    assert snap.rating == 4.3
+    assert snap.review_count == 4
+    assert snap.extra["health"] == 0.87
+    assert snap.extra["levels"]["five_star"] == 2
+    assert [e.review_external_id for e in eventos] == ["3025304027", "3025304028"]
+    assert eventos[1].rating == 1
+    assert eventos[0].publicada
+    assert eventos[0].published_at == dt.datetime(2026, 7, 25, 15, 38, 54, tzinfo=UTC)
+    assert not skips
+
+
+def test_plan_meli_avg_invalido_no_inventa():
+    malas = dict(_REVIEWS_CON_DATOS, rating_average=9.9)
+    snap, _, skips = plan_snapshot_meli("MLM1", _ITEM, malas, FETCH)
+    assert snap is not None and snap.rating is None
+    assert "meli: rating_average fuera de [1,5] (NULL, no inventado)" in skips
+
+
+def test_plan_meli_review_sin_id_y_rate_malo():
+    malas = dict(
+        _REVIEWS_CON_DATOS,
+        reviews=[{"rate": 5, "title": "x"}, {"id": 9, "rate": 99, "status": "published"}],
+    )
+    snap, eventos, skips = plan_snapshot_meli("MLM1", _ITEM, malas, FETCH)
+    assert snap is not None
+    assert [e.review_external_id for e in eventos] == ["9"]
+    assert eventos[0].rating is None
+    assert "meli: review sin id (se descarta)" in skips
+    assert "meli: rate fuera de [1,5] (NULL, no inventado)" in skips
+
+
+def test_plan_meli_status_no_published():
+    una = dict(
+        _REVIEWS_CON_DATOS,
+        reviews=[dict(_REVIEWS_CON_DATOS["reviews"][0], status="moderated")],
+    )
+    _, eventos, _ = plan_snapshot_meli("MLM1", _ITEM, una, FETCH)
+    assert not eventos[0].publicada
+
+
+def test_plan_junglee_grano_padre():
+    snap, skips = plan_snapshot_junglee("B0HIJO", _JUNGLEE_ITEM, FETCH, "amazon_mx")
+    assert snap is not None
+    assert snap.external_id == "B0HIJO"  # lo pedido, no lo devuelto
+    assert snap.parent_asin == "B0PADRE"
+    assert snap.rating == 4.2
+    assert snap.review_count == 59
+    assert not skips
+
+
+def test_plan_junglee_stars_invalidas():
+    malo = dict(_JUNGLEE_ITEM, stars="buenas", reviewsCount=-3)
+    snap, skips = plan_snapshot_junglee("B0HIJO", malo, FETCH, "amazon_mx")
+    assert snap is not None and snap.rating is None and snap.review_count is None
+    assert "amazon: stars fuera de [1,5] o invalido (NULL)" in skips
+    assert "amazon: reviewsCount invalido (NULL)" in skips
+
+
+# ---------------------------------------------------------------------------
+# (b) CLIENTES con MockTransport
+# ---------------------------------------------------------------------------
+
+
+def test_cliente_meli_guardia_bloquea_post_sin_red(tmp_path):
+    def explota(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("no debio tocar la red")
+
+    cliente = ClienteMeli(_creds_meli(tmp_path), transport=httpx.MockTransport(explota))
+    with pytest.raises(ReputacionError, match="solo-GET"):
+        cliente._request("POST", "/items")
+    with pytest.raises(ReputacionError, match="solo-GET"):
+        cliente._request("DELETE", "/items/MLM1")
+    cliente.close()
+
+
+def test_cliente_meli_scan_pagina_doble(tmp_path):
+    llamadas: list = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        llamadas.append(str(request.url))
+        if "scroll_id" in str(request.url):
+            return httpx.Response(200, json=_SCAN_2)
+        return httpx.Response(200, json=_SCAN_1)
+
+    cliente = ClienteMeli(
+        _creds_meli(tmp_path), transport=httpx.MockTransport(handler), backoff_base=0
+    )
+    assert cliente.items_seller(135734858) == ["MLM1", "MLM0"]
+    assert len(llamadas) == 2
+    cliente.close()
+
+
+def test_cliente_meli_401_refresh_y_reintento_unico(tmp_path):
+    llamadas: list = []
+    estado = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        llamadas.append((request.method, request.url.path))
+        if request.url.path == "/oauth/token":
+            return httpx.Response(200, json={"access_token": "NUEVO", "refresh_token": "NUEVOR"})
+        estado["n"] += 1
+        if estado["n"] == 1:
+            return httpx.Response(401, json={"error": "expired"})
+        return httpx.Response(200, json=_ME)
+
+    cliente = ClienteMeli(
+        _creds_meli(tmp_path), transport=httpx.MockTransport(handler), backoff_base=0
+    )
+    data, _ = cliente.get("/users/me")
+    assert data["id"] == 135734858
+    # Un refresh, rewrite atomica (sin .tmp colgado) y reintento unico.
+    guardado = json.loads((tmp_path / "meli_tokens.json").read_text(encoding="utf-8"))
+    assert guardado["access_token"] == "NUEVO"
+    assert not (tmp_path / "meli_tokens.tmp").exists()
+    assert [m for m, _ in llamadas].count("POST") == 1
+    assert estado["n"] == 2
+    cliente.close()
+
+
+def test_cliente_meli_segundo_401_aborta(tmp_path):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth/token":
+            return httpx.Response(200, json={"access_token": "X", "refresh_token": "Y"})
+        return httpx.Response(401, json={"error": "expired"})
+
+    cliente = ClienteMeli(
+        _creds_meli(tmp_path), transport=httpx.MockTransport(handler), backoff_base=0
+    )
+    with pytest.raises(ReputacionError, match="401 tras refresh"):
+        cliente.get("/users/me")
+    cliente.close()
+
+
+def test_cliente_meli_429_reintenta_y_aborta(tmp_path):
+    llamadas: list = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        llamadas.append(1)
+        return httpx.Response(429, json={"error": "lento"})
+
+    cliente = ClienteMeli(
+        _creds_meli(tmp_path),
+        transport=httpx.MockTransport(handler),
+        backoff_base=0,
+        max_intentos=3,
+    )
+    with pytest.raises(ReputacionError, match="agotados 3 intentos"):
+        cliente.get("/users/me")
+    assert len(llamadas) == 3
+    cliente.close()
+
+
+def test_junglee_topes_abortan_antes_del_post(tmp_path):
+    posts: list = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        posts.append(1)
+        return httpx.Response(201, json=[])
+
+    cliente = ClienteJunglee(_creds_apify(tmp_path), transport=httpx.MockTransport(handler))
+    with pytest.raises(ReputacionError, match="max_productos"):
+        cliente.scrape_productos(["u1", "u2"], max_productos=1)
+    with pytest.raises(ReputacionError, match="tope_usd"):
+        cliente.scrape_productos(["u1"], tope_usd=0.0001)
+    assert posts == []  # cero POSTs: nada gastado
+    cliente.close()
+
+
+def test_junglee_respuesta_no_lista(tmp_path):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(201, json={"error": "raro"})
+
+    cliente = ClienteJunglee(_creds_apify(tmp_path), transport=httpx.MockTransport(handler))
+    with pytest.raises(ReputacionError, match="no-lista"):
+        cliente.scrape_productos(["u1"])
+    cliente.close()
+
+
+# ---------------------------------------------------------------------------
+# (c) INTEGRACION: PG real (0001 + 0024 + 0025)
+# ---------------------------------------------------------------------------
+
+ROOT = Path(__file__).resolve().parents[1]
+ORDEN = ("0001_initial.sql", "0024_reputacion.sql", "0025_reputacion_sin_fk.sql")
+
+
+@contextmanager
+def db_reputacion(prefijo: str = "orbit_repa2"):
+    dsn = _test_dsn()
+    db = f"{prefijo}_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(dsn, dbname=db, autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        for nombre in ORDEN:
+            conn.execute((ROOT / "migrations" / nombre).read_text(encoding="utf-8"))
+        yield conn, dsn.rsplit("/", 1)[0] + "/" + db
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()
+
+
+def _sembrar_listing(conn, odoo_sku="P-1", plataforma="amazon_mx", asin="B0X"):
+    pid = conn.execute(
+        "INSERT INTO product (odoo_sku, name) VALUES (%s, %s) RETURNING id",
+        (odoo_sku, odoo_sku),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO listing (product_id, platform, external_id) VALUES (%s, %s, %s)",
+        (pid, plataforma, asin),
+    )
+
+
+def _mock_meli_completo():
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/users/me":
+            return httpx.Response(200, json=_ME)
+        if path == "/users/135734858/items/search":
+            if "scroll_id" in str(request.url):
+                return httpx.Response(200, json=_SCAN_2)
+            return httpx.Response(200, json=_SCAN_1)
+        if path == "/items/MLM1":
+            return httpx.Response(200, json=_ITEM)
+        if path == "/reviews/item/MLM1":
+            return httpx.Response(200, json=_REVIEWS_CON_DATOS)
+        if path == "/items/MLM0":
+            return httpx.Response(200, json={"id": "MLM0", "status": "active"})
+        if path == "/reviews/item/MLM0":
+            return httpx.Response(200, json=_REVIEWS_VACIAS)
+        return httpx.Response(404, json={"error": "no mockeado"})
+
+    return httpx.MockTransport(handler)
+
+
+@_skip_db
+def test_sync_meli_completo_e_idempotente(tmp_path):
+    """2 items (1 con reviews, 1 sin): snapshots+eventos; x2 = 0 nuevas."""
+    with db_reputacion() as (conn, _dsn):
+        cliente = ClienteMeli(
+            _creds_meli(tmp_path), transport=_mock_meli_completo(), backoff_base=0
+        )
+        r1 = sync_meli(conn, cliente, OBS, OBS.date())
+        assert r1.ok and r1.filas_insertadas == 4  # 2 snapshots + 2 reviews
+        assert r1.filas_idempotentes == 0
+        nulo = conn.execute(
+            "SELECT rating, review_count FROM reputation_snapshot WHERE external_id = 'MLM0'"
+        ).fetchone()
+        assert nulo == (None, 0)
+        r2 = sync_meli(conn, cliente, OBS, OBS.date())
+        assert r2.filas_insertadas == 0
+        assert r2.filas_idempotentes == 4
+        assert conn.execute("SELECT count(*) FROM reputation_snapshot").fetchone()[0] == 2
+        assert conn.execute("SELECT count(*) FROM review_event").fetchone()[0] == 2
+        cliente.close()
+
+
+@_skip_db
+def test_sync_amazon_concilia_padre_y_ausentes(tmp_path):
+    with db_reputacion() as (conn, _dsn):
+        _sembrar_listing(conn, odoo_sku="P-1", asin="B0HIJO")
+        _sembrar_listing(conn, odoo_sku="P-2", asin="B0AUSENTE")
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(201, json=[_JUNGLEE_ITEM, {"sin": "input"}])
+
+        cliente = ClienteJunglee(_creds_apify(tmp_path), transport=httpx.MockTransport(handler))
+        resultado = sync_amazon(conn, cliente, OBS, OBS.date())
+        assert resultado.filas_insertadas == 1
+        fila = conn.execute(
+            "SELECT external_id, parent_asin, rating, review_count FROM reputation_snapshot"
+        ).fetchone()
+        assert fila[0] == "B0HIJO" and fila[1] == "B0PADRE"
+        assert float(fila[2]) == 4.2 and fila[3] == 59
+        assert "amazon: ASIN sin item en respuesta (ausente, no cero)" in resultado.skips
+        assert "amazon: item sin input conciliable (se descarta)" in resultado.skips
+        assert resultado.costo_usd == 2 * 0.0025
+        cliente.close()
+
+
+@_skip_db
+def test_corte_a_mitad_deja_cero_filas_de_hechos(tmp_path):
+    """DoD A.2: corte en plena escritura -> rollback total de hechos."""
+    with db_reputacion() as (conn, _dsn):
+        cliente = ClienteMeli(
+            _creds_meli(tmp_path), transport=_mock_meli_completo(), backoff_base=0
+        )
+        original = conn.execute
+        llamadas = {"n": 0}
+
+        def execute_cortado(query, *args, **kwargs):
+            if isinstance(query, str) and query.lstrip().startswith("INSERT INTO reput"):
+                llamadas["n"] += 1
+                if llamadas["n"] == 2:
+                    raise RuntimeError("corte simulado")
+            return original(query, *args, **kwargs)
+
+        with (
+            mock.patch.object(conn, "execute", side_effect=execute_cortado),
+            pytest.raises(RuntimeError, match="corte simulado"),
+        ):
+            sync_meli(conn, cliente, OBS, OBS.date())
+        assert conn.execute("SELECT count(*) FROM reputation_snapshot").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM review_event").fetchone()[0] == 0
+        run = conn.execute("SELECT ok, rows_written FROM ingest_run").fetchone()
+        assert run == (False, 0)  # evidencia del fallo, no hechos
+        cliente.close()
+
+
+def test_redaction_key_falsa_ausente_en_salida():
+    """DoD A.2: secreto registrado no sobrevive a scrub()."""
+    register_secret("SUPERCLAVE-FALSA-123")
+    assert "SUPERCLAVE-FALSA-123" not in scrub("fallo con SUPERCLAVE-FALSA-123 dentro")
+    assert REDACTED in scrub("fallo con SUPERCLAVE-FALSA-123 dentro")
+
+
+@_skip_db
+def test_ejecuta_snapshot_meli_fin_a_fin(tmp_path, monkeypatch, capsys):
+    with db_reputacion() as (conn, dsn_db):
+        monkeypatch.setenv("ORBIT_DSN_INGEST", dsn_db)
+        _creds_meli(tmp_path)
+        codigo = ejecuta_snapshot(
+            "meli",
+            fecha="2026-09-08",
+            observed_at=OBS,
+            transport=_mock_meli_completo(),
+            secrets_dir=tmp_path,
+        )
+        assert codigo == 0
+        resumen = json.loads(capsys.readouterr().out)
+        assert resumen["filas_insertadas"] == 4 and resumen["run_id"] is not None
+        assert conn.execute("SELECT count(*) FROM review_event").fetchone()[0] == 2
+
+
+@_skip_db
+def test_cli_snapshot_amazon_dry_run_real(tmp_path, monkeypatch, capsys):
+    """CLI ejecutado de verdad (amazon dry-run no toca red)."""
+    with db_reputacion() as (conn, dsn_db):
+        _sembrar_listing(conn, asin="B0A")
+        monkeypatch.setenv("ORBIT_DSN_INGEST", dsn_db)
+        (tmp_path / "apify_token.json").write_text('{"token": "X"}', encoding="utf-8")
+        monkeypatch.setenv("ORBIT_SECRETS_DIR", str(tmp_path))
+        codigo = app_cli.main(["reputacion", "snapshot", "--fuente", "amazon", "--dry-run"])
+        assert codigo == 0
+        assert json.loads(capsys.readouterr().out)["asins_catalogo"] == 1
+        assert conn.execute("SELECT count(*) FROM ingest_run").fetchone()[0] == 0
+
+
+def test_cli_snapshot_exit_2_sin_dsn_ni_args(monkeypatch, capsys):
+    monkeypatch.delenv("ORBIT_DSN_INGEST", raising=False)
+    assert app_cli.main(["reputacion", "snapshot", "--fuente", "meli"]) == 2
+    assert "ORBIT_DSN_INGEST" in capsys.readouterr().err
+
+
+def test_cli_snapshot_rechaza_rest_y_fecha(monkeypatch):
+    monkeypatch.setenv("ORBIT_DSN_INGEST", "postgresql://u:p@h/db")
+    assert app_cli.main(["reputacion", "snapshot", "--fuente", "meli", "--noexiste"]) == 2
+    assert app_cli.main(["reputacion", "snapshot", "--fuente", "meli", "--fecha", "ayer"]) == 2

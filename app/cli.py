@@ -34,7 +34,7 @@ import sys
 from decimal import Decimal
 from pathlib import Path
 
-from app import cobertura, costs, fx, goals_write, ledger, listings
+from app import cobertura, costs, fx, goals_write, ledger, listings, reputacion
 from app import cycle as ciclo
 from app.ads import archivar, reports, structure
 from app.db import connect
@@ -118,6 +118,20 @@ def _cycle(args) -> int:
             motivo = notas.get("motivo_skip") or notas.get("error")
             print(f"motivo: {motivo or 'ver notes del ciclo'}")
     return 0
+
+
+def _reputacion_snapshot(args) -> int:
+    """`reputacion snapshot`: ingesta A.2 por el unico camino (app/reputacion).
+
+    Envoltorio delgado: sin logica, solo despacho a ejecuta_snapshot.
+    """
+    return reputacion.ejecuta_snapshot(
+        fuente=args.fuente,
+        fecha=args.fecha,
+        dry_run=args.dry_run,
+        max_productos=args.max_productos,
+        tope_usd=args.tope_usd,
+    )
 
 
 def _ingest(args, rest: list[str]) -> int:
@@ -484,6 +498,23 @@ def main(argv: list[str] | None = None) -> int:
         help=f"'{MODO_ARCHIVADO_LIVE}' para ARCHIVAR de verdad; sin esto es ensayo",
     )
 
+    p_reput = sub.add_parser(
+        "reputacion",
+        help="reputacion v1 (REPUTACION 01 A.2; requiere ORBIT_DSN_INGEST)",
+        allow_abbrev=False,
+    )
+    reput_sub = p_reput.add_subparsers(dest="subcomando", required=True)
+    p_snap = reput_sub.add_parser(
+        "snapshot",
+        help="ingesta snapshots rating/count (+reviews MeLi)",
+        allow_abbrev=False,
+    )
+    p_snap.add_argument("--fuente", required=True, choices=("meli", "amazon"))
+    p_snap.add_argument("--fecha", default=None, help="metric_date YYYY-MM-DD")
+    p_snap.add_argument("--dry-run", action="store_true", help="red+planes, cero writes")
+    p_snap.add_argument("--max-productos", type=int, default=600)
+    p_snap.add_argument("--tope-usd", type=float, default=2.0)
+
     p_rep = sub.add_parser(
         "reponer-anuncios",
         help=(
@@ -533,6 +564,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"argumentos desconocidos para 'reponer-anuncios': {rest}", file=sys.stderr)
             return 2
         return _reponer_anuncios(args)
+    if args.comando == "reputacion":
+        # Escribe DB: tokens extra SIEMPRE error del operador (patron cycle).
+        if rest:
+            print(f"argumentos desconocidos para 'reputacion': {rest}", file=sys.stderr)
+            return 2
+        if args.subcomando == "snapshot":
+            return _reputacion_snapshot(args)
+        raise AssertionError(f"subcomando inalcanzable: {args.subcomando!r}")
     if args.comando == "archivar-anuncios":
         if rest:
             print(f"argumentos desconocidos para 'archivar-anuncios': {rest}", file=sys.stderr)
