@@ -18,7 +18,7 @@ identifican como proximos modulos; no se agregan integraciones ni motores.
 - [x] Pruebas focalizadas y regresiones en rojo/verde, Ruff y pre-commit.
 - [x] Navegador con base temporal: nueve rutas a 390/1440 px, dia y noche.
 - [x] Revision independiente: APPROVE tras corregir ACoS incompatible.
-- [ ] PR con bateria completa y harness en Quality CI.
+- [x] PR con bateria completa y harness en Quality CI. (PR #181 mergeado 2026-09-06; palomeo tardio 2026-09-08.)
 
 ## DoD
 
