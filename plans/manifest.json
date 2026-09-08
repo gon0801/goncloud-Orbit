@@ -103,7 +103,7 @@
     {
       "name": "margen-estimado-01",
       "path": "plans/margen-estimado-01.md",
-      "description": "MARGEN ESTIMADO 01 - plan formal: contribucion estimada por venta antes de Ads, separada del margen observado. 12 tareas en bloques 0/A/B; fuentes y fiscalidad por verificar antes de implementar. No cambia el plan activo de Reputacion."
+      "description": "MARGEN ESTIMADO 01 - CERRADO 2026-09-08 UTC: contribucion estimada por venta antes de Ads desplegada para FBA MX, separada del margen observado; FBM/US permanecen incompletos por contrato. PR #222, merge 9382fcb. No cambia el plan activo de Reputacion."
     },
     {
       "name": "reputacion-02",
