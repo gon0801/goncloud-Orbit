@@ -1141,6 +1141,7 @@ def _envenenar_clave_producto(
     por_clave: dict[tuple[str, str, dt.date], _FilaProducto],
     plan: list[_FilaProducto],
     envenenadas: set[tuple[str, str, dt.date]],
+    skips: Counter[str],
 ) -> None:
     """Una fila INVALIDA (metrica no numerica o sin NINGUNA metrica) envenena
     la clave (asin, sku, fecha): si otra campana del mismo producto trajo
@@ -1151,6 +1152,8 @@ def _envenenar_clave_producto(
     previa = por_clave.pop(clave, None)
     if previa is not None:
         plan.remove(previa)
+        # Los aportes fusionados ya se contaron; falta solo la fila retirada.
+        skips["fila de clave envenenada (subtotal parcial)"] += 1
     envenenadas.add(clave)
     logger.debug(
         "fila invalida envenena la clave (subtotal parcial): %s/%s %s", asin, sku, metric_date
@@ -1245,7 +1248,13 @@ def _planea_filas_productos(
         except ValueError:
             skips["fila de productos con metrica no numerica o fraccionaria"] += 1
             _envenenar_clave_producto(
-                asin, sku, metric_date, por_clave=por_clave, plan=plan, envenenadas=envenenadas
+                asin,
+                sku,
+                metric_date,
+                por_clave=por_clave,
+                plan=plan,
+                envenenadas=envenenadas,
+                skips=skips,
             )
             continue
         if all(
@@ -1263,7 +1272,13 @@ def _planea_filas_productos(
             skips["fila sin ninguna metrica"] += 1
             logger.debug("fila sin ninguna metrica: producto %s/%s %s", asin, sku, metric_date)
             _envenenar_clave_producto(
-                asin, sku, metric_date, por_clave=por_clave, plan=plan, envenenadas=envenenadas
+                asin,
+                sku,
+                metric_date,
+                por_clave=por_clave,
+                plan=plan,
+                envenenadas=envenenadas,
+                skips=skips,
             )
             continue
         if (sales_same_sku is not None and sales is not None and sales_same_sku > sales) or (
@@ -1287,7 +1302,13 @@ def _planea_filas_productos(
                 purchases,
             )
             _envenenar_clave_producto(
-                asin, sku, metric_date, por_clave=por_clave, plan=plan, envenenadas=envenenadas
+                asin,
+                sku,
+                metric_date,
+                por_clave=por_clave,
+                plan=plan,
+                envenenadas=envenenadas,
+                skips=skips,
             )
             continue
         # Negativos = dato corrupto y la corrida ABORTA (fail-closed): la

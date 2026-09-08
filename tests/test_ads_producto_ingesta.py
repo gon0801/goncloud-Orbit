@@ -351,6 +351,40 @@ def test_plan_productos_same_sku_mayor_que_total_envenena_la_clave():
     assert skips["fila de clave envenenada (subtotal parcial)"] == 1
 
 
+@pytest.mark.parametrize(
+    "metricas_invalidas",
+    [
+        {},
+        {"cost": "abc"},
+        {"sales30d": 10, "attributedSalesSameSku30d": 11},
+        {"purchases30d": 1, "purchasesSameSku30d": 2},
+    ],
+    ids=["sin_metricas", "no_numerica", "ventas_inconsistentes", "compras_inconsistentes"],
+)
+@pytest.mark.parametrize("orden", ["valida_primero", "invalida_primero", "fusion_y_reintentos"])
+def test_descartes_de_clave_invalida_cuentan_todas_las_filas(metricas_invalidas, orden):
+    """Cada fila cruda se cuenta una vez, incluso al retirar una fusion previa."""
+    identidad = {
+        "date": "2026-09-03",
+        "advertisedAsin": "B0EEEEEEE1",
+        "advertisedSku": "SKU-E",
+    }
+    valida = {**identidad, "cost": 5, "sales30d": 0}
+    invalida = {**identidad, **metricas_invalidas}
+    secuencias = {
+        "valida_primero": [valida, invalida],
+        "invalida_primero": [invalida, valida],
+        "fusion_y_reintentos": [valida, valida, invalida, valida, invalida],
+    }
+    independiente = {**valida, "advertisedSku": "SKU-INDEPENDIENTE"}
+    filas = [*secuencias[orden], independiente]
+    plan, skips = _planea_filas_productos(
+        filas, hoy=dt.date(2026, 9, 4), fecha_ini=dt.date(2026, 9, 3), fecha_fin=dt.date(2026, 9, 3)
+    )
+    assert [fila.sku for fila in plan] == ["SKU-INDEPENDIENTE"]
+    assert len(plan) + sum(skips.values()) == len(filas)
+
+
 def test_plan_productos_dos_campanas_del_mismo_asin_suman():
     """DoD B.1: filas del MISMO asin/sku en campanas DISTINTAS se SUMAN hacia
     el grano (platform, asin, sku, fecha); la metrica que un aporte trajo

@@ -594,6 +594,22 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
   assert.ok(filtrada.includes("B0CCCCCCCC"), "El filtro muestra el Sin datos");
   assert.ok(!filtrada.includes("Gasto sin ventas"), "El filtro oculta los con Ads");
   assert.equal(caja.checked, true, "El filtro no pierde la seleccion");
+  // Una consulta vieja que falla no borra los datos ni el estado de la nueva.
+  let rechazarVieja;
+  respuestas.push(
+    new Promise((resolve, reject) => { rechazarVieja = reject; }),
+    {ok: true, status: 200, json: async () => llena},
+  );
+  await emit("comparador-recargar", "click");
+  await emit("comparador-recargar", "click");
+  const tablaVigente = text(datos), estadoVigente = estado.textContent;
+  assert.ok(tablaVigente.includes("B0CCCCCCCC"), "La consulta nueva ya se mostro");
+  rechazarVieja(new Error("Fallo de una consulta anterior"));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(estado.textContent, estadoVigente, "El fallo antiguo no cambia el estado");
+  await emit("comparador-filtro");
+  assert.equal(text(datos), tablaVigente, "El fallo antiguo no borra la comparacion al filtrar");
+  assert.equal(caja.checked, true, "La seleccion sigue intacta");
   assert.equal(calls.filter(c => (c.options.method || "GET") === "GET").length, calls.length,
     "Cero escrituras: ningun POST");
 })().catch(error => { console.error(error); process.exitCode = 1; });
@@ -727,15 +743,20 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
   // Cambiar el ACoS manual a 10 refresca el comparador con objetivo=10.
   el("objetivo-origen").value = "manual_lanzamiento";
   el("objetivo-acos").value = "10";
+  const antesOrigen = consultas().length;
   await emit("objetivo-origen");
   assert.ok(consultas().some(c => c.url.includes("objetivo=10")),
     "el manual del formulario llega al comparador");
+  await new Promise(resolve => setTimeout(resolve, 500));
+  assert.equal(consultas().length, antesOrigen + 1, "El cambio de origen hace un solo GET");
   // El tipeo en el campo manual refresca con debounce (~400 ms).
+  await emit("plan", "submit");  // preview vigente antes de editar el objetivo
   const antes = consultas().length;
   el("objetivo-acos").value = "12";
   await emit("objetivo-acos", "input");
+  await emit("plan", "input");  // burbujeo del mismo evento hasta el formulario
   await new Promise(resolve => setTimeout(resolve, 500));
-  assert.ok(consultas().length > antes, "el input con debounce consulta de nuevo");
+  assert.equal(consultas().length, antes + 1, "El input y su burbujeo hacen un solo GET");
   assert.ok(consultas().at(-1).url.includes("objetivo=12"), "el debounce manda el 12");
   // El comparador jamas escribe: todas SUS consultas son GET (el POST /plan
   // es del preview, no del comparador).

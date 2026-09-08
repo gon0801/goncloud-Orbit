@@ -42,7 +42,7 @@ document.addEventListener("DOMContentLoaded", function () {
   let versionComparador = 0;
   let comparadorDatos = null;
   const intentados = new Set();
-  let temporizadorInvalidacion = null;
+  let temporizadorComparador = null;
 
   function nodo(tag, texto) {
     const elemento = document.createElement(tag);
@@ -127,8 +127,7 @@ document.addEventListener("DOMContentLoaded", function () {
       // el comparador no puede conservar etiquetas calculadas con el (hallazgo
       // cross-review 2026-09-07, 2a ronda). Debounce: invalidar dispara con
       // cada cambio del formulario, la consulta va una sola vez.
-      clearTimeout(temporizadorInvalidacion);
-      temporizadorInvalidacion = setTimeout(cargarComparador, 400);
+      programarComparador();
     }
     preview = null;
     porId("preview").hidden = true;
@@ -426,7 +425,14 @@ document.addEventListener("DOMContentLoaded", function () {
     return null;
   }
 
+  function programarComparador() {
+    clearTimeout(temporizadorComparador);
+    temporizadorComparador = setTimeout(cargarComparador, 400);
+  }
+
   async function cargarComparador() {
+    clearTimeout(temporizadorComparador);
+    temporizadorComparador = null;
     const version = ++versionComparador;
     porId("comparador-datos").replaceChildren();
     estado("comparador-estado", "Consultando la comparación…");
@@ -444,8 +450,9 @@ document.addEventListener("DOMContentLoaded", function () {
       estado("comparador-estado", (datos.publicaciones || []).length
         + " publicaciones. Sin dato al final del orden.");
     } catch (error) {
-      if (version === versionComparador) estado("comparador-estado", error.message, true);
+      if (version !== versionComparador) return;
       comparadorDatos = null;
+      estado("comparador-estado", error.message, true);
     }
   }
 
@@ -713,11 +720,7 @@ document.addEventListener("DOMContentLoaded", function () {
   // El objetivo del grupo en preparacion cambia => el comparador vuelve a
   // consultar (solo GET /evaluacion). El tipeo manual lleva debounce (~400 ms)
   // para no disparar una consulta por cada tecla.
-  let temporizadorObjetivo = null;
-  porId("objetivo-acos").addEventListener("input", () => {
-    clearTimeout(temporizadorObjetivo);
-    temporizadorObjetivo = setTimeout(cargarComparador, 400);
-  });
+  porId("objetivo-acos").addEventListener("input", programarComparador);
   porId("objetivo-origen").addEventListener("change", () => {
     actualizarObjetivoManual();
     cargarComparador();
