@@ -883,8 +883,8 @@ def test_ac11_reader_as_of_sin_datos_futuros():
 
         filas = leer_escenarios(conn, [lid], as_of=corte)
         assert len(filas) == 1
-        assert filas[0].contribucion is not None
-        assert Decimal(str(filas[0].contribucion)) != Decimal("200") - Decimal("40")
+        assert filas[0].observed_at <= corte
+        assert Decimal(str(filas[0].contribucion)) == Decimal("42.5000")
 
         vencidas = leer_escenarios(conn, [lid], as_of=NOW + timedelta(hours=7))
         assert len(vencidas) == 1
@@ -1499,6 +1499,45 @@ def test_transicion_disponible_a_ausente_reader_null():
         assert leido.estado == "incompleta"
         assert leido.contribucion is None
         assert "oferta_ausente" in leido.motivos
+
+
+@_skip_db
+def test_transicion_historica_no_usa_contexto_futuro():
+    from app.estimacion_repository import (
+        persistir_escenario,
+        sembrar_escenario_desde_refs,
+        sembrar_escenario_negativo_transicion,
+    )
+
+    with db_estimacion() as conn:
+        pid, lid = _sembrar_listing(conn)
+        _sembrar_costo(conn, pid)
+        oid = _sembrar_oferta(conn, lid, evento="evt-contexto-futuro")
+        fid = _insertar_fee(
+            conn, oid=oid, lid=lid, total="15.0000", detalles_json=FEE_DETALLES_15_JSON
+        )
+        conn.commit()
+        futuro = sembrar_escenario_desde_refs(
+            conn,
+            listing_id=lid,
+            oferta_observation_id=oid,
+            fee_observation_id=fid,
+            valoracion_date=VALORACION,
+            observed_at=NOW + timedelta(hours=1),
+        )
+        persistir_escenario(conn, futuro)
+        conn.commit()
+
+        negativa = sembrar_escenario_negativo_transicion(
+            conn,
+            listing_id=lid,
+            motivo="oferta_ausente",
+            snapshot_huella="snapshot-historico",
+            valoracion_date=VALORACION,
+            observed_at=NOW + timedelta(minutes=30),
+        )
+
+        assert negativa is None
 
 
 @_skip_db

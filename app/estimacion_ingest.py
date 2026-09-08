@@ -168,7 +168,7 @@ def _persistir_escenario_item(
 ) -> tuple[bool, bool] | None:
     """Sembra y persiste escenario; retorna (nuevo, reutilizado) o None si falla."""
     escenario_observed_at = fee_observed_at + timedelta(microseconds=1)
-    valoracion = escenario_observed_at.astimezone(UTC).date()
+    valoracion = fee_observed_at.astimezone(UTC).date()
     try:
         with conn.transaction():
             esc = sembrar_escenario_desde_refs(
