@@ -540,7 +540,7 @@ def detalle_lote(conn, lote: str) -> dict | None:
     if fila is None:
         return None
     datos = _fila_lote(fila)
-    if datos["plan"]:
+    if datos["plan"] is not None:
         try:
             plan = (
                 fp.plan_v2_desde_json(datos["plan"])
