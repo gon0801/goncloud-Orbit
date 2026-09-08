@@ -36,6 +36,8 @@ import httpx
 import pytest
 
 from app.ads.client import (
+    BID_RECOMMENDATION_PATH,
+    BID_RECOMMENDATION_VENDOR,
     LIST_REQUEST_TYPES,
     MAX_REDIRECTS,
     AdsApiError,
@@ -393,7 +395,14 @@ def test_superficie_publica_exacta():
         for name, value in vars(AdsClient).items()
         if not name.startswith("_") and callable(value)
     }
-    assert public == {"get", "list_objects", "create_report", "get_report", "download"}
+    assert public == {
+        "get",
+        "list_objects",
+        "recommend_bids",
+        "create_report",
+        "get_report",
+        "download",
+    }
 
     assert issubclass(AdsApiError, AdsClientError)
     assert issubclass(AdsAuthError, AdsClientError)
@@ -415,6 +424,50 @@ def test_post_de_mutacion_de_campanas_bloqueado():
     # y la capa del metodo publico tambien (defense in depth)
     with pytest.raises(MutationNotAllowedError):
         client.list_objects("/sp/campaigns", {}, profile_id=1)
+
+
+def test_recommend_bids_usa_path_y_vendor_v4_exactos():
+    llamadas: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        llamadas.append(request)
+        return httpx.Response(200, json={"bidRecommendations": []})
+
+    client = make_client(handler)
+    cuerpo = {
+        "recommendationType": "BIDS_FOR_NEW_AD_GROUP",
+        "asins": ["B0AAAAAAAA"],
+        "targetingExpressions": [{"type": "KEYWORD_EXACT_MATCH", "value": "arras"}],
+    }
+    respuesta = client.recommend_bids(cuerpo, profile_id=101)
+
+    assert respuesta.status_code == 200
+    assert len(llamadas) == 1
+    request = llamadas[0]
+    assert request.method == "POST"
+    assert request.url.path == BID_RECOMMENDATION_PATH
+    assert request.headers["Content-Type"] == BID_RECOMMENDATION_VENDOR
+    assert request.headers["Accept"] == BID_RECOMMENDATION_VENDOR
+    assert request.headers["Amazon-Advertising-API-Scope"] == "101"
+    assert json.loads(request.content) == cuerpo
+
+
+def test_recommend_bids_es_lectura_idempotente_y_reintenta_429():
+    llamadas: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_response()
+        llamadas.append(request)
+        if len(llamadas) == 1:
+            return httpx.Response(429, json={"error": "throttled"})
+        return httpx.Response(200, json={"bidRecommendations": []})
+
+    client = make_client(handler)
+    assert client.recommend_bids({}, profile_id=101).status_code == 200
+    assert len(llamadas) == 2
 
 
 @pytest.mark.parametrize(

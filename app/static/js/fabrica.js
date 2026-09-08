@@ -72,6 +72,8 @@ document.addEventListener("DOMContentLoaded", function () {
   let catalogoDisponible = false;
   let resumenCatalogo = null;
   let consultandoPlan = false;
+  let consultandoBids = false;
+  let sugerencias = null;
   let mutando = false;
   let preview = null;
   let loteActual = null;
@@ -186,6 +188,7 @@ document.addEventListener("DOMContentLoaded", function () {
   function actualizarBotones() {
     porId("configuracion").disabled = mutando;
     porId("previsualizar").disabled = mutando || consultandoPlan || !catalogoDisponible;
+    porId("bids-amazon").disabled = mutando || consultandoPlan || consultandoBids || !catalogoDisponible;
     porId("crear-boton").disabled = mutando || !preview || intentados.has(preview.huella);
     porId("recuperacion").disabled = mutando || !detalleDisponible;
     porId("lote-recargar").disabled = !loteActual;
@@ -209,7 +212,7 @@ document.addEventListener("DOMContentLoaded", function () {
       : (centavos / 100n) + "." + String(centavos % 100n).padStart(2, "0") + " " + moneda;
   }
 
-  function invalidar() {
+  function invalidar(conservarSugerencias = false) {
     actualizarTotal();
     revision += 1;
     if (preview !== null) {
@@ -220,6 +223,11 @@ document.addEventListener("DOMContentLoaded", function () {
       programarComparador();
     }
     preview = null;
+    if (!conservarSugerencias) {
+      sugerencias = null;
+      porId("bids-detalle").replaceChildren();
+      porId("bids-detalle").hidden = true;
+    }
     porId("preview").hidden = true;
     porId("confirmacion").value = "";
     actualizarBotones();
@@ -323,10 +331,12 @@ document.addEventListener("DOMContentLoaded", function () {
     contenedor.replaceChildren();
     mostrarPlan(contenedor, datos.plan);
     contenedor.append(nodo("h4", "Las cinco campañas"));
-    tabla(contenedor, ["Rol", "Nombre", "Presupuesto diario", "Puja inicial"], datos.campanas.map(campana => [
+    tabla(contenedor, ["Rol", "Nombre", "Presupuesto diario", "Puja predeterminada del grupo", "Fuente"], datos.campanas.map(campana => [
       etiquetas[campana.rol] || campana.rol, campana.nombre,
       campana.budget + " " + datos.plan.moneda, campana.bid + " " + datos.plan.moneda,
+      campana.fuente_bid === "amazon_v4" ? "Amazon sugerido" : "Manual",
     ]));
+    mostrarDetalleBids(contenedor, datos.bids, datos.plan.moneda);
     contenedor.append(nodo("p", "Presupuesto diario total: " + datos.presupuesto_diario_total + " " + datos.plan.moneda));
     contenedor.append(nodo("h4", "Campañas existentes para estos productos"));
     if (datos.existentes.length) {
@@ -337,6 +347,40 @@ document.addEventListener("DOMContentLoaded", function () {
     ficha(contenedor, [["Lote", datos.lote], ["Huella del plan", datos.huella]]);
     porId("preview").hidden = false;
     porId("preview-titulo").focus();
+  }
+
+  function mostrarDetalleBids(contenedor, datosPorRol, moneda, incluirFaltantes = false) {
+    if (!datosPorRol) return;
+    const conDatos = roles.filter(rol => {
+      const datos = datosPorRol[rol];
+      const recomendaciones = Array.isArray(datos) ? datos : (datos && datos.recomendaciones) || [];
+      const faltantes = Array.isArray(datos && datos.faltantes) ? datos.faltantes : [];
+      return recomendaciones.length || (incluirFaltantes && faltantes.length);
+    });
+    if (!conDatos.length) return;
+    contenedor.append(nodo("h4", "Detalle de pujas sugeridas por Amazon"));
+    conDatos.forEach(rol => {
+      const datos = datosPorRol[rol];
+      const recomendaciones = Array.isArray(datos) ? datos : (datos.recomendaciones || []);
+      contenedor.append(nodo("h5", etiquetas[rol] || rol));
+      if (recomendaciones.length) tabla(
+        contenedor,
+        ["Objetivo", "Mínimo", "Sugerido", "Máximo", "Bid efectivo"],
+        recomendaciones.map(r => [
+          r.tipo + (r.valor ? ": " + r.valor : ""),
+          r.minimo + " " + moneda,
+          r.sugerido + " " + moneda,
+          r.maximo + " " + moneda,
+          r.bid_efectivo === null || r.bid_efectivo === undefined
+            ? "Captura manual" : r.bid_efectivo + " " + moneda,
+        ]),
+      );
+      const faltantes = Array.isArray(datos && datos.faltantes) ? datos.faltantes : [];
+      if (incluirFaltantes && faltantes.length) {
+        contenedor.append(conClase("p", "alerta", "Captura manual requerida. Amazon no sugirió: "
+          + faltantes.map(r => r.tipo + (r.valor ? ": " + r.valor : "")).join(", ") + "."));
+      }
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -770,6 +814,16 @@ document.addEventListener("DOMContentLoaded", function () {
         budget: formulario.elements[rol + "_budget"].value.trim(),
         bid: formulario.elements[rol + "_bid"].value.trim(),
       };
+      if (sugerencias && sugerencias[rol] && sugerencias[rol].disponible) {
+        parametros[rol] = {
+          ...parametros[rol],
+          fuente_bid: "amazon_v4",
+          recomendaciones: sugerencias[rol].recomendaciones.map(r => ({
+            tipo: r.tipo, valor: r.valor, minimo: r.minimo,
+            sugerido: r.sugerido, maximo: r.maximo,
+          })),
+        };
+      }
     });
     const objetivo = {origen: porId("objetivo-origen").value};
     if (objetivo.origen === "manual_lanzamiento") objetivo.acos_pct = porId("objetivo-acos").value.trim();
@@ -782,10 +836,64 @@ document.addEventListener("DOMContentLoaded", function () {
     };
   }
 
+  async function cargarBidsAmazon() {
+    if (mutando || consultandoBids || !catalogoDisponible) return;
+    const listingIds = Array.from(
+      porId("productos").querySelectorAll('input[type="checkbox"]:checked')
+    ).map(input => Number(input.value));
+    const tipo = porId("tipo").value.trim();
+    const objetivo = {origen: porId("objetivo-origen").value};
+    if (objetivo.origen === "manual_lanzamiento") {
+      objetivo.acos_pct = porId("objetivo-acos").value.trim();
+    }
+    if (!listingIds.length || !tipo || !objetivo.origen
+      || (objetivo.origen === "manual_lanzamiento" && !objetivo.acos_pct)) {
+      estado("estado", "Elige publicaciones, tipo de producto y objetivo ACoS antes de consultar Amazon.", true);
+      return;
+    }
+    consultandoBids = true; actualizarBotones();
+    const version = revision;
+    estado("estado", "Consultando pujas sugeridas en Amazon…");
+    try {
+      const datos = await solicitar("/bids-sugeridos", {
+        plataforma: porId("plataforma").value,
+        tipo_producto: tipo,
+        listing_ids: listingIds,
+        objetivo,
+      });
+      if (version !== revision) {
+        estado("estado", "La configuración cambió. Consulta de nuevo las pujas de Amazon.");
+        return;
+      }
+      invalidar();
+      let cargadas = 0;
+      roles.forEach(rol => {
+        if (datos.roles[rol].disponible) {
+          formulario.elements[rol + "_bid"].value = datos.roles[rol].bid;
+          cargadas += 1;
+        }
+      });
+      sugerencias = datos.roles;
+      const detalle = porId("bids-detalle");
+      detalle.replaceChildren();
+      mostrarDetalleBids(detalle, datos.roles, porId("moneda").textContent, true);
+      detalle.hidden = false;
+      const pendientes = roles.filter(rol => !datos.roles[rol].disponible)
+        .map(rol => etiquetas[rol]).join(", ");
+      estado("estado", cargadas + " de 5 pujas sugeridas por Amazon cargadas."
+        + (pendientes ? " Captura manualmente: " + pendientes + "." : "")
+        + " Revisa presupuestos y prepara el plan.");
+    } catch (error) {
+      estado("estado", error.message, true);
+    } finally {
+      consultandoBids = false; actualizarBotones();
+    }
+  }
+
   async function revisar(evento) {
     evento.preventDefault();
     if (mutando || consultandoPlan || !catalogoDisponible || !formulario.reportValidity()) return;
-    invalidar();
+    invalidar(true);
     const solicitud = solicitudActual();
     if (!solicitud.listing_ids.length) { estado("estado", "Selecciona al menos una publicación.", true); return; }
     if (!solicitud.objetivo.origen) { estado("estado", "Selecciona el origen del objetivo ACoS.", true); return; }
@@ -837,10 +945,12 @@ document.addEventListener("DOMContentLoaded", function () {
     if (datos.plan) {
       const detalle = nodo("details"); detalle.append(nodo("summary", "Ver plan persistido del lote"));
       mostrarPlan(detalle, datos.plan);
-      if (datos.plan.parametros) tabla(detalle, ["Rol", "Presupuesto diario", "Puja inicial"], roles.map(rol => [
+      if (datos.plan.parametros) tabla(detalle, ["Rol", "Presupuesto diario", "Puja inicial", "Fuente"], roles.map(rol => [
         etiquetas[rol], datos.plan.parametros[rol].budget + " " + datos.plan.moneda,
         datos.plan.parametros[rol].bid + " " + datos.plan.moneda,
+        datos.plan.parametros[rol].fuente_bid === "amazon_v4" ? "Amazon sugerido" : "Manual",
       ]));
+      mostrarDetalleBids(detalle, datos.bids, datos.plan.moneda);
       contenedor.append(detalle);
     }
     detalleDisponible = true;
@@ -955,8 +1065,23 @@ document.addEventListener("DOMContentLoaded", function () {
     finally { token = null; mutando = false; actualizarBotones(); cargarHistorial(); }
   }
 
-  formulario.addEventListener("input", invalidar);
-  formulario.addEventListener("change", invalidar);
+  function cambioFormulario(evento) {
+    const nombre = evento.target && evento.target.name;
+    if (sugerencias && typeof nombre === "string" && nombre.endsWith("_bid")) {
+      const rol = nombre.slice(0, -4);
+      if (roles.includes(rol) && sugerencias[rol]) {
+        sugerencias[rol] = {...sugerencias[rol], disponible: false};
+      }
+      invalidar(true);
+      return;
+    }
+    const conservaSugerencias = nombre === "nombre_base" || nombre === "modo"
+      || (typeof nombre === "string" && nombre.endsWith("_budget"));
+    invalidar(conservaSugerencias);
+  }
+
+  formulario.addEventListener("input", cambioFormulario);
+  formulario.addEventListener("change", cambioFormulario);
   formulario.addEventListener("submit", revisar);
   // El objetivo del grupo en preparacion cambia => el comparador vuelve a
   // consultar (solo GET /evaluacion). El tipeo manual lleva debounce (~400 ms)
@@ -967,6 +1092,7 @@ document.addEventListener("DOMContentLoaded", function () {
     cargarComparador();
   });
   porId("crear").addEventListener("submit", crear);
+  porId("bids-amazon").addEventListener("click", cargarBidsAmazon);
   porId("accion").addEventListener("submit", ejecutarAccion);
   porId("accion-tipo").addEventListener("change", () => { porId("accion-confirmacion").value = ""; });
   porId("plataforma").addEventListener("change", () => {

@@ -4,6 +4,15 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-08 UTC — FABRICA 01 tarea 11: bids sugeridos en implementacion.**
+El dry-run inicial de la sonda mostró bids manuales de 1 MXN; el dueño pidió
+usar la recomendación de Amazon. La sonda read-only confirmó el endpoint v4
+para keywords, auto y product targeting (`PAT_ASIN`), con omisiones reales por
+objetivo. La pantalla rellenará únicamente roles cubiertos, guardará
+minimo/sugerido/maximo y fuente en la huella, y dejará manual cualquier rol
+incompleto sin fallback. La creación real sigue pendiente de un nuevo dry-run
+y del literal del dueño; cero campañas creadas.
+
 **2026-09-08 UTC — MARGEN ESTIMADO 01, bloque A implementado; CI/merge en curso.**
 A.1–A.4 incorporan snapshots append-only de oferta y Product Fees, costo/FX y
 política versionada para FBA MX, además del calculador puro de contribución por

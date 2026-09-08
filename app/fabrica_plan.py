@@ -1,20 +1,9 @@
-"""Nucleo PURO de la fabrica de campanas por grupo (FABRICA 01, spec
-docs/superpowers/specs/2026-09-05-fabrica-campanas-grupos-design.md).
+"""Nucleo PURO de FABRICA 01, sin psycopg ni httpx.
 
-Sin psycopg ni httpx: recibe lo leido de la base, devuelve el plan, sus
-payloads y su huella. tools/fabrica_campanas.py (que entra por stdin al
-contenedor y debe ser UN archivo) hace todo el IO alrededor de esto.
-
-Sellos que se REUSAN, jamas se copian (regla 2): banda [10, 45] y defaults
-de bid por moneda de app.optimizer.goals; criterio HARVEST de
-app.optimizer.hygiene; moneda por plataforma pineada contra
-app.ads.write.PLATAFORMA_MONEDA por test.
-
-HIPOTESIS hasta la sonda (tarea 11 del plan): los shapes de POST
-/sp/campaigns, /sp/adGroups y /sp/targets nunca se ejercitaron en vivo en
-este repo; el camino feliz de /sp/productAds tampoco. Los de keywords y
-negativeKeywords si (probe 2.5, archiva_inertes). Cualquier campo que la
-sonda corrija se sella aqui con su evidencia en out/.
+Recibe datos y devuelve plan, payloads y huella; el tool contiene el IO.
+Reusa los limites de bids, criterio HARVEST y moneda de sus duenos.
+Los shapes de escritura siguen como hipotesis hasta la sonda de la tarea 11;
+cualquier correccion se sella aqui con evidencia en ``out/``.
 """
 
 from __future__ import annotations
@@ -27,6 +16,14 @@ from dataclasses import dataclass, field
 from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Any
 
+from app.fabrica_bids import (
+    Expresion,
+    Recomendacion,
+    bid_objetivo,
+    error_parametro_amazon,
+    recomendaciones_como_json,
+    recomendaciones_desde_json,
+)
 from app.optimizer import goals as g
 from app.optimizer import hygiene
 from app.optimizer.bid import PLATAFORMAS_MONEDA
@@ -41,9 +38,17 @@ ROLES_ORDEN_CREACION = (
     "auto_discovery",
 )
 MATCH_POR_ROL = {"category_exact": "EXACT", "category_phrase": "PHRASE", "category_broad": "BROAD"}
+EXPRESION_BID_POR_ROL = {
+    "category_exact": "KEYWORD_EXACT_MATCH",
+    "category_phrase": "KEYWORD_PHRASE_MATCH",
+    "category_broad": "KEYWORD_BROAD_MATCH",
+    # El endpoint de recomendaciones v4 usa PAT_ASIN; el POST de creacion
+    # de targets conserva ASIN_SAME_AS (son contratos distintos).
+    "product_targeting": "PAT_ASIN",
+}
+EXPRESIONES_AUTO = ("CLOSE_MATCH", "LOOSE_MATCH", "SUBSTITUTES", "COMPLEMENTS")
 TARGETING_POR_ROL = {rol: "MANUAL" for rol in ROLES_ORDEN_CREACION}
 TARGETING_POR_ROL["auto_discovery"] = "AUTO"
-
 # Regla 2 (un numero, una fuente), aplicada a la moneda: el mapa vive en el
 # motor (app/optimizer/bid.py) y se IMPORTA — el nucleo no define el suyo
 # (candado test_una_sola_fuente_de_moneda_por_plataforma); pineado contra
@@ -131,6 +136,8 @@ class ParametrosRol:
     rol: str
     budget: Decimal
     bid: Decimal
+    fuente_bid: str = "manual"
+    recomendaciones: tuple[Recomendacion, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
@@ -280,7 +287,9 @@ def valida_objetivo_margen_v2(
         raise PlanInvalido("objetivo por margen v2 supera el margen minimo; usa manual_lanzamiento")
 
 
-def valida_parametros(parametros: dict[str, ParametrosRol], moneda: str) -> None:
+def valida_parametros(
+    parametros: dict[str, ParametrosRol], moneda: str, semillas: Semillas | None = None
+) -> None:
     """Bids dentro de [piso, techo] de SU moneda (DEFAULTS_POR_MONEDA, regla 4)
     y budgets > 0 y >= bid; los 5 roles presentes."""
     try:
@@ -298,6 +307,21 @@ def valida_parametros(parametros: dict[str, ParametrosRol], moneda: str) -> None
             raise PlanInvalido(f"bid de {rol} = {p.bid} fuera de [{piso}, {techo}] {moneda}")
         if p.budget < p.bid:
             raise PlanInvalido(f"budget de {rol} = {p.budget} < bid {p.bid}: no compra ni un clic")
+        if p.fuente_bid not in ("manual", "amazon_v4"):
+            raise PlanInvalido(f"fuente de bid invalida para {rol}: {p.fuente_bid!r}")
+        if p.fuente_bid == "manual" and p.recomendaciones:
+            raise PlanInvalido(f"bid manual de {rol} no puede llevar recomendaciones Amazon")
+        if p.fuente_bid == "amazon_v4":
+            motivo = error_parametro_amazon(p.recomendaciones, p.bid, p.budget, moneda)
+            if motivo:
+                raise PlanInvalido(f"bid Amazon de {rol}: {motivo}")
+            if semillas is not None:
+                esperadas = expresiones_bid(semillas, rol)
+                recibidas = tuple(r.expresion for r in p.recomendaciones)
+                if recibidas != esperadas:
+                    raise PlanInvalido(
+                        f"bid Amazon de {rol}: recomendaciones no cubren las semillas vigentes"
+                    )
 
 
 def monto_wire(monto: Decimal) -> float:
@@ -397,12 +421,46 @@ def semillas_desde_terminos(
     )
 
 
+def expresiones_bid(semillas: Semillas, rol: str) -> tuple[Expresion, ...]:
+    """Expresiones exactas cuyo bid inicial solicita la fabrica a Amazon."""
+    if rol == "auto_discovery":
+        return tuple(Expresion(tipo) for tipo in EXPRESIONES_AUTO)
+    if rol == "category_exact":
+        valores = semillas.exact
+    elif rol in ("category_phrase", "category_broad"):
+        valores = semillas.keywords
+    elif rol == "product_targeting":
+        valores = semillas.asins
+    else:
+        raise PlanInvalido(f"rol desconocido para sugerencias de bid: {rol}")
+    return tuple(Expresion(EXPRESION_BID_POR_ROL[rol], valor) for valor in valores)
+
+
 # ---------------------------------------------------------------------------
 # Huella y JSON del plan (dinero como STRING, regla 4)
 # ---------------------------------------------------------------------------
 
 
+def _parametro_como_json(parametro: ParametrosRol) -> dict:
+    salida = {"budget": str(parametro.budget), "bid": str(parametro.bid)}
+    if parametro.fuente_bid != "manual" or parametro.recomendaciones:
+        salida["fuente_bid"] = parametro.fuente_bid
+        salida["recomendaciones"] = recomendaciones_como_json(parametro.recomendaciones)
+    return salida
+
+
+def _parametro_desde_json(rol: str, datos: dict) -> ParametrosRol:
+    return ParametrosRol(
+        rol,
+        Decimal(datos["budget"]),
+        Decimal(datos["bid"]),
+        datos.get("fuente_bid", "manual"),
+        recomendaciones_desde_json(datos.get("recomendaciones", ())),
+    )
+
+
 def plan_como_json(plan: PlanGrupo) -> dict:
+    valida_parametros(plan.parametros, plan.moneda, plan.semillas)
     return {
         "platform": plan.platform,
         "tipo_producto": plan.tipo_producto,
@@ -421,10 +479,7 @@ def plan_como_json(plan: PlanGrupo) -> dict:
             }
             for p in plan.productos
         ],
-        "parametros": {
-            rol: {"budget": str(p.budget), "bid": str(p.bid)}
-            for rol, p in sorted(plan.parametros.items())
-        },
+        "parametros": {rol: _parametro_como_json(p) for rol, p in sorted(plan.parametros.items())},
         "target_acos_pct": str(plan.target.aplicado),
         "target_derivado_pct": str(plan.target.derivado),
         "fraccion": str(plan.target.fraccion),
@@ -498,7 +553,7 @@ def _valida_plan_v2(plan: PlanGrupoV2) -> None:
     elif plan.objetivo.fraccion is not None or plan.objetivo.derivado is not None:
         raise PlanInvalido("objetivo manual v2 no lleva fraccion ni derivado")
     valida_tipo_producto(plan.tipo_producto)
-    valida_parametros(plan.parametros, plan.moneda)
+    valida_parametros(plan.parametros, plan.moneda, plan.semillas)
 
 
 def _publicacion_v2_como_json(publicacion: PublicacionGrupoV2) -> dict:
@@ -530,7 +585,7 @@ def plan_v2_como_json(plan: PlanGrupoV2) -> dict:
             for p in sorted(plan.publicaciones, key=lambda publicacion: publicacion.listing_id)
         ],
         "parametros": {
-            rol: {"budget": str(parametro.budget), "bid": str(parametro.bid)}
+            rol: _parametro_como_json(parametro)
             for rol, parametro in sorted(plan.parametros.items())
         },
         "objetivo": {
@@ -587,10 +642,7 @@ def plan_v2_desde_json(datos: dict) -> PlanGrupoV2:
         datos["moneda"],
         datos["modo"],
         publicaciones,
-        {
-            rol: ParametrosRol(rol, Decimal(valor["budget"]), Decimal(valor["bid"]))
-            for rol, valor in datos["parametros"].items()
-        },
+        {rol: _parametro_desde_json(rol, valor) for rol, valor in datos["parametros"].items()},
         objetivo,
         Semillas(
             tuple(semillas["keywords"]),
@@ -618,10 +670,7 @@ def plan_desde_json(d: dict) -> PlanGrupo:
         )
         for p in d["productos"]
     )
-    parametros = {
-        rol: ParametrosRol(rol, Decimal(v["budget"]), Decimal(v["bid"]))
-        for rol, v in d["parametros"].items()
-    }
+    parametros = {rol: _parametro_desde_json(rol, v) for rol, v in d["parametros"].items()}
     target = ResultadoTarget(
         Decimal(d["target_acos_pct"]),
         Decimal(d["target_derivado_pct"]),
@@ -630,7 +679,7 @@ def plan_desde_json(d: dict) -> PlanGrupo:
         d["target_procedencia"],
     )
     s = d["semillas"]
-    return PlanGrupo(
+    plan = PlanGrupo(
         d["platform"],
         d["tipo_producto"],
         d["nombre_base"],
@@ -642,6 +691,8 @@ def plan_desde_json(d: dict) -> PlanGrupo:
         target,
         Semillas(tuple(s["keywords"]), tuple(s["asins"]), tuple(s["negativos"]), tuple(s["exact"])),
     )
+    valida_parametros(plan.parametros, plan.moneda, plan.semillas)
+    return plan
 
 
 # ---------------------------------------------------------------------------
@@ -669,15 +720,30 @@ def _payload_ad_group(plan: PlanCanonico, rol: str) -> dict:
     }
 
 
+def _bid_objetivo(plan: PlanCanonico, rol: str, valor: str) -> float:
+    parametro = plan.parametros[rol]
+    if parametro.fuente_bid == "manual":
+        return monto_wire(parametro.bid)
+    buscada = Expresion(EXPRESION_BID_POR_ROL[rol], valor)
+    recomendacion = next((r for r in parametro.recomendaciones if r.expresion == buscada), None)
+    if recomendacion is None:
+        raise PlanInvalido(f"Amazon no dio sugerencia para {rol}: {valor}")
+    return monto_wire(bid_objetivo(recomendacion, plan.moneda))
+
+
 def _pasos_keywords(plan: PlanCanonico, rol: str) -> list[Paso]:
-    bid = monto_wire(plan.parametros[rol].bid)
     textos = plan.semillas.exact if rol == "category_exact" else plan.semillas.keywords
     return [
         Paso(
             rol,
             "keyword",
             PATH_CREATE["keyword"],
-            {"keywordText": kw, "matchType": MATCH_POR_ROL[rol], "state": ESTADO_NUEVO, "bid": bid},
+            {
+                "keywordText": kw,
+                "matchType": MATCH_POR_ROL[rol],
+                "state": ESTADO_NUEVO,
+                "bid": _bid_objetivo(plan, rol, kw),
+            },
             f"keyword {MATCH_POR_ROL[rol]} {kw!r}",
         )
         for kw in textos
@@ -688,7 +754,6 @@ def _semillas_del_rol(plan: PlanCanonico, rol: str) -> list[Paso]:
     if rol in MATCH_POR_ROL:
         return _pasos_keywords(plan, rol)
     if rol == "product_targeting":
-        bid = monto_wire(plan.parametros[rol].bid)
         return [
             Paso(
                 rol,
@@ -698,7 +763,7 @@ def _semillas_del_rol(plan: PlanCanonico, rol: str) -> list[Paso]:
                     "expressionType": "MANUAL",
                     "expression": [{"type": "ASIN_SAME_AS", "value": asin}],
                     "state": ESTADO_NUEVO,
-                    "bid": bid,
+                    "bid": _bid_objetivo(plan, rol, asin),
                 },
                 f"target ASIN {asin}",
             )
@@ -718,6 +783,10 @@ def _semillas_del_rol(plan: PlanCanonico, rol: str) -> list[Paso]:
 
 def pasos_del_rol(plan: PlanCanonico, rol: str) -> list[Paso]:
     """Campana, ad group y un product ad por identidad elegida del plan."""
+    if isinstance(plan, PlanGrupoV2):
+        _valida_plan_v2(plan)
+    else:
+        valida_parametros(plan.parametros, plan.moneda, plan.semillas)
     publicaciones = (
         tuple(sorted(plan.publicaciones, key=lambda publicacion: publicacion.listing_id))
         if isinstance(plan, PlanGrupoV2)
@@ -818,6 +887,7 @@ def lineas_dry_run(plan: PlanGrupo) -> list[str]:
         lineas.append(
             f"{rol} | {nombre_campana(plan.tipo_producto, plan.nombre_base, rol, plan.fecha)} | "
             f"targeting={TARGETING_POR_ROL[rol]} | budget={p.budget} | bid={p.bid} | "
+            f"fuente_bid={p.fuente_bid} | "
             f"product_ads={len(plan.productos)} | semillas={conteo[rol]}"
         )
     for e in plan.existentes:

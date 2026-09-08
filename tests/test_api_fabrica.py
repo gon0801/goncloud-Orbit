@@ -494,6 +494,122 @@ def test_router_fabrica_publicado():
     _modulos()
 
 
+def test_endpoint_bids_sugeridos_valida_entrada_y_devuelve_motor(escenario, monkeypatch):
+    cliente, _, _, fw, ids = escenario
+    visto = []
+
+    def sugerir(conn, solicitud):
+        visto.append(solicitud)
+        return {"fuente": "amazon_v4", "roles": {"category_exact": {"bid": "9.80"}}}
+
+    monkeypatch.setattr(fw, "sugerir_bids", sugerir)
+    respuesta = cliente.post(
+        "/api/fabrica/bids-sugeridos",
+        json={
+            "plataforma": "amazon_mx",
+            "tipo_producto": "collar_perro",
+            "listing_ids": [ids[0]],
+            "objetivo": {"origen": "manual_lanzamiento", "acos_pct": "25.00"},
+        },
+    )
+    assert respuesta.status_code == 200
+    assert respuesta.json()["roles"]["category_exact"]["bid"] == "9.80"
+    assert visto[0]["listing_ids"] == [ids[0]]
+
+
+def test_preview_firma_procedencia_y_terna_amazon(escenario):
+    cliente, _, solicitud, _, _ = escenario
+    solicitud["parametros"]["category_phrase"].update(
+        {
+            "fuente_bid": "amazon_v4",
+            "recomendaciones": [
+                {
+                    "tipo": "KEYWORD_PHRASE_MATCH",
+                    "valor": "collar",
+                    "minimo": "3.00",
+                    "sugerido": "4.00",
+                    "maximo": "5.00",
+                }
+            ],
+        }
+    )
+    vista = _preview(cliente, solicitud)
+    parametro = vista["plan"]["parametros"]["category_phrase"]
+    assert parametro["fuente_bid"] == "amazon_v4"
+    assert parametro["recomendaciones"][0]["sugerido"] == "4.00"
+    frase = next(c for c in vista["campanas"] if c["rol"] == "category_phrase")
+    assert frase["fuente_bid"] == "amazon_v4"
+    assert vista["bids"]["category_phrase"] == [
+        {
+            "tipo": "KEYWORD_PHRASE_MATCH",
+            "valor": "collar",
+            "minimo": "3.00",
+            "sugerido": "4.00",
+            "maximo": "5.00",
+            "bid_efectivo": "4.00",
+        }
+    ]
+
+
+def test_bids_sugeridos_reales_dejan_manual_un_rol_sin_objetivos(escenario, monkeypatch):
+    cliente, conn, _, fw, ids = escenario
+    listing_id = conn.execute("SELECT id FROM listing WHERE product_id = %s", (ids[0],)).fetchone()[
+        0
+    ]
+
+    class Respuesta:
+        def __init__(self, cuerpo):
+            self.cuerpo = cuerpo
+
+        def json(self):
+            filas = []
+            for expresion in self.cuerpo["targetingExpressions"]:
+                sugerido = {
+                    "CLOSE_MATCH": "2.00",
+                    "LOOSE_MATCH": "4.00",
+                    "SUBSTITUTES": "6.00",
+                    "COMPLEMENTS": "8.00",
+                }.get(expresion["type"], "4.00")
+                filas.append(
+                    {
+                        "targetingExpression": expresion,
+                        "bidValues": [
+                            {"suggestedBid": sugerido},
+                            {"suggestedBid": sugerido},
+                            {"suggestedBid": sugerido},
+                        ],
+                    }
+                )
+            return {"bidRecommendations": [{"bidRecommendationsForTargetingExpressions": filas}]}
+
+    class ClienteAds:
+        @staticmethod
+        def recommend_bids(cuerpo, *, profile_id):
+            assert profile_id == 101
+            return Respuesta(cuerpo)
+
+    monkeypatch.setattr(fw.AdsCredentials, "from_secrets_dir", lambda: object())
+    monkeypatch.setattr(fw, "AdsClient", lambda credenciales: ClienteAds())
+    monkeypatch.setattr(fw.fc, "_perfiles", lambda cliente_ads: {"amazon_mx": 101})
+    respuesta = cliente.post(
+        "/api/fabrica/bids-sugeridos",
+        json={
+            "plataforma": "amazon_mx",
+            "tipo_producto": "collar_perro",
+            "listing_ids": [listing_id],
+            "objetivo": {"origen": "manual_lanzamiento", "acos_pct": "25.00"},
+        },
+    )
+    assert respuesta.status_code == 200, respuesta.text
+    roles = respuesta.json()["roles"]
+    assert roles["category_phrase"]["bid"] == "4.00"
+    assert roles["category_phrase"]["recomendaciones"][0]["bid_efectivo"] == "4.00"
+    assert roles["auto_discovery"]["bid"] == "5.00"
+    assert {r["bid_efectivo"] for r in roles["auto_discovery"]["recomendaciones"]} == {"5.00"}
+    assert roles["category_exact"]["disponible"] is False
+    assert roles["product_targeting"]["disponible"] is False
+
+
 def test_detalle_incierto_advierte_no_recrear_y_no_expone_respuesta(escenario, monkeypatch):
     cliente, conn, solicitud, fw, _ = escenario
     vista = _preview(cliente, solicitud)

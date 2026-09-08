@@ -64,6 +64,8 @@ class _Cuerpo(BaseModel):
 class ParametrosRol(_Cuerpo):
     budget: str = Field(min_length=1, max_length=14, pattern=r"^[0-9]+(?:\.[0-9]{1,2})?$")
     bid: str = Field(min_length=1, max_length=14, pattern=r"^[0-9]+(?:\.[0-9]{1,2})?$")
+    fuente_bid: Literal["manual", "amazon_v4"] = "manual"
+    recomendaciones: list[RecomendacionBid] = Field(default_factory=list, max_length=500)
 
     @field_validator("budget", "bid")
     @classmethod
@@ -72,6 +74,31 @@ class ParametrosRol(_Cuerpo):
         if not monto.is_finite() or not Decimal("0") < monto <= Decimal("9999999999.99"):
             raise ValueError("monto fuera del rango permitido")
         return valor
+
+    @model_validator(mode="after")
+    def procedencia_valida(self):
+        if self.fuente_bid == "manual" and self.recomendaciones:
+            raise ValueError("una puja manual no lleva recomendaciones Amazon")
+        if self.fuente_bid == "amazon_v4" and not self.recomendaciones:
+            raise ValueError("una puja Amazon exige recomendaciones")
+        return self
+
+
+class RecomendacionBid(_Cuerpo):
+    tipo: str = Field(min_length=1, max_length=60, pattern=r"^[A-Z_]+$")
+    valor: str | None = Field(default=None, max_length=500)
+    minimo: str = Field(min_length=1, max_length=14, pattern=r"^[0-9]+(?:\.[0-9]+)?$")
+    sugerido: str = Field(min_length=1, max_length=14, pattern=r"^[0-9]+(?:\.[0-9]+)?$")
+    maximo: str = Field(min_length=1, max_length=14, pattern=r"^[0-9]+(?:\.[0-9]+)?$")
+
+    @model_validator(mode="after")
+    def terna_valida(self):
+        valores = tuple(Decimal(v) for v in (self.minimo, self.sugerido, self.maximo))
+        if not all(v.is_finite() and v > 0 for v in valores) or not (
+            valores[0] <= valores[1] <= valores[2]
+        ):
+            raise ValueError("terna de bid Amazon invalida")
+        return self
 
 
 class ObjetivoPlan(_Cuerpo):
@@ -149,6 +176,20 @@ class SolicitudCrear(_Cuerpo):
     solicitud: SolicitudPlan
     huella: str = Field(pattern=r"^[a-f0-9]{64}$")
     confirmacion: Literal["CREAR 5 CAMPAÑAS"]
+
+
+class SolicitudBids(_Cuerpo):
+    plataforma: Plataforma
+    tipo_producto: str = Field(min_length=1, max_length=60, pattern=r"^[a-z0-9_]+$")
+    listing_ids: list[Identificador] = Field(min_length=1, max_length=100)
+    objetivo: ObjetivoPlan
+
+    @field_validator("listing_ids")
+    @classmethod
+    def listings_unicos(cls, valor):
+        if len(valor) != len(set(valor)):
+            raise ValueError("publicaciones repetidas")
+        return valor
 
 
 class Confirmacion(_Cuerpo):
@@ -238,6 +279,11 @@ def imagen_publicacion(
 @router.post("/plan")
 def plan(cuerpo: SolicitudPlan, conn: ConexionLectura):
     return fw.previsualizar(conn, cuerpo.model_dump())
+
+
+@router.post("/bids-sugeridos")
+def bids_sugeridos(cuerpo: SolicitudBids, conn: ConexionLectura):
+    return fw.sugerir_bids(conn, cuerpo.model_dump())
 
 
 @router.post("/crear")
