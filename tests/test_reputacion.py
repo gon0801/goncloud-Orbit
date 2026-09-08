@@ -14,6 +14,7 @@ import os
 import socket
 import stat
 import urllib.parse
+from collections import Counter
 from contextlib import contextmanager
 from pathlib import Path
 from unittest import mock
@@ -32,7 +33,9 @@ from app.reputacion import (
     ClienteMeli,
     MeliCredentials,
     ReputacionError,
+    _corre_meli,
     _pagina,
+    _plat_de_input,
     ejecuta_snapshot,
     plan_question,
     plan_seller,
@@ -807,6 +810,93 @@ def test_sync_amazon_concilia_url_normalizada_y_original(tmp_path):
         assert resultado.filas_idempotentes == 1
         assert "conciliable" not in " ".join(resultado.skips)
         cliente.close()
+
+
+def test_plat_de_input_por_dominio():
+    """Grok XR-1 R2-1: el dominio del input pedido decide la plataforma."""
+    assert _plat_de_input("https://www.amazon.com.mx/dp/B0X") == "amazon_mx"
+    assert _plat_de_input("https://amazon.com/dp/B0X/") == "amazon_us"
+    assert _plat_de_input("HTTPS://WWW.AMAZON.COM.MX/dp/B0X") == "amazon_mx"
+    assert _plat_de_input("https://www.amazon.com.br/dp/B0X") is None
+    assert _plat_de_input(None) is None
+    assert _plat_de_input("sin-esquema/dp/B0X") is None
+
+
+@_skip_db
+def test_sync_amazon_mismo_asin_mx_y_us_dos_snapshots(tmp_path):
+    """Grok XR-1 R2-1 (MEDIA): el mismo ASIN en MX+US produce 2 snapshots,
+    uno por plataforma. Sin el fix el dict colapsaba a 1+1 idempotente."""
+    with db_reputacion() as (conn, _dsn):
+        _sembrar_listing(conn, odoo_sku="P-1", asin="B0GEMELO")
+        _sembrar_listing(conn, odoo_sku="P-2", plataforma="amazon_us", asin="B0GEMELO")
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                201,
+                json=[
+                    dict(_JUNGLEE_ITEM, input="https://www.amazon.com.mx/dp/B0GEMELO"),
+                    dict(_JUNGLEE_ITEM, input="https://www.amazon.com/dp/B0GEMELO"),
+                ],
+            )
+
+        cliente = ClienteJunglee(_creds_apify(tmp_path), transport=httpx.MockTransport(handler))
+        resultado = sync_amazon(conn, cliente, OBS, OBS.date())
+        assert resultado.filas_insertadas == 2
+        assert resultado.filas_idempotentes == 0
+        plats = {
+            r[0]
+            for r in conn.execute(
+                "SELECT platform FROM reputation_snapshot WHERE external_id = 'B0GEMELO'"
+            ).fetchall()
+        }
+        assert plats == {"amazon_mx", "amazon_us"}
+        cliente.close()
+
+
+@_skip_db
+def test_sync_amazon_asin_ambiguo_sin_dominio_descarta_con_ruido(tmp_path):
+    """Mismo ASIN en MX+US pero item sin dominio (input None): no se
+    atribuye a ninguna plataforma; skip ruidoso en vez de pisar."""
+    with db_reputacion() as (conn, _dsn):
+        _sembrar_listing(conn, odoo_sku="P-1", asin="B0GEMELO")
+        _sembrar_listing(conn, odoo_sku="P-2", plataforma="amazon_us", asin="B0GEMELO")
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                201, json=[dict(_JUNGLEE_ITEM, input=None, originalAsin="B0GEMELO")]
+            )
+
+        cliente = ClienteJunglee(_creds_apify(tmp_path), transport=httpx.MockTransport(handler))
+        resultado = sync_amazon(conn, cliente, OBS, OBS.date())
+        assert resultado.filas_insertadas == 0
+        assert "amazon: ASIN en varias plataformas sin dominio (se descarta)" in resultado.skips
+        cliente.close()
+
+
+@_skip_db
+def test_corre_meli_fallo_conserva_skips_acumulados(tmp_path, monkeypatch):
+    """Grok XR-1 R2-5: si una fase red tardia falla, el sello failed
+    conserva los skips de las fases que si corrieron (no Counter vacio)."""
+    import app.reputacion as reputacion_mod
+
+    with db_reputacion() as (conn, _dsn):
+        skips_previos = Counter({"meli: scan truncado a 50 paginas (items pendientes)": 1})
+        monkeypatch.setattr(
+            reputacion_mod,
+            "fetch_meli",
+            lambda cliente: ([], [], skips_previos),
+        )
+
+        def _truena(_cliente):
+            raise RuntimeError("seller truena")
+
+        monkeypatch.setattr(reputacion_mod, "fetch_seller", _truena)
+        with pytest.raises(RuntimeError, match="seller truena"):
+            _corre_meli(conn, object(), OBS, OBS.date())
+        fila = conn.execute("SELECT ok, rows_skipped, skip_reason FROM ingest_run").fetchone()
+        assert fila[0] is False
+        assert fila[1] == 1
+        assert "scan truncado" in (fila[2] or "")
 
 
 def test_junglee_token_en_header_no_en_url(tmp_path):

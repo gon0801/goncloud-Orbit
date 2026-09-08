@@ -142,7 +142,7 @@ texto como Sin verificar. A.6 tolera cualquier combinación de fuentes caídas.
 | 0.1–0.5 | E/0.x, este plan | Lead corre sondas; dueño cierra D1–D7 |
 | A.1 | `migrations/00XX_reputacion.sql` (número se fija al aplicar contra HEAD, ≥0024; orden documentado vs B.6/F2), `tests/test_reputacion_migracion.py` | No editar migraciones existentes |
 | A.2,A.3,A.4 | `app/reputacion.py` (ingesta), `app/cli.py` (subcomando según sus convenciones), `tests/test_reputacion.py` | Un solo editor a la vez en `app/reputacion.py`; orden sugerido A.2→A.4→A.3 |
-| A.5 | `app/reputacion_alertas.py` (puro, nuevo), `app/notifica.py` (solo líneas aditivas al digest), tests propios | No cambiar formato existente del digest |
+| A.5 | `app/reputacion_alertas.py` (puro, nuevo), `app/notifica.py` (solo líneas aditivas al digest), tests propios | No cambiar formato existente del digest; lectores de `review_event` (0027: N filas por review) con DISTINCT ON por review (fila mas reciente por `observed_at`); Grok XR-1 R2-2: hoy no hay lectores, A.5 es duena de este invariante |
 | A.6 | `app/api_reputacion.py` (GET, reusa `app/api_common.py`), `app/ui.py` (ruta), `app/templates/reputacion.html` (+js/css), `app/templates/base.html` (Reputación deja "pronto"; chip Reviews se retira, la pantalla incluye pestaña reviews — objetable en 0.5), `tests/test_ui_reputacion.py` | No concurrente con otro editor de `base.html`/`ui.py` |
 | A.R/A.7 | Evidencia, `docs/DEPLOY.md`, `docs/CHAT-CONTEXT.md` | Reviewer solo lectura; lead integra y despliega |
 

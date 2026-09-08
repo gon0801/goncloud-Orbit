@@ -194,11 +194,13 @@ def _escribe_hechos(
 
 
 def _reviews_completas(
-    cliente: ClienteMeli, item_id: str, skips: Counter
+    cliente: ClienteMeli, item_id: str
 ) -> tuple[dict | None, dt.datetime | None]:
     """Todas las paginas de /reviews/item (Grok XR-1 ALTA-2: la primera
-    pagina sola dejaba fuera reviews y rompia resena_1)."""
-    opiniones, fetched = cliente.get(f"/reviews/item/{item_id}")
+    pagina sola dejaba fuera reviews y rompia resena_1; R2-4: primera
+    pagina con limit/offset explicitos para no depender del default).
+    """
+    opiniones, fetched = cliente.get(f"/reviews/item/{item_id}", {"limit": 50, "offset": 0})
     total = (opiniones.get("paging") or {}).get("total")
     if not isinstance(total, int) or total <= 0:
         return opiniones, fetched
@@ -239,7 +241,7 @@ def fetch_meli(
     for item_id in ids_items:
         try:
             item, _ = cliente.get(f"/items/{item_id}")
-            opiniones, fetched = _reviews_completas(cliente, item_id, skips)
+            opiniones, fetched = _reviews_completas(cliente, item_id)
         except ReputacionError:
             fallos += 1
             skips["meli: item fallo (se reintenta manana)"] += 1
@@ -267,6 +269,7 @@ def sync_meli(
     """Snapshots + reviews MeLi. Fase red completa, luego UNA transaccion."""
     observed_at, metric_date = _reloj(observed_at, metric_date)
     run_id = _abrir_run(conn, SOURCE_MELI)
+    skips: Counter = Counter()
     try:
         snapshots, reviews, skips = fetch_meli(cliente, max_fallos_seguidos)
         insertadas, idempotentes = _escribe_hechos(
@@ -274,7 +277,7 @@ def sync_meli(
         )
         _sellar(conn, run_id, insertadas, skips, True)
     except Exception:
-        _sellar(conn, run_id, 0, Counter(), False)
+        _sellar(conn, run_id, 0, skips, False)
         raise
     return ResultadoReputacion(
         run_id=run_id,
@@ -287,6 +290,19 @@ def sync_meli(
 
 
 _AMAZON_DOMINIOS = {"amazon_mx": "amazon.com.mx", "amazon_us": "amazon.com"}
+_DOMINIO_A_PLAT = {dom: plat for plat, dom in _AMAZON_DOMINIOS.items()}
+
+
+def _plat_de_input(entrada) -> str | None:
+    """Plataforma por dominio del input pedido a junglee. Grok XR-1 R2-1:
+    el mismo ASIN vive en MX y US; conciliar solo por ASIN pisaba una
+    plataforma en silencio (el dict colapsaba MX+US a una entrada)."""
+    if not isinstance(entrada, str) or "://" not in entrada:
+        return None
+    host = entrada.lower().split("://", 1)[1].split("/", 1)[0]
+    if host.startswith("www."):
+        host = host[4:]
+    return _DOMINIO_A_PLAT.get(host)
 
 
 def sync_amazon(
@@ -311,25 +327,38 @@ def sync_amazon(
         urls = [f"https://www.{_AMAZON_DOMINIOS[plat]}/dp/{asin}" for plat, asin in catalogo]
         # Grok XR-1 MEDIA-3: conciliar por ASIN (input u originalAsin),
         # no por string de URL (junglee normaliza: sin www, trailing /).
-        por_asin = {asin.upper(): (plat, asin) for plat, asin in catalogo}
+        # Grok XR-1 R2-1: la llave es (plataforma, ASIN): el mismo ASIN
+        # en MX+US son 2 snapshots, no uno.
+        por_asin: dict[str, list[str]] = {}
+        for plat, asin in catalogo:
+            por_asin.setdefault(asin.upper(), []).append(plat)
         items, costo_est = cliente.scrape_productos(
             urls, max_productos=max_productos, tope_usd=tope_usd
         )
         fetched = dt.datetime.now(dt.UTC)
         snapshots: list[PlanSnapshot] = []
         for item in items:
-            pedido = _asin_de_input(item.get("input")) or _asin_valido(item.get("originalAsin"))
-            conciliado = por_asin.get(pedido or "")
-            if pedido is None or conciliado is None:
+            entrada = item.get("input")
+            pedido = _asin_de_input(entrada) or _asin_valido(item.get("originalAsin"))
+            candidatos = por_asin.get(pedido or "")
+            if pedido is None or not candidatos:
                 skips["amazon: item sin ASIN conciliable (se descarta)"] += 1
                 continue
-            snap, skips_item = plan_snapshot_junglee(pedido, item, fetched, conciliado[0])
+            plat_item = _plat_de_input(entrada)
+            if plat_item in candidatos:
+                plat = plat_item
+            elif len(candidatos) == 1:
+                plat = candidatos[0]
+            else:
+                skips["amazon: ASIN en varias plataformas sin dominio (se descarta)"] += 1
+                continue
+            snap, skips_item = plan_snapshot_junglee(pedido, item, fetched, plat)
             skips.update(skips_item)
             if snap is not None:
                 snapshots.append(snap)
-        vistos = {s.external_id for s in snapshots}
-        for _plat, asin in catalogo:
-            if asin not in vistos:
+        vistos = {(s.plataforma, s.external_id.upper()) for s in snapshots}
+        for plat, asin in catalogo:
+            if (plat, asin.upper()) not in vistos:
                 skips["amazon: ASIN sin item en respuesta (ausente, no cero)"] += 1
         insertadas, idempotentes = _escribe_hechos(conn, snapshots, [], metric_date, observed_at)
         with conn.transaction():
@@ -539,7 +568,11 @@ def _abrir_run(conn: psycopg.Connection, source: str) -> int:
 
 
 def _sellar(conn: psycopg.Connection, run_id: int, ins: int, skips: Counter, ok: bool) -> None:
+    # Grok XR-1 R2-5: el sello failed conserva los skips acumulados
+    # (antes Counter() vacio: la corrida fallida perdia su detalle).
     motivo = _formato_skips(skips) if ok else "fallo la corrida"
+    if not ok and skips:
+        motivo += ": " + _formato_skips(skips)
     with conn.transaction():
         conn.execute(_SQL_SELLAR_RUN, (ins, sum(skips.values()), motivo, ok, run_id))
 
@@ -553,6 +586,7 @@ def sync_seller(
     """Una fila diaria de cuenta MeLi (level, tx, disputas)."""
     observed_at, metric_date = _reloj(observed_at, metric_date)
     run_id = _abrir_run(conn, SOURCE_SELLER)
+    skips: Counter = Counter()
     try:
         plan, skips = fetch_seller(cliente)
         insertadas, idempotentes = _escribe_todo_meli(
@@ -560,7 +594,7 @@ def sync_seller(
         )
         _sellar(conn, run_id, insertadas, skips, True)
     except Exception:
-        _sellar(conn, run_id, 0, Counter(), False)
+        _sellar(conn, run_id, 0, skips, False)
         raise
     return ResultadoReputacion(
         run_id=run_id,
@@ -581,6 +615,7 @@ def sync_questions(
     """Todas las preguntas del seller, una fila por pregunta y corrida."""
     observed_at, metric_date = _reloj(observed_at, metric_date)
     run_id = _abrir_run(conn, SOURCE_QUESTIONS)
+    skips: Counter = Counter()
     try:
         planes, skips = fetch_questions(cliente)
         insertadas, idempotentes = _escribe_todo_meli(
@@ -588,7 +623,7 @@ def sync_questions(
         )
         _sellar(conn, run_id, insertadas, skips, True)
     except Exception:
-        _sellar(conn, run_id, 0, Counter(), False)
+        _sellar(conn, run_id, 0, skips, False)
         raise
     return ResultadoReputacion(
         run_id=run_id,
@@ -682,24 +717,27 @@ def _corre_meli(
     Grok XR-1 ALTA-1: 3 syncs en serie dejaban corrida a medias (ej.
     questions truena con snapshots ya escritos). Ahora: si CUALQUIERA
     de las 3 fases red falla, cero hechos; si la escritura falla,
-    rollback total. Los 3 runs se sellan failed como evidencia.
+    rollback total. El run unico se sella failed como evidencia
+    (Grok XR-1 R2-3: antes decia "los 3 runs", stale del diseno previo).
     """
     observed_at, metric_date = _reloj(observed_at, metric_date)
     run_id = _abrir_run(conn, SOURCE_MELI)
     skips: Counter = Counter()
     try:
+        # Acumulo tras CADA fase (R2-5): si una fase tardia falla, el
+        # sello failed conserva lo de las fases que si corrieron.
         snapshots, reviews, sk_snap = fetch_meli(cliente)
-        seller, sk_seller = fetch_seller(cliente)
-        questions, sk_questions = fetch_questions(cliente)
         skips.update(sk_snap)
+        seller, sk_seller = fetch_seller(cliente)
         skips.update(sk_seller)
+        questions, sk_questions = fetch_questions(cliente)
         skips.update(sk_questions)
         insertadas, idempotentes = _escribe_todo_meli(
             conn, snapshots, reviews, seller, questions, metric_date, observed_at
         )
         _sellar(conn, run_id, insertadas, skips, True)
     except Exception:
-        _sellar(conn, run_id, 0, Counter(), False)
+        _sellar(conn, run_id, 0, skips, False)
         raise
     return {
         "fuente": "meli",
