@@ -551,6 +551,54 @@ def test_preview_firma_procedencia_y_terna_amazon(escenario):
     ]
 
 
+def test_preview_v1_rechaza_cobertura_obsoleta_como_422(escenario):
+    cliente, _, solicitud, _, _ = escenario
+    solicitud["parametros"]["category_phrase"].update(
+        {
+            "fuente_bid": "amazon_v4",
+            "recomendaciones": [
+                {
+                    "tipo": "KEYWORD_PHRASE_MATCH",
+                    "valor": "semilla anterior",
+                    "minimo": "3.00",
+                    "sugerido": "4.00",
+                    "maximo": "5.00",
+                }
+            ],
+        }
+    )
+
+    respuesta = cliente.post("/api/fabrica/plan", json=solicitud)
+
+    assert respuesta.status_code == 422
+    assert "semillas vigentes" in respuesta.json()["detail"]["mensaje"]
+
+
+@pytest.mark.parametrize("plan_ilegible", [{"schema_version": 2}, ["no es objeto"]])
+def test_detalle_lote_con_plan_ilegible_conserva_estado_y_pasos(escenario, plan_ilegible):
+    cliente, conn, _, _, _ = escenario
+    conn.execute(
+        "INSERT INTO fabrica_lote"
+        " (lote,platform,tipo_producto,nombre_base,go_literal,huella,plan,modo_goal,estado)"
+        " VALUES ('plan-ilegible','amazon_mx','collar_perro','Collar','go','sha',%s,"
+        " 'shadow','failed')",
+        (Json(plan_ilegible),),
+    )
+    conn.execute(
+        "INSERT INTO fabrica_lote_paso(lote,orden,rol,recurso,request_payload,estado)"
+        " VALUES ('plan-ilegible',1,'category_exact','campaign','{}','failed')"
+    )
+    conn.commit()
+
+    respuesta = cliente.get("/api/fabrica/lotes/plan-ilegible")
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["estado"] == "failed"
+    assert respuesta.json()["plan"] is None
+    assert respuesta.json()["bids"] is None
+    assert len(respuesta.json()["pasos"]) == 1
+
+
 def test_bids_sugeridos_reales_dejan_manual_un_rol_sin_objetivos(escenario, monkeypatch):
     cliente, conn, _, fw, ids = escenario
     listing_id = conn.execute("SELECT id FROM listing WHERE product_id = %s", (ids[0],)).fetchone()[

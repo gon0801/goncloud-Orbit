@@ -64,7 +64,10 @@ Aplican a todo el código (detalle en `docs/CONTEXTO.md`; los invariantes de tie
 
 - Español en comentarios, docstrings, tests y docs; **sin acentos en el código**. Estilo Ruff (`ruff-format`).
 - Secretos: ninguno en el repo; se cargan vía `ORBIT_SECRETS_DIR`; errores/logs redactados por `app/redaction.py`.
-- Cliente Amazon Ads: guard default-deny (GET siempre; POST solo a `/reporting/reports`); API exacta: `get`, `create_report`, `get_report`, `download`.
+- Cliente Amazon Ads: guard default-deny (GET siempre; POST solo a
+  `/reporting/reports`, rutas literales v3 `/list` de lectura y
+  `/sp/targets/bid/recommendations` de lectura); API exacta: `get`, `list_objects`,
+  `recommend_bids`, `create_report`, `get_report`, `download`.
 - Base: roles LOGIN por servicio (`orbit_ingest`/`_decide`/`_read`/`_admin`); invariante nuevo del esquema = con su test; ADRs en `COMMENT ON` y docstrings.
 - Trabajo en planes `ORBIT NN` (PR a `master` con CI verde por fase); registro en AppFlowy (**EHV Tasks**, skill `appflowy-ehv-task`): `In progress` al empezar, `Done` con notas completas.
 
