@@ -476,6 +476,7 @@ def _parametros(args) -> dict[str, fp.ParametrosRol]:
                     _decimal(fila["minimo"], "minimo Amazon"),
                     _decimal(fila["sugerido"], "sugerido Amazon"),
                     _decimal(fila["maximo"], "maximo Amazon"),
+                    fila.get("fuente", "amazon_v4"),
                 )
                 for fila in getattr(args, f"recomendaciones_{s}", ())
             ),

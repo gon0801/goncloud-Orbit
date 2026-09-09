@@ -30,6 +30,9 @@ class Recomendacion:
     minimo: Decimal
     sugerido: Decimal
     maximo: Decimal
+    # Procedencia del sugerido, firmada en huella y plan: la que devolvió
+    # Amazon o el promedio del rol (decisión del dueño 2026-09-09).
+    fuente: str = "amazon_v4"
 
 
 @dataclass(frozen=True)
@@ -37,6 +40,8 @@ class ResultadoRol:
     bid: Decimal | None
     recomendaciones: tuple[Recomendacion, ...]
     faltantes: tuple[Expresion, ...] = ()
+    # Promedio aplicado a las faltantes del rol; None si no se promedió nada.
+    promedio: Decimal | None = None
 
 
 def recomendaciones_como_json(recomendaciones: tuple[Recomendacion, ...]) -> list[dict]:
@@ -47,6 +52,7 @@ def recomendaciones_como_json(recomendaciones: tuple[Recomendacion, ...]) -> lis
             "minimo": str(r.minimo),
             "sugerido": str(r.sugerido),
             "maximo": str(r.maximo),
+            "fuente": r.fuente,
         }
         for r in recomendaciones
     ]
@@ -59,6 +65,9 @@ def recomendaciones_desde_json(filas: list[dict] | tuple) -> tuple[Recomendacion
             Decimal(fila["minimo"]),
             Decimal(fila["sugerido"]),
             Decimal(fila["maximo"]),
+            # Planes firmados antes del promedio no traen fuente: todos eran
+            # cobertura completa de Amazon (compat hacia atrás).
+            fila.get("fuente", "amazon_v4") if isinstance(fila, dict) else "amazon_v4",
         )
         for fila in filas
     )
@@ -165,19 +174,52 @@ def bid_objetivo(recomendacion: Recomendacion, moneda: str) -> Decimal:
     )
 
 
+def promedio_rol(recomendaciones: tuple[Recomendacion, ...], moneda: str) -> Decimal:
+    """Promedio simple de los sugeridos del rol, acotado por piso y techo.
+
+    Decisión del dueño 2026-09-09: las expresiones sin sugerencia usan el
+    promedio del rol en vez de pasar a manual. Sin sugerencias no hay nada
+    que promediar (regla 3) y se lanza: el rol sigue manual.
+    """
+    if not recomendaciones:
+        raise RecomendacionIncompleta("sin sugerencias para promediar el rol")
+    try:
+        piso, techo = DEFAULTS_POR_MONEDA[moneda]
+    except KeyError:
+        raise RecomendacionIncompleta(f"moneda sin limites de bid: {moneda}") from None
+    media = sum(r.sugerido for r in recomendaciones) / len(recomendaciones)
+    return min(max(media, piso), techo).quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)
+
+
 def error_parametro_amazon(
     recomendaciones: tuple[Recomendacion, ...], bid: Decimal, budget: Decimal, moneda: str
 ) -> str | None:
-    """Valida evidencia, mediana y que cada objetivo pueda comprar un clic."""
+    """Valida evidencia, mediana y que cada objetivo pueda comprar un clic.
+
+    La mediana firmada se calcula sobre las sugerencias reales de Amazon:
+    las promediadas acompañan con su fuente explícita, no entran a la mediana.
+    """
     if not recomendaciones:
         return "sin recomendaciones"
+    if any(r.fuente not in ("amazon_v4", "promedio_rol") for r in recomendaciones):
+        return "fuente de recomendacion invalida"
+    reales = tuple(r for r in recomendaciones if r.fuente == "amazon_v4")
+    if not reales:
+        return "sin recomendaciones de Amazon"
+    esperado = promedio_rol(reales, moneda)
+    if any(
+        (r.minimo, r.sugerido, r.maximo) != (esperado, esperado, esperado)
+        for r in recomendaciones
+        if r.fuente == "promedio_rol"
+    ):
+        return "promedio del rol no coincide con las sugerencias reales"
     for recomendacion in recomendaciones:
         terna = (recomendacion.minimo, recomendacion.sugerido, recomendacion.maximo)
         if not all(v.is_finite() and v > 0 for v in terna) or not (
             terna[0] <= terna[1] <= terna[2]
         ):
             return "terna invalida"
-    if bid != bid_inicial(recomendaciones, moneda):
+    if bid != bid_inicial(reales, moneda):
         return "no coincide con la mediana firmada"
     if any(budget < bid_objetivo(r, moneda) for r in recomendaciones):
         return "budget menor que un bid de objetivo sugerido"
@@ -192,7 +234,9 @@ def consultar_roles(
     asins: tuple[str, ...],
     expresiones_por_rol: dict[str, tuple[Expresion, ...]],
 ) -> dict[str, ResultadoRol]:
-    """Consulta por familia; un rol incompleto queda sin bid, nunca con fallback."""
+    """Consulta por familia; cada expresión sin sugerencia usa el promedio del
+    rol (decisión del dueño 2026-09-09). Solo el rol con CERO sugerencias
+    queda sin bid (manual): no hay nada que promediar, regla 3."""
     familias = (
         ("category_exact", "category_phrase", "category_broad"),
         ("product_targeting",),
@@ -212,11 +256,24 @@ def consultar_roles(
     salida = {}
     for rol, expresiones in expresiones_por_rol.items():
         if not expresiones:
-            salida[rol] = ResultadoRol(None, (), ())
+            salida[rol] = ResultadoRol(None, (), (), None)
             continue
-        recomendaciones = interpretar(datos_por_rol[rol], expresiones, exigir_todas=False)
-        presentes = {r.expresion for r in recomendaciones}
-        faltantes = tuple(expresion for expresion in expresiones if expresion not in presentes)
-        bid = bid_inicial(recomendaciones, moneda) if not faltantes else None
-        salida[rol] = ResultadoRol(bid, recomendaciones, faltantes)
+        reales = interpretar(datos_por_rol[rol], expresiones, exigir_todas=False)
+        if not reales:
+            salida[rol] = ResultadoRol(None, (), tuple(expresiones), None)
+            continue
+        por_expresion = {r.expresion: r for r in reales}
+        faltantes = tuple(e for e in expresiones if e not in por_expresion)
+        if not faltantes:
+            salida[rol] = ResultadoRol(bid_inicial(reales, moneda), reales, (), None)
+            continue
+        promedio = promedio_rol(reales, moneda)
+        completas = tuple(
+            por_expresion[e]
+            if e in por_expresion
+            else Recomendacion(e, promedio, promedio, promedio, "promedio_rol")
+            for e in expresiones
+        )
+        # defaultBid conserva la mediana de las sugerencias reales de Amazon.
+        salida[rol] = ResultadoRol(bid_inicial(reales, moneda), completas, (), promedio)
     return salida

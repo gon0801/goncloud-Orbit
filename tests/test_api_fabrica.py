@@ -547,6 +547,7 @@ def test_preview_firma_procedencia_y_terna_amazon(escenario):
             "sugerido": "4.00",
             "maximo": "5.00",
             "bid_efectivo": "4.00",
+            "fuente": "amazon_v4",
         }
     ]
 

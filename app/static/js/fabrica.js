@@ -71,6 +71,7 @@ document.addEventListener("DOMContentLoaded", function () {
   let asOfEstimacion = null;
   let tarjetasCatalogo = [];
   let pujaManualSinSugerencia = new Set();
+  let detallePujas = {};
   let catalogoDisponible = false;
   let resumenCatalogo = null;
   let consultandoPlan = false;
@@ -228,6 +229,7 @@ document.addEventListener("DOMContentLoaded", function () {
     if (!conservarSugerencias) {
       sugerencias = null;
       pujaManualSinSugerencia = new Set();
+      detallePujas = {};
       actualizarAvisosPujas();
       porId("bids-detalle").replaceChildren();
       porId("bids-detalle").hidden = true;
@@ -362,8 +364,21 @@ document.addEventListener("DOMContentLoaded", function () {
         semillas.forEach(semilla => lista.append(nodo("li", semilla)));
         contenedor.append(lista);
       }
+      // La repeticion por campana se deriva del preview firmado (datos.bids
+      // trae fuente por expresion): sobrevive sin estado de sesion. El aviso
+      // manual de cero sugerencias sigue usando la consulta de la sesion.
       let linea = "Puja inicial: " + (campana.fuente_bid === "amazon_v4" ? "Amazon sugerido" : "Manual");
-      if (pujaManualSinSugerencia.has(campana.rol)) linea += ". Amazon no devolvió sugerencia: puja manual";
+      if (campana.fuente_bid === "amazon_v4") {
+        const objetivos = ((datos.bids || {})[campana.rol] || []).filter(r => r.fuente === "promedio_rol");
+        const todos = ((datos.bids || {})[campana.rol] || []).length;
+        if (objetivos.length) {
+          linea += ". Amazon no devolvió sugerencia para " + objetivos.length
+            + " de " + todos + ": usan el promedio del rol ("
+            + objetivos[0].sugerido + " " + datos.plan.moneda + ")";
+        }
+      } else if (pujaManualSinSugerencia.has(campana.rol)) {
+        linea += ". Amazon no devolvió sugerencia: puja manual";
+      }
       contenedor.append(nodo("p", linea));
     });
     mostrarDetalleBids(contenedor, datos.bids, datos.plan.moneda);
@@ -379,14 +394,22 @@ document.addEventListener("DOMContentLoaded", function () {
     porId("preview-titulo").focus();
   }
 
-  // Aviso junto al campo de puja de cada rol sin sugerencia de Amazon.
-  // Solo cubre roles que Amazon dejo sin sugerencia al consultar (F4):
-  // sin consulta no hay aviso, y un override manual de una sugerencia
+  // Aviso junto al campo de puja (F4 + promedio del rol 2026-09-09):
+  // cero sugerencias => puja manual; parcial => N de M con el promedio.
+  // Sin consulta no hay aviso, y un override manual de una sugerencia
   // recibida tampoco lo genera.
   function actualizarAvisosPujas() {
     roles.forEach(rol => {
-      porId(rol + "-bid-aviso").textContent = pujaManualSinSugerencia.has(rol)
-        ? "Amazon no devolvió sugerencia: puja manual" : "";
+      const detalle = detallePujas[rol];
+      let texto = "";
+      if (detalle && !detalle.disponible) {
+        texto = "Amazon no devolvió sugerencia: puja manual";
+      } else if (detalle && detalle.disponible && detalle.promediadas > 0) {
+        texto = "Amazon no devolvió sugerencia para " + detalle.promediadas
+          + " de " + detalle.total + ": usan el promedio del rol ("
+          + detalle.promedio + " " + detalle.moneda + ")";
+      }
+      porId(rol + "-bid-aviso").textContent = texto;
     });
   }
 
@@ -899,7 +922,7 @@ document.addEventListener("DOMContentLoaded", function () {
           fuente_bid: "amazon_v4",
           recomendaciones: sugerencias[rol].recomendaciones.map(r => ({
             tipo: r.tipo, valor: r.valor, minimo: r.minimo,
-            sugerido: r.sugerido, maximo: r.maximo,
+            sugerido: r.sugerido, maximo: r.maximo, fuente: r.fuente,
           })),
         };
       }
@@ -954,6 +977,17 @@ document.addEventListener("DOMContentLoaded", function () {
       });
       sugerencias = datos.roles;
       pujaManualSinSugerencia = new Set(roles.filter(rol => !datos.roles[rol].disponible));
+      detallePujas = {};
+      roles.forEach(rol => {
+        const info = datos.roles[rol] || {};
+        detallePujas[rol] = {
+          disponible: !!info.disponible,
+          promediadas: Number(info.promediadas) || 0,
+          total: (info.recomendaciones || []).length,
+          promedio: info.promedio,
+          moneda: porId("moneda").textContent,
+        };
+      });
       actualizarAvisosPujas();
       const detalle = porId("bids-detalle");
       detalle.replaceChildren();
