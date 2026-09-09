@@ -9,11 +9,11 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from pathlib import Path
 
 import httpx
 import pytest
 
+from app.redaction import scrub
 from app.spapi.client import (
     MERCADOS,
     RUTA_ORDERS_NUEVA,
@@ -382,8 +382,7 @@ def test_un_solo_refresh_con_dos_modulos_en_mismo_proceso(tmp_path, monkeypatch)
     assert fotos.obtener("amazon_mx", "B0849JWYD8") == (b"\xff\xd8\xfffoto", "image/jpeg")
     assert lwa["n"] == 1
     assert compartido.refreshes == 1
-    assert "tk-compartido" not in json.dumps({"x": 1})
-    _ = Path(tmp_path)
+    assert "tk-compartido" not in scrub("eco tk-compartido fin")
 
 
 def test_rechazo_lwa_es_error_tipado_con_status():
@@ -438,3 +437,124 @@ def test_fees_usa_compartido_con_defaults_produccion():
         assert mock._spapi is not uno._spapi
     finally:
         canon._COMPARTIDOS.clear()
+
+
+def test_refresh_forzado_coordinado_un_solo_post():
+    """F2: dos 401 con el mismo token viejo producen un solo POST a LWA."""
+    lwa = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            lwa["n"] += 1
+            return httpx.Response(200, json={"access_token": f"TK-{lwa['n']}", "expires_in": 3600})
+        return httpx.Response(200, json={"payload": {}})
+
+    cliente = _cliente(handler)
+    viejo = cliente._acceso()
+    assert viejo == "TK-1"
+    nuevo = cliente._acceso(forzar=True, rechazado=viejo)
+    assert nuevo == "TK-2"
+    # El segundo 401 llega con el mismo token viejo cuando el nuevo ya esta
+    # instalado: reusar sin POST.
+    assert cliente._acceso(forzar=True, rechazado=viejo) == "TK-2"
+    assert lwa["n"] == 2
+
+
+def test_fees_403_invalida_token_y_fotos_refresca():
+    """F1: 403 en fees invalida el compartido; fotos hace POST nuevo a LWA."""
+    from app.estimacion_fees import ProductFeesClient, cotizar_oferta
+    from app.estimacion_insumos import (
+        FilaOfertaBridge,
+        OfertaResuelta,
+        construir_canonical_input,
+        construir_context_fingerprint,
+        construir_source_event_id,
+    )
+    from app.publicacion_fotos import FotosPublicacion
+
+    lwa = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            lwa["n"] += 1
+            return httpx.Response(200, json={"access_token": f"T{lwa['n']}", "expires_in": 3600})
+        if request.url.path.endswith("/feesEstimate"):
+            return httpx.Response(403, json={})
+        if "/catalog/2022-04-01/items/" in request.url.path:
+            return httpx.Response(
+                200,
+                json={
+                    "asin": "B0849JWYD8",
+                    "images": [
+                        {
+                            "marketplaceId": "A1AM78C64UM0Y8",
+                            "images": [
+                                {
+                                    "variant": "MAIN",
+                                    "link": "https://m.media-amazon.com/images/I/prueba.jpg",
+                                    "width": 500,
+                                    "height": 500,
+                                }
+                            ],
+                        }
+                    ],
+                },
+            )
+        return httpx.Response(
+            200, content=b"\xff\xd8\xfffoto", headers={"Content-Type": "image/jpeg"}
+        )
+
+    transport = httpx.MockTransport(handler)
+    reloj = _reloj()
+    creds = {
+        "lwa_app_id": "id-f1",
+        "lwa_client_secret": "secreto-f1",
+        "refresh_token": "refresh-f1",
+    }
+    compartido_f1 = SpapiClient(
+        credentials=creds,
+        transport=transport,
+        sleep=lambda _s: None,
+        clock=reloj,
+    )
+    fetched = datetime(2026, 9, 8, 11, 0, 0, tzinfo=UTC)
+    ahora = datetime(2026, 9, 8, 12, 0, 0, tzinfo=UTC)
+    fila = FilaOfertaBridge(
+        seller_sku="SS-MX-1",
+        asin="B0EST01",
+        marketplace_id="A1AM78C64UM0Y8",
+        marketplace_name="amazon_mx",
+        price=116.0,
+        fulfillment_channel="AMAZON_NA",
+        fetched_at=fetched.isoformat(),
+    )
+    precio = Decimal("116.0000")
+    canon = construir_canonical_input(fila, "amazon_mx", "fba", precio, "MXN")
+    oferta = OfertaResuelta(
+        listing_id=1,
+        platform="amazon_mx",
+        seller_sku="SS-MX-1",
+        asin="B0EST01",
+        canal="fba",
+        price_amount=precio,
+        price_currency="MXN",
+        fetched_at=fetched,
+        canonical_input=canon,
+        context_fingerprint=construir_context_fingerprint("fba", precio, "MXN", fetched),
+        source_event_id=construir_source_event_id(canon),
+    )
+    fees = ProductFeesClient(
+        credentials=dict(creds),
+        transport=transport,
+        sleep=lambda _s: None,
+        clock=reloj,
+        spapi_client=compartido_f1,
+    )
+    fotos = FotosPublicacion(transport=transport, spapi_client=compartido_f1)
+    resultado = cotizar_oferta(fees, oferta, observed_at=ahora)
+    assert resultado.estado == "error"
+    assert resultado.error_code == "fee_http_403"
+    assert lwa["n"] == 1
+    # El token quedo invalidado: fotos refresca (POST 2) y sale con T2.
+    assert fotos.obtener("amazon_mx", "B0849JWYD8") == (b"\xff\xd8\xfffoto", "image/jpeg")
+    assert lwa["n"] == 2

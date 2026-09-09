@@ -367,13 +367,22 @@ class SpapiClient:
             register_secret(valor)
         return campos
 
-    def _acceso(self, *, forzar: bool = False) -> str:
+    def _acceso(self, *, forzar: bool = False, rechazado: str | None = None) -> str:
         with self._lock:
             if (
                 not forzar
                 and self._token is not None
                 and self._clock() < self._vence - TOKEN_MARGEN_SEGUNDOS
             ):
+                return self._token
+            if (
+                forzar
+                and rechazado is not None
+                and self._token is not None
+                and self._token != rechazado
+            ):
+                # Otro consumidor ya refresco tras nuestro 401: el instalado
+                # vale, sin POST nuevo (F2).
                 return self._token
             with httpx.Client(transport=self._transport, timeout=self._timeout) as client:
                 resp = client.post(
@@ -423,7 +432,7 @@ class SpapiClient:
                 resp = client.get(url, params=params, headers={"x-amz-access-token": token})
                 if resp.status_code == 401 and forzados < 1:
                     forzados += 1
-                    token = self._acceso(forzar=True)
+                    token = self._acceso(forzar=True, rechazado=token)
                     continue
                 if resp.status_code == 429 and reintentos < 1:
                     reintentos += 1
@@ -455,7 +464,7 @@ class SpapiClient:
                 )
                 if resp.status_code == 401 and forzados < 1:
                     forzados += 1
-                    token = self._acceso(forzar=True)
+                    token = self._acceso(forzar=True, rechazado=token)
                     continue
                 if resp.status_code == 429 and reintentos < 1:
                     reintentos += 1

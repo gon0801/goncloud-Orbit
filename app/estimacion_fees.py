@@ -623,6 +623,11 @@ class ProductFeesClient:
             except httpx.HTTPError:
                 raise FeesClientError("fee_http_error") from None
 
+            if response.status_code in (401, 403):
+                # Token rechazado: descarta el compartido ANTES de fallar para
+                # que el siguiente consumidor refresque (F1); 403 conserva su
+                # codigo, 401 sale por la rama generica como fee_http_401.
+                self._spapi.invalidar_token()
             if response.status_code == 403:
                 raise FeesClientError("fee_http_403")
             if response.status_code in RETRYABLE_STATUSES:
