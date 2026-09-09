@@ -446,17 +446,20 @@ def test_refresh_forzado_coordinado_un_solo_post():
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "api.amazon.com":
             lwa["n"] += 1
-            return httpx.Response(200, json={"access_token": f"TK-{lwa['n']}", "expires_in": 3600})
+            return httpx.Response(
+                200,
+                json={"access_token": f"tk-spapi-client-fixture-{lwa['n']}", "expires_in": 3600},
+            )
         return httpx.Response(200, json={"payload": {}})
 
     cliente = _cliente(handler)
     viejo = cliente._acceso()
-    assert viejo == "TK-1"
+    assert viejo == "tk-spapi-client-fixture-1"
     nuevo = cliente._acceso(forzar=True, rechazado=viejo)
-    assert nuevo == "TK-2"
+    assert nuevo == "tk-spapi-client-fixture-2"
     # El segundo 401 llega con el mismo token viejo cuando el nuevo ya esta
     # instalado: reusar sin POST.
-    assert cliente._acceso(forzar=True, rechazado=viejo) == "TK-2"
+    assert cliente._acceso(forzar=True, rechazado=viejo) == "tk-spapi-client-fixture-2"
     assert lwa["n"] == 2
 
 
@@ -477,7 +480,10 @@ def test_fees_403_invalida_token_y_fotos_refresca():
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "api.amazon.com":
             lwa["n"] += 1
-            return httpx.Response(200, json={"access_token": f"T{lwa['n']}", "expires_in": 3600})
+            return httpx.Response(
+                200,
+                json={"access_token": f"tk-spapi-f1-fixture-{lwa['n']}", "expires_in": 3600},
+            )
         if request.url.path.endswith("/feesEstimate"):
             return httpx.Response(403, json={})
         if "/catalog/2022-04-01/items/" in request.url.path:

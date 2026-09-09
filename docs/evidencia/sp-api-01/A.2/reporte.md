@@ -1,0 +1,76 @@
+# SP-API 01 / A.2 — Ingesta Orders (evidencia)
+
+Base: `origin/master` post-A.1 (merge #237). Rama: `feat/sp-api-01-a2`.
+Plan: `plans/sp-api-01.md` tarea A.2. D2 citada: ninguna escritura en
+`listing` (solo lee `MERCADOS` del cliente para el `marketplace_id`).
+
+## Que cambia
+- Migración `0030_spapi_orders.sql`: `spapi_order_observation` append-only
+  con unicidad `(amazon_order_id, last_updated_time)` (clave de E/0.1),
+  dinero `(valor, moneda)` con CHECK parejo (regla 4), trigger
+  `spapi_order_tiempo_coherente` (purchase <= updated, no en CHECK), índice
+  `(platform, last_updated_time)`, GRANTs (`app_ingest` escribe,
+  `app_read/_decide/_admin` leen, como 0028). Sin columnas de comprador ni
+  dirección.
+- `app/spapi/orders.py`: `parsear_orden` (resumen 2026-01-01, tolerante a
+  alias v0; identidad exigida, resto ausente = NULL), `parametros_ventana`
+  (`lastUpdatedAfter` = max − 1 día de solape; primera: `createdAfter` 30
+  días, Zulu), `recorrer_ordenes` (guardas token repetido / página vacía,
+  status != 200 fatal), `ejecutar_ingesta` (abre/sella `ingest_run`
+  `spapi_orders`, `ON CONFLICT DO NOTHING` contado como skip, sello
+  ok=false best-effort), `main` (`--platform`, fail-closed sin DSN).
+- `app/cli.py`: pipeline `spapi_orders` en choices, ayuda y despacho.
+
+## Que NO toca
+- `app/ads/*`, `listing`, `/salud`, `app/notifica.py`, cron, producción.
+  Primera corrida real la hace el dueño tras el deploy (brief).
+
+## Conciliación contra E/0.1 (MockTransport)
+Fixture con las claves reales del acta (`orderId`, `createdTime`,
+`lastUpdatedTime`, `orderItems`, `salesChannel`, `pagination.nextToken`):
+2 páginas, 4 resúmenes (3 válidos + 1 sin tiempo) → 3 filas, run sellada
+`ok=true, rows_written=3, rows_skipped=1 ("1x sin_identidad")`, total
+`100.0000 MXN` verificado en base. Re-corrida: 0 escritas, `duplicada` al
+skip, conteo total 3 (idempotente). Segunda ventana:
+`lastUpdatedAfter=2026-09-07T11:00:00Z` (= max − 1 día); primera:
+`createdAfter=2026-08-10T12:00:00Z` (30 días, Zulu).
+
+## Comandos y salidas (sin secretos)
+`uv run --frozen python -m pytest -q tests/test_spapi_orders.py`
+→ `23 passed` (0 skips: Postgres local vivo; migración 0001+0030 aplicada
+en BD desechable, con unicidad, triggers, append-only y grants ±
+verificados). `tests/test_redaction.py` → `2 passed`.
+Focal ampliado (spapi_client, sonda, fees, fotos, arquitectura, cli)
+→ `174 passed`.
+Mutante (regla 9): sin la guarda `next_token_repetido` el test falla
+(`1 failed`); con ella, verde. Archivo restaurado íntegro (`diff` vacío).
+`ruff check` + `ruff format --check` → verde.
+`pre-commit run --all-files` → verde.
+
+## Ronda única del lead (F1–F6, un commit)
+- F1: `register_secret` ignora valores < 8 chars (un corto redactaba medio
+  universo: el token "T" de fixture rompia "nextToken"; demostrado rojo con
+  2 failed y verde con 2 passed en `tests/test_redaction.py` nuevo);
+  fixtures con tokens largos y únicos (≥ 16 chars).
+- F2: triggers `spapi_order_append_only` (UPDATE/DELETE por fila) y
+  `spapi_order_append_only_truncate` (por sentencia), reusando
+  `prohibir_mutacion()` de 0001; UPDATE/DELETE verificados que truenan
+  (`RestrictViolation`, el ERRCODE real del patron).
+- F3: `recorrer_ordenes` fatal (`contrato inesperado: sin lista orders`,
+  sella ok=false) si el contenedor no es dict, falta la clave `orders` u
+  `orders` no es lista; lista vacía con clave presente sigue válida
+  (ventana sin pedidos). Tres tests parametrizados + uno de vacía válida.
+- F4: token bucket por corrida en `orders.py` (capacidad 20, recarga
+  0.0056/s, E/0.1; reloj/espera del cliente): 20 páginas sin espera, la
+  21ª espera ≈ 178 s (test con reloj falso). Sin Redis/colas por stack.
+- F5: clave `UNIQUE (platform, amazon_order_id, last_updated_time)` y
+  `ON CONFLICT` en consecuencia; misma orden+tiempo en otra plataforma sí
+  entra (test).
+- F6: permisos negativos (`app_read`/`app_decide` sin INSERT, `app_ingest`
+  sin UPDATE/DELETE) con `has_table_privilege`.
+
+## Cierre
+DoD A.2: pytest focal verde (199 con arquitectura y cli), re-corrida sin
+duplicar, E/A.2 conciliada contra 0.1. Regla 8: sin SELECT previo
+aplicable (tabla nueva, cero filas en producción; invariante de dominio
+fuente, no de dato existente). No se tocó el plan ni `plans/ROADMAP.md`.

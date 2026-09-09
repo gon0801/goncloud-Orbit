@@ -1,0 +1,606 @@
+"""Tests SP-API 01 A.2 — ingesta Orders 2026-01-01.
+
+(a) UNITARIOS: parseo de resumenes (acta 0.1), ventana, paginacion con las
+dos guardas TRASPASO-1. Cero red real (httpx.MockTransport), cero DB.
+(b) INTEGRACION: migracion 0030 (unicidad, trigger, grants) e ingesta
+punta a punta idempotente en Postgres de test (skipea sin ORBIT_TEST_DSN).
+"""
+
+from __future__ import annotations
+
+import os
+import socket
+from contextlib import contextmanager
+from datetime import UTC, datetime
+from decimal import Decimal
+from pathlib import Path
+
+import httpx
+import pytest
+from test_schema import _postgres_obligatorio_ausente, _test_dsn
+
+from app.spapi import orders
+from app.spapi.client import SpapiClient
+
+ROOT = Path(__file__).resolve().parents[1]
+ORDEN = ("0001_initial.sql", "0030_spapi_orders.sql")
+
+AHORA = datetime(2026, 9, 9, 12, 0, 0, tzinfo=UTC)
+CRED = {
+    "lwa_app_id": "id-orders",
+    "lwa_client_secret": "secreto-orders",
+    "refresh_token": "refresh-orders",
+}
+
+_TOKEN_LWA = "tk-spapi-orders-fixture-lwa"
+
+_skip_db = pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres")
+
+
+def _resumen(order_id="MX-1", **mas):
+    base = {
+        "orderId": order_id,
+        "createdTime": "2026-09-08T10:00:00Z",
+        "lastUpdatedTime": "2026-09-08T11:00:00Z",
+        "salesChannel": "Amazon.com.mx",
+    }
+    base.update(mas)
+    return base
+
+
+def test_parsea_resumen_completo_2026():
+    orden = orders.parsear_orden(
+        _resumen(
+            orderStatus="Shipped",
+            fulfillmentChannel="AFN",
+            orderTotal={"Amount": 599.0, "CurrencyCode": "MXN"},
+            orderItems=[{"x": 1}, {"x": 2}],
+        )
+    )
+    assert orden.amazon_order_id == "MX-1"
+    assert orden.purchase_date == datetime(2026, 9, 8, 10, 0, 0, tzinfo=UTC)
+    assert orden.last_updated_time == datetime(2026, 9, 8, 11, 0, 0, tzinfo=UTC)
+    assert orden.order_status == "Shipped"
+    assert orden.fulfillment_channel == "AFN"
+    assert orden.sales_channel == "Amazon.com.mx"
+    assert orden.total_amount == Decimal("599.0000")
+    assert orden.total_currency == "MXN"
+    assert orden.number_of_items == 2
+
+
+def test_parsea_minimo_con_nulos():
+    orden = orders.parsear_orden(
+        {
+            "orderId": "MX-2",
+            "createdTime": "2026-09-08T10:00:00Z",
+            "lastUpdatedTime": "2026-09-08T11:00:00Z",
+        }
+    )
+    assert orden.order_status is None
+    assert orden.fulfillment_channel is None
+    assert orden.sales_channel is None
+    assert orden.total_amount is None
+    assert orden.total_currency is None
+    assert orden.number_of_items is None
+
+
+def test_parsea_alias_v0():
+    orden = orders.parsear_orden(
+        {
+            "AmazonOrderId": "MX-3",
+            "PurchaseDate": "2026-09-08T10:00:00Z",
+            "LastUpdateDate": "2026-09-08T11:00:00Z",
+            "OrderStatus": "Pending",
+            "FulfillmentChannel": "MFN",
+            "SalesChannel": "Amazon.com",
+            "OrderTotal": {"Amount": "10.50", "CurrencyCode": "USD"},
+        }
+    )
+    assert orden.amazon_order_id == "MX-3"
+    assert orden.total_amount == Decimal("10.5000")
+    assert orden.total_currency == "USD"
+
+
+def test_omite_sin_identidad_o_tiempo():
+    for cuerpo in (
+        {"lastUpdatedTime": "2026-09-08T11:00:00Z"},
+        {"orderId": "MX-x"},
+        {"orderId": "MX-x", "lastUpdatedTime": "no-es-fecha"},
+        "no-es-dict",
+    ):
+        with pytest.raises(orders.OrdenOmitida):
+            orders.parsear_orden(cuerpo)
+
+
+def test_omite_tiempo_incoherente():
+    with pytest.raises(orders.OrdenOmitida, match="tiempo_incoherente"):
+        orders.parsear_orden(
+            _resumen(
+                createdTime="2026-09-08T12:00:00Z",
+                lastUpdatedTime="2026-09-08T11:00:00Z",
+            )
+        )
+
+
+def test_total_incoherente_da_nulos_sin_omitir():
+    for total in (
+        {"Amount": 5.0},
+        {"Amount": 5.0, "CurrencyCode": "EUR"},
+        {"Amount": "basura", "CurrencyCode": "MXN"},
+        "no-es-dict",
+    ):
+        orden = orders.parsear_orden(_resumen(orderTotal=total))
+        assert (orden.total_amount, orden.total_currency) == (None, None)
+
+
+def test_items_varias_formas():
+    assert orders.parsear_orden(_resumen(orderItems=3)).number_of_items == 3
+    assert orders.parsear_orden(_resumen(orderItems={"count": 4})).number_of_items == 4
+    assert orders.parsear_orden(_resumen(orderItems=-1)).number_of_items is None
+    assert orders.parsear_orden(_resumen()).number_of_items is None
+
+
+def test_ventana_primera_y_segunda_corrida():
+    mid = "A1AM78C64UM0Y8"
+    primera = orders.parametros_ventana(marketplace_id=mid, ultimo_observado=None, ahora=AHORA)
+    assert primera["createdAfter"] == "2026-08-10T12:00:00Z"
+    assert "lastUpdatedAfter" not in primera
+    segunda = orders.parametros_ventana(
+        marketplace_id=mid,
+        ultimo_observado=datetime(2026, 9, 8, 11, 0, 0, tzinfo=UTC),
+        ahora=AHORA,
+    )
+    assert segunda["lastUpdatedAfter"] == "2026-09-07T11:00:00Z"
+    assert "createdAfter" not in segunda
+
+
+def _cliente(paginas, *, llamadas=None):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return httpx.Response(200, json={"access_token": _TOKEN_LWA, "expires_in": 3600})
+        if llamadas is not None:
+            llamadas.append(request)
+        token = request.url.params.get("paginationToken")
+        if token is None:
+            cuerpo = paginas[0]
+        else:
+            cuerpo = next((p for p in paginas if p.get("token_entrada") == token), None)
+            if cuerpo is None:
+                return httpx.Response(200, json={"payload": {"orders": []}})
+        return httpx.Response(200, json=cuerpo["cuerpo"])
+
+    return SpapiClient(
+        credentials=CRED,
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _s: None,
+        clock=lambda: 1000.0,
+    )
+
+
+def _pagina(ordenes, token=None):
+    cuerpo: dict = {"payload": {"orders": ordenes}}
+    if token is not None:
+        cuerpo["payload"]["pagination"] = {"nextToken": token}
+    return {"cuerpo": cuerpo}
+
+
+def test_recorre_varias_paginas():
+    paginas = [
+        _pagina([_resumen("A-1")], token="T1"),
+        {"token_entrada": "T1", "cuerpo": {"payload": {"orders": [_resumen("A-2")]}}},
+    ]
+    cliente = _cliente(paginas)
+    crudas, info = orders.recorrer_ordenes(cliente, {"marketplaceIds": "X"}, max_paginas=5)
+    assert [o["orderId"] for o in crudas] == ["A-1", "A-2"]
+    assert info["paginas"] == 2
+    assert info["aviso_paginacion"] is None
+
+
+def test_token_repetido_para_y_marca():
+    paginas = [
+        _pagina([_resumen("A-1")], token="T"),
+        {
+            "token_entrada": "T",
+            "cuerpo": {"payload": {"orders": [_resumen("A-2")], "pagination": {"nextToken": "T"}}},
+        },
+    ]
+    cliente = _cliente(paginas)
+    crudas, info = orders.recorrer_ordenes(cliente, {"marketplaceIds": "X"}, max_paginas=5)
+    assert info["aviso_paginacion"] == "next_token_repetido"
+    assert info["paginas"] == 2
+
+
+def test_pagina_vacia_con_token_para_y_marca():
+    paginas = [
+        _pagina([_resumen("A-1")], token="T2"),
+        {
+            "token_entrada": "T2",
+            "cuerpo": {"payload": {"orders": [], "pagination": {"nextToken": "T3"}}},
+        },
+    ]
+    cliente = _cliente(paginas)
+    crudas, info = orders.recorrer_ordenes(cliente, {"marketplaceIds": "X"}, max_paginas=5)
+    assert info["aviso_paginacion"] == "pagina_vacia_con_token"
+    assert len(crudas) == 1
+
+
+@pytest.mark.parametrize(
+    "cuerpo",
+    [
+        {"payload": {"pagination": {"nextToken": "X"}}},
+        {"payload": [1, 2]},
+        {"payload": {"orders": {"no": "lista"}}},
+        [{"orderId": "suelta"}],
+    ],
+)
+def test_contrato_inesperado_es_fatal(cuerpo):
+    cliente = _cliente([{"cuerpo": cuerpo}])
+    with pytest.raises(orders.IngestaOrdersError, match="contrato inesperado"):
+        orders.recorrer_ordenes(cliente, {"marketplaceIds": "X"})
+
+
+def test_lista_vacia_con_clave_es_valida():
+    cliente = _cliente([{"cuerpo": {"payload": {"orders": []}}}])
+    crudas, info = orders.recorrer_ordenes(cliente, {"marketplaceIds": "X"})
+    assert crudas == []
+    assert info["paginas"] == 1
+    assert info["aviso_paginacion"] is None
+
+
+def test_limitador_20_paginas_y_la_21_espera():
+    dormidas: list = []
+    reloj = {"v": 5000.0}
+    paginas = []
+    for i in range(21):
+        cuerpo: dict = {"payload": {"orders": [{"orderId": f"B-{i}"}]}}
+        if i < 20:
+            cuerpo["payload"]["pagination"] = {"nextToken": f"Q{i}"}
+        entrada: dict = {"cuerpo": cuerpo}
+        if i > 0:
+            entrada["token_entrada"] = f"Q{i - 1}"
+        paginas.append(entrada)
+
+    llamadas: list = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return httpx.Response(200, json={"access_token": _TOKEN_LWA, "expires_in": 3600})
+        llamadas.append(request)
+        token = request.url.params.get("paginationToken")
+        if token is None:
+            cuerpo = paginas[0]
+        else:
+            cuerpo = next((p for p in paginas if p.get("token_entrada") == token), None)
+            assert cuerpo is not None
+        return httpx.Response(200, json=cuerpo["cuerpo"])
+
+    cliente = SpapiClient(
+        credentials=CRED,
+        transport=httpx.MockTransport(handler),
+        sleep=dormidas.append,
+        clock=lambda: reloj["v"],
+    )
+    crudas, info = orders.recorrer_ordenes(cliente, {"marketplaceIds": "X"}, max_paginas=25)
+    assert len(crudas) == 21
+    assert len([r for r in llamadas if r.url.host != "api.amazon.com"]) == 21
+    assert len(dormidas) == 1
+    assert dormidas[0] == pytest.approx(1 / 0.0056, abs=0.01)
+
+
+def test_status_no_200_es_fatal():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return httpx.Response(200, json={"access_token": _TOKEN_LWA, "expires_in": 3600})
+        return httpx.Response(500, json={})
+
+    cliente = SpapiClient(
+        credentials=CRED,
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _s: None,
+        clock=lambda: 1000.0,
+    )
+    with pytest.raises(orders.IngestaOrdersError, match="status=500"):
+        orders.recorrer_ordenes(cliente, {"marketplaceIds": "X"})
+
+
+# ---------------------------------------------------------------------------
+# (b) INTEGRACION
+# ---------------------------------------------------------------------------
+
+
+@contextmanager
+def db_orders(prefijo: str = "orbit_spapi_a2"):
+    psycopg = pytest.importorskip("psycopg")
+    from psycopg import sql as pgsql
+
+    dsn = _test_dsn()
+    db = f"{prefijo}_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(dsn, dbname=db, autocommit=False)
+        conn.execute("SET TIME ZONE 'UTC'")
+        for nombre in ORDEN:
+            conn.execute((ROOT / "migrations" / nombre).read_text(encoding="utf-8"))
+        conn.commit()
+        yield conn
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()
+
+
+@_skip_db
+def test_migracion_unicidad_trigger_y_grants():
+    import psycopg
+
+    with db_orders() as conn:
+        fila = (
+            "MX-1",
+            "amazon_mx",
+            "A1AM78C64UM0Y8",
+            datetime(2026, 9, 8, 10, 0, 0, tzinfo=UTC),
+            datetime(2026, 9, 8, 11, 0, 0, tzinfo=UTC),
+            "Shipped",
+            "AFN",
+            "Amazon.com.mx",
+            Decimal("599.0000"),
+            "MXN",
+            2,
+            "2026-01-01",
+            datetime(2026, 9, 9, 12, 0, 0, tzinfo=UTC),
+            None,
+        )
+        conn.execute(
+            "INSERT INTO spapi_order_observation"
+            " (amazon_order_id, platform, marketplace_id, purchase_date,"
+            " last_updated_time, order_status, fulfillment_channel, sales_channel,"
+            " order_total_amount, order_total_currency, number_of_items,"
+            " api_version, observed_at, ingest_run_id)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            fila,
+        )
+        # Unicidad (plataforma, orden, actualizacion): el duplicado truena.
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            conn.execute(
+                "INSERT INTO spapi_order_observation"
+                " (amazon_order_id, platform, marketplace_id,"
+                " last_updated_time, observed_at)"
+                " VALUES (%s, %s, %s, %s, %s)",
+                (
+                    "MX-1",
+                    "amazon_mx",
+                    "A1AM78C64UM0Y8",
+                    datetime(2026, 9, 8, 11, 0, 0, tzinfo=UTC),
+                    datetime(2026, 9, 9, 12, 0, 0, tzinfo=UTC),
+                ),
+            )
+        conn.rollback()
+        # Misma orden y tiempo en otra plataforma: fila distinta, si entra.
+        # Se commitea para que UPDATE/DELETE de abajo tengan fila que mutar
+        # (cada rollback previo vacia lo no commiteado).
+        conn.execute(
+            "INSERT INTO spapi_order_observation"
+            " (amazon_order_id, platform, marketplace_id,"
+            " last_updated_time, observed_at)"
+            " VALUES (%s, %s, %s, %s, %s)",
+            (
+                "MX-1",
+                "amazon_us",
+                "ATVPDKIKX0DER",
+                datetime(2026, 9, 8, 11, 0, 0, tzinfo=UTC),
+                datetime(2026, 9, 9, 12, 0, 0, tzinfo=UTC),
+            ),
+        )
+        conn.commit()
+        # Trigger: compra posterior a la actualizacion truena.
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(
+                "INSERT INTO spapi_order_observation"
+                " (amazon_order_id, platform, marketplace_id, purchase_date,"
+                " last_updated_time, observed_at)"
+                " VALUES (%s, %s, %s, %s, %s, %s)",
+                (
+                    "MX-2",
+                    "amazon_mx",
+                    "A1AM78C64UM0Y8",
+                    datetime(2026, 9, 8, 12, 0, 0, tzinfo=UTC),
+                    datetime(2026, 9, 8, 11, 0, 0, tzinfo=UTC),
+                    datetime(2026, 9, 9, 12, 0, 0, tzinfo=UTC),
+                ),
+            )
+        conn.rollback()
+        # Append-only real: UPDATE y DELETE truenan aunque el rol pudiera
+        # (prohibir_mutacion levanta restrict_violation, patron 0001).
+        with pytest.raises(psycopg.errors.RestrictViolation):
+            conn.execute(
+                "UPDATE spapi_order_observation SET sales_channel = 'x'"
+                " WHERE amazon_order_id = 'MX-1'"
+            )
+        conn.rollback()
+        with pytest.raises(psycopg.errors.RestrictViolation):
+            conn.execute("DELETE FROM spapi_order_observation WHERE amazon_order_id = 'MX-1'")
+        conn.rollback()
+        # Grants: la tabla es legible y la secuencia usable.
+        assert conn.execute(
+            "SELECT has_table_privilege('app_read', 'spapi_order_observation', 'SELECT')"
+        ).fetchone()[0]
+        assert conn.execute(
+            "SELECT has_table_privilege('app_ingest', 'spapi_order_observation', 'INSERT')"
+        ).fetchone()[0]
+        # Permisos negativos: lectura no escribe, ingesta no muta historia.
+        assert not conn.execute(
+            "SELECT has_table_privilege('app_read', 'spapi_order_observation', 'INSERT')"
+        ).fetchone()[0]
+        assert not conn.execute(
+            "SELECT has_table_privilege('app_decide', 'spapi_order_observation', 'INSERT')"
+        ).fetchone()[0]
+        assert not conn.execute(
+            "SELECT has_table_privilege('app_ingest', 'spapi_order_observation', 'UPDATE')"
+        ).fetchone()[0]
+        assert not conn.execute(
+            "SELECT has_table_privilege('app_ingest', 'spapi_order_observation', 'DELETE')"
+        ).fetchone()[0]
+
+
+def _handler_fixture(paginas, llamadas):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return httpx.Response(200, json={"access_token": _TOKEN_LWA, "expires_in": 3600})
+        llamadas.append(request)
+        token = request.url.params.get("paginationToken")
+        if token is None:
+            cuerpo = paginas[0]
+        else:
+            cuerpo = next(
+                (p for p in paginas if p.get("token_entrada") == token),
+                {"cuerpo": {"payload": {"orders": []}}},
+            )
+        return httpx.Response(200, json=cuerpo["cuerpo"])
+
+    return handler
+
+
+def _fixture_dos_paginas():
+    return [
+        {
+            "cuerpo": {
+                "payload": {
+                    "orders": [
+                        _resumen(
+                            "MX-10",
+                            createdTime="2026-09-07T10:00:00Z",
+                            lastUpdatedTime="2026-09-07T11:00:00Z",
+                            orderStatus="Shipped",
+                            orderTotal={"Amount": 100.0, "CurrencyCode": "MXN"},
+                            orderItems=[{}, {}],
+                        ),
+                        {
+                            "orderId": "MX-11",
+                            "createdTime": "2026-09-07T12:00:00Z",
+                            "lastUpdatedTime": "2026-09-07T13:00:00Z",
+                            "salesChannel": "Amazon.com.mx",
+                        },
+                        {"orderId": "MX-sin-tiempo"},
+                    ],
+                    "pagination": {"nextToken": "P2"},
+                }
+            }
+        },
+        {
+            "token_entrada": "P2",
+            "cuerpo": {
+                "payload": {
+                    "orders": [
+                        _resumen(
+                            "MX-12",
+                            createdTime="2026-09-08T10:00:00Z",
+                            lastUpdatedTime="2026-09-08T11:00:00Z",
+                        )
+                    ]
+                }
+            },
+        },
+    ]
+
+
+@_skip_db
+def test_ingesta_punta_a_punta_idempotente_y_ventana():
+    llamadas: list = []
+    paginas = _fixture_dos_paginas()
+    cliente = SpapiClient(
+        credentials=CRED,
+        transport=httpx.MockTransport(_handler_fixture(paginas, llamadas)),
+        sleep=lambda _s: None,
+        clock=lambda: 1000.0,
+    )
+    with db_orders() as conn:
+        primera = orders.ejecutar_ingesta(
+            conn, cliente, platform="amazon_mx", ahora=AHORA, max_paginas=5
+        )
+        assert primera.ok
+        assert primera.escritas == 3
+        assert primera.paginas == 2
+        assert primera.aviso_paginacion is None
+        # Primera corrida usa createdAfter de 30 dias.
+        assert llamadas[0].url.params.get("createdAfter") == "2026-08-10T12:00:00Z"
+        assert "lastUpdatedAfter" not in llamadas[0].url.params
+        run = conn.execute(
+            "SELECT ok, rows_written, rows_skipped, skip_reason FROM ingest_run WHERE id = %s",
+            (primera.run_id,),
+        ).fetchone()
+        assert run[0] is True
+        assert run[1] == 3
+        assert run[2] == 1
+        assert run[3] == "1x sin_identidad"
+        assert conn.execute("SELECT count(*) FROM spapi_order_observation").fetchone()[0] == 3
+        total = conn.execute(
+            "SELECT order_total_amount, order_total_currency FROM spapi_order_observation"
+            " WHERE amazon_order_id = 'MX-10'"
+        ).fetchone()
+        assert (total[0], total[1]) == (Decimal("100.0000"), "MXN")
+
+        # Re-corrida con el mismo fixture: idempotente, duplicadas al skip.
+        llamadas.clear()
+        segunda = orders.ejecutar_ingesta(
+            conn, cliente, platform="amazon_mx", ahora=AHORA, max_paginas=5
+        )
+        assert segunda.escritas == 0
+        assert conn.execute("SELECT count(*) FROM spapi_order_observation").fetchone()[0] == 3
+        run2 = conn.execute(
+            "SELECT rows_written, rows_skipped, skip_reason FROM ingest_run WHERE id = %s",
+            (segunda.run_id,),
+        ).fetchone()
+        assert run2[0] == 0
+        assert "duplicada" in (run2[2] or "")
+        # Segunda corrida usa lastUpdatedAfter = max - 1 dia de solape.
+        params2 = llamadas[0].url.params
+        assert params2.get("lastUpdatedAfter") == "2026-09-07T11:00:00Z"
+        assert "createdAfter" not in params2
+
+
+@_skip_db
+def test_fallo_http_sella_ok_false():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return httpx.Response(200, json={"access_token": _TOKEN_LWA, "expires_in": 3600})
+        return httpx.Response(500, json={})
+
+    cliente = SpapiClient(
+        credentials=CRED,
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _s: None,
+        clock=lambda: 1000.0,
+    )
+    with db_orders() as conn:
+        with pytest.raises(orders.IngestaOrdersError):
+            orders.ejecutar_ingesta(conn, cliente, platform="amazon_mx", ahora=AHORA)
+        run = conn.execute(
+            "SELECT ok, rows_written FROM ingest_run ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        assert run[0] is False
+        assert run[1] == 0
+
+
+def test_cli_sin_dsn_falla_cerrado(monkeypatch):
+    from app import cli
+
+    monkeypatch.delenv("ORBIT_DSN_INGEST", raising=False)
+    assert cli.main(["ingest", "spapi_orders", "--platform", "amazon_mx"]) == 2
+
+
+def test_cli_registra_pipeline():
+    import subprocess
+    import sys
+
+    proc = subprocess.run(
+        [sys.executable, "-m", "app.cli", "ingest", "--help"],
+        capture_output=True,
+        text=True,
+        cwd=str(ROOT),
+    )
+    assert "spapi_orders" in proc.stdout
