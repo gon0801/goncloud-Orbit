@@ -24,7 +24,8 @@ evidencia de implementación y validación.
 - Criterio doc: cambia precio en ambas plataformas con historial.
 - Realidad: 0%. Precondición `margen-estimado-01` cerrada para FBA MX;
   FBM y Amazon US siguen como ampliaciones explícitas.
-- Gaps: sin stub; necesita SP-API Pricing/Competitivo (ver Fase 0).
+- Gaps: sin stub; necesita SP-API Pricing/Competitivo (ver Fase 0;
+  plan de lecturas: `plans/sp-api-01.md`).
 
 ### M2 Campañas por API — Amazon IMPLEMENTADO / CIERRE OPERATIVO PENDIENTE
 
@@ -57,12 +58,16 @@ evidencia de implementación y validación.
 ### M5 Envíos — SIN PLAN (stub pendiente)
 
 - Criterio doc: lista ambas plataformas con estado actualizado.
-- Realidad: 0%. Depende: Orders APIs (SP-API + MeLi Orders/Shipments).
+- Realidad: 0%. Depende: Orders APIs (SP-API + MeLi Orders/Shipments;
+  lado SP-API en `plans/sp-api-01.md`).
 
 ### Fase 0 (modelos + auth APIs) — PARCIAL
 
-- Ads API + MeLi OAuth: sí. SP-API (Orders/Pricing/Listings): sin
-  plan. Gap: bloquea M1, M5 y reputación v2 parcial.
+- Ads API + MeLi OAuth: sí. SP-API: la auth LWA ya vive en
+  producción (`app/estimacion_fees.py` + `app/publicacion_fotos.py`, dos
+  refrescadores ad hoc por consolidar); plan de lecturas en
+  `plans/sp-api-01.md` (Fase 0 Por probar, D1–D7 abiertas; escribir el plan
+  no cierra nada). Gap: bloquea M1, M5 y reputación v2 parcial.
 - Transversales: tokens 600/uid (NO cifrados at rest — gap
   declarado); sin colas/Redis por decisión (desviación consciente
   del doc); observabilidad de integraciones parcial.
@@ -71,7 +76,8 @@ evidencia de implementación y validación.
 
 1. Cierres operativos: sonda real `fabrica-01` tarea 11 y después
    `orbit-05` 2.3/2.5 cuando exista un harvest natural.
-2. SP-API auth + lecturas (stub nuevo: `sp-api-01`) — desbloquea M1,
+2. SP-API auth + lecturas (plan: `plans/sp-api-01.md`; la auth LWA ya
+   funciona en producción, Fase 0 Por probar, D1–D7 abiertas) — desbloquea M1,
    M5, reputación v2.
 3. `repricing-01` (stub nuevo) — M1.
 4. `meli-ads-01` proposal-only (stub nuevo) — cierra M2.
@@ -89,8 +95,9 @@ evidencia de implementación y validación.
 - **Lead**: colas chicas (orbit-05
   2.3/2.5, bids-01 1.5, orbit-02 3.4); sonda real fábrica (tarea
   11, decide el lead); causa conciliación ventas/compras
-  (orbit-19/0.3, no demostrada); stubs SP-API/repricing/
-  meli-ads/promociones/envíos; REP-FOLLOW-1/3 (opcionales).
+  (orbit-19/0.3, no demostrada); stubs repricing/meli-ads/
+  promociones/envíos (SP-API ya planeado: `plans/sp-api-01.md`,
+  D1–D7 cerradas 2026-09-09); REP-FOLLOW-1/3 (opcionales).
 - **Higiene**: `cortes-ui-01` deduplicado en manifest 2026-09-08
   (quedó la entry con 1.2 pendiente de confirmación del dueño).
 

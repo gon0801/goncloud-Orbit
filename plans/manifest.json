@@ -109,6 +109,11 @@
       "name": "reputacion-02",
       "path": "plans/reputacion-02.md",
       "description": "REPUTACION 02 - PENDIENTE OFICIAL v2 (stub, sin brief): borrador IA con checkpoint humano, Account Health, Buy Box, fakes. No iniciar sin brief del dueno."
+    },
+    {
+      "name": "sp-api-01",
+      "path": "plans/sp-api-01.md",
+      "description": "SP-API 01 — PLAN (no implementado) 2026-09-09 UTC: lecturas solo-lectura (Orders, Pricing, Listings Items, Inventario FBA, Sellers) con cliente unico app/spapi/ y un solo refrescador LWA; D1-D7 cerradas por el dueno 2026-09-09; Fase 0 Por probar; implementacion solo con brief nuevo del lead. PR #231."
     }
   ],
   "active": "fabrica-01"
