@@ -34,17 +34,16 @@ _DSN_KV_PASSWORD_RE = re.compile(r"(?i)(password)\s*=\s*('(?:[^'\\]|\\.)*'|\S+)"
 REDACTED = "***REDACTED***"
 
 
-MINIMO_SECRETO = 8
-
-
 def register_secret(value: str | None) -> None:
     """Registra un valor secreto para que `scrub()` lo limpie de cualquier texto.
 
-    Ignora valores de menos de 8 caracteres: un secreto real jamas es tan
-    corto, y uno corto redacta medio universo (p. ej. el token "T" de un
-    fixture rompia la palabra "nextToken" en los logs).
+    Redacta CUALQUIER valor no vacio, sin piso minimo: una password de DSN,
+    un token o una credencial cortos son tan secretos como los largos y
+    antes quedaban sin redactar en errores y logs (revision PR #240/#241).
+    Quien registra un valor de 1-2 caracteres que colisiona con texto comun
+    (el fixture "T" rompia "nextToken") tiene el bug en SU fixture, no aqui.
     """
-    if not value or len(value) < MINIMO_SECRETO:
+    if not value:
         return
     with _lock:
         if value not in _secrets:

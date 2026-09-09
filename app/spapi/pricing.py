@@ -17,8 +17,8 @@ fatal conserva las filas ya escritas y sella `ok=false` con su conteo.
 
 Fallos acotados (F2): 403/404 en un ASIN = omitido (`skip_reason`
 `http_403`/`http_404`) y el pase sigue; 401 persistente y 429 agotado =
-fatales; cualquier otro fallo (5xx, contrato) cuenta y aborta al superar
-el 20 % de los ASIN vistos o 25 seguidos.
+fatales; cualquier otro fallo (5xx, red, contrato) cuenta y aborta al
+superar el 20 % de los ASIN vistos o 25 seguidos.
 
 Conteos (F3): `offers_count` sale de `Summary.TotalOfferCount`,
 `fba_offers_count` de `Summary.NumberOfOffers` (canal `Amazon`,
@@ -39,10 +39,11 @@ import os
 import sys
 import time
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+import httpx
 import psycopg
 
 from app.redaction import install_scrub_filter, scrub
@@ -97,7 +98,8 @@ UPDATE ingest_run
        rows_written = %s,
        rows_skipped = %s,
        skip_reason = %s,
-       ok = %s
+       ok = %s,
+       llamadas = %s
  WHERE id = %s
 """
 _SQL_UNIVERSO = "SELECT DISTINCT external_id FROM listing WHERE platform = %s ORDER BY 1"
@@ -262,21 +264,39 @@ def _minimo_resumen(resumen: dict) -> tuple[Decimal | None, str | None]:
 
 
 def _competitivas_de(carga: Any) -> list[dict]:
+    # Forma real (modelo oficial productPricingV0.json): payload es LISTA
+    # de Price [{status, ASIN, Product}] y la ruta es
+    # Product.CompetitivePricing.CompetitivePrices. La forma vieja
+    # (payload objeto con Product.CompetitivePrices) nunca existio: era
+    # invento de los fixtures y en produccion tumbaba el pase al primer
+    # ASIN (revision del lead PR #241).
     cont = carga.get("payload", carga) if isinstance(carga, dict) else None
-    if not isinstance(cont, dict):
+    if isinstance(cont, dict):
+        raise IngestaPricingError("contrato inesperado: payload competitivo no es lista")
+    if not isinstance(cont, list):
         raise IngestaPricingError("contrato inesperado: sin precios competitivos")
-    prod = cont.get("Product", cont)
-    if not isinstance(prod, dict):
-        raise IngestaPricingError("contrato inesperado: sin precios competitivos")
-    for clave in ("CompetitivePrices", "competitivePrices"):
-        lote = prod.get(clave)
+    entradas: list[dict] = []
+    for item in cont:
+        if not isinstance(item, dict):
+            continue
+        prod = item.get("Product")
+        if not isinstance(prod, dict):
+            continue
+        comp = prod.get("CompetitivePricing")
+        if not isinstance(comp, dict):
+            continue
+        lote = comp.get("CompetitivePrices")
         if isinstance(lote, list):
-            return [e for e in lote if isinstance(e, dict)]
-    return []
+            entradas.extend(e for e in lote if isinstance(e, dict))
+    return entradas
 
 
 def _precio_propio_competitivo(entradas: list[dict]) -> tuple[Decimal | None, str | None]:
     for entrada in entradas:
+        # belongsToRequester NO esta en el modelo oficial: se lee tolerante
+        # (si Amazon lo manda se usa; si no, el propio solo sale de offers).
+        # Pendiente: pinar las claves internas reales en sonda (E/0.2 solo
+        # registro claves_top ASIN/Product/status).
         if entrada.get("belongsToRequester") is not True:
             continue
         precio = entrada.get("Price")
@@ -384,8 +404,9 @@ def _universo(conn: psycopg.Connection, platform: str) -> list[str]:
 
 
 def _llamar(client: SpapiClient, cubo: CuboTasa, *, path: str, params: dict, asin: str) -> Any:
-    cubo.consumir()
-    resp = client.get(path, params=params)
+    # El cubo viaja DENTRO del get: cada intento (incluido el reintento por
+    # 429) consume cuota y honra x-amzn-RateLimit-Limit (revision #5).
+    resp = client.get(path, params=params, limitador=cubo)
     if resp.status_code != 200:
         raise _FalloHttp(asin, resp.status_code)
     try:
@@ -399,6 +420,122 @@ def _vigilar_umbral(asin: str, fallos: int, racha: int, vistos: int) -> None:
         raise IngestaPricingError(
             f"pricing {asin}: umbral de fallos superado ({fallos}/{vistos}, racha {racha})"
         )
+
+
+@dataclass
+class _Avance:
+    """Contadores mutables del pase (el helper por ASIN los actualiza)."""
+
+    escritas: int = 0
+    vistas: int = 0
+    fallos: int = 0
+    racha: int = 0
+    llamadas: int = 0
+    skips: Counter = field(default_factory=Counter)
+
+
+def _procesar_asin(
+    conn: psycopg.Connection,
+    client: SpapiClient,
+    cubo: CuboTasa,
+    *,
+    asin: str,
+    marketplace_id: str,
+    propio: str | None,
+    platform: str,
+    momento: datetime.datetime,
+    run_id: int,
+    av: _Avance,
+) -> None:
+    """Un ASIN: dos llamadas, parseo y su propia transaccion de INSERT (F1).
+
+    Los fallos siguen la politica F2 (omitir, contar o abortar); solo el
+    aborto sale como excepcion.
+    """
+    try:
+        ruta = construir_ruta_ofertas(asin)
+    except SpapiNoPermitida:
+        av.skips["asin_invalido"] += 1
+        return
+    av.vistas += 1
+    try:
+        # Llamadas cuenta intentos (la tasa se gasto aunque falle).
+        av.llamadas += 1
+        cuerpo_ofertas = _llamar(
+            client,
+            cubo,
+            path=ruta,
+            params={"MarketplaceId": marketplace_id, "ItemCondition": "New"},
+            asin=asin,
+        )
+        av.llamadas += 1
+        cuerpo_competitivo = _llamar(
+            client,
+            cubo,
+            path=RUTA_COMPETITIVO,
+            params={
+                "MarketplaceId": marketplace_id,
+                "ItemType": "Asin",
+                "Asins": asin,
+            },
+            asin=asin,
+        )
+        precio = parsear_precios(
+            asin,
+            cuerpo_ofertas,
+            cuerpo_competitivo,
+            vendedor_propio=propio,
+        )
+    except PrecioOmitido as exc:
+        av.skips[exc.motivo] += 1
+        av.racha = 0
+        return
+    except _FalloHttp as exc:
+        if exc.status in _HTTP_OMITIDO:
+            av.skips[f"http_{exc.status}"] += 1
+            av.racha = 0
+            return
+        if exc.status in _HTTP_FATAL:
+            raise IngestaPricingError(f"pricing {asin} status={exc.status} persistente") from exc
+        av.fallos += 1
+        av.racha += 1
+        av.skips[f"http_{exc.status}"] += 1
+        _vigilar_umbral(asin, av.fallos, av.racha, av.vistas)
+        return
+    except IngestaPricingError:
+        # Contrato o respuesta no JSON: cuenta contra el umbral (un cambio
+        # de forma tumba el pase en vez de escribir 342 filas vacias) sin
+        # matar el pase al primer ASIN raro.
+        av.fallos += 1
+        av.racha += 1
+        av.skips["contrato"] += 1
+        _vigilar_umbral(asin, av.fallos, av.racha, av.vistas)
+        return
+    except httpx.HTTPError:
+        # Red (timeout, conexion): el cliente no reintenta 5xx/red por
+        # politica A.1; el PASE si los acota con el mismo umbral F2
+        # (revision #6: un timeout aislado no detiene el universo).
+        av.fallos += 1
+        av.racha += 1
+        av.skips["red"] += 1
+        _vigilar_umbral(asin, av.fallos, av.racha, av.vistas)
+        return
+    with conn.transaction():
+        cur = conn.execute(
+            _SQL_INSERTAR,
+            _fila_insert(
+                precio,
+                platform=platform,
+                metric_date=momento.date(),
+                observed_at=momento,
+                run_id=run_id,
+            ),
+        )
+    if cur.rowcount == 1:
+        av.escritas += 1
+    else:
+        av.skips["duplicada"] += 1
+    av.racha = 0
 
 
 def _fila_insert(
@@ -463,12 +600,7 @@ def ejecutar_ingesta(
     with conn.transaction():
         run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE,)).fetchone()[0]
 
-    escritas = 0
-    skips: Counter = Counter()
-    vistas = 0
-    fallos = 0
-    racha = 0
-    llamadas = 0
+    av = _Avance()
     try:
         with conn.transaction():
             universo = _universo(conn, platform)
@@ -484,87 +616,29 @@ def ejecutar_ingesta(
             tasa=PRICING_TASA_SEG,
         )
         for asin in universo:
-            try:
-                ruta = construir_ruta_ofertas(asin)
-            except SpapiNoPermitida:
-                skips["asin_invalido"] += 1
-                continue
-            vistas += 1
-            try:
-                # Llamadas cuenta intentos (la tasa se gasto aunque falle).
-                llamadas += 1
-                cuerpo_ofertas = _llamar(
-                    client,
-                    cubo,
-                    path=ruta,
-                    params={"MarketplaceId": marketplace_id, "ItemCondition": "New"},
-                    asin=asin,
-                )
-                llamadas += 1
-                cuerpo_competitivo = _llamar(
-                    client,
-                    cubo,
-                    path=RUTA_COMPETITIVO,
-                    params={
-                        "MarketplaceId": marketplace_id,
-                        "ItemType": "Asin",
-                        "Asins": asin,
-                    },
-                    asin=asin,
-                )
-                precio = parsear_precios(
-                    asin,
-                    cuerpo_ofertas,
-                    cuerpo_competitivo,
-                    vendedor_propio=propio,
-                )
-            except PrecioOmitido as exc:
-                skips[exc.motivo] += 1
-                racha = 0
-                continue
-            except _FalloHttp as exc:
-                if exc.status in _HTTP_OMITIDO:
-                    skips[f"http_{exc.status}"] += 1
-                    racha = 0
-                    continue
-                if exc.status in _HTTP_FATAL:
-                    raise IngestaPricingError(
-                        f"pricing {asin} status={exc.status} persistente"
-                    ) from exc
-                fallos += 1
-                racha += 1
-                skips[f"http_{exc.status}"] += 1
-                _vigilar_umbral(asin, fallos, racha, vistas)
-                continue
-            except IngestaPricingError:
-                # Contrato o respuesta no JSON: cuenta contra el umbral
-                # (un cambio de forma tumba el pase en vez de
-                # escribir 342 filas vacias) sin matar el pase al
-                # primer ASIN raro.
-                fallos += 1
-                racha += 1
-                skips["contrato"] += 1
-                _vigilar_umbral(asin, fallos, racha, vistas)
-                continue
-            with conn.transaction():
-                cur = conn.execute(
-                    _SQL_INSERTAR,
-                    _fila_insert(
-                        precio,
-                        platform=platform,
-                        metric_date=momento.date(),
-                        observed_at=momento,
-                        run_id=run_id,
-                    ),
-                )
-            if cur.rowcount == 1:
-                escritas += 1
-            else:
-                skips["duplicada"] += 1
-            racha = 0
-        motivo = _formato_skip_reason(Counter({k: v for k, v in skips.items() if v > 0}))
+            _procesar_asin(
+                conn,
+                client,
+                cubo,
+                asin=asin,
+                marketplace_id=marketplace_id,
+                propio=propio,
+                platform=platform,
+                momento=momento,
+                run_id=run_id,
+                av=av,
+            )
+        motivo = _formato_skip_reason(Counter({k: v for k, v in av.skips.items() if v > 0}))
         with conn.transaction():
-            _sellar(conn, run_id, ok=True, escritas=escritas, skips=skips, motivo=motivo)
+            _sellar(
+                conn,
+                run_id,
+                ok=True,
+                escritas=av.escritas,
+                skips=av.skips,
+                motivo=motivo,
+                llamadas=av.llamadas,
+            )
     except BaseException as exc:
         try:
             with conn.transaction():
@@ -572,9 +646,10 @@ def ejecutar_ingesta(
                     conn,
                     run_id,
                     ok=False,
-                    escritas=escritas,
-                    skips=skips,
+                    escritas=av.escritas,
+                    skips=av.skips,
                     motivo=scrub(str(exc)) or type(exc).__name__,
+                    llamadas=av.llamadas,
                 )
         except Exception:
             logger.warning(
@@ -587,11 +662,11 @@ def ejecutar_ingesta(
     return ResultadoIngesta(
         run_id=run_id,
         ok=True,
-        escritas=escritas,
-        omitidas=sum(v for v in skips.values() if v > 0),
-        skip_reason=_formato_skip_reason(Counter({k: v for k, v in skips.items() if v > 0})),
-        asins_vistos=vistas,
-        llamadas=llamadas,
+        escritas=av.escritas,
+        omitidas=sum(v for v in av.skips.values() if v > 0),
+        skip_reason=_formato_skip_reason(Counter({k: v for k, v in av.skips.items() if v > 0})),
+        asins_vistos=av.vistas,
+        llamadas=av.llamadas,
         segundos=segundos,
     )
 
@@ -604,10 +679,11 @@ def _sellar(
     escritas: int,
     skips: Counter,
     motivo: str | None,
+    llamadas: int,
 ) -> None:
     conn.execute(
         _SQL_SELLAR_RUN,
-        (escritas, sum(skips.values()), motivo, ok, run_id),
+        (escritas, sum(skips.values()), motivo, ok, llamadas, run_id),
     )
 
 

@@ -17,6 +17,7 @@ from app.redaction import scrub
 from app.spapi.client import (
     MERCADOS,
     RUTA_ORDERS_NUEVA,
+    CuboTasa,
     SpapiClient,
     SpapiNoPermitida,
     construir_ruta_catalogo,
@@ -25,6 +26,7 @@ from app.spapi.client import (
     rate_limit_de,
     sanear,
     siguiente_token,
+    tasa_anunciada,
     validar_get,
     validar_post_fees,
 )
@@ -175,6 +177,70 @@ def test_429_un_reintento_y_persistente_no_loop():
     assert cliente2.get("/sellers/v1/account").status_code == 429
     gets = [r for r in llamadas if r.url.host != "api.amazon.com"]
     assert len(gets) == 2
+
+
+def test_reintento_429_consume_cuota():
+    # Revision #5: el reintento interno tambien pasa por el cubo; a 0.5/s
+    # el segundo intento espera 2 s aunque Retry-After pida 0.
+    dormidas: list = []
+    reloj = _reloj()
+    n = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_ok(request)
+        n["n"] += 1
+        if n["n"] == 1:
+            return httpx.Response(429, headers={"Retry-After": "0"}, json={})
+        return httpx.Response(200, json={"payload": {}})
+
+    cubo = CuboTasa(sleep=dormidas.append, clock=reloj, capacidad=1, tasa=0.5)
+    cliente = SpapiClient(
+        credentials=CRED,
+        transport=httpx.MockTransport(handler),
+        sleep=dormidas.append,
+        clock=reloj,
+    )
+    assert cliente.get("/sellers/v1/account", limitador=cubo).status_code == 200
+    assert dormidas == [pytest.approx(0.0), pytest.approx(2.0)]
+
+
+def test_header_ratelimit_ajusta_tasa():
+    # Revision #5 (contrato del brief): el limitador parte de
+    # x-amzn-RateLimit-Limit; con tasa 2 el siguiente consumo espera 0.5 s.
+    dormidas: list = []
+    reloj = _reloj()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_ok(request)
+        return httpx.Response(200, headers={"x-amzn-RateLimit-Limit": "2"}, json={"payload": {}})
+
+    cubo = CuboTasa(sleep=dormidas.append, clock=reloj, capacidad=1, tasa=0.5)
+    cliente = SpapiClient(
+        credentials=CRED,
+        transport=httpx.MockTransport(handler),
+        sleep=dormidas.append,
+        clock=reloj,
+    )
+    assert cliente.get("/sellers/v1/account", limitador=cubo).status_code == 200
+    cubo.consumir()
+    assert dormidas == [pytest.approx(0.5)]
+
+
+def test_tasa_anunciada_ilegible_se_ignora():
+    assert tasa_anunciada({}) is None
+    for mala in ("abc", "0", "-2", "nan", "inf"):
+        assert tasa_anunciada({"x-amzn-RateLimit-Limit": mala}) is None
+    assert tasa_anunciada({"X-Amzn-RateLimit-Limit": "2"}) == pytest.approx(2.0)
+    dormidas: list = []
+    cubo = CuboTasa(sleep=dormidas.append, clock=_reloj(), capacidad=1, tasa=0.5)
+    cubo.fijar_tasa("abc")
+    cubo.fijar_tasa(0)
+    cubo.fijar_tasa(True)
+    cubo.consumir()
+    cubo.consumir()
+    assert dormidas == [pytest.approx(2.0)]
 
 
 def test_5xx_y_red_sin_retry():

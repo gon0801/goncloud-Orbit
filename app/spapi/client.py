@@ -20,8 +20,10 @@ capa sin cambiar comportamiento). Nunca loop.
 Limites oficiales (actas 0.1-0.5, se respetan con limitador local en la
 capa de ingesta, sin Redis/colas por decision de stack):
 Orders 0.0056 req/s burst 20; Pricing 0.5/s; Listings 5/s; Inventario 2/s;
-Fees 1/s burst 2. Este cliente solo reacciona al 429; no impone espera
-proactiva (fees conserva su token-bucket propio).
+Fees 1/s burst 2. Con `limitador`, cada intento (incluido el reintento por
+429) consume cuota y la tasa sigue a `x-amzn-RateLimit-Limit` cuando viene;
+sin el, solo reacciona al 429 sin espera proactiva (comportamiento A.1,
+que fees conserva).
 
 Redaccion: errores y logs llevan metodo + path + status, jamas headers ni
 cuerpo (el cuerpo de LWA puede ecoar el client_id); `scrub()` como ultima
@@ -33,6 +35,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import re
 import threading
@@ -314,6 +317,23 @@ def rate_limit_de(headers: Any) -> dict[str, str]:
     }
 
 
+def tasa_anunciada(headers: Any) -> float | None:
+    """Tasa (req/s) de `x-amzn-RateLimit-Limit`, o None si ausente/ilegible.
+
+    El brief exige el limitador local A PARTIR de este header: el servidor
+    manda (cuentas con mas throughput ven un numero mayor). Solo se acepta
+    un numero finito > 0; cualquier otra cosa se ignora sin fallar.
+    """
+    try:
+        valor = rate_limit_de(headers).get("x-amzn-ratelimit-limit")
+        tasa = float(valor) if valor is not None else None
+    except (TypeError, ValueError):
+        return None
+    if tasa is None or not math.isfinite(tasa) or tasa <= 0:
+        return None
+    return tasa
+
+
 def _espera_retry(resp: httpx.Response) -> float:
     try:
         segundos = float(resp.headers.get("Retry-After", str(ESPERA_429_DEFAULT)))
@@ -416,11 +436,27 @@ class SpapiClient:
             self._token = None
             self._vence = 0.0
 
-    def get(self, path: str, params: dict | None = None) -> httpx.Response:
+    def _honrar_tasa(self, limitador: CuboTasa | None, resp: httpx.Response) -> None:
+        # Honra x-amzn-RateLimit-Limit cuando viene (el servidor manda).
+        if limitador is None:
+            return
+        tasa = tasa_anunciada(resp.headers)
+        if tasa is not None:
+            limitador.fijar_tasa(tasa)
+
+    def get(
+        self,
+        path: str,
+        params: dict | None = None,
+        limitador: CuboTasa | None = None,
+    ) -> httpx.Response:
         """GET validado: 401 -> un refresh forzado; 429 -> un reintento; nunca loop.
 
         Devuelve la respuesta tal cual (incluso 4xx/5xx): el llamador decide.
-        Falla antes de red si el path no esta en la allowlist.
+        Falla antes de red si el path no esta en la allowlist. Con
+        `limitador`, cada intento consume cuota (el reintento por 429 tambien)
+        y la tasa se ajusta a `x-amzn-RateLimit-Limit` (contrato del brief).
+        Sin `limitador` el comportamiento es el sellado en A.1.
         """
         solo = validar_get(path)
         url = f"{SP_API_BASE}{solo}"
@@ -429,7 +465,10 @@ class SpapiClient:
         reintentos = 0
         with httpx.Client(transport=self._transport, timeout=self._timeout) as client:
             while True:
+                if limitador is not None:
+                    limitador.consumir()
                 resp = client.get(url, params=params, headers={"x-amz-access-token": token})
+                self._honrar_tasa(limitador, resp)
                 if resp.status_code == 401 and forzados < 1:
                     forzados += 1
                     token = self._acceso(forzar=True, rechazado=token)
@@ -440,12 +479,18 @@ class SpapiClient:
                     continue
                 return resp
 
-    def post_fees(self, seller_sku: str, content: bytes) -> httpx.Response:
+    def post_fees(
+        self,
+        seller_sku: str,
+        content: bytes,
+        limitador: CuboTasa | None = None,
+    ) -> httpx.Response:
         """Unico POST permitido: feesEstimate (lectura implementada como POST).
 
         Valida seller_sku + ruta antes de red. 401 -> un refresh forzado;
         429 -> un reintento acotado; 5xx/red -> sin retry (el llamador, fees,
-        reintenta en su capa). Devuelve la respuesta tal cual.
+        reintenta en su capa). Devuelve la respuesta tal cual. Con
+        `limitador`, igual que `get`; sin el, comportamiento A.1 intacto.
         """
         ruta = validar_post_fees(construir_ruta_fees(seller_sku), seller_sku)
         url = f"{SP_API_BASE}{ruta}"
@@ -454,6 +499,8 @@ class SpapiClient:
         reintentos = 0
         with httpx.Client(transport=self._transport, timeout=self._timeout) as client:
             while True:
+                if limitador is not None:
+                    limitador.consumir()
                 resp = client.post(
                     url,
                     content=content,
@@ -462,6 +509,7 @@ class SpapiClient:
                         "Content-Type": "application/json",
                     },
                 )
+                self._honrar_tasa(limitador, resp)
                 if resp.status_code == 401 and forzados < 1:
                     forzados += 1
                     token = self._acceso(forzar=True, rechazado=token)
@@ -494,6 +542,19 @@ class CuboTasa:
         self._tasa = tasa
         self._tokens = float(capacidad)
         self._ultimo = clock()
+
+    def fijar_tasa(self, tasa: float) -> None:
+        # El servidor manda via x-amzn-RateLimit-Limit (contrato del
+        # brief): ajusta el ritmo sin tocar la capacidad. Solo numeros
+        # finitos > 0; lo demas se ignora sin fallar.
+        if isinstance(tasa, bool):
+            return
+        try:
+            nueva = float(tasa)
+        except (TypeError, ValueError):
+            return
+        if math.isfinite(nueva) and nueva > 0:
+            self._tasa = nueva
 
     def consumir(self) -> None:
         ahora = self._clock()

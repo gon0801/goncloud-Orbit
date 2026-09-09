@@ -57,6 +57,36 @@ falla (`1 failed`); con él, verde. Archivo restaurado íntegro.
 Mutante (regla 9, ronda F1–F4): con `app/spapi/pricing.py` escondido vía
 stash, los 8 tests nuevos fallan (`8 failed, 1 passed`: el guarda de
 respaldo pasa igual, esperado); con el fix, verde. Restaurado íntegro.
+
+## Revisión del lead PR #241 (7 bloqueantes, los de A.3 aquí)
+- #1 Forma real de competitivePrice (modelo oficial `productPricingV0.json`:
+  payload LISTA de Price, ruta `Product.CompetitivePricing.CompetitivePrices`;
+  `PriceType` sí trae `ListingPrice`/`LandedPrice`): `_competitivas_de`
+  reescrita estricta (payload objeto = fatal `contrato` que cuenta al
+  umbral); fixtures rehechos a la forma real. `belongsToRequester` NO está
+  en el modelo: lectura tolerante documentada, pendiente de pinar en sonda
+  (E/0.2 solo registró claves_top).
+- #5 Cubo dentro del cliente: `get/post_fees(..., limitador=)` consume por
+  intento (el reintento 429 también) y `fijar_tasa` sigue a
+  `x-amzn-RateLimit-Limit` (nuevo `tasa_anunciada`; ilegible se ignora). Sin
+  `limitador`, comportamiento A.1 intacto (fees/fotos/sonda no lo pasan).
+  Pricing pasa su cubo; orders se cablea en A.2b (mismo branch no toca
+  `orders.py` para no colisionar con PR #240).
+- #6 Red a F2: `httpx.HTTPError` cuenta al umbral con skip `red` (timeout
+  aislado tras 5 éxitos no detiene el pase; test parametrizado
+  ConnectError/ReadTimeout).
+- #7a `ingest_run.llamadas` (migración 0033 + CHECK no negativo): pricing la
+  sella en ok y en fatal; asserts en pase/F1/red.
+- #7b Negativas SQL: buybox/mínimo en ambas direcciones, conteos negativos,
+  TRUNCATE bloqueado.
+- #4 Redacción: fuera `MINIMO_SECRETO` (era de A.2 en master); todo valor no
+  vacío se redacta; fixture `test_redaction.py` usa secreto corto
+  distintivo en vez del `"T"` que rompía `nextToken`.
+- Refactor exigido por ruff PLR0915: cuerpo por ASIN a `_procesar_asin` con
+  `_Avance` (comportamiento idéntico, tests intactos).
+Mutante (regla 9, revisión): sin los 3 archivos de app, `16 failed`
+(pricing+redacción; cliente ni importa: `tasa_anunciada` ausente); con el
+fix, `44 passed` (pricing+cliente+redacción).
 `ruff check` + `ruff format --check` → verde.
 `pre-commit run --all-files` → verde (abajo, antes del commit).
 

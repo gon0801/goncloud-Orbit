@@ -23,7 +23,7 @@ from app.spapi import pricing
 from app.spapi.client import SpapiClient
 
 ROOT = Path(__file__).resolve().parents[1]
-ORDEN = ("0001_initial.sql", "0032_spapi_pricing.sql")
+ORDEN = ("0001_initial.sql", "0032_spapi_pricing.sql", "0033_ingest_run_llamadas.sql")
 
 AHORA = datetime(2026, 9, 9, 12, 0, 0, tzinfo=UTC)
 CRED = {
@@ -51,22 +51,34 @@ def _cuerpo_ofertas(ofertas):
 
 
 def _cuerpo_competitivo(entradas=()):
+    # Forma real (modelo oficial productPricingV0.json): payload LISTA de
+    # Price con Product.CompetitivePricing.CompetitivePrices.
     return {
-        "payload": {
-            "status": "Success",
-            "Product": {"CompetitivePrices": list(entradas)},
-        }
+        "payload": [
+            {
+                "status": "Success",
+                "ASIN": "B0TEST0001",
+                "Product": {
+                    "CompetitivePricing": {
+                        "CompetitivePrices": list(entradas),
+                        "NumberOfOfferListings": [],
+                    }
+                },
+            }
+        ]
     }
 
 
 def _propia_competitiva(precio=95.0, moneda="MXN"):
     return {
-        "CompetitivePriceId": "2",
+        "CompetitivePriceId": "1",
         "Price": {
             "ListingPrice": {"Amount": precio, "CurrencyCode": moneda},
             "LandedPrice": {"Amount": precio, "CurrencyCode": moneda},
         },
         "condition": "New",
+        # belongsToRequester NO esta en el modelo oficial: se lee tolerante
+        # en el codigo; pendiente de pinar en sonda.
         "belongsToRequester": True,
     }
 
@@ -158,6 +170,11 @@ def test_contrato_inesperado_es_fatal():
         ({"payload": {"Offers": {"no": "lista"}}}, _cuerpo_competitivo()),
         ([1, 2], _cuerpo_competitivo()),
         (_cuerpo_ofertas([_oferta("X", 1.0)]), [1, 2]),
+        # Competitivo con payload objeto (forma vieja inventada): fatal.
+        (
+            _cuerpo_ofertas([_oferta("X", 1.0)]),
+            {"payload": {"Product": {"CompetitivePrices": []}}},
+        ),
     ):
         with pytest.raises(pricing.IngestaPricingError, match="contrato inesperado"):
             pricing.parsear_precios("B0TEST0001", ofertas, competitivo, vendedor_propio=PROPIO)
@@ -365,11 +382,58 @@ def test_migracion_clave_append_only_y_grants():
                 ),
             )
         conn.rollback()
+        # Revision #7: negativas de cada par precio/moneda (ambas
+        # direcciones del CHECK parejo) y conteos.
+        for columna, moneda in (
+            ("buy_box_price", "buy_box_currency"),
+            ("lowest_price", "lowest_currency"),
+        ):
+            base = (
+                "B0TEST0003",
+                "amazon_mx",
+                datetime(2026, 9, 9).date(),
+                datetime(2026, 9, 9, 12, 0, 0, tzinfo=UTC),
+            )
+            with pytest.raises(psycopg.errors.CheckViolation):
+                conn.execute(
+                    "INSERT INTO spapi_price_observation"
+                    f" (asin, platform, metric_date, observed_at, {columna})"
+                    " VALUES (%s, %s, %s, %s, %s)",
+                    (*base, Decimal("1.0000")),
+                )
+            conn.rollback()
+            with pytest.raises(psycopg.errors.CheckViolation):
+                conn.execute(
+                    "INSERT INTO spapi_price_observation"
+                    f" (asin, platform, metric_date, observed_at, {moneda})"
+                    " VALUES (%s, %s, %s, %s, %s)",
+                    (*base, "MXN"),
+                )
+            conn.rollback()
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(
+                "INSERT INTO spapi_price_observation"
+                " (asin, platform, metric_date, observed_at, offers_count,"
+                " fba_offers_count)"
+                " VALUES (%s, %s, %s, %s, %s, %s)",
+                (
+                    "B0TEST0004",
+                    "amazon_mx",
+                    datetime(2026, 9, 9).date(),
+                    datetime(2026, 9, 9, 12, 0, 0, tzinfo=UTC),
+                    -1,
+                    -2,
+                ),
+            )
+        conn.rollback()
         with pytest.raises(psycopg.errors.RestrictViolation):
             conn.execute("UPDATE spapi_price_observation SET offers_count = 9")
         conn.rollback()
         with pytest.raises(psycopg.errors.RestrictViolation):
             conn.execute("DELETE FROM spapi_price_observation")
+        conn.rollback()
+        with pytest.raises(psycopg.errors.RestrictViolation):
+            conn.execute("TRUNCATE spapi_price_observation")
         conn.rollback()
         assert conn.execute(
             "SELECT has_table_privilege('app_read', 'spapi_price_observation', 'SELECT')"
@@ -452,13 +516,16 @@ def test_pase_punta_a_punta_idempotente():
         # 2 llamadas por ASIN con el cubo 0.5/s: 5 esperas de 2 s.
         assert dormidas == [pytest.approx(2.0)] * 5
         run = conn.execute(
-            "SELECT ok, rows_written, rows_skipped, skip_reason FROM ingest_run WHERE id = %s",
+            "SELECT ok, rows_written, rows_skipped, skip_reason, llamadas"
+            " FROM ingest_run WHERE id = %s",
             (resultado.run_id,),
         ).fetchone()
         assert run[0] is True
         assert run[1] == 2
         assert run[2] == 1
         assert run[3] == "1x precio_sin_moneda"
+        # Revision #7: el conteo de llamadas queda en ingest_run (DoD A.3).
+        assert run[4] == 6
         fila = conn.execute(
             "SELECT own_listing_price, buy_box_price, buy_box_seller_id,"
             " buy_box_is_own, offers_count, fba_offers_count,"
@@ -508,6 +575,8 @@ def _handler_estados(estados, llamadas):
             cuerpo = estados[asin]["competitivo"]
         if isinstance(cuerpo, tuple) and cuerpo[0] == "status":
             return httpx.Response(cuerpo[1], json={})
+        if isinstance(cuerpo, tuple) and cuerpo[0] == "red":
+            raise cuerpo[1]("corte de red simulado")
         return httpx.Response(200, json=cuerpo)
 
     return handler
@@ -552,10 +621,12 @@ def test_fallo_en_asin_3_conserva_filas_y_sella_lo_escrito():
             )
         assert conn.execute("SELECT count(*) FROM spapi_price_observation").fetchone()[0] == 2
         run = conn.execute(
-            "SELECT ok, rows_written FROM ingest_run ORDER BY id DESC LIMIT 1"
+            "SELECT ok, rows_written, llamadas FROM ingest_run ORDER BY id DESC LIMIT 1"
         ).fetchone()
         assert run[0] is False
         assert run[1] == 2
+        # 2+2 intentos de los dos primeros + 1 del tercero que fallo.
+        assert run[2] == 5
 
 
 @_skip_db
@@ -619,6 +690,34 @@ def test_401_persistente_y_429_agotado_son_fatales(codigo):
         ).fetchone()
         assert run[0] is False
         assert run[1] == 0
+
+
+@_skip_db
+@pytest.mark.parametrize("error_red", [httpx.ConnectError, httpx.ReadTimeout])
+def test_timeout_aislado_no_detiene_el_pase(error_red):
+    # Revision #6: la red sigue la politica F2; un fallo aislado tras cinco
+    # exitos se cuenta (skip "red") sin tumbar el universo restante.
+    llamadas: list = []
+    asins = [f"B0TEST000{i}" for i in range(1, 8)]
+    estados = {a: _ok(a) for a in asins}
+    estados["B0TEST0006"] = {
+        "ofertas": ("red", error_red),
+        "competitivo": _cuerpo_competitivo(),
+    }
+    with db_pricing() as conn:
+        _sembrar_universo(conn, [("amazon_mx", a) for a in asins])
+        resultado = pricing.ejecutar_ingesta(
+            conn, _cliente_estados(estados, llamadas), platform="amazon_mx", ahora=AHORA
+        )
+        assert resultado.ok
+        assert resultado.escritas == 6
+        assert resultado.llamadas == 13
+        run = conn.execute(
+            "SELECT ok, rows_written, rows_skipped, skip_reason, llamadas"
+            " FROM ingest_run WHERE id = %s",
+            (resultado.run_id,),
+        ).fetchone()
+        assert run == (True, 6, 1, "1x red", 13)
 
 
 @_skip_db
