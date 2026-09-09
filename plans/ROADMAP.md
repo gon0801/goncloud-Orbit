@@ -66,8 +66,8 @@ evidencia de implementación y validación.
 - Ads API + MeLi OAuth: sí. SP-API: la auth LWA ya vive en
   producción (`app/estimacion_fees.py` + `app/publicacion_fotos.py`, dos
   refrescadores ad hoc por consolidar); plan de lecturas en
-  `plans/sp-api-01.md` (Fase 0 Por probar, D1–D7 abiertas; escribir el plan
-  no cierra nada). Gap: bloquea M1, M5 y reputación v2 parcial.
+  `plans/sp-api-01.md` (Fase 0 verificada 2026-09-09, PR #236; D1–D7
+  cerradas; Fase A pendiente de brief). Gap: bloquea M1, M5 y reputación v2 parcial.
 - Transversales: tokens 600/uid (NO cifrados at rest — gap
   declarado); sin colas/Redis por decisión (desviación consciente
   del doc); observabilidad de integraciones parcial.
@@ -77,8 +77,8 @@ evidencia de implementación y validación.
 1. Cierres operativos: sonda real `fabrica-01` tarea 11 (HECHA 2026-09-09) y
    `orbit-05` 2.3/2.5 cuando exista un harvest natural.
 2. SP-API auth + lecturas (plan: `plans/sp-api-01.md`; la auth LWA ya
-   funciona en producción, Fase 0 Por probar, D1–D7 cerradas por el dueño
-   2026-09-09) — desbloquea M1, M5, reputación v2.
+   funciona en producción, Fase 0 verificada 2026-09-09 con actas (PR #236),
+   D1–D7 cerradas por el dueño 2026-09-09; Fase A pendiente de brief) — desbloquea M1, M5, reputación v2.
 3. `fabrica-01` F2 — harvest por grupo (AUTO-02): reruteo del harvest por
    `campana_grupo_rol`, negativos cruzados `hermanas_negadas`, biblioteca
    escrita por el motor. Desbloqueada por la sonda del 2026-09-09.

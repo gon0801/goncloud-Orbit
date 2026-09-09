@@ -4,6 +4,20 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-09 UTC — SP-API 01 Fase 0 cerrada: las cinco fuentes verificadas con sondas reales.**
+Muse escribió `tools/sonda_spapi.py` (solo lectura, allowlist default-deny, sin PII ni
+secretos, 42 tests) y corrió las sondas desde el contenedor (05:41–05:49 UTC, cero
+escrituras); el lead validó las actas `docs/evidencia/sp-api-01/0.1–0.5/` (PR #236).
+Hallazgos: Orders v0 y la sucesora 2026-01-01 responden 200 en tres páginas sin los bugs
+de paginación (v0 exige fechas en Zulu; v0 se retira el 2027-03-27); Pricing MX trae Buy
+Box y competitivos, US 200 con 0 ofertas declarado; Listings 200 por sellerId
+(`accountInfo.id` del perfil Ads, porque getAccount no lo trae); Inventario FBA 22
+páginas, 1071 summaries, universo conciliado 1071/1071 con el bridge (8 SKUs difieren
+por 1 unidad intradía; MX=US del bridge es espejo conocido); Sellers 200. Dos correcciones
+en el camino: Orders dual y sellerId por parámetro (ronda 1), paginación de Inventario
+(`pagination` hermana de `payload`, ronda 2). Filas 0.1–0.5 a `cc:完了`; la Fase A
+(cliente único + ingesta) arranca solo con brief nuevo cuando el dueño la pida.
+
 **2026-09-09 UTC — FABRICA 01 tarea 11: SONDA REAL EJECUTADA; primer grupo creado en Amazon MX.**
 El dueño creó desde la pantalla el grupo `kit_arras | Personalizado` (lote `web-923cb2…`,
 03:35–03:37 UTC): 5 campañas ENABLED con 20 MXN/día, target 21.08 % derivado del margen,
