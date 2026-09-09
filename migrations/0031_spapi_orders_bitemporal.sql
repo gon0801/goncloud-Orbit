@@ -23,11 +23,20 @@ COMMENT ON CONSTRAINT spapi_order_clave_unica ON spapi_order_observation IS
     'SP-API 01 A.2b: re-observacion diaria por pedido (append-only, patron '
     '0026/0027); el estado actual es la fila mas reciente, no la primera.';
 
+-- Revision PR #240: fulfillment.fulfillmentStatus (dominio de ENVIO) NO se
+-- mezcla en order_status (dominio del CICLO del pedido); vive en su propia
+-- columna para que cada una conserve un vocabulario.
+ALTER TABLE spapi_order_observation
+    ADD COLUMN fulfillment_status TEXT;
+
 COMMENT ON COLUMN spapi_order_observation.order_status IS
-    'A.2b: la seccion FULFILLMENT manda (fulfillment.fulfillmentStatus, '
-    'dominio de ENVIO); de respaldo, la clave plana orderStatus/OrderStatus '
-    'del resumen (dominio del CICLO del pedido, v0). Vocabularios distintos '
-    'segun la fuente que trajo la fila.';
+    'A.2b: SOLO la clave plana orderStatus/OrderStatus del resumen (dominio '
+    'del CICLO del pedido, v0). El estado de envio va en fulfillment_status; '
+    'nunca se mezclan.';
+
+COMMENT ON COLUMN spapi_order_observation.fulfillment_status IS
+    'A.2b revision: SOLO fulfillment.fulfillmentStatus de la seccion '
+    'FULFILLMENT (dominio de ENVIO). NULL si la seccion no vino.';
 
 COMMENT ON COLUMN spapi_order_observation.fulfillment_channel IS
     'A.2b: la seccion FULFILLMENT manda (fulfillment.fulfilledBy, quien '

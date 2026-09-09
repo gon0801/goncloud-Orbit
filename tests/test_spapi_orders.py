@@ -107,13 +107,18 @@ def test_parsea_secciones_fulfillment_y_proceeds():
             "programs": [],
         }
     )
-    assert orden.order_status == "Shipped"
+    # Revision PR #240: dos estados, dos columnas; la seccion ya no pisa
+    # el ciclo.
+    assert orden.order_status is None
+    assert orden.fulfillment_status == "Shipped"
     assert orden.fulfillment_channel == "AFN"
     assert orden.total_amount == Decimal("749.0000")
     assert orden.total_currency == "MXN"
 
 
-def test_seccion_prefiere_a_clave_plana():
+def test_estados_de_ciclo_y_envio_no_se_mezclan():
+    # Revision PR #240: order_status SOLO del ciclo (clave plana) y
+    # fulfillment_status SOLO del envio (seccion), aunque vengan los dos.
     orden = orders.parsear_orden(
         _resumen(
             orderStatus="Plano",
@@ -122,7 +127,8 @@ def test_seccion_prefiere_a_clave_plana():
             proceeds={"grandTotal": {"amount": 2.0, "currencyCode": "MXN"}},
         )
     )
-    assert orden.order_status == "Seccion"
+    assert orden.order_status == "Plano"
+    assert orden.fulfillment_status == "Seccion"
     assert orden.fulfillment_channel == "MFN"
     assert orden.total_amount == Decimal("2.0000")
 
@@ -326,6 +332,23 @@ def test_pagina_vacia_con_token_para_y_marca():
     assert len(crudas) == 1
 
 
+def test_tope_de_paginas_para_y_marca():
+    paginas = [
+        _pagina([_resumen("A-1")], token="T9"),
+        {
+            "token_entrada": "T9",
+            "cuerpo": {
+                "payload": {"orders": [_resumen("A-2")], "pagination": {"nextToken": "T10"}}
+            },
+        },
+    ]
+    cliente = _cliente(paginas)
+    crudas, info = orders.recorrer_ordenes(cliente, {"marketplaceIds": "X"}, max_paginas=1)
+    assert info["aviso_paginacion"] == "limite_max_paginas"
+    assert info["paginas"] == 1
+    assert [o["orderId"] for o in crudas] == ["A-1"]
+
+
 @pytest.mark.parametrize(
     "cuerpo",
     [
@@ -447,6 +470,7 @@ def test_migracion_unicidad_trigger_y_grants():
             "A1AM78C64UM0Y8",
             datetime(2026, 9, 8, 10, 0, 0, tzinfo=UTC),
             datetime(2026, 9, 8, 11, 0, 0, tzinfo=UTC),
+            "Pending",
             "Shipped",
             "AFN",
             "Amazon.com.mx",
@@ -460,12 +484,18 @@ def test_migracion_unicidad_trigger_y_grants():
         conn.execute(
             "INSERT INTO spapi_order_observation"
             " (amazon_order_id, platform, marketplace_id, purchase_date,"
-            " last_updated_time, order_status, fulfillment_channel, sales_channel,"
+            " last_updated_time, order_status, fulfillment_status,"
+            " fulfillment_channel, sales_channel,"
             " order_total_amount, order_total_currency, number_of_items,"
             " api_version, observed_at, ingest_run_id)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             fila,
         )
+        # Revision #7: la primera fila se commitea ANTES del duplicado;
+        # sin ese commit, el rollback de abajo la borraba y el insert en
+        # otra plataforma entraba contra tabla vacia (no demostraba que
+        # platform sea parte de la clave).
+        conn.commit()
         # Unicidad (plataforma, orden, actualizacion): el duplicado truena.
         with pytest.raises(psycopg.errors.UniqueViolation):
             conn.execute(
@@ -482,9 +512,8 @@ def test_migracion_unicidad_trigger_y_grants():
                 ),
             )
         conn.rollback()
-        # Misma orden y tiempo en otra plataforma: fila distinta, si entra.
-        # Se commitea para que UPDATE/DELETE de abajo tengan fila que mutar
-        # (cada rollback previo vacia lo no commiteado).
+        # Misma orden y tiempo en otra plataforma: fila distinta, si entra
+        # (contra la fila commiteada: esto si prueba la clave).
         conn.execute(
             "INSERT INTO spapi_order_observation"
             " (amazon_order_id, platform, marketplace_id,"
@@ -814,11 +843,13 @@ def test_dos_corridas_reobservan_y_vista_muestra_ultima():
             == 2
         )
         vista = conn.execute(
-            "SELECT order_status, fulfillment_channel,"
+            "SELECT order_status, fulfillment_status, fulfillment_channel,"
             " order_total_amount, order_total_currency"
             " FROM v_spapi_order_ultima WHERE amazon_order_id = 'MX-30'"
         ).fetchone()
-        assert vista == ("Shipped", "AFN", Decimal("250.0000"), "MXN")
+        # La segunda corrida trae seccion sin ciclo: el envio queda en su
+        # columna y el ciclo en NULL (nunca mezclados).
+        assert vista == (None, "Shipped", "AFN", Decimal("250.0000"), "MXN")
 
 
 @_skip_db
@@ -860,6 +891,53 @@ def test_desde_fuerza_backfill_sobre_maximo():
 def test_desde_invalido_es_error_de_uso():
     with pytest.raises(SystemExit):
         orders.main(["--platform", "amazon_mx", "--desde", "no-es-fecha"])
+
+
+@_skip_db
+def test_paginacion_incompleta_sella_ok_false_con_lo_escrito():
+    # Revision PR #240: el aviso no es exito; las filas traidas se
+    # conservan pero el run marca el hueco para reparar con --desde.
+    llamadas: list = []
+    paginas = [
+        {
+            "cuerpo": {
+                "payload": {
+                    "orders": [_resumen("MX-40")],
+                    "pagination": {"nextToken": "Q"},
+                }
+            }
+        },
+        {
+            "token_entrada": "Q",
+            "cuerpo": {
+                "payload": {
+                    "orders": [_resumen("MX-41")],
+                    "pagination": {"nextToken": "Q"},
+                }
+            },
+        },
+    ]
+    cliente = SpapiClient(
+        credentials=CRED,
+        transport=httpx.MockTransport(_handler_fixture(paginas, llamadas)),
+        sleep=lambda _s: None,
+        clock=lambda: 1000.0,
+    )
+    with db_orders() as conn:
+        resultado = orders.ejecutar_ingesta(
+            conn, cliente, platform="amazon_mx", ahora=AHORA, max_paginas=5
+        )
+        assert resultado.ok is False
+        assert resultado.escritas == 2
+        assert resultado.aviso_paginacion == "next_token_repetido"
+        assert conn.execute("SELECT count(*) FROM spapi_order_observation").fetchone()[0] == 2
+        run = conn.execute(
+            "SELECT ok, rows_written, skip_reason FROM ingest_run WHERE id = %s",
+            (resultado.run_id,),
+        ).fetchone()
+        assert run[0] is False
+        assert run[1] == 2
+        assert run[2] == "paginacion_incompleta:next_token_repetido"
 
 
 @_skip_db

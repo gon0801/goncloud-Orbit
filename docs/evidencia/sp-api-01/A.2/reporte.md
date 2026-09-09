@@ -116,3 +116,24 @@ reintentos para no quemar el 0.0056/s).
   aborta si ya hay tripletas repetidas) con `test_reversa_0031`; test PII
   afirma sobre el objeto saneado (valores fuera), no sobre campos que
   pasan igual.
+
+## Revisión del lead PR #240 (bloqueantes #2, #3, #7c)
+- #2 `fulfillment_status` separado (0031 `ADD COLUMN` + COMMENT por
+  vocabulario): `order_status` SOLO ciclo (`orderStatus` plano),
+  `fulfillment_status` SOLO envío (`fulfillment.fulfillmentStatus`); la
+  reversa lo quita y verifica su ausencia. `test_seccion_prefiere_a_clave_plana`
+  se reemplaza por `test_estados_de_ciclo_y_envio_no_se_mezclan`; la vista
+  del e2e ahora lee `(NULL, 'Shipped', ...)` en la corrida de sección.
+- #3 Paginación incompleta (`next_token_repetido`, `pagina_vacia_con_token`,
+  `limite_max_paginas` — este último sin test hasta hoy,
+  `test_tope_de_paginas_para_y_marca`) sella `ok=false` con motivo
+  `paginacion_incompleta:<aviso>` conservando las filas;
+  `ResultadoIngesta.ok=False` y CLI sale 1 (reparar con `--desde`).
+  E2E `test_paginacion_incompleta_sella_ok_false_con_lo_escrito`.
+- #7c Unicidad por plataforma: la primera fila se commitea ANTES del
+  duplicado (antes el rollback la borraba y el insert cruzado entraba
+  contra tabla vacía). Mutante: clave sin `platform` → el test falla;
+  con ella, verde.
+Mutante (regla 9, revisión): sin `app/spapi/orders.py`, `4 failed, 32 passed`;
+con el fix, `36 passed` (orders). Focal (orders, cliente, redacción,
+fees, fotos, arquitectura, sonda, cli) → `212 passed`.

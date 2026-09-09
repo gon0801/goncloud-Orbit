@@ -2,8 +2,8 @@
 -- REVERSA DE LA MIGRACION 0031 (patron 0011_reversa_*).
 --
 -- Deshace `0031_spapi_orders_bitemporal.sql`: borra la vista
--- `v_spapi_order_ultima` y restaura la clave de tres columnas
--- (platform, amazon_order_id, last_updated_time).
+-- `v_spapi_order_ultima`, quita la columna `fulfillment_status` y restaura
+-- la clave de tres columnas (platform, amazon_order_id, last_updated_time).
 --
 -- Solo aplica ANTES de la primera re-observacion: despues habria filas
 -- duplicadas en la tripleta (legitimas bajo la clave bitemporal) y
@@ -36,6 +36,9 @@ END $$;
 DROP VIEW v_spapi_order_ultima;
 
 ALTER TABLE spapi_order_observation
+    DROP COLUMN fulfillment_status;
+
+ALTER TABLE spapi_order_observation
     DROP CONSTRAINT spapi_order_clave_unica;
 ALTER TABLE spapi_order_observation
     ADD CONSTRAINT spapi_order_clave_unica
@@ -46,6 +49,7 @@ DO $$
 DECLARE
     v_def TEXT;
     v_vista INTEGER;
+    v_col INTEGER;
 BEGIN
     SELECT pg_get_constraintdef(oid) INTO v_def
       FROM pg_constraint
@@ -60,6 +64,15 @@ BEGIN
      WHERE schemaname = 'public' AND viewname = 'v_spapi_order_ultima';
     IF v_vista <> 0 THEN
         RAISE EXCEPTION 'reversa 0031: la vista v_spapi_order_ultima sigue viva';
+    END IF;
+
+    SELECT count(*) INTO v_col
+      FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'spapi_order_observation'
+       AND column_name = 'fulfillment_status';
+    IF v_col <> 0 THEN
+        RAISE EXCEPTION 'reversa 0031: la columna fulfillment_status sigue viva';
     END IF;
 END $$;
 

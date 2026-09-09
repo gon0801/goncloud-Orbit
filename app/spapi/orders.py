@@ -118,10 +118,10 @@ SELECT max(last_updated_time) FROM spapi_order_observation WHERE platform = %s
 _SQL_INSERTAR = """
 INSERT INTO spapi_order_observation
     (amazon_order_id, platform, marketplace_id, purchase_date,
-     last_updated_time, order_status, fulfillment_channel, sales_channel,
-     order_total_amount, order_total_currency, number_of_items,
+     last_updated_time, order_status, fulfillment_status, fulfillment_channel,
+     sales_channel, order_total_amount, order_total_currency, number_of_items,
      api_version, observed_at, ingest_run_id)
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 ON CONFLICT (platform, amazon_order_id, last_updated_time, observed_at) DO NOTHING
 """
 
@@ -144,6 +144,7 @@ class OrdenParseada:
     purchase_date: datetime.datetime | None
     last_updated_time: datetime.datetime
     order_status: str | None
+    fulfillment_status: str | None
     fulfillment_channel: str | None
     sales_channel: str | None
     total_amount: Decimal | None
@@ -237,7 +238,10 @@ def parsear_orden(obj: Any) -> OrdenParseada:
 
     Exige identidad (orderId + lastUpdatedTime) y tiempo coherente; lo
     demas ausente es NULL. Sin PII: ignora comprador, recipiente y
-    direccion aunque vengan.
+    direccion aunque vengan. Dos estados, dos columnas (revision PR #240):
+    `order_status` SOLO del ciclo del pedido (orderStatus plano) y
+    `fulfillment_status` SOLO del envio (fulfillment.fulfillmentStatus);
+    nunca se mezclan aunque vengan los dos.
     """
     if not isinstance(obj, dict):
         raise OrdenOmitida("sin_identidad")
@@ -272,8 +276,8 @@ def parsear_orden(obj: Any) -> OrdenParseada:
         amazon_order_id=amazon_order_id,
         purchase_date=purchase,
         last_updated_time=last_updated,
-        order_status=_texto(ful.get("fulfillmentStatus"))
-        or _texto(obj.get("orderStatus", obj.get("OrderStatus"))),
+        order_status=_texto(obj.get("orderStatus", obj.get("OrderStatus"))),
+        fulfillment_status=_texto(ful.get("fulfillmentStatus")),
         fulfillment_channel=_texto(ful.get("fulfilledBy"))
         or _texto(obj.get("fulfillmentChannel", obj.get("FulfillmentChannel"))),
         sales_channel=_texto(obj.get("salesChannel", obj.get("SalesChannel"))),
@@ -404,6 +408,7 @@ def _fila_insert(
         orden.purchase_date,
         orden.last_updated_time,
         orden.order_status,
+        orden.fulfillment_status,
         orden.fulfillment_channel,
         orden.sales_channel,
         orden.total_amount,
@@ -488,7 +493,22 @@ def ejecutar_ingesta(
                 else:
                     skips["duplicada"] += 1
             motivo = _formato_skip_reason(Counter({k: v for k, v in skips.items() if v > 0}))
-            _sellar(conn, run_id, ok=True, escritas=escritas, skips=skips, motivo=motivo)
+            # Revision PR #240: paginacion incompleta (token repetido,
+            # pagina vacia con token, tope de paginas) NO es exito: las
+            # filas traidas se conservan pero el run sella ok=false para
+            # que la ventana no avance en silencio sobre el hueco
+            # (--desde repara manual).
+            if aviso is not None:
+                _sellar(
+                    conn,
+                    run_id,
+                    ok=False,
+                    escritas=escritas,
+                    skips=skips,
+                    motivo=f"paginacion_incompleta:{aviso}",
+                )
+            else:
+                _sellar(conn, run_id, ok=True, escritas=escritas, skips=skips, motivo=motivo)
     except BaseException as exc:
         try:
             with conn.transaction():
@@ -509,7 +529,7 @@ def ejecutar_ingesta(
         raise
     return ResultadoIngesta(
         run_id=run_id,
-        ok=True,
+        ok=aviso is None,
         escritas=escritas,
         omitidas=sum(v for v in skips.values() if v > 0),
         skip_reason=_formato_skip_reason(Counter({k: v for k, v in skips.items() if v > 0})),
@@ -597,4 +617,10 @@ def main(argv: list[str] | None = None) -> int:
         f"escritas={resultado.escritas} omitidas={resultado.omitidas} "
         f"paginas={resultado.paginas} aviso={resultado.aviso_paginacion}"
     )
+    if not resultado.ok:
+        print(
+            f"ingesta spapi_orders incompleta: {resultado.aviso_paginacion} (reparar con --desde)",
+            file=sys.stderr,
+        )
+        return 1
     return 0
