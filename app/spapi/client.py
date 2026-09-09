@@ -473,6 +473,45 @@ class SpapiClient:
                 return resp
 
 
+class CuboTasa:
+    """Token bucket local por proceso (sin Redis ni colas, decision de stack).
+
+    Reloj y espera inyectables (los del cliente en produccion, falsos en
+    tests). Orders lo usa con (20, 0.0056/s); Pricing con (1, 0.5/s).
+    """
+
+    def __init__(
+        self,
+        *,
+        sleep,
+        clock,
+        capacidad: int,
+        tasa: float,
+    ) -> None:
+        self._sleep = sleep
+        self._clock = clock
+        self._capacidad = capacidad
+        self._tasa = tasa
+        self._tokens = float(capacidad)
+        self._ultimo = clock()
+
+    def consumir(self) -> None:
+        ahora = self._clock()
+        self._tokens = min(
+            float(self._capacidad),
+            self._tokens + max(0.0, ahora - self._ultimo) * self._tasa,
+        )
+        self._ultimo = ahora
+        if self._tokens >= 1.0:
+            self._tokens -= 1.0
+            return
+        espera = max(0.0, (1.0 - self._tokens) / self._tasa)
+        self._sleep(espera)
+        self._tokens = min(float(self._capacidad), self._tokens + espera * self._tasa)
+        self._tokens -= 1.0
+        self._ultimo = self._clock()
+
+
 _COMPARTIDOS: dict[tuple[tuple[str, str], ...], SpapiClient] = {}
 _COMPARTIDOS_LOCK = threading.Lock()
 

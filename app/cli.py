@@ -51,6 +51,7 @@ from app.db import connect
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.redaction import scrub
 from app.spapi import orders as spapi_orders
+from app.spapi import pricing as spapi_pricing
 
 # El unico valor de --confirmar que ARCHIVA. Cualquier otra cosa es ensayo.
 MODO_ARCHIVADO_LIVE = "live"
@@ -191,6 +192,9 @@ def _ingest(args, rest: list[str]) -> int:
     if args.pipeline == "spapi_orders":
         # SP-API 01 A.2: resumenes de Orders 2026-01-01 (--platform).
         return spapi_orders.main(rest)
+    if args.pipeline == "spapi_pricing":
+        # SP-API 01 A.3: pase de Pricing v0 con Buy Box (--platform).
+        return spapi_pricing.main(rest)
     raise AssertionError(f"pipeline inalcanzable: {args.pipeline!r}")
 
 
@@ -442,6 +446,7 @@ def main(argv: list[str] | None = None) -> int:
             "ledger",
             "estimacion",
             "spapi_orders",
+            "spapi_pricing",
         ),
         help=(
             "structure: sync de estructura; metrics: metricas + search terms;"
@@ -450,7 +455,8 @@ def main(argv: list[str] | None = None) -> int:
             " fx: tipos de cambio desde contabilidad (--sqlite);"
             " ledger: ventas+cargos desde contabilidad (--sqlite);"
             " estimacion: ofertas+fees desde bridge (--sqlite);"
-            " spapi_orders: resumenes Orders SP-API (--platform)"
+            " spapi_orders: resumenes Orders SP-API (--platform);"
+            " spapi_pricing: pase Pricing SP-API (--platform)"
         ),
     )
 
