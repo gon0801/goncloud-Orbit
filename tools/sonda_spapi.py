@@ -337,9 +337,25 @@ def conteo_items(carga: Any, fuente: str) -> int:
     return 0
 
 
+def _token_de_paginacion(obj: Any) -> str | None:
+    if isinstance(obj, dict):
+        for clave in ("nextToken", "paginationToken"):
+            valor = obj.get(clave)
+            if isinstance(valor, str) and valor.strip():
+                return valor
+    return None
+
+
 def siguiente_token(carga: Any) -> str | None:
-    """Token de paginacion: v0 usa NextToken, 2026-01-01 responde nextToken
-    dentro de pagination y se reenvia como paginationToken."""
+    """Token de paginacion: v0 usa NextToken; 2026-01-01 responde nextToken
+    dentro de pagination y se reenvia como paginationToken; FBA Inventory
+    trae pagination como HERMANO de payload (fbaInventory.json:
+    GetInventorySummariesResponse = payload + pagination + errors), asi que
+    se busca en el nivel superior ANTES de desenvolver."""
+    if isinstance(carga, dict):
+        hermano = _token_de_paginacion(carga.get("pagination"))
+        if hermano is not None:
+            return hermano
     cont = _contenedor(carga)
     if not isinstance(cont, dict):
         return None
@@ -347,13 +363,7 @@ def siguiente_token(carga: Any) -> str | None:
         valor = cont.get(clave)
         if isinstance(valor, str) and valor.strip():
             return valor
-    paginacion = cont.get("pagination")
-    if isinstance(paginacion, dict):
-        for clave in ("nextToken", "paginationToken"):
-            valor = paginacion.get(clave)
-            if isinstance(valor, str) and valor.strip():
-                return valor
-    return None
+    return _token_de_paginacion(cont.get("pagination"))
 
 
 def rate_limit_de(headers: Any) -> dict[str, str]:

@@ -513,6 +513,44 @@ def test_orders_nueva_token_repetido_para_y_marca():
     assert resumen["aviso_paginacion"] == "next_token_repetido"
 
 
+def test_inventario_pagination_nivel_superior_sigue_a_pagina_2():
+    # fbaInventory.json: GetInventorySummariesResponse = payload + pagination
+    # + errors (hermanos). El token vive FUERA de payload; sin buscarlo ahi
+    # la sonda reporta 1 pagina.
+    primera = {
+        "payload": {
+            "granularity": {},
+            "inventorySummaries": [
+                {"sellerSku": f"S{i:02d}", "totalQuantity": 1} for i in range(50)
+            ],
+        },
+        "pagination": {"nextToken": "T2"},
+    }
+    segunda = {
+        "payload": {"inventorySummaries": [{"sellerSku": "S50", "totalQuantity": 2}]},
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_ok(request)
+        if request.url.params.get("nextToken") == "T2":
+            return httpx.Response(200, json=segunda)
+        if "nextToken" not in request.url.params:
+            return httpx.Response(200, json=primera)
+        raise AssertionError(f"token inesperado: {request.url.params}")
+
+    llamadas: list = []
+    cliente = _cliente(handler, llamadas=llamadas)
+    with redirect_stdout(io.StringIO()):
+        resumen = sonda.sondear_inventario(cliente, "amazon_mx", max_paginas=30)
+    gets = [r for r in llamadas if r.url.path == "/fba/inventory/v1/summaries"]
+    assert len(gets) == 2
+    assert gets[1].url.params["nextToken"] == "T2"
+    assert resumen["paginas"] == 2
+    assert resumen["conteo_total"] == 51
+    assert resumen["aviso_paginacion"] is None
+
+
 def test_ventana_orders_formato_zulu_v0_lo_exige():
     ahora = datetime.datetime(2026, 9, 9, 12, 0, 0, tzinfo=datetime.UTC)
     assert sonda._ventana_orders(7, ahora) == "2026-09-02T12:00:00Z"
