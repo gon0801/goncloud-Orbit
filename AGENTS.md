@@ -80,6 +80,8 @@ Para ver que candados tiene realmente: `pre-commit run --all-files` (o mira `.pr
 Reglas de hierro:
 1. Si un candado falla, se arregla el problema real -- JAMAS se usa `--no-verify` ni se saltea un candado.
 2. Cada bug arreglado incluye, en el mismo cambio, una prueba que lo habria atrapado.
+8. CI: la bateria completa corre en jobs paralelos cuya union es la bateria (con candado); si un job pasa de ~10 min se shardea, nunca se recorta ni se saltea por tipo de cambio.
+   Checks de docs/ledger en un job propio de segundos. Carril: docs/chore/cierre = fast; codigo = gate; medicion/release = +cross-review. Cierres de ledger de un bloque = un PR.
 
 Flujo de verificacion:
 - Durante la implementacion, corre solo las pruebas focalizadas del comportamiento modificado.
