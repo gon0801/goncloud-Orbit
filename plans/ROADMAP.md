@@ -33,10 +33,10 @@ evidencia de implementación y validación.
   en MeLi.
 - Amazon: `fabrica-01` tareas 1–10 DONE + `fabrica-ui-01` en master verificado
   (13 passed) + `campanas-01`, `campana-activa-01`, `cortes-01`
-  cerrados. Cumplido, EXCEPTO la sonda real (tarea 11, pendiente):
-  shapes POST sellados como HIPOTESIS hasta la sonda; F2/AUTO-02
-  depende de ella. Seguimiento: tarea ORBIT 17 en AppFlowy
-  (In progress).
+  cerrados. Cumplido: sonda real ejecutada 2026-09-09 (lote `web-923cb2…`,
+  5 campañas ENABLED en MX, shapes sellados en PR #233, pantalla corregida
+  en PR #232); ORBIT 17 solo espera el paso 4 (ciclo 08:41 UTC) para Done.
+  F2/AUTO-02 queda desbloqueada (ver secuencia, paso 3).
 - MeLi Ads (proposal-only, bloqueado a nivel cuenta): sin plan ni
   stub. Gap.
 
@@ -74,17 +74,22 @@ evidencia de implementación y validación.
 
 ## Secuencia propuesta (respeta dependencias)
 
-1. Cierres operativos: sonda real `fabrica-01` tarea 11 y después
+1. Cierres operativos: sonda real `fabrica-01` tarea 11 (HECHA 2026-09-09) y
    `orbit-05` 2.3/2.5 cuando exista un harvest natural.
 2. SP-API auth + lecturas (plan: `plans/sp-api-01.md`; la auth LWA ya
-   funciona en producción, Fase 0 Por probar, D1–D7 abiertas) — desbloquea M1,
-   M5, reputación v2.
-3. `repricing-01` (stub nuevo) — M1.
-4. `meli-ads-01` proposal-only (stub nuevo) — cierra M2.
-5. `promociones-01` (stub nuevo) — M4 (tras 1+3).
-6. `envios-01` (stub nuevo) — M5 (tras 2).
-7. `reputacion-02` (stub existe) — tras 2 + REP-FOLLOW-2.
-8. Integraciones cruzadas (fase 6 del doc): pausar campañas por
+   funciona en producción, Fase 0 Por probar, D1–D7 cerradas por el dueño
+   2026-09-09) — desbloquea M1, M5, reputación v2.
+3. `fabrica-01` F2 — harvest por grupo (AUTO-02): reruteo del harvest por
+   `campana_grupo_rol`, negativos cruzados `hermanas_negadas`, biblioteca
+   escrita por el motor. Desbloqueada por la sonda del 2026-09-09.
+   **Decisión del dueño 2026-09-09: va después de SP-API.** Mientras, los
+   negativos cruzados del grupo real se pusieron a mano (12, 2026-09-09).
+4. `repricing-01` (stub nuevo) — M1.
+5. `meli-ads-01` proposal-only (stub nuevo) — cierra M2.
+6. `promociones-01` (stub nuevo) — M4 (tras 1+4).
+7. `envios-01` (stub nuevo) — M5 (tras 2).
+8. `reputacion-02` (stub existe) — tras 2 + REP-FOLLOW-2.
+9. Integraciones cruzadas (fase 6 del doc): pausar campañas por
    rating, no promocionar mala reputación, envíos→reputación.
 
 ## Pendientes (dueño de cada uno)
@@ -93,8 +98,8 @@ evidencia de implementación y validación.
   cortes-ui (1.2); briefs v2/repricing/promos/envíos antes de cada
   stub.
 - **Lead**: colas chicas (orbit-05
-  2.3/2.5, bids-01 1.5, orbit-02 3.4); sonda real fábrica (tarea
-  11, decide el lead); causa conciliación ventas/compras
+  2.3/2.5, bids-01 1.5, orbit-02 3.4); cierre de ORBIT 17 (paso 4 tras el
+  ciclo del 2026-09-09 08:41 UTC); causa conciliación ventas/compras
   (orbit-19/0.3, no demostrada); stubs repricing/meli-ads/
   promociones/envíos (SP-API ya planeado: `plans/sp-api-01.md`,
   D1–D7 cerradas 2026-09-09); REP-FOLLOW-1/3 (opcionales).
@@ -112,7 +117,7 @@ histórica del registro:
 | ID | Pendiente | Alcance del futuro plan | Base y dependencia | Estado |
 |---|---|---|---|---|
 | AUTO-01 | Verificar harvest automático completo | Seguir una propuesta real que cumpla las reglas: creación exacta, negativo de origen, readbacks, registro y recuperación. No forzar propuesta ni modificar vetos. | ORBIT 05 tareas 2.3/2.5; el mecanismo existe. No crear otro motor. | Pendiente de verificación operativa |
-| AUTO-02 | Harvest por grupo de campañas | Enrutar hacia la hermana exacta, negativos cruzados y actualización de bibliotecas; compatibilidad con campañas existentes y reversa. | FABRICA 01 F2, fuera de F1. Coordinar con publicaciones/lotes v2 de ORBIT 19. | Pendiente de plan formal |
+| AUTO-02 | Harvest por grupo de campañas | Enrutar hacia la hermana exacta, negativos cruzados y actualización de bibliotecas; compatibilidad con campañas existentes y reversa. | FABRICA 01 F2, fuera de F1. Coordinar con publicaciones/lotes v2 de ORBIT 19. | Pendiente de plan formal; sonda cumplida 2026-09-09; **secuencia: después de SP-API (decisión del dueño 2026-09-09)** |
 | AUTO-03 | Decisiones publicitarias por producto | Rendimiento Ads atribuible, margen, muestra, stock y disponibilidad para acciones y límites por producto. Distinguir pausar un product ad de desactivar la publicación. | ORBIT 19 entrega selector/comparación, no este motor. Fuentes por mercado conciliadas. | Pendiente de plan formal |
 | AUTO-04 | Ajustes de placements | Top of Search, Product Pages y otros placements soportados; datos por ubicación, efecto sobre la puja efectiva, límites y reversa. Citado en orbit-03:128 y margen-estimado-01:156; schema listo (`ad_entity_kind`). | No hay motor de placements en Orbit. Confirmar fuente y API vigentes al planificar; no reutilizar el sistema viejo. | Pendiente de plan formal |
 | AUTO-05 | Gestión de presupuestos | Redistribución entre campañas/grupos, ritmo de gasto y límites por moneda, con una sola autoridad de escritura y reversa. Incluye budgets intradía + AMS/Stream (orbit-03:128). | Hoy se capturan budgets al crear. Las cuotas de operaciones no son presupuestos de publicidad. | Pendiente de plan formal |
