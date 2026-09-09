@@ -39,7 +39,7 @@ from typing import Any
 import psycopg
 
 from app.redaction import install_scrub_filter, scrub
-from app.spapi.client import MERCADOS, SpapiClient, sanear, siguiente_token
+from app.spapi.client import MERCADOS, CuboTasa, SpapiClient, sanear, siguiente_token
 
 logger = logging.getLogger(__name__)
 install_scrub_filter(logger)
@@ -56,50 +56,10 @@ MONEDAS = frozenset({"MXN", "USD"})
 _MAX_DINERO = Decimal(10) ** 10
 _MAX_DECIMALES = Decimal("0.0001")
 
-# Rate limit oficial de Orders (E/0.1: 0.0056 req/s, burst 20).
+# Rate limit oficial de Orders (E/0.1: 0.0056 req/s, burst 20). El cubo
+# vive en app.spapi.client (una copia, A.3).
 ORDERS_TASA_SEG = 0.0056
 ORDERS_BURST = 20
-
-
-class _CuboOrders:
-    """Token bucket del rate limit de Orders, uno por corrida (E/0.1).
-
-    Capacidad 20 (burst), recarga 0.0056/s: 20 paginas seguidas sin
-    espera y la 21a espera ~178 s. Reloj y espera inyectables (los del
-    cliente en produccion, falsos en tests). Sin Redis ni colas por
-    decision de stack: el limitador es local al proceso.
-    """
-
-    def __init__(
-        self,
-        *,
-        sleep,
-        clock,
-        capacidad: int = ORDERS_BURST,
-        tasa: float = ORDERS_TASA_SEG,
-    ) -> None:
-        self._sleep = sleep
-        self._clock = clock
-        self._capacidad = capacidad
-        self._tasa = tasa
-        self._tokens = float(capacidad)
-        self._ultimo = clock()
-
-    def consumir(self) -> None:
-        ahora = self._clock()
-        self._tokens = min(
-            float(self._capacidad),
-            self._tokens + max(0.0, ahora - self._ultimo) * self._tasa,
-        )
-        self._ultimo = ahora
-        if self._tokens >= 1.0:
-            self._tokens -= 1.0
-            return
-        espera = max(0.0, (1.0 - self._tokens) / self._tasa)
-        self._sleep(espera)
-        self._tokens = min(float(self._capacidad), self._tokens + espera * self._tasa)
-        self._tokens -= 1.0
-        self._ultimo = self._clock()
 
 
 _SQL_ABRIR_RUN = "INSERT INTO ingest_run (source) VALUES (%s) RETURNING id"
@@ -337,17 +297,27 @@ def recorrer_ordenes(
     params_base: dict,
     *,
     max_paginas: int = MAX_PAGINAS_DEFAULT,
+    cubo: CuboTasa | None = None,
 ) -> tuple[list[dict], dict]:
     """Sigue `paginationToken` con las guardas de TRASPASO-1.
 
     Devuelve (ordenes crudas acumuladas, info con paginas/conteo/aviso).
     Un status != 200 es fatal (la corrida sella ok=false); pagina vacia o
-    token repetido paran y se marcan, nunca loop.
+    token repetido paran y se marcan, nunca loop. El cubo viaja DENTRO del
+    get: cada intento (incluido el reintento por 429) consume cuota y honra
+    `x-amzn-RateLimit-Limit` (revision #5); sin cubo se construye el de
+    Orders y el comportamiento previo queda intacto.
     """
     if max_paginas < 1:
         raise IngestaOrdersError("--max-paginas debe ser >= 1")
     # Reloj y espera salen del cliente (inyectables en tests).
-    cubo = _CuboOrders(sleep=client._sleep, clock=client._clock)
+    if cubo is None:
+        cubo = CuboTasa(
+            sleep=client._sleep,
+            clock=client._clock,
+            capacidad=ORDERS_BURST,
+            tasa=ORDERS_TASA_SEG,
+        )
     ordenes: list[dict] = []
     vistos: set[str] = set()
     token: str | None = None
@@ -358,8 +328,7 @@ def recorrer_ordenes(
         params = dict(params_base)
         if token is not None:
             params["paginationToken"] = token
-        cubo.consumir()
-        resp = client.get(RUTA_ORDERS, params=params)
+        resp = client.get(RUTA_ORDERS, params=params, limitador=cubo)
         if resp.status_code != 200:
             raise IngestaOrdersError(f"orders status={resp.status_code}")
         try:
