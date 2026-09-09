@@ -44,7 +44,7 @@
 - **Campañas nacen ENABLED** (decisión 8). `--desarmar` PAUSA, nunca archiva.
 - **Orden de creación fijo**: `category_exact → category_phrase → category_broad → product_targeting → auto_discovery`.
 - **HTTP propio**: `httpx` directo con `Content-Type` Y `Accept` = vendor v3 exacto del path; el objeto viaja envuelto en su clave de lista; ids como STRING. Readback SOLO por `AdsClient.list_objects` (POST `/sp/*/list`). PROHIBIDO importar `app.ads.write` (candado `test_imports_del_cliente_de_escritura_acotados` ya escanea `tools/`).
-- **Shapes sin sellar en vivo** (POST `/sp/campaigns`, `/sp/adGroups`, `/sp/targets`, camino feliz de `/sp/productAds`): son hipótesis documentadas hasta la sonda de la tarea 11; se marcan `# HIPOTESIS hasta la sonda` en el código y se sellan (o corrigen) con el log de la sonda.
+- **Shapes sin sellar en vivo** (POST `/sp/campaigns`, `/sp/adGroups`, `/sp/targets`, camino feliz de `/sp/productAds`): quedaron **sellados por la sonda real del 2026-09-09** (lote `web-923cb2…`, 87 pasos `applied`, cero rechazos, readback y sync desde Amazon); los shapes del código son los vigentes. Ver «Tarea 11 — sonda».
 - **Ventanas (tres, no una)**: biblioteca y términos phrase/broad/product usan `[CURRENT_DATE - 105, CURRENT_DATE - 15)` UTC (la misma de `v_target_margen_plataforma`); el **margen por producto** (`v_margen_producto`) usa `[2026-02-20, CURRENT_DATE - 15)` con guard de **30** días con venta (decisión escrita del dueño en la tarea 1: arranque FIJO = primer `valid_from` de `sku_cost`; con `[D-105, D-15)` y 60 días ningún producto entraba, y con 365 días ninguno cubría costo); los **candidatos a semilla exact** se evalúan con la **ventana de CORTES del motor** (`VENTANA_CORTES_DIAS`, agregado separado con `window_end <= hoy - 10d`, regla 6 — pineada contra `app/optimizer/windows.py` por test).
 - **Módulos de `app/` ≤ 900 líneas** (`test_presupuesto_de_tamano_por_modulo`); complejidad bajo los topes de ruff (C901 22, PLR0912 25, PLR0915 80). `tools/` no tiene tope de líneas pero sí ruff.
 - **Proceso**: rama por tarea desde `origin/master` (`git fetch` primero); un PR por tarea; CI corre la batería completa (no correr la suite entera local, solo el archivo de test que se toca); `pre-commit run --all-files` verde; JAMÁS `--no-verify`. Cross-review: 1 ronda por PR de código; 2ª SOLO si la 1ª halla severidad alta; jamás 3ª. Prohibido tocar el contenedor de producción: la corrida real (tarea 11) es del lead.
@@ -5096,6 +5096,14 @@ git commit -m "test(architecture): allowlist de imports de tools/fabrica_campana
 > La integracion UI/plan queda en PR propio; Amazon puede omitir temas auto o
 > targets de producto no aplicables, que se muestran como rol pendiente de
 > captura manual sin inventar fallback. La sonda real sigue sin autorizar.]
+>
+> cc:WIP [**2026-09-09 03:35–03:37 UTC: SONDA REAL EJECUTADA por el dueño desde
+> la pantalla** (lote `web-923cb2…`, go literal «CREAR 5 CAMPAÑAS»). 87 pasos
+> `applied`, cero rechazos, `reconciliacion_final ok`; 5 campañas ENABLED en
+> Amazon MX leídas de vuelta por el sync (ingest_run 130). Shapes sellados en
+> este commit. Quedan: paso 4 (ciclo del 2026-09-09 08:41 UTC debe listar las
+> 5 como elegibles en shadow) y el cierre en AppFlowy. Evidencia completa en
+> «Tarea 11 — sonda».]
 
 **Files:**
 - Modify: `plans/fabrica-01.md` ("Decisiones y evidencia"), `docs/CHAT-CONTEXT.md`
@@ -5617,7 +5625,7 @@ firma real tiene `secrets_dir` opcional).
 `_ESPERADO_ROLES = 5`; `_PAUSADA = "PAUSED"`; `API = DEFAULT_BASE_URL`;
 LWA y readback por `AdsClient.list_objects` (devuelve `httpx.Response`).
 Shapes de POST campaigns/adGroups/targets y el camino feliz de productAds
-siguen **HIPOTESIS hasta la sonda** (tarea 11).
+quedaron **sellados por la sonda real del 2026-09-09** (tarea 11).
 
 **D-GLM-7-10-7 (allowlist = imports reales).** `ALLOWLIST_IMPORTS_FABRICA_CAMPANAS`
 se ajusta a los imports REALES del tool post 7-9 (stdlib + httpx/psycopg +
@@ -5730,7 +5738,58 @@ E   AssertionError: assert {'filtroEquiv... ['no-esta']}} == {'campaignIdF... ['
 
 ### Tarea 11 — sonda (lead)
 
-_(pendiente; extracto scrubbed del log, shapes confirmados o corregidos, lote y grupo_id)_
+**Ejecutada 2026-09-09 03:35:11 → 03:37:27 UTC por el dueño desde `/campanas/nuevas`**
+(no por CLI): `POST /api/fabrica/crear` 200, go literal «CREAR 5 CAMPAÑAS», lote
+`web-923cb24207db81ebbb6c0a1b251c8562cac501b9f4fac4a7b9dd151a250716bd`, `estado=applied`,
+`grupo_id=1`. Evidencia: `fabrica_lote`/`fabrica_lote_paso` en producción (lectura
+`orbit_read`), log del contenedor y `out/fabrica-dryrun-20260908.log` (ensayo previo).
+
+- **Plan firmado**: amazon_mx / MXN, tipo `kit_arras`, nombre base `Personalizado`,
+  publicación 1204 (producto 1621 `PERS-CAR-AZU-SAN-DOR`, ASIN `B0BXHV2D76`, SKU
+  `GE-YXVC-R5BR`, margen 42.16 %), objetivo `margen_medido` → target 21.08 %
+  (0.5 × 42.157…), `modo_goal=shadow`, budget 20 MXN/día por campaña. Bids:
+  `category_exact` 11.62 (`amazon_v4`, mediana de 9.80/4.13/13.45/17.73); phrase,
+  broad, product_targeting y auto 11.00 manual (Amazon no completó la sugerencia
+  de esos roles: regla todo-o-nada, ver decisión del dueño abajo). Semillas: 4 exact,
+  31 keywords (phrase y broad), 6 ASIN, 0 negativos (biblioteca vacía; F2).
+- **Pasos (87, todos `applied`)**: por rol campaign + ad_group + product_ad, más 4
+  keywords (exact), 31 + 31 keywords (phrase, broad) y 6 targets (product_targeting).
+  Campañas Amazon: exact `145787501515469`, phrase `146133635461259`, broad
+  `208065490960987`, product_targeting `70314694808265`, auto `166729699150154`.
+  Ad groups: `182421284463033`, `230717862175174`, `208386167184953`,
+  `187855388248650`, `551144644693697`. Goals 8–12 (`shadow`, `enabled`, 21.08).
+  `reconciliacion_final ok=true`. Cero errores ni tracebacks en el log.
+- **Readback externo (regla 10)**: el sync de estructura del mismo lote
+  (`ingest_run` 130, `amazon_ads_structure_v2`, 03:37:24 UTC) leyó desde Amazon las
+  5 campañas `ENABLED` (targetingType MANUAL ×4, AUTO ×1) y las 4 cláusulas
+  automáticas que Amazon crea solo en la auto (`QUERY_HIGH_REL_MATCHES`,
+  `QUERY_BROAD_REL_MATCHES`, `ASIN_ACCESSORY_RELATED`, `ASIN_SUBSTITUTE_RELATED`):
+  prueba de que existen en Amazon, no solo en Orbit. `ad_entity`: 5 campaigns,
+  5 ad groups, 66 keywords, 10 product_target, 5 product_ad.
+- **Shapes**: los tres marcadores `# HIPOTESIS hasta la sonda` de `app/fabrica_plan.py`
+  y el docstring de `tools/fabrica_campanas.py` pasan a «sellado por la sonda
+  2026-09-09» en este commit. Ningún shape necesitó corrección.
+- **Defectos de pantalla hallados por el dueño** (motor OK): sin buscador de
+  publicaciones; la revisión no mostraba las semillas; creación de 2 min 16 s sin
+  progreso ni banner de resultado; aviso de puja manual poco visible. Corregidos en
+  PR #232 (`fix/fabrica-ui-sonda`, 9 tests nuevos rojo→verde, CI verde).
+- **Negativos cruzados manuales (2026-09-09 ~04:05 UTC, dueño con `!` desde la
+  sesión, camino sellado `apply._cliente_reversa` + `AdsWriteClient.crear_negative_exacto`,
+  pre-check y readback por `/sp/negativeKeywords/list`)**: las 4 exactas como
+  `NEGATIVE_EXACT` en phrase, broad y auto = 12 creados, 0 fallos, readback 4/4/4.
+  Ids: phrase 202192245483189, 75428189431730, 239258156354605, 136780189048622;
+  broad 110386150113630, 112031305059246, 200419229295836, 253503201593110; auto
+  84778090552575, 155594552124834, 172329107271306, 171961931943664. Reversa:
+  `borrar_negative(id)`. Log: `out/negativos-kit-arras-20260909.log` (no se commitea).
+  Motivo: F2 (negativo cruzado `hermanas_negadas`) no existe aún; sin esto las cuatro
+  campañas compiten por los mismos términos exactos.
+- **Decisión del dueño 2026-09-09 (pujas)**: «hay que quitar eso de todo o nada; las
+  que no tengan sugerencia que sea un promedio de todas». Cada keyword/ASIN con
+  sugerencia usa la suya; las sin sugerencia usan el promedio simple del rol (acotado
+  por piso/techo); rol con cero sugerencias sigue manual. Brief para GLM emitido;
+  implementación en PR propio.
+- **Pendiente para cerrar la tarea**: paso 4 (ciclo 2026-09-09 08:41 UTC lista las 5
+  campañas con goal `shadow` como elegibles) y `ORBIT 17` Done en AppFlowy.
 
 ## Fuera de este plan (F2, spec §7)
 

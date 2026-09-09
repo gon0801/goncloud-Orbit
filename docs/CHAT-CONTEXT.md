@@ -4,6 +4,17 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-09 UTC — FABRICA 01 tarea 11: SONDA REAL EJECUTADA; primer grupo creado en Amazon MX.**
+El dueño creó desde la pantalla el grupo `kit_arras | Personalizado` (lote `web-923cb2…`,
+03:35–03:37 UTC): 5 campañas ENABLED con 20 MXN/día, target 21.08 % derivado del margen,
+goals en shadow, 66 keywords, 6 ASIN, 87 pasos `applied`, reconciliación ok, y el sync
+leyó las 5 de vuelta desde Amazon. Los shapes dejan de ser hipótesis (sellados en
+código y plan). Solo la exacta recibió pujas sugeridas (regla todo-o-nada); el dueño
+decidió cambiarla a promedio por rol para las faltantes (brief a GLM). La pantalla
+falló en avisar el resultado y en mostrar semillas: PR #232. Como F2 no existe, el
+dueño puso a mano las 4 exactas como negativo exacto en phrase, broad y auto por el
+camino sellado (12 ids, readback 4/4/4). Falta el paso 4 (ciclo 08:41 UTC) y el Done.
+
 **2026-09-08 UTC — FABRICA 01 tarea 11: bids sugeridos en implementacion.**
 El dry-run inicial de la sonda mostró bids manuales de 1 MXN; el dueño pidió
 usar la recomendación de Amazon. La sonda read-only confirmó el endpoint v4

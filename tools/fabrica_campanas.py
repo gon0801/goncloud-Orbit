@@ -21,8 +21,9 @@ QUE HACE, EN ORDEN:
  4. Reversa (--desarmar <lote>) y --reconciliar: pausa verificada y
     promocion solo de lo verificado.
 
-Shapes de campanas/adGroups/targets y el camino feliz de productAds son
-HIPOTESIS hasta la sonda (tarea 11).
+Shapes de campanas/adGroups/targets y el camino feliz de productAds quedaron
+SELLADOS por la sonda real del 2026-09-09 (lote web-923cb2, 87 pasos applied,
+cero rechazos; plans/fabrica-01.md tarea 11).
 
 La imagen incluye esta herramienta para la UI; el CLI conserva la corrida
 por stdin dentro del contenedor app:
@@ -38,8 +39,8 @@ por stdin dentro del contenedor app:
 La mutacion real tendra su propio sello v3 (patron archiva_inertes/
 reactiva_campanas): NO importa app.ads.write (candado en
 tests/test_architecture.py). Shapes de campanas/adGroups/targets y el camino
-feliz de productAds son HIPOTESIS hasta la sonda (plans/fabrica-01.md
-tarea 11).
+feliz de productAds: sellados por la sonda real del 2026-09-09
+(plans/fabrica-01.md tarea 11).
 """
 
 from __future__ import annotations

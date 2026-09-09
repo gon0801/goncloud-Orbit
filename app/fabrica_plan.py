@@ -702,7 +702,7 @@ def plan_desde_json(d: dict) -> PlanGrupo:
 
 def _payload_campana(plan: PlanCanonico, rol: str) -> dict:
     p = plan.parametros[rol]
-    return {  # HIPOTESIS hasta la sonda: startDate ISO, budget anidado, dynamicBidding
+    return {  # Sellado por la sonda 2026-09-09: startDate ISO, budget anidado, dynamicBidding
         "name": nombre_campana(plan.tipo_producto, plan.nombre_base, rol, plan.fecha),
         "targetingType": TARGETING_POR_ROL[rol],
         "state": ESTADO_NUEVO,
@@ -713,7 +713,7 @@ def _payload_campana(plan: PlanCanonico, rol: str) -> dict:
 
 
 def _payload_ad_group(plan: PlanCanonico, rol: str) -> dict:
-    return {  # HIPOTESIS hasta la sonda: defaultBid numero
+    return {  # Sellado por la sonda 2026-09-09 (lote web-923cb2): defaultBid numero
         "name": nombre_ad_group(plan.tipo_producto, plan.nombre_base, rol, plan.fecha),
         "state": ESTADO_NUEVO,
         "defaultBid": monto_wire(plan.parametros[rol].bid),
@@ -759,7 +759,7 @@ def _semillas_del_rol(plan: PlanCanonico, rol: str) -> list[Paso]:
                 rol,
                 "target",
                 PATH_CREATE["target"],
-                {  # HIPOTESIS hasta la sonda: expressionType MANUAL + ASIN_SAME_AS
+                {  # Sellado por la sonda 2026-09-09: expressionType MANUAL + ASIN_SAME_AS
                     "expressionType": "MANUAL",
                     "expression": [{"type": "ASIN_SAME_AS", "value": asin}],
                     "state": ESTADO_NUEVO,
