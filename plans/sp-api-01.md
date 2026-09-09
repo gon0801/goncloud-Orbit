@@ -192,7 +192,7 @@ plan-preapprovals.json con decision approved sin la revision del lead
 {
   "name": "sp-api-01",
   "path": "plans/sp-api-01.md",
-  "description": "SP-API 01 — PLAN 2026-09-09: lecturas solo-lectura (Orders, Pricing, Listings Items, Inventario FBA, Sellers) con cliente unico app/spapi/ y un solo refrescador LWA; Fase 0 Por probar, D1-D7 abiertas para el dueno"
+  "description": "SP-API 01 — PLAN (no implementado) 2026-09-09 UTC: lecturas solo-lectura (Orders, Pricing, Listings Items, Inventario FBA, Sellers) con cliente unico app/spapi/ y un solo refrescador LWA; D1-D7 cerradas por el dueno 2026-09-09; Fase 0 Por probar; implementacion solo con brief nuevo del lead. PR #231."
 }
 ```
 

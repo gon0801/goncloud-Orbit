@@ -95,8 +95,9 @@ evidencia de implementación y validación.
 - **Lead**: colas chicas (orbit-05
   2.3/2.5, bids-01 1.5, orbit-02 3.4); sonda real fábrica (tarea
   11, decide el lead); causa conciliación ventas/compras
-  (orbit-19/0.3, no demostrada); stubs SP-API/repricing/
-  meli-ads/promociones/envíos; REP-FOLLOW-1/3 (opcionales).
+  (orbit-19/0.3, no demostrada); stubs repricing/meli-ads/
+  promociones/envíos (SP-API ya planeado: `plans/sp-api-01.md`,
+  D1–D7 cerradas 2026-09-09); REP-FOLLOW-1/3 (opcionales).
 - **Higiene**: `cortes-ui-01` deduplicado en manifest 2026-09-08
   (quedó la entry con 1.2 pendiente de confirmación del dueño).
 
