@@ -4,6 +4,17 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-09 UTC — SP-API 01 Fase A, tarea A.2 cerrada: ingesta diaria de pedidos.**
+Muse entregó la migración 0030 (`spapi_order_observation`, append-only por trigger, clave por
+plataforma + orden + última actualización, dinero con moneda, permisos mínimos) y
+`app/spapi/orders.py` (PR #239): lee Orders 2026-01-01 sin datos de comprador, ventana con solape
+de un día, paginación con guardas, contrato estricto (sin lista de pedidos la corrida queda en
+rojo), limitador local 20 ráfaga / 0.0056 por segundo, `ingest_run` sellado, CLI `ingest
+spapi_orders --platform`. Ronda única: CI había caído porque un token de prueba de una letra se
+registraba como secreto y redactaba la letra T en todo el proceso; ahora los fixtures son largos y
+`register_secret` ignora valores de menos de 8 caracteres. Verificado por mutación. Falta A.6:
+aplicar 0030 en producción, desplegar A.1+A.2 y la primera corrida real (dueño).
+
 **2026-09-09 UTC — SP-API 01 Fase A, tarea A.1 cerrada: cliente único de SP-API.**
 Muse entregó `app/spapi/client.py` (PR #237): un solo refrescador LWA por proceso compartido
 por fees, fotos y la sonda (antes había dos ad hoc), allowlist default-deny con los GET de las
