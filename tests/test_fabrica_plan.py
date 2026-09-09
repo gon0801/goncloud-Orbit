@@ -289,6 +289,7 @@ def test_bids_amazon_van_por_objetivo_y_quedan_en_plan_firmado():
             "minimo": "4.00",
             "sugerido": "5.00",
             "maximo": "6.00",
+            "fuente": "amazon_v4",
         }
     ]
     assert fp.plan_desde_json(serializado).parametros["category_exact"].recomendaciones == (
@@ -311,6 +312,106 @@ def test_plan_amazon_aborta_si_falta_bid_de_una_keyword():
     )
     with pytest.raises(fp.PlanInvalido, match="sin recomendaciones"):
         fp.pasos_del_rol(plan, "category_exact")
+
+
+def _recomendaciones_parciales_phrase():
+    """3 reales + 2 con promedio explícito del rol (promedio 9.13 MXN)."""
+    reales = (
+        Recomendacion(
+            Expresion("KEYWORD_PHRASE_MATCH", "a"), Decimal("4"), Decimal("9.80"), Decimal("20")
+        ),
+        Recomendacion(
+            Expresion("KEYWORD_PHRASE_MATCH", "b"), Decimal("4"), Decimal("4.13"), Decimal("20")
+        ),
+        Recomendacion(
+            Expresion("KEYWORD_PHRASE_MATCH", "c"),
+            Decimal("4"),
+            Decimal("13.45"),
+            Decimal("20"),
+        ),
+    )
+    promediadas = (
+        Recomendacion(
+            Expresion("KEYWORD_PHRASE_MATCH", kw),
+            Decimal("9.13"),
+            Decimal("9.13"),
+            Decimal("9.13"),
+            "promedio_rol",
+        )
+        for kw in ("d", "e")
+    )
+    return reales + tuple(promediadas)
+
+
+def test_plan_amazon_acepta_parcial_con_promedio_explicito_y_firma_fuentes():
+    """Decisión del dueño 2026-09-09: el parcial con promedio explícito valida;
+    la huella y el plan firmado registran la fuente por expresión."""
+    parametros = _parametros()
+    parametros["category_phrase"] = fp.ParametrosRol(
+        "category_phrase",
+        Decimal("120"),
+        Decimal("9.80"),
+        fuente_bid="amazon_v4",
+        recomendaciones=_recomendaciones_parciales_phrase(),
+    )
+    plan = _plan(
+        parametros=parametros,
+        semillas=fp.Semillas(("a", "b", "c", "d", "e"), (), (), ()),
+    )
+    pasos = fp.pasos_del_rol(plan, "category_phrase")
+    por_keyword = {
+        paso.payload["keywordText"]: paso.payload["bid"]
+        for paso in pasos
+        if paso.recurso == "keyword"
+    }
+    assert por_keyword == {"a": 9.8, "b": 4.13, "c": 13.45, "d": 9.13, "e": 9.13}
+    ad_group = next(paso for paso in pasos if paso.recurso == "ad_group")
+    assert ad_group.payload["defaultBid"] == 9.8, "mediana de las reales"
+    serializado = fp.plan_como_json(plan)
+    fuentes = [r["fuente"] for r in serializado["parametros"]["category_phrase"]["recomendaciones"]]
+    assert fuentes == ["amazon_v4"] * 3 + ["promedio_rol"] * 2
+    assert sum(1 for f in fuentes if f == "promedio_rol") == 2
+    assert fp.plan_desde_json(serializado).parametros["category_phrase"].recomendaciones == (
+        _recomendaciones_parciales_phrase()
+    )
+
+
+def test_plan_amazon_rechaza_parcial_sin_promedio_explicito():
+    """Sin promedio explícito el parcial se rechaza como hoy."""
+    parametros = _parametros()
+    parametros["category_phrase"] = fp.ParametrosRol(
+        "category_phrase",
+        Decimal("120"),
+        Decimal("9.80"),
+        fuente_bid="amazon_v4",
+        recomendaciones=_recomendaciones_parciales_phrase()[:3],
+    )
+    plan = _plan(
+        parametros=parametros,
+        semillas=fp.Semillas(("a", "b", "c", "d", "e"), (), (), ()),
+    )
+    with pytest.raises(fp.PlanInvalido, match="semillas vigentes"):
+        fp.pasos_del_rol(plan, "category_phrase")
+
+
+def test_plan_amazon_rechaza_fuente_de_recomendacion_invalida():
+    """Una fuente que no sea amazon_v4 ni promedio_rol se rechaza."""
+    (primera, *resto) = _recomendaciones_parciales_phrase()
+    manipulada = (replace(primera, fuente="manual"), *resto)
+    parametros = _parametros()
+    parametros["category_phrase"] = fp.ParametrosRol(
+        "category_phrase",
+        Decimal("120"),
+        Decimal("9.80"),
+        fuente_bid="amazon_v4",
+        recomendaciones=manipulada,
+    )
+    plan = _plan(
+        parametros=parametros,
+        semillas=fp.Semillas(("a", "b", "c", "d", "e"), (), (), ()),
+    )
+    with pytest.raises(fp.PlanInvalido, match="fuente de recomendacion invalida"):
+        fp.pasos_del_rol(plan, "category_phrase")
 
 
 def test_plan_v1_rechaza_recomendaciones_de_semillas_anteriores_antes_de_pasos():

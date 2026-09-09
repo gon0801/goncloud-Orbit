@@ -124,6 +124,7 @@ def _bids_como_json(plan: fp.PlanGrupo | fp.PlanGrupoV2) -> dict[str, list[dict]
                 "minimo": str(recomendacion.minimo),
                 "sugerido": str(recomendacion.sugerido),
                 "maximo": str(recomendacion.maximo),
+                "fuente": recomendacion.fuente,
                 "bid_efectivo": str(
                     plan.parametros[rol].bid
                     if rol == "auto_discovery"
@@ -209,6 +210,7 @@ def sugerir_bids(conn, solicitud: dict) -> dict:
                         "minimo": str(recomendacion.minimo),
                         "sugerido": str(recomendacion.sugerido),
                         "maximo": str(recomendacion.maximo),
+                        "fuente": recomendacion.fuente,
                         "bid_efectivo": (
                             None
                             if resultado.bid is None
@@ -228,6 +230,12 @@ def sugerir_bids(conn, solicitud: dict) -> dict:
                     {"tipo": expresion.tipo, "valor": expresion.valor}
                     for expresion in resultado.faltantes
                 ],
+                # Decisión del dueño 2026-09-09: cuántas usan el promedio del
+                # rol y con qué valor (la pantalla lo avisa N de M).
+                "promedio": str(resultado.promedio) if resultado.promedio is not None else None,
+                "promediadas": sum(
+                    1 for r in resultado.recomendaciones if r.fuente == "promedio_rol"
+                ),
             }
             for rol, resultado in resultados.items()
         },

@@ -1677,6 +1677,100 @@ global.fetch = async (url, options = {}) => {
     )
 
 
+def test_flujo_js_aviso_promedio_por_rol_en_campo_y_revision():
+    """Decisión del dueño 2026-09-09: el rol parcial avisa N de M con el promedio
+    en el campo y la revisión lo repite; cero sugerencias queda en manual."""
+    _correr_flujo_fabrica(
+        r"""
+const catalogo = {plataforma: "amazon_mx", moneda: "MXN", tipos_producto: [],
+  productos: [{id: 1, sku: "GORRA-01", nombre: "Gorras", publicaciones: [
+    {id: 11, asin: "B0AAAAAAAA", seller_sku: "SKU-AMAZON-A", platform: "amazon_mx",
+      margen_neto_pct: null, dias_con_venta: null, ventana_desde: null,
+      ventana_hasta: null, historial_ads: null, elegible: true, motivos: [],
+      url: null}]}]};
+const reales = (cuales) =>
+  ["a", "b", "c", "d", "e"].slice(0, cuales).map(kw => ({
+    tipo: "KEYWORD_PHRASE_MATCH", valor: kw, minimo: "4.00",
+    sugerido: kw === "b" ? "4.13" : kw === "c" ? "13.45" : "9.80",
+    maximo: "20.00", bid_efectivo: "9.80", fuente: "amazon_v4",
+  }));
+const promediadas = ["d", "e"].map(kw => ({
+  tipo: "KEYWORD_PHRASE_MATCH", valor: kw, minimo: "9.13", sugerido: "9.13",
+  maximo: "9.13", bid_efectivo: "9.13", fuente: "promedio_rol",
+}));
+const plan = {huella: "abc", lote: "web-abc", presupuesto_diario_total: "600.00",
+  existentes: [],
+  campanas: ["category_exact", "category_phrase", "category_broad",
+    "product_targeting", "auto_discovery"].map(rol => ({rol, nombre: rol,
+    budget: "120.00", bid: rol === "product_targeting" ? "4.00" : "9.80",
+    fuente_bid: rol === "product_targeting" ? "manual" : "amazon_v4"})),
+  bids: {
+    category_exact: reales(1).map(r => ({...r, tipo: "KEYWORD_EXACT_MATCH"})),
+    category_phrase: [...reales(3), ...promediadas],
+    category_broad: [],
+    category_targeting: [],
+  },
+  plan: {schema_version: 2, platform: "amazon_mx", moneda: "MXN", modo: "shadow",
+    fecha: "2026-09-06", nombre_base: "Gorras", tipo_producto: "gorras",
+    objetivo: {origen: "manual_lanzamiento", acos_pct: "25.00",
+      procedencia: "confirmado", fraccion: null, derivado: null},
+    publicaciones: [],
+    semillas: {exact: ["a"], keywords: ["a", "b", "c", "d", "e"], asins: [],
+      negativos: []}}};
+const sugeridos = {fuente: "amazon_v4", roles: {
+  category_exact: {disponible: true, bid: "9.80",
+    recomendaciones: reales(1).map(r => ({...r, tipo: "KEYWORD_EXACT_MATCH"})),
+    faltantes: [], promedio: null, promediadas: 0},
+  category_phrase: {disponible: true, bid: "9.80",
+    recomendaciones: [...reales(3), ...promediadas], faltantes: [],
+    promedio: "9.13", promediadas: 2},
+  category_broad: {disponible: true, bid: "9.80", recomendaciones: reales(1),
+    faltantes: [], promedio: null, promediadas: 0},
+  product_targeting: {disponible: false, bid: null, recomendaciones: [],
+    faltantes: [{tipo: "PAT_ASIN", valor: "B0AAAAAAAA"}], promedio: null,
+    promediadas: 0},
+  auto_discovery: {disponible: true, bid: "5.00", recomendaciones: [],
+    faltantes: [], promedio: null, promediadas: 0}}};
+global.fetch = async (url, options = {}) => {
+  calls.push({url, options});
+  if (url.includes("/catalogo")) return ok(catalogo);
+  if (url.includes("/evaluacion")) return ok({plataforma: "amazon_mx", publicaciones: []});
+  if (url.includes("/lotes?")) return ok({items: []});
+  if (url.endsWith("/bids-sugeridos")) return ok(sugeridos);
+  if (url.endsWith("/plan")) return ok(plan);
+  return ok({});
+};
+const AVISO_PARCIAL =
+  "Amazon no devolvió sugerencia para 2 de 5: usan el promedio del rol (9.13 MXN)";
+(async () => {
+  await docEvents.DOMContentLoaded();
+  await new Promise(resolve => setImmediate(resolve));
+  el("productos").querySelectorAll('input[type="checkbox"]')[0].checked = true;
+  el("tipo").value = "gorras"; el("nombre").value = "Gorras"; el("modo").value = "shadow";
+  el("objetivo-origen").value = "manual_lanzamiento";
+  await emit("objetivo-origen", "change");
+  el("objetivo-acos").value = "25.00";
+  await emit("bids-amazon", "click");
+  assert.equal(el("category_phrase-bid-aviso").textContent, AVISO_PARCIAL);
+  assert.equal(el("category_exact-bid-aviso").textContent, "",
+    "rol completo no avisa");
+  assert.match(el("product_targeting-bid-aviso").textContent,
+    /Amazon no devolvió sugerencia: puja manual/, "cero sugerencias queda manual");
+  for (const rol of ["category_exact", "category_phrase", "category_broad",
+    "product_targeting", "auto_discovery"]) {
+    ids[rol + "-budget"].value = "120.00";
+    ids[rol + "-bid"].value = rol === "product_targeting" ? "4.00" : "9.80";
+  }
+  await emit("plan");
+  const revision = text(el("preview-datos"));
+  assert.ok(revision.includes(AVISO_PARCIAL), "la revisión repite el aviso parcial");
+  assert.match(text(el("preview-datos")),
+    /Amazon no devolvió sugerencia: puja manual/, "la revisión repite el manual");
+})().catch(error => { console.error(error); process.exitCode = 1; });
+"""
+    )
+
+
 def test_avisos_puja_manual_tienen_elemento_por_rol():
     """F4 estatico: cada rol tiene su aviso junto al campo de puja."""
     respuesta = TestClient(app).get("/campanas/nuevas")
