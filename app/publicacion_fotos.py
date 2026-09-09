@@ -6,18 +6,15 @@ La cache es acotada y efimera; nunca sustituye fotos faltantes por otro producto
 
 from __future__ import annotations
 
-import json
-import os
 import re
 import threading
 import time
 from collections import OrderedDict
-from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx
 
-from app.redaction import register_secret
+from app.spapi.client import SpapiClient
 
 MERCADOS = {"amazon_mx": "A1AM78C64UM0Y8", "amazon_us": "ATVPDKIKX0DER"}
 MAX_BYTES = 256 * 1024
@@ -59,44 +56,44 @@ def _es_imagen(datos: bytes, mime: str) -> bool:
 
 
 class FotosPublicacion:
-    """Un solo fetch en vuelo, maximo 128 miniaturas y 256 KiB por miniatura."""
+    """Un solo fetch en vuelo, maximo 128 miniaturas y 256 KiB por miniatura.
 
-    def __init__(self, transport=None):
+    El refrescador LWA es el unico de `app/spapi` (D5): el token sale de un
+    `SpapiClient` compartido por proceso. El throttle (0.6 s), la cache y el
+    manejo de 404/401/403 quedan intactos.
+    """
+
+    def __init__(self, transport=None, spapi_client: SpapiClient | None = None):
         self._transport = transport
         self._lock = threading.Lock()
         self._cache = OrderedDict()
-        self._token = None
-        self._vence_token = 0.0
         self._proxima_consulta = 0.0
+        self._spapi_inyectado = spapi_client
+        self._spapi: SpapiClient | None = spapi_client
 
-    def _acceso(self, client: httpx.Client) -> str:
-        if self._token and time.monotonic() < self._vence_token:
-            return self._token
-        base = Path(os.environ.get("ORBIT_SECRETS_DIR", "/mnt/data/appdata/orbit/secrets"))
-        config = json.loads((base / "amazon_credentials.json").read_text())
-        campos = [config[k] for k in ("lwa_app_id", "lwa_client_secret", "refresh_token")]
-        if not all(isinstance(v, str) and v.strip() for v in campos):
-            raise ValueError("credenciales incompletas")
-        for valor in campos:
-            register_secret(valor)
-        response = client.post(
-            "https://api.amazon.com/auth/o2/token",
-            data={
-                "grant_type": "refresh_token",
-                "client_id": campos[0],
-                "client_secret": campos[1],
-                "refresh_token": campos[2],
-            },
-        )
-        response.raise_for_status()
-        datos = response.json()
-        token = datos["access_token"]
-        if not isinstance(token, str) or not token:
-            raise ValueError("token ausente")
-        register_secret(token)
-        self._token = token
-        self._vence_token = time.monotonic() + max(0, int(datos["expires_in"]) - 60)
-        return token
+    def _spapi_cliente(self) -> SpapiClient:
+        # Creacion perezosa: los tests fijan ORBIT_SECRETS_DIR antes de usar,
+        # y el transporte mock debe ser el mismo de las descargas. El reloj se
+        # resuelve tarde (`time.monotonic` por atributo) para que el monkeypatch
+        # de tiempo de los tests expire el token igual que antes.
+        if self._spapi is None:
+            self._spapi = SpapiClient(
+                transport=self._transport,
+                clock=lambda: time.monotonic(),
+                sleep=lambda s: time.sleep(s),
+            )
+        return self._spapi
+
+    def _acceso(self, client: httpx.Client | None = None) -> str:
+        # `client` se conserva por compatibilidad (antes hacia el POST LWA);
+        # el token ahora sale del refrescador unico. Los fallos de auth se
+        # traducen a ValueError como antes (obtener los mapea a no disponible).
+        try:
+            return self._spapi_cliente()._acceso()
+        except ValueError:
+            raise
+        except Exception as exc:
+            raise ValueError("token ausente") from exc
 
     def _descargar(self, client: httpx.Client, url: str) -> tuple[bytes, str]:
         with client.stream("GET", url) as response:
@@ -124,7 +121,7 @@ class FotosPublicacion:
             if response.status_code == 404:
                 return None
             if response.status_code in (401, 403):
-                self._token = None
+                self._spapi_cliente().invalidar_token()
             response.raise_for_status()
             url = _url_main(response.json(), asin, MERCADOS[plataforma])
             return self._descargar(client, url) if url else None
