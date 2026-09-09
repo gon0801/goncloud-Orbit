@@ -69,6 +69,8 @@ document.addEventListener("DOMContentLoaded", function () {
   let versionHistorial = 0;
   let versionDetalle = 0;
   let asOfEstimacion = null;
+  let tarjetasCatalogo = [];
+  let pujaManualSinSugerencia = new Set();
   let catalogoDisponible = false;
   let resumenCatalogo = null;
   let consultandoPlan = false;
@@ -225,6 +227,8 @@ document.addEventListener("DOMContentLoaded", function () {
     preview = null;
     if (!conservarSugerencias) {
       sugerencias = null;
+      pujaManualSinSugerencia = new Set();
+      actualizarAvisosPujas();
       porId("bids-detalle").replaceChildren();
       porId("bids-detalle").hidden = true;
     }
@@ -326,6 +330,18 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   }
 
+  // Presentacion de semillas por campana. El reparto rol -> semilla vive en
+  // app/fabrica_plan.py::expresiones_bid (fuente unica); aqui solo se presenta
+  // lo que ya trae el preview, con textContent y sin inventar semillas.
+  function semillasDeCampana(semillas, rol) {
+    if (rol === "auto_discovery") return ["Amazon crea los grupos automáticos; sin semillas manuales."];
+    if (rol === "category_exact") return (semillas.exact || []).map(semilla => semilla + " (exacta)");
+    if (rol === "category_phrase") return (semillas.keywords || []).map(semilla => semilla + " (frase)");
+    if (rol === "category_broad") return (semillas.keywords || []).map(semilla => semilla + " (amplia)");
+    if (rol === "product_targeting") return [...(semillas.asins || [])];
+    return [];
+  }
+
   function mostrarPreview(datos) {
     const contenedor = porId("preview-datos");
     contenedor.replaceChildren();
@@ -336,6 +352,20 @@ document.addEventListener("DOMContentLoaded", function () {
       campana.budget + " " + datos.plan.moneda, campana.bid + " " + datos.plan.moneda,
       campana.fuente_bid === "amazon_v4" ? "Amazon sugerido" : "Manual",
     ]));
+    contenedor.append(nodo("h4", "Semillas y puja por campaña"));
+    datos.campanas.forEach(campana => {
+      contenedor.append(nodo("h5", etiquetas[campana.rol] || campana.rol));
+      const semillas = semillasDeCampana(datos.plan.semillas || {}, campana.rol);
+      if (!semillas.length) contenedor.append(nodo("p", "0 semillas para esta campaña."));
+      else {
+        const lista = nodo("ul");
+        semillas.forEach(semilla => lista.append(nodo("li", semilla)));
+        contenedor.append(lista);
+      }
+      let linea = "Puja inicial: " + (campana.fuente_bid === "amazon_v4" ? "Amazon sugerido" : "Manual");
+      if (pujaManualSinSugerencia.has(campana.rol)) linea += ". Amazon no devolvió sugerencia: puja manual";
+      contenedor.append(nodo("p", linea));
+    });
     mostrarDetalleBids(contenedor, datos.bids, datos.plan.moneda);
     contenedor.append(nodo("p", "Presupuesto diario total: " + datos.presupuesto_diario_total + " " + datos.plan.moneda));
     contenedor.append(nodo("h4", "Campañas existentes para estos productos"));
@@ -347,6 +377,17 @@ document.addEventListener("DOMContentLoaded", function () {
     ficha(contenedor, [["Lote", datos.lote], ["Huella del plan", datos.huella]]);
     porId("preview").hidden = false;
     porId("preview-titulo").focus();
+  }
+
+  // Aviso junto al campo de puja de cada rol sin sugerencia de Amazon.
+  // Solo cubre roles que Amazon dejo sin sugerencia al consultar (F4):
+  // sin consulta no hay aviso, y un override manual de una sugerencia
+  // recibida tampoco lo genera.
+  function actualizarAvisosPujas() {
+    roles.forEach(rol => {
+      porId(rol + "-bid-aviso").textContent = pujaManualSinSugerencia.has(rol)
+        ? "Amazon no devolvió sugerencia: puja manual" : "";
+    });
   }
 
   function mostrarDetalleBids(contenedor, datosPorRol, moneda, incluirFaltantes = false) {
@@ -732,11 +773,22 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   }
 
+  // Buscador (F1): filtra las tarjetas ya cargadas por nombre interno,
+  // SKU de Odoo, SKU de Amazon y ASIN. Sin red, sin tocar checkboxes:
+  // la seleccion y el preview vigente sobreviven al filtro.
+  function filtrarCatalogo() {
+    const consulta = porId("buscar").value.trim().toLowerCase();
+    tarjetasCatalogo.forEach(({elemento, texto}) => {
+      elemento.hidden = consulta !== "" && !texto.includes(consulta);
+    });
+  }
+
   async function cargarCatalogo() {
     const previas = seleccionadas();
     const version = ++versionCatalogo;
     invalidar();
     catalogoDisponible = false;
+    tarjetasCatalogo = [];
     porId("productos").replaceChildren();
     porId("tipos").replaceChildren();
     porId("moneda").textContent = "—";
@@ -792,8 +844,17 @@ document.addEventListener("DOMContentLoaded", function () {
           publicaciones.append(fila);
         });
         tarjeta.append(publicaciones);
+        const piezas = [producto.nombre, producto.sku];
+        (producto.publicaciones || []).forEach(publicacion => {
+          piezas.push(publicacion.asin, publicacion.seller_sku);
+        });
+        tarjetasCatalogo.push({
+          elemento: tarjeta,
+          texto: piezas.filter(Boolean).join(" ").toLowerCase(),
+        });
         porId("productos").append(tarjeta);
       });
+      filtrarCatalogo();
       catalogoDisponible = true;
       porId("productos").querySelectorAll('input[type="checkbox"]').forEach(input => {
         if (previas.has(Number(input.value)) && !input.disabled) input.checked = true;
@@ -874,6 +935,8 @@ document.addEventListener("DOMContentLoaded", function () {
         }
       });
       sugerencias = datos.roles;
+      pujaManualSinSugerencia = new Set(roles.filter(rol => !datos.roles[rol].disponible));
+      actualizarAvisosPujas();
       const detalle = porId("bids-detalle");
       detalle.replaceChildren();
       mostrarDetalleBids(detalle, datos.roles, porId("moneda").textContent, true);
@@ -997,6 +1060,29 @@ document.addEventListener("DOMContentLoaded", function () {
     return token;
   }
 
+  // Banner de resultado junto al boton de crear (F3): mensaje con textContent
+  // mas enlace al detalle del lote; el foco se mueve al banner como con
+  // preview-titulo. La logica de intentados/huella y el manejo de 401 no cambian.
+  function ocultarResultadoCrear() {
+    const banner = porId("crear-resultado");
+    banner.replaceChildren();
+    banner.hidden = true;
+  }
+
+  function mostrarResultadoCrear(mensaje, lote) {
+    const banner = porId("crear-resultado");
+    banner.replaceChildren();
+    banner.append(nodo("strong", mensaje));
+    if (lote) {
+      const enlace = nodo("a", "Ver detalle del lote " + lote);
+      enlace.href = "#fabrica-lote";
+      enlace.addEventListener("click", () => { porId("lote-titulo").focus(); });
+      banner.append(nodo("span", " "), enlace);
+    }
+    banner.hidden = false;
+    banner.focus();
+  }
+
   async function crear(evento) {
     evento.preventDefault();
     if (mutando || !preview || intentados.has(preview.huella)) return;
@@ -1009,6 +1095,9 @@ document.addEventListener("DOMContentLoaded", function () {
     intentados.add(datos.huella);
     seleccionarLote(datos.lote);
     mutando = true; actualizarBotones();
+    porId("crear-boton").textContent = "Creando… no cierres la página";
+    porId("crear-progreso").hidden = false;
+    ocultarResultadoCrear();
     porId("confirmacion").value = "";
     estado("estado", "Creando el grupo. Conserva esta página para consultar el lote.");
     estado("lote-estado", "Creación en curso…");
@@ -1019,6 +1108,7 @@ document.addEventListener("DOMContentLoaded", function () {
       }, token);
       versionDetalle += 1;
       mostrarLote(resultado);
+      mostrarResultadoCrear("Grupo creado: " + (estadosLote[resultado.estado] || resultado.estado), resultado.lote);
       estado("estado", "Solicitud finalizada. Revisa el estado y los pasos del lote.");
       estado("lote-estado", "Resultado recibido: " + (estadosLote[resultado.estado] || resultado.estado));
     } catch (error) {
@@ -1026,15 +1116,20 @@ document.addEventListener("DOMContentLoaded", function () {
       if (error.status === 401) {
         intentados.delete(datos.huella);
         tokenRechazado = true;
+        mostrarResultadoCrear("Token rechazado. Corrígelo y confirma de nuevo el plan revisado.", null);
         estado("estado", "Token rechazado. Corrígelo y confirma de nuevo el plan revisado.", true);
         estado("lote-estado", "La solicitud fue rechazada antes de crear el lote.", true);
         return;
       }
       if (error.lote && error.lote !== loteActual) seleccionarLote(error.lote);
+      mostrarResultadoCrear("Creación interrumpida. Consulta el detalle del lote; no se reintentará la creación.",
+        error.lote || loteActual);
       estado("estado", error.message + " Conserva el lote y consulta su estado; no se reintentará la creación.", true);
       estado("lote-estado", "Resultado pendiente de consultar. " + error.message, true);
     } finally {
       token = null; mutando = false;
+      porId("crear-boton").textContent = "Crear las cinco campañas";
+      porId("crear-progreso").hidden = true;
       if (tokenRechazado) actualizarBotones();
       else invalidar();
       cargarHistorial();
@@ -1066,6 +1161,8 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function cambioFormulario(evento) {
+    // El buscador filtra lo ya cargado: no invalida el plan revisado (F1).
+    if (evento.target === porId("buscar")) return;
     const nombre = evento.target && evento.target.name;
     if (sugerencias && typeof nombre === "string" && nombre.endsWith("_bid")) {
       const rol = nombre.slice(0, -4);
@@ -1110,6 +1207,7 @@ document.addEventListener("DOMContentLoaded", function () {
   porId("recargar-catalogo").addEventListener("click", () => {
     cargarCatalogo().then(() => cargarComparador());
   });
+  porId("buscar").addEventListener("input", filtrarCatalogo);
   porId("historial-recargar").addEventListener("click", cargarHistorial);
   porId("lote-recargar").addEventListener("click", cargarLote);
   porId("comparador-recargar").addEventListener("click", cargarComparador);

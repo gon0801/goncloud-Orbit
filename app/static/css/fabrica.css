@@ -146,6 +146,12 @@
   .fabrica-aviso-margen { min-width: 160px; }
 }
 
+.fabrica-catalogo label[for="fabrica-buscar"] { max-width: 32rem; }
+.fabrica-aviso-puja { display: block; margin-top: 4px; font-size: 11.5px; color: var(--o-warn-tx); }
+.fabrica-aviso-puja:empty { display: none; }
+.fabrica #fabrica-crear-progreso { font-weight: 600; }
+.fabrica-crear-resultado { margin-top: 8px; padding: 10px 12px; border: 1px solid var(--o-borde); border-radius: 8px; }
+.fabrica-crear-resultado a { margin-left: 8px; }
 .fabrica-comparacion-scroll { max-height: 34rem; }
 .fabrica-comparacion thead { position: sticky; top: 0; z-index: 2; }
 .fabrica-comparacion .fabrica-identidad { text-transform: none; letter-spacing: normal; font-size: 12.5px; font-weight: 400; color: var(--o-ink); }
