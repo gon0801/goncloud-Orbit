@@ -1607,6 +1607,76 @@ global.fetch = async (url, options = {}) => {
 """)
 
 
+def test_flujo_js_buscador_enter_no_envia_el_formulario():
+    """F5: Enter en el buscador no dispara revisar; el filtro sigue aplicado."""
+    _correr_flujo_fabrica(
+        r"""
+const catalogo = {plataforma: "amazon_mx", moneda: "MXN", tipos_producto: [],
+  productos: [
+    {id: 1, sku: "GORRA-01", nombre: "Gorras bordadas", publicaciones: [
+      {id: 11, asin: "B0AAAAAAAA", seller_sku: "SKU-AMAZON-A", platform: "amazon_mx",
+        margen_neto_pct: null, dias_con_venta: null, ventana_desde: null,
+        ventana_hasta: null, historial_ads: null, elegible: true, motivos: [], url: null}]},
+    {id: 2, sku: "PLAYERA-02", nombre: "Playeras", publicaciones: [
+      {id: 12, asin: "B0BBBBBBBB", seller_sku: "SKU-AMAZON-B", platform: "amazon_mx",
+        margen_neto_pct: null, dias_con_venta: null, ventana_desde: null,
+        ventana_hasta: null, historial_ads: null, elegible: true, motivos: [], url: null}]}]};
+global.fetch = async (url, options = {}) => {
+  calls.push({url, options});
+  if (url.includes("/catalogo")) return ok(catalogo);
+  if (url.includes("/evaluacion")) return ok({plataforma: "amazon_mx", publicaciones: []});
+  if (url.includes("/lotes?")) return ok({items: []});
+  return ok({});
+};
+(async () => {
+  await docEvents.DOMContentLoaded();
+  await new Promise(resolve => setImmediate(resolve));
+  const tarjetas = () =>
+    el("productos")
+      .querySelectorAll("*")
+      .filter(e => e.className === "fabrica-producto");
+  el("buscar").value = "playera";
+  await emit("buscar", "input");
+  assert.equal(tarjetas()[1].hidden, false);
+  const cajas = el("productos").querySelectorAll('input[type="checkbox"]');
+  cajas[0].checked = true;
+  await emit("productos", "change");
+  const planes = () => calls.filter(c => c.url.endsWith("/plan")).length;
+  let evitado = false;
+  el("buscar").events.keydown({
+    preventDefault() {
+      evitado = true;
+    },
+    key: "Enter",
+    target: el("buscar"),
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(evitado, true, "Enter en el buscador se bloquea");
+  assert.equal(planes(), 0, "Enter no consulta /plan");
+  assert.equal(tarjetas()[0].hidden, true, "el filtro sigue aplicado");
+  assert.equal(cajas[0].checked, true);
+  assert.match(
+    el("buscar-conteo").textContent,
+    /1 seleccionada oculta/,
+    "la marcada pero filtrada no pasa desapercibida",
+  );
+  let evitadoLetra = false;
+  el("buscar").events.keydown({
+    preventDefault() {
+      evitadoLetra = true;
+    },
+    key: "a",
+    target: el("buscar"),
+  });
+  assert.equal(evitadoLetra, false, "otras teclas escriben normal");
+})().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});
+"""
+    )
+
+
 def test_avisos_puja_manual_tienen_elemento_por_rol():
     """F4 estatico: cada rol tiene su aviso junto al campo de puja."""
     respuesta = TestClient(app).get("/campanas/nuevas")

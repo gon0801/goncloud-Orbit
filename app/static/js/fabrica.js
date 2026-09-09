@@ -781,6 +781,24 @@ document.addEventListener("DOMContentLoaded", function () {
     tarjetasCatalogo.forEach(({elemento, texto}) => {
       elemento.hidden = consulta !== "" && !texto.includes(consulta);
     });
+    actualizarConteoBuscador();
+  }
+
+  // Contador junto al buscador (F5): una marcada pero filtrada no pasa
+  // desapercibida. Solo presenta lo ya cargado; sin red.
+  function actualizarConteoBuscador() {
+    let ocultas = 0, selOcultas = 0;
+    tarjetasCatalogo.forEach(({elemento}) => {
+      if (!elemento.hidden) return;
+      ocultas += 1;
+      selOcultas += elemento.querySelectorAll('input[type="checkbox"]:checked').length;
+    });
+    const sel = seleccionadas().size;
+    let texto = sel + (sel === 1 ? " seleccionada" : " seleccionadas")
+      + " · " + ocultas + (ocultas === 1 ? " oculta" : " ocultas") + " por el filtro";
+    if (selOcultas) texto += " (" + selOcultas
+      + (selOcultas === 1 ? " seleccionada oculta" : " seleccionadas ocultas") + ")";
+    porId("buscar-conteo").textContent = texto;
   }
 
   async function cargarCatalogo() {
@@ -1202,12 +1220,17 @@ document.addEventListener("DOMContentLoaded", function () {
     cargarHistorial();
   });
   porId("productos").addEventListener("change", () => {
-    actualizarResumenCatalogo(); renderComparador();
+    actualizarResumenCatalogo(); renderComparador(); actualizarConteoBuscador();
   });
   porId("recargar-catalogo").addEventListener("click", () => {
     cargarCatalogo().then(() => cargarComparador());
   });
   porId("buscar").addEventListener("input", filtrarCatalogo);
+  // Enter dentro del buscador no envia el formulario (F5): el buscador vive
+  // dentro de #fabrica-plan y el submit implicito llamaria a revisar().
+  porId("buscar").addEventListener("keydown", evento => {
+    if (evento.key === "Enter") evento.preventDefault();
+  });
   porId("historial-recargar").addEventListener("click", cargarHistorial);
   porId("lote-recargar").addEventListener("click", cargarLote);
   porId("comparador-recargar").addEventListener("click", cargarComparador);
