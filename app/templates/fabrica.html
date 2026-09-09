@@ -63,6 +63,14 @@
           <p id="fabrica-catalogo-estado" role="status" aria-live="polite"></p>
           <button id="fabrica-recargar-catalogo" type="button">Actualizar productos</button>
         </div>
+        <label for="fabrica-buscar">Buscar publicaciones
+          <input id="fabrica-buscar" type="search" autocomplete="off"
+                 placeholder="Nombre, SKU de Odoo, SKU de Amazon o ASIN"
+                 aria-describedby="fabrica-buscar-ayuda">
+        </label>
+        <p id="fabrica-buscar-ayuda" class="mutado">Filtra la lista ya cargada, sin
+          consultar de nuevo. No pierde la selección ni invalida el plan revisado.</p>
+        <p id="fabrica-buscar-conteo" role="status" aria-live="polite"></p>
         <div id="fabrica-productos" class="fabrica-productos" role="region"
              aria-label="Publicaciones agrupadas por producto" tabindex="0"></div>
       </div>
@@ -89,7 +97,8 @@
                    pattern="[0-9]+([.][0-9]{1,2})?" maxlength="14" required autocomplete="off"></td>
           <td class="num"><input id="{{ rol }}-bid" name="{{ rol }}_bid" inputmode="decimal"
                    aria-label="Puja inicial {{ etiqueta }}"
-                   pattern="[0-9]+([.][0-9]{1,2})?" maxlength="14" required autocomplete="off"></td>
+                   pattern="[0-9]+([.][0-9]{1,2})?" maxlength="14" required autocomplete="off">
+            <span id="fabrica-{{ rol }}-bid-aviso" class="fabrica-aviso-puja" aria-live="polite"></span></td>
         </tr>
         {% endfor %}
         </tbody>
@@ -161,6 +170,8 @@
       <p id="fabrica-crear-aviso">La confirmación crea campañas ACTIVAS con gasto real.
         Revisa el presupuesto diario total antes de continuar. La creación nunca se reintenta automáticamente.</p>
       <button id="fabrica-crear-boton" type="submit" disabled>Crear las cinco campañas</button>
+      <p id="fabrica-crear-progreso" role="status" hidden>Creando… no cierres esta página.</p>
+      <div id="fabrica-crear-resultado" class="fabrica-crear-resultado" role="status" tabindex="-1" hidden></div>
     </form>
   </section>
 

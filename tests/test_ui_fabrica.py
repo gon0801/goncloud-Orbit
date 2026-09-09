@@ -1225,3 +1225,533 @@ vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
         timeout=15,
     )
     assert resultado.returncode == 0, resultado.stdout + resultado.stderr
+
+
+# ---------------------------------------------------------------------------
+# Sonda real 2026-09-09 (F1-F4): ayudante y pruebas del flujo JavaScript.
+# ---------------------------------------------------------------------------
+
+_PRELUDIO_FABRICA_JS = r"""
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+class Element {
+  constructor(attrs = {}) {
+    Object.assign(this, attrs);
+    this.children = []; this.events = {}; this.value = attrs.value || "";
+    this.disabled = "disabled" in attrs; this.hidden = "hidden" in attrs;
+    this.checked = false; this.textContent = ""; this.dataset = {};
+  }
+  append(...items) { this.children.push(...items); }
+  appendChild(item) { this.append(item); return item; }
+  replaceChildren(...items) { this.children = items; this.textContent = ""; }
+  addEventListener(event, fn) { this.events[event] = fn; }
+  setAttribute(name, value) { this[name] = value; }
+  focus() {}
+  reportValidity() { return true; }
+  querySelectorAll(selector) {
+    const all = this.children.flatMap(child => [child, ...child.querySelectorAll("*")]);
+    if (selector === "*") return all;
+    return all.filter(child => child.type === "checkbox" &&
+      (!selector.includes(":checked") || child.checked));
+  }
+}
+const attrs = JSON.parse(process.argv[1]);
+const ids = Object.fromEntries(attrs.map(a => [a.id, new Element(a)]));
+const el = id => ids["fabrica-" + id];
+el("plataforma").value = "amazon_mx";
+el("plan").elements = Object.fromEntries(attrs.filter(a => a.name).map(a => [a.name, ids[a.id]]));
+const docEvents = {};
+global.document = {
+  getElementById: id => ids[id],
+  createElement: tag => new Element({tagName: tag}),
+  addEventListener: (event, fn) => { docEvents[event] = fn; },
+};
+global.window = {
+  location: {href: "http://orbit.test/campanas/nuevas", search: ""},
+  addEventListener: () => {},
+  history: { replaceState: () => {} },
+};
+const calls = [];
+const ok = body => ({ok: true, status: 200, json: async () => body});
+const emit = async (id, event = "submit") => {
+  const handler = el(id).events[event]; assert.ok(handler, `Falta evento ${id}:${event}`);
+  handler({preventDefault() {}, target: el(id)});
+  await new Promise(resolve => setImmediate(resolve));
+};
+const text = node => node.textContent + node.children.map(text).join(" ");
+vm.runInThisContext(fs.readFileSync(process.argv[2], "utf8"));
+"""
+
+_ROLES_FABRICA = [
+    "category_exact",
+    "category_phrase",
+    "category_broad",
+    "product_targeting",
+    "auto_discovery",
+]
+
+
+def _correr_flujo_fabrica(guion: str):
+    """JS real de fabrica con DOM simulado y frontera API simulada."""
+    node = shutil.which("node")
+    if not node:
+        if "CI" in os.environ:
+            pytest.fail("Node es obligatorio en CI para verificar el flujo JavaScript")
+        pytest.skip("Node no disponible; el navegador se verifica en integracion")
+    html = TestClient(app).get("/campanas/nuevas").text
+    elementos = [attrs for _, attrs in Elementos(html).elementos if "id" in attrs]
+    resultado = subprocess.run(
+        [
+            node,
+            "-e",
+            _PRELUDIO_FABRICA_JS + guion,
+            json.dumps(elementos),
+            str(RAIZ / "static/js/fabrica.js"),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+    assert resultado.returncode == 0, resultado.stdout + resultado.stderr
+
+
+def test_buscador_publicaciones_es_accesible():
+    """F1 estatico: filtro de texto con label, usable por teclado, sin red."""
+    respuesta = TestClient(app).get("/campanas/nuevas")
+    assert respuesta.status_code == 200
+    elementos = Elementos(respuesta.text).elementos
+    por_id = {a.get("id"): (t, a) for t, a in elementos if a.get("id")}
+    tag, attrs = por_id["fabrica-buscar"]
+    assert tag == "input" and attrs.get("type") == "search"
+    labels = [a for t, a in elementos if t == "label" and a.get("for") == "fabrica-buscar"]
+    assert len(labels) == 1
+
+
+def test_flujo_js_buscador_filtra_en_vivo_y_conserva_seleccion():
+    """F1: filtra lo ya cargado (sin red), no pierde seleccion ni invalida el preview."""
+    _correr_flujo_fabrica(r"""
+const catalogo = {plataforma: "amazon_mx", moneda: "MXN", tipos_producto: [],
+  productos: [
+    {id: 1, sku: "GORRA-01", nombre: "Gorras bordadas", publicaciones: [
+      {id: 11, asin: "B0AAAAAAAA", seller_sku: "SKU-AMAZON-A", platform: "amazon_mx",
+        margen_neto_pct: null, dias_con_venta: null, ventana_desde: null,
+        ventana_hasta: null, historial_ads: null, elegible: true, motivos: [], url: null}]},
+    {id: 2, sku: "PLAYERA-02", nombre: "Playeras", publicaciones: [
+      {id: 12, asin: "B0BBBBBBBB", seller_sku: "SKU-AMAZON-B", platform: "amazon_mx",
+        margen_neto_pct: null, dias_con_venta: null, ventana_desde: null,
+        ventana_hasta: null, historial_ads: null, elegible: true, motivos: [], url: null}]}]};
+const plan = {huella: "abc", lote: "web-abc", presupuesto_diario_total: "600.00",
+  existentes: [],
+  campanas: ["category_exact", "category_phrase", "category_broad",
+    "product_targeting", "auto_discovery"].map(rol => ({rol, nombre: rol,
+    budget: "120.00", bid: "4.00", fuente_bid: "manual"})),
+  plan: {schema_version: 2, platform: "amazon_mx", moneda: "MXN", modo: "shadow",
+    fecha: "2026-09-06", nombre_base: "Gorras", tipo_producto: "gorras",
+    objetivo: {origen: "manual_lanzamiento", acos_pct: "25.00",
+      procedencia: "confirmado", fraccion: null, derivado: null},
+    publicaciones: [], semillas: {exact: [], keywords: [], asins: [], negativos: []}}};
+global.fetch = async (url, options = {}) => {
+  calls.push({url, options});
+  if (url.includes("/catalogo")) return ok(catalogo);
+  if (url.includes("/evaluacion")) return ok({plataforma: "amazon_mx", publicaciones: []});
+  if (url.includes("/lotes?")) return ok({items: []});
+  if (url.endsWith("/plan")) return ok(plan);
+  return ok({});
+};
+(async () => {
+  await docEvents.DOMContentLoaded();
+  await new Promise(resolve => setImmediate(resolve));
+  const tarjetas = () => el("productos").querySelectorAll("*")
+    .filter(e => e.className === "fabrica-producto");
+  assert.equal(tarjetas().length, 2);
+  const lecturas = () => calls.filter(c => c.url.includes("/catalogo")).length;
+  el("buscar").value = "gorra";
+  await emit("buscar", "input");
+  assert.equal(tarjetas()[0].hidden, false);
+  assert.equal(tarjetas()[1].hidden, true);
+  assert.equal(lecturas(), 1, "filtrar no consulta de nuevo: sin red");
+  el("buscar").value = "B0BBBBBBBB";
+  await emit("buscar", "input");
+  assert.equal(tarjetas()[0].hidden, true);
+  assert.equal(tarjetas()[1].hidden, false, "filtra por ASIN");
+  el("buscar").value = "sku-amazon-a";
+  await emit("buscar", "input");
+  assert.equal(tarjetas()[0].hidden, false, "filtra por SKU de Amazon");
+  const cajas = el("productos").querySelectorAll('input[type="checkbox"]');
+  cajas[0].checked = true;
+  await emit("productos", "change");
+  el("buscar").value = "playera";
+  await emit("buscar", "input");
+  assert.equal(cajas[0].checked, true, "filtrar no pierde la seleccion");
+  el("buscar").value = "";
+  await emit("buscar", "input");
+  assert.ok(tarjetas().every(t => t.hidden === false), "limpiar muestra todo");
+  assert.equal(cajas[0].checked, true);
+  el("tipo").value = "gorras"; el("nombre").value = "Gorras"; el("modo").value = "shadow";
+  el("objetivo-origen").value = "manual_lanzamiento";
+  await emit("objetivo-origen", "change");
+  el("objetivo-acos").value = "25.00";
+  for (const rol of ["category_exact", "category_phrase", "category_broad",
+    "product_targeting", "auto_discovery"]) {
+    ids[rol + "-budget"].value = "120.00"; ids[rol + "-bid"].value = "4.00";
+  }
+  await emit("plan");
+  assert.equal(el("preview").hidden, false);
+  el("buscar").value = "gorra";
+  await emit("buscar", "input");
+  assert.equal(el("preview").hidden, false, "filtrar no invalida el plan revisado");
+  assert.equal(el("crear-boton").disabled, false);
+})().catch(error => { console.error(error); process.exitCode = 1; });
+""")
+
+
+def test_flujo_js_revision_muestra_semillas_por_campana():
+    """F2: cada campana muestra sus semillas; lista vacia dice "0 semillas"."""
+    _correr_flujo_fabrica(r"""
+const catalogo = {plataforma: "amazon_mx", moneda: "MXN", tipos_producto: [],
+  productos: [{id: 1, sku: "GORRA-01", nombre: "Gorras", publicaciones: [
+    {id: 11, asin: "B0AAAAAAAA", seller_sku: "SKU-AMAZON-A", platform: "amazon_mx",
+      margen_neto_pct: null, dias_con_venta: null, ventana_desde: null,
+      ventana_hasta: null, historial_ads: null, elegible: true, motivos: [],
+      url: null}]}]};
+const plan = {huella: "abc", lote: "web-abc", presupuesto_diario_total: "600.00",
+  existentes: [],
+  campanas: ["category_exact", "category_phrase", "category_broad",
+    "product_targeting", "auto_discovery"].map(rol => ({rol, nombre: rol,
+    budget: "120.00", bid: "4.00", fuente_bid: "manual"})),
+  plan: {schema_version: 2, platform: "amazon_mx", moneda: "MXN", modo: "shadow",
+    fecha: "2026-09-06", nombre_base: "Gorras", tipo_producto: "gorras",
+    objetivo: {origen: "manual_lanzamiento", acos_pct: "25.00",
+      procedencia: "confirmado", fraccion: null, derivado: null},
+    publicaciones: [],
+    semillas: {exact: ["gorra plana"], keywords: [], asins: ["B0BBBBBBBB"],
+      negativos: []}}};
+global.fetch = async (url, options = {}) => {
+  calls.push({url, options});
+  if (url.includes("/catalogo")) return ok(catalogo);
+  if (url.includes("/evaluacion")) return ok({plataforma: "amazon_mx", publicaciones: []});
+  if (url.includes("/lotes?")) return ok({items: []});
+  if (url.endsWith("/plan")) return ok(plan);
+  return ok({});
+};
+(async () => {
+  await docEvents.DOMContentLoaded();
+  await new Promise(resolve => setImmediate(resolve));
+  el("productos").querySelectorAll('input[type="checkbox"]')[0].checked = true;
+  el("tipo").value = "gorras"; el("nombre").value = "Gorras"; el("modo").value = "shadow";
+  el("objetivo-origen").value = "manual_lanzamiento";
+  await emit("objetivo-origen", "change");
+  el("objetivo-acos").value = "25.00";
+  for (const rol of ["category_exact", "category_phrase", "category_broad",
+    "product_targeting", "auto_discovery"]) {
+    ids[rol + "-budget"].value = "120.00"; ids[rol + "-bid"].value = "4.00";
+  }
+  await emit("plan");
+  const revision = text(el("preview-datos"));
+  assert.match(revision, /gorra plana \(exacta\)/, "la exacta muestra texto y match");
+  assert.match(revision, /0 semillas/, "lista vacia se declara, no se oculta");
+  assert.match(revision, /B0BBBBBBBB/, "product targeting muestra sus ASIN");
+  assert.match(revision, /automáticos/, "auto avisa grupos automaticos de Amazon");
+})().catch(error => { console.error(error); process.exitCode = 1; });
+""")
+
+
+def test_crear_expone_progreso_y_banner_de_resultado():
+    """F3 estatico: indicador junto al boton y banner enfocable para el resultado."""
+    respuesta = TestClient(app).get("/campanas/nuevas")
+    assert respuesta.status_code == 200
+    elementos = Elementos(respuesta.text).elementos
+    por_id = {a.get("id"): (t, a) for t, a in elementos if a.get("id")}
+    tag, attrs = por_id["fabrica-crear-progreso"]
+    assert tag == "p" and attrs.get("role") == "status" and "hidden" in attrs
+    tag, attrs = por_id["fabrica-crear-resultado"]
+    assert attrs.get("role") == "status" and attrs.get("tabindex") == "-1"
+    assert "hidden" in attrs
+
+
+def test_flujo_js_crear_muestra_progreso_y_banner_con_enlace():
+    """F3 ruta feliz: boton en progreso, banner con resultado y enlace al lote."""
+    _correr_flujo_fabrica(r"""
+const catalogo = {plataforma: "amazon_mx", moneda: "MXN", tipos_producto: [],
+  productos: [{id: 1, sku: "GORRA-01", nombre: "Gorras", publicaciones: [
+    {id: 11, asin: "B0AAAAAAAA", seller_sku: "SKU-AMAZON-A", platform: "amazon_mx",
+      margen_neto_pct: null, dias_con_venta: null, ventana_desde: null,
+      ventana_hasta: null, historial_ads: null, elegible: true, motivos: [],
+      url: null}]}]};
+const esquema = {schema_version: 2, platform: "amazon_mx", moneda: "MXN",
+  modo: "shadow", fecha: "2026-09-06", nombre_base: "Gorras",
+  tipo_producto: "gorras",
+  objetivo: {origen: "manual_lanzamiento", acos_pct: "25.00",
+    procedencia: "confirmado", fraccion: null, derivado: null},
+  publicaciones: [],
+  semillas: {exact: ["gorra"], keywords: [], asins: [], negativos: []}};
+const plan = {huella: "abc", lote: "web-abc", presupuesto_diario_total: "600.00",
+  existentes: [],
+  campanas: ["category_exact", "category_phrase", "category_broad",
+    "product_targeting", "auto_discovery"].map(rol => ({rol, nombre: rol,
+    budget: "120.00", bid: "4.00", fuente_bid: "manual"})),
+  plan: esquema};
+const lote = {lote: "web-abc", plataforma: "amazon_mx", estado: "applied",
+  detalle: "Grupo creado", created_at: "2026-09-09", finished_at: "2026-09-09",
+  plan: esquema, pasos: [{orden: 1, rol: "category_exact", recurso: "campaign",
+    external_id: "111", estado: "applied", readback_estado: "ok"}]};
+let resolverCrear;
+global.fetch = async (url, options = {}) => {
+  calls.push({url, options});
+  if (url.includes("/catalogo")) return ok(catalogo);
+  if (url.includes("/evaluacion")) return ok({plataforma: "amazon_mx", publicaciones: []});
+  if (url.includes("/lotes?")) return ok({items: []});
+  if (url.endsWith("/plan")) return ok(plan);
+  if (url.endsWith("/crear")) return new Promise(resolve => { resolverCrear = resolve; });
+  return ok(lote);
+};
+(async () => {
+  let enfocado = null;
+  el("crear-resultado").focus = () => { enfocado = "banner"; };
+  await docEvents.DOMContentLoaded();
+  await new Promise(resolve => setImmediate(resolve));
+  el("productos").querySelectorAll('input[type="checkbox"]')[0].checked = true;
+  el("tipo").value = "gorras"; el("nombre").value = "Gorras"; el("modo").value = "shadow";
+  el("objetivo-origen").value = "manual_lanzamiento";
+  await emit("objetivo-origen", "change");
+  el("objetivo-acos").value = "25.00";
+  for (const rol of ["category_exact", "category_phrase", "category_broad",
+    "product_targeting", "auto_discovery"]) {
+    ids[rol + "-budget"].value = "120.00"; ids[rol + "-bid"].value = "4.00";
+  }
+  await emit("plan");
+  el("token").value = "secreto-solo-header";
+  el("confirmacion").value = "CREAR 5 CAMPAÑAS";
+  await emit("crear");
+  assert.match(el("crear-boton").textContent, /Creando… no cierres la página/);
+  assert.equal(el("crear-progreso").hidden, false, "indicador visible junto al boton");
+  assert.equal(el("crear-boton").disabled, true);
+  resolverCrear(ok(lote));
+  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+  const banner = el("crear-resultado");
+  assert.equal(banner.hidden, false);
+  assert.match(text(banner), /Creado y registrado/, "el banner trae el resultado");
+  const enlaces = banner.querySelectorAll("*").filter(e => e.tagName === "a");
+  assert.equal(enlaces.length, 1, "el banner enlaza al detalle del lote");
+  assert.equal(enlaces[0].href, "#fabrica-lote");
+  assert.equal(enfocado, "banner", "el foco se mueve al banner");
+  assert.equal(el("crear-boton").textContent, "Crear las cinco campañas");
+  assert.equal(el("crear-progreso").hidden, true);
+})().catch(error => { console.error(error); process.exitCode = 1; });
+""")
+
+
+def test_flujo_js_crear_error_de_red_muestra_banner():
+    """F3 error: falla la red y el banner lo declara con enlace al lote."""
+    _correr_flujo_fabrica(r"""
+const catalogo = {plataforma: "amazon_mx", moneda: "MXN", tipos_producto: [],
+  productos: [{id: 1, sku: "GORRA-01", nombre: "Gorras", publicaciones: [
+    {id: 11, asin: "B0AAAAAAAA", seller_sku: "SKU-AMAZON-A", platform: "amazon_mx",
+      margen_neto_pct: null, dias_con_venta: null, ventana_desde: null,
+      ventana_hasta: null, historial_ads: null, elegible: true, motivos: [],
+      url: null}]}]};
+const esquema = {schema_version: 2, platform: "amazon_mx", moneda: "MXN",
+  modo: "shadow", fecha: "2026-09-06", nombre_base: "Gorras",
+  tipo_producto: "gorras",
+  objetivo: {origen: "manual_lanzamiento", acos_pct: "25.00",
+    procedencia: "confirmado", fraccion: null, derivado: null},
+  publicaciones: [],
+  semillas: {exact: ["gorra"], keywords: [], asins: [], negativos: []}};
+const plan = {huella: "abc", lote: "web-abc", presupuesto_diario_total: "600.00",
+  existentes: [],
+  campanas: ["category_exact", "category_phrase", "category_broad",
+    "product_targeting", "auto_discovery"].map(rol => ({rol, nombre: rol,
+    budget: "120.00", bid: "4.00", fuente_bid: "manual"})),
+  plan: esquema};
+let rechazarCrear;
+global.fetch = async (url, options = {}) => {
+  calls.push({url, options});
+  if (url.includes("/catalogo")) return ok(catalogo);
+  if (url.includes("/evaluacion")) return ok({plataforma: "amazon_mx", publicaciones: []});
+  if (url.includes("/lotes?")) return ok({items: []});
+  if (url.endsWith("/plan")) return ok(plan);
+  if (url.endsWith("/crear")) return new Promise((_resolve, reject) => { rechazarCrear = reject; });
+  return ok({});
+};
+(async () => {
+  let enfocado = null;
+  el("crear-resultado").focus = () => { enfocado = "banner"; };
+  await docEvents.DOMContentLoaded();
+  await new Promise(resolve => setImmediate(resolve));
+  el("productos").querySelectorAll('input[type="checkbox"]')[0].checked = true;
+  el("tipo").value = "gorras"; el("nombre").value = "Gorras"; el("modo").value = "shadow";
+  el("objetivo-origen").value = "manual_lanzamiento";
+  await emit("objetivo-origen", "change");
+  el("objetivo-acos").value = "25.00";
+  for (const rol of ["category_exact", "category_phrase", "category_broad",
+    "product_targeting", "auto_discovery"]) {
+    ids[rol + "-budget"].value = "120.00"; ids[rol + "-bid"].value = "4.00";
+  }
+  await emit("plan");
+  el("token").value = "secreto-solo-header";
+  el("confirmacion").value = "CREAR 5 CAMPAÑAS";
+  await emit("crear");
+  rechazarCrear(new Error("conexion perdida"));
+  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+  const banner = el("crear-resultado");
+  assert.equal(banner.hidden, false);
+  assert.match(text(banner), /interrumpida/i, "el banner declara el fallo");
+  assert.equal(banner.querySelectorAll("*").filter(e => e.tagName === "a").length, 1);
+  assert.equal(enfocado, "banner");
+  assert.equal(el("crear-boton").textContent, "Crear las cinco campañas");
+})().catch(error => { console.error(error); process.exitCode = 1; });
+""")
+
+
+def test_flujo_js_buscador_enter_no_envia_el_formulario():
+    """F5: Enter en el buscador no dispara revisar; el filtro sigue aplicado."""
+    _correr_flujo_fabrica(
+        r"""
+const catalogo = {plataforma: "amazon_mx", moneda: "MXN", tipos_producto: [],
+  productos: [
+    {id: 1, sku: "GORRA-01", nombre: "Gorras bordadas", publicaciones: [
+      {id: 11, asin: "B0AAAAAAAA", seller_sku: "SKU-AMAZON-A", platform: "amazon_mx",
+        margen_neto_pct: null, dias_con_venta: null, ventana_desde: null,
+        ventana_hasta: null, historial_ads: null, elegible: true, motivos: [], url: null}]},
+    {id: 2, sku: "PLAYERA-02", nombre: "Playeras", publicaciones: [
+      {id: 12, asin: "B0BBBBBBBB", seller_sku: "SKU-AMAZON-B", platform: "amazon_mx",
+        margen_neto_pct: null, dias_con_venta: null, ventana_desde: null,
+        ventana_hasta: null, historial_ads: null, elegible: true, motivos: [], url: null}]}]};
+global.fetch = async (url, options = {}) => {
+  calls.push({url, options});
+  if (url.includes("/catalogo")) return ok(catalogo);
+  if (url.includes("/evaluacion")) return ok({plataforma: "amazon_mx", publicaciones: []});
+  if (url.includes("/lotes?")) return ok({items: []});
+  return ok({});
+};
+(async () => {
+  await docEvents.DOMContentLoaded();
+  await new Promise(resolve => setImmediate(resolve));
+  const tarjetas = () =>
+    el("productos")
+      .querySelectorAll("*")
+      .filter(e => e.className === "fabrica-producto");
+  el("buscar").value = "playera";
+  await emit("buscar", "input");
+  assert.equal(tarjetas()[1].hidden, false);
+  const cajas = el("productos").querySelectorAll('input[type="checkbox"]');
+  cajas[0].checked = true;
+  await emit("productos", "change");
+  const planes = () => calls.filter(c => c.url.endsWith("/plan")).length;
+  let evitado = false;
+  el("buscar").events.keydown({
+    preventDefault() {
+      evitado = true;
+    },
+    key: "Enter",
+    target: el("buscar"),
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(evitado, true, "Enter en el buscador se bloquea");
+  assert.equal(planes(), 0, "Enter no consulta /plan");
+  assert.equal(tarjetas()[0].hidden, true, "el filtro sigue aplicado");
+  assert.equal(cajas[0].checked, true);
+  assert.match(
+    el("buscar-conteo").textContent,
+    /1 seleccionada oculta/,
+    "la marcada pero filtrada no pasa desapercibida",
+  );
+  let evitadoLetra = false;
+  el("buscar").events.keydown({
+    preventDefault() {
+      evitadoLetra = true;
+    },
+    key: "a",
+    target: el("buscar"),
+  });
+  assert.equal(evitadoLetra, false, "otras teclas escriben normal");
+})().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});
+"""
+    )
+
+
+def test_avisos_puja_manual_tienen_elemento_por_rol():
+    """F4 estatico: cada rol tiene su aviso junto al campo de puja."""
+    respuesta = TestClient(app).get("/campanas/nuevas")
+    assert respuesta.status_code == 200
+    elementos = Elementos(respuesta.text).elementos
+    ids = {a.get("id") for _, a in elementos if a.get("id")}
+    for rol in _ROLES_FABRICA:
+        assert f"fabrica-{rol}-bid-aviso" in ids
+
+
+def test_flujo_js_puja_manual_sin_sugerencia_visible_en_campo_y_revision():
+    """F4: el campo sin sugerencia avisa y la revision lo repite por campana."""
+    _correr_flujo_fabrica(r"""
+const catalogo = {plataforma: "amazon_mx", moneda: "MXN", tipos_producto: [],
+  productos: [{id: 1, sku: "GORRA-01", nombre: "Gorras", publicaciones: [
+    {id: 11, asin: "B0AAAAAAAA", seller_sku: "SKU-AMAZON-A", platform: "amazon_mx",
+      margen_neto_pct: null, dias_con_venta: null, ventana_desde: null,
+      ventana_hasta: null, historial_ads: null, elegible: true, motivos: [],
+      url: null}]}]};
+const plan = {huella: "abc", lote: "web-abc", presupuesto_diario_total: "600.00",
+  existentes: [],
+  campanas: ["category_exact", "category_phrase", "category_broad",
+    "product_targeting", "auto_discovery"].map(rol => ({rol, nombre: rol,
+    budget: "120.00", bid: "11.00",
+    fuente_bid: rol === "category_exact" ? "amazon_v4" : "manual"})),
+  plan: {schema_version: 2, platform: "amazon_mx", moneda: "MXN", modo: "shadow",
+    fecha: "2026-09-06", nombre_base: "Gorras", tipo_producto: "gorras",
+    objetivo: {origen: "manual_lanzamiento", acos_pct: "25.00",
+      procedencia: "confirmado", fraccion: null, derivado: null},
+    publicaciones: [],
+    semillas: {exact: ["gorra"], keywords: [], asins: [], negativos: []}}};
+const sugeridos = {fuente: "amazon_v4", roles: {
+  category_exact: {disponible: true, bid: "11.00", recomendaciones: [],
+    faltantes: []},
+  category_phrase: {disponible: false, bid: null, recomendaciones: [],
+    faltantes: [{tipo: "KEYWORD_PHRASE_MATCH", valor: "gorra"}]},
+  category_broad: {disponible: false, bid: null, recomendaciones: [],
+    faltantes: [{tipo: "KEYWORD_BROAD_MATCH", valor: "gorra"}]},
+  product_targeting: {disponible: false, bid: null, recomendaciones: [],
+    faltantes: [{tipo: "PAT_ASIN", valor: "B0AAAAAAAA"}]},
+  auto_discovery: {disponible: false, bid: null, recomendaciones: [],
+    faltantes: []}}};
+global.fetch = async (url, options = {}) => {
+  calls.push({url, options});
+  if (url.includes("/catalogo")) return ok(catalogo);
+  if (url.includes("/evaluacion")) return ok({plataforma: "amazon_mx", publicaciones: []});
+  if (url.includes("/lotes?")) return ok({items: []});
+  if (url.endsWith("/bids-sugeridos")) return ok(sugeridos);
+  if (url.endsWith("/plan")) return ok(plan);
+  return ok({});
+};
+const AVISO = "Amazon no devolvió sugerencia: puja manual";
+(async () => {
+  await docEvents.DOMContentLoaded();
+  await new Promise(resolve => setImmediate(resolve));
+  el("productos").querySelectorAll('input[type="checkbox"]')[0].checked = true;
+  el("tipo").value = "gorras"; el("nombre").value = "Gorras"; el("modo").value = "shadow";
+  el("objetivo-origen").value = "manual_lanzamiento";
+  await emit("objetivo-origen", "change");
+  el("objetivo-acos").value = "25.00";
+  await emit("bids-amazon", "click");
+  assert.equal(el("category_exact-bid-aviso").textContent, "",
+    "con sugerencia no hay aviso");
+  for (const rol of ["category_phrase", "category_broad", "product_targeting",
+    "auto_discovery"]) {
+    assert.match(el(rol + "-bid-aviso").textContent, /Amazon no devolvió sugerencia/,
+      "el campo sin sugerencia lo dice junto al valor");
+  }
+  for (const rol of ["category_exact", "category_phrase", "category_broad",
+    "product_targeting", "auto_discovery"]) {
+    ids[rol + "-budget"].value = "120.00"; ids[rol + "-bid"].value = "11.00";
+  }
+  await emit("plan");
+  const revision = text(el("preview-datos"));
+  const veces = (revision.match(/Amazon no devolvió sugerencia: puja manual/g) || []).length;
+  assert.equal(veces, 4, "la revision repite el aviso en las cuatro campanas manuales");
+})().catch(error => { console.error(error); process.exitCode = 1; });
+""")
