@@ -803,10 +803,18 @@ def _paginar(
 
 
 def _ventana_orders(dias: int, ahora: datetime.datetime | None) -> str:
+    # v0 exige Zulu (400 InvalidInput con +00:00, sonda 2026-09-09); Z vale
+    # para ambas versiones.
     if dias < 1:
         raise SondaError("--dias debe ser >= 1")
     base = ahora or datetime.datetime.now(datetime.UTC)
-    return (base - datetime.timedelta(days=dias)).isoformat()
+    if base.tzinfo is None:
+        base = base.replace(tzinfo=datetime.UTC)
+    return (
+        (base - datetime.timedelta(days=dias))
+        .astimezone(datetime.UTC)
+        .strftime("%Y-%m-%dT%H:%M:%SZ")
+    )
 
 
 def sondear_orders_v0(

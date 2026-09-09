@@ -7,6 +7,7 @@ igual que tests/test_fabrica_campanas.py.
 
 from __future__ import annotations
 
+import datetime
 import io
 import json
 import sys
@@ -510,6 +511,11 @@ def test_orders_nueva_token_repetido_para_y_marca():
     assert len(gets) == 2
     assert resumen["conteo_total"] == 2
     assert resumen["aviso_paginacion"] == "next_token_repetido"
+
+
+def test_ventana_orders_formato_zulu_v0_lo_exige():
+    ahora = datetime.datetime(2026, 9, 9, 12, 0, 0, tzinfo=datetime.UTC)
+    assert sonda._ventana_orders(7, ahora) == "2026-09-02T12:00:00Z"
 
 
 def test_orders_dual_corre_ambas_versiones():
