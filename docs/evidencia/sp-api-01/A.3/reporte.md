@@ -70,8 +70,10 @@ respaldo pasa igual, esperado); con el fix, verde. Restaurado íntegro.
   intento (el reintento 429 también) y `fijar_tasa` sigue a
   `x-amzn-RateLimit-Limit` (nuevo `tasa_anunciada`; ilegible se ignora). Sin
   `limitador`, comportamiento A.1 intacto (fees/fotos/sonda no lo pasan).
-  Pricing pasa su cubo; orders se cablea en A.2b (mismo branch no toca
-  `orders.py` para no colisionar con PR #240).
+  Pricing pasa su cubo y `recorrer_ordenes` acepta `cubo=` opcional
+  (commit `cbd3807`; sin cubo construye el de Orders: fees/fotos/sonda
+  intactos). Nota de merge: PR #240 también toca `orders.py`; al rebasear
+  tras A.2b, conservar ambos hunks (el de aquí son 3 líneas + 1 test).
 - #6 Red a F2: `httpx.HTTPError` cuenta al umbral con skip `red` (timeout
   aislado tras 5 éxitos no detiene el pase; test parametrizado
   ConnectError/ReadTimeout).
