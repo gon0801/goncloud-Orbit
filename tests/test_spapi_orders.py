@@ -8,10 +8,11 @@ punta a punta idempotente en Postgres de test (skipea sin ORBIT_TEST_DSN).
 
 from __future__ import annotations
 
+import json
 import os
 import socket
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -23,7 +24,7 @@ from app.spapi import orders
 from app.spapi.client import SpapiClient
 
 ROOT = Path(__file__).resolve().parents[1]
-ORDEN = ("0001_initial.sql", "0030_spapi_orders.sql")
+ORDEN = ("0001_initial.sql", "0030_spapi_orders.sql", "0031_spapi_orders_bitemporal.sql")
 
 AHORA = datetime(2026, 9, 9, 12, 0, 0, tzinfo=UTC)
 CRED = {
@@ -84,6 +85,74 @@ def test_parsea_minimo_con_nulos():
     assert orden.number_of_items is None
 
 
+def test_parsea_secciones_fulfillment_y_proceeds():
+    # Claves reales del acta A.2b/sonda.md.
+    orden = orders.parsear_orden(
+        {
+            "orderId": "MX-20",
+            "createdTime": "2026-09-08T10:00:00Z",
+            "lastUpdatedTime": "2026-09-08T11:00:00Z",
+            "salesChannel": "Amazon.com.mx",
+            "fulfillment": {
+                "deliverByWindow": {"start": "2026-09-09T00:00:00Z"},
+                "fulfilledBy": "AFN",
+                "fulfillmentServiceLevel": "Standard",
+                "fulfillmentStatus": "Shipped",
+                "shipByWindow": {},
+            },
+            "proceeds": {
+                "breakdowns": [{"tipo": "Principal"}],
+                "grandTotal": {"amount": 749.0, "currencyCode": "MXN"},
+            },
+            "programs": [],
+        }
+    )
+    # Revision PR #240: dos estados, dos columnas; la seccion ya no pisa
+    # el ciclo.
+    assert orden.order_status is None
+    assert orden.fulfillment_status == "Shipped"
+    assert orden.fulfillment_channel == "AFN"
+    assert orden.total_amount == Decimal("749.0000")
+    assert orden.total_currency == "MXN"
+
+
+def test_estados_de_ciclo_y_envio_no_se_mezclan():
+    # Revision PR #240: order_status SOLO del ciclo (clave plana) y
+    # fulfillment_status SOLO del envio (seccion), aunque vengan los dos.
+    orden = orders.parsear_orden(
+        _resumen(
+            orderStatus="Plano",
+            fulfillment={"fulfillmentStatus": "Seccion", "fulfilledBy": "MFN"},
+            orderTotal={"Amount": 1.0, "CurrencyCode": "MXN"},
+            proceeds={"grandTotal": {"amount": 2.0, "currencyCode": "MXN"}},
+        )
+    )
+    assert orden.order_status == "Plano"
+    assert orden.fulfillment_status == "Seccion"
+    assert orden.fulfillment_channel == "MFN"
+    assert orden.total_amount == Decimal("2.0000")
+
+
+def test_recipient_y_buyer_se_ignoran_aunque_vengan():
+    from app.spapi.client import sanear
+
+    crudo = _resumen(
+        recipient={"name": "Nadie Debeverse"},
+        buyer={"buyerEmail": "nadie@example.com"},
+        ShippingAddress={"AddressLine1": "Calle 123"},
+    )
+    limpio = sanear(crudo, "orders")
+    # Se afirma sobre el objeto saneado (valores fuera), no sobre campos
+    # que pasan con o sin filtro.
+    texto_limpio = json.dumps(limpio, sort_keys=True)
+    assert "Nadie Debeverse" not in texto_limpio
+    assert "nadie@example.com" not in texto_limpio
+    assert "Calle 123" not in texto_limpio
+    assert "recipient" not in limpio
+    orden = orders.parsear_orden(crudo)
+    assert orden.amazon_order_id == "MX-1"
+
+
 def test_parsea_alias_v0():
     orden = orders.parsear_orden(
         {
@@ -133,11 +202,40 @@ def test_total_incoherente_da_nulos_sin_omitir():
         assert (orden.total_amount, orden.total_currency) == (None, None)
 
 
+def test_dinero_clave_v0_nula_cae_a_clave_2026():
+    # Revision PR #240 (BAJA): la clave v0 presente con null NO debe tapar
+    # la clave 2026 valida (dict.get(k, default) solo cae si la clave
+    # falta; con null presente devuelve None y el total se perdia).
+    orden = orders.parsear_orden(
+        _resumen(
+            orderTotal={"Amount": None, "CurrencyCode": None, "amount": 10.0, "currencyCode": "MXN"}
+        )
+    )
+    assert orden.total_amount == Decimal("10.0000")
+    assert orden.total_currency == "MXN"
+    # Cero es un monto legitimo: el respaldo solo aplica con None, no con
+    # falsy (0 or x taparia un total de 0).
+    cero = orders.parsear_orden(_resumen(orderTotal={"Amount": 0, "CurrencyCode": "MXN"}))
+    assert cero.total_amount == Decimal("0.0000")
+    assert cero.total_currency == "MXN"
+
+
 def test_items_varias_formas():
     assert orders.parsear_orden(_resumen(orderItems=3)).number_of_items == 3
     assert orders.parsear_orden(_resumen(orderItems={"count": 4})).number_of_items == 4
     assert orders.parsear_orden(_resumen(orderItems=-1)).number_of_items is None
     assert orders.parsear_orden(_resumen()).number_of_items is None
+
+
+def test_ventana_desde_ignora_maximo():
+    params = orders.parametros_ventana(
+        marketplace_id="A1AM78C64UM0Y8",
+        ultimo_observado=datetime(2026, 9, 8, 11, 0, 0, tzinfo=UTC),
+        ahora=AHORA,
+        desde=datetime(2026, 8, 10).date(),
+    )
+    assert params["lastUpdatedAfter"] == "2026-08-10T00:00:00Z"
+    assert "createdAfter" not in params
 
 
 def test_ventana_primera_y_segunda_corrida():
@@ -152,6 +250,38 @@ def test_ventana_primera_y_segunda_corrida():
     )
     assert segunda["lastUpdatedAfter"] == "2026-09-07T11:00:00Z"
     assert "createdAfter" not in segunda
+
+
+def test_pide_secciones_en_cada_peticion():
+    llamadas: list = []
+    cliente = _cliente([{"cuerpo": {"payload": {"orders": []}}}], llamadas=llamadas)
+    params = orders.parametros_ventana(marketplace_id="X", ultimo_observado=None, ahora=AHORA)
+    orders.recorrer_ordenes(cliente, params, max_paginas=2)
+    assert llamadas, "sin HTTP no hay nada que afirmar"
+    for request in llamadas:
+        assert request.url.params["includedData"] == "FULFILLMENT,PROCEEDS"
+
+
+def test_jamas_pide_buyer_ni_recipient():
+    llamadas: list = []
+    paginas = [
+        _pagina([_resumen("A-1")], token="T9"),
+        {
+            "token_entrada": "T9",
+            "cuerpo": {"payload": {"orders": [_resumen("A-2")]}},
+        },
+    ]
+    cliente = _cliente(paginas, llamadas=llamadas)
+    # CodeRabbit PR #240: los params salen de parametros_ventana (la fuente
+    # real de includedData); un dict armado a mano en el test haria las
+    # aserciones infallibles.
+    params = orders.parametros_ventana(marketplace_id="X", ultimo_observado=None, ahora=AHORA)
+    orders.recorrer_ordenes(cliente, params, max_paginas=3)
+    assert len(llamadas) == 2
+    for request in llamadas:
+        for valor in request.url.params.values():
+            assert "BUYER" not in valor
+            assert "RECIPIENT" not in valor
 
 
 def _cliente(paginas, *, llamadas=None):
@@ -222,6 +352,23 @@ def test_pagina_vacia_con_token_para_y_marca():
     crudas, info = orders.recorrer_ordenes(cliente, {"marketplaceIds": "X"}, max_paginas=5)
     assert info["aviso_paginacion"] == "pagina_vacia_con_token"
     assert len(crudas) == 1
+
+
+def test_tope_de_paginas_para_y_marca():
+    paginas = [
+        _pagina([_resumen("A-1")], token="T9"),
+        {
+            "token_entrada": "T9",
+            "cuerpo": {
+                "payload": {"orders": [_resumen("A-2")], "pagination": {"nextToken": "T10"}}
+            },
+        },
+    ]
+    cliente = _cliente(paginas)
+    crudas, info = orders.recorrer_ordenes(cliente, {"marketplaceIds": "X"}, max_paginas=1)
+    assert info["aviso_paginacion"] == "limite_max_paginas"
+    assert info["paginas"] == 1
+    assert [o["orderId"] for o in crudas] == ["A-1"]
 
 
 @pytest.mark.parametrize(
@@ -345,6 +492,7 @@ def test_migracion_unicidad_trigger_y_grants():
             "A1AM78C64UM0Y8",
             datetime(2026, 9, 8, 10, 0, 0, tzinfo=UTC),
             datetime(2026, 9, 8, 11, 0, 0, tzinfo=UTC),
+            "Pending",
             "Shipped",
             "AFN",
             "Amazon.com.mx",
@@ -358,12 +506,18 @@ def test_migracion_unicidad_trigger_y_grants():
         conn.execute(
             "INSERT INTO spapi_order_observation"
             " (amazon_order_id, platform, marketplace_id, purchase_date,"
-            " last_updated_time, order_status, fulfillment_channel, sales_channel,"
+            " last_updated_time, order_status, fulfillment_status,"
+            " fulfillment_channel, sales_channel,"
             " order_total_amount, order_total_currency, number_of_items,"
             " api_version, observed_at, ingest_run_id)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             fila,
         )
+        # Revision #7: la primera fila se commitea ANTES del duplicado;
+        # sin ese commit, el rollback de abajo la borraba y el insert en
+        # otra plataforma entraba contra tabla vacia (no demostraba que
+        # platform sea parte de la clave).
+        conn.commit()
         # Unicidad (plataforma, orden, actualizacion): el duplicado truena.
         with pytest.raises(psycopg.errors.UniqueViolation):
             conn.execute(
@@ -380,9 +534,8 @@ def test_migracion_unicidad_trigger_y_grants():
                 ),
             )
         conn.rollback()
-        # Misma orden y tiempo en otra plataforma: fila distinta, si entra.
-        # Se commitea para que UPDATE/DELETE de abajo tengan fila que mutar
-        # (cada rollback previo vacia lo no commiteado).
+        # Misma orden y tiempo en otra plataforma: fila distinta, si entra
+        # (contra la fila commiteada: esto si prueba la clave).
         conn.execute(
             "INSERT INTO spapi_order_observation"
             " (amazon_order_id, platform, marketplace_id,"
@@ -444,6 +597,142 @@ def test_migracion_unicidad_trigger_y_grants():
         ).fetchone()[0]
         assert not conn.execute(
             "SELECT has_table_privilege('app_ingest', 'spapi_order_observation', 'DELETE')"
+        ).fetchone()[0]
+        # COMMENT ON TABLE refrescado por 0031: describe la clave bitemporal
+        # de 4 columnas, no la de 3 que quedo en la historia de 0030.
+        comentario = conn.execute(
+            "SELECT obj_description('spapi_order_observation'::regclass, 'pg_class')"
+        ).fetchone()[0]
+        assert "observed_at" in comentario
+
+
+@_skip_db
+def test_reversa_0031():
+    import psycopg
+
+    reversa = (ROOT / "migrations" / "0031_reversa_spapi_orders_bitemporal.sql").read_text(
+        encoding="utf-8"
+    )
+    t_upd = datetime(2026, 9, 8, 11, 0, 0, tzinfo=UTC)
+    with db_orders() as conn:
+        # Sin re-observaciones: aplica limpio, vista muerta, tripleta de vuelta
+        # (cualquier observed repetido truena).
+        conn.execute(reversa)
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM pg_views WHERE viewname = 'v_spapi_order_ultima'"
+            ).fetchone()[0]
+            == 0
+        )
+        # El COMMENT ON TABLE vuelve al texto de 0030 (sin observed_at).
+        assert (
+            "observed_at"
+            not in conn.execute(
+                "SELECT obj_description('spapi_order_observation'::regclass, 'pg_class')"
+            ).fetchone()[0]
+        )
+        semilla = ("MX-1", "amazon_mx", "A1AM78C64UM0Y8", t_upd)
+        conn.execute(
+            "INSERT INTO spapi_order_observation"
+            " (amazon_order_id, platform, marketplace_id,"
+            " last_updated_time, observed_at)"
+            " VALUES (%s, %s, %s, %s, %s)",
+            semilla + (datetime(2026, 9, 9, 12, 0, 0, tzinfo=UTC),),
+        )
+        conn.commit()
+        for obs in (
+            datetime(2026, 9, 9, 12, 0, 0, tzinfo=UTC),
+            datetime(2026, 9, 9, 13, 0, 0, tzinfo=UTC),
+        ):
+            with pytest.raises(psycopg.errors.UniqueViolation):
+                conn.execute(
+                    "INSERT INTO spapi_order_observation"
+                    " (amazon_order_id, platform, marketplace_id,"
+                    " last_updated_time, observed_at)"
+                    " VALUES (%s, %s, %s, %s, %s)",
+                    semilla + (obs,),
+                )
+            conn.rollback()
+    with db_orders() as conn:
+        # Con re-observaciones: la guarda aborta sin escribir nada.
+        for obs in (
+            datetime(2026, 9, 9, 12, 0, 0, tzinfo=UTC),
+            datetime(2026, 9, 9, 13, 0, 0, tzinfo=UTC),
+        ):
+            conn.execute(
+                "INSERT INTO spapi_order_observation"
+                " (amazon_order_id, platform, marketplace_id,"
+                " last_updated_time, observed_at)"
+                " VALUES (%s, %s, %s, %s, %s)",
+                ("MX-1", "amazon_mx", "A1AM78C64UM0Y8", t_upd, obs),
+            )
+        conn.commit()
+        with pytest.raises(psycopg.errors.RaiseException, match="reversa 0031"):
+            conn.execute(reversa)
+        conn.rollback()
+    with db_orders() as conn:
+        # Sin tripletas repetidas pero con fulfillment_status poblado
+        # (CodeRabbit PR #240): la guarda tambien aborta, porque el
+        # DROP COLUMN borraria ese dato irrecuperable.
+        conn.execute(
+            "INSERT INTO spapi_order_observation"
+            " (amazon_order_id, platform, marketplace_id,"
+            " last_updated_time, fulfillment_status, observed_at)"
+            " VALUES (%s, %s, %s, %s, %s, %s)",
+            (
+                "MX-2",
+                "amazon_mx",
+                "A1AM78C64UM0Y8",
+                t_upd,
+                "Shipped",
+                datetime(2026, 9, 9, 12, 0, 0, tzinfo=UTC),
+            ),
+        )
+        conn.commit()
+        with pytest.raises(psycopg.errors.RaiseException, match="reversa 0031"):
+            conn.execute(reversa)
+        conn.rollback()
+
+
+@_skip_db
+def test_reobservacion_bitemporal_y_vista():
+    import psycopg
+
+    t_upd = datetime(2026, 9, 8, 11, 0, 0, tzinfo=UTC)
+    t1 = datetime(2026, 9, 9, 12, 0, 0, tzinfo=UTC)
+    t2 = datetime(2026, 9, 9, 13, 0, 0, tzinfo=UTC)
+    with db_orders() as conn:
+        for obs, estado in ((t1, None), (t2, "Shipped")):
+            conn.execute(
+                "INSERT INTO spapi_order_observation"
+                " (amazon_order_id, platform, marketplace_id,"
+                " last_updated_time, order_status, observed_at)"
+                " VALUES (%s, %s, %s, %s, %s, %s)",
+                ("MX-9", "amazon_mx", "A1AM78C64UM0Y8", t_upd, estado, obs),
+            )
+        conn.commit()
+        # Misma cuádruple completa: sí truena.
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            conn.execute(
+                "INSERT INTO spapi_order_observation"
+                " (amazon_order_id, platform, marketplace_id,"
+                " last_updated_time, observed_at)"
+                " VALUES (%s, %s, %s, %s, %s)",
+                ("MX-9", "amazon_mx", "A1AM78C64UM0Y8", t_upd, t2),
+            )
+        conn.rollback()
+        fila = conn.execute(
+            "SELECT order_status, observed_at FROM v_spapi_order_ultima"
+            " WHERE platform = 'amazon_mx' AND amazon_order_id = 'MX-9'"
+        ).fetchall()
+        assert len(fila) == 1
+        assert fila[0][0] == "Shipped"
+        assert fila[0][1] == t2
+        assert conn.execute(
+            "SELECT has_table_privilege('app_read', 'v_spapi_order_ultima', 'SELECT')"
+        ).fetchone()[0]
+        assert not conn.execute(
+            "SELECT has_table_privilege('app_decide', 'v_spapi_order_ultima', 'INSERT')"
         ).fetchone()[0]
 
 
@@ -561,6 +850,197 @@ def test_ingesta_punta_a_punta_idempotente_y_ventana():
         params2 = llamadas[0].url.params
         assert params2.get("lastUpdatedAfter") == "2026-09-07T11:00:00Z"
         assert "createdAfter" not in params2
+
+
+@_skip_db
+def test_dos_corridas_reobservan_y_vista_muestra_ultima():
+    pelada = {
+        "orderId": "MX-30",
+        "createdTime": "2026-09-07T10:00:00Z",
+        "lastUpdatedTime": "2026-09-07T11:00:00Z",
+        "salesChannel": "Amazon.com.mx",
+    }
+    completa = dict(
+        pelada,
+        fulfillment={"fulfilledBy": "AFN", "fulfillmentStatus": "Shipped"},
+        proceeds={"grandTotal": {"amount": 250.0, "currencyCode": "MXN"}},
+    )
+
+    def handler_con(paginas):
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(200, json={"access_token": _TOKEN_LWA, "expires_in": 3600})
+            return httpx.Response(200, json=paginas)
+
+        return handler
+
+    with db_orders() as conn:
+        for ahora, cuerpo in (
+            (AHORA, {"payload": {"orders": [pelada]}}),
+            (
+                AHORA + timedelta(hours=1),
+                {"payload": {"orders": [completa]}},
+            ),
+        ):
+            cliente = SpapiClient(
+                credentials=CRED,
+                transport=httpx.MockTransport(handler_con(cuerpo)),
+                sleep=lambda _s: None,
+                clock=lambda: 1000.0,
+            )
+            resultado = orders.ejecutar_ingesta(
+                conn, cliente, platform="amazon_mx", ahora=ahora, max_paginas=5
+            )
+            assert resultado.ok
+            assert resultado.escritas == 1
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM spapi_order_observation WHERE amazon_order_id = 'MX-30'"
+            ).fetchone()[0]
+            == 2
+        )
+        vista = conn.execute(
+            "SELECT order_status, fulfillment_status, fulfillment_channel,"
+            " order_total_amount, order_total_currency"
+            " FROM v_spapi_order_ultima WHERE amazon_order_id = 'MX-30'"
+        ).fetchone()
+        # La segunda corrida trae seccion sin ciclo: el envio queda en su
+        # columna y el ciclo en NULL (nunca mezclados).
+        assert vista == (None, "Shipped", "AFN", Decimal("250.0000"), "MXN")
+
+
+@_skip_db
+def test_desde_fuerza_backfill_sobre_maximo():
+    llamadas: list = []
+    cliente = SpapiClient(
+        credentials=CRED,
+        transport=httpx.MockTransport(
+            _handler_fixture([{"cuerpo": {"payload": {"orders": []}}}], llamadas)
+        ),
+        sleep=lambda _s: None,
+        clock=lambda: 1000.0,
+    )
+    with db_orders() as conn:
+        conn.execute(
+            "INSERT INTO spapi_order_observation"
+            " (amazon_order_id, platform, marketplace_id,"
+            " last_updated_time, observed_at)"
+            " VALUES (%s, %s, %s, %s, %s)",
+            (
+                "MX-VIEJA",
+                "amazon_mx",
+                "A1AM78C64UM0Y8",
+                datetime(2026, 9, 8, 11, 0, 0, tzinfo=UTC),
+                AHORA,
+            ),
+        )
+        conn.commit()
+        orders.ejecutar_ingesta(
+            conn,
+            cliente,
+            platform="amazon_mx",
+            ahora=AHORA,
+            desde=datetime(2026, 8, 10).date(),
+        )
+        assert llamadas[0].url.params["lastUpdatedAfter"] == "2026-08-10T00:00:00Z"
+
+
+def test_desde_invalido_es_error_de_uso():
+    with pytest.raises(SystemExit):
+        orders.main(["--platform", "amazon_mx", "--desde", "no-es-fecha"])
+
+
+@_skip_db
+def test_paginacion_incompleta_sella_ok_false_con_lo_escrito():
+    # Revision PR #240: el aviso no es exito; las filas traidas se
+    # conservan pero el run marca el hueco para reparar con --desde.
+    llamadas: list = []
+    paginas = [
+        {
+            "cuerpo": {
+                "payload": {
+                    "orders": [_resumen("MX-40")],
+                    "pagination": {"nextToken": "Q"},
+                }
+            }
+        },
+        {
+            "token_entrada": "Q",
+            "cuerpo": {
+                "payload": {
+                    "orders": [_resumen("MX-41")],
+                    "pagination": {"nextToken": "Q"},
+                }
+            },
+        },
+    ]
+    cliente = SpapiClient(
+        credentials=CRED,
+        transport=httpx.MockTransport(_handler_fixture(paginas, llamadas)),
+        sleep=lambda _s: None,
+        clock=lambda: 1000.0,
+    )
+    with db_orders() as conn:
+        resultado = orders.ejecutar_ingesta(
+            conn, cliente, platform="amazon_mx", ahora=AHORA, max_paginas=5
+        )
+        assert resultado.ok is False
+        assert resultado.escritas == 2
+        assert resultado.aviso_paginacion == "next_token_repetido"
+        assert conn.execute("SELECT count(*) FROM spapi_order_observation").fetchone()[0] == 2
+        run = conn.execute(
+            "SELECT ok, rows_written, skip_reason FROM ingest_run WHERE id = %s",
+            (resultado.run_id,),
+        ).fetchone()
+        assert run[0] is False
+        assert run[1] == 2
+        assert run[2] == "paginacion_incompleta:next_token_repetido"
+
+
+@_skip_db
+def test_paginacion_incompleta_sella_motivo_y_skips():
+    # Revision PR #240 (BAJA): el sello ok=false NO debe descartar el
+    # detalle de skips ya calculado; skip_reason lleva el motivo de
+    # paginacion Y los skips, separados por "; ".
+    llamadas: list = []
+    paginas = [
+        {
+            "cuerpo": {
+                "payload": {
+                    "orders": [_resumen("MX-50"), {"orderId": "MX-sin-tiempo"}],
+                    "pagination": {"nextToken": "Q"},
+                }
+            }
+        },
+        {
+            "token_entrada": "Q",
+            "cuerpo": {
+                "payload": {
+                    "orders": [_resumen("MX-51")],
+                    "pagination": {"nextToken": "Q"},
+                }
+            },
+        },
+    ]
+    cliente = SpapiClient(
+        credentials=CRED,
+        transport=httpx.MockTransport(_handler_fixture(paginas, llamadas)),
+        sleep=lambda _s: None,
+        clock=lambda: 1000.0,
+    )
+    with db_orders() as conn:
+        resultado = orders.ejecutar_ingesta(
+            conn, cliente, platform="amazon_mx", ahora=AHORA, max_paginas=5
+        )
+        assert resultado.ok is False
+        assert resultado.escritas == 2
+        run = conn.execute(
+            "SELECT ok, rows_skipped, skip_reason FROM ingest_run WHERE id = %s",
+            (resultado.run_id,),
+        ).fetchone()
+        assert run[0] is False
+        assert run[1] == 1
+        assert run[2] == "paginacion_incompleta:next_token_repetido; 1x sin_identidad"
 
 
 @_skip_db
