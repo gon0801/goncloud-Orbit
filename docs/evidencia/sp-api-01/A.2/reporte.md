@@ -37,8 +37,9 @@ skip, conteo total 3 (idempotente). Segunda ventana:
 
 ## Comandos y salidas (sin secretos)
 `uv run --frozen python -m pytest -q tests/test_spapi_orders.py`
-→ `17 passed` (0 skips: Postgres local vivo; migración 0001+0030 aplicada
-en BD desechable, con unicidad, trigger y grants verificados).
+→ `23 passed` (0 skips: Postgres local vivo; migración 0001+0030 aplicada
+en BD desechable, con unicidad, triggers, append-only y grants ±
+verificados). `tests/test_redaction.py` → `2 passed`.
 Focal ampliado (spapi_client, sonda, fees, fotos, arquitectura, cli)
 → `174 passed`.
 Mutante (regla 9): sin la guarda `next_token_repetido` el test falla
@@ -46,8 +47,30 @@ Mutante (regla 9): sin la guarda `next_token_repetido` el test falla
 `ruff check` + `ruff format --check` → verde.
 `pre-commit run --all-files` → verde.
 
+## Ronda única del lead (F1–F6, un commit)
+- F1: `register_secret` ignora valores < 8 chars (un corto redactaba medio
+  universo: el token "T" de fixture rompia "nextToken"; demostrado rojo con
+  2 failed y verde con 2 passed en `tests/test_redaction.py` nuevo);
+  fixtures con tokens largos y únicos (≥ 16 chars).
+- F2: triggers `spapi_order_append_only` (UPDATE/DELETE por fila) y
+  `spapi_order_append_only_truncate` (por sentencia), reusando
+  `prohibir_mutacion()` de 0001; UPDATE/DELETE verificados que truenan
+  (`RestrictViolation`, el ERRCODE real del patron).
+- F3: `recorrer_ordenes` fatal (`contrato inesperado: sin lista orders`,
+  sella ok=false) si el contenedor no es dict, falta la clave `orders` u
+  `orders` no es lista; lista vacía con clave presente sigue válida
+  (ventana sin pedidos). Tres tests parametrizados + uno de vacía válida.
+- F4: token bucket por corrida en `orders.py` (capacidad 20, recarga
+  0.0056/s, E/0.1; reloj/espera del cliente): 20 páginas sin espera, la
+  21ª espera ≈ 178 s (test con reloj falso). Sin Redis/colas por stack.
+- F5: clave `UNIQUE (platform, amazon_order_id, last_updated_time)` y
+  `ON CONFLICT` en consecuencia; misma orden+tiempo en otra plataforma sí
+  entra (test).
+- F6: permisos negativos (`app_read`/`app_decide` sin INSERT, `app_ingest`
+  sin UPDATE/DELETE) con `has_table_privilege`.
+
 ## Cierre
-DoD A.2: pytest focal verde, re-corrida sin duplicar, E/A.2 conciliada
-contra 0.1. Regla 8: sin SELECT previo aplicable (tabla nueva, cero filas
-en producción; invariante de dominio fuente, no de dato existente).
-Pendiente del lead: review antes de A.3. No se tocó `plans/ROADMAP.md`.
+DoD A.2: pytest focal verde (199 con arquitectura y cli), re-corrida sin
+duplicar, E/A.2 conciliada contra 0.1. Regla 8: sin SELECT previo
+aplicable (tabla nueva, cero filas en producción; invariante de dominio
+fuente, no de dato existente). No se tocó el plan ni `plans/ROADMAP.md`.

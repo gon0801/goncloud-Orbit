@@ -3,9 +3,9 @@
 Lee `GET /orders/2026-01-01/orders` con `SpapiClient` (un solo refrescador
 LWA) para MX o US y guarda resumenes append-only en
 `spapi_order_observation` (migracion 0030). Clave de idempotencia:
-`(amazon_order_id, last_updated_time)` (E/0.1); la re-corrida con solape
-de 1 dia no duplica (`ON CONFLICT DO NOTHING` cuenta como skip, como
-manda `ingest_run`).
+`(platform, amazon_order_id, last_updated_time)` (E/0.1 mas plataforma);
+la re-corrida con solape de 1 dia no duplica (`ON CONFLICT DO NOTHING`
+cuenta como skip, como manda `ingest_run`).
 
 Ventana: `lastUpdatedAfter` = maximo `last_updated_time` observado menos
 1 dia de solape; primera corrida: `createdAfter` = ahora menos 30 dias.
@@ -51,6 +51,52 @@ MONEDAS = frozenset({"MXN", "USD"})
 _MAX_DINERO = Decimal(10) ** 10
 _MAX_DECIMALES = Decimal("0.0001")
 
+# Rate limit oficial de Orders (E/0.1: 0.0056 req/s, burst 20).
+ORDERS_TASA_SEG = 0.0056
+ORDERS_BURST = 20
+
+
+class _CuboOrders:
+    """Token bucket del rate limit de Orders, uno por corrida (E/0.1).
+
+    Capacidad 20 (burst), recarga 0.0056/s: 20 paginas seguidas sin
+    espera y la 21a espera ~178 s. Reloj y espera inyectables (los del
+    cliente en produccion, falsos en tests). Sin Redis ni colas por
+    decision de stack: el limitador es local al proceso.
+    """
+
+    def __init__(
+        self,
+        *,
+        sleep,
+        clock,
+        capacidad: int = ORDERS_BURST,
+        tasa: float = ORDERS_TASA_SEG,
+    ) -> None:
+        self._sleep = sleep
+        self._clock = clock
+        self._capacidad = capacidad
+        self._tasa = tasa
+        self._tokens = float(capacidad)
+        self._ultimo = clock()
+
+    def consumir(self) -> None:
+        ahora = self._clock()
+        self._tokens = min(
+            float(self._capacidad),
+            self._tokens + max(0.0, ahora - self._ultimo) * self._tasa,
+        )
+        self._ultimo = ahora
+        if self._tokens >= 1.0:
+            self._tokens -= 1.0
+            return
+        espera = max(0.0, (1.0 - self._tokens) / self._tasa)
+        self._sleep(espera)
+        self._tokens = min(float(self._capacidad), self._tokens + espera * self._tasa)
+        self._tokens -= 1.0
+        self._ultimo = self._clock()
+
+
 _SQL_ABRIR_RUN = "INSERT INTO ingest_run (source) VALUES (%s) RETURNING id"
 _SQL_SELLAR_RUN = """
 UPDATE ingest_run
@@ -71,7 +117,7 @@ INSERT INTO spapi_order_observation
      order_total_amount, order_total_currency, number_of_items,
      api_version, observed_at, ingest_run_id)
 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-ON CONFLICT (amazon_order_id, last_updated_time) DO NOTHING
+ON CONFLICT (platform, amazon_order_id, last_updated_time) DO NOTHING
 """
 
 
@@ -256,6 +302,8 @@ def recorrer_ordenes(
     """
     if max_paginas < 1:
         raise IngestaOrdersError("--max-paginas debe ser >= 1")
+    # Reloj y espera salen del cliente (inyectables en tests).
+    cubo = _CuboOrders(sleep=client._sleep, clock=client._clock)
     ordenes: list[dict] = []
     vistos: set[str] = set()
     token: str | None = None
@@ -266,6 +314,7 @@ def recorrer_ordenes(
         params = dict(params_base)
         if token is not None:
             params["paginationToken"] = token
+        cubo.consumir()
         resp = client.get(RUTA_ORDERS, params=params)
         if resp.status_code != 200:
             raise IngestaOrdersError(f"orders status={resp.status_code}")
@@ -274,10 +323,17 @@ def recorrer_ordenes(
         except ValueError:
             raise IngestaOrdersError("orders respuesta no JSON") from None
         carga = sanear(carga, "orders")
-        cont = carga.get("payload", carga) if isinstance(carga, dict) else carga
-        lote = cont.get("orders", []) if isinstance(cont, dict) else []
+        # Contrato estricto: sin lista `orders` no hay nada que conciliar
+        # (la corrida sella ok=false); la lista VACIA con la clave presente
+        # si es valida (puede ser ventana sin pedidos).
+        if not isinstance(carga, dict):
+            raise IngestaOrdersError("contrato inesperado: sin lista orders")
+        cont = carga.get("payload", carga)
+        if not isinstance(cont, dict) or "orders" not in cont:
+            raise IngestaOrdersError("contrato inesperado: sin lista orders")
+        lote = cont["orders"]
         if not isinstance(lote, list):
-            lote = []
+            raise IngestaOrdersError("contrato inesperado: sin lista orders")
         paginas = pagina
         ordenes.extend(o for o in lote if isinstance(o, dict))
         siguiente = siguiente_token(carga)

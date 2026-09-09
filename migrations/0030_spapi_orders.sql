@@ -27,7 +27,7 @@ CREATE TABLE spapi_order_observation (
     api_version         TEXT NOT NULL DEFAULT '2026-01-01',
     observed_at         TIMESTAMPTZ NOT NULL,
     ingest_run_id       BIGINT REFERENCES ingest_run (id),
-    CONSTRAINT spapi_order_clave_unica UNIQUE (amazon_order_id, last_updated_time),
+    CONSTRAINT spapi_order_clave_unica UNIQUE (platform, amazon_order_id, last_updated_time),
     -- Regla 4: no existe un total sin su moneda (igual que listing).
     CONSTRAINT spapi_order_total_con_moneda
         CHECK ((order_total_amount IS NULL) = (order_total_currency IS NULL)),
@@ -37,7 +37,7 @@ CREATE TABLE spapi_order_observation (
 
 COMMENT ON TABLE spapi_order_observation IS
     'SP-API 01 A.2: resumenes searchOrders 2026-01-01 append-only por '
-    '(amazon_order_id, last_updated_time). La ventana diaria usa '
+    '(platform, amazon_order_id, last_updated_time). La ventana diaria usa '
     'lastUpdatedAfter = max(last_updated_time) - 1 dia de solape; la '
     'primera corrida usa createdAfter = ahora - 30 dias. Sin PII: sin '
     'columnas de comprador ni direccion.';
@@ -78,6 +78,17 @@ COMMENT ON FUNCTION spapi_order_tiempo_coherente() IS
 CREATE TRIGGER spapi_order_tiempo_coherente
     BEFORE INSERT ON spapi_order_observation
     FOR EACH ROW EXECUTE FUNCTION spapi_order_tiempo_coherente();
+
+-- Append-only real: ni UPDATE ni DELETE ni TRUNCATE. Reusa
+-- prohibir_mutacion() de 0001 (no se duplica), mismo patron que las
+-- observaciones de metricas y ledger.
+CREATE TRIGGER spapi_order_append_only
+    BEFORE UPDATE OR DELETE ON spapi_order_observation
+    FOR EACH ROW EXECUTE FUNCTION prohibir_mutacion();
+
+CREATE TRIGGER spapi_order_append_only_truncate
+    BEFORE TRUNCATE ON spapi_order_observation
+    FOR EACH STATEMENT EXECUTE FUNCTION prohibir_mutacion();
 
 -- Permisos minimos: ingesta escribe observaciones; lectura pura decide/read.
 GRANT SELECT ON spapi_order_observation TO app_read, app_ingest, app_decide, app_admin;

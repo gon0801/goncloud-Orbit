@@ -32,6 +32,8 @@ CRED = {
     "refresh_token": "refresh-orders",
 }
 
+_TOKEN_LWA = "tk-spapi-orders-fixture-lwa"
+
 _skip_db = pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres")
 
 
@@ -155,7 +157,7 @@ def test_ventana_primera_y_segunda_corrida():
 def _cliente(paginas, *, llamadas=None):
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "api.amazon.com":
-            return httpx.Response(200, json={"access_token": "T", "expires_in": 3600})
+            return httpx.Response(200, json={"access_token": _TOKEN_LWA, "expires_in": 3600})
         if llamadas is not None:
             llamadas.append(request)
         token = request.url.params.get("paginationToken")
@@ -222,10 +224,73 @@ def test_pagina_vacia_con_token_para_y_marca():
     assert len(crudas) == 1
 
 
+@pytest.mark.parametrize(
+    "cuerpo",
+    [
+        {"payload": {"pagination": {"nextToken": "X"}}},
+        {"payload": [1, 2]},
+        {"payload": {"orders": {"no": "lista"}}},
+        [{"orderId": "suelta"}],
+    ],
+)
+def test_contrato_inesperado_es_fatal(cuerpo):
+    cliente = _cliente([{"cuerpo": cuerpo}])
+    with pytest.raises(orders.IngestaOrdersError, match="contrato inesperado"):
+        orders.recorrer_ordenes(cliente, {"marketplaceIds": "X"})
+
+
+def test_lista_vacia_con_clave_es_valida():
+    cliente = _cliente([{"cuerpo": {"payload": {"orders": []}}}])
+    crudas, info = orders.recorrer_ordenes(cliente, {"marketplaceIds": "X"})
+    assert crudas == []
+    assert info["paginas"] == 1
+    assert info["aviso_paginacion"] is None
+
+
+def test_limitador_20_paginas_y_la_21_espera():
+    dormidas: list = []
+    reloj = {"v": 5000.0}
+    paginas = []
+    for i in range(21):
+        cuerpo: dict = {"payload": {"orders": [{"orderId": f"B-{i}"}]}}
+        if i < 20:
+            cuerpo["payload"]["pagination"] = {"nextToken": f"Q{i}"}
+        entrada: dict = {"cuerpo": cuerpo}
+        if i > 0:
+            entrada["token_entrada"] = f"Q{i - 1}"
+        paginas.append(entrada)
+
+    llamadas: list = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return httpx.Response(200, json={"access_token": _TOKEN_LWA, "expires_in": 3600})
+        llamadas.append(request)
+        token = request.url.params.get("paginationToken")
+        if token is None:
+            cuerpo = paginas[0]
+        else:
+            cuerpo = next((p for p in paginas if p.get("token_entrada") == token), None)
+            assert cuerpo is not None
+        return httpx.Response(200, json=cuerpo["cuerpo"])
+
+    cliente = SpapiClient(
+        credentials=CRED,
+        transport=httpx.MockTransport(handler),
+        sleep=dormidas.append,
+        clock=lambda: reloj["v"],
+    )
+    crudas, info = orders.recorrer_ordenes(cliente, {"marketplaceIds": "X"}, max_paginas=25)
+    assert len(crudas) == 21
+    assert len([r for r in llamadas if r.url.host != "api.amazon.com"]) == 21
+    assert len(dormidas) == 1
+    assert dormidas[0] == pytest.approx(1 / 0.0056, abs=0.01)
+
+
 def test_status_no_200_es_fatal():
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "api.amazon.com":
-            return httpx.Response(200, json={"access_token": "T", "expires_in": 3600})
+            return httpx.Response(200, json={"access_token": _TOKEN_LWA, "expires_in": 3600})
         return httpx.Response(500, json={})
 
     cliente = SpapiClient(
@@ -299,7 +364,7 @@ def test_migracion_unicidad_trigger_y_grants():
             " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             fila,
         )
-        # Unicidad (orden, actualizacion): el duplicado truena.
+        # Unicidad (plataforma, orden, actualizacion): el duplicado truena.
         with pytest.raises(psycopg.errors.UniqueViolation):
             conn.execute(
                 "INSERT INTO spapi_order_observation"
@@ -315,6 +380,23 @@ def test_migracion_unicidad_trigger_y_grants():
                 ),
             )
         conn.rollback()
+        # Misma orden y tiempo en otra plataforma: fila distinta, si entra.
+        # Se commitea para que UPDATE/DELETE de abajo tengan fila que mutar
+        # (cada rollback previo vacia lo no commiteado).
+        conn.execute(
+            "INSERT INTO spapi_order_observation"
+            " (amazon_order_id, platform, marketplace_id,"
+            " last_updated_time, observed_at)"
+            " VALUES (%s, %s, %s, %s, %s)",
+            (
+                "MX-1",
+                "amazon_us",
+                "ATVPDKIKX0DER",
+                datetime(2026, 9, 8, 11, 0, 0, tzinfo=UTC),
+                datetime(2026, 9, 9, 12, 0, 0, tzinfo=UTC),
+            ),
+        )
+        conn.commit()
         # Trigger: compra posterior a la actualizacion truena.
         with pytest.raises(psycopg.errors.CheckViolation):
             conn.execute(
@@ -332,6 +414,17 @@ def test_migracion_unicidad_trigger_y_grants():
                 ),
             )
         conn.rollback()
+        # Append-only real: UPDATE y DELETE truenan aunque el rol pudiera
+        # (prohibir_mutacion levanta restrict_violation, patron 0001).
+        with pytest.raises(psycopg.errors.RestrictViolation):
+            conn.execute(
+                "UPDATE spapi_order_observation SET sales_channel = 'x'"
+                " WHERE amazon_order_id = 'MX-1'"
+            )
+        conn.rollback()
+        with pytest.raises(psycopg.errors.RestrictViolation):
+            conn.execute("DELETE FROM spapi_order_observation WHERE amazon_order_id = 'MX-1'")
+        conn.rollback()
         # Grants: la tabla es legible y la secuencia usable.
         assert conn.execute(
             "SELECT has_table_privilege('app_read', 'spapi_order_observation', 'SELECT')"
@@ -339,12 +432,25 @@ def test_migracion_unicidad_trigger_y_grants():
         assert conn.execute(
             "SELECT has_table_privilege('app_ingest', 'spapi_order_observation', 'INSERT')"
         ).fetchone()[0]
+        # Permisos negativos: lectura no escribe, ingesta no muta historia.
+        assert not conn.execute(
+            "SELECT has_table_privilege('app_read', 'spapi_order_observation', 'INSERT')"
+        ).fetchone()[0]
+        assert not conn.execute(
+            "SELECT has_table_privilege('app_decide', 'spapi_order_observation', 'INSERT')"
+        ).fetchone()[0]
+        assert not conn.execute(
+            "SELECT has_table_privilege('app_ingest', 'spapi_order_observation', 'UPDATE')"
+        ).fetchone()[0]
+        assert not conn.execute(
+            "SELECT has_table_privilege('app_ingest', 'spapi_order_observation', 'DELETE')"
+        ).fetchone()[0]
 
 
 def _handler_fixture(paginas, llamadas):
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "api.amazon.com":
-            return httpx.Response(200, json={"access_token": "T", "expires_in": 3600})
+            return httpx.Response(200, json={"access_token": _TOKEN_LWA, "expires_in": 3600})
         llamadas.append(request)
         token = request.url.params.get("paginationToken")
         if token is None:
@@ -461,7 +567,7 @@ def test_ingesta_punta_a_punta_idempotente_y_ventana():
 def test_fallo_http_sella_ok_false():
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "api.amazon.com":
-            return httpx.Response(200, json={"access_token": "T", "expires_in": 3600})
+            return httpx.Response(200, json={"access_token": _TOKEN_LWA, "expires_in": 3600})
         return httpx.Response(500, json={})
 
     cliente = SpapiClient(
