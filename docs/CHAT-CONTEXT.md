@@ -4,6 +4,20 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-09 UTC — SP-API 01 Fase A: A.2b y A.3 cerradas y mergeadas (PRs #240 y #241).**
+A.2b: los pedidos ya traen estado y total reales vía las secciones FULFILLMENT + PROCEEDS (sin BUYER ni
+RECIPIENT, cero PII); migración 0031 convierte la clave en bitemporal de 4 columnas (plataforma + orden +
+última actualización + observed_at), agrega `fulfillment_status` separado del ciclo del pedido, la vista
+`v_spapi_order_ultima` y una reversa con guarda doble (aborta si hay re-observaciones o estados de envío
+capturados); backfill manual con `--desde`. A.3: ingesta diaria de precios (PR #241) — migraciones 0032
+(`spapi_price_observation`, append-only, dinero con moneda, trigger que exige `metric_date` = día UTC de
+`observed_at`) y 0033 (`ingest_run.llamadas`); pase por ASIN propio de `listing` en MX y US con ofertas y
+precio competitivo a 0.5 req/s, 0 ofertas = fila con precios NULL, precio sin moneda = fila no escrita.
+Ojo: `register_secret` ya NO ignora valores cortos (quedó sin piso en #241, cambio global declarado; la
+nota de A.2 abajo quedó vieja). Dos rondas del lead + CodeRabbit atendidas en cada PR, CI verde. Siguen
+A.4 (Listings + Inventario) y A.5 (salud); A.6 queda para el dueño: aplicar 0030–0033 en producción,
+desplegar y primeras corridas reales.
+
 **2026-09-09 UTC — SP-API 01 Fase A, tarea A.2 cerrada: ingesta diaria de pedidos.**
 Muse entregó la migración 0030 (`spapi_order_observation`, append-only por trigger, clave por
 plataforma + orden + última actualización, dinero con moneda, permisos mínimos) y
