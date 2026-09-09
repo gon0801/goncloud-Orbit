@@ -4,6 +4,16 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-09 UTC — SP-API 01 Fase A, tarea A.1 cerrada: cliente único de SP-API.**
+Muse entregó `app/spapi/client.py` (PR #237): un solo refrescador LWA por proceso compartido
+por fees, fotos y la sonda (antes había dos ad hoc), allowlist default-deny con los GET de las
+cinco fuentes, Catalog Items y el único POST (fees), 401 con un refresh coordinado, 429 acotado,
+errores scrubbados y sin PII. Fees y fotos migrados sin cambio de comportamiento (sus tests
+intactos). Ronda única: kimi (1 media, 5 bajas) + CodeRabbit (invalidar el token compartido en
+401/403 de fees, coordinar el refresh forzado, un assert muerto), todo atendido y verificado
+por mutación. Sin migración; el deploy se junta con A.2. Siguen A.2 (Orders), A.3 (Pricing),
+A.4 (Listings + Inventario) y A.5 (salud).
+
 **2026-09-09 UTC — SP-API 01 Fase 0 cerrada: las cinco fuentes verificadas con sondas reales.**
 Muse escribió `tools/sonda_spapi.py` (solo lectura, allowlist default-deny, sin PII ni
 secretos, 42 tests) y corrió las sondas desde el contenedor (05:41–05:49 UTC, cero
