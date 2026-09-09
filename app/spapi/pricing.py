@@ -731,9 +731,6 @@ def main(argv: list[str] | None = None) -> int:
             )
         finally:
             conn.close()
-    except IngestaPricingError as exc:
-        print(f"ingesta spapi_pricing fallo: {scrub(str(exc))}", file=sys.stderr)
-        return 1
     except Exception as exc:
         print(f"ingesta spapi_pricing fallo: {scrub(str(exc))}", file=sys.stderr)
         return 1

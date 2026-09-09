@@ -40,8 +40,10 @@ def register_secret(value: str | None) -> None:
     Redacta CUALQUIER valor no vacio, sin piso minimo: una password de DSN,
     un token o una credencial cortos son tan secretos como los largos y
     antes quedaban sin redactar en errores y logs (revision PR #240/#241).
-    Quien registra un valor de 1-2 caracteres que colisiona con texto comun
-    (el fixture "T" rompia "nextToken") tiene el bug en SU fixture, no aqui.
+    Trade-off aceptado: registrar un valor de 1-2 caracteres que colisiona
+    con texto comun (p. ej. el token "T" de un fixture rompia "nextToken")
+    deforma los logs que lo contengan; los fixtures deben usar secretos
+    cortos pero distintivos.
     """
     if not value:
         return
