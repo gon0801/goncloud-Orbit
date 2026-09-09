@@ -8,11 +8,8 @@ no del codigo -- y la salida facil es `--no-verify`, que este repo prohibe.
 from __future__ import annotations
 
 import shlex
-import subprocess
-import sys
 from pathlib import Path
 
-import pytest
 import yaml
 
 RAIZ = Path(__file__).resolve().parents[1]
@@ -33,30 +30,19 @@ def test_pytest_corre_en_pre_push():
     assert _hook("pytest-pre-push")["stages"] == ["pre-push"]
 
 
-@pytest.mark.skipif(
-    sys.platform != "win32",
-    reason="el entry apunta a .venv/Scripts/*.exe; el fallo de CreateProcess es de Windows",
-)
-def test_entry_de_pre_push_es_ejecutable(monkeypatch: pytest.MonkeyPatch):
-    """El `entry` tiene que poder EJECUTARSE, no solo existir como archivo.
+def test_entry_de_pre_push_es_portable():
+    """El YAML no conserva la ruta Python de la maquina que lo genero."""
+    hook = _hook("pytest-pre-push")
+    tokens = shlex.split(hook["entry"])
+    assert tokens[:3] == ["python", "tools/quality_run_python_tests.py", "pytest"]
+    assert hook["language"] == "python"
+    runner = RAIZ / "tools" / "quality_run_python_tests.py"
+    assert "QUALITY-KIT PYTHON RUNNER" in runner.read_text(encoding="utf-8")
 
-    Regresion: el entry era `.venv/Scripts/python.exe -m pytest -x -q`, ruta
-    relativa con barras normales. El archivo existe --`Path.exists()` devuelve
-    True-- pero CreateProcess la rechaza y el push se cae con
-    `[WinError 2] The system cannot find the file specified`. Un test que solo
-    comprobara la existencia del archivo habria pasado con el bug puesto; por
-    eso aca se lanza el binario de verdad, y desde la raiz del repo, que es
-    donde pre-commit se para para invocarlo.
-    """
-    exe = shlex.split(_hook("pytest-pre-push")["entry"])[0]
-    assert (RAIZ / exe).exists(), f"{exe} ni siquiera existe como archivo"
 
-    monkeypatch.chdir(RAIZ)
-    try:
-        proc = subprocess.run([exe, "-c", "pass"], capture_output=True, timeout=60)
-    except OSError as e:
-        pytest.fail(f"pre-commit no podra lanzar {exe!r}: {type(e).__name__}: {e}")
-    assert proc.returncode == 0, proc.stderr.decode(errors="replace")
+def test_repo_hygiene_recibe_python_de_pre_commit():
+    """El candado de contexto no depende del alias `python` del host."""
+    assert _hook("context-docs-budget")["language"] == "python"
 
 
 def test_bateria_completa_corre_en_ci():
