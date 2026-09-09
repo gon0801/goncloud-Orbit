@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 import socket
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -23,7 +23,7 @@ from app.spapi import orders
 from app.spapi.client import SpapiClient
 
 ROOT = Path(__file__).resolve().parents[1]
-ORDEN = ("0001_initial.sql", "0030_spapi_orders.sql")
+ORDEN = ("0001_initial.sql", "0030_spapi_orders.sql", "0031_spapi_orders_bitemporal.sql")
 
 AHORA = datetime(2026, 9, 9, 12, 0, 0, tzinfo=UTC)
 CRED = {
@@ -82,6 +82,64 @@ def test_parsea_minimo_con_nulos():
     assert orden.total_amount is None
     assert orden.total_currency is None
     assert orden.number_of_items is None
+
+
+def test_parsea_secciones_fulfillment_y_proceeds():
+    # Claves reales del acta A.2b/sonda.md.
+    orden = orders.parsear_orden(
+        {
+            "orderId": "MX-20",
+            "createdTime": "2026-09-08T10:00:00Z",
+            "lastUpdatedTime": "2026-09-08T11:00:00Z",
+            "salesChannel": "Amazon.com.mx",
+            "fulfillment": {
+                "deliverByWindow": {"start": "2026-09-09T00:00:00Z"},
+                "fulfilledBy": "AFN",
+                "fulfillmentServiceLevel": "Standard",
+                "fulfillmentStatus": "Shipped",
+                "shipByWindow": {},
+            },
+            "proceeds": {
+                "breakdowns": [{"tipo": "Principal"}],
+                "grandTotal": {"amount": 749.0, "currencyCode": "MXN"},
+            },
+            "programs": [],
+        }
+    )
+    assert orden.order_status == "Shipped"
+    assert orden.fulfillment_channel == "AFN"
+    assert orden.total_amount == Decimal("749.0000")
+    assert orden.total_currency == "MXN"
+
+
+def test_seccion_prefiere_a_clave_plana():
+    orden = orders.parsear_orden(
+        _resumen(
+            orderStatus="Plano",
+            fulfillment={"fulfillmentStatus": "Seccion", "fulfilledBy": "MFN"},
+            orderTotal={"Amount": 1.0, "CurrencyCode": "MXN"},
+            proceeds={"grandTotal": {"amount": 2.0, "currencyCode": "MXN"}},
+        )
+    )
+    assert orden.order_status == "Seccion"
+    assert orden.fulfillment_channel == "MFN"
+    assert orden.total_amount == Decimal("2.0000")
+
+
+def test_recipient_y_buyer_se_ignoran_aunque_vengan():
+    from app.spapi.client import sanear
+
+    crudo = _resumen(
+        recipient={"name": "Nadie Debeverse"},
+        buyer={"buyerEmail": "nadie@example.com"},
+        ShippingAddress={"AddressLine1": "Calle 123"},
+    )
+    limpio = sanear(crudo, "orders")
+    assert "recipient" not in limpio
+    assert not any(k.lower().startswith("buyer") for k in limpio)
+    assert "ShippingAddress" not in limpio
+    orden = orders.parsear_orden(crudo)
+    assert orden.amazon_order_id == "MX-1"
 
 
 def test_parsea_alias_v0():
@@ -447,6 +505,48 @@ def test_migracion_unicidad_trigger_y_grants():
         ).fetchone()[0]
 
 
+@_skip_db
+def test_reobservacion_bitemporal_y_vista():
+    import psycopg
+
+    t_upd = datetime(2026, 9, 8, 11, 0, 0, tzinfo=UTC)
+    t1 = datetime(2026, 9, 9, 12, 0, 0, tzinfo=UTC)
+    t2 = datetime(2026, 9, 9, 13, 0, 0, tzinfo=UTC)
+    with db_orders() as conn:
+        for obs, estado in ((t1, None), (t2, "Shipped")):
+            conn.execute(
+                "INSERT INTO spapi_order_observation"
+                " (amazon_order_id, platform, marketplace_id,"
+                " last_updated_time, order_status, observed_at)"
+                " VALUES (%s, %s, %s, %s, %s, %s)",
+                ("MX-9", "amazon_mx", "A1AM78C64UM0Y8", t_upd, estado, obs),
+            )
+        conn.commit()
+        # Misma cuádruple completa: sí truena.
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            conn.execute(
+                "INSERT INTO spapi_order_observation"
+                " (amazon_order_id, platform, marketplace_id,"
+                " last_updated_time, observed_at)"
+                " VALUES (%s, %s, %s, %s, %s)",
+                ("MX-9", "amazon_mx", "A1AM78C64UM0Y8", t_upd, t2),
+            )
+        conn.rollback()
+        fila = conn.execute(
+            "SELECT order_status, observed_at FROM v_spapi_order_ultima"
+            " WHERE platform = 'amazon_mx' AND amazon_order_id = 'MX-9'"
+        ).fetchall()
+        assert len(fila) == 1
+        assert fila[0][0] == "Shipped"
+        assert fila[0][1] == t2
+        assert conn.execute(
+            "SELECT has_table_privilege('app_read', 'v_spapi_order_ultima', 'SELECT')"
+        ).fetchone()[0]
+        assert not conn.execute(
+            "SELECT has_table_privilege('app_decide', 'v_spapi_order_ultima', 'INSERT')"
+        ).fetchone()[0]
+
+
 def _handler_fixture(paginas, llamadas):
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "api.amazon.com":
@@ -561,6 +661,61 @@ def test_ingesta_punta_a_punta_idempotente_y_ventana():
         params2 = llamadas[0].url.params
         assert params2.get("lastUpdatedAfter") == "2026-09-07T11:00:00Z"
         assert "createdAfter" not in params2
+
+
+@_skip_db
+def test_dos_corridas_reobservan_y_vista_muestra_ultima():
+    pelada = {
+        "orderId": "MX-30",
+        "createdTime": "2026-09-07T10:00:00Z",
+        "lastUpdatedTime": "2026-09-07T11:00:00Z",
+        "salesChannel": "Amazon.com.mx",
+    }
+    completa = dict(
+        pelada,
+        fulfillment={"fulfilledBy": "AFN", "fulfillmentStatus": "Shipped"},
+        proceeds={"grandTotal": {"amount": 250.0, "currencyCode": "MXN"}},
+    )
+
+    def handler_con(paginas):
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(200, json={"access_token": _TOKEN_LWA, "expires_in": 3600})
+            return httpx.Response(200, json=paginas)
+
+        return handler
+
+    with db_orders() as conn:
+        for ahora, cuerpo in (
+            (AHORA, {"payload": {"orders": [pelada]}}),
+            (
+                AHORA + timedelta(hours=1),
+                {"payload": {"orders": [completa]}},
+            ),
+        ):
+            cliente = SpapiClient(
+                credentials=CRED,
+                transport=httpx.MockTransport(handler_con(cuerpo)),
+                sleep=lambda _s: None,
+                clock=lambda: 1000.0,
+            )
+            resultado = orders.ejecutar_ingesta(
+                conn, cliente, platform="amazon_mx", ahora=ahora, max_paginas=5
+            )
+            assert resultado.ok
+            assert resultado.escritas == 1
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM spapi_order_observation WHERE amazon_order_id = 'MX-30'"
+            ).fetchone()[0]
+            == 2
+        )
+        vista = conn.execute(
+            "SELECT order_status, fulfillment_channel,"
+            " order_total_amount, order_total_currency"
+            " FROM v_spapi_order_ultima WHERE amazon_order_id = 'MX-30'"
+        ).fetchone()
+        assert vista == ("Shipped", "AFN", Decimal("250.0000"), "MXN")
 
 
 @_skip_db

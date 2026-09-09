@@ -2,16 +2,21 @@
 
 Lee `GET /orders/2026-01-01/orders` con `SpapiClient` (un solo refrescador
 LWA) para MX o US y guarda resumenes append-only en
-`spapi_order_observation` (migracion 0030). Clave de idempotencia:
-`(platform, amazon_order_id, last_updated_time)` (E/0.1 mas plataforma);
-la re-corrida con solape de 1 dia no duplica (`ON CONFLICT DO NOTHING`
-cuenta como skip, como manda `ingest_run`).
+`spapi_order_observation` (migraciones 0030/0031). Clave bitemporal:
+`(platform, amazon_order_id, last_updated_time, observed_at)` (E/0.1 mas
+plataforma y re-observacion, patron 0026/0027): la ventana con solape
+vuelve a observar los pedidos recientes y la vista `v_spapi_order_ultima`
+muestra la ultima. Correcciones dentro de la misma corrida (mismo
+`observed_at`) siguen absorbidas por `ON CONFLICT DO NOTHING` y cuentan
+como skip, como manda `ingest_run`.
 
 Ventana: `lastUpdatedAfter` = maximo `last_updated_time` observado menos
 1 dia de solape; primera corrida: `createdAfter` = ahora menos 30 dias.
 Paginacion con las guardas de TRASPASO-1 (token repetido y pagina vacia
-con token paran y se marcan). Sin `includedData=BUYER`: cero PII, y la
-tabla no tiene columnas de comprador ni direccion.
+con token paran y se marcan). Se pide `includedData=FULFILLMENT,PROCEEDS`
+(A.2b, verificadas sin permiso especial en el acta A.2b/sonda.md) y jamas
+BUYER ni RECIPIENT: cero PII, y la tabla no tiene columnas de comprador
+ni direccion.
 
 Dinero `(valor, moneda)` NUMERIC(14,4) + enum (regla 4); total incoherente
 o ausente = NULLs (regla 3), la fila se escribe igual porque la identidad
@@ -117,7 +122,7 @@ INSERT INTO spapi_order_observation
      order_total_amount, order_total_currency, number_of_items,
      api_version, observed_at, ingest_run_id)
 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-ON CONFLICT (platform, amazon_order_id, last_updated_time) DO NOTHING
+ON CONFLICT (platform, amazon_order_id, last_updated_time, observed_at) DO NOTHING
 """
 
 
@@ -182,16 +187,17 @@ def _parsear_tiempo(valor: Any, *, campo: str) -> datetime.datetime | None:
 
 
 def _parsear_dinero(obj: Any) -> tuple[Decimal | None, str | None]:
-    # Formas Money de Amazon: {"Amount": ..., "CurrencyCode": ...}.
+    # Formas Money de Amazon: v0 {"Amount", "CurrencyCode"} y 2026
+    # {"amount", "currencyCode"} (grandTotal de PROCEEDS, acta A.2b).
     # Ausente o incoherente = (None, None): la fila se escribe igual porque
     # la identidad es orden + tiempo, no el total (regla 3).
     if not isinstance(obj, dict):
         return None, None
-    moneda = obj.get("CurrencyCode")
+    moneda = obj.get("CurrencyCode", obj.get("currencyCode"))
     if not isinstance(moneda, str) or moneda.strip() not in MONEDAS:
         return None, None
     try:
-        monto = Decimal(str(obj.get("Amount")))
+        monto = Decimal(str(obj.get("Amount", obj.get("amount"))))
     except (InvalidOperation, ValueError, TypeError):
         return None, None
     if not monto.is_finite() or abs(monto) >= _MAX_DINERO:
@@ -252,13 +258,24 @@ def parsear_orden(obj: Any) -> OrdenParseada:
             purchase = None
     if purchase is not None and purchase > last_updated:
         raise OrdenOmitida("tiempo_incoherente")
-    monto, moneda = _parsear_dinero(obj.get("orderTotal", obj.get("OrderTotal")))
+    # Secciones FULFILLMENT + PROCEEDS (A.2b, acta A.2b/sonda.md) con
+    # respaldo a las claves planas del resumen pelado; ausente = NULL.
+    ful = obj.get("fulfillment")
+    ful = ful if isinstance(ful, dict) else {}
+    pro = obj.get("proceeds")
+    pro = pro if isinstance(pro, dict) else {}
+    gran_total = pro.get("grandTotal")
+    if not isinstance(gran_total, dict):
+        gran_total = obj.get("orderTotal", obj.get("OrderTotal"))
+    monto, moneda = _parsear_dinero(gran_total)
     return OrdenParseada(
         amazon_order_id=amazon_order_id,
         purchase_date=purchase,
         last_updated_time=last_updated,
-        order_status=_texto(obj.get("orderStatus", obj.get("OrderStatus"))),
-        fulfillment_channel=_texto(obj.get("fulfillmentChannel", obj.get("FulfillmentChannel"))),
+        order_status=_texto(ful.get("fulfillmentStatus"))
+        or _texto(obj.get("orderStatus", obj.get("OrderStatus"))),
+        fulfillment_channel=_texto(ful.get("fulfilledBy"))
+        or _texto(obj.get("fulfillmentChannel", obj.get("FulfillmentChannel"))),
         sales_channel=_texto(obj.get("salesChannel", obj.get("SalesChannel"))),
         total_amount=monto,
         total_currency=moneda,
@@ -276,7 +293,12 @@ def parametros_ventana(
     """Params del searchOrders: solape de 1 dia o ventana inicial de 30."""
     if ahora.tzinfo is None:
         ahora = ahora.replace(tzinfo=datetime.UTC)
-    base = {"marketplaceIds": marketplace_id, "maxResultsPerPage": RESULTADOS_POR_PAGINA}
+    base = {
+        "marketplaceIds": marketplace_id,
+        "maxResultsPerPage": RESULTADOS_POR_PAGINA,
+        # Secciones con estado y total (A.2b); jamas BUYER ni RECIPIENT.
+        "includedData": "FULFILLMENT,PROCEEDS",
+    }
     if ultimo_observado is None:
         if dias_inicial < 1:
             raise IngestaOrdersError("--dias-inicial debe ser >= 1")

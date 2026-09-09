@@ -74,3 +74,25 @@ DoD A.2: pytest focal verde (199 con arquitectura y cli), re-corrida sin
 duplicar, E/A.2 conciliada contra 0.1. Regla 8: sin SELECT previo
 aplicable (tabla nueva, cero filas en producción; invariante de dominio
 fuente, no de dato existente). No se tocó el plan ni `plans/ROADMAP.md`.
+
+## Apartado A.2b — pedidos con estado y total
+Origen: las runs 140/141 (224 pedidos) guardaron estado, canal y total en
+NULL; el resumen sin `includedData` solo trae identidad, fechas,
+salesChannel e items. Acta de sonda: `docs/evidencia/sp-api-01/A.2b/sonda.md`
+(3 GET MX con `FULFILLMENT,PROCEEDS`, claves sin valores, cero PII;
+PROCEEDS no exigió permiso especial; dos ventanas posteriores vacías, sin
+reintentos para no quemar el 0.0056/s).
+- Ingesta: `includedData=FULFILLMENT,PROCEEDS` (jamas BUYER/RECIPIENT);
+  `fulfillment.fulfillmentStatus` → estado, `fulfilledBy` → canal
+  (análogo AFN/MFN de v0), `proceeds.grandTotal` → total; ausente = NULL.
+- Migración `0031`: clave bitemporal
+  `(platform, amazon_order_id, last_updated_time, observed_at)` (patrón
+  0026/0027) + vista `v_spapi_order_ultima` (última por pedido); sin tocar
+  ni borrar filas (las 224 existentes siguen y se re-observan).
+- Tests rojo→verde: parseo con secciones falla en el parser viejo; e2e
+  falla en el `ON CONFLICT` viejo (`no unique constraint matching`,
+  código y esquema cambian juntos); en verde, dos corridas dejan dos
+  observaciones y la vista muestra la última completa. PII de RECIPIENT
+  filtrada aunque venga; unicidad nueva, vista y permisos ± verificados.
+- No se aplica la migración ni se corre la ingesta en producción (dueño
+  con el script del lead). Sin tocar el plan.
