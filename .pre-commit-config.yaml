@@ -46,11 +46,9 @@ repos:
     hooks:
       - id: pytest-pre-push
         name: pytest rapido (pre-push; la bateria COMPLETA corre en CI)
-        # El './' NO es cosmetico: sin el, CreateProcess rechaza la ruta
-        # relativa con barras normales y el push muere con WinError 2
-        # aunque el archivo exista (regresion: tests/test_precommit_hooks.py).
-        entry: ./.venv/Scripts/python.exe -m pytest -x -q tests/test_architecture.py tests/test_precommit_hooks.py
-        language: system
+        entry: python tools/quality_run_python_tests.py pytest -x -q tests/test_architecture.py tests/test_precommit_hooks.py
+        # pre-commit aporta el bootstrap; el runner elige uv o el venv del host.
+        language: python
         pass_filenames: false
         stages: [pre-push]
 # >>> QUALITY-KIT REPO-HYGIENE HOOK START -- managed by install-repo-hygiene.ps1
@@ -62,7 +60,7 @@ repos:
       - id: context-docs-budget
         name: capa de contexto dentro de presupuesto (repo-hygiene)
         entry: python tools/check_context_docs.py
-        language: system
+        language: python
         pass_filenames: false
         files: '(^|/)(CLAUDE|AGENTS|AGENT)\.md$'
 # >>> QUALITY-KIT REPO-HYGIENE HOOK END

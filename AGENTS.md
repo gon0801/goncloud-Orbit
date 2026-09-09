@@ -14,26 +14,7 @@ código viejo. **Leer primero:** `docs/CONTEXTO.md` y `docs/traspaso/ADS_OPTIMIZ
 - **Responde siempre en español**; directo al grano, sin relleno.
 - **Código limpio y listo para usar**: completo (sin `...`), escrito a archivos con las herramientas.
 - Entiende antes de cambiar; prefiere patrones existentes; cambios mínimos; nunca inventes APIs/credenciales.
-- Verifica con el flujo de abajo; jamás `--no-verify` ni repitas una batería sobre el mismo SHA.
-
-## Flujo de verificación
-
-- Durante la implementación, corre solo las pruebas focalizadas del archivo o comportamiento
-  modificado. Demuestra primero en rojo las regresiones, como exige la regla 9.
-- Agrupa todas las observaciones de una revisión antes de corregir. Haz una sola revisión cruzada
-  por bloque cuando el plan o el dueño la pidan y consolida sus hallazgos en una sola ronda.
-- Después del último cambio del bloque, corre Ruff y las pruebas focalizadas afectadas.
-- Ejecuta la batería completa una sola vez por bloque, sobre el commit final y preferentemente en
-  CI mediante PR. Si CI ya ejecutó tests, Ruff y pre-commit sobre ese SHA, no los repitas
-  localmente.
-- No vuelvas a ejecutar CI si el commit verificado no cambió. Si cambia, ejecuta de nuevo solo los
-  controles que el cambio pueda invalidar; una nueva batería completa corresponde únicamente a un
-  nuevo commit final.
-- Registra como pendiente una observación tardía menor. Abre otro ciclo antes del merge solo si
-  afecta seguridad, integridad de datos, una regla innegociable o el comportamiento solicitado.
-- Después de desplegar, ejecuta una sola vez el checklist del runbook: hashes, salud, contenedores,
-  puertos, permisos y un smoke funcional. No repitas una comprobación válida salvo que un cambio
-  posterior pueda invalidarla.
+- Verifica con el flujo administrado por Quality Kit; jamás `--no-verify`.
 
 ## Stack
 
@@ -59,7 +40,7 @@ plans/        # manifest.json marca el plan ORBIT NN activo (sigue sus tasks y D
 
 ```bash
 uv sync                                   # deps (uv; venv en .venv/)
-./.venv/Scripts/python.exe -m pytest -q   # suite (CI: PYTHONPATH=. pytest -q); test en vivo skipea sin ORBIT_TEST_DSN
+uv run --frozen python -m pytest -q       # suite (CI: PYTHONPATH=. pytest -q); test en vivo skipea sin ORBIT_TEST_DSN
 ruff check --fix . && ruff format .       # lint/format (line-length 100)
 pre-commit run --all-files                # candados (pytest corre en pre-push); CI: .github/workflows/quality.yml
 ```
@@ -99,4 +80,14 @@ Para ver que candados tiene realmente: `pre-commit run --all-files` (o mira `.pr
 Reglas de hierro:
 1. Si un candado falla, se arregla el problema real -- JAMAS se usa `--no-verify` ni se saltea un candado.
 2. Cada bug arreglado incluye, en el mismo cambio, una prueba que lo habria atrapado.
+
+Flujo de verificacion:
+- Durante la implementacion, corre solo las pruebas focalizadas del comportamiento modificado.
+- Agrupa los hallazgos de revision y corrigelos en una sola ronda por bloque.
+- Ejecuta Ruff y las pruebas focalizadas despues del ultimo cambio del bloque.
+- Ejecuta la bateria completa una sola vez por bloque, sobre el commit final y preferentemente en CI mediante PR.
+- Si CI ya valido tests, Ruff y pre-commit sobre ese SHA, no los repitas localmente.
+- No vuelvas a ejecutar CI si el commit verificado no cambio.
+- Una observacion tardia menor queda pendiente; solo seguridad, datos, reglas innegociables o el comportamiento solicitado reabren el ciclo.
+- Despues del deploy, ejecuta una sola vez el checklist del repo y no repitas evidencia valida sin un cambio que pueda invalidarla.
 <!-- >>> QUALITY-KIT CALIDAD SECTION END -->
