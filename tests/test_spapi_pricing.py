@@ -203,6 +203,30 @@ def _cuerpo_ofertas_con_resumen(ofertas, resumen):
     return cuerpo
 
 
+def test_conteo_fba_resumen_solo_condicion_new():
+    # CodeRabbit PR #241: la ingesta pide ItemCondition=New y el minimo ya
+    # filtra condition New; el conteo FBA debe hacer lo mismo: una entrada
+    # Used con canal Amazon no suma.
+    resumen = _resumen(10, 4, 90.0)
+    resumen["NumberOfOffers"].append(
+        {"condition": "Used", "fulfillmentChannel": "Amazon", "OfferCount": 7}
+    )
+    precio = pricing.parsear_precios(
+        "B0TEST0001",
+        _cuerpo_ofertas_con_resumen(
+            [
+                _oferta(PROPIO, 100.0, ganadora=True, fba=True),
+                _oferta("OTRO1", 99.0, fba=True),
+            ],
+            resumen,
+        ),
+        _cuerpo_competitivo(),
+        vendedor_propio=PROPIO,
+    )
+    assert precio.fba_offers_count == 4
+    assert precio.offers_count == 10
+
+
 def test_sin_clave_offers_con_success_es_cero_filas():
     # F4: el modelo no marca Offers como requerida; sin la clave y con
     # status Success = cero ofertas, no error.
@@ -450,6 +474,53 @@ def test_migracion_clave_append_only_y_grants():
         assert not conn.execute(
             "SELECT has_table_privilege('app_ingest', 'spapi_price_observation', 'DELETE')"
         ).fetchone()[0]
+
+
+@_skip_db
+def test_trigger_metric_date_es_el_dia_utc_de_observed_at():
+    # Invariante de tiempo en trigger con UTC fijado EN LA EXPRESION
+    # (patron 0028/0030, regla del repo), nunca en CHECK dependiente de la
+    # TZ de sesion: metric_date es el dia UTC de observed_at.
+    import psycopg
+
+    with db_pricing() as conn:
+        # Dia distinto al de la captura UTC: la fila se rechaza.
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(
+                "INSERT INTO spapi_price_observation"
+                " (asin, platform, metric_date, observed_at)"
+                " VALUES (%s, %s, %s, %s)",
+                (
+                    "B0TEST0001",
+                    "amazon_mx",
+                    datetime(2026, 9, 8).date(),
+                    datetime(2026, 9, 9, 12, 0, 0, tzinfo=UTC),
+                ),
+            )
+        conn.rollback()
+        # UTC fijado en la expresion: con la sesion en otra TZ la fecha
+        # correcta EN UTC (10) entra aunque en la TZ local sea dia 9;
+        # un CHECK con ::date dependeria de la sesion y la rechazaria.
+        conn.execute("SET TIME ZONE 'America/Mexico_City'")
+        conn.execute(
+            "INSERT INTO spapi_price_observation"
+            " (asin, platform, metric_date, observed_at)"
+            " VALUES (%s, %s, %s, %s)",
+            (
+                "B0TEST0002",
+                "amazon_mx",
+                datetime(2026, 9, 10).date(),
+                datetime(2026, 9, 10, 1, 0, 0, tzinfo=UTC),
+            ),
+        )
+        conn.execute("SET TIME ZONE 'UTC'")
+        conn.commit()
+        assert (
+            conn.execute(
+                "SELECT metric_date FROM spapi_price_observation WHERE asin = 'B0TEST0002'"
+            ).fetchone()[0]
+            == datetime(2026, 9, 10).date()
+        )
 
 
 def _handler_pase(respuestas, llamadas):

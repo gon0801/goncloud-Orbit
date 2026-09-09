@@ -53,7 +53,8 @@ COMMENT ON TABLE spapi_price_observation IS
     'listing (D2); esto son observaciones propias de Buy Box y competencia.';
 
 COMMENT ON COLUMN spapi_price_observation.metric_date IS
-    'Dia UTC de captura del pase (observed_at::date en la practica).';
+    'Dia UTC de captura del pase: el trigger spapi_price_tiempo_coherente '
+    'exige metric_date = (observed_at AT TIME ZONE ''UTC'')::date.';
 
 COMMENT ON COLUMN spapi_price_observation.buy_box_is_own IS
     'NULL cuando no hay ganador de Buy Box o el seller propio es '
@@ -66,14 +67,41 @@ COMMENT ON COLUMN spapi_price_observation.buy_box_is_own IS
 COMMENT ON COLUMN spapi_price_observation.offers_count IS
     'Total de ofertas: Summary.TotalOfferCount; respaldo: tamano de la pagina.';
 COMMENT ON COLUMN spapi_price_observation.fba_offers_count IS
-    'Ofertas con fulfillment Amazon: suma de OfferCount en '
-    'Summary.NumberOfOffers con fulfillmentChannel=Amazon; respaldo: pagina.';
+    'Ofertas New con fulfillment Amazon: suma de OfferCount en '
+    'Summary.NumberOfOffers con condition=New y fulfillmentChannel=Amazon; '
+    'respaldo: pagina.';
 COMMENT ON COLUMN spapi_price_observation.lowest_price IS
     'Precio minimo New: Summary.LowestPrices (ListingPrice); respaldo: '
     'minimo de la pagina.';
 
 CREATE INDEX spapi_price_por_plataforma
     ON spapi_price_observation (platform, metric_date);
+
+-- Invariante de tiempo en trigger con UTC fijado EN LA EXPRESION (patron
+-- 0028/0030, regla del repo; NUNCA en CHECK: observed_at::date se evaluaria
+-- con la TimeZone de cada sesion): metric_date es el dia UTC de la captura.
+CREATE FUNCTION spapi_price_tiempo_coherente() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public
+AS $$
+BEGIN
+    IF NEW.metric_date <> (NEW.observed_at AT TIME ZONE 'UTC')::date THEN
+        RAISE EXCEPTION
+            'spapi_price: metric_date (%) no es el dia UTC de observed_at (%)',
+            NEW.metric_date, NEW.observed_at
+            USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION spapi_price_tiempo_coherente() IS
+    'SP-API 01 A.3: metric_date = dia UTC de observed_at. UTC fijado en la '
+    'expresion (AT TIME ZONE ''UTC''): inmune a la TimeZone de la sesion.';
+
+CREATE TRIGGER spapi_price_tiempo_coherente
+    BEFORE INSERT ON spapi_price_observation
+    FOR EACH ROW EXECUTE FUNCTION spapi_price_tiempo_coherente();
 
 -- Append-only real: ni UPDATE ni DELETE ni TRUNCATE (patron 0001/A.2 F2).
 CREATE TRIGGER spapi_price_append_only

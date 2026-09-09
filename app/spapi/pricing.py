@@ -227,14 +227,18 @@ def _conteo_total_resumen(resumen: dict) -> int | None:
 def _conteo_fba_resumen(resumen: dict) -> int | None:
     # F3: Summary.NumberOfOffers [{condition, fulfillmentChannel
     # ("Amazon"|"Merchant", enum oficial), OfferCount}]; suma el canal
-    # Amazon. Lista presente = autoritativa (aunque sume 0); ausente o no
-    # lista = respaldo en la pagina.
+    # Amazon EN CONDICION New (la ingesta pide ItemCondition=New y el
+    # minimo filtra igual: las condiciones usadas/coleccionable no
+    # cuentan). Lista presente = autoritativa (aunque sume 0); ausente o
+    # no lista = respaldo en la pagina.
     lote = resumen.get("NumberOfOffers")
     if not isinstance(lote, list):
         return None
     total = 0
     for entrada in lote:
         if not isinstance(entrada, dict):
+            continue
+        if entrada.get("condition") != "New":
             continue
         if entrada.get("fulfillmentChannel") != "Amazon":
             continue
@@ -260,6 +264,8 @@ def _minimo_resumen(resumen: dict) -> tuple[Decimal | None, str | None]:
             candidatos.append((monto, moneda))
     if not candidatos:
         return None, None
+    # Sin mezcla de monedas en el min: todos los candidatos pasaron por
+    # _dinero (solo MXN/USD) y un marketplace cotiza en una sola moneda.
     return min(candidatos, key=lambda par: par[0])
 
 
@@ -380,6 +386,8 @@ def parsear_precios(
         raise PrecioOmitido("precio_sin_moneda")
     minimo, moneda_minima = _minimo_resumen(resumen)
     if minimo is None:
+        # Misma premisa que _minimo_resumen: candidatos ya filtrados por
+        # _dinero (MXN/USD) y un marketplace cotiza en una sola moneda.
         minimo, moneda_minima = min(utilizables, key=lambda par: par[0])
     return PrecioParseado(
         asin=asin,
@@ -459,7 +467,10 @@ def _procesar_asin(
         return
     av.vistas += 1
     try:
-        # Llamadas cuenta intentos (la tasa se gasto aunque falle).
+        # Llamadas LOGICAS de la corrida (una por endpoint por ASIN, aunque
+        # fallen): los reintentos internos del cliente (401/429) consumen
+        # tasa del cubo pero no se cuentan aqui — contarlos exigiria un
+        # contador en el cliente sellado A.1 (declarado, CodeRabbit #241).
         av.llamadas += 1
         cuerpo_ofertas = _llamar(
             client,

@@ -16,7 +16,8 @@ ALTER TABLE ingest_run
     CHECK (llamadas IS NULL OR llamadas >= 0);
 
 COMMENT ON COLUMN ingest_run.llamadas IS
-    'Intentos HTTP del pase (la tasa se gasta aunque fallen). NULL en '
-    'fuentes que aun no lo reportan.';
+    'Llamadas logicas del pase (una por endpoint por entidad, aunque '
+    'fallen). Los reintentos internos del cliente (401/429) consumen tasa '
+    'pero no se cuentan aqui. NULL en fuentes que aun no lo reportan.';
 
 COMMIT;
