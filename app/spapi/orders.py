@@ -502,11 +502,14 @@ def ejecutar_ingesta(
                     skips["duplicada"] += 1
             motivo = _formato_skip_reason(Counter({k: v for k, v in skips.items() if v > 0}))
             # Revision PR #240: paginacion incompleta (token repetido,
-            # pagina vacia con token, tope de paginas) NO es exito: las
-            # filas traidas se conservan pero el run sella ok=false para
-            # que la ventana no avance en silencio sobre el hueco
-            # (--desde repara manual). El sello conserva el detalle de
-            # skips ya calculado, no lo descarta (BAJA, misma revision).
+            # pagina vacia con token, tope de paginas) NO es exito. La
+            # ventana NO se contiene: se calcula con max(last_updated_time)
+            # de la tabla y las filas parciales ya quedaron escritas, asi
+            # que la siguiente corrida SI avanza sobre el hueco. Lo que el
+            # sello ok=false garantiza es VISIBILIDAD: el hueco queda
+            # marcado en ingest_run (ok + skip_reason) para que el operador
+            # lo repare con --desde (CodeRabbit PR #240). El sello conserva
+            # el detalle de skips ya calculado, no lo descarta.
             if aviso is not None:
                 motivo_aviso = f"paginacion_incompleta:{aviso}"
                 if motivo:

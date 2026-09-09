@@ -110,7 +110,8 @@ reintentos para no quemar el 0.0056/s).
   con la clave bitemporal no toca ninguna fila existente.
 - F3: `COMMENT ON COLUMN` de `order_status` y `fulfillment_channel` en
   0031 (sección primero, alias plano de respaldo; envío vs ciclo). La
-  precedencia la fija `test_seccion_prefiere_a_clave_plana`.
+  precedencia la fija `test_estados_de_ciclo_y_envio_no_se_mezclan`
+  (reemplaza a `test_seccion_prefiere_a_clave_plana`, ver abajo).
 - F4: `migrations/0031_reversa_spapi_orders_bitemporal.sql` (patrón
   0011_reversa_*; solo antes de la primera re-observación, la guarda
   aborta si ya hay tripletas repetidas) con `test_reversa_0031`; test PII

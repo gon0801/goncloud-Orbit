@@ -272,7 +272,11 @@ def test_jamas_pide_buyer_ni_recipient():
         },
     ]
     cliente = _cliente(paginas, llamadas=llamadas)
-    orders.recorrer_ordenes(cliente, {"marketplaceIds": "X"}, max_paginas=3)
+    # CodeRabbit PR #240: los params salen de parametros_ventana (la fuente
+    # real de includedData); un dict armado a mano en el test haria las
+    # aserciones infallibles.
+    params = orders.parametros_ventana(marketplace_id="X", ultimo_observado=None, ahora=AHORA)
+    orders.recorrer_ordenes(cliente, params, max_paginas=3)
     assert len(llamadas) == 2
     for request in llamadas:
         for valor in request.url.params.values():
@@ -662,6 +666,28 @@ def test_reversa_0031():
                 " VALUES (%s, %s, %s, %s, %s)",
                 ("MX-1", "amazon_mx", "A1AM78C64UM0Y8", t_upd, obs),
             )
+        conn.commit()
+        with pytest.raises(psycopg.errors.RaiseException, match="reversa 0031"):
+            conn.execute(reversa)
+        conn.rollback()
+    with db_orders() as conn:
+        # Sin tripletas repetidas pero con fulfillment_status poblado
+        # (CodeRabbit PR #240): la guarda tambien aborta, porque el
+        # DROP COLUMN borraria ese dato irrecuperable.
+        conn.execute(
+            "INSERT INTO spapi_order_observation"
+            " (amazon_order_id, platform, marketplace_id,"
+            " last_updated_time, fulfillment_status, observed_at)"
+            " VALUES (%s, %s, %s, %s, %s, %s)",
+            (
+                "MX-2",
+                "amazon_mx",
+                "A1AM78C64UM0Y8",
+                t_upd,
+                "Shipped",
+                datetime(2026, 9, 9, 12, 0, 0, tzinfo=UTC),
+            ),
+        )
         conn.commit()
         with pytest.raises(psycopg.errors.RaiseException, match="reversa 0031"):
             conn.execute(reversa)

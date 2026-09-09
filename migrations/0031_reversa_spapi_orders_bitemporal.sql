@@ -6,20 +6,26 @@
 -- la clave de tres columnas (platform, amazon_order_id, last_updated_time)
 -- y devuelve el COMMENT ON TABLE al texto de 0030.
 --
--- Solo aplica ANTES de la primera re-observacion: despues habria filas
--- duplicadas en la tripleta (legitimas bajo la clave bitemporal) y
--- restaurar la clave de tres las dejaria huerfanas. La guarda de abajo
--- aborta en ese caso sin escribir nada.
+-- Solo aplica ANTES de la primera re-observacion y de cualquier estado de
+-- envio capturado: despues habria filas duplicadas en la tripleta
+-- (legitimas bajo la clave bitemporal) y restaurar la clave de tres las
+-- dejaria huerfanas; y una sola corrida ya puede poblar
+-- fulfillment_status, que el DROP COLUMN borraria irrecuperable
+-- (CodeRabbit PR #240). La guarda de abajo aborta en ambos casos sin
+-- escribir nada.
 --
 -- NO se aplica en el despliegue normal. No re-runnable.
 -- ---------------------------------------------------------------------------
 
 BEGIN;
 
--- Guarda: ninguna tripleta repetida (sin re-observaciones todavia).
+-- Guarda: ninguna tripleta repetida (sin re-observaciones todavia) y
+-- ningun fulfillment_status poblado (una sola corrida basta para que el
+-- DROP COLUMN pierda dato irrecuperable).
 DO $$
 DECLARE
     v_repetidas INTEGER;
+    v_con_estado INTEGER;
 BEGIN
     SELECT count(*) INTO v_repetidas FROM (
         SELECT platform, amazon_order_id, last_updated_time
@@ -31,6 +37,15 @@ BEGIN
         RAISE EXCEPTION
             'reversa 0031: hay % tripletas re-observadas; ya no aplica',
             v_repetidas;
+    END IF;
+
+    SELECT count(*) INTO v_con_estado
+      FROM spapi_order_observation
+     WHERE fulfillment_status IS NOT NULL;
+    IF v_con_estado > 0 THEN
+        RAISE EXCEPTION
+            'reversa 0031: hay % filas con fulfillment_status; ya no aplica',
+            v_con_estado;
     END IF;
 END $$;
 
