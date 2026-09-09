@@ -43,6 +43,17 @@ COMMENT ON COLUMN spapi_order_observation.fulfillment_channel IS
     'cumple, analogo AFN/MFN de v0); de respaldo, la clave plana '
     'fulfillmentChannel/FulfillmentChannel del resumen.';
 
+-- Revision PR #240: el COMMENT ON TABLE de 0030 describe la clave vieja
+-- de 3 columnas; 0030 esta sellada, asi que aqui se refresca a la
+-- bitemporal vigente.
+COMMENT ON TABLE spapi_order_observation IS
+    'SP-API 01 A.2/A.2b: resumenes searchOrders 2026-01-01 append-only por '
+    '(platform, amazon_order_id, last_updated_time, observed_at) (clave '
+    'bitemporal desde 0031; la de 3 columnas quedo en la historia). La '
+    'ventana diaria usa lastUpdatedAfter = max(last_updated_time) - 1 dia '
+    'de solape; la primera corrida usa createdAfter = ahora - 30 dias; el '
+    'backfill usa --desde. Sin PII: sin columnas de comprador ni direccion.';
+
 -- Ultima observacion por (plataforma, pedido): lo que consume Fase B.
 CREATE VIEW v_spapi_order_ultima AS
 SELECT DISTINCT ON (platform, amazon_order_id) *

@@ -202,6 +202,24 @@ def test_total_incoherente_da_nulos_sin_omitir():
         assert (orden.total_amount, orden.total_currency) == (None, None)
 
 
+def test_dinero_clave_v0_nula_cae_a_clave_2026():
+    # Revision PR #240 (BAJA): la clave v0 presente con null NO debe tapar
+    # la clave 2026 valida (dict.get(k, default) solo cae si la clave
+    # falta; con null presente devuelve None y el total se perdia).
+    orden = orders.parsear_orden(
+        _resumen(
+            orderTotal={"Amount": None, "CurrencyCode": None, "amount": 10.0, "currencyCode": "MXN"}
+        )
+    )
+    assert orden.total_amount == Decimal("10.0000")
+    assert orden.total_currency == "MXN"
+    # Cero es un monto legitimo: el respaldo solo aplica con None, no con
+    # falsy (0 or x taparia un total de 0).
+    cero = orders.parsear_orden(_resumen(orderTotal={"Amount": 0, "CurrencyCode": "MXN"}))
+    assert cero.total_amount == Decimal("0.0000")
+    assert cero.total_currency == "MXN"
+
+
 def test_items_varias_formas():
     assert orders.parsear_orden(_resumen(orderItems=3)).number_of_items == 3
     assert orders.parsear_orden(_resumen(orderItems={"count": 4})).number_of_items == 4
@@ -576,6 +594,12 @@ def test_migracion_unicidad_trigger_y_grants():
         assert not conn.execute(
             "SELECT has_table_privilege('app_ingest', 'spapi_order_observation', 'DELETE')"
         ).fetchone()[0]
+        # COMMENT ON TABLE refrescado por 0031: describe la clave bitemporal
+        # de 4 columnas, no la de 3 que quedo en la historia de 0030.
+        comentario = conn.execute(
+            "SELECT obj_description('spapi_order_observation'::regclass, 'pg_class')"
+        ).fetchone()[0]
+        assert "observed_at" in comentario
 
 
 @_skip_db
@@ -595,6 +619,13 @@ def test_reversa_0031():
                 "SELECT count(*) FROM pg_views WHERE viewname = 'v_spapi_order_ultima'"
             ).fetchone()[0]
             == 0
+        )
+        # El COMMENT ON TABLE vuelve al texto de 0030 (sin observed_at).
+        assert (
+            "observed_at"
+            not in conn.execute(
+                "SELECT obj_description('spapi_order_observation'::regclass, 'pg_class')"
+            ).fetchone()[0]
         )
         semilla = ("MX-1", "amazon_mx", "A1AM78C64UM0Y8", t_upd)
         conn.execute(
@@ -938,6 +969,52 @@ def test_paginacion_incompleta_sella_ok_false_con_lo_escrito():
         assert run[0] is False
         assert run[1] == 2
         assert run[2] == "paginacion_incompleta:next_token_repetido"
+
+
+@_skip_db
+def test_paginacion_incompleta_sella_motivo_y_skips():
+    # Revision PR #240 (BAJA): el sello ok=false NO debe descartar el
+    # detalle de skips ya calculado; skip_reason lleva el motivo de
+    # paginacion Y los skips, separados por "; ".
+    llamadas: list = []
+    paginas = [
+        {
+            "cuerpo": {
+                "payload": {
+                    "orders": [_resumen("MX-50"), {"orderId": "MX-sin-tiempo"}],
+                    "pagination": {"nextToken": "Q"},
+                }
+            }
+        },
+        {
+            "token_entrada": "Q",
+            "cuerpo": {
+                "payload": {
+                    "orders": [_resumen("MX-51")],
+                    "pagination": {"nextToken": "Q"},
+                }
+            },
+        },
+    ]
+    cliente = SpapiClient(
+        credentials=CRED,
+        transport=httpx.MockTransport(_handler_fixture(paginas, llamadas)),
+        sleep=lambda _s: None,
+        clock=lambda: 1000.0,
+    )
+    with db_orders() as conn:
+        resultado = orders.ejecutar_ingesta(
+            conn, cliente, platform="amazon_mx", ahora=AHORA, max_paginas=5
+        )
+        assert resultado.ok is False
+        assert resultado.escritas == 2
+        run = conn.execute(
+            "SELECT ok, rows_skipped, skip_reason FROM ingest_run WHERE id = %s",
+            (resultado.run_id,),
+        ).fetchone()
+        assert run[0] is False
+        assert run[1] == 1
+        assert run[2] == "paginacion_incompleta:next_token_repetido; 1x sin_identidad"
 
 
 @_skip_db

@@ -45,3 +45,9 @@ puede romper la ingesta.
 - `breakdowns`, `programs`, ventanas de entrega: se ignoran (fuera de A.2b).
 - Ausente = NULL, como hoy; `sanear` sigue filtrando comprador/dirección
   aunque Amazon los mandara.
+
+> Nota (revisión PR #240): el mapeo `fulfillment.fulfillmentStatus` →
+> `order_status` quedó corregido: el estado de envío vive en su propia
+> columna `fulfillment_status` (dominio de envío) y `order_status` guarda
+> SOLO el ciclo del pedido (`orderStatus` plano). Detalle en
+> `docs/evidencia/sp-api-01/A.2/reporte.md`, sección "Revisión del lead PR #240".

@@ -194,11 +194,19 @@ def _parsear_dinero(obj: Any) -> tuple[Decimal | None, str | None]:
     # la identidad es orden + tiempo, no el total (regla 3).
     if not isinstance(obj, dict):
         return None, None
-    moneda = obj.get("CurrencyCode", obj.get("currencyCode"))
+    # Respaldo por None, no por falsy (revision PR #240): una clave v0
+    # presente con null no tapa la clave 2026, y un Amount de 0 no cae al
+    # respaldo (0 es un monto legitimo).
+    moneda = obj.get("CurrencyCode")
+    if moneda is None:
+        moneda = obj.get("currencyCode")
     if not isinstance(moneda, str) or moneda.strip() not in MONEDAS:
         return None, None
+    bruto = obj.get("Amount")
+    if bruto is None:
+        bruto = obj.get("amount")
     try:
-        monto = Decimal(str(obj.get("Amount", obj.get("amount"))))
+        monto = Decimal(str(bruto))
     except (InvalidOperation, ValueError, TypeError):
         return None, None
     if not monto.is_finite() or abs(monto) >= _MAX_DINERO:
@@ -497,15 +505,19 @@ def ejecutar_ingesta(
             # pagina vacia con token, tope de paginas) NO es exito: las
             # filas traidas se conservan pero el run sella ok=false para
             # que la ventana no avance en silencio sobre el hueco
-            # (--desde repara manual).
+            # (--desde repara manual). El sello conserva el detalle de
+            # skips ya calculado, no lo descarta (BAJA, misma revision).
             if aviso is not None:
+                motivo_aviso = f"paginacion_incompleta:{aviso}"
+                if motivo:
+                    motivo_aviso = f"{motivo_aviso}; {motivo}"
                 _sellar(
                     conn,
                     run_id,
                     ok=False,
                     escritas=escritas,
                     skips=skips,
-                    motivo=f"paginacion_incompleta:{aviso}",
+                    motivo=motivo_aviso,
                 )
             else:
                 _sellar(conn, run_id, ok=True, escritas=escritas, skips=skips, motivo=motivo)

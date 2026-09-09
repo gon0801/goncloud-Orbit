@@ -2,8 +2,9 @@
 -- REVERSA DE LA MIGRACION 0031 (patron 0011_reversa_*).
 --
 -- Deshace `0031_spapi_orders_bitemporal.sql`: borra la vista
--- `v_spapi_order_ultima`, quita la columna `fulfillment_status` y restaura
--- la clave de tres columnas (platform, amazon_order_id, last_updated_time).
+-- `v_spapi_order_ultima`, quita la columna `fulfillment_status`, restaura
+-- la clave de tres columnas (platform, amazon_order_id, last_updated_time)
+-- y devuelve el COMMENT ON TABLE al texto de 0030.
 --
 -- Solo aplica ANTES de la primera re-observacion: despues habria filas
 -- duplicadas en la tripleta (legitimas bajo la clave bitemporal) y
@@ -43,6 +44,15 @@ ALTER TABLE spapi_order_observation
 ALTER TABLE spapi_order_observation
     ADD CONSTRAINT spapi_order_clave_unica
     UNIQUE (platform, amazon_order_id, last_updated_time);
+
+-- 0031 refresco el COMMENT ON TABLE a la clave bitemporal; aqui vuelve
+-- al texto original de 0030.
+COMMENT ON TABLE spapi_order_observation IS
+    'SP-API 01 A.2: resumenes searchOrders 2026-01-01 append-only por '
+    '(platform, amazon_order_id, last_updated_time). La ventana diaria usa '
+    'lastUpdatedAfter = max(last_updated_time) - 1 dia de solape; la '
+    'primera corrida usa createdAfter = ahora - 30 dias. Sin PII: sin '
+    'columnas de comprador ni direccion.';
 
 -- Verificacion: volvimos al estado previo a 0031.
 DO $$
