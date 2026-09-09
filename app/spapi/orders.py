@@ -289,8 +289,14 @@ def parametros_ventana(
     ultimo_observado: datetime.datetime | None,
     ahora: datetime.datetime,
     dias_inicial: int = DIAS_INICIAL_DEFAULT,
+    desde: datetime.date | None = None,
 ) -> dict:
-    """Params del searchOrders: solape de 1 dia o ventana inicial de 30."""
+    """Params del searchOrders: solape de 1 dia o ventana inicial de 30.
+
+    `desde` (backfill A.2b, --desde YYYY-MM-DD) fuerza `lastUpdatedAfter`
+    a esa fecha ignorando el maximo observado: completa observaciones de
+    pedidos viejos sin tocar filas (la clave bitemporal inserta, no pisa).
+    """
     if ahora.tzinfo is None:
         ahora = ahora.replace(tzinfo=datetime.UTC)
     base = {
@@ -299,7 +305,11 @@ def parametros_ventana(
         # Secciones con estado y total (A.2b); jamas BUYER ni RECIPIENT.
         "includedData": "FULFILLMENT,PROCEEDS",
     }
-    if ultimo_observado is None:
+    if desde is not None:
+        base["lastUpdatedAfter"] = _zulu(
+            datetime.datetime(desde.year, desde.month, desde.day, tzinfo=datetime.UTC)
+        )
+    elif ultimo_observado is None:
         if dias_inicial < 1:
             raise IngestaOrdersError("--dias-inicial debe ser >= 1")
         base["createdAfter"] = _zulu(ahora - datetime.timedelta(days=dias_inicial))
@@ -419,6 +429,7 @@ def ejecutar_ingesta(
     ahora: datetime.datetime | None = None,
     max_paginas: int = MAX_PAGINAS_DEFAULT,
     dias_inicial: int = DIAS_INICIAL_DEFAULT,
+    desde: datetime.date | None = None,
 ) -> ResultadoIngesta:
     """Corre la ingesta diaria y sella su ingest_run (patron listings.sync).
 
@@ -449,6 +460,7 @@ def ejecutar_ingesta(
                 ultimo_observado=ultimo,
                 ahora=momento,
                 dias_inicial=dias_inicial,
+                desde=desde,
             )
         crudas, info = recorrer_ordenes(client, params, max_paginas=max_paginas)
         paginas = info["paginas"]
@@ -545,6 +557,12 @@ def main(argv: list[str] | None = None) -> int:
         default=DIAS_INICIAL_DEFAULT,
         help="ventana createdAfter de la primera corrida",
     )
+    parser.add_argument(
+        "--desde",
+        type=datetime.date.fromisoformat,
+        default=None,
+        help="backfill A.2b (YYYY-MM-DD): fuerza lastUpdatedAfter a esa fecha",
+    )
     args = parser.parse_args(argv)
     dsn = os.environ.get("ORBIT_DSN_INGEST")
     if not dsn:
@@ -564,6 +582,7 @@ def main(argv: list[str] | None = None) -> int:
                 platform=args.platform,
                 max_paginas=args.max_paginas,
                 dias_inicial=args.dias_inicial,
+                desde=args.desde,
             )
         finally:
             conn.close()

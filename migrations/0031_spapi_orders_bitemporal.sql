@@ -23,6 +23,17 @@ COMMENT ON CONSTRAINT spapi_order_clave_unica ON spapi_order_observation IS
     'SP-API 01 A.2b: re-observacion diaria por pedido (append-only, patron '
     '0026/0027); el estado actual es la fila mas reciente, no la primera.';
 
+COMMENT ON COLUMN spapi_order_observation.order_status IS
+    'A.2b: la seccion FULFILLMENT manda (fulfillment.fulfillmentStatus, '
+    'dominio de ENVIO); de respaldo, la clave plana orderStatus/OrderStatus '
+    'del resumen (dominio del CICLO del pedido, v0). Vocabularios distintos '
+    'segun la fuente que trajo la fila.';
+
+COMMENT ON COLUMN spapi_order_observation.fulfillment_channel IS
+    'A.2b: la seccion FULFILLMENT manda (fulfillment.fulfilledBy, quien '
+    'cumple, analogo AFN/MFN de v0); de respaldo, la clave plana '
+    'fulfillmentChannel/FulfillmentChannel del resumen.';
+
 -- Ultima observacion por (plataforma, pedido): lo que consume Fase B.
 CREATE VIEW v_spapi_order_ultima AS
 SELECT DISTINCT ON (platform, amazon_order_id) *

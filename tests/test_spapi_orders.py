@@ -8,6 +8,7 @@ punta a punta idempotente en Postgres de test (skipea sin ORBIT_TEST_DSN).
 
 from __future__ import annotations
 
+import json
 import os
 import socket
 from contextlib import contextmanager
@@ -135,9 +136,13 @@ def test_recipient_y_buyer_se_ignoran_aunque_vengan():
         ShippingAddress={"AddressLine1": "Calle 123"},
     )
     limpio = sanear(crudo, "orders")
+    # Se afirma sobre el objeto saneado (valores fuera), no sobre campos
+    # que pasan con o sin filtro.
+    texto_limpio = json.dumps(limpio, sort_keys=True)
+    assert "Nadie Debeverse" not in texto_limpio
+    assert "nadie@example.com" not in texto_limpio
+    assert "Calle 123" not in texto_limpio
     assert "recipient" not in limpio
-    assert not any(k.lower().startswith("buyer") for k in limpio)
-    assert "ShippingAddress" not in limpio
     orden = orders.parsear_orden(crudo)
     assert orden.amazon_order_id == "MX-1"
 
@@ -198,6 +203,17 @@ def test_items_varias_formas():
     assert orders.parsear_orden(_resumen()).number_of_items is None
 
 
+def test_ventana_desde_ignora_maximo():
+    params = orders.parametros_ventana(
+        marketplace_id="A1AM78C64UM0Y8",
+        ultimo_observado=datetime(2026, 9, 8, 11, 0, 0, tzinfo=UTC),
+        ahora=AHORA,
+        desde=datetime(2026, 8, 10).date(),
+    )
+    assert params["lastUpdatedAfter"] == "2026-08-10T00:00:00Z"
+    assert "createdAfter" not in params
+
+
 def test_ventana_primera_y_segunda_corrida():
     mid = "A1AM78C64UM0Y8"
     primera = orders.parametros_ventana(marketplace_id=mid, ultimo_observado=None, ahora=AHORA)
@@ -210,6 +226,34 @@ def test_ventana_primera_y_segunda_corrida():
     )
     assert segunda["lastUpdatedAfter"] == "2026-09-07T11:00:00Z"
     assert "createdAfter" not in segunda
+
+
+def test_pide_secciones_en_cada_peticion():
+    llamadas: list = []
+    cliente = _cliente([{"cuerpo": {"payload": {"orders": []}}}], llamadas=llamadas)
+    params = orders.parametros_ventana(marketplace_id="X", ultimo_observado=None, ahora=AHORA)
+    orders.recorrer_ordenes(cliente, params, max_paginas=2)
+    assert llamadas, "sin HTTP no hay nada que afirmar"
+    for request in llamadas:
+        assert request.url.params["includedData"] == "FULFILLMENT,PROCEEDS"
+
+
+def test_jamas_pide_buyer_ni_recipient():
+    llamadas: list = []
+    paginas = [
+        _pagina([_resumen("A-1")], token="T9"),
+        {
+            "token_entrada": "T9",
+            "cuerpo": {"payload": {"orders": [_resumen("A-2")]}},
+        },
+    ]
+    cliente = _cliente(paginas, llamadas=llamadas)
+    orders.recorrer_ordenes(cliente, {"marketplaceIds": "X"}, max_paginas=3)
+    assert len(llamadas) == 2
+    for request in llamadas:
+        for valor in request.url.params.values():
+            assert "BUYER" not in valor
+            assert "RECIPIENT" not in valor
 
 
 def _cliente(paginas, *, llamadas=None):
@@ -506,6 +550,65 @@ def test_migracion_unicidad_trigger_y_grants():
 
 
 @_skip_db
+def test_reversa_0031():
+    import psycopg
+
+    reversa = (ROOT / "migrations" / "0031_reversa_spapi_orders_bitemporal.sql").read_text(
+        encoding="utf-8"
+    )
+    t_upd = datetime(2026, 9, 8, 11, 0, 0, tzinfo=UTC)
+    with db_orders() as conn:
+        # Sin re-observaciones: aplica limpio, vista muerta, tripleta de vuelta
+        # (cualquier observed repetido truena).
+        conn.execute(reversa)
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM pg_views WHERE viewname = 'v_spapi_order_ultima'"
+            ).fetchone()[0]
+            == 0
+        )
+        semilla = ("MX-1", "amazon_mx", "A1AM78C64UM0Y8", t_upd)
+        conn.execute(
+            "INSERT INTO spapi_order_observation"
+            " (amazon_order_id, platform, marketplace_id,"
+            " last_updated_time, observed_at)"
+            " VALUES (%s, %s, %s, %s, %s)",
+            semilla + (datetime(2026, 9, 9, 12, 0, 0, tzinfo=UTC),),
+        )
+        conn.commit()
+        for obs in (
+            datetime(2026, 9, 9, 12, 0, 0, tzinfo=UTC),
+            datetime(2026, 9, 9, 13, 0, 0, tzinfo=UTC),
+        ):
+            with pytest.raises(psycopg.errors.UniqueViolation):
+                conn.execute(
+                    "INSERT INTO spapi_order_observation"
+                    " (amazon_order_id, platform, marketplace_id,"
+                    " last_updated_time, observed_at)"
+                    " VALUES (%s, %s, %s, %s, %s)",
+                    semilla + (obs,),
+                )
+            conn.rollback()
+    with db_orders() as conn:
+        # Con re-observaciones: la guarda aborta sin escribir nada.
+        for obs in (
+            datetime(2026, 9, 9, 12, 0, 0, tzinfo=UTC),
+            datetime(2026, 9, 9, 13, 0, 0, tzinfo=UTC),
+        ):
+            conn.execute(
+                "INSERT INTO spapi_order_observation"
+                " (amazon_order_id, platform, marketplace_id,"
+                " last_updated_time, observed_at)"
+                " VALUES (%s, %s, %s, %s, %s)",
+                ("MX-1", "amazon_mx", "A1AM78C64UM0Y8", t_upd, obs),
+            )
+        conn.commit()
+        with pytest.raises(psycopg.errors.RaiseException, match="reversa 0031"):
+            conn.execute(reversa)
+        conn.rollback()
+
+
+@_skip_db
 def test_reobservacion_bitemporal_y_vista():
     import psycopg
 
@@ -716,6 +819,47 @@ def test_dos_corridas_reobservan_y_vista_muestra_ultima():
             " FROM v_spapi_order_ultima WHERE amazon_order_id = 'MX-30'"
         ).fetchone()
         assert vista == ("Shipped", "AFN", Decimal("250.0000"), "MXN")
+
+
+@_skip_db
+def test_desde_fuerza_backfill_sobre_maximo():
+    llamadas: list = []
+    cliente = SpapiClient(
+        credentials=CRED,
+        transport=httpx.MockTransport(
+            _handler_fixture([{"cuerpo": {"payload": {"orders": []}}}], llamadas)
+        ),
+        sleep=lambda _s: None,
+        clock=lambda: 1000.0,
+    )
+    with db_orders() as conn:
+        conn.execute(
+            "INSERT INTO spapi_order_observation"
+            " (amazon_order_id, platform, marketplace_id,"
+            " last_updated_time, observed_at)"
+            " VALUES (%s, %s, %s, %s, %s)",
+            (
+                "MX-VIEJA",
+                "amazon_mx",
+                "A1AM78C64UM0Y8",
+                datetime(2026, 9, 8, 11, 0, 0, tzinfo=UTC),
+                AHORA,
+            ),
+        )
+        conn.commit()
+        orders.ejecutar_ingesta(
+            conn,
+            cliente,
+            platform="amazon_mx",
+            ahora=AHORA,
+            desde=datetime(2026, 8, 10).date(),
+        )
+        assert llamadas[0].url.params["lastUpdatedAfter"] == "2026-08-10T00:00:00Z"
+
+
+def test_desde_invalido_es_error_de_uso():
+    with pytest.raises(SystemExit):
+        orders.main(["--platform", "amazon_mx", "--desde", "no-es-fecha"])
 
 
 @_skip_db
