@@ -41,7 +41,7 @@ Flujo de verificacion:
 - Agrupa los hallazgos de revision y corrigelos en una sola ronda por bloque.
 - Ejecuta Ruff y las pruebas focalizadas despues del ultimo cambio del bloque.
 - Ejecuta la bateria completa una sola vez por bloque, sobre el commit final y preferentemente en CI mediante PR.
-- Si CI ya valido tests, Ruff y pre-commit sobre ese SHA, no los repitas localmente.
+- Si commit, push o CI ya validaron tests, Ruff o pre-commit sobre ese SHA, no los repitas manualmente.
 - No vuelvas a ejecutar CI si el commit verificado no cambio.
 - Una observacion tardia menor queda pendiente; solo seguridad, datos, reglas innegociables o el comportamiento solicitado reabren el ciclo.
 - Despues del deploy, ejecuta una sola vez el checklist del repo y no repitas evidencia valida sin un cambio que pueda invalidarla.
