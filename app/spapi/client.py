@@ -107,6 +107,18 @@ class SpapiAuthError(SpapiError):
     """Fallo autenticando/refrescando el token LWA."""
 
 
+class SpapiRechazoLWA(SpapiAuthError):
+    """LWA rechazo el refresh (4xx): distinto de token ausente o red.
+
+    Existe para que los llamadores clasifiquen sin leer el texto del
+    mensaje (hallazgo cross-review: el `in` sobre el mensaje acopla).
+    """
+
+    def __init__(self, status: int) -> None:
+        self.status = status
+        super().__init__(f"refresh LWA rechazado: status={status}")
+
+
 # Alias de compatibilidad: la sonda nacio con estos nombres y sus tests los
 # usan; el canonico es Spapi*. Una sola copia vive aqui.
 SondaError = SpapiError
@@ -176,9 +188,9 @@ def validar_get(path: str) -> str:
         raise SpapiNoPermitida("path invalido: query o fragment embebidos no permitidos")
     if "%2f" in path.lower():
         raise SpapiNoPermitida("path invalido: encoding de barra no permitido")
-    solo = path.split("?", 1)[0]
-    if ".." in solo.split("/"):
+    if ".." in path.split("/"):
         raise SpapiNoPermitida("path invalido: traversal ('..') no permitido")
+    solo = path
     if solo in RUTAS_FIJAS:
         return solo
     if solo.startswith(_PREFIJO_LISTINGS):
@@ -374,7 +386,7 @@ class SpapiClient:
                     },
                 )
             if resp.status_code >= 400:
-                raise SpapiAuthError(f"refresh LWA rechazado: status={resp.status_code}")
+                raise SpapiRechazoLWA(resp.status_code)
             try:
                 datos = resp.json()
                 token = datos["access_token"]
@@ -450,3 +462,36 @@ class SpapiClient:
                     self._sleep(_espera_retry(resp))
                     continue
                 return resp
+
+
+_COMPARTIDOS: dict[tuple[tuple[str, str], ...], SpapiClient] = {}
+_COMPARTIDOS_LOCK = threading.Lock()
+
+
+def cliente_compartido(
+    *,
+    credentials: dict[str, str] | None = None,
+    secrets_dir: str | Path | None = None,
+    timeout: float = 30.0,
+) -> SpapiClient:
+    """Instancia compartida por proceso y credenciales (D5 en produccion).
+
+    Los consumidores que usan red y reloj reales (sin transporte mock ni
+    reloj inyectado) obtienen la MISMA instancia: un solo POST a LWA por
+    proceso aunque fees y fotos convivan en el. Los tests pasan transporte
+    o reloj propios y siempre reciben instancia privada (sin fuga de
+    estado entre tests).
+    """
+    if credentials is None:
+        credentials = SpapiClient(secrets_dir=secrets_dir, timeout=timeout)._cred
+    clave = tuple(sorted(credentials.items()))
+    with _COMPARTIDOS_LOCK:
+        cliente = _COMPARTIDOS.get(clave)
+        if cliente is None:
+            cliente = SpapiClient(
+                credentials=dict(credentials),
+                transport=None,
+                timeout=timeout,
+            )
+            _COMPARTIDOS[clave] = cliente
+        return cliente

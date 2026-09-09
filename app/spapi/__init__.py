@@ -6,6 +6,6 @@ que sabe pedir `access_token` a `api.amazon.com/auth/o2/token` para SP-API.
 sonda `tools/sonda_spapi.py` importa de aqui (una sola copia).
 """
 
-from app.spapi.client import SpapiClient
+from app.spapi.client import SpapiClient, cliente_compartido
 
-__all__ = ["SpapiClient"]
+__all__ = ["SpapiClient", "cliente_compartido"]

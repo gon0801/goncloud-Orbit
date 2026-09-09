@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from app.spapi.client import SpapiClient
+from app.spapi.client import SpapiClient, SpapiError, cliente_compartido
 
 MERCADOS = {"amazon_mx": "A1AM78C64UM0Y8", "amazon_us": "ATVPDKIKX0DER"}
 MAX_BYTES = 256 * 1024
@@ -68,31 +68,35 @@ class FotosPublicacion:
         self._lock = threading.Lock()
         self._cache = OrderedDict()
         self._proxima_consulta = 0.0
-        self._spapi_inyectado = spapi_client
         self._spapi: SpapiClient | None = spapi_client
 
     def _spapi_cliente(self) -> SpapiClient:
-        # Creacion perezosa: los tests fijan ORBIT_SECRETS_DIR antes de usar,
-        # y el transporte mock debe ser el mismo de las descargas. El reloj se
-        # resuelve tarde (`time.monotonic` por atributo) para que el monkeypatch
-        # de tiempo de los tests expire el token igual que antes.
+        # Creacion perezosa: los tests fijan ORBIT_SECRETS_DIR antes de usar.
+        # Sin transporte (produccion) se usa la instancia compartida por
+        # proceso; con transporte mock, instancia privada. El reloj se
+        # resuelve tarde (`time.monotonic` por atributo) para que el
+        # monkeypatch de tiempo de los tests expire el token igual que antes.
         if self._spapi is None:
-            self._spapi = SpapiClient(
-                transport=self._transport,
-                clock=lambda: time.monotonic(),
-                sleep=lambda s: time.sleep(s),
-            )
+            if self._transport is None:
+                self._spapi = cliente_compartido(timeout=30.0)
+            else:
+                self._spapi = SpapiClient(
+                    transport=self._transport,
+                    clock=lambda: time.monotonic(),
+                    sleep=lambda s: time.sleep(s),
+                )
         return self._spapi
 
     def _acceso(self, client: httpx.Client | None = None) -> str:
         # `client` se conserva por compatibilidad (antes hacia el POST LWA);
-        # el token ahora sale del refrescador unico. Los fallos de auth se
-        # traducen a ValueError como antes (obtener los mapea a no disponible).
+        # el token ahora sale del refrescador unico. Solo fallos de auth/red
+        # se traducen a ValueError (obtener los mapea a no disponible); un
+        # bug inesperado propaga para no enmascarar el diagnostico.
         try:
             return self._spapi_cliente()._acceso()
         except ValueError:
             raise
-        except Exception as exc:
+        except (SpapiError, httpx.HTTPError, OSError) as exc:
             raise ValueError("token ausente") from exc
 
     def _descargar(self, client: httpx.Client, url: str) -> tuple[bytes, str]:

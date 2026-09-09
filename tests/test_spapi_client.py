@@ -219,15 +219,17 @@ def test_scrub_en_errores_y_rate_limit_y_paginacion():
     assert sanear({"BuyerEmail": "b@x.mx", "Asin": "B1"}, "orders") == {"Asin": "B1"}
 
 
-def test_sonda_reutiliza_cliente_unico():
-    import sys
+def test_sonda_reutiliza_cliente_unico(monkeypatch):
     from pathlib import Path as _P
 
-    sys.path.insert(0, str(_P(__file__).resolve().parent.parent / "tools"))
+    import app.spapi.client as canon
+
+    monkeypatch.syspath_prepend(str(_P(__file__).resolve().parent.parent / "tools"))
     import sonda_spapi as sonda
 
     assert issubclass(sonda.SondaClient, SpapiClient)
-    assert sonda.SondaError is SpapiClient.__mro__[1] or issubclass(sonda.SondaError, Exception)
+    assert sonda.SondaError is canon.SpapiError
+    assert sonda.SondaNoPermitida is canon.SpapiNoPermitida
     assert sonda.MERCADOS == MERCADOS
     assert sonda.siguiente_token({"pagination": {"nextToken": "T"}}) == "T"
 
@@ -382,3 +384,57 @@ def test_un_solo_refresh_con_dos_modulos_en_mismo_proceso(tmp_path, monkeypatch)
     assert compartido.refreshes == 1
     assert "tk-compartido" not in json.dumps({"x": 1})
     _ = Path(tmp_path)
+
+
+def test_rechazo_lwa_es_error_tipado_con_status():
+    import pytest as _pt
+
+    from app.spapi.client import SpapiAuthError, SpapiRechazoLWA
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, json={})
+
+    cliente = SpapiClient(
+        credentials=CRED,
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _s: None,
+        clock=_reloj(),
+    )
+    with _pt.raises(SpapiRechazoLWA) as exc:
+        cliente._acceso()
+    assert exc.value.status == 403
+    assert isinstance(exc.value, SpapiAuthError)
+
+
+def test_cliente_compartido_una_instancia_por_credenciales():
+    import app.spapi.client as canon
+
+    canon._COMPARTIDOS.clear()
+    try:
+        a = canon.cliente_compartido(credentials=dict(CRED))
+        b = canon.cliente_compartido(credentials=dict(CRED))
+        assert a is b
+        otras = dict(CRED, lwa_app_id="otro-id")
+        assert canon.cliente_compartido(credentials=otras) is not a
+    finally:
+        canon._COMPARTIDOS.clear()
+
+
+def test_fees_usa_compartido_con_defaults_produccion():
+    import app.spapi.client as canon
+    from app.estimacion_fees import ProductFeesClient
+
+    canon._COMPARTIDOS.clear()
+    try:
+        uno = ProductFeesClient(credentials=dict(CRED))
+        dos = ProductFeesClient(credentials=dict(CRED))
+        assert uno._spapi is dos._spapi
+        mock = ProductFeesClient(
+            credentials=dict(CRED),
+            transport=httpx.MockTransport(_token_ok),
+            sleep=lambda _s: None,
+            clock=_reloj(),
+        )
+        assert mock._spapi is not uno._spapi
+    finally:
+        canon._COMPARTIDOS.clear()

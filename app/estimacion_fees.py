@@ -32,7 +32,7 @@ from psycopg.types.json import Json
 
 from app.estimacion_insumos import OfertaResuelta
 from app.redaction import install_scrub_filter, register_secret, scrub
-from app.spapi.client import SpapiAuthError, SpapiClient
+from app.spapi.client import SpapiAuthError, SpapiClient, SpapiRechazoLWA, cliente_compartido
 
 logger = logging.getLogger(__name__)
 install_scrub_filter(logger)
@@ -473,13 +473,20 @@ class ProductFeesClient:
         self._timeout = timeout
         self._fees_limiter = _RateLimiter(clock=clock, sleep=sleep)
         self._credentials = credentials or self._cargar_credenciales(secrets_dir)
-        self._spapi = spapi_client or SpapiClient(
-            credentials=dict(self._credentials),
-            transport=transport,
-            sleep=sleep,
-            clock=clock,
-            timeout=timeout,
-        )
+        if spapi_client is not None:
+            self._spapi = spapi_client
+        elif transport is None and sleep is time.sleep and clock is time.monotonic:
+            # Produccion (red y reloj reales): instancia compartida por
+            # proceso, un solo POST a LWA aunque conviva con fotos.
+            self._spapi = cliente_compartido(credentials=dict(self._credentials), timeout=timeout)
+        else:
+            self._spapi = SpapiClient(
+                credentials=dict(self._credentials),
+                transport=transport,
+                sleep=sleep,
+                clock=clock,
+                timeout=timeout,
+            )
 
     def _cargar_credenciales(self, secrets_dir: Path | str | None) -> dict[str, str]:
         base = Path(
@@ -569,16 +576,14 @@ class ProductFeesClient:
             return client.request(method, url, headers=headers, json=json_body, data=data)
 
     def _acceso(self) -> str:
-        # Refrescador unico de app.spapi (D5): mismo token por proceso cuando
-        # se comparte la instancia; HTTP y retries de fees intactos. Los
-        # fallos LWA se traducen a los mismos codigos de antes (rechazo ->
-        # fee_http_error como el HTTPStatusError previo; token ausente ->
-        # fee_error via "token LWA ausente"); la red propaga httpx igual.
+        # Refrescador unico de app.spapi (D5); HTTP y retries de fees
+        # intactos. Rechazo LWA -> fee_http_error (como el HTTPStatusError
+        # previo); token ausente -> fee_error; la red propaga httpx igual.
         try:
             return self._spapi._acceso()
-        except SpapiAuthError as exc:
-            if "rechazado" in str(exc):
-                raise FeesClientError("fee_http_error") from None
+        except SpapiRechazoLWA:
+            raise FeesClientError("fee_http_error") from None
+        except SpapiAuthError:
             raise FeesClientError("token LWA ausente") from None
 
     def _retry_after_seconds(self, response: httpx.Response) -> float:
