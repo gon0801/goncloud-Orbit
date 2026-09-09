@@ -59,6 +59,19 @@ COMMENT ON COLUMN spapi_price_observation.buy_box_is_own IS
     'NULL cuando no hay ganador de Buy Box o el seller propio es '
     'desconocido para el marketplace.';
 
+-- F3: los conteos son totales, no de pagina. Fuente en orden:
+-- Summary (TotalOfferCount; NumberOfOffers canal Amazon; LowestPrices
+-- condicion New) y, solo si el Summary falta o no trae el dato, la pagina
+-- de ofertas como respaldo declarado. Fase B puede leerlos como totales.
+COMMENT ON COLUMN spapi_price_observation.offers_count IS
+    'Total de ofertas: Summary.TotalOfferCount; respaldo: tamano de la pagina.';
+COMMENT ON COLUMN spapi_price_observation.fba_offers_count IS
+    'Ofertas con fulfillment Amazon: suma de OfferCount en '
+    'Summary.NumberOfOffers con fulfillmentChannel=Amazon; respaldo: pagina.';
+COMMENT ON COLUMN spapi_price_observation.lowest_price IS
+    'Precio minimo New: Summary.LowestPrices (ListingPrice); respaldo: '
+    'minimo de la pagina.';
+
 CREATE INDEX spapi_price_por_plataforma
     ON spapi_price_observation (platform, metric_date);
 

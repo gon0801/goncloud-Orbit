@@ -11,6 +11,21 @@ un solo merchant en todos los marketplaces (sonda 2026-09-09 + acta 0.5).
 0 ofertas = fila con `offers_count=0` y precios NULL (ausencia, no error,
 E/0.2). Precio sin moneda utilizable y con ofertas = fila no escrita.
 
+Transacciones (F1): una por ASIN (solo el INSERT) mas abrir/sellar el run
+en las suyas; las llamadas HTTP corren sin transaccion abierta. Un fallo
+fatal conserva las filas ya escritas y sella `ok=false` con su conteo.
+
+Fallos acotados (F2): 403/404 en un ASIN = omitido (`skip_reason`
+`http_403`/`http_404`) y el pase sigue; 401 persistente y 429 agotado =
+fatales; cualquier otro fallo (5xx, contrato) cuenta y aborta al superar
+el 20 % de los ASIN vistos o 25 seguidos.
+
+Conteos (F3): `offers_count` sale de `Summary.TotalOfferCount`,
+`fba_offers_count` de `Summary.NumberOfOffers` (canal `Amazon`,
+modelo oficial productPricingV0.json) y `lowest_price` de
+`Summary.LowestPrices` (condicion `New`); la pagina es respaldo declarado
+cuando el `Summary` falta o no trae el dato.
+
 Un numero, una fuente (D2): el bridge sigue mandando en precio/stock de
 `listing`; esto son observaciones propias. Ninguna escritura a Amazon.
 """
@@ -65,6 +80,16 @@ MONEDAS = frozenset({"MXN", "USD"})
 _MAX_DINERO = Decimal(10) ** 10
 _MAX_DECIMALES = Decimal("0.0001")
 
+# F2: un ASIN malo no mata el pase, pero un muro si. 401 persistente y 429
+# agotado (el cliente ya reintento una vez) son fatales de inmediato; 5xx,
+# red y contrato cuentan y abortan al superar el 20 % de los ASIN vistos
+# (falla rapido contra un muro total) o 25 seguidos (muro tardio diluido
+# entre exitos). 403/404 son ausencia esperada: omiten sin contar.
+UMBRAL_FALLOS_PORC = 0.20
+UMBRAL_FALLOS_RACHA = 25
+_HTTP_OMITIDO = frozenset({403, 404})
+_HTTP_FATAL = frozenset({401, 429})
+
 _SQL_ABRIR_RUN = "INSERT INTO ingest_run (source) VALUES (%s) RETURNING id"
 _SQL_SELLAR_RUN = """
 UPDATE ingest_run
@@ -98,6 +123,15 @@ class PrecioOmitido(Exception):
 
 class IngestaPricingError(Exception):
     """La corrida no pudo completarse (el sello ok=false queda cuando se puede)."""
+
+
+class _FalloHttp(Exception):
+    """Una llamada volvio status != 200; el pase decide por codigo (F2)."""
+
+    def __init__(self, asin: str, status: int) -> None:
+        super().__init__(f"pricing {asin} status={status}")
+        self.asin = asin
+        self.status = status
 
 
 @dataclass(frozen=True)
@@ -150,12 +184,81 @@ def _dinero(obj: Any) -> tuple[Decimal | None, str | None]:
 
 def _ofertas_de(carga: Any) -> list[dict]:
     cont = carga.get("payload", carga) if isinstance(carga, dict) else None
-    if not isinstance(cont, dict) or "Offers" not in cont:
+    if not isinstance(cont, dict):
+        raise IngestaPricingError("contrato inesperado: sin lista Offers")
+    if "Offers" not in cont:
+        # F4: el modelo oficial no marca Offers como requerida y la sonda
+        # 0.2 vio US con 0 ofertas; status Success sin la clave = cero
+        # ofertas (fila con offers_count=0), no error. Solo el envoltorio
+        # irreconocible (sin status Success) sigue fatal.
+        if str(cont.get("status", "")).lower() == "success":
+            return []
         raise IngestaPricingError("contrato inesperado: sin lista Offers")
     lote = cont["Offers"]
     if not isinstance(lote, list):
         raise IngestaPricingError("contrato inesperado: sin lista Offers")
     return [o for o in lote if isinstance(o, dict)]
+
+
+def _resumen_de(cuerpo_ofertas: Any) -> dict:
+    cont = (
+        cuerpo_ofertas.get("payload", cuerpo_ofertas) if isinstance(cuerpo_ofertas, dict) else None
+    )
+    if not isinstance(cont, dict):
+        return {}
+    resumen = cont.get("Summary")
+    return resumen if isinstance(resumen, dict) else {}
+
+
+def _entero_no_negativo(valor: Any) -> int | None:
+    if isinstance(valor, bool) or not isinstance(valor, int) or valor < 0:
+        return None
+    return valor
+
+
+def _conteo_total_resumen(resumen: dict) -> int | None:
+    # F3: Summary.TotalOfferCount (requerido en el modelo oficial) cubre
+    # todas las ofertas; la pagina trae un subconjunto.
+    return _entero_no_negativo(resumen.get("TotalOfferCount"))
+
+
+def _conteo_fba_resumen(resumen: dict) -> int | None:
+    # F3: Summary.NumberOfOffers [{condition, fulfillmentChannel
+    # ("Amazon"|"Merchant", enum oficial), OfferCount}]; suma el canal
+    # Amazon. Lista presente = autoritativa (aunque sume 0); ausente o no
+    # lista = respaldo en la pagina.
+    lote = resumen.get("NumberOfOffers")
+    if not isinstance(lote, list):
+        return None
+    total = 0
+    for entrada in lote:
+        if not isinstance(entrada, dict):
+            continue
+        if entrada.get("fulfillmentChannel") != "Amazon":
+            continue
+        conteo = _entero_no_negativo(entrada.get("OfferCount"))
+        if conteo is not None:
+            total += conteo
+    return total
+
+
+def _minimo_resumen(resumen: dict) -> tuple[Decimal | None, str | None]:
+    # F3: Summary.LowestPrices [{condition, ListingPrice:{CurrencyCode,
+    # Amount}, ...}], condicion New; sin dato utilizable = respaldo en la
+    # pagina.
+    lote = resumen.get("LowestPrices")
+    if not isinstance(lote, list):
+        return None, None
+    candidatos = []
+    for entrada in lote:
+        if not isinstance(entrada, dict) or entrada.get("condition") != "New":
+            continue
+        monto, moneda = _dinero(entrada.get("ListingPrice"))
+        if monto is not None:
+            candidatos.append((monto, moneda))
+    if not candidatos:
+        return None, None
+    return min(candidatos, key=lambda par: par[0])
 
 
 def _competitivas_de(carga: Any) -> list[dict]:
@@ -197,12 +300,14 @@ def parsear_precios(
 
     0 ofertas = conteos en 0 y precios NULL (ausencia, no error). Con
     ofertas pero sin ningun precio utilizable = PrecioOmitido
-    ("precio_sin_moneda"): la fila no se escribe.
+    ("precio_sin_moneda"): la fila no se escribe. Conteos y minimo desde
+    `Summary` (F3); la pagina es respaldo cuando el `Summary` falta.
+    Sin clave `Offers` y status Success = cero ofertas (F4).
     """
     ofertas = _ofertas_de(cuerpo_ofertas)
     competitivas = _competitivas_de(cuerpo_competitivo)
-    conteo = len(ofertas)
-    if conteo == 0:
+    resumen = _resumen_de(cuerpo_ofertas)
+    if len(ofertas) == 0:
         return PrecioParseado(
             asin=asin,
             own_price=None,
@@ -216,7 +321,15 @@ def parsear_precios(
             lowest_price=None,
             lowest_currency=None,
         )
-    fba = sum(1 for o in ofertas if o.get("IsFulfilledByAmazon") is True)
+    # F3: conteos desde Summary con la pagina como respaldo declarado.
+    conteo_total = _conteo_total_resumen(resumen)
+    conteo = conteo_total if conteo_total is not None else len(ofertas)
+    conteo_fba = _conteo_fba_resumen(resumen)
+    fba = (
+        conteo_fba
+        if conteo_fba is not None
+        else sum(1 for o in ofertas if o.get("IsFulfilledByAmazon") is True)
+    )
     ganadora: dict | None = next((o for o in ofertas if o.get("IsBuyBoxWinner") is True), None)
     vendedor_ganador = (
         ganadora.get("SellerId")
@@ -245,7 +358,9 @@ def parsear_precios(
             utilizables.append((monto, moneda))
     if not utilizables:
         raise PrecioOmitido("precio_sin_moneda")
-    minimo, moneda_minima = min(utilizables, key=lambda par: par[0])
+    minimo, moneda_minima = _minimo_resumen(resumen)
+    if minimo is None:
+        minimo, moneda_minima = min(utilizables, key=lambda par: par[0])
     return PrecioParseado(
         asin=asin,
         own_price=precio_propio,
@@ -272,11 +387,18 @@ def _llamar(client: SpapiClient, cubo: CuboTasa, *, path: str, params: dict, asi
     cubo.consumir()
     resp = client.get(path, params=params)
     if resp.status_code != 200:
-        raise IngestaPricingError(f"pricing {asin} status={resp.status_code}")
+        raise _FalloHttp(asin, resp.status_code)
     try:
         return sanear(resp.json(), "pricing")
     except ValueError:
         raise IngestaPricingError(f"pricing {asin} respuesta no JSON") from None
+
+
+def _vigilar_umbral(asin: str, fallos: int, racha: int, vistos: int) -> None:
+    if fallos > UMBRAL_FALLOS_PORC * vistos or racha >= UMBRAL_FALLOS_RACHA:
+        raise IngestaPricingError(
+            f"pricing {asin}: umbral de fallos superado ({fallos}/{vistos}, racha {racha})"
+        )
 
 
 def _fila_insert(
@@ -325,6 +447,9 @@ def ejecutar_ingesta(
 
     Nada se ejecuta antes del primer `with conn.transaction()` (leccion de
     listings.sync). Dos llamadas por ASIN (~2 s entre llamadas a 0.5/s).
+    F1: las llamadas HTTP corren sin transaccion abierta; cada INSERT va en
+    su propia transaccion y el sello en la suya. F2: politica de fallos por
+    ASIN en el docstring del modulo.
     """
     if platform not in MERCADOS:
         raise IngestaPricingError(f"plataforma desconocida: {platform!r}")
@@ -341,6 +466,8 @@ def ejecutar_ingesta(
     escritas = 0
     skips: Counter = Counter()
     vistas = 0
+    fallos = 0
+    racha = 0
     llamadas = 0
     try:
         with conn.transaction():
@@ -356,14 +483,16 @@ def ejecutar_ingesta(
             capacidad=PRICING_BURST,
             tasa=PRICING_TASA_SEG,
         )
-        with conn.transaction():
-            for asin in universo:
-                try:
-                    ruta = construir_ruta_ofertas(asin)
-                except SpapiNoPermitida:
-                    skips["asin_invalido"] += 1
-                    continue
-                vistas += 1
+        for asin in universo:
+            try:
+                ruta = construir_ruta_ofertas(asin)
+            except SpapiNoPermitida:
+                skips["asin_invalido"] += 1
+                continue
+            vistas += 1
+            try:
+                # Llamadas cuenta intentos (la tasa se gasto aunque falle).
+                llamadas += 1
                 cuerpo_ofertas = _llamar(
                     client,
                     cubo,
@@ -383,17 +512,41 @@ def ejecutar_ingesta(
                     },
                     asin=asin,
                 )
-                llamadas += 1
-                try:
-                    precio = parsear_precios(
-                        asin,
-                        cuerpo_ofertas,
-                        cuerpo_competitivo,
-                        vendedor_propio=propio,
-                    )
-                except PrecioOmitido as exc:
-                    skips[exc.motivo] += 1
+                precio = parsear_precios(
+                    asin,
+                    cuerpo_ofertas,
+                    cuerpo_competitivo,
+                    vendedor_propio=propio,
+                )
+            except PrecioOmitido as exc:
+                skips[exc.motivo] += 1
+                racha = 0
+                continue
+            except _FalloHttp as exc:
+                if exc.status in _HTTP_OMITIDO:
+                    skips[f"http_{exc.status}"] += 1
+                    racha = 0
                     continue
+                if exc.status in _HTTP_FATAL:
+                    raise IngestaPricingError(
+                        f"pricing {asin} status={exc.status} persistente"
+                    ) from exc
+                fallos += 1
+                racha += 1
+                skips[f"http_{exc.status}"] += 1
+                _vigilar_umbral(asin, fallos, racha, vistas)
+                continue
+            except IngestaPricingError:
+                # Contrato o respuesta no JSON: cuenta contra el umbral
+                # (un cambio de forma tumba el pase en vez de
+                # escribir 342 filas vacias) sin matar el pase al
+                # primer ASIN raro.
+                fallos += 1
+                racha += 1
+                skips["contrato"] += 1
+                _vigilar_umbral(asin, fallos, racha, vistas)
+                continue
+            with conn.transaction():
                 cur = conn.execute(
                     _SQL_INSERTAR,
                     _fila_insert(
@@ -404,11 +557,13 @@ def ejecutar_ingesta(
                         run_id=run_id,
                     ),
                 )
-                if cur.rowcount == 1:
-                    escritas += 1
-                else:
-                    skips["duplicada"] += 1
-            motivo = _formato_skip_reason(Counter({k: v for k, v in skips.items() if v > 0}))
+            if cur.rowcount == 1:
+                escritas += 1
+            else:
+                skips["duplicada"] += 1
+            racha = 0
+        motivo = _formato_skip_reason(Counter({k: v for k, v in skips.items() if v > 0}))
+        with conn.transaction():
             _sellar(conn, run_id, ok=True, escritas=escritas, skips=skips, motivo=motivo)
     except BaseException as exc:
         try:
@@ -417,8 +572,8 @@ def ejecutar_ingesta(
                     conn,
                     run_id,
                     ok=False,
-                    escritas=0,
-                    skips=Counter(),
+                    escritas=escritas,
+                    skips=skips,
                     motivo=scrub(str(exc)) or type(exc).__name__,
                 )
         except Exception:

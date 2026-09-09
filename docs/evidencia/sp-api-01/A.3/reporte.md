@@ -28,7 +28,13 @@ universo `external_id` por plataforma).
   Con 0 ofertas: NULLs aunque el competitivo traiga dato (brief A.3).
 - Moneda fuera de MXN/USD o monto ilegítimo = oferta no utilizable; con
   ofertas pero cero utilizables la fila no se escribe (`precio_sin_moneda`).
-- != 200 en cualquier llamada = aborto ok=false (contrato estricto, F3).
+- Ronda F1–F4 (PR #241): transacción por ASIN + sello en la suya (F1);
+  403/404 = skip `http_40x`, 401/429 persistentes = fatales, resto cuenta
+  contra umbral 20 % / 25 seguidos (F2); conteos y mínimo desde `Summary`
+  con página como respaldo (F3, formas pineadas del modelo oficial
+  `productPricingV0.json` de `amzn/selling-partner-api-models`);
+  `status=Success` sin clave `Offers` = cero ofertas (F4).
+  `llamadas` cuenta intentos (la tasa se gasta aunque fallen).
 
 ## Conciliación contra E/0.2 (MockTransport)
 MX real (`IsBuyBoxWinner`, `ListingPrice`, `SellerId`,
@@ -41,12 +47,16 @@ buybox/conteos/mínimo/`metric_date` verificados en base, fila US con
 
 ## Comandos y salidas (sin secretos)
 `uv run --frozen python -m pytest -q tests/test_spapi_pricing.py`
-→ `13 passed` (0 skips: migración 0001+0032 en BD desechable, con clave,
-CHECKs, append-only y grants ± verificados).
-Focal (orders, redaction, spapi_client, sonda, fees, fotos, arquitectura,
-cli) → `199 passed` (el refactor a `CuboTasa` no movió nada).
-Mutante (regla 9): sin el respaldo competitivo el test falla
-(`1 failed`); con él, verde. Archivo restaurado íntegro.
+→ `22 passed` (0 skips: migración 0001+0032 en BD desechable, con clave,
+CHECKs, append-only y grants ± verificados; COMMENT F3 de precedencia
+Summary→página incluidos).
+Focal (pricing, orders, redaction, spapi_client, sonda, fees, fotos,
+arquitectura, cli) → `221 passed`.
+Mutante (regla 9, primera ronda): sin el respaldo competitivo el test
+falla (`1 failed`); con él, verde. Archivo restaurado íntegro.
+Mutante (regla 9, ronda F1–F4): con `app/spapi/pricing.py` escondido vía
+stash, los 8 tests nuevos fallan (`8 failed, 1 passed`: el guarda de
+respaldo pasa igual, esperado); con el fix, verde. Restaurado íntegro.
 `ruff check` + `ruff format --check` → verde.
 `pre-commit run --all-files` → verde (abajo, antes del commit).
 

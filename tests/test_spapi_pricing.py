@@ -153,13 +153,90 @@ def test_precio_sin_moneda_se_omite():
 
 def test_contrato_inesperado_es_fatal():
     for ofertas, competitivo in (
-        ({"payload": {"status": "Success"}}, _cuerpo_competitivo()),
+        # Sin status Success y sin Offers: envoltorio irreconocible (F4).
+        ({"payload": {}}, _cuerpo_competitivo()),
         ({"payload": {"Offers": {"no": "lista"}}}, _cuerpo_competitivo()),
         ([1, 2], _cuerpo_competitivo()),
         (_cuerpo_ofertas([_oferta("X", 1.0)]), [1, 2]),
     ):
         with pytest.raises(pricing.IngestaPricingError, match="contrato inesperado"):
             pricing.parsear_precios("B0TEST0001", ofertas, competitivo, vendedor_propio=PROPIO)
+
+
+def _resumen(total, fba, minimo, moneda="MXN"):
+    return {
+        "TotalOfferCount": total,
+        "NumberOfOffers": [
+            {"condition": "New", "fulfillmentChannel": "Amazon", "OfferCount": fba},
+            {"condition": "New", "fulfillmentChannel": "Merchant", "OfferCount": 6},
+        ],
+        "LowestPrices": [
+            {
+                "condition": "New",
+                "fulfillmentChannel": "Amazon",
+                "ListingPrice": {"Amount": minimo, "CurrencyCode": moneda},
+            }
+        ],
+    }
+
+
+def _cuerpo_ofertas_con_resumen(ofertas, resumen):
+    cuerpo = _cuerpo_ofertas(ofertas)
+    cuerpo["payload"]["Summary"] = resumen
+    return cuerpo
+
+
+def test_sin_clave_offers_con_success_es_cero_filas():
+    # F4: el modelo no marca Offers como requerida; sin la clave y con
+    # status Success = cero ofertas, no error.
+    precio = pricing.parsear_precios(
+        "B0TEST0001",
+        {"payload": {"ASIN": "B0TEST0001", "status": "Success"}},
+        _cuerpo_competitivo([_propia_competitiva()]),
+        vendedor_propio=PROPIO,
+    )
+    assert precio.offers_count == 0
+    assert precio.fba_offers_count == 0
+    assert precio.lowest_price is None
+
+
+def test_conteos_y_minimo_salen_de_summary():
+    # F3: la pagina trae 2 ofertas pero el Summary declara 10 totales,
+    # 4 FBA y minimo 90: Fase B debe leer totales, no pagina.
+    precio = pricing.parsear_precios(
+        "B0TEST0001",
+        _cuerpo_ofertas_con_resumen(
+            [
+                _oferta(PROPIO, 100.0, ganadora=True, fba=True),
+                _oferta("OTRO1", 99.0, fba=True),
+            ],
+            _resumen(10, 4, 90.0),
+        ),
+        _cuerpo_competitivo([_propia_competitiva()]),
+        vendedor_propio=PROPIO,
+    )
+    assert precio.offers_count == 10
+    assert precio.fba_offers_count == 4
+    assert precio.lowest_price == Decimal("90.0000")
+    assert precio.lowest_currency == "MXN"
+
+
+def test_sin_summary_la_pagina_es_respaldo():
+    # F3: sin Summary los conteos vuelven a la pagina (respaldo declarado).
+    precio = pricing.parsear_precios(
+        "B0TEST0001",
+        _cuerpo_ofertas(
+            [
+                _oferta(PROPIO, 100.0, ganadora=True, fba=True),
+                _oferta("OTRO1", 99.0),
+            ]
+        ),
+        _cuerpo_competitivo(),
+        vendedor_propio=PROPIO,
+    )
+    assert precio.offers_count == 2
+    assert precio.fba_offers_count == 1
+    assert precio.lowest_price == Decimal("99.0000")
 
 
 def test_vendedores_propios_cubren_mx_y_us():
@@ -414,6 +491,156 @@ def test_pase_punta_a_punta_idempotente():
             (segunda.run_id,),
         ).fetchone()
         assert "duplicada" in (run2[1] or "")
+
+
+def _handler_estados(estados, llamadas):
+    """estados[asin] = {"ofertas": cuerpo | ("status", codigo), "competitivo": ...}."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return httpx.Response(200, json={"access_token": _TOKEN_LWA, "expires_in": 3600})
+        llamadas.append(request)
+        if "/offers" in request.url.path:
+            asin = next((a for a in estados if a in request.url.path), None)
+            cuerpo = estados[asin]["ofertas"]
+        else:
+            asin = request.url.params.get("Asins")
+            cuerpo = estados[asin]["competitivo"]
+        if isinstance(cuerpo, tuple) and cuerpo[0] == "status":
+            return httpx.Response(cuerpo[1], json={})
+        return httpx.Response(200, json=cuerpo)
+
+    return handler
+
+
+def _cliente_estados(estados, llamadas):
+    return SpapiClient(
+        credentials=CRED,
+        transport=httpx.MockTransport(_handler_estados(estados, llamadas)),
+        sleep=lambda _s: None,
+        clock=lambda: 1000.0,
+    )
+
+
+def _ok(asin, precio=100.0):
+    return {
+        "ofertas": _cuerpo_ofertas([_oferta(PROPIO, precio, ganadora=True, fba=True)]),
+        "competitivo": _cuerpo_competitivo([_propia_competitiva(precio)]),
+    }
+
+
+@_skip_db
+def test_fallo_en_asin_3_conserva_filas_y_sella_lo_escrito():
+    # F1: transaccion por ASIN; el fallo del tercero no revierte los dos
+    # primeros y el sello ok=false trae su conteo.
+    llamadas: list = []
+    asins = ["B0TEST0001", "B0TEST0002", "B0TEST0003", "B0TEST0004"]
+    estados = {
+        "B0TEST0001": _ok("B0TEST0001"),
+        "B0TEST0002": _ok("B0TEST0002", 50.0),
+        "B0TEST0003": {
+            "ofertas": ("status", 500),
+            "competitivo": _cuerpo_competitivo(),
+        },
+        "B0TEST0004": _ok("B0TEST0004"),
+    }
+    with db_pricing() as conn:
+        _sembrar_universo(conn, [("amazon_mx", a) for a in asins])
+        with pytest.raises(pricing.IngestaPricingError, match="umbral"):
+            pricing.ejecutar_ingesta(
+                conn, _cliente_estados(estados, llamadas), platform="amazon_mx", ahora=AHORA
+            )
+        assert conn.execute("SELECT count(*) FROM spapi_price_observation").fetchone()[0] == 2
+        run = conn.execute(
+            "SELECT ok, rows_written FROM ingest_run ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        assert run[0] is False
+        assert run[1] == 2
+
+
+@_skip_db
+@pytest.mark.parametrize("codigo", [403, 404])
+def test_asin_con_403_o_404_se_omite_y_el_pase_sigue(codigo):
+    # F2: publicacion retirada o puntual sin permiso = skip http_40x.
+    llamadas: list = []
+    estados = {
+        "B0TEST0001": _ok("B0TEST0001"),
+        "B0TEST0002": {
+            "ofertas": ("status", codigo),
+            "competitivo": _cuerpo_competitivo(),
+        },
+        "B0TEST0003": _ok("B0TEST0003", 50.0),
+    }
+    with db_pricing() as conn:
+        _sembrar_universo(
+            conn, [("amazon_mx", a) for a in ("B0TEST0001", "B0TEST0002", "B0TEST0003")]
+        )
+        resultado = pricing.ejecutar_ingesta(
+            conn, _cliente_estados(estados, llamadas), platform="amazon_mx", ahora=AHORA
+        )
+        assert resultado.ok
+        assert resultado.escritas == 2
+        assert resultado.asins_vistos == 3
+        # El ASIN omitido solo gasto su primera llamada.
+        assert resultado.llamadas == 5
+        run = conn.execute(
+            "SELECT ok, rows_written, skip_reason FROM ingest_run WHERE id = %s",
+            (resultado.run_id,),
+        ).fetchone()
+        assert run[0] is True
+        assert run[1] == 2
+        assert run[2] == f"1x http_{codigo}"
+
+
+@_skip_db
+@pytest.mark.parametrize("codigo", [401, 429])
+def test_401_persistente_y_429_agotado_son_fatales(codigo):
+    # F2: el cliente ya reintento una vez; si sigue, el pase aborta.
+    llamadas: list = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return httpx.Response(200, json={"access_token": _TOKEN_LWA, "expires_in": 3600})
+        llamadas.append(request)
+        return httpx.Response(codigo, json={})
+
+    cliente = SpapiClient(
+        credentials=CRED,
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _s: None,
+        clock=lambda: 1000.0,
+    )
+    with db_pricing() as conn:
+        _sembrar_universo(conn, [("amazon_mx", "B0TEST0001")])
+        with pytest.raises(pricing.IngestaPricingError, match="persistente"):
+            pricing.ejecutar_ingesta(conn, cliente, platform="amazon_mx", ahora=AHORA)
+        run = conn.execute(
+            "SELECT ok, rows_written FROM ingest_run ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        assert run[0] is False
+        assert run[1] == 0
+
+
+@_skip_db
+def test_muro_total_aborta_por_umbral():
+    # F2: todos los ASIN con 500 = el primer fallo ya supera el 20 %.
+    llamadas: list = []
+    estados = {
+        asin: {"ofertas": ("status", 500), "competitivo": _cuerpo_competitivo()}
+        for asin in ("B0TEST0001", "B0TEST0002", "B0TEST0003")
+    }
+    with db_pricing() as conn:
+        _sembrar_universo(conn, [("amazon_mx", a) for a in estados])
+        with pytest.raises(pricing.IngestaPricingError, match="umbral de fallos"):
+            pricing.ejecutar_ingesta(
+                conn, _cliente_estados(estados, llamadas), platform="amazon_mx", ahora=AHORA
+            )
+        assert conn.execute("SELECT count(*) FROM spapi_price_observation").fetchone()[0] == 0
+        run = conn.execute(
+            "SELECT ok, skip_reason FROM ingest_run ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        assert run[0] is False
+        assert "umbral de fallos" in (run[1] or "")
 
 
 @_skip_db
