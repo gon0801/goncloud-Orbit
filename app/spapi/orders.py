@@ -253,19 +253,27 @@ def recorrer_ordenes(
     params_base: dict,
     *,
     max_paginas: int = MAX_PAGINAS_DEFAULT,
+    cubo: CuboTasa | None = None,
 ) -> tuple[list[dict], dict]:
     """Sigue `paginationToken` con las guardas de TRASPASO-1.
 
     Devuelve (ordenes crudas acumuladas, info con paginas/conteo/aviso).
     Un status != 200 es fatal (la corrida sella ok=false); pagina vacia o
-    token repetido paran y se marcan, nunca loop.
+    token repetido paran y se marcan, nunca loop. El cubo viaja DENTRO del
+    get: cada intento (incluido el reintento por 429) consume cuota y honra
+    `x-amzn-RateLimit-Limit` (revision #5); sin cubo se construye el de
+    Orders y el comportamiento previo queda intacto.
     """
     if max_paginas < 1:
         raise IngestaOrdersError("--max-paginas debe ser >= 1")
     # Reloj y espera salen del cliente (inyectables en tests).
-    cubo = CuboTasa(
-        sleep=client._sleep, clock=client._clock, capacidad=ORDERS_BURST, tasa=ORDERS_TASA_SEG
-    )
+    if cubo is None:
+        cubo = CuboTasa(
+            sleep=client._sleep,
+            clock=client._clock,
+            capacidad=ORDERS_BURST,
+            tasa=ORDERS_TASA_SEG,
+        )
     ordenes: list[dict] = []
     vistos: set[str] = set()
     token: str | None = None
@@ -276,8 +284,7 @@ def recorrer_ordenes(
         params = dict(params_base)
         if token is not None:
             params["paginationToken"] = token
-        cubo.consumir()
-        resp = client.get(RUTA_ORDERS, params=params)
+        resp = client.get(RUTA_ORDERS, params=params, limitador=cubo)
         if resp.status_code != 200:
             raise IngestaOrdersError(f"orders status={resp.status_code}")
         try:

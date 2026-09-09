@@ -20,7 +20,7 @@ import pytest
 from test_schema import _postgres_obligatorio_ausente, _test_dsn
 
 from app.spapi import orders
-from app.spapi.client import SpapiClient
+from app.spapi.client import CuboTasa, SpapiClient
 
 ROOT = Path(__file__).resolve().parents[1]
 ORDEN = ("0001_initial.sql", "0030_spapi_orders.sql")
@@ -285,6 +285,40 @@ def test_limitador_20_paginas_y_la_21_espera():
     assert len([r for r in llamadas if r.url.host != "api.amazon.com"]) == 21
     assert len(dormidas) == 1
     assert dormidas[0] == pytest.approx(1 / 0.0056, abs=0.01)
+
+
+def test_cubo_cubre_reintento_y_header_en_orders():
+    # Revision #5: el reintento 429 consume cuota del cubo pasado y la tasa
+    # sigue a x-amzn-RateLimit-Limit (a 2/s el siguiente consumo espera 0.5).
+    dormidas: list = []
+    reloj = {"v": 5000.0}
+    n = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return httpx.Response(200, json={"access_token": _TOKEN_LWA, "expires_in": 3600})
+        n["n"] += 1
+        if n["n"] == 1:
+            return httpx.Response(429, headers={"Retry-After": "0"}, json={})
+        return httpx.Response(
+            200,
+            headers={"x-amzn-RateLimit-Limit": "2"},
+            json={"payload": {"orders": []}},
+        )
+
+    cliente = SpapiClient(
+        credentials=CRED,
+        transport=httpx.MockTransport(handler),
+        sleep=dormidas.append,
+        clock=lambda: reloj["v"],
+    )
+    cubo = CuboTasa(sleep=dormidas.append, clock=lambda: reloj["v"], capacidad=1, tasa=0.5)
+    crudas, info = orders.recorrer_ordenes(cliente, {"marketplaceIds": "X"}, cubo=cubo)
+    assert crudas == []
+    assert info["aviso_paginacion"] is None
+    assert dormidas == [pytest.approx(0.0), pytest.approx(2.0)]
+    cubo.consumir()
+    assert dormidas[-1] == pytest.approx(0.5)
 
 
 def test_status_no_200_es_fatal():
