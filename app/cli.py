@@ -50,6 +50,7 @@ from app.ads import archivar, reports, structure
 from app.db import connect
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.redaction import scrub
+from app.spapi import orders as spapi_orders
 
 # El unico valor de --confirmar que ARCHIVA. Cualquier otra cosa es ensayo.
 MODO_ARCHIVADO_LIVE = "live"
@@ -187,6 +188,9 @@ def _ingest(args, rest: list[str]) -> int:
     if args.pipeline == "estimacion":
         # MARGEN ESTIMADO A.3: ofertas frescas + Product Fees desde bridge.
         return estimacion_ingest.main(rest)
+    if args.pipeline == "spapi_orders":
+        # SP-API 01 A.2: resumenes de Orders 2026-01-01 (--platform).
+        return spapi_orders.main(rest)
     raise AssertionError(f"pipeline inalcanzable: {args.pipeline!r}")
 
 
@@ -424,19 +428,29 @@ def main(argv: list[str] | None = None) -> int:
         "ingest",
         help=(
             "pipelines de ingesta (app/ads, app/costs, app/listings, app/fx,"
-            " app/ledger, app/estimacion_ingest)"
+            " app/ledger, app/estimacion_ingest, app/spapi/orders)"
         ),
     )
     p_ingest.add_argument(
         "pipeline",
-        choices=("structure", "metrics", "costs", "listings", "fx", "ledger", "estimacion"),
+        choices=(
+            "structure",
+            "metrics",
+            "costs",
+            "listings",
+            "fx",
+            "ledger",
+            "estimacion",
+            "spapi_orders",
+        ),
         help=(
             "structure: sync de estructura; metrics: metricas + search terms;"
             " costs: productos+costos desde contabilidad (--sqlite);"
             " listings: mapa de listings desde el bridge (--sqlite);"
             " fx: tipos de cambio desde contabilidad (--sqlite);"
             " ledger: ventas+cargos desde contabilidad (--sqlite);"
-            " estimacion: ofertas+fees desde bridge (--sqlite)"
+            " estimacion: ofertas+fees desde bridge (--sqlite);"
+            " spapi_orders: resumenes Orders SP-API (--platform)"
         ),
     )
 
