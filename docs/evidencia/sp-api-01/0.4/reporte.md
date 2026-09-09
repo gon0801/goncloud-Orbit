@@ -1,29 +1,48 @@
 # SP-API 01 / 0.4 — Sonda Inventario FBA + comparacion bridge
 
-Fecha: 2026-09-09 05:42 UTC. Solo lectura (1 GET + 1 refresh LWA para la
-sonda; 1 GET extra de conciliacion por sku + snapshot bridge en `mode=ro`).
+Fecha: 2026-09-09 05:49 UTC. Solo lectura (22 GET + 1 refresh LWA para la
+sonda; 22 GET + 1 refresh para el listado de conciliacion; snapshot bridge
+en `mode=ro`).
+
+Correccion (ronda 2): la version anterior reporto 50 summaries porque
+`siguiente_token` no veia `pagination` como hermano de `payload`
+(`fbaInventory.json`: `GetInventorySummariesResponse` = `payload` +
+`pagination` + `errors`). El "21x" era un artefacto de la sonda, no una
+diferencia real. Fix con test en el mismo PR.
 
 ## Comando exacto
 
 ```bash
-ssh goncloud 'docker exec -i orbit-app-1 python3 - --fuente inventario --mercado amazon_mx' < tools/sonda_spapi.py
+ssh goncloud 'docker exec -i orbit-app-1 python3 - --fuente inventario --mercado amazon_mx --max-paginas 30' < tools/sonda_spapi.py
 ```
 
 ## Respuesta Amazon
 
 - Endpoint: `GET /fba/inventory/v1/summaries` (`granularityType=Marketplace`,
-  `granularityId=marketplaceIds=A1AM78C64UM0Y8`), version **v1**: **200**.
-- **50 summaries en pagina unica, sin `nextToken`: recorrido completo.**
+  `granularityId=marketplaceIds=A1AM78C64UM0Y8`), version **v1**: **200** en
+  las 22 paginas.
+- **22 paginas (21 x 50 + 21), 1071 summaries, ultima sin token: recorrido
+  completo**, sin `next_token_repetido` ni `pagina_vacia_con_token`.
 - `claves_top`: `granularity`, `inventorySummaries`.
 - `claves_item`: `asin`, `condition`, `fnSku`, `lastUpdatedTime`,
   `productName`, `sellerSku`, `stores`, `totalQuantity`.
-- Rate limit: `x-amzn-ratelimit-limit: 2.0`.
+- Rate limit: `x-amzn-ratelimit-limit: 2.0` en todas.
 - Aviso deprecacion: ninguno. D2 citada (ver 0.3).
 
 ## Comparacion contra el bridge (regla 10)
 
-Snapshot: `sqlite3.connect("file:.../bridge.db?mode=ro").backup()` a
-`/tmp/bridge-snapshot-spapi01.db` (patron orbit-19 0.3), solo `SELECT`.
+Snapshot: `sqlite3.connect("file:.../bridge.db?mode=ro").backup()` (patron
+orbit-19 0.3), solo `SELECT`. Bridge fresco 2026-09-09 00:36 UTC; SP-API
+leida 05:49 UTC (~5 h despues). Universo SP-API completo por `seller_sku`
+(1071 pares sku/qty, 1 GET por pagina) cruzado contra el snapshot:
+
+| sentido | resultado |
+|---|---|
+| presencia SP-API -> bridge | 1071/1071 presentes, 0 solo-SP-API |
+| presencia bridge -> SP-API | 1071/1071 presentes, 0 solo-bridge |
+| suma cantidades | SP-API 32803 vs bridge 32795 (dif +8) |
+| qty identica por sku | 1063/1071; 8 difieren por 1 unidad |
+| `GE-YXVC-R5BR` | ausente en ambas (coherente; no es FBA) |
 
 ```sql
 SELECT marketplace_name, marketplace_id, COUNT(*), SUM(quantity_available),
@@ -32,31 +51,17 @@ SELECT marketplace_name, marketplace_id, COUNT(*), SUM(quantity_available),
  GROUP BY marketplace_name, marketplace_id;
 ```
 
-Bridge 2026-09-09 00:36/00:37 UTC, fresco el mismo dia:
+## Diferencias encontradas (reales)
 
-| marketplace | filas | suma qty | >0 | max fetched_at |
-|---|---|---|---|---|
-| amazon_mx | 1071 | 32795 | 171 | 2026-09-09 00:36:16 |
-| amazon_us | 1071 | 32795 | 171 | 2026-09-09 00:37:19 |
-
-Cruce por `seller_sku` (los 50 de SP-API contra el snapshot):
-
-- Presencia: **50/50 presentes** en bridge MX.
-- Cantidad: suma SP-API (`totalQuantity`) **1389** = suma bridge
-  (`quantity_available`) **1389**; 7 positivos en ambas.
-- `GE-YXVC-R5BR`: **ausente en ambas** fuentes FBA (coherente; no es FBA).
-
-## Diferencias encontradas
-
-1. Cobertura: bridge MX trae 1071 filas vs 50 summaries de SP-API (~21x).
-   Causa no determinada en esta sonda; la ingesta debera conciliar el
-   universo, no asumirlo.
-2. MX y US del bridge son identicos (1071/32795/171 en ambos): espejo o
-   duplicado del lado bridge, se declara.
-3. Cantidades de los 50 comunes: **identicas** (1389 = 1389).
+1. Solo 8/1071 SKUs difieren en cantidad, siempre por 1 unidad (ej.
+   `1X-9MPP-46OA` 199 vs 198). Con 5 h entre ambas lecturas, es movimiento
+   intradia, no divergencia de fuente.
+2. MX y US del bridge son identicos fila a fila en agregados (1071/32795 en
+   ambos); espejo ya conocido: orbit-19 0.3 midio 2142 filas en
+   `amazon_fba_inventory`, exactamente 1071 x 2.
 
 ## Veredicto
 
 | fuente | estado | motivo |
 |---|---|---|
-| inventario MX | **verificada** | 200, pagina unica completa, 50/50 conciliados en cantidad |
+| inventario MX | **verificada** | 200, recorrido completo de 22 paginas, universo conciliado |
