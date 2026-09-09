@@ -1,6 +1,6 @@
 # SP-API 01 — Plan formal de lecturas SP-API (solo lectura)
 
-Version: 1.0, 2026-09-09 UTC. Estado: **PLAN (no implementado)**.
+Version: 1.1, 2026-09-09 UTC. Estado: **PLAN (no implementado)**. D1–D7 cerradas por el dueño 2026-09-09 UTC.
 Base: `origin/master` `38486d0` (PR #230). Rama: `plan/sp-api-01`.
 Precedencia: `docs/CONTEXTO.md` (reglas 1–10) > `plans/ROADMAP.md` > este plan.
 Fuente verbatim `docs/traspaso/MODULOS-AVANZADOS.md` (M1, M5, Transversales) **no se edita**;
@@ -30,7 +30,7 @@ Dentro (v1, fijo; ampliar solo con el dueno):
 - Rate limit oficial de cada endpoint documentado en su acta y respetado sin
   colas (decision de stack: sin Redis ni colas).
 
-Fuera (salvo que el dueno lo pida en D1–D7):
+Fuera (D1–D7 cerradas 2026-09-09 UTC; Finances queda fuera por D3):
 
 - Cualquier escritura a Amazon (precios, listings, feeds) y cualquier decision
   (repricing, pausas, promociones): viven en `repricing-01`, `envios-01`,
@@ -40,17 +40,19 @@ Fuera (salvo que el dueno lo pida en D1–D7):
 - Finances `2024-06-19` y Reports (ver D3); Account Health (sin endpoint
   publico: no se promete); reviews de producto (SP-API no las expone).
 
-## Decisiones abiertas para el dueno (D1–D7, respuesta si/no/valor)
+## Decisiones (cerradas por el dueno 2026-09-09 UTC)
 
-| ID | Pregunta | Opciones | Recomendacion del plan |
-|---|---|---|---|
-| D1 | Que lecturas entran a v1: las cinco (Orders, Pricing, Listings Items, Inventario FBA, Sellers) o solo Pricing + Orders | A) las cinco; B) solo Pricing + Orders | A: las cinco sondas son baratas (GET) y M5/Reputacion v2 necesitan las cinco tarde o temprano; recortarlas solo ahorra una ingesta, no un riesgo |
-| D2 | Fuente de verdad de precio/stock de listings: el bridge sigue mandando y SP-API solo aporta Buy Box/competencia, o SP-API reemplaza al bridge | A) bridge manda, SP-API aporta Buy Box/competencia; B) SP-API reemplaza | A (regla 2: un numero, una fuente). Una lectura SP-API de precio o stock NO se convierte en segunda fuente sin esta decision explicita |
-| D3 | Finances `2024-06-19` (fees e ISR sin `order_id`, se prorratea) entra aqui o queda para el ledger | A) entra aqui; B) queda para el ledger | B: es la fuente que mas dinero costo equivocarse; su prorrateo de ISR merece plan propio contra el ledger, no colarse en v1 |
-| D4 | Cadencia por fuente y tope de llamadas (diaria vs intradia para Buy Box) | Valor: cadencia por fuente + tope diario de llamadas | Diaria para todo en v1; intradia para Buy Box solo si Repricing lo exige en su plan (el doc sugiere Buy Box cada pocas horas: eso se decide con el rate limit medido en Fase 0) |
-| D5 | Consolidar los dos refrescadores LWA ad hoc en `app/spapi/` o dejar cada modulo con el suyo | A) consolidar (recomendado); B) dejarlos | A: la trampa de CONTEXTO (MeLi tenia dos refrescadores compitiendo; Orbit exige uno) aplica tal cual; migracion sin cambio de comportamiento, tests intactos |
-| D6 | Mercados: MX + US desde v1, o MX primero | A) MX + US; B) MX primero | A: Sellers ya verifico participations MX + US y el mapa `MERCADOS` existe en `app/publicacion_fotos.py`; si la sonda 0.2 muestra friccion en US, se recorta a B sin drama |
-| D7 | Retencion: hay alguna razon para purgar historico de Orders y Pricing, o v1 conserva todo | A) sin purga; B) purgar con valor dias/meses por fuente | A: v1 sin purga (append-only conserva todo); la retencion se decide con el volumen medido en Fase 0 (cada acta 0.x reporta filas/dia por fuente). Si no hay razon para purgar, D7 se cierra como "sin purga" |
+Respuesta literal del dueno: «1. si 2. si 3. no eso es aparte 4. si 5. si 6. si 7. no por ahora». Todas coinciden con la recomendacion del plan.
+
+| ID | Pregunta | Opciones | Recomendacion del plan | Decision del dueno |
+|---|---|---|---|---|
+| D1 | Que lecturas entran a v1: las cinco (Orders, Pricing, Listings Items, Inventario FBA, Sellers) o solo Pricing + Orders | A) las cinco; B) solo Pricing + Orders | A: las cinco sondas son baratas (GET) y M5/Reputacion v2 necesitan las cinco tarde o temprano; recortarlas solo ahorra una ingesta, no un riesgo | A — entran las cinco lecturas (Orders, Pricing, Listings Items, Inventario FBA, Sellers) |
+| D2 | Fuente de verdad de precio/stock de listings: el bridge sigue mandando y SP-API solo aporta Buy Box/competencia, o SP-API reemplaza al bridge | A) bridge manda, SP-API aporta Buy Box/competencia; B) SP-API reemplaza | A (regla 2: un numero, una fuente). Una lectura SP-API de precio o stock NO se convierte en segunda fuente sin esta decision explicita | A — el bridge sigue siendo la fuente de precio y stock; SP-API solo aporta Buy Box, competencia y estado del listing. Ninguna tarea de A.4 escribe precio ni stock en `listing` |
+| D3 | Finances `2024-06-19` (fees e ISR sin `order_id`, se prorratea) entra aqui o queda para el ledger | A) entra aqui; B) queda para el ledger | B: es la fuente que mas dinero costo equivocarse; su prorrateo de ISR merece plan propio contra el ledger, no colarse en v1 | B — Finances `2024-06-19` queda fuera; literal del dueno: «no eso es aparte». Plan propio contra el ledger, no aqui |
+| D4 | Cadencia por fuente y tope de llamadas (diaria vs intradia para Buy Box) | Valor: cadencia por fuente + tope diario de llamadas | Diaria para todo en v1; intradia para Buy Box solo si Repricing lo exige en su plan (el doc sugiere Buy Box cada pocas horas: eso se decide con el rate limit medido en Fase 0) | Diaria para todas las fuentes en v1 |
+| D5 | Consolidar los dos refrescadores LWA ad hoc en `app/spapi/` o dejar cada modulo con el suyo | A) consolidar (recomendado); B) dejarlos | A: la trampa de CONTEXTO (MeLi tenia dos refrescadores compitiendo; Orbit exige uno) aplica tal cual; migracion sin cambio de comportamiento, tests intactos | A — consolidar los dos refrescadores LWA en `app/spapi/` |
+| D6 | Mercados: MX + US desde v1, o MX primero | A) MX + US; B) MX primero | A: Sellers ya verifico participations MX + US y el mapa `MERCADOS` existe en `app/publicacion_fotos.py`; si la sonda 0.2 muestra friccion en US, se recorta a B sin drama | A — MX + US desde v1 |
+| D7 | Retencion: hay alguna razon para purgar historico de Orders y Pricing, o v1 conserva todo | A) sin purga; B) purgar con valor dias/meses por fuente | A: v1 sin purga (append-only conserva todo); la retencion se decide con el volumen medido en Fase 0 (cada acta 0.x reporta filas/dia por fuente). Si no hay razon para purgar, D7 se cierra como "sin purga" | Sin purga en v1; literal del dueno: «no por ahora». La retencion se revisa cuando Fase 0 reporte volumen |
 
 ## Evidencia Fase 0 (verificada antes de este plan)
 
@@ -108,10 +110,10 @@ Rol de ingesta: `orbit_ingest`.
 
 | Task | Contenido | DoD | Depends | Status |
 |---|---|---|---|---|
-| A.1 | [stage:implementacion] [lane:gate] [tdd:required] Cliente unico `app/spapi/` (espejo de `app/ads/client.py`): guard default-deny + un solo refrescador LWA; migrar `app/estimacion_fees.py` y `app/publicacion_fotos.py` **sin cambiar su comportamiento**, con sus tests intactos (`tests/test_estimacion_fees.py` incl. `test_allowlist_*` + `tests/test_publicacion_fotos.py`) | pytest_focal del cliente + de ambos modulos pasa; `test_allowlist_*` y `tests/test_publicacion_fotos.py` intactos y en verde; cero llamadas duplicadas de refresh en logs; E/A.1 con diff de comportamiento vacio | 0.1–0.5, D5 | cc:TODO |
+| A.1 | [stage:implementacion] [lane:gate] [tdd:required] Cliente unico `app/spapi/` (espejo de `app/ads/client.py`): guard default-deny + un solo refrescador LWA; migrar `app/estimacion_fees.py` y `app/publicacion_fotos.py` **sin cambiar su comportamiento**, con sus tests intactos (`tests/test_estimacion_fees.py` incl. `test_allowlist_*` + `tests/test_publicacion_fotos.py`) | pytest_focal del cliente + de ambos modulos pasa; `test_allowlist_*` y `tests/test_publicacion_fotos.py` intactos y en verde; cero llamadas duplicadas de refresh en logs; E/A.1 con diff de comportamiento vacio | 0.1–0.5 | cc:TODO |
 | A.2 | [stage:implementacion] [lane:gate] [tdd:required] Ingesta Orders append-only sin PII (clave definida en E/0.1 antes de A.2; candidata: identificador de orden de Amazon + `LastUpdateDate` + `observed_at`); paginacion completa con `NextToken` repetido y pagina vacia como tests | pytest_focal pasa; clave documentada en E/0.1; re-corrida no duplica (idempotencia probada contra esa clave); E/A.2 con conciliacion contra la muestra de 0.1 | A.1 | cc:TODO |
 | A.3 | [stage:implementacion] [lane:gate] [tdd:required] Ingesta Pricing append-only por (ASIN, mercado); dinero `(valor, moneda)`, precio sin moneda = fila no escrita | pytest_focal pasa; fixture sin moneda no escribe fila; E/A.3 conciliada contra 0.2 | A.1 | cc:TODO |
-| A.4 | [stage:implementacion] [lane:gate] [tdd:required] Ingesta Listings Items + Inventario FBA append-only, respetando D2 (si D2=A, SP-API no pisa precio/stock del bridge: solo Buy Box/competencia/estado) | pytest_focal pasa; test de que precio/stock SP-API no sobrescribe `listing` salvo D2=B; E/A.4 conciliada contra 0.3/0.4 | A.1, D2 | cc:TODO |
+| A.4 | [stage:implementacion] [lane:gate] [tdd:required] Ingesta Listings Items + Inventario FBA append-only (D2=A cerrada: SP-API no pisa precio/stock del bridge; solo Buy Box, competencia y estado del listing; ninguna escritura de precio ni stock en `listing`) | pytest_focal pasa; test de que precio/stock SP-API no sobrescribe `listing`; E/A.4 conciliada contra 0.3/0.4 | A.1 | cc:TODO |
 | A.5 | [stage:implementacion] [lane:gate] [tdd:required] Salud en `/salud` + alertas via `app/notifica.py` (fallo sostenido, 429 persistente, refresh LWA fallido — este ultimo no tumba el ciclo de Ads) | pytest_focal pasa; refresh LWA caido deja traza en `/salud` y el ciclo de Ads sigue; E/A.5 | A.2–A.4 | cc:TODO |
 | A.R | [stage:revision] [lane:gate] [tdd:skip:revision] Revision independiente de A | Reviewer devuelve APPROVE sobre SHA concreto (guard, un solo refrescador, append-only, dinero, redaccion, sin PII); ningun hallazgo bloqueante abierto; E/A.R enlaza informe | A.5 | cc:TODO |
 | A.6 | [stage:cierre-pr] [lane:release] [tdd:skip:validacion-entrega] CI, integracion y despliegue A | Ruff/pre-commit pasan; PR con suite completa verde; migracion `00NN` aplicada con backup; smoke de lectura sin mutaciones; reversa ensayada (apagar ingesta); E/A.6 con SHA y resultados | A.R | cc:TODO |
@@ -164,8 +166,8 @@ tocar Ads.
 ## Confirmacion operativa previa por fase
 
 Inventario harness-plan; no es aprobacion concedida. Sin
-plan-preapprovals.json con decision approved sin respuesta explicita del dueno
-(D1–D7) y revision del lead.
+plan-preapprovals.json con decision approved sin la revision del lead
+(D1–D7 ya cerradas por el dueno 2026-09-09 UTC).
 
 | Asunto/operacion | Motivo | Scope y limites |
 |---|---|---|
@@ -196,7 +198,6 @@ plan-preapprovals.json con decision approved sin respuesta explicita del dueno
 
 ## Estado para la siguiente sesion
 
-- Plan redactado, sin codigo ni sondas: Fase 0 entera `cc:TODO`, D1–D7 abiertas.
-- Siguiente paso: el lead revisa contra repo y base viva; el dueno cierra D1–D7;
-  solo entonces otro brief implementa la Fase 0 y la Fase A.
+- Plan redactado, sin codigo ni sondas: Fase 0 entera `cc:TODO`, D1–D7 cerradas; la implementacion arranca solo con brief nuevo del lead cuando el dueno la pida.
+- Siguiente paso: el lead cierra la revision contra repo y base viva (ROADMAP y manifest los cierra el lead al cerrar el brief).
 - No se marco nada como completo: escribir el plan no cierra nada (regla del ROADMAP).
