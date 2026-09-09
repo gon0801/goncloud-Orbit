@@ -206,6 +206,13 @@ def error_parametro_amazon(
     reales = tuple(r for r in recomendaciones if r.fuente == "amazon_v4")
     if not reales:
         return "sin recomendaciones de Amazon"
+    esperado = promedio_rol(reales, moneda)
+    if any(
+        (r.minimo, r.sugerido, r.maximo) != (esperado, esperado, esperado)
+        for r in recomendaciones
+        if r.fuente == "promedio_rol"
+    ):
+        return "promedio del rol no coincide con las sugerencias reales"
     for recomendacion in recomendaciones:
         terna = (recomendacion.minimo, recomendacion.sugerido, recomendacion.maximo)
         if not all(v.is_finite() and v > 0 for v in terna) or not (

@@ -394,6 +394,59 @@ def test_plan_amazon_rechaza_parcial_sin_promedio_explicito():
         fp.pasos_del_rol(plan, "category_phrase")
 
 
+def test_plan_amazon_rechaza_promedio_que_no_coincide_con_las_reales():
+    """Espejo de la mediana firmada: la promediada debe traer el promedio
+    de las reales en (minimo, sugerido, maximo); si no, se rechaza."""
+    (a, b, c, _d, _e) = _recomendaciones_parciales_phrase()
+    manipulada = (
+        a,
+        b,
+        c,
+        Recomendacion(
+            Expresion("KEYWORD_PHRASE_MATCH", "d"),
+            Decimal("20"),
+            Decimal("20"),
+            Decimal("20"),
+            "promedio_rol",
+        ),
+        Recomendacion(
+            Expresion("KEYWORD_PHRASE_MATCH", "e"),
+            Decimal("9.13"),
+            Decimal("9.13"),
+            Decimal("9.13"),
+            "promedio_rol",
+        ),
+    )
+    parametros = _parametros()
+    parametros["category_phrase"] = fp.ParametrosRol(
+        "category_phrase",
+        Decimal("120"),
+        Decimal("9.80"),
+        fuente_bid="amazon_v4",
+        recomendaciones=manipulada,
+    )
+    plan = _plan(
+        parametros=parametros,
+        semillas=fp.Semillas(("a", "b", "c", "d", "e"), (), (), ()),
+    )
+    with pytest.raises(fp.PlanInvalido, match="promedio del rol no coincide"):
+        fp.pasos_del_rol(plan, "category_phrase")
+    parametros["category_phrase"] = fp.ParametrosRol(
+        "category_phrase",
+        Decimal("120"),
+        Decimal("9.80"),
+        fuente_bid="amazon_v4",
+        recomendaciones=_recomendaciones_parciales_phrase(),
+    )
+    fp.pasos_del_rol(
+        _plan(
+            parametros=parametros,
+            semillas=fp.Semillas(("a", "b", "c", "d", "e"), (), (), ()),
+        ),
+        "category_phrase",
+    )
+
+
 def test_plan_amazon_rechaza_fuente_de_recomendacion_invalida():
     """Una fuente que no sea amazon_v4 ni promedio_rol se rechaza."""
     (primera, *resto) = _recomendaciones_parciales_phrase()
