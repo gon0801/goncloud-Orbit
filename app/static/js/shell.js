@@ -1,21 +1,21 @@
 "use strict";
 // El chrome lee las mismas APIs que Propuestas y Salud; no replica consultas.
 document.addEventListener("DOMContentLoaded", function () {
-  const menu = document.getElementById("nav-toggle");
-  if (menu) {
-    menu.hidden = false;
-    menu.closest(".sidebar").classList.add("nav-lista");
-    menu.addEventListener("click", () => {
-      const abierto = menu.getAttribute("aria-expanded") !== "true";
-      menu.setAttribute("aria-expanded", String(abierto));
-      menu.textContent = abierto ? "Cerrar menu" : "Menu";
-    });
-  }
   const contador = document.getElementById("propuestas-contador");
   const repContador = document.getElementById("reputacion-contador");
   const ciclo = document.getElementById("ciclo-resumen");
   const watermark = document.getElementById("watermark-resumen");
   if (!contador || !ciclo || !watermark) return;
+
+  function pintarBadge(nodo, texto, etiqueta) {
+    if (!nodo) return;
+    nodo.textContent = String(texto);
+    nodo.setAttribute("aria-label", etiqueta);
+    nodo.hidden = false;
+  }
+  function badges(rol) {
+    return document.querySelectorAll('[data-rol="' + rol + '"]');
+  }
 
   async function leer(ruta) {
     const respuesta = await fetch("/api/dashboard/" + ruta, {cache: "no-store"});
@@ -24,13 +24,14 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   leer("cortes").then(datos => {
-    contador.textContent = String(datos.items.length);
-    contador.setAttribute("aria-label", datos.items.length + " propuestas pendientes");
-    contador.hidden = false;
+    const n = datos.items.length;
+    const etiqueta = n + " propuestas pendientes";
+    pintarBadge(contador, n, etiqueta);
+    badges("propuestas").forEach(function (nodo) { pintarBadge(nodo, n, etiqueta); });
   }).catch(() => {
-    contador.textContent = "—";
-    contador.setAttribute("aria-label", "Propuestas: no se pudo consultar");
-    contador.hidden = false;
+    const etiqueta = "Propuestas: no se pudo consultar";
+    pintarBadge(contador, "—", etiqueta);
+    badges("propuestas").forEach(function (nodo) { pintarBadge(nodo, "—", etiqueta); });
   });
 
   // Contador de alertas de reputacion: el badge es aviso de accion, solo
@@ -41,10 +42,10 @@ document.addEventListener("DOMContentLoaded", function () {
       return respuesta.json();
     }).then(datos => {
       const total = Number(datos.total_alertas) || 0;
-      repContador.setAttribute("aria-label", total + " alertas abiertas");
+      const etiqueta = total + " alertas abiertas";
       if (total > 0) {
-        repContador.textContent = String(total);
-        repContador.hidden = false;
+        pintarBadge(repContador, total, etiqueta);
+        badges("reputacion").forEach(function (nodo) { pintarBadge(nodo, total, etiqueta); });
       }
     }).catch(() => {});
   }

@@ -1165,6 +1165,41 @@ def test_ui_propuestas_titulo_y_menu_d1():
     assert 'src="/static/js/cortes.js?v=' in html
 
 
+def test_ui_menu_movil_es_tab_bar_no_drawer():
+    """El menu movil es una tab bar de 7 destinos, no el sidebar en overlay.
+
+    Falla contra el drawer con boton Menu/Cerrar menu y secciones PANEL.
+    """
+    html = ui.templates.env.get_template("cortes.html").render(**_ctx_propuestas())
+    css = (ui._TEMPLATES_DIR.parent / "static" / "css" / "dashboard.css").read_text(
+        encoding="utf-8"
+    )
+    js = (ui._TEMPLATES_DIR.parent / "static" / "js" / "shell.js").read_text(encoding="utf-8")
+    assert "Cerrar menu" not in html
+    assert "Cerrar menu" not in js
+    assert 'id="nav-toggle"' not in html
+    assert 'class="tab-bar"' in html
+    assert html.count('class="tab-label"') == 7
+    assert ">Inicio<" in html
+    assert ">P&amp;L<" in html
+    assert ">SKUs<" in html
+    assert ">Gastos<" in html
+    assert ">Saldos<" in html
+    assert 'href="/"' in html
+    assert 'href="/contribucion"' in html
+    assert 'href="/reputacion"' in html
+    assert 'href="/decisiones"' in html
+    assert 'href="/campanas"' in html
+    assert 'href="/settings"' in html
+    assert 'href="/cortes"' in html
+    assert ">Propuestas<span" in html
+    assert 'class="tab-bar"' in css or ".tab-bar" in css
+    assert "position: fixed" in css
+    assert "#nav-toggle { display: block" not in css
+    assert 'aria-current="page"' in html
+    assert "tab-activo" in html
+
+
 @pytest.mark.skipif(
     _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",

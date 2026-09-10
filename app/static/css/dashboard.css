@@ -239,7 +239,7 @@ form[data-veto] label { display: inline-flex; flex-direction: column; gap: 4px; 
   .nav-proximo { font-size: 11px; padding: 4px 10px; }
   .ultimo-ciclo { display: none; }
   .pagina-header { padding: 16px; }
-  main { padding: 16px 12px 28px; }
+  main { padding: 16px 12px calc(28px + 64px + env(safe-area-inset-bottom, 0px)); }
   .header-acciones { gap: 6px; }
   .tarjeta, .grafica { padding: 14px 12px; }
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -272,9 +272,66 @@ form[data-veto] label { display: inline-flex; flex-direction: column; gap: 4px; 
   }
 }
 
-#nav-toggle { display: none; }
+/* Tab bar iOS: solo movil. El sidebar de escritorio no se toca. */
+.tab-bar { display: none; }
 @media (max-width: 40rem) {
-  #nav-toggle { display: block; position: absolute; top: 18px; right: 16px; }
-  .sidebar.nav-lista .navegacion { display: none; }
-  .sidebar.nav-lista:has(#nav-toggle[aria-expanded="true"]) .navegacion { display: flex; }
+  html[data-tema="dia"] body { background: #f3f2f8; }
+  .sidebar { display: none; }
+  .tarjeta, .kpi, .grafica, .tarjeta-lista {
+    border-radius: 20px;
+    box-shadow: 0 10px 28px rgba(45, 36, 80, .07);
+  }
+  .tab-bar {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 40;
+    min-height: 56px;
+    padding: 6px 0 calc(8px + env(safe-area-inset-bottom, 0px));
+    background: var(--o-card);
+    border-top: 1px solid var(--o-borde);
+    box-shadow: 0 -8px 24px rgba(23, 21, 29, .06);
+  }
+  .tab-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+  .tab {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    min-height: 44px;
+    min-width: 0;
+    padding: 4px 2px 2px;
+    color: #9aa0b0;
+    text-decoration: none;
+    position: relative;
+    border-radius: 0;
+    background: transparent;
+    border: 0;
+  }
+  .tab:not(.tab-activo):hover { color: #9aa0b0; background: transparent; border-color: transparent; }
+  .tab-ico { width: 24px; height: 24px; display: block; flex: none; }
+  .tab-ico-on { display: none; }
+  .tab-label { font-size: 10.5px; font-weight: 500; line-height: 1.15; color: inherit; }
+  a.tab.tab-activo, a.tab.tab-activo:hover { color: var(--o-ac); }
+  a.tab.tab-activo .tab-label { font-weight: 600; color: var(--o-ac); }
+  a.tab.tab-activo .tab-ico { color: var(--o-ac); }
+  a.tab.tab-activo .tab-ico-off { display: none; }
+  a.tab.tab-activo .tab-ico-on { display: block; fill: var(--o-ac); }
+  .tab-badge {
+    position: absolute;
+    top: 2px;
+    left: 50%;
+    margin-left: 8px;
+    min-width: 16px;
+    text-align: center;
+    line-height: 16px;
+    padding: 0 5px;
+  }
+  html[data-tema="noche"] .tab { color: var(--o-ink3); }
+  html[data-tema="noche"] .tab:hover { color: var(--o-ink3); }
+  html[data-tema="noche"] .tab.tab-activo { color: var(--o-ac); }
 }
