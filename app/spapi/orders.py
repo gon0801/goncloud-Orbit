@@ -503,7 +503,7 @@ def ejecutar_ingesta(
                 _sellar(conn, run_id, ok=True, escritas=escritas, skips=skips, motivo=motivo)
         # A.5: alertas en flanco, FUERA de la transaccion del sello
         # (fail-silent: jamas rompe la ingesta).
-        evaluar_alertas(conn, SOURCE, platform)
+        evaluar_alertas(conn, SOURCE, platform, run_id)
     except BaseException as exc:
         try:
             with conn.transaction():
@@ -515,7 +515,7 @@ def ejecutar_ingesta(
                     skips=Counter(),
                     motivo=f"{prefijo_motivo(exc)}: {scrub(str(exc)) or type(exc).__name__}",
                 )
-            evaluar_alertas(conn, SOURCE, platform)
+            evaluar_alertas(conn, SOURCE, platform, run_id)
         except Exception:
             logger.warning(
                 "ingest_run %s quedo ABIERTA: fallo tambien su sello; error: %s",
