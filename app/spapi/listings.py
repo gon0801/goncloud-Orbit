@@ -139,6 +139,7 @@ class _Avance:
     racha: int = 0
     llamadas: int = 0
     skips: Counter = field(default_factory=Counter)
+    ultimo_status: int | None = None
 
 
 def _texto(valor: Any) -> str | None:
@@ -224,10 +225,16 @@ def _llamar(client: SpapiClient, cubo: CuboTasa, *, path: str, params: dict, sku
         raise IngestaListingsError(f"listings {sku} respuesta no JSON") from None
 
 
-def _vigilar_umbral(sku: str, fallos: int, racha: int, vistos: int) -> None:
+def _vigilar_umbral(
+    sku: str, fallos: int, racha: int, vistos: int, ultimo_status: int | None
+) -> None:
+    # Ronda review A.5: ver pricing._vigilar_umbral (ultimo status para la
+    # taxonomia; "desconocido" cae en contrato como antes).
     if fallos > UMBRAL_FALLOS_PORC * vistos or racha >= UMBRAL_FALLOS_RACHA:
+        status = ultimo_status if ultimo_status is not None else "desconocido"
         raise IngestaListingsError(
-            f"listings {sku}: umbral de fallos superado ({fallos}/{vistos}, racha {racha})"
+            f"listings {sku}: umbral de fallos superado ({fallos}/{vistos},"
+            f" racha {racha}, ultimo status={status})"
         )
 
 
@@ -301,13 +308,14 @@ def _procesar_sku(
         av.fallos += 1
         av.racha += 1
         av.skips[f"http_{exc.status}"] += 1
-        _vigilar_umbral(sku, av.fallos, av.racha, av.vistas)
+        av.ultimo_status = exc.status
+        _vigilar_umbral(sku, av.fallos, av.racha, av.vistas, av.ultimo_status)
         return
     except IngestaListingsError:
         av.fallos += 1
         av.racha += 1
         av.skips["contrato"] += 1
-        _vigilar_umbral(sku, av.fallos, av.racha, av.vistas)
+        _vigilar_umbral(sku, av.fallos, av.racha, av.vistas, av.ultimo_status)
         return
     except httpx.HTTPError:
         # Hallazgo 2 grok: como pricing F2, la red cuenta al umbral con
@@ -316,7 +324,7 @@ def _procesar_sku(
         av.fallos += 1
         av.racha += 1
         av.skips["red"] += 1
-        _vigilar_umbral(sku, av.fallos, av.racha, av.vistas)
+        _vigilar_umbral(sku, av.fallos, av.racha, av.vistas, av.ultimo_status)
         return
     with conn.transaction():
         cur = conn.execute(
@@ -416,7 +424,7 @@ def ejecutar_ingesta(
             )
         # A.5: alertas en flanco, FUERA de la transaccion del sello
         # (fail-silent: jamas rompe la ingesta).
-        evaluar_alertas(conn, SOURCE, platform)
+        evaluar_alertas(conn, SOURCE, platform, run_id)
     except BaseException as exc:
         try:
             with conn.transaction():
@@ -429,7 +437,7 @@ def ejecutar_ingesta(
                     motivo=f"{prefijo_motivo(exc)}: {scrub(str(exc)) or type(exc).__name__}",
                     llamadas=av.llamadas,
                 )
-            evaluar_alertas(conn, SOURCE, platform)
+            evaluar_alertas(conn, SOURCE, platform, run_id)
         except Exception:
             logger.warning(
                 "ingest_run %s quedo ABIERTA: fallo tambien su sello; error: %s",

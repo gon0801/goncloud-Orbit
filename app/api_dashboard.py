@@ -842,9 +842,27 @@ def salud(conn: ConexionLectura) -> dict:
             "skips": _skips_de(ultimo),
             "quota": _quota_de(conn, plataforma),
             "target_margen": bloque_target_margen(ultimo),
-            "spapi": bloque_salud(conn, plataforma),
+            "spapi": _spapi_de(conn, plataforma),
         }
     return {"plataformas": plataformas}
+
+
+def _spapi_de(conn: ConexionLectura, plataforma: str) -> dict | None:
+    """Bloque spapi de UNA plataforma (SP-API 01 A.5, ronda review). Si
+    bloque_salud revienta (p. ej. columna platform ausente porque 0036 aun
+    no se aplico: el codigo salio antes que la migracion), la pantalla NO
+    muere entera — el bloque queda en None (la plantilla omite la seccion
+    SP-API) y el resto (watermarks, ciclo, quota, historico) sigue
+    visible. Espejo del try/except por pieza de _quota_de."""
+    try:
+        return bloque_salud(conn, plataforma)
+    except Exception as exc:  # noqa: BLE001 - degradacion visible, no caida
+        logger.warning(
+            "salud: spapi %s ilegible: %s",
+            plataforma,
+            scrub(str(exc)),
+        )
+        return None
 
 
 def _quota_de(conn: ConexionLectura, plataforma: str) -> dict:

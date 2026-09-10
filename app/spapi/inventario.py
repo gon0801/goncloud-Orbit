@@ -375,7 +375,7 @@ def ejecutar_ingesta(
                 )
         # A.5: alertas en flanco, FUERA de la transaccion del sello
         # (fail-silent: jamas rompe la ingesta).
-        evaluar_alertas(conn, SOURCE, platform)
+        evaluar_alertas(conn, SOURCE, platform, run_id)
     except BaseException as exc:
         # Hallazgo 2 grok: INSERTs y sello van en UNA transaccion; si
         # revienta, Postgres deshace las filas y el contador Python
@@ -392,7 +392,7 @@ def ejecutar_ingesta(
                     motivo=f"{prefijo_motivo(exc)}: {scrub(str(exc)) or type(exc).__name__}",
                     llamadas=medidor["llamadas"],
                 )
-            evaluar_alertas(conn, SOURCE, platform)
+            evaluar_alertas(conn, SOURCE, platform, run_id)
         except Exception:
             logger.warning(
                 "ingest_run %s quedo ABIERTA: fallo tambien su sello; error: %s",

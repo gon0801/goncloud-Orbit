@@ -69,6 +69,7 @@ for _mig in (
     "0033_ingest_run_llamadas.sql",
     "0034_ingest_run_llamadas_grant.sql",
     "0036_ingest_run_platform.sql",
+    "0037_ingest_run_salud_idx.sql",
 ):
     SQL_MIGRACION += (Path(__file__).resolve().parent.parent / "migrations" / _mig).read_text(
         encoding="utf-8"
