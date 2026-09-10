@@ -326,6 +326,40 @@ def rate_limit_de(headers: Any) -> dict[str, str]:
     }
 
 
+# Taxonomia del motivo de fallo (SP-API 01 A.5): las 4 ingestas sellan la
+# rama except con uno de estos prefijos + ": " + detalle scrubbeado. Solo
+# salud.py los lee (ultima_429/ultimo_lwa) y evaluar_alertas (flancos).
+# Clases: fallo autenticando LWA, 429 que sobrevivio al reintento del
+# cliente, 5xx, red, y contrato (cajon por defecto: incluye umbral, 401
+# persistente y cualquier error no clasificado — el detalle tras el
+# prefijo conserva la causa real).
+MOTIVO_LWA_FALLIDO = "lwa_fallido"
+MOTIVO_HTTP_429 = "http_429"
+MOTIVO_HTTP_5XX = "http_5xx"
+MOTIVO_RED = "red"
+MOTIVO_CONTRATO = "contrato"
+
+
+def prefijo_motivo(exc: BaseException) -> str:
+    """Prefijo taxonomico para el motivo del sello ok=false.
+
+    Clasifica por TIPO cuando hay tipo (LWA y red), y por el formato de
+    mensaje que genera nuestro propio codigo (`status=NNN` en los fatales
+    HTTP: formato pineado en los tests de cada ingesta, no texto libre
+    externo). Todo lo demas es "contrato" por defecto.
+    """
+    if isinstance(exc, SpapiAuthError):
+        return MOTIVO_LWA_FALLIDO
+    if isinstance(exc, httpx.HTTPError):
+        return MOTIVO_RED
+    texto = str(exc)
+    if "status=429" in texto:
+        return MOTIVO_HTTP_429
+    if re.search(r"status=5\d\d", texto):
+        return MOTIVO_HTTP_5XX
+    return MOTIVO_CONTRATO
+
+
 def tasa_anunciada(headers: Any) -> float | None:
     """Tasa (req/s) de `x-amzn-RateLimit-Limit`, o None si ausente/ilegible.
 

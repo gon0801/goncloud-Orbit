@@ -608,6 +608,39 @@ def notifica_harvest_failed(
         return False
 
 
+def aviso_spapi_fallo(fuente: str, platform: str, motivo: str) -> str:
+    """Builder PURO del aviso de fallo SP-API (A.5): fuente, plataforma y
+    motivo ya redactado en el sello (doble scrub por si acaso). Sin fecha
+    (patron aviso_cap_agotado: la fecha es la del run, visible en /salud).
+    Con motivo LWA, matiz explicito de que el ciclo de Ads sigue."""
+    lineas = [
+        "[Orbit] ALERTA fallo SP-API",
+        f"fuente: {fuente}",
+        f"plataforma: {platform}",
+        f"motivo: {scrub(motivo)}",
+    ]
+    if motivo.startswith("lwa_fallido"):
+        lineas.append("El ciclo de Ads no se afecta (procesos y credenciales distintos).")
+    return "\n".join(lineas)
+
+
+def notifica_spapi_fallo(
+    fuente: str, platform: str, motivo: str, *, transport: httpx.BaseTransport | None = None
+) -> bool:
+    """Aviso de fallo SP-API en flanco (A.5): sale UNA vez por racha, en el
+    primer 429/LWA o al abrirse la segunda fallida seguida. Mismo contrato
+    fail-silent de los otros senders: canal deshabilitado -> True (no es
+    fallo); cualquier excepcion -> warning con scrub + False; JAMAS levanta.
+    """
+    try:
+        if not canal_activo():
+            return True
+        return _envia_texto(aviso_spapi_fallo(fuente, platform, motivo), transport=transport)
+    except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
+        logger.warning("telegram: fallo armando el aviso SP-API: %s", scrub(str(exc)))
+        return False
+
+
 def notifica_cap_agotado(
     plataforma: str, kind: str, used: int, cap: int, *, transport: httpx.BaseTransport | None = None
 ) -> bool:

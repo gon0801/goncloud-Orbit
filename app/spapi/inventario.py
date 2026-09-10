@@ -38,9 +38,11 @@ from app.spapi.client import (
     RUTA_INVENTARIO,
     CuboTasa,
     SpapiClient,
+    prefijo_motivo,
     sanear,
     siguiente_token,
 )
+from app.spapi.salud import evaluar_alertas
 
 logger = logging.getLogger(__name__)
 install_scrub_filter(logger)
@@ -53,7 +55,7 @@ MAX_PAGINAS_DEFAULT = 100
 INVENTARIO_TASA_SEG = 2.0
 INVENTARIO_BURST = 2
 
-_SQL_ABRIR_RUN = "INSERT INTO ingest_run (source) VALUES (%s) RETURNING id"
+_SQL_ABRIR_RUN = "INSERT INTO ingest_run (source, platform) VALUES (%s, %s) RETURNING id"
 _SQL_SELLAR_RUN = """
 UPDATE ingest_run
    SET finished_at = now(),
@@ -308,7 +310,7 @@ def ejecutar_ingesta(
     inicio = time.monotonic()
 
     with conn.transaction():
-        run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE,)).fetchone()[0]
+        run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE, platform)).fetchone()[0]
 
     escritas = 0
     skips: Counter = Counter()
@@ -371,6 +373,9 @@ def ejecutar_ingesta(
                     motivo=motivo,
                     llamadas=llamadas,
                 )
+        # A.5: alertas en flanco, FUERA de la transaccion del sello
+        # (fail-silent: jamas rompe la ingesta).
+        evaluar_alertas(conn, SOURCE, platform)
     except BaseException as exc:
         # Hallazgo 2 grok: INSERTs y sello van en UNA transaccion; si
         # revienta, Postgres deshace las filas y el contador Python
@@ -384,9 +389,10 @@ def ejecutar_ingesta(
                     ok=False,
                     escritas=0,
                     skips=Counter(),
-                    motivo=scrub(str(exc)) or type(exc).__name__,
+                    motivo=f"{prefijo_motivo(exc)}: {scrub(str(exc)) or type(exc).__name__}",
                     llamadas=medidor["llamadas"],
                 )
+            evaluar_alertas(conn, SOURCE, platform)
         except Exception:
             logger.warning(
                 "ingest_run %s quedo ABIERTA: fallo tambien su sello; error: %s",

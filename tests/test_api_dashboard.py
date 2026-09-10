@@ -63,6 +63,16 @@ DECIDED_AT = AHORA
 SQL_MIGRACION = (
     Path(__file__).resolve().parent.parent / "migrations" / "0001_initial.sql"
 ).read_text(encoding="utf-8")
+# SP-API 01 A.5: /salud siempre trae el bloque spapi, que lee
+# ingest_run.llamadas (0033) y .platform (0036). Aditivas puras.
+for _mig in (
+    "0033_ingest_run_llamadas.sql",
+    "0034_ingest_run_llamadas_grant.sql",
+    "0036_ingest_run_platform.sql",
+):
+    SQL_MIGRACION += (Path(__file__).resolve().parent.parent / "migrations" / _mig).read_text(
+        encoding="utf-8"
+    )
 
 # CORTES UI 01: la cola apply_queue vive en la migracion 0002.
 SQL02 = (Path(__file__).resolve().parent.parent / "migrations" / "0002_apply.sql").read_text(
