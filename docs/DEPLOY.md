@@ -408,11 +408,24 @@ llamadas a 0.5/s) + pricing US ~12 min; orders/listings/inventario
 
 Cada corrida sella su `ingest_run` (ok/false) y solo alerta en flanco
 (A.5); un fallo no tumba las siguientes (cada línea es un proceso).
-Instalar es A.6 (dueño), no esta tarea. ORDEN DE DEPLOY: las migraciones
-`0035` y `0036` se aplican ANTES de reconstruir la app — si el código sale
-primero, las 4 ingestas truenan al abrir el run (`platform` inexistente)
-y `/salud` muestra el bloque SP-API vacío (con la guarda A.5, sin tumbar
-la pantalla).
+Instalar es A.6 (dueño), no esta tarea.
+
+**ORDEN DE DEPLOY de A.6 — las tres migraciones, en este orden** (patrón de
+comando en «Aplicar migraciones», más abajo):
+
+1. `migrations/0035_spapi_listings_inventario.sql`
+2. `migrations/0036_ingest_run_platform.sql`
+3. `migrations/0037_ingest_run_salud_idx.sql`
+4. Recién entonces, reconstruir la app.
+
+`0035` y `0036` van ANTES del rebuild y no son opcionales: si el código sale
+primero, las 4 ingestas truenan al abrir el run (`platform` inexistente) y
+`/salud` muestra el bloque SP-API vacío (con la guarda A.5, sin tumbar la
+pantalla). `0037` depende de `0036` (indexa esa columna) y **no bloquea el
+rebuild** —solo crea el índice de `/salud` y el candado del `INSERT`—, pero
+se aplica igual antes de exponer `/salud`: sin él, cada carga de la página
+recorre `ingest_run` entera por cada fuente y plataforma. Omitir `0037` no
+rompe nada, solo degrada; omitir `0035`/`0036` sí rompe.
 
 ### Refresco diario contable 08:15 (ORBIT 06 2.2)
 
