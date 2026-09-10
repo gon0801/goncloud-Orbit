@@ -4,6 +4,17 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-10 UTC — SP-API 01: deploy parcial A.6 en producción (A.1–A.3 en vivo).**
+Migraciones 0031–0034 aplicadas con backup verificado; app reconstruida desde `origin/master` (md5
+idénticos, `orbit-db-1` intacta). Primeras corridas reales: orders ok (incremental, 15+6 filas sobre las
+224 previas) y pricing con universo completo (342 ASINs MX + 176 US). La primera corrida de pricing
+destapó un bug de esquema: el UPDATE de `ingest_run` está otorgado por columna y `llamadas` (0033) no
+tenía su GRANT — los datos se escribieron completos pero el sello reventó; fix en PR #242 (migración
+0034 + test con `has_column_privilege`, demostrado en rojo), corridas huérfanas selladas a mano con
+conteos conciliados y re-corridas ok=true (684 + 352 llamadas, 2 por ASIN). Dato de negocio: donde hay
+Buy Box, es propia en el 100% (MX 254/342 con box, US 105/176). Evidencia: `docs/evidencia/sp-api-01/A.6/`.
+Sigue A.4 (Listings + Inventario): brief listo en `plans/brief-sp-api-01-a4-muse.md` para Muse.
+
 **2026-09-09 UTC — SP-API 01 Fase A: A.2b y A.3 cerradas y mergeadas (PRs #240 y #241).**
 A.2b: los pedidos ya traen estado y total reales vía las secciones FULFILLMENT + PROCEEDS (sin BUYER ni
 RECIPIENT, cero PII); migración 0031 convierte la clave en bitemporal de 4 columnas (plataforma + orden +
