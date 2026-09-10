@@ -49,6 +49,7 @@ import psycopg
 from app.redaction import install_scrub_filter, scrub
 from app.spapi.client import (
     MERCADOS,
+    VENDEDORES_PROPIOS,
     CuboTasa,
     SpapiClient,
     SpapiNoPermitida,
@@ -63,14 +64,6 @@ SOURCE = "spapi_pricing"
 API_VERSION = "v0"
 RUTA_OFERTAS_TPL = "/products/pricing/v0/items/{asin}/offers"
 RUTA_COMPETITIVO = "/products/pricing/v0/competitivePrice"
-
-# Seller propio por marketplace (IDs publicos, no secretos): un solo
-# merchant en MX/US/CA verificado el 2026-09-09 con Ads GET /v2/profiles
-# (accountInfo.id, type seller; acta 0.5 cito el de MX).
-VENDEDORES_PROPIOS = {
-    "A1AM78C64UM0Y8": "A29XRL07YRN0L",
-    "ATVPDKIKX0DER": "A29XRL07YRN0L",
-}
 
 # Rate limit oficial de Pricing (E/0.2: 0.5/s; burst no publicado: sin
 # burst supuesto, 1 llamada cada 2 s como minimo).

@@ -50,6 +50,8 @@ from app.ads import archivar, reports, structure
 from app.db import connect
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.redaction import scrub
+from app.spapi import inventario as spapi_inventario
+from app.spapi import listings as spapi_listings
 from app.spapi import orders as spapi_orders
 from app.spapi import pricing as spapi_pricing
 
@@ -195,6 +197,12 @@ def _ingest(args, rest: list[str]) -> int:
     if args.pipeline == "spapi_pricing":
         # SP-API 01 A.3: pase de Pricing v0 con Buy Box (--platform).
         return spapi_pricing.main(rest)
+    if args.pipeline == "spapi_listings":
+        # SP-API 01 A.4: estado de Listings Items 2021-08-01 (--platform).
+        return spapi_listings.main(rest)
+    if args.pipeline == "spapi_inventario":
+        # SP-API 01 A.4: recorrido de Inventario FBA v1 (--platform).
+        return spapi_inventario.main(rest)
     raise AssertionError(f"pipeline inalcanzable: {args.pipeline!r}")
 
 
@@ -447,6 +455,8 @@ def main(argv: list[str] | None = None) -> int:
             "estimacion",
             "spapi_orders",
             "spapi_pricing",
+            "spapi_listings",
+            "spapi_inventario",
         ),
         help=(
             "structure: sync de estructura; metrics: metricas + search terms;"
@@ -456,7 +466,9 @@ def main(argv: list[str] | None = None) -> int:
             " ledger: ventas+cargos desde contabilidad (--sqlite);"
             " estimacion: ofertas+fees desde bridge (--sqlite);"
             " spapi_orders: resumenes Orders SP-API (--platform);"
-            " spapi_pricing: pase Pricing SP-API (--platform)"
+            " spapi_pricing: pase Pricing SP-API (--platform);"
+            " spapi_listings: estado Listings SP-API (--platform);"
+            " spapi_inventario: inventario FBA SP-API (--platform)"
         ),
     )
 

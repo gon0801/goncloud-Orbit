@@ -60,6 +60,15 @@ ESPERA_429_MAX = 60.0
 
 MERCADOS = {"amazon_mx": "A1AM78C64UM0Y8", "amazon_us": "ATVPDKIKX0DER"}
 
+# Seller propio por marketplace (IDs publicos, no secretos): un solo
+# merchant en MX/US/CA verificado el 2026-09-09 con Ads GET /v2/profiles
+# (accountInfo.id, type seller; acta 0.5 cito el de MX). Vivia en
+# pricing.py; A.4 lo sube aqui para listings (mismo sellerId en la ruta).
+VENDEDORES_PROPIOS = {
+    "A1AM78C64UM0Y8": "A29XRL07YRN0L",
+    "ATVPDKIKX0DER": "A29XRL07YRN0L",
+}
+
 RUTA_ORDERS_V0 = "/orders/v0/orders"
 RUTA_ORDERS_NUEVA = "/orders/2026-01-01/orders"
 RUTA_PRECIO_COMPETITIVO = "/products/pricing/v0/competitivePrice"
