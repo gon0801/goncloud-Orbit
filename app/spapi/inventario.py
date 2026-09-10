@@ -114,6 +114,15 @@ def _texto(valor: Any) -> str | None:
     return None
 
 
+def _dia_utc(momento: datetime.datetime) -> datetime.date:
+    # Hallazgo 3 grok (baja): metric_date es el dia UTC de observed_at
+    # (lo que exige el trigger), no el dia de pared del tzinfo que traiga
+    # `ahora`. En produccion `ahora` es UTC y calza; esto blinda el resto.
+    if momento.tzinfo is None:
+        momento = momento.replace(tzinfo=datetime.UTC)
+    return momento.astimezone(datetime.UTC).date()
+
+
 def _cantidad(valor: Any) -> int | None:
     if isinstance(valor, bool) or not isinstance(valor, int) or valor < 0:
         return None
@@ -165,12 +174,15 @@ def recorrer_summaries(
     *,
     max_paginas: int = MAX_PAGINAS_DEFAULT,
     cubo: CuboTasa | None = None,
+    medidor: Counter | None = None,
 ) -> tuple[list[dict], dict]:
     """Recorre todas las paginas con las guardas hermanas de orders.
 
     Devuelve (resenas crudas acumuladas, info con paginas/conteo/aviso).
     Un status != 200 es fatal; pagina vacia o token repetido paran y se
-    marcan, nunca loop.
+    marcan, nunca loop. Con `medidor`, cada intento HTTP suma
+    `medidor["llamadas"]` (hallazgo 2 grok: si el recorrido muere, el
+    sello igual declara las llamadas que si ocurrieron).
     """
     if max_paginas < 1:
         raise IngestaInventarioError("--max-paginas debe ser >= 1")
@@ -196,6 +208,8 @@ def recorrer_summaries(
         # El cubo viaja DENTRO del get (patron A.3 revision #5).
         resp = client.get(RUTA_INVENTARIO, params=params, limitador=cubo)
         llamadas += 1
+        if medidor is not None:
+            medidor["llamadas"] += 1
         if resp.status_code != 200:
             raise IngestaInventarioError(f"inventario status={resp.status_code}")
         try:
@@ -298,13 +312,14 @@ def ejecutar_ingesta(
 
     escritas = 0
     skips: Counter = Counter()
+    medidor: Counter = Counter()
     try:
         params = {
             "granularityType": "Marketplace",
             "granularityId": marketplace_id,
             "marketplaceIds": marketplace_id,
         }
-        crudas, info = recorrer_summaries(client, params, max_paginas=max_paginas)
+        crudas, info = recorrer_summaries(client, params, max_paginas=max_paginas, medidor=medidor)
         paginas = info["paginas"]
         vistas = info["conteo"]
         aviso = info["aviso_paginacion"]
@@ -321,7 +336,7 @@ def ejecutar_ingesta(
                     _fila_insert(
                         inv,
                         platform=platform,
-                        metric_date=momento.date(),
+                        metric_date=_dia_utc(momento),
                         observed_at=momento,
                         run_id=run_id,
                     ),
@@ -330,18 +345,23 @@ def ejecutar_ingesta(
                     escritas += 1
                 else:
                     skips["duplicada"] += 1
+            motivo = _formato_skip_reason(Counter({k: v for k, v in skips.items() if v > 0}))
             if aviso is not None:
+                # Hallazgo 1 grok: como orders, el aviso no descarta el
+                # detalle de skips ya calculado.
+                motivo_aviso = f"paginacion_incompleta:{aviso}"
+                if motivo:
+                    motivo_aviso = f"{motivo_aviso}; {motivo}"
                 _sellar(
                     conn,
                     run_id,
                     ok=False,
                     escritas=escritas,
                     skips=skips,
-                    motivo=f"paginacion_incompleta:{aviso}",
+                    motivo=motivo_aviso,
                     llamadas=llamadas,
                 )
             else:
-                motivo = _formato_skip_reason(Counter({k: v for k, v in skips.items() if v > 0}))
                 _sellar(
                     conn,
                     run_id,
@@ -352,16 +372,20 @@ def ejecutar_ingesta(
                     llamadas=llamadas,
                 )
     except BaseException as exc:
+        # Hallazgo 2 grok: INSERTs y sello van en UNA transaccion; si
+        # revienta, Postgres deshace las filas y el contador Python
+        # mentiria — se sella 0 (como orders). Las llamadas si ocurrieron:
+        # las declara el medidor, no un 0 fijo.
         try:
             with conn.transaction():
                 _sellar(
                     conn,
                     run_id,
                     ok=False,
-                    escritas=escritas,
+                    escritas=0,
                     skips=Counter(),
                     motivo=scrub(str(exc)) or type(exc).__name__,
-                    llamadas=0,
+                    llamadas=medidor["llamadas"],
                 )
         except Exception:
             logger.warning(

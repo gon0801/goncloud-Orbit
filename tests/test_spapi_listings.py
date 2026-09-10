@@ -93,6 +93,18 @@ def test_sin_summary_del_marketplace_se_omite():
         )
 
 
+def test_status_lista_se_serializa_ordenado():
+    # Hallazgo 1 grok (alta): el modelo oficial define status como lista
+    # [BUYABLE, DISCOVERABLE]; si viene lista se guarda join ordenado,
+    # no NULL.
+    estado = listings.parsear_estado(
+        "SKU-A4-1",
+        _cuerpo_listings([_summary(status=["DISCOVERABLE", "BUYABLE"])]),
+        marketplace_id=MID_MX,
+    )
+    assert estado.status == "BUYABLE,DISCOVERABLE"
+
+
 def test_sin_summaries_se_omite():
     with pytest.raises(listings.EstadoOmitido, match="sin_summary"):
         listings.parsear_estado("SKU-A4-1", {"sku": "SKU-A4-1"}, marketplace_id=MID_MX)
@@ -225,6 +237,8 @@ def _handler_pase(respuestas, llamadas):
         cuerpo = respuestas[sku]
         if isinstance(cuerpo, tuple) and cuerpo[0] == "status":
             return httpx.Response(cuerpo[1], json={})
+        if isinstance(cuerpo, tuple) and cuerpo[0] == "red":
+            raise cuerpo[1]("corte de red simulado")
         return httpx.Response(200, json=cuerpo)
 
     return handler
@@ -286,6 +300,35 @@ def test_pase_punta_a_punta_idempotente():
             (segunda.run_id,),
         ).fetchone()
         assert "duplicada" in (run2[1] or "")
+
+
+@_skip_db
+def test_timeout_aislado_no_detiene_el_pase():
+    # Hallazgo 2 grok (media): como pricing F2, la red cuenta al umbral
+    # con skip "red" en vez de abortar el universo.
+    llamadas: list = []
+    skus = [f"SKU-A4-{i}" for i in range(1, 8)]
+    respuestas = {_s: _cuerpo_listings([_summary()], sku=_s) for _s in skus}
+    respuestas["SKU-A4-6"] = ("red", httpx.ConnectError)
+    cliente = SpapiClient(
+        credentials=CRED,
+        transport=httpx.MockTransport(_handler_pase(respuestas, llamadas)),
+        sleep=lambda _s: None,
+        clock=lambda: 1000.0,
+    )
+    with db_listings() as conn:
+        _sembrar_universo(conn, [("amazon_mx", _s, f"B0TEST000{i}") for i, _s in enumerate(skus)])
+        resultado = listings.ejecutar_ingesta(conn, cliente, platform="amazon_mx", ahora=AHORA)
+        assert resultado.ok
+        assert resultado.escritas == 6
+        assert resultado.llamadas == 7
+        run = conn.execute(
+            "SELECT ok, rows_written, skip_reason FROM ingest_run WHERE id = %s",
+            (resultado.run_id,),
+        ).fetchone()
+        assert run[0] is True
+        assert run[1] == 6
+        assert run[2] == "1x red"
 
 
 @_skip_db

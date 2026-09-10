@@ -43,9 +43,10 @@ COMMENT ON COLUMN spapi_listing_estado_observation.asin IS
     'ASIN del summary; NULL si Amazon no lo trae (regla 3).';
 
 COMMENT ON COLUMN spapi_listing_estado_observation.status IS
-    'Estado del summary del marketplace pedido (lista oficial OPEN/CLOSED/'
-    'etc.): se guarda TEXT tal cual, sin enum inventado; las formas no '
-    'atestiguadas no se pinean.';
+    'Estado del summary del marketplace pedido, TEXT sin enum inventado. '
+    'Forma escalar (OPEN/CLOSED del brief) tal cual; si Amazon manda lista '
+    '(modelo oficial: BUYABLE/DISCOVERABLE), join ordenado por coma. El '
+    'acta 0.3 no pino el tipo: pendiente confirmarlo en sonda.';
 
 COMMENT ON COLUMN spapi_listing_estado_observation.product_type IS
     'productType del summary; NULL si no viene.';

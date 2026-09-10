@@ -70,9 +70,10 @@ snapshot por fila).
 ## Comandos y salidas (sin secretos)
 
 `uv run --frozen python -m pytest -q tests/test_spapi_listings.py tests/test_spapi_inventario.py`
-→ `26 passed` (0 skips: 0001+0033+0034+0035 en BD desechable).
+→ `31 passed` (0 skips: 0001+0033+0034+0035 en BD desechable;
+26 base + 5 de la ronda grok, todos en rojo primero).
 Focal (listings, inventario, orders, pricing, cliente, redacción, fees,
-fotos, arquitectura, sonda, cli) → `271 passed`.
+fotos, arquitectura, sonda, cli) → `276 passed`.
 `ruff check` + `ruff format --check` → verde.
 `pre-commit run --all-files` → verde (abajo, antes del commit).
 
@@ -95,6 +96,37 @@ producción desde A.6; el test `test_trigger_metric_date_rechaza_dia_y_es_inmune
 demuestra en BD desechable que rechaza el día inconsistente y que con
 `SET TIME ZONE 'America/Mexico_City'` el `::date` local daría 09-08
 mientras el trigger exige el día UTC 09-09.
+
+## Cross-review grok (una ronda, quality-kit)
+
+Grok colgó 3 veces con el diff completo (exit 124, tope 300 s); entregó
+con `-Archivos` por módulo + `-TimeoutSec 600`. Verificado hallazgo por
+hallazgo contra el repo antes de corregir (ninguno se aplicó a ciegas).
+
+Inventario (`app/spapi/inventario.py`):
+
+- H1 [media] el sello de aviso tiraba el detalle de skips, contra el
+  patrón orders (que concatena `paginacion_incompleta:<aviso>; <skips>`).
+  Fix + test espejo del de orders. Válido.
+- H2 [media] el `except` sellaba `escritas` del contador Python aunque la
+  transacción única hiciera rollback, y `llamadas=0` fijo. Fix: `escritas=0`
+  (como orders) + `medidor` (Counter) que `recorrer_summaries` acumula por
+  intento para sellar llamadas reales. Tests de ambos. Válido.
+- H3 [baja] `metric_date=momento.date()` usaba día de pared. Fix: helper
+  `_dia_utc` (UTC explícito) + test unitario. Válido.
+
+Listings (`app/spapi/listings.py`):
+
+- H1 [alta] el modelo oficial define `summaries[].status` como LISTA
+  (`BUYABLE`/`DISCOVERABLE`); el brief habla de escalar (`OPEN`/`CLOSED`)
+  y el acta 0.3 no pinó el tipo. Fix: `_estado_texto` acepta ambas
+  (escalar tal cual, lista como join ordenado) + COMMENT actualizado +
+  test. Pendiente del lead: pinar la forma real en sonda (mismo trato
+  que `belongsToRequester` en A.3).
+- H2 [media] `_procesar_sku` no atrapaba `httpx.HTTPError` (pricing F2
+  sí). Fix: rama `red` al umbral + test de timeout aislado. Válido.
+
+Focal tras la ronda: `276 passed`.
 
 ## Cierre
 

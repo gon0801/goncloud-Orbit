@@ -184,7 +184,10 @@ def _cliente(paginas, *, llamadas=None, dormidas=None):
             cuerpo = next((p for p in paginas if p.get("token_entrada") == token), None)
             if cuerpo is None:
                 return httpx.Response(200, json=_pagina([]))
-        return httpx.Response(200, json=cuerpo.get("cuerpo", cuerpo))
+        cuerpo = cuerpo.get("cuerpo", cuerpo)
+        if isinstance(cuerpo, tuple) and cuerpo[0] == "status":
+            return httpx.Response(cuerpo[1], json={})
+        return httpx.Response(200, json=cuerpo)
 
     return SpapiClient(
         credentials=CRED,
@@ -432,6 +435,68 @@ def test_pase_punta_a_punta_idempotente():
             (segunda.run_id,),
         ).fetchone()
         assert "duplicada" in (run2[1] or "")
+
+
+@_skip_db
+def test_paginacion_incompleta_conserva_detalle_de_skips():
+    # Hallazgo 1 grok (media): como orders
+    # (test_paginacion_incompleta_sella_motivo_y_skips), el sello ok=false
+    # lleva el aviso Y los skips, no solo el aviso.
+    paginas = [
+        _pagina([_summary(), {"sellerSku": "SKU-SIN-QTY"}], token="Q"),
+        {"token_entrada": "Q", "cuerpo": _pagina([_summary(sku="SKU-A4-2")], token="Q")},
+    ]
+    cliente = _cliente(paginas)
+    with db_inventario() as conn:
+        resultado = inventario.ejecutar_ingesta(
+            conn, cliente, platform="amazon_mx", ahora=AHORA, max_paginas=5
+        )
+        assert resultado.ok is False
+        assert resultado.escritas == 2
+        run = conn.execute(
+            "SELECT ok, rows_written, rows_skipped, skip_reason FROM ingest_run WHERE id = %s",
+            (resultado.run_id,),
+        ).fetchone()
+        assert run[0] is False
+        assert run[1] == 2
+        assert run[2] == 1
+        assert run[3] == "paginacion_incompleta:next_token_repetido; 1x sin_cantidad"
+
+
+@_skip_db
+def test_fallo_en_recorrido_sella_ceros_y_llamadas_reales():
+    # Hallazgo 2 grok (media): si el recorrido muere, nada commiteo
+    # (filas=0) pero las llamadas si ocurrieron y asi se sellan.
+    paginas = [
+        _pagina([_summary()], token="Q"),
+        {"token_entrada": "Q", "cuerpo": ("status", 500)},
+    ]
+    cliente = _cliente(paginas)
+    with db_inventario() as conn:
+        with pytest.raises(inventario.IngestaInventarioError, match="status=500"):
+            inventario.ejecutar_ingesta(
+                conn, cliente, platform="amazon_mx", ahora=AHORA, max_paginas=5
+            )
+        run = conn.execute(
+            "SELECT ok, rows_written, rows_skipped, llamadas FROM ingest_run"
+            " ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        assert run[0] is False
+        assert run[1] == 0
+        assert run[2] == 0
+        assert run[3] == 2
+
+
+def test_dia_utc_no_usa_dia_de_pared():
+    # Hallazgo 3 grok (baja): metric_date es el dia UTC de observed_at,
+    # no el dia de pared del tzinfo que traiga `ahora`.
+    from datetime import timedelta, timezone
+
+    tz = timezone(timedelta(hours=-6))
+    assert (
+        inventario._dia_utc(datetime(2026, 9, 9, 0, 30, tzinfo=tz)) == datetime(2026, 9, 9).date()
+    )
+    assert inventario._dia_utc(AHORA) == datetime(2026, 9, 9).date()
 
 
 @_skip_db

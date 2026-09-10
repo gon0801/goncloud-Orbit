@@ -30,6 +30,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
+import httpx
 import psycopg
 
 from app.redaction import install_scrub_filter, scrub
@@ -144,6 +145,21 @@ def _texto(valor: Any) -> str | None:
     return None
 
 
+def _estado_texto(valor: Any) -> str | None:
+    # Hallazgo 1 grok (alta): el modelo oficial define status como LISTA
+    # ([BUYABLE, DISCOVERABLE]) mientras el brief habla de escalar
+    # (OPEN/CLOSED) y el acta 0.3 no pino el tipo. Se aceptan ambas formas:
+    # escalar tal cual, lista como join ordenado por coma (determinista
+    # ante cualquier orden de Amazon). Pendiente: pinar la forma real en
+    # sonda, como belongsToRequester en A.3.
+    if isinstance(valor, str):
+        return _texto(valor)
+    if isinstance(valor, list):
+        formas = sorted({v.strip() for v in valor if isinstance(v, str) and v.strip()})
+        return ",".join(formas) if formas else None
+    return None
+
+
 def _parsear_tiempo(valor: Any) -> datetime.datetime | None:
     # lastUpdatedDate ISO (E/0.3 no pino el formato exacto; se acepta lo que
     # fromisoformat entiende, con Zulu). Ilegible = NULL (regla 3), no omit.
@@ -183,7 +199,7 @@ def parsear_estado(sku: str, cuerpo: Any, *, marketplace_id: str) -> EstadoParse
     return EstadoParseado(
         seller_sku=sku,
         asin=_texto(resumen.get("asin")),
-        status=_texto(resumen.get("status")),
+        status=_estado_texto(resumen.get("status")),
         product_type=_texto(resumen.get("productType")),
         last_updated_date=_parsear_tiempo(resumen.get("lastUpdatedDate")),
     )
@@ -289,6 +305,15 @@ def _procesar_sku(
         av.fallos += 1
         av.racha += 1
         av.skips["contrato"] += 1
+        _vigilar_umbral(sku, av.fallos, av.racha, av.vistas)
+        return
+    except httpx.HTTPError:
+        # Hallazgo 2 grok: como pricing F2, la red cuenta al umbral con
+        # skip "red" en vez de abortar el universo (el cliente no reintenta
+        # red por politica A.1).
+        av.fallos += 1
+        av.racha += 1
+        av.skips["red"] += 1
         _vigilar_umbral(sku, av.fallos, av.racha, av.vistas)
         return
     with conn.transaction():
