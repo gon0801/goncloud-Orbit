@@ -4,6 +4,22 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-10 UTC — SP-API 01: A.R cerrada. Solo falta el deploy (A.6).**
+Grok hizo la revisión independiente de toda la Fase A y devolvió **APPROVE sobre `958c00f`**, sin
+hallazgos bloqueantes: cumplen los seis ejes del contrato (guard default-deny, un solo refrescador
+LWA, append-only con GRANTs por columna, dinero con moneda sellada, redacción, sin PII). Corrió 18
+mutantes: 14 mueren, 4 sobreviven y los declaró en vez de esconderlos. Informe en
+`docs/evidencia/sp-api-01/A.R/informe.md`.
+
+Sus dos hallazgos no bloqueantes se corrigieron en el mismo PR de cierre. El valioso es **H1**: la
+propuesta de cron **no era instalable**. Eran ocho líneas de crontab que no encadenaban nada (el
+texto decía "en serie" pero el artefacto no lo era), con un colchón de ~2 min en pricing MX que un
+solo `Retry-After` revienta — y, lo peor, el instalador idempotente de ORBIT 03 filtra
+`grep -v "app.cli ingest"`, así que re-aplicarlo **borraba las ocho líneas SP-API del crontab en
+silencio**. Ahora es un wrapper en serie con `flock`, logs en `logs/` y `job_key` propio que el
+instalador de Ads no toca. **H2**: ningún test afirmaba el verbo del camino de lectura (cambiar
+`client.get` por `client.post` pasaba 57 tests); ya está pineado.
+
 **2026-09-10 UTC — SP-API 01: A.5 cerrada; TODO el código de la Fase A está mergeado.**
 Salud SP-API en `/salud` y alertas por Telegram en flanco. Entró en **dos** PRs y vale la pena saber
 por qué: PR #246 (migración 0036, columna `ingest_run.platform`) se mergeó con 5 bloqueantes vivos que

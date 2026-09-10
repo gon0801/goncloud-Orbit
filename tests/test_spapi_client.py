@@ -73,6 +73,35 @@ def test_allowlist_get_fijo_y_plantillas_sin_http():
     assert validar_get(construir_ruta_catalogo("B0849JWYD8"))
 
 
+def test_camino_de_lectura_sale_como_GET():
+    """A.R/H2: el eje "cero escrituras a Amazon" vivia SOLO en el codigo.
+
+    Mutante M15 del informe A.R (`client.get` -> `client.post` en
+    client.py): 57 tests pasaban igual. Ningun test afirmaba el VERBO del
+    camino de lectura; el unico assert de metodo era el POST de
+    post_fees. Esto lo pinea: todo lo que sale hacia SP-API es GET, y a
+    LWA solo el POST del token.
+    """
+    llamadas: list = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token_ok(request)
+        return httpx.Response(200, json={"payload": {}})
+
+    cliente = _cliente(handler, llamadas=llamadas)
+    cliente.get("/sellers/v1/marketplaceParticipations")
+    cliente.get(RUTA_ORDERS_NUEVA, params={"MarketplaceIds": "A1AM78C64UM0Y8"})
+    cliente.get(construir_ruta_ofertas("B0849JWYD8"))
+
+    spapi = [r for r in llamadas if r.url.host != "api.amazon.com"]
+    assert len(spapi) == 3
+    assert [r.method for r in spapi] == ["GET", "GET", "GET"]
+    # LWA: el unico POST legitimo del cliente es el refresh del token.
+    lwa = [r for r in llamadas if r.url.host == "api.amazon.com"]
+    assert {r.method for r in lwa} == {"POST"}
+
+
 def test_allowlist_rechaza_antes_de_red():
     llamadas: list = []
     cliente = _cliente(_token_ok, llamadas=llamadas)
