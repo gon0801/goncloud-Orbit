@@ -5104,6 +5104,26 @@ git commit -m "test(architecture): allowlist de imports de tools/fabrica_campana
 > este commit. Quedan: paso 4 (ciclo del 2026-09-09 08:41 UTC debe listar las
 > 5 como elegibles en shadow) y el cierre en AppFlowy. Evidencia completa en
 > «Tarea 11 — sonda».]
+>
+> cc:WIP [**2026-09-10 (lead): el paso 4 NO se puede cerrar todavía, y no por
+> un fallo — por la regla 6.** Verificado contra producción: las 5 campañas
+> (`ad_entity` 415284–415288) tienen su goal propio con `enabled=t` y
+> `mode=shadow`, y tráfico real (3 filas en `ads_metric_observation`,
+> 2026-09-09, 111 impresiones y 3 clicks). O sea que la mitad del paso 4
+> —«listarlas como elegibles»— ya está cumplida. Lo que falta son «sus
+> decisiones en shadow», y ahí manda la **madurez ≥10d**
+> (`docs/CONTEXTO.md:81`, `window_end <= decided_at − 10d`): el optimizador
+> jamás decide sobre datos de menos de 10 días. Nacieron el 2026-09-09, así
+> que sus números entran a la ventana madura **alrededor del 2026-09-19**.
+> `SELECT count(*) FROM decision WHERE ad_entity_id IN (SELECT ad_entity_id
+> FROM campana_grupo_rol)` = 0 es el resultado CORRECTO hoy. El log del
+> ciclo lo confirma: los ciclos 45–48 (2026-09-08 y 09) cerraron
+> `status=done decisions_count=0`, sin errores.
+>
+> **Cómo cerrarlo**: re-correr esa consulta a partir del 2026-09-19/20; con
+> decisiones > 0 en shadow, el paso 4 queda demostrado y la tarea se cierra
+> junto con AppFlowy. **Esto NO bloquea F2**: lo que falta es que pase el
+> tiempo, no trabajo pendiente.]
 
 **Files:**
 - Modify: `plans/fabrica-01.md` ("Decisiones y evidencia"), `docs/CHAT-CONTEXT.md`
