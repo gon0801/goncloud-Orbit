@@ -385,6 +385,31 @@ la misma fuente que el CLI. Los de ingesta quedan como comentario en el
 crontab y como `ingest_run.source` (`amazon_ads_structure_v2` /
 `amazon_ads_reports_v3`).
 
+### Ingestas SP-API diarias 05:00–06:30 (A.5, PROPUESTA — NO instalada)
+
+Ocho corridas en serie (un CLI = una plataforma; verificar flags con
+`ingest --help`), con el mismo patrón `docker exec orbit-app-1` de
+arriba. En serie a propósito: los limitadores son por proceso y dos
+procesos contra la misma quota Amazon se canibalizan (429 absorbidos,
+pero para qué). Presupuesto medido: pricing MX ~23 min (342 ASIN × 2
+llamadas a 0.5/s) + pricing US ~12 min; orders/listings/inventario
+~2 min cada una → ~45 min + margen, antes del sync de estructura 06:45:
+
+```cron
+00 5 * * * docker exec orbit-app-1 python -m app.cli ingest spapi_pricing --platform amazon_mx
+25 5 * * * docker exec orbit-app-1 python -m app.cli ingest spapi_pricing --platform amazon_us
+40 5 * * * docker exec orbit-app-1 python -m app.cli ingest spapi_orders --platform amazon_mx
+45 5 * * * docker exec orbit-app-1 python -m app.cli ingest spapi_orders --platform amazon_us
+50 5 * * * docker exec orbit-app-1 python -m app.cli ingest spapi_listings --platform amazon_mx
+55 5 * * * docker exec orbit-app-1 python -m app.cli ingest spapi_listings --platform amazon_us
+00 6 * * * docker exec orbit-app-1 python -m app.cli ingest spapi_inventario --platform amazon_mx
+10 6 * * * docker exec orbit-app-1 python -m app.cli ingest spapi_inventario --platform amazon_us
+```
+
+Cada corrida sella su `ingest_run` (ok/false) y solo alerta en flanco
+(A.5); un fallo no tumba las siguientes (cada línea es un proceso).
+Instalar es A.6 (dueño), no esta tarea.
+
 ### Refresco diario contable 08:15 (ORBIT 06 2.2)
 
 La línea `15 8 * * * .../refresh_costos.sh` (que ya existía para costos, a

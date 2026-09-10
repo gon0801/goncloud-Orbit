@@ -24,7 +24,14 @@ from app.spapi import orders
 from app.spapi.client import CuboTasa, SpapiClient
 
 ROOT = Path(__file__).resolve().parents[1]
-ORDEN = ("0001_initial.sql", "0030_spapi_orders.sql", "0031_spapi_orders_bitemporal.sql")
+ORDEN = (
+    "0001_initial.sql",
+    "0030_spapi_orders.sql",
+    "0031_spapi_orders_bitemporal.sql",
+    "0033_ingest_run_llamadas.sql",
+    "0034_ingest_run_llamadas_grant.sql",
+    "0036_ingest_run_platform.sql",
+)  # A.5: el sello escribe platform+llamadas
 
 AHORA = datetime(2026, 9, 9, 12, 0, 0, tzinfo=UTC)
 CRED = {

@@ -57,6 +57,30 @@
   </div>
   {% endif %}
 
+  {% if datos.spapi %}
+  {# SP-API 01 A.5: salud de las 4 ingestas por fuente (ultima corrida,
+     ultimo 429, ultimo fallo LWA). Sin corridas = fila "sin corridas". #}
+  <h3>SP-API</h3>
+  <div class="tabla-scroll" role="region" aria-label="Tabla de datos" tabindex="0">
+  <table>
+    <thead><tr><th>Fuente</th><th>Ultima</th><th class="num">Filas</th><th class="num">Skips</th><th>Motivo</th><th>Ultimo 429</th><th>Ultimo LWA</th></tr></thead>
+    <tbody>
+      {% for fuente, s in datos.spapi.items() %}
+      <tr>
+        <td>{{ fuente }}</td>
+        <td>{% if s.ultima %}<span class="chip {% if s.ultima.ok %}ok{% elif s.ultima.ok is false %}alerta{% endif %}">{% if s.ultima.ok %}ok{% elif s.ultima.ok is false %}fallo{% else %}—{% endif %}</span> <span class="mutado">#{{ s.ultima.id }} · {{ s.ultima.finished_at or s.ultima.started_at or "—" }}</span>{% else %}<span class="mutado">sin corridas</span>{% endif %}</td>
+        <td class="num">{% if s.ultima %}{{ s.ultima.rows_written }}{% else %}—{% endif %}</td>
+        <td class="num">{% if s.ultima %}{{ s.ultima.rows_skipped }}{% else %}—{% endif %}</td>
+        <td>{{ (s.ultima.skip_reason if s.ultima else none) or "—" }}</td>
+        <td>{% if s.ultima_429 %}<span class="mutado">#{{ s.ultima_429.id }} · {{ s.ultima_429.finished_at or s.ultima_429.started_at or "—" }}</span>{% else %}—{% endif %}</td>
+        <td>{% if s.ultimo_lwa %}<span class="mutado">#{{ s.ultimo_lwa.id }} · {{ s.ultimo_lwa.finished_at or s.ultimo_lwa.started_at or "—" }}</span>{% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+
   <h3>Historico (14d)</h3>
   <div class="tabla-scroll" role="region" aria-label="Tabla de datos" tabindex="0">
   <table>

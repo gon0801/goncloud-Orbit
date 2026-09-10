@@ -28,7 +28,8 @@ ORDEN = (
     "0032_spapi_pricing.sql",
     "0033_ingest_run_llamadas.sql",
     "0034_ingest_run_llamadas_grant.sql",
-)
+    "0036_ingest_run_platform.sql",
+)  # A.5: el sello escribe platform
 
 AHORA = datetime(2026, 9, 9, 12, 0, 0, tzinfo=UTC)
 CRED = {
