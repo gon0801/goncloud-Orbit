@@ -4,6 +4,16 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-10 UTC — SP-API 01: A.4 cerrada y mergeada (PR #244, Muse).**
+Ingesta de Listings Items e Inventario FBA: migración 0035 (`spapi_listing_estado_observation` y
+`spapi_inventario_observation`, append-only, trigger de `metric_date` con UTC fijado), universo de
+listings = `seller_sku` de `listing` (5 req/s), inventario con recorrido completo y `pagination`
+hermana de `payload` (2 req/s). D2 cumplida con test que hace snapshot de las 7 columnas de `listing`:
+el bridge sigue siendo la fuente de precio y stock. Review del lead aprobada con 4 observaciones BAJA
+pendientes (conteos de líneas de la evidencia, dos nombres, y un SELECT de cortesía del trigger en el
+checklist del deploy de 0035). Falta el deploy: va en el A.6 final junto con A.5 (salud y alertas),
+que es la última tarea de código de la fase. También se mergeó el menú móvil del dashboard (PR #245).
+
 **2026-09-10 UTC — SP-API 01: deploy parcial A.6 en producción (A.1–A.3 en vivo).**
 Migraciones 0031–0034 aplicadas con backup verificado; app reconstruida desde `origin/master` (md5
 idénticos, `orbit-db-1` intacta). Primeras corridas reales: orders ok (incremental, 15+6 filas sobre las
