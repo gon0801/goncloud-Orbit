@@ -186,6 +186,16 @@ def test_bloque_salud_lee_solo_ingest_run():
         # Trampa del comodin LIKE: con LIKE 'http_429%' (salud.py anterior)
         # '_' matchea 'X' y esta fila CAERIA en ultima_429.
         _sellar(conn, "spapi_inventario", "amazon_mx", False, "httpX429: trampa")
+        # Trampa de la SUBCADENA: el prefijo tiene que estar ANCLADO al
+        # inicio. Con `position('http_429' in skip_reason) > 0` (o LIKE
+        # '%http_429%') esta fila caeria en ultima_429 y no debe.
+        _sellar(
+            conn,
+            "spapi_inventario",
+            "amazon_mx",
+            False,
+            "contrato: detalle http_429 embebido a media cadena",
+        )
         conn.commit()
         bloque = bloque_salud(conn, "amazon_mx")
         ultima = bloque["spapi_orders"]["ultima"]
@@ -914,9 +924,14 @@ def test_ui_salud_renderiza_spapi(monkeypatch):
         fila = m.group(1)
         assert ">ok<" in fila
         assert f"#{r1}" in fila
-        assert ">4<" in fila
-        assert ">2<" in fila
-        assert "2x duplicada" in fila
+        # POSICIONES, no presencia: afirmar solo que ">4<" y ">2<" aparecen
+        # deja pasar la mutacion que intercambia rows_written y rows_skipped
+        # en la plantilla (hallazgo CodeRabbit PR #247). Orden de columnas:
+        # Fuente | Ultima | Filas | Skips | Motivo | Ultimo 429 | Ultimo LWA.
+        celdas = [c.strip() for c in re.findall(r"<td[^>]*>(.*?)</td>", fila, re.S)]
+        assert celdas[1] == "4", celdas
+        assert celdas[2] == "2", celdas
+        assert celdas[3] == "2x duplicada", celdas
         assert "sin corridas" in mx
 
 
@@ -1017,13 +1032,18 @@ def test_migracion_0036_platform_y_grants():
 
 @_skip_db
 def test_migracion_0037_indice_salud():
-    """Opt-7: el indice (source, platform, id DESC) existe (las 3 consultas
-    de /salud por fuente+plataforma lo usan)."""
+    """Opt-7: el indice (source, platform, id DESC) existe Y tiene esas
+    columnas en ese orden (las 3 consultas de /salud por fuente+plataforma
+    lo usan). Afirmar solo el NOMBRE deja pasar un indice con las columnas
+    equivocadas (hallazgo CodeRabbit PR #247)."""
     with db_salud() as conn:
-        assert (
-            conn.execute(
-                "SELECT count(*) FROM pg_indexes"
-                " WHERE indexname = 'ingest_run_source_platform_id_idx'"
-            ).fetchone()[0]
-            == 1
-        )
+        definicion = conn.execute(
+            "SELECT indexdef FROM pg_indexes WHERE indexname = 'ingest_run_source_platform_id_idx'"
+        ).fetchone()
+        assert definicion is not None, "falta el indice de /salud"
+        assert "(source, platform, id DESC)" in definicion[0], definicion[0]
+        # Y el candado del INSERT que 0037 se trajo de 0036 (0036 ya
+        # mergeada y no re-runnable): un REVOKE INSERT truena la migracion.
+        assert conn.execute(
+            "SELECT has_column_privilege('app_ingest', 'ingest_run', 'platform', 'INSERT')"
+        ).fetchone()[0]

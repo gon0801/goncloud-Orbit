@@ -4,6 +4,23 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-10 UTC — SP-API 01: A.5 cerrada; TODO el código de la Fase A está mergeado.**
+Salud SP-API en `/salud` y alertas por Telegram en flanco. Entró en **dos** PRs y vale la pena saber
+por qué: PR #246 (migración 0036, columna `ingest_run.platform`) se mergeó con 5 bloqueantes vivos que
+había encontrado la review del lead, y el arreglo es PR #247 (merge `542564d`, migración 0037: índice
+de `/salud` + candado del `INSERT`). Los bloqueantes: `evaluar_alertas` dejaba la conexión en
+transacción abierta y degradaba el sello siguiente a savepoint (riesgo de repetir las corridas
+huérfanas 145/147); las alertas "inmediatas" no tenían flanco (8 mensajes diarios con el refresh LWA
+caído); el candado del GRANT probaba el `INSERT` como dueño de la base y no como `app_ingest` (la
+misma clase de bug que 0033→0034); el historial contaba corridas abiertas y no anclaba la corrida
+recién sellada; y el cableado estaba sin probar en 3 de las 4 ingestas. Verificación por mutación:
+29 mutantes sobre la entrega original (21 sobrevivieron) y 13 sobre la ronda de corrección (12
+mueren). Semántica final: **una alerta por racha**; inmediata en `lwa_fallido`/`http_429` sólo si la
+corrida anterior no era fallida de esa misma clase; un cambio de clase dentro de una racha sí
+re-alerta; una corrida ok rompe la racha. **Nada de esto está en producción todavía**: sigue en
+0031-0034. Faltan A.R (revisión independiente, la toma Grok) y el deploy final A.6, que aplica
+`0035`, `0036` y `0037` en ese orden ANTES de reconstruir la app, más el cron diario propuesto.
+
 **2026-09-10 UTC — SP-API 01: A.4 cerrada y mergeada (PR #244, Muse).**
 Ingesta de Listings Items e Inventario FBA: migración 0035 (`spapi_listing_estado_observation` y
 `spapi_inventario_observation`, append-only, trigger de `metric_date` con UTC fijado), universo de

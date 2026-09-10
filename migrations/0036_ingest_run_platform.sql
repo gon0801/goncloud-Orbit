@@ -43,13 +43,11 @@ BEGIN
     IF NOT has_column_privilege('app_ingest', 'ingest_run', 'platform', 'SELECT') THEN
         RAISE EXCEPTION '0036: app_ingest sin SELECT en ingest_run.platform';
     END IF;
-    -- Las 4 ingestas escriben platform en el INSERT de apertura: el
-    -- privilegio que realmente ejercen, candado contra un REVOKE futuro
-    -- (un REVOKE INSERT dejaria las 4 ingestas rotas en produccion con la
-    -- suite verde: solo el INSERT real lo ejerce).
-    IF NOT has_column_privilege('app_ingest', 'ingest_run', 'platform', 'INSERT') THEN
-        RAISE EXCEPTION '0036: app_ingest sin INSERT en ingest_run.platform';
-    END IF;
+    -- El candado del INSERT (el privilegio que las 4 ingestas REALMENTE
+    -- ejercen al abrir el run) NO va aqui: 0036 ya esta mergeada y no es
+    -- re-runnable, asi que un entorno que ya la aplico nunca volveria a
+    -- correr este bloque. Vive en 0037, que aun no se aplico en ningun
+    -- lado (hallazgo CodeRabbit PR #247).
     IF has_column_privilege('app_ingest', 'ingest_run', 'platform', 'UPDATE') THEN
         RAISE EXCEPTION '0036: app_ingest NO debe poder reatribuir plataforma';
     END IF;
