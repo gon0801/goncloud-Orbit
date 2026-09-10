@@ -10,8 +10,8 @@ pendientes (sus migraciones y crons NO están en este deploy).
    orders del dueño); 0031/0032/0033 ausentes; contenedor con código pre-A.3.
 2. **Backup** (staging + verificación de marcadores, patrón 4.1):
    `backups/pre0031_spapi_order_observation_20260910-003302.sql` (42,695 B,
-   `CREATE TABLE` + marcador de cierre presentes, 600). El backup diario de
-   las 05:00 UTC cubre el resto.
+   `CREATE TABLE` + marcador de cierre presentes, 600). El backup diario
+   mas reciente (`orbit_2026-09-09`, 03:30 UTC) cubre el resto del esquema.
 3. **Migraciones** (cada una con `-1 -v ON_ERROR_STOP=1`, como `orbit`):
    0031 → 0032 → 0033, en orden. Post-verificación: 224 filas intactas,
    vista `v_spapi_order_ultima` (224 filas, 1:1 sin re-observaciones),
