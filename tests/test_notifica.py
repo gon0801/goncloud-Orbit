@@ -1023,3 +1023,55 @@ def test_fase_notifica_mapea_alerta_harvest_fallida_a_nota():
         )
         == {}
     )
+
+
+# ---------------------------------------------------------------------------
+# 9. Aviso de fallo SP-API (SP-API 01 A.5, ronda review): builder + sender
+# ---------------------------------------------------------------------------
+
+
+def test_aviso_spapi_fallo_contenido_y_matiz_ads():
+    """Builder puro: fuente, plataforma y motivo; el matiz de Ads SOLO con
+    motivo LWA."""
+    texto = notifica.aviso_spapi_fallo(
+        "spapi_orders", "amazon_mx", "lwa_fallido: LWA rechazo (401)"
+    )
+    assert "fuente: spapi_orders" in texto
+    assert "plataforma: amazon_mx" in texto
+    assert "lwa_fallido" in texto
+    assert "El ciclo de Ads no se afecta" in texto
+    sin_matiz = notifica.aviso_spapi_fallo(
+        "spapi_pricing", "amazon_mx", "http_429: pricing status=429"
+    )
+    assert "El ciclo de Ads no se afecta" not in sin_matiz
+
+
+def test_notifica_spapi_fallo_sin_canal_no_es_fallo():
+    """Canal deshabilitado (default del conftest): True y cero HTTP. Mata la
+    mutacion 'sin rama canal_activo'."""
+    assert notifica.notifica_spapi_fallo("spapi_orders", "amazon_mx", "lwa_fallido: x") is True
+
+
+def test_notifica_spapi_fallo_builder_roto_no_levanta(tmp_path, monkeypatch):
+    """El JAMAS levanta cubre tambien el builder (no solo la red: esa la
+    traga _envia_texto). Con canal CONFIGURADO para llegar al builder.
+    Mata la mutacion 'sin try/except en notifica_spapi_fallo'."""
+
+    def builder_roto(*a, **k):
+        raise RuntimeError("builder roto")
+
+    with _canal(tmp_path, monkeypatch):
+        monkeypatch.setattr(notifica, "aviso_spapi_fallo", builder_roto)
+        assert notifica.notifica_spapi_fallo("spapi_orders", "amazon_mx", "lwa_fallido: x") is False
+
+
+def test_notifica_spapi_fallo_envia_y_tumba(tmp_path, monkeypatch):
+    """Sender: con canal OK envia (True); con red rota devuelve False SIN
+    levantar. Mata la mutacion 'sin try/except en notifica_spapi_fallo'."""
+    with _canal(tmp_path, monkeypatch) as mensajes:
+        assert notifica.notifica_spapi_fallo("spapi_orders", "amazon_mx", "lwa_fallido: x") is True
+    (mensaje,) = mensajes
+    assert mensaje["chat_id"] == FAKE_CHAT_ID
+    assert "fuente: spapi_orders" in mensaje["text"]
+    with _canal(tmp_path, monkeypatch, tumbar=True):
+        assert notifica.notifica_spapi_fallo("spapi_orders", "amazon_mx", "lwa_fallido: x") is False
