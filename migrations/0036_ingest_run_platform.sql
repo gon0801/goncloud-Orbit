@@ -17,7 +17,7 @@
 -- los 4 roles (leccion 0033->0034) + verificacion con asserts.
 --
 -- Expansiva, no toca datos. Las 4 ingestas escriben platform al abrir el
--- run en el mismo PR.
+-- run en el mismo PR. No re-runnable (sin IF NOT EXISTS, patron 0033/0035).
 -- ---------------------------------------------------------------------------
 
 BEGIN;
@@ -42,6 +42,13 @@ BEGIN
     END IF;
     IF NOT has_column_privilege('app_ingest', 'ingest_run', 'platform', 'SELECT') THEN
         RAISE EXCEPTION '0036: app_ingest sin SELECT en ingest_run.platform';
+    END IF;
+    -- Las 4 ingestas escriben platform en el INSERT de apertura: el
+    -- privilegio que realmente ejercen, candado contra un REVOKE futuro
+    -- (un REVOKE INSERT dejaria las 4 ingestas rotas en produccion con la
+    -- suite verde: solo el INSERT real lo ejerce).
+    IF NOT has_column_privilege('app_ingest', 'ingest_run', 'platform', 'INSERT') THEN
+        RAISE EXCEPTION '0036: app_ingest sin INSERT en ingest_run.platform';
     END IF;
     IF has_column_privilege('app_ingest', 'ingest_run', 'platform', 'UPDATE') THEN
         RAISE EXCEPTION '0036: app_ingest NO debe poder reatribuir plataforma';
