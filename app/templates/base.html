@@ -2,7 +2,7 @@
 <html lang="es" data-tema="dia">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Orbit — Dashboard</title>
   <link rel="icon" href="/static/favicon/favicon.ico" sizes="16x16 32x32 48x48">
   <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon/favicon-32.png">
@@ -37,7 +37,6 @@
       <span><strong>ORBIT</strong><small>Ads y marketplaces</small></span>
     </a>
     <div class="canal-actual">Amazon Ads · MX + US</div>
-    <button type="button" id="nav-toggle" aria-expanded="false" aria-controls="nav-secciones" hidden>Menu</button>
     <nav id="nav-secciones" class="navegacion" aria-label="Secciones">
       {% for grupo, enlaces in [
         ('Panel', [('resumen', '/', 'Resumen'), ('campanas', '/campanas', 'Campañas'),
@@ -85,6 +84,87 @@
     {% block contenido %}{% endblock %}
     </main>
   </div>
+  {# Tab bar movil: 7 destinos fijos. El sidebar de escritorio se conserva.
+     inicio=resumen/salud · pnl=contribucion · skus=reputacion
+     ordenes=decisiones · gastos=campanas/fabrica/inertes
+     saldos=settings · revision=cortes #}
+  {% set tab_por_pantalla = {
+    'resumen': 'inicio', 'salud': 'inicio',
+    'contribucion': 'pnl',
+    'reputacion': 'skus',
+    'decisiones': 'ordenes',
+    'campanas': 'gastos', 'fabrica': 'gastos', 'inertes': 'gastos',
+    'settings': 'saldos',
+    'cortes': 'revision'
+  } %}
+  {% set tab_activo = tab_por_pantalla.get(pantalla, 'inicio') %}
+  <nav class="tab-bar" aria-label="Navegacion movil">
+    <svg class="tab-sprite" aria-hidden="true" focusable="false">
+      <symbol id="ico-casa" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4.5 10.5 12 4.25l7.5 6.25V19a1.5 1.5 0 0 1-1.5 1.5h-4.25v-6h-3.5v6H6A1.5 1.5 0 0 1 4.5 19z"/>
+      </symbol>
+      <symbol id="ico-casa-fill" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 3.4 3.7 10.2a.95.95 0 0 0 1.2 1.47L6 10.7V18.6A1.9 1.9 0 0 0 7.9 20.5h2.7v-6.3h2.8v6.3h2.7a1.9 1.9 0 0 0 1.9-1.9v-7.9l1.1.97a.95.95 0 1 0 1.2-1.47L12 3.4z"/>
+      </symbol>
+      <symbol id="ico-barras" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
+        <path d="M6 19V10M12 19V5M18 19v-7"/>
+      </symbol>
+      <symbol id="ico-barras-fill" viewBox="0 0 24 24" fill="currentColor">
+        <rect x="4.6" y="9.2" width="2.8" height="10.3" rx="1.2"/>
+        <rect x="10.6" y="4.5" width="2.8" height="15" rx="1.2"/>
+        <rect x="16.6" y="11.2" width="2.8" height="8.3" rx="1.2"/>
+      </symbol>
+      <symbol id="ico-cubo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round">
+        <path d="M12 3.4 20.2 8v8L12 20.6 3.8 16V8L12 3.4zM12 12l8.2-4M12 12v8.6M12 12 3.8 8"/>
+      </symbol>
+      <symbol id="ico-cubo-fill" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 2.8 20.5 7.5v9l-8.5 4.7-8.5-4.7v-9L12 2.8zm0 2.2L6.2 8.2 12 11.4l5.8-3.2L12 5zm6.6 4.4L13 12.7v6.6l5.6-3.1V9.4zM11 19.3v-6.6L5.4 9.4v6.4L11 19.3z"/>
+      </symbol>
+      <symbol id="ico-lista" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
+        <path d="M9 7h11M9 12h11M9 17h11M5 7h.01M5 12h.01M5 17h.01"/>
+      </symbol>
+      <symbol id="ico-lista-fill" viewBox="0 0 24 24" fill="currentColor">
+        <circle cx="5" cy="7" r="1.35"/><rect x="8.2" y="5.8" width="11.5" height="2.4" rx="1.2"/>
+        <circle cx="5" cy="12" r="1.35"/><rect x="8.2" y="10.8" width="11.5" height="2.4" rx="1.2"/>
+        <circle cx="5" cy="17" r="1.35"/><rect x="8.2" y="15.8" width="11.5" height="2.4" rx="1.2"/>
+      </symbol>
+      <symbol id="ico-billetera" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round">
+        <path d="M3.5 8.5h17A1.5 1.5 0 0 1 22 10v8a1.5 1.5 0 0 1-1.5 1.5h-17A1.5 1.5 0 0 1 2 18V8.5A1.5 1.5 0 0 1 3.5 7h12V8.5"/>
+        <circle cx="17" cy="14" r="1"/>
+      </symbol>
+      <symbol id="ico-billetera-fill" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M3.6 6.6h11.7v1.5H3.7A1.2 1.2 0 0 0 2.5 9.3v8.4A2.1 2.1 0 0 0 4.6 19.8h14.8a2.1 2.1 0 0 0 2.1-2.1v-7.3a2.1 2.1 0 0 0-2.1-2.1H3.6V6.6zm13.7 6.2a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8z"/>
+      </symbol>
+      <symbol id="ico-banco" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 10 12 5l8 5M6.5 10v8.5M12 10v8.5M17.5 10v8.5M4 19.5h16"/>
+      </symbol>
+      <symbol id="ico-banco-fill" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 3.8 3.4 9.2a1 1 0 0 0 .6 1.8h16a1 1 0 0 0 .6-1.8L12 3.8zM5.4 12.2h2.4V18H5.4v-5.8zm5.4 0h2.4V18h-2.4v-5.8zm5.4 0h2.4V18h-2.4v-5.8zM3.8 19.2h16.4a.9.9 0 0 1 0 1.8H3.8a.9.9 0 0 1 0-1.8z"/>
+      </symbol>
+      <symbol id="ico-aviso" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" stroke-linecap="round">
+        <path d="M12 4.2 20.7 19.3H3.3L12 4.2zM12 10v4.3M12 16.7v.4"/>
+      </symbol>
+      <symbol id="ico-aviso-fill" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M10.7 3.7a1.5 1.5 0 0 1 2.6 0l8.4 14.6A1.5 1.5 0 0 1 20.4 20.5H3.6a1.5 1.5 0 0 1-1.3-2.2L10.7 3.7zM12 9.4a.9.9 0 0 0-.9.9v3.7a.9.9 0 0 0 1.8 0V10.3a.9.9 0 0 0-.9-.9zm0 7.1a1.05 1.05 0 1 0 0 2.1 1.05 1.05 0 0 0 0-2.1z"/>
+      </symbol>
+    </svg>
+    {% for id_tab, href, nombre, ico, rol in [
+      ('inicio', '/', 'Inicio', 'casa', none),
+      ('pnl', '/contribucion', 'P&L', 'barras', none),
+      ('skus', '/reputacion', 'SKUs', 'cubo', 'reputacion'),
+      ('ordenes', '/decisiones', 'Órdenes', 'lista', none),
+      ('gastos', '/campanas', 'Gastos', 'billetera', none),
+      ('saldos', '/settings', 'Saldos', 'banco', none),
+      ('revision', '/cortes', 'Revisión', 'aviso', 'propuestas')
+    ] %}
+    <a class="tab{% if tab_activo == id_tab %} tab-activo{% endif %}" href="{{ href }}"{% if tab_activo == id_tab %} aria-current="page"{% endif %}>
+      <svg class="tab-ico tab-ico-off"><use href="#ico-{{ ico }}"/></svg>
+      <svg class="tab-ico tab-ico-on"><use href="#ico-{{ ico }}-fill"/></svg>
+      <span class="tab-label">{{ nombre }}</span>
+      {% if rol %}<span class="contador tab-badge" data-rol="{{ rol }}" hidden></span>{% endif %}
+    </a>
+    {% endfor %}
+  </nav>
   <script src="/static/vendor/chart.umd.min.js?v={{ asset_version }}"></script>
   <script src="/static/js/shell.js?v={{ asset_version }}"></script>
   <script src="/static/js/dashboard.js?v={{ asset_version }}"></script>
