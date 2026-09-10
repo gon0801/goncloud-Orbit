@@ -387,28 +387,66 @@ crontab y como `ingest_run.source` (`amazon_ads_structure_v2` /
 
 ### Ingestas SP-API diarias 05:00–06:30 (A.5, PROPUESTA — NO instalada)
 
-Ocho corridas en serie (un CLI = una plataforma; verificar flags con
-`ingest --help`), con el mismo patrón `docker exec orbit-app-1` de
-arriba. En serie a propósito: los limitadores son por proceso y dos
-procesos contra la misma quota Amazon se canibalizan (429 absorbidos,
-pero para qué). Presupuesto medido: pricing MX ~23 min (342 ASIN × 2
-llamadas a 0.5/s) + pricing US ~12 min; orders/listings/inventario
-~2 min cada una → ~45 min + margen, antes del sync de estructura 06:45:
+Ocho corridas **en serie dentro de UN wrapper**, no ocho líneas de
+crontab. La revisión A.R (hallazgo H1) encontró tres defectos en la
+versión anterior de esta propuesta, y los tres tienen la misma raíz:
+ocho líneas independientes de Vixie no son una secuencia.
 
-```cron
-00 5 * * * docker exec orbit-app-1 python -m app.cli ingest spapi_pricing --platform amazon_mx
-25 5 * * * docker exec orbit-app-1 python -m app.cli ingest spapi_pricing --platform amazon_us
-40 5 * * * docker exec orbit-app-1 python -m app.cli ingest spapi_orders --platform amazon_mx
-45 5 * * * docker exec orbit-app-1 python -m app.cli ingest spapi_orders --platform amazon_us
-50 5 * * * docker exec orbit-app-1 python -m app.cli ingest spapi_listings --platform amazon_mx
-55 5 * * * docker exec orbit-app-1 python -m app.cli ingest spapi_listings --platform amazon_us
-00 6 * * * docker exec orbit-app-1 python -m app.cli ingest spapi_inventario --platform amazon_mx
-10 6 * * * docker exec orbit-app-1 python -m app.cli ingest spapi_inventario --platform amazon_us
+1. **No corrían en serie de verdad.** El texto decía «en serie a
+   propósito» (los limitadores son por proceso y dos procesos contra la
+   misma quota Amazon se canibalizan), pero el artefacto no encadenaba
+   nada: si pricing MX se pasaba de su slot, US arrancaba encima.
+2. **Colchón de ~2 min.** Presupuesto medido de pricing MX: 342 ASIN ×
+   2 llamadas a 0.5/s ≈ 22.8 min en un slot de 25. Un solo 429 con
+   `Retry-After` de 60 s (el tope del cliente) lo revienta.
+3. **El instalador de ORBIT 03 las borraba.** El comando idempotente de
+   más abajo filtra `grep -v "app.cli ingest"`, y las ocho líneas
+   calzaban ese patrón: re-aplicar el bloque de Ads las eliminaba del
+   crontab **en silencio y sin error**.
+
+**Wrapper** (`/mnt/data/appdata/orbit/spapi-diario.sh`, `chmod +x`), que
+resuelve 1 y 2 — la secuencia es del shell, no del reloj, así que un
+retraso corre el resto en vez de solaparlo:
+
+```bash
+#!/usr/bin/env bash
+# SP-API 01 A.5: las 8 ingestas diarias, EN SERIE y en un solo proceso.
+# Sin `set -e`: una fuente que falla no debe cancelar las siguientes
+# (cada una sella su propio ingest_run y alerta sola, A.5).
+set -uo pipefail
+for fuente in spapi_orders spapi_listings spapi_inventario spapi_pricing; do
+  for mercado in amazon_mx amazon_us; do
+    echo "=== $(date -u +%FT%TZ) $fuente $mercado ==="
+    docker exec orbit-app-1 python -m app.cli ingest "$fuente" --platform "$mercado" || true
+  done
+done
 ```
 
-Cada corrida sella su `ingest_run` (ok/false) y solo alerta en flanco
-(A.5); un fallo no tumba las siguientes (cada línea es un proceso).
-Instalar es A.6 (dueño), no esta tarea.
+Las tres baratas van primero y **pricing al final**: es la larga y la
+menos urgente, así que un sobrepaso suyo no le come la ventana a nadie.
+Presupuesto: orders/listings/inventario ~2 min cada una (~12 min) +
+pricing MX ~23 + US ~12 ≈ **47 min**. Arrancando 05:00 termina ~05:47,
+con casi una hora de margen antes del sync de estructura de 06:45.
+
+**Una sola línea de crontab**, que resuelve 3 — no contiene `app.cli
+ingest`, así que el instalador de Ads no la toca, y su `job_key` es
+propio (`spapi:`, no `ingest:`):
+
+```cron
+# job_key=spapi:diario  SP-API 01 A.5 (las 8 ingestas, wrapper en serie)
+00 5 * * * /usr/bin/flock -n /tmp/spapi-diario.lock /mnt/data/appdata/orbit/spapi-diario.sh >> /mnt/data/appdata/orbit/logs/spapi-diario.log 2>&1
+```
+
+`flock -n`: si la corrida de ayer sigue viva, la de hoy sale de
+inmediato en vez de duplicar la quota. El redirect a `logs/` es el mismo
+patrón de los crons ya instalados; sin él, stdout se va al mail de cron
+o se pierde.
+
+**Al instalar (A.6), verificar las dos convivencias**: que la línea
+sobreviva a re-correr el instalador de ORBIT 03 (`crontab -l | grep
+spapi:diario` después de re-aplicarlo), y que el wrapper sea ejecutable
+y su log exista tras la primera corrida. Instalar es A.6 (dueño), no
+esta tarea.
 
 **ORDEN DE DEPLOY de A.6 — las tres migraciones, en este orden** (patrón de
 comando en «Aplicar migraciones», más abajo):
