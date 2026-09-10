@@ -23,7 +23,12 @@ from app.spapi import pricing
 from app.spapi.client import SpapiClient
 
 ROOT = Path(__file__).resolve().parents[1]
-ORDEN = ("0001_initial.sql", "0032_spapi_pricing.sql", "0033_ingest_run_llamadas.sql")
+ORDEN = (
+    "0001_initial.sql",
+    "0032_spapi_pricing.sql",
+    "0033_ingest_run_llamadas.sql",
+    "0034_ingest_run_llamadas_grant.sql",
+)
 
 AHORA = datetime(2026, 9, 9, 12, 0, 0, tzinfo=UTC)
 CRED = {
@@ -473,6 +478,31 @@ def test_migracion_clave_append_only_y_grants():
         ).fetchone()[0]
         assert not conn.execute(
             "SELECT has_table_privilege('app_ingest', 'spapi_price_observation', 'DELETE')"
+        ).fetchone()[0]
+
+
+@_skip_db
+def test_grant_update_llamadas_app_ingest():
+    """0034 (bug de produccion A.6): 0001 otorga el UPDATE de ingest_run a
+    app_ingest POR COLUMNA y 0033 agrego `llamadas` sin su GRANT — el sello
+    del pase (UPDATE ... llamadas) reventaba con permission denied (corridas
+    reales 145/147 abiertas). El sello necesita UPDATE en las seis columnas.
+    """
+    with db_pricing() as conn:
+        for columna in (
+            "finished_at",
+            "rows_written",
+            "rows_skipped",
+            "skip_reason",
+            "ok",
+            "llamadas",
+        ):
+            assert conn.execute(
+                "SELECT has_column_privilege('app_ingest', 'ingest_run', %s, 'UPDATE')",
+                (columna,),
+            ).fetchone()[0], columna
+        assert not conn.execute(
+            "SELECT has_column_privilege('app_read', 'ingest_run', 'llamadas', 'UPDATE')"
         ).fetchone()[0]
 
 
