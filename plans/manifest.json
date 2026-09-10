@@ -113,7 +113,7 @@
     {
       "name": "sp-api-01",
       "path": "plans/sp-api-01.md",
-      "description": "SP-API 01 — lecturas solo-lectura (Orders, Pricing, Listings Items, Inventario FBA, Sellers) con cliente unico app/spapi/ y un solo refrescador LWA; D1-D7 cerradas. Fase 0 y Fase A A.1/A.2/A.2b/A.3 mergeadas 2026-09-09 (PRs #231-#241); siguen A.4, A.5, A.R y A.6 (aplicar 0030-0033 en produccion y primeras corridas reales: dueno)."
+      "description": "SP-API 01 — lecturas solo-lectura (Orders, Pricing, Listings Items, Inventario FBA, Sellers) con cliente unico app/spapi/ y un solo refrescador LWA; D1-D7 cerradas. CERRADO 2026-09-10: Fase 0 y Fase A completas (PRs #231-#250), desplegadas en produccion sobre aee0221 con migraciones 0030-0037, cron diario 05:00 UTC y salud en /salud; A.R con APPROVE independiente. Fase B (consumo por repricing-01, envios-01 y reputacion-02) va fuera de este plan, cada uno con el suyo."
     }
   ],
   "active": "fabrica-01"

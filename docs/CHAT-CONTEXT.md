@@ -4,6 +4,29 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-10 UTC — SP-API 01: FASE A CERRADA. Desplegada en producción con cron diario.**
+`aee0221` en producción. `0035`/`0036`/`0037` aplicadas con respaldo previo del esquema, cada una en
+una transacción; verificación como `orbit_read` de triggers, GRANTs por columna e índice. Deploy con
+md5 99/99 y health ok.
+
+**Primeras corridas reales (MX)**: run 154 `spapi_orders` 13 escritas, run 155 `spapi_listings` 342,
+run 156 `spapi_inventario` 1071 — las tres `ok=true`, cero omitidas, con `platform` sellada. Los
+conteos de tabla coinciden exacto con lo que reportó cada run. Las corridas de Ads y del bridge
+siguen con `platform` NULL: agregar la columna no rompió ningún pipeline viejo. El 1071 de inventario
+concilia con la sonda de Fase 0 (1071/1071 contra el bridge).
+
+**Candados probados con datos dentro** (antes las tablas estaban vacías y los triggers, al ser
+row-level, ni disparaban): un `UPDATE` sobre cada tabla nueva revienta con el append-only y hace
+`ROLLBACK`. **Reversa ensayada** punta a punta: apagar la ingesta deja 0 líneas `spapi` en el crontab
+y restaurar vuelve a 2, sin tocar ninguna otra.
+
+**Cron diario instalado**: un wrapper en serie con `flock` y log propio, no las ocho líneas sueltas
+que A.R encontró que se autoborraban. Corre 05:00 UTC.
+
+**Lo que todavía NO se ha ejercitado en producción**: `spapi_pricing` (~23 min), toda la plataforma
+US, el wrapper como tal, y el camino de alertas de A.5 — no ha habido ninguna corrida fallida, así
+que Telegram sigue probado solo por tests. Todo eso lo estrena el cron de mañana.
+
 **2026-09-10 UTC — SP-API 01: A.R cerrada. Solo falta el deploy (A.6).**
 Grok hizo la revisión independiente de toda la Fase A y devolvió **APPROVE sobre `958c00f`**, sin
 hallazgos bloqueantes: cumplen los seis ejes del contrato (guard default-deny, un solo refrescador

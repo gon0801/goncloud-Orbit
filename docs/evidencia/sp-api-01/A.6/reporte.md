@@ -1,4 +1,10 @@
-# SP-API 01 / A.6 — Deploy A.1–A.3 a producción y primeras corridas reales
+# SP-API 01 / A.6 — Despliegue de la Fase A a producción
+
+Dos partes, porque el despliegue fue en dos tiempos: primero A.1–A.3
+(2026-09-09/10), y el final con A.4 + A.5 + cron (2026-09-10). La segunda
+parte está más abajo.
+
+## A.6 (parcial) — Deploy A.1–A.3 y primeras corridas reales
 
 Fecha: 2026-09-09/10 UTC. Ejecuta: el lead, con go del dueño. Alcance: A.1
 (cliente), A.2/A.2b (Orders + estado/total) y A.3 (Pricing). A.4/A.5 siguen
@@ -90,3 +96,115 @@ manual: nada que apagar). La reversa de esquema de 0031
 `test_reversa_0031` (guarda doble: aborta con re-observaciones o con
 `fulfillment_status` poblado). 0032–0034 son expansivas (tablas/columna/
 grant nuevos): reversa = conservarlas sin uso.
+
+---
+
+# A.6 (final) — Deploy de A.4 + A.5, cron diario y primeras corridas
+
+Fecha: 2026-09-10 UTC. SHA desplegado: **`aee0221`** (`origin/master` tras
+el PR #249, con A.R cerrada). Ejecuta: el dueño, con el script
+`out/migrar-a6-final.sh` (idempotente; aborta si `origin/master` no trae
+las tres migraciones y el informe A.R).
+
+## 1. Respaldo y migraciones
+
+Respaldo del esquema ANTES de cualquier DDL:
+`/mnt/data/appdata/orbit/backups/schema-pre-a6final-20260910-0759.sql`
+(323 381 bytes, 45 `CREATE TABLE`).
+
+`0035` → `0036` → `0037`, cada una en UNA transacción con `ON_ERROR_STOP`,
+servidas desde `origin/master` por stdin. Las tres aplicaron sin error.
+
+> Nota: cada archivo trae su propio `BEGIN/COMMIT` **y** el script pasó
+> `-1`, así que psql avisó `there is already a transaction in progress` /
+> `there is no transaction in progress` por cada una. Son benignos —todo
+> corrió en una sola transacción y commiteó—, pero el `-1` sobra cuando el
+> SQL ya trae la transacción, como `docs/DEPLOY.md` ya advierte para 0011.
+
+## 2. Verificación de esquema (como `orbit_read`, sin mutaciones)
+
+| Comprobación | Resultado |
+|---|---|
+| Triggers en las 2 tablas nuevas | 5, los que declara 0035 (solo `spapi_inventario_observation` lleva `tiempo_coherente`) |
+| `app_ingest` INSERT / `app_read` INSERT / `app_ingest` UPDATE en observación | `t` / `f` / `f` |
+| `app_ingest` INSERT / UPDATE en `ingest_run.platform` | `t` / `f` |
+| Índice de `/salud` | `CREATE INDEX ingest_run_source_platform_id_idx ON public.ingest_run USING btree (source, platform, id DESC)` |
+
+El `t` de INSERT sobre `ingest_run.platform` es la comprobación que importa:
+ese es el privilegio cuya ausencia por columna causó el bug 0033→0034
+(corridas 145 y 147 abiertas). El candado de 0037 lo verifica al migrar.
+
+## 3. Deploy del código
+
+`md5 OK: 99 archivos idénticos a origin/master`; `orbit-app-1 Recreated`;
+`/health` → `{"status":"ok"}`; puertos 8010 escuchando. Respaldo del código
+previo en `app.bak-predeploy-20260910-0059` (la hora es local del server;
+el respaldo de esquema del mismo run es UTC — mismo run, dos husos).
+
+## 4. Cron diario
+
+Wrapper `/mnt/data/appdata/orbit/spapi-diario.sh` (0755, 606 bytes) con las
+8 corridas EN SERIE en un solo proceso, y **una** línea de crontab con
+`flock -n` y log en `logs/spapi-diario.log`. Crontab: 47 → 49 líneas
+(aditivo, ninguna otra tocada).
+
+Convivencia verificada (hallazgo H1 de A.R): la línea no calza ninguno de
+los cinco filtros `grep -v` del instalador de ORBIT 03 (`DEPLOY.md:496`),
+así que re-aplicar el bloque de Ads ya no la borra. La versión anterior de
+la propuesta —ocho líneas con `app.cli ingest`— sí se borraba sola.
+
+## 5. Primeras corridas reales (MX)
+
+| run | source | platform | ok | escritas | omitidas | llamadas | seg |
+|---|---|---|---|---|---|---|---|
+| 154 | `spapi_orders` | `amazon_mx` | t | 13 | 0 | — | 1 |
+| 155 | `spapi_listings` | `amazon_mx` | t | 342 | 0 | 342 | 85 |
+| 156 | `spapi_inventario` | `amazon_mx` | t | 1071 | 0 | 22 | 18 |
+
+Conteos de tabla tras las corridas: `spapi_listing_estado_observation` 342,
+`spapi_inventario_observation` 1071 (1071 SKUs distintos, `metric_date`
+2026-09-10), `spapi_order_observation` 258. Los conteos coinciden **exacto**
+con lo que reportó cada run: ni escrituras dobles ni pérdidas.
+
+`platform` quedó escrita en las tres; las corridas de Ads y del bridge de la
+misma base siguen con `platform` NULL, que es el diseño (solo las 4 ingestas
+SP-API la escriben, y agregar la columna no rompió ningún pipeline viejo).
+
+Las 342 filas de listings y las 1071 de inventario son la **primera** vez
+que 0035 recibe datos en producción. El 1071 concilia con la sonda de Fase 0
+(1071/1071 contra el bridge).
+
+## 6. Smoke de candados (transacciones revertidas, `DEPLOY.md:1271`)
+
+Con datos dentro —antes no se podía: los triggers append-only son row-level
+y con la tabla vacía no disparan—, un `UPDATE` sobre cada tabla nueva:
+
+```
+ERROR: La tabla spapi_inventario_observation es APPEND-ONLY: corregir es
+INSERTAR una observación nueva, no pisar la anterior.
+ERROR: La tabla spapi_listing_estado_observation es APPEND-ONLY: ...
+```
+
+Ambos `ROLLBACK`; conteo posterior 1071, intacto.
+
+## 7. Reversa ensayada
+
+Apagar la ingesta = quitar la línea del crontab. Ensayado punta a punta:
+`APAGADA, lineas spapi: 0` → `RESTAURADA, lineas spapi: 2` → 49 líneas
+totales, las mismas de antes. Ninguna otra línea del crontab se tocó.
+
+Reversa de esquema: `0035`/`0036`/`0037` son expansivas (tablas, columna e
+índice nuevos) → reversa = conservarlas sin uso, con la ingesta apagada.
+El respaldo del esquema previo y el del crontab quedan en `backups/`.
+
+## 8. Qué NO se ejercitó todavía
+
+- **`spapi_pricing` no corrió en este deploy** (≈23 min en MX): lo hará el
+  cron de las 05:00.
+- **Ninguna corrida de `amazon_us`**: también queda para el cron.
+- El wrapper **no se ha ejecutado como wrapper**: las tres corridas fueron
+  invocaciones directas del CLI. La primera prueba real del `flock`, del
+  encadenado en serie y del log es la de mañana 05:00 UTC.
+- Las **alertas de A.5 no se han disparado en producción**: no ha habido
+  ninguna corrida fallida. El camino de Telegram sigue probado solo por
+  tests.
