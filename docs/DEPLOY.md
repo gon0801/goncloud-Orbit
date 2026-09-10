@@ -408,7 +408,11 @@ llamadas a 0.5/s) + pricing US ~12 min; orders/listings/inventario
 
 Cada corrida sella su `ingest_run` (ok/false) y solo alerta en flanco
 (A.5); un fallo no tumba las siguientes (cada línea es un proceso).
-Instalar es A.6 (dueño), no esta tarea.
+Instalar es A.6 (dueño), no esta tarea. ORDEN DE DEPLOY: las migraciones
+`0035` y `0036` se aplican ANTES de reconstruir la app — si el código sale
+primero, las 4 ingestas truenan al abrir el run (`platform` inexistente)
+y `/salud` muestra el bloque SP-API vacío (con la guarda A.5, sin tumbar
+la pantalla).
 
 ### Refresco diario contable 08:15 (ORBIT 06 2.2)
 
