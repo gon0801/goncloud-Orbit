@@ -114,6 +114,11 @@
       "name": "sp-api-01",
       "path": "plans/sp-api-01.md",
       "description": "SP-API 01 — lecturas solo-lectura (Orders, Pricing, Listings Items, Inventario FBA, Sellers) con cliente unico app/spapi/ y un solo refrescador LWA; D1-D7 cerradas. CERRADO 2026-09-10: Fase 0 y Fase A completas (PRs #231-#250), desplegadas en produccion sobre aee0221 con migraciones 0030-0037, cron diario 05:00 UTC y salud en /salud; A.R con APPROVE independiente. Fase B (consumo por repricing-01, envios-01 y reputacion-02) va fuera de este plan, cada uno con el suyo."
+    },
+    {
+      "name": "fabrica-02",
+      "path": "plans/fabrica-02.md",
+      "description": "FABRICA 02 — PLAN (no implementado) 2026-09-10: harvest por grupo (F2/AUTO-02): destino por campana_grupo_rol + harvest_excepcion (terna vigente como transicion), fase hermanas_negadas confirmada en el readback de la keyword con 1 quota y reversa operable, biblioteca escrita por el motor solo desde aplicados, migracion de existentes con go. Precondicion de live: cortes-ui-01 1.2."
     }
   ],
   "active": "fabrica-01"
