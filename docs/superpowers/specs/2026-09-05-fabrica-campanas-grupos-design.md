@@ -327,6 +327,11 @@ perspectivas)** — fijan lo que este §7 dejaba abierto y cambian comportamient
 6. `harvest_excepcion` solo acepta pares `(campana, ad group)` validados contra
    `ad_entity` (ad group hijo de esa campana, misma plataforma); texto libre
    rechazado por la herramienta que la puebla.
+7. Decision del dueno 2026-09-10 sobre la forma de la decision 6:
+   `keyword_biblioteca` guarda SOLO termino, origen y fechas; las columnas
+   `orders/cost/revenue/moneda` quedan NULL en toda fila escrita por el motor.
+   Los numeros se calculan desde `search_term_observation` cuando hagan falta
+   (reglas 2 y 5: ni segunda fuente ni fila mutable con dinero).
 
 ## 8. Migracion 0018 (tablas nuevas, con sus COMMENT ON)
 

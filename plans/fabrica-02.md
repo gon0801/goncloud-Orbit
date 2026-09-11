@@ -1,9 +1,11 @@
 # FABRICA 02 — Harvest por grupo (F2): reruteo, negativos cruzados y biblioteca viva
 
-Version: 1.0, 2026-09-10 UTC. Estado: **PLAN (no implementado)**, tras revisión
+Version: 1.1, 2026-09-10 UTC. Estado: **PLAN (no implementado)**, tras revisión
 de cinco perspectivas independientes (producto, arquitectura, seguridad, QA,
 escéptico) sobre el borrador v0.1: 4 críticos y 9 mayores incorporados, el
-resto declarado en "Divergencias y residuales".
+resto declarado en "Divergencias y residuales". **Decisiones 1–3 del dueño
+cerradas el 2026-09-10** (solo palabras en la biblioteca; caps bajados al
+arranque; implementa GLM).
 Base: `origin/master` `3b4a807`. Rama: `plan/fabrica-02`.
 Precedencia: `docs/CONTEXTO.md` (reglas 1–10) > `plans/ROADMAP.md` >
 `docs/superpowers/specs/2026-09-05-fabrica-campanas-grupos-design.md` §6–§7
@@ -241,11 +243,11 @@ postear a un congelado que ya no es hermana.
   `_reconcilia_negativas`, `apply_harvest.py:1272`), misma normalización y
   `origen`. Invariante con test: intersección vacía entre ambas bibliotecas por
   `(tipo_producto, platform, texto)`.
-- Dinero: **no se escribe** hasta la decisión 1 del dueño. Si decide guardarlo:
-  valores **congelados en la decisión** (`inputs.termino.{orders,cost,
-  ad_revenue,moneda}`, `cycle.py:787-796`), regla «último harvest aplicado
-  gana», prohibido sumar ventanas solapadas, moneda distinta a la fila
-  existente = conflicto sellado con motivo, jamás `COALESCE` a una moneda.
+- Dinero: **no se escribe** (decisión del dueño 2026-09-10: solo palabras). Las
+  columnas `orders/cost/revenue/moneda` quedan NULL en toda fila que escriba el
+  motor; los números se calculan desde la fuente (`search_term_observation`)
+  cuando hagan falta. Llenarlas algún día exige decisión nueva y las reglas de
+  congelado, «último harvest gana» y prohibición de sumar ventanas solapadas.
 
 **Migración `00NN`** (número al aplicar; hoy el siguiente libre es 0038; no
 re-runnable, encabezado patrón 0033/0035; **no es puramente expansiva**: recrea
@@ -270,9 +272,9 @@ un índice y suelta un CHECK, ambos en la transacción — declararlo en el runb
   silencio).
 - (e) GRANT a `app_decide`: `INSERT` en `keyword_biblioteca` y
   `negative_biblioteca`; **`USAGE ON SEQUENCE keyword_biblioteca_id_seq,
-  negative_biblioteca_id_seq`**; `UPDATE` por columna **exactamente** las que
-  toca el statement del motor (`updated_at`, y solo si la decisión 1 lo pide:
-  `orders, cost, revenue, moneda`). `harvest_excepcion` sigue solo `app_admin`.
+  negative_biblioteca_id_seq`**; `UPDATE (updated_at)` **únicamente** en
+  `keyword_biblioteca` (decisión del dueño 2026-09-10: sin dinero; el statement
+  del motor no toca otra columna). `harvest_excepcion` sigue solo `app_admin`.
 - (f) `DO $$` con asserts positivos (el **statement literal del motor** bajo
   `SET ROLE app_decide`, fila leída de vuelta) y negativos (`DELETE` en
   bibliotecas, `UPDATE` en `harvest_excepcion`, `UPDATE` de `origen`/`texto`/
@@ -314,7 +316,7 @@ no implementó y re-muta. La suite completa corre en CI sobre el PR.
 | A.2 | [stage:implementacion] [lane:gate] [tdd:required] **Migración `00NN`** (a)–(g) del diseño. | Tests de esquema con rol real: transiciones válidas/inválidas incl. `exact_created → done` conservada; job sembrado en `hermanas_negadas` → un segundo job del mismo `(platform, ad_entity_id, search_term)` viola `harvest_job_en_vuelo`; constante de fases en vuelo cruzada contra `pg_index.indpred`; `tipo='hermana'` no consume ni amplía el presupuesto `normal`; trigger de goal y trigger simétrico de `campana_grupo_rol`; **bajo `SET ROLE app_decide` el statement literal del motor inserta y actualiza de verdad** en las dos bibliotecas (fila leída) y los negativos truenan (patrón `tests/test_apply_schema.py:709-745`, no catálogo); mutante `REVOKE USAGE` de secuencia truena la migración; `PROGRESION_HARVEST` parsea `00NN` | A.0 | cc:TODO |
 | A.3a | [stage:implementacion] [lane:gate] [tdd:skip:refactor-sin-comportamiento] **Partir `app/apply_harvest.py`** en ejecución vs reconciliación (deuda declarada en `tests/test_architecture.py:62-71`), sin cambio de comportamiento. | La suite de `tests/test_apply_harvest.py` pasa idéntica antes y después (mismo conteo, 0 skipped); allowlist de tamaño actualizada con razón; `tests/test_architecture.py` verde | A.0 | cc:TODO |
 | A.3 | [stage:implementacion] [lane:gate] [tdd:required] **Fase `hermanas_negadas`** completa según el diseño: sello de la decisión en el readback de la keyword; hermanas = grupo − exact − origen (PT según 0.1, si no skip en el job); un LIST filtrado por job con criterio de tres ejes y fail-closed por truncación; ledger `tipo='hermana'` por hermana; reintento por ciclo sin quota; `TOPE_CICLOS_HERMANAS`; `done` con pendientes declaradas + `AlertaHarvest`; las cinco listas de fases en vuelo y `_continua_job`; `tools/reversa_harvest.py --job`. | Rojo-primero con `MockTransport` y el fixture de A.0: (a) 3 hermanas creadas → `external_ids` **exacto leído de la base** con los tres ids y la decisión ya confirmada (`verify_ok`, cola `applied`) antes del primer POST a hermanas; (b) orden hacia adelante: secuencia de requests = negativo origen → keyword → LIST readback → luego hermanas; `fallo_keyword_status=400` → **cero** HTTP a hermanas; (c) LIST sembrado con negativo `ENABLED` en h1, `ARCHIVED` en h2, `NEGATIVE_PHRASE` en h3, nada en h4 → 1 POST omitido con id registrado, 3 emitidos; bodies de LIST con `adGroupIdFilter` de las hermanas y **una sola** llamada por job; (d) LIST con `nextToken` en el tope → cero POST, hermanas pendientes `list_truncado`; (e) fallo en la 2ª hermana → keyword intacta, decisión confirmada, hermana 2 pendiente con motivo, job sigue en `hermanas_negadas`; ciclo siguiente la reintenta sin nueva fila de quota (`apply_quota_state.used` no cambia); tras `TOPE_CICLOS_HERMANAS` → `done` + `hermanas_pendientes` + alerta; (f) ledger completo y ordenado `[(1,'normal',True),(2,'normal',False),(3..N,'hermana',False)]` con `cap = 1` sembrado; (g) reversa por **secuencia de ids** `[keyword, h1, h2, h3, origen]` con una fila `tipo='reversa'` por borrado; (h) proceso caído con job en `hermanas_negadas` → `reconcilia_harvest` lo retoma, `_reconcilia_harvest_huerfanas` **no** cierra su fila, y un job nuevo del mismo término choca con el índice; (i) rol de origen `auto_discovery` → no se re-niega el origen; (j) PT rechazada → `{"skip": "pt_no_acepta_negative_keyword"}` y `done`; (k) harvest sin grupo (excepción/terna) → `exact_created → done` como hoy; (l) fila vetada o `shadow` → cero jobs (precedente `test_harvest_vetado_jamas_crea_harvest_job`); mutantes del lead mueren | A.2, A.3a, 0.1 | cc:TODO |
-| A.4 | [stage:implementacion] [lane:gate] [tdd:required] **Biblioteca escrita por el motor** según el diseño (SAVEPOINT; solo términos de harvest de grupo; solo `kind=negative` a negativos; normalización; sin dinero salvo decisión 1). | Rojo-primero: (a) harvest `done` de grupo → fila en `keyword_biblioteca` con `tipo_producto` del grupo, texto normalizado y `origen` con grupo/campaña/job; (b) mismo término otra vez → una fila, `updated_at` movido; (c) `failed`/vetado/shadow/sin grupo → cero filas; (d) término harvesteado → **cero** filas en `negative_biblioteca` (invariante de intersección vacía); negativo `kind=negative` aplicado (camino cola y camino reconciliación) → fila; (e) fallo inyectado en la escritura de biblioteca → el job **sí** sella `done`, la cola `applied`, alerta emitida; (f) `SET ROLE app_decide` escribe y NO puede `DELETE` ni tocar `origen`; (g) si la decisión 1 = con dinero: moneda distinta a la fila → conflicto sellado, sin suma, sin `COALESCE` | A.2, A.3 | cc:TODO |
+| A.4 | [stage:implementacion] [lane:gate] [tdd:required] **Biblioteca escrita por el motor** según el diseño (SAVEPOINT; solo términos de harvest de grupo; solo `kind=negative` a negativos; normalización; sin dinero salvo decisión 1). | Rojo-primero: (a) harvest `done` de grupo → fila en `keyword_biblioteca` con `tipo_producto` del grupo, texto normalizado y `origen` con grupo/campaña/job; (b) mismo término otra vez → una fila, `updated_at` movido; (c) `failed`/vetado/shadow/sin grupo → cero filas; (d) término harvesteado → **cero** filas en `negative_biblioteca` (invariante de intersección vacía); negativo `kind=negative` aplicado (camino cola y camino reconciliación) → fila; (e) fallo inyectado en la escritura de biblioteca → el job **sí** sella `done`, la cola `applied`, alerta emitida; (f) `SET ROLE app_decide` escribe y NO puede `DELETE` ni tocar `origen`; (g) las columnas de dinero quedan NULL en toda fila escrita (un mutante que escriba `cost` o `moneda` muere) | A.2, A.3 | cc:TODO |
 | A.5 | [stage:implementacion] [lane:gate] [tdd:required] **`tools/harvest_excepcion.py`** (patrón `tools/archiva_inertes.py:944-960`: `--acepto-mutacion-real --esperado --huella --go`, dry-run primero; solo `app_admin`; sin Amazon): migra UNA campaña sin grupo a `harvest_excepcion` **resolviendo el par destino contra `ad_entity`** (kind `ad_group`, `parent_id` = campaña, misma `platform`; texto libre rechazado); y limpia la terna de UN grupo por `goals_write.edita_goal(harvest_limpia_destino=True)`. | Tests: dry-run no escribe; `--go` escribe exactamente una fila/un grupo; huella distinta aborta; par inválido (otra plataforma, ad group de otra campaña) rechazado; idempotente; el candado de escritor único ampliado a `tools/` pasa y **falla** con un `UPDATE ads_optimizer_goal` crudo sembrado en `tools/` | A.1, A.2 | cc:TODO |
 | A.6 | [stage:implementacion] [lane:gate] [tdd:required] **Visibilidad y aviso**: motivos nuevos traducidos donde se ven los skips (`/salud`, `/cortes`), fase `hermanas_negadas` con etiqueta en el feed de fases, el renglón de veto de un harvest de grupo **nombra las hermanas que se negarán**, y aviso por `app/notifica.py` (sender nuevo, fail-silent, en flanco por campaña) para `destino_inconsistente` y `sin_destino_de_harvest` en campañas de grupo. Sin ruta ni fetch nuevos. | Assert de texto traducido exacto `!= id crudo` (el fallback de `tests/test_api_dashboard.py:1637` lo tragaría); renglón con las hermanas; aviso una vez por racha y no en la segunda corrida | A.1, A.3 | cc:TODO |
 
@@ -328,7 +330,7 @@ no implementó y re-muta. La suite completa corre en CI sobre el PR.
 
 | Task | Contenido | DoD | Depends | Status |
 |---|---|---|---|---|
-| D.1 | [stage:cierre-pr] [lane:release] [tdd:skip:validacion-entrega] **Precondiciones**: cero filas `harvest` no terminales en `apply_queue` (patrón orbit-05 1.3); caps diarios de harvest/negative **re-decididos por el dueño** bajo el multiplicador (1 unidad = hasta 6 mutaciones; los negativos de hermanas no cuentan contra el cap de negative). Backup; migración `00NN` en una transacción (declara el índice recreado y el CHECK soltado); verificación como `orbit_read` (fases, índice, tipo `hermana`, triggers, GRANTs ±, secuencias); deploy `git archive` + md5 + rebuild; smoke de lectura. **Verificación de apagado** (no «reversa»): goals del grupo en `shadow` → ningún job nuevo sale a HTTP. La reversa real se ensayó en 0.1 con ids reales. | Runbook `docs/DEPLOY.md` sección F2; E/D.1 con SHA, salidas, caps decididos y la verificación de apagado | R.1 | cc:TODO |
+| D.1 | [stage:cierre-pr] [lane:release] [tdd:skip:validacion-entrega] **Precondiciones**: cero filas `harvest` no terminales en `apply_queue` (patrón orbit-05 1.3); caps diarios de harvest **bajados al arranque** (decisión del dueño 2026-09-10; número exacto fijado en D.1 con el multiplicador a la vista — referencia 2 harvest/día ≈ 12 escrituras; 1 unidad = hasta 6 mutaciones; los negativos de hermanas no cuentan contra el cap de negative, y eso queda escrito en el runbook). Backup; migración `00NN` en una transacción (declara el índice recreado y el CHECK soltado); verificación como `orbit_read` (fases, índice, tipo `hermana`, triggers, GRANTs ±, secuencias); deploy `git archive` + md5 + rebuild; smoke de lectura. **Verificación de apagado** (no «reversa»): goals del grupo en `shadow` → ningún job nuevo sale a HTTP. La reversa real se ensayó en 0.1 con ids reales. | Runbook `docs/DEPLOY.md` sección F2; E/D.1 con SHA, salidas, caps decididos y la verificación de apagado | R.1 | cc:TODO |
 | D.2 | [stage:cierre-pr] [lane:release] [tdd:skip:ops] **Migrar existentes** con `tools/harvest_excepcion.py`, una a una, con go literal del dueño según E/0.2; limpiar la terna del grupo 1 con su go. Hasta que cada campaña esté migrada, sigue por su terna (`migracion_pendiente` visible). | Cada fila de `harvest_excepcion` con `go_literal` y par validado; terna NULL en el grupo 1; `/salud` sin `migracion_pendiente` al terminar; E/D.2 | D.1, 0.2 | cc:TODO |
 | D.3 | [stage:cierre-pr] [lane:release] [tdd:skip:ops] **Primer harvest de grupo en vivo**: encendido de `kit_arras` a `live` = go del dueño; seguir el primer harvest natural hasta `done`: keyword en la exacta, negativos en las hermanas por LIST, biblioteca con la fila, ledger sellado, `/cortes` mostrando las hermanas en el renglón antes de vencer el veto. | E/D.3 con ids reales y readback; AUTO-02 y `ORBIT 17` cierran en el tracker | D.2, `cortes-ui-01` 1.2 | cc:TODO |
 
@@ -340,8 +342,9 @@ no implementó y re-muta. La suite completa corre en CI sobre el PR.
   A.3a son el costo real de tocar `apply_harvest.py` en grande.
 - **Owner-gated**: D.3 (encender live; depende de `cortes-ui-01` 1.2 y de los
   caps re-decididos en D.1).
-- **Optional**: guardar dinero en `keyword_biblioteca` (decisión 1 del dueño;
-  por defecto no).
+- **Reject** (decisión del dueño 2026-09-10): guardar dinero en
+  `keyword_biblioteca` — solo palabra y origen; las columnas de dinero quedan
+  NULL.
 - **Reject**: `kind` nuevo en la cola; revertir la keyword exacta por una
   hermana (destruye valor, deja el ledger sin confirmar y quema el término para
   siempre por el dedupe ciego al estado); fallar un harvest por una hermana;
@@ -411,22 +414,20 @@ Inventario harness-plan; **no es aprobación concedida**. Sin
 | Escritura a Amazon por el motor (negativos en hermanas) | Función de F2 | Solo tras D.3 con goals `live`; veto 48h intacto |
 | git push, PR, CI | Revisión | Ramas desde `origin/master`; jamás `--no-verify` |
 
-## Decisiones del dueño (las únicas que este plan no toma)
+## Decisiones del dueño (cerradas 2026-09-10)
 
-1. **¿La biblioteca guarda dinero o solo palabras?** (decisión 6, forma). Hoy
-   `keyword_biblioteca` tiene columnas de `orders/cost/revenue`, pero llenarlas
-   crea una segunda fuente de esos números (regla 2), en una fila mutable
-   (regla 5), con ventanas solapadas que no se pueden sumar. Nadie las lee hoy:
-   sembrar grupos nuevos solo usa el texto. **Recomendación: solo palabras**
-   (las columnas quedan NULL; los números se calculan desde la fuente cuando
-   hagan falta). Si prefieres dinero, aplica la regla «último harvest gana».
-2. **Los caps diarios.** Un harvest pasa de 2 a hasta 6 escrituras en Amazon por
-   la misma unidad, y los negativos de hermanas no cuentan contra el cap de
-   negativos. ¿Mantienes 5 harvest/día (hasta 30 escrituras) o lo bajas para
-   el arranque? Se decide en D.1 con el número a la vista.
-3. **Quién implementa.** A.1–A.4 mueven dinero y tocan el motor: GLM o Cursor;
-   A.5/A.6 pueden ir a Cursor; DeepSeek no entra en esta fase. R.1 a kimi o
-   codex. Grok para D.1 (deploy) si lo quieres fuera del lead.
+1. **Biblioteca: solo palabras.** `keyword_biblioteca` guarda término, origen y
+   fechas; las columnas de dinero quedan NULL. Razón: llenarlas creaba una
+   segunda fuente de esos números (regla 2) en una fila mutable (regla 5) con
+   ventanas solapadas que no se pueden sumar, y nadie las lee: sembrar grupos
+   nuevos solo usa el texto.
+2. **Caps bajados al arranque.** El tope diario de harvest baja para las
+   primeras semanas en vivo (referencia 2/día ≈ 12 escrituras); el número
+   exacto se fija en D.1 con el multiplicador a la vista y sube cuando el dueño
+   vea que las hermanas se bloquean bien.
+3. **Implementa GLM** (A.0–A.6, por brief y por fase; vigilar su proceso:
+   red-logs TDD, tope de cross-reviews, no tocar trackers). R.1 a kimi o codex.
+   Sondas 0.1/0.2 y despliegue D.x: lead + dueño.
 
 Decisión de diseño tomada por el plan con recomendación de 3 de 5 revisores,
 **revisable por el dueño**: si falla bloquear el término en una hermana, la
@@ -482,9 +483,10 @@ precisiones que el spec no fija y que cambian comportamiento:
 
 ## Estado para la siguiente sesión
 
-- Plan v1.0 revisado por cinco perspectivas; pendientes del dueño: decisiones
-  1–3 de arriba.
+- Plan v1.1 revisado por cinco perspectivas y con las decisiones 1–3 del dueño
+  cerradas. PR #253.
 - Primer paso operativo: 0.2 (inventario, solo lectura) y 0.1 (sonda con go).
   No hay código antes de eso.
-- Implementación por brief, un implementador por fase; el lead revisa una
-  ronda por bloque y muta; R.1 a un revisor que no implementó.
+- Implementación: GLM por brief y por fase (A.0 → A.1 → A.2 → A.3a → A.3 →
+  A.4 → A.5 → A.6); el lead revisa una ronda por bloque y muta; R.1 a kimi o
+  codex.
