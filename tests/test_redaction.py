@@ -26,6 +26,29 @@ def test_secreto_largo_si_redacta():
     assert scrub("eco tk-fixture-largo-12345 fin") == "eco ***REDACTED*** fin"
 
 
+def test_secreto_de_un_caracter_tambien_redacta():
+    # Tumba la mutacion de piso bajo 'if not value or len(value) < 2:'
+    # (apendice ronda 2, mutacion 1). Un fixture de N caracteres solo
+    # discrimina pisos MAYORES que N: el de exactamente 1 caracter es el
+    # unico que atrapa este piso. '~' es no alfanumerico y no aparece en
+    # ningun texto que la suite pase por scrub()/redact_* (verificado con
+    # la bateria completa: el registro es global de proceso y no se limpia).
+    register_secret("~")
+    assert scrub("eco ~ fin") == "eco ***REDACTED*** fin"
+
+
+def test_scrub_reemplaza_el_secreto_mas_largo_primero():
+    # Tumba la mutacion 'secrets = list(_secrets)' (apendice ronda 2,
+    # mutacion 3): sin orden por longitud, el secreto corto se reemplaza
+    # DENTRO del largo y deja el residuo '***REDACTED***-extendido-9999'.
+    # El corto debe registrarse PRIMERO: si el largo se registra antes, el
+    # orden de registro tambien lo reemplaza primero y la mutacion
+    # sobrevive verde.
+    register_secret("zzq")
+    register_secret("zzq-extendido-9999")
+    assert scrub("eco zzq-extendido-9999 fin") == "eco ***REDACTED*** fin"
+
+
 # ---------------------------------------------------------------------------
 # redact_dsn, forma URL: password con '@' interno y espacio inicial
 # ---------------------------------------------------------------------------
@@ -54,26 +77,27 @@ def test_dsn_url_con_espacio_inicial_tambien_redacta():
 
 
 # ---------------------------------------------------------------------------
-# redact_dsn, forma conninfo: password=... con y sin comillas simples
+# redact_dsn, forma conninfo: password=*** con y sin comillas simples
 # ---------------------------------------------------------------------------
 
 
 def test_dsn_conninfo_password_sin_comillas():
+    # Igualdad EXACTA sobre la cadena completa (tumba la mutacion
+    # 'return f"{m.group(1)}=***REDACTED***"', apendice ronda 2, mutacion
+    # 5): un assert de forma 'password=***' in resultado dejaria pasar
+    # 'password=***REDACTED***' como substring.
     dsn = "host=db.interna port=5432 user=orbit_read password=kv-sin-comi11as dbname=orbit"
     resultado = redact_dsn(dsn)
-    assert "password=***" in resultado
-    assert "kv-sin-comi11as" not in resultado
+    assert resultado == "host=db.interna port=5432 user=orbit_read password=*** dbname=orbit"
     assert scrub("eco kv-sin-comi11as fin") == "eco ***REDACTED*** fin"
 
 
 def test_dsn_conninfo_password_con_comillas_simples():
+    # Igualdad EXACTA (tumba la mutacion 5 de la ronda 2, misma razon que
+    # la prueba sin comillas) y registro SIN las comillas para scrub.
     dsn = "host=db.interna password='kv c0n comi11as' dbname=orbit"
     resultado = redact_dsn(dsn)
-    assert "password=***" in resultado
-    assert "kv c0n comi11as" not in resultado
-    assert "c0n comi11as" not in resultado
-    # Se registra la password SIN las comillas: scrub la limpia donde sea
-    # que aparezca rodeada de otras cosas.
+    assert resultado == "host=db.interna password=*** dbname=orbit"
     assert scrub("eco 'kv c0n comi11as' fin") == "eco '***REDACTED***' fin"
 
 
@@ -112,6 +136,17 @@ def test_redact_url_elimina_userinfo_y_registra_password():
     assert scrub("eco pw-usr-fixture fin") == "eco ***REDACTED*** fin"
 
 
+def test_redact_url_userinfo_password_corta_queda_registrada():
+    # Tumba la mutacion 'if colon and password and len(password) > 3:'
+    # (apendice ronda 2, mutacion 2). La URL devuelta es IDENTICA con y sin
+    # mutacion; el testigo discriminante es scrub() sobre la password
+    # corta (3 caracteres): sin registro, queda viva en cualquier texto.
+    url = "https://usuario-fx:zq7@host-fx.example/descarga/p"
+    resultado = redact_url(url)
+    assert resultado == "https://host-fx.example/descarga/p"
+    assert scrub("eco zq7 fin") == "eco ***REDACTED*** fin"
+
+
 # ---------------------------------------------------------------------------
 # redact_url, ramas de error: nunca ecoar la entrada
 # ---------------------------------------------------------------------------
@@ -131,6 +166,19 @@ def test_redact_url_malformada_no_ecoa_la_entrada():
     assert resultado == "<url-malformada>"
     assert url not in resultado
     assert "pw-m4l-fx" not in resultado
+
+
+def test_redact_url_scheme_sin_host_es_malformada():
+    # Tumba la mutacion 'if not parsed.scheme:' (apendice ronda 2,
+    # mutacion 4). La rama del netloc VACIO es alcanzable: un scheme
+    # valido sin host ('mailto:u:pw@host') deja scheme='mailto' y
+    # netloc=''. Con la guarda reducida, la URL entera (password incluida)
+    # se devuelve en vez de '<url-malformada>'.
+    url = "mailto:usuario-fx:pw-m4il-fx@host.example"
+    resultado = redact_url(url)
+    assert resultado == "<url-malformada>"
+    assert url not in resultado
+    assert "pw-m4il-fx" not in resultado
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +218,30 @@ def test_scrub_filter_limpia_el_mensaje_ya_formateado():
         mensaje = capturador.registros[0].getMessage()
         assert "filtr0-fixture-77" not in mensaje
         assert "***REDACTED***" in mensaje
+    finally:
+        log.propagate = viejo_propagate
+        log.removeHandler(capturador)
+        for filtro in list(log.filters):
+            log.removeFilter(filtro)
+
+
+def test_scrub_filter_con_args_mal_formados_no_deja_ver_el_secreto():
+    # Tumba la fuga viva del fail-open (hallazgo adversary 2026-09-10,
+    # hueco 6): si getMessage() levanta (aqui: mas placeholders que args,
+    # la forma real del fallo LWA), el record crudo no puede conservar el
+    # secreto en args: logging lo imprimiria en el "--- Logging error ---".
+    log = _logger_limpio("orbit_test.filtro_mal_args")
+    capturador = _Capturador()
+    log.addHandler(capturador)
+    viejo_propagate = log.propagate
+    log.propagate = False
+    try:
+        install_scrub_filter(log)
+        log.warning("LWA rechazo con %s y %s en el cuerpo", "tok-lwa-fx-0007")
+        assert len(capturador.registros) == 1
+        registro = capturador.registros[0]
+        assert "tok-lwa-fx-0007" not in str(registro.msg) + str(registro.args)
+        assert registro.getMessage() == "<log-no-formateable>"
     finally:
         log.propagate = viejo_propagate
         log.removeHandler(capturador)

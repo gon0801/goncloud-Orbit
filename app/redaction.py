@@ -127,6 +127,13 @@ class SecretScrubFilter(logging.Filter):
         try:
             message = record.getMessage()
         except Exception:  # noqa: BLE001 - nunca debe tumbar el logging
+            # Fail-closed (hallazgo adversary 2026-09-10): con args mal
+            # formados getMessage() levanta y devolver True dejaba el record
+            # crudo; logging imprimia el secreto en el "--- Logging error
+            # ---". Literal fijo y args limpios: se pierde el mensaje,
+            # nunca el secreto.
+            record.msg = "<log-no-formateable>"
+            record.args = ()
             return True
         record.msg = scrub(message)
         record.args = ()
