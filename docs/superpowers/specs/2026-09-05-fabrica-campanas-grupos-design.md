@@ -299,6 +299,35 @@ sellar la fase (regla 8 aplicada a la API): si el POST se acepta, las 4
 hermanas; si lo rechaza, esa hermana se declara skip con motivo en el job y
 la decision 10 queda en 3 hermanas (residual 8).
 
+**Precisiones de FABRICA 02 (plan v1.0, 2026-09-10; revisadas por cinco
+perspectivas)** — fijan lo que este §7 dejaba abierto y cambian comportamiento:
+
+1. Origen con rol `category_exact` → skip `origen_es_destino` (una campana no
+   se harvestea a si misma; hoy lo absorbia el dedupe sin decirlo).
+2. Transicion: mientras una campana sin grupo no este en `harvest_excepcion`,
+   su terna de goal de scope `campaign` sigue valiendo como destino, con motivo
+   informativo `migracion_pendiente` visible en `/salud`. La terna del goal de
+   PLATAFORMA nunca es destino ni contradiccion (`resuelve_goal` cae a ella
+   cuando la campana no tiene goal propio).
+3. El destino resuelto se congela en la decision (`inputs.goal.harvest` con
+   `resuelto_por = grupo|excepcion|terna`); apply lo re-valida contra la exacta
+   vigente del grupo (si ya no coincide: descarte `destino_desincronizado`,
+   jamas re-rutear) y replay lee el congelado (bitemporal).
+4. La decision se confirma en el readback de la keyword exacta (el evento de
+   valor): `verify_ok`, cola `applied`, cooldown. `hermanas_negadas` es higiene
+   posterior, reintentable por ciclo sin re-cobrar quota; una hermana que falla
+   queda pendiente con motivo y, al tope de ciclos, el job cierra `done` con las
+   pendientes declaradas y alerta. **Jamas se revierte la keyword por una
+   hermana.** Cada POST de hermana lleva su fila `apply_attempt` con `tipo =
+   'hermana'` (fuera del tope de 3 intentos `normal`, que un harvest ya agota).
+5. `negative_biblioteca` recibe SOLO negativos de decisiones `kind = negative`
+   aplicadas. Los negativos que nacen de un harvest (origen y hermanas) son
+   ruteo, no exclusion, y jamas entran: si entraran, el termino ganador naceria
+   negado en la `auto_discovery` del siguiente grupo del mismo tipo de producto.
+6. `harvest_excepcion` solo acepta pares `(campana, ad group)` validados contra
+   `ad_entity` (ad group hijo de esa campana, misma plataforma); texto libre
+   rechazado por la herramienta que la puebla.
+
 ## 8. Migracion 0018 (tablas nuevas, con sus COMMENT ON)
 
 - `campana_grupo(id, platform, tipo_producto, nombre_base, target_acos_pct,
