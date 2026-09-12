@@ -305,10 +305,19 @@ perspectivas)** — fijan lo que este §7 dejaba abierto y cambian comportamient
 1. Origen con rol `category_exact` → skip `origen_es_destino` (una campana no
    se harvestea a si misma; hoy lo absorbia el dedupe sin decirlo).
 2. Transicion: mientras una campana sin grupo no este en `harvest_excepcion`,
-   su terna de goal de scope `campaign` sigue valiendo como destino, con motivo
-   informativo `migracion_pendiente` visible en `/salud`. La terna del goal de
-   PLATAFORMA nunca es destino ni contradiccion (`resuelve_goal` cae a ella
-   cuando la campana no tiene goal propio).
+   sigue valiendo como destino **la terna VIGENTE que el motor usa hoy para esa
+   campana**, resuelta por el MISMO camino que `resuelve_goal` (goal de scope
+   `campaign` si existe; si no, el de `platform`), con motivo informativo
+   `migracion_pendiente` visible en `/salud`.
+   **Corregido 2026-09-12 por E/0.2.** La redaccion anterior decia que la terna
+   de PLATAFORMA nunca es destino; el inventario mostro que las 4 campanas que
+   han producido harvests reales no tienen goal propio ni terna ni grupo, y que
+   241 de 246 campanas resuelven solo por el goal de plataforma. Excluirla
+   apagaba el harvest de casi toda la cuenta el dia del deploy.
+   Lo que la terna de plataforma NUNCA hace es CONTRADECIR al grupo:
+   `destino_inconsistente` solo aplica a una terna de scope `campaign`, porque
+   la de plataforma es el default de la cuenta y no una decision sobre esa
+   campana. Resolver y comparar son cosas distintas.
 3. El destino resuelto se congela en la decision (`inputs.goal.harvest` con
    `resuelto_por = grupo|excepcion|terna`); apply lo re-valida contra la exacta
    vigente del grupo (si ya no coincide: descarte `destino_desincronizado`,
