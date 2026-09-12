@@ -294,13 +294,14 @@ def test_edicion_goal_desde_settings_actualiza_updated_at():
             conn, gid, target_acos_pct=Decimal("18"), updated_at=T_EDITADO
         )
         assert fila["updated_at"] == T_EDITADO
-        # edita_goal deja dict_row en la conexion: leer por nombre.
+        # FABRICA 02 (A.1): edita_goal restaura el row_factory del caller
+        # (antes dejaba dict_row): se lee por posicion.
         despues = conn.execute(
             "SELECT target_acos_pct, updated_at FROM ads_optimizer_goal WHERE id = %s",
             (gid,),
         ).fetchone()
-        assert despues["target_acos_pct"] == Decimal("18")
-        assert despues["updated_at"] == T_EDITADO
+        assert despues[0] == Decimal("18")
+        assert despues[1] == T_EDITADO
 
 
 # ---------------------------------------------------------------------------

@@ -405,6 +405,9 @@ def _handler_harvest(
     ack_keyword_sin_id: bool = False,
     ack_negative_con_error: bool = False,
     delete_keyword_rechazado: bool = False,
+    page_size: int | None = None,
+    fallo_post_negative_por_adgroup: dict[str, int] | None = None,
+    fallo_post_keyword_por_adgroup: dict[str, int] | None = None,
 ):
     """Handler MockTransport con ALMACEN y el shape REAL del probe 2.5
     (2026-08-26, ledger ids 1-20, log out/smoke-apply-20260826.log): el POST
@@ -423,6 +426,8 @@ def _handler_harvest(
     kw_store = list(keywords or [])
     vistos: list[httpx.Request] = []
     seq = iter(range(100, 999))
+    fallo_neg_por_ag = dict(fallo_post_negative_por_adgroup or {})
+    fallo_kw_por_ag = dict(fallo_post_keyword_por_adgroup or {})
 
     def _archiva(store: list[dict], kid: str) -> None:
         # El "delete" v3 ARCHIVA (probe 2.5: 207 success + state=ARCHIVED en
@@ -431,6 +436,32 @@ def _handler_harvest(
             if str(item.get("keywordId")) == str(kid):
                 item["state"] = "ARCHIVED"
 
+    def _pagina(store: list[dict], contenedor: str, pedido: dict) -> httpx.Response:
+        """Pagina del store ya filtrado: sin `page_size` va entero (sin
+        nextToken, como antes); con `page_size`, trozos con nextToken =
+        offset (string) hasta agotar."""
+        if page_size is None:
+            return httpx.Response(200, json={contenedor: store, "totalResults": len(store)})
+        try:
+            offset = int(pedido.get("nextToken") or 0)
+        except (TypeError, ValueError):
+            offset = 0
+        trozo = store[offset : offset + page_size]
+        respuesta: dict = {contenedor: trozo, "totalResults": len(store)}
+        if offset + page_size < len(store):
+            respuesta["nextToken"] = str(offset + page_size)
+        return httpx.Response(200, json=respuesta)
+
+    def _filtrados(store: list[dict], pedido: dict) -> list[dict]:
+        """Honra `adGroupIdFilter.include` del body cuando viene (F2/A.3:
+        un LIST por job filtrado por hermanas); sin filtro, el store entero
+        (comportamiento historico de este handler)."""
+        filtro = (pedido.get("adGroupIdFilter") or {}).get("include")
+        if not filtro:
+            return list(store)
+        dentro = {str(x) for x in filtro}
+        return [item for item in store if str(item.get("adGroupId")) in dentro]
+
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "api.amazon.com":
             return httpx.Response(200, json={"access_token": "fake-access-1", "expires_in": 3600})
@@ -438,17 +469,20 @@ def _handler_harvest(
         path = request.url.path
         body = json.loads(request.content) if request.content else {}
         if path == "/sp/negativeKeywords/list":
-            return httpx.Response(
-                200, json={"negativeKeywords": neg_store, "totalResults": len(neg_store)}
-            )
+            return _pagina(_filtrados(neg_store, body), "negativeKeywords", body)
         if path == "/sp/keywords/list":
-            return httpx.Response(200, json={"keywords": kw_store, "totalResults": len(kw_store)})
+            return _pagina(_filtrados(kw_store, body), "keywords", body)
         if "bidRecommendations" in path:
             if bidrec_status >= 400:
                 return httpx.Response(bidrec_status, json={"message": "sigv4 requerido"})
             return httpx.Response(200, json=bidrec_body or {})
         if path == "/sp/negativeKeywords" and request.method == "POST":
             obj = body["negativeKeywords"][0]  # contenedor del recurso (probe 2.5)
+            if str(obj.get("adGroupId")) in fallo_neg_por_ag:
+                # F2/A.3: fallo POR HERMANA (por adGroupId); el flag global
+                # por endpoint sigue abajo para el resto.
+                status = fallo_neg_por_ag[str(obj.get("adGroupId"))]
+                return httpx.Response(status, json={"code": str(status)})
             kid = f"n-{next(seq)}"
             if ack_negative_con_error:
                 # CX2: 207 con la fila en error[] — rechazo por-item (shape del
@@ -502,6 +536,10 @@ def _handler_harvest(
             if fallo_keyword_status:
                 return httpx.Response(fallo_keyword_status, json={"code": "400"})
             obj = body["keywords"][0]  # contenedor del recurso (probe 2.5)
+            if str(obj.get("adGroupId")) in fallo_kw_por_ag:
+                # F2/A.3: fallo POR HERMANA (por adGroupId).
+                status = fallo_kw_por_ag[str(obj.get("adGroupId"))]
+                return httpx.Response(status, json={"code": str(status)})
             kid = f"k-{next(seq)}"
             kw_store.append(
                 {

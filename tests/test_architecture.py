@@ -29,6 +29,7 @@ from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
 APP = RAIZ / "app"
+TOOLS = RAIZ / "tools"
 OPTIMIZER = APP / "optimizer"
 
 # El motor no habla con el mundo: ni red, ni base, ni la capa de ingesta.
@@ -349,7 +350,9 @@ def test_escritura_de_goals_vive_solo_en_goals_write():
     contienen SQL contra ads_optimizer_goal y (b) importan app.goals_write en
     runtime; y NINGUN modulo de app/ fuera de goals_write.py escribe
     `UPDATE` o `INSERT` de ads_optimizer_goal (las lecturas de
-    cycle/api_dashboard/apply si pueden: SELECT no es escritura)."""
+    cycle/api_dashboard/apply si pueden: SELECT no es escritura). FABRICA 02
+    (A.1): el candado cubre tambien tools/ (la herramienta de A.5 despacha a
+    goals_write, jamas escribe crudo)."""
     for rel in MODULOS_DESPACHAN_GOALS:
         fuente = (RAIZ / rel).read_text(encoding="utf-8")
         sql_encontrado = [p.pattern for p in _PATRONES_SQL_GOALS if p.search(fuente)]
@@ -382,17 +385,29 @@ def test_escritura_de_goals_vive_solo_en_goals_write():
         f"FABRICA 01): {escritores_insert}"
     )
 
+    escritores_tools = sorted(
+        p.relative_to(RAIZ).as_posix()
+        for p in TOOLS.rglob("*.py")
+        if _PATRON_UPDATE_GOAL.search(p.read_text(encoding="utf-8"))
+        or _PATRON_INSERT_GOAL.search(p.read_text(encoding="utf-8"))
+    )
+    assert escritores_tools == [], (
+        f"escritura cruda de ads_optimizer_goal en tools/ (FABRICA 02 A.1: "
+        f"los tools despachan a app.goals_write): {escritores_tools}"
+    )
+
 
 def test_patrones_sql_goals_resisten_case_y_whitespace():
     """#5 (hallazgo review 3.2): el candado escaneaba cadenas LITERALES —
     "uPdAtE\\n\\tads_optimizer_goal" lo evadia con case/whitespace. Los
     patrones van compilados (IGNORECASE, \\s+): la evasion DETECTA y una frase
-    benigna sin verbo SQL delante no dispara falso positivo. Limitacion
-    declarada: tools/ queda fuera del alcance del candado (no se amplia aqui)."""
+    benigna sin verbo SQL delante no dispara falso positivo. FABRICA 02
+    (A.1): el alcance cubre tools/ (ver el test de escritor unico)."""
     assert _PATRON_UPDATE_GOAL.search("uPdAtE\n\tads_optimizer_goal")
     assert any(p.search("fRoM   ads_optimizer_goal") for p in _PATRONES_SQL_GOALS)
     benigno = "el UNICO camino de escritura de ads_optimizer_goal (decision 26)"
     assert not any(p.search(benigno) for p in _PATRONES_SQL_GOALS)
+    assert TOOLS.is_dir(), "el candado de escritor unico escanea tools/"
 
 
 # ---------------------------------------------------------------------------

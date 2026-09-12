@@ -154,6 +154,16 @@ MOTIVO_HARVEST_DUPLICADO = "harvest_duplicado"
 MOTIVO_HARVEST_MONEDA_INCOHERENTE = "harvest_moneda_incoherente"
 MOTIVO_MONEDA_INCOHERENTE = "moneda_incoherente"
 
+# FABRICA 02 (A.1): motivos del resolutor de destino
+# (`app/optimizer/harvest_destino.py`). Viven aqui porque este modulo es el
+# vocabulario cerrado de motivos del motor (decide_hygiene NO se toca: solo
+# se agregan constantes, ningun umbral cambia).
+MOTIVO_ORIGEN_ES_DESTINO = "origen_es_destino"
+MOTIVO_SIN_DESTINO_HARVEST = "sin_destino_de_harvest"
+MOTIVO_DESTINO_INCONSISTENTE = "destino_inconsistente"
+MOTIVO_DESTINO_DESINCRONIZADO = "destino_desincronizado"
+MOTIVO_MIGRACION_PENDIENTE = "migracion_pendiente"
+
 _CIEN = Decimal("100")
 
 
