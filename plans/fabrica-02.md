@@ -32,10 +32,12 @@ Dentro (v1, fijo; ampliar solo con el dueño):
 
 - **Destino del harvest por grupo** (spec §7.1–7.3): campaña en grupo → ad group
   de la `category_exact` DE ESE GRUPO por SQL sobre `campana_grupo_rol`; campaña
-  sin grupo → `harvest_excepcion`; **mientras no esté migrada, la terna vigente
-  del goal de campaña sigue valiendo con motivo visible `migracion_pendiente`**
-  (compatibilidad real, no prometida); sin nada → skip visible. Jamás por
-  nombre, jamás placeholder.
+  sin grupo → `harvest_excepcion`; **mientras no esté migrada, sigue valiendo la
+  terna vigente que el motor usa hoy —del goal propio o del de plataforma— con
+  motivo visible `migracion_pendiente`** (compatibilidad real, medida contra
+  producción en E/0.2: acotarla al goal propio dejaba 241 de 246 campañas sin
+  cosechar el día del deploy); sin nada → skip visible. Jamás por nombre, jamás
+  placeholder.
 - **Fase `hermanas_negadas`** en el job de harvest (spec §7): negative-exact del
   MISMO término en las hermanas del grupo, con ledger pre-HTTP por hermana,
   readback, **1 unidad de quota por harvest**, y reversa en orden keyword →
@@ -128,8 +130,10 @@ Fuera (declarado):
    es reintento tras caída y LIST truncado (hecho 7), no los 12.
 9. **`resuelve_goal` cae al goal de plataforma** cuando la campaña no tiene goal
    propio (`app/optimizer/goals.py:175-180`), y el goal 4 de MX trae terna a la
-   campaña manual. Cualquier comparación «terna vs grupo» debe mirar solo
-   `scope = campaign`.
+   campaña manual. Cualquier **comparación** «terna vs grupo» debe mirar solo
+   `scope = campaign` — pero **resolver** el destino sí usa la terna vigente
+   venga de donde venga (ver hecho 13: confundir ambas cosas apagaba el harvest
+   de casi toda la cuenta).
 10. **`harvest_excepcion` acepta texto libre** (`0018:224-234`): sin FK, sin
     plataforma, sin parentesco ad group ↔ campaña. Es el único camino real de
     postear fuera del perímetro.
@@ -140,6 +144,27 @@ Fuera (declarado):
     `tests/test_architecture.py:62-71` como «candidato DECLARADO a partirse la
     próxima vez que se toque en grande: reconciliación vs ejecución». A.3 es
     tocar en grande.
+13. **(E/0.2, 2026-09-12) Las campañas que cosechan de verdad NO tienen goal
+    propio.** Las 4 que han producido harvests en toda la historia —`AC -
+    Category Phrase - MX`, `AGMX - Category Phrase - MX`, `AU2 - Category Phrase
+    - US`, `USPerNog - Auto Discovery - US`— están sin goal, sin terna y sin
+    grupo: cosechan por el goal de `platform`. Medido sobre las 246 campañas:
+    **5 resuelven por grupo y 241 solo por el goal de plataforma**. Acotar el
+    paso 3 a `scope = campaign` las dejaba a todas en
+    `sin_destino_de_harvest` el día del deploy. Por eso el paso 3 usa la terna
+    vigente por el mismo camino que `resuelve_goal`.
+14. **(E/0.2) `harvest_excepcion` no tiene candidatas masivas.** Las únicas 5
+    campañas con terna de goal propio son exactamente las del grupo 1, todas
+    consistentes (parentesco y plataforma ok). D.2 deja de ser una migración de
+    241 `go` y pasa a ser: limpiar la terna del grupo 1, y migrar a excepción
+    solo lo que el dueño decida.
+15. **(E/0.2) Hay 8 campañas con más de un ad group** (hasta 8 en MX), lo que
+    refuta la generalización de 0.1 — pero **ninguna tiene goal ni está en
+    grupo**, así que hoy no entran al camino del harvest. El flag de ad group
+    no vuelve al alcance; queda como condición vigilada.
+16. **(E/0.2) Los negativos de Amazon no se espejan en Orbit**: no hay `kind` en
+    `ad_entity` ni tabla que los guarde. El «conteo de páginas del LIST» solo se
+    puede medir llamando a Amazon; se dimensiona en A.3 con el fixture.
 
 ## Diseño (lo que el implementador no decide)
 
@@ -158,14 +183,21 @@ hace `_SQL_PADRE` en `apply_harvest.py:217-219`). Orden:
    asertado** (no hay candado de plataforma en `campana_grupo_rol`).
    `resuelto_por = "grupo"`.
 2. `harvest_excepcion` por campaña → `resuelto_por = "excepcion"`.
-3. Terna del goal **de scope `campaign`** (nunca la de plataforma) →
-   `resuelto_por = "terna"` con motivo informativo `migracion_pendiente`
-   (visible en `/salud`; se retira en D.2).
+3. **La terna VIGENTE que el motor usa hoy para esa campaña**, resuelta por el
+   MISMO camino que `resuelve_goal` (goal de scope `campaign` si existe; si no,
+   el de `platform`) → `resuelto_por = "terna"` con motivo informativo
+   `migracion_pendiente` (visible en `/salud`; se retira campaña por campaña en
+   D.2). **Incluye la terna de plataforma a propósito** — corregido por E/0.2,
+   ver hecho 13.
 4. `Skip("sin_destino_de_harvest")`.
 
-Si la campaña está en grupo Y su goal de scope `campaign` trae terna distinta
-de la que resuelve el grupo → `Skip("destino_inconsistente")` + aviso (A.6).
-Nunca «gana uno» en silencio.
+**Resolver ≠ comparar.** El paso 3 resuelve con la terna vigente venga de donde
+venga; en cambio la comparación «terna vs grupo» mira **solo `scope = campaign`**:
+si la campaña está en grupo Y su goal propio trae terna distinta de la que
+resuelve el grupo → `Skip("destino_inconsistente")` + aviso (A.6), nunca «gana
+uno» en silencio. La terna de **plataforma jamás contradice**: es el default de
+toda la cuenta, no una decisión sobre esa campaña — tratarla como contradicción
+apagaría el harvest de 241 campañas por diseño.
 
 **Congelado y dedupe** — `_goal_json` (`app/cycle.py:643-673`) recibe el destino
 resuelto y congela `inputs.goal.harvest = {campaign_id, ad_group_id,
@@ -313,14 +345,14 @@ no implementó y re-muta. La suite completa corre en CI sobre el PR.
 | Task | Contenido | DoD | Depends | Status |
 |---|---|---|---|---|
 | 0.1 | [stage:verificacion] [lane:gate] [tdd:skip:sonda] **Sonda de hermanas con la herramienta sellada** `tools/smoke_apply.py` (ledger `tipo='probe'`, doble autorización, `termino_basura`; cliente solo vía `apply._cliente_reversa`; si hoy no puede fijar el ad group, se le agrega ese flag): con go literal del dueño, (i) negative keyword en el ad group **product targeting** del grupo 1 (`187855388248650`) → decisión 10: acepta sí/no; (ii) **ensayo de la reversa en orden con ids reales**: negativos en las 3 hermanas de keyword → `borrar_negative` hermanos en orden, readback. **Todo lo que la sonda cree se revierte en la misma corrida, incluido el negativo de PT si Amazon lo aceptó** (regla 7: cero rastro activo del probe). `borrar_negative` **archiva** (`app/ads/write.py:346-354`): la evidencia es readback `ARCHIVED` de cada id creado (PT incluido), y el DoD dice quién archiva a mano y en qué plazo si algún borrado falla. Únicas escrituras a Amazon antes del deploy. | E/0.1: ids de `apply_attempt` tipo `probe`, request/ack/readback sanitizados, veredicto binario «PT acepta: sí/no» que sella `HERMANAS_ROLES`, la secuencia de ids de la reversa, y readback `ARCHIVED` de **todos** los ids creados (cero negativos vivos del probe al cerrar) | — | cc:完了 [2026-09-12 (dueño, go literal en el momento): **VEREDICTO — PT ACEPTA negative keywords por texto: SÍ**, así que por la regla sellada del spec §7 la decisión 10 queda en **4 hermanas**. `http_create` 207 con `negativeKeywordId 45705293970881`, readback por identidad, `http_delete` 207 (archiva) y `readback_final` ausente: **neto cero**, `rc=0`. Ledger `apply_attempt` 154 (create) y 155 (delete), ambas `tipo=probe`, `decision_id` nulo, `quota_cobrada=false`, selladas con su ack; la 154 nació antes del HTTP. Ceremonia: `config_version` 17 (16 claves = 14 vigentes + 2; caps y `modo=live` intactos), token efímero de 32 chars por archivo, jamás por argv; cierre en `config_version` 18 sin las dos claves y contenedor limpio. **No hizo falta tocar la herramienta PARA ESTA SONDA**: la campaña sondeada (`70314694808265`) tiene exactamente un ad group, así que `primer_ad_group_de_campana` resolvió al correcto. **La conclusión NO se generaliza** (hallazgo CodeRabbit en el PR #255): una consulta de lectura mostró un solo ad group en las cinco campañas del grupo 1, pero eso es una foto de hoy y de UN grupo — `primer_ad_group_de_campana` toma el primero que coincide, así que con dos ad groups elegiría mal. **0.2 confirma la cardinalidad en todo el universo**; si aparece alguna campaña con más de uno, el flag de ad group vuelve al alcance de A.0/A.3. **Alcance reducido por decisión del dueño**: se corrió solo la mitad (i); la (ii) (reversa en orden con ids reales) se DIFIERE a A.3 (simulador, DoD (g)) y D.3 (en vivo con `tools/reversa_harvest.py`), porque la herramienta sellada crea y archiva en la misma corrida y el orden que se quiere ensayar es el de `reversa_harvest_completo`, que aún no existe. Residual declarado: aceptado ≠ efectivo (un negativo por texto en un ad group que targetea ASINs puede ser inerte; la sonda responde el contrato de la API, no el efecto). E/0.1] |
-| 0.2 | [stage:verificacion] [lane:fast] [tdd:skip:lectura] **Inventario de existentes** como `orbit_read`: campañas con goal `enabled` de scope `campaign` y terna `harvest_*` que NO están en `campana_grupo_rol` (candidatas a `harvest_excepcion`, con su destino actual y si el ad group es hijo de esa campaña y de esa plataforma), y las que están en grupo (terna ↔ grupo consistente). Conteo de negativos por perfil (páginas que ocupa el LIST). Sin mutaciones. | E/0.2: tabla campaña → destino → ¿grupo? → ¿consistente? → ¿parentesco ok?; páginas de LIST por plataforma | — | cc:TODO |
+| 0.2 | [stage:verificacion] [lane:fast] [tdd:skip:lectura] **Inventario de existentes** como `orbit_read`: campañas con goal `enabled` de scope `campaign` y terna `harvest_*` que NO están en `campana_grupo_rol` (candidatas a `harvest_excepcion`, con su destino actual y si el ad group es hijo de esa campaña y de esa plataforma), y las que están en grupo (terna ↔ grupo consistente). Conteo de negativos por perfil (páginas que ocupa el LIST). Sin mutaciones. | E/0.2: tabla campaña → destino → ¿grupo? → ¿consistente? → ¿parentesco ok?; páginas de LIST por plataforma | — | cc:完了 [2026-09-12 (lead, solo lectura): **el inventario encontró un agujero en el diseño y lo corrigió antes de escribir código.** Hallazgo mayor (hecho 13): las 4 campañas que han producido harvests reales en toda la historia no tienen goal propio, ni terna, ni grupo — cosechan porque `resuelve_goal` cae al goal de `platform`; con el paso 3 acotado a `scope = campaign`, **241 de 246 campañas** habrían quedado en `sin_destino_de_harvest` el día del deploy, incluidas esas 4. Corregido en el resolutor, en el spec §7 y en la DoD (c'') de A.1: resolver usa la terna vigente por el mismo camino que `resuelve_goal`; comparar sigue mirando solo `scope = campaign`. Otros hallazgos: las 5 campañas con terna propia son exactamente las del grupo 1, todas consistentes (parentesco y plataforma ok) → `harvest_excepcion` vacía y **D.2 deja de ser masiva** (hecho 14); hay **8 campañas con más de un ad group**, lo que refuta la generalización de 0.1, pero ninguna tiene goal ni está en grupo → el flag de ad group no vuelve al alcance, queda vigilado (hecho 15). Límite declarado: los negativos de Amazon no se espejan en Orbit, así que las «páginas de LIST» del DoD no son medibles desde la base — se dimensionan en A.3 con el fixture (hecho 16). Tablas de F2 vacías: `harvest_excepcion` 0, `harvest_job` 0, bibliotecas 0; `campana_grupo` 1. E/0.2] |
 
 ### Fase A — Código y migración
 
 | Task | Contenido | DoD | Depends | Status |
 |---|---|---|---|---|
 | A.0 | [stage:implementacion] [lane:gate] [tdd:required] **Banco de pruebas de F2**: fixture de Postgres unificado (`ORDEN` = 0001, 0002, 0003, 0004, 0013–0019, `00NN`; precedente `_ORDEN_DB` en `tests/test_evaluacion_catalogo.py:639-655`) + helpers de harvest de `tests/test_apply_harvest.py` (`_semilla`, `_handler_harvest`, `_aplicador`, `_encola_fila`) + `_semilla_grupo(conn)` (grupo, 5 roles, ad groups, goals) + handler de LIST que **honra `adGroupIdFilter`** y `nextToken` (para simular truncación) + flag de fallo **por hermana** (por `adGroupId`). Sin tests de comportamiento todavía. | El fixture levanta y siembra; un test humo por helper; `tests/test_architecture.py` verde | — | cc:TODO |
-| A.1 | [stage:implementacion] [lane:gate] [tdd:required] **Resolutor de destino** (`app/optimizer/harvest_destino.py`) + cableado en los **cuatro** sitios (`_config_harvest_de` con su dedupe, re-validación pre-claim, replay, **`_contexto`**) + congelado con `resuelto_por` y `completa` derivada del destino + motivos `origen_es_destino`, `sin_destino_de_harvest`, `destino_inconsistente` (scope campaign), `destino_desincronizado`, `migracion_pendiente` en el vocabulario cerrado. | Rojo-primero: (a) en grupo, goal con terna NULL, fixture con una campaña **señuelo fuera del grupo llamada** `category_exact` → la decisión congela el `external_id` de la exacta del grupo y el POST viaja a ese `adGroupId` (mata «por nombre» y «fallback al goal»); (b) rol exact como origen → `motivo == "origen_es_destino"` y `!= harvest_duplicado`, sembrado donde el dedupe no aplica; (c) sin grupo con excepción → excepción; (c') sin grupo con terna scope campaign → destino de la terna y skip informativo `migracion_pendiente` contado; (c'') campaña sin goal propio, solo goal de plataforma con terna → NO es `destino_inconsistente`; (d) sin nada → `sin_destino_de_harvest`; (e) terna scope campaign distinta del grupo → `destino_inconsistente`, cero HTTP; (f) decidido con G1, se muta `campana_grupo_rol` antes de liberar → el POST **no** se emite, motivo `destino_desincronizado`; y con la terna limpiada después de decidir, apply y replay usan el congelado; (g) término ya en la exacta del grupo → `harvest_duplicado`, cero fila de cola (dedupe re-apuntado); (h) terna NULL y bid 11.62 → el POST lleva `bid` 11.62 clampeado; mutantes del lead mueren | A.0, 0.2 | cc:TODO |
+| A.1 | [stage:implementacion] [lane:gate] [tdd:required] **Resolutor de destino** (`app/optimizer/harvest_destino.py`) + cableado en los **cuatro** sitios (`_config_harvest_de` con su dedupe, re-validación pre-claim, replay, **`_contexto`**) + congelado con `resuelto_por` y `completa` derivada del destino + motivos `origen_es_destino`, `sin_destino_de_harvest`, `destino_inconsistente` (scope campaign), `destino_desincronizado`, `migracion_pendiente` en el vocabulario cerrado. | Rojo-primero: (a) en grupo, goal con terna NULL, fixture con una campaña **señuelo fuera del grupo llamada** `category_exact` → la decisión congela el `external_id` de la exacta del grupo y el POST viaja a ese `adGroupId` (mata «por nombre» y «fallback al goal»); (b) rol exact como origen → `motivo == "origen_es_destino"` y `!= harvest_duplicado`, sembrado donde el dedupe no aplica; (c) sin grupo con excepción → excepción; (c') sin grupo con terna de goal propio → destino de esa terna y skip informativo `migracion_pendiente` contado; (c'') **campaña sin goal propio, solo goal de plataforma con terna → resuelve por ESA terna** (mismo camino que `resuelve_goal`), con `migracion_pendiente`, y NO es `destino_inconsistente` — es el caso de las 4 campañas que cosechan hoy y de 241 en total (hecho 13); un mutante que lo mande a `sin_destino_de_harvest` debe morir; (d) sin nada → `sin_destino_de_harvest`; (e) terna scope campaign distinta del grupo → `destino_inconsistente`, cero HTTP; (f) decidido con G1, se muta `campana_grupo_rol` antes de liberar → el POST **no** se emite, motivo `destino_desincronizado`; y con la terna limpiada después de decidir, apply y replay usan el congelado; (g) término ya en la exacta del grupo → `harvest_duplicado`, cero fila de cola (dedupe re-apuntado); (h) terna NULL y bid 11.62 → el POST lleva `bid` 11.62 clampeado; mutantes del lead mueren | A.0, 0.2 | cc:TODO |
 | A.2 | [stage:implementacion] [lane:gate] [tdd:required] **Migración `00NN`** (a)–(g) del diseño. | Tests de esquema con rol real: transiciones válidas/inválidas incl. `exact_created → done` conservada; job sembrado en `hermanas_negadas` → un segundo job del mismo `(platform, ad_entity_id, search_term)` viola `harvest_job_en_vuelo`; constante de fases en vuelo cruzada contra `pg_index.indpred`; `tipo='hermana'` no consume ni amplía el presupuesto `normal`; trigger de goal y trigger simétrico de `campana_grupo_rol`; **bajo `SET ROLE app_decide` el statement literal del motor inserta y actualiza de verdad** en las dos bibliotecas (fila leída) y los negativos truenan (patrón `tests/test_apply_schema.py:709-745`, no catálogo); mutante `REVOKE USAGE` de secuencia truena la migración; `PROGRESION_HARVEST` parsea `00NN` | A.0 | cc:TODO |
 | A.3a | [stage:implementacion] [lane:gate] [tdd:skip:refactor-sin-comportamiento] **Partir `app/apply_harvest.py`** en ejecución vs reconciliación (deuda declarada en `tests/test_architecture.py:62-71`), sin cambio de comportamiento. | La suite de `tests/test_apply_harvest.py` pasa idéntica antes y después (mismo conteo, 0 skipped); allowlist de tamaño actualizada con razón; `tests/test_architecture.py` verde | A.0 | cc:TODO |
 | A.3 | [stage:implementacion] [lane:gate] [tdd:required] **Fase `hermanas_negadas`** completa según el diseño: sello de la decisión en el readback de la keyword; hermanas = grupo − exact − origen (las 4, con PT confirmada por 0.1; un rechazo en vivo deja esa hermana pendiente con motivo, jamás tumba el job); un LIST filtrado por job con criterio de tres ejes y fail-closed por truncación; ledger `tipo='hermana'` por hermana; reintento por ciclo sin quota; `TOPE_CICLOS_HERMANAS`; `done` con pendientes declaradas + `AlertaHarvest`; las cinco listas de fases en vuelo y `_continua_job`; `tools/reversa_harvest.py --job`. | Rojo-primero con `MockTransport` y el fixture de A.0: (a) 3 hermanas creadas → `external_ids` **exacto leído de la base** con los tres ids y la decisión ya confirmada (`verify_ok`, cola `applied`) antes del primer POST a hermanas; (b) orden hacia adelante: secuencia de requests = negativo origen → keyword → LIST readback → luego hermanas; `fallo_keyword_status=400` → **cero** HTTP a hermanas; (c) LIST sembrado con negativo `ENABLED` en h1, `ARCHIVED` en h2, `NEGATIVE_PHRASE` en h3, nada en h4 → 1 POST omitido con id registrado, 3 emitidos; bodies de LIST con `adGroupIdFilter` de las hermanas y **una sola** llamada por job; (d) LIST con `nextToken` en el tope → cero POST, hermanas pendientes `list_truncado`; (e) fallo en la 2ª hermana → keyword intacta, decisión confirmada, hermana 2 pendiente con motivo, job sigue en `hermanas_negadas`; ciclo siguiente la reintenta sin nueva fila de quota (`apply_quota_state.used` no cambia); tras `TOPE_CICLOS_HERMANAS` → `done` + `hermanas_pendientes` + alerta; (f) ledger completo y ordenado `[(1,'normal',True),(2,'normal',False),(3..N,'hermana',False)]` con `cap = 1` sembrado; (g) reversa por **secuencia de ids** `[keyword, h1, h2, h3, origen]` con una fila `tipo='reversa'` por borrado; (h) proceso caído con job en `hermanas_negadas` → `reconcilia_harvest` lo retoma, `_reconcilia_harvest_huerfanas` **no** cierra su fila, y un job nuevo del mismo término choca con el índice; (i) rol de origen `auto_discovery` → no se re-niega el origen; (j) PT rechazada en vivo → **hermana pendiente** con motivo `pt_no_acepta_negative_keyword` en `external_ids["hermanas"]`, el job sigue y la reconciliación la reintenta; al tope de ciclos cierra `done` con la pendiente declarada — **la misma semántica que cualquier otra hermana rechazada**, no un `skip` aparte (contradicción señalada por CodeRabbit en el PR #255); (k) harvest sin grupo (excepción/terna) → `exact_created → done` como hoy; (l) fila vetada o `shadow` → cero jobs (precedente `test_harvest_vetado_jamas_crea_harvest_job`); mutantes del lead mueren | A.2, A.3a, 0.1 | cc:TODO |
@@ -339,7 +371,7 @@ no implementó y re-muta. La suite completa corre en CI sobre el PR.
 | Task | Contenido | DoD | Depends | Status |
 |---|---|---|---|---|
 | D.1 | [stage:cierre-pr] [lane:release] [tdd:skip:validacion-entrega] **Precondiciones**: cero filas `harvest` no terminales en `apply_queue` (patrón orbit-05 1.3); caps diarios de harvest **bajados al arranque** (decisión del dueño 2026-09-10; número exacto fijado en D.1 con el multiplicador a la vista — referencia 2 harvest/día ≈ 12 escrituras; 1 unidad = hasta 6 mutaciones; los negativos de hermanas no cuentan contra el cap de negative, y eso queda escrito en el runbook). Backup; migración `00NN` en una transacción (declara el índice recreado y el CHECK soltado); verificación como `orbit_read` (fases, índice, tipo `hermana`, triggers, GRANTs ±, secuencias); deploy `git archive` + md5 + rebuild; smoke de lectura. **Verificación de apagado** (no «reversa»): goals del grupo en `shadow` → ningún job nuevo sale a HTTP. La reversa real se ensayó en 0.1 con ids reales. | Runbook `docs/DEPLOY.md` sección F2; E/D.1 con SHA, salidas, caps decididos y la verificación de apagado | R.1 | cc:TODO |
-| D.2 | [stage:cierre-pr] [lane:release] [tdd:skip:ops] **Migrar existentes** con `tools/harvest_excepcion.py`, una a una, con go literal del dueño según E/0.2; limpiar la terna del grupo 1 con su go. Hasta que cada campaña esté migrada, sigue por su terna (`migracion_pendiente` visible). | Cada fila de `harvest_excepcion` con `go_literal` y par validado; terna NULL en el grupo 1; `/salud` sin `migracion_pendiente` al terminar; E/D.2 | D.1, 0.2 | cc:TODO |
+| D.2 | [stage:cierre-pr] [lane:release] [tdd:skip:ops] **Limpiar la terna del grupo 1** con go del dueño (`harvest_limpia_destino`), para que resuelva por grupo y no por terna. **La migración a `harvest_excepcion` NO es masiva** (hechos 13–14): 241 campañas resuelven hoy por el goal de plataforma y solo 4 han cosechado alguna vez; migrarlas todas exigiría 241 `go`. Se migran **solo las que el dueño decida** —candidatas naturales: esas 4— y el resto sigue por la terna vigente con `migracion_pendiente`, que es un estado legítimo y declarado, no deuda. | Terna NULL en el grupo 1 y `/salud` mostrándolo resuelto por grupo; cada fila de `harvest_excepcion` creada (si alguna) con su `go_literal` y par validado; E/D.2 declara cuántas campañas quedan en `migracion_pendiente` a propósito | D.1, 0.2 | cc:TODO |
 | D.3 | [stage:cierre-pr] [lane:release] [tdd:skip:ops] **Primer harvest de grupo en vivo**: encendido de `kit_arras` a `live` = go del dueño; seguir el primer harvest natural hasta `done`: keyword en la exacta, negativos en las hermanas por LIST, biblioteca con la fila, ledger sellado, `/cortes` mostrando las hermanas en el renglón antes de vencer el veto. | E/D.3 con ids reales y readback; AUTO-02 y `ORBIT 17` cierran en el tracker | D.2, `cortes-ui-01` 1.2 | cc:TODO |
 
 ## Clasificación (Required / Recommended / Optional / Reject)
@@ -437,6 +469,13 @@ Inventario harness-plan; **no es aprobación concedida**. Sin
    red-logs TDD, tope de cross-reviews, no tocar trackers). R.1 a kimi o codex.
    Sondas 0.1/0.2 y despliegue D.x: lead + dueño.
 
+**Estado tras las sondas (2026-09-12).** Las dos están cerradas y las dos
+cambiaron el plan: 0.1 selló `HERMANAS_ROLES` en 4 hermanas, y 0.2 corrigió el
+paso 3 del resolutor antes de que existiera código (hechos 13–16). **Lo
+siguiente es el brief de A.0 y A.1 para GLM**; A.0 (banco de pruebas) no
+depende de nadie y A.1 ya tiene sus casos de prueba fijados por E/0.2, incluido
+el (c'') que ahora es el caso mayoritario de la cuenta y no un borde.
+
 Decisión de diseño tomada por el plan con recomendación de 3 de 5 revisores,
 **revisable por el dueño**: si falla bloquear el término en una hermana, la
 palabra nueva se conserva (ya vende), el bloqueo se reintenta solo cada día y
@@ -449,8 +488,10 @@ precisiones que el spec no fija y que cambian comportamiento:
 
 1. Origen con rol `category_exact` → skip `origen_es_destino`.
 2. Transición: mientras una campaña sin grupo no esté en `harvest_excepcion`,
-   su terna de scope `campaign` sigue valiendo con motivo `migracion_pendiente`;
-   la terna de plataforma nunca es destino ni contradicción.
+   sigue valiendo la terna **vigente** que el motor usa hoy (goal propio o, si
+   no tiene, el de plataforma) con motivo `migracion_pendiente`. La terna de
+   plataforma **sí resuelve destino** y **nunca** contradice al grupo —
+   corregido por E/0.2: excluirla dejaba 241 de 246 campañas sin cosechar.
 3. El destino resuelto se congela en la decisión (`resuelto_por`); apply lo
    re-valida contra el grupo vigente (`destino_desincronizado`) y replay lo lee.
 4. La decisión se confirma en el readback de la keyword; `hermanas_negadas` es

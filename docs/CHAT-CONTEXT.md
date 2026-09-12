@@ -4,6 +4,23 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-12 UTC — FABRICA 02 (F2): las dos sondas cerradas; el inventario tapó un agujero del plan.**
+La sonda 0.2 (un inventario de solo lectura, sin tocar Amazon) encontró que **las cuatro campañas que
+de verdad cosechan palabras no tienen configuración propia**: funcionan porque el sistema cae a una
+configuración general de la cuenta. El plan, tal como estaba escrito, iba a exigir configuración
+propia — y con eso **241 de 246 campañas habrían dejado de cosechar el día que se encienda F2**,
+incluidas esas cuatro. Corregido en el plan y en el spec antes de escribir una línea de código: el
+destino se resuelve con la configuración vigente, venga de donde venga.
+
+De paso, el inventario desmintió algo que yo mismo había afirmado al cerrar 0.1: sí hay campañas con
+más de un grupo de anuncios (hasta ocho), aunque ninguna de ellas está hoy en el camino de la cosecha.
+Y dejó claro que migrar campañas viejas **no** es una tarea masiva: solo el grupo nuevo tiene
+configuración propia, así que no hay 241 autorizaciones que pedir. Evidencia:
+`docs/evidencia/fabrica-02/0.2/`.
+
+**Falta antes del código**: nada de sondas. Lo siguiente es el encargo de las dos primeras tareas de
+implementación (el banco de pruebas y el resolutor de destino) a GLM.
+
 **2026-09-12 UTC — FABRICA 02 (F2): plan cerrado y primera sonda hecha.**
 F2 es la fase que hace que un grupo de campañas **aprenda solo**: cuando una palabra demuestra que
 vende, se muda a la campaña exacta del grupo y se bloquea en las hermanas para que dejen de competir
