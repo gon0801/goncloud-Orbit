@@ -56,10 +56,18 @@ byte a byte contra el del host (`cmp`). Jamás viajó por argv ni por el histori
 ## La corrida
 
 ```
-docker exec orbit-app-1 sh -c "ORBIT_SMOKE_AUTH=$(cat /tmp/smoke_token) \
+ssh goncloud 'docker exec orbit-app-1 sh -c "ORBIT_SMOKE_AUTH=\$(cat /tmp/smoke_token) \
   PYTHONPATH=/app python /tmp/smoke_apply.py --forma negative \
-  --platform amazon_mx --acepto-mutacion-real"
+  --platform amazon_mx --acepto-mutacion-real"'
 ```
+
+**La barra invertida de `\$(cat …)` no es cosmética** (hallazgo CodeRabbit en
+el PR #255, sobre una transcripción previa de esta misma línea que la omitía):
+sin ella, la shell del server expande el token ANTES del `docker exec` y el
+valor queda en el `argv` del contenedor, visible en `ps` y `/proc`. Con ella,
+el `$(cat …)` viaja literal y lo expande la shell de adentro, que ya tiene el
+archivo `600`. La corrida real llevó la barra — es el mismo escapado que manda
+el runbook de `tools/smoke_apply.py:64`.
 
 Log crudo: `out/smoke-0.1-fabrica02.log` (no se commitea; `out/` en
 `.gitignore`). Perfil `3850003733258937`, plataforma `amazon_mx`.

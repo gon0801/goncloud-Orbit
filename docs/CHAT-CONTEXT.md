@@ -4,6 +4,34 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-12 UTC — FABRICA 02 (F2): plan cerrado y primera sonda hecha.**
+F2 es la fase que hace que un grupo de campañas **aprenda solo**: cuando una palabra demuestra que
+vende, se muda a la campaña exacta del grupo y se bloquea en las hermanas para que dejen de competir
+por ella. El plan (`plans/fabrica-02.md`, PRs #253 y #254) se escribió con hechos verificados contra
+producción y pasó por cinco revisiones independientes, que encontraron **4 críticos antes de escribir
+una línea de código**: el diseño original habría apagado la cosecha de toda la cuenta viva el día del
+deploy, y habría guardado la palabra ganadora como *negativo*, haciéndola nacer bloqueada en el
+siguiente grupo del mismo tipo de producto.
+
+**Decisiones del dueño**: la biblioteca guarda solo palabras (sin dinero); los topes diarios bajan al
+arrancar, porque un harvest pasa de 2 a hasta 6 escrituras en Amazon por la misma unidad de cuota; e
+implementa GLM por fase.
+
+**Sonda 0.1 (2026-09-12, con go literal del dueño)**: se probó si Amazon acepta bloquear una palabra
+por texto en la campaña de *product targeting*. **Sí la acepta**, contra lo que suponía el diseño, así
+que la fase nueva bloqueará en **4 campañas hermanas** y no en 3. La sonda creó una palabra basura, la
+verificó, la archivó y comprobó que no quedó viva: neto cero, con las dos filas de ledger `probe` que
+exige el módulo apply. La ceremonia de autorización se abrió y se cerró en el mismo rato
+(`config_version` 17 → 18), sin dejar el token ni la herramienta en ningún lado. Evidencia:
+`docs/evidencia/fabrica-02/0.1/`.
+
+**Residual declarado**: aceptado no es lo mismo que efectivo — la sonda respondió el contrato de la
+API, no si ese bloqueo suprime algo en una campaña que apunta a ASINs. Probablemente sea inerte; queda
+anotado, y sacarlo sería un cambio de una línea.
+
+**Falta antes del código**: la sonda 0.2 (inventario de las campañas viejas, solo lectura) y el brief
+de las dos primeras tareas de implementación para GLM.
+
 **2026-09-10 UTC — SP-API 01: FASE A CERRADA. Desplegada en producción con cron diario.**
 `aee0221` en producción. `0035`/`0036`/`0037` aplicadas con respaldo previo del esquema, cada una en
 una transacción; verificación como `orbit_read` de triggers, GRANTs por columna e índice. Deploy con
