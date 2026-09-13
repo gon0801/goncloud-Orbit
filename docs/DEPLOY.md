@@ -1101,19 +1101,29 @@ SELECT conname FROM pg_constraint
  WHERE conrelid IN ('"'"'public.harvest_job'"'"'::regclass,
                     '"'"'public.apply_attempt'"'"'::regclass,
                     '"'"'public.ads_optimizer_goal'"'"'::regclass)
-   AND conname IN ('"'"'harvest_job_fase_check'"'"','"'"'attempt_tipo_valido'"'"');
+   AND conname IN ('"'"'harvest_job_fase_check'"'"','"'"'attempt_tipo_valido'"'"','"'"'goal_harvest_completo'"'"');
 SELECT pg_get_expr(indpred, indrelid) FROM pg_index
  WHERE indexrelid = '"'"'public.harvest_job_en_vuelo'"'"'::regclass;
-SELECT count(*) FROM pg_trigger
- WHERE tgname IN ('"'"'ads_optimizer_goal_harvest_coherente'"'"',
-                  '"'"'campana_grupo_rol_destino_protegido'"'"') AND NOT tgisinternal;"'
+SELECT tgrelid::regclass, tgname FROM pg_trigger
+ WHERE tgrelid IN ('"'"'public.ads_optimizer_goal'"'"'::regclass,
+                   '"'"'public.campana_grupo_rol'"'"'::regclass)
+   AND tgname IN ('"'"'ads_optimizer_goal_harvest_coherente'"'"',
+                  '"'"'campana_grupo_rol_destino_protegido'"'"')
+   AND tgenabled <> '"'"'D'"'"' AND NOT tgisinternal
+ ORDER BY 1, 2;"'
 ```
 
-Lo que se suelta: el CHECK `goal_harvest_completo` (debe dar **cero filas**
-en ese `conname`; el trigger nuevo admite sus dos estados viejos más el
-bid-solo). Lo que entra: `hermanas_negadas` en el CHECK de fase y en el
-predicado del índice, `hermana` en `attempt_tipo_valido`, y los dos
-triggers. Precondición de datos (D.1 la verifica al desplegar): ningún goal
+Lo que se suelta: el CHECK `goal_harvest_completo` (la consulta de
+`pg_constraint` debe traer EXACTAMENTE dos filas — `harvest_job_fase_check`
+y `attempt_tipo_valido` — y ninguna de `goal_harvest_completo`; el trigger
+nuevo admite sus dos estados viejos más el bid-solo). Lo que entra:
+`hermanas_negadas` en el CHECK de fase y en el predicado del índice,
+`hermana` en `attempt_tipo_valido`, y las dos parejas exactas
+`(ads_optimizer_goal, ads_optimizer_goal_harvest_coherente)` y
+`(campana_grupo_rol, campana_grupo_rol_destino_protegido)` habilitadas
+(`tgenabled <> 'D'`). La tabla `apply_attempt` tiene ~30 filas: el escaneo
+del ADD CONSTRAINT es instantáneo; si creció mucho, aplicar en ventana
+controlada. Precondición de datos (D.1 la verifica al desplegar): ningún goal
 puede estar en parcial distinto de los tres estados — 0001 lo impedía por
 CHECK, así que en una base sana no hay nada que conciliar.
 

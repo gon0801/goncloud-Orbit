@@ -1425,6 +1425,10 @@ def test_0038_harvest_job_sella_progresion_f2():
     # campaña (si no, un INSERT del estado 3 concurrente con un DELETE de la
     # membresía confirman los dos). A nivel estático: la llamada vive en
     # AMBOS cuerpos; la conducta la prueba DoD 11 con dos conexiones.
+    # Ronda de bots PR #261: además de la presencia, el ARGUMENTO del lock
+    # menciona ad_entity_id — un `pg_advisory_xact_lock(0)` pasaría la
+    # presencia y serializaría TODAS las campañas entre sí (el test de dos
+    # campañas en test_fabrica_0038.py lo demuestra en vivo).
     for funcion in (
         "ads_optimizer_goal_harvest_coherente",
         "campana_grupo_rol_destino_protegido",
@@ -1432,6 +1436,11 @@ def test_0038_harvest_job_sella_progresion_f2():
         cuerpo_fn = " ".join(_body_de(FUNCTIONS38, funcion).split())
         assert "pg_advisory_xact_lock" in cuerpo_fn, (
             f"{funcion} perdió el lock por campaña contra la concurrencia"
+        )
+        llamadas = re.findall(r"pg_advisory_xact_lock\((.*?)\)", cuerpo_fn)
+        assert llamadas, f"{funcion}: sin llamadas extraíbles al lock"
+        assert all("ad_entity_id" in args for args in llamadas), (
+            f"{funcion}: el lock debe ser por campaña (ad_entity_id), no constante"
         )
 
 

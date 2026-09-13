@@ -656,6 +656,90 @@ def test_0038_estado3_y_membresia_se_serializan():
 
 
 @_skip_db
+def test_0038_campanas_distintas_no_se_bloquean():
+    """DoD 11 (ronda de bots PR #261): A inserta el estado 3 en la campaña 1
+    sin confirmar y B borra la membresía de la campaña 2 → NO se bloquea
+    (termina dentro del timeout) y ambas confirman. El lock es POR CAMPAÑA
+    (ad_entity_id): con el mutante `pg_advisory_xact_lock(0)` en los dos
+    triggers, B se bloquea tras A y este test falla (hoy pasa todo con ese
+    mutante)."""
+    import threading
+
+    with _dos_conexiones_38("orbit_38_nolock") as (a, b, gpo):
+        # Segunda campaña en su propio grupo (lote y externos distintos;
+        # mismo rol en otro grupo es legal: la PK es (grupo_id, rol)).
+        a.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado) VALUES ('lote-0038-c2', 'amazon_us',"
+            " 'collar_perro', 'Base C2', 'go', 'h', '{}'::jsonb, 'live', 'applied')"
+        )
+        grupo2 = a.execute(
+            "INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote,"
+            " target_acos_pct, target_derivado_pct, fraccion, target_procedencia, go_literal)"
+            " VALUES ('amazon_us', 'collar_perro', 'Base C2', 'lote-0038-c2', 20, 20, 0.5,"
+            " 't', 'go') RETURNING id"
+        ).fetchone()[0]
+        camp2 = a.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id)"
+            " VALUES ('amazon_us', 'campaign', '6102') RETURNING id"
+        ).fetchone()[0]
+        ag2 = a.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id, parent_id)"
+            " VALUES ('amazon_us', 'ad_group', '6202', %s) RETURNING id",
+            (camp2,),
+        ).fetchone()[0]
+        a.execute(
+            "INSERT INTO campana_grupo_rol (grupo_id, rol, ad_entity_id, ad_group_ad_entity_id)"
+            " VALUES (%s, 'category_phrase', %s, %s)",
+            (grupo2, camp2, ag2),
+        )
+        a.commit()
+
+        # A: estado 3 en la campaña 1, sin confirmar (retiene el lock de camp1).
+        _goal_estado3(a, gpo["camp"])
+        errores: list = []
+        listo = threading.Event()
+
+        def _borra_otra():
+            try:
+                b.execute(
+                    "DELETE FROM campana_grupo_rol WHERE grupo_id = %s AND rol = 'category_phrase'",
+                    (grupo2,),
+                )
+                b.commit()
+            except Exception as exc:  # noqa: BLE001 — el assert decide abajo
+                errores.append(exc)
+            finally:
+                listo.set()
+
+        hilo = threading.Thread(target=_borra_otra)
+        hilo.start()
+        sin_bloqueo = listo.wait(10)
+        if not sin_bloqueo:
+            # Camino del mutante: liberar el lock para no colgar el hilo y
+            # fallar limpio abajo.
+            a.rollback()
+            hilo.join(10)
+        assert sin_bloqueo, "el DELETE de OTRA campaña no debió bloquearse"
+        hilo.join(10)
+        assert not errores, f"B no debió fallar: {errores!r}"
+        a.commit()
+        assert (
+            b.execute(
+                "SELECT count(*) FROM campana_grupo_rol WHERE grupo_id = %s", (grupo2,)
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            b.execute(
+                "SELECT count(*) FROM ads_optimizer_goal WHERE ad_entity_id = %s",
+                (gpo["camp"],),
+            ).fetchone()[0]
+            == 1
+        )
+
+
+@_skip_db
 def test_0038_app_decide_bibliotecas_statement_literal():
     """Bajo SET ROLE app_decide los dos statements canónicos insertan y
     actualizan de verdad (fila leída, id estable, updated_at movido,
