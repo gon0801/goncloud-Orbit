@@ -1,8 +1,9 @@
 # FABRICA 02 — Harvest por grupo (F2): reruteo, negativos cruzados y biblioteca viva
 
 Version: 1.3, 2026-09-13 UTC. Estado: **EN IMPLEMENTACIÓN — A.0, A.1 y A.2
-cerradas (PRs #258 `a01aed0`, #261 `b76959f`; 0038 sin desplegar)**; plan v1.1
-sellado el 2026-09-10 tras revisión
+cerradas (PRs #258 `a01aed0`, #261 `b76959f`; 0038 sin desplegar)**. El contrato sigue
+siendo el plan v1.1 sellado el 2026-09-10 (1.2 y 1.3 solo registran cierres),
+tras revisión
 de cinco perspectivas independientes (producto, arquitectura, seguridad, QA,
 escéptico) sobre el borrador v0.1: 4 críticos y 9 mayores incorporados, el
 resto declarado en "Divergencias y residuales". **Decisiones 1–3 del dueño

@@ -9,8 +9,8 @@ Muse entregó la migración 0038 (PR #261, squash `b76959f`): la fase `hermanas_
 readback de la keyword y el cierre; el CHECK que obligaba a los goals a tener los tres campos de
 harvest o ninguno se reemplaza por un trigger que además admite «solo bid» cuando la campaña está en
 un grupo, con un trigger simétrico que impide sacarla del grupo mientras esté así; y el motor gana
-permiso de escribir las bibliotecas —solo insertar y solo mover `updated_at`, sin dinero. **No está
-desplegada**: producción sigue sin 0038 hasta D.1, y ningún código escribe todavía la fase nueva.
+permiso de escribir las bibliotecas —insertar en las dos, y mover `updated_at` solo en la de keywords; sin dinero. **No está
+desplegada**: producción sigue sin 0038 hasta D.1, y ningún código de producción escribe todavía la fase nueva (solo los tests de la migración).
 
 Tres rondas de revisión, una cosa importante en cada una. CodeRabbit sobre el brief: el candado del
 `DO $$` probaba solo el primer negativo (una excepción sin manejar abortaba el bloque). El lead: un
