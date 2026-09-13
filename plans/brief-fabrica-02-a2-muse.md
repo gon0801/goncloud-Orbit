@@ -93,6 +93,15 @@ campaña de la fila (`OLD.ad_entity_id`) tiene un goal en el estado 3, rechaza
 `sin_destino_de_harvest` sin que nadie lo pida. Con goal en estado 1 o 2, el
 `DELETE` sigue siendo legal.
 
+**Los dos triggers comparten un lock por campaña** (hallazgo CodeRabbit PR
+#260): bajo `READ COMMITTED` cada uno valida su propio snapshot, así que un
+`INSERT` del estado 3 concurrente con un `DELETE`/`UPDATE` de la membresía
+pueden confirmar los dos y dejar el goal sin destino. En ambos triggers, **antes**
+de leer la otra tabla: `PERFORM pg_advisory_xact_lock(hashtext('campana_grupo_rol:'
+|| <ad_entity_id>::text))`. En un re-apuntamiento bloquea `OLD.ad_entity_id` y
+`NEW.ad_entity_id`, en orden ascendente, para no interbloquear. El segundo en
+llegar espera y lee el estado ya confirmado del primero.
+
 **(e) GRANTs a `app_decide`.** Punto de partida (0018): solo `SELECT`. Agregas:
 `INSERT` en `keyword_biblioteca` y `negative_biblioteca`; **`USAGE ON SEQUENCE
 keyword_biblioteca_id_seq, negative_biblioteca_id_seq`** (son `BIGSERIAL`: sin
@@ -110,25 +119,60 @@ biblioteca es A.4 y todavía no existe.** Así que 0038 lo **sella**, y A.4 lo
 tendrá que usar tal cual. Es este, derivado del bloque «Biblioteca» del diseño
 (si ya existe: solo `updated_at`; `origen` no se pisa):
 
+Forma canónica (hallazgo CodeRabbit PR #260: `VALUES (...)` no es SQL
+ejecutable) — **cuatro parámetros posicionales, en este orden y con estos
+tipos**: `tipo_producto TEXT`, `platform platform`, `texto TEXT`, `origen TEXT`.
+En la app viajan como `%s` de psycopg; en el `DO $$` como variables PL. Lo que
+tiene que ser **idéntico** es el resto: columnas, `ON CONFLICT`, `SET` y
+`RETURNING`.
+
 ```sql
+-- keyword_biblioteca (la app: %s, %s, %s, %s en ese orden)
 INSERT INTO keyword_biblioteca (tipo_producto, platform, texto, origen)
-VALUES (...)
+VALUES ($1, $2, $3, $4)
 ON CONFLICT (tipo_producto, platform, texto) DO UPDATE SET updated_at = now()
 RETURNING id;
 
+-- negative_biblioteca (misma interfaz; no tiene updated_at)
 INSERT INTO negative_biblioteca (tipo_producto, platform, texto, origen)
-VALUES (...)
+VALUES ($1, $2, $3, $4)
 ON CONFLICT (tipo_producto, platform, texto) DO NOTHING;
 ```
 
-Positivos: la primera corrida inserta (fila leída); la segunda del mismo término
-devuelve **el mismo `id`** y `updated_at` se movió. Negativos, todos con
-`InsufficientPrivilege`: `DELETE` en las dos bibliotecas; `UPDATE` de `origen`,
-`texto`, `first_seen_at` y `cost` en `keyword_biblioteca`; `INSERT` y `UPDATE`
-en `harvest_excepcion`. `RESET ROLE` y **cero filas de prueba al salir** del
-bloque (bórralas como dueño y asértalo). Un `INSERT` con `cost`/`moneda`
-**pasa** por GRANT — el «sin dinero» lo garantiza la app (A.4 DoD (g)), no el
-esquema; déjalo dicho en el comentario del bloque.
+Valores de prueba del bloque, válidos contra los CHECKs de 0018 e imposibles en
+producción: `('zz_candado_0038', 'amazon_mx', 'zz candado 0038 termino',
+'migracion_0038')`. Positivos: la primera ejecución captura `RETURNING id` en
+una variable y lee la fila de vuelta; la segunda, con los mismos cuatro valores,
+devuelve **el mismo `id`** y un `updated_at` **estrictamente mayor** (guarda el
+primero antes de repetir). En `negative_biblioteca`: una fila tras la primera,
+una tras la segunda. **El texto canónico vive en una constante del módulo de
+tests** (`SQL_BIBLIOTECA_KEYWORD` / `SQL_BIBLIOTECA_NEGATIVE`) y un test asierta
+que los fragmentos invariantes (`INSERT INTO … (tipo_producto, platform, texto,
+origen)`, el `ON CONFLICT … DO UPDATE SET updated_at = now()`, `RETURNING id`,
+`DO NOTHING`) aparecen en el cuerpo del `DO $$` parseado de 0038. A.4 tendrá que
+igualar esa misma constante desde `app/`.
+
+Negativos — **cada uno en su propio sub-bloque** (hallazgo CodeRabbit PR #260):
+una excepción sin manejar aborta el `DO $$` y los siguientes nunca corren. El
+patrón, uno por sentencia prohibida:
+
+```plpgsql
+BEGIN
+    DELETE FROM keyword_biblioteca WHERE tipo_producto = 'zz_candado_0038';
+    RAISE EXCEPTION 'candado 0038: DELETE en keyword_biblioteca NO fue rechazado';
+EXCEPTION WHEN insufficient_privilege THEN
+    NULL;  -- SQLSTATE 42501: es lo que se espera
+END;
+```
+
+Si la sentencia **no** truena, el `RAISE` de «no fue rechazado» sale con
+`P0001`, que el `WHEN insufficient_privilege` no captura → aborta el bloque →
+la migración falla. Eso es lo que se quiere. Las sentencias prohibidas: `DELETE`
+en las dos bibliotecas; `UPDATE` de `origen`, `texto`, `first_seen_at` y `cost`
+en `keyword_biblioteca`; `INSERT` y `UPDATE` en `harvest_excepcion`. Al final
+`RESET ROLE` y **cero filas de prueba** (bórralas como dueño y asértalo). Un
+`INSERT` con `cost`/`moneda` **pasa** por GRANT — el «sin dinero» lo garantiza
+la app (A.4 DoD (g)), no el esquema; déjalo dicho en el comentario del bloque.
 
 **(g) Tests y docs.**
 - `tests/test_schema.py`: `PROGRESION_HARVEST` pasa a ser el conjunto de F2
@@ -183,21 +227,29 @@ esquema real**, sin simulaciones.
    estado 2 → `DELETE` permitido.
 7. `SET ROLE app_decide`: los dos statements literales insertan y actualizan de
    verdad (fila leída, `id` estable, `updated_at` movido); los negativos de (f)
-   truenan. Patrón `tests/test_apply_schema.py:709-745`, **no** catálogo de
-   GRANTs.
+   truenan, cada uno en su sub-bloque. Patrón `tests/test_apply_schema.py:709-745`,
+   **no** catálogo de GRANTs.
 8. **Mutante obligatorio**: comenta el `GRANT USAGE ON SEQUENCE ... TO
    app_decide` y aplica 0038 en la base de test → **la migración tiene que
    tronar** en el `DO $$`. Cítalo en el PR con el error.
 9. `PROGRESION_HARVEST` parsea 0038; el test histórico de 0002 sigue verde.
 10. La suite de A.1 verde sobre 0038 sin los tres `DROP CONSTRAINT` manuales.
+11. **Concurrencia** (hallazgo CodeRabbit PR #260), dos conexiones: A inserta
+    un goal en estado 3 **sin confirmar**; B intenta el `DELETE` de la
+    membresía → se bloquea; A confirma → B falla. Y al revés: B borra sin
+    confirmar; A intenta el estado 3 → se bloquea; B confirma → A falla. Nunca
+    queda un estado 3 sin membresía.
 
 ## Reglas de proceso (el lead las verifica)
 
 - Rojo antes del arreglo en cada punto, citado en el PR.
 - **Vuelvo a mutar.** Además del mutante 8, voy a probar: quitar
   `'hermanas_negadas'` del predicado del índice; permitir `pending →
-  hermanas_negadas`; quitar la condición de grupo del trigger de goal; y
-  cambiar el errcode. Cada uno tiene que matar al menos un test.
+  hermanas_negadas`; quitar la condición de grupo del trigger de goal; cambiar
+  el errcode; **conceder `DELETE` a `app_decide` en una biblioteca** (0038 tiene
+  que tronar en el sub-bloque de «no fue rechazado»); y quitar el
+  `pg_advisory_xact_lock` de un solo trigger (el test 11 tiene que fallar). Cada
+  uno tiene que matar al menos un test.
 - `pytest_focal` con `ORBIT_TEST_DSN` apuntado: `0 skipped`. Sin DSN, todo esto
   skipea en verde y no prueba nada.
 - Cero `--no-verify`. Cero producción, cero ssh, cero Amazon.
