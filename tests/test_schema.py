@@ -1421,6 +1421,18 @@ def test_0038_harvest_job_sella_progresion_f2():
     assert PROGRESION_HARVEST_0002 < PROGRESION_HARVEST, (
         "F2 debe extender la progresión histórica, no reescribirla"
     )
+    # Hallazgo CodeRabbit PR #260: los dos triggers comparten un lock por
+    # campaña (si no, un INSERT del estado 3 concurrente con un DELETE de la
+    # membresía confirman los dos). A nivel estático: la llamada vive en
+    # AMBOS cuerpos; la conducta la prueba DoD 11 con dos conexiones.
+    for funcion in (
+        "ads_optimizer_goal_harvest_coherente",
+        "campana_grupo_rol_destino_protegido",
+    ):
+        cuerpo_fn = " ".join(_body_de(FUNCTIONS38, funcion).split())
+        assert "pg_advisory_xact_lock" in cuerpo_fn, (
+            f"{funcion} perdió el lock por campaña contra la concurrencia"
+        )
 
 
 def test_0002_applied_cycle_id_en_decision_application():

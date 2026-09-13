@@ -13,7 +13,7 @@ skipean en verde fuera de CI (patrón `test_apply_schema`).
 
 from __future__ import annotations
 
-import datetime as dt
+import contextlib
 import os
 import socket
 from contextlib import contextmanager
@@ -42,6 +42,51 @@ _skip_db = pytest.mark.skipif(
 # Fases en vuelo (DoD 3): cruzada contra `pg_index.indpred` del índice real
 # en la base de test — las cuatro, ni una más.
 FASES_EN_VUELO = frozenset({"pending", "negative_created", "exact_created", "hermanas_negadas"})
+
+# Texto canónico del statement del motor (brief A.2 (f)): cuatro
+# parámetros posicionales en este orden — tipo_producto, platform, texto,
+# origen. Aquí viajan como `%s` de psycopg (ejecutables); el brief los
+# escribe `$1..$4`. A.4 tendrá que igualar esta misma constante desde
+# `app/`: lo invariante son columnas, ON CONFLICT, SET y RETURNING, que el
+# test de fragmentos cruza contra el DO de 0038.
+SQL_BIBLIOTECA_KEYWORD = (
+    "INSERT INTO keyword_biblioteca (tipo_producto, platform, texto, origen)"
+    " VALUES (%s, %s, %s, %s)"
+    " ON CONFLICT (tipo_producto, platform, texto) DO UPDATE SET updated_at = now()"
+    " RETURNING id"
+)
+SQL_BIBLIOTECA_NEGATIVE = (
+    "INSERT INTO negative_biblioteca (tipo_producto, platform, texto, origen)"
+    " VALUES (%s, %s, %s, %s)"
+    " ON CONFLICT (tipo_producto, platform, texto) DO NOTHING"
+)
+
+# Valores de prueba del candado: válidos contra los CHECKs de 0018 e
+# imposibles en producción (prefijo zz_).
+BIB_TIPO = "zz_candado_0038"
+BIB_TEXTO = "zz candado 0038 termino"
+BIB_ORIGEN = "migracion_0038"
+
+
+def test_0038_canon_biblioteca_en_do():
+    """El texto canónico vive en el DO de 0038: los fragmentos invariantes
+    (columnas, ON CONFLICT, SET, RETURNING, DO NOTHING) aparecen en su
+    cuerpo parseado. Si A.4 escribe otro statement, este test lo dice."""
+    import pglast
+    from pglast import ast as pgast
+
+    cuerpo = next(
+        s.stmt.args[0].arg.sval for s in pglast.parse_sql(SQL38) if isinstance(s.stmt, pgast.DoStmt)
+    )
+    plano = " ".join(cuerpo.split())
+    for fragmento in (
+        "INSERT INTO keyword_biblioteca (tipo_producto, platform, texto, origen)",
+        "ON CONFLICT (tipo_producto, platform, texto) DO UPDATE SET updated_at = now()",
+        "RETURNING id",
+        "INSERT INTO negative_biblioteca (tipo_producto, platform, texto, origen)",
+        "ON CONFLICT (tipo_producto, platform, texto) DO NOTHING",
+    ):
+        assert fragmento in plano, f"el DO de 0038 no trae: {fragmento}"
 
 
 @contextmanager
@@ -193,6 +238,42 @@ def _fases_de_indice(conn) -> frozenset:
     import re
 
     return frozenset(re.findall(r"'([a-z_]+)'::text", pred))
+
+
+@contextmanager
+def _dos_conexiones_38(prefijo: str):
+    """DB con ORDEN38 + grupo mínimo, y DOS conexiones sin autocommit para
+    el test de concurrencia (DoD 11): cada hilo su conexión."""
+    from psycopg import sql as pgsql
+
+    dsn = _test_dsn()
+    db = f"{prefijo}_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    setup = None
+    conn_a = conn_b = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        setup = psycopg.connect(dsn, dbname=db, autocommit=True)
+        setup.execute("SET TIME ZONE 'UTC'")
+        for nombre in ORDEN38:
+            setup.execute((ROOT / "migrations" / nombre).read_text(encoding="utf-8"))
+        gpo = _semilla_grupo_minimo(setup)
+        conn_a = psycopg.connect(dsn, dbname=db, autocommit=False)
+        conn_b = psycopg.connect(dsn, dbname=db, autocommit=False)
+        yield conn_a, conn_b, gpo
+        for c in (conn_a, conn_b):
+            with contextlib.suppress(psycopg.Error):
+                c.rollback()
+    finally:
+        for c in (conn_a, conn_b):
+            if c is not None:
+                c.close()
+        if setup is not None:
+            setup.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()
 
 
 # ---------------------------------------------------------------------------
@@ -453,66 +534,181 @@ def test_0038_grupo_no_suelta_campana_con_goal_bid_solo():
 
 
 # ---------------------------------------------------------------------------
-# DoD 7 — `app_decide` escribe bibliotecas con el statement literal
+# DoD 11 — el lock por campaña serializa estado 3 vs membresía
 # ---------------------------------------------------------------------------
+
+
+def _goal_estado3(conn, camp: int) -> None:
+    conn.execute(
+        "INSERT INTO ads_optimizer_goal (scope, ad_entity_id, target_acos_pct,"
+        " bid_floor, bid_ceiling, bid_currency, harvest_default_bid, enabled, mode)"
+        " VALUES ('campaign', %s, 20, 0.10, 2.50, 'USD', 1.00, true, 'live')",
+        (camp,),
+    )
+
+
+@_skip_db
+def test_0038_estado3_y_membresia_se_serializan():
+    """DoD 11 (hallazgo CodeRabbit PR #260): A inserta el estado 3 sin
+    confirmar y B intenta el DELETE de la membresía → se bloquea; A
+    confirma → B falla. Y al revés: B borra sin confirmar y A intenta el
+    estado 3 → se bloquea; B confirma → A falla. Nunca queda un estado 3
+    sin membresía. Sin el lock, el segundo pasaría con el snapshot viejo."""
+    import threading
+
+    with _dos_conexiones_38("orbit_38_lock") as (a, b, gpo):
+        # Ida: estado 3 sin confirmar bloquea al DELETE.
+        _goal_estado3(a, gpo["camp"])
+        errores: list = []
+        listo = threading.Event()
+
+        def _borra():
+            try:
+                b.execute(
+                    "DELETE FROM campana_grupo_rol WHERE grupo_id = %s AND rol = 'category_phrase'",
+                    (gpo["grupo"],),
+                )
+                b.commit()
+            except Exception as exc:  # noqa: BLE001 — el assert decide abajo
+                errores.append(exc)
+            finally:
+                listo.set()
+
+        hilo = threading.Thread(target=_borra)
+        hilo.start()
+        assert listo.wait(10) is False, "el DELETE debió bloquearse tras el INSERT"
+        a.commit()
+        assert listo.wait(10), "al confirmar A, B debe despertar"
+        hilo.join(10)
+        assert len(errores) == 1 and isinstance(errores[0], psycopg.errors.CheckViolation), (
+            f"B debió fallar con check_violation, no {errores!r}"
+        )
+        b.rollback()
+        assert (
+            a.execute(
+                "SELECT count(*) FROM campana_grupo_rol WHERE grupo_id = %s", (gpo["grupo"],)
+            ).fetchone()[0]
+            == 1
+        )
+
+        # Vuelta: sin goal previo, el DELETE sin confirmar bloquea al
+        # estado 3 (se borra el de la ida: si no, el UNIQUE lo rechazaría
+        # antes que el trigger y el DELETE previo ni arrancaría).
+        a.execute("DELETE FROM ads_optimizer_goal WHERE ad_entity_id = %s", (gpo["camp"],))
+        a.commit()
+        b.execute(
+            "DELETE FROM campana_grupo_rol WHERE grupo_id = %s AND rol = 'category_phrase'",
+            (gpo["grupo"],),
+        )
+        errores2: list = []
+        listo2 = threading.Event()
+
+        def _inserta():
+            try:
+                _goal_estado3(a, gpo["camp"])
+                a.commit()
+            except Exception as exc:  # noqa: BLE001 — el assert decide abajo
+                errores2.append(exc)
+            finally:
+                listo2.set()
+
+        hilo2 = threading.Thread(target=_inserta)
+        hilo2.start()
+        assert listo2.wait(10) is False, "el INSERT debió bloquearse tras el DELETE"
+        b.commit()
+        assert listo2.wait(10), "al confirmar B, A debe despertar"
+        hilo2.join(10)
+        assert len(errores2) == 1 and isinstance(errores2[0], psycopg.errors.CheckViolation), (
+            f"A debió fallar con check_violation, no {errores2!r}"
+        )
+        a.rollback()
+        assert (
+            b.execute(
+                "SELECT count(*) FROM ads_optimizer_goal WHERE ad_entity_id = %s",
+                (gpo["camp"],),
+            ).fetchone()[0]
+            == 0
+        ), "la vuelta no dejó goal: el estado 3 sin membresía nunca existe"
 
 
 @_skip_db
 def test_0038_app_decide_bibliotecas_statement_literal():
-    """Bajo SET ROLE app_decide los dos statements literales insertan y
-    actualizan de verdad (fila leída, id estable, updated_at movido); los
-    negativos truenan (patrón test_apply_schema.py:709-745, no catálogo).
-    Rojo pre-0038: InsufficientPrivilege en el primer INSERT."""
+    """Bajo SET ROLE app_decide los dos statements canónicos insertan y
+    actualizan de verdad (fila leída, id estable, updated_at movido,
+    `origen` no pisado); los negativos truenan (patrón
+    test_apply_schema.py:709-745, no catálogo). Rojo pre-0038:
+    InsufficientPrivilege en el primer INSERT."""
     with db_38("orbit_38_rol") as conn:
         conn.execute("SET ROLE app_decide")
         try:
             primero = conn.execute(
-                "INSERT INTO keyword_biblioteca (tipo_producto, platform, texto, origen)"
-                " VALUES ('t_rol', 'amazon_mx', 'texto rol', 'grupo:1/campana:2/harvest:3')"
-                " ON CONFLICT (tipo_producto, platform, texto)"
-                " DO UPDATE SET updated_at = now() RETURNING id, updated_at"
+                SQL_BIBLIOTECA_KEYWORD, (BIB_TIPO, "amazon_mx", BIB_TEXTO, BIB_ORIGEN)
             ).fetchone()
+            assert (
+                conn.execute(
+                    "SELECT origen FROM keyword_biblioteca WHERE id = %s", (primero[0],)
+                ).fetchone()[0]
+                == BIB_ORIGEN
+            )
             conn.execute(
                 "UPDATE keyword_biblioteca SET updated_at = now() - interval '1 hour'"
                 " WHERE id = %s",
                 (primero[0],),
             )
+            viejo = conn.execute(
+                "SELECT updated_at FROM keyword_biblioteca WHERE id = %s", (primero[0],)
+            ).fetchone()[0]
+            # Conflicto con OTRO origen: solo updated_at se mueve, el origen
+            # primero queda (diseño, Biblioteca: "origen no se pisa"). El
+            # canónico devuelve solo `id`: el updated_at se lee aparte.
             segundo = conn.execute(
-                "INSERT INTO keyword_biblioteca (tipo_producto, platform, texto, origen)"
-                " VALUES ('t_rol', 'amazon_mx', 'texto rol', 'grupo:1/campana:2/harvest:3')"
-                " ON CONFLICT (tipo_producto, platform, texto)"
-                " DO UPDATE SET updated_at = now() RETURNING id, updated_at"
+                SQL_BIBLIOTECA_KEYWORD, (BIB_TIPO, "amazon_mx", BIB_TEXTO, "otro_origen")
+            ).fetchone()
+            fila = conn.execute(
+                "SELECT origen, updated_at FROM keyword_biblioteca WHERE id = %s",
+                (primero[0],),
             ).fetchone()
             assert segundo[0] == primero[0], "el upsert no duplicó: id estable"
-            assert segundo[1] > primero[1] - dt.timedelta(hours=1), "updated_at se movió"
-            conn.execute(
-                "INSERT INTO negative_biblioteca (tipo_producto, platform, texto, origen)"
-                " VALUES ('t_rol', 'amazon_mx', 'texto rol', 'origen:neg')"
-                " ON CONFLICT (tipo_producto, platform, texto) DO NOTHING"
-            )
-            fila = conn.execute(
+            assert fila[0] == BIB_ORIGEN, "el conflicto no pisa el origen"
+            assert fila[1] > viejo, "updated_at se movió"
+            conn.execute(SQL_BIBLIOTECA_NEGATIVE, (BIB_TIPO, "amazon_mx", BIB_TEXTO, BIB_ORIGEN))
+            conn.execute(SQL_BIBLIOTECA_NEGATIVE, (BIB_TIPO, "amazon_mx", BIB_TEXTO, BIB_ORIGEN))
+            fila_neg = conn.execute(
                 "SELECT id, origen FROM negative_biblioteca"
-                " WHERE tipo_producto = 't_rol' AND texto = 'texto rol'"
+                " WHERE tipo_producto = %s AND texto = %s",
+                (BIB_TIPO, BIB_TEXTO),
             ).fetchone()
-            assert fila is not None and fila[1] == "origen:neg"
+            assert fila_neg is not None and fila_neg[1] == BIB_ORIGEN
+            assert (
+                conn.execute(
+                    "SELECT count(*) FROM negative_biblioteca"
+                    " WHERE tipo_producto = %s AND texto = %s",
+                    (BIB_TIPO, BIB_TEXTO),
+                ).fetchone()[0]
+                == 1
+            )
             for sql, params in (
-                ("DELETE FROM keyword_biblioteca WHERE id = %s", (primero[0],)),
+                ("DELETE FROM keyword_biblioteca WHERE tipo_producto = %s", (BIB_TIPO,)),
                 (
-                    "UPDATE keyword_biblioteca SET origen = 'x' WHERE id = %s",
-                    (primero[0],),
+                    "UPDATE keyword_biblioteca SET origen = 'x' WHERE tipo_producto = %s",
+                    (BIB_TIPO,),
                 ),
                 (
-                    "UPDATE keyword_biblioteca SET texto = 'x' WHERE id = %s",
-                    (primero[0],),
+                    "UPDATE keyword_biblioteca SET texto = 'x' WHERE tipo_producto = %s",
+                    (BIB_TIPO,),
                 ),
                 (
-                    "UPDATE keyword_biblioteca SET first_seen_at = now() WHERE id = %s",
-                    (primero[0],),
+                    "UPDATE keyword_biblioteca SET first_seen_at = now() WHERE tipo_producto = %s",
+                    (BIB_TIPO,),
                 ),
-                ("DELETE FROM negative_biblioteca WHERE id = %s", (fila[0],)),
                 (
-                    "UPDATE negative_biblioteca SET origen = 'x' WHERE id = %s",
-                    (fila[0],),
+                    "UPDATE keyword_biblioteca SET cost = 1.00 WHERE tipo_producto = %s",
+                    (BIB_TIPO,),
+                ),
+                ("DELETE FROM negative_biblioteca WHERE tipo_producto = %s", (BIB_TIPO,)),
+                (
+                    "UPDATE negative_biblioteca SET origen = 'x' WHERE tipo_producto = %s",
+                    (BIB_TIPO,),
                 ),
                 ("UPDATE harvest_excepcion SET go_literal = 'x' WHERE false", ()),
             ):
@@ -520,8 +716,8 @@ def test_0038_app_decide_bibliotecas_statement_literal():
                     conn.execute(sql, params)
         finally:
             conn.execute("RESET ROLE")
-        conn.execute("DELETE FROM keyword_biblioteca WHERE tipo_producto = 't_rol'")
-        conn.execute("DELETE FROM negative_biblioteca WHERE tipo_producto = 't_rol'")
+        conn.execute("DELETE FROM keyword_biblioteca WHERE tipo_producto = %s", (BIB_TIPO,))
+        conn.execute("DELETE FROM negative_biblioteca WHERE tipo_producto = %s", (BIB_TIPO,))
 
 
 # ---------------------------------------------------------------------------
