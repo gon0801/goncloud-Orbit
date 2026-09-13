@@ -59,8 +59,11 @@ quedan FUERA (MeLi Ads es proposal-only a nivel cuenta, Traspaso 1 §4).
 9. **Campañas viejas del mismo producto: intactas.** La fabrica solo crea y
    las REPORTA en el dry-run; pausarlas es otra decision con su propio camino
    (regla 1).
-10. **Negative cruzado a las 4 hermanas**: auto, phrase, broad Y product
-    targeting (§7).
+10. **Negative cruzado en los 4 roles discovery**: auto, phrase, broad Y
+    product targeting (§7). El origen ya queda negado por la primera fase del
+    harvest, así que cada job tiene como máximo 3 identidades de hermana
+    objetivo; cada identidad admite hasta 3 intentos POST, uno por ciclo y
+    siempre después de un LIST que confirme ausencia.
 11. **Enfoque A**: herramienta CLI `tools/fabrica_campanas.py` (patron sellado
     de `tools/archiva_inertes.py`) + migracion de tablas de grupo. La creacion
     NO pasa por `apply_queue` (sellado ORBIT 04: «solo cortes en la cola;
@@ -284,20 +287,22 @@ exact_created -> done`). F2 agrega la fase `hermanas_negadas` entre
 `exact_created` y `done` (migracion F2: CHECK de `harvest_job.fase` y
 trigger `harvest_job_sella_fases`): creada y verificada la keyword en la
 exact del grupo, se crea negative-exact del MISMO termino en las hermanas
-(auto, phrase, broad, product targeting — decision 10), ids en
-`external_ids`. Mismo ledger, mismo readback; el harvest sigue cobrando 1
-operacion logica de quota aunque sean 6 HTTPs (unidad sellada en
-`apply_attempt`). Orden siempre keyword primero, negatives despues, y la
+(roles discovery menos el origen ya negado; maximo 3, con product targeting —
+decision 10), ids en `external_ids`. Mismo ledger, mismo readback; el harvest
+sigue cobrando 1 operacion logica de quota aunque sean hasta 5 mutaciones de
+ida (unidad sellada en `apply_attempt`). Orden siempre keyword primero,
+negatives despues, y la
 reversa (`reversa_harvest_completo`) borra keyword -> negativos hermanos ->
 negativo de origen (regla 7). Madurez >= 10d sin cambio (trigger
 `decision_madurez_corte`).
 
 Hermana `product_targeting`: Amazon SP acepta negative keywords en ad
 groups auto y de keyword; en los de product targeting el negativo es por
-ASIN/marca (`negativeTargets`), no por texto. Se sonda en vivo ANTES de
-sellar la fase (regla 8 aplicada a la API): si el POST se acepta, las 4
-hermanas; si lo rechaza, esa hermana se declara skip con motivo en el job y
-la decision 10 queda en 3 hermanas (residual 8).
+ASIN/marca (`negativeTargets`), no por texto. La sonda 0.1 del 2026-09-12
+confirmo que el POST por texto es aceptado y visible por LIST. PT participa
+entre los cuatro roles discovery; si es el origen quedan las otras tres y, si
+es hermana, un rechazo queda pendiente con motivo como cualquier otro rechazo.
+Aceptado no demuestra efectividad: ese residual se mide aparte.
 
 **Precisiones de FABRICA 02 (plan v1.0, 2026-09-10; revisadas por cinco
 perspectivas)** — fijan lo que este §7 dejaba abierto y cambian comportamiento:
@@ -341,6 +346,18 @@ perspectivas)** — fijan lo que este §7 dejaba abierto y cambian comportamient
    `orders/cost/revenue/moneda` quedan NULL en toda fila escrita por el motor.
    Los numeros se calculan desde `search_term_observation` cuando hagan falta
    (reglas 2 y 5: ni segunda fuente ni fila mutable con dinero).
+8. Precision A.3 del 2026-09-13, validada por cinco perspectivas: el roster se
+   congela por `grupo_id` antes de la primera mutacion de hermana; hay un
+   barrido LIST paginado previo y, si hubo POST, otro posterior por ciclo,
+   ambos batched y filtrados, nunca un LIST por hermana;
+   `TOPE_CICLOS_HERMANAS = 3` y el paso inicial cuenta como ciclo 1. Un ciclo
+   es una invocacion completa de la fase y `hermanas_ciclos` aumenta una sola
+   vez al persistir su salida, no por barrido; un crash previo no cuenta. El
+   sello de decision/cola/cooldown/fase/roster
+   queda confirmado antes del primer POST. Un crash post-POST se reconcilia
+   contra el intento propio para conservar `creada = true`. La reversa manual
+   es reanudable, borra keyword -> solo hermanas propias -> origen, y confirma
+   cada delete por readback antes de continuar.
 
 ## 8. Migracion 0018 (tablas nuevas, con sus COMMENT ON)
 
