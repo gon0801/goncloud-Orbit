@@ -1,10 +1,11 @@
 """Banco de pruebas de FABRICA 02 (F2, A.0): fixture unificado + humo.
 
-`ORDEN_F2` = 0001, 0002, 0003, 0004, 0013-0019 (la migracion de F2 es A.2:
-el hueco queda preparado al final de la tupla). Reutiliza los helpers de
-harvest de `tests/test_apply_harvest.py` (`_semilla`, `_handler_harvest`,
-`_aplicador`, `_encola_fila`): NO los duplica. Aporta `_semilla_grupo`, un
-LIST que honra `adGroupIdFilter`/`nextToken` y fallo por hermana.
+`ORDEN_F2` = 0001, 0002, 0003, 0004, 0013-0019 + 0038 (A.2: trigger bid-solo
+del goal, sin el cual `harvest_limpia_destino` no persistiría). Reutiliza
+los helpers de harvest de `tests/test_apply_harvest.py` (`_semilla`,
+`_handler_harvest`, `_aplicador`, `_encola_fila`): NO los duplica. Aporta
+`_semilla_grupo`, un LIST que honra `adGroupIdFilter`/`nextToken` y fallo
+por hermana.
 
 Sin tests de comportamiento todavia (llegan en A.1/A.3). DoD de A.0: el
 fixture levanta y siembra; un test humo por helper;
@@ -55,9 +56,9 @@ ORDEN_F2 = (
     "0017_first_seen_at.sql",
     "0018_fabrica_campanas.sql",
     "0019_fabrica_grupo_publicacion_v2.sql",
-    # Hueco preparado: la migracion de F2 (A.2, numero al aplicar) se agrega
-    # al final de esta tupla; nada de F2 depende de migraciones 0005-0012 ni
-    # 0020+.
+    "0038_fabrica_hermanas_biblioteca.sql",
+    # Nada de F2 depende de migraciones 0005-0012 ni 0020-0037 (verificado
+    # por grep en A.2: no mencionan harvest_job/apply_attempt/goals/grupos).
 )
 
 

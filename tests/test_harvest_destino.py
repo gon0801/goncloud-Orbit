@@ -435,10 +435,7 @@ def test_a1_terna_limpiada_tras_decidir_apply_y_replay_usan_congelado():
         from app.goals_write import edita_goal
 
         # Estado post-D.2: la terna se limpia con bid intacto
-        # (harvest_limpia_destino). El CHECK actual lo rechaza hasta que A.2
-        # lo reemplace por el trigger que admite bid-solo en grupo: se
-        # suelta aqui, declarado, para simular el esquema post-A.2.
-        conn.execute("ALTER TABLE ads_optimizer_goal DROP CONSTRAINT goal_harvest_completo")
+        # (harvest_limpia_destino, admitido por el trigger de 0038 en ORDEN_F2).
         goal_ids = conn.execute(
             "SELECT id FROM ads_optimizer_goal WHERE scope = 'campaign' AND ad_entity_id = ANY(%s)",
             ([par["camp"] for par in gpo["roles"].values()],),
@@ -527,8 +524,7 @@ def test_a1_bid_congelado_viaja_al_post_tras_limpiar_terna():
         from app.goals_write import edita_goal
 
         # Estado post-D.2 (ver el otro test de terna limpiada): bid intacto
-        # con el CHECK de A.2 simulado.
-        conn.execute("ALTER TABLE ads_optimizer_goal DROP CONSTRAINT goal_harvest_completo")
+        # con el trigger real de 0038.
         goal_ids = conn.execute(
             "SELECT id FROM ads_optimizer_goal WHERE scope = 'campaign' AND ad_entity_id = ANY(%s)",
             ([par["camp"] for par in gpo["roles"].values()],),
@@ -760,7 +756,6 @@ def test_a1_ciclo_tras_limpiar_terna_congela_destino():
     `goal.harvest_campaign_id` congelaria null y el replay fallaria."""
     with db_f2("orbit_a1_postd2") as conn:
         gpo, run = _base_ciclo(conn, con_terna=True)
-        conn.execute("ALTER TABLE ads_optimizer_goal DROP CONSTRAINT goal_harvest_completo")
         from app.goals_write import edita_goal
 
         for (goal_id,) in conn.execute(

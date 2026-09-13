@@ -1062,6 +1062,61 @@ hasta 0019 y `httpx.MockTransport`: parte de pasos `applied + failed`,
 reconcilia, registra y pausa despues de `fabrica.creacion=v1`, sin POST de
 creacion. No se usa una campana real como sonda de produccion.
 
+### Migracion 0038: fase `hermanas_negadas` + trigger bid-solo (FABRICA 02 A.2)
+
+`0038_fabrica_hermanas_biblioteca.sql` se aplica una sola vez, despues de
+`0018_fabrica_campanas.sql`. **No es puramente expansiva**: recrea el índice
+parcial `harvest_job_en_vuelo` (gana la fase `hermanas_negadas`) y suelta el
+CHECK `goal_harvest_completo` (entra el trigger bid-solo + simétrico de
+grupo) — ambos dentro de la transacción. No recrear ni borrar tablas para
+revertirla.
+
+Backup del schema antes (patrón de la 0003: staging + verificación, el
+archivo final solo aparece con el `CREATE TABLE` y el marcador de cierre):
+
+```bash
+ssh goncloud 'set -eu; D=/mnt/data/appdata/orbit/backups; \
+  STAMP=$(date -u +%Y%m%d-%H%M%S); TMP="$D/.pre0038_$STAMP.sql.tmp"; \
+  OUT="$D/pre0038_harvest_biblio_$STAMP.sql"; \
+  docker exec orbit-db-1 pg_dump -U orbit -d orbit --schema-only \
+    -t public.harvest_job -t public.apply_attempt -t public.ads_optimizer_goal \
+    -t public.campana_grupo_rol -t public.keyword_biblioteca \
+    -t public.negative_biblioteca > "$TMP"; \
+  [ -s "$TMP" ] \
+    && grep -q "CREATE TABLE public.harvest_job" "$TMP" \
+    && tail -5 "$TMP" | grep -q "PostgreSQL database dump complete" \
+    || { echo "DUMP INVALIDO"; rm -f "$TMP"; exit 1; }; \
+  chmod 600 "$TMP"; mv "$TMP" "$OUT"; ls -l "$OUT"'
+```
+
+Aplicar la DDL en transacción única y comprobar lo que se suelta y lo que
+entra:
+
+```bash
+ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit \
+  -v ON_ERROR_STOP=1 -1' < migrations/0038_fabrica_hermanas_biblioteca.sql
+
+ssh goncloud 'docker exec orbit-db-1 psql -U orbit -d orbit -P pager=off -c "
+SELECT conname FROM pg_constraint
+ WHERE conrelid IN ('"'"'public.harvest_job'"'"'::regclass,
+                    '"'"'public.apply_attempt'"'"'::regclass,
+                    '"'"'public.ads_optimizer_goal'"'"'::regclass)
+   AND conname IN ('"'"'harvest_job_fase_check'"'"','"'"'attempt_tipo_valido'"'"');
+SELECT pg_get_expr(indpred, indrelid) FROM pg_index
+ WHERE indexrelid = '"'"'public.harvest_job_en_vuelo'"'"'::regclass;
+SELECT count(*) FROM pg_trigger
+ WHERE tgname IN ('"'"'ads_optimizer_goal_harvest_coherente'"'"',
+                  '"'"'campana_grupo_rol_destino_protegido'"'"') AND NOT tgisinternal;"'
+```
+
+Lo que se suelta: el CHECK `goal_harvest_completo` (debe dar **cero filas**
+en ese `conname`; el trigger nuevo admite sus dos estados viejos más el
+bid-solo). Lo que entra: `hermanas_negadas` en el CHECK de fase y en el
+predicado del índice, `hermana` en `attempt_tipo_valido`, y los dos
+triggers. Precondición de datos (D.1 la verifica al desplegar): ningún goal
+puede estar en parcial distinto de los tres estados — 0001 lo impedía por
+CHECK, así que en una base sana no hay nada que conciliar.
+
 ## Correr los tests desde la máquina dev (túnel SSH)
 
 La suite de integración (`test_migracion_rechaza_en_vivo`) necesita un

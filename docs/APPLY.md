@@ -467,6 +467,7 @@ matchType, state}`. La tarea 1.3 amplía `LIST_REQUEST_TYPES` con este path.
 | `harvest_job` fase `pending` | negativeKeywords list del ad group ORIGEN | plataforma/profile + adGroupId origen + keyword_text + match_type | Negativo NO existe → reintentar el POST (seguro: la fuente confirma que no está; el job en vuelo bloquea duplicados); existe → avanzar a `negative_created` |
 | `harvest_job` fase `negative_created` | negativeKeywords list (origen) + keywords list (destino) | negativo origen + adGroupId DESTINO + keyword_text + match_type | Keyword destino existe → avanzar `exact_created`/`done`; no existe → reintentar POST keyword; **fallo definitivo → `failed` + reversa automática (delete del negativo) + alerta** (sellado 13) |
 | `harvest_job` fase `exact_created` | keywords list del destino | plataforma/profile + adGroupId destino + keyword_text + match_type | Existe → `done` (sellar resumen); no existe → `failed` → reversa (§7) + alerta |
+| `harvest_job` fase `hermanas_negadas` (F2, solo `resuelto_por = grupo`; jobs viejos siguen `exact_created → done`) | negativeKeywords LIST **filtrado por las hermanas** (`adGroupIdFilter` con los ad groups del grupo menos exacta y origen; **una sola** llamada por job) | por hermana: plataforma/profile + adGroupId hermana + keyword_text + match_type EXACT, ignorando `ARCHIVED` | Por hermana: existe viva → id en `external_ids["hermanas"][rol]`; ausente → POST `crear_negative_exacto` → readback → id; LIST truncado (`nextToken` en el tope) → **fail-closed**: cero POST, hermana pendiente `list_truncado`; rechazo/ack sin id/tope → hermana pendiente con motivo, el job **sigue** (jamás tumba el harvest). Reintento idempotente por ciclo **sin re-cobrar quota**. Tras `TOPE_CICLOS_HERMANAS` → `done` con `external_ids["hermanas_pendientes"]` + alerta. **Jamás se revierte la keyword por una hermana** |
 | Ledger sin sello — reversa / probe | El GET/list que corresponda al `tipo` | La misma identidad por kind | Resultado visible → sellar el ledger una vez (§4); ambiguo → `failed` |
 
 Reglas de la matriz:
@@ -492,7 +493,8 @@ Reglas de la matriz:
   harvest), jamás al decidir (r2 grok 8: nacer al decidir dejaba un
   `pending` eterno si el harvest se vetaba; la COLA manda, `harvest_job`
   es la ejecución). **Harvest vetado JAMÁS crea `harvest_job`.** Las
-  transiciones de `harvest_job` las sella 0002 por trigger de UPDATE.
+  transiciones de `harvest_job` las sella 0002 por trigger de UPDATE
+  (función reemplazada por la 0038 en F2: gana `hermanas_negadas`).
 - **Bid del harvest (sellado 14):** `new_value` congela el default; el
   sugerido de Amazon se consulta AL APLICAR (endpoint/cliente/guard: regla
   8 en vivo — unknown hasta entonces, §13), se clampea, se PERSISTE como
@@ -513,9 +515,13 @@ Ninguna acción irreversible sin su reversa implementada antes (regla 7):
 | negative | delete del negativo |
 | harvest parcial (solo negativo creado) | delete del negativo |
 | harvest completo (negativo + keyword) | delete de la keyword PRIMERO, delete del negativo DESPUÉS |
+| harvest con hermanas (F2) | delete de la keyword PRIMERO, deletes de los **hermanos** creados, delete del negativo de origen AL FINAL |
 
 - Cada reversa vive en el ledger como **tipo `reversa`**, **exenta de
-  quota** (con test).
+  quota** (con test). Las filas por hermana del camino de ida son
+  **tipo `hermana`** (migración 0038; también exentas: `quota_cobrada =
+  false`); la reversa de cada borrado es su propia fila `tipo='reversa'`.
+  `tools/reversa_harvest.py --job` (A.3) ejecuta ese orden.
 - **Una reversa NO limpia el cooldown**: la entidad origen queda fría 7d
   igual (r3 qwen, deliberado) — anti-loop: revertir y re-decidir lo mismo
   al día siguiente sería el ciclo tonto que el cooldown existe para
