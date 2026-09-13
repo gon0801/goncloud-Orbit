@@ -61,14 +61,14 @@ ALLOWLIST_TAMANO = {
         "anti-Goodhart. El replay puro ya vive en app/optimizer/replay.py"
     ),
     "app/apply_harvest.py": (
-        "ORBIT 04 2.3: ejecucion del corte harvest (cadena de fases del job, "
-        "bid sugerido, reversas). La review adversaria de phase 2 le SUMO la "
-        "reconciliacion de inicio de ciclo que le faltaba (pausas applying "
-        "huerfanas ADV-03 + re-validacion del harvest ADV-05) y con eso paso "
-        "el umbral. Candidato DECLARADO a partirse la proxima vez que se "
-        "toque en grande: reconciliacion (reconcilia_harvest/_reconcilia_* + "
-        "revalida_harvest) vs ejecucion de jobs (la cadena _paso_*); partir "
-        "por partir esta prohibido por la regla anti-Goodhart"
+        "ORBIT 04 2.3 + FABRICA 02 A.3a: maquina de ejecucion del corte harvest "
+        "sellada (cadena de fases del job, bid sugerido, reversas, delegados "
+        "compatibles). La reconciliacion YA fue extraida a "
+        "app/apply_harvest_reconciliacion.py (revalida_harvest, "
+        "reconcilia_harvest y sus barridos/SQL exclusivos, sin duplicar "
+        "compartidos); lo que queda aqui es ejecucion + superficie compatible "
+        "y no tiene frontera coherente para partirse mas (partir por partir "
+        "esta prohibido por la regla anti-Goodhart)"
     ),
     "app/apply.py": (
         "ORBIT 04 2.1: nucleo del aplicador (quota, ledger, secuencia sellada "
