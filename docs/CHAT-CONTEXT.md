@@ -4,6 +4,28 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-13 UTC — FABRICA 02 (F2): A.0 y A.1 en master; el resolutor de destino ya existe.**
+Muse entregó el banco de pruebas y el resolutor de destino de harvest (PR #258, squash `a01aed0`):
+el módulo que decide, para cada campaña, a dónde va un search term ganador —primero por grupo,
+luego por excepción, luego por la configuración vigente venga de donde venga (la corrección de la
+sonda 0.2)— y su cableado en los cuatro sitios del ciclo, incluido el que de verdad decide dónde se
+postea. **No cambia nada en producción todavía**: el resolutor resuelve, pero la fase de hermanas
+(A.3) es la que lo va a usar para negar el search term en las cuatro campañas del grupo.
+
+La revisión del lead encontró un bloqueante que ni CI ni CodeRabbit vieron: una campaña en grupo
+sin bid de harvest dejaba una decisión congelada con `default_bid: null`, y el replay —lo que
+permite auditar por qué el sistema decidió algo— reventaba al reconstruirla. Salió de mutar el
+código y seguir la cadena hasta el `Decimal`. Corregido en la misma ronda con su prueba, junto con
+tres hallazgos de CodeRabbit y cuatro huecos de test. Mutación: 8 de 12 mutantes mueren en la
+entrega, 5 de 6 en la ronda (el sobreviviente es una variable muerta, no un hueco). Brief de la
+ronda: `plans/brief-fabrica-02-a0-a1-ronda-review.md`.
+
+Residual declarado, va a R.1: el candado de «un solo escritor de goals» es un escaneo de texto, no
+una barrera en Postgres — `app_admin` puede escribir la tabla desde la migración 0001. Es una
+decisión de arquitectura del dueño, no de este PR.
+
+**Falta**: A.2 (la migración) y A.3a/A.3 (la fase de hermanas, el corazón de F2).
+
 **2026-09-12 UTC — FABRICA 02 (F2): las dos sondas cerradas; el inventario tapó un agujero del plan.**
 La sonda 0.2 (un inventario de solo lectura, sin tocar Amazon) encontró que **las cuatro campañas que
 de verdad cosechan palabras no tienen configuración propia**: funcionan porque el sistema cae a una
