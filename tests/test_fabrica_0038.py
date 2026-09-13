@@ -157,9 +157,10 @@ def _job(conn, decision: int, ag: int, *, term="termino a", platform="amazon_us"
     ).fetchone()[0]
 
 
-def _semilla_grupo_minimo(conn, *, platform="amazon_us") -> dict:
+def _semilla_grupo_minimo(conn, *, platform="amazon_us", con_segundo_grupo=False) -> dict:
     """Lote + grupo + campaña/ad group en `campana_grupo_rol` (para el
-    trigger bid-solo: estado 3 exige membresía)."""
+    trigger bid-solo: estado 3 exige membresía). Con `con_segundo_grupo`:
+    otro lote + grupo vacío (destino del re-apuntado por `grupo_id`)."""
     conn.execute(
         "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
         " huella, plan, modo_goal, estado) VALUES ('lote-0038', %s, 'collar_perro',"
@@ -188,7 +189,22 @@ def _semilla_grupo_minimo(conn, *, platform="amazon_us") -> dict:
         " VALUES (%s, 'category_phrase', %s, %s)",
         (grupo, camp, ag),
     )
-    return {"grupo": grupo, "camp": camp, "ag": ag}
+    salida = {"grupo": grupo, "camp": camp, "ag": ag}
+    if con_segundo_grupo:
+        conn.execute(
+            "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base, go_literal,"
+            " huella, plan, modo_goal, estado) VALUES ('lote-0038-b', %s, 'collar_perro',"
+            " 'Base B', 'go', 'h', '{}'::jsonb, 'live', 'applied')",
+            (platform,),
+        )
+        salida["grupo2"] = conn.execute(
+            "INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote,"
+            " target_acos_pct, target_derivado_pct, fraccion, target_procedencia, go_literal)"
+            " VALUES (%s, 'collar_perro', 'Base B', 'lote-0038-b', 20, 20, 0.5, 't', 'go')"
+            " RETURNING id",
+            (platform,),
+        ).fetchone()[0]
+    return salida
 
 
 def _goal(conn, **cols) -> int:
@@ -487,10 +503,12 @@ def test_0038_goal_bid_solo_con_grupo_y_rechazos():
 @_skip_db
 def test_0038_grupo_no_suelta_campana_con_goal_bid_solo():
     """Goal en estado 3: DELETE de su fila de rol rechazado y UPDATE que la
-    re-apunta rechazado; goal en estado 2: DELETE permitido. Rojo pre-0038:
-    el DELETE pasa (no hay trigger)."""
+    re-apunta rechazado (por `ad_entity_id` y por `grupo_id`); goal en
+    estado 2: DELETE permitido. Rojo pre-0038: el DELETE pasa (no hay
+    trigger). Ronda del lead PR #261: sin el caso `grupo_id`, quitar esa
+    cláusula del trigger no mataba nada."""
     with db_38("orbit_38_sim") as conn:
-        gpo = _semilla_grupo_minimo(conn)
+        gpo = _semilla_grupo_minimo(conn, con_segundo_grupo=True)
         _goal(
             conn,
             ad_entity_id=gpo["camp"],
@@ -508,6 +526,12 @@ def test_0038_grupo_no_suelta_campana_con_goal_bid_solo():
                 "UPDATE campana_grupo_rol SET ad_entity_id = %s"
                 " WHERE grupo_id = %s AND rol = 'category_phrase'",
                 (gpo["ag"], gpo["grupo"]),
+            )
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute(
+                "UPDATE campana_grupo_rol SET grupo_id = %s"
+                " WHERE grupo_id = %s AND rol = 'category_phrase'",
+                (gpo["grupo2"], gpo["grupo"]),
             )
         # UPDATE que no re-apunta (mismo grupo y campaña) sigue legal.
         conn.execute(
