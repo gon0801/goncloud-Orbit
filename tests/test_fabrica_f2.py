@@ -356,7 +356,10 @@ def test_f2_list_pagina_con_nexttoken():
 
 def test_f2_fallo_por_hermana_solo_tumba_su_adgroup():
     """`fallo_post_negative_por_adgroup` responde el status pedido SOLO en
-    ese adGroupId; la hermana sana recibe su 207 con id."""
+    ese adGroupId; la hermana sana recibe su 207 con id. El almacen lo
+    confirma: la fallida NO guarda nada (el 400 no crea), la sana guarda
+    su negativo (ronda PR #258: el test solo miraba status y pasaria
+    aunque el handler guardara antes de devolver 400)."""
     handler, _vistos = _handler_harvest(fallo_post_negative_por_adgroup={"62001": 400})
 
     def _neg(adgroup: str) -> dict:
@@ -373,3 +376,10 @@ def test_f2_fallo_por_hermana_solo_tumba_su_adgroup():
     buena = handler(_request_post("/sp/negativeKeywords", _neg("62002")))
     assert buena.status_code == 207
     assert buena.json()["negativeKeywords"]["success"][0]["negativeKeywordId"]
+    # El almacen de cada hermana: la fallida queda vacia, la sana con uno.
+    for adgroup, esperado in (("62001", 0), ("62002", 1)):
+        cuerpo = handler(
+            _request_lista("/sp/negativeKeywords/list", {"adGroupIdFilter": {"include": [adgroup]}})
+        ).json()
+        assert cuerpo["totalResults"] == esperado, adgroup
+        assert len(cuerpo["negativeKeywords"]) == esperado, adgroup

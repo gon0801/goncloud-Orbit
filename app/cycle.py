@@ -660,18 +660,29 @@ def _goal_json(
     del goal (si no, tras D.2 —terna limpiada— congelaria `null` y
     `replay_coincide` fallaria en todo harvest posterior). Sin destino
     (camino de bids, que no consumen harvest) se congela la terna del goal
-    como siempre. El replay ignora las claves nuevas."""
+    como siempre. El replay ignora las claves nuevas.
+
+    Destino SIN monto (bid/moneda None: el motor no tuvo config y el
+    candidato a harvest salto con `harvest_sin_config`) NO congela harvest:
+    el motor realmente uso config None y el replay debe reconstruir lo
+    mismo. Congelar `default_bid: null` reventaba `reproduce()` con
+    TypeError en Decimal(None) en toda decision `negative` del grupo
+    (ronda PR #258: campana en grupo + goal sin `harvest_default_bid`)."""
     if isinstance(destino, harvest_destino.DestinoHarvest):
-        completa = True
-        harvest = {
-            "campaign_id": destino.campaign_external,
-            "ad_group_id": destino.ad_group_external,
-            "default_bid": _dec_str(destino.bid),
-            "moneda": destino.moneda,
-            "resuelto_por": destino.resuelto_por,
-            "grupo_id": destino.grupo_id,
-            "motivo": destino.motivo,
-        }
+        if destino.bid is None or destino.moneda is None:
+            completa = False
+            harvest = None
+        else:
+            completa = True
+            harvest = {
+                "campaign_id": destino.campaign_external,
+                "ad_group_id": destino.ad_group_external,
+                "default_bid": _dec_str(destino.bid),
+                "moneda": destino.moneda,
+                "resuelto_por": destino.resuelto_por,
+                "grupo_id": destino.grupo_id,
+                "motivo": destino.motivo,
+            }
     else:
         completa = (
             goal.harvest_campaign_id is not None

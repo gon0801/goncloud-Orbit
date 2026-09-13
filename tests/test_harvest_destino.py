@@ -216,6 +216,14 @@ def _harvests_de(conn, cycle_id: int) -> list:
     ).fetchall()
 
 
+def _negatives_de(conn, cycle_id: int) -> list:
+    return conn.execute(
+        "SELECT id, ad_entity_id, search_term, inputs"
+        " FROM decision WHERE cycle_id = %s AND kind = 'negative' ORDER BY id",
+        (cycle_id,),
+    ).fetchall()
+
+
 def _senuelo_exact(conn):
     """Campana FUERA de todo grupo con external_id 'category_exact': tienta
     a cualquier resolutor por nombre (caso a)."""
@@ -643,6 +651,235 @@ def test_a1_limpia_destino_no_se_combina_con_campos_harvest():
 
 
 # ---------------------------------------------------------------------------
+# Ronda PR #258: bloqueante + CodeRabbit 1 + los cuatro huecos de mutantes
+# ---------------------------------------------------------------------------
+
+
+def _campana_suelta(conn, *, camp_ext="7009", ag_ext="7109"):
+    """Campana + ad group hijo FUERA de todo grupo, con states ENABLED
+    (los huecos de mutantes necesitan caminos excepcion/terna puros: con
+    `_base_ciclo` el watermark de plataforma ya viene fresco del grupo)."""
+    from test_cycle import DECIDED_AT, _estado
+
+    camp = conn.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id)"
+        " VALUES (%s, 'campaign', %s) RETURNING id",
+        (PLATFORM, camp_ext),
+    ).fetchone()[0]
+    ag = conn.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id, parent_id)"
+        " VALUES (%s, 'ad_group', %s, %s) RETURNING id",
+        (PLATFORM, ag_ext, camp),
+    ).fetchone()[0]
+    sync = DECIDED_AT - dt.timedelta(hours=4)
+    _estado(conn, camp, synced_at=sync)
+    _estado(conn, ag, synced_at=sync)
+    return camp, ag
+
+
+@_skip_db
+def test_a1_grupo_sin_bid_negative_reproduce_sin_excepcion():
+    """BLOQUEANTE (ronda PR #258): campana en grupo + goal sin
+    `harvest_default_bid` + termino que decide `negative` -> cada decision
+    congelada pasa por `reproduce()` sin excepcion. Rojo antes del arreglo:
+    `_goal_json` congelaba `default_bid: null` y el replay reventaba con
+    TypeError en Decimal(None). El congelado refleja lo que el motor uso
+    (config None): harvest ausente."""
+    from test_cycle import _obs, _termino
+
+    with db_f2("orbit_a1_sinbid") as conn:
+        gpo, run = _base_ciclo(conn, con_terna=False)
+        phrase = gpo["roles"]["category_phrase"]
+        _siembra_terminos(conn, run, phrase["ag"])
+        # Negative elegible bajo la evidencia del fixture (grupo no
+        # elegible: umbral 40 clicks, piso 45 USD): "tortugas" (23/20.00)
+        # no corta aqui; este si.
+        _termino(
+            conn,
+            run,
+            phrase["ag"],
+            "corta y quema",
+            dt.date(2026, 7, 12),
+            _obs(dt.date(2026, 7, 12), 4),
+            cost="60.00",
+            ad_revenue="1.00",
+            clicks=50,
+            orders=0,
+        )
+        res = _corre(conn)
+        assert res.status in ("done", "degraded")
+        negs = _negatives_de(conn, res.cycle_id)
+        assert {n[2] for n in negs} >= {"corta y quema"}
+        for _id, _ent, term, inputs in negs:
+            # Primero lo que exige el brief: reproduce() sin excepcion (en
+            # rojo era TypeError: conversion from NoneType to Decimal).
+            kind, valor, curr = reproduce(inputs)
+            assert (kind, valor, curr) == ("negative", None, None), term
+            assert inputs["goal"]["harvest"] is None, (
+                f"{term}: sin monto no hay harvest que congelar"
+            )
+
+
+@_skip_db
+def test_a1_limpia_y_limpia_destino_no_se_combinan():
+    """CodeRabbit 1 (ronda PR #258): `harvest_limpia` +
+    `harvest_limpia_destino` juntas borraban el bid en silencio (la primera
+    anula los tres campos, la segunda solo re-anula dos): lo contrario de
+    lo que `harvest_limpia_destino` promete. Se rechaza y la fila queda
+    intacta."""
+    from app.goals_write import GoalInvalido, edita_goal
+
+    with db_f2("orbit_a1_limpdoble") as conn:
+        gpo, _run = _base_ciclo(conn, con_terna=True)
+        par = gpo["roles"]["category_phrase"]
+        goal_id = conn.execute(
+            "SELECT id FROM ads_optimizer_goal WHERE scope = 'campaign' AND ad_entity_id = %s",
+            (par["camp"],),
+        ).fetchone()[0]
+        with pytest.raises(GoalInvalido, match="no se combinan"):
+            edita_goal(
+                conn,
+                goal_id,
+                harvest_limpia=True,
+                harvest_limpia_destino=True,
+                updated_at=dt.datetime.now(dt.UTC),
+            )
+        fila = conn.execute(
+            "SELECT harvest_campaign_id, harvest_ad_group_id, harvest_default_bid"
+            " FROM ads_optimizer_goal WHERE id = %s",
+            (goal_id,),
+        ).fetchone()
+        assert fila[2] is not None, "el rechazo no toca la fila: el bid sigue intacto"
+
+
+@_skip_db
+def test_a1_ciclo_tras_limpiar_terna_congela_destino():
+    """Mutante 1 (ronda PR #258): `completa` se deriva del DESTINO, no de la
+    terna del goal. Tras D.2 (terna limpiada, bid intacto) el ciclo sigue
+    congelando el destino del grupo: derivarlo de
+    `goal.harvest_campaign_id` congelaria null y el replay fallaria."""
+    with db_f2("orbit_a1_postd2") as conn:
+        gpo, run = _base_ciclo(conn, con_terna=True)
+        conn.execute("ALTER TABLE ads_optimizer_goal DROP CONSTRAINT goal_harvest_completo")
+        from app.goals_write import edita_goal
+
+        for (goal_id,) in conn.execute(
+            "SELECT id FROM ads_optimizer_goal WHERE scope = 'campaign'"
+        ).fetchall():
+            edita_goal(
+                conn, goal_id, harvest_limpia_destino=True, updated_at=dt.datetime.now(dt.UTC)
+            )
+        exacta = gpo["roles"]["category_exact"]
+        phrase = gpo["roles"]["category_phrase"]
+        _siembra_terminos(conn, run, phrase["ag"])
+        res = _corre(conn)
+        harvs = _harvests_de(conn, res.cycle_id)
+        assert len(harvs) == 1
+        _id, _ent, _term, _nv, _mo, inputs = harvs[0]
+        congelado = inputs["goal"]["harvest"]
+        assert congelado is not None, "post-D.2 el harvest sale del destino, no de la terna"
+        assert congelado["campaign_id"] == exacta["camp_ext"]
+        assert congelado["resuelto_por"] == "grupo"
+        kind, valor, curr = reproduce(inputs)
+        assert (kind, valor, curr) == ("harvest", Decimal("11.62"), "USD")
+
+
+@_skip_db
+def test_a1_excepcion_ajena_no_pertenece_es_desincronizado():
+    """Mutante 2a (ronda PR #258): la guarda `pertenece` es el unico cinturon
+    del camino excepcion (sin re-resolucion). Par congelado ajeno a la
+    campana en `ad_entity` -> `destino_desincronizado` con cero HTTP.
+    Anular la guarda reviviría el POST al destino ajeno."""
+    with db_f2("orbit_a1_excajan") as conn:
+        _gpo, run = _base_ciclo(conn, con_goals=False)
+        _goal_plataforma_con_terna(conn)
+        camp, ag = _campana_suelta(conn)
+        conn.execute(
+            "INSERT INTO harvest_excepcion (ad_entity_id, destino_campaign_external,"
+            " destino_ad_group_external, go_literal) VALUES (%s, '8901', '8902', 'go')",
+            (camp,),
+        )
+        _siembra_terminos(conn, run, ag)
+        res = _corre(conn)
+        harvs = _harvests_de(conn, res.cycle_id)
+        assert len(harvs) == 1
+        assert harvs[0][5]["goal"]["harvest"]["resuelto_por"] == "excepcion"
+        handler, vistos = _handler_harvest()
+        res2 = libera_vencidos(
+            conn,
+            PLATFORM,
+            ahora=_ahora_liberar(),
+            aplicador=_aplicador_us(conn, handler, res.cycle_id),
+        )
+        assert _posts_a(vistos, "/sp/keywords") == []
+        assert _posts_a(vistos, "/sp/negativeKeywords") == []
+        assert [a.motivo for a in res2.alertas] == ["destino_desincronizado"]
+
+
+@_skip_db
+def test_a1_terna_ajena_no_pertenece_es_desincronizado():
+    """Mutante 2b (ronda PR #258): lo mismo para el camino terna (tampoco
+    tiene re-resolucion): terna a un par que no es hermana en `ad_entity`
+    -> `destino_desincronizado` con cero HTTP."""
+    with db_f2("orbit_a1_ternajan") as conn:
+        _gpo, run = _base_ciclo(conn, con_goals=False)
+        camp, ag = _campana_suelta(conn)
+        _goal_campana_con_terna(conn, camp, camp_ext="8901", ag_ext="8902")
+        _siembra_terminos(conn, run, ag)
+        res = _corre(conn)
+        harvs = _harvests_de(conn, res.cycle_id)
+        assert len(harvs) == 1
+        assert harvs[0][5]["goal"]["harvest"]["resuelto_por"] == "terna"
+        handler, vistos = _handler_harvest()
+        res2 = libera_vencidos(
+            conn,
+            PLATFORM,
+            ahora=_ahora_liberar(),
+            aplicador=_aplicador_us(conn, handler, res.cycle_id),
+        )
+        assert _posts_a(vistos, "/sp/keywords") == []
+        assert _posts_a(vistos, "/sp/negativeKeywords") == []
+        assert [a.motivo for a in res2.alertas] == ["destino_desincronizado"]
+
+
+@_skip_db
+def test_a1_limpia_destino_exige_scope_campaign():
+    """Mutante 3 (ronda PR #258): `harvest_limpia_destino` exige scope
+    `campaign` (hay test para campana sin grupo, ninguno para scope
+    platform): un goal de plataforma se rechaza."""
+    from app.goals_write import GoalInvalido, edita_goal
+
+    with db_f2("orbit_a1_limpscope") as conn:
+        goal_id = _goal_plataforma_con_terna(conn)
+        with pytest.raises(GoalInvalido, match="scope campaign"):
+            edita_goal(
+                conn, goal_id, harvest_limpia_destino=True, updated_at=dt.datetime.now(dt.UTC)
+            )
+
+
+@_skip_db
+def test_a1_grupo_gana_a_excepcion():
+    """Mutante 4 (ronda PR #258): orden grupo > excepcion. Con los dos
+    presentes el destino es el del grupo; mover la excepcion antes
+    resolveria el ajeno."""
+    with db_f2("orbit_a1_orden") as conn:
+        gpo, _run = _base_ciclo(conn, con_terna=True)
+        _goal_plataforma_con_terna(conn)
+        phrase = gpo["roles"]["category_phrase"]
+        exacta = gpo["roles"]["category_exact"]
+        conn.execute(
+            "INSERT INTO harvest_excepcion (ad_entity_id, destino_campaign_external,"
+            " destino_ad_group_external, go_literal) VALUES (%s, '8901', '8902', 'go')",
+            (phrase["camp"],),
+        )
+        destino = resolver_destino(conn, PLATFORM, phrase["camp"])
+        assert isinstance(destino, DestinoHarvest)
+        assert destino.resuelto_por == "grupo"
+        assert destino.campaign_external == exacta["camp_ext"]
+        assert destino.ad_group_external == exacta["ag_ext"]
+
+
+# ---------------------------------------------------------------------------
 # Candado de escritor unico extendido a tools/ (A.1)
 # ---------------------------------------------------------------------------
 
@@ -655,8 +892,9 @@ def test_a1_escritor_unico_de_goals_cubre_tools():
     from pathlib import Path
 
     raiz = Path(__file__).resolve().parents[1]
-    patron_update = re.compile(r"UPDATE\s+ads_optimizer_goal", re.IGNORECASE)
-    patron_insert = re.compile(r"INSERT\s+INTO\s+ads_optimizer_goal", re.IGNORECASE)
+    ident = r'(?:"?\w+"?\.)?"?ads_optimizer_goal"?'
+    patron_update = re.compile(rf"UPDATE\s+{ident}", re.IGNORECASE)
+    patron_insert = re.compile(rf"INSERT\s+INTO\s+{ident}", re.IGNORECASE)
     escritores = sorted(
         str(p.relative_to(raiz))
         for p in (raiz / "tools").rglob("*.py")

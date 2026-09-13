@@ -21,7 +21,9 @@ el ceiling viejo): floor/ceiling positivos y floor <= ceiling, target > 0,
 harvest_default_bid > 0 o NULL, y la terna harvest all-or-nothing del CHECK
 `goal_harvest_completo` (tras aplicar los cambios, o los TRES son NULL o los
 TRES no-NULL; `harvest_limpia` pone los tres a NULL y JAMAS se combina con
-campos harvest individuales; `harvest_limpia_destino` pone a NULL SOLO
+campos harvest individuales NI con `harvest_limpia_destino` (aplicar las dos
+borraria el bid que `harvest_limpia_destino` promete intacto);
+`harvest_limpia_destino` pone a NULL SOLO
 campaign/ad_group —bid intacto— y exige campana en grupo, validado DESPUES
 de leer la fila; el CHECK actual lo rechaza hasta que A.2 lo reemplace por
 el trigger que admite bid-solo en grupo, asi que el camino feliz solo corre
@@ -191,7 +193,9 @@ def _cambios_edicion(
     `harvest_limpia` pone los TRES campos de harvest a NULL;
     `harvest_limpia_destino` (FABRICA 02) pone a NULL solo campaign/ad_group
     (bid intacto); ambos rechazan combinarse con campos harvest
-    individuales."""
+    individuales, y entre si (la primera anularia el bid que la segunda
+    promete dejar intacto: combinarlas borra el bid en silencio, ronda
+    PR #258)."""
     cambios: dict[str, object] = {}
     if target_acos_pct is not None:
         cambios["target_acos_pct"] = target_acos_pct
@@ -219,6 +223,11 @@ def _cambios_edicion(
         cambios["harvest_ad_group_id"] = None
         cambios["harvest_default_bid"] = None
     if harvest_limpia_destino:
+        if harvest_limpia:
+            raise GoalInvalido(
+                "harvest_limpia y harvest_limpia_destino no se combinan:"
+                " la primera anula el bid que la segunda deja intacto"
+            )
         if any(
             v is not None for v in (harvest_campaign_id, harvest_ad_group_id, harvest_default_bid)
         ):
@@ -255,7 +264,8 @@ def edita_goal(
     `harvest_limpia_destino=True` (FABRICA 02, limpieza de la terna
     transitoria de F1 grupo por grupo, A.5/D.2): pone a NULL SOLO
     `harvest_campaign_id`/`harvest_ad_group_id` (bid intacto), rechaza
-    combinarse con campos harvest individuales y exige —validado DESPUES de
+    combinarse con campos harvest individuales y con `harvest_limpia`
+    (la primera anularia el bid intacto), y exige —validado DESPUES de
     leer la fila— que el goal sea de scope `campaign` y su campana este en
     `campana_grupo_rol` (sin grupo no hay destino que lo reemplace: seria
     dejar un goal sin cosecha en silencio).
