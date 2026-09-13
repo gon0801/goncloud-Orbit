@@ -4,6 +4,25 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-13 UTC — FABRICA 02 (F2): A.2 en master; la base ya sabe de hermanas, pero producción no.**
+Muse entregó la migración 0038 (PR #261, squash `b76959f`): la fase `hermanas_negadas` entre el
+readback de la keyword y el cierre; el CHECK que obligaba a los goals a tener los tres campos de
+harvest o ninguno se reemplaza por un trigger que además admite «solo bid» cuando la campaña está en
+un grupo, con un trigger simétrico que impide sacarla del grupo mientras esté así; y el motor gana
+permiso de escribir las bibliotecas —insertar en las dos, y mover `updated_at` solo en la de keywords; sin dinero. **No está
+desplegada**: producción sigue sin 0038 hasta D.1, y ningún código de producción escribe todavía la fase nueva (solo los tests de la migración).
+
+Tres rondas de revisión, una cosa importante en cada una. CodeRabbit sobre el brief: el candado del
+`DO $$` probaba solo el primer negativo (una excepción sin manejar abortaba el bloque). El lead: un
+mutante que dejaba mover una campaña de grupo sin que nadie se enterara. CodeRabbit sobre el código:
+**el plan no distinguía un negative adoptado de uno creado**, y la reversa habría borrado negativos
+ajenos — decisión tomada (`creada: true|false`, hecho 17) y ya en el contrato de A.3. Mutación:
+11 de 11 mueren. Residuales declarados: el motor aún no consume la fase (A.3, a propósito) y un
+`RETURNING` del `DO` más ancho que el canon (A.4). Dato de proceso: CodeRabbit quedó en una
+revisión por hora por 77 en siete días — cada push a un PR abierto gasta una.
+
+**Falta**: A.3a (partir `apply_harvest.py` sin cambiar conducta) y A.3, la fase de hermanas.
+
 **2026-09-13 UTC — FABRICA 02 (F2): A.0 y A.1 en master; el resolutor de destino ya existe.**
 Muse entregó el banco de pruebas y el resolutor de destino de harvest (PR #258, squash `a01aed0`):
 el módulo que decide, para cada campaña, a dónde va un search term ganador —primero por grupo,
