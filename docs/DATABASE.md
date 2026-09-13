@@ -342,7 +342,10 @@ vive en `decision.inputs`).
 CHECK.
 
 **`harvest_job`** — Tracking de harvest por fases con orden sellado:
-**`pending` → `negative_created` → `exact_created` → `done` / `failed`**. La
+**`pending` → `negative_created` → `exact_created` → `hermanas_negadas` →
+`done` / `failed`** (F2, migración 0038; `exact_created → done` se conserva
+para jobs viejos y solo pasan por `hermanas_negadas` los harvests de grupo
+—eso lo impone la app en A.3, no la base). La
 fila se registra en `pending` **antes del primer POST** — y **la base lo
 exige**: el trigger `harvest_job_decision_coherente` rechaza todo INSERT que
 no nazca en `pending` (fail-closed ante crash: un crash no deja ventana de
@@ -353,7 +356,8 @@ a una decisión `kind='harvest'` sobre la misma (entidad, término, plataforma
 vía `ad_entity`) — un typo en la app no puede crear un job huérfano que la
 reconciliación perseguiría contra Amazon en vano. **Único parcial
 `(platform, ad_entity_id, search_term) WHERE fase IN ('pending',
-'negative_created','exact_created')`**: un solo job en vuelo por término —
+'negative_created','exact_created','hermanas_negadas')` (F2: la 0038 agrega
+la fase nueva)**: un solo job en vuelo por término —
 protege el POST no idempotente; los jobs cerrados no bloquean. La
 **reconciliación la hace la app al inicio del ciclo siguiente** contra
 `/sp/keywords/list` (regla 10).

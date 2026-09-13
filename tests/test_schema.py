@@ -37,6 +37,12 @@ STMTS3 = tuple(pglast.parse_sql(SQL3))
 SQL4 = (ROOT / "migrations" / "0004_ad_entity_kind_product_ad.sql").read_text(encoding="utf-8")
 STMTS4 = tuple(pglast.parse_sql(SQL4))
 
+# 0038 (FABRICA 02 A.2 — fase `hermanas_negadas`, tipo `hermana`, trigger
+# bid-solo). Solo parse estático aquí; la conducta vive en
+# tests/test_fabrica_0038.py con rol real.
+SQL38 = (ROOT / "migrations" / "0038_fabrica_hermanas_biblioteca.sql").read_text(encoding="utf-8")
+STMTS38 = tuple(pglast.parse_sql(SQL38))
+
 # 0005 (ORBIT 06 0.7 — hallazgo de qwen en la review 3.3): v_tacos sumaba el
 # gasto por fila kind='campaign' Y por sus hijas kind='keyword'/
 # 'product_target' -- ads_metric_observation duplica el costo entre ambos
@@ -149,6 +155,10 @@ def _stmts4(cls):
     return [s.stmt for s in STMTS4 if isinstance(s.stmt, cls)]
 
 
+def _stmts38(cls):
+    return [s.stmt for s in STMTS38 if isinstance(s.stmt, cls)]
+
+
 TABLES = {t.relation.relname: t for t in _stmts(ast.CreateStmt)}
 TRIGGERS = _stmts(ast.CreateTrigStmt)
 INDEXES = _stmts(ast.IndexStmt)
@@ -158,6 +168,8 @@ TABLES2 = {t.relation.relname: t for t in _stmts2(ast.CreateStmt)}
 TRIGGERS2 = _stmts2(ast.CreateTrigStmt)
 INDEXES2 = _stmts2(ast.IndexStmt)
 FUNCTIONS2 = {f.funcname[-1].sval: f for f in _stmts2(ast.CreateFunctionStmt)}
+
+FUNCTIONS38 = {f.funcname[-1].sval: f for f in _stmts38(ast.CreateFunctionStmt)}
 
 # Union para los invariantes TRANSVERSALES (regla del repo que vale igual para
 # toda migracion): toda FK con indice de apoyo, nada de float para dinero,
@@ -1128,14 +1140,30 @@ BRIEF_TRANSICIONES_APLICAR = {
 # Progresión sellada de harvest_job (sellado 13): la cadena sin saltos ni
 # retrocesos, con failed alcanzable desde CUALQUIER fase en vuelo (la matriz
 # §6.1 cierra failed desde negative_created Y exact_created; done solo se
-# alcanza desde exact_created).
-PROGRESION_HARVEST = {
+# alcanza desde exact_created). HISTÓRICA de 0002: 0038 la amplía con
+# `hermanas_negadas` y ese conjunto vive en PROGRESION_HARVEST.
+PROGRESION_HARVEST_0002 = {
     ("pending", "negative_created"),
     ("negative_created", "exact_created"),
     ("exact_created", "done"),
     ("pending", "failed"),
     ("negative_created", "failed"),
     ("exact_created", "failed"),
+}
+
+# Progresión de F2 (0038, nueve pares): las seis de 0002, intactas, más
+# exact_created -> hermanas_negadas y hermanas_negadas -> done|failed.
+# `exact_created -> done` se conserva (jobs viejos).
+PROGRESION_HARVEST = {
+    ("pending", "negative_created"),
+    ("negative_created", "exact_created"),
+    ("exact_created", "hermanas_negadas"),
+    ("hermanas_negadas", "done"),
+    ("exact_created", "done"),
+    ("pending", "failed"),
+    ("negative_created", "failed"),
+    ("exact_created", "failed"),
+    ("hermanas_negadas", "failed"),
 }
 
 
@@ -1376,9 +1404,44 @@ def test_0002_harvest_job_sella_progresion():
     assert candidatos, "falta el trigger de UPDATE que sella las fases"
     assert any(t.timing == 2 and t.events & 16 and t.row for t in candidatos)
     cuerpo = " ".join(_body_de(FUNCTIONS2, "harvest_job_sella_fases").split())
-    assert _pares_de_transiciones(cuerpo) == PROGRESION_HARVEST, (
-        "la progresión de harvest_job no es la cadena sellada (sin saltos ni retrocesos)"
+    assert _pares_de_transiciones(cuerpo) == PROGRESION_HARVEST_0002, (
+        "la progresión de harvest_job en 0002 no es la cadena histórica sellada"
     )
+
+
+def test_0038_harvest_job_sella_progresion_f2():
+    # F2 (0038): el CREATE OR REPLACE amplía la progresión a nueve pares
+    # (las seis de 0002 intactas + la fase nueva). Rojo: parsear 0002 daría
+    # seis, no nueve.
+    assert len(STMTS38) > 5, "la migración 0038 no parseó entera"
+    cuerpo = " ".join(_body_de(FUNCTIONS38, "harvest_job_sella_fases").split())
+    assert _pares_de_transiciones(cuerpo) == PROGRESION_HARVEST, (
+        "la progresión de harvest_job en 0038 no es el conjunto F2 (nueve pares)"
+    )
+    assert PROGRESION_HARVEST_0002 < PROGRESION_HARVEST, (
+        "F2 debe extender la progresión histórica, no reescribirla"
+    )
+    # Hallazgo CodeRabbit PR #260: los dos triggers comparten un lock por
+    # campaña (si no, un INSERT del estado 3 concurrente con un DELETE de la
+    # membresía confirman los dos). A nivel estático: la llamada vive en
+    # AMBOS cuerpos; la conducta la prueba DoD 11 con dos conexiones.
+    # Ronda de bots PR #261: además de la presencia, el ARGUMENTO del lock
+    # menciona ad_entity_id — un `pg_advisory_xact_lock(0)` pasaría la
+    # presencia y serializaría TODAS las campañas entre sí (el test de dos
+    # campañas en test_fabrica_0038.py lo demuestra en vivo).
+    for funcion in (
+        "ads_optimizer_goal_harvest_coherente",
+        "campana_grupo_rol_destino_protegido",
+    ):
+        cuerpo_fn = " ".join(_body_de(FUNCTIONS38, funcion).split())
+        assert "pg_advisory_xact_lock" in cuerpo_fn, (
+            f"{funcion} perdió el lock por campaña contra la concurrencia"
+        )
+        llamadas = re.findall(r"pg_advisory_xact_lock\((.*?)\)", cuerpo_fn)
+        assert llamadas, f"{funcion}: sin llamadas extraíbles al lock"
+        assert all("ad_entity_id" in args for args in llamadas), (
+            f"{funcion}: el lock debe ser por campaña (ad_entity_id), no constante"
+        )
 
 
 def test_0002_applied_cycle_id_en_decision_application():
