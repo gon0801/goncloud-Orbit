@@ -4,6 +4,17 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-13 UTC — FABRICA 02 (F2): A.3a en master; ejecución y reconciliación ya están separadas.**
+El refactor preparatorio entró en el PR #264, squash `2b136f8`: `app/apply_harvest.py` conserva la
+ejecución y la superficie pública, mientras `app/apply_harvest_reconciliacion.py` concentra la
+revalidación y recuperación de jobs. No cambió la conducta: 48 pruebas de harvest pasaron antes y
+después sin skips; las 19 pruebas de arquitectura, Ruff, pre-commit, la batería completa de CI y
+CodeRabbit quedaron verdes. El brief quedó en el PR #263 y la revisión del lead fue APPROVE.
+
+**Producción sigue igual**: la migración 0038 continúa sin desplegar y la fase
+`hermanas_negadas` todavía no existe en el motor. **Sigue A.3**, que implementa esa fase sobre la
+frontera ya partida.
+
 **2026-09-13 UTC — FABRICA 02 (F2): A.2 en master; la base ya sabe de hermanas, pero producción no.**
 Muse entregó la migración 0038 (PR #261, squash `b76959f`): la fase `hermanas_negadas` entre el
 readback de la keyword y el cierre; el CHECK que obligaba a los goals a tener los tres campos de
