@@ -21,7 +21,13 @@ el ceiling viejo): floor/ceiling positivos y floor <= ceiling, target > 0,
 harvest_default_bid > 0 o NULL, y la terna harvest all-or-nothing del CHECK
 `goal_harvest_completo` (tras aplicar los cambios, o los TRES son NULL o los
 TRES no-NULL; `harvest_limpia` pone los tres a NULL y JAMAS se combina con
-campos harvest individuales). El objetivo es doble: mensaje claro de USO
+campos harvest individuales NI con `harvest_limpia_destino` (aplicar las dos
+borraria el bid que `harvest_limpia_destino` promete intacto);
+`harvest_limpia_destino` pone a NULL SOLO
+campaign/ad_group —bid intacto— y exige campana en grupo, validado DESPUES
+de leer la fila; el CHECK actual lo rechaza hasta que A.2 lo reemplace por
+el trigger que admite bid-solo en grupo, asi que el camino feliz solo corre
+con 00NN aplicada). El objetivo es doble: mensaje claro de USO
 (422/exit 2) y no quemar la validez del CHECK en la base para un error de
 operador. `None` en un parametro significa "no cambiar" — el unico camino a
 NULL de la terna harvest es `harvest_limpia` (regla 3: faltante no es cero).
@@ -101,13 +107,36 @@ def _fila_respuesta(fila: dict) -> dict:
     }
 
 
-def _valida_pre_editar(fila: dict, cambios: dict[str, object]) -> None:
+def _valida_limpia_destino_post_lectura(conn: psycopg.Connection, fila: dict) -> None:
+    """Validacion DESPUES de leer la fila para `harvest_limpia_destino`: el
+    goal debe ser de scope `campaign` y su campana estar en
+    `campana_grupo_rol` (su destino lo resuelve el grupo, no la terna; sin
+    grupo quedaria en `sin_destino_de_harvest` en silencio)."""
+    if fila["scope"] != "campaign" or fila["ad_entity_id"] is None:
+        raise GoalInvalido(
+            f"harvest_limpia_destino exige un goal de scope campaign: llego scope {fila['scope']}"
+        )
+    en_grupo = conn.execute(
+        "SELECT 1 FROM campana_grupo_rol WHERE ad_entity_id = %s",
+        (fila["ad_entity_id"],),
+    ).fetchone()
+    if en_grupo is None:
+        raise GoalInvalido(
+            "harvest_limpia_destino exige que la campana este en campana_grupo_rol:"
+            " sin grupo el destino quedaria en sin_destino_de_harvest"
+        )
+
+
+def _valida_pre_editar(fila: dict, cambios: dict[str, object], *, permite_bid_solo=False) -> None:
     """Pre-validacion en espanol sobre el estado EFECTIVO (nuevos + existentes).
 
     Corre ANTES del UPDATE: un choke aqui es un 422/exit-2 con mensaje claro,
     no un CheckViolation crudo de la base. Espeja los CHECKs del schema
     (goal_piso_bajo_techo, goal_bids_positivos, goal_target_acos_positivo,
-    goal_harvest_bid_positivo, goal_harvest_completo)."""
+    goal_harvest_bid_positivo, goal_harvest_completo). `permite_bid_solo`
+    (FABRICA 02, `harvest_limpia_destino`): salta el all-or-nothing de la
+    terna cuando campaign/ad_group van a NULL con bid intacto (el trigger
+    de A.2 lo admite solo en grupo; sin 00NN el UPDATE lo rechaza la base)."""
 
     def efectivo(col: str):
         return cambios.get(col, fila[col])
@@ -136,6 +165,8 @@ def _valida_pre_editar(fila: dict, cambios: dict[str, object]) -> None:
         efectivo("harvest_ad_group_id"),
         efectivo("harvest_default_bid"),
     )
+    if permite_bid_solo and terna[0] is None and terna[1] is None and terna[2] is not None:
+        return
     if any(v is not None for v in terna) and not all(v is not None for v in terna):
         nombres = ("harvest_campaign_id", "harvest_ad_group_id", "harvest_default_bid")
         faltan = [n for n, v in zip(nombres, terna, strict=True) if v is None]
@@ -146,40 +177,25 @@ def _valida_pre_editar(fila: dict, cambios: dict[str, object]) -> None:
         )
 
 
-def edita_goal(
-    conn: psycopg.Connection,
-    goal_id: int,
+def _cambios_edicion(
     *,
-    target_acos_pct: Decimal | None = None,
-    enabled: bool | None = None,
-    bid_floor: Decimal | None = None,
-    bid_ceiling: Decimal | None = None,
-    harvest_campaign_id: str | None = None,
-    harvest_ad_group_id: str | None = None,
-    harvest_default_bid: Decimal | None = None,
-    harvest_limpia: bool = False,
-    updated_at: dt.datetime,
-) -> dict:
-    """Edita un goal: UPDATE de SOLO los campos pasados + `updated_at`
-    EXPLICITO (parametro OBLIGATORIO, tz-aware; ver docstring del modulo),
-    devolviendo la fila completa en el shape de GET /goals.
-
-    `None` = no cambiar ese campo; `harvest_limpia=True` pone los TRES campos
-    de harvest a NULL y rechaza combinarse con campos harvest individuales.
-    La conexion puede venir con o sin autocommit: el UPDATE se confirma aqui
-    (conn.commit), en la misma transaccion que la lectura previa.
-
-    Excepciones: GoalInexistente (404/exit 1), GoalInvalido (422/exit 2, el
-    mensaje es el motivo). ValueError si `updated_at` es None o naive (error
-    de programacion del caller, no de uso).
-    """
-    if updated_at is None:
-        raise ValueError("updated_at es obligatorio: sin el no se puede sellar la edicion")
-    if updated_at.tzinfo is None:
-        raise ValueError(
-            "updated_at debe ser tz-aware: un naive se evaluaria segun la TZ de la sesion"
-        )
-
+    target_acos_pct: Decimal | None,
+    enabled: bool | None,
+    bid_floor: Decimal | None,
+    bid_ceiling: Decimal | None,
+    harvest_campaign_id: str | None,
+    harvest_ad_group_id: str | None,
+    harvest_default_bid: Decimal | None,
+    harvest_limpia: bool,
+    harvest_limpia_destino: bool,
+) -> dict[str, object]:
+    """Mapa columna -> valor nuevo desde los parametros (None = no cambiar).
+    `harvest_limpia` pone los TRES campos de harvest a NULL;
+    `harvest_limpia_destino` (FABRICA 02) pone a NULL solo campaign/ad_group
+    (bid intacto); ambos rechazan combinarse con campos harvest
+    individuales, y entre si (la primera anularia el bid que la segunda
+    promete dejar intacto: combinarlas borra el bid en silencio, ronda
+    PR #258)."""
     cambios: dict[str, object] = {}
     if target_acos_pct is not None:
         cambios["target_acos_pct"] = target_acos_pct
@@ -206,6 +222,78 @@ def edita_goal(
         cambios["harvest_campaign_id"] = None
         cambios["harvest_ad_group_id"] = None
         cambios["harvest_default_bid"] = None
+    if harvest_limpia_destino:
+        if harvest_limpia:
+            raise GoalInvalido(
+                "harvest_limpia y harvest_limpia_destino no se combinan:"
+                " la primera anula el bid que la segunda deja intacto"
+            )
+        if any(
+            v is not None for v in (harvest_campaign_id, harvest_ad_group_id, harvest_default_bid)
+        ):
+            raise GoalInvalido(
+                "harvest_limpia_destino no se combina con campos harvest individuales:"
+                " el bid queda intacto y el destino se va a NULL"
+            )
+        cambios["harvest_campaign_id"] = None
+        cambios["harvest_ad_group_id"] = None
+    return cambios
+
+
+def edita_goal(
+    conn: psycopg.Connection,
+    goal_id: int,
+    *,
+    target_acos_pct: Decimal | None = None,
+    enabled: bool | None = None,
+    bid_floor: Decimal | None = None,
+    bid_ceiling: Decimal | None = None,
+    harvest_campaign_id: str | None = None,
+    harvest_ad_group_id: str | None = None,
+    harvest_default_bid: Decimal | None = None,
+    harvest_limpia: bool = False,
+    harvest_limpia_destino: bool = False,
+    updated_at: dt.datetime,
+) -> dict:
+    """Edita un goal: UPDATE de SOLO los campos pasados + `updated_at`
+    EXPLICITO (parametro OBLIGATORIO, tz-aware; ver docstring del modulo),
+    devolviendo la fila completa en el shape de GET /goals.
+
+    `None` = no cambiar ese campo; `harvest_limpia=True` pone los TRES campos
+    de harvest a NULL y rechaza combinarse con campos harvest individuales.
+    `harvest_limpia_destino=True` (FABRICA 02, limpieza de la terna
+    transitoria de F1 grupo por grupo, A.5/D.2): pone a NULL SOLO
+    `harvest_campaign_id`/`harvest_ad_group_id` (bid intacto), rechaza
+    combinarse con campos harvest individuales y con `harvest_limpia`
+    (la primera anularia el bid intacto), y exige —validado DESPUES de
+    leer la fila— que el goal sea de scope `campaign` y su campana este en
+    `campana_grupo_rol` (sin grupo no hay destino que lo reemplace: seria
+    dejar un goal sin cosecha en silencio).
+    La conexion puede venir con o sin autocommit: el UPDATE se confirma aqui
+    (conn.commit), en la misma transaccion que la lectura previa.
+
+    Excepciones: GoalInexistente (404/exit 1), GoalInvalido (422/exit 2, el
+    mensaje es el motivo). ValueError si `updated_at` es None o naive (error
+    de programacion del caller, no de uso).
+    """
+    if updated_at is None:
+        raise ValueError("updated_at es obligatorio: sin el no se puede sellar la edicion")
+    if updated_at.tzinfo is None:
+        raise ValueError(
+            "updated_at debe ser tz-aware: un naive se evaluaria segun la TZ de la sesion"
+        )
+
+    cambios = _cambios_edicion(
+        target_acos_pct=target_acos_pct,
+        enabled=enabled,
+        bid_floor=bid_floor,
+        bid_ceiling=bid_ceiling,
+        harvest_campaign_id=harvest_campaign_id,
+        harvest_ad_group_id=harvest_ad_group_id,
+        harvest_default_bid=harvest_default_bid,
+        harvest_limpia=harvest_limpia,
+        harvest_limpia_destino=harvest_limpia_destino,
+    )
 
     # Validacion de ENTRADA pura, ANTES de leer la fila (sin I/O; hallazgos
     # #1-#3 de la review 3.2): edicion vacia (un UPDATE que solo mueve
@@ -228,40 +316,55 @@ def edita_goal(
                 " la terna harvest se borra con harvest_limpia"
             )
 
-    conn.row_factory = dict_row
-    fila = conn.execute(_SQL_LEE, (goal_id,)).fetchone()
-    if fila is None:
-        raise GoalInexistente(f"goal {goal_id} no existe")
+    # La conexion es del caller: se lee y escribe con dict_row pero el
+    # factory ORIGINAL se restaura en finally (FABRICA 02 A.1: la
+    # herramienta de A.5 sigue usando la conexion con tuplas tras editar;
+    # contaminarla rompia apply_cola, que desempaqueta por posicion). Las
+    # conns falsas de los tests unitarios (sin row_factory) se dejan
+    # intactas: ya devuelven dicts.
+    anterior = getattr(conn, "row_factory", None)
+    if anterior is not None:
+        conn.row_factory = dict_row
+    try:
+        fila = conn.execute(_SQL_LEE, (goal_id,)).fetchone()
+        if fila is None:
+            raise GoalInexistente(f"goal {goal_id} no existe")
 
-    # Defaults de piso/techo POR MONEDA (ORBIT 05 preflight 1.2; la DB ya no
-    # tiene DEFAULT desde 0003): si el estado efectivo de la fila editable
-    # quedara con floor/ceiling ausentes, se resuelven con LA MONEDA DEL
-    # PROPIO goal antes de persistir -- JAMAS caen a 0.10/2.50 implicitos
-    # (spot-check 4.4: ese techo en USD aplastaba bids vivos de MX). Moneda
-    # fuera de DEFAULTS_POR_MONEDA -> ValueError y el UPDATE no se ejecuta.
-    # La pre-validacion de abajo corre SOBRE el estado ya resuelto: el
-    # operador ve el mensaje claro, no un CheckViolation crudo.
-    # DEFENSA EN PROFUNDIDAD (grok, cross-review 1.2 r2): contra filas reales
-    # es inalcanzable hoy (bid_floor/bid_ceiling son NOT NULL desde 0001;
-    # None en la API significa "no cambiar") -- se queda porque el sello del
-    # plan exige que un MXN jamas se persista con defaults USD implicitos.
-    if (
-        cambios.get("bid_floor", fila["bid_floor"]) is None
-        or cambios.get("bid_ceiling", fila["bid_ceiling"]) is None
-    ):
-        piso_default, techo_default = resuelve_floor_ceiling(None, fila["bid_currency"])
-        if cambios.get("bid_floor", fila["bid_floor"]) is None:
-            cambios["bid_floor"] = piso_default
-        if cambios.get("bid_ceiling", fila["bid_ceiling"]) is None:
-            cambios["bid_ceiling"] = techo_default
+        if harvest_limpia_destino:
+            _valida_limpia_destino_post_lectura(conn, fila)
 
-    _valida_pre_editar(fila, cambios)
+        # Defaults de piso/techo POR MONEDA (ORBIT 05 preflight 1.2; la DB ya no
+        # tiene DEFAULT desde 0003): si el estado efectivo de la fila editable
+        # quedara con floor/ceiling ausentes, se resuelven con LA MONEDA DEL
+        # PROPIO goal antes de persistir -- JAMAS caen a 0.10/2.50 implicitos
+        # (spot-check 4.4: ese techo en USD aplastaba bids vivos de MX). Moneda
+        # fuera de DEFAULTS_POR_MONEDA -> ValueError y el UPDATE no se ejecuta.
+        # La pre-validacion de abajo corre SOBRE el estado ya resuelto: el
+        # operador ve el mensaje claro, no un CheckViolation crudo.
+        # DEFENSA EN PROFUNDIDAD (grok, cross-review 1.2 r2): contra filas reales
+        # es inalcanzable hoy (bid_floor/bid_ceiling son NOT NULL desde 0001;
+        # None en la API significa "no cambiar") -- se queda porque el sello del
+        # plan exige que un MXN jamas se persista con defaults USD implicitos.
+        if (
+            cambios.get("bid_floor", fila["bid_floor"]) is None
+            or cambios.get("bid_ceiling", fila["bid_ceiling"]) is None
+        ):
+            piso_default, techo_default = resuelve_floor_ceiling(None, fila["bid_currency"])
+            if cambios.get("bid_floor", fila["bid_floor"]) is None:
+                cambios["bid_floor"] = piso_default
+            if cambios.get("bid_ceiling", fila["bid_ceiling"]) is None:
+                cambios["bid_ceiling"] = techo_default
 
-    # Nombres de columna LITERALES de este codigo (los valores van por
-    # parametros): mismo estilo de SQL fijo + %s del resto del repo.
-    sets = ", ".join([*(f"{col} = %s" for col in cambios), "updated_at = %s"])
-    sql = f"UPDATE ads_optimizer_goal SET {sets} WHERE id = %s RETURNING {_COLUMNAS}"
-    fila_nueva = conn.execute(sql, (*cambios.values(), updated_at, goal_id)).fetchone()
+        _valida_pre_editar(fila, cambios, permite_bid_solo=harvest_limpia_destino)
+
+        # Nombres de columna LITERALES de este codigo (los valores van por
+        # parametros): mismo estilo de SQL fijo + %s del resto del repo.
+        sets = ", ".join([*(f"{col} = %s" for col in cambios), "updated_at = %s"])
+        sql = f"UPDATE ads_optimizer_goal SET {sets} WHERE id = %s RETURNING {_COLUMNAS}"
+        fila_nueva = conn.execute(sql, (*cambios.values(), updated_at, goal_id)).fetchone()
+    finally:
+        if anterior is not None:
+            conn.row_factory = anterior
     conn.commit()
     return _fila_respuesta(fila_nueva)
 
@@ -331,7 +434,11 @@ def crea_goal(
     }
     _valida_pre_editar(fila_nueva, {})  # mismos espejos de CHECK que la edicion
 
-    conn.row_factory = dict_row
+    # El row_factory del caller se restaura en finally (ver edita_goal);
+    # las conns falsas sin row_factory se dejan intactas.
+    anterior = getattr(conn, "row_factory", None)
+    if anterior is not None:
+        conn.row_factory = dict_row
     try:
         fila = conn.execute(
             _SQL_CREA,
@@ -356,5 +463,8 @@ def crea_goal(
     except psycopg.errors.CheckViolation as exc:
         conn.rollback()
         raise GoalInvalido(f"la base rechazo el goal: {exc.diag.message_primary}") from exc
+    finally:
+        if anterior is not None:
+            conn.row_factory = anterior
     conn.commit()
     return _fila_respuesta(fila)

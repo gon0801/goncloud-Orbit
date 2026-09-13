@@ -88,7 +88,7 @@ from psycopg.types.json import Json
 
 from app import apply, notifica
 from app.ads.client import AdsApiError, AdsClientError
-from app.optimizer import cortes, hygiene, windows
+from app.optimizer import cortes, harvest_destino, hygiene, windows
 from app.optimizer import goals as g
 
 if TYPE_CHECKING:
@@ -219,7 +219,19 @@ SELECT parent_id FROM ad_entity WHERE id = %s
 """
 
 _SQL_DECISION = """
-SELECT new_value, value_currency FROM decision WHERE id = %s
+SELECT new_value, value_currency, inputs FROM decision WHERE id = %s
+"""
+
+# FABRICA 02 (A.1): el destino congelado pertenece a esa campana y a esa
+# plataforma (parentesco por ad_entity, sin HTTP; la existencia viva la
+# cubre el LIST del flujo). Sin fila -> no es hermana.
+_SQL_DESTINO_PERTENECE = """
+SELECT 1
+  FROM ad_entity ag
+  JOIN ad_entity c ON c.id = ag.parent_id AND c.kind = 'campaign'
+ WHERE ag.kind = 'ad_group'
+   AND ag.external_id = %s AND c.external_id = %s
+   AND ag.platform = %s::platform AND c.platform = %s::platform
 """
 
 _SQL_COLA_DE = """
@@ -635,16 +647,30 @@ def _goal_del_grupo(conn: psycopg.Connection, platform: str, campaign_pk: int) -
 
 
 def _contexto(conn: psycopg.Connection, job: _Job) -> _Contexto:
-    """Origen, destino y default FRESCOS de la base. Dato faltante →
-    ValueError con su MOTIVO (regla 3: se falla el job, no se improvisa)."""
+    """Origen, destino y default: del CONGELADO F2 cuando la decision lo
+    trae (FABRICA 02, A.1), del goal FRESCO en otro caso (decisiones de eras
+    previas: D.1 exige cola de harvest vacia al desplegar, asi que en vivo
+    no hay mezcla; los tests viejos siembran sin congelado y siguen por el
+    camino actual). Dato faltante → ValueError con su MOTIVO (regla 3: se
+    falla el job, no se improvisa). Jamas se re-rutea: el destino es el
+    congelado o nada."""
     externos = conn.execute(_SQL_EXTERNALES, (job.ad_entity_id,)).fetchone()
     if externos is None:
         raise ValueError(MOTIVO_ENTIDAD_INCOMPLETA)
     padre = conn.execute(_SQL_PADRE, (job.ad_entity_id,)).fetchone()
+    new_value, value_currency, inputs = conn.execute(_SQL_DECISION, (job.decision_id,)).fetchone()
+    congelado = ((inputs or {}).get("goal") or {}).get("harvest") or {}
+    if congelado.get("resuelto_por") in (
+        harvest_destino.RESUELTO_GRUPO,
+        harvest_destino.RESUELTO_EXCEPCION,
+        harvest_destino.RESUELTO_TERNA,
+    ):
+        return _contexto_congelado(
+            conn, job, padre, externos, new_value, value_currency, inputs, congelado
+        )
     goal = _goal_del_grupo(conn, job.plataforma, padre[0]) if padre is not None else None
     if goal is None or goal.harvest_campaign_id is None or goal.harvest_ad_group_id is None:
         raise ValueError(MOTIVO_SIN_CONFIG)
-    new_value, value_currency = conn.execute(_SQL_DECISION, (job.decision_id,)).fetchone()
     if new_value is None:
         raise ValueError(MOTIVO_BID_DEFAULT_FALTANTE)
     if value_currency != goal.bid_currency:
@@ -662,6 +688,60 @@ def _contexto(conn: psycopg.Connection, job: _Job) -> _Contexto:
         moneda=value_currency,
         floor=floor,
         ceiling=ceiling,
+    )
+
+
+def _contexto_congelado(
+    conn: psycopg.Connection,
+    job: _Job,
+    padre,
+    externos,
+    new_value,
+    value_currency,
+    inputs: dict,
+    congelado: dict,
+) -> _Contexto:
+    """Destino del congelado F2, re-validado antes del POST (A.1): si
+    `resuelto_por` es grupo y la exacta vigente del grupo ya no es la
+    congelada → descarte `destino_desincronizado` (jamas re-rutear ni
+    postear a un congelado que ya no es hermana); y el par congelado debe
+    pertenecer a esa campana y a esa plataforma en `ad_entity` (la
+    existencia viva la cubre el LIST del flujo). floor/ceiling salen del
+    freeze del goal (ya efectivos al decidir)."""
+    if new_value is None:
+        raise ValueError(MOTIVO_BID_DEFAULT_FALTANTE)
+    destino_campana = congelado.get("campaign_id")
+    destino_grupo = congelado.get("ad_group_id")
+    if not destino_campana or not destino_grupo:
+        raise ValueError(MOTIVO_SIN_CONFIG)
+    if value_currency != congelado.get("moneda"):
+        raise ValueError(MOTIVO_MONEDA_INCOHERENTE)
+    if congelado.get("resuelto_por") == harvest_destino.RESUELTO_GRUPO and padre is not None:
+        vigente = harvest_destino.resolver_destino(conn, job.plataforma, padre[0])
+        if not (
+            isinstance(vigente, harvest_destino.DestinoHarvest)
+            and vigente.resuelto_por == harvest_destino.RESUELTO_GRUPO
+            and vigente.campaign_external == destino_campana
+            and vigente.ad_group_external == destino_grupo
+        ):
+            raise ValueError(hygiene.MOTIVO_DESTINO_DESINCRONIZADO)
+    pertenece = conn.execute(
+        _SQL_DESTINO_PERTENECE,
+        (destino_grupo, destino_campana, job.plataforma, job.plataforma),
+    ).fetchone()
+    if pertenece is None:
+        raise ValueError(hygiene.MOTIVO_DESTINO_DESINCRONIZADO)
+    goal_congelado = inputs.get("goal") or {}
+    return _Contexto(
+        plataforma=job.plataforma,
+        grupo_ext=externos[0],
+        campana_ext=externos[1],
+        destino_grupo=destino_grupo,
+        destino_campana=destino_campana,
+        default_bid=new_value,
+        moneda=value_currency,
+        floor=Decimal(str(goal_congelado.get("bid_floor"))),
+        ceiling=Decimal(str(goal_congelado.get("bid_ceiling"))),
     )
 
 
@@ -1123,22 +1203,48 @@ def revalida_harvest(
     (regla 3)."""
     grupo = fila.ad_entity_id
     padre = conn.execute(_SQL_PADRE, (grupo,)).fetchone()
-    goal = _goal_del_grupo(conn, platform, padre[0]) if padre is not None else None
+    # FABRICA 02 (A.1): destino RESUELTO (grupo > excepcion > terna vigente
+    # > skip) en vez del goal fresco; el dedupe mira el destino resuelto
+    # (si no, un termino cosechado se re-propondria cada dia ~90 dias). Sin
+    # destino -> el motivo del salto es el discard (PRE-claim, sin cobro).
+    # Sin 0018 (fixtures pre-F1) el resolutor revienta con UndefinedTable:
+    # savepoint + camino del goal fresco, como antes de F2.
+    try:
+        with conn.transaction():
+            destino = (
+                harvest_destino.resolver_destino(conn, platform, padre[0])
+                if padre is not None
+                else harvest_destino.SaltoHarvest(motivo=hygiene.MOTIVO_SIN_DESTINO_HARVEST)
+            )
+    except psycopg.errors.UndefinedTable:
+        destino = None
     config: hygiene.ConfigHarvest | None = None
     keywords: frozenset[str] = frozenset()
-    if (
-        goal is not None
-        and goal.harvest_campaign_id is not None
-        and goal.harvest_ad_group_id is not None
-        and goal.harvest_default_bid is not None
-    ):
+    if destino is None:
+        goal = _goal_del_grupo(conn, platform, padre[0]) if padre is not None else None
+        if (
+            goal is not None
+            and goal.harvest_campaign_id is not None
+            and goal.harvest_ad_group_id is not None
+            and goal.harvest_default_bid is not None
+        ):
+            config = hygiene.ConfigHarvest(
+                campaign_id=goal.harvest_campaign_id,
+                ad_group_id=goal.harvest_ad_group_id,
+                default_bid=goal.harvest_default_bid,
+                moneda=goal.bid_currency,
+            )
+            keywords = hygiene.keywords_campana_destino(conn, platform, goal.harvest_campaign_id)
+    elif isinstance(destino, harvest_destino.SaltoHarvest):
+        return destino.motivo
+    elif destino.bid is not None and destino.moneda is not None:
         config = hygiene.ConfigHarvest(
-            campaign_id=goal.harvest_campaign_id,
-            ad_group_id=goal.harvest_ad_group_id,
-            default_bid=goal.harvest_default_bid,
-            moneda=goal.bid_currency,
+            campaign_id=destino.campaign_external,
+            ad_group_id=destino.ad_group_external,
+            default_bid=destino.bid,
+            moneda=destino.moneda,
         )
-        keywords = hygiene.keywords_campana_destino(conn, platform, goal.harvest_campaign_id)
+        keywords = hygiene.keywords_campana_destino(conn, platform, destino.campaign_external)
     evidencia = windows.ventanas_evidencia_ad_group(conn, platform, ahora).get(grupo)
     umbral = cortes.umbral_corte(evidencia, "negative").umbral
     piso = cortes.piso_corte(evidencia, platform).piso_cost

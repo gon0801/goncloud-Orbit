@@ -189,7 +189,7 @@ from psycopg.types.json import Json
 from app import apply, apply_cola, apply_harvest, notifica
 from app.ads.config import AdsCredentials
 from app.apply import Aplicador, CapSaturado
-from app.optimizer import bid, cortes, hygiene, windows
+from app.optimizer import bid, cortes, harvest_destino, hygiene, windows
 from app.optimizer import goals as g
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.replay import reproduce as reproduce
@@ -640,7 +640,11 @@ def _agregado_json(agg: windows.AgregadoMetricas | None) -> dict | None:
     }
 
 
-def _goal_json(goal: g.Goal, moneda: str) -> dict:
+def _goal_json(
+    goal: g.Goal,
+    moneda: str,
+    destino: harvest_destino.DestinoHarvest | harvest_destino.SaltoHarvest | None = None,
+) -> dict:
     """Goal resuelto congelado (estructura sellada que consume el replay).
     bid_floor/bid_ceiling se congelan EFECTIVOS (resuelve_floor_ceiling):
     exactamente los que decide_bid consumio. Congelar los crudos divergiria
@@ -648,19 +652,44 @@ def _goal_json(goal: g.Goal, moneda: str) -> dict:
     Decimal(None) en reproduce() (hallazgo CodeRabbit major). `moneda` viaja
     EXPLICITA desde el llamador (PLATAFORMAS_MONEDA[platform]): los defaults
     son POR MONEDA (preflight 1.2) y una desalineacion con goal.bid_currency
-    revienta aca, no se cuela al freeze."""
-    completa = (
-        goal.harvest_campaign_id is not None
-        or goal.harvest_ad_group_id is not None
-        or goal.harvest_default_bid is not None
-    )
-    floor, ceiling = g.resuelve_floor_ceiling(goal, moneda)
-    return {
-        "scope": goal.scope,
-        "target_acos_pct": _dec_str(goal.target_acos_pct),
-        "bid_floor": _dec_str(floor),
-        "bid_ceiling": _dec_str(ceiling),
-        "harvest": (
+    revienta aca, no se cuela al freeze.
+
+    FABRICA 02 (A.1): con destino resuelto (camino de terminos) el harvest
+    congelado es EL DESTINO (externos + `resuelto_por` + `grupo_id` +
+    `motivo`), y `completa` se deriva del destino resuelto, NO de la terna
+    del goal (si no, tras D.2 —terna limpiada— congelaria `null` y
+    `replay_coincide` fallaria en todo harvest posterior). Sin destino
+    (camino de bids, que no consumen harvest) se congela la terna del goal
+    como siempre. El replay ignora las claves nuevas.
+
+    Destino SIN monto (bid/moneda None: el motor no tuvo config y el
+    candidato a harvest salto con `harvest_sin_config`) NO congela harvest:
+    el motor realmente uso config None y el replay debe reconstruir lo
+    mismo. Congelar `default_bid: null` reventaba `reproduce()` con
+    TypeError en Decimal(None) en toda decision `negative` del grupo
+    (ronda PR #258: campana en grupo + goal sin `harvest_default_bid`)."""
+    if isinstance(destino, harvest_destino.DestinoHarvest):
+        if destino.bid is None or destino.moneda is None:
+            completa = False
+            harvest = None
+        else:
+            completa = True
+            harvest = {
+                "campaign_id": destino.campaign_external,
+                "ad_group_id": destino.ad_group_external,
+                "default_bid": _dec_str(destino.bid),
+                "moneda": destino.moneda,
+                "resuelto_por": destino.resuelto_por,
+                "grupo_id": destino.grupo_id,
+                "motivo": destino.motivo,
+            }
+    else:
+        completa = (
+            goal.harvest_campaign_id is not None
+            or goal.harvest_ad_group_id is not None
+            or goal.harvest_default_bid is not None
+        )
+        harvest = (
             {
                 "campaign_id": goal.harvest_campaign_id,
                 "ad_group_id": goal.harvest_ad_group_id,
@@ -669,7 +698,14 @@ def _goal_json(goal: g.Goal, moneda: str) -> dict:
             }
             if completa
             else None
-        ),
+        )
+    floor, ceiling = g.resuelve_floor_ceiling(goal, moneda)
+    return {
+        "scope": goal.scope,
+        "target_acos_pct": _dec_str(goal.target_acos_pct),
+        "bid_floor": _dec_str(floor),
+        "bid_ceiling": _dec_str(ceiling),
+        "harvest": harvest,
     }
 
 
@@ -766,6 +802,7 @@ def _pendiente_termino(
     corte: cortes.UmbralResuelto | None = None,
     evidencia: windows.EvidenciaAdGroup | None = None,
     piso: cortes.PisoResuelto | None = None,
+    destino: harvest_destino.DestinoHarvest | harvest_destino.SaltoHarvest | None = None,
 ) -> _Pendiente:
     """El freeze de CORTES 01 (spec v3): `corte` y `evidencia` llegan SOLO
     en decisiones que consultan umbral de clicks (kind 'negative'; las
@@ -794,7 +831,7 @@ def _pendiente_termino(
             "moneda": termino.metric_currency,
             "observed_at_max": _ts(termino.observed_at_max),
         },
-        "goal": _goal_json(goal, PLATAFORMAS_MONEDA[platform]),
+        "goal": _goal_json(goal, PLATAFORMAS_MONEDA[platform], destino),
         "target_acos_pct_usado": _dec_str(target),
         # ORBIT 06 2.3: peldano ganador + snapshot SOLO si gana el margen.
         "target_procedencia": procedencia,
@@ -1147,24 +1184,53 @@ def _porta_goal_campana(
 
 
 def _config_harvest_de(
-    conn: psycopg.Connection, goal: g.Goal, platform: str
-) -> tuple[hygiene.ConfigHarvest | None, frozenset[str]]:
-    """Config de harvest del goal resuelto + keywords EXACT de la campaña
-    destino (dedupe). Incompleta -> (None, frozenset()) y decide_hygiene salta
-    CON MOTIVO 'harvest_sin_config' (jamas placeholder; CHECK goal_harvest_completo)."""
-    if (
-        goal.harvest_campaign_id is None
-        or goal.harvest_ad_group_id is None
-        or goal.harvest_default_bid is None
-    ):
-        return (None, frozenset())
+    conn: psycopg.Connection,
+    goal: g.Goal,
+    platform: str,
+    destino: harvest_destino.DestinoHarvest | harvest_destino.SaltoHarvest | None,
+) -> tuple[hygiene.ConfigHarvest | None, frozenset[str], str | None]:
+    """Config de harvest del DESTINO resuelto (FABRICA 02, A.1) + keywords
+    EXACT de la campana destino (dedupe, re-apuntado al `campaign_id`
+    RESUELTO: sin esto un termino cosechado se re-propondria cada dia
+    durante la ventana de ~90 dias) + motivo de salto (None si hay
+    destino). Sin destino o sin monto -> (None, frozenset(), motivo) y
+    decide_hygiene salta CON MOTIVO 'harvest_sin_config' (jamas
+    placeholder); el llamador traduce ese motivo al del salto F2.
+    `destino=None` = esquema sin 0018 (fixtures pre-F1): terna del goal
+    como antes de F2."""
+    if destino is None:
+        if (
+            goal.harvest_campaign_id is None
+            or goal.harvest_ad_group_id is None
+            or goal.harvest_default_bid is None
+        ):
+            return (None, frozenset(), None)
+        config = hygiene.ConfigHarvest(
+            campaign_id=goal.harvest_campaign_id,
+            ad_group_id=goal.harvest_ad_group_id,
+            default_bid=goal.harvest_default_bid,
+            moneda=goal.bid_currency,
+        )
+        return (
+            config,
+            hygiene.keywords_campana_destino(conn, platform, goal.harvest_campaign_id),
+            None,
+        )
+    if not isinstance(destino, harvest_destino.DestinoHarvest):
+        return (None, frozenset(), destino.motivo)
+    if destino.bid is None or destino.moneda is None:
+        return (None, frozenset(), hygiene.MOTIVO_HARVEST_SIN_CONFIG)
     config = hygiene.ConfigHarvest(
-        campaign_id=goal.harvest_campaign_id,
-        ad_group_id=goal.harvest_ad_group_id,
-        default_bid=goal.harvest_default_bid,
-        moneda=goal.bid_currency,
+        campaign_id=destino.campaign_external,
+        ad_group_id=destino.ad_group_external,
+        default_bid=destino.bid,
+        moneda=destino.moneda,
     )
-    return (config, hygiene.keywords_campana_destino(conn, platform, goal.harvest_campaign_id))
+    return (
+        config,
+        hygiene.keywords_campana_destino(conn, platform, destino.campaign_external),
+        None,
+    )
 
 
 def _gates_entidad(
@@ -1387,7 +1453,17 @@ def _procesa_grupo(
     procedencia = g.peldano_target_acos(
         goal.target_acos_pct, goal.scope, margen_plataforma, setting_target, cache_campana
     )
-    config_harvest, keywords = _config_harvest_de(conn, goal, platform)
+    destino = None
+    try:
+        # Savepoint: en esquemas sin 0018 (fixtures pre-F1) el resolutor
+        # revienta con UndefinedTable; se absorbe aqui para no abortar TX2
+        # (REPEATABLE READ) y se sigue con la terna del goal, como antes
+        # de F2. En produccion 0018 existe desde F1: inalcanzable.
+        with conn.transaction():
+            destino = harvest_destino.resolver_destino(conn, platform, campaign_id)
+    except psycopg.errors.UndefinedTable:
+        destino = None
+    config_harvest, keywords, motivo_salto = _config_harvest_de(conn, goal, platform, destino)
     resultados = hygiene.decide_hygiene(
         platform=platform,
         terminos=terminos,
@@ -1400,7 +1476,16 @@ def _procesa_grupo(
     tick()
     for termino, resultado in zip(terminos.terminos, resultados, strict=True):
         if resultado.kind is None:
-            contadores.skips_termino[resultado.motivo] += 1
+            # FABRICA 02 (A.1): con salto del resolutor, el candidato a
+            # harvest (que decide_hygiene marca 'harvest_sin_config' por
+            # config None) cuenta con el motivo DEL SALTO
+            # (origen_es_destino / destino_inconsistente /
+            # sin_destino_de_harvest); el resto de motivos pasa intacto y
+            # decide_hygiene no se toca.
+            motivo = resultado.motivo
+            if motivo_salto is not None and motivo == hygiene.MOTIVO_HARVEST_SIN_CONFIG:
+                motivo = motivo_salto
+            contadores.skips_termino[motivo] += 1
             continue
         pendientes.append(
             _pendiente_termino(
@@ -1420,6 +1505,7 @@ def _procesa_grupo(
                 corte=corte_negativo if resultado.kind == "negative" else None,
                 evidencia=evidencia if resultado.kind == "negative" else None,
                 piso=piso_neg if resultado.kind == "negative" else None,
+                destino=destino,
             )
         )
         contadores.decisiones[resultado.kind] += 1

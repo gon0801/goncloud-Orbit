@@ -29,6 +29,7 @@ from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
 APP = RAIZ / "app"
+TOOLS = RAIZ / "tools"
 OPTIMIZER = APP / "optimizer"
 
 # El motor no habla con el mundo: ni red, ni base, ni la capa de ingesta.
@@ -325,21 +326,27 @@ def test_allowlist_de_tamano_auto_limpiante():
 # COMPILADOS con re.IGNORECASE y \s+ entre palabras (hallazgo #5 review 3.2):
 # "uPdAtE\n\tads_optimizer_goal" (case/whitespace evadido) tambien detecta;
 # una frase benigna sin verbo SQL delante ("...escritura de
-# ads_optimizer_goal") no dispara.
-_SQL_UPDATE_GOAL = r"UPDATE\s+ads_optimizer_goal"
+# ads_optimizer_goal") no dispara. Ronda PR #258 (hallazgo CodeRabbit): el
+# identificador acepta esquema opcional (`public.ads_optimizer_goal`) y
+# comillas dobles (`"ads_optimizer_goal"`, `"public"."ads_optimizer_goal"`):
+# sin eso, calificar o entrecomillar evadia el candado en silencio.
+_IDENT_GOAL = r'(?:"?\w+"?\.)?"?ads_optimizer_goal"?'
+_SQL_UPDATE_GOAL = rf"UPDATE\s+{_IDENT_GOAL}"
+_SQL_INSERT_GOAL = rf"INSERT\s+INTO\s+{_IDENT_GOAL}"
+_SQL_FROM_GOAL = rf"FROM\s+{_IDENT_GOAL}"
+_SQL_DELETE_GOAL = rf"DELETE\s+FROM\s+{_IDENT_GOAL}"
 _PATRONES_SQL_GOALS = tuple(
     re.compile(patron, re.IGNORECASE)
     for patron in (
-        r"FROM\s+ads_optimizer_goal",
+        _SQL_FROM_GOAL,
         _SQL_UPDATE_GOAL,
-        r"INSERT\s+INTO\s+ads_optimizer_goal",
-        r"DELETE\s+FROM\s+ads_optimizer_goal",
+        _SQL_INSERT_GOAL,
+        _SQL_DELETE_GOAL,
     )
 )
 # El candado del escritor unico usa SOLO el UPDATE (SELECT si puede leer):
 # mismo patron compilado, no una segunda copia del texto.
 _PATRON_UPDATE_GOAL = re.compile(_SQL_UPDATE_GOAL, re.IGNORECASE)
-_SQL_INSERT_GOAL = r"INSERT\s+INTO\s+ads_optimizer_goal"
 _PATRON_INSERT_GOAL = re.compile(_SQL_INSERT_GOAL, re.IGNORECASE)
 MODULOS_DESPACHAN_GOALS = ("app/cli.py", "app/api_write.py")
 
@@ -349,7 +356,9 @@ def test_escritura_de_goals_vive_solo_en_goals_write():
     contienen SQL contra ads_optimizer_goal y (b) importan app.goals_write en
     runtime; y NINGUN modulo de app/ fuera de goals_write.py escribe
     `UPDATE` o `INSERT` de ads_optimizer_goal (las lecturas de
-    cycle/api_dashboard/apply si pueden: SELECT no es escritura)."""
+    cycle/api_dashboard/apply si pueden: SELECT no es escritura). FABRICA 02
+    (A.1): el candado cubre tambien tools/ (la herramienta de A.5 despacha a
+    goals_write, jamas escribe crudo)."""
     for rel in MODULOS_DESPACHAN_GOALS:
         fuente = (RAIZ / rel).read_text(encoding="utf-8")
         sql_encontrado = [p.pattern for p in _PATRONES_SQL_GOALS if p.search(fuente)]
@@ -382,17 +391,42 @@ def test_escritura_de_goals_vive_solo_en_goals_write():
         f"FABRICA 01): {escritores_insert}"
     )
 
+    escritores_tools = sorted(
+        p.relative_to(RAIZ).as_posix()
+        for p in TOOLS.rglob("*.py")
+        if _PATRON_UPDATE_GOAL.search(p.read_text(encoding="utf-8"))
+        or _PATRON_INSERT_GOAL.search(p.read_text(encoding="utf-8"))
+    )
+    assert escritores_tools == [], (
+        f"escritura cruda de ads_optimizer_goal en tools/ (FABRICA 02 A.1: "
+        f"los tools despachan a app.goals_write): {escritores_tools}"
+    )
+
 
 def test_patrones_sql_goals_resisten_case_y_whitespace():
     """#5 (hallazgo review 3.2): el candado escaneaba cadenas LITERALES —
     "uPdAtE\\n\\tads_optimizer_goal" lo evadia con case/whitespace. Los
     patrones van compilados (IGNORECASE, \\s+): la evasion DETECTA y una frase
-    benigna sin verbo SQL delante no dispara falso positivo. Limitacion
-    declarada: tools/ queda fuera del alcance del candado (no se amplia aqui)."""
+    benigna sin verbo SQL delante no dispara falso positivo. FABRICA 02
+    (A.1): el alcance cubre tools/ (ver el test de escritor unico). Ronda
+    PR #258 (hallazgo CodeRabbit): el identificador con esquema
+    (`public.ads_optimizer_goal`) o entre comillas (`"ads_optimizer_goal"`)
+    tambien DETECTA; las menciones benignas con esquema o comillas pero SIN
+    verbo SQL no disparan."""
     assert _PATRON_UPDATE_GOAL.search("uPdAtE\n\tads_optimizer_goal")
     assert any(p.search("fRoM   ads_optimizer_goal") for p in _PATRONES_SQL_GOALS)
+    assert _PATRON_UPDATE_GOAL.search("UPDATE public.ads_optimizer_goal SET x = 1")
+    assert _PATRON_INSERT_GOAL.search('INSERT INTO "ads_optimizer_goal" (a)')
+    assert _PATRON_UPDATE_GOAL.search('UPDATE "public"."ads_optimizer_goal" SET x = 1')
+    assert any(p.search("DELETE FROM public.ads_optimizer_goal") for p in _PATRONES_SQL_GOALS)
     benigno = "el UNICO camino de escritura de ads_optimizer_goal (decision 26)"
     assert not any(p.search(benigno) for p in _PATRONES_SQL_GOALS)
+    for variante in (
+        "el UNICO camino de escritura de public.ads_optimizer_goal (decision 26)",
+        'el UNICO camino de escritura de "ads_optimizer_goal" (decision 26)',
+    ):
+        assert not any(p.search(variante) for p in _PATRONES_SQL_GOALS), variante
+    assert TOOLS.is_dir(), "el candado de escritor unico escanea tools/"
 
 
 # ---------------------------------------------------------------------------
