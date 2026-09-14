@@ -452,37 +452,61 @@ def _id_list_valido(valor) -> bool:
     return isinstance(valor, str | int) and not isinstance(valor, bool) and bool(str(valor).strip())
 
 
+# Enums UPPER del wire por contenedor LIST. Desconocido = pagina unknown
+# (fail-closed): no se infiere ausencia ni se adopta. Sin casefold.
+_MATCH_POR_CONTENEDOR = {
+    "negativeKeywords": frozenset({"NEGATIVE_EXACT", "NEGATIVE_PHRASE"}),
+    "keywords": frozenset({"EXACT", "PHRASE", "BROAD"}),
+}
+_ESTADOS_LIST = frozenset(
+    {
+        apply.ESTADO_WIRE_ENABLED,
+        apply.ESTADO_WIRE_PAUSED,
+        apply.ESTADO_WIRE_ARCHIVED,
+    }
+)
+
+
 def _texto_list_valido(valor) -> bool:
-    """Campo textual de LIST (keywordText/matchType/state): string no vacio."""
+    """Campo textual de LIST (keywordText): string no vacio."""
     return isinstance(valor, str) and bool(valor.strip())
 
 
-def _elemento_list_valido(item) -> bool:
-    """Fila LIST con identidad y estado legibles. Un dict parcial no es
-    observacion: keywordId ausente se adoptaba como None y la reversa
-    podia concluir que un ID desaparecio."""
+def _elemento_list_valido(item, contenedor: str) -> bool:
+    """Fila LIST con identidad y enums del contenedor. Un dict parcial o
+    un matchType/state fuera del vocabulario UPPER no es observacion:
+    keywordId ausente se adoptaba como None y un matchType=ROTO se
+    trataba como ausencia (POST duplicado)."""
     if not isinstance(item, dict):
         return False
     if not _id_list_valido(item.get("keywordId")):
         return False
     if not _id_list_valido(item.get("adGroupId")):
         return False
-    return all(_texto_list_valido(item.get(c)) for c in ("keywordText", "matchType", "state"))
+    if not _texto_list_valido(item.get("keywordText")):
+        return False
+    match = item.get("matchType")
+    if not isinstance(match, str) or match not in _MATCH_POR_CONTENEDOR.get(
+        contenedor, frozenset()
+    ):
+        return False
+    state = item.get("state")
+    return isinstance(state, str) and state in _ESTADOS_LIST
 
 
 def _valida_pagina_list(data, contenedor: str) -> tuple[list[dict], bool]:
     """(elementos, pagina_valida) canonica (r3/r4, AC-1): body no-dict,
-    contenedor ausente/no-lista o ALGUN elemento incompleto -> ([], False).
-    Cada elemento exige keywordId, adGroupId (string/int no vacio, sin
-    bool ni estructuras) y keywordText, matchType, state (string no
-    vacio). Un 200 que no dice nada util es unknown: cero avance
-    destructivo."""
+    contenedor ausente/no-lista o ALGUN elemento incompleto/enum
+    desconocido -> ([], False). Cada elemento exige keywordId, adGroupId
+    (string/int no vacio, sin bool ni estructuras), keywordText (string
+    no vacio) y matchType/state del vocabulario UPPER del contenedor.
+    Un 200 que no dice nada util es unknown: cero avance destructivo."""
     if not isinstance(data, dict):
         return ([], False)
     crudo = data.get(contenedor)
     if not isinstance(crudo, list):
         return ([], False)
-    if not all(_elemento_list_valido(x) for x in crudo):
+    if not all(_elemento_list_valido(x, contenedor) for x in crudo):
         return ([], False)
     return (list(crudo), True)
 
@@ -491,8 +515,9 @@ def _lista_completa(cliente, path: str) -> tuple[list[dict], bool]:
     """Barrido paginado con senal de completitud (F2, A.3 r1/r3) por la
     puerta sellada `list_sellado` (scope de la instancia, sin profile del
     caller): (items, True) solo si cada pagina fue valida y `nextToken` se
-    agoto dentro del tope; pagina malformada (elemento incompleto
-    inclusive), token invalido/repetido o `nextToken` vivo al tope ->
+    agoto dentro del tope; pagina malformada (elemento incompleto o
+    matchType/state fuera del enum del contenedor inclusive), token
+    invalido/repetido o `nextToken` vivo al tope ->
     (items, False). `_lista_todos` historico no
     da la senal y no se toca: sus callers la asumen completa. La reversa
     manual la exige (concluir ausencia sobre lectura trunca es borrar a
@@ -531,8 +556,9 @@ def _lista_filtrada(cliente, ad_group_ids: list[str]) -> tuple[list[dict], str]:
     en {"ok", "truncado", "ambiguo"}: `nextToken` vivo al tope ->
     "truncado" (fail-closed: cero POST); token invalido/repetido, item
     fuera del filtro (el filtro parece ignorado) o pagina malformada
-    (body no-dict, contenedor no-lista, elemento incompleto: r3/r4,
-    AC-1) -> "ambiguo" (unknown: cero POST — un LIST que no dijo nada
+    (body no-dict, contenedor no-lista, elemento incompleto o
+    matchType/state fuera del enum del contenedor: r3/r4, AC-1) ->
+    "ambiguo" (unknown: cero POST — un LIST que no dijo nada
     jamas habilita una mutacion). (`totalResults` NO se usa: su semantica con filtro no
     esta verificada en vivo.) No toca el contrato de `_lista_todos` (sus
     callers historicos siguen intactos)."""

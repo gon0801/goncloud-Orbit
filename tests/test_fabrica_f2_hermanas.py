@@ -425,6 +425,45 @@ def test_list_fila_sin_keyword_id_cero_post_nunca_none():
 
 
 @_skip_db
+def test_list_fila_matchtype_roto_cero_post_nunca_none():
+    """Fila LIST completa (con keywordId) pero matchType=ROTO: unknown.
+    Cero POST de hermanas y nunca persiste negative_id=None. Regla 9:
+    `_coincidencias` no hallaba exacta y `_paso_hermanas` POSTeaba
+    duplicado."""
+    with db_f2("orbit_hna_mtroto") as conn:
+        setup = _grupo_listo(conn)
+        hermanas = [r for r in ROLES_DISCOVERY if r != setup["origen_rol"]]
+        h1 = hermanas[0]
+        rota = {
+            "adGroupId": setup["roles"][h1]["ag_ext"],
+            "campaignId": setup["roles"][h1]["camp_ext"],
+            "keywordId": "n-roto",
+            "keywordText": TERMINO_F2,
+            "matchType": "ROTO",
+            "state": "ENABLED",
+        }
+        corrido = _corre_harvest_grupo(conn, setup, handler_kw={"negatives": [rota]})
+        job = _job_de(conn, corrido["dec"])
+        muts = [
+            r
+            for r in corrido["vistos"]
+            if r.method == "POST" and r.url.path == "/sp/negativeKeywords"
+        ]
+        hermanas_muts = [
+            r
+            for r in muts
+            if json.loads(r.content)["negativeKeywords"][0]["adGroupId"]
+            != setup["origen"]["ag_ext"]
+        ]
+        assert hermanas_muts == [], "LIST enum desconocido: cero POST de hermanas"
+        for rol in hermanas:
+            reg = job["ext"]["hermanas"][rol]
+            assert "negative_id" not in reg, (rol, reg)
+            assert None not in reg.values(), (rol, reg)
+            assert reg == {"motivo": "list_ambiguo"}, (rol, reg)
+
+
+@_skip_db
 def test_identidad_adopta_enabled_exact_e_ignora_archived_y_phrase():
     """Previo con ENABLED+NEGATIVE_EXACT en h1 (adoptada, cero POST),
     ARCHIVED en h2 (ignorado: POST) y NEGATIVE_PHRASE en h3 (nunca se
@@ -853,6 +892,197 @@ def test_lista_filtrada_un_incompleto_tira_la_pagina_entera():
 
     items, estado = _lista_filtrada(_cliente_lista(_handler), ["6201"])
     assert (items, estado) == ([], "ambiguo")
+
+
+@pytest.mark.parametrize(
+    "campo,valor",
+    [
+        ("matchType", "ROTO"),
+        ("state", "ROTO"),
+        ("matchType", "exact"),
+        ("state", "enabled"),
+    ],
+)
+def test_lista_filtrada_enum_desconocido_es_unknown(campo, valor):
+    """matchType/state fuera del vocabulario UPPER del wire convierte TODA
+    la pagina en unknown. Regla 9: un matchType=ROTO se aceptaba como
+    string no vacio y `_coincidencias` no hallaba exacta -> POST duplicado."""
+    import httpx as _httpx_enum
+
+    from app.apply_harvest import _lista_filtrada
+
+    def _handler(request):
+        if request.url.host == "api.amazon.com":
+            return _httpx_enum.Response(
+                200, json={"access_token": "fake-access-enum", "expires_in": 1}
+            )
+        return _httpx_enum.Response(200, json=_body_con([_elemento_list_roto(campo, valor)]))
+
+    items, estado = _lista_filtrada(_cliente_lista(_handler), ["6201"])
+    assert (items, estado) == ([], "ambiguo")
+
+
+@pytest.mark.parametrize(
+    "campo,valor",
+    [
+        ("matchType", "ROTO"),
+        ("state", "ROTO"),
+        ("matchType", "exact"),
+        ("state", "enabled"),
+    ],
+)
+def test_lista_completa_enum_desconocido_es_incompleta(campo, valor):
+    """El lector completo es igual de estricto: enum desconocido ->
+    (items, False)."""
+    import httpx as _httpx_enum2
+
+    from app.apply_harvest import _lista_completa
+
+    def _handler(request):
+        if request.url.host == "api.amazon.com":
+            return _httpx_enum2.Response(
+                200, json={"access_token": "fake-access-enum2", "expires_in": 1}
+            )
+        return _httpx_enum2.Response(
+            200,
+            json=_body_con(
+                [_elemento_list_roto(campo, valor, keyword=True)],
+                contenedor="keywords",
+            ),
+        )
+
+    items, completa = _lista_completa(_cliente_lista(_handler), "/sp/keywords/list")
+    assert (items, completa) == ([], False)
+
+
+def test_lista_filtrada_exact_en_negative_es_unknown():
+    """EXACT en negativeKeywords no es enum de ese contenedor."""
+    import httpx as _httpx_xneg
+
+    from app.apply_harvest import _lista_filtrada
+
+    def _handler(request):
+        if request.url.host == "api.amazon.com":
+            return _httpx_xneg.Response(
+                200, json={"access_token": "fake-access-xneg", "expires_in": 1}
+            )
+        return _httpx_xneg.Response(
+            200, json=_body_con([_elemento_list_roto("matchType", "EXACT")])
+        )
+
+    items, estado = _lista_filtrada(_cliente_lista(_handler), ["6201"])
+    assert (items, estado) == ([], "ambiguo")
+
+
+def test_lista_completa_negative_exact_en_keywords_es_incompleta():
+    """NEGATIVE_EXACT en keywords no es enum de ese contenedor."""
+    import httpx as _httpx_nkw
+
+    from app.apply_harvest import _lista_completa
+
+    def _handler(request):
+        if request.url.host == "api.amazon.com":
+            return _httpx_nkw.Response(
+                200, json={"access_token": "fake-access-nkw", "expires_in": 1}
+            )
+        return _httpx_nkw.Response(
+            200,
+            json=_body_con(
+                [_elemento_list_roto("matchType", "NEGATIVE_EXACT", keyword=True)],
+                contenedor="keywords",
+            ),
+        )
+
+    items, completa = _lista_completa(_cliente_lista(_handler), "/sp/keywords/list")
+    assert (items, completa) == ([], False)
+
+
+def test_lista_filtrada_negative_phrase_paused_sigue_ok():
+    """NEGATIVE_PHRASE + PAUSED son enums validos del contenedor
+    negativeKeywords (la identidad de adopcion sigue exigiendo EXACT)."""
+    import httpx as _httpx_okneg
+
+    from app.apply_harvest import _lista_filtrada
+
+    item = _elemento_list_ok()
+    item["matchType"] = "NEGATIVE_PHRASE"
+    item["state"] = "PAUSED"
+
+    def _handler(request):
+        if request.url.host == "api.amazon.com":
+            return _httpx_okneg.Response(
+                200, json={"access_token": "fake-access-okneg", "expires_in": 1}
+            )
+        return _httpx_okneg.Response(200, json=_body_con([item]))
+
+    items, estado = _lista_filtrada(_cliente_lista(_handler), ["6201"])
+    assert estado == "ok"
+    assert items[0]["matchType"] == "NEGATIVE_PHRASE"
+    assert items[0]["state"] == "PAUSED"
+
+
+@pytest.mark.parametrize("match", ["PHRASE", "BROAD"])
+def test_lista_completa_phrase_o_broad_archived_sigue_ok(match):
+    """PHRASE/BROAD + ARCHIVED son enums validos del contenedor keywords."""
+    import httpx as _httpx_okkw
+
+    from app.apply_harvest import _lista_completa
+
+    item = _elemento_list_ok(keyword=True)
+    item["matchType"] = match
+    item["state"] = "ARCHIVED"
+
+    def _handler(request):
+        if request.url.host == "api.amazon.com":
+            return _httpx_okkw.Response(
+                200, json={"access_token": "fake-access-okkw", "expires_in": 1}
+            )
+        return _httpx_okkw.Response(200, json=_body_con([item], contenedor="keywords"))
+
+    items, completa = _lista_completa(_cliente_lista(_handler), "/sp/keywords/list")
+    assert completa is True
+    assert items[0]["matchType"] == match
+    assert items[0]["state"] == "ARCHIVED"
+
+
+@pytest.mark.parametrize("campo", ["matchType", "state"])
+def test_lista_filtrada_enum_solo_espacios_es_unknown(campo):
+    """Whitespace-only en matchType/state no es enum (ni string no vacio)."""
+    import httpx as _httpx_ws
+
+    from app.apply_harvest import _lista_filtrada
+
+    def _handler(request):
+        if request.url.host == "api.amazon.com":
+            return _httpx_ws.Response(200, json={"access_token": "fake-access-ws", "expires_in": 1})
+        return _httpx_ws.Response(200, json=_body_con([_elemento_list_roto(campo, "   ")]))
+
+    items, estado = _lista_filtrada(_cliente_lista(_handler), ["6201"])
+    assert (items, estado) == ([], "ambiguo")
+
+
+@pytest.mark.parametrize("campo", ["matchType", "state"])
+def test_lista_completa_enum_solo_espacios_es_incompleta(campo):
+    """El lector completo trata whitespace-only como incompleto."""
+    import httpx as _httpx_ws2
+
+    from app.apply_harvest import _lista_completa
+
+    def _handler(request):
+        if request.url.host == "api.amazon.com":
+            return _httpx_ws2.Response(
+                200, json={"access_token": "fake-access-ws2", "expires_in": 1}
+            )
+        return _httpx_ws2.Response(
+            200,
+            json=_body_con(
+                [_elemento_list_roto(campo, "   ", keyword=True)],
+                contenedor="keywords",
+            ),
+        )
+
+    items, completa = _lista_completa(_cliente_lista(_handler), "/sp/keywords/list")
+    assert (items, completa) == ([], False)
 
 
 def test_lectores_nuevos_usen_list_sellado_sin_profile_del_caller():
