@@ -28,7 +28,7 @@ from app.ads.client import AdsClientError
 from app.ads.config import AdsConfigError
 from app.apply import SinPerfilReversa
 from app.apply_harvest import ejecuta_reversa_harvest, plan_reversa_harvest
-from app.db import connect
+from app.db import OrbitDbError, connect
 
 
 class Abortar(RuntimeError):
@@ -73,7 +73,10 @@ def main(argv=None) -> int:
     ap.add_argument("--go", default=None, help="literal del dueno (no vacio)")
     args = ap.parse_args(argv)
 
-    conn = connect(_dsn_decide())
+    try:
+        conn = connect(_dsn_decide())
+    except OrbitDbError as exc:
+        raise Abortar(str(exc)) from None
     try:
         platform, term, decision_id, pasos = plan_reversa_harvest(conn, args.job)
     except ValueError as exc:

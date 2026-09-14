@@ -847,6 +847,24 @@ def test_cli_cliente_sin_credenciales_aborta_limpio(monkeypatch, capsys):
                 mod.main(argv_real)
 
 
+def test_cli_fallo_conexion_aborta_limpio(monkeypatch):
+    """OrbitDbError al abrir Postgres se convierte en Abortar para que el
+    entrypoint imprima ABORTAR y salga 2, sin traceback. Regla 9: sin la
+    captura, main propaga OrbitDbError fuera del contrato del CLI."""
+    from app.db import OrbitDbError
+
+    mod = _carga_tool()
+    monkeypatch.setenv("ORBIT_DSN_DECIDE", "postgresql://orbit:secreto@localhost/orbit")
+
+    def _sin_db(_dsn):
+        raise OrbitDbError("no se pudo conectar a la base de datos: postgresql://***@localhost")
+
+    monkeypatch.setattr(mod, "connect", _sin_db)
+    with pytest.raises(mod.Abortar, match="no se pudo conectar") as excinfo:
+        mod.main(["--job", "1"])
+    assert excinfo.value.__suppress_context__ is True
+
+
 @_skip_db
 def test_list_incompleto_en_provisional_cero_delete():
     """Keyword ya confirmada; el LIST de la provisional llega sin
