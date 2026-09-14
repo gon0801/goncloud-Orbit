@@ -446,27 +446,54 @@ def _valida_token_list(token) -> str:
     return "ambiguo"
 
 
+def _id_list_valido(valor) -> bool:
+    """Id de LIST (keywordId/adGroupId): string/int no vacio. bool es int
+    en Python y no es identidad; estructuras tampoco."""
+    return isinstance(valor, str | int) and not isinstance(valor, bool) and bool(str(valor).strip())
+
+
+def _texto_list_valido(valor) -> bool:
+    """Campo textual de LIST (keywordText/matchType/state): string no vacio."""
+    return isinstance(valor, str) and bool(valor.strip())
+
+
+def _elemento_list_valido(item) -> bool:
+    """Fila LIST con identidad y estado legibles. Un dict parcial no es
+    observacion: keywordId ausente se adoptaba como None y la reversa
+    podia concluir que un ID desaparecio."""
+    if not isinstance(item, dict):
+        return False
+    if not _id_list_valido(item.get("keywordId")):
+        return False
+    if not _id_list_valido(item.get("adGroupId")):
+        return False
+    return all(_texto_list_valido(item.get(c)) for c in ("keywordText", "matchType", "state"))
+
+
 def _valida_pagina_list(data, contenedor: str) -> tuple[list[dict], bool]:
-    """(elementos, pagina_valida) canonica (r3, AC-1): body no-dict,
-    contenedor ausente/no-lista o ALGUN elemento no-dict -> ([], False).
-    Un 200 que no dice nada util es unknown: cero avance destructivo."""
+    """(elementos, pagina_valida) canonica (r3/r4, AC-1): body no-dict,
+    contenedor ausente/no-lista o ALGUN elemento incompleto -> ([], False).
+    Cada elemento exige keywordId, adGroupId (string/int no vacio, sin
+    bool ni estructuras) y keywordText, matchType, state (string no
+    vacio). Un 200 que no dice nada util es unknown: cero avance
+    destructivo."""
     if not isinstance(data, dict):
         return ([], False)
     crudo = data.get(contenedor)
     if not isinstance(crudo, list):
         return ([], False)
-    elementos = [x for x in crudo if isinstance(x, dict)]
-    if len(elementos) != len(crudo):
+    if not all(_elemento_list_valido(x) for x in crudo):
         return ([], False)
-    return (elementos, True)
+    return (list(crudo), True)
 
 
 def _lista_completa(cliente, path: str) -> tuple[list[dict], bool]:
     """Barrido paginado con senal de completitud (F2, A.3 r1/r3) por la
     puerta sellada `list_sellado` (scope de la instancia, sin profile del
     caller): (items, True) solo si cada pagina fue valida y `nextToken` se
-    agoto dentro del tope; pagina malformada, token invalido/repetido o
-    `nextToken` vivo al tope -> (items, False). `_lista_todos` historico no
+    agoto dentro del tope; pagina malformada (elemento incompleto
+    inclusive), token invalido/repetido o `nextToken` vivo al tope ->
+    (items, False). `_lista_todos` historico no
     da la senal y no se toca: sus callers la asumen completa. La reversa
     manual la exige (concluir ausencia sobre lectura trunca es borrar a
     ciegas)."""
@@ -504,9 +531,9 @@ def _lista_filtrada(cliente, ad_group_ids: list[str]) -> tuple[list[dict], str]:
     en {"ok", "truncado", "ambiguo"}: `nextToken` vivo al tope ->
     "truncado" (fail-closed: cero POST); token invalido/repetido, item
     fuera del filtro (el filtro parece ignorado) o pagina malformada
-    (body no-dict, contenedor no-lista, elemento no-dict: r3, AC-1) ->
-    "ambiguo" (unknown: cero POST — un LIST que no dijo nada jamas habilita
-    una mutacion). (`totalResults` NO se usa: su semantica con filtro no
+    (body no-dict, contenedor no-lista, elemento incompleto: r3/r4,
+    AC-1) -> "ambiguo" (unknown: cero POST — un LIST que no dijo nada
+    jamas habilita una mutacion). (`totalResults` NO se usa: su semantica con filtro no
     esta verificada en vivo.) No toca el contrato de `_lista_todos` (sus
     callers historicos siguen intactos)."""
     path = "/sp/negativeKeywords/list"
@@ -1250,19 +1277,23 @@ def ejecuta_reversa_harvest(
         if id_attempt is None or ack is None:
             return (False, f"reversa: stop en {quien} {paso.objeto_id}")
         if paso.clase == "keyword":
-            kws, completa = _lista_completa(cliente, "/sp/keywords/list")
+            items, completa = _lista_completa(cliente, "/sp/keywords/list")
             if not completa:
                 return (False, f"reversa: {quien} {paso.objeto_id} readback no concluyente")
-            vivas = {str(x.get("keywordId")) for x in _coincidencias(kws, paso.ad_group_ext, term)}
         else:
             items, estado = _lista_filtrada(cliente, [paso.ad_group_ext])
             if estado != "ok":
                 return (False, f"reversa: {quien} {paso.objeto_id} readback no concluyente")
-            vivas = {
-                str(x.get("keywordId")) for x in _coincidencias(items, paso.ad_group_ext, term)
-            }
-        # La confirmacion es POR ID (r3): la borrada ya no esta viva. Otra
-        # identidad coincidente (adoptada/ajena) no revive al borrado.
+        # La confirmacion es POR ID (r3/r4): la borrada ya no esta viva
+        # ENTRE TODOS los objetos no ARCHIVED, SIN filtrar por identidad.
+        # Si la id sigue viva con otro termino/match, el objeto muto bajo
+        # los pies: fallo:sigue_vivo, jamas ok. Otra identidad coincidente
+        # con id distinta (adoptada/ajena) no revive al borrado.
+        vivas = {
+            str(x.get("keywordId"))
+            for x in items
+            if str(x.get("state", "")).upper() != apply.ESTADO_WIRE_ARCHIVED
+        }
         if paso.objeto_id in vivas:
             with conn.transaction():
                 apply._sella_ledger(conn, id_attempt, ack=ack, resultado="fallo:sigue_vivo")

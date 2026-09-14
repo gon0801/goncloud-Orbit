@@ -33,10 +33,12 @@ _skip_db = pytest.mark.skipif(
 )
 
 
-def _handler_reversa(vivos, *, no_archiva=(), fallo_delete=()):
+def _handler_reversa(vivos, *, no_archiva=(), fallo_delete=(), muta_identidad=()):
     """MockTransport minimo de reversa: LIST con los vivos (menos lo
     archivado) y deletes que archivan salvo `no_archiva` (sigue vivo) o
-    `fallo_delete` (400)."""
+    `fallo_delete` (400). `muta_identidad` deja al objeto ENABLED pero con
+    otro termino (el objeto muto bajo los pies: el readback por ID debe
+    seguir viendolo vivo)."""
     store = [dict(x) for x in vivos]
     vistos: list[httpx.Request] = []
 
@@ -61,9 +63,11 @@ def _handler_reversa(vivos, *, no_archiva=(), fallo_delete=()):
             kid = body["keywordIdFilter"]["include"][0]
             if kid in fallo_delete:
                 return httpx.Response(400, json={"code": "400"})
-            if kid not in no_archiva:
-                for item in store:
-                    if str(item.get("keywordId")) == str(kid):
+            for item in store:
+                if str(item.get("keywordId")) == str(kid):
+                    if kid in muta_identidad:
+                        item["keywordText"] = "OTRO TERMINO POST-DELETE"
+                    elif kid not in no_archiva:
                         item["state"] = "ARCHIVED"
             return httpx.Response(
                 200, json={"keywords": {"error": [], "success": [{"keywordId": kid}]}}
@@ -72,9 +76,11 @@ def _handler_reversa(vivos, *, no_archiva=(), fallo_delete=()):
             kid = body["negativeKeywordIdFilter"]["include"][0]
             if kid in fallo_delete:
                 return httpx.Response(400, json={"code": "400"})
-            if kid not in no_archiva:
-                for item in store:
-                    if str(item.get("keywordId")) == str(kid):
+            for item in store:
+                if str(item.get("keywordId")) == str(kid):
+                    if kid in muta_identidad:
+                        item["keywordText"] = "OTRO TERMINO POST-DELETE"
+                    elif kid not in no_archiva:
                         item["state"] = "ARCHIVED"
             return httpx.Response(
                 200,
@@ -311,6 +317,58 @@ def test_readback_vivo_detiene_antes_de_seguir():
         handler2, _v2b = _handler_reversa(_vivos_reversa(setup, roles))
         ok2, _d2 = ejecuta_reversa_harvest(conn, _cliente_reversa(handler2), dec, term, pasos)
         assert ok2 is True, "reintentada, la reversa completa"
+
+
+@_skip_db
+def test_keyword_viva_con_identidad_discordante_detiene_reversa():
+    """Tras el delete la keyword sigue ENABLED pero con OTRO termino: el
+    readback la ve viva POR ID (sin filtrar por identidad) -> sella
+    fallo:sigue_vivo y stop; jamas ok. Regla 9 (r4): con el readback
+    filtrado por identidad, la id mutada desaparecia de la lista, se
+    sellaba ok y la reversa seguia borrando a ciegas."""
+    from app.apply_harvest import ejecuta_reversa_harvest, plan_reversa_harvest
+
+    with db_f2("orbit_rev_kwdisc") as conn:
+        setup = _grupo_listo(conn)
+        jid, dec, roles = _job_done_mixto(conn, setup)
+        _platform, term, _dec, pasos = plan_reversa_harvest(conn, jid)
+        handler, vistos = _handler_reversa(_vivos_reversa(setup, roles), muta_identidad=("k-9",))
+        ok, detalle = ejecuta_reversa_harvest(conn, _cliente_reversa(handler), dec, term, pasos)
+        assert ok is False and "sigue vivo" in detalle, detalle
+        deletes = [r for r in vistos if r.url.path.endswith("/delete")]
+        assert [r.url.path for r in deletes] == ["/sp/keywords/delete"], (
+            "solo el delete de la keyword salio; hermanas y origen intactos"
+        )
+        fila = conn.execute(
+            "SELECT resultado FROM apply_attempt WHERE decision_id = %s AND tipo = 'reversa'"
+            " AND request_payload->'keywordIdFilter'->'include' @> '[\"k-9\"]'::jsonb",
+            (dec,),
+        ).fetchone()
+        assert fila[0] == "fallo:sigue_vivo"
+
+
+@_skip_db
+def test_negative_viva_con_identidad_discordante_detiene_reversa():
+    """Mismo bloqueante en negative: la hermana h1 queda ENABLED con otro
+    termino tras su delete. El readback por ID la sigue viendo viva ->
+    fallo:sigue_vivo y stop antes de h3 y origen. Regla 9 (r4)."""
+    from app.apply_harvest import ejecuta_reversa_harvest, plan_reversa_harvest
+
+    with db_f2("orbit_rev_negdisc") as conn:
+        setup = _grupo_listo(conn)
+        jid, dec, roles = _job_done_mixto(conn, setup)
+        _platform, term, _dec, pasos = plan_reversa_harvest(conn, jid)
+        handler, vistos = _handler_reversa(_vivos_reversa(setup, roles), muta_identidad=("n-1",))
+        ok, detalle = ejecuta_reversa_harvest(conn, _cliente_reversa(handler), dec, term, pasos)
+        assert ok is False and "sigue vivo" in detalle, detalle
+        deletes = [r for r in vistos if r.url.path.endswith("/delete")]
+        assert len(deletes) == 2, "keyword + h1; h3 y origen intactos"
+        fila = conn.execute(
+            "SELECT resultado FROM apply_attempt WHERE decision_id = %s AND tipo = 'reversa'"
+            " AND request_payload->'negativeKeywordIdFilter'->'include' @> '[\"n-1\"]'::jsonb",
+            (dec,),
+        ).fetchone()
+        assert fila[0] == "fallo:sigue_vivo"
 
 
 @_skip_db
@@ -741,3 +799,144 @@ def test_cli_readback_ambiguo_aborta_limpio(monkeypatch, capsys):
             (dec,),
         ).fetchone()
         assert fila[0] is None, "el delete enviado queda abierto y reanudable"
+
+
+@_skip_db
+def test_cli_cliente_sin_credenciales_aborta_limpio(monkeypatch, capsys):
+    """Falta de credenciales (AdsConfigError) o fallo LWA (AdsAuthError, un
+    AdsClientError) al construir el cliente: Abortar limpio, no traceback.
+    Regla 9 (r4): el catch viejo solo cubria AdsApiError/SinPerfilReversa."""
+    from app import apply as _apply_mod2
+    from app.ads.client import AdsAuthError as _AdsAuthError
+    from app.ads.config import AdsConfigError as _AdsConfigError
+
+    mod = _carga_tool()
+    with db_f2("orbit_rev_creds") as conn:
+        setup = _grupo_listo(conn)
+        jid, _dec, _roles = _job_done_mixto(conn, setup)
+        monkeypatch.setenv(
+            "ORBIT_DSN_DECIDE", f"postgresql://orbit:orbit@localhost:5432/{conn.info.dbname}"
+        )
+        capsys.readouterr()
+        assert mod.main(["--job", str(jid)]) == 0
+        salida = capsys.readouterr().out
+        linea = [ln for ln in salida.splitlines() if ln.startswith("pendientes:")][0]
+        n_pend = linea.split()[1]
+        huella = linea.split("huella: ")[1]
+        argv_real = [
+            "--job",
+            str(jid),
+            "--acepto-mutacion-real",
+            "--esperado",
+            n_pend,
+            "--go",
+            "go-dueno",
+            "--huella",
+            huella,
+        ]
+        for exc in (
+            _AdsConfigError("falta client_id"),
+            _AdsAuthError("token LWA rechazado"),
+        ):
+
+            def _rompe(platform, transport=None, _exc=exc):
+                raise _exc
+
+            monkeypatch.setattr(_apply_mod2, "_cliente_reversa", _rompe)
+            with pytest.raises(mod.Abortar, match="sin cliente de reversa"):
+                mod.main(argv_real)
+
+
+@_skip_db
+def test_list_incompleto_en_provisional_cero_delete():
+    """Keyword ya confirmada; el LIST de la provisional llega sin
+    keywordId: unknown, cero DELETE, no se concluye que el ID desaparecio.
+    Regla 9: la pagina malformada se leia como vacia-de-ese-id y se
+    omitia o se sellaba ok."""
+    from psycopg.types.json import Json as _Json
+
+    from app.apply_harvest import ejecuta_reversa_harvest, plan_reversa_harvest
+
+    with db_f2("orbit_rev_nokid") as conn:
+        setup = _grupo_listo(conn)
+        dec, hermanas, ags, ids = _flujo_mismatch_al_tope(conn, setup)
+        job_id = conn.execute(
+            "SELECT id FROM harvest_job WHERE decision_id = %s", (dec,)
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload,"
+            " quota_cobrada, ack, resultado, finished_at) VALUES (%s, 1, 'reversa',"
+            " %s, false, '{}'::jsonb, 'ok', now())",
+            (dec, _Json({"keywordIdFilter": {"include": ["k-1"]}})),
+        )
+        _platform, term, _dec, pasos = plan_reversa_harvest(conn, job_id)
+        vivos = [
+            {
+                "adGroupId": ags[hermanas[0]],
+                "campaignId": setup["roles"][hermanas[0]]["camp_ext"],
+                "keywordText": TERMINO_F2,
+                "matchType": "NEGATIVE_EXACT",
+                "state": "ENABLED",
+            }
+        ]
+        handler, vistos = _handler_reversa(vivos)
+        ok, detalle = ejecuta_reversa_harvest(conn, _cliente_reversa(handler), dec, term, pasos)
+        assert ok is False and "no concluyente" in detalle, detalle
+        deletes = [r for r in vistos if r.url.path.endswith("/delete")]
+        assert deletes == [], "LIST incompleto: cero DELETE"
+
+
+@_skip_db
+def test_cli_auth_durante_delete_aborta_limpio(monkeypatch, capsys):
+    """AdsAuthError en el primer DELETE (cliente ya construido): Abortar
+    limpio, no traceback. Regla 9 (r4): el segundo catch solo cubria
+    AdsApiError; AdsAuthError (hermano, no hijo) escapaba."""
+    from types import SimpleNamespace as _NS
+
+    from app import apply as _apply_mod3
+    from app.ads.client import AdsAuthError as _AdsAuthError2
+
+    mod = _carga_tool()
+    with db_f2("orbit_rev_authdel") as conn:
+        setup = _grupo_listo(conn)
+        jid, dec, _roles = _job_done_mixto(conn, setup)
+        monkeypatch.setenv(
+            "ORBIT_DSN_DECIDE", f"postgresql://orbit:orbit@localhost:5432/{conn.info.dbname}"
+        )
+        capsys.readouterr()
+        assert mod.main(["--job", str(jid)]) == 0
+        salida = capsys.readouterr().out
+        linea = [ln for ln in salida.splitlines() if ln.startswith("pendientes:")][0]
+        n_pend = linea.split()[1]
+        huella = linea.split("huella: ")[1]
+
+        def _auth_en_delete(_kid):
+            raise _AdsAuthError2("token LWA rechazado a mitad de reversa")
+
+        stub = _NS(
+            borrar_keyword=_auth_en_delete,
+            borrar_negative=_auth_en_delete,
+            list_sellado=lambda *_a, **_k: (_ for _ in ()).throw(
+                AssertionError("no deberia listar si el delete ya fallo")
+            ),
+        )
+        monkeypatch.setattr(_apply_mod3, "_cliente_reversa", lambda platform, transport=None: stub)
+        with pytest.raises(mod.Abortar, match="ambigua.*reanudar"):
+            mod.main(
+                [
+                    "--job",
+                    str(jid),
+                    "--acepto-mutacion-real",
+                    "--esperado",
+                    n_pend,
+                    "--go",
+                    "go-dueno",
+                    "--huella",
+                    huella,
+                ]
+            )
+        fila = conn.execute(
+            "SELECT resultado FROM apply_attempt WHERE decision_id = %s AND tipo = 'reversa'",
+            (dec,),
+        ).fetchone()
+        assert fila is None or fila[0] is None, "el delete no confirmado queda abierto"

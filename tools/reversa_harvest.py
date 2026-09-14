@@ -24,7 +24,8 @@ import os
 import sys
 
 from app import apply
-from app.ads.client import AdsApiError
+from app.ads.client import AdsClientError
+from app.ads.config import AdsConfigError
 from app.apply import SinPerfilReversa
 from app.apply_harvest import ejecuta_reversa_harvest, plan_reversa_harvest
 from app.db import connect
@@ -106,15 +107,19 @@ def main(argv=None) -> int:
 
     try:
         cliente = apply._cliente_reversa(platform, transport=None)
-    except (AdsApiError, SinPerfilReversa) as exc:
+    except (AdsClientError, AdsConfigError, SinPerfilReversa) as exc:
+        # AdsApiError (red/API) y AdsAuthError (fallo LWA) son
+        # AdsClientError; la falta de credenciales es AdsConfigError; sin
+        # perfil de reversa es SinPerfilReversa. Todo aborta limpio.
         raise Abortar(f"sin cliente de reversa: {exc} (nada se toco)") from None
     try:
         ok, detalle = ejecuta_reversa_harvest(conn, cliente, decision_id, term, pasos)
-    except AdsApiError as exc:
-        # Readback ambiguo (5xx/red/ilegible) a mitad de reversa: stop
-        # limpio en vez de traceback (r4). Lo ya confirmado queda sellado
-        # ok; lo abierto se reanuda con el mismo plan (mismo --go NO sirve:
-        # el conjunto cambio -> nuevo dry-run y nuevo go del dueno).
+    except AdsClientError as exc:
+        # AdsApiError (5xx/red/ilegible) y AdsAuthError (LWA a mitad,
+        # p.ej. el primer DELETE) son AdsClientError. Stop limpio en vez
+        # de traceback (r4). Lo ya confirmado queda sellado ok; lo
+        # abierto se reanuda con el mismo plan (mismo --go NO sirve: el
+        # conjunto cambio -> nuevo dry-run y nuevo go del dueno).
         raise Abortar(
             f"lectura ambigua a mitad de reversa: {exc} (ver ledger y reanudar)"
         ) from None

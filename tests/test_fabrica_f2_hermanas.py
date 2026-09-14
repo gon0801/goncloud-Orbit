@@ -386,6 +386,45 @@ def test_previo_truncado_cero_post_y_pendientes():
 
 
 @_skip_db
+def test_list_fila_sin_keyword_id_cero_post_nunca_none():
+    """Fila LIST con identidad (adGroup/texto/match/state) pero sin
+    keywordId: unknown. Cero POST de hermanas y nunca persiste
+    negative_id=None (la clave existiria y la hermana dejaria de ser
+    pendiente). Regla 9: `_valida_pagina_list` solo pedia dict y
+    `_paso_hermanas` adoptaba halladas[0].get('keywordId')."""
+    with db_f2("orbit_hna_nokid") as conn:
+        setup = _grupo_listo(conn)
+        hermanas = [r for r in ROLES_DISCOVERY if r != setup["origen_rol"]]
+        h1 = hermanas[0]
+        incompleta = {
+            "adGroupId": setup["roles"][h1]["ag_ext"],
+            "campaignId": setup["roles"][h1]["camp_ext"],
+            "keywordText": TERMINO_F2,
+            "matchType": "NEGATIVE_EXACT",
+            "state": "ENABLED",
+        }
+        corrido = _corre_harvest_grupo(conn, setup, handler_kw={"negatives": [incompleta]})
+        job = _job_de(conn, corrido["dec"])
+        muts = [
+            r
+            for r in corrido["vistos"]
+            if r.method == "POST" and r.url.path == "/sp/negativeKeywords"
+        ]
+        hermanas_muts = [
+            r
+            for r in muts
+            if json.loads(r.content)["negativeKeywords"][0]["adGroupId"]
+            != setup["origen"]["ag_ext"]
+        ]
+        assert hermanas_muts == [], "LIST incompleto: cero POST de hermanas"
+        for rol in hermanas:
+            reg = job["ext"]["hermanas"][rol]
+            assert "negative_id" not in reg, (rol, reg)
+            assert None not in reg.values(), (rol, reg)
+            assert reg == {"motivo": "list_ambiguo"}, (rol, reg)
+
+
+@_skip_db
 def test_identidad_adopta_enabled_exact_e_ignora_archived_y_phrase():
     """Previo con ENABLED+NEGATIVE_EXACT en h1 (adoptada, cero POST),
     ARCHIVED en h2 (ignorado: POST) y NEGATIVE_PHRASE en h3 (nunca se
@@ -617,9 +656,9 @@ def _body_con(
 def test_lista_filtrada_item_o_token_malformado_es_unknown(elementos):
     """Elemento no-dict (null, string, numero) en el contenedor es unknown
     (`ambiguo`), jamas presencia filtrada: un item ilegible no confirma ni
-    niega nada (AC-1 exige elementos dict). Los dicts parciales los
-    descarta despues la identidad (criterio de tres ejes), no el barrido.
-    Regla 9 (r3, AC-1): sin la guarda, el barrido filtraba sobre contenido
+    niega nada (AC-1 exige elementos dict). Los dicts incompletos tambien
+    invalidan la pagina (identidad y estado no se infieren). Regla 9
+    (r3, AC-1): sin la guarda, el barrido filtraba sobre contenido
     parcialmente malformado y declaraba ausencia."""
     import httpx as _httpx7
 
@@ -680,6 +719,140 @@ def test_lista_completa_item_o_token_malformado_es_incompleta(cuerpo):
 
     items, completa = _lista_completa(_cliente_lista(_handler_kw_malo), "/sp/keywords/list")
     assert completa is False
+
+
+_FALTANTE = object()
+_CAMPOS_LIST = ("keywordId", "adGroupId", "keywordText", "matchType", "state")
+
+
+def _elemento_list_ok(*, keyword=False) -> dict:
+    """Fila LIST completa (identidad + estado) para ambos lectores."""
+    return {
+        "adGroupId": "6201",
+        "keywordId": "k-1" if keyword else "n-1",
+        "keywordText": "t",
+        "matchType": "EXACT" if keyword else "NEGATIVE_EXACT",
+        "state": "ENABLED",
+    }
+
+
+def _elemento_list_roto(campo: str, valor, *, keyword=False) -> dict:
+    item = _elemento_list_ok(keyword=keyword)
+    if valor is _FALTANTE:
+        item.pop(campo)
+    else:
+        item[campo] = valor
+    return item
+
+
+@pytest.mark.parametrize("campo", _CAMPOS_LIST)
+@pytest.mark.parametrize("valor", [_FALTANTE, None, "", []])
+def test_lista_filtrada_elemento_incompleto_es_unknown(campo, valor):
+    """Faltante/null/vacio/lista en keywordId, adGroupId, keywordText,
+    matchType o state convierte TODA la pagina en unknown. Regla 9: el
+    barrido viejo aceptaba el dict y `_coincidencias` adoptaba
+    negative_id=None."""
+    import httpx as _httpx_inc
+
+    from app.apply_harvest import _lista_filtrada
+
+    def _handler(request):
+        if request.url.host == "api.amazon.com":
+            return _httpx_inc.Response(
+                200, json={"access_token": "fake-access-inc", "expires_in": 1}
+            )
+        return _httpx_inc.Response(200, json=_body_con([_elemento_list_roto(campo, valor)]))
+
+    items, estado = _lista_filtrada(_cliente_lista(_handler), ["6201"])
+    assert (items, estado) == ([], "ambiguo")
+
+
+@pytest.mark.parametrize("campo", _CAMPOS_LIST)
+@pytest.mark.parametrize("valor", [_FALTANTE, None, "", []])
+def test_lista_completa_elemento_incompleto_es_incompleta(campo, valor):
+    """El lector completo es igual de estricto: un solo campo incompleto
+    -> (items, False). Regla 9: en reversa, la misma pagina confirmaba
+    que un ID desaparecio."""
+    import httpx as _httpx_inc2
+
+    from app.apply_harvest import _lista_completa
+
+    def _handler(request):
+        if request.url.host == "api.amazon.com":
+            return _httpx_inc2.Response(
+                200, json={"access_token": "fake-access-inc2", "expires_in": 1}
+            )
+        return _httpx_inc2.Response(
+            200,
+            json=_body_con(
+                [_elemento_list_roto(campo, valor, keyword=True)],
+                contenedor="keywords",
+            ),
+        )
+
+    items, completa = _lista_completa(_cliente_lista(_handler), "/sp/keywords/list")
+    assert (items, completa) == ([], False)
+
+
+@pytest.mark.parametrize("campo,valor", [("keywordId", True), ("adGroupId", False)])
+def test_lista_filtrada_id_booleano_es_unknown(campo, valor):
+    """IDs booleanos (bool es int en Python) no son identidad. Regla 9."""
+    import httpx as _httpx_bool
+
+    from app.apply_harvest import _lista_filtrada
+
+    def _handler(request):
+        if request.url.host == "api.amazon.com":
+            return _httpx_bool.Response(
+                200, json={"access_token": "fake-access-bool", "expires_in": 1}
+            )
+        return _httpx_bool.Response(200, json=_body_con([_elemento_list_roto(campo, valor)]))
+
+    items, estado = _lista_filtrada(_cliente_lista(_handler), ["6201"])
+    assert (items, estado) == ([], "ambiguo")
+
+
+def test_lista_filtrada_ids_enteros_siguen_ok():
+    """keywordId/adGroupId enteros no-bool siguen siendo identidad valida."""
+    import httpx as _httpx_int
+
+    from app.apply_harvest import _lista_filtrada
+
+    item = _elemento_list_ok()
+    item["keywordId"] = 101
+    item["adGroupId"] = 6201
+
+    def _handler(request):
+        if request.url.host == "api.amazon.com":
+            return _httpx_int.Response(
+                200, json={"access_token": "fake-access-int", "expires_in": 1}
+            )
+        return _httpx_int.Response(200, json=_body_con([item]))
+
+    items, estado = _lista_filtrada(_cliente_lista(_handler), ["6201"])
+    assert estado == "ok"
+    assert items[0]["keywordId"] == 101
+
+
+def test_lista_filtrada_un_incompleto_tira_la_pagina_entera():
+    """Una fila valida + una sin keywordId -> unknown (no se adopta la
+    valida ni se declara ausencia)."""
+    import httpx as _httpx_mix
+
+    from app.apply_harvest import _lista_filtrada
+
+    def _handler(request):
+        if request.url.host == "api.amazon.com":
+            return _httpx_mix.Response(
+                200, json={"access_token": "fake-access-mixinc", "expires_in": 1}
+            )
+        return _httpx_mix.Response(
+            200,
+            json=_body_con([_elemento_list_ok(), _elemento_list_roto("keywordId", _FALTANTE)]),
+        )
+
+    items, estado = _lista_filtrada(_cliente_lista(_handler), ["6201"])
+    assert (items, estado) == ([], "ambiguo")
 
 
 def test_lectores_nuevos_usen_list_sellado_sin_profile_del_caller():
