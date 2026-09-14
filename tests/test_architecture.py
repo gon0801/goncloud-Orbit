@@ -801,3 +801,23 @@ def test_detector_de_moneda_caza_las_dos_formas(tmp_path):
         "falso positivo: una moneda literal junto a un valor CALCULADO no es un "
         "mapa de moneda; ignorar lo no literal ensanchaba el candado de mas"
     )
+
+
+def test_biblioteca_sin_apply_ni_escritura_ni_red():
+    """FABRICA 02 (A.4): `app/biblioteca.py` es contabilidad derivada — no
+    importa modulos de apply (ellos importan AQUI: un import inverso
+    cerraria el ciclo y engordaria modulos ya en allowlist de tamano),
+    ni `app.ads.write` (la biblioteca no habla con Amazon; el candado
+    general ya lo cubre y aqui queda la razon junto a los apply), ni
+    `httpx` (cero red). Solo `psycopg`, higiene (normalizacion) y
+    notifica (alerta)."""
+    prohibidos = (
+        "app.apply",
+        "app.apply_cola",
+        "app.apply_harvest",
+        "app.apply_harvest_reconciliacion",
+        "app.ads.write",
+        "httpx",
+    )
+    fugas = _violaciones(_imports_runtime(RAIZ / "app" / "biblioteca.py"), prohibidos)
+    assert not fugas, f"app/biblioteca.py importa fuera de su frontera: {fugas}"

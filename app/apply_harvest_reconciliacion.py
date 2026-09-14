@@ -33,7 +33,7 @@ from typing import TYPE_CHECKING
 
 import psycopg
 
-from app import apply
+from app import apply, biblioteca
 from app import apply_harvest as _ejecucion
 from app.ads.client import AdsApiError
 from app.optimizer import cortes, harvest_destino, hygiene, windows
@@ -323,6 +323,26 @@ def _reconcilia_negativas(conn: psycopg.Connection, aplicador, platform: str) ->
                 _ejecucion._sella_pendientes(conn, decision_id, "ok:reconciliado")
                 apply._confirma_resumen(conn, decision_id, ack, True, aplicador.cycle_id_ejecutor)
                 _ejecucion._termina_cola(conn, q_id, "applied")
+                # F2 A.4: negative huerfano CONFIRMADO por identidad en
+                # campana de grupo aprende el termino (SAVEPOINT dentro del
+                # sello: jamas bloquea la confirmacion). Las ramas senuelo,
+                # ausente/reintento y ancestro_no_enabled no llegan aqui: no
+                # escriben. El retorno se ignora (opcion (b) del brief: el
+                # fallo queda en el log con scrub + la alerta veraz, sin
+                # tocar el resultado del ledger).
+                grupo = biblioteca.grupo_de_ad_group(conn, entidad)
+                if grupo is not None:
+                    # (grupo_id, tipo_producto, campaign_ad_entity_id); sin
+                    # unpack: la funcion esta al tope del presupuesto PLR0915.
+                    biblioteca.registra_negative(
+                        conn,
+                        grupo_id=grupo[0],
+                        tipo_producto=grupo[1],
+                        platform=platform,
+                        texto=term,
+                        origen=(f"grupo:{grupo[0]}/campana:{grupo[2]}/decision:{decision_id}"),
+                        decision_id=decision_id,
+                    )
             confirmadas += 1
             continue
         if _ejecucion._solo_en_otro_ad_group(items, grupo_ext, term):

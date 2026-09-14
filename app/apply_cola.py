@@ -89,7 +89,7 @@ from decimal import Decimal
 import psycopg
 from psycopg.types.json import Json
 
-from app import apply, apply_harvest, notifica
+from app import apply, apply_harvest, biblioteca, notifica
 from app.ads.client import AdsApiError
 from app.apply import (
     Aplicador,
@@ -792,6 +792,28 @@ def _ejecuta_negative(conn: psycopg.Connection, aplicador: Aplicador, fila: Fila
     verify = apply_harvest._id_de_ack(ack, "negativeKeywordId") is not None
     resultado = "ok" if verify else "fallo:ack_sin_id"
     with conn.transaction():
+        if verify:
+            # F2 A.4: un negative APLICADO de verdad (verify) en campana de
+            # grupo ensena el termino a negative_biblioteca, en SAVEPOINT
+            # dentro de este mismo sello (sin grupo no se llama: cero
+            # statements, cero alerta, no es fallo). El retorno se ignora a
+            # proposito: el fallo de biblioteca NO toca el resultado del
+            # ledger (`_SQL_ACK_OK` lo lee con `resultado = 'ok'` exacto
+            # para la reversa manual; una nota lo romperia) — queda en el
+            # log con scrub + la alerta veraz (opcion (b) del brief,
+            # declarada en el PR).
+            grupo = biblioteca.grupo_de_ad_group(conn, fila.ad_entity_id)
+            if grupo is not None:
+                g_id, tipo_producto, camp_id = grupo
+                biblioteca.registra_negative(
+                    conn,
+                    grupo_id=g_id,
+                    tipo_producto=tipo_producto,
+                    platform=aplicador._platform,
+                    texto=fila.search_term,
+                    origen=f"grupo:{g_id}/campana:{camp_id}/decision:{fila.decision_id}",
+                    decision_id=fila.decision_id,
+                )
         apply._sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
         apply._confirma_resumen(conn, fila.decision_id, ack, verify, aplicador.cycle_id_ejecutor)
         _termina(conn, fila, "applied" if verify else "failed")
