@@ -4,6 +4,23 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-14 UTC — FABRICA 02 (F2): A.3 en master; el motor ya sabe negar el término en las hermanas.**
+La fase `hermanas_negadas` entró en el PR #267, squash `eee8152` (GLM, cuatro commits). Antes del
+primer POST a una hermana la decisión, la cola, el cooldown, la fase y el roster quedan sellados y
+visibles desde otra conexión; cada ciclo hace hasta dos barridos LIST paginados y filtrados por los
+ad groups de las hermanas, y cualquier LIST truncado, repetido, ambiguo, con filtro no honrado o con
+un enum desconocido bloquea el POST (fail-closed). Una hermana solo cuenta como creada cuando el ack
+coincide con el readback; un fallo en una hermana jamás degrada el harvest ya aplicado: se reintenta
+por ciclo sin cobrar quota y, al tercer ciclo, el job cierra `done` con las pendientes declaradas y
+una alerta veraz. Existe `tools/reversa_harvest.py --job`: plan por id y por clase, readback entre
+borrados, se detiene ante cualquier provisional discordante y se reanuda sin repetir borrados
+confirmados. Setenta y una pruebas nuevas en dos archivos, más casos en notificación y ledger; cuatro rondas del lead, una de Grok y CodeRabbit; la
+batería completa corrió una sola vez en CI y quedó verde. Residuales declarados en la fila A.3 del
+plan (dos observaciones menores tardías de CodeRabbit entran con A.4 o R.1).
+
+**Producción sigue igual**: la migración 0038 no está desplegada y la fase nueva no corre en vivo
+hasta D.1. **Sigue A.4**, la biblioteca escrita por el motor.
+
 **2026-09-13 UTC — FABRICA 02 (F2): brief de A.3 listo y contrato sin contradicciones.**
 El brief ejecutable para GLM está en `plans/brief-fabrica-02-a3-glm.md` (PR #266). Antes de
 implementarlo, cinco perspectivas independientes encontraron cuatro huecos que ya quedaron
