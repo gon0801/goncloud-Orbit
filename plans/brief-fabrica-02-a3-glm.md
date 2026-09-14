@@ -161,10 +161,28 @@ No reutilices `_ledger` sin separar sus responsabilidades:
 - tres intentos normales no bloquean hermanas ni reversas, y las hermanas no
   amplían el presupuesto normal.
 
-Si el proceso cae después del POST y antes del sello, el siguiente LIST cruza
-la identidad con el intento propio abierto. Sella **solo esa fila** como
-reconciliada y registra `creada = true`. Si no existe intento propio, adopta
-con `creada = false`. No uses `_sella_pendientes`, porque cerraría intentos
+Si el proceso cae después del POST y antes del sello, nada se marca
+propio por inferencia. La procedencia exige coincidencia exacta entre la
+ID del ACK duradero y la ID viva del readback (r4: la regla anterior
+"intento abierto + hallazgo = propia" queda eliminada — atribuia ajenas):
+
+- todo ACK aceptado con `negativeKeywordId` queda durable en el ledger
+  ANTES del readback posterior (fila abierta con ack; el posterior solo
+  sella el resultado), incluso si el posterior falla, trunca o ambigua;
+- posterior con la id del ACK presente → `creada = true`;
+- posterior con otra id → se adopta la viva (`creada = false`, jamas se
+  borra) y la id del ACK queda durable para prueba tardia o reversa;
+- posterior vacio o unknown → pendiente, con la id del ACK durable;
+- crash sin ACK (respuesta perdida): ningun hallazgo posterior prueba
+  propiedad → pendiente visible hasta el tope, jamas `creada = true`;
+- en el previo, un hallazgo solo se registra propio si su id coincide con
+  el ACK duradero de un intento previo (prueba tardia); sin ACK que lo
+  respalde se adopta (sin intento propio) o queda pendiente (con intento
+  abierto sin ack);
+- toda id de ACK aceptado aun no resuelta entra al plan de reversa como
+  provisional: pre-readback fail-closed (unknown detiene, ausente omite,
+  viva coincidente borra con ledger/readback).
+No uses `_sella_pendientes`, porque cerraría intentos
 ambiguos de otras hermanas.
 
 ### Ciclos, pendientes y alerta
@@ -201,6 +219,12 @@ La herramienta solo acepta un job `done`, decisión confirmada y cola
 ```text
 keyword → hermanas con creada=true → negativo de origen
 ```
+
+Las ids de ACK aceptado aun no resueltas viajan en el plan como pasos
+provisionales fail-closed (r4): pre-readback antes de tocarlas (unknown
+detiene toda la reversa, ausente omite, viva coincidente borra con
+ledger/readback); la confirmacion post-delete es por ID exacta (una
+adoptada coincidente no revive al borrado).
 
 Cada delete tiene fila pre-HTTP `tipo = 'reversa'`, sin quota, y readback
 `ARCHIVED` o ausente antes de seguir. Las adoptadas (`creada = false`) nunca se
