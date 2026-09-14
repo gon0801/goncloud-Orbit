@@ -4,6 +4,21 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-13 UTC — FABRICA 02 (F2): brief de A.3 listo y contrato sin contradicciones.**
+El brief ejecutable para GLM está en `plans/brief-fabrica-02-a3-glm.md` (PR #266). Antes de
+implementarlo, cinco perspectivas independientes encontraron cuatro huecos que ya quedaron
+cerrados en el plan, el spec y APPLY: un grupo tiene cuatro roles discovery contando el origen ya
+negado, así que cada job tiene **máximo tres identidades de hermana objetivo**, cada una con hasta
+tres intentos POST; cada ciclo hace hasta dos barridos LIST
+paginados y batched; el tope es tres ciclos; y la reversa preserva la procedencia después de un crash
+y puede reanudarse sin repetir deletes confirmados. La decisión, cola, cooldown, fase y roster deben
+quedar confirmados antes del primer POST de hermana. Un fallo posterior nunca degrada el harvest ya
+aplicado: termina `done` con pendientes explícitas y una alerta veraz.
+
+**Producción sigue igual**: 0038 no está desplegada y A.3 aún no está implementada. Lo siguiente es
+entregar este brief a GLM; la reversa se prueba con `MockTransport` en A.3 y con ids reales, go nuevo
+del dueño y evidencia completa en D.3.
+
 **2026-09-13 UTC — FABRICA 02 (F2): A.3a en master; ejecución y reconciliación ya están separadas.**
 El refactor preparatorio entró en el PR #264, squash `2b136f8`: `app/apply_harvest.py` conserva la
 ejecución y la superficie pública, mientras `app/apply_harvest_reconciliacion.py` concentra la
@@ -40,7 +55,8 @@ el módulo que decide, para cada campaña, a dónde va un search term ganador �
 luego por excepción, luego por la configuración vigente venga de donde venga (la corrección de la
 sonda 0.2)— y su cableado en los cuatro sitios del ciclo, incluido el que de verdad decide dónde se
 postea. **No cambia nada en producción todavía**: el resolutor resuelve, pero la fase de hermanas
-(A.3) es la que lo va a usar para negar el search term en las cuatro campañas del grupo.
+(A.3) es la que lo va a usar para cubrir los cuatro roles discovery: el origen ya queda negado y se
+crean como máximo tres hermanas nuevas.
 
 La revisión del lead encontró un bloqueante que ni CI ni CodeRabbit vieron: una campaña en grupo
 sin bid de harvest dejaba una decisión congelada con `default_bid: null`, y el replay —lo que
@@ -83,12 +99,13 @@ deploy, y habría guardado la palabra ganadora como *negativo*, haciéndola nace
 siguiente grupo del mismo tipo de producto.
 
 **Decisiones del dueño**: la biblioteca guarda solo palabras (sin dinero); los topes diarios bajan al
-arrancar, porque un harvest pasa de 2 a hasta 6 escrituras en Amazon por la misma unidad de cuota; e
+arrancar, porque un harvest pasa de 2 a hasta 5 mutaciones de ida en Amazon por la misma unidad de cuota; e
 implementa GLM por fase.
 
 **Sonda 0.1 (2026-09-12, con go literal del dueño)**: se probó si Amazon acepta bloquear una palabra
 por texto en la campaña de *product targeting*. **Sí la acepta**, contra lo que suponía el diseño, así
-que la fase nueva bloqueará en **4 campañas hermanas** y no en 3. La sonda creó una palabra basura, la
+que la fase nueva incluirá product targeting entre los cuatro roles discovery. Como uno de esos
+roles es el origen ya negado, cada job crea máximo tres hermanas nuevas. La sonda creó una palabra basura, la
 verificó, la archivó y comprobó que no quedó viva: neto cero, con las dos filas de ledger `probe` que
 exige el módulo apply. La ceremonia de autorización se abrió y se cerró en el mismo rato
 (`config_version` 17 → 18), sin dejar el token ni la herramienta en ningún lado. Evidencia:

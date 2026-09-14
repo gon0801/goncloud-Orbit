@@ -467,7 +467,7 @@ matchType, state}`. La tarea 1.3 amplía `LIST_REQUEST_TYPES` con este path.
 | `harvest_job` fase `pending` | negativeKeywords list del ad group ORIGEN | plataforma/profile + adGroupId origen + keyword_text + match_type | Negativo NO existe → reintentar el POST (seguro: la fuente confirma que no está; el job en vuelo bloquea duplicados); existe → avanzar a `negative_created` |
 | `harvest_job` fase `negative_created` | negativeKeywords list (origen) + keywords list (destino) | negativo origen + adGroupId DESTINO + keyword_text + match_type | Keyword destino existe → avanzar `exact_created`/`done`; no existe → reintentar POST keyword; **fallo definitivo → `failed` + reversa automática (delete del negativo) + alerta** (sellado 13) |
 | `harvest_job` fase `exact_created` | keywords list del destino | plataforma/profile + adGroupId destino + keyword_text + match_type | Existe → `done` (sellar resumen); no existe → `failed` → reversa (§7) + alerta |
-| `harvest_job` fase `hermanas_negadas` (F2, solo `resuelto_por = grupo`; jobs viejos siguen `exact_created → done`) | negativeKeywords LIST **filtrado por las hermanas** (`adGroupIdFilter` con los ad groups del grupo menos exacta y origen; **una sola** llamada por job) | por hermana: plataforma/profile + adGroupId hermana + keyword_text + match_type EXACT, ignorando `ARCHIVED` | Por hermana: existe viva → `{"negative_id": <id>, "creada": false}` (adoptada del LIST) en `external_ids["hermanas"][rol]`; ausente → POST `crear_negative_exacto` → readback → `{"negative_id": <id>, "creada": true}`; LIST truncado (`nextToken` en el tope) → **fail-closed**: cero POST, hermana pendiente `list_truncado`; rechazo/ack sin id/tope → hermana pendiente con motivo, el job **sigue** (jamás tumba el harvest). Reintento idempotente por ciclo **sin re-cobrar quota**. Tras `TOPE_CICLOS_HERMANAS` → `done` con `external_ids["hermanas_pendientes"]` + alerta. **Jamás se revierte la keyword por una hermana** |
+| `harvest_job` fase `hermanas_negadas` (F2, solo `resuelto_por = grupo`; excepción/terna conserva `exact_created → done`) | Hasta dos barridos lógicos paginados por ciclo: negativeKeywords LIST previo y, si hubo POST, posterior a todos los intentos; ambos batched y filtrados por el roster congelado (`adGroupIdFilter` preservado en cada página); nunca uno por hermana | por hermana: plataforma/profile + adGroupId hermana + keyword_text + `NEGATIVE_EXACT`, ignorando `ARCHIVED` | Antes del primer POST ya están confirmados decisión, cola, cooldown, fase y `hermanas_objetivo`. En el barrido previo, existe viva → adoptada `{"negative_id": <id>, "creada": false}` salvo que haya intento propio abierto, caso en que se reconcilia como `creada=true`; ausente → ledger `tipo=hermana`, sin quota, POST; cada identidad recibe máximo un POST por ciclo y tres en total, siempre tras LIST que demuestre ausencia. El barrido posterior confirma todas las creadas. Truncación, token repetido o filtro ambiguo → fail-closed, cero POST. Rechazo/ack sin id/tope/gate → pendiente con motivo, nunca `failed` ni reversa. `TOPE_CICLOS_HERMANAS = 3`, inicial = ciclo 1; `hermanas_ciclos` incrementa una vez por invocación completa persistida, no por barrido, y un crash antes del sello no cuenta. Al tope → `done` con `hermanas_pendientes` + alerta veraz. Máximo 3 identidades objetivo: grupo menos exacta menos origen. |
 | Ledger sin sello — reversa / probe | El GET/list que corresponda al `tipo` | La misma identidad por kind | Resultado visible → sellar el ledger una vez (§4); ambiguo → `failed` |
 
 Reglas de la matriz:
@@ -482,11 +482,16 @@ Reglas de la matriz:
   `failed` (una fila `applying` NO puede pasar a `discarded`; una `released`
   se descarta PRE-claim), sin HTTP ni cobro de cuota. Para harvest el ancestro
   gateado es el ORIGEN (el ad group de la fila); el destino del goal sigue
-  sin gate de código (residual declarado). Las pausas applying huérfanas no se
-  gatean: solo LEEN estado, jamás reintentan mutación.
+  sin gate de código (residual declarado). **Excepción posterior al evento de
+  valor:** en `hermanas_negadas`, la decisión y la cola ya están confirmadas;
+  un gate fallido deja `ancestro_no_enabled` como pendiente y al tope cierra
+  `done` con alerta, nunca degrada el harvest a `failed`. Las pausas applying
+  huérfanas no se gatean: solo LEEN estado, jamás reintentan mutación.
 - La reconciliación NO reintenta mutaciones ambiguas: cierra el estado
   (`failed`); el ciclo siguiente re-decide la clave con datos frescos si
-  sigue calificando (la clave terminal ya no está en vuelo).
+  sigue calificando (la clave terminal ya no está en vuelo). Excepción A.3:
+  una hermana ambigua queda pendiente; el siguiente LIST primero adopta/sella
+  si aparece y solo permite otro POST cuando la fuente demuestra ausencia.
 - El señuelo en otro ad group JAMÁS cuenta como "ya aplicada" (regla 9:
   test con fixture señuelo).
 - `harvest_job` nace AL LIBERAR el corte (primer paso del apply del
@@ -528,6 +533,11 @@ Ninguna acción irreversible sin su reversa implementada antes (regla 7):
   impedir.
 - El orden de reversa del harvest completo es SELLADO (keyword primero,
   negativo después) — test de orden (regla 9).
+- La reversa con hermanas confirma cada delete por readback `ARCHIVED`/ausente,
+  se detiene al primer fallo y es reanudable: al repetir salta solo los objetos
+  con reversa ya confirmada. No borra una hermana adoptada ni el origen mientras
+  quede una hermana propia sin confirmar. A.3 la prueba con `MockTransport`; el
+  primer ensayo completo con ids reales requiere go nuevo del dueño en D.3.
 - **Residual declarado (ADV-10, review adversaria de phase 2):** la
   reconciliación del harvest adopta por IDENTIDAD COMPLETA (grupo destino +
   texto + exact) y la reversa borra por **id externo** — si el dueño crea a
