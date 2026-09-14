@@ -1025,6 +1025,54 @@ def test_fase_notifica_mapea_alerta_harvest_fallida_a_nota():
     )
 
 
+def test_fase_notifica_mapea_alerta_hermanas_a_nota_veraz():
+    """r4: la alerta de hermanas pendientes con envio fallido produce la
+    clave notes['telegram']['harvest_hermanas'] (NO 'harvest_failed': el
+    harvest quedo aplicado) y su texto no dice failed. Regla 9: sin la
+    rama por motivo, la nota mentiria el estado del harvest."""
+    from dataclasses import replace as _replace
+
+    from app import cycle as ciclo
+    from app.apply_harvest import MOTIVO_HERMANAS_PENDIENTES, AlertaHarvest
+
+    alerta = AlertaHarvest(
+        motivo=MOTIVO_HERMANAS_PENDIENTES,
+        decision_id=1,
+        search_term=TERMINO,
+        plataforma="amazon_us",
+        job_id=7,
+        detalle="2/3 hermanas aplicadas; pendientes: product_targeting: http_400",
+        envio_fallido=True,
+    )
+    notas = ciclo._fase_notifica(
+        (),
+        (alerta,),
+        cycle_id=1,
+        platform="amazon_us",
+        modo="shadow",
+        status="done",
+        decisions_count=0,
+        notas_apply={},
+    )
+    assert set(notas) == {"harvest_hermanas"}, notas
+    assert "failed" not in notas["harvest_hermanas"].lower()
+    assert "aplicado" in notas["harvest_hermanas"]
+    ok = _replace(alerta, envio_fallido=False)
+    assert (
+        ciclo._fase_notifica(
+            (),
+            (ok,),
+            cycle_id=1,
+            platform="amazon_us",
+            modo="shadow",
+            status="done",
+            decisions_count=0,
+            notas_apply={},
+        )
+        == {}
+    )
+
+
 # ---------------------------------------------------------------------------
 # 9. Aviso de fallo SP-API (SP-API 01 A.5, ronda review): builder + sender
 # ---------------------------------------------------------------------------
@@ -1075,3 +1123,50 @@ def test_notifica_spapi_fallo_envia_y_tumba(tmp_path, monkeypatch):
     assert "fuente: spapi_orders" in mensaje["text"]
     with _canal(tmp_path, monkeypatch, tumbar=True):
         assert notifica.notifica_spapi_fallo("spapi_orders", "amazon_mx", "lwa_fallido: x") is False
+
+
+def test_alerta_harvest_hermanas_contenido_veraz():
+    """Builder puro (F2, A.3): harvest aplicado con pendientes — el texto
+    jamas dice "failed" (seria mentira: la keyword vende) y lista rol con
+    motivo. Regla 9: un copy del builder de failed mentiria en el evento
+    de valor."""
+    from types import SimpleNamespace as _NS
+
+    alerta = _NS(
+        motivo="hermanas_pendientes",
+        decision_id=42,
+        search_term=TERMINO,
+        plataforma="amazon_us",
+        job_id=7,
+        detalle="2/3 hermanas aplicadas (auto_discovery, category_broad); pendientes: "
+        "product_targeting: http_400",
+    )
+    texto = notifica.alerta_harvest_hermanas(alerta)
+    assert texto.startswith("[Orbit] harvest aplicado con hermanas pendientes")
+    assert "failed" not in texto.lower()
+    assert "product_targeting: http_400" in texto
+    assert f"search_term: {TERMINO}" in texto
+
+
+def test_notifica_harvest_hermanas_envia_y_tumba(tmp_path, monkeypatch):
+    """Sender (F2, A.3): con canal OK envia (True) el texto veraz; con red
+    rota devuelve False SIN levantar (el caller pone envio_fallido)."""
+    from types import SimpleNamespace as _NS
+
+    alerta = _NS(
+        motivo="hermanas_pendientes",
+        decision_id=42,
+        search_term=TERMINO,
+        plataforma="amazon_us",
+        job_id=7,
+        detalle="2/3 hermanas aplicadas (auto_discovery, category_broad); pendientes: "
+        "product_targeting: http_400",
+    )
+    with _canal(tmp_path, monkeypatch) as mensajes:
+        assert notifica.notifica_harvest_hermanas(alerta) is True
+    (mensaje,) = mensajes
+    assert mensaje["chat_id"] == FAKE_CHAT_ID
+    assert "hermanas pendientes" in mensaje["text"]
+    assert "failed" not in mensaje["text"].lower()
+    with _canal(tmp_path, monkeypatch, tumbar=True):
+        assert notifica.notifica_harvest_hermanas(alerta) is False

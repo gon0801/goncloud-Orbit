@@ -51,7 +51,7 @@ _SQL_JOBS_EN_VUELO = """
 SELECT id, decision_id, search_term, ad_entity_id, fase, external_ids, platform::text
   FROM harvest_job
  WHERE platform = %s::platform
-   AND fase IN ('pending', 'negative_created', 'exact_created')
+   AND fase IN ('pending', 'negative_created', 'exact_created', 'hermanas_negadas')
  ORDER BY id
 """
 
@@ -88,7 +88,8 @@ SELECT id, decision_id
 _SQL_JOB_EN_VUELO_DE = """
 SELECT EXISTS (
     SELECT 1 FROM harvest_job
-     WHERE decision_id = %s AND fase IN ('pending', 'negative_created', 'exact_created')
+     WHERE decision_id = %s
+       AND fase IN ('pending', 'negative_created', 'exact_created', 'hermanas_negadas')
 )
 """
 
@@ -437,7 +438,12 @@ def reconcilia_harvest(
             conn.execute(_ejecucion._SQL_JOB_FAILED, (job.id,))
             cerrados += 1
             continue
-        motivo_gate = apply.gate_ancestros(conn, job.ad_entity_id)
+        # F2 (A.3): el gate de ancestros NO falla un job ya sellado. Pasado
+        # el readback de la keyword, ni el gate ni la reconciliacion pueden
+        # poner el job o la cola en failed ni tocar el resumen: la higiene
+        # posterior deja pendientes (`ancestro_no_enabled`) y sigue.
+        en_higiene = job.fase == "hermanas_negadas"
+        motivo_gate = None if en_higiene else apply.gate_ancestros(conn, job.ad_entity_id)
         if motivo_gate is not None:
             with conn.transaction():
                 conn.execute(_ejecucion._SQL_JOB_FAILED, (job.id,))
@@ -472,6 +478,12 @@ def reconcilia_harvest(
             continue
         if estado == "done":
             jobs_done += 1
+            # F2 (A.3 r1): el cierre done con hermanas pendientes trae
+            # alerta (el evento de valor quedo aplicado); se recoge igual
+            # que las de failed — el ciclo solo la reenvia si fallo el
+            # envio (bandera envio_fallido), jamas la duplica.
+            if alerta is not None:
+                alertas.append(alerta)
         elif estado == "failed":
             jobs_failed += 1
             if alerta is not None:

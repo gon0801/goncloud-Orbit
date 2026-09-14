@@ -1156,7 +1156,9 @@ def test_tope_3_cuenta_solo_intentos_normal_las_reversas_no_consumen():
     """CX1/GK1: un harvest completo deja 2 filas 'normal' y su reversa
     completa otras 2 'reversa'; el reintento normal SIGUE cabiendo (el tope
     cuenta intentos de aplicacion, las reversas son el mecanismo de seguridad
-    y jamas consumen presupuesto de intentos). Regla 9: con el COUNT sin
+    y jamas consumen presupuesto de intentos). F2 (A.3): la secuencia es
+    GLOBAL (max+1 sobre todos los tipos), asi que la 5a fila lleva seq 5
+    aunque el presupuesto normal vaya en 3. Regla 9: con el COUNT sin
     filtro el 4o paso devolvia None y este test reventaria."""
     from app import apply as apply_mod
 
@@ -1178,7 +1180,7 @@ def test_tope_3_cuenta_solo_intentos_normal_las_reversas_no_consumen():
         fila = conn.execute(
             "SELECT seq, tipo FROM apply_attempt WHERE id = %s", (id_attempt,)
         ).fetchone()
-        assert fila == (3, "normal"), "el seq sigue el conteo de SOLO normales"
+        assert fila == (5, "normal"), "el seq es global (max+1), el tope es solo normal"
 
 
 @_skip_db
@@ -1693,3 +1695,78 @@ def test_reconcilia_bids_campana_sin_state_gate_ancestros():
             "SELECT resultado FROM apply_attempt WHERE decision_id = %s", (dec,)
         ).fetchone()[0]
         assert resultado == "fallo:ancestro_no_enabled"
+
+
+# ---------------------------------------------------------------------------
+# F2 (A.3): secuencia global del ledger y presupuesto normal separado
+# ---------------------------------------------------------------------------
+
+
+def _con_tipo_hermana(conn) -> None:
+    """Amplia `attempt_tipo_valido` con 'hermana' en la DB temporal (lo que
+    la migracion 0038 hace en real; el fixture comun de este archivo aplica
+    0001-0003 y no se toca)."""
+    conn.execute("ALTER TABLE apply_attempt DROP CONSTRAINT attempt_tipo_valido")
+    conn.execute(
+        "ALTER TABLE apply_attempt ADD CONSTRAINT attempt_tipo_valido"
+        " CHECK (tipo IN ('normal', 'reversa', 'probe', 'hermana'))"
+    )
+
+
+@_skip_db
+def test_ledger_seq_global_monotonica_entre_tipos():
+    """seq = max(seq)+1 GLOBAL por decision (normal + hermana + reversa
+    comparten secuencia): 2 normales + 1 hermana + 1 reversa -> seq 1..4
+    sin repetir. Regla 9: con el count de normales, la reversa repetiria
+    seq 3 y dos filas compartirian secuencia."""
+    from app.apply import _ledger
+
+    with _db_temporal("orbit_apply_seqg") as conn:
+        _con_tipo_hermana(conn)
+        ids = _semilla(conn)
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], new="0.85")
+        s1 = _ledger(conn, dec, "normal", {"a": 1}, quota_cobrada=True)
+        s2 = _ledger(conn, dec, "normal", {"a": 2}, quota_cobrada=False)
+        s3 = _ledger(conn, dec, "hermana", {"adGroupId": "6201"}, quota_cobrada=False)
+        s4 = _ledger(conn, dec, "reversa", {"x": 1}, quota_cobrada=False)
+        seqs = conn.execute(
+            "SELECT seq FROM apply_attempt WHERE decision_id = %s ORDER BY id", (dec,)
+        ).fetchall()
+        assert [s[0] for s in seqs] == [1, 2, 3, 4], "secuencia global sin huecos repetidos"
+        assert (s1, s2, s3, s4) == tuple(
+            r[0]
+            for r in conn.execute(
+                "SELECT id FROM apply_attempt WHERE decision_id = %s ORDER BY id", (dec,)
+            ).fetchall()
+        )
+
+
+@_skip_db
+def test_ledger_tope_normal_no_bloquea_hermanas_ni_reversas():
+    """Tres normales agotan el presupuesto normal (4o normal -> None) pero
+    hermanas y reversas siguen naciendo con seq global (4 y 5). Regla 9: sin
+    separar responsabilidades, el tope contable bloquearia la higiene y la
+    reversa de seguridad."""
+    from app.apply import _ledger
+
+    with _db_temporal("orbit_apply_seqtope") as conn:
+        _con_tipo_hermana(conn)
+        ids = _semilla(conn)
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], new="0.85")
+        for i in range(3):
+            assert _ledger(conn, dec, "normal", {"a": i}, quota_cobrada=False) is not None
+        assert _ledger(conn, dec, "normal", {"a": 9}, quota_cobrada=False) is None, (
+            "no existe 4o intento normal"
+        )
+        assert _ledger(conn, dec, "hermana", {"adGroupId": "6201"}, quota_cobrada=False) is not None
+        assert _ledger(conn, dec, "reversa", {"x": 1}, quota_cobrada=False) is not None
+        seqs = conn.execute(
+            "SELECT seq, tipo FROM apply_attempt WHERE decision_id = %s ORDER BY id", (dec,)
+        ).fetchall()
+        assert seqs == [
+            (1, "normal"),
+            (2, "normal"),
+            (3, "normal"),
+            (4, "hermana"),
+            (5, "reversa"),
+        ]
