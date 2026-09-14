@@ -510,6 +510,14 @@ _SQL_COUNT_INTENTOS = """
 SELECT count(*) FROM apply_attempt WHERE decision_id = %s AND tipo = 'normal'
 """
 
+# F2 (A.3): la secuencia es GLOBAL por decision (max+1 sobre TODOS los
+# tipos): el tope de reintentos cuenta aparte y solo 'normal'. Sin esto, la
+# segunda hermana repetiria seq (el count de normales no se mueve con las
+# hermanas) y dos filas compartirian seq.
+_SQL_MAX_SEQ = """
+SELECT coalesce(max(seq), 0) FROM apply_attempt WHERE decision_id = %s
+"""
+
 _SQL_INSERT_LEDGER = """
 INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada)
 VALUES (%s, %s, %s, %s, %s)
@@ -780,17 +788,64 @@ def _ledger(
     *,
     quota_cobrada: bool,
 ) -> int | None:
-    """Nace la fila del ledger PRE-HTTP: seq = count(*)+1 del decision_id
-    contando SOLO intentos 'normal' (CX1/GK1: reversas y probes no consumen
-    presupuesto de intentos). Tope 3 (sellado 10): COUNT >= 3 -> None y no
-    existe 4o intento."""
-    count = conn.execute(_SQL_COUNT_INTENTOS, (decision_id,)).fetchone()[0]
-    if count >= TOPE_INTENTOS:
-        return None
+    """Nace la fila del ledger PRE-HTTP: seq = max(seq)+1 GLOBAL por
+    decision_id (F2, A.3: normal + hermana + reversa comparten la secuencia,
+    monotona sin huecos repetidos). El TOPE 3 (sellado 10) cuenta SOLO
+    intentos 'normal' (CX1/GK1: reversas, probes y hermanas no consumen
+    presupuesto de intentos): tres normales no bloquean hermanas ni
+    reversas, y las hermanas no amplian el presupuesto normal (su tope es
+    por (decision, adGroupId), ver _intentos_hermana). Tope normal
+    alcanzado -> None y no existe 4o intento normal."""
+    if tipo == "normal":
+        count = conn.execute(_SQL_COUNT_INTENTOS, (decision_id,)).fetchone()[0]
+        if count >= TOPE_INTENTOS:
+            return None
+    seq = conn.execute(_SQL_MAX_SEQ, (decision_id,)).fetchone()[0] + 1
     return conn.execute(
         _SQL_INSERT_LEDGER,
-        (decision_id, count + 1, tipo, Json(payload), quota_cobrada),
+        (decision_id, seq, tipo, Json(payload), quota_cobrada),
     ).fetchone()[0]
+
+
+# F2 (A.3): tope de TRES intentos POST por (decision_id, adGroupId) para las
+# hermanas — independiente del tope normal y de TOPE_CICLOS_HERMANAS (el
+# ciclo admite como maximo un POST por identidad, asi que el cap solo muerde
+# ante reintentos fuera de ciclo o filas huerfanas). Cuenta TODAS las filas
+# 'hermana' (abiertas y selladas): cada intento POST nace su fila.
+_SQL_HERMANA_POR_ADGROUP = """
+SELECT count(*) FROM apply_attempt
+ WHERE decision_id = %s AND tipo = 'hermana' AND request_payload->>'adGroupId' = %s
+"""
+
+
+def _intentos_hermana(conn: psycopg.Connection, decision_id: int, ad_group_id: str) -> int:
+    """Intentos POST de hermana acumulados para (decision, adGroupId)."""
+    return conn.execute(_SQL_HERMANA_POR_ADGROUP, (decision_id, str(ad_group_id))).fetchone()[0]
+
+
+# F2 (A.3): detalle de intentos por hermana para la procedencia por ID
+# (r2): el cruce consume `_intentos_hermana_detalle`; el conteo simple
+# vive en `_intentos_hermana` (tope por identidad).
+_SQL_INTENTOS_HERMANA_DETALLE = """
+SELECT id, ack, finished_at IS NULL AS abierta FROM apply_attempt
+ WHERE decision_id = %s AND tipo = 'hermana' AND request_payload->>'adGroupId' = %s
+ ORDER BY id
+"""
+
+
+def _intentos_hermana_detalle(
+    conn: psycopg.Connection, decision_id: int, ad_group_id: str
+) -> list[tuple[int, dict | None, bool]]:
+    """Filas de hermana de (decision, adGroupId) con su ack y si sigue
+    abierta: la base de la procedencia por ID (F2, A.3 r2). Solo un ack
+    duradero que aparece en el readback prueba propiedad; un intento
+    abierto sin ack (crash) no prueba nada por si solo."""
+    return [
+        (f[0], f[1], bool(f[2]))
+        for f in conn.execute(
+            _SQL_INTENTOS_HERMANA_DETALLE, (decision_id, str(ad_group_id))
+        ).fetchall()
+    ]
 
 
 def _sella_ledger(
@@ -799,6 +854,31 @@ def _sella_ledger(
     """Sella UNA vez (el trigger de 0002 lo hace cumplir): ack=respuesta del
     HTTP (o None en el rechazo >=400), resultado, finished_at."""
     conn.execute(_SQL_SELLA_LEDGER, (Json(ack) if ack is not None else None, resultado, id_attempt))
+
+
+_SQL_GUARDA_ACK = """
+UPDATE apply_attempt SET ack = %s WHERE id = %s AND finished_at IS NULL
+"""
+
+_SQL_SELLA_RESULTADO = """
+UPDATE apply_attempt SET resultado = %s, finished_at = now() WHERE id = %s
+"""
+
+
+def _guarda_ack(conn: psycopg.Connection, id_attempt: int, ack: dict) -> None:
+    """Guarda el ack SIN sellar el resultado (F2, A.3 r3): la id del ack
+    queda durable ANTES del readback posterior, con la fila abierta. El
+    trigger lo admite (cada columna pasa NULL -> valor una vez, de a una):
+    el sello final via `_sella_resultado`. Si la fila ya se sello, no toca
+    nada (el caller decide con el conteo)."""
+    conn.execute(_SQL_GUARDA_ACK, (Json(ack), id_attempt))
+
+
+def _sella_resultado(conn: psycopg.Connection, id_attempt: int, resultado: str) -> None:
+    """Sella resultado + finished_at de una fila cuyo ack ya puede estar
+    guardado (F2, A.3 r3): no reescribe el ack (reescribirlo violaria el
+    sello unico). Para el sello completo en un paso sigue `_sella_ledger`."""
+    conn.execute(_SQL_SELLA_RESULTADO, (resultado, id_attempt))
 
 
 def _identidad(conn: psycopg.Connection, ad_entity_id: int) -> tuple[str, str] | None:

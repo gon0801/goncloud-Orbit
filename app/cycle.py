@@ -2019,9 +2019,18 @@ def _fase_notifica(
     try:
         for alerta in alertas:
             if getattr(alerta, "envio_fallido", False):
-                notas["harvest_failed"] = (
-                    "fallo: alerta de harvest failed no enviada por Telegram (revisar harvest_job)"
-                )
+                # r4: el harvest con hermanas pendientes quedo APLICADO
+                # (verify_ok + cola applied); su nota no puede decir failed.
+                if getattr(alerta, "motivo", "") == apply_harvest.MOTIVO_HERMANAS_PENDIENTES:
+                    notas["harvest_hermanas"] = (
+                        "fallo: aviso de hermanas pendientes no enviado por Telegram "
+                        "(el harvest quedo aplicado; revisar harvest_job)"
+                    )
+                else:
+                    notas["harvest_failed"] = (
+                        "fallo: alerta de harvest failed no enviada por Telegram "
+                        "(revisar harvest_job)"
+                    )
     except Exception as exc:  # noqa: BLE001 - jamas rompe el ciclo (docstring)
         notas["harvest_failed"] = "fallo: la alerta de harvest failed no salio (ver log)"
         logger.warning("notifica: fallo en alertas de harvest: %s", scrub(str(exc)))

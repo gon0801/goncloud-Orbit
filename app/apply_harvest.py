@@ -82,6 +82,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import re
 from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import TYPE_CHECKING
@@ -131,6 +132,21 @@ MOTIVO_FALLO_KEYWORD = "fallo_keyword"
 MOTIVO_KEYWORD_AUSENTE = "keyword_ausente"
 MOTIVO_TOPE_INTENTOS = "tope_intentos"
 MOTIVO_ARCHIVADO_EN_VUELO = "archivado_en_vuelo"
+MOTIVO_HERMANAS_PENDIENTES = "hermanas_pendientes"
+
+# FABRICA 02 (A.3): fase de higiene tras el readback de la keyword. Orden
+# canonico de roles discovery (el roster excluye `category_exact`, que es el
+# destino, y el rol de origen, que ya fue negado): como maximo TRES
+# identidades objetivo por job. TOPE_CICLOS_HERMANAS = 3 sellado por el
+# brief; el paso inicial tras el sello cuenta como ciclo 1.
+ROLES_DISCOVERY = (
+    "auto_discovery",
+    "category_phrase",
+    "category_broad",
+    "product_targeting",
+)
+TOPE_CICLOS_HERMANAS = 3
+TOPE_INTENTOS_HERMANA = 3
 
 # ---------------------------------------------------------------------------
 # SQL del modulo (misma maquina de estados que apply_cola; ver docstring)
@@ -146,7 +162,7 @@ _SQL_JOB_EXISTENTE = """
 SELECT id, decision_id, search_term, ad_entity_id, fase, external_ids, platform::text
   FROM harvest_job
  WHERE platform = %s::platform AND ad_entity_id = %s AND search_term = %s
-   AND fase IN ('pending', 'negative_created', 'exact_created')
+   AND fase IN ('pending', 'negative_created', 'exact_created', 'hermanas_negadas')
 """
 
 _SQL_AVANZA_FASE = """
@@ -220,6 +236,21 @@ SELECT 1
  WHERE ag.kind = 'ad_group'
    AND ag.external_id = %s AND c.external_id = %s
    AND ag.platform = %s::platform AND c.platform = %s::platform
+"""
+
+# FABRICA 02 (A.3): roster de hermanas por `grupo_id` (jamas por nombre):
+# rol + externos de campana y ad group de cada rol del grupo. El ad group
+# viaja GUARDADO en `campana_grupo_rol` (no resuelto por parent_id).
+_SQL_ROSTER = """
+SELECT r.rol::text, ce.external_id, ae.external_id
+  FROM campana_grupo_rol r
+  JOIN ad_entity ce ON ce.id = r.ad_entity_id
+  JOIN ad_entity ae ON ae.id = r.ad_group_ad_entity_id
+ WHERE r.grupo_id = %s
+"""
+
+_SQL_ROL_ORIGEN = """
+SELECT rol::text FROM campana_grupo_rol WHERE ad_entity_id = %s
 """
 
 _SQL_SELLA_PENDIENTES = """
@@ -300,7 +331,9 @@ class _Job:
 @dataclass(frozen=True)
 class _Contexto:
     """Ejecucion FRESCA de la base: origen externo, destino del goal,
-    default congelado en decision.new_value (sellado 14) y su moneda."""
+    default congelado en decision.new_value (sellado 14) y su moneda.
+    `resuelto_por`/`grupo_id` viajan del congelado F2 (None en el camino de
+    goal fresco pre-F2, que cierra como hoy sin fase nueva)."""
 
     plataforma: str
     grupo_ext: str
@@ -311,6 +344,8 @@ class _Contexto:
     moneda: str
     floor: Decimal
     ceiling: Decimal
+    resuelto_por: str | None = None
+    grupo_id: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -399,6 +434,167 @@ def _lista_todos(cliente, path: str, profile_id: str | int) -> list[dict]:
     return items
 
 
+def _valida_token_list(token) -> str:
+    """Estado del `nextToken` de una pagina (r3, AC-1): "fin" si ausente o
+    null; "mas" si es string no vacio; "ambiguo" en cualquier otra forma
+    (numero, lista, dict, string vacio) — unknown, jamas se asume pagina
+    final ni se reenvia un token ilegible."""
+    if token is None:
+        return "fin"
+    if isinstance(token, str) and token:
+        return "mas"
+    return "ambiguo"
+
+
+def _id_list_valido(valor) -> bool:
+    """Id de LIST (keywordId/adGroupId): string/int no vacio. bool es int
+    en Python y no es identidad; estructuras tampoco."""
+    return isinstance(valor, str | int) and not isinstance(valor, bool) and bool(str(valor).strip())
+
+
+# Enums UPPER del wire por contenedor LIST. Desconocido = pagina unknown
+# (fail-closed): no se infiere ausencia ni se adopta. Sin casefold.
+_MATCH_POR_CONTENEDOR = {
+    "negativeKeywords": frozenset({"NEGATIVE_EXACT", "NEGATIVE_PHRASE"}),
+    "keywords": frozenset({"EXACT", "PHRASE", "BROAD"}),
+}
+_ESTADOS_LIST = frozenset(
+    {
+        apply.ESTADO_WIRE_ENABLED,
+        apply.ESTADO_WIRE_PAUSED,
+        apply.ESTADO_WIRE_ARCHIVED,
+    }
+)
+
+
+def _texto_list_valido(valor) -> bool:
+    """Campo textual de LIST (keywordText): string no vacio."""
+    return isinstance(valor, str) and bool(valor.strip())
+
+
+def _elemento_list_valido(item, contenedor: str) -> bool:
+    """Fila LIST con identidad y enums del contenedor. Un dict parcial o
+    un matchType/state fuera del vocabulario UPPER no es observacion:
+    keywordId ausente se adoptaba como None y un matchType=ROTO se
+    trataba como ausencia (POST duplicado)."""
+    if not isinstance(item, dict):
+        return False
+    if not _id_list_valido(item.get("keywordId")):
+        return False
+    if not _id_list_valido(item.get("adGroupId")):
+        return False
+    if not _texto_list_valido(item.get("keywordText")):
+        return False
+    match = item.get("matchType")
+    if not isinstance(match, str) or match not in _MATCH_POR_CONTENEDOR.get(
+        contenedor, frozenset()
+    ):
+        return False
+    state = item.get("state")
+    return isinstance(state, str) and state in _ESTADOS_LIST
+
+
+def _valida_pagina_list(data, contenedor: str) -> tuple[list[dict], bool]:
+    """(elementos, pagina_valida) canonica (r3/r4, AC-1): body no-dict,
+    contenedor ausente/no-lista o ALGUN elemento incompleto/enum
+    desconocido -> ([], False). Cada elemento exige keywordId, adGroupId
+    (string/int no vacio, sin bool ni estructuras), keywordText (string
+    no vacio) y matchType/state del vocabulario UPPER del contenedor.
+    Un 200 que no dice nada util es unknown: cero avance destructivo."""
+    if not isinstance(data, dict):
+        return ([], False)
+    crudo = data.get(contenedor)
+    if not isinstance(crudo, list):
+        return ([], False)
+    if not all(_elemento_list_valido(x, contenedor) for x in crudo):
+        return ([], False)
+    return (list(crudo), True)
+
+
+def _lista_completa(cliente, path: str) -> tuple[list[dict], bool]:
+    """Barrido paginado con senal de completitud (F2, A.3 r1/r3) por la
+    puerta sellada `list_sellado` (scope de la instancia, sin profile del
+    caller): (items, True) solo si cada pagina fue valida y `nextToken` se
+    agoto dentro del tope; pagina malformada (elemento incompleto o
+    matchType/state fuera del enum del contenedor inclusive), token
+    invalido/repetido o `nextToken` vivo al tope ->
+    (items, False). `_lista_todos` historico no
+    da la senal y no se toca: sus callers la asumen completa. La reversa
+    manual la exige (concluir ausencia sobre lectura trunca es borrar a
+    ciegas)."""
+    contenedor = _CONTENEDORES_LIST[path]
+    items: list[dict] = []
+    vistos: set[str] = set()
+    token = None
+    for _ in range(TOPE_PAGINAS_LIST):
+        body = {"nextToken": token} if token else {}
+        try:
+            data = cliente.list_sellado(path, body).json()
+        except ValueError:
+            raise AdsApiError(f"respuesta de lista ilegible: {contenedor}") from None
+        pagina, valida = _valida_pagina_list(data, contenedor)
+        if not valida:
+            return (items, False)
+        items.extend(pagina)
+        estado_token = _valida_token_list(data.get("nextToken"))
+        if estado_token == "fin":
+            return (items, True)
+        if estado_token == "ambiguo":
+            return (items, False)
+        token = data.get("nextToken")
+        if token in vistos:
+            return (items, False)  # el token se repite: no avanza
+        vistos.add(token)
+    return (items, False)
+
+
+def _lista_filtrada(cliente, ad_group_ids: list[str]) -> tuple[list[dict], str]:
+    """UN barrido logico batched de negativeKeywords (F2, A.3): un solo LIST
+    paginado con `adGroupIdFilter` en TODAS las paginas (prohibido un LIST
+    por hermana), por la puerta sellada `list_sellado` (scope de la
+    instancia, jamas profile a mano). Devuelve (items, estado) con estado
+    en {"ok", "truncado", "ambiguo"}: `nextToken` vivo al tope ->
+    "truncado" (fail-closed: cero POST); token invalido/repetido, item
+    fuera del filtro (el filtro parece ignorado) o pagina malformada
+    (body no-dict, contenedor no-lista, elemento incompleto o
+    matchType/state fuera del enum del contenedor: r3/r4, AC-1) ->
+    "ambiguo" (unknown: cero POST — un LIST que no dijo nada
+    jamas habilita una mutacion). (`totalResults` NO se usa: su semantica con filtro no
+    esta verificada en vivo.) No toca el contrato de `_lista_todos` (sus
+    callers historicos siguen intactos)."""
+    path = "/sp/negativeKeywords/list"
+    contenedor = _CONTENEDORES_LIST[path]
+    dentro = {str(x) for x in ad_group_ids}
+    items: list[dict] = []
+    vistos: set[str] = set()
+    token = None
+    for _ in range(TOPE_PAGINAS_LIST):
+        body: dict = {"adGroupIdFilter": {"include": [str(x) for x in ad_group_ids]}}
+        if token:
+            body["nextToken"] = token
+        try:
+            data = cliente.list_sellado(path, body).json()
+        except ValueError:
+            raise AdsApiError(f"respuesta de lista ilegible: {contenedor}") from None
+        pagina, valida = _valida_pagina_list(data, contenedor)
+        if not valida:
+            return (items, "ambiguo")  # 200 malformado: unknown, cero POST
+        for x in pagina:
+            if str(x.get("adGroupId", "")) not in dentro:
+                return (items, "ambiguo")  # el filtro parece ignorado
+            items.append(x)
+        estado_token = _valida_token_list(data.get("nextToken"))
+        if estado_token == "fin":
+            return (items, "ok")
+        if estado_token == "ambiguo":
+            return (items, "ambiguo")
+        token = data.get("nextToken")
+        if token in vistos:
+            return (items, "ambiguo")  # el token se repite: no avanza
+        vistos.add(token)
+    return (items, "truncado")  # nextToken vivo al tope: fail-closed
+
+
 def _identidad(items: list[dict], ad_group_id: str, keyword_text: str) -> dict | None:
     """IDENTIDAD COMPLETA (sellado 13): mismo adGroupId + mismo texto + match
     EXACT. Shapes del WIRE verificados por el probe 2.5 (2026-08-26, ledger
@@ -418,6 +614,22 @@ def _identidad(items: list[dict], ad_group_id: str, keyword_text: str) -> dict |
             continue
         return item
     return None
+
+
+def _coincidencias(items: list[dict], ad_group_id: str, keyword_text: str) -> list[dict]:
+    """TODAS las identidades vivas coincidentes (F2, A.3 r1): el mismo
+    criterio de `_identidad` (ad group + texto + EXACT, sin ARCHIVED), pero
+    en lista para contar. La procedencia por ID exige cardinalidad: un solo
+    abierto + un solo hallazgo atribuye; el resto es pendiente. `_identidad`
+    no se toca (callers sellados)."""
+    return [
+        item
+        for item in items
+        if str(item.get("state", "")).upper() != apply.ESTADO_WIRE_ARCHIVED
+        and str(item.get("adGroupId", "")) == str(ad_group_id)
+        and item.get("keywordText") == keyword_text
+        and str(item.get("matchType", "")).casefold().replace("negative_", "") == "exact"
+    ]
 
 
 def _solo_en_otro_ad_group(items: list[dict], ad_group_id: str, keyword_text: str) -> bool:
@@ -613,6 +825,8 @@ def _contexto(conn: psycopg.Connection, job: _Job) -> _Contexto:
         moneda=value_currency,
         floor=floor,
         ceiling=ceiling,
+        resuelto_por=None,
+        grupo_id=None,
     )
 
 
@@ -667,6 +881,8 @@ def _contexto_congelado(
         moneda=value_currency,
         floor=Decimal(str(goal_congelado.get("bid_floor"))),
         ceiling=Decimal(str(goal_congelado.get("bid_ceiling"))),
+        resuelto_por=congelado.get("resuelto_por"),
+        grupo_id=congelado.get("grupo_id"),
     )
 
 
@@ -788,6 +1004,49 @@ def _reversa_delete(
     return True
 
 
+def _delete_reversa_pendiente(
+    conn: psycopg.Connection, cliente, decision_id: int, clase: str, objeto_id
+) -> tuple[int | None, dict | None]:
+    """POST de delete para la reversa MANUAL (F2, A.3 r1): crea la fila
+    pre-HTTP tipo='reversa' sin quota y la sella SOLO en fallo definitivo
+    (Mutacion/rechazo por-item). Con ack aceptado la deja ABIERTA y devuelve
+    (id_attempt, ack): el caller la sella ok UNICAMENTE tras readback de
+    ausente. Sellar ok antes del readback es inseguro al reanudar (el
+    ledger diria borrado lo que sigue vivo y la reanudacion lo saltaria,
+    pudiendo borrar el origen). El payload es identico al de
+    `_reversa_delete` (el cruce por ledger lo lee igual). Retorna
+    (None, None) si ni la fila nacio o el HTTP fue ambiguo (la fila abierta
+    es el rastro; reintentar es seguro e idempotente)."""
+    filtro = f"{clase}IdFilter" if clase == "keyword" else "negativeKeywordIdFilter"
+    payload = {filtro: {"include": [str(objeto_id)]}}
+    id_attempt = apply._ledger(conn, decision_id, "reversa", payload, quota_cobrada=False)
+    if id_attempt is None:
+        return (None, None)
+    conn.commit()  # intencion durable PRE-HTTP
+    try:
+        if clase == "keyword":
+            resp = cliente.borrar_keyword(objeto_id)
+        else:
+            resp = cliente.borrar_negative(objeto_id)
+    except apply.AdsApiErrorMutacion as exc:
+        apply._sella_ledger(
+            conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
+        )
+        conn.commit()
+        return (None, None)
+    except AdsApiError:
+        return (id_attempt, None)  # ambiguo: fila abierta, sin ack
+    ack = apply._json_seguro(resp)
+    clave = "keywordId" if clase == "keyword" else "negativeKeywordId"
+    if _reversa_rechazada(ack, clave, objeto_id):
+        with conn.transaction():
+            apply._sella_ledger(
+                conn, id_attempt, ack=ack, resultado=_resultado_reversa_rechazada(ack)
+            )
+        return (None, None)
+    return (id_attempt, ack)
+
+
 def reversa_harvest_parcial(
     conn: psycopg.Connection, cliente, decision_id: int, negative_id
 ) -> bool:
@@ -809,6 +1068,267 @@ def reversa_harvest_completo(
     if not _reversa_delete(conn, cliente, decision_id, "keyword", keyword_id):
         return False
     return _reversa_delete(conn, cliente, decision_id, "negative", negative_id)
+
+
+# ---------------------------------------------------------------------------
+# Reversa manual del harvest con hermanas (F2, A.3; la ejecuta el tool)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PasoReversa:
+    """Un delete de la reversa manual, en orden canonico de ejecucion:
+    keyword destino -> hermanas (propias probadas y ACKs aun no resueltos,
+    en orden ROLES_DISCOVERY) -> negativo de origen. `rol` solo en
+    hermanas; las adoptadas (`creada = false`) jamas entran al plan.
+    `provisional` = id de un ACK aceptado aun no resuelto (r3, AC-7): se
+    busca fail-closed antes de tocarlo y se omite si esta ausente."""
+
+    clase: str  # "keyword" | "negative"
+    rol: str | None
+    ad_group_ext: str
+    objeto_id: str
+    provisional: bool = False
+
+
+_SQL_JOB_POR_ID = """
+SELECT id, decision_id, search_term, ad_entity_id, fase, external_ids, platform::text
+  FROM harvest_job WHERE id = %s
+"""
+
+_SQL_VERIFY_OK = """
+SELECT verify_ok FROM decision_application WHERE decision_id = %s
+"""
+
+_SQL_ULTIMA_COLA = """
+SELECT estado FROM apply_queue WHERE decision_id = %s ORDER BY id DESC LIMIT 1
+"""
+
+_SQL_ACKS_HERMANA = """
+SELECT request_payload->>'adGroupId', ack FROM apply_attempt
+ WHERE decision_id = %s AND tipo = 'hermana' AND ack IS NOT NULL
+ ORDER BY id
+"""
+
+_SQL_REVERSA_OK_KEYWORD = """
+SELECT EXISTS (
+    SELECT 1 FROM apply_attempt
+     WHERE decision_id = %s AND tipo = 'reversa' AND resultado = 'ok'
+       AND request_payload->'keywordIdFilter'->'include' @> %s::jsonb
+)
+"""
+
+_SQL_REVERSA_OK_NEGATIVE = """
+SELECT EXISTS (
+    SELECT 1 FROM apply_attempt
+     WHERE decision_id = %s AND tipo = 'reversa' AND resultado = 'ok'
+       AND request_payload->'negativeKeywordIdFilter'->'include' @> %s::jsonb
+)
+"""
+
+
+def plan_reversa_harvest(
+    conn: psycopg.Connection, job_id: int
+) -> tuple[str, str, int, list[PasoReversa]]:
+    """Deriva de la base el plan de reversa de un job (platform, termino,
+    decision_id, pasos en orden canonico). Precondiciones fail-closed
+    (ValueError si no proceden): job `done`, decision confirmada
+    (`verify_ok`), cola `applied`, keyword y negativo de origen conocidos.
+    Las hermanas adoptadas no entran (jamas se borra lo ajeno). Las ids de
+    ACK aceptado aun no resueltas entran como provisionales (r3, AC-7): la
+    ejecucion las busca fail-closed y las omite si estan ausentes, asi una
+    id aceptada por Amazon nunca desaparece del estado operativo."""
+    fila = conn.execute(_SQL_JOB_POR_ID, (job_id,)).fetchone()
+    if fila is None:
+        raise ValueError(f"job {job_id}: no existe")
+    job = _job_de_fila(fila)
+    if job.fase != "done":
+        raise ValueError(f"job {job_id}: fase {job.fase} (la reversa manual solo acepta done)")
+    ver = conn.execute(_SQL_VERIFY_OK, (job.decision_id,)).fetchone()
+    if ver is None or ver[0] is not True:
+        raise ValueError(f"job {job_id}: decision {job.decision_id} sin verify_ok")
+    cola = conn.execute(_SQL_ULTIMA_COLA, (job.decision_id,)).fetchone()
+    if cola is None or cola[0] != "applied":
+        raise ValueError(f"job {job_id}: cola no applied")
+    ext = dict(job.external_ids)
+    keyword_id = ext.get("keyword_id")
+    negative_id = ext.get("negative_id")
+    if keyword_id is None or negative_id is None:
+        raise ValueError(f"job {job_id}: sin keyword_id o negative_id en external_ids")
+    _dec = conn.execute(_SQL_DECISION, (job.decision_id,)).fetchone()
+    congelado = (((_dec[2] or {}).get("goal") or {}).get("harvest") or {}) if _dec else {}
+    destino_ag = congelado.get("ad_group_id")
+    if not destino_ag:
+        raise ValueError(f"job {job_id}: sin destino congelado para el readback")
+    externos = conn.execute(_SQL_EXTERNALES, (job.ad_entity_id,)).fetchone()
+    if externos is None:
+        raise ValueError(f"job {job_id}: origen sin externos")
+    objetivo = dict(ext.get("hermanas_objetivo") or {})
+    hermanas = dict(ext.get("hermanas") or {})
+    registradas = {
+        str(v.get("negative_id"))
+        for v in hermanas.values()
+        if isinstance(v, dict) and v.get("negative_id") is not None
+    }
+    ag_por_rol = {
+        str(v.get("ad_group_id")): rol
+        for rol, v in objetivo.items()
+        if isinstance(v, dict) and v.get("ad_group_id") is not None
+    }
+    provisionales: dict[str, list[str]] = {}
+    for ag, ack in conn.execute(_SQL_ACKS_HERMANA, (job.decision_id,)).fetchall():
+        if ag is None or ag not in ag_por_rol or not isinstance(ack, dict):
+            continue
+        id_ = _id_de_ack(ack, "negativeKeywordId")
+        if id_ is not None and str(id_) not in registradas:
+            provisionales.setdefault(ag_por_rol[ag], []).append(str(id_))
+    pasos = [
+        PasoReversa(clase="keyword", rol=None, ad_group_ext=destino_ag, objeto_id=str(keyword_id))
+    ]
+    for rol in ROLES_DISCOVERY:
+        reg = hermanas.get(rol)
+        if isinstance(reg, dict) and reg.get("creada") is True:
+            ag = (objetivo.get(rol) or {}).get("ad_group_id")
+            if not ag:
+                raise ValueError(f"job {job_id}: hermana {rol} sin ad group en el roster")
+            pasos.append(
+                PasoReversa(
+                    clase="negative",
+                    rol=rol,
+                    ad_group_ext=ag,
+                    objeto_id=str(reg["negative_id"]),
+                )
+            )
+        for extra in provisionales.get(rol, []):
+            ag = (objetivo.get(rol) or {}).get("ad_group_id")
+            if not ag:
+                raise ValueError(f"job {job_id}: hermana {rol} sin ad group en el roster")
+            pasos.append(
+                PasoReversa(
+                    clase="negative",
+                    rol=rol,
+                    ad_group_ext=ag,
+                    objeto_id=extra,
+                    provisional=True,
+                )
+            )
+    pasos.append(
+        PasoReversa(
+            clase="negative", rol=None, ad_group_ext=externos[0], objeto_id=str(negative_id)
+        )
+    )
+    return (job.plataforma, job.search_term, job.decision_id, pasos)
+
+
+def _reversa_confirmada(
+    conn: psycopg.Connection, decision_id: int, clase: str, objeto_id: str
+) -> bool:
+    """El ledger ya confirma el delete de este objeto (fila tipo='reversa'
+    con resultado ok cuyo filtro DE SU CLASE incluye el id): reejecutar lo
+    salta, no lo repite. Sin guard global: la procedencia es por objeto. El
+    cruce es por clase (r4): una keyword y una negativa que compartan id no
+    se confirman entre si."""
+    sql = _SQL_REVERSA_OK_KEYWORD if clase == "keyword" else _SQL_REVERSA_OK_NEGATIVE
+    fila = conn.execute(sql, (decision_id, Json([str(objeto_id)]))).fetchone()
+    return fila is not None and fila[0] is True
+
+
+def _preexiste_provisional(cliente, term: str, paso: PasoReversa) -> str:
+    """Pre-readback fail-closed de un paso provisional (r3 AC-7, r4):
+    "proceder" si la id esta viva con identidad exacta; "omitir" si la id
+    esta ausente (muerta o inexistente: no hay nada que borrar);
+    "stop-unknown" si la lectura es unknown; "stop-discordante" si la id
+    vive con otra identidad (otro termino o match: detener TODA la reversa
+    — el objeto cambio bajo los pies y seguir hasta el origen seria borrar
+    a ciegas). La coincidencia es por ID exacta, no por identidad suelta."""
+    if paso.clase == "keyword":
+        items, completa = _lista_completa(cliente, "/sp/keywords/list")
+        if not completa:
+            return "stop-unknown"
+    else:
+        items, estado = _lista_filtrada(cliente, [paso.ad_group_ext])
+        if estado != "ok":
+            return "stop-unknown"
+    vivas = {
+        str(x.get("keywordId"))
+        for x in items
+        if str(x.get("state", "")).upper() != apply.ESTADO_WIRE_ARCHIVED
+    }
+    if paso.objeto_id not in vivas:
+        return "omitir"
+    if paso.objeto_id in {
+        str(x.get("keywordId")) for x in _coincidencias(items, paso.ad_group_ext, term)
+    }:
+        return "proceder"
+    return "stop-discordante"
+
+
+def ejecuta_reversa_harvest(
+    conn: psycopg.Connection,
+    cliente,
+    decision_id: int,
+    term: str,
+    pasos: list[PasoReversa],
+) -> tuple[bool, str]:
+    """Ejecuta el plan en orden canonico, con readback entre deletes y stop
+    al primer fallo (True, "reversa: ok" solo si todo confirma). Cada delete
+    nace su fila pre-HTTP tipo='reversa' sin quota; la fila se sella ok SOLO
+    tras readback de ARCHIVED/ausente (r1: sellar antes es saltable al
+    reanudar con el objeto vivo). Readback no concluyente (lista trunca o
+    ambigua) o identidad viva = stop sin tocar lo siguiente, con la fila
+    abierta para reintentar. Los pasos provisionales (ACK aceptado aun no
+    resuelto, r3 AC-7) se buscan fail-closed ANTES de tocarlos: lectura
+    unknown -> stop; ausente -> se omiten (nada que borrar); viva con la id
+    -> se eliminan con ledger/readback igual que los propios. Reejecutar
+    salta lo confirmado por ledger. Nunca borra el origen mientras falte
+    confirmar una hermana propia: el orden lo garantiza (el origen va
+    ultimo) y el stop tambien."""
+    omitidas: list[str] = []
+    for paso in pasos:
+        quien = paso.rol or paso.clase
+        if _reversa_confirmada(conn, decision_id, paso.clase, paso.objeto_id):
+            continue
+        if paso.provisional:
+            pre = _preexiste_provisional(cliente, term, paso)
+            if pre == "stop-unknown":
+                return (False, f"reversa: {quien} {paso.objeto_id} readback no concluyente")
+            if pre == "stop-discordante":
+                return (False, f"reversa: {quien} {paso.objeto_id} identidad discordante")
+            if pre == "omitir":
+                omitidas.append(paso.objeto_id)
+                continue
+        id_attempt, ack = _delete_reversa_pendiente(
+            conn, cliente, decision_id, paso.clase, paso.objeto_id
+        )
+        if id_attempt is None or ack is None:
+            return (False, f"reversa: stop en {quien} {paso.objeto_id}")
+        if paso.clase == "keyword":
+            items, completa = _lista_completa(cliente, "/sp/keywords/list")
+            if not completa:
+                return (False, f"reversa: {quien} {paso.objeto_id} readback no concluyente")
+        else:
+            items, estado = _lista_filtrada(cliente, [paso.ad_group_ext])
+            if estado != "ok":
+                return (False, f"reversa: {quien} {paso.objeto_id} readback no concluyente")
+        # La confirmacion es POR ID (r3/r4): la borrada ya no esta viva
+        # ENTRE TODOS los objetos no ARCHIVED, SIN filtrar por identidad.
+        # Si la id sigue viva con otro termino/match, el objeto muto bajo
+        # los pies: fallo:sigue_vivo, jamas ok. Otra identidad coincidente
+        # con id distinta (adoptada/ajena) no revive al borrado.
+        vivas = {
+            str(x.get("keywordId"))
+            for x in items
+            if str(x.get("state", "")).upper() != apply.ESTADO_WIRE_ARCHIVED
+        }
+        if paso.objeto_id in vivas:
+            with conn.transaction():
+                apply._sella_ledger(conn, id_attempt, ack=ack, resultado="fallo:sigue_vivo")
+            return (False, f"reversa: {quien} {paso.objeto_id} sigue vivo")
+        with conn.transaction():
+            apply._sella_ledger(conn, id_attempt, ack=ack, resultado="ok")
+    if omitidas:
+        return (True, f"reversa: ok (provisionales ausentes omitidas: {', '.join(omitidas)})")
+    return (True, "reversa: ok")
 
 
 def _reversa_automatica(conn: psycopg.Connection, aplicador, job: _Job, ctx: _Contexto) -> str:
@@ -1030,6 +1550,35 @@ def _paso_keyword(
     return "avanza", None
 
 
+def _roster_hermanas(conn: psycopg.Connection, job: _Job, ctx: _Contexto) -> dict | str:
+    """Roster congelado {rol: {campaign_id, ad_group_id}} en orden canonico
+    (ROLES_DISCOVERY menos el rol de origen; `category_exact` nunca es
+    origen: el resolutor lo salta antes). Derivado por `grupo_id`, jamas por
+    nombre. El mapa guardado NO promete orden (jsonb reordena claves): los
+    consumidores iteran ROLES_DISCOVERY. Devuelve el MOTIVO (str) si no se
+    puede derivar: el caller cierra fail-closed con reversa (la keyword ya
+    nacio)."""
+    if ctx.grupo_id is None:
+        return MOTIVO_ENTIDAD_INCOMPLETA
+    por_rol = {r: (c, a) for r, c, a in conn.execute(_SQL_ROSTER, (ctx.grupo_id,)).fetchall()}
+    padre = conn.execute(_SQL_PADRE, (job.ad_entity_id,)).fetchone()
+    rol_origen = None
+    if padre is not None:
+        fila_rol = conn.execute(_SQL_ROL_ORIGEN, (padre[0],)).fetchone()
+        rol_origen = fila_rol[0] if fila_rol is not None else None
+    if rol_origen not in ROLES_DISCOVERY:
+        return MOTIVO_ENTIDAD_INCOMPLETA
+    roster: dict[str, dict] = {}
+    for rol in ROLES_DISCOVERY:
+        if rol == rol_origen:
+            continue
+        if rol not in por_rol:
+            return MOTIVO_ENTIDAD_INCOMPLETA
+        camp_ext, ag_ext = por_rol[rol]
+        roster[rol] = {"campaign_id": camp_ext, "ad_group_id": ag_ext}
+    return roster
+
+
 def _paso_readback(
     conn: psycopg.Connection,
     aplicador,
@@ -1037,9 +1586,12 @@ def _paso_readback(
     ctx: _Contexto,
     queue_id: int | None,
 ) -> tuple[str, AlertaHarvest | None]:
-    """Fase exact_created → done|failed. Readback por LISTA del destino con
-    IDENTIDAD COMPLETA: existe → done (resumen + ciclo EJECUTOR); el señuelo
-    en otro ad group NO cuenta → failed + reversa (§7) + alerta."""
+    """Fase exact_created → done|failed|hermanas_negadas. Readback por LISTA
+    del destino con IDENTIDAD COMPLETA: existe → done (resumen + ciclo
+    EJECUTOR), salvo harvest resuelto por grupo, que SELLA el evento de
+    valor (resumen + cola applied + fase + roster en UNA transaccion) y
+    avanza a la higiene; el señuelo en otro ad group NO cuenta → failed +
+    reversa (§7) + alerta."""
     cliente = aplicador._cliente()
     kws = _lista_todos(cliente, "/sp/keywords/list", aplicador._profile_id)
     encontrado = _identidad(kws, ctx.destino_grupo, job.search_term)
@@ -1047,21 +1599,357 @@ def _paso_readback(
         detalle = _reversa_automatica(conn, aplicador, job, ctx) + " | keyword ausente en destino"
         return _falla_job(conn, job, MOTIVO_KEYWORD_AUSENTE, queue_id=queue_id, detalle=detalle)
     ack = {"fuente": "list", "keywordId": encontrado.get("keywordId")}
+    if ctx.resuelto_por != harvest_destino.RESUELTO_GRUPO:
+        with conn.transaction():
+            _sella_pendientes(conn, job.decision_id, "ok:reconciliado")
+            _avanza(conn, job, "done")
+            apply._confirma_resumen(conn, job.decision_id, ack, True, aplicador.cycle_id_ejecutor)
+            if queue_id is not None:
+                _termina_cola(conn, queue_id, "applied")
+        return "done", None
+    # Ruta de grupo (F2, A.3): el evento de valor se confirma ANTES de la
+    # higiene. El sello (keyword confirmada, resumen, cola, fase y roster)
+    # es durable en una transaccion: otra conexion lo ve antes del primer
+    # POST de hermana.
+    roster = _roster_hermanas(conn, job, ctx)
+    if isinstance(roster, str):
+        detalle = _reversa_automatica(conn, aplicador, job, ctx) + f" | roster imposible ({roster})"
+        return _falla_job(conn, job, roster, queue_id=queue_id, detalle=detalle)
     with conn.transaction():
         _sella_pendientes(conn, job.decision_id, "ok:reconciliado")
-        _avanza(conn, job, "done")
+        _avanza(
+            conn,
+            job,
+            "hermanas_negadas",
+            {
+                "keyword_id": encontrado.get("keywordId"),
+                "hermanas_objetivo": roster,
+                "hermanas": {},
+                "hermanas_ciclos": 0,
+            },
+        )
         apply._confirma_resumen(conn, job.decision_id, ack, True, aplicador.cycle_id_ejecutor)
         if queue_id is not None:
             _termina_cola(conn, queue_id, "applied")
-    return "done", None
+    return "avanza", None
+
+
+_SQL_ESTADO_COLA = """
+SELECT estado FROM apply_queue WHERE id = %s
+"""
+
+
+def _termina_cola_si_applying(conn: psycopg.Connection, queue_id: int | None) -> None:
+    """Termina en applied la cola que quedo applying (reanudacion de un
+    estado que el sello atomico no deja: en el flujo normal ya esta applied
+    y el trigger prohibe el UPDATE sin cambio, asi que solo se toca si
+    sigue applying)."""
+    if queue_id is None:
+        return
+    fila = conn.execute(_SQL_ESTADO_COLA, (queue_id,)).fetchone()
+    if fila is not None and fila[0] == "applying":
+        _termina_cola(conn, queue_id, "applied")
+
+
+def _motivo_rechazo_hermana(rol: str, status: int | None) -> str:
+    """Motivo estable de una hermana rechazada: PT rechazada lleva motivo
+    propio (no es exclusion, se reintenta igual); 5xx es ambiguo del
+    servidor; lo demas es 400. `status` None = ack sin estructura de
+    rechazo pero sin id (ack_sin_id lo pone el caller)."""
+    if rol == "product_targeting" and (status is None or status < 500):
+        return "pt_no_acepta_negative_keyword"
+    if status is not None and status >= 500:
+        return "http_5xx"
+    return "http_400"
+
+
+def _motivo_ambiguo_hermana(exc: Exception) -> str:
+    """Motivo de un fallo ambiguo (AdsApiError base: red o 5xx-sin-retry en
+    POST no idempotente — el cliente no los distingue con tipo). El status
+    viaja en el mensaje propio (`status=503 sin retry...`): si se lee un
+    5xx es `http_5xx`, si no `red_ambigua`. El formato del mensaje es de
+    este repo (una sola fuente); si cambia, el test del 503 avisa."""
+    m = re.search(r"status=(\d{3})", str(exc))
+    if m is not None and int(m.group(1)) >= 500:
+        return "http_5xx"
+    return "red_ambigua"
+
+
+def _cierra_o_sigue(
+    conn: psycopg.Connection,
+    job: _Job,
+    objetivo: dict,
+    hermanas: dict,
+    ciclos: int,
+    queue_id: int | None,
+) -> tuple[str, AlertaHarvest | None]:
+    """Cierre o continuacion tras persistir un ciclo de higiene (F2, A.3):
+    sin restantes → done limpio (sin alerta: todo resuelto); restantes al
+    tope de ciclos → done + `hermanas_pendientes` + AlertaHarvest veraz
+    (enviada aqui, patron `_falla_job`; el texto jamas dice "failed": el
+    evento de valor quedo aplicado); si no → "sigue". La reconciliacion
+    recoge la alerta aunque el estado sea done."""
+    restantes = [
+        r for r in ROLES_DISCOVERY if r in objetivo and "negative_id" not in hermanas.get(r, {})
+    ]
+    if not restantes:
+        with conn.transaction():
+            _avanza(conn, job, "done", {"hermanas_pendientes": {}})
+            _termina_cola_si_applying(conn, queue_id)
+        return "done", None
+    if ciclos >= TOPE_CICLOS_HERMANAS:
+        # Defensive .get: todo camino que deja pendiente escribe motivo; el
+        # default es inalcanzable por construccion.
+        pendientes = {r: hermanas[r].get("motivo", "red_ambigua") for r in restantes}
+        resueltas = [r for r in ROLES_DISCOVERY if r in objetivo and r not in restantes]
+        detalle = (
+            f"{len(resueltas)}/{len(objetivo)} hermanas aplicadas"
+            f" ({', '.join(resueltas)}); pendientes: "
+            + ", ".join(f"{r}: {pendientes[r]}" for r in restantes)
+        )
+        alerta = AlertaHarvest(
+            motivo=MOTIVO_HERMANAS_PENDIENTES,
+            decision_id=job.decision_id,
+            search_term=job.search_term,
+            plataforma=job.plataforma,
+            job_id=job.id,
+            detalle=detalle,
+        )
+        if not notifica.notifica_harvest_hermanas(alerta):
+            alerta = replace(alerta, envio_fallido=True)
+        with conn.transaction():
+            _avanza(conn, job, "done", {"hermanas_pendientes": pendientes})
+            _termina_cola_si_applying(conn, queue_id)
+        return "done", alerta
+    return "sigue", None
+
+
+def _acks_hermana(intentos: list[tuple[int, dict | None, bool]]) -> set[str]:
+    """Ids de ack duraderas de los intentos previos de una hermana: la
+    prueba de procedencia (r2). Un intento sin ack (crash con respuesta
+    perdida) no aporta id; uno sellado con ack, si."""
+    ids: set[str] = set()
+    for _i, ack, _abierta in intentos:
+        if not isinstance(ack, dict):
+            continue
+        id_ = _id_de_ack(ack, "negativeKeywordId")
+        if id_ is not None:
+            ids.add(str(id_))
+    return ids
+
+
+def _post_hermana(
+    conn: psycopg.Connection, cliente, job: _Job, rol: str, ag_ext: str, camp_ext: str
+) -> tuple[str | None, int | None, str | None, dict | None]:
+    """UN intento POST a una hermana ausente del previo (F2, A.3): como
+    maximo uno por identidad y por ciclo. Devuelve (motivo, id_attempt,
+    negative_id, ack): motivo None = aceptado con id (la confirmacion la
+    hace el barrido posterior contra ESA id); motivo != None = pendiente
+    con ese motivo (la fila queda sellada con el fallo, salvo ambiguo, que
+    queda abierta como rastro). El tope por (decision, adGroupId) muerde
+    antes de crear la fila."""
+    if apply._intentos_hermana(conn, job.decision_id, ag_ext) >= TOPE_INTENTOS_HERMANA:
+        return ("tope_intentos", None, None, None)
+    payload = {
+        # Espejo del wire REAL (probe 2.5, apply_attempt 13): enums UPPER.
+        "adGroupId": ag_ext,
+        "campaignId": camp_ext,
+        "keywordText": job.search_term,
+        "matchType": "NEGATIVE_EXACT",
+        "state": "ENABLED",
+    }
+    id_attempt = apply._ledger(conn, job.decision_id, "hermana", payload, quota_cobrada=False)
+    if id_attempt is None:  # defensivo: 'hermana' no tiene tope normal
+        return ("tope_intentos", None, None, None)
+    conn.commit()  # intencion durable PRE-HTTP
+    try:
+        resp = cliente.crear_negative_exacto(ag_ext, camp_ext, job.search_term)
+    except apply.AdsApiErrorMutacion as exc:
+        apply._sella_ledger(
+            conn, id_attempt, ack=None, resultado=f"fallo http {exc.status}: {exc.cuerpo}"
+        )
+        conn.commit()
+        return (_motivo_rechazo_hermana(rol, exc.status), None, None, None)
+    except AdsApiError as exc_ambigua:
+        # Ambiguo (red o 5xx-sin-retry): la fila sin sello ES el rastro.
+        return (_motivo_ambiguo_hermana(exc_ambigua), None, None, None)
+    ack = apply._json_seguro(resp)
+    errores = _errores_de_ack(ack)
+    neg_id = _id_de_ack(ack, "negativeKeywordId")
+    if errores or neg_id is None:
+        # El 207 NO es exito automatico: la fila en error[] es rechazo
+        # por-item (motivo de rechazo); sin id ni errores es ack ilegible
+        # (fail-closed, sin evidencia del corte).
+        motivo = _motivo_rechazo_hermana(rol, None) if errores else "ack_sin_id"
+        with conn.transaction():
+            apply._sella_ledger(conn, id_attempt, ack=ack, resultado=f"fallo:{motivo}")
+        conn.commit()
+        return (motivo, None, None, None)
+    # ACK aceptado: queda durable ANTES del readback posterior (r3, AC-4),
+    # con la fila abierta. El posterior solo sella el resultado.
+    with conn.transaction():
+        apply._guarda_ack(conn, id_attempt, ack)
+    return (None, id_attempt, neg_id, ack)
+
+
+def _paso_hermanas(
+    conn: psycopg.Connection,
+    aplicador,
+    job: _Job,
+    queue_id: int | None,
+) -> tuple[str, AlertaHarvest | None]:
+    """Fase hermanas_negadas (F2, A.3): higiene posterior al evento de valor
+    (ya confirmado: resumen, cola y fase sellados). Opera SOLO sobre el
+    roster congelado en `external_ids`: jamas re-valida membresia viva (un
+    cambio de grupo posterior no agrega ni sustituye objetivos) ni recibe
+    `_Contexto` (construirlo re-validaria y podria fallar un harvest
+    confirmado). Un ciclo = barrido previo batched, como maximo un POST
+    por identidad ausente y, si hubo POST, barrido posterior. Nunca quota,
+    nunca failed, nunca reversa de la keyword por una hermana: lo no
+    resuelto queda pendiente y el job sigue. Retorna ("done", alerta|None)
+    al cerrar, ("sigue", None) si continua."""
+    _ = queue_id  # la cola ya quedo applied en el sello; aqui no se toca
+    ext = dict(job.external_ids)
+    objetivo = dict(ext.get("hermanas_objetivo") or {})
+    hermanas = {r: dict(v) for r, v in (ext.get("hermanas") or {}).items()}
+    ciclos = int(ext.get("hermanas_ciclos") or 0)
+    pendientes = [
+        r for r in ROLES_DISCOVERY if r in objetivo and "negative_id" not in hermanas.get(r, {})
+    ]
+    if not pendientes:
+        with conn.transaction():
+            _avanza(
+                conn,
+                job,
+                "done",
+                {
+                    "hermanas": hermanas,
+                    "hermanas_ciclos": ciclos + 1,
+                    "hermanas_pendientes": {},
+                },
+            )
+            _termina_cola_si_applying(conn, queue_id)
+        return "done", None
+    # Gate del ORIGEN (no de las hermanas): si el origen dejo de estar
+    # ENABLED durante la higiene, cada pendiente queda con
+    # `ancestro_no_enabled`, sin HTTP. Jamas falla el harvest sellado.
+    if apply.gate_ancestros(conn, job.ad_entity_id) is not None:
+        for rol in pendientes:
+            hermanas[rol] = {"motivo": "ancestro_no_enabled"}
+        with conn.transaction():
+            _avanza(conn, job, None, {"hermanas": hermanas, "hermanas_ciclos": ciclos + 1})
+        return _cierra_o_sigue(conn, job, objetivo, hermanas, ciclos + 1, queue_id)
+    cliente = aplicador._cliente()
+    previo, estado_previo = _lista_filtrada(
+        cliente, [objetivo[r]["ad_group_id"] for r in pendientes]
+    )
+    if estado_previo != "ok":
+        # Fail-closed: barrido incompleto o ambiguo -> cero POST; las
+        # pendientes quedan con el motivo del barrido y el job sigue. El
+        # precheck truncado tambien nutre ciclos (el sello es el rastro).
+        motivo = "list_truncado" if estado_previo == "truncado" else "list_ambiguo"
+        for rol in pendientes:
+            hermanas[rol] = {"motivo": motivo}
+        with conn.transaction():
+            _avanza(conn, job, None, {"hermanas": hermanas, "hermanas_ciclos": ciclos + 1})
+        return _cierra_o_sigue(conn, job, objetivo, hermanas, ciclos + 1, queue_id)
+    posteadas: list[tuple[str, int, str, str, dict]] = []
+    for rol in pendientes:
+        ag_ext = objetivo[rol]["ad_group_id"]
+        camp_ext = objetivo[rol]["campaign_id"]
+        halladas = _coincidencias(previo, ag_ext, job.search_term)
+        intentos = apply._intentos_hermana_detalle(conn, job.decision_id, ag_ext)
+        probadas = [x for x in halladas if str(x.get("keywordId")) in _acks_hermana(intentos)]
+        abiertas = [i for (i, _ack, abierta) in intentos if abierta]
+        if probadas:
+            # Procedencia por ID (r2/r3): la id hallada coincide con el ack
+            # duradero de un intento previo -> propia. Las abiertas cuya
+            # ack-id aparece se sellan ok (la prueba llego tarde pero
+            # llego); las demas abiertas siguen abiertas (su resultado es
+            # genuinamente desconocido; sellarlas mentiria).
+            propia = probadas[0]
+            prob_ids = {str(x.get("keywordId")) for x in probadas}
+            with conn.transaction():
+                for _i, _ack, _abierta in intentos:
+                    if not _abierta or not isinstance(_ack, dict):
+                        continue
+                    _id = _id_de_ack(_ack, "negativeKeywordId")
+                    if _id is not None and str(_id) in prob_ids:
+                        apply._sella_resultado(conn, _i, "ok")
+            hermanas[rol] = {"negative_id": propia.get("keywordId"), "creada": True}
+            continue
+        if abiertas:
+            # Sin prueba (crash sin ack, o ack que no aparece): pendiente,
+            # filas abiertas. Jamas se marca propia una id sin procedencia
+            # (r2): la reversa podria borrar lo ajeno. Nunca
+            # `_sella_pendientes`: cerraria intentos ambiguos de otras
+            # hermanas.
+            hermanas[rol] = {"motivo": "red_ambigua"}
+            continue
+        if halladas:
+            # Sin intento propio, lo encontrado se adopta (`creada =
+            # false`): jamas se marca propio lo ajeno.
+            hermanas[rol] = {"negative_id": halladas[0].get("keywordId"), "creada": False}
+            continue
+        motivo, id_attempt, neg_id, ack_post = _post_hermana(
+            conn, cliente, job, rol, ag_ext, camp_ext
+        )
+        if motivo is not None:
+            hermanas[rol] = {"motivo": motivo}
+            continue
+        assert id_attempt is not None and neg_id is not None  # contrato de _post_hermana
+        posteadas.append((rol, id_attempt, neg_id, ag_ext, ack_post))
+    if posteadas:
+        posterior, estado_posterior = _lista_filtrada(cliente, [ag for _, _, _, ag, _ in posteadas])
+        if estado_posterior != "ok":
+            motivo = "list_truncado" if estado_posterior == "truncado" else "list_ambiguo"
+            for rol, _id_attempt, _neg_id, _ag_ext, _ack_post in posteadas:
+                hermanas[rol] = {"motivo": motivo}  # filas abiertas: el proximo previo las cruza
+            with conn.transaction():
+                _avanza(conn, job, None, {"hermanas": hermanas, "hermanas_ciclos": ciclos + 1})
+            # Por el cierre por tope (r1): tambien el posterior del ciclo 3
+            # cierra; no existe cuarto ciclo.
+            return _cierra_o_sigue(conn, job, objetivo, hermanas, ciclos + 1, queue_id)
+        for rol, id_attempt, neg_id, ag_ext, _ack_post in posteadas:
+            # Procedencia por ID (r2/r3): se registra propia SOLO la id del
+            # ack que aparece en el readback; el ack ya quedo durable antes
+            # del posterior (AC-4), asi que el sello final no lo reescribe.
+            # Si no aparece, la hermana NO se marca propia: otra id viva se
+            # adopta (el termino queda bloqueado igual), ninguna id viva
+            # deja pendiente (la id del ack sigue durable para prueba
+            # tardia).
+            halladas = _coincidencias(posterior, ag_ext, job.search_term)
+            if neg_id in {str(x.get("keywordId")) for x in halladas}:
+                with conn.transaction():
+                    apply._sella_resultado(conn, id_attempt, "ok")
+                hermanas[rol] = {"negative_id": neg_id, "creada": True}
+            else:
+                with conn.transaction():
+                    apply._sella_resultado(conn, id_attempt, "fallo:ack_sin_prueba")
+                if halladas:
+                    hermanas[rol] = {
+                        "negative_id": halladas[0].get("keywordId"),
+                        "creada": False,
+                    }
+                else:
+                    hermanas[rol] = {"motivo": "red_ambigua"}
+    with conn.transaction():
+        _avanza(conn, job, None, {"hermanas": hermanas, "hermanas_ciclos": ciclos + 1})
+    return _cierra_o_sigue(conn, job, objetivo, hermanas, ciclos + 1, queue_id)
 
 
 def _continua_job(
     conn: psycopg.Connection, aplicador, job: _Job, *, queue_id: int | None
 ) -> tuple[str, AlertaHarvest | None]:
-    """Conduce el job DESDE su fase actual hasta done|failed (cascada). La
-    quota es del caller (cobrada pre-claim). Ambiguo (AdsApiError) SUBE:
-    ledger sin sello, job en su fase, la fila ES el rastro."""
+    """Conduce el job DESDE su fase actual hasta done|failed|sigue
+    (cascada). "sigue" = evento de valor confirmado y la higiene continua en
+    `hermanas_negadas` (F2). Un job ya sellado en higiene NO pasa por
+    `_contexto` (r1): re-validar la membresia viva podria fallar un harvest
+    confirmado ignorando el roster congelado. La quota es del caller
+    (cobrada pre-claim). Ambiguo (AdsApiError) SUBE: ledger sin sello, job
+    en su fase, la fila ES el rastro."""
+    if job.fase == "hermanas_negadas":
+        return _paso_hermanas(conn, aplicador, job, queue_id)
     try:
         ctx = _contexto(conn, job)
     except ValueError as exc:
@@ -1074,7 +1962,11 @@ def _continua_job(
         estado, alerta = _paso_keyword(conn, aplicador, job, ctx, queue_id)
         if estado != "avanza":
             return estado, alerta
-    return _paso_readback(conn, aplicador, job, ctx, queue_id)
+    if job.fase == "exact_created":
+        estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+        if estado != "avanza":
+            return estado, alerta
+    return _paso_hermanas(conn, aplicador, job, queue_id)
 
 
 # ---------------------------------------------------------------------------
@@ -1104,8 +1996,13 @@ def aplica_harvest(
     if conn.execute(_SQL_CLAIM, (fila.id,)).fetchone() is None:
         return ResultadoHarvest(estado="perdida", caps_saturados=caps)
     estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+    # "sigue" (F2) cuenta como aplicada: el evento de valor quedo confirmado
+    # (resumen + cola) y solo la higiene continua; mandarlo a otro estado
+    # mentiria en los contadores de la cola (apply_cola no conoce "sigue").
     return ResultadoHarvest(
-        estado="applied" if estado == "done" else estado, alerta=alerta, caps_saturados=caps
+        estado="applied" if estado in ("done", "sigue") else estado,
+        alerta=alerta,
+        caps_saturados=caps,
     )
 
 

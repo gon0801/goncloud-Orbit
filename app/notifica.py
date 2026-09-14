@@ -534,6 +534,24 @@ def alerta_harvest_failed(alerta: AlertaHarvest) -> str:
     )
 
 
+def alerta_harvest_hermanas(alerta: AlertaHarvest) -> str:
+    """Alerta de harvest APLICADO con hermanas pendientes (F2, A.3): el
+    evento de valor quedo confirmado y la higiene no completo. El texto
+    jamas dice "failed": seria mentira operativa (la keyword vende). Las
+    pendientes viajan en `detalle` (rol: motivo por linea)."""
+    return "\n".join(
+        [
+            "[Orbit] harvest aplicado con hermanas pendientes",
+            f"plataforma: {alerta.plataforma}",
+            f"motivo: {alerta.motivo}",
+            f"decision: {alerta.decision_id}",
+            f"search_term: {alerta.search_term}",
+            f"job: {alerta.job_id}",
+            f"detalle: {alerta.detalle}",
+        ]
+    )
+
+
 def aviso_cap_agotado(plataforma: str, kind: str, used: int, cap: int) -> str:
     """Aviso de cap de quota agotado (preflight 1.4): la rampa del dia llego
     a su tope en una forma. Sin FECHA en el texto (decision declarada): ni
@@ -605,6 +623,22 @@ def notifica_harvest_failed(
         return _envia_texto(alerta_harvest_failed(alerta), transport=transport)
     except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
         logger.warning("telegram: fallo armando la alerta de harvest: %s", scrub(str(exc)))
+        return False
+
+
+def notifica_harvest_hermanas(
+    alerta: AlertaHarvest, *, transport: httpx.BaseTransport | None = None
+) -> bool:
+    """Aviso de harvest aplicado con hermanas pendientes (F2, A.3): sale al
+    cerrar `done` con pendientes declaradas. Mismo contrato fail-silent de
+    los otros senders: canal deshabilitado -> True (no es fallo); cualquier
+    excepcion -> warning con scrub + False; JAMAS levanta."""
+    try:
+        if not canal_activo():
+            return True
+        return _envia_texto(alerta_harvest_hermanas(alerta), transport=transport)
+    except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
+        logger.warning("telegram: fallo armando el aviso de hermanas: %s", scrub(str(exc)))
         return False
 
 
