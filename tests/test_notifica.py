@@ -1170,3 +1170,63 @@ def test_notifica_harvest_hermanas_envia_y_tumba(tmp_path, monkeypatch):
     assert "failed" not in mensaje["text"].lower()
     with _canal(tmp_path, monkeypatch, tumbar=True):
         assert notifica.notifica_harvest_hermanas(alerta) is False
+
+
+def _aviso_biblioteca(**cambios):
+    """kwargs base del aviso de biblioteca (camino harvest)."""
+    base = {
+        "aplicado": "harvest",
+        "plataforma": "amazon_us",
+        "grupo_id": 3,
+        "decision_id": 42,
+        "job_id": 7,
+        "texto": TERMINO,
+        "motivo": "biblioteca_no_escrita",
+        "detalle": "UndefinedTable",
+    }
+    base.update(cambios)
+    return base
+
+
+def test_alerta_biblioteca_no_escrita_contenido_veraz():
+    """Builder puro (F2, A.4): el harvest/negative SI quedo aplicado y la
+    biblioteca no aprendio el termino; jamas dice "failed". Regla 9: un
+    copy del builder de failed mentiria en el evento de valor."""
+    texto = notifica.alerta_biblioteca_no_escrita(**_aviso_biblioteca())
+    assert texto.startswith("[Orbit] biblioteca no aprendio el termino (harvest aplicado)")
+    assert "failed" not in texto.lower()
+    for linea in (
+        "plataforma: amazon_us",
+        "aplicado: harvest",
+        "grupo: 3",
+        "decision: 42",
+        "job: 7",
+        f"search_term: {TERMINO}",
+        "motivo: biblioteca_no_escrita",
+        "detalle: UndefinedTable",
+    ):
+        assert linea in texto, linea
+    sin_job = notifica.alerta_biblioteca_no_escrita(
+        **_aviso_biblioteca(aplicado="negative", job_id=None)
+    )
+    assert "(negative aplicado)" in sin_job
+    assert "\njob:" not in sin_job, "el camino negative no tiene job"
+
+
+def test_notifica_biblioteca_no_escrita_envia_y_tumba(tmp_path, monkeypatch):
+    """Sender (F2, A.4): con canal OK envia (True) el texto veraz; con red
+    rota devuelve False SIN levantar (el rastro durable ya quedo)."""
+    with _canal(tmp_path, monkeypatch) as mensajes:
+        assert notifica.notifica_biblioteca_no_escrita(**_aviso_biblioteca()) is True
+    (mensaje,) = mensajes
+    assert mensaje["chat_id"] == FAKE_CHAT_ID
+    assert "biblioteca no aprendio" in mensaje["text"]
+    assert "failed" not in mensaje["text"].lower()
+    with _canal(tmp_path, monkeypatch, tumbar=True):
+        assert notifica.notifica_biblioteca_no_escrita(**_aviso_biblioteca()) is False
+
+
+def test_notifica_biblioteca_no_escrita_sin_canal_no_es_fallo():
+    """Canal deshabilitado (default del conftest): True y cero HTTP. Mata
+    la mutacion 'sin rama canal_activo'."""
+    assert notifica.notifica_biblioteca_no_escrita(**_aviso_biblioteca()) is True
