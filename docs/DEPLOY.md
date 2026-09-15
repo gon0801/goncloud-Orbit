@@ -1635,3 +1635,336 @@ Schema: tablas nuevas, sin rollback (no se tocó nada existente).
 semanal (descomentar línea). Estreno MeLi 2026-09-08: run 117/118
 (236 filas: 65 snapshots + 119 reviews + 1 seller + 51 questions),
 4 alertas abiertas (1 aviso + 3 críticas).
+
+## FABRICA 02 (F2) — harvest por grupo: D.1 despliegue, D.2 terna del grupo 1, D.3 primer harvest y reversa
+
+Runbook de las tres filas de cierre de `plans/fabrica-02.md` (v1.9). **Todo lo
+corre el dueño con `!` desde la raíz del checkout, con `origin/master` ya
+mergeado y con CI verde sobre ese SHA; el lead lee cada salida y la anota en
+`docs/evidencia/fabrica-02/D.1/`, `D.2/` y `D.3/`.** Nada de esto se corre
+"a ver si funciona": cada paso con mutación lleva dry-run antes y un go
+literal del dueño. Producción sigue igual hasta que D.1 termina: 0038 no
+está aplicada y nada de F2 corre en vivo.
+
+Contexto de esquema: 0038 recrea el índice parcial `harvest_job_en_vuelo`
+(gana la fase `hermanas_negadas`), suelta el CHECK `goal_harvest_completo`
+(entra el trigger bid-solo + simétrico de grupo) y da GRANTs de biblioteca a
+`app_decide`. Detalle y backup del schema en §«Migración 0038» de arriba;
+este runbook lo referencia y agrega lo que la fila D.1 exige.
+
+Convenciones de los comandos: `PSQL` es la sesión de administración de la
+base y `PSQL_READ` la de solo lectura. Defínelas una vez en la terminal:
+
+```bash
+PSQL='docker exec -i orbit-db-1 psql -U orbit -d orbit -X -P pager=off'
+PSQL_READ='sh -c '"'"'DSN=$(docker exec orbit-app-1 printenv ORBIT_DSN_READ); docker exec -i orbit-db-1 psql "$DSN" -X -P pager=off'"'"''
+```
+
+### D.1.0 Precondiciones (solo lectura, sin go)
+
+1. **SHA y ventana.** `git fetch -q origin && git rev-parse --short
+   origin/master` debe ser el SHA que el lead aprobó al cerrar el momento de
+   merge, con CI de master verde. Ventana: lejos del ciclo de Ads (08:40
+   UTC) y de las ingestas (05:00–07:20 UTC); entre 09:30 y 15:00 UTC o
+   después de las 16:00 UTC.
+2. **Cola sin harvest en vuelo** (patrón orbit-05 1.3). Las dos consultas
+   deben dar `0`:
+
+   ```bash
+   ssh goncloud "$PSQL -c \"SELECT count(*) AS harvest_no_terminales FROM apply_queue
+     WHERE kind = 'harvest' AND estado NOT IN ('applied','failed','vetoed','discarded');\" \
+     -c \"SELECT count(*) AS jobs_en_vuelo FROM harvest_job
+     WHERE fase IN ('pending','negative_created','exact_created');\""
+   ```
+
+   Si hay filas, se esperan (vencen solas) o se resuelven por `/cortes`
+   antes; **no se despliega encima de un harvest a medias**.
+3. **Goals del grupo 1 en sombra.** Ningún goal del grupo puede estar
+   `live`; el resultado esperado es `shadow` u `off` en todas las filas:
+
+   ```bash
+   ssh goncloud "$PSQL_READ -c \"SELECT r.grupo_id, r.rol, g.id AS goal_id, g.mode, g.enabled,
+       g.harvest_campaign_id, g.harvest_ad_group_id, g.harvest_default_bid
+     FROM campana_grupo_rol r JOIN ads_optimizer_goal g ON g.ad_entity_id = r.ad_entity_id
+     WHERE r.grupo_id = 1 ORDER BY r.rol;\""
+   ```
+
+   Anota la salida: es el estado «antes» de D.2 (terna presente o NULL por
+   goal).
+4. **Ningún goal en estado parcial** (precondición de datos del trigger
+   nuevo; 0001 lo impedía por CHECK, debe dar `0`):
+
+   ```bash
+   ssh goncloud "$PSQL_READ -c \"SELECT count(*) AS goals_parciales FROM ads_optimizer_goal
+     WHERE (harvest_campaign_id IS NULL) <> (harvest_ad_group_id IS NULL)
+        OR ((harvest_campaign_id IS NULL) AND harvest_default_bid IS NOT NULL
+            AND scope = 'platform');\""
+   ```
+
+   (En grupo, «bid-solo» —terna NULL con bid— es el estado que 0038
+   legaliza; fuera de grupo no debería existir todavía.)
+5. **Backup nocturno presente** (cron de root 03:30) y espacio:
+
+   ```bash
+   ssh goncloud 'ls -la /mnt/data/appdata/orbit/backups | tail -4; df -h /mnt/data | tail -1'
+   ```
+6. **Caps vigentes** (para decidir el nuevo con el número a la vista):
+
+   ```bash
+   ssh goncloud "$PSQL_READ -c \"SELECT id, label, created_at,
+       settings->'ads_apply_cap_amazon_mx_harvest'  AS cap_harvest_mx,
+       settings->'ads_apply_cap_amazon_us_harvest'  AS cap_harvest_us,
+       settings->'ads_apply_cap_amazon_mx_negative' AS cap_negative_mx,
+       settings->'ads_apply_cap_amazon_us_negative' AS cap_negative_us,
+       settings->'ads_optimizer_mode' AS modo
+     FROM config_version ORDER BY id DESC LIMIT 1;\""
+   ```
+
+   Fíjate en el **tipo JSON** con que están guardados los caps (número o
+   texto): el nuevo se escribe con el mismo tipo.
+
+### D.1.1 Decisión del cap y config nueva (go del dueño)
+
+Regla de la fila D.1: los caps diarios de harvest se **bajan al arranque**.
+Multiplicador a la vista: **una unidad de harvest son hasta cinco
+mutaciones nuevas de ida** (el negativo en el origen, la keyword en la
+exacta y hasta tres negativos en las hermanas). Referencia del plan: 2
+harvest/día ≈ 10 escrituras máximas de ida por plataforma. **Los negativos
+de hermanas no cuentan contra el cap de `negative`**: van al ledger como
+tipo `hermana` con `quota_cobrada = false`; el cap de `negative` sigue
+midiendo solo los negativos propios del ciclo.
+
+Propuesta del lead (el número lo fija el dueño): `amazon_mx` = **2**,
+`amazon_us` = **2** (US no tiene grupo todavía; sus harvests siguen
+resolviendo por terna y el cap bajo solo acota). Se escribe como
+`config_version` nueva, append-only, copiando la vigente (patrón APPLY §11c;
+no existe camino del motor para cambiar caps):
+
+```bash
+# Dry-run: lo que quedaría, sin escribir.
+ssh goncloud "$PSQL_READ -c \"SELECT settings || jsonb_build_object(
+    'ads_apply_cap_amazon_mx_harvest', 2, 'ads_apply_cap_amazon_us_harvest', 2)
+  FROM config_version ORDER BY id DESC LIMIT 1;\""
+
+# Go del dueño (literal en el label). Si los caps vigentes están como TEXTO,
+# usa '2' en vez de 2 en los dos valores.
+ssh goncloud "$PSQL -c \"INSERT INTO config_version (label, settings)
+  SELECT 'F2 D.1 caps harvest bajados: <literal del dueño>',
+         settings || jsonb_build_object('ads_apply_cap_amazon_mx_harvest', 2,
+                                        'ads_apply_cap_amazon_us_harvest', 2)
+  FROM config_version ORDER BY id DESC LIMIT 1
+  RETURNING id, label, settings->'ads_apply_cap_amazon_mx_harvest',
+            settings->'ads_apply_cap_amazon_us_harvest';\""
+```
+
+Verificación: `GET /api/dashboard/salud` muestra la quota de `harvest` con
+`cap = 2` y `fuente = config_vigente` (si la fila de quota de hoy ya nació
+con el cap viejo, el cap nuevo rige desde la fila de mañana; hoy nada sale
+en vivo, así que no importa):
+
+```bash
+ssh goncloud 'curl -fsS http://127.0.0.1:8010/api/dashboard/salud' | python3 -c \
+  'import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get("quota"), indent=1)[:1200])'
+```
+
+### D.1.2 Backup del schema
+
+Corre el bloque de backup de §«Migración 0038» tal cual (dump `--schema-only`
+de `harvest_job`, `apply_attempt`, `ads_optimizer_goal`, `campana_grupo_rol`,
+`keyword_biblioteca`, `negative_biblioteca`, con verificación del `CREATE
+TABLE` y del marcador de cierre, `chmod 600`). Anota el nombre del archivo
+resultante en E/D.1. Los datos no se tocan: 0038 solo altera constraints,
+índice, triggers y GRANTs (su bloque DO inserta y borra semillas dentro de
+la transacción).
+
+### D.1.3 Migración 0038 en una transacción y verificación como lector
+
+Aplicar y comprobar lo que se suelta y lo que entra con los dos comandos de
+§«Migración 0038» (`psql -v ON_ERROR_STOP=1 -1` con el archivo por stdin, y
+la consulta de `pg_constraint` / `pg_index` / `pg_trigger`). Resultado
+esperado, literal: `harvest_job_fase_check` y `attempt_tipo_valido`
+presentes, `goal_harvest_completo` ausente; el predicado del índice incluye
+`hermanas_negadas`; los dos triggers habilitados.
+
+Después, **como `orbit_read`** (la fila D.1 pide verificar fases, índice,
+tipo `hermana`, triggers, GRANTs en los dos sentidos y secuencias):
+
+```bash
+ssh goncloud "$PSQL_READ \
+  -c \"SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'harvest_job_fase_check';\" \
+  -c \"SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'attempt_tipo_valido';\" \
+  -c \"SELECT indexdef FROM pg_indexes WHERE indexname = 'harvest_job_en_vuelo';\" \
+  -c \"SELECT has_table_privilege('app_decide','keyword_biblioteca','INSERT') AS decide_inserta_kw,
+              has_table_privilege('app_decide','negative_biblioteca','INSERT') AS decide_inserta_neg,
+              has_column_privilege('app_decide','keyword_biblioteca','updated_at','UPDATE') AS decide_toca_updated_at,
+              has_table_privilege('app_decide','keyword_biblioteca','DELETE') AS decide_borra_kw,
+              has_table_privilege('app_decide','negative_biblioteca','UPDATE') AS decide_actualiza_neg,
+              has_table_privilege('app_read','keyword_biblioteca','INSERT') AS read_inserta_kw,
+              has_sequence_privilege('app_decide','keyword_biblioteca_id_seq','USAGE') AS decide_seq_kw,
+              has_sequence_privilege('app_decide','negative_biblioteca_id_seq','USAGE') AS decide_seq_neg;\""
+```
+
+Esperado: las dos definiciones traen `hermanas_negadas` y `hermana`
+respectivamente; `decide_inserta_kw = t`, `decide_inserta_neg = t`,
+`decide_toca_updated_at = t`, `decide_borra_kw = f`,
+`decide_actualiza_neg = f`, `read_inserta_kw = f`, `decide_seq_kw = t`,
+`decide_seq_neg = t`. Un solo valor distinto detiene el despliegue: la
+reversa del esquema es restaurar el dump de D.1.2 en una transacción, **no**
+recrear tablas.
+
+### D.1.4 Deploy del código y smoke de lectura
+
+El deploy es el de siempre (`git archive` de `origin/master`, md5 contra el
+remoto, `up -d --no-deps --build app`), con **dos archivos más** en el
+archive: `tools/harvest_excepcion.py` y `tools/reversa_harvest.py` no van en
+la imagen (entran por stdin en D.2 y D.3, como `archiva_inertes.py`), pero
+el md5 del árbol del server debe incluirlos para que lo que se corre sea lo
+que está en master. Desde la raíz del checkout:
+
+```bash
+git fetch -q origin && SHA=$(git rev-parse --short origin/master) && STAMP=$(date -u +%Y%m%d-%H%M)
+ssh goncloud "cd /mnt/data/appdata/orbit && cp -a app app.bak-predeploy-$STAMP && echo respaldo app.bak-predeploy-$STAMP"
+git archive --format=tar origin/master app Dockerfile .dockerignore pyproject.toml uv.lock \
+  tools/fabrica_campanas.py tools/harvest_excepcion.py tools/reversa_harvest.py \
+  | ssh goncloud 'cd /mnt/data/appdata/orbit && tar -xf -'
+TMP=$(mktemp -d)
+git archive --format=tar origin/master app tools/fabrica_campanas.py tools/harvest_excepcion.py tools/reversa_harvest.py \
+  | tar -xf - -C "$TMP"
+( cd "$TMP" && find app tools -type f | sort | xargs md5 -r ) | awk '{print $1, $2}' | sort -k2 > "$TMP/local.md5"
+ssh goncloud 'cd /mnt/data/appdata/orbit && find app tools/fabrica_campanas.py tools/harvest_excepcion.py tools/reversa_harvest.py -type f | sort | xargs md5sum' \
+  | awk '{print $1, $2}' | sort -k2 > "$TMP/server.md5"
+diff -q "$TMP/local.md5" "$TMP/server.md5" && echo "md5 OK ($SHA): $(wc -l < "$TMP/local.md5") archivos" || { echo "md5 DIFERENTE: no construyas"; diff "$TMP/local.md5" "$TMP/server.md5" | head; }
+ssh goncloud 'cd /mnt/data/appdata/orbit && docker compose up -d --no-deps --build app 2>&1 | tail -3'
+ssh goncloud 'curl -fsS http://127.0.0.1:8010/health; echo; docker ps --format "{{.Names}} {{.Status}}" | grep orbit-app'
+```
+
+Smoke de lectura (F2 visible, sin escribir nada): `/salud` trae el bloque
+`harvest_destino` con `resueltos` por procedencia y `saltos_grupo`, y
+`/cortes` responde 200:
+
+```bash
+ssh goncloud 'curl -fsS http://127.0.0.1:8010/api/dashboard/salud' | python3 -c \
+  'import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get("harvest_destino"), indent=1, ensure_ascii=False))'
+ssh goncloud 'curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8010/cortes'
+```
+
+Antes de D.2, `resueltos` debe mostrar al grupo 1 por `terna` (su terna
+sigue puesta) o por `grupo` si ya era NULL; anótalo: es el «antes» de D.2.
+
+### D.1.5 Verificación de apagado (no es la reversa)
+
+Con los goals del grupo en `shadow`, un ciclo completo **no debe sacar
+ningún job nuevo a HTTP**. Conteos antes, un ciclo, conteos después, los
+mismos:
+
+```bash
+ssh goncloud "$PSQL_READ -c \"SELECT (SELECT count(*) FROM harvest_job) AS jobs,
+   (SELECT count(*) FROM apply_attempt WHERE tipo IN ('normal','hermana')) AS intentos,
+   (SELECT count(*) FROM keyword_biblioteca) AS kw_biblio,
+   (SELECT count(*) FROM negative_biblioteca) AS neg_biblio,
+   (SELECT max(id) FROM optimizer_cycle) AS ultimo_ciclo;\""
+ssh goncloud 'docker exec orbit-app-1 python -m app.cli cycle --platform amazon_mx 2>&1 | tail -5'
+# repetir el SELECT: jobs, intentos, kw_biblio y neg_biblio IDÉNTICOS; ultimo_ciclo +1
+```
+
+Si algún conteo subió, se detiene todo y se lee el ciclo en `/salud`
+(motivo del skip) antes de seguir. Lo que sí puede aparecer: filas
+`shadow` en `apply_queue` y notas `harvest_destino` en el ciclo — eso es
+lectura, no HTTP.
+
+Con esto D.1 cierra: E/D.1 lleva SHA, respaldo, salidas de D.1.3, md5 y
+`Recreated`, el cap decidido con su `config_version.id`, y los dos conteos
+de D.1.5.
+
+### D.2 Limpiar la terna del grupo 1 (go del dueño)
+
+Objetivo: que el grupo 1 resuelva su destino **por grupo** (rol
+`category_exact`) y no por la terna copiada en cada goal. La herramienta es
+`tools/harvest_excepcion.py --limpiar-terna`: solo `app_admin`, cero Amazon,
+va goal por goal por `goals_write.edita_goal(harvest_limpia_destino=True)`
+(bid intacto), y es **reanudable**: un fallo a mitad aborta con el
+`goal_id` y lo limpio queda limpio. Entra por stdin al contenedor, como
+`archiva_inertes.py`.
+
+```bash
+# 1) Dry-run: candidatas, resolución de hoy y de después, huella. Cero escrituras.
+ssh goncloud 'docker exec -i orbit-app-1 python - --limpiar-terna --grupo 1' \
+  < tools/harvest_excepcion.py
+
+# 2) Go del dueño: --esperado = número de candidatas del dry-run, --huella la del dry-run.
+ssh goncloud 'docker exec -i orbit-app-1 python - --limpiar-terna --grupo 1 \
+  --acepto-mutacion-real --esperado <N> --huella <H> --go "<literal del dueño>"' \
+  < tools/harvest_excepcion.py
+```
+
+Verificación (las mismas consultas de D.1.0 paso 3 y del smoke de D.1.4):
+los goals `scope = 'campaign'` del grupo 1 con `harvest_campaign_id` y
+`harvest_ad_group_id` en NULL y `harvest_default_bid` igual que antes; el
+readback del propio tool debe listarlos en bid-solo; `/salud` →
+`harvest_destino.resueltos.grupo` incluye al grupo 1 y `saltos_grupo` sin
+`destino_inconsistente` para sus campañas. Si vuelves a correr el dry-run,
+debe decir «ya limpia» para todas.
+
+**Migración a `harvest_excepcion`: no es masiva.** 241 campañas resuelven
+hoy por el goal de plataforma y solo 4 han cosechado alguna vez; el resto
+sigue por la terna vigente con `migracion_pendiente`, que es un estado
+legítimo. Se migran solo las que el dueño decida (candidatas naturales: esas
+4). Si decide migrar alguna, es una corrida por campaña, con su propio go:
+
+```bash
+# Dry-run
+ssh goncloud 'docker exec -i orbit-app-1 python - --migrar --plataforma amazon_mx \
+  --campana <external_id origen> --destino-campana <external_id> --destino-ad-group <external_id>' \
+  < tools/harvest_excepcion.py
+# Go (misma ceremonia: --acepto-mutacion-real --esperado 1 --huella <H> --go "<literal>")
+```
+
+E/D.2 declara: goals limpiados con ids, `config`/`salud` antes y después,
+filas de `harvest_excepcion` creadas (si alguna) con su `go_literal`, y
+cuántas campañas quedan en `migracion_pendiente` a propósito.
+
+### D.3 Primer harvest de grupo en vivo y ensayo de reversa
+
+Dos gos separados del dueño, y **una precondición que no se puede
+forzar**: hace falta un harvest de grupo con hermanas, y las cinco
+campañas del grupo 1 (`kit_arras | Personalizado`, nacidas el 2026-09-09)
+no reciben decisiones antes de diez días de datos (regla 6; fabrica-01
+Tarea 11 paso 4, 2026-09-19). Además `cortes-ui-01` 1.2 es precondición
+de la fila. Hasta entonces D.3 no arranca; se declara, no se adelanta.
+
+Orden cuando llegue el día:
+
+1. **Encender el grupo a `live`** (go 1): los goals del grupo 1 pasan de
+   `shadow` a `live` por el camino de goals (`goals_write`, nunca UPDATE
+   crudo); la envolvente `ads_optimizer_mode` ya es `live`. Verificar con la
+   consulta de D.1.0 paso 3.
+2. **Seguir el primer harvest natural hasta `done`** (sin forzar `/run`:
+   espera el ciclo del cron). Evidencia: `harvest_job` con `fase` pasando
+   por `hermanas_negadas`, `external_ids.hermanas_objetivo` con las
+   hermanas del roster, keyword en la exacta por readback, negativos en las
+   hermanas por LIST, fila en `keyword_biblioteca`, ledger `normal` +
+   `hermana` sellado con `quota_cobrada = false` en las hermanas, y
+   `/cortes` mostrando `destino` y `hermanas` en el renglón antes de vencer
+   el veto.
+3. **Ensayo de reversa sobre ese job** (go 2, aparte): dry-run primero,
+   cero HTTP; luego la mutación real con la ceremonia completa. Orden
+   canónico keyword → hermanas propias → origen, readback entre deletes,
+   stop al primer fallo, reanudación sin repetir.
+
+   ```bash
+   # Dry-run: plan + huella sobre los pasos pendientes, cero HTTP.
+   ssh goncloud 'docker exec -i orbit-app-1 python - --job <id harvest_job done>' \
+     < tools/reversa_harvest.py
+   # Go 2 del dueño.
+   ssh goncloud 'docker exec -i orbit-app-1 python - --job <id> \
+     --acepto-mutacion-real --esperado <N> --huella <H> --go "<literal del dueño>"' \
+     < tools/reversa_harvest.py
+   ```
+
+   Verificar con ids reales: readback `ARCHIVED`/ausente de la keyword y de
+   cada negativo propio, ledger `reversa` con `quota_cobrada = false`, y que
+   nada ajeno se tocó (negativos adoptados —`creada = false`— intactos).
+
+E/D.3 lleva los dos go literales, ids reales, ledger y readbacks de la
+reversa y del primer harvest. Con D.3 cierran en el tracker `AUTO-02` y
+`ORBIT 17 — Harvest por grupo (FABRICA 02)`.
