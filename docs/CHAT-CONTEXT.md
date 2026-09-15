@@ -15,11 +15,10 @@ mostró en `/salud` a las cuatro hermanas del grupo resueltas a su exacta y sin 
 criterio. Evidencia en `docs/evidencia/fabrica-02/D.1/` y `D.2/`. La cola del día quedó mergeada completa (#277 a #284, master `7384152`), incluido el modo de
 goals con ceremonia (#283) que D.3 necesita.
 
-**Producción tiene F2 apagada**: los goals del grupo 1 siguen en `shadow` y el código desplegado
-es anterior al #283, así que antes de encender el grupo hace falta otro rebuild desde master.
-También falta instalar la línea de crontab del vigilante y correr su prueba del silencio. **Sigue
-D.3** desde el 19-sep (regla 6 sobre el grupo 1) con dos precondiciones abiertas: ese rebuild y el
-visto bueno del dueño a `cortes-ui-01` 1.2.
+**Producción tiene F2 apagada**: los goals del grupo 1 siguen en `shadow`. Un segundo rebuild la
+misma tarde dejó el código en `7384152`, ya con el modo de goals del #283, y el vigilante del cron
+quedó instalado con su prueba del silencio hecha. **Sigue D.3** desde el 19-sep (regla 6 sobre el
+grupo 1) con una sola precondición abierta: el visto bueno del dueño a `cortes-ui-01` 1.2.
 
 **2026-09-16 UTC — FABRICA 02 (F2): R.1 CERRADA — la revisión independiente de la Fase A pasó con ejecución real; sigue el despliegue.**
 Muse entregó el catálogo de 29 mutantes (PR #278, en master como `d7c0bf9`): 26 mueren con su rojo

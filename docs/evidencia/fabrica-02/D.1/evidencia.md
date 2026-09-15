@@ -21,10 +21,15 @@ literales de la terminal del dueño (el `psql -1` de la migración, la línea
 - Respaldo previo del código: `predeploy-20260915-1638/` en
   `/mnt/data/appdata/orbit`. Contenedor `orbit-app-1` creado
   `2026-09-15T16:38:46Z`.
-- **Consecuencia declarada:** el código en producción **no incluye el PR
-  #283** (`goals set --mode`, `tools/goals_modo_grupo.py`), mergeado a las
-  16:55 UTC, después del rebuild. El paso 1 de D.3 exige otro rebuild desde
-  master `≥ 858c767` (hoy `7384152`) antes del 19-sep.
+- **Segundo rebuild el mismo día (19:53 UTC)**: el código de las 16:38 no
+  incluía el PR #283 (`goals set --mode`), mergeado a las 16:55 UTC. El dueño
+  corrió de nuevo el bloque D.1.4 con `APROBADO = 7384152` (master con #283
+  y #284): respaldo `predeploy-20260915-1953/`, md5 idéntico (109 archivos),
+  `Recreated`, `/health` ok, `/cortes` 200, y smoke específico
+  `goals set --help` con `--mode`. Readback del lead: contenedor creado
+  `2026-09-15T19:53:55Z`, `edita_goal` con `mode` dentro de la imagen,
+  `/salud` sin cambios y los cinco goals del grupo 1 en `shadow`. Sin
+  migración: solo código. **Producción = `7384152`.**
 
 ## Precondiciones (D.1.0), readback posterior
 
@@ -94,7 +99,11 @@ decisiones del grupo (19-sep en adelante).
 - Salidas literales de la terminal del dueño no anexadas (migración,
   `md5 OK`, `Recreated`). El estado final se verificó por readback
   independiente; si el dueño las pega en el PR, se agregan aquí.
-- Vigilante del cron SP-API (PR #280): el módulo está en el contenedor,
-  pero la **línea de crontab no está instalada** y la prueba del silencio
-  no se corrió. Queda como pendiente aparte de D.1 (no es fila del plan).
-- Producción sin el PR #283: rebuild pendiente antes de D.3 (arriba).
+- Vigilante del cron SP-API (PR #280), instalado el 2026-09-15 por el dueño
+  con `!` (no es fila del plan; se anota aquí porque entró con D.1): prueba
+  del silencio (a) dry-run de hoy `faltan 0 de 8`, exit 0; (b) ventana
+  2026-01-01 04:30–07:30Z → 8 ausentes, aviso real por Telegram, exit 1;
+  (c) línea `job_key=spapi:vigilante` `30 7 * * *` con `flock` y log en el
+  crontab de `gon` (respaldo `~/crontab-pre-vigilante-*.txt`),
+  `crontab -l | grep -c spapi:vigilante` = 1. Primera corrida real: 16-sep
+  07:30 UTC.

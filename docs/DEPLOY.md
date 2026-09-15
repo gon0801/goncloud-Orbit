@@ -1119,9 +1119,9 @@ creacion. No se usa una campana real como sonda de produccion.
 
 `0038_fabrica_hermanas_biblioteca.sql` se aplica una sola vez, despues de
 `0018_fabrica_campanas.sql`. **Aplicada en producción el 2026-09-15** (D.1,
-`docs/evidencia/fabrica-02/D.1/evidencia.md`); el código desplegado ese día fue
-`359f1f8`, anterior al PR #283: el paso 1 de D.3 exige un rebuild desde master
-`≥ 858c767`. **No es puramente expansiva**: recrea el índice
+`docs/evidencia/fabrica-02/D.1/evidencia.md`); el código quedó en `7384152`
+tras un segundo rebuild el mismo día (el primero, `359f1f8`, era anterior al
+PR #283). **No es puramente expansiva**: recrea el índice
 parcial `harvest_job_en_vuelo` (gana la fase `hermanas_negadas`) y suelta el
 CHECK `goal_harvest_completo` (entra el trigger bid-solo + simétrico de
 grupo) — ambos dentro de la transacción. No recrear ni borrar tablas para
