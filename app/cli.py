@@ -367,9 +367,12 @@ def _goals_set(args) -> int:
     """`goals set`: DESPACHA a goals_write.edita_goal (el UNICO camino de
     escritura de ads_optimizer_goal, regla 1; cero SQL aqui). Requiere
     ORBIT_DSN_ADMIN (los goals los escribe app_admin): sin DSN -> exit 2
-    fail-closed (patron _cycle). Exit codes sellados en goals_write:
-    GoalInvalido = 2 (uso invalido), GoalInexistente = 1; la conexion se abre
-    SOLO despues de validar los argumentos."""
+    fail-closed (patron _cycle). `--mode live` exige ceremonia
+    (`--acepto-mutacion-real --go "<literal>"`; sin NADA de ceremonia es
+    dry-run con exit 0, a medias es exit 2); bajar no exige nada (kill
+    switch). Exit codes sellados en goals_write: GoalInvalido = 2 (uso
+    invalido), GoalInexistente = 1; la conexion se abre SOLO despues de
+    validar los argumentos."""
     dsn = os.environ.get("ORBIT_DSN_ADMIN")
     if not dsn:
         print(
@@ -385,14 +388,33 @@ def _goals_set(args) -> int:
         "harvest_campaign_id": args.harvest_campaign,
         "harvest_ad_group_id": args.harvest_ad_group,
         "harvest_default_bid": args.harvest_bid,
+        "mode": args.mode,
     }
     if not any(v is not None for v in campos.values()) and not args.harvest_limpia:
         print(
             "goals set necesita al menos un campo a editar "
-            "(--target/--enabled/--floor/--ceiling/--harvest-*)",
+            "(--target/--enabled/--floor/--ceiling/--harvest-*/--mode)",
             file=sys.stderr,
         )
         return 2
+    if campos["mode"] == "live":
+        # UN goal: el id es la autorizacion por conjunto (sin
+        # --esperado/--huella). Sin NADA de ceremonia = dry-run (exit 0,
+        # cero escritura, ni siquiera de otros campos combinados);
+        # ceremonia a medias = error del operador (exit 2).
+        if not args.acepto_mutacion_real and not args.go:
+            print(f"goal {args.goal_id}: mode actual → live")
+            print(
+                "dry-run: sin ceremonia nada se escribio (repite con --acepto-mutacion-real --go)"
+            )
+            return 0
+        if not (args.acepto_mutacion_real and args.go and args.go.strip()):
+            print(
+                "--mode live exige la ceremonia completa: --acepto-mutacion-real"
+                ' --go "<literal del dueno>"',
+                file=sys.stderr,
+            )
+            return 2
     try:
         conn = connect(dsn)
         try:
@@ -523,6 +545,23 @@ def main(argv: list[str] | None = None) -> int:
         "--harvest-limpia",
         action="store_true",
         help="pone los TRES campos de harvest en NULL (no combina con --harvest-*)",
+    )
+    p_set.add_argument(
+        "--mode",
+        choices=("off", "shadow", "live"),
+        default=None,
+        help=(
+            "mode del goal: subir a live exige --acepto-mutacion-real --go"
+            " (sin ellos es dry-run); bajar es el kill switch, sin ceremonia"
+        ),
+    )
+    p_set.add_argument(
+        "--acepto-mutacion-real",
+        action="store_true",
+        help="obligatorio (con --go) para escribir --mode live; sin el = dry-run",
+    )
+    p_set.add_argument(
+        "--go", default=None, help="literal del dueno que autoriza --mode live (no vacio)"
     )
 
     p_report = sub.add_parser(
