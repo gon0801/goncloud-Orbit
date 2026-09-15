@@ -1829,30 +1829,33 @@ remoto, `up -d --no-deps --build app`), con **dos archivos más** en el
 archive: `tools/harvest_excepcion.py` y `tools/reversa_harvest.py` no van en
 la imagen (entran por stdin en D.2 y D.3, como `archiva_inertes.py`), pero
 el md5 del árbol del server debe incluirlos para que lo que se corre sea lo
-que está en master. Desde la raíz del checkout:
+que está en master. El respaldo, el hash y la reversa usan **el mismo
+conjunto de archivos**: `app/`, `Dockerfile`, `.dockerignore`,
+`pyproject.toml`, `uv.lock` y los tres tools. Desde la raíz del checkout:
 
-Cada paso está encadenado con `&&`: si algo falla, imprime `FALLO` y **el
-paso siguiente no se ejecuta**. No sigas a la línea siguiente después de un
-`FALLO`; la reversa del código es restaurar `app.bak-predeploy-$STAMP` y
-reconstruir.
+Cada paso está encadenado con `&&` y **termina con estado distinto de cero
+si falla** (`|| { echo FALLO…; false; }`), así que sirve igual línea por
+línea o dentro de un `set -e`. No sigas a la línea siguiente después de un
+`FALLO`; la reversa del código es restaurar `predeploy-$STAMP/` (mismo
+conjunto de archivos que se copia y se verifica) y reconstruir.
 
 ```bash
 STAMP=$(date -u +%Y%m%d-%H%M); TMP=$(mktemp -d)
-ssh goncloud "cd /mnt/data/appdata/orbit && cp -a app app.bak-predeploy-$STAMP && echo respaldo app.bak-predeploy-$STAMP" || echo "FALLO respaldo"
+ssh goncloud "cd /mnt/data/appdata/orbit && mkdir predeploy-$STAMP && cp -a app Dockerfile .dockerignore pyproject.toml uv.lock tools predeploy-$STAMP/ && echo respaldo predeploy-$STAMP" || { echo "FALLO respaldo"; false; }
 git archive --format=tar "$APROBADO" app Dockerfile .dockerignore pyproject.toml uv.lock \
   tools/fabrica_campanas.py tools/harvest_excepcion.py tools/reversa_harvest.py \
-  | ssh goncloud 'cd /mnt/data/appdata/orbit && tar -xf -' && echo "copiado $APROBADO" || echo "FALLO copia"
-git archive --format=tar "$APROBADO" app tools/fabrica_campanas.py tools/harvest_excepcion.py tools/reversa_harvest.py \
+  | ssh goncloud 'cd /mnt/data/appdata/orbit && tar -xf -' && echo "copiado $APROBADO" || { echo "FALLO copia"; false; }
+git archive --format=tar "$APROBADO" app Dockerfile .dockerignore pyproject.toml uv.lock tools/fabrica_campanas.py tools/harvest_excepcion.py tools/reversa_harvest.py \
   | tar -xf - -C "$TMP" \
-  && ( cd "$TMP" && find app tools -type f | sort | xargs md5 -r ) | awk '{print $1, $2}' | sort -k2 > "$TMP/local.md5" \
-  && ssh goncloud 'cd /mnt/data/appdata/orbit && find app tools/fabrica_campanas.py tools/harvest_excepcion.py tools/reversa_harvest.py -type f | sort | xargs md5sum' \
+  && ( cd "$TMP" && find app tools Dockerfile .dockerignore pyproject.toml uv.lock -type f | sort | xargs md5 -r ) | awk '{print $1, $2}' | sort -k2 > "$TMP/local.md5" \
+  && ssh goncloud 'cd /mnt/data/appdata/orbit && find app tools/fabrica_campanas.py tools/harvest_excepcion.py tools/reversa_harvest.py Dockerfile .dockerignore pyproject.toml uv.lock -type f | sort | xargs md5sum' \
      | awk '{print $1, $2}' | sort -k2 > "$TMP/server.md5" \
   && diff -q "$TMP/local.md5" "$TMP/server.md5" >/dev/null \
   && echo "md5 OK: $(wc -l < "$TMP/local.md5") archivos idénticos a $APROBADO" \
   && ssh goncloud 'cd /mnt/data/appdata/orbit && docker compose up -d --no-deps --build app' \
   && echo "build+recreate OK" \
-  || { echo "FALLO: md5 distinto o build fallido; NO sigas"; diff "$TMP/local.md5" "$TMP/server.md5" | head; }
-ssh goncloud 'curl -fsS http://127.0.0.1:8010/health' && echo && ssh goncloud 'docker ps --format "{{.Names}} {{.Status}}" | grep -q "orbit-app-1 Up" && docker ps --format "{{.Names}} {{.Status}}" | grep orbit-app' && echo "health OK" || echo "FALLO health o contenedor"
+  || { echo "FALLO: md5 distinto o build fallido; NO sigas"; diff "$TMP/local.md5" "$TMP/server.md5" | head; false; }
+ssh goncloud 'curl -fsS http://127.0.0.1:8010/health' && echo && ssh goncloud 'docker ps --format "{{.Names}} {{.Status}}" | grep -q "orbit-app-1 Up" && docker ps --format "{{.Names}} {{.Status}}" | grep orbit-app' && echo "health OK" || { echo "FALLO health o contenedor"; false; }
 ```
 
 Smoke de lectura (F2 visible, sin escribir nada): `/salud` trae el bloque
@@ -1871,9 +1874,12 @@ sigue puesta) o por `grupo` si ya era NULL; anótalo: es el «antes» de D.2.
 ### D.1.5 Verificación de apagado (no es la reversa)
 
 Con los goals del grupo en `shadow`, un ciclo completo **no debe emitir
-ninguna mutación de F2**: ningún job de harvest para una campaña de grupo,
-ningún intento `normal` o `hermana` ligado a una decisión de campaña de
-grupo, ninguna fila nueva en las bibliotecas. Este gate mide **mutaciones de
+ninguna mutación de F2 para el grupo 1** (hoy el único grupo; si mañana
+hay otro en `live`, el filtro `r.grupo_id = 1` sigue midiendo solo al que
+se verifica): ningún job de harvest para sus campañas, ningún intento
+`normal` o `hermana` ligado a una decisión suya, ninguna fila nueva en las
+bibliotecas (las bibliotecas no llevan grupo en la fila de conteo: si otro
+grupo estuviera en vivo, se comparan por `origen`). Este gate mide **mutaciones de
 campañas de grupo**, no todo el HTTP del ciclo: la envolvente ya es `live`
 para el resto de la cuenta, así que el ciclo sigue haciendo su `GET` de
 perfiles y los applies de los goals que ya están en vivo (bids, negativos y
@@ -1882,16 +1888,19 @@ después, los mismos:
 
 ```bash
 ssh goncloud "$PSQL_READ -c \"SELECT
-   (SELECT count(*) FROM harvest_job h JOIN campana_grupo_rol r ON r.ad_entity_id = h.ad_entity_id) AS jobs_grupo,
+   (SELECT count(*) FROM harvest_job h JOIN campana_grupo_rol r ON r.ad_entity_id = h.ad_entity_id
+     WHERE r.grupo_id = 1) AS jobs_grupo1,
    (SELECT count(*) FROM apply_attempt a JOIN decision d ON d.id = a.decision_id
       JOIN campana_grupo_rol r ON r.ad_entity_id = d.ad_entity_id
-     WHERE a.tipo IN ('normal','hermana')) AS intentos_grupo,
-   (SELECT count(*) FROM apply_attempt WHERE tipo = 'hermana') AS hermanas_total,
+     WHERE r.grupo_id = 1 AND a.tipo IN ('normal','hermana')) AS intentos_grupo1,
+   (SELECT count(*) FROM apply_attempt a JOIN decision d ON d.id = a.decision_id
+      JOIN campana_grupo_rol r ON r.ad_entity_id = d.ad_entity_id
+     WHERE r.grupo_id = 1 AND a.tipo = 'hermana') AS hermanas_grupo1,
    (SELECT count(*) FROM keyword_biblioteca) AS kw_biblio,
    (SELECT count(*) FROM negative_biblioteca) AS neg_biblio,
    (SELECT max(id) FROM optimizer_cycle) AS ultimo_ciclo;\""
 ssh goncloud 'docker exec orbit-app-1 python -m app.cli cycle --platform amazon_mx 2>&1 | tail -5'
-# repetir el SELECT: jobs_grupo, intentos_grupo, hermanas_total, kw_biblio y neg_biblio IDÉNTICOS; ultimo_ciclo +1
+# repetir el SELECT: jobs_grupo1, intentos_grupo1, hermanas_grupo1, kw_biblio y neg_biblio IDÉNTICOS; ultimo_ciclo +1
 ```
 
 Y como segunda lectura, en `/salud` el ciclo nuevo debe listar las campañas
