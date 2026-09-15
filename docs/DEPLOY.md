@@ -486,7 +486,10 @@ líneas al crontab de `gon` (`crontab -e`; nada más se toca) y verificar
 con el paso (c) de abajo. La **reversa** es borrar la línea del
 crontab: el vigilante no escribe nada en la base.
 
-**Prueba del silencio** (dueño, con `!`, tres pasos):
+**Prueba del silencio** (dueño, con `!`, tres pasos). Antes del paso (b),
+avisa en el chat de Telegram que el siguiente aviso es una prueba: manda un
+Telegram real, igual a un incidente, y es la única forma de probar el canal
+de punta a punta (una sola vez, el día de la instalación).
 
 (a) `--dry-run` sobre la ventana de hoy debe decir `faltan 0 de 8` y
 salir 0 (si el cron 05:00 ya corrió):
@@ -2022,19 +2025,33 @@ de la fila. Hasta entonces D.3 no arranca; se declara, no se adelanta.
 
 Orden cuando llegue el día:
 
-1. **Encender el grupo a `live`** (go 1). **Hoy no existe camino sellado
-   para esto**: `goals_write.edita_goal` y `python -m app.cli goals set`
-   editan target, enabled, floor, ceiling y la terna de harvest, pero **no
-   `mode`**; el modo solo se fija al crear el goal (`MODOS_CREACION`). Un
-   `UPDATE ads_optimizer_goal SET mode = 'live'` a mano queda prohibido (la
-   edición de goals vive solo en `goals_write`, candado de arquitectura).
-   Precondición de D.3, antes del 19-sep: una tarea chica para Muse que
-   agregue `--mode shadow|live` a `goals set` (vía `edita_goal`, con la
-   ceremonia `--acepto-mutacion-real --esperado --huella --go` y readback
-   del goal, solo `app_admin`, tests rojo-primero). Cuando exista, el paso
-   es: dry-run que liste los goals del grupo 1 y su modo actual; go 1 del
-   dueño; readback con la consulta de D.1.0 paso 3 mostrando `live` en
-   todos. La envolvente `ads_optimizer_mode` ya es `live`.
+1. **Encender el grupo a `live`** (go 1) con `tools/goals_modo_grupo.py`
+   (PR #283: `mode` entra a `goals_write.edita_goal` con validación pura y
+   regla post-lectura; el tool va goal por goal, reanudable, solo
+   `app_admin`, cero Amazon; entra por stdin como los demás). Precondición:
+   el PR #283 mergeado y desplegado (rebuild del contenedor). La envolvente
+   `ads_optimizer_mode` solo se muestra: el modo efectivo es el meet.
+
+   ```bash
+   # Dry-run: candidatas (los goals scope=campaign del grupo que no están ya en live),
+   # envolvente vigente y huella del conjunto. Cero escrituras.
+   ssh goncloud 'docker exec -i orbit-app-1 python - --grupo 1 --mode live' \
+     < tools/goals_modo_grupo.py
+   # Go 1 del dueño: --esperado = candidatas del dry-run, --huella la del dry-run.
+   ssh goncloud 'docker exec -i orbit-app-1 python - --grupo 1 --mode live \
+     --acepto-mutacion-real --esperado <N> --huella <H> --go "<literal del dueño>"' \
+     < tools/goals_modo_grupo.py
+   ```
+
+   Readback: el propio tool imprime el `mode` **leído** por goal y el modo
+   efectivo; además la consulta de D.1.0 paso 3 debe mostrar `live` en los
+   cinco. **Kill switch** (sin ceremonia, goal por goal, funciona también en
+   bid-solo post-D.2):
+
+   ```bash
+   ssh goncloud 'docker exec orbit-app-1 python -m app.cli goals set <goal_id> --mode shadow'
+   ```
+
 2. **Seguir el primer harvest natural hasta `done`** (sin forzar `/run`:
    espera el ciclo del cron). Evidencia: `harvest_job` con `fase` pasando
    por `hermanas_negadas`, `external_ids.hermanas_objetivo` con las
