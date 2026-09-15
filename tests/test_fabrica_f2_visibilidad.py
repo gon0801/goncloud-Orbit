@@ -102,20 +102,26 @@ def test_a6_terna_distinta_deja_salto_de_grupo_en_notes():
 
 
 @_skip_db
-def test_a6_campana_suelta_salta_en_skips_pero_no_en_saltos_grupo():
+def test_a6_campana_suelta_salta_en_skips_pero_no_en_saltos_grupo(tmp_path, monkeypatch):
     """Una campana suelta sin nada es el estado normal de hoy: su
     sin_destino_de_harvest vive en skips.termino, JAMAS en saltos_grupo
-    (ahi solo entran campanas DE GRUPO)."""
-    with db_f2("orbit_a6_suelta") as conn:
-        _base_ciclo(conn, con_terna=True)
+    (ahi solo entran campanas DE GRUPO) y JAMAS avisa por el canal de
+    grupo. R.1 H3: antes no sembraba terminos y los asserts se cumplian
+    vacios; ahora siembra y aserta el skip real + cero avisos (el gemelo
+    aserta skips/saltos sin canal; el flanco-suelta aserta avisos sin
+    skips: este pin es la conjuncion)."""
+    with db_f2("orbit_a6_suelta") as conn, _canal(tmp_path, monkeypatch) as mensajes:
+        _gpo, run = _base_ciclo(conn, con_terna=True)
         camp, ag = _campana_suelta(conn)
         _goal_campana_sin_terna(conn, camp)
+        _siembra_terminos(conn, run, ag)
         res = _corre(conn)
         assert res.status in ("done", "degraded")
         notes = json.loads(res.notes)
+        assert notes["skips"]["termino"].get("sin_destino_de_harvest") == 1
         assert notes["harvest_destino"]["saltos_grupo"] == {}
         assert "sin_destino_de_harvest" not in notes["harvest_destino"]["saltos_grupo"].values()
-        assert ag is not None  # la suelta existe y se evaluo sin grupo
+        assert _avisos_destino(mensajes) == [], "la suelta jamas avisa por grupo"
 
 
 @_skip_db

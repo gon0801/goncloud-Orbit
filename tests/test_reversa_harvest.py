@@ -25,7 +25,7 @@ from test_fabrica_f2_hermanas import (
     _job_en_hermanas,
     _libera_cola,
 )
-from test_schema import _postgres_obligatorio_ausente
+from test_schema import _postgres_obligatorio_ausente, _test_dsn
 
 _skip_db = pytest.mark.skipif(
     _postgres_obligatorio_ausente(),
@@ -243,6 +243,72 @@ def test_plan_precondiciones_fallan_cerrado():
         conn.execute("DELETE FROM decision_application WHERE decision_id = %s", (dec,))
         conn.execute("UPDATE harvest_job SET fase = 'done' WHERE id = %s", (jid,))
         with pytest.raises(ValueError, match="sin verify_ok"):
+            plan_reversa_harvest(conn, jid)
+
+
+@_skip_db
+def test_r1_plan_cola_no_applied_falla_cerrado():
+    """R.1 H2 (1/2): job done con resumen confirmado pero cola `released`
+    (el sello no termino) -> ValueError "cola no applied". Regla 9: sin
+    la guarda de `app/apply_harvest.py:1150-1152`, el plan se armaria
+    sobre un harvest a medio aplicar."""
+    from app.apply_harvest import plan_reversa_harvest
+
+    with db_f2("orbit_rev_h2cola") as conn:
+        setup = _grupo_listo(conn)
+        exacta = setup["roles"]["category_exact"]
+        dec = _decision_harvest_grupo(
+            conn,
+            setup["ciclo_dec"],
+            setup["config"],
+            setup["origen"]["ag"],
+            grupo_id=setup["grupo_id"],
+            exacta_camp_ext=exacta["camp_ext"],
+            exacta_ag_ext=exacta["ag_ext"],
+        )
+        qid = _encola_fila(conn, dec, setup["origen"]["ag"], term=TERMINO_F2)
+        _libera_cola(conn, qid)
+        jid = _job_en_hermanas(conn, setup, dec, qid, cola_final="released")
+        conn.execute("UPDATE harvest_job SET fase = 'done' WHERE id = %s", (jid,))
+        with pytest.raises(ValueError, match="cola no applied"):
+            plan_reversa_harvest(conn, jid)
+
+
+@_skip_db
+def test_r1_plan_sin_ids_falla_cerrado():
+    """R.1 H2 (2/2): job done, confirmado y applied pero sin `keyword_id`
+    (y sin `negative_id`) en external_ids -> ValueError "sin keyword_id
+    o negative_id". Regla 9: sin la guarda de
+    `app/apply_harvest.py:1156-1157`, el plan llevaria 'None' como id."""
+    from app.apply_harvest import plan_reversa_harvest
+
+    with db_f2("orbit_rev_h2ids") as conn:
+        setup = _grupo_listo(conn)
+        exacta = setup["roles"]["category_exact"]
+        dec = _decision_harvest_grupo(
+            conn,
+            setup["ciclo_dec"],
+            setup["config"],
+            setup["origen"]["ag"],
+            grupo_id=setup["grupo_id"],
+            exacta_camp_ext=exacta["camp_ext"],
+            exacta_ag_ext=exacta["ag_ext"],
+        )
+        qid = _encola_fila(conn, dec, setup["origen"]["ag"], term=TERMINO_F2)
+        _libera_cola(conn, qid)
+        jid = _job_en_hermanas(conn, setup, dec, qid)
+        conn.execute("UPDATE harvest_job SET fase = 'done' WHERE id = %s", (jid,))
+        conn.execute(
+            "UPDATE harvest_job SET external_ids = external_ids - 'keyword_id' WHERE id = %s",
+            (jid,),
+        )
+        with pytest.raises(ValueError, match="sin keyword_id o negative_id"):
+            plan_reversa_harvest(conn, jid)
+        conn.execute(
+            "UPDATE harvest_job SET external_ids = external_ids - 'negative_id' WHERE id = %s",
+            (jid,),
+        )
+        with pytest.raises(ValueError, match="sin keyword_id o negative_id"):
             plan_reversa_harvest(conn, jid)
 
 
@@ -636,6 +702,13 @@ def _carga_tool():
     return mod
 
 
+def _dsn_decide_de(conn) -> str:
+    """DSN decide contra la DB del fixture, derivado de `_test_dsn()`
+    (R.1 H5): jamas fijo a orbit:orbit@localhost (deriva igual que el
+    resto de la suite; el DSN fijo solo es verde en ese entorno)."""
+    return f"{_test_dsn().rsplit('/', 1)[0]}/{conn.info.dbname}"
+
+
 def test_tool_no_importa_ni_construye_cliente_escritura():
     """El tool llega al cliente solo via `apply._cliente_reversa`: sin
     import de `app.ads.write`, sin `AdsWriteClient` y sin DSN admin.
@@ -680,9 +753,7 @@ def test_cli_dry_run_imprime_huella_sin_http(monkeypatch, capsys):
     with db_f2("orbit_rev_cli") as conn:
         setup = _grupo_listo(conn)
         jid, _dec, _roles = _job_done_mixto(conn, setup)
-        monkeypatch.setenv(
-            "ORBIT_DSN_DECIDE", f"postgresql://orbit:orbit@localhost:5432/{conn.info.dbname}"
-        )
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", _dsn_decide_de(conn))
         rc = mod.main(["--job", str(jid)])
         assert rc == 0
         salida = capsys.readouterr().out
@@ -696,9 +767,7 @@ def test_cli_mutacion_exige_ceremonia_completa(monkeypatch, capsys):
     with db_f2("orbit_rev_cer") as conn:
         setup = _grupo_listo(conn)
         jid, _dec, _roles = _job_done_mixto(conn, setup)
-        monkeypatch.setenv(
-            "ORBIT_DSN_DECIDE", f"postgresql://orbit:orbit@localhost:5432/{conn.info.dbname}"
-        )
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", _dsn_decide_de(conn))
         with pytest.raises(Exception, match="--esperado"):
             mod.main(["--job", str(jid), "--acepto-mutacion-real", "--go", "x"])
         with pytest.raises(Exception, match="--go"):
@@ -759,9 +828,7 @@ def test_cli_readback_ambiguo_aborta_limpio(monkeypatch, capsys):
         job_id = conn.execute(
             "SELECT id FROM harvest_job WHERE decision_id = %s", (dec,)
         ).fetchone()[0]
-        monkeypatch.setenv(
-            "ORBIT_DSN_DECIDE", f"postgresql://orbit:orbit@localhost:5432/{conn.info.dbname}"
-        )
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", _dsn_decide_de(conn))
         capsys.readouterr()
         assert mod.main(["--job", str(job_id)]) == 0
         salida = capsys.readouterr().out
@@ -814,9 +881,7 @@ def test_cli_cliente_sin_credenciales_aborta_limpio(monkeypatch, capsys):
     with db_f2("orbit_rev_creds") as conn:
         setup = _grupo_listo(conn)
         jid, _dec, _roles = _job_done_mixto(conn, setup)
-        monkeypatch.setenv(
-            "ORBIT_DSN_DECIDE", f"postgresql://orbit:orbit@localhost:5432/{conn.info.dbname}"
-        )
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", _dsn_decide_de(conn))
         capsys.readouterr()
         assert mod.main(["--job", str(jid)]) == 0
         salida = capsys.readouterr().out
@@ -918,9 +983,7 @@ def test_cli_auth_durante_delete_aborta_limpio(monkeypatch, capsys):
     with db_f2("orbit_rev_authdel") as conn:
         setup = _grupo_listo(conn)
         jid, dec, _roles = _job_done_mixto(conn, setup)
-        monkeypatch.setenv(
-            "ORBIT_DSN_DECIDE", f"postgresql://orbit:orbit@localhost:5432/{conn.info.dbname}"
-        )
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", _dsn_decide_de(conn))
         capsys.readouterr()
         assert mod.main(["--job", str(jid)]) == 0
         salida = capsys.readouterr().out
