@@ -46,14 +46,24 @@ cerrada) hasta leer el ciclo de las 08:41 UTC del 2026-09-16:
 esa lectura se cierra en un PR de docs; si aparece cualquiera de los dos
 motivos, se reabre D.2 con hallazgo.
 
-Lectura adelantada disponible (dueño, con `!`, cero escrituras): el dry-run
-del propio tool imprime la resolución de hoy por goal y debe decir «ya
-limpia» para los cinco:
+Lectura adelantada (dueño, con `!`, cero escrituras), dry-run del propio
+tool el 2026-09-15 después de las 18:00 UTC:
 
-```bash
-ssh goncloud 'docker exec -i orbit-app-1 python - --limpiar-terna --grupo 1' \
-  < tools/harvest_excepcion.py
 ```
+grupo: id=1 platform=amazon_mx tipo_producto=kit_arras
+exacta: campaign_external=145787501515469 ad_group_external=182421284463033
+[ya limpia] goal=11 rol=product_targeting terna=NULL/NULL bid=11.6200
+[ya limpia] goal=9 rol=category_phrase terna=NULL/NULL bid=11.6200
+[ya limpia] goal=10 rol=category_broad terna=NULL/NULL bid=11.6200
+[ya limpia] goal=8 rol=category_exact terna=NULL/NULL bid=11.6200
+[ya limpia] goal=12 rol=auto_discovery terna=NULL/NULL bid=11.6200
+candidatas: 0
+huella: e3b0c44298fc1c14
+```
+
+El resolutor ya ve la exacta del grupo como destino (`exacta:` arriba) y
+no queda nada por limpiar; la huella es la del conjunto vacío. Sigue
+faltando la lectura de `/salud` del ciclo del 16-sep para cerrar la fila.
 
 ## Residuales
 
