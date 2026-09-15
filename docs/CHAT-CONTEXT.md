@@ -4,14 +4,15 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
-**2026-09-16 UTC — FABRICA 02 (F2): D.1 y D.2 CERRADAS — la migración 0038 y el código del harvest por grupo ya están en producción, apagados; sigue D.3 desde el 19-sep.**
+**2026-09-16 UTC — FABRICA 02 (F2): D.1 CERRADA y D.2 EJECUTADA — la migración 0038 y el código del harvest por grupo ya están en producción, apagados; sigue D.3 desde el 19-sep.**
 El dueño corrió el runbook F2 con `!` la tarde del 15-sep: cap diario de harvest bajado a 2 por
 plataforma (`config_version` 19), respaldo del schema, 0038 en una transacción y verificada como
 lector (CHECKs, índice, triggers y GRANTs exactos), deploy de `359f1f8` con md5 idéntico y rebuild,
 `/health` y `/cortes` en verde, y un ciclo de apagado que no emitió nada para el grupo 1. Después
 limpió la terna de los cinco goals del grupo 1 (bid-solo, bid intacto) sin migrar ninguna campaña a
-excepción: las 241 siguen por terna a propósito. Evidencia en `docs/evidencia/fabrica-02/D.1/` y
-`D.2/`. La cola del día quedó mergeada completa (#277 a #284, master `7384152`), incluido el modo de
+excepción: las 241 siguen por terna a propósito. D.2 queda ejecutada pero no cerrada: su criterio
+pide ver el grupo resuelto por grupo en `/salud`, y eso se lee en el ciclo del 16-sep. Evidencia en
+`docs/evidencia/fabrica-02/D.1/` y `D.2/`. La cola del día quedó mergeada completa (#277 a #284, master `7384152`), incluido el modo de
 goals con ceremonia (#283) que D.3 necesita.
 
 **Producción tiene F2 apagada**: los goals del grupo 1 siguen en `shadow` y el código desplegado
