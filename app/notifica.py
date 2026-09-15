@@ -785,3 +785,54 @@ class SaltoDestinoGrupo:
     nombre: str | None
     rol: str | None
     motivo: str  # destino_inconsistente | sin_destino_de_harvest
+
+
+def aviso_destino_grupo(salto: SaltoDestinoGrupo) -> str:
+    """Builder PURO del aviso de harvest de grupo sin destino: encabezado,
+    plataforma, grupo, campana (nombre o external) con rol, motivo, linea
+    de accion por motivo y cierre veraz. Sin acentos, sin fecha (patron
+    aviso_cap_agotado: la fecha es la del ciclo, visible en /salud), sin
+    secretos y sin la palabra "failed". Motivo desconocido: sin linea de
+    accion, sin reventar."""
+    from app.optimizer import hygiene
+
+    lineas = [
+        "[Orbit] ALERTA harvest de grupo sin destino",
+        f"plataforma: {salto.platform}",
+        f"grupo: {salto.grupo_id}",
+        f"campana: {salto.nombre or salto.campaign_external}"
+        f" (#{salto.campaign_ad_entity_id}, rol {salto.rol})",
+        f"motivo: {salto.motivo}",
+    ]
+    if salto.motivo == hygiene.MOTIVO_DESTINO_INCONSISTENTE:
+        lineas.append(
+            "la terna del goal contradice la exacta del grupo: revisar con "
+            f"tools/harvest_excepcion.py --limpiar-terna --grupo {salto.grupo_id} "
+            "(dry-run primero)"
+        )
+    elif salto.motivo == hygiene.MOTIVO_SIN_DESTINO_HARVEST:
+        lineas.append(
+            "el grupo no resuelve su exacta (rol category_exact ausente o de otra "
+            "plataforma): revisar campana_grupo_rol"
+        )
+    lineas.append("El harvest de esta campana queda saltado hasta corregirlo.")
+    return "\n".join(lineas)
+
+
+def notifica_destino_grupo(
+    salto: SaltoDestinoGrupo, *, transport: httpx.BaseTransport | None = None
+) -> bool:
+    """Aviso de harvest de grupo sin destino (F2, A.6): lo manda el ciclo
+    una vez por racha por campana. Mismo contrato fail-silent que
+    `notifica_biblioteca_no_escrita`: canal apagado -> True; cualquier
+    excepcion -> warning con scrub + False; jamas levanta. El aviso NO
+    reintenta en el ciclo siguiente si el envio fallo: la NOTA en
+    notes.telegram y la lista saltos_grupo en /salud son la visibilidad
+    de respaldo (mismo criterio que cap_agotado)."""
+    try:
+        if not canal_activo():
+            return True
+        return _envia_texto(aviso_destino_grupo(salto), transport=transport)
+    except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
+        logger.warning("telegram: fallo armando el aviso de destino: %s", scrub(str(exc)))
+        return False

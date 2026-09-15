@@ -1357,6 +1357,10 @@ _SQL_CYCLE = (
     "_SQL_NOTAS_PREVIAS",
     # ORBIT 06 2.3 segunda vuelta: ad revenue de la ventana (ratio A7).
     "_SQL_AD_REVENUE_VENTANA",
+    # FABRICA 02 (A.6): membresia para el salto de grupo + notas previas
+    # para el flanco del aviso.
+    "_SQL_MEMBRESIA_GRUPO",
+    "_SQL_SALTOS_PREVIOS",
 )
 
 

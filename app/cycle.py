@@ -501,6 +501,19 @@ _MOTIVOS_AVISO_DESTINO = frozenset(
     {hygiene.MOTIVO_DESTINO_INCONSISTENTE, hygiene.MOTIVO_SIN_DESTINO_HARVEST}
 )
 
+# Notas de ciclos previos para el FLANCO del aviso de destino (A.6): misma
+# plataforma+motor, anteriores al actual, con recorrido (done/degraded —
+# en live sin credenciales el recorrido y sus notes existen igual;
+# skipped no lleva la clave). Ventana de 20: basta para la racha viva.
+_SQL_SALTOS_PREVIOS = """
+SELECT notes
+  FROM optimizer_cycle
+ WHERE platform = %s::platform AND motor = 'ads_optimizer' AND id < %s
+   AND status IN ('done', 'degraded')
+ ORDER BY id DESC
+ LIMIT 20
+"""
+
 _SQL_INSERT_DECISION = """
 INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,
                       data_observed_at, window_start, window_end, search_term,
@@ -1319,6 +1332,31 @@ def _harvest_destino_notes(contadores: _Contadores) -> dict:
     }
 
 
+def _saltos_previos(
+    conn: psycopg.Connection, platform: str, cycle_id: int
+) -> dict[str, str] | None:
+    """saltos_grupo del PRIMER ciclo previo con la clave harvest_destino
+    (A.6, flanco del aviso de destino): parseo tolerante como
+    `_target_de_notas` (TEXT no-JSON, no-dict o sin la clave = seguir
+    buscando); None si ninguno de los 20 la trae. Se llama en TX2, junto
+    a `_resuelve_target_ciclo` (mismo snapshot)."""
+    for (notes,) in conn.execute(_SQL_SALTOS_PREVIOS, (platform, cycle_id)).fetchall():
+        if not isinstance(notes, str):
+            continue
+        try:
+            cuerpo = json.loads(notes)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if not isinstance(cuerpo, dict):
+            continue
+        bloque = cuerpo.get("harvest_destino")
+        if not isinstance(bloque, dict):
+            continue
+        saltos = bloque.get("saltos_grupo")
+        return dict(saltos) if isinstance(saltos, dict) else {}
+    return None
+
+
 def _gates_entidad(
     conn: psycopg.Connection,
     goals: tuple[g.Goal | None, dict[int, g.Goal]],
@@ -1798,17 +1836,19 @@ def _fase_lecturas(
     pendientes: list[_Pendiente],
     tick,
     cycle_id: int,
-) -> tuple[windows.MotivoSkip | None, _TargetCiclo | None]:
+) -> tuple[windows.MotivoSkip | None, _TargetCiclo | None, dict[str, str] | None]:
     """TX2: guarda de plataforma + claves de efecto bloqueadas + recorrido
     completo, TODO en una transaccion REPEATABLE READ (snapshot uniforme; SET
     TRANSACTION como PRIMERA sentencia). Devuelve (guarda disparada, peldano
-    resuelto): guarda None = ciclo completo; con guarda, el recorrido no
-    corre y el peldano es None (el ciclo saltado no resuelve target)."""
+    resuelto, saltos de destino previos): guarda None = ciclo completo; con
+    guarda, el recorrido no corre y el peldano es None (el ciclo saltado no
+    resuelve target) y los previos tambien (sin recorrido no hay avisos que
+    filtrar). Los previos se leen en el MISMO snapshot (flanco del aviso)."""
     with conn.transaction():
         conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
         guarda = windows.guarda_plataforma(conn, platform, ahora=decided_at)
         if guarda is not None:
-            return (guarda, None)
+            return (guarda, None, None)
         bloqueadas = apply_cola.claves_bloqueadas(conn, platform, decided_at)
         target_ciclo = _recorre_plataforma(
             conn,
@@ -1822,7 +1862,7 @@ def _fase_lecturas(
             bloqueadas=bloqueadas,
             cycle_id=cycle_id,
         )
-        return (None, target_ciclo)
+        return (None, target_ciclo, _saltos_previos(conn, platform, cycle_id))
 
 
 # ---------------------------------------------------------------------------
@@ -1844,6 +1884,11 @@ class _FaseApply:
     # Preflight 1.4 (D3d): caps de quota llevados a su transicion por la fase
     # (reconciliacion + bids + cola) — UN aviso fail-silent por evento en 3.3.
     caps_saturados: tuple[CapSaturado, ...] = ()
+    # FABRICA 02 (A.6): saltos de destino YA filtrados por el flanco. Los
+    # produce el recorrido (TX2), no el apply: _fase_apply los re-emite
+    # para que viajen a _fase_notifica por el mismo camino que los demas
+    # avisos (todos salen de fase.*).
+    avisos_destino: tuple[notifica.SaltoDestinoGrupo, ...] = ()
 
 
 def _fase_apply(
@@ -1857,6 +1902,7 @@ def _fase_apply(
     owner: str,
     guard: Callable[[], None],
     aplicador_factory: Callable[..., Aplicador] | None,
+    avisos_destino: tuple[notifica.SaltoDestinoGrupo, ...] = (),
 ) -> _FaseApply:
     """TX4 + fase de apply propiamente (decisiones 11/21; docstring del
     modulo). Devuelve _FaseApply (seccion notes['apply'], fallo, avisos de
@@ -1985,6 +2031,7 @@ def _fase_apply(
         avisos=avisos,
         alertas=tuple(alertas_harvest),
         caps_saturados=tuple(caps_saturados),
+        avisos_destino=avisos_destino,
     )
 
 
@@ -2007,18 +2054,20 @@ def _fase_notifica(
     target: dict | None = None,
     target_ancla: str | None = None,
     caps_saturados: tuple = (),
+    avisos_destino: tuple[notifica.SaltoDestinoGrupo, ...] = (),
     tick: Callable[[], None] | None = None,
 ) -> dict:
     """Avisos Telegram del ciclo (3.3, sellados 2/19): UN aviso por corte
-    nuevo encolado + UN aviso por cap de quota saturado (preflight 1.4: la
-    transicion used == cap ya filtro los duplicados — el rechazo por tope no
-    es evento) + UN digest final. Devuelve la seccion notes['telegram']
-    con SOLO claves de lo que fallo (regla 3); vacio = todo bien o canal
-    deshabilitado (que no es fallo). La NOTA es la UNICA visibilidad del
-    fallo del canal (sellado 2: el silencio jamas es invisible) y JAMAS
-    rompe el ciclo ni degrada el status: TODO lo de notifica va envuelto
-    (armado del mensaje incluido) — los notifica_* ya son fail-silent, esto
-    es la segunda barrera.
+    nuevo encolado + UN aviso por campana de grupo sin destino (FABRICA 02,
+    A.6: el flanco ya filtro la racha) + UN aviso por cap de quota saturado
+    (preflight 1.4: la transicion used == cap ya filtro los duplicados — el
+    rechazo por tope no es evento) + UN digest final. Devuelve la seccion
+    notes['telegram'] con SOLO claves de lo que fallo (regla 3); vacio =
+    todo bien o canal deshabilitado (que no es fallo). La NOTA es la UNICA
+    visibilidad del fallo del canal (sellado 2: el silencio jamas es
+    invisible) y JAMAS rompe el ciclo ni degrada el status: TODO lo de
+    notifica va envuelto (armado del mensaje incluido) — los notifica_* ya
+    son fail-silent, esto es la segunda barrera.
 
     Los envios son SINCRONOS dentro del lock: `tick` (el heartbeat del ciclo)
     late UNA vez por mensaje enviado para que N avisos con el canal lento no
@@ -2040,6 +2089,27 @@ def _fase_notifica(
     except Exception as exc:  # noqa: BLE001 - jamas rompe el ciclo (docstring)
         notas["aviso_encola"] = "fallo: el aviso de corte encolado no salio (ver log)"
         logger.warning("notifica: fallo en avisos de encola: %s", scrub(str(exc)))
+    try:
+        for salto in avisos_destino:
+            if not notifica.notifica_destino_grupo(salto):
+                detalle = (
+                    "fallo: aviso de campana de grupo sin destino no enviado por Telegram "
+                    f"(campana #{salto.campaign_ad_entity_id}, motivo {salto.motivo})"
+                )
+                # Un ciclo puede saltar en MAS de una campana de grupo: la
+                # NOTA ACUMULA los detalles, jamas pisa (patron cap_agotado).
+                notas["harvest_destino"] = (
+                    f"{notas['harvest_destino']} | {detalle}"
+                    if "harvest_destino" in notas
+                    else detalle
+                )
+            _latido()
+    except Exception as exc:  # noqa: BLE001 - jamas rompe el ciclo (docstring)
+        detalle = "fallo: el aviso de campana de grupo sin destino no salio (ver log)"
+        notas["harvest_destino"] = (
+            f"{notas['harvest_destino']} | {detalle}" if "harvest_destino" in notas else detalle
+        )
+        logger.warning("notifica: fallo en avisos de destino: %s", scrub(str(exc)))
     try:
         for evento in caps_saturados:
             if not notifica.notifica_cap_agotado(
@@ -2150,7 +2220,7 @@ def _corre_fases(
         return ResultadoCiclo(cycle_id, "skipped", 0, notas)
     tick = _tick_heartbeat(hb, job_key, owner, heartbeat_cada)
     pendientes: list[_Pendiente] = []
-    guarda, target_ciclo = _fase_lecturas(
+    guarda, target_ciclo, saltos_previos = _fase_lecturas(
         conn,
         platform=platform,
         settings=settings,
@@ -2160,6 +2230,16 @@ def _corre_fases(
         pendientes=pendientes,
         tick=tick,
         cycle_id=cycle_id,
+    )
+    # FABRICA 02 (A.6): FLANCO del aviso de destino — la campana C con
+    # motivo M avisa si y solo si no hay previo con la clave o el previo
+    # trae otro motivo para C (segunda corrida con el mismo salto = cero
+    # mensajes; corregido y roto de nuevo = vuelve a avisar; cambio de
+    # motivo = informacion nueva, criterio de evaluar_alertas de SP-API).
+    avisos_destino = tuple(
+        salto
+        for camp, salto in contadores.saltos_grupo.items()
+        if saltos_previos is None or saltos_previos.get(str(camp)) != salto.motivo
     )
     motivo = f"guarda_{guarda.guarda}" if guarda is not None else None
     cuerpo = _notas_cuerpo(
@@ -2189,6 +2269,7 @@ def _corre_fases(
         owner=owner,
         guard=_guard_apply(conn, job_key, owner, tick),
         aplicador_factory=aplicador_factory,
+        avisos_destino=avisos_destino,
     )
     notas_apply = fase.notas
     if notas_apply:
@@ -2203,6 +2284,7 @@ def _corre_fases(
         fase.avisos,
         fase.alertas,
         caps_saturados=fase.caps_saturados,
+        avisos_destino=fase.avisos_destino,
         cycle_id=cycle_id,
         platform=platform,
         modo=modo.modo,

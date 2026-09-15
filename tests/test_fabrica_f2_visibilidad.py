@@ -32,6 +32,7 @@ from test_apply_harvest import TERMINO, _job_en
 from test_cycle import _siembra_terminos
 from test_fabrica_f2 import _semilla_grupo, db_f2
 from test_harvest_destino import _base_ciclo, _campana_suelta, _corre
+from test_notifica import _canal
 from test_schema import _postgres_obligatorio_ausente, _test_dsn
 
 from app import api_dashboard as dash
@@ -288,13 +289,15 @@ def test_a6_pagina_decisiones_muestra_etiqueta_del_job(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def _siembra_corte_harvest(conn, *, resuelto_por="grupo", motivo=None, con_goal=True):
-    """Decision harvest sobre la phrase con inputs.goal.harvest congelado
-    (forma de _goal_json) + fila encolada en la cola de veto."""
+def _siembra_corte_harvest(
+    conn, *, resuelto_por="grupo", motivo=None, con_goal=True, rol_origen="category_phrase"
+):
+    """Decision harvest sobre el rol de origen con inputs.goal.harvest
+    congelado (forma de _goal_json) + fila encolada en la cola de veto."""
     ciclo = _ciclo_d(conn, platform=PLATFORM)
     config = _config_version_d(conn, {})
     gpo = _semilla_grupo(conn, platform=PLATFORM)
-    phrase = gpo["roles"]["category_phrase"]
+    phrase = gpo["roles"][rol_origen]
     exacta = gpo["roles"]["category_exact"]
     harvest = (
         {
@@ -366,6 +369,25 @@ def test_a6_cortes_harvest_grupo_trae_destino_y_tres_hermanas(monkeypatch):
 
 
 @_skip_db
+def test_a6_cortes_hermanas_orden_canonico_no_alfabetico(monkeypatch):
+    """Con origen auto_discovery, el orden canonico (phrase antes que
+    broad) difiere del alfabetico (broad antes que phrase): el endpoint
+    sigue a ROLES_DISCOVERY, la fuente unica importada en el test como
+    oraculo. Mata 'ordenar por rol alfabetico' y 'copiar el orden'."""
+    from app.apply_harvest import ROLES_DISCOVERY
+
+    with db_f2("orbit_a6_corteso") as conn:
+        _siembra_corte_harvest(conn, rol_origen="auto_discovery")
+        items = _cliente_f2(conn, monkeypatch).get("/api/dashboard/cortes").json()["items"]
+        assert len(items) == 1
+        esperado = [r for r in ROLES_DISCOVERY if r != "auto_discovery"]
+        assert esperado == ["category_phrase", "category_broad", "product_targeting"]
+        assert [h["rol"] for h in items[0]["hermanas"]] == esperado
+        assert "category_exact" not in [h["rol"] for h in items[0]["hermanas"]]
+        assert "auto_discovery" not in [h["rol"] for h in items[0]["hermanas"]]
+
+
+@_skip_db
 def test_a6_cortes_harvest_terna_sin_hermanas_y_motivo_traducido(monkeypatch):
     """Harvest resuelto por terna: hermanas None y motivo_es traducido
     exacto (migracion_pendiente)."""
@@ -426,3 +448,101 @@ def test_a6_pagina_cortes_nombra_hermanas_y_escapa_nombre(monkeypatch):
         assert "Tampoco se negara en:" in html
         assert "<script>alert('xss')</script>" not in html
         assert "&lt;script&gt;" in html
+
+
+# ---------------------------------------------------------------------------
+# A.6 bloque 5: aviso en flanco por campana de grupo
+# ---------------------------------------------------------------------------
+
+
+def _avisos_destino(mensajes: list) -> list:
+    """Solo los mensajes del aviso de destino (el digest y los de encola
+    son otros mensajes del mismo canal)."""
+    return [m for m in mensajes if "ALERTA harvest de grupo sin destino" in m["text"]]
+
+
+def _terna_de(conn, camp: int, camp_ext: str, ag_ext: str) -> None:
+    conn.execute(
+        "UPDATE ads_optimizer_goal SET harvest_campaign_id = %s,"
+        " harvest_ad_group_id = %s WHERE scope = 'campaign' AND ad_entity_id = %s",
+        (camp_ext, ag_ext, camp),
+    )
+
+
+@_skip_db
+def test_a6_flanco_avisa_una_vez_por_racha(tmp_path, monkeypatch):
+    """Flanco por campana: 1er ciclo con el salto -> 1 aviso; 2do sin
+    cambios -> 0; corregido -> 0 y saltos vacios; roto de nuevo -> 1."""
+    with db_f2("orbit_a6_flanco") as conn, _canal(tmp_path, monkeypatch) as mensajes:
+        gpo, run = _base_ciclo(conn, con_terna=True)
+        phrase = gpo["roles"]["category_phrase"]
+        exacta = gpo["roles"]["category_exact"]
+        _terna_de(conn, phrase["camp"], "8001", "8101")
+        _siembra_terminos(conn, run, phrase["ag"])
+
+        res1 = _corre(conn)
+        assert res1.status in ("done", "degraded")
+        assert len(_avisos_destino(mensajes)) == 1
+        assert f"(#{phrase['camp']}, rol category_phrase)" in _avisos_destino(mensajes)[0]["text"]
+        assert "motivo: destino_inconsistente" in _avisos_destino(mensajes)[0]["text"]
+
+        # Dos ciclos sin la clave entre medias no rompen la racha: el
+        # flanco busca el PRIMER notes con harvest_destino. El skipped mata
+        # al mutante sin-filtro-de-status; el done pre-A.6, al mutante que
+        # toma el primero sin buscar (LIMIT-1 ciego): cualquiera de los dos
+        # veria un ciclo sin clave y re-avisaria.
+        for status, mode in (("skipped", "off"), ("done", "shadow")):
+            conn.execute(
+                "INSERT INTO optimizer_cycle (motor, mode, platform, status, notes)"
+                " VALUES ('ads_optimizer', %s, 'amazon_us', %s, %s)",
+                (mode, status, json.dumps({"skips": {"entidad": {}, "termino": {}}})),
+            )
+        res2 = _corre(conn)
+        assert res2.status in ("done", "degraded")
+        assert len(_avisos_destino(mensajes)) == 1, "la misma racha no re-avisa"
+
+        _terna_de(conn, phrase["camp"], exacta["camp_ext"], exacta["ag_ext"])
+        res3 = _corre(conn)
+        assert len(_avisos_destino(mensajes)) == 1
+        assert json.loads(res3.notes)["harvest_destino"]["saltos_grupo"] == {}
+
+        _terna_de(conn, phrase["camp"], "8001", "8101")
+        res4 = _corre(conn)
+        assert res4.status in ("done", "degraded")
+        assert len(_avisos_destino(mensajes)) == 2, "el salto reaparecido vuelve a avisar"
+
+
+@_skip_db
+def test_a6_flanco_suelta_nunca_avisa(tmp_path, monkeypatch):
+    """La campana suelta con sin_destino_de_harvest: 0 avisos en todas
+    las corridas (el flanco es solo para campanas de grupo)."""
+    with db_f2("orbit_a6_flancos") as conn, _canal(tmp_path, monkeypatch) as mensajes:
+        _gpo, run = _base_ciclo(conn, con_terna=True)
+        camp, ag = _campana_suelta(conn)
+        _goal_campana_sin_terna(conn, camp)
+        _siembra_terminos(conn, run, ag)
+        _corre(conn)
+        _corre(conn)
+        assert _avisos_destino(mensajes) == []
+
+
+@_skip_db
+def test_a6_flanco_grupo_sin_exacta_cuatro_avisos_una_vez(tmp_path, monkeypatch):
+    """Grupo sin fila category_exact (el trigger no bloquea el DELETE con
+    goals en estado 1): las 4 discovery saltan con sin_destino_de_harvest
+    -> 4 avisos la primera vez, 0 la segunda."""
+    with db_f2("orbit_a6_flancoe") as conn, _canal(tmp_path, monkeypatch) as mensajes:
+        gpo, _run = _base_ciclo(conn, con_terna=False)
+        conn.execute(
+            "DELETE FROM campana_grupo_rol WHERE grupo_id = %s AND rol = 'category_exact'",
+            (gpo["grupo_id"],),
+        )
+        res1 = _corre(conn)
+        assert res1.status in ("done", "degraded")
+        avisos = _avisos_destino(mensajes)
+        assert len(avisos) == 4
+        assert all("motivo: sin_destino_de_harvest" in m["text"] for m in avisos)
+        saltos = json.loads(res1.notes)["harvest_destino"]["saltos_grupo"]
+        assert len(saltos) == 4
+        _corre(conn)
+        assert len(_avisos_destino(mensajes)) == 4, "la misma racha no re-avisa"
