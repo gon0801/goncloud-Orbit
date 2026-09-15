@@ -557,6 +557,38 @@ def test_go_readback_goal_desaparecido_aborta_limpio(monkeypatch):
 
 
 @_skip_db
+def test_go_sobre_grupo_bid_solo_escribe_los_cinco(capsys, monkeypatch):
+    """Estado post-D.2: los cinco goals en bid-solo (puestos por el
+    camino unico, como deja D.2). El go los enciende a `live` y el
+    readback los lee live."""
+    import datetime as dt
+
+    from app.goals_write import edita_goal
+
+    mod = _carga_tool()
+    with db_f2("orbit_gmg_postd2") as conn:
+        g = _semilla_grupo(conn, mode="shadow")
+        _siembra_envolvente(conn, "shadow")
+        ids = _ids_goals_grupo(conn, g["grupo_id"])
+        for gid in ids:
+            edita_goal(conn, gid, harvest_limpia_destino=True, updated_at=dt.datetime.now(dt.UTC))
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", _dsn_admin_de(conn))
+        rc = mod.main(
+            _argv_go(
+                g["grupo_id"],
+                "live",
+                esperado=5,
+                huella=_huella_esperada(g["grupo_id"], "live", ids),
+            )
+        )
+        assert rc == 0
+        assert set(_modes_grupo(conn, g["grupo_id"]).values()) == {"live"}
+        lineas = capsys.readouterr().out.strip().splitlines()
+        for gid in ids:
+            assert any(ln == f"readback: goal={gid} mode=live efectivo=shadow" for ln in lineas)
+
+
+@_skip_db
 def test_go_cero_candidatas_idempotente(capsys, monkeypatch):
     """Todo «ya esta»: el go con esperado 0 y la huella del vacio es
     idempotente (rc 0, nada que verificar)."""

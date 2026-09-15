@@ -176,6 +176,16 @@ def _valida_live_destino_post_lectura(
     )
 
 
+def _bid_solo_efectivo(fila: dict, cambios: dict[str, object]) -> bool:
+    """Terna EFECTIVA (nueva + existente) en bid-solo post-D.2:
+    campaign/ad_group NULL con bid presente."""
+    return (
+        cambios.get("harvest_campaign_id", fila["harvest_campaign_id"]) is None
+        and cambios.get("harvest_ad_group_id", fila["harvest_ad_group_id"]) is None
+        and cambios.get("harvest_default_bid", fila["harvest_default_bid"]) is not None
+    )
+
+
 def _valida_pre_editar(fila: dict, cambios: dict[str, object], *, permite_bid_solo=False) -> None:
     """Pre-validacion en espanol sobre el estado EFECTIVO (nuevos + existentes).
 
@@ -185,7 +195,11 @@ def _valida_pre_editar(fila: dict, cambios: dict[str, object], *, permite_bid_so
     goal_harvest_bid_positivo, goal_harvest_completo). `permite_bid_solo`
     (FABRICA 02, `harvest_limpia_destino`): salta el all-or-nothing de la
     terna cuando campaign/ad_group van a NULL con bid intacto (el trigger
-    de A.2 lo admite solo en grupo; sin 00NN el UPDATE lo rechaza la base)."""
+    de A.2 lo admite solo en grupo; sin 00NN el UPDATE lo rechaza la base).
+    Quien llama resuelve el flag post-lectura: True con
+    `harvest_limpia_destino` (su validacion ya exigio grupo) o con terna
+    EFECTIVA bid-solo en campana en grupo (espejo del estado 3 del
+    trigger 0038; sueltos y platform jamas abren)."""
 
     def efectivo(col: str):
         return cambios.get(col, fila[col])
@@ -420,7 +434,26 @@ def edita_goal(
             if cambios.get("bid_ceiling", fila["bid_ceiling"]) is None:
                 cambios["bid_ceiling"] = techo_default
 
-        _valida_pre_editar(fila, cambios, permite_bid_solo=harvest_limpia_destino)
+        # Bid-solo ESTABLE post-D.2 (ronda PR #283, hallazgo kimi ALTO):
+        # `permite_bid_solo` tambien abre cuando la terna EFECTIVA ya es
+        # bid-solo y la campana esta en grupo (espejo del estado 3 del
+        # trigger 0038) — sin esto, CUALQUIER edicion sobre un goal
+        # post-D.2 (incluidos mode=live y el kill switch) moria con
+        # "config de harvest incompleta". La query corre SOLO si la terna
+        # efectiva es bid-solo (el resto de ediciones no paga I/O extra);
+        # sueltos y scope=platform jamas abren.
+        permite_bid_solo = harvest_limpia_destino
+        if not permite_bid_solo and _bid_solo_efectivo(fila, cambios):
+            permite_bid_solo = (
+                fila["scope"] == "campaign"
+                and fila["ad_entity_id"] is not None
+                and conn.execute(
+                    "SELECT 1 FROM campana_grupo_rol WHERE ad_entity_id = %s LIMIT 1",
+                    (fila["ad_entity_id"],),
+                ).fetchone()
+                is not None
+            )
+        _valida_pre_editar(fila, cambios, permite_bid_solo=permite_bid_solo)
 
         # Nombres de columna LITERALES de este codigo (los valores van por
         # parametros): mismo estilo de SQL fijo + %s del resto del repo.
