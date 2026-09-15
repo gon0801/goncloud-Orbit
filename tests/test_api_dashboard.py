@@ -52,6 +52,7 @@ from test_schema import _postgres_obligatorio_ausente, _test_dsn
 
 from app import api_dashboard as dash
 from app.main import app
+from app.optimizer import hygiene
 
 _DIA = dt.timedelta(days=1)
 
@@ -1610,6 +1611,9 @@ def test_salud_skips_traducidos_del_orquestador(monkeypatch):
                             "asin_like": 84,
                             "sin_umbral_negative": 547,
                             "motivo_futuro": 1,
+                            "origen_es_destino": 2,
+                            "destino_inconsistente": 1,
+                            "sin_destino_de_harvest": 7,
                         },
                     },
                     "decisiones": {"bid": 4},
@@ -1634,8 +1638,130 @@ def test_salud_skips_traducidos_del_orquestador(monkeypatch):
         assert skips["termino"]["sin_umbral_negative"]["motivo_es"] == (
             "Sin umbral de negative (clicks o costo bajo)"
         )
+        # A.6: los motivos F2 del resolutor llegan traducidos a /salud
+        assert skips["termino"]["origen_es_destino"] == {
+            "count": 2,
+            "motivo_es": "Harvest saltado: la campaña exacta es el destino (origen = destino)",
+        }
+        assert skips["termino"]["destino_inconsistente"] == {
+            "count": 1,
+            "motivo_es": "Harvest bloqueado: la terna del goal contradice la exacta del grupo",
+        }
+        assert skips["termino"]["sin_destino_de_harvest"] == {
+            "count": 7,
+            "motivo_es": "Harvest sin destino: sin grupo, sin excepcion y sin terna",
+        }
         # motivo desconocido -> fallback al id crudo, sin crash
         assert skips["termino"]["motivo_futuro"]["motivo_es"] == "motivo_futuro"
+
+
+# ---------------------------------------------------------------------------
+# FABRICA 02 A.6: motivos F2 traducidos donde se ven los skips
+# ---------------------------------------------------------------------------
+
+MOTIVOS_ES_F2 = [
+    (
+        hygiene.MOTIVO_ORIGEN_ES_DESTINO,
+        "Harvest saltado: la campaña exacta es el destino (origen = destino)",
+    ),
+    (
+        hygiene.MOTIVO_SIN_DESTINO_HARVEST,
+        "Harvest sin destino: sin grupo, sin excepcion y sin terna",
+    ),
+    (
+        hygiene.MOTIVO_DESTINO_INCONSISTENTE,
+        "Harvest bloqueado: la terna del goal contradice la exacta del grupo",
+    ),
+    (
+        hygiene.MOTIVO_DESTINO_DESINCRONIZADO,
+        "Harvest descartado: la exacta del grupo cambio despues de decidir",
+    ),
+    (
+        hygiene.MOTIVO_MIGRACION_PENDIENTE,
+        "Destino por terna del goal (migracion a grupo o excepcion pendiente)",
+    ),
+]
+
+
+@pytest.mark.parametrize("motivo, esperado", MOTIVOS_ES_F2)
+def test_salud_motivos_f2_traducidos_con_texto_exacto(motivo, esperado):
+    """A.6: los cinco motivos que A.1 agrego a hygiene entran a
+    MOTIVOS_ES_SALUD con su texto exacto. El `!=` mata al mutante que
+    devuelve el id crudo (el fallback de _skips_traducidos lo tragaria)."""
+    assert dash.MOTIVOS_ES_SALUD[motivo] != motivo
+    assert dash.MOTIVOS_ES_SALUD[motivo] == esperado
+
+
+def test_salud_motivo_es_helper_fallback_y_none():
+    """A.6: `motivo_es` traduce por MOTIVOS_ES_SALUD, cae al id crudo con
+    motivos desconocidos y pasa None a None (regla 3)."""
+    assert dash.motivo_es(hygiene.MOTIVO_DESTINO_INCONSISTENTE) == (
+        "Harvest bloqueado: la terna del goal contradice la exacta del grupo"
+    )
+    assert dash.motivo_es("motivo_futuro") == "motivo_futuro"
+    assert dash.motivo_es(None) is None
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_salud_harvest_destino_bloque_con_resueltos_y_saltos(monkeypatch):
+    """A.6: /salud expone harvest_destino del ultimo ciclo — resueltos por
+    procedencia, terna_es exacto y saltos de grupo traducidos."""
+    with _db_temporal("orbit_dash_hdest") as (conn, dsn):
+        _ciclo(
+            conn,
+            platform="amazon_us",
+            notes=json_dumps(
+                {
+                    "skips": {"entidad": {}, "termino": {}},
+                    "decisiones": {},
+                    "harvest_destino": {
+                        "resueltos": {"grupo": 3, "excepcion": 0, "terna": 241},
+                        "saltos_grupo": {"6102": "destino_inconsistente"},
+                    },
+                }
+            ),
+        )
+        _hoy(monkeypatch, dt.date(2026, 8, 24))
+        bloque = (
+            _cliente(dsn, monkeypatch)
+            .get("/api/dashboard/salud")
+            .json()["plataformas"]["amazon_us"]["harvest_destino"]
+        )
+        assert bloque == {
+            "resueltos": {"grupo": 3, "excepcion": 0, "terna": 241},
+            "terna_es": ("Destino por terna del goal (migracion a grupo o excepcion pendiente)"),
+            "saltos_grupo": [
+                {
+                    "campaign_id": 6102,
+                    "motivo": "destino_inconsistente",
+                    "motivo_es": (
+                        "Harvest bloqueado: la terna del goal contradice la exacta del grupo"
+                    ),
+                }
+            ],
+        }
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_salud_sin_clave_harvest_destino_es_none(monkeypatch):
+    """A.6: ciclo sin la clave (pre-A.6) o plataforma sin ciclos ->
+    harvest_destino null. Mata al mutante que inventa resueltos {0,0,0}."""
+    with _db_temporal("orbit_dash_hdest_none") as (conn, dsn):
+        _ciclo(
+            conn,
+            platform="amazon_us",
+            notes=json_dumps({"skips": {"entidad": {}, "termino": {}}, "decisiones": {}}),
+        )
+        _hoy(monkeypatch, dt.date(2026, 8, 24))
+        plataformas = _cliente(dsn, monkeypatch).get("/api/dashboard/salud").json()["plataformas"]
+        assert plataformas["amazon_us"]["harvest_destino"] is None
+        assert plataformas["amazon_mx"]["harvest_destino"] is None
 
 
 @pytest.mark.skipif(

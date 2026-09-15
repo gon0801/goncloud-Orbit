@@ -34,6 +34,19 @@
   {% endif %}
   {% endif %}
 
+  {% if datos.harvest_destino %}
+  {# FABRICA 02 (A.6): destino del ultimo ciclo por procedencia + campanas de
+     grupo sin destino. Sin bloque (ciclos pre-A.6) no se pinta nada (regla 3) #}
+  <p>Destino de harvest: por grupo {{ datos.harvest_destino.resueltos.grupo }} · por excepcion {{ datos.harvest_destino.resueltos.excepcion }} · por terna {{ datos.harvest_destino.resueltos.terna }} ({{ datos.harvest_destino.terna_es }})</p>
+  {% if datos.harvest_destino.saltos_grupo %}
+  <ul>
+    {% for salto in datos.harvest_destino.saltos_grupo %}
+    <li class="alerta">Campañas de grupo sin destino: #{{ salto.campaign_id }} — {{ salto.motivo_es }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% endif %}
+
   {% if datos.quota %}
   {# preflight 1.5: la quota que el endpoint de 1.4 ya trae. cap nulo es
      fail-closed (sin_clave) o config rota (alarma), JAMAS tope cero (regla 3):

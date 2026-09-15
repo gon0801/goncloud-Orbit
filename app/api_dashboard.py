@@ -57,7 +57,7 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query
-from psycopg.rows import dict_row
+from psycopg.rows import dict_row, tuple_row
 
 from app import cycle as ciclo
 from app.api import KINDS_DECISION, ConexionLectura
@@ -69,6 +69,7 @@ from app.api_common import (
     bloque_target_margen,
 )
 from app.apply import KINDS_QUOTA, estado_quota
+from app.apply_harvest import ROLES_DISCOVERY
 from app.config_write import ADVERTENCIA_RESPALDO, clave_cap, clave_fraccion
 from app.dashboard_contribucion import contribucion_campanas as _contribucion_campanas
 from app.dashboard_pagina import (
@@ -263,7 +264,34 @@ MOTIVOS_ES_SALUD: dict[str, str] = {
     hygiene.MOTIVO_HARVEST_DUPLICADO: "Harvest duplicado: ya existe la keyword",
     hygiene.MOTIVO_HARVEST_MONEDA_INCOHERENTE: "Harvest con moneda incoherente",
     hygiene.MOTIVO_MONEDA_INCOHERENTE: "Moneda incoherente",
+    # FABRICA 02 (A.6): motivos del resolutor de destino (hygiene, A.1) que el
+    # ciclo cuenta en skips.termino — la unica superficie donde se ven.
+    hygiene.MOTIVO_ORIGEN_ES_DESTINO: (
+        # "campaña" con ñ: test_ui_copy_campana.py exige ñ en la copia
+        # visible de MOTIVOS_ES_* (el dict ya la usa: "la campaña no esta").
+        "Harvest saltado: la campaña exacta es el destino (origen = destino)"
+    ),
+    hygiene.MOTIVO_SIN_DESTINO_HARVEST: "Harvest sin destino: sin grupo, sin excepcion y sin terna",
+    hygiene.MOTIVO_DESTINO_INCONSISTENTE: (
+        "Harvest bloqueado: la terna del goal contradice la exacta del grupo"
+    ),
+    hygiene.MOTIVO_DESTINO_DESINCRONIZADO: (
+        "Harvest descartado: la exacta del grupo cambio despues de decidir"
+    ),
+    hygiene.MOTIVO_MIGRACION_PENDIENTE: (
+        "Destino por terna del goal (migracion a grupo o excepcion pendiente)"
+    ),
 }
+
+
+def motivo_es(motivo: str | None) -> str | None:
+    """Un motivo al espanol de /salud (FABRICA 02, A.6): traduce por
+    MOTIVOS_ES_SALUD, cae al id crudo con motivos desconocidos (la
+    evidencia jamas se pierde) y pasa None a None (regla 3). Lo usan
+    /cortes y el feed; _skips_traducidos no cambia."""
+    if motivo is None:
+        return None
+    return MOTIVOS_ES_SALUD.get(motivo, motivo)
 
 
 def _hoy_utc() -> dt.date:
@@ -646,6 +674,20 @@ def campanas(
 # ---------------------------------------------------------------------------
 
 
+# FABRICA 02 (A.6): fase del harvest_job -> etiqueta. Espejo del CHECK de
+# harvest_job.fase en 0001 + 0038 (pending, negative_created,
+# exact_created, hermanas_negadas, done, failed): si el CHECK gana una
+# fase, este dict la gana con su etiqueta.
+FASES_ES_HARVEST: dict[str, str] = {
+    "pending": "Pendiente de aplicar",
+    "negative_created": "Negativo en la campana origen creado",
+    "exact_created": "Keyword exacta creada en el destino",
+    "hermanas_negadas": "Negando el termino en las campanas hermanas",
+    "done": "Aplicado",
+    "failed": "Fallido",
+}
+
+
 def _filtros_feed(platform, kind) -> tuple[list[str], list]:
     """Fragmentos SQL FIJOS + parametros de los filtros del feed (ningun texto
     del usuario se interpola: solo clausulas literales de este codigo).
@@ -678,9 +720,20 @@ def _fila_decision(fila) -> dict:
     de inputs.target_acos_pct_usado (JAMAS de inputs.goal.target_acos_pct,
     NULL cuando gano el default — grok r2); los pause traen old/new/currency
     NULL (CHECK del schema): se renderizan null, jamas 0; motivo desconocido
-    -> fallback al id crudo sin crash."""
+    -> fallback al id crudo sin crash. FABRICA 02 (A.6): las columnas 15-17
+    traen el harvest_job (id, fase, external_ids; NULLs sin job)."""
     inputs = fila[11] if isinstance(fila[11], dict) else {}
     motivo = inputs.get("motivo")
+    harvest_job = None
+    if fila[15] is not None:
+        externos = fila[17] if isinstance(fila[17], dict) else {}
+        pendientes = externos.get("hermanas_pendientes")
+        harvest_job = {
+            "id": fila[15],
+            "fase": fila[16],
+            "fase_es": FASES_ES_HARVEST.get(fila[16], fila[16]),
+            "hermanas_pendientes": pendientes if isinstance(pendientes, dict) else {},
+        }
     return {
         "id": fila[0],
         "cycle_id": fila[1],
@@ -700,6 +753,7 @@ def _fila_decision(fila) -> dict:
         "value_currency": fila[10],
         "target_acos_pct_usado": inputs.get("target_acos_pct_usado"),
         "motivo_es": MOTIVOS_ES_DECISIONES.get(motivo, motivo) if motivo is not None else None,
+        "harvest_job": harvest_job,
     }
 
 
@@ -806,6 +860,30 @@ def _skips_de(ultimo_ciclo: dict | None) -> dict:
     }
 
 
+def _harvest_destino_de(ultimo_ciclo: dict | None) -> dict | None:
+    """Bloque harvest_destino del ULTIMO ciclo (FABRICA 02, A.6): destinos
+    resueltos por procedencia + campanas de grupo sin destino, traducidas.
+    Sin ciclo o sin la clave (ciclos pre-A.6) -> None (regla 3: jamas se
+    inventan resueltos). Con bloque, resueltos trae las tres claves
+    (ausente en notes = 0: es un contador del mismo ciclo, no un dato
+    faltante) y saltos_grupo ordenado por campana."""
+    if ultimo_ciclo is None or ultimo_ciclo.get("notes") is None:
+        return None
+    bloque = ultimo_ciclo["notes"].get("harvest_destino")
+    if not isinstance(bloque, dict):
+        return None
+    resueltos = bloque.get("resueltos") or {}
+    saltos = bloque.get("saltos_grupo") or {}
+    return {
+        "resueltos": {k: resueltos.get(k, 0) for k in ("grupo", "excepcion", "terna")},
+        "terna_es": MOTIVOS_ES_SALUD[hygiene.MOTIVO_MIGRACION_PENDIENTE],
+        "saltos_grupo": [
+            {"campaign_id": int(camp), "motivo": motivo, "motivo_es": motivo_es(motivo)}
+            for camp, motivo in sorted(saltos.items(), key=lambda par: int(par[0]))
+        ],
+    }
+
+
 @router.get("/salud")
 def salud(conn: ConexionLectura) -> dict:
     """Salud por plataforma (brief §3.5, plan 1.5): snapshot del ULTIMO ciclo
@@ -840,6 +918,7 @@ def salud(conn: ConexionLectura) -> dict:
             "ultimo_ciclo": ultimo,
             "historico_14d": [_fila_historico(fila) for fila in historico],
             "skips": _skips_de(ultimo),
+            "harvest_destino": _harvest_destino_de(ultimo),
             "quota": _quota_de(conn, plataforma),
             "target_margen": bloque_target_margen(ultimo),
             "spapi": _spapi_de(conn, plataforma),
@@ -906,6 +985,8 @@ def contribucion_campanas(conn: ConexionLectura) -> dict:
 # (shape real en app/cycle.py: termino = {search_term, cost, ad_revenue,
 # clicks, orders, fechas_distintas, moneda, ...}). Se trae el JSON entero y
 # se extrae en Python (NULL = termino ausente -> indicador None, regla 3).
+# FABRICA 02 (A.6): campana_id resuelve la campana del item por kind (los
+# JOINs de ancestros ya estan): la query de hermanas excluye a la de origen.
 _SQL_CORTES_PENDIENTES = (
     """
 SELECT q.id, q.platform::text, q.familia, q.kind, q.ad_entity_id, e.external_id,
@@ -914,7 +995,9 @@ SELECT q.id, q.platform::text, q.familia, q.kind, q.ad_entity_id, e.external_id,
        d.inputs AS decision_inputs,
        """
     + _CAMPANA_ANCESTRO
-    + """ AS campana
+    + """ AS campana,
+       CASE e.kind WHEN 'campaign' THEN e.id WHEN 'ad_group' THEN padre.id
+            ELSE abuelo.id END AS campana_id
   FROM apply_queue q
   LEFT JOIN ad_entity e ON e.id = q.ad_entity_id
   JOIN decision d ON d.id = q.decision_id
@@ -925,6 +1008,16 @@ SELECT q.id, q.platform::text, q.familia, q.kind, q.ad_entity_id, e.external_id,
  ORDER BY q.vence_el, q.id
 """
 )
+
+# FABRICA 02 (A.6): hermanas del grupo (rol + externos de campana) menos la
+# exacta (es el destino) y menos la de origen (%s segundo: su negativo ya
+# existe por el propio harvest). Roles ausentes del grupo no aparecen.
+_SQL_HERMANAS_GRUPO = """
+SELECT r.rol::text, c.external_id, c.name
+  FROM campana_grupo_rol r
+  JOIN ad_entity c ON c.id = r.ad_entity_id
+ WHERE r.grupo_id = %s AND r.rol <> 'category_exact' AND r.ad_entity_id <> %s
+"""
 
 # CORTES UI 01 (D2-D4): la pantalla se llama Propuestas y cada fila declara
 # su tipo por KIND (pause/negative/harvest: familia solo distingue
@@ -970,6 +1063,56 @@ def _indicador_harvest(kind: str, decision_inputs: dict | None) -> dict | None:
         "clics": termino.get("clicks"),
         "moneda": termino.get("moneda"),
     }
+
+
+def _destino_harvest(kind: str, decision_inputs: dict | None) -> dict | None:
+    """Destino congelado del harvest (FABRICA 02, A.6): inputs.goal.harvest
+    con campaign_id, ad_group_id, resuelto_por, grupo_id, motivo y su
+    traduccion. Solo kind='harvest' con goal.harvest dict; si no, None
+    (regla 3: decisiones pre-F2 sin goal pasan intactas)."""
+    if kind != "harvest" or not isinstance(decision_inputs, dict):
+        return None
+    goal = decision_inputs.get("goal")
+    if not isinstance(goal, dict):
+        return None
+    harvest = goal.get("harvest")
+    if not isinstance(harvest, dict):
+        return None
+    return {
+        "campaign_id": harvest.get("campaign_id"),
+        "ad_group_id": harvest.get("ad_group_id"),
+        "resuelto_por": harvest.get("resuelto_por"),
+        "grupo_id": harvest.get("grupo_id"),
+        "motivo": harvest.get("motivo"),
+        "motivo_es": motivo_es(harvest.get("motivo")),
+    }
+
+
+def _hermanas_de(conn, grupo_id: int, campana_id: int) -> list[dict] | None:
+    """Hermanas donde se negara el termino (FABRICA 02, A.6): campanas del
+    grupo menos la exacta y menos la de origen, en el orden canonico de
+    ROLES_DISCOVERY (fuente unica, importada de apply_harvest: jamas una
+    copia del orden). Una query por item harvest de grupo (la cola de veto
+    es de decenas, no de miles). Si revienta (p. ej. esquema sin 0018) ->
+    None + warning y la pantalla NO muere (patron _spapi_de)."""
+    try:
+        # tuple_row EXPLICITO: cortes() trabaja con dict_row y este helper
+        # desempaqueta por posicion (con dicts iteraria las claves).
+        with conn.cursor(row_factory=tuple_row) as cur:
+            filas = cur.execute(_SQL_HERMANAS_GRUPO, (grupo_id, campana_id)).fetchall()
+    except Exception as exc:  # noqa: BLE001 - degradacion visible, no caida
+        logger.warning(
+            "cortes: hermanas del grupo %s ilegibles: %s",
+            grupo_id,
+            scrub(str(exc)),
+        )
+        return None
+    por_rol = {rol: (external, nombre) for rol, external, nombre in filas}
+    return [
+        {"rol": rol, "campaign_id": por_rol[rol][0], "nombre": por_rol[rol][1] or por_rol[rol][0]}
+        for rol in ROLES_DISCOVERY
+        if rol in por_rol
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -1021,8 +1164,22 @@ def cortes(conn: ConexionLectura) -> dict:
     necesita token (es la misma conexion de lectura del dashboard)."""
     conn.row_factory = dict_row
     filas = conn.execute(_SQL_CORTES_PENDIENTES).fetchall()
-    return {
-        "items": [
+    items = []
+    for fila in filas:
+        # FABRICA 02 (A.6): destino congelado + hermanas del grupo. La query
+        # de hermanas corre SOLO con resuelto_por grupo y grupo_id entero
+        # (sin eso — la cola vieja — nunca corre); sin campana conocida no
+        # se puede excluir al origen y la lista seria mentira: None.
+        destino = _destino_harvest(fila["kind"], fila["decision_inputs"])
+        hermanas = None
+        if (
+            destino is not None
+            and destino["resuelto_por"] == "grupo"
+            and isinstance(destino["grupo_id"], int)
+            and fila["campana_id"] is not None
+        ):
+            hermanas = _hermanas_de(conn, destino["grupo_id"], fila["campana_id"])
+        items.append(
             {
                 "id": fila["id"],
                 "plataforma": fila["platform"],
@@ -1045,10 +1202,11 @@ def cortes(conn: ConexionLectura) -> dict:
                 "direccion": DIRECCION_POR_KIND.get(fila["kind"]),
                 "efecto_rechazo": EFECTO_RECHAZO_POR_KIND.get(fila["kind"]),
                 "indicador": _indicador_harvest(fila["kind"], fila["decision_inputs"]),
+                "destino": destino,
+                "hermanas": hermanas,
             }
-            for fila in filas
-        ]
-    }
+        )
+    return {"items": items}
 
 
 @router.get("/inertes")

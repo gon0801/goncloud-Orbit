@@ -26,6 +26,20 @@ _DECISIONES_FROM = (
     + _JOINS_ANCESTROS
 )
 
+# FABRICA 02 (A.6): el job de harvest de la decision (el ultimo por id; las
+# decisiones que no son harvest no tienen job y traen NULLs). Fragmento
+# propio, concatenado SOLO en el SELECT: _DECISIONES_FROM no se toca y el
+# TOTAL sigue contando decisiones, no jobs.
+_JOIN_HARVEST_JOB = """
+  LEFT JOIN LATERAL (
+    SELECT j.id, j.fase, j.external_ids
+      FROM harvest_job j
+     WHERE j.decision_id = d.id
+     ORDER BY j.id DESC
+     LIMIT 1
+  ) hj ON true
+"""
+
 _SQL_DECISIONES_SELECT = (
     """
 SELECT d.id, d.cycle_id, d.ad_entity_id, e.name, e.platform, d.kind,
@@ -34,7 +48,9 @@ SELECT d.id, d.cycle_id, d.ad_entity_id, e.name, e.platform, d.kind,
        e.kind::text, e.keyword_text,
        """
     + _CAMPANA_ANCESTRO
+    + ", hj.id, hj.fase, hj.external_ids"
     + _DECISIONES_FROM
+    + _JOIN_HARVEST_JOB
 )
 
 # Feed JSON: CURSOR, jamas OFFSET (decision 8). Candado pglast existente.

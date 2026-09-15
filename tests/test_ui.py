@@ -1165,6 +1165,65 @@ def test_ui_propuestas_titulo_y_menu_d1():
     assert 'src="/static/js/cortes.js?v=' in html
 
 
+def _ctx_cortes_hermanas() -> dict:
+    """Harvest de grupo con destino por terna (motivo visible) y dos
+    hermanas (shape del endpoint: _destino_harvest + _hermanas_de)."""
+    return {
+        "pantalla": "cortes",
+        "items": [
+            {
+                "id": 13,
+                "plataforma": "amazon_us",
+                "familia": "term_cut",
+                "kind": "harvest",
+                "ad_entity_id": 5,
+                "external_id": "9101",
+                "nombre": "Campana A",
+                "search_term": "arras para boda cristiana",
+                "estado": "pending_veto",
+                "vence_el": "2026-09-25T12:00:00+00:00",
+                "encolado_at": "2026-08-26T12:00:00+00:00",
+                "decision_id": 101,
+                "etiqueta": "Capturar termino que vende",
+                "direccion": "crece",
+                "efecto_rechazo": "Rechazar: la palabra NO se creara",
+                "indicador": None,
+                "destino": {
+                    "campaign_id": "6104",
+                    "ad_group_id": "6204",
+                    "resuelto_por": "terna",
+                    "grupo_id": 1,
+                    "motivo": "migracion_pendiente",
+                    "motivo_es": (
+                        "Destino por terna del goal (migracion a grupo o excepcion pendiente)"
+                    ),
+                },
+                "hermanas": [
+                    {"rol": "auto_discovery", "campaign_id": "6100", "nombre": "Auto"},
+                    {"rol": "category_broad", "campaign_id": "6103", "nombre": "Broad"},
+                ],
+            }
+        ],
+    }
+
+
+def test_ui_cortes_harvest_nombra_hermanas_y_chip_de_motivo():
+    """A.6: la fila harvest nombra las hermanas bajo la etiqueta, el chip
+    trae el motivo traducido y la confirmacion del rechazo las repite."""
+    html = ui.templates.env.get_template("cortes.html").render(**_ctx_cortes_hermanas())
+    assert "se negara tambien en: Auto (auto_discovery), Broad (category_broad)" in html
+    assert "Destino por terna del goal (migracion a grupo o excepcion pendiente)" in html
+    assert "Tampoco se negara en: Auto (auto_discovery), Broad (category_broad)" in html
+
+
+def test_ui_cortes_sin_hermanas_no_nombra_nada():
+    """A.6: sin hermanas ni motivo (el contexto viejo de propuestas), ni
+    la lista ni el chip aparecen."""
+    html = ui.templates.env.get_template("cortes.html").render(**_ctx_propuestas())
+    assert "se negara tambien en:" not in html
+    assert "Tampoco se negara en:" not in html
+
+
 def test_ui_menu_movil_es_tab_bar_no_drawer():
     """El menu movil es una tab bar de 7 destinos, no el sidebar en overlay.
 
@@ -1267,3 +1326,93 @@ def test_ui_favicon_local_y_servido(monkeypatch):
             resp = cliente.get(ruta)
             assert resp.status_code == 200, ruta
             assert len(resp.content) > 100, ruta
+
+
+# ---------------------------------------------------------------------------
+# FABRICA 02 (A.6): fase del job en la pantalla de Decisiones
+# ---------------------------------------------------------------------------
+
+
+def _ctx_decisiones_job() -> dict:
+    """Decision harvest con job en hermanas_negadas y una pendiente (shape
+    del endpoint: _fila_decision)."""
+    ctx = _ctx_decisiones()
+    ctx["items"][0]["harvest_job"] = {
+        "id": 7,
+        "fase": "hermanas_negadas",
+        "fase_es": "Negando el termino en las campanas hermanas",
+        "hermanas_pendientes": {"product_targeting": "pt_no_acepta_negative_keyword"},
+    }
+    return ctx
+
+
+def test_ui_decisiones_muestra_fase_y_job_con_pendientes():
+    """A.6: con harvest_job, la celda Kind trae la etiqueta de la fase, el
+    id del job y las hermanas pendientes."""
+    html = ui.templates.env.get_template("decisiones.html").render(**_ctx_decisiones_job())
+    assert "Negando el termino en las campanas hermanas" in html
+    assert "job #7" in html
+    assert "hermanas pendientes: product_targeting: pt_no_acepta_negative_keyword" in html
+
+
+def test_ui_decisiones_sin_job_no_muestra_etiqueta():
+    """A.6: sin harvest_job (o sin la clave), nada de fase ni job — el
+    contexto viejo de _ctx_decisiones sigue renderizando igual."""
+    html = ui.templates.env.get_template("decisiones.html").render(**_ctx_decisiones())
+    assert "job #" not in html
+    assert "hermanas pendientes" not in html
+
+
+# ---------------------------------------------------------------------------
+# FABRICA 02 (A.6): destino de harvest en la pantalla de Salud
+# ---------------------------------------------------------------------------
+
+
+def _plataforma_harvest_destino(*, con_bloque: bool) -> dict:
+    """Tarjeta de plataforma con el bloque harvest_destino del endpoint
+    (A.6): resueltos por procedencia + una campana saltada traducida."""
+    tarjeta = _plataforma_quota()
+    tarjeta["harvest_destino"] = (
+        {
+            "resueltos": {"grupo": 3, "excepcion": 0, "terna": 241},
+            "terna_es": ("Destino por terna del goal (migracion a grupo o excepcion pendiente)"),
+            "saltos_grupo": [
+                {
+                    "campaign_id": 6102,
+                    "motivo": "destino_inconsistente",
+                    "motivo_es": (
+                        "Harvest bloqueado: la terna del goal contradice la exacta del grupo"
+                    ),
+                }
+            ],
+        }
+        if con_bloque
+        else None
+    )
+    return tarjeta
+
+
+def test_ui_salud_muestra_destino_de_harvest_y_saltos(monkeypatch):
+    """A.6: con bloque, la pantalla pinta la linea de resueltos por
+    procedencia y la campana saltada con su motivo traducido."""
+    html = _salud_html_fakeado(
+        monkeypatch, {"amazon_us": _plataforma_harvest_destino(con_bloque=True)}
+    )
+    assert "Destino de harvest" in html
+    assert "por grupo 3" in html
+    assert "por excepcion 0" in html
+    assert "por terna 241" in html
+    assert "Destino por terna del goal (migracion a grupo o excepcion pendiente)" in html
+    assert "Campañas de grupo sin destino" in html
+    assert "#6102" in html
+    assert "Harvest bloqueado: la terna del goal contradice la exacta del grupo" in html
+
+
+def test_ui_salud_sin_bloque_no_muestra_destino_de_harvest(monkeypatch):
+    """A.6: sin bloque (ciclos pre-A.6), ni la linea ni la lista aparecen
+    — y no una linea de guiones (regla 3)."""
+    html = _salud_html_fakeado(
+        monkeypatch, {"amazon_us": _plataforma_harvest_destino(con_bloque=False)}
+    )
+    assert "Destino de harvest" not in html
+    assert "Campañas de grupo sin destino" not in html

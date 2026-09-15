@@ -198,7 +198,13 @@ Respuesta 200:
       "motivo_es": "ACoS sobre 1.15x del target: -12%",
       "old_value": "1.0000",
       "new_value": "0.8800",
-      "value_currency": "MXN"
+      "value_currency": "MXN",
+      "harvest_job": {
+        "id": 1,
+        "fase": "hermanas_negadas",
+        "fase_es": "Negando el termino en las campanas hermanas",
+        "hermanas_pendientes": {"product_targeting": "http_400"}
+      }
     }
   ],
   "next_cursor": 8991,
@@ -218,6 +224,12 @@ Respuesta 200:
   que mueven dinero): el feed los renderiza null sin inventar 0 ni crashear.
 - `search_term` solo en kinds de término (NULL en los demás, CHECK del esquema);
   es texto libre del comprador → el vector XSS que la UI de 1.6 debe escapar.
+- `harvest_job` (FABRICA 02, A.6): el job de harvest de la decisión (el
+  último por id) con `fase`, su etiqueta `fase_es` y `hermanas_pendientes`
+  (dict rol → motivo, o `{}`); `null` en decisiones sin job (las que no
+  son harvest). `fase_es` sale de `FASES_ES_HARVEST`, espejo del CHECK de
+  `harvest_job.fase` en 0001 + 0038. La página `/decisiones` pinta la
+  etiqueta y `job #id` en la celda Kind.
 - `value_currency` por fila; sin total al pie (regla 4).
 - Cursor estable bajo inserción concurrente simulada (páginas sin duplicados ni
   huecos) — DoD de 1.4.
@@ -234,6 +246,7 @@ Respuesta 200:
       "ultimo_ciclo": {"id": 5, "mode": "shadow", "status": "done", "started_at": "2026-08-22T00:46:00Z", "finished_at": "2026-08-22T00:50:00Z", "decisions_count": 124, "applied_count": 0, "notes": {"skips": {"entidad": {"estado_no_enabled": 3200}}, "decisiones": {"bid": 124}}},
       "historico_14d": [{"cycle_id": 5, "fecha": "2026-08-22T00:46:00Z", "status": "done", "decisions_count": 124}, {"cycle_id": 4, "fecha": "2026-08-21T00:47:00Z", "status": "degraded", "decisions_count": 0, "motivo": "Watermark de la plataforma vencido"}],
       "skips": {"entidad": {"estado_no_enabled": {"count": 3200, "motivo_es": "Entidad sin estado o no habilitada"}}, "termino": {"asin_like": {"count": 84, "motivo_es": "Termino ASIN-like: se salta siempre"}}},
+      "harvest_destino": {"resueltos": {"grupo": 4, "excepcion": 0, "terna": 0}, "terna_es": "Destino por terna del goal (migracion a grupo o excepcion pendiente)", "saltos_grupo": [{"campaign_id": 3, "motivo": "destino_inconsistente", "motivo_es": "Harvest bloqueado: la terna del goal contradice la exacta del grupo"}]},
       "target_margen": {"target_vigente": "20", "procedencia": "margen_plataforma", "margen_neto_pct": "40", "fraccion": "0.5", "cobertura": "0.98", "ventana_desde": "2026-05-22", "ventana_hasta": "2026-08-20", "ledger_edad_dias": 1, "ratio_ads_venta": "0.104", "motivo_abstencion": null, "motivo_etiqueta": null}
     }
   }
@@ -255,7 +268,18 @@ Respuesta 200:
   `MOTIVO_*` de bid/hygiene que el orquestador importa a sus contadores) con su
   traducción `motivo_es`; DOS diccionarios de traducción (este y el de §3.4),
   cada uno importando su fuente (decisión 11); motivo desconocido → fallback sin
-  crash.
+  crash. Los cinco motivos F2 del resolutor (`origen_es_destino`,
+  `sin_destino_de_harvest`, `destino_inconsistente`,
+  `destino_desincronizado`, `migracion_pendiente`) se traducen aquí.
+- `harvest_destino` (FABRICA 02, A.6, por plataforma junto a `skips`):
+  `resueltos` por procedencia (contadores del último ciclo por ad group
+  evaluado, las tres claves siempre), `terna_es` (la etiqueta de
+  `migracion_pendiente`) y `saltos_grupo` (campañas DE GRUPO sin destino,
+  con `motivo` y `motivo_es`); `null` si el último ciclo no trae la clave
+  (ciclos pre-A.6, sin inventar ceros). La página `/salud` pinta bajo
+  «Ultimo ciclo» la línea «Destino de harvest: por grupo N · por
+  excepcion N · por terna N (terna_es)» y, si hay saltos, la lista
+  «Campañas de grupo sin destino: #id — motivo_es».
 - `target_margen` (2.3): el resultado DEL PELDAÑO a nivel plataforma desde
   `notes.target` del último ciclo (constructor puro en `app/api_common.py`, sin
   re-resolver): `target_vigente` (el aplicado si el peldaño ganó, `null` si se
@@ -399,6 +423,16 @@ alias `/propuestas`, misma vista) y agrupa por direccion:
   (no actuar ya es aprobar). El endpoint `GET /api/dashboard/cortes`
   expone por item `etiqueta`, `direccion`, `efecto_rechazo` e
   `indicador` (regla 22: la UI consume, no reimplementa).
+- FABRICA 02 (A.6): cada item harvest trae `destino` (el congelado de
+  `decision.inputs.goal.harvest`, con `motivo_es`) y, si se resolvió por
+  grupo, `hermanas` (las campañas del grupo donde se negará el término,
+  en orden canónico de roles, sin la exacta ni la de origen). Forma real:
+  `destino: {campaign_id: "6104", ad_group_id: "6204", resuelto_por:
+  "grupo", grupo_id: 1, motivo: null, motivo_es: null}`, `hermanas:
+  [{rol: "auto_discovery", campaign_id: "6100", nombre: "6100"},
+  {rol: "category_broad", ...}, {rol: "product_targeting", ...}]`. La
+  fila pinta «se negara tambien en: …» y la confirmación del rechazo
+  «Tampoco se negara en: …»; con `motivo`, un chip con `motivo_es`.
 
 ## 8. Archivos
 

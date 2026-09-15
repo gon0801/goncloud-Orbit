@@ -1230,3 +1230,164 @@ def test_notifica_biblioteca_no_escrita_sin_canal_no_es_fallo():
     """Canal deshabilitado (default del conftest): True y cero HTTP. Mata
     la mutacion 'sin rama canal_activo'."""
     assert notifica.notifica_biblioteca_no_escrita(**_aviso_biblioteca()) is True
+
+
+# ---------------------------------------------------------------------------
+# FABRICA 02 (A.6): aviso en flanco de harvest de grupo sin destino
+# ---------------------------------------------------------------------------
+
+
+def _salto_grupo(**cambios):
+    """SaltoDestinoGrupo base (campana de grupo con nombre)."""
+    base = {
+        "platform": "amazon_us",
+        "grupo_id": 3,
+        "campaign_ad_entity_id": 6102,
+        "campaign_external": "6102",
+        "nombre": "Category Phrase US",
+        "rol": "category_phrase",
+        "motivo": "destino_inconsistente",
+    }
+    base.update(cambios)
+    return notifica.SaltoDestinoGrupo(**base)
+
+
+def test_aviso_destino_grupo_inconsistente_texto_exacto():
+    """Builder puro: encabezado, plataforma, grupo, campana con rol,
+    motivo, linea de accion con el grupo y cierre veraz. Sin 'failed',
+    sin fecha, sin acentos."""
+    texto = notifica.aviso_destino_grupo(_salto_grupo())
+    assert texto == "\n".join(
+        [
+            "[Orbit] ALERTA harvest de grupo sin destino",
+            "plataforma: amazon_us",
+            "grupo: 3",
+            "campana: Category Phrase US (#6102, rol category_phrase)",
+            "motivo: destino_inconsistente",
+            "la terna del goal contradice la exacta del grupo: revisar con "
+            "tools/harvest_excepcion.py --limpiar-terna --grupo 3 (dry-run primero)",
+            "El harvest de esta campana queda saltado hasta corregirlo.",
+        ]
+    )
+    assert "failed" not in texto
+
+
+def test_aviso_destino_grupo_sin_destino_linea_distinta_y_sin_nombre():
+    """Sin nombre, la campana se identifica por su external; la linea de
+    accion es la del grupo sin exacta."""
+    texto = notifica.aviso_destino_grupo(_salto_grupo(motivo="sin_destino_de_harvest", nombre=None))
+    assert "campana: 6102 (#6102, rol category_phrase)" in texto
+    assert "motivo: sin_destino_de_harvest" in texto
+    assert (
+        "el grupo no resuelve su exacta (rol category_exact ausente o de otra "
+        "plataforma): revisar campana_grupo_rol" in texto
+    )
+    assert "El harvest de esta campana queda saltado hasta corregirlo." in texto
+    assert "failed" not in texto
+    assert "--limpiar-terna" not in texto, "cada motivo tiene SU linea de accion"
+
+
+def test_aviso_destino_grupo_motivo_desconocido_sin_linea_de_accion():
+    """Motivo fuera del vocabulario: el builder no revienta y no inventa
+    linea de accion."""
+    texto = notifica.aviso_destino_grupo(_salto_grupo(motivo="motivo_futuro"))
+    assert "motivo: motivo_futuro" in texto
+    assert "El harvest de esta campana queda saltado hasta corregirlo." in texto
+    assert "--limpiar-terna" not in texto
+    assert "campana_grupo_rol" not in texto
+
+
+def test_notifica_destino_grupo_sin_canal_no_es_fallo():
+    """Canal deshabilitado (default del conftest): True y cero HTTP. Mata
+    la mutacion 'sin rama canal_activo'."""
+    assert notifica.notifica_destino_grupo(_salto_grupo()) is True
+
+
+def test_notifica_destino_grupo_builder_roto_no_levanta(tmp_path, monkeypatch):
+    """El JAMAS levanta cubre tambien el builder. Con canal CONFIGURADO
+    para llegar al builder."""
+
+    def builder_roto(*a, **k):
+        raise RuntimeError("builder roto")
+
+    with _canal(tmp_path, monkeypatch):
+        monkeypatch.setattr(notifica, "aviso_destino_grupo", builder_roto)
+        assert notifica.notifica_destino_grupo(_salto_grupo()) is False
+
+
+def test_notifica_destino_grupo_envia_y_tumba(tmp_path, monkeypatch):
+    """Sender: con canal OK envia (True); con HTTP 500 devuelve False SIN
+    levantar."""
+    with _canal(tmp_path, monkeypatch) as mensajes:
+        assert notifica.notifica_destino_grupo(_salto_grupo()) is True
+    (mensaje,) = mensajes
+    assert mensaje["chat_id"] == FAKE_CHAT_ID
+    assert "ALERTA harvest de grupo sin destino" in mensaje["text"]
+    with _canal(tmp_path, monkeypatch, status=500):
+        assert notifica.notifica_destino_grupo(_salto_grupo()) is False
+
+
+def test_fase_notifica_mapea_salto_destino_a_nota_y_acumula(monkeypatch):
+    """_fase_notifica con saltos de destino y el sender caido: la clave
+    notes['telegram']['harvest_destino'] nombra campana y motivo; con dos
+    saltos ACUMULA con ' | ', jamas pisa. Canal deshabilitado (default):
+    el digest no genera nota y el dict queda exacto."""
+    from app import cycle as ciclo
+
+    monkeypatch.setattr(notifica, "notifica_destino_grupo", lambda *a, **k: False)
+    notas = ciclo._fase_notifica(
+        (),
+        (),
+        avisos_destino=(_salto_grupo(),),
+        cycle_id=1,
+        platform="amazon_us",
+        modo="shadow",
+        status="done",
+        decisions_count=0,
+        notas_apply={},
+    )
+    assert set(notas) == {"harvest_destino"}
+    assert "Telegram" in notas["harvest_destino"]
+    assert "#6102" in notas["harvest_destino"]
+    assert "destino_inconsistente" in notas["harvest_destino"]
+
+    notas2 = ciclo._fase_notifica(
+        (),
+        (),
+        avisos_destino=(
+            _salto_grupo(),
+            _salto_grupo(campaign_ad_entity_id=6103, motivo="sin_destino_de_harvest"),
+        ),
+        cycle_id=1,
+        platform="amazon_us",
+        modo="shadow",
+        status="done",
+        decisions_count=0,
+        notas_apply={},
+    )
+    assert set(notas2) == {"harvest_destino"}
+    assert " | " in notas2["harvest_destino"]
+    assert "#6102" in notas2["harvest_destino"] and "#6103" in notas2["harvest_destino"]
+
+
+def test_fase_notifica_salto_destino_canal_caido_deja_nota(tmp_path, monkeypatch):
+    """Cableado real: con el canal caido (HTTP 500), el aviso de destino
+    falla y deja su NOTA (junto a la del digest, que tambien falla con
+    el canal caido)."""
+    from app import cycle as ciclo
+
+    with _canal(tmp_path, monkeypatch, status=500):
+        notas = ciclo._fase_notifica(
+            (),
+            (),
+            avisos_destino=(_salto_grupo(),),
+            cycle_id=1,
+            platform="amazon_us",
+            modo="shadow",
+            status="done",
+            decisions_count=0,
+            notas_apply={},
+        )
+    assert "harvest_destino" in notas
+    assert "Telegram" in notas["harvest_destino"]
+    assert "#6102" in notas["harvest_destino"]
