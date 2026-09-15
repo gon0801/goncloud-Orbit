@@ -245,6 +245,22 @@ def test_migrar_ad_group_hijo_de_otra_campana_aborta(monkeypatch):
 
 
 @_skip_db
+def test_migrar_ad_group_huerfano_aborta(monkeypatch):
+    # Ad group destino existe pero parent_id NULL: eslabon roto.
+    # Rojo-primero sobre el TypeError del fetchone()[0] (_SQL_PADRE_EXT):
+    # debe Abortar fail-closed y escribir cero filas.
+    mod = _carga_tool()
+    with db_f2("orbit_a5_mighuerfano") as conn:
+        _semilla(conn)
+        _destino(conn)
+        _entidad(conn, "ad_group", "8188", parent=None)
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", _dsn_admin_de(conn))
+        with pytest.raises(mod.Abortar, match="8188 sin campana padre"):
+            mod.main(_argv_migrar(ag_dest="8188"))
+        assert _n_excepciones(conn) == 0
+
+
+@_skip_db
 def test_migrar_destino_otra_plataforma_aborta(monkeypatch):
     """Mismo `external_id` en MX y US: con `--plataforma amazon_us` el
     destino MX no existe (el id solo es unico con su plataforma)."""

@@ -132,6 +132,10 @@ def _cmd_migrar(conn, args) -> int:
     if ag_dest is None:
         raise Abortar(f"ad group destino {platform}:{args.destino_ad_group} no existe en ad_entity")
     ag_dest_id, ag_dest_ext, padre_id = ag_dest
+    if padre_id is None:
+        raise Abortar(
+            f"ad group destino {ag_dest_ext} sin campana padre en ad_entity (eslabon roto)"
+        )
     if padre_id != camp_dest_id:
         padre_ext = conn.execute(_SQL_PADRE_EXT, (padre_id,)).fetchone()[0]
         raise Abortar(
@@ -276,7 +280,7 @@ def _cmd_limpiar(conn, args) -> int:
         print(f"[candidata] goal={goal_id} rol={rol} terna={camp}/{ag} bid={bid}")
         candidatas.append((goal_id, camp, ag, bid))
     huella = _huella_limpieza(candidatas)
-    print(f"candidatas: {len(candidatas)} huella: {huella}")
+    print(f"candidatas: {len(candidatas)}")
     print(f"huella: {huella}")
     if not args.acepto_mutacion_real:
         return 0
