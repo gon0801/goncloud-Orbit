@@ -118,7 +118,7 @@
     {
       "name": "fabrica-02",
       "path": "plans/fabrica-02.md",
-      "description": "FABRICA 02 — FASE A, R.1 y D.1 CERRADAS, D.2 EJECUTADA (codigo 7a32ec3, R.1 d7c0bf9; 0038 desplegada 2026-09-15 con 359f1f8; terna del grupo 1 limpia, D.2 cierra con /salud del 16-sep); sigue D.3 desde el 19-sep (precondiciones: rebuild con #283 y cortes-ui-01 1.2). Harvest por grupo (F2/AUTO-02): destino por campana_grupo_rol + harvest_excepcion (terna vigente como transicion), fase hermanas_negadas confirmada en el readback de la keyword con 1 quota y reversa operable, biblioteca escrita por el motor solo desde aplicados, migracion de existentes con go. Migracion 0038 desplegada; precondicion de live: cortes-ui-01 1.2."
+      "description": "FABRICA 02 — FASE A, R.1, D.1 y D.2 CERRADAS (codigo 7a32ec3, R.1 d7c0bf9; 0038 desplegada 2026-09-15 con 359f1f8; terna del grupo 1 limpia y resuelta por grupo en /salud); sigue D.3 desde el 19-sep (precondiciones: rebuild con #283 y cortes-ui-01 1.2). Harvest por grupo (F2/AUTO-02): destino por campana_grupo_rol + harvest_excepcion (terna vigente como transicion), fase hermanas_negadas confirmada en el readback de la keyword con 1 quota y reversa operable, biblioteca escrita por el motor solo desde aplicados, migracion de existentes con go. Migracion 0038 desplegada; precondicion de live: cortes-ui-01 1.2."
     }
   ],
   "active": "fabrica-01"

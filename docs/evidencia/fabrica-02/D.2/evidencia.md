@@ -1,6 +1,6 @@
 # E/D.2 — Terna del grupo 1 limpiada (2026-09-15)
 
-**Qué es esto.** Evidencia (parcial, fila en `WIP`) de la fila D.2 de `plans/fabrica-02.md`. El
+**Qué es esto.** Evidencia de la fila D.2 de `plans/fabrica-02.md`. El
 dueño corrió `tools/harvest_excepcion.py --limpiar-terna --grupo 1` con la
 ceremonia del tool (dry-run, `--esperado`, `--huella`, `--go`) a las
 16:57 UTC del 2026-09-15, después de la verificación de apagado de D.1
@@ -33,21 +33,33 @@ resolviendo por la terna del goal de plataforma con `migracion_pendiente`,
 estado legítimo y declarado en la fila. En el ciclo 61 (previo a D.2) el
 resolutor contó `terna: 28` y `grupo: 4`.
 
-## Lo que falta para cerrar la fila: `/salud` después de D.2
+## `/salud` después de D.2 (cierre de la fila)
 
-El criterio de salida de D.2 pide **dos** cosas: terna NULL (arriba, ya
-verificada) y `/salud` mostrando al grupo 1 resuelto por grupo. El bloque
-`harvest_destino` de `/salud` sale de las notas del **último ciclo**, y el
-último ciclo (61) corrió antes de D.2, así que al 2026-09-15 esa segunda
-lectura **no existe todavía**. Por eso la fila queda `WIP` (ejecutada, no
-cerrada) hasta leer el ciclo de las 08:41 UTC del 2026-09-16:
-`resueltos.grupo` debe incluir al grupo 1 y `saltos_grupo` no debe traer
-`destino_inconsistente` ni `sin_destino_de_harvest` para sus campañas. Con
-esa lectura se cierra en un PR de docs; si aparece cualquiera de los dos
-motivos, se reabre D.2 con hallazgo.
+El criterio de salida de D.2 pide **dos** cosas: terna NULL (arriba) y
+`/salud` mostrando al grupo 1 resuelto por grupo. Como el bloque
+`harvest_destino` sale de las notas del **último ciclo** y el ciclo 61 corrió
+antes de D.2, el dueño corrió un ciclo manual de `amazon_mx` con `!` la misma
+tarde (mismo comando que la verificación de apagado de D.1.5; no es forzar
+un harvest). Salieron dos ciclos, 62 y 63 (19:40 y 19:42 UTC), ambos
+`done`, `decisions_count=0`, `bids_aplicados=0`:
 
-Lectura adelantada (dueño, con `!`, cero escrituras), dry-run del propio
-tool el 2026-09-15 después de las 18:00 UTC:
+```
+id | started_at (UTC)     | harvest_destino
+62 | 2026-09-15 19:40:44  | {"resueltos": {"grupo": 4, "terna": 28, "excepcion": 0}, "saltos_grupo": {}}
+63 | 2026-09-15 19:42:17  | {"resueltos": {"grupo": 4, "terna": 28, "excepcion": 0}, "saltos_grupo": {}}
+```
+
+`GET /api/dashboard/salud` → `plataformas.amazon_mx.harvest_destino =
+{resueltos: {grupo: 4, excepcion: 0, terna: 28}, saltos_grupo: []}`. El
+grupo 1 es el único grupo (`campana_grupo_rol`: 5 campañas, `grupo_id = 1`);
+los 4 «grupo» son sus cuatro hermanas, que resuelven a la exacta del grupo
+(la exacta es el destino, no un origen: `origen_es_destino`). `saltos_grupo`
+vacío: ningún `destino_inconsistente` ni `sin_destino_de_harvest`. Contadores
+del grupo 1 después del ciclo 63: `jobs = 0`, `intentos = 0`, `kw_biblio = 0`,
+`neg_biblio = 0`; los cinco goals intactos (bid-solo, 11.62, `shadow`).
+
+Lectura adelantada del propio tool (dueño, con `!`, cero escrituras), antes
+del ciclo:
 
 ```
 grupo: id=1 platform=amazon_mx tipo_producto=kit_arras
@@ -61,9 +73,7 @@ candidatas: 0
 huella: e3b0c44298fc1c14
 ```
 
-El resolutor ya ve la exacta del grupo como destino (`exacta:` arriba) y
-no queda nada por limpiar; la huella es la del conjunto vacío. Sigue
-faltando la lectura de `/salud` del ciclo del 16-sep para cerrar la fila.
+Con esto la fila cumple su criterio de salida y cierra.
 
 ## Residuales
 
