@@ -23,7 +23,7 @@ las hojas hasta el 4 de octubre; el primer lote queda diferido con fecha en su p
 **Producción tiene F2 apagada**: los goals del grupo 1 siguen en `shadow`. Un segundo rebuild la
 misma tarde dejó el código en `7384152`, ya con el modo de goals del #283, y el vigilante del cron
 quedó instalado con su prueba del silencio hecha. **Sigue D.3** desde el 19-sep (regla 6 sobre el
-grupo 1) con una sola precondición abierta: el visto bueno del dueño a `cortes-ui-01` 1.2.
+grupo 1); sus precondiciones ya están cumplidas, incluido el visto bueno a `cortes-ui-01` 1.2.
 
 **2026-09-16 UTC — FABRICA 02 (F2): R.1 CERRADA — la revisión independiente de la Fase A pasó con ejecución real; sigue el despliegue.**
 Muse entregó el catálogo de 29 mutantes (PR #278, en master como `d7c0bf9`): 26 mueren con su rojo
