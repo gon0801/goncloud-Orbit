@@ -351,6 +351,21 @@ _PATRON_INSERT_GOAL = re.compile(_SQL_INSERT_GOAL, re.IGNORECASE)
 MODULOS_DESPACHAN_GOALS = ("app/cli.py", "app/api_write.py")
 
 
+def _escritores_crudos_goals(raiz: Path) -> list[str]:
+    """FABRICA 02 (A.5, DoD de la fila): escritores crudos de
+    `ads_optimizer_goal` bajo `<raiz>/tools/` (UPDATE o INSERT del
+    patron compilado): el escaneo que
+    `test_escritura_de_goals_vive_solo_en_goals_write` usa sobre el repo
+    real, extraido para poder probarlo con fuga sembrada
+    (`test_candado_tools_caza_update_crudo_de_goals`)."""
+    return sorted(
+        p.relative_to(raiz).as_posix()
+        for p in (raiz / "tools").rglob("*.py")
+        if _PATRON_UPDATE_GOAL.search(p.read_text(encoding="utf-8"))
+        or _PATRON_INSERT_GOAL.search(p.read_text(encoding="utf-8"))
+    )
+
+
 def test_escritura_de_goals_vive_solo_en_goals_write():
     """Candado de camino unico de goals (3.2): cli.py y api_write.py (a) NO
     contienen SQL contra ads_optimizer_goal y (b) importan app.goals_write en
@@ -391,16 +406,25 @@ def test_escritura_de_goals_vive_solo_en_goals_write():
         f"FABRICA 01): {escritores_insert}"
     )
 
-    escritores_tools = sorted(
-        p.relative_to(RAIZ).as_posix()
-        for p in TOOLS.rglob("*.py")
-        if _PATRON_UPDATE_GOAL.search(p.read_text(encoding="utf-8"))
-        or _PATRON_INSERT_GOAL.search(p.read_text(encoding="utf-8"))
-    )
+    escritores_tools = _escritores_crudos_goals(RAIZ)
     assert escritores_tools == [], (
         f"escritura cruda de ads_optimizer_goal en tools/ (FABRICA 02 A.1: "
         f"los tools despachan a app.goals_write): {escritores_tools}"
     )
+
+
+def test_candado_tools_caza_update_crudo_de_goals(tmp_path):
+    """Regla 9 (FABRICA 02, A.5): el candado de escritor unico en `tools/`
+    DETECTA: la copia del tool con un `UPDATE ads_optimizer_goal` crudo
+    sembrado aparece listada por el helper (el detector muerde)."""
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    (tools / "harvest_excepcion.py").write_text(
+        (RAIZ / "tools" / "harvest_excepcion.py").read_text(encoding="utf-8")
+        + '\n# fuga sembrada (regla 9):\n_FUGA = "UPDATE ads_optimizer_goal SET enabled = false"\n',
+        encoding="utf-8",
+    )
+    assert _escritores_crudos_goals(tmp_path) == ["tools/harvest_excepcion.py"]
 
 
 def test_patrones_sql_goals_resisten_case_y_whitespace():
@@ -624,6 +648,75 @@ def test_allowlist_fabrica_caza_import_de_escritura(tmp_path):
     imp = _imports_runtime(fuga)
     assert "app.ads.write" in _violaciones(imp, ("app.ads.write",))
     assert "app.ads.write" in imp - ALLOWLIST_IMPORTS_FABRICA_CAMPANAS
+
+
+# FABRICA 02 (A.5): allowlist POSITIVA de los imports de runtime de
+# tools/harvest_excepcion.py (mismo trato que fabrica_campanas): el tool es
+# solo Postgres + app_admin, cero Amazon, cero apply. Solo stdlib de CLI
+# (argparse, datetime, hashlib, os, sys), app.db (connect), app.goals_write
+# (el UNICO camino de escritura de goals, que el tool despacha) y
+# app.optimizer.harvest_destino (lectura + simulacion del destino).
+# Sincronizada con los imports reales (incluye los "modulo.alias" que
+# _imports_runtime registra por cada from-import). Ampliarla = editar este
+# archivo a proposito.
+ALLOWLIST_IMPORTS_HARVEST_EXCEPCION = frozenset(
+    {
+        "__future__",
+        "__future__.annotations",
+        "argparse",
+        "datetime",
+        "hashlib",
+        "os",
+        "sys",
+        "app.db",
+        "app.db.OrbitDbError",
+        "app.db.connect",
+        "app.goals_write",
+        "app.goals_write.GoalInexistente",
+        "app.goals_write.GoalInvalido",
+        "app.goals_write.edita_goal",
+        "app.optimizer.harvest_destino",
+        "app.optimizer.harvest_destino.DestinoHarvest",
+        "app.optimizer.harvest_destino.RESUELTO_EXCEPCION",
+        "app.optimizer.harvest_destino.RESUELTO_GRUPO",
+        "app.optimizer.harvest_destino.SaltoHarvest",
+        "app.optimizer.harvest_destino.resolver_destino",
+        "app.optimizer.harvest_destino.simula_excepcion",
+    }
+)
+
+
+def test_harvest_excepcion_solo_importa_lo_declarado():
+    """A.5: el tool solo importa lo declarado (stdlib CLI + app.db +
+    app.goals_write + harvest_destino). Un import de mas (Amazon, apply,
+    red) es una decision de arquitectura: se suma EDITANDO este archivo.
+    """
+    extras = (
+        _imports_runtime(RAIZ / "tools" / "harvest_excepcion.py")
+        - ALLOWLIST_IMPORTS_HARVEST_EXCEPCION
+    )
+    assert not extras, (
+        f"tools/harvest_excepcion.py importa por fuera de su allowlist: {sorted(extras)} — "
+        "ampliar ALLOWLIST_IMPORTS_HARVEST_EXCEPCION exige editar "
+        "tests/test_architecture.py"
+    )
+    assert "tools/harvest_excepcion.py" not in PERMITIDOS_IMPORTAR_ADS_WRITE, (
+        "el tool jamas debe habilitarse para importar app.ads.write"
+    )
+    fuente = (RAIZ / "tools" / "harvest_excepcion.py").read_text(encoding="utf-8")
+    for patron in ("__import__(", "import_module(", "app.apply", "httpx"):
+        assert patron not in fuente, f"tools/harvest_excepcion.py usa {patron!r}"
+
+
+def test_allowlist_harvest_excepcion_caza_import_de_escritura(tmp_path):
+    """Regla 9: la copia del tool con `from app.ads.write import AdsWriteClient`
+    queda fuera de la allowlist Y dispara el candado general."""
+    fuente = (RAIZ / "tools" / "harvest_excepcion.py").read_text(encoding="utf-8")
+    fuga = tmp_path / "excepcion_fuga.py"
+    fuga.write_text(fuente + "from app.ads.write import AdsWriteClient\n", encoding="utf-8")
+    imp = _imports_runtime(fuga)
+    assert "app.ads.write" in _violaciones(imp, ("app.ads.write",))
+    assert "app.ads.write" in imp - ALLOWLIST_IMPORTS_HARVEST_EXCEPCION
 
 
 def test_fabrica_plan_es_puro():

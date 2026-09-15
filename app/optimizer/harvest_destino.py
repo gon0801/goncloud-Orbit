@@ -32,7 +32,7 @@ cuenta, no una decision sobre esa campana, y jamas contradice al grupo).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
@@ -233,3 +233,21 @@ def resolver_destino(
             f"plataforma fuera del vocabulario sellado {{amazon_us, amazon_mx}}: {platform!r}"
         )
     return decide(_lee(conn, platform, campaign_ad_entity_id))
+
+
+def simula_excepcion(
+    conn: psycopg.Connection,
+    platform: str,
+    campaign_ad_entity_id: int,
+    par: tuple[str, str],
+) -> DestinoHarvest | SaltoHarvest:
+    """Resolucion "despues" de migrar (A.5, dry-run de `--migrar`): la
+    misma lectura de `_lee` con la excepcion sustituida por `par`
+    (camp_ext, ag_ext), pasada por la `decide` pura. No escribe nada:
+    `decide` no tiene IO y `_lee` solo SELECT. Con la excepcion ya
+    sembrada y el mismo par, da lo mismo que `resolver_destino`."""
+    if platform not in PLATAFORMAS_MONEDA:
+        raise ValueError(
+            f"plataforma fuera del vocabulario sellado {{amazon_us, amazon_mx}}: {platform!r}"
+        )
+    return decide(replace(_lee(conn, platform, campaign_ad_entity_id), excepcion=par))

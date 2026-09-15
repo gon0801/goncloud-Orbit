@@ -897,3 +897,49 @@ def test_a1_escritor_unico_de_goals_cubre_tools():
         or patron_insert.search(p.read_text(encoding="utf-8"))
     )
     assert escritores == [], f"escritura cruda de goals en tools/: {escritores}"
+
+
+# ---------------------------------------------------------------------------
+# simula_excepcion (A.5): resolucion "despues" sin escribir
+# ---------------------------------------------------------------------------
+
+
+@_skip_db
+def test_a5_simula_excepcion_igual_a_resolver_con_excepcion_real():
+    """Con la excepcion ya sembrada, simular el mismo par da el mismo
+    destino que `resolver_destino` (la sustitucion reproduce la lectura
+    real)."""
+    from app.optimizer.harvest_destino import simula_excepcion
+
+    with db_f2("orbit_a5_simigual") as conn:
+        camp = _campana(conn)
+        _goal_plataforma_con_terna(conn)
+        conn.execute(
+            "INSERT INTO harvest_excepcion (ad_entity_id, destino_campaign_external,"
+            " destino_ad_group_external, go_literal) VALUES (%s, '8001', '8101', 'go')",
+            (camp,),
+        )
+        real = resolver_destino(conn, PLATFORM, camp)
+        assert isinstance(real, DestinoHarvest) and real.resuelto_por == "excepcion"
+        assert simula_excepcion(conn, PLATFORM, camp, ("8001", "8101")) == real
+
+
+@_skip_db
+def test_a5_simula_excepcion_sobre_campana_sin_nada():
+    """Sin grupo ni excepcion (resuelve terna del goal de plataforma),
+    simular un par da `excepcion` con ese par y el bid del goal, sin
+    escribir fila."""
+    from app.optimizer.harvest_destino import simula_excepcion
+
+    with db_f2("orbit_a5_simnada") as conn:
+        camp = _campana(conn)
+        _goal_plataforma_con_terna(conn)
+        hoy = resolver_destino(conn, PLATFORM, camp)
+        assert isinstance(hoy, DestinoHarvest) and hoy.resuelto_por == "terna"
+        despues = simula_excepcion(conn, PLATFORM, camp, ("8901", "8902"))
+        assert isinstance(despues, DestinoHarvest)
+        assert despues.resuelto_por == "excepcion"
+        assert (despues.campaign_external, despues.ad_group_external) == ("8901", "8902")
+        assert despues.bid == Decimal("1.00")
+        n = conn.execute("SELECT count(*) FROM harvest_excepcion").fetchone()[0]
+        assert n == 0
