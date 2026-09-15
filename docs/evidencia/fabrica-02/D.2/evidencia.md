@@ -72,3 +72,67 @@ faltando la lectura de `/salud` del ciclo del 16-sep para cerrar la fila.
   `edita_goal`), así que el readback de arriba es la evidencia de la base.
 - Si se vuelve a correr el dry-run, debe decir «ya limpia» para los cinco
   goals; no se corrió para no repetir una lectura que no cambia nada.
+
+## Cierre anticipado (2026-09-15 19:40 UTC): ciclo 62 corrido, D.2 verificada
+
+David autorizó cerrar D.2 hoy en vez de esperar el ciclo del 16-sep
+08:41 UTC. El mismo readback independiente del lead corrió UN ciclo del
+optimizador para `amazon_mx` (no es harvest forzado; dentro de caps y
+cooldowns), luego leyó `/salud` y la base. Prueba de comando:
+
+```
+$ docker exec orbit-app-1 python -m app.cli cycle --platform amazon_mx
+== Ciclo del optimizador (ads_optimizer:amazon_mx) ==
+cycle_id=62 status=done decisions_count=0
+```
+
+`/salud` (HTML `http://127.0.0.1:8010/salud`, tarjeta amazon_mx) después
+del ciclo:
+
+```
+Ultimo ciclo: #62 · 2026-09-15 19:40:44 UTC · decisiones: 0 · applies: 0
+Destino de harvest: por grupo 4 · por excepcion 0 · por terna 28
+(Destino por terna del goal (migracion a grupo o excepcion pendiente))
+```
+
+`por grupo 4` significa que el resolutor sigue dejando notas de destino
+por grupo en sus 4 entidades fuente; los 28 restantes siguen con la terna
+del goal de plataforma con `migracion_pendiente` (estado legítimo).
+
+### Checks de /salud (los tres, verificados en base tras el ciclo)
+
+1. **Grupo 1 resuelto por grupo con la exacta como destino.** En
+   `campana_grupo_rol` el rol `category_exact` del grupo 1 apunta a
+   campaign `145787501515469` (id interno 415287) y ad group
+   `182421284463033` (id interno 415462) — exactamente el par que el
+   dry-run del dueño reportó como `exacta:`. El resolutor cuenta los
+   destinos por grupo (`por grupo 4` en /salud) y las consultas de
+   destino del grupo 1 no traen terna.
+2. **Contadores del grupo 1 en cero.** `harvest_job` tiene 2 filas en
+   total (set de arras, arras matrimoniales de oro; ambas fase `done`,
+   previas a D.2) y **ninguna** apunta a entidades fuente del grupo 1:
+   join con `campana_grupo_rol grupo_id=1` → 0 filas. Las campañas del
+   grupo 1 no han producido harvest jobs en ningún ciclo.
+3. **Sin motivos `destino inconsistente`.** El JSON de skips del ciclo 62
+   en /salud (entidad y termino, amazon_mx) no contiene ningún motivo
+   `destino_inconsistente`; tampoco `sin_destino_de_harvest`. Los skips
+   del ciclo 62 son los declarados (campana_no_enabled, cooldown,
+   entidad_inerte, etc.).
+
+### Confirmación base de los goals (readback directo, 19:5x UTC)
+
+```sql
+select id, mode, harvest_campaign_id, harvest_ad_group_id, harvest_default_bid,
+       updated_at from ads_optimizer_goal where id between 8 and 12;
+```
+
+Los cinco goals del grupo 1 siguen `shadow` con terna NULL/NULL y bid
+11.6200 intacto — nada de este ciclo los tocó (ni fue a tocarlos).
+
+## Veredicto
+
+**D.2 cerrable: SÍ.** Ambos criterios de salida están verificados hoy:
+terna NULL (16:57 UTC, dry-run del dueño + readback de base) y /salud
+mostrando el grupo 1 resuelto por grupo con la exacta como destino
+(ciclo 62, 19:40 UTC), sin motivos de inconsistencia y con contadores
+del grupo 1 en cero. El PR #285 pasa de WIP a cerrado.
