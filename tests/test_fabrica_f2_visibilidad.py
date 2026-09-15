@@ -29,7 +29,7 @@ from test_api_dashboard import (
     _encola_corte as _encola_corte_d,
 )
 from test_apply_harvest import TERMINO, _job_en
-from test_cycle import _siembra_terminos
+from test_cycle import _config_version, _siembra_terminos
 from test_fabrica_f2 import _semilla_grupo, db_f2
 from test_harvest_destino import _base_ciclo, _campana_suelta, _corre
 from test_notifica import _canal
@@ -133,6 +133,22 @@ def test_a6_campana_suelta_con_termino_salta_sin_aviso_de_grupo():
         notes = json.loads(res.notes)
         assert notes["skips"]["termino"].get("sin_destino_de_harvest") == 1
         assert notes["harvest_destino"]["saltos_grupo"] == {}
+
+
+@_skip_db
+def test_a6_ciclo_skipped_no_persiste_harvest_destino():
+    """Residual del review de #274 (mutante que persistia la clave en un
+    ciclo skipped): con la escalera off el ciclo queda skipped sin correr
+    el recorrido y sus notes NO llevan harvest_destino (mismo criterio
+    que target: solo cuando el recorrido corrio; el flanco del aviso ya
+    cuenta con la ausencia de la clave)."""
+    with db_f2("orbit_a6_skipped") as conn:
+        _config_version(conn, {"ads_optimizer_mode": "off"})
+        res = _corre(conn)
+        assert res.status == "skipped"
+        notes = json.loads(res.notes)
+        assert notes["motivo_skip"] == "escalera_off"
+        assert "harvest_destino" not in notes
 
 
 # ---------------------------------------------------------------------------
