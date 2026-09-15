@@ -75,7 +75,9 @@ en una fila faltante y avisa.
    resumen `faltan N de 8`. Exit code: `0` sin faltantes, `1` con
    faltantes (después de intentar el aviso), `2` si no pudo leer (después
    de intentar el aviso ciego). En `--dry-run` los mismos códigos, sin
-   envío.
+   envío. `desde` debe ser estrictamente menor que `hasta`: un intervalo
+   invertido o vacío se rechaza con exit 2 **antes** de abrir la base y sin
+   enviar nada (un aviso por ventana inválida sería falso).
 6. **Ops en `docs/DEPLOY.md`** (nueva subsección «Vigilante SP-API 07:30»
    dentro de «Crons de Orbit», aditiva): la línea exacta de crontab, con
    `flock` y log, `job_key=spapi:vigilante`, que **no contenga
@@ -89,9 +91,10 @@ en una fila faltante y avisa.
 
    Más el runbook de instalación y **la prueba del silencio**, que corre el
    dueño con `!`: (a) `--dry-run` sobre la ventana de hoy debe decir
-   `faltan 0 de 8` y exit 0; (b) `--desde` puesto en una hora futura (por
-   ejemplo mañana 04:30) debe listar 8 ausentes, mandar el aviso real por
-   Telegram y salir con 1; (c) tras instalar la línea, `crontab -l | grep
+   `faltan 0 de 8` y exit 0; (b) una ventana pasada donde no existió ninguna
+   corrida SP-API (por ejemplo `--desde 2026-01-01T04:30:00Z --hasta
+   2026-01-01T07:30:00Z`) debe listar 8 ausentes, mandar el aviso real por
+   Telegram y salir con 1;
    spapi:vigilante` la muestra y sigue ahí después de re-correr el
    instalador de ORBIT 03. La reversa es borrar la línea del crontab: el
    vigilante no escribe nada en la base.
@@ -142,11 +145,13 @@ prueba del silencio las corre el dueño con `!`, siguiendo tu runbook.**
 3. Sender: canal inactivo → `True` sin llamada; transport que responde
    `ok=false` → `False`; transport que levanta → `False` y warning con
    scrub; **nunca** levanta.
-4. Lector con DSN real: fixture siembra `ingest_run` con las combinaciones
+4. Validación de la ventana: `desde >= hasta` → exit 2 sin SELECT ni envío
+   (spy en el sender y en el lector).
+5. Lector con DSN real: fixture siembra `ingest_run` con las combinaciones
    del paso 1 y verifica el SELECT (y que el rol de lectura basta).
-5. CLI: `--dry-run` no llama al sender (spy); exit codes 0/1/2; `--desde`
+6. CLI: `--dry-run` no llama al sender (spy); exit codes 0/1/2; `--desde`
    futuro → 8 ausentes; DB rota (DSN inválido) → aviso ciego y exit 2.
-6. `docs/DEPLOY.md` al final, con el texto de la línea de crontab copiado
+7. `docs/DEPLOY.md` al final, con el texto de la línea de crontab copiado
    de la constante del test que la valida (un test que la línea de la doc
    no contiene `app.cli ingest` y sí `spapi:vigilante`, `flock` y el log).
 
@@ -154,7 +159,7 @@ prueba del silencio las corre el dueño con `!`, siguiendo tu runbook.**
 
 - contar `ok=false` como ausente (re-avisar fallos);
 - contar `finished_at IS NULL` como presente;
-- ventana con `<=` en `hasta` o sin `desde` (contar ayer);
+- ventana con `<=` en `hasta` o sin `desde` (contar ayer); aceptar `desde >= hasta`;
 - olvidar una plataforma (7 pares) o una fuente;
 - enviar también cuando no falta nada;
 - `--dry-run` que envía;
@@ -184,6 +189,7 @@ ORBIT_TEST_DSN=<dsn-test> uv run --frozen python -m pytest -q \
 uv run --frozen ruff check app/spapi/vigilante.py app/notifica.py app/cli.py tests/
 uv run --frozen ruff format --check app/spapi/vigilante.py app/notifica.py app/cli.py tests/
 pre-commit run --all-files
+pre-commit run --hook-stage pre-push   # el push normal también lo ejecuta; jamás --no-verify
 ```
 
 PR a `master` desde `origin/master`, carril **gate**, **en cola**: no se

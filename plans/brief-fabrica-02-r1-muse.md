@@ -212,6 +212,7 @@ D.1–D.3 y la corre el dueño con el lead.
 uv run --frozen ruff check tests/
 uv run --frozen ruff format --check tests/
 pre-commit run --all-files
+pre-commit run --hook-stage pre-push   # el push normal también lo ejecuta; jamás --no-verify
 ```
 
 Abre PR a `master` desde `origin/master`, carril **gate**. El PR **queda en
