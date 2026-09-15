@@ -227,3 +227,38 @@ Loop de cross-review, sin tope de rondas: kimi re-muta sobre tu SHA; lo que
 encuentre lo corriges en el mismo PR y kimi vuelve; cuando kimi sale limpio
 entra el lead; si el lead encuentra algo, vuelve a ti y kimi lo vuelve a ver.
 Solo el APPROVE del lead cierra el loop.
+
+## Hallazgos del pre-pase de kimi que este PR cierra (obligatorio)
+
+El pre-pase nocturno de kimi (`docs/evidencia/fabrica-02/R.1/revision-kimi.md`)
+salió sin hallazgos altos ni medios y con cinco bajos de tests. Tres de ellos
+son sobrevivientes reales y se cierran aquí, rojo-primero, además del
+catálogo:
+
+- **H2 — `tests/test_reversa_harvest.py::test_plan_precondiciones_fallan_cerrado`**
+  anuncia cuatro precondiciones y ejercita dos. Agrega los dos casos que
+  faltan: cola de la decisión no `applied` → `ValueError("cola no applied")`,
+  y `external_ids` sin `keyword_id` o sin `negative_id` →
+  `ValueError("sin keyword_id o negative_id")`. Demuestra que sin las guardas
+  de `app/apply_harvest.py:1150-1157` ambos tests caen.
+- **H3 — `tests/test_fabrica_f2_visibilidad.py::test_a6_campana_suelta_salta_en_skips_pero_no_en_saltos_grupo`**
+  no siembra términos y sus asserts se cumplen vacíos. O siembra el término
+  (como su gemelo de las líneas siguientes) y aserta que el skip
+  `sin_destino_de_harvest` aparece en `skips.termino` y no en `saltos_grupo`,
+  o bórralo si el gemelo ya cubre exactamente eso (dilo en el PR).
+- **H5 — los cinco tests del CLI en `tests/test_reversa_harvest.py:677-960`**
+  fijan `ORBIT_DSN_DECIDE` a `orbit:orbit@localhost:5432`. Derívalo de
+  `_test_dsn()` como el resto de la suite.
+
+**H4** (espía de `_envia_texto` en `tests/test_fabrica_f2_biblioteca.py:1015-1106`
+cuyo assert de timing se traga el `try/except` del sender) se enumera en el
+catálogo como `RES` con estado `no discriminable`, salvo que encuentres cómo
+asertar el timing sin tocar `app/notifica.py`. **H1** ya no aplica (cerrado
+en `41bc6aa`).
+
+Y una verificación extra en el catálogo: el residual de A.6 «envío en
+`_fase_notifica` sin test conductual». Kimi sostiene que
+`tests/test_notifica.py::test_fase_notifica_mapea_salto_destino_a_nota_y_acumula`,
+`::test_fase_notifica_salto_destino_canal_caido_deja_nota` y
+`::test_notifica_destino_grupo_envia_y_tumba` ya lo cubren. Demuéstralo con el
+mutante «enviar dentro de la transacción» y su rojo, o déjalo como `RES`.
