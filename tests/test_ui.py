@@ -1403,7 +1403,7 @@ def test_ui_salud_muestra_destino_de_harvest_y_saltos(monkeypatch):
     assert "por excepcion 0" in html
     assert "por terna 241" in html
     assert "Destino por terna del goal (migracion a grupo o excepcion pendiente)" in html
-    assert "Campanas de grupo sin destino" in html
+    assert "Campañas de grupo sin destino" in html
     assert "#6102" in html
     assert "Harvest bloqueado: la terna del goal contradice la exacta del grupo" in html
 
@@ -1415,4 +1415,4 @@ def test_ui_salud_sin_bloque_no_muestra_destino_de_harvest(monkeypatch):
         monkeypatch, {"amazon_us": _plataforma_harvest_destino(con_bloque=False)}
     )
     assert "Destino de harvest" not in html
-    assert "Campanas de grupo sin destino" not in html
+    assert "Campañas de grupo sin destino" not in html

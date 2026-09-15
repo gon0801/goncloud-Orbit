@@ -279,7 +279,7 @@ Respuesta 200:
   (ciclos pre-A.6, sin inventar ceros). La página `/salud` pinta bajo
   «Ultimo ciclo» la línea «Destino de harvest: por grupo N · por
   excepcion N · por terna N (terna_es)» y, si hay saltos, la lista
-  «Campanas de grupo sin destino: #id — motivo_es».
+  «Campañas de grupo sin destino: #id — motivo_es».
 - `target_margen` (2.3): el resultado DEL PELDAÑO a nivel plataforma desde
   `notes.target` del último ciclo (constructor puro en `app/api_common.py`, sin
   re-resolver): `target_vigente` (el aplicado si el peldaño ganó, `null` si se

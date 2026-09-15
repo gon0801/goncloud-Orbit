@@ -1641,7 +1641,7 @@ def test_salud_skips_traducidos_del_orquestador(monkeypatch):
         # A.6: los motivos F2 del resolutor llegan traducidos a /salud
         assert skips["termino"]["origen_es_destino"] == {
             "count": 2,
-            "motivo_es": "Harvest saltado: la campana exacta es el destino (origen = destino)",
+            "motivo_es": "Harvest saltado: la campaña exacta es el destino (origen = destino)",
         }
         assert skips["termino"]["destino_inconsistente"] == {
             "count": 1,
@@ -1662,7 +1662,7 @@ def test_salud_skips_traducidos_del_orquestador(monkeypatch):
 MOTIVOS_ES_F2 = [
     (
         hygiene.MOTIVO_ORIGEN_ES_DESTINO,
-        "Harvest saltado: la campana exacta es el destino (origen = destino)",
+        "Harvest saltado: la campaña exacta es el destino (origen = destino)",
     ),
     (
         hygiene.MOTIVO_SIN_DESTINO_HARVEST,

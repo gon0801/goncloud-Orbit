@@ -267,7 +267,9 @@ MOTIVOS_ES_SALUD: dict[str, str] = {
     # FABRICA 02 (A.6): motivos del resolutor de destino (hygiene, A.1) que el
     # ciclo cuenta en skips.termino — la unica superficie donde se ven.
     hygiene.MOTIVO_ORIGEN_ES_DESTINO: (
-        "Harvest saltado: la campana exacta es el destino (origen = destino)"
+        # "campaña" con ñ: test_ui_copy_campana.py exige ñ en la copia
+        # visible de MOTIVOS_ES_* (el dict ya la usa: "la campaña no esta").
+        "Harvest saltado: la campaña exacta es el destino (origen = destino)"
     ),
     hygiene.MOTIVO_SIN_DESTINO_HARVEST: "Harvest sin destino: sin grupo, sin excepcion y sin terna",
     hygiene.MOTIVO_DESTINO_INCONSISTENTE: (
