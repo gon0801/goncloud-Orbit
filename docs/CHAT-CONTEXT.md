@@ -15,6 +15,11 @@ mostró en `/salud` a las cuatro hermanas del grupo resueltas a su exacta y sin 
 criterio. Evidencia en `docs/evidencia/fabrica-02/D.1/` y `D.2/`. La cola del día quedó mergeada completa (#277 a #284, master `7384152`), incluido el modo de
 goals con ceremonia (#283) que D.3 necesita.
 
+**Dos planes cerrados el mismo día.** `cortes-ui-01` (la pantalla de propuestas): el dueño la abrió y dio su
+visto bueno con sus palabras. `bids-01` (cero ventas −25% y palabras sin tráfico): la fila 1.5 cierra con
+el ensayo del archivo de inertes, que hoy da cero candidatas porque la guarda de 30 días cubre a todas
+las hojas hasta el 4 de octubre; el primer lote queda diferido con fecha en su propia tarea del tracker.
+
 **Producción tiene F2 apagada**: los goals del grupo 1 siguen en `shadow`. Un segundo rebuild la
 misma tarde dejó el código en `7384152`, ya con el modo de goals del #283, y el vigilante del cron
 quedó instalado con su prueba del silencio hecha. **Sigue D.3** desde el 19-sep (regla 6 sobre el
