@@ -19,6 +19,11 @@ cierra solo con el APPROVE del lead sobre el SHA del PR de R.1.
 El prompt exacto vive en el PR de la noche (descripción) y el informe de
 kimi va tal cual abajo, sin editar. La auditoría del lead está al final.
 
+**Cómo leer el informe.** Donde kimi escribe «test que lo mata» o «superado»
+léase «test candidato según análisis estático»: nada se ejecutó. «Muere» y
+«superado» con valor de evidencia solo existirán en `mutantes.md`, con el
+comando, la mutación aplicada y el rojo literal que exige R.1.
+
 ---
 
 # Revisión independiente R.1 — FABRICA 02 Fase A — SHA 7a32ec3

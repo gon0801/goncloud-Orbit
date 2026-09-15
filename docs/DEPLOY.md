@@ -1662,9 +1662,19 @@ PSQL_READ='sh -c '"'"'DSN=$(docker exec orbit-app-1 printenv ORBIT_DSN_READ); do
 
 ### D.1.0 Precondiciones (solo lectura, sin go)
 
-1. **SHA y ventana.** `git fetch -q origin && git rev-parse --short
-   origin/master` debe ser el SHA que el lead aprobó al cerrar el momento de
-   merge, con CI de master verde. Ventana: lejos del ciclo de Ads (08:40
+1. **SHA y ventana.** Fija en una variable el SHA **completo** que el lead
+   aprobó al cerrar el momento de merge (CI de master verde sobre él) y
+   comprueba que `origin/master` sigue ahí; todo lo que sigue usa
+   `$APROBADO`, nunca `origin/master`, para que un push posterior no cambie
+   lo que se despliega:
+
+   ```bash
+   APROBADO=<sha completo aprobado por el lead>
+   git fetch -q origin && [ "$(git rev-parse origin/master)" = "$APROBADO" ] \
+     && echo "ok: origin/master = $APROBADO" || echo "FALLO: origin/master avanzó; no despliegues"
+   ```
+
+   Ventana: lejos del ciclo de Ads (08:40
    UTC) y de las ingestas (05:00–07:20 UTC); entre 09:30 y 15:00 UTC o
    después de las 16:00 UTC.
 2. **Cola sin harvest en vuelo** (patrón orbit-05 1.3). Las dos consultas
@@ -1821,21 +1831,28 @@ la imagen (entran por stdin en D.2 y D.3, como `archiva_inertes.py`), pero
 el md5 del árbol del server debe incluirlos para que lo que se corre sea lo
 que está en master. Desde la raíz del checkout:
 
+Cada paso está encadenado con `&&`: si algo falla, imprime `FALLO` y **el
+paso siguiente no se ejecuta**. No sigas a la línea siguiente después de un
+`FALLO`; la reversa del código es restaurar `app.bak-predeploy-$STAMP` y
+reconstruir.
+
 ```bash
-git fetch -q origin && SHA=$(git rev-parse --short origin/master) && STAMP=$(date -u +%Y%m%d-%H%M)
-ssh goncloud "cd /mnt/data/appdata/orbit && cp -a app app.bak-predeploy-$STAMP && echo respaldo app.bak-predeploy-$STAMP"
-git archive --format=tar origin/master app Dockerfile .dockerignore pyproject.toml uv.lock \
+STAMP=$(date -u +%Y%m%d-%H%M); TMP=$(mktemp -d)
+ssh goncloud "cd /mnt/data/appdata/orbit && cp -a app app.bak-predeploy-$STAMP && echo respaldo app.bak-predeploy-$STAMP" || echo "FALLO respaldo"
+git archive --format=tar "$APROBADO" app Dockerfile .dockerignore pyproject.toml uv.lock \
   tools/fabrica_campanas.py tools/harvest_excepcion.py tools/reversa_harvest.py \
-  | ssh goncloud 'cd /mnt/data/appdata/orbit && tar -xf -'
-TMP=$(mktemp -d)
-git archive --format=tar origin/master app tools/fabrica_campanas.py tools/harvest_excepcion.py tools/reversa_harvest.py \
-  | tar -xf - -C "$TMP"
-( cd "$TMP" && find app tools -type f | sort | xargs md5 -r ) | awk '{print $1, $2}' | sort -k2 > "$TMP/local.md5"
-ssh goncloud 'cd /mnt/data/appdata/orbit && find app tools/fabrica_campanas.py tools/harvest_excepcion.py tools/reversa_harvest.py -type f | sort | xargs md5sum' \
-  | awk '{print $1, $2}' | sort -k2 > "$TMP/server.md5"
-diff -q "$TMP/local.md5" "$TMP/server.md5" && echo "md5 OK ($SHA): $(wc -l < "$TMP/local.md5") archivos" || { echo "md5 DIFERENTE: no construyas"; diff "$TMP/local.md5" "$TMP/server.md5" | head; }
-ssh goncloud 'cd /mnt/data/appdata/orbit && docker compose up -d --no-deps --build app 2>&1 | tail -3'
-ssh goncloud 'curl -fsS http://127.0.0.1:8010/health; echo; docker ps --format "{{.Names}} {{.Status}}" | grep orbit-app'
+  | ssh goncloud 'cd /mnt/data/appdata/orbit && tar -xf -' && echo "copiado $APROBADO" || echo "FALLO copia"
+git archive --format=tar "$APROBADO" app tools/fabrica_campanas.py tools/harvest_excepcion.py tools/reversa_harvest.py \
+  | tar -xf - -C "$TMP" \
+  && ( cd "$TMP" && find app tools -type f | sort | xargs md5 -r ) | awk '{print $1, $2}' | sort -k2 > "$TMP/local.md5" \
+  && ssh goncloud 'cd /mnt/data/appdata/orbit && find app tools/fabrica_campanas.py tools/harvest_excepcion.py tools/reversa_harvest.py -type f | sort | xargs md5sum' \
+     | awk '{print $1, $2}' | sort -k2 > "$TMP/server.md5" \
+  && diff -q "$TMP/local.md5" "$TMP/server.md5" >/dev/null \
+  && echo "md5 OK: $(wc -l < "$TMP/local.md5") archivos idénticos a $APROBADO" \
+  && ssh goncloud 'cd /mnt/data/appdata/orbit && docker compose up -d --no-deps --build app' \
+  && echo "build+recreate OK" \
+  || { echo "FALLO: md5 distinto o build fallido; NO sigas"; diff "$TMP/local.md5" "$TMP/server.md5" | head; }
+ssh goncloud 'curl -fsS http://127.0.0.1:8010/health' && echo && ssh goncloud 'docker ps --format "{{.Names}} {{.Status}}" | grep -q "orbit-app-1 Up" && docker ps --format "{{.Names}} {{.Status}}" | grep orbit-app' && echo "health OK" || echo "FALLO health o contenedor"
 ```
 
 Smoke de lectura (F2 visible, sin escribir nada): `/salud` trae el bloque
@@ -1853,24 +1870,36 @@ sigue puesta) o por `grupo` si ya era NULL; anótalo: es el «antes» de D.2.
 
 ### D.1.5 Verificación de apagado (no es la reversa)
 
-Con los goals del grupo en `shadow`, un ciclo completo **no debe sacar
-ningún job nuevo a HTTP**. Conteos antes, un ciclo, conteos después, los
-mismos:
+Con los goals del grupo en `shadow`, un ciclo completo **no debe emitir
+ninguna mutación de F2**: ningún job de harvest para una campaña de grupo,
+ningún intento `normal` o `hermana` ligado a una decisión de campaña de
+grupo, ninguna fila nueva en las bibliotecas. Este gate mide **mutaciones de
+campañas de grupo**, no todo el HTTP del ciclo: la envolvente ya es `live`
+para el resto de la cuenta, así que el ciclo sigue haciendo su `GET` de
+perfiles y los applies de los goals que ya están en vivo (bids, negativos y
+harvests por terna de otras campañas). Conteos antes, un ciclo, conteos
+después, los mismos:
 
 ```bash
-ssh goncloud "$PSQL_READ -c \"SELECT (SELECT count(*) FROM harvest_job) AS jobs,
-   (SELECT count(*) FROM apply_attempt WHERE tipo IN ('normal','hermana')) AS intentos,
+ssh goncloud "$PSQL_READ -c \"SELECT
+   (SELECT count(*) FROM harvest_job h JOIN campana_grupo_rol r ON r.ad_entity_id = h.ad_entity_id) AS jobs_grupo,
+   (SELECT count(*) FROM apply_attempt a JOIN decision d ON d.id = a.decision_id
+      JOIN campana_grupo_rol r ON r.ad_entity_id = d.ad_entity_id
+     WHERE a.tipo IN ('normal','hermana')) AS intentos_grupo,
+   (SELECT count(*) FROM apply_attempt WHERE tipo = 'hermana') AS hermanas_total,
    (SELECT count(*) FROM keyword_biblioteca) AS kw_biblio,
    (SELECT count(*) FROM negative_biblioteca) AS neg_biblio,
    (SELECT max(id) FROM optimizer_cycle) AS ultimo_ciclo;\""
 ssh goncloud 'docker exec orbit-app-1 python -m app.cli cycle --platform amazon_mx 2>&1 | tail -5'
-# repetir el SELECT: jobs, intentos, kw_biblio y neg_biblio IDÉNTICOS; ultimo_ciclo +1
+# repetir el SELECT: jobs_grupo, intentos_grupo, hermanas_total, kw_biblio y neg_biblio IDÉNTICOS; ultimo_ciclo +1
 ```
 
-Si algún conteo subió, se detiene todo y se lee el ciclo en `/salud`
-(motivo del skip) antes de seguir. Lo que sí puede aparecer: filas
-`shadow` en `apply_queue` y notas `harvest_destino` en el ciclo — eso es
-lectura, no HTTP.
+Y como segunda lectura, en `/salud` el ciclo nuevo debe listar las campañas
+del grupo 1 saltadas por modo `shadow` (no por `destino_inconsistente` ni
+`sin_destino_de_harvest`). Si algún conteo subió, se detiene todo y se lee
+el ciclo en `/salud` (motivo del skip) antes de seguir. Lo que sí puede
+aparecer: filas `shadow` en `apply_queue` y notas `harvest_destino` en el
+ciclo — eso es lectura, no HTTP.
 
 Con esto D.1 cierra: E/D.1 lleva SHA, respaldo, salidas de D.1.3, md5 y
 `Recreated`, el cap decidido con su `config_version.id`, y los dos conteos
@@ -1934,10 +1963,19 @@ de la fila. Hasta entonces D.3 no arranca; se declara, no se adelanta.
 
 Orden cuando llegue el día:
 
-1. **Encender el grupo a `live`** (go 1): los goals del grupo 1 pasan de
-   `shadow` a `live` por el camino de goals (`goals_write`, nunca UPDATE
-   crudo); la envolvente `ads_optimizer_mode` ya es `live`. Verificar con la
-   consulta de D.1.0 paso 3.
+1. **Encender el grupo a `live`** (go 1). **Hoy no existe camino sellado
+   para esto**: `goals_write.edita_goal` y `python -m app.cli goals set`
+   editan target, enabled, floor, ceiling y la terna de harvest, pero **no
+   `mode`**; el modo solo se fija al crear el goal (`MODOS_CREACION`). Un
+   `UPDATE ads_optimizer_goal SET mode = 'live'` a mano queda prohibido (la
+   edición de goals vive solo en `goals_write`, candado de arquitectura).
+   Precondición de D.3, antes del 19-sep: una tarea chica para Muse que
+   agregue `--mode shadow|live` a `goals set` (vía `edita_goal`, con la
+   ceremonia `--acepto-mutacion-real --esperado --huella --go` y readback
+   del goal, solo `app_admin`, tests rojo-primero). Cuando exista, el paso
+   es: dry-run que liste los goals del grupo 1 y su modo actual; go 1 del
+   dueño; readback con la consulta de D.1.0 paso 3 mostrando `live` en
+   todos. La envolvente `ads_optimizer_mode` ya es `live`.
 2. **Seguir el primer harvest natural hasta `done`** (sin forzar `/run`:
    espera el ciclo del cron). Evidencia: `harvest_job` con `fase` pasando
    por `hermanas_negadas`, `external_ids.hermanas_objetivo` con las
