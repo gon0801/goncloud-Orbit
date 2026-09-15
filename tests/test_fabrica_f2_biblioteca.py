@@ -1017,6 +1017,8 @@ def test_fallo_inyectado_keyword_sello_intacto(monkeypatch):
     fase INTACTOS, cero filas, rastro `escrita: false` con motivo y UNA
     alerta veraz por el sender nuevo. Regla 9: sin el SAVEPOINT + catch,
     el sello aborta y este test cae en `done`/`applied`."""
+    from test_schema import _test_dsn
+
     import app.notifica as _notifica
 
     with db_f2("orbit_bib_fallo1") as conn:
@@ -1024,10 +1026,21 @@ def test_fallo_inyectado_keyword_sello_intacto(monkeypatch):
         envios: list = []
 
         def _espia(texto, transport=None):
-            assert conn.info.transaction_status == TransactionStatus.IDLE, (
-                "A.4r1: el aviso sale DESPUES del commit del sello"
-            )
-            envios.append(texto)
+            # R.1 H4: el estado se REGISTRA, no se aserta aqui: un assert
+            # dentro del espia seria tragado por el try/except fail-silent
+            # del sender y el test reportaria la causa equivocada.
+            # Ronda: ademas del timing, el sello debe ser VISIBLE desde
+            # otra conexion (con autocommit, IDLE solo prueba que no hay
+            # tx explicita abierta, no que el sello persistio).
+            otra = psycopg.connect(_test_dsn(), dbname=conn.info.dbname, autocommit=True)
+            try:
+                rastro_visible = otra.execute(
+                    "SELECT external_ids ? 'biblioteca' FROM harvest_job WHERE search_term = %s",
+                    (TERMINO_A4,),
+                ).fetchone()
+            finally:
+                otra.close()
+            envios.append((texto, conn.info.transaction_status, rastro_visible))
             return True
 
         monkeypatch.setattr(_notifica, "canal_activo", lambda: True)
@@ -1055,8 +1068,15 @@ def test_fallo_inyectado_keyword_sello_intacto(monkeypatch):
         ).fetchone()[0]
         assert ver is True, "resumen confirmado"
         assert len(envios) == 1, "el sender nuevo se llamo una vez"
-        assert "failed" not in envios[0].lower(), envios[0]
-        assert "aplicado" in envios[0] and TERMINO_A4 in envios[0], envios[0]
+        texto_aviso, estado_tx, rastro_visible = envios[0]
+        assert rastro_visible is not None and rastro_visible[0] is True, (
+            "ronda H4: el rastro del sello ya es visible al avisar"
+        )
+        assert estado_tx == TransactionStatus.IDLE, (
+            "A.4r1: el aviso sale DESPUES del commit del sello"
+        )
+        assert "failed" not in texto_aviso.lower(), texto_aviso
+        assert "aplicado" in texto_aviso and TERMINO_A4 in texto_aviso, texto_aviso
 
 
 @_skip_db
@@ -1067,6 +1087,8 @@ def test_fallo_inyectado_negative_veredicto_intacto(monkeypatch, caplog):
     revienta en vez de sellar."""
     import logging
 
+    from test_schema import _test_dsn
+
     import app.notifica as _notifica
 
     with db_f2("orbit_bib_fallo3") as conn:
@@ -1075,10 +1097,22 @@ def test_fallo_inyectado_negative_veredicto_intacto(monkeypatch, caplog):
         envios: list = []
 
         def _espia(texto, transport=None):
-            assert conn.info.transaction_status == TransactionStatus.IDLE, (
-                "A.4r1: el aviso sale DESPUES del commit del sello"
-            )
-            envios.append(texto)
+            # R.1 H4: el estado se REGISTRA, no se aserta aqui: un assert
+            # dentro del espia seria tragado por el try/except fail-silent
+            # del sender y el test reportaria la causa equivocada.
+            # Ronda: ademas del timing, el veredicto debe ser VISIBLE
+            # desde otra conexion (con autocommit, IDLE solo prueba que
+            # no hay tx explicita abierta, no que el sello persistio).
+            otra = psycopg.connect(_test_dsn(), dbname=conn.info.dbname, autocommit=True)
+            try:
+                veredicto = otra.execute(
+                    "SELECT estado FROM apply_queue WHERE search_term = %s"
+                    " ORDER BY id DESC LIMIT 1",
+                    (TERMINO_A4,),
+                ).fetchone()
+            finally:
+                otra.close()
+            envios.append((texto, conn.info.transaction_status, veredicto))
             return True
 
         monkeypatch.setattr(_notifica, "canal_activo", lambda: True)
@@ -1100,8 +1134,15 @@ def test_fallo_inyectado_negative_veredicto_intacto(monkeypatch, caplog):
         assert ledger[0] == "ok", "opcion (b): el formato del ledger no se toca"
         assert _neg_bib(conn, TERMINO_NORM) == []
         assert len(envios) == 1, "el sender nuevo se llamo una vez"
-        assert "failed" not in envios[0].lower(), envios[0]
-        assert "aplicado" in envios[0] and TERMINO_A4 in envios[0], envios[0]
+        texto_aviso, estado_tx, veredicto = envios[0]
+        assert veredicto is not None and veredicto[0] == "applied", (
+            "ronda H4: el veredicto del sello ya es visible al avisar"
+        )
+        assert estado_tx == TransactionStatus.IDLE, (
+            "A.4r1: el aviso sale DESPUES del commit del sello"
+        )
+        assert "failed" not in texto_aviso.lower(), texto_aviso
+        assert "aplicado" in texto_aviso and TERMINO_A4 in texto_aviso, texto_aviso
         linea = next(r.getMessage() for r in caplog.records if r.name == "app.biblioteca")
         assert MOTIVO_BIBLIOTECA_FALLO in linea and "aplicado" in linea, linea
 

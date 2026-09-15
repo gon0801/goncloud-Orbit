@@ -943,3 +943,45 @@ def test_a5_simula_excepcion_sobre_campana_sin_nada():
         assert despues.bid == Decimal("1.00")
         n = conn.execute("SELECT count(*) FROM harvest_excepcion").fetchone()[0]
         assert n == 0
+
+
+# ---------------------------------------------------------------------------
+# R.1 M14: el dedupe de revalida mira el destino RESUELTO, no la terna fresca
+# ---------------------------------------------------------------------------
+
+
+@_skip_db
+def test_r1_revalida_duplicado_en_exacta_resuelta_descarta():
+    """Decidido el harvest de grupo, el termino aparece en la exacta
+    RESUELTA (6104) antes de liberar: la revalidacion PRE-claim lo ve
+    duplicado contra el destino resuelto y descarta `ya_no_califica`
+    (cero POST, cero job). Regla 9 (R.1 M14): deduplicar por la terna
+    fresca del goal (8001, sin el termino) aplicaria y POSTearia."""
+    with db_f2("orbit_r1_revdup") as conn:
+        gpo, run = _base_ciclo(conn, con_goals=False)
+        _goal_plataforma_con_terna(conn)
+        exacta = gpo["roles"]["category_exact"]
+        phrase = gpo["roles"]["category_phrase"]
+        _siembra_terminos(conn, run, phrase["ag"])
+        res = _corre(conn)
+        harvs = _harvests_de(conn, res.cycle_id)
+        assert len(harvs) == 1
+        # El termino aparece en la exacta resuelta DESPUES de decidir
+        # (alguien lo creo a mano): la revalida debe verlo.
+        conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id, parent_id, match_type,"
+            " keyword_text) VALUES (%s, 'keyword', '63001', %s, 'EXACT', 'buena yarda')",
+            (PLATFORM, exacta["ag"]),
+        )
+        handler, vistos = _handler_harvest()
+        res2 = libera_vencidos(
+            conn,
+            PLATFORM,
+            ahora=_ahora_liberar(),
+            aplicador=_aplicador_us(conn, handler, res.cycle_id),
+        )
+        assert res2.aplicadas == 0, "el duplicado no se aplica"
+        assert res2.descartadas == ["ya_no_califica"]
+        assert _posts_a(vistos, "/sp/keywords") == []
+        assert _posts_a(vistos, "/sp/negativeKeywords") == []
+        assert conn.execute("SELECT count(*) FROM harvest_job").fetchone()[0] == 0
