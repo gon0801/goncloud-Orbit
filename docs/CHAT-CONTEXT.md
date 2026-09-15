@@ -4,6 +4,21 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-15 UTC — FABRICA 02 (F2): A.5 aprobada y en cola de merge; ya existe la herramienta para migrar excepciones y limpiar ternas.**
+La herramienta de A.5 está en el PR #272 (Muse, HEAD `f8f782d`), en cola de merge con #269, #270 y
+#271. Tiene dos modos que no se mezclan: migrar una campaña sin grupo a `harvest_excepcion` con un
+destino que se resuelve contra las entidades reales (campaña y ad group hijo de la misma
+plataforma; texto libre rechazado; una excepción existente nunca se pisa), y limpiar la terna de los
+goals de un grupo solo por el camino único de edición de goals, goal por goal y reanudable si algo
+falla a mitad. Siempre dry-run primero, con la resolución de hoy y la de después y la huella; la
+mutación exige la ceremonia completa con el literal del dueño. Solo Postgres con el rol admin, cero
+Amazon. Treinta y siete pruebas nuevas, una ronda del lead con un hallazgo menor corregido, quince
+mutantes muertos y batería completa verde. Residuales declarados en la fila A.5 del plan.
+
+**Producción sigue igual**: 0038 no está desplegada y nada de F2 corre en vivo hasta D.1; la
+limpieza real de la terna del grupo 1 es D.2, con go del dueño y esta herramienta. **Sigue A.6**,
+visibilidad y aviso.
+
 **2026-09-14 UTC — FABRICA 02 (F2): A.4 aprobada y en cola de merge; la biblioteca del tipo de producto aprende sola.**
 La biblioteca escrita por el motor está aprobada en el PR #269 (Muse, cinco commits, HEAD `a3ddc7f`), en cola de merge: por decisión del dueño los PRs de esta operación se mergean todos al final.
 Cada harvest de grupo confirmado por readback deja su término en la biblioteca de keywords en el
