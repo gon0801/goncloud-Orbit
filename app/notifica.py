@@ -765,3 +765,23 @@ def notifica_biblioteca_no_escrita(
     except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
         logger.warning("telegram: fallo armando el aviso de biblioteca: %s", scrub(str(exc)))
         return False
+
+
+# ---------------------------------------------------------------------------
+# FABRICA 02 (A.6): aviso de harvest de grupo sin destino (en flanco)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SaltoDestinoGrupo:
+    """Salto del resolutor en una campana DE GRUPO (cycle.py lo construye
+    desde `_SQL_MEMBRESIA_GRUPO`; el ciclo lo avisa una vez por racha y lo
+    persiste en notes.harvest_destino.saltos_grupo)."""
+
+    platform: str
+    grupo_id: int
+    campaign_ad_entity_id: int
+    campaign_external: str | None
+    nombre: str | None
+    rol: str | None
+    motivo: str  # destino_inconsistente | sin_destino_de_harvest

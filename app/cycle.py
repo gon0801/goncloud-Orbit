@@ -483,6 +483,24 @@ SELECT ag.id, ag.parent_id AS campaign_id, s.status, sc.status AS status_campana
  ORDER BY ag.id
 """
 
+# FABRICA 02 (A.6): membresia de la campana para el aviso en flanco
+# (grupo_id + rol + externos). Toca las tablas de F1: en esquemas sin 0018
+# revienta con UndefinedTable y el caller la absorbe en savepoint, igual
+# que al resolutor.
+_SQL_MEMBRESIA_GRUPO = """
+SELECT r.grupo_id, r.rol::text, c.external_id, c.name
+  FROM campana_grupo_rol r
+  JOIN ad_entity c ON c.id = r.ad_entity_id
+ WHERE r.ad_entity_id = %s
+"""
+
+# Motivos del resolutor que avisan en flanco por campana de grupo (A.6).
+# El resto (origen_es_destino, destino_desincronizado...) solo vive en
+# skips: no hay nada que corregir en el grupo.
+_MOTIVOS_AVISO_DESTINO = frozenset(
+    {hygiene.MOTIVO_DESTINO_INCONSISTENTE, hygiene.MOTIVO_SIN_DESTINO_HARVEST}
+)
+
 _SQL_INSERT_DECISION = """
 INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,
                       data_observed_at, window_start, window_end, search_term,
@@ -507,6 +525,11 @@ class _Contadores:
     entidades: int = 0
     ad_groups: int = 0
     terminos: int = 0
+    # FABRICA 02 (A.6): destinos resueltos por ad group evaluado
+    # (resuelto_por -> n) + saltos con aviso por campana de grupo
+    # (campaign ad_entity_id -> SaltoDestinoGrupo; el dict dedupea).
+    destinos: Counter = field(default_factory=Counter)
+    saltos_grupo: dict[int, notifica.SaltoDestinoGrupo] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -865,6 +888,7 @@ def _notas_cuerpo(
     motivo_skip: str | None,
     detalle: str | None,
     target: dict | None = None,
+    harvest_destino: dict | None = None,
 ) -> dict:
     cuerpo = {
         "skips": {
@@ -882,6 +906,10 @@ def _notas_cuerpo(
     # recorrido corrio; los ciclos muertos/saltados no lo llevan, regla 3).
     if target is not None:
         cuerpo["target"] = target
+    # FABRICA 02 (A.6): destinos resueltos y saltos de grupo del recorrido
+    # (mismo criterio que target: solo cuando el recorrido corrio).
+    if harvest_destino is not None:
+        cuerpo["harvest_destino"] = harvest_destino
     if motivo_skip is not None:
         cuerpo["motivo_skip"] = motivo_skip
         cuerpo["detalle"] = detalle
@@ -1233,6 +1261,64 @@ def _config_harvest_de(
     )
 
 
+def _registra_destino(
+    conn: psycopg.Connection,
+    platform: str,
+    campaign_id: int,
+    destino: harvest_destino.DestinoHarvest | harvest_destino.SaltoHarvest | None,
+    contadores: _Contadores,
+) -> None:
+    """Cuenta del destino resuelto por ad group evaluado (FABRICA 02, A.6):
+    DestinoHarvest suma en `destinos[resuelto_por]`; SaltoHarvest con motivo
+    de aviso suma en `saltos_grupo` SOLO si la campana es de grupo (una por
+    campana aunque tenga varios ad groups; el dict dedupea). Un
+    sin_destino_de_harvest de campana suelta es el estado normal de hoy:
+    ya vive en skips y aqui no entra. La membresia corre en savepoint
+    propio con la misma absorcion de UndefinedTable que el resolutor: el
+    savepoint de este ya cerro cuando se conoce el salto (esquemas sin
+    0018: fixtures pre-F1)."""
+    if isinstance(destino, harvest_destino.DestinoHarvest):
+        contadores.destinos[destino.resuelto_por] += 1
+        return
+    if not isinstance(destino, harvest_destino.SaltoHarvest):
+        return
+    if destino.motivo not in _MOTIVOS_AVISO_DESTINO:
+        return
+    try:
+        with conn.transaction():
+            fila = conn.execute(_SQL_MEMBRESIA_GRUPO, (campaign_id,)).fetchone()
+    except psycopg.errors.UndefinedTable:
+        return
+    if fila is None:
+        return
+    grupo_id, rol, external, nombre = fila
+    contadores.saltos_grupo[campaign_id] = notifica.SaltoDestinoGrupo(
+        platform=platform,
+        grupo_id=grupo_id,
+        campaign_ad_entity_id=campaign_id,
+        campaign_external=external,
+        nombre=nombre,
+        rol=rol,
+        motivo=destino.motivo,
+    )
+
+
+def _harvest_destino_notes(contadores: _Contadores) -> dict:
+    """Bloque notes.harvest_destino (A.6): contadores por ad group evaluado
+    (las tres claves SIEMPRE: ausente en el Counter = 0, es un contador del
+    mismo ciclo, no un dato faltante) + saltos de grupo por campana (claves
+    string por JSON: campaign ad_entity_id -> motivo)."""
+    return {
+        "resueltos": {
+            procedencia: contadores.destinos.get(procedencia, 0)
+            for procedencia in ("grupo", "excepcion", "terna")
+        },
+        "saltos_grupo": {
+            str(camp): salto.motivo for camp, salto in contadores.saltos_grupo.items()
+        },
+    }
+
+
 def _gates_entidad(
     conn: psycopg.Connection,
     goals: tuple[g.Goal | None, dict[int, g.Goal]],
@@ -1464,6 +1550,7 @@ def _procesa_grupo(
     except psycopg.errors.UndefinedTable:
         destino = None
     config_harvest, keywords, motivo_salto = _config_harvest_de(conn, goal, platform, destino)
+    _registra_destino(conn, platform, campaign_id, destino, contadores)
     resultados = hygiene.decide_hygiene(
         platform=platform,
         terminos=terminos,
@@ -2082,6 +2169,7 @@ def _corre_fases(
         motivo,
         guarda.detalle if guarda is not None else None,
         target_ciclo.snapshot if target_ciclo is not None else None,
+        harvest_destino=(_harvest_destino_notes(contadores) if target_ciclo is not None else None),
     )
     status = "degraded" if guarda is not None else "done"
     notas = json.dumps(cuerpo, ensure_ascii=False, default=str)

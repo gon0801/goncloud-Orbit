@@ -263,7 +263,32 @@ MOTIVOS_ES_SALUD: dict[str, str] = {
     hygiene.MOTIVO_HARVEST_DUPLICADO: "Harvest duplicado: ya existe la keyword",
     hygiene.MOTIVO_HARVEST_MONEDA_INCOHERENTE: "Harvest con moneda incoherente",
     hygiene.MOTIVO_MONEDA_INCOHERENTE: "Moneda incoherente",
+    # FABRICA 02 (A.6): motivos del resolutor de destino (hygiene, A.1) que el
+    # ciclo cuenta en skips.termino — la unica superficie donde se ven.
+    hygiene.MOTIVO_ORIGEN_ES_DESTINO: (
+        "Harvest saltado: la campana exacta es el destino (origen = destino)"
+    ),
+    hygiene.MOTIVO_SIN_DESTINO_HARVEST: "Harvest sin destino: sin grupo, sin excepcion y sin terna",
+    hygiene.MOTIVO_DESTINO_INCONSISTENTE: (
+        "Harvest bloqueado: la terna del goal contradice la exacta del grupo"
+    ),
+    hygiene.MOTIVO_DESTINO_DESINCRONIZADO: (
+        "Harvest descartado: la exacta del grupo cambio despues de decidir"
+    ),
+    hygiene.MOTIVO_MIGRACION_PENDIENTE: (
+        "Destino por terna del goal (migracion a grupo o excepcion pendiente)"
+    ),
 }
+
+
+def motivo_es(motivo: str | None) -> str | None:
+    """Un motivo al espanol de /salud (FABRICA 02, A.6): traduce por
+    MOTIVOS_ES_SALUD, cae al id crudo con motivos desconocidos (la
+    evidencia jamas se pierde) y pasa None a None (regla 3). Lo usan
+    /cortes y el feed; _skips_traducidos no cambia."""
+    if motivo is None:
+        return None
+    return MOTIVOS_ES_SALUD.get(motivo, motivo)
 
 
 def _hoy_utc() -> dt.date:
@@ -806,6 +831,30 @@ def _skips_de(ultimo_ciclo: dict | None) -> dict:
     }
 
 
+def _harvest_destino_de(ultimo_ciclo: dict | None) -> dict | None:
+    """Bloque harvest_destino del ULTIMO ciclo (FABRICA 02, A.6): destinos
+    resueltos por procedencia + campanas de grupo sin destino, traducidas.
+    Sin ciclo o sin la clave (ciclos pre-A.6) -> None (regla 3: jamas se
+    inventan resueltos). Con bloque, resueltos trae las tres claves
+    (ausente en notes = 0: es un contador del mismo ciclo, no un dato
+    faltante) y saltos_grupo ordenado por campana."""
+    if ultimo_ciclo is None or ultimo_ciclo.get("notes") is None:
+        return None
+    bloque = ultimo_ciclo["notes"].get("harvest_destino")
+    if not isinstance(bloque, dict):
+        return None
+    resueltos = bloque.get("resueltos") or {}
+    saltos = bloque.get("saltos_grupo") or {}
+    return {
+        "resueltos": {k: resueltos.get(k, 0) for k in ("grupo", "excepcion", "terna")},
+        "terna_es": MOTIVOS_ES_SALUD[hygiene.MOTIVO_MIGRACION_PENDIENTE],
+        "saltos_grupo": [
+            {"campaign_id": int(camp), "motivo": motivo, "motivo_es": motivo_es(motivo)}
+            for camp, motivo in sorted(saltos.items(), key=lambda par: int(par[0]))
+        ],
+    }
+
+
 @router.get("/salud")
 def salud(conn: ConexionLectura) -> dict:
     """Salud por plataforma (brief §3.5, plan 1.5): snapshot del ULTIMO ciclo
@@ -840,6 +889,7 @@ def salud(conn: ConexionLectura) -> dict:
             "ultimo_ciclo": ultimo,
             "historico_14d": [_fila_historico(fila) for fila in historico],
             "skips": _skips_de(ultimo),
+            "harvest_destino": _harvest_destino_de(ultimo),
             "quota": _quota_de(conn, plataforma),
             "target_margen": bloque_target_margen(ultimo),
             "spapi": _spapi_de(conn, plataforma),

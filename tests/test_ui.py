@@ -1267,3 +1267,58 @@ def test_ui_favicon_local_y_servido(monkeypatch):
             resp = cliente.get(ruta)
             assert resp.status_code == 200, ruta
             assert len(resp.content) > 100, ruta
+
+
+# ---------------------------------------------------------------------------
+# FABRICA 02 (A.6): destino de harvest en la pantalla de Salud
+# ---------------------------------------------------------------------------
+
+
+def _plataforma_harvest_destino(*, con_bloque: bool) -> dict:
+    """Tarjeta de plataforma con el bloque harvest_destino del endpoint
+    (A.6): resueltos por procedencia + una campana saltada traducida."""
+    tarjeta = _plataforma_quota()
+    tarjeta["harvest_destino"] = (
+        {
+            "resueltos": {"grupo": 3, "excepcion": 0, "terna": 241},
+            "terna_es": ("Destino por terna del goal (migracion a grupo o excepcion pendiente)"),
+            "saltos_grupo": [
+                {
+                    "campaign_id": 6102,
+                    "motivo": "destino_inconsistente",
+                    "motivo_es": (
+                        "Harvest bloqueado: la terna del goal contradice la exacta del grupo"
+                    ),
+                }
+            ],
+        }
+        if con_bloque
+        else None
+    )
+    return tarjeta
+
+
+def test_ui_salud_muestra_destino_de_harvest_y_saltos(monkeypatch):
+    """A.6: con bloque, la pantalla pinta la linea de resueltos por
+    procedencia y la campana saltada con su motivo traducido."""
+    html = _salud_html_fakeado(
+        monkeypatch, {"amazon_us": _plataforma_harvest_destino(con_bloque=True)}
+    )
+    assert "Destino de harvest" in html
+    assert "por grupo 3" in html
+    assert "por excepcion 0" in html
+    assert "por terna 241" in html
+    assert "Destino por terna del goal (migracion a grupo o excepcion pendiente)" in html
+    assert "Campanas de grupo sin destino" in html
+    assert "#6102" in html
+    assert "Harvest bloqueado: la terna del goal contradice la exacta del grupo" in html
+
+
+def test_ui_salud_sin_bloque_no_muestra_destino_de_harvest(monkeypatch):
+    """A.6: sin bloque (ciclos pre-A.6), ni la linea ni la lista aparecen
+    — y no una linea de guiones (regla 3)."""
+    html = _salud_html_fakeado(
+        monkeypatch, {"amazon_us": _plataforma_harvest_destino(con_bloque=False)}
+    )
+    assert "Destino de harvest" not in html
+    assert "Campanas de grupo sin destino" not in html
