@@ -1270,6 +1270,41 @@ def test_ui_favicon_local_y_servido(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# FABRICA 02 (A.6): fase del job en la pantalla de Decisiones
+# ---------------------------------------------------------------------------
+
+
+def _ctx_decisiones_job() -> dict:
+    """Decision harvest con job en hermanas_negadas y una pendiente (shape
+    del endpoint: _fila_decision)."""
+    ctx = _ctx_decisiones()
+    ctx["items"][0]["harvest_job"] = {
+        "id": 7,
+        "fase": "hermanas_negadas",
+        "fase_es": "Negando el termino en las campanas hermanas",
+        "hermanas_pendientes": {"product_targeting": "pt_no_acepta_negative_keyword"},
+    }
+    return ctx
+
+
+def test_ui_decisiones_muestra_fase_y_job_con_pendientes():
+    """A.6: con harvest_job, la celda Kind trae la etiqueta de la fase, el
+    id del job y las hermanas pendientes."""
+    html = ui.templates.env.get_template("decisiones.html").render(**_ctx_decisiones_job())
+    assert "Negando el termino en las campanas hermanas" in html
+    assert "job #7" in html
+    assert "hermanas pendientes: product_targeting: pt_no_acepta_negative_keyword" in html
+
+
+def test_ui_decisiones_sin_job_no_muestra_etiqueta():
+    """A.6: sin harvest_job (o sin la clave), nada de fase ni job — el
+    contexto viejo de _ctx_decisiones sigue renderizando igual."""
+    html = ui.templates.env.get_template("decisiones.html").render(**_ctx_decisiones())
+    assert "job #" not in html
+    assert "hermanas pendientes" not in html
+
+
+# ---------------------------------------------------------------------------
 # FABRICA 02 (A.6): destino de harvest en la pantalla de Salud
 # ---------------------------------------------------------------------------
 

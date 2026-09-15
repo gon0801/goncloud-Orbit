@@ -353,20 +353,34 @@ def _claim_fila(conn, q_id: int) -> None:
 
 def _job_en(conn, decision: int, entidad: int, fase: str, *, external_ids=None) -> int:
     """Siembra un harvest_job en la fase pedida (nace pending por trigger y
-    avanza por UPDATE — la progresion sellada de 0002)."""
+    avanza por UPDATE — la progresion sellada de 0002 + 0038)."""
     jid = conn.execute(
         "INSERT INTO harvest_job (decision_id, search_term, platform, ad_entity_id, fase)"
         " VALUES (%s, %s, 'amazon_us', %s, 'pending') RETURNING id",
         (decision, TERMINO, entidad),
     ).fetchone()[0]
-    if fase in ("negative_created", "exact_created"):
+    if fase in ("negative_created", "exact_created", "hermanas_negadas", "done"):
         conn.execute(
             "UPDATE harvest_job SET fase = 'negative_created', updated_at = now() WHERE id = %s",
             (jid,),
         )
-    if fase == "exact_created":
+    if fase in ("exact_created", "hermanas_negadas", "done"):
         conn.execute(
             "UPDATE harvest_job SET fase = 'exact_created', external_ids = %s,"
+            " updated_at = now() WHERE id = %s",
+            (Json(external_ids if external_ids is not None else {}), jid),
+        )
+    if fase in ("hermanas_negadas", "done"):
+        # A.6: la fase de F2 (0038) exige el paso por exact_created.
+        conn.execute(
+            "UPDATE harvest_job SET fase = 'hermanas_negadas', external_ids = %s,"
+            " updated_at = now() WHERE id = %s",
+            (Json(external_ids if external_ids is not None else {}), jid),
+        )
+    if fase == "done":
+        # A.6: cierre con pendientes declaradas (o vacias).
+        conn.execute(
+            "UPDATE harvest_job SET fase = 'done', external_ids = %s,"
             " updated_at = now() WHERE id = %s",
             (Json(external_ids if external_ids is not None else {}), jid),
         )

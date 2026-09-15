@@ -671,6 +671,20 @@ def campanas(
 # ---------------------------------------------------------------------------
 
 
+# FABRICA 02 (A.6): fase del harvest_job -> etiqueta. Espejo del CHECK de
+# harvest_job.fase en 0001 + 0038 (pending, negative_created,
+# exact_created, hermanas_negadas, done, failed): si el CHECK gana una
+# fase, este dict la gana con su etiqueta.
+FASES_ES_HARVEST: dict[str, str] = {
+    "pending": "Pendiente de aplicar",
+    "negative_created": "Negativo en la campana origen creado",
+    "exact_created": "Keyword exacta creada en el destino",
+    "hermanas_negadas": "Negando el termino en las campanas hermanas",
+    "done": "Aplicado",
+    "failed": "Fallido",
+}
+
+
 def _filtros_feed(platform, kind) -> tuple[list[str], list]:
     """Fragmentos SQL FIJOS + parametros de los filtros del feed (ningun texto
     del usuario se interpola: solo clausulas literales de este codigo).
@@ -703,9 +717,20 @@ def _fila_decision(fila) -> dict:
     de inputs.target_acos_pct_usado (JAMAS de inputs.goal.target_acos_pct,
     NULL cuando gano el default — grok r2); los pause traen old/new/currency
     NULL (CHECK del schema): se renderizan null, jamas 0; motivo desconocido
-    -> fallback al id crudo sin crash."""
+    -> fallback al id crudo sin crash. FABRICA 02 (A.6): las columnas 15-17
+    traen el harvest_job (id, fase, external_ids; NULLs sin job)."""
     inputs = fila[11] if isinstance(fila[11], dict) else {}
     motivo = inputs.get("motivo")
+    harvest_job = None
+    if fila[15] is not None:
+        externos = fila[17] if isinstance(fila[17], dict) else {}
+        pendientes = externos.get("hermanas_pendientes")
+        harvest_job = {
+            "id": fila[15],
+            "fase": fila[16],
+            "fase_es": FASES_ES_HARVEST.get(fila[16], fila[16]),
+            "hermanas_pendientes": pendientes if isinstance(pendientes, dict) else {},
+        }
     return {
         "id": fila[0],
         "cycle_id": fila[1],
@@ -725,6 +750,7 @@ def _fila_decision(fila) -> dict:
         "value_currency": fila[10],
         "target_acos_pct_usado": inputs.get("target_acos_pct_usado"),
         "motivo_es": MOTIVOS_ES_DECISIONES.get(motivo, motivo) if motivo is not None else None,
+        "harvest_job": harvest_job,
     }
 
 
