@@ -914,3 +914,12 @@ def test_biblioteca_sin_apply_ni_escritura_ni_red():
     )
     fugas = _violaciones(_imports_runtime(RAIZ / "app" / "biblioteca.py"), prohibidos)
     assert not fugas, f"app/biblioteca.py importa fuera de su frontera: {fugas}"
+
+
+def test_spapi_vigilante_sin_ads_directo():
+    """Vigilante SP-API: misma regla que salud.py — cero import DIRECTO
+    de app.ads (AST, ni siquiera diferido en funciones). Solo stdlib CLI
+    + app.db (lectura) + app.notifica (aviso) + app.redaction (scrub) +
+    app.spapi.salud (constantes)."""
+    fugas = _violaciones(_imports_runtime(RAIZ / "app" / "spapi" / "vigilante.py"), ("app.ads",))
+    assert not fugas, f"app/spapi/vigilante.py importa app.ads directo: {fugas}"
