@@ -11,7 +11,7 @@
 {% macro filas(direccion) %}
   {% for item in items if item.direccion == direccion %}
       <tr>
-        <td><span class="chip">{{ item.direccion|capitalize }}</span> {{ item.etiqueta or "—" }}</td>
+        <td><span class="chip">{{ item.direccion|capitalize }}</span> {{ item.etiqueta or "—" }}{% if item.hermanas %} <span class="detalle-celda">se negara tambien en: {% for h in item.hermanas %}{{ h.nombre }} ({{ h.rol }}){% if not loop.last %}, {% endif %}{% endfor %}</span>{% endif %}{% if item.destino and item.destino.motivo %} <span class="chip">{{ item.destino.motivo_es }}</span>{% endif %}</td>
         <td>{{ item.nombre or "—" }} <span class="detalle-celda mono">#{{ item.ad_entity_id }} · propuesta #{{ item.id }}</span><span class="detalle-celda">{{ item.plataforma }}</span></td>
         {# El search_term es texto libre del comprador: AUTOESCAPE lo escapa #}
         <td>{{ item.search_term or "—" }}</td>
@@ -34,6 +34,7 @@
             {% if item.efecto_rechazo %}
             <p>{{ item.efecto_rechazo }}</p>
             {% endif %}
+            {% if item.hermanas %}<p>Tampoco se negara en: {% for h in item.hermanas %}{{ h.nombre }} ({{ h.rol }}){% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
             <p class="mutado">
               Este rechazo NO se puede deshacer y bloquea la propuesta
               hasta el {{ item.vence_el|ts_ui }}.

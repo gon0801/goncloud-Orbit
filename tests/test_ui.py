@@ -1165,6 +1165,65 @@ def test_ui_propuestas_titulo_y_menu_d1():
     assert 'src="/static/js/cortes.js?v=' in html
 
 
+def _ctx_cortes_hermanas() -> dict:
+    """Harvest de grupo con destino por terna (motivo visible) y dos
+    hermanas (shape del endpoint: _destino_harvest + _hermanas_de)."""
+    return {
+        "pantalla": "cortes",
+        "items": [
+            {
+                "id": 13,
+                "plataforma": "amazon_us",
+                "familia": "term_cut",
+                "kind": "harvest",
+                "ad_entity_id": 5,
+                "external_id": "9101",
+                "nombre": "Campana A",
+                "search_term": "arras para boda cristiana",
+                "estado": "pending_veto",
+                "vence_el": "2026-09-25T12:00:00+00:00",
+                "encolado_at": "2026-08-26T12:00:00+00:00",
+                "decision_id": 101,
+                "etiqueta": "Capturar termino que vende",
+                "direccion": "crece",
+                "efecto_rechazo": "Rechazar: la palabra NO se creara",
+                "indicador": None,
+                "destino": {
+                    "campaign_id": "6104",
+                    "ad_group_id": "6204",
+                    "resuelto_por": "terna",
+                    "grupo_id": 1,
+                    "motivo": "migracion_pendiente",
+                    "motivo_es": (
+                        "Destino por terna del goal (migracion a grupo o excepcion pendiente)"
+                    ),
+                },
+                "hermanas": [
+                    {"rol": "auto_discovery", "campaign_id": "6100", "nombre": "Auto"},
+                    {"rol": "category_broad", "campaign_id": "6103", "nombre": "Broad"},
+                ],
+            }
+        ],
+    }
+
+
+def test_ui_cortes_harvest_nombra_hermanas_y_chip_de_motivo():
+    """A.6: la fila harvest nombra las hermanas bajo la etiqueta, el chip
+    trae el motivo traducido y la confirmacion del rechazo las repite."""
+    html = ui.templates.env.get_template("cortes.html").render(**_ctx_cortes_hermanas())
+    assert "se negara tambien en: Auto (auto_discovery), Broad (category_broad)" in html
+    assert "Destino por terna del goal (migracion a grupo o excepcion pendiente)" in html
+    assert "Tampoco se negara en: Auto (auto_discovery), Broad (category_broad)" in html
+
+
+def test_ui_cortes_sin_hermanas_no_nombra_nada():
+    """A.6: sin hermanas ni motivo (el contexto viejo de propuestas), ni
+    la lista ni el chip aparecen."""
+    html = ui.templates.env.get_template("cortes.html").render(**_ctx_propuestas())
+    assert "se negara tambien en:" not in html
+    assert "Tampoco se negara en:" not in html
+
+
 def test_ui_menu_movil_es_tab_bar_no_drawer():
     """El menu movil es una tab bar de 7 destinos, no el sidebar en overlay.
 

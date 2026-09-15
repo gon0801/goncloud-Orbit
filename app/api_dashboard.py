@@ -57,7 +57,7 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query
-from psycopg.rows import dict_row
+from psycopg.rows import dict_row, tuple_row
 
 from app import cycle as ciclo
 from app.api import KINDS_DECISION, ConexionLectura
@@ -69,6 +69,7 @@ from app.api_common import (
     bloque_target_margen,
 )
 from app.apply import KINDS_QUOTA, estado_quota
+from app.apply_harvest import ROLES_DISCOVERY
 from app.config_write import ADVERTENCIA_RESPALDO, clave_cap, clave_fraccion
 from app.dashboard_contribucion import contribucion_campanas as _contribucion_campanas
 from app.dashboard_pagina import (
@@ -982,6 +983,8 @@ def contribucion_campanas(conn: ConexionLectura) -> dict:
 # (shape real en app/cycle.py: termino = {search_term, cost, ad_revenue,
 # clicks, orders, fechas_distintas, moneda, ...}). Se trae el JSON entero y
 # se extrae en Python (NULL = termino ausente -> indicador None, regla 3).
+# FABRICA 02 (A.6): campana_id resuelve la campana del item por kind (los
+# JOINs de ancestros ya estan): la query de hermanas excluye a la de origen.
 _SQL_CORTES_PENDIENTES = (
     """
 SELECT q.id, q.platform::text, q.familia, q.kind, q.ad_entity_id, e.external_id,
@@ -990,7 +993,9 @@ SELECT q.id, q.platform::text, q.familia, q.kind, q.ad_entity_id, e.external_id,
        d.inputs AS decision_inputs,
        """
     + _CAMPANA_ANCESTRO
-    + """ AS campana
+    + """ AS campana,
+       CASE e.kind WHEN 'campaign' THEN e.id WHEN 'ad_group' THEN padre.id
+            ELSE abuelo.id END AS campana_id
   FROM apply_queue q
   LEFT JOIN ad_entity e ON e.id = q.ad_entity_id
   JOIN decision d ON d.id = q.decision_id
@@ -1001,6 +1006,16 @@ SELECT q.id, q.platform::text, q.familia, q.kind, q.ad_entity_id, e.external_id,
  ORDER BY q.vence_el, q.id
 """
 )
+
+# FABRICA 02 (A.6): hermanas del grupo (rol + externos de campana) menos la
+# exacta (es el destino) y menos la de origen (%s segundo: su negativo ya
+# existe por el propio harvest). Roles ausentes del grupo no aparecen.
+_SQL_HERMANAS_GRUPO = """
+SELECT r.rol::text, c.external_id, c.name
+  FROM campana_grupo_rol r
+  JOIN ad_entity c ON c.id = r.ad_entity_id
+ WHERE r.grupo_id = %s AND r.rol <> 'category_exact' AND r.ad_entity_id <> %s
+"""
 
 # CORTES UI 01 (D2-D4): la pantalla se llama Propuestas y cada fila declara
 # su tipo por KIND (pause/negative/harvest: familia solo distingue
@@ -1046,6 +1061,56 @@ def _indicador_harvest(kind: str, decision_inputs: dict | None) -> dict | None:
         "clics": termino.get("clicks"),
         "moneda": termino.get("moneda"),
     }
+
+
+def _destino_harvest(kind: str, decision_inputs: dict | None) -> dict | None:
+    """Destino congelado del harvest (FABRICA 02, A.6): inputs.goal.harvest
+    con campaign_id, ad_group_id, resuelto_por, grupo_id, motivo y su
+    traduccion. Solo kind='harvest' con goal.harvest dict; si no, None
+    (regla 3: decisiones pre-F2 sin goal pasan intactas)."""
+    if kind != "harvest" or not isinstance(decision_inputs, dict):
+        return None
+    goal = decision_inputs.get("goal")
+    if not isinstance(goal, dict):
+        return None
+    harvest = goal.get("harvest")
+    if not isinstance(harvest, dict):
+        return None
+    return {
+        "campaign_id": harvest.get("campaign_id"),
+        "ad_group_id": harvest.get("ad_group_id"),
+        "resuelto_por": harvest.get("resuelto_por"),
+        "grupo_id": harvest.get("grupo_id"),
+        "motivo": harvest.get("motivo"),
+        "motivo_es": motivo_es(harvest.get("motivo")),
+    }
+
+
+def _hermanas_de(conn, grupo_id: int, campana_id: int) -> list[dict] | None:
+    """Hermanas donde se negara el termino (FABRICA 02, A.6): campanas del
+    grupo menos la exacta y menos la de origen, en el orden canonico de
+    ROLES_DISCOVERY (fuente unica, importada de apply_harvest: jamas una
+    copia del orden). Una query por item harvest de grupo (la cola de veto
+    es de decenas, no de miles). Si revienta (p. ej. esquema sin 0018) ->
+    None + warning y la pantalla NO muere (patron _spapi_de)."""
+    try:
+        # tuple_row EXPLICITO: cortes() trabaja con dict_row y este helper
+        # desempaqueta por posicion (con dicts iteraria las claves).
+        with conn.cursor(row_factory=tuple_row) as cur:
+            filas = cur.execute(_SQL_HERMANAS_GRUPO, (grupo_id, campana_id)).fetchall()
+    except Exception as exc:  # noqa: BLE001 - degradacion visible, no caida
+        logger.warning(
+            "cortes: hermanas del grupo %s ilegibles: %s",
+            grupo_id,
+            scrub(str(exc)),
+        )
+        return None
+    por_rol = {rol: (external, nombre) for rol, external, nombre in filas}
+    return [
+        {"rol": rol, "campaign_id": por_rol[rol][0], "nombre": por_rol[rol][1] or por_rol[rol][0]}
+        for rol in ROLES_DISCOVERY
+        if rol in por_rol
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -1097,8 +1162,22 @@ def cortes(conn: ConexionLectura) -> dict:
     necesita token (es la misma conexion de lectura del dashboard)."""
     conn.row_factory = dict_row
     filas = conn.execute(_SQL_CORTES_PENDIENTES).fetchall()
-    return {
-        "items": [
+    items = []
+    for fila in filas:
+        # FABRICA 02 (A.6): destino congelado + hermanas del grupo. La query
+        # de hermanas corre SOLO con resuelto_por grupo y grupo_id entero
+        # (sin eso — la cola vieja — nunca corre); sin campana conocida no
+        # se puede excluir al origen y la lista seria mentira: None.
+        destino = _destino_harvest(fila["kind"], fila["decision_inputs"])
+        hermanas = None
+        if (
+            destino is not None
+            and destino["resuelto_por"] == "grupo"
+            and isinstance(destino["grupo_id"], int)
+            and fila["campana_id"] is not None
+        ):
+            hermanas = _hermanas_de(conn, destino["grupo_id"], fila["campana_id"])
+        items.append(
             {
                 "id": fila["id"],
                 "plataforma": fila["platform"],
@@ -1121,10 +1200,11 @@ def cortes(conn: ConexionLectura) -> dict:
                 "direccion": DIRECCION_POR_KIND.get(fila["kind"]),
                 "efecto_rechazo": EFECTO_RECHAZO_POR_KIND.get(fila["kind"]),
                 "indicador": _indicador_harvest(fila["kind"], fila["decision_inputs"]),
+                "destino": destino,
+                "hermanas": hermanas,
             }
-            for fila in filas
-        ]
-    }
+        )
+    return {"items": items}
 
 
 @router.get("/inertes")

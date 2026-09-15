@@ -25,6 +25,9 @@ from test_api_dashboard import (
 from test_api_dashboard import (
     _decision as _decision_d,
 )
+from test_api_dashboard import (
+    _encola_corte as _encola_corte_d,
+)
 from test_apply_harvest import TERMINO, _job_en
 from test_cycle import _siembra_terminos
 from test_fabrica_f2 import _semilla_grupo, db_f2
@@ -278,3 +281,148 @@ def test_a6_pagina_decisiones_muestra_etiqueta_del_job(monkeypatch):
         assert "Negando el termino en las campanas hermanas" in html
         assert f"job #{jid}" in html
         assert "product_targeting: pt_no_acepta_negative_keyword" in html
+
+
+# ---------------------------------------------------------------------------
+# A.6 bloque 4: /cortes con destino y hermanas
+# ---------------------------------------------------------------------------
+
+
+def _siembra_corte_harvest(conn, *, resuelto_por="grupo", motivo=None, con_goal=True):
+    """Decision harvest sobre la phrase con inputs.goal.harvest congelado
+    (forma de _goal_json) + fila encolada en la cola de veto."""
+    ciclo = _ciclo_d(conn, platform=PLATFORM)
+    config = _config_version_d(conn, {})
+    gpo = _semilla_grupo(conn, platform=PLATFORM)
+    phrase = gpo["roles"]["category_phrase"]
+    exacta = gpo["roles"]["category_exact"]
+    harvest = (
+        {
+            "campaign_id": exacta["camp_ext"],
+            "ad_group_id": exacta["ag_ext"],
+            "default_bid": "11.62",
+            "moneda": "USD",
+            "resuelto_por": resuelto_por,
+            "grupo_id": gpo["grupo_id"],
+            "motivo": motivo,
+        }
+        if con_goal
+        else None
+    )
+    inputs = {
+        "motivo": "x",
+        "target_acos_pct_usado": "20.00",
+        "termino": {
+            "search_term": TERMINO,
+            "cost": "28.2200",
+            "ad_revenue": "203.2000",
+            "clicks": 63,
+            "orders": 2,
+            "fechas_distintas": 9,
+            "moneda": "USD",
+        },
+    }
+    if harvest is not None:
+        inputs["goal"] = {"harvest": harvest}
+    dec = _decision_d(
+        conn,
+        ciclo,
+        phrase["ag"],
+        kind="harvest",
+        config_id=config,
+        inputs=inputs,
+        search_term=TERMINO,
+        moneda="USD",
+        window_end=dt.date(2026, 8, 1),
+    )
+    _encola_corte_d(conn, PLATFORM, phrase["ag"], "harvest", dec, TERMINO)
+    return {"gpo": gpo, "phrase": phrase, "exacta": exacta, "dec": dec}
+
+
+@_skip_db
+def test_a6_cortes_harvest_grupo_trae_destino_y_tres_hermanas(monkeypatch):
+    """Harvest resuelto por grupo: destino con resuelto_por grupo y hermanas
+    = las 3 discovery sin la exacta ni la phrase de origen, en orden
+    canonico; nombre = external (la semilla no pone name) salvo UPDATE."""
+    with db_f2("orbit_a6_cortes") as conn:
+        s = _siembra_corte_harvest(conn)
+        conn.execute(
+            "UPDATE ad_entity SET name = 'Auto Discovery MX' WHERE id = %s",
+            (s["gpo"]["roles"]["auto_discovery"]["camp"],),
+        )
+        items = _cliente_f2(conn, monkeypatch).get("/api/dashboard/cortes").json()["items"]
+        assert len(items) == 1
+        item = items[0]
+        assert item["destino"]["resuelto_por"] == "grupo"
+        assert item["destino"]["grupo_id"] == s["gpo"]["grupo_id"]
+        assert item["destino"]["motivo_es"] is None
+        assert [(h["rol"], h["campaign_id"]) for h in item["hermanas"]] == [
+            ("auto_discovery", s["gpo"]["roles"]["auto_discovery"]["camp_ext"]),
+            ("category_broad", s["gpo"]["roles"]["category_broad"]["camp_ext"]),
+            ("product_targeting", s["gpo"]["roles"]["product_targeting"]["camp_ext"]),
+        ]
+        assert item["hermanas"][0]["nombre"] == "Auto Discovery MX"
+        assert item["hermanas"][1]["nombre"] == s["gpo"]["roles"]["category_broad"]["camp_ext"]
+
+
+@_skip_db
+def test_a6_cortes_harvest_terna_sin_hermanas_y_motivo_traducido(monkeypatch):
+    """Harvest resuelto por terna: hermanas None y motivo_es traducido
+    exacto (migracion_pendiente)."""
+    with db_f2("orbit_a6_cortest") as conn:
+        _siembra_corte_harvest(conn, resuelto_por="terna", motivo="migracion_pendiente")
+        items = _cliente_f2(conn, monkeypatch).get("/api/dashboard/cortes").json()["items"]
+        assert len(items) == 1
+        assert items[0]["hermanas"] is None
+        assert items[0]["destino"]["motivo_es"] == (
+            "Destino por terna del goal (migracion a grupo o excepcion pendiente)"
+        )
+
+
+@_skip_db
+def test_a6_cortes_harvest_sin_goal_sin_destino_ni_hermanas(monkeypatch):
+    """Harvest sin goal en inputs (decisiones pre-F2): destino y hermanas
+    None (los test_cortes_ui01_* sobre _db_temporal siguen verdes)."""
+    with db_f2("orbit_a6_cortessg") as conn:
+        _siembra_corte_harvest(conn, con_goal=False)
+        items = _cliente_f2(conn, monkeypatch).get("/api/dashboard/cortes").json()["items"]
+        assert len(items) == 1
+        assert items[0]["destino"] is None
+        assert items[0]["hermanas"] is None
+
+
+@_skip_db
+def test_a6_cortes_hermanas_query_rota_no_tumba_la_pantalla(monkeypatch, caplog):
+    """Query de hermanas rota -> hermanas None + warning, status 200. Mata
+    al mutante que devuelve [] (la pantalla diria 'no hay hermanas')."""
+    import logging
+
+    with db_f2("orbit_a6_cortesrot") as conn:
+        _siembra_corte_harvest(conn)
+        monkeypatch.setattr(dash, "_SQL_HERMANAS_GRUPO", "SELECT no_existe FROM tampoco_existe")
+        with caplog.at_level(logging.WARNING, logger="app.api_dashboard"):
+            resp = _cliente_f2(conn, monkeypatch).get("/api/dashboard/cortes")
+        assert resp.status_code == 200
+        assert resp.json()["items"][0]["hermanas"] is None
+        assert "ilegibles" in caplog.text
+
+
+@_skip_db
+def test_a6_pagina_cortes_nombra_hermanas_y_escapa_nombre(monkeypatch):
+    """La pagina /cortes nombra las hermanas en la fila y en la
+    confirmacion del rechazo; un name con <script> sale escapado."""
+    with db_f2("orbit_a6_pagcort") as conn:
+        s = _siembra_corte_harvest(conn)
+        conn.execute(
+            "UPDATE ad_entity SET name = %s WHERE id = %s",
+            (
+                "<script>alert('xss')</script>",
+                s["gpo"]["roles"]["auto_discovery"]["camp"],
+            ),
+        )
+        html = _cliente_f2(conn, monkeypatch).get("/cortes").text
+        assert "se negara tambien en:" in html
+        assert "category_broad" in html and "product_targeting" in html
+        assert "Tampoco se negara en:" in html
+        assert "<script>alert('xss')</script>" not in html
+        assert "&lt;script&gt;" in html
