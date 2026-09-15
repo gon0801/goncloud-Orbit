@@ -268,6 +268,14 @@ def test_edita_goal_rechaza_decimales_no_finitos():
             goals_write.edita_goal(_CONN_INTOCABLE, 7, **{nombre: valor}, updated_at=T_EDITADO)
 
 
+def test_edita_goal_mode_fuera_de_vocabulario_antes_de_leer():
+    """`mode` solo admite el vocabulario del CHECK de 0001 (off, shadow,
+    live): otro valor es GoalInvalido PURO, antes de leer la fila (la
+    conexion intocable revienta si la toca)."""
+    with pytest.raises(goals_write.GoalInvalido, match="mode debe ser uno de"):
+        goals_write.edita_goal(_CONN_INTOCABLE, 7, mode="vigente", updated_at=T_EDITADO)
+
+
 def test_endpoint_goals_ids_harvest_vacios_422(tmp_path, monkeypatch):
     """#1 (regresion review 3.2): '' en harvest_campaign_id/harvest_ad_group_id
     -> 422 de pydantic (min_length=1 en CuerpoGoal) ANTES de despachar; el
@@ -666,6 +674,56 @@ def test_endpoint_pg_body_vacio_422_sin_re_sellar_la_fila(tmp_path, monkeypatch)
 
 
 @_skip_db
+def test_endpoint_pg_body_con_mode_422_y_fila_intacta(tmp_path, monkeypatch):
+    """Decision sellada: POST /goals/{id} NO expone `mode` (el modo cambia
+    solo desde shell admin con ceremonia). Un body con `mode` cae como
+    extra ignorado y, sin otro campo, es 422 'edicion vacia' — la fila
+    queda intacta (mode y updated_at sin mover)."""
+    with _db_con_rol_admin("orbit_g_nomode") as (conn, dsn_admin, _dsn_l):
+        goal_id = _siembra_goal_plataforma(conn)
+        _secrets_token(tmp_path, monkeypatch)
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
+
+        resp = TestClient(app).post(
+            f"/api/ads-optimizer/goals/{goal_id}",
+            json={"mode": "live"},
+            headers={"x-orbit-token": TOKEN},
+        )
+        assert resp.status_code == 422, resp.text
+        en_db = conn.execute(
+            "SELECT mode, updated_at FROM ads_optimizer_goal WHERE id = %s",
+            (goal_id,),
+        ).fetchone()
+        assert en_db == ("shadow", T_SEMBRADO), "el endpoint no mueve mode ni re-sella"
+
+
+@_skip_db
+def test_endpoint_pg_mode_con_otro_campo_200_pero_mode_ignorado(tmp_path, monkeypatch):
+    """`mode` en el body con otro campo valido: 200 (CuerpoGoal es
+    extra=ignore, como pinza `test_endpoint_goals_happy_path` con
+    `campo_ajeno`), el otro campo SI cambia y `mode` queda intacto.
+    Sin riesgo de datos: el endpoint jamas mueve el modo."""
+    with _db_con_rol_admin("orbit_g_mixmode") as (conn, dsn_admin, _dsn_l):
+        goal_id = _siembra_goal_plataforma(conn)
+        _secrets_token(tmp_path, monkeypatch)
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
+
+        resp = TestClient(app).post(
+            f"/api/ads-optimizer/goals/{goal_id}",
+            json={"mode": "live", "target_acos_pct": "33"},
+            headers={"x-orbit-token": TOKEN},
+        )
+        assert resp.status_code == 200, resp.text
+        en_db = conn.execute(
+            "SELECT mode, target_acos_pct, updated_at FROM ads_optimizer_goal WHERE id = %s",
+            (goal_id,),
+        ).fetchone()
+        assert en_db[0] == "shadow", "el endpoint no mueve mode aunque venga en el body"
+        assert en_db[1] == Decimal("33")
+        assert en_db[2] != T_SEMBRADO
+
+
+@_skip_db
 def test_endpoint_pg_harvest_whitespace_422_sin_tocar_la_fila(tmp_path, monkeypatch):
     """#1 (cadena de espacios, edita_goal REAL): pydantic la deja pasar
     (min_length=1); la rechaza el camino unico antes del UPDATE — la fila
@@ -790,3 +848,304 @@ def test_crea_goal_rechaza_entidad_que_no_es_campana():
         ag = _entidad(conn, "amazon_mx", "ad_group", "ag-1", parent=camp)
         with pytest.raises(goals_write.GoalInvalido, match="kind=campaign"):
             goals_write.crea_goal(conn, **_kw_crea(ad_entity_id=ag))
+
+
+# ---------------------------------------------------------------------------
+# mode: edicion del modo del goal (precondicion de D.3)
+# ---------------------------------------------------------------------------
+
+
+@_skip_db
+def test_edita_goal_mode_solo_cambia_fila_y_updated_at():
+    """`mode` es una columna mas: solo-mode mueve mode y updated_at (el
+    sello explicito, mismo contrato que los demas campos)."""
+    with _db_con_rol_admin("orbit_g_mode") as (conn, _dsn_admin, _dsn_l):
+        goal_id = _siembra_goal_plataforma(conn)
+        fila = goals_write.edita_goal(conn, goal_id, mode="off", updated_at=T_EDITADO)
+        assert fila["mode"] == "off"
+        assert fila["updated_at"] == T_EDITADO
+        en_db = conn.execute(
+            "SELECT mode, updated_at FROM ads_optimizer_goal WHERE id = %s",
+            (goal_id,),
+        ).fetchone()
+        assert en_db == ("off", T_EDITADO)
+
+
+@_skip_db
+def test_edita_goal_mode_se_combina_con_otros_campos():
+    """`mode` se combina libremente: mode + target cambian ambos en el
+    mismo UPDATE."""
+    with _db_con_rol_admin("orbit_g_mode_amb") as (conn, _dsn_admin, _dsn_l):
+        goal_id = _siembra_goal_plataforma(conn)
+        fila = goals_write.edita_goal(
+            conn, goal_id, mode="live", target_acos_pct=Decimal("19"), updated_at=T_EDITADO
+        )
+        assert fila["mode"] == "live"
+        assert fila["target_acos_pct"] == "19.00"
+
+
+@_skip_db
+def test_edita_goal_mode_los_tres_valores_en_plataforma():
+    """Los tres valores del vocabulario valen; un goal de plataforma no
+    tiene regla de destino (tambien `live` sin terna)."""
+    with _db_con_rol_admin("orbit_g_mode_tres") as (conn, _dsn_admin, _dsn_l):
+        goal_id = _siembra_goal_plataforma(conn)
+        for modo in ("off", "shadow", "live"):
+            fila = goals_write.edita_goal(conn, goal_id, mode=modo, updated_at=T_EDITADO)
+            assert fila["mode"] == modo
+
+
+@_skip_db
+def test_edita_goal_live_en_grupo_con_exacta_sin_terna_ok():
+    """Regla post-lectura, rama exacta: goal de grupo sin terna pasa a
+    `live` porque el grupo resuelve destino (rol category_exact)."""
+    from test_fabrica_f2 import _semilla_grupo, db_f2
+
+    with db_f2("orbit_g_mode_exact") as conn:
+        g = _semilla_grupo(conn, con_terna=False, mode="shadow")
+        camp = g["roles"]["auto_discovery"]["camp"]
+        goal_id = conn.execute(
+            "SELECT id FROM ads_optimizer_goal WHERE scope = 'campaign' AND ad_entity_id = %s",
+            (camp,),
+        ).fetchone()[0]
+        fila = goals_write.edita_goal(conn, goal_id, mode="live", updated_at=T_EDITADO)
+        assert fila["mode"] == "live"
+
+
+@_skip_db
+def test_edita_goal_live_en_grupo_sin_exacta_ni_terna_rechaza():
+    """Regla post-lectura: pasar a `live` un goal de grupo sin exacta y
+    sin terna es GoalInvalido (un goal en vivo que no puede cosechar
+    gasta sin cosechar); la fila queda intacta."""
+    from test_fabrica_f2 import _semilla_grupo, db_f2
+
+    with db_f2("orbit_g_mode_sindest") as conn:
+        g = _semilla_grupo(conn, con_terna=False, mode="shadow")
+        conn.execute(
+            "DELETE FROM campana_grupo_rol WHERE grupo_id = %s AND rol = 'category_exact'",
+            (g["grupo_id"],),
+        )
+        camp = g["roles"]["auto_discovery"]["camp"]
+        goal_id = conn.execute(
+            "SELECT id FROM ads_optimizer_goal WHERE scope = 'campaign' AND ad_entity_id = %s",
+            (camp,),
+        ).fetchone()[0]
+        with pytest.raises(goals_write.GoalInvalido, match="live sin destino de harvest"):
+            goals_write.edita_goal(conn, goal_id, mode="live", updated_at=T_EDITADO)
+        en_db = conn.execute(
+            "SELECT mode FROM ads_optimizer_goal WHERE id = %s",
+            (goal_id,),
+        ).fetchone()[0]
+        assert en_db == "shadow"
+
+
+@_skip_db
+def test_edita_goal_live_en_grupo_sin_exacta_con_terna_efectiva_ok():
+    """Regla post-lectura, rama terna: sin exacta en el grupo, una terna
+    completa EFECTIVA (puesta en la misma edicion) autoriza el `live`."""
+    from test_fabrica_f2 import _semilla_grupo, db_f2
+
+    with db_f2("orbit_g_mode_terna") as conn:
+        g = _semilla_grupo(conn, con_terna=False, mode="shadow")
+        conn.execute(
+            "DELETE FROM campana_grupo_rol WHERE grupo_id = %s AND rol = 'category_exact'",
+            (g["grupo_id"],),
+        )
+        camp = g["roles"]["auto_discovery"]["camp"]
+        goal_id = conn.execute(
+            "SELECT id FROM ads_optimizer_goal WHERE scope = 'campaign' AND ad_entity_id = %s",
+            (camp,),
+        ).fetchone()[0]
+        fila = goals_write.edita_goal(
+            conn,
+            goal_id,
+            mode="live",
+            harvest_campaign_id="c-dest",
+            harvest_ad_group_id="ag-dest",
+            harvest_default_bid=Decimal("3.00"),
+            updated_at=T_EDITADO,
+        )
+        assert fila["mode"] == "live"
+        assert fila["harvest_campaign_id"] == "c-dest"
+
+
+@_skip_db
+def test_edita_goal_mode_live_sobre_bid_solo_en_grupo_escribe():
+    """Bid-solo es el estado post-D.2: un goal de grupo en bid-solo pasa
+    a `live` (la exacta del grupo le da destino). Sin esto, el tool
+    aborta en el primer goal del grupo 1."""
+    from test_fabrica_f2 import _semilla_grupo, db_f2
+
+    with db_f2("orbit_g_mode_bslive") as conn:
+        g = _semilla_grupo(conn, mode="shadow")
+        camp = g["roles"]["auto_discovery"]["camp"]
+        goal_id = conn.execute(
+            "SELECT id FROM ads_optimizer_goal WHERE scope = 'campaign' AND ad_entity_id = %s",
+            (camp,),
+        ).fetchone()[0]
+        goals_write.edita_goal(
+            conn, goal_id, harvest_limpia_destino=True, updated_at=dt.datetime.now(dt.UTC)
+        )
+        fila = goals_write.edita_goal(conn, goal_id, mode="live", updated_at=T_EDITADO)
+        assert fila["mode"] == "live"
+
+
+@_skip_db
+def test_edita_goal_kill_switch_sobre_bid_solo_live_escribe():
+    """El kill switch funciona en estado post-D.2: bajar a `shadow` un
+    goal live en bid-solo escribe."""
+    from test_fabrica_f2 import _semilla_grupo, db_f2
+
+    with db_f2("orbit_g_mode_bskill") as conn:
+        g = _semilla_grupo(conn, mode="live")
+        camp = g["roles"]["auto_discovery"]["camp"]
+        goal_id = conn.execute(
+            "SELECT id FROM ads_optimizer_goal WHERE scope = 'campaign' AND ad_entity_id = %s",
+            (camp,),
+        ).fetchone()[0]
+        goals_write.edita_goal(
+            conn, goal_id, harvest_limpia_destino=True, updated_at=dt.datetime.now(dt.UTC)
+        )
+        fila = goals_write.edita_goal(conn, goal_id, mode="shadow", updated_at=T_EDITADO)
+        assert fila["mode"] == "shadow"
+
+
+@_skip_db
+def test_edita_goal_cualquier_edicion_sobre_bid_solo_en_grupo_escribe():
+    """No solo `mode`: CUALQUIER edicion sobre bid-solo en grupo escribe
+    (el estado post-D.2 no congela el goal)."""
+    from test_fabrica_f2 import _semilla_grupo, db_f2
+
+    with db_f2("orbit_g_mode_bstarget") as conn:
+        g = _semilla_grupo(conn, mode="shadow")
+        camp = g["roles"]["auto_discovery"]["camp"]
+        goal_id = conn.execute(
+            "SELECT id FROM ads_optimizer_goal WHERE scope = 'campaign' AND ad_entity_id = %s",
+            (camp,),
+        ).fetchone()[0]
+        goals_write.edita_goal(
+            conn, goal_id, harvest_limpia_destino=True, updated_at=dt.datetime.now(dt.UTC)
+        )
+        fila = goals_write.edita_goal(
+            conn, goal_id, target_acos_pct=Decimal("19"), updated_at=T_EDITADO
+        )
+        assert fila["target_acos_pct"] == "19.00"
+
+
+@_skip_db
+def test_edita_goal_bid_solo_suelto_sigue_rechazado():
+    """Bid-solo sin grupo sigue prohibido (espejo del trigger 0038):
+    un suelto o un platform que quedaria bid-solo se rechaza con
+    'config de harvest incompleta'."""
+    from test_fabrica_f2 import db_f2
+
+    with db_f2("orbit_g_mode_bsrech") as conn:
+        camp = conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id)"
+            " VALUES ('amazon_us', 'campaign', 'c-sola') RETURNING id",
+        ).fetchone()[0]
+        suelto = conn.execute(
+            "INSERT INTO ads_optimizer_goal (scope, ad_entity_id, target_acos_pct,"
+            " bid_floor, bid_ceiling, bid_currency, enabled, mode)"
+            " VALUES ('campaign', %s, 20, 0.10, 2.50, 'USD', true, 'shadow') RETURNING id",
+            (camp,),
+        ).fetchone()[0]
+        with pytest.raises(goals_write.GoalInvalido, match="config de harvest incompleta"):
+            goals_write.edita_goal(
+                conn, suelto, harvest_default_bid=Decimal("3.00"), updated_at=T_EDITADO
+            )
+        plat = conn.execute(
+            "INSERT INTO ads_optimizer_goal (scope, platform, target_acos_pct, bid_floor,"
+            " bid_ceiling, bid_currency, enabled, mode) VALUES ('platform', 'amazon_us',"
+            " 20, 0.10, 2.50, 'USD', true, 'shadow') RETURNING id"
+        ).fetchone()[0]
+        with pytest.raises(goals_write.GoalInvalido, match="config de harvest incompleta"):
+            goals_write.edita_goal(
+                conn, plat, harvest_default_bid=Decimal("3.00"), updated_at=T_EDITADO
+            )
+
+
+@_skip_db
+def test_edita_goal_live_mas_limpia_destino_sin_exacta_rechaza():
+    """`live` + `harvest_limpia_destino` en grupo SIN exacta se rechaza:
+    la terna EFECTIVA es bid-solo (los NULL nuevos mandan sobre la terna
+    vieja), y bid-solo sin exacta no autoriza `live`. Sella contra el
+    mutante `cambios.get(col) or fila[col]`, que resucitaria la terna
+    vieja y dejaria un live bid-solo sin exacta."""
+    from test_fabrica_f2 import _semilla_grupo, db_f2
+
+    with db_f2("orbit_g_mode_limpia") as conn:
+        g = _semilla_grupo(conn, mode="shadow")
+        conn.execute(
+            "DELETE FROM campana_grupo_rol WHERE grupo_id = %s AND rol = 'category_exact'",
+            (g["grupo_id"],),
+        )
+        camp = g["roles"]["auto_discovery"]["camp"]
+        goal_id = conn.execute(
+            "SELECT id FROM ads_optimizer_goal WHERE scope = 'campaign' AND ad_entity_id = %s",
+            (camp,),
+        ).fetchone()[0]
+        with pytest.raises(goals_write.GoalInvalido, match="live sin destino de harvest"):
+            goals_write.edita_goal(
+                conn, goal_id, mode="live", harvest_limpia_destino=True, updated_at=T_EDITADO
+            )
+
+
+@_skip_db
+def test_edita_goal_live_sobre_bid_solo_sin_exacta_lo_frena_primera_barrera():
+    """Bid-solo sin exacta no autoriza `live`: lo frena
+    `_valida_live_destino_post_lectura` ('live sin destino'), NO la
+    segunda barrera (desde el fix post-D.2, `_valida_pre_editar`
+    ADMITE bid-solo en grupo — sin este pin, quitar la primera
+    barrera escribiria en silencio)."""
+    from test_fabrica_f2 import _semilla_grupo, db_f2
+
+    with db_f2("orbit_g_mode_bssinex") as conn:
+        g = _semilla_grupo(conn, mode="shadow", con_terna=False)
+        conn.execute(
+            "DELETE FROM campana_grupo_rol WHERE grupo_id = %s AND rol = 'category_exact'",
+            (g["grupo_id"],),
+        )
+        camp = g["roles"]["auto_discovery"]["camp"]
+        goal_id = conn.execute(
+            "SELECT id FROM ads_optimizer_goal WHERE scope = 'campaign' AND ad_entity_id = %s",
+            (camp,),
+        ).fetchone()[0]
+        conn.execute(
+            "UPDATE ads_optimizer_goal SET harvest_default_bid = 5 WHERE id = %s", (goal_id,)
+        )
+        with pytest.raises(goals_write.GoalInvalido, match="live sin destino de harvest"):
+            goals_write.edita_goal(conn, goal_id, mode="live", updated_at=T_EDITADO)
+
+
+@_skip_db
+def test_edita_goal_live_en_suelto_sin_grupo_ok():
+    """Fuera de grupo no hay regla de destino: un goal suelto pasa a
+    `live` con o sin terna (su destino lo resuelven terna/excepcion)."""
+    from test_fabrica_f2 import db_f2
+
+    with db_f2("orbit_g_mode_suelto") as conn:
+        ids = []
+        for ext, terna in (("c-terna", True), ("c-sola", False)):
+            camp = conn.execute(
+                "INSERT INTO ad_entity (platform, kind, external_id)"
+                " VALUES ('amazon_us', 'campaign', %s) RETURNING id",
+                (ext,),
+            ).fetchone()[0]
+            goal_id = conn.execute(
+                "INSERT INTO ads_optimizer_goal (scope, ad_entity_id, target_acos_pct,"
+                " bid_floor, bid_ceiling, bid_currency, harvest_campaign_id,"
+                " harvest_ad_group_id, harvest_default_bid, enabled, mode)"
+                " VALUES ('campaign', %s, 20, 0.10, 2.50, 'USD', %s, %s, %s,"
+                " true, 'shadow') RETURNING id",
+                (
+                    camp,
+                    "c-dest" if terna else None,
+                    "ag-dest" if terna else None,
+                    Decimal("3.00") if terna else None,
+                ),
+            ).fetchone()[0]
+            ids.append(goal_id)
+        for goal_id in ids:
+            fila = goals_write.edita_goal(conn, goal_id, mode="live", updated_at=T_EDITADO)
+            assert fila["mode"] == "live"

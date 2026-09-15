@@ -595,6 +595,91 @@ def test_cli_goals_sin_subcomando_exit_2(capsys):
 
 
 # ---------------------------------------------------------------------------
+# goals set --mode (precondicion de D.3): subir a live exige ceremonia,
+# bajar es el kill switch (sin ceremonia)
+# ---------------------------------------------------------------------------
+
+
+def test_cli_goals_set_mode_live_sin_ceremonia_es_dry_run(monkeypatch, capsys):
+    """`--mode live` sin `--acepto-mutacion-real --go` es dry-run: anuncia
+    `goal <id>: mode actual → live`, sale 0 y NO escribe (spy en
+    edita_goal: jamas se llama)."""
+    capturado = _goal_captura(monkeypatch)
+    monkeypatch.setenv("ORBIT_DSN_ADMIN", "postgresql://orbit_admin:secreta@127.0.0.1:5432/o")
+    codigo = cli.main(["goals", "set", "7", "--mode", "live"])
+    assert codigo == 0
+    assert "goal 7: mode actual → live" in capsys.readouterr().out
+    assert not capturado
+
+
+def test_cli_goals_set_mode_live_go_vacio_exit_2(monkeypatch, capsys):
+    """Ceremonia a medias (`--acepto-mutacion-real` con `--go ""`) es
+    error del operador: exit 2 sin escribir."""
+    capturado = _goal_captura(monkeypatch)
+    monkeypatch.setenv("ORBIT_DSN_ADMIN", "postgresql://orbit_admin:secreta@127.0.0.1:5432/o")
+    codigo = cli.main(["goals", "set", "7", "--mode", "live", "--acepto-mutacion-real", "--go", ""])
+    assert codigo == 2
+    assert not capturado
+
+
+def test_cli_goals_set_mode_live_acepto_sin_go_exit_2(monkeypatch, capsys):
+    """`--acepto-mutacion-real` sin `--go` tambien es ceremonia
+    incompleta: exit 2 sin escribir (dry-run es solo sin NADA de
+    ceremonia)."""
+    capturado = _goal_captura(monkeypatch)
+    monkeypatch.setenv("ORBIT_DSN_ADMIN", "postgresql://orbit_admin:secreta@127.0.0.1:5432/o")
+    codigo = cli.main(["goals", "set", "7", "--mode", "live", "--acepto-mutacion-real"])
+    assert codigo == 2
+    assert not capturado
+
+
+def test_cli_goals_set_mode_live_con_ceremonia_escribe(monkeypatch, capsys):
+    """Con `--acepto-mutacion-real --go "<literal>"`: despacha a
+    edita_goal(mode="live") y el readback trae la fila completa."""
+    capturado = _goal_captura(monkeypatch)
+    monkeypatch.setenv("ORBIT_DSN_ADMIN", "postgresql://orbit_admin:secreta@127.0.0.1:5432/o")
+    codigo = cli.main(
+        ["goals", "set", "7", "--mode", "live", "--acepto-mutacion-real", "--go", "enciende g1"]
+    )
+    assert codigo == 0
+    assert capturado["goal_id"] == 7
+    assert capturado["mode"] == "live"
+    assert "Goal 7 actualizado" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("modo", ["shadow", "off"])
+def test_cli_goals_set_mode_bajar_sin_ceremonia_escribe(monkeypatch, modo):
+    """Bajar (`shadow` u `off`) NO exige ceremonia: es el kill switch y
+    no puede depender de un hash."""
+    capturado = _goal_captura(monkeypatch)
+    monkeypatch.setenv("ORBIT_DSN_ADMIN", "postgresql://orbit_admin:secreta@127.0.0.1:5432/o")
+    codigo = cli.main(["goals", "set", "7", "--mode", modo])
+    assert codigo == 0
+    assert capturado["mode"] == modo
+
+
+def test_cli_goals_set_mode_invalido_exit_2(monkeypatch):
+    """`--mode` fuera de off/shadow/live: exit 2 de argparse."""
+    monkeypatch.setenv("ORBIT_DSN_ADMIN", "postgresql://orbit_admin:secreta@127.0.0.1:5432/o")
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["goals", "set", "7", "--mode", "vigente"])
+    assert exc.value.code == 2
+
+
+def test_cli_goals_set_mode_sin_dsn_admin_exit_2(monkeypatch, capsys):
+    """Sin ORBIT_DSN_ADMIN ni siquiera el dry-run: exit 2 fail-closed
+    (el go real necesita el DSN de todos modos)."""
+    monkeypatch.delenv("ORBIT_DSN_ADMIN", raising=False)
+    capturado = _goal_captura(monkeypatch)
+    codigo = cli.main(
+        ["goals", "set", "7", "--mode", "live", "--acepto-mutacion-real", "--go", "x"]
+    )
+    assert codigo == 2
+    assert "ORBIT_DSN_ADMIN" in capsys.readouterr().err
+    assert not capturado
+
+
+# ---------------------------------------------------------------------------
 # archivar-anuncios: MUTA la cuenta; Amazon no des-archiva (reversa = reponer)
 # ---------------------------------------------------------------------------
 

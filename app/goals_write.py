@@ -45,6 +45,13 @@ espacios en los ids harvest NO cuentan como "presentes" para la terna (regla
 3), y los Decimales pasados deben ser finitos (Infinity pasa el gt=0 y las
 comparaciones; NaN las esquiva; PG16 acepta ambos en NUMERIC).
 
+MODO DEL GOAL (precondicion de D.3): `mode` se edita como una columna
+mas (`None` = no cambiar): vocabulario cerrado off/shadow/live en puro
+antes de leer la fila, y pedir `live` en un goal de scope `campaign` en
+grupo exige —validado DESPUES de leer— exacta en el grupo o terna
+completa efectiva (un goal en vivo que no puede cosechar gasta sin
+cosechar). Sin trigger ni migracion: el CHECK de `mode` ya existe.
+
 EXIT CODES del CLI (eleccion sellada aqui): GoalInvalido = exit 2 (uso
 invalido, patron argparse); GoalInexistente = exit 1 (fallo contra la base).
 
@@ -61,7 +68,7 @@ import psycopg
 from psycopg.rows import dict_row
 
 from app.api_common import _dec_str
-from app.optimizer.goals import resuelve_floor_ceiling
+from app.optimizer.goals import MODOS, resuelve_floor_ceiling
 
 
 class GoalInexistente(Exception):
@@ -127,6 +134,58 @@ def _valida_limpia_destino_post_lectura(conn: psycopg.Connection, fila: dict) ->
         )
 
 
+def _valida_live_destino_post_lectura(
+    conn: psycopg.Connection, goal_id: int, fila: dict, cambios: dict[str, object]
+) -> None:
+    """Validacion DESPUES de leer la fila para `mode='live'`: un goal de
+    scope `campaign` cuya campana esta en `campana_grupo_rol` solo pasa a
+    `live` si el grupo resuelve destino (rol `category_exact` presente en
+    alguno de sus grupos) O si el goal tiene terna harvest completa
+    EFECTIVA (nueva + existente: `live` se combina con la terna en la
+    misma edicion). Un goal en vivo que no puede cosechar gasta sin
+    cosechar. Fuera de grupo (suelto o scope `platform`) no hay regla:
+    el destino lo resuelven terna/excepcion."""
+    if fila["scope"] != "campaign" or fila["ad_entity_id"] is None:
+        return
+    grupos = [
+        r["grupo_id"]
+        for r in conn.execute(
+            "SELECT grupo_id FROM campana_grupo_rol WHERE ad_entity_id = %s",
+            (fila["ad_entity_id"],),
+        ).fetchall()
+    ]
+    if not grupos:
+        return
+    exacta = conn.execute(
+        "SELECT 1 FROM campana_grupo_rol"
+        " WHERE grupo_id = ANY(%s) AND rol = 'category_exact' LIMIT 1",
+        (grupos,),
+    ).fetchone()
+    if exacta is not None:
+        return
+    terna = (
+        cambios.get("harvest_campaign_id", fila["harvest_campaign_id"]),
+        cambios.get("harvest_ad_group_id", fila["harvest_ad_group_id"]),
+        cambios.get("harvest_default_bid", fila["harvest_default_bid"]),
+    )
+    if all(v is not None for v in terna):
+        return
+    raise GoalInvalido(
+        f"live sin destino de harvest: goal {goal_id} (campana {fila['ad_entity_id']})"
+        f" en grupo(s) {grupos} sin rol category_exact y sin terna completa"
+    )
+
+
+def _bid_solo_efectivo(fila: dict, cambios: dict[str, object]) -> bool:
+    """Terna EFECTIVA (nueva + existente) en bid-solo post-D.2:
+    campaign/ad_group NULL con bid presente."""
+    return (
+        cambios.get("harvest_campaign_id", fila["harvest_campaign_id"]) is None
+        and cambios.get("harvest_ad_group_id", fila["harvest_ad_group_id"]) is None
+        and cambios.get("harvest_default_bid", fila["harvest_default_bid"]) is not None
+    )
+
+
 def _valida_pre_editar(fila: dict, cambios: dict[str, object], *, permite_bid_solo=False) -> None:
     """Pre-validacion en espanol sobre el estado EFECTIVO (nuevos + existentes).
 
@@ -136,7 +195,11 @@ def _valida_pre_editar(fila: dict, cambios: dict[str, object], *, permite_bid_so
     goal_harvest_bid_positivo, goal_harvest_completo). `permite_bid_solo`
     (FABRICA 02, `harvest_limpia_destino`): salta el all-or-nothing de la
     terna cuando campaign/ad_group van a NULL con bid intacto (el trigger
-    de A.2 lo admite solo en grupo; sin 00NN el UPDATE lo rechaza la base)."""
+    de A.2 lo admite solo en grupo; sin 00NN el UPDATE lo rechaza la base).
+    Quien llama resuelve el flag post-lectura: True con
+    `harvest_limpia_destino` (su validacion ya exigio grupo) o con terna
+    EFECTIVA bid-solo en campana en grupo (espejo del estado 3 del
+    trigger 0038; sueltos y platform jamas abren)."""
 
     def efectivo(col: str):
         return cambios.get(col, fila[col])
@@ -188,6 +251,7 @@ def _cambios_edicion(
     harvest_default_bid: Decimal | None,
     harvest_limpia: bool,
     harvest_limpia_destino: bool,
+    mode: str | None,
 ) -> dict[str, object]:
     """Mapa columna -> valor nuevo desde los parametros (None = no cambiar).
     `harvest_limpia` pone los TRES campos de harvest a NULL;
@@ -195,8 +259,14 @@ def _cambios_edicion(
     (bid intacto); ambos rechazan combinarse con campos harvest
     individuales, y entre si (la primera anularia el bid que la segunda
     promete dejar intacto: combinarlas borra el bid en silencio, ronda
-    PR #258)."""
+    PR #258). `mode` es una columna mas: vocabulario cerrado del CHECK de
+    0001 (el de `MODOS` de app.optimizer.goals, regla 2: una fuente),
+    validado aqui en puro, antes de leer la fila."""
     cambios: dict[str, object] = {}
+    if mode is not None:
+        if mode not in MODOS:
+            raise GoalInvalido(f"mode debe ser uno de {MODOS}, llego {mode!r}")
+        cambios["mode"] = mode
     if target_acos_pct is not None:
         cambios["target_acos_pct"] = target_acos_pct
     if enabled is not None:
@@ -253,6 +323,7 @@ def edita_goal(
     harvest_default_bid: Decimal | None = None,
     harvest_limpia: bool = False,
     harvest_limpia_destino: bool = False,
+    mode: str | None = None,
     updated_at: dt.datetime,
 ) -> dict:
     """Edita un goal: UPDATE de SOLO los campos pasados + `updated_at`
@@ -269,6 +340,10 @@ def edita_goal(
     leer la fila— que el goal sea de scope `campaign` y su campana este en
     `campana_grupo_rol` (sin grupo no hay destino que lo reemplace: seria
     dejar un goal sin cosecha en silencio).
+    `mode` (precondicion de D.3): vocabulario cerrado off/shadow/live
+    validado en puro antes de leer; pedir `live` en un goal de campana
+    en grupo exige —validado DESPUES de leer— exacta en el grupo o terna
+    completa efectiva (`_valida_live_destino_post_lectura`).
     La conexion puede venir con o sin autocommit: el UPDATE se confirma aqui
     (conn.commit), en la misma transaccion que la lectura previa.
 
@@ -293,6 +368,7 @@ def edita_goal(
         harvest_default_bid=harvest_default_bid,
         harvest_limpia=harvest_limpia,
         harvest_limpia_destino=harvest_limpia_destino,
+        mode=mode,
     )
 
     # Validacion de ENTRADA pura, ANTES de leer la fila (sin I/O; hallazgos
@@ -333,6 +409,9 @@ def edita_goal(
         if harvest_limpia_destino:
             _valida_limpia_destino_post_lectura(conn, fila)
 
+        if cambios.get("mode") == "live":
+            _valida_live_destino_post_lectura(conn, goal_id, fila, cambios)
+
         # Defaults de piso/techo POR MONEDA (ORBIT 05 preflight 1.2; la DB ya no
         # tiene DEFAULT desde 0003): si el estado efectivo de la fila editable
         # quedara con floor/ceiling ausentes, se resuelven con LA MONEDA DEL
@@ -355,7 +434,26 @@ def edita_goal(
             if cambios.get("bid_ceiling", fila["bid_ceiling"]) is None:
                 cambios["bid_ceiling"] = techo_default
 
-        _valida_pre_editar(fila, cambios, permite_bid_solo=harvest_limpia_destino)
+        # Bid-solo ESTABLE post-D.2 (ronda PR #283, hallazgo kimi ALTO):
+        # `permite_bid_solo` tambien abre cuando la terna EFECTIVA ya es
+        # bid-solo y la campana esta en grupo (espejo del estado 3 del
+        # trigger 0038) — sin esto, CUALQUIER edicion sobre un goal
+        # post-D.2 (incluidos mode=live y el kill switch) moria con
+        # "config de harvest incompleta". La query corre SOLO si la terna
+        # efectiva es bid-solo (el resto de ediciones no paga I/O extra);
+        # sueltos y scope=platform jamas abren.
+        permite_bid_solo = harvest_limpia_destino
+        if not permite_bid_solo and _bid_solo_efectivo(fila, cambios):
+            permite_bid_solo = (
+                fila["scope"] == "campaign"
+                and fila["ad_entity_id"] is not None
+                and conn.execute(
+                    "SELECT 1 FROM campana_grupo_rol WHERE ad_entity_id = %s LIMIT 1",
+                    (fila["ad_entity_id"],),
+                ).fetchone()
+                is not None
+            )
+        _valida_pre_editar(fila, cambios, permite_bid_solo=permite_bid_solo)
 
         # Nombres de columna LITERALES de este codigo (los valores van por
         # parametros): mismo estilo de SQL fijo + %s del resto del repo.

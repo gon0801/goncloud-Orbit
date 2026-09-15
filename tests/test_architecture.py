@@ -416,15 +416,20 @@ def test_escritura_de_goals_vive_solo_en_goals_write():
 def test_candado_tools_caza_update_crudo_de_goals(tmp_path):
     """Regla 9 (FABRICA 02, A.5): el candado de escritor unico en `tools/`
     DETECTA: la copia del tool con un `UPDATE ads_optimizer_goal` crudo
-    sembrado aparece listada por el helper (el detector muerde)."""
+    sembrado aparece listada por el helper (el detector muerde). La fuga
+    se siembra en los dos tools que despachan goals."""
     tools = tmp_path / "tools"
     tools.mkdir()
-    (tools / "harvest_excepcion.py").write_text(
-        (RAIZ / "tools" / "harvest_excepcion.py").read_text(encoding="utf-8")
-        + '\n# fuga sembrada (regla 9):\n_FUGA = "UPDATE ads_optimizer_goal SET enabled = false"\n',
-        encoding="utf-8",
-    )
-    assert _escritores_crudos_goals(tmp_path) == ["tools/harvest_excepcion.py"]
+    fuga = '\n# fuga sembrada (regla 9):\n_FUGA = "UPDATE ads_optimizer_goal SET x = 1"\n'
+    for nombre in ("harvest_excepcion.py", "goals_modo_grupo.py"):
+        (tools / nombre).write_text(
+            (RAIZ / "tools" / nombre).read_text(encoding="utf-8") + fuga,
+            encoding="utf-8",
+        )
+    assert _escritores_crudos_goals(tmp_path) == [
+        "tools/goals_modo_grupo.py",
+        "tools/harvest_excepcion.py",
+    ]
 
 
 def test_patrones_sql_goals_resisten_case_y_whitespace():
@@ -717,6 +722,68 @@ def test_allowlist_harvest_excepcion_caza_import_de_escritura(tmp_path):
     imp = _imports_runtime(fuga)
     assert "app.ads.write" in _violaciones(imp, ("app.ads.write",))
     assert "app.ads.write" in imp - ALLOWLIST_IMPORTS_HARVEST_EXCEPCION
+
+
+# Modo de goals con ceremonia (precondicion de D.3): allowlist POSITIVA de
+# los imports de runtime de tools/goals_modo_grupo.py (mismo trato que
+# harvest_excepcion). El tool MUTA goals SOLO por app.goals_write.edita_goal
+# y lee el meet de app.optimizer.goals (reusar, no reescribir); jamas Amazon,
+# apply ni red. Ampliarla = editar este archivo a proposito.
+ALLOWLIST_IMPORTS_GOALS_MODO_GRUPO = frozenset(
+    {
+        "__future__",
+        "__future__.annotations",
+        "argparse",
+        "datetime",
+        "hashlib",
+        "os",
+        "sys",
+        "app.db",
+        "app.db.OrbitDbError",
+        "app.db.connect",
+        "app.goals_write",
+        "app.goals_write.GoalInexistente",
+        "app.goals_write.GoalInvalido",
+        "app.goals_write.edita_goal",
+        "app.optimizer.goals",
+        "app.optimizer.goals.CLAVE_SETTING_MODO",
+        "app.optimizer.goals.modo_desde_settings",
+        "app.optimizer.goals.modo_efectivo",
+    }
+)
+
+
+def test_goals_modo_grupo_solo_importa_lo_declarado():
+    """El tool de modo de grupo solo importa lo declarado (stdlib CLI +
+    app.db + app.goals_write + app.optimizer.goals). Un import de mas
+    (Amazon, apply, red) es una decision de arquitectura: se suma
+    EDITANDO este archivo."""
+    extras = (
+        _imports_runtime(RAIZ / "tools" / "goals_modo_grupo.py")
+        - ALLOWLIST_IMPORTS_GOALS_MODO_GRUPO
+    )
+    assert not extras, (
+        f"tools/goals_modo_grupo.py importa por fuera de su allowlist: {sorted(extras)} — "
+        "ampliar ALLOWLIST_IMPORTS_GOALS_MODO_GRUPO exige editar "
+        "tests/test_architecture.py"
+    )
+    assert "tools/goals_modo_grupo.py" not in PERMITIDOS_IMPORTAR_ADS_WRITE, (
+        "el tool jamas debe habilitarse para importar app.ads.write"
+    )
+    fuente = (RAIZ / "tools" / "goals_modo_grupo.py").read_text(encoding="utf-8")
+    for patron in ("__import__(", "import_module(", "app.apply", "httpx"):
+        assert patron not in fuente, f"tools/goals_modo_grupo.py usa {patron!r}"
+
+
+def test_allowlist_goals_modo_grupo_caza_import_de_escritura(tmp_path):
+    """Regla 9: la copia del tool con `from app.ads.write import AdsWriteClient`
+    queda fuera de la allowlist Y dispara el candado general."""
+    fuente = (RAIZ / "tools" / "goals_modo_grupo.py").read_text(encoding="utf-8")
+    fuga = tmp_path / "modo_grupo_fuga.py"
+    fuga.write_text(fuente + "from app.ads.write import AdsWriteClient\n", encoding="utf-8")
+    imp = _imports_runtime(fuga)
+    assert "app.ads.write" in _violaciones(imp, ("app.ads.write",))
+    assert "app.ads.write" in imp - ALLOWLIST_IMPORTS_GOALS_MODO_GRUPO
 
 
 def test_fabrica_plan_es_puro():
