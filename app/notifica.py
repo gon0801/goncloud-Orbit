@@ -675,6 +675,63 @@ def notifica_spapi_fallo(
         return False
 
 
+# Total de pares (fuente, plataforma) del cron SP-API: 4 fuentes x 2
+# plataformas del wrapper spapi-diario.sh (app/spapi/vigilante.py). Vive
+# aqui como literal porque notifica.py no puede importar de spapi (salud
+# ya importa notifica: seria un ciclo); el test de igualdad exacta lo
+# pinza y vigilante.py garantiza los 8 pares.
+_TOTAL_PARES_SPAPI = 8
+
+
+def aviso_spapi_silencio(faltantes, desde, hasta) -> str:
+    """Builder PURO del aviso de silencio SP-API (vigilante): una linea
+    por par faltante en el orden del caller (el vigilante pasa el orden
+    fuente→plataforma del catalogo: FUENTES_SPAPI x PLATAFORMAS_SPAPI).
+    Sin secretos."""
+    ventana = f"{desde:%Y-%m-%d %H:%M} UTC → {hasta:%Y-%m-%d %H:%M} UTC"
+    lineas = [
+        "[Orbit] ALERTA SP-API sin corrida",
+        f"ventana: {ventana}",
+        f"faltan {len(faltantes)} de {_TOTAL_PARES_SPAPI}:",
+    ]
+    lineas.extend(f"- {fuente} / {plataforma}" for fuente, plataforma in faltantes)
+    lineas.append(
+        "El cron de las 05:00 UTC no dejó estas corridas en ingest_run. "
+        "Revisar crontab de gon, flock y el log spapi-diario.log."
+    )
+    return "\n".join(lineas)
+
+
+def aviso_spapi_vigilante_ciego(motivo: str) -> str:
+    """Builder PURO del aviso ciego: el vigilante no pudo leer
+    `ingest_run` (DB caida, DSN roto) y no sabe si el cron corrio. El
+    motivo viaja con scrub (el DSN roto puede traer password)."""
+    return "\n".join(
+        [
+            "[Orbit] ALERTA vigilante SP-API sin lectura",
+            f"no pude leer ingest_run: {scrub(motivo)}",
+            "No sé si el cron corrió. Revisar Postgres y el DSN de lectura.",
+        ]
+    )
+
+
+def notifica_spapi_silencio(
+    faltantes, desde, hasta, *, transport: httpx.BaseTransport | None = None
+) -> bool:
+    """Aviso de silencio SP-API (vigilante): sale cuando faltan corridas
+    en la ventana. Mismo contrato fail-silent de notifica_spapi_fallo:
+    canal deshabilitado -> True (no es fallo); cualquier excepcion ->
+    warning con scrub + False; JAMAS levanta.
+    """
+    try:
+        if not canal_activo():
+            return True
+        return _envia_texto(aviso_spapi_silencio(faltantes, desde, hasta), transport=transport)
+    except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
+        logger.warning("telegram: fallo armando el aviso SP-API: %s", scrub(str(exc)))
+        return False
+
+
 def notifica_cap_agotado(
     plataforma: str, kind: str, used: int, cap: int, *, transport: httpx.BaseTransport | None = None
 ) -> bool:

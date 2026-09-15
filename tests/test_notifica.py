@@ -1391,3 +1391,127 @@ def test_fase_notifica_salto_destino_canal_caido_deja_nota(tmp_path, monkeypatch
     assert "harvest_destino" in notas
     assert "Telegram" in notas["harvest_destino"]
     assert "#6102" in notas["harvest_destino"]
+
+
+# ---------------------------------------------------------------------------
+# 10. Vigilante SP-API: builders exactos + sender fail-silent
+# ---------------------------------------------------------------------------
+
+
+def _ventana_vigilante():
+    desde = dt.datetime(2026, 9, 16, 4, 30, tzinfo=dt.UTC)
+    hasta = dt.datetime(2026, 9, 16, 7, 30, tzinfo=dt.UTC)
+    return desde, hasta
+
+
+def test_aviso_spapi_silencio_texto_exacto():
+    """Builder puro: IGUALDAD EXACTA con el texto del runbook (una linea
+    por par, orden fuente/plataforma, `faltan N de 8`)."""
+    desde, hasta = _ventana_vigilante()
+    texto = notifica.aviso_spapi_silencio(
+        [
+            ("spapi_pricing", "amazon_mx"),
+            ("spapi_pricing", "amazon_us"),
+            ("spapi_inventario", "amazon_us"),
+        ],
+        desde,
+        hasta,
+    )
+    assert texto == (
+        "[Orbit] ALERTA SP-API sin corrida\n"
+        "ventana: 2026-09-16 04:30 UTC → 2026-09-16 07:30 UTC\n"
+        "faltan 3 de 8:\n"
+        "- spapi_pricing / amazon_mx\n"
+        "- spapi_pricing / amazon_us\n"
+        "- spapi_inventario / amazon_us\n"
+        "El cron de las 05:00 UTC no dejó estas corridas en ingest_run. "
+        "Revisar crontab de gon, flock y el log spapi-diario.log."
+    )
+
+
+def test_aviso_spapi_silencio_respeta_orden_fuente_plataforma():
+    """El builder respeta el orden del caller (el vigilante pasa el del
+    catalogo: FUENTES_SPAPI x PLATAFORMAS_SPAPI — pricing va ANTES que
+    inventario aunque el alfabeto diga lo contrario). El determinismo lo
+    pinza `faltantes` + el test exacto; un shuffle en el builder cae en
+    el exacto."""
+    desde, hasta = _ventana_vigilante()
+    texto = notifica.aviso_spapi_silencio(
+        [("spapi_pricing", "amazon_mx"), ("spapi_inventario", "amazon_us")],
+        desde,
+        hasta,
+    )
+    lineas = texto.splitlines()
+    assert lineas[3] == "- spapi_pricing / amazon_mx"
+    assert lineas[4] == "- spapi_inventario / amazon_us"
+
+
+def test_aviso_spapi_vigilante_ciego_texto_exacto_y_scrub():
+    """Builder puro del aviso ciego: igualdad exacta + motivo con scrub
+    (el DSN roto puede traer password)."""
+    from app.redaction import REDACTED, register_secret
+
+    secreto = "tok-secreto-simulado-vig-xyz"
+    register_secret(secreto)
+    texto = notifica.aviso_spapi_vigilante_ciego(f"connection failed: password={secreto} en el DSN")
+    assert texto == (
+        "[Orbit] ALERTA vigilante SP-API sin lectura\n"
+        f"no pude leer ingest_run: connection failed: password={REDACTED} en el DSN\n"
+        "No sé si el cron corrió. Revisar Postgres y el DSN de lectura."
+    )
+
+
+def test_notifica_spapi_silencio_sin_canal_no_es_fallo():
+    """Canal deshabilitado (default del conftest): True y cero HTTP. Mata
+    la mutacion 'sin rama canal_activo'."""
+    desde, hasta = _ventana_vigilante()
+    assert notifica.notifica_spapi_silencio([("spapi_orders", "amazon_mx")], desde, hasta) is True
+
+
+def test_notifica_spapi_silencio_envia_y_tumba(tmp_path, monkeypatch):
+    """Sender: con canal OK envia (True); con red rota devuelve False SIN
+    levantar. Igual contrato que notifica_spapi_fallo."""
+    desde, hasta = _ventana_vigilante()
+    with _canal(tmp_path, monkeypatch) as mensajes:
+        assert (
+            notifica.notifica_spapi_silencio([("spapi_orders", "amazon_mx")], desde, hasta) is True
+        )
+    (mensaje,) = mensajes
+    assert mensaje["chat_id"] == FAKE_CHAT_ID
+    assert "ALERTA SP-API sin corrida" in mensaje["text"]
+    with _canal(tmp_path, monkeypatch, tumbar=True):
+        assert (
+            notifica.notifica_spapi_silencio([("spapi_orders", "amazon_mx")], desde, hasta) is False
+        )
+
+
+def test_notifica_spapi_silencio_ok_false_es_fallo(tmp_path, monkeypatch):
+    """Transport que responde 200 sin ok=true -> False, sin levantar."""
+
+    def _sin_ok(request):
+        return httpx.Response(200, json={"ok": False})
+
+    with _canal(tmp_path, monkeypatch):
+        transport = httpx.MockTransport(_sin_ok)
+        desde, hasta = _ventana_vigilante()
+        assert (
+            notifica.notifica_spapi_silencio(
+                [("spapi_orders", "amazon_mx")], desde, hasta, transport=transport
+            )
+            is False
+        )
+
+
+def test_notifica_spapi_silencio_builder_roto_no_levanta(tmp_path, monkeypatch):
+    """El JAMAS levanta cubre tambien el builder. Con canal CONFIGURADO
+    para llegar al builder."""
+
+    def builder_roto(*a, **k):
+        raise RuntimeError("builder roto")
+
+    with _canal(tmp_path, monkeypatch):
+        monkeypatch.setattr(notifica, "aviso_spapi_silencio", builder_roto)
+        desde, hasta = _ventana_vigilante()
+        assert (
+            notifica.notifica_spapi_silencio([("spapi_orders", "amazon_mx")], desde, hasta) is False
+        )

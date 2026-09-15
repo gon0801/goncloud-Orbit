@@ -54,6 +54,7 @@ from app.spapi import inventario as spapi_inventario
 from app.spapi import listings as spapi_listings
 from app.spapi import orders as spapi_orders
 from app.spapi import pricing as spapi_pricing
+from app.spapi import vigilante as spapi_vigilante
 
 # El unico valor de --confirmar que ARCHIVA. Cualquier otra cosa es ensayo.
 MODO_ARCHIVADO_LIVE = "live"
@@ -604,6 +605,19 @@ def main(argv: list[str] | None = None) -> int:
         help=f"'{MODO_ARCHIVADO_LIVE}' para CREAR de verdad; sin esto es ensayo",
     )
 
+    # spapi_vigilante es TOP-LEVEL a proposito (no bajo `ingest`): la linea
+    # de su crontab no debe contener `app.cli ingest` o el instalador de
+    # ORBIT 03 la borra (hallazgo H1 de sp-api-01 A.R). Los flags van al
+    # main del modulo (patron report/cobertura).
+    sub.add_parser(
+        "spapi_vigilante",
+        help=(
+            "vigilante del cron SP-API 05:00 UTC: avisa si la ventana no trae"
+            " las 8 corridas en ingest_run (--desde/--hasta/--dry-run;"
+            " requiere ORBIT_DSN_READ)"
+        ),
+    )
+
     args, rest = parser.parse_known_args(argv)
     if args.comando == "cycle":
         # El ciclo ESCRIBE decisiones: un flag mal tipeado que se ignorara en
@@ -646,6 +660,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"argumentos desconocidos para 'archivar-anuncios': {rest}", file=sys.stderr)
             return 2
         return _archivar_anuncios(args)
+    if args.comando == "spapi_vigilante":
+        # Los args (--desde/--hasta/--dry-run) los valida el main del
+        # modulo (patron report): ventana invalida -> exit 2 ahi.
+        return spapi_vigilante.main(rest)
     return _ingest(args, rest)
 
 

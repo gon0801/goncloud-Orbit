@@ -448,6 +448,47 @@ spapi:diario` después de re-aplicarlo), y que el wrapper sea ejecutable
 y su log exista tras la primera corrida. Instalar es A.6 (dueño), no
 esta tarea.
 
+### Vigilante SP-API 07:30 (aviso del silencio)
+
+Si una ingesta **falla**, ella misma sella su `ingest_run` y `salud.py`
+avisa. Pero si el cron **no dispara** (crontab pisado, `flock` atorado,
+reinicio en la ventana, contenedor caído), no hay fila que fallar y
+nadie se entera. El vigilante (`app/spapi/vigilante.py`, solo lectura
+con `ORBIT_DSN_READ`) convierte el silencio en aviso: a las 07:30 UTC
+revisa la ventana 04:30–07:30 de `ingest_run` y, si faltan corridas,
+manda UN Telegram con los pares ausentes. En verde es silencioso (no
+envía nada); si no puede leer, manda el aviso ciego. No verifica el
+contenido de las corridas (eso es `salud.py`): una corrida presente,
+aunque sea `ok = false` o `rows_written = 0`, no es silencio.
+
+**Línea de crontab** (copiada de `LINEA_CRONTAB_VIGILANTE` en
+`tests/test_spapi_vigilante.py`; el test pinza que esté aquí exacta):
+top-level `spapi_vigilante`, **sin `app.cli ingest`** para que el
+instalador de ORBIT 03 no la borre (mismo hallazgo H1 que `spapi:diario`),
+con `flock`, log y `job_key` propio:
+
+```cron
+# job_key=spapi:vigilante  aviso si el cron spapi:diario no dejó sus 8 corridas
+30 7 * * * /usr/bin/flock -n /tmp/spapi-vigilante.lock docker exec orbit-app-1 python -m app.cli spapi_vigilante >> /mnt/data/appdata/orbit/logs/spapi-vigilante.log 2>&1
+```
+
+**Instalación** (dueño, con `!`, posterior al merge): agregar las dos
+líneas al crontab de `gon` (`crontab -e`; nada más se toca) y verificar
+con el paso (c) de abajo. La **reversa** es borrar la línea del
+crontab: el vigilante no escribe nada en la base.
+
+**Prueba del silencio** (dueño, con `!`, tres pasos):
+
+(a) `--dry-run` sobre la ventana de hoy debe decir `faltan 0 de 8` y
+salir 0 (si el cron 05:00 ya corrió):
+`docker exec orbit-app-1 python -m app.cli spapi_vigilante --dry-run`
+(b) Una ventana pasada donde no existió ninguna corrida SP-API debe
+listar 8 ausentes, mandar el aviso REAL por Telegram y salir 1:
+`docker exec orbit-app-1 python -m app.cli spapi_vigilante --desde
+2026-01-01T04:30:00Z --hasta 2026-01-01T07:30:00Z`
+(c) Tras instalar la línea, `crontab -l | grep spapi:vigilante` la
+muestra, y sigue ahí después de re-correr el instalador de ORBIT 03.
+
 **ORDEN DE DEPLOY de A.6 — las tres migraciones, en este orden** (patrón de
 comando en «Aplicar migraciones», más abajo):
 
