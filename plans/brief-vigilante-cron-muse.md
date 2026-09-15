@@ -94,7 +94,7 @@ en una fila faltante y avisa.
    `faltan 0 de 8` y exit 0; (b) una ventana pasada donde no existió ninguna
    corrida SP-API (por ejemplo `--desde 2026-01-01T04:30:00Z --hasta
    2026-01-01T07:30:00Z`) debe listar 8 ausentes, mandar el aviso real por
-   Telegram y salir con 1;
+   Telegram y salir con 1; (c) tras instalar la línea, `crontab -l | grep
    spapi:vigilante` la muestra y sigue ahí después de re-correr el
    instalador de ORBIT 03. La reversa es borrar la línea del crontab: el
    vigilante no escribe nada en la base.
