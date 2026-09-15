@@ -452,14 +452,23 @@ esta tarea.
 
 Si una ingesta **falla**, ella misma sella su `ingest_run` y `salud.py`
 avisa. Pero si el cron **no dispara** (crontab pisado, `flock` atorado,
-reinicio en la ventana, contenedor caído), no hay fila que fallar y
-nadie se entera. El vigilante (`app/spapi/vigilante.py`, solo lectura
-con `ORBIT_DSN_READ`) convierte el silencio en aviso: a las 07:30 UTC
-revisa la ventana 04:30–07:30 de `ingest_run` y, si faltan corridas,
-manda UN Telegram con los pares ausentes. En verde es silencioso (no
-envía nada); si no puede leer, manda el aviso ciego. No verifica el
-contenido de las corridas (eso es `salud.py`): una corrida presente,
-aunque sea `ok = false` o `rows_written = 0`, no es silencio.
+reinicio en la ventana), no hay fila que fallar y nadie se entera. El
+vigilante (`app/spapi/vigilante.py`, solo lectura con `ORBIT_DSN_READ`)
+convierte el silencio en aviso: a las 07:30 UTC revisa la ventana
+04:30–07:30 de `ingest_run` y, si faltan corridas, manda UN Telegram
+con los pares ausentes. En verde es silencioso (no envía nada); si no
+puede leer, manda el aviso ciego. No verifica el contenido de las
+corridas (eso es `salud.py`): una corrida presente, aunque sea
+`ok = false` o `rows_written = 0`, no es silencio.
+
+**Límite conocido: contenedor caído no avisa.** El vigilante corre
+dentro de `orbit-app-1` vía `docker exec`: si el contenedor no está
+corriendo, el `docker exec` falla en el host, Python nunca arranca y
+NO sale el aviso por Telegram — solo queda el error de docker en
+`spapi-vigilante.log`. Un aviso que sobreviva al contenedor caído
+tendría que salir del propio host, y los secretos de Telegram viven
+en `secrets/` (700 root), fuera del alcance del usuario del cron:
+es una tarea aparte, fuera de este PR.
 
 **Línea de crontab** (copiada de `LINEA_CRONTAB_VIGILANTE` en
 `tests/test_spapi_vigilante.py`; el test pinza que esté aquí exacta):

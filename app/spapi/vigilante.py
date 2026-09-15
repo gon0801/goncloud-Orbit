@@ -2,10 +2,12 @@
 
 Si una ingesta FALLA, ella misma sella su `ingest_run` y `salud.py`
 avisa. Pero si el cron NO dispara (crontab pisado, `flock` atorado,
-reinicio en la ventana, contenedor caido), no hay fila que fallar y
-nadie se entera. Este modulo convierte el silencio en aviso: lee la
-ventana de `ingest_run` (UNICA fuente, regla 2 — igual que salud.py) y
-reporta los pares (fuente, plataforma) sin corrida terminada.
+reinicio en la ventana), no hay fila que fallar y nadie se entera.
+Este modulo convierte el silencio en aviso: lee la ventana de
+`ingest_run` (UNICA fuente, regla 2 — igual que salud.py) y reporta
+los pares (fuente, plataforma) sin corrida terminada. Limite: si el
+contenedor esta caido, `docker exec` falla en el host y NO hay aviso
+(solo el error de docker en el log; ver docs/DEPLOY.md).
 
 Solo lee (`ORBIT_DSN_READ`); sin migracion; sin canal nuevo (reusa
 `_envia_texto` via los senders de app.notifica). En verde es
@@ -158,7 +160,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if not dsn:
             raise RuntimeError("ORBIT_DSN_READ no esta definido")
-        conn = connect(dsn)
+        # connect_timeout: un host blackholeado cae al camino ciego en
+        # segundos en vez de colgar ~2 min con el flock tomado.
+        conn = connect(dsn, connect_timeout=10)
         try:
             filas = lee_ventana(conn, desde=desde, hasta=hasta)
         finally:

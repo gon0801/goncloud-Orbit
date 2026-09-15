@@ -84,6 +84,14 @@ def test_faltantes_fila_de_ayer_no_cuenta():
     ]
 
 
+def test_faltantes_started_en_hasta_exacto_es_ausencia():
+    """El limite superior es EXCLUSIVO: una corrida que empieza justo en
+    `hasta` ya es de la ventana siguiente, no tapa el silencio de esta."""
+    filas = _ocho_presentes()
+    filas[0] = _fila("spapi_orders", "amazon_mx", inicio=HASTA, fin=HASTA)
+    assert faltantes(filas, desde=DESDE, hasta=HASTA) == [("spapi_orders", "amazon_mx")]
+
+
 def test_faltantes_source_ajena_se_ignora():
     filas = _ocho_presentes()
     filas.append(_fila("amazon_ads_structure_v2", "amazon_mx"))
@@ -364,6 +372,42 @@ def test_cli_sin_dsn_aviso_ciego_y_exit_2(monkeypatch, capsys):
     )
     assert rc == 2
     assert len(ciegos) == 1
+
+
+def test_cli_pasa_connect_timeout_a_la_conexion(monkeypatch, capsys):
+    """El vigilante no cuelga con el flock tomado: `connect` recibe
+    `connect_timeout=10` (un host blackholeado cae al camino ciego en
+    segundos, no en ~2 min)."""
+    llamadas: list = []
+
+    class _Conn:
+        def execute(self, *a, **k):
+            class _Cur:
+                def fetchall(self):
+                    return []
+
+            return _Cur()
+
+        def close(self):
+            pass
+
+    def _connect(dsn, **kw):
+        llamadas.append(kw)
+        return _Conn()
+
+    monkeypatch.setenv("ORBIT_DSN_READ", "postgresql://x/y")
+    monkeypatch.setattr(vigilante, "connect", _connect)
+    monkeypatch.setattr(vigilante, "notifica_spapi_silencio", lambda *a, **k: True)
+    rc = main(
+        [
+            "--desde",
+            "2026-09-16T04:30:00Z",
+            "--hasta",
+            "2026-09-16T07:30:00Z",
+        ]
+    )
+    assert rc == 1
+    assert llamadas == [{"connect_timeout": 10}]
 
 
 # ---------------------------------------------------------------------------

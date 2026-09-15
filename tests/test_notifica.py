@@ -1427,6 +1427,19 @@ def test_aviso_spapi_silencio_texto_exacto():
         "El cron de las 05:00 UTC no dejó estas corridas en ingest_run. "
         "Revisar crontab de gon, flock y el log spapi-diario.log."
     )
+    # Un --desde con offset distinto se imprime en UTC: sin normalizar,
+    # la etiqueta UTC mentiria (23:30-05:00 no es 23:30 UTC).
+    cdmx = dt.timezone(dt.timedelta(hours=-5))
+    texto_offset = notifica.aviso_spapi_silencio(
+        [
+            ("spapi_pricing", "amazon_mx"),
+            ("spapi_pricing", "amazon_us"),
+            ("spapi_inventario", "amazon_us"),
+        ],
+        desde.astimezone(cdmx),
+        hasta,
+    )
+    assert texto_offset == texto
 
 
 def test_aviso_spapi_silencio_respeta_orden_fuente_plataforma():

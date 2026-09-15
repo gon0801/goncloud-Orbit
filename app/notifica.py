@@ -687,8 +687,12 @@ def aviso_spapi_silencio(faltantes, desde, hasta) -> str:
     """Builder PURO del aviso de silencio SP-API (vigilante): una linea
     por par faltante en el orden del caller (el vigilante pasa el orden
     fuente→plataforma del catalogo: FUENTES_SPAPI x PLATAFORMAS_SPAPI).
+    `desde`/`hasta` aware (el vigilante los trae de `_fecha_utc`); se
+    normalizan a UTC para que la etiqueta no mienta con otro offset.
     Sin secretos."""
-    ventana = f"{desde:%Y-%m-%d %H:%M} UTC → {hasta:%Y-%m-%d %H:%M} UTC"
+    desde_utc = desde.astimezone(dt.UTC)
+    hasta_utc = hasta.astimezone(dt.UTC)
+    ventana = f"{desde_utc:%Y-%m-%d %H:%M} UTC → {hasta_utc:%Y-%m-%d %H:%M} UTC"
     lineas = [
         "[Orbit] ALERTA SP-API sin corrida",
         f"ventana: {ventana}",
