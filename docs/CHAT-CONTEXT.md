@@ -4,6 +4,23 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-16 UTC — FABRICA 02 (F2): R.1 CERRADA — la revisión independiente de la Fase A pasó con ejecución real; sigue el despliegue.**
+Muse entregó el catálogo de 29 mutantes (PR #278, en master como `d7c0bf9`): 26 mueren con su rojo
+literal, uno de los obligatorios sobrevivía (el dedupe de revalidación miraba al goal fresco y no al
+destino congelado) y se cerró con un test nuevo, y dos quedan declarados como no discriminables.
+Kimi re-ejecutó los 27 mutantes con base real y dio APPROVE; el lead ejecutó ocho por su cuenta y
+cerró una ronda de tres correcciones menores. Hallazgo de método para cualquier catálogo futuro:
+mutar con `PYTHONDONTWRITEBYTECODE=1`, porque el `.pyc` conserva el bytecode del mutante si el
+revert cae en el mismo segundo. También cerró el vigilante del cron SP-API (PR #280, aprobado por
+grok y el lead, en cola): convierte el silencio del cron en un aviso por Telegram; límite declarado:
+con el contenedor caído no avisa.
+
+**Producción sigue igual**: 0038 sin desplegar. **Sigue D.1** con el runbook F2 de `docs/DEPLOY.md`
+(corregido en el PR #281: gates con estado de fallo, respaldo y hash del mismo conjunto, contadores
+del grupo 1), luego D.2. D.3 espera dos cosas: el 19-sep (regla 6 sobre el grupo 1) y el camino
+sellado para cambiar el `mode` de un goal, que hoy no existe y Muse implementa con el brief del
+PR #279.
+
 **2026-09-15 UTC — FABRICA 02 (F2): FASE A CERRADA — todo el código del harvest por grupo está en master; sigue la revisión independiente.**
 Con el PR #274 (Muse, squash `959e742`) y su residual de test #275 (`7a32ec3`) quedó cerrada A.6,
 la última fila de código de F2: los motivos nuevos de skip se leen traducidos en `/salud` y

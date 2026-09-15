@@ -1,10 +1,10 @@
 # FABRICA 02 — Harvest por grupo (F2): reruteo, negativos cruzados y biblioteca viva
 
-Version: 1.9, 2026-09-15 UTC. Estado: **FASE A CERRADA — A.0, A.1, A.2,
+Version: 1.10, 2026-09-16 UTC. Estado: **FASE A y R.1 CERRADAS — A.0, A.1, A.2,
 A.3a, A.3, A.4, A.5 y A.6 cerradas y en master (PRs #258 `a01aed0`, #261
 `b76959f`, #264 `2b136f8`, #267 `eee8152`, #269 `a286ed2`, #272 `18997de`,
-#274 `959e742`, #275 `7a32ec3`); sigue R.1; 0038 sin desplegar**. El
-contrato nació en el plan v1.1 sellado el 2026-09-10; 1.2–1.4 y 1.6–1.9
+#274 `959e742`, #275 `7a32ec3`; R.1 #278 `d7c0bf9`); sigue D.1; 0038 sin desplegar**. El
+contrato nació en el plan v1.1 sellado el 2026-09-10; 1.2–1.4 y 1.6–1.10
 registran cierres y 1.5 precisó A.3 sin ampliar su alcance,
 tras revisión
 de cinco perspectivas independientes (producto, arquitectura, seguridad, QA,
@@ -402,7 +402,7 @@ no implementó y re-muta. La suite completa corre en CI sobre el PR.
 
 | Task | Contenido | DoD | Depends | Status |
 |---|---|---|---|---|
-| R.1 | [stage:revision] [lane:gate] [tdd:skip:revision] Revisión independiente sobre SHA concreto por un revisor que no implementó (kimi/codex/grok). El **implementador entrega** `E/R.1/mutantes.md` con el catálogo enumerado (≥1 por AC y, obligatorios: `_avanza` merge superficial de `hermanas`; LIST sin `adGroupIdFilter`; LIST que cuenta `ARCHIVED`; hermanas antes del readback de keyword; reversa origen-antes-que-hermanos; `quota_cobrada=True` en filas `hermana`; `COALESCE` de moneda; resolutor por nombre; fallback al goal con terna presente; `USAGE` de secuencia ausente; fase nueva fuera del índice parcial; fase nueva fuera de los SELECT de reconciliación; `completa` derivada de la terna; dedupe apuntado al goal); el **lead audita** el catálogo; el **revisor re-muta** y verifica guard (ningún verbo nuevo a Amazon), dinero, append-only, quota, reversa, GRANTs por columna, replay. | APPROVE sobre SHA; **cero sobrevivientes** entre los enumerados (un sobreviviente se cierra con test en el mismo PR, no se declara); E/R.1 | A.1–A.6 | cc:TODO |
+| R.1 | [stage:revision] [lane:gate] [tdd:skip:revision] Revisión independiente sobre SHA concreto por un revisor que no implementó (kimi/codex/grok). El **implementador entrega** `E/R.1/mutantes.md` con el catálogo enumerado (≥1 por AC y, obligatorios: `_avanza` merge superficial de `hermanas`; LIST sin `adGroupIdFilter`; LIST que cuenta `ARCHIVED`; hermanas antes del readback de keyword; reversa origen-antes-que-hermanos; `quota_cobrada=True` en filas `hermana`; `COALESCE` de moneda; resolutor por nombre; fallback al goal con terna presente; `USAGE` de secuencia ausente; fase nueva fuera del índice parcial; fase nueva fuera de los SELECT de reconciliación; `completa` derivada de la terna; dedupe apuntado al goal); el **lead audita** el catálogo; el **revisor re-muta** y verifica guard (ningún verbo nuevo a Amazon), dinero, append-only, quota, reversa, GRANTs por columna, replay. | APPROVE sobre SHA; **cero sobrevivientes** entre los enumerados (un sobreviviente se cierra con test en el mismo PR, no se declara); E/R.1 | A.1–A.6 | cc:完了 [2026-09-16 (lead): PR #278 (Muse), HEAD `d291dd4`, squash `d7c0bf9` mergeado 2026-09-15 15:29 UTC por el dueño. Catálogo `docs/evidencia/fabrica-02/R.1/mutantes.md` M01–M29: 13 AC + 14 obligatorios + 2 RES; 26 mueren con rojo literal, M14 (dedupe de revalida apuntado al goal fresco) sobrevivía y se cerró rojo-primero con `test_r1_revalida_duplicado_en_exacta_resuelta_descarta`; M28 (timing del envío en `_fase_notifica`) y M29 (`state` vivo del destino en `--migrar`) `no discriminable`, declarados. Pre-pase estático de kimi sobre `7a32ec3` (`revision-kimi.md`, PR #277): APPROVE candidato, 5 bajos que el catálogo cerró (H2, H3, H5 con tests; H4 con espías fijados). Re-mutación **ejecutada** de kimi sobre `224d5d9` (`remutacion-kimi.md`): 27/27 CONFIRMADOS, M28 no discriminable por ejecución, cierres verificados en ambas direcciones, 3 mutantes extra (dinero, quota, reversa) muertos, diff de tests solo endurece: APPROVE. Lead: 8 comprobaciones ejecutadas con base local (baseline 305/0 skipped). Ronda lead+kimi de 3 menores de CodeRabbit cerrada en `d291dd4` (`negative_id` independiente, DSN vía `make_conninfo`, espías H4 con segunda conexión), verificada ejecutando por ambos; APPROVE del lead como comentario (GitHub no permite aprobar desde la misma cuenta). `git diff 41bc6aa..d7c0bf9 -- app tools migrations ops` vacío. Nota metodológica al runbook de mutación: `PYTHONDONTWRITEBYTECODE=1` o purgar `__pycache__` tras cada revert (el `.pyc` conserva el bytecode del mutante si el revert cae en el mismo segundo). Residual nuevo hallado al escribir el runbook de D.3: no existe camino sellado para cambiar `mode` de un goal tras crearlo → brief `plans/brief-goals-modo-muse.md` (PR #279), precondición de D.3.] |
 
 ### Fase D — Despliegue y cierre (lead + dueño)
 
@@ -610,6 +610,12 @@ actualizado por A.2.
   `harvest_destino` en `/salud`, fase con etiqueta en el feed, hermanas
   nombradas en el renglón de veto de `/cortes`, sender en flanco por campaña.
   Residual en la fila (envío en `_fase_notifica` sin test conductual → R.1).
+- **R.1 CERRADA 2026-09-16**: PR #278, squash `d7c0bf9`; catálogo M01–M29
+  con re-mutación ejecutada de kimi (27/27 confirmados) y auditoría del lead
+  (8 ejecutadas); un obligatorio sobrevivía (M14) y se cerró con test; M28 y
+  M29 residuales declarados. Sigue **D.1** con el runbook F2 de `docs/DEPLOY.md`
+  (PR #281 corrige gates, respaldo y contadores); D.3 espera además el brief
+  de `goals set --mode` (PR #279, Muse implementando).
 - **FASE A CERRADA 2026-09-15**: los ocho PRs de código de F2 están en
   master (HEAD `7a32ec3`); 0038 sigue sin desplegar y nada de F2 corre en
   vivo. Sigue **R.1** sobre `7a32ec3`: el implementador entrega
