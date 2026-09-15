@@ -4,6 +4,26 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-15 UTC — FABRICA 02 (F2): FASE A CERRADA — todo el código del harvest por grupo está en master; sigue la revisión independiente.**
+Con el PR #274 (Muse, squash `959e742`) y su residual de test #275 (`7a32ec3`) quedó cerrada A.6,
+la última fila de código de F2: los motivos nuevos de skip se leen traducidos en `/salud` y
+`/cortes`, la fase de hermanas tiene etiqueta en el feed de decisiones, el renglón de veto de un
+harvest de grupo nombra las hermanas donde se negará el término, y un aviso por Telegram sale una
+sola vez por racha cuando una campaña de grupo se queda sin destino de harvest (calla al
+corregirse, vuelve a avisar si reaparece; las campañas sueltas nunca avisan). El dueño mergeó los
+ocho PRs de la fase en orden (#258, #261, #264, #267, #269 `a286ed2`, #272 `18997de`, #274, #275);
+master queda en `7a32ec3` con CI verde en cada uno. En la ronda del lead sobre A.6 murieron 9 de
+10 mutantes y el décimo es equivalente (un filtro SQL redundante con el filtro en Python); el
+único hueco real —un ciclo `skipped` que persistía notas de destino— se cerró rojo-primero en #275.
+
+**Producción sigue igual**: 0038 no está desplegada y nada de F2 corre en vivo. **Sigue R.1**:
+revisión independiente sobre `7a32ec3` por alguien que no implementó (kimi, codex o grok), con el
+catálogo de mutantes del implementador y los residuales declarados en las filas A.3–A.6 como
+insumo; cero sobrevivientes o se cierran con test. Después D.1 (0038 a producción con los caps
+bajados), D.2 (limpiar la terna del grupo 1 con `tools/harvest_excepcion.py`, go del dueño) y D.3
+(primer harvest de grupo en vivo con ensayo de reversa; precondición: visto bueno de
+`cortes-ui-01` 1.2).
+
 **2026-09-15 UTC — FABRICA 02 (F2): A.5 aprobada y en cola de merge; ya existe la herramienta para migrar excepciones y limpiar ternas.**
 La herramienta de A.5 está en el PR #272 (Muse, HEAD `f8f782d`), en cola de merge con #269, #270 y
 #271. Tiene dos modos que no se mezclan: migrar una campaña sin grupo a `harvest_excepcion` con un
