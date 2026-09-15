@@ -1118,7 +1118,10 @@ creacion. No se usa una campana real como sonda de produccion.
 ### Migracion 0038: fase `hermanas_negadas` + trigger bid-solo (FABRICA 02 A.2)
 
 `0038_fabrica_hermanas_biblioteca.sql` se aplica una sola vez, despues de
-`0018_fabrica_campanas.sql`. **No es puramente expansiva**: recrea el índice
+`0018_fabrica_campanas.sql`. **Aplicada en producción el 2026-09-15** (D.1,
+`docs/evidencia/fabrica-02/D.1/evidencia.md`); el código quedó en `7384152`
+tras un segundo rebuild el mismo día (el primero, `359f1f8`, era anterior al
+PR #283). **No es puramente expansiva**: recrea el índice
 parcial `harvest_job_en_vuelo` (gana la fase `hermanas_negadas`) y suelta el
 CHECK `goal_harvest_completo` (entra el trigger bid-solo + simétrico de
 grupo) — ambos dentro de la transacción. No recrear ni borrar tablas para
@@ -1827,7 +1830,7 @@ en vivo, así que no importa):
 
 ```bash
 ssh goncloud 'curl -fsS http://127.0.0.1:8010/api/dashboard/salud' | python3 -c \
-  'import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get("quota"), indent=1)[:1200])'
+  'import json,sys; d=json.load(sys.stdin); print(json.dumps({k: v.get("quota") for k, v in d["plataformas"].items()}, indent=1)[:1200])'
 ```
 
 ### D.1.2 Backup del schema
@@ -1911,13 +1914,14 @@ git archive --format=tar "$APROBADO" app Dockerfile .dockerignore pyproject.toml
 ssh goncloud 'curl -fsS http://127.0.0.1:8010/health' && echo && ssh goncloud 'docker ps --format "{{.Names}} {{.Status}}" | grep -q "orbit-app-1 Up" && docker ps --format "{{.Names}} {{.Status}}" | grep orbit-app' && echo "health OK" || { echo "FALLO health o contenedor"; false; }
 ```
 
-Smoke de lectura (F2 visible, sin escribir nada): `/salud` trae el bloque
+Smoke de lectura (F2 visible, sin escribir nada): `/salud` trae, **dentro de
+`plataformas.<plataforma>`** (no en la raíz del JSON), el bloque
 `harvest_destino` con `resueltos` por procedencia y `saltos_grupo`, y
 `/cortes` responde 200:
 
 ```bash
 ssh goncloud 'curl -fsS http://127.0.0.1:8010/api/dashboard/salud' | python3 -c \
-  'import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get("harvest_destino"), indent=1, ensure_ascii=False))'
+  'import json,sys; d=json.load(sys.stdin); print(json.dumps({k: v.get("harvest_destino") for k, v in d["plataformas"].items()}, indent=1, ensure_ascii=False))'
 ssh goncloud 'curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8010/cortes'
 ```
 
