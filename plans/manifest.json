@@ -118,7 +118,7 @@
     {
       "name": "fabrica-02",
       "path": "plans/fabrica-02.md",
-      "description": "FABRICA 02 — EN IMPLEMENTACION: A.0-A.4 cerradas; sigue A.5. Harvest por grupo (F2/AUTO-02): destino por campana_grupo_rol + harvest_excepcion (terna vigente como transicion), fase hermanas_negadas confirmada en el readback de la keyword con 1 quota y reversa operable, biblioteca escrita por el motor solo desde aplicados, migracion de existentes con go. Migracion 0038 aun sin desplegar; precondicion de live: cortes-ui-01 1.2."
+      "description": "FABRICA 02 — FASE A CERRADA (A.0-A.6 en master, HEAD 7a32ec3); sigue R.1 (revision independiente) y D.1-D.3. Harvest por grupo (F2/AUTO-02): destino por campana_grupo_rol + harvest_excepcion (terna vigente como transicion), fase hermanas_negadas confirmada en el readback de la keyword con 1 quota y reversa operable, biblioteca escrita por el motor solo desde aplicados, migracion de existentes con go. Migracion 0038 aun sin desplegar; precondicion de live: cortes-ui-01 1.2."
     }
   ],
   "active": "fabrica-01"
