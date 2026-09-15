@@ -16,6 +16,7 @@ import datetime as dt
 
 import psycopg
 import pytest
+from psycopg.pq import TransactionStatus
 from psycopg.types.json import Json
 from test_apply_cola import (
     _aplicador as _aplicador_cola,
@@ -855,17 +856,24 @@ def test_reconciliacion_senuelo_cero_filas():
 
 
 @_skip_db
-def test_reconciliacion_ausente_reintenta_aplicado_cero_filas():
-    """Ausente en Amazon: la reconciliacion REINTENTA el POST y confirma
-    `applied`... pero la rama ausente/reintento NO escribe biblioteca
-    (brief: solo la confirmacion por identidad escribe). Regla 9: el
-    mutante que escribe en la rama del reintento deja una fila aqui."""
+def test_reconciliacion_ausente_reintenta_aplicado_aprende(monkeypatch):
+    """A.4r1, contrario del cero original (spec, decision 5 sobre el
+    brief): ausente en Amazon, la reconciliacion REINTENTA el POST,
+    confirma `applied`... y esa rama TAMBIEN aprende, con el mismo
+    `origen` de decision que la identidad. Regla 9: contra dff25a8 (sin
+    el helper en el reintento) no hay fila y este test cae."""
+    import app.notifica as _notifica
     from app.apply_harvest import reconcilia_harvest
 
     with db_f2("orbit_bib_neg6") as conn:
         setup = _grupo_listo(conn)
         rol = "category_phrase"
+        par = setup["roles"][rol]
         dec, qid = _huerfana_negativa(conn, setup, rol, TERMINO_A4)
+        llamadas: list = []
+        monkeypatch.setattr(
+            _notifica, "notifica_biblioteca_no_escrita", lambda **kw: llamadas.append(kw) or True
+        )
         handler, vistos = _handler_harvest()
         resumen = reconcilia_harvest(
             conn, _aplicador(conn, handler, setup["ciclo_ejec"]), "amazon_us"
@@ -875,7 +883,69 @@ def test_reconciliacion_ausente_reintenta_aplicado_cero_filas():
         assert len(posts) == 1, "el ausente reintenta el POST"
         cola = conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (qid,)).fetchone()[0]
         assert cola == "applied"
-        assert _neg_bib(conn, TERMINO_NORM) == [], "ausente/reintento no escribe"
+        filas = _neg_bib(conn, TERMINO_NORM)
+        assert len(filas) == 1, filas
+        assert filas[0][4] == (f"grupo:{setup['grupo_id']}/campana:{par['camp']}/decision:{dec}"), (
+            filas[0][4]
+        )
+        assert llamadas == [], "el exito no alerta"
+
+
+@_skip_db
+def test_reconciliacion_reintento_ack_sin_id_cero_filas():
+    """Reintento con 207 sin id (`fallo:ack_sin_id`): no confirma, cero
+    filas. Regla 9: el mutante que aprende sin id deja una fila aqui."""
+    from app.apply_harvest import reconcilia_harvest
+
+    with db_f2("orbit_bib_neg7") as conn:
+        setup = _grupo_listo(conn)
+        dec, qid = _huerfana_negativa(conn, setup, "category_phrase", TERMINO_A4)
+        handler, vistos = _handler_harvest(ack_negative_sin_id=True)
+        resumen = reconcilia_harvest(
+            conn, _aplicador(conn, handler, setup["ciclo_ejec"]), "amazon_us"
+        )
+        assert resumen.negativas_fallidas == 1, resumen
+        posts = [r for r in vistos if r.method == "POST" and r.url.path == "/sp/negativeKeywords"]
+        assert len(posts) == 1, "si hubo reintento (cayo por el ack, no por descarte)"
+        cola = conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (qid,)).fetchone()[0]
+        assert cola == "failed"
+        resultado = conn.execute(
+            "SELECT resultado FROM apply_attempt WHERE decision_id = %s AND tipo = 'normal'"
+            " ORDER BY id DESC LIMIT 1",
+            (dec,),
+        ).fetchone()[0]
+        assert resultado == "fallo:ack_sin_id", resultado
+        assert _neg_bib(conn, TERMINO_NORM) == []
+        assert conn.execute("SELECT count(*) FROM keyword_biblioteca").fetchone()[0] == 0
+
+
+@_skip_db
+def test_reconciliacion_reintento_ack_con_error_cero_filas():
+    """Reintento con fila en `error[]` (`fallo:ack_con_error`): no
+    confirma, cero filas. Regla 9: el mutante que aprende con error deja
+    una fila aqui."""
+    from app.apply_harvest import reconcilia_harvest
+
+    with db_f2("orbit_bib_neg8") as conn:
+        setup = _grupo_listo(conn)
+        dec, qid = _huerfana_negativa(conn, setup, "category_phrase", TERMINO_A4)
+        handler, vistos = _handler_harvest(ack_negative_con_error=True)
+        resumen = reconcilia_harvest(
+            conn, _aplicador(conn, handler, setup["ciclo_ejec"]), "amazon_us"
+        )
+        assert resumen.negativas_fallidas == 1, resumen
+        posts = [r for r in vistos if r.method == "POST" and r.url.path == "/sp/negativeKeywords"]
+        assert len(posts) == 1, "si hubo reintento (cayo por el ack, no por descarte)"
+        cola = conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (qid,)).fetchone()[0]
+        assert cola == "failed"
+        resultado = conn.execute(
+            "SELECT resultado FROM apply_attempt WHERE decision_id = %s AND tipo = 'normal'"
+            " ORDER BY id DESC LIMIT 1",
+            (dec,),
+        ).fetchone()[0]
+        assert resultado.startswith("fallo:ack_con_error"), resultado
+        assert _neg_bib(conn, TERMINO_NORM) == []
+        assert conn.execute("SELECT count(*) FROM keyword_biblioteca").fetchone()[0] == 0
 
 
 @_skip_db
@@ -952,10 +1022,16 @@ def test_fallo_inyectado_keyword_sello_intacto(monkeypatch):
     with db_f2("orbit_bib_fallo1") as conn:
         setup = _grupo_listo(conn, term=TERMINO_A4)
         envios: list = []
+
+        def _espia(texto, transport=None):
+            assert conn.info.transaction_status == TransactionStatus.IDLE, (
+                "A.4r1: el aviso sale DESPUES del commit del sello"
+            )
+            envios.append(texto)
+            return True
+
         monkeypatch.setattr(_notifica, "canal_activo", lambda: True)
-        monkeypatch.setattr(
-            _notifica, "_envia_texto", lambda texto, transport=None: envios.append(texto) or True
-        )
+        monkeypatch.setattr(_notifica, "_envia_texto", _espia)
         import app.biblioteca as _bib
 
         monkeypatch.setattr(
@@ -997,10 +1073,16 @@ def test_fallo_inyectado_negative_veredicto_intacto(monkeypatch, caplog):
         setup = _grupo_listo(conn)
         _obs_negative(conn, setup["run"], setup["roles"]["category_phrase"]["ag"], TERMINO_A4)
         envios: list = []
+
+        def _espia(texto, transport=None):
+            assert conn.info.transaction_status == TransactionStatus.IDLE, (
+                "A.4r1: el aviso sale DESPUES del commit del sello"
+            )
+            envios.append(texto)
+            return True
+
         monkeypatch.setattr(_notifica, "canal_activo", lambda: True)
-        monkeypatch.setattr(
-            _notifica, "_envia_texto", lambda texto, transport=None: envios.append(texto) or True
-        )
+        monkeypatch.setattr(_notifica, "_envia_texto", _espia)
         import app.biblioteca as _bib
 
         monkeypatch.setattr(

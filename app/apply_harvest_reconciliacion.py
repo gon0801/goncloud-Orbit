@@ -282,7 +282,45 @@ def _cola_de(conn: psycopg.Connection, decision_id: int) -> tuple[int | None, st
     return (fila[0], fila[1]) if fila is not None else (None, None)
 
 
-def _reconcilia_negativas(conn: psycopg.Connection, aplicador, platform: str) -> tuple[int, int]:
+def _aprende_negative(
+    conn: psycopg.Connection,
+    entidad: int,
+    term: str | None,
+    decision_id: int,
+    platform: str,
+) -> tuple[dict | None, int | None]:
+    """Biblioteca para un negative aplicado (F2, A.4 + A.4r1): resuelve el
+    grupo por identidad y registra el termino en SAVEPOINT dentro de la
+    transaccion del sello. Devuelve (rastro, grupo_id), o (None, None)
+    sin grupo (cero statements, cero alerta, no es fallo). El caller
+    avisa DESPUES del commit con `biblioteca.avisa_si_fallo`. Se llama en
+    las DOS ramas que confirman `applied` (identidad y reintento con id;
+    spec, decision 5: todo negative aplicado en campana de grupo)."""
+    grupo = biblioteca.grupo_de_ad_group(conn, entidad)
+    if grupo is None:
+        return None, None
+    rastro = biblioteca.registra_negative(
+        conn,
+        grupo_id=grupo[0],
+        tipo_producto=grupo[1],
+        platform=platform,
+        texto=term,
+        origen=f"grupo:{grupo[0]}/campana:{grupo[2]}/decision:{decision_id}",
+        decision_id=decision_id,
+    )
+    return rastro, grupo[0]
+
+
+# PLR0915 (81 > 80): la matriz es coherente y cada rama que confirma
+# `applied` necesita su hook de biblioteca (identidad + reintento, A.4r1
+# por hallazgo de CodeRabbit). `noqa` con razon, como pide la regla
+# anti-Goodhart de `pyproject.toml`, en vez de partir la funcion o
+# contorsionar vecinos solo por el numero.
+def _reconcilia_negativas(  # noqa: PLR0915 - ver razon arriba
+    conn: psycopg.Connection,
+    aplicador,
+    platform: str,
+) -> tuple[int, int]:
     """Cola applying huerfana kind NEGATIVE (matriz §6.1): existe con
     identidad → confirmar; SOLO en otro ad group (señuelo) → failed; no
     existe → reintento (tope 3) o failed. El applying conserva su cobro:
@@ -325,24 +363,22 @@ def _reconcilia_negativas(conn: psycopg.Connection, aplicador, platform: str) ->
                 _ejecucion._termina_cola(conn, q_id, "applied")
                 # F2 A.4: negative huerfano CONFIRMADO por identidad en
                 # campana de grupo aprende el termino (SAVEPOINT dentro del
-                # sello: jamas bloquea la confirmacion). Las ramas senuelo,
-                # ausente/reintento y ancestro_no_enabled no llegan aqui: no
-                # escriben. El retorno se ignora (opcion (b) del brief: el
-                # fallo queda en el log con scrub + la alerta veraz, sin
-                # tocar el resultado del ledger).
-                grupo = biblioteca.grupo_de_ad_group(conn, entidad)
-                if grupo is not None:
-                    # (grupo_id, tipo_producto, campaign_ad_entity_id); sin
-                    # unpack: la funcion esta al tope del presupuesto PLR0915.
-                    biblioteca.registra_negative(
-                        conn,
-                        grupo_id=grupo[0],
-                        tipo_producto=grupo[1],
-                        platform=platform,
-                        texto=term,
-                        origen=(f"grupo:{grupo[0]}/campana:{grupo[2]}/decision:{decision_id}"),
-                        decision_id=decision_id,
-                    )
+                # sello: jamas bloquea la confirmacion). Las ramas senuelo
+                # y ancestro_no_enabled no llegan aqui: no escriben.
+                rastro_bib, grupo_bib = _aprende_negative(
+                    conn, entidad, term, decision_id, platform
+                )
+            # A.4r1: el aviso sale DESPUES del commit (el HTTP no alarga el
+            # sello); sin grupo, exito o precedencia no hace nada.
+            biblioteca.avisa_si_fallo(
+                "negative",
+                rastro_bib,
+                plataforma=platform,
+                grupo_id=grupo_bib,
+                decision_id=decision_id,
+                job_id=None,
+                texto=term,
+            )
             confirmadas += 1
             continue
         if _ejecucion._solo_en_otro_ad_group(items, grupo_ext, term):
@@ -406,6 +442,20 @@ def _reconcilia_negativas(conn: psycopg.Connection, aplicador, platform: str) ->
             _ejecucion._sella_pendientes(conn, decision_id, "ok:reconciliado")
             apply._confirma_resumen(conn, decision_id, ack, True, aplicador.cycle_id_ejecutor)
             _ejecucion._termina_cola(conn, q_id, "applied")
+            # A.4r1 (CodeRabbit): el reintento CONFIRMADO tambien aprende
+            # (spec, decision 5: todo negative aplicado en campana de
+            # grupo); solo las ramas que no confirman (senuelo, tope,
+            # ack_sin_id, ack_con_error, ancestro) no escriben.
+            rastro_bib, grupo_bib = _aprende_negative(conn, entidad, term, decision_id, platform)
+        biblioteca.avisa_si_fallo(
+            "negative",
+            rastro_bib,
+            plataforma=platform,
+            grupo_id=grupo_bib,
+            decision_id=decision_id,
+            job_id=None,
+            texto=term,
+        )
         confirmadas += 1
     return confirmadas, fallidas
 

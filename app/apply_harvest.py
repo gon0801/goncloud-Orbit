@@ -1648,6 +1648,17 @@ def _paso_readback(
             decision_id=job.decision_id,
         )
         _avanza(conn, job, None, {"biblioteca": rastro_biblioteca})
+    # A.4r1: el aviso sale DESPUES del commit del sello (el HTTP de
+    # Telegram no alarga la transaccion); sin fallo no hace nada.
+    biblioteca.avisa_si_fallo(
+        "harvest",
+        rastro_biblioteca,
+        plataforma=job.plataforma,
+        grupo_id=ctx.grupo_id,
+        decision_id=job.decision_id,
+        job_id=job.id,
+        texto=job.search_term,
+    )
     return "avanza", None
 
 

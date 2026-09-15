@@ -10,11 +10,13 @@ biblioteca de ese `tipo_producto` la aprende sola:
   roster), NO en el cierre `done` (`done` es solo el final de la higiene;
   desde el sello el job ya no puede volverse `failed`).
 - negative: cada decision `kind = negative` APLICADA en campana de grupo
-  deja su termino en `negative_biblioteca`, en los dos sitios que hoy
-  confirman `applied` (`apply_cola._ejecuta_negative` con `verify` y la
-  rama `propio is not None` de `_reconcilia_negativas`), sin abrir un
-  tercero. Los negativos de harvest (origen y hermanas) JAMAS pasan por
-  aqui: son ruteo, no exclusion.
+  deja su termino en `negative_biblioteca`, en los tres sitios que
+  confirman `applied` (`apply_cola._ejecuta_negative` con `verify` y las
+  ramas `propio is not None` y reintento-con-id de
+  `_reconcilia_negativas`, estas dos via `_aprende_negative`; spec,
+  decision 5: todo negative aplicado en campana de grupo). Los
+  negativos de harvest (origen y hermanas) JAMAS pasan por aqui: son
+  ruteo, no exclusion.
 
 Contabilidad derivada: cada `registra_*` recibe la conexion YA dentro de
 la transaccion del sello, abre un SAVEPOINT (`conn.transaction()`, patron
@@ -23,9 +25,10 @@ CX2 de `_nace_job`) y JAMAS levanta (captura `Exception`, no solo
 que una fila de biblioteca perdida). Ante fallo deja rastro durable (el
 dict de retorno: el caller del harvest lo guarda en
 `external_ids["biblioteca"]`; el del negative conserva su veredicto y el
-fallo queda en el log con `scrub`) y emite la alerta veraz
-`notifica_biblioteca_no_escrita` (fail-silent; el texto dice que el
-harvest/negative SI quedo aplicado y nunca dice "failed").
+fallo queda en el log con `scrub`) y el caller avisa DESPUES del commit
+con `avisa_si_fallo` (el HTTP de Telegram no alarga el sello; la alerta
+es fail-silent y su texto dice que el harvest/negative SI quedo aplicado
+y nunca dice "failed").
 
 Precedencia (keyword gana; interseccion vacia EN EL MOMENTO DE
 ESCRIBIR): `registra_negative` consulta primero `keyword_biblioteca` y
@@ -71,6 +74,7 @@ __all__ = [
     "MOTIVO_TERMINO_EN_KEYWORD_BIBLIOTECA",
     "SQL_BIBLIOTECA_KEYWORD",
     "SQL_BIBLIOTECA_NEGATIVE",
+    "avisa_si_fallo",
     "grupo_de_ad_group",
     "registra_keyword",
     "registra_negative",
@@ -183,16 +187,15 @@ def tipo_producto_de_grupo(conn: psycopg.Connection, grupo_id: int | None) -> st
 def _rastro_fallo(
     *,
     aplicado: str,
-    plataforma: str,
     grupo_id: int | None,
     decision_id: int | None,
-    job_id: int | None,
-    texto: str | None,
     exc: Exception,
 ) -> dict:
-    """Rastro durable + log con `scrub` + alerta veraz del fallo de
-    biblioteca. El sello del evento de valor / del corte queda intacto: el
-    caller sigue con el veredicto aplicado."""
+    """Rastro durable + log con `scrub` del fallo de biblioteca. NO avisa:
+    el caller invoca `avisa_si_fallo` DESPUES del commit del sello (un
+    canal lento no alarga la transaccion; correccion A.4r1). El sello del
+    evento de valor / del corte queda intacto: el caller sigue con el
+    veredicto aplicado."""
     detalle = type(exc).__name__
     logger.warning(
         "%s: %s aplicado pero termino no aprendido (grupo=%s decision=%s): %s",
@@ -202,7 +205,33 @@ def _rastro_fallo(
         decision_id,
         scrub(f"{detalle}: {exc}"),
     )
-    notifica.notifica_biblioteca_no_escrita(
+    return {"escrita": False, "motivo": MOTIVO_BIBLIOTECA_FALLO, "detalle": detalle}
+
+
+def avisa_si_fallo(
+    aplicado: str,
+    rastro: dict | None,
+    *,
+    plataforma: str,
+    grupo_id: int | None,
+    decision_id: int | None,
+    job_id: int | None,
+    texto: str | None,
+) -> bool:
+    """Avisa DESPUES del commit del sello si `rastro` es un fallo de
+    biblioteca (motivo `biblioteca_no_escrita`); en otro caso (None = sin
+    grupo, exito o precedencia keyword) no hace nada y vuelve True. El
+    caller la invoca fuera de la transaccion del sello: el HTTP de
+    Telegram no alarga el commit (correccion A.4r1; los senders previos
+    como `_cierra_o_sigue` ya avisaban fuera). Fail-silent (hereda el
+    contrato del sender)."""
+    if (
+        rastro is None
+        or rastro.get("escrita") is not False
+        or rastro.get("motivo") != MOTIVO_BIBLIOTECA_FALLO
+    ):
+        return True
+    return notifica.notifica_biblioteca_no_escrita(
         aplicado=aplicado,
         plataforma=plataforma,
         grupo_id=grupo_id,
@@ -210,9 +239,8 @@ def _rastro_fallo(
         job_id=job_id,
         texto=texto,
         motivo=MOTIVO_BIBLIOTECA_FALLO,
-        detalle=detalle,
+        detalle=str(rastro.get("detalle", "?")),
     )
-    return {"escrita": False, "motivo": MOTIVO_BIBLIOTECA_FALLO, "detalle": detalle}
 
 
 def registra_keyword(
@@ -232,7 +260,8 @@ def registra_keyword(
     `{"escrita": True, "id": ...}` (mas `"conflicto_negative": True` si el
     termino ya vive en `negative_biblioteca`: se deja — `app_decide` no
     tiene DELETE por diseno de 0038 — y keyword gana) o `{"escrita":
-    False, "motivo": "biblioteca_no_escrita", "detalle": <clase>}`."""
+    False, "motivo": "biblioteca_no_escrita", "detalle": <clase>}`. El
+    caller avisa despues del commit con `avisa_si_fallo`."""
     try:
         norm = hygiene.normaliza_texto(texto)
         with conn.transaction():  # savepoint: absorbe el fallo sin abortar el sello
@@ -247,11 +276,8 @@ def registra_keyword(
     except Exception as exc:  # noqa: BLE001 - el sello jamas aborta por la contabilidad derivada
         return _rastro_fallo(
             aplicado="harvest",
-            plataforma=platform,
             grupo_id=grupo_id,
             decision_id=decision_id,
-            job_id=job_id,
-            texto=texto,
             exc=exc,
         )
 
@@ -272,7 +298,8 @@ def registra_negative(
     grupo), NO se inserta y vuelve `{"escrita": False, "motivo":
     "termino_en_keyword_biblioteca"}` sin alerta (no es fallo). JAMAS
     levanta. El `id` del rastro se lee por clave (el statement canonico
-    es DO NOTHING sin RETURNING por diseno de 0038)."""
+    es DO NOTHING sin RETURNING por diseno de 0038). El caller avisa
+    despues del commit con `avisa_si_fallo`."""
     try:
         norm = hygiene.normaliza_texto(texto)
         with conn.transaction():  # savepoint: absorbe el fallo sin abortar el sello
@@ -287,10 +314,7 @@ def registra_negative(
     except Exception as exc:  # noqa: BLE001 - el sello jamas aborta por la contabilidad derivada
         return _rastro_fallo(
             aplicado="negative",
-            plataforma=platform,
             grupo_id=grupo_id,
             decision_id=decision_id,
-            job_id=None,
-            texto=texto,
             exc=exc,
         )
