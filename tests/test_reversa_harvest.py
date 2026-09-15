@@ -14,6 +14,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from psycopg.conninfo import make_conninfo
 from test_fabrica_f2 import db_f2
 from test_fabrica_f2_hermanas import (
     ROLES_DISCOVERY,
@@ -277,9 +278,14 @@ def test_r1_plan_cola_no_applied_falla_cerrado():
 @_skip_db
 def test_r1_plan_sin_ids_falla_cerrado():
     """R.1 H2 (2/2): job done, confirmado y applied pero sin `keyword_id`
-    (y sin `negative_id`) en external_ids -> ValueError "sin keyword_id
-    o negative_id". Regla 9: sin la guarda de
-    `app/apply_harvest.py:1156-1157`, el plan llevaria 'None' como id."""
+    o sin `negative_id` en external_ids -> ValueError "sin keyword_id
+    o negative_id". Cada ausencia se prueba INDEPENDIENTE (desde el ext
+    original): si el segundo caso heredara la primera ausencia, una
+    guarda que vigilara solo `keyword_id` pasaria. Regla 9: sin la
+    guarda de `app/apply_harvest.py:1156-1157`, el plan llevaria 'None'
+    como id."""
+    from psycopg.types.json import Json
+
     from app.apply_harvest import plan_reversa_harvest
 
     with db_f2("orbit_rev_h2ids") as conn:
@@ -298,16 +304,18 @@ def test_r1_plan_sin_ids_falla_cerrado():
         _libera_cola(conn, qid)
         jid = _job_en_hermanas(conn, setup, dec, qid)
         conn.execute("UPDATE harvest_job SET fase = 'done' WHERE id = %s", (jid,))
-        conn.execute(
-            "UPDATE harvest_job SET external_ids = external_ids - 'keyword_id' WHERE id = %s",
-            (jid,),
+        ext_orig = dict(
+            conn.execute("SELECT external_ids FROM harvest_job WHERE id = %s", (jid,)).fetchone()[0]
         )
+        sin_kw = {k: v for k, v in ext_orig.items() if k != "keyword_id"}
+        conn.execute("UPDATE harvest_job SET external_ids = %s WHERE id = %s", (Json(sin_kw), jid))
         with pytest.raises(ValueError, match="sin keyword_id o negative_id"):
             plan_reversa_harvest(conn, jid)
-        conn.execute(
-            "UPDATE harvest_job SET external_ids = external_ids - 'negative_id' WHERE id = %s",
-            (jid,),
-        )
+        # negative_id ausente CON keyword_id presente (restaurado desde el
+        # original): el raise lo debe la guarda de negative, no la de kw.
+        sin_neg = {k: v for k, v in ext_orig.items() if k != "negative_id"}
+        assert "keyword_id" in sin_neg
+        conn.execute("UPDATE harvest_job SET external_ids = %s WHERE id = %s", (Json(sin_neg), jid))
         with pytest.raises(ValueError, match="sin keyword_id o negative_id"):
             plan_reversa_harvest(conn, jid)
 
@@ -704,9 +712,10 @@ def _carga_tool():
 
 def _dsn_decide_de(conn) -> str:
     """DSN decide contra la DB del fixture, derivado de `_test_dsn()`
-    (R.1 H5): jamas fijo a orbit:orbit@localhost (deriva igual que el
-    resto de la suite; el DSN fijo solo es verde en ese entorno)."""
-    return f"{_test_dsn().rsplit('/', 1)[0]}/{conn.info.dbname}"
+    (R.1 H5 + ronda: via `make_conninfo`, que respeta opciones
+    `?sslmode=...` y forma `keyword=value`; jamas `rsplit('/')` ni fijo
+    a orbit:orbit@localhost)."""
+    return make_conninfo(_test_dsn(), dbname=conn.info.dbname)
 
 
 def test_tool_no_importa_ni_construye_cliente_escritura():
