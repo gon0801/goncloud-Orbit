@@ -66,7 +66,8 @@ con estado `no discriminable`, no como muerto).
 Lee, en este orden, y anota en el PR el SHA que leíste:
 
 1. `plans/fabrica-02.md`: fila R.1, tabla AC1a–AC12 (líneas ~454–467), y
-   las notas `cc:完了` de A.1, A.3, A.4, A.5 y A.6, que ya enumeran mutantes
+   las notas de cierre (columna de estado, marca 完了) de A.1, A.3, A.4, A.5
+   y A.6, que ya enumeran mutantes
    ejecutados y residuales.
 2. Los cuerpos de los PRs #267, #269, #272, #274 (`gh pr view N --json
    body`): sección «Mutantes» de cada uno.

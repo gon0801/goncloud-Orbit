@@ -164,6 +164,28 @@ Mapa del lead vs tabla de kimi: coinciden en los obligatorios 1, 2, 3, 4, 6,
 los del mapa (los tres de `test_reversa_harvest.py`, y los dos `test_a1_*` de
 `test_harvest_destino.py`). Ninguna discrepancia de fondo.
 
+## Residuales declarados en las filas A.3–A.6 vs sección 5 de kimi
+
+Kimi revisó `7a32ec3`, donde las notas de cierre de A.5 y A.6 aún no existían;
+el lead contrastó su sección 5 contra las filas del plan en `41bc6aa`:
+
+- A.3: ADV-10, duplicados múltiples, paginado >20 en reversa, los dos hilos
+  CodeRabbit menores (`test_plan_precondiciones_fallan_cerrado` y el DSN fijo
+  del CLI) → los cinco cubiertos (sección 5, y H2/H5).
+- A.4: conflicto keyword/negative preexistente, espía de `_envia_texto` en los
+  tests de fallo inyectado → cubiertos (sección 5, y H4).
+- A.5: candado de escritor único ciego a literales adyacentes e
+  `_imports_runtime` sin resolver imports dinámicos → cubiertos; **el tool no
+  verifica el `state` vivo del ad group destino** → NO lo menciona kimi. Es
+  operativo, no de código: el LIST del flujo de harvest lo ve, y D.2 lo
+  verifica con el readback del propio tool. Se mantiene como residual
+  aceptado; Muse lo enumera en el catálogo como `RES`.
+- A.6: envío en `_fase_notifica` sin test conductual → cubierto (kimi lo da
+  por superado; pasa a verificación de Muse, decisión 4).
+
+Ocho de nueve residuales contrastados por kimi; el noveno queda declarado
+aquí. Ninguno reabre código.
+
 ## Decisiones del lead
 
 1. **Veredicto del pre-pase: coincido con «APPROVE candidato».** Sin
