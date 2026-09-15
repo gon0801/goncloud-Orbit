@@ -178,6 +178,14 @@ def _normaliza_texto(texto: str) -> str:
     return texto.strip().casefold()
 
 
+def normaliza_texto(texto: str) -> str:
+    """Alias publico de `_normaliza_texto` (FABRICA 02, A.4): la misma
+    normalizacion del dedupe de harvest (strip + casefold) para la
+    biblioteca escrita por el motor. Sin cambio de comportamiento;
+    `decide_hygiene` intacto."""
+    return _normaliza_texto(texto)
+
+
 # ---------------------------------------------------------------------------
 # Estructuras (config que llega resuelta + resultado auditable)
 # ---------------------------------------------------------------------------

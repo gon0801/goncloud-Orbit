@@ -89,7 +89,7 @@ from decimal import Decimal
 import psycopg
 from psycopg.types.json import Json
 
-from app import apply, apply_harvest, notifica
+from app import apply, apply_harvest, biblioteca, notifica
 from app.ads.client import AdsApiError
 from app.apply import (
     Aplicador,
@@ -791,10 +791,44 @@ def _ejecuta_negative(conn: psycopg.Connection, aplicador: Aplicador, fila: Fila
     # 2.5 (207 con success anidado, apply_attempt 13).
     verify = apply_harvest._id_de_ack(ack, "negativeKeywordId") is not None
     resultado = "ok" if verify else "fallo:ack_sin_id"
+    rastro_biblio: dict | None = None
+    grupo_biblio: int | None = None
     with conn.transaction():
+        if verify:
+            # F2 A.4: un negative APLICADO de verdad (verify) en campana de
+            # grupo ensena el termino a negative_biblioteca, en SAVEPOINT
+            # dentro de este mismo sello (sin grupo no se llama: cero
+            # statements, cero alerta, no es fallo). El fallo de biblioteca
+            # NO toca el resultado del ledger (`_SQL_ACK_OK` lo lee con
+            # `resultado = 'ok'` exacto para la reversa manual; una nota lo
+            # romperia) — queda en el log con scrub y se avisa DESPUES del
+            # commit (opcion (b) del brief, declarada en el PR).
+            grupo = biblioteca.grupo_de_ad_group(conn, fila.ad_entity_id)
+            if grupo is not None:
+                grupo_biblio = grupo[0]
+                rastro_biblio = biblioteca.registra_negative(
+                    conn,
+                    grupo_id=grupo[0],
+                    tipo_producto=grupo[1],
+                    platform=aplicador._platform,
+                    texto=fila.search_term,
+                    origen=(f"grupo:{grupo[0]}/campana:{grupo[2]}/decision:{fila.decision_id}"),
+                    decision_id=fila.decision_id,
+                )
         apply._sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
         apply._confirma_resumen(conn, fila.decision_id, ack, verify, aplicador.cycle_id_ejecutor)
         _termina(conn, fila, "applied" if verify else "failed")
+    # A.4r1: el aviso sale DESPUES del commit (el HTTP no alarga el
+    # sello); sin grupo, exito o precedencia no hace nada.
+    biblioteca.avisa_si_fallo(
+        "negative",
+        rastro_biblio,
+        plataforma=aplicador._platform,
+        grupo_id=grupo_biblio,
+        decision_id=fila.decision_id,
+        job_id=None,
+        texto=fila.search_term,
+    )
     return "applied" if verify else "failed"
 
 

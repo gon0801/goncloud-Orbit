@@ -91,7 +91,7 @@ import httpx
 import psycopg
 from psycopg.types.json import Json
 
-from app import apply, notifica
+from app import apply, biblioteca, notifica
 from app.ads.client import AdsApiError, AdsClientError
 from app.optimizer import goals as g
 from app.optimizer import harvest_destino, hygiene
@@ -1631,6 +1631,34 @@ def _paso_readback(
         apply._confirma_resumen(conn, job.decision_id, ack, True, aplicador.cycle_id_ejecutor)
         if queue_id is not None:
             _termina_cola(conn, queue_id, "applied")
+        # F2 A.4: la biblioteca del tipo_producto aprende el termino del
+        # harvest de grupo AQUI, en el sello del evento de valor (otra
+        # conexion la ve con la cola applied y la fase antes del primer
+        # POST de hermana). En SAVEPOINT dentro de esta misma transaccion,
+        # despues del resumen y la cola: un fallo de biblioteca jamas
+        # degrada el sello; el rastro viaja en external_ids["biblioteca"].
+        rastro_biblioteca = biblioteca.registra_keyword(
+            conn,
+            grupo_id=ctx.grupo_id,
+            tipo_producto=biblioteca.tipo_producto_de_grupo(conn, ctx.grupo_id),
+            platform=job.plataforma,
+            texto=job.search_term,
+            origen=f"grupo:{ctx.grupo_id}/campana:{job.ad_entity_id}/harvest:{job.id}",
+            job_id=job.id,
+            decision_id=job.decision_id,
+        )
+        _avanza(conn, job, None, {"biblioteca": rastro_biblioteca})
+    # A.4r1: el aviso sale DESPUES del commit del sello (el HTTP de
+    # Telegram no alarga la transaccion); sin fallo no hace nada.
+    biblioteca.avisa_si_fallo(
+        "harvest",
+        rastro_biblioteca,
+        plataforma=job.plataforma,
+        grupo_id=ctx.grupo_id,
+        decision_id=job.decision_id,
+        job_id=job.id,
+        texto=job.search_term,
+    )
     return "avanza", None
 
 

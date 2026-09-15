@@ -43,23 +43,10 @@ _skip_db = pytest.mark.skipif(
 # en la base de test — las cuatro, ni una más.
 FASES_EN_VUELO = frozenset({"pending", "negative_created", "exact_created", "hermanas_negadas"})
 
-# Texto canónico del statement del motor (brief A.2 (f)): cuatro
-# parámetros posicionales en este orden — tipo_producto, platform, texto,
-# origen. Aquí viajan como `%s` de psycopg (ejecutables); el brief los
-# escribe `$1..$4`. A.4 tendrá que igualar esta misma constante desde
-# `app/`: lo invariante son columnas, ON CONFLICT, SET y RETURNING, que el
-# test de fragmentos cruza contra el DO de 0038.
-SQL_BIBLIOTECA_KEYWORD = (
-    "INSERT INTO keyword_biblioteca (tipo_producto, platform, texto, origen)"
-    " VALUES (%s, %s, %s, %s)"
-    " ON CONFLICT (tipo_producto, platform, texto) DO UPDATE SET updated_at = now()"
-    " RETURNING id"
-)
-SQL_BIBLIOTECA_NEGATIVE = (
-    "INSERT INTO negative_biblioteca (tipo_producto, platform, texto, origen)"
-    " VALUES (%s, %s, %s, %s)"
-    " ON CONFLICT (tipo_producto, platform, texto) DO NOTHING"
-)
+# Texto canónico del statement del motor (A.4): fuente ÚNICA en
+# `app/biblioteca.py`; aqui se importa (el cruce contra el DO vive en
+# `test_0038_canon_biblioteca_statement_literals_cruza_con_do`).
+from app.biblioteca import SQL_BIBLIOTECA_KEYWORD, SQL_BIBLIOTECA_NEGATIVE  # noqa: E402
 
 # Valores de prueba del candado: válidos contra los CHECKs de 0018 e
 # imposibles en producción (prefijo zz_).
@@ -867,3 +854,40 @@ def test_0038_sin_usage_en_secuencia_la_migracion_truena():
             pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
         )
         admin.close()
+
+
+def test_0038_canon_biblioteca_statement_literals_cruza_con_do():
+    """A.4: los statements de `app/biblioteca.py` son el mismo texto que el
+    DO de 0038, modulo %s-vs-variables-PL (el DO devuelve `id, updated_at`
+    con INTO y el canon solo `id`: residual declarado en A.2, aqui se
+    compara el prefijo `RETURNING id`). Comparacion EXACTA, no subcadena:
+    una columna de mas, otro SET, otro CONFLICT o un RETURNING distinto
+    en `app/` cae aqui (0038 ya no cubriria el statement del motor)."""
+    import pglast
+    from pglast import ast as pgast
+
+    cuerpo = next(
+        s.stmt.args[0].arg.sval for s in pglast.parse_sql(SQL38) if isinstance(s.stmt, pgast.DoStmt)
+    )
+    plano_do = " ".join(cuerpo.split()).replace(
+        "(v_tipo, v_plat, v_texto, v_origen)", "(%s, %s, %s, %s)"
+    )
+    canon_kw = (
+        "INSERT INTO keyword_biblioteca (tipo_producto, platform, texto, origen)"
+        " VALUES (%s, %s, %s, %s)"
+        " ON CONFLICT (tipo_producto, platform, texto) DO UPDATE SET updated_at = now()"
+        " RETURNING id"
+    )
+    assert canon_kw in plano_do, "el DO de 0038 cambio: el canon ya no lo describe"
+    assert " ".join(SQL_BIBLIOTECA_KEYWORD.split()) == canon_kw, (
+        "el statement de app/ difiere del DO en columnas, ON CONFLICT, SET o RETURNING"
+    )
+    canon_neg = (
+        "INSERT INTO negative_biblioteca (tipo_producto, platform, texto, origen)"
+        " VALUES (%s, %s, %s, %s)"
+        " ON CONFLICT (tipo_producto, platform, texto) DO NOTHING"
+    )
+    assert canon_neg in plano_do, "el DO de 0038 cambio: el canon ya no lo describe"
+    assert " ".join(SQL_BIBLIOTECA_NEGATIVE.split()) == canon_neg, (
+        "el statement de app/ difiere del DO en columnas, ON CONFLICT o DO NOTHING"
+    )

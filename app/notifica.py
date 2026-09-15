@@ -689,3 +689,79 @@ def notifica_cap_agotado(
     except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
         logger.warning("telegram: fallo armando el aviso de cap agotado: %s", scrub(str(exc)))
         return False
+
+
+def alerta_biblioteca_no_escrita(
+    *,
+    aplicado: str,
+    plataforma: str,
+    grupo_id: int | None,
+    decision_id: int | None,
+    job_id: int | None,
+    texto: str | None,
+    motivo: str,
+    detalle: str,
+) -> str:
+    """Texto veraz de biblioteca no aprendida (F2, A.4): el harvest/negative
+    SI quedo aplicado y solo la biblioteca no aprendio el termino. Jamas
+    dice "failed" (mismo criterio que `alerta_harvest_hermanas`: seria
+    mentira operativa — la keyword vende / el corte aplico). Sin acentos
+    (estilo de este modulo) y sin secretos (`detalle` es la clase de la
+    excepcion y se re-scrubbea por si acaso; `job_id` solo existe en el
+    camino harvest)."""
+    lineas = [
+        f"[Orbit] biblioteca no aprendio el termino ({aplicado} aplicado)",
+        f"plataforma: {plataforma}",
+        f"aplicado: {aplicado}",
+        f"grupo: {grupo_id}",
+        f"decision: {decision_id}",
+    ]
+    if job_id is not None:
+        lineas.append(f"job: {job_id}")
+    lineas.extend(
+        [
+            f"search_term: {texto}",
+            f"motivo: {motivo}",
+            f"detalle: {scrub(detalle)}",
+        ]
+    )
+    return "\n".join(lineas)
+
+
+def notifica_biblioteca_no_escrita(
+    *,
+    aplicado: str,
+    plataforma: str,
+    grupo_id: int | None,
+    decision_id: int | None,
+    job_id: int | None,
+    texto: str | None,
+    motivo: str,
+    detalle: str,
+    transport: httpx.BaseTransport | None = None,
+) -> bool:
+    """Aviso de biblioteca no escrita (F2, A.4): sale en el punto del fallo,
+    con el sello ya aplicado. Mismo contrato fail-silent que
+    `notifica_harvest_hermanas`: canal apagado -> True; excepcion ->
+    warning con scrub + False; jamas levanta. La visibilidad de respaldo
+    si el canal falla es el rastro durable (`external_ids["biblioteca"]`
+    en el harvest; log con scrub en el negative)."""
+    try:
+        if not canal_activo():
+            return True
+        return _envia_texto(
+            alerta_biblioteca_no_escrita(
+                aplicado=aplicado,
+                plataforma=plataforma,
+                grupo_id=grupo_id,
+                decision_id=decision_id,
+                job_id=job_id,
+                texto=texto,
+                motivo=motivo,
+                detalle=detalle,
+            ),
+            transport=transport,
+        )
+    except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
+        logger.warning("telegram: fallo armando el aviso de biblioteca: %s", scrub(str(exc)))
+        return False
