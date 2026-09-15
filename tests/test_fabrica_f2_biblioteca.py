@@ -385,6 +385,7 @@ def test_terna_sin_grupo_cero_filas_biblioteca():
         assert res.aplicadas == 1
         assert _job_de(conn, dec)["fase"] == "done"
         assert _kw_bib(conn, TERMINO) == [], "sin grupo: cero keywords"
+        assert conn.execute("SELECT count(*) FROM keyword_biblioteca").fetchone()[0] == 0
         assert conn.execute("SELECT count(*) FROM negative_biblioteca").fetchone()[0] == 0
         cola = conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (qid,)).fetchone()[0]
         assert cola == "applied"
@@ -460,6 +461,7 @@ def test_excepcion_sin_grupo_cero_filas_biblioteca():
         assert res.aplicadas == 1, res
         assert _job_de(conn, dec)["fase"] == "done"
         assert _kw_bib(conn, TERMINO) == [], "excepcion: cero keywords"
+        assert conn.execute("SELECT count(*) FROM keyword_biblioteca").fetchone()[0] == 0
         assert conn.execute("SELECT count(*) FROM negative_biblioteca").fetchone()[0] == 0
         muts = [r for r in vistos if r.method == "POST" and not r.url.path.endswith("/list")]
         assert [r.url.path for r in muts] == ["/sp/negativeKeywords", "/sp/keywords"]
@@ -503,8 +505,54 @@ def test_failed_antes_de_readback_cero_filas():
         job = _job_de(conn, corrido["dec"])
         assert job["fase"] == "failed", job
         assert _kw_bib(conn) == []
+        assert conn.execute("SELECT count(*) FROM keyword_biblioteca").fetchone()[0] == 0
         assert conn.execute("SELECT count(*) FROM negative_biblioteca").fetchone()[0] == 0
         assert job["ext"].get("biblioteca") is None, "sin rastro sin sello"
+
+
+@_skip_db
+def test_keyword_ausente_en_readback_cero_filas():
+    """Job de grupo retomado en `exact_created` con la keyword AUSENTE en
+    destino: `failed` con reversa y cero filas (la rama `encontrado is
+    None` no escribe). Regla 9: el mutante que escribe en la rama del
+    readback fallido deja una fila aqui."""
+    from app.apply_harvest import reconcilia_harvest
+
+    with db_f2("orbit_bib_cero3b") as conn:
+        setup = _grupo_listo(conn, term=TERMINO_A4)
+        exacta = setup["roles"]["category_exact"]
+        dec = _decision_harvest_grupo(
+            conn,
+            setup["ciclo_dec"],
+            setup["config"],
+            setup["origen"]["ag"],
+            grupo_id=setup["grupo_id"],
+            exacta_camp_ext=exacta["camp_ext"],
+            exacta_ag_ext=exacta["ag_ext"],
+            term=TERMINO_A4,
+        )
+        qid = _encola_fila(conn, dec, setup["origen"]["ag"], term=TERMINO_A4)
+        _libera_fila(conn, qid)
+        _claim_fila(conn, qid)
+        jid = conn.execute(
+            "INSERT INTO harvest_job (decision_id, search_term, platform, ad_entity_id, fase)"
+            " VALUES (%s, %s, 'amazon_us', %s, 'pending') RETURNING id",
+            (dec, TERMINO_A4, setup["origen"]["ag"]),
+        ).fetchone()[0]
+        conn.execute("UPDATE harvest_job SET fase = 'negative_created' WHERE id = %s", (jid,))
+        conn.execute(
+            "UPDATE harvest_job SET fase = 'exact_created', external_ids = %s WHERE id = %s",
+            (Json({"negative_id": "n-0", "keyword_id": "k-1"}), jid),
+        )
+        handler, _vistos = _handler_harvest()
+        resumen = reconcilia_harvest(
+            conn, _aplicador(conn, handler, setup["ciclo_ejec"]), "amazon_us"
+        )
+        assert resumen.jobs_failed == 1, resumen
+        assert _job_de(conn, dec)["fase"] == "failed"
+        assert conn.execute("SELECT count(*) FROM keyword_biblioteca").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM negative_biblioteca").fetchone()[0] == 0
+        assert _job_de(conn, dec)["ext"].get("biblioteca") is None
 
 
 @_skip_db
@@ -1048,8 +1096,9 @@ def test_rol_app_decide_escribe_y_prohibe():
 def test_grupo_resolver_por_identidad():
     """`grupo_de_ad_group`: por ad group directo, por `parent_id` de un
     segundo ad group de la campana (ambas ramas cruzan
-    `campana_grupo_rol`) y None fuera de grupo. Regla 9: resolver por
-    nombre de campana no pasa por aqui."""
+    `campana_grupo_rol`) y None fuera de grupo. Regla 9: el mutante que
+    resuelve por `parent_id` SIN cruzar el rol devuelve un grupo para la
+    campana sin grupo y cae en el tercer caso."""
     with db_f2("orbit_bib_gr") as conn:
         setup = _grupo_listo(conn)
         par = setup["roles"]["category_phrase"]
@@ -1068,6 +1117,18 @@ def test_grupo_resolver_por_identidad():
         assert gpo2 is not None and gpo2[0] == setup["grupo_id"], "rama parent_id"
         assert tipo_producto_de_grupo(conn, setup["grupo_id"]) == "collar_perro"
         assert tipo_producto_de_grupo(conn, 999999) is None
+        # Ad group bajo una campana REAL pero sin grupo: None (el rol no
+        # cruza; un parent_id sin rol inventaria un grupo aqui).
+        camp_fuera = conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id)"
+            " VALUES ('amazon_us', 'campaign', '6999') RETURNING id"
+        ).fetchone()[0]
+        ag_fuera = conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id, parent_id)"
+            " VALUES ('amazon_us', 'ad_group', '7199', %s) RETURNING id",
+            (camp_fuera,),
+        ).fetchone()[0]
+        assert grupo_de_ad_group(conn, ag_fuera) is None, "sin rol no hay grupo"
         assert grupo_de_ad_group(conn, 999999) is None
 
 
