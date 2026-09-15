@@ -4,6 +4,22 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-14 UTC — FABRICA 02 (F2): A.4 aprobada y en cola de merge; la biblioteca del tipo de producto aprende sola.**
+La biblioteca escrita por el motor está aprobada en el PR #269 (Muse, cinco commits, HEAD `a3ddc7f`), en cola de merge: por decisión del dueño los PRs de esta operación se mergean todos al final.
+Cada harvest de grupo confirmado por readback deja su término en la biblioteca de keywords en el
+mismo sello que deja la cola aplicada, así que otra conexión lo ve antes de que se nieguen las
+hermanas; cada negativo aplicado en una campaña de grupo, por la cola o por cualquiera de las dos
+ramas de la reconciliación que confirman, deja el suyo en la biblioteca de negativos. Los negativos
+que nacen de un harvest nunca entran (son ruteo, no exclusión), un término que ya vendió no se
+enseña como exclusión, y solo se guardan palabras: las columnas de dinero quedan vacías. La escritura
+va en un punto de guardado dentro de la transacción: si falla, el harvest o el negativo quedan igual
+de aplicados, con rastro durable y un aviso veraz enviado después de confirmar. Veintiocho pruebas
+nuevas, una ronda del lead (un hallazgo mayor de CodeRabbit, válido, corregido: la rama de reintento
+también aprende) y batería completa verde. Residuales declarados en la fila A.4 del plan.
+
+**Producción sigue igual**: la migración 0038 no está desplegada y nada de F2 corre en vivo hasta
+D.1. **Sigue A.5**, la herramienta de excepciones de harvest.
+
 **2026-09-14 UTC — FABRICA 02 (F2): A.3 en master; el motor ya sabe negar el término en las hermanas.**
 La fase `hermanas_negadas` entró en el PR #267, squash `eee8152` (GLM, cuatro commits). Antes del
 primer POST a una hermana la decisión, la cola, el cooldown, la fase y el roster quedan sellados y
