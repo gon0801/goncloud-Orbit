@@ -48,7 +48,11 @@ def test_ver_el_estado_del_optimizador_por_plataforma():
         # Un ciclo por plataforma o vacio si no hubo: nunca un DSN filtrado.
         dump = str(data)
         assert "postgresql://" not in dump and "10.13.13." + "1" not in dump
-        assert isinstance(data.get("ciclos", data), (list, dict))
+        plataformas = data.get("plataformas")
+        assert isinstance(plataformas, dict)
+        assert set(plataformas) == {"amazon_us", "amazon_mx"}, plataformas
+        for info in plataformas.values():
+            assert set(info) == {"ultimo_ciclo", "watermark", "synced_at"}
 
 
 def test_ver_la_lista_de_goals():
@@ -56,7 +60,7 @@ def test_ver_la_lista_de_goals():
         r = c.get("/api/ads-optimizer/goals")
         assert r.status_code == 200, r.text
         data = r.json()
-        assert isinstance(data, (list, dict))
+        assert isinstance(data, list)
 
 
 def test_ver_la_lista_de_decisiones_audit_con_pagina():
@@ -64,4 +68,8 @@ def test_ver_la_lista_de_decisiones_audit_con_pagina():
         r = c.get("/api/ads-optimizer/audit", params={"limit": 10, "offset": 0})
         assert r.status_code == 200, r.text
         data = r.json()
-        assert isinstance(data, (list, dict))
+        for clave in ("items", "total", "limit", "offset"):
+            assert clave in data, data
+        assert isinstance(data["items"], list)
+        assert data["limit"] == 10 and data["offset"] == 0
+        assert len(data["items"]) <= data["limit"]
