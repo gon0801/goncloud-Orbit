@@ -1,6 +1,6 @@
 # LEEME — verify/ de Orbit
 
-generado: 2026-09-15 · sha del HEAD del worktree al generar: 0617328c11c04e44f63635e612a87dff41942f79
+generado: 2026-09-15 · sha del HEAD del worktree al generar: b46beac1770229e2a271777d2268d996e0ce648d
 
 ## Qué es
 
@@ -13,7 +13,7 @@ completa, como la ve quien la llama.
 
 ## Mapa de funciones (3–5, en español)
 
-1. **Entrar a la app.** Se levanta uvicorn (o FastAPI TestClient) y se pide
+1. **Entrar a la app.** Con FastAPI TestClient (en proceso, sin uvicorn ni puerto HTTP) se pide
    `GET /health`. Devuelve JSON con `status: ok`.
 2. **Ver el estado del optimizador.** `GET /api/ads-optimizer/status` devuelve
    el último ciclo por plataforma, con watermarks y notas, en JSON; dinero
@@ -35,10 +35,15 @@ día (el Doctor.md de la flota DG no entra en este carril).
 ## Cómo correr
 
 ```bash
-# Postgres 16 desechable, misma credenciales que quality.yml (orbit/orbit)
-pg_ctl -D $PGDATA start -p 5433   # o docker run para ci
+# Postgres 16 desechable, mismas credenciales que quality.yml (orbit/orbit)
+# Procedimiento completo (initdb, migrations, variables): ver Launch.md.
+PGDATA=$(mktemp -d /tmp/orbit-pgdata.XXXXXX)
+SOCK=$(mktemp -d /tmp/orbit-pgsock.XXXXXX)
+initdb -D "$PGDATA" -U orbit --auth=trust -E UTF8
+pg_ctl -D "$PGDATA" -o "-p 5433 -k $SOCK -c listen_addresses=127.0.0.1" start
 export ORBIT_TEST_DSN=postgresql://orbit:orbit@127.0.0.1:5433/postgres
 export ORBIT_DSN_READ=$ORBIT_TEST_DSN
-export ORBIT_SECRETS_DIR=$(mktemp -d)  # vacio: canal notifica apagado
+export ORBIT_SECRETS_DIR=$(mktemp -d /tmp/orbit-secrets.XXXXXX)  # vacio: canal notifica apagado
 pytest verify/
+# Cleanup con guards: ver Cleanup.md (refusa borrar paths que no eran mktemp propios)
 ```

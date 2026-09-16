@@ -1,6 +1,6 @@
 Registro de la ultima corrida del Drive. Pega aca la salida real del comando.
 
-Corrida 2026-09-15 · sha base del PR: 0617328c11c04e44f63635e612a87dff41942f79
+Corrida 2026-09-15 · sha base del PR: b46beac1770229e2a271777d2268d996e0ce648d
 Comando: python -m pytest verify/ -v (con ORBIT_TEST_DSN + ORBIT_DSN_READ al
          Postgres 16 desechable en 127.0.0.1:5433 — cluster postgresql@16
          efimero en $TMPDIR, esquema migrado; ORBIT_SECRETS_DIR vacio)

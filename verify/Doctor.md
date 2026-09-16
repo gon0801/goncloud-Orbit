@@ -13,10 +13,14 @@ Precondiciones del Drive (pytest verify/):
 4. `ORBIT_SECRETS_DIR` apuntando a un directorio VACIO: el canal de
    notifica queda deshabilitado, sin token, sin cargas de red reales.
 
-Check rapido:
+Check rapido (el Drive NO abre puerto HTTP: la app vive en TestClient,
+asi que no hay curl que hacer - lo que se testea son el Postgres y los
+imports):
 
 ```bash
-curl -s -o /dev/null -w "%{http_code}\n" \
-  "http://127.0.0.1:$(echo $PORT)/health"  # 200 si la app vive
-psql "$ORBIT_TEST_DSN" -c "\\dt" | wc -l    # >= 47 tablas si el enredo subio
+pg_isready -h 127.0.0.1 -p 5433                  # "accepting connections"
+psql "$ORBIT_TEST_DSN" -c "\dt" | wc -l          # >= 47 tablas si el enredo subio
+python -c "import app.main"                      # importa sin error
+python -c "from fastapi.testclient import TestClient; import app.main as m; c=TestClient(m.app); print(c.get('/health').status_code)"
+# el ultimo devuelve 200 si la app vive
 ```
