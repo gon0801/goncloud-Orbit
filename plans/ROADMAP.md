@@ -19,15 +19,23 @@ evidencia de implementación y validación.
 
 ## Estado por módulo (criterio del doc vs realidad)
 
-### M1 Repricing — PLAN SELLADO `plans/repricing-01.md` (v1.0, 2026-09-16; AUTO-07)
+### M1 Repricing — PLAN SELLADO `plans/repricing-01.md` (v1.1, 2026-09-16; AUTO-07)
 
 - Criterio doc: cambia precio en ambas plataformas con historial.
-- Realidad: plan y spec aprobados por el dueño (2026-09-15); cero código.
-  Motor por goal de margen estimado por producto, sube si falta, baja solo
-  si pierde ventas, sombra primero, cuota propia. Fase 0 sella márgenes US
-  (acta 0.4 de `margen-estimado-01`); Fase A motor FBA MX; Fase B US.
-- Gaps: escritura de precio en SP-API no existe (A.3/A.4 del plan); US sin
-  margen estimado hasta la Fase 0. FBM y MeLi fuera, declarados.
+- Realidad: plan y spec aprobados por el dueño (decisiones 1–12 el 15-sep,
+  13–15 el 16-sep); cero código. Motor por goal de margen estimado por
+  producto, sube si falta, baja solo si pierde ventas, sombra primero, cuota
+  propia, y **toda publicación activa contemplada** en un recuadro de
+  cobertura que cuadra.
+- Alcance por fases: A Amazon MX FBA (171 activas); E envío medido y FBM
+  (habilita 113 MX + 109 US, con `shipping_fee` del ledger y percentil
+  sellado); 0 política fiscal US; B Amazon US (109 activas, **todas FBM**);
+  M Mercado Libre (137 publicaciones).
+- Hecho que reordenó el plan: **US no tiene publicaciones activas en FBA**
+  (0 de 109), así que US depende de la fase E, no de la ruta FBA.
+- Gaps: escritura de precio no existe en ninguna plataforma; MeLi hoy no
+  tiene en Orbit precios frescos, mapeo SKU→producto ni dinero en el ledger.
+
 
 ### M2 Campañas por API — Amazon IMPLEMENTADO / CIERRE OPERATIVO PENDIENTE
 
@@ -129,7 +137,7 @@ histórica del registro:
 | AUTO-04 | Ajustes de placements | Top of Search, Product Pages y otros placements soportados; datos por ubicación, efecto sobre la puja efectiva, límites y reversa. Citado en orbit-03:128 y margen-estimado-01:156; schema listo (`ad_entity_kind`). | No hay motor de placements en Orbit. Confirmar fuente y API vigentes al planificar; no reutilizar el sistema viejo. | Pendiente de plan formal |
 | AUTO-05 | Gestión de presupuestos | Redistribución entre campañas/grupos, ritmo de gasto y límites por moneda, con una sola autoridad de escritura y reversa. Incluye budgets intradía + AMS/Stream (orbit-03:128). | Hoy se capturan budgets al crear. Las cuotas de operaciones no son presupuestos de publicidad. | Pendiente de plan formal |
 | AUTO-06 | Reactivación y limpieza del catálogo publicitario | Cuándo reactivar keywords/targets/campañas y si automatizar limpieza. Pausa reversible vs archivado irreversible; reponer crea identidad nueva sin historia. | Ya hay herramientas manuales y BIDS 01. No convertirlas en automatismo por defecto. | Pendiente de evaluación y plan |
-| AUTO-07 | Repricing | Plan del motor de precios, con costos, margen, inventario, límites y reversa. Ver M1 arriba. | Módulos avanzados; precondición margen-estimado-01. | Plan formal `plans/repricing-01.md` v1.0 (2026-09-16); cero implementación |
+| AUTO-07 | Repricing | Plan del motor de precios, con costos, margen, inventario, límites y reversa. Ver M1 arriba. | Módulos avanzados; precondición margen-estimado-01. | Plan formal `plans/repricing-01.md` v1.1 (2026-09-16), 28 filas en 5 fases; cero implementación |
 | AUTO-08 | Promociones | Plan de promociones y su efecto económico, con datos y autorizaciones explícitas. Ver M4 arriba. | Módulos avanzados; depende de Márgenes + Repricing. | Pendiente de plan formal |
 | AUTO-09 | Reputación | Seguimiento y acciones de reputación. v1 cerrada (reputacion-01); v2 = reputacion-02 (stub). Ver M3 arriba. | Módulos avanzados; v2 requiere SP-API + REP-FOLLOW-2. | Plan v2 pendiente de brief |
 | AUTO-10 | Estimación por venta antes de Ads | Precio, costo, comisiones, logística y retenciones verificables por publicación; desglose y ausencias explícitas. Comparación informativa. | `margen-estimado-01.md`; FBA MX desplegado. FBM/US quedan como ampliaciones. | Cerrado 2026-09-08 |
