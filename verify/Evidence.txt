@@ -1,0 +1,18 @@
+Registro de la ultima corrida del Drive. Pega aca la salida real del comando.
+
+Corrida 2026-09-15 · sha al generar el mapa: 0617328c11c04e44f63635e612a87dff41942f79
+Comando: pytest verify/ -v (con ORBIT_TEST_DSN + ORBIT_DSN_READ al
+         Postgres 16 desechable en 127.0.0.1:5433 — cluster homebrew
+         postgresql@16 en $TMPDIR, esquema migrado)
+Salida (4 de 4 verdes):
+
+verify/test_drive.py::test_entrar_la_app_responde_salud PASSED           [ 25%]
+verify/test_drive.py::test_ver_el_estado_del_optimizador_por_plataforma PASSED [ 50%]
+verify/test_drive.py::test_ver_la_lista_de_goals PASSED                  [ 75%]
+verify/test_drive.py::test_ver_la_lista_de_decisiones_audit_con_pagina PASSED [100%]
+
+============================== 4 passed in 0.21s ==============================
+
+Contenido del evidence: sin sockets al host de Amazon Ads; sin IPs de la
+red interna del server (rango Tailscale 10.13.13.x); ORBIT_SECRETS_DIR
+apuntando a un dir VACIO; nunca por ssh.
