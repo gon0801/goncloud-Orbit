@@ -21,3 +21,23 @@ limpieza del cluster temporal): misma bateria, 4 de 4 verdes, ruff OK.
 Contenido del evidence: sin sockets al host de Amazon Ads; sin IPs de la
 red interna del server (rango Tailscale 10.13.13.x); ORBIT_SECRETS_DIR
 apuntando a un dir VACIO; nunca por ssh.
+
+Tercera corrida - corrobora el ciclo de cross-review r1 (2026-09-15, sha
+base del PR: ed17108 en fase6/verify): procedimiento literal del Launch.md
+nuevo - initdb -U orbit --auth=trust -E UTF8 en mktemp de /tmp, pg_ctl con
+-o "-p 5433 -k $SOCK -c listen_addresses=127.0.0.1", loop de migrations
+(skip 0011_* y *_reversa_*), pytest verify/ 4 de 4 verdes, ruff OK en
+verify/.
+
+Guards del Cleanup.md probados EN VIVO contra el guard tal como esta
+escrito, con exports hostiles heredadas (hallazgos ALTA 1 y 2):
+
+  PGDATA=/mnt/data/appdata/orbit/secrets SOCK=/tmp
+  REFUSADO: $PGDATA='/mnt/data/appdata/orbit/secrets' no es un mktemp de Launch; no borro nada
+  REFUSADO: $SOCK='/tmp' no es un mktemp de Launch; no borro nada
+
+y /tmp siguio existiendo despues del loop (SOCK_HOSTIL_INTACTO); el dir de
+secretos de produccion no existe en la maquina de corrida (nada que borrar
+igualmente, y el guard igual lo habria refusado). El mismo case con los
+valores mktemp REALES de esta corrida (/tmp/orbit-pgdata.*;
+/tmp/orbit-pgsock.*) si borro sin ruido: el guard distingue de verdad.
