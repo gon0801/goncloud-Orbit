@@ -31,7 +31,13 @@ que Cleanup.md borre sin riesgo (ver alla).
      case "$f" in *0011_*|*_reversa_*) continue ;; esac
      psql -h 127.0.0.1 -p 5433 -U orbit -d postgres -v ON_ERROR_STOP=1 -f "$f"
    done
-   psql -h 127.0.0.1 -p 5433 -U orbit -d postgres -c "\dt" | wc -l   # >= 47 tablas
+   # El conteo de tablas va por information_schema, NO por `\dt | wc -l`:
+   # wc -l cuenta lineas de la salida (52 con headers), no tablas; con un
+   # umbral asi, un cluster con menos tablas migradas daria verde igual.
+   # table_type='BASE TABLE' es obligatorio: sin el, information_schema.tables
+   # cuenta tambien las 12 vistas (v_*) y daria 59.
+   psql -h 127.0.0.1 -p 5433 -U orbit -d postgres -tAc \
+     "select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE'"   # debe dar 47 exacto
    ```
 
 3. Variables del Drive:

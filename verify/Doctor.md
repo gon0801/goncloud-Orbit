@@ -19,7 +19,9 @@ imports):
 
 ```bash
 pg_isready -h 127.0.0.1 -p 5433                  # "accepting connections"
-psql "$ORBIT_TEST_DSN" -c "\dt" | wc -l          # >= 47 tablas si el enredo subio
+psql "$ORBIT_TEST_DSN" -tAc "select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE'"   # 47 exacto si el enredo subio completo
+# (NO usar `\dt | wc -l`: cuenta lineas de la salida, 52 con headers, no tablas.
+# Y sin table_type='BASE TABLE' information_schema daria 59: incluye las 12 vistas v_*)
 python -c "import app.main"                      # importa sin error
 python -c "from fastapi.testclient import TestClient; import app.main as m; c=TestClient(m.app); print(c.get('/health').status_code)"
 # el ultimo devuelve 200 si la app vive
