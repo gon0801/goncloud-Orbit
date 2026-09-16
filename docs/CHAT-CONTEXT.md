@@ -5,18 +5,25 @@
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
 **2026-09-16 UTC — REPRICING 01: plan y spec sellados; el siguiente módulo es el motor de precios.**
-El dueño decidió el 15-sep, en diálogo, cómo funciona: proteger margen; cada producto tiene un goal de
-margen que él fija; si el margen estimado (precio, costo, comisiones, retenciones, sin Ads) no llega al
-goal, el motor sube el precio aunque rebase a la competencia (la Buy Box se avisa, no se persigue); baja
-solo si las unidades de los últimos 15 días caen contra el promedio de los 60 previos, y nunca abajo del
-goal; automático dentro de límites (escalón 10% en ambas direcciones, un cambio por producto por semana,
-tope diario propio) con sombra primero; ningún producto queda sin evaluar en silencio. Alcance MX y US;
-MeLi y FBM fuera. Cinco revisores (producto, arquitectura, seguridad, QA, escéptico) corrigieron el
-borrador: la señal de ventas exige volumen mínimo, tres corridas seguidas y stock presente; el cambio de
-precio se confirma al día siguiente porque Amazon lo aplica en diferido; no hay reversa automática; el
-motor corre a las 13:10 UTC. Spec `docs/superpowers/specs/2026-09-15-repricing-01-design.md`, plan
-`plans/repricing-01.md` (A: motor FBA MX con reversa probada antes del primer cambio; 0: márgenes US
-después del encendido; B: US). **Cero código todavía**; arranca después de D.3 de F2.
+El dueño decidió el 15-sep cómo funciona: proteger margen; cada producto tiene un goal que él fija; si el margen
+estimado (precio, costo, comisiones, retenciones, sin Ads) no llega al goal, el motor sube el precio aunque rebase
+a la competencia; baja solo si las unidades de 15 días caen contra el promedio de 60, con volumen mínimo, racha de
+tres y stock presente, y nunca abajo del goal; automático dentro de límites con sombra primero; ningún producto
+queda sin evaluar en silencio. Cinco revisores corrigieron el borrador (escritura asíncrona cerrada por la
+observación del día siguiente, sin reversa automática, cotización de fees en tabla propia, motor a las 13:10 UTC).
+
+**Ampliación del 16-sep, decisiones 13–15 del dueño.** El costo del envío FBM sale de lo que Amazon ya cobra por
+las etiquetas y que el ledger recibe como `shipping_fee` (180 días: MX 455 cargos por 38 861 MXN, US 710 por
+192 607; en US el envío supera a la comisión y el cliente paga cero). La atribución al producto es exacta porque
+431 de 439 órdenes con etiqueta en MX y 344 de 347 en US son de un producto y una unidad. Toda publicación activa
+queda contemplada en un recuadro de cobertura que cuadra. Y Mercado Libre entra al alcance. **Hecho que reordenó
+el plan: Estados Unidos no tiene ninguna publicación activa en FBA (0 de 109), así que US depende de la fase de
+FBM, no de la ruta FBA.** MeLi hoy no tiene en Orbit precios frescos (la caché del bridge quedó en el 2026-05-01),
+mapeo SKU→producto ni dinero en el ledger: su fase es traerlo a Orbit, no encenderlo.
+
+Spec `docs/superpowers/specs/2026-09-15-repricing-01-design.md` v1.2, plan `plans/repricing-01.md` v1.1 con 28
+filas en cinco fases (A Amazon MX FBA, E envío medido y FBM, 0 política fiscal US, B Amazon US, M Mercado Libre).
+**Cero código todavía**; arranca después de D.3 de F2.
 
 **2026-09-16 UTC — FABRICA 02 (F2): D.1 y D.2 CERRADAS — la migración 0038 y el código del harvest por grupo ya están en producción, apagados; sigue D.3 desde el 19-sep.**
 El dueño corrió el runbook F2 con `!` la tarde del 15-sep: cap diario de harvest bajado a 2 por
