@@ -9,7 +9,13 @@ Regla general: cada variable se valida contra SU prefix ANTES de pg_ctl y
 antes de cualquier rm, y el path se RESUELVE a su forma fisica antes de
 actuar: el match textual del prefix no basta, porque un valor con `..`
 matchea el case y el comando resolveria igual FUERA del sandbox (traversal
-con `..`, sello #3). No existe la forma corta con globs globales
+con `..`, sello #3). Ademas, ANTES de cualquier otro chequeo, se rechaza de
+entrada todo valor que contenga `..` en el texto: un `mktemp -d
+/tmp/orbit-pgdata.XXXXXX` real JAMAS produce un valor con `..`, asi que
+cualquier valor con `..` no es un mktemp de Launch y se refusa sin
+depender de que la resolucion lo salve (un `..` puede resolver de vuelta
+ADENTRO del prefix, y el chequeo por resolucion solo no lo atraparia). No
+existe la forma corta con globs globales
 (`rm -rf /tmp/orbit-pgdata.* /tmp/orbit-pgsock.* /tmp/orbit-secrets.*`):
 un glob asi alcanzaria los dirs de otra corrida paralela.
 
@@ -29,6 +35,9 @@ un glob asi alcanzaria los dirs de otra corrida paralela.
    tmp_real="$(resolver_dir /tmp)"
 
    case "$PGDATA" in
+     *..*)
+       echo "REFUSADO: \$PGDATA='$PGDATA' contiene '..'; no es un mktemp de Launch, no toco el cluster" >&2
+       ;;
      /tmp/orbit-pgdata.*)
        if pgdata_real="$(resolver_dir "$PGDATA")"; then
          case "$pgdata_real" in
@@ -62,6 +71,7 @@ un glob asi alcanzaria los dirs de otra corrida paralela.
      local val resolved prefix_real
      eval val=\"\$$1\"
      case "$val" in
+       *..*) echo "REFUSADO: \$$1='$val' contiene '..'; no es un mktemp de Launch, no borro nada" >&2; return ;;
        "$2"*) ;;
        *) echo "REFUSADO: \$$1='$val' no matchea el prefix '$2*'; no borro nada" >&2; return ;;
      esac
