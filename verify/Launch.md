@@ -29,15 +29,17 @@ que Cleanup.md borre sin riesgo (ver alla).
    ```bash
    for f in migrations/*.sql; do
      case "$f" in *0011_*|*_reversa_*) continue ;; esac
-     psql -h 127.0.0.1 -p 5433 -U orbit -d postgres -v ON_ERROR_STOP=1 -f "$f"
+     psql -h 127.0.0.1 -p 5433 -U orbit -d postgres -v ON_ERROR_STOP=1 -f "$f" || exit 1
    done
-   # El conteo de tablas va por information_schema, NO por `\dt | wc -l`:
-   # wc -l cuenta lineas de la salida (52 con headers), no tablas; con un
-   # umbral asi, un cluster con menos tablas migradas daria verde igual.
+   # Igualdad estricta (=47, no >=) con corte de flujo: un cluster parcial
+   # imprime el numero chico y `test` corta con exit 1; un check que solo
+   # imprime (sin test) no falla nunca.
    # table_type='BASE TABLE' es obligatorio: sin el, information_schema.tables
-   # cuenta tambien las 12 vistas (v_*) y daria 59.
-   psql -h 127.0.0.1 -p 5433 -U orbit -d postgres -tAc \
-     "select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE'"   # debe dar 47 exacto
+   # cuenta tambien las 12 vistas (v_*) y daria 59. NO usar `\dt | wc -l`:
+   # cuenta lineas de la salida (52 con headers), no tablas.
+   TABS="$(psql -h 127.0.0.1 -p 5433 -U orbit -d postgres -tAc \
+     "select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE'")"
+   test "$TABS" = 47 || { echo "ESQUEMA INCOMPLETO: $TABS/47 tablas BASE" >&2; exit 1; }
    ```
 
 3. Variables del Drive:
