@@ -11,6 +11,7 @@ que Cleanup.md borre sin riesgo (ver alla).
    ```bash
    PGDATA=$(mktemp -d /tmp/orbit-pgdata.XXXXXX)
    SOCK=$(mktemp -d /tmp/orbit-pgsock.XXXXXX)
+   export LC_ALL=en_US.UTF-8   # ANTES de initdb: initdb valida el locale antes de crear nada
    initdb -D "$PGDATA" -U orbit --auth=trust -E UTF8
    pg_ctl -D "$PGDATA" \
           -o "-p 5433 -k $SOCK -c listen_addresses=127.0.0.1" \
@@ -39,7 +40,6 @@ que Cleanup.md borre sin riesgo (ver alla).
    export ORBIT_TEST_DSN=postgresql://orbit:orbit@127.0.0.1:5433/postgres
    export ORBIT_DSN_READ=$ORBIT_TEST_DSN
    export ORBIT_SECRETS_DIR=$(mktemp -d /tmp/orbit-secrets.XXXXXX)  # vacio: canal notifica apagado
-   export LC_ALL=en_US.UTF-8   # si initdb o el Postgres local se quejan de locale
    ```
 
    NO apuntes ORBIT_SECRETS_DIR al default de produccion

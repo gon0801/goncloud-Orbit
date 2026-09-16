@@ -27,8 +27,10 @@ from app.main import app  # noqa: E402  (idem)
 
 
 def _client() -> TestClient:
-    if not os.environ.get("ORBIT_TEST_DSN"):
+    test_dsn = os.environ.get("ORBIT_TEST_DSN")
+    if not test_dsn:
         pytest.skip("sin Postgres: ORBIT_TEST_DSN no esta definido")
+    os.environ["ORBIT_DSN_READ"] = test_dsn
     return TestClient(app)
 
 
