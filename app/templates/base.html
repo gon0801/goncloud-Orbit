@@ -85,9 +85,10 @@
     </main>
   </div>
   {# Tab bar movil: 7 destinos fijos. El sidebar de escritorio se conserva.
-     inicio=resumen/salud · pnl=contribucion · skus=reputacion
-     ordenes=decisiones · gastos=campanas/fabrica/inertes
-     saldos=settings · revision=cortes #}
+     Las etiquetas visibles replican el nombre de su seccion en el sidebar:
+     inicio=Resumen (resumen/salud) · pnl=Contribucion · skus=Reputacion
+     ordenes=Decisiones · gastos=Campañas (campanas/fabrica/inertes)
+     saldos=Settings · revision=Propuestas (cortes) #}
   {% set tab_por_pantalla = {
     'resumen': 'inicio', 'salud': 'inicio',
     'contribucion': 'pnl',
@@ -149,13 +150,13 @@
       </symbol>
     </svg>
     {% for id_tab, href, nombre, ico, rol in [
-      ('inicio', '/', 'Inicio', 'casa', none),
-      ('pnl', '/contribucion', 'P&L', 'barras', none),
-      ('skus', '/reputacion', 'SKUs', 'cubo', 'reputacion'),
-      ('ordenes', '/decisiones', 'Órdenes', 'lista', none),
-      ('gastos', '/campanas', 'Gastos', 'billetera', none),
-      ('saldos', '/settings', 'Saldos', 'banco', none),
-      ('revision', '/cortes', 'Revisión', 'aviso', 'propuestas')
+      ('inicio', '/', 'Resumen', 'casa', none),
+      ('pnl', '/contribucion', 'Contribucion', 'barras', none),
+      ('skus', '/reputacion', 'Reputacion', 'cubo', 'reputacion'),
+      ('ordenes', '/decisiones', 'Decisiones', 'lista', none),
+      ('gastos', '/campanas', 'Campañas', 'billetera', none),
+      ('saldos', '/settings', 'Settings', 'banco', none),
+      ('revision', '/cortes', 'Propuestas', 'aviso', 'propuestas')
     ] %}
     <a class="tab{% if tab_activo == id_tab %} tab-activo{% endif %}" href="{{ href }}"{% if tab_activo == id_tab %} aria-current="page"{% endif %}>
       <svg class="tab-ico tab-ico-off"><use href="#ico-{{ ico }}"/></svg>
