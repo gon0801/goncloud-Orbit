@@ -45,7 +45,7 @@ services:
       # wg0 son del dueno.
       - "10.13.13.1:8010:8000"
     volumes:
-      - /mnt/data/appdata/orbit/secrets:/mnt/data/appdata/orbit/secrets:ro
+      - /mnt/data/appdata/orbit/secrets:/mnt/data/appdata/orbit/secrets:rw  # A.7 2026-09-08: rw para refresh OAuth MeLi (meli_tokens.json), autorizado por el dueno
     depends_on:
       - db
 
