@@ -4,6 +4,20 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-16 UTC — REPRICING 01: plan y spec sellados; el siguiente módulo es el motor de precios.**
+El dueño decidió el 15-sep, en diálogo, cómo funciona: proteger margen; cada producto tiene un goal de
+margen que él fija; si el margen estimado (precio, costo, comisiones, retenciones, sin Ads) no llega al
+goal, el motor sube el precio aunque rebase a la competencia (la Buy Box se avisa, no se persigue); baja
+solo si las unidades de los últimos 15 días caen contra el promedio de los 60 previos, y nunca abajo del
+goal; automático dentro de límites (escalón 10% en ambas direcciones, un cambio por producto por semana,
+tope diario propio) con sombra primero; ningún producto queda sin evaluar en silencio. Alcance MX y US;
+MeLi y FBM fuera. Cinco revisores (producto, arquitectura, seguridad, QA, escéptico) corrigieron el
+borrador: la señal de ventas exige volumen mínimo, tres corridas seguidas y stock presente; el cambio de
+precio se confirma al día siguiente porque Amazon lo aplica en diferido; no hay reversa automática; el
+motor corre a las 13:10 UTC. Spec `docs/superpowers/specs/2026-09-15-repricing-01-design.md`, plan
+`plans/repricing-01.md` (A: motor FBA MX con reversa probada antes del primer cambio; 0: márgenes US
+después del encendido; B: US). **Cero código todavía**; arranca después de D.3 de F2.
+
 **2026-09-16 UTC — FABRICA 02 (F2): D.1 y D.2 CERRADAS — la migración 0038 y el código del harvest por grupo ya están en producción, apagados; sigue D.3 desde el 19-sep.**
 El dueño corrió el runbook F2 con `!` la tarde del 15-sep: cap diario de harvest bajado a 2 por
 plataforma (`config_version` 19), respaldo del schema, 0038 en una transacción y verificada como

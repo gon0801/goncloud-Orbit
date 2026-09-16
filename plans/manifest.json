@@ -119,6 +119,11 @@
       "name": "fabrica-02",
       "path": "plans/fabrica-02.md",
       "description": "FABRICA 02 — FASE A, R.1, D.1 y D.2 CERRADAS (codigo 7a32ec3, R.1 d7c0bf9; 0038 desplegada 2026-09-15 con 359f1f8; terna del grupo 1 limpia y resuelta por grupo en /salud); produccion en 7384152 (#283 dentro); sigue D.3 desde el 19-sep (precondiciones cumplidas; cortes-ui-01 1.2 cerrada el 2026-09-15). Harvest por grupo (F2/AUTO-02): destino por campana_grupo_rol + harvest_excepcion (terna vigente como transicion), fase hermanas_negadas confirmada en el readback de la keyword con 1 quota y reversa operable, biblioteca escrita por el motor solo desde aplicados, migracion de existentes con go. Migracion 0038 desplegada; precondicion de live: cortes-ui-01 1.2."
+    },
+    {
+      "name": "repricing-01",
+      "path": "plans/repricing-01.md",
+      "description": "REPRICING 01 - motor de precios por goal de margen (M1/AUTO-07/ORBIT 09). Spec v1.1 aprobado por el dueno (2026-09-15) y corregido por cinco perspectivas (2026-09-16): proteger margen; sube si el margen estimado no llega al goal por producto; baja solo si las unidades de 15d caen vs promedio de 60d con volumen minimo, racha de 3 y stock presente, nunca bajo el goal; escalon 10% en ambas direcciones; automatico dentro de limites con sombra fiel primero; cuota propia; PATCH asincrono cerrado por observacion D+1; sin reversa automatica; ningun silencio. Fases: A motor FBA MX (migracion, goals sellados, reglas puras, write client + escritura + reversa con sonda real, corrida 13:10 UTC, /precios, R.1, sombra >=80% evaluados, encendido 3-5 productos y 30 dias), 0 margenes US (acta 0.4, despues de D.2), B US. Cero implementacion."
     }
   ],
   "active": "fabrica-01"
