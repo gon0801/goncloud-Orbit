@@ -1239,11 +1239,17 @@ def test_ui_menu_movil_es_tab_bar_no_drawer():
     assert 'id="nav-toggle"' not in html
     assert 'class="tab-bar"' in html
     assert html.count('class="tab-label"') == 7
-    assert ">Inicio<" in html
-    assert ">P&amp;L<" in html
-    assert ">SKUs<" in html
-    assert ">Gastos<" in html
-    assert ">Saldos<" in html
+    assert ">Resumen<" in html
+    assert ">Contribucion<" in html
+    assert ">Reputacion<" in html
+    assert ">Decisiones<" in html
+    assert ">Campañas<" in html
+    assert ">Settings<" in html
+    assert ">Inicio<" not in html
+    assert ">P&amp;L<" not in html
+    assert ">SKUs<" not in html
+    assert ">Gastos<" not in html
+    assert ">Saldos<" not in html
     assert 'href="/"' in html
     assert 'href="/contribucion"' in html
     assert 'href="/reputacion"' in html
