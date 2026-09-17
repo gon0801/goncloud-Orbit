@@ -110,7 +110,7 @@ def test_sin_instancia_compartida():
 
 def test_superficie_publica_exacta():
     publicos = {n for n in dir(SpapiWriteClient) if not n.startswith("_")}
-    assert publicos == {"patch_listing"}
+    assert publicos == {"patch_listing", "seller_id"}
 
 
 # ------------------------------------------------------------- validador

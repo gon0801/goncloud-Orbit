@@ -29,6 +29,7 @@ from app.spapi.precio_write import (
     DecisionSinAccion,
     FormaParcheSinSellar,
     PrecioVivoAusente,
+    PublicacionSinSku,
     cambiar_precio,
     cerrar_por_observacion,
     construir_escritor,
@@ -193,11 +194,14 @@ def _competitivo_body():
 class _RedFalsa:
     """LWA + GETs de pricing + PATCH scripteados; cuenta llamadas."""
 
-    def __init__(self, *, gets_ofertas=(), gets_competitivos=(), patchs=(), exige_fila=None):
+    def __init__(
+        self, *, gets_ofertas=(), gets_competitivos=(), patchs=(), exige_fila=None, lwa=()
+    ):
         self.gets_ofertas = list(gets_ofertas)
         self.gets_competitivos = list(gets_competitivos)
         self.patchs = list(patchs)
         self.exige_fila = exige_fila
+        self.lwa = list(lwa)
         self.n_patch = 0
         self.n_get = 0
         self.tokens = 0
@@ -207,6 +211,9 @@ class _RedFalsa:
         path = request.url.path
         if path == "/auth/o2/token":
             self.tokens += 1
+            if self.lwa:
+                status, body = self.lwa.pop(0)
+                return httpx.Response(status, json=body)
             return httpx.Response(
                 200, json={"access_token": f"tok-{self.tokens}", "expires_in": 3600}
             )
@@ -221,6 +228,8 @@ class _RedFalsa:
         if request.method == "PATCH":
             self.n_patch += 1
             self.pedidos_patch.append(request)
+            if self.patchs and self.patchs[0][0] == "raise":
+                raise self.patchs.pop(0)[1]
             if self.exige_fila is not None and not self.exige_fila():
                 return httpx.Response(500, json={"status": "ERROR"})
             status, body = self.patchs.pop(0)
@@ -697,6 +706,146 @@ def test_cambiar_ack_ok_y_get_distinto_da_enviado_con_readback_ok():
             (res.id_cambio,),
         ).fetchone()
         assert fila == (Decimal("105.00"), "ok")
+
+
+def test_r1_a2_401_y_lwa_400_sella_lwa_sin_huerfanas():
+    """r1-A2: el refresh que LWA rechaza sella `error ... lwa`, sin pendiente."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(100.0))],
+        gets_competitivos=[(200, _competitivo_body())],
+        patchs=[(401, {})],
+        lwa=[
+            (200, {"access_token": "tok-vivo", "expires_in": 3600}),
+            (400, {"error": "invalid_grant"}),
+        ],
+    )
+    with db_39c() as conn:
+        _, dec = _semilla_cambio(conn)
+        lector, escritor = _clientes(red)
+        with rol(conn):
+            res = cambiar_precio(
+                conn,
+                dec,
+                lector=lector,
+                escritor=escritor,
+                construir_cuerpo=_cuerpo_falso,
+                ahora=AHORA,
+            )
+        assert res.estado == "error"
+        fila = conn.execute(
+            "SELECT estado, error_code FROM precio_cambio WHERE id = %s",
+            (res.id_cambio,),
+        ).fetchone()
+        assert fila[0] == "error"
+        assert fila[1] == f"PATCH /listings/2021-08-01/items/{PROPIO} lwa"
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM precio_cambio WHERE estado = 'pendiente'"
+            ).fetchone()[0]
+            == 0
+        )
+
+
+def test_r1_a2_error_de_red_sella_sin_relanzar():
+    """r1-A2: la red caída sella `error ... red` y no relanza."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(100.0)), (200, _ofertas_body(100.0))],
+        gets_competitivos=[(200, _competitivo_body()), (200, _competitivo_body())],
+        patchs=[("raise", httpx.ConnectError("caido"))],
+    )
+    with db_39c() as conn:
+        _, dec = _semilla_cambio(conn)
+        lector, escritor = _clientes(red)
+        with rol(conn):
+            res = cambiar_precio(
+                conn,
+                dec,
+                lector=lector,
+                escritor=escritor,
+                construir_cuerpo=_cuerpo_falso,
+                ahora=AHORA,
+            )
+        assert res.estado == "error"
+        fila = conn.execute(
+            "SELECT estado, error_code, readback_estado FROM precio_cambio WHERE id = %s",
+            (res.id_cambio,),
+        ).fetchone()
+        assert fila[0] == "error"
+        assert fila[1] == f"PATCH /listings/2021-08-01/items/{PROPIO} red"
+        assert fila[2] == "ok"
+
+
+def test_r1_a2_excepcion_rara_sella_y_relanza():
+    """r1-A2: un bug sella `error ... excepcion:<Tipo>` y relanza."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(100.0)), (200, _ofertas_body(100.0))],
+        gets_competitivos=[(200, _competitivo_body()), (200, _competitivo_body())],
+        patchs=[("raise", RuntimeError("bug-falso"))],
+    )
+    with db_39c() as conn:
+        _, dec = _semilla_cambio(conn)
+        lector, escritor = _clientes(red)
+        with rol(conn), pytest.raises(RuntimeError, match="bug-falso"):
+            cambiar_precio(
+                conn,
+                dec,
+                lector=lector,
+                escritor=escritor,
+                construir_cuerpo=_cuerpo_falso,
+                ahora=AHORA,
+            )
+        fila = conn.execute(
+            "SELECT estado, error_code FROM precio_cambio ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        assert fila[0] == "error"
+        assert fila[1] == f"PATCH /listings/2021-08-01/items/{PROPIO} excepcion:RuntimeError"
+
+
+def test_r1_a2_sku_nulo_no_inserta_ni_sale_a_red():
+    """r1-A2: listing sin SKU se valida antes del INSERT."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(100.0))], gets_competitivos=[(200, _competitivo_body())]
+    )
+    with db_39c() as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod, sku=None)
+        _goal_live(conn, lid)
+        dec = _decision(conn, lid)
+        lector, escritor = _clientes(red)
+        with rol(conn), pytest.raises(PublicacionSinSku, match="listing_sin_sku"):
+            cambiar_precio(
+                conn,
+                dec,
+                lector=lector,
+                escritor=escritor,
+                construir_cuerpo=_cuerpo_falso,
+                ahora=AHORA,
+            )
+        assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 0
+        assert red.n_patch == 0 and red.n_get == 0
+
+
+def test_r1_a2_sku_vacio_en_revertir_no_inserta_ni_sale_a_red():
+    """r1-A2: SKU vacío en la reversa se valida antes del INSERT."""
+    red = _RedFalsa()
+    with db_39c() as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod, sku="")
+        _goal_live(conn, lid)
+        dec = _decision(conn, lid)
+        cid = _cambio_cerrado(conn, dec, lid)
+        lector, escritor = _clientes(red)
+        with rol(conn), pytest.raises(PublicacionSinSku, match="listing_sin_sku"):
+            revertir(
+                conn,
+                cid,
+                lector=lector,
+                escritor=escritor,
+                construir_cuerpo=_cuerpo_falso,
+                ahora=AHORA,
+            )
+        assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 1
+        assert red.n_patch == 0 and red.n_get == 0
 
 
 def test_cambiar_200_sin_accepted_es_error():

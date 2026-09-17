@@ -108,6 +108,11 @@ class SpapiWriteClient:
         self._sleep = sleep
         self._timeout = timeout
 
+    @property
+    def seller_id(self) -> str:
+        """Seller sellado a la instancia (solo lectura, r1-A7a)."""
+        return self._seller_id
+
     def patch_listing(self, sku: str, cuerpo: dict) -> httpx.Response:
         """PATCH al item del seller sellado + SKU. Falla antes de red si la
         ruta no es la allowlist. 401/429: un reintento; lo demas, tal cual."""

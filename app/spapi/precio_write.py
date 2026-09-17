@@ -39,11 +39,13 @@ from app.redaction import scrub
 from app.spapi.client import (
     MERCADOS,
     VENDEDORES_PROPIOS,
+    SpapiAuthError,
     SpapiClient,
+    construir_ruta_listings,
     construir_ruta_ofertas,
 )
 from app.spapi.pricing import RUTA_COMPETITIVO, PrecioOmitido, parsear_precios
-from app.spapi.write_client import SpapiWriteClient
+from app.spapi.write_client import SpapiWriteClient, validar_patch_listings
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +69,10 @@ class CambioNoReversible(ValueError):
 
 class DecisionSinAccion(ValueError):
     """`cambiar_precio` mal usado: la decision no mueve precio."""
+
+
+class PublicacionSinSku(ValueError):
+    """La publicacion no tiene SKU con que armar la ruta: nada que escribir."""
 
 
 @dataclass(frozen=True)
@@ -189,6 +195,16 @@ def _ruta_sin_sku(seller_id: str) -> str:
     return f"/listings/2021-08-01/items/{seller_id}"
 
 
+def _validar_destino(escritor: SpapiWriteClient, sku: str | None) -> None:
+    """Todo lo que puede fallar sin red, ANTES del INSERT (r1-A2): SKU
+    nulo o vacío (`listing_sin_sku`) y la ruta del PATCH."""
+    if not sku:
+        raise PublicacionSinSku("listing_sin_sku: sin seller_sku no hay ruta que escribir")
+    validar_patch_listings(
+        construir_ruta_listings(escritor.seller_id, sku), escritor.seller_id, sku
+    )
+
+
 def _estado_aceptado(resp: httpx.Response) -> tuple[bool, Any]:
     try:
         cuerpo = resp.json()
@@ -291,6 +307,7 @@ def revertir(
         raise CambioNoReversible(
             f"cambio {cambio_id}: solo un cambio real, no-reversa, con enviado_at"
         )
+    _validar_destino(escritor, sku)
     try:
         vivo = leer_precio_vivo(lector, platform=platform, asin=asin)
     except (PrecioVivoAusente, httpx.HTTPError):
@@ -371,14 +388,30 @@ def _escribir_y_sellar(
     posterior muestre el precio nuevo. El readback no decide: `ok` si se
     pudo leer (sea cual sea el precio), `fallido` si no.
     """
+    ruta = _ruta_sin_sku(escritor.seller_id)
     try:
         resp = escritor.patch_listing(sku, cuerpo)
-    except httpx.HTTPError as exc:
-        codigo = f"PATCH {_ruta_sin_sku(escritor._seller_id)} red"
+    except SpapiAuthError as exc:
+        codigo = f"PATCH {ruta} lwa"
         logger.info("%s cambio=%s error=%s (%s)", origen, cambio_id, codigo, type(exc).__name__)
         _sellar(conn, cambio_id, estado="error", error_code=codigo)
-        _readback(conn, cambio_id, None, momento, origen=origen)
+        vivo_rb = _leer_vivo_suave(lector, platform=platform, asin=asin)
+        _readback(conn, cambio_id, vivo_rb, momento, origen=origen)
         return fallo(codigo)
+    except httpx.HTTPError as exc:
+        codigo = f"PATCH {ruta} red"
+        logger.info("%s cambio=%s error=%s (%s)", origen, cambio_id, codigo, type(exc).__name__)
+        _sellar(conn, cambio_id, estado="error", error_code=codigo)
+        vivo_rb = _leer_vivo_suave(lector, platform=platform, asin=asin)
+        _readback(conn, cambio_id, vivo_rb, momento, origen=origen)
+        return fallo(codigo)
+    except Exception as exc:
+        codigo = f"PATCH {ruta} excepcion:{type(exc).__name__}"
+        logger.info("%s cambio=%s error=%s", origen, cambio_id, codigo)
+        _sellar(conn, cambio_id, estado="error", error_code=codigo)
+        vivo_rb = _leer_vivo_suave(lector, platform=platform, asin=asin)
+        _readback(conn, cambio_id, vivo_rb, momento, origen=origen)
+        raise
     aceptado, _cuerpo = _estado_aceptado(resp)
     if aceptado:
         _sellar(conn, cambio_id, estado="enviado", ack=_ack_saneado(resp))
@@ -386,7 +419,7 @@ def _escribir_y_sellar(
         vivo_rb = _leer_vivo_suave(lector, platform=platform, asin=asin)
         _readback(conn, cambio_id, vivo_rb, momento, origen=origen)
         return exito()
-    codigo = f"PATCH {_ruta_sin_sku(escritor._seller_id)} {resp.status_code}"
+    codigo = f"PATCH {ruta} {resp.status_code}"
     logger.info("%s cambio=%s error=%s", origen, cambio_id, codigo)
     _sellar(conn, cambio_id, estado="error", error_code=codigo)
     vivo_rb = _leer_vivo_suave(lector, platform=platform, asin=asin)
@@ -427,6 +460,7 @@ def cambiar_precio(
             f"decision {decision_id}: solo subir/bajar en live mueven precio,"
             f" llego {resultado}/{mode}"
         )
+    _validar_destino(escritor, sku)
     try:
         vivo = leer_precio_vivo(lector, platform=platform, asin=asin)
     except (PrecioVivoAusente, httpx.HTTPError):
