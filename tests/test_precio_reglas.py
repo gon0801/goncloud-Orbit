@@ -1044,6 +1044,18 @@ def test_r3b_l2_bajada_no_frena_por_ventas():
     assert isinstance(decide(ent), PideCotizacion)
 
 
+# ---------------------------------------------------------------- r4-G3
+
+
+def test_r4_g3_escalon_bajo_minimo_revienta_igual_pasa():
+    with pytest.raises(ValueError, match="precio_escalon_max_pct.*precio_movimiento_min_pct"):
+        cfg(precio_escalon_max_pct="0.01", precio_movimiento_min_pct="0.10")
+    c = cfg(precio_escalon_max_pct="0.10", precio_movimiento_min_pct="0.10")
+    assert c.escalon_max_pct == c.movimiento_min_pct
+    c = cfg(precio_escalon_max_pct="0.10", precio_movimiento_min_pct="0.01")
+    assert c.escalon_max_pct > c.movimiento_min_pct
+
+
 # ---------------------------------------------------------------- r4-G2
 
 

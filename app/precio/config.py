@@ -106,6 +106,14 @@ def _fechas_excluidas(settings: Mapping, clave: str) -> tuple[tuple[date, date],
 
 def leer_config(settings: Mapping) -> ConfigPrecio:
     """Valida las claves `precio_*` de las reglas contra sus cotas del plan."""
+    escalon = _fraccion(settings, "precio_escalon_max_pct", minima="0.01", maxima="0.25")
+    minimo = _fraccion(settings, "precio_movimiento_min_pct", minima="0", maxima="0.10")
+    if escalon < minimo:
+        raise ValueError(
+            "setting precio_escalon_max_pct por debajo de precio_movimiento_min_pct: "
+            f"{escalon} < {minimo} (el escalón aplicado quedaría bajo el mínimo y "
+            "consumiría cooldown y cuota)"
+        )
     return ConfigPrecio(
         caida_ventas_pct=_fraccion(
             settings, "precio_caida_ventas_pct", minima="0.10", maxima="0.90"
@@ -113,10 +121,8 @@ def leer_config(settings: Mapping) -> ConfigPrecio:
         senal_dias=_entero(settings, "precio_senal_dias", minimo=1, maximo=7),
         u60_min=_entero(settings, "precio_u60_min", minimo=1, maximo=1000),
         fechas_excluidas=_fechas_excluidas(settings, "precio_fechas_excluidas"),
-        escalon_max_pct=_fraccion(settings, "precio_escalon_max_pct", minima="0.01", maxima="0.25"),
-        movimiento_min_pct=_fraccion(
-            settings, "precio_movimiento_min_pct", minima="0", maxima="0.10"
-        ),
+        escalon_max_pct=escalon,
+        movimiento_min_pct=minimo,
         movimiento_min_abs_mxn=_positivo(settings, "precio_movimiento_min_abs_mxn"),
         movimiento_min_abs_usd=_positivo(settings, "precio_movimiento_min_abs_usd"),
         tolerancia=_fraccion(settings, "precio_tolerancia", minima="0", maxima="0.05"),
