@@ -16,6 +16,10 @@ tool no importa `app.spapi.write_client` directo.
 La ejecucion real se ensaya en A.4 con ids reales del dueno; hasta que
 A.4 selle la forma del parche, el go levanta `FormaParcheSinSellar`
 (sin fila y sin red).
+
+Conexión en autocommit; cada bloque confirma al salir: el tool conecta
+con `autocommit=True` para que la fila `pendiente` ya sea durable
+cuando sale el PATCH (S5).
 """
 
 from __future__ import annotations
@@ -135,7 +139,7 @@ def main(
     args = ap.parse_args(argv)
 
     try:
-        conn = connect(_dsn_decide())
+        conn = connect(_dsn_decide(), autocommit=True)
     except OrbitDbError as exc:
         raise Abortar(str(exc)) from None
     try:
@@ -172,7 +176,6 @@ def main(
             except FormaParcheSinSellar as exc:
                 raise Abortar(f"forma del parche sin sellar (A.4 la sella): {exc}") from None
             print(f"[hecho] cambio={cid} estado={res.estado} motivo={res.motivo}")
-        conn.commit()
         return 0
     finally:
         conn.close()

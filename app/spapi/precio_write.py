@@ -19,6 +19,10 @@ item» de S5 que A.4 confirma o cambia). Sin oferta propia o sin moneda
 El cuerpo nunca se loguea: ni el del PATCH ni la respuesta cruda; el
 `ack` que se guarda pasa por `scrub()` y los errores llevan metodo +
 ruta (sin SKU) + status.
+
+Conexión en autocommit; cada bloque confirma al salir: `cambiar_precio`,
+`revertir` y `cerrar_por_observacion` exigen `conn.autocommit` antes de
+hacer nada, así la fila `pendiente` ya es durable cuando sale el PATCH.
 """
 
 from __future__ import annotations
@@ -314,6 +318,11 @@ def revertir(
     y la cierra a mano tras verificar en Seller Central que el precio
     no se movio.
     """
+    if not conn.autocommit:
+        raise ValueError(
+            "revertir exige conexión en autocommit: el INSERT tiene que"
+            " confirmar antes del PATCH (S5)"
+        )
     momento = _normalizar_ahora(ahora)
     fila = _fila_cambio(conn, cambio_id)
     (
@@ -488,6 +497,11 @@ def cambiar_precio(
     y la cierra a mano tras verificar en Seller Central que el precio
     no se movio.
     """
+    if not conn.autocommit:
+        raise ValueError(
+            "cambiar_precio exige conexión en autocommit: el INSERT tiene que"
+            " confirmar antes del PATCH (S5)"
+        )
     momento = _normalizar_ahora(ahora)
     dec = conn.execute(
         "SELECT d.listing_id, d.platform, d.resultado, d.mode,"
@@ -582,6 +596,11 @@ def cerrar_por_observacion(conn: psycopg.Connection, hoy) -> dict:
     `confirmado_por = 'observacion'`; distinta -> `no_confirmado`; sin
     observacion -> no se toca (no se adivina). Vale igual para reversas.
     """
+    if not conn.autocommit:
+        raise ValueError(
+            "cerrar_por_observacion exige conexión en autocommit: el INSERT tiene que"
+            " confirmar antes del PATCH (S5)"
+        )
     abiertos = conn.execute(
         "SELECT c.id, c.listing_id, c.platform, c.precio_despues,"
         " c.precio_despues_currency, (c.enviado_at AT TIME ZONE 'UTC')::date,"

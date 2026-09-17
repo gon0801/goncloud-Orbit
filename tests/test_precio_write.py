@@ -1762,3 +1762,137 @@ def test_r1_m_t4_saltado_no_aborta_el_lote(monkeypatch, capsys):
             (cid1,),
         ).fetchone()[0]
         assert huerfanas == 0
+
+
+def _red_cuenta_pendientes(dsn_db, pares=8, precio=110.0):
+    """Red falsa cuyo PATCH cuenta desde OTRA conexion las `pendiente` confirmadas.
+
+    Si no ve exactamente 1, contesta 500 (simula a Amazon rechazando lo
+    que Orbit no tiene durable). Devuelve (transport, contadores).
+    """
+    import httpx
+
+    visto = {"n_patch": 0, "n_get": 0, "vistos": []}
+    ofertas = [(200, _ofertas_body(precio))] * pares
+    competitivos = [(200, _competitivo_body())] * pares
+
+    def _handler(request):
+        path = request.url.path
+        if path == "/auth/o2/token":
+            return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+        if request.method == "GET" and "offers" in path:
+            visto["n_get"] += 1
+            status, body = ofertas.pop(0)
+            return httpx.Response(status, json=body)
+        if request.method == "GET" and "competitivePrice" in path:
+            status, body = competitivos.pop(0)
+            return httpx.Response(status, json=body)
+        if request.method == "PATCH":
+            visto["n_patch"] += 1
+            otra = psycopg.connect(dsn_db, autocommit=True)
+            try:
+                n = otra.execute(
+                    "SELECT count(*) FROM precio_cambio WHERE estado = 'pendiente'"
+                ).fetchone()[0]
+            finally:
+                otra.close()
+            visto["vistos"].append(n)
+            if n != 1:
+                return httpx.Response(500, json={"status": "ERROR"})
+            return httpx.Response(202, json={"submissionId": "s-durable", "status": "ACCEPTED"})
+        raise AssertionError(f"llamada inesperada: {request.method} {path}")
+
+    return httpx.MockTransport(_handler), visto
+
+
+def test_r2_b1_go_con_pendiente_durable(monkeypatch, capsys):
+    """r2-B1(a): al momento del PATCH la reversa pendiente ya es durable (otra conexion la ve)."""
+    with db_39c() as conn:
+        _, cid = _semilla_reversion(conn)
+        import tools.precio_reversa as tool
+        from app.spapi import precio_write as pw
+
+        transport, visto = _red_cuenta_pendientes(_dsn_db(conn))
+        monkeypatch.setattr(
+            pw,
+            "construir_cuerpo_parche",
+            lambda **kw: {"falso": True, "precio": str(kw["precio"])},
+        )
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", _dsn_db(conn))
+        seco = tool.main(["--cambio-id", str(cid)], transport=transport, credentials=dict(CRED))
+        assert seco == 0
+        huella = [ln for ln in capsys.readouterr().out.splitlines() if ln.startswith("huella: ")][
+            0
+        ].split(": ")[1]
+        rc = tool.main(
+            [
+                "--cambio-id",
+                str(cid),
+                "--acepto-mutacion-real",
+                "--huella",
+                huella,
+                "--go",
+                "si",
+            ],
+            transport=transport,
+            credentials=dict(CRED),
+        )
+        assert rc == 0
+        assert visto["n_patch"] == 1 and visto["vistos"] == [1]
+        estado = conn.execute(
+            "SELECT estado FROM precio_cambio WHERE es_reversa AND reversa_de = %s", (cid,)
+        ).fetchone()[0]
+        assert estado == "enviado"
+
+
+def test_r2_b1_cambiar_con_pendiente_durable():
+    """r2-B1(b): lo mismo llamando a `cambiar_precio` directo."""
+    with db_39c() as conn:
+        _, dec = _semilla_cambio(conn)
+        from app.spapi.client import SpapiClient
+        from app.spapi.write_client import SpapiWriteClient
+
+        transport, visto = _red_cuenta_pendientes(_dsn_db(conn), precio=100.0)
+        lector = SpapiClient(credentials=dict(CRED), transport=transport, sleep=lambda s: None)
+        escritor = SpapiWriteClient(
+            platform="amazon_mx",
+            modo_confirmado="live",
+            lector=lector,
+            transport=transport,
+            sleep=lambda s: None,
+        )
+        with rol(conn):
+            res = cambiar_precio(
+                conn,
+                dec,
+                lector=lector,
+                escritor=escritor,
+                construir_cuerpo=_cuerpo_falso,
+                ahora=AHORA,
+            )
+        assert res.estado == "enviado"
+        assert visto["n_patch"] == 1 and visto["vistos"] == [1]
+
+
+def test_r2_b1_sin_autocommit_es_mal_uso():
+    """r2-B1(c): sin autocommit -> ValueError antes de nada, cero filas, cero red."""
+    red = _RedFalsa()
+    with db_39c() as conn:
+        _, dec = _semilla_cambio(conn)
+        lector, escritor = _clientes(red)
+        cruda = psycopg.connect(_dsn_db(conn))
+        try:
+            assert cruda.autocommit is False
+            with pytest.raises(ValueError, match="autocommit"):
+                cambiar_precio(
+                    cruda,
+                    dec,
+                    lector=lector,
+                    escritor=escritor,
+                    construir_cuerpo=_cuerpo_falso,
+                    ahora=AHORA,
+                )
+        finally:
+            cruda.close()
+        assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 0
+        assert red.n_patch == 0 and red.n_get == 0
