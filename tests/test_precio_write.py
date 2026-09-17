@@ -118,39 +118,48 @@ def _listing(conn, producto, *, platform="amazon_mx", asin=ASIN, sku=SKU) -> int
     ).fetchone()[0]
 
 
-def _goal_live(conn, listing, *, platform="amazon_mx") -> int:
+def _goal_live(conn, listing, *, platform="amazon_mx", mode="live") -> int:
+    go = "GO-TDD" if mode == "live" else None
     return conn.execute(
         "INSERT INTO precio_goal (listing_id, platform, margen_goal_pct, mode,"
         " valid_from, creado_por, go_literal)"
-        " VALUES (%s, %s, 0.30, 'live', '2026-09-01', 'tdd', 'GO-TDD') RETURNING id",
-        (listing, platform),
+        " VALUES (%s, %s, 0.30, %s, '2026-09-01', 'tdd', %s) RETURNING id",
+        (listing, platform, mode, go),
     ).fetchone()[0]
 
 
 def _decision(
-    conn, listing, *, platform="amazon_mx", resultado="subir", aplicado=Decimal("110.00")
+    conn,
+    listing,
+    *,
+    platform="amazon_mx",
+    resultado="subir",
+    aplicado=Decimal("110.00"),
+    mode="live",
 ) -> int:
     return conn.execute(
         "INSERT INTO precio_decision (listing_id, platform, resultado, motivo, mode,"
         " goal, m_actual, p_actual, p_actual_currency, p_objetivo, p_objetivo_currency,"
         " p_aplicado, p_aplicado_currency, i_valor, i_currency, c_valor, c_currency,"
         " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency)"
-        " VALUES (%s, %s, %s, 'tdd', 'live', 0.30, 0.25,"
+        " VALUES (%s, %s, %s, 'tdd', %s, 0.30, 0.25,"
         " 100.00, 'MXN', 110.00, 'MXN', %s, 'MXN',"
         " 10.00, 'MXN', 20.00, 'MXN', 12.00, 'MXN', 5.00, 'MXN', 8.00, 'MXN')"
         " RETURNING id",
-        (listing, platform, resultado, aplicado),
+        (listing, platform, resultado, mode, aplicado),
     ).fetchone()[0]
 
 
-def _cambio_enviado(conn, decision, listing, *, antes="100.00", despues="110.00") -> int:
+def _cambio_enviado(
+    conn, decision, listing, *, antes="100.00", despues="110.00", aplicado=True
+) -> int:
     cid = conn.execute(
         "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
         " precio_antes_currency, precio_despues, precio_despues_currency, aplicado,"
         " estado, enviado_at)"
-        " VALUES (%s, %s, 'amazon_mx', %s, 'MXN', %s, 'MXN', true, 'pendiente', %s)"
+        " VALUES (%s, %s, 'amazon_mx', %s, 'MXN', %s, 'MXN', %s, 'pendiente', %s)"
         " RETURNING id",
-        (decision, listing, antes, despues, ANTES),
+        (decision, listing, antes, despues, aplicado, ANTES),
     ).fetchone()[0]
     with rol(conn):
         conn.execute(
@@ -252,10 +261,12 @@ def _cuerpo_falso(*, platform, sku, precio, moneda):
     return {"falso": True, "sku": sku, "precio": str(precio), "moneda": moneda}
 
 
-def _cambio_cerrado(conn, decision, listing, *, antes="100.00", despues="110.00") -> int:
+def _cambio_cerrado(
+    conn, decision, listing, *, antes="100.00", despues="110.00", aplicado=True
+) -> int:
     """Original cerrado (`confirmado`): la reversa solo nace sin abierto
     (indice `precio_cambio_abierto_unico`)."""
-    cid = _cambio_enviado(conn, decision, listing, antes=antes, despues=despues)
+    cid = _cambio_enviado(conn, decision, listing, antes=antes, despues=despues, aplicado=aplicado)
     with rol(conn):
         conn.execute(
             "UPDATE precio_cambio SET estado = 'confirmado', confirmado_por = 'observacion'"
@@ -644,12 +655,12 @@ def test_revertir_nunca_loguea_el_cuerpo_y_sanea_el_ack(caplog):
 # ------------------------------------------------ cambiar_precio
 
 
-def _semilla_cambio(conn, *, asin=ASIN, sku=SKU, desde="100.00", hasta="110.00"):
-    """listing + goal + decision subir live; devuelve (lid, dec)."""
+def _semilla_cambio(conn, *, asin=ASIN, sku=SKU, desde="100.00", hasta="110.00", mode="live"):
+    """listing + goal + decision subir; devuelve (lid, dec)."""
     prod = _producto(conn, sku=f"PR-{sku}")
     lid = _listing(conn, prod, asin=asin, sku=sku)
-    _goal_live(conn, lid)
-    return lid, _decision(conn, lid, aplicado=Decimal(hasta))
+    _goal_live(conn, lid, mode=mode)
+    return lid, _decision(conn, lid, aplicado=Decimal(hasta), mode=mode)
 
 
 def test_cambiar_ack_aceptado_y_get_viejo_da_enviado():
@@ -1481,3 +1492,273 @@ def test_r1_a8_docstring_ventana_commit_patch():
         assert "huerfana" in doc
         assert "commit" in doc and "patch" in doc
         assert "pendiente" in doc
+
+
+def test_r1_m_p5_shadow_no_mueve_precio():
+    """r1-M P5: `subir` en shadow -> DecisionSinAccion, cero PATCH, cero filas."""
+    red = _RedFalsa()
+    with db_39c() as conn:
+        _, dec = _semilla_cambio(conn, mode="shadow")
+        lector, escritor = _clientes(red)
+        with rol(conn), pytest.raises(DecisionSinAccion):
+            cambiar_precio(
+                conn,
+                dec,
+                lector=lector,
+                escritor=escritor,
+                construir_cuerpo=_cuerpo_falso,
+                ahora=AHORA,
+            )
+        assert red.n_patch == 0 and red.n_get == 0
+        assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 0
+
+
+def test_r1_m_p7_accepted_sin_submission_id_es_error():
+    """r1-M P7: 202 ACCEPTED sin submissionId no es aceptacion -> error."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(100.0)), (200, _ofertas_body(100.0))],
+        gets_competitivos=[(200, _competitivo_body()), (200, _competitivo_body())],
+        patchs=[(202, {"status": "ACCEPTED"})],
+    )
+    with db_39c() as conn:
+        _, dec = _semilla_cambio(conn)
+        lector, escritor = _clientes(red)
+        with rol(conn):
+            res = cambiar_precio(
+                conn,
+                dec,
+                lector=lector,
+                escritor=escritor,
+                construir_cuerpo=_cuerpo_falso,
+                ahora=AHORA,
+            )
+        assert res.estado == "error"
+        fila = conn.execute(
+            "SELECT estado, error_code FROM precio_cambio WHERE id = %s",
+            (res.id_cambio,),
+        ).fetchone()
+        assert fila[0] == "error"
+
+
+def test_r1_m_p8_4xx_con_accepted_es_error():
+    """r1-M P8: 400 con submissionId y ACCEPTED no es aceptacion -> error."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(100.0)), (200, _ofertas_body(100.0))],
+        gets_competitivos=[(200, _competitivo_body()), (200, _competitivo_body())],
+        patchs=[(400, {"submissionId": "c-4xx", "status": "ACCEPTED"})],
+    )
+    with db_39c() as conn:
+        _, dec = _semilla_cambio(conn)
+        lector, escritor = _clientes(red)
+        with rol(conn):
+            res = cambiar_precio(
+                conn,
+                dec,
+                lector=lector,
+                escritor=escritor,
+                construir_cuerpo=_cuerpo_falso,
+                ahora=AHORA,
+            )
+        assert res.estado == "error"
+        fila = conn.execute(
+            "SELECT estado, error_code FROM precio_cambio WHERE id = %s",
+            (res.id_cambio,),
+        ).fetchone()
+        assert fila[0] == "error" and fila[1].endswith(" 400")
+
+
+def test_r1_m_p11_error_code_sin_sku_valor_exacto():
+    """r1-M P11: el error_code es `PATCH <ruta sin SKU> <status>`, exacto."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(100.0)), (200, _ofertas_body(100.0))],
+        gets_competitivos=[(200, _competitivo_body()), (200, _competitivo_body())],
+        patchs=[(500, {"status": "ERROR"})],
+    )
+    with db_39c() as conn:
+        _, dec = _semilla_cambio(conn)
+        lector, escritor = _clientes(red)
+        with rol(conn):
+            res = cambiar_precio(
+                conn,
+                dec,
+                lector=lector,
+                escritor=escritor,
+                construir_cuerpo=_cuerpo_falso,
+                ahora=AHORA,
+            )
+        assert res.estado == "error"
+        fila = conn.execute(
+            "SELECT error_code FROM precio_cambio WHERE id = %s", (res.id_cambio,)
+        ).fetchone()[0]
+        assert fila == f"PATCH /listings/2021-08-01/items/{escritor.seller_id} 500"
+        assert SKU not in fila
+
+
+def test_r1_m_p13_virtual_no_se_revierte():
+    """r1-M P13: cambio virtual (aplicado=false) -> CambioNoReversible, cero PATCH."""
+    red = _RedFalsa()
+    with db_39c() as conn:
+        lid, dec = _semilla_cambio(conn, mode="shadow")
+        # El virtual nace cerrado (trigger): confirmado/virtual, sin pasar por pendiente.
+        cid = conn.execute(
+            "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
+            " precio_antes_currency, precio_despues, precio_despues_currency, aplicado,"
+            " estado, enviado_at, confirmado_por)"
+            " VALUES (%s, %s, 'amazon_mx', '100.00', 'MXN', '110.00', 'MXN',"
+            " false, 'confirmado', %s, 'virtual') RETURNING id",
+            (dec, lid, ANTES),
+        ).fetchone()[0]
+        lector, escritor = _clientes(red)
+        with rol(conn), pytest.raises(CambioNoReversible):
+            revertir(
+                conn,
+                cid,
+                lector=lector,
+                escritor=escritor,
+                construir_cuerpo=_cuerpo_falso,
+                ahora=AHORA,
+            )
+        assert red.n_patch == 0 and red.n_get == 0
+        assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 1
+
+
+def test_r1_m_p15_otra_moneda_salta():
+    """r1-M P15: mismo importe en otra moneda no coincide -> saltado, cero PATCH."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(110.0, moneda="USD"))],
+        gets_competitivos=[(200, _competitivo_body())],
+        patchs=[(202, {"submissionId": "x", "status": "ACCEPTED"})],
+    )
+    with db_39c() as conn:
+        _, cid = _semilla_reversion(conn)
+        lector, escritor = _clientes(red)
+        with rol(conn):
+            res = revertir(
+                conn,
+                cid,
+                lector=lector,
+                escritor=escritor,
+                construir_cuerpo=_cuerpo_falso,
+                ahora=AHORA,
+            )
+        assert res.estado == "saltado" and res.motivo.startswith("precio_vivo_distinto")
+        assert red.n_patch == 0
+        assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 1
+
+
+def test_r1_m_p17_observacion_mismo_dia_no_cierra():
+    """r1-M P17: la observacion del mismo dia del envio no cierra (maduracion)."""
+    with db_39c() as conn:
+        _, cid = _semilla_cierre(conn, asin="B0TESTC17A", sku="SKU-C17")
+        _observacion(conn, asin="B0TESTC17A", fecha="2026-09-17", precio="110.00")
+        with rol(conn):
+            cuenta = cerrar_por_observacion(conn, HOY_CIERRE)
+        assert cuenta == {"confirmado": 0, "no_confirmado": 0, "intactos": 1}
+        estado = conn.execute("SELECT estado FROM precio_cambio WHERE id = %s", (cid,)).fetchone()[
+            0
+        ]
+        assert estado == "enviado"
+
+
+def test_r1_m_p19_manda_la_mas_reciente():
+    """r1-M P19: dos observaciones posteriores distintas -> manda la mas reciente."""
+    from datetime import date
+
+    with db_39c() as conn:
+        _, cid = _semilla_cierre(conn, asin="B0TESTC19A", sku="SKU-C19")
+        _observacion(conn, asin="B0TESTC19A", fecha="2026-09-18", precio="111.00")
+        _observacion(conn, asin="B0TESTC19A", fecha="2026-09-19", precio="110.00")
+        with rol(conn):
+            cuenta = cerrar_por_observacion(conn, date(2026, 9, 19))
+        assert cuenta == {"confirmado": 1, "no_confirmado": 0, "intactos": 0}
+        estado = conn.execute("SELECT estado FROM precio_cambio WHERE id = %s", (cid,)).fetchone()[
+            0
+        ]
+        assert estado == "confirmado"
+
+
+def test_r1_m_t1_go_sin_huella_aborta(monkeypatch, capsys):
+    """r1-M T1: go con --acepto-mutacion-real pero sin --huella -> aborta, cero PATCH."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(110.0))],
+        gets_competitivos=[(200, _competitivo_body())],
+    )
+    with db_39c() as conn:
+        _, cid = _semilla_reversion(conn)
+        import tools.precio_reversa as tool
+
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", _dsn_db(conn))
+        with pytest.raises(tool.Abortar, match="huella"):
+            tool.main(
+                ["--cambio-id", str(cid), "--acepto-mutacion-real", "--go", "si"],
+                transport=red.transport,
+                credentials=dict(CRED),
+            )
+        assert red.n_patch == 0
+        assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 1
+
+
+def test_r1_m_t4_saltado_no_aborta_el_lote(monkeypatch, capsys):
+    """r1-M T4: lote de dos, el primero saltado, el segundo si se revierte."""
+    asin2 = "B0TESTC002"
+    a100 = (200, _ofertas_body(100.0))
+    b110 = (200, _ofertas_body(110.0, asin=asin2))
+    b100 = (200, _ofertas_body(100.0, asin=asin2))
+    red = _RedFalsa(
+        # dry (saltado, reversible); go igual; rev2 pre + readback.
+        gets_ofertas=[a100, b110, a100, b110, b110, b100],
+        gets_competitivos=[(200, _competitivo_body())] * 6,
+        patchs=[(202, {"submissionId": "t4", "status": "ACCEPTED"})],
+    )
+    with db_39c() as conn:
+        _, cid1 = _semilla_reversion(conn)
+        lid2, dec2 = _semilla_cambio(conn, asin=asin2, sku="SKU-T4")
+        cid2 = _cambio_cerrado(conn, dec2, lid2)
+        import tools.precio_reversa as tool
+        from app.spapi import precio_write as pw
+
+        monkeypatch.setattr(
+            pw,
+            "construir_cuerpo_parche",
+            lambda **kw: {"falso": True, "precio": str(kw["precio"])},
+        )
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", _dsn_db(conn))
+        seco = tool.main(
+            ["--cambio-id", str(cid1), "--cambio-id", str(cid2)],
+            transport=red.transport,
+            credentials=dict(CRED),
+        )
+        assert seco == 0
+        huella = [ln for ln in capsys.readouterr().out.splitlines() if ln.startswith("huella: ")][
+            0
+        ].split(": ")[1]
+        rc = tool.main(
+            [
+                "--cambio-id",
+                str(cid1),
+                "--cambio-id",
+                str(cid2),
+                "--acepto-mutacion-real",
+                "--huella",
+                huella,
+                "--go",
+                "si",
+            ],
+            transport=red.transport,
+            credentials=dict(CRED),
+        )
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "precio_vivo_distinto" in out
+        assert "[hecho] cambio=" in out and f"cambio={cid2}" in out
+        assert red.n_patch == 1
+        reversas = conn.execute(
+            "SELECT count(*) FROM precio_cambio WHERE es_reversa AND reversa_de = %s",
+            (cid2,),
+        ).fetchone()[0]
+        assert reversas == 1
+        huerfanas = conn.execute(
+            "SELECT count(*) FROM precio_cambio WHERE es_reversa AND reversa_de = %s",
+            (cid1,),
+        ).fetchone()[0]
+        assert huerfanas == 0

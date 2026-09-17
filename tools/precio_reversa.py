@@ -172,6 +172,7 @@ def main(
             except FormaParcheSinSellar as exc:
                 raise Abortar(f"forma del parche sin sellar (A.4 la sella): {exc}") from None
             print(f"[hecho] cambio={cid} estado={res.estado} motivo={res.motivo}")
+        conn.commit()
         return 0
     finally:
         conn.close()
