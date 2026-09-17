@@ -337,37 +337,9 @@ def _subir(
         )
     except ErrorObjetivo as exc:
         return _no_evaluado(entrada, exc.motivo)
-    try:
-        cruda = precio_estrella(
-            comp.costo.valor,
-            fijo,
-            comp.envio.valor,
-            escenario.isr_tasa,
-            entrada.goal,
-            escenario.iva_divisor,
-            escenario.precio_incluye_iva,
-            ref,
-        )
-    except ErrorObjetivo as exc:
-        base = _base_senal(entrada)
-        return replace(
-            base,
-            resultado="goal_inalcanzable",
-            motivo=exc.motivo,
-            m_actual=m_actual,
-            prioridad=_prioridad(m_actual, entrada.goal, entrada.ingreso_60d),
-        )
-    motivo11 = motivo_regla11(cruda, comp.p_actual.valor, comp.costo.valor, comp.envio.valor)
-    if motivo11 is not None:
-        base = _base_senal(entrada)
-        return replace(
-            base,
-            resultado="goal_inalcanzable",
-            motivo=motivo11,
-            m_actual=m_actual,
-            prioridad=_prioridad(m_actual, entrada.goal, entrada.ingreso_60d),
-            diagnostico=f"P*={cruda} vs P={comp.p_actual.valor}",
-        )
+    # r3-L1: sin estrella cruda ni regla-11-cruda; `margen_imposible` sale
+    # de la maquina (rama de cero cotizaciones) y la regla 11 sale del
+    # wrapper de abajo: un solo punto de control por camino.
     salida = paso(
         costo=comp.costo.valor,
         fijo=fijo,
