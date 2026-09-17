@@ -711,8 +711,8 @@ def test_cambiar_ack_ok_y_get_distinto_da_enviado_con_readback_ok():
 def test_r1_a2_401_y_lwa_400_sella_lwa_sin_huerfanas():
     """r1-A2: el refresh que LWA rechaza sella `error ... lwa`, sin pendiente."""
     red = _RedFalsa(
-        gets_ofertas=[(200, _ofertas_body(100.0))],
-        gets_competitivos=[(200, _competitivo_body())],
+        gets_ofertas=[(200, _ofertas_body(100.0)), (200, _ofertas_body(100.0))],
+        gets_competitivos=[(200, _competitivo_body()), (200, _competitivo_body())],
         patchs=[(401, {})],
         lwa=[
             (200, {"access_token": "tok-vivo", "expires_in": 3600}),
