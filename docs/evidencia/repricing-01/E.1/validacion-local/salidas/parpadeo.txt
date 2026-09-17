@@ -1,0 +1,10 @@
+BEGIN
+ platform  |      lectura       | productos_que_alcanzan_minimo_en_alguna_ventana | productos_estables_en_las_seis | productos_que_parpadean
+-----------+--------------------+-------------------------------------------------+--------------------------------+-------------------------
+ amazon_mx | componentes        |                                               0 |                              0 |                       0
+ amazon_mx | duplicado_etiqueta |                                               0 |                              0 |                       0
+ amazon_us | componentes        |                                               1 |                              0 |                       1
+ amazon_us | duplicado_etiqueta |                                               1 |                              0 |                       1
+(4 rows)
+
+ROLLBACK

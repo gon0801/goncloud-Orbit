@@ -1,0 +1,10 @@
+BEGIN
+ product_id | platform | ventana_dias | lectura | unidades_muestreadas | ordenes | tiene_fx_pendiente | l_unidad_mediana | ingreso_unidad_mxn_promedio | costo_unidad_mxn_promedio | margen_unidad_mxn_reconstruido
+------------+----------+--------------+---------+----------------------+---------+--------------------+------------------+-----------------------------+---------------------------+--------------------------------
+(0 rows)
+
+ product_id | platform | lectura | ordenes | l_unidad_p50 | l_unidad_p75 | l_unidad_p90
+------------+----------+---------+---------+--------------+--------------+--------------
+(0 rows)
+
+ROLLBACK

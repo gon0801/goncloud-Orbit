@@ -1,0 +1,7 @@
+BEGIN
+           motivo           |                                                                                                    detalle
+----------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ sin_columna_fecha_de_envio | no existe en el esquema de Orbit una columna de fecha de despacho/envío; event_date es la fecha del cargo (ver rezago-ingesta.sql) y spapi_order_observation.purchase_date es la fecha de compra, no de envío
+(1 row)
+
+ROLLBACK
