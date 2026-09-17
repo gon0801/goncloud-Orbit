@@ -518,31 +518,40 @@ def repartir_cupo(
 ) -> tuple[tuple[int, Decision], ...]:
     """S4 #12 puro: los primeros por prioridad pasan; el resto `mantener(cuota)`.
 
-    Desempate por `listing_id` ascendente. Sin prioridad registrada = al
-    fondo (regla 3: ausente no es cero, pero tampoco abre la puerta).
-    Devuelve pares `(listing_id, decision)` **en el orden de la entrada**:
-    el orden por prioridad es interno, solo decide quién pasa (r4-G2: si
-    devolviera sueltas reordenadas, el `zip` con la entrada cruzaría
-    publicaciones). El pase es **por posición** en la entrada, no por
-    identidad de objeto (r4b-H1: el mismo objeto en dos publicaciones
-    pasa dos veces si hay cupo).
+    Solo compiten y solo consumen cupo las decisiones `subir`/`bajar` con
+    `aplicado=True` (r5-J1: un `frenado` o un `subir` de sombra no se
+    quedan con el lugar). Todo lo demás (`no_evaluado`, `frenado`,
+    `mantener(*)`, `goal_inalcanzable`, sombra) **pasa idéntico** (`is`),
+    sin ocupar lugar y sin tocarse. Entre las que compiten: prioridad
+    descendente, sin prioridad al fondo (regla 3: ausente no es cero,
+    pero tampoco abre la puerta), desempate por `listing_id` ascendente,
+    salida en el orden de entrada (r4-G2: si devolviera sueltas
+    reordenadas, el `zip` con la entrada cruzaría publicaciones). El pase
+    es **por posición** en la entrada, no por identidad de objeto
+    (r4b-H1). Las que compiten con `p_actual` en monedas distintas son
+    error de quien llama: `ValueError` (r5-J2).
     """
     if not isinstance(cupo, int) or isinstance(cupo, bool) or cupo < 0:
         raise ValueError(f"cupo invalido: {cupo!r}")
+    compiten = [
+        pos
+        for pos, (_, decision) in enumerate(candidatos)
+        if decision.resultado in ("subir", "bajar") and decision.aplicado
+    ]
     ordenados = sorted(
-        enumerate(candidatos),
-        key=lambda par: (
-            par[1][1].prioridad is None,
-            -(par[1][1].prioridad or Decimal(0)),
-            par[1][0],
+        compiten,
+        key=lambda pos: (
+            candidatos[pos][1].prioridad is None,
+            -(candidatos[pos][1].prioridad or Decimal(0)),
+            candidatos[pos][0],
         ),
     )
-    pasan = {pos for pos, _ in ordenados[:cupo]}
+    pasan = set(ordenados[:cupo])
     salida = []
     for pos, (listing_id, decision) in enumerate(candidatos):
         if pos in pasan:
             salida.append((listing_id, decision))
-        else:
+        elif pos in compiten:
             salida.append(
                 (
                     listing_id,
@@ -555,4 +564,6 @@ def repartir_cupo(
                     ),
                 )
             )
+        else:
+            salida.append((listing_id, decision))
     return tuple(salida)

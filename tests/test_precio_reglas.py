@@ -1117,6 +1117,58 @@ def test_r4b_h1_mismo_objeto_en_dos_publicaciones_pasa_con_cupo():
     assert [(lid, dec.resultado) for lid, dec in salida] == [(1, "subir"), (2, "subir")]
 
 
+def test_r5_j1_frenado_no_consume_cupo_ni_reescribe_no_evaluado():
+    """r5-J1: el frenado no ocupa lugar y el no_evaluado pasa intacto."""
+    from app.precio.reglas import repartir_cupo
+
+    ne = decide(entrada(motivo_estimacion="fee_ausente"))
+    fr = decide(
+        entrada(
+            costo="40",
+            senal=senal_perdiendo(),
+            cambios=(CambioPrevio(HOY + timedelta(days=1), "subir", "confirmado"),),
+        )
+    )
+    su = resuelve(entrada(costo="60"))
+    assert (ne.resultado, fr.resultado, su.resultado) == ("no_evaluado", "frenado", "subir")
+    salida = repartir_cupo(((1, ne), (2, fr), (3, su)), cupo=1)
+    assert [lid for lid, _ in salida] == [1, 2, 3]
+    assert salida[0][1] is ne
+    assert salida[1][1] is fr
+    assert salida[2][1] is su
+
+
+def test_r5_j1_sombra_no_consume_cupo():
+    """r5-J1: el subir de sombra pasa intacto; el live se queda el cupo."""
+    from app.precio.reglas import repartir_cupo
+
+    sombra = resuelve(entrada(costo="60", mode="shadow"))
+    viva = resuelve(entrada(costo="60"))
+    assert (sombra.aplicado, viva.aplicado) == (False, True)
+    salida = repartir_cupo(((1, sombra), (2, viva)), cupo=1)
+    assert salida[0][1] is sombra
+    assert salida[1][1] is viva
+
+
+def test_r5_j1_cupo_cero_solo_accion_live_sale_cuota():
+    """r5-J1 mixto con cupo=0: la acción live sale a cuota, lo demás intacto."""
+    from app.precio.reglas import repartir_cupo
+
+    su = resuelve(entrada(costo="60"))
+    ne = decide(entrada(motivo_estimacion="fee_ausente"))
+    fr = decide(
+        entrada(
+            costo="40",
+            senal=senal_perdiendo(),
+            cambios=(CambioPrevio(HOY + timedelta(days=1), "subir", "confirmado"),),
+        )
+    )
+    salida = repartir_cupo(((1, su), (2, ne), (3, fr)), cupo=0)
+    assert (salida[0][1].resultado, salida[0][1].motivo) == ("mantener", "cuota")
+    assert salida[1][1] is ne
+    assert salida[2][1] is fr
+
+
 # ---------------------------------------------------------------- r2-B
 
 
