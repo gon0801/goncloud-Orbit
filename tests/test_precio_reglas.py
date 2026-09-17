@@ -1095,6 +1095,26 @@ def test_r5_j2_monedas_distintas_entre_compiten_es_valueerror():
         repartir_cupo(((1, a), (2, b_usd)), cupo=1)
 
 
+def test_r5_j1_mantener_con_aplicado_no_compite():
+    """r5-J1: un `mantener(*)` con `aplicado=True` pasa idéntico (el filtro
+    es por resultado, no solo por aplicado)."""
+    from dataclasses import replace
+
+    from app.precio.reglas import repartir_cupo
+
+    su = resuelve(entrada(costo="60"))
+    mant = replace(
+        su,
+        resultado="mantener",
+        motivo="en_tolerancia",
+        p_aplicado=None,
+        prioridad=su.prioridad + 1,
+    )
+    salida = repartir_cupo(((1, mant), (2, su)), cupo=1)
+    assert salida[0][1] is mant
+    assert salida[1][1] is su
+
+
 def test_r5_j1_cupo_cero_solo_accion_live_sale_cuota():
     """r5-J1 mixto con cupo=0: la acción live sale a cuota, lo demás intacto."""
     from app.precio.reglas import repartir_cupo
