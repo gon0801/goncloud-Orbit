@@ -48,10 +48,10 @@ sin borrarla al terminar:
 ```
 psql "postgresql://orbit:orbit@localhost:5432/postgres" \
   -c "CREATE DATABASE <db> OWNER orbit;"
-psql "postgresql://orbit:orbit@localhost:5432/<db>" -f migrations/0001_initial.sql
-psql "postgresql://orbit:orbit@localhost:5432/<db>" -f migrations/0030_spapi_orders.sql
-psql "postgresql://orbit:orbit@localhost:5432/<db>" -f migrations/0031_spapi_orders_bitemporal.sql
-psql "postgresql://orbit:orbit@localhost:5432/<db>" \
+psql "postgresql://orbit:orbit@localhost:5432/<db>" -v ON_ERROR_STOP=1 -f migrations/0001_initial.sql
+psql "postgresql://orbit:orbit@localhost:5432/<db>" -v ON_ERROR_STOP=1 -f migrations/0030_spapi_orders.sql
+psql "postgresql://orbit:orbit@localhost:5432/<db>" -v ON_ERROR_STOP=1 -f migrations/0031_spapi_orders_bitemporal.sql
+psql "postgresql://orbit:orbit@localhost:5432/<db>" -v ON_ERROR_STOP=1 \
   -f docs/evidencia/repricing-01/E.1/validacion-local/semilla.sql
 ```
 

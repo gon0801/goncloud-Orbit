@@ -234,6 +234,12 @@ duplicada) — las dos consultas se validan cruzado.
 
 ### c) Productos que alcanzan el mínimo — `productos-que-alcanzan-minimo.sql` / `.txt`
 
+> **Las dos lecturas dan lo mismo aquí POR CONSTRUCCIÓN, no por medición.** Esta consulta cuenta
+> órdenes y estados, no costos: `base_lectura` repite cada orden bajo las dos etiquetas sin llevar
+> ningún importe. La igualdad entre `componentes` y `duplicado_etiqueta` no es evidencia de que la
+> disputa del hecho 14 no mueva el umbral ni la histéresis; la columna `lectura` se conserva porque
+> el documento publica las dos lecturas en todas sus tablas.
+
 | platform | ventana_dias | lectura | productos con alguna orden | productos que alcanzan el mínimo (≥6) | dias_con_datos |
 |---|---|---|---|---|---|
 | amazon_mx | 90 | componentes | 70 | 7 | 90 |
@@ -973,6 +979,12 @@ en US, que es la corrida de HOY, no una carga histórica). No hay
 evidencia de que la carga inicial se partiera en más de un día.
 
 ### i) Parpadeo del mínimo — `parpadeo.sql` / `.txt`
+
+> **Las dos lecturas dan lo mismo aquí POR CONSTRUCCIÓN, no por medición.** Esta consulta cuenta
+> órdenes y estados, no costos: `base_lectura` repite cada orden bajo las dos etiquetas sin llevar
+> ningún importe. La igualdad entre `componentes` y `duplicado_etiqueta` no es evidencia de que la
+> disputa del hecho 14 no mueva el umbral ni la histéresis; la columna `lectura` se conserva porque
+> el documento publica las dos lecturas en todas sus tablas.
 
 | platform | lectura | alcanzan el mínimo en alguna ventana | estables en las seis | parpadean (corte seco) | con salida (histéresis) | con reentrada (histéresis) |
 |---|---|---|---|---|---|---|

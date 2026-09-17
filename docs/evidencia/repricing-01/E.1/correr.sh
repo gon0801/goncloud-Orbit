@@ -31,6 +31,14 @@
 # "<nombre>.err" para no mezclarse con la salida de datos. Un resultado de
 # cero filas nunca deja un archivo de 0 bytes: el archivo siempre trae al
 # menos "BEGIN", el \echo de inicio/fin y "ROLLBACK".
+#
+# Identidad de la corrida (CodeRabbit, PR 297): "salidas/CORRIDA.txt" dice
+# de qué corrida son los .txt. Nace "EN CURSO" antes de la primera consulta,
+# pasa a "FALLIDA en <consulta>" si alguna aborta y solo al final a
+# "COMPLETA", con el sha256 de cada salida. Una re-corrida que falla a la
+# mitad deja .txt nuevos junto a .txt de la corrida anterior: sin este
+# archivo el directorio parecería una extracción completa. REGLA DE LECTURA:
+# si CORRIDA.txt no dice "estado: COMPLETA", salidas/ NO es una extracción.
 
 set -euo pipefail
 
@@ -39,12 +47,32 @@ CONSULTAS_DIR="$DIR/consultas"
 SALIDAS_DIR="$DIR/salidas"
 mkdir -p "$SALIDAS_DIR"
 
+CORRIDA="$SALIDAS_DIR/CORRIDA.txt"
+INICIO="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+COMMIT="$(git -C "$DIR" rev-parse HEAD 2>/dev/null || printf 'desconocido')"
+# El `|| true` va DENTRO del pipeline: fuera de un repo git, `git status`
+# sale 128 y, con pipefail, tumbaría el script antes de abrir la corrida.
+SUCIO="$( { git -C "$DIR" status --porcelain -- "$CONSULTAS_DIR" 2>/dev/null || true; } | wc -l | tr -d ' ')"
+escribir_corrida() {  # $1 = estado; el resto del archivo se reescribe entero
+    {
+        printf 'estado: %s\n' "$1"
+        printf 'inicio_utc: %s\n' "$INICIO"
+        printf 'fin_utc: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'commit_del_repo: %s\n' "$COMMIT"
+        printf 'consultas_con_cambios_sin_commitear: %s\n' "$SUCIO"
+    } > "$CORRIDA"
+}
+
 # Candado: ninguna consulta puede contener una palabra de escritura.
 # grep -iE con salida = aborta ANTES de tocar producción.
 if grep -liE '\b(insert|update|delete|truncate|alter|drop|create|grant|copy)\b' "$CONSULTAS_DIR"/*.sql; then
     echo "ATORADO: una o más consultas en $CONSULTAS_DIR contienen una palabra de escritura prohibida (ver arriba)." >&2
     exit 1
 fi
+
+# A partir de aquí la corrida existe: lo que haya en salidas/ deja de ser
+# "la extracción" hasta que esta termine COMPLETA.
+escribir_corrida "EN CURSO"
 
 for archivo in "$CONSULTAS_DIR"/*.sql; do
     nombre="$(basename "${archivo%.sql}")"
@@ -76,8 +104,20 @@ for archivo in "$CONSULTAS_DIR"/*.sql; do
     else
         echo "ATORADO: $nombre salió con código $estado; ver $err" >&2
         rm -f "$parcial"
+        escribir_corrida "FALLIDA en $nombre (codigo $estado); los .txt de consultas posteriores son de una corrida ANTERIOR"
         exit 1
     fi
 done
 
-echo "Listo. Salidas en $SALIDAS_DIR/"
+# Corrida completa: el manifiesto lista cada salida con su sha256, para que
+# se note si alguien mezcla archivos de dos corridas.
+escribir_corrida "COMPLETA"
+{
+    printf 'salidas:\n'
+    for f in "$SALIDAS_DIR"/*.txt; do
+        [ "$f" = "$CORRIDA" ] && continue
+        printf '  %s  %s\n' "$(shasum -a 256 "$f" | cut -d' ' -f1)" "$(basename "$f")"
+    done
+} >> "$CORRIDA"
+
+echo "Listo. Salidas en $SALIDAS_DIR/ (ver CORRIDA.txt)"

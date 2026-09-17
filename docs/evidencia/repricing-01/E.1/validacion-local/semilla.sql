@@ -120,7 +120,7 @@ insert into ledger_event (platform, kind, event_date, order_id, product_id, quan
 
 -- =====================================================================
 -- Cargo sin venta ligada: solo el cargo, ninguna fila 'sale' con ese
--- order_id. descartes.sql lo cuenta como 'sin_venta_ligada'.
+-- order_id. descartes.sql lo cuenta como 'sin_fila_de_venta'.
 -- =====================================================================
 insert into ledger_event (platform, kind, event_date, order_id, product_id, quantity, amount, amount_currency, fee_type, source_event_id, ingest_run_id) values
     ('amazon_us', 'fee', current_date - interval '10 days', 'ord_sin_venta',

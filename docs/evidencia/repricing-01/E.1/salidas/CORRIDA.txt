@@ -1,0 +1,16 @@
+estado: COMPLETA
+inicio_utc: 2026-09-17T19:05:49Z
+fin_utc: 2026-09-17T19:06:16Z
+commit_del_repo: 4876358371806c11d7e012fee18c4726f28f7227
+consultas_con_cambios_sin_commitear: 0
+salidas:
+  0474607170abf971f0877c50b425e7865040c1a865ed0b17cd4698e0937115aa  00-sonda-formato.txt
+  dce0a98781a3322137a69f3b6c0405d9f2e056de7c74310e2563d943a95101b7  01-historia-disponible.txt
+  c78e9788feffc921c720dc6e31beccf52b4434e3121e5c901c044ae934018040  cargos-por-orden-y-fuente.txt
+  336f094a40716b88d7e79da84a6562596659b01f9d4392302a956c0063b45eeb  descartes.txt
+  1535b53934e3ae94a5a5f485a4362f2e97d043cf1ca44d57008f1b802b0f5d83  efecto-margen.txt
+  db938ed3c83f9742b79d5223a45037617a7bb5dc7bedc3035d1bd52b06c2b43f  envio-por-producto.txt
+  89cf464044dee529e5fe4f94c653bb5e9c6598c3e171ff48544399a89e60c80e  parpadeo.txt
+  620fb880a616ba5243072f45c669530b221c79cde0000627b04569837b241190  productos-que-alcanzan-minimo.txt
+  516ea596a6fd65cc61f9b7c4b7e120ae0208d0b69ad53272c55651712e076ebb  rezago-emision.txt
+  5346470c8a5a32fd705def8babdeba60d16a5e21ed3195cf76f8ad3a7cceb6f4  rezago-ingesta.txt
