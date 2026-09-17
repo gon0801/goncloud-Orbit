@@ -155,7 +155,12 @@ def piso_centavo(precio: Decimal) -> Decimal:
 
 
 def _revisar_cotizacion(cot: CotizacionVerificada, moneda: str) -> str | None:
-    """Motivo exacto si la cotizacion no sirve; `None` si sirve."""
+    """Motivo exacto si la cotizacion no sirve; `None` si sirve.
+
+    La moneda distinta revienta con `ValueError` a proposito: esa
+    cotizacion la pide el propio motor, asi que es un invariante interno,
+    no un dato malo de la fuente (r3-K1).
+    """
     if cot.precio.moneda != moneda:
         raise ValueError(f"cotizacion en {cot.precio.moneda}, se esperaba {moneda}")
     if cot.estado == "error":

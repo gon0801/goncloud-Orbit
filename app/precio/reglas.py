@@ -181,7 +181,9 @@ def decidir(
         comp.isr.moneda,
     }
     if len(monedas) != 1:
-        raise ValueError(f"monedas de componentes divergen: {sorted(monedas)}")
+        return _no_evaluado(
+            entrada, "escenario_incoherente", f"monedas divergen: {sorted(monedas)}"
+        )
     moneda = comp.p_actual.moneda
     pricing = entrada.pricing
     if pricing.precio.moneda != moneda:

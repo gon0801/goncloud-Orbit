@@ -797,6 +797,23 @@ def test_r2_a3_subida_futura_frena():
     assert "futura" in d.diagnostico
 
 
+# ---------------------------------------------------------------- r3-K1
+
+
+def test_r3_k1_monedas_divergentes_no_tumban():
+    from dataclasses import replace
+
+    from app.precio.tipos import Importe
+
+    esc = escenario(costo="60")
+    mezclado = comp(costo="60")
+    mezclado = replace(mezclado, isr=Importe(Decimal("2.50"), "USD"))
+    esc = replace(esc, componentes=mezclado)
+    d = decide(entrada(costo="60", escenario=esc))
+    assert (d.resultado, d.motivo) == ("no_evaluado", "escenario_incoherente")
+    assert "USD" in d.diagnostico and "MXN" in d.diagnostico
+
+
 # ---------------------------------------------------------------- r2-B
 
 
