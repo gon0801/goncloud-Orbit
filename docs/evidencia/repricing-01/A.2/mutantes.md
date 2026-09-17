@@ -232,6 +232,167 @@ E           ValueError: setting precio_tolerancia: fuera de cota [0, 0.004]: 0.0
 
 MUERTO. Revertido con `git checkout -- app/precio/config.py`.
 
+## Ronda r1 (auditoría del lead, 2026-09-17)
+
+El lead corrió 39 mutantes; 13 quedaron verdes. Cada uno recibió su test
+(`test_r1_c_*`), verificado en rojo con el diff aplicado y revertido con
+`git checkout -- <archivo>`. El 14.º (quitar el rechazo de `bool` en
+`config._numero`) es **equivalente**: `Decimal(str(True))` =
+`Decimal("True")` revienta con `InvalidOperation` igual que el rechazo
+explícito — el `ValueError` sale por la misma rama. Se declara y no se
+cambia código.
+
+Además nacieron de A y B: coherencia del escenario (4 tests r1-A1),
+regla 11 en pedido/verificado (r1-A2), máquina de bajada (3 tests r1-A3),
+cobertura a 3 días (2 tests r1-B1), virtuales (3 tests r1-B2),
+`goal_vigente_desde` (3 tests r1-B3, rojo vía mutante R15), submotivos
+(2 tests r1-B4) y reloj endurecido (3 tests r1-B5).
+
+### V4 — `u60 < u60_min` → `<=` (`ventas.py`)
+
+Test: `test_r1_c_v4_u60_en_el_minimo_si_evalua` (`u60 = 20`, mínimo 20).
+
+```text
+E       AssertionError: assert ('sin_dato', 20) == ('no_perdiendo', 20)
+E         At index 0 diff: 'sin_dato' != 'no_perdiendo'
+```
+
+MUERTO.
+
+### V9 — `n15 / n60` → `15 / 60` fijo (`ventas.py`)
+
+Test: `test_r1_c_v9_exclusiones_asimetricas_cambian_veredicto` (5 días
+fuera solo en la ventana de 15 con `racha_previa=2`).
+
+```text
+E       AssertionError: assert ('perdiendo', 10, 60) == ('no_perdiendo', 10, 60)
+E         At index 0 diff: 'perdiendo' != 'no_perdiendo'
+```
+
+MUERTO.
+
+### R4 — freno `dias <= 22` → `<` (`reglas.py`)
+
+Test: `test_r1_c_r4_freno_22_si_23_no`.
+
+```text
+E       AttributeError: 'PideCotizacion' object has no attribute 'motivo'
+1 failed, 107 deselected in 0.09s
+```
+
+MUERTO (a 22 días ya no frena y sigue a la máquina).
+
+### R7 — quitar `estado != "confirmado"` en #6 (`reglas.py`)
+
+Test: `test_r1_c_r7_no_confirmado_no_frena`.
+
+```text
+E       AssertionError: assert False
+E        +  where False = isinstance(Decision(resultado='frenado', motivo='perdiendo_tras_subida', ...), <class 'app.precio.tipos.PideCotizacion'>)
+1 failed, 107 deselected in 0.08s
+```
+
+MUERTO.
+
+### R8 — piso de `bajar` con `piso_centavo` (`reglas.py`)
+
+Test: `test_r1_c_r8_piso_sube_al_centavo` (`P = 116.01` → piso `104.41`).
+
+```text
+E       AssertionError: assert Decimal('104.40') == Decimal('104.41')
+```
+
+MUERTO.
+
+### R14 — la reversa cuenta para cooldown (`reglas.py`)
+
+Test: `test_r1_c_r14_reversa_no_es_cooldown`.
+
+```text
+E       AssertionError: assert False
+E        +  where False = isinstance(Decision(resultado='mantener', motivo='cooldown', ...), <class 'app.precio.tipos.PideCotizacion'>)
+1 failed, 107 deselected in 0.08s
+```
+
+MUERTO.
+
+### R15 — el goal nuevo no reinicia #6
+
+Cubierto por r1-B3: con el filtro de fecha quitado,
+`test_r1_b3_subida_anterior_al_goal_no_frena_posterior_si` y
+`test_r1_b3_historial_viejo_no_frena_nuevo_si` se ponen rojos
+(`2 failed, 1 passed`, rojo pegado en `.saikit/scratch/B/tdd.md`).
+
+MUERTO.
+
+### O3 — `tax_amount` anidado sin mirar (`objetivo.py`)
+
+Test: `test_r1_c_o3_tax_anidado_frena` (`TaxAmount` en `included_fee_details`).
+
+```text
+E       AttributeError: 'PideCotizacion' object has no attribute 'motivo'
+1 failed, 107 deselected in 0.09s
+```
+
+MUERTO.
+
+### O4 — convergencia `<=` → `<` (`objetivo.py`)
+
+Test: `test_r1_c_o4_igual_a_tol_verifica` (`|m(P₁) − goal|` exactamente `tol`).
+
+```text
+E       AssertionError: assert (False)
+E        +  where False = isinstance(PideCotizacion(precio=Importe(valor=Decimal('131.71'), moneda='MXN'), intento=2), ResultadoObjetivo)
+1 failed, 107 deselected in 0.09s
+```
+
+MUERTO.
+
+### O5 — el 2.º `P*` reusa `ref`/`fijo` viejos (`objetivo.py`)
+
+Test: `test_r1_c_o5_segundo_p_sale_de_ref1` (valor exacto, distinto del
+que saldría con el `ref` viejo).
+
+```text
+E       AssertionError: assert Decimal('131.68') == Decimal('131.71')
+1 failed, 107 deselected in 0.08s
+```
+
+MUERTO.
+
+### O7 — denominador `<= 0` → `< 0` (`objetivo.py`)
+
+Test: `test_r1_c_o7_denominador_cero_es_imposible`.
+
+```text
+E       decimal.DivisionByZero: [<class 'decimal.DivisionByZero'>]
+1 failed, 107 deselected in 0.09s
+```
+
+MUERTO (sin el `<=`, el cero divide).
+
+### O8 — `ReferralFee` con `final_fee = 0` cuenta (`objetivo.py`)
+
+Test: `test_r1_c_o8_referral_en_cero_no_cuenta`.
+
+```text
+E       Failed: DID NOT RAISE ErrorObjetivo
+1 failed, 107 deselected in 0.08s
+```
+
+MUERTO.
+
+### O9 — `precio_incluye_iva=False` usa el divisor igual (`objetivo.py`)
+
+Test: `test_r1_c_o9_sin_iva_no_usa_divisor` (`43 / 0.54` exacto).
+
+```text
+E       AssertionError: assert Decimal('96.66666666666666666666666667') == (Decimal('43') / Decimal('0.54'))
+1 failed, 107 deselected in 0.08s
+```
+
+MUERTO.
+
 ## Residuales de la mutación
 
 - `precio_no_cubre_costo` (#11) no se ejercita de punta a punta: con
