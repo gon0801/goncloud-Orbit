@@ -718,6 +718,43 @@ def test_r1_a1_precio_cotizado_distinto_no_pasa():
     assert (d.resultado, d.motivo) == ("no_evaluado", "escenario_incoherente")
 
 
+# ---------------------------------------------------------------- r1-B2
+
+
+def test_r1_b2_freno6_virtual_no_frena_en_live_si_en_shadow():
+    ent = dict(
+        costo="40",
+        senal=senal_perdiendo(),
+        cambios=(CambioPrevio(HOY - timedelta(days=10), "subir", "confirmado", aplicado=False),),
+    )
+    assert decide(entrada(**ent)).resultado == "bajar"
+    assert decide(entrada(**ent, mode="shadow")).motivo == "perdiendo_tras_subida"
+
+
+def test_r1_b2_cooldown_virtual_no_frena_en_live_si_en_shadow():
+    ent = dict(
+        costo="53.01",
+        cambios=(CambioPrevio(HOY - timedelta(days=2), "subir", "enviado", aplicado=False),),
+    )
+    from app.precio.tipos import PideCotizacion
+
+    assert isinstance(decide(entrada(**ent)), PideCotizacion)
+    assert decide(entrada(**ent, mode="shadow")).motivo == "cooldown"
+
+
+def test_r1_b2_freno10_virtual_no_frena_en_live_si_en_shadow():
+    from app.precio.tipos import PideCotizacion
+
+    hist = (
+        HistorialMargen("subir", Decimal("0.05"), aplicado=False),
+        HistorialMargen("subir", Decimal("0.05"), aplicado=False),
+        HistorialMargen("subir", Decimal("0.05"), aplicado=False),
+    )
+    ent = dict(costo="60", historial=hist)
+    assert isinstance(decide(entrada(**ent)), PideCotizacion)
+    assert decide(entrada(**ent, mode="shadow")).motivo == "no_converge"
+
+
 # ---------------------------------------------------------------- r1-B1
 
 

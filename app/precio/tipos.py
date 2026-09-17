@@ -193,12 +193,18 @@ class ObservacionPricing:
 
 @dataclass(frozen=True)
 class CambioPrevio:
-    """Fila `precio_cambio` no-reversa ya ocurrida (reglas #6, #9)."""
+    """Fila `precio_cambio` no-reversa ya ocurrida (reglas #6, #9).
+
+    `aplicado=False` = cambio virtual de `shadow` (S4 #13): en `live` no
+    cuenta para #6, #9 ni #10; en `shadow` cuentan todos. El default `True`
+    conserva las filas reales.
+    """
 
     enviado_en: date
     direccion: str | None
     estado: str
     es_reversa: bool = False
+    aplicado: bool = True
 
     def __post_init__(self) -> None:
         if self.direccion is not None and self.direccion not in ("subir", "bajar"):
@@ -207,10 +213,14 @@ class CambioPrevio:
 
 @dataclass(frozen=True)
 class HistorialMargen:
-    """Distancia `|m_actual - goal|` al momento de cada cambio previo (#10)."""
+    """Distancia `|m_actual - goal|` al momento de cada cambio previo (#10).
+
+    `aplicado` igual que en `CambioPrevio`: el virtual no frena en `live`.
+    """
 
     direccion: str
     distancia: Decimal
+    aplicado: bool = True
 
     def __post_init__(self) -> None:
         if self.direccion not in ("subir", "bajar"):

@@ -208,26 +208,33 @@ def decidir(
     tol = config.tolerancia
     distancia = abs(m_actual - goal)
 
-    if not entrada.goal_nuevo and len(entrada.historial) >= config.freno_cambios:
-        ultimos = entrada.historial[-config.freno_cambios :]
-        direcciones = {h.direccion for h in ultimos}
-        cadena = [h.distancia for h in ultimos] + [distancia]
-        if len(direcciones) == 1 and all(
-            posterior >= anterior for anterior, posterior in zip(cadena, cadena[1:], strict=False)
-        ):
-            base = _base_senal(entrada)
-            return replace(
-                base,
-                resultado="frenado",
-                motivo="no_converge",
-                m_actual=m_actual,
-                prioridad=_prioridad(m_actual, goal, entrada.ingreso_60d),
-                diagnostico=f"{len(ultimos)} cambios sin acercarse al goal",
-            )
+    if not entrada.goal_nuevo:
+        reales = [h for h in entrada.historial if entrada.mode == "shadow" or h.aplicado]
+        if len(reales) >= config.freno_cambios:
+            ultimos = reales[-config.freno_cambios :]
+            direcciones = {h.direccion for h in ultimos}
+            cadena = [h.distancia for h in ultimos] + [distancia]
+            if len(direcciones) == 1 and all(
+                posterior >= anterior
+                for anterior, posterior in zip(cadena, cadena[1:], strict=False)
+            ):
+                base = _base_senal(entrada)
+                return replace(
+                    base,
+                    resultado="frenado",
+                    motivo="no_converge",
+                    m_actual=m_actual,
+                    prioridad=_prioridad(m_actual, goal, entrada.ingreso_60d),
+                    diagnostico=f"{len(ultimos)} cambios sin acercarse al goal",
+                )
 
     if not entrada.goal_nuevo and entrada.senal.estado == "perdiendo":
         for cambio in entrada.cambios:
-            if cambio.es_reversa or cambio.estado != "confirmado":
+            if (
+                cambio.es_reversa
+                or cambio.estado != "confirmado"
+                or (entrada.mode == "live" and not cambio.aplicado)
+            ):
                 continue
             dias = (hoy - cambio.enviado_en).days
             if cambio.direccion == "subir" and 0 <= dias <= _DIAS_FRENO_SUBIDA:
@@ -245,7 +252,7 @@ def decidir(
                 )
 
     for cambio in entrada.cambios:
-        if cambio.es_reversa:
+        if cambio.es_reversa or (entrada.mode == "live" and not cambio.aplicado):
             continue
         dias = (hoy - cambio.enviado_en).days
         if 0 <= dias < config.dias_entre_cambios:
