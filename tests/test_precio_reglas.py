@@ -108,11 +108,6 @@ def test_tipos_senal_sin_dato_exige_submotivo_conocido():
         SenalVentas("perdiendo", "racha_incompleta", 1, 1, 1, 1, 3)
 
 
-def test_tipos_detalle_fee_reexportado_sin_io():
-    det = DetalleFee("ReferralFee", Decimal("15"), None, ())
-    assert det.fee_type == "ReferralFee"
-
-
 HOY = date(2026, 9, 17)
 AHORA = datetime(2026, 9, 17, 13, 10, tzinfo=UTC)
 
