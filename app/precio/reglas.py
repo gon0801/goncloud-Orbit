@@ -120,6 +120,23 @@ def _coherencia_escenario(entrada: EntradaDecision) -> str | None:
     return None
 
 
+def _frena_regla11(entrada: EntradaDecision, m_actual: Decimal, precio: Decimal) -> Decision | None:
+    """r1-A2: todo precio pedido o verificado pasa por la regla 11."""
+    comp = entrada.escenario.componentes
+    motivo = motivo_regla11(precio, comp.p_actual.valor, comp.costo.valor, comp.envio.valor)
+    if motivo is None:
+        return None
+    base = _base_senal(entrada)
+    return replace(
+        base,
+        resultado="goal_inalcanzable",
+        motivo=motivo,
+        m_actual=m_actual,
+        prioridad=_prioridad(m_actual, entrada.goal, entrada.ingreso_60d),
+        diagnostico=f"P={precio} vs P_actual={comp.p_actual.valor}",
+    )
+
+
 def _min_abs(config: ConfigPrecio, moneda: str) -> Decimal:
     if moneda == "MXN":
         return config.movimiento_min_abs_mxn
@@ -339,7 +356,8 @@ def _subir(
         cotizaciones=cotizaciones,
     )
     if isinstance(salida, PideCotizacion):
-        return salida
+        freno = _frena_regla11(entrada, m_actual, salida.precio.valor)
+        return freno if freno is not None else salida
     assert isinstance(salida, ResultadoObjetivo)
     if salida.resultado == "no_evaluado":
         assert salida.motivo is not None
@@ -354,6 +372,9 @@ def _subir(
             prioridad=_prioridad(m_actual, entrada.goal, entrada.ingreso_60d),
         )
     assert salida.precio is not None
+    freno = _frena_regla11(entrada, m_actual, salida.precio.valor)
+    if freno is not None:
+        return freno
     p_objetivo = salida.precio.valor
     umbral = max(config.movimiento_min_pct * comp.p_actual.valor, _min_abs(config, moneda))
     if abs(p_objetivo - comp.p_actual.valor) < umbral:

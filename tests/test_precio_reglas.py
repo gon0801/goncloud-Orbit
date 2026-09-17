@@ -718,6 +718,35 @@ def test_r1_a1_precio_cotizado_distinto_no_pasa():
     assert (d.resultado, d.motivo) == ("no_evaluado", "escenario_incoherente")
 
 
+# ---------------------------------------------------------------- r1-A2
+
+
+def test_r1_a2_segundo_p_mayor_al_doble_no_se_pide():
+    # costo=60 -> la maquina pide P1; con referral del 45 % el P2 saldria
+    # ~480 > 2P=232: termina en inalcanzable SIN emitir ese PideCotizacion.
+    from app.precio.tipos import CotizacionVerificada, PideCotizacion
+
+    ent = entrada(costo="60")
+    pedido = decide(ent)
+    assert isinstance(pedido, PideCotizacion)
+    p1 = pedido.precio.valor
+    assert p1 <= 2 * Decimal("116")
+    referral = (Decimal("0.45") * p1).quantize(Decimal("0.01"))
+    c1 = CotizacionVerificada(
+        pedido.precio,
+        (
+            DetalleFee("ReferralFee", referral, None, ()),
+            DetalleFee("FbaFee", Decimal("3"), None, ()),
+        ),
+        referral + Decimal("3"),
+        "success",
+        None,
+    )
+    salida = decide(ent, cotizaciones=(c1,))
+    assert not isinstance(salida, PideCotizacion)
+    assert (salida.resultado, salida.motivo) == ("goal_inalcanzable", "precio_mayor_al_doble")
+
+
 def test_r1_a1_candado_direccion_subir_con_verificado_abajo():
     # Capa 2 sin capa 1: escenario coherente (m=0.29 -> subir), pero una
     # cotizacion real verifica P1=100 < P=116 (fees no lineales: F1=4.69
