@@ -1013,6 +1013,7 @@ PROHIBIDOS_PRECIO = (
     "os",
     "random",
     "secrets",
+    "importlib",
     "<import-relativo-nivel-2>",
 )
 
@@ -1057,6 +1058,45 @@ def test_precio_puro_sin_io():
         if (v := _violaciones(_imports_runtime(p), PROHIBIDOS_PRECIO))
     }
     assert not fugas, f"app/precio debe ser PURO; imports de IO encontrados: {fugas}"
+
+
+def test_precio_sin_import_dinamico():
+    """Ni `import importlib` ni `__import__("...")` en `app/precio/*`.
+
+    R5-J5: el import dinámico no produce nodos de import y el candado
+    de `test_precio_puro_sin_io` no lo ve (`importlib` sí cae por
+    `PROHIBIDOS_PRECIO`; `__import__` solo por este barrido de texto).
+    Precedente: el candado de `snapshot_listas` en este mismo archivo.
+    """
+    modulos = _puros_precio()
+    assert modulos, "no se encontro el motor de precios: ¿se movio app/precio/?"
+    fugas = [
+        p.relative_to(PRECIO).as_posix()
+        for p in modulos
+        if "__import__(" in p.read_text(encoding="utf-8")
+    ]
+    assert not fugas, f"app/precio usa import dinamico: {fugas}"
+
+
+def test_precio_frontera_caza_importlib_dinamico(tmp_path, monkeypatch):
+    """R5-J5, fuga sembrada: `importlib.import_module("psycopg")` dispara
+    el candado de imports."""
+    (tmp_path / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "dyn.py").write_text(
+        'import importlib\nx = importlib.import_module("psycopg")\n', encoding="utf-8"
+    )
+    monkeypatch.setattr("test_architecture.PRECIO", tmp_path)
+    with pytest.raises(AssertionError, match="dyn.py"):
+        test_precio_puro_sin_io()
+
+
+def test_precio_frontera_caza_dunder_import(tmp_path, monkeypatch):
+    """R5-J5, fuga sembrada: `__import__("httpx")` dispara el barrido."""
+    (tmp_path / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "dyn.py").write_text('x = __import__("httpx")\n', encoding="utf-8")
+    monkeypatch.setattr("test_architecture.PRECIO", tmp_path)
+    with pytest.raises(AssertionError, match="dyn.py"):
+        test_precio_sin_import_dinamico()
 
 
 def test_precio_sin_reloj_ni_entorno():
