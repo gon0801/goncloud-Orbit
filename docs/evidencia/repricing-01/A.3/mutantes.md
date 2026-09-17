@@ -1,5 +1,78 @@
 # A.3 — Catálogo de mutantes (REPRICING 01, escritura y reversa)
 
+## Ronda r2 (re-auditoría del lead sobre `1428f69`; B1 + 3 mutantes)
+
+Caché de bytecode nueva por corrida (`PYTHONPYCACHEPREFIX=$(mktemp -d)`,
+`-p no:cacheprovider`). Todos MUERTOS.
+
+### B1 — PATCH antes de que la pendiente sea durable (`precio_write.py` + `tools/precio_reversa.py`)
+
+El arreglo de r1 (`conn.commit()` al final del go) estaba al revés:
+con la conexión sin autocommit los `with conn.transaction()` interiores
+anidan como savepoints y el PATCH sale antes de que la fila `pendiente`
+sea durable (0 filas visibles desde otra conexión al momento del PATCH).
+Arreglo: `cambiar_precio`, `revertir` y `cerrar_por_observacion` exigen
+`conn.autocommit` antes de hacer nada (`ValueError`, función mal usada);
+el tool conecta con `autocommit=True` y se quita el `conn.commit()`.
+
+```text
+FAILED tests/test_precio_write.py::test_r2_b1_go_con_pendiente_durable - asse...
+FAILED tests/test_precio_write.py::test_r2_b1_cambiar_con_pendiente_durable
+FAILED tests/test_precio_write.py::test_r2_b1_sin_autocommit_es_mal_uso - Ind...
+3 failed, 59 deselected in 0.76s
+```
+
+MUERTO (los tres en rojo sin el arreglo; en verde con él). La red falsa
+del PATCH cuenta desde otra conexión las `pendiente` confirmadas y
+contesta `500` si no ve exactamente 1.
+
+### P9 — aceptar `INVALID` (`precio_write.py:_estado_aceptado`)
+
+Mutante: `status == "ACCEPTED"` → `status in ("ACCEPTED", "INVALID")`
+(202 con el rechazo real de Listings Items sellaría `enviado`).
+
+```text
+FAILED tests/test_precio_write.py::test_r2_b2_p9_invalid_es_error
+1 failed, 62 deselected in 0.42s
+```
+
+MUERTO.
+
+### P20 (r2) — `confirmado_por` exacta en ambos estados (`precio_write.py:cerrar_por_observacion`)
+
+El testigo de r1 ya exigía el valor exacto; se suma el test dedicado
+que lo afirma en `confirmado` Y en `no_confirmado`.
+
+```text
+FAILED tests/test_precio_write.py::test_r2_b2_p20_confirmado_por_exacta_en_ambos
+```
+
+MUERTO.
+
+### P22 — loguear el cuerpo en la rama `enviado` (`precio_write.py:_publicar`)
+
+Mutante: `logger.info("... estado=enviado cuerpo=%s", ..., cuerpo)`.
+El test viejo miraba `"110.00"` pero el cuerpo llevaba `100.0000` (no
+lo veía). El nuevo pone un marcador único (`ZZ9X8`) en el cuerpo que de
+verdad sale por el cable (`request.content`) y afirma su ausencia en
+`caplog`, en `cambiar_precio` y en `revertir`.
+
+```text
+E           AssertionError: assert 'ZZ9X8' not in 'INFO     ap...eadback=ok\n'
+FAILED tests/test_precio_write.py::test_r2_b2_p22_cuerpo_real_no_se_loguea
+```
+
+MUERTO.
+
+### T1 — equivalente (no mutante)
+
+Sin `--huella`, el chequeo siguiente (`args.huella != huella`: `None`
+contra la huella del plan) aborta igual antes de tocar nada. No hay
+camino por el que el go mute sin huella: quitar la primera condición
+no cambia el comportamiento observable. Se declara equivalente con
+esta razón; el test `test_r1_m_t1_go_sin_huella_aborta` fija el aborto
+por falta de huella.
+
 Implementador: Muse. Base: rama `fase8/precio-escritura` sobre
 `origin/master` `6127708`. Fecha: 2026-09-18. Plan:
 `plans/repricing-01.md` v1.2 (fila A.3).
