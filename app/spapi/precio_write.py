@@ -215,7 +215,7 @@ def _estado_aceptado(resp: httpx.Response) -> tuple[bool, Any]:
     aceptado = (
         200 <= resp.status_code < 300
         and cuerpo.get("submissionId") is not None
-        and cuerpo.get("status", "ACCEPTED") == "ACCEPTED"
+        and cuerpo.get("status") == "ACCEPTED"
     )
     return aceptado, cuerpo
 

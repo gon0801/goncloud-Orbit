@@ -878,12 +878,17 @@ def test_r1_a2_sku_vacio_en_revertir_no_inserta_ni_sale_a_red():
         assert red.n_patch == 0 and red.n_get == 0
 
 
-def test_cambiar_200_sin_accepted_es_error():
-    """El 2xx con estado explicito distinto de ACCEPTED no es envio."""
+@pytest.mark.parametrize(
+    "ack",
+    [{"submissionId": "c-9"}, {"submissionId": "c-9", "status": "ERROR"}],
+    ids=["sin-status", "status-distinto"],
+)
+def test_cambiar_200_sin_accepted_es_error(ack):
+    """r1-A5: sin `status == "ACCEPTED"` explicito no hay envio."""
     red = _RedFalsa(
         gets_ofertas=[(200, _ofertas_body(100.0)), (200, _ofertas_body(100.0))],
         gets_competitivos=[(200, _competitivo_body()), (200, _competitivo_body())],
-        patchs=[(200, {"submissionId": "c-9", "status": "ERROR"})],
+        patchs=[(200, ack)],
     )
     with db_39c() as conn:
         _, dec = _semilla_cambio(conn)
