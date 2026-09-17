@@ -722,12 +722,15 @@ def test_r1_a1_precio_cotizado_distinto_no_pasa():
 
 
 def test_r1_b2_freno6_virtual_no_frena_en_live_si_en_shadow():
+    from app.precio.tipos import PideCotizacion
+
     ent = dict(
         costo="40",
         senal=senal_perdiendo(),
         cambios=(CambioPrevio(HOY - timedelta(days=10), "subir", "confirmado", aplicado=False),),
     )
-    assert decide(entrada(**ent)).resultado == "bajar"
+    # En live el virtual no frena: sigue a la maquina de bajada.
+    assert isinstance(decide(entrada(**ent)), PideCotizacion)
     assert decide(entrada(**ent, mode="shadow")).motivo == "perdiendo_tras_subida"
 
 
