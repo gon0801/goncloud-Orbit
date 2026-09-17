@@ -1,4 +1,4 @@
--- ORBIT · fase 8 · repricing-01 · E.1 · ronda de corrección r4a
+-- ORBIT · fase 8 · repricing-01 · E.1 · ronda de corrección r5a
 -- Rezago de INGESTA: entre event_date del cargo y observed_at (la corrida
 -- que lo trajo a Orbit). Distinto del rezago de EMISIÓN (ver
 -- rezago-emision.sql).
@@ -10,7 +10,7 @@
 -- carga inicial con la incremental infla p50 a ~134 días: la carga
 -- inicial no mide "cuánto tarda Orbit en enterarse", mide "cuánto tiempo
 -- pasó desde que existe el dato hasta que se hizo el backfill", una sola
--- vez. Por eso esta consulta reporta DOS filas por plataforma: `todas`
+-- vez. Por eso el primer SELECT reporta DOS filas por plataforma: `todas`
 -- (incluye la carga inicial, para que el número quede documentado, no
 -- escondido) y `solo_incremental` (filas cuyo DÍA DE INGESTA en UTC es
 -- POSTERIOR al primer día de ingesta de `shipping_fee` — calculado desde
@@ -18,6 +18,21 @@
 --
 -- Ambas fechas se comparan en UTC ((columna AT TIME ZONE 'UTC')::date en
 -- vez de un cast implícito a la zona horaria de la sesión).
+--
+-- Hallazgo 30 (ronda r5a, baja): `es_incremental = dia_ingesta >
+-- primer_dia` SUPONE que la carga inicial tomó UN solo día; si tomara
+-- dos, el segundo día de carga se cuela en `solo_incremental` sin que
+-- nada lo delate. Dos arreglos:
+--   (i) el primer SELECT ahora también cuenta aparte los rezagos
+--       NEGATIVOS (un evento cuya fecha es POSTERIOR a su propio día de
+--       ingesta — cronológicamente imposible salvo reloj/zona horaria
+--       desalineados) y los excluye del percentil, igual que
+--       rezago-emision.sql.
+--   (ii) un TERCER SELECT nuevo, por `(platform, dia_ingesta)`: filas y
+--       `event_date` mínimo/máximo de cada día de ingesta — si la carga
+--       inicial tomó más de un día, aparece como dos (o más) días con
+--       muchas filas y un rango de `event_date` ancho, en vez de
+--       perderse dentro de `primer_dia_global`.
 
 -- 1) rezago de ingesta, todas las filas vs solo incremental
 with poblacion as (
@@ -53,6 +68,7 @@ clasificado as (
         c.platform,
         c.event_date,
         c.dia_ingesta,
+        (c.dia_ingesta - c.event_date) as rezago_dias,
         (c.dia_ingesta > pdg.primer_dia) as es_incremental
     from con_dia_ingesta c
     cross join primer_dia_global pdg
@@ -61,9 +77,10 @@ select
     platform,
     'todas' as alcance,
     count(*) as filas,
-    percentile_cont(0.5) within group (order by (dia_ingesta - event_date)) as rezago_ingesta_p50_dias,
-    percentile_cont(0.9) within group (order by (dia_ingesta - event_date)) as rezago_ingesta_p90_dias,
-    max(dia_ingesta - event_date) as rezago_ingesta_max_dias
+    count(*) filter (where rezago_dias < 0) as filas_con_rezago_negativo,
+    percentile_cont(0.5) within group (order by rezago_dias) filter (where rezago_dias >= 0) as rezago_ingesta_p50_dias,
+    percentile_cont(0.9) within group (order by rezago_dias) filter (where rezago_dias >= 0) as rezago_ingesta_p90_dias,
+    max(rezago_dias) filter (where rezago_dias >= 0) as rezago_ingesta_max_dias
 from clasificado
 group by platform
 
@@ -73,9 +90,10 @@ select
     platform,
     'solo_incremental' as alcance,
     count(*) as filas,
-    percentile_cont(0.5) within group (order by (dia_ingesta - event_date)) as rezago_ingesta_p50_dias,
-    percentile_cont(0.9) within group (order by (dia_ingesta - event_date)) as rezago_ingesta_p90_dias,
-    max(dia_ingesta - event_date) as rezago_ingesta_max_dias
+    count(*) filter (where rezago_dias < 0) as filas_con_rezago_negativo,
+    percentile_cont(0.5) within group (order by rezago_dias) filter (where rezago_dias >= 0) as rezago_ingesta_p50_dias,
+    percentile_cont(0.9) within group (order by rezago_dias) filter (where rezago_dias >= 0) as rezago_ingesta_p90_dias,
+    max(rezago_dias) filter (where rezago_dias >= 0) as rezago_ingesta_max_dias
 from clasificado
 where es_incremental
 group by platform
@@ -102,3 +120,35 @@ select
     min(dia_ingesta) as primer_dia_de_ingesta,
     max(dia_ingesta) as ultimo_dia_de_ingesta
 from con_dia_ingesta;
+
+-- 3) por día de ingesta (hallazgo 30): filas y event_date mínimo/máximo.
+-- Si la carga inicial tomó más de un día, se ve aquí como dos filas
+-- consecutivas con muchas filas y un rango de event_date ancho — no
+-- desaparece dentro de "el primer día".
+with poblacion as (
+    select
+        le.platform,
+        le.event_date,
+        le.observed_at
+    from ledger_event le
+    where le.fee_type = 'shipping_fee'
+      and le.kind = 'fee'
+      and le.event_date >= (((now() at time zone 'UTC')::date)) - interval '365 days'
+      and le.event_date <  (((now() at time zone 'UTC')::date))
+),
+con_dia_ingesta as (
+    select
+        platform,
+        event_date,
+        (observed_at at time zone 'UTC')::date as dia_ingesta
+    from poblacion
+)
+select
+    platform,
+    dia_ingesta,
+    count(*) as filas,
+    min(event_date) as event_date_minimo,
+    max(event_date) as event_date_maximo
+from con_dia_ingesta
+group by platform, dia_ingesta
+order by platform, dia_ingesta;

@@ -51,7 +51,12 @@ insert into product (odoo_sku, name) values
     ('E1-PPARCASI', 'Producto con par de etiquetas casi igual (ronda r4a, cargos-por-orden-y-fuente.sql)'),
     ('E1-PPARLEJOS', 'Producto con par de etiquetas muy distinto (ronda r4a, cargos-por-orden-y-fuente.sql)'),
     ('E1-PCARGA', 'Producto con filas de carga inicial y de ingesta incremental (ronda r4a, rezago-ingesta.sql)'),
-    ('E1-PDOSFECHAS', 'Producto con dos cargos de envío en fechas distintas (ronda r4c, rezago-emision.sql medida a)');
+    ('E1-PDOSFECHAS', 'Producto con dos cargos de envío en fechas distintas (ronda r4c, rezago-emision.sql medida a)'),
+    ('E1-PFECHAMALA', 'Producto con shipping_label de parte 4 no parseable (ronda r5a, hallazgo 29)'),
+    ('E1-PCARGA2DIAS', 'Producto con un segundo día de carga con eventos viejos (ronda r5a, hallazgo 30)'),
+    ('E1-PRENEG', 'Producto con rezago de ingesta negativo (ronda r5a, hallazgo 30)'),
+    ('E1-PPARCERO', 'Producto con par de etiquetas de monto mayor 0 (ronda r5a, hallazgo 34)'),
+    ('E1-PPARHB', 'Producto con par finance:ShippingHB / shipping_label (ronda r5a, observación 33)');
 
 -- =====================================================================
 -- P6: 6 órdenes de un solo producto y una sola unidad, dentro de 90 días.
@@ -527,5 +532,96 @@ insert into ledger_event (platform, kind, event_date, order_id, product_id, quan
      null, null, -90.00, 'MXN', 'shipping_fee', 'amazon_mx|finance|fee|ord_dos_fechas||ShippingHB', (select max(id) from ingest_run)),
     ('amazon_mx', 'fee', current_date - interval '8 days', 'ord_dos_fechas',
      null, null, -60.00, 'MXN', 'shipping_fee', 'amazon_mx|shipping_label|ord_dos_fechas|' || to_char(current_date - interval '8 days', 'YYYY-MM-DD'), (select max(id) from ingest_run));
+
+-- =====================================================================
+-- RONDA r5a: hallazgo medio 29 (cast que puede abortar la consulta) +
+-- hallazgos bajos 30/32/34 + observación 33 (todos del revisor sobre la
+-- ronda anterior).
+-- =====================================================================
+
+-- E1-PFECHAMALA: fila shipping_label cuya parte 4 NO tiene forma de
+-- fecha ('SIN-FECHA'). Antes de esta ronda, `split_part(...)::date` en
+-- rezago-emision.sql (c) tronaba la consulta ENTERA con "invalid input
+-- syntax for type date" al llegar a esta fila. Con el arreglo, la fila
+-- se cuenta en `filas_shipping_label_sin_fecha_parseable` y la consulta
+-- sigue corriendo.
+insert into ledger_event (platform, kind, event_date, order_id, product_id, quantity, amount, amount_currency, fee_type, source_event_id, ingest_run_id) values
+    ('amazon_us', 'sale', current_date - interval '13 days', 'ord_fecha_mala',
+     (select id from product where odoo_sku = 'E1-PFECHAMALA'), 1, 350.00, 'MXN', null, null, (select max(id) from ingest_run)),
+    ('amazon_us', 'fee', current_date - interval '13 days', 'ord_fecha_mala',
+     null, null, -90.00, 'MXN', 'shipping_fee', 'amazon_us|shipping_label|ord_fecha_mala|SIN-FECHA', (select max(id) from ingest_run));
+
+-- E1-PCARGA2DIAS: un SEGUNDO día de carga con eventos viejos
+-- (observed_at hace 29 días — un día después del primer_dia_global de
+-- E1-PCARGA, hace 30 días — pero con event_date igual de viejo que la
+-- carga inicial, no un evento reciente). Con la lógica actual
+-- (`es_incremental = dia_ingesta > primer_dia`) estas filas se clasifican
+-- 'solo_incremental' aunque en realidad son la MISMA carga inicial
+-- continuando un segundo día — el hallazgo 30 pide que esto se VEA en el
+-- tercer SELECT de rezago-ingesta.sql (por día de ingesta), no que se
+-- reclasifique.
+insert into ledger_event (platform, kind, event_date, observed_at, order_id, product_id, quantity, amount, amount_currency, fee_type, source_event_id, ingest_run_id)
+select
+    'amazon_mx', 'fee', current_date - (n || ' days')::interval, (current_date - interval '29 days')::timestamptz,
+    'ord_carga2dias_' || n,
+    null, null, -90.00, 'MXN', 'shipping_fee',
+    'amazon_mx|finance|fee|ord_carga2dias_' || n || '||ShippingHB',
+    (select max(id) from ingest_run)
+from unnest(array[62, 63]) n;
+
+insert into ledger_event (platform, kind, event_date, order_id, product_id, quantity, amount, amount_currency, fee_type, source_event_id, ingest_run_id)
+select
+    'amazon_mx', 'sale', current_date - (n || ' days')::interval, 'ord_carga2dias_' || n,
+    (select id from product where odoo_sku = 'E1-PCARGA2DIAS'), 1, 300.00, 'MXN', null, null,
+    (select max(id) from ingest_run)
+from unnest(array[62, 63]) n;
+
+-- E1-PRENEG: rezago de ingesta NEGATIVO — event_date hace 3 días,
+-- observed_at hace 18 días (Orbit "se enteró" antes de que el evento
+-- ocurriera, cronológicamente imposible salvo reloj/zona horaria
+-- desalineados). rezago = dia_ingesta(hoy-18) - event_date(hoy-3) = -15.
+--
+-- RONDA r5c (hallazgo del verificador sobre la validación local): la
+-- versión anterior vivía en `amazon_us` (152 filas en el bucket
+-- `solo_incremental`, con muchos empates) y el -4 no cambiaba ni p50 ni
+-- p90 ni el máximo al quitar la exclusión — no discriminaba. Se movió a
+-- `amazon_mx` (bucket más chico, menos empates cerca del centro): al
+-- insertarse como el valor MÁS NEGATIVO de la muestra, desplaza en 1 el
+-- rango de TODOS los demás valores — con el bucket de `amazon_mx` eso
+-- SÍ cambia el resultado interpolado de p50/p90 (verificado con una
+-- consulta de inspección antes de fijar esta fixture: con la exclusión
+-- activa, p50=20.5/p90=141.5; sin ella, p50=20/p90=141.4 — ver
+-- `validacion-local.md`, sección "Ronda r5c"). El máximo NO cambia (un
+-- valor más chico nunca puede ser el máximo), por diseño: el hallazgo
+-- solo pedía que se moviera "el máximo O el p50".
+insert into ledger_event (platform, kind, event_date, observed_at, order_id, product_id, quantity, amount, amount_currency, fee_type, source_event_id, ingest_run_id) values
+    ('amazon_mx', 'fee', current_date - interval '3 days', (current_date - interval '18 days')::timestamptz, 'ord_rezago_negativo',
+     null, null, -90.00, 'MXN', 'shipping_fee', 'amazon_mx|finance|fee|ord_rezago_negativo||ShippingHB', (select max(id) from ingest_run)),
+    ('amazon_mx', 'sale', current_date - interval '3 days', now(), 'ord_rezago_negativo',
+     (select id from product where odoo_sku = 'E1-PRENEG'), 1, 300.00, 'MXN', null, null, (select max(id) from ingest_run));
+
+-- E1-PPARCERO: par de etiqueta con AMBOS montos en 0 (finance:
+-- LabmanLabelPurchase 0.00 y shipping_label 0.00) — greatest(0,0)=0,
+-- diferencia_pct = 0/nullif(0,0) = NULL. Antes del hallazgo 34 esta
+-- orden no caía en ningún balde de cargos-por-orden-y-fuente.sql (e);
+-- ahora cae en `sin_cociente`.
+insert into ledger_event (platform, kind, event_date, order_id, product_id, quantity, amount, amount_currency, fee_type, source_event_id, ingest_run_id) values
+    ('amazon_us', 'sale', current_date - interval '19 days', 'ord_par_cero',
+     (select id from product where odoo_sku = 'E1-PPARCERO'), 1, 300.00, 'MXN', null, null, (select max(id) from ingest_run)),
+    ('amazon_us', 'fee', current_date - interval '19 days', 'ord_par_cero',
+     null, null, 0.00, 'MXN', 'shipping_fee', 'amazon_us|finance|fee|ord_par_cero||LabmanLabelPurchase', (select max(id) from ingest_run)),
+    ('amazon_us', 'fee', current_date - interval '19 days', 'ord_par_cero',
+     null, null, 0.00, 'MXN', 'shipping_fee', 'amazon_us|shipping_label|ord_par_cero|' || to_char(current_date - interval '19 days', 'YYYY-MM-DD'), (select max(id) from ingest_run));
+
+-- E1-PPARHB: par finance:ShippingHB (80) / shipping_label (60) — para
+-- ejercitar los nuevos bloques (f)/(g) de cargos-por-orden-y-fuente.sql
+-- (observación 33).
+insert into ledger_event (platform, kind, event_date, order_id, product_id, quantity, amount, amount_currency, fee_type, source_event_id, ingest_run_id) values
+    ('amazon_us', 'sale', current_date - interval '21 days', 'ord_par_hb',
+     (select id from product where odoo_sku = 'E1-PPARHB'), 1, 400.00, 'MXN', null, null, (select max(id) from ingest_run)),
+    ('amazon_us', 'fee', current_date - interval '21 days', 'ord_par_hb',
+     null, null, -80.00, 'MXN', 'shipping_fee', 'amazon_us|finance|fee|ord_par_hb||ShippingHB', (select max(id) from ingest_run)),
+    ('amazon_us', 'fee', current_date - interval '21 days', 'ord_par_hb',
+     null, null, -60.00, 'MXN', 'shipping_fee', 'amazon_us|shipping_label|ord_par_hb|' || to_char(current_date - interval '21 days', 'YYYY-MM-DD'), (select max(id) from ingest_run));
 
 commit;

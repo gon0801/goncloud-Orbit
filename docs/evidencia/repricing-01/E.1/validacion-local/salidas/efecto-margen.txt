@@ -84,12 +84,6 @@ BEGIN
 17|amazon_mx|180|duplicado_etiqueta|6|t|6|2|0|f|90||500.0000000000000000||180
 17|amazon_mx|365|componentes|6|t|6|2|0|f|90||500.0000000000000000||181
 17|amazon_mx|365|duplicado_etiqueta|6|t|6|2|0|f|90||500.0000000000000000||181
-18|amazon_mx|90|componentes|1|f|1|1|0|f|320||600.0000000000000000||90
-18|amazon_mx|90|duplicado_etiqueta|1|f|1|1|0|f|200||600.0000000000000000||90
-18|amazon_mx|180|componentes|1|f|1|1|0|f|320||600.0000000000000000||180
-18|amazon_mx|180|duplicado_etiqueta|1|f|1|1|0|f|200||600.0000000000000000||180
-18|amazon_mx|365|componentes|1|f|1|1|0|f|320||600.0000000000000000||181
-18|amazon_mx|365|duplicado_etiqueta|1|f|1|1|0|f|200||600.0000000000000000||181
 19|amazon_us|90|componentes|2|f|2|2|0|f|57.5||375.0000000000000000||90
 19|amazon_us|90|duplicado_etiqueta|2|f|2|2|0|f|57.5||375.0000000000000000||90
 19|amazon_us|180|componentes|2|f|2|2|0|f|57.5||375.0000000000000000||140
@@ -120,6 +114,12 @@ BEGIN
 25|amazon_mx|180|duplicado_etiqueta|4|f|4|4|0|f|90||300.0000000000000000||180
 25|amazon_mx|365|componentes|4|f|4|4|0|f|90||300.0000000000000000||181
 25|amazon_mx|365|duplicado_etiqueta|4|f|4|4|0|f|90||300.0000000000000000||181
+28|amazon_mx|90|componentes|2|f|2|2|0|f|90||300.0000000000000000||90
+28|amazon_mx|90|duplicado_etiqueta|2|f|2|2|0|f|90||300.0000000000000000||90
+28|amazon_mx|180|componentes|2|f|2|2|0|f|90||300.0000000000000000||180
+28|amazon_mx|180|duplicado_etiqueta|2|f|2|2|0|f|90||300.0000000000000000||180
+28|amazon_mx|365|componentes|2|f|2|2|0|f|90||300.0000000000000000||181
+28|amazon_mx|365|duplicado_etiqueta|2|f|2|2|0|f|90||300.0000000000000000||181
 1|amazon_mx|componentes|1|f|95|95|95|180
 1|amazon_mx|duplicado_etiqueta|1|f|95|95|95|180
 1|amazon_us|componentes|6|t|93.5|94.75|95.5|140
@@ -148,8 +148,6 @@ BEGIN
 16|amazon_mx|duplicado_etiqueta|14|t|90|90|90|180
 17|amazon_mx|componentes|6|t|90|90|90|180
 17|amazon_mx|duplicado_etiqueta|6|t|90|90|90|180
-18|amazon_mx|componentes|1|f|320|320|320|180
-18|amazon_mx|duplicado_etiqueta|1|f|200|200|200|180
 19|amazon_us|componentes|2|f|57.5|78.75|91.5|140
 19|amazon_us|duplicado_etiqueta|2|f|57.5|78.75|91.5|140
 20|amazon_us|componentes|2|f|90|90|90|140
@@ -160,5 +158,7 @@ BEGIN
 22|amazon_mx|duplicado_etiqueta|6|t|90|90|90|180
 25|amazon_mx|componentes|4|f|90|90|90|180
 25|amazon_mx|duplicado_etiqueta|4|f|90|90|90|180
+28|amazon_mx|componentes|2|f|90|90|90|180
+28|amazon_mx|duplicado_etiqueta|2|f|90|90|90|180
 -- FIN efecto-margen
 ROLLBACK

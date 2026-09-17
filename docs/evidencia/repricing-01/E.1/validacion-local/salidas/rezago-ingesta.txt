@@ -1,9 +1,16 @@
 BEGIN
 -- INICIO rezago-ingesta
-amazon_mx|solo_incremental|44|16.5|141.7|181
-amazon_mx|todas|46|20.5|141.5|181
-amazon_us|solo_incremental|43|10|20|140
-amazon_us|todas|43|10|20|140
-4|2026-08-18|2026-09-17
+amazon_mx|solo_incremental|47|1|20.5|141.5|181
+amazon_mx|todas|49|1|21.5|141.3|181
+amazon_us|solo_incremental|48|0|12|21|140
+amazon_us|todas|48|0|12|21|140
+6|2026-08-18|2026-09-17
+amazon_mx|2026-08-18|2|2026-07-18|2026-07-19
+amazon_mx|2026-08-19|2|2026-07-16|2026-07-17
+amazon_mx|2026-08-30|1|2026-09-14|2026-09-14
+amazon_mx|2026-09-16|2|2026-09-14|2026-09-15
+amazon_mx|2026-09-17|42|2026-03-20|2026-09-16
+amazon_us|2026-08-25|1|2026-08-18|2026-08-18
+amazon_us|2026-09-17|47|2026-04-30|2026-09-16
 -- FIN rezago-ingesta
 ROLLBACK

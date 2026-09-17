@@ -1,4 +1,4 @@
--- ORBIT · fase 8 · repricing-01 · E.1 · ronda de corrección r4a
+-- ORBIT · fase 8 · repricing-01 · E.1 · ronda de corrección r5a
 -- Rezago de EMISIÓN: distinto del rezago de INGESTA (ver
 -- rezago-ingesta.sql). Reescrita en r4a con CUATRO medidas separadas,
 -- cada una en su propio SELECT, ninguna afirma "fecha de envío" — eso lo
@@ -25,7 +25,11 @@
 -- (b) cargo (el "último", igual que el resto de E.1) − `purchase_date` de
 --     `spapi_order_observation` (medido por el lead: cobertura PARCIAL,
 --     solo 84 órdenes MX / 86 US tienen observación; de esas, p50 0, p90
---     0, máx 0; 37 negativas en cada plataforma).
+--     0/2; **37 negativas en MX, 0 en US** — hallazgo 32, ronda r5a: la
+--     salida real de esta medida discrepa de una sonda anterior porque
+--     esta consulta compara contra el ÚLTIMO cargo de la orden y esa
+--     sonda anterior comparaba contra el PRIMERO; no son la misma
+--     medida, y por eso no dan el mismo número por plataforma).
 -- (c) DIAGNÓSTICO (no una medida de rezago independiente): cargo − fecha
 --     de la parte 4 de la fila `shipping_label`. Medido por el lead: esa
 --     fecha ES el `event_date` de la propia fila `shipping_label` (no
@@ -200,19 +204,41 @@ cargo_orden as (
     from cargos
     group by order_id, platform
 ),
+-- hallazgo 29 (ronda r5a, media): split_part(...)::date convertía texto
+-- que arma un sistema EXTERNO (el reporte shipping_label de Amazon) sin
+-- validar la forma antes de castear. UNA fila mal formada (parte 4 sin
+-- forma de fecha, p.ej. "SIN-FECHA") tronaba TODA la consulta con
+-- "invalid input syntax for type date", y bajo correr.sh eso se lleva
+-- también la consulta siguiente (el pipeline sigue leyendo la misma
+-- conexión). Ahora solo castea cuando la parte 4 TIENE forma de fecha
+-- (regex `^\d{4}-\d{2}-\d{2}$`); las filas que no la tienen se cuentan
+-- aparte (`filas_shipping_label_sin_fecha_parseable`), nunca abortan la
+-- corrida ni se pierden en silencio.
+fechas_shipping_label as (
+    select
+        order_id, platform,
+        nullif(split_part(source_event_id, '|', 4), '') as fecha_parte4,
+        case
+            when nullif(split_part(source_event_id, '|', 4), '') ~ '^\d{4}-\d{2}-\d{2}$'
+                then nullif(split_part(source_event_id, '|', 4), '')::date
+        end as fecha_parseada
+    from cargos
+    where identidad_fuente = 'shipping_label'
+),
 shipping_label_por_orden as (
     select
         order_id, platform,
-        min(nullif(split_part(source_event_id, '|', 4), '')::date) as fecha_reporte
-    from cargos
-    where identidad_fuente = 'shipping_label'
+        min(fecha_parseada) as fecha_reporte,
+        count(*) filter (where fecha_parte4 is not null and fecha_parseada is null) as filas_sin_fecha_parseable
+    from fechas_shipping_label
     group by order_id, platform
 ),
 diagnostico as (
     select
         co.platform,
         (slo.fecha_reporte is not null) as tiene_shipping_label,
-        co.ultimo_cargo - slo.fecha_reporte as diff_dias
+        co.ultimo_cargo - slo.fecha_reporte as diff_dias,
+        coalesce(slo.filas_sin_fecha_parseable, 0) as filas_sin_fecha_parseable
     from cargo_orden co
     left join shipping_label_por_orden slo using (order_id, platform)
 )
@@ -227,7 +253,8 @@ select
         filter (where tiene_shipping_label and diff_dias >= 0) as diff_p50_dias,
     percentile_cont(0.9) within group (order by diff_dias)
         filter (where tiene_shipping_label and diff_dias >= 0) as diff_p90_dias,
-    max(diff_dias) filter (where tiene_shipping_label and diff_dias >= 0) as diff_max_dias
+    max(diff_dias) filter (where tiene_shipping_label and diff_dias >= 0) as diff_max_dias,
+    sum(filas_sin_fecha_parseable) as filas_shipping_label_sin_fecha_parseable
 from diagnostico
 group by platform
 order by platform;

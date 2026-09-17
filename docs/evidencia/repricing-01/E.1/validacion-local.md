@@ -55,6 +55,13 @@ psql "postgresql://orbit:orbit@localhost:5432/<db>" \
   -f docs/evidencia/repricing-01/E.1/validacion-local/semilla.sql
 ```
 
+**Si la carga de la semilla FALLA, no se reusa esa base**: las
+secuencias de identidad (`GENERATED ALWAYS AS IDENTITY`) de Postgres NO
+se revierten con el `ROLLBACK` de la transacción que falló, así que un
+segundo intento contra la MISMA base arranca los ids más adelante de lo
+que arrancaría una base nueva (esto pasó de verdad en la ronda r5a — ver
+"Ronda r5c" abajo). Ante un fallo, se crea una base con otro nombre único
+y se corre la semilla ahí desde cero.
 ## Ronda r2 (2026-09-17): E1-PMIXTO
 
 El verificador rechazó r1 por hallazgo medio: la fixture de "sin
@@ -127,25 +134,13 @@ sintéticos equivalentes.
   (c) diagnóstico shipping_label: `ordenes_con_diff_negativa=1`
   (`ord_reznegativo`, diferencia −5, excluida del percentil).
 
-- **`rezago-ingesta.sql`**: dos filas por plataforma
-  (`todas`/`solo_incremental`) más el resumen de días de ingesta. Salida
-  real (actualizada en la ronda r4c: las 2 filas de cargo de
-  `E1-PDOSFECHAS`, con `observed_at` por defecto de hoy, suman 2 filas
-  más a `amazon_mx` en ambos buckets frente a la cita de r4a):
-
-  ```
-  amazon_mx|solo_incremental|44|16.5|141.7|181
-  amazon_mx|todas|46|20.5|141.5|181
-  4|2026-08-18|2026-09-17
-  ```
-
-  `todas=46` vs `solo_incremental=44`: las 2 filas de `E1-PCARGA` con
-  `observed_at` hace 30 días (la más vieja de toda la semilla, por eso se
-  convierte en `primer_dia_de_ingesta` = 2026-08-18, calculado, no
-  literal) quedan EXCLUIDAS de `solo_incremental`. `dias_de_ingesta=4`
-  (hoy, hace 1 día, hace 23 días de `ord_rezago`, hace 30 días de la
-  carga inicial) — sin cambio, `E1-PDOSFECHAS` no agrega un día de
-  ingesta nuevo porque su `observed_at` es el de hoy, ya contado.
+- **`rezago-ingesta.sql`**: en la ronda r4a tenía dos filas por
+  plataforma (`todas`/`solo_incremental`) más el resumen de días de
+  ingesta; desde r5a tiene además un tercer `SELECT` por día de ingesta y
+  una columna de rezagos negativos (ver la sección "Ronda r5a" abajo para
+  el esquema y la salida vigentes — el esquema de columnas cambió, así
+  que la cita puntual de esta ronda quedó obsoleta por diseño, no por un
+  fixture nuevo).
 
 - **`descartes.sql`**: partido en `sin_fila_de_venta` y
   `venta_sin_producto`, con columna `platform`. Salida real:
@@ -158,11 +153,13 @@ sintéticos equivalentes.
   `venta_sin_producto=1` (`ord_venta_sin_producto`, la venta existe pero
   sin `product_id`) separado de `sin_fila_de_venta=2`
   (`ord_sin_venta`/`ord_rezago`, sin ninguna venta). El total `usable`
-  (`amazon_mx|usable|41` en la salida original de r4a, `42` desde la
-  ronda r4c porque `E1-PDOSFECHAS` suma una orden usable más en
-  `amazon_mx`; `amazon_us|usable|30` sin cambio) no varía por el
-  criterio en sí: el resto de las consultas (`envio-por-producto.sql`
-  etc.) sigue exigiendo venta CON `product_id` vía `orden_producto`, sin
+  sube con cada fixture nueva que agrega una orden normal: `41` en la
+  salida original de r4a, `42` desde r4c (`E1-PDOSFECHAS`), `44` desde
+  r5a (`E1-PCARGA2DIAS` suma 2 en `amazon_mx`) — `amazon_us` sube de `30`
+  a `34` en la misma ronda r5a (`E1-PFECHAMALA`, `E1-PRENEG`,
+  `E1-PPARCERO`, `E1-PPARHB`). No varía por el criterio en sí: el resto
+  de las consultas (`envio-por-producto.sql` etc.) sigue exigiendo venta
+  CON `product_id` vía `orden_producto`, sin
   tocar esa lógica.
 
 - **`cargos-por-orden-y-fuente.sql`**, resultado (d)/(e), pares de
@@ -274,6 +271,255 @@ nombre único (por ejemplo `e1_validacion_r4c_104204`) y se deja sin
 directorio de `mktemp -d` que tampoco se borra. La ruta y el nombre
 exactos de esta ronda están en el reporte al coordinador, no en este
 documento (cambian en cada corrida).
+
+## Ronda r5a (2026-09-17): cast externo sin validar + 3 hallazgos bajos + 1 observación
+
+El revisor cerró su tercera pasada sobre `c621ad2` con CHANGES 0 altas /
+1 media; los nueve hallazgos anteriores quedaron CERRADOS. Solo se
+tocaron `consultas/*.sql` y `validacion-local/**` — `medicion.md` se
+actualiza en r5b, cuando el lead re-corra.
+
+### Hallazgo 29 (media) — cast de texto externo sin validar
+
+`rezago-emision.sql`, medida (c): `split_part(source_event_id,'|',4)::date`
+convertía texto que arma un SISTEMA EXTERNO (el reporte `shipping_label`
+de Amazon) sin validar la forma antes de castear. Se agregó
+`E1-PFECHAMALA`: una fila `shipping_label` con parte 4 = `'SIN-FECHA'`.
+
+Salida real (CON el arreglo — el cast solo corre si la parte 4 tiene
+forma `^\d{4}-\d{2}-\d{2}$`), `validacion-local/salidas/rezago-emision.txt`:
+
+```
+amazon_us|38|9|29|1|-5|0|1.5000000000000009|5|1
+```
+
+La consulta corrió completa (las 4 medidas, ver más abajo); el último
+campo (`filas_shipping_label_sin_fecha_parseable = 1`) cuenta la fila de
+`E1-PFECHAMALA` SIN abortar y sin perderla en silencio.
+
+Salida MUTANTE (revirtiendo al cast directo sin validar, en una copia
+temporal fuera del árbol versionado — ver ruta en el reporte al
+coordinador — corrida contra la MISMA base):
+
+```
+amazon_mx|primer_cargo|46|46|0|1|0|0|226
+amazon_mx|ultimo_cargo|46|46|0|0|0|0|226
+amazon_us|primer_cargo|38|36|2|0|0|0|0
+amazon_us|ultimo_cargo|38|36|2|0|0|0|0
+amazon_mx|46|0|46|0|||
+amazon_us|38|1|37|0|6|6|6
+ERROR:  invalid input syntax for type date: "SIN-FECHA"
+```
+
+La consulta corrió las medidas (a) y (b) y TRONÓ en (c) — exactamente el
+riesgo que describe el hallazgo: una fila mal formada aborta la consulta
+completa, y las medidas que venían después (aquí, la (d)) nunca corren.
+`psql` salió con código 3.
+
+**Revisión del resto de las consultas** (hallazgo 29 pedía revisar otros
+casts del mismo riesgo): `grep -n "split_part.*::" consultas/*.sql`
+solo encuentra esta UNA ocurrencia en todo `consultas/`. El resto de los
+`::date` de E.1 castean `now()`, `observed_at`, `purchase_date` o
+`last_updated_time` — columnas `TIMESTAMPTZ` ya tipadas por Postgres, no
+texto libre de un sistema externo; no tienen el mismo riesgo.
+
+### Hallazgo 30 (baja) — un segundo día de carga inicial, invisible
+
+`rezago-ingesta.sql`: `es_incremental = dia_ingesta > primer_dia` supone
+que la carga inicial tomó un solo día. Se agregó `E1-PCARGA2DIAS`: 2
+filas con `observed_at` hace 29 días (un día después del
+`primer_dia_global` de `E1-PCARGA`, hace 30) pero con `event_date` tan
+viejo como la carga inicial real. También se agregó `E1-PRENEG`: un
+rezago de ingesta NEGATIVO (`event_date` hace 1 día, `observed_at` hace
+5 — Orbit "se enteró" antes de que el evento existiera).
+
+Salida real, resultado 1 (con la columna nueva de rezagos negativos —
+**actualizada en la ronda r5c**: `E1-PRENEG` se movió de `amazon_us` a
+`amazon_mx`, ver "Ronda r5c" más abajo, así que ahora es `amazon_mx`
+quien muestra la fila con rezago negativo):
+
+```
+amazon_mx|solo_incremental|47|1|20.5|141.5|181
+amazon_mx|todas|49|1|21.5|141.3|181
+amazon_us|solo_incremental|48|0|12|21|140
+amazon_us|todas|48|0|12|21|140
+```
+
+`amazon_mx` muestra `filas_con_rezago_negativo = 1` (la fila de
+`E1-PRENEG`), excluida del percentil en las dos medidas.
+
+Resultado 3 (nuevo, por día de ingesta) — aquí es donde el segundo día de
+carga inicial se VE, sin que la consulta lo reclasifique (el hallazgo
+pedía visibilidad, no una reclasificación). También aparece
+`2026-08-30` (1 fila) — el día de ingesta de `E1-PRENEG` desde la ronda
+r5c:
+
+```
+amazon_mx|2026-08-18|2|2026-07-18|2026-07-19
+amazon_mx|2026-08-19|2|2026-07-16|2026-07-17
+amazon_mx|2026-08-30|1|2026-09-14|2026-09-14
+amazon_mx|2026-09-16|2|2026-09-14|2026-09-15
+amazon_mx|2026-09-17|42|2026-03-20|2026-09-16
+```
+
+`2026-08-18` (la carga original de `E1-PCARGA`) y `2026-08-19` (la nueva
+de `E1-PCARGA2DIAS`) aparecen como dos días CONSECUTIVOS con pocas filas
+y `event_date` igual de viejo — el patrón de una carga inicial que tomó
+dos días, visible aunque `primer_dia_global` solo capture el primero.
+
+### Hallazgo 32 (baja) — el comentario decía "37 en cada plataforma"
+
+`rezago-emision.sql`, cabecera de la medida (b): decía "37 negativas en
+cada plataforma"; la salida real de esa medida da 37 en MX y 0 en US
+(medido en producción, `salidas/rezago-emision.txt` de r4b). Se corrigió
+el comentario para explicar la causa: esta medida compara contra el
+ÚLTIMO cargo de la orden, y la sonda anterior del lead comparaba contra
+el PRIMERO — no son la misma medida, por eso no dan el mismo número por
+plataforma.
+
+### Hallazgo 34 (baja) — balde `sin_cociente`
+
+`cargos-por-orden-y-fuente.sql`, resumen (e): una orden cuyo monto MAYOR
+es 0 deja `diferencia_pct` en `NULL` (división por 0 vía `nullif`) y no
+caía en ningún balde. Se agregó `E1-PPARCERO`: par
+`finance:LabmanLabelPurchase` (0.00) / `shipping_label` (0.00). Salida
+real:
+
+```
+ord_par_cero|amazon_us|0.0000|0.0000|0.0000|
+amazon_us|6|40|225.00000000000003|400.0000|1.5|3.6000000000000005|5.0000000000000000|1|0|4|1
+```
+
+El cociente de `ord_par_cero` sale vacío (`NULL`) en el detalle (d), y el
+resumen (e) ahora tiene `sin_cociente = 1`. Verificación de que los
+cuatro baldes suman `ordenes`: `1 (≤1%) + 0 (1-5%) + 4 (>5%) + 1
+(sin_cociente) = 6 = ordenes`.
+
+### Observación 33 — el par `finance:ShippingHB` / `shipping_label`
+
+Nuevos resultados (f)/(g) en `cargos-por-orden-y-fuente.sql`, el MISMO
+análisis de (d)/(e) para el par ShippingHB/shipping_label. Se agregó
+`E1-PPARHB`: `finance:ShippingHB` (80) / `shipping_label` (60). Salida
+real, resultado (g):
+
+```
+amazon_mx|1|30|30|30.0000|1.5|1.5|1.5000000000000000|0|0|1|0
+amazon_us|2|35|47|50.0000|1.6666666666666665|1.9333333333333333|2.0000000000000000|0|0|2|0
+```
+
+`amazon_mx` trae 1 orden (`ord_dos_fechas`, de la ronda r4c, que también
+califica para este par) y `amazon_us` trae 2 (`E1-PPARHB` y
+`ord_tres_fuentes`, que ya tenía ShippingHB + shipping_label desde antes
+sin que nadie lo hubiera medido bajo este par específico). SIN
+VEREDICTO: es evidencia numérica para E.0, igual que el par
+finance-etiqueta.
+
+### Regla de no limpieza (sin cambios desde r4c)
+
+Base de esta ronda (nombre único, sin `DROP`) y directorio temporal
+(`mktemp -d`, sin borrar): declarados en el reporte al coordinador de
+esta ronda, no en este documento (cambian en cada corrida).
+
+## Ronda r5c (2026-09-17): corrimiento de ids + fixture que no discriminaba
+
+El verificador aprobó r5 (18 cifras de `medicion.md` rastreadas a
+producción) y dejó DOS hallazgos bajos, ambos de la validación LOCAL —
+esta ronda no toca producción ni `medicion.md`, solo
+`validacion-local/**`.
+
+### Hallazgo 1 — corrimiento de ids por una carga fallida
+
+En la ronda r5a, el primer intento de cargar la semilla en la base de
+esa ronda (`e1_validacion_r5a_111014`) falló (`VALUES lists must all be
+the same length`, un error mío en el INSERT de `E1-PRENEG`). Corregí el
+error y volví a correr la semilla **contra la MISMA base** — pero las
+secuencias de identidad de Postgres NO se revierten con el `ROLLBACK` de
+la transacción fallida: el segundo intento (exitoso) arrancó los ids de
+`product` en 32 en vez de 1, un corrimiento CONSTANTE de +31 que quedó
+grabado en `envio-por-producto.txt` y `efecto-margen.txt` versionados.
+Quien siguiera "Cómo se corrió" al pie de la letra, en una base fresca,
+obtendría ids 1-31, no 32-62 — un archivo distinto del versionado.
+
+Arreglo: creé una base con nombre nuevo, corrí la semilla ahí (a la
+primera, sin fallar) y confirmé antes de regenerar nada:
+
+```
+select min(id), max(id), count(*) from product;
+-- 1|31|31
+```
+
+Regeneré las 10 salidas sintéticas contra esa base con el mismo pipeline
+de siempre; ya no hay corrimiento.
+
+### Hallazgo 2 — la fixture de rezago negativo no discriminaba
+
+`E1-PRENEG` vivía en `amazon_us` (bucket `solo_incremental` con 152
+filas y muchos valores repetidos): el rezago de `-4` no cambiaba ni p50
+ni p90 ni el máximo al quitar la exclusión de negativos — no
+discriminaba el arreglo del hallazgo 30. Antes de tocar la semilla,
+verifiqué con una consulta de inspección (no una consulta de
+`consultas/`, un `SELECT` ad-hoc) que el problema era el TAMAÑO del
+bucket y la cantidad de empates, no la magnitud del rezago: con -4, -10,
+-20 o -25 el resultado simulado era idéntico siempre — el valor
+insertado solo necesita ser el mínimo de la muestra para desplazar en 1
+el rango de todos los demás; la magnitud no importa mientras el bucket
+tenga huecos entre valores cercanos al centro.
+
+Moví `E1-PRENEG` a `amazon_mx` (bucket más chico, menos empates cerca
+del centro) y cambié el rezago a -15 (`event_date` hace 3 días,
+`observed_at` hace 18). Salida real de `rezago-ingesta.sql`, resultado 1
+(con la exclusión de negativos, la que corre en el repo):
+
+```
+amazon_mx|solo_incremental|47|1|20.5|141.5|181
+```
+
+Salida MUTANTE (copia temporal de la consulta sin el `FILTER (WHERE
+rezago_dias >= 0)` en el primer resultado, corrida contra la MISMA
+base):
+
+```
+amazon_mx|solo_incremental|47|1|20|141.4|181
+```
+
+`p50` cambia de `20.5` a `20` y `p90` de `141.5` a `141.4` al incluir el
+rezago negativo en el cálculo — la fixture SÍ discrimina el arreglo. El
+`máximo` no cambia (`181` en ambos): un valor más chico nunca puede ser
+el máximo, y el hallazgo solo pedía que se moviera "el máximo O el
+p50".
+
+### Hallazgo 3 (encargo) — candado de citas
+
+Escribí un script en Python (en mi directorio temporal, no en el repo)
+que recorre `validacion-local.md`, extrae toda línea dentro de un bloque
+de código con forma de fila de salida (separada por `|`, empezando por
+un id numérico o por `amazon_`), la excluye si el bloque está rotulado
+como salida MUTANTE (rastreando la palabra "MUTANTE" desde el último
+bloque cerrado), y comprueba si el texto EXACTO de esa línea existe en
+algún `validacion-local/salidas/*.txt`.
+
+**Revisó 65 citas; 37 no aparecen literal en ningún `salidas/*.txt`
+vigente.** De esas 37, corregí las **4** que yo mismo dejé viejas en
+esta ronda (líneas de la sección "Hallazgo 30" de arriba, por mover
+`E1-PRENEG` de `amazon_us` a `amazon_mx`) — ya actualizadas arriba.
+
+**Las otras 33 las dejé como registro histórico, con una razón
+verificada, no como descuido**: revisé el esquema real que cada una cita
+(por ejemplo, `efecto-margen.sql` no tenía la columna `dias_con_datos`
+cuando se escribieron las secciones de los hallazgos 1-3, y sí la tiene
+ahora) y el `product_id` que cada una usa (`E1-P8`=8, `E1-PMIXTO`=17,
+`E1-PMFN`=18, `E1-PCHARGE`=19, `E1-PVIEJO`=22, etc.) contra la tabla de
+ids de la base fresca de este apartado: **los ids coinciden** — no son
+un caso del corrimiento +31 del hallazgo 1. Lo que cambió es el NÚMERO
+DE COLUMNAS de la consulta entre rondas (se agregaron `dias_con_datos`,
+`filas_shipping_label_sin_fecha_parseable`, etc. después de que esas
+secciones se escribieron) y el volumen de datos de ese mismo producto
+(rondas posteriores agregaron más órdenes al mismo `product_id`). Esas
+secciones documentan lo que esa ronda concreta produjo EN SU MOMENTO —
+reescribirlas para que coincidan con el esquema/volumen de hoy
+falsificaría el registro histórico de qué probó cada hallazgo. No
+encontré ningún caso de los 33 donde el `product_id` citado fuera
+resultado del corrimiento +31.
 
 ## Bordes sembrados en `semilla.sql` (ronda r1 amplía la ronda anterior)
 
@@ -615,18 +861,17 @@ aparece en la salida.
 
 ### Hallazgo 19 — resultado (b) acotado
 
-**Cita actualizada en la ronda r4c** (las rondas r4a/r4b agregaron
-órdenes con pares de etiqueta y no se había vuelto a citar esta lista
-completa). `cargos-por-orden-y-fuente.txt`, resultado (b): a la fecha de
-la ronda r4c aparecen `ord_chargeback`, `ord_dos_fechas`,
-`ord_dos_fuentes`, `ord_mfn_shipping_label`, `ord_multi_fila_misma_fuente`,
-`ord_par_casi_igual`, `ord_par_lejos` y `ord_tres_fuentes` — las órdenes
-de la semilla con más de una fuente distinta o más de una fila por
-fuente (`ord_dos_fechas`, de esta ronda, entra porque trae
-`finance:ShippingHB` y `shipping_label`, dos fuentes distintas). El resto
-de las órdenes usables (una sola fuente, una sola fila) NO aparecen en
-(b), aunque sí se cuentan en la distribución (a):
-`amazon_mx|1|42`, `amazon_mx|2|2`, `amazon_us|1|28`, `amazon_us|2|4`,
+**Cita actualizada en la ronda r5a.** `cargos-por-orden-y-fuente.txt`,
+resultado (b): a la fecha de la ronda r5a aparecen `ord_chargeback`,
+`ord_dos_fechas`, `ord_dos_fuentes`, `ord_mfn_shipping_label`,
+`ord_multi_fila_misma_fuente`, `ord_par_casi_igual`, `ord_par_cero`,
+`ord_par_hb`, `ord_par_lejos` y `ord_tres_fuentes` — las órdenes de la
+semilla con más de una fuente distinta o más de una fila por fuente
+(`ord_par_cero` y `ord_par_hb`, de esta ronda, entran por lo mismo que
+`ord_dos_fechas`: cada una trae dos fuentes reconocidas distintas). El
+resto de las órdenes usables (una sola fuente, una sola fila) NO aparecen
+en (b), aunque sí se cuentan en la distribución (a):
+`amazon_mx|1|44`, `amazon_mx|2|2`, `amazon_us|1|30`, `amazon_us|2|6`,
 `amazon_us|3|2`.
 
 ### Hecho nuevo (ronda r3) — identidad de fuente real
@@ -661,13 +906,11 @@ etiqueta, así que los dos chargebacks y `ShippingHB` van completos al
 
 Cobertura (`envio-por-producto.txt`, resultado (b)), confirma las seis
 fuentes reales representadas en la semilla. **Cifras vigentes a la ronda
-r4c** (suben con cada fixture nueva que usa una fuente conocida; la de
-`amazon_mx` incluye ahora `E1-PDOSFECHAS`, que aporta 1 a
-`shipping_label` y 1 a `finance:ShippingHB`):
+r5a** (suben con cada fixture nueva que usa una fuente conocida):
 
 ```
-amazon_mx|2|0|1|43|0|0|0|0|0
-amazon_us|7|4|1|25|1|1|1|1|1
+amazon_mx|2|0|1|45|0|0|0|0|0
+amazon_us|10|5|1|27|1|1|1|1|1
 ```
 
 (`shipping_label`, `finance:LabmanLabelPurchase`,

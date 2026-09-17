@@ -1,9 +1,9 @@
 BEGIN
 -- INICIO cargos-por-orden-y-fuente
-amazon_mx|1|42
+amazon_mx|1|45
 amazon_mx|2|2
-amazon_us|1|28
-amazon_us|2|4
+amazon_us|1|29
+amazon_us|2|6
 amazon_us|3|2
 ord_chargeback|amazon_us|finance:ShippingChargeback|20.0000|1
 ord_chargeback|amazon_us|finance:ShippingHB|80.0000|1
@@ -17,6 +17,10 @@ ord_multi_fila_misma_fuente|amazon_us|finance:LabmanLabelPurchase|100.0000|2
 ord_multi_fila_misma_fuente|amazon_us|shipping_label|70.0000|1
 ord_par_casi_igual|amazon_us|finance:LabmanLabelPurchase|452.6900|1
 ord_par_casi_igual|amazon_us|shipping_label|449.6900|1
+ord_par_cero|amazon_us|finance:LabmanLabelPurchase|0.0000|1
+ord_par_cero|amazon_us|shipping_label|0.0000|1
+ord_par_hb|amazon_us|finance:ShippingHB|80.0000|1
+ord_par_hb|amazon_us|shipping_label|60.0000|1
 ord_par_lejos|amazon_us|finance:MFNPostageFee|500.0000|1
 ord_par_lejos|amazon_us|shipping_label|100.0000|1
 ord_tres_fuentes|amazon_us|finance:LabmanLabelPurchase|150.0000|1
@@ -32,9 +36,15 @@ ord_dos_fuentes|amazon_us|150.0000|100.0000|50.0000|1.5000000000000000
 ord_mfn_shipping_label|amazon_mx|200.0000|120.0000|80.0000|1.6666666666666667
 ord_multi_fila_misma_fuente|amazon_us|100.0000|70.0000|30.0000|1.4285714285714286
 ord_par_casi_igual|amazon_us|452.6900|449.6900|3.0000|1.0066712624252263
+ord_par_cero|amazon_us|0.0000|0.0000|0.0000|
 ord_par_lejos|amazon_us|500.0000|100.0000|400.0000|5.0000000000000000
 ord_tres_fuentes|amazon_us|150.0000|100.0000|50.0000|1.5000000000000000
-amazon_mx|1|80|80|80.0000|1.6666666666666667|1.6666666666666667|1.6666666666666667|0|0|1
-amazon_us|5|50|260.00000000000006|400.0000|1.5|3.6000000000000005|5.0000000000000000|1|0|4
+amazon_mx|1|80|80|80.0000|1.6666666666666667|1.6666666666666667|1.6666666666666667|0|0|1|0
+amazon_us|6|40|225.00000000000003|400.0000|1.5|3.6000000000000005|5.0000000000000000|1|0|4|1
+ord_dos_fechas|amazon_mx|90.0000|60.0000|30.0000|1.5000000000000000
+ord_par_hb|amazon_us|80.0000|60.0000|20.0000|1.3333333333333333
+ord_tres_fuentes|amazon_us|50.0000|100.0000|50.0000|2.0000000000000000
+amazon_mx|1|30|30|30.0000|1.5|1.5|1.5000000000000000|0|0|1|0
+amazon_us|2|35|47|50.0000|1.6666666666666665|1.9333333333333333|2.0000000000000000|0|0|2|0
 -- FIN cargos-por-orden-y-fuente
 ROLLBACK

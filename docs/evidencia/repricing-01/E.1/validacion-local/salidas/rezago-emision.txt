@@ -1,14 +1,14 @@
 BEGIN
 -- INICIO rezago-emision
-amazon_mx|primer_cargo|44|44|0|1|0|0|226
-amazon_mx|ultimo_cargo|44|44|0|0|0|0|226
-amazon_us|primer_cargo|34|32|2|0|0|0|0
-amazon_us|ultimo_cargo|34|32|2|0|0|0|0
-amazon_mx|44|0|44|0|||
-amazon_us|34|1|33|0|6|6|6
-amazon_mx|44|2|42|0|0|0|0|0
-amazon_us|34|7|27|1|-5|0|2.5000000000000004|5
-amazon_mx|44|0|44|0|||
-amazon_us|34|2|32|0|10|14|15
+amazon_mx|primer_cargo|47|47|0|1|0|0|226
+amazon_mx|ultimo_cargo|47|47|0|0|0|0|226
+amazon_us|primer_cargo|37|35|2|0|0|0|0
+amazon_us|ultimo_cargo|37|35|2|0|0|0|0
+amazon_mx|47|0|47|0|||
+amazon_us|37|1|36|0|6|6|6
+amazon_mx|47|2|45|0|0|0|0|0|0
+amazon_us|37|9|28|1|-5|0|1.5000000000000009|5|1
+amazon_mx|47|0|47|0|||
+amazon_us|37|2|35|0|10|14|15
 -- FIN rezago-emision
 ROLLBACK

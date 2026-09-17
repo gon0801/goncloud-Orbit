@@ -56,6 +56,16 @@ shipping_label, 4 partes: <plataforma>|shipping_label|<order_id>|<fecha YYYY-MM-
 Esto YA NO ES un supuesto: está medido. Las consultas de E.1 usan esta
 identidad de fuente desde la ronda r3.
 
+## Ronda de corrección r5 (2026-09-17) — 4 hallazgos del revisor + tablas r5b
+
+r5a corrigió: (1) el cast de fecha de `rezago-emision.sql` (c) ya no
+aborta con una fila mal formada, la cuenta aparte; (2)
+`rezago-ingesta.sql` suma un tercer resultado por día de ingesta (carga
+inicial completa, no solo "el primer día") y cuenta negativos aparte; (3)
+`cargos-por-orden-y-fuente.sql` agregó el balde `sin_cociente`; (4) el
+par `ShippingHB`/`shipping_label` se mide igual que el de etiqueta, sin
+veredicto. r5b llenó f/g/h/j con la re-corrida.
+
 ## Ronda de corrección r4b (2026-09-17) — tablas llenas con cifras reales
 
 Esta ronda llenó las tablas de este documento con las cifras de
@@ -817,12 +827,16 @@ Distribución de cargos por orden (resultado a):
 | amazon_us | 2 | 447 |
 | amazon_us | 3 | 55 |
 
-Pares de etiqueta (resultados d/e) — **SIN VEREDICTO: insumo de E.0**.
-Resumen completo por plataforma:
+Pares de etiqueta finance-etiqueta vs `shipping_label` (resultados d/e)
+— **SIN VEREDICTO: insumo de E.0**. Resumen completo por plataforma
+(ganó la columna `sin_cociente` en la ronda r5a — cuenta órdenes con
+monto mayor 0, que no caían en ningún balde de porcentaje; en esta
+corrida sale 0 en `amazon_us`, y `amazon_mx` no aparece porque no tiene
+ningún par de este tipo):
 
-| platform | órdenes | diferencia_absoluta_p50 | diferencia_absoluta_p90 | diferencia_absoluta_max | cociente_p50 | cociente_p90 | cociente_max | difieren ≤1% | difieren 1-5% | difieren >5% |
-|---|---|---|---|---|---|---|---|---|---|---|
-| amazon_us | 54 | 0 | 3 | 2022.75 | 1.0 | 1.0066712624252263 | 16.9121302706104468 | 53 | 0 | 1 |
+| platform | órdenes | diferencia_absoluta_p50 | diferencia_absoluta_p90 | diferencia_absoluta_max | cociente_p50 | cociente_p90 | cociente_max | difieren ≤1% | difieren 1-5% | difieren >5% | sin_cociente |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| amazon_us | 54 | 0 | 3 | 2022.75 | 1.0 | 1.0066712624252263 | 16.9121302706104468 | 53 | 0 | 1 | 0 |
 
 **`amazon_mx` no aparece: 0 órdenes de MX tienen a la vez una fuente de
 etiqueta por `finance` (`LabmanLabelPurchase`/`MFNPostageFee`) Y una fila
@@ -841,6 +855,25 @@ abierta", `111-0818188-2803467`):
 tabla porque el "par" es solo finance-etiqueta vs shipping_label; el
 detalle de las 3 filas está en `salidas/cargos-por-orden-y-fuente.txt`,
 líneas del `order_id`.)
+
+**Pares `finance:ShippingHB` vs `shipping_label` (resultados f/g,
+nuevos en la ronda r5a)** — **SIN VEREDICTO: insumo de E.0**, el MISMO
+análisis, para el par que hasta ahora solo se descartaba "por magnitud"
+sin medirlo. En US, 536 de 536 órdenes traen `ShippingHB` y 500 traen
+`shipping_label` (cobertura de la tabla b); el cruce de ambas por orden
+da estos totales. Resumen completo por plataforma:
+
+| platform | órdenes | diferencia_absoluta_p50 | diferencia_absoluta_p90 | diferencia_absoluta_max | cociente_p50 | cociente_p90 | cociente_max | difieren ≤1% | difieren 1-5% | difieren >5% | sin_cociente |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| amazon_mx | 21 | 67.46 | 196.1 | 224.86 | 6.6263552960800665 | 16.650438946528332 | 18.9457302474062251 | 0 | 0 | 21 | 0 |
+| amazon_us | 500 | 385.51 | 475.21 | 2046.88 | 6.119582339973622 | 15.917986952469711 | 20.8745509272744927 | 0 | 0 | 500 | 0 |
+
+**Contraste sin veredicto**: en el par finance-etiqueta, 53 de 54
+órdenes (98%) difieren ≤1% entre las dos fuentes; en el par
+`ShippingHB`/`shipping_label`, las 521 órdenes (21 MX + 500 US) difieren
+**>5%**, con un cociente típico de ~6x. Esto es evidencia numérica —no
+dice qué representa cada fuente ni si alguna duplica a la otra; eso lo
+resuelve E.0.
 
 ### g) Rezago de emisión — `rezago-emision.sql` / `.txt`
 
@@ -865,12 +898,18 @@ ninguna fecha disponible en Orbit.»**
 | amazon_us | 536 | 86 | 450 | 0 | 0 | 2 | 3 |
 
 (c) DIAGNÓSTICO, cargo − fecha de parte 4 de `shipping_label` (no es una
-medida de rezago independiente — ver cabecera del `.sql`):
+medida de rezago independiente — ver cabecera del `.sql`). Ganó la
+columna `filas_shipping_label_sin_fecha_parseable` en la ronda r5a
+(hallazgo 29: antes, una sola fila con la parte 4 mal formada abortaba
+la consulta ENTERA; ahora esas filas se cuentan aparte y la consulta
+sigue). En esta corrida de producción, esa columna sale **0** en las dos
+plataformas — no hay filas `shipping_label` con fecha mal formada hoy,
+pero la protección queda para cuando aparezca una:
 
-| platform | ordenes_con_cargo | con_shipping_label | sin_shipping_label | con_diff_negativa | diff_min | diff_p50 | diff_p90 | diff_máx |
-|---|---|---|---|---|---|---|---|---|
-| amazon_mx | 682 | 21 | 661 | 4 | -1 | 0 | 0 | 0 |
-| amazon_us | 536 | 500 | 36 | 82 | -3 | 0 | 0 | 0 |
+| platform | ordenes_con_cargo | con_shipping_label | sin_shipping_label | con_diff_negativa | diff_min | diff_p50 | diff_p90 | diff_máx | filas_sin_fecha_parseable |
+|---|---|---|---|---|---|---|---|---|---|
+| amazon_mx | 682 | 21 | 661 | 4 | -1 | 0 | 0 | 0 | 0 |
+| amazon_us | 536 | 500 | 36 | 82 | -3 | 0 | 0 | 0 | 0 |
 
 (d) cargo − primer `last_updated_time` con `Shipped` (cobertura
 DECLARADA en cero):
@@ -882,16 +921,56 @@ DECLARADA en cero):
 
 ### h) Rezago de ingesta — `rezago-ingesta.sql` / `.txt`
 
-| platform | alcance | filas | p50 | p90 | máximo |
-|---|---|---|---|---|---|
-| amazon_mx | todas (incluye la carga inicial) | 708 | 134 | 218 | 270 |
-| amazon_mx | solo_incremental | 49 | 2 | 4.2 | 7 |
-| amazon_us | todas (incluye la carga inicial) | 1093 | 118 | 226.8 | 270 |
-| amazon_us | solo_incremental | 152 | 3 | 13 | 16 |
+Resultado 1, con la columna nueva `filas_con_rezago_negativo` (hallazgo
+30, ronda r5a — filas cuyo día de ingesta es ANTERIOR a su propio
+`event_date`; sale **0** en las cuatro filas en esta corrida):
 
-Días de ingesta: **11**. Primer día de ingesta (calculado, no literal):
-**2026-08-31** (coincide con la carga inicial que describió el lead).
-Último día: 2026-09-17 (hoy).
+| platform | alcance | filas | filas_con_rezago_negativo | p50 | p90 | máximo |
+|---|---|---|---|---|---|---|
+| amazon_mx | todas (incluye la carga inicial) | 708 | 0 | 134 | 218 | 270 |
+| amazon_mx | solo_incremental | 49 | 0 | 2 | 4.2 | 7 |
+| amazon_us | todas (incluye la carga inicial) | 1093 | 0 | 118 | 226.8 | 270 |
+| amazon_us | solo_incremental | 152 | 0 | 3 | 13 | 16 |
+
+Resultado 2 — días de ingesta: **11**. Primer día de ingesta (calculado,
+no literal): **2026-08-31**. Último día: 2026-09-17 (hoy).
+
+Resultado 3 (NUEVO en r5a, hallazgo 30): por `(platform, día de
+ingesta)`, filas y `event_date` mínimo/máximo — para que una carga
+inicial de varios días se VEA en vez de perderse dentro de "el primer
+día":
+
+| platform | dia_ingesta | filas | event_date_minimo | event_date_maximo |
+|---|---|---|---|---|
+| amazon_mx | 2026-08-31 | 659 | 2025-12-04 | 2026-08-27 |
+| amazon_mx | 2026-09-04 | 13 | 2026-08-28 | 2026-09-02 |
+| amazon_mx | 2026-09-05 | 2 | 2026-09-03 | 2026-09-03 |
+| amazon_mx | 2026-09-08 | 8 | 2026-09-04 | 2026-09-06 |
+| amazon_mx | 2026-09-09 | 4 | 2026-09-07 | 2026-09-07 |
+| amazon_mx | 2026-09-10 | 3 | 2026-09-09 | 2026-09-09 |
+| amazon_mx | 2026-09-11 | 1 | 2026-09-09 | 2026-09-09 |
+| amazon_mx | 2026-09-12 | 3 | 2026-09-10 | 2026-09-11 |
+| amazon_mx | 2026-09-15 | 10 | 2026-09-11 | 2026-09-14 |
+| amazon_mx | 2026-09-16 | 5 | 2026-09-13 | 2026-09-14 |
+| amazon_us | 2026-08-31 | 941 | 2025-12-04 | 2026-08-27 |
+| amazon_us | 2026-09-04 | 53 | 2026-08-19 | 2026-09-03 |
+| amazon_us | 2026-09-05 | 14 | 2026-09-03 | 2026-09-04 |
+| amazon_us | 2026-09-08 | 14 | 2026-09-04 | 2026-09-07 |
+| amazon_us | 2026-09-09 | 5 | 2026-09-07 | 2026-09-08 |
+| amazon_us | 2026-09-10 | 4 | 2026-09-08 | 2026-09-08 |
+| amazon_us | 2026-09-11 | 2 | 2026-09-09 | 2026-09-09 |
+| amazon_us | 2026-09-12 | 8 | 2026-09-10 | 2026-09-11 |
+| amazon_us | 2026-09-15 | 8 | 2026-09-11 | 2026-09-13 |
+| amazon_us | 2026-09-16 | 4 | 2026-09-14 | 2026-09-15 |
+| amazon_us | 2026-09-17 | 40 | 2026-09-02 | 2026-09-15 |
+
+**La carga inicial tomó UN solo día en cada plataforma**: `2026-08-31`
+concentra 659 filas en MX (de 708, el 93%) y 941 en US (de 1093, el
+86%), con `event_date` desde el inicio de la historia
+(2025-12-04) hasta 2026-08-27 — un salto de tamaño claro frente a
+cualquier otro día (el segundo más grande es `2026-09-17`, con 40 filas
+en US, que es la corrida de HOY, no una carga histórica). No hay
+evidencia de que la carga inicial se partiera en más de un día.
 
 ### i) Parpadeo del mínimo — `parpadeo.sql` / `.txt`
 
@@ -1050,6 +1129,25 @@ promedio de los conocidos), no un hueco de la consulta — a 365 días, la
 vigencia de `sku_cost` de esos productos no cubre las ventas más viejas
 de la ventana.
 
+**Hallazgo 31 del revisor — los otros 2 de los 34 grupos con margen
+`NULL`**: `medicion.md` explicaba 32 de 34; los 2 que faltaban son el
+producto `333` de MX **a 90 días, en las dos lecturas**
+(`333 | amazon_mx | 90 | componentes | 0 | f | ...` y la fila
+`duplicado_etiqueta` idéntica, arriba en la tabla) — salen `NULL` porque
+`ordenes = 0`: no hubo NINGUNA orden de ese producto en la ventana de 90
+días, y la grilla completa (`top10 × ventanas × lecturas`, hallazgo 20)
+emite la fila igual, con ceros, en vez de desaparecer. Verificado contra
+`salidas/efecto-margen.txt` con un script (no a mano): de las 120 filas
+del bloque 1, 34 tienen margen en blanco — 32 por `ordenes_sin_costo > 0`
+(las de arriba) y exactamente 2 por `ordenes = 0` (las de `333`); ningún
+caso mixto ni ninguna fila más en blanco por otra razón.
+
+**El margen a 365 días está en blanco en la mayoría de las filas**: de
+las 40 filas de la ventana de 365 días, **32 (80%) tienen margen
+`NULL`**; de las 40 de 180 días, **0**; de las 40 de 90 días, **2 (5%,
+las de `333`)**. Por eso el efecto de la ventana sobre el margen se lee
+comparando 90 vs 180 días — a 365 el dato casi no está.
+
 Bloque 2 (ventana fija 180 días, percentil p50/p75/p90, 40 filas = 20
 productos × 2 lecturas):
 
@@ -1099,20 +1197,21 @@ productos × 2 lecturas):
 
 ## Lectura del lead (no es decisión; decide el dueño en E.2)
 
-(i) La palanca es la ventana: productos que alcanzan el mínimo pasan de
-7→14→17 (MX) y 9→17→22 (US) al pasar de 90 a 180 a 365 días — pero 365
-días son en realidad 287 días de historia (tabla a).
-(ii) La mediana del envío casi no se mueve entre ventanas: el producto
-185 (MX) da `L` mediana 91 en 90, 180 y 365 días por igual (tabla j,
-bloque 1).
-(iii) La histéresis reduce el parpadeo del corte seco (9→2 en MX, 10→3 en
-US, tabla i) pero ninguna "salida" completó todavía una reentrada.
-(iv) El único rezago que sí se mide es el de ingesta incremental: p90
-4.2 días / máximo 7 en MX, p90 13 / máximo 16 en US (tabla h); el de
-emisión del hecho 15 no se reproduce con ninguna fecha de Orbit (tabla g).
-(v) De 54 pares de etiqueta en US, 53 difieren ≤1% (casi idénticos) y
-solo 1 difiere >5% (tabla f) — insumo directo de E.0, no un veredicto.
-(vi) 86 órdenes en MX y 62 en US tienen venta sin `product_id` (tabla e).
+(i) La palanca es la ventana: mínimo alcanzado 7→14→17 (MX) y 9→17→22
+(US) de 90→180→365 días — pero 365 días son 287 días de historia (a).
+(ii) La mediana del envío casi no se mueve: producto 185 (MX) da `L`
+mediana 91 en las tres ventanas por igual (j).
+(iii) La histéresis reduce el parpadeo del corte seco (9→2 MX, 10→3 US,
+i); ninguna "salida" completó todavía una reentrada.
+(iv) El único rezago que sí se mide es el de ingesta incremental (p90
+4.2/máx 7 MX, p90 13/máx 16 US, h, carga de un solo día); el de emisión
+del hecho 15 no se reproduce (g).
+(v) De 54 pares finance-etiqueta/`shipping_label` en US, 53 difieren ≤1%
+y 1 difiere >5% (f) — insumo de E.0, sin veredicto.
+(vi) El par `ShippingHB`/`shipping_label` es lo opuesto: sus 521 órdenes
+(21 MX + 500 US) difieren >5% en el 100% de los casos, cociente ~6x (f)
+— también sin veredicto, insumo de E.0.
+(vii) 86 órdenes en MX y 62 en US tienen venta sin `product_id` (e).
 
 ## Supuestos declarados (ya medidos, dejan de ser supuesto)
 
