@@ -773,6 +773,30 @@ def test_r2_a2_precio_no_positivo_no_truena():
     assert (d.resultado, d.motivo) == ("no_evaluado", "escenario_incoherente")
 
 
+# ---------------------------------------------------------------- r2-A3
+
+
+def test_r2_a3_cambio_futuro_cuenta_para_cooldown():
+    ent = entrada(
+        costo="53.01",
+        cambios=(CambioPrevio(HOY + timedelta(days=1), "subir", "enviado"),),
+    )
+    d = decide(ent)
+    assert (d.resultado, d.motivo) == ("mantener", "cooldown")
+    assert "futura" in d.diagnostico
+
+
+def test_r2_a3_subida_futura_frena():
+    ent = entrada(
+        costo="40",
+        senal=senal_perdiendo(),
+        cambios=(CambioPrevio(HOY + timedelta(days=1), "subir", "confirmado"),),
+    )
+    d = decide(ent)
+    assert (d.resultado, d.motivo) == ("frenado", "perdiendo_tras_subida")
+    assert "futura" in d.diagnostico
+
+
 # ---------------------------------------------------------------- r1-C
 
 

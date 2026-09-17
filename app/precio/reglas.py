@@ -253,7 +253,8 @@ def decidir(
             ):
                 continue
             dias = (hoy - cambio.enviado_en).days
-            if cambio.direccion == "subir" and 0 <= dias <= _DIAS_FRENO_SUBIDA:
+            if cambio.direccion == "subir" and dias <= _DIAS_FRENO_SUBIDA:
+                futura = ", fecha futura" if dias < 0 else ""
                 base = _base_senal(entrada)
                 return replace(
                     base,
@@ -262,7 +263,7 @@ def decidir(
                     m_actual=m_actual,
                     prioridad=_prioridad(m_actual, goal, entrada.ingreso_60d),
                     diagnostico=(
-                        f"subida confirmada hace {dias} dias, "
+                        f"subida confirmada hace {dias} dias{futura}, "
                         f"u15={entrada.senal.u15} u60={entrada.senal.u60}"
                     ),
                 )
@@ -271,7 +272,8 @@ def decidir(
         if cambio.es_reversa or (entrada.mode == "live" and not cambio.aplicado):
             continue
         dias = (hoy - cambio.enviado_en).days
-        if 0 <= dias < config.dias_entre_cambios:
+        if dias < config.dias_entre_cambios:
+            futura = ", fecha futura" if dias < 0 else ""
             base = _base_senal(entrada)
             return replace(
                 base,
@@ -279,7 +281,7 @@ def decidir(
                 motivo="cooldown",
                 m_actual=m_actual,
                 prioridad=_prioridad(m_actual, goal, entrada.ingreso_60d),
-                diagnostico=f"ultimo cambio hace {dias} dias",
+                diagnostico=f"ultimo cambio hace {dias} dias{futura}",
             )
 
     if m_actual < goal - tol:
