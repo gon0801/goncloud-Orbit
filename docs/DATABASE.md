@@ -680,15 +680,21 @@ exige por CHECK, también contra `psql`). FK compuesta `(listing_id,
 platform)` — 0039 declara `UNIQUE (id, platform)` en `listing`, lo único que
 toca de una tabla existente. `UNIQUE (listing_id, platform, valid_from)` más
 índice parcial de un vigente (`valid_to IS NULL`): sin fila vigente no hay
-decisión, sin defaults ni herencia. Trigger `precio_goal_solo_cierra_vigencia`
-(de una fila publicada solo se cierra `valid_to`, una vez) + capa TRUNCATE.
-La escribe `app_admin` (INSERT + `UPDATE (valid_to)`).
+decisión, sin defaults ni herencia. La vigencia es `[valid_from, valid_to)`:
+`valid_to = valid_from` es intervalo vacío y el goal queda **anulado, nunca
+vigente** (apaga el error de dedo el mismo día; aquí 0039 se aparta del
+`valid_to > valid_from` de `sku_cost` a propósito). Trigger
+`precio_goal_solo_cierra_vigencia` (de una fila publicada solo se cierra
+`valid_to`, una vez) + capa TRUNCATE. La escribe `app_admin`
+(INSERT + `UPDATE (valid_to)`).
 *Cómo se audita*: publicaciones activas sin goal vigente (`sin_goal`, trabajo
 del dueño, listado en cobertura).
 
 **`precio_decision`** — Una fila por `(listing_id, platform, decision_date)`:
-`subir`/`bajar`/`mantener`/`no_evaluado`/`goal_inalcanzable`/`frenado` con
-motivo, señal de ventas (`u15/u60/n15/n60`, racha, `perdiendo`), cuenta
+`resultado` con vocabulario cerrado por CHECK (los seis de S4) y motivo
+obligatorio y no en blanco fuera de `subir`/`bajar` (decisión 11: ningún
+silencio; en append-only no se arregla después), señal de ventas
+(`u15/u60/n15/n60`, racha, `perdiendo`), cuenta
 completa (componentes `I/C/F/L/R`, `P_actual/objetivo/aplicado` — cada uno
 con su `currency NOT NULL`; importes NULL en `no_evaluado`, la moneda no),
 `escenario_id`/`fee_observation_id`/`cotizacion_id`/`envio_muestra_id` (la
@@ -714,8 +720,13 @@ fila E.3 con su migración. Append-only. La escribe `app_decide` (INSERT).
 **`precio_cambio`** — Escritura asíncrona cerrada por observación:
 `pendiente` (nace con el precio GET justo antes) → `enviado`/`error` (ack
 literal) → `confirmado`/`no_confirmado` (observación D+1); el readback es
-informativo (`ok`/`fallido`, nunca decide). Índice único parcial de cambio
+informativo (`ok`/`fallido`, nunca decide). Ningún estado avanza sin su
+sello (CHECKs de tabla: `error` exige `error_code`, el cierre exige
+`confirmado_por`, el `enviado` real exige `ack` + `enviado_at`; el virtual
+queda fuera de este último a propósito). Índice único parcial de cambio
 abierto `(listing_id, platform) WHERE estado IN ('pendiente','enviado')`.
+Lo real nace `pendiente` y sin sellos puestos (si no, el «sello una sola vez»
+bloquearía el sello legítimo; solo `enviado_at` puede nacer puesto, A.4).
 Sombra fiel: el virtual (`aplicado = false`) nace cerrado
 (`confirmado`/`virtual`, `enviado_at` puesto, sin ack ni readback) y consume
 cooldown y freno sin ocupar el índice. Reversa (`es_reversa`, sin decisión

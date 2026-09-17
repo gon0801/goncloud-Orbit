@@ -1199,52 +1199,67 @@ lo exige) y reemplaza `apply_cap_de_config` por `CREATE OR REPLACE` (los ocho
 mapeos de Ads idénticos + los tres de precio). Revertirla es restaurar el
 dump (las tablas son append-only: no se borran filas para revertir).
 
-Backup del schema antes (patrón de la 0003: staging + verificación, el
-archivo final solo aparece con el `CREATE TABLE` y el marcador de cierre):
+Backup del schema antes: `--schema-only` COMPLETO (patrón de la 0003:
+staging + verificación, el archivo final solo aparece con el marcador de
+cierre). A propósito sin `-t`: un `pg_dump -t` solo saca tablas y **no
+respalda `apply_cap_de_config`**, que esta migración reemplaza — «revertir es
+restaurar el dump» no revertiría la función:
 
 ```bash
 ssh goncloud 'set -eu; D=/mnt/data/appdata/orbit/backups; \
   STAMP=$(date -u +%Y%m%d-%H%M%S); TMP="$D/.pre0039_$STAMP.sql.tmp"; \
   OUT="$D/pre0039_precio_$STAMP.sql"; \
-  docker exec orbit-db-1 pg_dump -U orbit -d orbit --schema-only \
-    -t public.listing -t public.apply_quota_state > "$TMP"; \
+  docker exec orbit-db-1 pg_dump -U orbit -d orbit --schema-only > "$TMP"; \
   [ -s "$TMP" ] \
     && grep -q "CREATE TABLE public.listing" "$TMP" \
+    && grep -q "CREATE OR REPLACE FUNCTION public.apply_cap_de_config" "$TMP" \
     && tail -5 "$TMP" | grep -q "PostgreSQL database dump complete" \
     || { echo "DUMP INVALIDO"; rm -f "$TMP"; exit 1; }; \
   chmod 600 "$TMP"; mv "$TMP" "$OUT"; ls -l "$OUT"'
 ```
 
-Aplicar la DDL en transacción única y comprobar lo que entra:
+Aplicar la DDL en transacción única y comprobar lo que entra **como lector**
+(patrón `PSQL`/`PSQL_READ` de D.1: la verificación corre con el DSN de solo
+lectura, no como superusuario):
 
 ```bash
-ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit \
-  -v ON_ERROR_STOP=1 -1' < migrations/0039_precio.sql
+PSQL='docker exec -i orbit-db-1 psql -U orbit -d orbit -X -P pager=off'
+PSQL_READ='sh -c '"'"'DSN=$(docker exec orbit-app-1 printenv ORBIT_DSN_READ); docker exec -i orbit-db-1 psql "$DSN" -X -P pager=off'"'"''
 
-ssh goncloud 'docker exec orbit-db-1 psql -U orbit -d orbit -P pager=off -c "
-SELECT tablename FROM pg_tables
- WHERE schemaname = '"'"'public'"'"'
-   AND tablename IN ('"'"'precio_goal'"'"','"'"'precio_decision'"'"','"'"'precio_cotizacion'"'"',
-                     '"'"'precio_envio_muestra'"'"','"'"'precio_cambio'"'"');
-SELECT conname FROM pg_constraint
- WHERE conrelid = '"'"'public.listing'"'"'::regclass
-   AND conname = '"'"'listing_id_platform_key'"'"';
-SELECT pg_get_expr(indpred, indrelid) FROM pg_index
- WHERE indexrelid IN ('"'"'public.precio_goal_un_vigente'"'"'::regclass,
-                      '"'"'public.precio_cambio_abierto_unico'"'"'::regclass);
-SELECT count(*) FROM precio_goal;
-SELECT count(*) FROM precio_decision;
-SELECT count(*) FROM precio_cambio;"'
+ssh goncloud "$PSQL -v ON_ERROR_STOP=1 -1" < migrations/0039_precio.sql
+
+ssh goncloud "$PSQL_READ \
+  -c \"SELECT tablename FROM pg_tables WHERE schemaname = 'public' \
+        AND tablename LIKE 'precio\\_%' ORDER BY 1;\" \
+  -c \"SELECT conname FROM pg_constraint WHERE conrelid = 'public.listing'::regclass \
+        AND conname = 'listing_id_platform_key';\" \
+  -c \"SELECT pg_get_expr(indpred, indrelid) FROM pg_index \
+        WHERE indexrelid IN ('public.precio_goal_un_vigente'::regclass, \
+                             'public.precio_cambio_abierto_unico'::regclass);\" \
+  -c \"SELECT apply_cap_de_config('precio:amazon_mx') AS cap_mx, \
+             apply_cap_de_config('precio:amazon_us') AS cap_us, \
+             apply_cap_de_config('precio:meli') AS cap_meli;\" \
+  -c \"SELECT tgrelid::regclass, tgname FROM pg_trigger \
+        WHERE tgrelid IN ('public.precio_goal'::regclass, 'public.precio_decision'::regclass, \
+                          'public.precio_cotizacion'::regclass, \
+                          'public.precio_envio_muestra'::regclass, \
+                          'public.precio_cambio'::regclass) \
+          AND NOT tgisinternal AND tgenabled <> 'D' ORDER BY 1, 2;\" \
+  -c 'SELECT count(*) AS goal FROM precio_goal;' \
+  -c 'SELECT count(*) AS decision FROM precio_decision;' \
+  -c 'SELECT count(*) AS cambio FROM precio_cambio;\"'
 ```
 
 Lo que entra: las cinco tablas, `listing_id_platform_key` en `listing`, los
-dos índices parciales (un vigente / un abierto) y los tres motores `precio:*`
-en `apply_cap_de_config` (verificado por `tests/test_schema.py`). Los tres
-conteos deben dar **cero** (el bloque DO revierte lo que inserta). Las tablas
-`precio_*` tienen ~0 filas: el `ADD CONSTRAINT` es instantáneo; si crecieron
-mucho, aplicar en ventana controlada. Precondición de datos (D.1 la verifica
-al desplegar): ningún duplicado de `(id, platform)` en `listing` — `id` es PK,
-así que en una base sana no hay nada que conciliar.
+dos índices parciales (un vigente / un abierto), los tres motores `precio:*`
+en `apply_cap_de_config` (cada `SELECT` devuelve el cap de la config vigente;
+verificado por `tests/test_schema.py`) y los triggers de las cinco tablas
+habilitados. Los tres conteos deben dar **cero** (el bloque DO revierte lo
+que inserta). Las tablas `precio_*` tienen ~0 filas: el `ADD CONSTRAINT` es
+instantáneo; si crecieron mucho, aplicar en ventana controlada. Precondición
+de datos (D.1 la verifica al desplegar): ningún duplicado de `(id, platform)`
+en `listing` — `id` es PK, así que en una base sana no hay nada que
+conciliar.
 
 ## Correr los tests desde la máquina dev (túnel SSH)
 
