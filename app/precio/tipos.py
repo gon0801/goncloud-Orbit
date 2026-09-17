@@ -91,6 +91,10 @@ MOTIVOS_NO_EVALUADO = frozenset(
         # Ingreso no positivo en el escenario (residual: no deberia pasar en
         # un escenario `disponible`; sin I no hay margen que calcular).
         "ingreso_no_positivo",
+        # Componentes que no cuadran entre si (r1-A1, decision del lead, va
+        # declarada al PR): precio cotizado distinto del actual, fees que no
+        # suman F, I o R fuera de formula. El que falla viaja en `diagnostico`.
+        "escenario_incoherente",
     }
 )
 

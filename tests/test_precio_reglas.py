@@ -675,16 +675,70 @@ def comp(costo="40", precio="116", ingreso="100", fees="15", envio="0", isr="2.5
     return Componentes(imp(precio), imp(ingreso), imp(costo), imp(fees), imp(envio), imp(isr))
 
 
-def escenario(costo="40", precio="116"):
+def escenario(costo="40", precio="116", tasa_isr="0.025"):
     return Escenario(
         componentes=comp(costo=costo, precio=precio),
         fee_detalles=detalles_lineales(),
         precio_cotizado=imp(precio),
         iva_divisor=Decimal("1.16"),
-        isr_tasa=Decimal("0.025"),
+        isr_tasa=Decimal(tasa_isr),
         precio_incluye_iva=True,
         oferta_observada_en=AHORA,
     )
+
+
+# ---------------------------------------------------------------- r1-A1
+
+
+def test_r1_a1_isr_incoherente_no_sube_bajando():
+    from dataclasses import replace
+
+    esc = escenario(costo="60")
+    esc = replace(esc, componentes=comp(costo="60", isr="20"))
+    d = resuelve(entrada(costo="60", escenario=esc))
+    assert (d.resultado, d.motivo) == ("no_evaluado", "escenario_incoherente")
+    assert "R" in d.diagnostico
+
+
+def test_r1_a1_tasas_incoherentes_no_bajan_subiendo():
+    from dataclasses import replace
+
+    esc = escenario(tasa_isr="0.30")
+    esc = replace(esc, componentes=comp(isr="0"))
+    d = resuelve(entrada(escenario=esc, senal=senal_perdiendo()))
+    assert (d.resultado, d.motivo) == ("no_evaluado", "escenario_incoherente")
+
+
+def test_r1_a1_precio_cotizado_distinto_no_pasa():
+    from dataclasses import replace
+
+    esc = escenario(costo="60")
+    esc = replace(esc, precio_cotizado=imp("58"))
+    d = resuelve(entrada(costo="60", escenario=esc))
+    assert (d.resultado, d.motivo) == ("no_evaluado", "escenario_incoherente")
+
+
+def test_r1_a1_candado_direccion_subir_con_verificado_abajo():
+    # Capa 2 sin capa 1: escenario coherente (m=0.29 -> subir), pero una
+    # cotizacion real verifica P1=100 < P=116 (fees no lineales: F1=4.69
+    # -> m(100)=0.30 exacto).
+    from app.precio.tipos import CotizacionVerificada, PideCotizacion
+
+    ent = entrada(costo="53.5")
+    pedido = decide(ent)
+    assert isinstance(pedido, PideCotizacion)
+    amañada = CotizacionVerificada(
+        imp("100"),
+        (
+            DetalleFee("ReferralFee", Decimal("1.69"), None, ()),
+            DetalleFee("FbaFee", Decimal("3"), None, ()),
+        ),
+        Decimal("4.69"),
+        "success",
+        None,
+    )
+    d = decide(ent, cotizaciones=(amañada,))
+    assert (d.resultado, d.motivo) == ("no_evaluado", "escenario_incoherente")
 
 
 def senal_perdiendo():
@@ -895,7 +949,7 @@ def test_reglas_p_estrella_mayor_al_doble_no_cotiza():
     esc = escenario(costo="60")
     from dataclasses import replace
 
-    esc = replace(esc, fee_detalles=detalles)
+    esc = replace(esc, fee_detalles=detalles, componentes=comp(costo="60", fees="69.12"))
     d = decide(entrada(escenario=esc, costo="60"))
     assert not isinstance(d, PideCotizacion)
     assert (d.resultado, d.motivo) == ("goal_inalcanzable", "precio_mayor_al_doble")

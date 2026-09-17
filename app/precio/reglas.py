@@ -91,6 +91,35 @@ def _no_evaluado(entrada: EntradaDecision, motivo: str, diagnostico: str = "") -
     return replace(base, resultado="no_evaluado", motivo=motivo, diagnostico=diagnostico)
 
 
+def _coherencia_escenario(entrada: EntradaDecision) -> str | None:
+    """r1-A1: componentes y tasas que cuadran entre si, antes de `m_actual`.
+
+    `precio_cotizado == p_actual` (S2: son el mismo precio); `Σ final_fee ==
+    F`; `|I − P / divisor| ≤ 0.01`; `|R − isr_tasa · I| ≤ 0.01`. Si algo
+    falla, el qué viaja en el diagnostico.
+    """
+    comp = entrada.escenario.componentes
+    escenario = entrada.escenario
+    if (
+        escenario.precio_cotizado.valor != comp.p_actual.valor
+        or escenario.precio_cotizado.moneda != comp.p_actual.moneda
+    ):
+        return (
+            f"precio_cotizado {escenario.precio_cotizado.valor} "
+            f"{escenario.precio_cotizado.moneda} != "
+            f"p_actual {comp.p_actual.valor} {comp.p_actual.moneda}"
+        )
+    suma_fees = sum((det.final_fee for det in escenario.fee_detalles), Decimal(0))
+    if suma_fees != comp.fees.valor:
+        return f"Σ final_fee {suma_fees} != F {comp.fees.valor}"
+    divisor = escenario.iva_divisor if escenario.precio_incluye_iva else Decimal(1)
+    if abs(comp.ingreso.valor - comp.p_actual.valor / divisor) > Decimal("0.01"):
+        return f"I {comp.ingreso.valor} != P/divisor {comp.p_actual.valor / divisor}"
+    if abs(comp.isr.valor - escenario.isr_tasa * comp.ingreso.valor) > Decimal("0.01"):
+        return f"R {comp.isr.valor} != isr_tasa·I {escenario.isr_tasa * comp.ingreso.valor}"
+    return None
+
+
 def _min_abs(config: ConfigPrecio, moneda: str) -> Decimal:
     if moneda == "MXN":
         return config.movimiento_min_abs_mxn
@@ -147,6 +176,10 @@ def decidir(
             f"{entrada.escenario.oferta_observada_en.isoformat()} vs pricing "
             f"{pricing.precio.valor} {moneda} a las {pricing.observada_en.isoformat()}",
         )
+
+    incoherencia = _coherencia_escenario(entrada)
+    if incoherencia is not None:
+        return _no_evaluado(entrada, "escenario_incoherente", incoherencia)
 
     ingreso = comp.ingreso.valor
     if ingreso <= 0:
@@ -335,6 +368,12 @@ def _subir(
         )
     tope = piso_centavo(comp.p_actual.valor * (Decimal(1) + config.escalon_max_pct))
     p_aplicado = min(p_objetivo, tope)
+    if p_objetivo <= comp.p_actual.valor or p_aplicado <= comp.p_actual.valor:
+        return _no_evaluado(
+            entrada,
+            "escenario_incoherente",
+            f"subir con p_objetivo={p_objetivo} p_aplicado={p_aplicado} <= P={comp.p_actual.valor}",
+        )
     base = _base_senal(entrada)
     return replace(
         base,
@@ -395,6 +434,12 @@ def _bajar(entrada: EntradaDecision, *, config: ConfigPrecio, m_actual: Decimal)
         )
     piso = techo_centavo(comp.p_actual.valor * (Decimal(1) - config.escalon_max_pct))
     p_aplicado = max(p_goal, piso)
+    if p_goal >= comp.p_actual.valor or p_aplicado >= comp.p_actual.valor:
+        return _no_evaluado(
+            entrada,
+            "escenario_incoherente",
+            f"bajar con p_objetivo={p_goal} p_aplicado={p_aplicado} >= P={comp.p_actual.valor}",
+        )
     base = _base_senal(entrada)
     return replace(
         base,
