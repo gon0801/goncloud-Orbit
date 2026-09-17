@@ -27,6 +27,8 @@ import ast
 import re
 from pathlib import Path
 
+import pytest
+
 RAIZ = Path(__file__).resolve().parent.parent
 APP = RAIZ / "app"
 TOOLS = RAIZ / "tools"
@@ -1101,8 +1103,45 @@ def test_precio_frontera_caza_reloj_con_alias(tmp_path, monkeypatch):
         test_precio_sin_reloj_ni_entorno()
 
 
-def test_precio_imports_prohibidos_incluyen_reloj_entorno_azar():
-    """r1-B5: `time`, `os`, `random` y `secrets` prohibidos en `app/precio/*`
-    (`time.monotonic`, `os.getenv` necesitan el import para usarse)."""
-    for modulo in ("time", "os", "random", "secrets"):
-        assert modulo in PROHIBIDOS_PRECIO, f"{modulo} debe estar prohibido"
+@pytest.mark.parametrize(
+    "cuerpo",
+    [
+        "import os\n",
+        "import time\n",
+        "import random\n",
+        "import secrets\n",
+        "from os import getenv\n",
+    ],
+)
+def test_precio_frontera_caza_imports_de_reloj_entorno_azar(tmp_path, monkeypatch, cuerpo):
+    """r2-A4: cada import prohibido hace fallar el candado con el nombre
+    del archivo (reemplaza al test tautológico que solo miraba la
+    constante)."""
+    import pytest
+
+    (tmp_path / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "fuga.py").write_text(cuerpo, encoding="utf-8")
+    monkeypatch.setattr("test_architecture.PRECIO", tmp_path)
+    with pytest.raises(AssertionError, match="sub/fuga.py"):
+        test_precio_puro_sin_io()
+
+
+@pytest.mark.parametrize(
+    "cuerpo",
+    [
+        "from datetime import datetime as dt\nx = dt.now()\n",
+        "from datetime import datetime as dt\nx = dt.utcnow()\n",
+        "from datetime import date as d\nx = d.today()\n",
+    ],
+)
+def test_precio_frontera_caza_reloj_en_todas_sus_formas(tmp_path, monkeypatch, cuerpo):
+    """r2-A4: `now`, `utcnow` y `today` caen sea quien sea el dueño."""
+    import pytest
+
+    (tmp_path / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "reloj.py").write_text(cuerpo, encoding="utf-8")
+    monkeypatch.setattr("test_architecture.PRECIO", tmp_path)
+    with pytest.raises(AssertionError, match="sub/reloj.py"):
+        test_precio_sin_reloj_ni_entorno()
