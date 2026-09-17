@@ -230,3 +230,188 @@ def test_config_fechas_excluidas_rangos_iso():
         cfg(precio_fechas_excluidas=[["2026-09-03", "2026-09-01"]])
     with pytest.raises(ValueError, match="precio_fechas_excluidas"):
         cfg(precio_fechas_excluidas=["2026-09-01"])
+
+
+# ---------------------------------------------------------------- ventas (S4 #5)
+
+from datetime import timedelta  # noqa: E402
+
+
+def serie_diaria(hoy, desde_hace, hasta_hace, qty):
+    return tuple((hoy - timedelta(days=d), qty) for d in range(hasta_hace, desde_hace - 1, -1))
+
+
+def insumos_sanos(hoy, *, qty15=6, qty60=10, primera=None, cubierta=None, **extras):
+    ventas = dict(serie_diaria(hoy, 1, 15, qty15))
+    ventas.update(dict(serie_diaria(hoy, 16, 75, qty60)))
+    dias15 = [hoy - timedelta(days=d) for d in range(1, 16)]
+    base = {
+        "ventas": tuple(sorted(ventas.items())),
+        "inventario": tuple((d, 5) for d in dias15),
+        "listing_activo": tuple((d, True) for d in dias15),
+        "primera_venta": hoy - timedelta(days=200) if primera is None else primera,
+        "dia_cubierto_hasta": (hoy - timedelta(days=1)) if cubierta is None else cubierta,
+    }
+    base.update(extras)
+    from app.precio.tipos import VentasInsumos
+
+    return VentasInsumos(**base)
+
+
+def senal(insumos, hoy=HOY, **kw):
+    from app.precio.ventas import evaluar_senal
+
+    return evaluar_senal(insumos, hoy=hoy, config=cfg(), racha_previa=kw.pop("racha_previa", 0))
+
+
+def test_ventas_borde_90_no_dispara_89_si():
+    # u60 = 600 (10/dia x 60), esperado = 600/60*15*0.6 = 90.
+    assert senal(insumos_sanos(HOY, qty15=6)).estado == "no_perdiendo"
+    ins = insumos_sanos(HOY, qty15=6, primera=HOY - timedelta(days=200))
+    ventas = dict(ins.ventas)
+    ventas[HOY - timedelta(days=1)] = 5  # u15 = 89
+    from app.precio.tipos import VentasInsumos
+
+    ins = VentasInsumos(
+        ventas=tuple(sorted(ventas.items())),
+        inventario=ins.inventario,
+        listing_activo=ins.listing_activo,
+        primera_venta=ins.primera_venta,
+        dia_cubierto_hasta=ins.dia_cubierto_hasta,
+    )
+    s = senal(ins, racha_previa=2)
+    assert (s.estado, s.u15, s.u60, s.racha) == ("perdiendo", 89, 600, 3)
+
+
+def test_ventas_ventanas_inclusive_ayer_y_anteayer():
+    from app.precio.tipos import VentasInsumos
+
+    ventas = {
+        HOY - timedelta(days=1): 1,  # u15
+        HOY - timedelta(days=15): 2,  # u15 (borde)
+        HOY - timedelta(days=16): 4,  # u60 (borde)
+        HOY - timedelta(days=75): 8,  # u60 (borde)
+        HOY - timedelta(days=76): 100,  # fuera
+        HOY: 100,  # hoy se descarta
+    }
+    dias15 = [HOY - timedelta(days=d) for d in range(1, 16)]
+    ins = VentasInsumos(
+        ventas=tuple(sorted(ventas.items())),
+        inventario=tuple((d, 5) for d in dias15),
+        listing_activo=tuple((d, True) for d in dias15),
+        primera_venta=HOY - timedelta(days=200),
+        dia_cubierto_hasta=HOY - timedelta(days=1),
+    )
+    s = senal(ins)
+    assert (s.u15, s.n15, s.u60, s.n60) == (3, 15, 12, 60)
+
+
+def test_ventas_hueco_ledger_sin_cobertura():
+    from app.precio.tipos import VentasInsumos
+
+    ins = insumos_sanos(HOY)
+    sin_cobertura = VentasInsumos(
+        ventas=ins.ventas,
+        inventario=ins.inventario,
+        listing_activo=ins.listing_activo,
+        primera_venta=ins.primera_venta,
+        dia_cubierto_hasta=None,
+    )
+    assert senal(sin_cobertura).submotivo == "ledger_hueco"
+    ins = insumos_sanos(HOY, cubierta=HOY - timedelta(days=5))
+    s = senal(ins)
+    assert (s.estado, s.submotivo) == ("sin_dato", "ledger_hueco")
+
+
+def test_ventas_u60_bajo_minimo():
+    s = senal(insumos_sanos(HOY, qty60=0, qty15=0))
+    assert s.u60 == 0
+    ins = insumos_sanos(HOY, qty60=0, qty15=0)
+    from app.precio.tipos import VentasInsumos
+
+    ventas = dict(ins.ventas)
+    for d in [HOY - timedelta(days=x) for x in range(16, 76)]:
+        ventas[d] = 0
+    # 19 unidades repartidas en la ventana de 60
+    for d in [HOY - timedelta(days=x) for x in range(16, 35)]:
+        ventas[d] = 1
+    ins = VentasInsumos(
+        ventas=tuple(sorted(ventas.items())),
+        inventario=ins.inventario,
+        listing_activo=ins.listing_activo,
+        primera_venta=ins.primera_venta,
+        dia_cubierto_hasta=ins.dia_cubierto_hasta,
+    )
+    s = senal(ins)
+    assert (s.estado, s.submotivo, s.u60) == ("sin_dato", "u60_bajo_minimo", 19)
+
+
+def test_ventas_n15_insuficiente_con_excluidas():
+    excl = [(HOY - timedelta(days=10), HOY - timedelta(days=6))]  # 5 dias fuera
+    excl2 = [(HOY - timedelta(days=15), HOY - timedelta(days=15))]  # 1 dia fuera
+    from app.precio.config import leer_config
+
+    c = leer_config(
+        dict(
+            BASE_CONFIG,
+            precio_fechas_excluidas=[[d.isoformat(), h.isoformat()] for d, h in excl + excl2],
+        )
+    )
+    from app.precio.ventas import evaluar_senal
+
+    s = evaluar_senal(insumos_sanos(HOY), hoy=HOY, config=c, racha_previa=0)
+    assert (s.estado, s.submotivo, s.n15) == ("sin_dato", "n15_insuficiente", 9)
+
+
+def test_ventas_historia_corta_74_dias():
+    ins = insumos_sanos(HOY, primera=HOY - timedelta(days=74))
+    assert senal(ins).submotivo == "historia_corta"
+    ins = insumos_sanos(HOY, primera=HOY - timedelta(days=75))
+    assert senal(ins).submotivo != "historia_corta"
+
+
+def test_ventas_dia_sin_stock_y_sin_observacion():
+    dias15 = [HOY - timedelta(days=d) for d in range(1, 16)]
+    inv = [(d, 0 if d == HOY - timedelta(days=3) else 5) for d in dias15]
+    ins = insumos_sanos(HOY, inventario=tuple(inv))
+    assert senal(ins).submotivo == "dia_sin_stock"
+    inv = [(d, 5) for d in dias15 if d != HOY - timedelta(days=3)]
+    ins = insumos_sanos(HOY, inventario=tuple(inv))
+    assert senal(ins).submotivo == "dia_sin_observacion_inventario"
+
+
+def test_ventas_listing_inactivo_un_dia():
+    dias15 = [HOY - timedelta(days=d) for d in range(1, 16)]
+    act = [(d, d != HOY - timedelta(days=7)) for d in dias15]
+    assert senal(insumos_sanos(HOY, listing_activo=tuple(act))).submotivo == "listing_inactivo"
+
+
+def test_ventas_racha_dos_de_tres_es_sin_dato():
+    s = senal(insumos_sanos(HOY, qty15=0), racha_previa=1)
+    assert (s.estado, s.submotivo, s.racha) == ("sin_dato", "racha_incompleta", 2)
+
+
+def test_ventas_sin_caida_resetea_racha():
+    s = senal(insumos_sanos(HOY, qty15=6), racha_previa=2)
+    assert (s.estado, s.racha) == ("no_perdiendo", 0)
+
+
+def test_ventas_excluidas_escalan_el_promedio():
+    # Sin excluidas: u60=600, n60=60, n15=15, esperado=90.
+    # Excluyo 30 dias de la ventana 60 (u60=300, n60=30) y 5 de la de 15
+    # (n15=10): esperado = 300/30*10*0.6 = 60; u15 = 10*6 = 60 -> no pierde.
+    excl = [
+        (HOY - timedelta(days=75), HOY - timedelta(days=46)),
+        (HOY - timedelta(days=11), HOY - timedelta(days=7)),
+    ]
+    from app.precio.config import leer_config
+    from app.precio.ventas import evaluar_senal
+
+    c = leer_config(
+        dict(
+            BASE_CONFIG,
+            precio_fechas_excluidas=[[d.isoformat(), h.isoformat()] for d, h in excl],
+        )
+    )
+    s = evaluar_senal(insumos_sanos(HOY, qty15=6, qty60=10), hoy=HOY, config=c, racha_previa=0)
+    assert (s.u60, s.n60, s.n15, s.estado) == (300, 30, 10, "no_perdiendo")
