@@ -696,9 +696,12 @@ del dueño, listado en cobertura).
 **`precio_decision`** — Una fila por `(listing_id, platform, decision_date)`:
 `resultado` con vocabulario cerrado por CHECK (los seis de S4) y motivo
 obligatorio y no en blanco fuera de `subir`/`bajar` (decisión 11: ningún
-silencio; en append-only no se arregla después). Trigger de coherencia
-(r3-3): escenario, fee y cotización del mismo `(listing_id, platform)`; la
-muestra, del mismo `(product_id, platform)`; `product_id`, el del listing.
+silencio; en append-only no se arregla después). «Sin fila vigente no hay
+decisión» (S3) en la base (r4-3): trigger de coherencia que exige un
+`precio_goal` del mismo par y modo, vigente en el día UTC
+(`[valid_from, valid_to)`). Además (r3-3): escenario, fee y cotización del
+mismo `(listing_id, platform)`; la muestra, del mismo `(product_id, platform)`;
+`product_id`, el del listing.
 Señal de ventas (`u15/u60/n15/n60`, racha, `perdiendo`), cuenta
 completa (componentes `I/C/F/L/R`, `P_actual/objetivo/aplicado` — cada uno
 con su `currency NOT NULL`; importes NULL en `no_evaluado`, la moneda no),
@@ -736,7 +739,9 @@ literal) → `confirmado`/`no_confirmado` (observación D+1); el readback es
 informativo (`ok`/`fallido`, nunca decide). Ningún estado avanza sin su
 sello (CHECKs de tabla: `error` exige `error_code`, el cierre exige
 `confirmado_por`, el `enviado` real exige `ack` + `enviado_at`; el virtual
-queda fuera de este último a propósito). Índice único parcial de cambio
+queda fuera de este último a propósito). Vocabularios cerrados (r4-2):
+`confirmado_por` solo `observacion`/`virtual`, `error_code` solo en `error`.
+El cambio cuelga de una decisión que mueve precio (`subir`/`bajar`, r4-4). Índice único parcial de cambio
 abierto `(listing_id, platform) WHERE estado IN ('pendiente','enviado')`.
 Con decisión, `aplicado = (mode = 'live')` en las dos direcciones (S4 #13:
 cambio real solo bajo decisión `live`, virtual solo bajo `shadow`); sin

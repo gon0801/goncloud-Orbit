@@ -1262,7 +1262,9 @@ ssh goncloud "$PSQL_READ \
   -c 'SELECT count(*) AS cambio FROM precio_cambio;\"'
 ```
 
-Lo que entra: las cinco tablas, `listing_id_platform_key` en `listing`, los
+Lo que entra: las cinco tablas, `listing_id_platform_key` en `listing`
+(índice redundante con la PK que toma un lock breve sobre una tabla viva:
+aplicar en ventana tranquila), los
 dos índices parciales (un vigente / un abierto), los tres motores `precio:*`
 en `apply_cap_de_config` (cada `SELECT` devuelve el cap de la config vigente;
 verificado por `tests/test_schema.py`) y los triggers de las cinco tablas
@@ -1271,7 +1273,9 @@ que inserta). Las tablas `precio_*` tienen ~0 filas: el `ADD CONSTRAINT` es
 instantáneo; si crecieron mucho, aplicar en ventana controlada. Precondición
 de datos (D.1 la verifica al desplegar): ningún duplicado de `(id, platform)`
 en `listing` — `id` es PK, así que en una base sana no hay nada que
-conciliar.
+conciliar. El `EXCLUDE` con enum + `daterange` (primero del repo que combina
+los dos) corrió en PostgreSQL 16 local; D.1 lo confirma en la versión de
+producción antes de aplicar.
 
 ## Correr los tests desde la máquina dev (túnel SSH)
 
