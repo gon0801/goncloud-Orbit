@@ -41,11 +41,14 @@ def evaluar_senal(
     if not isinstance(racha_previa, int) or isinstance(racha_previa, bool) or racha_previa < 0:
         raise ValueError(f"racha_previa invalida: {racha_previa!r}")
 
-    ayer = hoy - timedelta(days=1)
     dias15 = [hoy - timedelta(days=d) for d in range(1, 16)]
     dias60 = [hoy - timedelta(days=d) for d in range(16, 76)]
-    contados15 = [d for d in dias15 if not _en_rango(d, config.fechas_excluidas)]
-    contados60 = [d for d in dias60 if not _en_rango(d, config.fechas_excluidas)]
+
+    cubierto = insumos.dia_cubierto_hasta
+    if cubierto is None or (hoy - cubierto).days > 3:
+        return SenalVentas("sin_dato", "ledger_hueco", 0, 0, 0, 0, 0)
+    contados15 = [d for d in dias15 if d <= cubierto and not _en_rango(d, config.fechas_excluidas)]
+    contados60 = [d for d in dias60 if d <= cubierto and not _en_rango(d, config.fechas_excluidas)]
 
     por_dia: dict[date, int] = {}
     for dia, qty in insumos.ventas:
@@ -60,8 +63,6 @@ def evaluar_senal(
     def sin_dato(submotivo: str, racha: int = 0) -> SenalVentas:
         return SenalVentas("sin_dato", submotivo, u15, u60, n15, n60, racha)
 
-    if insumos.dia_cubierto_hasta is None or insumos.dia_cubierto_hasta < ayer:
-        return sin_dato("ledger_hueco")
     if insumos.primera_venta is None or (hoy - insumos.primera_venta).days < 75:
         return sin_dato("historia_corta")
     if u60 < config.u60_min:

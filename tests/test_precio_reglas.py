@@ -718,6 +718,21 @@ def test_r1_a1_precio_cotizado_distinto_no_pasa():
     assert (d.resultado, d.motivo) == ("no_evaluado", "escenario_incoherente")
 
 
+# ---------------------------------------------------------------- r1-B1
+
+
+def test_r1_b1_cubierto_hace_3_pasa_con_13_dias():
+    # Uniforme 6/dia: u15 = 78, n15 = 13; esperado = 600/60*13*0.6 = 78.
+    ins = insumos_sanos(HOY, cubierta=HOY - timedelta(days=3))
+    s = senal(ins)
+    assert (s.estado, s.n15, s.u15) == ("no_perdiendo", 13, 78)
+
+
+def test_r1_b1_cubierto_hace_4_es_hueco():
+    ins = insumos_sanos(HOY, cubierta=HOY - timedelta(days=4))
+    assert senal(ins).submotivo == "ledger_hueco"
+
+
 # ---------------------------------------------------------------- r1-A3
 
 
