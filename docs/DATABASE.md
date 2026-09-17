@@ -696,8 +696,10 @@ del dueño, listado en cobertura).
 **`precio_decision`** — Una fila por `(listing_id, platform, decision_date)`:
 `resultado` con vocabulario cerrado por CHECK (los seis de S4) y motivo
 obligatorio y no en blanco fuera de `subir`/`bajar` (decisión 11: ningún
-silencio; en append-only no se arregla después), señal de ventas
-(`u15/u60/n15/n60`, racha, `perdiendo`), cuenta
+silencio; en append-only no se arregla después). Trigger de coherencia
+(r3-3): escenario, fee y cotización del mismo `(listing_id, platform)`; la
+muestra, del mismo `(product_id, platform)`; `product_id`, el del listing.
+Señal de ventas (`u15/u60/n15/n60`, racha, `perdiendo`), cuenta
 completa (componentes `I/C/F/L/R`, `P_actual/objetivo/aplicado` — cada uno
 con su `currency NOT NULL`; importes NULL en `no_evaluado`, la moneda no),
 `escenario_id`/`fee_observation_id`/`cotizacion_id`/`envio_muestra_id` (la
@@ -709,11 +711,19 @@ base (el del cliente se ignora). Append-only por `prohibir_mutacion`
 *Cómo se audita*: segunda corrida del día no decide (UNIQUE); día sin insumos
 produce N `no_evaluado` con motivo y cero escrituras.
 
-**`precio_cotizacion`** — Cotización Product Fees a precio candidato (máximo
-dos por decisión), separada de `estimacion_fee_observation` (cotizar ahí
-apagaría la estimación del día siguiente). `estado` reutiliza
-`estimacion_fee_estado`; `total_fees` NULL en error; `source_event_id`
-UNIQUE. Append-only. La escribe `app_decide` (INSERT).
+**`precio_cotizacion`** — Cotización Product Fees a precio candidato,
+separada de `estimacion_fee_observation` (cotizar ahí apagaría la estimación
+del día siguiente). Con identidad propia (desviación de S5, r3-1):
+`(listing_id, platform)` + `intento` (1 o 2, S4 #3) + `cotizacion_date` por
+trigger UTC, `UNIQUE (listing_id, platform, cotizacion_date, intento)` —la
+base garantiza «≤ 2 cotizaciones reales» por publicación y día—. Nace ANTES
+que la decisión (es su insumo) y la decisión la apunta con `cotizacion_id`;
+el intento no usado queda localizable sin puntero. `estado` reutiliza
+`estimacion_fee_estado` con el candado de 0028 copiado entero: `success`
+trae `total_fees` + `fees_estimated_at`, `error` trae código y nada de fees;
+`source_event_id` UNIQUE. Trigger de coherencia: la oferta es del mismo
+`(listing_id, platform)`. Append-only. La escribe `app_decide` (INSERT).
+*Cómo se audita*: intentos del día por publicación (1, 2, nunca 3).
 
 **`precio_envio_muestra`** — Evidencia de `L` con la forma literal de S5
 (spec v1.3): ventana efectiva, conteo de envíos, valor sellado + moneda y
@@ -728,15 +738,21 @@ sello (CHECKs de tabla: `error` exige `error_code`, el cierre exige
 `confirmado_por`, el `enviado` real exige `ack` + `enviado_at`; el virtual
 queda fuera de este último a propósito). Índice único parcial de cambio
 abierto `(listing_id, platform) WHERE estado IN ('pendiente','enviado')`.
-Lo real nace `pendiente` y sin sellos puestos (si no, el «sello una sola vez»
-bloquearía el sello legítimo; solo `enviado_at` puede nacer puesto, A.4).
-Sombra fiel: el virtual (`aplicado = false`) nace cerrado
-(`confirmado`/`virtual`, `enviado_at` puesto, sin ack ni readback) y consume
-cooldown y freno sin ocupar el índice. Reversa (`es_reversa`, sin decisión
-propia, por el mismo camino; nunca automática). Trigger de nacimiento +
+Con decisión, `aplicado = (mode = 'live')` en las dos direcciones (S4 #13:
+cambio real solo bajo decisión `live`, virtual solo bajo `shadow`); sin
+decisión (reversa), `aplicado = true`. Lo real nace `pendiente` y sin sellos
+puestos (si no, el «sello una sola vez» bloquearía el sello legítimo; solo
+`enviado_at` puede nacer puesto, A.4). Sombra fiel: el virtual
+(`aplicado = false`) nace cerrado (`confirmado`/`virtual`, `enviado_at`
+puesto, sin ack ni readback), consume cooldown y freno sin ocupar el índice
+y queda inmutable tras nacer (cualquier `UPDATE` se rechaza).
+Reversa (`es_reversa`, sin decisión propia, de un cambio real no-reversa del
+mismo par, por el mismo camino; nunca automática). Trigger de nacimiento +
+trigger de coherencia (decisión del mismo par; reversa real del mismo par) +
 trigger de transiciones con sello acotado por columnas (patrón
-`apply_attempt_solo_sella_resultado`) + capa TRUNCATE. `app_decide`: INSERT +
-`UPDATE` por columna de sello.
+`apply_attempt_solo_sella_resultado`, `created_at` inmutable como
+`started_at`) + capa TRUNCATE. `app_decide`: INSERT + `UPDATE` por columna
+de sello.
 *Cómo se audita*: cambios abiertos por listing (uno); `no_confirmado` frena y
 avisa; la reversa la corre el dueño con la herramienta.
 

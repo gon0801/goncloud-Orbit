@@ -1239,6 +1239,15 @@ ssh goncloud "$PSQL_READ \
   -c \"SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint \
         WHERE conrelid = 'public.precio_goal'::regclass \
           AND conname = 'precio_goal_sin_solape';\" \
+  -c \"SELECT tgrelid::regclass, tgname FROM pg_trigger \
+        WHERE tgrelid IN ('public.precio_cotizacion'::regclass, \
+                          'public.precio_decision'::regclass, \
+                          'public.precio_cambio'::regclass) \
+          AND tgfoid IN ('public.precio_cotizacion_coherente()'::regprocedure, \
+                         'public.precio_decision_coherente()'::regprocedure, \
+                         'public.precio_cambio_coherente()'::regprocedure, \
+                         'public.precio_cotizacion_fecha_utc()'::regprocedure) \
+          AND NOT tgisinternal AND tgenabled <> 'D' ORDER BY 1, 2;\" \
   -c \"SELECT apply_cap_de_config('precio:amazon_mx') AS cap_mx, \
              apply_cap_de_config('precio:amazon_us') AS cap_us, \
              apply_cap_de_config('precio:meli') AS cap_meli;\" \
