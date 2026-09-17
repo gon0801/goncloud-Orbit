@@ -969,12 +969,15 @@ def test_reglas_cupo_por_prioridad_con_desempate():
     assert a.prioridad > b.prioridad
     primero, segundo = repartir_cupo(((2, b), (1, a)), cupo=1)
     assert primero.resultado == "subir" and segundo.motivo == "cuota"
-    # Empate de prioridad: listing_id ascendente pasa primero.
+    # Empate de prioridad: listing_id ascendente pasa primero (se distingue
+    # por p_aplicado: cada costo da un P* distinto).
     from dataclasses import replace
 
+    assert a.p_aplicado.valor != b.p_aplicado.valor
     a2 = replace(a, prioridad=b.prioridad)
     primero, segundo = repartir_cupo(((2, a2), (1, b)), cupo=1)
-    assert primero.resultado == "subir"
+    assert primero.p_aplicado.valor == b.p_aplicado.valor
+    assert segundo.motivo == "cuota"
 
 
 def test_reglas_goal_float_revienta():
