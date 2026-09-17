@@ -1,0 +1,429 @@
+"""Reglas de decision (REPRICING 01 A.2, S4 #1, #2, #4, #6-#10, #12, #13).
+
+Orden de evaluacion sellado (S4 no lo fija; este es el del brief): insumos
+y coherencia (S2) -> `m_actual` -> frenos (#10 `no_converge`, #6
+`perdiendo_tras_subida`) -> cooldown (#9) -> direccion -> `P*` y regla 11
+-> movimiento minimo (#8) -> escalon. El freno va antes que el cooldown
+porque lleva aviso. La primera regla que corta decide y se registra.
+
+No escribe nada (eso es A.5): devuelve `Decision` o `PideCotizacion`. La
+llamada se repite con las cotizaciones hechas hasta agotar la maquina de
+`objetivo.py` (maximo dos).
+"""
+
+from __future__ import annotations
+
+from dataclasses import replace
+from datetime import date
+from decimal import Decimal
+
+from app.precio.config import ConfigPrecio
+from app.precio.objetivo import (
+    ErrorObjetivo,
+    ResultadoObjetivo,
+    derivar_ref_fijo,
+    paso,
+    piso_centavo,
+    precio_estrella,
+    techo_centavo,
+)
+from app.precio.tipos import (
+    CotizacionVerificada,
+    Decision,
+    EntradaDecision,
+    Importe,
+    PideCotizacion,
+    motivo_permitido,
+)
+
+__all__ = ["decidir", "repartir_cupo", "motivo_regla11"]
+
+_DIAS_FRENO_SUBIDA = 22
+
+
+def motivo_regla11(
+    p_estrella: Decimal, p_actual: Decimal, costo: Decimal, envio: Decimal
+) -> str | None:
+    """S4 #11 sobre `P*` ya calculado (sin redondear, como sale del cociente).
+
+    Residual: con denominador < 1 (todos los casos reales: el maximo
+    teorico es 1) `P* = (C + fijo + L) / denom > C + L` siempre, asi que
+    `precio_no_cubre_costo` es una guarda que no se dispara con insumos
+    sanos; se prueba por predicado, no de punta a punta.
+    """
+    if p_estrella > 2 * p_actual:
+        return "precio_mayor_al_doble"
+    if p_estrella <= costo + envio:
+        return "precio_no_cubre_costo"
+    return None
+
+
+def _base_senal(entrada: EntradaDecision) -> Decision:
+    # Motivo transitorio: cada llamado lo reemplaza con `replace` antes de
+    # devolver; nunca sale de este modulo (la validacion exige motivo).
+    senal = entrada.senal
+    return Decision(
+        resultado="mantener",
+        motivo="en_tolerancia",
+        m_actual=None,
+        goal=entrada.goal,
+        p_actual=entrada.escenario.componentes.p_actual,
+        p_objetivo=None,
+        p_aplicado=None,
+        componentes=entrada.escenario.componentes,
+        u15=senal.u15,
+        u60=senal.u60,
+        n15=senal.n15,
+        n60=senal.n60,
+        racha=senal.racha,
+        perdiendo=senal.estado == "perdiendo",
+        prioridad=None,
+        aplicado=False,
+        mode=entrada.mode,
+    )
+
+
+def _no_evaluado(entrada: EntradaDecision, motivo: str, diagnostico: str = "") -> Decision:
+    if not motivo_permitido("no_evaluado", motivo):
+        raise ValueError(f"motivo de estimacion fuera de vocabulario: {motivo!r}")
+    base = _base_senal(entrada)
+    return replace(base, resultado="no_evaluado", motivo=motivo, diagnostico=diagnostico)
+
+
+def _min_abs(config: ConfigPrecio, moneda: str) -> Decimal:
+    if moneda == "MXN":
+        return config.movimiento_min_abs_mxn
+    if moneda == "USD":
+        return config.movimiento_min_abs_usd
+    raise ValueError(f"moneda sin minimo absoluto configurado: {moneda!r}")
+
+
+def _prioridad(m_actual: Decimal, goal: Decimal, ingreso_60d: Importe | None) -> Decimal | None:
+    if ingreso_60d is None:
+        return None
+    return abs(m_actual - goal) * ingreso_60d.valor
+
+
+def decidir(
+    entrada: EntradaDecision,
+    *,
+    hoy: date,
+    config: ConfigPrecio,
+    cotizaciones: tuple[CotizacionVerificada, ...] = (),
+) -> Decision | PideCotizacion:
+    """Una evaluacion de S4: `Decision` final o `PideCotizacion`."""
+    if entrada.motivo_estimacion is not None:
+        return _no_evaluado(entrada, entrada.motivo_estimacion)
+    if entrada.pricing is None:
+        return _no_evaluado(entrada, "precio_sin_observar")
+
+    comp = entrada.escenario.componentes
+    monedas = {
+        comp.p_actual.moneda,
+        comp.ingreso.moneda,
+        comp.costo.moneda,
+        comp.fees.moneda,
+        comp.envio.moneda,
+        comp.isr.moneda,
+    }
+    if len(monedas) != 1:
+        raise ValueError(f"monedas de componentes divergen: {sorted(monedas)}")
+    moneda = comp.p_actual.moneda
+    pricing = entrada.pricing
+    if pricing.precio.moneda != moneda:
+        return _no_evaluado(
+            entrada,
+            "moneda_divergente",
+            f"escenario {moneda} vs pricing {pricing.precio.moneda}",
+        )
+    p_actual = comp.p_actual.valor
+    divergencia = abs(pricing.precio.valor - p_actual) / p_actual
+    if divergencia > config.divergencia_max_pct:
+        return _no_evaluado(
+            entrada,
+            "precio_divergente",
+            f"escenario {p_actual} {moneda} a las "
+            f"{entrada.escenario.oferta_observada_en.isoformat()} vs pricing "
+            f"{pricing.precio.valor} {moneda} a las {pricing.observada_en.isoformat()}",
+        )
+
+    ingreso = comp.ingreso.valor
+    if ingreso <= 0:
+        return _no_evaluado(entrada, "ingreso_no_positivo")
+    m_actual = (
+        ingreso - comp.costo.valor - comp.fees.valor - comp.envio.valor - comp.isr.valor
+    ) / ingreso
+    goal = entrada.goal
+    tol = config.tolerancia
+    distancia = abs(m_actual - goal)
+
+    if not entrada.goal_nuevo and len(entrada.historial) >= config.freno_cambios:
+        ultimos = entrada.historial[-config.freno_cambios :]
+        direcciones = {h.direccion for h in ultimos}
+        cadena = [h.distancia for h in ultimos] + [distancia]
+        if len(direcciones) == 1 and all(
+            posterior >= anterior for anterior, posterior in zip(cadena, cadena[1:], strict=False)
+        ):
+            base = _base_senal(entrada)
+            return replace(
+                base,
+                resultado="frenado",
+                motivo="no_converge",
+                m_actual=m_actual,
+                prioridad=_prioridad(m_actual, goal, entrada.ingreso_60d),
+                diagnostico=f"{len(ultimos)} cambios sin acercarse al goal",
+            )
+
+    if not entrada.goal_nuevo and entrada.senal.estado == "perdiendo":
+        for cambio in entrada.cambios:
+            if cambio.es_reversa or cambio.estado != "confirmado":
+                continue
+            dias = (hoy - cambio.enviado_en).days
+            if cambio.direccion == "subir" and 0 <= dias <= _DIAS_FRENO_SUBIDA:
+                base = _base_senal(entrada)
+                return replace(
+                    base,
+                    resultado="frenado",
+                    motivo="perdiendo_tras_subida",
+                    m_actual=m_actual,
+                    prioridad=_prioridad(m_actual, goal, entrada.ingreso_60d),
+                    diagnostico=(
+                        f"subida confirmada hace {dias} dias, "
+                        f"u15={entrada.senal.u15} u60={entrada.senal.u60}"
+                    ),
+                )
+
+    for cambio in entrada.cambios:
+        if cambio.es_reversa:
+            continue
+        dias = (hoy - cambio.enviado_en).days
+        if 0 <= dias < config.dias_entre_cambios:
+            base = _base_senal(entrada)
+            return replace(
+                base,
+                resultado="mantener",
+                motivo="cooldown",
+                m_actual=m_actual,
+                prioridad=_prioridad(m_actual, goal, entrada.ingreso_60d),
+                diagnostico=f"ultimo cambio hace {dias} dias",
+            )
+
+    if m_actual < goal - tol:
+        return _subir(entrada, hoy=hoy, config=config, m_actual=m_actual, cotizaciones=cotizaciones)
+    if m_actual > goal + tol:
+        senal = entrada.senal
+        if senal.estado == "sin_dato":
+            base = _base_senal(entrada)
+            return replace(
+                base,
+                resultado="mantener",
+                motivo=f"ventas_sin_dato:{senal.submotivo}",
+                m_actual=m_actual,
+                prioridad=_prioridad(m_actual, goal, entrada.ingreso_60d),
+            )
+        if senal.estado == "perdiendo":
+            return _bajar(entrada, config=config, m_actual=m_actual)
+        base = _base_senal(entrada)
+        return replace(
+            base,
+            resultado="mantener",
+            motivo="sobre_goal_sin_perdida",
+            m_actual=m_actual,
+            prioridad=_prioridad(m_actual, goal, entrada.ingreso_60d),
+        )
+    base = _base_senal(entrada)
+    return replace(
+        base,
+        resultado="mantener",
+        motivo="en_tolerancia",
+        m_actual=m_actual,
+        prioridad=_prioridad(m_actual, goal, entrada.ingreso_60d),
+    )
+
+
+def _subir(
+    entrada: EntradaDecision,
+    *,
+    hoy: date,
+    config: ConfigPrecio,
+    m_actual: Decimal,
+    cotizaciones: tuple[CotizacionVerificada, ...],
+) -> Decision | PideCotizacion:
+    comp = entrada.escenario.componentes
+    moneda = comp.p_actual.moneda
+    escenario = entrada.escenario
+    try:
+        ref, fijo = derivar_ref_fijo(
+            escenario.fee_detalles,
+            comp.fees.valor,
+            escenario.precio_cotizado.valor,
+        )
+    except ErrorObjetivo as exc:
+        return _no_evaluado(entrada, exc.motivo)
+    try:
+        cruda = precio_estrella(
+            comp.costo.valor,
+            fijo,
+            comp.envio.valor,
+            escenario.isr_tasa,
+            entrada.goal,
+            escenario.iva_divisor,
+            escenario.precio_incluye_iva,
+            ref,
+        )
+    except ErrorObjetivo as exc:
+        base = _base_senal(entrada)
+        return replace(
+            base,
+            resultado="goal_inalcanzable",
+            motivo=exc.motivo,
+            m_actual=m_actual,
+            prioridad=_prioridad(m_actual, entrada.goal, entrada.ingreso_60d),
+        )
+    motivo11 = motivo_regla11(cruda, comp.p_actual.valor, comp.costo.valor, comp.envio.valor)
+    if motivo11 is not None:
+        base = _base_senal(entrada)
+        return replace(
+            base,
+            resultado="goal_inalcanzable",
+            motivo=motivo11,
+            m_actual=m_actual,
+            prioridad=_prioridad(m_actual, entrada.goal, entrada.ingreso_60d),
+            diagnostico=f"P*={cruda} vs P={comp.p_actual.valor}",
+        )
+    salida = paso(
+        costo=comp.costo.valor,
+        fijo=fijo,
+        envio=comp.envio.valor,
+        isr_tasa=escenario.isr_tasa,
+        goal=entrada.goal,
+        iva_divisor=escenario.iva_divisor,
+        incluye_iva=escenario.precio_incluye_iva,
+        ref=ref,
+        moneda=moneda,
+        tolerancia=config.tolerancia,
+        cotizaciones=cotizaciones,
+    )
+    if isinstance(salida, PideCotizacion):
+        return salida
+    assert isinstance(salida, ResultadoObjetivo)
+    if salida.resultado == "no_evaluado":
+        assert salida.motivo is not None
+        return _no_evaluado(entrada, salida.motivo)
+    if salida.resultado == "goal_inalcanzable":
+        base = _base_senal(entrada)
+        return replace(
+            base,
+            resultado="goal_inalcanzable",
+            motivo=salida.motivo,
+            m_actual=m_actual,
+            prioridad=_prioridad(m_actual, entrada.goal, entrada.ingreso_60d),
+        )
+    assert salida.precio is not None
+    p_objetivo = salida.precio.valor
+    umbral = max(config.movimiento_min_pct * comp.p_actual.valor, _min_abs(config, moneda))
+    if abs(p_objetivo - comp.p_actual.valor) < umbral:
+        base = _base_senal(entrada)
+        return replace(
+            base,
+            resultado="mantener",
+            motivo="movimiento_minimo",
+            m_actual=m_actual,
+            p_objetivo=salida.precio,
+            prioridad=_prioridad(m_actual, entrada.goal, entrada.ingreso_60d),
+        )
+    tope = piso_centavo(comp.p_actual.valor * (Decimal(1) + config.escalon_max_pct))
+    p_aplicado = min(p_objetivo, tope)
+    base = _base_senal(entrada)
+    return replace(
+        base,
+        resultado="subir",
+        motivo=None,
+        m_actual=m_actual,
+        p_objetivo=salida.precio,
+        p_aplicado=Importe(p_aplicado, moneda),
+        prioridad=_prioridad(m_actual, entrada.goal, entrada.ingreso_60d),
+        aplicado=entrada.mode == "live",
+    )
+
+
+def _bajar(entrada: EntradaDecision, *, config: ConfigPrecio, m_actual: Decimal) -> Decision:
+    comp = entrada.escenario.componentes
+    moneda = comp.p_actual.moneda
+    escenario = entrada.escenario
+    try:
+        ref, fijo = derivar_ref_fijo(
+            escenario.fee_detalles,
+            comp.fees.valor,
+            escenario.precio_cotizado.valor,
+        )
+    except ErrorObjetivo as exc:
+        return _no_evaluado(entrada, exc.motivo)
+    try:
+        p_goal = techo_centavo(
+            precio_estrella(
+                comp.costo.valor,
+                fijo,
+                comp.envio.valor,
+                escenario.isr_tasa,
+                entrada.goal,
+                escenario.iva_divisor,
+                escenario.precio_incluye_iva,
+                ref,
+            )
+        )
+    except ErrorObjetivo as exc:
+        base = _base_senal(entrada)
+        return replace(
+            base,
+            resultado="goal_inalcanzable",
+            motivo=exc.motivo,
+            m_actual=m_actual,
+            prioridad=_prioridad(m_actual, entrada.goal, entrada.ingreso_60d),
+        )
+    umbral = max(config.movimiento_min_pct * comp.p_actual.valor, _min_abs(config, moneda))
+    if abs(p_goal - comp.p_actual.valor) < umbral:
+        base = _base_senal(entrada)
+        return replace(
+            base,
+            resultado="mantener",
+            motivo="movimiento_minimo",
+            m_actual=m_actual,
+            p_objetivo=Importe(p_goal, moneda),
+            prioridad=_prioridad(m_actual, entrada.goal, entrada.ingreso_60d),
+        )
+    piso = techo_centavo(comp.p_actual.valor * (Decimal(1) - config.escalon_max_pct))
+    p_aplicado = max(p_goal, piso)
+    base = _base_senal(entrada)
+    return replace(
+        base,
+        resultado="bajar",
+        motivo=None,
+        m_actual=m_actual,
+        p_objetivo=Importe(p_goal, moneda),
+        p_aplicado=Importe(p_aplicado, moneda),
+        prioridad=_prioridad(m_actual, entrada.goal, entrada.ingreso_60d),
+        aplicado=entrada.mode == "live",
+    )
+
+
+def repartir_cupo(
+    candidatos: tuple[tuple[int, Decision], ...], *, cupo: int
+) -> tuple[Decision, ...]:
+    """S4 #12 puro: los primeros por prioridad pasan; el resto `mantener(cuota)`.
+
+    Desempate por `listing_id` ascendente. Sin prioridad registrada = al
+    fondo (regla 3: ausente no es cero, pero tampoco abre la puerta).
+    """
+    if not isinstance(cupo, int) or isinstance(cupo, bool) or cupo < 0:
+        raise ValueError(f"cupo invalido: {cupo!r}")
+    ordenados = sorted(
+        candidatos,
+        key=lambda par: (par[1].prioridad is None, -(par[1].prioridad or Decimal(0)), par[0]),
+    )
+    return tuple(
+        decision
+        if lugar < cupo
+        else replace(decision, resultado="mantener", motivo="cuota", aplicado=False)
+        for lugar, (_, decision) in enumerate(ordenados)
+    )

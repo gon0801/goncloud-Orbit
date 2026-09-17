@@ -659,6 +659,343 @@ def test_objetivo_paso_nunca_pide_tercera():
     assert not isinstance(final, PideCotizacion)
 
 
+# ---------------------------------------------------------------- reglas
+
+from app.precio.tipos import (  # noqa: E402
+    CambioPrevio,
+    Componentes,
+    EntradaDecision,
+    Escenario,
+    HistorialMargen,
+    ObservacionPricing,
+)
+
+
+def comp(costo="40", precio="116", ingreso="100", fees="15", envio="0", isr="2.50"):
+    return Componentes(imp(precio), imp(ingreso), imp(costo), imp(fees), imp(envio), imp(isr))
+
+
+def escenario(costo="40", precio="116"):
+    return Escenario(
+        componentes=comp(costo=costo, precio=precio),
+        fee_detalles=detalles_lineales(),
+        precio_cotizado=imp(precio),
+        iva_divisor=Decimal("1.16"),
+        isr_tasa=Decimal("0.025"),
+        precio_incluye_iva=True,
+        oferta_observada_en=AHORA,
+    )
+
+
+def senal_perdiendo():
+    return SenalVentas("perdiendo", None, 89, 600, 15, 60, 3)
+
+
+def senal_sana():
+    return SenalVentas("no_perdiendo", None, 90, 600, 15, 60, 0)
+
+
+def entrada(costo="40", precio="116", **kw):
+    base = dict(
+        listing_id=1,
+        platform="amazon_mx",
+        product_id=7,
+        canal="fba",
+        mode="live",
+        goal=Decimal("0.30"),
+        escenario=escenario(costo=costo, precio=precio),
+        pricing=ObservacionPricing(imp(precio), AHORA),
+        senal=senal_sana(),
+        ingreso_60d=imp("15000"),
+        cambios=(),
+        historial=(),
+        goal_nuevo=False,
+    )
+    base.update(kw)
+    return EntradaDecision(**base)
+
+
+def decide(ent, hoy=HOY, cotizaciones=()):
+    from app.precio.reglas import decidir
+
+    return decidir(ent, hoy=hoy, config=cfg(), cotizaciones=cotizaciones)
+
+
+def cotiza_lineal(pedido, ref=Decimal("12") / Decimal("116"), fijo=Decimal("3")):
+    from app.precio.tipos import CotizacionVerificada
+
+    p = pedido.precio.valor
+    total = (ref * p + fijo).quantize(Decimal("0.01"))
+    return CotizacionVerificada(
+        pedido.precio,
+        (
+            DetalleFee("ReferralFee", total - fijo, None, ()),
+            DetalleFee("FbaFee", fijo, None, ()),
+        ),
+        total,
+        "success",
+        None,
+    )
+
+
+def resuelve(ent, hoy=HOY):
+    from app.precio.tipos import PideCotizacion
+
+    hechas = []
+    for _ in range(3):
+        salida = decide(ent, hoy=hoy, cotizaciones=tuple(hechas))
+        if not isinstance(salida, PideCotizacion):
+            return salida
+        hechas.append(cotiza_lineal(salida))
+    raise AssertionError("la maquina pidio una tercera cotizacion")
+
+
+def test_reglas_passthrough_del_motivo_de_estimacion():
+    d = decide(entrada(motivo_estimacion="fee_ausente"))
+    assert (d.resultado, d.motivo) == ("no_evaluado", "fee_ausente")
+
+
+def test_reglas_sin_pricing_es_precio_sin_observar():
+    d = decide(entrada(pricing=None))
+    assert (d.resultado, d.motivo) == ("no_evaluado", "precio_sin_observar")
+
+
+def test_reglas_divergencia_101_si_099_no():
+    d = decide(entrada(pricing=ObservacionPricing(imp("117.18"), AHORA)))
+    assert (d.resultado, d.motivo) == ("no_evaluado", "precio_divergente")
+    assert "117.18" in d.diagnostico and "116" in d.diagnostico
+    d = decide(entrada(pricing=ObservacionPricing(imp("117.14"), AHORA)))
+    assert (d.resultado, d.motivo) != ("no_evaluado", "precio_divergente")
+
+
+def test_reglas_moneda_divergente():
+    d = decide(entrada(pricing=ObservacionPricing(imp("116", "USD"), AHORA)))
+    assert (d.resultado, d.motivo) == ("no_evaluado", "moneda_divergente")
+
+
+def test_reglas_borde_tolerancia_mantener_y_subir():
+    # m = 29.50% -> dentro de tol -> mantener; 29.49% -> subir.
+    d = decide(entrada(costo="53"))
+    assert (d.resultado, d.motivo) == ("mantener", "en_tolerancia")
+    assert d.m_actual == Decimal("0.2950")
+    from app.precio.tipos import PideCotizacion
+
+    d = decide(entrada(costo="53.01"))
+    assert isinstance(d, PideCotizacion)
+
+
+def test_reglas_tope_del_escalon_hacia_abajo():
+    d = resuelve(entrada(costo="60", precio="116.01"))
+    assert d.resultado == "subir"
+    assert d.p_aplicado.valor == Decimal("127.61")
+    assert d.p_objetivo.valor > d.p_aplicado.valor
+
+
+def test_reglas_sin_recorte_el_margen_alcanza_el_goal():
+    d = resuelve(entrada(costo="53.5"))
+    assert d.resultado == "subir"
+    assert d.p_aplicado.valor == d.p_objetivo.valor
+    from app.precio.objetivo import margen_a_precio
+
+    m = margen_a_precio(
+        d.p_aplicado.valor,
+        Decimal("53.5"),
+        Decimal("12") / Decimal("116"),
+        Decimal("3"),
+        Decimal("0"),
+        Decimal("0.025"),
+        Decimal("1.16"),
+        True,
+    )
+    assert m >= Decimal("0.30")
+
+
+def test_reglas_freno_tras_subida_antes_que_todo():
+    ent = entrada(
+        costo="40",
+        senal=senal_perdiendo(),
+        cambios=(CambioPrevio(HOY - timedelta(days=10), "subir", "confirmado"),),
+    )
+    d = decide(ent)
+    assert (d.resultado, d.motivo) == ("frenado", "perdiendo_tras_subida")
+
+
+def test_reglas_cooldown_seis_si_siete_no():
+    ent = entrada(cambios=(CambioPrevio(HOY - timedelta(days=6), "subir", "no_confirmado"),))
+    assert decide(ent).motivo == "cooldown"
+    from app.precio.tipos import PideCotizacion
+
+    ent = entrada(
+        costo="53.01",
+        cambios=(CambioPrevio(HOY - timedelta(days=7), "subir", "no_confirmado"),),
+    )
+    assert isinstance(decide(ent), PideCotizacion)
+
+
+def test_reglas_no_converge_tres_sin_acercarse():
+    hist = (
+        HistorialMargen("subir", Decimal("0.05")),
+        HistorialMargen("subir", Decimal("0.05")),
+        HistorialMargen("subir", Decimal("0.05")),
+    )
+    d = decide(entrada(costo="60", historial=hist))
+    assert (d.resultado, d.motivo) == ("frenado", "no_converge")
+
+
+def test_reglas_convergiendo_o_goal_nuevo_no_frena():
+    from app.precio.tipos import PideCotizacion
+
+    def no_frena(salida):
+        return isinstance(salida, PideCotizacion) or (salida.resultado, salida.motivo) != (
+            "frenado",
+            "no_converge",
+        )
+
+    hist = (
+        HistorialMargen("subir", Decimal("0.08")),
+        HistorialMargen("subir", Decimal("0.07")),
+        HistorialMargen("subir", Decimal("0.06")),
+    )
+    assert no_frena(decide(entrada(costo="55", historial=hist)))
+    hist = (
+        HistorialMargen("subir", Decimal("0.05")),
+        HistorialMargen("subir", Decimal("0.05")),
+        HistorialMargen("bajar", Decimal("0.05")),
+    )
+    assert no_frena(decide(entrada(costo="55", historial=hist)))
+    hist = (
+        HistorialMargen("subir", Decimal("0.05")),
+        HistorialMargen("subir", Decimal("0.05")),
+        HistorialMargen("subir", Decimal("0.05")),
+    )
+    assert no_frena(decide(entrada(costo="55", historial=hist, goal_nuevo=True)))
+
+
+def test_reglas_freno_antes_que_cooldown():
+    ent = entrada(
+        costo="40",
+        senal=senal_perdiendo(),
+        cambios=(
+            CambioPrevio(HOY - timedelta(days=10), "subir", "confirmado"),
+            CambioPrevio(HOY - timedelta(days=2), "subir", "enviado"),
+        ),
+    )
+    assert decide(ent).motivo == "perdiendo_tras_subida"
+
+
+def test_reglas_p_estrella_mayor_al_doble_no_cotiza():
+    from app.precio.tipos import PideCotizacion
+
+    ref = Decimal("0.57")
+    referral = (ref * Decimal("116")).quantize(Decimal("0.01"))
+    detalles = (
+        DetalleFee("ReferralFee", referral, None, ()),
+        DetalleFee("FbaFee", Decimal("3"), None, ()),
+    )
+    esc = escenario(costo="60")
+    from dataclasses import replace
+
+    esc = replace(esc, fee_detalles=detalles)
+    d = decide(entrada(escenario=esc, costo="60"))
+    assert not isinstance(d, PideCotizacion)
+    assert (d.resultado, d.motivo) == ("goal_inalcanzable", "precio_mayor_al_doble")
+
+
+def test_reglas_regla11_cubre_costo_predicado():
+    from app.precio.reglas import motivo_regla11
+
+    assert motivo_regla11(Decimal("50"), Decimal("116"), Decimal("40"), Decimal("0")) is None
+    assert (
+        motivo_regla11(Decimal("250"), Decimal("116"), Decimal("40"), Decimal("0"))
+        == "precio_mayor_al_doble"
+    )
+    assert (
+        motivo_regla11(Decimal("50"), Decimal("116"), Decimal("40"), Decimal("20"))
+        == "precio_no_cubre_costo"
+    )
+
+
+def test_reglas_bajar_con_senal_y_escalon():
+    d = resuelve(entrada(senal=senal_perdiendo()))
+    assert d.resultado == "bajar"
+    # P_goal ~ 90 < piso 104.40 -> aplica un escalon.
+    assert d.p_aplicado.valor == Decimal("104.40")
+    assert d.p_objetivo.valor < Decimal("116")
+
+
+def test_reglas_sobre_goal_sin_perdida_y_sin_dato():
+    d = decide(entrada())
+    assert (d.resultado, d.motivo) == ("mantener", "sobre_goal_sin_perdida")
+    senal = SenalVentas("sin_dato", "racha_incompleta", 89, 600, 15, 60, 2)
+    d = decide(entrada(senal=senal))
+    assert (d.resultado, d.motivo) == ("mantener", "ventas_sin_dato:racha_incompleta")
+
+
+def test_reglas_movimiento_minimo_no_consume():
+    d = resuelve(entrada(costo="53.01"))
+    assert (d.resultado, d.motivo) == ("mantener", "movimiento_minimo")
+
+
+def test_reglas_prioridad_registrada():
+    d = resuelve(entrada(costo="60"))
+    assert d.prioridad == abs(d.m_actual - Decimal("0.30")) * Decimal("15000")
+
+
+def test_reglas_sombra_igual_con_aplicado_falso():
+    ent_live = entrada(costo="60")
+    ent_shadow = entrada(costo="60", mode="shadow")
+    viva = resuelve(ent_live)
+    sombra = resuelve(ent_shadow)
+    assert viva.resultado == "subir" and viva.aplicado is True
+    assert sombra.aplicado is False
+    assert sombra.resultado == viva.resultado == "subir"
+    assert sombra.p_aplicado.valor == viva.p_aplicado.valor
+    assert sombra.motivo == viva.motivo
+
+
+def test_reglas_cupo_por_prioridad_con_desempate():
+    from app.precio.reglas import repartir_cupo
+
+    a = resuelve(entrada(costo="60"))
+    b = resuelve(entrada(costo="55"))
+    assert a.prioridad > b.prioridad
+    primero, segundo = repartir_cupo(((2, b), (1, a)), cupo=1)
+    assert primero.resultado == "subir" and segundo.motivo == "cuota"
+    # Empate de prioridad: listing_id ascendente pasa primero.
+    from dataclasses import replace
+
+    a2 = replace(a, prioridad=b.prioridad)
+    primero, segundo = repartir_cupo(((2, a2), (1, b)), cupo=1)
+    assert primero.resultado == "subir"
+
+
+def test_reglas_goal_float_revienta():
+    from app.precio.tipos import CotizacionVerificada
+
+    with pytest.raises(TypeError):
+        entrada(goal=0.30)
+    with pytest.raises(TypeError):
+        CotizacionVerificada(imp("116"), (), 17.5, "success")
+
+
+def test_reglas_sin_decimal_no_hay_float():
+    import ast
+    from pathlib import Path
+
+    raiz = Path(__file__).resolve().parent.parent / "app" / "precio"
+    for path in sorted(raiz.glob("*.py")):
+        arbol = ast.parse(path.read_text(encoding="utf-8"))
+        for nodo in ast.walk(arbol):
+            assert not (isinstance(nodo, ast.Constant) and isinstance(nodo.value, float)), (
+                f"{path.name}: literal float"
+            )
+            assert not (
+                isinstance(nodo, ast.Call)
+                and isinstance(nodo.func, ast.Name)
+                and nodo.func.id == "float"
+            ), f"{path.name}: llamada a float("
+
+
 def test_objetivo_paso_tax_y_error_y_no_concilia():
     base = dict(
         costo=Decimal("60"),

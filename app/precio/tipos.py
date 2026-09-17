@@ -298,6 +298,7 @@ class EntradaDecision:
     cambios: tuple[CambioPrevio, ...]
     historial: tuple[HistorialMargen, ...]
     goal_nuevo: bool
+    motivo_estimacion: str | None = None
 
     def __post_init__(self) -> None:
         exigir_decimal(self.goal, campo="entrada.goal")
@@ -313,7 +314,7 @@ class Decision:
     motivo: str | None
     m_actual: Decimal | None
     goal: Decimal
-    p_actual: Importe
+    p_actual: Importe | None
     p_objetivo: Importe | None
     p_aplicado: Importe | None
     componentes: Componentes | None
