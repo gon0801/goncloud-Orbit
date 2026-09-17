@@ -13,7 +13,10 @@ primera guarda que falla decide el `sin_dato`; `u15/u60/n15/n60` se
 guardan igual.
 
 Solo los dias CONTADOS pasan las guardas de inventario y listing: un dia
-excluido es como si no existiera para la senal.
+excluido es como si no existiera para la senal. Con varias observaciones
+por dia (r3-K5, criterio conservador del lead): stock solo si TODAS traen
+`> 0`, activo solo si TODAS dicen activo; una nula contamina a
+`dia_sin_observacion_inventario` antes que el cero a `dia_sin_stock`.
 """
 
 from __future__ import annotations
@@ -77,17 +80,22 @@ def evaluar_senal(
     if n15 < 10:
         return sin_dato("n15_insuficiente")
 
-    inventario = dict(insumos.inventario)
-    activo = dict(insumos.listing_activo)
+    stocks: dict[date, list[int | None]] = {}
+    for dia, qty in insumos.inventario:
+        stocks.setdefault(dia, []).append(qty)
+    activos: dict[date, list[bool]] = {}
+    for dia, encendido in insumos.listing_activo:
+        activos.setdefault(dia, []).append(encendido)
     for dia in contados15:
-        qty = inventario.get(dia)
-        if qty is None:
+        obs = stocks.get(dia, [])
+        if not obs or any(qty is None for qty in obs):
             return sin_dato("dia_sin_observacion_inventario")
-        if qty <= 0:
+        if any(qty <= 0 for qty in obs if qty is not None):
             return sin_dato("dia_sin_stock")
-        if dia not in activo:
+        filas = activos.get(dia, [])
+        if not filas:
             return sin_dato("dia_sin_estado_listing")
-        if not activo[dia]:
+        if not all(filas):
             return sin_dato("listing_inactivo")
     esperado = Decimal(u60) * Decimal(n15) / Decimal(n60) * (Decimal(1) - config.caida_ventas_pct)
     if not Decimal(u15) < esperado:

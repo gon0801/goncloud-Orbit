@@ -861,6 +861,38 @@ def test_r3_k2_solo_subir_bajar_traen_p_aplicado():
         )
 
 
+# ---------------------------------------------------------------- r3-K5
+
+
+_D4 = HOY - timedelta(days=4)
+
+
+def _con_duplicado(hoy, campo, par):
+    dias15 = [hoy - timedelta(days=d) for d in range(1, 16)]
+    base = {d: (5 if campo == "inv" else True) for d in dias15}
+    filas = [(d, base[d]) for d in dias15 if d != hoy - timedelta(days=4)]
+    filas.extend(par)
+    return tuple(filas)
+
+
+@pytest.mark.parametrize("par", [[(_D4, 5), (_D4, 0)], [(_D4, 0), (_D4, 5)]])
+def test_r3_k5_stock_exige_todas_las_observaciones(par):
+    ins = insumos_sanos(HOY, inventario=_con_duplicado(HOY, "inv", par))
+    assert senal(ins).submotivo == "dia_sin_stock"
+
+
+@pytest.mark.parametrize("par", [[(_D4, 5), (_D4, None)], [(_D4, None), (_D4, 5)]])
+def test_r3_k5_nula_exige_sin_observacion(par):
+    ins = insumos_sanos(HOY, inventario=_con_duplicado(HOY, "inv", par))
+    assert senal(ins).submotivo == "dia_sin_observacion_inventario"
+
+
+@pytest.mark.parametrize("par", [[(_D4, True), (_D4, False)], [(_D4, False), (_D4, True)]])
+def test_r3_k5_activo_exige_todas(par):
+    ins = insumos_sanos(HOY, listing_activo=_con_duplicado(HOY, "act", par))
+    assert senal(ins).submotivo == "listing_inactivo"
+
+
 # ---------------------------------------------------------------- r2-B
 
 
