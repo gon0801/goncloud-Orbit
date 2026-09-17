@@ -1,24 +1,19 @@
-"""Canal de avisos Telegram (ORBIT 04, task 3.3; sellados 2 y 19; APPLY.md 10.2).
+"""Avisos Telegram APAGADOS por decision (chat limpio, 2026-09-16).
 
-FAIL-SILENT por diseno: un fallo del canal JAMAS tumba el ciclo que notifica
-— deja WARNING en el log y la NOTA ``notes['telegram']`` del ciclo ejecutor
-(visible en Salud), que es la UNICA visibilidad del fallo: el silencio del
-canal no es invisible (sellado 2, decision 19). Canal DESHABILITADO (sin
-secrets) NO es fallo: los ``notifica_*`` devuelven True y NO generan NOTA.
+Ningun sender sale a la red: cada ``notifica_*`` construye el texto del
+aviso y lo deja en el log local via ``_envia_texto`` ("aviso Telegram
+suprimido"), devolviendo True — suprimido NO es fallo y NO genera NOTA.
+La logica de negocio (encolado, veto 48h, digest, harvest, SP-API, cap,
+biblioteca, destino) corre igual. Visibilidad (sellados 2 y 19): log local
++ notes/salud/system_alerts existentes, nunca silencio invisible.
 
-Config: ``<ORBIT_SECRETS_DIR>/telegram.json`` con ``{"bot_token": "...",
-"chat_id": "..."}`` (strings no vacios; claves extra toleradas, mismo patron
-que ``app.ads.config``). Sin dir/archivo, JSON invalido o claves faltantes ->
-canal deshabilitado con ``logger.info`` UNA vez por proceso (no configurado
-no es fallo, jamas warning). ``bot_token`` via ``register_secret``: el token
-viaja en la URL del POST, asi que cualquier mensaje de error que la ecoe pasa
-por ``scrub``.
+FAIL-SILENT por diseno: un fallo armando el aviso JAMAS tumba el ciclo que
+notifica — deja WARNING con ``scrub`` y devuelve False.
 
 Builders PUROS (sin red): arman el mensaje SIN secretos, texto plano SIN
 parse_mode (sin riesgo de inyeccion HTML/Markdown desde un search_term).
-``transport`` se conserva por compatibilidad de firma (APAGON 2026-09-16:
-se ignora, cero red). Toda la superficie publica devuelve bool y JAMAS
-levanta excepciones hacia arriba.
+Toda la superficie publica devuelve bool y JAMAS levanta excepciones hacia
+arriba.
 """
 
 from __future__ import annotations
@@ -40,12 +35,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 install_scrub_filter(logger)
-
-TELEGRAM_FILENAME = "telegram.json"
-
-# APAGON 2026-09-16: sin red. `_transporte_test` queda como compat (siempre
-# ignorado); los fixtures viejos pueden seguir seteandolo sin romper.
-_transporte_test: object | None = None
 
 # Familia de efecto por kind — ESPEJO de la columna GENERATED de apply_queue
 # (0002: pause -> entity_cut; negative y harvest -> term_cut; regla 2).
@@ -146,9 +135,10 @@ def _reset() -> None:
 def _config_canal() -> None:
     """Canal DESHABILITADO por decision (chat limpio, 2026-09-16).
 
-    Todos los avisos Telegram quedan apagados: los ``notifica_*`` devuelven
-    True sin enviar (no generan NOTA) y la logica de negocio (encolado,
-    veto 48h, digest, harvest, SP-API, cap, biblioteca, destino) corre igual.
+    Todos los avisos Telegram quedan apagados: los ``notifica_*`` construyen
+    el texto y lo dejan en el log local via ``_envia_texto`` (devuelven True
+    sin enviar, no generan NOTA) y la logica de negocio (encolado, veto 48h,
+    digest, harvest, SP-API, cap, biblioteca, destino) corre igual.
     Visibilidad: log local + notes/salud existentes.
     """
     if "config" not in _estado:
@@ -161,13 +151,14 @@ def _config_canal() -> None:
 
 
 def canal_activo() -> bool:
-    """True si el canal esta configurado (telegram.json valido)."""
+    """APAGON 2026-09-16: siempre False (el canal no se configura).
+    Se conserva por compatibilidad (vigilante, tests)."""
     return _config_canal() is not None
 
 
-def _envia_texto(texto: str, transport: object | None = None) -> bool:
-    """APAGON TOTAL Telegram (2026-09-16): no envia red, deja log local y
-    devuelve True (contrato canal deshabilitado: no es fallo, sin NOTA)."""
+def _envia_texto(texto: str) -> bool:
+    """APAGON TOTAL Telegram (2026-09-16): no envia red, deja el texto en
+    el log local y devuelve True (suprimido no es fallo, sin NOTA)."""
     logger.info("aviso Telegram suprimido (chat limpio, ver log/salud): %s", scrub(texto[:500]))
     return True
 
@@ -514,23 +505,19 @@ def aviso_cap_agotado(plataforma: str, kind: str, used: int, cap: int) -> str:
 # ---------------------------------------------------------------------------
 
 
-def notifica_encola(fila: CorteEncolado, *, transport: object | None = None) -> bool:
+def notifica_encola(fila: CorteEncolado) -> bool:
     """Aviso de UN corte nuevo encolado. False = fallo del canal (el caller
     deja la NOTA); canal deshabilitado -> True."""
     try:
-        if not canal_activo():
-            return True
-        return _envia_texto(aviso_corte_encolado(fila), transport=transport)
+        return _envia_texto(aviso_corte_encolado(fila))
     except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
         logger.warning("telegram: fallo armando el aviso de encola: %s", scrub(str(exc)))
         return False
 
 
-def notifica_digest(resumen: dict, *, transport: object | None = None) -> bool:
+def notifica_digest(resumen: dict) -> bool:
     """Digest del ciclo ejecutor al final del ciclo. False = fallo del canal."""
     try:
-        if not canal_activo():
-            return True
         plataforma = resumen.get("plataforma")
         payload = resumen
         if isinstance(plataforma, str):
@@ -545,34 +532,30 @@ def notifica_digest(resumen: dict, *, transport: object | None = None) -> bool:
             novedades = carga_reputacion_digest()
             if novedades:
                 payload = {**payload, "reputacion": novedades}
-        return _envia_texto(digest_ciclo(payload), transport=transport)
+        return _envia_texto(digest_ciclo(payload))
     except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
         logger.warning("telegram: fallo armando el digest: %s", scrub(str(exc)))
         return False
 
 
-def notifica_harvest_failed(alerta: AlertaHarvest, *, transport: object | None = None) -> bool:
+def notifica_harvest_failed(alerta: AlertaHarvest) -> bool:
     """Alerta de harvest failed (sellado 13): sale en el punto de fallo
     definitivo, junto a la reversa automatica. False = fallo del canal (la
     bandera envio_fallido viaja con la alerta hasta el ciclo)."""
     try:
-        if not canal_activo():
-            return True
-        return _envia_texto(alerta_harvest_failed(alerta), transport=transport)
+        return _envia_texto(alerta_harvest_failed(alerta))
     except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
         logger.warning("telegram: fallo armando la alerta de harvest: %s", scrub(str(exc)))
         return False
 
 
-def notifica_harvest_hermanas(alerta: AlertaHarvest, *, transport: object | None = None) -> bool:
+def notifica_harvest_hermanas(alerta: AlertaHarvest) -> bool:
     """Aviso de harvest aplicado con hermanas pendientes (F2, A.3): sale al
     cerrar `done` con pendientes declaradas. Mismo contrato fail-silent de
     los otros senders: canal deshabilitado -> True (no es fallo); cualquier
     excepcion -> warning con scrub + False; JAMAS levanta."""
     try:
-        if not canal_activo():
-            return True
-        return _envia_texto(alerta_harvest_hermanas(alerta), transport=transport)
+        return _envia_texto(alerta_harvest_hermanas(alerta))
     except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
         logger.warning("telegram: fallo armando el aviso de hermanas: %s", scrub(str(exc)))
         return False
@@ -594,18 +577,14 @@ def aviso_spapi_fallo(fuente: str, platform: str, motivo: str) -> str:
     return "\n".join(lineas)
 
 
-def notifica_spapi_fallo(
-    fuente: str, platform: str, motivo: str, *, transport: object | None = None
-) -> bool:
+def notifica_spapi_fallo(fuente: str, platform: str, motivo: str) -> bool:
     """Aviso de fallo SP-API en flanco (A.5): sale UNA vez por racha, en el
     primer 429/LWA o al abrirse la segunda fallida seguida. Mismo contrato
     fail-silent de los otros senders: canal deshabilitado -> True (no es
     fallo); cualquier excepcion -> warning con scrub + False; JAMAS levanta.
     """
     try:
-        if not canal_activo():
-            return True
-        return _envia_texto(aviso_spapi_fallo(fuente, platform, motivo), transport=transport)
+        return _envia_texto(aviso_spapi_fallo(fuente, platform, motivo))
     except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
         logger.warning("telegram: fallo armando el aviso SP-API: %s", scrub(str(exc)))
         return False
@@ -655,32 +634,26 @@ def aviso_spapi_vigilante_ciego(motivo: str) -> str:
     )
 
 
-def notifica_spapi_silencio(faltantes, desde, hasta, *, transport: object | None = None) -> bool:
+def notifica_spapi_silencio(faltantes, desde, hasta) -> bool:
     """Aviso de silencio SP-API (vigilante): sale cuando faltan corridas
     en la ventana. Mismo contrato fail-silent de notifica_spapi_fallo:
     canal deshabilitado -> True (no es fallo); cualquier excepcion ->
     warning con scrub + False; JAMAS levanta.
     """
     try:
-        if not canal_activo():
-            return True
-        return _envia_texto(aviso_spapi_silencio(faltantes, desde, hasta), transport=transport)
+        return _envia_texto(aviso_spapi_silencio(faltantes, desde, hasta))
     except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
         logger.warning("telegram: fallo armando el aviso SP-API: %s", scrub(str(exc)))
         return False
 
 
-def notifica_cap_agotado(
-    plataforma: str, kind: str, used: int, cap: int, *, transport: object | None = None
-) -> bool:
+def notifica_cap_agotado(plataforma: str, kind: str, used: int, cap: int) -> bool:
     """Aviso de cap agotado (preflight 1.4): lo manda el ciclo por CADA evento
     de transicion (UNA vez por (motor, dia), D3a). Mismo contrato fail-silent
     de los otros senders: canal deshabilitado -> True (no es fallo);
     cualquier excepcion -> warning con scrub + False; JAMAS levanta."""
     try:
-        if not canal_activo():
-            return True
-        return _envia_texto(aviso_cap_agotado(plataforma, kind, used, cap), transport=transport)
+        return _envia_texto(aviso_cap_agotado(plataforma, kind, used, cap))
     except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
         logger.warning("telegram: fallo armando el aviso de cap agotado: %s", scrub(str(exc)))
         return False
@@ -733,7 +706,6 @@ def notifica_biblioteca_no_escrita(
     texto: str | None,
     motivo: str,
     detalle: str,
-    transport: object | None = None,
 ) -> bool:
     """Aviso de biblioteca no escrita (F2, A.4): sale en el punto del fallo,
     con el sello ya aplicado. Mismo contrato fail-silent que
@@ -742,8 +714,6 @@ def notifica_biblioteca_no_escrita(
     si el canal falla es el rastro durable (`external_ids["biblioteca"]`
     en el harvest; log con scrub en el negative)."""
     try:
-        if not canal_activo():
-            return True
         return _envia_texto(
             alerta_biblioteca_no_escrita(
                 aplicado=aplicado,
@@ -755,7 +725,6 @@ def notifica_biblioteca_no_escrita(
                 motivo=motivo,
                 detalle=detalle,
             ),
-            transport=transport,
         )
     except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
         logger.warning("telegram: fallo armando el aviso de biblioteca: %s", scrub(str(exc)))
@@ -814,7 +783,7 @@ def aviso_destino_grupo(salto: SaltoDestinoGrupo) -> str:
     return "\n".join(lineas)
 
 
-def notifica_destino_grupo(salto: SaltoDestinoGrupo, *, transport: object | None = None) -> bool:
+def notifica_destino_grupo(salto: SaltoDestinoGrupo) -> bool:
     """Aviso de harvest de grupo sin destino (F2, A.6): lo manda el ciclo
     una vez por racha por campana. Mismo contrato fail-silent que
     `notifica_biblioteca_no_escrita`: canal apagado -> True; cualquier
@@ -823,9 +792,7 @@ def notifica_destino_grupo(salto: SaltoDestinoGrupo, *, transport: object | None
     notes.telegram y la lista saltos_grupo en /salud son la visibilidad
     de respaldo (mismo criterio que cap_agotado)."""
     try:
-        if not canal_activo():
-            return True
-        return _envia_texto(aviso_destino_grupo(salto), transport=transport)
+        return _envia_texto(aviso_destino_grupo(salto))
     except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
         logger.warning("telegram: fallo armando el aviso de destino: %s", scrub(str(exc)))
         return False

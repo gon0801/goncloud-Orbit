@@ -11,7 +11,6 @@ Cero red real: todo SP-API y Telegram contra httpx.MockTransport.
 from __future__ import annotations
 
 import ast
-import json
 import os
 import re
 import socket
@@ -110,26 +109,12 @@ def _sellar(
 
 
 @contextmanager
-def _canal(tmp_path, monkeypatch, *, tumbar=False):
-    """Telegram falso (patron tests/test_notifica.py): telegram.json en tmp
-    + transporte mockeado; yield la lista de textos capturados."""
-    d = tmp_path / "secrets"
-    d.mkdir(exist_ok=True)
-    (d / "telegram.json").write_text(
-        json.dumps({"bot_token": "tok-falsa-a5-12345", "chat_id": "99"}), encoding="utf-8"
-    )
-    monkeypatch.setenv("ORBIT_SECRETS_DIR", str(d))
-    mensajes: list[str] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        mensajes.append(json.loads(request.content)["text"])
-        if tumbar:
-            raise httpx.ConnectError(f"failed to connect to {request.url}")
-        return httpx.Response(200, json={"ok": True, "result": {"message_id": 1}})
-
-    monkeypatch.setattr(notifica, "_transporte_test", httpx.MockTransport(handler))
+def _canal(*_a, **_red_ignorada):
+    """APAGON 2026-09-16 (patron tests/test_notifica.py): sin red ni
+    telegram.json; acepta e ignora el viejo parametro tumbar; yield una
+    lista vacia (cero envios)."""
     notifica._reset()
-    yield mensajes
+    yield []
     notifica._reset()
 
 
@@ -702,10 +687,10 @@ def test_aislamiento_sin_imports_ads():
 
 
 def test_aislamiento_grafo_runtime_solo_config_inerte():
-    """En runtime `import app.spapi.salud` SI mete app.ads en sys.modules,
-    pero SOLO app.ads.config (constantes inertes, cero IO) via
-    app/notifica.py:38 — nunca app.ads.write/client. Allowlist explicita
-    en subproceso limpio (el proceso de pytest ya trae medio mundo)."""
+    """En runtime `import app.spapi.salud` NO mete app.ads en sys.modules
+    (APAGON 2026-09-16: notifica ya no importa app.ads.config — aislamiento
+    total). Subproceso limpio porque el proceso de pytest ya trae medio
+    mundo. (Nombre historico: antes solo entraba app.ads.config inerte.)"""
     import subprocess
 
     codigo = (

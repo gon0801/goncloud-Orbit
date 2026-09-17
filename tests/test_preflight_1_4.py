@@ -345,16 +345,10 @@ def test_notifica_cap_agotado_canal_deshabilitado_no_es_fallo():
     assert notifica.notifica_cap_agotado("amazon_us", "bid", 10, 10) is True
 
 
-def test_notifica_cap_agotado_envio_explota_false_sin_subir(tmp_path, monkeypatch):
-    """APAGON 2026-09-16: canal deshabilitado corta antes de _envia_texto —
-    devuelve True sin enviar (no es fallo, sin NOTA). El builder puro sigue
-    verificado en test_aviso_cap_agotado_builder_texto."""
-    d = tmp_path / "secrets"
-    d.mkdir(exist_ok=True)
-    (d / "telegram.json").write_text(
-        json.dumps({"bot_token": "7700000001:AAF-fake", "chat_id": "555001"}), encoding="utf-8"
-    )
-    monkeypatch.setenv("ORBIT_SECRETS_DIR", str(d))
+def test_notifica_cap_agotado_envio_explota_false_sin_subir(monkeypatch):
+    """APAGON 2026-09-16: sin puerta muda — el aviso pasa por _envia_texto
+    (log local); si _envia_texto explota -> False SIN subir (fail-silent).
+    El builder puro sigue verificado en test_aviso_cap_agotado_builder_texto."""
     notifica._reset()
     monkeypatch.setattr(
         notifica,
@@ -362,7 +356,7 @@ def test_notifica_cap_agotado_envio_explota_false_sin_subir(tmp_path, monkeypatc
         lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("boom canal")),
     )
     try:
-        assert notifica.notifica_cap_agotado("amazon_us", "bid", 10, 10) is True
+        assert notifica.notifica_cap_agotado("amazon_us", "bid", 10, 10) is False
     finally:
         notifica._reset()
 

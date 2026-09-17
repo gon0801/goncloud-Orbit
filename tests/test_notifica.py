@@ -1,26 +1,27 @@
 """Tests del canal de avisos Telegram (`app.notifica`) — ORBIT 04, task 3.3.
 
 DoD (plans/orbit-04.md 3.3; sellados 2 y 19; APPLY.md 10.2), un candado por
-test (regla 9 en cada uno). CERO HTTP real: TODO contra `httpx.MockTransport`
-(ni Telegram ni Amazon); `tests/conftest.py` aisla el canal por defecto.
+test (regla 9 en cada uno). APAGON 2026-09-16: CERO red (ni Telegram ni
+Amazon); los senders suprimen al log local (`_envia_texto`) y devuelven
+True; `tests/conftest.py` aisla el canal por defecto.
 
 1. BUILDERS PUROS: mensajes correctos (aviso con vence_el, digest con lo que
    existe, alerta de harvest) SIN secretos y SIN parse_mode (texto plano).
 2. TOLERANTES (regla 3): clave ausente no se menciona, jamas un 0 inventado.
-3. `_envia_texto`: 200 ok -> True; 500 / red / JSON raro -> False + WARNING
-   (caplog) con el token JAMAS presente (scrub).
+3. `_envia_texto`: APAGON, siempre True con el texto en el log local
+   ("aviso Telegram suprimido"); JAMAS sale a la red.
 4. CANAL DESHABILITADO (sin dir/archivo, JSON invalido): los `notifica_*`
    devuelven True (no es fallo), NO generan NOTA ni warning; el logger.info
    de deshabilitado sale UNA vez por proceso.
-5. INTEGRACION ciclo (el corazon del DoD, rojo honesto capturado): canal
-   configurado pero envio FALLA -> el ciclo termina 'done' (NO lo tumba ni
-   degrada) Y notes['telegram'] queda con la NOTA — el silencio del canal
-   jamas es invisible (sellado 2). Con canal OK -> 'done' SIN nota.
+5. INTEGRACION ciclo: APAGON, el ciclo termina 'done' (NO lo tumba ni
+   degrada) SIN notes['telegram'] — el aviso queda en el log local, nunca
+   en silencio invisible (sellado 2).
 6. AVISO AL ENCOLAR: un mensaje POR corte nuevo con el vencimiento (48h).
 7. DIGEST: UN mensaje al final con el resumen del ciclo ejecutor.
-8. ALERTA harvest failed: sale en el punto de fallo definitivo (junto a la
-   reversa automatica); si el envio falla, la bandera viaja con la alerta
-   hasta el resumen de liberacion (el ciclo la convierte en NOTA).
+8. ALERTA harvest failed: se construye en el punto de fallo definitivo
+   (junto a la reversa automatica) y queda en el log local; si el armado
+   falla, la bandera viaja con la alerta hasta el resumen de liberacion
+   (el ciclo la convierte en NOTA).
 """
 
 from __future__ import annotations
@@ -32,7 +33,6 @@ from contextlib import contextmanager
 from decimal import Decimal
 from types import SimpleNamespace
 
-import httpx
 import pytest
 from test_apply_harvest import (
     TERMINO,
@@ -53,8 +53,6 @@ from app.apply_cola import fila_cola, libera_vencidos
 from app.apply_harvest import MOTIVO_FALLO_KEYWORD, aplica_harvest
 from app.cycle import corre_ciclo
 
-FAKE_BOT_TOKEN = "7700000001:AAF-fake-token-XYZ"
-FAKE_CHAT_ID = "555001"
 OWNER = "test-host:notif"
 
 VENCE = DECIDED_AT + dt.timedelta(hours=48)  # ventana de veto sellada (48h)
@@ -70,40 +68,15 @@ _skip_db = pytest.mark.skipif(
 # ---------------------------------------------------------------------------
 
 
-def _handler_telegram(*, status: int = 200, json_valido: bool = True, tumbar: bool = False):
-    """Handler MockTransport de api.telegram.org: captura cada mensaje como
-    {"path": ..., "chat_id": ..., "text": ...}. `status` controla el HTTP
-    (500 = fallo del canal), `json_valido`=False responde un cuerpo no-JSON
-    (JSON raro) y `tumbar` rompe la red ECOANDO la URL (el token vive en el
-    path: es el caso real del scrub)."""
-    mensajes: list[dict] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        mensajes.append({"path": request.url.path, **json.loads(request.content)})
-        if tumbar:
-            raise httpx.ConnectError(f"failed to connect to {request.url}")
-        if not json_valido:
-            return httpx.Response(200, text="<<respuesta no json>>")
-        return httpx.Response(status, json={"ok": status == 200, "result": {"message_id": 1}})
-
-    return handler, mensajes
-
-
 @contextmanager
-def _canal(tmp_path, monkeypatch, *, status: int = 200, json_valido: bool = True, tumbar=False):
-    """Canal CONFIGURADO (telegram.json falso) + `_transporte_test` mockeado;
-    yield la lista de mensajes capturados. Restaura el cache al salir (el
-    autouse del conftest vuelve a deshabilitar el canal)."""
-    d = tmp_path / "secrets"
-    d.mkdir(exist_ok=True)
-    (d / "telegram.json").write_text(
-        json.dumps({"bot_token": FAKE_BOT_TOKEN, "chat_id": FAKE_CHAT_ID}), encoding="utf-8"
-    )
-    monkeypatch.setenv("ORBIT_SECRETS_DIR", str(d))
-    handler, mensajes = _handler_telegram(status=status, json_valido=json_valido, tumbar=tumbar)
-    monkeypatch.setattr(notifica, "_transporte_test", httpx.MockTransport(handler))
+def _canal(*_a, **_red_ignorada):
+    """APAGON 2026-09-16: el canal no sale a la red ni lee telegram.json
+    (andamiaje `_transporte_test`/MockTransport eliminado del modulo).
+    Acepta e ignora los viejos parametros de red (status/json_valido/
+    tumbar) para no reescribir cada llamada; yield una lista vacia (cero
+    envios). Restaura el cache al salir."""
     notifica._reset()
-    yield mensajes
+    yield []
     notifica._reset()
 
 
@@ -618,29 +591,20 @@ def test_carga_contribucion_digest_execute_falla(caplog):
     assert any("fallo leyendo contribucion" in r.message for r in caplog.records)
 
 
-def test_notifica_digest_falla_lectura_muestra_lectura_no_disponible(monkeypatch, tmp_path):
+def test_notifica_digest_falla_lectura_muestra_lectura_no_disponible(monkeypatch):
     """Si carga devuelve lectura_fallida, el digest lo declara (no omite en silencio)."""
-    d = tmp_path / "secrets"
-    d.mkdir()
-    (d / "telegram.json").write_text(
-        json.dumps({"bot_token": FAKE_BOT_TOKEN, "chat_id": FAKE_CHAT_ID}), encoding="utf-8"
-    )
-    monkeypatch.setenv("ORBIT_SECRETS_DIR", str(d))
 
     def _fallida(_plataforma, *, conn=None):
         return notifica.ContribucionDigest(
             rango=None, sin_dato=None, residual_tacos=None, lectura_fallida=True
         )
 
-    handler, mensajes = _handler_telegram()
-    monkeypatch.setattr(notifica, "_transporte_test", httpx.MockTransport(handler))
     monkeypatch.setattr(notifica, "carga_contribucion_digest", _fallida)
     notifica._reset()
     ok = notifica.notifica_digest(
         {"cycle_id": 1, "plataforma": "amazon_mx", "status": "done", "decisions_count": 0}
     )
-    assert ok is True
-    assert len(mensajes) == 0  # APAGON 2026-09-16: suprimido, ver log/salud
+    assert ok is True  # APAGON 2026-09-16: suprimido al log, ver log/salud
     contrib = notifica.ContribucionDigest(
         rango=None, sin_dato=None, residual_tacos=None, lectura_fallida=True
     )
@@ -657,7 +621,7 @@ def test_notifica_digest_falla_lectura_muestra_lectura_no_disponible(monkeypatch
     notifica._reset()
 
 
-def test_notifica_digest_falla_lectura_no_tumba(monkeypatch, tmp_path):
+def test_notifica_digest_falla_lectura_no_tumba(monkeypatch):
     """Fail-silent: lectura revienta en execute -> digest declara lectura no
     disponible y notifica_digest devuelve True si el canal manda."""
 
@@ -670,21 +634,12 @@ def test_notifica_digest_falla_lectura_no_tumba(monkeypatch, tmp_path):
     def _carga_fallida(plataforma, *, conn=None):
         return real_carga(plataforma, conn=_Conn())
 
-    d = tmp_path / "secrets"
-    d.mkdir()
-    (d / "telegram.json").write_text(
-        json.dumps({"bot_token": FAKE_BOT_TOKEN, "chat_id": FAKE_CHAT_ID}), encoding="utf-8"
-    )
-    monkeypatch.setenv("ORBIT_SECRETS_DIR", str(d))
-    handler, mensajes = _handler_telegram()
-    monkeypatch.setattr(notifica, "_transporte_test", httpx.MockTransport(handler))
     monkeypatch.setattr(notifica, "carga_contribucion_digest", _carga_fallida)
     notifica._reset()
     ok = notifica.notifica_digest(
         {"cycle_id": 1, "plataforma": "amazon_mx", "status": "done", "decisions_count": 0}
     )
-    assert ok is True
-    assert len(mensajes) == 0  # APAGON 2026-09-16: suprimido
+    assert ok is True  # APAGON 2026-09-16: suprimido al log
     notifica._reset()
 
 
@@ -721,8 +676,9 @@ def test_envia_texto_ok_envia_chat_id_y_texto(tmp_path, monkeypatch):
     assert len(mensajes) == 0
 
 
-def test_envia_texto_500_red_y_json_raro_fallan_con_warning(tmp_path, monkeypatch, caplog):
-    """APAGON 2026-09-16: suprimido siempre True, sin warning de red."""
+def test_envia_texto_apagon_siempre_true_sin_red(tmp_path, monkeypatch):
+    """APAGON 2026-09-16: suprimido siempre True, sin red en ningun caso
+    (los viejos parametros de red se ignoran)."""
     with _canal(tmp_path, monkeypatch, status=500):
         assert notifica._envia_texto("x") is True
     with _canal(tmp_path, monkeypatch, tumbar=True):
@@ -731,13 +687,16 @@ def test_envia_texto_500_red_y_json_raro_fallan_con_warning(tmp_path, monkeypatc
         assert notifica._envia_texto("x") is True
 
 
-def test_envia_texto_warning_scrubbeado_sin_token(tmp_path, monkeypatch, caplog):
-    """El token viaja en la URL: una excepcion que la ecoe (proxies caidos lo
-    hacen) pasa por scrub — el token JAMAS aparece en el log."""
-    caplog.set_level(logging.WARNING, logger="app.notifica")
-    with _canal(tmp_path, monkeypatch, tumbar=True):
-        assert notifica._envia_texto("x") is True  # APAGON: suprimido
-    assert FAKE_BOT_TOKEN not in "".join(r.getMessage() for r in caplog.records)
+def test_envia_texto_suprimido_queda_en_log(tmp_path, monkeypatch, caplog):
+    """Hallazgo revision final (puerta muda): el aviso suprimido NO es
+    silencio invisible — el texto queda en el log local."""
+    caplog.set_level(logging.INFO, logger="app.notifica")
+    with _canal(tmp_path, monkeypatch):
+        assert notifica._envia_texto("hola mundo") is True
+    assert any(
+        "aviso Telegram suprimido" in r.message and "hola mundo" in r.message
+        for r in caplog.records
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -750,7 +709,12 @@ def test_canal_deshabilitado_sin_archivo_no_es_fallo(tmp_path, monkeypatch, capl
     monkeypatch.setenv("ORBIT_SECRETS_DIR", str(tmp_path))  # dir SIN telegram.json
     notifica._reset()
     assert notifica.canal_activo() is False
-    assert notifica.notifica_digest({"cycle_id": 1, "plataforma": "x", "status": "done"}) is True
+    assert (
+        notifica.notifica_digest(
+            {"cycle_id": 1, "plataforma": "x", "status": "done", "decisions_count": 0}
+        )
+        is True
+    )
     assert (
         notifica.notifica_encola(
             notifica.CorteEncolado(
@@ -762,7 +726,9 @@ def test_canal_deshabilitado_sin_archivo_no_es_fallo(tmp_path, monkeypatch, capl
     assert notifica.notifica_harvest_failed(_alerta()) is True
     infos = [r for r in caplog.records if "deshabilitado" in r.getMessage()]
     assert len(infos) == 1, "el aviso de deshabilitado sale UNA vez por proceso"
-    notifica.notifica_digest({"cycle_id": 2, "plataforma": "x", "status": "done"})
+    notifica.notifica_digest(
+        {"cycle_id": 2, "plataforma": "x", "status": "done", "decisions_count": 0}
+    )
     assert len([r for r in caplog.records if "deshabilitado" in r.getMessage()]) == 1
     assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
     notifica._reset()
@@ -776,7 +742,12 @@ def test_canal_deshabilitado_json_invalido(tmp_path, monkeypatch, caplog):
     monkeypatch.setenv("ORBIT_SECRETS_DIR", str(d))
     notifica._reset()
     assert notifica.canal_activo() is False
-    assert notifica.notifica_digest({"cycle_id": 1, "plataforma": "x", "status": "done"}) is True
+    assert (
+        notifica.notifica_digest(
+            {"cycle_id": 1, "plataforma": "x", "status": "done", "decisions_count": 0}
+        )
+        is True
+    )
     assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
     notifica._reset()
 
@@ -1079,8 +1050,8 @@ def test_notifica_spapi_fallo_sin_canal_no_es_fallo():
 
 
 def test_notifica_spapi_fallo_builder_roto_no_levanta(tmp_path, monkeypatch):
-    """El JAMAS levanta cubre tambien el builder (no solo la red: esa la
-    traga _envia_texto). Con canal CONFIGURADO para llegar al builder.
+    """El JAMAS levanta cubre tambien el builder. APAGON: sin puerta que
+    trague el builder roto -> warning con scrub + False, sin levantar.
     Mata la mutacion 'sin try/except en notifica_spapi_fallo'."""
 
     def builder_roto(*a, **k):
@@ -1088,13 +1059,11 @@ def test_notifica_spapi_fallo_builder_roto_no_levanta(tmp_path, monkeypatch):
 
     with _canal(tmp_path, monkeypatch):
         monkeypatch.setattr(notifica, "aviso_spapi_fallo", builder_roto)
-        assert (
-            notifica.notifica_spapi_fallo("spapi_orders", "amazon_mx", "lwa_fallido: x") is True
-        )  # APAGON
+        assert notifica.notifica_spapi_fallo("spapi_orders", "amazon_mx", "lwa_fallido: x") is False
 
 
 def test_notifica_spapi_fallo_envia_y_tumba(tmp_path, monkeypatch):
-    """Sender: con canal OK envia (True); con red rota devuelve False SIN
+    """Sender APAGON: suprime al log (True) con canal OK o red rota, SIN
     levantar. Mata la mutacion 'sin try/except en notifica_spapi_fallo'."""
     with _canal(tmp_path, monkeypatch) as mensajes:
         assert notifica.notifica_spapi_fallo("spapi_orders", "amazon_mx", "lwa_fallido: x") is True
@@ -1131,8 +1100,8 @@ def test_alerta_harvest_hermanas_contenido_veraz():
 
 
 def test_notifica_harvest_hermanas_envia_y_tumba(tmp_path, monkeypatch):
-    """Sender (F2, A.3): con canal OK envia (True) el texto veraz; con red
-    rota devuelve False SIN levantar (el caller pone envio_fallido)."""
+    """Sender APAGON (F2, A.3): suprime al log (True) con canal OK o red
+    rota, SIN levantar."""
     from types import SimpleNamespace as _NS
 
     alerta = _NS(
@@ -1282,19 +1251,19 @@ def test_notifica_destino_grupo_sin_canal_no_es_fallo():
 
 
 def test_notifica_destino_grupo_builder_roto_no_levanta(tmp_path, monkeypatch):
-    """El JAMAS levanta cubre tambien el builder. Con canal CONFIGURADO
-    para llegar al builder."""
+    """El JAMAS levanta cubre tambien el builder. APAGON: builder roto
+    -> False sin levantar."""
 
     def builder_roto(*a, **k):
         raise RuntimeError("builder roto")
 
     with _canal(tmp_path, monkeypatch):
         monkeypatch.setattr(notifica, "aviso_destino_grupo", builder_roto)
-        assert notifica.notifica_destino_grupo(_salto_grupo()) is True  # APAGON
+        assert notifica.notifica_destino_grupo(_salto_grupo()) is False
 
 
 def test_notifica_destino_grupo_envia_y_tumba(tmp_path, monkeypatch):
-    """Sender: con canal OK envia (True); con HTTP 500 devuelve False SIN
+    """Sender APAGON: suprime al log (True) con canal OK o HTTP 500, SIN
     levantar."""
     with _canal(tmp_path, monkeypatch) as mensajes:
         assert notifica.notifica_destino_grupo(_salto_grupo()) is True
@@ -1348,9 +1317,8 @@ def test_fase_notifica_mapea_salto_destino_a_nota_y_acumula(monkeypatch):
 
 
 def test_fase_notifica_salto_destino_canal_caido_deja_nota(tmp_path, monkeypatch):
-    """Cableado real: con el canal caido (HTTP 500), el aviso de destino
-    falla y deja su NOTA (junto a la del digest, que tambien falla con
-    el canal caido)."""
+    """Cableado real APAGON: con el canal caido (HTTP 500, ignorado) el
+    aviso de destino se suprime al log SIN nota."""
     from app import cycle as ciclo
 
     with _canal(tmp_path, monkeypatch, status=500):
@@ -1457,8 +1425,8 @@ def test_notifica_spapi_silencio_sin_canal_no_es_fallo():
 
 
 def test_notifica_spapi_silencio_envia_y_tumba(tmp_path, monkeypatch):
-    """Sender: con canal OK envia (True); con red rota devuelve False SIN
-    levantar. Igual contrato que notifica_spapi_fallo."""
+    """Sender APAGON: suprime al log (True) con canal OK o red rota,
+    SIN levantar. Igual contrato que notifica_spapi_fallo."""
     desde, hasta = _ventana_vigilante()
     with _canal(tmp_path, monkeypatch) as mensajes:
         assert (
@@ -1473,26 +1441,20 @@ def test_notifica_spapi_silencio_envia_y_tumba(tmp_path, monkeypatch):
         )  # APAGON
 
 
-def test_notifica_spapi_silencio_ok_false_es_fallo(tmp_path, monkeypatch):
-    """Transport que responde 200 sin ok=true -> False, sin levantar."""
-
-    def _sin_ok(request):
-        return httpx.Response(200, json={"ok": False})
+def test_notifica_spapi_silencio_apagon_suprime_y_true(tmp_path, monkeypatch):
+    """APAGON: sin red ni parametro transport; el sender suprime al log y
+    devuelve True."""
 
     with _canal(tmp_path, monkeypatch):
-        transport = httpx.MockTransport(_sin_ok)
         desde, hasta = _ventana_vigilante()
         assert (
-            notifica.notifica_spapi_silencio(
-                [("spapi_orders", "amazon_mx")], desde, hasta, transport=transport
-            )
-            is True
-        )  # APAGON
+            notifica.notifica_spapi_silencio([("spapi_orders", "amazon_mx")], desde, hasta) is True
+        )
 
 
 def test_notifica_spapi_silencio_builder_roto_no_levanta(tmp_path, monkeypatch):
-    """El JAMAS levanta cubre tambien el builder. Con canal CONFIGURADO
-    para llegar al builder."""
+    """El JAMAS levanta cubre tambien el builder. APAGON: builder roto
+    -> False sin levantar."""
 
     def builder_roto(*a, **k):
         raise RuntimeError("builder roto")
@@ -1501,5 +1463,5 @@ def test_notifica_spapi_silencio_builder_roto_no_levanta(tmp_path, monkeypatch):
         monkeypatch.setattr(notifica, "aviso_spapi_silencio", builder_roto)
         desde, hasta = _ventana_vigilante()
         assert (
-            notifica.notifica_spapi_silencio([("spapi_orders", "amazon_mx")], desde, hasta) is True
-        )  # APAGON
+            notifica.notifica_spapi_silencio([("spapi_orders", "amazon_mx")], desde, hasta) is False
+        )

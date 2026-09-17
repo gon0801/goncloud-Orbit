@@ -29,7 +29,6 @@ from app.db import connect
 from app.notifica import (
     _envia_texto,
     aviso_spapi_vigilante_ciego,
-    canal_activo,
     notifica_spapi_silencio,
 )
 from app.redaction import install_scrub_filter, scrub
@@ -86,16 +85,13 @@ def lee_ventana(conn, *, desde: datetime, hasta: datetime) -> list:
     return conn.execute(_SQL_VENTANA, (list(FUENTES_SPAPI), desde, hasta)).fetchall()
 
 
-def avisa_ciego(motivo: str, *, transport=None) -> bool:
-    """Aviso ciego (el vigilante no pudo leer): mismo contrato
-    fail-silent de notifica_spapi_fallo — canal inactivo -> True;
-    excepcion -> warning con scrub + False; jamas levanta. Vive aqui
-    (no en notifica.py) porque el brief fija un solo sender nuevo alla;
-    el builder si es compartido."""
+def avisa_ciego(motivo: str) -> bool:
+    """Aviso ciego (el vigilante no pudo leer): APAGON 2026-09-16, el texto
+    queda en el log local via _envia_texto (-> True); excepcion -> warning
+    con scrub + False; jamas levanta. Vive aqui (no en notifica.py) porque
+    el brief fija un solo sender nuevo alla; el builder si es compartido."""
     try:
-        if not canal_activo():
-            return True
-        return _envia_texto(aviso_spapi_vigilante_ciego(motivo), transport=transport)
+        return _envia_texto(aviso_spapi_vigilante_ciego(motivo))
     except Exception as exc:  # noqa: BLE001 - fail-silent (contrato SP-API)
         logger.warning("vigilante: fallo el aviso ciego: %s", scrub(str(exc)))
         return False
