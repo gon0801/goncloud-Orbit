@@ -65,6 +65,10 @@ class CambioNoReversible(ValueError):
     """`revertir` mal usado: el cambio no existe o no es revertible."""
 
 
+class DecisionSinAccion(ValueError):
+    """`cambiar_precio` mal usado: la decision no mueve precio."""
+
+
 @dataclass(frozen=True)
 class PrecioVivo:
     precio: Decimal
@@ -75,6 +79,13 @@ class PrecioVivo:
 class ResultadoReversion:
     id_reversa: int | None
     estado: str  # "enviado" | "error" | "saltado"
+    motivo: str | None
+
+
+@dataclass(frozen=True)
+class ResultadoCambio:
+    id_cambio: int | None
+    estado: str  # "enviado" | "error"
     motivo: str | None
 
 
@@ -318,24 +329,190 @@ def revertir(
                 cambio_id,
             ),
         ).fetchone()[0]
+    return _escribir_y_sellar(
+        conn,
+        id_reversa,
+        lector=lector,
+        escritor=escritor,
+        cuerpo=cuerpo,
+        sku=sku,
+        platform=platform,
+        asin=asin,
+        momento=momento,
+        origen="revertir",
+        exito=lambda: ResultadoReversion(id_reversa=id_reversa, estado="enviado", motivo=None),
+        fallo=lambda codigo: ResultadoReversion(
+            id_reversa=id_reversa, estado="error", motivo=codigo
+        ),
+    )
+
+
+def _escribir_y_sellar(
+    conn: psycopg.Connection,
+    cambio_id: int,
+    *,
+    lector: SpapiClient,
+    escritor: SpapiWriteClient,
+    cuerpo: dict,
+    sku: str,
+    platform: str,
+    asin: str,
+    momento: datetime,
+    origen: str,
+    exito,
+    fallo,
+):
+    """PATCH -> sello por ack -> readback informativo. Compartido por
+    `cambiar_precio` y `revertir` (mismo camino S5).
+
+    HTTP 2xx con estado aceptado -> `enviado` con `ack` literal (saneado)
+    y `enviado_at`; 4xx/5xx, red o estado distinto -> `error` con
+    `error_code = "<METODO> <ruta sin SKU> <status>"`, aunque una lectura
+    posterior muestre el precio nuevo. El readback no decide: `ok` si se
+    pudo leer (sea cual sea el precio), `fallido` si no.
+    """
     try:
         resp = escritor.patch_listing(sku, cuerpo)
     except httpx.HTTPError as exc:
         codigo = f"PATCH {_ruta_sin_sku(escritor._seller_id)} red"
-        logger.info("revertir cambio=%s error=%s (%s)", id_reversa, codigo, type(exc).__name__)
-        _sellar(conn, id_reversa, estado="error", error_code=codigo)
-        _readback(conn, id_reversa, None, momento, origen="revertir")
-        return ResultadoReversion(id_reversa=id_reversa, estado="error", motivo=codigo)
+        logger.info("%s cambio=%s error=%s (%s)", origen, cambio_id, codigo, type(exc).__name__)
+        _sellar(conn, cambio_id, estado="error", error_code=codigo)
+        _readback(conn, cambio_id, None, momento, origen=origen)
+        return fallo(codigo)
     aceptado, _cuerpo = _estado_aceptado(resp)
     if aceptado:
-        _sellar(conn, id_reversa, estado="enviado", ack=_ack_saneado(resp))
-        logger.info("revertir cambio=%s estado=enviado", id_reversa)
+        _sellar(conn, cambio_id, estado="enviado", ack=_ack_saneado(resp))
+        logger.info("%s cambio=%s estado=enviado", origen, cambio_id)
         vivo_rb = _leer_vivo_suave(lector, platform=platform, asin=asin)
-        _readback(conn, id_reversa, vivo_rb, momento, origen="revertir")
-        return ResultadoReversion(id_reversa=id_reversa, estado="enviado", motivo=None)
+        _readback(conn, cambio_id, vivo_rb, momento, origen=origen)
+        return exito()
     codigo = f"PATCH {_ruta_sin_sku(escritor._seller_id)} {resp.status_code}"
-    logger.info("revertir cambio=%s error=%s", id_reversa, codigo)
-    _sellar(conn, id_reversa, estado="error", error_code=codigo)
+    logger.info("%s cambio=%s error=%s", origen, cambio_id, codigo)
+    _sellar(conn, cambio_id, estado="error", error_code=codigo)
     vivo_rb = _leer_vivo_suave(lector, platform=platform, asin=asin)
-    _readback(conn, id_reversa, vivo_rb, momento, origen="revertir")
-    return ResultadoReversion(id_reversa=id_reversa, estado="error", motivo=codigo)
+    _readback(conn, cambio_id, vivo_rb, momento, origen=origen)
+    return fallo(codigo)
+
+
+def cambiar_precio(
+    conn: psycopg.Connection,
+    decision_id: int,
+    *,
+    lector: SpapiClient,
+    escritor: SpapiWriteClient,
+    construir_cuerpo: Callable[..., dict] | None = None,
+    ahora: datetime | None = None,
+) -> ResultadoCambio:
+    """Aplica el `p_aplicado` de una decision `subir`/`bajar` en Amazon.
+
+    Cualquier otro resultado o modo es `DecisionSinAccion` (funcion mal
+    usada; la base tambien lo rechazaria). Sin precio vivo no hay fila
+    que insertar (`precio_antes` es NOT NULL): `error` sin fila y sin
+    PATCH. Orden S5: INSERT + COMMIT -> PATCH -> sello.
+    """
+    momento = ahora or datetime.now(UTC)
+    dec = conn.execute(
+        "SELECT d.listing_id, d.platform, d.resultado, d.mode,"
+        " d.p_aplicado, d.p_aplicado_currency, l.seller_sku, l.external_id"
+        " FROM precio_decision d JOIN listing l"
+        " ON l.id = d.listing_id AND l.platform = d.platform"
+        " WHERE d.id = %s",
+        (decision_id,),
+    ).fetchone()
+    if dec is None:
+        raise DecisionSinAccion(f"decision {decision_id} inexistente")
+    listing_id, platform, resultado, mode, p_aplicado, p_moneda, sku, asin = dec
+    if resultado not in ("subir", "bajar") or mode != "live":
+        raise DecisionSinAccion(
+            f"decision {decision_id}: solo subir/bajar en live mueven precio,"
+            f" llego {resultado}/{mode}"
+        )
+    try:
+        vivo = leer_precio_vivo(lector, platform=platform, asin=asin)
+    except (PrecioVivoAusente, httpx.HTTPError):
+        logger.info("cambiar decision=%s error=sin_precio_vivo", decision_id)
+        return ResultadoCambio(id_cambio=None, estado="error", motivo="sin_precio_vivo")
+    arma = construir_cuerpo or construir_cuerpo_parche
+    cuerpo = arma(platform=platform, sku=sku, precio=vivo.precio, moneda=vivo.moneda)
+    obs_precio, obs_moneda = _observada_del_dia(
+        conn, asin=asin, platform=platform, dia=momento.date()
+    )
+    with conn.transaction():
+        id_cambio = conn.execute(
+            "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
+            " precio_antes_currency, precio_observado_antes,"
+            " precio_observado_antes_currency, precio_despues, precio_despues_currency,"
+            " aplicado, estado, enviado_at)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, true, 'pendiente', %s)"
+            " RETURNING id",
+            (
+                decision_id,
+                listing_id,
+                platform,
+                vivo.precio,
+                vivo.moneda,
+                obs_precio,
+                obs_moneda,
+                p_aplicado,
+                p_moneda,
+                momento,
+            ),
+        ).fetchone()[0]
+    return _escribir_y_sellar(
+        conn,
+        id_cambio,
+        lector=lector,
+        escritor=escritor,
+        cuerpo=cuerpo,
+        sku=sku,
+        platform=platform,
+        asin=asin,
+        momento=momento,
+        origen="cambiar",
+        exito=lambda: ResultadoCambio(id_cambio=id_cambio, estado="enviado", motivo=None),
+        fallo=lambda codigo: ResultadoCambio(id_cambio=id_cambio, estado="error", motivo=codigo),
+    )
+
+
+def cerrar_por_observacion(conn: psycopg.Connection, hoy) -> dict:
+    """Cierra por la observacion propia del dia posterior al envio.
+
+    Para cada cambio `enviado` con `enviado_at` de un dia UTC anterior a
+    `hoy`: la observacion propia mas reciente de un dia posterior al del
+    envio (join `listing.external_id = asin` + `platform`) igual a
+    `precio_despues` (importe Y moneda) -> `confirmado` /
+    `confirmado_por = 'observacion'`; distinta -> `no_confirmado`; sin
+    observacion -> no se toca (no se adivina). Vale igual para reversas.
+    """
+    abiertos = conn.execute(
+        "SELECT c.id, c.listing_id, c.platform, c.precio_despues,"
+        " c.precio_despues_currency, (c.enviado_at AT TIME ZONE 'UTC')::date,"
+        " l.external_id"
+        " FROM precio_cambio c JOIN listing l"
+        " ON l.id = c.listing_id AND l.platform = c.platform"
+        " WHERE c.estado = 'enviado' AND (c.enviado_at AT TIME ZONE 'UTC')::date < %s"
+        " ORDER BY c.id",
+        (hoy,),
+    ).fetchall()
+    cuenta = {"confirmado": 0, "no_confirmado": 0, "intactos": 0}
+    for cid, _lid, platform, despues, despues_moneda, dia_envio, asin in abiertos:
+        obs = conn.execute(
+            "SELECT own_listing_price, own_listing_currency FROM spapi_price_observation"
+            " WHERE asin = %s AND platform = %s AND metric_date > %s AND metric_date <= %s"
+            " AND own_listing_price IS NOT NULL"
+            " ORDER BY metric_date DESC, observed_at DESC LIMIT 1",
+            (asin, platform, dia_envio, hoy),
+        ).fetchone()
+        if obs is None:
+            cuenta["intactos"] += 1
+            continue
+        estado = "confirmado" if (obs[0], obs[1]) == (despues, despues_moneda) else "no_confirmado"
+        with conn.transaction():
+            conn.execute(
+                "UPDATE precio_cambio SET estado = %s, confirmado_por = 'observacion'"
+                " WHERE id = %s",
+                (estado, cid),
+            )
+        cuenta[estado] += 1
+        logger.info("cerrar cambio=%s estado=%s", cid, estado)
+    return cuenta
