@@ -1851,6 +1851,19 @@ def test_reglas_borde_tolerancia_mantener_y_subir():
     assert isinstance(d, PideCotizacion)
 
 
+def test_r4_g7_bordes_fijan_direccion_del_pedido():
+    # r4-G7: con senal perdiendo, m = 30.51 % -> BAJAR (pedido < P);
+    # espejo con 29.49 % -> SUBIR (pedido > P).
+    from app.precio.tipos import PideCotizacion
+
+    d = decide(entrada(costo="51.99", senal=senal_perdiendo()))
+    assert isinstance(d, PideCotizacion)
+    assert d.precio.valor < Decimal("116")
+    d = decide(entrada(costo="53.01", senal=senal_perdiendo()))
+    assert isinstance(d, PideCotizacion)
+    assert d.precio.valor > Decimal("116")
+
+
 def test_reglas_tope_del_escalon_hacia_abajo():
     d = resuelve(entrada(costo="60", precio="116.01"))
     assert d.resultado == "subir"
