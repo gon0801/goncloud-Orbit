@@ -232,6 +232,70 @@ E           ValueError: setting precio_tolerancia: fuera de cota [0, 0.004]: 0.0
 
 MUERTO. Revertido con `git checkout -- app/precio/config.py`.
 
+## Ronda r4 (revisión de grok, 2026-09-17)
+
+G1–G4 con mutante propio (sembrados sobre el HEAD commiteado, con
+caché nueva `PYTHONPYCACHEPREFIX=$(mktemp -d) -p no:cacheprovider`,
+revertidos por edición y `git status` limpio). G5–G10 son
+documentación, higiene de tests o candados sin cambio de
+comportamiento y no llevan mutante.
+
+### G1 — historial sin ordenar por fecha (`reglas.py`)
+
+Mutante: `sorted(..., key=lambda h: h.fecha)` → `list(...)` (orden de
+llegada). El freno mira los últimos N por fecha; sin ordenar, el
+barajado decide. Test: `test_r4_g1_orden_de_llegada_no_decide_el_freno`.
+
+```text
+E       AssertionError: assert False
+E        +  where False = isinstance(Decision(resultado='frenado', motivo='no_converge', m_actual=Decimal('0.225'), goal=Decimal('0.30'), p_actual=Importe(...d=Decimal('1125.000'), aplicado=False, mode='live', buy_box_is_own=None, diagnostico='3 cambios sin acercarse al goal'), <class 'app.precio.tipos.PideCotizacion'>)
+1 failed, 1 passed, 162 deselected in 0.36s
+```
+
+MUERTO.
+
+### G2 — `repartir_cupo` devuelve en orden de prioridad (`reglas.py`)
+
+Mutante: el bucle de salida itera `ordenados` en vez de `candidatos`.
+El `zip` con la entrada cruzaría publicaciones. Test:
+`test_r4_g2_cupo_devuelve_pares_en_orden_de_entrada`.
+
+```text
+E       assert [1, 2] == [2, 1]
+E         At index 0 diff: 1 != 2
+1 failed, 163 deselected in 0.34s
+```
+
+MUERTO.
+
+### G3 — escalón igual al mínimo revienta (`config.py`)
+
+Mutante: `if escalon < minimo` → `if escalon <= minimo`. El igual es
+válido (el escalón aplicado queda sobre el mínimo, no bajo él).
+Test: `test_r4_g3_escalon_bajo_minimo_revienta_igual_pasa`.
+
+```text
+E           ValueError: setting precio_escalon_max_pct por debajo de precio_movimiento_min_pct: 0.10 < 0.10 (el escalón aplicado quedaría bajo el mínimo y consumiría cooldown y cuota)
+1 failed, 163 deselected in 0.32s
+```
+
+MUERTO.
+
+### G4 — moneda sin mínimo gasta cotización (`reglas.py`)
+
+Mutante: la guarda acepta `"EUR"` (`not in ("MXN", "USD", "EUR")`).
+La moneda mala pasa la coherencia y `decidir` pide cotización en vez
+de `no_evaluado(escenario_incoherente)`. Test:
+`test_r4_g4_moneda_sin_minimo_no_gasta_cotizacion`.
+
+```text
+E       AssertionError: assert not True
+E        +  where True = isinstance(PideCotizacion(precio=Importe(valor=Decimal('131.68'), moneda='EUR'), intento=1), <class 'app.precio.tipos.PideCotizacion'>)
+1 failed, 163 deselected in 0.28s
+```
+
+MUERTO.
+
 ## Ronda r3 (revisión de kimi, 2026-09-17)
 
 Nacieron de K: monedas divergentes (`test_r3_k1_*`), cupo que limpia
