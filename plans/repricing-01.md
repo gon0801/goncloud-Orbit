@@ -1,16 +1,22 @@
 # REPRICING 01 — Motor de precios por goal de margen (M1 / AUTO-07 / ORBIT 09)
 
-Version: 1.1, 2026-09-16 UTC. Estado: **plan sellado sobre el spec v1.2
-(decisiones 1–12 del 2026-09-15, revisión de cinco perspectivas y decisiones
-13–15 del 2026-09-16); cero implementación**. Base: `origin/master` `0617328`.
+Version: 1.2, 2026-09-16 UTC. Estado: **plan sellado sobre el spec v1.3
+(decisiones 1–15 del dueño, dos rondas de revisión de cinco perspectivas); cero
+implementación**. Base: `origin/master` `1a2a8c2`.
 Spec: `docs/superpowers/specs/2026-09-15-repricing-01-design.md` (manda sobre
 este plan). Precedencia: `docs/CONTEXTO.md` (reglas 1–10) > `plans/ROADMAP.md`
 > spec de márgenes y su acta 0.3 > spec de este plan > este plan.
 Tracker: `ORBIT 09 — Módulo Repricing` y `AUTO-07 Repricing (plan formal)`.
-`team_validation_mode: subagent`: producto, arquitectura, seguridad, QA y
-escéptico sobre las fases A y 0/B (40 hallazgos, disposición en
-`docs/evidencia/repricing-01/plan-validacion.md`); **las fases E, B revisada y
-M llevan su propia ronda antes de implementarse**.
+`team_validation_mode: subagent`. **Dos rondas, ambas cerradas:** la primera
+sobre las fases A y 0/B (40 hallazgos,
+`docs/evidencia/repricing-01/plan-validacion.md`); la segunda sobre E, B y M
+(`docs/evidencia/repricing-01/plan-validacion-ebm.md`), que **invalidó cuatro
+afirmaciones que la v1.1 de este plan daba por medidas** — el cobro de envío en
+US, la cobertura que habilita la fase E, la justificación del percentil y el
+canal por publicación. Las correcciones están en los hechos 13–19 y en las
+fases E, B y M. Una de ellas, la duplicación entre fuentes de `shipping_fee`,
+**quedó en disputa entre dos mediciones** y por eso abre la fase E como tarea
+E.0 en vez de escribirse como hecho.
 No hay fechas ni presupuestos en este plan. Ningún secreto en el repo.
 
 ## Resultado y límites
@@ -82,25 +88,34 @@ número), con clave y cota; fuera de cota = `ValueError` ruidoso al leer:
    US. Con el plan v1.0 el motor habría alcanzado 171 de 530 publicaciones
    activas (32%).
 3. **El costo de las etiquetas ya está en Orbit** (decisión 13): `ledger_event`
-   `fee_type = 'shipping_fee'`, 180 días, todo registrado en MXN — MX 455
-   cargos por 38 861, US 710 cargos por 192 607. En US el envío **supera a la
-   comisión por referencia** (121 147) y el cliente pagó cero envío en las 349
-   ventas del periodo (`shipping_price`).
-4. **La atribución del envío al producto es exacta**: el cargo trae `order_id`
-   y no `product_id`, pero 431 de 439 órdenes con etiqueta en MX y 344 de 347
-   en US son de **un solo producto y una sola unidad**. Costo típico por envío:
-   MX 88–96 MXN, US 520–550 MXN; cola larga real (hasta 225 en MX y 988 en US).
-5. **Orbit no guarda el canal por publicación**: `listing` no tiene columna de
-   canal y `app/listings.py` no lo lee, aunque el bridge lo expone
-   (`amazon_listing_prices.fulfillment_channel`). Sin eso no hay recuadro de
-   cobertura (decisión 14) ni separación FBA/FBM en la decisión.
+   `fee_type = 'shipping_fee'`, todo registrado en MXN y con **signo negativo**
+   por la convención del ledger. **Corregido el 2026-09-16**: la cifra «US 710
+   cargos por 192 607» que traía la v1.1 de este plan era la **suma cruda con
+   duplicados**; deduplicada son 185 488. La causa está en el punto 14.
+4. **La atribución del envío al producto es exacta, pero un envío no es una
+   fila**: el cargo trae `order_id` y no `product_id`, y 431 de 439 órdenes con
+   etiqueta en MX y 344 de 347 en US son de un solo producto y una sola unidad,
+   así que la atribución producto↔orden sí es exacta. Lo que **no** es exacto es
+   contar filas: en US **152 de 173 órdenes traen 2 cargos y 18 traen 3**. La
+   muestra agrupa por orden antes de percentilar.
+5. **Orbit sí trae ya el canal por publicación.** `estimacion_oferta_observation`
+   tiene `canal` y `mapear_canal` ya hace `AMAZON_NA` → `fba` y `DEFAULT` →
+   `fbm`: 7 514 filas sobre 221 listings, fresca al 2026-09-17. Lo único que
+   impide que lleguen FBM y US son ~8 líneas de `_motivo_universo`. **Corrige la
+   v1.1 de este plan**, que daba el canal por ausente y presupuestaba una
+   migración y un cambio en `app/listings.py` para traerlo: A.7 se queda solo
+   con `app/precio/cobertura.py`.
 6. **Mercado Libre**: el acceso a la API existe y funciona a diario
    (`ClienteMeli` en `app/reputacion_clientes.py`, **GET-only por diseño**,
    con refresco de token), pero la caché de publicaciones del bridge
    (`meli_listings_cache`, 137 items) no se refresca **desde el 2026-05-01**,
    `meli_sku_mapping` está **vacío** (sin puente al costo), y hay **cero filas
    `meli`** en `ledger_event`, `listing`, `ad_entity` y las observaciones de
-   precio. MeLi no es «encender»: es traerlo a Orbit primero.
+   precio. **Pero el dinero sí llega**: `ingest_run` reporta cada día
+   `5126x plataforma meli excluida`, creciendo 15–20 filas por día — la ingesta
+   contable lo recibe y lo descarta en una rama. Abrir el ledger de MeLi es
+   quitar esa rama y mapear (horas), no construir una ingesta. `estimacion_canal`
+   solo admite `fba|fbm` y necesita su propio valor.
 7. La estimación corre cada 6 h a :45 y el costo del día se sella a las 08:15
    UTC: el primer escenario `disponible` nace a las 12:45. **Horario del
    motor: 13:10 UTC.**
@@ -125,6 +140,63 @@ número), con clave y cota; fuera de cota = `ValueError` ruidoso al leer:
     tiene el patrón de flanco por racha y es fail-silent;
     `tests/test_architecture.py` tiene candados de pureza, escritor único e
     imports de escritura que **no se tocan**: los nuevos van en paralelo.
+
+**Medidos en la segunda ronda de revisión (2026-09-16), sobre las fases E, B y
+M.** Los seis invalidan algo que la v1.1 de este plan daba por cierto:
+
+13. **La fase E no habilita 222 publicaciones; habilita ~20 hoy.** Contando
+    **órdenes** con etiqueta en 90 días, solo **7 productos de MX y 9 de US**
+    llegan al mínimo de 6 envíos; cruzados con publicaciones activas son **10 y
+    10**. El techo no lo pone el umbral sino el volumen: de 264 activas de MX
+    solo 117 vendieron algo en 90 días y 15 vendieron ≥ 6 unidades; en US, 48 de
+    106 y 10. La palanca medida es la **ventana**: 180 días lleva los productos
+    de 7 a 14 y de 8 a 17; 365 días, a 17 y 22. El percentil no mueve nada.
+14. **Tres fuentes de envío se solapan; si duplican dinero está EN DISPUTA.**
+    A 90 días en US: `finance:ShippingHB` (170 filas, promedio −85.23),
+    `finance:LabmanLabelPurchase` (54, −441.60) y el reporte `shipping_label`
+    (137, −462.78). Dos mediciones independientes del 2026-09-16 no coinciden:
+    el revisor escéptico reporta **18 órdenes (10.4%) con la misma etiqueta por
+    dos fuentes** y 7 701 MXN duplicados; la verificación independiente, con
+    prueba de **monto exacto**, encuentra **cero** en US y MX a 90 y 180 días.
+    Coinciden en lo demás: 152 órdenes de US con 2 cargos y 18 con 3, y
+    137 + 54 = 191 = 173 órdenes + 18, que es el número en disputa. Una orden de
+    muestra con tres cargos trae −127.12, −102.99 y −2 149.87: montos que no se
+    parecen, lo que explica que la prueba exacta no encuentre nada y deja dos
+    lecturas abiertas. **Resolverlo es el primer entregable de la fase E
+    (E.0)**; hasta entonces `L` en US no se sella. El origen está **aguas
+    arriba** (la contabilidad que alimenta el ledger), no en Orbit.
+15. **La dispersión que justificaba el percentil no existe.** MX es tarifa plana
+    (p50 = p75 = 95.00 de dic-25 a may-26; 91.00 desde jun-26) y en US el
+    p75 − p50 va de 2 a 13 MXN: elegir p75 en vez de p50 mueve el margen entre
+    0.00 y 0.43 puntos (mediana 0.17) en 15 de 16 productos. Y el p75 móvil de
+    90 días **tardó ~75 días** en registrar el cambio de 95 a 91 del 1-jun (el
+    p50 tardó 45), así que ante una **subida** de tarifa subestima `L` durante
+    ~75 días. Además el cargo aparece 1–11 días después de su `event_date` y el
+    rezago por fila es p50 27 días en MX y 22 en US, p90 ~57–59, máximo 73.
+16. **En US el cobro de envío al cliente es NULL, no cero.** De 351 ventas de US
+    en 180 días, **ninguna** trae `shipping_price` ni `item_price`; la causa es
+    estructural: `_money_from_payload` descarta el desglose cuando el
+    `CurrencyCode` del payload (USD) no coincide con la moneda del `amount`
+    (MXN). En MX, 33 de 286 traen `shipping_price` y las 33 son > 0. **Corrige
+    la v1.1**, que declaraba «el cliente pagó cero envío en las 349 ventas».
+17. **La rama de bajar precio no se dispara con el volumen actual.** En
+    `[hoy−75, hoy−16]` MX movió 199 unidades entre 74 productos (2.7 de
+    promedio) y US 120 entre 35. **Un solo producto del negocio** llega a
+    `u60 ≥ 20` (MX 1621, `u60 = 25`). El criterio (c) de D.2, E.5, B.2 y M.6 va
+    a salir «no ocurrió» en las cuatro mediciones de 30 días.
+18. **El margen de US no es el problema; Ads sí.** Por unidad, sobre los 9
+    productos de US con muestra, la contribución va de **33% a 63%, mediana
+    ~50%**. El envío (94 035 a 90 días) supera a la comisión (65 067) pero no se
+    come el margen. **Ads US gastó 106 721 sobre 446 129 de ventas: TACoS
+    23.9%, contra 9.0% en MX.** Un goal pre-Ads de 30% en US es ~6% después de
+    Ads. Ya medido para el acta 0.2: retención ISR US 2.07% de ventas (MX
+    1.99%), `tax_withheld` US 6.56%.
+19. **Hay dos denominadores de «publicación activa» y no coinciden.** La fuente
+    propia de Orbit (`spapi_listing_estado_observation`) dice **264** vendibles
+    en MX y **106** en US; la caché del bridge dice **284** y **109**. 20 de
+    diferencia en MX (7%). No es hueco de carga: son dos definiciones. AC17 no
+    puede pasar en ninguna fase hasta que el spec nombre una fuente canónica —
+    y ya la nombra (S10): la propia de Orbit.
 
 ## Diseño (lo que el implementador no decide)
 
@@ -163,55 +235,77 @@ Está en el spec S2–S11. Invariantes que el revisor verifica en cada fila:
 | A.4 | [stage:verificacion] [lane:release] [tdd:skip:sonda] **Sonda de escritura y reversa con ids reales** (dueño con `!`, go literal; lead lee): un producto controlado MX; `+0.01` por `precio_write.py` y reversa por la herramienta. Sella la forma exacta del parche. | `docs/evidencia/repricing-01/A.4/` en orden temporal: observación del día anterior = `P`; fila `pendiente` con `enviado_at` antes del ack; ack con `submissionId`; GET con `lastUpdatedDate > enviado_at` y precio `P + 0.01`; ack y GET de la reversa; observación del día siguiente = `P`; **control negativo** (otro listing propio sin cambio conserva su precio); **sin E/A.4 no hay D.2** | A.3 | cc:TODO |
 | A.5 | [stage:implementacion] [lane:gate] [tdd:required] **Corrida diaria** (Muse): `app/precio/corrida.py` (claim en `ads_optimizer_lock` `precio:<platform>` + advisory lock; cierra por observación los `enviado` de ayer; decide para todos los goals vigentes; ordena por prioridad; aplica solo `live` bajo `app/precio/cuota.py` sin importar `app.apply`; en `shadow` cambios virtuales; orden INSERT+COMMIT → PATCH → sello), `app/cli.py precio --platform` y `precio --reporte --desde --hasta`, cron `10 13 * * *` con `flock` y log, claves de config. | Rojo-primero: día sin insumos → N `no_evaluado` y cero escrituras; cuota saturada → `mantener(cuota)` por prioridad con las de Ads intactas; reversas consumen cuota; segunda corrida del día no decide; **dos hilos con PostgreSQL real → exactamente un PATCH**; `shadow` nunca escribe en Amazon y sí consume cooldown; `enviado` de ayer se cierra antes de decidir; freno tras 3 días de `error`; línea de crontab pinzada por test; umbral fuera de cota → `ValueError` al arrancar | A.1, A.2, A.3 | cc:TODO |
 | A.6 | [stage:implementacion] [lane:gate] [tdd:required] **Pantalla y avisos** (Muse): `/precios` con los cinco bloques de S7 (cobertura arriba), bloque `precios` en `/salud` dentro de `plataformas.<p>`, **un** sender `notifica_precio(tipo, …)` en flanco por racha: por `(plataforma, motivo)` con conteo y 5 SKUs para `no_evaluado`/`goal_inalcanzable`/`frenado`, por producto para `no_confirmado`/`buy_box_perdida`; fail-silent. | Rojo-primero: `/precios` 200 con los cinco bloques y frases con números del fixture; `/salud` cuenta lo mismo que `precio_decision`; 200 productos con el mismo motivo → **un** aviso; builder de texto **sin** costo, margen, goal ni cuerpo de error; un fallo del sender no tumba `correr` | A.5, A.7 | cc:TODO |
-| A.7 | [stage:implementacion] [lane:gate] [tdd:required] **Catálogo y cobertura** (decisión 14; Muse): traer a Orbit, por publicación, el **canal** (`AMAZON_NA` → `fba`, `DEFAULT` → `fbm`) y el estado vendible desde la ingesta de listings del bridge (`amazon_listing_prices`), con migración propia y `observed_at`; `app/precio/cobertura.py` que produce el recuadro de S10 por plataforma y cuadra contra el catálogo activo. | Rojo-primero: canal desconocido → `canal_sin_dato`, nunca un default; publicación sin reportar > 3 días → `catalogo_desactualizado` contada y avisada; el recuadro **cuadra exacto** con las activas del bridge en un fixture de 12 publicaciones repartidas en los cuatro estados; una publicación sin goal aparece listada, no oculta; `fuera_de_alcance` nombra la fase (`fase_E_envio_fbm`, `fase_M_meli`), no un genérico; readback en producción contra los números del bridge | A.0 | cc:TODO |
+| A.7 | [stage:implementacion] [lane:gate] [tdd:required] **Cobertura** (decisión 14; Muse): **sin migración** — el canal ya está en `estimacion_oferta_observation` y `mapear_canal` ya traduce `AMAZON_NA` → `fba` y `DEFAULT` → `fbm` (hecho 5); lo único que falta son las ~8 líneas de `_motivo_universo` que hoy dejan fuera FBM y US. Solo `app/precio/cobertura.py`, que produce el recuadro de S10 por plataforma contra la **fuente canónica** (`spapi_listing_estado_observation`, hecho 19) y cuadra con el catálogo activo, mostrando al lado la cuenta del bridge como contraste. | Rojo-primero: canal desconocido → `canal_sin_dato`, nunca un default; publicación sin reportar > 3 días → `catalogo_desactualizado` contada y avisada; el recuadro **cuadra exacto** con las activas del bridge en un fixture de 12 publicaciones repartidas en los cuatro estados; una publicación sin goal aparece listada, no oculta; `fuera_de_alcance` nombra la fase (`fase_E_envio_fbm`, `fase_M_meli`), no un genérico; readback en producción contra la fuente canónica (264 MX, 106 US), con la cuenta del bridge (284, 109) al lado y la diferencia avisada por pasar del 5% | A.0 | cc:TODO |
 | R.1 | [stage:revision] [lane:gate] [tdd:required] **Revisión independiente** (kimi sobre un SHA; lead audita): catálogo de mutantes del implementador (una por regla y borde de S4, candados, transiciones, dinero, cuota, lock, cobertura) re-ejecutado con base real; cero sobrevivientes o se cierran con test en el mismo PR. | `docs/evidencia/repricing-01/R.1/` con catálogo, re-mutación y APPROVE de kimi y del lead sobre el SHA | A.6 | cc:TODO |
-| D.1 | [stage:cierre-pr] [lane:release] [tdd:skip:validacion-entrega] **Despliegue en sombra MX (FBA)** (dueño con `!`): backup, migración en una transacción y verificación como lector, deploy por `git archive` + md5 + rebuild, cron instalado, goals sembrados en `shadow` para los productos que el dueño elija, **cinco corridas** leídas por el lead. | E/D.1 con SHA y salidas: **≥ 80% de los goals vigentes evaluados** cada día; **el recuadro de cobertura cuadra** con las 284 activas de MX (171 en alcance, 113 en `fase_E_envio_fbm`); cuenta de tres productos reproducida a mano; trayectoria de sombra con cooldown visible; ningún PATCH salvo A.4 | R.1 | cc:TODO |
+| D.1 | [stage:cierre-pr] [lane:release] [tdd:skip:validacion-entrega] **Despliegue en sombra MX (FBA)** (dueño con `!`): backup, migración en una transacción y verificación como lector, deploy por `git archive` + md5 + rebuild, cron instalado, goals sembrados en `shadow` para los productos que el dueño elija, **cinco corridas** leídas por el lead. | E/D.1 con SHA y salidas: **≥ 80% de los goals vigentes evaluados** cada día; **el recuadro de cobertura cuadra** con las **264** activas de MX de la fuente canónica (hecho 19), con las 284 del bridge mostradas al lado; cuenta de tres productos reproducida a mano; trayectoria de sombra con cooldown visible; ningún PATCH salvo A.4 | R.1 | cc:TODO |
 | D.2 | [stage:cierre-pr] [lane:release] [tdd:skip:ops] **Encendido de 3–5 productos MX (FBA)** con go literal y **medición de 30 días en dos cortes** (14: subida; 30: señal de ventas), con `precio --reporte`. | E/D.2 con la salida literal en ambos cortes. «Funcionó» = (a) 100% de `precio_cambio` en `confirmado`; (b) `|m_actual − goal| ≤ tol` o `frenado`/`goal_inalcanzable` con motivo; (c) al día 30 `u15` ≥ esperado salvo que haya disparado la rama de pérdida, y esa rama ejercida o declarada «no ocurrió» con números; (d) cero `no_evaluado` sin motivo; (e) Buy Box D y D+1. (a) y (d) en todos y (b) en ≥ N−1 → ampliar; cualquier `no_confirmado` → parar. Decisión literal del dueño | D.1, A.4 | cc:TODO |
 | D.3 | [stage:cierre-pr] [lane:release] [tdd:skip:ops] **Ampliación MX FBA** por lotes con go, en orden de prioridad. | E/D.3; cobertura de MX FBA con `sin_goal` bajando lote a lote; tracker anotado | D.2 | cc:TODO |
 
-### Fase E — envío medido y FBM (habilita 113 activas en MX y 109 en US)
+### Fase E — envío medido y FBM (habilita ~10 activas en MX y ~10 en US con la ventana de 90 días)
+
+**El encabezado de la v1.1 decía «habilita 113 en MX y 109 en US» y era falso.**
+Con el mínimo de 6 envíos en 90 días, hoy califican 7 productos de MX y 9 de US,
+que son 10 y 10 publicaciones activas (hecho 13). El resto de las FBM queda en
+`fuera_de_alcance(fase_E_sin_historia_envio)`, contado y visible, no escondido.
+La palanca para subir esa cobertura es **la ventana**, y E.2 la sella con los
+números de E.1: 180 días duplica, 365 triplica. Ampliar la ventana también
+envejece la tarifa, y ese intercambio es exactamente lo que el dueño decide en
+E.2 — no el percentil, que mueve ≤ 0.43 puntos de margen.
 
 | ID | Tarea | DoD (verificable) | Deps | Estado |
 |---|---|---|---|---|
-| E.1 | [stage:verificacion] [lane:gate] [tdd:skip:sonda] **Medición del envío por producto** (lead, solo lectura): sobre `shipping_fee` de los últimos 180 días, por producto y plataforma — cuántos productos alcanzan 6 envíos, dispersión (mediana, p75, p90, máximo), cuántas órdenes se descartan por traer más de un producto o por no ligar a una venta, y cuánto cambia el margen estimado de una muestra de productos FBM al restar cada percentil candidato. | `docs/evidencia/repricing-01/E.1/` con las consultas y sus salidas; tabla por producto con `envios, mediana, p75, p90, max`; conteo de descartes con su razón; el efecto de p50 vs p75 vs p90 sobre el margen de al menos 10 productos | — | cc:TODO |
-| E.2 | [stage:contrato] [lane:fast] [tdd:skip:contrato] **Acta del envío medido** (dueño): con los números de E.1, sella el **percentil**, la **ventana**, el **mínimo de envíos** y qué pasa con un producto sin historia; y si el cobro de envío al cliente entra al ingreso donde exista. Propuesta del lead: p75, 90 días, mínimo 6, sin historia no se evalúa. | `docs/evidencia/repricing-01/E.2/acta.md` con la decisión literal del dueño; spec delta en S10; ninguna ausencia convertida en cero | E.1 | cc:TODO |
-| E.3 | [stage:implementacion] [lane:gate] [tdd:required] **`L` medido en el margen estimado FBM** (Muse): `app/precio/envio.py` (`muestra_envio(product_id, platform, hoy, cfg) -> Muestra` puro sobre filas ya leídas) + la lectura que las trae; persistencia en `precio_envio_muestra`; el escenario FBM produce contribución con `L` de la muestra y `F` de la cotización de referral; `shipping_price` de la venta al ingreso donde exista. | Rojo-primero: orden con dos productos **excluida** de la muestra (y contada aparte); 5 envíos → `envio_sin_historia`; 6 envíos → muestra con el percentil sellado; percentil calculado sobre `Decimal` y verificado contra un caso a mano; ventana que excluye un envío de hace 91 días; producto FBA nunca toca este camino (`L = 0`); la muestra queda ligada a la decisión (`envio_muestra_id` no nulo en toda decisión FBM); mutante que use promedio en vez del percentil muere | E.2, A.2 | cc:TODO |
-| E.4 | [stage:implementacion] [lane:gate] [tdd:required] **El motor distingue canal** (Muse): `canal` en la decisión y en el recuadro de cobertura; `precio_goal` admite publicaciones FBM; la corrida evalúa FBA y FBM con la misma regla y distinta `L`; `/precios` y `/salud` muestran el canal y, en FBM, la muestra de envío con su dispersión. | Rojo-primero: una publicación FBM con goal y muestra completa produce `subir` con `L` de la muestra en la cuenta; la misma sin muestra → `no_evaluado(envio_sin_historia)`; el recuadro de cobertura de MX pasa de 113 en `fuera_de_alcance` a 113 en alcance; `/precios` muestra «envío medido p75: 94.50 MXN sobre 18 envíos» y no un número sin origen | E.3, A.7 | cc:TODO |
-| E.5 | [stage:cierre-pr] [lane:release] [tdd:skip:ops] **Sombra y encendido FBM en México**: goals FBM en `shadow`, cinco corridas leídas, luego 3–5 productos en vivo con go y 30 días en dos cortes. | E/E.5 con el mismo criterio de D.1 y D.2, más: ningún producto FBM movido sin `envio_muestra_id`; la cobertura de MX cuadra con las 284 activas y `fuera_de_alcance` en cero | E.4, D.2 | cc:TODO |
+| E.0 | [stage:verificacion] [lane:gate] [tdd:required] **Qué representa cada fuente de `shipping_fee`, y deduplicación si la hay** (lead mide, Muse implementa lo que resulte): resolver el hecho 14 — para las 18 órdenes de US con tres cargos, determinar **contra el documento de origen** (la contabilidad que alimenta el ledger) si `ShippingHB`, `LabmanLabelPurchase` y `shipping_label` son tres componentes distintos de un mismo envío o el mismo cobro informado dos veces con importes que no casan. Las dos mediciones disponibles discrepan y **ninguna de las dos alcanza para decidir**. Con el resultado, fijar en la ingesta la regla de costo por orden, con toda fila descartada **contada con su razón**, nunca borrada; y clasificar los ~109 descartes diarios que hoy violan la convención de signos, cuya plataforma y `fee_type` no son visibles desde Orbit. **Sin esta tarea `L` está mal por construcción**: por eso abre la fase y nada de E depende de un `L` medido antes de que cierre. | `docs/evidencia/repricing-01/E.0/` con las 18 órdenes desglosadas, la fuente documental de cada cargo y el veredicto literal (componentes distintos / duplicado), más: rojo-primero para la regla que resulte; una fuente desconocida cae en `otros` contada, nunca descartada en silencio; los descartes por convención de signos salen en `ingest_run` con plataforma y `fee_type`; readback en producción con el total de US de 90 días antes y después, y la diferencia explicada fila por fila | — | cc:TODO |
+| E.1 | [stage:verificacion] [lane:gate] [tdd:skip:sonda] **Medición del envío por producto** (lead, solo lectura) sobre el ledger **ya deduplicado** por E.0, agrupando por **orden** y sobre `abs(amount)`: cuántos productos alcanzan el mínimo en ventanas de 90, 180 y 365 días; dispersión (mediana, p90, máximo); órdenes descartadas por traer más de un producto o no ligar a venta, con su razón; **rezago** del cargo (p50, p90, máximo) para fijar el cierre de ventana; y cuántos productos entran y salen del mínimo a lo largo de seis ventanas móviles (el parpadeo del hecho 15). | `docs/evidencia/repricing-01/E.1/` con las consultas y sus salidas; tabla por producto con `ordenes, mediana, p90, max` en las tres ventanas; conteo de descartes por razón; tabla de rezago; tabla de parpadeo; y el efecto sobre el margen de **90 vs 180 vs 365 días** en al menos 10 productos — que es la decisión real, no p50 vs p75 | E.0 | cc:TODO |
+| E.2 | [stage:contrato] [lane:fast] [tdd:skip:contrato] **Acta del envío medido** (dueño): con los números de E.1 sella (a) la **ventana**, sabiendo que más ventana es más cobertura y tarifa más vieja; (b) el **mínimo de envíos y su histéresis** (propuesta: entra con 6, sale con 3, para que no parpadee); (c) el **valor** (propuesta: mediana de la ventana, con p90 y máximo mostrados como dispersión); (d) qué pasa con un producto sin historia; y (e) que el ingreso por envío entra **donde el dato exista**, y donde no, `ingreso_envio_sin_dato` — nunca cero. | `docs/evidencia/repricing-01/E.2/acta.md` con la decisión literal del dueño; spec delta en S10; ninguna ausencia convertida en cero; el acta dice explícitamente que en US **no hay** dato de ingreso por envío (hecho 16) y que eso no bloquea la fase | E.1 | cc:TODO |
+| E.3 | [stage:implementacion] [lane:gate] [tdd:required] **`L` medido en el margen estimado FBM** (Muse): `app/precio/envio.py` (`muestra_envio(product_id, platform, hoy, cfg) -> Muestra`, puro sobre filas ya leídas) + la lectura que las trae; persistencia en `precio_envio_muestra`; el escenario FBM produce contribución con `L` de la muestra y `F` de una cotización **pedida con cumplimiento FBM**. **Amplía el universo de la estimación a FBM y a US en la misma edición** (ver nota de fusión con 0.3). | Rojo-primero: percentil/mediana sobre `abs(amount)` — un mutante que use el monto crudo elige el envío más barato y **muere**; agrupa por `order_id` antes de resumir — un mutante que percentile filas muere; `L_unidad = L_orden / unidades` con una orden de 2 unidades sembrada; orden con dos productos **excluida** y contada aparte; histéresis: 6 entra, 5 no, y un producto dentro con 4 **sigue dentro** hasta caer a 3; ventana que termina en `hoy − rezago` y excluye un envío fuera de rango; la cotización FBM **no** trae comisión de logística (mutante que pida FBA en FBM duplica `L` y muere); producto FBA nunca toca este camino (`L = 0`); `envio_muestra_id` no nulo en toda decisión FBM; `ingreso_envio_sin_dato` cuando falta `shipping_price`, jamás cero | E.2, A.2 | cc:TODO |
+| E.4 | [stage:implementacion] [lane:gate] [tdd:required] **El motor distingue canal** (Muse): `canal` en la decisión y en el recuadro de cobertura; `precio_goal` admite publicaciones FBM; la corrida evalúa FBA y FBM con la misma regla y distinta `L`; `/precios` y `/salud` muestran el canal y, en FBM, la muestra con su ventana efectiva, sus órdenes y su dispersión. La **rama de inventario queda `sin_dato` por diseño en FBM** y así se muestra: la fuente que la alimenta es de FBA y en FBM nunca se puebla. | Rojo-primero: una publicación FBM con goal y muestra completa produce `subir` con `L` de la muestra en la cuenta; la misma sin muestra → `no_evaluado(envio_sin_historia)`; el recuadro de MX mueve **~10** publicaciones de `fuera_de_alcance` a en alcance y las 103 restantes quedan en `fase_E_sin_historia_envio` **contadas**; `/precios` muestra «envío medido, mediana 94.50 MXN sobre 18 órdenes, ventana 90 d al 2026-09-01» y no un número sin origen; en FBM el motivo de inventario es `sin_dato(inventario_no_aplica_fbm)`, nunca una rama que no puede dispararse | E.3, A.7 | cc:TODO |
+| E.5 | [stage:cierre-pr] [lane:release] [tdd:skip:ops] **Sombra y encendido FBM en México**: goals FBM en `shadow`, cinco corridas leídas, luego 3–5 productos en vivo con go y 30 días en dos cortes. | E/E.5 con el mismo criterio de D.1 y D.2, más: ningún producto FBM movido sin `envio_muestra_id`; la cobertura de MX cuadra con las **264** activas de la fuente canónica y `fuera_de_alcance` queda solo con los motivos declarados (`sin_historia_envio`, `sin_goal`), no en cero; el criterio (c) se declara «no ocurrió» con números (hecho 17) si no se ejerce | E.4, D.2 | cc:TODO |
 
 ### Fase 0 — política fiscal de Estados Unidos
 
 | ID | Tarea | DoD (verificable) | Deps | Estado |
 |---|---|---|---|---|
-| 0.1 | [stage:verificacion] [lane:gate] [tdd:skip:sonda] **Inventario US** (lead, solo lectura): cotización de fees para una oferta **FBM** real de US (`Success`, conciliación, `TaxAmount`, tipos devueltos; `PerItemFee` sugiere plan Individual: confirmar, no suponer); cargos recurrentes en Finances US (¿retención? ¿sales tax en el precio?); `fx_resolve` MXN→USD (hoy el sync solo carga USD→MXN); cobertura de `sku_cost` y de ofertas US frescas. | `docs/evidencia/repricing-01/0.1/` con las sondas y respuestas literales; tabla de insumos US presente/ausente por componente `I, C, F, L, R` | D.2 | cc:TODO |
+| 0.1 | [stage:verificacion] [lane:gate] [tdd:skip:sonda] **Inventario US** (lead, solo lectura): cotización de fees para una oferta **FBM** real de US (`Success`, conciliación, `TaxAmount`, tipos devueltos; `PerItemFee` sugiere plan Individual: confirmar, no suponer); cargos recurrentes en Finances US (¿retención? ¿sales tax en el precio?); FX para US: el par MXN→USD **no se carga en este repo y no se va a inventar** — la conversión usa `fx_resolve(fecha, 'USD', 'MXN')` y **divide**; confirmar que hay tasa para las fechas del periodo; cobertura de `sku_cost` y de ofertas US frescas. | `docs/evidencia/repricing-01/0.1/` con las sondas y respuestas literales; tabla de insumos US presente/ausente por componente `I, C, F, L, R` | D.2 | cc:TODO |
 | 0.2 | [stage:contrato] [lane:fast] [tdd:skip:contrato] **Acta 0.4 de `margen-estimado-01`: política fiscal US** (dueño): `I = P` sin IVA; `R` según 0.1 o 0 declarado con razón; `L` = envío medido de la fase E; FX de `C` con fecha. Amplía el universo a `amazon_us`. | Acta con decisión literal; si un componente no tiene fuente, `amazon_us` queda `blocked` con motivo y la fase B no arranca | 0.1, E.2 | cc:TODO |
-| 0.3 | [stage:implementacion] [lane:gate] [tdd:required] **Estimación por venta para US** (Muse): universo, normalización de 0.2, `marketplace_id` parametrizado en `estimacion_fees`, cotización US ligada a la oferta, `fx_ausente` como motivo. | Rojo-primero: escenario US con oferta fresca produce contribución con sus componentes; sin FX → `null` con `fx_ausente`; sin cotización → `fee_ausente`; MX intacto (suite previa verde); mutante que fije FX constante muere; readback en producción de N listings US | 0.2 | cc:TODO |
+| 0.3 | [stage:implementacion] [lane:gate] [tdd:required] **Estimación por venta para US** (Muse): **es una edición sobre el SHA de E.3, no un módulo nuevo** — las dos tareas amplían `_motivo_universo` y el mismo escenario, separadas por dos mediciones de 30 días. E.3 abre FBM y deja US detrás de una bandera de config; 0.3 la enciende con la normalización del acta 0.2, `marketplace_id` parametrizado en `estimacion_fees`, cotización US ligada a la oferta y `fx_ausente` como motivo. Si 0.2 llega antes de E.3, se funden en una sola tarea. | Rojo-primero: escenario US con oferta fresca produce contribución con sus componentes; sin tasa `USD→MXN` para la fecha → `null` con `fx_ausente`, jamás una constante; sin cotización → `fee_ausente`; MX intacto (suite previa verde); mutante que fije FX constante muere; readback en producción de N listings US | 0.2 | cc:TODO |
 
-### Fase B — Amazon Estados Unidos (109 activas, todas FBM)
+### Fase B — Amazon Estados Unidos (106 activas en la fuente canónica, todas FBM)
+
+**La fase B no va a subir precios, y eso no es un fallo.** Medido: la
+contribución por unidad en US va de 33% a 63%, mediana ~50% (hecho 18). El
+envío supera a la comisión pero no se come el margen. El hueco real es Ads:
+**TACoS 23.9% en US contra 9.0% en MX**, así que un goal pre-Ads de 30% en US
+es ~6% después de Ads. B va a producir `mantener` en la mayoría; su éxito es
+que la cuenta cuadre y que las excepciones salgan con motivo. Cuál es la
+palanca de US queda **fuera** de este plan.
 
 | ID | Tarea | DoD (verificable) | Deps | Estado |
 |---|---|---|---|---|
-| B.1 | [stage:cierre-pr] [lane:release] [tdd:skip:ops] **US en sombra**: goals US en `shadow`, cinco corridas leídas con el umbral de D.1. | E/B.1 igual que D.1; el recuadro de cobertura de US cuadra con las 109 activas | 0.3, E.4 | cc:TODO |
+| B.1 | [stage:cierre-pr] [lane:release] [tdd:skip:ops] **US en sombra**: goals US en `shadow`, cinco corridas leídas con el umbral de D.1. `/precios` y el cierre muestran el **TACoS de 90 días** junto a `m_actual`, porque 50% de margen con 24% de Ads encima no es el mismo negocio que con 9%. | E/B.1 igual que D.1; el recuadro de cobertura de US cuadra con las **106** activas de la fuente canónica; el reporte trae la distribución de `m_actual` y el TACoS por producto; **una mayoría de `mantener` es resultado esperado, no un fallo** | 0.3, E.4 | cc:TODO |
 | B.2 | [stage:cierre-pr] [lane:release] [tdd:skip:ops] **Encendido US** de 3–5 productos con go y 30 días; luego ampliación por lotes. | E/B.2 igual que D.2; cobertura de US con `sin_goal` bajando lote a lote | B.1 | cc:TODO |
 
 ### Fase M — Mercado Libre (137 publicaciones)
 
 | ID | Tarea | DoD (verificable) | Deps | Estado |
 |---|---|---|---|---|
-| M.1 | [stage:verificacion] [lane:gate] [tdd:skip:sonda] **Inventario de insumos de MeLi** (lead, solo lectura): por qué la caché del bridge no se refresca desde el 2026-05-01 y qué la refrescaría; qué devuelve la API por item (precio, estado, categoría, envío, comisión) con el cliente GET que ya existe; si hay fuente para mapear SKU de MeLi a producto de Odoo (`meli_sku_mapping` está vacío); qué trae el reporte de liquidación de MeLi (comisión, envío, impuesto) y si se puede ingerir con el patrón del ledger. | `docs/evidencia/repricing-01/M.1/` con las sondas literales y una tabla de los cinco insumos del margen (`I, C, F, L, R`) con su fuente propuesta o su ausencia declarada | D.2 | cc:TODO |
+| M.1 | [stage:verificacion] [lane:gate] [tdd:skip:sonda] **Inventario de insumos de MeLi** (lead, solo lectura): por qué la caché del bridge no se refresca desde el 2026-05-01 y qué la refrescaría; qué devuelve la API por item (precio, estado, categoría, envío, comisión) con el cliente GET que ya existe; si hay fuente para mapear SKU de MeLi a producto de Odoo (`meli_sku_mapping` está vacío; su resultado alimenta M.0); qué trae el reporte de liquidación de MeLi (comisión, envío, impuesto) y si se puede ingerir con el patrón del ledger. | `docs/evidencia/repricing-01/M.1/` con las sondas literales y una tabla de los cinco insumos del margen (`I, C, F, L, R`) con su fuente propuesta o su ausencia declarada | D.2 | cc:TODO |
 | M.2 | [stage:contrato] [lane:fast] [tdd:skip:contrato] **Acta de MeLi** (dueño): con M.1, sella la fórmula del margen en MeLi (impuesto sobre el precio, comisión por categoría, envío, retención), el mapeo SKU→producto y el equivalente observable de la Buy Box, o declara qué queda sin fuente. | Acta con decisión literal; si falta un componente, MeLi queda `blocked` con motivo y M.3+ no arrancan | M.1 | cc:TODO |
-| M.3 | [stage:implementacion] [lane:gate] [tdd:required] **Ingesta de MeLi a Orbit** (Muse): publicaciones y precios a `listing` y a una observación de precio propia; ventas y cargos (comisión, envío, impuesto) a `ledger_event` con el patrón y los candados del ledger existente; mapeo SKU→producto poblado. | Rojo-primero: item sin SKU mapeado → fila no se escribe con `product_id` inventado; cargo sin tipo conocido → `otros` y contado, nunca descartado; ingesta idempotente por `(external_id, observed_at)`; MX/US intactos; readback en producción con las 137 publicaciones y sus precios | M.2 | cc:TODO |
-| M.4 | [stage:implementacion] [lane:gate] [tdd:required] **Margen estimado de MeLi** (Muse): la fórmula del acta M.2 con el mismo contrato de ausencias que Amazon. | Rojo-primero: cada componente ausente produce su motivo; ninguna ausencia vale cero; una publicación con todo produce contribución reproducible a mano | M.3 | cc:TODO |
+| M.0 | [stage:verificacion] [lane:gate] [tdd:required] **Mapeo SKU de MeLi → producto** (dueño decide la fuente; Muse puebla): `meli_sku_mapping` está vacío y **sin ese puente no hay costo por publicación**, así que ninguna otra pieza de MeLi sirve. Se adelanta al frente de la fase y es owner-gated: el dueño confirma la correspondencia antes de escribir. | `docs/evidencia/repricing-01/M.0/` con la fuente del mapeo y el visto del dueño; SKU sin correspondencia queda **listado**, nunca mapeado a un `product_id` adivinado; readback con la cuenta de las 137 publicaciones mapeadas y sin mapear | M.2 | cc:TODO |
+| M.3a | [stage:implementacion] [lane:gate] [tdd:required] **Abrir el ledger de MeLi** (Muse): el dinero **ya llega a diario** y se descarta en una rama — `ingest_run` reporta `5126x plataforma meli excluida` cada día (hecho 6). Quitar esa rama, mapear los tipos de cargo (comisión, envío, impuesto) al vocabulario del ledger y agregar el valor `meli` a `estimacion_canal`, que hoy solo admite `fba|fbm`. Es trabajo de horas, no una ingesta nueva. | Rojo-primero: las filas antes excluidas entran con su `fee_type`; un cargo sin tipo conocido → `otros` y **contado**, nunca descartado; la convención de signos se respeta; `estimacion_canal` acepta `meli` y los enums viejos siguen válidos; MX/US intactos; readback: el conteo diario de `plataforma meli excluida` baja a cero y las filas aparecen en `ledger_event` | M.0 | cc:TODO |
+| M.3b | [stage:implementacion] [lane:gate] [tdd:required] **Catálogo y precios de MeLi** (Muse): publicaciones y precios a `listing` y a una observación de precio propia, con el refresco que M.1 haya identificado para la caché parada desde el 2026-05-01. | Rojo-primero: item sin SKU mapeado → la fila no se escribe con `product_id` inventado, queda contada con motivo; ingesta idempotente por `(external_id, observed_at)`; readback en producción con las 137 publicaciones y sus precios frescos | M.3a | cc:TODO |
+| M.4 | [stage:implementacion] [lane:gate] [tdd:required] **Margen estimado de MeLi** (Muse): la fórmula del acta M.2 con el mismo contrato de ausencias que Amazon. | Rojo-primero: cada componente ausente produce su motivo; ninguna ausencia vale cero; una publicación con todo produce contribución reproducible a mano | M.3b | cc:TODO |
 | M.5 | [stage:implementacion] [lane:gate] [tdd:required] **Escritura de precio en MeLi y su reversa** (Muse): `app/meli/write_client.py` default-deny con una sola ruta de actualización de item; `app/meli/precio_write.py` con el mismo orden (fila, escritura, ack, readback, cierre) y la reversa primero; `ClienteMeli` **intacto**; candado de arquitectura propio. Más **sonda con ids reales** del dueño (`!`, go literal) que sella la forma y la sincronía de la escritura. | Rojo-primero con cliente falso, los mismos casos que A.3; candado con fuga sembrada; `ClienteMeli` sigue rechazando todo método que no sea GET (test); evidencia `M.5/` de la sonda con el control negativo, igual que A.4 | M.4 | cc:TODO |
 | M.6 | [stage:cierre-pr] [lane:release] [tdd:skip:ops] **MeLi en sombra y encendido**: goals en `shadow`, cinco corridas, 3–5 productos en vivo con go y 30 días. Cierra el plan; `ORBIT 09` `Done`. | E/M.6 igual que D.1 y D.2; la cobertura de MeLi cuadra con las publicaciones activas y `fuera_de_alcance` en cero en las tres plataformas | M.5, B.2 | cc:TODO |
 
 ## Clasificación (Required / Recommended / Optional / Reject)
 
-- **Required**: A.0–A.7, R.1, D.1–D.3 (fase A); E.1–E.5 (fase E, decisión 13);
-  A.7 y el recuadro de cobertura (decisión 14); 0.1–0.3 y B.1–B.2 (US);
-  M.1–M.6 (decisión 15).
-- **Owner-gated**: A.4, D.1, D.2, D.3, E.2, E.5, 0.1, 0.2, B.1, B.2, M.1, M.2,
-  M.5 (sonda), M.6.
+- **Required**: A.0–A.7, R.1, D.1–D.3 (fase A); **E.0**–E.5 (fase E, decisión
+  13); A.7 y el recuadro de cobertura (decisión 14); 0.1–0.3 y B.1–B.2 (US);
+  M.0–M.6 (decisión 15). **E.0 es la que no se puede saltar**: sin ella `L`
+  está mal por construcción y todo lo que E produzca es aritmética sobre un
+  número que nadie verificó.
+- **Owner-gated**: A.4, D.1, D.2, D.3, E.2, E.5, 0.1, 0.2, B.1, B.2, M.0, M.1,
+  M.2, M.5 (sonda), M.6.
 - **Reject** (decisión del dueño 2026-09-15): estrategias «match/beat
   competitor», «Buy Box oriented», «inventory aware», «time-based» y modos del
   traspaso; bajar por Buy Box perdida; explorar sin goal; aprobación manual por
@@ -276,12 +370,17 @@ reputación y su cliente GET no se modifican).
 | AC14 | Goal `0.30` o fuera de banda; `--sku` con dos listings | la herramienta aborta; la base rechaza | A.1/A.0 |
 | AC15 | 200 productos con el mismo motivo tres días | un solo aviso con conteo y 5 SKUs, sin costo ni margen | A.6 |
 | AC16 | Pricing 1.5% distinto de la oferta del escenario | `no_evaluado(precio_divergente)` con ambos precios y horas | A.2/A.6 |
-| **AC17** | **Recuadro de cobertura** en cualquier corrida | activas = evaluadas + no evaluadas + sin goal + fuera de alcance, **exacto**, por plataforma; una publicación sin reportar 4 días sale como `catalogo_desactualizado` y avisa | A.7, D.1, E.5, B.1, M.6 |
-| **AC18** | **Orden FBM con dos productos** en la ventana de envío | excluida de la muestra y contada aparte; nunca repartida | E.3 |
-| **AC19** | **Producto FBM con 5 envíos** | `no_evaluado(envio_sin_historia)`, cero escritura | E.3 |
-| **AC20** | **Decisión FBM aplicada** | `envio_muestra_id` no nulo, con ventana, envíos y percentil; `/precios` muestra el número con su origen | E.4/E.5 |
+| **AC17** | **Recuadro de cobertura** en cualquier corrida | activas = evaluadas + no evaluadas + sin goal + fuera de alcance, **exacto**, por plataforma, contra la **fuente canónica** (`spapi_listing_estado_observation`: 264 MX, 106 US), con la cuenta del bridge al lado y aviso si difieren más de 5%; una publicación sin reportar 4 días sale como `catalogo_desactualizado` y avisa | A.7, D.1, E.5, B.1, M.6 |
+| **AC18** | **Orden FBM con dos productos** en la ventana de envío | excluida de la muestra y contada aparte; nunca repartida. **Protege contra poco**: en 180 días hay 1 orden multi-producto en MX (de 442) y 1 multi-unidad en US (de 348). Lo que sí hay que contar son las órdenes con cargos de varias fuentes (18 en US) y las ~109 filas diarias que la ingesta descarta por convención de signos | E.3, E.0 |
+| **AC19** | **Producto FBM con 5 envíos** | `no_evaluado(envio_sin_historia)` y cero escritura **si venía de fuera**; si ya estaba dentro, **sigue dentro** hasta caer a 3 (histéresis). Un producto que oscila entre 5 y 7 envíos no debe alternar estado ni avisar en cada corrida | E.3 |
+| **AC20** | **Decisión FBM aplicada** | `envio_muestra_id` no nulo, con **ventana efectiva** (cerrada en `hoy − rezago`), número de **órdenes** (no filas), fuentes usadas, filas descartadas con su razón y el valor sellado; `/precios` muestra el número con su origen | E.4/E.5 |
+| **AC23** | **Percentil sobre montos negativos** | la muestra se calcula sobre `abs(amount)`; un mutante que use el monto crudo elige el envío **más barato** y muere | E.3 |
+| **AC24** | **Cotización de fees para una oferta FBM** | se pide con cumplimiento FBM y su `F` es solo referral; un mutante que la pida como FBA suma la comisión de logística y **cuenta el envío dos veces** | E.3 |
+| **AC25** | **Publicación FBM y la rama de inventario** | sale `sin_dato(inventario_no_aplica_fbm)`; la fuente de inventario es de FBA y en FBM nunca se puebla, así que la rama no puede dispararse y no se finge que sí | E.4 |
+| **AC26** | **Venta de US sin `shipping_price`** | `ingreso_envio_sin_dato` visible, **jamás** ingreso de envío igual a cero; hoy son las 351 ventas de 180 días | E.3 |
 | **AC21** | **Publicación de MeLi antes de su fase** | aparece en cobertura como `fuera_de_alcance(fase_M_meli)`, nunca ausente | A.7 |
-| **AC22** | **Item de MeLi sin SKU mapeado** en la ingesta | la fila no se escribe con `product_id` inventado; queda contada con motivo | M.3 |
+| **AC22** | **Item de MeLi sin SKU mapeado** en la ingesta | la fila no se escribe con `product_id` inventado; queda contada con motivo | M.0, M.3b |
+| **AC27** | **Cargo de MeLi que hoy se descarta** | tras M.3a el conteo diario `plataforma meli excluida` baja a **cero** y las filas aparecen en `ledger_event` con su `fee_type`; un tipo desconocido cae en `otros` **contado** | M.3a |
 
 ## Secuencia de despliegue y reversa
 
@@ -309,7 +408,30 @@ conjunto; ninguna fase enciende dos conjuntos a la vez.
 - Señal de ventas por producto, no por publicación: dos publicaciones del
   mismo producto en una plataforma comparten señal.
 - **`L` en FBM es medido, no cotizado.** Es la única componente que no viene
-  de una cotización; por eso lleva su muestra adjunta y su percentil sellado.
+  de una cotización; por eso lleva su muestra adjunta y su valor sellado.
+- **La rama de bajar precio no se va a ejercer en esta tanda.** Un solo
+  producto del negocio llega a `u60 ≥ 20` (hecho 17), así que el criterio (c)
+  de D.2, E.5, B.2 y M.6 va a salir «no ocurrió» con números. Se declara ahora,
+  no al cerrar. Bajar `precio_u60_min` para forzarla sería bajar precios con
+  ruido estadístico: no se hace sin acta nueva del dueño.
+- **En Estados Unidos no hay dato de ingreso por envío** y no lo va a haber
+  hasta que la ingesta contable cargue el desglose que hoy descarta por
+  diferencia de moneda (hecho 16). Mientras tanto `ingreso_envio_sin_dato`, y
+  esa parte del DoD de E.3 queda declarada como no implementable en US. **No
+  bloquea la fase.**
+- **La fase E habilita ~20 publicaciones, no 222** (hecho 13). El techo lo pone
+  el volumen de ventas, no el umbral. Las FBM restantes quedan contadas en
+  `fuera_de_alcance(fase_E_sin_historia_envio)`, que es exactamente lo que la
+  decisión 14 pide: visibles, no cubiertas.
+- **El precio no es la palanca de Estados Unidos** (hecho 18). El margen ya va
+  de 33% a 63%; lo que pesa es un TACoS de 23.9% contra 9.0% en México. Este
+  plan hace repricing en US porque la decisión 14 exige cubrir todo el
+  catálogo, no porque vaya a mover el resultado. Qué hacer con Ads en US queda
+  fuera.
+- **Cuatro mediciones de 30 días en serie** (D.2, E.5, B.2, M.6) son ~120 días
+  de reloj encadenados, y ninguna empieza hasta que cierra la anterior. Es
+  consecuencia de la decisión del dueño de medir 30 días por encendido, y se
+  declara para que el calendario no sorprenda.
   Un producto sin historia de envíos no se evalúa.
 - **La cola del envío es real**: un envío lejano cuesta cerca del doble del
   típico. El percentil sellado en E.2 define cuánto de esa cola absorbe el
