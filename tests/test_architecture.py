@@ -1022,17 +1022,17 @@ def _usos_reloj(arbol: ast.AST) -> list[str]:
     a `.now`, `.utcnow` o `.today` (`dt.now()`, `datetime.datetime.now()`
     y la referencia sin llamada `reloj = dt.now` incluidos) y cualquier
     `os.environ`. Las CLASES datetime/date pueden aparecer (firman los
-    argumentos de fecha); USARLAS como reloj, no. `time.time()` cae por
-    el import prohibido de `time` y por este candado. `time.*` y `os.*`
-    caen además por el import prohibido (`time.monotonic`, `os.getenv`
-    necesitan importarse). R4-G9: la referencia sin llamada tambien es
-    reloj; solo cazar el Call dejaba escapar el alias."""
+    argumentos de fecha); USARLAS como reloj, no. `time.time()` cae
+    SOLO por el import prohibido de `time` (este candado no lo ve: `time`
+    no es `.now`/`.utcnow`/`.today`). `time.*` y `os.*` caen además por
+    el import prohibido (`time.monotonic`, `os.getenv` necesitan
+    importarse). R4-G9: la referencia sin llamada tambien es reloj; solo
+    cazar el Call dejaba escapar el alias. R4b-H2: `ast.walk` visita el
+    `Call` Y su `Attribute` interno, asi que la rama del `Call` era
+    redundante: una sola tupla en la rama del `Attribute`."""
     hallados: list[str] = []
     for nodo in ast.walk(arbol):
-        if isinstance(nodo, ast.Call) and isinstance(nodo.func, ast.Attribute):
-            if nodo.func.attr in ("now", "utcnow", "today"):
-                hallados.append(f".{nodo.func.attr}()")
-        elif isinstance(nodo, ast.Attribute):
+        if isinstance(nodo, ast.Attribute):
             dueno = nodo.value
             if isinstance(dueno, ast.Name) and dueno.id == "os" and nodo.attr == "environ":
                 hallados.append("os.environ")

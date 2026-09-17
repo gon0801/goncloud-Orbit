@@ -296,6 +296,46 @@ E        +  where True = isinstance(PideCotizacion(precio=Importe(valor=Decimal(
 
 MUERTO.
 
+## Ronda r4b (auditoría, 2026-09-17)
+
+### H1 — `repartir_cupo` emparejaba por `id(decision)` (`reglas.py`)
+
+Mutante implícito: el mismo objeto `Decision` en dos publicaciones con
+cupo suficiente salía la segunda `mantener(cuota)`. El arreglo decide
+quién pasa por posición (`enumerate`). Test:
+`test_r4b_h1_mismo_objeto_en_dos_publicaciones_pasa_con_cupo`.
+
+```text
+E       AssertionError: assert [(1, 'subir')..., 'mantener')] == [(1, 'subir'), (2, 'subir')]
+E         At index 1 diff: (2, 'mantener') != (2, 'subir')
+1 failed, 164 deselected in 0.34s
+```
+
+MUERTO.
+
+### H2 — rama redundante del `Call` en `_usos_reloj` (`test_architecture.py`)
+
+`ast.walk` visita el `Call` Y su `Attribute` interno: quitar `"utcnow"`
+o `"today"` de la tupla del `Call` no rompía ningún test (mutante
+equivalente por redundancia). Se quitó la rama del `Call`; queda una
+sola tupla en la rama del `Attribute`. Sensibilidad verificada con
+caché nueva sobre la tupla que queda:
+
+```text
+E       Failed: DID NOT RAISE AssertionError
+FAILED tests/test_architecture.py::test_precio_frontera_caza_reloj_en_todas_sus_formas[from datetime import datetime as dt\nx = dt.utcnow()\n]
+1 failed, 10 passed, 29 deselected in 0.24s
+```
+
+```text
+E       Failed: DID NOT RAISE AssertionError
+FAILED tests/test_architecture.py::test_precio_frontera_caza_reloj_en_todas_sus_formas[from datetime import date as d\nx = d.today()\n]
+1 failed, 10 passed, 29 deselected in 0.24s
+```
+
+La tupla discrimina elemento por elemento. De paso se corrigió el
+docstring: `time.time()` cae SOLO por el import prohibido de `time`.
+
 ## Ronda r3 (revisión de kimi, 2026-09-17)
 
 Nacieron de K: monedas divergentes (`test_r3_k1_*`), cupo que limpia
