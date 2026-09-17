@@ -118,7 +118,7 @@ def _decision(
     *,
     platform="amazon_mx",
     resultado="mantener",
-    mode="shadow",
+    mode="live",
     motivo="tdd",
 ) -> int:
     return conn.execute(
@@ -143,14 +143,59 @@ def _oferta(
     ).fetchone()[0]
 
 
-def _cotizacion(conn, decision: int, oferta: int, *, estado="success", codigo=None) -> int:
+def _cotizacion(
+    conn,
+    listing: int,
+    oferta: int,
+    *,
+    platform="amazon_mx",
+    intento=1,
+    estado="success",
+    codigo=None,
+    tag="tdd",
+) -> int:
+    """Cotización con identidad propia (r3 punto 1): listing + intento + fecha
+    del servidor. En `error`, sin fees ni fecha estimada (punto 2)."""
+    if estado == "success":
+        total, moneda_total, estimada = "12.00", "'MXN'", "now()"
+    else:
+        total, moneda_total, estimada = "NULL", "NULL", "NULL"
     return conn.execute(
-        "INSERT INTO precio_cotizacion (decision_id, oferta_observation_id, quoted_price,"
-        " quoted_price_currency, total_fees, total_fees_currency, fee_details,"
-        " fees_estimated_at, estado, error_code, source_event_id)"
-        " VALUES (%s, %s, 110.00, 'MXN', 12.00, 'MXN', '[]'::jsonb, now(), %s, %s, %s)"
+        "INSERT INTO precio_cotizacion (listing_id, platform, intento, oferta_observation_id,"
+        " quoted_price, quoted_price_currency, total_fees, total_fees_currency, fee_details,"
+        f" fees_estimated_at, estado, error_code, source_event_id)"
+        " VALUES (%s, %s, %s, %s, 110.00, 'MXN', "
+        f"{total}, {moneda_total}, '[]'::jsonb, {estimada}, %s, %s, %s)"
         " RETURNING id",
-        (decision, oferta, estado, codigo, f"cotiz-{decision}-{oferta}"),
+        (listing, platform, intento, oferta, estado, codigo, f"cotiz-{tag}-{intento}"),
+    ).fetchone()[0]
+
+
+def _escenario(
+    conn, listing: int, *, platform="amazon_mx", sku="SKU-P1", asin="ASIN1", tag="tdd"
+) -> int:
+    return conn.execute(
+        "INSERT INTO estimacion_escenario (listing_id, platform, seller_sku, asin, canal,"
+        " valoracion_date, observed_at, formula_version, estado, canonical_input,"
+        " context_fingerprint, source_event_id)"
+        " VALUES (%s, %s, %s, %s, 'fba', '2026-09-01', now(), 'v1', 'incompleta',"
+        " '{}'::jsonb, 'huella', %s) RETURNING id",
+        (listing, platform, sku, asin, f"esc-{tag}"),
+    ).fetchone()[0]
+
+
+def _fee(
+    conn, listing: int, oferta: int, *, platform="amazon_mx", sku="SKU-P1", asin="ASIN1", tag="tdd"
+) -> int:
+    return conn.execute(
+        "INSERT INTO estimacion_fee_observation (oferta_observation_id, listing_id, platform,"
+        " seller_sku, asin, canal, quoted_price_amount, quoted_price_currency, total_fees,"
+        " fees_estimated_at, fetched_at, observed_at, estado, source_event_id,"
+        " canonical_input, context_fingerprint)"
+        " VALUES (%s, %s, %s, %s, %s, 'fba', 100.00, 'MXN', 12.00,"
+        " now(), now() - interval '2 hours', now(), 'success', %s,"
+        " '{}'::jsonb, 'huella') RETURNING id",
+        (oferta, listing, platform, sku, asin, f"fee-{tag}"),
     ).fetchone()[0]
 
 
@@ -489,9 +534,8 @@ def test_cotizacion_append_only():
     with db_39("orbit_pc_append") as conn:
         prod = _producto(conn)
         lid = _listing(conn, prod)
-        did = _decision(conn, lid)
         ofid = _oferta(conn, lid)
-        cid = _cotizacion(conn, did, ofid)
+        cid = _cotizacion(conn, lid, ofid)
         with pytest.raises(psycopg.errors.RestrictViolation):
             conn.execute("UPDATE precio_cotizacion SET total_fees = 1.00 WHERE id = %s", (cid,))
         with pytest.raises(psycopg.errors.RestrictViolation):
@@ -507,11 +551,53 @@ def test_cotizacion_error_exige_codigo():
     with db_39("orbit_pc_error") as conn:
         prod = _producto(conn)
         lid = _listing(conn, prod)
-        did = _decision(conn, lid)
         ofid = _oferta(conn, lid)
         with pytest.raises(psycopg.errors.CheckViolation):
-            _cotizacion(conn, did, ofid, estado="error")
-        assert _cotizacion(conn, did, ofid, estado="error", codigo="GET /fees 500")
+            _cotizacion(conn, lid, ofid, estado="error")
+        assert _cotizacion(conn, lid, ofid, estado="error", codigo="GET /fees 500")
+
+
+@_skip_db
+def test_cotizacion_success_exige_fees_y_fecha():
+    """`success` sin `total_fees` o sin `fees_estimated_at` revienta; `error`
+    con fees revienta (candado de 0028 copiado entero, punto 2 de la r3).
+    Rojo r3: hoy entran."""
+    with db_39("orbit_r3_cotiz") as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        ofid = _oferta(conn, lid)
+        with pytest.raises(
+            psycopg.errors.CheckViolation, match="precio_cotizacion_success_exige_total"
+        ):
+            conn.execute(
+                "INSERT INTO precio_cotizacion (listing_id, platform, intento,"
+                " oferta_observation_id, quoted_price, quoted_price_currency,"
+                " fees_estimated_at, estado, source_event_id)"
+                " VALUES (%s, 'amazon_mx', 1, %s, 110.00, 'MXN', now(), 'success', 'r3-a')",
+                (lid, ofid),
+            )
+        with pytest.raises(
+            psycopg.errors.CheckViolation, match="precio_cotizacion_success_exige_total"
+        ):
+            conn.execute(
+                "INSERT INTO precio_cotizacion (listing_id, platform, intento,"
+                " oferta_observation_id, quoted_price, quoted_price_currency,"
+                " total_fees, total_fees_currency, estado, error_code, source_event_id)"
+                " VALUES (%s, 'amazon_mx', 1, %s, 110.00, 'MXN', 12.00, 'MXN',"
+                " 'error', 'GET /fees 500', 'r3-c')",
+                (lid, ofid),
+            )
+        with pytest.raises(
+            psycopg.errors.CheckViolation, match="precio_cotizacion_success_exige_estimada"
+        ):
+            conn.execute(
+                "INSERT INTO precio_cotizacion (listing_id, platform, intento,"
+                " oferta_observation_id, quoted_price, quoted_price_currency,"
+                " total_fees, total_fees_currency, estado, source_event_id)"
+                " VALUES (%s, 'amazon_mx', 1, %s, 110.00, 'MXN', 12.00, 'MXN',"
+                " 'success', 'r3-b')",
+                (lid, ofid),
+            )
 
 
 @_skip_db
@@ -582,13 +668,17 @@ def test_cambio_segundo_abierto_rechazado():
     Rojo pre-0039: la tabla no existe."""
     with db_39("orbit_pcb_abierto") as conn:
         prod = _producto(conn)
+        # El virtual nace cerrado bajo decisión shadow y no ocupa el índice de
+        # abierto (punto 4 de la r3: cada cambio cuelga de una decisión de su
+        # modo; una publicación no puede ser shadow y live el mismo día por el
+        # UNIQUE de decisión diaria).
         lid = _listing(conn, prod)
-        did = _decision(conn, lid)
-        # El virtual nace cerrado: no ocupa el índice de abierto.
-        _cambio_virtual(conn, did, lid)
-        _cambio(conn, did, lid)
+        _cambio_virtual(conn, _decision(conn, lid, mode="shadow"), lid)
+        lid_b = _listing(conn, prod, ext="ASIN-B", sku="SKU-PB")
+        did_b = _decision(conn, lid_b, mode="live")
+        _cambio(conn, did_b, lid_b)
         with pytest.raises(psycopg.errors.UniqueViolation):
-            _cambio(conn, did, lid)
+            _cambio(conn, did_b, lid_b)
         # Tras cerrar el abierto, el siguiente sí entra.
         conn.execute(
             "UPDATE precio_cambio SET estado = 'enviado', enviado_at = now(),"
@@ -598,7 +688,7 @@ def test_cambio_segundo_abierto_rechazado():
             "UPDATE precio_cambio SET estado = 'confirmado', confirmado_por = 'observacion'"
             " WHERE aplicado"
         )
-        assert _cambio(conn, did, lid, estado="pendiente")
+        assert _cambio(conn, did_b, lid_b, estado="pendiente")
 
 
 @_skip_db
@@ -609,7 +699,7 @@ def test_cambio_virtual_nace_cerrado():
     with db_39("orbit_pcb_virtual") as conn:
         prod = _producto(conn)
         lid = _listing(conn, prod)
-        did = _decision(conn, lid)
+        did = _decision(conn, lid, mode="shadow")
         assert _cambio_virtual(conn, did, lid)
         with pytest.raises(psycopg.errors.CheckViolation, match="virtual"):
             conn.execute(
@@ -758,24 +848,39 @@ def test_cambio_reversa_sin_decision():
             (lid, orig),
         ).fetchone()[0]
         assert rev
-        # Cada cruce en su propio listing (lejos del índice de abierto).
-        lid2 = _listing(conn, prod, ext="ASIN2", sku="SKU-P2")
-        did2 = _decision(conn, lid2)
-        with pytest.raises(
-            psycopg.errors.CheckViolation, match="precio_cambio_decision_salvo_reversa"
+        # Cada cruce nombra SU constraint: para que lo diga el CHECK y no el
+        # trigger de coherencia (r3-3, que dispara primero), la reversa
+        # referenciada es del mismo listing —con su propio original cerrado—.
+        for n, (es_rev, resto) in (
+            ("b", (True, "precio_cambio_decision_salvo_reversa")),
+            ("c", (False, "precio_cambio_reversa_binaria")),
         ):
+            lidx = _listing(conn, prod, ext=f"ASIN-{n}", sku=f"SKU-{n}")
+            didx = _decision(conn, lidx)
+            origx = _cambio(conn, didx, lidx)
             conn.execute(
-                "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
-                " precio_antes_currency, precio_despues, precio_despues_currency,"
-                " aplicado, estado, es_reversa, reversa_de)"
-                " VALUES (%s, %s, 'amazon_mx', 110.00, 'MXN', 100.00, 'MXN',"
-                " true, 'pendiente', true, %s)",
-                (did2, lid2, orig),
+                "UPDATE precio_cambio SET estado = 'enviado', enviado_at = now(),"
+                " ack = '{\"s\": 1}'::jsonb WHERE id = %s",
+                (origx,),
             )
-        lid3 = _listing(conn, prod, ext="ASIN3", sku="SKU-P3")
-        did3 = _decision(conn, lid3)
-        with pytest.raises(psycopg.errors.CheckViolation, match="precio_cambio_reversa_binaria"):
-            _cambio(conn, did3, lid3, reversa_de=orig)
+            conn.execute(
+                "UPDATE precio_cambio SET estado = 'confirmado',"
+                " confirmado_por = 'observacion' WHERE id = %s",
+                (origx,),
+            )
+            if es_rev:
+                with pytest.raises(psycopg.errors.CheckViolation, match=resto):
+                    conn.execute(
+                        "INSERT INTO precio_cambio (decision_id, listing_id, platform,"
+                        " precio_antes, precio_antes_currency, precio_despues,"
+                        " precio_despues_currency, aplicado, estado, es_reversa, reversa_de)"
+                        " VALUES (%s, %s, 'amazon_mx', 110.00, 'MXN', 100.00, 'MXN',"
+                        " true, 'pendiente', true, %s)",
+                        (didx, lidx, origx),
+                    )
+            else:
+                with pytest.raises(psycopg.errors.CheckViolation, match=resto):
+                    _cambio(conn, didx, lidx, reversa_de=origx)
 
 
 @_skip_db
@@ -929,9 +1034,11 @@ def test_app_read_no_inserta():
             f"INSERT INTO precio_decision (listing_id, platform, resultado, motivo, mode,"
             f" {_MONEDAS_DECISION}) VALUES ({lid}, 'amazon_mx', 'mantener', 'candado',"
             " 'shadow', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN')",
-            "INSERT INTO precio_cotizacion (decision_id, oferta_observation_id, quoted_price,"
-            " quoted_price_currency, fees_estimated_at, estado, source_event_id)"
-            f" VALUES ({did}, {ofid}, 110.00, 'MXN', now(), 'success', 'x')",
+            "INSERT INTO precio_cotizacion (listing_id, platform, intento, oferta_observation_id,"
+            " quoted_price, quoted_price_currency, total_fees, total_fees_currency,"
+            " fees_estimated_at, estado, source_event_id)"
+            f" VALUES ({lid}, 'amazon_mx', 1, {ofid}, 110.00, 'MXN', 12.00, 'MXN',"
+            " now(), 'success', 'x')",
             "INSERT INTO precio_envio_muestra (product_id, platform, ventana_desde,"
             f" ventana_hasta, envios, valor, valor_currency) VALUES ({prod}, 'amazon_mx',"
             " '2026-06-01', '2026-08-30', 8, 95.00, 'MXN')",
@@ -963,16 +1070,17 @@ def test_app_decide_inserta_y_sella_pero_no_goal():
             did = conn.execute(
                 f"INSERT INTO precio_decision (listing_id, platform, resultado, motivo, mode,"
                 f" {_MONEDAS_DECISION})"
-                " VALUES (%s, 'amazon_mx', 'mantener', 'candado', 'shadow',"
+                " VALUES (%s, 'amazon_mx', 'mantener', 'candado', 'live',"
                 " 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN') RETURNING id",
                 (lid,),
             ).fetchone()[0]
             conn.execute(
-                "INSERT INTO precio_cotizacion (decision_id, oferta_observation_id,"
-                " quoted_price, quoted_price_currency, total_fees, total_fees_currency,"
-                " fees_estimated_at, estado, source_event_id)"
-                " VALUES (%s, %s, 110.00, 'MXN', 12.00, 'MXN', now(), 'success', 'r2-cotiz')",
-                (did, ofid),
+                "INSERT INTO precio_cotizacion (listing_id, platform, intento,"
+                " oferta_observation_id, quoted_price, quoted_price_currency, total_fees,"
+                " total_fees_currency, fees_estimated_at, estado, source_event_id)"
+                " VALUES (%s, 'amazon_mx', 1, %s, 110.00, 'MXN', 12.00, 'MXN',"
+                " now(), 'success', 'r2-cotiz')",
+                (lid, ofid),
             )
             conn.execute(
                 "INSERT INTO precio_envio_muestra (product_id, platform, ventana_desde,"
@@ -1041,9 +1149,11 @@ def test_migracion_no_deja_filas():
 @_skip_db
 def test_fk_compuesta_atrapa_plataforma_cruzada():
     """La FK es compuesta `(listing_id, platform)`: un listing que SÍ existe
-    en `amazon_mx` insertado con `platform = 'amazon_us'` revienta en las tres
-    tablas (un `listing_id` inexistente no distinguiría una FK simple).
-    Rojo r1: con FK simple a `listing(id)` el mismatch pasa."""
+    en `amazon_mx` insertado con `platform = 'amazon_us'` revienta (un
+    `listing_id` inexistente no distinguiría una FK simple). En `precio_goal`
+    (sin triggers) y en decisión sin insumos lo dice la FK; en el cambio lo
+    dice primero el trigger de coherencia —y el catálogo prueba las tres
+    definiciones. Rojo r1: con FK simple a `listing(id)` el mismatch pasa."""
     with db_39("orbit_r1_fk") as conn:
         prod = _producto(conn)
         lid = _listing(conn, prod, platform="amazon_mx", ext="ASIN1", sku="SKU-P1")
@@ -1051,9 +1161,21 @@ def test_fk_compuesta_atrapa_plataforma_cruzada():
             _goal(conn, lid, platform="amazon_us")
         with pytest.raises(psycopg.errors.ForeignKeyViolation):
             _decision(conn, lid, platform="amazon_us")
-        did = _decision(conn, lid)
-        with pytest.raises(psycopg.errors.ForeignKeyViolation):
+        did = _decision(conn, lid, mode="live")
+        with pytest.raises(psycopg.errors.CheckViolation, match="decision .* es del listing"):
             _cambio(conn, did, lid, platform="amazon_us")
+        for tabla, columna in (
+            ("precio_goal", "precio_goal_listing_fk"),
+            ("precio_decision", "precio_decision_listing_fk"),
+            ("precio_cambio", "precio_cambio_listing_fk"),
+        ):
+            definicion = conn.execute(
+                "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = %s",
+                (columna,),
+            ).fetchone()[0]
+            assert "FOREIGN KEY (listing_id, platform) REFERENCES listing" in definicion, (
+                f"{tabla}: {definicion}"
+            )
 
 
 @_skip_db
@@ -1203,6 +1325,203 @@ def test_goal_anulado_mismo_dia():
                 0
             ]
         )
+
+
+@_skip_db
+def test_cotiza_antes_de_decidir_puntero_lleno():
+    """Flujo S4 #3 con la forma nueva (r3 punto 1), bajo `SET ROLE app_decide`:
+    cotización 1, cotización 2, decisión con `cotizacion_id` = la 2 → las tres
+    entran y el puntero queda lleno; el tercer intento del día se rechaza.
+    Rojo r3: sin `decision_id` la cotización no nacía."""
+    with db_39("orbit_r3_e2e") as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        ofid = _oferta(conn, lid)
+        try:
+            conn.execute("SET ROLE app_decide")
+            c1 = conn.execute(
+                "INSERT INTO precio_cotizacion (listing_id, platform, intento,"
+                " oferta_observation_id, quoted_price, quoted_price_currency,"
+                " total_fees, total_fees_currency, fees_estimated_at, estado, source_event_id)"
+                " VALUES (%s, 'amazon_mx', 1, %s, 110.00, 'MXN', 12.00, 'MXN',"
+                " now(), 'success', 'r3-e2e-1') RETURNING id",
+                (lid, ofid),
+            ).fetchone()[0]
+            c2 = conn.execute(
+                "INSERT INTO precio_cotizacion (listing_id, platform, intento,"
+                " oferta_observation_id, quoted_price, quoted_price_currency,"
+                " total_fees, total_fees_currency, fees_estimated_at, estado, source_event_id)"
+                " VALUES (%s, 'amazon_mx', 2, %s, 108.00, 'MXN', 11.00, 'MXN',"
+                " now(), 'success', 'r3-e2e-2') RETURNING id, cotizacion_date",
+                (lid, ofid),
+            ).fetchone()
+            assert c2[1] == conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+            did = conn.execute(
+                f"INSERT INTO precio_decision (listing_id, platform, resultado, motivo, mode,"
+                f" cotizacion_id, {_MONEDAS_DECISION})"
+                " VALUES (%s, 'amazon_mx', 'bajar', 'e2e', 'live', %s,"
+                " 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN') RETURNING id",
+                (lid, c2[0]),
+            ).fetchone()[0]
+            assert (
+                conn.execute(
+                    "SELECT cotizacion_id FROM precio_decision WHERE id = %s", (did,)
+                ).fetchone()[0]
+                == c2[0]
+            )
+            assert c1 != c2[0]
+            with pytest.raises(psycopg.errors.CheckViolation):
+                conn.execute(
+                    "INSERT INTO precio_cotizacion (listing_id, platform, intento,"
+                    " oferta_observation_id, quoted_price, quoted_price_currency,"
+                    " total_fees, total_fees_currency, fees_estimated_at, estado,"
+                    " source_event_id)"
+                    " VALUES (%s, 'amazon_mx', 3, %s, 107.00, 'MXN', 10.00, 'MXN',"
+                    " now(), 'success', 'r3-e2e-3')",
+                    (lid, ofid),
+                )
+        finally:
+            conn.execute("RESET ROLE")
+
+
+@_skip_db
+def test_coherencia_cotizacion_oferta():
+    """La oferta cotizada es del mismo `(listing_id, platform)`.
+    Rojo r3: hoy entra cruzada."""
+    with db_39("orbit_r3_coh_cot") as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        ofid = _oferta(conn, lid)
+        lid2 = _listing(conn, prod, ext="ASIN2", sku="SKU-P2")
+        with pytest.raises(psycopg.errors.CheckViolation, match="oferta .* es del listing"):
+            conn.execute(
+                "INSERT INTO precio_cotizacion (listing_id, platform, intento,"
+                " oferta_observation_id, quoted_price, quoted_price_currency,"
+                " total_fees, total_fees_currency, fees_estimated_at, estado, source_event_id)"
+                " VALUES (%s, 'amazon_mx', 1, %s, 110.00, 'MXN', 12.00, 'MXN',"
+                " now(), 'success', 'r3-x')",
+                (lid2, ofid),
+            )
+
+
+@_skip_db
+def test_coherencia_decision_insumos():
+    """Escenario, fee y cotización de la decisión son del mismo
+    `(listing_id, platform)`; la muestra, del mismo `(product_id, platform)`;
+    y `product_id`, el del listing. Un test por cruce, dos listings.
+    Rojo r3: hoy entran cruzados."""
+    with db_39("orbit_r3_coh_dec") as conn:
+        prod = _producto(conn)
+        prod_b = _producto(conn, sku="SKU-PRECIO-B")
+        lid = _listing(conn, prod)
+        ofid = _oferta(conn, lid)
+        esc = _escenario(conn, lid)
+        fee = _fee(conn, lid, ofid)
+        cot = _cotizacion(conn, lid, ofid)
+        mues = _muestra(conn, prod)
+        lid2 = _listing(conn, prod_b, ext="ASIN2", sku="SKU-P2")
+
+        def _cruzada(columna):
+            return (
+                "INSERT INTO precio_decision (listing_id, platform, resultado, motivo, mode,"
+                f" {_MONEDAS_DECISION}, {columna})"
+                " VALUES (%s, 'amazon_mx', 'mantener', 'x', 'live',"
+                " 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', %s)"
+            )
+
+        with pytest.raises(psycopg.errors.CheckViolation, match="escenario .*listing"):
+            conn.execute(_cruzada("escenario_id"), (lid2, esc))
+        with pytest.raises(psycopg.errors.CheckViolation, match="fee .*listing"):
+            conn.execute(_cruzada("fee_observation_id"), (lid2, fee))
+        with pytest.raises(psycopg.errors.CheckViolation, match="cotizacion .*listing"):
+            conn.execute(_cruzada("cotizacion_id"), (lid2, cot))
+        with pytest.raises(psycopg.errors.CheckViolation, match="muestra .*product"):
+            conn.execute(_cruzada("envio_muestra_id"), (lid2, mues))
+        with pytest.raises(psycopg.errors.CheckViolation, match="no es el producto"):
+            conn.execute(_cruzada("product_id"), (lid, prod_b))
+
+
+@_skip_db
+def test_coherencia_cambio_origen():
+    """El cambio cuelga de una decisión del mismo `(listing_id, platform)` y la
+    reversa de un cambio real no-reversa del mismo par. Rojo r3: hoy entran."""
+    with db_39("orbit_r3_coh_cambio") as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        did = _decision(conn, lid, mode="live")
+        lid2 = _listing(conn, prod, ext="ASIN2", sku="SKU-P2")
+        did2 = _decision(conn, lid2, mode="live")
+        with pytest.raises(psycopg.errors.CheckViolation, match="decision .*listing"):
+            _cambio(conn, did2, lid)
+        orig = _cambio(conn, did, lid)
+        conn.execute(
+            "UPDATE precio_cambio SET estado = 'enviado', enviado_at = now(),"
+            " ack = '{\"s\": 1}'::jsonb WHERE id = %s",
+            (orig,),
+        )
+        conn.execute(
+            "UPDATE precio_cambio SET estado = 'confirmado', confirmado_por = 'observacion'"
+            " WHERE id = %s",
+            (orig,),
+        )
+        with pytest.raises(psycopg.errors.CheckViolation, match="reversa .*listing"):
+            conn.execute(
+                "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
+                " precio_antes_currency, precio_despues, precio_despues_currency,"
+                " aplicado, estado, es_reversa, reversa_de)"
+                " VALUES (NULL, %s, 'amazon_mx', 110.00, 'MXN', 100.00, 'MXN',"
+                " true, 'pendiente', true, %s)",
+                (lid2, orig),
+            )
+
+
+@_skip_db
+def test_cambio_real_exige_decision_live():
+    """S4 #13: cambio real solo bajo decisión `live`; virtual solo bajo
+    `shadow`; reversa (sin decisión) siempre `aplicado = true`.
+    Rojo r3: hoy el modo no se mira."""
+    with db_39("orbit_r3_modo") as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        did_shadow = _decision(conn, lid, mode="shadow")
+        with pytest.raises(psycopg.errors.CheckViolation, match="mode"):
+            _cambio(conn, did_shadow, lid)
+        lid2 = _listing(conn, prod, ext="ASIN2", sku="SKU-P2")
+        did_live = _decision(conn, lid2, mode="live")
+        with pytest.raises(psycopg.errors.CheckViolation, match="mode"):
+            _cambio_virtual(conn, did_live, lid2)
+        assert _cambio(conn, did_live, lid2)
+        lid3 = _listing(conn, prod, ext="ASIN3", sku="SKU-P3")
+        assert _cambio_virtual(conn, _decision(conn, lid3, mode="shadow"), lid3)
+
+
+@_skip_db
+def test_created_at_inmutable_por_trigger():
+    """`created_at` está en el ROW inmutable de goal y cambio: ni con GRANT
+    amplio se reescribe, lo sostiene el trigger. Rojo r3: hoy pasa."""
+    with db_39("orbit_r3_created") as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        gid = _goal(conn, lid)
+        with pytest.raises(psycopg.errors.RestrictViolation):
+            conn.execute("UPDATE precio_goal SET created_at = now() WHERE id = %s", (gid,))
+        cid = _cambio(conn, _decision(conn, lid, mode="live"), lid)
+        with pytest.raises(psycopg.errors.RestrictViolation):
+            conn.execute("UPDATE precio_cambio SET created_at = now() WHERE id = %s", (cid,))
+
+
+@_skip_db
+def test_virtual_no_recibe_sellos():
+    """Nace `confirmado` sin sellos y así se queda: cualquier UPDATE sobre un
+    virtual se rechaza. Rojo r3: hoy el sello NULL → valor pasa."""
+    with db_39("orbit_r3_virtual") as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        vc = _cambio_virtual(conn, _decision(conn, lid, mode="shadow"), lid)
+        with pytest.raises(psycopg.errors.RestrictViolation, match="virtual"):
+            conn.execute("UPDATE precio_cambio SET ack = '{\"s\": 1}'::jsonb WHERE id = %s", (vc,))
+        with pytest.raises(psycopg.errors.RestrictViolation, match="virtual"):
+            conn.execute("UPDATE precio_cambio SET estado = 'confirmado' WHERE id = %s", (vc,))
 
 
 @_skip_db

@@ -30,6 +30,9 @@
 --   los ajusta la fila E.3 con su propia migración.
 -- - No se toca `apply_quota_fila_desde_config`: su RAISE nombra solo el
 --   vocabulario de Ads cuando falta una clave `precio_cap_*` (declarado).
+-- - Desviación de S5 (r3-1): S5 pedía `precio_decision.cotizacion_id` Y
+--   `precio_cotizacion.decision_id`; sobrevive solo el primero (la cotización
+--   nace ANTES, con identidad propia listing+intento+fecha).
 -- ---------------------------------------------------------------------------
 
 BEGIN;
@@ -145,11 +148,15 @@ BEGIN
             'período en que ese goal aplicó.', OLD.id
             USING ERRCODE = 'restrict_violation';
     END IF;
+    -- `created_at` también es inmutable (r3-5, como `started_at` en
+    -- `apply_attempt_solo_sella_resultado`): ni con GRANT amplio se reescribe.
     IF ROW(NEW.id, NEW.listing_id, NEW.platform, NEW.margen_goal_pct,
-           NEW.mode, NEW.valid_from, NEW.creado_por, NEW.go_literal)
+           NEW.mode, NEW.valid_from, NEW.creado_por, NEW.go_literal,
+           NEW.created_at)
        IS DISTINCT FROM
        ROW(OLD.id, OLD.listing_id, OLD.platform, OLD.margen_goal_pct,
-           OLD.mode, OLD.valid_from, OLD.creado_por, OLD.go_literal) THEN
+           OLD.mode, OLD.valid_from, OLD.creado_por, OLD.go_literal,
+           OLD.created_at) THEN
         RAISE EXCEPTION
             'precio_goal %: de una fila publicada sólo se puede cerrar la vigencia '
             '(valid_to). Corregir el goal es INSERTAR una fila nueva con '
@@ -218,8 +225,9 @@ CREATE TABLE precio_decision (
     fee_observation_id  BIGINT REFERENCES estimacion_fee_observation (id),
     -- `cotizacion_id` y `envio_muestra_id` nacen como BIGINT plano: sus FK se
     -- declaran por ALTER tras crear `precio_cotizacion`/`precio_envio_muestra`
-    -- (la decisión nace primero y la cotización apunta de vuelta: FK circular
-    -- que PostgreSQL no acepta en el CREATE).
+    -- (r3-1: la cotización nace ANTES que la decisión, así que ya no hay
+    -- circularidad, pero el ALTER tras el CREATE mantiene el orden de
+    -- lectura del archivo).
     cotizacion_id       BIGINT,
     envio_muestra_id    BIGINT,
     u15                 INTEGER,
@@ -261,9 +269,10 @@ COMMENT ON COLUMN precio_decision.canal IS
   'Reutiliza estimacion_canal; NULL cuando no hay canal (canal_sin_dato, '
   'regla 3: nunca un default). El valor de MeLi lo agrega su fase.';
 COMMENT ON COLUMN precio_decision.cotizacion_id IS
-  'La cotización propia usada (S4 #3: como máximo dos intentos; NULL cuando '
-  'el día no cotizó). FK diferida en el tiempo: la decisión nace primero y '
-  'la cotización apunta de vuelta (precio_cotizacion.decision_id).';
+  'La cotización propia USADA (S4 #3: como máximo dos intentos por día; NULL '
+  'cuando el día no cotizó). La cotización nace ANTES que la decisión '
+  '(desviación r3-1 de S5, declarada en la cabecera) y este es el único '
+  'puntero decisión→cotización que existe.';
 
 -- Índices de apoyo de las FKs (PostgreSQL no los crea por el REFERENCES).
 CREATE INDEX precio_decision_por_producto ON precio_decision (product_id);
@@ -301,14 +310,27 @@ CREATE TRIGGER precio_decision_append_only_truncate
     BEFORE TRUNCATE ON precio_decision
     FOR EACH STATEMENT EXECUTE FUNCTION prohibir_mutacion();
 
--- (e) Cotización de fees a precio candidato (S5): vive en su propia tabla,
--- separada de `estimacion_fee_observation` (hecho 11: cotizar ahí apagaría la
--- estimación del día siguiente, porque su lector toma la más reciente).
--- `estado` reutiliza `estimacion_fee_estado`; `total_fees` NULL en error
--- (regla 3, como en 0028). Append-only.
+-- (e) Cotización de fees a precio candidato (S5 con la desviación del punto
+-- 1, ronda 3 de revisión —ver «Residuales declarados» en la cabecera—): S5
+-- pedía `precio_decision.cotizacion_id` Y `precio_cotizacion.decision_id`, y
+-- eso no se puede llenar nunca (la decisión es append-only sin UPDATE, las
+-- dos PK son GENERATED ALWAYS y la FK no es diferible). Sobrevive el puntero
+-- que SÍ se llena: la decisión apunta a la cotización que se usó, y la
+-- cotización nace ANTES (es insumo de la decisión, S4 #3) con identidad
+-- propia —`(listing_id, platform)` + `intento` (1 o 2, S4 #3: como máximo
+-- dos) + `cotizacion_date` por trigger UTC (el valor del cliente se ignora,
+-- mismo patrón que `decision_date`)— y `UNIQUE (listing_id, platform,
+-- cotizacion_date, intento)`: la base garantiza «≤ 2 cotizaciones reales»
+-- por publicación y día, y el intento no usado queda localizable. Vive en su
+-- propia tabla, separada de `estimacion_fee_observation` (hecho 11: cotizar
+-- ahí apagaría la estimación del día siguiente, porque su lector toma la más
+-- reciente). `estado` reutiliza `estimacion_fee_estado`. Append-only.
 CREATE TABLE precio_cotizacion (
     id                    BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    decision_id           BIGINT NOT NULL REFERENCES precio_decision (id),
+    listing_id            BIGINT NOT NULL,
+    platform              platform NOT NULL,
+    intento               SMALLINT NOT NULL,
+    cotizacion_date       DATE NOT NULL,
     oferta_observation_id BIGINT NOT NULL REFERENCES estimacion_oferta_observation (id),
     quoted_price          money_amount NOT NULL,
     quoted_price_currency currency NOT NULL,
@@ -320,25 +342,64 @@ CREATE TABLE precio_cotizacion (
     error_code            TEXT,
     source_event_id       TEXT NOT NULL,
     created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT precio_cotizacion_listing_fk FOREIGN KEY (listing_id, platform)
+        REFERENCES listing (id, platform),
+    CONSTRAINT precio_cotizacion_intento_valido CHECK (intento IN (1, 2)),
+    CONSTRAINT precio_cotizacion_unica_por_intento
+        UNIQUE (listing_id, platform, cotizacion_date, intento),
     CONSTRAINT precio_cotizacion_precio_positivo CHECK (quoted_price > 0),
     CONSTRAINT precio_cotizacion_total_con_moneda
         CHECK ((total_fees IS NULL) = (total_fees_currency IS NULL)),
+    -- Candado de 0028 copiado entero (ronda 3 de revisión, punto 2): success
+    -- trae total y fecha estimada; error trae código y NADA de fees.
+    CONSTRAINT precio_cotizacion_success_exige_total CHECK (
+        (estado = 'success' AND total_fees IS NOT NULL)
+        OR (estado = 'error' AND total_fees IS NULL)
+    ),
     CONSTRAINT precio_cotizacion_error_exige_codigo
         CHECK (estado <> 'error' OR error_code IS NOT NULL),
+    CONSTRAINT precio_cotizacion_success_exige_estimada
+        CHECK (estado <> 'success' OR fees_estimated_at IS NOT NULL),
     CONSTRAINT precio_cotizacion_evento_unico UNIQUE (source_event_id)
 );
 
 COMMENT ON TABLE precio_cotizacion IS
-  'REPRICING 01 A.0 (S5): cotización Product Fees a un precio candidato '
-  '(S4 #3: como máximo dos por decisión), guardada aparte de '
+  'REPRICING 01 A.0 (S5 con desviación r3-1, declarada en la cabecera): '
+  'cotización Product Fees a un precio candidato (S4 #3: como máximo dos por '
+  'publicación y día, intento 1 o 2), insumo de la decisión —nace ANTES que '
+  'ella y la decisión la apunta con `cotizacion_id`—. Guardada aparte de '
   'estimacion_fee_observation para no invalidar el escenario del día '
-  'siguiente (hecho 11). Append-only: corregir es cotizar de nuevo.';
+  'siguiente (hecho 11). Append-only: corregir es cotizar de nuevo (intento '
+  'siguiente, nunca el mismo).';
 COMMENT ON COLUMN precio_cotizacion.total_fees IS
-  'NULL en error (regla 3, no cero inventado); con su moneda por paridad '
-  'CHECK, como `listing_price`/`price_currency` en 0001.';
+  'NOT NULL en success, NULL en error (regla 3, no cero inventado —candado de '
+  '0028 copiado entero); con su moneda por paridad CHECK, como '
+  '`listing_price`/`price_currency` en 0001.';
+COMMENT ON COLUMN precio_cotizacion.cotizacion_date IS
+  'Día UTC de la BASE fijado por trigger (se ignora el del cliente), mismo '
+  'patrón que `decision_date`: la idempotencia por día descansa en este '
+  'valor, no en el reloj de quien inserta.';
 
-CREATE INDEX precio_cotizacion_por_decision ON precio_cotizacion (decision_id);
 CREATE INDEX precio_cotizacion_por_oferta ON precio_cotizacion (oferta_observation_id);
+
+CREATE FUNCTION precio_cotizacion_fecha_utc() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public
+AS $$
+BEGIN
+    NEW.cotizacion_date := (now() AT TIME ZONE 'UTC')::date;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER precio_cotizacion_fecha_utc
+    BEFORE INSERT ON precio_cotizacion
+    FOR EACH ROW EXECUTE FUNCTION precio_cotizacion_fecha_utc();
+
+COMMENT ON FUNCTION precio_cotizacion_fecha_utc IS
+  'REPRICING 01 A.0 (r3-1): `cotizacion_date` es el día UTC de la base con '
+  'UTC fijado en la expresión —el cliente no lo decide (misma defensa que '
+  '`precio_decision_fecha_utc`).';
 
 CREATE TRIGGER precio_cotizacion_append_only
     BEFORE UPDATE OR DELETE ON precio_cotizacion
@@ -501,8 +562,11 @@ COMMENT ON COLUMN precio_cambio.readback_estado IS
   'Lectura informativa tras el ack: `ok` o `fallido` —nunca `no_confirmado` '
   '(S6): el readback no decide el estado.';
 
--- Nacimiento (decisión del lead sobre los huecos de S5): con
--- `aplicado = true` SOLO se nace `pendiente`; con `aplicado = false`
+-- Nacimiento (decisión del lead sobre los huecos de S5, más r3-4): con
+-- decisión, `aplicado = (decision.mode = 'live')` en las dos direcciones
+-- (S4 #13: en sombra el cambio es virtual y sin PATCH; un virtual bajo `live`
+-- también es incoherente); en reversa (sin decisión), `aplicado = true`.
+-- Con `aplicado = true` SOLO se nace `pendiente`; con `aplicado = false`
 -- (virtual) se nace cerrado —`confirmado`/`virtual` con `enviado_at` y sin
 -- ack, readback ni error— para consumir cooldown y freno sin ocupar el
 -- índice de abierto.
@@ -510,7 +574,33 @@ CREATE FUNCTION precio_cambio_nacimiento() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = pg_catalog, public
 AS $$
+DECLARE
+    v_mode precio_mode;
 BEGIN
+    IF NEW.decision_id IS NOT NULL THEN
+        SELECT d.mode INTO v_mode
+          FROM precio_decision d
+         WHERE d.id = NEW.decision_id;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION
+                'precio_cambio: decision_id % inexistente', NEW.decision_id
+                USING ERRCODE = 'check_violation';
+        END IF;
+        IF NEW.aplicado <> (v_mode = 'live') THEN
+            RAISE EXCEPTION
+                'precio_cambio: aplicado = % con decision en mode %: el cambio '
+                'real cuelga de una decisión `live` y el virtual de una '
+                '`shadow` (S4 #13: en sombra no hay PATCH).',
+                NEW.aplicado, v_mode
+                USING ERRCODE = 'check_violation';
+        END IF;
+    ELSIF NOT NEW.aplicado THEN
+        RAISE EXCEPTION
+            'precio_cambio: sin decisión (reversa) solo aplicado = true: lo '
+            'que no cuelga de ninguna decisión sí salió a la plataforma.'
+            USING ERRCODE = 'check_violation';
+    END IF;
+
     IF NEW.aplicado THEN
         IF NEW.estado <> 'pendiente' THEN
             RAISE EXCEPTION
@@ -562,10 +652,12 @@ CREATE TRIGGER precio_cambio_nacimiento
     FOR EACH ROW EXECUTE FUNCTION precio_cambio_nacimiento();
 
 COMMENT ON FUNCTION precio_cambio_nacimiento IS
-  'REPRICING 01 A.0 (hueco de S5 cerrado por decisión del lead): estado de '
-  'nacimiento del cambio —real solo `pendiente`, virtual nace cerrado. Es '
-  'trigger de INSERT (no CHECK): con `aplicado = true` el estado LEGALMENTE '
-  'deja de ser `pendiente` al sellarse, y un CHECK lo prohibiría.';
+  'REPRICING 01 A.0 (hueco de S5 cerrado por decisión del lead, más r3-4): '
+  'con decisión, aplicado = (mode = live) en las dos direcciones (S4 #13); '
+  'sin decisión (reversa), aplicado = true. Estado de nacimiento —real solo '
+  '`pendiente`, virtual nace cerrado—. Es trigger de INSERT (no CHECK): con '
+  '`aplicado = true` el estado LEGALMENTE deja de ser `pendiente` al '
+  'sellarse, y un CHECK lo prohibiría.';
 
 -- Transiciones (S6) con sello acotado por columnas, patrón
 -- `apply_attempt_solo_sella_resultado` (0002): `pendiente → enviado | error`,
@@ -581,6 +673,17 @@ BEGIN
         RAISE EXCEPTION
             'precio_cambio es el ledger de TODO lo que salió (o habría salido) '
             'a la plataforma: una fila no se borra.'
+            USING ERRCODE = 'restrict_violation';
+    END IF;
+
+    -- El virtual nace cerrado y así se queda (r3-6): cualquier UPDATE sobre
+    -- él se rechaza, aunque no cambie el estado (si no, un UPDATE sin cambio
+    -- de estado le pondría ack/readback por el sello NULL -> valor).
+    IF NOT OLD.aplicado THEN
+        RAISE EXCEPTION
+            'precio_cambio %: virtual (aplicado = false) inmutable tras nacer: '
+            'nació cerrado y consume cooldown y freno tal cual nació.',
+            OLD.id
             USING ERRCODE = 'restrict_violation';
     END IF;
 
@@ -660,17 +763,19 @@ BEGIN
             USING ERRCODE = 'restrict_violation';
     END IF;
 
+    -- `created_at` también es inmutable (r3-5, como `started_at` en
+    -- `apply_attempt_solo_sella_resultado`): ni con GRANT amplio se reescribe.
     IF ROW(NEW.id, NEW.decision_id, NEW.listing_id, NEW.platform,
            NEW.precio_antes, NEW.precio_antes_currency,
            NEW.precio_observado_antes, NEW.precio_observado_antes_currency,
            NEW.precio_despues, NEW.precio_despues_currency,
-           NEW.aplicado, NEW.es_reversa, NEW.reversa_de)
+           NEW.aplicado, NEW.es_reversa, NEW.reversa_de, NEW.created_at)
        IS DISTINCT FROM
        ROW(OLD.id, OLD.decision_id, OLD.listing_id, OLD.platform,
            OLD.precio_antes, OLD.precio_antes_currency,
            OLD.precio_observado_antes, OLD.precio_observado_antes_currency,
            OLD.precio_despues, OLD.precio_despues_currency,
-           OLD.aplicado, OLD.es_reversa, OLD.reversa_de) THEN
+           OLD.aplicado, OLD.es_reversa, OLD.reversa_de, OLD.created_at) THEN
         RAISE EXCEPTION
             'precio_cambio %: de una fila del cambio SOLO se sellan estado '
             '(por la progresión) y columnas de sello (NULL -> valor, una vez). '
@@ -693,8 +798,224 @@ COMMENT ON FUNCTION precio_cambio_sella_transicion IS
   'REPRICING 01 A.0 (S6, patrón apply_attempt_solo_sella_resultado de 0002): '
   'la progresión pendiente -> enviado | error, enviado -> confirmado | '
   'no_confirmado, sin saltos (el cierre es por observación D+1) ni '
-  'retrocesos; sello NULL -> valor UNA vez por columna de sello; el DELETE '
-  'jamás; TRUNCATE por la capa de sentencia.';
+  'retrocesos; sello NULL -> valor UNA vez por columna de sello; el virtual '
+  '(aplicado = false) inmutable tras nacer (r3-6); el DELETE jamás; TRUNCATE '
+  'por la capa de sentencia.';
+
+-- (h2) Coherencia de vecindad (ronda 3 de revisión, punto 3; patrón
+-- `estimacion_oferta_listing_coherente`, 0028 l.251–274): ninguna FK impide
+-- colgar un insumo de otro listing — la decisión de A con el escenario de B
+-- pasaría todos los constraints—. Lo impiden estos triggers BEFORE INSERT,
+-- con `check_violation` y mensaje que nombra los dos ids.
+CREATE FUNCTION precio_cotizacion_coherente() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public
+AS $$
+DECLARE
+    v_lid BIGINT;
+    v_plat platform;
+BEGIN
+    SELECT o.listing_id, o.platform INTO v_lid, v_plat
+      FROM estimacion_oferta_observation o
+     WHERE o.id = NEW.oferta_observation_id;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION
+            'precio_cotizacion: oferta_observation_id % inexistente',
+            NEW.oferta_observation_id
+            USING ERRCODE = 'check_violation';
+    END IF;
+    IF (v_lid, v_plat) IS DISTINCT FROM (NEW.listing_id, NEW.platform) THEN
+        RAISE EXCEPTION
+            'precio_cotizacion: oferta % es del listing %/% y no de %/%',
+            NEW.oferta_observation_id, v_lid, v_plat, NEW.listing_id, NEW.platform
+            USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER precio_cotizacion_coherente
+    BEFORE INSERT ON precio_cotizacion
+    FOR EACH ROW EXECUTE FUNCTION precio_cotizacion_coherente();
+
+COMMENT ON FUNCTION precio_cotizacion_coherente IS
+  'REPRICING 01 A.0 (r3-3, patrón estimacion_oferta_listing_coherente): la '
+  'oferta cotizada es del mismo (listing_id, platform) de la cotización.';
+
+CREATE FUNCTION precio_decision_coherente() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public
+AS $$
+DECLARE
+    v_lid BIGINT;
+    v_plat platform;
+    v_prod BIGINT;
+    v_mues_prod BIGINT;
+    v_mues_plat platform;
+BEGIN
+    IF NEW.escenario_id IS NOT NULL THEN
+        SELECT e.listing_id, e.platform INTO v_lid, v_plat
+          FROM estimacion_escenario e
+         WHERE e.id = NEW.escenario_id;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION
+                'precio_decision: escenario_id % inexistente', NEW.escenario_id
+                USING ERRCODE = 'check_violation';
+        END IF;
+        IF (v_lid, v_plat) IS DISTINCT FROM (NEW.listing_id, NEW.platform) THEN
+            RAISE EXCEPTION
+                'precio_decision: escenario % es del listing %/% y no de %/%',
+                NEW.escenario_id, v_lid, v_plat, NEW.listing_id, NEW.platform
+                USING ERRCODE = 'check_violation';
+        END IF;
+    END IF;
+
+    IF NEW.fee_observation_id IS NOT NULL THEN
+        SELECT f.listing_id, f.platform INTO v_lid, v_plat
+          FROM estimacion_fee_observation f
+         WHERE f.id = NEW.fee_observation_id;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION
+                'precio_decision: fee_observation_id % inexistente',
+                NEW.fee_observation_id
+                USING ERRCODE = 'check_violation';
+        END IF;
+        IF (v_lid, v_plat) IS DISTINCT FROM (NEW.listing_id, NEW.platform) THEN
+            RAISE EXCEPTION
+                'precio_decision: fee % es del listing %/% y no de %/%',
+                NEW.fee_observation_id, v_lid, v_plat, NEW.listing_id, NEW.platform
+                USING ERRCODE = 'check_violation';
+        END IF;
+    END IF;
+
+    IF NEW.cotizacion_id IS NOT NULL THEN
+        SELECT c.listing_id, c.platform INTO v_lid, v_plat
+          FROM precio_cotizacion c
+         WHERE c.id = NEW.cotizacion_id;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION
+                'precio_decision: cotizacion_id % inexistente', NEW.cotizacion_id
+                USING ERRCODE = 'check_violation';
+        END IF;
+        IF (v_lid, v_plat) IS DISTINCT FROM (NEW.listing_id, NEW.platform) THEN
+            RAISE EXCEPTION
+                'precio_decision: cotizacion % es del listing %/% y no de %/%',
+                NEW.cotizacion_id, v_lid, v_plat, NEW.listing_id, NEW.platform
+                USING ERRCODE = 'check_violation';
+        END IF;
+    END IF;
+
+    IF NEW.envio_muestra_id IS NOT NULL THEN
+        SELECT m.product_id, m.platform INTO v_mues_prod, v_mues_plat
+          FROM precio_envio_muestra m
+         WHERE m.id = NEW.envio_muestra_id;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION
+                'precio_decision: envio_muestra_id % inexistente',
+                NEW.envio_muestra_id
+                USING ERRCODE = 'check_violation';
+        END IF;
+        SELECT l.product_id INTO v_prod
+          FROM listing l
+         WHERE l.id = NEW.listing_id AND l.platform = NEW.platform;
+        IF (v_mues_prod, v_mues_plat) IS DISTINCT FROM (v_prod, NEW.platform) THEN
+            RAISE EXCEPTION
+                'precio_decision: muestra % es del product %/% y no de %/%',
+                NEW.envio_muestra_id, v_mues_prod, v_mues_plat, v_prod, NEW.platform
+                USING ERRCODE = 'check_violation';
+        END IF;
+    END IF;
+
+    IF NEW.product_id IS NOT NULL THEN
+        SELECT l.product_id INTO v_prod
+          FROM listing l
+         WHERE l.id = NEW.listing_id AND l.platform = NEW.platform;
+        IF NEW.product_id IS DISTINCT FROM v_prod THEN
+            RAISE EXCEPTION
+                'precio_decision: product_id % no es el producto % del listing %',
+                NEW.product_id, v_prod, NEW.listing_id
+                USING ERRCODE = 'check_violation';
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER precio_decision_coherente
+    BEFORE INSERT ON precio_decision
+    FOR EACH ROW EXECUTE FUNCTION precio_decision_coherente();
+
+COMMENT ON FUNCTION precio_decision_coherente IS
+  'REPRICING 01 A.0 (r3-3, patrón estimacion_oferta_listing_coherente): '
+  'escenario, fee y cotización del mismo (listing_id, platform); la muestra, '
+  'del mismo (product_id, platform); y product_id, el del listing. Solo '
+  'INSERT: la decisión es append-only y sus columnas nunca cambian.';
+
+CREATE FUNCTION precio_cambio_coherente() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public
+AS $$
+DECLARE
+    v_lid BIGINT;
+    v_plat platform;
+    v_aplicado BOOLEAN;
+    v_es_reversa BOOLEAN;
+BEGIN
+    IF NEW.decision_id IS NOT NULL THEN
+        SELECT d.listing_id, d.platform INTO v_lid, v_plat
+          FROM precio_decision d
+         WHERE d.id = NEW.decision_id;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION
+                'precio_cambio: decision_id % inexistente', NEW.decision_id
+                USING ERRCODE = 'check_violation';
+        END IF;
+        IF (v_lid, v_plat) IS DISTINCT FROM (NEW.listing_id, NEW.platform) THEN
+            RAISE EXCEPTION
+                'precio_cambio: decision % es del listing %/% y no de %/%',
+                NEW.decision_id, v_lid, v_plat, NEW.listing_id, NEW.platform
+                USING ERRCODE = 'check_violation';
+        END IF;
+    END IF;
+
+    IF NEW.reversa_de IS NOT NULL THEN
+        SELECT c.listing_id, c.platform, c.aplicado, c.es_reversa
+          INTO v_lid, v_plat, v_aplicado, v_es_reversa
+          FROM precio_cambio c
+         WHERE c.id = NEW.reversa_de;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION
+                'precio_cambio: reversa_de % inexistente', NEW.reversa_de
+                USING ERRCODE = 'check_violation';
+        END IF;
+        IF NOT v_aplicado OR v_es_reversa THEN
+            RAISE EXCEPTION
+                'precio_cambio: reversa_de % no es un cambio real no-reversa',
+                NEW.reversa_de
+                USING ERRCODE = 'check_violation';
+        END IF;
+        IF (v_lid, v_plat) IS DISTINCT FROM (NEW.listing_id, NEW.platform) THEN
+            RAISE EXCEPTION
+                'precio_cambio: reversa % es del listing %/% y no de %/%',
+                NEW.reversa_de, v_lid, v_plat, NEW.listing_id, NEW.platform
+                USING ERRCODE = 'check_violation';
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER precio_cambio_coherente
+    BEFORE INSERT ON precio_cambio
+    FOR EACH ROW EXECUTE FUNCTION precio_cambio_coherente();
+
+COMMENT ON FUNCTION precio_cambio_coherente IS
+  'REPRICING 01 A.0 (r3-3, patrón estimacion_oferta_listing_coherente): la '
+  'decisión (si hay) es del mismo (listing_id, platform); la reversa apunta '
+  'a un cambio REAL no-reversa del mismo par (un virtual no se revierte: '
+  'nunca salió a la plataforma). Solo INSERT: el cambio no se reescribe.';
 
 -- (i) GRANTs por columna (S5 y hecho 2 del brief): el motor (`app_decide`)
 -- inserta decisión/cotización/muestra/cambio y sella el cambio por columnas;
@@ -766,42 +1087,62 @@ COMMENT ON FUNCTION apply_cap_de_config IS
   'NULL y el INSERT de quota revienta (fail-closed).';
 
 -- (k) El DO es el candado, no un adorno (patrón 0038): ejercita los INSERTs
--- que cada rol REALMENTE va a ejecutar —el motor inserta decisión y cambio
--- pendiente y sella a `enviado`; el admin inserta el goal— y el rechazo de
--- `app_read`, todo bajo `SET ROLE`. Al salir no queda NI UNA fila: el bloque
--- interior termina con una excepción marcada que el bloque exterior traga, y
--- tragarla revierte el subtransaction completo (un DELETE de limpieza no
--- sirve: las tablas son append-only y `prohibir_mutacion` lo bloquearía hasta
--- para el dueño). Cualquier fallo REAL (un positivo que no inserta, un
+-- que cada rol REALMENTE va a ejecutar —el motor cotiza ANTES de decidir
+-- (r3-1), decide en `live` con el puntero lleno y sella el cambio real a
+-- `enviado`; el admin inserta el goal— y el rechazo de `app_read`, todo bajo
+-- `SET ROLE`. Al salir no queda NI UNA fila: TODO (incluida la semilla de
+-- catálogo y oferta) vive dentro del bloque interior, que termina con una
+-- excepción marcada que el bloque exterior traga, y tragarla revierte el
+-- subtransaction completo. Sin DELETEs de limpieza a propósito: la oferta
+-- semilla es append-only por 0028 y `prohibir_mutacion` bloquearía su borrado
+-- hasta para el dueño. Cualquier fallo REAL (un positivo que no inserta, un
 -- negativo que no es rechazado) trae otro mensaje y se re-lanza: la
 -- migración falla. Las filas semilla usan valores imposibles en producción
--- (prefijo zz_); la semilla de catálogo se borra al final (tablas mutables
--- por diseño).
+-- (prefijo zz_).
 DO $$
 DECLARE
     v_prod    BIGINT;
     v_lid     BIGINT;
+    v_ofid    BIGINT;
+    v_cot     BIGINT;
     v_did     BIGINT;
     v_gid     BIGINT;
     v_cid     BIGINT;
     v_n       BIGINT;
     v_ok      BOOLEAN := false;
 BEGIN
-    -- Semilla como dueño (el DO corre como el aplicador de la migración).
-    INSERT INTO product (odoo_sku, name)
-    VALUES ('zz-candado-0039', 'Candado 0039') RETURNING id INTO v_prod;
-    INSERT INTO listing (product_id, platform, external_id, seller_sku)
-    VALUES (v_prod, 'amazon_mx', 'zz-ASIN-0039', 'zz-SKU-0039') RETURNING id INTO v_lid;
-
     BEGIN
-        -- El motor: decisión + cambio pendiente + sello a enviado.
+        -- Semilla como dueño DENTRO del bloque (se revierte al salir).
+        INSERT INTO product (odoo_sku, name)
+        VALUES ('zz-candado-0039', 'Candado 0039') RETURNING id INTO v_prod;
+        INSERT INTO listing (product_id, platform, external_id, seller_sku)
+        VALUES (v_prod, 'amazon_mx', 'zz-ASIN-0039', 'zz-SKU-0039') RETURNING id INTO v_lid;
+        INSERT INTO estimacion_oferta_observation (listing_id, platform, seller_sku, asin,
+            canal, price_amount, price_currency, fetched_at, observed_at,
+            source_event_id, canonical_input, context_fingerprint)
+        VALUES (v_lid, 'amazon_mx', 'zz-SKU-0039', 'zz-ASIN-0039', 'fba', 100.00, 'MXN',
+            now() - interval '2 hours', now(), 'zz-candado-0039-oferta',
+            '{}'::jsonb, 'zz-huella') RETURNING id INTO v_ofid;
+
+        -- El motor, camino nuevo (r3-1): cotiza ANTES de decidir, decide en
+        -- `live` con el puntero lleno, cuelga el cambio real y lo sella.
         SET ROLE app_decide;
+        INSERT INTO precio_cotizacion (listing_id, platform, intento, oferta_observation_id,
+            quoted_price, quoted_price_currency, total_fees, total_fees_currency,
+            fees_estimated_at, estado, source_event_id)
+        VALUES (v_lid, 'amazon_mx', 1, v_ofid, 110.00, 'MXN', 12.00, 'MXN',
+            now(), 'success', 'zz-candado-0039-cotiz')
+        RETURNING id INTO v_cot;
         INSERT INTO precio_decision (listing_id, platform, resultado, motivo, mode,
+            cotizacion_id,
             p_actual_currency, p_objetivo_currency, p_aplicado_currency,
             i_currency, c_currency, f_currency, l_currency, r_currency)
-        VALUES (v_lid, 'amazon_mx', 'subir', 'candado', 'shadow',
+        VALUES (v_lid, 'amazon_mx', 'subir', 'candado', 'live', v_cot,
             'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN')
         RETURNING id INTO v_did;
+        IF (SELECT cotizacion_id FROM precio_decision WHERE id = v_did) <> v_cot THEN
+            RAISE EXCEPTION '0039: el puntero cotizacion_id no quedó lleno';
+        END IF;
         INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,
             precio_antes_currency, precio_despues, precio_despues_currency, aplicado, estado)
         VALUES (v_did, v_lid, 'amazon_mx', 100.00, 'MXN', 110.00, 'MXN', true, 'pendiente')
@@ -831,8 +1172,8 @@ BEGIN
         RETURNING id INTO v_gid;
         UPDATE precio_goal SET valid_to = '2026-09-02' WHERE id = v_gid;
         BEGIN
-            -- Con motivo: lo que se prueba aquí es el privilegio, no el CHECK
-            -- de motivo (punto 5 de la r1).
+            -- Con motivo y en shadow sin cambio: lo que se prueba aquí es el
+            -- privilegio, no los CHECKs de motivo ni modo (r1-5, r3-4).
             INSERT INTO precio_decision (listing_id, platform, resultado, motivo, mode,
                 p_actual_currency, p_objetivo_currency, p_aplicado_currency,
                 i_currency, c_currency, f_currency, l_currency, r_currency)
@@ -866,7 +1207,8 @@ BEGIN
         -- Tragar la marcada revierte el subtransaction: ni una fila sobrevive.
     END;
 
-    -- Asserts de salida: el candado no deja rastro (las cinco, ronda 2).
+    -- Asserts de salida: el candado no deja rastro (las cinco, ronda 2; más
+    -- la semilla, que también se revirtió: ronda 3).
     SELECT count(*) INTO v_n FROM precio_decision;
     IF v_n <> 0 THEN
         RAISE EXCEPTION '0039: el candado dejó % filas en precio_decision', v_n;
@@ -887,10 +1229,15 @@ BEGIN
     IF v_n <> 0 THEN
         RAISE EXCEPTION '0039: el candado dejó % filas en precio_envio_muestra', v_n;
     END IF;
-
-    -- Limpieza de la semilla (tablas de catálogo, mutables por diseño).
-    DELETE FROM listing WHERE id = v_lid;
-    DELETE FROM product WHERE id = v_prod;
+    PERFORM 1 FROM product WHERE odoo_sku = 'zz-candado-0039';
+    IF FOUND THEN
+        RAISE EXCEPTION '0039: el candado dejó la semilla de catálogo';
+    END IF;
+    PERFORM 1 FROM estimacion_oferta_observation
+     WHERE source_event_id = 'zz-candado-0039-oferta';
+    IF FOUND THEN
+        RAISE EXCEPTION '0039: el candado dejó la oferta semilla';
+    END IF;
 END $$;
 
 COMMIT;

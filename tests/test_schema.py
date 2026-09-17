@@ -2212,6 +2212,63 @@ def test_0039_goal_sin_solape_exclude():
     assert "daterange" in plano and "valid_from" in plano and "valid_to" in plano
 
 
+def test_0039_cotizacion_identidad_propia():
+    # Punto 1 de la r3 (desviación de S5): sin `decision_id`; listing +
+    # intento + fecha del servidor; UNIQUE por intento; trigger UTC.
+    cols = {c.colname for c in _cols39("precio_cotizacion").values()}
+    assert "decision_id" not in cols
+    assert {"listing_id", "platform", "intento", "cotizacion_date"} <= cols
+    checks = _checks_de(TABLES39, "precio_cotizacion")
+    intento = repr(checks["precio_cotizacion_intento_valido"].raw_expr)
+    assert "intento" in intento and "AEXPR_IN" in intento
+    unicos = {
+        tuple(k.sval for k in e.keys)
+        for e in TABLES39["precio_cotizacion"].tableElts
+        if isinstance(e, ast.Constraint) and e.contype == enums.ConstrType.CONSTR_UNIQUE
+    }
+    assert ("listing_id", "platform", "cotizacion_date", "intento") in unicos
+    fecha = [
+        t
+        for t in TRIGGERS39
+        if t.relation.relname == "precio_cotizacion"
+        and t.funcname
+        and t.funcname[-1].sval == "precio_cotizacion_fecha_utc"
+    ]
+    assert fecha and fecha[0].row and fecha[0].timing == 2 and fecha[0].events & 4
+    cuerpo = " ".join(_body_de(FUNCTIONS39, "precio_cotizacion_fecha_utc").split())
+    assert "(now() AT TIME ZONE 'UTC')::date" in cuerpo
+    # Candado de 0028 copiado entero (punto 2).
+    total = repr(checks["precio_cotizacion_success_exige_total"].raw_expr)
+    assert "'success'" in total and "'error'" in total and "total_fees" in total
+    estimada = repr(checks["precio_cotizacion_success_exige_estimada"].raw_expr)
+    assert "fees_estimated_at" in estimada
+
+
+def test_0039_coherencia_y_modo_en_triggers():
+    # Punto 3: los tres triggers BEFORE INSERT de vecindad existen.
+    for tabla, funcion in (
+        ("precio_cotizacion", "precio_cotizacion_coherente"),
+        ("precio_decision", "precio_decision_coherente"),
+        ("precio_cambio", "precio_cambio_coherente"),
+    ):
+        fila = [
+            t
+            for t in TRIGGERS39
+            if t.relation.relname == tabla and t.funcname and t.funcname[-1].sval == funcion
+        ]
+        assert fila and fila[0].row and fila[0].timing == 2 and fila[0].events & 4, tabla
+    # Punto 4: el nacimiento mira el modo (aplicado = (mode = live)).
+    nace = " ".join(_body_de(FUNCTIONS39, "precio_cambio_nacimiento").split())
+    assert "v_mode" in nace and "'live'" in nace
+    # Punto 5: created_at en los dos ROW inmutables.
+    for funcion in ("precio_goal_solo_cierra_vigencia", "precio_cambio_sella_transicion"):
+        cuerpo = " ".join(_body_de(FUNCTIONS39, funcion).split())
+        assert "NEW.created_at" in cuerpo and "OLD.created_at" in cuerpo
+    # Punto 6: el virtual es inmutable tras nacer.
+    sella = " ".join(_body_de(FUNCTIONS39, "precio_cambio_sella_transicion").split())
+    assert "NOT OLD.aplicado" in sella
+
+
 def test_0039_grants_por_columna():
     # Hecho 2 del brief: cotización INSERT a decide; cambio INSERT + UPDATE por
     # columna a decide; goal INSERT + UPDATE (valid_to) a admin; read solo lee.
