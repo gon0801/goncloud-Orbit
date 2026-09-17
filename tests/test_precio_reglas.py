@@ -718,6 +718,53 @@ def test_r1_a1_precio_cotizado_distinto_no_pasa():
     assert (d.resultado, d.motivo) == ("no_evaluado", "escenario_incoherente")
 
 
+# ---------------------------------------------------------------- r1-B3
+
+
+def test_r1_b3_subida_anterior_al_goal_no_frena_posterior_si():
+    from app.precio.tipos import PideCotizacion
+
+    base = dict(
+        costo="40",
+        senal=senal_perdiendo(),
+        cambios=(CambioPrevio(HOY - timedelta(days=10), "subir", "confirmado"),),
+    )
+    # Subida de hace 10 días (fuera de cooldown), goal desde hace 3: no frena.
+    d = decide(entrada(**base, goal_vigente_desde=HOY - timedelta(days=3)))
+    assert isinstance(d, PideCotizacion)
+    # Mismo caso con goal desde hace 15: posterior, frena.
+    d = decide(entrada(**base, goal_vigente_desde=HOY - timedelta(days=15)))
+    assert (d.resultado, d.motivo) == ("frenado", "perdiendo_tras_subida")
+
+
+def test_r1_b3_historial_viejo_no_frena_nuevo_si():
+    from app.precio.tipos import PideCotizacion
+
+    viejo = (
+        HistorialMargen("subir", Decimal("0.05"), HOY - timedelta(days=40)),
+        HistorialMargen("subir", Decimal("0.05"), HOY - timedelta(days=39)),
+        HistorialMargen("subir", Decimal("0.05"), HOY - timedelta(days=38)),
+    )
+    d = decide(entrada(costo="60", historial=viejo, goal_vigente_desde=HOY - timedelta(days=10)))
+    assert isinstance(d, PideCotizacion)
+    nuevo = (
+        HistorialMargen("subir", Decimal("0.05"), HOY - timedelta(days=9)),
+        HistorialMargen("subir", Decimal("0.05"), HOY - timedelta(days=8)),
+        HistorialMargen("subir", Decimal("0.05"), HOY - timedelta(days=7)),
+    )
+    d = decide(entrada(costo="60", historial=nuevo, goal_vigente_desde=HOY - timedelta(days=10)))
+    assert (d.resultado, d.motivo) == ("frenado", "no_converge")
+
+
+def test_r1_b3_cooldown_ignora_el_goal():
+    ent = dict(
+        costo="53.01",
+        cambios=(CambioPrevio(HOY - timedelta(days=2), "subir", "enviado"),),
+        goal_vigente_desde=HOY - timedelta(days=1),
+    )
+    assert decide(entrada(**ent)).motivo == "cooldown"
+
+
 # ---------------------------------------------------------------- r1-B2
 
 
@@ -749,9 +796,9 @@ def test_r1_b2_freno10_virtual_no_frena_en_live_si_en_shadow():
     from app.precio.tipos import PideCotizacion
 
     hist = (
-        HistorialMargen("subir", Decimal("0.05"), aplicado=False),
-        HistorialMargen("subir", Decimal("0.05"), aplicado=False),
-        HistorialMargen("subir", Decimal("0.05"), aplicado=False),
+        HistorialMargen("subir", Decimal("0.05"), HOY - timedelta(days=10), aplicado=False),
+        HistorialMargen("subir", Decimal("0.05"), HOY - timedelta(days=9), aplicado=False),
+        HistorialMargen("subir", Decimal("0.05"), HOY - timedelta(days=8), aplicado=False),
     )
     ent = dict(costo="60", historial=hist)
     assert isinstance(decide(entrada(**ent)), PideCotizacion)
@@ -928,7 +975,7 @@ def entrada(costo="40", precio="116", **kw):
         ingreso_60d=imp("15000"),
         cambios=(),
         historial=(),
-        goal_nuevo=False,
+        goal_vigente_desde=HOY - timedelta(days=100),
     )
     base.update(kw)
     return EntradaDecision(**base)
@@ -1053,9 +1100,9 @@ def test_reglas_cooldown_seis_si_siete_no():
 
 def test_reglas_no_converge_tres_sin_acercarse():
     hist = (
-        HistorialMargen("subir", Decimal("0.05")),
-        HistorialMargen("subir", Decimal("0.05")),
-        HistorialMargen("subir", Decimal("0.05")),
+        HistorialMargen("subir", Decimal("0.05"), HOY - timedelta(days=30)),
+        HistorialMargen("subir", Decimal("0.05"), HOY - timedelta(days=20)),
+        HistorialMargen("subir", Decimal("0.05"), HOY - timedelta(days=10)),
     )
     d = decide(entrada(costo="60", historial=hist))
     assert (d.resultado, d.motivo) == ("frenado", "no_converge")
@@ -1071,23 +1118,25 @@ def test_reglas_convergiendo_o_goal_nuevo_no_frena():
         )
 
     hist = (
-        HistorialMargen("subir", Decimal("0.08")),
-        HistorialMargen("subir", Decimal("0.07")),
-        HistorialMargen("subir", Decimal("0.06")),
+        HistorialMargen("subir", Decimal("0.08"), HOY - timedelta(days=30)),
+        HistorialMargen("subir", Decimal("0.07"), HOY - timedelta(days=20)),
+        HistorialMargen("subir", Decimal("0.06"), HOY - timedelta(days=10)),
     )
     assert no_frena(decide(entrada(costo="55", historial=hist)))
     hist = (
-        HistorialMargen("subir", Decimal("0.05")),
-        HistorialMargen("subir", Decimal("0.05")),
-        HistorialMargen("bajar", Decimal("0.05")),
+        HistorialMargen("subir", Decimal("0.05"), HOY - timedelta(days=30)),
+        HistorialMargen("subir", Decimal("0.05"), HOY - timedelta(days=20)),
+        HistorialMargen("bajar", Decimal("0.05"), HOY - timedelta(days=10)),
     )
     assert no_frena(decide(entrada(costo="55", historial=hist)))
     hist = (
-        HistorialMargen("subir", Decimal("0.05")),
-        HistorialMargen("subir", Decimal("0.05")),
-        HistorialMargen("subir", Decimal("0.05")),
+        HistorialMargen("subir", Decimal("0.05"), HOY - timedelta(days=30)),
+        HistorialMargen("subir", Decimal("0.05"), HOY - timedelta(days=20)),
+        HistorialMargen("subir", Decimal("0.05"), HOY - timedelta(days=10)),
     )
-    assert no_frena(decide(entrada(costo="55", historial=hist, goal_nuevo=True)))
+    assert no_frena(
+        decide(entrada(costo="55", historial=hist, goal_vigente_desde=HOY + timedelta(days=1)))
+    )
 
 
 def test_reglas_freno_antes_que_cooldown():

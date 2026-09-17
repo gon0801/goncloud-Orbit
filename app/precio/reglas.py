@@ -208,32 +208,35 @@ def decidir(
     tol = config.tolerancia
     distancia = abs(m_actual - goal)
 
-    if not entrada.goal_nuevo:
-        reales = [h for h in entrada.historial if entrada.mode == "shadow" or h.aplicado]
-        if len(reales) >= config.freno_cambios:
-            ultimos = reales[-config.freno_cambios :]
-            direcciones = {h.direccion for h in ultimos}
-            cadena = [h.distancia for h in ultimos] + [distancia]
-            if len(direcciones) == 1 and all(
-                posterior >= anterior
-                for anterior, posterior in zip(cadena, cadena[1:], strict=False)
-            ):
-                base = _base_senal(entrada)
-                return replace(
-                    base,
-                    resultado="frenado",
-                    motivo="no_converge",
-                    m_actual=m_actual,
-                    prioridad=_prioridad(m_actual, goal, entrada.ingreso_60d),
-                    diagnostico=f"{len(ultimos)} cambios sin acercarse al goal",
-                )
+    reales = [
+        h
+        for h in entrada.historial
+        if (entrada.mode == "shadow" or h.aplicado) and h.fecha >= entrada.goal_vigente_desde
+    ]
+    if len(reales) >= config.freno_cambios:
+        ultimos = reales[-config.freno_cambios :]
+        direcciones = {h.direccion for h in ultimos}
+        cadena = [h.distancia for h in ultimos] + [distancia]
+        if len(direcciones) == 1 and all(
+            posterior >= anterior for anterior, posterior in zip(cadena, cadena[1:], strict=False)
+        ):
+            base = _base_senal(entrada)
+            return replace(
+                base,
+                resultado="frenado",
+                motivo="no_converge",
+                m_actual=m_actual,
+                prioridad=_prioridad(m_actual, goal, entrada.ingreso_60d),
+                diagnostico=f"{len(ultimos)} cambios sin acercarse al goal",
+            )
 
-    if not entrada.goal_nuevo and entrada.senal.estado == "perdiendo":
+    if entrada.senal.estado == "perdiendo":
         for cambio in entrada.cambios:
             if (
                 cambio.es_reversa
                 or cambio.estado != "confirmado"
                 or (entrada.mode == "live" and not cambio.aplicado)
+                or cambio.enviado_en < entrada.goal_vigente_desde
             ):
                 continue
             dias = (hoy - cambio.enviado_en).days

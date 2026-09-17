@@ -216,10 +216,13 @@ class HistorialMargen:
     """Distancia `|m_actual - goal|` al momento de cada cambio previo (#10).
 
     `aplicado` igual que en `CambioPrevio`: el virtual no frena en `live`.
+    `fecha` = día del cambio (r1-B3: para los frenos solo cuentan los
+    puntos con fecha `≥ goal_vigente_desde`).
     """
 
     direccion: str
     distancia: Decimal
+    fecha: date
     aplicado: bool = True
 
     def __post_init__(self) -> None:
@@ -316,7 +319,7 @@ class EntradaDecision:
     ingreso_60d: Importe | None
     cambios: tuple[CambioPrevio, ...]
     historial: tuple[HistorialMargen, ...]
-    goal_nuevo: bool
+    goal_vigente_desde: date
     motivo_estimacion: str | None = None
     buy_box_is_own: bool | None = None
 
