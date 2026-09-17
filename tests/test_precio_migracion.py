@@ -308,6 +308,97 @@ def test_goal_solo_cierra_vigencia_y_no_borra():
 
 
 @_skip_db
+def test_goal_solape_rechazado():
+    """Dos goals vigentes el mismo día revientan: A `[09-01, 09-20)` cerrado
+    + B desde `09-10` choca en el EXCLUDE (el parcial solo cubre abiertas y el
+    UNIQUE solo el `valid_from`). Rojo r2: sin el EXCLUDE el solape pasa."""
+    with db_39("orbit_r2_solape") as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        _goal(conn, lid, valid_from="2026-09-01")
+        conn.execute("UPDATE precio_goal SET valid_to = '2026-09-20' WHERE valid_to IS NULL")
+        with pytest.raises(psycopg.errors.ExclusionViolation, match="precio_goal_sin_solape"):
+            _goal(conn, lid, valid_from="2026-09-10")
+
+
+@_skip_db
+def test_goal_contiguo_y_anulado_no_solapan():
+    """Semiabierto `[from, to)`: A cerrado en `09-10` + B desde `09-10` pasa;
+    A anulado (`valid_to = valid_from`, rango vacío) + B «dentro» pasa.
+    Verde antes y después: el EXCLUDE no puede romperlos."""
+    with db_39("orbit_r2_contiguo") as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        _goal(conn, lid, valid_from="2026-09-01")
+        conn.execute("UPDATE precio_goal SET valid_to = '2026-09-10' WHERE valid_to IS NULL")
+        assert _goal(conn, lid, valid_from="2026-09-10")
+        lid2 = _listing(conn, prod, ext="ASIN2", sku="SKU-P2")
+        _goal(conn, lid2, valid_from="2026-09-01")
+        conn.execute("UPDATE precio_goal SET valid_to = valid_from WHERE listing_id = %s", (lid2,))
+        assert _goal(conn, lid2, valid_from="2026-09-05")
+
+
+@_skip_db
+def test_goal_solape_otro_listing_pasa():
+    """El mismo solapamiento en otro listing u otra plataforma pasa: el
+    EXCLUDE es por `(listing_id, platform)`. Verde antes y después."""
+    with db_39("orbit_r2_otro") as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        _goal(conn, lid, valid_from="2026-09-01")
+        conn.execute("UPDATE precio_goal SET valid_to = '2026-09-20' WHERE valid_to IS NULL")
+        lid_us = _listing(conn, prod, platform="amazon_us", ext="ASIN-US", sku="SKU-US")
+        assert _goal(conn, lid_us, platform="amazon_us", valid_from="2026-09-10")
+        lid2 = _listing(conn, prod, ext="ASIN2", sku="SKU-P2")
+        assert _goal(conn, lid2, valid_from="2026-09-10")
+
+
+@_skip_db
+def test_cambio_precios_positivos():
+    """El ledger no admite precio 0 o negativo; observado/readback solo
+    cuando no son NULL. Rojo r2: sin el CHECK el 0 pasa."""
+    with db_39("orbit_r2_posit") as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        did = _decision(conn, lid)
+        with pytest.raises(psycopg.errors.CheckViolation, match="precio_cambio_precios_positivos"):
+            conn.execute(
+                "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
+                " precio_antes_currency, precio_despues, precio_despues_currency,"
+                " aplicado, estado)"
+                " VALUES (%s, %s, 'amazon_mx', 0, 'MXN', 110.00, 'MXN', true, 'pendiente')",
+                (did, lid),
+            )
+        with pytest.raises(psycopg.errors.CheckViolation, match="precio_cambio_precios_positivos"):
+            conn.execute(
+                "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
+                " precio_antes_currency, precio_despues, precio_despues_currency,"
+                " aplicado, estado)"
+                " VALUES (%s, %s, 'amazon_mx', 100.00, 'MXN', -1, 'MXN', true, 'pendiente')",
+                (did, lid),
+            )
+        with pytest.raises(psycopg.errors.CheckViolation, match="precio_cambio_precios_positivos"):
+            conn.execute(
+                "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
+                " precio_antes_currency, precio_observado_antes,"
+                " precio_observado_antes_currency, precio_despues, precio_despues_currency,"
+                " aplicado, estado)"
+                " VALUES (%s, %s, 'amazon_mx', 100.00, 'MXN', -5, 'MXN',"
+                " 110.00, 'MXN', true, 'pendiente')",
+                (did, lid),
+            )
+        # El readback al nacer lo prohíbe el punto 7; aquí va por UPDATE.
+        lid_rb = _listing(conn, prod, ext="ASIN-RB", sku="SKU-RB")
+        cid_rb = _cambio(conn, _decision(conn, lid_rb), lid_rb)
+        with pytest.raises(psycopg.errors.CheckViolation, match="precio_cambio_precios_positivos"):
+            conn.execute(
+                "UPDATE precio_cambio SET readback_precio = 0,"
+                " readback_precio_currency = 'MXN' WHERE id = %s",
+                (cid_rb,),
+            )
+
+
+@_skip_db
 def test_goal_truncate_rechazado():
     """TRUNCATE no pasa por el trigger de fila: lo cubre la capa de
     sentencia. Rojo pre-0039: la tabla no existe."""
@@ -861,10 +952,12 @@ def test_app_read_no_inserta():
 @_skip_db
 def test_app_decide_inserta_y_sella_pero_no_goal():
     """El motor inserta decisión/cotización/muestra/cambio y sella el
-    cambio; en `precio_goal` no inserta. Rojo pre-0039: no existen."""
+    cambio; en `precio_goal` no inserta. Rojo pre-0039: no existen. Rojo r2:
+    sin el `GRANT INSERT` la cotización o la muestra revienta por permiso."""
     with db_39("orbit_pg_decide") as conn:
         prod = _producto(conn)
         lid = _listing(conn, prod)
+        ofid = _oferta(conn, lid)
         try:
             conn.execute("SET ROLE app_decide")
             did = conn.execute(
@@ -874,6 +967,19 @@ def test_app_decide_inserta_y_sella_pero_no_goal():
                 " 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN') RETURNING id",
                 (lid,),
             ).fetchone()[0]
+            conn.execute(
+                "INSERT INTO precio_cotizacion (decision_id, oferta_observation_id,"
+                " quoted_price, quoted_price_currency, total_fees, total_fees_currency,"
+                " fees_estimated_at, estado, source_event_id)"
+                " VALUES (%s, %s, 110.00, 'MXN', 12.00, 'MXN', now(), 'success', 'r2-cotiz')",
+                (did, ofid),
+            )
+            conn.execute(
+                "INSERT INTO precio_envio_muestra (product_id, platform, ventana_desde,"
+                " ventana_hasta, envios, valor, valor_currency)"
+                " VALUES (%s, 'amazon_mx', '2026-06-01', '2026-08-30', 8, 95.00, 'MXN')",
+                (prod,),
+            )
             conn.execute(
                 "UPDATE precio_cambio SET estado = 'enviado', enviado_at = now(),"
                 " ack = '{\"s\": 1}'::jsonb WHERE id = %s",

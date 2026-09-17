@@ -89,17 +89,35 @@ CREATE UNIQUE INDEX precio_goal_un_vigente
     ON precio_goal (listing_id, platform)
     WHERE valid_to IS NULL;
 
+-- Pero ni el parcial (solo filas abiertas) ni el UNIQUE (solo `valid_from`)
+-- impiden dos goals vigentes el mismo día con una vigencia ya cerrada
+-- (A cerrada `[09-01, 09-20)` + B desde `09-10`: del 10 al 19 hay dos goals y
+-- «el goal vigente del día» devuelve dos filas). El invariante lo garantiza
+-- la base con EXCLUDE, igual que `sku_cost` en 0001 (ronda 2 de revisión):
+-- la vigencia es `[valid_from, valid_to)` semiabierta y un rango vacío
+-- (`valid_to = valid_from`, goal anulado) no se solapa con nada, así que la
+-- decisión 8 de r1 sigue pasando. El parcial y el UNIQUE se quedan (S3).
+ALTER TABLE precio_goal ADD CONSTRAINT precio_goal_sin_solape
+    EXCLUDE USING gist (
+        listing_id WITH =,
+        platform WITH =,
+        daterange(valid_from, valid_to, '[)') WITH &&
+    );
+
 COMMENT ON TABLE precio_goal IS
   'REPRICING 01 A.0 (S3): goal de margen por publicación, vigencia con el '
   'patrón de `sku_cost` (solo se cierra `valid_to`, una vez; corregir el goal '
   'es fila nueva) SALVO la coherencia: la vigencia es [valid_from, valid_to) '
   'y `valid_to = valid_from` es intervalo vacío —el goal queda ANULADO, nunca '
   'estuvo vigente— para apagar un error de dedo el mismo día (un costo rige '
-  'pasado; un goal con error debe poder no regir nunca). Sin fila vigente no '
-  'hay decisión: sin defaults por plataforma ni herencia (decisión 3, regla '
-  '3). `platform` admite amazon_mx, amazon_us y meli; el motor solo evalúa '
-  'las combinaciones habilitadas por la fase vigente y declara el resto '
-  '`fuera_de_alcance(fase)`.';
+  'pasado; un goal con error debe poder no regir nunca). Y como en `sku_cost`, '
+  'el EXCLUDE `precio_goal_sin_solape` garantiza UN goal por día: ni el índice '
+  'parcial (solo abiertas) ni el UNIQUE (solo `valid_from`) impiden dos goals '
+  'vigentes el mismo día con una vigencia ya cerrada (ronda 2 de revisión). '
+  'Sin fila vigente no hay decisión: sin defaults por plataforma ni herencia '
+  '(decisión 3, regla 3). `platform` admite amazon_mx, amazon_us y meli; el '
+  'motor solo evalúa las combinaciones habilitadas por la fase vigente y '
+  'declara el resto `fuera_de_alcance(fase)`.';
 COMMENT ON COLUMN precio_goal.margen_goal_pct IS
   'Fracción sobre el ingreso sin impuesto (I), igual que la contribución '
   'estimada. Banda 0.10–0.60 en CHECK literal (claves precio_goal_min_pct / '
@@ -426,6 +444,13 @@ CREATE TABLE precio_cambio (
         CHECK ((readback_precio IS NULL) = (readback_precio_currency IS NULL)),
     CONSTRAINT precio_cambio_readback_estado_valido
         CHECK (readback_estado IS NULL OR readback_estado IN ('ok', 'fallido')),
+    -- Precios de verdad (ronda 2 de revisión): como `listing_precio_positivo`
+    -- en 0001 y `precio_cotizacion_precio_positivo` aquí, el ledger no admite
+    -- 0 ni negativos; observado/readback solo cuando no son NULL.
+    CONSTRAINT precio_cambio_precios_positivos
+        CHECK (precio_antes > 0 AND precio_despues > 0
+               AND (precio_observado_antes IS NULL OR precio_observado_antes > 0)
+               AND (readback_precio IS NULL OR readback_precio > 0)),
     -- Un estado no avanza sin su sello: el error trae código, el cierre trae
     -- origen, y el vuelo (`enviado` en un cambio real) trae ack + enviado_at.
     -- El virtual (`aplicado = false`) queda fuera del tercero a propósito:
@@ -675,8 +700,9 @@ COMMENT ON FUNCTION precio_cambio_sella_transicion IS
 -- inserta decisión/cotización/muestra/cambio y sella el cambio por columnas;
 -- los goals los escribe `app_admin` (INSERT + cierre de `valid_to`);
 -- `app_read` solo lee (SELECT explícito en las cinco, como en 0028 —además
--- del default privilege de solo lectura de 0001—). Nada para `app_ingest`:
--- el motor no ingiere hechos.
+-- del default privilege de solo lectura de 0001—). A `app_ingest` no le da
+-- escritura (el motor no ingiere hechos); el SELECT explícito sigue el
+-- patrón de 0028.
 GRANT SELECT ON precio_goal, precio_decision, precio_cotizacion,
     precio_envio_muestra, precio_cambio
     TO app_read, app_ingest, app_decide, app_admin;
@@ -840,7 +866,7 @@ BEGIN
         -- Tragar la marcada revierte el subtransaction: ni una fila sobrevive.
     END;
 
-    -- Asserts de salida: el candado no deja rastro.
+    -- Asserts de salida: el candado no deja rastro (las cinco, ronda 2).
     SELECT count(*) INTO v_n FROM precio_decision;
     IF v_n <> 0 THEN
         RAISE EXCEPTION '0039: el candado dejó % filas en precio_decision', v_n;
@@ -852,6 +878,14 @@ BEGIN
     SELECT count(*) INTO v_n FROM precio_goal;
     IF v_n <> 0 THEN
         RAISE EXCEPTION '0039: el candado dejó % filas en precio_goal', v_n;
+    END IF;
+    SELECT count(*) INTO v_n FROM precio_cotizacion;
+    IF v_n <> 0 THEN
+        RAISE EXCEPTION '0039: el candado dejó % filas en precio_cotizacion', v_n;
+    END IF;
+    SELECT count(*) INTO v_n FROM precio_envio_muestra;
+    IF v_n <> 0 THEN
+        RAISE EXCEPTION '0039: el candado dejó % filas en precio_envio_muestra', v_n;
     END IF;
 
     -- Limpieza de la semilla (tablas de catálogo, mutables por diseño).

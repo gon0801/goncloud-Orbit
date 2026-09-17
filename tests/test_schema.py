@@ -2195,6 +2195,23 @@ def test_0039_cambio_sellos_y_vigencia_anulable():
     assert "valid_to IS NULL OR valid_to >= valid_from" in " ".join(SQL39.split())
 
 
+def test_0039_goal_sin_solape_exclude():
+    # Punto 1 de la r2: UN goal por día, garantizado por la base con EXCLUDE
+    # (patrón sku_cost de 0001: gist en (entidad =, rango &&), semiabierto).
+    # Va por ALTER ADD CONSTRAINT (la tabla ya existe en el archivo).
+    excluyentes = [
+        cmd.def_
+        for s in STMTS39
+        if isinstance(s.stmt, ast.AlterTableStmt) and s.stmt.relation.relname == "precio_goal"
+        for cmd in s.stmt.cmds
+        if isinstance(cmd.def_, ast.Constraint)
+        and cmd.def_.contype == enums.ConstrType.CONSTR_EXCLUSION
+    ]
+    assert excluyentes, "precio_goal sin EXCLUDE de solape"
+    plano = repr(excluyentes)
+    assert "daterange" in plano and "valid_from" in plano and "valid_to" in plano
+
+
 def test_0039_grants_por_columna():
     # Hecho 2 del brief: cotización INSERT a decide; cambio INSERT + UPDATE por
     # columna a decide; goal INSERT + UPDATE (valid_to) a admin; read solo lee.
