@@ -1056,6 +1056,26 @@ def test_r4_g3_escalon_bajo_minimo_revienta_igual_pasa():
     assert c.escalon_max_pct > c.movimiento_min_pct
 
 
+# ---------------------------------------------------------------- r4-G5
+
+
+def test_r4_g5_copia_conserva_identidad_y_fee_lleva_precio_nuevo():
+    from app.estimacion_fees import construir_fee_canonical_input, cotizar_a_precio
+
+    oferta = oferta_mx()
+    cliente = ClienteFalso(body=cuerpo_exito)
+    cotizar_a_precio(cliente, oferta, Decimal("130.00"), observed_at=AHORA)
+    copia = cliente.pedidos[0]
+    assert copia.price_amount == Decimal("130.00")
+    assert copia.source_event_id == oferta.source_event_id
+    canon_original = construir_fee_canonical_input(oferta)
+    canon_copia = construir_fee_canonical_input(copia)
+    assert canon_copia["price_amount"] == "130.00"
+    resto_original = {k: v for k, v in canon_original.items() if k != "price_amount"}
+    resto_copia = {k: v for k, v in canon_copia.items() if k != "price_amount"}
+    assert resto_copia == resto_original
+
+
 # ---------------------------------------------------------------- r4-G4
 
 
