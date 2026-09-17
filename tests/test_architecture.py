@@ -1060,21 +1060,35 @@ def test_precio_puro_sin_io():
     assert not fugas, f"app/precio debe ser PURO; imports de IO encontrados: {fugas}"
 
 
+def _usos_import_dinamico(arbol: ast.AST) -> list[str]:
+    """`__import__` por AST: `Name` con `id == "__import__"` o `Attribute`
+    con `attr == "__import__"` (`__import__ ("httpx")` con espacio y
+    `builtins.__import__("httpx")` incluidos; r6-C3: el barrido de texto
+    `"__import__("` no ve el espacio)."""
+    hallados: list[str] = []
+    for nodo in ast.walk(arbol):
+        if isinstance(nodo, ast.Name) and nodo.id == "__import__":
+            hallados.append("__import__")
+        elif isinstance(nodo, ast.Attribute) and nodo.attr == "__import__":
+            hallados.append(f".{nodo.attr}")
+    return hallados
+
+
 def test_precio_sin_import_dinamico():
     """Ni `import importlib` ni `__import__("...")` en `app/precio/*`.
 
     R5-J5: el import dinámico no produce nodos de import y el candado
     de `test_precio_puro_sin_io` no lo ve (`importlib` sí cae por
-    `PROHIBIDOS_PRECIO`; `__import__` solo por este barrido de texto).
+    `PROHIBIDOS_PRECIO`; `__import__` por este detector AST).
     Precedente: el candado de `snapshot_listas` en este mismo archivo.
     """
     modulos = _puros_precio()
     assert modulos, "no se encontro el motor de precios: ¿se movio app/precio/?"
-    fugas = [
-        p.relative_to(PRECIO).as_posix()
+    fugas = {
+        p.relative_to(PRECIO).as_posix(): v
         for p in modulos
-        if "__import__(" in p.read_text(encoding="utf-8")
-    ]
+        if (v := _usos_import_dinamico(ast.parse(p.read_text(encoding="utf-8"))))
+    }
     assert not fugas, f"app/precio usa import dinamico: {fugas}"
 
 
@@ -1090,10 +1104,19 @@ def test_precio_frontera_caza_importlib_dinamico(tmp_path, monkeypatch):
         test_precio_puro_sin_io()
 
 
-def test_precio_frontera_caza_dunder_import(tmp_path, monkeypatch):
-    """R5-J5, fuga sembrada: `__import__("httpx")` dispara el barrido."""
+@pytest.mark.parametrize(
+    "cuerpo",
+    [
+        'x = __import__("httpx")\n',
+        'x = __import__ ("httpx")\n',
+        'import builtins\nx = builtins.__import__("httpx")\n',
+    ],
+)
+def test_precio_frontera_caza_dunder_import(tmp_path, monkeypatch, cuerpo):
+    """R5-J5, fuga sembrada: `__import__("httpx")` dispara el detector
+    (r6-C3: también con espacio y por atributo)."""
     (tmp_path / "__init__.py").write_text("", encoding="utf-8")
-    (tmp_path / "dyn.py").write_text('x = __import__("httpx")\n', encoding="utf-8")
+    (tmp_path / "dyn.py").write_text(cuerpo, encoding="utf-8")
     monkeypatch.setattr("test_architecture.PRECIO", tmp_path)
     with pytest.raises(AssertionError, match="dyn.py"):
         test_precio_sin_import_dinamico()
