@@ -205,15 +205,26 @@ def test_compose_app_solo_un_bind_de_escritura_y_es_el_autorizado():
     Rojo-primero: con un segundo bind `:rw` sembrado en el bloque app, o con
     el modo de un bind existente cambiado a `:rw`, este test revienta.
     """
-    bloque = _bloque_servicio(COMPOSE.read_text(encoding="utf-8"), "app")
-    binds = [
-        ln.strip().lstrip("-").strip().split("#", 1)[0].strip()
-        for ln in bloque.splitlines()
-        if ln.strip().startswith("- /")
-    ]
-    escritura = [b for b in binds if b.endswith(":rw") or not b.endswith(":ro")]
+    # Se parsea como YAML, no por prefijo de linea (hallazgo CodeRabbit PR
+    # #294): `- "/otro:/otro:rw"` entre comillas no empieza con `- /` y se
+    # colaba entera, que en un candado de secretos es el agujero completo.
+    # Por YAML tambien entran los volumenes nombrados (`datos:/var:rw`), que
+    # son escritura igual aunque no empiecen con `/`.
+    import yaml
+
+    servicios = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))["services"]
+    montajes = servicios["app"].get("volumes") or []
+    escritura = []
+    for m in montajes:
+        if isinstance(m, dict):  # long syntax
+            if not m.get("read_only", False):
+                escritura.append(f"{m.get('source')}:{m.get('target')}")
+            continue
+        modo = m.rsplit(":", 1)[-1] if m.count(":") >= 2 else ""
+        if modo != "ro":
+            escritura.append(m)
     assert escritura == [SECRETS_MOUNT], (
-        f"binds con escritura en el servicio app: {escritura}; "
+        f"montajes con escritura en el servicio app: {escritura}; "
         f"el unico autorizado es {SECRETS_MOUNT}"
     )
 
@@ -224,11 +235,23 @@ def test_compose_comentario_del_bloque_app_no_contradice_el_montaje():
     peor que no tenerlo: el siguiente lector confia en el y no mira.
     """
     texto = COMPOSE.read_text(encoding="utf-8")
-    cabecera = texto.split("  app:", 1)[0]
-    assert "secrets/ se monta :ro" not in cabecera
-    assert ":ro" not in cabecera.split("# API + CLI", 1)[-1], (
-        "el comentario del bloque app afirma un montaje :ro que ya no existe"
-    )
+    # Cabecera del servicio MAS su cuerpo: un comentario que miente puede
+    # estar en cualquiera de los dos (hallazgo CodeRabbit PR #294; la version
+    # anterior cortaba en "  app:" y se saltaba todo el bloque).
+    cabecera = texto.split("  app:", 1)[0].split("# API + CLI", 1)[-1]
+    cuerpo = _bloque_servicio(texto, "app")
+    for ln in (cabecera + "\n" + cuerpo).splitlines():
+        if "#" not in ln:
+            continue
+        comentario = ln.split("#", 1)[1]
+        # No se prohibe `:ro` a secas: un montaje de solo lectura NUEVO es la
+        # direccion segura y el candado no debe castigarla. Lo que se prohibe
+        # es un comentario que diga que los SECRETOS van de solo lectura,
+        # porque hoy van con escritura y esa mentira es la que hace que el
+        # siguiente lector no verifique.
+        assert not ("secret" in comentario.lower() and ":ro" in comentario), (
+            f"un comentario afirma que los secretos se montan :ro: {ln.strip()}"
+        )
 
 
 def test_compose_app_corre_non_root_con_uid_de_secrets():
