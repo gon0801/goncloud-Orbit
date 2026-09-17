@@ -2072,22 +2072,37 @@ def test_reglas_goal_float_revienta():
         CotizacionVerificada(imp("116"), (), 17.5, "success")
 
 
-def test_reglas_sin_decimal_no_hay_float():
+def _fugas_float(raiz):
     import ast
-    from pathlib import Path
 
-    raiz = Path(__file__).resolve().parent.parent / "app" / "precio"
-    for path in sorted(raiz.glob("*.py")):
+    fugas = []
+    for path in sorted(raiz.rglob("*.py")):
         arbol = ast.parse(path.read_text(encoding="utf-8"))
         for nodo in ast.walk(arbol):
-            assert not (isinstance(nodo, ast.Constant) and isinstance(nodo.value, float)), (
-                f"{path.name}: literal float"
-            )
-            assert not (
+            if isinstance(nodo, ast.Constant) and isinstance(nodo.value, float):
+                fugas.append(f"{path}: literal float")
+            if (
                 isinstance(nodo, ast.Call)
                 and isinstance(nodo.func, ast.Name)
                 and nodo.func.id == "float"
-            ), f"{path.name}: llamada a float("
+            ):
+                fugas.append(f"{path}: llamada a float(")
+    return fugas
+
+
+def test_reglas_sin_decimal_no_hay_float():
+    from pathlib import Path
+
+    raiz = Path(__file__).resolve().parent.parent / "app" / "precio"
+    assert not _fugas_float(raiz)
+
+
+def test_r4_g8_barrido_float_entra_a_subpaquetes(tmp_path, monkeypatch):
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "flotante.py").write_text("x = 0.5\ny = float(1)\n", encoding="utf-8")
+    fugas = _fugas_float(tmp_path)
+    assert any("sub/flotante.py" in fuga and "literal" in fuga for fuga in fugas)
+    assert any("sub/flotante.py" in fuga and "float(" in fuga for fuga in fugas)
 
 
 # ---------------------------------------------------------------- cotizar_a_precio
