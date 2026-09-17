@@ -468,6 +468,28 @@ def test_objetivo_estrella_y_margen_cierran_con_el_acta():
     assert abs(m - Decimal("0.30")) <= Decimal("0.005")
 
 
+@pytest.mark.parametrize(
+    "campo",
+    ["precio", "costo", "ref", "fijo", "envio", "isr_tasa", "iva_divisor"],
+)
+@pytest.mark.parametrize("malo", [42, 4.5])
+def test_r6_c2_margen_a_precio_valida_todos_los_decimales(campo, malo):
+    """r6-C2: cada argumento Decimal; int/float → TypeError con el campo."""
+    base = dict(
+        precio=Decimal("116"),
+        costo=Decimal("40"),
+        ref=Decimal("12") / Decimal("116"),
+        fijo=Decimal("3"),
+        envio=Decimal("0"),
+        isr_tasa=Decimal("0.025"),
+        iva_divisor=Decimal("1.16"),
+        incluye_iva=True,
+    )
+    base[campo] = malo
+    with pytest.raises(TypeError, match=campo):
+        margen_a_precio(**base)
+
+
 def test_objetivo_denominador_no_positivo_es_margen_imposible():
     with pytest.raises(ErrorObjetivo, match="margen_imposible"):
         precio_estrella(

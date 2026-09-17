@@ -136,7 +136,16 @@ def margen_a_precio(
     incluye_iva: bool,
 ) -> Decimal:
     """`m(P) = contribucion / I` con la forma cerrada (`F = ref * P + fijo`)."""
-    exigir_decimal(precio, campo="precio")
+    for campo, valor in (
+        ("precio", precio),
+        ("costo", costo),
+        ("ref", ref),
+        ("fijo", fijo),
+        ("envio", envio),
+        ("isr_tasa", isr_tasa),
+        ("iva_divisor", iva_divisor),
+    ):
+        exigir_decimal(valor, campo=campo)
     divisor = iva_divisor if incluye_iva else Decimal(1)
     ingreso = precio / divisor
     fees = ref * precio + fijo
