@@ -514,6 +514,7 @@ def test_revertir_patch_exige_fila_pendiente_primero():
                 ahora=AHORA,
             )
         assert res.estado == "enviado"
+        assert red.n_patch == 1
 
 
 def test_revertir_nunca_loguea_el_cuerpo_y_sanea_el_ack(caplog):
@@ -638,6 +639,33 @@ def test_cambiar_ack_ok_y_get_distinto_da_enviado_con_readback_ok():
             (res.id_cambio,),
         ).fetchone()
         assert fila == (Decimal("105.00"), "ok")
+
+
+def test_cambiar_200_sin_accepted_es_error():
+    """El 2xx sin estado aceptado no es envio (el readback no decide)."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(100.0)), (200, _ofertas_body(100.0))],
+        gets_competitivos=[(200, _competitivo_body()), (200, _competitivo_body())],
+        patchs=[(200, {"submissionId": "c-9"})],
+    )
+    with db_39c() as conn:
+        _, dec = _semilla_cambio(conn)
+        lector, escritor = _clientes(red)
+        with rol(conn):
+            res = cambiar_precio(
+                conn,
+                dec,
+                lector=lector,
+                escritor=escritor,
+                construir_cuerpo=_cuerpo_falso,
+                ahora=AHORA,
+            )
+        assert res.estado == "error"
+        fila = conn.execute(
+            "SELECT estado, error_code FROM precio_cambio WHERE id = %s",
+            (res.id_cambio,),
+        ).fetchone()
+        assert fila[0] == "error" and fila[1].endswith(" 200")
 
 
 def test_cambiar_429_agotado_readback_fallido_sin_escritura_extra():
