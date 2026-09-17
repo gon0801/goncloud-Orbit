@@ -66,7 +66,7 @@ número), con clave y cota; fuera de cota = `ValueError` ruidoso al leer:
 | `precio_divergencia_max_pct` | 0.01 | 0–0.10 |
 | `precio_envio_estadistico` | `mediana` (sellado en S10) | solo `mediana`; `p90` y máximo son diagnóstico, no configuración |
 | `precio_envio_ventana_dias` | 90 propuesto; lo sella E.2 | 30–365 |
-| `precio_envio_min_ordenes` | 6 | 3–50 |
+| `precio_envio_min_ordenes` | 6 | 6–50; bajar de 6 exige acta nueva del dueño y delta en S10 |
 | `precio_envio_min_salida` | 3 | 1 < salida < entrada |
 | `precio_envio_rezago_dias` | sella E.2, del p90 de emisión | 0–120 |
 | `precio_catalogo_max_dias_sin_reportar` | 3 | 1–14 |
