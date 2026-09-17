@@ -2145,8 +2145,10 @@ def test_reglas_goal_float_revienta():
 def _fugas_float(raiz):
     import ast
 
+    modulos = sorted(raiz.rglob("*.py"))
+    assert modulos, "no se encontro el motor de precios: ¿se movio app/precio/?"
     fugas = []
-    for path in sorted(raiz.rglob("*.py")):
+    for path in modulos:
         arbol = ast.parse(path.read_text(encoding="utf-8"))
         for nodo in ast.walk(arbol):
             if isinstance(nodo, ast.Constant) and isinstance(nodo.value, float):

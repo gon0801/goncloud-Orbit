@@ -1062,9 +1062,11 @@ def test_precio_puro_sin_io():
 def test_precio_sin_reloj_ni_entorno():
     """`hoy` entra como argumento: ni datetime.now, ni date.today, ni
     time.time, ni os.environ en el AST de `app/precio/*`."""
+    modulos = _puros_precio()
+    assert modulos, "no se encontro el motor de precios: ¿se movio app/precio/?"
     fugas = {
         p.relative_to(PRECIO).as_posix(): v
-        for p in _puros_precio()
+        for p in modulos
         if (v := _usos_reloj(ast.parse(p.read_text(encoding="utf-8"))))
     }
     assert not fugas, f"app/precio lee reloj o entorno: {fugas}"
