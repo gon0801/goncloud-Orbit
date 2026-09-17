@@ -24,7 +24,6 @@ from app.precio.objetivo import (
     derivar_ref_fijo,
     paso,
     piso_centavo,
-    precio_estrella,
     techo_centavo,
 )
 from app.precio.tipos import (
@@ -426,37 +425,9 @@ def _bajar(
         )
     except ErrorObjetivo as exc:
         return _no_evaluado(entrada, exc.motivo)
-    try:
-        crudo = precio_estrella(
-            comp.costo.valor,
-            fijo,
-            comp.envio.valor,
-            escenario.isr_tasa,
-            entrada.goal,
-            escenario.iva_divisor,
-            escenario.precio_incluye_iva,
-            ref,
-        )
-    except ErrorObjetivo as exc:
-        base = _base_senal(entrada)
-        return replace(
-            base,
-            resultado="goal_inalcanzable",
-            motivo=exc.motivo,
-            m_actual=m_actual,
-            prioridad=_prioridad(m_actual, entrada.goal, entrada.ingreso_60d),
-        )
-    motivo11 = motivo_regla11(crudo, comp.p_actual.valor, comp.costo.valor, comp.envio.valor)
-    if motivo11 is not None:
-        base = _base_senal(entrada)
-        return replace(
-            base,
-            resultado="goal_inalcanzable",
-            motivo=motivo11,
-            m_actual=m_actual,
-            prioridad=_prioridad(m_actual, entrada.goal, entrada.ingreso_60d),
-            diagnostico=f"P*={crudo} vs P={comp.p_actual.valor}",
-        )
+    # r3b-2, opción (a): sin estrella cruda ni regla-11-cruda tampoco aquí;
+    # `margen_imposible` sale de la máquina y la regla 11 del wrapper, igual
+    # que en `_subir`: los dos caminos con un solo control, el del pedido.
     salida = paso(
         costo=comp.costo.valor,
         fijo=fijo,
