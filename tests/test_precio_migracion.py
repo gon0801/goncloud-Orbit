@@ -1772,6 +1772,14 @@ def test_decision_exige_goal_vigente():
         lid4 = _listing(conn, prod, ext="ASIN-4", sku="SKU-4")
         _goal(conn, lid4, mode="live", go="go tdd", valid_from="2026-09-01")
         assert _decision_sin_siembra(conn, lid4, mode="live")
+        # Goal que todavía no arranca (r4b): live con `valid_from` = mañana y
+        # `valid_to` NULL + decisión live hoy → rechazada. Sin `_ensure_goal`
+        # (sembraría uno vigente y taparía el caso).
+        lid5 = _listing(conn, prod, ext="ASIN-5", sku="SKU-5")
+        manana = conn.execute("SELECT (((now() AT TIME ZONE 'UTC')::date + 1))::text").fetchone()[0]
+        _goal(conn, lid5, mode="live", go="go tdd", valid_from=manana)
+        with pytest.raises(psycopg.errors.CheckViolation, match="sin goal vigente"):
+            _decision_sin_siembra(conn, lid5, mode="live")
 
 
 @_skip_db

@@ -953,10 +953,11 @@ BEGIN
     -- «Sin fila vigente no hay decisión» (S3) en la base y no solo en el
     -- motor (ronda 4 de revisión, punto 3): `app_decide` tiene INSERT
     -- directo. Vigencia [valid_from, valid_to) con el MISMO mode: un goal
-    -- `shadow` no ampara una decisión `live`. La fecha es la misma expresión
-    -- UTC del trigger de fecha —los BEFORE INSERT del mismo evento disparan
-    -- en orden alfabético (`coherente` < `fecha_utc`), así que aquí
-    -- `NEW.decision_date` aún trae el valor del cliente—.
+    -- `shadow` no ampara una decisión `live`. La fecha contra la que se
+    -- compara es `(now() AT TIME ZONE 'UTC')::date` —la misma expresión con
+    -- la que `precio_decision_fecha_utc` fija `decision_date` después—: este
+    -- trigger no lee `NEW.decision_date` (los BEFORE INSERT del mismo evento
+    -- disparan en orden alfabético y `coherente` va antes que `fecha_utc`).
     PERFORM 1
       FROM precio_goal g
      WHERE g.listing_id = NEW.listing_id
