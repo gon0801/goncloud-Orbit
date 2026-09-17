@@ -2269,6 +2269,23 @@ def test_0039_coherencia_y_modo_en_triggers():
     assert "NOT OLD.aplicado" in sella
 
 
+def test_0039_ledger_cerrado_y_goal_vigente():
+    # Puntos 2 y 3 de la r4: vocabularios del ledger y goal vigente con modo.
+    checks = _checks_de(TABLES39, "precio_cambio")
+    origen = repr(checks["precio_cambio_confirmado_por_valido"].raw_expr)
+    assert "confirmado_por" in origen and "'observacion'" in origen and "'virtual'" in origen
+    codigo = repr(checks["precio_cambio_error_code_solo_error"].raw_expr)
+    assert "error_code" in codigo and "'error'" in codigo
+    coherente = " ".join(_body_de(FUNCTIONS39, "precio_decision_coherente").split())
+    assert "precio_goal" in coherente and "valid_from" in coherente and "valid_to" in coherente
+    # Punto 1: la rama virtual compara NULL-safe.
+    nace = " ".join(_body_de(FUNCTIONS39, "precio_cambio_nacimiento").split())
+    assert "IS DISTINCT FROM 'virtual'" in nace
+    # Punto 4: el cambio cuelga de subir/bajar.
+    mueve = " ".join(_body_de(FUNCTIONS39, "precio_cambio_coherente").split())
+    assert "'subir'" in mueve and "'bajar'" in mueve
+
+
 def test_0039_grants_por_columna():
     # Hecho 2 del brief: cotización INSERT a decide; cambio INSERT + UPDATE por
     # columna a decide; goal INSERT + UPDATE (valid_to) a admin; read solo lee.

@@ -525,6 +525,14 @@ CREATE TABLE precio_cambio (
         CHECK (NOT aplicado
                OR estado IN ('pendiente', 'error')
                OR (ack IS NOT NULL AND enviado_at IS NOT NULL)),
+    -- Vocabularios cerrados del ledger (ronda 4 de revisión, punto 2): S6
+    -- solo cierra la observación del día siguiente (más el virtual, que nace
+    -- cerrado) y el código de error solo existe en `error`.
+    CONSTRAINT precio_cambio_confirmado_por_valido
+        CHECK (confirmado_por IS NULL
+               OR confirmado_por IN ('observacion', 'virtual')),
+    CONSTRAINT precio_cambio_error_code_solo_error
+        CHECK (error_code IS NULL OR estado = 'error'),
     -- Reversa sin decisión propia (S6, decisión del lead): la corre el dueño
     -- con la herramienta y no tiene `precio_decision`.
     CONSTRAINT precio_cambio_reversa_binaria
@@ -627,8 +635,12 @@ BEGIN
                 USING ERRCODE = 'check_violation';
         END IF;
     ELSE
+        -- `IS DISTINCT FROM` y no `<>`: con NULL el `<>` evalúa NULL y no
+        -- dispara (ronda 4 de revisión, punto 1; revisado el resto del
+        -- trigger y los de coherencia: las demás comparaciones son sobre
+        -- columnas NOT NULL o ya usan IS DISTINCT FROM).
         IF NEW.estado <> 'confirmado'
-           OR NEW.confirmado_por <> 'virtual'
+           OR NEW.confirmado_por IS DISTINCT FROM 'virtual'
            OR NEW.enviado_at IS NULL
            OR NEW.ack IS NOT NULL
            OR NEW.readback_precio IS NOT NULL
@@ -938,6 +950,29 @@ BEGIN
         END IF;
     END IF;
 
+    -- «Sin fila vigente no hay decisión» (S3) en la base y no solo en el
+    -- motor (ronda 4 de revisión, punto 3): `app_decide` tiene INSERT
+    -- directo. Vigencia [valid_from, valid_to) con el MISMO mode: un goal
+    -- `shadow` no ampara una decisión `live`. La fecha es la misma expresión
+    -- UTC del trigger de fecha —los BEFORE INSERT del mismo evento disparan
+    -- en orden alfabético (`coherente` < `fecha_utc`), así que aquí
+    -- `NEW.decision_date` aún trae el valor del cliente—.
+    PERFORM 1
+      FROM precio_goal g
+     WHERE g.listing_id = NEW.listing_id
+       AND g.platform = NEW.platform
+       AND g.mode = NEW.mode
+       AND g.valid_from <= (now() AT TIME ZONE 'UTC')::date
+       AND (g.valid_to IS NULL
+            OR (now() AT TIME ZONE 'UTC')::date < g.valid_to);
+    IF NOT FOUND THEN
+        RAISE EXCEPTION
+            'precio_decision: sin goal vigente en % del mismo mode % para %/%',
+            (now() AT TIME ZONE 'UTC')::date, NEW.mode,
+            NEW.listing_id, NEW.platform
+            USING ERRCODE = 'check_violation';
+    END IF;
+
     RETURN NEW;
 END;
 $$;
@@ -947,10 +982,12 @@ CREATE TRIGGER precio_decision_coherente
     FOR EACH ROW EXECUTE FUNCTION precio_decision_coherente();
 
 COMMENT ON FUNCTION precio_decision_coherente IS
-  'REPRICING 01 A.0 (r3-3, patrón estimacion_oferta_listing_coherente): '
+  'REPRICING 01 A.0 (r3-3, patrón estimacion_oferta_listing_coherente; r4-3): '
   'escenario, fee y cotización del mismo (listing_id, platform); la muestra, '
-  'del mismo (product_id, platform); y product_id, el del listing. Solo '
-  'INSERT: la decisión es append-only y sus columnas nunca cambian.';
+  'del mismo (product_id, platform); product_id, el del listing; y «sin fila '
+  'vigente no hay decisión» (S3): goal del mismo par y mode vigente en la '
+  'fecha UTC del servidor. Solo INSERT: la decisión es append-only y sus '
+  'columnas nunca cambian.';
 
 CREATE FUNCTION precio_cambio_coherente() RETURNS trigger
 LANGUAGE plpgsql
@@ -959,11 +996,12 @@ AS $$
 DECLARE
     v_lid BIGINT;
     v_plat platform;
+    v_resultado TEXT;
     v_aplicado BOOLEAN;
     v_es_reversa BOOLEAN;
 BEGIN
     IF NEW.decision_id IS NOT NULL THEN
-        SELECT d.listing_id, d.platform INTO v_lid, v_plat
+        SELECT d.listing_id, d.platform, d.resultado INTO v_lid, v_plat, v_resultado
           FROM precio_decision d
          WHERE d.id = NEW.decision_id;
         IF NOT FOUND THEN
@@ -975,6 +1013,15 @@ BEGIN
             RAISE EXCEPTION
                 'precio_cambio: decision % es del listing %/% y no de %/%',
                 NEW.decision_id, v_lid, v_plat, NEW.listing_id, NEW.platform
+                USING ERRCODE = 'check_violation';
+        END IF;
+        -- El cambio mueve precio (ronda 4 de revisión, punto 4): no cuelga
+        -- de `mantener`, `no_evaluado` ni frenos — esos días no hay escritura.
+        IF v_resultado IS DISTINCT FROM 'subir' AND v_resultado IS DISTINCT FROM 'bajar' THEN
+            RAISE EXCEPTION
+                'precio_cambio: decision % con resultado % no mueve precio '
+                '(el cambio cuelga de `subir` o `bajar`)',
+                NEW.decision_id, v_resultado
                 USING ERRCODE = 'check_violation';
         END IF;
     END IF;
@@ -1012,10 +1059,11 @@ CREATE TRIGGER precio_cambio_coherente
     FOR EACH ROW EXECUTE FUNCTION precio_cambio_coherente();
 
 COMMENT ON FUNCTION precio_cambio_coherente IS
-  'REPRICING 01 A.0 (r3-3, patrón estimacion_oferta_listing_coherente): la '
-  'decisión (si hay) es del mismo (listing_id, platform); la reversa apunta '
-  'a un cambio REAL no-reversa del mismo par (un virtual no se revierte: '
-  'nunca salió a la plataforma). Solo INSERT: el cambio no se reescribe.';
+  'REPRICING 01 A.0 (r3-3, patrón estimacion_oferta_listing_coherente; r4-4): '
+  'la decisión (si hay) es del mismo (listing_id, platform) y mueve precio '
+  '(`subir`/`bajar`); la reversa apunta a un cambio REAL no-reversa del '
+  'mismo par (un virtual no se revierte: nunca salió a la plataforma). Solo '
+  'INSERT: el cambio no se reescribe.';
 
 -- (i) GRANTs por columna (S5 y hecho 2 del brief): el motor (`app_decide`)
 -- inserta decisión/cotización/muestra/cambio y sella el cambio por columnas;
@@ -1103,6 +1151,7 @@ DO $$
 DECLARE
     v_prod    BIGINT;
     v_lid     BIGINT;
+    v_lid2    BIGINT;
     v_ofid    BIGINT;
     v_cot     BIGINT;
     v_did     BIGINT;
@@ -1123,6 +1172,16 @@ BEGIN
         VALUES (v_lid, 'amazon_mx', 'zz-SKU-0039', 'zz-ASIN-0039', 'fba', 100.00, 'MXN',
             now() - interval '2 hours', now(), 'zz-candado-0039-oferta',
             '{}'::jsonb, 'zz-huella') RETURNING id INTO v_ofid;
+        -- El goal vigente que la decisión del motor necesita (r4-3): `live`,
+        -- abierto desde 2026-09-01 y CON go literal (el CHECK lo exige). El
+        -- del admin va en otro listing (un solo vigente por par).
+        INSERT INTO precio_goal (listing_id, platform, margen_goal_pct, mode,
+            valid_from, creado_por, go_literal)
+        VALUES (v_lid, 'amazon_mx', 0.30, 'live', '2026-09-01', 'candado',
+            'go candado 0039');
+        INSERT INTO listing (product_id, platform, external_id, seller_sku)
+        VALUES (v_prod, 'amazon_mx', 'zz-ASIN-0039-B', 'zz-SKU-0039-B')
+        RETURNING id INTO v_lid2;
 
         -- El motor, camino nuevo (r3-1): cotiza ANTES de decidir, decide en
         -- `live` con el puntero lleno, cuelga el cambio real y lo sella.
@@ -1164,25 +1223,27 @@ BEGIN
         END;
         RESET ROLE;
 
-        -- El admin: goal + cierre de vigencia; en decisión no inserta.
+        -- El admin: goal + cierre de vigencia en el segundo listing; en
+        -- decisión no inserta (la negativa va ANTES del cierre: necesita el
+        -- goal vigente, r4-3).
         SET ROLE app_admin;
         INSERT INTO precio_goal (listing_id, platform, margen_goal_pct, mode,
             valid_from, creado_por)
-        VALUES (v_lid, 'amazon_mx', 0.30, 'shadow', '2026-09-01', 'candado')
+        VALUES (v_lid2, 'amazon_mx', 0.30, 'shadow', '2026-09-01', 'candado')
         RETURNING id INTO v_gid;
-        UPDATE precio_goal SET valid_to = '2026-09-02' WHERE id = v_gid;
         BEGIN
             -- Con motivo y en shadow sin cambio: lo que se prueba aquí es el
             -- privilegio, no los CHECKs de motivo ni modo (r1-5, r3-4).
             INSERT INTO precio_decision (listing_id, platform, resultado, motivo, mode,
                 p_actual_currency, p_objetivo_currency, p_aplicado_currency,
                 i_currency, c_currency, f_currency, l_currency, r_currency)
-            VALUES (v_lid, 'amazon_mx', 'mantener', 'candado', 'shadow',
+            VALUES (v_lid2, 'amazon_mx', 'mantener', 'candado', 'shadow',
                 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN');
             RAISE EXCEPTION '0039: INSERT de app_admin en precio_decision NO fue rechazado';
         EXCEPTION WHEN insufficient_privilege THEN
             NULL;
         END;
+        UPDATE precio_goal SET valid_to = '2026-09-02' WHERE id = v_gid;
         RESET ROLE;
 
         -- Negativo de lectura: `app_read` no inserta en ninguna de las cinco.

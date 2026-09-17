@@ -112,12 +112,34 @@ _MONEDAS_DECISION = (
 )
 
 
-def _decision(
+def _ensure_goal(conn, listing: int, *, platform="amazon_mx", mode="live") -> None:
+    """Siembra el goal vigente que la decisión necesita (r4 punto 3): solo
+    cuando no hay NINGÚN vigente hoy —hay un solo vigente por
+    (listing, platform), sin importar el modo, así que si existe de otro modo
+    no se toca nada y la decisión falla en voz alta (dato mal puesto)."""
+    hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+    existe = conn.execute(
+        "SELECT 1 FROM precio_goal WHERE listing_id = %s AND platform = %s"
+        " AND valid_from <= %s AND (valid_to IS NULL OR %s < valid_to)",
+        (listing, platform, hoy, hoy),
+    ).fetchone()
+    if not existe:
+        # `live` exige go literal (CHECK): se siembra con go; `shadow`, sin.
+        go = "go tdd" if mode == "live" else None
+        conn.execute(
+            "INSERT INTO precio_goal (listing_id, platform, margen_goal_pct, mode,"
+            " valid_from, creado_por, go_literal)"
+            " VALUES (%s, %s, 0.30, %s, '2026-01-01', 'tdd', %s)",
+            (listing, platform, mode, go),
+        )
+
+
+def _decision_sin_siembra(
     conn,
     listing: int,
     *,
     platform="amazon_mx",
-    resultado="mantener",
+    resultado="subir",
     mode="live",
     motivo="tdd",
 ) -> int:
@@ -128,6 +150,21 @@ def _decision(
         " 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN') RETURNING id",
         (listing, platform, resultado, motivo, mode),
     ).fetchone()[0]
+
+
+def _decision(
+    conn,
+    listing: int,
+    *,
+    platform="amazon_mx",
+    resultado="subir",
+    mode="live",
+    motivo="tdd",
+) -> int:
+    _ensure_goal(conn, listing, platform=platform, mode=mode)
+    return _decision_sin_siembra(
+        conn, listing, platform=platform, resultado=resultado, mode=mode, motivo=motivo
+    )
 
 
 def _oferta(
@@ -466,6 +503,7 @@ def test_decision_fecha_del_cliente_ignorada():
     with db_39("orbit_pd_fecha") as conn:
         prod = _producto(conn)
         lid = _listing(conn, prod)
+        _ensure_goal(conn, lid, mode="shadow")
         hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
         fila = conn.execute(
             f"INSERT INTO precio_decision (listing_id, platform, decision_date, resultado,"
@@ -511,6 +549,7 @@ def test_decision_moneda_not_null():
     with db_39("orbit_pd_moneda") as conn:
         prod = _producto(conn)
         lid = _listing(conn, prod)
+        _ensure_goal(conn, lid, mode="shadow")
         with pytest.raises(psycopg.errors.NotNullViolation):
             conn.execute(
                 "INSERT INTO precio_decision (listing_id, platform, resultado, mode,"
@@ -1046,12 +1085,13 @@ def test_app_read_no_inserta():
             " precio_antes_currency, precio_despues, precio_despues_currency, aplicado, estado)"
             f" VALUES ({did}, {lid}, 'amazon_mx', 100.00, 'MXN', 110.00, 'MXN', true, 'pendiente')",
         )
+        antes = conn.execute("SELECT count(*) FROM precio_cotizacion").fetchone()[0]
         try:
             conn.execute("SET ROLE app_read")
             for sentencia in validos:
                 with pytest.raises(psycopg.errors.InsufficientPrivilege):
                     conn.execute(sentencia)
-            assert conn.execute("SELECT count(*) FROM precio_goal").fetchone()[0] == 0
+            assert conn.execute("SELECT count(*) FROM precio_cotizacion").fetchone()[0] == antes
         finally:
             conn.execute("RESET ROLE")
 
@@ -1065,12 +1105,13 @@ def test_app_decide_inserta_y_sella_pero_no_goal():
         prod = _producto(conn)
         lid = _listing(conn, prod)
         ofid = _oferta(conn, lid)
+        _ensure_goal(conn, lid, mode="live")
         try:
             conn.execute("SET ROLE app_decide")
             did = conn.execute(
                 f"INSERT INTO precio_decision (listing_id, platform, resultado, motivo, mode,"
                 f" {_MONEDAS_DECISION})"
-                " VALUES (%s, 'amazon_mx', 'mantener', 'candado', 'live',"
+                " VALUES (%s, 'amazon_mx', 'subir', 'candado', 'live',"
                 " 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN') RETURNING id",
                 (lid,),
             ).fetchone()[0]
@@ -1111,6 +1152,9 @@ def test_app_admin_escribe_goal_y_no_decision():
     with db_39("orbit_pg_admin") as conn:
         prod = _producto(conn)
         lid = _listing(conn, prod)
+        # La negativa de decisión va en otro listing: el goal del admin se
+        # cierra y ya no ampararía nada (r4 punto 3).
+        lid_neg = _listing(conn, prod, ext="ASIN-N", sku="SKU-N")
         try:
             conn.execute("SET ROLE app_admin")
             gid = conn.execute(
@@ -1126,7 +1170,7 @@ def test_app_admin_escribe_goal_y_no_decision():
                     (gid,),
                 )
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
-                _decision(conn, lid)
+                _decision(conn, lid_neg)
         finally:
             conn.execute("RESET ROLE")
 
@@ -1337,6 +1381,7 @@ def test_cotiza_antes_de_decidir_puntero_lleno():
         prod = _producto(conn)
         lid = _listing(conn, prod)
         ofid = _oferta(conn, lid)
+        _ensure_goal(conn, lid, mode="live")
         try:
             conn.execute("SET ROLE app_decide")
             c1 = conn.execute(
@@ -1502,7 +1547,7 @@ def test_created_at_inmutable_por_trigger():
     with db_39("orbit_r3_created") as conn:
         prod = _producto(conn)
         lid = _listing(conn, prod)
-        gid = _goal(conn, lid)
+        gid = _goal(conn, lid, mode="live", go="go tdd")
         with pytest.raises(psycopg.errors.RestrictViolation):
             conn.execute("UPDATE precio_goal SET created_at = now() WHERE id = %s", (gid,))
         cid = _cambio(conn, _decision(conn, lid, mode="live"), lid)
@@ -1629,6 +1674,116 @@ def test_reversa_nace_aplicada():
                 " false, 'pendiente', true, %s)",
                 (lid, orig),
             )
+
+
+@_skip_db
+def test_virtual_exige_confirmado_por_virtual():
+    """La rama virtual del nacimiento compara NULL-safe: con
+    `confirmado_por` NULL dispara el trigger (hoy lo tapa el CHECK de
+    cierre). Rojo r4: sale el mensaje del CHECK, no el del trigger."""
+    with db_39("orbit_r4_nulseg") as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        did = _decision(conn, lid, mode="shadow")
+        with pytest.raises(psycopg.errors.CheckViolation, match="nace cerrado"):
+            conn.execute(
+                "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
+                " precio_antes_currency, precio_despues, precio_despues_currency,"
+                " aplicado, estado, enviado_at)"
+                " VALUES (%s, %s, 'amazon_mx', 100.00, 'MXN', 110.00, 'MXN',"
+                " false, 'confirmado', now())",
+                (did, lid),
+            )
+
+
+@_skip_db
+def test_confirmado_por_vocabulario_cerrado():
+    """`confirmado_por` solo `observacion` o `virtual` (S6: solo cierra la
+    observación; el virtual nace cerrado). Rojo r4: 'jefe' entra."""
+    with db_39("orbit_r4_origen") as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        cid = _cambio(conn, _decision(conn, lid, mode="live"), lid)
+        conn.execute(
+            "UPDATE precio_cambio SET estado = 'enviado', enviado_at = now(),"
+            " ack = '{\"s\": 1}'::jsonb WHERE id = %s",
+            (cid,),
+        )
+        with pytest.raises(
+            psycopg.errors.CheckViolation, match="precio_cambio_confirmado_por_valido"
+        ):
+            conn.execute(
+                "UPDATE precio_cambio SET estado = 'confirmado', confirmado_por = 'jefe'"
+                " WHERE id = %s",
+                (cid,),
+            )
+
+
+@_skip_db
+def test_error_code_solo_en_error():
+    """`error_code` fuera de `error` revienta. Rojo r4: hoy entra."""
+    with db_39("orbit_r4_errfuera") as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        cid = _cambio(conn, _decision(conn, lid, mode="live"), lid)
+        with pytest.raises(
+            psycopg.errors.CheckViolation, match="precio_cambio_error_code_solo_error"
+        ):
+            conn.execute(
+                "UPDATE precio_cambio SET estado = 'enviado', enviado_at = now(),"
+                " ack = '{\"s\": 1}'::jsonb, error_code = 'X' WHERE id = %s",
+                (cid,),
+            )
+
+
+@_skip_db
+def test_decision_exige_goal_vigente():
+    """«Sin fila vigente no hay decisión» (S3) en la base: sin goal, con goal
+    cerrado ayer, con goal anulado hoy o con modo distinto → rechazada; goal
+    `live` + decisión `live` → entra. Rojo r4: hoy entran todas."""
+    with db_39("orbit_r4_goalvig") as conn:
+        prod = _producto(conn)
+        # Sin goal.
+        lid0 = _listing(conn, prod, ext="ASIN-0", sku="SKU-0")
+        with pytest.raises(psycopg.errors.CheckViolation, match="sin goal vigente"):
+            _decision_sin_siembra(conn, lid0, mode="live")
+        # Goal cerrado ayer.
+        lid1 = _listing(conn, prod, ext="ASIN-1", sku="SKU-1")
+        _goal(conn, lid1, mode="live", go="go tdd", valid_from="2026-09-01")
+        conn.execute(
+            "UPDATE precio_goal SET valid_to = (now() AT TIME ZONE 'UTC')::date - 1"
+            " WHERE listing_id = %s",
+            (lid1,),
+        )
+        with pytest.raises(psycopg.errors.CheckViolation, match="sin goal vigente"):
+            _decision_sin_siembra(conn, lid1, mode="live")
+        # Goal anulado hoy (valid_to = valid_from).
+        lid2 = _listing(conn, prod, ext="ASIN-2", sku="SKU-2")
+        _goal(conn, lid2, mode="live", go="go tdd", valid_from="2026-09-01")
+        conn.execute("UPDATE precio_goal SET valid_to = valid_from WHERE listing_id = %s", (lid2,))
+        with pytest.raises(psycopg.errors.CheckViolation, match="sin goal vigente"):
+            _decision_sin_siembra(conn, lid2, mode="live")
+        # Goal shadow + decisión live.
+        lid3 = _listing(conn, prod, ext="ASIN-3", sku="SKU-P3")
+        _goal(conn, lid3, mode="shadow", valid_from="2026-09-01")
+        with pytest.raises(psycopg.errors.CheckViolation, match="sin goal vigente"):
+            _decision_sin_siembra(conn, lid3, mode="live")
+        # Goal live + decisión live → entra.
+        lid4 = _listing(conn, prod, ext="ASIN-4", sku="SKU-4")
+        _goal(conn, lid4, mode="live", go="go tdd", valid_from="2026-09-01")
+        assert _decision_sin_siembra(conn, lid4, mode="live")
+
+
+@_skip_db
+def test_cambio_exige_decision_que_mueve_precio():
+    """El cambio cuelga de una decisión con `resultado IN ('subir','bajar')`.
+    Rojo r4: colgado de `mantener` entra."""
+    with db_39("orbit_r4_mueve") as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        _goal(conn, lid, mode="live", go="go tdd", valid_from="2026-01-01")
+        with pytest.raises(psycopg.errors.CheckViolation, match="no mueve precio"):
+            _cambio(conn, _decision(conn, lid, mode="live", resultado="mantener"), lid)
 
 
 @_skip_db
