@@ -759,6 +759,20 @@ def test_r2_a1_motivo_desconocido_no_revienta():
     assert "motivo_del_futuro" in d.diagnostico
 
 
+# ---------------------------------------------------------------- r2-A2
+
+
+def test_r2_a2_precio_no_positivo_no_truena():
+    from dataclasses import replace
+
+    esc = escenario()
+    esc = replace(esc, componentes=comp(precio="0.00", ingreso="0.00", costo="0.00"))
+    d = decide(entrada(escenario=esc))
+    assert (d.resultado, d.motivo) == ("no_evaluado", "escenario_incoherente")
+    d = decide(entrada(pricing=ObservacionPricing(imp("0.00"), AHORA)))
+    assert (d.resultado, d.motivo) == ("no_evaluado", "escenario_incoherente")
+
+
 # ---------------------------------------------------------------- r1-C
 
 

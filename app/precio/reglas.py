@@ -191,6 +191,12 @@ def decidir(
             f"escenario {moneda} vs pricing {pricing.precio.moneda}",
         )
     p_actual = comp.p_actual.valor
+    if p_actual <= 0 or pricing.precio.valor <= 0:
+        return _no_evaluado(
+            entrada,
+            "escenario_incoherente",
+            f"precio no positivo: P={p_actual} pricing={pricing.precio.valor}",
+        )
     divergencia = abs(pricing.precio.valor - p_actual) / p_actual
     if divergencia > config.divergencia_max_pct:
         return _no_evaluado(
