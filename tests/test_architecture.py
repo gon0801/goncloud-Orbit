@@ -1018,12 +1018,15 @@ PROHIBIDOS_PRECIO = (
 
 
 def _usos_reloj(arbol: ast.AST) -> list[str]:
-    """Reloj o entorno en el AST, sin importar el dueño: cualquier llamada
-    a `.now()`, `.utcnow()` o `.today()` (`dt.now()`,
-    `datetime.datetime.now()` incluidos) y cualquier `os.environ`. Las
-    CLASES datetime/date pueden aparecer (firman los argumentos de fecha);
-    LLAMARLAS al reloj, no. `time.*` y `os.*` caen además por el import
-    prohibido (`time.monotonic`, `os.getenv` necesitan importarse)."""
+    """Reloj o entorno en el AST, sin importar el dueño: cualquier acceso
+    a `.now`, `.utcnow` o `.today` (`dt.now()`, `datetime.datetime.now()`
+    y la referencia sin llamada `reloj = dt.now` incluidos) y cualquier
+    `os.environ`. Las CLASES datetime/date pueden aparecer (firman los
+    argumentos de fecha); USARLAS como reloj, no. `time.time()` cae por
+    el import prohibido de `time` y por este candado. `time.*` y `os.*`
+    caen además por el import prohibido (`time.monotonic`, `os.getenv`
+    necesitan importarse). R4-G9: la referencia sin llamada tambien es
+    reloj; solo cazar el Call dejaba escapar el alias."""
     hallados: list[str] = []
     for nodo in ast.walk(arbol):
         if isinstance(nodo, ast.Call) and isinstance(nodo.func, ast.Attribute):
@@ -1033,6 +1036,8 @@ def _usos_reloj(arbol: ast.AST) -> list[str]:
             dueno = nodo.value
             if isinstance(dueno, ast.Name) and dueno.id == "os" and nodo.attr == "environ":
                 hallados.append("os.environ")
+            elif nodo.attr in ("now", "utcnow", "today"):
+                hallados.append(f".{nodo.attr}")
     return hallados
 
 
@@ -1121,6 +1126,18 @@ def test_precio_frontera_caza_imports_de_reloj_entorno_azar(tmp_path, monkeypatc
     monkeypatch.setattr("test_architecture.PRECIO", tmp_path)
     with pytest.raises(AssertionError, match="sub/fuga.py"):
         test_precio_puro_sin_io()
+
+
+def test_r4_g9_reloj_caza_acceso_sin_llamada(tmp_path, monkeypatch):
+    """r4-G9: `reloj = dt.now` (referencia sin llamar) también dispara."""
+    (tmp_path / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "reloj.py").write_text(
+        "from datetime import datetime as dt\nreloj = dt.now\n", encoding="utf-8"
+    )
+    monkeypatch.setattr("test_architecture.PRECIO", tmp_path)
+    with pytest.raises(AssertionError, match="sub/reloj.py"):
+        test_precio_sin_reloj_ni_entorno()
 
 
 @pytest.mark.parametrize(
