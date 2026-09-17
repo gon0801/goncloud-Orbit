@@ -115,3 +115,118 @@ def test_tipos_detalle_fee_reexportado_sin_io():
 
 HOY = date(2026, 9, 17)
 AHORA = datetime(2026, 9, 17, 13, 10, tzinfo=UTC)
+
+
+# ---------------------------------------------------------------- config
+
+BASE_CONFIG = {
+    "precio_caida_ventas_pct": "0.40",
+    "precio_senal_dias": 3,
+    "precio_u60_min": 20,
+    "precio_fechas_excluidas": [],
+    "precio_escalon_max_pct": "0.10",
+    "precio_movimiento_min_pct": "0.01",
+    "precio_movimiento_min_abs_mxn": "1.00",
+    "precio_movimiento_min_abs_usd": "0.10",
+    "precio_tolerancia": "0.005",
+    "precio_dias_entre_cambios": 7,
+    "precio_freno_cambios": 3,
+    "precio_divergencia_max_pct": "0.01",
+}
+
+
+def cfg(**cambios):
+    from app.precio.config import leer_config
+
+    base = dict(BASE_CONFIG)
+    base.update(cambios)
+    return leer_config(base)
+
+
+def test_config_lee_valores_iniciales_del_plan():
+    from app.precio.config import leer_config
+
+    c = leer_config(BASE_CONFIG)
+    assert c.caida_ventas_pct == Decimal("0.40")
+    assert c.senal_dias == 3
+    assert c.u60_min == 20
+    assert c.fechas_excluidas == ()
+    assert c.tolerancia == Decimal("0.005")
+
+
+def test_config_clave_ausente_nombra_la_clave():
+    from app.precio.config import leer_config
+
+    base = dict(BASE_CONFIG)
+    del base["precio_tolerancia"]
+    with pytest.raises(ValueError, match="precio_tolerancia"):
+        leer_config(base)
+
+
+@pytest.mark.parametrize(
+    ("clave", "debajo", "encima"),
+    [
+        ("precio_caida_ventas_pct", "0.09", "0.91"),
+        ("precio_senal_dias", 0, 8),
+        ("precio_u60_min", 0, 1001),
+        ("precio_escalon_max_pct", "0.009", "0.26"),
+        ("precio_movimiento_min_pct", "-0.01", "0.11"),
+        ("precio_tolerancia", "-0.001", "0.051"),
+        ("precio_dias_entre_cambios", 0, 31),
+        ("precio_freno_cambios", 1, 11),
+        ("precio_divergencia_max_pct", "-0.01", "0.11"),
+    ],
+)
+def test_config_bordes_fuera_de_cota_revientan(clave, debajo, encima):
+    from app.precio.config import leer_config
+
+    for valor in (debajo, encima):
+        base = dict(BASE_CONFIG)
+        base[clave] = valor
+        with pytest.raises(ValueError, match=clave):
+            leer_config(base)
+
+
+@pytest.mark.parametrize(
+    ("clave", "minimo", "maximo"),
+    [
+        ("precio_caida_ventas_pct", "0.10", "0.90"),
+        ("precio_senal_dias", 1, 7),
+        ("precio_u60_min", 1, 1000),
+        ("precio_escalon_max_pct", "0.01", "0.25"),
+        ("precio_movimiento_min_pct", "0", "0.10"),
+        ("precio_tolerancia", "0", "0.05"),
+        ("precio_dias_entre_cambios", 1, 30),
+        ("precio_freno_cambios", 2, 10),
+        ("precio_divergencia_max_pct", "0", "0.10"),
+    ],
+)
+def test_config_bordes_en_cota_pasan(clave, minimo, maximo):
+    from app.precio.config import leer_config
+
+    for valor in (minimo, maximo):
+        base = dict(BASE_CONFIG)
+        base[clave] = valor
+        leer_config(base)
+
+
+def test_config_absolutos_positivos_y_basura_no_numerica():
+    from app.precio.config import leer_config
+
+    for clave in ("precio_movimiento_min_abs_mxn", "precio_movimiento_min_abs_usd"):
+        base = dict(BASE_CONFIG)
+        base[clave] = "0"
+        with pytest.raises(ValueError, match=clave):
+            leer_config(base)
+        base[clave] = "doce"
+        with pytest.raises(ValueError, match=clave):
+            leer_config(base)
+
+
+def test_config_fechas_excluidas_rangos_iso():
+    c = cfg(precio_fechas_excluidas=[["2026-09-01", "2026-09-03"]])
+    assert c.fechas_excluidas == ((date(2026, 9, 1), date(2026, 9, 3)),)
+    with pytest.raises(ValueError, match="precio_fechas_excluidas"):
+        cfg(precio_fechas_excluidas=[["2026-09-03", "2026-09-01"]])
+    with pytest.raises(ValueError, match="precio_fechas_excluidas"):
+        cfg(precio_fechas_excluidas=["2026-09-01"])
