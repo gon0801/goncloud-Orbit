@@ -488,7 +488,10 @@ de motor:
   corrida diaria con lock y cuota propia, `/precios` con cobertura, revisión
   independiente, sombra con **≥ 80% de los goals evaluados**, encendido de
   3–5 productos y medición de 30 días en dos cortes.
-- **Fase E — envío medido y FBM** (habilita 113 activas en MX y 109 en US):
+- **Fase E — envío medido y FBM** (habilita **~10 activas en MX y ~10 en US**
+  con la ventana de 90 días; 113 y 109 son el techo TEÓRICO del canal FBM, no
+  lo que la fase enciende: el límite lo pone el volumen de ventas, no el
+  umbral, y subirlo es cuestión de ventana, que sella E.2):
   medición del envío por producto, acta del percentil con el dueño,
   ampliación del margen estimado a FBM, y encendido FBM en México.
 - **Fase 0 — política fiscal de Estados Unidos**: `I = P` sin IVA, retenciones
@@ -496,7 +499,8 @@ de motor:
   USD→MXN), `marketplace_id` parametrizado en la cotización de fees. **Nota
   que reordena el plan**: US **no tiene publicaciones activas en FBA** (0 de
   109), así que US depende de la fase E, no de la ruta FBA.
-- **Fase B — Amazon Estados Unidos** (109 activas, todas FBM): sombra y
+- **Fase B — Amazon Estados Unidos** (**106** activas en la fuente canónica,
+  109 en la caché del bridge, todas FBM): sombra y
   encendido con la política de la fase 0 y el envío de la fase E.
 - **Fase M — Mercado Libre** (137 publicaciones): inventario de insumos, acta
   de la fórmula, ingesta de publicaciones, ventas y cargos, margen estimado,
