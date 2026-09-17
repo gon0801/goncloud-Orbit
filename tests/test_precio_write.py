@@ -642,11 +642,11 @@ def test_cambiar_ack_ok_y_get_distinto_da_enviado_con_readback_ok():
 
 
 def test_cambiar_200_sin_accepted_es_error():
-    """El 2xx sin estado aceptado no es envio (el readback no decide)."""
+    """El 2xx con estado explicito distinto de ACCEPTED no es envio."""
     red = _RedFalsa(
         gets_ofertas=[(200, _ofertas_body(100.0)), (200, _ofertas_body(100.0))],
         gets_competitivos=[(200, _competitivo_body()), (200, _competitivo_body())],
-        patchs=[(200, {"submissionId": "c-9"})],
+        patchs=[(200, {"submissionId": "c-9", "status": "ERROR"})],
     )
     with db_39c() as conn:
         _, dec = _semilla_cambio(conn)
