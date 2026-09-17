@@ -1068,7 +1068,6 @@ def test_precio_sin_reloj_ni_entorno():
 def test_precio_frontera_caza_fuga_en_subpaquete(tmp_path, monkeypatch):
     """Fuga sembrada: un `sub/fuga.py` con `import httpx` hace fallar el
     candado con el nombre del archivo."""
-    import pytest
 
     (tmp_path / "__init__.py").write_text("", encoding="utf-8")
     (tmp_path / "sub").mkdir()
@@ -1080,7 +1079,6 @@ def test_precio_frontera_caza_fuga_en_subpaquete(tmp_path, monkeypatch):
 
 def test_precio_init_tambien_se_escanea(tmp_path, monkeypatch):
     """r1-B5: una fuga en `__init__.py` también dispara el candado."""
-    import pytest
 
     (tmp_path / "__init__.py").write_text("import httpx\n", encoding="utf-8")
     monkeypatch.setattr("test_architecture.PRECIO", tmp_path)
@@ -1091,7 +1089,6 @@ def test_precio_init_tambien_se_escanea(tmp_path, monkeypatch):
 def test_precio_frontera_caza_reloj_con_alias(tmp_path, monkeypatch):
     """r1-B5, fuga sembrada de reloj: `from datetime import datetime as dt`
     + `dt.now()` hace fallar el candado con el nombre del archivo."""
-    import pytest
 
     (tmp_path / "__init__.py").write_text("", encoding="utf-8")
     (tmp_path / "sub").mkdir()
@@ -1117,7 +1114,6 @@ def test_precio_frontera_caza_imports_de_reloj_entorno_azar(tmp_path, monkeypatc
     """r2-A4: cada import prohibido hace fallar el candado con el nombre
     del archivo (reemplaza al test tautológico que solo miraba la
     constante)."""
-    import pytest
 
     (tmp_path / "__init__.py").write_text("", encoding="utf-8")
     (tmp_path / "sub").mkdir()
@@ -1137,7 +1133,6 @@ def test_precio_frontera_caza_imports_de_reloj_entorno_azar(tmp_path, monkeypatc
 )
 def test_precio_frontera_caza_reloj_en_todas_sus_formas(tmp_path, monkeypatch, cuerpo):
     """r2-A4: `now`, `utcnow` y `today` caen sea quien sea el dueño."""
-    import pytest
 
     (tmp_path / "__init__.py").write_text("", encoding="utf-8")
     (tmp_path / "sub").mkdir()
