@@ -733,7 +733,13 @@ def cotizar_a_precio(
 
     if not isinstance(precio, Decimal) or not precio.is_finite() or precio <= 0:
         raise ValueError(f"precio a cotizar invalido: {precio!r}")
-    if precio != precio.quantize(Decimal("0.01")):
+    if precio >= _MAX_DINERO:
+        raise ValueError(f"precio a cotizar invalido: {precio!r}")
+    try:
+        centavos = precio.quantize(Decimal("0.01"))
+    except InvalidOperation:
+        raise ValueError(f"precio a cotizar invalido: {precio!r}") from None
+    if precio != centavos:
         raise ValueError(f"precio a cotizar sin centavos exactos: {precio!r}")
     return cotizar_oferta(
         client, replace(oferta, price_amount=precio), observed_at=observed_at, now_utc=now_utc

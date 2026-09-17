@@ -2240,6 +2240,21 @@ def test_r5_j3_cotizar_a_precio_exige_centavos():
         cotizar_a_precio(cliente, oferta, Decimal("131.685"), observed_at=AHORA)
 
 
+def test_r6_c1_cotizar_a_precio_rechaza_enormes_como_valueerror():
+    """r6-C1: promete ValueError y lo cumple, hasta con precios enormes."""
+    from app.estimacion_fees import _MAX_DINERO
+
+    oferta = oferta_mx()
+    for enorme in (Decimal("1E+999999"), Decimal("1E+24"), _MAX_DINERO):
+        with pytest.raises(ValueError, match="precio a cotizar invalido"):
+            cotizar_a_precio(ClienteFalso(body=cuerpo_exito), oferta, enorme)
+    tope = _MAX_DINERO - Decimal("0.01")
+    cliente = ClienteFalso(body=cuerpo_exito)
+    resultado = cotizar_a_precio(cliente, oferta, tope, observed_at=AHORA)
+    assert resultado.estado == "success"
+    assert cliente.pedidos[0].price_amount == tope
+
+
 def test_cotizar_a_precio_no_amplia_universo_y_propoaga_error():
     from dataclasses import replace
 
