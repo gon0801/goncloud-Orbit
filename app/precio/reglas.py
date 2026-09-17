@@ -222,11 +222,14 @@ def decidir(
     tol = config.tolerancia
     distancia = abs(m_actual - goal)
 
-    reales = [
-        h
-        for h in entrada.historial
-        if (entrada.mode == "shadow" or h.aplicado) and h.fecha >= entrada.goal_vigente_desde
-    ]
+    reales = sorted(
+        (
+            h
+            for h in entrada.historial
+            if (entrada.mode == "shadow" or h.aplicado) and h.fecha >= entrada.goal_vigente_desde
+        ),
+        key=lambda h: h.fecha,
+    )
     if len(reales) >= config.freno_cambios:
         ultimos = reales[-config.freno_cambios :]
         direcciones = {h.direccion for h in ultimos}

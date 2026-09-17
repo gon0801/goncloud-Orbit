@@ -986,6 +986,35 @@ def test_r3b_fantasma_que_no_verifica_revienta():
         )
 
 
+# ---------------------------------------------------------------- r4-G1
+
+
+def test_r4_g1_historial_barajado_misma_decision():
+    ordenado = (
+        HistorialMargen("subir", Decimal("0.05"), HOY - timedelta(days=30)),
+        HistorialMargen("subir", Decimal("0.05"), HOY - timedelta(days=20)),
+        HistorialMargen("subir", Decimal("0.05"), HOY - timedelta(days=10)),
+    )
+    barajado = (ordenado[2], ordenado[0], ordenado[1])
+    d1 = decide(entrada(costo="60", historial=ordenado))
+    d2 = decide(entrada(costo="60", historial=barajado))
+    assert (d1.resultado, d1.motivo) == ("frenado", "no_converge")
+    assert (d2.resultado, d2.motivo) == ("frenado", "no_converge")
+
+
+def test_r4_g1_orden_de_llegada_no_decide_el_freno():
+    # D (bajar, reciente) llegado primero: por fecha ordenada los últimos 3
+    # mezclan direcciones y no hay freno; sin ordenar frenaría.
+    from app.precio.tipos import PideCotizacion
+
+    a = HistorialMargen("subir", Decimal("0.05"), HOY - timedelta(days=30))
+    b = HistorialMargen("subir", Decimal("0.05"), HOY - timedelta(days=20))
+    c = HistorialMargen("subir", Decimal("0.05"), HOY - timedelta(days=10))
+    d = HistorialMargen("bajar", Decimal("0.09"), HOY - timedelta(days=7))
+    salida = decide(entrada(costo="60", historial=(d, c, b, a)))
+    assert isinstance(salida, PideCotizacion)
+
+
 # ---------------------------------------------------------------- r3b-L1-L2
 
 
