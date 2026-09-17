@@ -797,6 +797,144 @@ def test_r2_a3_subida_futura_frena():
     assert "futura" in d.diagnostico
 
 
+# ---------------------------------------------------------------- r2-B
+
+
+def test_r2_b_r2_borde_3050_tolerancia_3051_pide():
+    # m = 30.50 % exacto -> dentro de tol aunque haya senal; 30.51 % -> subir.
+    from app.precio.tipos import PideCotizacion
+
+    d = decide(entrada(costo="52.00", senal=senal_perdiendo()))
+    assert (d.resultado, d.motivo) == ("mantener", "en_tolerancia")
+    assert d.m_actual == Decimal("0.3050")
+    assert isinstance(decide(entrada(costo="51.99", senal=senal_perdiendo())), PideCotizacion)
+
+
+def test_r2_b_r6_divergencia_exacta_100_no_diverge():
+    d = decide(entrada(pricing=ObservacionPricing(imp("117.16"), AHORA)))
+    assert (d.resultado, d.motivo) == ("mantener", "sobre_goal_sin_perdida")
+
+
+def test_r2_b_n1b_cotizado_otra_moneda_es_incoherente():
+    from dataclasses import replace
+
+    from app.precio.tipos import Importe
+
+    esc = escenario(costo="60")
+    esc = replace(esc, precio_cotizado=Importe(Decimal("116"), "USD"))
+    d = decide(entrada(costo="60", escenario=esc))
+    assert (d.resultado, d.motivo) == ("no_evaluado", "escenario_incoherente")
+
+
+def test_r2_b_n2_fees_que_no_suman_f_es_incoherente():
+    from dataclasses import replace
+
+    esc = escenario(costo="60")
+    esc = replace(esc, componentes=comp(costo="60", fees="16"))
+    d = decide(entrada(costo="60", escenario=esc))
+    assert (d.resultado, d.motivo) == ("no_evaluado", "escenario_incoherente")
+    assert "final_fee" in d.diagnostico
+
+
+def test_r2_b_n3_i_borde_001_pasa_0011_no():
+    from dataclasses import replace
+
+    from app.precio.tipos import PideCotizacion
+
+    esc = escenario(costo="60")
+    esc = replace(esc, componentes=comp(costo="60", ingreso="100.01"))
+    assert isinstance(decide(entrada(costo="60", escenario=esc)), PideCotizacion)
+    esc = replace(esc, componentes=comp(costo="60", ingreso="100.011"))
+    d = decide(entrada(costo="60", escenario=esc))
+    assert (d.resultado, d.motivo) == ("no_evaluado", "escenario_incoherente")
+
+
+def test_r2_b_n4_r_borde_001_pasa_0011_no():
+    from dataclasses import replace
+
+    from app.precio.tipos import PideCotizacion
+
+    esc = escenario(costo="60")
+    esc = replace(esc, componentes=comp(costo="60", isr="2.51"))
+    assert isinstance(decide(entrada(costo="60", escenario=esc)), PideCotizacion)
+    esc = replace(esc, componentes=comp(costo="60", isr="2.511"))
+    d = decide(entrada(costo="60", escenario=esc))
+    assert (d.resultado, d.motivo) == ("no_evaluado", "escenario_incoherente")
+
+
+def test_r2_b_n8_bajar_pide_doble_no_pide_segunda():
+    from app.precio.tipos import CotizacionVerificada, PideCotizacion
+
+    ent = entrada(senal=senal_perdiendo())
+    pedido = decide(ent)
+    assert isinstance(pedido, PideCotizacion)
+    p1 = pedido.precio.valor
+    assert p1 <= 2 * Decimal("116")
+    referral = (Decimal("0.45") * p1).quantize(Decimal("0.01"))
+    c1 = CotizacionVerificada(
+        pedido.precio,
+        (
+            DetalleFee("ReferralFee", referral, None, ()),
+            DetalleFee("FbaFee", Decimal("3"), None, ()),
+        ),
+        referral + Decimal("3"),
+        "success",
+        None,
+    )
+    salida = decide(ent, cotizaciones=(c1,))
+    assert not isinstance(salida, PideCotizacion)
+    assert (salida.resultado, salida.motivo) == ("goal_inalcanzable", "precio_mayor_al_doble")
+
+
+def test_r2_b_n9_verificado_sobre_doble_no_sube_ni_baja():
+    from app.precio.tipos import CotizacionVerificada
+
+    c_subir = CotizacionVerificada(
+        imp("250"),
+        (
+            DetalleFee("ReferralFee", Decimal("82.47"), None, ()),
+            DetalleFee("FbaFee", Decimal("3"), None, ()),
+        ),
+        Decimal("85.47"),
+        "success",
+        None,
+    )
+    d = decide(entrada(costo="60"), cotizaciones=(c_subir,))
+    assert (d.resultado, d.motivo) == ("goal_inalcanzable", "precio_mayor_al_doble")
+    c_bajar = CotizacionVerificada(
+        imp("250"),
+        (
+            DetalleFee("ReferralFee", Decimal("102.474"), None, ()),
+            DetalleFee("FbaFee", Decimal("3"), None, ()),
+        ),
+        Decimal("105.474"),
+        "success",
+        None,
+    )
+    d = decide(entrada(senal=senal_perdiendo()), cotizaciones=(c_bajar,))
+    assert (d.resultado, d.motivo) == ("goal_inalcanzable", "precio_mayor_al_doble")
+
+
+def test_r2_b_n15_punto_mismo_dia_del_goal_cuenta():
+    hist = (
+        HistorialMargen("subir", Decimal("0.05"), HOY - timedelta(days=10)),
+        HistorialMargen("subir", Decimal("0.05"), HOY - timedelta(days=10)),
+        HistorialMargen("subir", Decimal("0.05"), HOY - timedelta(days=10)),
+    )
+    d = decide(entrada(costo="60", historial=hist, goal_vigente_desde=HOY - timedelta(days=10)))
+    assert (d.resultado, d.motivo) == ("frenado", "no_converge")
+
+
+def test_r2_b_n16_subida_mismo_dia_del_goal_frena():
+    ent = entrada(
+        costo="40",
+        senal=senal_perdiendo(),
+        cambios=(CambioPrevio(HOY - timedelta(days=5), "subir", "confirmado"),),
+        goal_vigente_desde=HOY - timedelta(days=5),
+    )
+    assert decide(ent).motivo == "perdiendo_tras_subida"
+
+
 # ---------------------------------------------------------------- r1-C
 
 

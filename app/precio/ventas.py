@@ -49,7 +49,11 @@ def evaluar_senal(
     if cubierto is None or (hoy - cubierto).days > 3:
         return SenalVentas("sin_dato", "ledger_hueco", 0, 0, 0, 0, 0)
     contados15 = [d for d in dias15 if d <= cubierto and not _en_rango(d, config.fechas_excluidas)]
-    contados60 = [d for d in dias60 if d <= cubierto and not _en_rango(d, config.fechas_excluidas)]
+    # Sin `d <= cubierto` aquí: al llegar a esta línea `cubierto ≥ hoy−3`
+    # (si no, `ledger_hueco` arriba) y toda la ventana de 60 termina en
+    # `hoy−16`, así que la condición no puede fallar (r2: equivalente
+    # declarado por el lead, se quita en vez de declararse).
+    contados60 = [d for d in dias60 if not _en_rango(d, config.fechas_excluidas)]
 
     por_dia: dict[date, int] = {}
     for dia, qty in insumos.ventas:
