@@ -499,11 +499,15 @@ def _bajar(
 
 def repartir_cupo(
     candidatos: tuple[tuple[int, Decision], ...], *, cupo: int
-) -> tuple[Decision, ...]:
+) -> tuple[tuple[int, Decision], ...]:
     """S4 #12 puro: los primeros por prioridad pasan; el resto `mantener(cuota)`.
 
     Desempate por `listing_id` ascendente. Sin prioridad registrada = al
     fondo (regla 3: ausente no es cero, pero tampoco abre la puerta).
+    Devuelve pares `(listing_id, decision)` **en el orden de la entrada**:
+    el orden por prioridad es interno, solo decide quién pasa (r4-G2: si
+    devolviera sueltas reordenadas, el `zip` con la entrada cruzaría
+    publicaciones).
     """
     if not isinstance(cupo, int) or isinstance(cupo, bool) or cupo < 0:
         raise ValueError(f"cupo invalido: {cupo!r}")
@@ -511,11 +515,23 @@ def repartir_cupo(
         candidatos,
         key=lambda par: (par[1].prioridad is None, -(par[1].prioridad or Decimal(0)), par[0]),
     )
-    return tuple(
-        decision
-        if lugar < cupo
-        else replace(
-            decision, resultado="mantener", motivo="cuota", aplicado=False, p_aplicado=None
-        )
-        for lugar, (_, decision) in enumerate(ordenados)
-    )
+    pasan = {id(decision) for _, decision in ordenados[:cupo]}
+    salida = []
+    for listing_id, decision in candidatos:
+        if id(decision) in pasan:
+            salida.append((listing_id, decision))
+            pasan.discard(id(decision))
+        else:
+            salida.append(
+                (
+                    listing_id,
+                    replace(
+                        decision,
+                        resultado="mantener",
+                        motivo="cuota",
+                        aplicado=False,
+                        p_aplicado=None,
+                    ),
+                )
+            )
+    return tuple(salida)

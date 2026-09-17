@@ -822,12 +822,12 @@ def test_r3_k2_cuota_limpia_p_aplicado_y_conserva_objetivo():
 
     a = resuelve(entrada(costo="60"))
     b = resuelve(entrada(costo="55"))
-    primero, segundo = repartir_cupo(((2, b), (1, a)), cupo=1)
-    assert primero.resultado == "subir"
-    assert segundo.motivo == "cuota"
-    assert segundo.p_aplicado is None
-    assert segundo.aplicado is False
-    assert segundo.p_objetivo is not None
+    salida = repartir_cupo(((2, b), (1, a)), cupo=1)
+    assert salida[1][1].resultado == "subir"
+    assert salida[0][1].motivo == "cuota"
+    assert salida[0][1].p_aplicado is None
+    assert salida[0][1].aplicado is False
+    assert salida[0][1].p_objetivo is not None
 
 
 def test_r3_k2_solo_subir_bajar_traen_p_aplicado():
@@ -1042,6 +1042,29 @@ def test_r3b_l2_bajada_no_frena_por_ventas():
         cambios=(CambioPrevio(HOY - timedelta(days=10), "bajar", "confirmado"),),
     )
     assert isinstance(decide(ent), PideCotizacion)
+
+
+# ---------------------------------------------------------------- r4-G2
+
+
+def test_r4_g2_cupo_devuelve_pares_en_orden_de_entrada():
+    from app.precio.reglas import repartir_cupo
+
+    a = resuelve(entrada(costo="60"))
+    b = resuelve(entrada(costo="55"))
+    salida = repartir_cupo(((2, b), (1, a)), cupo=1)
+    assert [lid for lid, _ in salida] == [2, 1]
+    assert salida[0][1].motivo == "cuota"
+    assert salida[0][1].p_aplicado is None
+    assert salida[1] == (1, a)
+    # Desempate vivo: con empate pasa el listing_id menor aunque entre después.
+    from dataclasses import replace
+
+    a2 = replace(a, prioridad=b.prioridad)
+    salida = repartir_cupo(((2, a2), (1, b)), cupo=1)
+    assert [lid for lid, _ in salida] == [2, 1]
+    assert salida[1][1].p_aplicado.valor == b.p_aplicado.valor
+    assert salida[0][1].motivo == "cuota"
 
 
 # ---------------------------------------------------------------- r2-B
@@ -1967,17 +1990,18 @@ def test_reglas_cupo_por_prioridad_con_desempate():
     a = resuelve(entrada(costo="60"))
     b = resuelve(entrada(costo="55"))
     assert a.prioridad > b.prioridad
-    primero, segundo = repartir_cupo(((2, b), (1, a)), cupo=1)
-    assert primero.resultado == "subir" and segundo.motivo == "cuota"
+    salida = repartir_cupo(((2, b), (1, a)), cupo=1)
+    assert [lid for lid, _ in salida] == [2, 1]
+    assert salida[0][1].motivo == "cuota" and salida[1][1].resultado == "subir"
     # Empate de prioridad: listing_id ascendente pasa primero (se distingue
     # por p_aplicado: cada costo da un P* distinto).
     from dataclasses import replace
 
     assert a.p_aplicado.valor != b.p_aplicado.valor
     a2 = replace(a, prioridad=b.prioridad)
-    primero, segundo = repartir_cupo(((2, a2), (1, b)), cupo=1)
-    assert primero.p_aplicado.valor == b.p_aplicado.valor
-    assert segundo.motivo == "cuota"
+    salida = repartir_cupo(((2, a2), (1, b)), cupo=1)
+    assert salida[1][1].p_aplicado.valor == b.p_aplicado.valor
+    assert salida[0][1].motivo == "cuota"
 
 
 def test_reglas_goal_float_revienta():
