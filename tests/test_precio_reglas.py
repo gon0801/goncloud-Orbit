@@ -718,6 +718,47 @@ def test_r1_a1_precio_cotizado_distinto_no_pasa():
     assert (d.resultado, d.motivo) == ("no_evaluado", "escenario_incoherente")
 
 
+# ---------------------------------------------------------------- r2-A1
+
+
+MOTIVOS_ESTIMACION_22 = [
+    "oferta_desactualizada",
+    "oferta_futura",
+    "costo_desactualizado",
+    "costo_no_vigente",
+    "fx_ausente",
+    "fee_ausente",
+    "impuesto_fee_pendiente",
+    "fee_incompatible",
+    "fee_invalido",
+    "precio_ausente",
+    "costo_ausente",
+    "politica_ausente",
+    "politica_no_vigente",
+    "politica_ambigua",
+    "politica_invalida",
+    "fx_direccion_invalida",
+    "fx_tasa_invalida",
+    "precio_invalido",
+    "costo_invalido",
+    "costo_impuesto_incompatible",
+    "costo_base_fiscal_ausente",
+    "identidad_ambigua",
+]
+
+
+@pytest.mark.parametrize("motivo", MOTIVOS_ESTIMACION_22)
+def test_r2_a1_motivos_estimacion_pasan_tal_cual(motivo):
+    d = decide(entrada(motivo_estimacion=motivo))
+    assert (d.resultado, d.motivo) == ("no_evaluado", motivo)
+
+
+def test_r2_a1_motivo_desconocido_no_revienta():
+    d = decide(entrada(motivo_estimacion="motivo_del_futuro"))
+    assert (d.resultado, d.motivo) == ("no_evaluado", "estimacion_motivo_desconocido")
+    assert "motivo_del_futuro" in d.diagnostico
+
+
 # ---------------------------------------------------------------- r1-C
 
 

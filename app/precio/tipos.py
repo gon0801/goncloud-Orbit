@@ -81,7 +81,22 @@ MOTIVOS_NO_EVALUADO = frozenset(
         "fee_incompatible",
         "fee_invalido",
         "precio_ausente",
+        "precio_invalido",
         "costo_ausente",
+        "costo_invalido",
+        "costo_impuesto_incompatible",
+        "costo_base_fiscal_ausente",
+        "fx_direccion_invalida",
+        "fx_tasa_invalida",
+        "politica_ausente",
+        "politica_ambigua",
+        "politica_no_vigente",
+        "politica_invalida",
+        "identidad_ambigua",
+        # Motivo de estimacion futuro o de otra fuente: nunca revienta la
+        # corrida (r2-A1, decision 11 «ningun silencio»); el crudo viaja en
+        # `diagnostico` y lo pone quien llama, no este vocabulario.
+        "estimacion_motivo_desconocido",
         # Coherencia S2 (precios y horas viajan en el diagnostico).
         "precio_divergente",
         "moneda_divergente",

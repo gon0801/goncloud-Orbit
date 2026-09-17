@@ -85,9 +85,16 @@ def _base_senal(entrada: EntradaDecision) -> Decision:
 
 
 def _no_evaluado(entrada: EntradaDecision, motivo: str, diagnostico: str = "") -> Decision:
-    if not motivo_permitido("no_evaluado", motivo):
-        raise ValueError(f"motivo de estimacion fuera de vocabulario: {motivo!r}")
+    # r2-A1: un motivo fuera de lista no revienta la corrida diaria
+    # (decision 11, ningun silencio): sale con el motivo crudo en el
+    # diagnostico. Solo el passthrough de la estimacion puede traer un
+    # motivo abierto; los propios del motor pasan validados.
     base = _base_senal(entrada)
+    if not motivo_permitido("no_evaluado", motivo):
+        crudo = f"motivo_estimacion={motivo!r}" + (f" {diagnostico}" if diagnostico else "")
+        return replace(
+            base, resultado="no_evaluado", motivo="estimacion_motivo_desconocido", diagnostico=crudo
+        )
     return replace(base, resultado="no_evaluado", motivo=motivo, diagnostico=diagnostico)
 
 
