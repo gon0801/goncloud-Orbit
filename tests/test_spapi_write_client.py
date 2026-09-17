@@ -113,6 +113,15 @@ def test_superficie_publica_exacta():
     assert publicos == {"patch_listing", "seller_id"}
 
 
+def test_r1_a7_seller_id_solo_lectura_y_sellado():
+    """r1-A7a: el seller se lee, no se escribe."""
+    red = _RedFalsa([])
+    escritor = _escritor(red)
+    assert escritor.seller_id == VENDEDORES_PROPIOS[MERCADOS["amazon_mx"]]
+    with pytest.raises(AttributeError):
+        escritor.seller_id = "OTRO"
+
+
 # ------------------------------------------------------------- validador
 
 
@@ -225,3 +234,39 @@ def test_error_de_red_sin_reintento():
     )
     with pytest.raises(httpx.ConnectError):
         escritor.patch_listing(SKU, CUERPO)
+
+
+def test_r1_m_w3_seller_ajeno_aunque_la_ruta_coincida():
+    """r1-M W3: seller fuera de VENDEDORES_PROPIOS se rechaza aunque el path matchee."""
+    ajeno = "A0000000000000"
+    ruta_ajena = construir_ruta_listings(ajeno, SKU)
+    with pytest.raises(SpapiNoPermitida, match="VENDEDORES_PROPIOS"):
+        validar_patch_listings(ruta_ajena, ajeno, SKU)
+
+
+def test_r1_m_w10_traversal_falla_con_su_mensaje():
+    """r1-M W10: el `..` lo rechaza SU defensa, no el tapa-final."""
+    with pytest.raises(SpapiNoPermitida, match=r"traversal \('\.\.'\)"):
+        validar_patch_listings("/listings/2021-08-01/items/../X", SELLER_MX, SKU)
+
+
+def test_r1_m_w11_query_y_fragment_fallan_con_su_mensaje():
+    """r1-M W11: `?` y `#` los rechaza SU defensa, no el tapa-final."""
+    with pytest.raises(SpapiNoPermitida, match="query o fragment"):
+        validar_patch_listings(RUTA + "?x=1", SELLER_MX, SKU)
+    with pytest.raises(SpapiNoPermitida, match="query o fragment"):
+        validar_patch_listings(RUTA + "#f", SELLER_MX, SKU)
+
+
+def test_r1_m_cable_patch_ruta_header():
+    """r1-M cable: metodo PATCH, ruta exacta con SKU encoded, token vigente."""
+    sku = "SKU P1"
+    red = _RedFalsa([(202, {}, {"submissionId": "abc", "status": "ACCEPTED"})])
+    resp = _escritor(red).patch_listing(sku, CUERPO)
+    assert resp.status_code == 202
+    (pedido,) = red.llamadas_patch
+    assert pedido.method == "PATCH"
+    crudo = pedido.url.raw_path.decode("ascii")
+    assert crudo == construir_ruta_listings(SELLER_MX, sku)
+    assert "SKU%20P1" in crudo and " " not in crudo
+    assert pedido.headers["x-amz-access-token"] == "tok-1"
