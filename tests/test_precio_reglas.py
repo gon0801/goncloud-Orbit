@@ -1108,6 +1108,15 @@ def test_r4_g2_cupo_devuelve_pares_en_orden_de_entrada():
     assert salida[0][1].motivo == "cuota"
 
 
+def test_r4b_h1_mismo_objeto_en_dos_publicaciones_pasa_con_cupo():
+    """r4b-H1: el pase es por posición, no por identidad de objeto."""
+    from app.precio.reglas import repartir_cupo
+
+    d = resuelve(entrada(costo="60"))
+    salida = repartir_cupo(((1, d), (2, d)), cupo=2)
+    assert [(lid, dec.resultado) for lid, dec in salida] == [(1, "subir"), (2, "subir")]
+
+
 # ---------------------------------------------------------------- r2-B
 
 

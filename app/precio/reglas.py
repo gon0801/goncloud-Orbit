@@ -523,20 +523,25 @@ def repartir_cupo(
     Devuelve pares `(listing_id, decision)` **en el orden de la entrada**:
     el orden por prioridad es interno, solo decide quién pasa (r4-G2: si
     devolviera sueltas reordenadas, el `zip` con la entrada cruzaría
-    publicaciones).
+    publicaciones). El pase es **por posición** en la entrada, no por
+    identidad de objeto (r4b-H1: el mismo objeto en dos publicaciones
+    pasa dos veces si hay cupo).
     """
     if not isinstance(cupo, int) or isinstance(cupo, bool) or cupo < 0:
         raise ValueError(f"cupo invalido: {cupo!r}")
     ordenados = sorted(
-        candidatos,
-        key=lambda par: (par[1].prioridad is None, -(par[1].prioridad or Decimal(0)), par[0]),
+        enumerate(candidatos),
+        key=lambda par: (
+            par[1][1].prioridad is None,
+            -(par[1][1].prioridad or Decimal(0)),
+            par[1][0],
+        ),
     )
-    pasan = {id(decision) for _, decision in ordenados[:cupo]}
+    pasan = {pos for pos, _ in ordenados[:cupo]}
     salida = []
-    for listing_id, decision in candidatos:
-        if id(decision) in pasan:
+    for pos, (listing_id, decision) in enumerate(candidatos):
+        if pos in pasan:
             salida.append((listing_id, decision))
-            pasan.discard(id(decision))
         else:
             salida.append(
                 (
