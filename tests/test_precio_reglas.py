@@ -718,6 +718,247 @@ def test_r1_a1_precio_cotizado_distinto_no_pasa():
     assert (d.resultado, d.motivo) == ("no_evaluado", "escenario_incoherente")
 
 
+# ---------------------------------------------------------------- r1-C
+
+
+def test_r1_c_v4_u60_en_el_minimo_si_evalua():
+    # u60 = 20 con minimo 20: el borde es inclusivo.
+    ins = insumos_sanos(HOY, qty15=6, qty60=0)
+    from app.precio.tipos import VentasInsumos
+
+    ventas = dict(ins.ventas)
+    for d in [HOY - timedelta(days=x) for x in range(16, 76)]:
+        ventas[d] = 0
+    for d in [HOY - timedelta(days=x) for x in range(16, 36)]:
+        ventas[d] = 1
+    ins = VentasInsumos(
+        ventas=tuple(sorted(ventas.items())),
+        inventario=ins.inventario,
+        listing_activo=ins.listing_activo,
+        primera_venta=ins.primera_venta,
+        dia_cubierto_hasta=ins.dia_cubierto_hasta,
+    )
+    s = senal(ins)
+    assert (s.estado, s.u60) == ("no_perdiendo", 20)
+
+
+def test_r1_c_v9_exclusiones_asimetricas_cambian_veredicto():
+    # 5 dias fuera solo en la ventana de 15: esperado = 600/60*10*0.6 = 60,
+    # u15 = 60 -> no pierde. Con 15/60 fijo daria 90 -> perderia.
+    from app.precio.config import leer_config
+    from app.precio.ventas import evaluar_senal
+
+    excl = [(HOY - timedelta(days=11), HOY - timedelta(days=7))]
+    c = leer_config(
+        dict(
+            BASE_CONFIG,
+            precio_fechas_excluidas=[[d.isoformat(), h.isoformat()] for d, h in excl],
+        )
+    )
+    s = evaluar_senal(insumos_sanos(HOY, qty15=6, qty60=10), hoy=HOY, config=c, racha_previa=2)
+    assert (s.estado, s.n15, s.u15) == ("no_perdiendo", 10, 60)
+
+
+def test_r1_c_r4_freno_22_si_23_no():
+    base = dict(costo="40", senal=senal_perdiendo())
+    ent = entrada(**base, cambios=(CambioPrevio(HOY - timedelta(days=22), "subir", "confirmado"),))
+    assert decide(ent).motivo == "perdiendo_tras_subida"
+    from app.precio.tipos import PideCotizacion
+
+    ent = entrada(**base, cambios=(CambioPrevio(HOY - timedelta(days=23), "subir", "confirmado"),))
+    assert isinstance(decide(ent), PideCotizacion)
+
+
+def test_r1_c_r7_no_confirmado_no_frena():
+    from app.precio.tipos import PideCotizacion
+
+    ent = entrada(
+        costo="40",
+        senal=senal_perdiendo(),
+        cambios=(CambioPrevio(HOY - timedelta(days=10), "subir", "no_confirmado"),),
+    )
+    assert isinstance(decide(ent), PideCotizacion)
+
+
+def test_r1_c_r8_piso_sube_al_centavo():
+    # P = 116.01: piso = 104.409 -> 104.41 hacia arriba.
+    d = resuelve(entrada(costo="40", precio="116.01", senal=senal_perdiendo()))
+    assert d.resultado == "bajar"
+    assert d.p_aplicado.valor == Decimal("104.41")
+
+
+def test_r1_c_r14_reversa_no_es_cooldown():
+    from app.precio.tipos import PideCotizacion
+
+    ent = entrada(
+        costo="53.01",
+        cambios=(CambioPrevio(HOY - timedelta(days=3), "subir", "enviado", es_reversa=True),),
+    )
+    assert isinstance(decide(ent), PideCotizacion)
+
+
+def test_r1_c_o3_tax_anidado_frena():
+    base = dict(
+        costo=Decimal("60"),
+        fijo=Decimal("3"),
+        envio=Decimal("0"),
+        isr_tasa=Decimal("0.025"),
+        goal=Decimal("0.30"),
+        iva_divisor=Decimal("1.16"),
+        incluye_iva=True,
+        ref=Decimal("12") / Decimal("116"),
+        moneda=MXN,
+        tolerancia=Decimal("0.005"),
+    )
+    anidado = cotizacion(
+        "140.00",
+        (
+            DetalleFee(
+                "ReferralFee",
+                Decimal("14.50"),
+                None,
+                (DetalleFee("SubFee", Decimal("2.00"), Decimal("1.00"), ()),),
+            ),
+            DetalleFee("FbaFee", Decimal("3"), None, ()),
+        ),
+        "17.50",
+    )
+    assert paso(cotizaciones=(anidado,), **base).motivo == "impuesto_fee_pendiente"
+
+
+def test_r1_c_o4_igual_a_tol_verifica():
+    c1 = cotizacion(
+        "140.00",
+        (
+            DetalleFee("ReferralFee", Decimal("14.50"), None, ()),
+            DetalleFee("FbaFee", Decimal("3"), None, ()),
+        ),
+        "17.50",
+    )
+    ref1, fijo1 = derivar_ref_fijo(c1.detalles, c1.fee_total, c1.precio.valor)
+    m1 = margen_a_precio(
+        c1.precio.valor,
+        Decimal("60"),
+        ref1,
+        fijo1,
+        Decimal("0"),
+        Decimal("0.025"),
+        Decimal("1.16"),
+        True,
+    )
+    tol_exacta = abs(m1 - Decimal("0.30"))
+    assert tol_exacta > 0
+    final = paso(
+        costo=Decimal("60"),
+        fijo=Decimal("3"),
+        envio=Decimal("0"),
+        isr_tasa=Decimal("0.025"),
+        goal=Decimal("0.30"),
+        iva_divisor=Decimal("1.16"),
+        incluye_iva=True,
+        ref=Decimal("12") / Decimal("116"),
+        moneda=MXN,
+        tolerancia=tol_exacta,
+        cotizaciones=(c1,),
+    )
+    assert isinstance(final, ResultadoObjetivo) and final.resultado == "verificado"
+
+
+def test_r1_c_o5_segundo_p_sale_de_ref1():
+    from app.precio.tipos import PideCotizacion
+
+    c1 = cotizacion(
+        "140.00",
+        (
+            DetalleFee("ReferralFee", Decimal("14.50"), None, ()),
+            DetalleFee("FbaFee", Decimal("3"), None, ()),
+        ),
+        "17.50",
+    )
+    pedido = paso(
+        costo=Decimal("60"),
+        fijo=Decimal("3"),
+        envio=Decimal("0"),
+        isr_tasa=Decimal("0.025"),
+        goal=Decimal("0.30"),
+        iva_divisor=Decimal("1.16"),
+        incluye_iva=True,
+        ref=Decimal("12") / Decimal("116"),
+        moneda=MXN,
+        tolerancia=Decimal("0.005"),
+        cotizaciones=(c1,),
+    )
+    assert isinstance(pedido, PideCotizacion) and pedido.intento == 2
+    ref1, fijo1 = derivar_ref_fijo(c1.detalles, c1.fee_total, c1.precio.valor)
+    esperado = techo_centavo(
+        precio_estrella(
+            Decimal("60"),
+            fijo1,
+            Decimal("0"),
+            Decimal("0.025"),
+            Decimal("0.30"),
+            Decimal("1.16"),
+            True,
+            ref1,
+        )
+    )
+    con_ref_viejo = techo_centavo(
+        precio_estrella(
+            Decimal("60"),
+            Decimal("3"),
+            Decimal("0"),
+            Decimal("0.025"),
+            Decimal("0.30"),
+            Decimal("1.16"),
+            True,
+            Decimal("12") / Decimal("116"),
+        )
+    )
+    assert esperado != con_ref_viejo
+    assert pedido.precio.valor == esperado
+
+
+def test_r1_c_o7_denominador_cero_es_imposible():
+    ref_cero = Decimal("0.675") / Decimal("1.16")
+    with pytest.raises(ErrorObjetivo, match="margen_imposible"):
+        precio_estrella(
+            Decimal("40"),
+            Decimal("3"),
+            Decimal("0"),
+            Decimal("0.025"),
+            Decimal("0.30"),
+            Decimal("1.16"),
+            True,
+            ref_cero,
+        )
+
+
+def test_r1_c_o8_referral_en_cero_no_cuenta():
+    with pytest.raises(ErrorObjetivo, match="referral_ausente"):
+        derivar_ref_fijo(
+            (
+                DetalleFee("ReferralFee", Decimal("0"), None, ()),
+                DetalleFee("FbaFee", Decimal("3"), None, ()),
+            ),
+            Decimal("3"),
+            Decimal("116"),
+        )
+
+
+def test_r1_c_o9_sin_iva_no_usa_divisor():
+    # d = 1: P* = 43 / (0.69 - 0.15) = 43 / 0.54.
+    assert precio_estrella(
+        Decimal("40"),
+        Decimal("3"),
+        Decimal("0"),
+        Decimal("0.01"),
+        Decimal("0.30"),
+        Decimal("1.16"),
+        False,
+        Decimal("0.15"),
+    ) == Decimal("43") / Decimal("0.54")
+
+
 # ---------------------------------------------------------------- r1-B4
 
 
