@@ -232,6 +232,159 @@ E           ValueError: setting precio_tolerancia: fuera de cota [0, 0.004]: 0.0
 
 MUERTO. Revertido con `git checkout -- app/precio/config.py`.
 
+## Ronda r2 (re-auditoría del lead, 2026-09-17)
+
+El lead corrió 65 mutantes con caché de bytecode nueva por corrida; 12
+quedaron verdes. Cada uno recibió su test (`test_r2_b_*`), verificado en
+rojo con el diff aplicado **con caché nueva**
+(`PYTHONPYCACHEPREFIX=$(mktemp -d) ... -p no:cacheprovider`) y revertido
+con `git checkout -- <archivo>`.
+
+Además nacieron de A: 22 motivos + fallback (23 tests r2-A1), precio no
+positivo (r2-A2), futuro que cuenta (2 tests r2-A3) y fugas de imports y
+reloj (8 tests r2-A4).
+
+Re-verificación de los 14 del catálogo + R15 con caché nueva (2026-09-17):
+todos muertos (`1 failed` cada uno; M11 `2 failed`; M14 `9 failed`;
+R15 `1 failed` con solo el filtro de historial quitado). Sin falsos por
+`.pyc` viejo.
+
+### R2 — `m_actual > goal + tol` → `>=` (`reglas.py`)
+
+Test: `test_r2_b_r2_borde_3050_tolerancia_3051_pide` (`m = 30.50 %`
+exacto con señal `perdiendo` → `en_tolerancia`).
+
+```text
+E       AttributeError: 'PideCotizacion' object has no attribute 'resultado'
+1 failed, 143 deselected in 0.33s
+```
+
+MUERTO.
+
+### R6 — `divergencia > max` → `>=` (`reglas.py`)
+
+Test: `test_r2_b_r6_divergencia_exacta_100_no_diverge` (`1.00 %` exacto).
+
+```text
+E       AssertionError: assert ('no_evaluado...o_divergente') == ('mantener', ..._sin_perdida')
+E         At index 0 diff: 'no_evaluado' != 'mantener'
+```
+
+MUERTO.
+
+### N1b — no mirar la moneda de `precio_cotizado` (`reglas.py`)
+
+Test: `test_r2_b_n1b_cotizado_otra_moneda_es_incoherente`.
+
+```text
+E       AttributeError: 'PideCotizacion' object has no attribute 'resultado'
+1 failed, 143 deselected in 0.32s
+```
+
+MUERTO.
+
+### N2 — no mirar `Σ final_fee == F` (`reglas.py`)
+
+Test: `test_r2_b_n2_fees_que_no_suman_f_es_incoherente`.
+
+```text
+E       AttributeError: 'PideCotizacion' object has no attribute 'resultado'
+1 failed, 143 deselected in 0.32s
+```
+
+MUERTO.
+
+### N3 — tolerancia de `I` en `1` (`reglas.py`)
+
+Test: `test_r2_b_n3_i_borde_001_pasa_0011_no` (el caso `0.011` pasa).
+
+```text
+E       AttributeError: 'PideCotizacion' object has no attribute 'resultado'
+1 failed, 143 deselected in 0.30s
+```
+
+MUERTO.
+
+### N3b — tolerancia de `I` con `>=` (`reglas.py`)
+
+Mismo test (el caso `0.01` exacto ya no pasa).
+
+```text
+E       AssertionError: assert False
+E        +  where False = isinstance(Decision(resultado='no_evaluado', motivo='escenario_incoherente', ...), <class 'app.precio.tipos.PideCotizacion'>)
+1 failed, 143 deselected in 0.30s
+```
+
+MUERTO.
+
+### N4 — tolerancia de `R` en `1` (`reglas.py`)
+
+Test: `test_r2_b_n4_r_borde_001_pasa_0011_no`.
+
+```text
+E       AttributeError: 'PideCotizacion' object has no attribute 'resultado'
+1 failed, 143 deselected in 0.28s
+```
+
+MUERTO.
+
+### N8 — quitar la regla 11 sobre el pedido de `bajar` (`reglas.py`)
+
+Test: `test_r2_b_n8_bajar_pide_doble_no_pide_segunda` (pediría `326.13`).
+
+```text
+E       AssertionError: assert not True
+E        +  where True = isinstance(PideCotizacion(precio=Importe(valor=Decimal('326.13'), moneda='MXN'), intento=2), <class 'app.precio.tipos.PideCotizacion'>)
+1 failed, 143 deselected in 0.31s
+```
+
+MUERTO.
+
+### N9 / N9b — quitar la regla 11 sobre el verificado (`reglas.py`)
+
+Test: `test_r2_b_n9_verificado_sobre_doble_no_sube_ni_baja`
+(cotización a `250` que verifica en los dos caminos).
+
+```text
+E       AssertionError: assert ('subir', None) == ('goal_inalca...yor_al_doble')
+E         At index 0 diff: 'subir' != 'goal_inalcanzable'
+```
+
+MUERTO en subir (sale `subir` recortado por el escalón) y en bajar
+(`1 failed` con el mutante de cada camino).
+
+### N15 — historial `fecha >= desde` → `>` (`reglas.py`)
+
+Test: `test_r2_b_n15_punto_mismo_dia_del_goal_cuenta`.
+
+```text
+E       AttributeError: 'PideCotizacion' object has no attribute 'resultado'
+1 failed, 143 deselected in 0.30s
+```
+
+MUERTO.
+
+### N16 — freno `enviado_en < desde` → `<=` (`reglas.py`)
+
+Test: `test_r2_b_n16_subida_mismo_dia_del_goal_frena` (cae a `cooldown`,
+que sí cuenta ese cambio).
+
+```text
+E       AssertionError: assert 'cooldown' == 'perdiendo_tras_subida'
+E         - perdiendo_tras_subida
+```
+
+MUERTO.
+
+### Equivalentes declarados
+
+- El `bool` de `config._numero` (ronda anterior): `Decimal(str(True))`
+  revienta con `InvalidOperation`; verificado en intérprete el 2026-09-17.
+- `d <= cubierto` en `contados60`: al llegar ahí `cubierto ≥ hoy−3`
+  siempre, y la ventana de 60 termina en `hoy−16`; **se quitó** de
+  `ventas.py` en esta ronda en vez de declararse (cero cambio de
+  comportamiento, suite verde).
+
 ## Ronda r1 (auditoría del lead, 2026-09-17)
 
 El lead corrió 39 mutantes; 13 quedaron verdes. Cada uno recibió su test
