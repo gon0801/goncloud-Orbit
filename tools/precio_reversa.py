@@ -113,7 +113,10 @@ def _linea(plan_uno, filas_por_id) -> str:
     cid, accion, detalle = plan_uno
     f = filas_por_id[cid]
     if accion == "revertir":
-        return f"[revertir] cambio={cid} {f[11]} {f[2]} {detalle} (vivo coincide)"
+        return (
+            f"[revertir] cambio={cid} {f[11]} {f[2]}"
+            f" {f[5]:.2f} {f[6]} -> {f[3]:.2f} {f[4]} (vivo coincide)"
+        )
     return f"[saltar] cambio={cid} {f[11]} {f[2]} motivo={detalle}"
 
 
@@ -152,21 +155,19 @@ def main(
             raise Abortar(
                 f"--huella {args.huella} != huella del plan {huella}: re-corre el dry-run"
             )
-        escritores: dict[str, object] = {}
         for cid, accion, _detalle in plan:
             if accion != "revertir":
                 continue
             f = por_id[cid]
-            if f[2] not in escritores:
-                escritores[f[2]] = precio_write.construir_escritor(
-                    lector, f[2], transport=transport, sleep=sleep
-                )
+            escritor = precio_write.construir_escritor(
+                lector, f[2], transport=transport, sleep=sleep
+            )
             try:
                 res = precio_write.revertir(
                     conn,
                     cid,
                     lector=lector,
-                    escritor=escritores[f[2]],
+                    escritor=escritor,
                 )
             except FormaParcheSinSellar as exc:
                 raise Abortar(f"forma del parche sin sellar (A.4 la sella): {exc}") from None

@@ -170,10 +170,10 @@ def _observacion(conn, *, asin=ASIN, fecha="2026-09-18", precio="100.00", moneda
     )
 
 
-def _ofertas_body(precio, moneda="MXN", seller=PROPIO):
+def _ofertas_body(precio, moneda="MXN", seller=PROPIO, asin=ASIN):
     return {
         "payload": {
-            "ASIN": ASIN,
+            "ASIN": asin,
             "status": "Success",
             "Offers": [
                 {
@@ -1236,6 +1236,113 @@ def test_tool_dry_run_original_abierto_salta_y_no_entra_como_revertir(monkeypatc
         )
         assert "[revertir]" not in out
         assert red.n_patch == 0 and red.n_get == 0
+
+
+def test_r1_a7_go_un_escritor_por_operacion(monkeypatch, capsys):
+    """r1-A7b: lote de dos reversibles → dos escritores (uno por operación)."""
+    asin2 = "B0TESTC002"
+    b110 = lambda a: (200, _ofertas_body(110.0, asin=a))  # noqa: E731
+    red = _RedFalsa(
+        # dry-run (A, B); go-plan (A, B); rev1 pre+rb (A, A); rev2 pre+rb (B, B).
+        gets_ofertas=[b110(a) for a in (ASIN, asin2, ASIN, asin2, ASIN, ASIN, asin2, asin2)],
+        gets_competitivos=[(200, _competitivo_body())] * 8,
+        patchs=[(202, {"submissionId": "r1", "status": "ACCEPTED"})] * 2,
+    )
+    with db_39c() as conn:
+        _, cid1 = _semilla_reversion(conn)
+        lid2, dec2 = _semilla_cambio(conn, asin=asin2, sku="SKU-C7")
+        cid2 = _cambio_cerrado(conn, dec2, lid2)
+        import tools.precio_reversa as tool
+        from app.spapi import precio_write as pw
+
+        monkeypatch.setattr(
+            pw,
+            "construir_cuerpo_parche",
+            lambda **kw: {"falso": True, "precio": str(kw["precio"])},
+        )
+        construidos = []
+        real_construir = pw.construir_escritor
+
+        def _cuenta(lector, platform, **kw):
+            w = real_construir(lector, platform, **kw)
+            construidos.append(w)
+            return w
+
+        monkeypatch.setattr(pw, "construir_escritor", _cuenta)
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", _dsn_db(conn))
+        seco = tool.main(
+            ["--cambio-id", str(cid1), "--cambio-id", str(cid2)],
+            transport=red.transport,
+            credentials=dict(CRED),
+        )
+        assert seco == 0
+        huella = [ln for ln in capsys.readouterr().out.splitlines() if ln.startswith("huella: ")][
+            0
+        ].split(": ")[1]
+        rc = tool.main(
+            [
+                "--cambio-id",
+                str(cid1),
+                "--cambio-id",
+                str(cid2),
+                "--acepto-mutacion-real",
+                "--huella",
+                huella,
+                "--go",
+                "si",
+            ],
+            transport=red.transport,
+            credentials=dict(CRED),
+        )
+        assert rc == 0
+        assert len(construidos) == 2 and construidos[0] is not construidos[1]
+
+
+def test_r1_a7_plan_imprime_la_reversa_al_reves(monkeypatch, capsys):
+    """r1-A7c: el plan imprime lo que va a pasar (110.00 MXN -> 100.00 MXN)."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(110.0))], gets_competitivos=[(200, _competitivo_body())]
+    )
+    with db_39c() as conn:
+        _, cid = _semilla_reversion(conn)
+        import tools.precio_reversa as tool
+
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", _dsn_db(conn))
+        rc = tool.main(["--cambio-id", str(cid)], transport=red.transport, credentials=dict(CRED))
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert f"[revertir] cambio={cid} {SKU} amazon_mx 110.00 MXN -> 100.00 MXN" in out
+
+
+def test_r1_a7_ahora_no_utc_se_normaliza():
+    """r1-A7d: `ahora` +05:00 → sello y fecha en UTC."""
+    from datetime import timedelta, timezone
+
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(100.0)), (200, _ofertas_body(100.0))],
+        gets_competitivos=[(200, _competitivo_body()), (200, _competitivo_body())],
+        patchs=[(202, {"submissionId": "c-1", "status": "ACCEPTED"})],
+    )
+    with db_39c() as conn:
+        _, dec = _semilla_cambio(conn)
+        _observacion(conn, fecha="2026-09-17", precio="77.00")
+        lector, escritor = _clientes(red)
+        with rol(conn):
+            res = cambiar_precio(
+                conn,
+                dec,
+                lector=lector,
+                escritor=escritor,
+                construir_cuerpo=_cuerpo_falso,
+                ahora=datetime(2026, 9, 18, 1, 0, tzinfo=timezone(timedelta(hours=5))),
+            )
+        assert res.estado == "enviado"
+        fila = conn.execute(
+            "SELECT enviado_at, precio_observado_antes FROM precio_cambio WHERE id = %s",
+            (res.id_cambio,),
+        ).fetchone()
+        assert fila[0].utcoffset().total_seconds() == 0
+        assert fila[1] == Decimal("77.00")
 
 
 def test_tool_dry_run_salta_sin_abortar(monkeypatch, capsys):

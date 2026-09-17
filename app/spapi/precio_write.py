@@ -154,6 +154,15 @@ def leer_precio_vivo(lector: SpapiClient, *, platform: str, asin: str) -> Precio
     return PrecioVivo(precio=parsed.own_price, moneda=parsed.own_currency)
 
 
+def _normalizar_ahora(ahora: datetime | None) -> datetime:
+    """`ahora` siempre en UTC (r1-A7d): naive se asume UTC, aware se convierte."""
+    if ahora is None:
+        return datetime.now(UTC)
+    if ahora.tzinfo is None:
+        return ahora.replace(tzinfo=UTC)
+    return ahora.astimezone(UTC)
+
+
 def _fila_cambio(conn: psycopg.Connection, cambio_id: int) -> Any:
     fila = conn.execute(
         "SELECT c.id, c.listing_id, c.platform, c.precio_antes, c.precio_antes_currency,"
@@ -294,7 +303,7 @@ def revertir(
     `pendiente`: con la forma sin sellar no queda fila ni hay red. Orden
     S5: INSERT + COMMIT -> PATCH -> sello.
     """
-    momento = ahora or datetime.now(UTC)
+    momento = _normalizar_ahora(ahora)
     fila = _fila_cambio(conn, cambio_id)
     (
         _id,
@@ -458,7 +467,7 @@ def cambiar_precio(
     que insertar (`precio_antes` es NOT NULL): `error` sin fila y sin
     PATCH. Orden S5: INSERT + COMMIT -> PATCH -> sello.
     """
-    momento = ahora or datetime.now(UTC)
+    momento = _normalizar_ahora(ahora)
     dec = conn.execute(
         "SELECT d.listing_id, d.platform, d.resultado, d.mode,"
         " d.p_actual, d.p_actual_currency, d.p_aplicado, d.p_aplicado_currency,"
