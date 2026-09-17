@@ -496,7 +496,8 @@ de motor:
   con la ventana de 90 días; 113 y 109 son el techo TEÓRICO del canal FBM, no
   lo que la fase enciende: el límite lo pone el volumen de ventas, no el
   umbral, y subirlo es cuestión de ventana, que sella E.2):
-  medición del envío por producto, acta del percentil con el dueño,
+  medición del envío por producto, acta de **la ventana** con el dueño (no
+  del percentil: S10 sella la mediana),
   ampliación del margen estimado a FBM, y encendido FBM en México.
 - **Fase 0 — política fiscal de Estados Unidos**: `I = P` sin IVA, retenciones
   según lo que demuestre la sonda, FX MXN→USD para `C` (hoy el sync solo carga

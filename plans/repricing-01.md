@@ -68,7 +68,7 @@ número), con clave y cota; fuera de cota = `ValueError` ruidoso al leer:
 | `precio_aviso_dias_sin_evaluar` | 3 | 1–14 |
 | `precio_freno_dias_error` | 3 | 1–14 |
 | `precio_divergencia_max_pct` | 0.01 | 0–0.10 |
-| `precio_envio_percentil` | lo sella E.2 | 0.50–0.95 |
+| `precio_envio_estadistico` | `mediana` (sellado en S10) | `mediana` · `p75` · `p90` |
 | `precio_envio_ventana_dias` | 90 | 30–365 |
 | `precio_envio_min_envios` | 6 | 3–50 |
 | `precio_catalogo_max_dias_sin_reportar` | 3 | 1–14 |
@@ -334,7 +334,7 @@ palanca de US queda **fuera** de este plan.
   criterio de ampliación; `--sku` ambiguo en la siembra; goal como fracción.
 - **Reject** (ampliación 2026-09-16): repartir el costo de una etiqueta entre
   los productos de una orden multi-producto (se descarta de la muestra y se
-  cuenta aparte); usar el promedio de envío en vez del percentil sellado;
+  cuenta aparte); usar el promedio de envío en vez del estadístico sellado;
   suponer que el cliente paga envío donde el ledger dice que no; cubrir MeLi
   con un margen parcial «mientras llega» el resto de los insumos.
 - **Reject** (reglas de Orbit): recalcular margen, costo o FX dentro del motor;
@@ -388,7 +388,7 @@ reputación y su cliente GET no se modifican).
 | AC15 | 200 productos con el mismo motivo tres días | un solo aviso con conteo y 5 SKUs, sin costo ni margen | A.6 |
 | AC16 | Pricing 1.5% distinto de la oferta del escenario | `no_evaluado(precio_divergente)` con ambos precios y horas | A.2/A.6 |
 | **AC17** | **Recuadro de cobertura** en cualquier corrida | activas = evaluadas + no evaluadas + sin goal + fuera de alcance, **exacto**, por plataforma, contra la **fuente canónica** (`spapi_listing_estado_observation`: 264 MX, 106 US), con la cuenta del bridge al lado y aviso si difieren más de 5%; una publicación sin reportar 4 días sale como `catalogo_desactualizado` y avisa | A.7, D.1, E.5, B.1, M.6 |
-| **AC18** | **Orden FBM con dos productos** en la ventana de envío | excluida de la muestra y contada aparte; nunca repartida. **Protege contra poco**: en 180 días hay 1 orden multi-producto en MX (de 442) y 1 multi-unidad en US (de 348). Lo que sí hay que contar son las órdenes con cargos de varias fuentes (18 en US) y las ~109 filas diarias que la ingesta descarta por convención de signos | E.3, E.0 |
+| **AC18** | **Orden FBM con dos productos** en la ventana de envío | excluida de la muestra y contada aparte; nunca repartida. **Protege contra poco**: en 180 días, 431 de **439** órdenes en MX y 344 de **347** en US son de un solo producto y una sola unidad (los mismos denominadores que el hecho 4), así que lo que AC18 excluye son 8 órdenes en MX y 3 en US, no 1 y 1. Lo que sí hay que contar son las órdenes con cargos de varias fuentes (18 en US) y las ~109 filas diarias que la ingesta descarta por convención de signos | E.3, E.0 |
 | **AC19** | **Producto FBM con 5 envíos** | `no_evaluado(envio_sin_historia)` y cero escritura **si venía de fuera**; si ya estaba dentro, **sigue dentro** hasta caer a 3 (histéresis). Un producto que oscila entre 5 y 7 envíos no debe alternar estado ni avisar en cada corrida | E.3 |
 | **AC20** | **Decisión FBM aplicada** | `envio_muestra_id` no nulo, con **ventana efectiva** (cerrada en `hoy − rezago`), número de **órdenes** (no filas), fuentes usadas, filas descartadas con su razón y el valor sellado; `/precios` muestra el número con su origen | E.4/E.5 |
 | **AC23** | **Percentil sobre montos negativos** | la muestra se calcula sobre `abs(amount)`; un mutante que use el monto crudo elige el envío **más barato** y muere | E.3 |
@@ -425,7 +425,8 @@ conjunto; ninguna fase enciende dos conjuntos a la vez.
 - Señal de ventas por producto, no por publicación: dos publicaciones del
   mismo producto en una plataforma comparten señal.
 - **`L` en FBM es medido, no cotizado.** Es la única componente que no viene
-  de una cotización; por eso lleva su muestra adjunta y su valor sellado.
+  de una cotización; por eso lleva su muestra adjunta y su valor sellado. Un
+  producto sin historia de envíos no se evalúa.
 - **La rama de bajar precio no se va a ejercer en esta tanda.** Un solo
   producto del negocio llega a `u60 ≥ 20` (hecho 17), así que el criterio (c)
   de D.2, E.5, B.2 y M.6 va a salir «no ocurrió» con números. Se declara ahora,
@@ -449,9 +450,12 @@ conjunto; ninguna fase enciende dos conjuntos a la vez.
   de reloj encadenados, y ninguna empieza hasta que cierra la anterior. Es
   consecuencia de la decisión del dueño de medir 30 días por encendido, y se
   declara para que el calendario no sorprenda.
-  Un producto sin historia de envíos no se evalúa.
 - **La cola del envío es real**: un envío lejano cuesta cerca del doble del
-  típico. El percentil sellado en E.2 define cuánto de esa cola absorbe el
+  típico en los pocos casos donde hay cola, pero la dispersión que justificaba
+  sellar un percentil **no existe** (hecho 15): MX es tarifa plana y en US el
+  p75 − p50 mueve el margen ≤ 0.43 puntos. Por eso el valor sellado es la
+  mediana y lo que E.2 decide es **la ventana**. La dispersión (p90, máximo) se
+  muestra junto a la muestra, y define cuánto de esa cola absorbe el
   margen; el resto se declara en la evidencia.
 - Con cuota 5/día y cooldown de 7 días, un catálogo de cientos de
   publicaciones tarda meses en converger: es intencional (decisión 8) y por
@@ -471,7 +475,7 @@ conjunto; ninguna fase enciende dos conjuntos a la vez.
 {
   "name": "repricing-01",
   "path": "plans/repricing-01.md",
-  "description": "REPRICING 01 - motor de precios por goal de margen (M1/AUTO-07/ORBIT 09). Spec v1.3 (dos rondas de revision; la segunda invalido cuatro hechos que el plan daba por medidos): proteger margen; goal por producto; sube si el margen estimado no llega; baja solo si caen las unidades de 15d vs 60d con volumen minimo, racha de 3 y stock; escalon 10% en ambas direcciones; sombra fiel; cuota propia; escritura asincrona cerrada por observacion D+1; sin reversa automatica; ningun silencio. Ampliacion 2026-09-16 (decisiones 13-15): FBM entra con el envio medido de shipping_fee del ledger (percentil sellado, muestra adjunta), toda publicacion activa queda contemplada en un recuadro de cobertura que cuadra, y MeLi entra al alcance. Fases: A Amazon MX FBA (171 activas), E envio medido y FBM (habilita ~10 MX + ~10 US con ventana de 90d; 113 y 109 son el techo teorico del canal, el limite lo pone el volumen de ventas), 0 politica fiscal US, B Amazon US (106 activas en la fuente canonica, TODAS FBM: US no tiene FBA activo), M Mercado Libre (137 publicaciones; el dinero YA llega a diario y se descarta en una rama, falta catalogo fresco y mapeo SKU). En US el cobro de envio al cliente es NULL, no cero. Si las tres fuentes de shipping_fee duplican dinero quedo EN DISPUTA y lo resuelve la tarea E.0. Cero implementacion."
+  "description": "REPRICING 01 - motor de precios por goal de margen (M1/AUTO-07/ORBIT 09). Spec v1.3 (dos rondas de revision; la segunda invalido cuatro hechos que el plan daba por medidos): proteger margen; goal por producto; sube si el margen estimado no llega; baja solo si caen las unidades de 15d vs 60d con volumen minimo, racha de 3 y stock; escalon 10% en ambas direcciones; sombra fiel; cuota propia; escritura asincrona cerrada por observacion D+1; sin reversa automatica; ningun silencio. Ampliacion 2026-09-16 (decisiones 13-15): FBM entra con el envio medido de shipping_fee del ledger (mediana sellada, muestra adjunta), toda publicacion activa queda contemplada en un recuadro de cobertura que cuadra, y MeLi entra al alcance. Fases: A Amazon MX FBA (171 activas), E envio medido y FBM (habilita ~10 MX + ~10 US con ventana de 90d; 113 y 109 son el techo teorico del canal, el limite lo pone el volumen de ventas), 0 politica fiscal US, B Amazon US (106 activas en la fuente canonica, TODAS FBM: US no tiene FBA activo), M Mercado Libre (137 publicaciones; el dinero YA llega a diario y se descarta en una rama, falta catalogo fresco y mapeo SKU). En US el cobro de envio al cliente es NULL, no cero. Si las tres fuentes de shipping_fee duplican dinero quedo EN DISPUTA y lo resuelve la tarea E.0. Cero implementacion."
 }
 ```
 
