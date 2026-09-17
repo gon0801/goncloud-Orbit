@@ -725,11 +725,16 @@ def cotizar_a_precio(
     así (S2/S5 ligan la cotización a la oferta del escenario), y la
     identidad de la fee (`construir_fee_canonical_input`) ya lleva el
     precio nuevo, así que dos cotizaciones a precios distintos no chocan.
-    Esta copia **jamás** se persiste como oferta (r4-G5)."""
+    Esta copia **jamás** se persiste como oferta (r4-G5). El precio va en
+    centavos exactos (r5-J3: con más de dos decimales el request
+    cuantizado y la identidad canónica con `str(precio)` no coincidirían).
+    """
     from dataclasses import replace
 
     if not isinstance(precio, Decimal) or not precio.is_finite() or precio <= 0:
         raise ValueError(f"precio a cotizar invalido: {precio!r}")
+    if precio != precio.quantize(Decimal("0.01")):
+        raise ValueError(f"precio a cotizar sin centavos exactos: {precio!r}")
     return cotizar_oferta(
         client, replace(oferta, price_amount=precio), observed_at=observed_at, now_utc=now_utc
     )

@@ -2264,6 +2264,16 @@ def test_cotizar_a_precio_rechaza_precio_invalido():
         assert cliente.pedidos == []
 
 
+def test_r5_j3_cotizar_a_precio_exige_centavos():
+    """r5-J3: `131.68` pasa, `131.685` es ValueError (la fee canónica no coincidiría)."""
+    oferta = oferta_mx()
+    cliente = ClienteFalso(body=cuerpo_exito)
+    resultado = cotizar_a_precio(cliente, oferta, Decimal("131.68"), observed_at=AHORA)
+    assert resultado.estado == "success"
+    with pytest.raises(ValueError, match="centavos"):
+        cotizar_a_precio(cliente, oferta, Decimal("131.685"), observed_at=AHORA)
+
+
 def test_cotizar_a_precio_no_amplia_universo_y_propoaga_error():
     from dataclasses import replace
 
