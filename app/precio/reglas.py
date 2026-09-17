@@ -143,28 +143,9 @@ def _frena_regla11(entrada: EntradaDecision, m_actual: Decimal, precio: Decimal)
     )
 
 
-def _min_abs(config: ConfigPrecio, moneda: str) -> Decimal:
-    if moneda == "MXN":
-        return config.movimiento_min_abs_mxn
-    if moneda == "USD":
-        return config.movimiento_min_abs_usd
-    raise ValueError(f"moneda sin minimo absoluto configurado: {moneda!r}")
-
-
-def _prioridad(m_actual: Decimal, goal: Decimal, ingreso_60d: Importe | None) -> Decimal | None:
-    if ingreso_60d is None:
-        return None
-    return abs(m_actual - goal) * ingreso_60d.valor
-
-
-def decidir(
-    entrada: EntradaDecision,
-    *,
-    hoy: date,
-    config: ConfigPrecio,
-    cotizaciones: tuple[CotizacionVerificada, ...] = (),
-) -> Decision | PideCotizacion:
-    """Una evaluacion de S4: `Decision` final o `PideCotizacion`."""
+def _freno_entrada(entrada: EntradaDecision, config: ConfigPrecio) -> Decision | None:
+    """S2 + coherencia (r1-A1, r2-A2, r3-K1, r4-G4): insumos y coherencia
+    antes de `m_actual` y antes de gastar una cotización. `None` = pasa."""
     if entrada.motivo_estimacion is not None:
         return _no_evaluado(entrada, entrada.motivo_estimacion)
     if entrada.pricing is None:
@@ -211,10 +192,45 @@ def decidir(
     incoherencia = _coherencia_escenario(entrada)
     if incoherencia is not None:
         return _no_evaluado(entrada, "escenario_incoherente", incoherencia)
-
-    ingreso = comp.ingreso.valor
-    if ingreso <= 0:
+    if comp.p_actual.moneda not in ("MXN", "USD"):
+        return _no_evaluado(
+            entrada,
+            "escenario_incoherente",
+            f"moneda sin minimo absoluto configurado: {comp.p_actual.moneda}",
+        )
+    if comp.ingreso.valor <= 0:
         return _no_evaluado(entrada, "ingreso_no_positivo")
+    return None
+
+
+def _min_abs(config: ConfigPrecio, moneda: str) -> Decimal:
+    if moneda == "MXN":
+        return config.movimiento_min_abs_mxn
+    if moneda == "USD":
+        return config.movimiento_min_abs_usd
+    raise ValueError(f"moneda sin minimo absoluto configurado: {moneda!r}")
+
+
+def _prioridad(m_actual: Decimal, goal: Decimal, ingreso_60d: Importe | None) -> Decimal | None:
+    if ingreso_60d is None:
+        return None
+    return abs(m_actual - goal) * ingreso_60d.valor
+
+
+def decidir(
+    entrada: EntradaDecision,
+    *,
+    hoy: date,
+    config: ConfigPrecio,
+    cotizaciones: tuple[CotizacionVerificada, ...] = (),
+) -> Decision | PideCotizacion:
+    """Una evaluacion de S4: `Decision` final o `PideCotizacion`."""
+    freno = _freno_entrada(entrada, config)
+    if freno is not None:
+        return freno
+
+    comp = entrada.escenario.componentes
+    ingreso = comp.ingreso.valor
     m_actual = (
         ingreso - comp.costo.valor - comp.fees.valor - comp.envio.valor - comp.isr.valor
     ) / ingreso

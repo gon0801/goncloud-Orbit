@@ -1056,6 +1056,41 @@ def test_r4_g3_escalon_bajo_minimo_revienta_igual_pasa():
     assert c.escalon_max_pct > c.movimiento_min_pct
 
 
+# ---------------------------------------------------------------- r4-G4
+
+
+def test_r4_g4_moneda_sin_minimo_no_gasta_cotizacion():
+    from dataclasses import replace
+
+    from app.precio.tipos import Importe, PideCotizacion
+
+    base = comp(costo="60")
+    euros = replace(
+        base,
+        p_actual=Importe(Decimal("116"), "EUR"),
+        ingreso=Importe(Decimal("100"), "EUR"),
+        costo=Importe(Decimal("60"), "EUR"),
+        fees=Importe(Decimal("15"), "EUR"),
+        envio=Importe(Decimal("0"), "EUR"),
+        isr=Importe(Decimal("2.50"), "EUR"),
+    )
+    esc = escenario(costo="60")
+    esc = replace(
+        esc,
+        componentes=euros,
+        precio_cotizado=Importe(Decimal("116"), "EUR"),
+        fee_detalles=(
+            DetalleFee("ReferralFee", Decimal("12"), None, ()),
+            DetalleFee("FbaFee", Decimal("3"), None, ()),
+        ),
+    )
+    pricing = ObservacionPricing(Importe(Decimal("116"), "EUR"), AHORA)
+    d = decide(entrada(costo="60", escenario=esc, pricing=pricing))
+    assert not isinstance(d, PideCotizacion)
+    assert (d.resultado, d.motivo) == ("no_evaluado", "escenario_incoherente")
+    assert "EUR" in d.diagnostico
+
+
 # ---------------------------------------------------------------- r4-G2
 
 
