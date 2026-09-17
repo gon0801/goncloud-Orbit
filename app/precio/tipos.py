@@ -46,6 +46,8 @@ __all__ = [
     "Decision",
     "exigir_decimal",
     "motivo_permitido",
+    "INVAL_TOL",
+    "verificar_fantasma",
 ]
 
 RESULTADOS = (
@@ -377,6 +379,43 @@ class Decision:
             raise ValueError(f"motivo {self.motivo!r} fuera de vocabulario para {self.resultado}")
         if self.resultado not in ("subir", "bajar") and self.p_aplicado is not None:
             raise ValueError(f"p_aplicado solo en subir/bajar, llego en {self.resultado}")
+
+
+INVAL_TOL = Decimal("0.005")
+
+
+def verificar_fantasma(
+    precio: Importe,
+    detalles: tuple[DetalleFee, ...],
+    fee_total: Decimal,
+) -> CotizacionVerificada:
+    """Fábrica de cotizaciones fantasma para tests (r3-L2, medium de kimi).
+
+    El fantasma afirma que VERIFICA el goal: se comprueba aquí mismo con
+    los parámetros canónicos del acta 0.3 (`C = 40`, `L = 0`, `r = 0.025`,
+    `d = 1.16`, `goal = 0.30`): `|m(P) − goal| ≤ 0.005` y `P > 0`. Si no
+    verifica, revienta en la construcción con los números.
+
+    No es un invariante del constructor: las cotizaciones de entrada de la
+    máquina (`paso`) legítimamente NO verifican (con la primera que no
+    cierra se pide la segunda); esas se construyen directo. El fantasma
+    es el que afirma verificación sin Amazon detrás.
+    """
+    exigir_decimal(fee_total, campo="fantasma.fee_total")
+    if precio.valor <= 0:
+        raise ValueError(f"fantasma con precio no positivo: {precio.valor}")
+    referrals = [det for det in detalles if det.fee_type == "ReferralFee" and det.final_fee > 0]
+    if len(referrals) != 1:
+        raise ValueError("fantasma sin ReferralFee unico positivo")
+    ref = referrals[0].final_fee / precio.valor
+    fijo = fee_total - referrals[0].final_fee
+    ingreso = precio.valor / Decimal("1.16")
+    margen = (
+        ingreso - Decimal("40") - (ref * precio.valor + fijo) - Decimal("0.025") * ingreso
+    ) / ingreso
+    if abs(margen - Decimal("0.30")) > INVAL_TOL:
+        raise ValueError(f"fantasma no verifica: m={margen} vs goal=0.30 a P={precio.valor}")
+    return CotizacionVerificada(precio, detalles, fee_total, "success", None)
 
 
 def motivo_permitido(resultado: str, motivo: str | None) -> bool:

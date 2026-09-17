@@ -914,6 +914,57 @@ def test_r3_l1_doble_lo_decide_el_pedido_no_el_crudo():
     assert d.diagnostico.startswith("P=")
 
 
+# ---------------------------------------------------------------- r3-L2
+
+
+def test_r3_l2_bajar_fantasma_coherente():
+    # El fantasma sale de los componentes (ref/fijo del escenario) y su
+    # precio es exactamente el P_goal por forma cerrada: verifica.
+    from app.precio.objetivo import precio_estrella, techo_centavo
+    from app.precio.tipos import verificar_fantasma
+
+    ref = Decimal("12") / Decimal("116")
+    p_goal = techo_centavo(
+        precio_estrella(
+            Decimal("40"),
+            Decimal("3"),
+            Decimal("0"),
+            Decimal("0.025"),
+            Decimal("0.30"),
+            Decimal("1.16"),
+            True,
+            ref,
+        )
+    )
+    total = (ref * p_goal + Decimal("3")).quantize(Decimal("0.01"))
+    fantasma = verificar_fantasma(
+        imp(str(p_goal)),
+        (
+            DetalleFee("ReferralFee", total - Decimal("3"), None, ()),
+            DetalleFee("FbaFee", Decimal("3"), None, ()),
+        ),
+        total,
+    )
+    ent = entrada(senal=senal_perdiendo())
+    d = decide(ent, cotizaciones=(fantasma,))
+    assert d.resultado == "bajar"
+    assert d.p_objetivo.valor == p_goal
+
+
+def test_r3_l2_fantasma_que_no_verifica_revienta():
+    from app.precio.tipos import verificar_fantasma
+
+    with pytest.raises(ValueError, match="no verifica"):
+        verificar_fantasma(
+            imp("100"),
+            (
+                DetalleFee("ReferralFee", Decimal("1.69"), None, ()),
+                DetalleFee("FbaFee", Decimal("3"), None, ()),
+            ),
+            Decimal("4.69"),
+        )
+
+
 # ---------------------------------------------------------------- r2-B
 
 
