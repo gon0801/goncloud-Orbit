@@ -1,6 +1,9 @@
 BEGIN
 -- INICIO rezago-ingesta
-amazon_mx|31|20|143|181
-amazon_us|33|8|80.00000000000006|140
+amazon_mx|solo_incremental|44|16.5|141.7|181
+amazon_mx|todas|46|20.5|141.5|181
+amazon_us|solo_incremental|43|10|20|140
+amazon_us|todas|43|10|20|140
+4|2026-08-18|2026-09-17
 -- FIN rezago-ingesta
 ROLLBACK

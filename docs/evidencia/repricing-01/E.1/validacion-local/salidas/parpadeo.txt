@@ -1,8 +1,8 @@
 BEGIN
 -- INICIO parpadeo
-amazon_mx|componentes|2|0|2|1
-amazon_mx|duplicado_etiqueta|2|0|2|1
-amazon_us|componentes|2|0|2|0
-amazon_us|duplicado_etiqueta|2|0|2|0
+amazon_mx|componentes|3|0|3|2|1
+amazon_mx|duplicado_etiqueta|3|0|3|2|1
+amazon_us|componentes|2|0|2|0|0
+amazon_us|duplicado_etiqueta|2|0|2|0|0
 -- FIN parpadeo
 ROLLBACK

@@ -6,11 +6,14 @@
 #
 # El 2026-09-17 el lead intentó una sonda trivial de solo lectura contra
 # producción y el clasificador de permisos de su sesión la negó (motivo:
-# Production Reads). Desde entonces nadie la ha vuelto a intentar, ni el
-# lead ni sus subagentes: la negativa se respetó y no se rodeó. Por eso
-# todas las cifras de producción de esta carpeta están en unknown.
+# Production Reads). La negativa se respetó y no se rodeó: ni el lead ni
+# sus subagentes lo reintentaron. Ese mismo día el dueño autorizó la
+# lectura con una regla de permiso (Bash(ssh goncloud:*) en
+# settings.local.json del worktree del lead), y a partir de ahí el lead,
+# y solo el lead, corrió correr.sh con el rol orbit_read en transacciones
+# READ ONLY. Las cifras de este documento salen de salidas/*.txt.
 #
-# Lo corre el dueño, con:
+# Lo corre el lead o el dueño, con:
 #
 #   ! bash docs/evidencia/repricing-01/E.1/correr.sh
 #

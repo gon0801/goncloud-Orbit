@@ -1,21 +1,27 @@
--- ORBIT · fase 8 · repricing-01 · E.1 · ronda de corrección r1
+-- ORBIT · fase 8 · repricing-01 · E.1 · ronda de corrección r3
 -- Parpadeo del mínimo (hecho 15): seis ventanas móviles de 90 días,
 -- cuántos productos entran (>=6 órdenes) y salen (<6) del mínimo a lo
 -- largo de ellas.
 --
--- Dos conteos, uno al lado del otro (hallazgo 12, ronda r1):
+-- Identidad de fuente: ver envio-por-producto.sql (medida en producción,
+-- hallazgo alta de la ronda r3). Cobertura por fuente: publicada solo en
+-- envio-por-producto.sql (hallazgo 23), no repetida aquí.
+--
+-- Tres conteos (hallazgo 28, ronda r3 — separa "salida" de "reentrada",
+-- antes era una sola columna que mezclaba ambas):
 --   productos_que_parpadean               : corte seco, sin histéresis —
 --                                            cualquier cruce de 6 cuenta.
---   productos_que_parpadean_con_histeresis: recorre las ventanas de la
---                                            MÁS VIEJA a la MÁS NUEVA
---                                            (índice 6 → 1, offset mayor →
---                                            menor) aplicando la regla
---                                            propuesta para E.2: entra con
---                                            >=6, sale con <3. Un producto
---                                            que iba de 6 a 4 a 6 NO
---                                            "sale" con histéresis (4 no
---                                            es <3); sin histéresis sí
---                                            cuenta como parpadeo.
+--   productos_con_salida_con_histeresis   : hubo al menos una salida
+--                                            EXPLÍCITA (ordenes < 3)
+--                                            justo después de haber
+--                                            estado evaluado.
+--   productos_con_reentrada_con_histeresis: hubo al menos una entrada
+--                                            (ordenes >= 6) que ocurre
+--                                            DESPUÉS de una salida
+--                                            explícita ya contada — no
+--                                            cualquier primera entrada,
+--                                            sino un ciclo completo
+--                                            entra→sale→reentra.
 --
 -- Ventana SEMIABIERTA [hoy-N, hoy) en UTC (hallazgo 6), igual que las
 -- demás consultas de E.1.
@@ -35,8 +41,8 @@ with poblacion as (
         le.observed_at,
         abs(le.amount) as monto_abs,
         le.source_event_id,
-        nullif(split_part(le.source_event_id, '|', 2), '') as fuente_plataforma,
-        nullif(split_part(le.source_event_id, '|', 6), '') as fuente_tipo
+        nullif(split_part(le.source_event_id, '|', 2), '') as fuente_forma,
+        nullif(split_part(le.source_event_id, '|', 6), '') as fuente_subtipo
     from ledger_event le
     where le.fee_type = 'shipping_fee'
       and le.kind = 'fee'
@@ -44,7 +50,15 @@ with poblacion as (
       and le.event_date <  (((now() at time zone 'UTC')::date))
 ),
 cargos as (
-    select *
+    select
+        *,
+        case
+            when source_event_id is null or fuente_forma is null then null
+            when fuente_forma = 'shipping_label' then 'shipping_label'
+            when fuente_forma = 'finance' and fuente_subtipo is not null then 'finance:' || fuente_subtipo
+            when fuente_forma = 'finance' then null
+            else fuente_forma
+        end as identidad_fuente
     from poblacion
     where order_id is not null
 ),
@@ -52,21 +66,24 @@ sum_por_fuente as (
     select
         order_id,
         platform,
-        fuente_tipo,
+        identidad_fuente,
         sum(monto_abs) as monto_fuente,
         count(*) as filas
     from cargos
-    group by order_id, platform, fuente_tipo
+    group by order_id, platform, identidad_fuente
 ),
 orden_meta as (
     select
         order_id,
         platform,
         max(event_date) as event_date,
-        bool_or(fuente_plataforma is null or fuente_tipo is null) as tiene_fuente_desconocida,
+        bool_or(identidad_fuente is null) as tiene_fuente_desconocida,
         bool_or(
-            fuente_tipo is not null
-            and fuente_tipo not in ('ShippingHB', 'LabmanLabelPurchase', 'shipping_label')
+            identidad_fuente is not null
+            and identidad_fuente not in (
+                'shipping_label', 'finance:LabmanLabelPurchase', 'finance:MFNPostageFee',
+                'finance:ShippingHB', 'finance:ShippingChargeback', 'finance:MFNShippingChargeback'
+            )
         ) as tiene_fuente_no_reconocida
     from cargos
     group by order_id, platform
@@ -79,14 +96,15 @@ orden_costo as (
         om.tiene_fuente_desconocida,
         om.tiene_fuente_no_reconocida,
         sum(sf.monto_fuente) as costo_componentes,
-        coalesce(sum(sf.monto_fuente) filter (
-            where sf.fuente_tipo is distinct from 'LabmanLabelPurchase'
-              and sf.fuente_tipo is distinct from 'shipping_label'
-        ), 0)
-        + greatest(
-            coalesce(sum(sf.monto_fuente) filter (where sf.fuente_tipo = 'LabmanLabelPurchase'), 0),
-            coalesce(sum(sf.monto_fuente) filter (where sf.fuente_tipo = 'shipping_label'), 0)
-          ) as costo_duplicado_etiqueta
+        greatest(
+            coalesce(sum(sf.monto_fuente) filter (
+                where sf.identidad_fuente in ('finance:LabmanLabelPurchase', 'finance:MFNPostageFee')
+            ), 0),
+            coalesce(sum(sf.monto_fuente) filter (where sf.identidad_fuente = 'shipping_label'), 0)
+        )
+        + coalesce(sum(sf.monto_fuente) filter (
+            where sf.identidad_fuente in ('finance:ShippingHB', 'finance:ShippingChargeback', 'finance:MFNShippingChargeback')
+          ), 0) as costo_duplicado_etiqueta
     from sum_por_fuente sf
     join orden_meta om using (order_id, platform)
     group by sf.order_id, sf.platform, om.event_date, om.tiene_fuente_desconocida, om.tiene_fuente_no_reconocida
@@ -206,20 +224,36 @@ con_cambio as (
         ) as estado_previo
     from con_arrastre ca
 ),
+con_salida as (
+    select
+        cc.*,
+        (cc.transicion = false and cc.estado_previo = true) as es_salida
+    from con_cambio cc
+),
+-- hubo_salida_previa: ¿ya ocurrió una salida real en una ventana MÁS
+-- VIEJA que esta? (frame excluye la fila actual). Distingue la PRIMERA
+-- entrada (nunca hubo salida antes: no es "reentrada") de una reentrada
+-- genuina después de un ciclo completo entra→sale.
+con_reentrada as (
+    select
+        cs.*,
+        coalesce(bool_or(cs.es_salida) over (
+            partition by cs.product_id, cs.platform, cs.lectura
+            order by cs.indice
+            rows between unbounded preceding and 1 preceding
+        ), false) as hubo_salida_previa
+    from con_salida cs
+),
 clasificado as (
     select
         product_id, platform, lectura,
         count(*) filter (where ordenes >= 6) as ventanas_en_minimo,
-        count(*) as ventanas_con_datos,
         -- corte seco: cualquier cruce de 6, sin distinguir "nunca había
         -- entrado" de "entró y salió" (sobreestima el parpadeo real).
         bool_or(ordenes >= 6) and bool_or(ordenes < 6) as parpadea,
-        -- con histéresis: solo cuenta si hubo una salida EXPLÍCITA
-        -- (transicion=false, ordenes<3) justo después de haber estado
-        -- evaluado (estado_previo=true) — "entra >=6, sale <3" del
-        -- hallazgo 12, no una entrada sin salida.
-        bool_or(transicion = false and estado_previo = true) as parpadea_con_histeresis
-    from con_cambio
+        bool_or(es_salida) as tiene_salida_con_histeresis,
+        bool_or(transicion = true and hubo_salida_previa) as tiene_reentrada_con_histeresis
+    from con_reentrada
     group by product_id, platform, lectura
 )
 select
@@ -228,7 +262,8 @@ select
     count(*) filter (where ventanas_en_minimo > 0) as productos_que_alcanzan_minimo_en_alguna_ventana,
     count(*) filter (where ventanas_en_minimo = 6) as productos_estables_en_las_seis,
     count(*) filter (where parpadea) as productos_que_parpadean,
-    count(*) filter (where parpadea_con_histeresis) as productos_que_parpadean_con_histeresis
+    count(*) filter (where tiene_salida_con_histeresis) as productos_con_salida_con_histeresis,
+    count(*) filter (where tiene_reentrada_con_histeresis) as productos_con_reentrada_con_histeresis
 from clasificado
 group by platform, lectura
 order by platform, lectura;

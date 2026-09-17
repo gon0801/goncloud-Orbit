@@ -1,10 +1,12 @@
 BEGIN
 -- INICIO descartes
-fuente_desconocida|1|0
-fuente_no_reconocida|1|0
-multi_producto|1|0
-sin_order_id|1|
-sin_venta_ligada|2|0
-usable|53|1
+amazon_mx|multi_producto|1|0
+amazon_mx|usable|42|1
+amazon_mx|venta_sin_producto|1|0
+amazon_us|fuente_desconocida|1|0
+amazon_us|fuente_no_reconocida|1|0
+amazon_us|sin_fila_de_venta|2|0
+amazon_us|sin_order_id|1|
+amazon_us|usable|30|0
 -- FIN descartes
 ROLLBACK
