@@ -662,6 +662,81 @@ Permisos: `app_ingest` INSERT en las tres tablas de observación/escenario;
 solo para roles que insertan. Candado append-only: trigger `prohibir_mutacion`
 (row + TRUNCATE) en las cuatro tablas de hechos desde el día 1.
 
+### Motor de precios (REPRICING 01, migración `0039`)
+
+Medida **decisoria** separada de la estimación: cada publicación con goal
+vigente llega a su margen por precio. Una decisión por entidad por día, todo
+registrado, cuota propia. El contrato fino (reglas, sombra fiel, escritura
+asíncrona, reversa) está en
+`docs/superpowers/specs/2026-09-15-repricing-01-design.md` (S4–S6) y el plan
+en `plans/repricing-01.md` (fase A).
+
+**`precio_goal`** — Goal de margen por publicación con vigencia, patrón
+`sku_cost`: `margen_goal_pct` (fracción, banda 0.10–0.60 en CHECK literal —
+claves `precio_goal_min_pct`/`precio_goal_max_pct`, replicada en
+`app/precio/goals_write.py`), `mode` (`precio_mode`: `shadow`/`live`, sin
+default), `valid_from`/`valid_to`, `creado_por`, `go_literal` (`live` lo
+exige por CHECK, también contra `psql`). FK compuesta `(listing_id,
+platform)` — 0039 declara `UNIQUE (id, platform)` en `listing`, lo único que
+toca de una tabla existente. `UNIQUE (listing_id, platform, valid_from)` más
+índice parcial de un vigente (`valid_to IS NULL`): sin fila vigente no hay
+decisión, sin defaults ni herencia. Trigger `precio_goal_solo_cierra_vigencia`
+(de una fila publicada solo se cierra `valid_to`, una vez) + capa TRUNCATE.
+La escribe `app_admin` (INSERT + `UPDATE (valid_to)`).
+*Cómo se audita*: publicaciones activas sin goal vigente (`sin_goal`, trabajo
+del dueño, listado en cobertura).
+
+**`precio_decision`** — Una fila por `(listing_id, platform, decision_date)`:
+`subir`/`bajar`/`mantener`/`no_evaluado`/`goal_inalcanzable`/`frenado` con
+motivo, señal de ventas (`u15/u60/n15/n60`, racha, `perdiendo`), cuenta
+completa (componentes `I/C/F/L/R`, `P_actual/objetivo/aplicado` — cada uno
+con su `currency NOT NULL`; importes NULL en `no_evaluado`, la moneda no),
+`escenario_id`/`fee_observation_id`/`cotizacion_id`/`envio_muestra_id` (la
+decisión nace primero y la cotización apunta de vuelta), `canal`
+(`estimacion_canal`, NULL sin canal), `mode`, `prioridad`,
+`config_version_id`. `decision_date` lo fija el trigger al día UTC de la
+base (el del cliente se ignora). Append-only por `prohibir_mutacion`
+(row + TRUNCATE). La escribe `app_decide` (INSERT).
+*Cómo se audita*: segunda corrida del día no decide (UNIQUE); día sin insumos
+produce N `no_evaluado` con motivo y cero escrituras.
+
+**`precio_cotizacion`** — Cotización Product Fees a precio candidato (máximo
+dos por decisión), separada de `estimacion_fee_observation` (cotizar ahí
+apagaría la estimación del día siguiente). `estado` reutiliza
+`estimacion_fee_estado`; `total_fees` NULL en error; `source_event_id`
+UNIQUE. Append-only. La escribe `app_decide` (INSERT).
+
+**`precio_envio_muestra`** — Evidencia de `L` con la forma literal de S5
+(spec v1.3): ventana efectiva, conteo de envíos, valor sellado + moneda y
+dispersión (`mediana/p90/maximo` con paridad CHECK). Nace vacía; la ajusta la
+fila E.3 con su migración. Append-only. La escribe `app_decide` (INSERT).
+
+**`precio_cambio`** — Escritura asíncrona cerrada por observación:
+`pendiente` (nace con el precio GET justo antes) → `enviado`/`error` (ack
+literal) → `confirmado`/`no_confirmado` (observación D+1); el readback es
+informativo (`ok`/`fallido`, nunca decide). Índice único parcial de cambio
+abierto `(listing_id, platform) WHERE estado IN ('pendiente','enviado')`.
+Sombra fiel: el virtual (`aplicado = false`) nace cerrado
+(`confirmado`/`virtual`, `enviado_at` puesto, sin ack ni readback) y consume
+cooldown y freno sin ocupar el índice. Reversa (`es_reversa`, sin decisión
+propia, por el mismo camino; nunca automática). Trigger de nacimiento +
+trigger de transiciones con sello acotado por columnas (patrón
+`apply_attempt_solo_sella_resultado`) + capa TRUNCATE. `app_decide`: INSERT +
+`UPDATE` por columna de sello.
+*Cómo se audita*: cambios abiertos por listing (uno); `no_confirmado` frena y
+avisa; la reversa la corre el dueño con la herramienta.
+
+**Cuota propia (0039)** — `apply_cap_de_config` gana `precio:amazon_mx`,
+`precio:amazon_us` y `precio:meli` (claves `precio_cap_amazon_mx`/`_us`/`_meli`,
+tope 5/día); los ocho mapeos de Ads intactos. Sin clave no nace fila del día
+(fail-closed del trigger de 0002).
+
+Permisos: `app_decide` INSERT en decisión/cotización/muestra/cambio + sello
+por columnas del cambio + secuencias propias; `app_admin` INSERT en goal +
+`UPDATE (valid_to)` + su secuencia; `app_read`/`app_ingest` SELECT.
+`tests/test_precio_migracion.py` (integración con rol real) y
+`tests/test_schema.py` (estáticos de 0039).
+
 ## Roles y candados
 
 - **`app_ingest`** — sincronizadores: INSERT en hechos y catálogo (incluye
@@ -675,14 +750,17 @@ solo para roles que insertan. Candado append-only: trigger `prohibir_mutacion`
   `skip_reason`, `ok`) y `sku_cost` (**solo `valid_to`** — cerrar vigencias
   sí, reescribir importes jamás).
 - **`app_decide`** — motores: INSERT en `decision`, `decision_application`,
-  envelope/quota/harvest; UPDATE en `decision_application` (readback) y
+  envelope/quota/harvest y, desde `0039`, en `precio_decision`,
+  `precio_cotizacion`, `precio_envio_muestra` y `precio_cambio` (este último
+  con sello por columnas); UPDATE en `decision_application` (readback) y
   `harvest_job`; cierre de `optimizer_cycle` **por columna**; en
   `apply_quota_state` **solo `UPDATE (used)`** — el cap lo fija el INSERT, el
   motor no puede subirse el tope a sí mismo; DML completo en
-  `ads_optimizer_lock`. **No** escribe goals ni `config_version` (conserva
-  SELECT).
-- **`app_admin`** (NOLOGIN) — config humana: escribe `ads_optimizer_goal`,
-  inserta `config_version`, `estimacion_politica_version` y `apply_quota_state`
+  `ads_optimizer_lock`. **No** escribe goals (ni `ads_optimizer_goal` ni
+  `precio_goal`) ni `config_version` (conserva SELECT).
+- **`app_admin`** (NOLOGIN) — config humana: escribe `ads_optimizer_goal` y,
+  desde `0039`, `precio_goal` (INSERT + cierre de `valid_to`); inserta
+  `config_version`, `estimacion_politica_version` y `apply_quota_state`
   (fijar caps manualmente es decisión de admin, no del motor) — escalera
   off→shadow→live. El endpoint `/goals` corre como `app_admin`.
 - **`app_read`** — dashboard/análisis: SELECT.

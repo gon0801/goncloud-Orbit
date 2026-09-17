@@ -1183,6 +1183,69 @@ controlada. Precondición de datos (D.1 la verifica al desplegar): ningún goal
 puede estar en parcial distinto de los tres estados — 0001 lo impedía por
 CHECK, así que en una base sana no hay nada que conciliar.
 
+### Migración 0039: motor de precios (REPRICING 01 A.0)
+
+`0039_precio.sql` crea las cinco tablas del motor (`precio_goal`,
+`precio_decision`, `precio_cotizacion`, `precio_envio_muestra`,
+`precio_cambio`), amplía `apply_cap_de_config` con los tres motores
+`precio:*` y trae su bloque DO candado bajo `SET ROLE` (no deja filas).
+**Esta fase NO la aplica a producción**: aplicarla es la fila D.1 del plan
+(`plans/repricing-01.md`) y la corre el dueño con GO. Hasta entonces esta
+sección es procedimiento sellado, no estado aplicado.
+
+**No es puramente expansiva**: declara `UNIQUE (id, platform)` en `listing`
+(lo único que toca de una tabla existente — la FK compuesta de `precio_goal`
+lo exige) y reemplaza `apply_cap_de_config` por `CREATE OR REPLACE` (los ocho
+mapeos de Ads idénticos + los tres de precio). Revertirla es restaurar el
+dump (las tablas son append-only: no se borran filas para revertir).
+
+Backup del schema antes (patrón de la 0003: staging + verificación, el
+archivo final solo aparece con el `CREATE TABLE` y el marcador de cierre):
+
+```bash
+ssh goncloud 'set -eu; D=/mnt/data/appdata/orbit/backups; \
+  STAMP=$(date -u +%Y%m%d-%H%M%S); TMP="$D/.pre0039_$STAMP.sql.tmp"; \
+  OUT="$D/pre0039_precio_$STAMP.sql"; \
+  docker exec orbit-db-1 pg_dump -U orbit -d orbit --schema-only \
+    -t public.listing -t public.apply_quota_state > "$TMP"; \
+  [ -s "$TMP" ] \
+    && grep -q "CREATE TABLE public.listing" "$TMP" \
+    && tail -5 "$TMP" | grep -q "PostgreSQL database dump complete" \
+    || { echo "DUMP INVALIDO"; rm -f "$TMP"; exit 1; }; \
+  chmod 600 "$TMP"; mv "$TMP" "$OUT"; ls -l "$OUT"'
+```
+
+Aplicar la DDL en transacción única y comprobar lo que entra:
+
+```bash
+ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit \
+  -v ON_ERROR_STOP=1 -1' < migrations/0039_precio.sql
+
+ssh goncloud 'docker exec orbit-db-1 psql -U orbit -d orbit -P pager=off -c "
+SELECT tablename FROM pg_tables
+ WHERE schemaname = '"'"'public'"'"'
+   AND tablename IN ('"'"'precio_goal'"'"','"'"'precio_decision'"'"','"'"'precio_cotizacion'"'"',
+                     '"'"'precio_envio_muestra'"'"','"'"'precio_cambio'"'"');
+SELECT conname FROM pg_constraint
+ WHERE conrelid = '"'"'public.listing'"'"'::regclass
+   AND conname = '"'"'listing_id_platform_key'"'"';
+SELECT pg_get_expr(indpred, indrelid) FROM pg_index
+ WHERE indexrelid IN ('"'"'public.precio_goal_un_vigente'"'"'::regclass,
+                      '"'"'public.precio_cambio_abierto_unico'"'"'::regclass);
+SELECT count(*) FROM precio_goal;
+SELECT count(*) FROM precio_decision;
+SELECT count(*) FROM precio_cambio;"'
+```
+
+Lo que entra: las cinco tablas, `listing_id_platform_key` en `listing`, los
+dos índices parciales (un vigente / un abierto) y los tres motores `precio:*`
+en `apply_cap_de_config` (verificado por `tests/test_schema.py`). Los tres
+conteos deben dar **cero** (el bloque DO revierte lo que inserta). Las tablas
+`precio_*` tienen ~0 filas: el `ADD CONSTRAINT` es instantáneo; si crecieron
+mucho, aplicar en ventana controlada. Precondición de datos (D.1 la verifica
+al desplegar): ningún duplicado de `(id, platform)` en `listing` — `id` es PK,
+así que en una base sana no hay nada que conciliar.
+
 ## Correr los tests desde la máquina dev (túnel SSH)
 
 La suite de integración (`test_migracion_rechaza_en_vivo`) necesita un
