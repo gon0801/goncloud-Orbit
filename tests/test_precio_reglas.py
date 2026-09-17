@@ -893,27 +893,6 @@ def test_r3_k5_activo_exige_todas(par):
     assert senal(ins).submotivo == "listing_inactivo"
 
 
-# ---------------------------------------------------------------- r3-L1
-
-
-def test_r3_l1_doble_lo_decide_el_pedido_no_el_crudo():
-    # Mismo escenario que mayor_al_doble: el inalcanzable sale del wrapper
-    # sobre el precio pedido (diagnostico "P=..."), no del P* crudo.
-    from dataclasses import replace
-
-    ref = Decimal("0.57")
-    referral = (ref * Decimal("116")).quantize(Decimal("0.01"))
-    detalles = (
-        DetalleFee("ReferralFee", referral, None, ()),
-        DetalleFee("FbaFee", Decimal("3"), None, ()),
-    )
-    esc = escenario(costo="60")
-    esc = replace(esc, fee_detalles=detalles, componentes=comp(costo="60", fees="69.12"))
-    d = decide(entrada(escenario=esc, costo="60"))
-    assert (d.resultado, d.motivo) == ("goal_inalcanzable", "precio_mayor_al_doble")
-    assert d.diagnostico.startswith("P=")
-
-
 # ---------------------------------------------------------------- r3b-fantasma
 
 

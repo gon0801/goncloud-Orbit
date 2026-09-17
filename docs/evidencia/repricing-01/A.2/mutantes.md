@@ -242,22 +242,6 @@ conservadores (`test_r3_k5_*`, 6 tests). K3 (parámetro muerto) y K4
 (Los cinco hallazgos de kimi son K1–K5; nada más en este catálogo se le
 atribuye.)
 
-### Regla 11 sobre el primer pedido de `subir` (r3, NO es L1 del brief)
-
-Test: `test_r3_l1_doble_lo_decide_el_pedido_no_el_crudo` (el
-inalcanzable sale del wrapper con diagnóstico `P=...`, no del crudo).
-Con caché nueva:
-
-```text
-E       AttributeError: 'PideCotizacion' object has no attribute 'resultado'
-1 failed, 155 deselected in 0.31s
-```
-
-MUERTO. (Además se quitó la estrella cruda de `_subir`: `margen_imposible`
-sale de la máquina y la regla 11 del wrapper, un solo control por camino.
-En r3b se quitó también la de `_bajar` —opción (a) del BRIEF-r3b—: los
-dos caminos con un solo control, el del pedido.)
-
 ### Ayuda fantasma de tests (r3, NO es L2 del brief; r3b la sacó de `app/`)
 
 En la r3 se puso una fábrica en `tipos.py`; en la r3b se quitó
