@@ -176,13 +176,59 @@ def test_cron_metricas_escapa_porcentaje_de_date():
         assert "+%F" not in ln.replace(r"+\%F", "")
 
 
-def test_compose_app_en_loopback_8010_con_secrets_ro():
+SECRETS_MOUNT = "/mnt/data/appdata/orbit/secrets:/mnt/data/appdata/orbit/secrets:rw"
+
+
+def test_compose_app_en_loopback_8010_con_secrets_rw_autorizado():
     # Scoped al BLOQUE del servicio app: un texto igual en un comentario
     # o en otro servicio ya no da falso verde (hallazgo CodeRabbit)
     bloque = _bloque_servicio(COMPOSE.read_text(encoding="utf-8"), "app")
     assert '"127.0.0.1:8010:8000"' in bloque
-    assert "secrets:/mnt/data/appdata/orbit/secrets:ro" in bloque
+    assert SECRETS_MOUNT in bloque, (
+        "el bind de secrets cambio de ruta o de modo; si es deliberado, "
+        "actualiza SECRETS_MOUNT Y el comentario del bloque app"
+    )
     assert "ORBIT_PG_HOST: db" in bloque
+
+
+def test_compose_app_solo_un_bind_de_escritura_y_es_el_autorizado():
+    """El bind de secrets paso de :ro a :rw el 2026-09-08 (PR #291, hotfix
+    del refresh de OAuth MeLi: la app reescribe meli_tokens.json), decision
+    del dueno, confirmada como PERMANENTE el 2026-09-17.
+
+    El candado viejo pinchaba `:ro` y quedo rojo en master desde ese merge
+    sin que nadie lo notara. Cambiarlo a `:rw` a secas habria dejado pasar
+    CUALQUIER montaje de escritura nuevo, que es justo lo que un candado de
+    secretos existe para impedir. Asi que el invariante ya no es "nada se
+    escribe" sino "se escribe en EXACTAMENTE un lugar, y es este".
+
+    Rojo-primero: con un segundo bind `:rw` sembrado en el bloque app, o con
+    el modo de un bind existente cambiado a `:rw`, este test revienta.
+    """
+    bloque = _bloque_servicio(COMPOSE.read_text(encoding="utf-8"), "app")
+    binds = [
+        ln.strip().lstrip("-").strip().split("#", 1)[0].strip()
+        for ln in bloque.splitlines()
+        if ln.strip().startswith("- /")
+    ]
+    escritura = [b for b in binds if b.endswith(":rw") or not b.endswith(":ro")]
+    assert escritura == [SECRETS_MOUNT], (
+        f"binds con escritura en el servicio app: {escritura}; "
+        f"el unico autorizado es {SECRETS_MOUNT}"
+    )
+
+
+def test_compose_comentario_del_bloque_app_no_contradice_el_montaje():
+    """El comentario decia «secrets/ se monta :ro» mientras la linea 48
+    montaba :rw. Un comentario que miente sobre un candado de secretos es
+    peor que no tenerlo: el siguiente lector confia en el y no mira.
+    """
+    texto = COMPOSE.read_text(encoding="utf-8")
+    cabecera = texto.split("  app:", 1)[0]
+    assert "secrets/ se monta :ro" not in cabecera
+    assert ":ro" not in cabecera.split("# API + CLI", 1)[-1], (
+        "el comentario del bloque app afirma un montaje :ro que ya no existe"
+    )
 
 
 def test_compose_app_corre_non_root_con_uid_de_secrets():
