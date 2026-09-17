@@ -1464,3 +1464,20 @@ def test_tool_cambio_inexistente_aborta(monkeypatch):
         monkeypatch.setenv("ORBIT_DSN_DECIDE", _dsn_db(conn))
         with pytest.raises(tool.Abortar, match="inexistente"):
             tool.main(["--cambio-id", "424242"], transport=red.transport, credentials=dict(CRED))
+
+
+def test_r1_a8_docstring_ventana_commit_patch():
+    """r1-A8: cambiar y revertir documentan la ventana COMMIT-PATCH.
+
+    Si el proceso muere entre el INSERT (COMMIT) y el PATCH, queda una
+    fila pendiente huerfana que el indice de abierto unico vuelve
+    visible (todo reintento la ve abierta y salta); el docstring dice
+    como detectarla.
+    """
+    from app.spapi import precio_write as pw
+
+    for fn in (pw.cambiar_precio, pw.revertir):
+        doc = (fn.__doc__ or "").lower()
+        assert "huerfana" in doc
+        assert "commit" in doc and "patch" in doc
+        assert "pendiente" in doc

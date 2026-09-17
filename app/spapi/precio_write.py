@@ -302,6 +302,17 @@ def revertir(
     fila y sin PATCH. El cuerpo se arma ANTES de insertar la fila
     `pendiente`: con la forma sin sellar no queda fila ni hay red. Orden
     S5: INSERT + COMMIT -> PATCH -> sello.
+
+    Ventana COMMIT-PATCH (r1-A8): si el proceso muere entre el COMMIT
+    del INSERT y el PATCH (o el PATCH nunca vuelve), queda una fila
+    pendiente huerfana: nunca se envio a Amazon pero el indice de
+    abierto unico la vuelve visible para siempre, porque todo reintento
+    la ve abierta y salta con `original_abierto` (y el cierre por
+    observacion solo confirma lo que si se envio). No se reintenta
+    sola: el dueno la detecta con
+    `SELECT id FROM precio_cambio WHERE estado = 'pendiente' AND es_reversa`
+    y la cierra a mano tras verificar en Seller Central que el precio
+    no se movio.
     """
     momento = _normalizar_ahora(ahora)
     fila = _fila_cambio(conn, cambio_id)
@@ -466,6 +477,16 @@ def cambiar_precio(
     usada; la base tambien lo rechazaria). Sin precio vivo no hay fila
     que insertar (`precio_antes` es NOT NULL): `error` sin fila y sin
     PATCH. Orden S5: INSERT + COMMIT -> PATCH -> sello.
+
+    Ventana COMMIT-PATCH (r1-A8): si el proceso muere entre el COMMIT
+    del INSERT y el PATCH (o el PATCH nunca vuelve), queda una fila
+    pendiente huerfana: nunca se envio a Amazon pero el indice de
+    abierto unico la vuelve visible para siempre, porque todo reintento
+    la ve abierta y salta con `original_abierto`. No se reintenta sola:
+    el dueno la detecta con
+    `SELECT id FROM precio_cambio WHERE estado = 'pendiente' AND NOT es_reversa`
+    y la cierra a mano tras verificar en Seller Central que el precio
+    no se movio.
     """
     momento = _normalizar_ahora(ahora)
     dec = conn.execute(
