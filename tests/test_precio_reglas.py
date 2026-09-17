@@ -98,7 +98,7 @@ def test_tipos_subir_bajar_sin_motivo():
         assert motivo_permitido("goal_inalcanzable", motivo)
     for motivo in MOTIVOS_FRENADO:
         assert motivo_permitido("frenado", motivo)
-    assert len(SUBMOTIVOS_SIN_DATO) == 8
+    assert len(SUBMOTIVOS_SIN_DATO) == 10
 
 
 def test_tipos_senal_sin_dato_exige_submotivo_conocido():
@@ -716,6 +716,33 @@ def test_r1_a1_precio_cotizado_distinto_no_pasa():
     esc = replace(esc, precio_cotizado=imp("58"))
     d = resuelve(entrada(costo="60", escenario=esc))
     assert (d.resultado, d.motivo) == ("no_evaluado", "escenario_incoherente")
+
+
+# ---------------------------------------------------------------- r1-B4
+
+
+def test_r1_b4_dia_sin_estado_listing_tiene_submotivo_propio():
+    dias15 = [HOY - timedelta(days=d) for d in range(1, 16)]
+    act = [(d, True) for d in dias15 if d != HOY - timedelta(days=4)]
+    assert senal(insumos_sanos(HOY, listing_activo=tuple(act))).submotivo == (
+        "dia_sin_estado_listing"
+    )
+
+
+def test_r1_b4_ventana_60_toda_excluida():
+    from app.precio.config import leer_config
+    from app.precio.ventas import evaluar_senal
+
+    c = leer_config(
+        dict(
+            BASE_CONFIG,
+            precio_fechas_excluidas=[
+                [(HOY - timedelta(days=75)).isoformat(), (HOY - timedelta(days=16)).isoformat()]
+            ],
+        )
+    )
+    s = evaluar_senal(insumos_sanos(HOY), hoy=HOY, config=c, racha_previa=0)
+    assert (s.estado, s.submotivo, s.n60) == ("sin_dato", "ventana_60_excluida", 0)
 
 
 # ---------------------------------------------------------------- r1-B3

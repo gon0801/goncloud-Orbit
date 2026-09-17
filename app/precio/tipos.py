@@ -123,6 +123,8 @@ SUBMOTIVOS_SIN_DATO = frozenset(
         "dia_sin_stock",
         "dia_sin_observacion_inventario",
         "listing_inactivo",
+        "dia_sin_estado_listing",
+        "ventana_60_excluida",
         "racha_incompleta",
     }
 )

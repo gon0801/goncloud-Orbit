@@ -7,9 +7,10 @@ por dias contados. `perdiendo = u15 < (u60 / n60 * n15) * (1 - caida)`
 con `<` estricto, solo con racha completa (`senal_dias` corridas).
 
 Orden de cortocircuito (S4 no fija orden entre las guardas; este es el
-sellado): cobertura del ledger -> historia -> `u60_min` -> `n15` ->
-inventario/listing por dia -> caida -> racha. La primera guarda que
-falla decide el `sin_dato`; `u15/u60/n15/n60` se guardan igual.
+sellado): cobertura del ledger -> historia -> ventana 60 no vacia ->
+`u60_min` -> `n15` -> inventario/listing por dia -> caida -> racha. La
+primera guarda que falla decide el `sin_dato`; `u15/u60/n15/n60` se
+guardan igual.
 
 Solo los dias CONTADOS pasan las guardas de inventario y listing: un dia
 excluido es como si no existiera para la senal.
@@ -65,6 +66,8 @@ def evaluar_senal(
 
     if insumos.primera_venta is None or (hoy - insumos.primera_venta).days < 75:
         return sin_dato("historia_corta")
+    if n60 == 0:
+        return sin_dato("ventana_60_excluida")
     if u60 < config.u60_min:
         return sin_dato("u60_bajo_minimo")
     if n15 < 10:
@@ -78,11 +81,10 @@ def evaluar_senal(
             return sin_dato("dia_sin_observacion_inventario")
         if qty <= 0:
             return sin_dato("dia_sin_stock")
-        if not activo.get(dia, False):
+        if dia not in activo:
+            return sin_dato("dia_sin_estado_listing")
+        if not activo[dia]:
             return sin_dato("listing_inactivo")
-
-    if n60 == 0:  # Residual: todo excluido; sin promedio contra que comparar.
-        return sin_dato("ledger_hueco")
     esperado = Decimal(u60) * Decimal(n15) / Decimal(n60) * (Decimal(1) - config.caida_ventas_pct)
     if not Decimal(u15) < esperado:
         return SenalVentas("no_perdiendo", None, u15, u60, n15, n60, 0)
