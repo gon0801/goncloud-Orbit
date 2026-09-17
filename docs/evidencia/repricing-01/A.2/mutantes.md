@@ -10,6 +10,86 @@ con `git checkout -- <archivo>` y `git status` limpio. Ninguna mutación
 se commitea. Un mutante que sobrevive se cierra arreglando el test, no
 escondiéndolo (M12).
 
+## Ronda r5 (revisión de kimi, 2026-09-17)
+
+Sembrados sobre el HEAD commiteado, con caché nueva
+`PYTHONPYCACHEPREFIX=$(mktemp -d) -p no:cacheprovider`, revertidos por
+edición y `git status` limpio. J4–J7 son candados e higiene sin cambio
+de comportamiento y no llevan mutante.
+
+### J1a — sin filtro `aplicado`: la sombra compite (`reglas.py`)
+
+Mutante: `if resultado in (...) and aplicado` → `if resultado in
+(...)`. El `subir` de sombra le quita el cupo al `live`.
+Test: `test_r5_j1_sombra_no_consume_cupo`.
+
+```text
+E       AssertionError: assert Decision(resultado='mantener', motivo='cuota', ...) is Decision(resultado='subir', ..., aplicado=True, ...)
+FAILED tests/test_precio_reglas.py::test_r5_j1_sombra_no_consume_cupo
+1 failed, 6 passed, 161 deselected in 0.32s
+```
+
+MUERTO.
+
+### J1b — sin filtro de resultado: todo lo aplicado compite (`reglas.py`)
+
+Mutante: `if resultado in (...) and aplicado` → `if aplicado`. Con
+datos del motor hoy es indistinguible (solo `_subir`/`_bajar` nacen con
+`aplicado=True`), así que sobrevivió al subconjunto; se mató con
+`test_r5_j1_mantener_con_aplicado_no_compite` (un `mantener(*)` con
+`aplicado=True` pasa idéntico por contrato, aunque el motor no lo
+produzca hoy):
+
+```text
+E       AssertionError: assert Decision(resultado='mantener', motivo='cuota', ...) is Decision(resultado='subir', ..., aplicado=True, ...)
+FAILED tests/test_precio_reglas.py::test_r5_j1_mantener_con_aplicado_no_compite
+1 failed, 168 deselected in 0.30s
+```
+
+MUERTO (con test nuevo; doctrina M12).
+
+### J1c — las que no compiten se reescriben a cuota (`reglas.py`)
+
+Mutante: la rama `else` final reescribe a `mantener(cuota)` en vez de
+pasar idéntico. El `no_evaluado` pierde su motivo y la sombra su
+resultado. Tests: los cuatro `test_r5_j1_*`.
+
+```text
+FAILED tests/test_precio_reglas.py::test_r5_j1_frenado_no_consume_cupo_ni_reescribe_no_evaluado
+FAILED tests/test_precio_reglas.py::test_r5_j1_sombra_no_consume_cupo
+FAILED tests/test_precio_reglas.py::test_r5_j1_mantener_con_aplicado_no_compite
+FAILED tests/test_precio_reglas.py::test_r5_j1_cupo_cero_solo_accion_live_sale_cuota
+4 failed, 165 deselected in 0.34s
+```
+
+MUERTO.
+
+### J2 — sin guarda de monedas (`reglas.py`)
+
+Mutante: quitar el `ValueError` de monedas distintas. Test:
+`test_r5_j2_monedas_distintas_entre_compiten_es_valueerror` (rojo
+original del TDD, con caché nueva):
+
+```text
+E       Failed: DID NOT RAISE ValueError
+1 failed, 168 deselected in 0.32s
+```
+
+MUERTO.
+
+### J3 — sin exigir centavos (`estimacion_fees.py`)
+
+Mutante: quitar el `ValueError` de `precio != precio.quantize(0.01)`.
+Test: `test_r5_j3_cotizar_a_precio_exige_centavos` (rojo original del
+TDD, con caché nueva):
+
+```text
+E       Failed: DID NOT RAISE ValueError
+1 failed, 169 deselected in 0.31s
+```
+
+MUERTO.
+
 ## Baseline (sin base: son reglas puras; DSN solo por los tests vecinos)
 
 ```bash
@@ -335,86 +415,6 @@ FAILED tests/test_architecture.py::test_precio_frontera_caza_reloj_en_todas_sus_
 
 La tupla discrimina elemento por elemento. De paso se corrigió el
 docstring: `time.time()` cae SOLO por el import prohibido de `time`.
-
-## Ronda r5 (revisión de kimi, 2026-09-17)
-
-Sembrados sobre el HEAD commiteado, con caché nueva
-`PYTHONPYCACHEPREFIX=$(mktemp -d) -p no:cacheprovider`, revertidos por
-edición y `git status` limpio. J4–J7 son candados e higiene sin cambio
-de comportamiento y no llevan mutante.
-
-### J1a — sin filtro `aplicado`: la sombra compite (`reglas.py`)
-
-Mutante: `if resultado in (...) and aplicado` → `if resultado in
-(...)`. El `subir` de sombra le quita el cupo al `live`.
-Test: `test_r5_j1_sombra_no_consume_cupo`.
-
-```text
-E       AssertionError: assert Decision(resultado='mantener', motivo='cuota', ...) is Decision(resultado='subir', ..., aplicado=True, ...)
-FAILED tests/test_precio_reglas.py::test_r5_j1_sombra_no_consume_cupo
-1 failed, 6 passed, 161 deselected in 0.32s
-```
-
-MUERTO.
-
-### J1b — sin filtro de resultado: todo lo aplicado compite (`reglas.py`)
-
-Mutante: `if resultado in (...) and aplicado` → `if aplicado`. Con
-datos del motor hoy es indistinguible (solo `_subir`/`_bajar` nacen con
-`aplicado=True`), así que sobrevivió al subconjunto; se mató con
-`test_r5_j1_mantener_con_aplicado_no_compite` (un `mantener(*)` con
-`aplicado=True` pasa idéntico por contrato, aunque el motor no lo
-produzca hoy):
-
-```text
-E       AssertionError: assert Decision(resultado='mantener', motivo='cuota', ...) is Decision(resultado='subir', ..., aplicado=True, ...)
-FAILED tests/test_precio_reglas.py::test_r5_j1_mantener_con_aplicado_no_compite
-1 failed, 168 deselected in 0.30s
-```
-
-MUERTO (con test nuevo; doctrina M12).
-
-### J1c — las que no compiten se reescriben a cuota (`reglas.py`)
-
-Mutante: la rama `else` final reescribe a `mantener(cuota)` en vez de
-pasar idéntico. El `no_evaluado` pierde su motivo y la sombra su
-resultado. Tests: los cuatro `test_r5_j1_*`.
-
-```text
-FAILED tests/test_precio_reglas.py::test_r5_j1_frenado_no_consume_cupo_ni_reescribe_no_evaluado
-FAILED tests/test_precio_reglas.py::test_r5_j1_sombra_no_consume_cupo
-FAILED tests/test_precio_reglas.py::test_r5_j1_mantener_con_aplicado_no_compite
-FAILED tests/test_precio_reglas.py::test_r5_j1_cupo_cero_solo_accion_live_sale_cuota
-4 failed, 165 deselected in 0.34s
-```
-
-MUERTO.
-
-### J2 — sin guarda de monedas (`reglas.py`)
-
-Mutante: quitar el `ValueError` de monedas distintas. Test:
-`test_r5_j2_monedas_distintas_entre_compiten_es_valueerror` (rojo
-original del TDD, con caché nueva):
-
-```text
-E       Failed: DID NOT RAISE ValueError
-1 failed, 168 deselected in 0.32s
-```
-
-MUERTO.
-
-### J3 — sin exigir centavos (`estimacion_fees.py`)
-
-Mutante: quitar el `ValueError` de `precio != precio.quantize(0.01)`.
-Test: `test_r5_j3_cotizar_a_precio_exige_centavos` (rojo original del
-TDD, con caché nueva):
-
-```text
-E       Failed: DID NOT RAISE ValueError
-1 failed, 169 deselected in 0.31s
-```
-
-MUERTO.
 
 ## Ronda r3 (revisión de kimi, 2026-09-17)
 
