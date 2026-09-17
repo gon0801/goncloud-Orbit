@@ -538,6 +538,13 @@ def repartir_cupo(
         for pos, (_, decision) in enumerate(candidatos)
         if decision.resultado in ("subir", "bajar") and decision.aplicado
     ]
+    monedas = {
+        candidatos[pos][1].p_actual.moneda
+        for pos in compiten
+        if candidatos[pos][1].p_actual is not None
+    }
+    if len(monedas) > 1:
+        raise ValueError(f"repartir_cupo con monedas distintas: {sorted(monedas)}")
     ordenados = sorted(
         compiten,
         key=lambda pos: (

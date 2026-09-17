@@ -1150,6 +1150,20 @@ def test_r5_j1_sombra_no_consume_cupo():
     assert salida[1][1] is viva
 
 
+def test_r5_j2_monedas_distintas_entre_compiten_es_valueerror():
+    """r5-J2: mezclar monedas entre las que compiten es error de quien llama."""
+    from dataclasses import replace
+
+    from app.precio.reglas import repartir_cupo
+
+    a = resuelve(entrada(costo="60"))
+    b = resuelve(entrada(costo="55"))
+    b_usd = replace(b, p_actual=replace(b.p_actual, moneda="USD"))
+    assert a.p_actual.moneda != b_usd.p_actual.moneda
+    with pytest.raises(ValueError, match="monedas distintas"):
+        repartir_cupo(((1, a), (2, b_usd)), cupo=1)
+
+
 def test_r5_j1_cupo_cero_solo_accion_live_sale_cuota():
     """r5-J1 mixto con cupo=0: la acción live sale a cuota, lo demás intacto."""
     from app.precio.reglas import repartir_cupo
