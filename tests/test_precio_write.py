@@ -910,6 +910,37 @@ def test_cambiar_200_sin_accepted_es_error(ack):
         assert fila[0] == "error" and fila[1].endswith(" 200")
 
 
+def test_r1_a6_readback_con_lwa_caido_es_fallido_sin_tumbar():
+    """r1-A6: LWA caído en el readback → fallido, el enviado no se mueve."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(100.0)), (401, {})],
+        gets_competitivos=[(200, _competitivo_body())],
+        patchs=[(202, {"submissionId": "c-1", "status": "ACCEPTED"})],
+        lwa=[
+            (200, {"access_token": "tok-vivo", "expires_in": 3600}),
+            (400, {"error": "invalid_grant"}),
+        ],
+    )
+    with db_39c() as conn:
+        _, dec = _semilla_cambio(conn)
+        lector, escritor = _clientes(red)
+        with rol(conn):
+            res = cambiar_precio(
+                conn,
+                dec,
+                lector=lector,
+                escritor=escritor,
+                construir_cuerpo=_cuerpo_falso,
+                ahora=AHORA,
+            )
+        assert res.estado == "enviado"
+        fila = conn.execute(
+            "SELECT estado, readback_estado FROM precio_cambio WHERE id = %s",
+            (res.id_cambio,),
+        ).fetchone()
+        assert fila == ("enviado", "fallido")
+
+
 def test_cambiar_429_agotado_readback_fallido_sin_escritura_extra():
     red = _RedFalsa(
         gets_ofertas=[

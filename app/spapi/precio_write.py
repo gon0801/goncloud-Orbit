@@ -41,6 +41,7 @@ from app.spapi.client import (
     VENDEDORES_PROPIOS,
     SpapiAuthError,
     SpapiClient,
+    SpapiError,
     construir_ruta_listings,
     construir_ruta_ofertas,
 )
@@ -262,9 +263,11 @@ def _readback(
 
 
 def _leer_vivo_suave(lector: SpapiClient, *, platform: str, asin: str) -> PrecioVivo | None:
+    # El readback nunca tumba una operacion ya sellada (r1-A6): LWA caido
+    # tambien es `fallido`, no una excepcion hacia quien llama.
     try:
         return leer_precio_vivo(lector, platform=platform, asin=asin)
-    except (PrecioVivoAusente, httpx.HTTPError):
+    except (PrecioVivoAusente, SpapiError, httpx.HTTPError):
         return None
 
 
