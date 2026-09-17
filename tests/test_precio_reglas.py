@@ -996,6 +996,107 @@ def test_reglas_sin_decimal_no_hay_float():
             ), f"{path.name}: llamada a float("
 
 
+# ---------------------------------------------------------------- cotizar_a_precio
+
+from app.estimacion_fees import FeesClientError, cotizar_a_precio  # noqa: E402
+
+
+def oferta_mx(precio="116.00"):
+    from app.estimacion_insumos import OfertaResuelta
+
+    return OfertaResuelta(
+        listing_id=1,
+        platform="amazon_mx",
+        seller_sku="SKU1",
+        asin="B0EST01",
+        canal="fba",
+        price_amount=Decimal(precio),
+        price_currency="MXN",
+        fetched_at=AHORA,
+        canonical_input={},
+        context_fingerprint="x",
+        source_event_id="evento-1",
+    )
+
+
+class ClienteFalso:
+    def __init__(self, body=None, error=None):
+        self.body = body
+        self.error = error
+        self.pedidos = []
+
+    def cotizar(self, oferta):
+        self.pedidos.append(oferta)
+        if self.error is not None:
+            raise self.error
+        return self.body(oferta)
+
+
+def cuerpo_exito(oferta):
+    p = float(oferta.price_amount)
+    return {
+        "payload": {
+            "FeesEstimateResult": {
+                "Status": "Success",
+                "FeesEstimateIdentifier": {
+                    "MarketplaceId": "A1AM78C64UM0Y8",
+                    "IdType": "SellerSKU",
+                    "IdValue": oferta.seller_sku,
+                    "SellerInputIdentifier": oferta.source_event_id,
+                    "IsAmazonFulfilled": True,
+                    "PriceToEstimateFees": {"ListingPrice": {"CurrencyCode": "MXN", "Amount": p}},
+                },
+                "FeesEstimate": {
+                    "TimeOfFeesEstimation": AHORA.isoformat(),
+                    "TotalFeesEstimate": {"CurrencyCode": "MXN", "Amount": 15.0},
+                    "FeeDetailList": [
+                        {
+                            "FeeType": "ReferralFee",
+                            "FeeAmount": {"CurrencyCode": "MXN", "Amount": 12.0},
+                            "FinalFee": {"CurrencyCode": "MXN", "Amount": 12.0},
+                        },
+                        {
+                            "FeeType": "FBAFees",
+                            "FeeAmount": {"CurrencyCode": "MXN", "Amount": 3.0},
+                            "FinalFee": {"CurrencyCode": "MXN", "Amount": 3.0},
+                        },
+                    ],
+                },
+            }
+        }
+    }
+
+
+def test_cotizar_a_precio_sustituye_sin_mutar_y_sin_persistir():
+    oferta = oferta_mx()
+    cliente = ClienteFalso(body=cuerpo_exito)
+    resultado = cotizar_a_precio(cliente, oferta, Decimal("130.00"), observed_at=AHORA)
+    assert resultado.estado == "success"
+    assert cliente.pedidos[0].price_amount == Decimal("130.00")
+    assert oferta.price_amount == Decimal("116.00")
+    assert cliente.pedidos[0] is not oferta
+
+
+def test_cotizar_a_precio_rechaza_precio_invalido():
+    oferta = oferta_mx()
+    for malo in (130.0, "130.00", Decimal("0"), Decimal("-1"), Decimal("NaN")):
+        with pytest.raises(ValueError):
+            cotizar_a_precio(cliente := ClienteFalso(body=cuerpo_exito), oferta, malo)
+        assert cliente.pedidos == []
+
+
+def test_cotizar_a_precio_no_amplia_universo_y_propoaga_error():
+    from dataclasses import replace
+
+    oferta = oferta_mx()
+    fbm = replace(oferta, canal="fbm")
+    resultado = cotizar_a_precio(ClienteFalso(body=cuerpo_exito), fbm, Decimal("130.00"))
+    assert (resultado.estado, resultado.error_code) == ("error", "fee_universo_no_soportado")
+    cliente = ClienteFalso(error=FeesClientError("fee_timeout"))
+    resultado = cotizar_a_precio(cliente, oferta, Decimal("130.00"), observed_at=AHORA)
+    assert (resultado.estado, resultado.error_code) == ("error", "fee_timeout")
+
+
 def test_objetivo_paso_tax_y_error_y_no_concilia():
     base = dict(
         costo=Decimal("60"),

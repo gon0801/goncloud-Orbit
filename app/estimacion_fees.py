@@ -706,6 +706,28 @@ def cotizar_oferta(
         )
 
 
+def cotizar_a_precio(
+    client: ProductFeesClient,
+    oferta: OfertaResuelta,
+    precio: Decimal,
+    *,
+    observed_at: datetime | None = None,
+    now_utc: Callable[[], datetime] = lambda: datetime.now(UTC),
+) -> ResultadoCotizacion:
+    """REPRICING 01 A.2: `cotizar_oferta` sobre una COPIA de la oferta con el
+    precio sustituido (`dataclasses.replace`; la original queda intacta).
+    Misma firma de reloj inyectable, SIN persistir nada y SIN ampliar
+    `_UNIVERSO_SOPORTADO` (FBM y US son E.3 y la fase B). Precio no
+    `Decimal`, no finito o <= 0 -> `ValueError`."""
+    from dataclasses import replace
+
+    if not isinstance(precio, Decimal) or not precio.is_finite() or precio <= 0:
+        raise ValueError(f"precio a cotizar invalido: {precio!r}")
+    return cotizar_oferta(
+        client, replace(oferta, price_amount=precio), observed_at=observed_at, now_utc=now_utc
+    )
+
+
 def persistir_fee_observation(
     conn: psycopg.Connection,
     *,
