@@ -36,6 +36,7 @@ from test_notifica import _canal
 from test_schema import _postgres_obligatorio_ausente, _test_dsn
 
 from app import api_dashboard as dash
+from app import notifica
 from app.dashboard_pagina import _SQL_DECISIONES_TOTAL
 from app.main import app
 
@@ -493,8 +494,8 @@ def _terna_de(conn, camp: int, camp_ext: str, ag_ext: str) -> None:
 
 @_skip_db
 def test_a6_flanco_avisa_una_vez_por_racha(tmp_path, monkeypatch):
-    """Flanco por campana: 1er ciclo con el salto -> 1 aviso; 2do sin
-    cambios -> 0; corregido -> 0 y saltos vacios; roto de nuevo -> 1."""
+    """APAGON 2026-09-16: flanco por campana con cero envios; el negocio
+    (saltos en notes) corre igual. Contenido verificado en builder puro."""
     with db_f2("orbit_a6_flanco") as conn, _canal(tmp_path, monkeypatch) as mensajes:
         gpo, run = _base_ciclo(conn, con_terna=True)
         phrase = gpo["roles"]["category_phrase"]
@@ -504,9 +505,21 @@ def test_a6_flanco_avisa_una_vez_por_racha(tmp_path, monkeypatch):
 
         res1 = _corre(conn)
         assert res1.status in ("done", "degraded")
-        assert len(_avisos_destino(mensajes)) == 1
-        assert f"(#{phrase['camp']}, rol category_phrase)" in _avisos_destino(mensajes)[0]["text"]
-        assert "motivo: destino_inconsistente" in _avisos_destino(mensajes)[0]["text"]
+        assert len(_avisos_destino(mensajes)) == 0, "APAGON 2026-09-16: cero envios"
+        # Contenido verificado en el builder puro (sin red).
+        texto = notifica.aviso_destino_grupo(
+            notifica.SaltoDestinoGrupo(
+                platform="amazon_us",
+                grupo_id=gpo["grupo_id"],
+                campaign_ad_entity_id=phrase["camp"],
+                campaign_external=None,
+                nombre=None,
+                rol="category_phrase",
+                motivo="destino_inconsistente",
+            )
+        )
+        assert f"(#{phrase['camp']}, rol category_phrase)" in texto
+        assert "motivo: destino_inconsistente" in texto
 
         # Dos ciclos sin la clave entre medias no rompen la racha: el
         # flanco busca el PRIMER notes con harvest_destino. El skipped mata
@@ -521,17 +534,17 @@ def test_a6_flanco_avisa_una_vez_por_racha(tmp_path, monkeypatch):
             )
         res2 = _corre(conn)
         assert res2.status in ("done", "degraded")
-        assert len(_avisos_destino(mensajes)) == 1, "la misma racha no re-avisa"
+        assert len(_avisos_destino(mensajes)) == 0, "APAGON: la misma racha no envia"
 
         _terna_de(conn, phrase["camp"], exacta["camp_ext"], exacta["ag_ext"])
         res3 = _corre(conn)
-        assert len(_avisos_destino(mensajes)) == 1
+        assert len(_avisos_destino(mensajes)) == 0  # APAGON
         assert json.loads(res3.notes)["harvest_destino"]["saltos_grupo"] == {}
 
         _terna_de(conn, phrase["camp"], "8001", "8101")
         res4 = _corre(conn)
         assert res4.status in ("done", "degraded")
-        assert len(_avisos_destino(mensajes)) == 2, "el salto reaparecido vuelve a avisar"
+        assert len(_avisos_destino(mensajes)) == 0, "APAGON: reaparicion sin envio"
 
 
 @_skip_db
@@ -550,9 +563,8 @@ def test_a6_flanco_suelta_nunca_avisa(tmp_path, monkeypatch):
 
 @_skip_db
 def test_a6_flanco_grupo_sin_exacta_cuatro_avisos_una_vez(tmp_path, monkeypatch):
-    """Grupo sin fila category_exact (el trigger no bloquea el DELETE con
-    goals en estado 1): las 4 discovery saltan con sin_destino_de_harvest
-    -> 4 avisos la primera vez, 0 la segunda."""
+    """APAGON 2026-09-16: grupo sin exact con cero envios; los 4 saltos
+    quedan en notes igual."""
     with db_f2("orbit_a6_flancoe") as conn, _canal(tmp_path, monkeypatch) as mensajes:
         gpo, _run = _base_ciclo(conn, con_terna=False)
         conn.execute(
@@ -562,9 +574,8 @@ def test_a6_flanco_grupo_sin_exacta_cuatro_avisos_una_vez(tmp_path, monkeypatch)
         res1 = _corre(conn)
         assert res1.status in ("done", "degraded")
         avisos = _avisos_destino(mensajes)
-        assert len(avisos) == 4
-        assert all("motivo: sin_destino_de_harvest" in m["text"] for m in avisos)
+        assert len(avisos) == 0, "APAGON 2026-09-16: cero envios"
         saltos = json.loads(res1.notes)["harvest_destino"]["saltos_grupo"]
-        assert len(saltos) == 4
+        assert len(saltos) == 4, "el negocio (saltos) corre igual sin Telegram"
         _corre(conn)
-        assert len(_avisos_destino(mensajes)) == 4, "la misma racha no re-avisa"
+        assert len(_avisos_destino(mensajes)) == 0, "APAGON: la misma racha no envia"

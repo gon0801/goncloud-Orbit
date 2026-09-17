@@ -16,10 +16,9 @@ por ``scrub``.
 
 Builders PUROS (sin red): arman el mensaje SIN secretos, texto plano SIN
 parse_mode (sin riesgo de inyeccion HTML/Markdown desde un search_term).
-``transport`` inyecta el httpx de los tests unitarios (patron del repo);
-``_transporte_test`` es la puerta de los tests de INTEGRACION del ciclo (el
-ciclo llama a los ``notifica_*`` sin transport). Toda la superficie publica
-devuelve bool y JAMAS levanta excepciones hacia arriba.
+``transport`` se conserva por compatibilidad de firma (APAGON 2026-09-16:
+se ignora, cero red). Toda la superficie publica devuelve bool y JAMAS
+levanta excepciones hacia arriba.
 """
 
 from __future__ import annotations
@@ -30,8 +29,6 @@ import os
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import TYPE_CHECKING
-
-import httpx
 
 from app.db import connect
 from app.redaction import install_scrub_filter, scrub
@@ -46,12 +43,9 @@ install_scrub_filter(logger)
 
 TELEGRAM_FILENAME = "telegram.json"
 
-# ~10s de tope por envio (mismo espiritu de timeouts cortos del cliente Ads).
-_TIMEOUT = httpx.Timeout(connect=5.0, read=10.0, write=5.0, pool=5.0)
-
-# Puerta de los tests de integracion (docstring del modulo); produccion la
-# deja en None y usa el transport real de httpx.
-_transporte_test: httpx.BaseTransport | None = None
+# APAGON 2026-09-16: sin red. `_transporte_test` queda como compat (siempre
+# ignorado); los fixtures viejos pueden seguir seteandolo sin romper.
+_transporte_test: object | None = None
 
 # Familia de efecto por kind — ESPEJO de la columna GENERATED de apply_queue
 # (0002: pause -> entity_cut; negative y harvest -> term_cut; regla 2).
@@ -138,17 +132,6 @@ class CorteEncolado:
     modo: str
 
 
-@dataclass(frozen=True)
-class _ConfigCanal:
-    """Config resuelta del canal. El token JAMAS se repr: vive en la URL."""
-
-    bot_token: str
-    chat_id: str
-
-    def url(self) -> str:
-        return f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
-
-
 # Cache por proceso (el resolve lee el FS una sola vez; el logger.info de
 # "deshabilitado" sale UNA vez). `_reset()` es la puerta de los tests.
 _estado: dict = {}
@@ -160,7 +143,7 @@ def _reset() -> None:
     _estado.clear()
 
 
-def _config_canal() -> _ConfigCanal | None:
+def _config_canal() -> None:
     """Canal DESHABILITADO por decision (chat limpio, 2026-09-16).
 
     Todos los avisos Telegram quedan apagados: los ``notifica_*`` devuelven
@@ -182,7 +165,7 @@ def canal_activo() -> bool:
     return _config_canal() is not None
 
 
-def _envia_texto(texto: str, transport: httpx.BaseTransport | None = None) -> bool:
+def _envia_texto(texto: str, transport: object | None = None) -> bool:
     """APAGON TOTAL Telegram (2026-09-16): no envia red, deja log local y
     devuelve True (contrato canal deshabilitado: no es fallo, sin NOTA)."""
     logger.info("aviso Telegram suprimido (chat limpio, ver log/salud): %s", scrub(texto[:500]))
@@ -531,7 +514,7 @@ def aviso_cap_agotado(plataforma: str, kind: str, used: int, cap: int) -> str:
 # ---------------------------------------------------------------------------
 
 
-def notifica_encola(fila: CorteEncolado, *, transport: httpx.BaseTransport | None = None) -> bool:
+def notifica_encola(fila: CorteEncolado, *, transport: object | None = None) -> bool:
     """Aviso de UN corte nuevo encolado. False = fallo del canal (el caller
     deja la NOTA); canal deshabilitado -> True."""
     try:
@@ -543,7 +526,7 @@ def notifica_encola(fila: CorteEncolado, *, transport: httpx.BaseTransport | Non
         return False
 
 
-def notifica_digest(resumen: dict, *, transport: httpx.BaseTransport | None = None) -> bool:
+def notifica_digest(resumen: dict, *, transport: object | None = None) -> bool:
     """Digest del ciclo ejecutor al final del ciclo. False = fallo del canal."""
     try:
         if not canal_activo():
@@ -568,9 +551,7 @@ def notifica_digest(resumen: dict, *, transport: httpx.BaseTransport | None = No
         return False
 
 
-def notifica_harvest_failed(
-    alerta: AlertaHarvest, *, transport: httpx.BaseTransport | None = None
-) -> bool:
+def notifica_harvest_failed(alerta: AlertaHarvest, *, transport: object | None = None) -> bool:
     """Alerta de harvest failed (sellado 13): sale en el punto de fallo
     definitivo, junto a la reversa automatica. False = fallo del canal (la
     bandera envio_fallido viaja con la alerta hasta el ciclo)."""
@@ -583,9 +564,7 @@ def notifica_harvest_failed(
         return False
 
 
-def notifica_harvest_hermanas(
-    alerta: AlertaHarvest, *, transport: httpx.BaseTransport | None = None
-) -> bool:
+def notifica_harvest_hermanas(alerta: AlertaHarvest, *, transport: object | None = None) -> bool:
     """Aviso de harvest aplicado con hermanas pendientes (F2, A.3): sale al
     cerrar `done` con pendientes declaradas. Mismo contrato fail-silent de
     los otros senders: canal deshabilitado -> True (no es fallo); cualquier
@@ -616,7 +595,7 @@ def aviso_spapi_fallo(fuente: str, platform: str, motivo: str) -> str:
 
 
 def notifica_spapi_fallo(
-    fuente: str, platform: str, motivo: str, *, transport: httpx.BaseTransport | None = None
+    fuente: str, platform: str, motivo: str, *, transport: object | None = None
 ) -> bool:
     """Aviso de fallo SP-API en flanco (A.5): sale UNA vez por racha, en el
     primer 429/LWA o al abrirse la segunda fallida seguida. Mismo contrato
@@ -676,9 +655,7 @@ def aviso_spapi_vigilante_ciego(motivo: str) -> str:
     )
 
 
-def notifica_spapi_silencio(
-    faltantes, desde, hasta, *, transport: httpx.BaseTransport | None = None
-) -> bool:
+def notifica_spapi_silencio(faltantes, desde, hasta, *, transport: object | None = None) -> bool:
     """Aviso de silencio SP-API (vigilante): sale cuando faltan corridas
     en la ventana. Mismo contrato fail-silent de notifica_spapi_fallo:
     canal deshabilitado -> True (no es fallo); cualquier excepcion ->
@@ -694,7 +671,7 @@ def notifica_spapi_silencio(
 
 
 def notifica_cap_agotado(
-    plataforma: str, kind: str, used: int, cap: int, *, transport: httpx.BaseTransport | None = None
+    plataforma: str, kind: str, used: int, cap: int, *, transport: object | None = None
 ) -> bool:
     """Aviso de cap agotado (preflight 1.4): lo manda el ciclo por CADA evento
     de transicion (UNA vez por (motor, dia), D3a). Mismo contrato fail-silent
@@ -756,7 +733,7 @@ def notifica_biblioteca_no_escrita(
     texto: str | None,
     motivo: str,
     detalle: str,
-    transport: httpx.BaseTransport | None = None,
+    transport: object | None = None,
 ) -> bool:
     """Aviso de biblioteca no escrita (F2, A.4): sale en el punto del fallo,
     con el sello ya aplicado. Mismo contrato fail-silent que
@@ -837,9 +814,7 @@ def aviso_destino_grupo(salto: SaltoDestinoGrupo) -> str:
     return "\n".join(lineas)
 
 
-def notifica_destino_grupo(
-    salto: SaltoDestinoGrupo, *, transport: httpx.BaseTransport | None = None
-) -> bool:
+def notifica_destino_grupo(salto: SaltoDestinoGrupo, *, transport: object | None = None) -> bool:
     """Aviso de harvest de grupo sin destino (F2, A.6): lo manda el ciclo
     una vez por racha por campana. Mismo contrato fail-silent que
     `notifica_biblioteca_no_escrita`: canal apagado -> True; cualquier

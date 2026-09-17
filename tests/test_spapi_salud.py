@@ -427,22 +427,22 @@ def test_flanco_una_alerta_por_racha(tmp_path, monkeypatch):
         r2 = _sellar(conn, "spapi_orders", "amazon_mx", False, "contrato: boom 2")
         conn.commit()
         evaluar_alertas(conn, "spapi_orders", "amazon_mx", r2)
-        assert len(mensajes) == 1
+        assert len(mensajes) == 0  # APAGON 2026-09-16: suprimido
         # Tercera fallida de la misma racha: cero alertas nuevas.
         r3 = _sellar(conn, "spapi_orders", "amazon_mx", False, "contrato: boom 3")
         conn.commit()
         evaluar_alertas(conn, "spapi_orders", "amazon_mx", r3)
-        assert len(mensajes) == 1
-        # Una ok rompe la racha; dos fallidas nuevas = una alerta nueva.
+        assert len(mensajes) == 0  # APAGON
+        # Una ok rompe la racha; dos fallidas nuevas = antes una alerta nueva.
         rok = _sellar(conn, "spapi_orders", "amazon_mx", True, escritas=3)
         conn.commit()
         evaluar_alertas(conn, "spapi_orders", "amazon_mx", rok)
-        assert len(mensajes) == 1
+        assert len(mensajes) == 0  # APAGON
         _sellar(conn, "spapi_orders", "amazon_mx", False, "contrato: boom 4")
         r5 = _sellar(conn, "spapi_orders", "amazon_mx", False, "contrato: boom 5")
         conn.commit()
         evaluar_alertas(conn, "spapi_orders", "amazon_mx", r5)
-        assert len(mensajes) == 2
+        assert len(mensajes) == 0  # APAGON
 
 
 @_skip_db
@@ -451,14 +451,16 @@ def test_429_persistente_alerta_inmediata(tmp_path, monkeypatch):
         rid = _sellar(conn, "spapi_pricing", "amazon_mx", False, "http_429: pricing status=429")
         conn.commit()
         evaluar_alertas(conn, "spapi_pricing", "amazon_mx", rid)
-        assert len(mensajes) == 1
-        # Etiquetas exactas: el intercambio fuente/plataforma en la llamada
-        # las romperia (mutacion salud.py: notifica_spapi_fallo(platform,
-        # fuente, motivo)).
-        assert "fuente: spapi_pricing" in mensajes[0]
-        assert "plataforma: amazon_mx" in mensajes[0]
+        assert len(mensajes) == 0  # APAGON 2026-09-16: suprimido
+        # Etiquetas exactas verificadas en el builder puro (mutacion
+        # salud.py: notifica_spapi_fallo(platform, fuente, motivo)).
+        texto = notifica.aviso_spapi_fallo(
+            "spapi_pricing", "amazon_mx", "http_429: pricing status=429"
+        )
+        assert "fuente: spapi_pricing" in texto
+        assert "plataforma: amazon_mx" in texto
         # El matiz de Ads es SOLO para LWA, no para 429.
-        assert "El ciclo de Ads no se afecta" not in mensajes[0]
+        assert "El ciclo de Ads no se afecta" not in texto
 
 
 @_skip_db
@@ -467,8 +469,11 @@ def test_lwa_alerta_con_matiz_ads(tmp_path, monkeypatch):
         rid = _sellar(conn, "spapi_orders", "amazon_mx", False, "lwa_fallido: LWA rechazo (401)")
         conn.commit()
         evaluar_alertas(conn, "spapi_orders", "amazon_mx", rid)
-        assert len(mensajes) == 1
-        assert "El ciclo de Ads no se afecta (procesos y credenciales distintos)." in (mensajes[0])
+        assert len(mensajes) == 0  # APAGON 2026-09-16: suprimido
+        texto = notifica.aviso_spapi_fallo(
+            "spapi_orders", "amazon_mx", "lwa_fallido: LWA rechazo (401)"
+        )
+        assert "El ciclo de Ads no se afecta (procesos y credenciales distintos)." in texto
 
 
 @_skip_db
@@ -486,7 +491,7 @@ def test_429_tres_seguidos_una_sola_alerta(tmp_path, monkeypatch):
             )
             conn.commit()
             evaluar_alertas(conn, "spapi_pricing", "amazon_mx", rid)
-        assert len(mensajes) == 1
+        assert len(mensajes) == 0  # APAGON
 
 
 @_skip_db
@@ -503,7 +508,7 @@ def test_lwa_tres_seguidos_una_sola_alerta(tmp_path, monkeypatch):
             )
             conn.commit()
             evaluar_alertas(conn, "spapi_orders", "amazon_mx", rid)
-        assert len(mensajes) == 1
+        assert len(mensajes) == 0  # APAGON
 
 
 @_skip_db
@@ -516,11 +521,11 @@ def test_cambio_de_clase_dentro_de_racha_re_alerta(tmp_path, monkeypatch):
         r2 = _sellar(conn, "spapi_orders", "amazon_mx", False, "contrato: boom 2")
         conn.commit()
         evaluar_alertas(conn, "spapi_orders", "amazon_mx", r2)
-        assert len(mensajes) == 1
+        assert len(mensajes) == 0  # APAGON
         r3 = _sellar(conn, "spapi_orders", "amazon_mx", False, "lwa_fallido: LWA rechazo (401)")
         conn.commit()
         evaluar_alertas(conn, "spapi_orders", "amazon_mx", r3)
-        assert len(mensajes) == 2
+        assert len(mensajes) == 0  # APAGON
 
 
 @_skip_db
@@ -560,7 +565,7 @@ def test_evaluar_alertas_deja_conexion_idle(tmp_path, monkeypatch):
         r2 = _sellar(conn, "spapi_orders", "amazon_mx", False, "contrato: boom 2")
         conn.commit()
         evaluar_alertas(conn, "spapi_orders", "amazon_mx", r2)
-        assert len(mensajes) == 1
+        assert len(mensajes) == 0  # APAGON
         assert conn.info.transaction_status == psycopg.pq.TransactionStatus.IDLE
 
 
@@ -606,7 +611,7 @@ def test_huerfana_abierta_no_enmascara_racha(tmp_path, monkeypatch):
         r3 = _sellar(conn, "spapi_orders", "amazon_mx", False, "contrato: boom 2")
         conn.commit()
         evaluar_alertas(conn, "spapi_orders", "amazon_mx", r3)
-        assert len(mensajes) == 1
+        assert len(mensajes) == 0  # APAGON
 
 
 @_skip_db
@@ -625,7 +630,7 @@ def test_ancla_corrida_sellada_ante_nuevas(tmp_path, monkeypatch):
         )
         conn.commit()
         evaluar_alertas(conn, "spapi_orders", "amazon_mx", r2)
-        assert len(mensajes) == 1
+        assert len(mensajes) == 0  # APAGON
 
 
 @_skip_db
@@ -646,9 +651,12 @@ def test_motivo_con_secreto_no_sale_por_telegram(tmp_path, monkeypatch):
         )
         conn.commit()
         evaluar_alertas(conn, "spapi_orders", "amazon_mx", rid)
-        assert len(mensajes) == 1
-        assert secreto not in mensajes[0]
-        assert REDACTED in mensajes[0]
+        assert len(mensajes) == 0  # APAGON: suprimido
+        texto = notifica.aviso_spapi_fallo(
+            "spapi_orders", "amazon_mx", f"lwa_fallido: LWA rechazo con {secreto} en el cuerpo"
+        )
+        assert secreto not in texto
+        assert REDACTED in texto
 
 
 # ---------------------------------------------------------------------------
@@ -714,7 +722,8 @@ def test_aislamiento_grafo_runtime_solo_config_inerte():
         check=False,
     )
     assert proc.returncode == 0, proc.stderr
-    assert ast.literal_eval(proc.stdout.strip()) == ["app.ads", "app.ads.config"]
+    # APAGON 2026-09-16: notifica ya no importa app.ads.config -> aislamiento total.
+    assert ast.literal_eval(proc.stdout.strip()) == []
 
 
 @_skip_db
@@ -769,7 +778,7 @@ def test_aislamiento_lwa_caido_sella_alerta_y_retorno_limpio(
         assert fila[0] is False
         assert fila[1].startswith("lwa_fallido: ")
         assert fila[2] == "amazon_mx"
-        assert len(mensajes) == 1
+        assert len(mensajes) == 0  # APAGON: sello intacto, cero envios
 
 
 @_skip_db

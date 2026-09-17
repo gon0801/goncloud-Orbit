@@ -346,11 +346,11 @@ def test_notifica_cap_agotado_canal_deshabilitado_no_es_fallo():
 
 
 def test_notifica_cap_agotado_envio_explota_false_sin_subir(tmp_path, monkeypatch):
-    """Cualquier excepcion del envio -> False + warning, JAMAS levanta
-    (fail-silent; el caller decide la NOTA). Canal CONFIGURADO (telegram.json
-    falso, patron de test_notifica) para que el envio se intente de verdad."""
+    """APAGON 2026-09-16: canal deshabilitado corta antes de _envia_texto —
+    devuelve True sin enviar (no es fallo, sin NOTA). El builder puro sigue
+    verificado en test_aviso_cap_agotado_builder_texto."""
     d = tmp_path / "secrets"
-    d.mkdir()
+    d.mkdir(exist_ok=True)
     (d / "telegram.json").write_text(
         json.dumps({"bot_token": "7700000001:AAF-fake", "chat_id": "555001"}), encoding="utf-8"
     )
@@ -362,7 +362,7 @@ def test_notifica_cap_agotado_envio_explota_false_sin_subir(tmp_path, monkeypatc
         lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("boom canal")),
     )
     try:
-        assert notifica.notifica_cap_agotado("amazon_us", "bid", 10, 10) is False
+        assert notifica.notifica_cap_agotado("amazon_us", "bid", 10, 10) is True
     finally:
         notifica._reset()
 
@@ -373,8 +373,8 @@ def test_notifica_cap_agotado_envio_explota_false_sin_subir(tmp_path, monkeypatc
 
 
 def test_fase_notifica_un_aviso_por_cap_y_latido(canal_ok):
-    """UN notifica_cap_agotado por evento (con tick/latido por mensaje, mismo
-    patron de los avisos de encola); envio ok -> sin NOTA."""
+    """APAGON 2026-09-16: cero envios, sin NOTA; el latido sigue por intento
+    (2 caps + digest = 3). Builders puros verificados aparte."""
     caps = (
         CapSaturado(platform="amazon_us", kind="bid", used=10, cap=10),
         CapSaturado(platform="amazon_us", kind="harvest", used=2, cap=2),
@@ -392,16 +392,15 @@ def test_fase_notifica_un_aviso_por_cap_y_latido(canal_ok):
         caps_saturados=caps,
         tick=lambda: latidos.append(1),
     )
-    assert notas == {}, "envio ok: sin NOTA"
-    avisos = [m["text"] for m in canal_ok if m["text"].startswith("[Orbit] ALERTA cap agotado")]
-    assert len(avisos) == 2, "UN aviso por evento (bid + harvest)"
-    assert any("kind: bid" in t for t in avisos) and any("kind: harvest" in t for t in avisos)
-    assert len(latidos) == len(canal_ok), "un latido por mensaje (avisos + digest)"
+    assert notas == {}, "apagon: sin NOTA"
+    assert len(canal_ok) == 0, "APAGON: cero envios"
+    assert len(latidos) == 3, "un latido por intento (2 caps + digest)"
+    assert "kind: bid" in notifica.aviso_cap_agotado("amazon_us", "bid", 10, 10)
+    assert "kind: harvest" in notifica.aviso_cap_agotado("amazon_us", "harvest", 2, 2)
 
 
 def test_fase_notifica_cap_agotado_canal_caido_deja_nota(canal_fail):
-    """Envio fallido -> la NOTA con el detalle del cap (plataforma/kind y
-    used/cap); JAMAS rompe la fase (mismo try/except de los demas avisos)."""
+    """APAGON 2026-09-16: suprimido sin NOTA; JAMAS rompe la fase."""
     caps = (CapSaturado(platform="amazon_mx", kind="pause", used=2, cap=2),)
     notas = ciclo._fase_notifica(
         (),
@@ -414,9 +413,8 @@ def test_fase_notifica_cap_agotado_canal_caido_deja_nota(canal_fail):
         notas_apply={},
         caps_saturados=caps,
     )
-    assert notas["cap_agotado"] == (
-        "fallo: aviso de cap agotado no enviado por Telegram (cap amazon_mx/pause agotado: 2/2)"
-    )
+    assert notas == {}, "APAGON: suprimido sin nota"
+    assert len(canal_fail) == 0
 
 
 def test_fase_notifica_dos_caps_agotados_canal_caido_la_nota_acumula(canal_fail):
@@ -438,8 +436,7 @@ def test_fase_notifica_dos_caps_agotados_canal_caido_la_nota_acumula(canal_fail)
         notas_apply={},
         caps_saturados=caps,
     )
-    assert "cap amazon_us/bid agotado: 10/10" in notas["cap_agotado"]
-    assert "cap amazon_us/harvest agotado: 2/2" in notas["cap_agotado"]
+    assert notas == {}, "APAGON: suprimido sin nota (acumulacion n/a sin envios)"
 
 
 def test_fase_notifica_cap_agotado_excepcion_no_pisa_la_nota_acumulada(monkeypatch):
@@ -483,10 +480,8 @@ def test_fase_notifica_cap_agotado_excepcion_no_pisa_la_nota_acumulada(monkeypat
 
 @_skip_db
 def test_ciclo_live_cap_agotado_canal_caido_termina_done_con_nota(canal_fail, secrets_falsos):
-    """El ciclo LIVE que agota el cap de bids (1 decision, cap 1: la unica
-    aplicacion ES la transicion) con el canal CAIDO: termina 'done' (un fallo
-    de Telegram JAMAS degrada), la NOTA cap_agotado queda persistida en
-    notes['telegram'] con el detalle, y el digest no pisa la clave."""
+    """APAGON 2026-09-16: el ciclo LIVE que agota el cap termina 'done'
+    sin NOTA telegram (suprimido, ver log/salud)."""
     with _db_ciclo("orbit_pf14_live") as (conn, _c):
         _siembra_maestra(conn, escalera="live")
         _config_version(
@@ -502,12 +497,7 @@ def test_ciclo_live_cap_agotado_canal_caido_termina_done_con_nota(canal_fail, se
         handler, _vistos = _handler({"9201": "0.75"})
         res = _corre_ciclo(conn, factory=_fabrica_real_mock(handler))
 
-        assert res.status == "done", "el fallo del canal no degrada el ciclo"
+        assert res.status == "done", "el apagon no degrada el ciclo"
         notas = json.loads(res.notes)
         assert notas["apply"]["bids_aplicados"] == 1, "la unica unidad satura el cap"
-        assert notas["telegram"]["cap_agotado"] == (
-            "fallo: aviso de cap agotado no enviado por Telegram (cap amazon_us/bid agotado: 1/1)"
-        )
-        assert notas["telegram"]["digest"].startswith("fallo:"), (
-            "las claves de la NOTA conviven (una por tipo de aviso)"
-        )
+        assert "telegram" not in notas, "APAGON: suprimido sin nota"
