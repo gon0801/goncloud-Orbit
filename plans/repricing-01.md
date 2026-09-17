@@ -61,6 +61,10 @@ número), con clave y cota; fuera de cota = `ValueError` ruidoso al leer:
 | `precio_cap_amazon_mx` / `_us` / `_meli` | 5 | 0–20 |
 | `precio_goal_min_pct` / `precio_goal_max_pct` | 0.10 / 0.60 | 0 < min < max < 1 |
 | `precio_freno_cambios` | 3 | 2–10 |
+| `precio_envio_ventana_dias` | sella E.2 | 90–365 |
+| `precio_envio_min_ordenes` | 6 | 3–50 |
+| `precio_envio_min_salida` | 3 | 1 < salida < entrada |
+| `precio_envio_rezago_dias` | sella E.2, del p90 de emisión | 0–120 |
 | `precio_aviso_dias_sin_evaluar` | 3 | 1–14 |
 | `precio_freno_dias_error` | 3 | 1–14 |
 | `precio_divergencia_max_pct` | 0.01 | 0–0.10 |
@@ -180,8 +184,11 @@ M.** Los seis invalidan algo que la v1.1 de este plan daba por cierto:
     0.00 y 0.43 puntos (mediana 0.17) en 15 de 16 productos. Y el p75 móvil de
     90 días **tardó ~75 días** en registrar el cambio de 95 a 91 del 1-jun (el
     p50 tardó 45), así que ante una **subida** de tarifa subestima `L` durante
-    ~75 días. Además el cargo aparece 1–11 días después de su `event_date` y el
-    rezago por fila es p50 27 días en MX y 22 en US, p90 ~57–59, máximo 73.
+    ~75 días. Y el rezago son **dos medidas distintas**: el de *ingesta*, entre
+    el `event_date` y la corrida que trajo la fila, 1 a 11 días; y el de
+    *emisión*, entre la fecha del envío y el `event_date` con que Amazon lo
+    cobra, p50 27 días en MX y 22 en US, p90 ~57–59, máximo 73. La ventana la
+    cierra el segundo, y `precio_envio_rezago_dias` sale de su p90.
 16. **En US el cobro de envío al cliente es NULL, no cero.** De 351 ventas de US
     en 180 días, **ninguna** trae `shipping_price` ni `item_price`; la causa es
     estructural: `_money_from_payload` descarta el desglose cuando el
@@ -470,11 +477,15 @@ conjunto; ninguna fase enciende dos conjuntos a la vez.
 
 ## Estado para la siguiente sesión
 
-- Plan v1.1 sellado sobre el spec v1.2. La fase A y las fases 0/B originales
-  están validadas por cinco perspectivas; **las fases E, B revisada y M
-  necesitan su propia ronda** antes de implementarse.
+- Plan v1.2 sellado sobre el spec v1.3. **Las dos rondas están cerradas**: la
+  primera sobre la fase A y las 0/B originales, la segunda sobre E, B y M
+  (`docs/evidencia/repricing-01/plan-validacion-ebm.md`), que invalidó cuatro
+  hechos que la v1.1 daba por medidos.
 - Nada implementado. Primer movimiento: brief de A.0 (migración) y A.2
-  (reglas puras) para Muse, en paralelo con A.3; **E.1 puede arrancar ya**
-  porque es solo lectura y su resultado es insumo del acta E.2.
+  (reglas puras) para Muse, en paralelo con A.3.
+- **E.1 ya NO puede arrancar sola.** La segunda ronda creó **E.0** y puso E.1
+  detrás de ella: E.0 resuelve si las tres fuentes de `shipping_fee` duplican
+  dinero, disputa que dos mediciones independientes no reconcilian, y sin eso
+  `L` está mal por construcción. El arranque de la fase E es **E.0**, no E.1.
 - Este plan no arranca antes de cerrar D.3 de `fabrica-02` (19-sep) por
   atención del dueño, no por dependencia técnica.
