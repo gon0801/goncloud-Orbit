@@ -25,19 +25,16 @@ devuelve bool y JAMAS levanta excepciones hacia arriba.
 from __future__ import annotations
 
 import datetime as dt
-import json
 import logging
 import os
 from dataclasses import dataclass
 from decimal import Decimal
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import httpx
 
-from app.ads.config import DEFAULT_SECRETS_DIR
 from app.db import connect
-from app.redaction import install_scrub_filter, register_secret, scrub
+from app.redaction import install_scrub_filter, scrub
 
 if TYPE_CHECKING:
     # Solo anotacion: importarlo en runtime crearia el ciclo
@@ -164,37 +161,20 @@ def _reset() -> None:
 
 
 def _config_canal() -> _ConfigCanal | None:
-    """Config del canal; None = DESHABILITADO. Cero excepciones hacia arriba
-    (docstring del modulo): cualquier problema de lectura/parseo deja el
-    canal deshabilitado, que no es fallo."""
-    if "config" in _estado:
-        return _estado["config"]
-    cfg: _ConfigCanal | None = None
-    try:
-        path = Path(os.environ.get("ORBIT_SECRETS_DIR", DEFAULT_SECRETS_DIR)) / TELEGRAM_FILENAME
-        data = None
-        if path.is_file():
-            try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                data = None
-        if isinstance(data, dict):
-            token = data.get("bot_token")
-            chat = data.get("chat_id")
-            if isinstance(token, str) and token and isinstance(chat, str) and chat:
-                register_secret(token)
-                cfg = _ConfigCanal(bot_token=token, chat_id=chat)
-    except Exception as exc:  # noqa: BLE001 - jamas hacia arriba
-        logger.warning("telegram: fallo resolviendo la config del canal: %s", scrub(str(exc)))
-        cfg = None
-    if cfg is None:
+    """Canal DESHABILITADO por decision (chat limpio, 2026-09-16).
+
+    Todos los avisos Telegram quedan apagados: los ``notifica_*`` devuelven
+    True sin enviar (no generan NOTA) y la logica de negocio (encolado,
+    veto 48h, digest, harvest, SP-API, cap, biblioteca, destino) corre igual.
+    Visibilidad: log local + notes/salud existentes.
+    """
+    if "config" not in _estado:
         logger.info(
-            "canal Telegram deshabilitado (sin %s valido en el secrets dir): "
-            "los avisos no salen y eso NO es fallo ni genera nota",
-            TELEGRAM_FILENAME,
+            "canal Telegram deshabilitado por decision (chat limpio): "
+            "los avisos no salen y eso NO es fallo ni genera nota"
         )
-    _estado["config"] = cfg
-    return cfg
+        _estado["config"] = None
+    return None
 
 
 def canal_activo() -> bool:
@@ -203,33 +183,10 @@ def canal_activo() -> bool:
 
 
 def _envia_texto(texto: str, transport: httpx.BaseTransport | None = None) -> bool:
-    """POST sendMessage. CUALQUIER fallo (red, status != 200, JSON raro sin
-    ok=true) -> warning con scrub + False; el caller decide la NOTA. Canal
-    deshabilitado -> True (no es fallo: nada que reportar)."""
-    cfg = _config_canal()
-    if cfg is None:
-        return True
-    transporte = transport if transport is not None else _transporte_test
-    try:
-        with httpx.Client(transport=transporte, timeout=_TIMEOUT) as cliente:
-            resp = cliente.post(cfg.url(), json={"chat_id": cfg.chat_id, "text": texto})
-        if resp.status_code != 200:
-            logger.warning(
-                "telegram: sendMessage respondio HTTP %s — el aviso no salio", resp.status_code
-            )
-            return False
-        try:
-            cuerpo = resp.json()
-        except ValueError:
-            logger.warning("telegram: respuesta ilegible (JSON raro) — el aviso no salio")
-            return False
-        if not isinstance(cuerpo, dict) or cuerpo.get("ok") is not True:
-            logger.warning("telegram: respuesta sin ok=true — el aviso no salio")
-            return False
-        return True
-    except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
-        logger.warning("telegram: fallo el envio: %s", scrub(str(exc)) or type(exc).__name__)
-        return False
+    """APAGON TOTAL Telegram (2026-09-16): no envia red, deja log local y
+    devuelve True (contrato canal deshabilitado: no es fallo, sin NOTA)."""
+    logger.info("aviso Telegram suprimido (chat limpio, ver log/salud): %s", scrub(texto[:500]))
+    return True
 
 
 # ---------------------------------------------------------------------------

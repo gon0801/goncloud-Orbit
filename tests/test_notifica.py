@@ -640,8 +640,20 @@ def test_notifica_digest_falla_lectura_muestra_lectura_no_disponible(monkeypatch
         {"cycle_id": 1, "plataforma": "amazon_mx", "status": "done", "decisions_count": 0}
     )
     assert ok is True
-    assert len(mensajes) == 1
-    assert "lectura no disponible" in mensajes[0]["text"]
+    assert len(mensajes) == 0  # APAGON 2026-09-16: suprimido, ver log/salud
+    contrib = notifica.ContribucionDigest(
+        rango=None, sin_dato=None, residual_tacos=None, lectura_fallida=True
+    )
+    texto = notifica.digest_ciclo(
+        {
+            "cycle_id": 1,
+            "plataforma": "amazon_mx",
+            "status": "done",
+            "decisions_count": 0,
+            "contribucion": contrib,
+        }
+    )
+    assert "lectura no disponible" in texto
     notifica._reset()
 
 
@@ -672,8 +684,7 @@ def test_notifica_digest_falla_lectura_no_tumba(monkeypatch, tmp_path):
         {"cycle_id": 1, "plataforma": "amazon_mx", "status": "done", "decisions_count": 0}
     )
     assert ok is True
-    assert len(mensajes) == 1
-    assert "lectura no disponible" in mensajes[0]["text"]
+    assert len(mensajes) == 0  # APAGON 2026-09-16: suprimido
     notifica._reset()
 
 
@@ -704,40 +715,29 @@ def test_alerta_harvest_failed_contenido():
 
 
 def test_envia_texto_ok_envia_chat_id_y_texto(tmp_path, monkeypatch):
+    """APAGON 2026-09-16: no envia red, log local, True, cero mensajes."""
     with _canal(tmp_path, monkeypatch) as mensajes:
         assert notifica._envia_texto("hola mundo") is True
-    (mensaje,) = mensajes
-    assert mensaje["path"] == f"/bot{FAKE_BOT_TOKEN}/sendMessage"
-    assert mensaje["chat_id"] == FAKE_CHAT_ID
-    assert mensaje["text"] == "hola mundo"
+    assert len(mensajes) == 0
 
 
 def test_envia_texto_500_red_y_json_raro_fallan_con_warning(tmp_path, monkeypatch, caplog):
-    caplog.set_level(logging.WARNING, logger="app.notifica")
+    """APAGON 2026-09-16: suprimido siempre True, sin warning de red."""
     with _canal(tmp_path, monkeypatch, status=500):
-        assert notifica._envia_texto("x") is False
+        assert notifica._envia_texto("x") is True
     with _canal(tmp_path, monkeypatch, tumbar=True):
-        assert notifica._envia_texto("x") is False
+        assert notifica._envia_texto("x") is True
     with _canal(tmp_path, monkeypatch, json_valido=False):
-        assert notifica._envia_texto("x") is False
-    assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == 3, (
-        "cada fallo del canal deja su warning (la NOTA en notes es la otra mitad "
-        "de la visibilidad, sellado 2)"
-    )
+        assert notifica._envia_texto("x") is True
 
 
 def test_envia_texto_warning_scrubbeado_sin_token(tmp_path, monkeypatch, caplog):
     """El token viaja en la URL: una excepcion que la ecoe (proxies caidos lo
     hacen) pasa por scrub — el token JAMAS aparece en el log."""
-    from app.redaction import REDACTED
-
     caplog.set_level(logging.WARNING, logger="app.notifica")
     with _canal(tmp_path, monkeypatch, tumbar=True):
-        notifica._envia_texto("x")
-    assert caplog.records, "el fallo dejo warning"
-    for record in caplog.records:
-        assert FAKE_BOT_TOKEN not in record.getMessage()
-    assert any(REDACTED in r.getMessage() for r in caplog.records)
+        assert notifica._envia_texto("x") is True  # APAGON: suprimido
+    assert FAKE_BOT_TOKEN not in "".join(r.getMessage() for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------
@@ -819,10 +819,8 @@ def test_ciclo_canal_falla_digest_contrib_deja_nota(canal_fail, monkeypatch):
         _siembra_maestra(conn)
         res = _corre(conn)
         assert res.status == "done"
-        notas = json.loads(res.notes)
-        assert notas["telegram"]["digest"].startswith("fallo:")
-        digests = [m["text"] for m in canal_fail if m["text"].startswith("[Orbit] digest")]
-        assert digests and "contribucion pre-cargos" in digests[0]
+        assert "telegram" not in json.loads(res.notes)  # APAGON: suprimido sin nota
+        assert len(canal_fail) == 0
 
 
 @_skip_db
@@ -834,14 +832,12 @@ def test_ciclo_canal_falla_termina_done_con_nota_telegram(canal_fail):
     with _db_temporal("orbit_notif_fail") as (conn, _extra):
         _siembra_maestra(conn)  # shadow: 4 decisiones (bid + 3 cortes a la cola)
         res = _corre(conn)
-        assert res.status == "done", "el fallo del canal no tumba ni degrada el ciclo"
-        notas = json.loads(res.notes)
-        assert notas["telegram"]["aviso_encola"].startswith("fallo:")
-        assert notas["telegram"]["digest"].startswith("fallo:")
+        assert res.status == "done", "el apagon no tumba ni degrada el ciclo"
+        assert "telegram" not in json.loads(res.notes)  # APAGON: suprimido sin nota
         persistido = conn.execute(
             "SELECT notes FROM optimizer_cycle WHERE id = %s", (res.cycle_id,)
         ).fetchone()[0]
-        assert _parse_notes(persistido)["telegram"] == notas["telegram"]
+        assert "telegram" not in _parse_notes(persistido)
 
 
 def test_fase_notifica_lattea_entre_envios(canal_ok):
@@ -874,8 +870,8 @@ def test_fase_notifica_lattea_entre_envios(canal_ok):
         tick=lambda: latidos.append(1),
     )
     assert notas == {}
-    assert len(canal_ok) == 4, "3 avisos + 1 digest"
-    assert len(latidos) == len(canal_ok), "un latido por mensaje enviado"
+    assert len(canal_ok) == 0, "APAGON: cero envios"
+    assert len(latidos) == 4, "3 avisos + 1 digest intentados (log local)"
 
 
 @_skip_db
@@ -887,25 +883,9 @@ def test_ciclo_canal_ok_avisos_por_corte_y_digest_unico_sin_nota(canal_ok):
         res = _corre(conn)
         assert res.status == "done"
         assert "telegram" not in json.loads(res.notes)
-        textos = [m["text"] for m in canal_ok]
-        avisos = [t for t in textos if t.startswith("[Orbit] corte encolado")]
-        digests = [t for t in textos if t.startswith("[Orbit] digest")]
-        assert len(avisos) == 3, "pause + negative + harvest encolados"
-        assert len(digests) == 1, "UN digest por ciclo ejecutor"
-        assert {t.split("kind: ")[1].split(" ")[0] for t in avisos} == {
-            "pause",
-            "negative",
-            "harvest",
-        }
-        assert all(VENCE.isoformat() in t for t in avisos), "vencimiento en cada aviso"
-        assert any("entity_cut" in t for t in avisos), "familia del pause"
-        assert any("term_cut" in t for t in avisos), "familia de negative/harvest"
-        assert f"#{res.cycle_id}" in digests[0]
-        assert "done" in digests[0]
-        # El digest declara el modo del ciclo (la siembra maestra corre shadow):
-        # sin el, un digest de shadow se confunde con uno live (review 3.3).
-        assert "[shadow]" in digests[0]
-        assert all(m["chat_id"] == FAKE_CHAT_ID for m in canal_ok)
+        assert len(canal_ok) == 0  # APAGON
+        # Builders siguen verificados en tests puros; aqui solo supresion.
+        return
 
 
 @_skip_db
@@ -947,10 +927,8 @@ def test_alerta_harvest_failed_enviada_en_el_punto_de_fallo(canal_ok):
 
         assert resultado.estado == "failed"
         assert resultado.alerta is not None
-        assert resultado.alerta.envio_fallido is False, "el envio salio bien"
-        alertas = [m["text"] for m in canal_ok if m["text"].startswith("[Orbit] ALERTA")]
-        assert len(alertas) == 1
-        assert TERMINO in alertas[0] and MOTIVO_FALLO_KEYWORD in alertas[0]
+        assert resultado.alerta.envio_fallido is False, "apagon: True sin envio"
+        assert len(canal_ok) == 0  # APAGON
 
 
 @_skip_db
@@ -973,7 +951,7 @@ def test_alerta_harvest_failed_envio_falla_bandera_y_propaga(canal_fail):
 
         assert resumen.fallidas == 1
         assert resumen.alertas, "la alerta ya no se cae en el camino a la superficie"
-        assert resumen.alertas[0].envio_fallido is True
+        assert resumen.alertas[0].envio_fallido is False  # APAGON: True sin envio, sin nota
 
 
 def test_fase_notifica_mapea_alerta_harvest_fallida_a_nota():
@@ -1110,7 +1088,9 @@ def test_notifica_spapi_fallo_builder_roto_no_levanta(tmp_path, monkeypatch):
 
     with _canal(tmp_path, monkeypatch):
         monkeypatch.setattr(notifica, "aviso_spapi_fallo", builder_roto)
-        assert notifica.notifica_spapi_fallo("spapi_orders", "amazon_mx", "lwa_fallido: x") is False
+        assert (
+            notifica.notifica_spapi_fallo("spapi_orders", "amazon_mx", "lwa_fallido: x") is True
+        )  # APAGON
 
 
 def test_notifica_spapi_fallo_envia_y_tumba(tmp_path, monkeypatch):
@@ -1118,11 +1098,13 @@ def test_notifica_spapi_fallo_envia_y_tumba(tmp_path, monkeypatch):
     levantar. Mata la mutacion 'sin try/except en notifica_spapi_fallo'."""
     with _canal(tmp_path, monkeypatch) as mensajes:
         assert notifica.notifica_spapi_fallo("spapi_orders", "amazon_mx", "lwa_fallido: x") is True
-    (mensaje,) = mensajes
-    assert mensaje["chat_id"] == FAKE_CHAT_ID
-    assert "fuente: spapi_orders" in mensaje["text"]
+    assert len(mensajes) == 0  # APAGON
+    texto_fallo = notifica.aviso_spapi_fallo("spapi_orders", "amazon_mx", "lwa_fallido: x")
+    assert "fuente: spapi_orders" in texto_fallo
     with _canal(tmp_path, monkeypatch, tumbar=True):
-        assert notifica.notifica_spapi_fallo("spapi_orders", "amazon_mx", "lwa_fallido: x") is False
+        assert (
+            notifica.notifica_spapi_fallo("spapi_orders", "amazon_mx", "lwa_fallido: x") is True
+        )  # APAGON
 
 
 def test_alerta_harvest_hermanas_contenido_veraz():
@@ -1164,12 +1146,10 @@ def test_notifica_harvest_hermanas_envia_y_tumba(tmp_path, monkeypatch):
     )
     with _canal(tmp_path, monkeypatch) as mensajes:
         assert notifica.notifica_harvest_hermanas(alerta) is True
-    (mensaje,) = mensajes
-    assert mensaje["chat_id"] == FAKE_CHAT_ID
-    assert "hermanas pendientes" in mensaje["text"]
-    assert "failed" not in mensaje["text"].lower()
+    assert len(mensajes) == 0  # APAGON
+    assert "hermanas pendientes" in notifica.alerta_harvest_hermanas(alerta)
     with _canal(tmp_path, monkeypatch, tumbar=True):
-        assert notifica.notifica_harvest_hermanas(alerta) is False
+        assert notifica.notifica_harvest_hermanas(alerta) is True  # APAGON
 
 
 def _aviso_biblioteca(**cambios):
@@ -1218,12 +1198,10 @@ def test_notifica_biblioteca_no_escrita_envia_y_tumba(tmp_path, monkeypatch):
     rota devuelve False SIN levantar (el rastro durable ya quedo)."""
     with _canal(tmp_path, monkeypatch) as mensajes:
         assert notifica.notifica_biblioteca_no_escrita(**_aviso_biblioteca()) is True
-    (mensaje,) = mensajes
-    assert mensaje["chat_id"] == FAKE_CHAT_ID
-    assert "biblioteca no aprendio" in mensaje["text"]
-    assert "failed" not in mensaje["text"].lower()
+    assert len(mensajes) == 0  # APAGON
+    assert "biblioteca no aprendio" in notifica.alerta_biblioteca_no_escrita(**_aviso_biblioteca())
     with _canal(tmp_path, monkeypatch, tumbar=True):
-        assert notifica.notifica_biblioteca_no_escrita(**_aviso_biblioteca()) is False
+        assert notifica.notifica_biblioteca_no_escrita(**_aviso_biblioteca()) is True  # APAGON
 
 
 def test_notifica_biblioteca_no_escrita_sin_canal_no_es_fallo():
@@ -1312,7 +1290,7 @@ def test_notifica_destino_grupo_builder_roto_no_levanta(tmp_path, monkeypatch):
 
     with _canal(tmp_path, monkeypatch):
         monkeypatch.setattr(notifica, "aviso_destino_grupo", builder_roto)
-        assert notifica.notifica_destino_grupo(_salto_grupo()) is False
+        assert notifica.notifica_destino_grupo(_salto_grupo()) is True  # APAGON
 
 
 def test_notifica_destino_grupo_envia_y_tumba(tmp_path, monkeypatch):
@@ -1320,11 +1298,10 @@ def test_notifica_destino_grupo_envia_y_tumba(tmp_path, monkeypatch):
     levantar."""
     with _canal(tmp_path, monkeypatch) as mensajes:
         assert notifica.notifica_destino_grupo(_salto_grupo()) is True
-    (mensaje,) = mensajes
-    assert mensaje["chat_id"] == FAKE_CHAT_ID
-    assert "ALERTA harvest de grupo sin destino" in mensaje["text"]
+    assert len(mensajes) == 0  # APAGON
+    assert "ALERTA harvest de grupo sin destino" in notifica.aviso_destino_grupo(_salto_grupo())
     with _canal(tmp_path, monkeypatch, status=500):
-        assert notifica.notifica_destino_grupo(_salto_grupo()) is False
+        assert notifica.notifica_destino_grupo(_salto_grupo()) is True  # APAGON
 
 
 def test_fase_notifica_mapea_salto_destino_a_nota_y_acumula(monkeypatch):
@@ -1388,9 +1365,7 @@ def test_fase_notifica_salto_destino_canal_caido_deja_nota(tmp_path, monkeypatch
             decisions_count=0,
             notas_apply={},
         )
-    assert "harvest_destino" in notas
-    assert "Telegram" in notas["harvest_destino"]
-    assert "#6102" in notas["harvest_destino"]
+    assert notas == {}  # APAGON: suprimido sin nota
 
 
 # ---------------------------------------------------------------------------
@@ -1489,13 +1464,13 @@ def test_notifica_spapi_silencio_envia_y_tumba(tmp_path, monkeypatch):
         assert (
             notifica.notifica_spapi_silencio([("spapi_orders", "amazon_mx")], desde, hasta) is True
         )
-    (mensaje,) = mensajes
-    assert mensaje["chat_id"] == FAKE_CHAT_ID
-    assert "ALERTA SP-API sin corrida" in mensaje["text"]
+    assert len(mensajes) == 0  # APAGON
+    texto_sil = notifica.aviso_spapi_silencio([("spapi_orders", "amazon_mx")], desde, hasta)
+    assert "ALERTA SP-API sin corrida" in texto_sil
     with _canal(tmp_path, monkeypatch, tumbar=True):
         assert (
-            notifica.notifica_spapi_silencio([("spapi_orders", "amazon_mx")], desde, hasta) is False
-        )
+            notifica.notifica_spapi_silencio([("spapi_orders", "amazon_mx")], desde, hasta) is True
+        )  # APAGON
 
 
 def test_notifica_spapi_silencio_ok_false_es_fallo(tmp_path, monkeypatch):
@@ -1511,8 +1486,8 @@ def test_notifica_spapi_silencio_ok_false_es_fallo(tmp_path, monkeypatch):
             notifica.notifica_spapi_silencio(
                 [("spapi_orders", "amazon_mx")], desde, hasta, transport=transport
             )
-            is False
-        )
+            is True
+        )  # APAGON
 
 
 def test_notifica_spapi_silencio_builder_roto_no_levanta(tmp_path, monkeypatch):
@@ -1526,5 +1501,5 @@ def test_notifica_spapi_silencio_builder_roto_no_levanta(tmp_path, monkeypatch):
         monkeypatch.setattr(notifica, "aviso_spapi_silencio", builder_roto)
         desde, hasta = _ventana_vigilante()
         assert (
-            notifica.notifica_spapi_silencio([("spapi_orders", "amazon_mx")], desde, hasta) is False
-        )
+            notifica.notifica_spapi_silencio([("spapi_orders", "amazon_mx")], desde, hasta) is True
+        )  # APAGON
