@@ -1,0 +1,18 @@
+BEGIN
+-- INICIO 00-sonda-formato
+amazon_mx|fee|finance|MFNPostageFee|6|1
+amazon_mx|fee|finance|ShippingHB|6|46
+amazon_mx|fee|shipping_label||4|2
+amazon_mx|refund|finance|ShippingHB|6|1
+amazon_us|fee|finance|LabmanLabelPurchase|6|6
+amazon_us|fee|finance|MFNPostageFee|6|1
+amazon_us|fee|finance|MFNShippingChargeback|6|1
+amazon_us|fee|finance|OtraFuenteRara|6|1
+amazon_us|fee|finance|ShippingChargeback|6|1
+amazon_us|fee|finance|ShippingHB|6|26
+amazon_us|fee|shipping_label||4|10
+amazon_us|fee||||2
+0
+84|2|2
+-- FIN 00-sonda-formato
+ROLLBACK
