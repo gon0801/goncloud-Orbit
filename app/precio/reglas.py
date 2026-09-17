@@ -287,7 +287,7 @@ def decidir(
             )
 
     if m_actual < goal - tol:
-        return _subir(entrada, hoy=hoy, config=config, m_actual=m_actual, cotizaciones=cotizaciones)
+        return _subir(entrada, config=config, m_actual=m_actual, cotizaciones=cotizaciones)
     if m_actual > goal + tol:
         senal = entrada.senal
         if senal.estado == "sin_dato":
@@ -322,7 +322,6 @@ def decidir(
 def _subir(
     entrada: EntradaDecision,
     *,
-    hoy: date,
     config: ConfigPrecio,
     m_actual: Decimal,
     cotizaciones: tuple[CotizacionVerificada, ...],
