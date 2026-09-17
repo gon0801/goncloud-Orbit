@@ -201,6 +201,7 @@ class _RedFalsa:
         self.n_patch = 0
         self.n_get = 0
         self.tokens = 0
+        self.pedidos_patch = []
 
     def _handler(self, request):
         path = request.url.path
@@ -219,6 +220,7 @@ class _RedFalsa:
             return httpx.Response(status, json=body)
         if request.method == "PATCH":
             self.n_patch += 1
+            self.pedidos_patch.append(request)
             if self.exige_fila is not None and not self.exige_fila():
                 return httpx.Response(500, json={"status": "ERROR"})
             status, body = self.patchs.pop(0)
@@ -327,6 +329,62 @@ def test_revertir_flujo_enviado_con_readback_ok():
         assert (fila[6], fila[7]) == (Decimal("100.00"), "MXN")
         assert fila[8]["cuerpo"] and "rev-1" in fila[8]["cuerpo"]
         assert (fila[9], fila[10], fila[11]) == (Decimal("100.00"), "MXN", "ok")
+
+
+def test_r1_a1_cambiar_patch_lleva_precio_destino_en_el_cable():
+    """r1-A1: decision 100 -> 110: el cable lleva 110.00 MXN, no el vivo."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(100.0)), (200, _ofertas_body(100.0))],
+        gets_competitivos=[(200, _competitivo_body()), (200, _competitivo_body())],
+        patchs=[(202, {"submissionId": "c-1", "status": "ACCEPTED"})],
+    )
+    with db_39c() as conn:
+        _, dec = _semilla_cambio(conn)
+        lector, escritor = _clientes(red)
+        with rol(conn):
+            res = cambiar_precio(
+                conn,
+                dec,
+                lector=lector,
+                escritor=escritor,
+                construir_cuerpo=_cuerpo_falso,
+                ahora=AHORA,
+            )
+        assert res.estado == "enviado"
+        cable = json.loads(red.pedidos_patch[0].content)
+        fila = conn.execute(
+            "SELECT precio_despues, precio_despues_currency FROM precio_cambio WHERE id = %s",
+            (res.id_cambio,),
+        ).fetchone()
+        assert (Decimal(cable["precio"]), cable["moneda"]) == (fila[0], fila[1])
+
+
+def test_r1_a1_revertir_patch_lleva_precio_destino_en_el_cable():
+    """r1-A1: reversa del 100 -> 110: el cable lleva 100.00 MXN."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(110.0)), (200, _ofertas_body(110.0))],
+        gets_competitivos=[(200, _competitivo_body()), (200, _competitivo_body())],
+        patchs=[(202, {"submissionId": "rev-1", "status": "ACCEPTED"})],
+    )
+    with db_39c() as conn:
+        _, cid = _semilla_reversion(conn)
+        lector, escritor = _clientes(red)
+        with rol(conn):
+            res = revertir(
+                conn,
+                cid,
+                lector=lector,
+                escritor=escritor,
+                construir_cuerpo=_cuerpo_falso,
+                ahora=AHORA,
+            )
+        assert res.estado == "enviado"
+        cable = json.loads(red.pedidos_patch[0].content)
+        fila = conn.execute(
+            "SELECT precio_despues, precio_despues_currency FROM precio_cambio WHERE id = %s",
+            (res.id_reversa,),
+        ).fetchone()
+        assert (Decimal(cable["precio"]), cable["moneda"]) == (fila[0], fila[1])
 
 
 def test_revertir_salta_si_el_vivo_ya_no_coincide():

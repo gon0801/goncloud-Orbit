@@ -304,7 +304,7 @@ def revertir(
         logger.info("revertir cambio=%s saltado=%s", cambio_id, motivo)
         return ResultadoReversion(id_reversa=None, estado="saltado", motivo=motivo)
     arma = construir_cuerpo or construir_cuerpo_parche
-    cuerpo = arma(platform=platform, sku=sku, precio=vivo.precio, moneda=vivo.moneda)
+    cuerpo = arma(platform=platform, sku=sku, precio=_antes, moneda=_antes_moneda)
     obs_precio, obs_moneda = _observada_del_dia(
         conn, asin=asin, platform=platform, dia=momento.date()
     )
@@ -433,7 +433,7 @@ def cambiar_precio(
         logger.info("cambiar decision=%s error=sin_precio_vivo", decision_id)
         return ResultadoCambio(id_cambio=None, estado="error", motivo="sin_precio_vivo")
     arma = construir_cuerpo or construir_cuerpo_parche
-    cuerpo = arma(platform=platform, sku=sku, precio=vivo.precio, moneda=vivo.moneda)
+    cuerpo = arma(platform=platform, sku=sku, precio=p_aplicado, moneda=p_moneda)
     obs_precio, obs_moneda = _observada_del_dia(
         conn, asin=asin, platform=platform, dia=momento.date()
     )
