@@ -61,16 +61,14 @@ número), con clave y cota; fuera de cota = `ValueError` ruidoso al leer:
 | `precio_cap_amazon_mx` / `_us` / `_meli` | 5 | 0–20 |
 | `precio_goal_min_pct` / `precio_goal_max_pct` | 0.10 / 0.60 | 0 < min < max < 1 |
 | `precio_freno_cambios` | 3 | 2–10 |
-| `precio_envio_ventana_dias` | sella E.2 | 90–365 |
-| `precio_envio_min_ordenes` | 6 | 3–50 |
-| `precio_envio_min_salida` | 3 | 1 < salida < entrada |
-| `precio_envio_rezago_dias` | sella E.2, del p90 de emisión | 0–120 |
 | `precio_aviso_dias_sin_evaluar` | 3 | 1–14 |
 | `precio_freno_dias_error` | 3 | 1–14 |
 | `precio_divergencia_max_pct` | 0.01 | 0–0.10 |
-| `precio_envio_estadistico` | `mediana` (sellado en S10) | `mediana` · `p75` · `p90` |
-| `precio_envio_ventana_dias` | 90 | 30–365 |
-| `precio_envio_min_envios` | 6 | 3–50 |
+| `precio_envio_estadistico` | `mediana` (sellado en S10) | solo `mediana`; `p90` y máximo son diagnóstico, no configuración |
+| `precio_envio_ventana_dias` | 90 propuesto; lo sella E.2 | 30–365 |
+| `precio_envio_min_ordenes` | 6 | 3–50 |
+| `precio_envio_min_salida` | 3 | 1 < salida < entrada |
+| `precio_envio_rezago_dias` | sella E.2, del p90 de emisión | 0–120 |
 | `precio_catalogo_max_dias_sin_reportar` | 3 | 1–14 |
 
 ## Hechos verificados que condicionan el plan (2026-09-15/16)
