@@ -1259,7 +1259,7 @@ ssh goncloud "$PSQL_READ \
           AND NOT tgisinternal AND tgenabled <> 'D' ORDER BY 1, 2;\" \
   -c 'SELECT count(*) AS goal FROM precio_goal;' \
   -c 'SELECT count(*) AS decision FROM precio_decision;' \
-  -c 'SELECT count(*) AS cambio FROM precio_cambio;\"'
+  -c 'SELECT count(*) AS cambio FROM precio_cambio;'"
 ```
 
 Lo que entra: las cinco tablas, `listing_id_platform_key` en `listing`

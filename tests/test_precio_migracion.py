@@ -143,11 +143,17 @@ def _decision_sin_siembra(
     mode="live",
     motivo="tdd",
 ) -> int:
+    """Con la cuenta completa (r5 punto 2): `goal` lo pisa el trigger con el
+    vigente; `p_aplicado = 110.00` para atar el `_cambio` de juguete."""
     return conn.execute(
-        f"INSERT INTO precio_decision (listing_id, platform, resultado, motivo, mode,"
-        f" {_MONEDAS_DECISION})"
-        " VALUES (%s, %s, %s, %s, %s,"
-        " 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN') RETURNING id",
+        "INSERT INTO precio_decision (listing_id, platform, resultado, motivo, mode,"
+        " goal, m_actual, p_actual, p_actual_currency, p_objetivo, p_objetivo_currency,"
+        " p_aplicado, p_aplicado_currency, i_valor, i_currency, c_valor, c_currency,"
+        " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency)"
+        " VALUES (%s, %s, %s, %s, %s, 0.30, 0.25,"
+        " 100.00, 'MXN', 110.00, 'MXN', 110.00, 'MXN',"
+        " 10.00, 'MXN', 20.00, 'MXN', 12.00, 'MXN', 5.00, 'MXN', 8.00, 'MXN')"
+        " RETURNING id",
         (listing, platform, resultado, motivo, mode),
     ).fetchone()[0]
 
@@ -254,6 +260,8 @@ def _cambio(
     platform="amazon_mx",
     aplicado=True,
     estado="pendiente",
+    precio_despues=Decimal("110.00"),
+    precio_despues_currency="MXN",
     **extra,
 ) -> int:
     cols = (
@@ -266,8 +274,8 @@ def _cambio(
         platform,
         Decimal("100.00"),
         "MXN",
-        Decimal("110.00"),
-        "MXN",
+        precio_despues,
+        precio_despues_currency,
         aplicado,
         estado,
     ]
@@ -451,13 +459,29 @@ def test_cambio_precios_positivos():
                 " VALUES (%s, %s, 'amazon_mx', 0, 'MXN', 110.00, 'MXN', true, 'pendiente')",
                 (did, lid),
             )
+        # El `despues` negativo se prueba contra una decisión cuyo `p_aplicado`
+        # también es negativo (si no, lo diría primero el atado, no positividad).
+        lid_n = _listing(conn, prod, ext="ASIN-N", sku="SKU-N")
+        _goal(conn, lid_n, mode="live", go="go tdd", valid_from="2026-01-01")
+        did_n = conn.execute(
+            "INSERT INTO precio_decision (listing_id, platform, resultado, motivo, mode,"
+            " goal, m_actual, p_actual, p_actual_currency, p_objetivo, p_objetivo_currency,"
+            " p_aplicado, p_aplicado_currency,"
+            " i_valor, i_currency, c_valor, c_currency, f_valor, f_currency,"
+            " l_valor, l_currency, r_valor, r_currency)"
+            " VALUES (%s, 'amazon_mx', 'bajar', 'r5', 'live', 0.30, 0.25,"
+            " 100.00, 'MXN', -1, 'MXN', -1, 'MXN',"
+            " 10.00, 'MXN', 20.00, 'MXN', 12.00, 'MXN', 5.00, 'MXN', 8.00, 'MXN')"
+            " RETURNING id",
+            (lid_n,),
+        ).fetchone()[0]
         with pytest.raises(psycopg.errors.CheckViolation, match="precio_cambio_precios_positivos"):
             conn.execute(
                 "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
                 " precio_antes_currency, precio_despues, precio_despues_currency,"
                 " aplicado, estado)"
                 " VALUES (%s, %s, 'amazon_mx', 100.00, 'MXN', -1, 'MXN', true, 'pendiente')",
-                (did, lid),
+                (did_n, lid_n),
             )
         with pytest.raises(psycopg.errors.CheckViolation, match="precio_cambio_precios_positivos"):
             conn.execute(
@@ -890,36 +914,48 @@ def test_cambio_reversa_sin_decision():
         # Cada cruce nombra SU constraint: para que lo diga el CHECK y no el
         # trigger de coherencia (r3-3, que dispara primero), la reversa
         # referenciada es del mismo listing —con su propio original cerrado—.
-        for n, (es_rev, resto) in (
-            ("b", (True, "precio_cambio_decision_salvo_reversa")),
-            ("c", (False, "precio_cambio_reversa_binaria")),
+        # Y para que no hablen primero los atados (r5-4), el intento va atado
+        # en silencio a ambos lados.
+        lid_b = _listing(conn, prod, ext="ASIN-b", sku="SKU-b")
+        _goal(conn, lid_b, mode="live", go="go tdd", valid_from="2026-01-01")
+        did_b = conn.execute(
+            "INSERT INTO precio_decision (listing_id, platform, resultado, motivo, mode,"
+            " goal, m_actual, p_actual, p_actual_currency, p_objetivo, p_objetivo_currency,"
+            " p_aplicado, p_aplicado_currency,"
+            " i_valor, i_currency, c_valor, c_currency, f_valor, f_currency,"
+            " l_valor, l_currency, r_valor, r_currency)"
+            " VALUES (%s, 'amazon_mx', 'bajar', 'r2', 'live', 0.30, 0.25,"
+            " 100.00, 'MXN', 100.00, 'MXN', 100.00, 'MXN',"
+            " 10.00, 'MXN', 20.00, 'MXN', 12.00, 'MXN', 5.00, 'MXN', 8.00, 'MXN')"
+            " RETURNING id",
+            (lid_b,),
+        ).fetchone()[0]
+        orig_b = _cambio(conn, did_b, lid_b, precio_despues=Decimal("100.00"))
+        conn.execute(
+            "UPDATE precio_cambio SET estado = 'enviado', enviado_at = now(),"
+            " ack = '{\"s\": 1}'::jsonb WHERE id = %s",
+            (orig_b,),
+        )
+        conn.execute(
+            "UPDATE precio_cambio SET estado = 'confirmado',"
+            " confirmado_por = 'observacion' WHERE id = %s",
+            (orig_b,),
+        )
+        with pytest.raises(
+            psycopg.errors.CheckViolation, match="precio_cambio_decision_salvo_reversa"
         ):
-            lidx = _listing(conn, prod, ext=f"ASIN-{n}", sku=f"SKU-{n}")
-            didx = _decision(conn, lidx)
-            origx = _cambio(conn, didx, lidx)
             conn.execute(
-                "UPDATE precio_cambio SET estado = 'enviado', enviado_at = now(),"
-                " ack = '{\"s\": 1}'::jsonb WHERE id = %s",
-                (origx,),
+                "INSERT INTO precio_cambio (decision_id, listing_id, platform,"
+                " precio_antes, precio_antes_currency, precio_despues,"
+                " precio_despues_currency, aplicado, estado, es_reversa, reversa_de)"
+                " VALUES (%s, %s, 'amazon_mx', 100.00, 'MXN', 100.00, 'MXN',"
+                " true, 'pendiente', true, %s)",
+                (did_b, lid_b, orig_b),
             )
-            conn.execute(
-                "UPDATE precio_cambio SET estado = 'confirmado',"
-                " confirmado_por = 'observacion' WHERE id = %s",
-                (origx,),
-            )
-            if es_rev:
-                with pytest.raises(psycopg.errors.CheckViolation, match=resto):
-                    conn.execute(
-                        "INSERT INTO precio_cambio (decision_id, listing_id, platform,"
-                        " precio_antes, precio_antes_currency, precio_despues,"
-                        " precio_despues_currency, aplicado, estado, es_reversa, reversa_de)"
-                        " VALUES (%s, %s, 'amazon_mx', 110.00, 'MXN', 100.00, 'MXN',"
-                        " true, 'pendiente', true, %s)",
-                        (didx, lidx, origx),
-                    )
-            else:
-                with pytest.raises(psycopg.errors.CheckViolation, match=resto):
-                    _cambio(conn, didx, lidx, reversa_de=origx)
+        # Mismo truco para la binaria: `despues` = 100 ata ambos lados en
+        # silencio (el intento fallido de arriba no dejó fila).
+        with pytest.raises(psycopg.errors.CheckViolation, match="precio_cambio_reversa_binaria"):
+            _cambio(conn, did_b, lid_b, reversa_de=orig_b, precio_despues=Decimal("100.00"))
 
 
 @_skip_db
@@ -1109,10 +1145,15 @@ def test_app_decide_inserta_y_sella_pero_no_goal():
         try:
             conn.execute("SET ROLE app_decide")
             did = conn.execute(
-                f"INSERT INTO precio_decision (listing_id, platform, resultado, motivo, mode,"
-                f" {_MONEDAS_DECISION})"
-                " VALUES (%s, 'amazon_mx', 'subir', 'candado', 'live',"
-                " 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN') RETURNING id",
+                "INSERT INTO precio_decision (listing_id, platform, resultado, motivo, mode,"
+                " goal, m_actual, p_actual, p_actual_currency, p_objetivo, p_objetivo_currency,"
+                " p_aplicado, p_aplicado_currency,"
+                " i_valor, i_currency, c_valor, c_currency, f_valor, f_currency,"
+                " l_valor, l_currency, r_valor, r_currency)"
+                " VALUES (%s, 'amazon_mx', 'subir', 'candado', 'live', 0.30, 0.25,"
+                " 100.00, 'MXN', 110.00, 'MXN', 110.00, 'MXN',"
+                " 10.00, 'MXN', 20.00, 'MXN', 12.00, 'MXN', 5.00, 'MXN', 8.00, 'MXN')"
+                " RETURNING id",
                 (lid,),
             ).fetchone()[0]
             conn.execute(
@@ -1402,10 +1443,16 @@ def test_cotiza_antes_de_decidir_puntero_lleno():
             ).fetchone()
             assert c2[1] == conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
             did = conn.execute(
-                f"INSERT INTO precio_decision (listing_id, platform, resultado, motivo, mode,"
-                f" cotizacion_id, {_MONEDAS_DECISION})"
-                " VALUES (%s, 'amazon_mx', 'bajar', 'e2e', 'live', %s,"
-                " 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN') RETURNING id",
+                "INSERT INTO precio_decision (listing_id, platform, resultado, motivo, mode,"
+                " cotizacion_id, goal, m_actual,"
+                " p_actual, p_actual_currency, p_objetivo, p_objetivo_currency,"
+                " p_aplicado, p_aplicado_currency,"
+                " i_valor, i_currency, c_valor, c_currency, f_valor, f_currency,"
+                " l_valor, l_currency, r_valor, r_currency)"
+                " VALUES (%s, 'amazon_mx', 'bajar', 'e2e', 'live', %s, 0.30, 0.25,"
+                " 100.00, 'MXN', 108.00, 'MXN', 108.00, 'MXN',"
+                " 10.00, 'MXN', 20.00, 'MXN', 12.00, 'MXN', 5.00, 'MXN', 8.00, 'MXN')"
+                " RETURNING id",
                 (lid, c2[0]),
             ).fetchone()[0]
             assert (
@@ -1630,7 +1677,7 @@ def test_reversa_solo_de_cambio_real():
                 "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
                 " precio_antes_currency, precio_despues, precio_despues_currency,"
                 " aplicado, estado, es_reversa, reversa_de)"
-                " VALUES (NULL, %s, 'amazon_mx', 100.00, 'MXN', 110.00, 'MXN',"
+                " VALUES (NULL, %s, 'amazon_mx', 110.00, 'MXN', 110.00, 'MXN',"
                 " true, 'pendiente', true, %s)",
                 (lid_r, rev1),
             )
@@ -1792,6 +1839,109 @@ def test_cambio_exige_decision_que_mueve_precio():
         _goal(conn, lid, mode="live", go="go tdd", valid_from="2026-01-01")
         with pytest.raises(psycopg.errors.CheckViolation, match="no mueve precio"):
             _cambio(conn, _decision(conn, lid, mode="live", resultado="mantener"), lid)
+
+
+@_skip_db
+def test_decision_mueve_precio_exige_cuenta():
+    """S4 #1 «insumos completos o nada»: `subir`/`bajar` sin la cuenta
+    completa revienta (la fila es inmutable). Rojo r5: entra."""
+    with db_39("orbit_r5_cuenta") as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        _ensure_goal(conn, lid, mode="live")
+        with pytest.raises(psycopg.errors.CheckViolation, match="precio_decision_cuenta_completa"):
+            conn.execute(
+                f"INSERT INTO precio_decision (listing_id, platform, resultado, motivo, mode,"
+                f" {_MONEDAS_DECISION})"
+                " VALUES (%s, 'amazon_mx', 'subir', 'r5', 'live',"
+                " 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN')",
+                (lid,),
+            )
+
+
+@_skip_db
+def test_goal_viene_del_vigente():
+    """Regla 2, un número una fuente: el trigger pisa `goal` con el
+    `margen_goal_pct` vigente —el cliente manda 0.60 con vigente 0.30 y la
+    fila guarda 0.30. Rojo r5: guarda 0.60."""
+    with db_39("orbit_r5_goal") as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        _goal(conn, lid, mode="live", go="go tdd", pct=Decimal("0.30"))
+        did = conn.execute(
+            "INSERT INTO precio_decision (listing_id, platform, resultado, motivo, mode,"
+            " goal, m_actual, p_actual, p_actual_currency, p_objetivo,"
+            " p_objetivo_currency, p_aplicado, p_aplicado_currency,"
+            " i_valor, i_currency, c_valor, c_currency, f_valor, f_currency,"
+            " l_valor, l_currency, r_valor, r_currency)"
+            " VALUES (%s, 'amazon_mx', 'subir', 'r5', 'live', 0.60, 0.25,"
+            " 100.00, 'MXN', 110.00, 'MXN', 110.00, 'MXN',"
+            " 10.00, 'MXN', 20.00, 'MXN', 12.00, 'MXN', 5.00, 'MXN', 8.00, 'MXN')"
+            " RETURNING id",
+            (lid,),
+        ).fetchone()[0]
+        assert conn.execute("SELECT goal FROM precio_decision WHERE id = %s", (did,)).fetchone()[
+            0
+        ] == Decimal("0.30")
+
+
+@_skip_db
+def test_cambio_ata_precio_despues():
+    """`precio_despues` es el `p_aplicado` de su decisión, importe y moneda
+    (`IS DISTINCT FROM`). Rojo r5: entran distintos."""
+    with db_39("orbit_r5_atado") as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        did = _decision(conn, lid, mode="live")
+        with pytest.raises(psycopg.errors.CheckViolation, match="p_aplicado"):
+            _cambio(conn, did, lid, precio_despues=Decimal("120.00"))
+        with pytest.raises(psycopg.errors.CheckViolation, match="p_aplicado"):
+            conn.execute(
+                "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
+                " precio_antes_currency, precio_despues, precio_despues_currency,"
+                " aplicado, estado)"
+                " VALUES (%s, %s, 'amazon_mx', 100.00, 'MXN', 110.00, 'USD',"
+                " true, 'pendiente')",
+                (did, lid),
+            )
+        assert _cambio(conn, did, lid)
+
+
+@_skip_db
+def test_reversa_ata_precio_antes():
+    """S6 literal: `precio_despues = precio_antes` del revertido, importe y
+    moneda. Rojo r5: entra distinto."""
+    with db_39("orbit_r5_revata") as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        orig = _cambio(conn, _decision(conn, lid, mode="live"), lid)
+        conn.execute(
+            "UPDATE precio_cambio SET estado = 'enviado', enviado_at = now(),"
+            " ack = '{\"s\": 1}'::jsonb WHERE id = %s",
+            (orig,),
+        )
+        conn.execute(
+            "UPDATE precio_cambio SET estado = 'confirmado', confirmado_por = 'observacion'"
+            " WHERE id = %s",
+            (orig,),
+        )
+        with pytest.raises(psycopg.errors.CheckViolation, match="precio_antes.*del revertido"):
+            conn.execute(
+                "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
+                " precio_antes_currency, precio_despues, precio_despues_currency,"
+                " aplicado, estado, es_reversa, reversa_de)"
+                " VALUES (NULL, %s, 'amazon_mx', 110.00, 'MXN', 99.00, 'MXN',"
+                " true, 'pendiente', true, %s)",
+                (lid, orig),
+            )
+        assert conn.execute(
+            "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
+            " precio_antes_currency, precio_despues, precio_despues_currency,"
+            " aplicado, estado, es_reversa, reversa_de)"
+            " VALUES (NULL, %s, 'amazon_mx', 110.00, 'MXN', 100.00, 'MXN',"
+            " true, 'pendiente', true, %s) RETURNING id",
+            (lid, orig),
+        ).fetchone()[0]
 
 
 @_skip_db

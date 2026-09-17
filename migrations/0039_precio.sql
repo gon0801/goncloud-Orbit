@@ -244,6 +244,19 @@ CREATE TABLE precio_decision (
     CONSTRAINT precio_decision_listing_fk FOREIGN KEY (listing_id, platform)
         REFERENCES listing (id, platform),
     CONSTRAINT precio_decision_unica_por_dia UNIQUE (listing_id, platform, decision_date),
+    -- S4 #1 «insumos completos o nada» (ronda 5 de revisión, punto 2): un
+    -- `subir`/`bajar` trae la cuenta completa —la fila es inmutable y un
+    -- `no_evaluado` posterior no la completa—. Solo esos dos resultados: la
+    -- matriz de `mantener`/`frenado`/`goal_inalcanzable` la fijan las reglas
+    -- (A.2) y la corrida (A.5). `goal` va en la lista aunque lo llene el
+    -- trigger (punto 3): el CHECK documenta la forma completa.
+    CONSTRAINT precio_decision_cuenta_completa
+        CHECK (resultado NOT IN ('subir', 'bajar')
+               OR (goal IS NOT NULL AND m_actual IS NOT NULL
+                   AND p_actual IS NOT NULL AND p_objetivo IS NOT NULL
+                   AND p_aplicado IS NOT NULL AND i_valor IS NOT NULL
+                   AND c_valor IS NOT NULL AND f_valor IS NOT NULL
+                   AND l_valor IS NOT NULL AND r_valor IS NOT NULL)),
     -- Vocabulario cerrado de S4 (seis resultados) y ningún silencio
     -- (decisión 11 del dueño): fuera de subir/bajar el motivo es obligatorio
     -- y no en blanco; en append-only no se arregla después.
@@ -864,6 +877,7 @@ DECLARE
     v_prod BIGINT;
     v_mues_prod BIGINT;
     v_mues_plat platform;
+    v_goal NUMERIC(6, 4);
 BEGIN
     IF NEW.escenario_id IS NOT NULL THEN
         SELECT e.listing_id, e.platform INTO v_lid, v_plat
@@ -958,7 +972,10 @@ BEGIN
     -- la que `precio_decision_fecha_utc` fija `decision_date` después—: este
     -- trigger no lee `NEW.decision_date` (los BEFORE INSERT del mismo evento
     -- disparan en orden alfabético y `coherente` va antes que `fecha_utc`).
-    PERFORM 1
+    -- Y regla 2 (ronda 5, punto 3): `goal` es UN número con UNA fuente —el
+    -- trigger lo asigna desde la fila vigente y el valor del cliente se
+    -- ignora, mismo trato que `decision_date`—.
+    SELECT g.margen_goal_pct INTO v_goal
       FROM precio_goal g
      WHERE g.listing_id = NEW.listing_id
        AND g.platform = NEW.platform
@@ -973,6 +990,7 @@ BEGIN
             NEW.listing_id, NEW.platform
             USING ERRCODE = 'check_violation';
     END IF;
+    NEW.goal := v_goal;
 
     RETURN NEW;
 END;
@@ -998,11 +1016,17 @@ DECLARE
     v_lid BIGINT;
     v_plat platform;
     v_resultado TEXT;
+    v_p_aplicado money_amount;
+    v_p_aplicado_currency currency;
+    v_antes money_amount;
+    v_antes_currency currency;
     v_aplicado BOOLEAN;
     v_es_reversa BOOLEAN;
 BEGIN
     IF NEW.decision_id IS NOT NULL THEN
-        SELECT d.listing_id, d.platform, d.resultado INTO v_lid, v_plat, v_resultado
+        SELECT d.listing_id, d.platform, d.resultado,
+               d.p_aplicado, d.p_aplicado_currency
+          INTO v_lid, v_plat, v_resultado, v_p_aplicado, v_p_aplicado_currency
           FROM precio_decision d
          WHERE d.id = NEW.decision_id;
         IF NOT FOUND THEN
@@ -1025,11 +1049,25 @@ BEGIN
                 NEW.decision_id, v_resultado
                 USING ERRCODE = 'check_violation';
         END IF;
+        -- `precio_despues` no se inventa (ronda 5, punto 4): es el
+        -- `p_aplicado` de su decisión, importe y moneda (`IS DISTINCT FROM`).
+        -- Vale también para el virtual: en sombra `p_aplicado` es el precio
+        -- que se habría aplicado.
+        IF (NEW.precio_despues, NEW.precio_despues_currency)
+           IS DISTINCT FROM (v_p_aplicado, v_p_aplicado_currency) THEN
+            RAISE EXCEPTION
+                'precio_cambio: precio_despues %/% no es el p_aplicado %/% '
+                'de su decision %',
+                NEW.precio_despues, NEW.precio_despues_currency,
+                v_p_aplicado, v_p_aplicado_currency, NEW.decision_id
+                USING ERRCODE = 'check_violation';
+        END IF;
     END IF;
 
     IF NEW.reversa_de IS NOT NULL THEN
-        SELECT c.listing_id, c.platform, c.aplicado, c.es_reversa
-          INTO v_lid, v_plat, v_aplicado, v_es_reversa
+        SELECT c.listing_id, c.platform, c.aplicado, c.es_reversa,
+               c.precio_antes, c.precio_antes_currency
+          INTO v_lid, v_plat, v_aplicado, v_es_reversa, v_antes, v_antes_currency
           FROM precio_cambio c
          WHERE c.id = NEW.reversa_de;
         IF NOT FOUND THEN
@@ -1047,6 +1085,17 @@ BEGIN
             RAISE EXCEPTION
                 'precio_cambio: reversa % es del listing %/% y no de %/%',
                 NEW.reversa_de, v_lid, v_plat, NEW.listing_id, NEW.platform
+                USING ERRCODE = 'check_violation';
+        END IF;
+        -- S6 literal (ronda 5, punto 4): `precio_despues = precio_antes` del
+        -- revertido, importe y moneda.
+        IF (NEW.precio_despues, NEW.precio_despues_currency)
+           IS DISTINCT FROM (v_antes, v_antes_currency) THEN
+            RAISE EXCEPTION
+                'precio_cambio: precio_despues %/% no es el precio_antes %/% '
+                'del revertido %',
+                NEW.precio_despues, NEW.precio_despues_currency,
+                v_antes, v_antes_currency, NEW.reversa_de
                 USING ERRCODE = 'check_violation';
         END IF;
     END IF;
@@ -1193,12 +1242,18 @@ BEGIN
         VALUES (v_lid, 'amazon_mx', 1, v_ofid, 110.00, 'MXN', 12.00, 'MXN',
             now(), 'success', 'zz-candado-0039-cotiz')
         RETURNING id INTO v_cot;
+        -- Con la cuenta completa (r5-2): el `p_aplicado` es el `precio_despues`
+        -- del cambio de abajo (r5-4) y `goal` lo pisa el trigger (r5-3).
         INSERT INTO precio_decision (listing_id, platform, resultado, motivo, mode,
             cotizacion_id,
-            p_actual_currency, p_objetivo_currency, p_aplicado_currency,
-            i_currency, c_currency, f_currency, l_currency, r_currency)
+            goal, m_actual, p_actual, p_actual_currency, p_objetivo, p_objetivo_currency,
+            p_aplicado, p_aplicado_currency,
+            i_valor, i_currency, c_valor, c_currency, f_valor, f_currency,
+            l_valor, l_currency, r_valor, r_currency)
         VALUES (v_lid, 'amazon_mx', 'subir', 'candado', 'live', v_cot,
-            'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN')
+            0.30, 0.25, 100.00, 'MXN', 110.00, 'MXN', 110.00, 'MXN',
+            10.00, 'MXN', 20.00, 'MXN', 12.00, 'MXN',
+            5.00, 'MXN', 8.00, 'MXN')
         RETURNING id INTO v_did;
         IF (SELECT cotizacion_id FROM precio_decision WHERE id = v_did) <> v_cot THEN
             RAISE EXCEPTION '0039: el puntero cotizacion_id no quedó lleno';

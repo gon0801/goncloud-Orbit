@@ -699,7 +699,11 @@ obligatorio y no en blanco fuera de `subir`/`bajar` (decisión 11: ningún
 silencio; en append-only no se arregla después). «Sin fila vigente no hay
 decisión» (S3) en la base (r4-3): trigger de coherencia que exige un
 `precio_goal` del mismo par y modo, vigente en el día UTC
-(`[valid_from, valid_to)`). Además (r3-3): escenario, fee y cotización del
+(`[valid_from, valid_to)`). En `subir`/`bajar` la cuenta va completa por
+CHECK (r5-2: `goal`, `m_actual`, `P_actual/objetivo/aplicado`, `I/C/F/L/R`
+NOT NULL; en el resto la matriz la fijan reglas y corrida). Y regla 2 (r5-3):
+`goal` es un número con una fuente —lo asigna el trigger desde la fila
+vigente—. Además (r3-3): escenario, fee y cotización del
 mismo `(listing_id, platform)`; la muestra, del mismo `(product_id, platform)`;
 `product_id`, el del listing.
 Señal de ventas (`u15/u60/n15/n60`, racha, `perdiendo`), cuenta
@@ -752,7 +756,9 @@ puestos (si no, el «sello una sola vez» bloquearía el sello legítimo; solo
 puesto, sin ack ni readback), consume cooldown y freno sin ocupar el índice
 y queda inmutable tras nacer (cualquier `UPDATE` se rechaza).
 Reversa (`es_reversa`, sin decisión propia, de un cambio real no-reversa del
-mismo par, por el mismo camino; nunca automática). Trigger de nacimiento +
+mismo par, por el mismo camino; nunca automática). `precio_despues` no se
+inventa (r5-4): es el `p_aplicado` de su decisión —o el `precio_antes` del
+revertido—, importe y moneda. Trigger de nacimiento +
 trigger de coherencia (decisión del mismo par; reversa real del mismo par) +
 trigger de transiciones con sello acotado por columnas (patrón
 `apply_attempt_solo_sella_resultado`, `created_at` inmutable como

@@ -2286,6 +2286,32 @@ def test_0039_ledger_cerrado_y_goal_vigente():
     assert "'subir'" in mueve and "'bajar'" in mueve
 
 
+def test_0039_cuenta_atada_y_goal_de_fuente():
+    # Puntos 2, 3 y 4 de la r5: cuenta completa en subir/bajar, `goal` por
+    # asignación del trigger, `despues` atado a su origen.
+    cuenta = repr(
+        _checks_de(TABLES39, "precio_decision")["precio_decision_cuenta_completa"].raw_expr
+    )
+    for columna in (
+        "goal",
+        "m_actual",
+        "p_actual",
+        "p_objetivo",
+        "p_aplicado",
+        "i_valor",
+        "c_valor",
+        "f_valor",
+        "l_valor",
+        "r_valor",
+    ):
+        assert columna in cuenta, f"{columna} fuera del CHECK de cuenta"
+    assert "'subir'" in cuenta and "'bajar'" in cuenta
+    coherente = " ".join(_body_de(FUNCTIONS39, "precio_decision_coherente").split())
+    assert "NEW.goal := " in coherente and "margen_goal_pct" in coherente
+    atado = " ".join(_body_de(FUNCTIONS39, "precio_cambio_coherente").split())
+    assert "p_aplicado" in atado and "precio_antes" in atado
+
+
 def test_0039_grants_por_columna():
     # Hecho 2 del brief: cotización INSERT a decide; cambio INSERT + UPDATE por
     # columna a decide; goal INSERT + UPDATE (valid_to) a admin; read solo lee.
