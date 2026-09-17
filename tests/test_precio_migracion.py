@@ -1525,6 +1525,113 @@ def test_virtual_no_recibe_sellos():
 
 
 @_skip_db
+def test_reversa_solo_de_cambio_real():
+    """La reversa apunta a un cambio real no-reversa: ni a un virtual
+    (`aplicado = false`) ni a otra reversa —cada caso con el mensaje de ESA
+    rama—. Y el positivo al lado: reversa de un real confirmado entra.
+    Rojo r3b: sin la rama los cruces pasan."""
+    with db_39("orbit_r3b_rev") as conn:
+        prod = _producto(conn)
+
+        def _cerrado(lid, did):
+            orig = _cambio(conn, did, lid)
+            conn.execute(
+                "UPDATE precio_cambio SET estado = 'enviado', enviado_at = now(),"
+                " ack = '{\"s\": 1}'::jsonb WHERE id = %s",
+                (orig,),
+            )
+            conn.execute(
+                "UPDATE precio_cambio SET estado = 'confirmado',"
+                " confirmado_por = 'observacion' WHERE id = %s",
+                (orig,),
+            )
+            return orig
+
+        # (a) reversa_de = virtual del mismo listing (shadow + virtual).
+        lid_v = _listing(conn, prod)
+        virt = _cambio_virtual(conn, _decision(conn, lid_v, mode="shadow"), lid_v)
+        with pytest.raises(psycopg.errors.CheckViolation, match="no es un cambio real no-reversa"):
+            conn.execute(
+                "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
+                " precio_antes_currency, precio_despues, precio_despues_currency,"
+                " aplicado, estado, es_reversa, reversa_de)"
+                " VALUES (NULL, %s, 'amazon_mx', 110.00, 'MXN', 100.00, 'MXN',"
+                " true, 'pendiente', true, %s)",
+                (lid_v, virt),
+            )
+        # (b) reversa_de = otra reversa del mismo listing.
+        lid_r = _listing(conn, prod, ext="ASIN-R", sku="SKU-R")
+        orig_r = _cerrado(lid_r, _decision(conn, lid_r, mode="live"))
+        rev1 = conn.execute(
+            "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
+            " precio_antes_currency, precio_despues, precio_despues_currency,"
+            " aplicado, estado, es_reversa, reversa_de)"
+            " VALUES (NULL, %s, 'amazon_mx', 110.00, 'MXN', 100.00, 'MXN',"
+            " true, 'pendiente', true, %s) RETURNING id",
+            (lid_r, orig_r),
+        ).fetchone()[0]
+        conn.execute(
+            "UPDATE precio_cambio SET estado = 'enviado', enviado_at = now(),"
+            " ack = '{\"s\": 1}'::jsonb WHERE id = %s",
+            (rev1,),
+        )
+        conn.execute(
+            "UPDATE precio_cambio SET estado = 'confirmado',"
+            " confirmado_por = 'observacion' WHERE id = %s",
+            (rev1,),
+        )
+        with pytest.raises(psycopg.errors.CheckViolation, match="no es un cambio real no-reversa"):
+            conn.execute(
+                "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
+                " precio_antes_currency, precio_despues, precio_despues_currency,"
+                " aplicado, estado, es_reversa, reversa_de)"
+                " VALUES (NULL, %s, 'amazon_mx', 100.00, 'MXN', 110.00, 'MXN',"
+                " true, 'pendiente', true, %s)",
+                (lid_r, rev1),
+            )
+        # Positivo: reversa de un real confirmado entra.
+        lid_p = _listing(conn, prod, ext="ASIN-P", sku="SKU-P")
+        orig_p = _cerrado(lid_p, _decision(conn, lid_p, mode="live"))
+        assert conn.execute(
+            "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
+            " precio_antes_currency, precio_despues, precio_despues_currency,"
+            " aplicado, estado, es_reversa, reversa_de)"
+            " VALUES (NULL, %s, 'amazon_mx', 110.00, 'MXN', 100.00, 'MXN',"
+            " true, 'pendiente', true, %s) RETURNING id",
+            (lid_p, orig_p),
+        ).fetchone()[0]
+
+
+@_skip_db
+def test_reversa_nace_aplicada():
+    """Sin decisión (reversa) solo `aplicado = true`: con `false` la rechaza
+    la rama ELSIF del nacimiento. Rojo r3b: sin la rama cae en otro error."""
+    with db_39("orbit_r3b_aplic") as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        orig = _cambio(conn, _decision(conn, lid, mode="live"), lid)
+        conn.execute(
+            "UPDATE precio_cambio SET estado = 'enviado', enviado_at = now(),"
+            " ack = '{\"s\": 1}'::jsonb WHERE id = %s",
+            (orig,),
+        )
+        conn.execute(
+            "UPDATE precio_cambio SET estado = 'confirmado',"
+            " confirmado_por = 'observacion' WHERE id = %s",
+            (orig,),
+        )
+        with pytest.raises(psycopg.errors.CheckViolation, match="solo aplicado = true"):
+            conn.execute(
+                "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
+                " precio_antes_currency, precio_despues, precio_despues_currency,"
+                " aplicado, estado, es_reversa, reversa_de)"
+                " VALUES (NULL, %s, 'amazon_mx', 110.00, 'MXN', 100.00, 'MXN',"
+                " false, 'pendiente', true, %s)",
+                (lid, orig),
+            )
+
+
+@_skip_db
 def test_listing_gana_unique_id_platform():
     """0039 declara `UNIQUE (id, platform)` en `listing` (lo único que toca
     de una tabla existente): la FK compuesta de `precio_goal` lo exige.
