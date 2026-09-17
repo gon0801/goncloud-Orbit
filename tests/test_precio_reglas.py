@@ -941,6 +941,14 @@ def test_reglas_prioridad_registrada():
     assert d.prioridad == abs(d.m_actual - Decimal("0.30")) * Decimal("15000")
 
 
+def test_reglas_buy_box_solo_se_registra():
+    # Perderla no frena ni cambia el resultado; se guarda tal cual (S4 #7).
+    d = resuelve(entrada(costo="60", buy_box_is_own=False))
+    assert (d.resultado, d.buy_box_is_own) == ("subir", False)
+    d = decide(entrada(buy_box_is_own=None))
+    assert (d.resultado, d.buy_box_is_own) == ("mantener", None)
+
+
 def test_reglas_sombra_igual_con_aplicado_falso():
     ent_live = entrada(costo="60")
     ent_shadow = entrada(costo="60", mode="shadow")

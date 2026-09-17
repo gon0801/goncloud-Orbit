@@ -990,3 +990,86 @@ def test_spapi_vigilante_sin_ads_directo():
     app.spapi.salud (constantes)."""
     fugas = _violaciones(_imports_runtime(RAIZ / "app" / "spapi" / "vigilante.py"), ("app.ads",))
     assert not fugas, f"app/spapi/vigilante.py importa app.ads directo: {fugas}"
+
+
+# REPRICING 01 A.2: el motor de precios es PURO. `app/estimacion_fees.py`
+# entero hace I/O (httpx, psycopg), por eso `cotizar_a_precio` vive ahi y
+# `app/precio/*` NO lo importa: ni red, ni base, ni Ads/SP-API, ni la capa
+# de cotizacion. El reloj tampoco entra: `hoy` y todo dato llegan como
+# argumento. Si importa tipos puros de `app.estimacion_venta` (frozen,
+# Decimal, sin I/O). Candado en paralelo al de `app/optimizer/*`, sin
+# tocar lo existente.
+PRECIO = APP / "precio"
+PROHIBIDOS_PRECIO = (
+    "httpx",
+    "psycopg",
+    "app.db",
+    "app.ads",
+    "app.spapi",
+    "app.estimacion_fees",
+    "<import-relativo-nivel-2>",
+)
+
+
+def _usos_reloj(arbol: ast.AST) -> list[str]:
+    """Llamadas a reloj/entorno en el AST: datetime.now, date.today,
+    time.time, os.environ. Las CLASES datetime/date pueden aparecer (firman
+    los argumentos de fecha); LLAMARLAS al reloj, no."""
+    hallados: list[str] = []
+    for nodo in ast.walk(arbol):
+        if isinstance(nodo, ast.Call) and isinstance(nodo.func, ast.Attribute):
+            dueno = nodo.func.value
+            if isinstance(dueno, ast.Name):
+                if dueno.id == "datetime" and nodo.func.attr == "now":
+                    hallados.append("datetime.now")
+                elif dueno.id == "date" and nodo.func.attr == "today":
+                    hallados.append("date.today")
+                elif dueno.id == "time" and nodo.func.attr == "time":
+                    hallados.append("time.time")
+        elif isinstance(nodo, ast.Attribute):
+            dueno = nodo.value
+            if isinstance(dueno, ast.Name) and dueno.id == "os" and nodo.attr == "environ":
+                hallados.append("os.environ")
+    return hallados
+
+
+def _puros_precio(raiz=None):
+    base = raiz or PRECIO
+    return [p for p in base.rglob("*.py") if p.relative_to(base).as_posix() != "__init__.py"]
+
+
+def test_precio_puro_sin_io():
+    """Ningun modulo de `app/precio/` importa I/O en runtime (rglob: un
+    subpaquete anidado con IO tambien es fuga)."""
+    modulos = _puros_precio()
+    assert modulos, "no se encontro el motor de precios: ¿se movio app/precio/?"
+    fugas = {
+        p.relative_to(PRECIO).as_posix(): v
+        for p in modulos
+        if (v := _violaciones(_imports_runtime(p), PROHIBIDOS_PRECIO))
+    }
+    assert not fugas, f"app/precio debe ser PURO; imports de IO encontrados: {fugas}"
+
+
+def test_precio_sin_reloj_ni_entorno():
+    """`hoy` entra como argumento: ni datetime.now, ni date.today, ni
+    time.time, ni os.environ en el AST de `app/precio/*`."""
+    fugas = {
+        p.relative_to(PRECIO).as_posix(): v
+        for p in _puros_precio()
+        if (v := _usos_reloj(ast.parse(p.read_text(encoding="utf-8"))))
+    }
+    assert not fugas, f"app/precio lee reloj o entorno: {fugas}"
+
+
+def test_precio_frontera_caza_fuga_en_subpaquete(tmp_path, monkeypatch):
+    """Fuga sembrada: un `sub/fuga.py` con `import httpx` hace fallar el
+    candado con el nombre del archivo."""
+    import pytest
+
+    (tmp_path / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "fuga.py").write_text("import httpx\n", encoding="utf-8")
+    monkeypatch.setattr("test_architecture.PRECIO", tmp_path)
+    with pytest.raises(AssertionError, match="sub/fuga.py"):
+        test_precio_puro_sin_io()

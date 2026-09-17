@@ -283,7 +283,12 @@ class PideCotizacion:
 
 @dataclass(frozen=True)
 class EntradaDecision:
-    """Todo lo que `reglas.py` necesita, ya leido y tipado."""
+    """Todo lo que `reglas.py` necesita, ya leido y tipado.
+
+    `buy_box_is_own` (S4 #7) solo se REGISTRA: perder la Buy Box no frena
+    ni revierte (eso es A.6 con `buy_box_perdida` en flanco). En MeLi sin
+    equivalente observable queda nula y se declara, no se inventa.
+    """
 
     listing_id: int
     platform: str
@@ -299,6 +304,7 @@ class EntradaDecision:
     historial: tuple[HistorialMargen, ...]
     goal_nuevo: bool
     motivo_estimacion: str | None = None
+    buy_box_is_own: bool | None = None
 
     def __post_init__(self) -> None:
         exigir_decimal(self.goal, campo="entrada.goal")
@@ -327,6 +333,7 @@ class Decision:
     prioridad: Decimal | None
     aplicado: bool
     mode: str
+    buy_box_is_own: bool | None = None
     diagnostico: str = ""
 
     def __post_init__(self) -> None:

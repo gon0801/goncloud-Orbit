@@ -80,6 +80,7 @@ def _base_senal(entrada: EntradaDecision) -> Decision:
         prioridad=None,
         aplicado=False,
         mode=entrada.mode,
+        buy_box_is_own=entrada.buy_box_is_own,
     )
 
 
