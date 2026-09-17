@@ -1095,6 +1095,19 @@ def test_r5_j2_monedas_distintas_entre_compiten_es_valueerror():
         repartir_cupo(((1, a), (2, b_usd)), cupo=1)
 
 
+def test_r5b_p1_sin_prioridad_va_al_fondo():
+    """r5b-P1: sin prioridad al fondo aunque su listing_id sea menor."""
+    from app.precio.reglas import repartir_cupo
+
+    sin_prio = resuelve(entrada(costo="60", ingreso_60d=None))
+    con_prio = resuelve(entrada(costo="55"))
+    assert (sin_prio.prioridad, sin_prio.aplicado) == (None, True)
+    assert con_prio.prioridad is not None
+    salida = repartir_cupo(((1, sin_prio), (2, con_prio)), cupo=1)
+    assert salida[0][1].motivo == "cuota"
+    assert salida[1][1] is con_prio
+
+
 def test_r5_j1_mantener_con_aplicado_no_compite():
     """r5-J1: un `mantener(*)` con `aplicado=True` pasa idéntico (el filtro
     es por resultado, no solo por aplicado)."""
