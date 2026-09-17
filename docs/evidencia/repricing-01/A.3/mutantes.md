@@ -216,6 +216,193 @@ FAILED tests/test_architecture.py::test_tool_precio_reversa_solo_importa_lectura
 
 MUERTO.
 
+## Ronda r1 (auditoria del lead sobre `a9c49f7`; 14 mutantes + cable)
+
+Caché de bytecode nueva por corrida (`PYTHONPYCACHEPREFIX=$(mktemp -d)`,
+`-p no:cacheprovider`). Todos MUERTOS.
+
+### P5 — `subir` en `shadow` mueve precio (`precio_write.py:cambiar_precio`)
+
+Mutante: quitar `or mode != "live"` (la sombra escribiría en Amazon).
+
+```text
+FAILED tests/test_precio_write.py::test_r1_m_p5_shadow_no_mueve_precio
+1 failed, 49 deselected in 0.42s
+```
+
+MUERTO.
+
+### P7 — aceptar sin `submissionId` (`precio_write.py:_estado_aceptado`)
+
+Mutante: quitar `and cuerpo.get("submissionId") is not None` (un
+202 `ACCEPTED` sin id de sumisión sellaría `enviado`).
+
+```text
+FAILED tests/test_precio_write.py::test_r1_m_p7_accepted_sin_submission_id_es_error
+```
+
+MUERTO.
+
+### P8 — aceptar con 4xx (`precio_write.py:_estado_aceptado`)
+
+Mutante: quitar `200 <= resp.status_code < 300` (un 400 con cuerpo
+`ACCEPTED` sellaría `enviado`).
+
+```text
+FAILED tests/test_precio_write.py::test_r1_m_p8_4xx_con_accepted_es_error
+```
+
+MUERTO.
+
+### P11 — `error_code` con el SKU (`precio_write.py:_publicar`)
+
+Mutante: `ruta = _ruta_sin_sku(...)` → con `/{sku}` (el SKU llegaría
+al log/sello). Ya lo mataban 5 testigos de formato exacto; se sumó el
+test de valor exacto que exige la ausencia.
+
+```text
+FAILED tests/test_precio_write.py::test_revertir_patch_500_sella_error_con_codigo
+FAILED tests/test_precio_write.py::test_cambiar_ack_error_y_get_nuevo_da_error
+FAILED tests/test_precio_write.py::test_r1_a2_401_y_lwa_400_sella_lwa_sin_huerfanas
+FAILED tests/test_precio_write.py::test_r1_a2_error_de_red_sella_sin_relanzar
+FAILED tests/test_precio_write.py::test_r1_a2_excepcion_rara_sella_y_relanza
+FAILED tests/test_precio_write.py::test_r1_m_p11_error_code_sin_sku_valor_exacto
+```
+
+MUERTO.
+
+### P13 — `revertir` acepta un virtual (`precio_write.py:revertir`)
+
+Mutante: `if es_reversa or not aplicado` → `if es_reversa` (un cambio
+virtual, que nunca tocó Amazon, generaría una reversa real).
+
+```text
+FAILED tests/test_precio_write.py::test_r1_m_p13_virtual_no_se_revierte
+```
+
+MUERTO.
+
+### P15 — `revertir` compara solo el importe (`precio_write.py:revertir`)
+
+Mutante: `(vivo.precio, vivo.moneda) != (despues, despues_moneda)` →
+`vivo.precio != despues` (110 USD revertiría 110 MXN).
+
+```text
+FAILED tests/test_precio_write.py::test_r1_m_p15_otra_moneda_salta
+```
+
+MUERTO.
+
+### P17 — la observación del mismo día cierra (`precio_write.py:cerrar_por_observacion`)
+
+Mutante: `metric_date > %s` → `>=` (cerraría con la observación del
+mismo día del envío; el día en curso se descarta por regla 6).
+
+```text
+FAILED tests/test_precio_write.py::test_r1_m_p17_observacion_mismo_dia_no_cierra
+```
+
+MUERTO.
+
+### P19 — manda la más vieja (`precio_write.py:cerrar_por_observacion`)
+
+Mutante: `ORDER BY metric_date DESC` → `ASC` (con dos observaciones
+posteriores distintas decidiría la vieja).
+
+```text
+FAILED tests/test_precio_write.py::test_r1_m_p19_manda_la_mas_reciente
+```
+
+MUERTO.
+
+### P20 — `confirmado_por = 'virtual'` (`precio_write.py:cerrar_por_observacion`)
+
+Mutante: `'observacion'` → `'virtual'` en el UPDATE del cierre.
+
+```text
+FAILED tests/test_precio_write.py::test_cerrar_observacion_igual_confirma_distinta_no
+```
+
+MUERTO (testigo existente, valor exacto `{"observacion"}`).
+
+### W3 — seller ajeno con ruta coincidente (`write_client.py:validar_patch_listings`)
+
+Mutante: quitar `if seller_id not in VENDEDORES_PROPIOS.values()`
+(el caso viejo `(RUTA, "A000...", SKU)` no lo mataba: lo tapaba el
+`path != esperada` final).
+
+```text
+FAILED tests/test_spapi_write_client.py::test_r1_m_w3_seller_ajeno_aunque_la_ruta_coincida
+```
+
+MUERTO.
+
+### W10 — sin defensa de traversal (`write_client.py:validar_patch_listings`)
+
+Mutante: quitar el chequeo de `..` (lo tapaba el `path != esperada`
+final; ahora el mensaje de SU defensa está fijado).
+
+```text
+FAILED tests/test_spapi_write_client.py::test_r1_m_w10_traversal_falla_con_su_mensaje
+```
+
+MUERTO.
+
+### W11 — sin defensa de query/fragment (`write_client.py:validar_patch_listings`)
+
+Mutante: quitar el chequeo de `?` y `#` (idem W10).
+
+```text
+FAILED tests/test_spapi_write_client.py::test_r1_m_w11_query_y_fragment_fallan_con_su_mensaje
+```
+
+MUERTO.
+
+### T1 — el go no exige `--huella` (`tools/precio_reversa.py`)
+
+Mutante: quitar `not args.huella or` y la comparación
+`args.huella != huella` (el go mutaría sin el visto-bueno del dry-run).
+
+```text
+FAILED tests/test_precio_write.py::test_r1_m_t1_go_sin_huella_aborta
+```
+
+MUERTO.
+
+### T4 — un saltado aborta el lote (`tools/precio_reversa.py`)
+
+Mutante: `if accion != "revertir": continue` → `raise Abortar`
+(el primer saltado impediría revertir el segundo).
+
+```text
+FAILED tests/test_precio_write.py::test_r1_m_t4_saltado_no_aborta_el_lote
+```
+
+MUERTO.
+
+### Cable del `patch_listing` (`test_spapi_write_client.py`)
+
+Sin mutante: lo no probado en el cable que ahora está fijado.
+
+- `test_r1_m_cable_patch_ruta_header`: método `PATCH`, `raw_path`
+  exacto con seller sellado + SKU percent-encoded (`SKU P1` →
+  `SKU%20P1`, sin espacios crudos), header `x-amz-access-token`
+  con el token vigente (`tok-1`).
+- Token nuevo tras `401`: testigo existente
+  `test_401_un_refresh_y_reintento` (`tok-2` en el reintento).
+
+### COMMIT — el go perdía sus escrituras (`tools/precio_reversa.py`)
+
+Hallazgo del test T4 (no estaba en la tabla del lead): la conexión
+del tool es sin autocommit y `main` nunca hacía `commit`; el primer
+SELECT abría una transacción implícita, los `with conn.transaction()`
+interiores anidaban como savepoints y el `close()` final hacía
+rollback de todo. El go reportaba éxito y el PATCH sí salía a la red
+falsa, pero la fila de la reversa y los sellos se perdían. Fix:
+`conn.commit()` en el camino de éxito del go (patrón `app/cycle.py`).
+Sin el fix, `test_r1_m_t4_saltado_no_aborta_el_lote` falla en
+`assert reversas == 1` (0 filas); con el fix pasa.
+
 ## Residuales
 
 - `escritor._seller_id` (privado, mismo paquete `app.spapi`).
