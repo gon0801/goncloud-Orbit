@@ -232,14 +232,17 @@ E           ValueError: setting precio_tolerancia: fuera de cota [0, 0.004]: 0.0
 
 MUERTO. Revertido con `git checkout -- app/precio/config.py`.
 
-## Ronda r3 (revisión de kimi + 2 mutantes del lead, 2026-09-17)
+## Ronda r3 (revisión de kimi, 2026-09-17)
 
 Nacieron de K: monedas divergentes (`test_r3_k1_*`), cupo que limpia
 `p_aplicado` + invariante (`test_r3_k2_*`, 2 tests), duplicados
 conservadores (`test_r3_k5_*`, 6 tests). K3 (parámetro muerto) y K4
 (imports) son higiene sin cambio de comportamiento.
 
-### L1 — quitar la regla 11 sobre el primer pedido de `subir`
+(Los cinco hallazgos de kimi son K1–K5; nada más en este catálogo se le
+atribuye.)
+
+### Regla 11 sobre el primer pedido de `subir` (r3, NO es L1 del brief)
 
 Test: `test_r3_l1_doble_lo_decide_el_pedido_no_el_crudo` (el
 inalcanzable sale del wrapper con diagnóstico `P=...`, no del crudo).
@@ -252,26 +255,52 @@ E       AttributeError: 'PideCotizacion' object has no attribute 'resultado'
 
 MUERTO. (Además se quitó la estrella cruda de `_subir`: `margen_imposible`
 sale de la máquina y la regla 11 del wrapper, un solo control por camino.
-En `_bajar` la cruda sigue: ahí decide sin gastar cotización y el brief
-solo ordenó la de subir.)
+En r3b se quitó también la de `_bajar` —opción (a) del BRIEF-r3b—: los
+dos caminos con un solo control, el del pedido.)
 
-### L2 — el fantasma que no verifica pasa
+### Ayuda fantasma de tests (r3, NO es L2 del brief; r3b la sacó de `app/`)
 
-Test: `test_r3_l2_fantasma_que_no_verifica_revienta` (fábrica
-`verificar_fantasma` en `tipos.py`: `|m(P) − goal| ≤ 0.005` con
-parámetros canónicos del acta 0.3 y `P > 0`). Con caché nueva:
+En la r3 se puso una fábrica en `tipos.py`; en la r3b se quitó
+(`tipos.py` queda como en `e2628da` en esa parte) y la ayuda vive en
+`tests/test_precio_reglas.py` (`_fantasma`, `test_r3b_fantasma_*`).
+Su mutante («el fantasma que no verifica pasa») murió con caché nueva:
 
 ```text
 E       Failed: DID NOT RAISE ValueError
 1 failed, 155 deselected in 0.31s
 ```
 
-MUERTO. La prueba de bajar-sin-red se reescribió sobre el fantasma
-(`test_r3_l2_bajar_fantasma_coherente`: precio exactamente el `P_goal`
-por forma cerrada). Decisión documentada en la fábrica: NO es invariante
-del constructor — las cotizaciones de entrada de la máquina legítimamente
-no verifican (con la primera que no cierra se pide la segunda); el que
-revienta es el fantasma que afirma verificación sin Amazon detrás.
+## Ronda r3b (corrección, 2026-09-17)
+
+### L1 — la reversa no frena por ventas (real)
+
+Mutante: quitar `cambio.es_reversa` del filtro de la regla #6.
+Test: `test_r3b_l1_reversa_no_frena_por_ventas` (reversa `confirmado`
+que sube, hace 10 días, + `perdiendo`). Con caché nueva:
+
+```text
+E       AssertionError: assert False
+E        +  where False = isinstance(Decision(resultado='frenado', motivo='perdiendo_tras_subida', ...), <class 'app.precio.tipos.PideCotizacion'>)
+FAILED tests/test_precio_reglas.py::test_r3b_l1_reversa_no_frena_por_ventas
+1 failed, 157 deselected in 0.32s
+```
+
+MUERTO. Revertido con `git checkout -- app/precio/reglas.py`.
+
+### L2 — la bajada no frena por ventas (real)
+
+Mutante: quitar `cambio.direccion == "subir"` de la regla #6.
+Test: `test_r3b_l2_bajada_no_frena_por_ventas` (bajada `confirmado` hace
+10 días + `perdiendo`). Con caché nueva:
+
+```text
+E       AssertionError: assert False
+E        +  where False = isinstance(Decision(resultado='frenado', motivo='perdiendo_tras_subida', ...), <class 'app.precio.tipos.PideCotizacion'>)
+FAILED tests/test_precio_reglas.py::test_r3b_l2_bajada_no_frena_por_ventas
+1 failed, 157 deselected in 0.32s
+```
+
+MUERTO. Revertido con `git checkout -- app/precio/reglas.py`.
 
 ## Ronda r2 (re-auditoría del lead, 2026-09-17)
 
