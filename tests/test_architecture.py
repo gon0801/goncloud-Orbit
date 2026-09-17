@@ -990,3 +990,160 @@ def test_spapi_vigilante_sin_ads_directo():
     app.spapi.salud (constantes)."""
     fugas = _violaciones(_imports_runtime(RAIZ / "app" / "spapi" / "vigilante.py"), ("app.ads",))
     assert not fugas, f"app/spapi/vigilante.py importa app.ads directo: {fugas}"
+
+
+# REPRICING 01 A.3 (carril C): candados del cliente de escritura SP-API.
+# Solo se AGREGA al final (el carril B tambien toca este archivo).
+
+
+def _fugas_patch_crudos(raiz_app, raiz_tools):
+    """Archivos que escriben a Listings fuera de `app/spapi/write_client.py`.
+
+    Caza por linea: `httpx.patch` / `.patch(` / `request("PATCH"` crudos,
+    o el prefijo `/listings/2021-08-01/items` junto a un verbo de
+    escritura en la misma linea. `precio_write.py` nombra el prefijo solo
+    para el `error_code` (sin verbo en esa linea) y por eso no dispara.
+    """
+    import re
+
+    verbo = re.compile(r"\b(PATCH|PUT|POST|DELETE)\b")
+    fugas = []
+    for base in (raiz_app, raiz_tools):
+        for p in sorted(base.rglob("*.py")):
+            try:
+                rel = p.relative_to(RAIZ).as_posix()
+            except ValueError:
+                rel = p.name  # fuga sembrada bajo tmp_path
+            if rel == "app/spapi/write_client.py":
+                continue
+            try:
+                lineas = p.read_text(encoding="utf-8").splitlines()
+            except OSError:
+                continue
+            for n, linea in enumerate(lineas, start=1):
+                if (
+                    "httpx.patch" in linea
+                    or ".patch(" in linea
+                    or 'request("PATCH"' in linea
+                    or "request('PATCH'" in linea
+                    or ("/listings/2021-08-01/items" in linea and verbo.search(linea))
+                ):
+                    fugas.append(f"{rel}:{n}")
+    return fugas
+
+
+def test_precio_write_sin_patch_crudo():
+    """A.3: el unico PATCH a Listings sale de `app/spapi/write_client.py`
+    (AC9: `httpx.patch` con la ruta de listings fuera de el hace fallar)."""
+    fugas = _fugas_patch_crudos(APP, RAIZ / "tools")
+    assert not fugas, f"PATCH crudo a Listings fuera del write client: {fugas}"
+
+
+def test_precio_write_frontera_caza_patch_crudo(tmp_path):
+    """Fuga sembrada: `httpx.patch` con la ruta de listings dispara."""
+    (tmp_path / "fuga.py").write_text(
+        'import httpx\nhttpx.patch("/listings/2021-08-01/items/X/S", json={})\n',
+        encoding="utf-8",
+    )
+    fugas = _fugas_patch_crudos(tmp_path, tmp_path)
+    assert any("fuga.py" in f for f in fugas)
+
+
+def test_precio_write_frontera_caza_prefijo_con_verbo(tmp_path):
+    """Fuga sembrada: el prefijo junto a un verbo en la misma linea dispara."""
+    (tmp_path / "fuga.py").write_text(
+        'RUTA = "/listings/2021-08-01/items"  # PATCH\n', encoding="utf-8"
+    )
+    fugas = _fugas_patch_crudos(tmp_path, tmp_path)
+    assert any("fuga.py" in f for f in fugas)
+
+
+# Quien puede importar el cliente de ESCRITURA SP-API: solo su modulo de
+# escritura. Crecer la allowlist exige editar este archivo = decision
+# visible en diff y review (mismo trato que PERMITIDOS_IMPORTAR_ADS_WRITE).
+PERMITIDOS_IMPORTAR_SPAPI_WRITE = {
+    "app/spapi/precio_write.py": (
+        "escritor de precios (A.3): el dueno legitimo del PATCH a Listings;"
+        " el tool llega por el, nunca directo"
+    ),
+}
+
+
+def _importadores_spapi_write(raiz_app, raiz_tools):
+    importadores = set()
+    for base in (raiz_app, raiz_tools):
+        for p in base.rglob("*.py"):
+            if "app.spapi.write_client" in _imports_runtime(p):
+                importadores.add(p)
+    return importadores
+
+
+def test_imports_del_spapi_write_client_acotados():
+    """Nadie fuera de la allowlist importa `app.spapi.write_client`."""
+    importadores = {
+        p.relative_to(RAIZ).as_posix() for p in _importadores_spapi_write(APP, RAIZ / "tools")
+    }
+    ilegales = importadores - set(PERMITIDOS_IMPORTAR_SPAPI_WRITE)
+    assert not ilegales, (
+        f"modulos que importan app.spapi.write_client sin estar en la allowlist: {sorted(ilegales)}"
+    )
+    for rel, razon in PERMITIDOS_IMPORTAR_SPAPI_WRITE.items():
+        assert razon.strip(), f"entrada de allowlist sin razon escrita: {rel}"
+
+
+def test_imports_spapi_write_frontera_caza_import_extra(tmp_path):
+    """Fuga sembrada: un importador fuera de la allowlist se detecta."""
+    fuga = tmp_path / "otro.py"
+    fuga.write_text("from app.spapi.write_client import SpapiWriteClient\n", encoding="utf-8")
+    importadores = _importadores_spapi_write(tmp_path, tmp_path)
+    assert {p.name for p in importadores} == {"otro.py"}
+    assert "otro.py" not in PERMITIDOS_IMPORTAR_SPAPI_WRITE
+
+
+ALLOWLIST_IMPORTS_PRECIO_REVERSA = frozenset(
+    {
+        "__future__",
+        "__future__.annotations",
+        "app.db",
+        "app.db.OrbitDbError",
+        "app.db.connect",
+        "app.spapi",
+        "app.spapi.client",
+        "app.spapi.client.SpapiClient",
+        "app.spapi.precio_write",
+        "app.spapi.precio_write.FormaParcheSinSellar",
+        "argparse",
+        "hashlib",
+        "httpx",
+        "os",
+        "sys",
+        "time",
+    }
+)
+
+
+def test_tool_precio_reversa_solo_importa_lectura():
+    """`tools/precio_reversa.py` es lectura + `precio_write`: sus imports
+    son subconjunto de la allowlist y nunca el write client directo (el
+    escritor se construye via `precio_write.construir_escritor`)."""
+    imp = _imports_runtime(RAIZ / "tools" / "precio_reversa.py")
+    extras = imp - ALLOWLIST_IMPORTS_PRECIO_REVERSA
+    assert not extras, (
+        f"tools/precio_reversa.py importa por fuera de la allowlist: {sorted(extras)} — "
+        "ampliar exige editar tests/test_architecture.py a proposito"
+    )
+    assert "app.spapi.write_client" not in imp
+
+
+def test_tool_precio_reversa_frontera_caza_write_directo(tmp_path):
+    """Fuga sembrada: si el tool importara el write client, la allowlist
+    (subconjunto) lo detecta con el import de mas identificado."""
+    fuente = (RAIZ / "tools" / "precio_reversa.py").read_text(encoding="utf-8")
+    fuga = tmp_path / "precio_reversa_fuga.py"
+    fuga.write_text(
+        fuente + "from app.spapi.write_client import SpapiWriteClient\n", encoding="utf-8"
+    )
+    imp = _imports_runtime(fuga)
+    assert "app.spapi.write_client" in _violaciones(imp, ("app.spapi.write_client",))
+    extras = imp - ALLOWLIST_IMPORTS_PRECIO_REVERSA
+    assert "app.spapi.write_client" in extras
