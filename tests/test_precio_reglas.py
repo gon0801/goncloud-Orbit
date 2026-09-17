@@ -888,76 +888,7 @@ def test_r3_k5_activo_exige_todas(par):
     assert senal(ins).submotivo == "listing_inactivo"
 
 
-# ---------------------------------------------------------------- r3b-fantasma
-
-
-def _fantasma(precio, detalles, total):
-    """Ayuda SOLO de tests (r3b): construye la cotizacion fantasma y afirma
-    aquí mismo que verifica el goal con los parámetros del acta 0.3
-    (`C = 40`, `L = 0`, `r = 0.025`, `d = 1.16`, `goal = 0.30`):
-    `|m(P) − goal| ≤ 0.005` y `P > 0`. Si no verifica, revienta. Vive aquí
-    y no en `app/`: son números de prueba, no del motor."""
-    from app.precio.tipos import CotizacionVerificada
-
-    if precio.valor <= 0:
-        raise ValueError(f"fantasma con precio no positivo: {precio.valor}")
-    referrals = [det for det in detalles if det.fee_type == "ReferralFee" and det.final_fee > 0]
-    if len(referrals) != 1:
-        raise ValueError("fantasma sin ReferralFee unico positivo")
-    ref = referrals[0].final_fee / precio.valor
-    fijo = total - referrals[0].final_fee
-    ingreso = precio.valor / Decimal("1.16")
-    margen = (
-        ingreso - Decimal("40") - (ref * precio.valor + fijo) - Decimal("0.025") * ingreso
-    ) / ingreso
-    if abs(margen - Decimal("0.30")) > Decimal("0.005"):
-        raise ValueError(f"fantasma no verifica: m={margen} vs goal=0.30 a P={precio.valor}")
-    return CotizacionVerificada(precio, detalles, total, "success", None)
-
-
-def test_r3b_fantasma_bajar_coherente():
-    # El fantasma sale de los componentes (ref/fijo del escenario) y su
-    # precio es exactamente el P_goal por forma cerrada: verifica.
-    from app.precio.objetivo import precio_estrella, techo_centavo
-
-    ref = Decimal("12") / Decimal("116")
-    p_goal = techo_centavo(
-        precio_estrella(
-            Decimal("40"),
-            Decimal("3"),
-            Decimal("0"),
-            Decimal("0.025"),
-            Decimal("0.30"),
-            Decimal("1.16"),
-            True,
-            ref,
-        )
-    )
-    total = (ref * p_goal + Decimal("3")).quantize(Decimal("0.01"))
-    fantasma = _fantasma(
-        imp(str(p_goal)),
-        (
-            DetalleFee("ReferralFee", total - Decimal("3"), None, ()),
-            DetalleFee("FbaFee", Decimal("3"), None, ()),
-        ),
-        total,
-    )
-    ent = entrada(senal=senal_perdiendo())
-    d = decide(ent, cotizaciones=(fantasma,))
-    assert d.resultado == "bajar"
-    assert d.p_objetivo.valor == p_goal
-
-
-def test_r3b_fantasma_que_no_verifica_revienta():
-    with pytest.raises(ValueError, match="no verifica"):
-        _fantasma(
-            imp("100"),
-            (
-                DetalleFee("ReferralFee", Decimal("1.69"), None, ()),
-                DetalleFee("FbaFee", Decimal("3"), None, ()),
-            ),
-            Decimal("4.69"),
-        )
+# (r5-J6: `_fantasma` y sus tests borrados; probaban la ayuda, no el motor.)
 
 
 # ---------------------------------------------------------------- r4-G1
@@ -2169,7 +2100,7 @@ def test_reglas_sin_decimal_no_hay_float():
     assert not _fugas_float(raiz)
 
 
-def test_r4_g8_barrido_float_entra_a_subpaquetes(tmp_path, monkeypatch):
+def test_r4_g8_barrido_float_entra_a_subpaquetes(tmp_path):
     (tmp_path / "sub").mkdir()
     (tmp_path / "sub" / "flotante.py").write_text("x = 0.5\ny = float(1)\n", encoding="utf-8")
     fugas = _fugas_float(tmp_path)

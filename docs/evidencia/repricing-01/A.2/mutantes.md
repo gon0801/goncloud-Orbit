@@ -349,7 +349,7 @@ atribuye.)
 ### Ayuda fantasma de tests (r3, NO es L2 del brief; r3b la sacó de `app/`)
 
 En la r3 se puso una fábrica en `tipos.py`; en la r3b se quitó
-(`tipos.py` queda como en `e2628da` en esa parte) y la ayuda vive en
+(`tipos.py` queda como en `e2628da` en esa parte) y la ayuda vivió en
 `tests/test_precio_reglas.py` (`_fantasma`, `test_r3b_fantasma_*`).
 Su mutante («el fantasma que no verifica pasa») murió con caché nueva:
 
@@ -357,6 +357,9 @@ Su mutante («el fantasma que no verifica pasa») murió con caché nueva:
 E       Failed: DID NOT RAISE ValueError
 1 failed, 155 deselected in 0.31s
 ```
+
+R5-J6: ayuda y tests borrados (probaban la ayuda, no el motor); la
+entrada queda como historia.
 
 ## Ronda r3b (corrección, 2026-09-17)
 
