@@ -2160,6 +2160,39 @@ def test_0039_cambio_progresion_e_indice_parcial():
     cuerpo_nace = " ".join(_body_de(FUNCTIONS39, "precio_cambio_nacimiento").split())
     assert "NEW.aplicado" in cuerpo_nace and "'virtual'" in cuerpo_nace
     assert "'pendiente'" in cuerpo_nace
+    # Punto 7 de la r1: lo real nace sin sellos (solo enviado_at puede nacer puesto).
+    assert "NEW.ack IS NOT NULL" in cuerpo_nace
+    assert "NEW.confirmado_por IS NOT NULL" in cuerpo_nace
+    assert "NEW.error_code IS NOT NULL" in cuerpo_nace
+
+
+def test_0039_decision_vocabulario_y_motivo():
+    # Punto 5 de la r1: S4 fija seis resultados y la decisión 11 prohíbe el
+    # silencio (motivo obligatorio y no en blanco fuera de subir/bajar).
+    checks = _checks_de(TABLES39, "precio_decision")
+    vocab = repr(checks["precio_decision_resultado_valido"].raw_expr)
+    for resultado in ("subir", "bajar", "mantener", "no_evaluado", "goal_inalcanzable", "frenado"):
+        assert f"'{resultado}'" in vocab, f"resultado {resultado} fuera del vocabulario"
+    motivo = repr(checks["precio_decision_motivo_no_silencio"].raw_expr)
+    assert "motivo" in motivo and "'subir'" in motivo and "'bajar'" in motivo
+
+
+def test_0039_cambio_sellos_y_vigencia_anulable():
+    # Puntos 6 y 8 de la r1: ningún estado avanza sin su sello; la vigencia
+    # del goal es [valid_from, valid_to) y admite el intervalo vacío.
+    checks = _checks_de(TABLES39, "precio_cambio")
+    assert "error_code" in repr(checks["precio_cambio_error_exige_codigo"].raw_expr)
+    cierre = repr(checks["precio_cambio_cierre_exige_origen"].raw_expr)
+    assert "confirmado_por" in cierre and "'confirmado'" in cierre
+    envio = repr(checks["precio_cambio_envio_exige_ack"].raw_expr)
+    assert "ack" in envio and "enviado_at" in envio and "'pendiente'" in envio
+    assert "precio_goal_vigencia_coherente" in {
+        e.conname
+        for e in TABLES39["precio_goal"].tableElts
+        if isinstance(e, ast.Constraint) and e.conname
+    }
+    # El AST no pinta el operador: la igualdad con >= se afirma en el texto.
+    assert "valid_to IS NULL OR valid_to >= valid_from" in " ".join(SQL39.split())
 
 
 def test_0039_grants_por_columna():
@@ -2199,17 +2232,26 @@ def test_0039_grants_por_columna():
         )
 
 
+def _mapeo_cap_de_cuerpo(cuerpo: str) -> dict:
+    """El `CASE p_motor` parseado a `motor → clave` (patrón
+    `test_kinds_quota_es_el_espejo_real_del_trigger` de test_preflight_1_4:
+    un `in` deja pasar `ads_apply_cap_amazon_us_bid_wrong`)."""
+    pares = re.findall(r"WHEN\s+'([^']+)'\s+THEN\s+'([^']+)'", cuerpo)
+    assert pares, "el CASE de apply_cap_de_config no se encontró: revisar el parseo"
+    return dict(pares)
+
+
 def test_0039_cap_amplia_sin_romper_ads():
-    # Los ocho mapeos de 0002 idénticos + los tres de precio (los tests de
-    # 0002 sobre FUNCTIONS2 siguen verdes: el REPLACE vive en 0039).
-    cuerpo = " ".join(_body_de(FUNCTIONS39, "apply_cap_de_config").split())
-    for plat in ("amazon_us", "amazon_mx"):
-        for kind in ("bid", "pause", "negative", "harvest"):
-            assert f"ads_apply_cap_{plat}_{kind}" in cuerpo
-            assert f"ads_optimizer:{plat}:{kind}" in cuerpo
-    assert "precio:amazon_mx" in cuerpo and "precio_cap_amazon_mx" in cuerpo
-    assert "precio:amazon_us" in cuerpo and "precio_cap_amazon_us" in cuerpo
-    assert "precio:meli" in cuerpo and "precio_cap_meli" in cuerpo
+    # Igualdad EXACTA de diccionarios: dict(0039) == dict(0002) + los tres de
+    # precio (los tests de 0002 sobre FUNCTIONS2 siguen verdes: el REPLACE
+    # vive en 0039). Un `in` dejaría pasar una clave adulterada.
+    mapa2 = _mapeo_cap_de_cuerpo(_body_de(FUNCTIONS2, "apply_cap_de_config"))
+    mapa39 = _mapeo_cap_de_cuerpo(_body_de(FUNCTIONS39, "apply_cap_de_config"))
+    assert mapa39 == mapa2 | {
+        "precio:amazon_mx": "precio_cap_amazon_mx",
+        "precio:amazon_us": "precio_cap_amazon_us",
+        "precio:meli": "precio_cap_meli",
+    }
 
 
 def test_0039_listing_unique_y_do_revierte():

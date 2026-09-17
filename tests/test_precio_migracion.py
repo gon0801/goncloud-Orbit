@@ -113,14 +113,20 @@ _MONEDAS_DECISION = (
 
 
 def _decision(
-    conn, listing: int, *, platform="amazon_mx", resultado="mantener", mode="shadow"
+    conn,
+    listing: int,
+    *,
+    platform="amazon_mx",
+    resultado="mantener",
+    mode="shadow",
+    motivo="tdd",
 ) -> int:
     return conn.execute(
         f"INSERT INTO precio_decision (listing_id, platform, resultado, motivo, mode,"
         f" {_MONEDAS_DECISION})"
-        " VALUES (%s, %s, %s, 'tdd', %s,"
+        " VALUES (%s, %s, %s, %s, %s,"
         " 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN') RETURNING id",
-        (listing, platform, resultado, mode),
+        (listing, platform, resultado, motivo, mode),
     ).fetchone()[0]
 
 
@@ -446,7 +452,11 @@ def test_cambio_confirmado_a_pendiente_rechazado():
         lid = _listing(conn, prod)
         did = _decision(conn, lid)
         cid = _cambio(conn, did, lid)
-        conn.execute("UPDATE precio_cambio SET estado = 'enviado' WHERE id = %s", (cid,))
+        conn.execute(
+            "UPDATE precio_cambio SET estado = 'enviado', enviado_at = now(),"
+            " ack = '{\"s\": 1}'::jsonb WHERE id = %s",
+            (cid,),
+        )
         conn.execute(
             "UPDATE precio_cambio SET estado = 'confirmado', confirmado_por = 'observacion'"
             " WHERE id = %s",
@@ -553,8 +563,9 @@ def test_cambio_transiciones_legales():
             cid = _cambio(conn, _decision(conn, lid), lid)
             conn.execute(
                 "UPDATE precio_cambio SET estado = %s, error_code = CASE WHEN %s = 'error'"
-                " THEN 'PATCH 500' END WHERE id = %s",
-                (destino, destino, cid),
+                " THEN 'PATCH 500' END, enviado_at = now(),"
+                " ack = CASE WHEN %s = 'enviado' THEN '{\"s\": 1}'::jsonb END WHERE id = %s",
+                (destino, destino, destino, cid),
             )
             assert (
                 conn.execute("SELECT estado FROM precio_cambio WHERE id = %s", (cid,)).fetchone()[0]
@@ -562,7 +573,11 @@ def test_cambio_transiciones_legales():
             )
         lid = _listing(conn, prod, ext="ASIN-c", sku="SKU-c")
         cid = _cambio(conn, _decision(conn, lid), lid)
-        conn.execute("UPDATE precio_cambio SET estado = 'enviado' WHERE id = %s", (cid,))
+        conn.execute(
+            "UPDATE precio_cambio SET estado = 'enviado', enviado_at = now(),"
+            " ack = '{\"s\": 1}'::jsonb WHERE id = %s",
+            (cid,),
+        )
         conn.execute(
             "UPDATE precio_cambio SET estado = 'no_confirmado', confirmado_por = 'observacion'"
             " WHERE id = %s",
@@ -586,7 +601,11 @@ def test_cambio_transiciones_ilegales():
             conn.execute("UPDATE precio_cambio SET estado = 'confirmado' WHERE id = %s", (c1,))
         lid2 = _listing(conn, prod, ext="ASIN2", sku="SKU-P2")
         c2 = _cambio(conn, _decision(conn, lid2), lid2)
-        conn.execute("UPDATE precio_cambio SET estado = 'enviado' WHERE id = %s", (c2,))
+        conn.execute(
+            "UPDATE precio_cambio SET estado = 'enviado', enviado_at = now(),"
+            " ack = '{\"s\": 1}'::jsonb WHERE id = %s",
+            (c2,),
+        )
         with pytest.raises(psycopg.errors.CheckViolation, match="progresi"):
             conn.execute("UPDATE precio_cambio SET estado = 'error' WHERE id = %s", (c2,))
         conn.execute(
@@ -607,7 +626,8 @@ def test_cambio_sello_una_vez():
         lid = _listing(conn, prod)
         cid = _cambio(conn, _decision(conn, lid), lid)
         conn.execute(
-            "UPDATE precio_cambio SET estado = 'enviado', ack = '{\"a\": 1}'::jsonb WHERE id = %s",
+            "UPDATE precio_cambio SET estado = 'enviado', enviado_at = now(),"
+            " ack = '{\"a\": 1}'::jsonb WHERE id = %s",
             (cid,),
         )
         with pytest.raises(psycopg.errors.RestrictViolation, match="UNA vez"):
@@ -619,14 +639,20 @@ def test_cambio_sello_una_vez():
 @_skip_db
 def test_cambio_reversa_sin_decision():
     """La reversa no tiene decisión propia: `decision_id` NULL con
-    `es_reversa` y `reversa_de`; los cruces revientan.
-    Rojo pre-0039: la tabla no existe."""
+    `es_reversa` y `reversa_de`; cada cruce revienta con el NOMBRE de su
+    constraint (no con el índice de abierto).
+    Rojo pre-0039: la tabla no existe. Rojo r1: sin los CHECKs los cruces
+    pasan."""
     with db_39("orbit_pcb_rev") as conn:
         prod = _producto(conn)
         lid = _listing(conn, prod)
         did = _decision(conn, lid)
         orig = _cambio(conn, did, lid)
-        conn.execute("UPDATE precio_cambio SET estado = 'enviado' WHERE id = %s", (orig,))
+        conn.execute(
+            "UPDATE precio_cambio SET estado = 'enviado', enviado_at = now(),"
+            " ack = '{\"s\": 1}'::jsonb WHERE id = %s",
+            (orig,),
+        )
         conn.execute(
             "UPDATE precio_cambio SET estado = 'confirmado', confirmado_por = 'observacion'"
             " WHERE id = %s",
@@ -641,12 +667,24 @@ def test_cambio_reversa_sin_decision():
             (lid, orig),
         ).fetchone()[0]
         assert rev
-        with pytest.raises(psycopg.errors.CheckViolation):
-            _cambio(conn, did, lid, es_reversa=True)
-        with pytest.raises(psycopg.errors.CheckViolation):
-            _cambio(conn, None, lid, es_reversa=False)
-        with pytest.raises(psycopg.errors.CheckViolation):
-            _cambio(conn, did, lid, reversa_de=orig)
+        # Cada cruce en su propio listing (lejos del índice de abierto).
+        lid2 = _listing(conn, prod, ext="ASIN2", sku="SKU-P2")
+        did2 = _decision(conn, lid2)
+        with pytest.raises(
+            psycopg.errors.CheckViolation, match="precio_cambio_decision_salvo_reversa"
+        ):
+            conn.execute(
+                "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
+                " precio_antes_currency, precio_despues, precio_despues_currency,"
+                " aplicado, estado, es_reversa, reversa_de)"
+                " VALUES (%s, %s, 'amazon_mx', 110.00, 'MXN', 100.00, 'MXN',"
+                " true, 'pendiente', true, %s)",
+                (did2, lid2, orig),
+            )
+        lid3 = _listing(conn, prod, ext="ASIN3", sku="SKU-P3")
+        did3 = _decision(conn, lid3)
+        with pytest.raises(psycopg.errors.CheckViolation, match="precio_cambio_reversa_binaria"):
+            _cambio(conn, did3, lid3, reversa_de=orig)
 
 
 @_skip_db
@@ -699,6 +737,45 @@ def test_quota_precio_nace_de_config():
                 (motor, hoy, _CAP_PRECIO[clave]),
             ).fetchone()[0]
             assert cap == _CAP_PRECIO[clave]
+
+
+@_skip_db
+def test_cap_resuelve_los_once_motores():
+    """`apply_cap_de_config(motor)` devuelve lo suyo para los once motores
+    con una config donde cada clave vale distinto (los ocho de Ads intactos +
+    los tres de precio). Rojo r1: con el `in` viejo un mapeo adulterado pasaba."""
+    with db_39("orbit_r1_once") as conn:
+        claves = {
+            "ads_apply_cap_amazon_us_bid": 11,
+            "ads_apply_cap_amazon_us_pause": 12,
+            "ads_apply_cap_amazon_us_negative": 13,
+            "ads_apply_cap_amazon_us_harvest": 14,
+            "ads_apply_cap_amazon_mx_bid": 15,
+            "ads_apply_cap_amazon_mx_pause": 16,
+            "ads_apply_cap_amazon_mx_negative": 17,
+            "ads_apply_cap_amazon_mx_harvest": 18,
+            "precio_cap_amazon_mx": 21,
+            "precio_cap_amazon_us": 22,
+            "precio_cap_meli": 23,
+        }
+        _config(conn, claves)
+        motores = {
+            "ads_optimizer:amazon_us:bid": 11,
+            "ads_optimizer:amazon_us:pause": 12,
+            "ads_optimizer:amazon_us:negative": 13,
+            "ads_optimizer:amazon_us:harvest": 14,
+            "ads_optimizer:amazon_mx:bid": 15,
+            "ads_optimizer:amazon_mx:pause": 16,
+            "ads_optimizer:amazon_mx:negative": 17,
+            "ads_optimizer:amazon_mx:harvest": 18,
+            "precio:amazon_mx": 21,
+            "precio:amazon_us": 22,
+            "precio:meli": 23,
+        }
+        for motor, esperado in motores.items():
+            assert (
+                conn.execute("SELECT apply_cap_de_config(%s)", (motor,)).fetchone()[0] == esperado
+            ), motor
 
 
 @_skip_db
@@ -758,9 +835,9 @@ def test_app_read_no_inserta():
             "INSERT INTO precio_goal (listing_id, platform, margen_goal_pct, mode,"
             f" valid_from, creado_por) VALUES ({lid}, 'amazon_mx', 0.30, 'shadow',"
             " '2026-09-01', 'tdd')",
-            f"INSERT INTO precio_decision (listing_id, platform, resultado, mode,"
-            f" {_MONEDAS_DECISION}) VALUES ({lid}, 'amazon_mx', 'mantener', 'shadow',"
-            " 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN')",
+            f"INSERT INTO precio_decision (listing_id, platform, resultado, motivo, mode,"
+            f" {_MONEDAS_DECISION}) VALUES ({lid}, 'amazon_mx', 'mantener', 'candado',"
+            " 'shadow', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN')",
             "INSERT INTO precio_cotizacion (decision_id, oferta_observation_id, quoted_price,"
             " quoted_price_currency, fees_estimated_at, estado, source_event_id)"
             f" VALUES ({did}, {ofid}, 110.00, 'MXN', now(), 'success', 'x')",
@@ -791,14 +868,15 @@ def test_app_decide_inserta_y_sella_pero_no_goal():
         try:
             conn.execute("SET ROLE app_decide")
             did = conn.execute(
-                f"INSERT INTO precio_decision (listing_id, platform, resultado, mode,"
+                f"INSERT INTO precio_decision (listing_id, platform, resultado, motivo, mode,"
                 f" {_MONEDAS_DECISION})"
-                " VALUES (%s, 'amazon_mx', 'mantener', 'shadow',"
+                " VALUES (%s, 'amazon_mx', 'mantener', 'candado', 'shadow',"
                 " 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN') RETURNING id",
                 (lid,),
             ).fetchone()[0]
             conn.execute(
-                "UPDATE precio_cambio SET estado = 'enviado' WHERE id = %s",
+                "UPDATE precio_cambio SET estado = 'enviado', enviado_at = now(),"
+                " ack = '{\"s\": 1}'::jsonb WHERE id = %s",
                 (_cambio(conn, did, lid),),
             )
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
@@ -852,6 +930,173 @@ def test_migracion_no_deja_filas():
             "precio_cambio",
         ):
             assert conn.execute(f"SELECT count(*) FROM {tabla}").fetchone()[0] == 0
+
+
+@_skip_db
+def test_fk_compuesta_atrapa_plataforma_cruzada():
+    """La FK es compuesta `(listing_id, platform)`: un listing que SÍ existe
+    en `amazon_mx` insertado con `platform = 'amazon_us'` revienta en las tres
+    tablas (un `listing_id` inexistente no distinguiría una FK simple).
+    Rojo r1: con FK simple a `listing(id)` el mismatch pasa."""
+    with db_39("orbit_r1_fk") as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod, platform="amazon_mx", ext="ASIN1", sku="SKU-P1")
+        with pytest.raises(psycopg.errors.ForeignKeyViolation):
+            _goal(conn, lid, platform="amazon_us")
+        with pytest.raises(psycopg.errors.ForeignKeyViolation):
+            _decision(conn, lid, platform="amazon_us")
+        did = _decision(conn, lid)
+        with pytest.raises(psycopg.errors.ForeignKeyViolation):
+            _cambio(conn, did, lid, platform="amazon_us")
+
+
+@_skip_db
+def test_triggers_truncate_en_catalogo():
+    """Cada una de las cinco tablas tiene su trigger `BEFORE TRUNCATE` de
+    sentencia sobre `prohibir_mutacion` (determinista: no depende de qué otro
+    trigger dispare un CASCADE). Rojo r1: sin el trigger el catálogo no trae
+    la fila."""
+    with db_39("orbit_r1_truncat") as conn:
+        filas = {
+            r[0]
+            for r in conn.execute(
+                "SELECT tgrelid::regclass::text FROM pg_trigger"
+                " WHERE NOT tgisinternal AND tgenabled <> 'D'"
+                " AND ((tgtype & 32) <> 0) AND ((tgtype & 2) <> 0)"
+                " AND tgfoid = 'prohibir_mutacion()'::regprocedure"
+            ).fetchall()
+        }
+        for tabla in (
+            "precio_goal",
+            "precio_decision",
+            "precio_cotizacion",
+            "precio_envio_muestra",
+            "precio_cambio",
+        ):
+            assert tabla in filas, f"{tabla} sin trigger BEFORE TRUNCATE de sentencia"
+
+
+@_skip_db
+def test_decision_resultado_vocabulario():
+    """S4 fija seis resultados: otro valor revienta con nombre de constraint.
+    Rojo r1: sin el CHECK el INSERT pasa."""
+    with db_39("orbit_r1_vocab") as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        with pytest.raises(psycopg.errors.CheckViolation, match="precio_decision_resultado_valido"):
+            _decision(conn, lid, resultado="invento")
+
+
+@_skip_db
+def test_decision_no_evaluado_exige_motivo():
+    """Decisión 11 («ningún silencio»): fuera de subir/bajar el motivo es
+    obligatorio y no en blanco; subir/bajar sin motivo sí pasan.
+    Rojo r1: sin el CHECK el silencio pasa."""
+    with db_39("orbit_r1_motivo") as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        with pytest.raises(
+            psycopg.errors.CheckViolation, match="precio_decision_motivo_no_silencio"
+        ):
+            _decision(conn, lid, resultado="no_evaluado", motivo=None)
+        lid2 = _listing(conn, prod, ext="ASIN2", sku="SKU-P2")
+        with pytest.raises(
+            psycopg.errors.CheckViolation, match="precio_decision_motivo_no_silencio"
+        ):
+            _decision(conn, lid2, resultado="frenado", motivo="   ")
+        lid3 = _listing(conn, prod, ext="ASIN3", sku="SKU-P3")
+        assert _decision(conn, lid3, resultado="subir", motivo=None)
+
+
+@_skip_db
+def test_cambio_error_exige_codigo():
+    """`pendiente → error` sin `error_code` revienta con nombre de constraint.
+    Rojo r1: sin el CHECK el avance pasa."""
+    with db_39("orbit_r1_errcode") as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        cid = _cambio(conn, _decision(conn, lid), lid)
+        with pytest.raises(psycopg.errors.CheckViolation, match="precio_cambio_error_exige_codigo"):
+            conn.execute("UPDATE precio_cambio SET estado = 'error' WHERE id = %s", (cid,))
+
+
+@_skip_db
+def test_cambio_confirmado_exige_confirmado_por():
+    """Cerrar a `confirmado` sin `confirmado_por` revienta.
+    Rojo r1: sin el CHECK el avance pasa."""
+    with db_39("orbit_r1_confpor") as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        cid = _cambio(conn, _decision(conn, lid), lid)
+        conn.execute(
+            "UPDATE precio_cambio SET estado = 'enviado', enviado_at = now(),"
+            " ack = '{\"s\": 1}'::jsonb WHERE id = %s",
+            (cid,),
+        )
+        with pytest.raises(
+            psycopg.errors.CheckViolation, match="precio_cambio_cierre_exige_origen"
+        ):
+            conn.execute("UPDATE precio_cambio SET estado = 'confirmado' WHERE id = %s", (cid,))
+
+
+@_skip_db
+def test_cambio_enviado_exige_ack():
+    """`pendiente → enviado` sin `ack` ni `enviado_at` revienta.
+    Rojo r1: sin el CHECK el avance pasa."""
+    with db_39("orbit_r1_ack") as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        cid = _cambio(conn, _decision(conn, lid), lid)
+        with pytest.raises(psycopg.errors.CheckViolation, match="precio_cambio_envio_exige_ack"):
+            conn.execute("UPDATE precio_cambio SET estado = 'enviado' WHERE id = %s", (cid,))
+
+
+@_skip_db
+def test_cambio_nace_sin_sellos():
+    """Un cambio real nace `pendiente` y sin sellos puestos (si no, el «sello
+    una sola vez» bloquearía el sello legítimo); `enviado_at` sí puede nacer
+    puesto (A.4). Rojo r1: sin la regla el nacimiento con `ack` pasa."""
+    with db_39("orbit_r1_nacesello") as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        did = _decision(conn, lid)
+        with pytest.raises(psycopg.errors.CheckViolation, match="nace sin sellos"):
+            conn.execute(
+                "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
+                " precio_antes_currency, precio_despues, precio_despues_currency,"
+                " aplicado, estado, ack)"
+                " VALUES (%s, %s, 'amazon_mx', 100.00, 'MXN', 110.00, 'MXN',"
+                " true, 'pendiente', '{}'::jsonb)",
+                (did, lid),
+            )
+        lid2 = _listing(conn, prod, ext="ASIN2", sku="SKU-P2")
+        did2 = _decision(conn, lid2)
+        assert conn.execute(
+            "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
+            " precio_antes_currency, precio_despues, precio_despues_currency,"
+            " aplicado, estado, enviado_at)"
+            " VALUES (%s, %s, 'amazon_mx', 100.00, 'MXN', 110.00, 'MXN',"
+            " true, 'pendiente', now()) RETURNING id",
+            (did2, lid2),
+        ).fetchone()[0]
+
+
+@_skip_db
+def test_goal_anulado_mismo_dia():
+    """`valid_to = valid_from` es intervalo vacío: el goal queda anulado,
+    nunca vigente (apaga el error de dedo el mismo día).
+    Rojo r1: con `>` el cierre mismo-día revienta."""
+    with db_39("orbit_r1_anulado") as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        gid = _goal(conn, lid)
+        conn.execute("UPDATE precio_goal SET valid_to = valid_from WHERE id = %s", (gid,))
+        assert (
+            conn.execute("SELECT valid_to FROM precio_goal WHERE id = %s", (gid,)).fetchone()[0]
+            == conn.execute("SELECT valid_from FROM precio_goal WHERE id = %s", (gid,)).fetchone()[
+                0
+            ]
+        )
 
 
 @_skip_db

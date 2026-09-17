@@ -71,8 +71,14 @@ CREATE TABLE precio_goal (
         CHECK (margen_goal_pct BETWEEN 0.10 AND 0.60),
     CONSTRAINT precio_goal_live_exige_go
         CHECK ((mode = 'live') = (go_literal IS NOT NULL AND btrim(go_literal) <> '')),
+    -- La vigencia es [valid_from, valid_to): valid_to = valid_from es un
+    -- intervalo vacío —el goal queda ANULADO, nunca estuvo vigente— y así se
+    -- apaga un error de dedo el mismo día (si no, la corrida de las 13:10 UTC
+    -- actuaría sobre él). Aquí 0039 se aparta del patrón de `sku_cost`
+    -- (`valid_to > valid_from`) a propósito: un costo rige pasado; un goal
+    -- con error debe poder no regir nunca (regla 7: la reversa existe antes).
     CONSTRAINT precio_goal_vigencia_coherente
-        CHECK (valid_to IS NULL OR valid_to > valid_from),
+        CHECK (valid_to IS NULL OR valid_to >= valid_from),
     CONSTRAINT precio_goal_unico_por_fecha UNIQUE (listing_id, platform, valid_from)
 );
 
@@ -86,10 +92,14 @@ CREATE UNIQUE INDEX precio_goal_un_vigente
 COMMENT ON TABLE precio_goal IS
   'REPRICING 01 A.0 (S3): goal de margen por publicación, vigencia con el '
   'patrón de `sku_cost` (solo se cierra `valid_to`, una vez; corregir el goal '
-  'es fila nueva). Sin fila vigente no hay decisión: sin defaults por '
-  'plataforma ni herencia (decisión 3, regla 3). `platform` admite amazon_mx, '
-  'amazon_us y meli; el motor solo evalúa las combinaciones habilitadas por '
-  'la fase vigente y declara el resto `fuera_de_alcance(fase)`.';
+  'es fila nueva) SALVO la coherencia: la vigencia es [valid_from, valid_to) '
+  'y `valid_to = valid_from` es intervalo vacío —el goal queda ANULADO, nunca '
+  'estuvo vigente— para apagar un error de dedo el mismo día (un costo rige '
+  'pasado; un goal con error debe poder no regir nunca). Sin fila vigente no '
+  'hay decisión: sin defaults por plataforma ni herencia (decisión 3, regla '
+  '3). `platform` admite amazon_mx, amazon_us y meli; el motor solo evalúa '
+  'las combinaciones habilitadas por la fase vigente y declara el resto '
+  '`fuera_de_alcance(fase)`.';
 COMMENT ON COLUMN precio_goal.margen_goal_pct IS
   'Fracción sobre el ingreso sin impuesto (I), igual que la contribución '
   'estimada. Banda 0.10–0.60 en CHECK literal (claves precio_goal_min_pct / '
@@ -207,7 +217,16 @@ CREATE TABLE precio_decision (
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT precio_decision_listing_fk FOREIGN KEY (listing_id, platform)
         REFERENCES listing (id, platform),
-    CONSTRAINT precio_decision_unica_por_dia UNIQUE (listing_id, platform, decision_date)
+    CONSTRAINT precio_decision_unica_por_dia UNIQUE (listing_id, platform, decision_date),
+    -- Vocabulario cerrado de S4 (seis resultados) y ningún silencio
+    -- (decisión 11 del dueño): fuera de subir/bajar el motivo es obligatorio
+    -- y no en blanco; en append-only no se arregla después.
+    CONSTRAINT precio_decision_resultado_valido
+        CHECK (resultado IN ('subir', 'bajar', 'mantener', 'no_evaluado',
+                             'goal_inalcanzable', 'frenado')),
+    CONSTRAINT precio_decision_motivo_no_silencio
+        CHECK (resultado IN ('subir', 'bajar')
+               OR (motivo IS NOT NULL AND btrim(motivo) <> ''))
 );
 
 COMMENT ON TABLE precio_decision IS
@@ -407,6 +426,19 @@ CREATE TABLE precio_cambio (
         CHECK ((readback_precio IS NULL) = (readback_precio_currency IS NULL)),
     CONSTRAINT precio_cambio_readback_estado_valido
         CHECK (readback_estado IS NULL OR readback_estado IN ('ok', 'fallido')),
+    -- Un estado no avanza sin su sello: el error trae código, el cierre trae
+    -- origen, y el vuelo (`enviado` en un cambio real) trae ack + enviado_at.
+    -- El virtual (`aplicado = false`) queda fuera del tercero a propósito:
+    -- nace `confirmado` sin ack.
+    CONSTRAINT precio_cambio_error_exige_codigo
+        CHECK (estado <> 'error' OR error_code IS NOT NULL),
+    CONSTRAINT precio_cambio_cierre_exige_origen
+        CHECK (estado NOT IN ('confirmado', 'no_confirmado')
+               OR confirmado_por IS NOT NULL),
+    CONSTRAINT precio_cambio_envio_exige_ack
+        CHECK (NOT aplicado
+               OR estado IN ('pendiente', 'error')
+               OR (ack IS NOT NULL AND enviado_at IS NOT NULL)),
     -- Reversa sin decisión propia (S6, decisión del lead): la corre el dueño
     -- con la herramienta y no tiene `precio_decision`.
     CONSTRAINT precio_cambio_reversa_binaria
@@ -460,6 +492,23 @@ BEGIN
                 'precio_cambio: con aplicado = true solo se nace `pendiente` '
                 '(el ack decide `enviado | error`, la observación del día '
                 'siguiente decide `confirmado | no_confirmado`).'
+                USING ERRCODE = 'check_violation';
+        END IF;
+        -- Nacer `pendiente` con sellos ya puestos bloquearía después el sello
+        -- legítimo («sello una sola vez»): ack, readback, origen y código
+        -- nacen NULL. `enviado_at` SÍ puede nacer puesto (la fila A.4 pide la
+        -- fila `pendiente` con `enviado_at` antes del ack).
+        IF NEW.ack IS NOT NULL
+           OR NEW.readback_precio IS NOT NULL
+           OR NEW.readback_estado IS NOT NULL
+           OR NEW.readback_at IS NOT NULL
+           OR NEW.confirmado_por IS NOT NULL
+           OR NEW.error_code IS NOT NULL THEN
+            RAISE EXCEPTION
+                'precio_cambio: un cambio real nace sin sellos puestos '
+                '(ack/readback/confirmado_por/error_code NULL; solo enviado_at '
+                'puede nacer puesto): si no, el sello una sola vez bloquearía '
+                'el sello legítimo.'
                 USING ERRCODE = 'check_violation';
         END IF;
     ELSE
@@ -756,10 +805,12 @@ BEGIN
         RETURNING id INTO v_gid;
         UPDATE precio_goal SET valid_to = '2026-09-02' WHERE id = v_gid;
         BEGIN
-            INSERT INTO precio_decision (listing_id, platform, resultado, mode,
+            -- Con motivo: lo que se prueba aquí es el privilegio, no el CHECK
+            -- de motivo (punto 5 de la r1).
+            INSERT INTO precio_decision (listing_id, platform, resultado, motivo, mode,
                 p_actual_currency, p_objetivo_currency, p_aplicado_currency,
                 i_currency, c_currency, f_currency, l_currency, r_currency)
-            VALUES (v_lid, 'amazon_mx', 'mantener', 'shadow',
+            VALUES (v_lid, 'amazon_mx', 'mantener', 'candado', 'shadow',
                 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN');
             RAISE EXCEPTION '0039: INSERT de app_admin en precio_decision NO fue rechazado';
         EXCEPTION WHEN insufficient_privilege THEN
