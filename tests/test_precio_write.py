@@ -906,6 +906,73 @@ def test_cambiar_429_agotado_readback_fallido_sin_escritura_extra():
         assert red.n_patch == 1
 
 
+def test_r1_a3_cambiar_vivo_distinto_de_p_actual_salta():
+    """r1-A3: el vivo ya no es el de la decision → sin fila y sin PATCH."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(99.0))], gets_competitivos=[(200, _competitivo_body())]
+    )
+    with db_39c() as conn:
+        _, dec = _semilla_cambio(conn)
+        lector, escritor = _clientes(red)
+        with rol(conn):
+            res = cambiar_precio(
+                conn,
+                dec,
+                lector=lector,
+                escritor=escritor,
+                construir_cuerpo=_cuerpo_falso,
+                ahora=AHORA,
+            )
+        assert res.estado == "saltado" and "precio_vivo_distinto" in (res.motivo or "")
+        assert res.id_cambio is None
+        assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 0
+        assert red.n_patch == 0
+
+
+def test_r1_a3_cambiar_vivo_otra_moneda_salta():
+    """r1-A3: mismo importe, otra moneda → saltado."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(100.0, moneda="USD"))],
+        gets_competitivos=[(200, _competitivo_body())],
+    )
+    with db_39c() as conn:
+        _, dec = _semilla_cambio(conn)
+        lector, escritor = _clientes(red)
+        with rol(conn):
+            res = cambiar_precio(
+                conn,
+                dec,
+                lector=lector,
+                escritor=escritor,
+                construir_cuerpo=_cuerpo_falso,
+                ahora=AHORA,
+            )
+        assert res.estado == "saltado" and res.id_cambio is None
+        assert red.n_patch == 0
+
+
+def test_r1_a3_cambiar_vivo_igual_a_p_actual_procede():
+    """r1-A3, otro lado: vivo == p_actual → el cambio sí se escribe."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(100.0)), (200, _ofertas_body(100.0))],
+        gets_competitivos=[(200, _competitivo_body()), (200, _competitivo_body())],
+        patchs=[(202, {"submissionId": "c-1", "status": "ACCEPTED"})],
+    )
+    with db_39c() as conn:
+        _, dec = _semilla_cambio(conn)
+        lector, escritor = _clientes(red)
+        with rol(conn):
+            res = cambiar_precio(
+                conn,
+                dec,
+                lector=lector,
+                escritor=escritor,
+                construir_cuerpo=_cuerpo_falso,
+                ahora=AHORA,
+            )
+        assert res.estado == "enviado" and res.id_cambio is not None
+
+
 def test_cambiar_sin_vivo_es_error_sin_fila():
     red = _RedFalsa(gets_ofertas=[(404, {})], gets_competitivos=[(200, _competitivo_body())])
     with db_39c() as conn:

@@ -446,7 +446,8 @@ def cambiar_precio(
     momento = ahora or datetime.now(UTC)
     dec = conn.execute(
         "SELECT d.listing_id, d.platform, d.resultado, d.mode,"
-        " d.p_aplicado, d.p_aplicado_currency, l.seller_sku, l.external_id"
+        " d.p_actual, d.p_actual_currency, d.p_aplicado, d.p_aplicado_currency,"
+        " l.seller_sku, l.external_id"
         " FROM precio_decision d JOIN listing l"
         " ON l.id = d.listing_id AND l.platform = d.platform"
         " WHERE d.id = %s",
@@ -454,7 +455,18 @@ def cambiar_precio(
     ).fetchone()
     if dec is None:
         raise DecisionSinAccion(f"decision {decision_id} inexistente")
-    listing_id, platform, resultado, mode, p_aplicado, p_moneda, sku, asin = dec
+    (
+        listing_id,
+        platform,
+        resultado,
+        mode,
+        p_actual,
+        p_actual_moneda,
+        p_aplicado,
+        p_moneda,
+        sku,
+        asin,
+    ) = dec
     if resultado not in ("subir", "bajar") or mode != "live":
         raise DecisionSinAccion(
             f"decision {decision_id}: solo subir/bajar en live mueven precio,"
@@ -466,6 +478,13 @@ def cambiar_precio(
     except (PrecioVivoAusente, httpx.HTTPError):
         logger.info("cambiar decision=%s error=sin_precio_vivo", decision_id)
         return ResultadoCambio(id_cambio=None, estado="error", motivo="sin_precio_vivo")
+    if (vivo.precio, vivo.moneda) != (p_actual, p_actual_moneda):
+        motivo = (
+            f"precio_vivo_distinto: vivo={vivo.precio}/{vivo.moneda}"
+            f" vs p_actual={p_actual}/{p_actual_moneda}"
+        )
+        logger.info("cambiar decision=%s saltado=%s", decision_id, motivo)
+        return ResultadoCambio(id_cambio=None, estado="saltado", motivo=motivo)
     arma = construir_cuerpo or construir_cuerpo_parche
     cuerpo = arma(platform=platform, sku=sku, precio=p_aplicado, moneda=p_moneda)
     obs_precio, obs_moneda = _observada_del_dia(
