@@ -3,6 +3,9 @@
 Nunca automatica: el dueno corre dry-run, revisa el plan y su huella, y
 solo entonces el go con la misma huella. Lee el precio vivo antes de
 escribir y salta lo que ya no coincide (un saltado no aborta el lote).
+Limitación visible: NO se puede revertir el mismo día del cambio (el
+original sigue abierto y el índice único impide la reversa); el plan lo
+muestra como saltado `original_abierto` hasta que cierre por observación.
 
 Dry-run por omision (imprime plan + huella, cero PATCH). La mutacion
 real exige juntos `--acepto-mutacion-real`, `--huella H` (la del
@@ -66,7 +69,22 @@ def _plan(conn, lector: SpapiClient, filas) -> list[tuple]:
     for f in filas:
         cid = f[0]
         if f[10] or not f[7] or f[9] is None:
-            plan.append((cid, "saltar", "no_reversible: cambio real, no-reversa, con enviado_at"))
+            plan.append(
+                (
+                    cid,
+                    "saltar",
+                    "no_reversible: cambio real, no-reversa, con enviado_at",
+                )
+            )
+            continue
+        if f[8] in ("pendiente", "enviado"):
+            plan.append(
+                (
+                    cid,
+                    "saltar",
+                    "original_abierto (cierra con la observación del día siguiente)",
+                )
+            )
             continue
         try:
             vivo = precio_write.leer_precio_vivo(lector, platform=f[2], asin=f[12])

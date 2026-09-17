@@ -280,11 +280,16 @@ def revertir(
     """Reversa manual de un cambio real: vuelve a su `precio_antes`.
 
     Solo un cambio real, no-reversa, con `enviado_at`; cualquier otro uso
-    es `CambioNoReversible` (funcion mal usada). Si el precio vivo ya no
-    coincide con el `precio_despues` del cambio, se salta con su razon
-    (otro proceso ya movio el precio): sin fila y sin PATCH. El cuerpo se
-    arma ANTES de insertar la fila `pendiente`: con la forma sin sellar
-    no queda fila ni hay red. Orden S5: INSERT + COMMIT -> PATCH -> sello.
+    es `CambioNoReversible` (funcion mal usada). Si el original sigue
+    abierto (`pendiente` o `enviado`) se salta con `original_abierto`:
+    el indice unico de cambio abierto impide la reversa, que solo es
+    posible cuando el original ya cerro (al dia siguiente, con
+    `cerrar_por_observacion`); NO se puede revertir el mismo dia del
+    cambio. Si el precio vivo ya no coincide con el `precio_despues` del
+    cambio, se salta con su razon (otro proceso ya movio el precio): sin
+    fila y sin PATCH. El cuerpo se arma ANTES de insertar la fila
+    `pendiente`: con la forma sin sellar no queda fila ni hay red. Orden
+    S5: INSERT + COMMIT -> PATCH -> sello.
     """
     momento = ahora or datetime.now(UTC)
     fila = _fila_cambio(conn, cambio_id)
@@ -303,7 +308,14 @@ def revertir(
         sku,
         asin,
     ) = fila
-    if es_reversa or not aplicado or enviado_at is None:
+    if es_reversa or not aplicado:
+        raise CambioNoReversible(
+            f"cambio {cambio_id}: solo un cambio real, no-reversa, con enviado_at"
+        )
+    if _estado in ("pendiente", "enviado"):
+        logger.info("revertir cambio=%s saltado=original_abierto", cambio_id)
+        return ResultadoReversion(id_reversa=None, estado="saltado", motivo="original_abierto")
+    if enviado_at is None:
         raise CambioNoReversible(
             f"cambio {cambio_id}: solo un cambio real, no-reversa, con enviado_at"
         )

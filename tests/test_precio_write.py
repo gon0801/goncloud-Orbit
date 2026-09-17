@@ -340,6 +340,31 @@ def test_revertir_flujo_enviado_con_readback_ok():
         assert (fila[9], fila[10], fila[11]) == (Decimal("100.00"), "MXN", "ok")
 
 
+def test_r1_a4_revertir_original_enviado_salta():
+    """r1-A4: original todavia abierto → saltado original_abierto."""
+    red = _RedFalsa()
+    with db_39c() as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        _goal_live(conn, lid)
+        dec = _decision(conn, lid)
+        cid = _cambio_enviado(conn, dec, lid)
+        lector, escritor = _clientes(red)
+        with rol(conn):
+            res = revertir(
+                conn,
+                cid,
+                lector=lector,
+                escritor=escritor,
+                construir_cuerpo=_cuerpo_falso,
+                ahora=AHORA,
+            )
+        assert res.estado == "saltado" and res.motivo == "original_abierto"
+        assert res.id_reversa is None
+        assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 1
+        assert red.n_patch == 0 and red.n_get == 0
+
+
 def test_r1_a1_cambiar_patch_lleva_precio_destino_en_el_cable():
     """r1-A1: decision 100 -> 110: el cable lleva 110.00 MXN, no el vivo."""
     red = _RedFalsa(
@@ -468,6 +493,11 @@ def test_revertir_mal_uso_revienta(caso):
                 " RETURNING id",
                 (dec, lid),
             ).fetchone()[0]
+            with rol(conn):
+                conn.execute(
+                    "UPDATE precio_cambio SET estado = 'error', error_code = 'tdd' WHERE id = %s",
+                    (cid,),
+                )
         lector, escritor = _clientes(red)
         with rol(conn), pytest.raises(CambioNoReversible):
             revertir(
@@ -1147,6 +1177,29 @@ def test_tool_dry_run_imprime_plan_y_huella_sin_tocar_nada(monkeypatch, capsys):
         assert "huella: " in out
         assert red.n_patch == 0
         assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 1
+
+
+def test_tool_dry_run_original_abierto_salta_y_no_entra_como_revertir(monkeypatch, capsys):
+    """r1-A4: el plan muestra el abierto como saltado con su mensaje."""
+    red = _RedFalsa()
+    with db_39c() as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        _goal_live(conn, lid)
+        dec = _decision(conn, lid)
+        cid = _cambio_enviado(conn, dec, lid)
+        import tools.precio_reversa as tool
+
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", _dsn_db(conn))
+        rc = tool.main(["--cambio-id", str(cid)], transport=red.transport, credentials=dict(CRED))
+        out = capsys.readouterr().out
+        assert rc == 0
+        assert (
+            f"[saltar] cambio={cid} {SKU} amazon_mx"
+            " motivo=original_abierto (cierra con la observación del día siguiente)" in out
+        )
+        assert "[revertir]" not in out
+        assert red.n_patch == 0 and red.n_get == 0
 
 
 def test_tool_dry_run_salta_sin_abortar(monkeypatch, capsys):
