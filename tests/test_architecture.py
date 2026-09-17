@@ -1007,25 +1007,26 @@ PROHIBIDOS_PRECIO = (
     "app.ads",
     "app.spapi",
     "app.estimacion_fees",
+    "time",
+    "os",
+    "random",
+    "secrets",
     "<import-relativo-nivel-2>",
 )
 
 
 def _usos_reloj(arbol: ast.AST) -> list[str]:
-    """Llamadas a reloj/entorno en el AST: datetime.now, date.today,
-    time.time, os.environ. Las CLASES datetime/date pueden aparecer (firman
-    los argumentos de fecha); LLAMARLAS al reloj, no."""
+    """Reloj o entorno en el AST, sin importar el dueño: cualquier llamada
+    a `.now()`, `.utcnow()` o `.today()` (`dt.now()`,
+    `datetime.datetime.now()` incluidos) y cualquier `os.environ`. Las
+    CLASES datetime/date pueden aparecer (firman los argumentos de fecha);
+    LLAMARLAS al reloj, no. `time.*` y `os.*` caen además por el import
+    prohibido (`time.monotonic`, `os.getenv` necesitan importarse)."""
     hallados: list[str] = []
     for nodo in ast.walk(arbol):
         if isinstance(nodo, ast.Call) and isinstance(nodo.func, ast.Attribute):
-            dueno = nodo.func.value
-            if isinstance(dueno, ast.Name):
-                if dueno.id == "datetime" and nodo.func.attr == "now":
-                    hallados.append("datetime.now")
-                elif dueno.id == "date" and nodo.func.attr == "today":
-                    hallados.append("date.today")
-                elif dueno.id == "time" and nodo.func.attr == "time":
-                    hallados.append("time.time")
+            if nodo.func.attr in ("now", "utcnow", "today"):
+                hallados.append(f".{nodo.func.attr}()")
         elif isinstance(nodo, ast.Attribute):
             dueno = nodo.value
             if isinstance(dueno, ast.Name) and dueno.id == "os" and nodo.attr == "environ":
@@ -1035,7 +1036,7 @@ def _usos_reloj(arbol: ast.AST) -> list[str]:
 
 def _puros_precio(raiz=None):
     base = raiz or PRECIO
-    return [p for p in base.rglob("*.py") if p.relative_to(base).as_posix() != "__init__.py"]
+    return list(base.rglob("*.py"))
 
 
 def test_precio_puro_sin_io():
@@ -1073,3 +1074,35 @@ def test_precio_frontera_caza_fuga_en_subpaquete(tmp_path, monkeypatch):
     monkeypatch.setattr("test_architecture.PRECIO", tmp_path)
     with pytest.raises(AssertionError, match="sub/fuga.py"):
         test_precio_puro_sin_io()
+
+
+def test_precio_init_tambien_se_escanea(tmp_path, monkeypatch):
+    """r1-B5: una fuga en `__init__.py` también dispara el candado."""
+    import pytest
+
+    (tmp_path / "__init__.py").write_text("import httpx\n", encoding="utf-8")
+    monkeypatch.setattr("test_architecture.PRECIO", tmp_path)
+    with pytest.raises(AssertionError, match="__init__.py"):
+        test_precio_puro_sin_io()
+
+
+def test_precio_frontera_caza_reloj_con_alias(tmp_path, monkeypatch):
+    """r1-B5, fuga sembrada de reloj: `from datetime import datetime as dt`
+    + `dt.now()` hace fallar el candado con el nombre del archivo."""
+    import pytest
+
+    (tmp_path / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "reloj.py").write_text(
+        "from datetime import datetime as dt\nx = dt.now()\n", encoding="utf-8"
+    )
+    monkeypatch.setattr("test_architecture.PRECIO", tmp_path)
+    with pytest.raises(AssertionError, match="sub/reloj.py"):
+        test_precio_sin_reloj_ni_entorno()
+
+
+def test_precio_imports_prohibidos_incluyen_reloj_entorno_azar():
+    """r1-B5: `time`, `os`, `random` y `secrets` prohibidos en `app/precio/*`
+    (`time.monotonic`, `os.getenv` necesitan el import para usarse)."""
+    for modulo in ("time", "os", "random", "secrets"):
+        assert modulo in PROHIBIDOS_PRECIO, f"{modulo} debe estar prohibido"
