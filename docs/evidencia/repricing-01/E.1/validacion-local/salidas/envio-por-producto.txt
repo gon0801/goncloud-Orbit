@@ -1,40 +1,88 @@
 BEGIN
- product_id | platform  | ventana_dias |      lectura       | ordenes | mediana |  p75  | p90  |  maximo
-------------+-----------+--------------+--------------------+---------+---------+-------+------+----------
-          1 | amazon_mx |          180 | componentes        |       1 |      95 |    95 |   95 |  95.0000
-          1 | amazon_mx |          180 | duplicado_etiqueta |       1 |      95 |    95 |   95 |  95.0000
-          1 | amazon_mx |          365 | componentes        |       2 |      95 |    95 |   95 |  95.0000
-          1 | amazon_mx |          365 | duplicado_etiqueta |       2 |      95 |    95 |   95 |  95.0000
-          1 | amazon_us |           90 | componentes        |       6 |    93.5 | 94.75 | 95.5 |  96.0000
-          1 | amazon_us |           90 | duplicado_etiqueta |       6 |    93.5 | 94.75 | 95.5 |  96.0000
-          1 | amazon_us |          180 | componentes        |       6 |    93.5 | 94.75 | 95.5 |  96.0000
-          1 | amazon_us |          180 | duplicado_etiqueta |       6 |    93.5 | 94.75 | 95.5 |  96.0000
-          1 | amazon_us |          365 | componentes        |       6 |    93.5 | 94.75 | 95.5 |  96.0000
-          1 | amazon_us |          365 | duplicado_etiqueta |       6 |    93.5 | 94.75 | 95.5 |  96.0000
-          2 | amazon_mx |           90 | componentes        |       5 |      95 |    95 |   95 |  95.0000
-          2 | amazon_mx |           90 | duplicado_etiqueta |       5 |      95 |    95 |   95 |  95.0000
-          2 | amazon_mx |          180 | componentes        |       5 |      95 |    95 |   95 |  95.0000
-          2 | amazon_mx |          180 | duplicado_etiqueta |       5 |      95 |    95 |   95 |  95.0000
-          2 | amazon_mx |          365 | componentes        |       5 |      95 |    95 |   95 |  95.0000
-          2 | amazon_mx |          365 | duplicado_etiqueta |       5 |      95 |    95 |   95 |  95.0000
-          5 | amazon_mx |           90 | componentes        |       1 |     300 |   300 |  300 | 300.0000
-          5 | amazon_mx |           90 | duplicado_etiqueta |       1 |     300 |   300 |  300 | 300.0000
-          5 | amazon_mx |          180 | componentes        |       1 |     300 |   300 |  300 | 300.0000
-          5 | amazon_mx |          180 | duplicado_etiqueta |       1 |     300 |   300 |  300 | 300.0000
-          5 | amazon_mx |          365 | componentes        |       1 |     300 |   300 |  300 | 300.0000
-          5 | amazon_mx |          365 | duplicado_etiqueta |       1 |     300 |   300 |  300 | 300.0000
-          6 | amazon_us |           90 | componentes        |       1 |     250 |   250 |  250 | 250.0000
-          6 | amazon_us |           90 | duplicado_etiqueta |       1 |     150 |   150 |  150 | 150.0000
-          6 | amazon_us |          180 | componentes        |       1 |     250 |   250 |  250 | 250.0000
-          6 | amazon_us |          180 | duplicado_etiqueta |       1 |     150 |   150 |  150 | 150.0000
-          6 | amazon_us |          365 | componentes        |       1 |     250 |   250 |  250 | 250.0000
-          6 | amazon_us |          365 | duplicado_etiqueta |       1 |     150 |   150 |  150 | 150.0000
-          7 | amazon_us |           90 | componentes        |       1 |     300 |   300 |  300 | 300.0000
-          7 | amazon_us |           90 | duplicado_etiqueta |       1 |     200 |   200 |  200 | 200.0000
-          7 | amazon_us |          180 | componentes        |       1 |     300 |   300 |  300 | 300.0000
-          7 | amazon_us |          180 | duplicado_etiqueta |       1 |     200 |   200 |  200 | 200.0000
-          7 | amazon_us |          365 | componentes        |       1 |     300 |   300 |  300 | 300.0000
-          7 | amazon_us |          365 | duplicado_etiqueta |       1 |     200 |   200 |  200 | 200.0000
-(34 rows)
-
+-- INICIO envio-por-producto
+1|amazon_mx|180|componentes|1|95|95|95|95.0000
+1|amazon_mx|180|duplicado_etiqueta|1|95|95|95|95.0000
+1|amazon_mx|365|componentes|2|95|95|95|95.0000
+1|amazon_mx|365|duplicado_etiqueta|2|95|95|95|95.0000
+1|amazon_us|90|componentes|6|93.5|94.75|95.5|96.0000
+1|amazon_us|90|duplicado_etiqueta|6|93.5|94.75|95.5|96.0000
+1|amazon_us|180|componentes|6|93.5|94.75|95.5|96.0000
+1|amazon_us|180|duplicado_etiqueta|6|93.5|94.75|95.5|96.0000
+1|amazon_us|365|componentes|6|93.5|94.75|95.5|96.0000
+1|amazon_us|365|duplicado_etiqueta|6|93.5|94.75|95.5|96.0000
+2|amazon_mx|90|componentes|5|95|95|95|95.0000
+2|amazon_mx|90|duplicado_etiqueta|5|95|95|95|95.0000
+2|amazon_mx|180|componentes|5|95|95|95|95.0000
+2|amazon_mx|180|duplicado_etiqueta|5|95|95|95|95.0000
+2|amazon_mx|365|componentes|5|95|95|95|95.0000
+2|amazon_mx|365|duplicado_etiqueta|5|95|95|95|95.0000
+5|amazon_mx|90|componentes|1|300|300|300|300.0000
+5|amazon_mx|90|duplicado_etiqueta|1|300|300|300|300.0000
+5|amazon_mx|180|componentes|1|300|300|300|300.0000
+5|amazon_mx|180|duplicado_etiqueta|1|300|300|300|300.0000
+5|amazon_mx|365|componentes|1|300|300|300|300.0000
+5|amazon_mx|365|duplicado_etiqueta|1|300|300|300|300.0000
+6|amazon_us|90|componentes|1|250|250|250|250.0000
+6|amazon_us|90|duplicado_etiqueta|1|150|150|150|150.0000
+6|amazon_us|180|componentes|1|250|250|250|250.0000
+6|amazon_us|180|duplicado_etiqueta|1|150|150|150|150.0000
+6|amazon_us|365|componentes|1|250|250|250|250.0000
+6|amazon_us|365|duplicado_etiqueta|1|150|150|150|150.0000
+7|amazon_us|90|componentes|1|300|300|300|300.0000
+7|amazon_us|90|duplicado_etiqueta|1|200|200|200|200.0000
+7|amazon_us|180|componentes|1|300|300|300|300.0000
+7|amazon_us|180|duplicado_etiqueta|1|200|200|200|200.0000
+7|amazon_us|365|componentes|1|300|300|300|300.0000
+7|amazon_us|365|duplicado_etiqueta|1|200|200|200|200.0000
+8|amazon_us|90|componentes|8|90|90|90|90.0000
+8|amazon_us|90|duplicado_etiqueta|8|90|90|90|90.0000
+8|amazon_us|180|componentes|12|90|90|90|90.0000
+8|amazon_us|180|duplicado_etiqueta|12|90|90|90|90.0000
+8|amazon_us|365|componentes|12|90|90|90|90.0000
+8|amazon_us|365|duplicado_etiqueta|12|90|90|90|90.0000
+9|amazon_mx|90|componentes|1|90|90|90|90.0000
+9|amazon_mx|90|duplicado_etiqueta|1|90|90|90|90.0000
+9|amazon_mx|180|componentes|1|90|90|90|90.0000
+9|amazon_mx|180|duplicado_etiqueta|1|90|90|90|90.0000
+9|amazon_mx|365|componentes|1|90|90|90|90.0000
+9|amazon_mx|365|duplicado_etiqueta|1|90|90|90|90.0000
+10|amazon_mx|90|componentes|1|90|90|90|90.0000
+10|amazon_mx|90|duplicado_etiqueta|1|90|90|90|90.0000
+10|amazon_mx|180|componentes|1|90|90|90|90.0000
+10|amazon_mx|180|duplicado_etiqueta|1|90|90|90|90.0000
+10|amazon_mx|365|componentes|1|90|90|90|90.0000
+10|amazon_mx|365|duplicado_etiqueta|1|90|90|90|90.0000
+11|amazon_us|90|componentes|1|170|170|170|170.0000
+11|amazon_us|90|duplicado_etiqueta|1|100|100|100|100.0000
+11|amazon_us|180|componentes|1|170|170|170|170.0000
+11|amazon_us|180|duplicado_etiqueta|1|100|100|100|100.0000
+11|amazon_us|365|componentes|1|170|170|170|170.0000
+11|amazon_us|365|duplicado_etiqueta|1|100|100|100|100.0000
+14|amazon_us|90|componentes|1|90|90|90|90.0000
+14|amazon_us|90|duplicado_etiqueta|1|90|90|90|90.0000
+14|amazon_us|180|componentes|1|90|90|90|90.0000
+14|amazon_us|180|duplicado_etiqueta|1|90|90|90|90.0000
+14|amazon_us|365|componentes|1|90|90|90|90.0000
+14|amazon_us|365|duplicado_etiqueta|1|90|90|90|90.0000
+15|amazon_us|90|componentes|1|90|90|90|90.0000
+15|amazon_us|90|duplicado_etiqueta|1|90|90|90|90.0000
+15|amazon_us|180|componentes|1|90|90|90|90.0000
+15|amazon_us|180|duplicado_etiqueta|1|90|90|90|90.0000
+15|amazon_us|365|componentes|1|90|90|90|90.0000
+15|amazon_us|365|duplicado_etiqueta|1|90|90|90|90.0000
+16|amazon_mx|90|componentes|6|90|90|90|90.0000
+16|amazon_mx|90|duplicado_etiqueta|6|90|90|90|90.0000
+16|amazon_mx|180|componentes|14|90|90|90|90.0000
+16|amazon_mx|180|duplicado_etiqueta|14|90|90|90|90.0000
+16|amazon_mx|365|componentes|14|90|90|90|90.0000
+16|amazon_mx|365|duplicado_etiqueta|14|90|90|90|90.0000
+17|amazon_mx|90|componentes|6|90|90|90|90.0000
+17|amazon_mx|90|duplicado_etiqueta|6|90|90|90|90.0000
+17|amazon_mx|180|componentes|6|90|90|90|90.0000
+17|amazon_mx|180|duplicado_etiqueta|6|90|90|90|90.0000
+17|amazon_mx|365|componentes|6|90|90|90|90.0000
+17|amazon_mx|365|duplicado_etiqueta|6|90|90|90|90.0000
+amazon_mx|31|0|0|0|0|0
+amazon_us|23|3|3|1|1|1
+-- FIN envio-por-producto
 ROLLBACK

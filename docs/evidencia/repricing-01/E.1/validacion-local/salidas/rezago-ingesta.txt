@@ -1,8 +1,6 @@
 BEGIN
- platform  | filas | rezago_ingesta_p50_dias | rezago_ingesta_p90_dias | rezago_ingesta_max_dias
------------+-------+-------------------------+-------------------------+-------------------------
- amazon_mx |     9 |                       5 |      109.00000000000001 |                     181
- amazon_us |    15 |                       7 |                      20 |                      20
-(2 rows)
-
+-- INICIO rezago-ingesta
+amazon_mx|31|20|143|181
+amazon_us|33|8|80.00000000000006|140
+-- FIN rezago-ingesta
 ROLLBACK

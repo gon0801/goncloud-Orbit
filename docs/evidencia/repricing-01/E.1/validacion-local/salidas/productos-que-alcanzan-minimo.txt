@@ -1,18 +1,16 @@
 BEGIN
- platform  | ventana_dias |      lectura       | productos_totales_con_alguna_orden | productos_que_alcanzan_minimo
------------+--------------+--------------------+------------------------------------+-------------------------------
- amazon_mx |           90 | componentes        |                                  2 |                             0
- amazon_mx |           90 | duplicado_etiqueta |                                  2 |                             0
- amazon_mx |          180 | componentes        |                                  3 |                             0
- amazon_mx |          180 | duplicado_etiqueta |                                  3 |                             0
- amazon_mx |          365 | componentes        |                                  3 |                             0
- amazon_mx |          365 | duplicado_etiqueta |                                  3 |                             0
- amazon_us |           90 | componentes        |                                  3 |                             1
- amazon_us |           90 | duplicado_etiqueta |                                  3 |                             1
- amazon_us |          180 | componentes        |                                  3 |                             1
- amazon_us |          180 | duplicado_etiqueta |                                  3 |                             1
- amazon_us |          365 | componentes        |                                  3 |                             1
- amazon_us |          365 | duplicado_etiqueta |                                  3 |                             1
-(12 rows)
-
+-- INICIO productos-que-alcanzan-minimo
+amazon_mx|90|componentes|6|2
+amazon_mx|90|duplicado_etiqueta|6|2
+amazon_mx|180|componentes|7|2
+amazon_mx|180|duplicado_etiqueta|7|2
+amazon_mx|365|componentes|7|2
+amazon_mx|365|duplicado_etiqueta|7|2
+amazon_us|90|componentes|7|2
+amazon_us|90|duplicado_etiqueta|7|2
+amazon_us|180|componentes|7|2
+amazon_us|180|duplicado_etiqueta|7|2
+amazon_us|365|componentes|7|2
+amazon_us|365|duplicado_etiqueta|7|2
+-- FIN productos-que-alcanzan-minimo
 ROLLBACK

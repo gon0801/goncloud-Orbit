@@ -1,44 +1,21 @@
 BEGIN
- platform  | n_cargos | ordenes
------------+----------+---------
- amazon_mx |        1 |       9
- amazon_us |        1 |       9
- amazon_us |        2 |       1
- amazon_us |        3 |       1
-(4 rows)
-
-        order_id        | platform  |       fuente        |  monto
-------------------------+-----------+---------------------+----------
- ord_181_dias           | amazon_mx | ShippingHB          |  95.0000
- ord_91_dias            | amazon_mx | ShippingHB          |  95.0000
- ord_dos_fuentes        | amazon_us | LabmanLabelPurchase | 150.0000
- ord_dos_fuentes        | amazon_us | shipping_label      | 100.0000
- ord_fuente_desconocida | amazon_us | fuente_desconocida  | 120.0000
- ord_multi_producto     | amazon_mx | ShippingHB          |  95.0000
- ord_multi_unidad       | amazon_mx | ShippingHB          | 300.0000
- ord_p5_1               | amazon_mx | ShippingHB          |  95.0000
- ord_p5_2               | amazon_mx | ShippingHB          |  95.0000
- ord_p5_3               | amazon_mx | ShippingHB          |  95.0000
- ord_p5_4               | amazon_mx | ShippingHB          |  95.0000
- ord_p5_5               | amazon_mx | ShippingHB          |  95.0000
- ord_p6_1               | amazon_us | ShippingHB          |  91.0000
- ord_p6_2               | amazon_us | ShippingHB          |  92.0000
- ord_p6_3               | amazon_us | ShippingHB          |  93.0000
- ord_p6_4               | amazon_us | ShippingHB          |  94.0000
- ord_p6_5               | amazon_us | ShippingHB          |  95.0000
- ord_p6_6               | amazon_us | ShippingHB          |  96.0000
- ord_rezago             | amazon_us | ShippingHB          |  80.0000
- ord_sin_venta          | amazon_us | ShippingHB          | 100.0000
- ord_tres_fuentes       | amazon_us | LabmanLabelPurchase | 150.0000
- ord_tres_fuentes       | amazon_us | shipping_label      | 100.0000
- ord_tres_fuentes       | amazon_us | ShippingHB          |  50.0000
-(23 rows)
-
-     order_id     | platform  |       fuente        | monto_abs
-------------------+-----------+---------------------+-----------
- ord_tres_fuentes | amazon_us | LabmanLabelPurchase |  150.0000
- ord_tres_fuentes | amazon_us | shipping_label      |  100.0000
- ord_tres_fuentes | amazon_us | ShippingHB          |   50.0000
-(3 rows)
-
+-- INICIO cargos-por-orden-y-fuente
+amazon_mx|1|31
+amazon_us|1|24
+amazon_us|2|1
+amazon_us|3|2
+ord_dos_fuentes|amazon_us|LabmanLabelPurchase|150.0000|1
+ord_dos_fuentes|amazon_us|shipping_label|100.0000|1
+ord_multi_fila_misma_fuente|amazon_us|LabmanLabelPurchase|100.0000|2
+ord_multi_fila_misma_fuente|amazon_us|shipping_label|70.0000|1
+ord_tres_fuentes|amazon_us|LabmanLabelPurchase|150.0000|1
+ord_tres_fuentes|amazon_us|shipping_label|100.0000|1
+ord_tres_fuentes|amazon_us|ShippingHB|50.0000|1
+ord_multi_fila_misma_fuente|amazon_us|LabmanLabelPurchase|60.0000
+ord_multi_fila_misma_fuente|amazon_us|LabmanLabelPurchase|40.0000
+ord_multi_fila_misma_fuente|amazon_us|shipping_label|70.0000
+ord_tres_fuentes|amazon_us|LabmanLabelPurchase|150.0000
+ord_tres_fuentes|amazon_us|shipping_label|100.0000
+ord_tres_fuentes|amazon_us|ShippingHB|50.0000
+-- FIN cargos-por-orden-y-fuente
 ROLLBACK

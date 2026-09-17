@@ -1,11 +1,10 @@
 BEGIN
-       razon        | ordenes | de_las_cuales_multiunidad_no_descartada
---------------------+---------+-----------------------------------------
- fuente_desconocida |       1 |                                       0
- multi_producto     |       1 |                                       0
- sin_order_id       |       1 |
- sin_venta_ligada   |       2 |                                       0
- usable             |      16 |                                       1
-(5 rows)
-
+-- INICIO descartes
+fuente_desconocida|1|0
+fuente_no_reconocida|1|0
+multi_producto|1|0
+sin_order_id|1|
+sin_venta_ligada|2|0
+usable|53|1
+-- FIN descartes
 ROLLBACK

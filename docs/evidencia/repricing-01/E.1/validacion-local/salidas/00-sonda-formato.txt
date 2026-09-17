@@ -1,0 +1,11 @@
+BEGIN
+-- INICIO 00-sonda-formato
+amazon_mx|fee|amazon_mx|ShippingHB|31
+amazon_us|fee|amazon_us|LabmanLabelPurchase|4
+amazon_us|fee|amazon_us|OtraFuenteRara|1
+amazon_us|fee|amazon_us|shipping_label|3
+amazon_us|fee|amazon_us|ShippingHB|23
+amazon_us|fee|||2
+0
+-- FIN 00-sonda-formato
+ROLLBACK
