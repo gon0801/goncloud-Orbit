@@ -176,13 +176,82 @@ def test_cron_metricas_escapa_porcentaje_de_date():
         assert "+%F" not in ln.replace(r"+\%F", "")
 
 
-def test_compose_app_en_loopback_8010_con_secrets_ro():
+SECRETS_MOUNT = "/mnt/data/appdata/orbit/secrets:/mnt/data/appdata/orbit/secrets:rw"
+
+
+def test_compose_app_en_loopback_8010_con_secrets_rw_autorizado():
     # Scoped al BLOQUE del servicio app: un texto igual en un comentario
     # o en otro servicio ya no da falso verde (hallazgo CodeRabbit)
     bloque = _bloque_servicio(COMPOSE.read_text(encoding="utf-8"), "app")
     assert '"127.0.0.1:8010:8000"' in bloque
-    assert "secrets:/mnt/data/appdata/orbit/secrets:ro" in bloque
+    assert SECRETS_MOUNT in bloque, (
+        "el bind de secrets cambio de ruta o de modo; si es deliberado, "
+        "actualiza SECRETS_MOUNT Y el comentario del bloque app"
+    )
     assert "ORBIT_PG_HOST: db" in bloque
+
+
+def test_compose_app_solo_un_bind_de_escritura_y_es_el_autorizado():
+    """El bind de secrets paso de :ro a :rw el 2026-09-08 (PR #291, hotfix
+    del refresh de OAuth MeLi: la app reescribe meli_tokens.json), decision
+    del dueno, confirmada como PERMANENTE el 2026-09-17.
+
+    El candado viejo pinchaba `:ro` y quedo rojo en master desde ese merge
+    sin que nadie lo notara. Cambiarlo a `:rw` a secas habria dejado pasar
+    CUALQUIER montaje de escritura nuevo, que es justo lo que un candado de
+    secretos existe para impedir. Asi que el invariante ya no es "nada se
+    escribe" sino "se escribe en EXACTAMENTE un lugar, y es este".
+
+    Rojo-primero: con un segundo bind `:rw` sembrado en el bloque app, o con
+    el modo de un bind existente cambiado a `:rw`, este test revienta.
+    """
+    # Se parsea como YAML, no por prefijo de linea (hallazgo CodeRabbit PR
+    # #294): `- "/otro:/otro:rw"` entre comillas no empieza con `- /` y se
+    # colaba entera, que en un candado de secretos es el agujero completo.
+    # Por YAML tambien entran los volumenes nombrados (`datos:/var:rw`), que
+    # son escritura igual aunque no empiecen con `/`.
+    import yaml
+
+    servicios = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))["services"]
+    montajes = servicios["app"].get("volumes") or []
+    escritura = []
+    for m in montajes:
+        if isinstance(m, dict):  # long syntax
+            if not m.get("read_only", False):
+                escritura.append(f"{m.get('source')}:{m.get('target')}")
+            continue
+        modo = m.rsplit(":", 1)[-1] if m.count(":") >= 2 else ""
+        if modo != "ro":
+            escritura.append(m)
+    assert escritura == [SECRETS_MOUNT], (
+        f"montajes con escritura en el servicio app: {escritura}; "
+        f"el unico autorizado es {SECRETS_MOUNT}"
+    )
+
+
+def test_compose_comentario_del_bloque_app_no_contradice_el_montaje():
+    """El comentario decia «secrets/ se monta :ro» mientras la linea 48
+    montaba :rw. Un comentario que miente sobre un candado de secretos es
+    peor que no tenerlo: el siguiente lector confia en el y no mira.
+    """
+    texto = COMPOSE.read_text(encoding="utf-8")
+    # Cabecera del servicio MAS su cuerpo: un comentario que miente puede
+    # estar en cualquiera de los dos (hallazgo CodeRabbit PR #294; la version
+    # anterior cortaba en "  app:" y se saltaba todo el bloque).
+    cabecera = texto.split("  app:", 1)[0].split("# API + CLI", 1)[-1]
+    cuerpo = _bloque_servicio(texto, "app")
+    for ln in (cabecera + "\n" + cuerpo).splitlines():
+        if "#" not in ln:
+            continue
+        comentario = ln.split("#", 1)[1]
+        # No se prohibe `:ro` a secas: un montaje de solo lectura NUEVO es la
+        # direccion segura y el candado no debe castigarla. Lo que se prohibe
+        # es un comentario que diga que los SECRETOS van de solo lectura,
+        # porque hoy van con escritura y esa mentira es la que hace que el
+        # siguiente lector no verifique.
+        assert not ("secret" in comentario.lower() and ":ro" in comentario), (
+            f"un comentario afirma que los secretos se montan :ro: {ln.strip()}"
+        )
 
 
 def test_compose_app_corre_non_root_con_uid_de_secrets():
