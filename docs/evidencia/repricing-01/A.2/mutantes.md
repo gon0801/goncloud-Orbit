@@ -10,6 +10,24 @@ con `git checkout -- <archivo>` y `git status` limpio. Ninguna mutación
 se commitea. Un mutante que sobrevive se cierra arreglando el test, no
 escondiéndolo (M12).
 
+## Ronda r5b (2026-09-17)
+
+### P1 — `is None` → `is not None` en la llave del cupo (`reglas.py`)
+
+Mutante del lead: la decisión sin prioridad pasa al frente. Test:
+`test_r5b_p1_sin_prioridad_va_al_fondo` (dos `subir` en `live`, uno
+con `ingreso_60d=None` y `listing_id` menor; con `cupo=1` pasa el que
+tiene prioridad). Sembrado sobre el HEAD commiteado, con caché nueva,
+revertido con `git checkout --` y `git status` limpio:
+
+```text
+E       AssertionError: assert None == 'cuota'
+FAILED tests/test_precio_reglas.py::test_r5b_p1_sin_prioridad_va_al_fondo
+1 failed, 169 deselected in 0.30s
+```
+
+MUERTO.
+
 ## Ronda r5 (revisión de kimi, 2026-09-17)
 
 Sembrados sobre el HEAD commiteado, con caché nueva
