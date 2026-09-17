@@ -43,6 +43,12 @@ STMTS4 = tuple(pglast.parse_sql(SQL4))
 SQL38 = (ROOT / "migrations" / "0038_fabrica_hermanas_biblioteca.sql").read_text(encoding="utf-8")
 STMTS38 = tuple(pglast.parse_sql(SQL38))
 
+# 0039 (REPRICING 01 A.0 — motor de precios: cinco tablas, cuota propia, DO
+# candado). Estáticos aquí; la conducta vive en tests/test_precio_migracion.py
+# con rol real.
+SQL39 = (ROOT / "migrations" / "0039_precio.sql").read_text(encoding="utf-8")
+STMTS39 = tuple(pglast.parse_sql(SQL39))
+
 # 0005 (ORBIT 06 0.7 — hallazgo de qwen en la review 3.3): v_tacos sumaba el
 # gasto por fila kind='campaign' Y por sus hijas kind='keyword'/
 # 'product_target' -- ads_metric_observation duplica el costo entre ambos
@@ -171,11 +177,21 @@ FUNCTIONS2 = {f.funcname[-1].sval: f for f in _stmts2(ast.CreateFunctionStmt)}
 
 FUNCTIONS38 = {f.funcname[-1].sval: f for f in _stmts38(ast.CreateFunctionStmt)}
 
+
+def _stmts39(cls):
+    return [s.stmt for s in STMTS39 if isinstance(s.stmt, cls)]
+
+
+TABLES39 = {t.relation.relname: t for t in _stmts39(ast.CreateStmt)}
+TRIGGERS39 = _stmts39(ast.CreateTrigStmt)
+INDEXES39 = _stmts39(ast.IndexStmt)
+FUNCTIONS39 = {f.funcname[-1].sval: f for f in _stmts39(ast.CreateFunctionStmt)}
+
 # Union para los invariantes TRANSVERSALES (regla del repo que vale igual para
 # toda migracion): toda FK con indice de apoyo, nada de float para dinero,
 # ningun CHECK dependiente de la TimeZone de sesion.
-TABLAS_TOTALES = {**TABLES, **TABLES2}
-INDEXES_TOTALES = (*INDEXES, *INDEXES2)
+TABLAS_TOTALES = {**TABLES, **TABLES2, **TABLES39}
+INDEXES_TOTALES = (*INDEXES, *INDEXES2, *INDEXES39)
 
 
 def _cols(tabla):
@@ -332,7 +348,7 @@ def test_toda_tabla_con_dinero_tiene_moneda():
         if "money_amount" not in tipos and tabla not in DINERO_EN_NUMERIC:
             continue
         assert "currency" in tipos, f"{tabla} guarda dinero sin columna currency"
-        checks = _check_constraints(tabla)
+        checks = _checks_de(TABLAS_TOTALES, tabla)
         for nombre, col in cols.items():
             if _type_name(col) != "currency":
                 continue
@@ -717,18 +733,22 @@ def _claves_foraneas(tables=TABLES):
 
 def _fks_de_add_column(stmts):
     """FKs agregadas por ALTER TABLE ... ADD COLUMN (0002:
-    decision_application.applied_cycle_id). El invariante de indice de apoyo
-    tambien vale para las columnas que llegan por ALTER."""
+    decision_application.applied_cycle_id) o ADD CONSTRAINT (0039: las FKs
+    diferidas de `precio_decision`, circulares en el CREATE). El invariante
+    de indice de apoyo tambien vale para las que llegan por ALTER."""
     for s in stmts:
         st = s.stmt
         if not isinstance(st, ast.AlterTableStmt):
             continue
         for cmd in st.cmds:
-            if not isinstance(cmd.def_, ast.ColumnDef):
-                continue
-            for c in cmd.def_.constraints or ():
-                if c.contype == enums.ConstrType.CONSTR_FOREIGN:
-                    yield st.relation.relname, cmd.def_.colname
+            if isinstance(cmd.def_, ast.ColumnDef):
+                for c in cmd.def_.constraints or ():
+                    if c.contype == enums.ConstrType.CONSTR_FOREIGN:
+                        yield st.relation.relname, cmd.def_.colname
+            elif isinstance(cmd.def_, ast.Constraint):
+                c = cmd.def_
+                if c.contype == enums.ConstrType.CONSTR_FOREIGN and c.fk_attrs:
+                    yield st.relation.relname, c.fk_attrs[0].sval
 
 
 def test_toda_fk_tiene_indice_de_apoyo():
@@ -736,11 +756,14 @@ def test_toda_fk_tiene_indice_de_apoyo():
     # de integridad al tocar la tabla padre barre la hija entera, y los JOIN
     # que el esquema mismo declara (v_margen_plataforma cruza ledger_event por
     # product_id; v_tacos cruza las metricas por ad_entity_id) salen a
-    # secuencial. Vale para 0001 Y 0002 (sellado 24: test_schema parsea 0002).
+    # secuencial. Vale para 0001, 0002 (sellado 24: test_schema parsea 0002)
+    # y 0039 (incluye las FKs diferidas por ALTER ADD CONSTRAINT).
     fks = (
         set(_claves_foraneas(TABLES))
         | set(_claves_foraneas(TABLES2))
+        | set(_claves_foraneas(TABLES39))
         | set(_fks_de_add_column(STMTS2))
+        | set(_fks_de_add_column(STMTS39))
     )
     sin_indice = sorted(fk for fk in fks if fk not in _lideres_de_indice_no_parcial())
     assert not sin_indice, f"FKs sin indice de apoyo: {sin_indice}"
@@ -2007,3 +2030,201 @@ def test_0004_permite_insert_kind_product_ad():
             pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
         )
         admin.close()
+
+
+# ---------------------------------------------------------------------------
+# 0039 (REPRICING 01 A.0) — estáticos; la conducta vive en
+# tests/test_precio_migracion.py con rol real.
+# ---------------------------------------------------------------------------
+
+
+def _grants_sobre_39(tabla, priv):
+    """{rol: set(columnas)} de los GRANT <priv> [ (cols) ] sobre `tabla` en 0039."""
+    resultado: dict[str, set[str]] = {}
+    for s in STMTS39:
+        st = s.stmt
+        if not isinstance(st, ast.GrantStmt):
+            continue
+        if st.targtype != enums.GrantTargetType.ACL_TARGET_OBJECT:
+            continue
+        if not any(isinstance(o, ast.RangeVar) and o.relname == tabla for o in st.objects):
+            continue
+        for p in st.privileges:
+            if p.priv_name != priv:
+                continue
+            for rol in st.grantees:
+                resultado.setdefault(rol.rolename, set()).update(c.sval for c in (p.cols or ()))
+    return resultado
+
+
+def _cols39(tabla):
+    return _cols_de(TABLES39, tabla)
+
+
+def _checks39(tabla):
+    return _checks_de(TABLES39, tabla)
+
+
+def test_0039_parsea_y_crea_las_cinco_tablas():
+    assert len(STMTS39) > 30, "la migración 0039 no parseó entera"
+    assert set(TABLES39) >= {
+        "precio_goal",
+        "precio_decision",
+        "precio_cotizacion",
+        "precio_envio_muestra",
+        "precio_cambio",
+    }
+    enums39 = [s.stmt for s in STMTS39 if isinstance(s.stmt, ast.CreateEnumStmt)]
+    modos = {v.sval for e in enums39 if e.typeName[-1].sval == "precio_mode" for v in e.vals}
+    assert modos == {"shadow", "live"}
+
+
+def test_0039_goal_banda_y_go_literal():
+    # S3: banda 0.10–0.60 literal (claves precio_goal_min_pct/max_pct,
+    # replicada en goals_write, A.1) y live ⇔ go.
+    banda = repr(_checks39("precio_goal")["precio_goal_banda"].raw_expr)
+    assert "0.10" in banda and "0.60" in banda
+    go = repr(_checks39("precio_goal")["precio_goal_live_exige_go"].raw_expr)
+    assert "go_literal" in go and "'live'" in go
+    cols = _cols39("precio_goal")
+    assert enums.ConstrType.CONSTR_NOTNULL in _contypes(cols["margen_goal_pct"])
+    assert enums.ConstrType.CONSTR_NOTNULL not in _contypes(cols["go_literal"])
+    assert enums.ConstrType.CONSTR_NOTNULL not in _contypes(cols["valid_to"])
+
+
+def test_0039_goal_un_vigente_y_trigger():
+    # Un vigente por (listing, platform): índice parcial + UNIQUE por fecha.
+    parciales = [
+        i for i in INDEXES39 if i.relation.relname == "precio_goal" and i.whereClause is not None
+    ]
+    assert len(parciales) == 1
+    assert [p.name for p in parciales[0].indexParams] == ["listing_id", "platform"]
+    assert "valid_to" in repr(parciales[0].whereClause)
+    unicos = {
+        e.conname
+        for e in TABLES39["precio_goal"].tableElts
+        if isinstance(e, ast.Constraint)
+        and e.contype == enums.ConstrType.CONSTR_UNIQUE
+        and e.conname
+    }
+    assert "precio_goal_unico_por_fecha" in unicos
+    fila = [
+        t for t in TRIGGERS39 if t.relation.relname == "precio_goal" and t.row and t.timing == 2
+    ]
+    assert fila and fila[0].funcname[-1].sval == "precio_goal_solo_cierra_vigencia"
+    eventos = 0
+    for t in fila:
+        eventos |= t.events
+    assert eventos & 8 and eventos & 16, "el candado de goal debe cubrir UPDATE y DELETE"
+    cuerpo = " ".join(_body_de(FUNCTIONS39, "precio_goal_solo_cierra_vigencia").split())
+    assert "NEW.valid_to IS DISTINCT FROM OLD.valid_to" in cuerpo
+
+
+def test_0039_decision_fecha_utc_y_unica_por_dia():
+    # S5: decision_date por trigger UTC + UNIQUE (listing, platform, día).
+    fila = [
+        t
+        for t in TRIGGERS39
+        if t.relation.relname == "precio_decision"
+        and t.funcname
+        and t.funcname[-1].sval == "precio_decision_fecha_utc"
+    ]
+    assert fila and fila[0].row and fila[0].timing == 2 and fila[0].events & 4
+    cuerpo = " ".join(_body_de(FUNCTIONS39, "precio_decision_fecha_utc").split())
+    assert "(now() AT TIME ZONE 'UTC')::date" in cuerpo
+    unicos = {
+        tuple(k.sval for k in e.keys)
+        for e in TABLES39["precio_decision"].tableElts
+        if isinstance(e, ast.Constraint) and e.contype == enums.ConstrType.CONSTR_UNIQUE
+    }
+    assert ("listing_id", "platform", "decision_date") in unicos
+
+
+def test_0039_cambio_progresion_e_indice_parcial():
+    # S6: las cuatro transiciones, ni una más; el predicado del índice queda
+    # literal como en S5 (pendiente/enviado: el virtual nace cerrado).
+    cuerpo = " ".join(_body_de(FUNCTIONS39, "precio_cambio_sella_transicion").split())
+    assert _pares_de_transiciones(cuerpo) == {
+        ("pendiente", "enviado"),
+        ("pendiente", "error"),
+        ("enviado", "confirmado"),
+        ("enviado", "no_confirmado"),
+    }
+    parciales = [
+        i for i in INDEXES39 if i.relation.relname == "precio_cambio" and i.whereClause is not None
+    ]
+    assert len(parciales) == 1
+    assert [p.name for p in parciales[0].indexParams] == ["listing_id", "platform"]
+    pred = repr(parciales[0].whereClause)
+    assert "'pendiente'" in pred and "'enviado'" in pred and "'confirmado'" not in pred
+    cuerpo_nace = " ".join(_body_de(FUNCTIONS39, "precio_cambio_nacimiento").split())
+    assert "NEW.aplicado" in cuerpo_nace and "'virtual'" in cuerpo_nace
+    assert "'pendiente'" in cuerpo_nace
+
+
+def test_0039_grants_por_columna():
+    # Hecho 2 del brief: cotización INSERT a decide; cambio INSERT + UPDATE por
+    # columna a decide; goal INSERT + UPDATE (valid_to) a admin; read solo lee.
+    assert set(_grants_sobre_39("precio_cotizacion", "insert")) == {"app_decide"}
+    assert set(_grants_sobre_39("precio_cambio", "insert")) == {"app_decide"}
+    assert _grants_sobre_39("precio_cambio", "update").get("app_decide") == {
+        "estado",
+        "enviado_at",
+        "ack",
+        "readback_precio",
+        "readback_precio_currency",
+        "readback_estado",
+        "readback_at",
+        "confirmado_por",
+        "error_code",
+    }
+    assert set(_grants_sobre_39("precio_goal", "insert")) == {"app_admin"}
+    assert _grants_sobre_39("precio_goal", "update").get("app_admin") == {"valid_to"}
+    reparto_update = {"precio_goal": {"app_admin"}, "precio_cambio": {"app_decide"}}
+    for tabla in (
+        "precio_goal",
+        "precio_decision",
+        "precio_cotizacion",
+        "precio_envio_muestra",
+        "precio_cambio",
+    ):
+        assert "app_read" not in _grants_sobre_39(tabla, "insert"), (
+            f"app_read con INSERT en {tabla}"
+        )
+        assert "app_read" not in _grants_sobre_39(tabla, "update"), (
+            f"app_read con UPDATE en {tabla}"
+        )
+        assert set(_grants_sobre_39(tabla, "update")) <= reparto_update.get(tabla, set()), (
+            f"UPDATE en {tabla} fuera del reparto"
+        )
+
+
+def test_0039_cap_amplia_sin_romper_ads():
+    # Los ocho mapeos de 0002 idénticos + los tres de precio (los tests de
+    # 0002 sobre FUNCTIONS2 siguen verdes: el REPLACE vive en 0039).
+    cuerpo = " ".join(_body_de(FUNCTIONS39, "apply_cap_de_config").split())
+    for plat in ("amazon_us", "amazon_mx"):
+        for kind in ("bid", "pause", "negative", "harvest"):
+            assert f"ads_apply_cap_{plat}_{kind}" in cuerpo
+            assert f"ads_optimizer:{plat}:{kind}" in cuerpo
+    assert "precio:amazon_mx" in cuerpo and "precio_cap_amazon_mx" in cuerpo
+    assert "precio:amazon_us" in cuerpo and "precio_cap_amazon_us" in cuerpo
+    assert "precio:meli" in cuerpo and "precio_cap_meli" in cuerpo
+
+
+def test_0039_listing_unique_y_do_revierte():
+    # Lo único que 0039 toca de una tabla existente: UNIQUE (id, platform).
+    alteradas = [
+        st
+        for st in (s.stmt for s in STMTS39)
+        if isinstance(st, ast.AlterTableStmt) and st.relation.relname == "listing"
+    ]
+    assert len(alteradas) == 1, "en listing solo entra el UNIQUE (id, platform)"
+    # El DO es candado bajo SET ROLE y revierte lo que inserta (sin DELETE:
+    # las tablas son append-only).
+    cuerpo = next(s.stmt.args[0].arg.sval for s in STMTS39 if isinstance(s.stmt, ast.DoStmt))
+    plano = " ".join(cuerpo.split())
+    assert "SET ROLE app_decide" in plano and "SET ROLE app_admin" in plano
+    assert "SET ROLE app_read" in plano and "RESET ROLE" in plano
+    assert "candado_0039_revertir" in plano, "el DO debe revertir el subtransaction"
+    assert "DELETE FROM precio_" not in plano, "append-only: el DO no puede limpiar con DELETE"
