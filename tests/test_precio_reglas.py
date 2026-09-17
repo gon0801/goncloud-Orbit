@@ -814,6 +814,53 @@ def test_r3_k1_monedas_divergentes_no_tumban():
     assert "USD" in d.diagnostico and "MXN" in d.diagnostico
 
 
+# ---------------------------------------------------------------- r3-K2
+
+
+def test_r3_k2_cuota_limpia_p_aplicado_y_conserva_objetivo():
+    from app.precio.reglas import repartir_cupo
+
+    a = resuelve(entrada(costo="60"))
+    b = resuelve(entrada(costo="55"))
+    primero, segundo = repartir_cupo(((2, b), (1, a)), cupo=1)
+    assert primero.resultado == "subir"
+    assert segundo.motivo == "cuota"
+    assert segundo.p_aplicado is None
+    assert segundo.aplicado is False
+    assert segundo.p_objetivo is not None
+
+
+def test_r3_k2_solo_subir_bajar_traen_p_aplicado():
+    from dataclasses import replace
+
+    from app.precio.tipos import Decision
+
+    a = resuelve(entrada(costo="60"))
+    with pytest.raises(ValueError, match="p_aplicado"):
+        replace(a, resultado="mantener", motivo="cuota")
+    # Construir directo tambien revienta.
+    with pytest.raises(ValueError, match="p_aplicado"):
+        Decision(
+            resultado="mantener",
+            motivo="en_tolerancia",
+            m_actual=Decimal("0.29"),
+            goal=Decimal("0.30"),
+            p_actual=imp("116"),
+            p_objetivo=None,
+            p_aplicado=imp("116"),
+            componentes=None,
+            u15=None,
+            u60=None,
+            n15=None,
+            n60=None,
+            racha=None,
+            perdiendo=None,
+            prioridad=None,
+            aplicado=False,
+            mode="live",
+        )
+
+
 # ---------------------------------------------------------------- r2-B
 
 

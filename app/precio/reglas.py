@@ -569,6 +569,8 @@ def repartir_cupo(
     return tuple(
         decision
         if lugar < cupo
-        else replace(decision, resultado="mantener", motivo="cuota", aplicado=False)
+        else replace(
+            decision, resultado="mantener", motivo="cuota", aplicado=False, p_aplicado=None
+        )
         for lugar, (_, decision) in enumerate(ordenados)
     )

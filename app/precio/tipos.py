@@ -375,6 +375,8 @@ class Decision:
             raise ValueError(f"decision.resultado invalido: {self.resultado!r}")
         if not motivo_permitido(self.resultado, self.motivo):
             raise ValueError(f"motivo {self.motivo!r} fuera de vocabulario para {self.resultado}")
+        if self.resultado not in ("subir", "bajar") and self.p_aplicado is not None:
+            raise ValueError(f"p_aplicado solo en subir/bajar, llego en {self.resultado}")
 
 
 def motivo_permitido(resultado: str, motivo: str | None) -> bool:
