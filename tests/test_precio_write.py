@@ -1896,3 +1896,84 @@ def test_r2_b1_sin_autocommit_es_mal_uso():
             cruda.close()
         assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 0
         assert red.n_patch == 0 and red.n_get == 0
+
+
+def test_r2_b2_p9_invalid_es_error():
+    """r2-B2 P9: 202 con submissionId y status INVALID (rechazo real) -> error."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(100.0)), (200, _ofertas_body(100.0))],
+        gets_competitivos=[(200, _competitivo_body()), (200, _competitivo_body())],
+        patchs=[(202, {"submissionId": "c-inv", "status": "INVALID"})],
+    )
+    with db_39c() as conn:
+        _, dec = _semilla_cambio(conn)
+        lector, escritor = _clientes(red)
+        with rol(conn):
+            res = cambiar_precio(
+                conn,
+                dec,
+                lector=lector,
+                escritor=escritor,
+                construir_cuerpo=_cuerpo_falso,
+                ahora=AHORA,
+            )
+        assert res.estado == "error"
+        fila = conn.execute(
+            "SELECT estado, error_code FROM precio_cambio WHERE id = %s",
+            (res.id_cambio,),
+        ).fetchone()
+        assert fila[0] == "error" and fila[1].endswith(" 202")
+
+
+def test_r2_b2_p20_confirmado_por_exacta_en_ambos():
+    """r2-B2 P20: el cierre deja confirmado_por='observacion' en confirmado Y no_confirmado."""
+    with db_39c() as conn:
+        _, c_igual = _semilla_cierre(conn, asin="B0TESTD20A", sku="SKU-D20")
+        _, c_dist = _semilla_cierre(conn, asin="B0TESTD20B", sku="SKU-D21")
+        _observacion(conn, asin="B0TESTD20A", fecha="2026-09-18", precio="110.00")
+        _observacion(conn, asin="B0TESTD20B", fecha="2026-09-18", precio="111.00")
+        with rol(conn):
+            cuenta = cerrar_por_observacion(conn, HOY_CIERRE)
+        assert cuenta == {"confirmado": 1, "no_confirmado": 1, "intactos": 0}
+        filas = dict(
+            conn.execute(
+                "SELECT id, confirmado_por FROM precio_cambio WHERE id = ANY(%s)",
+                ([c_igual, c_dist],),
+            ).fetchall()
+        )
+        assert filas[c_igual] == "observacion"
+        assert filas[c_dist] == "observacion"
+
+
+def test_r2_b2_p22_cuerpo_real_no_se_loguea(caplog):
+    """r2-B2 P22: lo que de verdad salio por el cable no aparece en logs, en cambiar y revertir."""
+    asin2 = "B0TESTC002"
+    red = _RedFalsa(
+        gets_ofertas=[
+            (200, _ofertas_body(100.0)),
+            (200, _ofertas_body(100.0)),
+            (200, _ofertas_body(110.0, asin=asin2)),
+            (200, _ofertas_body(110.0, asin=asin2)),
+        ],
+        gets_competitivos=[(200, _competitivo_body())] * 4,
+        patchs=[(202, {"submissionId": "l1", "status": "ACCEPTED"})] * 2,
+    )
+    cuerpo = lambda **kw: {"marcador": "ZZ9X8", "precio": str(kw["precio"])}  # noqa: E731
+    with db_39c() as conn:
+        _, dec = _semilla_cambio(conn, sku="SKU-P22")
+        prod = _producto(conn, sku="PR-SKU-R22")
+        lid = _listing(conn, prod, asin=asin2, sku="SKU-R22")
+        _goal_live(conn, lid)
+        de2 = _decision(conn, lid)
+        cid = _cambio_cerrado(conn, de2, lid)
+        lector, escritor = _clientes(red)
+        with rol(conn), caplog.at_level(logging.INFO, logger="app.spapi.precio_write"):
+            cambiar_precio(
+                conn, dec, lector=lector, escritor=escritor, construir_cuerpo=cuerpo, ahora=AHORA
+            )
+            revertir(
+                conn, cid, lector=lector, escritor=escritor, construir_cuerpo=cuerpo, ahora=AHORA
+            )
+        mandados = [p.content.decode("utf-8") for p in red.pedidos_patch]
+        assert len(mandados) == 2 and all("ZZ9X8" in m for m in mandados)
+        assert "ZZ9X8" not in caplog.text
