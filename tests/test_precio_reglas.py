@@ -396,6 +396,298 @@ def test_ventas_sin_caida_resetea_racha():
     assert (s.estado, s.racha) == ("no_perdiendo", 0)
 
 
+# ---------------------------------------------------------------- objetivo (S4 #3 y #11)
+
+from app.precio.objetivo import (  # noqa: E402
+    ErrorObjetivo,
+    ResultadoObjetivo,
+    derivar_ref_fijo,
+    margen_a_precio,
+    paso,
+    piso_centavo,
+    precio_estrella,
+    techo_centavo,
+)
+
+
+def detalles_lineales():
+    # Acta 0.3: F = 15 a P = 116 -> ReferralFee 12 + logistica FBA 3.
+    return (
+        DetalleFee("ReferralFee", Decimal("12"), None, ()),
+        DetalleFee("FbaFee", Decimal("3"), None, ()),
+    )
+
+
+def test_objetivo_derivar_ref_y_fijo_del_acta():
+    ref, fijo = derivar_ref_fijo(detalles_lineales(), Decimal("15"), Decimal("116"))
+    assert ref == Decimal("12") / Decimal("116")
+    assert fijo == Decimal("3")
+
+
+def test_objetivo_sin_referral_o_doble_o_precio_cero():
+    with pytest.raises(ErrorObjetivo, match="referral_ausente"):
+        derivar_ref_fijo(
+            (DetalleFee("FbaFee", Decimal("3"), None, ()),), Decimal("3"), Decimal("116")
+        )
+    with pytest.raises(ErrorObjetivo, match="referral_ausente"):
+        derivar_ref_fijo(
+            (
+                DetalleFee("ReferralFee", Decimal("6"), None, ()),
+                DetalleFee("ReferralFee", Decimal("6"), None, ()),
+            ),
+            Decimal("12"),
+            Decimal("116"),
+        )
+    with pytest.raises(ErrorObjetivo, match="referral_ausente"):
+        derivar_ref_fijo(detalles_lineales(), Decimal("15"), Decimal("0"))
+
+
+def test_objetivo_estrella_y_margen_cierran_con_el_acta():
+    # C=40, fijo=3, L=0, r=0.025, goal=0.30, d=1.16, ref=12/116.
+    estrella = precio_estrella(
+        Decimal("40"),
+        Decimal("3"),
+        Decimal("0"),
+        Decimal("0.025"),
+        Decimal("0.30"),
+        Decimal("1.16"),
+        True,
+        Decimal("12") / Decimal("116"),
+    )
+    assert estrella == Decimal("43") / (
+        (Decimal("1") - Decimal("0.025") - Decimal("0.30")) / Decimal("1.16")
+        - Decimal("12") / Decimal("116")
+    )
+    m = margen_a_precio(
+        estrella,
+        Decimal("40"),
+        Decimal("12") / Decimal("116"),
+        Decimal("3"),
+        Decimal("0"),
+        Decimal("0.025"),
+        Decimal("1.16"),
+        True,
+    )
+    # Division finita de Decimal: cierra dentro de la tolerancia, no exacto
+    # (por eso la maquina compara con `tol`, nunca con `==`).
+    assert abs(m - Decimal("0.30")) <= Decimal("0.005")
+
+
+def test_objetivo_denominador_no_positivo_es_margen_imposible():
+    with pytest.raises(ErrorObjetivo, match="margen_imposible"):
+        precio_estrella(
+            Decimal("40"),
+            Decimal("3"),
+            Decimal("0"),
+            Decimal("0.025"),
+            Decimal("0.30"),
+            Decimal("1.16"),
+            True,
+            Decimal("0.90"),
+        )
+
+
+def test_objetivo_redondeo_techo_y_piso():
+    assert techo_centavo(Decimal("131.911")) == Decimal("131.92")
+    assert techo_centavo(Decimal("131.92")) == Decimal("131.92")
+    assert piso_centavo(Decimal("127.619")) == Decimal("127.61")
+    assert piso_centavo(Decimal("127.61")) == Decimal("127.61")
+
+
+def cotizacion(precio, detalles, total, estado="success", codigo=None):
+    from app.precio.tipos import CotizacionVerificada
+
+    return CotizacionVerificada(imp(precio), detalles, Decimal(total), estado, codigo)
+
+
+def test_objetivo_paso_cero_cotizaciones_pide_estrella():
+    from app.precio.tipos import PideCotizacion
+
+    pedido = paso(
+        costo=Decimal("60"),
+        fijo=Decimal("3"),
+        envio=Decimal("0"),
+        isr_tasa=Decimal("0.025"),
+        goal=Decimal("0.30"),
+        iva_divisor=Decimal("1.16"),
+        incluye_iva=True,
+        ref=Decimal("12") / Decimal("116"),
+        moneda=MXN,
+        tolerancia=Decimal("0.005"),
+        cotizaciones=(),
+    )
+    assert isinstance(pedido, PideCotizacion) and pedido.intento == 1
+    assert pedido.precio.valor == techo_centavo(
+        precio_estrella(
+            Decimal("60"),
+            Decimal("3"),
+            Decimal("0"),
+            Decimal("0.025"),
+            Decimal("0.30"),
+            Decimal("1.16"),
+            True,
+            Decimal("12") / Decimal("116"),
+        )
+    )
+
+
+def test_objetivo_paso_una_lineal_verifica():
+    pedido = paso(
+        costo=Decimal("60"),
+        fijo=Decimal("3"),
+        envio=Decimal("0"),
+        isr_tasa=Decimal("0.025"),
+        goal=Decimal("0.30"),
+        iva_divisor=Decimal("1.16"),
+        incluye_iva=True,
+        ref=Decimal("12") / Decimal("116"),
+        moneda=MXN,
+        tolerancia=Decimal("0.005"),
+        cotizaciones=(),
+    )
+    p1 = pedido.precio.valor
+    # Fees lineales: la cotizacion confirma el goal al centavo.
+    f1 = (Decimal("12") / Decimal("116") * p1 + Decimal("3")).quantize(Decimal("0.01"))
+    ref1 = (f1 - Decimal("3")) / p1
+    c1 = cotizacion(
+        str(p1),
+        (
+            DetalleFee("ReferralFee", (f1 - Decimal("3")), None, ()),
+            DetalleFee("FbaFee", Decimal("3"), None, ()),
+        ),
+        str(f1),
+    )
+    final = paso(
+        costo=Decimal("60"),
+        fijo=Decimal("3"),
+        envio=Decimal("0"),
+        isr_tasa=Decimal("0.025"),
+        goal=Decimal("0.30"),
+        iva_divisor=Decimal("1.16"),
+        incluye_iva=True,
+        ref=Decimal("12") / Decimal("116"),
+        moneda=MXN,
+        tolerancia=Decimal("0.005"),
+        cotizaciones=(c1,),
+    )
+    assert isinstance(final, ResultadoObjetivo)
+    assert (final.resultado, final.precio.valor) == ("verificado", p1)
+    assert ref1 > 0
+
+
+def test_objetivo_paso_dos_no_lineales_es_fee_no_lineal():
+    c1 = cotizacion(
+        "140.00",
+        (
+            DetalleFee("ReferralFee", Decimal("14.50"), None, ()),
+            DetalleFee("FbaFee", Decimal("3"), None, ()),
+        ),
+        "17.50",
+    )
+    pedido = paso(
+        costo=Decimal("60"),
+        fijo=Decimal("3"),
+        envio=Decimal("0"),
+        isr_tasa=Decimal("0.025"),
+        goal=Decimal("0.30"),
+        iva_divisor=Decimal("1.16"),
+        incluye_iva=True,
+        ref=Decimal("12") / Decimal("116"),
+        moneda=MXN,
+        tolerancia=Decimal("0.005"),
+        cotizaciones=(c1,),
+    )
+    from app.precio.tipos import PideCotizacion
+
+    assert isinstance(pedido, PideCotizacion) and pedido.intento == 2
+    c2 = cotizacion(
+        str(pedido.precio.valor),
+        (
+            DetalleFee("ReferralFee", Decimal("20.00"), None, ()),
+            DetalleFee("FbaFee", Decimal("3"), None, ()),
+        ),
+        "23.00",
+    )
+    final = paso(
+        costo=Decimal("60"),
+        fijo=Decimal("3"),
+        envio=Decimal("0"),
+        isr_tasa=Decimal("0.025"),
+        goal=Decimal("0.30"),
+        iva_divisor=Decimal("1.16"),
+        incluye_iva=True,
+        ref=Decimal("12") / Decimal("116"),
+        moneda=MXN,
+        tolerancia=Decimal("0.005"),
+        cotizaciones=(c1, c2),
+    )
+    assert (final.resultado, final.motivo) == ("goal_inalcanzable", "fee_no_lineal")
+
+
+def test_objetivo_paso_nunca_pide_tercera():
+    c1 = cotizacion(
+        "140.00",
+        (
+            DetalleFee("ReferralFee", Decimal("14.50"), None, ()),
+            DetalleFee("FbaFee", Decimal("3"), None, ()),
+        ),
+        "17.50",
+    )
+    c2 = cotizacion(
+        "150.00",
+        (
+            DetalleFee("ReferralFee", Decimal("15.50"), None, ()),
+            DetalleFee("FbaFee", Decimal("3"), None, ()),
+        ),
+        "18.50",
+    )
+    from app.precio.tipos import PideCotizacion
+
+    final = paso(
+        costo=Decimal("60"),
+        fijo=Decimal("3"),
+        envio=Decimal("0"),
+        isr_tasa=Decimal("0.025"),
+        goal=Decimal("0.30"),
+        iva_divisor=Decimal("1.16"),
+        incluye_iva=True,
+        ref=Decimal("12") / Decimal("116"),
+        moneda=MXN,
+        tolerancia=Decimal("0.005"),
+        cotizaciones=(c1, c2),
+    )
+    assert not isinstance(final, PideCotizacion)
+
+
+def test_objetivo_paso_tax_y_error_y_no_concilia():
+    base = dict(
+        costo=Decimal("60"),
+        fijo=Decimal("3"),
+        envio=Decimal("0"),
+        isr_tasa=Decimal("0.025"),
+        goal=Decimal("0.30"),
+        iva_divisor=Decimal("1.16"),
+        incluye_iva=True,
+        ref=Decimal("12") / Decimal("116"),
+        moneda=MXN,
+        tolerancia=Decimal("0.005"),
+    )
+    con_tax = cotizacion(
+        "140.00",
+        (DetalleFee("ReferralFee", Decimal("14.50"), Decimal("1.00"), ()),),
+        "14.50",
+    )
+    assert paso(cotizaciones=(con_tax,), **base).motivo == "impuesto_fee_pendiente"
+    en_error = cotizacion("140.00", (), "0", estado="error", codigo="fee_http_429")
+    assert paso(cotizaciones=(en_error,), **base).motivo == "fee_error:fee_http_429"
+    no_concilia = cotizacion(
+        "140.00",
+        (DetalleFee("ReferralFee", Decimal("14.50"), None, ()),),
+        "99.99",
+    )
+    assert paso(cotizaciones=(no_concilia,), **base).motivo == "fee_error:fee_no_concilia"
+
+
 def test_ventas_excluidas_escalan_el_promedio():
     # Sin excluidas: u60=600, n60=60, n15=15, esperado=90.
     # Excluyo 30 dias de la ventana 60 (u60=300, n60=30) y 5 de la de 15
