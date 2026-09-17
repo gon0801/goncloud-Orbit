@@ -680,10 +680,13 @@ exige por CHECK, también contra `psql`). FK compuesta `(listing_id,
 platform)` — 0039 declara `UNIQUE (id, platform)` en `listing`, lo único que
 toca de una tabla existente. `UNIQUE (listing_id, platform, valid_from)` más
 índice parcial de un vigente (`valid_to IS NULL`): sin fila vigente no hay
-decisión, sin defaults ni herencia. La vigencia es `[valid_from, valid_to)`:
-`valid_to = valid_from` es intervalo vacío y el goal queda **anulado, nunca
-vigente** (apaga el error de dedo el mismo día; aquí 0039 se aparta del
-`valid_to > valid_from` de `sku_cost` a propósito). Trigger
+decisión, sin defaults ni herencia. Y UN goal por día garantizado por la base
+con el EXCLUDE `precio_goal_sin_solape` (gist, patrón `sku_cost`): ni el
+parcial (solo abiertas) ni el UNIQUE (solo `valid_from`) impiden dos goals
+vigentes el mismo día con una vigencia ya cerrada. La vigencia es
+`[valid_from, valid_to)`: `valid_to = valid_from` es intervalo vacío y el goal
+queda **anulado, nunca vigente** (apaga el error de dedo el mismo día; aquí
+0039 se aparta del `valid_to > valid_from` de `sku_cost` a propósito). Trigger
 `precio_goal_solo_cierra_vigencia` (de una fila publicada solo se cierra
 `valid_to`, una vez) + capa TRUNCATE. La escribe `app_admin`
 (INSERT + `UPDATE (valid_to)`).

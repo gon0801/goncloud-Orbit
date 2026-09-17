@@ -1236,6 +1236,9 @@ ssh goncloud "$PSQL_READ \
   -c \"SELECT pg_get_expr(indpred, indrelid) FROM pg_index \
         WHERE indexrelid IN ('public.precio_goal_un_vigente'::regclass, \
                              'public.precio_cambio_abierto_unico'::regclass);\" \
+  -c \"SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint \
+        WHERE conrelid = 'public.precio_goal'::regclass \
+          AND conname = 'precio_goal_sin_solape';\" \
   -c \"SELECT apply_cap_de_config('precio:amazon_mx') AS cap_mx, \
              apply_cap_de_config('precio:amazon_us') AS cap_us, \
              apply_cap_de_config('precio:meli') AS cap_meli;\" \
