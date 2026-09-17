@@ -13,10 +13,30 @@ reviews:
   high_level_summary: true
   request_changes_workflow: false   # true = CodeRabbit puede bloquear el merge
 
+  # Cuota (2026-09-17). El gasto no venia del numero de PRs sino de que
+  # `auto_incremental_review` es true por default: CodeRabbit RE-REVISA en
+  # cada push. Seis pushes entre dos PRs de una tarde costaron cinco
+  # revisiones, y las correcciones a sus propios hallazgos disparaban otra.
+  # Con esto revisa UNA vez por PR; cuando un PR cambia de verdad se despierta
+  # a mano con "@coderabbitai review" en un comentario.
   auto_review:
+    auto_incremental_review: false
     # El default es 5: en un PR largo CodeRabbit se duerme y uno cree que
     # sigue revisando. Se despierta a mano con "@coderabbitai review".
     auto_pause_after_reviewed_commits: 20
+
+  # Rutas sin valor de juicio: artefactos y registros generados. NO se excluyen
+  # docs/, plans/ ni docs/evidencia/: el 2026-09-17 CodeRabbit encontro once
+  # contradicciones reales en un PR de puros documentos (numeros que no
+  # cuadraban entre el plan y el spec, una cobertura invalidada que seguia
+  # declarada, una dependencia que dejaba correr una fase antes de tiempo).
+  # Excluirlos ahorraria cuota a costa de justo eso.
+  path_filters:
+    - "!.saikit/**"
+    - "!data/**"
+    - "!out/**"
+    - "!**/*.lock"
+    - "!uv.lock"
 
   path_instructions:
     - path: "migrations/**/*.sql"
