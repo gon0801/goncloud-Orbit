@@ -273,7 +273,7 @@ def decidir(
                 prioridad=_prioridad(m_actual, goal, entrada.ingreso_60d),
             )
         if senal.estado == "perdiendo":
-            return _bajar(entrada, config=config, m_actual=m_actual)
+            return _bajar(entrada, config=config, m_actual=m_actual, cotizaciones=cotizaciones)
         base = _base_senal(entrada)
         return replace(
             base,
@@ -408,7 +408,15 @@ def _subir(
     )
 
 
-def _bajar(entrada: EntradaDecision, *, config: ConfigPrecio, m_actual: Decimal) -> Decision:
+def _bajar(
+    entrada: EntradaDecision,
+    *,
+    config: ConfigPrecio,
+    m_actual: Decimal,
+    cotizaciones: tuple[CotizacionVerificada, ...],
+) -> Decision | PideCotizacion:
+    """r1-A3: la bajada usa la misma maquina (S4 #4 «nunca menor que el goal»
+    verificado por cotizacion real, no supuesto por linealidad)."""
     comp = entrada.escenario.componentes
     moneda = comp.p_actual.moneda
     escenario = entrada.escenario
@@ -421,17 +429,15 @@ def _bajar(entrada: EntradaDecision, *, config: ConfigPrecio, m_actual: Decimal)
     except ErrorObjetivo as exc:
         return _no_evaluado(entrada, exc.motivo)
     try:
-        p_goal = techo_centavo(
-            precio_estrella(
-                comp.costo.valor,
-                fijo,
-                comp.envio.valor,
-                escenario.isr_tasa,
-                entrada.goal,
-                escenario.iva_divisor,
-                escenario.precio_incluye_iva,
-                ref,
-            )
+        crudo = precio_estrella(
+            comp.costo.valor,
+            fijo,
+            comp.envio.valor,
+            escenario.isr_tasa,
+            entrada.goal,
+            escenario.iva_divisor,
+            escenario.precio_incluye_iva,
+            ref,
         )
     except ErrorObjetivo as exc:
         base = _base_senal(entrada)
@@ -442,6 +448,51 @@ def _bajar(entrada: EntradaDecision, *, config: ConfigPrecio, m_actual: Decimal)
             m_actual=m_actual,
             prioridad=_prioridad(m_actual, entrada.goal, entrada.ingreso_60d),
         )
+    motivo11 = motivo_regla11(crudo, comp.p_actual.valor, comp.costo.valor, comp.envio.valor)
+    if motivo11 is not None:
+        base = _base_senal(entrada)
+        return replace(
+            base,
+            resultado="goal_inalcanzable",
+            motivo=motivo11,
+            m_actual=m_actual,
+            prioridad=_prioridad(m_actual, entrada.goal, entrada.ingreso_60d),
+            diagnostico=f"P*={crudo} vs P={comp.p_actual.valor}",
+        )
+    salida = paso(
+        costo=comp.costo.valor,
+        fijo=fijo,
+        envio=comp.envio.valor,
+        isr_tasa=escenario.isr_tasa,
+        goal=entrada.goal,
+        iva_divisor=escenario.iva_divisor,
+        incluye_iva=escenario.precio_incluye_iva,
+        ref=ref,
+        moneda=moneda,
+        tolerancia=config.tolerancia,
+        cotizaciones=cotizaciones,
+    )
+    if isinstance(salida, PideCotizacion):
+        freno = _frena_regla11(entrada, m_actual, salida.precio.valor)
+        return freno if freno is not None else salida
+    assert isinstance(salida, ResultadoObjetivo)
+    if salida.resultado == "no_evaluado":
+        assert salida.motivo is not None
+        return _no_evaluado(entrada, salida.motivo)
+    if salida.resultado == "goal_inalcanzable":
+        base = _base_senal(entrada)
+        return replace(
+            base,
+            resultado="goal_inalcanzable",
+            motivo=salida.motivo,
+            m_actual=m_actual,
+            prioridad=_prioridad(m_actual, entrada.goal, entrada.ingreso_60d),
+        )
+    assert salida.precio is not None
+    freno = _frena_regla11(entrada, m_actual, salida.precio.valor)
+    if freno is not None:
+        return freno
+    p_goal = salida.precio.valor
     umbral = max(config.movimiento_min_pct * comp.p_actual.valor, _min_abs(config, moneda))
     if abs(p_goal - comp.p_actual.valor) < umbral:
         base = _base_senal(entrada)

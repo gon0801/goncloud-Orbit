@@ -718,6 +718,87 @@ def test_r1_a1_precio_cotizado_distinto_no_pasa():
     assert (d.resultado, d.motivo) == ("no_evaluado", "escenario_incoherente")
 
 
+# ---------------------------------------------------------------- r1-A3
+
+
+def test_r1_a3_bajar_verifica_con_cotizacion():
+    # Espejo de subir: la bajada tambien cotiza; P_goal es el verificado.
+    from app.precio.tipos import PideCotizacion
+
+    ent = entrada(senal=senal_perdiendo())
+    pedido = decide(ent)
+    assert isinstance(pedido, PideCotizacion)
+    d = resuelve(ent)
+    assert d.resultado == "bajar"
+    assert d.p_objetivo.valor == pedido.precio.valor
+
+
+def test_r1_a3_bajar_tax_error_y_no_lineal():
+    from app.precio.tipos import CotizacionVerificada, PideCotizacion
+
+    ent = entrada(senal=senal_perdiendo())
+    pedido = decide(ent)
+    assert isinstance(pedido, PideCotizacion)
+    con_tax = CotizacionVerificada(
+        pedido.precio,
+        (DetalleFee("ReferralFee", Decimal("10"), Decimal("1"), ()),),
+        Decimal("10"),
+        "success",
+        None,
+    )
+    d = decide(ent, cotizaciones=(con_tax,))
+    assert (d.resultado, d.motivo) == ("no_evaluado", "impuesto_fee_pendiente")
+    en_error = CotizacionVerificada(pedido.precio, (), Decimal("0"), "error", "fee_http_500")
+    d = decide(ent, cotizaciones=(en_error,))
+    assert (d.resultado, d.motivo) == ("no_evaluado", "fee_error:fee_http_500")
+    c1 = CotizacionVerificada(
+        imp("100"),
+        (
+            DetalleFee("ReferralFee", Decimal("1.69"), None, ()),
+            DetalleFee("FbaFee", Decimal("3"), None, ()),
+        ),
+        Decimal("4.69"),
+        "success",
+        None,
+    )
+    pedido2 = decide(ent, cotizaciones=(c1,))
+    assert isinstance(pedido2, PideCotizacion)
+    c2 = CotizacionVerificada(
+        pedido2.precio,
+        (
+            DetalleFee("ReferralFee", Decimal("30"), None, ()),
+            DetalleFee("FbaFee", Decimal("3"), None, ()),
+        ),
+        Decimal("33"),
+        "success",
+        None,
+    )
+    d = decide(ent, cotizaciones=(c1, c2))
+    assert (d.resultado, d.motivo) == ("goal_inalcanzable", "fee_no_lineal")
+
+
+def test_r1_a3_candado_direccion_bajar_con_verificado_arriba():
+    # Espejo de A1-capa-2: escenario coherente (m=0.425 -> bajar), pero una
+    # cotizacion verifica P1=130 > P=116 -> escenario_incoherente.
+    from app.precio.tipos import CotizacionVerificada, PideCotizacion
+
+    ent = entrada(senal=senal_perdiendo())
+    pedido = decide(ent)
+    assert isinstance(pedido, PideCotizacion)
+    amañada = CotizacionVerificada(
+        imp("130"),
+        (
+            DetalleFee("ReferralFee", Decimal("32.65"), None, ()),
+            DetalleFee("FbaFee", Decimal("3"), None, ()),
+        ),
+        Decimal("35.65"),
+        "success",
+        None,
+    )
+    d = decide(ent, cotizaciones=(amañada,))
+    assert (d.resultado, d.motivo) == ("no_evaluado", "escenario_incoherente")
+
+
 # ---------------------------------------------------------------- r1-A2
 
 
