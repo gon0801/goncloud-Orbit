@@ -232,6 +232,47 @@ E           ValueError: setting precio_tolerancia: fuera de cota [0, 0.004]: 0.0
 
 MUERTO. Revertido con `git checkout -- app/precio/config.py`.
 
+## Ronda r3 (revisión de kimi + 2 mutantes del lead, 2026-09-17)
+
+Nacieron de K: monedas divergentes (`test_r3_k1_*`), cupo que limpia
+`p_aplicado` + invariante (`test_r3_k2_*`, 2 tests), duplicados
+conservadores (`test_r3_k5_*`, 6 tests). K3 (parámetro muerto) y K4
+(imports) son higiene sin cambio de comportamiento.
+
+### L1 — quitar la regla 11 sobre el primer pedido de `subir`
+
+Test: `test_r3_l1_doble_lo_decide_el_pedido_no_el_crudo` (el
+inalcanzable sale del wrapper con diagnóstico `P=...`, no del crudo).
+Con caché nueva:
+
+```text
+E       AttributeError: 'PideCotizacion' object has no attribute 'resultado'
+1 failed, 155 deselected in 0.31s
+```
+
+MUERTO. (Además se quitó la estrella cruda de `_subir`: `margen_imposible`
+sale de la máquina y la regla 11 del wrapper, un solo control por camino.
+En `_bajar` la cruda sigue: ahí decide sin gastar cotización y el brief
+solo ordenó la de subir.)
+
+### L2 — el fantasma que no verifica pasa
+
+Test: `test_r3_l2_fantasma_que_no_verifica_revienta` (fábrica
+`verificar_fantasma` en `tipos.py`: `|m(P) − goal| ≤ 0.005` con
+parámetros canónicos del acta 0.3 y `P > 0`). Con caché nueva:
+
+```text
+E       Failed: DID NOT RAISE ValueError
+1 failed, 155 deselected in 0.31s
+```
+
+MUERTO. La prueba de bajar-sin-red se reescribió sobre el fantasma
+(`test_r3_l2_bajar_fantasma_coherente`: precio exactamente el `P_goal`
+por forma cerrada). Decisión documentada en la fábrica: NO es invariante
+del constructor — las cotizaciones de entrada de la máquina legítimamente
+no verifican (con la primera que no cierra se pide la segunda); el que
+revienta es el fantasma que afirma verificación sin Amazon detrás.
+
 ## Ronda r2 (re-auditoría del lead, 2026-09-17)
 
 El lead corrió 65 mutantes con caché de bytecode nueva por corrida; 12
