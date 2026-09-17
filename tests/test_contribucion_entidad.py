@@ -798,14 +798,25 @@ def test_desfase_gasto_ads_contado(db):
 
 def test_cost_null_anula_tacos_pct(db):
     s = _semilla_mx_completa(db)
+    # La fila sin costo va en s["dia"], el MISMO dia que usa el resto de la
+    # semilla, porque v_tacos agrupa por MES. Antes iba en d_to - 1 dia, y
+    # como el mes consultado sale de dia = d_to - 5, las dos fechas caian en
+    # meses distintos los 4 dias del mes en que day(d_to) esta entre 2 y 5:
+    # el contador salia 0 y el test reventaba sin que nadie tocara el codigo.
+    # Paso en CI el 2026-09-17 (d_to = 09-02, fila en 09-01, consulta 08-01).
+    fecha_sin_costo = s["dia"]
+    mes = s["dia"].replace(day=1)
+    assert fecha_sin_costo.replace(day=1) == mes, (
+        "la fila sin costo cayo fuera del mes que se consulta: v_tacos agrupa "
+        "por mes, asi que un offset en dias vuelve este test dependiente del "
+        "calendario"
+    )
     db.execute(
         "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
         " metric_currency, cost, ingest_run_id)"
         " VALUES (%s, %s, now(), 'MXN', NULL, %s)",
-        (s["kw"], s["d_to"] - timedelta(days=1), s["rid"]),
+        (s["kw"], fecha_sin_costo, s["rid"]),
     )
-    # Venta del mes para que el CASE llegue a evaluar contadores.
-    mes = s["dia"].replace(day=1)
     fila = db.execute(
         "SELECT tacos_pct, filas_gasto_sin_costo FROM v_tacos"
         " WHERE platform = 'amazon_mx' AND mes = %s",
