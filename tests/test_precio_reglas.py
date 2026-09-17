@@ -986,6 +986,35 @@ def test_r3b_fantasma_que_no_verifica_revienta():
         )
 
 
+# ---------------------------------------------------------------- r3b-L1-L2
+
+
+def test_r3b_l1_reversa_no_frena_por_ventas():
+    # Reversa confirmada que sube, hace 10 días, + señal perdiendo: la
+    # reversa deshace, no dispara el freno #6.
+    from app.precio.tipos import PideCotizacion
+
+    ent = entrada(
+        costo="40",
+        senal=senal_perdiendo(),
+        cambios=(CambioPrevio(HOY - timedelta(days=10), "subir", "confirmado", es_reversa=True),),
+    )
+    assert isinstance(decide(ent), PideCotizacion)
+
+
+def test_r3b_l2_bajada_no_frena_por_ventas():
+    # Bajada confirmada hace 10 días + señal perdiendo: el freno #6 es
+    # solo para subidas que tiran la venta.
+    from app.precio.tipos import PideCotizacion
+
+    ent = entrada(
+        costo="40",
+        senal=senal_perdiendo(),
+        cambios=(CambioPrevio(HOY - timedelta(days=10), "bajar", "confirmado"),),
+    )
+    assert isinstance(decide(ent), PideCotizacion)
+
+
 # ---------------------------------------------------------------- r2-B
 
 
