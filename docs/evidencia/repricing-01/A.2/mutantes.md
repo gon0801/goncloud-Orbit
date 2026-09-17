@@ -10,6 +10,52 @@ con `git checkout -- <archivo>` y `git status` limpio. Ninguna mutación
 se commitea. Un mutante que sobrevive se cierra arreglando el test, no
 escondiéndolo (M12).
 
+## Ronda r6 (CodeRabbit, 2026-09-17)
+
+Sembrados sobre el HEAD commiteado, con caché nueva
+`PYTHONPYCACHEPREFIX=$(mktemp -d) -p no:cacheprovider`, revertidos por
+edición y `git status` limpio.
+
+### C1 — sin la cota `_MAX_DINERO` (`estimacion_fees.py`)
+
+Mutante: quitar el `if precio >= _MAX_DINERO`. `Decimal("1E+24")`
+cuantiza bien y llega al cliente en vez de `ValueError`.
+Test: `test_r6_c1_cotizar_a_precio_rechaza_enormes_como_valueerror`.
+
+```text
+E           Failed: DID NOT RAISE ValueError
+1 failed, 184 deselected in 0.37s
+```
+
+MUERTO.
+
+### C2 — `margen_a_precio` valida solo `precio` (`objetivo.py`)
+
+Mutante: volver a `exigir_decimal(precio, campo="precio")`. Un `int`
+o `float` en cualquier otro argumento opera sin rechazo.
+Test: `test_r6_c2_margen_a_precio_valida_todos_los_decimales`
+(parametrizado: int y float en cada campo).
+
+```text
+12 failed, 2 passed, 171 deselected in 0.44s
+```
+
+MUERTO.
+
+### C3 — volver al barrido de texto (`test_architecture.py`)
+
+Mutante: `__import__` por texto `"__import__("` en vez de por AST.
+La variante con espacio lo burla. Test:
+`test_precio_frontera_caza_dunder_import` (tres variantes).
+
+```text
+E       Failed: DID NOT RAISE AssertionError
+FAILED tests/test_architecture.py::test_precio_frontera_caza_dunder_import[x = __import__ ("httpx")\n]
+1 failed, 2 passed, 42 deselected in 0.21s
+```
+
+MUERTO.
+
 ## Ronda r5b (2026-09-17)
 
 ### P1 — `is None` → `is not None` en la llave del cupo (`reglas.py`)
