@@ -4,6 +4,16 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-17 UTC — REPRICING 01: plan v1.3 tras revisar la Fase 8 contra el código; corrige lo que la nota de cierre decía mal.**
+La Fase 8 cumple todo su DoD (374 pruebas en verde contra PostgreSQL real), pero la sonda A.4 **no puede correr con lo que hay**:
+`cambiar_precio` lee una decisión `subir` en `live` que exige un goal `live` vigente, y eso necesita las tablas en producción y la
+herramienta de goals. Por eso la v1.3 agrega la fila **D.0** (aplicar la 0039 y sembrar las claves `precio_*`, del dueño con `!`) y
+hace que A.4 dependa de A.1 y D.0. **Corrección**: A.1 es implementación de Muse, no del dueño; lo del dueño es elegir el producto
+y dar el go. E.0 se parte en E.0a (veredicto contra el documento de origen, del lead con insumo del dueño) y E.0b (la regla en la
+ingesta, de Muse). Hechos nuevos 20–22 de E.1 para el acta E.2: el rezago de emisión no existe (el de ingesta es p90 4 días MX y 13 US),
+la palanca es la ventana (7/14/17 productos en MX y 9/17/22 en US a 90/180/365 días) y la histéresis 6/3 casi elimina el parpadeo.
+Lo que sigue: Fase 10 del autopilot con A.1 y A.7 (Muse); del dueño E.2, D.0, el goal del producto controlado y A.4.
+
 **2026-09-18 UTC — REPRICING 01, Fase 8 (AUTO-07) CERRADA: los cimientos del motor de precios están en master, sin mover ningún precio.**
 Cuatro PRs mergeados por la ruta del kit: A.0 migración 0039 (`#298`, `14accfa`; **no aplicada en producción**, eso es D.1 y lo
 corre el dueño), E.1 costo de envío FBM medido en producción (`#297`, `6127708`; insumo de E.2 y E.0), A.2 reglas puras del motor
