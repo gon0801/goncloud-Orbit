@@ -4,6 +4,16 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-18 UTC — REPRICING 01, Fase 8 (AUTO-07) CERRADA: los cimientos del motor de precios están en master, sin mover ningún precio.**
+Cuatro PRs mergeados por la ruta del kit: A.0 migración 0039 (`#298`, `14accfa`; **no aplicada en producción**, eso es D.1 y lo
+corre el dueño), E.1 costo de envío FBM medido en producción (`#297`, `6127708`; insumo de E.2 y E.0), A.2 reglas puras del motor
+(`#299`, `39cba88`) y A.3 cliente de escritura, escritura y reversa de Amazon (`#300`, `efc0555`; la forma del cuerpo del PATCH
+sigue `pendiente_sonda` hasta la sonda A.4). Hechos medidos que cambian lo que se creía: el rezago de emisión del hecho 15 no se
+reproduce (p50 0, máx 3 días) y el que sí se mide es el de ingesta (MX p90 4.2, US p90 13); «365 días» son 287 de datos; una
+reversa no entra el mismo día del cambio (el índice único de S5 la bloquea mientras el original está abierto). Ninguna clave
+`precio_*` está sembrada en la config. Lo que sigue: A.1 (sembrar goals), la sonda A.4, el acta E.2 y D.1 son del dueño; la
+corrida diaria es A.5.
+
 **2026-09-16 UTC — REPRICING 01: plan y spec sellados; el siguiente módulo es el motor de precios.**
 El dueño decidió el 15-sep cómo funciona: proteger margen; cada producto tiene un goal que él fija; si el margen
 estimado (precio, costo, comisiones, retenciones, sin Ads) no llega al goal, el motor sube el precio aunque rebase
@@ -23,7 +33,7 @@ mapeo SKU→producto ni dinero en el ledger: su fase es traerlo a Orbit, no ence
 
 Spec `docs/superpowers/specs/2026-09-15-repricing-01-design.md` v1.2, plan `plans/repricing-01.md` v1.1 con 28
 filas en cinco fases (A Amazon MX FBA, E envío medido y FBM, 0 política fiscal US, B Amazon US, M Mercado Libre).
-**Cero código todavía**; arranca después de D.3 de F2.
+**Cero código todavía** (al 16-sep; la Fase 8 lo cambió: ver la entrada del 18-sep); arrancó después de D.3 de F2.
 
 **2026-09-16 UTC — FABRICA 02 (F2): D.1 y D.2 CERRADAS — la migración 0038 y el código del harvest por grupo ya están en producción, apagados; sigue D.3 desde el 19-sep.**
 El dueño corrió el runbook F2 con `!` la tarde del 15-sep: cap diario de harvest bajado a 2 por
@@ -1180,7 +1190,8 @@ escribe nada a Amazon hasta pasar validación humana (el "apply" llega en PR2).
   producción** (`docs/evidencia/repricing-01/E.1/`), insumo de E.2 y E.0; el
   rezago de emisión del hecho 15 no se reproduce (el que se mide es el de
   ingesta). Ninguna clave `precio_*` está sembrada en la config. Lo que sigue
-  es del dueño: la sonda A.4 y el acta E.2; la corrida diaria es A.5.
+  es del dueño: A.1 (sembrar goals, dependencia de A.5), la sonda A.4, el acta E.2 y aplicar la
+  0039 (D.1); la corrida diaria es A.5.
 - **Datos reales ya en la base viva** (Postgres en el server `goncloud`):
   5,897 entidades, ~22,000 observaciones de métricas, ~6,900 de search terms.
 
