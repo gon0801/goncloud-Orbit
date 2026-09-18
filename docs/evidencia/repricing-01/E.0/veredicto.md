@@ -4,7 +4,7 @@
 
 **Estado: veredicto parcial.** El documento de origen que el plan exige (la vista de transacciones de Seller Central, o la contabilidad que alimenta el ledger) **no existe todavía**: la carpeta `/Users/dn/dev/orbit-insumos/E.0/` no existe al 2026-09-18 (`ls … | wc -l` → `0`). Por regla del runbook, **ningún par recibe `duplicado` ni `componentes distintos`**. Los tres quedan `sin veredicto`, y abajo dice qué documento resuelve cada uno. Todo lo demás ya está medido: la lista literal de órdenes, cada cargo con su identidad completa, las hipótesis con su fuente y la regla de costo que resulta de cada veredicto posible. Con el documento en mano, el veredicto se resuelve en una tarde.
 
-**Corrida.** `salidas/CORRIDA.txt`: `estado: COMPLETA`, 2026-09-18T09:10:27Z a 2026-09-18T09:10:49Z UTC, `commit_del_repo: d1f26ce`, `consultas_con_cambios_sin_commitear: 0`. «Hoy» es la fecha UTC de esa corrida, **2026-09-18**. La ventana de 90 días es `[2026-09-18 − 90, 2026-09-18]` = `[2026-06-20, 2026-09-18]`. Cada tabla cita el `.sql` de `consultas/` que la produjo, y su salida literal está en `salidas/<mismo nombre>.txt`.
+**Corrida.** `salidas/CORRIDA.txt`: `estado: COMPLETA`, 2026-09-18T10:06:22Z a 2026-09-18T10:06:44Z UTC, `commit_del_repo: 7674ee7`, `consultas_con_cambios_sin_commitear: 0`. «Hoy» es la fecha UTC de esa corrida, **2026-09-18**. La ventana de 90 días es `[2026-09-18 − 90, 2026-09-18]` = `[2026-06-20, 2026-09-18]`. Cada tabla cita el `.sql` de `consultas/` que la produjo, y su salida literal está en `salidas/<mismo nombre>.txt`.
 
 ---
 
@@ -485,7 +485,7 @@ Es la regla que E.0b implementa **cuando haya veredicto**. Mientras no lo haya, 
 | `finance:ShippingChargeback`, `finance:MFNShippingChargeback` | **otros**, contada | **otros**, contada | Sin veredicto propio; 3 filas a 90 días. |
 | fuente desconocida o no reconocida (identidad fuera de estas seis, o `source_event_id` nulo) | **otros**, contada, nunca descartada en silencio | **otros**, contada | La regla de E.0b: «una fuente desconocida cae en `otros` contada». |
 
-**Qué cambia el dinero.** En las 54 órdenes de la tabla 2.3, contar Labman **y** etiqueta suma el costo de la etiqueta dos veces si el veredicto es `duplicado`. La suma de los Labman de esas órdenes es la cifra en juego (tabla 2.1: `finance:LabmanLabelPurchase` de `amazon_us`, 90 días). Lo que E.1 ya midió bajo las dos lecturas (`docs/evidencia/repricing-01/E.1/medicion.md`) no cambia la ventana, el mínimo ni la histéresis: por eso la parte 1 del acta E.2 no espera a este veredicto y la parte 2 (el valor) sí.
+**Qué cambia el dinero.** En las 54 órdenes de la tabla 2.3, contar Labman **y** etiqueta suma el costo de la etiqueta dos veces si el veredicto es `duplicado`. La cifra en juego es la suma de los Labman de **esas 54 órdenes**: **-23 846.32 MXN** a 90 días (de `salidas/02-ordenes-us-tres-cargos-desglose.txt`). No es el total de Labman de la tabla 2.1 (57 filas): las 3 órdenes con Labman y sin etiqueta lo cuentan una sola vez con cualquier veredicto. Lo que E.1 ya midió bajo las dos lecturas (`docs/evidencia/repricing-01/E.1/medicion.md`) no cambia la ventana, el mínimo ni la histéresis: por eso la parte 1 del acta E.2 no espera a este veredicto y la parte 2 (el valor) sí.
 
 ## 6. Descartes por convención de signos — `consultas/07-descartes-por-signo.sql`
 
@@ -533,7 +533,7 @@ o la resuelve E.0b, cuya DoD ya pide que «los descartes por signo salen en `ing
 
 ## 7. La lista literal de órdenes a consultar en Seller Central
 
-Las 54 órdenes de `amazon_us` con los tres cargos (`finance:LabmanLabelPurchase`, `finance:ShippingHB`, `shipping_label`) en la ventana de 90 días al 2026-09-18. Son las mismas 54 del par Labman / etiqueta de la tabla 2.4. Para el par ShippingHB / etiqueta, con estas mismas órdenes alcanza: todas traen los dos.
+Las 54 órdenes de `amazon_us` con los tres cargos (`finance:LabmanLabelPurchase`, `finance:ShippingHB`, `shipping_label`) en la ventana de 90 días al 2026-09-18, de `consultas/02-ordenes-us-tres-cargos-desglose.sql`. Son las mismas 54 del par Labman / etiqueta de la tabla 2.4. Para el par ShippingHB / etiqueta, con estas mismas órdenes alcanza: todas traen los dos.
 
 ```
 111-0040443-2266607
@@ -600,7 +600,7 @@ Dónde dejar los exportes: `/Users/dn/dev/orbit-insumos/E.0/`, fuera de cualquie
 bash docs/evidencia/repricing-01/E.0/correr.sh
 ```
 
-Desde la raíz del repo, con `ssh goncloud`. Reescribe `salidas/` y `salidas/CORRIDA.txt`, y aborta antes de tocar producción si alguna consulta contiene una palabra de escritura o una diagonal invertida (un metacomando de `psql` como `\!` se ejecutaría en el servidor sin que `BEGIN READ ONLY` lo controle). Los dos candados se prueban sin tocar producción con:
+Desde la raíz del repo, con `ssh goncloud`. Reescribe `salidas/` y `salidas/CORRIDA.txt`, y aborta antes de tocar producción si alguna consulta contiene una palabra de escritura, una de control de transacción (`commit`, `end;`, `begin`, `into`, `do`, `set` y demás, que saldrían del `READ ONLY`) o una diagonal invertida (un metacomando de `psql` como `\!` se ejecutaría en el servidor sin que `BEGIN READ ONLY` lo controle). Los dos candados se prueban sin tocar producción con:
 
 ```
 bash docs/evidencia/repricing-01/E.0/prueba-candados.sh
