@@ -92,12 +92,20 @@ class ResultadoReversion:
     estado: str  # "enviado" | "error" | "saltado"
     motivo: str | None
 
+    def __post_init__(self) -> None:
+        if self.estado not in ("enviado", "error", "saltado"):
+            raise ValueError(f"estado fuera de vocabulario: {self.estado!r}")
+
 
 @dataclass(frozen=True)
 class ResultadoCambio:
     id_cambio: int | None
-    estado: str  # "enviado" | "error"
+    estado: str  # "enviado" | "error" | "saltado"
     motivo: str | None
+
+    def __post_init__(self) -> None:
+        if self.estado not in ("enviado", "error", "saltado"):
+            raise ValueError(f"estado fuera de vocabulario: {self.estado!r}")
 
 
 def construir_escritor(

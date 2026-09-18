@@ -2080,3 +2080,13 @@ def test_r3_k2_lwa_caido_en_prelectura_es_sin_precio_vivo():
         assert res.estado == "saltado" and res.motivo == "sin_precio_vivo"
         assert red.n_patch == 0
         assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 1
+
+
+def test_r3_k3_estado_fuera_de_vocabulario_es_mal_uso():
+    """r3-K3: estado fuera de enviado/error/saltado -> ValueError en ambas."""
+    from app.spapi.precio_write import ResultadoCambio, ResultadoReversion
+
+    with pytest.raises(ValueError, match="estado"):
+        ResultadoCambio(id_cambio=None, estado="recibido", motivo=None)
+    with pytest.raises(ValueError, match="estado"):
+        ResultadoReversion(id_reversa=None, estado="recibido", motivo=None)
