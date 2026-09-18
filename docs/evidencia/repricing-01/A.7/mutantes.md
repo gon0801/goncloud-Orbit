@@ -84,3 +84,11 @@ Notas r1:
   existe ahí también (está en la tupla de excepción), pero el archivo no
   usa reloj/entorno/dinámico de Python (solo `now()` SQL en dos
   consultas); anotado y sin tocar, como ordena el brief.
+
+## r2 (2026-09-18 UTC, sobre `7b86a46`, base real, restaurando con copia en `/tmp`)
+
+| Mutante | Lo que mata | Salida |
+|---|---|---|
+| M1: `os` fuera de `_PROHIBIDOS_IMPORTS_FUENTES` | `test_candado_imports_fuentes_caza_from_os_getenv` (solo ese: `time` e `importlib` siguen rojos) | MUERTO |
+| M2: `_usos_reloj` devuelve `[]` siempre | `test_candado_reloj_fuentes_caza_fuga_sembrada` (r1) y `test_candado_reloj_fuentes_caza_os_environ` (r2) | MUERTO |
+| M3: `_escritura_en_fuentes` otra vez sobre el texto completo | `test_candado_escritura_fuentes_ignora_import_deepcopy`, `test_candado_escritura_fuentes_ignora_comentario` y `test_candado_select_fuentes_caza_fugas_sembradas` (la fuga `INSERT\` + `n` escapado solo cuadra sobre el valor decodificado: fija el `\s+` multilinea) | MUERTO |

@@ -69,7 +69,7 @@ def main(argv=None) -> int:
             max_dias = max_dias_desde_settings(config_vigente_settings(conn))
             filas = leer_publicaciones(conn, platform=args.platform, hoy=hoy)
             identidad = contar_listing_identidad(conn, platform=args.platform)
-        except psycopg.Error as exc:
+        except (psycopg.Error, ValueError) as exc:
             print(f"precio_cobertura: {exc}", file=sys.stderr)
             return 2
         rec = armar_recuadro(filas, platform=args.platform, max_dias=max_dias)

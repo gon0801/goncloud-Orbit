@@ -56,7 +56,7 @@ _SQL_DECISIONES = (
     "SELECT listing_id, resultado, motivo FROM precio_decision"
     " WHERE platform = %s AND decision_date = %s"
 )
-_SQL_PUENTE = "SELECT count(*) FROM listing WHERE platform = %s"
+_SQL_LISTING_IDENTIDAD = "SELECT count(*) FROM listing WHERE platform = %s"
 _SQL_HOY = "SELECT (now() AT TIME ZONE 'UTC')::date"
 
 
@@ -147,4 +147,4 @@ def leer_publicaciones(
 def contar_listing_identidad(conn: psycopg.Connection, *, platform: str) -> int:
     """Filas de `listing` por plataforma: identidad, no activas (el estado
     del puente no esta en Orbit)."""
-    return int(conn.execute(_SQL_PUENTE, (platform,)).fetchone()[0])
+    return int(conn.execute(_SQL_LISTING_IDENTIDAD, (platform,)).fetchone()[0])

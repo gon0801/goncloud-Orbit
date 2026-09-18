@@ -477,7 +477,7 @@ def test_consultas_iguales_a_las_que_ejecuta_fuentes():
         ("02_canales.sql", fuentes._SQL_CANAL),
         ("03_goals.sql", fuentes._SQL_GOALS),
         ("04_decisiones.sql", fuentes._SQL_DECISIONES),
-        ("05_listing_identidad.sql", fuentes._SQL_PUENTE),
+        ("05_listing_identidad.sql", fuentes._SQL_LISTING_IDENTIDAD),
         ("06_hoy.sql", fuentes._SQL_HOY),
     )
     for nombre, constante in pares:
@@ -778,6 +778,17 @@ def test_tool_error_de_base_es_exit_2_sin_traceback():
             pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
         )
         admin.close()
+
+
+@_skip_sin_pg
+def test_tool_config_sin_clave_es_exit_2_sin_traceback():
+    """K6: un `ValueError` de settings (config sin la clave) sale mensaje y exit 2."""
+    with _db() as (conn, dsn):
+        _config(conn, {})
+        res = _tool("--platform", "amazon_mx", dsn=dsn)
+        assert res.returncode == 2
+        assert res.stderr.startswith("precio_cobertura: ")
+        assert "Traceback" not in res.stderr
 
 
 @_skip_sin_pg
