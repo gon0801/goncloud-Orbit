@@ -1,7 +1,7 @@
 estado: COMPLETA
-inicio_utc: 2026-09-18T10:27:27Z
-fin_utc: 2026-09-18T10:27:49Z
-commit_del_repo: 9d972d77526394619965dcdc1330baef695d3681
+inicio_utc: 2026-09-18T10:34:35Z
+fin_utc: 2026-09-18T10:34:57Z
+commit_del_repo: 9f028f76a8801661e2ed45d2dc84779e10db1865
 consultas_con_cambios_sin_commitear: 0
 salidas:
   83feeefe34fe4622a5a11b4b1352e74df1fe76d9d36793822bfd4e9a3a47e911  00-sonda-formato-90d.txt
