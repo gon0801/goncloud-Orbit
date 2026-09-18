@@ -1320,11 +1320,32 @@ PERMITIDOS_IMPORTAR_SPAPI_WRITE = {
 
 
 def _importadores_spapi_write(raiz_app, raiz_tools):
+    import ast
+
     importadores = set()
     for base in (raiz_app, raiz_tools):
         for p in base.rglob("*.py"):
             if "app.spapi.write_client" in _imports_runtime(p):
                 importadores.add(p)
+                continue
+            # Nivel 1: `from .write_client import …` / `from . import
+            # write_client`: el importador legitimo es hermano en
+            # `app/spapi/` y la forma relativa es la natural de saltarse el
+            # candado. Conservador: cualquier nivel 1 a `write_client` en el
+            # arbol escaneado se resuelve a `app.spapi.write_client` (es el
+            # unico `write_client` del repo).
+            try:
+                arbol = ast.parse(p.read_text(encoding="utf-8"))
+            except (OSError, SyntaxError):
+                continue
+            for nodo in ast.walk(arbol):
+                if not (isinstance(nodo, ast.ImportFrom) and nodo.level == 1):
+                    continue
+                if (nodo.module or "").split(".")[0] == "write_client" or any(
+                    alias.name == "write_client" for alias in nodo.names
+                ):
+                    importadores.add(p)
+                    break
     return importadores
 
 
@@ -1364,7 +1385,7 @@ def _importadores_dinamicos_spapi_write(raiz_app, raiz_tools):
                 fuente = p.read_text(encoding="utf-8")
             except OSError:
                 continue
-            if "app.spapi.write_client" in fuente and (
+            if ("app.spapi.write_client" in fuente or ".write_client" in fuente) and (
                 "__import__(" in fuente or "import_module(" in fuente
             ):
                 dinamicos.add(p)
@@ -1387,6 +1408,25 @@ def test_imports_spapi_write_frontera_caza_import_dinamico(tmp_path):
     """Fuga sembrada: el import dinámico de write_client se detecta."""
     fuga = tmp_path / "otro.py"
     fuga.write_text('mod = __import__("app.spapi.write_client")\n', encoding="utf-8")
+    dinamicos = _importadores_dinamicos_spapi_write(tmp_path, tmp_path)
+    assert {p.name for p in dinamicos} == {"otro.py"}
+
+
+def test_imports_spapi_write_frontera_caza_nivel_1(tmp_path):
+    """Fuga sembrada: `from .write_client import …` se resuelve al absoluto."""
+    fuga = tmp_path / "hermano.py"
+    fuga.write_text("from .write_client import SpapiWriteClient\n", encoding="utf-8")
+    importadores = _importadores_spapi_write(tmp_path, tmp_path)
+    assert {p.name for p in importadores} == {"hermano.py"}
+
+
+def test_imports_spapi_write_frontera_caza_dinamico_relativo(tmp_path):
+    """Fuga sembrada: `import_module(".write_client", "app.spapi")` se detecta."""
+    fuga = tmp_path / "otro.py"
+    fuga.write_text(
+        'import importlib\nmod = importlib.import_module(".write_client", "app.spapi")\n',
+        encoding="utf-8",
+    )
     dinamicos = _importadores_dinamicos_spapi_write(tmp_path, tmp_path)
     assert {p.name for p in dinamicos} == {"otro.py"}
 
