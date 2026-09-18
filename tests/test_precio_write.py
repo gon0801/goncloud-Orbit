@@ -1413,12 +1413,13 @@ def test_r4_g8_go_sin_go_dice_que_falta_go(monkeypatch):
         gets_ofertas=[(200, _ofertas_body(110.0))], gets_competitivos=[(200, _competitivo_body())]
     )
     with db_39c() as conn:
+        _, cid = _semilla_reversion(conn)
         import tools.precio_reversa as tool
 
         monkeypatch.setenv("ORBIT_DSN_DECIDE", _dsn_db(conn))
         with pytest.raises(tool.Abortar, match="falta --go"):
             tool.main(
-                ["--cambio-id", "1", "--acepto-mutacion-real"],
+                ["--cambio-id", str(cid), "--acepto-mutacion-real"],
                 transport=red.transport,
                 credentials=dict(CRED),
             )
@@ -1430,12 +1431,13 @@ def test_r4_g8_go_sin_huella_dice_que_falta_huella(monkeypatch):
         gets_ofertas=[(200, _ofertas_body(110.0))], gets_competitivos=[(200, _competitivo_body())]
     )
     with db_39c() as conn:
+        _, cid = _semilla_reversion(conn)
         import tools.precio_reversa as tool
 
         monkeypatch.setenv("ORBIT_DSN_DECIDE", _dsn_db(conn))
         with pytest.raises(tool.Abortar, match="falta --huella"):
             tool.main(
-                ["--cambio-id", "1", "--acepto-mutacion-real", "--go", "si"],
+                ["--cambio-id", str(cid), "--acepto-mutacion-real", "--go", "si"],
                 transport=red.transport,
                 credentials=dict(CRED),
             )
