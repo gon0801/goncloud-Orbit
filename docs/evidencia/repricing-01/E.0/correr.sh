@@ -62,8 +62,8 @@ fi
 # Candado estructural (revision de cierre de la Fase 10, grok sobre 7674ee7):
 # cada sentencia de cada archivo de consultas, sin comentarios y respetando
 # los strings, empieza con `select` o `with` (solo-select.py, que tambien
-# rechaza todo `$` fuera de strings y los comentarios de bloque anidados o sin
-# cerrar). Asi `commit;`,
+# rechaza todo `$` y todo comentario de bloque `/* */` fuera de strings, y
+# los strings sin cerrar). Asi `commit;`,
 # `end;`, `END WORK;`, `END/*x*/;`, `do $$...$$`, `set ...`, `revoke` o
 # `call` no llegan a produccion, y un `case ... end` en su propia linea no es
 # falso positivo. Sin python3 no se corre (falla cerrado).

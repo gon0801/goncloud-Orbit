@@ -41,8 +41,8 @@ class NoSeParte(ValueError):
 def sentencias(texto: str) -> list[str]:
     """Sentencias sin comentarios, partidas por `;` fuera de strings.
 
-    Levanta `NoSeParte` ante dollar-quoting fuera de un string, o ante un
-    string o comentario de bloque sin cerrar.
+    Levanta `NoSeParte` ante cualquier `$` o `/*` fuera de un string, o ante
+    un string sin cerrar.
     """
     salida: list[str] = []
     actual: list[str] = []
