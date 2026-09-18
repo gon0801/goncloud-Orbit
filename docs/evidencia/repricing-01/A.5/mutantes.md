@@ -1,5 +1,31 @@
 # A.5 — Catálogo de mutantes (REPRICING 01, carril A)
 
+## r3 (BRIEF-r3, sobre el árbol final de r3)
+
+Uno por punto de B y C (14), sembrados uno por uno sobre el árbol final
+(idéntico a lo commiteado) con restauración verificada por hash (`sha256`
+pre/post por archivo) y pycache fresca por mutante
+(`PYTHONPYCACHEPREFIX=$(mktemp -d)` por mutante, no uno compartido: con
+prefijo compartido un bytecode rancio hizo pasar a C3-4 en la primera
+pasada), revertidos sin commit. **Cero sobrevivientes.**
+
+| Id | Lo que fija | Cambio exacto sembrado | Test que lo mata | Veredicto |
+|---|---|---|---|---|
+| B1-fase1-aisla | fase 1 aislada como la fase 3 | se quita el `except Exception` de armar en `_fase1_uno` | `test_fase1_aisla_error_de_publicacion` | MUERTO (exit 1): el `ValueError` revienta `correr` |
+| B2-errores-scrub | `errores` (y log y gancho) con `scrub` | `msg` crudo en `_aislar_falla_fase1` | `test_errores_guardan_scrub` | MUERTO (exit 1): el secreto sale (cierra el vivo `R2-log-sin-scrub` del lead) |
+| B3-freno-racha | racha de errores frena hasta goal nuevo | racha → ventana trailing vieja | `test_freno_persiste_tras_dia_frenado` | MUERTO (exit 1): `no_converge` en vez de `api_error` |
+| B4-no-disponible | no disponible sale con su motivo, sin más lecturas | `if esc.estado != "disponible":` → `if False:` | `test_escenario_no_disponible_da_motivo` | MUERTO (exit 1): `escenario_incoherente`, pierde el motivo |
+| B5-fechas-uso | `--desde/--hasta` sin `--reporte` = exit 2 antes de conectar | el guarda → `if False:` | `test_cli_precio_fechas_sin_reporte_es_uso` | MUERTO (exit 1): conecta (exit 1) |
+| B6-deploy-previos | DEPLOY §cron: previos a instalar la línea | se quita el renglón D.0 | `test_linea_crontab_en_deploy` | MUERTO (exit 1): falta «claves `precio_*`» |
+| B7-virtual-solo-shadow | virtual solo en `shadow` | se quita `and decision.mode == "shadow"` | `test_fase3_guardas_explicitas_de_modo` | MUERTO (exit 1): el trigger frena el virtual ajeno |
+| C3-1-doble-claim | dos hilos, un solo PATCH (barrera) | `if fila is None:` → `if False:` en `_tomar_lock` | `test_dos_hilos_exactamente_un_patch` | MUERTO (exit 1): 2 PATCH (falla en el poll acotado a 120 s) |
+| C3-2-ordena-listing | el orden real es el de los PATCH | sort por `listing_id` en fase 2 | `test_fase2_aplica_en_orden_de_prioridad` | MUERTO (exit 1): PATCH invertidos (las líneas no lo cazan) |
+| C3-3-reversa-cupo | solo la reversa consume (original ayer) | `reversas_hoy` → `0` en `cuota.py` (ciego en fase 2 y en `reservar`/K4: en un solo sitio el otro lo salva) | `test_reversa_del_dia_consume_cupo` | MUERTO (exit 1): `subir` en vez de `mantener(cuota)` |
+| C3-4-huerfana-reversa | la reversa pendiente no se cierra | se quita `AND NOT es_reversa` | `test_huerfana_no_toca_reversas` | MUERTO (exit 1): la reversa amanece cerrada |
+| C3-5-cierra-despues | el cierre corre antes de decidir | `cerrados = {}` (sin cierre previo) | `test_enviado_de_ayer_se_cierra_antes_de_decidir` | MUERTO (exit 1): pasa el `subir` |
+| C3-6-cubo-exacto | conteos exactos del cubo inyectado | `limitador=None` en la llamada a `cambiar_precio` | `test_corrida_usa_un_solo_cubo_por_plataforma` | MUERTO (exit 1): 0 consumos ≠ 4 |
+| C3-7-otra-plataforma | otra plataforma no entra a candidatos | sin filtro de plataforma en goals (+ params) | `test_repartir_cupo_recibe_una_plataforma` | MUERTO (exit 1): entra `amazon_us` |
+
 ## r2 (BRIEF-r2, sobre el árbol final de r2)
 
 7 mutantes del lead que sobrevivian sobre `052aa42`, sembrados uno por uno

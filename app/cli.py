@@ -49,7 +49,6 @@ from app import cycle as ciclo
 from app.ads import archivar, reports, structure
 from app.db import connect
 from app.optimizer.bid import PLATAFORMAS_MONEDA
-from app.precio import corrida as corrida_precios
 from app.redaction import scrub
 from app.spapi import inventario as spapi_inventario
 from app.spapi import listings as spapi_listings
@@ -481,6 +480,10 @@ def _clientes_precio(platform: str):
 
 def _precio(args: argparse.Namespace) -> int:
     """Corrida diaria del motor de precios o su reporte (REPRICING 01 A.5)."""
+    # D9 (r3): import tardio (un error de import de esta cadena no tumba
+    # `ingest` ni `cycle`).
+    from app.precio import corrida as corrida_precios
+
     if args.reporte:
         if not args.desde or not args.hasta:
             print("precio --reporte exige --desde y --hasta (YYYY-MM-DD)", file=sys.stderr)
@@ -513,9 +516,17 @@ def _precio(args: argparse.Namespace) -> int:
                 conn, desde=desde, hasta=hasta, platform=args.platform
             ):
                 print(linea)
+        except Exception as exc:  # noqa: BLE001 - D7: como la corrida, scrubbado y != 0
+            print(f"precio: {scrub(str(exc)) or exc.__class__.__name__}", file=sys.stderr)
+            return 1
         finally:
             conn.close()
         return 0
+    if not args.reporte and (args.desde or args.hasta):
+        # B5 (r3): las fechas sin `--reporte` se ignorarian y correria la
+        # corrida real: error de uso antes de conectar.
+        print("precio: --desde/--hasta solo con --reporte", file=sys.stderr)
+        return 2
     if not args.platform:
         print("precio exige --platform (amazon_mx|amazon_us|meli)", file=sys.stderr)
         return 2

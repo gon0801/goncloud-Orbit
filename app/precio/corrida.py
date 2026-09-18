@@ -12,7 +12,7 @@ el cupo (`repartir_cupo`, una llamada por plataforma); aplica `live` con
 
 El reloj es el de la base (`SELECT now()` una vez): `hoy` y `as_of`
 salen de ahi, nunca del reloj local (este modulo no llama `datetime.now`
-ni importa `time`: el cubo y sus relojes los inyecta quien llama).
+ni importa `time`; el cubo lo inyecta quien llama: ver `_clientes_precio`).
 `L` es el importe del escenario (el canal es de E.3/E.4: no se toca).
 Sin escenario no hay decision: `no_evaluado(precio_ausente)` es una fila,
 nunca un objeto inventado.
@@ -48,7 +48,6 @@ from app.estimacion_insumos import OfertaResuelta
 from app.estimacion_reader import leer_escenarios
 from app.estimacion_venta import DetalleFee
 from app.precio.config import ConfigPrecio, leer_config
-from app.precio.fuentes import config_vigente_settings
 from app.precio.reglas import decidir, repartir_cupo
 from app.precio.tipos import (
     CambioPrevio,
@@ -62,6 +61,7 @@ from app.precio.tipos import (
     ObservacionPricing,
     PideCotizacion,
     VentasInsumos,
+    motivo_permitido,
 )
 from app.precio.ventas import evaluar_senal
 from app.redaction import scrub
@@ -166,24 +166,43 @@ def cerrar_huerfanas(conn: psycopg.Connection, platform: str) -> int:
 
 
 def freno_por_error(
-    conn: psycopg.Connection, listing_id: int, platform: str, hoy: date, *, dias: int
+    conn: psycopg.Connection,
+    listing_id: int,
+    platform: str,
+    hoy: date,
+    *,
+    dias: int,
+    desde: date,
 ) -> bool:
-    """S6: `error` en cada uno de los `dias` previos -> frenar hoy.
+    """S6: `dias` dias seguidos con `error` -> `frenado(api_error)` hasta un goal nuevo.
 
-    Un reintento por dia: al tercer dia de `error` (clave
-    `precio_freno_dias_error`, cota 1-14) la decision sale `frenado`.
-    Solo cambios reales (la reversa es del dueno, el virtual no falla).
+    La corrida SIGUIENTE al ultimo dia de error ya frena (no al tercer dia:
+    con 3 errores los dias 1-3, el dia 4 frena). El dia frenado no deja
+    `error`, asi que la ventana con hueco no bastaba (3 errores, 1 frenado,
+    3 errores...): una vez junta la racha en `[desde, hoy)` queda frenado
+    aunque los dias siguientes vengan limpios. Se reanuda con un goal nuevo
+    (el `desde` posterior excluye la racha vieja): el patron de #6, #10 y
+    `no_confirmado`. Solo cambios reales (la reversa es del dueno, el
+    virtual no falla). Declarado: con el cooldown sellado no se alcanza en
+    produccion.
     """
     filas = conn.execute(
         "SELECT DISTINCT (enviado_at AT TIME ZONE 'UTC')::date"
         " FROM precio_cambio"
         " WHERE listing_id = %s AND platform = %s AND NOT es_reversa"
         " AND estado = 'error'"
-        " AND (enviado_at AT TIME ZONE 'UTC')::date BETWEEN %s - %s AND %s - 1",
-        (listing_id, platform, hoy, dias, hoy),
+        " AND (enviado_at AT TIME ZONE 'UTC')::date >= %s"
+        " AND (enviado_at AT TIME ZONE 'UTC')::date < %s",
+        (listing_id, platform, desde, hoy),
     ).fetchall()
-    cubiertos = {f[0] for f in filas}
-    return all((hoy - timedelta(days=n)) in cubiertos for n in range(1, dias + 1))
+    racha = 0
+    previo: date | None = None
+    for dia in sorted(f[0] for f in filas):
+        racha = racha + 1 if previo is not None and dia == previo + timedelta(days=1) else 1
+        if racha >= dias:
+            return True
+        previo = dia
+    return False
 
 
 def freno_no_confirmado(
@@ -312,8 +331,9 @@ def _detalle_fee(nodo: dict) -> DetalleFee:
     if not isinstance(nodo, dict):
         raise ValueError(f"detalle de fee no es objeto: {nodo!r}")
     try:
-        tasa_raw = nodo.get("tax_amount", nodo.get("TaxAmount"))
-        hijos_raw = nodo.get("included_fee_details", nodo.get("IncludedFeeDetailList")) or ()
+        # D5 (r3): una sola forma (la normalizada de `parsear_respuesta_fees`).
+        tasa_raw = nodo.get("tax_amount")
+        hijos_raw = nodo.get("included_fee_details") or ()
         return DetalleFee(
             fee_type=nodo["fee_type"],
             final_fee=Decimal(str(nodo["final_fee"])),
@@ -327,6 +347,16 @@ def _detalle_fee(nodo: dict) -> DetalleFee:
 class InsumoIncoherente(Exception):
     """El escenario existe pero no arma `EntradaDecision` (falta una pieza
     o no cuadra): sale `no_evaluado(escenario_incoherente)`, nunca invento."""
+
+
+class EscenarioNoDisponible(InsumoIncoherente):
+    """El escenario existe pero no esta `disponible` (S2): no se lee nada
+    mas y sale `no_evaluado(<primer motivo>)` (B4). Subclase para que un
+    catcher generico de `InsumoIncoherente` la siga tratando."""
+
+    def __init__(self, motivo: str, escenario_id: int) -> None:
+        super().__init__(f"escenario {escenario_id} no disponible: {motivo}")
+        self.motivo = motivo
 
 
 def _importe(valor, moneda: str, *, campo: str) -> Importe:
@@ -358,17 +388,24 @@ def armar_entrada(
     """`(entrada, ids)` desde las tablas; `(None, None)` = sin escenario.
 
     `ids` trae `escenario_id`, `fee_observation_id` y `oferta_observation_id`
-    para persistir decision y cotizaciones. `motivo_estimacion` pasa tal
-    cual cuando el escenario no esta `disponible` (S2: `decidir` lo vuelve
-    `no_evaluado` sin gastar cotizacion). Cualquier pieza faltante o que no
-    cuadre levanta `InsumoIncoherente` (el llamador lo vuelve
-    `escenario_incoherente`).
+    para persistir decision y cotizaciones. Escenario no `disponible` (B4):
+    levanta `EscenarioNoDisponible` de inmediato, sin mas lecturas (el
+    llamador lo vuelve `no_evaluado(<primer motivo>)`). Cualquier pieza
+    faltante o que no cuadre levanta `InsumoIncoherente` (el llamador lo
+    vuelve `escenario_incoherente`).
     """
     escenarios = leer_escenarios(conn, [listing_id], as_of=ahora)
     if not escenarios:
         return None, None
     esc = escenarios[0]
-    motivo_estimacion = esc.motivos[0] if esc.estado != "disponible" and esc.motivos else None
+    if esc.estado != "disponible":
+        # B4 (r3): sin mas lecturas (oferta/fee/componentes pueden ser NULL
+        # y se perderia el motivo real de S2): el motivo viaja en la
+        # excepcion; sin motivos, desconocido.
+        raise EscenarioNoDisponible(
+            esc.motivos[0] if esc.motivos else "estimacion_motivo_desconocido", esc.id
+        )
+    motivo_estimacion = None
 
     fila_ids = conn.execute(
         "SELECT oferta_observation_id, fee_observation_id FROM estimacion_escenario WHERE id = %s",
@@ -416,7 +453,7 @@ def armar_entrada(
         }
         if len(monedas) != 1:
             raise InsumoIncoherente(
-                f"escenario {esc.id} con monedas divergentes: {sorted(monedas)}"
+                f"escenario {esc.id} con monedas divergentes: {sorted(map(str, monedas))}"
             )
         moneda = p_moneda
         comp = Componentes(
@@ -567,7 +604,9 @@ def _insumos_ventas(
             " WHERE seller_sku = %s AND platform = %s",
             (codigo, platform),
         ).fetchall():
-            dia = obs.date() if isinstance(obs, datetime) else obs
+            # D6 (r3): dia en UTC explicito, no `obs.date()` de la zona
+            # de la sesion.
+            dia = obs.astimezone(UTC).date() if isinstance(obs, datetime) else obs
             activos.append((dia, "BUYABLE" in (estado or "")))
     return VentasInsumos(
         ventas=tuple(ventas),
@@ -1053,9 +1092,12 @@ def _fase3_uno(
                 True,
             )
         # K4: las reversas se cuentan al reservar, no solo al arrancar (el
-        # dueno puede revertir a media corrida).
+        # dueno puede revertir a media corrida). B7: defensa en profundidad
+        # (el invariante lo sostienen `reglas` y el chequeo de `cambiar_precio`):
+        # el PATCH solo en `live`.
         reservado = (
             compite
+            and decision.mode == "live"
             and not agotado
             and cuota_mod.reservar(
                 conn,
@@ -1104,7 +1146,9 @@ def _fase3_uno(
             config_version_id=cfg_id,
         )
         persistida = True
-        if decision.resultado in ("subir", "bajar"):
+        # B7: el virtual solo en `shadow` (un `live` sin aplicar no afirma
+        # aplicacion; el trigger lo frenaria, pero la guarda va en codigo).
+        if decision.resultado in ("subir", "bajar") and decision.mode == "shadow":
             _insertar_virtual(conn, did, lid, platform, decision, ahora)
         return decision, 0, agotado, parche_sin_sellar, None, True
     except psycopg.Error:
@@ -1120,6 +1164,198 @@ def _fase3_uno(
             f"{exc.__class__.__name__}: {exc}",
             persistida,
         )
+
+
+def _aislar_falla_fase1(
+    *,
+    goal_pct,
+    mode: str,
+    lid: int,
+    platform: str,
+    prod_id: int,
+    plan: list,
+    errores: list,
+    exc: Exception,
+) -> None:
+    """B1 (r3): fase 1 aislada como la fase 3.
+
+    La publicacion sale `no_evaluado(escenario_incoherente)` y el error
+    scrubbado va al log y a `errores` (B2: tambien el `diagnostico`, que
+    `_no_evaluado` loguea en INFO).
+    """
+    msg = scrub(f"listing={lid} {platform} fase1: {exc.__class__.__name__}: {exc}")
+    logger.error("corrida %s", msg)
+    errores.append(msg)
+    plan.append(
+        (
+            lid,
+            _no_evaluado(Decimal(goal_pct), mode, "escenario_incoherente", msg),
+            None,
+            prod_id,
+        )
+    )
+
+
+def _fase1_uno(
+    conn: psycopg.Connection,
+    *,
+    lid: int,
+    plat: str,
+    mode: str,
+    goal_pct,
+    vigente_desde: date,
+    prod_id: int,
+    platform: str,
+    hoy: date,
+    ahora: datetime,
+    config: ConfigPrecio,
+    fees: ProductFeesClient,
+    freno_dias: int,
+    plan: list,
+    errores: list,
+) -> None:
+    """Un goal de fase 1: frenos, escenario y maquina, sin persistir.
+
+    Agrega `(lid, decision, meta, prod_id)` a `plan` (`meta` es None cuando
+    no hay ids que persistir). `psycopg.Error` sale (es infra); cualquier
+    otra excepcion aisla la publicacion (B1); `EscenarioNoDisponible` sale
+    `no_evaluado(<primer motivo>)` (B4).
+    """
+    if freno_no_confirmado(conn, lid, plat, desde=vigente_desde):
+        plan.append(
+            (
+                lid,
+                _frenado(
+                    Decimal(goal_pct),
+                    mode,
+                    "no_confirmado",
+                    "ultimo cambio real sin confirmar desde el goal vigente",
+                ),
+                None,
+                prod_id,
+            )
+        )
+        return
+    if freno_por_error(conn, lid, plat, hoy, dias=freno_dias, desde=vigente_desde):
+        plan.append(
+            (
+                lid,
+                _frenado(
+                    Decimal(goal_pct),
+                    mode,
+                    "api_error",
+                    f"error en los {freno_dias} dias previos",
+                ),
+                None,
+                prod_id,
+            )
+        )
+        return
+    try:
+        entrada, ids = armar_entrada(
+            conn,
+            lid,
+            plat,
+            hoy=hoy,
+            ahora=ahora,
+            config=config,
+            mode=mode,
+            goal=Decimal(goal_pct),
+            goal_vigente_desde=vigente_desde,
+            product_id=prod_id,
+        )
+    except EscenarioNoDisponible as exc:
+        # B4 (r3): el motivo real de S2, pasado por el vocabulario
+        # de `reglas._no_evaluado` (fuera de lista = desconocido).
+        motivo = (
+            exc.motivo
+            if motivo_permitido("no_evaluado", exc.motivo)
+            else "estimacion_motivo_desconocido"
+        )
+        plan.append(
+            (
+                lid,
+                _no_evaluado(Decimal(goal_pct), mode, motivo, str(exc)),
+                None,
+                prod_id,
+            )
+        )
+        return
+    except InsumoIncoherente as exc:
+        plan.append(
+            (
+                lid,
+                _no_evaluado(Decimal(goal_pct), mode, "escenario_incoherente", str(exc)),
+                None,
+                prod_id,
+            )
+        )
+        return
+    except psycopg.Error:
+        raise
+    except Exception as exc:  # noqa: BLE001 - fase 1 aislada como la fase 3 (B1)
+        _aislar_falla_fase1(
+            goal_pct=goal_pct,
+            mode=mode,
+            lid=lid,
+            platform=platform,
+            prod_id=prod_id,
+            plan=plan,
+            errores=errores,
+            exc=exc,
+        )
+        return
+    if entrada is None:
+        plan.append(
+            (
+                lid,
+                _no_evaluado(
+                    Decimal(goal_pct),
+                    mode,
+                    "precio_ausente",
+                    f"sin escenario disponible para listing {lid}",
+                ),
+                None,
+                prod_id,
+            )
+        )
+        return
+    try:
+        decision, cotiz_id = cotizar_y_decidir(
+            conn,
+            entrada,
+            fees=fees,
+            oferta_id=ids["oferta_observation_id"],
+            hoy=hoy,
+            config=config,
+        )
+    except InsumoIncoherente as exc:
+        plan.append(
+            (
+                lid,
+                _no_evaluado(Decimal(goal_pct), mode, "escenario_incoherente", str(exc)),
+                None,
+                prod_id,
+            )
+        )
+        return
+    except psycopg.Error:
+        raise
+    except Exception as exc:  # noqa: BLE001 - fase 1 aislada como la fase 3 (B1)
+        _aislar_falla_fase1(
+            goal_pct=goal_pct,
+            mode=mode,
+            lid=lid,
+            platform=platform,
+            prod_id=prod_id,
+            plan=plan,
+            errores=errores,
+            exc=exc,
+        )
+        return
+    plan.append(
+        (lid, decision, {**ids, "cotizacion_id": cotiz_id, "canal": entrada.canal}, prod_id)
+    )
 
 
 def correr(
@@ -1146,17 +1382,28 @@ def correr(
     levanta, se registra (log scrubbado + entrada en `errores`) y la corrida
     devuelve su resumen normal.
     """
-    settings = config_vigente_settings(conn)
+    # D3 (r3): como `cambiar_precio`: sin autocommit no hay corrida (el
+    # INSERT tiene que confirmar antes del PATCH).
+    if not conn.autocommit:
+        raise ValueError("correr exige conexión en autocommit: cada bloque confirma al salir (S5)")
+    # D1 (r3): settings e `id` de la `config_version` vigente en UNA consulta.
+    fila_cfg = conn.execute(
+        "SELECT id, settings FROM config_version ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    if fila_cfg is None:
+        raise ValueError("config sin precio_catalogo_max_dias_sin_reportar: sin config_version")
+    cfg_id, settings = fila_cfg
     config = leer_config(settings)
     cap = cuota_mod.validar_cap(settings, platform)
     freno_dias = validar_freno_dias_error(settings)
-    cfg_id = conn.execute("SELECT id FROM config_version ORDER BY id DESC LIMIT 1").fetchone()[0]
     ahora_raw = conn.execute("SELECT now() AT TIME ZONE 'UTC'").fetchone()[0]
     ahora = ahora_raw.replace(tzinfo=UTC)
     hoy = ahora.date()
 
-    _tomar_lock(conn, platform, owner)
     try:
+        # D2 (r3): el lock se toma DENTRO del `try` (si el advisory falla,
+        # el `finally` suelta: el claim no queda tomado una hora).
+        _tomar_lock(conn, platform, owner)
         huerfanas = cerrar_huerfanas(conn, platform)
         cerrados = cerrar_por_observacion(conn, hoy)
         goals = conn.execute(
@@ -1178,101 +1425,30 @@ def correr(
         }
         reversas = cuota_mod.reversas_hoy(conn, platform, hoy)
         cupo = max(0, cap - reversas)
+        # `errores` nace antes de la fase 1 (B1: la fase 1 tambien registra).
+        errores: list[str] = []
 
         # Fase 1: decidir todo (freno, escenario, maquina). Sin persistir.
         plan: list = []
         for lid, plat, mode, goal_pct, vigente_desde, prod_id in goals:
             if lid in decididas:
                 continue
-            if freno_no_confirmado(conn, lid, plat, desde=vigente_desde):
-                plan.append(
-                    (
-                        lid,
-                        _frenado(
-                            Decimal(goal_pct),
-                            mode,
-                            "no_confirmado",
-                            "ultimo cambio real sin confirmar desde el goal vigente",
-                        ),
-                        None,
-                        prod_id,
-                    )
-                )
-                continue
-            if freno_por_error(conn, lid, plat, hoy, dias=freno_dias):
-                plan.append(
-                    (
-                        lid,
-                        _frenado(
-                            Decimal(goal_pct),
-                            mode,
-                            "api_error",
-                            f"error en los {freno_dias} dias previos",
-                        ),
-                        None,
-                        prod_id,
-                    )
-                )
-                continue
-            try:
-                entrada, ids = armar_entrada(
-                    conn,
-                    lid,
-                    plat,
-                    hoy=hoy,
-                    ahora=ahora,
-                    config=config,
-                    mode=mode,
-                    goal=Decimal(goal_pct),
-                    goal_vigente_desde=vigente_desde,
-                    product_id=prod_id,
-                )
-            except InsumoIncoherente as exc:
-                plan.append(
-                    (
-                        lid,
-                        _no_evaluado(Decimal(goal_pct), mode, "escenario_incoherente", str(exc)),
-                        None,
-                        prod_id,
-                    )
-                )
-                continue
-            if entrada is None:
-                plan.append(
-                    (
-                        lid,
-                        _no_evaluado(
-                            Decimal(goal_pct),
-                            mode,
-                            "precio_ausente",
-                            f"sin escenario disponible para listing {lid}",
-                        ),
-                        None,
-                        prod_id,
-                    )
-                )
-                continue
-            try:
-                decision, cotiz_id = cotizar_y_decidir(
-                    conn,
-                    entrada,
-                    fees=fees,
-                    oferta_id=ids["oferta_observation_id"],
-                    hoy=hoy,
-                    config=config,
-                )
-            except InsumoIncoherente as exc:
-                plan.append(
-                    (
-                        lid,
-                        _no_evaluado(Decimal(goal_pct), mode, "escenario_incoherente", str(exc)),
-                        None,
-                        prod_id,
-                    )
-                )
-                continue
-            plan.append(
-                (lid, decision, {**ids, "cotizacion_id": cotiz_id, "canal": entrada.canal}, prod_id)
+            _fase1_uno(
+                conn,
+                lid=lid,
+                plat=plat,
+                mode=mode,
+                goal_pct=goal_pct,
+                vigente_desde=vigente_desde,
+                prod_id=prod_id,
+                platform=platform,
+                hoy=hoy,
+                ahora=ahora,
+                config=config,
+                fees=fees,
+                freno_dias=freno_dias,
+                plan=plan,
+                errores=errores,
             )
 
         # Fase 2: prioridad (ausente al fondo, desempate listing) y cupo.
@@ -1291,7 +1467,6 @@ def correr(
         decisiones = 0
         escritas = 0
         lineas: list[str] = []
-        errores: list[str] = []
         agotado = False
         parche_sin_sellar = False
         por_lid = {lid_p: (meta_p, prod_p) for (lid_p, _d, meta_p, prod_p) in plan}
@@ -1326,8 +1501,10 @@ def correr(
             )
             escritas += escritas_1
             if error is not None:
-                msg = f"listing={lid} {platform} {error}"
-                logger.error("corrida %s", scrub(msg))
+                # B2 (r3): en `errores` va el texto scrubbado (el gancho es
+                # de Telegram en el carril B).
+                msg = scrub(f"listing={lid} {platform} {error}")
+                logger.error("corrida %s", msg)
                 errores.append(msg)
             if persistida:
                 decisiones += 1
@@ -1344,8 +1521,8 @@ def correr(
             try:
                 avisar(conn, platform, hoy, resumen)
             except Exception as exc:  # noqa: BLE001 - un fallo del sender no tumba `correr`
-                msg = f"avisar: {exc.__class__.__name__}: {exc}"
-                logger.error("corrida %s", scrub(msg))
+                msg = scrub(f"avisar: {exc.__class__.__name__}: {exc}")
+                logger.error("corrida %s", msg)
                 resumen = replace(resumen, errores=resumen.errores + (msg,))
         return resumen
     finally:

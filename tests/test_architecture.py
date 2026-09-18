@@ -2078,7 +2078,7 @@ def test_corrida_sin_reloj_ni_dinamico():
 
 
 def test_corrida_solo_escribe_sus_tablas():
-    """A.5: `corrida.py` escribe solo sus cinco tablas (ni Ads ni ingest)."""
+    """A.5: `corrida.py` escribe solo sus cuatro tablas (ni Ads ni ingest)."""
     assert _tablas_escritas(PRECIO / "corrida.py") == sorted(_ESCRIBE_CORRIDA)
 
 
@@ -2134,3 +2134,18 @@ def test_candado_tablas_cuota_caza_decision(tmp_path):
     """A.5, fuga sembrada: `INSERT INTO precio_decision` en cuota sale rojo."""
     copia = _cuota_mas('sql = "INSERT INTO precio_decision (a) VALUES (1)"  # fuga\n', tmp_path)
     assert set(_tablas_escritas(copia)) - set(_ESCRIBE_CUOTA) != set()
+
+
+def test_cuota_sin_reloj_ni_entorno_ni_dinamico():
+    """D8: `cuota.py` sin reloj, entorno ni import dinamico (como la corrida)."""
+    arbol = ast.parse((PRECIO / "cuota.py").read_text(encoding="utf-8"))
+    assert _usos_reloj(arbol) == []
+    assert _usos_import_dinamico(arbol) == []
+
+
+def test_candado_cuota_caza_reloj_y_entorno(tmp_path):
+    """D8, fuga sembrada: reloj y entorno en la cuota salen rojos."""
+    copia = _cuota_mas("import os  # fuga\nfuga = os.environ.get(__import__('x'))\n", tmp_path)
+    arbol = ast.parse(copia.read_text(encoding="utf-8"))
+    assert _usos_reloj(arbol) != []
+    assert _usos_import_dinamico(arbol) != []
