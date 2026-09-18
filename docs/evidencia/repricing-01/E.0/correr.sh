@@ -47,6 +47,15 @@ if grep -liE '\b(insert|update|delete|truncate|alter|drop|create|grant|copy)\b' 
     exit 1
 fi
 
+# Candado de metacomandos (CodeRabbit, PR 304): psql ejecuta un "\!" u otro
+# metacomando en cualquier punto de la linea y BEGIN READ ONLY no lo
+# controla. Ningun archivo de consultas puede traer una diagonal invertida;
+# los \echo de inicio y fin los agrega este corredor, no los archivos.
+if grep -lF '\' "$CONSULTAS_DIR"/*.sql; then
+    echo "ATORADO: una o más consultas en $CONSULTAS_DIR contienen una diagonal invertida (metacomando de psql prohibido; ver arriba)." >&2
+    exit 1
+fi
+
 # A partir de aquí la corrida existe: lo que haya en salidas/ deja de ser
 # "la extracción" hasta que esta termine COMPLETA.
 escribir_corrida "EN CURSO"
