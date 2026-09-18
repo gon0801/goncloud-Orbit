@@ -637,7 +637,10 @@ def test_revertir_patch_exige_fila_pendiente_primero():
         assert red.n_patch == 1
 
 
-def test_revertir_nunca_loguea_el_cuerpo_y_sanea_el_ack(caplog):
+def test_revertir_nunca_loguea_el_cuerpo_y_sanea_el_ack(monkeypatch, caplog):
+    import app.redaction as redaction
+
+    monkeypatch.setattr(redaction, "_secrets", list(redaction._secrets))
     register_secret(SECRETO)
     red = _RedFalsa(
         gets_ofertas=[(200, _ofertas_body(110.0)), (200, _ofertas_body(100.0))],
