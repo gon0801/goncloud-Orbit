@@ -126,6 +126,10 @@ MOTIVOS_FRENADO = frozenset(
     {
         "perdiendo_tras_subida",
         "no_converge",
+        # r1-A (S6): los frenos que decide la corrida (A.2 no los trajo
+        # porque esos frenos los decide la corrida, no las reglas puras).
+        "api_error",
+        "no_confirmado",
     }
 )
 

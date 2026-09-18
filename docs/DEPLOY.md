@@ -379,6 +379,24 @@ El server está en UTC: estas horas SON UTC.
 | 07:10 | `ingest:metrics` | `python -m app.cli ingest metrics --fecha D-31 --fecha-fin D-1` |
 | 07:20 | `ingest:metrics:productos` | `python -m app.cli ingest metrics --fecha D-31 --fecha-fin D-1 --productos` (ORBIT 19 B.1; el reporte `spAdvertisedProduct` puede tardar hasta ~25 min por perfil, presupuesto de poll propio) |
 | 08:40 | `ads_optimizer:amazon_us` + `ads_optimizer:amazon_mx` | `python -m app.cli cycle --platform …` (los dos, en serie) |
+| 13:10 | `precio:amazon_mx` | `python -m app.cli precio --platform amazon_mx` (REPRICING 01 A.5; flock + log, linea exacta abajo) |
+
+Corrida diaria de precios (REPRICING 01 A.5), solo `amazon_mx`: la fase A
+es Amazon Mexico; `amazon_us` y `meli` NO se agendan hasta sus fases (el
+comando acepta las tres plataformas, el cron solo esta). Linea EXACTA del
+crontab de `gon` (la prueba `test_linea_crontab_en_deploy` la pinza de
+`tests/test_precio_corrida.py::LINEA_CRONTAB_PRECIO`):
+
+```cron
+10 13 * * * /usr/bin/flock -n /tmp/precio-corrida.lock docker exec orbit-app-1 python -m app.cli precio --platform amazon_mx >> /mnt/data/appdata/orbit/logs/precio-corrida.log 2>&1
+```
+
+Antes de instalar la línea: la 0039 aplicada y las claves `precio_*`
+sembradas (D.0); `ORBIT_DSN_DECIDE` presente **dentro** de `orbit-app-1`
+(`docker exec` no pasa el entorno del host); el pase diario de Pricing
+(`spapi_price_observation`) corre antes de las 13:10 UTC; la corrida solo
+aplica goals `live` (sin goals o todos en `shadow`, no toca Amazon); y la
+forma del parche sellada (A.4): antes de A.4 solo goals en `shadow`.
 
 `job_key` del ciclo es `app.cycle.job_key_de` (`ads_optimizer:<platform>`),
 la misma fuente que el CLI. Los de ingesta quedan como comentario en el

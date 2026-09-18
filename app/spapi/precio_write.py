@@ -513,8 +513,8 @@ def _escribir_y_sellar(
     `error_code = "<METODO> <ruta sin SKU> <status>"`, aunque una lectura
     posterior muestre el precio nuevo. El readback no decide: `ok` si se
     pudo leer (sea cual sea el precio), `fallido` si no. Con `limitador`,
-    el readback consume del cubo del llamador (r6-C5; `cambiar_precio`
-    no lo pasa).
+    el readback consume del cubo del llamador (`cambiar_precio` si lo
+    pasa, r2).
     """
     ruta = _ruta_sin_sku(escritor.seller_id)
     try:
@@ -563,6 +563,7 @@ def cambiar_precio(
     escritor: SpapiWriteClient,
     construir_cuerpo: Callable[..., dict] | None = None,
     ahora: datetime | None = None,
+    limitador: CuboTasa | None = None,
 ) -> ResultadoCambio:
     """Aplica el `p_aplicado` de una decision `subir`/`bajar` en Amazon.
 
@@ -575,15 +576,18 @@ def cambiar_precio(
     salta con `listing_con_cambio_abierto`: sin fila y sin PATCH (el
     indice unico no admite dos abiertos del mismo par).
 
-    Ventana COMMIT-PATCH (r1-A8): si el proceso muere entre el COMMIT
-    del INSERT y el PATCH (o el PATCH nunca vuelve), queda una fila
-    pendiente huerfana: nunca se envio a Amazon pero el indice de
-    abierto unico la vuelve visible para siempre, porque todo reintento
-    la ve abierta y salta con `listing_con_cambio_abierto`. No se reintenta
-    sola: el dueno la detecta con
-    `SELECT id FROM precio_cambio WHERE estado = 'pendiente' AND NOT es_reversa`
-    y la cierra a mano tras verificar en Seller Central que el precio
-    no se movio.
+    Con `limitador` (un `CuboTasa` del llamador: la corrida crea uno por
+    plataforma), el GET previo al PATCH y el readback consumen de ese
+    cubo; sin limitador, el readback va sin cubo (v1.3).
+
+    Ventana COMMIT-PATCH (r1-A8, cerrada por la corrida A.5): si el
+    proceso muere entre el COMMIT del INSERT y el PATCH (o el PATCH nunca
+    vuelve), queda una fila pendiente huerfana. Al arrancar, la corrida
+    (con el lock ya tomado) la lleva a `error` con
+    `error_code = 'huerfana_sin_patch'` SIN GET previo: un `error` no
+    afirma que el precio no se movio (`revertir` cubre ese caso). Solo
+    pendientes no-reversa (la reversa `pendiente` es del dueno y no se
+    toca). Ver `app/precio/corrida.py::cerrar_huerfanas`.
     """
     if not conn.autocommit:
         raise ValueError(
@@ -633,7 +637,7 @@ def cambiar_precio(
             id_cambio=None, estado="saltado", motivo="listing_con_cambio_abierto"
         )
     try:
-        vivo = leer_precio_vivo(lector, platform=platform, asin=asin)
+        vivo = leer_precio_vivo(lector, platform=platform, asin=asin, limitador=limitador)
     except (PrecioVivoAusente, SpapiError, httpx.HTTPError):
         logger.info("cambiar decision=%s error=sin_precio_vivo", decision_id)
         return ResultadoCambio(id_cambio=None, estado="error", motivo="sin_precio_vivo")
@@ -691,6 +695,7 @@ def cambiar_precio(
         origen="cambiar",
         exito=lambda: ResultadoCambio(id_cambio=id_cambio, estado="enviado", motivo=None),
         fallo=lambda codigo: ResultadoCambio(id_cambio=id_cambio, estado="error", motivo=codigo),
+        limitador=limitador,
     )
 
 
