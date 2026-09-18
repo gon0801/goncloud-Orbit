@@ -170,8 +170,10 @@ def main(
         print(f"huella: {huella}")
         if not args.acepto_mutacion_real:
             return 0
-        if not args.huella or not args.go:
-            raise Abortar("el go exige --huella <la del dry-run> y --go no vacio")
+        if not args.go:
+            raise Abortar("falta --go: --acepto-mutacion-real sin --go no muta")
+        if not args.huella:
+            raise Abortar("falta --huella: el go exige la huella del dry-run")
         if args.huella != huella:
             raise Abortar(
                 f"--huella {args.huella} != huella del plan {huella}: re-corre el dry-run"
