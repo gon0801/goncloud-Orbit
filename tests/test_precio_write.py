@@ -21,6 +21,7 @@ from pathlib import Path
 import httpx
 import psycopg
 import pytest
+from test_schema import _postgres_obligatorio_ausente, _test_dsn
 
 from app.redaction import register_secret
 from app.spapi.client import MERCADOS, VENDEDORES_PROPIOS, SpapiClient
@@ -38,6 +39,8 @@ from app.spapi.precio_write import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
+
+pytestmark = pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres")
 ORDEN39C = (
     "0001_initial.sql",
     "0002_apply.sql",
@@ -56,7 +59,7 @@ SECRETO = "SECRETO-CARRIL-C-XYZ"
 
 
 def _dsn():
-    return os.environ["ORBIT_TEST_DSN"]
+    return _test_dsn()
 
 
 def _dsn_db(conn):
