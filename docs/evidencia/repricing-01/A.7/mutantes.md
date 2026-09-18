@@ -45,3 +45,42 @@ corrida (`PYTHONPYCACHEPREFIX`). **Cero sobrevivientes.** La regla (h)
   antes que `catalogo_desactualizado` (`test_fuera_estructural_antes_que_stale`).
 - `listing` no tiene `updated_at`: el contraste del puente muestra solo
   la cuenta (el spec pedía `updated_at`, no existe esa columna).
+
+## Ronda 1 (auditoría del lead + cruzada, 2026-09-18 UTC)
+
+Mutantes F1–B13 corridos con la suite **sin** la prueba de igualdad de
+texto (`--deselect test_consultas_iguales_a_las_que_ejecuta_fuentes` no
+hizo falta: cada corrida apunta a un solo test de comportamiento), con
+base real, uno por uno con restauración y bytecode fresca por corrida.
+**Cero sobrevivientes.**
+
+| # | Regla | Cambio exacto | Test que lo mata | Salida |
+|---|---|---|---|---|
+| F1 | Canal desconocido en Amazon → `canal_sin_dato` tenga o no goal | `cobertura._motivo_no_evaluada`: `return "canal_sin_dato"` → `return None` | `test_canal_desconocido_con_goal_tambien_es_sin_dato` | MUERTO (exit 1) |
+| F2 | La identidad se muestra sin aviso; el aviso solo con `--puente-activas` | tool: `if args.puente_activas is None:` → `if False:` (cae a la rama con bandera en `None` y revienta) | `test_tool_identidad_al_lado_sin_aviso_y_puente_con_bandera` | MUERTO (exit 1) |
+| F3 | Activa sin `listing` cuenta (`LEFT JOIN`) | `fuentes._SQL_CANO`: `LEFT JOIN listing` → `JOIN listing` | `test_activa_sin_listing_cuenta_y_cuadra` | MUERTO (exit 1): la huérfana desaparece |
+| F5 | MeLi sin fuente canónica: `unknown`, sin recuadro | tool: `if args.platform == "meli":` → `if False:` | `test_tool_meli_es_unknown_sin_recuadro` | MUERTO (exit 1): imprime `activas=0` cuadrado |
+| B6 | Goal cerrado no cuenta | `fuentes._SQL_GOALS`: `... OR valid_to > %s)` → `... OR valid_to > %s OR valid_to IS NOT NULL)` (tautología con aridad intacta) | `test_goal_cerrado_no_cuenta_como_goal` | MUERTO (exit 1) |
+| B7 | Decisión de ayer no es la de hoy (`=` exacto) | `fuentes._SQL_DECISIONES`: `decision_date = %s` → `decision_date <= %s` | `test_decision_de_ayer_no_es_la_de_hoy` | MUERTO (exit 1) |
+| B8 | El canal manda la oferta más reciente | `fuentes._SQL_CANAL`: `observed_at DESC` → `ASC` | `test_canal_manda_la_oferta_mas_reciente` | MUERTO (exit 1): sale `fba` |
+| B13 | Resultado desconocido se nombra | `cobertura`: `return f"resultado_desconocido:..."` → `return None` | `test_resultado_desconocido_se_nombra` | MUERTO (exit 1): la pub sale `evaluada` |
+| K1 | Vigente exige `valid_from <= hoy` | `fuentes._SQL_GOALS`: `valid_from <= %s` → `(valid_from <= %s OR valid_from IS NOT NULL)` | `test_goal_futuro_no_cuenta_como_vigente` | MUERTO (exit 1) |
+| G1 | La excepción no ampara reloj en `fuentes.py` | `fuentes.py` + `_hora = date.today()` | `test_fuentes_sin_reloj_ni_entorno_ni_dinamico` | MUERTO (exit 1) |
+| G2 | Escritura multilínea y todos los verbos | patrón: `INSERT\s+INTO` → `INSERT INTO` (espacio literal) | `test_candado_select_fuentes_caza_fugas_sembradas` | MUERTO (exit 1): el `INSERT` partido no dispara |
+| G3 | De `app.estimacion_insumos` solo `mapear_canal` | candado: `elif nodo.module == "app.estimacion_insumos":` → `... and False:` | `test_candado_imports_fuentes_solo_mapear_canal` | MUERTO (exit 1) |
+| G4 | Los relativos se marcan | candado: `if nodo.level:` → `if False:` | `test_candado_imports_fuentes_caza_relativo` | MUERTO (exit 1): sale `hermano` en vez del marcador |
+
+Notas r1:
+
+- B6 requirió dos intentos: el primero rompía la aridad (`ProgrammingError`,
+  infiel); se repitió como tautología (`OR valid_to IS NOT NULL`) con los
+  3 parámetros intactos (el de la tabla).
+- G2 tuvo un intento infiel (quitar `CREATE`, que ningún seed usa y
+  sobrevivió): el mutante que cuenta es el que rompe lo multilínea.
+- `sin_listing` va después de `catalogo_desactualizado` y antes de
+  `canal_sin_dato`: refina el orden de F1 (una fila sin `listing` no
+  tiene canal que mirar). Sin mutante asignado; lo cubre F3.
+- G1 (r1) no toca `goals_write.py`: auditado, el hueco estructural
+  existe ahí también (está en la tupla de excepción), pero el archivo no
+  usa reloj/entorno/dinámico de Python (solo `now()` SQL en dos
+  consultas); anotado y sin tocar, como ordena el brief.

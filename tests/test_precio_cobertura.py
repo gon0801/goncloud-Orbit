@@ -322,8 +322,9 @@ def test_recuadro_cuadra_exacto_con_doce():
         "fee_ausente": 1,
         "oferta_desactualizada": 1,
         "sin_decision": 1,
+        "canal_sin_dato": 1,
     }
-    assert [s.sku for s in rec.sin_goal] == ["SKU-S1", "SKU-S2", "SKU-S3"]
+    assert [s.sku for s in rec.sin_goal] == ["SKU-S1", "SKU-S2"]
     assert dict(rec.fuera_de_alcance) == {"fase_E_envio_fbm": 3}
     assert cuadra_exact(rec)
 
@@ -366,6 +367,33 @@ def test_canal_desconocido_es_canal_sin_dato_sin_default():
     assert dict(rec.no_evaluadas) == {"canal_sin_dato": 1}
 
 
+def test_canal_desconocido_con_goal_tambien_es_sin_dato():
+    """F1: en Amazon, canal desconocido va a `canal_sin_dato` tenga o no goal."""
+    from app.precio.cobertura import FilaPublicacion, armar_recuadro
+
+    filas = [
+        FilaPublicacion(
+            1, "SKU-G", "amazon_mx", None, Decimal("116"), "MXN", 0, True, "subir", None
+        ),
+        FilaPublicacion(2, "SKU-N", "amazon_mx", None, Decimal("116"), "MXN", 0, False, None, None),
+    ]
+    rec = armar_recuadro(filas, platform="amazon_mx", max_dias=3)
+    assert rec.evaluadas == 0
+    assert dict(rec.no_evaluadas) == {"canal_sin_dato": 2}
+    assert rec.sin_goal == ()
+
+
+def test_resultado_desconocido_se_nombra():
+    """B13: un resultado fuera de vocabulario no cae en silencio."""
+    from app.precio.cobertura import FilaPublicacion, armar_recuadro
+
+    filas = [
+        FilaPublicacion(1, "SKU-X", "amazon_mx", "fba", Decimal("116"), "MXN", 0, True, "x", None),
+    ]
+    rec = armar_recuadro(filas, platform="amazon_mx", max_dias=3)
+    assert dict(rec.no_evaluadas) == {"resultado_desconocido:x": 1}
+
+
 def test_stale_mas_de_max_dias_es_catalogo_desactualizado():
     from app.precio.cobertura import FilaPublicacion, armar_recuadro
 
@@ -404,6 +432,8 @@ def test_aviso_puente_mas_de_5_por_ciento():
     aviso = aviso_puente(activas=12, puente=14)
     assert aviso is not None and "16.7%" in aviso
     assert aviso_puente(activas=0, puente=5) is not None
+    grande = aviso_puente(activas=264, puente=284)
+    assert grande is not None and "7.6%" in grande
 
 
 # ---------------------------------------------------------------------------
@@ -447,7 +477,7 @@ def test_consultas_iguales_a_las_que_ejecuta_fuentes():
         ("02_canales.sql", fuentes._SQL_CANAL),
         ("03_goals.sql", fuentes._SQL_GOALS),
         ("04_decisiones.sql", fuentes._SQL_DECISIONES),
-        ("05_puente.sql", fuentes._SQL_PUENTE),
+        ("05_listing_identidad.sql", fuentes._SQL_PUENTE),
         ("06_hoy.sql", fuentes._SQL_HOY),
     )
     for nombre, constante in pares:
@@ -492,8 +522,9 @@ def test_fuentes_doce_publicaciones_cuadran():
             "fee_ausente": 1,
             "oferta_desactualizada": 1,
             "sin_decision": 1,
+            "canal_sin_dato": 1,
         }
-        assert sorted(s.sku for s in rec.sin_goal) == ["SKU-S1", "SKU-S2", "SKU-S3"]
+        assert sorted(s.sku for s in rec.sin_goal) == ["SKU-S1", "SKU-S2"]
         assert dict(rec.fuera_de_alcance) == {"fase_E_envio_fbm": 3}
         assert cuadra_exact(rec)
 
@@ -572,7 +603,131 @@ def test_fuentes_stale_y_dias():
 
 
 @_skip_sin_pg
-def test_tool_imprime_recuadro_con_puente_al_lado(tmp_path):
+def test_activa_sin_listing_cuenta_y_cuadra():
+    """F3: una SKU vendible sin fila en `listing` no desaparece."""
+    from app.precio.cobertura import armar_recuadro, cuadra_exact
+    from app.precio.fuentes import hoy_base, leer_publicaciones
+
+    with _db() as (conn, _dsn):
+        _config(conn)
+        _estado(conn, sku="SKU-HUERFANA")
+        hoy = hoy_base(conn)
+        filas = leer_publicaciones(conn, platform="amazon_mx", hoy=hoy)
+        assert len(filas) == 1
+        assert filas[0].listing_id is None
+        rec = armar_recuadro(filas, platform="amazon_mx", max_dias=3)
+        assert dict(rec.no_evaluadas) == {"sin_listing": 1}
+        assert cuadra_exact(rec)
+
+
+@_skip_sin_pg
+def test_goal_cerrado_no_cuenta_como_goal():
+    """B6: `_SQL_GOALS` exige `valid_to IS NULL`."""
+    from app.precio.cobertura import armar_recuadro
+    from app.precio.fuentes import hoy_base, leer_publicaciones
+
+    with _db() as (conn, _dsn):
+        _config(conn)
+        _pub(conn, sku="SKU-VIG")
+        lid_vig = conn.execute("SELECT id FROM listing WHERE seller_sku = 'SKU-VIG'").fetchone()[0]
+        _goal(conn, lid_vig)
+        _pub(conn, sku="SKU-CER")
+        lid_cer = conn.execute("SELECT id FROM listing WHERE seller_sku = 'SKU-CER'").fetchone()[0]
+        hoy = hoy_base(conn)
+        conn.execute(
+            "INSERT INTO precio_goal (listing_id, platform, margen_goal_pct, mode,"
+            " valid_from, valid_to, creado_por, go_literal)"
+            " VALUES (%s, 'amazon_mx', 0.30, 'shadow', %s, %s, 't', NULL)",
+            (lid_cer, hoy - timedelta(days=10), hoy - timedelta(days=5)),
+        )
+        filas = leer_publicaciones(conn, platform="amazon_mx", hoy=hoy)
+        rec = armar_recuadro(filas, platform="amazon_mx", max_dias=3)
+        assert sorted(s.sku for s in rec.sin_goal) == ["SKU-CER"]
+
+
+@_skip_sin_pg
+def test_goal_futuro_no_cuenta_como_vigente():
+    """K1: vigente = `valid_from <= hoy AND (valid_to IS NULL OR valid_to > hoy)`."""
+    from app.precio.cobertura import armar_recuadro
+    from app.precio.fuentes import hoy_base, leer_publicaciones
+
+    with _db() as (conn, _dsn):
+        _config(conn)
+        _pub(conn, sku="SKU-FUT")
+        lid = conn.execute("SELECT id FROM listing WHERE seller_sku = 'SKU-FUT'").fetchone()[0]
+        hoy = hoy_base(conn)
+        conn.execute(
+            "INSERT INTO precio_goal (listing_id, platform, margen_goal_pct, mode,"
+            " valid_from, creado_por, go_literal)"
+            " VALUES (%s, 'amazon_mx', 0.30, 'shadow', %s, 't', NULL)",
+            (lid, hoy + timedelta(days=10)),
+        )
+        filas = leer_publicaciones(conn, platform="amazon_mx", hoy=hoy)
+        rec = armar_recuadro(filas, platform="amazon_mx", max_dias=3)
+        assert sorted(s.sku for s in rec.sin_goal) == ["SKU-FUT"]
+
+
+@_skip_sin_pg
+def test_decision_de_ayer_no_es_la_de_hoy():
+    """B7: `decision_date = hoy` exacto (el `hoy` se corre un dia)."""
+    from app.precio.cobertura import armar_recuadro
+    from app.precio.fuentes import hoy_base, leer_publicaciones
+
+    with _db() as (conn, _dsn):
+        _config(conn)
+        _pub(conn, sku="SKU-AY", goal=True, resultado="subir")
+        hoy = hoy_base(conn)
+        filas = leer_publicaciones(conn, platform="amazon_mx", hoy=hoy + timedelta(days=1))
+        rec = armar_recuadro(filas, platform="amazon_mx", max_dias=3)
+        assert dict(rec.no_evaluadas) == {"sin_decision": 1}
+        assert rec.evaluadas == 0
+
+
+@_skip_sin_pg
+def test_canal_manda_la_oferta_mas_reciente():
+    """B8: dos ofertas del mismo listing, la reciente `fbm` → fuera de alcance."""
+    from app.precio.cobertura import armar_recuadro
+    from app.precio.fuentes import hoy_base, leer_publicaciones
+
+    with _db() as (conn, _dsn):
+        _config(conn)
+        ahora = datetime.now(UTC)
+        prod = _producto(conn, sku="ODOO-B8")
+        lid = _listing(conn, prod, ext="ASIN-B8", sku="SKU-B8")
+        _estado(conn, sku="SKU-B8")
+        _oferta(
+            conn, lid, ext="ASIN-B8", sku="SKU-B8", canal="fba", observed=ahora - timedelta(hours=2)
+        )
+        _oferta(conn, lid, ext="ASIN-B8", sku="SKU-B8", canal="fbm", observed=ahora)
+        hoy = hoy_base(conn)
+        filas = leer_publicaciones(conn, platform="amazon_mx", hoy=hoy)
+        assert filas[0].canal == "fbm"
+        rec = armar_recuadro(filas, platform="amazon_mx", max_dias=3)
+        assert dict(rec.fuera_de_alcance) == {"fase_E_envio_fbm": 1}
+
+
+@_skip_sin_pg
+def test_dias_en_utc_con_observed_en_otra_zona():
+    """K2: `dias_sin_reportar` se mide en UTC, no en la zona de la sesion."""
+    from datetime import timezone
+
+    from app.precio.fuentes import hoy_base, leer_publicaciones
+
+    with _db() as (conn, _dsn):
+        conn.execute("SET TIME ZONE 'Etc/GMT-2'")
+        _config(conn)
+        hoy = hoy_base(conn)
+        mas_dos = timezone(timedelta(hours=2))
+        medianoche_mas_dos = datetime(hoy.year, hoy.month, hoy.day, 0, 30, tzinfo=mas_dos)
+        _pub(conn, sku="SKU-TZ", observed=medianoche_mas_dos)
+        filas = leer_publicaciones(conn, platform="amazon_mx", hoy=hoy)
+        assert filas[0].dias_sin_reportar == (hoy - medianoche_mas_dos.astimezone(UTC).date()).days
+        assert filas[0].dias_sin_reportar >= 1
+
+
+@_skip_sin_pg
+def test_tool_identidad_al_lado_sin_aviso_y_puente_con_bandera():
+    """F2: `listing` es identidad (sin aviso); el aviso solo con `--puente-activas`."""
     with _db() as (conn, dsn):
         _config(conn)
         _pub(conn, sku="SKU-T1", goal=True, resultado="subir")
@@ -583,8 +738,46 @@ def test_tool_imprime_recuadro_con_puente_al_lado(tmp_path):
         assert res.returncode == 0, res.stderr
         assert "activas=2" in res.stdout
         assert "sin_goal" in res.stdout and "SKU-T2" in res.stdout
-        assert "puente" in res.stdout
-        assert "aviso" in res.stdout  # 3 del puente vs 2 canonicas = 50 %
+        assert "listing_identidad=3 (no son activas" in res.stdout
+        assert "puente_activas=unknown (el estado del bridge no esta en Orbit)" in res.stdout
+        assert "aviso" not in res.stdout
+        con_puente = _tool("--platform", "amazon_mx", "--puente-activas", "3", dsn=dsn)
+        assert con_puente.returncode == 0, con_puente.stderr
+        assert "puente bridge=3 vs canonica=2" in con_puente.stdout
+        assert "50.0% > 5%" in con_puente.stdout
+
+
+@_skip_sin_pg
+def test_tool_meli_es_unknown_sin_recuadro():
+    """F5: sin fuente canonica de MeLi, `activas=unknown` y sale 0."""
+    with _db() as (conn, dsn):
+        _config(conn)
+        res = _tool("--platform", "meli", dsn=dsn)
+        assert res.returncode == 0, res.stderr
+        assert "activas=unknown: sin fuente canonica de MeLi en Orbit" in res.stdout
+        assert "M.3b" in res.stdout
+        assert "CUADRA" not in res.stdout
+
+
+@_skip_sin_pg
+def test_tool_error_de_base_es_exit_2_sin_traceback():
+    """K4: un `psycopg.Error` en las consultas sale mensaje y exit 2."""
+    from psycopg import sql as pgsql
+
+    dsn = _dsn_base()
+    db = f"cob_pelada_{socket.gethostname().lower()}_{os.getpid()}_{next(_CONTADOR)}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        res = _tool("--platform", "amazon_mx", dsn=_dsn_de_db(dsn, db))
+        assert res.returncode == 2
+        assert "precio_cobertura:" in res.stderr
+        assert "Traceback" not in res.stderr
+    finally:
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()
 
 
 @_skip_sin_pg
@@ -659,3 +852,64 @@ def test_recuadro_desde_salidas_roundtrip(tmp_path):
         assert [s.sku for s in rec.sin_goal] == [s.sku for s in esperado.sin_goal]
         assert dict(rec.fuera_de_alcance) == dict(esperado.fuera_de_alcance)
         assert rec == esperado
+
+
+@_skip_sin_pg
+def test_guion_acepta_puente_activas_e_identidad(tmp_path):
+    """F2 en el guion: `--puente-activas` avisa; sin ella sale `unknown`."""
+    import subprocess
+
+    with _db() as (conn, _dsn):
+        _config(conn)
+        _pub(conn, sku="SKU-W1", goal=True, resultado="subir")
+        _pub(conn, sku="SKU-W2")
+        hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+        base = {
+            "canonicas": (
+                f"1|SKU-W1|amazon_mx|ASIN-W1|BUYABLE|{hoy.isoformat()}\n"
+                f"2|SKU-W2|amazon_mx|ASIN-W2|BUYABLE|{hoy.isoformat()}\n"
+            ),
+            "canales": "1|fba|116|MXN\n2|fba|116|MXN\n",
+            "goals": "1\n",
+            "decisiones": "1|subir|\n",
+            "puente": "3\n",
+            "hoy": f"{hoy.isoformat()}\n",
+        }
+        rutas = {}
+        for nombre, texto in base.items():
+            ruta = tmp_path / f"{nombre}.txt"
+            ruta.write_text(texto, encoding="utf-8")
+            rutas[nombre] = str(ruta)
+        guion = RAIZ / "docs" / "evidencia" / "repricing-01" / "A.7" / "recuadro_desde_salidas.py"
+        env = dict(os.environ)
+        env["PYTHONPATH"] = RAIZ.as_posix()
+        comunes = [
+            sys.executable,
+            str(guion),
+            "--canonicas",
+            rutas["canonicas"],
+            "--canales",
+            rutas["canales"],
+            "--goals",
+            rutas["goals"],
+            "--decisiones",
+            rutas["decisiones"],
+            "--puente",
+            rutas["puente"],
+            "--hoy",
+            rutas["hoy"],
+            "--platform",
+            "amazon_mx",
+            "--max-dias-sin-reportar",
+            "3",
+        ]
+        seco = subprocess.run(comunes, capture_output=True, text=True, env=env)
+        assert seco.returncode == 0, seco.stderr
+        assert "puente_activas=unknown (el estado del bridge no esta en Orbit)" in seco.stdout
+        assert "aviso" not in seco.stdout
+        con_puente = subprocess.run(
+            [*comunes, "--puente-activas", "3"], capture_output=True, text=True, env=env
+        )
+        assert con_puente.returncode == 0, con_puente.stderr
+        assert "puente bridge=3 vs canonica=2" in con_puente.stdout
+        assert "50.0% > 5%" in con_puente.stdout

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -58,15 +58,17 @@ def recuadro_desde_archivos(
         moneda = partes[3].strip() if len(partes) > 3 and partes[3].strip() else None
         canal = partes[1].strip() or None
         canal_por_listing[int(partes[0])] = (canal, precio, moneda)
-    goals_vigentes = {_entero_o_nulo(partes[0]) for partes in _lineas(goals)}
+    goals_vigentes = {_entero_o_nulo(partes[0]) for partes in _lineas(goals)} - {None}
     decision_por_listing = {}
     for partes in _lineas(decisiones):
         motivo = partes[2].strip() if len(partes) > 2 else ""
         decision_por_listing[int(partes[0])] = (partes[1].strip(), motivo or None)
     filas = []
     for partes in _lineas(canonicas):
-        listing_id = int(partes[0])
+        listing_id = int(partes[0]) if partes[0].strip() else None
         observado = datetime.fromisoformat(partes[5].strip())
+        if observado.tzinfo is None:
+            observado = observado.replace(tzinfo=UTC)
         canal, precio, moneda = canal_por_listing.get(listing_id, (None, None, None))
         resultado, motivo = decision_por_listing.get(listing_id, (None, None))
         filas.append(
@@ -77,7 +79,7 @@ def recuadro_desde_archivos(
                 canal=canal,
                 precio=precio,
                 moneda=moneda,
-                dias_sin_reportar=(hoy - observado.date()).days,
+                dias_sin_reportar=(hoy - observado.astimezone(UTC).date()).days,
                 tiene_goal=listing_id in goals_vigentes,
                 resultado_hoy=resultado,
                 motivo_hoy=motivo,
@@ -86,7 +88,7 @@ def recuadro_desde_archivos(
     return armar_recuadro(filas, platform=platform, max_dias=max_dias)
 
 
-def _imprimir(rec: Recuadro, *, puente: int, hoy: str) -> None:
+def _imprimir(rec: Recuadro, *, identidad: int, puente_activas: int | None, hoy: str) -> None:
     marca = "[CUADRA]" if cuadra_exact(rec) else "[NO-CUADRA]"
     no_ev = " ".join(f"{m}={n}" for m, n in rec.no_evaluadas)
     fuera = " ".join(f"{f}={n}" for f, n in rec.fuera_de_alcance)
@@ -103,12 +105,16 @@ def _imprimir(rec: Recuadro, *, puente: int, hoy: str) -> None:
         else:
             precio = f"{detalle.precio:.2f} {detalle.moneda}"
         print(f"  sin_goal: {detalle.sku} ({precio}, {detalle.canal})")
-    print(f"  puente bridge={puente} vs canonica={rec.activas}")
+    print(f"  listing_identidad={identidad} (no son activas: Orbit no guarda el estado del bridge)")
     for aviso in rec.avisos:
         print(f"  {aviso}")
-    puente_aviso = aviso_puente(activas=rec.activas, puente=puente)
-    if puente_aviso is not None:
-        print(f"  {puente_aviso}")
+    if puente_activas is None:
+        print("  puente_activas=unknown (el estado del bridge no esta en Orbit)")
+    else:
+        print(f"  puente bridge={puente_activas} vs canonica={rec.activas}")
+        puente_aviso = aviso_puente(activas=rec.activas, puente=puente_activas)
+        if puente_aviso is not None:
+            print(f"  {puente_aviso}")
 
 
 def main(argv=None) -> int:
@@ -121,6 +127,7 @@ def main(argv=None) -> int:
     ap.add_argument("--hoy", required=True)
     ap.add_argument("--platform", required=True)
     ap.add_argument("--max-dias-sin-reportar", required=True, type=int)
+    ap.add_argument("--puente-activas", required=False, default=None, type=int)
     args = ap.parse_args(argv)
     rec = recuadro_desde_archivos(
         args.canonicas,
@@ -133,8 +140,8 @@ def main(argv=None) -> int:
         max_dias=args.max_dias_sin_reportar,
     )
     hoy = Path(args.hoy).read_text(encoding="utf-8").strip().splitlines()[0]
-    puente = int(Path(args.puente).read_text(encoding="utf-8").strip().splitlines()[0])
-    _imprimir(rec, puente=puente, hoy=hoy)
+    identidad = int(Path(args.puente).read_text(encoding="utf-8").strip().splitlines()[0])
+    _imprimir(rec, identidad=identidad, puente_activas=args.puente_activas, hoy=hoy)
     return 0 if cuadra_exact(rec) else 1
 
 

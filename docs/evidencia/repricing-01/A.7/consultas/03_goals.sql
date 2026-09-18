@@ -3,4 +3,6 @@
 -- Columnas (`psql -tA`, separador `|`):
 --   listing_id
 \set platform amazon_mx
-SELECT listing_id FROM precio_goal WHERE platform = :'platform' AND valid_to IS NULL;
+\set hoy 2026-09-18
+SELECT listing_id FROM precio_goal WHERE platform = :'platform'
+AND valid_from <= :'hoy' AND (valid_to IS NULL OR valid_to > :'hoy');

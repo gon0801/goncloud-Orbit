@@ -11,7 +11,7 @@ SELECT listing_id, seller_sku, platform, asin, status, observed_at FROM (
     SELECT DISTINCT ON (e.seller_sku, e.platform)
         l.id AS listing_id, e.seller_sku, e.platform, e.asin, e.status, e.observed_at
     FROM spapi_listing_estado_observation e
-    JOIN listing l ON l.seller_sku = e.seller_sku AND l.platform = e.platform
+    LEFT JOIN listing l ON l.seller_sku = e.seller_sku AND l.platform = e.platform
     WHERE e.platform = :'platform'
-    ORDER BY e.seller_sku, e.platform, e.observed_at DESC, l.id
+    ORDER BY e.seller_sku, e.platform, e.observed_at DESC, l.id NULLS LAST
 ) u WHERE u.status LIKE '%BUYABLE%';

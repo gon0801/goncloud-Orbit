@@ -1,12 +1,14 @@
-"""Lectura de la cobertura del catalogo (REPRICING 01 A.7).
+r"""Lectura de la cobertura del catalogo (REPRICING 01 A.7).
 
-Solo SELECT (candado propio en `tests/test_architecture.py`, post-Q1):
-fuente canonica `spapi_listing_estado_observation` («activa» = la ultima
+Solo SELECT (candado propio en `tests/test_architecture.py`): fuente
+canonica `spapi_listing_estado_observation` («activa» = la ultima
 observacion por `(seller_sku, platform)` cuyo `status` contiene `BUYABLE`,
-cruzada con `listing` por `seller_sku` y `platform`; dos listings con el
-mismo SKU cuentan uno), canal de la ultima
-`estimacion_oferta_observation` por listing, goals vigentes, decisiones
-del dia y cuenta del puente (`listing` por plataforma).
+con `LEFT JOIN` a `listing` por `seller_sku` y `platform`; dos listings
+con el mismo SKU cuentan uno, y una activa sin listing cuenta como
+`sin_listing`), canal de la ultima `estimacion_oferta_observation` por
+listing, goals vigentes (`valid_from <= hoy AND (valid_to IS NULL OR
+valid_to > hoy)`), decisiones del dia y cuenta de identidad (`listing`
+por plataforma: identidad, no activas).
 
 Las consultas viven tambien en `docs/evidencia/repricing-01/A.7/consultas/`
 (las mismas, con `\set` explicitos para el readback del lead).
@@ -15,7 +17,7 @@ Las consultas viven tambien en `docs/evidencia/repricing-01/A.7/consultas/`
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import date
+from datetime import UTC, date
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -28,7 +30,7 @@ __all__ = [
     "config_vigente_settings",
     "hoy_base",
     "leer_publicaciones",
-    "contar_puente",
+    "contar_listing_identidad",
 ]
 
 _SQL_CANO = (
@@ -36,9 +38,9 @@ _SQL_CANO = (
     " SELECT DISTINCT ON (e.seller_sku, e.platform)"
     " l.id AS listing_id, e.seller_sku, e.platform, e.asin, e.status, e.observed_at"
     " FROM spapi_listing_estado_observation e"
-    " JOIN listing l ON l.seller_sku = e.seller_sku AND l.platform = e.platform"
+    " LEFT JOIN listing l ON l.seller_sku = e.seller_sku AND l.platform = e.platform"
     " WHERE e.platform = %s"
-    " ORDER BY e.seller_sku, e.platform, e.observed_at DESC, l.id"
+    " ORDER BY e.seller_sku, e.platform, e.observed_at DESC, l.id NULLS LAST"
     ") u WHERE u.status LIKE '%%BUYABLE%%'"
 )
 _SQL_CANAL = (
@@ -46,7 +48,10 @@ _SQL_CANAL = (
     " FROM estimacion_oferta_observation WHERE platform = %s"
     " ORDER BY listing_id, observed_at DESC"
 )
-_SQL_GOALS = "SELECT listing_id FROM precio_goal WHERE platform = %s AND valid_to IS NULL"
+_SQL_GOALS = (
+    "SELECT listing_id FROM precio_goal WHERE platform = %s"
+    " AND valid_from <= %s AND (valid_to IS NULL OR valid_to > %s)"
+)
 _SQL_DECISIONES = (
     "SELECT listing_id, resultado, motivo FROM precio_decision"
     " WHERE platform = %s AND decision_date = %s"
@@ -56,7 +61,7 @@ _SQL_HOY = "SELECT (now() AT TIME ZONE 'UTC')::date"
 
 
 def _numero(settings: Mapping, clave: str) -> Decimal:
-    """Copia de `app/precio/config.py::_numero` (A.7 no edita `config.py`)."""
+    """Con la forma de `app/precio/config.py::_numero` (A.7 no edita `config.py`)."""
     if clave not in settings or settings[clave] is None:
         raise ValueError(f"config sin {clave}")
     valor = settings[clave]
@@ -72,7 +77,7 @@ def _numero(settings: Mapping, clave: str) -> Decimal:
 
 
 def _entero(settings: Mapping, clave: str, *, minimo: int, maximo: int) -> int:
-    """Copia de la forma de `app/precio/config.py::_entero` (l.64-72)."""
+    """Con la forma de `app/precio/config.py::_entero` (l.64-72)."""
     numero = _numero(settings, clave)
     if numero != numero.to_integral_value():
         raise ValueError(f"setting {clave}: debe ser entero: {numero}")
@@ -109,14 +114,18 @@ def leer_publicaciones(
         fila[0]: (fila[1], fila[2], fila[3])
         for fila in conn.execute(_SQL_CANAL, (platform,)).fetchall()
     }
-    goals = {fila[0] for fila in conn.execute(_SQL_GOALS, (platform,)).fetchall()}
+    goals = {fila[0] for fila in conn.execute(_SQL_GOALS, (platform, hoy, hoy)).fetchall()}
     decisiones = {
         fila[0]: (fila[1], fila[2])
         for fila in conn.execute(_SQL_DECISIONES, (platform, hoy)).fetchall()
     }
     filas: list[FilaPublicacion] = []
     for listing_id, sku, _plat, _asin, _status, observed in cano:
-        canal, precio, moneda = canales.get(listing_id, (None, None, None))
+        canal, precio, moneda = (
+            canales.get(listing_id, (None, None, None))
+            if listing_id is not None
+            else (None, None, None)
+        )
         resultado, motivo = decisiones.get(listing_id, (None, None))
         filas.append(
             FilaPublicacion(
@@ -126,7 +135,7 @@ def leer_publicaciones(
                 canal=str(canal) if canal is not None else None,
                 precio=precio,
                 moneda=str(moneda) if moneda is not None else None,
-                dias_sin_reportar=(hoy - observed.date()).days,
+                dias_sin_reportar=(hoy - observed.astimezone(UTC).date()).days,
                 tiene_goal=listing_id in goals,
                 resultado_hoy=resultado,
                 motivo_hoy=motivo,
@@ -135,6 +144,7 @@ def leer_publicaciones(
     return filas
 
 
-def contar_puente(conn: psycopg.Connection, *, platform: str) -> int:
-    """Cuenta del puente (`listing` por plataforma), al lado de la canonica."""
+def contar_listing_identidad(conn: psycopg.Connection, *, platform: str) -> int:
+    """Filas de `listing` por plataforma: identidad, no activas (el estado
+    del puente no esta en Orbit)."""
     return int(conn.execute(_SQL_PUENTE, (platform,)).fetchone()[0])

@@ -1687,38 +1687,73 @@ def test_patrones_precio_goal_resisten_case_y_whitespace():
 # ---------------------------------------------------------------------------
 # REPRICING 01 A.7: candado propio de `fuentes.py` (lector de cobertura).
 #
-# Solo `psycopg`, `app.precio.*`, `app.estimacion_insumos` (ahi vive
-# `mapear_canal`, el unico simbolo ajeno que el lector podria necesitar)
-# y stdlib; jamas red, reloj, `app.spapi.*` ni escritura (cero
-# INSERT/UPDATE/DELETE en el texto). En paralelo a los candados de A.1,
-# sin tocarlos.
+# Solo `psycopg`, `app.precio.*`, stdlib, y de `app.estimacion_insumos`
+# UNICAMENTE `from app.estimacion_insumos import mapear_canal` (ahi vive
+# ese simbolo; el modulo entero trae escritura y no entra). Jamas red,
+# reloj, entorno, import dinamico (relativo incluido), `app.spapi.*` ni
+# escritura (el patron corre sobre el texto completo, multilinea, con
+# todos los verbos). r1: la excepcion por nombre solo levanta la
+# prohibicion de imports de I/O (`psycopg`); el resto lo recupera este
+# candado (G1). En paralelo a los candados de A.1, sin tocarlos.
 # ---------------------------------------------------------------------------
-_PERMITIDOS_FUENTES = ("psycopg", "app.precio.", "app.estimacion_insumos")
-_PATRON_ESCRITURA_FUENTES = re.compile(r"(INSERT\s+INTO|UPDATE\s+|DELETE\s+FROM)", re.IGNORECASE)
+_PATRON_ESCRITURA_FUENTES = re.compile(
+    r"\b(INSERT\s+INTO|UPDATE\s+|DELETE\s+FROM|TRUNCATE\s+|COPY\s+|DROP\s+"
+    r"|ALTER\s+|MERGE\s+|CREATE\s+)",
+    re.IGNORECASE,
+)
 
 
 def _fugas_imports_fuentes(path: Path) -> list[str]:
     import sys as _sys
 
-    return sorted(
-        i
-        for i in _imports_runtime(path)
-        if i.split(".")[0] not in _sys.stdlib_module_names
-        and not any(i == p or i.startswith(p) for p in _PERMITIDOS_FUENTES)
-    )
+    def _permitido(nombre: str) -> bool:
+        return (
+            nombre.split(".")[0] in _sys.stdlib_module_names
+            or nombre == "psycopg"
+            or nombre.startswith(("psycopg.", "app.precio."))
+        )
+
+    arbol = ast.parse(path.read_text(encoding="utf-8"))
+    fugas: list[str] = []
+
+    def _visitar(nodos: list) -> None:
+        for nodo in nodos:
+            if _es_bloque_type_checking(nodo):
+                continue
+            if isinstance(nodo, ast.Import):
+                for alias in nodo.names:
+                    if not _permitido(alias.name):
+                        fugas.append(alias.name)
+            elif isinstance(nodo, ast.ImportFrom):
+                if nodo.level:
+                    fugas.append(f"<relativo-nivel-{nodo.level}>")
+                elif nodo.module == "app.estimacion_insumos":
+                    if sorted(a.name for a in nodo.names) != ["mapear_canal"]:
+                        fugas.append(
+                            "app.estimacion_insumos:" + ",".join(sorted(a.name for a in nodo.names))
+                        )
+                elif nodo.module:
+                    candidatos = [nodo.module] + [f"{nodo.module}.{a.name}" for a in nodo.names]
+                    for candidato in candidatos:
+                        if not _permitido(candidato):
+                            fugas.append(candidato)
+            else:
+                _visitar(list(ast.iter_child_nodes(nodo)))
+
+    _visitar(arbol.body)
+    return sorted(set(fugas))
 
 
 def _escritura_en_fuentes(path: Path) -> list[str]:
     return [
-        f"{n}:{linea.strip()[:80]}"
-        for n, linea in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
-        if _PATRON_ESCRITURA_FUENTES.search(linea)
+        m.group(0).strip()[:80]
+        for m in _PATRON_ESCRITURA_FUENTES.finditer(path.read_text(encoding="utf-8"))
     ]
 
 
 def test_fuentes_solo_importa_permitido():
-    """A.7: `fuentes.py` no trae red, reloj, `app.spapi.*` ni nada fuera de
-    la lista (el detector muerde: ver fuga sembrada)."""
+    """A.7: `fuentes.py` no trae red, `app.spapi.*` ni nada fuera de la
+    lista (el detector muerde: ver fugas sembradas)."""
     assert _fugas_imports_fuentes(PRECIO / "fuentes.py") == []
 
 
@@ -1731,16 +1766,61 @@ def test_candado_imports_fuentes_caza_fuga_sembrada(tmp_path):
     assert _fugas_imports_fuentes(tmp_path / "fuentes.py") == ["httpx"]
 
 
+def test_candado_imports_fuentes_solo_mapear_canal(tmp_path):
+    """A.7 r1-G3, fuga sembrada: otro simbolo de `app.estimacion_insumos`
+    aparece listado (el modulo entero no entra)."""
+    (tmp_path / "fuentes.py").write_text(
+        (PRECIO / "fuentes.py").read_text(encoding="utf-8")
+        + "\nfrom app.estimacion_insumos import persistir_oferta_observation  # fuga\n",
+        encoding="utf-8",
+    )
+    assert _fugas_imports_fuentes(tmp_path / "fuentes.py") == [
+        "app.estimacion_insumos:persistir_oferta_observation"
+    ]
+
+
+def test_candado_imports_fuentes_caza_relativo(tmp_path):
+    """A.7 r1-G4, fuga sembrada: un import relativo aparece listado
+    (`_imports_runtime` no lo ve)."""
+    (tmp_path / "fuentes.py").write_text(
+        (PRECIO / "fuentes.py").read_text(encoding="utf-8")
+        + "\nfrom .hermano import cosa  # fuga\n",
+        encoding="utf-8",
+    )
+    assert _fugas_imports_fuentes(tmp_path / "fuentes.py") == ["<relativo-nivel-1>"]
+
+
+def test_fuentes_sin_reloj_ni_entorno_ni_dinamico():
+    """A.7 r1-G1: la excepcion por nombre no ampara reloj, entorno ni
+    import dinamico en `fuentes.py` (los detectores generales no lo
+    cubren: sale exceptuado del `rglob`)."""
+    arbol = ast.parse((PRECIO / "fuentes.py").read_text(encoding="utf-8"))
+    assert _usos_reloj(arbol) == []
+    assert _usos_import_dinamico(arbol) == []
+
+
+def test_candado_reloj_fuentes_caza_fuga_sembrada(tmp_path):
+    """A.7 r1-G1, fuga sembrada: `date.today()` en la copia sale rojo."""
+    (tmp_path / "fuentes.py").write_text(
+        (PRECIO / "fuentes.py").read_text(encoding="utf-8") + "\nprint(date.today())  # fuga\n",
+        encoding="utf-8",
+    )
+    arbol = ast.parse((tmp_path / "fuentes.py").read_text(encoding="utf-8"))
+    assert _usos_reloj(arbol) == [".today"]
+
+
 def test_fuentes_solo_select():
-    """A.7: `fuentes.py` es lectura (cero INSERT/UPDATE/DELETE en el texto)."""
+    """A.7: `fuentes.py` es lectura (cero verbos de escritura en el texto,
+    multilinea incluidos)."""
     assert _escritura_en_fuentes(PRECIO / "fuentes.py") == []
 
 
-def test_candado_select_fuentes_caza_fuga_sembrada(tmp_path):
-    """A.7, fuga sembrada: la copia con un INSERT crudo aparece listada."""
-    (tmp_path / "fuentes.py").write_text(
-        (PRECIO / "fuentes.py").read_text(encoding="utf-8")
-        + '\n_X = "INSERT INTO precio_goal (a) VALUES (1)"  # fuga\n',
-        encoding="utf-8",
+def test_candado_select_fuentes_caza_fugas_sembradas(tmp_path):
+    """A.7 r1-G2, fugas sembradas: `INSERT` partido en dos lineas y
+    `TRUNCATE` aparecen listados."""
+    (tmp_path / "fuga_insert.py").write_text(
+        'pedido = "INSERT\nINTO x (a)"  # fuga\n', encoding="utf-8"
     )
-    assert _escritura_en_fuentes(tmp_path / "fuentes.py") != []
+    (tmp_path / "fuga_truncate.py").write_text("TRUNCATE x  # fuga\n", encoding="utf-8")
+    assert _escritura_en_fuentes(tmp_path / "fuga_insert.py") != []
+    assert _escritura_en_fuentes(tmp_path / "fuga_truncate.py") != []

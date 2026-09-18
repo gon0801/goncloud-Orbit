@@ -7,10 +7,14 @@ reloj y sin red. La ecuacion que cuadra (S10, decision 14):
 
 Orden de clasificacion (una publicacion, un bucket): primero lo
 estructural (`fuera_de_alcance` con la fase que la habilita), luego lo
-temporal (`catalogo_desactualizado`), luego `sin_goal` (trabajo del
-dueno: aparece listada con precio y canal, no oculta), y al final el
-goal con su decision del dia. `max_dias` entra como argumento (lo lee
-`fuentes.py` de la config); este modulo no conoce claves de config.
+temporal (`catalogo_desactualizado`), luego `sin_listing` (activa sin
+fila en `listing`: se cuenta, no se esconde), luego `canal_sin_dato`
+(en Amazon el canal desconocido no es un default a `sin_goal`: el motor
+no puede evaluar sin canal, tenga o no goal), luego `sin_goal`
+(trabajo del dueno: aparece listada con precio y canal, no oculta), y
+al final el goal con su decision del dia. `max_dias` entra como
+argumento (lo lee `fuentes.py` de la config); este modulo no conoce
+claves de config.
 """
 
 from __future__ import annotations
@@ -37,9 +41,13 @@ FASE_MELI = "fase_M_meli"
 
 @dataclass(frozen=True)
 class FilaPublicacion:
-    """Una publicacion activa de la plataforma, ya cruzada y resuelta."""
+    """Una publicacion activa de la plataforma, ya cruzada y resuelta.
 
-    listing_id: int
+    `listing_id` es nulo cuando la activa canonica no tiene fila en
+    `listing` (F3): cuenta como `no_evaluadas["sin_listing"]`.
+    """
+
+    listing_id: int | None
     seller_sku: str
     platform: str
     canal: str | None
@@ -86,10 +94,12 @@ def _fase_fuera_de_alcance(fila: FilaPublicacion) -> str | None:
 def _motivo_no_evaluada(fila: FilaPublicacion, max_dias: int) -> str | None:
     if fila.dias_sin_reportar > max_dias:
         return "catalogo_desactualizado"
-    if not fila.tiene_goal:
-        return None
+    if fila.listing_id is None:
+        return "sin_listing"
     if fila.canal is None:
         return "canal_sin_dato"
+    if not fila.tiene_goal:
+        return None
     if fila.resultado_hoy is None:
         return "sin_decision"
     if fila.resultado_hoy == "no_evaluado":
