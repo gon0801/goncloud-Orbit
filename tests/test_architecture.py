@@ -1350,6 +1350,47 @@ def test_imports_spapi_write_frontera_caza_import_extra(tmp_path):
     assert "otro.py" not in PERMITIDOS_IMPORTAR_SPAPI_WRITE
 
 
+def _importadores_dinamicos_spapi_write(raiz_app, raiz_tools):
+    """Módulos que nombran `app.spapi.write_client` junto a un import dinámico.
+
+    Cierre del hueco AST (mismo trato que `snapshot_listas`): `__import__(`
+    e `import_module(` no producen nodos de import y el candado de arriba
+    no los ve. Hoy nadie en `app/` ni `tools/` usa imports dinámicos.
+    """
+    dinamicos = set()
+    for base in (raiz_app, raiz_tools):
+        for p in base.rglob("*.py"):
+            try:
+                fuente = p.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            if "app.spapi.write_client" in fuente and (
+                "__import__(" in fuente or "import_module(" in fuente
+            ):
+                dinamicos.add(p)
+    return dinamicos
+
+
+def test_imports_spapi_write_sin_import_dinamico():
+    """Nadie llega a `app.spapi.write_client` por import dinámico."""
+    dinamicos = {
+        p.relative_to(RAIZ).as_posix()
+        for p in _importadores_dinamicos_spapi_write(APP, RAIZ / "tools")
+    }
+    assert not dinamicos, (
+        f"modulos que nombran app.spapi.write_client junto a un import dinamico:"
+        f" {sorted(dinamicos)}"
+    )
+
+
+def test_imports_spapi_write_frontera_caza_import_dinamico(tmp_path):
+    """Fuga sembrada: el import dinámico de write_client se detecta."""
+    fuga = tmp_path / "otro.py"
+    fuga.write_text('mod = __import__("app.spapi.write_client")\n', encoding="utf-8")
+    dinamicos = _importadores_dinamicos_spapi_write(tmp_path, tmp_path)
+    assert {p.name for p in dinamicos} == {"otro.py"}
+
+
 ALLOWLIST_IMPORTS_PRECIO_REVERSA = frozenset(
     {
         "__future__",
