@@ -3,11 +3,11 @@
 Nunca automatica: el dueno corre dry-run, revisa el plan y su huella, y
 solo entonces el go con la misma huella. Lee el precio vivo antes de
 escribir y salta lo que ya no coincide (un saltado no aborta el lote).
-Limitación visible: el cambio del mismo día sigue abierto y el índice
-único impide su reversa; el plan lo muestra como saltado
-`original_abierto` hasta que cierre por observación. Un cambio en
-`error` (nace con `enviado_at` y no pasa por el cierre) sí es
-reversible el mismo día cuando el vivo coincide.
+Limitacion visible: el cambio del mismo dia sigue abierto y el indice
+unico impide su reversa; el plan lo muestra como saltado
+`original_abierto` hasta que cierre por observacion. Un cambio en
+`error` (nace con `enviado_at` y no pasa por el cierre) si es
+reversible el mismo dia cuando el vivo coincide.
 
 Dry-run por omision (imprime plan + huella, cero PATCH). La mutacion
 real exige juntos `--acepto-mutacion-real`, `--huella H` (la del
@@ -21,7 +21,7 @@ La ejecucion real se ensaya en A.4 con ids reales del dueno; hasta que
 A.4 selle la forma del parche, el go levanta `FormaParcheSinSellar`
 (sin fila y sin red).
 
-Conexión en autocommit; cada bloque confirma al salir: el tool conecta
+Conexion en autocommit; cada bloque confirma al salir: el tool conecta
 con `autocommit=True` para que la fila `pendiente` ya sea durable
 cuando sale el PATCH (S5).
 """
@@ -169,6 +169,11 @@ def main(
             print(_linea(uno, por_id))
         print(f"huella: {huella}")
         if not args.acepto_mutacion_real:
+            if args.go:
+                raise Abortar(
+                    "falto --acepto-mutacion-real: --go --huella sin"
+                    " --acepto-mutacion-real no muta (dry-run enganoso)"
+                )
             return 0
         if not args.go:
             raise Abortar("falta --go: --acepto-mutacion-real sin --go no muta")
