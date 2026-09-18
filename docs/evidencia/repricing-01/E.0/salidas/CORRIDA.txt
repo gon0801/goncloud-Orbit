@@ -1,0 +1,15 @@
+estado: COMPLETA
+inicio_utc: 2026-09-18T09:10:27Z
+fin_utc: 2026-09-18T09:10:49Z
+commit_del_repo: d1f26ce20ba5d2382315ae889a52cdfa9a60516a
+consultas_con_cambios_sin_commitear: 0
+salidas:
+  83feeefe34fe4622a5a11b4b1352e74df1fe76d9d36793822bfd4e9a3a47e911  00-sonda-formato-90d.txt
+  456dd74d8ee98478c29478e7f0df3c0e9669011c5292d01f4e4528ed04cd007c  01-ordenes-por-numero-de-cargos-90d.txt
+  a433d43fe16dbdf1e2f703e3422cf35d8c91621ac0fdfdf7681adae30cf35644  02-ordenes-us-tres-cargos-desglose.txt
+  d1d53a331039878127f5e6110fe951e96ba1f21bc3929f882c3ae101f261e4e6  03-ventas-de-ordenes-us-tres-cargos.txt
+  0ab8944bd573005b0ab5e28dd8c916be9034cea264a432a6edac7cb98f22c4ed  04-pares-labman-shipping-label.txt
+  b641831638629019d14930f1d9e86e18842463f14a047b1ca4965d9e3a2ba96a  05-muestra-shippinghb-shipping-label.txt
+  d15e39dfcf9a9d417247971dd96b89ff9c715ac8edbc4d70f1532bddaa9234b5  06-par-labman-shippinghb.txt
+  647fb0a0be3fdf7b2c6bc0661e5059833d4a12acec5d0b93c3bd35c328c5cc8b  07-descartes-por-signo.txt
+  c035a1c481d438f2bf73215c1da139a5c8b6c3003982fc1f966d78cb4f43e0f4  08-historia-mensual-por-fuente.txt
