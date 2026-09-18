@@ -1055,7 +1055,26 @@ def _usos_reloj(arbol: ast.AST) -> list[str]:
 
 def _puros_precio(raiz=None):
     base = raiz or PRECIO
-    return list(base.rglob("*.py"))
+    return [
+        p
+        for p in base.rglob("*.py")
+        if p.relative_to(base).as_posix() not in EXCEPCIONES_PURAS_PRECIO
+    ]
+
+
+# REPRICING 01 A.1: `goals_write.py` es el unico escritor de `precio_goal`
+# (puede `psycopg`/`app.precio.*`/stdlib, jamas red ni reloj; su candado
+# propio vive en `tests/test_precio_goals.py`). Excepcion POR NOMBRE: el
+# `rglob` sigue cubriendo todo lo demas de `app/precio/`.
+EXCEPCIONES_PURAS_PRECIO = ("goals_write.py",)
+
+
+def test_precio_excepcion_por_nombre():
+    """A.1: la excepcion de pureza es una tupla por nombre con `goals_write.py`
+    y nada mas; quitar el `rglob` o exceptuar la carpeta la rompe."""
+    assert EXCEPCIONES_PURAS_PRECIO == ("goals_write.py",)
+    assert (PRECIO / "goals_write.py").is_file()
+    assert (PRECIO / "tipos.py").is_file()
 
 
 def test_precio_puro_sin_io():
@@ -1587,3 +1606,73 @@ def test_imports_spapi_write_frontera_type_checking_relativo_no_es_fuga(tmp_path
         encoding="utf-8",
     )
     assert _importadores_spapi_write(tmp_path, tmp_path) == set()
+
+
+# ---------------------------------------------------------------------------
+# REPRICING 01 A.1: un solo escritor de `precio_goal`.
+#
+# `app/precio/goals_write.py` es el unico que escribe `precio_goal`
+# (INSERT al sembrar, UPDATE de `valid_to` al cerrar; el trigger ya rechaza
+# cualquier otro UPDATE). `tools/precio_goal.py` despacha, jamas SQL crudo
+# (las lecturas con SELECT si pueden: SELECT no es escritura). En paralelo
+# a `_IDENT_GOAL`/`_SQL_UPDATE_GOAL` de `ads_optimizer_goal`, sin tocarlos.
+# ---------------------------------------------------------------------------
+_IDENT_PRECIO_GOAL = r'(?:"?\w+"?\.)?"?precio_goal"?'
+_SQL_UPDATE_PRECIO_GOAL = rf"UPDATE\s+{_IDENT_PRECIO_GOAL}"
+_SQL_INSERT_PRECIO_GOAL = rf"INSERT\s+INTO\s+{_IDENT_PRECIO_GOAL}"
+_PATRON_UPDATE_PRECIO_GOAL = re.compile(_SQL_UPDATE_PRECIO_GOAL, re.IGNORECASE)
+_PATRON_INSERT_PRECIO_GOAL = re.compile(_SQL_INSERT_PRECIO_GOAL, re.IGNORECASE)
+
+
+def _escritores_crudos_precio_goal(raiz: Path) -> list[str]:
+    """Escritores crudos de `precio_goal` bajo `<raiz>/tools/` (UPDATE o
+    INSERT del patron compilado): el escaneo que el candado usa sobre el
+    repo real, extraido para probarlo con fuga sembrada."""
+    return sorted(
+        p.relative_to(raiz).as_posix()
+        for p in (raiz / "tools").rglob("*.py")
+        if _PATRON_UPDATE_PRECIO_GOAL.search(p.read_text(encoding="utf-8"))
+        or _PATRON_INSERT_PRECIO_GOAL.search(p.read_text(encoding="utf-8"))
+    )
+
+
+def _escritores_app_precio_goal() -> list[str]:
+    """Modulos de `app/` con UPDATE o INSERT crudo de `precio_goal`."""
+    return sorted(
+        p.relative_to(RAIZ).as_posix()
+        for p in APP.rglob("*.py")
+        if _PATRON_UPDATE_PRECIO_GOAL.search(p.read_text(encoding="utf-8"))
+        or _PATRON_INSERT_PRECIO_GOAL.search(p.read_text(encoding="utf-8"))
+    )
+
+
+def test_escritura_precio_goal_vive_solo_en_goals_write():
+    """Candado de camino unico de goals de precio (A.1): solo
+    `app/precio/goals_write.py` trae UPDATE o INSERT de `precio_goal`, y
+    NINGUN tool trae SQL crudo de escritura (despachan a `goals_write`)."""
+    assert _escritores_app_precio_goal() == ["app/precio/goals_write.py"]
+    assert _escritores_crudos_precio_goal(RAIZ) == []
+
+
+def test_candado_precio_goal_caza_update_crudo_en_tools(tmp_path):
+    """A.1, fuga sembrada: la copia del tool con un `UPDATE precio_goal`
+    crudo aparece listada por el helper (el detector muerde)."""
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    fuga = '\n# fuga sembrada (A.1):\n_FUGA = "UPDATE precio_goal SET x = 1"\n'
+    (tools / "precio_goal.py").write_text(
+        (RAIZ / "tools" / "precio_goal.py").read_text(encoding="utf-8") + fuga,
+        encoding="utf-8",
+    )
+    assert _escritores_crudos_precio_goal(tmp_path) == ["tools/precio_goal.py"]
+
+
+def test_patrones_precio_goal_resisten_case_y_whitespace():
+    """A.1: `uPdAtE\\n\\tprecio_goal` DETECTA; esquema o comillas tambien;
+    la mencion benigna sin verbo SQL no dispara."""
+    assert _PATRON_UPDATE_PRECIO_GOAL.search("uPdAtE\n\tprecio_goal")
+    assert _PATRON_UPDATE_PRECIO_GOAL.search("UPDATE public.precio_goal SET x = 1")
+    assert _PATRON_INSERT_PRECIO_GOAL.search('INSERT INTO "precio_goal" (a)')
+    benigno = "el UNICO camino de escritura de precio_goal (A.1)"
+    assert not _PATRON_UPDATE_PRECIO_GOAL.search(benigno)
+    assert not _PATRON_INSERT_PRECIO_GOAL.search(benigno)
