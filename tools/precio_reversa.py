@@ -13,7 +13,9 @@ Dry-run por omision (imprime plan + huella, cero PATCH). La mutacion
 real exige juntos `--acepto-mutacion-real`, `--huella H` (la del
 dry-run) y `--go` no vacio. Usa `ORBIT_DSN_DECIDE` (jamas DSN admin) y
 el escritor solo via `app.spapi.precio_write.construir_escritor`: este
-tool no importa `app.spapi.write_client` directo.
+tool no importa `app.spapi.write_client` directo. El go devuelve 1 si
+alguna reversa termina en `error` (los saltados no cuentan); 0 si todas
+van a `enviado`.
 
 La ejecucion real se ensaya en A.4 con ids reales del dueno; hasta que
 A.4 selle la forma del parche, el go levanta `FormaParcheSinSellar`
@@ -170,6 +172,7 @@ def main(
             raise Abortar(
                 f"--huella {args.huella} != huella del plan {huella}: re-corre el dry-run"
             )
+        hubo_error = False
         for cid, accion, _detalle in plan:
             if accion != "revertir":
                 continue
@@ -187,6 +190,10 @@ def main(
             except FormaParcheSinSellar as exc:
                 raise Abortar(f"forma del parche sin sellar (A.4 la sella): {exc}") from None
             print(f"[hecho] cambio={cid} estado={res.estado} motivo={res.motivo}")
+            if res.estado == "error":
+                hubo_error = True
+        if hubo_error:
+            return 1
         return 0
     finally:
         conn.close()

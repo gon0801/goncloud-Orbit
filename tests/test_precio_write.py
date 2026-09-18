@@ -2107,3 +2107,44 @@ def test_r3_k6_error_de_programacion_sube_no_es_sin_precio_vivo(monkeypatch, cap
         monkeypatch.setenv("ORBIT_DSN_DECIDE", _dsn_db(conn))
         with pytest.raises(RuntimeError, match="bug-simulado"):
             tool.main(["--cambio-id", str(cid)], transport=red.transport, credentials=dict(CRED))
+
+
+def test_r3_k7_reversa_en_error_devuelve_1(monkeypatch, capsys):
+    """r3-K7: si una reversa del lote termina error, el go devuelve 1."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(110.0))] * 3,
+        gets_competitivos=[(200, _competitivo_body())] * 3,
+        patchs=[(500, {"status": "ERROR"})],
+    )
+    with db_39c() as conn:
+        _, cid = _semilla_reversion(conn)
+        import tools.precio_reversa as tool
+        from app.spapi import precio_write as pw
+
+        monkeypatch.setattr(
+            pw,
+            "construir_cuerpo_parche",
+            lambda **kw: {"falso": True, "precio": str(kw["precio"])},
+        )
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", _dsn_db(conn))
+        seco = tool.main(["--cambio-id", str(cid)], transport=red.transport, credentials=dict(CRED))
+        assert seco == 0
+        huella = [ln for ln in capsys.readouterr().out.splitlines() if ln.startswith("huella: ")][
+            0
+        ].split(": ")[1]
+        rc = tool.main(
+            [
+                "--cambio-id",
+                str(cid),
+                "--acepto-mutacion-real",
+                "--huella",
+                huella,
+                "--go",
+                "si",
+            ],
+            transport=red.transport,
+            credentials=dict(CRED),
+        )
+        assert rc == 1
+        out = capsys.readouterr().out
+        assert f"[hecho] cambio={cid} estado=error" in out
