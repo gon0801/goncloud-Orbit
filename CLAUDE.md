@@ -40,11 +40,11 @@ Reglas de hierro:
 
 Flujo de verificacion:
 - Durante la implementacion, corre solo las pruebas focalizadas del comportamiento modificado.
-- Agrupa los hallazgos de revision y corrigelos en una sola ronda por bloque. Solo un hallazgo bloqueante (seguridad, datos, regla innegociable, comportamiento pedido roto o prueba que no discrimina), con el comando que lo reproduce, abre otra ronda; la segunda revisa solo el diff de los arreglos (cross-review -Con <otro revisor> -Desde <sha>). Tope: 2 rondas; una tercera solo si la segunda hallo un bloqueante creado por el arreglo de la primera; despues decide el operador.
+- Agrupa los hallazgos de revision y corrigelos en una sola ronda por bloque. Solo un hallazgo bloqueante (seguridad, datos, regla innegociable, comportamiento pedido roto o prueba que no discrimina), con el comando que lo reproduce, abre otra ronda; cada ronda siguiente revisa solo el diff de los arreglos (cross-review -Con <otro revisor> -Desde <sha>). Se repite mientras salga un bloqueante y para en la primera ronda sin ninguno; si el mismo bloqueante vuelve en dos rondas seguidas, decide el operador.
 - Ejecuta Ruff y las pruebas focalizadas despues del ultimo cambio del bloque.
 - Ejecuta la bateria completa una sola vez por bloque, sobre el commit final y preferentemente en CI mediante PR.
 - Si commit, push o CI ya validaron tests, Ruff o pre-commit sobre ese SHA, no los repitas manualmente.
 - No vuelvas a ejecutar CI si el commit verificado no cambio.
-- Lo que no se corrige va a una fila del plan (Plans.md o el tracker del repo) y se nombra en el PR; una observacion tardia no bloqueante no reabre el ciclo.
+- Un bloqueante nunca va a una fila del plan ni se mergea abierto: se corrige o decide el operador. Lo no bloqueante que no se corrige va a una fila del plan (Plans.md o el tracker del repo) y se nombra en el PR; una observacion tardia no bloqueante no reabre el ciclo.
 - Despues del deploy, ejecuta una sola vez el checklist del repo y no repitas evidencia valida sin un cambio que pueda invalidarla.
 <!-- >>> QUALITY-KIT CALIDAD SECTION END -->
