@@ -40,7 +40,7 @@ preparar() {  # imprime un directorio temporal con el corredor y el ssh falso
     local t
     t="$(mktemp -d)"
     mkdir -p "$t/consultas" "$t/bin"
-    cp "$DIR/correr.sh" "$t/"
+    cp "$DIR/correr.sh" "$DIR/solo-select.py" "$t/"
     printf '#!/usr/bin/env bash\ncat > /dev/null\ntouch "%s/SSH_LLAMADO"\nexit 99\n' "$t" > "$t/bin/ssh"
     chmod +x "$t/bin/ssh"
     printf '%s' "$t"
@@ -72,12 +72,37 @@ for palabra in commit rollback abort begin savepoint release into call execute p
     probar_fuga "control de transaccion '$palabra'" "select 1; $palabra x;" "control de transaccion"
 done
 probar_fuga "end como sentencia" "select 1;
-end;" "control de transaccion"
-probar_fuga "end tras punto y coma" "select 1; end" "control de transaccion"
+end;" "select/with"
+probar_fuga "end tras punto y coma" "select 1; end" "select/with"
+probar_fuga "END WORK" "select 1; END WORK;" "select/with"
+probar_fuga "END AND CHAIN" "select 1; END AND CHAIN;" "select/with"
+probar_fuga "END con comentario de bloque" "select 1; END/*x*/;" "select/with"
+probar_fuga "END con comentario de linea" "select 1; END --x
+;" "select/with"
+probar_fuga "revoke" "select 1; revoke select on x from y;" "select/with"
+probar_fuga "analyze" "select 1; analyze x;" "select/with"
+probar_fuga "select into" "select 1 into t;" "control de transaccion"
+probar_fuga "set_config" "select set_config('search_path', 'x', false);" "control de transaccion"
 probar_fuga "metacomando de psql al inicio de linea" 'select 1;
 \! echo fuga' "diagonal invertida"
 probar_fuga "metacomando a mitad de linea" 'select 1 \g' "diagonal invertida"
 probar_fuga "metacomando con espacios delante" '   \o /tmp/x' "diagonal invertida"
+
+# Un select legitimo con case ... end en varias lineas (END solo en su
+# linea) y comentarios con punto y coma NO es una fuga: llega a conectar.
+t="$(preparar)"
+printf '%s\n' "-- comentario con ; y la palabra end" "select" "    case" "        when 1 = 1 then 'a;b'" "        else 'c'" "    end as x" "/* bloque ; end */" "from (select 1) s;" > "$t/consultas/98-case-multilinea.sql"
+set +e
+salida="$(PATH="$t/bin:$PATH" bash "$t/correr.sh" 2>&1)"
+rc=$?
+set -e
+if [ -e "$t/SSH_LLAMADO" ]; then
+    echo "VERDE: un select con case ... end en varias lineas pasa los candados (rc=$rc)"
+else
+    echo "FALLA: un select legitimo con case ... end multilinea fue rechazado (rc=$rc)"
+    printf '%s\n' "$salida" | head -5
+    fallas=$((fallas + 1))
+fi
 
 # Las consultas reales pasan los dos candados: el corredor llega a conectar.
 t="$(preparar)"
@@ -86,7 +111,7 @@ set +e
 salida="$(PATH="$t/bin:$PATH" bash "$t/correr.sh" 2>&1)"
 rc=$?
 set -e
-if [ -e "$t/SSH_LLAMADO" ] && ! printf '%s' "$salida" | grep -Eq 'prohibida|diagonal invertida|control de transaccion'; then
+if [ -e "$t/SSH_LLAMADO" ] && ! printf '%s' "$salida" | grep -Eq 'prohibida|diagonal invertida|control de transaccion|select/with'; then
     echo "VERDE: las consultas reales pasan los dos candados (el corredor llego a conectar al ssh falso; rc=$rc)"
 else
     echo "FALLA: las consultas reales no pasan los candados del corredor (rc=$rc)"

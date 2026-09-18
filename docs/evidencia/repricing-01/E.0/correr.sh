@@ -47,25 +47,32 @@ if grep -liE '\b(insert|update|delete|truncate|alter|drop|create|grant|copy)\b' 
     exit 1
 fi
 
-# Candado de control de transaccion y escrituras indirectas (revisor de Q2,
-# cierre de la Fase 10): un `commit;`, `end;`, `begin`, `rollback`, un
-# `select ... into`, un `do $$ ... $$`, un `call` o un `set` saldrian del
-# BEGIN READ ONLY o cambiarian la sesion. `end` solo se rechaza en
-# posicion de sentencia (al inicio o tras `;`), para no chocar con el
-# `case ... end` de las consultas. Ninguna consulta de consultas/ usa estas
-# palabras (probado en prueba-candados.sh).
-if grep -liwE '(commit|rollback|abort|begin|savepoint|release|into|call|execute|prepare|lock|vacuum|listen|notify|refresh|reindex|cluster|discard|reset|merge|comment|security|import|load|do|set|start|transaction)' "$CONSULTAS_DIR"/*.sql \
-    || grep -liE '(^|;)[[:space:]]*end[[:space:]]*(;|$)' "$CONSULTAS_DIR"/*.sql; then
-    echo "ATORADO: una o más consultas en $CONSULTAS_DIR contienen control de transaccion o una escritura indirecta prohibida (ver arriba)." >&2
-    exit 1
-fi
-
 # Candado de metacomandos (CodeRabbit, PR 304): psql ejecuta un "\!" u otro
 # metacomando en cualquier punto de la linea y BEGIN READ ONLY no lo
 # controla. Ningun archivo de consultas puede traer una diagonal invertida;
 # los \echo de inicio y fin los agrega este corredor, no los archivos.
 if grep -lF '\' "$CONSULTAS_DIR"/*.sql; then
     echo "ATORADO: una o más consultas en $CONSULTAS_DIR contienen una diagonal invertida (metacomando de psql prohibido; ver arriba)." >&2
+    exit 1
+fi
+
+# Candado estructural (revision de cierre de la Fase 10, grok sobre 7674ee7):
+# cada sentencia de cada archivo de consultas, sin comentarios y respetando
+# los strings, empieza con `select` o `with` (solo-select.py). Asi `commit;`,
+# `end;`, `END WORK;`, `END/*x*/;`, `do $$...$$`, `set ...`, `revoke` o
+# `call` no llegan a produccion, y un `case ... end` en su propia linea no es
+# falso positivo. Sin python3 no se corre (falla cerrado).
+command -v python3 >/dev/null 2>&1 || { echo "ATORADO: sin python3 no se valida la forma de las consultas" >&2; exit 1; }
+if ! python3 "$DIR/solo-select.py" "$CONSULTAS_DIR"/*.sql; then
+    echo "ATORADO: una o más consultas en $CONSULTAS_DIR traen una sentencia que no es select/with (control de transaccion o escritura; ver arriba)." >&2
+    exit 1
+fi
+
+# Segunda defensa por palabras: control de transaccion y escrituras
+# indirectas que caben dentro de un select (`select ... into` crea una
+# tabla; `set_config` cambia la sesion aun en READ ONLY).
+if grep -liwE '(commit|rollback|abort|begin|savepoint|release|into|call|execute|prepare|lock|vacuum|listen|notify|refresh|reindex|cluster|discard|reset|merge|comment|security|import|load|do|set|set_config|start|transaction)' "$CONSULTAS_DIR"/*.sql; then
+    echo "ATORADO: una o más consultas en $CONSULTAS_DIR contienen control de transaccion o una escritura indirecta prohibida (ver arriba)." >&2
     exit 1
 fi
 
