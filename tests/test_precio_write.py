@@ -2206,3 +2206,27 @@ def test_r3_k8_cerrar_sin_autocommit_es_mal_uso():
             0
         ]
         assert estado == "enviado"
+
+
+def test_r4_g2_cambiar_con_abierto_del_par_salta():
+    """r4-G2: abierto del par -> cambiar salta, sin fila ni PATCH."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(100.0))],
+        gets_competitivos=[(200, _competitivo_body())],
+    )
+    with db_39c() as conn:
+        lid, dec = _semilla_cambio(conn)
+        _cambio_enviado(conn, dec, lid)
+        lector, escritor = _clientes(red)
+        with rol(conn):
+            res = cambiar_precio(
+                conn,
+                dec,
+                lector=lector,
+                escritor=escritor,
+                construir_cuerpo=_cuerpo_falso,
+                ahora=AHORA,
+            )
+        assert res.estado == "saltado" and res.motivo == "listing_con_cambio_abierto"
+        assert red.n_patch == 0 and red.n_get == 0
+        assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 1

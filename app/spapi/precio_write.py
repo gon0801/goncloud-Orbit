@@ -508,12 +508,16 @@ def cambiar_precio(
     que insertar (`precio_antes` es NOT NULL): `error` sin fila y sin
     PATCH. Orden S5: INSERT + COMMIT -> PATCH -> sello.
 
+    Si el par ya tiene un cambio abierto (`pendiente` o `enviado`), se
+    salta con `listing_con_cambio_abierto`: sin fila y sin PATCH (el
+    indice unico no admite dos abiertos del mismo par).
+
     Ventana COMMIT-PATCH (r1-A8): si el proceso muere entre el COMMIT
     del INSERT y el PATCH (o el PATCH nunca vuelve), queda una fila
     pendiente huerfana: nunca se envio a Amazon pero el indice de
     abierto unico la vuelve visible para siempre, porque todo reintento
-    la ve abierta y salta con `original_abierto`. No se reintenta sola:
-    el dueno la detecta con
+    la ve abierta y salta con `listing_con_cambio_abierto`. No se reintenta
+    sola: el dueno la detecta con
     `SELECT id FROM precio_cambio WHERE estado = 'pendiente' AND NOT es_reversa`
     y la cierra a mano tras verificar en Seller Central que el precio
     no se movio.
@@ -553,6 +557,17 @@ def cambiar_precio(
             f" llego {resultado}/{mode}"
         )
     _validar_destino(escritor, sku)
+    otro_abierto = conn.execute(
+        "SELECT count(*) FROM precio_cambio"
+        " WHERE listing_id = %s AND platform = %s"
+        " AND estado IN ('pendiente', 'enviado')",
+        (listing_id, platform),
+    ).fetchone()[0]
+    if otro_abierto:
+        logger.info("cambiar decision=%s saltado=listing_con_cambio_abierto", decision_id)
+        return ResultadoCambio(
+            id_cambio=None, estado="saltado", motivo="listing_con_cambio_abierto"
+        )
     try:
         vivo = leer_precio_vivo(lector, platform=platform, asin=asin)
     except (PrecioVivoAusente, SpapiError, httpx.HTTPError):
