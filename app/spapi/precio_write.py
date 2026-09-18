@@ -352,6 +352,17 @@ def revertir(
             f"cambio {cambio_id}: solo un cambio real, no-reversa, con enviado_at"
         )
     _validar_destino(escritor, sku)
+    otro_abierto = conn.execute(
+        "SELECT count(*) FROM precio_cambio"
+        " WHERE listing_id = %s AND platform = %s"
+        " AND estado IN ('pendiente', 'enviado')",
+        (listing_id, platform),
+    ).fetchone()[0]
+    if otro_abierto:
+        logger.info("revertir cambio=%s saltado=listing_con_cambio_abierto", cambio_id)
+        return ResultadoReversion(
+            id_reversa=None, estado="saltado", motivo="listing_con_cambio_abierto"
+        )
     try:
         vivo = leer_precio_vivo(lector, platform=platform, asin=asin)
     except (PrecioVivoAusente, httpx.HTTPError):

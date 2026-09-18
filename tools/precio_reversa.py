@@ -90,6 +90,15 @@ def _plan(conn, lector: SpapiClient, filas) -> list[tuple]:
                 )
             )
             continue
+        otro_abierto = conn.execute(
+            "SELECT count(*) FROM precio_cambio"
+            " WHERE listing_id = %s AND platform = %s"
+            " AND estado IN ('pendiente', 'enviado')",
+            (f[1], f[2]),
+        ).fetchone()[0]
+        if otro_abierto:
+            plan.append((cid, "saltar", "listing_con_cambio_abierto"))
+            continue
         try:
             vivo = precio_write.leer_precio_vivo(lector, platform=f[2], asin=f[12])
         except Exception:

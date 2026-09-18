@@ -1977,3 +1977,86 @@ def test_r2_b2_p22_cuerpo_real_no_se_loguea(caplog):
         mandados = [p.content.decode("utf-8") for p in red.pedidos_patch]
         assert len(mandados) == 2 and all("ZZ9X8" in m for m in mandados)
         assert "ZZ9X8" not in caplog.text
+
+
+def test_r3_k1_otro_abierto_mismo_listing_salta():
+    """r3-K1: otro abierto del par -> saltado, sin fila ni PATCH."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(110.0))],
+        gets_competitivos=[(200, _competitivo_body())],
+    )
+    with db_39c() as conn:
+        lid, dec_vieja = _semilla_cambio(conn)
+        cid = _cambio_cerrado(conn, dec_vieja, lid)
+        _cambio_enviado(conn, dec_vieja, lid)
+        lector, escritor = _clientes(red)
+        with rol(conn):
+            res = revertir(
+                conn,
+                cid,
+                lector=lector,
+                escritor=escritor,
+                construir_cuerpo=_cuerpo_falso,
+                ahora=AHORA,
+            )
+        assert res.estado == "saltado" and res.motivo == "listing_con_cambio_abierto"
+        assert red.n_patch == 0 and red.n_get == 0
+        assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 2
+
+
+def test_r3_k1_tool_afectado_salta_otro_revierte(monkeypatch, capsys):
+    """r3-K1 tool: lote de dos, el del listing con abierto salta, el otro se revierte."""
+    asin2 = "B0TESTC002"
+    b110 = (200, _ofertas_body(110.0, asin=asin2))
+    b100 = (200, _ofertas_body(100.0, asin=asin2))
+    red = _RedFalsa(
+        # dry (cid2) + go (cid2) + rev2 pre + rb; cid1 salta sin leer.
+        gets_ofertas=[b110, b110, b110, b100],
+        gets_competitivos=[(200, _competitivo_body())] * 4,
+        patchs=[(202, {"submissionId": "k1", "status": "ACCEPTED"})],
+    )
+    with db_39c() as conn:
+        lid1, dec1 = _semilla_cambio(conn, sku="SKU-K1")
+        cid1 = _cambio_cerrado(conn, dec1, lid1)
+        _cambio_enviado(conn, dec1, lid1)
+        lid2, dec2 = _semilla_cambio(conn, asin=asin2, sku="SKU-K2")
+        cid2 = _cambio_cerrado(conn, dec2, lid2)
+        import tools.precio_reversa as tool
+        from app.spapi import precio_write as pw
+
+        monkeypatch.setattr(
+            pw,
+            "construir_cuerpo_parche",
+            lambda **kw: {"falso": True, "precio": str(kw["precio"])},
+        )
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", _dsn_db(conn))
+        seco = tool.main(
+            ["--cambio-id", str(cid1), "--cambio-id", str(cid2)],
+            transport=red.transport,
+            credentials=dict(CRED),
+        )
+        assert seco == 0
+        out_seco = capsys.readouterr().out
+        assert "listing_con_cambio_abierto" in out_seco
+        huella = [ln for ln in out_seco.splitlines() if ln.startswith("huella: ")][0].split(": ")[1]
+        rc = tool.main(
+            [
+                "--cambio-id",
+                str(cid1),
+                "--cambio-id",
+                str(cid2),
+                "--acepto-mutacion-real",
+                "--huella",
+                huella,
+                "--go",
+                "si",
+            ],
+            transport=red.transport,
+            credentials=dict(CRED),
+        )
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "listing_con_cambio_abierto" in out
+        assert f"[hecho] cambio={cid2}" in out
+        assert red.n_patch == 1
+        assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 4
