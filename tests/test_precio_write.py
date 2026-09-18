@@ -600,19 +600,28 @@ def test_revertir_readback_429_agotado_es_fallido_sin_patch_extra():
 
 
 def test_revertir_patch_exige_fila_pendiente_primero():
-    """Orden S5: el PATCH solo procede si la fila ya commiteo."""
+    """Orden S5: el PATCH solo procede si la fila ya commiteo (probe en otra conexion)."""
     with db_39c() as conn:
         _, cid = _semilla_reversion(conn)
+
+        def _pendiente_durable():
+            otra = psycopg.connect(_dsn_db(conn), autocommit=True)
+            try:
+                return (
+                    otra.execute(
+                        "SELECT count(*) FROM precio_cambio"
+                        " WHERE es_reversa AND estado = 'pendiente'"
+                    ).fetchone()[0]
+                    > 0
+                )
+            finally:
+                otra.close()
+
         red = _RedFalsa(
             gets_ofertas=[(200, _ofertas_body(110.0)), (200, _ofertas_body(100.0))],
             gets_competitivos=[(200, _competitivo_body()), (200, _competitivo_body())],
             patchs=[(202, {"submissionId": "rev-1", "status": "ACCEPTED"})],
-            exige_fila=lambda: (
-                conn.execute(
-                    "SELECT count(*) FROM precio_cambio WHERE es_reversa AND estado = 'pendiente'"
-                ).fetchone()[0]
-                > 0
-            ),
+            exige_fila=_pendiente_durable,
         )
         lector, escritor = _clientes(red)
         with rol(conn):
