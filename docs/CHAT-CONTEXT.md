@@ -5,7 +5,7 @@
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
 **2026-09-18 UTC — REPRICING 01, Fase 10 (AUTO-07) CERRADA: herramienta de goals y recuadro de cobertura en master, y veredicto del envío parcial por falta del documento de origen; ningún precio movido.**
-Seis PRs mergeados por la ruta del kit:
+Cinco PRs mergeados por la ruta del kit:
 
 - **A.1**, herramienta de goals (`#303`, `662db38`; cierre r1 `#307`, `eeefb72`). `tools/precio_goal.py` siembra y cierra goals solo con `app_admin`: dry-run con `m_actual`, `P*` y huella; `shadow` sin go literal y `live` con go; `--sku`; salto > 25 % confirmado por listing.
 - **A.7**, recuadro de cobertura (`#305`, `0d88cc8`). Readback en producción del 18-sep que cuadra exacto: MX 260 activas = 102 `canal_sin_dato` + 158 `sin_goal`; US 100 = 100 `canal_sin_dato`.
