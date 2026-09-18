@@ -1,8 +1,8 @@
 """Candado estructural de correr.sh: cada sentencia de un archivo de consultas
 empieza con `select` o `with` (ORBIT · fase 10 · repricing-01 · E.0a).
 
-Quita los comentarios (`-- ...` hasta fin de linea y `/* ... */`, aunque
-abarquen varias lineas) respetando los strings entre comillas simples (con
+Quita los comentarios `-- ...` hasta fin de linea (los de bloque se
+rechazan, ver abajo) respetando los strings entre comillas simples (con
 `''` como comilla escapada) y los identificadores entre comillas dobles,
 parte por `;` fuera de strings y comentarios, y exige que la primera palabra
 de cada sentencia no vacia sea `select` o `with`. Asi un `commit;`, `end;`,
@@ -15,9 +15,10 @@ Falla cerrado ante lo que no sabe partir (grok, cierre r2 y r3): **todo
 PostgreSQL con cualquier tag (`$$`, `$q$`, `$é$`: dentro de el un `;` o una
 comilla cambiarian donde termina cada sentencia) y los parametros
 posicionales; un string o un comentario de bloque sin cerrar al final del
-archivo tambien se rechaza, igual que un comentario de bloque anidado
-(`/* /* */ ... */`, que PostgreSQL trata como uno solo: revisor de la
-Fase 10, D1). Los strings con escapes de diagonal (`E'\''`,
+archivo tambien se rechaza, y **ningun comentario de bloque `/* */`
+se admite**: PostgreSQL los anida y lee `/*/` como apertura, asi que el
+partidor no podria cortar igual (revisor de la Fase 10, D1); las
+consultas usan solo comentarios `--`. Los strings con escapes de diagonal (`E'\''`,
 `U&'...'`) no llegan aqui: `correr.sh` rechaza antes toda diagonal
 invertida, asi que las comillas solo se escapan como `''`.
 
@@ -75,17 +76,11 @@ def sentencias(texto: str) -> list[str]:
             actual.append(" ")
             continue
         if texto.startswith("/*", i):
-            cierre = texto.find("*/", i + 2)
-            if cierre == -1:
-                raise NoSeParte("comentario de bloque sin cerrar")
-            # PostgreSQL anida los comentarios de bloque (`/* /* */ ... */`
-            # es uno solo): si hay otro `/*` antes del primer `*/`, este
-            # partidor y el servidor no cortarian igual. Falla cerrado.
-            if texto.find("/*", i + 2, cierre) != -1:
-                raise NoSeParte("comentario de bloque anidado")
-            i = cierre + 2
-            actual.append(" ")
-            continue
+            # Ningun comentario de bloque se admite (revisor de la Fase 10,
+            # D1): PostgreSQL los anida y su lexer lee `/*/` como apertura,
+            # asi que imitarlo variante por variante no cierra la clase.
+            # Las consultas usan solo comentarios `--`.
+            raise NoSeParte("comentario de bloque /* */: no se admite")
         if c == ";":
             salida.append("".join(actual))
             actual = []
