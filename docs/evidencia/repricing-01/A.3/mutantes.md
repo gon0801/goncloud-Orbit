@@ -1,5 +1,58 @@
 # A.3 — Catálogo de mutantes (REPRICING 01, escritura y reversa)
 
+## Ronda r5 (revisión cruzada kimi + mutantes del lead, sobre `2ac2eeb`)
+
+Caché de bytecode nueva por corrida (`PYTHONPYCACHEPREFIX=$(mktemp -d)`,
+`-p no:cacheprovider`). Todos MUERTOS.
+
+### L1 — escritor de otra platform sin cotejo (`precio_write.py`, MEDIO)
+
+Mutante: sin la comparacion `escritor.platform` vs platform de la fila
+(el PATCH iria al mercado del escritor con SKU y moneda de la otra
+plaza; con cuenta unificada NA se aplicaria de verdad).
+
+```text
+FAILED tests/test_precio_write.py::test_r5_l1_cambiar_escritor_otra_platform_revienta_sin_fila_ni_patch
+FAILED tests/test_precio_write.py::test_r5_l1_revertir_escritor_otra_platform_revienta_sin_fila_ni_patch
+7 failed, 2 passed, 80 deselected
+```
+
+MUERTO (los dos en rojo sin el arreglo; en verde con el:
+`ValueError` antes de cualquier INSERT o red, cero filas, cero PATCH,
+en `cambiar_precio` y en `revertir`; el tool ya construye el escritor
+con la platform de la fila).
+
+### L2 — competitivo pedido siempre y bloqueante (`precio_write.py`)
+
+Mutantes: pedir el competitivo aunque las ofertas traigan la propia
+(cuota Pricing 0.5/s desperdiciada) y tratar su 200 no-JSON como
+`PrecioVivoAusente` aunque haya oferta propia.
+
+```text
+FAILED tests/test_precio_write.py::test_r5_l2_con_propia_un_solo_get - assert...
+FAILED tests/test_precio_write.py::test_r5_l2_competitivo_no_json_con_propia_resuelve
+```
+
+MUERTO (en rojo sin el arreglo; en verde: con propia hay un GET, sin
+ella hay dos, y el 200 no-JSON con propia resuelve; sin propia en
+ninguno sigue ausente con respaldo vacio).
+
+### L4 — `UniqueViolation` cruda en el INSERT (`precio_write.py`)
+
+Mutante: sin el `except UniqueViolation` en el INSERT de `cambiar` y
+`revertir` (la carrera entre el chequeo de abiertos y el INSERT
+tumbaba la corrida con traceback en vez de devolver un resultado).
+
+```text
+E           psycopg.errors.UniqueViolation: duplicate key value violates unique constraint "precio_cambio_abierto_unico"
+2 failed (cambiar y revertir)
+```
+
+MUERTO (`test_r5_l4_cambiar_carrera_abierto_entre_chequeo_e_insert_salta`
+y `test_r5_l4_revertir_carrera_abierto_entre_chequeo_e_insert_salta`:
+la fila abierta entra entre el chequeo parcheado a 0 y el INSERT;
+`saltado listing_con_cambio_abierto`, cero PATCH).
+
 ## Ronda r4 (revisión grok + mutante del lead, sobre `8e99ca0`)
 
 Caché de bytecode nueva por corrida (`PYTHONPYCACHEPREFIX=$(mktemp -d)`,
