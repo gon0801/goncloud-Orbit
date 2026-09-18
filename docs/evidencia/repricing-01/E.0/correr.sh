@@ -2,9 +2,12 @@
 # ORBIT · fase 10 · repricing-01 · E.0a
 #
 # Corredor de las consultas de solo lectura de E.0a contra produccion.
-# Copia del de E.1 (docs/evidencia/repricing-01/E.1/correr.sh): mismo
-# pipeline, mismo candado de palabras de escritura, misma escritura atomica
-# y el mismo manifiesto salidas/CORRIDA.txt. Solo cambia esta cabecera.
+# Nacio como copia del de E.1 (docs/evidencia/repricing-01/E.1/correr.sh):
+# mismo pipeline, misma escritura atomica y el mismo manifiesto
+# salidas/CORRIDA.txt. Ademas del candado de palabras de escritura de E.1,
+# este trae tres candados que E.1 no tiene: metacomandos de psql, el
+# estructural (solo-select.py) y la segunda defensa por palabras de control
+# de transaccion (se prueban con prueba-candados.sh).
 #
 # Lo corre el lead (regla 9 del runbook de la Fase 10: solo SELECT, solo
 # por el rol lector ORBIT_DSN_READ, dentro de BEGIN READ ONLY) o el dueno:
@@ -53,6 +56,28 @@ fi
 # los \echo de inicio y fin los agrega este corredor, no los archivos.
 if grep -lF '\' "$CONSULTAS_DIR"/*.sql; then
     echo "ATORADO: una o más consultas en $CONSULTAS_DIR contienen una diagonal invertida (metacomando de psql prohibido; ver arriba)." >&2
+    exit 1
+fi
+
+# Candado estructural (revision de cierre de la Fase 10, grok sobre 7674ee7):
+# cada sentencia de cada archivo de consultas, sin comentarios y respetando
+# los strings, empieza con `select` o `with` (solo-select.py, que tambien
+# rechaza todo `$` y todo comentario de bloque `/* */` fuera de strings, y
+# los strings sin cerrar). Asi `commit;`,
+# `end;`, `END WORK;`, `END/*x*/;`, `do $$...$$`, `set ...`, `revoke` o
+# `call` no llegan a produccion, y un `case ... end` en su propia linea no es
+# falso positivo. Sin python3 no se corre (falla cerrado).
+command -v python3 >/dev/null 2>&1 || { echo "ATORADO: sin python3 no se valida la forma de las consultas" >&2; exit 1; }
+if ! python3 "$DIR/solo-select.py" "$CONSULTAS_DIR"/*.sql; then
+    echo "ATORADO: una o más consultas en $CONSULTAS_DIR traen una sentencia que no es select/with (ver arriba)." >&2
+    exit 1
+fi
+
+# Segunda defensa por palabras: control de transaccion y escrituras
+# indirectas que caben dentro de un select (`select ... into` crea una
+# tabla; `set_config` cambia la sesion aun en READ ONLY).
+if grep -liwE '(commit|rollback|abort|begin|savepoint|release|into|call|execute|prepare|lock|vacuum|listen|notify|refresh|reindex|cluster|discard|reset|merge|comment|security|import|load|do|set|set_config|start|transaction)' "$CONSULTAS_DIR"/*.sql; then
+    echo "ATORADO: una o más consultas en $CONSULTAS_DIR contienen control de transaccion o una escritura indirecta prohibida (ver arriba)." >&2
     exit 1
 fi
 
