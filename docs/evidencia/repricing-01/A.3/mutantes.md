@@ -1,5 +1,69 @@
 # A.3 — Catálogo de mutantes (REPRICING 01, escritura y reversa)
 
+## Ronda r6 (CodeRabbit sobre `2c427ba`, cinco menores)
+
+Caché de bytecode nueva por corrida (`PYTHONPYCACHEPREFIX=$(mktemp -d)`,
+`-p no:cacheprovider`). Todos MUERTOS. (C1 es corrección de texto sin
+mutante: el catálogo decía `status` ausente o `ACCEPTED`, el código
+exige `2xx` + `submissionId` + `status == "ACCEPTED"` explícito.)
+
+### C2 — ilegible tapado por el detector (`tests/test_architecture.py`)
+
+Mutante: volver al `except OSError: continue` en el barrido de PATCH
+crudo y en importadores dinámicos (un fallo de lectura se volvía
+cobertura aparente).
+
+```text
+FAILED tests/test_architecture.py::test_precio_write_frontera_ilegible_cuenta_como_fuga
+FAILED tests/test_architecture.py::test_imports_spapi_write_frontera_ilegible_cuenta_como_fuga
+4 failed, 1 passed, 57 deselected
+```
+
+MUERTO (lo ilegible cuenta como fuga con su nombre; fugas sembradas
+con `chmod 000` sobre `tmp_path`, restaurado en `finally`).
+
+### C3 — verbo buscado en la línea completa (`tests/test_architecture.py`)
+
+Mutante: volver a buscar en la línea con comentarios (`verbo.search`
+sobre la línea entera): un `# PATCH` junto al prefijo bloqueaba CI
+sin escritura ejecutable.
+
+```text
+FAILED tests/test_architecture.py::test_precio_write_frontera_comentario_con_patch_no_es_fuga
+```
+
+MUERTO (se corta el comentario fuera de cadenas antes de buscar y la
+frontera del prefijo es la llamada ejecutable `httpx.patch(...)`;
+pinzada con espacios en
+`test_precio_write_frontera_caza_prefijo_con_llamada_con_espacios`).
+
+### C4 — relativos sin exclusión TYPE_CHECKING (`tests/test_architecture.py`)
+
+Mutante: quitar la exclusión en el recorrido de relativos de nivel 1
+(`ast.walk` puro): un `from .write_client import …` solo-para-tipos
+haría fallar la allowlist.
+
+```text
+FAILED tests/test_architecture.py::test_imports_spapi_write_frontera_type_checking_relativo_no_es_fuga
+```
+
+MUERTO (helper `_es_bloque_type_checking` compartido con
+`_imports_runtime`; recorrido `_nodos_runtime`).
+
+### C5 — lecturas sin limitador (`tools/precio_reversa.py` + `precio_write.py`)
+
+Mutante: quitar el limitador (lecturas del plan y del go sin cubo):
+el lote de dos cambios no espera entre lecturas con el contrato de
+Pricing de `0.5/s`.
+
+```text
+FAILED tests/test_precio_write.py::test_r6_c5_go_comparte_un_cubo_de_pricing
+```
+
+MUERTO (un `CuboTasa(1, 0.5/s)` por corrida viaja por
+`leer_precio_vivo(..., limitador=)` a `_plan`, al pre-read y al
+readback de `revertir`; el test cuenta los `sleep` inyectados).
+
 ## Ronda r5 (revisión cruzada kimi + mutantes del lead, sobre `2ac2eeb`)
 
 Caché de bytecode nueva por corrida (`PYTHONPYCACHEPREFIX=$(mktemp -d)`,
@@ -691,9 +755,8 @@ Sin el fix, `test_r1_m_t4_saltado_no_aborta_el_lote` falla en
 - `escritor._seller_id` (privado, mismo paquete `app.spapi`).
 - `seller_id` real: `VENDEDORES_PROPIOS[MERCADOS[platform]]` (la llave
   es marketplace id; el BRIEF lo abrevia como `[platform]`).
-- Aceptación del ack: 2xx + `submissionId` + `status` ausente o
-  `ACCEPTED`; A.4 confirma la forma exacta (puede endurecerse a exigir
-  siempre `ACCEPTED`).
+- Aceptación del ack: 2xx + `submissionId` + `status == "ACCEPTED"`
+  explícito (r1-A5); un `status` ausente es error, sin excepción.
 - `revertir` exige el original cerrado (el índice único
   `precio_cambio_abierto_unico` impide la reversa con un abierto en el
   mismo listing): revertir un `enviado` aún abierto revienta en la base.
