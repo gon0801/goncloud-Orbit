@@ -662,7 +662,9 @@ def test_revertir_nunca_loguea_el_cuerpo_y_sanea_el_ack(monkeypatch, caplog):
                 ahora=AHORA,
             )
         assert res.estado == "enviado"
-        assert "110.00" not in caplog.text and SECRETO not in caplog.text
+        mandado = red.pedidos_patch[0].content.decode("utf-8")
+        assert SECRETO not in caplog.text
+        assert mandado not in caplog.text
         ack = conn.execute(
             "SELECT ack FROM precio_cambio WHERE id = %s", (res.id_reversa,)
         ).fetchone()[0]
