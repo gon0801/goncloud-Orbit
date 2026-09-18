@@ -513,8 +513,8 @@ def _escribir_y_sellar(
     `error_code = "<METODO> <ruta sin SKU> <status>"`, aunque una lectura
     posterior muestre el precio nuevo. El readback no decide: `ok` si se
     pudo leer (sea cual sea el precio), `fallido` si no. Con `limitador`,
-    el readback consume del cubo del llamador (r6-C5; `cambiar_precio`
-    no lo pasa).
+    el readback consume del cubo del llamador (`cambiar_precio` si lo
+    pasa, r2).
     """
     ruta = _ruta_sin_sku(escritor.seller_id)
     try:

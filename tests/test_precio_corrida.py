@@ -1079,12 +1079,18 @@ def test_freno_forzado_persiste_sin_patch(monkeypatch):
 
 @_skip_sin_pg
 def test_freno_se_evalua_para_cada_goal(monkeypatch):
-    """La corrida evalua el freno de errores por cada goal (cableado)."""
+    """La corrida evalua el freno de errores por cada goal (cableado).
+
+    K9: con DOS goals, el espia ve los dos.
+    """
     import app.precio.corrida as corrida_mod
 
     with _db() as (conn, _dsn):
         datos = _cadena(conn, mode="live")
         _price_obs(conn)
+        prod_b = _producto(conn, sku="SKU-FG-B")
+        lid_b = _listing(conn, prod_b, ext="B0A50000FB", sku="SKU-FG-B")
+        _goal(conn, lid_b, mode="live")
         llamadas = []
         real = corrida_mod.freno_por_error
 
@@ -1095,8 +1101,10 @@ def test_freno_se_evalua_para_cada_goal(monkeypatch):
         monkeypatch.setattr(corrida_mod, "freno_por_error", _espia)
         red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
         res = _corre(conn, red)
-        assert (res.decisiones, res.escritas) == (1, 1)
-        assert llamadas == [(datos["listing"], "amazon_mx", 3)]
+        assert (res.decisiones, res.escritas) == (2, 1)
+        assert sorted(llamadas) == sorted(
+            [(datos["listing"], "amazon_mx", 3), (lid_b, "amazon_mx", 3)]
+        )
 
 
 @_skip_sin_pg
@@ -1445,6 +1453,7 @@ def test_linea_crontab_en_deploy():
     assert "no pasa el entorno del host" in deploy
     assert "13:10 UTC" in deploy
     assert "no toca Amazon" in deploy
+    assert "forma del parche sellada (A.4)" in deploy
 
 
 def test_cli_precio_sin_dsn_fail_closed(monkeypatch, capsys):
@@ -2078,6 +2087,10 @@ def test_goal_futuro_no_se_decide():
         res = _corre(conn, red)
         assert (res.decisiones, res.escritas) == (0, 0)
         assert _cuenta_decisiones(conn) == 0
+        # Regresion de r3: si el goal futuro entrara, la decision no se
+        # podria persistir (sin moneda observable) y quedaria el error.
+        assert res.errores == ()
+        assert res.lineas == ()
 
 
 @_skip_sin_pg
@@ -2740,3 +2753,302 @@ def test_fase3_guardas_explicitas_de_modo():
         assert (escritas2, error2, persistida2) == (0, None, True)
         assert _dec2.motivo == "cuota"
         assert _cuenta_cambios(conn) == 0
+
+
+# ---------------------------------------------------------------------------
+# r4 (BRIEF-r4 sobre c6e57ac)
+# ---------------------------------------------------------------------------
+
+
+@_skip_sin_pg
+def test_motivo_fuera_de_vocabulario_da_desconocido():
+    """R3-nodisp-vocab: motivo raro sale `estimacion_motivo_desconocido`."""
+    with _db() as (conn, _dsn):
+        prod = _producto(conn, sku="ODOO-SKU-R4-A")
+        lid = _listing(conn, prod, ext="B0A50000RA", sku="SKU-R4-A")
+        _config(conn)
+        _goal(conn, lid, mode="live")
+        marca = datetime.now(UTC)
+        oferta = _oferta_obs(
+            conn,
+            lid,
+            ext="B0A50000RA",
+            sku="SKU-R4-A",
+            huella="ctx-R4-A",
+            fetched=marca,
+            observed=marca,
+        )
+        pol = _politica(conn)
+        costo_id = _costo(conn, prod)
+        run_id, validada_en = _run(conn)
+        _escenario(
+            conn,
+            lid,
+            oferta,
+            None,
+            pol,
+            costo_id,
+            run_id,
+            validada_en,
+            ext="B0A50000RA",
+            sku="SKU-R4-A",
+            huella="ctx-R4-A",
+            estado="incompleta",
+            motivos=["motivo_raro_zzz"],
+        )
+        _price_obs(conn, asin="B0A50000RA")
+        red = _RedFalsa(skus={"oferta-SKU-R4-A": "SKU-R4-A"})
+        res = _corre(conn, red)
+        assert (res.decisiones, res.escritas) == (1, 0)
+        fila = conn.execute(
+            "SELECT resultado, motivo FROM precio_decision WHERE listing_id = %s", (lid,)
+        ).fetchone()
+        assert fila == ("no_evaluado", "estimacion_motivo_desconocido")
+
+
+@_skip_sin_pg
+def test_fase1_error_de_base_aborta_y_libera_lock(monkeypatch):
+    """R3-fase1-traga-db: `psycopg.Error` en fase 1 sale y libera el lock."""
+    from psycopg.errors import OperationalError
+
+    import app.precio.corrida as corrida_mod
+
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn, mode="live")
+        _price_obs(conn)
+        red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
+
+        def _base_caida(*args, **kwargs):
+            raise OperationalError("conexion perdida")
+
+        for punto in ("armar_entrada", "cotizar_y_decidir"):
+            monkeypatch.setattr(corrida_mod, punto, _base_caida)
+            with pytest.raises(OperationalError):
+                _corre(conn, red)
+            monkeypatch.undo()
+        res = _corre(conn, red)
+        assert (res.decisiones, res.escritas) == (1, 1)
+
+
+@_skip_sin_pg
+def test_sin_autocommit_aborta_antes_del_lock():
+    """R3-autocommit: sin autocommit, `ValueError` antes de tomar el lock."""
+    import psycopg as _psycopg
+
+    from app.precio.corrida import correr
+
+    with _db() as (conn, dsn):
+        _config(conn)
+        cruda = _psycopg.connect(dsn)
+        try:
+            # El mensaje nombra a `correr` (el de `cambiar_precio` llega
+            # tarde, en fase 3: con el chequeo quitado el test muere).
+            with pytest.raises(ValueError, match="correr exige"):
+                correr(
+                    cruda,
+                    "amazon_mx",
+                    lector=None,
+                    escritor=None,
+                    fees=None,
+                    limitador=None,
+                    owner="tdd",
+                )
+        finally:
+            cruda.close()
+        red = _RedFalsa()
+        assert _corre(conn, red).decisiones == 0
+
+
+@_skip_sin_pg
+def test_reporte_con_fallo_sale_1_scrubbeado(monkeypatch, capsys):
+    """R3-reporte-scrub: fallo en `reporte` = exit 1, scrubbeado, sin traceback."""
+    import app.precio.corrida as corrida_mod
+    from app import cli as cli_mod
+    from app.redaction import register_secret
+
+    register_secret("s3cr3t-r4")
+
+    def _reporte_roto(*a, **k):
+        raise RuntimeError("boom s3cr3t-r4")
+
+    with _db() as (conn, _dsn):
+        monkeypatch.setattr(corrida_mod, "reporte", _reporte_roto)
+        monkeypatch.setenv("ORBIT_DSN_READ", "postgresql://falso/db")
+        monkeypatch.setattr(cli_mod, "connect", lambda *a, **k: conn)
+        codigo = cli_mod.main(
+            [
+                "precio",
+                "--reporte",
+                "--platform",
+                "amazon_mx",
+                "--desde",
+                "2026-09-01",
+                "--hasta",
+                "2026-09-02",
+            ]
+        )
+        assert codigo == 1
+        err = capsys.readouterr().err
+        assert "s3cr3t-r4" not in err
+        assert "Traceback" not in err
+
+
+@_skip_sin_pg
+def test_dia_de_estado_es_utc():
+    """R3-utc-dia: con la sesion en otra zona, el dia de estado es UTC."""
+    from app.precio.corrida import _insumos_ventas
+
+    with _db() as (conn, _dsn):
+        prod = _producto(conn, sku="ODOO-SKU-R4-U")
+        _listing(conn, prod, ext="B0A50000RU", sku="SKU-R4-U")
+        hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+        madrugada = datetime(hoy.year, hoy.month, hoy.day, 1, 0, tzinfo=UTC)
+        conn.execute("SET TIME ZONE 'America/Mexico_City'")
+        conn.execute(
+            "INSERT INTO spapi_listing_estado_observation (seller_sku, platform,"
+            " status, api_version, observed_at)"
+            " VALUES (%s, 'amazon_mx', 'BUYABLE', 'v1', %s)",
+            ("SKU-R4-U", madrugada),
+        )
+        insumos = _insumos_ventas(conn, product_id=prod, platform="amazon_mx", sku="SKU-R4-U")
+        assert insumos.listing_activo == ((hoy, True),)
+
+
+@_skip_sin_pg
+def test_saltado_sin_fila_gasta_cupo():
+    """K1: el `live` saltado (vivo distinto) deja `used = 1` sin filas."""
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn, mode="live")
+        _price_obs(conn)
+        red = _RedFalsa(skus={datos["evento"]: datos["sku"]}, precio_vivo="999.00")
+        res = _corre(conn, red)
+        assert (res.decisiones, res.escritas) == (1, 0)
+        assert _decision_unica(conn)[0] == "subir"
+        assert _cuenta_cambios(conn) == 0
+        hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+        usado = conn.execute(
+            "SELECT used FROM apply_quota_state"
+            " WHERE motor = 'precio:amazon_mx' AND quota_date = %s",
+            (hoy,),
+        ).fetchone()[0]
+        assert usado == 1
+
+
+@_skip_sin_pg
+def test_latido_por_goal():
+    """K2: con dos goals, `heartbeat_at` queda posterior al `claimed_at`."""
+    with _db() as (conn, _dsn):
+        a = _cadena(conn, sku="SKU-R4-LA", ext="B0A50000LA", mode="live")
+        b = _cadena(conn, sku="SKU-R4-LB", ext="B0A50000LB", mode="live")
+        _price_obs(conn, asin="B0A50000LA")
+        _price_obs(conn, asin="B0A50000LB")
+        vistos = []
+
+        def _avisar(c, p, h, r):
+            fila = c.execute(
+                "SELECT claimed_at, heartbeat_at FROM ads_optimizer_lock"
+                " WHERE job_key = 'precio:amazon_mx'"
+            ).fetchone()
+            vistos.append(fila)
+
+        red = _RedFalsa(skus={a["evento"]: a["sku"], b["evento"]: b["sku"]})
+        res = _corre(conn, red, avisar=_avisar)
+        assert (res.decisiones, res.escritas) == (2, 2)
+        assert len(vistos) == 1
+        assert vistos[0][1] is not None and vistos[0][1] > vistos[0][0]
+
+
+@_skip_sin_pg
+def test_advisory_ajeno_no_espera():
+    """K2: con el advisory en otra sesion, `LockOcupado` sin esperar."""
+    import time as _time
+
+    import psycopg as _psycopg
+
+    with _db() as (conn, dsn):
+        datos = _cadena(conn, mode="live")
+        _price_obs(conn)
+        otra = _psycopg.connect(dsn, autocommit=True)
+        try:
+            otra.execute("SELECT pg_advisory_lock(hashtext('precio:amazon_mx'))")
+            red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
+            resultados = []
+
+            def _hilo():
+                try:
+                    resultados.append(_corre(conn, red, owner="tdd-adv"))
+                except LockOcupado:
+                    resultados.append("ocupado")
+
+            hilo = threading.Thread(target=_hilo)
+            inicio = _time.monotonic()
+            hilo.start()
+            hilo.join(timeout=30)
+            assert not hilo.is_alive()
+            assert resultados == ["ocupado"]
+            assert _time.monotonic() - inicio < 30
+        finally:
+            otra.close()
+
+
+@_skip_sin_pg
+def test_soltar_que_falla_no_enmascara(monkeypatch, caplog):
+    """K4: si `_soltar_lock` revienta en el `finally`, sale la original."""
+    import logging
+
+    import app.precio.corrida as corrida_mod
+    from app.redaction import register_secret
+
+    register_secret("s3cr3t-r4b")
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn, mode="live")
+        _price_obs(conn)
+
+        def _soltar_roto(*a):
+            raise RuntimeError("soltar caido s3cr3t-r4b")
+
+        def _muere(*a, **k):
+            raise RuntimeError("falla madre")
+
+        monkeypatch.setattr(corrida_mod, "_soltar_lock", _soltar_roto)
+        monkeypatch.setattr(corrida_mod, "repartir_cupo", _muere)
+        red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
+        with (
+            caplog.at_level(logging.ERROR, logger="app.precio.corrida"),
+            pytest.raises(RuntimeError, match="falla madre"),
+        ):
+            _corre(conn, red)
+        texto = "\n".join(r.getMessage() for r in caplog.records)
+        assert "s3cr3t-r4b" not in texto
+        assert "soltar lock" in texto
+
+
+def test_diagnostico_con_secreto_no_sale_en_log(caplog):
+    """K6: el diagnostico de `_no_evaluado`/`_frenado` va con `scrub`."""
+    import logging
+    from decimal import Decimal
+
+    from app.precio.corrida import _frenado, _no_evaluado
+    from app.redaction import register_secret
+
+    register_secret("s3cr3t-r4c")
+    with caplog.at_level(logging.INFO, logger="app.precio.corrida"):
+        _no_evaluado(Decimal("0.30"), "live", "precio_ausente", "diag s3cr3t-r4c")
+        _frenado(Decimal("0.30"), "live", "api_error", "diag s3cr3t-r4c")
+    texto = "\n".join(r.getMessage() for r in caplog.records)
+    assert "s3cr3t-r4c" not in texto
+
+
+@_skip_sin_pg
+def test_config_invalida_sale_2(monkeypatch, capsys):
+    """K8: cap fuera de cota al arrancar = exit 2 que nombra la clave."""
+    from app import cli as cli_mod
+
+    with _db() as (conn, _dsn):
+        _config(conn, {**SETTINGS, "precio_cap_amazon_mx": 99})
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", "postgresql://falso/db")
+        monkeypatch.setattr(cli_mod, "_conexion_decide", lambda: (conn, lambda: None))
+        monkeypatch.setattr(cli_mod, "_clientes_precio", lambda platform: ("l", "e", "f", "cubo"))
+        codigo = cli_mod.main(["precio", "--platform", "amazon_mx"])
+        assert codigo == 2
+        assert "precio_cap_amazon_mx" in capsys.readouterr().err

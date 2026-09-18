@@ -549,6 +549,10 @@ def _precio(args: argparse.Namespace) -> int:
             limitador=limitador,
             owner=f"{socket.gethostname()}:{os.getpid()}",
         )
+    except corrida_precios.ConfigInvalida as exc:
+        # K8 (r4): config ausente o uso invalido = exit 2 (ver `main`).
+        print(f"precio: {exc}", file=sys.stderr)
+        return 2
     except corrida_precios.LockOcupado as exc:
         print(f"precio: {exc}", file=sys.stderr)
         return 0

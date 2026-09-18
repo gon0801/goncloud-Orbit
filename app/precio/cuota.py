@@ -1,11 +1,17 @@
 """Cupo diario del motor de precios (REPRICING 01 A.5, S4 #12).
 
 El motor es `precio:<platform>` en `apply_quota_state` (la 0039 lo mapea
-en `apply_cap_de_config`; las cuotas de Ads no se tocan). Consumen cupo
-los cambios reales del dia (pendiente/enviado/error/confirmado/
-no_confirmado: el intento ya salio) y las reversas del dia (las corre el
-dueno fuera de la corrida: se descuentan por consulta). El virtual de
-sombra (`aplicado = false`) no consume.
+en `apply_cap_de_config`; las cuotas de Ads no se tocan). Consume cada
+intento reservado (K1, r4): `reservar` cobra la unidad ANTES de
+`cambiar_precio`, y un `saltado` sin fila (`precio_vivo_distinto`,
+`sin_precio_vivo`, `listing_con_cambio_abierto`) no la devuelve. **No se
+devuelve**: el trigger `apply_quota_used_creciente` de la 0002 sella que
+`used` jamas decrece (descontar un consumo reescribiria la historia del
+dia y el cap dejaria de ser un tope). `used` es monotono por la 0002, y
+por eso `used` puede ser mayor que las filas reales de `precio_cambio`
+del dia. Las reversas del dia las corre el dueno fuera de la corrida y se
+descuentan por consulta. El virtual de sombra (`aplicado = false`) no
+consume.
 
 La reserva es atomica con el patron copiado de `app/apply.py` (NO se
 importa: `app.precio` no puede importar `app.apply`): INSERT + ON

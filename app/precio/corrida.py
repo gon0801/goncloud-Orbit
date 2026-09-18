@@ -91,6 +91,11 @@ class LockOcupado(Exception):
     """El claim `precio:<platform>` lo tiene otro dueno: no se decide."""
 
 
+class ConfigInvalida(ValueError):
+    """La config no sirve para correr (cap fuera de cota, clave ausente):
+    error de uso/config, no un fallo de la corrida (K8: el CLI sale 2)."""
+
+
 @dataclass
 class Resumen:
     """Lo que imprime el CLI: lineas por goal + `decisiones=N escritas=M`."""
@@ -127,15 +132,24 @@ _SQL_LIBERAR = "DELETE FROM ads_optimizer_lock WHERE job_key = %s AND owner = %s
 # Advisory de la corrida: el de sesion, no el transaccional (S5 exige
 # autocommit para INSERT+COMMIT -> PATCH: un xact-lock moriria en el
 # primer COMMIT; desviacion declarada del `pg_advisory_xact_lock` de S5).
-_SQL_ADVISORY_TOMAR = "SELECT pg_advisory_lock(hashtext('precio:' || %s))"
+# Con tope cero: `pg_try_advisory_lock` (K2, r4) en vez de esperar sin
+# tope; si no se obtiene, se suelta el claim propio y sale `LockOcupado`
+# de inmediato (el `finally` ya libera lo propio).
+_SQL_ADVISORY_TOMAR = "SELECT pg_try_advisory_lock(hashtext('precio:' || %s))"
 _SQL_ADVISORY_SOLTAR = "SELECT pg_advisory_unlock(hashtext('precio:' || %s))"
+
+# Latido del claim (K2, r4): patron `_SQL_HEARTBEAT` de `app/cycle.py`
+# l.374, copiado, no importado (`cycle` trae `app.apply`).
+_SQL_LATIDO = "UPDATE ads_optimizer_lock SET heartbeat_at = now() WHERE job_key = %s AND owner = %s"
 
 
 def _tomar_lock(conn: psycopg.Connection, platform: str, owner: str) -> None:
     fila = conn.execute(_SQL_CLAIM, (motor_lock(platform), owner, _TTL_LOCK_SEGUNDOS)).fetchone()
     if fila is None:
         raise LockOcupado(f"{motor_lock(platform)} en curso (owner distinto de {owner})")
-    conn.execute(_SQL_ADVISORY_TOMAR, (platform,)).fetchone()
+    if not conn.execute(_SQL_ADVISORY_TOMAR, (platform,)).fetchone()[0]:
+        conn.execute(_SQL_LIBERAR, (motor_lock(platform), owner))
+        raise LockOcupado(f"{motor_lock(platform)} en curso (advisory en otra sesion)")
 
 
 def _soltar_lock(conn: psycopg.Connection, platform: str, owner: str) -> None:
@@ -143,6 +157,18 @@ def _soltar_lock(conn: psycopg.Connection, platform: str, owner: str) -> None:
         conn.execute(_SQL_ADVISORY_SOLTAR, (platform,)).fetchone()
     finally:
         conn.execute(_SQL_LIBERAR, (motor_lock(platform), owner))
+
+
+def _latir_claim(conn: psycopg.Connection, platform: str, owner: str) -> None:
+    """Latido del claim por goal (K2, r4): `heartbeat_at = now()`.
+
+    Fail-open como `cycle` (el TTL es el backstop): un latido fallido se
+    registra con `scrub` y no tumba la corrida.
+    """
+    try:
+        conn.execute(_SQL_LATIDO, (motor_lock(platform), owner))
+    except psycopg.Error as exc:
+        logger.warning("corrida latido fallo (TTL es el backstop): %s", scrub(str(exc)))
 
 
 # La huerfana (d): COMMIT sin PATCH detectada al arrancar, con el lock ya
@@ -405,7 +431,6 @@ def armar_entrada(
         raise EscenarioNoDisponible(
             esc.motivos[0] if esc.motivos else "estimacion_motivo_desconocido", esc.id
         )
-    motivo_estimacion = None
 
     fila_ids = conn.execute(
         "SELECT oferta_observation_id, fee_observation_id FROM estimacion_escenario WHERE id = %s",
@@ -543,7 +568,9 @@ def armar_entrada(
             cambios=cambios_previos(conn, listing_id, platform),
             historial=historial_margenes(conn, listing_id, platform),
             goal_vigente_desde=goal_vigente_desde,
-            motivo_estimacion=motivo_estimacion,
+            # K5 (r4): el motivo real viaja por `EscenarioNoDisponible`,
+            # nunca por la entrada (sin variable intermedia).
+            motivo_estimacion=None,
             buy_box_is_own=buy_box,
         ),
         ids,
@@ -638,7 +665,8 @@ def _ingreso_60d(
 
 def _no_evaluado(goal: Decimal, mode: str, motivo: str, diagnostico: str = "") -> Decision:
     if diagnostico:
-        logger.info("corrida no_evaluado %s: %s", motivo, diagnostico)
+        # K6 (r4): el diagnostico puede traer texto de la excepcion.
+        logger.info("corrida no_evaluado %s: %s", motivo, scrub(diagnostico))
     return Decision(
         resultado="no_evaluado",
         motivo=motivo,
@@ -661,7 +689,8 @@ def _no_evaluado(goal: Decimal, mode: str, motivo: str, diagnostico: str = "") -
 
 
 def _frenado(goal: Decimal, mode: str, motivo: str, diagnostico: str) -> Decision:
-    logger.info("corrida frenado %s: %s", motivo, diagnostico)
+    # K6 (r4): el diagnostico puede traer texto de la excepcion.
+    logger.info("corrida frenado %s: %s", motivo, scrub(diagnostico))
     return Decision(
         resultado="frenado",
         motivo=motivo,
@@ -1094,7 +1123,8 @@ def _fase3_uno(
         # K4: las reversas se cuentan al reservar, no solo al arrancar (el
         # dueno puede revertir a media corrida). B7: defensa en profundidad
         # (el invariante lo sostienen `reglas` y el chequeo de `cambiar_precio`):
-        # el PATCH solo en `live`.
+        # el PATCH solo en `live`. K1: la reserva cobra aunque `cambiar_precio`
+        # salte sin fila (no se devuelve: `used` es monotono por la 0002).
         reservado = (
             compite
             and decision.mode == "live"
@@ -1387,15 +1417,20 @@ def correr(
     if not conn.autocommit:
         raise ValueError("correr exige conexión en autocommit: cada bloque confirma al salir (S5)")
     # D1 (r3): settings e `id` de la `config_version` vigente en UNA consulta.
-    fila_cfg = conn.execute(
-        "SELECT id, settings FROM config_version ORDER BY id DESC LIMIT 1"
-    ).fetchone()
-    if fila_cfg is None:
-        raise ValueError("config sin precio_catalogo_max_dias_sin_reportar: sin config_version")
-    cfg_id, settings = fila_cfg
-    config = leer_config(settings)
-    cap = cuota_mod.validar_cap(settings, platform)
-    freno_dias = validar_freno_dias_error(settings)
+    # K8 (r4): lo de config sale como `ConfigInvalida` (subclase de
+    # `ValueError`: los tests que esperan `ValueError` siguen pasando).
+    try:
+        fila_cfg = conn.execute(
+            "SELECT id, settings FROM config_version ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if fila_cfg is None:
+            raise ValueError("config sin precio_catalogo_max_dias_sin_reportar: sin config_version")
+        cfg_id, settings = fila_cfg
+        config = leer_config(settings)
+        cap = cuota_mod.validar_cap(settings, platform)
+        freno_dias = validar_freno_dias_error(settings)
+    except ValueError as exc:
+        raise ConfigInvalida(str(exc)) from exc
     ahora_raw = conn.execute("SELECT now() AT TIME ZONE 'UTC'").fetchone()[0]
     ahora = ahora_raw.replace(tzinfo=UTC)
     hoy = ahora.date()
@@ -1433,6 +1468,7 @@ def correr(
         for lid, plat, mode, goal_pct, vigente_desde, prod_id in goals:
             if lid in decididas:
                 continue
+            _latir_claim(conn, platform, owner)
             _fase1_uno(
                 conn,
                 lid=lid,
@@ -1472,6 +1508,7 @@ def correr(
         por_lid = {lid_p: (meta_p, prod_p) for (lid_p, _d, meta_p, prod_p) in plan}
         modos = {lid_g: mode_g for (lid_g, _p, mode_g, _g, _v, _r) in goals}
         for lid, decision in repartidos.items():
+            _latir_claim(conn, platform, owner)
             meta, prod_id = por_lid[lid]
             (
                 decision,
@@ -1526,7 +1563,12 @@ def correr(
                 resumen = replace(resumen, errores=resumen.errores + (msg,))
         return resumen
     finally:
-        _soltar_lock(conn, platform, owner)
+        try:
+            _soltar_lock(conn, platform, owner)
+        except Exception as exc:  # noqa: BLE001 - K4: registra, no enmascara la original
+            logger.error(
+                "corrida %s", scrub(f"soltar lock {platform}: {exc.__class__.__name__}: {exc}")
+            )
 
 
 def _cuota_reescrita(decision: Decision) -> Decision:

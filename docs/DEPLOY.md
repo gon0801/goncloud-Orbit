@@ -394,8 +394,9 @@ crontab de `gon` (la prueba `test_linea_crontab_en_deploy` la pinza de
 Antes de instalar la línea: la 0039 aplicada y las claves `precio_*`
 sembradas (D.0); `ORBIT_DSN_DECIDE` presente **dentro** de `orbit-app-1`
 (`docker exec` no pasa el entorno del host); el pase diario de Pricing
-(`spapi_price_observation`) corre antes de las 13:10 UTC; y la corrida solo
-aplica goals `live` (sin goals o todos en `shadow`, no toca Amazon).
+(`spapi_price_observation`) corre antes de las 13:10 UTC; la corrida solo
+aplica goals `live` (sin goals o todos en `shadow`, no toca Amazon); y la
+forma del parche sellada (A.4): antes de A.4 solo goals en `shadow`.
 
 `job_key` del ciclo es `app.cycle.job_key_de` (`ads_optimizer:<platform>`),
 la misma fuente que el CLI. Los de ingesta quedan como comentario en el

@@ -1,5 +1,29 @@
 # A.5 — Catálogo de mutantes (REPRICING 01, carril A)
 
+## r4 (BRIEF-r4, sobre el árbol final de r4)
+
+6 de la tabla A + 8 de los puntos K (14), sembrados uno por uno sobre el
+árbol final (idéntico a lo commiteado) con restauración verificada por
+hash (`sha256` pre/post por archivo) y pycache fresca por mutante
+(`PYTHONPYCACHEPREFIX=$(mktemp -d)` por mutante). **Cero sobrevivientes.**
+
+| Id | Lo que fija | Cambio exacto sembrado | Test que lo mata | Veredicto |
+|---|---|---|---|---|
+| LA-goal-futuro | el goal futuro no entra (regresión r3) | `g.valid_from <= %s` → `(… OR true)` | `test_goal_futuro_no_se_decide` | MUERTO (exit 1): entra, no persiste y deja `errores` |
+| R3-nodisp-vocab | motivo fuera de vocabulario → desconocido | `if motivo_permitido(…)` → `if True` | `test_motivo_fuera_de_vocabulario_da_desconocido` | MUERTO (exit 1): persiste el motivo raro |
+| R3-fase1-traga-db | `psycopg.Error` en fase 1 sale y libera | se quitan los dos `except psycopg.Error: raise` de `_fase1_uno` | `test_fase1_error_de_base_aborta_y_libera_lock` | MUERTO (exit 1): el error queda registrado y no sale |
+| R3-autocommit | sin autocommit, `ValueError` antes del lock | `if not conn.autocommit:` → `if False:` | `test_sin_autocommit_aborta_antes_del_lock` | MUERTO (exit 1): el mensaje tardío es el de `cambiar_precio` (el test matchea «correr exige») |
+| R3-reporte-scrub | fallo en `--reporte` = exit 1 scrubbeado | se quita el `except` D7 | `test_reporte_con_fallo_sale_1_scrubbeado` | MUERTO (exit 1): traceback crudo |
+| R3-utc-dia | el día de estado es UTC | `obs.astimezone(UTC).date()` → `obs.date()` | `test_dia_de_estado_es_utc` | MUERTO (exit 1): cuenta el día de CDMX |
+| K1-reserva-cobra | el saltado sin fila deja `used = 1` | `reservar` jamás reserva (`if True:`) | `test_saltado_sin_fila_gasta_cupo` | MUERTO (exit 1): `used` ausente |
+| K2-sin-latido | latido por goal en fases 1 y 3 | `pass` en vez del `UPDATE` de latido | `test_latido_por_goal` | MUERTO (exit 1): `heartbeat_at` NULL |
+| K2-advisory-bloqueante | `LockOcupado` sin esperar | `pg_try_advisory_lock` → `pg_advisory_lock` | `test_advisory_ajeno_no_espera` | MUERTO (exit 1): el hilo sigue vivo a los 30 s |
+| K3-frase-a4 | DEPLOY §cron: previo A.4 | se quita el renglón A.4 | `test_linea_crontab_en_deploy` | MUERTO (exit 1): falta la frase |
+| K4-soltar-mudo | soltar que falla se registra, no enmascara | el `except` del `finally` → `pass` | `test_soltar_que_falla_no_enmascara` | MUERTO (exit 1): «soltar lock» no sale |
+| K6-log-crudo | diagnóstico con `scrub` en INFO | `scrub(diagnostico)` → crudo (×2) | `test_diagnostico_con_secreto_no_sale_en_log` | MUERTO (exit 1): el secreto sale |
+| K8-sale-1 | config inválida = exit 2 | `return 2` → `return 1` | `test_config_invalida_sale_2` | MUERTO (exit 1): sale 1 |
+| K9-solo-primer-goal | el freno se evalúa por cada goal | loop sobre `goals[:1]` | `test_freno_se_evalua_para_cada_goal` | MUERTO (exit 1): el espía ve un solo goal |
+
 ## r3 (BRIEF-r3, sobre el árbol final de r3)
 
 Uno por punto de B y C (14), sembrados uno por uno sobre el árbol final
