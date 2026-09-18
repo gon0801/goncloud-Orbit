@@ -92,3 +92,15 @@ Notas r1:
 | M1: `os` fuera de `_PROHIBIDOS_IMPORTS_FUENTES` | `test_candado_imports_fuentes_caza_from_os_getenv` (solo ese: `time` e `importlib` siguen rojos) | MUERTO |
 | M2: `_usos_reloj` devuelve `[]` siempre | `test_candado_reloj_fuentes_caza_fuga_sembrada` (r1) y `test_candado_reloj_fuentes_caza_os_environ` (r2) | MUERTO |
 | M3: `_escritura_en_fuentes` otra vez sobre el texto completo | `test_candado_escritura_fuentes_ignora_import_deepcopy`, `test_candado_escritura_fuentes_ignora_comentario` y `test_candado_select_fuentes_caza_fugas_sembradas` (la fuga `INSERT\` + `n` escapado solo cuadra sobre el valor decodificado: fija el `\s+` multilinea) | MUERTO |
+
+## r3 (2026-09-18 UTC, sobre `680dda2`, base real, restaurando con copia en `/tmp`)
+
+| Mutante | Lo que mata | Salida |
+|---|---|---|
+| M1r3: `except OrbitDbError` sin `Abortar` en el tool | `test_tool_sin_dsn_read_es_exit_2_sin_traceback` | MUERTO |
+| M2r3a: sin validacion del negativo en `tools/precio_cobertura.py` | `test_tool_puente_activas_negativo_es_exit_2` | MUERTO |
+| M2r3b: sin validacion del negativo en `recuadro_desde_salidas.py` | `test_recuadro_puente_activas_negativo_es_exit_2` | MUERTO |
+| M3r3: `GRANT INSERT ON precio_goal TO app_read` sembrado en la base de la prueba | `test_app_read_no_escribe_tablas_de_fuentes` (el INSERT pasa y el candado sale rojo) | MUERTO |
+
+Sin excepciones por trigger: las seis tablas rechazan el INSERT por
+permiso bajo `app_read`; ninguna se prueba por otra via.

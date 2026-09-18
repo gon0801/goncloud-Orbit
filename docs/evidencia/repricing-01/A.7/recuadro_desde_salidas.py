@@ -129,6 +129,8 @@ def main(argv=None) -> int:
     ap.add_argument("--max-dias-sin-reportar", required=True, type=int)
     ap.add_argument("--puente-activas", required=False, default=None, type=int)
     args = ap.parse_args(argv)
+    if args.puente_activas is not None and args.puente_activas < 0:
+        ap.error("--puente-activas debe ser mayor o igual que cero")
     rec = recuadro_desde_archivos(
         args.canonicas,
         args.canales,

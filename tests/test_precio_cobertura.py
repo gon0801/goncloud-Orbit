@@ -780,6 +780,104 @@ def test_tool_error_de_base_es_exit_2_sin_traceback():
         admin.close()
 
 
+def test_tool_sin_dsn_read_es_exit_2_sin_traceback():
+    """CR1: sin `ORBIT_DSN_READ` en el entorno, mensaje y exit 2 (no traceback)."""
+    env = dict(os.environ)
+    env.pop("ORBIT_DSN_READ", None)
+    env["ORBIT_DSN_ADMIN"] = "postgresql://orbit:orbit@127.0.0.1:1/nula"
+    env["ORBIT_DSN_DECIDE"] = "postgresql://orbit:orbit@127.0.0.1:1/nula"
+    env.pop("ORBIT_PG_HOST", None)
+    env["PYTHONPATH"] = RAIZ.as_posix()
+    res = subprocess.run(
+        [sys.executable, "tools/precio_cobertura.py", "--platform", "amazon_mx"],
+        capture_output=True,
+        text=True,
+        cwd=RAIZ,
+        env=env,
+    )
+    assert res.returncode == 2
+    assert res.stderr.startswith("precio_cobertura: ")
+    assert "Traceback" not in res.stderr
+
+
+def test_tool_puente_activas_negativo_es_exit_2():
+    """CR2: `--puente-activas -1` es `ap.error` (exit 2 de argparse)."""
+    res = _tool("--platform", "amazon_mx", "--puente-activas", "-1", dsn="postgresql://nula")
+    assert res.returncode == 2
+    assert "--puente-activas debe ser mayor o igual que cero" in res.stderr
+
+
+def test_recuadro_puente_activas_negativo_es_exit_2(tmp_path):
+    """CR2: `--puente-activas -1` en `recuadro_desde_salidas.py` es exit 2."""
+    res = subprocess.run(
+        [
+            sys.executable,
+            "docs/evidencia/repricing-01/A.7/recuadro_desde_salidas.py",
+            "--canonicas",
+            str(tmp_path / "noexiste"),
+            "--canales",
+            str(tmp_path / "noexiste"),
+            "--goals",
+            str(tmp_path / "noexiste"),
+            "--decisiones",
+            str(tmp_path / "noexiste"),
+            "--puente",
+            str(tmp_path / "noexiste"),
+            "--hoy",
+            str(tmp_path / "noexiste"),
+            "--platform",
+            "amazon_mx",
+            "--max-dias-sin-reportar",
+            "3",
+            "--puente-activas",
+            "-1",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=RAIZ,
+        env={**os.environ, "PYTHONPATH": RAIZ.as_posix()},
+    )
+    assert res.returncode == 2
+    assert "--puente-activas debe ser mayor o igual que cero" in res.stderr
+
+
+@_skip_sin_pg
+def test_app_read_no_escribe_tablas_de_fuentes():
+    """CR3: `app_read` (el rol que usa `ORBIT_DSN_READ`) solo lee: un INSERT
+    en cada tabla que lee `fuentes.py` muere por permiso, y el SELECT pasa."""
+    with _db() as (conn, _dsn):
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        validos = (
+            "INSERT INTO spapi_listing_estado_observation"
+            " (seller_sku, platform, status, api_version, observed_at)"
+            " VALUES ('SKU-X', 'amazon_mx', 'BUYABLE', 'v1', '2026-09-01 00:00:00+00')",
+            "INSERT INTO listing (product_id, platform, external_id, seller_sku)"
+            f" VALUES ({prod}, 'amazon_mx', 'ASIN-X', 'SKU-X')",
+            "INSERT INTO estimacion_oferta_observation (listing_id, platform, seller_sku,"
+            " asin, canal, price_amount, price_currency, fetched_at, observed_at,"
+            " source_event_id, canonical_input, context_fingerprint)"
+            f" VALUES ({lid}, 'amazon_mx', 'SKU-X', 'ASIN-X', 'fba', 116, 'MXN',"
+            " '2026-09-01 00:00:00+00', '2026-09-01 00:00:00+00', 'x', '{}', 'x')",
+            "INSERT INTO precio_goal (listing_id, platform, margen_goal_pct, mode,"
+            " valid_from, creado_por, go_literal)"
+            f" VALUES ({lid}, 'amazon_mx', 0.30, 'shadow', '2026-09-01', 't', NULL)",
+            "INSERT INTO precio_decision (listing_id, platform, resultado, motivo,"
+            " p_actual_currency, p_objetivo_currency, p_aplicado_currency, i_currency,"
+            " c_currency, f_currency, l_currency, r_currency, mode)"
+            f" VALUES ({lid}, 'amazon_mx', 'mantener', 'candado', {_MONEDAS}, 'shadow')",
+            "INSERT INTO config_version (label, settings) VALUES ('candado-cr3', '{}')",
+        )
+        try:
+            conn.execute("SET ROLE app_read")
+            for sentencia in validos:
+                with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                    conn.execute(sentencia)
+            assert conn.execute("SELECT count(*) FROM precio_goal").fetchone()[0] == 0
+        finally:
+            conn.execute("RESET ROLE")
+
+
 @_skip_sin_pg
 def test_tool_config_sin_clave_es_exit_2_sin_traceback():
     """K6: un `ValueError` de settings (config sin la clave) sale mensaje y exit 2."""

@@ -1886,8 +1886,12 @@ def test_candado_dinamico_fuentes_caza_dunder_import(tmp_path):
 
 
 def test_fuentes_solo_select():
-    """A.7: `fuentes.py` es lectura (cero verbos de escritura en el texto,
-    multilinea incluidos)."""
+    """A.7 r3-CR3: candado lexico complementario de `fuentes.py` (cero
+    verbos de escritura en las constantes de texto, multilinea incluidos;
+    no ve `CALL`/`DO` ni funciones con efectos dentro de un `SELECT`). La
+    garantia de solo lectura es el rol `app_read`: ver
+    `test_app_read_no_escribe_tablas_de_fuentes` en
+    `tests/test_precio_cobertura.py`."""
     assert _escritura_en_fuentes(PRECIO / "fuentes.py") == []
 
 

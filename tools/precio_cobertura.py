@@ -55,12 +55,14 @@ def main(argv=None) -> int:
     ap.add_argument("--platform", required=True, choices=("amazon_mx", "amazon_us", "meli"))
     ap.add_argument("--puente-activas", required=False, default=None, type=int)
     args = ap.parse_args(argv)
+    if args.puente_activas is not None and args.puente_activas < 0:
+        ap.error("--puente-activas debe ser mayor o igual que cero")
     if args.platform == "meli":
         print("activas=unknown: sin fuente canonica de MeLi en Orbit (hecho 6; la trae M.3b)")
         return 0
     try:
         conn = connect(_dsn_read())
-    except OrbitDbError as exc:
+    except (OrbitDbError, Abortar) as exc:
         print(f"precio_cobertura: {exc}", file=sys.stderr)
         return 2
     try:
