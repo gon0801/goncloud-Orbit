@@ -102,6 +102,25 @@ ALLOWLIST_TAMANO = {
 }
 
 
+def _es_bloque_type_checking(nodo: ast.stmt) -> bool:
+    """`if TYPE_CHECKING:` / `if typing.TYPE_CHECKING:` (solo tipos, no runtime)."""
+    if not isinstance(nodo, ast.If):
+        return False
+    test = nodo.test
+    return (isinstance(test, ast.Name) and test.id == "TYPE_CHECKING") or (
+        isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
+    )
+
+
+def _nodos_runtime(arbol: ast.AST):
+    """Nodos del arbol salvo subarboles `if TYPE_CHECKING:` (r6-C4)."""
+    if _es_bloque_type_checking(arbol):
+        return
+    yield arbol
+    for hijo in ast.iter_child_nodes(arbol):
+        yield from _nodos_runtime(hijo)
+
+
 def _imports_runtime(path: Path) -> set[str]:
     """Imports de un modulo EXCLUYENDO los bloques `if TYPE_CHECKING:`.
 
@@ -110,21 +129,13 @@ def _imports_runtime(path: Path) -> set[str]:
     """
     arbol = ast.parse(path.read_text(encoding="utf-8"))
 
-    def _es_type_checking(nodo: ast.stmt) -> bool:
-        if not isinstance(nodo, ast.If):
-            return False
-        test = nodo.test
-        return (isinstance(test, ast.Name) and test.id == "TYPE_CHECKING") or (
-            isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
-        )
-
     encontrados: set[str] = set()
 
     def _visitar(nodos: list) -> None:
         # Imports dentro de funciones/clases tambien cuentan (IO diferido
         # sigue siendo IO); solo los subarboles TYPE_CHECKING quedan fuera.
         for nodo in nodos:
-            if _es_type_checking(nodo):
+            if _es_bloque_type_checking(nodo):
                 continue
             if isinstance(nodo, ast.Import):
                 encontrados.update(alias.name for alias in nodo.names)
@@ -1222,3 +1233,357 @@ def test_precio_frontera_caza_reloj_en_todas_sus_formas(tmp_path, monkeypatch, c
     monkeypatch.setattr("test_architecture.PRECIO", tmp_path)
     with pytest.raises(AssertionError, match="sub/reloj.py"):
         test_precio_sin_reloj_ni_entorno()
+
+
+# REPRICING 01 A.3 (carril C): candados del cliente de escritura SP-API.
+# Solo se AGREGA al final (el carril B tambien toca este archivo).
+
+
+def _sin_comentario(linea: str) -> str:
+    """Corta el comentario (`#` fuera de cadenas, r6-C3): los comentarios
+    no ejecutan y un `PATCH` en ellos no es escritura."""
+    comilla = None
+    i = 0
+    while i < len(linea):
+        c = linea[i]
+        if comilla is not None:
+            if c == "\\":
+                i += 2
+                continue
+            if c == comilla:
+                comilla = None
+        elif c in ("'", '"'):
+            comilla = c
+        elif c == "#":
+            return linea[:i]
+        i += 1
+    return linea
+
+
+def _fugas_patch_crudos(raiz_app, raiz_tools):
+    """Archivos que escriben a Listings fuera de `app/spapi/write_client.py`.
+
+    Candado de deriva accidental, no prueba exhaustiva: caza por linea
+    (sin comentarios) `httpx.patch` / `.patch(` / `request("PATCH"` (con
+    o sin espacio tras el paréntesis) / `method="PATCH"` crudos, o el
+    prefijo `/listings/2021-08-01/items` junto a una llamada ejecutable
+    `httpx.patch(...)` en la misma linea. Un verbo en variable o
+    construido por partes escapa. `precio_write.py` nombra el prefijo
+    solo para el `error_code` (sin llamada en esa linea) y por eso no
+    dispara.
+    """
+    import re
+
+    llamada = re.compile(r"httpx\s*\.\s*patch\s*\(")
+    fugas = []
+    for base in (raiz_app, raiz_tools):
+        for p in sorted(base.rglob("*.py")):
+            try:
+                rel = p.relative_to(RAIZ).as_posix()
+            except ValueError:
+                rel = p.name  # fuga sembrada bajo tmp_path
+            if rel == "app/spapi/write_client.py":
+                continue
+            try:
+                lineas = p.read_text(encoding="utf-8").splitlines()
+            except OSError:
+                # r6-C2: lo ilegible no es cobertura aparente: cuenta
+                # como fuga con su nombre, nunca se salta en silencio.
+                fugas.append(f"{rel}:ilegible")
+                continue
+            for n, linea in enumerate(lineas, start=1):
+                codigo = _sin_comentario(linea)
+                sin_espacios = codigo.replace(" ", "")
+                if (
+                    "httpx.patch" in codigo
+                    or ".patch(" in codigo
+                    or 'request("PATCH"' in sin_espacios
+                    or "request('PATCH'" in sin_espacios
+                    or 'method="PATCH"' in sin_espacios
+                    or "method='PATCH'" in sin_espacios
+                    or ("/listings/2021-08-01/items" in codigo and llamada.search(codigo))
+                ):
+                    fugas.append(f"{rel}:{n}")
+    return fugas
+
+
+def test_precio_write_sin_patch_crudo():
+    """A.3: el unico PATCH a Listings sale de `app/spapi/write_client.py`
+    (AC9: `httpx.patch` con la ruta de listings fuera de el hace fallar)."""
+    fugas = _fugas_patch_crudos(APP, RAIZ / "tools")
+    assert not fugas, f"PATCH crudo a Listings fuera del write client: {fugas}"
+
+
+def test_precio_write_frontera_caza_patch_crudo(tmp_path):
+    """Fuga sembrada: `httpx.patch` con la ruta de listings dispara."""
+    (tmp_path / "fuga.py").write_text(
+        'import httpx\nhttpx.patch("/listings/2021-08-01/items/X/S", json={})\n',
+        encoding="utf-8",
+    )
+    fugas = _fugas_patch_crudos(tmp_path, tmp_path)
+    assert any("fuga.py" in f for f in fugas)
+
+
+def test_precio_write_frontera_caza_prefijo_con_llamada_con_espacios(tmp_path):
+    """Fuga sembrada: el prefijo con llamada ejecutable dispara aun con espacios."""
+    (tmp_path / "fuga.py").write_text(
+        'httpx . patch ("/listings/2021-08-01/items/X/S")\n', encoding="utf-8"
+    )
+    fugas = _fugas_patch_crudos(tmp_path, tmp_path)
+    assert any("fuga.py" in f for f in fugas)
+
+
+def test_precio_write_frontera_caza_formas_con_espacio(tmp_path):
+    """Fuga sembrada: `request( "PATCH"` y `method="PATCH"` disparan."""
+    (tmp_path / "fuga.py").write_text(
+        'client.request( "PATCH", url)\nclient.request(method="PATCH", url=url)\n',
+        encoding="utf-8",
+    )
+    fugas = _fugas_patch_crudos(tmp_path, tmp_path)
+    lineas = {f.split(":")[1] for f in fugas if "fuga.py" in f}
+    assert lineas == {"1", "2"}
+
+
+# Quien puede importar el cliente de ESCRITURA SP-API: solo su modulo de
+# escritura. Crecer la allowlist exige editar este archivo = decision
+# visible en diff y review (mismo trato que PERMITIDOS_IMPORTAR_ADS_WRITE).
+PERMITIDOS_IMPORTAR_SPAPI_WRITE = {
+    "app/spapi/precio_write.py": (
+        "escritor de precios (A.3): el dueno legitimo del PATCH a Listings;"
+        " el tool llega por el, nunca directo"
+    ),
+}
+
+
+def _importadores_spapi_write(raiz_app, raiz_tools):
+    import ast
+
+    importadores = set()
+    for base in (raiz_app, raiz_tools):
+        for p in base.rglob("*.py"):
+            if "app.spapi.write_client" in _imports_runtime(p):
+                importadores.add(p)
+                continue
+            # Nivel 1: `from .write_client import …` / `from . import
+            # write_client`: el importador legitimo es hermano en
+            # `app/spapi/` y la forma relativa es la natural de saltarse el
+            # candado. Conservador: cualquier nivel 1 a `write_client` en el
+            # arbol escaneado se resuelve a `app.spapi.write_client` (es el
+            # unico `write_client` del repo).
+            try:
+                arbol = ast.parse(p.read_text(encoding="utf-8"))
+            except (OSError, SyntaxError):
+                continue
+            # r6-C4: como `_imports_runtime`, los relativos bajo
+            # TYPE_CHECKING no corren en runtime y no son fuga.
+            for nodo in _nodos_runtime(arbol):
+                if not (isinstance(nodo, ast.ImportFrom) and nodo.level == 1):
+                    continue
+                if (nodo.module or "").split(".")[0] == "write_client" or any(
+                    alias.name == "write_client" for alias in nodo.names
+                ):
+                    importadores.add(p)
+                    break
+    return importadores
+
+
+def test_imports_del_spapi_write_client_acotados():
+    """Nadie fuera de la allowlist importa `app.spapi.write_client`."""
+    importadores = {
+        p.relative_to(RAIZ).as_posix() for p in _importadores_spapi_write(APP, RAIZ / "tools")
+    }
+    ilegales = importadores - set(PERMITIDOS_IMPORTAR_SPAPI_WRITE)
+    assert not ilegales, (
+        f"modulos que importan app.spapi.write_client sin estar en la allowlist: {sorted(ilegales)}"
+    )
+    for rel, razon in PERMITIDOS_IMPORTAR_SPAPI_WRITE.items():
+        assert razon.strip(), f"entrada de allowlist sin razon escrita: {rel}"
+
+
+def test_imports_spapi_write_frontera_caza_import_extra(tmp_path):
+    """Fuga sembrada: un importador fuera de la allowlist se detecta."""
+    fuga = tmp_path / "otro.py"
+    fuga.write_text("from app.spapi.write_client import SpapiWriteClient\n", encoding="utf-8")
+    importadores = _importadores_spapi_write(tmp_path, tmp_path)
+    assert {p.name for p in importadores} == {"otro.py"}
+    assert "otro.py" not in PERMITIDOS_IMPORTAR_SPAPI_WRITE
+
+
+def _importadores_dinamicos_spapi_write(raiz_app, raiz_tools):
+    """Módulos que nombran `app.spapi.write_client` junto a un import dinámico.
+
+    Cierre del hueco AST (mismo trato que `snapshot_listas`): `__import__(`
+    e `import_module(` no producen nodos de import y el candado de arriba
+    no los ve. Hoy nadie en `app/` ni `tools/` usa imports dinámicos.
+    """
+    dinamicos = set()
+    for base in (raiz_app, raiz_tools):
+        for p in base.rglob("*.py"):
+            try:
+                fuente = p.read_text(encoding="utf-8")
+            except OSError:
+                # r6-C2: lo ilegible cuenta como fuga (ver arriba).
+                dinamicos.add(p)
+                continue
+            if ("app.spapi.write_client" in fuente or ".write_client" in fuente) and (
+                "__import__(" in fuente or "import_module(" in fuente
+            ):
+                dinamicos.add(p)
+    return dinamicos
+
+
+def test_imports_spapi_write_sin_import_dinamico():
+    """Nadie llega a `app.spapi.write_client` por import dinámico."""
+    dinamicos = {
+        p.relative_to(RAIZ).as_posix()
+        for p in _importadores_dinamicos_spapi_write(APP, RAIZ / "tools")
+    }
+    assert not dinamicos, (
+        f"modulos que nombran app.spapi.write_client junto a un import dinamico:"
+        f" {sorted(dinamicos)}"
+    )
+
+
+def test_imports_spapi_write_frontera_caza_import_dinamico(tmp_path):
+    """Fuga sembrada: el import dinámico de write_client se detecta."""
+    fuga = tmp_path / "otro.py"
+    fuga.write_text('mod = __import__("app.spapi.write_client")\n', encoding="utf-8")
+    dinamicos = _importadores_dinamicos_spapi_write(tmp_path, tmp_path)
+    assert {p.name for p in dinamicos} == {"otro.py"}
+
+
+def test_imports_spapi_write_frontera_caza_nivel_1(tmp_path):
+    """Fuga sembrada: `from .write_client import …` se resuelve al absoluto."""
+    fuga = tmp_path / "hermano.py"
+    fuga.write_text("from .write_client import SpapiWriteClient\n", encoding="utf-8")
+    importadores = _importadores_spapi_write(tmp_path, tmp_path)
+    assert {p.name for p in importadores} == {"hermano.py"}
+
+
+def test_imports_spapi_write_frontera_caza_dinamico_relativo(tmp_path):
+    """Fuga sembrada: `import_module(".write_client", "app.spapi")` se detecta."""
+    fuga = tmp_path / "otro.py"
+    fuga.write_text(
+        'import importlib\nmod = importlib.import_module(".write_client", "app.spapi")\n',
+        encoding="utf-8",
+    )
+    dinamicos = _importadores_dinamicos_spapi_write(tmp_path, tmp_path)
+    assert {p.name for p in dinamicos} == {"otro.py"}
+
+
+ALLOWLIST_IMPORTS_PRECIO_REVERSA = frozenset(
+    {
+        "__future__",
+        "__future__.annotations",
+        "app.db",
+        "app.db.OrbitDbError",
+        "app.db.connect",
+        "app.spapi",
+        "app.spapi.client",
+        "app.spapi.client.CuboTasa",
+        "app.spapi.client.SpapiClient",
+        "app.spapi.client.SpapiError",
+        "app.spapi.client.SpapiNoPermitida",
+        "psycopg",
+        "psycopg.errors",
+        "psycopg.errors.UniqueViolation",
+        "app.spapi.precio_write",
+        "app.spapi.precio_write.FormaParcheSinSellar",
+        "argparse",
+        "hashlib",
+        "httpx",
+        "os",
+        "sys",
+        "time",
+    }
+)
+
+
+def test_tool_precio_reversa_solo_importa_lectura():
+    """`tools/precio_reversa.py` es lectura + `precio_write`: sus imports
+    son subconjunto de la allowlist y nunca el write client directo (el
+    escritor se construye via `precio_write.construir_escritor`)."""
+    imp = _imports_runtime(RAIZ / "tools" / "precio_reversa.py")
+    extras = imp - ALLOWLIST_IMPORTS_PRECIO_REVERSA
+    assert not extras, (
+        f"tools/precio_reversa.py importa por fuera de la allowlist: {sorted(extras)} — "
+        "ampliar exige editar tests/test_architecture.py a proposito"
+    )
+    assert "app.spapi.write_client" not in imp
+
+
+def test_tool_precio_reversa_frontera_caza_write_directo(tmp_path):
+    """Fuga sembrada: si el tool importara el write client, la allowlist
+    (subconjunto) lo detecta con el import de mas identificado."""
+    fuente = (RAIZ / "tools" / "precio_reversa.py").read_text(encoding="utf-8")
+    fuga = tmp_path / "precio_reversa_fuga.py"
+    fuga.write_text(
+        fuente + "from app.spapi.write_client import SpapiWriteClient\n", encoding="utf-8"
+    )
+    imp = _imports_runtime(fuga)
+    assert "app.spapi.write_client" in _violaciones(imp, ("app.spapi.write_client",))
+    extras = imp - ALLOWLIST_IMPORTS_PRECIO_REVERSA
+    assert "app.spapi.write_client" in extras
+
+
+# ---------------------------------------------------------- r6-C2 ilegible es fuga
+
+
+def test_precio_write_frontera_ilegible_cuenta_como_fuga(tmp_path):
+    """r6-C2: un .py ilegible no es cobertura aparente: cuenta como fuga."""
+    p = tmp_path / "ilegible.py"
+    p.write_text("x = 1\n", encoding="utf-8")
+    p.chmod(0o000)
+    try:
+        fugas = _fugas_patch_crudos(tmp_path, tmp_path)
+    finally:
+        p.chmod(0o644)
+    assert any("ilegible.py" in f for f in fugas)
+
+
+def test_imports_spapi_write_frontera_ilegible_cuenta_como_fuga(tmp_path):
+    """r6-C2: un .py ilegible cuenta como fuga tambien en dinamicos."""
+    p = tmp_path / "ilegible.py"
+    p.write_text("x = 1\n", encoding="utf-8")
+    p.chmod(0o000)
+    try:
+        dinamicos = _importadores_dinamicos_spapi_write(tmp_path, tmp_path)
+    finally:
+        p.chmod(0o644)
+    assert {x.name for x in dinamicos} == {"ilegible.py"}
+
+
+# ---------------------------------------------------------- r6-C3 comentarios no ejecutan
+
+
+def test_precio_write_frontera_comentario_con_patch_no_es_fuga(tmp_path):
+    """r6-C3: PATCH en comentario (aun junto al prefijo) no es escritura."""
+    (tmp_path / "notas.py").write_text(
+        'RUTA = "/listings/2021-08-01/items"  # PATCH\n# PATCH "/listings/2021-08-01/items"\n',
+        encoding="utf-8",
+    )
+    assert _fugas_patch_crudos(tmp_path, tmp_path) == []
+
+
+def test_precio_write_frontera_caza_llamada_ejecutable_con_prefijo(tmp_path):
+    """r6-C3: la frontera del prefijo es la llamada ejecutable."""
+    (tmp_path / "fuga.py").write_text(
+        'import httpx\nhttpx.patch("/listings/2021-08-01/items/X/S", json={})\n',
+        encoding="utf-8",
+    )
+    fugas = _fugas_patch_crudos(tmp_path, tmp_path)
+    assert any("fuga.py" in f for f in fugas)
+
+
+# ---------------------------------------------------------- r6-C4 TYPE_CHECKING en relativos
+
+
+def test_imports_spapi_write_frontera_type_checking_relativo_no_es_fuga(tmp_path):
+    """r6-C4: `from .write_client` bajo TYPE_CHECKING no corre en runtime."""
+    (tmp_path / "hermano.py").write_text(
+        "from typing import TYPE_CHECKING\n"
+        "if TYPE_CHECKING:\n"
+        "    from .write_client import SpapiWriteClient\n",
+        encoding="utf-8",
+    )
+    assert _importadores_spapi_write(tmp_path, tmp_path) == set()
