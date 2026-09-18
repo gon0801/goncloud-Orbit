@@ -115,17 +115,22 @@ class SpapiWriteClient:
 
     def patch_listing(self, sku: str, cuerpo: dict) -> httpx.Response:
         """PATCH al item del seller sellado + SKU. Falla antes de red si la
-        ruta no es la allowlist. 401/429: un reintento; lo demas, tal cual."""
+        ruta no es la allowlist. 401/429: un reintento; lo demas, tal cual.
+        El mercado va en el query `marketplaceIds` (obligatorio en Listings
+        Items 2021-08-01): la ruta sigue sin `?`, el query va aparte."""
         ruta = validar_patch_listings(
             construir_ruta_listings(self._seller_id, sku), self._seller_id, sku
         )
         url = f"{SP_API_BASE}{ruta}"
+        query = {"marketplaceIds": MERCADOS[self._platform]}
         token = self._lector._acceso()
         forzados = 0
         reintentos = 0
         with httpx.Client(transport=self._transport, timeout=self._timeout) as client:
             while True:
-                resp = client.patch(url, json=cuerpo, headers={"x-amz-access-token": token})
+                resp = client.patch(
+                    url, params=query, json=cuerpo, headers={"x-amz-access-token": token}
+                )
                 if resp.status_code == 401 and forzados < 1:
                     forzados += 1
                     token = self._lector._acceso(forzar=True, rechazado=token)

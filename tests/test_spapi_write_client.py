@@ -267,6 +267,24 @@ def test_r1_m_cable_patch_ruta_header():
     (pedido,) = red.llamadas_patch
     assert pedido.method == "PATCH"
     crudo = pedido.url.raw_path.decode("ascii")
-    assert crudo == construir_ruta_listings(SELLER_MX, sku)
-    assert "SKU%20P1" in crudo and " " not in crudo
+    ruta, _, query = crudo.partition("?")
+    assert ruta == construir_ruta_listings(SELLER_MX, sku)
+    assert "SKU%20P1" in ruta and " " not in ruta
+    assert query == f"marketplaceIds={MARKETPLACE_MX}"
     assert pedido.headers["x-amz-access-token"] == "tok-1"
+
+
+@pytest.mark.parametrize(
+    "platform,marketplace",
+    [("amazon_mx", "A1AM78C64UM0Y8"), ("amazon_us", "ATVPDKIKX0DER")],
+    ids=["mx", "us"],
+)
+def test_r4_g1_patch_lleva_marketplace_ids_del_platform(platform, marketplace):
+    """r4-G1: el PATCH lleva marketplaceIds=<el del platform>, aunque el seller sea el mismo."""
+    red = _RedFalsa([(202, {}, {"submissionId": "g1", "status": "ACCEPTED"})])
+    escritor = _escritor(red, platform=platform)
+    resp = escritor.patch_listing(SKU, CUERPO)
+    assert resp.status_code == 202
+    (pedido,) = red.llamadas_patch
+    assert pedido.method == "PATCH"
+    assert pedido.url.params["marketplaceIds"] == marketplace
