@@ -15,7 +15,9 @@ Falla cerrado ante lo que no sabe partir (grok, cierre r2 y r3): **todo
 PostgreSQL con cualquier tag (`$$`, `$q$`, `$é$`: dentro de el un `;` o una
 comilla cambiarian donde termina cada sentencia) y los parametros
 posicionales; un string o un comentario de bloque sin cerrar al final del
-archivo tambien se rechaza. Los strings con escapes de diagonal (`E'\''`,
+archivo tambien se rechaza, igual que un comentario de bloque anidado
+(`/* /* */ ... */`, que PostgreSQL trata como uno solo: revisor de la
+Fase 10, D1). Los strings con escapes de diagonal (`E'\''`,
 `U&'...'`) no llegan aqui: `correr.sh` rechaza antes toda diagonal
 invertida, asi que las comillas solo se escapan como `''`.
 
@@ -76,6 +78,11 @@ def sentencias(texto: str) -> list[str]:
             cierre = texto.find("*/", i + 2)
             if cierre == -1:
                 raise NoSeParte("comentario de bloque sin cerrar")
+            # PostgreSQL anida los comentarios de bloque (`/* /* */ ... */`
+            # es uno solo): si hay otro `/*` antes del primer `*/`, este
+            # partidor y el servidor no cortarian igual. Falla cerrado.
+            if texto.find("/*", i + 2, cierre) != -1:
+                raise NoSeParte("comentario de bloque anidado")
             i = cierre + 2
             actual.append(" ")
             continue

@@ -69,7 +69,10 @@ for palabra in insert update delete truncate alter drop create grant copy; do
 done
 # Una fuga por cada palabra de control de transaccion o escritura indirecta.
 for palabra in commit rollback abort begin savepoint release into call execute prepare lock vacuum listen notify refresh reindex cluster discard reset merge comment security import load do set start transaction; do
-    probar_fuga "control de transaccion '$palabra'" "select 1; $palabra x;" "control de transaccion"
+    # Dentro de un select que el candado estructural acepta (un alias entre
+    # comillas dobles), para que la fuga la tenga que cazar la lista de
+    # palabras y no el candado estructural (revisor de la Fase 10, D2).
+    probar_fuga "control de transaccion '$palabra'" "select 1 as \"$palabra\";" "control de transaccion"
 done
 probar_fuga "end como sentencia" "select 1;
 end;" "select/with"
@@ -86,6 +89,7 @@ probar_fuga "dollar-quoting con tag no ASCII" "select \$é\$ ' \$é\$; END WORK;
 probar_fuga "parametro posicional" "select \$1;" "select/with"
 probar_fuga "string sin cerrar" "select 'abc;" "select/with"
 probar_fuga "comentario de bloque sin cerrar" "select 1; /* sin cierre" "select/with"
+probar_fuga "comentario de bloque anidado que esconde un end" "select 1 /* /* */ ' */ ; end; select lo_create(0); -- '" "select/with"
 probar_fuga "analyze" "select 1; analyze x;" "select/with"
 probar_fuga "select into" "select 1 into t;" "control de transaccion"
 probar_fuga "set_config" "select set_config('search_path', 'x', false);" "control de transaccion"

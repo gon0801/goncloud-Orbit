@@ -64,7 +64,7 @@ fi
 # falso positivo. Sin python3 no se corre (falla cerrado).
 command -v python3 >/dev/null 2>&1 || { echo "ATORADO: sin python3 no se valida la forma de las consultas" >&2; exit 1; }
 if ! python3 "$DIR/solo-select.py" "$CONSULTAS_DIR"/*.sql; then
-    echo "ATORADO: una o más consultas en $CONSULTAS_DIR traen una sentencia que no es select/with (control de transaccion o escritura; ver arriba)." >&2
+    echo "ATORADO: una o más consultas en $CONSULTAS_DIR traen una sentencia que no es select/with (ver arriba)." >&2
     exit 1
 fi
 
