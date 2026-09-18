@@ -706,6 +706,46 @@ def cotizar_oferta(
         )
 
 
+def cotizar_a_precio(
+    client: ProductFeesClient,
+    oferta: OfertaResuelta,
+    precio: Decimal,
+    *,
+    observed_at: datetime | None = None,
+    now_utc: Callable[[], datetime] = lambda: datetime.now(UTC),
+) -> ResultadoCotizacion:
+    """REPRICING 01 A.2: `cotizar_oferta` sobre una COPIA de la oferta con el
+    precio sustituido (`dataclasses.replace`; la original queda intacta).
+    Misma firma de reloj inyectable, SIN persistir nada y SIN ampliar
+    `_UNIVERSO_SOPORTADO` (FBM y US son E.3 y la fase B). Precio no
+    `Decimal`, no finito o <= 0 -> `ValueError`.
+
+    La copia conserva `source_event_id`, `canonical_input` y
+    `context_fingerprint` de la oferta original: es a propósito y se queda
+    así (S2/S5 ligan la cotización a la oferta del escenario), y la
+    identidad de la fee (`construir_fee_canonical_input`) ya lleva el
+    precio nuevo, así que dos cotizaciones a precios distintos no chocan.
+    Esta copia **jamás** se persiste como oferta (r4-G5). El precio va en
+    centavos exactos (r5-J3: con más de dos decimales el request
+    cuantizado y la identidad canónica con `str(precio)` no coincidirían).
+    """
+    from dataclasses import replace
+
+    if not isinstance(precio, Decimal) or not precio.is_finite() or precio <= 0:
+        raise ValueError(f"precio a cotizar invalido: {precio!r}")
+    if precio >= _MAX_DINERO:
+        raise ValueError(f"precio a cotizar invalido: {precio!r}")
+    try:
+        centavos = precio.quantize(Decimal("0.01"))
+    except InvalidOperation:
+        raise ValueError(f"precio a cotizar invalido: {precio!r}") from None
+    if precio != centavos:
+        raise ValueError(f"precio a cotizar sin centavos exactos: {precio!r}")
+    return cotizar_oferta(
+        client, replace(oferta, price_amount=precio), observed_at=observed_at, now_utc=now_utc
+    )
+
+
 def persistir_fee_observation(
     conn: psycopg.Connection,
     *,
