@@ -112,7 +112,7 @@ def test_sin_instancia_compartida():
 
 def test_superficie_publica_exacta():
     publicos = {n for n in dir(SpapiWriteClient) if not n.startswith("_")}
-    assert publicos == {"patch_listing", "seller_id"}
+    assert publicos == {"patch_listing", "platform", "seller_id"}
 
 
 def test_r1_a7_seller_id_solo_lectura_y_sellado():
@@ -122,6 +122,15 @@ def test_r1_a7_seller_id_solo_lectura_y_sellado():
     assert escritor.seller_id == VENDEDORES_PROPIOS[MERCADOS["amazon_mx"]]
     with pytest.raises(AttributeError):
         escritor.seller_id = "OTRO"
+
+
+def test_r5_l1_platform_solo_lectura():
+    """r5-L1: la platform se lee, no se escribe (cotejo contra la fila)."""
+    red = _RedFalsa([])
+    escritor = _escritor(red)
+    assert escritor.platform == "amazon_mx"
+    with pytest.raises(AttributeError):
+        escritor.platform = "amazon_us"
 
 
 # ------------------------------------------------------------- validador

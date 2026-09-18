@@ -232,10 +232,14 @@ class _RedFalsa:
         if request.method == "GET" and "competitivePrice" in path:
             self.n_get += 1
             status, body = self.gets_competitivos.pop(0)
+            if isinstance(body, bytes):
+                return httpx.Response(status, content=body)
             return httpx.Response(status, json=body)
         if request.method == "GET" and "offers" in path:
             self.n_get += 1
             status, body = self.gets_ofertas.pop(0)
+            if isinstance(body, bytes):
+                return httpx.Response(status, content=body)
             return httpx.Response(status, json=body)
         if request.method == "PATCH":
             self.n_patch += 1
@@ -298,7 +302,7 @@ def test_leer_precio_vivo_lee_ofertas_no_listings():
     lector, _ = _clientes(red)
     vivo = leer_precio_vivo(lector, platform="amazon_mx", asin=ASIN)
     assert (vivo.precio, vivo.moneda) == (Decimal("110.0000"), "MXN")
-    assert red.n_get == 2 and red.n_patch == 0
+    assert red.n_get == 1 and red.n_patch == 0  # r5-L2: con propia no se pide el competitivo
 
 
 def test_leer_precio_vivo_sin_oferta_propia_es_ausente():
@@ -2400,3 +2404,226 @@ def test_r4_g6_solo_saltados_devuelve_0(monkeypatch, capsys):
         )
         assert rc == 0
         assert red.n_patch == 0
+
+
+# ---------------------------------------------------------- r5-L1 platform del escritor
+
+
+def _escritor_otra_platform(red, lector):
+    """Escritor de amazon_us contra filas de amazon_mx (r5-L1: mal uso)."""
+    return construir_escritor(lector, "amazon_us", transport=red.transport, sleep=lambda s: None)
+
+
+def test_r5_l1_cambiar_escritor_otra_platform_revienta_sin_fila_ni_patch():
+    """r5-L1: cambiar con escritor amazon_us contra decision amazon_mx es ValueError."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(100.0))] * 2,
+        gets_competitivos=[(200, _competitivo_body())] * 2,
+        patchs=[(202, {"submissionId": "r5-l1", "status": "ACCEPTED"})],
+    )
+    with db_39c() as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        _goal_live(conn, lid)
+        dec = _decision(conn, lid)
+        lector = SpapiClient(credentials=dict(CRED), transport=red.transport, sleep=lambda s: None)
+        with rol(conn), pytest.raises(ValueError, match="plataforma"):
+            cambiar_precio(
+                conn,
+                dec,
+                lector=lector,
+                escritor=_escritor_otra_platform(red, lector),
+                construir_cuerpo=_cuerpo_falso,
+                ahora=AHORA,
+            )
+        assert red.n_patch == 0
+        assert conn.execute("SELECT id FROM precio_cambio").fetchall() == []
+
+
+def test_r5_l1_revertir_escritor_otra_platform_revienta_sin_fila_ni_patch():
+    """r5-L1: revertir con escritor amazon_us contra cambio amazon_mx es ValueError."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(110.0))] * 2,
+        gets_competitivos=[(200, _competitivo_body())] * 2,
+        patchs=[(202, {"submissionId": "r5-l1", "status": "ACCEPTED"})],
+    )
+    with db_39c() as conn:
+        _, cid = _semilla_reversion(conn)
+        lector = SpapiClient(credentials=dict(CRED), transport=red.transport, sleep=lambda s: None)
+        with rol(conn), pytest.raises(ValueError, match="plataforma"):
+            revertir(
+                conn,
+                cid,
+                lector=lector,
+                escritor=_escritor_otra_platform(red, lector),
+                construir_cuerpo=_cuerpo_falso,
+                ahora=AHORA,
+            )
+        assert red.n_patch == 0
+        assert len(conn.execute("SELECT id FROM precio_cambio").fetchall()) == 1
+
+
+# ---------------------------------------------------------- r5-L2 competitivo perezoso
+
+
+def test_r5_l2_con_propia_un_solo_get():
+    """r5-L2: con oferta propia el competitivo ni se pide (cuota Pricing 0.5/s)."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(110.0))],
+        gets_competitivos=[(200, _competitivo_body())],
+    )
+    lector, _ = _clientes(red)
+    vivo = leer_precio_vivo(lector, platform="amazon_mx", asin=ASIN)
+    assert (vivo.precio, vivo.moneda) == (Decimal("110.0000"), "MXN")
+    assert red.n_get == 1 and red.n_patch == 0
+
+
+def test_r5_l2_sin_propia_pide_competitivo_dos_gets():
+    """r5-L2: sin oferta propia en ofertas se pide el competitivo (dos GETs)."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(99.0, seller="OTRO"))],
+        gets_competitivos=[(200, _competitivo_body())],
+    )
+    lector, _ = _clientes(red)
+    with pytest.raises(PrecioVivoAusente):
+        leer_precio_vivo(lector, platform="amazon_mx", asin=ASIN)
+    assert red.n_get == 2
+
+
+def test_r5_l2_competitivo_no_json_con_propia_resuelve():
+    """r5-L2: competitivo 200 no-JSON con oferta propia resuelve sin pedirlo."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(110.0))],
+        gets_competitivos=[(200, b"esto no es json")],
+    )
+    lector, _ = _clientes(red)
+    vivo = leer_precio_vivo(lector, platform="amazon_mx", asin=ASIN)
+    assert (vivo.precio, vivo.moneda) == (Decimal("110.0000"), "MXN")
+    assert red.n_get == 1
+
+
+def test_r5_l2_competitivo_no_json_sin_propia_es_ausente():
+    """r5-L2: competitivo 200 no-JSON sin propia es respaldo vacio -> ausente."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(99.0, seller="OTRO"))],
+        gets_competitivos=[(200, b"esto no es json")],
+    )
+    lector, _ = _clientes(red)
+    with pytest.raises(PrecioVivoAusente):
+        leer_precio_vivo(lector, platform="amazon_mx", asin=ASIN)
+    assert red.n_get == 2
+
+
+# ---------------------------------------------------------- r5-L3 go sin acepto
+
+
+def test_r5_l3_go_con_huella_sin_acepto_aborta(monkeypatch):
+    """r5-L3: --go --huella sin --acepto-mutacion-real aborta, no dry-run silencioso."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(110.0))],
+        gets_competitivos=[(200, _competitivo_body())],
+    )
+    with db_39c() as conn:
+        _, cid = _semilla_reversion(conn)
+        import tools.precio_reversa as tool
+
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", _dsn_db(conn))
+        with pytest.raises(tool.Abortar, match="acepto-mutacion-real"):
+            tool.main(
+                ["--cambio-id", str(cid), "--go", "si", "--huella", "0" * 16],
+                transport=red.transport,
+                credentials=dict(CRED),
+            )
+        assert red.n_patch == 0
+        assert len(conn.execute("SELECT id FROM precio_cambio").fetchall()) == 1
+
+
+# ---------------------------------------------------------- r5-L4 carrera con abierto
+
+
+def _cero_abiertos(monkeypatch):
+    """El conteo de abiertos del par devuelve 0: la fila abierta entra
+    entre el chequeo y el INSERT (carrera r5-L4)."""
+    real = psycopg.Connection.execute
+
+    def _sin_abiertos(self, query, params=None):
+        if isinstance(query, str) and "count(*)" in query:
+
+            class _Cero:
+                def fetchone(self):
+                    return (0,)
+
+            return _Cero()
+        return real(self, query) if params is None else real(self, query, params)
+
+    monkeypatch.setattr(psycopg.Connection, "execute", _sin_abiertos)
+
+
+def test_r5_l4_cambiar_carrera_abierto_entre_chequeo_e_insert_salta(monkeypatch):
+    """r5-L4: UniqueViolation en el INSERT de cambiar -> saltado, no excepcion cruda."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(100.0))],
+        gets_competitivos=[(200, _competitivo_body())],
+        patchs=[(202, {"submissionId": "r5-l4", "status": "ACCEPTED"})],
+    )
+    with db_39c() as conn:
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        _goal_live(conn, lid)
+        dec = _decision(conn, lid)
+        conn.execute(
+            "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
+            " precio_antes_currency, precio_despues, precio_despues_currency,"
+            " aplicado, estado)"
+            " VALUES (%s, %s, 'amazon_mx', 100.00, 'MXN', 110.00, 'MXN', true, 'pendiente')",
+            (dec, lid),
+        )
+        _cero_abiertos(monkeypatch)
+        lector, escritor = _clientes(red)
+        with rol(conn):
+            res = cambiar_precio(
+                conn,
+                dec,
+                lector=lector,
+                escritor=escritor,
+                construir_cuerpo=_cuerpo_falso,
+                ahora=AHORA,
+            )
+        assert (res.estado, res.motivo) == ("saltado", "listing_con_cambio_abierto")
+        assert res.id_cambio is None
+        assert red.n_patch == 0
+        assert len(conn.execute("SELECT id FROM precio_cambio").fetchall()) == 1
+
+
+def test_r5_l4_revertir_carrera_abierto_entre_chequeo_e_insert_salta(monkeypatch):
+    """r5-L4: UniqueViolation en el INSERT de revertir -> saltado, no excepcion cruda."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(110.0))],
+        gets_competitivos=[(200, _competitivo_body())],
+        patchs=[(202, {"submissionId": "r5-l4", "status": "ACCEPTED"})],
+    )
+    with db_39c() as conn:
+        lid, cid = _semilla_reversion(conn)
+        conn.execute(
+            "INSERT INTO precio_cambio (listing_id, platform, precio_antes,"
+            " precio_antes_currency, precio_despues, precio_despues_currency,"
+            " aplicado, estado, es_reversa, reversa_de)"
+            " VALUES (%s, 'amazon_mx', 110.00, 'MXN', 100.00, 'MXN',"
+            " true, 'pendiente', true, %s)",
+            (lid, cid),
+        )
+        _cero_abiertos(monkeypatch)
+        lector, escritor = _clientes(red)
+        with rol(conn):
+            res = revertir(
+                conn,
+                cid,
+                lector=lector,
+                escritor=escritor,
+                construir_cuerpo=_cuerpo_falso,
+                ahora=AHORA,
+            )
+        assert (res.estado, res.motivo) == ("saltado", "listing_con_cambio_abierto")
+        assert res.id_reversa is None
+        assert red.n_patch == 0
+        assert len(conn.execute("SELECT id FROM precio_cambio").fetchall()) == 2
