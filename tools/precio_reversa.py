@@ -3,9 +3,11 @@
 Nunca automatica: el dueno corre dry-run, revisa el plan y su huella, y
 solo entonces el go con la misma huella. Lee el precio vivo antes de
 escribir y salta lo que ya no coincide (un saltado no aborta el lote).
-Limitación visible: NO se puede revertir el mismo día del cambio (el
-original sigue abierto y el índice único impide la reversa); el plan lo
-muestra como saltado `original_abierto` hasta que cierre por observación.
+Limitación visible: el cambio del mismo día sigue abierto y el índice
+único impide su reversa; el plan lo muestra como saltado
+`original_abierto` hasta que cierre por observación. Un cambio en
+`error` (nace con `enviado_at` y no pasa por el cierre) sí es
+reversible el mismo día cuando el vivo coincide.
 
 Dry-run por omision (imprime plan + huella, cero PATCH). La mutacion
 real exige juntos `--acepto-mutacion-real`, `--huella H` (la del

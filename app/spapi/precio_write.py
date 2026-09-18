@@ -308,8 +308,10 @@ def revertir(
     abierto (`pendiente` o `enviado`) se salta con `original_abierto`:
     el indice unico de cambio abierto impide la reversa, que solo es
     posible cuando el original ya cerro (al dia siguiente, con
-    `cerrar_por_observacion`); NO se puede revertir el mismo dia del
-    cambio. Si el precio vivo ya no coincide con el `precio_despues` del
+    `cerrar_por_observacion`); un cambio en `error` (nace con `enviado_at`
+    y no pasa por el cierre) si es reversible el mismo dia cuando el vivo
+    coincide (cubre que Amazon aplico aunque el ack fue 5xx). Si el precio
+    vivo ya no coincide con el `precio_despues` del
     cambio, se salta con su razon (otro proceso ya movio el precio): sin
     fila y sin PATCH. El cuerpo se arma ANTES de insertar la fila
     `pendiente`: con la forma sin sellar no queda fila ni hay red. Orden

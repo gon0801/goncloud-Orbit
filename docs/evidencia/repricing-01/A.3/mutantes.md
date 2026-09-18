@@ -487,6 +487,8 @@ Sin el fix, `test_r1_m_t4_saltado_no_aborta_el_lote` falla en
 - `revertir` exige el original cerrado (el índice único
   `precio_cambio_abierto_unico` impide la reversa con un abierto en el
   mismo listing): revertir un `enviado` aún abierto revienta en la base.
+  Un cambio en `error` (nace con `enviado_at`, no pasa por el cierre) sí
+  es reversible el mismo día si el vivo coincide (r3-K5).
 - El tool aborta (exit 2) ante error inesperado en el lote; solo los
   saltados continúan. La huella del go exige igualdad exacta con el
   dry-run (patrón `reversa_harvest`).
