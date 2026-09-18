@@ -56,6 +56,7 @@ from pathlib import Path
 from app.db import OrbitDbError, connect
 from app.estimacion_venta import DetalleFee
 from app.precio.goals_write import (
+    PLATAFORMAS_PRECIO_GOAL,
     PrecioGoalAusente,
     PrecioGoalInvalido,
     banda_desde_settings,
@@ -100,6 +101,7 @@ _SQL_VIGENTE = (
     "SELECT id, margen_goal_pct, mode::text FROM precio_goal"
     " WHERE listing_id = %s AND platform = %s AND valid_to IS NULL"
 )
+_SQL_LISTING_EXISTE = "SELECT 1 FROM listing WHERE id = %s AND platform = %s"
 
 
 def _detalle_fee(nodo: dict) -> DetalleFee:
@@ -222,7 +224,9 @@ def _huella(plan: list[FilaPlan], mode: str) -> str:
 
 def _filas_csv(ruta: str, *, cerrar: bool) -> list[tuple[int, str, str | None, int]]:
     try:
-        texto = Path(ruta).read_text(encoding="utf-8")
+        # AC3: `utf-8-sig` traga el BOM del «CSV UTF-8» de Excel (si no,
+        # la cabecera llega con `\ufeff` y el aborto «exige cabecera» miente).
+        texto = Path(ruta).read_text(encoding="utf-8-sig")
     except OSError as exc:
         raise Abortar(f"no se pudo leer --csv {ruta}: {exc}") from exc
     lector = csv.DictReader(texto.splitlines())
@@ -232,7 +236,10 @@ def _filas_csv(ruta: str, *, cerrar: bool) -> list[tuple[int, str, str | None, i
     if not cerrar and "goal_pct" not in campos:
         raise Abortar("--csv para sembrar exige columna goal_pct")
     filas: list[tuple[int, str, str | None, int]] = []
-    for numero, cruda in enumerate(lector, start=2):
+    # AC3: `lector.line_num` es la linea del archivo (el `DictReader` se
+    # salta las vacias y `enumerate(start=2)` las descontaba del reporte).
+    for cruda in lector:
+        numero = lector.line_num
         if all((v is None or not str(v).strip()) for v in cruda.values()):
             continue
         try:
@@ -240,7 +247,7 @@ def _filas_csv(ruta: str, *, cerrar: bool) -> list[tuple[int, str, str | None, i
         except (ValueError, TypeError) as exc:
             raise Abortar(f"linea {numero}: listing_id invalido") from exc
         platform = str(cruda.get("platform") or "").strip()
-        if platform not in ("amazon_mx", "amazon_us", "meli"):
+        if platform not in PLATAFORMAS_PRECIO_GOAL:
             raise Abortar(f"linea {numero}: platform invalida: {platform!r}")
         goal_texto = None
         if not cerrar:
@@ -269,6 +276,14 @@ def _construir_plan(conn, entradas, *, mode: str, cerrar: bool) -> list[FilaPlan
     plan: list[FilaPlan] = []
     for listing_id, platform, goal_texto, numero in entradas:
         prefijo = f"linea {numero}: " if numero else ""
+        # AC2: el listing tiene que existir en esa platform ANTES de la
+        # huella (si no, el dry-run sale 0 con `sin_escenario` y el go
+        # revienta por la FK con filas ya sembradas).
+        existe = conn.execute(_SQL_LISTING_EXISTE, (listing_id, platform)).fetchone()
+        if existe is None:
+            raise Abortar(
+                f"{prefijo}listing {listing_id} inexistente en {platform}: sin listing no hay goal"
+            )
         if cerrar:
             vigente = conn.execute(_SQL_VIGENTE, (listing_id, platform)).fetchone()
             if vigente is None:
@@ -364,9 +379,11 @@ def _entradas_desde_args(args) -> list[tuple[int, str, str | None, int]]:
     if not dados:
         raise Abortar("falta el objetivo: pasa --listing-id, --sku o --csv")
     if args.csv is None and args.platform is None:
-        raise Abortar("falta --platform (amazon_mx|amazon_us|meli)")
+        raise Abortar(f"falta --platform ({'|'.join(PLATAFORMAS_PRECIO_GOAL)})")
     if args.cerrar and args.goal_pct is not None:
         raise Abortar("--cerrar no siembra: --goal-pct sobra")
+    if args.cerrar and args.confirmar_salto:
+        raise Abortar("--cerrar no siembra: --confirmar-salto sobra")
     if not args.cerrar and args.csv is None and args.goal_pct is None:
         raise Abortar("falta --goal-pct (en por ciento, ej. 30.00)")
     if args.csv is not None:
@@ -459,7 +476,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--listing-id", type=int, default=None)
     ap.add_argument("--sku", default=None)
-    ap.add_argument("--platform", default=None, choices=("amazon_mx", "amazon_us", "meli"))
+    ap.add_argument("--platform", default=None, choices=PLATAFORMAS_PRECIO_GOAL)
     ap.add_argument("--goal-pct", default=None)
     ap.add_argument("--csv", default=None)
     ap.add_argument("--mode", default="shadow", choices=("shadow", "live"))

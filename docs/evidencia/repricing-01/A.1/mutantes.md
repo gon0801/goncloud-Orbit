@@ -94,3 +94,13 @@ Notas r1:
   había vigente. Detectado por `test_segundo_vigente_rechazado` en verde.
 - G1 cambió el formato impreso (`goal=30.00% m_actual=36.64%`): los
   asserts viejos (`m_actual=0.2400`) se actualizaron en el mismo cambio.
+
+## cierre-r1 (2026-09-18 UTC, sobre `origin/master`, base real, restaurando con copia en `/tmp`)
+
+| Mutante | Lo que mata | Salida |
+|---|---|---|
+| M1c: `os` fuera de `_PROHIBIDOS_IMPORTS_GOALS_WRITE` | `test_candado_imports_goals_write_caza_from_os_getenv` (solo ese) | MUERTO |
+| M2c: `_usos_reloj` devuelve `[]` siempre | `test_candado_reloj_goals_write_caza_os_environ` y `test_candado_reloj_goals_write_caza_datetime_now` | MUERTO |
+| M3c: sin validacion del listing en el dry-run | `test_dry_run_listing_inexistente_aborta_antes_de_la_huella` y `test_dry_run_lote_listing_de_otra_platform_aborta_con_linea` | MUERTO |
+| M4c: vuelta a `enumerate(lector, start=2)` | `test_csv_linea_en_blanco_no_corre_el_numero_de_linea` (el BOM es de encoding y no cae con este mutante) | MUERTO |
+| M5c: sin guarda de `--confirmar-salto` con `--cerrar` | `test_cerrar_con_confirmar_salto_aborta` | MUERTO |

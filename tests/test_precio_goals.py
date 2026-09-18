@@ -31,6 +31,11 @@ import psycopg
 import psycopg.errors
 import pytest
 from psycopg.types.json import Json
+from test_architecture import (
+    PROHIBIDOS_PRECIO,
+    _usos_import_dinamico,
+    _usos_reloj,
+)
 from test_schema import _postgres_obligatorio_ausente
 
 RAIZ = Path(__file__).resolve().parents[1]
@@ -887,6 +892,43 @@ def test_csv_repetido_aborta_antes_de_la_huella_con_linea(tmp_path):
 
 
 @_skip_sin_pg
+def test_csv_linea_en_blanco_no_corre_el_numero_de_linea(tmp_path):
+    """AC3: con una linea en blanco, la repetida se reporta con su linea real."""
+    with _db() as (conn, dsn):
+        a = _cadena(conn, sku="SKU-AC3-A", ext="ASIN-AC3-A")
+        csv = tmp_path / "lote.csv"
+        csv.write_text(
+            "listing_id,platform,goal_pct\n"
+            "\n"
+            f"{a['listing']},amazon_mx,30.00\n"
+            f"{a['listing']},amazon_mx,40.00\n",
+            encoding="utf-8",
+        )
+        res = _tool("--csv", str(csv), "--mode", "shadow", dsn=dsn)
+        assert res.returncode == 2
+        assert "repetida" in res.stderr
+        assert "nea 4" in res.stderr
+        assert "primera en linea 3" in res.stderr
+        assert "huella: " not in res.stdout
+        assert _cuenta_goals(conn) == 0
+
+
+@_skip_sin_pg
+def test_csv_con_bom_no_aborta_por_cabecera(tmp_path):
+    """AC3: el CSV UTF-8 con BOM (Excel) se lee sin abortar por cabecera."""
+    with _db() as (conn, dsn):
+        a = _cadena(conn, sku="SKU-AC3-B", ext="ASIN-AC3-B")
+        csv = tmp_path / "lote.csv"
+        csv.write_text(
+            f"\ufefflisting_id,platform,goal_pct\n{a['listing']},amazon_mx,30.00\n",
+            encoding="utf-8",
+        )
+        res = _tool("--csv", str(csv), "--mode", "shadow", dsn=dsn)
+        assert res.returncode == 0, res.stderr
+        assert "[plan] siembra" in res.stdout
+
+
+@_skip_sin_pg
 def test_csv_go_escribe_exactamente_n_filas(tmp_path):
     with _db() as (conn, dsn):
         a = _cadena(conn, sku="SKU-CSV-A", ext="ASIN-CSV-A")
@@ -989,6 +1031,35 @@ def test_cerrar_flujo_completo(tmp_path):
 
 
 @_skip_sin_pg
+def test_cerrar_con_confirmar_salto_aborta():
+    """AC5: `--cerrar` con `--confirmar-salto` aborta (sobra, no se ignora)."""
+    from app.precio.goals_write import sembrar_goal
+
+    with _db() as (conn, dsn):
+        datos = _cadena(conn)
+        sembrar_goal(
+            conn,
+            listing_id=datos["listing"],
+            platform="amazon_mx",
+            goal_pct="30.00",
+            mode="shadow",
+            go_literal=None,
+        )
+        res = _tool(
+            "--listing-id",
+            str(datos["listing"]),
+            "--platform",
+            "amazon_mx",
+            "--cerrar",
+            "--confirmar-salto",
+            str(datos["listing"]),
+            dsn=dsn,
+        )
+        assert res.returncode == 2
+        assert "--cerrar no siembra: --confirmar-salto sobra" in res.stderr
+
+
+@_skip_sin_pg
 def test_goal_fuera_de_banda_rechazado_por_el_tool():
     with _db() as (conn, dsn):
         datos = _cadena(conn)
@@ -1030,10 +1101,25 @@ def test_sin_claves_de_config_aborta():
 
 
 # ---------------------------------------------------------------------------
-# Candado propio de goals_write: solo psycopg, app.precio.* y stdlib
+# Candado propio de goals_write: PROHIBIDOS_PRECIO salvo psycopg + reloj,
+# entorno e import dinamico (cierre-r1 AC1, misma forma que el carril B)
 # ---------------------------------------------------------------------------
 
 _PERMITIDOS_GOALS_WRITE = ("psycopg", "app.precio.")
+
+# AC1: el candado de imports aplica `PROHIBIDOS_PRECIO` completo salvo
+# `psycopg` (lo unico que la excepcion levanta); el resto de stdlib sigue
+# permitido para `Decimal`/`Mapping`/`Any`. El apareo es exacto o por
+# prefijo punteado (`os.getenv` cae por `os`).
+_PROHIBIDOS_IMPORTS_GOALS_WRITE = tuple(e for e in PROHIBIDOS_PRECIO if e != "psycopg")
+
+
+def _import_prohibido_goals_write(nombre: str) -> bool:
+    return any(
+        nombre == entrada or nombre.startswith(f"{entrada}.")
+        for entrada in _PROHIBIDOS_IMPORTS_GOALS_WRITE
+        if not entrada.startswith("<")
+    )
 
 
 def _imports_goals_write(path: Path) -> set[str]:
@@ -1063,14 +1149,38 @@ def _fugas_imports_goals_write(path: Path) -> list[str]:
     return sorted(
         i
         for i in _imports_goals_write(path)
-        if i.split(".")[0] not in _sys.stdlib_module_names
-        and not any(i == p or i.startswith(p) for p in _PERMITIDOS_GOALS_WRITE)
+        if _import_prohibido_goals_write(i)
+        or (
+            i.split(".")[0] not in _sys.stdlib_module_names
+            and not any(i == p or i.startswith(p) for p in _PERMITIDOS_GOALS_WRITE)
+        )
     )
+
+
+def _goals_write_mas(extra: str, tmp_path: Path) -> Path:
+    """Copia de `goals_write.py` en `tmp_path` con `extra` al final (fuga)."""
+    destino = tmp_path / "goals_write.py"
+    destino.write_text(
+        (RAIZ / "app" / "precio" / "goals_write.py").read_text(encoding="utf-8")
+        + "\n"
+        + extra
+        + "\n",
+        encoding="utf-8",
+    )
+    return destino
 
 
 def test_goals_write_solo_importa_psycopg_precio_y_stdlib():
     fugas = _fugas_imports_goals_write(RAIZ / "app" / "precio" / "goals_write.py")
     assert not fugas, f"goals_write.py importa fuera de lo permitido: {fugas}"
+
+
+def test_goals_write_sin_reloj_ni_entorno_ni_dinamico():
+    """AC1: la excepcion por nombre no ampara reloj, entorno ni import
+    dinamico en `goals_write.py`."""
+    arbol = ast.parse((RAIZ / "app" / "precio" / "goals_write.py").read_text(encoding="utf-8"))
+    assert _usos_reloj(arbol) == []
+    assert _usos_import_dinamico(arbol) == []
 
 
 def test_candado_imports_caza_fuga_sembrada(tmp_path):
@@ -1080,6 +1190,49 @@ def test_candado_imports_caza_fuga_sembrada(tmp_path):
         encoding="utf-8",
     )
     assert _fugas_imports_goals_write(tmp_path / "goals_write.py") == ["httpx"]
+
+
+def test_candado_imports_goals_write_caza_import_time(tmp_path):
+    """AC1, fuga sembrada: `import time` + `time.time()` sale rojo."""
+    copia = _goals_write_mas("import time\n\n_huella = time.time()  # fuga\n", tmp_path)
+    assert _fugas_imports_goals_write(copia) != []
+
+
+def test_candado_imports_goals_write_caza_from_os_getenv(tmp_path):
+    """AC1, fuga sembrada: `from os import getenv` sale rojo."""
+    copia = _goals_write_mas("from os import getenv\n\n_ajuste = getenv  # fuga\n", tmp_path)
+    assert _fugas_imports_goals_write(copia) != []
+
+
+def test_candado_reloj_goals_write_caza_os_environ(tmp_path):
+    """AC1, fuga sembrada: `os.environ[...]` sale rojo (reloj/entorno)."""
+    copia = _goals_write_mas('_ajuste = os.environ["X"]  # fuga\n', tmp_path)
+    arbol = ast.parse(copia.read_text(encoding="utf-8"))
+    assert _usos_reloj(arbol) != []
+
+
+def test_candado_imports_goals_write_caza_importlib(tmp_path):
+    """AC1, fuga sembrada: `import importlib` + uso sale rojo."""
+    copia = _goals_write_mas(
+        'import importlib\n\n_mod = importlib.import_module("x")  # fuga\n', tmp_path
+    )
+    assert _fugas_imports_goals_write(copia) != []
+
+
+def test_candado_dinamico_goals_write_caza_dunder_import(tmp_path):
+    """AC1, fuga sembrada: `__import__("httpx")` sale rojo."""
+    copia = _goals_write_mas('_mod = __import__("httpx")  # fuga\n', tmp_path)
+    arbol = ast.parse(copia.read_text(encoding="utf-8"))
+    assert _usos_import_dinamico(arbol) != []
+
+
+def test_candado_reloj_goals_write_caza_datetime_now(tmp_path):
+    """AC1, fuga sembrada: `datetime.now()` sale rojo (reloj)."""
+    copia = _goals_write_mas(
+        "from datetime import datetime\n\n_ahora = datetime.now()  # fuga\n", tmp_path
+    )
+    arbol = ast.parse(copia.read_text(encoding="utf-8"))
+    assert _usos_reloj(arbol) != []
 
 
 # ---------------------------------------------------------------------------
@@ -1351,6 +1504,49 @@ def test_r1_csv_con_vigente_dice_la_linea(tmp_path):
         assert "nea 3" in res.stderr
         assert "huella: " not in res.stdout
         assert _cuenta_goals(conn) == 1
+
+
+@_skip_sin_pg
+def test_dry_run_listing_inexistente_aborta_antes_de_la_huella():
+    """AC2: `--listing-id` mal escrito aborta el dry-run antes de la huella."""
+    with _db() as (conn, dsn):
+        _config(conn)
+        res = _tool(
+            "--listing-id",
+            "999999",
+            "--platform",
+            "amazon_mx",
+            "--goal-pct",
+            "30.00",
+            "--mode",
+            "shadow",
+            dsn=dsn,
+        )
+        assert res.returncode == 2
+        assert "inexistente" in res.stderr
+        assert "999999" in res.stderr
+        assert "huella: " not in res.stdout
+        assert _cuenta_goals(conn) == 0
+
+
+@_skip_sin_pg
+def test_dry_run_lote_listing_de_otra_platform_aborta_con_linea(tmp_path):
+    """AC2 en lote: la fila con listing de otra platform aborta con su linea."""
+    with _db() as (conn, dsn):
+        prod = _producto(conn)
+        lid = _listing(conn, prod, platform="amazon_mx")
+        _config(conn)
+        csv = tmp_path / "lote.csv"
+        csv.write_text(
+            f"listing_id,platform,goal_pct\n{lid},amazon_mx,30.00\n{lid},amazon_us,30.00\n",
+            encoding="utf-8",
+        )
+        res = _tool("--csv", str(csv), "--mode", "shadow", dsn=dsn)
+        assert res.returncode == 2
+        assert "inexistente" in res.stderr
+        assert "nea 3" in res.stderr
+        assert "huella: " not in res.stdout
+        assert _cuenta_goals(conn) == 0
 
 
 @_skip_sin_pg
