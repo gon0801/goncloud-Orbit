@@ -1,5 +1,75 @@
 # A.3 — Catálogo de mutantes (REPRICING 01, escritura y reversa)
 
+## Ronda r3 (revisión cruzada kimi + mutante del lead, sobre `8e99ca0`)
+
+Caché de bytecode nueva por corrida (`PYTHONPYCACHEPREFIX=$(mktemp -d)`,
+`-p no:cacheprovider`). Todos MUERTOS.
+
+### K1 — otro abierto del par revienta el INSERT (`precio_write.py:revertir` + tool)
+
+Sin la consulta previa, el `INSERT` de la reversa explota con
+`UniqueViolation` cruda (`precio_cambio_abierto_unico`), el go muere con
+traceback y el dry-run había prometido `[revertir]`.
+
+```text
+E           psycopg.errors.UniqueViolation: duplicate key value violates unique constraint "precio_cambio_abierto_unico"
+1 failed, 65 deselected in 0.42s
+```
+
+MUERTO (`test_r3_k1_otro_abierto_mismo_listing_salta` en la función y
+`test_r3_k1_tool_afectado_salta_otro_revierte` en el tool: el afectado
+salta `listing_con_cambio_abierto`, el otro se revierte).
+
+### K3 — estado fuera de vocabulario (`precio_write.py`)
+
+Mutante: construir `ResultadoCambio`/`ResultadoReversion` con un estado
+inventado (el comentario documentaba `"enviado" | "error"` y `cambiar`
+devuelve `"saltado"`).
+
+```text
+E       Failed: DID NOT RAISE <class 'ValueError'>
+1 failed, 68 deselected in 0.26s
+```
+
+MUERTO (`test_r3_k3_estado_fuera_de_vocabulario_es_mal_uso`;
+`__post_init__` valida en ambas).
+
+### K7 — el go devuelve 0 con reversas en error (`tools/precio_reversa.py`)
+
+Mutante: sin el rastreo de `hubo_error` (el lote con una reversa en
+`error` reportaba éxito).
+
+```text
+E       AssertionError: assert 0 == 1
+1 failed, 70 deselected in 0.46s
+```
+
+MUERTO (`test_r3_k7_reversa_en_error_devuelve_1`).
+
+### K8 — sin guarda de autocommit en `revertir`/`cerrar` (`precio_write.py`)
+
+Mutante del lead: quitar la guarda de `revertir` (solo estaba probada
+en `cambiar_precio`; nada lo notaba).
+
+```text
+2 failed, 71 deselected in 0.54s   # con ambas guardas quitadas
+```
+
+MUERTO (`test_r3_k8_revertir_sin_autocommit_es_mal_uso` y
+`test_r3_k8_cerrar_sin_autocommit_es_mal_uso`).
+
+### K13 — import dinámico invisible al candado (`tests/test_architecture.py`)
+
+Mutante: el escáner sin la condición dinámica (o sin el helper: un
+`__import__("app.spapi.write_client")` pasaba el candado AST).
+
+```text
+1 failed, 1 passed, 53 deselected in 0.23s
+```
+
+MUERTO (`test_imports_spapi_write_sin_import_dinamico` + fuga sembrada
+`test_imports_spapi_write_frontera_caza_import_dinamico`).
+
 ## Ronda r2 (re-auditoría del lead sobre `1428f69`; B1 + 3 mutantes)
 
 Caché de bytecode nueva por corrida (`PYTHONPYCACHEPREFIX=$(mktemp -d)`,
