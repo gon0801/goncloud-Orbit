@@ -1,5 +1,92 @@
 # A.3 — Catálogo de mutantes (REPRICING 01, escritura y reversa)
 
+## Ronda r4 (revisión grok + mutante del lead, sobre `8e99ca0`)
+
+Caché de bytecode nueva por corrida (`PYTHONPYCACHEPREFIX=$(mktemp -d)`,
+`-p no:cacheprovider`). Todos MUERTOS.
+
+### G1 — PATCH sin `marketplaceIds` (`write_client.py:patch_listing`, ALTO)
+
+El `platform` nunca llegaba al cable y, como el mismo seller sirve MX y
+US, el mercado quedaba indefinido (campo obligatorio en Listings Items
+2021-08-01; el GET hermano sí lo manda). Arreglo: `params=
+{"marketplaceIds": MERCADOS[self._platform]}` (la ruta sigue sin `?`).
+
+```text
+2 failed, 29 deselected in 0.27s   # request.url sin query marketplaceIds
+```
+
+MUERTO (`test_r4_g1_patch_lleva_marketplace_ids_del_platform`, uno por
+platform MX/US; el cable r1 se actualizó al contrato ruta + query).
+
+### G2 — `cambiar` con abierto del par (`precio_write.py:cambiar_precio`)
+
+Mutante: el `INSERT` explotaba con `UniqueViolation` cruda
+(`precio_cambio_abierto_unico`) cuando el par ya tenía un abierto (el
+docstring además prometía una rama `original_abierto` que no existe en
+`cambiar`; ahora documenta `listing_con_cambio_abierto`).
+
+```text
+E           psycopg.errors.UniqueViolation: duplicate key value violates unique constraint "precio_cambio_abierto_unico"
+1 failed, 73 deselected in 0.60s
+```
+
+MUERTO (`test_r4_g2_cambiar_con_abierto_del_par_salta`: saltado, sin
+fila ni PATCH).
+
+### G3 — el go muere a mitad del lote (`tools/precio_reversa.py`)
+
+Mutante: sin el `try` por `revertir`, un previsible a mitad del lote
+mataba la corrida con traceback y el resto no se ejecutaba.
+
+```text
+E           app.spapi.client.SpapiNoPermitida: seller SKU invalido para ruta listings
+1 failed, 75 deselected in 0.60s
+```
+
+MUERTO. El plan salta `sin_sku` (test `test_r4_g3_plan_sin_sku_salta`);
+el go atrapa `CambioNoReversible`, `SpapiNoPermitida`,
+`PublicacionSinSku` y `UniqueViolation` por revertir (`[error]`, el
+lote sigue, rc 1; test `test_r4_g3_lote_sigue_tras_previsible_y_devuelve_1`
+con SKU inválido no vacío — el nulo/vacío lo salta el plan, así que el
+`[error]` en go exige un caso que el plan marque revertir).
+
+### G4 — competitivo caído bloquea con oferta propia (`precio_write.py`)
+
+Mutante: exigir ambos 200 aunque las ofertas traigan la propia (un
+5xx/429 del respaldo tumbaba la lectura).
+
+```text
+E           app.spapi.precio_write.PrecioVivoAusente: pricing B0TESTC001 status=200/500
+1 failed, 1 passed, 76 deselected in 0.57s
+```
+
+MUERTO (`test_r4_g4_competitivo_caido_no_bloquea_con_oferta_propia`;
+sin propia sigue ausente).
+
+### G5 — cuerpo con `Decimal`/`float` a la red (`write_client.py`)
+
+Mutante: sin validación, el encoder estándar deforma o revienta los
+importes (van como `str`, patrón `_decimal_a_json_number`).
+
+```text
+2 failed, 31 deselected in 0.27s   # DID NOT RAISE ValueError
+```
+
+MUERTO (`test_r4_g5_cuerpo_con_numeros_binarios_es_mal_uso`, anidados,
+antes de la red: cero pedidos, cero tokens).
+
+### P25 — lote con solo saltados (`tools/precio_reversa.py`, mutante del lead)
+
+Mutante: contar los saltados como error (rc 1 en un lote donde nada
+falló).
+
+```text
+1 failed, 78 deselected in 0.55s
+```
+
+MUERTO (`test_r4_g6_solo_saltados_devuelve_0`: rc 0, cero PATCH).
+
 ## Ronda r3 (revisión cruzada kimi + mutante del lead, sobre `8e99ca0`)
 
 Caché de bytecode nueva por corrida (`PYTHONPYCACHEPREFIX=$(mktemp -d)`,
