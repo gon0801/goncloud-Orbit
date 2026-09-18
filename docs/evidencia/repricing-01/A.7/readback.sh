@@ -32,6 +32,15 @@ SALIDAS_DIR="$DIR/salidas"
 SOLO_SELECT="$DIR/../E.0/solo-select.py"
 HOY="$(date -u +%F)"
 PLATAFORMAS="amazon_mx amazon_us"
+# Consultas que no se corren, con su razon escrita (queda en CORRIDA.txt).
+# Uso: OMITIR="03_goals 04_decisiones" RAZON_OMISION="<por que>" bash readback.sh
+# Sin razon no se omite nada: omitir sin decir por que es esconder filas.
+OMITIR="${OMITIR:-}"
+RAZON_OMISION="${RAZON_OMISION:-}"
+if [ -n "$OMITIR" ] && [ -z "$RAZON_OMISION" ]; then
+    echo "ATORADO: OMITIR sin RAZON_OMISION" >&2
+    exit 1
+fi
 
 if grep -liE '\b(insert|update|delete|truncate|alter|drop|create|grant|copy)\b' "$CONSULTAS_DIR"/*.sql; then
     echo "ATORADO: una consulta de $CONSULTAS_DIR contiene una palabra de escritura (ver arriba)." >&2
@@ -64,6 +73,8 @@ escribir_corrida() {
         printf 'hoy_utc: %s\n' "$HOY"
         printf 'commit_del_repo: %s\n' "$COMMIT"
         printf 'consultas_o_corredor_con_cambios_sin_commitear: %s\n' "$SUCIO"
+        printf 'omitidas: %s\n' "${OMITIR:-ninguna}"
+        printf 'razon_omision: %s\n' "${RAZON_OMISION:-n/a}"
     } > "$CORRIDA"
 }
 escribir_corrida "EN CURSO"
@@ -72,6 +83,9 @@ for plataforma in $PLATAFORMAS; do
     mkdir -p "$SALIDAS_DIR/$plataforma"
     for archivo in "$CONSULTAS_DIR"/*.sql; do
         nombre="$(basename "${archivo%.sql}")"
+        case " $OMITIR " in
+            *" $nombre "*) echo "== $plataforma $nombre == OMITIDA ($RAZON_OMISION)"; continue ;;
+        esac
         parcial="$SALIDAS_DIR/$plataforma/$nombre.txt.parcial"
         final="$SALIDAS_DIR/$plataforma/$nombre.txt"
         err="$SALIDAS_DIR/$plataforma/$nombre.err"
