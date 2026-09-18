@@ -1,0 +1,6 @@
+BEGIN
+-- INICIO 06-par-labman-shippinghb
+amazon_mx|3|0|0|3|126.42|12.35
+amazon_us|57|0|0|57|442.70|84.07
+-- FIN 06-par-labman-shippinghb
+ROLLBACK

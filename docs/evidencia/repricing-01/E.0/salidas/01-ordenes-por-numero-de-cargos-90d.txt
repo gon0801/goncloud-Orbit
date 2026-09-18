@@ -1,0 +1,16 @@
+BEGIN
+-- INICIO 01-ordenes-por-numero-de-cargos-90d
+amazon_mx|1|181
+amazon_mx|2|10
+amazon_us|2|119
+amazon_us|3|54
+amazon_mx|finance:MFNPostageFee|179
+amazon_mx|finance:ShippingHB + shipping_label|6
+amazon_mx|finance:LabmanLabelPurchase + finance:ShippingHB|3
+amazon_mx|finance:ShippingChargeback|2
+amazon_mx|finance:MFNPostageFee + finance:MFNShippingChargeback|1
+amazon_us|finance:ShippingHB + shipping_label|116
+amazon_us|finance:LabmanLabelPurchase + finance:ShippingHB + shipping_label|54
+amazon_us|finance:LabmanLabelPurchase + finance:ShippingHB|3
+-- FIN 01-ordenes-por-numero-de-cargos-90d
+ROLLBACK
