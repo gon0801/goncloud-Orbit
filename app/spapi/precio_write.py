@@ -365,7 +365,7 @@ def revertir(
         )
     try:
         vivo = leer_precio_vivo(lector, platform=platform, asin=asin)
-    except (PrecioVivoAusente, httpx.HTTPError):
+    except (PrecioVivoAusente, SpapiError, httpx.HTTPError):
         logger.info("revertir cambio=%s saltado=sin_precio_vivo", cambio_id)
         return ResultadoReversion(id_reversa=None, estado="saltado", motivo="sin_precio_vivo")
     if (vivo.precio, vivo.moneda) != (despues, despues_moneda):
@@ -545,7 +545,7 @@ def cambiar_precio(
     _validar_destino(escritor, sku)
     try:
         vivo = leer_precio_vivo(lector, platform=platform, asin=asin)
-    except (PrecioVivoAusente, httpx.HTTPError):
+    except (PrecioVivoAusente, SpapiError, httpx.HTTPError):
         logger.info("cambiar decision=%s error=sin_precio_vivo", decision_id)
         return ResultadoCambio(id_cambio=None, estado="error", motivo="sin_precio_vivo")
     if (vivo.precio, vivo.moneda) != (p_actual, p_actual_moneda):

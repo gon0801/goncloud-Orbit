@@ -2060,3 +2060,23 @@ def test_r3_k1_tool_afectado_salta_otro_revierte(monkeypatch, capsys):
         assert f"[hecho] cambio={cid2}" in out
         assert red.n_patch == 1
         assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 4
+
+
+def test_r3_k2_lwa_caido_en_prelectura_es_sin_precio_vivo():
+    """r3-K2: SpapiError del lector en el pre-read -> saltado sin_precio_vivo, sin fila ni PATCH."""
+    red = _RedFalsa(lwa=[(400, {})])
+    with db_39c() as conn:
+        _, cid = _semilla_reversion(conn)
+        lector, escritor = _clientes(red)
+        with rol(conn):
+            res = revertir(
+                conn,
+                cid,
+                lector=lector,
+                escritor=escritor,
+                construir_cuerpo=_cuerpo_falso,
+                ahora=AHORA,
+            )
+        assert res.estado == "saltado" and res.motivo == "sin_precio_vivo"
+        assert red.n_patch == 0
+        assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 1
