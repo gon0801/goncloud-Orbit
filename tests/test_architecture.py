@@ -102,6 +102,25 @@ ALLOWLIST_TAMANO = {
 }
 
 
+def _es_bloque_type_checking(nodo: ast.stmt) -> bool:
+    """`if TYPE_CHECKING:` / `if typing.TYPE_CHECKING:` (solo tipos, no runtime)."""
+    if not isinstance(nodo, ast.If):
+        return False
+    test = nodo.test
+    return (isinstance(test, ast.Name) and test.id == "TYPE_CHECKING") or (
+        isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
+    )
+
+
+def _nodos_runtime(arbol: ast.AST):
+    """Nodos del arbol salvo subarboles `if TYPE_CHECKING:` (r6-C4)."""
+    if _es_bloque_type_checking(arbol):
+        return
+    yield arbol
+    for hijo in ast.iter_child_nodes(arbol):
+        yield from _nodos_runtime(hijo)
+
+
 def _imports_runtime(path: Path) -> set[str]:
     """Imports de un modulo EXCLUYENDO los bloques `if TYPE_CHECKING:`.
 
@@ -110,21 +129,13 @@ def _imports_runtime(path: Path) -> set[str]:
     """
     arbol = ast.parse(path.read_text(encoding="utf-8"))
 
-    def _es_type_checking(nodo: ast.stmt) -> bool:
-        if not isinstance(nodo, ast.If):
-            return False
-        test = nodo.test
-        return (isinstance(test, ast.Name) and test.id == "TYPE_CHECKING") or (
-            isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
-        )
-
     encontrados: set[str] = set()
 
     def _visitar(nodos: list) -> None:
         # Imports dentro de funciones/clases tambien cuentan (IO diferido
         # sigue siendo IO); solo los subarboles TYPE_CHECKING quedan fuera.
         for nodo in nodos:
-            if _es_type_checking(nodo):
+            if _es_bloque_type_checking(nodo):
                 continue
             if isinstance(nodo, ast.Import):
                 encontrados.update(alias.name for alias in nodo.names)
@@ -1228,21 +1239,42 @@ def test_precio_frontera_caza_reloj_en_todas_sus_formas(tmp_path, monkeypatch, c
 # Solo se AGREGA al final (el carril B tambien toca este archivo).
 
 
+def _sin_comentario(linea: str) -> str:
+    """Corta el comentario (`#` fuera de cadenas, r6-C3): los comentarios
+    no ejecutan y un `PATCH` en ellos no es escritura."""
+    comilla = None
+    i = 0
+    while i < len(linea):
+        c = linea[i]
+        if comilla is not None:
+            if c == "\\":
+                i += 2
+                continue
+            if c == comilla:
+                comilla = None
+        elif c in ("'", '"'):
+            comilla = c
+        elif c == "#":
+            return linea[:i]
+        i += 1
+    return linea
+
+
 def _fugas_patch_crudos(raiz_app, raiz_tools):
     """Archivos que escriben a Listings fuera de `app/spapi/write_client.py`.
 
     Candado de deriva accidental, no prueba exhaustiva: caza por linea
-    `httpx.patch` / `.patch(` / `request("PATCH"` (con o sin espacio tras
-    el paréntesis) / `method="PATCH"` crudos, o el prefijo
-    `/listings/2021-08-01/items` junto a un verbo de escritura en la misma
-    linea. Un verbo en variable o construido por partes escapa; un
-    comentario con esas formas daría falso positivo (hoy no hay ninguno).
-    `precio_write.py` nombra el prefijo solo para el `error_code` (sin
-    verbo en esa linea) y por eso no dispara.
+    (sin comentarios) `httpx.patch` / `.patch(` / `request("PATCH"` (con
+    o sin espacio tras el paréntesis) / `method="PATCH"` crudos, o el
+    prefijo `/listings/2021-08-01/items` junto a una llamada ejecutable
+    `httpx.patch(...)` en la misma linea. Un verbo en variable o
+    construido por partes escapa. `precio_write.py` nombra el prefijo
+    solo para el `error_code` (sin llamada en esa linea) y por eso no
+    dispara.
     """
     import re
 
-    verbo = re.compile(r"\b(PATCH|PUT|POST|DELETE)\b")
+    llamada = re.compile(r"httpx\s*\.\s*patch\s*\(")
     fugas = []
     for base in (raiz_app, raiz_tools):
         for p in sorted(base.rglob("*.py")):
@@ -1255,17 +1287,21 @@ def _fugas_patch_crudos(raiz_app, raiz_tools):
             try:
                 lineas = p.read_text(encoding="utf-8").splitlines()
             except OSError:
+                # r6-C2: lo ilegible no es cobertura aparente: cuenta
+                # como fuga con su nombre, nunca se salta en silencio.
+                fugas.append(f"{rel}:ilegible")
                 continue
             for n, linea in enumerate(lineas, start=1):
-                sin_espacios = linea.replace(" ", "")
+                codigo = _sin_comentario(linea)
+                sin_espacios = codigo.replace(" ", "")
                 if (
-                    "httpx.patch" in linea
-                    or ".patch(" in linea
+                    "httpx.patch" in codigo
+                    or ".patch(" in codigo
                     or 'request("PATCH"' in sin_espacios
                     or "request('PATCH'" in sin_espacios
                     or 'method="PATCH"' in sin_espacios
                     or "method='PATCH'" in sin_espacios
-                    or ("/listings/2021-08-01/items" in linea and verbo.search(linea))
+                    or ("/listings/2021-08-01/items" in codigo and llamada.search(codigo))
                 ):
                     fugas.append(f"{rel}:{n}")
     return fugas
@@ -1288,10 +1324,10 @@ def test_precio_write_frontera_caza_patch_crudo(tmp_path):
     assert any("fuga.py" in f for f in fugas)
 
 
-def test_precio_write_frontera_caza_prefijo_con_verbo(tmp_path):
-    """Fuga sembrada: el prefijo junto a un verbo en la misma linea dispara."""
+def test_precio_write_frontera_caza_prefijo_con_llamada_con_espacios(tmp_path):
+    """Fuga sembrada: el prefijo con llamada ejecutable dispara aun con espacios."""
     (tmp_path / "fuga.py").write_text(
-        'RUTA = "/listings/2021-08-01/items"  # PATCH\n', encoding="utf-8"
+        'httpx . patch ("/listings/2021-08-01/items/X/S")\n', encoding="utf-8"
     )
     fugas = _fugas_patch_crudos(tmp_path, tmp_path)
     assert any("fuga.py" in f for f in fugas)
@@ -1338,7 +1374,9 @@ def _importadores_spapi_write(raiz_app, raiz_tools):
                 arbol = ast.parse(p.read_text(encoding="utf-8"))
             except (OSError, SyntaxError):
                 continue
-            for nodo in ast.walk(arbol):
+            # r6-C4: como `_imports_runtime`, los relativos bajo
+            # TYPE_CHECKING no corren en runtime y no son fuga.
+            for nodo in _nodos_runtime(arbol):
                 if not (isinstance(nodo, ast.ImportFrom) and nodo.level == 1):
                     continue
                 if (nodo.module or "").split(".")[0] == "write_client" or any(
@@ -1384,6 +1422,8 @@ def _importadores_dinamicos_spapi_write(raiz_app, raiz_tools):
             try:
                 fuente = p.read_text(encoding="utf-8")
             except OSError:
+                # r6-C2: lo ilegible cuenta como fuga (ver arriba).
+                dinamicos.add(p)
                 continue
             if ("app.spapi.write_client" in fuente or ".write_client" in fuente) and (
                 "__import__(" in fuente or "import_module(" in fuente
@@ -1440,6 +1480,7 @@ ALLOWLIST_IMPORTS_PRECIO_REVERSA = frozenset(
         "app.db.connect",
         "app.spapi",
         "app.spapi.client",
+        "app.spapi.client.CuboTasa",
         "app.spapi.client.SpapiClient",
         "app.spapi.client.SpapiError",
         "app.spapi.client.SpapiNoPermitida",
@@ -1483,3 +1524,66 @@ def test_tool_precio_reversa_frontera_caza_write_directo(tmp_path):
     assert "app.spapi.write_client" in _violaciones(imp, ("app.spapi.write_client",))
     extras = imp - ALLOWLIST_IMPORTS_PRECIO_REVERSA
     assert "app.spapi.write_client" in extras
+
+
+# ---------------------------------------------------------- r6-C2 ilegible es fuga
+
+
+def test_precio_write_frontera_ilegible_cuenta_como_fuga(tmp_path):
+    """r6-C2: un .py ilegible no es cobertura aparente: cuenta como fuga."""
+    p = tmp_path / "ilegible.py"
+    p.write_text("x = 1\n", encoding="utf-8")
+    p.chmod(0o000)
+    try:
+        fugas = _fugas_patch_crudos(tmp_path, tmp_path)
+    finally:
+        p.chmod(0o644)
+    assert any("ilegible.py" in f for f in fugas)
+
+
+def test_imports_spapi_write_frontera_ilegible_cuenta_como_fuga(tmp_path):
+    """r6-C2: un .py ilegible cuenta como fuga tambien en dinamicos."""
+    p = tmp_path / "ilegible.py"
+    p.write_text("x = 1\n", encoding="utf-8")
+    p.chmod(0o000)
+    try:
+        dinamicos = _importadores_dinamicos_spapi_write(tmp_path, tmp_path)
+    finally:
+        p.chmod(0o644)
+    assert {x.name for x in dinamicos} == {"ilegible.py"}
+
+
+# ---------------------------------------------------------- r6-C3 comentarios no ejecutan
+
+
+def test_precio_write_frontera_comentario_con_patch_no_es_fuga(tmp_path):
+    """r6-C3: PATCH en comentario (aun junto al prefijo) no es escritura."""
+    (tmp_path / "notas.py").write_text(
+        'RUTA = "/listings/2021-08-01/items"  # PATCH\n# PATCH "/listings/2021-08-01/items"\n',
+        encoding="utf-8",
+    )
+    assert _fugas_patch_crudos(tmp_path, tmp_path) == []
+
+
+def test_precio_write_frontera_caza_llamada_ejecutable_con_prefijo(tmp_path):
+    """r6-C3: la frontera del prefijo es la llamada ejecutable."""
+    (tmp_path / "fuga.py").write_text(
+        'import httpx\nhttpx.patch("/listings/2021-08-01/items/X/S", json={})\n',
+        encoding="utf-8",
+    )
+    fugas = _fugas_patch_crudos(tmp_path, tmp_path)
+    assert any("fuga.py" in f for f in fugas)
+
+
+# ---------------------------------------------------------- r6-C4 TYPE_CHECKING en relativos
+
+
+def test_imports_spapi_write_frontera_type_checking_relativo_no_es_fuga(tmp_path):
+    """r6-C4: `from .write_client` bajo TYPE_CHECKING no corre en runtime."""
+    (tmp_path / "hermano.py").write_text(
+        "from typing import TYPE_CHECKING\n"
+        "if TYPE_CHECKING:\n"
+        "    from .write_client import SpapiWriteClient\n",
+        encoding="utf-8",
+    )
+    assert _importadores_spapi_write(tmp_path, tmp_path) == set()
