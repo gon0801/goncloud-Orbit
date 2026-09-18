@@ -44,6 +44,7 @@ from app.redaction import scrub
 from app.spapi.client import (
     MERCADOS,
     VENDEDORES_PROPIOS,
+    CuboTasa,
     SpapiAuthError,
     SpapiClient,
     SpapiError,
@@ -135,7 +136,13 @@ def construir_cuerpo_parche(*, platform: str, sku: str, precio: Decimal, moneda:
     raise FormaParcheSinSellar(FORMA_PARCHE)
 
 
-def leer_precio_vivo(lector: SpapiClient, *, platform: str, asin: str) -> PrecioVivo:
+def leer_precio_vivo(
+    lector: SpapiClient,
+    *,
+    platform: str,
+    asin: str,
+    limitador: CuboTasa | None = None,
+) -> PrecioVivo:
     """Precio propio vivo por el GET de ofertas de Pricing + `parsear_precios`.
 
     Las ofertas se parsean primero con competitivo vacio: si traen la
@@ -144,13 +151,18 @@ def leer_precio_vivo(lector: SpapiClient, *, platform: str, asin: str) -> Precio
     cualquier falla suya (no-200 o JSON malo) es respaldo vacio. Sin
     oferta propia en ninguno, non-200 u ofertas no JSON ->
     `PrecioVivoAusente`: un dato malo de la fuente no tumba la operacion.
+    Con `limitador`, ambas lecturas consumen del mismo cubo (r6-C5).
     """
     if platform not in MERCADOS:
         raise ValueError(f"platform invalida: {platform!r}")
     marketplace = MERCADOS[platform]
     propio = VENDEDORES_PROPIOS[marketplace]
     ruta = construir_ruta_ofertas(asin)
-    resp = lector.get(ruta, params={"MarketplaceId": marketplace, "ItemCondition": "New"})
+    resp = lector.get(
+        ruta,
+        params={"MarketplaceId": marketplace, "ItemCondition": "New"},
+        limitador=limitador,
+    )
     if resp.status_code != 200:
         raise PrecioVivoAusente(f"pricing {asin} status={resp.status_code}")
     try:
@@ -166,6 +178,7 @@ def leer_precio_vivo(lector: SpapiClient, *, platform: str, asin: str) -> Precio
     comp = lector.get(
         RUTA_COMPETITIVO,
         params={"MarketplaceId": marketplace, "ItemType": "Asin", "Asins": asin},
+        limitador=limitador,
     )
     if comp.status_code != 200:
         # El competitivo es respaldo: su caida no bloquea; sin propia
@@ -313,11 +326,17 @@ def _readback(
     logger.info("%s cambio=%s readback=%s", origen, cambio_id, estado_rb)
 
 
-def _leer_vivo_suave(lector: SpapiClient, *, platform: str, asin: str) -> PrecioVivo | None:
+def _leer_vivo_suave(
+    lector: SpapiClient,
+    *,
+    platform: str,
+    asin: str,
+    limitador: CuboTasa | None = None,
+) -> PrecioVivo | None:
     # El readback nunca tumba una operacion ya sellada (r1-A6): LWA caido
     # tambien es `fallido`, no una excepcion hacia quien llama.
     try:
-        return leer_precio_vivo(lector, platform=platform, asin=asin)
+        return leer_precio_vivo(lector, platform=platform, asin=asin, limitador=limitador)
     except (PrecioVivoAusente, SpapiError, httpx.HTTPError):
         return None
 
@@ -330,6 +349,7 @@ def revertir(
     escritor: SpapiWriteClient,
     construir_cuerpo: Callable[..., dict] | None = None,
     ahora: datetime | None = None,
+    limitador: CuboTasa | None = None,
 ) -> ResultadoReversion:
     """Reversa manual de un cambio real: vuelve a su `precio_antes`.
 
@@ -405,7 +425,7 @@ def revertir(
             id_reversa=None, estado="saltado", motivo="listing_con_cambio_abierto"
         )
     try:
-        vivo = leer_precio_vivo(lector, platform=platform, asin=asin)
+        vivo = leer_precio_vivo(lector, platform=platform, asin=asin, limitador=limitador)
     except (PrecioVivoAusente, SpapiError, httpx.HTTPError):
         logger.info("revertir cambio=%s saltado=sin_precio_vivo", cambio_id)
         return ResultadoReversion(id_reversa=None, estado="saltado", motivo="sin_precio_vivo")
@@ -465,6 +485,7 @@ def revertir(
         fallo=lambda codigo: ResultadoReversion(
             id_reversa=id_reversa, estado="error", motivo=codigo
         ),
+        limitador=limitador,
     )
 
 
@@ -482,6 +503,7 @@ def _escribir_y_sellar(
     origen: str,
     exito,
     fallo,
+    limitador: CuboTasa | None = None,
 ):
     """PATCH -> sello por ack -> readback informativo. Compartido por
     `cambiar_precio` y `revertir` (mismo camino S5).
@@ -490,7 +512,9 @@ def _escribir_y_sellar(
     y `enviado_at`; 4xx/5xx, red o estado distinto -> `error` con
     `error_code = "<METODO> <ruta sin SKU> <status>"`, aunque una lectura
     posterior muestre el precio nuevo. El readback no decide: `ok` si se
-    pudo leer (sea cual sea el precio), `fallido` si no.
+    pudo leer (sea cual sea el precio), `fallido` si no. Con `limitador`,
+    el readback consume del cubo del llamador (r6-C5; `cambiar_precio`
+    no lo pasa).
     """
     ruta = _ruta_sin_sku(escritor.seller_id)
     try:
@@ -499,34 +523,34 @@ def _escribir_y_sellar(
         codigo = f"PATCH {ruta} lwa"
         logger.info("%s cambio=%s error=%s (%s)", origen, cambio_id, codigo, type(exc).__name__)
         _sellar(conn, cambio_id, estado="error", error_code=codigo)
-        vivo_rb = _leer_vivo_suave(lector, platform=platform, asin=asin)
+        vivo_rb = _leer_vivo_suave(lector, platform=platform, asin=asin, limitador=limitador)
         _readback(conn, cambio_id, vivo_rb, momento, origen=origen)
         return fallo(codigo)
     except httpx.HTTPError as exc:
         codigo = f"PATCH {ruta} red"
         logger.info("%s cambio=%s error=%s (%s)", origen, cambio_id, codigo, type(exc).__name__)
         _sellar(conn, cambio_id, estado="error", error_code=codigo)
-        vivo_rb = _leer_vivo_suave(lector, platform=platform, asin=asin)
+        vivo_rb = _leer_vivo_suave(lector, platform=platform, asin=asin, limitador=limitador)
         _readback(conn, cambio_id, vivo_rb, momento, origen=origen)
         return fallo(codigo)
     except Exception as exc:
         codigo = f"PATCH {ruta} excepcion:{type(exc).__name__}"
         logger.info("%s cambio=%s error=%s", origen, cambio_id, codigo)
         _sellar(conn, cambio_id, estado="error", error_code=codigo)
-        vivo_rb = _leer_vivo_suave(lector, platform=platform, asin=asin)
+        vivo_rb = _leer_vivo_suave(lector, platform=platform, asin=asin, limitador=limitador)
         _readback(conn, cambio_id, vivo_rb, momento, origen=origen)
         raise
     aceptado, _cuerpo = _estado_aceptado(resp)
     if aceptado:
         _sellar(conn, cambio_id, estado="enviado", ack=_ack_saneado(resp))
         logger.info("%s cambio=%s estado=enviado", origen, cambio_id)
-        vivo_rb = _leer_vivo_suave(lector, platform=platform, asin=asin)
+        vivo_rb = _leer_vivo_suave(lector, platform=platform, asin=asin, limitador=limitador)
         _readback(conn, cambio_id, vivo_rb, momento, origen=origen)
         return exito()
     codigo = f"PATCH {ruta} {resp.status_code}"
     logger.info("%s cambio=%s error=%s", origen, cambio_id, codigo)
     _sellar(conn, cambio_id, estado="error", error_code=codigo)
-    vivo_rb = _leer_vivo_suave(lector, platform=platform, asin=asin)
+    vivo_rb = _leer_vivo_suave(lector, platform=platform, asin=asin, limitador=limitador)
     _readback(conn, cambio_id, vivo_rb, momento, origen=origen)
     return fallo(codigo)
 

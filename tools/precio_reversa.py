@@ -39,8 +39,12 @@ import psycopg.errors
 
 from app.db import OrbitDbError, connect
 from app.spapi import precio_write
-from app.spapi.client import SpapiClient, SpapiError, SpapiNoPermitida
+from app.spapi.client import CuboTasa, SpapiClient, SpapiError, SpapiNoPermitida
 from app.spapi.precio_write import FormaParcheSinSellar
+
+# Ritmo de Pricing (un solo cubo por corrida, r6-C5): capacidad 1, 0.5/s.
+PRICING_BURST = 1
+PRICING_TASA_SEG = 0.5
 
 
 class Abortar(RuntimeError):
@@ -71,9 +75,10 @@ def _cambios(conn, ids: list[int]) -> list:
     return filas
 
 
-def _plan(conn, lector: SpapiClient, filas) -> list[tuple]:
+def _plan(conn, lector: SpapiClient, filas, *, limitador: CuboTasa | None = None) -> list[tuple]:
     """Plan fresco: (id, accion, detalle) con accion en
-    {'revertir', 'saltar'}; saltar no aborta, se imprime con su razon."""
+    {'revertir', 'saltar'}; saltar no aborta, se imprime con su razon.
+    Con `limitador`, las lecturas del vivo consumen del cubo (r6-C5)."""
     plan = []
     for f in filas:
         cid = f[0]
@@ -108,7 +113,9 @@ def _plan(conn, lector: SpapiClient, filas) -> list[tuple]:
             plan.append((cid, "saltar", "listing_con_cambio_abierto"))
             continue
         try:
-            vivo = precio_write.leer_precio_vivo(lector, platform=f[2], asin=f[12])
+            vivo = precio_write.leer_precio_vivo(
+                lector, platform=f[2], asin=f[12], limitador=limitador
+            )
         except (precio_write.PrecioVivoAusente, httpx.HTTPError, SpapiError):
             plan.append((cid, "saltar", "sin_precio_vivo"))
             continue
@@ -162,7 +169,15 @@ def main(
     try:
         filas = _cambios(conn, args.cambios)
         lector = SpapiClient(credentials=credentials, transport=transport, sleep=sleep)
-        plan = _plan(conn, lector, filas)
+        # r6-C5: un solo cubo de Pricing para todo el go (plan + reversas);
+        # reloj y espera salen del sleep inyectado (falsos en tests).
+        cubo = CuboTasa(
+            sleep=sleep,
+            clock=time.monotonic,
+            capacidad=PRICING_BURST,
+            tasa=PRICING_TASA_SEG,
+        )
+        plan = _plan(conn, lector, filas, limitador=cubo)
         por_id = {f[0]: f for f in filas}
         huella = _huella(plan, por_id)
         for uno in plan:
@@ -197,6 +212,7 @@ def main(
                     cid,
                     lector=lector,
                     escritor=escritor,
+                    limitador=cubo,
                 )
             except FormaParcheSinSellar as exc:
                 raise Abortar(f"forma del parche sin sellar (A.4 la sella): {exc}") from None

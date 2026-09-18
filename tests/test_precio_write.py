@@ -2627,3 +2627,50 @@ def test_r5_l4_revertir_carrera_abierto_entre_chequeo_e_insert_salta(monkeypatch
         assert res.id_reversa is None
         assert red.n_patch == 0
         assert len(conn.execute("SELECT id FROM precio_cambio").fetchall()) == 2
+
+
+# ---------------------------------------------------------- r6-C5 cubo de Pricing en el go
+
+
+def test_r6_c5_go_comparte_un_cubo_de_pricing(monkeypatch, capsys):
+    """r6-C5: el go lee el vivo bajo un solo CuboTasa (0.5/s): hay espera entre lecturas."""
+    a1 = (200, _ofertas_body(110.0, asin="B0TESTC006"))
+    b1 = (200, _ofertas_body(110.0, asin="B0TESTC007"))
+    red = _RedFalsa(gets_ofertas=[a1, b1, a1, b1, a1])
+    with db_39c() as conn:
+        lid1, dec1 = _semilla_cambio(conn, asin="B0TESTC006", sku="SKU-C61")
+        cid1 = _cambio_cerrado(conn, dec1, lid1)
+        lid2, dec2 = _semilla_cambio(conn, asin="B0TESTC007", sku="SKU-C62")
+        cid2 = _cambio_cerrado(conn, dec2, lid2)
+        import tools.precio_reversa as tool
+
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", _dsn_db(conn))
+        seco = tool.main(
+            ["--cambio-id", str(cid1), "--cambio-id", str(cid2)],
+            transport=red.transport,
+            credentials=dict(CRED),
+            sleep=lambda s: None,
+        )
+        assert seco == 0
+        out_seco = capsys.readouterr().out
+        assert out_seco.count("[revertir]") == 2
+        huella = [ln for ln in out_seco.splitlines() if ln.startswith("huella: ")][0].split(": ")[1]
+        sleeps = []
+        with pytest.raises(tool.Abortar, match="forma del parche sin sellar"):
+            tool.main(
+                [
+                    "--cambio-id",
+                    str(cid1),
+                    "--cambio-id",
+                    str(cid2),
+                    "--acepto-mutacion-real",
+                    "--huella",
+                    huella,
+                    "--go",
+                    "si",
+                ],
+                transport=red.transport,
+                credentials=dict(CRED),
+                sleep=sleeps.append,
+            )
+        assert len(sleeps) >= 2
