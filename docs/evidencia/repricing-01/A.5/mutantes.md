@@ -1,5 +1,18 @@
 # A.5 — Catálogo de mutantes (REPRICING 01, carril A)
 
+## r5 (BRIEF-r5, sobre `553377e`)
+
+3 del latido (K2), sembrados uno por uno sobre el árbol final (solo tests
+nuevos respecto a r4; producción intacta) con pycache fresca por mutante
+(`PYTHONPYCACHEPREFIX=$(mktemp -d)` por mutante) y revertido sin commit.
+**Cero sobrevivientes.**
+
+| Id | Lo que fija | Cambio exacto sembrado | Test que lo mata | Veredicto |
+|---|---|---|---|---|
+| R4-latido-fase1 | el claim late en la fase 1 (una vez por goal) | la llamada a `_latir_claim` de la fase 1 → `pass` | `test_latido_fase1_late_un_goal` | MUERTO (exit 1): 0 latidos en vez de 2 |
+| R4-latido-fase3 | el claim late en la fase 3 (una vez por goal) | la llamada a `_latir_claim` de la fase 3 → `pass` | `test_latido_fase3_late_un_goal` | MUERTO (exit 1): 2 latidos en vez de 4 |
+| R4-latido-fail-closed | latido que levanta `psycopg.Error` no tumba (fail-open, warning scrubbeado) | `_latir_claim`: `except psycopg.Error` → `except KeyError` | `test_latido_roto_no_tumba_corrida` | MUERTO (exit 1): `UndefinedTable` tumba la corrida |
+
 ## r4 (BRIEF-r4, sobre el árbol final de r4)
 
 6 de la tabla A + 8 de los puntos K (14), sembrados uno por uno sobre el

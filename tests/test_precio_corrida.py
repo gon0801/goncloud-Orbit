@@ -3052,3 +3052,107 @@ def test_config_invalida_sale_2(monkeypatch, capsys):
         codigo = cli_mod.main(["precio", "--platform", "amazon_mx"])
         assert codigo == 2
         assert "precio_cap_amazon_mx" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# r5: latidos del claim (K2) — un latido por goal en fase 1 y en fase 3,
+# fail-open con warning scrubbeado.
+# ---------------------------------------------------------------------------
+
+
+@_skip_sin_pg
+def test_latido_fase1_late_un_goal(monkeypatch):
+    """R4-latido-fase1: el claim late una vez por goal durante la fase 1.
+
+    `repartir_cupo` saboteado corta la corrida tras la fase 1: con dos
+    goals vivos los latidos de fase 1 son exactamente 2.
+    """
+    import app.precio.corrida as corrida_mod
+
+    class _CorteFase1(Exception):
+        pass
+
+    with _db() as (conn, _dsn):
+        ua = _cadena(conn, sku="SKU-LT-A", ext="B0A50000LA", mode="live")
+        ub = _cadena(conn, sku="SKU-LT-B", ext="B0A50000LB", mode="live")
+        _price_obs(conn, asin="B0A50000LA")
+        _price_obs(conn, asin="B0A50000LB")
+        latidos = []
+        real = corrida_mod._latir_claim
+
+        def _espia(conn_lat, platform, owner):
+            latidos.append(platform)
+            return real(conn_lat, platform, owner)
+
+        def _corte(_candidatos, *, cupo):
+            raise _CorteFase1("corte tras fase 1")
+
+        monkeypatch.setattr(corrida_mod, "_latir_claim", _espia)
+        monkeypatch.setattr(corrida_mod, "repartir_cupo", _corte)
+        red = _RedFalsa(skus={ua["evento"]: ua["sku"], ub["evento"]: ub["sku"]})
+        with pytest.raises(_CorteFase1):
+            _corre(conn, red)
+        assert latidos == ["amazon_mx", "amazon_mx"]
+
+
+@_skip_sin_pg
+def test_latido_fase3_late_un_goal(monkeypatch):
+    """R4-latido-fase3: el claim late una vez por goal durante la fase 3.
+
+    Corrida completa de dos goals: 2 latidos de fase 1 + 2 de fase 3.
+    """
+    import app.precio.corrida as corrida_mod
+
+    with _db() as (conn, _dsn):
+        ua = _cadena(conn, sku="SKU-LT-C", ext="B0A50000LC", mode="live")
+        ub = _cadena(conn, sku="SKU-LT-D", ext="B0A50000LD", mode="live")
+        _price_obs(conn, asin="B0A50000LC")
+        _price_obs(conn, asin="B0A50000LD")
+        latidos = []
+        real = corrida_mod._latir_claim
+
+        def _espia(conn_lat, platform, owner):
+            latidos.append(platform)
+            return real(conn_lat, platform, owner)
+
+        monkeypatch.setattr(corrida_mod, "_latir_claim", _espia)
+        red = _RedFalsa(skus={ua["evento"]: ua["sku"], ub["evento"]: ub["sku"]})
+        res = _corre(conn, red)
+        assert (res.decisiones, res.escritas) == (2, 2)
+        assert latidos == ["amazon_mx"] * 4
+
+
+@_skip_sin_pg
+def test_latido_roto_no_tumba_corrida(monkeypatch, caplog):
+    """R4-latido-fail-closed: un latido que levanta `psycopg.Error` no tumba.
+
+    `_SQL_LATIDO` saboteado apunta a una tabla inexistente cuyo nombre trae
+    el secreto: el `UndefinedTable` se traga (fail-open, el TTL es el
+    backstop), la corrida decide y aplica normal, y el warning sale
+    scrubbeado.
+    """
+    import logging
+
+    import app.precio.corrida as corrida_mod
+    from app.redaction import register_secret
+
+    register_secret("s3cr3t-lat5")
+    with _db() as (conn, _dsn):
+        ua = _cadena(conn, sku="SKU-LT-E", ext="B0A50000LE", mode="live")
+        ub = _cadena(conn, sku="SKU-LT-F", ext="B0A50000LF", mode="live")
+        _price_obs(conn, asin="B0A50000LE")
+        _price_obs(conn, asin="B0A50000LF")
+        monkeypatch.setattr(
+            corrida_mod,
+            "_SQL_LATIDO",
+            "UPDATE ads_optimizer_lock_s3cr3t_lat5 SET heartbeat_at = now()"
+            " WHERE job_key = %s AND owner = %s",
+        )
+        red = _RedFalsa(skus={ua["evento"]: ua["sku"], ub["evento"]: ub["sku"]})
+        with caplog.at_level(logging.WARNING, logger="app.precio.corrida"):
+            res = _corre(conn, red)
+        assert (res.decisiones, res.escritas) == (2, 2)
+        assert _cuenta_decisiones(conn) == 2
+        texto = "\n".join(r.getMessage() for r in caplog.records)
+        assert "latido fallo" in texto
+        assert "s3cr3t-lat5" not in texto
