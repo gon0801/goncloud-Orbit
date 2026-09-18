@@ -142,8 +142,6 @@ def _oferta(
     fetched=None,
     observed=None,
 ) -> int:
-    from datetime import datetime
-
     base = datetime.now(UTC)
     fetched = fetched or base
     observed = observed or base
@@ -198,8 +196,6 @@ def _fee(
     fetched=None,
     observed=None,
 ) -> int:
-    from datetime import datetime
-
     base = datetime.now(UTC)
     fetched = fetched or base
     observed = observed or base
@@ -277,15 +273,15 @@ def _escenario(
     platform="amazon_mx",
     ext="ASIN-G1",
     sku="SKU-G1",
-    m="0.24",
+    m="24.00",
     evento="esc-g1",
     observed=None,
     valoracion=None,
+    sin_componente=None,
 ) -> int:
-    from datetime import datetime, timedelta
-
     observed = observed or (datetime.now(UTC) + timedelta(seconds=120))
     valoracion = valoracion or conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+    componentes = [c for c in _componentes() if c["nombre"] != sin_componente]
     return conn.execute(
         "INSERT INTO estimacion_escenario (listing_id, platform, seller_sku, asin, canal,"
         " valoracion_date, observed_at, politica_version_id, formula_version,"
@@ -308,10 +304,10 @@ def _escenario(
             costo_id,
             run_id,
             validada_en,
-            (Decimal(m) * 100).quantize(Decimal("0.01")),
+            Decimal(m).quantize(Decimal("0.01")),
             Decimal(m),
             Json([]),
-            Json(_componentes()),
+            Json(componentes),
             Json([]),
             Json({}),
             evento,
@@ -328,7 +324,7 @@ def _run(conn):
     ).fetchone()
 
 
-def _cadena(conn, *, sku="SKU-GOAL-1", ext="ASIN-G1", m="0.24"):
+def _cadena(conn, *, sku="SKU-GOAL-1", ext="ASIN-G1", m="24.00"):
     """Listing + config + escenario disponible completo (C=40, P=116, F=15)."""
     prod = _producto(conn, sku=sku)
     listing = _listing(conn, prod, ext=ext, sku=sku)
@@ -652,7 +648,7 @@ def test_dry_run_imprime_referencia_y_no_escribe():
             dsn=dsn,
         )
         assert res.returncode == 0, res.stderr
-        assert "m_actual=0.2400" in res.stdout
+        assert "m_actual=24.00%" in res.stdout
         assert f"P*={P_ESTRELLA_30} MXN" in res.stdout
         assert "P_actual=116.00 MXN" in res.stdout
         assert "huella: " in res.stdout
@@ -698,7 +694,7 @@ def test_escenario_mas_reciente_manda():
             validada_en,
             ext=datos["ext"],
             sku=datos["sku"],
-            m="0.41",
+            m="41.00",
             evento="esc-g2",
             observed=datetime.now(UTC) + timedelta(seconds=600),
         )
@@ -714,8 +710,8 @@ def test_escenario_mas_reciente_manda():
             dsn=dsn,
         )
         assert res.returncode == 0, res.stderr
-        assert "m_actual=0.4100" in res.stdout
-        assert "m_actual=0.2400" not in res.stdout
+        assert "m_actual=41.00%" in res.stdout
+        assert "m_actual=24.00%" not in res.stdout
 
 
 @_skip_sin_pg
@@ -738,7 +734,7 @@ def test_salto_mayor_25_aborta_sin_confirmacion_y_pasa_con_ella():
         assert f"P*={P_ESTRELLA_55} MXN" in res.stdout
         assert "huella: " not in res.stdout
         assert _cuenta_goals(conn) == 0
-        res2 = _tool(*args, "--confirmar-salto", dsn=dsn)
+        res2 = _tool(*args, "--confirmar-salto", str(datos["listing"]), dsn=dsn)
         assert res2.returncode == 0, res2.stderr
         assert "huella: " in res2.stdout
 
@@ -1084,3 +1080,571 @@ def test_candado_imports_caza_fuga_sembrada(tmp_path):
         encoding="utf-8",
     )
     assert _fugas_imports_goals_write(tmp_path / "goals_write.py") == ["httpx"]
+
+
+# ---------------------------------------------------------------------------
+# Ronda 1 (auditoria del lead + cruzada): mutantes del lead y comportamiento
+# ---------------------------------------------------------------------------
+
+
+@_skip_sin_pg
+def test_banda_bordes_inclusivos_se_siembran():
+    """L4: 10.00 y 60.00 entran (BETWEEN 0.10 AND 0.60)."""
+    from app.precio.goals_write import sembrar_goal
+
+    with _db() as (conn, _dsn):
+        a = _cadena(conn, sku="SKU-L4-A", ext="ASIN-L4-A")
+        b = _cadena(conn, sku="SKU-L4-B", ext="ASIN-L4-B")
+        gid_a = sembrar_goal(
+            conn,
+            listing_id=a["listing"],
+            platform="amazon_mx",
+            goal_pct="10.00",
+            mode="shadow",
+            go_literal=None,
+        )
+        gid_b = sembrar_goal(
+            conn,
+            listing_id=b["listing"],
+            platform="amazon_mx",
+            goal_pct="60.00",
+            mode="shadow",
+            go_literal=None,
+        )
+        assert gid_a != gid_b
+        assert _cuenta_goals(conn) == 2
+
+
+@_skip_sin_pg
+def test_banda_bordes_inclusivos_en_el_tool():
+    """L4b: el dry-run acepta 10.00 y 60.00 (con salto confirmado)."""
+    with _db() as (conn, dsn):
+        a = _cadena(conn, sku="SKU-L4-A", ext="ASIN-L4-A")
+        b = _cadena(conn, sku="SKU-L4-B", ext="ASIN-L4-B")
+        for datos, goal in ((a, "10.00"), (b, "60.00")):
+            res = _tool(
+                "--listing-id",
+                str(datos["listing"]),
+                "--platform",
+                "amazon_mx",
+                "--goal-pct",
+                goal,
+                "--mode",
+                "shadow",
+                "--confirmar-salto",
+                str(datos["listing"]),
+                dsn=dsn,
+            )
+            assert res.returncode == 0, res.stderr
+            assert "fuera de banda" not in res.stderr
+
+
+@_skip_sin_pg
+def test_huella_ata_el_modo():
+    """L5: la huella de un dry-run shadow no autoriza un go live."""
+    with _db() as (conn, dsn):
+        datos = _cadena(conn)
+        seco = _tool(
+            "--listing-id",
+            str(datos["listing"]),
+            "--platform",
+            "amazon_mx",
+            "--goal-pct",
+            "30.00",
+            "--mode",
+            "shadow",
+            dsn=dsn,
+        )
+        assert seco.returncode == 0, seco.stderr
+        huella = seco.stdout.split("huella: ")[1].split()[0]
+        go = _tool(
+            "--listing-id",
+            str(datos["listing"]),
+            "--platform",
+            "amazon_mx",
+            "--goal-pct",
+            "30.00",
+            "--mode",
+            "live",
+            "--acepto-mutacion-real",
+            "--huella",
+            huella,
+            "--go",
+            "enciende",
+            dsn=dsn,
+        )
+        assert go.returncode == 2
+        assert "huella" in go.stderr
+        assert _cuenta_goals(conn) == 0
+
+
+@_skip_sin_pg
+def test_huella_ata_el_goal():
+    """L5b: la huella de un dry-run al 30.00 no autoriza un go al 50.00."""
+    with _db() as (conn, dsn):
+        datos = _cadena(conn)
+        seco = _tool(
+            "--listing-id",
+            str(datos["listing"]),
+            "--platform",
+            "amazon_mx",
+            "--goal-pct",
+            "30.00",
+            "--mode",
+            "shadow",
+            dsn=dsn,
+        )
+        assert seco.returncode == 0, seco.stderr
+        huella = seco.stdout.split("huella: ")[1].split()[0]
+        go = _tool(
+            "--listing-id",
+            str(datos["listing"]),
+            "--platform",
+            "amazon_mx",
+            "--goal-pct",
+            "50.00",
+            "--mode",
+            "shadow",
+            "--acepto-mutacion-real",
+            "--huella",
+            huella,
+            dsn=dsn,
+        )
+        assert go.returncode == 2
+        assert "huella" in go.stderr
+        assert _cuenta_goals(conn) == 0
+
+
+@_skip_sin_pg
+def test_salto_hacia_abajo_tambien_aborta():
+    """L10: P* 43 % abajo de P_actual aborta sin --confirmar-salto."""
+    with _db() as (conn, dsn):
+        datos = _cadena(conn)
+        res = _tool(
+            "--listing-id",
+            str(datos["listing"]),
+            "--platform",
+            "amazon_mx",
+            "--goal-pct",
+            "10.00",
+            "--mode",
+            "shadow",
+            dsn=dsn,
+        )
+        assert res.returncode == 2
+        assert "25" in res.stderr
+        assert "P*=66.07 MXN" in res.stdout
+        assert _cuenta_goals(conn) == 0
+
+
+@_skip_sin_pg
+def test_cerrar_elige_el_vigente_entre_cerrados():
+    """L11: con un goal viejo ya cerrado, --cerrar cierra el vigente."""
+    from app.precio.goals_write import cerrar_goal, sembrar_goal
+
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn)
+        viejo = sembrar_goal(
+            conn,
+            listing_id=datos["listing"],
+            platform="amazon_mx",
+            goal_pct="30.00",
+            mode="shadow",
+            go_literal=None,
+        )
+        cerrar_goal(conn, listing_id=datos["listing"], platform="amazon_mx")
+        hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+        nuevo = conn.execute(
+            "INSERT INTO precio_goal (listing_id, platform, margen_goal_pct, mode,"
+            " valid_from, creado_por, go_literal)"
+            " VALUES (%s, 'amazon_mx', 0.35, 'shadow', %s, 't', NULL) RETURNING id",
+            (datos["listing"], hoy - timedelta(days=10)),
+        ).fetchone()[0]
+        assert cerrar_goal(conn, listing_id=datos["listing"], platform="amazon_mx") == nuevo
+        estados = dict(conn.execute("SELECT id, valid_to FROM precio_goal").fetchall())
+        assert estados[viejo] is not None
+        assert estados[nuevo] is not None
+
+
+@_skip_sin_pg
+def test_huella_sin_acepto_tambien_aborta():
+    """L12: --huella sin --acepto-mutacion-real es dry-run enganoso."""
+    with _db() as (conn, dsn):
+        datos = _cadena(conn)
+        res = _tool(
+            "--listing-id",
+            str(datos["listing"]),
+            "--platform",
+            "amazon_mx",
+            "--goal-pct",
+            "30.00",
+            "--mode",
+            "shadow",
+            "--huella",
+            "cualquiera",
+            dsn=dsn,
+        )
+        assert res.returncode == 2
+        assert "acepto-mutacion-real" in res.stderr
+        assert _cuenta_goals(conn) == 0
+
+
+@_skip_sin_pg
+def test_r1_siembra_con_vigente_aborta_antes_de_la_huella():
+    """R1: el dry-run ve el goal vigente y aborta sin huella."""
+    from app.precio.goals_write import sembrar_goal
+
+    with _db() as (conn, dsn):
+        datos = _cadena(conn)
+        sembrar_goal(
+            conn,
+            listing_id=datos["listing"],
+            platform="amazon_mx",
+            goal_pct="30.00",
+            mode="shadow",
+            go_literal=None,
+        )
+        res = _tool(
+            "--listing-id",
+            str(datos["listing"]),
+            "--platform",
+            "amazon_mx",
+            "--goal-pct",
+            "40.00",
+            "--mode",
+            "shadow",
+            dsn=dsn,
+        )
+        assert res.returncode == 2
+        assert "ya tiene goal vigente" in res.stderr
+        assert "--cerrar" in res.stderr
+        assert "huella: " not in res.stdout
+        assert _cuenta_goals(conn) == 1
+
+
+@_skip_sin_pg
+def test_r1_csv_con_vigente_dice_la_linea(tmp_path):
+    """R1 en lote: la fila con vigente aborta con su linea, antes de la huella."""
+    from app.precio.goals_write import sembrar_goal
+
+    with _db() as (conn, dsn):
+        a = _cadena(conn, sku="SKU-R1-A", ext="ASIN-R1-A")
+        b = _cadena(conn, sku="SKU-R1-B", ext="ASIN-R1-B")
+        sembrar_goal(
+            conn,
+            listing_id=b["listing"],
+            platform="amazon_mx",
+            goal_pct="30.00",
+            mode="shadow",
+            go_literal=None,
+        )
+        csv = tmp_path / "lote.csv"
+        csv.write_text(
+            "listing_id,platform,goal_pct\n"
+            f"{a['listing']},amazon_mx,30.00\n"
+            f"{b['listing']},amazon_mx,40.00\n",
+            encoding="utf-8",
+        )
+        res = _tool("--csv", str(csv), "--mode", "shadow", dsn=dsn)
+        assert res.returncode == 2
+        assert "ya tiene goal vigente" in res.stderr
+        assert "nea 3" in res.stderr
+        assert "huella: " not in res.stdout
+        assert _cuenta_goals(conn) == 1
+
+
+@_skip_sin_pg
+def test_r2_mismo_dia_utc_dice_que_espere_manana():
+    """R2: sembrar, cerrar y resembrar el mismo dia UTC no habla de vigente."""
+    from app.precio.goals_write import PrecioGoalInvalido, cerrar_goal, sembrar_goal
+
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn)
+        sembrar_goal(
+            conn,
+            listing_id=datos["listing"],
+            platform="amazon_mx",
+            goal_pct="30.00",
+            mode="shadow",
+            go_literal=None,
+        )
+        cerrar_goal(conn, listing_id=datos["listing"], platform="amazon_mx")
+        with pytest.raises(PrecioGoalInvalido, match="dia siguiente"):
+            sembrar_goal(
+                conn,
+                listing_id=datos["listing"],
+                platform="amazon_mx",
+                goal_pct="40.00",
+                mode="shadow",
+                go_literal=None,
+            )
+        assert _cuenta_goals(conn) == 1
+
+
+def test_k7_no_positivo_separado_de_fraccion():
+    """K7: -5 y 0 dicen «no positivo»; 0.30 dice «parece fraccion»."""
+    from app.precio.goals_write import PrecioGoalInvalido, fraccion_desde_porcentaje
+
+    with pytest.raises(PrecioGoalInvalido, match="no positivo"):
+        fraccion_desde_porcentaje("-5")
+    with pytest.raises(PrecioGoalInvalido, match="no positivo"):
+        fraccion_desde_porcentaje("0")
+    with pytest.raises(PrecioGoalInvalido, match="parece fracci"):
+        fraccion_desde_porcentaje("0.30")
+
+
+@_skip_sin_pg
+def test_g1_goal_y_m_actual_en_por_ciento():
+    """G1: `contribucion_pct` esta en por ciento; el plan imprime goal y
+    m_actual en la misma unidad (por ciento, dos decimales)."""
+    with _db() as (conn, dsn):
+        datos = _cadena(conn, sku="SKU-G1", ext="ASIN-G1", m="36.6379")
+        res = _tool(
+            "--listing-id",
+            str(datos["listing"]),
+            "--platform",
+            "amazon_mx",
+            "--goal-pct",
+            "30.00",
+            "--mode",
+            "shadow",
+            dsn=dsn,
+        )
+        assert res.returncode == 0, res.stderr
+        esperada = (
+            f"[plan] siembra listing={datos['listing']} platform=amazon_mx"
+            f" goal=30.00% m_actual=36.64% P*={P_ESTRELLA_30} MXN P_actual=116.00 MXN"
+        )
+        assert esperada in res.stdout
+
+
+@_skip_sin_pg
+def test_g3_confirmar_salto_es_por_listing(tmp_path):
+    """G3: confirmar un salto no autoriza el salto del otro listing del lote."""
+    with _db() as (conn, dsn):
+        a = _cadena(conn, sku="SKU-G3-A", ext="ASIN-G3-A")
+        b = _cadena(conn, sku="SKU-G3-B", ext="ASIN-G3-B")
+        csv = tmp_path / "lote.csv"
+        csv.write_text(
+            "listing_id,platform,goal_pct\n"
+            f"{a['listing']},amazon_mx,55.00\n"
+            f"{b['listing']},amazon_mx,55.00\n",
+            encoding="utf-8",
+        )
+        solo_uno = _tool(
+            "--csv",
+            str(csv),
+            "--mode",
+            "shadow",
+            "--confirmar-salto",
+            str(a["listing"]),
+            dsn=dsn,
+        )
+        assert solo_uno.returncode == 2
+        assert str(b["listing"]) in solo_uno.stderr
+        assert _cuenta_goals(conn) == 0
+        desconocido = _tool(
+            "--csv",
+            str(csv),
+            "--mode",
+            "shadow",
+            "--confirmar-salto",
+            "999999",
+            dsn=dsn,
+        )
+        assert desconocido.returncode == 2
+        assert "999999" in desconocido.stderr
+        los_dos = _tool(
+            "--csv",
+            str(csv),
+            "--mode",
+            "shadow",
+            "--confirmar-salto",
+            str(a["listing"]),
+            "--confirmar-salto",
+            str(b["listing"]),
+            dsn=dsn,
+        )
+        assert los_dos.returncode == 0, los_dos.stderr
+        assert "huella: " in los_dos.stdout
+
+
+@_skip_sin_pg
+def test_g4_aviso_con_motivo_si_falta_p_estrella():
+    """G4: con escenario pero sin P* (componente faltante), el aviso sale
+    y dice por que no se evalua el salto."""
+    with _db() as (conn, dsn):
+        prod = _producto(conn, sku="SKU-G4")
+        listing = _listing(conn, prod, ext="ASIN-G4", sku="SKU-G4")
+        _config(conn)
+        marca = datetime.now(UTC)
+        oferta = _oferta(
+            conn,
+            listing,
+            ext="ASIN-G4",
+            sku="SKU-G4",
+            evento="oferta-G4",
+            fetched=marca,
+            observed=marca,
+        )
+        fee = _fee(
+            conn,
+            oferta,
+            listing,
+            ext="ASIN-G4",
+            sku="SKU-G4",
+            evento="fee-G4",
+            fetched=marca,
+            observed=marca,
+        )
+        pol = _politica(conn)
+        costo = _costo(conn, prod)
+        run_id, validada_en = _run(conn)
+        _escenario(
+            conn,
+            listing,
+            oferta,
+            fee,
+            pol,
+            costo,
+            run_id,
+            validada_en,
+            ext="ASIN-G4",
+            sku="SKU-G4",
+            m="24.00",
+            evento="esc-G4",
+            sin_componente="isr",
+        )
+        res = _tool(
+            "--listing-id",
+            str(listing),
+            "--platform",
+            "amazon_mx",
+            "--goal-pct",
+            "30.00",
+            "--mode",
+            "shadow",
+            dsn=dsn,
+        )
+        assert res.returncode == 0, res.stderr
+        assert "m_actual=24.00%" in res.stdout
+        assert "P*=sin_escenario" in res.stdout
+        assert "aviso:" in res.stdout
+        assert "referencia_sin_derivar" in res.stdout
+
+
+@_skip_sin_pg
+def test_s1_sku_sin_publicacion_aborta():
+    """S1: --sku que no mapea a nada aborta."""
+    with _db() as (conn, dsn):
+        _config(conn)
+        res = _tool(
+            "--sku",
+            "SKU-NADIE",
+            "--platform",
+            "amazon_mx",
+            "--goal-pct",
+            "30.00",
+            "--mode",
+            "shadow",
+            dsn=dsn,
+        )
+        assert res.returncode == 2
+        assert "sin publicaci" in res.stderr
+        assert _cuenta_goals(conn) == 0
+
+
+@_skip_sin_pg
+def test_s1_sku_ambiguo_aborta_con_candidatos():
+    """S1: --sku que mapea a dos publicaciones aborta con los listing_id."""
+    with _db() as (conn, dsn):
+        _config(conn)
+        prod_a = _producto(conn, sku="SKU-DUP-A")
+        lid_a = _listing(conn, prod_a, ext="ASIN-DUP-A", sku="SKU-DUP")
+        prod_b = _producto(conn, sku="SKU-DUP-B")
+        lid_b = _listing(conn, prod_b, ext="ASIN-DUP-B", sku="SKU-DUP")
+        res = _tool(
+            "--sku",
+            "SKU-DUP",
+            "--platform",
+            "amazon_mx",
+            "--goal-pct",
+            "30.00",
+            "--mode",
+            "shadow",
+            dsn=dsn,
+        )
+        assert res.returncode == 2
+        assert str(lid_a) in res.stderr
+        assert str(lid_b) in res.stderr
+        assert _cuenta_goals(conn) == 0
+
+
+@_skip_sin_pg
+def test_s1_sku_unico_sigue_como_listing_id():
+    """S1: --sku con una sola publicacion siembra como --listing-id."""
+    with _db() as (conn, dsn):
+        datos = _cadena(conn, sku="SKU-UNICO", ext="ASIN-UNICO")
+        seco = _tool(
+            "--sku",
+            "SKU-UNICO",
+            "--platform",
+            "amazon_mx",
+            "--goal-pct",
+            "30.00",
+            "--mode",
+            "shadow",
+            dsn=dsn,
+        )
+        assert seco.returncode == 0, seco.stderr
+        assert f"listing={datos['listing']}" in seco.stdout
+        huella = seco.stdout.split("huella: ")[1].split()[0]
+        go = _tool(
+            "--sku",
+            "SKU-UNICO",
+            "--platform",
+            "amazon_mx",
+            "--goal-pct",
+            "30.00",
+            "--mode",
+            "shadow",
+            "--acepto-mutacion-real",
+            "--huella",
+            huella,
+            dsn=dsn,
+        )
+        assert go.returncode == 0, go.stderr
+        assert _cuenta_goals(conn) == 1
+
+
+@_skip_sin_pg
+def test_s1_sku_excluyente_con_listing_y_csv(tmp_path):
+    """S1: --sku no se combina con --listing-id ni con --csv."""
+    with _db() as (conn, dsn):
+        _config(conn)
+        res = _tool(
+            "--sku",
+            "X",
+            "--listing-id",
+            "1",
+            "--platform",
+            "amazon_mx",
+            "--goal-pct",
+            "30.00",
+            dsn=dsn,
+        )
+        assert res.returncode == 2
+        csv = tmp_path / "lote.csv"
+        csv.write_text("listing_id,platform,goal_pct\n1,amazon_mx,30.00\n", encoding="utf-8")
+        res2 = _tool(
+            "--sku",
+            "X",
+            "--csv",
+            str(csv),
+            "--platform",
+            "amazon_mx",
+            "--goal-pct",
+            "30.00",
+            dsn=dsn,
+        )
+        assert res2.returncode == 2

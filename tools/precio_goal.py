@@ -7,6 +7,13 @@ Amazon: la referencia del dry-run (`m_actual`, `P*`) sale del escenario
 cotizar. La escritura vive en `app.precio.goals_write` (este tool jamas
 trae SQL de escritura de goals: despacha, no duplica).
 
+El objetivo es `--listing-id`, `--sku` (se resuelve en dry-run contra
+`seller_sku` + `--platform`: 0 o 2+ publicaciones abortan) o `--csv`;
+los tres excluyentes. El dry-run aborta antes de la huella si el listing
+ya tiene goal vigente (R1). Goal y `m_actual` se imprimen en por ciento
+(`contribucion_pct` esta en por ciento); el salto se confirma por
+listing (`--confirmar-salto <listing_id>`, repetible).
+
 Ceremonia (la de `tools/precio_reversa.py` con UNA diferencia declarada):
 dry-run por omision (imprime el plan y su huella, cero escritura); la
 mutacion real exige `--acepto-mutacion-real --huella H`, y ADEMAS `--go
@@ -115,24 +122,25 @@ def _componente(componentes: list, nombre: str) -> Decimal:
 
 
 def _referencia(conn, listing_id: int, platform: str, goal: Decimal):
-    """`(m_actual, p_estrella, p_actual, moneda)`; `None` donde no hay dato.
+    """`(m_actual, p_estrella, p_actual, moneda, motivo)`; `None` donde no hay dato.
 
     `m_actual` sale del escenario; `P*` de `derivar_ref_fijo` sobre su
     `fee_observation` + `precio_estrella` con el goal a sembrar. `r`, el
     divisor de IVA y el flag de IVA se reconstruyen de los componentes
     congelados (`isr/ingreso`, `precio_bruto/ingreso`): sin fuentes nuevas.
+    `motivo` dice por que no se evalua el salto cuando `P*` es `None`.
     """
     esc = conn.execute(_SQL_ESCENARIO, (listing_id, platform)).fetchone()
     if esc is None:
-        return (None, None, None, None)
+        return (None, None, None, None, "sin_escenario")
     m_actual = esc[1]
     oferta = conn.execute(_SQL_OFERTA, (esc[4],)).fetchone()
     if oferta is None:
-        return (m_actual, None, None, None)
+        return (m_actual, None, None, None, "oferta_ausente")
     p_actual, moneda = oferta
     fee = conn.execute(_SQL_FEE, (esc[3],)).fetchone()
     if fee is None or fee[3] != "success" or fee[0] is None:
-        return (m_actual, None, p_actual, moneda)
+        return (m_actual, None, p_actual, moneda, "fee_no_utilizable")
     try:
         detalles = tuple(_detalle_fee(nodo) for nodo in fee[1])
         ref, fijo = derivar_ref_fijo(detalles, Decimal(str(fee[0])), Decimal(str(fee[2])))
@@ -158,8 +166,8 @@ def _referencia(conn, listing_id: int, platform: str, goal: Decimal):
         TypeError,
         ValueError,
     ):
-        return (m_actual, None, p_actual, moneda)
-    return (m_actual, techo_centavo(estrella), p_actual, moneda)
+        return (m_actual, None, p_actual, moneda, "referencia_sin_derivar")
+    return (m_actual, techo_centavo(estrella), p_actual, moneda, None)
 
 
 @dataclass
@@ -175,6 +183,7 @@ class FilaPlan:
     p_actual: Decimal | None
     moneda: str | None
     linea: int
+    motivo: str | None = None
 
 
 def _dinero(valor: Decimal | None, moneda: str | None) -> str:
@@ -184,15 +193,18 @@ def _dinero(valor: Decimal | None, moneda: str | None) -> str:
 
 
 def _linea(fila: FilaPlan) -> str:
+    # G1: `contribucion_pct` esta en POR CIENTO (39.0000 = 39 %): goal y
+    # `m_actual` se imprimen en la misma unidad (por ciento, dos decimales).
     if fila.cerrar:
         return (
             f"[plan] cerrar listing={fila.listing_id} platform={fila.platform}"
             f" goal_id={fila.goal_id}"
         )
-    m = "sin_escenario" if fila.m_actual is None else f"{fila.m_actual:.4f}"
+    assert fila.fraccion is not None
+    m = "sin_escenario" if fila.m_actual is None else f"{fila.m_actual:.2f}%"
     return (
         f"[plan] siembra listing={fila.listing_id} platform={fila.platform}"
-        f" goal={fila.fraccion} m_actual={m}"
+        f" goal={fila.fraccion * 100:.2f}% m_actual={m}"
         f" P*={_dinero(fila.p_estrella, fila.moneda)}"
         f" P_actual={_dinero(fila.p_actual, fila.moneda)}"
     )
@@ -288,7 +300,15 @@ def _construir_plan(conn, entradas, *, mode: str, cerrar: bool) -> list[FilaPlan
             raise Abortar(
                 f"{prefijo}goal {goal_texto} % (= {fraccion}) fuera de banda [{minimo}, {maximo}]"
             )
-        m, estrella, p_actual, moneda = _referencia(conn, listing_id, platform, fraccion)
+        # R1: el dry-run ve el goal vigente (si no, el go revienta a mitad
+        # del lote con filas ya escritas).
+        vigente = conn.execute(_SQL_VIGENTE, (listing_id, platform)).fetchone()
+        if vigente is not None:
+            raise Abortar(
+                f"{prefijo}ya tiene goal vigente para listing {listing_id}"
+                f" en {platform}: cierralo con --cerrar antes de sembrar otro"
+            )
+        m, estrella, p_actual, moneda, motivo = _referencia(conn, listing_id, platform, fraccion)
         plan.append(
             FilaPlan(
                 listing_id,
@@ -302,17 +322,47 @@ def _construir_plan(conn, entradas, *, mode: str, cerrar: bool) -> list[FilaPlan
                 p_actual,
                 moneda,
                 numero,
+                motivo,
             )
         )
     return plan
 
 
+def _resolver_sku(conn, sku: str, platform: str) -> int:
+    """S1: `seller_sku` + platform a un listing; 0 o 2+ abortan en el dry-run."""
+    candidatos = conn.execute(
+        "SELECT id FROM listing WHERE seller_sku = %s AND platform = %s ORDER BY id",
+        (sku, platform),
+    ).fetchall()
+    if not candidatos:
+        raise Abortar(
+            f"sin publicacion para esa SKU ({sku!r} en {platform}):"
+            " revisa el seller_sku y --platform"
+        )
+    if len(candidatos) > 1:
+        ids = [c[0] for c in candidatos]
+        raise Abortar(
+            f"--sku {sku!r} mapea a mas de una publicacion en {platform}"
+            f" (listing_id {ids}): usa --listing-id"
+        )
+    return int(candidatos[0][0])
+
+
 def _entradas_desde_args(args) -> list[tuple[int, str, str | None, int]]:
     """Objetivo del plan: una fila o el lote CSV (deduplicado, con linea)."""
-    if args.csv is not None and args.listing_id is not None:
-        raise Abortar("pasa --listing-id o --csv, no los dos")
-    if args.csv is None and args.listing_id is None:
-        raise Abortar("falta el objetivo: pasa --listing-id o --csv")
+    dados = [
+        nombre
+        for nombre, presente in (
+            ("--listing-id", args.listing_id is not None),
+            ("--sku", args.sku is not None),
+            ("--csv", args.csv is not None),
+        )
+        if presente
+    ]
+    if len(dados) > 1:
+        raise Abortar(f"pasa solo uno: {' '.join(dados)} son excluyentes")
+    if not dados:
+        raise Abortar("falta el objetivo: pasa --listing-id, --sku o --csv")
     if args.csv is None and args.platform is None:
         raise Abortar("falta --platform (amazon_mx|amazon_us|meli)")
     if args.cerrar and args.goal_pct is not None:
@@ -321,26 +371,37 @@ def _entradas_desde_args(args) -> list[tuple[int, str, str | None, int]]:
         raise Abortar("falta --goal-pct (en por ciento, ej. 30.00)")
     if args.csv is not None:
         return _filas_csv(args.csv, cerrar=args.cerrar)
+    if args.sku is not None:
+        return []  # se resuelve contra la base en main (necesita conn)
     assert args.listing_id is not None and args.platform is not None
     return [(args.listing_id, args.platform, args.goal_pct, 0)]
 
 
 def _guardas_del_plan(plan: list[FilaPlan], args) -> None:
-    """Salto del 25 % (siembra) y `live` sin escenario: abortan sin huella."""
+    """Salto del 25 % (siembra) y `live` sin escenario: abortan sin huella.
+
+    G3: `--confirmar-salto <listing_id>` es por listing (repetible): solo
+    los listings nombrados se saltan el chequeo; nombrar uno fuera del
+    plan aborta.
+    """
     if not args.cerrar:
+        confirmados = set(args.confirmar_salto or [])
+        ajenos = sorted(lid for lid in confirmados if lid not in {f.listing_id for f in plan})
+        if ajenos:
+            raise Abortar(f"--confirmar-salto para listings fuera del plan: {ajenos}")
         for fila in plan:
             if (
                 fila.p_estrella is not None
                 and fila.p_actual is not None
                 and fila.p_actual > 0
                 and abs(fila.p_estrella - fila.p_actual) > UMBRAL_SALTO * fila.p_actual
-                and not args.confirmar_salto
+                and fila.listing_id not in confirmados
             ):
                 salto = abs(fila.p_estrella - fila.p_actual) / fila.p_actual * 100
                 raise Abortar(
                     f"salto {salto:.1f} % > 25 % en listing {fila.listing_id}"
                     f" (P*={fila.p_estrella:.2f} P_actual={fila.p_actual:.2f}):"
-                    " pasa --confirmar-salto para sembrarlo"
+                    " pasa --confirmar-salto <listing_id> para sembrarlo"
                 )
         if args.mode == "live" and any(fila.m_actual is None for fila in plan):
             raise Abortar(
@@ -388,7 +449,8 @@ def _go_con_ceremonia(conn, plan: list[FilaPlan], args, huella: str) -> int:
             )
             print(
                 f"[hecho] siembra goal_id={gid} listing={fila.listing_id}"
-                f" platform={fila.platform} goal={fila.fraccion} mode={args.mode}"
+                f" platform={fila.platform} goal={fila.fraccion * 100:.2f}%"
+                f" mode={args.mode}"
             )
     return 0
 
@@ -396,12 +458,13 @@ def _go_con_ceremonia(conn, plan: list[FilaPlan], args, huella: str) -> int:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--listing-id", type=int, default=None)
+    ap.add_argument("--sku", default=None)
     ap.add_argument("--platform", default=None, choices=("amazon_mx", "amazon_us", "meli"))
     ap.add_argument("--goal-pct", default=None)
     ap.add_argument("--csv", default=None)
     ap.add_argument("--mode", default="shadow", choices=("shadow", "live"))
     ap.add_argument("--cerrar", action="store_true")
-    ap.add_argument("--confirmar-salto", action="store_true")
+    ap.add_argument("--confirmar-salto", action="append", type=int, default=None)
     ap.add_argument("--acepto-mutacion-real", action="store_true")
     ap.add_argument("--huella", default=None)
     ap.add_argument("--go", default=None)
@@ -411,13 +474,23 @@ def main(argv=None) -> int:
         entradas = _entradas_desde_args(args)
         conn = connect(_dsn_admin(), autocommit=True)
         try:
+            if args.sku is not None:
+                assert args.platform is not None
+                entradas = [
+                    (
+                        _resolver_sku(conn, args.sku, args.platform),
+                        args.platform,
+                        args.goal_pct,
+                        0,
+                    )
+                ]
             plan = _construir_plan(conn, entradas, mode=args.mode, cerrar=args.cerrar)
             for fila in plan:
                 print(_linea(fila))
-                if not fila.cerrar and fila.m_actual is None and fila.p_estrella is None:
+                if not fila.cerrar and fila.p_estrella is None and fila.motivo:
                     print(
-                        f"aviso: sin_escenario para listing {fila.listing_id}"
-                        f" en {fila.platform}: el dry-run no evalua salto"
+                        f"aviso: {fila.motivo} para listing {fila.listing_id}"
+                        f" en {fila.platform}: el salto no se evalua"
                     )
             _guardas_del_plan(plan, args)
             huella = _huella(plan, args.mode)

@@ -67,6 +67,10 @@ def fraccion_desde_porcentaje(texto: str) -> Decimal:
         raise PrecioGoalInvalido(
             f"--goal-pct no finito: {texto!r} (el argumento va en por ciento, ej. 30.00)"
         )
+    if valor <= 0:
+        raise PrecioGoalInvalido(
+            f"--goal-pct no positivo: {texto!r} (el argumento va en por ciento, ej. 30.00)"
+        )
     if valor < 1:
         raise PrecioGoalInvalido(
             f"--goal-pct {texto!r} parece fraccion: el argumento va en por ciento (30.00 para 30 %)"
@@ -172,6 +176,15 @@ def sembrar_goal(
         go_literal=go_literal,
         settings=config_vigente_settings(conn),
     )
+    vigente = conn.execute(
+        "SELECT id FROM precio_goal WHERE listing_id = %s AND platform = %s AND valid_to IS NULL",
+        (listing_id, platform),
+    ).fetchone()
+    if vigente is not None:
+        raise PrecioGoalInvalido(
+            f"ya hay goal vigente para listing {listing_id} en {platform}:"
+            " cierralo con --cerrar antes de sembrar otro"
+        )
     try:
         fila = conn.execute(
             "INSERT INTO precio_goal (listing_id, platform, margen_goal_pct, mode,"
@@ -184,6 +197,12 @@ def sembrar_goal(
         psycopg.errors.UniqueViolation,
         psycopg.errors.ExclusionViolation,
     ) as exc:
+        nombre = exc.diag.constraint_name if exc.diag else ""
+        if nombre == "precio_goal_unico_por_fecha":
+            raise PrecioGoalInvalido(
+                f"ese listing ya tuvo un goal que empezo hoy (UTC): el siguiente"
+                f" entra al dia siguiente UTC (listing {listing_id} en {platform})"
+            ) from exc
         raise PrecioGoalInvalido(
             f"ya hay goal vigente para listing {listing_id} en {platform}:"
             " cierralo con --cerrar antes de sembrar otro"

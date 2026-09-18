@@ -66,3 +66,31 @@ mutante puesto = el test discrimina.
   `live.*go`): el `except CheckViolation` de `sembrar_goal` convertía el
   rechazo de la base en el mismo `PrecioGoalInvalido`. Se endureció el test
   a `match="live sin go"` y el mutante murió. Sin sobrevivientes al cierre.
+
+## Ronda 1 (auditoría del lead, 2026-09-18 UTC)
+
+Mutantes que sobrevivían sobre `b18e0a4`, corridos igual (base real, uno
+por uno con restauración, `-p no:cacheprovider`, caché de bytecode fresca
+por corrida vía `PYTHONPYCACHEPREFIX`). **Cero sobrevivientes.**
+
+| # | Regla | Cambio exacto | Test que lo mata | Salida |
+|---|---|---|---|---|
+| L4 | Borde de banda inclusivo en `goals_write` | `_validar_fila`: `if not minimo <= fraccion <= maximo:` → `if not minimo < fraccion < maximo:` | `test_banda_bordes_inclusivos_se_siembran` | MUERTO (exit 1): `PrecioGoalInvalido` al sembrar 10.00 |
+| L4b | Borde de banda inclusivo en el tool | `_construir_plan`, misma línea, `<=` → `<` | `test_banda_bordes_inclusivos_en_el_tool` | MUERTO (exit 1): el dry-run al 10.00 aborta "fuera de banda" |
+| L5 | La huella ata el modo | `_huella`: `...:{fila.fraccion}:{mode}` → sin `:{mode}` | `test_huella_ata_el_modo` | MUERTO (exit 1): el go live con huella shadow escribe (cuenta 1) |
+| L5b | La huella ata el goal | `_huella`: sin `:{fila.fraccion}` | `test_huella_ata_el_goal` | MUERTO (exit 1): el go al 50.00 con huella del 30.00 escribe |
+| L10 | El salto es `abs(P* − P_actual)` (también hacia abajo) | `_guardas_del_plan`: `abs(fila.p_estrella - fila.p_actual)` → `(fila.p_estrella - fila.p_actual)` | `test_salto_hacia_abajo_tambien_aborta` | MUERTO (exit 1): P*=66.07 (−43 %) sale 0 en vez de abortar |
+| L11 | `--cerrar` cierra el vigente entre goals viejos | `cerrar_goal`: `... AND valid_to IS NULL` → `... ORDER BY id LIMIT 1` | `test_cerrar_elige_el_vigente_entre_cerrados` | MUERTO (exit 1): intenta recerrar el goal viejo y el trigger lo tumba |
+| L12 | `--huella` sin `--acepto-mutacion-real` aborta | `_go_con_ceremonia`: `if args.go is not None or args.huella is not None:` → `if args.go is not None:` | `test_huella_sin_acepto_tambien_aborta` | MUERTO (exit 1): el dry-run con `--huella` sale 0 |
+
+Notas r1:
+
+- L11 requirió dos intentos: el primero murió por `SyntaxError` (comilla
+  rota por el shell al aplicar el mutante), infiel; se repitió limpio (el
+  de la tabla, `AssertionError`).
+- R1 endureció además `sembrar_goal` (pre-chequeo de vigente antes del
+  INSERT): sin él, resembrar el mismo día UTC pegaba primero en
+  `precio_goal_unico_por_fecha` y el mensaje de R2 mentía diciendo que
+  había vigente. Detectado por `test_segundo_vigente_rechazado` en verde.
+- G1 cambió el formato impreso (`goal=30.00% m_actual=36.64%`): los
+  asserts viejos (`m_actual=0.2400`) se actualizaron en el mismo cambio.
