@@ -1342,6 +1342,7 @@ ALLOWLIST_IMPORTS_PRECIO_REVERSA = frozenset(
         "app.spapi",
         "app.spapi.client",
         "app.spapi.client.SpapiClient",
+        "app.spapi.client.SpapiError",
         "app.spapi.precio_write",
         "app.spapi.precio_write.FormaParcheSinSellar",
         "argparse",

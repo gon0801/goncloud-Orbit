@@ -2090,3 +2090,20 @@ def test_r3_k3_estado_fuera_de_vocabulario_es_mal_uso():
         ResultadoCambio(id_cambio=None, estado="recibido", motivo=None)
     with pytest.raises(ValueError, match="estado"):
         ResultadoReversion(id_reversa=None, estado="recibido", motivo=None)
+
+
+def test_r3_k6_error_de_programacion_sube_no_es_sin_precio_vivo(monkeypatch, capsys):
+    """r3-K6: un bug en la lectura sube al dueno, no se disfraza de sin_precio_vivo."""
+    red = _RedFalsa()
+    with db_39c() as conn:
+        _, cid = _semilla_reversion(conn)
+        import tools.precio_reversa as tool
+        from app.spapi import precio_write as pw
+
+        def _roto(*a, **kw):
+            raise RuntimeError("bug-simulado")
+
+        monkeypatch.setattr(pw, "leer_precio_vivo", _roto)
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", _dsn_db(conn))
+        with pytest.raises(RuntimeError, match="bug-simulado"):
+            tool.main(["--cambio-id", str(cid)], transport=red.transport, credentials=dict(CRED))

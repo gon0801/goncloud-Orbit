@@ -36,7 +36,7 @@ import httpx
 
 from app.db import OrbitDbError, connect
 from app.spapi import precio_write
-from app.spapi.client import SpapiClient
+from app.spapi.client import SpapiClient, SpapiError
 from app.spapi.precio_write import FormaParcheSinSellar
 
 
@@ -103,7 +103,7 @@ def _plan(conn, lector: SpapiClient, filas) -> list[tuple]:
             continue
         try:
             vivo = precio_write.leer_precio_vivo(lector, platform=f[2], asin=f[12])
-        except Exception:
+        except (precio_write.PrecioVivoAusente, httpx.HTTPError, SpapiError):
             plan.append((cid, "saltar", "sin_precio_vivo"))
             continue
         if (vivo.precio, vivo.moneda) != (f[5], f[6]):
