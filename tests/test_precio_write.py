@@ -2310,3 +2310,25 @@ def test_r4_g3_lote_sigue_tras_previsible_y_devuelve_1(monkeypatch, capsys):
         assert f"[error] cambio={cid1}" in out
         assert f"[hecho] cambio={cid2}" in out
         assert red.n_patch == 1
+
+
+def test_r4_g4_competitivo_caido_no_bloquea_con_oferta_propia():
+    """r4-G4: ofertas con propia + competitivo 5xx -> vivo resuelto."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(100.0))],
+        gets_competitivos=[(500, {})],
+    )
+    lector, _ = _clientes(red)
+    vivo = leer_precio_vivo(lector, platform="amazon_mx", asin=ASIN)
+    assert (vivo.precio, vivo.moneda) == (Decimal("100.0000"), "MXN")
+
+
+def test_r4_g4_sin_propia_sigue_ausente_aunque_caiga_competitivo():
+    """r4-G4: sin oferta propia el competitivo caido no inventa precio."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(100.0, seller="OTRO"))],
+        gets_competitivos=[(500, {})],
+    )
+    lector, _ = _clientes(red)
+    with pytest.raises(PrecioVivoAusente):
+        leer_precio_vivo(lector, platform="amazon_mx", asin=ASIN)

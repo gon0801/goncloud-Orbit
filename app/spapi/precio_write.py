@@ -150,13 +150,21 @@ def leer_precio_vivo(lector: SpapiClient, *, platform: str, asin: str) -> Precio
         RUTA_COMPETITIVO,
         params={"MarketplaceId": marketplace, "ItemType": "Asin", "Asins": asin},
     )
-    if resp.status_code != 200 or comp.status_code != 200:
+    if resp.status_code != 200:
         raise PrecioVivoAusente(f"pricing {asin} status={resp.status_code}/{comp.status_code}")
     try:
         ofertas = resp.json()
-        competitivas = comp.json()
     except ValueError:
         raise PrecioVivoAusente(f"pricing {asin} respuesta no JSON") from None
+    if comp.status_code == 200:
+        try:
+            competitivas = comp.json()
+        except ValueError:
+            raise PrecioVivoAusente(f"pricing {asin} respuesta no JSON") from None
+    else:
+        # El competitivo es respaldo: si las ofertas traen la propia, su
+        # caida no bloquea; sin propia sigue siendo ausente abajo.
+        competitivas = {"payload": []}
     try:
         parsed = parsear_precios(asin, ofertas, competitivas, vendedor_propio=propio)
     except PrecioOmitido as exc:
