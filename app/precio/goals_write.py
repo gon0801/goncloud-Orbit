@@ -48,7 +48,7 @@ class PrecioGoalInvalido(ValueError):
 
 
 class PrecioGoalAusente(LookupError):
-    """La fila que se pide no existe (exit 1 en el tool)."""
+    """La fila que se pide no existe (exit 2 en el tool)."""
 
 
 MODOS_PRECIO_GOAL = ("shadow", "live")

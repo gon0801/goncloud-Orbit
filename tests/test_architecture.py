@@ -1063,9 +1063,12 @@ def _puros_precio(raiz=None):
 
 
 # REPRICING 01 A.1: `goals_write.py` es el unico escritor de `precio_goal`
-# (puede `psycopg`/`app.precio.*`/stdlib, jamas red ni reloj; su candado
-# propio vive en `tests/test_precio_goals.py`). Excepcion POR NOMBRE: el
-# `rglob` sigue cubriendo todo lo demas de `app/precio/`.
+# (su candado de imports aplica `PROHIBIDOS_PRECIO` completo salvo
+# `psycopg`, lo unico que la excepcion levanta; reloj/entorno e import
+# dinamico los cubren `_usos_reloj` y `_usos_import_dinamico`, con una
+# fuga sembrada para cada caso; su candado propio vive en
+# `tests/test_precio_goals.py`). Excepcion POR NOMBRE: el `rglob` sigue
+# cubriendo todo lo demas de `app/precio/`.
 # REPRICING 01 A.7: `fuentes.py` es el lector de cobertura (puede `psycopg`,
 # `app.precio.*`, `app.estimacion_insumos` solo `mapear_canal`, y stdlib;
 # jamas red, reloj, `app.spapi.*` ni escritura: su candado propio esta al
