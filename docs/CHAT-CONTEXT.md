@@ -1164,6 +1164,23 @@ escribe nada a Amazon hasta pasar validación humana (el "apply" llega en PR2).
   puro, dry-run, mutación/registro/reversa/reconciliación y candados).
   Pendiente la sonda real (tarea 11) con autorización del dueño. Nada
   creado en Amazon todavía. Shapes de creación: HIPÓTESIS hasta la sonda.
+- **REPRICING 01, Fase 8 (AUTO-07, cerrada 2026-09-18)**: cimientos del motor
+  de precios por goal de margen, en `master` y **sin mover ningún precio**.
+  A.0 migración 0039 (`precio_goal`, `precio_decision`, `precio_cotizacion`,
+  `precio_envio_muestra`, `precio_cambio` con transiciones por trigger) —
+  **NO aplicada en producción**: eso es la fila D.1 y la corre el dueño. A.2
+  `app/precio/*`: las trece reglas de S4 puras (sin red, base ni reloj), con
+  `bajar` verificado por cotización real y ningún dato malo que tumbe la
+  corrida. A.3 `app/spapi/write_client.py` + `precio_write.py` +
+  `tools/precio_reversa.py`: la única puerta de PATCH (default-deny), escritura
+  por el orden `INSERT + COMMIT → PATCH → sello → cierre por observación` y
+  reversa manual (dry-run, huella, go) — la **forma del cuerpo del PATCH sigue
+  `pendiente_sonda`** hasta la sonda A.4 con ids reales del dueño; una reversa
+  no entra el mismo día del cambio. E.1: el costo de envío FBM **medido en
+  producción** (`docs/evidencia/repricing-01/E.1/`), insumo de E.2 y E.0; el
+  rezago de emisión del hecho 15 no se reproduce (el que se mide es el de
+  ingesta). Ninguna clave `precio_*` está sembrada en la config. Lo que sigue
+  es del dueño: la sonda A.4 y el acta E.2; la corrida diaria es A.5.
 - **Datos reales ya en la base viva** (Postgres en el server `goncloud`):
   5,897 entidades, ~22,000 observaciones de métricas, ~6,900 de search terms.
 
