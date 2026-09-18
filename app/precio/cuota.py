@@ -26,7 +26,6 @@ __all__ = [
     "motor_cuota",
     "validar_cap",
     "reversas_hoy",
-    "usadas_hoy",
     "reservar",
 ]
 
@@ -74,16 +73,6 @@ def reversas_hoy(conn: psycopg.Connection, platform: str, hoy) -> int:
         " AND (enviado_at AT TIME ZONE 'UTC')::date = %s",
         (platform, hoy),
     ).fetchone()[0]
-
-
-def usadas_hoy(conn: psycopg.Connection, platform: str, hoy) -> int:
-    """Unidades cobradas del dia: contador + reversas (S4 #12)."""
-    fila = conn.execute(
-        "SELECT used FROM apply_quota_state WHERE motor = %s AND quota_date = %s",
-        (motor_cuota(platform), hoy),
-    ).fetchone()
-    usadas = int(fila[0]) if fila is not None else 0
-    return usadas + reversas_hoy(conn, platform, hoy)
 
 
 def reservar(conn: psycopg.Connection, *, platform: str, cap: int, extra: int = 0) -> bool:

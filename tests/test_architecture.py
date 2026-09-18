@@ -2012,8 +2012,10 @@ def _fugas_imports_corrida(path: Path, *, permitidos: tuple) -> list[str]:
     import sys as _sys
 
     def _permitido(nombre: str) -> bool:
+        # K7: borde de punto (`app.spapi.precio_write_extra` no pasa por
+        # `app.spapi.precio_write`), como en `_import_prohibido_corrida`.
         return nombre.split(".")[0] in _sys.stdlib_module_names or any(
-            nombre == p or nombre.startswith(p) for p in permitidos
+            nombre == p or nombre.startswith(p.rstrip(".") + ".") for p in permitidos
         )
 
     arbol = ast.parse(path.read_text(encoding="utf-8"))
@@ -2056,6 +2058,15 @@ def test_corrida_solo_importa_permitido():
     """A.5: `corrida.py` no trae red, reloj, entorno, `app.apply` ni nada
     fuera de la lista (el detector muerde: ver fugas sembradas)."""
     assert _fugas_imports_corrida(PRECIO / "corrida.py", permitidos=_PERMITIDOS_CORRIDA) == []
+
+
+def test_corrida_borde_de_punto_en_permitidos(tmp_path):
+    """K7: `app.spapi.precio_write_extra` no pasa por `app.spapi.precio_write` (borde de punto)."""
+    sonda = tmp_path / "corrida.py"
+    sonda.write_text("import app.spapi.precio_write_extra\n", encoding="utf-8")
+    assert "app.spapi.precio_write_extra" in _fugas_imports_corrida(
+        sonda, permitidos=_PERMITIDOS_CORRIDA
+    )
 
 
 def test_corrida_sin_reloj_ni_dinamico():

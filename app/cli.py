@@ -491,11 +491,23 @@ def _precio(args: argparse.Namespace) -> int:
         except ValueError:
             print("precio --reporte: fechas invalidas (YYYY-MM-DD)", file=sys.stderr)
             return 2
+        if desde > hasta:
+            # K8b: ventana invertida = error de uso, exit 2 con mensaje.
+            print(
+                f"precio --reporte con ventana invertida: --desde ({desde}) posterior a"
+                f" --hasta ({hasta})",
+                file=sys.stderr,
+            )
+            return 2
         dsn = os.environ.get("ORBIT_DSN_READ", "")
         if not dsn:
             print("precio --reporte exige ORBIT_DSN_READ", file=sys.stderr)
             return 2
-        conn = connect(dsn, autocommit=True)
+        try:
+            conn = connect(dsn, autocommit=True)
+        except Exception as exc:  # noqa: BLE001 - como `_cycle`: scrubbado y != 0
+            print(f"precio: {scrub(str(exc)) or exc.__class__.__name__}", file=sys.stderr)
+            return 1
         try:
             for linea in corrida_precios.reporte(
                 conn, desde=desde, hasta=hasta, platform=args.platform
@@ -512,6 +524,9 @@ def _precio(args: argparse.Namespace) -> int:
     except _FaltaDsn as exc:
         print(f"precio exige {exc}", file=sys.stderr)
         return 2
+    except Exception as exc:  # noqa: BLE001 - K6: como `_cycle`, scrubbado y != 0
+        print(f"precio: {scrub(str(exc)) or exc.__class__.__name__}", file=sys.stderr)
+        return 1
     try:
         lector, escritor, fees, limitador = _clientes_precio(args.platform)
         resumen = corrida_precios.correr(
@@ -534,6 +549,8 @@ def _precio(args: argparse.Namespace) -> int:
     for linea in resumen.lineas:
         print(linea)
     print(f"decisiones={resumen.decisiones} escritas={resumen.escritas}")
+    for error in resumen.errores:
+        print(f"precio: {scrub(error)}", file=sys.stderr)
     return 0
 
 

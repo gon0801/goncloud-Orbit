@@ -1,5 +1,44 @@
 # A.5 — Catálogo de mutantes (REPRICING 01, carril A)
 
+## r1 (BRIEF-r1, sobre el HEAD nuevo de r1)
+
+14 mutantes del lead + revalidación de los 15 de A.5 (el árbol cambió bajo
+sus pies: fase 3 extraída a `_fase3_uno`, cotización con reuso, frenos con
+motivo). Sembrados sobre el árbol final (idéntico a lo commiteado), uno por
+uno con restauración verificada por hash, `-p no:cacheprovider` y pycache
+fresca por mutante (`mktemp -d`). Sembrados a mano, revertidos sin commit.
+**Cero sobrevivientes.**
+
+A5-11 sobrevivió primero: con K4 (reversas contadas al reservar) el
+`extra` fresco niega igual aunque la fase 2 planee con `reversas = 0`
+(defensa en profundidad que enmascara el planeo). Se cerró espiando el
+`cupo` que entra a `repartir` (`test_cupo_descuenta_reversas_al_repartir`).
+LA-freno-sin-dias-cfg lo mata el test B.6 (config 2 + 2 días de error).
+
+| # | Regla | Cambio exacto | Test que lo mata | Salida |
+|---|---|---|---|---|
+| LA-huerf-plataforma | Huérfanas por plataforma (el `OR true` las cierra todas) | `_SQL_HUERFANAS`: `WHERE platform = %s` → `WHERE (platform = %s OR true)` | `test_huerfana_otras_plataformas_intactas` | MUERTO: la `pendiente` de `amazon_us` amanece `error` |
+| LA-freno-estado | El freno cuenta solo `error` | freno: `AND estado = 'error'` → `AND estado <> 'imposible'` | `test_freno_solo_cuenta_error` | MUERTO: 3 `confirmado` frenan |
+| LA-cuota-le | `used + extra < cap` (el `=` también niega) | `reservar`: `<` → `<=` | `test_reservar_cupo_exacta_N` | MUERTO: la 3a reserva con `cap = 2` pasa |
+| LA-cuota-cap0 | `cap = 0` (o `extra = cap`) no inserta | quitar el `return False` | `test_reservar_cap_cero_no_inserta` | MUERTO: inserta y devuelve `True` |
+| LA-reversas-todas | Solo `es_reversa` cuenta como reversa | `reversas_hoy`: `AND es_reversa` → `AND (es_reversa OR true)` | `test_cambio_real_de_hoy_no_es_reversa` | MUERTO: el cambio real consume el cupo (`mantener(cuota)`) |
+| LA-ingreso60-ventana | `ingreso_60d` suma [hoy-75, hoy-16] (la de `u60`; S4 #12 no la define) | `BETWEEN %s - 75 AND %s - 16` → `... %s - 1` | `test_ingreso_60d_ventana_declarada` | MUERTO: cuenta la venta de ayer (150 en vez de 50) |
+| LA-goal-cerrado-hoy | `valid_to = hoy` no se decide (`>` estricto) | `g.valid_to > %s` → `g.valid_to >= %s` | `test_goal_cerrado_hoy_no_se_decide` | MUERTO: decide el goal cerrado |
+| LA-goal-futuro | `valid_from` mañana no se decide | `AND g.valid_from <= %s` → `AND (g.valid_from <= %s OR true)` | `test_goal_futuro_no_se_decide` | MUERTO: decide el goal futuro |
+| LA-previos-reversas | La reversa no entra a previos (A.2 R14: no enfría) | cambios: `AND NOT es_reversa` → `AND (NOT es_reversa OR true)` | `test_reversa_confirmada_no_enfria` | MUERTO: la reversa de ayer pone `mantener(cooldown)` |
+| LA-prioridad-none | Sin prioridad al fondo (`is None` primero) | `prioridad is None` → `prioridad is not None` | `test_sin_prioridad_va_al_fondo` | MUERTO: `lineas` sale `[B, A]` |
+| LA-racha-previa | La racha de ayer entra a `evaluar_senal` | `racha_previa=...` → `racha_previa=0` | `test_racha_previa_entra_a_la_senal` | MUERTO: `racha_senal` sale 1 en vez de 3 |
+| LA-buybox | `buy_box` sale de la observación del día | `buy_box = pricing[3]` → `buy_box = True` | `test_buybox_de_la_observacion_va_a_la_decision` | MUERTO: la decisión dice `true` con `false` observado |
+| LA-freno-sin-dias-cfg | Los días salen de `precio_freno_dias_error` | `dias=freno_dias` → `dias=3` | `test_freno_dos_dias_con_config_2` (B.6) | MUERTO: con config 2 y 2 días no frena |
+| LA-cli-escritas | El CLI imprime el `escritas` real | `escritas={resumen.escritas}` → `escritas=0` | `test_cli_precio_imprime_escritas_reales` | MUERTO: imprime `escritas=0` con 2 escritas |
+| LA-escritas-cuenta | `escritas` cuenta cambios reales (saltado no cuenta) | `1 if res.id_cambio is not None else 0` → `1` | `test_live_saltado_no_cuenta_escrita` | MUERTO: el saltado cuenta 1 |
+
+Revalidación A5 sobre r1: A5-1..A5-15 MUERTOS (A5-3 con el `or True` en el
+`reservar` de `_fase3_uno`; A5-9 con `limitador=None` en `cambiar_precio`;
+A5-11 con el test espía del cupo).
+
+## r0 (sobre `32ccf41`)
+
 Un mutante por regla y borde que la corrida protege (fila A.5 del plan +
 puntos a–h del brief). Corridos con base real (`ORBIT_TEST_DSN` local),
 uno por uno con restauración verificada por hash, `-p no:cacheprovider` y

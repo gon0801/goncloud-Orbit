@@ -17,11 +17,12 @@ ni importa `time`: el cubo y sus relojes los inyecta quien llama).
 Sin escenario no hay decision: `no_evaluado(precio_ausente)` es una fila,
 nunca un objeto inventado.
 
-El freno de S6 (tres dias seguidos de `error`) sale `frenado` con motivo
-`no_converge` y el detalle en el log: `app/precio/tipos.py` cierra el
-vocabulario de `frenado` y no esta en el SCOPE (no se toca).
-`buy_box_is_own` sale de la ultima `spapi_price_observation` del dia
-(NULL = no observable, se declara). `ingreso_60d` es la suma de `sale`
+Los frenos de S6 salen `frenado(api_error)` (dias de `error` segun
+config), `frenado(no_confirmado)` (el ultimo cambio real desde el goal
+vigente no lo confirmo la observacion; se reanuda con un goal nuevo) y
+el detalle va al log: `MOTIVOS_FRENADO` vive en `app/precio/tipos.py`.
+`buy_box_is_own` sale de la `spapi_price_observation` del dia
+(`metric_date = hoy`; NULL = no observable, se declara). `ingreso_60d` es la suma de `sale`
 del producto en [hoy-75, hoy-16] en la moneda del escenario (NULL si no
 hay). `escritas` cuenta cambios reales creados (= PATCH intentados).
 """
@@ -33,8 +34,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
+from types import SimpleNamespace
 
 import psycopg
+import psycopg.errors
 from psycopg.types.json import Json
 
 import app.precio.cuota as cuota_mod
@@ -59,7 +62,11 @@ from app.precio.tipos import (
     VentasInsumos,
 )
 from app.precio.ventas import evaluar_senal
-from app.spapi.precio_write import cambiar_precio, cerrar_por_observacion
+from app.spapi.precio_write import (
+    FormaParcheSinSellar,
+    cambiar_precio,
+    cerrar_por_observacion,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +97,7 @@ class Resumen:
     cerrados: dict = field(default_factory=dict)
     huerfanas: int = 0
     lineas: tuple = ()
+    errores: tuple = ()
 
 
 def motor_lock(platform: str) -> str:
@@ -173,6 +181,26 @@ def freno_por_error(
     ).fetchall()
     cubiertos = {f[0] for f in filas}
     return all((hoy - timedelta(days=n)) in cubiertos for n in range(1, dias + 1))
+
+
+def freno_no_confirmado(
+    conn: psycopg.Connection, listing_id: int, platform: str, *, desde: date
+) -> bool:
+    """S6/AC5: el ultimo cambio real no-reversa desde el goal vigente quedo
+    `no_confirmado` -> frenar hoy, sin cotizar ni PATCH.
+
+    Se reanuda con un goal nuevo (el `desde` posterior lo excluye): el mismo
+    patron de #6 y #10. Solo cambios reales (`aplicado`): el virtual nace
+    cerrado y la reversa es del dueno.
+    """
+    fila = conn.execute(
+        "SELECT estado FROM precio_cambio"
+        " WHERE listing_id = %s AND platform = %s AND NOT es_reversa AND aplicado"
+        " AND (enviado_at AT TIME ZONE 'UTC')::date >= %s"
+        " ORDER BY id DESC LIMIT 1",
+        (listing_id, platform, desde),
+    ).fetchone()
+    return fila is not None and fila[0] == "no_confirmado"
 
 
 def _numero_entero(settings: Mapping, clave: str, *, minimo: int, maximo: int) -> int:
@@ -364,58 +392,70 @@ def armar_entrada(
     fee_total, fee_moneda, fee_detalles_raw = fee
 
     partes = _componentes_por_nombre(esc.componentes)
+    # B.4 (K3): el JSONB de `componentes` puede traer basura (importes no
+    # numericos, nodos que no son dicts). `Decimal(...)` levanta
+    # `InvalidOperation`/`TypeError` y `.get` sobre un no-dict,
+    # `AttributeError`: nada de eso aborta la corrida; la publicacion sale
+    # `no_evaluado(escenario_incoherente)` y el resto sigue.
     try:
         bruto = partes["precio_bruto"]
         ingreso_c = partes["ingreso_normalizado"]
         costo_c = partes["costo_normalizado"]
         envio_c = partes["logistica"]
         isr_c = partes["isr"]
+        monedas = {
+            p_moneda,
+            ingreso_c.get("moneda_normalizada"),
+            costo_c.get("moneda_normalizada"),
+            fee_moneda,
+            envio_c.get("moneda_normalizada"),
+            isr_c.get("moneda_normalizada"),
+        }
+        if len(monedas) != 1:
+            raise InsumoIncoherente(
+                f"escenario {esc.id} con monedas divergentes: {sorted(monedas)}"
+            )
+        moneda = p_moneda
+        comp = Componentes(
+            p_actual=_importe(p_valor, moneda, campo="p_actual"),
+            ingreso=_importe(ingreso_c.get("importe_normalizado"), moneda, campo="ingreso"),
+            costo=_importe(costo_c.get("importe_normalizado"), moneda, campo="costo"),
+            fees=_importe(fee_total, moneda, campo="fees"),
+            envio=_importe(envio_c.get("importe_normalizado"), moneda, campo="envio"),
+            isr=_importe(isr_c.get("importe_normalizado"), moneda, campo="isr"),
+        )
+        ingreso_valor = comp.ingreso.valor
+        if ingreso_valor <= 0:
+            raise InsumoIncoherente(f"escenario {esc.id} con ingreso no positivo")
+        divisor_iva = Decimal(bruto.get("importe_normalizado")) / ingreso_valor
+        isr_tasa = comp.isr.valor / ingreso_valor
+        try:
+            detalles = tuple(_detalle_fee(nodo) for nodo in (fee_detalles_raw or []))
+        except ValueError as exc:
+            raise InsumoIncoherente(f"fee_details del escenario {esc.id}: {exc}") from exc
+        escenario = Escenario(
+            componentes=comp,
+            fee_detalles=detalles,
+            precio_cotizado=_importe(p_valor, moneda, campo="precio_cotizado"),
+            iva_divisor=divisor_iva,
+            isr_tasa=isr_tasa,
+            precio_incluye_iva=divisor_iva != 1,
+            oferta_observada_en=oferta_obs_en,
+        )
     except KeyError as exc:
         raise InsumoIncoherente(f"escenario {esc.id} sin componente {exc}") from exc
-    monedas = {
-        p_moneda,
-        ingreso_c.get("moneda_normalizada"),
-        costo_c.get("moneda_normalizada"),
-        fee_moneda,
-        envio_c.get("moneda_normalizada"),
-        isr_c.get("moneda_normalizada"),
-    }
-    if len(monedas) != 1:
-        raise InsumoIncoherente(f"escenario {esc.id} con monedas divergentes: {sorted(monedas)}")
-    moneda = p_moneda
-    comp = Componentes(
-        p_actual=_importe(p_valor, moneda, campo="p_actual"),
-        ingreso=_importe(ingreso_c.get("importe_normalizado"), moneda, campo="ingreso"),
-        costo=_importe(costo_c.get("importe_normalizado"), moneda, campo="costo"),
-        fees=_importe(fee_total, moneda, campo="fees"),
-        envio=_importe(envio_c.get("importe_normalizado"), moneda, campo="envio"),
-        isr=_importe(isr_c.get("importe_normalizado"), moneda, campo="isr"),
-    )
-    ingreso_valor = comp.ingreso.valor
-    if ingreso_valor <= 0:
-        raise InsumoIncoherente(f"escenario {esc.id} con ingreso no positivo")
-    divisor_iva = Decimal(bruto.get("importe_normalizado")) / ingreso_valor
-    isr_tasa = comp.isr.valor / ingreso_valor
-    try:
-        detalles = tuple(_detalle_fee(nodo) for nodo in (fee_detalles_raw or []))
-    except ValueError as exc:
-        raise InsumoIncoherente(f"fee_details del escenario {esc.id}: {exc}") from exc
-    escenario = Escenario(
-        componentes=comp,
-        fee_detalles=detalles,
-        precio_cotizado=_importe(p_valor, moneda, campo="precio_cotizado"),
-        iva_divisor=divisor_iva,
-        isr_tasa=isr_tasa,
-        precio_incluye_iva=divisor_iva != 1,
-        oferta_observada_en=oferta_obs_en,
-    )
+    except (InvalidOperation, TypeError, AttributeError) as exc:
+        raise InsumoIncoherente(f"escenario {esc.id} con componentes podridos: {exc}") from exc
 
+    # S2 «fila del dia» + S4 #1 «nunca el valor de ayer»: `metric_date`
+    # es el dia UTC de captura (0032). Sin fila de hoy, `pricing = None` y
+    # `decidir` sale `no_evaluado(precio_sin_observar)` sin gastar cotizacion.
     pricing = conn.execute(
         "SELECT own_listing_price, own_listing_currency, observed_at, buy_box_is_own"
         " FROM spapi_price_observation"
-        " WHERE asin = %s AND platform = %s AND metric_date <= %s"
+        " WHERE asin = %s AND platform = %s AND metric_date = %s"
         " AND own_listing_price IS NOT NULL"
-        " ORDER BY metric_date DESC, observed_at DESC LIMIT 1",
+        " ORDER BY observed_at DESC LIMIT 1",
         (asin, platform, hoy),
     ).fetchone()
     observacion = None
@@ -473,7 +513,14 @@ def armar_entrada(
 def _insumos_ventas(
     conn: psycopg.Connection, *, product_id: int, platform: str, sku: str
 ) -> VentasInsumos:
-    """Filas ya leidas para S4 #5 (ventas del ledger, inventario y estado)."""
+    """Filas ya leidas para S4 #5 (ventas del ledger, inventario y estado).
+
+    Dia cubierto (S2 «Unidades vendidas»): `event_date` maxima cargada por
+    un `ingest_run` `ok` del ledger DE LA PLATAFORMA —nunca la ultima venta
+    del producto (un producto quieto no significa ledger rezagado). El
+    `source` es el literal de `app/ledger.py::SOURCE` (`app.ledger` no se
+    importa: el candado lo veta y el literal queda declarado aqui).
+    """
     ventas = [
         (dia, qty)
         for dia, qty in conn.execute(
@@ -483,11 +530,18 @@ def _insumos_ventas(
             (product_id, platform),
         ).fetchall()
     ]
-    bordes = conn.execute(
-        "SELECT min(event_date), max(event_date) FROM ledger_event"
+    primera = conn.execute(
+        "SELECT min(event_date) FROM ledger_event"
         " WHERE product_id = %s AND platform = %s AND kind = 'sale'",
         (product_id, platform),
-    ).fetchone()
+    ).fetchone()[0]
+    cubierto = conn.execute(
+        "SELECT max(e.event_date) FROM ledger_event e"
+        " JOIN ingest_run r ON r.id = e.ingest_run_id"
+        " WHERE e.platform = %s AND e.kind = 'sale' AND r.ok"
+        " AND r.source = 'accounting_ledger_events'",
+        (platform,),
+    ).fetchone()[0]
     skus = [
         f[0]
         for f in conn.execute(
@@ -516,8 +570,8 @@ def _insumos_ventas(
         ventas=tuple(ventas),
         inventario=tuple(inventario),
         listing_activo=tuple(activos),
-        primera_venta=bordes[0],
-        dia_cubierto_hasta=bordes[1],
+        primera_venta=primera,
+        dia_cubierto_hasta=cubierto,
     )
 
 
@@ -564,11 +618,11 @@ def _no_evaluado(goal: Decimal, mode: str, motivo: str, diagnostico: str = "") -
     )
 
 
-def _frenado(goal: Decimal, mode: str, diagnostico: str) -> Decision:
-    logger.info("corrida frenado no_converge: %s", diagnostico)
+def _frenado(goal: Decimal, mode: str, motivo: str, diagnostico: str) -> Decision:
+    logger.info("corrida frenado %s: %s", motivo, diagnostico)
     return Decision(
         resultado="frenado",
-        motivo="no_converge",
+        motivo=motivo,
         m_actual=None,
         goal=goal,
         p_actual=None,
@@ -612,6 +666,57 @@ def _oferta_para_cotizar(conn: psycopg.Connection, oferta_id: int):
     )
 
 
+def _evento_cotizacion(listing_id: int, platform: str, hoy: date, intento: int) -> str:
+    """Identidad de la cotizacion: par + dia + intento (UNIQUE en 0039)."""
+    return f"precio-cotiz-{listing_id}-{platform}-{hoy.isoformat()}-{intento}"
+
+
+def _cotizacion_guardada(
+    conn: psycopg.Connection,
+    *,
+    listing_id: int,
+    platform: str,
+    hoy: date,
+    oferta_id: int,
+    pedido: PideCotizacion,
+):
+    """La cotizacion de hoy para este intento, si el relanzamiento la encuentra.
+
+    El relanzamiento del mismo dia (B.3: el proceso murio entre cotizar y
+    persistir la decision) REUSA la fila en vez de re-cotizar: la tabla es
+    append-only y el `source_event_id` es UNIQUE. Solo reusa si es la misma
+    oferta al mismo precio (si difiere, revienta visible: no se mezcla).
+    """
+    fila = conn.execute(
+        "SELECT id, quoted_price, quoted_price_currency, total_fees, fee_details,"
+        " estado, error_code, oferta_observation_id FROM precio_cotizacion"
+        " WHERE source_event_id = %s",
+        (_evento_cotizacion(listing_id, platform, hoy, pedido.intento),),
+    ).fetchone()
+    if fila is None:
+        return None
+    (cid, precio, moneda, total, detalles, estado, codigo, oferta_guardada) = fila
+    if (
+        oferta_guardada != oferta_id
+        or precio != pedido.precio.valor
+        or moneda != pedido.precio.moneda
+    ):
+        raise InsumoIncoherente(
+            f"cotizacion {cid} de hoy no coincide con el pedido"
+            f" (oferta {oferta_guardada}/{oferta_id}, {precio} {moneda}"
+            f" vs {pedido.precio.valor} {pedido.precio.moneda})"
+        )
+    return (
+        cid,
+        SimpleNamespace(
+            estado=estado,
+            fee_details=list(detalles or []),
+            total_fees=total,
+            error_code=codigo,
+        ),
+    )
+
+
 def _persistir_cotizacion(
     conn: psycopg.Connection,
     *,
@@ -623,7 +728,7 @@ def _persistir_cotizacion(
     resultado,
 ) -> int:
     """La cotizacion nace ANTES que la decision (S5 r3-1): es su insumo."""
-    evento = f"precio-cotiz-{listing_id}-{platform}-{hoy.isoformat()}-{pedido.intento}"
+    evento = _evento_cotizacion(listing_id, platform, hoy, pedido.intento)
     if resultado.estado == "success":
         total, total_moneda = resultado.total_fees, pedido.precio.moneda
         detalles = resultado.fee_details
@@ -681,36 +786,69 @@ def cotizar_y_decidir(
     fees: ProductFeesClient,
     oferta_id: int,
     hoy: date,
-    ahora: datetime,
     config: ConfigPrecio,
 ) -> tuple[Decision, int | None]:
     """Maquina S4 #3: como maximo dos cotizaciones reales, persistidas.
 
-    Devuelve `(decision_final, cotizacion_id_usada)`. Reloj de la base en
-    mano (`ahora`): la ventana de verificacion es
-    `[fetched_at, observed_at]` sin tolerancia, asi que ambas puntas salen
-    del mismo reloj. Un pedido que no se puede cotizar (oferta ausente) es
-    `fee_error` local, no excepcion.
+    Devuelve `(decision_final, cotizacion_id_usada)`.
+
+    K1: `observed_at` se captura DESPUES de la respuesta (el servidor
+    estampa `TimeOfFeesEstimation` al recibir, despues de que la corrida
+    arranco: con el `ahora` congelado toda cotizacion real moria con
+    `fee_contrato_incompatible`). `now_utc` consulta la base en ese
+    momento, nunca un valor congelado; la ventana `[fetched_at,
+    observed_at]` sigue siendo la del contrato. Un pedido que no se puede
+    cotizar (oferta ausente) es `fee_error` local, no excepcion.
     """
     oferta = _oferta_para_cotizar(conn, oferta_id)
+
+    def _reloj_base():
+        fila = conn.execute("SELECT now() AT TIME ZONE 'UTC'").fetchone()[0]
+        return fila.replace(tzinfo=UTC)
+
     hechas: list[CotizacionVerificada] = []
     ultimo_id: int | None = None
     for _ in range(3):
         salida = decidir(entrada, hoy=hoy, config=config, cotizaciones=tuple(hechas))
         if not isinstance(salida, PideCotizacion):
             return salida, ultimo_id
-        resultado = cotizar_a_precio(
-            fees, oferta, salida.precio.valor, observed_at=ahora, now_utc=lambda: ahora
-        )
-        ultimo_id = _persistir_cotizacion(
+        reuso = _cotizacion_guardada(
             conn,
             listing_id=entrada.listing_id,
             platform=entrada.platform,
             hoy=hoy,
             oferta_id=oferta_id,
             pedido=salida,
-            resultado=resultado,
         )
+        if reuso is not None:
+            ultimo_id, resultado = reuso
+        else:
+            resultado = cotizar_a_precio(
+                fees, oferta, salida.precio.valor, observed_at=None, now_utc=_reloj_base
+            )
+            try:
+                ultimo_id = _persistir_cotizacion(
+                    conn,
+                    listing_id=entrada.listing_id,
+                    platform=entrada.platform,
+                    hoy=hoy,
+                    oferta_id=oferta_id,
+                    pedido=salida,
+                    resultado=resultado,
+                )
+            except psycopg.errors.UniqueViolation:
+                # Carrera: otro proceso cito el mismo intento hoy; releer.
+                reuso = _cotizacion_guardada(
+                    conn,
+                    listing_id=entrada.listing_id,
+                    platform=entrada.platform,
+                    hoy=hoy,
+                    oferta_id=oferta_id,
+                    pedido=salida,
+                )
+                if reuso is None:
+                    raise
+                ultimo_id, resultado = reuso
         try:
             hechas.append(_verificada(salida, resultado))
         except (ValueError, TypeError) as exc:
@@ -852,6 +990,100 @@ def _linea(lid: int, platform: str, mode: str, decision: Decision) -> str:
     return f"listing={lid} {platform} {mode} {decision.resultado} {decision.motivo or '-'}"
 
 
+def _fase3_uno(
+    conn: psycopg.Connection,
+    *,
+    lid: int,
+    decision: Decision,
+    meta,
+    prod_id: int,
+    canal,
+    platform: str,
+    hoy: date,
+    cap: int,
+    agotado: bool,
+    parche_sin_sellar: bool,
+    lector,
+    escritor,
+    construir_cuerpo,
+    limitador,
+    cfg_id,
+    ahora: datetime,
+):
+    """Un goal de fase 3: reserva, persiste y aplica.
+
+    Devuelve `(decision_salida, escritas, agotado, parche_sin_sellar,
+    error)`. B.4: una publicacion no tumba a las demas —`FormaParcheSinSellar`
+    ademas deja de aplicar `live` el resto de la corrida (fallaria igual en
+    cada una y quemaria cupo); un `InsumoIncoherente` en `persistir` (p. ej.
+    `moneda_contexto` sin moneda observable, K8) no puede persistir; un error
+    de base (`psycopg.Error`) aborta: no es una publicacion, es la infra.
+    """
+    compite = decision.resultado in ("subir", "bajar") and decision.aplicado
+    if compite and parche_sin_sellar:
+        return decision, 0, agotado, True, "parche_sin_sellar: sin PATCH el resto de la corrida"
+    try:
+        # K4: las reversas se cuentan al reservar, no solo al arrancar (el
+        # dueno puede revertir a media corrida).
+        reservado = (
+            compite
+            and not agotado
+            and cuota_mod.reservar(
+                conn,
+                platform=platform,
+                cap=cap,
+                extra=cuota_mod.reversas_hoy(conn, platform, hoy),
+            )
+        )
+        if compite and not reservado:
+            agotado = True
+            decision = _cuota_reescrita(decision)
+        if compite and reservado:
+            did = persistir_decision(
+                conn,
+                decision,
+                listing_id=lid,
+                platform=platform,
+                product_id=prod_id,
+                canal=canal,
+                escenario_id=meta["escenario_id"],
+                fee_observation_id=meta["fee_observation_id"],
+                cotizacion_id=meta["cotizacion_id"],
+                config_version_id=cfg_id,
+            )
+            res = cambiar_precio(
+                conn,
+                did,
+                lector=lector,
+                escritor=escritor,
+                construir_cuerpo=construir_cuerpo,
+                limitador=limitador,
+            )
+            escritas_1 = 1 if res.id_cambio is not None else 0
+            return decision, escritas_1, agotado, parche_sin_sellar, None
+        did = persistir_decision(
+            conn,
+            decision,
+            listing_id=lid,
+            platform=platform,
+            product_id=prod_id,
+            canal=canal,
+            escenario_id=meta["escenario_id"] if meta else None,
+            fee_observation_id=meta["fee_observation_id"] if meta else None,
+            cotizacion_id=meta["cotizacion_id"] if meta else None,
+            config_version_id=cfg_id,
+        )
+        if decision.resultado in ("subir", "bajar"):
+            _insertar_virtual(conn, did, lid, platform, decision, ahora)
+        return decision, 0, agotado, parche_sin_sellar, None
+    except psycopg.Error:
+        raise
+    except FormaParcheSinSellar as exc:
+        return decision, 0, agotado, True, f"parche_sin_sellar: {exc}"
+    except Exception as exc:  # noqa: BLE001 - una publicacion no tumba a las demas
+        return decision, 0, agotado, parche_sin_sellar, f"{exc.__class__.__name__}: {exc}"
+
+
 def correr(
     conn: psycopg.Connection,
     platform: str,
@@ -909,6 +1141,21 @@ def correr(
         for lid, plat, mode, goal_pct, vigente_desde, prod_id in goals:
             if lid in decididas:
                 continue
+            if freno_no_confirmado(conn, lid, plat, desde=vigente_desde):
+                plan.append(
+                    (
+                        lid,
+                        _frenado(
+                            Decimal(goal_pct),
+                            mode,
+                            "no_confirmado",
+                            "ultimo cambio real sin confirmar desde el goal vigente",
+                        ),
+                        None,
+                        prod_id,
+                    )
+                )
+                continue
             if freno_por_error(conn, lid, plat, hoy, dias=freno_dias):
                 plan.append(
                     (
@@ -916,6 +1163,7 @@ def correr(
                         _frenado(
                             Decimal(goal_pct),
                             mode,
+                            "api_error",
                             f"error en los {freno_dias} dias previos",
                         ),
                         None,
@@ -968,7 +1216,6 @@ def correr(
                     fees=fees,
                     oferta_id=ids["oferta_observation_id"],
                     hoy=hoy,
-                    ahora=ahora,
                     config=config,
                 )
             except InsumoIncoherente as exc:
@@ -997,63 +1244,47 @@ def correr(
         candidatos = tuple((plan[i][0], plan[i][1]) for i in orden)
         repartidos = dict(repartir_cupo(candidatos, cupo=cupo))
 
-        # Fase 3: persistir y aplicar por orden de prioridad.
+        # Fase 3: persistir y aplicar por orden de prioridad (ver `_fase3_uno`).
         decisiones = 0
         escritas = 0
         lineas: list[str] = []
+        errores: list[str] = []
         agotado = False
+        parche_sin_sellar = False
         por_lid = {lid_p: (meta_p, prod_p) for (lid_p, _d, meta_p, prod_p) in plan}
         modos = {lid_g: mode_g for (lid_g, _p, mode_g, _g, _v, _r) in goals}
         for lid, decision in repartidos.items():
             meta, prod_id = por_lid[lid]
-            canal = meta["canal"] if meta else None
-            compite = decision.resultado in ("subir", "bajar") and decision.aplicado
-            reservado = (
-                compite
-                and not agotado
-                and cuota_mod.reservar(conn, platform=platform, cap=cap, extra=reversas)
+            (
+                decision,
+                escritas_1,
+                agotado,
+                parche_sin_sellar,
+                error,
+            ) = _fase3_uno(
+                conn,
+                lid=lid,
+                decision=decision,
+                meta=meta,
+                prod_id=prod_id,
+                canal=meta["canal"] if meta else None,
+                platform=platform,
+                hoy=hoy,
+                cap=cap,
+                agotado=agotado,
+                parche_sin_sellar=parche_sin_sellar,
+                lector=lector,
+                escritor=escritor,
+                construir_cuerpo=construir_cuerpo,
+                limitador=limitador,
+                cfg_id=cfg_id,
+                ahora=ahora,
             )
-            if compite and not reservado:
-                agotado = True
-                decision = _cuota_reescrita(decision)
-            if compite and reservado:
-                did = persistir_decision(
-                    conn,
-                    decision,
-                    listing_id=lid,
-                    platform=platform,
-                    product_id=prod_id,
-                    canal=canal,
-                    escenario_id=meta["escenario_id"],
-                    fee_observation_id=meta["fee_observation_id"],
-                    cotizacion_id=meta["cotizacion_id"],
-                    config_version_id=cfg_id,
-                )
-                res = cambiar_precio(
-                    conn,
-                    did,
-                    lector=lector,
-                    escritor=escritor,
-                    construir_cuerpo=construir_cuerpo,
-                    limitador=limitador,
-                )
-                if res.id_cambio is not None:
-                    escritas += 1
-            else:
-                did = persistir_decision(
-                    conn,
-                    decision,
-                    listing_id=lid,
-                    platform=platform,
-                    product_id=prod_id,
-                    canal=canal,
-                    escenario_id=meta["escenario_id"] if meta else None,
-                    fee_observation_id=meta["fee_observation_id"] if meta else None,
-                    cotizacion_id=meta["cotizacion_id"] if meta else None,
-                    config_version_id=cfg_id,
-                )
-                if decision.resultado in ("subir", "bajar"):
-                    _insertar_virtual(conn, did, lid, platform, decision, ahora)
+            escritas += escritas_1
+            if error is not None:
+                msg = f"listing={lid} {platform} {error}"
+                logger.error("corrida %s", msg)
+                errores.append(msg)
             decisiones += 1
             lineas.append(_linea(lid, platform, modos[lid], decision))
         return Resumen(
@@ -1062,6 +1293,7 @@ def correr(
             cerrados=cerrados,
             huerfanas=huerfanas,
             lineas=tuple(lineas),
+            errores=tuple(errores),
         )
     finally:
         _soltar_lock(conn, platform, owner)
