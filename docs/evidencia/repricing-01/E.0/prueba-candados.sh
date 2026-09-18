@@ -6,7 +6,8 @@
 # el PATH (si el corredor llega a conectar, el ssh falso deja una marca y
 # sale 99, y nunca habla con goncloud) y lo corre de verdad:
 #
-#   1. fugas sembradas (una por palabra de escritura del candado y tres
+#   1. fugas sembradas (una por palabra de escritura del candado, una por
+#      palabra de control de transaccion, `end` como sentencia y tres
 #      metacomandos de psql): el corredor sale 1 con su ATORADO ANTES de
 #      conectar (sin marca del ssh falso y sin salidas/CORRIDA.txt);
 #   2. las consultas reales de consultas/: el corredor pasa los dos
@@ -66,6 +67,13 @@ probar_fuga() {  # $1 = nombre, $2 = contenido de la consulta sembrada, $3 = tex
 for palabra in insert update delete truncate alter drop create grant copy; do
     probar_fuga "palabra de escritura '$palabra'" "select 1; $palabra ledger_event;" "palabra de escritura prohibida"
 done
+# Una fuga por cada palabra de control de transaccion o escritura indirecta.
+for palabra in commit rollback abort begin savepoint release into call execute prepare lock vacuum listen notify refresh reindex cluster discard reset merge comment security import load do set start transaction; do
+    probar_fuga "control de transaccion '$palabra'" "select 1; $palabra x;" "control de transaccion"
+done
+probar_fuga "end como sentencia" "select 1;
+end;" "control de transaccion"
+probar_fuga "end tras punto y coma" "select 1; end" "control de transaccion"
 probar_fuga "metacomando de psql al inicio de linea" 'select 1;
 \! echo fuga' "diagonal invertida"
 probar_fuga "metacomando a mitad de linea" 'select 1 \g' "diagonal invertida"
@@ -78,7 +86,7 @@ set +e
 salida="$(PATH="$t/bin:$PATH" bash "$t/correr.sh" 2>&1)"
 rc=$?
 set -e
-if [ -e "$t/SSH_LLAMADO" ] && ! printf '%s' "$salida" | grep -Eq 'prohibida|diagonal invertida'; then
+if [ -e "$t/SSH_LLAMADO" ] && ! printf '%s' "$salida" | grep -Eq 'prohibida|diagonal invertida|control de transaccion'; then
     echo "VERDE: las consultas reales pasan los dos candados (el corredor llego a conectar al ssh falso; rc=$rc)"
 else
     echo "FALLA: las consultas reales no pasan los candados del corredor (rc=$rc)"

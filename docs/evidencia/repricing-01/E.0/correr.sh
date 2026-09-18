@@ -47,6 +47,19 @@ if grep -liE '\b(insert|update|delete|truncate|alter|drop|create|grant|copy)\b' 
     exit 1
 fi
 
+# Candado de control de transaccion y escrituras indirectas (revisor de Q2,
+# cierre de la Fase 10): un `commit;`, `end;`, `begin`, `rollback`, un
+# `select ... into`, un `do $$ ... $$`, un `call` o un `set` saldrian del
+# BEGIN READ ONLY o cambiarian la sesion. `end` solo se rechaza en
+# posicion de sentencia (al inicio o tras `;`), para no chocar con el
+# `case ... end` de las consultas. Ninguna consulta de consultas/ usa estas
+# palabras (probado en prueba-candados.sh).
+if grep -liwE '(commit|rollback|abort|begin|savepoint|release|into|call|execute|prepare|lock|vacuum|listen|notify|refresh|reindex|cluster|discard|reset|merge|comment|security|import|load|do|set|start|transaction)' "$CONSULTAS_DIR"/*.sql \
+    || grep -liE '(^|;)[[:space:]]*end[[:space:]]*(;|$)' "$CONSULTAS_DIR"/*.sql; then
+    echo "ATORADO: una o más consultas en $CONSULTAS_DIR contienen control de transaccion o una escritura indirecta prohibida (ver arriba)." >&2
+    exit 1
+fi
+
 # Candado de metacomandos (CodeRabbit, PR 304): psql ejecuta un "\!" u otro
 # metacomando en cualquier punto de la linea y BEGIN READ ONLY no lo
 # controla. Ningun archivo de consultas puede traer una diagonal invertida;
