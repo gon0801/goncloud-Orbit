@@ -32,13 +32,14 @@ group by 1, 2, 3, 4, 5
 order by 1, 2, 3, 4, 5;
 
 -- (b) un ejemplo literal de source_event_id por identidad y plataforma
--- (el de menor id), para leer su forma completa
+-- (el de menor id), para leer su forma completa. El source_event_id va
+-- en la ULTIMA columna: trae '|' y psql -tA separa con '|' (r1, grok).
 select distinct on (le.platform, split_part(le.source_event_id, '|', 2), split_part(le.source_event_id, '|', 6))
     le.platform,
     case when split_part(le.source_event_id, '|', 2) = 'finance'
          then 'finance:' || split_part(le.source_event_id, '|', 6)
          else split_part(le.source_event_id, '|', 2) end as identidad,
-    le.source_event_id, le.event_date, le.amount, le.amount_currency
+    le.event_date, le.amount, le.amount_currency, le.source_event_id
 from ledger_event le
 where le.fee_type = 'shipping_fee'
   and le.event_date >= ((now() at time zone 'UTC')::date) - 90

@@ -6,16 +6,16 @@
 -- corrida: la plataforma y el fee_type de cada fila descartada NO estan en
 -- Orbit (viven en la SQLite de contabilidad que la ingesta lee). Esta
 -- consulta da lo visible: por corrida de los ultimos 90 dias, el conteo
--- de signo y el resto del skip_reason. Dos SELECT.
+-- de signo y el resto del skip_reason. Dias en UTC (r1, grok). Dos SELECT.
 
 -- (a) por corrida
 select
-    r.id, r.started_at::date as dia, r.ok, r.rows_written, r.rows_skipped,
+    r.id, (r.started_at at time zone 'UTC')::date as dia, r.ok, r.rows_written, r.rows_skipped,
     coalesce((regexp_match(r.skip_reason, '(\d+)x viola ledger_convencion_signos'))[1]::int, 0) as descartes_signo,
     r.skip_reason
 from ingest_run r
 where r.source = 'accounting_ledger_events'
-  and r.started_at >= (now() at time zone 'UTC')::date - 90
+  and (r.started_at at time zone 'UTC')::date >= (now() at time zone 'UTC')::date - 90
 order by r.id;
 
 -- (b) resumen: corridas, promedio y rango del conteo de signo
@@ -23,7 +23,7 @@ with c as (
     select coalesce((regexp_match(r.skip_reason, '(\d+)x viola ledger_convencion_signos'))[1]::int, 0) as n
     from ingest_run r
     where r.source = 'accounting_ledger_events'
-      and r.started_at >= (now() at time zone 'UTC')::date - 90
+      and (r.started_at at time zone 'UTC')::date >= (now() at time zone 'UTC')::date - 90
 )
 select count(*) as corridas, min(n) as minimo, round(avg(n), 1) as promedio, max(n) as maximo
 from c;

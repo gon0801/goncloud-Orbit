@@ -4,6 +4,8 @@
 -- source_event_id completo, fee_type, monto, moneda, event_date, cuando se
 -- observo y de que corrida de ingesta vino. Es la lista literal que E.0a
 -- pide desglosar y la que el documento de origen tiene que resolver.
+-- El source_event_id va en la ULTIMA columna (trae '|' y psql -tA separa
+-- con '|'); `observado` es el dia UTC de observed_at (r1, grok).
 -- Un SELECT.
 with cargos as (
     select le.*
@@ -21,8 +23,9 @@ select
     case when split_part(c.source_event_id, '|', 2) = 'finance'
          then 'finance:' || split_part(c.source_event_id, '|', 6)
          else split_part(c.source_event_id, '|', 2) end as identidad,
-    c.source_event_id, c.fee_type, c.amount, c.amount_currency, c.event_date,
-    c.observed_at::date as observado, c.ingest_run_id
+    c.fee_type, c.amount, c.amount_currency, c.event_date,
+    (c.observed_at at time zone 'UTC')::date as observado, c.ingest_run_id,
+    c.source_event_id
 from cargos c
 join tres t using (order_id)
 order by c.order_id, identidad;
