@@ -2112,8 +2112,8 @@ def test_r3_k6_error_de_programacion_sube_no_es_sin_precio_vivo(monkeypatch, cap
 def test_r3_k7_reversa_en_error_devuelve_1(monkeypatch, capsys):
     """r3-K7: si una reversa del lote termina error, el go devuelve 1."""
     red = _RedFalsa(
-        gets_ofertas=[(200, _ofertas_body(110.0))] * 3,
-        gets_competitivos=[(200, _competitivo_body())] * 3,
+        gets_ofertas=[(200, _ofertas_body(110.0))] * 4,
+        gets_competitivos=[(200, _competitivo_body())] * 4,
         patchs=[(500, {"status": "ERROR"})],
     )
     with db_39c() as conn:
