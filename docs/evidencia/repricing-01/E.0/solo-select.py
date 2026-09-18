@@ -10,6 +10,12 @@ de cada sentencia no vacia sea `select` o `with`. Asi un `commit;`, `end;`,
 `call` en un archivo de consultas no llegan a produccion, y un
 `case ... end` en su propia linea no es un falso positivo.
 
+Falla cerrado ante lo que no sabe partir (grok, cierre r2): el
+dollar-quoting de PostgreSQL (`$$ ... $$`, `$tag$ ... $tag$`) fuera de un
+string se rechaza, porque dentro de el un `;` o una comilla cambiarian
+donde termina cada sentencia; y un string o un comentario de bloque sin
+cerrar al final del archivo tambien se rechaza.
+
 Uso: python3 solo-select.py <archivo.sql> [...]. Imprime cada sentencia
 rechazada con su archivo y sale 1 si hay alguna; sale 0 si todas son
 `select`/`with`. Un archivo ilegible tambien sale 1 (falla cerrado).
@@ -17,13 +23,23 @@ rechazada con su archivo y sale 1 si hay alguna; sale 0 si todas son
 
 from __future__ import annotations
 
+import re
 import sys
 
 PERMITIDAS = ("select", "with")
+_DOLAR = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)?\$")
+
+
+class NoSeParte(ValueError):
+    """El texto trae algo que este candado no sabe partir: falla cerrado."""
 
 
 def sentencias(texto: str) -> list[str]:
-    """Sentencias sin comentarios, partidas por `;` fuera de strings."""
+    """Sentencias sin comentarios, partidas por `;` fuera de strings.
+
+    Levanta `NoSeParte` ante dollar-quoting fuera de un string, o ante un
+    string o comentario de bloque sin cerrar.
+    """
     salida: list[str] = []
     actual: list[str] = []
     i, n = 0, len(texto)
@@ -33,6 +49,7 @@ def sentencias(texto: str) -> list[str]:
             fin = c
             actual.append(c)
             i += 1
+            cerrado = False
             while i < n:
                 actual.append(texto[i])
                 if texto[i] == fin:
@@ -41,9 +58,14 @@ def sentencias(texto: str) -> list[str]:
                         i += 2
                         continue
                     i += 1
+                    cerrado = True
                     break
                 i += 1
+            if not cerrado:
+                raise NoSeParte("string sin cerrar al final del archivo")
             continue
+        if c == "$" and _DOLAR.match(texto, i):
+            raise NoSeParte("dollar-quoting ($$ o $tag$) fuera de un string")
         if texto.startswith("--", i):
             salto = texto.find("\n", i)
             i = n if salto == -1 else salto
@@ -51,7 +73,9 @@ def sentencias(texto: str) -> list[str]:
             continue
         if texto.startswith("/*", i):
             cierre = texto.find("*/", i + 2)
-            i = n if cierre == -1 else cierre + 2
+            if cierre == -1:
+                raise NoSeParte("comentario de bloque sin cerrar")
+            i = cierre + 2
             actual.append(" ")
             continue
         if c == ";":
@@ -85,7 +109,13 @@ def main(argv: list[str]) -> int:
             print(f"{ruta}: ilegible ({exc})")
             rechazos += 1
             continue
-        for sentencia in sentencias(texto):
+        try:
+            partes = sentencias(texto)
+        except NoSeParte as exc:
+            print(f"{ruta}: sentencia que no es select/with: no se puede partir ({exc})")
+            rechazos += 1
+            continue
+        for sentencia in partes:
             if primera_palabra(sentencia) not in PERMITIDAS:
                 resumen = " ".join(sentencia.split())[:80]
                 print(f"{ruta}: sentencia que no es select/with: {resumen}")

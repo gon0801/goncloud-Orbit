@@ -80,6 +80,10 @@ probar_fuga "END con comentario de bloque" "select 1; END/*x*/;" "select/with"
 probar_fuga "END con comentario de linea" "select 1; END --x
 ;" "select/with"
 probar_fuga "revoke" "select 1; revoke select on x from y;" "select/with"
+probar_fuga "dollar-quoting que esconde END WORK" "select \$\$ ' \$\$; END WORK; revoke select on x from y;" "select/with"
+probar_fuga "dollar-quoting con tag" "select \$q\$ x \$q\$;" "select/with"
+probar_fuga "string sin cerrar" "select 'abc;" "select/with"
+probar_fuga "comentario de bloque sin cerrar" "select 1; /* sin cierre" "select/with"
 probar_fuga "analyze" "select 1; analyze x;" "select/with"
 probar_fuga "select into" "select 1 into t;" "control de transaccion"
 probar_fuga "set_config" "select set_config('search_path', 'x', false);" "control de transaccion"
@@ -91,7 +95,7 @@ probar_fuga "metacomando con espacios delante" '   \o /tmp/x' "diagonal invertid
 # Un select legitimo con case ... end en varias lineas (END solo en su
 # linea) y comentarios con punto y coma NO es una fuga: llega a conectar.
 t="$(preparar)"
-printf '%s\n' "-- comentario con ; y la palabra end" "select" "    case" "        when 1 = 1 then 'a;b'" "        else 'c'" "    end as x" "/* bloque ; end */" "from (select 1) s;" > "$t/consultas/98-case-multilinea.sql"
+printf '%s\n' "-- comentario con ; y la palabra end" "select" "    case" "        when 1 = 1 then 'a;b'" "        else 'c'" "    end" "    as x" "/* bloque ; end */" "from (select 1) s;" > "$t/consultas/98-case-multilinea.sql"
 set +e
 salida="$(PATH="$t/bin:$PATH" bash "$t/correr.sh" 2>&1)"
 rc=$?
