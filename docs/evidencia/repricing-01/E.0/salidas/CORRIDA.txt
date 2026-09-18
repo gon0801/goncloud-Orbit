@@ -1,12 +1,12 @@
 estado: COMPLETA
-inicio_utc: 2026-09-18T08:39:34Z
-fin_utc: 2026-09-18T08:39:56Z
-commit_del_repo: 14948f59632910ebfab152c9bfb285cb9e413ca6
+inicio_utc: 2026-09-18T08:54:23Z
+fin_utc: 2026-09-18T08:54:45Z
+commit_del_repo: cacfa1c32d5d3a4cf72d4de124249eebc7b29205
 consultas_con_cambios_sin_commitear: 0
 salidas:
-  1d70fdf14b96c05cf83e913e40a29be10aad021030a9daa63486d74cd9bce601  00-sonda-formato-90d.txt
+  83feeefe34fe4622a5a11b4b1352e74df1fe76d9d36793822bfd4e9a3a47e911  00-sonda-formato-90d.txt
   456dd74d8ee98478c29478e7f0df3c0e9669011c5292d01f4e4528ed04cd007c  01-ordenes-por-numero-de-cargos-90d.txt
-  c2c468b105a17cb98fc257aa4421fd2e48f7125ddeda909adcc491886193b529  02-ordenes-us-tres-cargos-desglose.txt
+  a433d43fe16dbdf1e2f703e3422cf35d8c91621ac0fdfdf7681adae30cf35644  02-ordenes-us-tres-cargos-desglose.txt
   d1d53a331039878127f5e6110fe951e96ba1f21bc3929f882c3ae101f261e4e6  03-ventas-de-ordenes-us-tres-cargos.txt
   0ab8944bd573005b0ab5e28dd8c916be9034cea264a432a6edac7cb98f22c4ed  04-pares-labman-shipping-label.txt
   b641831638629019d14930f1d9e86e18842463f14a047b1ca4965d9e3a2ba96a  05-muestra-shippinghb-shipping-label.txt

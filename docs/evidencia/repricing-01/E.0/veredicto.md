@@ -4,7 +4,7 @@
 
 **Estado: veredicto parcial.** El documento de origen que el plan exige (la vista de transacciones de Seller Central, o la contabilidad que alimenta el ledger) **no existe todavía**: la carpeta `/Users/dn/dev/orbit-insumos/E.0/` no existe al 2026-09-18 (`ls … | wc -l` → `0`). Por regla del runbook, **ningún par recibe `duplicado` ni `componentes distintos`**. Los tres quedan `sin veredicto`, y abajo dice qué documento resuelve cada uno. Todo lo demás ya está medido: la lista literal de órdenes, cada cargo con su identidad completa, las hipótesis con su fuente y la regla de costo que resulta de cada veredicto posible. Con el documento en mano, el veredicto se resuelve en una tarde.
 
-**Corrida.** `salidas/CORRIDA.txt`: `estado: COMPLETA`, 2026-09-18T08:39:34Z a 2026-09-18T08:39:56Z UTC, `commit_del_repo: 14948f5`, `consultas_con_cambios_sin_commitear: 0`. «Hoy» es la fecha UTC de esa corrida, **2026-09-18**. La ventana de 90 días es `[2026-09-18 − 90, 2026-09-18]` = `[2026-06-20, 2026-09-18]`. Cada tabla cita el `.sql` de `consultas/` que la produjo, y su salida literal está en `salidas/<mismo nombre>.txt`.
+**Corrida.** `salidas/CORRIDA.txt`: `estado: COMPLETA`, 2026-09-18T08:54:23Z a 2026-09-18T08:54:45Z UTC, `commit_del_repo: cacfa1c`, `consultas_con_cambios_sin_commitear: 0`. «Hoy» es la fecha UTC de esa corrida, **2026-09-18**. La ventana de 90 días es `[2026-09-18 − 90, 2026-09-18]` = `[2026-06-20, 2026-09-18]`. Cada tabla cita el `.sql` de `consultas/` que la produjo, y su salida literal está en `salidas/<mismo nombre>.txt`.
 
 ---
 
