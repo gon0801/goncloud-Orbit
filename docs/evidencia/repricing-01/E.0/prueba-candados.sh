@@ -78,7 +78,7 @@ set +e
 salida="$(PATH="$t/bin:$PATH" bash "$t/correr.sh" 2>&1)"
 rc=$?
 set -e
-if [ -e "$t/SSH_LLAMADO" ] && ! printf '%s' "$salida" | grep -q "prohibida\|diagonal invertida"; then
+if [ -e "$t/SSH_LLAMADO" ] && ! printf '%s' "$salida" | grep -Eq 'prohibida|diagonal invertida'; then
     echo "VERDE: las consultas reales pasan los dos candados (el corredor llego a conectar al ssh falso; rc=$rc)"
 else
     echo "FALLA: las consultas reales no pasan los candados del corredor (rc=$rc)"
