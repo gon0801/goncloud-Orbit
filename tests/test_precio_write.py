@@ -58,6 +58,22 @@ SKU = "SKU-C1"
 SECRETO = "SECRETO-CARRIL-C-XYZ"
 
 
+@pytest.fixture(autouse=True)
+def _go_sin_dormir(monkeypatch):
+    """r6b-S1: `main` siempre corre con sleep falso, salvo que el test
+    pase el suyo (como el de C5, que cuenta esperas): el cubo de Pricing
+    no duerme de verdad en tests."""
+    import tools.precio_reversa as tool
+
+    real = tool.main
+
+    def _main(argv=None, **kw):
+        kw.setdefault("sleep", lambda s: None)
+        return real(argv, **kw)
+
+    monkeypatch.setattr(tool, "main", _main)
+
+
 def _dsn():
     return _test_dsn()
 
