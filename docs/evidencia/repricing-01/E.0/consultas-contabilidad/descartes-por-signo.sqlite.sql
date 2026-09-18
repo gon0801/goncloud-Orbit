@@ -2,7 +2,9 @@
 -- Clasifica por plataforma, event_type y fee_category las filas de la base
 -- de contabilidad que la ingesta de Orbit descarta por convencion de signos
 -- (app/ledger.py, plan_eventos: fee/refund/withholding con monto > 0, o
--- sale_gross con monto <= 0). Replica el orden de app/ledger.py: primero
+-- sale_gross con monto <= 0). En contabilidad, withholding es event_type
+-- 'fee' con fee_category tax_withheld o isr_withheld (MAPA_KIND), asi que
+-- la condicion de 'fee' ya lo cubre. Replica el orden de app/ledger.py: primero
 -- quedan fuera las plataformas que la ingesta ya excluye por otra razon
 -- (meli y cualquiera fuera de amazon / amazon_us) y los event_type que no
 -- conoce. No replica los demas saltos basicos (moneda, fecha, decimales):

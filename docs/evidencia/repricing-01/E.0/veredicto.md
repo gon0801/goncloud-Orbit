@@ -12,7 +12,7 @@
 
 1. **Las «18 órdenes de US con tres cargos» del plan hoy son 54.** El número del plan (hecho 14, medido el 2026-09-16) era un efecto del **rezago de ingesta** del reporte de etiquetas: de las 54 etiquetas `shipping_label` de esas órdenes, **36 entraron en la corrida de ingesta del 2026-09-17** (columna `observado` de la tabla 2.3), un día después de aquella medición. 54 − 36 = 18. Las 54 órdenes son **exactamente** las que traen `finance:LabmanLabelPurchase` **y** `shipping_label` (tablas 2.2 y 2.4).
 2. **`finance:LabmanLabelPurchase` es una fuente nueva: empieza el 2026-08-18 en US** (y el 2026-09-07 en MX, 3 filas), mientras `shipping_label` y `finance:ShippingHB` traen **una fila por orden cada mes desde diciembre de 2025** (tabla 2.7). En septiembre, **las tres fuentes de US traen 40 órdenes cada una**.
-3. **El par Labman / `shipping_label` casa casi siempre**: 54 pares, **32 idénticos al centavo**, 53 a ≤ 1 % y 1 a más de 5 %. La etiqueta lleva de 0 a 3 días de fecha después del Labman (tabla 2.4). Reproduce el hecho 22 (53 de 54).
+3. **El par Labman / `shipping_label` casa casi siempre**: 54 pares, **32 idénticos al centavo**, 53 a ≤ 1 % y 1 a más de 5 %. La etiqueta lleva de 0 a 3 días de fecha después del Labman (tabla 2.4). Reproduce la segunda parte del hecho 22 del plan (53 de 54 pares a ≤ 1 %).
 4. **El par `ShippingHB` / `shipping_label` no casa nunca**: ShippingHB vale del 6.1 % al 20.5 % de la etiqueta en la muestra de 20 (tabla 2.5). **El par Labman / `ShippingHB` tampoco**: 0 de 57 en US a ≤ 5 % (tabla 2.6).
 5. **Lectura provisional, sin veredicto:** los números son **compatibles con** «Labman y `shipping_label` son el mismo cobro de etiqueta informado por dos caminos desde el 2026-08-18» y con «ShippingHB es otro componente (la retención de Amazon sobre el envío que cobra el vendedor)». **Compatible no es veredicto**: un monto idéntico no distingue «el mismo cargo dos veces» de «dos cargos del mismo importe» (por ejemplo, una etiqueta y su reposición). Eso solo lo dice el documento.
 6. **Los descartes por convención de signos son 105–112 por corrida** (promedio 107.2 en 27 corridas de la ingesta contable, 90 días; tabla 6). **Orbit no guarda su plataforma ni su `fee_type`**: esa clasificación exige leer la base de contabilidad, fuera del permiso de esta fase. La consulta está lista (sección 6).
@@ -256,7 +256,7 @@ Las dos formas medidas en E.1 se confirman: `finance`, seis partes, `<plataforma
 | 114-9764833-1795459 | `finance:ShippingHB` | `amazon_us\|finance\|fee\|114-9764833-1795459\|PY-CVMD-FI7W\|ShippingHB` | shipping_fee | -74.1800 | MXN | 2026-08-18 | 2026-08-31 | 51 | Finances, retención sobre el envío |
 | 114-9764833-1795459 | `shipping_label` | `amazon_us\|shipping_label\|114-9764833-1795459\|2026-08-19` | shipping_fee | -446.0200 | MXN | 2026-08-19 | 2026-09-04 | 76 | reporte de etiquetas de Buy Shipping |
 
-La venta ligada a cada una (`consultas/03-ventas-de-ordenes-us-tres-cargos.sql`): una fila `sale` por orden, una unidad cada una. `shipping_price` viene nulo en las 54, que es el hecho 16 (en US es nulo, no cero). 2 de las 54 ventas no traen `product_id` (hecho 22).
+La venta ligada a cada una (`consultas/03-ventas-de-ordenes-us-tres-cargos.sql`): una fila `sale` por orden; una unidad cada una salvo `114-4981320-0453829` (2 unidades). `shipping_price` viene nulo en las 54, que es el hecho 16 (en US es nulo, no cero). 2 de las 54 ventas no traen `product_id` (la primera parte del hecho 22 del plan: órdenes con cargo de envío cuya venta no trae `product_id`).
 
 | orden | fecha de venta | product_id | SKUs del producto en US | unidades | monto | moneda | shipping_price | `source_event_id` |
 |---|---|---|---|---|---|---|---|---|
@@ -523,7 +523,7 @@ La ingesta contable (`app/ledger.py`, decisión 4 de la 0.6) **no escribe** una 
 
 Resumen de 90 días: 27 corridas, mínimo 105, promedio 107.2, máximo 112. Es el mismo conjunto que se vuelve a contar cada día (la ingesta relee el snapshot completo), no 107.2 filas nuevas por día.
 
-**Plataforma y `fee_type` de cada descarte: `unknown`.** No están en Orbit: viven en la base de contabilidad, que esta fase no lee (sección 1). La consulta, de solo lectura, está versionada en `consultas-contabilidad/descartes-por-signo.sqlite.sql`, con la misma regla que `app/ledger.py`. La puede correr David, en una sola línea y sin escribir nada:
+**Plataforma y `fee_type` de cada descarte: `unknown`.** No están en Orbit: viven en la base de contabilidad, que esta fase no lee (sección 1). La consulta, de solo lectura, está versionada en `consultas-contabilidad/descartes-por-signo.sqlite.sql`, con la misma regla que `app/ledger.py`. Cuenta como `withholding` lo que en contabilidad es `event_type = 'fee'` con `fee_category` `tax_withheld` o `isr_withheld` (`MAPA_KIND` de `app/ledger.py`), así que la condición `fee` con monto positivo ya los incluye. La puede correr David en una sola línea, sin escribir nada. En la sesión de Claude Code va con el `!` delante; en una terminal, sin el `!`:
 
 ```
 ! ssh goncloud "sqlite3 -readonly /mnt/data/appdata/accounting/data/accounting.db" < docs/evidencia/repricing-01/E.0/consultas-contabilidad/descartes-por-signo.sqlite.sql
