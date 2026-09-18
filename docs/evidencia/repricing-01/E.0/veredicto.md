@@ -600,4 +600,10 @@ Dónde dejar los exportes: `/Users/dn/dev/orbit-insumos/E.0/`, fuera de cualquie
 bash docs/evidencia/repricing-01/E.0/correr.sh
 ```
 
-Desde la raíz del repo, con `ssh goncloud`. Reescribe `salidas/` y `salidas/CORRIDA.txt`, y aborta antes de tocar producción si alguna consulta contiene una palabra de escritura. Los números cambian con el día: la ventana se mueve y la ingesta sigue trayendo etiquetas con rezago.
+Desde la raíz del repo, con `ssh goncloud`. Reescribe `salidas/` y `salidas/CORRIDA.txt`, y aborta antes de tocar producción si alguna consulta contiene una palabra de escritura o una diagonal invertida (un metacomando de `psql` como `\!` se ejecutaría en el servidor sin que `BEGIN READ ONLY` lo controle). Los dos candados se prueban sin tocar producción con:
+
+```
+bash docs/evidencia/repricing-01/E.0/prueba-candados.sh
+```
+
+que siembra una fuga por cada palabra y por cada forma de metacomando con un `ssh` falso en el `PATH`, exige que el corredor la rechace antes de conectar, y comprueba que las consultas reales sí pasan. Los números cambian con el día: la ventana se mueve y la ingesta sigue trayendo etiquetas con rezago.
