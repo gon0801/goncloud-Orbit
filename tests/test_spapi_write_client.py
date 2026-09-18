@@ -8,6 +8,8 @@ cero red, cero Amazon. Rojo primero por caso (`.saikit/scratch/C/tdd.md`).
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import httpx
 import pytest
 
@@ -288,3 +290,19 @@ def test_r4_g1_patch_lleva_marketplace_ids_del_platform(platform, marketplace):
     (pedido,) = red.llamadas_patch
     assert pedido.method == "PATCH"
     assert pedido.url.params["marketplaceIds"] == marketplace
+
+
+@pytest.mark.parametrize(
+    "cuerpo",
+    [
+        {"patches": [{"op": "replace", "value": Decimal("10.00")}]},
+        {"patches": [{"op": "replace", "value": {"monto": 10.5}}]},
+    ],
+    ids=["decimal-anidado", "float-anidado"],
+)
+def test_r4_g5_cuerpo_con_numeros_binarios_es_mal_uso(cuerpo):
+    """r4-G5: Decimal o float en cualquier nivel -> ValueError antes de la red."""
+    red = _RedFalsa([(202, {}, {"submissionId": "g5"})])
+    with pytest.raises(ValueError, match="serializable"):
+        _escritor(red).patch_listing(SKU, cuerpo)
+    assert red.pedidos == [] and red.tokens == 0

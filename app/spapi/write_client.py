@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
+from decimal import Decimal
 
 import httpx
 
@@ -66,6 +67,20 @@ def validar_patch_listings(path: str, seller_id: str, sku: str) -> str:
     if path != esperada:
         raise SpapiNoPermitida(f"PATCH fuera de allowlist: {path}")
     return path
+
+
+def _exigir_cuerpo_serializable(cuerpo, ruta: str = "$") -> None:
+    """El cuerpo llega serializable a la red: ni `Decimal` ni `float` en
+    ningun nivel (los importes van como `str`, patron `_decimal_a_json_number`
+    de `estimacion_fees`; el encoder estandar los deformaria o reventaria)."""
+    if isinstance(cuerpo, (Decimal, float)):
+        raise ValueError(f"cuerpo no serializable en {ruta}: {type(cuerpo).__name__}")
+    if isinstance(cuerpo, dict):
+        for clave, valor in cuerpo.items():
+            _exigir_cuerpo_serializable(valor, f"{ruta}.{clave}")
+    elif isinstance(cuerpo, (list, tuple)):
+        for i, valor in enumerate(cuerpo):
+            _exigir_cuerpo_serializable(valor, f"{ruta}[{i}]")
 
 
 def _espera_retry_after(resp: httpx.Response) -> float:
@@ -121,6 +136,7 @@ class SpapiWriteClient:
         ruta = validar_patch_listings(
             construir_ruta_listings(self._seller_id, sku), self._seller_id, sku
         )
+        _exigir_cuerpo_serializable(cuerpo)
         url = f"{SP_API_BASE}{ruta}"
         query = {"marketplaceIds": MERCADOS[self._platform]}
         token = self._lector._acceso()
