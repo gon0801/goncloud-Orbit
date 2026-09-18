@@ -4,6 +4,24 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-18 UTC — REPRICING 01, Fase 10 (AUTO-07) CERRADA: herramienta de goals y recuadro de cobertura en master, y veredicto del envío parcial por falta del documento de origen; ningún precio movido.**
+Cinco PRs mergeados por la ruta del kit:
+
+- **A.1**, herramienta de goals (`#303`, `662db38`; cierre r1 `#307`, `eeefb72`). `tools/precio_goal.py` siembra y cierra goals solo con `app_admin`: dry-run con `m_actual`, `P*` y huella; `shadow` sin go literal y `live` con go; `--sku`; salto > 25 % confirmado por listing.
+- **A.7**, recuadro de cobertura (`#305`, `0d88cc8`). Readback en producción del 18-sep que cuadra exacto: MX 260 activas = 102 `canal_sin_dato` + 158 `sin_goal`; US 100 = 100 `canal_sin_dato`.
+- **E.0a**, veredicto de las fuentes del envío (`#304`, `7b5d6e9`; cierre `#306`, `b7a0839`). Queda **parcial**: los tres pares sin veredicto hasta que el dueño deje en `/Users/dn/dev/orbit-insumos/E.0/` la vista de transacciones de Seller Central de las 54 órdenes listadas.
+
+Lo que cambia lo que se creía:
+
+- Las «18 órdenes con tres cargos» del hecho 14 son 54 (era rezago de ingesta).
+- `LabmanLabelPurchase` aparece el 2026-08-18 y casa con la etiqueta en 53 de 54 pares.
+- Las activas canónicas hoy son 260 y 100, no 264 y 106.
+- El canal de FBM y de US todavía no existe en Orbit: llega con E.3/0.3.
+- La cuenta de activas del bridge no vive en Orbit.
+- `tools/precio_cobertura.py` y `tools/precio_goal.py` en producción necesitan **D.0**, porque la 0039 no está aplicada.
+
+Lo que sigue es del dueño, en orden: E.2 parte 1, D.0 (con `!`, copiando la `config_version` vigente), el goal del producto controlado con `tools/precio_goal.py --mode live --go <literal>` y la sonda A.4. También el documento de origen de E.0a.
+
 **2026-09-18 UTC — REPRICING 01: plan v1.3 tras revisar la Fase 8 contra el código; corrige lo que la nota de cierre decía mal.**
 La Fase 8 cumple todo su DoD (374 pruebas en verde contra PostgreSQL real), pero la sonda A.4 **no puede correr con lo que hay**:
 `cambiar_precio` lee una decisión `subir` en `live` que exige un goal `live` vigente, y eso necesita las tablas en producción y la
