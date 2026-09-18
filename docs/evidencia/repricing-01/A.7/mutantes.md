@@ -26,8 +26,8 @@ corrida (`PYTHONPYCACHEPREFIX`). **Cero sobrevivientes.** La regla (h)
 | A7-7 | `max_dias` de la config con cota 1–14, sin defaults | `max_dias_desde_settings`: `minimo=1, maximo=14` → `minimo=0, maximo=99` | `test_max_dias_de_config_con_cota` | MUERTO (exit 1): `"0"` y `"15"` se aceptan |
 | (d) | Cubierto por A7-5 (la fase viaja en el mismo `return`) | — | `test_fuera_de_alcance_nombra_la_fase` | — |
 | A7-8 | Puente al lado; diferencia > 5 % se avisa | `aviso_puente`: `> 5` → `> 50` | `test_aviso_puente_mas_de_5_por_ciento` | MUERTO (exit 1): 16.7 % sin aviso |
-| A7-f1 | `fuentes.py` solo importa lo permitido | `fuentes.py` + `import httpx` | candado post-Q1 (`/tmp/lock_fuentes.py`, cuerpo exacto previsto para `test_architecture.py`) | MUERTO: `AssertionError: ['httpx']` |
-| A7-f2 | `fuentes.py` solo lee (cero escritura) | `fuentes.py` + `_X = "INSERT INTO precio_goal ..."` | candado post-Q1 (`/tmp/lock_fuentes.py`) | MUERTO: `AssertionError` con la línea |
+| A7-f1 | `fuentes.py` solo importa lo permitido | `fuentes.py` + `import httpx` | `test_fuentes_solo_importa_permitido` (post-Q1, commiteado) | MUERTO (exit 1) |
+| A7-f2 | `fuentes.py` solo lee (cero escritura) | `fuentes.py` + `_X = "INSERT INTO precio_goal ..."` | `test_fuentes_solo_select` (post-Q1, commiteado) | MUERTO (exit 1) |
 | A7-9 | `consultas/*.sql` son las que ejecuta `fuentes.py` | `01_canonicas.sql`: `LIKE '%BUYABLE%'` → `= 'BUYABLE'` | `test_consultas_iguales_a_las_que_ejecuta_fuentes` | MUERTO (exit 1) |
 | A7-10 | `recuadro_desde_salidas.py` alimenta el mismo recuadro | `canal_por_listing[...] = (canal, precio, moneda)` → `(precio, canal, moneda)` | `test_recuadro_desde_salidas_roundtrip` | MUERTO (exit 1): `rec == esperado` falla |
 
@@ -36,12 +36,11 @@ corrida (`PYTHONPYCACHEPREFIX`). **Cero sobrevivientes.** La regla (h)
 - A7-10 sobrevivió una vez: el roundtrip solo comparaba conteos y SKUs
   (el canal `Decimal("116")` no cambiaba de bucket). Se endureció el test
   a `assert rec == esperado` y el mutante murió. Sin sobrevivientes.
-- A7-f1/A7-f2 mueren contra el cuerpo exacto del candado post-Q1,
-  validado en `/tmp/lock_fuentes.py` (verde en limpio, rojo con cada
-  fuga): la excepción por nombre y el candado aterrizan en
-  `tests/test_architecture.py` en el commit post-Q1, junto al merge de
-  `origin/master` (ACCEPTANCE 4). Pre-Q1 no hay rojo posible en ese
-  archivo sin pisar el carril A.
+- A7-f1/A7-f2 murieron primero contra el cuerpo exacto del candado
+  post-Q1 validado en `/tmp/lock_fuentes.py`, y de nuevo tras el merge
+  contra los tests ya commiteados en `tests/test_architecture.py`
+  (`test_fuentes_solo_importa_permitido`,
+  `test_fuentes_solo_select`).
 - Orden de buckets declarado y con test: `fuera_de_alcance` estructural
   antes que `catalogo_desactualizado` (`test_fuera_estructural_antes_que_stale`).
 - `listing` no tiene `updated_at`: el contraste del puente muestra solo

@@ -1066,14 +1066,20 @@ def _puros_precio(raiz=None):
 # (puede `psycopg`/`app.precio.*`/stdlib, jamas red ni reloj; su candado
 # propio vive en `tests/test_precio_goals.py`). Excepcion POR NOMBRE: el
 # `rglob` sigue cubriendo todo lo demas de `app/precio/`.
-EXCEPCIONES_PURAS_PRECIO = ("goals_write.py",)
+# REPRICING 01 A.7: `fuentes.py` es el lector de cobertura (puede `psycopg`,
+# `app.precio.*`, `app.estimacion_insumos` solo `mapear_canal`, y stdlib;
+# jamas red, reloj, `app.spapi.*` ni escritura: su candado propio esta al
+# final del archivo). Excepcion POR NOMBRE, en paralelo a la de A.1.
+EXCEPCIONES_PURAS_PRECIO = ("goals_write.py", "fuentes.py")
 
 
 def test_precio_excepcion_por_nombre():
-    """A.1: la excepcion de pureza es una tupla por nombre con `goals_write.py`
-    y nada mas; quitar el `rglob` o exceptuar la carpeta la rompe."""
-    assert EXCEPCIONES_PURAS_PRECIO == ("goals_write.py",)
+    """A.1 + A.7: la excepcion de pureza es una tupla por nombre con
+    `goals_write.py` y `fuentes.py` y nada mas; quitar el `rglob` o
+    exceptuar la carpeta la rompe."""
+    assert EXCEPCIONES_PURAS_PRECIO == ("goals_write.py", "fuentes.py")
     assert (PRECIO / "goals_write.py").is_file()
+    assert (PRECIO / "fuentes.py").is_file()
     assert (PRECIO / "tipos.py").is_file()
 
 
@@ -1676,3 +1682,65 @@ def test_patrones_precio_goal_resisten_case_y_whitespace():
     benigno = "el UNICO camino de escritura de precio_goal (A.1)"
     assert not _PATRON_UPDATE_PRECIO_GOAL.search(benigno)
     assert not _PATRON_INSERT_PRECIO_GOAL.search(benigno)
+
+
+# ---------------------------------------------------------------------------
+# REPRICING 01 A.7: candado propio de `fuentes.py` (lector de cobertura).
+#
+# Solo `psycopg`, `app.precio.*`, `app.estimacion_insumos` (ahi vive
+# `mapear_canal`, el unico simbolo ajeno que el lector podria necesitar)
+# y stdlib; jamas red, reloj, `app.spapi.*` ni escritura (cero
+# INSERT/UPDATE/DELETE en el texto). En paralelo a los candados de A.1,
+# sin tocarlos.
+# ---------------------------------------------------------------------------
+_PERMITIDOS_FUENTES = ("psycopg", "app.precio.", "app.estimacion_insumos")
+_PATRON_ESCRITURA_FUENTES = re.compile(r"(INSERT\s+INTO|UPDATE\s+|DELETE\s+FROM)", re.IGNORECASE)
+
+
+def _fugas_imports_fuentes(path: Path) -> list[str]:
+    import sys as _sys
+
+    return sorted(
+        i
+        for i in _imports_runtime(path)
+        if i.split(".")[0] not in _sys.stdlib_module_names
+        and not any(i == p or i.startswith(p) for p in _PERMITIDOS_FUENTES)
+    )
+
+
+def _escritura_en_fuentes(path: Path) -> list[str]:
+    return [
+        f"{n}:{linea.strip()[:80]}"
+        for n, linea in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+        if _PATRON_ESCRITURA_FUENTES.search(linea)
+    ]
+
+
+def test_fuentes_solo_importa_permitido():
+    """A.7: `fuentes.py` no trae red, reloj, `app.spapi.*` ni nada fuera de
+    la lista (el detector muerde: ver fuga sembrada)."""
+    assert _fugas_imports_fuentes(PRECIO / "fuentes.py") == []
+
+
+def test_candado_imports_fuentes_caza_fuga_sembrada(tmp_path):
+    """A.7, fuga sembrada: la copia con `import httpx` aparece listada."""
+    (tmp_path / "fuentes.py").write_text(
+        (PRECIO / "fuentes.py").read_text(encoding="utf-8") + "\nimport httpx  # fuga\n",
+        encoding="utf-8",
+    )
+    assert _fugas_imports_fuentes(tmp_path / "fuentes.py") == ["httpx"]
+
+
+def test_fuentes_solo_select():
+    """A.7: `fuentes.py` es lectura (cero INSERT/UPDATE/DELETE en el texto)."""
+    assert _escritura_en_fuentes(PRECIO / "fuentes.py") == []
+
+
+def test_candado_select_fuentes_caza_fuga_sembrada(tmp_path):
+    """A.7, fuga sembrada: la copia con un INSERT crudo aparece listada."""
+    (tmp_path / "fuentes.py").write_text(
+        (PRECIO / "fuentes.py").read_text(encoding="utf-8")
+        + '\n_X = "INSERT INTO precio_goal (a) VALUES (1)"  # fuga\n',
+        encoding="utf-8",
+    )
+    assert _escritura_en_fuentes(tmp_path / "fuentes.py") != []
