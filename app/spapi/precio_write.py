@@ -20,9 +20,9 @@ El cuerpo nunca se loguea: ni el del PATCH ni la respuesta cruda; el
 `ack` que se guarda pasa por `scrub()` y los errores llevan metodo +
 ruta (sin SKU) + status.
 
-Conexión en autocommit; cada bloque confirma al salir: `cambiar_precio`,
+Conexion en autocommit; cada bloque confirma al salir: `cambiar_precio`,
 `revertir` y `cerrar_por_observacion` exigen `conn.autocommit` antes de
-hacer nada, así la fila `pendiente` ya es durable cuando sale el PATCH.
+hacer nada, asi la fila `pendiente` ya es durable cuando sale el PATCH.
 """
 
 from __future__ import annotations
@@ -37,6 +37,7 @@ from typing import Any
 
 import httpx
 import psycopg
+import psycopg.errors
 from psycopg.types.json import Jsonb
 
 from app.redaction import scrub
@@ -137,7 +138,11 @@ def construir_cuerpo_parche(*, platform: str, sku: str, precio: Decimal, moneda:
 def leer_precio_vivo(lector: SpapiClient, *, platform: str, asin: str) -> PrecioVivo:
     """Precio propio vivo por el GET de ofertas de Pricing + `parsear_precios`.
 
-    Non-200, respuesta no JSON, sin oferta propia o sin moneda ->
+    Las ofertas se parsean primero con competitivo vacio: si traen la
+    oferta propia, el competitivo ni se pide (r5-L2, cuota Pricing 0.5/s)
+    y su falla nunca bloquea. Solo sin propia se pide el competitivo, y
+    cualquier falla suya (no-200 o JSON malo) es respaldo vacio. Sin
+    oferta propia en ninguno, non-200 u ofertas no JSON ->
     `PrecioVivoAusente`: un dato malo de la fuente no tumba la operacion.
     """
     if platform not in MERCADOS:
@@ -146,25 +151,31 @@ def leer_precio_vivo(lector: SpapiClient, *, platform: str, asin: str) -> Precio
     propio = VENDEDORES_PROPIOS[marketplace]
     ruta = construir_ruta_ofertas(asin)
     resp = lector.get(ruta, params={"MarketplaceId": marketplace, "ItemCondition": "New"})
-    comp = lector.get(
-        RUTA_COMPETITIVO,
-        params={"MarketplaceId": marketplace, "ItemType": "Asin", "Asins": asin},
-    )
     if resp.status_code != 200:
-        raise PrecioVivoAusente(f"pricing {asin} status={resp.status_code}/{comp.status_code}")
+        raise PrecioVivoAusente(f"pricing {asin} status={resp.status_code}")
     try:
         ofertas = resp.json()
     except ValueError:
         raise PrecioVivoAusente(f"pricing {asin} respuesta no JSON") from None
-    if comp.status_code == 200:
+    try:
+        parsed = parsear_precios(asin, ofertas, {"payload": []}, vendedor_propio=propio)
+    except PrecioOmitido as exc:
+        raise PrecioVivoAusente(f"pricing {asin} omitido: {exc.motivo}") from None
+    if parsed.own_price is not None and parsed.own_currency is not None:
+        return PrecioVivo(precio=parsed.own_price, moneda=parsed.own_currency)
+    comp = lector.get(
+        RUTA_COMPETITIVO,
+        params={"MarketplaceId": marketplace, "ItemType": "Asin", "Asins": asin},
+    )
+    if comp.status_code != 200:
+        # El competitivo es respaldo: su caida no bloquea; sin propia
+        # sigue siendo ausente abajo.
+        competitivas = {"payload": []}
+    else:
         try:
             competitivas = comp.json()
         except ValueError:
-            raise PrecioVivoAusente(f"pricing {asin} respuesta no JSON") from None
-    else:
-        # El competitivo es respaldo: si las ofertas traen la propia, su
-        # caida no bloquea; sin propia sigue siendo ausente abajo.
-        competitivas = {"payload": []}
+            competitivas = {"payload": []}
     try:
         parsed = parsear_precios(asin, ofertas, competitivas, vendedor_propio=propio)
     except PrecioOmitido as exc:
@@ -227,12 +238,23 @@ def _ruta_sin_sku(seller_id: str) -> str:
 
 def _validar_destino(escritor: SpapiWriteClient, sku: str | None) -> None:
     """Todo lo que puede fallar sin red, ANTES del INSERT (r1-A2): SKU
-    nulo o vacío (`listing_sin_sku`) y la ruta del PATCH."""
+    nulo o vacio (`listing_sin_sku`) y la ruta del PATCH."""
     if not sku:
         raise PublicacionSinSku("listing_sin_sku: sin seller_sku no hay ruta que escribir")
     validar_patch_listings(
         construir_ruta_listings(escritor.seller_id, sku), escritor.seller_id, sku
     )
+
+
+def _validar_escritor(escritor: SpapiWriteClient, platform: str) -> None:
+    """El escritor va al mercado de la fila (r5-L1): con cuenta unificada
+    NA un escritor cruzado aplicaria de verdad el PATCH en la otra plaza.
+    Mal uso -> `ValueError`, ANTES de cualquier INSERT o red."""
+    if escritor.platform != platform:
+        raise ValueError(
+            f"plataforma_distinta: escritor={escritor.platform} fila={platform}"
+            " (el escritor se construye con la platform de la fila)"
+        )
 
 
 def _estado_aceptado(resp: httpx.Response) -> tuple[bool, Any]:
@@ -358,6 +380,7 @@ def revertir(
         sku,
         asin,
     ) = fila
+    _validar_escritor(escritor, platform)
     if es_reversa or not aplicado:
         raise CambioNoReversible(
             f"cambio {cambio_id}: solo un cambio real, no-reversa, con enviado_at"
@@ -398,27 +421,35 @@ def revertir(
     obs_precio, obs_moneda = _observada_del_dia(
         conn, asin=asin, platform=platform, dia=momento.date()
     )
-    with conn.transaction():
-        id_reversa = conn.execute(
-            "INSERT INTO precio_cambio (listing_id, platform, precio_antes,"
-            " precio_antes_currency, precio_observado_antes,"
-            " precio_observado_antes_currency, precio_despues, precio_despues_currency,"
-            " aplicado, estado, enviado_at, es_reversa, reversa_de)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, true, 'pendiente', %s, true, %s)"
-            " RETURNING id",
-            (
-                listing_id,
-                platform,
-                vivo.precio,
-                vivo.moneda,
-                obs_precio,
-                obs_moneda,
-                _antes,
-                _antes_moneda,
-                momento,
-                cambio_id,
-            ),
-        ).fetchone()[0]
+    # Carrera r5-L4: otro proceso abrio el par entre el chequeo y el
+    # INSERT; la base protege el invariante y aqui se vuelve saltado.
+    try:
+        with conn.transaction():
+            id_reversa = conn.execute(
+                "INSERT INTO precio_cambio (listing_id, platform, precio_antes,"
+                " precio_antes_currency, precio_observado_antes,"
+                " precio_observado_antes_currency, precio_despues, precio_despues_currency,"
+                " aplicado, estado, enviado_at, es_reversa, reversa_de)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, true, 'pendiente', %s, true, %s)"
+                " RETURNING id",
+                (
+                    listing_id,
+                    platform,
+                    vivo.precio,
+                    vivo.moneda,
+                    obs_precio,
+                    obs_moneda,
+                    _antes,
+                    _antes_moneda,
+                    momento,
+                    cambio_id,
+                ),
+            ).fetchone()[0]
+    except psycopg.errors.UniqueViolation:
+        logger.info("revertir cambio=%s saltado=listing_con_cambio_abierto", cambio_id)
+        return ResultadoReversion(
+            id_reversa=None, estado="saltado", motivo="listing_con_cambio_abierto"
+        )
     return _escribir_y_sellar(
         conn,
         id_reversa,
@@ -559,6 +590,7 @@ def cambiar_precio(
         sku,
         asin,
     ) = dec
+    _validar_escritor(escritor, platform)
     if resultado not in ("subir", "bajar") or mode != "live":
         raise DecisionSinAccion(
             f"decision {decision_id}: solo subir/bajar en live mueven precio,"
@@ -593,27 +625,35 @@ def cambiar_precio(
     obs_precio, obs_moneda = _observada_del_dia(
         conn, asin=asin, platform=platform, dia=momento.date()
     )
-    with conn.transaction():
-        id_cambio = conn.execute(
-            "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
-            " precio_antes_currency, precio_observado_antes,"
-            " precio_observado_antes_currency, precio_despues, precio_despues_currency,"
-            " aplicado, estado, enviado_at)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, true, 'pendiente', %s)"
-            " RETURNING id",
-            (
-                decision_id,
-                listing_id,
-                platform,
-                vivo.precio,
-                vivo.moneda,
-                obs_precio,
-                obs_moneda,
-                p_aplicado,
-                p_moneda,
-                momento,
-            ),
-        ).fetchone()[0]
+    # Carrera r5-L4: igual que en `revertir`: la base protege el
+    # invariante y aqui se vuelve saltado, no excepcion cruda.
+    try:
+        with conn.transaction():
+            id_cambio = conn.execute(
+                "INSERT INTO precio_cambio (decision_id, listing_id, platform, precio_antes,"
+                " precio_antes_currency, precio_observado_antes,"
+                " precio_observado_antes_currency, precio_despues, precio_despues_currency,"
+                " aplicado, estado, enviado_at)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, true, 'pendiente', %s)"
+                " RETURNING id",
+                (
+                    decision_id,
+                    listing_id,
+                    platform,
+                    vivo.precio,
+                    vivo.moneda,
+                    obs_precio,
+                    obs_moneda,
+                    p_aplicado,
+                    p_moneda,
+                    momento,
+                ),
+            ).fetchone()[0]
+    except psycopg.errors.UniqueViolation:
+        logger.info("cambiar decision=%s saltado=listing_con_cambio_abierto", decision_id)
+        return ResultadoCambio(
+            id_cambio=None, estado="saltado", motivo="listing_con_cambio_abierto"
+        )
     return _escribir_y_sellar(
         conn,
         id_cambio,

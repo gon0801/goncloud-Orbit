@@ -128,6 +128,12 @@ class SpapiWriteClient:
         """Seller sellado a la instancia (solo lectura, r1-A7a)."""
         return self._seller_id
 
+    @property
+    def platform(self) -> str:
+        """Mercado del escritor (solo lectura, r5-L1): quien llama lo
+        coteja con la platform de la fila antes de escribir."""
+        return self._platform
+
     def patch_listing(self, sku: str, cuerpo: dict) -> httpx.Response:
         """PATCH al item del seller sellado + SKU. Falla antes de red si la
         ruta no es la allowlist. 401/429: un reintento; lo demas, tal cual.
