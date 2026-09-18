@@ -1231,10 +1231,14 @@ def test_precio_frontera_caza_reloj_en_todas_sus_formas(tmp_path, monkeypatch, c
 def _fugas_patch_crudos(raiz_app, raiz_tools):
     """Archivos que escriben a Listings fuera de `app/spapi/write_client.py`.
 
-    Caza por linea: `httpx.patch` / `.patch(` / `request("PATCH"` crudos,
-    o el prefijo `/listings/2021-08-01/items` junto a un verbo de
-    escritura en la misma linea. `precio_write.py` nombra el prefijo solo
-    para el `error_code` (sin verbo en esa linea) y por eso no dispara.
+    Candado de deriva accidental, no prueba exhaustiva: caza por linea
+    `httpx.patch` / `.patch(` / `request("PATCH"` (con o sin espacio tras
+    el paréntesis) / `method="PATCH"` crudos, o el prefijo
+    `/listings/2021-08-01/items` junto a un verbo de escritura en la misma
+    linea. Un verbo en variable o construido por partes escapa; un
+    comentario con esas formas daría falso positivo (hoy no hay ninguno).
+    `precio_write.py` nombra el prefijo solo para el `error_code` (sin
+    verbo en esa linea) y por eso no dispara.
     """
     import re
 
@@ -1253,11 +1257,14 @@ def _fugas_patch_crudos(raiz_app, raiz_tools):
             except OSError:
                 continue
             for n, linea in enumerate(lineas, start=1):
+                sin_espacios = linea.replace(" ", "")
                 if (
                     "httpx.patch" in linea
                     or ".patch(" in linea
-                    or 'request("PATCH"' in linea
-                    or "request('PATCH'" in linea
+                    or 'request("PATCH"' in sin_espacios
+                    or "request('PATCH'" in sin_espacios
+                    or 'method="PATCH"' in sin_espacios
+                    or "method='PATCH'" in sin_espacios
                     or ("/listings/2021-08-01/items" in linea and verbo.search(linea))
                 ):
                     fugas.append(f"{rel}:{n}")
@@ -1288,6 +1295,17 @@ def test_precio_write_frontera_caza_prefijo_con_verbo(tmp_path):
     )
     fugas = _fugas_patch_crudos(tmp_path, tmp_path)
     assert any("fuga.py" in f for f in fugas)
+
+
+def test_precio_write_frontera_caza_formas_con_espacio(tmp_path):
+    """Fuga sembrada: `request( "PATCH"` y `method="PATCH"` disparan."""
+    (tmp_path / "fuga.py").write_text(
+        'client.request( "PATCH", url)\nclient.request(method="PATCH", url=url)\n',
+        encoding="utf-8",
+    )
+    fugas = _fugas_patch_crudos(tmp_path, tmp_path)
+    lineas = {f.split(":")[1] for f in fugas if "fuga.py" in f}
+    assert lineas == {"1", "2"}
 
 
 # Quien puede importar el cliente de ESCRITURA SP-API: solo su modulo de
