@@ -405,7 +405,7 @@ def test_r1_a1_cambiar_patch_lleva_precio_destino_en_el_cable():
             (res.id_cambio,),
         ).fetchone()
         assert (Decimal(cable["precio"]), cable["moneda"]) == (fila[0], fila[1])
-        assert (cable["precio"], cable["moneda"]) == ("110.00", "MXN")
+        assert (cable["precio"], cable["moneda"]) == ("110.0000", "MXN")
 
 
 def test_r1_a1_revertir_patch_lleva_precio_destino_en_el_cable():
@@ -434,7 +434,7 @@ def test_r1_a1_revertir_patch_lleva_precio_destino_en_el_cable():
             (res.id_reversa,),
         ).fetchone()
         assert (Decimal(cable["precio"]), cable["moneda"]) == (fila[0], fila[1])
-        assert (cable["precio"], cable["moneda"]) == ("100.00", "MXN")
+        assert (cable["precio"], cable["moneda"]) == ("100.0000", "MXN")
 
 
 def test_revertir_salta_si_el_vivo_ya_no_coincide():
