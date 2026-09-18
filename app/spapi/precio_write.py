@@ -617,8 +617,8 @@ def cerrar_por_observacion(conn: psycopg.Connection, hoy) -> dict:
     """
     if not conn.autocommit:
         raise ValueError(
-            "cerrar_por_observacion exige conexión en autocommit: el INSERT tiene que"
-            " confirmar antes del PATCH (S5)"
+            "cerrar_por_observacion exige conexión en autocommit:"
+            " cada cierre confirma al salir del bloque"
         )
     abiertos = conn.execute(
         "SELECT c.id, c.listing_id, c.platform, c.precio_despues,"
