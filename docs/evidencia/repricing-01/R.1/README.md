@@ -10,8 +10,8 @@ Lead: claude (sesión `fase11-lead`, worktree `wt-fase11-lead`). Implementador d
 el código revisado: muse. Runbook: `docs/runbooks/autopilot-fase11.md` de
 goncloud-openclaw (carril R).
 
-**Estado de este documento: parcial.** Cubre A.1, A.2, A.3 y A.7 (ya en `master`).
-A.5 y A.6 entran cuando sus PRs mergeen (Q1 y Q2), con el mismo método.
+**Estado de este documento: parcial.** Cubre A.1, A.2, A.3, A.7 y A.5 (ya en `master`).
+A.6 entra cuando su PR mergee (Q2), con el mismo método.
 
 ## Parte 1 — cruzada de kimi por SHA de squash
 
@@ -30,8 +30,10 @@ leyó el resto del archivo real en el repo y lo dice en su respuesta.
 | A.2 | #299 | `39cba88` | 3 | 0 | 0 | 12 |
 | A.3 | #300 | `efc0555` | 3 | 0 | 0 | 13 |
 | A.7 | #305 | `0d88cc8` | 2 | 0 | 0 | 9 |
+| A.5 | #309 | `53c6067` | 3 | 0 | 0 | 9 (uno de los trozos, `LGTM`) |
 
-**Veredicto de kimi: sin hallazgos altos ni medios en ningún SHA** (política de la
+**Veredicto de kimi: sin hallazgos altos ni medios en ningún SHA** (A.5: los tres trozos
+«NO BLOQUEANTE» o `LGTM`; guion `kimi/kimi-A5-squash.sh`) (política de la
 sección 4 del loop: una ronda sin altas ni medias cierra). Las bajas quedan como
 residuales declarados; las que tocan un comportamiento, con su razón:
 
@@ -55,6 +57,17 @@ residuales declarados; las que tocan un comportamiento, con su razón:
 - A.7 (`kimi-A.7-c1`, 1): «activa» = la última observación por SKU filtrada después por
   `BUYABLE`. Es la definición con la que se midió el readback de A.7
   (`A.7/readback.md`); residual documental.
+- A.5 (`kimi-A.5-c1`, 1): `cotizar_y_decidir` itera `range(3)` y su guarda de «máximo dos»
+  corre después de una tercera cotización; hoy la impide `PideCotizacion.intento in (1, 2)`
+  de `tipos.py`, así que no se alcanza. Residual.
+- A.5 (`kimi-A.5-c1`, 2): una cotización en error lleva `fee_total = 0` en el objeto; inerte
+  porque `_revisar_cotizacion` sale antes de leerlo. Residual.
+- A.5 (`kimi-A.5-c3`): fragilidades de tests (orden implícito en dos sabotajes, contadores de la
+  red falsa sin lock, parámetro muerto). Residuales.
+
+La cruzada del **PR** de A.5 (antes del merge) fue otra cosa: cuatro rondas con revisor distinto
+(kimi, kimi, claude, glm; salidas y veredictos en el PR #309). Esta de R.1 es la de la fila,
+sobre el squash.
 
 ## Parte 2 — re-mutación con base real
 
@@ -85,8 +98,17 @@ hoy; el resultado de cada uno está en `remutacion/cat_*.resultado.jsonl`.
 | A.2 | 58 + 1 del lead | 58 | 0 | 1 del lead (`R1-A2-S2`) |
 | A.3 | 51 + 2 equivalentes + 1 del lead | 51 | 2 (`L2b`, `G4`) | 1 del lead (`R1-A3-S3`) |
 | A.7 | 32 + 1 del lead | 32 | 0 | 1 del lead (`R1-A7-S1`) |
+| A.5 | 94 (catálogo de muse r0–r5, que incluye los del lead de la auditoría) | 93 | 1 (`C3-1-doble-claim`) | 0 |
 
 **Todo mutante del catálogo de los implementadores que hoy puede morir, muere.**
+
+A.5 se re-mutó sobre el squash `53c6067` (worktree aparte). Su catálogo (`cat_A5.json`) junta
+los ids propios de muse (A5-1…15, B, C3, K) con los del lead de la auditoría del PR (LA, R1–R4),
+en su última forma. Cuatro ids viejos quedaron fuera porque el código que mutaban ya no existe; la
+razón y el id que los cubre hoy están en `cat_A5.obsoletos.json`. **Equivalente `C3-1-doble-claim`**
+(quitar la guarda del claim en `_tomar_lock`): desde r4 la exclusión la da además
+`pg_try_advisory_lock`, que rechaza al segundo proceso con el mismo `LockOcupado`; el resultado
+observable no cambia.
 
 Transcripciones que no son literales, declaradas:
 
@@ -134,5 +156,5 @@ aquí al mergear).
 ## APPROVE
 
 - **kimi**: sin altas ni medias sobre `662db38`, `eeefb72`, `39cba88`, `efc0555` y
-  `0d88cc8` (salidas en `kimi/`). A.5 y A.6: pendientes.
-- **lead**: pendiente (se escribe al cerrar la parte de A.5 y A.6 y el PR bis).
+  `0d88cc8`, y sobre `53c6067` (A.5) (salidas en `kimi/`). A.6: pendiente.
+- **lead**: pendiente (se escribe al cerrar A.6 y el PR bis).
