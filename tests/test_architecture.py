@@ -1962,6 +1962,7 @@ def test_candado_escritura_fuentes_ignora_comentario(tmp_path):
 _PERMITIDOS_CORRIDA = (
     "psycopg",
     "app.precio.",
+    "app.redaction",  # r2: hoja stdlib, solo `scrub` para errores del log y del gancho
     "app.spapi.precio_write",
     "app.estimacion_reader",
     "app.estimacion_fees",

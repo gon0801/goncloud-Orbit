@@ -24,7 +24,9 @@ el detalle va al log: `MOTIVOS_FRENADO` vive en `app/precio/tipos.py`.
 `buy_box_is_own` sale de la `spapi_price_observation` del dia
 (`metric_date = hoy`; NULL = no observable, se declara). `ingreso_60d` es la suma de `sale`
 del producto en [hoy-75, hoy-16] en la moneda del escenario (NULL si no
-hay). `escritas` cuenta cambios reales creados (= PATCH intentados).
+hay). `decisiones` cuenta filas `precio_decision` del dia persistidas (B.2:
+lo que no dejo fila no cuenta ni sale en lineas); `escritas` cuenta cambios
+reales creados (= PATCH intentados).
 """
 
 from __future__ import annotations
@@ -62,6 +64,7 @@ from app.precio.tipos import (
     VentasInsumos,
 )
 from app.precio.ventas import evaluar_senal
+from app.redaction import scrub
 from app.spapi.precio_write import (
     FormaParcheSinSellar,
     cambiar_precio,
@@ -1012,17 +1015,43 @@ def _fase3_uno(
 ):
     """Un goal de fase 3: reserva, persiste y aplica.
 
-    Devuelve `(decision_salida, escritas, agotado, parche_sin_sellar,
-    error)`. B.4: una publicacion no tumba a las demas —`FormaParcheSinSellar`
-    ademas deja de aplicar `live` el resto de la corrida (fallaria igual en
-    cada una y quemaria cupo); un `InsumoIncoherente` en `persistir` (p. ej.
-    `moneda_contexto` sin moneda observable, K8) no puede persistir; un error
-    de base (`psycopg.Error`) aborta: no es una publicacion, es la infra.
+    Devuelve `(decision_salida, escritas, agotado, parche_sin_sellar, error,
+    persistida)`. B.4: una publicacion no tumba a las demas
+    —`FormaParcheSinSellar` ademas deja de aplicar `live` el resto de la
+    corrida (fallaria igual en cada una y quemaria cupo); un
+    `InsumoIncoherente` en `persistir` (p. ej. `moneda_contexto` sin moneda
+    observable, K8) no puede persistir; un error de base (`psycopg.Error`)
+    aborta: no es una publicacion, es la infra. Rama de parche sin sellar
+    (B.1): la decision SE persiste (`compite` trae `meta` con cotizacion)
+    pero SIN reservar (no gasta cupo), SIN PATCH y SIN virtual —un virtual
+    afirmaria una aplicacion que no ocurrio; la pantalla lee "decidido sin
+    cambio" mas el error del resumen. `persistida` dice si quedo la fila
+    (B.2: el que llama solo cuenta y alinea lo persistido).
     """
     compite = decision.resultado in ("subir", "bajar") and decision.aplicado
-    if compite and parche_sin_sellar:
-        return decision, 0, agotado, True, "parche_sin_sellar: sin PATCH el resto de la corrida"
+    persistida = False
     try:
+        if compite and parche_sin_sellar:
+            persistir_decision(
+                conn,
+                decision,
+                listing_id=lid,
+                platform=platform,
+                product_id=prod_id,
+                canal=canal,
+                escenario_id=meta["escenario_id"],
+                fee_observation_id=meta["fee_observation_id"],
+                cotizacion_id=meta["cotizacion_id"],
+                config_version_id=cfg_id,
+            )
+            return (
+                decision,
+                0,
+                agotado,
+                True,
+                "parche_sin_sellar: sin PATCH el resto de la corrida",
+                True,
+            )
         # K4: las reversas se cuentan al reservar, no solo al arrancar (el
         # dueno puede revertir a media corrida).
         reservado = (
@@ -1051,6 +1080,7 @@ def _fase3_uno(
                 cotizacion_id=meta["cotizacion_id"],
                 config_version_id=cfg_id,
             )
+            persistida = True
             res = cambiar_precio(
                 conn,
                 did,
@@ -1060,7 +1090,7 @@ def _fase3_uno(
                 limitador=limitador,
             )
             escritas_1 = 1 if res.id_cambio is not None else 0
-            return decision, escritas_1, agotado, parche_sin_sellar, None
+            return decision, escritas_1, agotado, parche_sin_sellar, None, True
         did = persistir_decision(
             conn,
             decision,
@@ -1073,15 +1103,23 @@ def _fase3_uno(
             cotizacion_id=meta["cotizacion_id"] if meta else None,
             config_version_id=cfg_id,
         )
+        persistida = True
         if decision.resultado in ("subir", "bajar"):
             _insertar_virtual(conn, did, lid, platform, decision, ahora)
-        return decision, 0, agotado, parche_sin_sellar, None
+        return decision, 0, agotado, parche_sin_sellar, None, True
     except psycopg.Error:
         raise
     except FormaParcheSinSellar as exc:
-        return decision, 0, agotado, True, f"parche_sin_sellar: {exc}"
+        return decision, 0, agotado, True, f"parche_sin_sellar: {exc}", persistida
     except Exception as exc:  # noqa: BLE001 - una publicacion no tumba a las demas
-        return decision, 0, agotado, parche_sin_sellar, f"{exc.__class__.__name__}: {exc}"
+        return (
+            decision,
+            0,
+            agotado,
+            parche_sin_sellar,
+            f"{exc.__class__.__name__}: {exc}",
+            persistida,
+        )
 
 
 def correr(
@@ -1094,14 +1132,19 @@ def correr(
     construir_cuerpo=None,
     limitador,
     owner: str,
+    avisar=None,
 ) -> Resumen:
     """La corrida diaria de una plataforma (conn en autocommit, rol decide).
 
     Valida umbrales (ValueError al arrancar) -> toma el lock -> huerfanas
-    -> cierre por observacion -> decide (freno de errores, escenario,
-    maquina de cotizaciones) -> ordena por prioridad -> reparte cupo ->
-    persiste y aplica (`live`) o virtualiza (`shadow`) -> suelta el lock.
-    Con el claim perdido levanta `LockOcupado` sin decidir nada.
+    -> cierre por observacion -> decide (freno de errores, freno
+    `no_confirmado`, escenario, maquina de cotizaciones) -> ordena por
+    prioridad -> reparte cupo -> persiste y aplica (`live`) o virtualiza
+    (`shadow`) -> avisa -> suelta el lock. Con el claim perdido levanta
+    `LockOcupado` sin decidir nada. `avisar` (gancho del carril B) se llama
+    una vez al terminar la fase 3 con `(conn, platform, hoy, resumen)`; si
+    levanta, se registra (log scrubbado + entrada en `errores`) y la corrida
+    devuelve su resumen normal.
     """
     settings = config_vigente_settings(conn)
     config = leer_config(settings)
@@ -1261,6 +1304,7 @@ def correr(
                 agotado,
                 parche_sin_sellar,
                 error,
+                persistida,
             ) = _fase3_uno(
                 conn,
                 lid=lid,
@@ -1283,11 +1327,12 @@ def correr(
             escritas += escritas_1
             if error is not None:
                 msg = f"listing={lid} {platform} {error}"
-                logger.error("corrida %s", msg)
+                logger.error("corrida %s", scrub(msg))
                 errores.append(msg)
-            decisiones += 1
-            lineas.append(_linea(lid, platform, modos[lid], decision))
-        return Resumen(
+            if persistida:
+                decisiones += 1
+                lineas.append(_linea(lid, platform, modos[lid], decision))
+        resumen = Resumen(
             decisiones=decisiones,
             escritas=escritas,
             cerrados=cerrados,
@@ -1295,6 +1340,14 @@ def correr(
             lineas=tuple(lineas),
             errores=tuple(errores),
         )
+        if avisar is not None:
+            try:
+                avisar(conn, platform, hoy, resumen)
+            except Exception as exc:  # noqa: BLE001 - un fallo del sender no tumba `correr`
+                msg = f"avisar: {exc.__class__.__name__}: {exc}"
+                logger.error("corrida %s", scrub(msg))
+                resumen = replace(resumen, errores=resumen.errores + (msg,))
+        return resumen
     finally:
         _soltar_lock(conn, platform, owner)
 

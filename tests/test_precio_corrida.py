@@ -2138,3 +2138,239 @@ def test_live_saltado_no_cuenta_escrita():
         assert (res.decisiones, res.escritas) == (1, 0)
         assert _decision_unica(conn)[0] == "subir"
         assert _cuenta_cambios(conn) == 0
+
+
+# ---------------------------------------------------------------------------
+# r2 (BRIEF-r2 sobre 052aa42)
+# ---------------------------------------------------------------------------
+
+
+@_skip_sin_pg
+def test_parche_sin_sellar_persiste_filas_sin_reintentar(monkeypatch):
+    """B.1: el goal saltado por parche sin sellar deja su fila del dia.
+
+    Un solo intento de PATCH en toda la corrida (el segundo goal se decide
+    pero no toca la red) y dos `precio_decision` del dia.
+    """
+    import app.precio.corrida as corrida_mod
+    from app.spapi.precio_write import FormaParcheSinSellar
+    from app.spapi.precio_write import cambiar_precio as _cambiar_real
+
+    with _db() as (conn, _dsn):
+        a = _cadena(conn, sku="SKU-R2-A", ext="B0A50000RA", mode="live")
+        b = _cadena(conn, sku="SKU-R2-B", ext="B0A50000RB", mode="live")
+        _price_obs(conn, asin="B0A50000RA")
+        _price_obs(conn, asin="B0A50000RB")
+        llamadas = []
+
+        def _una_vez(*args, **kwargs):
+            llamadas.append(1)
+            if len(llamadas) == 1:
+                raise FormaParcheSinSellar("forma sin sello")
+            return _cambiar_real(*args, **kwargs)
+
+        monkeypatch.setattr(corrida_mod, "cambiar_precio", _una_vez)
+        red = _RedFalsa(skus={a["evento"]: a["sku"], b["evento"]: b["sku"]})
+        res = _corre(conn, red)
+        assert len(llamadas) == 1
+        assert _cuenta_decisiones(conn) == 2
+        assert (res.decisiones, res.escritas) == (2, 0)
+        assert any("parche_sin_sellar" in e for e in res.errores)
+
+
+@_skip_sin_pg
+def test_decision_no_persistida_no_cuenta_ni_linea():
+    """B.2: lo que no dejo fila no suma en `decisiones` ni sale en lineas."""
+    with _db() as (conn, _dsn):
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        _config(conn)
+        _goal(conn, lid, mode="live")
+        # Sin ofertas en la plataforma: `moneda_contexto` no halla moneda.
+        red = _RedFalsa()
+        res = _corre(conn, red)
+        assert (res.decisiones, res.escritas) == (0, 0)
+        assert res.lineas == ()
+        assert len(res.errores) == 1
+        assert _cuenta_decisiones(conn) == 0
+
+
+@_skip_sin_pg
+def test_avisar_recibe_conexion_plataforma_hoy_y_resumen():
+    """B.3: el gancho se llama una vez al terminar la fase 3 con los cuatro args."""
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn, mode="live")
+        _price_obs(conn)
+        red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
+        llamadas = []
+
+        def _avisar(c, p, h, r):
+            llamadas.append((c, p, h, r))
+
+        res = _corre(conn, red, avisar=_avisar)
+        assert len(llamadas) == 1
+        c, p, h, r = llamadas[0]
+        assert c is conn and p == "amazon_mx" and r == res
+        hoy_fila = conn.execute("SELECT decision_date FROM precio_decision").fetchone()[0]
+        assert h == hoy_fila
+
+
+@_skip_sin_pg
+def test_avisar_que_levanta_no_tumba_corrida():
+    """B.3: un gancho que falla se registra y la corrida devuelve su resumen."""
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn, mode="live")
+        _price_obs(conn)
+        red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
+
+        def _avisar_malo(*a):
+            raise RuntimeError("sender caido")
+
+        res = _corre(conn, red, avisar=_avisar_malo)
+        assert (res.decisiones, res.escritas) == (1, 1)
+        assert _cuenta_decisiones(conn) == 1
+        assert any("avisar" in e for e in res.errores)
+
+
+@_skip_sin_pg
+def test_relanzar_con_otro_pedido_no_reusa_cotizacion(monkeypatch):
+    """R1-reuso-sin-guarda: con otro P* no se reusa: `no_evaluado`, sin mezcla."""
+    import app.precio.corrida as corrida_mod
+
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn, mode="live")
+        _price_obs(conn)
+        red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
+        real = corrida_mod.repartir_cupo
+
+        def _muere(*a, **k):
+            raise RuntimeError("muere a media corrida")
+
+        monkeypatch.setattr(corrida_mod, "repartir_cupo", _muere)
+        with pytest.raises(RuntimeError, match="muere a media corrida"):
+            _corre(conn, red)
+        monkeypatch.setattr(corrida_mod, "repartir_cupo", real)
+        hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+        _cierra_goal(conn, datos["listing"], hoy)
+        _goal(conn, datos["listing"], mode="live", pct="0.35", desde=hoy)
+        res = _corre(conn, red)
+        assert (res.decisiones, res.escritas) == (1, 0)
+        assert res.lineas == (
+            f"listing={datos['listing']} amazon_mx live no_evaluado escenario_incoherente",
+        )
+        assert res.errores == ()
+
+
+@_skip_sin_pg
+def test_error_de_base_en_fase3_aborta_y_libera_lock(monkeypatch):
+    """R1-fase3-traga-db: un `psycopg.Error` sale de `correr` y libera el lock."""
+    from psycopg.errors import OperationalError
+
+    import app.precio.corrida as corrida_mod
+
+    with _db() as (conn, _dsn):
+        a = _cadena(conn, sku="SKU-R2-C", ext="B0A50000RC", mode="live")
+        b = _cadena(conn, sku="SKU-R2-D", ext="B0A50000RD", mode="live")
+        _price_obs(conn, asin="B0A50000RC")
+        _price_obs(conn, asin="B0A50000RD")
+        red = _RedFalsa(skus={a["evento"]: a["sku"], b["evento"]: b["sku"]})
+
+        def _base_caida(*args, **kwargs):
+            raise OperationalError("conexion perdida")
+
+        monkeypatch.setattr(corrida_mod, "cambiar_precio", _base_caida)
+        with pytest.raises(OperationalError):
+            _corre(conn, red)
+        monkeypatch.undo()
+        res = _corre(conn, red)
+        assert (res.decisiones, res.escritas) == (1, 1)
+
+
+@_skip_sin_pg
+def test_no_confirmado_viejo_mas_confirmado_nuevo_no_frena():
+    """R1-noconf-orden: manda el ultimo: viejo sin confirmar + nuevo confirmado."""
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn, mode="live")
+        _price_obs(conn)
+        _otro, dec_b = _andamio_hoy(conn, sku="SKU-R2-E", ext="B0A50000RE")
+        ahora = datetime.now(UTC)
+        # Viejos (>22 dias: fuera de `perdiendo_tras_subida` y de cooldown).
+        _cambio_historia(
+            conn, dec_b, datos["listing"], estado="no_confirmado", dia=ahora - timedelta(days=25)
+        )
+        _cambio_historia(
+            conn, dec_b, datos["listing"], estado="confirmado", dia=ahora - timedelta(days=23)
+        )
+        red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
+        res = _corre(conn, red)
+        assert (res.decisiones, res.escritas) == (1, 1)
+        fila = conn.execute(
+            "SELECT resultado FROM precio_decision WHERE listing_id = %s", (datos["listing"],)
+        ).fetchone()
+        assert fila[0] == "subir"
+
+
+@_skip_sin_pg
+def test_cobertura_ignora_ledger_de_otra_fuente():
+    """R1-cubierto-sin-source: venta de un run `ok` de otra fuente no cubre."""
+    from app.precio.corrida import _insumos_ventas
+
+    with _db() as (conn, _dsn):
+        prod = _producto(conn)
+        run_costos, _fin = _run(conn)
+        hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+        conn.execute(
+            "INSERT INTO ledger_event (platform, kind, event_date, observed_at,"
+            " product_id, quantity, amount, amount_currency, ingest_run_id)"
+            " VALUES ('amazon_mx', 'sale', %s, %s, %s, 1, 200, 'MXN', %s)",
+            (hoy - timedelta(days=1), datetime.now(UTC), prod, run_costos),
+        )
+        insumos = _insumos_ventas(conn, product_id=prod, platform="amazon_mx", sku="SKU-R2-X")
+        assert insumos.dia_cubierto_hasta is None
+
+
+def test_cli_precio_imprime_errores_en_stderr(monkeypatch, capsys):
+    """R1-cli-errores: cada error del resumen sale en stderr, con `scrub`."""
+    from app import cli as cli_mod
+    from app.redaction import register_secret
+
+    register_secret("s3cr3t-r2")
+
+    def _falso_correr(conn, platform, **kw):
+        return Resumen(
+            decisiones=1,
+            escritas=0,
+            cerrados={},
+            huerfanas=0,
+            errores=("listing=1 amazon_mx parche_sin_sellar: s3cr3t-r2",),
+        )
+
+    monkeypatch.setenv("ORBIT_DSN_DECIDE", "postgresql://falso/db")
+    monkeypatch.setattr(cli_mod, "_conexion_decide", lambda: ("conn-falsa", lambda: None))
+    monkeypatch.setattr(cli_mod, "_clientes_precio", lambda platform: ("l", "e", "f", "cubo"))
+    monkeypatch.setattr("app.precio.corrida.correr", _falso_correr)
+    cli_mod.main(["precio", "--platform", "amazon_mx"])
+    err = capsys.readouterr().err
+    assert "listing=1 amazon_mx" in err and "s3cr3t-r2" not in err
+
+
+def test_cli_precio_con_errores_sale_distinto_de_cero(monkeypatch, capsys):
+    """K1: con `errores` en el resumen el CLI sale distinto de cero."""
+    from app import cli as cli_mod
+
+    def _falso_correr(conn, platform, **kw):
+        return Resumen(
+            decisiones=1,
+            escritas=0,
+            cerrados={},
+            huerfanas=0,
+            errores=("listing=1 amazon_mx boom",),
+        )
+
+    monkeypatch.setenv("ORBIT_DSN_DECIDE", "postgresql://falso/db")
+    monkeypatch.setattr(cli_mod, "_conexion_decide", lambda: ("conn-falsa", lambda: None))
+    monkeypatch.setattr(cli_mod, "_clientes_precio", lambda platform: ("l", "e", "f", "cubo"))
+    monkeypatch.setattr("app.precio.corrida.correr", _falso_correr)
+    codigo = cli_mod.main(["precio", "--platform", "amazon_mx"])
+    assert codigo != 0
+    assert "decisiones=1 escritas=0" in capsys.readouterr().out

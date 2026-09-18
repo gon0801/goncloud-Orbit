@@ -1,8 +1,26 @@
 # A.5 — Catálogo de mutantes (REPRICING 01, carril A)
 
+## r2 (BRIEF-r2, sobre el árbol final de r2)
+
+7 mutantes del lead que sobrevivian sobre `052aa42`, sembrados uno por uno
+sobre el árbol final (idéntico a lo commiteado) con restauración verificada
+por hash (`sha256` pre/post por archivo) y pycache fresca por mutante
+(`PYTHONPYCACHEPREFIX=$(mktemp -d)`), revertidos sin commit. **Cero
+sobrevivientes.**
+
+| Id | Lo que fija | Cambio exacto sembrado | Test que lo mata | Veredicto |
+|---|---|---|---|---|
+| R1-reuso-sin-guarda | `_cotizacion_guardada` compara oferta, precio y moneda | el `if` guarda → `if False:` | `test_relanzar_con_otro_pedido_no_reusa_cotizacion` | MUERTO (exit 1): con otro P* reusa y mezcla |
+| R1-fase3-traga-db | `psycopg.Error` en fase 3 sale de `correr` (infra, no publicación) | se quita `except psycopg.Error: raise` | `test_error_de_base_en_fase3_aborta_y_libera_lock` | MUERTO (exit 1): el error queda registrado y no sale |
+| R1-parche-sigue | la rama de parche sin sellar corta el PATCH | `if compite and parche_sin_sellar:` → `if False:` | `test_parche_sin_sellar_persiste_filas_sin_reintentar` | MUERTO (exit 1): dos intentos de PATCH |
+| R1-parche-no-corta | la rama `FormaParcheSinSellar` activa el parche | devuelve el `parche_sin_sellar` de entrada en vez de `True` | `test_parche_sin_sellar_persiste_filas_sin_reintentar` | MUERTO (exit 1): dos intentos de PATCH |
+| R1-noconf-orden | `freno_no_confirmado` manda el último cambio | `ORDER BY id DESC` → `ASC` | `test_no_confirmado_viejo_mas_confirmado_nuevo_no_frena` | MUERTO (exit 1): frena con el viejo |
+| R1-cli-errores | el CLI imprime cada error del resumen en stderr, con `scrub` | se quita el `for error in resumen.errores` | `test_cli_precio_imprime_errores_en_stderr` | MUERTO (exit 1): stderr vacío |
+| R1-cubierto-sin-source | cobertura solo de `accounting_ledger_events` | se quita `r.source = 'accounting_ledger_events'` | `test_cobertura_ignora_ledger_de_otra_fuente` | MUERTO (exit 1): la otra fuente cubre |
+
 ## r1 (BRIEF-r1, sobre el HEAD nuevo de r1)
 
-14 mutantes del lead + revalidación de los 15 de A.5 (el árbol cambió bajo
+15 mutantes del lead + revalidación de los 15 de A.5 (el árbol cambió bajo
 sus pies: fase 3 extraída a `_fase3_uno`, cotización con reuso, frenos con
 motivo). Sembrados sobre el árbol final (idéntico a lo commiteado), uno por
 uno con restauración verificada por hash, `-p no:cacheprovider` y pycache

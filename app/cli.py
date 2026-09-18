@@ -551,6 +551,8 @@ def _precio(args: argparse.Namespace) -> int:
     print(f"decisiones={resumen.decisiones} escritas={resumen.escritas}")
     for error in resumen.errores:
         print(f"precio: {scrub(error)}", file=sys.stderr)
+    if resumen.errores:
+        return 1
     return 0
 
 
