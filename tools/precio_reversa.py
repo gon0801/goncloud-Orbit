@@ -35,10 +35,11 @@ import sys
 import time
 
 import httpx
+import psycopg.errors
 
 from app.db import OrbitDbError, connect
 from app.spapi import precio_write
-from app.spapi.client import SpapiClient, SpapiError
+from app.spapi.client import SpapiClient, SpapiError, SpapiNoPermitida
 from app.spapi.precio_write import FormaParcheSinSellar
 
 
@@ -76,6 +77,9 @@ def _plan(conn, lector: SpapiClient, filas) -> list[tuple]:
     plan = []
     for f in filas:
         cid = f[0]
+        if not f[11]:
+            plan.append((cid, "saltar", "sin_sku"))
+            continue
         if f[10] or not f[7] or f[9] is None:
             plan.append(
                 (
@@ -189,6 +193,15 @@ def main(
                 )
             except FormaParcheSinSellar as exc:
                 raise Abortar(f"forma del parche sin sellar (A.4 la sella): {exc}") from None
+            except (
+                precio_write.CambioNoReversible,
+                SpapiNoPermitida,
+                precio_write.PublicacionSinSku,
+                psycopg.errors.UniqueViolation,
+            ) as exc:
+                print(f"[error] cambio={cid} motivo={exc}")
+                hubo_error = True
+                continue
             print(f"[hecho] cambio={cid} estado={res.estado} motivo={res.motivo}")
             if res.estado == "error":
                 hubo_error = True

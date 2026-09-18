@@ -2230,3 +2230,83 @@ def test_r4_g2_cambiar_con_abierto_del_par_salta():
         assert res.estado == "saltado" and res.motivo == "listing_con_cambio_abierto"
         assert red.n_patch == 0 and red.n_get == 0
         assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 1
+
+
+def test_r4_g3_plan_sin_sku_salta(monkeypatch, capsys):
+    """r4-G3: el plan muestra [saltar] sin_sku sin leer ni tocar red de escritura."""
+    red = _RedFalsa()
+    with db_39c() as conn:
+        prod1 = _producto(conn, sku="PR-SKU-G3")
+        lid1 = _listing(conn, prod1, sku="")
+        _goal_live(conn, lid1)
+        dec1 = _decision(conn, lid1)
+        cid1 = _cambio_cerrado(conn, dec1, lid1)
+        import tools.precio_reversa as tool
+
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", _dsn_db(conn))
+        rc = tool.main(["--cambio-id", str(cid1)], transport=red.transport, credentials=dict(CRED))
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert f"[saltar] cambio={cid1}" in out and "sin_sku" in out
+        assert red.n_patch == 0 and red.n_get == 0
+
+
+def test_r4_g3_lote_sigue_tras_previsible_y_devuelve_1(monkeypatch, capsys):
+    """r4-G3: primero sin SKU valido -> [error] en el go, el segundo se revierte, rc 1."""
+    asin1 = "B0TESTC003"
+    asin2 = "B0TESTC002"
+    a110 = (200, _ofertas_body(110.0, asin=asin1))
+    b110 = (200, _ofertas_body(110.0, asin=asin2))
+    b100 = (200, _ofertas_body(100.0, asin=asin2))
+    red = _RedFalsa(
+        # dry (cid1, cid2) + go (cid1, cid2) + rev2 pre + rb; cid1 revienta en el go.
+        gets_ofertas=[a110, b110, a110, b110, b110, b100],
+        gets_competitivos=[(200, _competitivo_body())] * 6,
+        patchs=[(202, {"submissionId": "g3", "status": "ACCEPTED"})],
+    )
+    with db_39c() as conn:
+        prod1 = _producto(conn, sku="PR-SKU-G31")
+        lid1 = _listing(conn, prod1, asin=asin1, sku="A/B")
+        _goal_live(conn, lid1)
+        dec1 = _decision(conn, lid1)
+        cid1 = _cambio_cerrado(conn, dec1, lid1)
+        lid2, dec2 = _semilla_cambio(conn, asin=asin2, sku="SKU-G32")
+        cid2 = _cambio_cerrado(conn, dec2, lid2)
+        import tools.precio_reversa as tool
+        from app.spapi import precio_write as pw
+
+        monkeypatch.setattr(
+            pw,
+            "construir_cuerpo_parche",
+            lambda **kw: {"falso": True, "precio": str(kw["precio"])},
+        )
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", _dsn_db(conn))
+        seco = tool.main(
+            ["--cambio-id", str(cid1), "--cambio-id", str(cid2)],
+            transport=red.transport,
+            credentials=dict(CRED),
+        )
+        assert seco == 0
+        out_seco = capsys.readouterr().out
+        assert out_seco.count("[revertir]") == 2
+        huella = [ln for ln in out_seco.splitlines() if ln.startswith("huella: ")][0].split(": ")[1]
+        rc = tool.main(
+            [
+                "--cambio-id",
+                str(cid1),
+                "--cambio-id",
+                str(cid2),
+                "--acepto-mutacion-real",
+                "--huella",
+                huella,
+                "--go",
+                "si",
+            ],
+            transport=red.transport,
+            credentials=dict(CRED),
+        )
+        assert rc == 1
+        out = capsys.readouterr().out
+        assert f"[error] cambio={cid1}" in out
+        assert f"[hecho] cambio={cid2}" in out
+        assert red.n_patch == 1
