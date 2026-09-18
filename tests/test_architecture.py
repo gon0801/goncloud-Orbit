@@ -27,6 +27,8 @@ import ast
 import re
 from pathlib import Path
 
+import pytest
+
 RAIZ = Path(__file__).resolve().parent.parent
 APP = RAIZ / "app"
 TOOLS = RAIZ / "tools"
@@ -990,6 +992,236 @@ def test_spapi_vigilante_sin_ads_directo():
     app.spapi.salud (constantes)."""
     fugas = _violaciones(_imports_runtime(RAIZ / "app" / "spapi" / "vigilante.py"), ("app.ads",))
     assert not fugas, f"app/spapi/vigilante.py importa app.ads directo: {fugas}"
+
+
+# REPRICING 01 A.2: el motor de precios es PURO. `app/estimacion_fees.py`
+# entero hace I/O (httpx, psycopg), por eso `cotizar_a_precio` vive ahi y
+# `app/precio/*` NO lo importa: ni red, ni base, ni Ads/SP-API, ni la capa
+# de cotizacion. El reloj tampoco entra: `hoy` y todo dato llegan como
+# argumento. Si importa tipos puros de `app.estimacion_venta` (frozen,
+# Decimal, sin I/O). Candado en paralelo al de `app/optimizer/*`, sin
+# tocar lo existente.
+PRECIO = APP / "precio"
+PROHIBIDOS_PRECIO = (
+    "httpx",
+    "psycopg",
+    "app.db",
+    "app.ads",
+    "app.spapi",
+    "app.estimacion_fees",
+    "time",
+    "os",
+    "random",
+    "secrets",
+    "importlib",
+    "<import-relativo-nivel-2>",
+)
+
+
+def _usos_reloj(arbol: ast.AST) -> list[str]:
+    """Reloj o entorno en el AST, sin importar el dueño: cualquier acceso
+    a `.now`, `.utcnow` o `.today` (`dt.now()`, `datetime.datetime.now()`
+    y la referencia sin llamada `reloj = dt.now` incluidos) y cualquier
+    `os.environ`. Las CLASES datetime/date pueden aparecer (firman los
+    argumentos de fecha); USARLAS como reloj, no. `time.time()` cae
+    SOLO por el import prohibido de `time` (este candado no lo ve: `time`
+    no es `.now`/`.utcnow`/`.today`). `time.*` y `os.*` caen además por
+    el import prohibido (`time.monotonic`, `os.getenv` necesitan
+    importarse). R4-G9: la referencia sin llamada tambien es reloj; solo
+    cazar el Call dejaba escapar el alias. R4b-H2: `ast.walk` visita el
+    `Call` Y su `Attribute` interno, asi que la rama del `Call` era
+    redundante: una sola tupla en la rama del `Attribute`."""
+    hallados: list[str] = []
+    for nodo in ast.walk(arbol):
+        if isinstance(nodo, ast.Attribute):
+            dueno = nodo.value
+            if isinstance(dueno, ast.Name) and dueno.id == "os" and nodo.attr == "environ":
+                hallados.append("os.environ")
+            elif nodo.attr in ("now", "utcnow", "today"):
+                hallados.append(f".{nodo.attr}")
+    return hallados
+
+
+def _puros_precio(raiz=None):
+    base = raiz or PRECIO
+    return list(base.rglob("*.py"))
+
+
+def test_precio_puro_sin_io():
+    """Ningun modulo de `app/precio/` importa I/O en runtime (rglob: un
+    subpaquete anidado con IO tambien es fuga)."""
+    modulos = _puros_precio()
+    assert modulos, "no se encontro el motor de precios: ¿se movio app/precio/?"
+    fugas = {
+        p.relative_to(PRECIO).as_posix(): v
+        for p in modulos
+        if (v := _violaciones(_imports_runtime(p), PROHIBIDOS_PRECIO))
+    }
+    assert not fugas, f"app/precio debe ser PURO; imports de IO encontrados: {fugas}"
+
+
+def _usos_import_dinamico(arbol: ast.AST) -> list[str]:
+    """`__import__` por AST: `Name` con `id == "__import__"` o `Attribute`
+    con `attr == "__import__"` (`__import__ ("httpx")` con espacio y
+    `builtins.__import__("httpx")` incluidos; r6-C3: el barrido de texto
+    `"__import__("` no ve el espacio)."""
+    hallados: list[str] = []
+    for nodo in ast.walk(arbol):
+        if isinstance(nodo, ast.Name) and nodo.id == "__import__":
+            hallados.append("__import__")
+        elif isinstance(nodo, ast.Attribute) and nodo.attr == "__import__":
+            hallados.append(f".{nodo.attr}")
+    return hallados
+
+
+def test_precio_sin_import_dinamico():
+    """Ni `import importlib` ni `__import__("...")` en `app/precio/*`.
+
+    R5-J5: el import dinámico no produce nodos de import y el candado
+    de `test_precio_puro_sin_io` no lo ve (`importlib` sí cae por
+    `PROHIBIDOS_PRECIO`; `__import__` por este detector AST).
+    Precedente: el candado de `snapshot_listas` en este mismo archivo.
+    """
+    modulos = _puros_precio()
+    assert modulos, "no se encontro el motor de precios: ¿se movio app/precio/?"
+    fugas = {
+        p.relative_to(PRECIO).as_posix(): v
+        for p in modulos
+        if (v := _usos_import_dinamico(ast.parse(p.read_text(encoding="utf-8"))))
+    }
+    assert not fugas, f"app/precio usa import dinamico: {fugas}"
+
+
+def test_precio_frontera_caza_importlib_dinamico(tmp_path, monkeypatch):
+    """R5-J5, fuga sembrada: `importlib.import_module("psycopg")` dispara
+    el candado de imports."""
+    (tmp_path / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "dyn.py").write_text(
+        'import importlib\nx = importlib.import_module("psycopg")\n', encoding="utf-8"
+    )
+    monkeypatch.setattr("test_architecture.PRECIO", tmp_path)
+    with pytest.raises(AssertionError, match="dyn.py"):
+        test_precio_puro_sin_io()
+
+
+@pytest.mark.parametrize(
+    "cuerpo",
+    [
+        'x = __import__("httpx")\n',
+        'x = __import__ ("httpx")\n',
+        'import builtins\nx = builtins.__import__("httpx")\n',
+    ],
+)
+def test_precio_frontera_caza_dunder_import(tmp_path, monkeypatch, cuerpo):
+    """R5-J5, fuga sembrada: `__import__("httpx")` dispara el detector
+    (r6-C3: también con espacio y por atributo)."""
+    (tmp_path / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "dyn.py").write_text(cuerpo, encoding="utf-8")
+    monkeypatch.setattr("test_architecture.PRECIO", tmp_path)
+    with pytest.raises(AssertionError, match="dyn.py"):
+        test_precio_sin_import_dinamico()
+
+
+def test_precio_sin_reloj_ni_entorno():
+    """`hoy` entra como argumento: ni datetime.now, ni date.today, ni
+    time.time, ni os.environ en el AST de `app/precio/*`."""
+    modulos = _puros_precio()
+    assert modulos, "no se encontro el motor de precios: ¿se movio app/precio/?"
+    fugas = {
+        p.relative_to(PRECIO).as_posix(): v
+        for p in modulos
+        if (v := _usos_reloj(ast.parse(p.read_text(encoding="utf-8"))))
+    }
+    assert not fugas, f"app/precio lee reloj o entorno: {fugas}"
+
+
+def test_precio_frontera_caza_fuga_en_subpaquete(tmp_path, monkeypatch):
+    """Fuga sembrada: un `sub/fuga.py` con `import httpx` hace fallar el
+    candado con el nombre del archivo."""
+
+    (tmp_path / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "fuga.py").write_text("import httpx\n", encoding="utf-8")
+    monkeypatch.setattr("test_architecture.PRECIO", tmp_path)
+    with pytest.raises(AssertionError, match="sub/fuga.py"):
+        test_precio_puro_sin_io()
+
+
+def test_precio_init_tambien_se_escanea(tmp_path, monkeypatch):
+    """r1-B5: una fuga en `__init__.py` también dispara el candado."""
+
+    (tmp_path / "__init__.py").write_text("import httpx\n", encoding="utf-8")
+    monkeypatch.setattr("test_architecture.PRECIO", tmp_path)
+    with pytest.raises(AssertionError, match="__init__.py"):
+        test_precio_puro_sin_io()
+
+
+def test_precio_frontera_caza_reloj_con_alias(tmp_path, monkeypatch):
+    """r1-B5, fuga sembrada de reloj: `from datetime import datetime as dt`
+    + `dt.now()` hace fallar el candado con el nombre del archivo."""
+
+    (tmp_path / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "reloj.py").write_text(
+        "from datetime import datetime as dt\nx = dt.now()\n", encoding="utf-8"
+    )
+    monkeypatch.setattr("test_architecture.PRECIO", tmp_path)
+    with pytest.raises(AssertionError, match="sub/reloj.py"):
+        test_precio_sin_reloj_ni_entorno()
+
+
+@pytest.mark.parametrize(
+    "cuerpo",
+    [
+        "import os\n",
+        "import time\n",
+        "import random\n",
+        "import secrets\n",
+        "from os import getenv\n",
+    ],
+)
+def test_precio_frontera_caza_imports_de_reloj_entorno_azar(tmp_path, monkeypatch, cuerpo):
+    """r2-A4: cada import prohibido hace fallar el candado con el nombre
+    del archivo (reemplaza al test tautológico que solo miraba la
+    constante)."""
+
+    (tmp_path / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "fuga.py").write_text(cuerpo, encoding="utf-8")
+    monkeypatch.setattr("test_architecture.PRECIO", tmp_path)
+    with pytest.raises(AssertionError, match="sub/fuga.py"):
+        test_precio_puro_sin_io()
+
+
+def test_r4_g9_reloj_caza_acceso_sin_llamada(tmp_path, monkeypatch):
+    """r4-G9: `reloj = dt.now` (referencia sin llamar) también dispara."""
+    (tmp_path / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "reloj.py").write_text(
+        "from datetime import datetime as dt\nreloj = dt.now\n", encoding="utf-8"
+    )
+    monkeypatch.setattr("test_architecture.PRECIO", tmp_path)
+    with pytest.raises(AssertionError, match="sub/reloj.py"):
+        test_precio_sin_reloj_ni_entorno()
+
+
+@pytest.mark.parametrize(
+    "cuerpo",
+    [
+        "from datetime import datetime as dt\nx = dt.now()\n",
+        "from datetime import datetime as dt\nx = dt.utcnow()\n",
+        "from datetime import date as d\nx = d.today()\n",
+    ],
+)
+def test_precio_frontera_caza_reloj_en_todas_sus_formas(tmp_path, monkeypatch, cuerpo):
+    """r2-A4: `now`, `utcnow` y `today` caen sea quien sea el dueño."""
+
+    (tmp_path / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "reloj.py").write_text(cuerpo, encoding="utf-8")
+    monkeypatch.setattr("test_architecture.PRECIO", tmp_path)
+    with pytest.raises(AssertionError, match="sub/reloj.py"):
+        test_precio_sin_reloj_ni_entorno()
 
 
 # REPRICING 01 A.3 (carril C): candados del cliente de escritura SP-API.
