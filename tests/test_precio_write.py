@@ -2332,3 +2332,47 @@ def test_r4_g4_sin_propia_sigue_ausente_aunque_caiga_competitivo():
     lector, _ = _clientes(red)
     with pytest.raises(PrecioVivoAusente):
         leer_precio_vivo(lector, platform="amazon_mx", asin=ASIN)
+
+
+def test_r4_g6_solo_saltados_devuelve_0(monkeypatch, capsys):
+    """r4-G6: lote con solo saltados -> rc 0 (los saltados no son error)."""
+    red = _RedFalsa(
+        gets_ofertas=[(200, _ofertas_body(100.0))] * 4,
+        gets_competitivos=[(200, _competitivo_body())] * 4,
+    )
+    with db_39c() as conn:
+        _, cid1 = _semilla_reversion(conn)
+        prod2 = _producto(conn, sku="PR-SKU-G6")
+        lid2 = _listing(conn, prod2, asin="B0TESTC006", sku="SKU-G6")
+        _goal_live(conn, lid2)
+        dec2 = _decision(conn, lid2)
+        cid2 = _cambio_cerrado(conn, dec2, lid2)
+        import tools.precio_reversa as tool
+
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", _dsn_db(conn))
+        seco = tool.main(
+            ["--cambio-id", str(cid1), "--cambio-id", str(cid2)],
+            transport=red.transport,
+            credentials=dict(CRED),
+        )
+        assert seco == 0
+        out_seco = capsys.readouterr().out
+        assert "precio_vivo_distinto" in out_seco
+        huella = [ln for ln in out_seco.splitlines() if ln.startswith("huella: ")][0].split(": ")[1]
+        rc = tool.main(
+            [
+                "--cambio-id",
+                str(cid1),
+                "--cambio-id",
+                str(cid2),
+                "--acepto-mutacion-real",
+                "--huella",
+                huella,
+                "--go",
+                "si",
+            ],
+            transport=red.transport,
+            credentials=dict(CRED),
+        )
+        assert rc == 0
+        assert red.n_patch == 0
