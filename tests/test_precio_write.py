@@ -2148,3 +2148,45 @@ def test_r3_k7_reversa_en_error_devuelve_1(monkeypatch, capsys):
         assert rc == 1
         out = capsys.readouterr().out
         assert f"[hecho] cambio={cid} estado=error" in out
+
+
+def test_r3_k8_revertir_sin_autocommit_es_mal_uso():
+    """r3-K8: revertir sin autocommit -> ValueError antes de nada, cero filas, cero red."""
+    red = _RedFalsa()
+    with db_39c() as conn:
+        _, cid = _semilla_reversion(conn)
+        lector, escritor = _clientes(red)
+        cruda = psycopg.connect(_dsn_db(conn))
+        try:
+            assert cruda.autocommit is False
+            with pytest.raises(ValueError, match="autocommit"):
+                revertir(
+                    cruda,
+                    cid,
+                    lector=lector,
+                    escritor=escritor,
+                    construir_cuerpo=_cuerpo_falso,
+                    ahora=AHORA,
+                )
+        finally:
+            cruda.close()
+        assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 1
+        assert red.n_patch == 0 and red.n_get == 0
+
+
+def test_r3_k8_cerrar_sin_autocommit_es_mal_uso():
+    """r3-K8: cerrar sin autocommit -> ValueError antes de nada, sin tocar filas."""
+    with db_39c() as conn:
+        _, cid = _semilla_cierre(conn, asin="B0TESTK08A", sku="SKU-K08")
+        _observacion(conn, asin="B0TESTK08A", fecha="2026-09-18", precio="110.00")
+        cruda = psycopg.connect(_dsn_db(conn))
+        try:
+            assert cruda.autocommit is False
+            with pytest.raises(ValueError, match="cada cierre confirma"):
+                cerrar_por_observacion(cruda, HOY_CIERRE)
+        finally:
+            cruda.close()
+        estado = conn.execute("SELECT estado FROM precio_cambio WHERE id = %s", (cid,)).fetchone()[
+            0
+        ]
+        assert estado == "enviado"
