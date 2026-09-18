@@ -82,6 +82,8 @@ probar_fuga "END con comentario de linea" "select 1; END --x
 probar_fuga "revoke" "select 1; revoke select on x from y;" "select/with"
 probar_fuga "dollar-quoting que esconde END WORK" "select \$\$ ' \$\$; END WORK; revoke select on x from y;" "select/with"
 probar_fuga "dollar-quoting con tag" "select \$q\$ x \$q\$;" "select/with"
+probar_fuga "dollar-quoting con tag no ASCII" "select \$é\$ ' \$é\$; END WORK; revoke select on x from y; -- '" "select/with"
+probar_fuga "parametro posicional" "select \$1;" "select/with"
 probar_fuga "string sin cerrar" "select 'abc;" "select/with"
 probar_fuga "comentario de bloque sin cerrar" "select 1; /* sin cierre" "select/with"
 probar_fuga "analyze" "select 1; analyze x;" "select/with"

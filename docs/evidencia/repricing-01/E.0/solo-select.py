@@ -10,11 +10,14 @@ de cada sentencia no vacia sea `select` o `with`. Asi un `commit;`, `end;`,
 `call` en un archivo de consultas no llegan a produccion, y un
 `case ... end` en su propia linea no es un falso positivo.
 
-Falla cerrado ante lo que no sabe partir (grok, cierre r2): el
-dollar-quoting de PostgreSQL (`$$ ... $$`, `$tag$ ... $tag$`) fuera de un
-string se rechaza, porque dentro de el un `;` o una comilla cambiarian
-donde termina cada sentencia; y un string o un comentario de bloque sin
-cerrar al final del archivo tambien se rechaza.
+Falla cerrado ante lo que no sabe partir (grok, cierre r2 y r3): **todo
+`$` fuera de un string se rechaza**, lo que cubre el dollar-quoting de
+PostgreSQL con cualquier tag (`$$`, `$q$`, `$é$`: dentro de el un `;` o una
+comilla cambiarian donde termina cada sentencia) y los parametros
+posicionales; un string o un comentario de bloque sin cerrar al final del
+archivo tambien se rechaza. Los strings con escapes de diagonal (`E'\''`,
+`U&'...'`) no llegan aqui: `correr.sh` rechaza antes toda diagonal
+invertida, asi que las comillas solo se escapan como `''`.
 
 Uso: python3 solo-select.py <archivo.sql> [...]. Imprime cada sentencia
 rechazada con su archivo y sale 1 si hay alguna; sale 0 si todas son
@@ -23,11 +26,9 @@ rechazada con su archivo y sale 1 si hay alguna; sale 0 si todas son
 
 from __future__ import annotations
 
-import re
 import sys
 
 PERMITIDAS = ("select", "with")
-_DOLAR = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)?\$")
 
 
 class NoSeParte(ValueError):
@@ -64,8 +65,8 @@ def sentencias(texto: str) -> list[str]:
             if not cerrado:
                 raise NoSeParte("string sin cerrar al final del archivo")
             continue
-        if c == "$" and _DOLAR.match(texto, i):
-            raise NoSeParte("dollar-quoting ($$ o $tag$) fuera de un string")
+        if c == "$":
+            raise NoSeParte("un $ fuera de un string (dollar-quoting o parametro)")
         if texto.startswith("--", i):
             salto = texto.find("\n", i)
             i = n if salto == -1 else salto
