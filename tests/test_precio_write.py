@@ -1176,13 +1176,14 @@ def test_cerrar_observacion_igual_confirma_distinta_no():
 
 def test_cerrar_reversa_se_cierra_por_observacion():
     with db_39c() as conn:
-        lid, original = _semilla_cambio(conn, asin="B0C6", sku="SKU-C6")
-        _sellar_enviado_sql(conn, _enviado_abierto(conn, original, lid))
+        lid, dec = _semilla_cambio(conn, asin="B0C6", sku="SKU-C6")
+        cid = _enviado_abierto(conn, dec, lid)
+        _sellar_enviado_sql(conn, cid)
         with rol(conn):
             conn.execute(
                 "UPDATE precio_cambio SET estado = 'confirmado', confirmado_por = 'observacion'"
                 " WHERE id = %s",
-                (original,),
+                (cid,),
             )
             rev = conn.execute(
                 "INSERT INTO precio_cambio (listing_id, platform, precio_antes,"
@@ -1190,7 +1191,7 @@ def test_cerrar_reversa_se_cierra_por_observacion():
                 " aplicado, estado, enviado_at, es_reversa, reversa_de)"
                 " VALUES (%s, 'amazon_mx', 110.00, 'MXN', 100.00, 'MXN', true,"
                 " 'pendiente', %s, true, %s) RETURNING id",
-                (lid, ANTES, original),
+                (lid, ANTES, cid),
             ).fetchone()[0]
             conn.execute(
                 "UPDATE precio_cambio SET estado = 'enviado',"
