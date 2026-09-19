@@ -1207,9 +1207,11 @@ CHECK, así que en una base sana no hay nada que conciliar.
 `precio_decision`, `precio_cotizacion`, `precio_envio_muestra`,
 `precio_cambio`), amplía `apply_cap_de_config` con los tres motores
 `precio:*` y trae su bloque DO candado bajo `SET ROLE` (no deja filas).
-**Esta fase NO la aplica a producción**: aplicarla es la fila D.1 del plan
-(`plans/repricing-01.md`) y la corre el dueño con GO. Hasta entonces esta
-sección es procedimiento sellado, no estado aplicado.
+**Aplicada en producción el 2026-09-19 a las 15:06 UTC** por la fila D.0 del
+plan (`plans/repricing-01.md`), con `docs/evidencia/repricing-01/D.0/correr.sh`
+(`D0-VERDE`; backup `pre0039_precio_20260919-150636.sql`; salidas en
+`docs/evidencia/repricing-01/D.0/salidas/20260919-150630/`). Esta sección es
+el procedimiento con que se aplicó; D.1 la verifica, no la repite.
 
 **No es puramente expansiva**: declara `UNIQUE (id, platform)` en `listing`
 (lo único que toca de una tabla existente — la FK compuesta de `precio_goal`
@@ -1291,11 +1293,10 @@ verificado por `tests/test_schema.py`) y los triggers de las cinco tablas
 habilitados. Los tres conteos deben dar **cero** (el bloque DO revierte lo
 que inserta). Las tablas `precio_*` tienen ~0 filas: el `ADD CONSTRAINT` es
 instantáneo; si crecieron mucho, aplicar en ventana controlada. Precondición
-de datos (D.1 la verifica al desplegar): ningún duplicado de `(id, platform)`
-en `listing` — `id` es PK, así que en una base sana no hay nada que
-conciliar. El `EXCLUDE` con enum + `daterange` (primero del repo que combina
-los dos) corrió en PostgreSQL 16 local; D.1 lo confirma en la versión de
-producción antes de aplicar.
+de datos (el preflight de D.0 la verificó: cero): ningún duplicado de
+`(id, platform)` en `listing` — `id` es PK, así que en una base sana no hay
+nada que conciliar. El `EXCLUDE` con enum + `daterange` (primero del repo que
+combina los dos) se creó en producción (PostgreSQL 16.15) en la corrida de D.0.
 
 ## Correr los tests desde la máquina dev (túnel SSH)
 

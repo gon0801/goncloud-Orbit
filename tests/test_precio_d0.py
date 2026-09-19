@@ -272,6 +272,25 @@ def test_readback_como_lector_despues_de_migracion_y_siembra():
         assert pares["filas:precio_decision"] == "0"
 
 
+@_skip_db
+def test_config_id_es_el_de_la_vigente_con_ids_de_dos_digitos():
+    """Corrida real de D.0 (2026-09-19): con la vigente en 19 y la nueva en 20,
+    preflight y readback reportaban `config_id` 9, porque `id::text` conserva el
+    nombre `id` y el `ORDER BY id` ordenaba ese texto."""
+    with _db("orbit_d0_id", con_0039=True) as (conn, _):
+        for _ in range(9):
+            conn.execute(
+                "INSERT INTO config_version (label, settings)"
+                " SELECT label, settings FROM config_version WHERE id = 1"
+            )
+        preflight = (D0 / "preflight.sql").read_text(encoding="utf-8")
+        assert _pares(conn, preflight, rol="app_read")["config_id"] == "10"
+        _siembra(conn, "go con id de dos digitos")
+        pares = _pares(conn, (D0 / "readback.sql").read_text(encoding="utf-8"), rol="app_read")
+        assert pares["config_id"] == str(_vigente(conn)[0]) == "11"
+        assert pares["config_label"] == "go con id de dos digitos"
+
+
 # ---------------------------------------------------------------------------
 # verificar_config.py
 # ---------------------------------------------------------------------------

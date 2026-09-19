@@ -1,0 +1,8 @@
+cap:ads_optimizer:amazon_mx:bid|45
+cap:ads_optimizer:amazon_mx:harvest|2
+cap:ads_optimizer:amazon_mx:negative|15
+cap:ads_optimizer:amazon_mx:pause|5
+cap:ads_optimizer:amazon_us:bid|45
+cap:ads_optimizer:amazon_us:harvest|2
+cap:ads_optimizer:amazon_us:negative|15
+cap:ads_optimizer:amazon_us:pause|5
