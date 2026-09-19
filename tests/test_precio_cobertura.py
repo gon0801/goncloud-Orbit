@@ -1022,3 +1022,11 @@ def test_guion_acepta_puente_activas_e_identidad(tmp_path):
         assert con_puente.returncode == 0, con_puente.stderr
         assert "puente bridge=3 vs canonica=2" in con_puente.stdout
         assert "50.0% > 5%" in con_puente.stdout
+
+
+def test_r1bis_s1_tool_dsn_que_no_responde_es_exit_2_sin_traceback():
+    """R.1 bis S1: `ORBIT_DSN_READ` a puerto cerrado -> exit 2 con mensaje, sin traceback."""
+    res = _tool("--platform", "amazon_mx", dsn="postgresql://orbit:orbit@127.0.0.1:1/nula")
+    assert res.returncode == 2
+    assert res.stderr.startswith("precio_cobertura: ")
+    assert "Traceback" not in res.stderr

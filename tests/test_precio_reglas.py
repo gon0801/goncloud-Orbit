@@ -2337,3 +2337,18 @@ def test_ventas_excluidas_escalan_el_promedio():
     )
     s = evaluar_senal(insumos_sanos(HOY, qty15=6, qty60=10), hoy=HOY, config=c, racha_previa=0)
     assert (s.u60, s.n60, s.n15, s.estado) == (300, 30, 10, "no_perdiendo")
+
+
+def test_r1bis_s2_margen_a_precio_sin_iva_no_usa_divisor():
+    """R.1 bis S2: con `incluye_iva=False`, `I = P` aunque el divisor no sea 1."""
+    # I = 100; contribucion = 100 - 10 - 20 - 3 - 10 = 57; m = 0.57 exacto.
+    assert margen_a_precio(
+        Decimal("100"),
+        Decimal("10"),
+        Decimal("0.15"),
+        Decimal("5"),
+        Decimal("3"),
+        Decimal("0.10"),
+        Decimal("1.16"),
+        False,
+    ) == Decimal("0.57")
