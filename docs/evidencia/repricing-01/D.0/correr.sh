@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # D.0 (REPRICING 01): base de producción lista para la sonda.
 #
-# Lo corre el DUEÑO, desde la raíz del repo en la Mac, con el go literal como
-# único argumento (en la sesión de Claude: `! bash <este archivo> '<go>'`):
+# Lo corre el DUEÑO, desde la raíz de un árbol del repo en la Mac parado en
+# origin/master y sin cambios (en producción el guion lo exige y para en rojo
+# antes de tocar el server; ver LEEME.md), con el go literal como único
+# argumento (en la sesión de Claude: `! bash <este archivo> '<go>'`):
 #
 #   bash docs/evidencia/repricing-01/D.0/correr.sh 'D.0 aplicada: <go literal>'
 #
@@ -104,6 +106,15 @@ anota "commit_del_repo: $(git -C "$RAIZ" rev-parse HEAD)"
 
 # --- 0. preflight (solo lectura) --------------------------------------------
 git -C "$RAIZ" fetch -q origin
+if [ "$DESTINO" = produccion ]; then
+  # Siembra, readback, verificador y app/ salen del arbol, no solo la 0039:
+  # en produccion el arbol tiene que SER origin/master, sin cambios (GLM r1, #317).
+  [ "$(git -C "$RAIZ" rev-parse HEAD)" = "$(git -C "$RAIZ" rev-parse origin/master)" ] \
+    || corta "el arbol no esta en origin/master (HEAD $(git -C "$RAIZ" rev-parse --short HEAD)): correr desde un arbol en origin/master (ver LEEME.md)"
+  [ -z "$(git -C "$RAIZ" status --porcelain --untracked-files=no)" ] \
+    || corta "el arbol tiene cambios sin commitear en archivos del repo (ver LEEME.md)"
+  verde "arbol = origin/master, sin cambios"
+fi
 if [ "$(git -C "$RAIZ" rev-parse origin/master:migrations/0039_precio.sql)" \
      = "$(git -C "$RAIZ" hash-object "$RAIZ/migrations/0039_precio.sql")" ]; then
   verde "0039 del arbol = origin/master"

@@ -6,14 +6,24 @@ vigente. **Lo corre el dueño**; ningún goal, ninguna decisión, ningún precio
 
 ## Cómo se corre
 
-Desde la raíz del repo en la Mac, con `origin/master` al día y en una ventana
-tranquila (**no** en la misma ventana de despliegue que D.3 de `fabrica-02`):
+Desde la raíz de un árbol del repo en la Mac **parado en `origin/master` y sin
+cambios**, en una ventana tranquila (**no** en la misma ventana de despliegue
+que D.3 de `fabrica-02`). Todo lo que corre sale del árbol (la 0039, la
+siembra, el readback, el verificador y `app/`), así que en producción el guion
+lo exige: si `HEAD` no es `origin/master` o hay cambios sin commitear, para en
+rojo antes de tocar el server.
+
+El checkout principal suele estar en una rama de Muse, así que lo seguro es un
+worktree nuevo (el `.venv` se enlaza del checkout principal):
 
 ```
-bash docs/evidencia/repricing-01/D.0/correr.sh 'D.0: <go literal del dueño>'
+git -C /Users/dn/dev/goncloud-Orbit fetch origin
+git -C /Users/dn/dev/goncloud-Orbit worktree add --detach /Users/dn/dev/wt-d0-corrida origin/master
+ln -s /Users/dn/dev/goncloud-Orbit/.venv /Users/dn/dev/wt-d0-corrida/.venv
+cd /Users/dn/dev/wt-d0-corrida && bash docs/evidencia/repricing-01/D.0/correr.sh 'D.0: <go literal del dueño>'
 ```
 
-En la sesión de Claude va con `!` delante. El go literal queda como `label` de
+En la sesión de Claude cada línea va con `!` delante. El go literal queda como `label` de
 la `config_version` nueva. La última línea dice `D0-VERDE` o `D0-ROJO`, y todo
 queda en `salidas/<stamp>/` con `CORRIDA.txt` de resumen.
 
@@ -21,7 +31,7 @@ queda en `salidas/<stamp>/` con `CORRIDA.txt` de resumen.
 
 | Paso | Archivo | Con qué rol |
 |---|---|---|
-| 0. Preflight: 0039 del árbol = `origin/master`, `btree_gist`, `listing` sin duplicados, 8 caps de Ads vivos, estado de la 0039 y de las claves | `preflight.sql` | lector, `BEGIN READ ONLY` |
+| 0. Preflight: en producción el árbol es `origin/master` sin cambios; 0039 del árbol = `origin/master`, `btree_gist`, `listing` sin duplicados, 8 caps de Ads vivos, estado de la 0039 y de las claves | `preflight.sql` | lector, `BEGIN READ ONLY` |
 | 1. Backup `--schema-only` completo (bloque de `docs/DEPLOY.md` §0039) | en `correr.sh` | superusuario, en el server |
 | 2. 0039 en una transacción (si el `EXCLUDE` no se crea, se revierte entera) | `migrations/0039_precio.sql` | superusuario |
 | 3. Siembra de las 20 claves (se niega si ya hay claves `precio_*`) | `siembra.sql` | superusuario |

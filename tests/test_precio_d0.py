@@ -287,6 +287,8 @@ def test_verificar_config_acepta_la_tabla_del_plan():
         (lambda s: s.update(precio_goal_min_pct="0.70"), "banda_desde_settings"),
         (lambda s: s.update(precio_catalogo_max_dias_sin_reportar=True), "precio_catalogo"),
         (lambda s: s.update(precio_fechas_excluidas="[]"), "precio_fechas_excluidas"),
+        # GLM r1 (#317): un valor no numerico es una linea de falla, no un traceback.
+        (lambda s: s.update(precio_senal_dias="tres"), "precio_senal_dias = 'tres'"),
     ],
 )
 def test_verificar_config_caza_cada_falla(cambio, esperado):
@@ -324,6 +326,103 @@ def test_verificar_config_valida_el_cap_de_cada_plataforma(monkeypatch, platafor
     monkeypatch.setattr(VERIFICADOR, "validar_cap", _cap)
     errores = VERIFICADOR.fallas(_config_buena())
     assert any(f"cap {plataforma} saboteado" in e for e in errores), errores
+
+
+# ---------------------------------------------------------------------------
+# correr.sh en produccion: el arbol tiene que SER origin/master (GLM r1, #317)
+#
+# Siembra, readback, verificador y `app/` salen del arbol, no solo la 0039.
+# Cada caso corre `correr.sh` en un repo desechable con un `origin` local
+# (bare: `git fetch` sin red) y un `ssh` falso que deja marca: la guarda
+# tiene que parar ANTES de tocar el server.
+# ---------------------------------------------------------------------------
+
+
+def _git(cwd: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", *args],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _repo_d0(tmp_path: Path) -> Path:
+    origen = tmp_path / "origen.git"
+    _git(tmp_path, "init", "-q", "--bare", "-b", "master", str(origen))
+    repo = tmp_path / "repo"
+    _git(tmp_path, "init", "-q", "-b", "master", str(repo))
+    _git(repo, "config", "user.email", "d0@test.invalid")
+    _git(repo, "config", "user.name", "d0")
+    destino = repo / "docs" / "evidencia" / "repricing-01" / "D.0"
+    destino.mkdir(parents=True)
+    for nombre in ("correr.sh", "preflight.sql"):
+        shutil.copy(D0 / nombre, destino / nombre)
+    (destino / "LEEME.md").write_text("paquete\n", encoding="utf-8")
+    (repo / "migrations").mkdir()
+    shutil.copy(ROOT / "migrations" / "0039_precio.sql", repo / "migrations" / "0039_precio.sql")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "base")
+    _git(repo, "remote", "add", "origin", str(origen))
+    _git(repo, "push", "-q", "origin", "master")
+    python = repo / ".venv" / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    python.chmod(0o755)
+    return repo
+
+
+def _corre_d0(repo: Path, tmp_path: Path) -> tuple[subprocess.CompletedProcess, bool]:
+    falsos = tmp_path / "bin"
+    falsos.mkdir(exist_ok=True)
+    marca = tmp_path / "ssh-llamado"
+    ssh = falsos / "ssh"
+    ssh.write_text(f"#!/bin/sh\ntouch '{marca}'\nexit 99\n", encoding="utf-8")
+    ssh.chmod(0o755)
+    env = {k: v for k, v in os.environ.items() if k != "DESTINO"}
+    env["PATH"] = f"{falsos}{os.pathsep}{env['PATH']}"
+    salida = subprocess.run(
+        ["bash", "docs/evidencia/repricing-01/D.0/correr.sh", "D.0: go de prueba"],
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    return salida, marca.exists()
+
+
+def test_correr_en_produccion_con_head_fuera_de_origin_master_para_sin_ssh(tmp_path):
+    repo = _repo_d0(tmp_path)
+    (repo / "otro.txt").write_text("commit local sin empujar\n", encoding="utf-8")
+    _git(repo, "add", "otro.txt")
+    _git(repo, "commit", "-q", "-m", "local")
+    salida, ssh_llamado = _corre_d0(repo, tmp_path)
+    assert salida.returncode == 1, salida.stdout + salida.stderr
+    assert "no esta en origin/master" in salida.stdout
+    assert "D0-ROJO" in salida.stdout
+    assert not ssh_llamado
+
+
+def test_correr_en_produccion_con_cambios_sin_commitear_para_sin_ssh(tmp_path):
+    repo = _repo_d0(tmp_path)
+    leeme = repo / "docs" / "evidencia" / "repricing-01" / "D.0" / "LEEME.md"
+    leeme.write_text("paquete editado a mano\n", encoding="utf-8")
+    salida, ssh_llamado = _corre_d0(repo, tmp_path)
+    assert salida.returncode == 1, salida.stdout + salida.stderr
+    assert "cambios sin commitear" in salida.stdout
+    assert not ssh_llamado
+
+
+def test_correr_en_produccion_con_arbol_en_origin_master_pasa_la_guarda(tmp_path):
+    """Control: con el arbol limpio en origin/master la guarda deja pasar y
+    el guion llega al preflight (el `ssh` falso falla y lo corta ahi)."""
+    repo = _repo_d0(tmp_path)
+    salida, ssh_llamado = _corre_d0(repo, tmp_path)
+    assert "VERDE arbol = origin/master, sin cambios" in salida.stdout
+    assert ssh_llamado
+    assert salida.returncode == 1
 
 
 # ---------------------------------------------------------------------------

@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import json
 import sys
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parents[4]
@@ -67,7 +67,10 @@ def _igual(esperado: object, valor: object) -> bool:
         return valor == esperado
     if isinstance(valor, bool) or not isinstance(valor, (int, float, str, Decimal)):
         return False
-    return Decimal(str(valor)) == Decimal(str(esperado))
+    try:
+        return Decimal(str(valor)) == Decimal(str(esperado))
+    except InvalidOperation:  # GLM r1 (#317): «tres» es una línea de falla, no un traceback
+        return False
 
 
 def _plataformas_con_cap() -> list[str]:
