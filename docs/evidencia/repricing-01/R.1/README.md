@@ -65,6 +65,20 @@ residuales declarados; las que tocan un comportamiento, con su razón:
 - A.5 (`kimi-A.5-c3`): fragilidades de tests (orden implícito en dos sabotajes, contadores de la
   red falsa sin lock, parámetro muerto). Residuales.
 
+Dos más de A.5, vistas por el lead al auditar el carril B (no las trajo la cruzada):
+
+- `correr(conn, platform)` llama `cerrar_por_observacion(conn, hoy)`, que no filtra por
+  plataforma: la corrida de una plataforma cierra los cambios `enviado` de todas, y
+  `resumen.cerrados` y el log los atribuyen a la que corre. El cierre en sí es correcto (cada
+  cambio se compara con la observación de su propia plataforma); lo que se desvía es la cuenta.
+  Residual.
+- AC16 pide `no_evaluado(precio_divergente)` «con ambos precios y horas»: `reglas.decidir` los
+  pone en el `diagnostico` de la decisión, pero la corrida no lo lee (solo registra el de sus
+  propios `_no_evaluado`/`_frenado`) y la 0039 no tiene columna para guardarlo, así que no
+  quedan ni en la base ni en el log, y la pantalla de A.6 no puede mostrarlos. **Media**, fuera
+  del alcance del carril R (solo toca esta carpeta): se nombra como salvedad en la celda de A.5
+  y en la de A.6 del cierre, para la fila que toque la corrida o la 0039.
+
 La cruzada del **PR** de A.5 (antes del merge) fue otra cosa: cuatro rondas con revisor distinto
 (kimi, kimi, claude, glm; salidas y veredictos en el PR #309). Esta de R.1 es la de la fila,
 sobre el squash.
