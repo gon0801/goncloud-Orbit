@@ -4,6 +4,16 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-19 UTC — REPRICING 01, D.0 APLICADA: la base de producción ya tiene las tablas y la configuración del motor de precios; ningún goal, ninguna decisión, ningún precio movido.**
+El dueño corrió el paquete de D.0 (`#317`, `1bcfc5e`) con `!` a las 15:06 UTC, desde un worktree en `origin/master`: `D0-VERDE`.
+
+- **0039 aplicada** en una transacción sobre PostgreSQL 16.15, con backup previo del esquema. El `EXCLUDE` con enum + `daterange` se creó en producción.
+- **`config_version` 20**, copia de la 19 más las 20 claves `precio_*`. Los caps de Ads, incluido el de harvest en 2/2, quedaron idénticos antes y después.
+- **Readback como lector**: las cinco tablas `precio_*` en cero filas y los caps `precio:*` en 5; la cuota de `precio:amazon_mx` nace con cap 5.
+- **Anomalías, sin efecto en los datos**: el `label` de la config 20 quedó con el marcador de la plantilla (`D.0: <tu go literal>`) y no se corrige, porque la tabla es append-only. El preflight y el readback reportaban `config_id` 9 por un orden de texto; los ids reales son 19 y 20, y el cierre lo corrige con prueba.
+
+Lo que sigue es del dueño: el goal `live` del producto controlado y la sonda A.4; con A.4, D.1 (sombra en producción). D.3 de fabrica-02 va después de un ciclo limpio de Ads, no en la misma ventana que D.0.
+
 **2026-09-19 UTC — REPRICING 01, Fase 11 (AUTO-07) CERRADA: corrida diaria y pantalla con avisos del motor de precios en master, y revisión independiente completa; ningún precio movido.**
 Cuatro PRs mergeados por la ruta del kit:
 
