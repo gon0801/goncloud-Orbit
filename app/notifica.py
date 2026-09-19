@@ -897,3 +897,600 @@ def notifica_destino_grupo(
     except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
         logger.warning("telegram: fallo armando el aviso de destino: %s", scrub(str(exc)))
         return False
+
+
+# ---------------------------------------------------------------------------
+# REPRICING 01 (A.6): avisos del motor de precios, un sender en flanco
+# ---------------------------------------------------------------------------
+#
+# Un solo sender `notifica_precio(tipo, payload)` en flanco por racha (S7):
+# por (plataforma, motivo) con conteo y hasta 5 SKUs para `no_evaluado`
+# (solo cuando el grupo lleva `precio_aviso_dias_sin_evaluar` dias seguidos),
+# `goal_inalcanzable` y `frenado`; por producto para `no_confirmado` y
+# `buy_box_perdida`; por plataforma para `huerfana_sin_patch`. Mismo contrato
+# fail-silent de los otros senders: canal apagado -> True; cualquier
+# excepcion -> warning con scrub + False; jamas levanta.
+#
+# El texto lleva solo SKU, plataforma, precios, estado y motivo en
+# palabras: nunca costo, margen, goal ni cuerpos de error. Por eso el motivo
+# viaja traducido por `MOTIVO_PRECIO_ES` y el estado por `ESTADO_PRECIO_ES`
+# (los ids crudos `precio_no_cubre_costo`, `sobre_goal_sin_perdida` y
+# `goal_inalcanzable` contienen esas palabras); el ASIN solo sale en
+# plataformas Amazon (fuera de Amazon el id externo no es un ASIN);
+# el motivo desconocido cae al id crudo (la evidencia jamas se pierde).
+# Los builders son puros (sin red, sin secretos) y no reciben ningun campo
+# de costo/margen/goal/error: la ausencia es estructural, no un filtro.
+# El flanco lo decide `avisar_precio` (gancho `avisar` de la corrida A.5)
+# leyendo hoy y dias previos de `precio_decision`/`precio_cambio`.
+
+TIPOS_PRECIO = (
+    "no_evaluado",
+    "goal_inalcanzable",
+    "frenado",
+    "no_confirmado",
+    "buy_box_perdida",
+    "huerfana_sin_patch",
+)
+
+TIPOS_PRECIO_GRUPO = ("no_evaluado", "goal_inalcanzable", "frenado")
+TIPOS_PRECIO_PRODUCTO = ("no_confirmado", "buy_box_perdida")
+
+# Tope de SKUs por aviso de grupo (S7: conteo + hasta 5 SKUs).
+TOPE_SKUS_PRECIO = 5
+
+# Umbral de dias seguidos para avisar `no_evaluado` (spec l.69, AC15):
+# entero 1-14, ValueError que nombra la clave (replica de
+# `app/precio/corrida.py::_numero_entero`, que no se puede importar).
+CLAVE_PRECIO_AVISO_DIAS = "precio_aviso_dias_sin_evaluar"
+
+FRASEO_TIPO_PRECIO = {
+    "no_evaluado": "no evaluados",
+    "goal_inalcanzable": "objetivo inalcanzable",
+    "frenado": "frenados",
+    "no_confirmado": "no confirmado",
+    "buy_box_perdida": "buy box perdida",
+    "huerfana_sin_patch": "huerfanas sin parche",
+}
+
+MOTIVO_PRECIO_ES = {
+    "precio_divergente": "precio observado distinto del publicado",
+    "moneda_divergente": "moneda distinta entre observacion y escenario",
+    "precio_sin_observar": "sin observacion de precio del dia",
+    "precio_ausente": "sin precio publicado",
+    "fee_ausente": "sin cotizacion de comision",
+    "fee_no_lineal": "comision no lineal",
+    "impuesto_fee_pendiente": "impuesto pendiente en la comision",
+    "escenario_incoherente": "escenario incoherente",
+    "estimacion_motivo_desconocido": "motivo de estimacion desconocido",
+    "ingreso_no_positivo": "ingreso no positivo",
+    "precio_no_cubre_costo": "precio bajo el piso de rentabilidad",
+    "precio_mayor_al_doble": "precio mayor al doble del objetivo",
+    "sobre_goal_sin_perdida": "por encima del objetivo sin perdida",
+    "ledger_hueco": "ventas sin dato (libro rezagado)",
+    "historia_corta": "historia de ventas corta",
+    "sin_dato": "sin dato",
+    "n15_insuficiente": "ventas de 15 dias insuficientes",
+    "u60_bajo_minimo": "unidades de 60 dias bajo el minimo",
+    "racha_incompleta": "racha de senal incompleta",
+    "ventana_60_excluida": "ventana de 60 dias excluida",
+    "dia_sin_stock": "dia sin stock",
+    "dia_sin_observacion_inventario": "dia sin observacion de inventario",
+    "dia_sin_estado_listing": "dia sin estado del listing",
+    "listing_inactivo": "listing inactivo",
+    "no_converge": "sin convergencia tras el cambio de direccion",
+    "perdiendo_tras_subida": "perdiendo tras la subida",
+    "api_error": "falla de la API",
+    "no_confirmado": "no confirmado por la observacion",
+    "buy_box_perdida": "buy box perdida",
+    "cooldown": "enfriamiento entre cambios",
+    "cuota": "cupo del dia agotado",
+    "en_tolerancia": "dentro de la tolerancia",
+    "movimiento_minimo": "movimiento bajo el minimo",
+    "sin_decision": "sin decision",
+    "sin_listing": "sin listing",
+    "catalogo_desactualizado": "catalogo desactualizado",
+    "canal_sin_dato": "canal sin dato",
+    "desconocido": "desconocido",
+}
+
+
+@dataclass(frozen=True)
+class GrupoPrecio:
+    """Un (plataforma, motivo) de hoy para los tipos de grupo —y para el
+    resto agrupado de los tipos por producto (B3)—: conteo total y SKUs
+    (el builder corta a `TOPE_SKUS_PRECIO`)."""
+
+    platform: str
+    tipo: str
+    motivo: str
+    total: int
+    skus: tuple
+
+
+@dataclass(frozen=True)
+class ProductoPrecio:
+    """Un producto para los tipos por producto: SKU/ASIN, precios
+    preformateados, estado y motivo. Sin costo, margen, goal ni errores."""
+
+    platform: str
+    tipo: str
+    sku: str | None
+    asin: str | None
+    precio_antes: str | None
+    precio_despues: str | None
+    moneda: str | None
+    estado: str | None
+    motivo: str | None
+
+
+@dataclass(frozen=True)
+class HuerfanaPrecio:
+    """Pendientes cerradas sin parche en la corrida de hoy, por plataforma."""
+
+    platform: str
+    total: int
+    tipo: str = "huerfana_sin_patch"
+
+
+def motivo_precio_es(motivo: str | None) -> str:
+    """Motivo de precio en palabras (sin costo/margen/goal). `fee_error:<code>`
+    colapsa al codigo corto (el cuerpo del error jamas viaja); motivo
+    desconocido -> id crudo (la evidencia no se pierde)."""
+    if not motivo:
+        return "desconocido"
+    if motivo in MOTIVO_PRECIO_ES:
+        return MOTIVO_PRECIO_ES[motivo]
+    if motivo.startswith("fee_error"):
+        codigo = motivo.partition(":")[2].strip()
+        return f"falla de comision ({codigo})" if codigo else "falla de comision"
+    return motivo
+
+
+def aviso_precio_grupo(grupo: GrupoPrecio) -> str:
+    """Builder PURO del aviso por (plataforma, motivo): conteo + hasta 5
+    SKUs + resto contado (200 con el mismo motivo -> UN aviso)."""
+    lineas = [
+        f"[Orbit] precio: {FRASEO_TIPO_PRECIO[grupo.tipo]}",
+        f"plataforma: {grupo.platform}",
+        f"motivo: {motivo_precio_es(grupo.motivo)}",
+        f"total: {grupo.total}",
+    ]
+    skus = tuple(grupo.skus)[:TOPE_SKUS_PRECIO]
+    if skus:
+        lineas.append(f"skus: {', '.join(skus)}")
+    resto = grupo.total - len(skus)
+    if resto > 0:
+        lineas.append(f"y {resto} mas")
+    return "\n".join(lineas)
+
+
+ESTADO_PRECIO_ES = {
+    "subir": "subida",
+    "bajar": "bajada",
+    "mantener": "mantenido",
+    "no_evaluado": "no evaluado",
+    "goal_inalcanzable": "objetivo inalcanzable",
+    "frenado": "frenado",
+    "no_confirmado": "no confirmado",
+    "buy_box_perdida": "buy box perdida",
+}
+
+
+def estado_precio_es(estado: str | None) -> str:
+    """Estado de precio en palabras (B5: jamas el id crudo con «goal»).
+    Estado desconocido -> id crudo (la evidencia no se pierde)."""
+    if not estado:
+        return "desconocido"
+    return ESTADO_PRECIO_ES.get(estado, estado)
+
+
+def _es_plataforma_amazon(platform: str | None) -> bool:
+    """El `external_id` solo es un ASIN en plataformas Amazon (B5)."""
+    return (platform or "").lower().startswith("amazon")
+
+
+def aviso_precio_producto(item: ProductoPrecio) -> str:
+    """Builder PURO del aviso por producto: SKU, precios, estado y motivo
+    en palabras (regla 3: ausente no se menciona). El ASIN solo sale en
+    plataformas Amazon; fuera de Amazon el id externo viaja como tal."""
+    lineas = [
+        f"[Orbit] precio: {FRASEO_TIPO_PRECIO[item.tipo]}",
+        f"plataforma: {item.platform}",
+    ]
+    if item.sku:
+        lineas.append(f"sku: {item.sku}")
+    if item.asin:
+        if _es_plataforma_amazon(item.platform):
+            lineas.append(f"asin: {item.asin}")
+        else:
+            lineas.append(f"id externo: {item.asin}")
+    if item.precio_antes is not None and item.precio_despues is not None:
+        precio = f"{item.precio_antes} -> {item.precio_despues}"
+    else:
+        precio = item.precio_despues if item.precio_despues is not None else item.precio_antes
+    if precio is not None:
+        lineas.append(f"precio: {precio}" + (f" {item.moneda}" if item.moneda else ""))
+    if item.estado:
+        lineas.append(f"estado: {estado_precio_es(item.estado)}")
+    if item.motivo:
+        lineas.append(f"motivo: {motivo_precio_es(item.motivo)}")
+    return "\n".join(lineas)
+
+
+def aviso_precio_huerfana(huerfana: HuerfanaPrecio) -> str:
+    """Builder PURO del aviso por plataforma: cuantas pendientes cerro la
+    corrida sin parche (el codigo de error no viaja: es uno solo y fijo)."""
+    return "\n".join(
+        [
+            "[Orbit] precio: huerfanas sin parche",
+            f"plataforma: {huerfana.platform}",
+            f"total: {huerfana.total}",
+            "la corrida cerro pendientes sin parche: revisar el log"
+            " y revertir si el precio se movio",
+        ]
+    )
+
+
+def validar_precio_aviso_dias(settings) -> int:
+    """`precio_aviso_dias_sin_evaluar` entero 1-14; `ValueError` nombra la
+    clave si falta o sale de cota (ninguna otra clave se lee aqui)."""
+    clave = CLAVE_PRECIO_AVISO_DIAS
+    if not isinstance(settings, dict) or clave not in settings or settings[clave] is None:
+        raise ValueError(f"config sin {clave}")
+    valor = settings[clave]
+    if isinstance(valor, bool):
+        raise ValueError(f"setting {clave}: valor no numerico: {valor!r}")
+    try:
+        numero = Decimal(str(valor).strip() if isinstance(valor, str) else str(valor))
+    except Exception as exc:
+        raise ValueError(f"setting {clave}: valor no numerico: {valor!r}") from exc
+    if not numero.is_finite() or numero != numero.to_integral_value():
+        raise ValueError(f"setting {clave}: debe ser entero: {valor!r}")
+    entero = int(numero)
+    if not 1 <= entero <= 14:
+        raise ValueError(f"setting {clave}: fuera de cota [1, 14]: {entero}")
+    return entero
+
+
+def flanco_nuevos(hoy, ayer) -> list:
+    """Claves presentes hoy que ayer no estaban, en el orden de hoy (el
+    flanco: la racha que sigue no vuelve a avisar; la que se corta y vuelve,
+    si). Pura."""
+    previos = set(ayer)
+    vistos = set()
+    nuevos = []
+    for clave in hoy:
+        if clave not in previos and clave not in vistos:
+            vistos.add(clave)
+            nuevos.append(clave)
+    return nuevos
+
+
+def flanco_umbral(presentes, hoy, umbral) -> bool:
+    """True solo el dia en que la racha de dias presentes ALCANZA el umbral
+    (racha == umbral): con mas dias (sigue) o sin hoy (corta) es False; al
+    reconstruirse (vuelve) es True de nuevo. Pura."""
+    try:
+        umbral = int(umbral)
+    except (TypeError, ValueError):
+        return False
+    if hoy not in presentes:
+        return False
+    racha = 0
+    dia = hoy
+    while dia in presentes:
+        racha += 1
+        dia -= dt.timedelta(days=1)
+    return racha == umbral
+
+
+def notifica_precio(tipo: str, payload, *, transport: httpx.BaseTransport | None = None) -> bool:
+    """UNICO sender de avisos de precio (S7). `tipo` elige el builder y el
+    `payload` debe ser de su familia (grupo / producto / huerfana; los tipos
+    por producto tambien aceptan grupo para el resto agrupado de B3); tipo o
+    familia desconocidos -> warning + False. Canal deshabilitado -> True (no
+    es fallo); cualquier excepcion -> warning con scrub + False; jamas levanta.
+    """
+    try:
+        if tipo in TIPOS_PRECIO_GRUPO:
+            esperados: tuple = (GrupoPrecio,)
+        elif tipo in TIPOS_PRECIO_PRODUCTO:
+            esperados = (ProductoPrecio, GrupoPrecio)
+        elif tipo == "huerfana_sin_patch":
+            esperados = (HuerfanaPrecio,)
+        else:
+            logger.warning("telegram: tipo de aviso de precio desconocido: %s", scrub(str(tipo)))
+            return False
+        if not isinstance(payload, esperados):
+            logger.warning(
+                "telegram: payload de aviso de precio no es %s para %s",
+                "/".join(e.__name__ for e in esperados),
+                scrub(str(tipo)),
+            )
+            return False
+        if payload.tipo != tipo:
+            logger.warning(
+                "telegram: payload de aviso de precio tipo %s no coincide con %s",
+                scrub(str(payload.tipo)),
+                scrub(str(tipo)),
+            )
+            return False
+        if isinstance(payload, GrupoPrecio):
+            texto = aviso_precio_grupo(payload)
+        elif isinstance(payload, ProductoPrecio):
+            texto = aviso_precio_producto(payload)
+        else:
+            texto = aviso_precio_huerfana(payload)
+        if not canal_activo():
+            return True
+        return _envia_texto(texto, transport=transport)
+    except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
+        logger.warning("telegram: fallo armando el aviso de precio: %s", scrub(str(exc)))
+        return False
+
+
+_SQL_PRECIO_GRUPOS_DIA = """
+SELECT d.resultado, d.motivo, COALESCE(l.seller_sku, l.external_id)
+  FROM precio_decision d JOIN listing l
+    ON l.id = d.listing_id AND l.platform = d.platform
+ WHERE d.platform = %s AND d.decision_date = %s
+   AND d.resultado IN ('no_evaluado', 'goal_inalcanzable', 'frenado')
+ ORDER BY COALESCE(l.seller_sku, l.external_id)
+"""
+
+_SQL_PRECIO_DIAS_MOTIVO = """
+SELECT DISTINCT decision_date FROM precio_decision
+ WHERE platform = %s AND resultado = 'no_evaluado' AND motivo = %s
+   AND decision_date BETWEEN %s AND %s
+"""
+
+_SQL_PRECIO_BUYBOX_DIA = """
+SELECT COALESCE(l.seller_sku, l.external_id), l.seller_sku, l.external_id,
+       d.resultado, d.p_actual, d.p_actual_currency
+  FROM precio_decision d JOIN listing l
+    ON l.id = d.listing_id AND l.platform = d.platform
+ WHERE d.platform = %s AND d.decision_date = %s AND d.buy_box_is_own = false
+"""
+
+_SQL_PRECIO_FRENADO_NOCONF_DIA = """
+SELECT d.listing_id, l.seller_sku, l.external_id
+  FROM precio_decision d JOIN listing l
+    ON l.id = d.listing_id AND l.platform = d.platform
+ WHERE d.platform = %s AND d.decision_date = %s
+   AND d.resultado = 'frenado' AND d.motivo = 'no_confirmado'
+ ORDER BY d.listing_id
+"""
+
+_SQL_PRECIO_ULTIMO_NOCONF = """
+SELECT c.precio_antes, c.precio_antes_currency,
+       c.precio_despues, c.precio_despues_currency
+  FROM precio_cambio c
+ WHERE c.listing_id = %s AND c.platform = %s
+   AND c.estado = 'no_confirmado' AND c.aplicado AND NOT c.es_reversa
+ ORDER BY c.id DESC LIMIT 1
+"""
+
+_SQL_PRECIO_CONFIG = "SELECT settings FROM config_version ORDER BY id DESC LIMIT 1"
+
+
+def _grupos_precio_dia(conn, platform: str, dia) -> dict:
+    grupos: dict = {}
+    filas = conn.execute(_SQL_PRECIO_GRUPOS_DIA, (platform, dia)).fetchall()
+    for resultado, motivo, sku in filas:
+        grupos.setdefault((resultado, motivo or "desconocido"), []).append(sku)
+    return grupos
+
+
+def _avisar_grupos_precio(conn, platform: str, hoy, ayer, umbral) -> int:
+    """Un aviso por (resultado, motivo) nuevo (B6: `try` propio). `no_evaluado`
+    exige su racha de `umbral` dias (B4: sin umbral valido no sale);
+    `goal_inalcanzable`/`frenado` salen si ayer no estaban. Jamas levanta."""
+    try:
+        grupos_hoy = _grupos_precio_dia(conn, platform, hoy)
+        grupos_ayer = _grupos_precio_dia(conn, platform, ayer)
+    except Exception as exc:  # noqa: BLE001 - B6: los grupos no callan
+        logger.warning("telegram: fallo avisando grupos de precio: %s", scrub(str(exc)))
+        return 0
+    nuevos = flanco_nuevos(sorted(grupos_hoy), sorted(grupos_ayer))
+    enviados = 0
+    for (resultado, motivo), skus in sorted(grupos_hoy.items()):
+        try:
+            if resultado == "no_evaluado":
+                if umbral is None:
+                    continue
+                dias = {
+                    r[0]
+                    for r in conn.execute(
+                        _SQL_PRECIO_DIAS_MOTIVO,
+                        (platform, motivo, hoy - dt.timedelta(days=umbral), hoy),
+                    ).fetchall()
+                }
+                if not flanco_umbral(dias, hoy, umbral):
+                    continue
+            elif (resultado, motivo) not in nuevos:
+                continue
+            grupo = GrupoPrecio(platform, resultado, motivo, len(skus), tuple(skus))
+            if notifica_precio(resultado, grupo):
+                enviados += 1
+        except Exception as exc:  # noqa: BLE001 - B6: un grupo no calla
+            logger.warning(
+                "telegram: fallo avisando el grupo de precio %s: %s",
+                scrub(f"{resultado}/{motivo}"),
+                scrub(str(exc)),
+            )
+    return enviados
+
+
+# Tope de avisos por producto, por tipo y corrida (B3: 200 buy box
+# perdidas no son 200 mensajes): los primeros salen individuales y el resto
+# va en UN aviso agrupado de ese tipo con conteo y hasta 5 SKUs.
+TOPE_PRODUCTO_PRECIO = 5
+
+
+def _enviar_productos_precio_con_tope(tipo: str, motivo: str, piezas: list) -> int:
+    """B3: hasta `TOPE_PRODUCTO_PRECIO` avisos por producto; el resto en UN
+    aviso agrupado de ese tipo con conteo y hasta `TOPE_SKUS_PRECIO` SKUs
+    (`notifica_precio` acepta el grupo para tipos por producto). Un `try`
+    por pieza y otro por el agrupado (B6). Jamas levanta."""
+    enviados = 0
+    for item in piezas[:TOPE_PRODUCTO_PRECIO]:
+        try:
+            if notifica_precio(tipo, item):
+                enviados += 1
+        except Exception as exc:  # noqa: BLE001 - B6: un producto no calla
+            logger.warning(
+                "telegram: fallo avisando producto de precio %s: %s",
+                scrub(str(tipo)),
+                scrub(str(exc)),
+            )
+    resto = piezas[TOPE_PRODUCTO_PRECIO:]
+    if resto:
+        try:
+            skus = tuple(s for s in ((p.sku or p.asin) for p in resto[:TOPE_SKUS_PRECIO]) if s)
+            grupo = GrupoPrecio(resto[0].platform, tipo, motivo, len(resto), skus)
+            if notifica_precio(tipo, grupo):
+                enviados += 1
+        except Exception as exc:  # noqa: BLE001 - B6: el agrupado no calla
+            logger.warning(
+                "telegram: fallo avisando resto agrupado de precio %s: %s",
+                scrub(str(tipo)),
+                scrub(str(exc)),
+            )
+    return enviados
+
+
+def _avisar_buybox_precio(conn, platform: str, hoy, ayer) -> int:
+    """Un aviso por producto que pierde la buy box hoy y ayer la tenia
+    (B6: `try` propio y un `try` por pieza; B3: con tope + resto agrupado).
+    Jamas levanta."""
+    try:
+        bb_hoy = {r[0]: r for r in conn.execute(_SQL_PRECIO_BUYBOX_DIA, (platform, hoy)).fetchall()}
+        bb_ayer = {r[0] for r in conn.execute(_SQL_PRECIO_BUYBOX_DIA, (platform, ayer)).fetchall()}
+    except Exception as exc:  # noqa: BLE001 - B6: buy box no calla
+        logger.warning("telegram: fallo avisando buy box de precio: %s", scrub(str(exc)))
+        return 0
+    piezas = []
+    for clave in flanco_nuevos(sorted(bb_hoy), sorted(bb_ayer)):
+        try:
+            _id, sku, asin, estado, p_actual, moneda = bb_hoy[clave]
+            piezas.append(
+                ProductoPrecio(
+                    platform,
+                    "buy_box_perdida",
+                    sku,
+                    asin,
+                    None,
+                    str(p_actual) if p_actual is not None else None,
+                    str(moneda) if moneda is not None else None,
+                    estado,
+                    "buy_box_perdida",
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - B6: un producto no calla
+            logger.warning(
+                "telegram: fallo avisando buy box de precio %s: %s",
+                scrub(str(clave)),
+                scrub(str(exc)),
+            )
+    return _enviar_productos_precio_con_tope("buy_box_perdida", "buy_box_perdida", piezas)
+
+
+def _avisar_noconf_precio(conn, platform: str, hoy, ayer) -> int:
+    """Un aviso por producto con `frenado(no_confirmado)` hoy que ayer no lo
+    estaba (A1); los precios salen del ultimo cambio real no-reversa
+    `no_confirmado` (B6: `try` propio; B3: con tope + resto agrupado).
+    Jamas levanta."""
+    try:
+        nc_hoy = {
+            r[0]: r
+            for r in conn.execute(_SQL_PRECIO_FRENADO_NOCONF_DIA, (platform, hoy)).fetchall()
+        }
+        nc_ayer = {
+            r[0] for r in conn.execute(_SQL_PRECIO_FRENADO_NOCONF_DIA, (platform, ayer)).fetchall()
+        }
+    except Exception as exc:  # noqa: BLE001 - B6: no confirmado no calla
+        logger.warning("telegram: fallo avisando no confirmados de precio: %s", scrub(str(exc)))
+        return 0
+    piezas = []
+    for lid in flanco_nuevos(sorted(nc_hoy), sorted(nc_ayer)):
+        try:
+            _lid, sku, asin = nc_hoy[lid]
+            ult = conn.execute(_SQL_PRECIO_ULTIMO_NOCONF, (lid, platform)).fetchone()
+            if ult is None:
+                continue
+            antes, mon_antes, despues, mon_despues = ult
+            moneda = mon_despues or mon_antes
+            piezas.append(
+                ProductoPrecio(
+                    platform,
+                    "no_confirmado",
+                    sku,
+                    asin,
+                    str(antes) if antes is not None else None,
+                    str(despues) if despues is not None else None,
+                    str(moneda) if moneda else None,
+                    "no_confirmado",
+                    "no_confirmado",
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - B6: un producto no calla
+            logger.warning(
+                "telegram: fallo avisando no confirmado de precio %s: %s",
+                scrub(str(lid)),
+                scrub(str(exc)),
+            )
+    return _enviar_productos_precio_con_tope("no_confirmado", "no_confirmado", piezas)
+
+
+def _avisar_huerfana_precio(platform: str, resumen) -> int:
+    """La huerfana es un evento de la corrida (A2): si cerro >= 1 avisa una
+    vez, sin mirar la historia (B6: `try` propio). Jamas levanta."""
+    try:
+        huerfanas = resumen.huerfanas or 0
+        if huerfanas > 0:
+            huerfana = HuerfanaPrecio(platform, int(huerfanas))
+            if notifica_precio("huerfana_sin_patch", huerfana):
+                return 1
+        return 0
+    except Exception as exc:  # noqa: BLE001 - B6: la huerfana no calla
+        logger.warning("telegram: fallo avisando huerfanas de precio: %s", scrub(str(exc)))
+        return 0
+
+
+def avisar_precio(conn, platform: str, hoy, resumen) -> int:
+    """Gancho `avisar` de la corrida A.5 (`correr(..., avisar=...)` lo llama
+    con `(conn, platform, hoy, resumen)` una vez al final, fail-silent).
+    Lee hoy y dias previos y manda en flanco por racha: devuelve cuantos
+    avisos salieron; jamas levanta (fallo -> warning con scrub + 0).
+
+    B2: los avisos por grupo y por producto solo salen si la corrida
+    persistio >= 1 decision (`resumen.decisiones > 0`): una reejecucion el
+    mismo dia no reenvia. Residuo declarado: si una corrida cae despues de
+    persistir todo y antes de avisar, ese dia no avisa (queda el log).
+    Residuo declarado (r2): una segunda corrida del mismo dia que persiste
+    >= 1 decision nueva (un goal agregado despues de la corrida de la
+    manana) reenvia todos los avisos del dia; no se corrige en A.6.
+
+    B4: un umbral `precio_aviso_dias_sin_evaluar` invalido o ausente solo
+    apaga el aviso `no_evaluado` (warning); los demas tipos salen igual.
+    """
+    try:
+        fila = conn.execute(_SQL_PRECIO_CONFIG).fetchone()
+        if fila is None:
+            return 0
+        try:
+            umbral = validar_precio_aviso_dias(fila[0])
+        except ValueError as exc:
+            logger.warning("telegram: umbral de aviso de precio invalido: %s", scrub(str(exc)))
+            umbral = None
+        ayer = hoy - dt.timedelta(days=1)
+        enviados = 0
+        if resumen.decisiones > 0:
+            enviados += _avisar_grupos_precio(conn, platform, hoy, ayer, umbral)
+            enviados += _avisar_buybox_precio(conn, platform, hoy, ayer)
+            enviados += _avisar_noconf_precio(conn, platform, hoy, ayer)
+        enviados += _avisar_huerfana_precio(platform, resumen)
+        return enviados
+    except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
+        logger.warning("telegram: fallo armando los avisos de precio: %s", scrub(str(exc)))
+        return 0

@@ -28,6 +28,7 @@ DETERMINISMO: las paginas delegan en los endpoints (que ya usan `_hoy_utc`).
 from __future__ import annotations
 
 import datetime as dt
+import logging
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 from pathlib import Path
@@ -41,9 +42,15 @@ from fastapi.templating import Jinja2Templates
 from app import api_dashboard as dash
 from app import api_reputacion as reput
 from app.api import ConexionLectura
+from app.notifica import estado_precio_es, motivo_precio_es
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.goals import PELDANOS_CASCADA
+from app.precio import cobertura as cobertura_precio
+from app.precio import fuentes as fuentes_precio
+from app.redaction import scrub
 from app.ui_metricas import clase_cambio, kpis_inertes, kpis_serie
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="", tags=["dashboard-ui"])
 
@@ -78,7 +85,19 @@ def dinero_ui(valor: str | None) -> str | None:
         return valor
 
 
+def porcentaje_ui(valor: str | None) -> str | None:
+    """Tanto por uno a porcentaje («0.2150» -> «21.50 %»). None queda None;
+    si no parsea, se deja igual."""
+    if valor is None:
+        return None
+    try:
+        return f"{Decimal(valor) * 100:.2f} %"
+    except (InvalidOperation, ValueError):
+        return valor
+
+
 templates.env.filters["dinero_ui"] = dinero_ui
+templates.env.filters["porcentaje_ui"] = porcentaje_ui
 templates.env.filters["kpis_serie"] = kpis_serie
 templates.env.filters["clase_cambio"] = clase_cambio
 templates.env.filters["kpis_inertes"] = kpis_inertes
@@ -151,6 +170,12 @@ def hace(valor, ahora=None) -> str:
 
 templates.env.filters["fecha_corta"] = fecha_corta
 templates.env.filters["hace"] = hace
+# Motivo de precio en palabras (el mismo mapa de los avisos: los ids crudos
+# nunca se muestran en la pantalla).
+templates.env.filters["motivo_precio_es"] = motivo_precio_es
+# Estado de precio en palabras (el mismo mapa de los avisos: los ids crudos
+# nunca se muestran en la pantalla).
+templates.env.filters["estado_precio_es"] = estado_precio_es
 
 # Columnas que YA estan en campanas.html. No se inventan orders/impressions.
 COLUMNAS_ORDEN = (
@@ -426,6 +451,53 @@ def pagina_salud(request: Request, conn: ConexionLectura) -> HTMLResponse:
     datos = dash.salud(conn=conn)
     return templates.TemplateResponse(
         request, "salud.html", {"pantalla": "salud", "plataformas": datos["plataformas"]}
+    )
+
+
+@router.get("/precios", response_class=HTMLResponse)
+def pagina_precios(request: Request, conn: ConexionLectura) -> HTMLResponse:
+    """Precios (REPRICING 01 A.6, S7): cinco bloques por plataforma en orden
+    (cobertura, con goal, hecho/habria-hecho, no evaluados, divergente).
+    Un camino (regla 2): los datos salen de `dash.precios` (el mismo
+    endpoint JSON); el contraste del puente reusa
+    `fuentes.contar_listing_identidad` + `cobertura.aviso_puente` del motor,
+    sin SQL nuevo en esta capa. Sin esquema 0039 el endpoint levanta 503 y
+    la pantalla lo muestra como error visible (nunca 500)."""
+    try:
+        datos = dash.precios(conn=conn)
+    except HTTPException as exc:
+        return templates.TemplateResponse(
+            request,
+            "precios.html",
+            {"pantalla": "precios", "error": exc.detail},
+            status_code=exc.status_code,
+        )
+    plataformas = {}
+    for plataforma, bloque in datos["plataformas"].items():
+        try:
+            puente = fuentes_precio.contar_listing_identidad(conn, platform=plataforma)
+        except Exception as exc:  # noqa: BLE001 - contraste opcional, no tumba la pantalla
+            logger.warning("precios: puente %s ilegible: %s", plataforma, scrub(str(exc)))
+            puente = None
+        recuadro = bloque["recuadro"]
+        plataformas[plataforma] = {
+            **bloque,
+            "puente": puente,
+            "aviso_puente": (
+                cobertura_precio.aviso_puente(activas=recuadro["activas"], puente=puente)
+                if puente is not None
+                else None
+            ),
+        }
+    return templates.TemplateResponse(
+        request,
+        "precios.html",
+        {
+            "pantalla": "precios",
+            "hoy": datos["hoy"],
+            "plataformas": plataformas,
+            "resultados_evaluados": cobertura_precio.RESULTADOS_EVALUADOS,
+        },
     )
 
 

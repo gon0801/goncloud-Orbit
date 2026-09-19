@@ -446,6 +446,136 @@ def _goals_set(args) -> int:
     return 0
 
 
+class _FaltaDsn(Exception):
+    pass
+
+
+def _conexion_decide():
+    """`(conn, cerrar)` con `ORBIT_DSN_DECIDE` (fail-closed, sin DSN no hay nada)."""
+    dsn = os.environ.get("ORBIT_DSN_DECIDE", "")
+    if not dsn:
+        raise _FaltaDsn("ORBIT_DSN_DECIDE")
+    conn = connect(dsn, autocommit=True)
+    return conn, conn.close
+
+
+def _clientes_precio(platform: str):
+    """`(lector, escritor, fees, limitador)` reales (costura testeable).
+
+    La corrida no construye su cubo: quien llama lo inyecta (un cubo por
+    plataforma; Pricing usa (1, 0.5/s)).
+    """
+    import time as _time
+
+    from app.estimacion_fees import ProductFeesClient
+    from app.spapi.client import CuboTasa, SpapiClient
+    from app.spapi.precio_write import construir_escritor
+
+    lector = SpapiClient()
+    escritor = construir_escritor(lector, platform)
+    fees = ProductFeesClient()
+    limitador = CuboTasa(sleep=_time.sleep, clock=_time.monotonic, capacidad=1, tasa=0.5)
+    return lector, escritor, fees, limitador
+
+
+def _precio(args: argparse.Namespace) -> int:
+    """Corrida diaria del motor de precios o su reporte (REPRICING 01 A.5)."""
+    # D9 (r3): import tardio (un error de import de esta cadena no tumba
+    # `ingest` ni `cycle`).
+    from app.precio import corrida as corrida_precios
+
+    if args.reporte:
+        if not args.desde or not args.hasta:
+            print("precio --reporte exige --desde y --hasta (YYYY-MM-DD)", file=sys.stderr)
+            return 2
+        try:
+            desde = dt.date.fromisoformat(args.desde)
+            hasta = dt.date.fromisoformat(args.hasta)
+        except ValueError:
+            print("precio --reporte: fechas invalidas (YYYY-MM-DD)", file=sys.stderr)
+            return 2
+        if desde > hasta:
+            # K8b: ventana invertida = error de uso, exit 2 con mensaje.
+            print(
+                f"precio --reporte con ventana invertida: --desde ({desde}) posterior a"
+                f" --hasta ({hasta})",
+                file=sys.stderr,
+            )
+            return 2
+        dsn = os.environ.get("ORBIT_DSN_READ", "")
+        if not dsn:
+            print("precio --reporte exige ORBIT_DSN_READ", file=sys.stderr)
+            return 2
+        try:
+            conn = connect(dsn, autocommit=True)
+        except Exception as exc:  # noqa: BLE001 - como `_cycle`: scrubbado y != 0
+            print(f"precio: {scrub(str(exc)) or exc.__class__.__name__}", file=sys.stderr)
+            return 1
+        try:
+            for linea in corrida_precios.reporte(
+                conn, desde=desde, hasta=hasta, platform=args.platform
+            ):
+                print(linea)
+        except Exception as exc:  # noqa: BLE001 - D7: como la corrida, scrubbado y != 0
+            print(f"precio: {scrub(str(exc)) or exc.__class__.__name__}", file=sys.stderr)
+            return 1
+        finally:
+            conn.close()
+        return 0
+    if not args.reporte and (args.desde or args.hasta):
+        # B5 (r3): las fechas sin `--reporte` se ignorarian y correria la
+        # corrida real: error de uso antes de conectar.
+        print("precio: --desde/--hasta solo con --reporte", file=sys.stderr)
+        return 2
+    if not args.platform:
+        print("precio exige --platform (amazon_mx|amazon_us|meli)", file=sys.stderr)
+        return 2
+    try:
+        conn, cerrar = _conexion_decide()
+    except _FaltaDsn as exc:
+        print(f"precio exige {exc}", file=sys.stderr)
+        return 2
+    except Exception as exc:  # noqa: BLE001 - K6: como `_cycle`, scrubbado y != 0
+        print(f"precio: {scrub(str(exc)) or exc.__class__.__name__}", file=sys.stderr)
+        return 1
+    try:
+        lector, escritor, fees, limitador = _clientes_precio(args.platform)
+        # C (r1): el import de avisos vive en la rama que llama a `correr`,
+        # no antes de `--reporte` (el reporte no avisa ni necesita Telegram).
+        from app.notifica import avisar_precio
+
+        resumen = corrida_precios.correr(
+            conn,
+            args.platform,
+            lector=lector,
+            escritor=escritor,
+            fees=fees,
+            limitador=limitador,
+            owner=f"{socket.gethostname()}:{os.getpid()}",
+            avisar=avisar_precio,
+        )
+    except corrida_precios.ConfigInvalida as exc:
+        # K8 (r4): config ausente o uso invalido = exit 2 (ver `main`).
+        print(f"precio: {exc}", file=sys.stderr)
+        return 2
+    except corrida_precios.LockOcupado as exc:
+        print(f"precio: {exc}", file=sys.stderr)
+        return 0
+    except Exception as exc:  # noqa: BLE001 - el CLI solo reporta, sin secretos
+        print(f"precio: {scrub(str(exc)) or exc.__class__.__name__}", file=sys.stderr)
+        return 1
+    finally:
+        cerrar()
+    for linea in resumen.lineas:
+        print(linea)
+    print(f"decisiones={resumen.decisiones} escritas={resumen.escritas}")
+    for error in resumen.errores:
+        print(f"precio: {scrub(error)}", file=sys.stderr)
+    if resumen.errores:
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m app.cli",
@@ -656,6 +786,19 @@ def main(argv: list[str] | None = None) -> int:
             " requiere ORBIT_DSN_READ)"
         ),
     )
+    p_precio = sub.add_parser(
+        "precio",
+        help="corrida diaria del motor de precios (--platform) o resumen (--reporte)",
+    )
+    p_precio.add_argument(
+        "--platform",
+        default=None,
+        choices=("amazon_mx", "amazon_us", "meli"),
+        help="plataforma de la corrida (el cron solo agenda amazon_mx)",
+    )
+    p_precio.add_argument("--reporte", action="store_true", help="resumen de solo lectura")
+    p_precio.add_argument("--desde", default=None, help="YYYY-MM-DD (con --reporte)")
+    p_precio.add_argument("--hasta", default=None, help="YYYY-MM-DD (con --reporte)")
 
     args, rest = parser.parse_known_args(argv)
     if args.comando == "cycle":
@@ -703,6 +846,13 @@ def main(argv: list[str] | None = None) -> int:
         # Los args (--desde/--hasta/--dry-run) los valida el main del
         # modulo (patron report): ventana invalida -> exit 2 ahi.
         return spapi_vigilante.main(rest)
+    if args.comando == "precio":
+        # Escribe decisiones y cambios: tokens extra SIEMPRE error del
+        # operador (patron cycle).
+        if rest:
+            print(f"argumentos desconocidos para 'precio': {rest}", file=sys.stderr)
+            return 2
+        return _precio(args)
     return _ingest(args, rest)
 
 
