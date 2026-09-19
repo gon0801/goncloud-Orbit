@@ -4,6 +4,23 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-19 UTC — REPRICING 01, Fase 11 (AUTO-07) CERRADA: corrida diaria y pantalla con avisos del motor de precios en master, y revisión independiente completa; ningún precio movido.**
+Cuatro PRs mergeados por la ruta del kit:
+
+- **A.5**, corrida diaria (`#309`, `53c6067`). `python -m app.cli precio --platform <p>` toma el lock `precio:<p>` (claim con latido + advisory de sesión), cierra huérfanas a `error`, cierra por observación los `enviado` de días anteriores, decide todos los goals vigentes, reparte la cuota propia por prioridad, aplica solo `live` y escribe el virtual en `shadow`; frenos `no_confirmado` y `api_error`; `--reporte` de solo lectura. El cron `10 13 * * *` queda documentado en `docs/DEPLOY.md` (lo instala D.1).
+- **A.6**, pantalla y avisos (`#312`, `510beda`). `/precios` con los cinco bloques de S7 y la cobertura en vivo arriba; `plataformas.<p>.precios` en `/salud`; un sender `notifica_precio` en flanco por racha, conectado a la corrida por el gancho `avisar`. Sin la 0039: `/salud` en `None` y `/precios` 503, nunca 500.
+- **R.1**, revisión independiente (`#314`, `4ac1f57`; bis `#313`, `de8c54f`). kimi sin altas ni medias en los siete squashes del motor; re-mutación con base real de los seis catálogos: todo mutante que puede morir muere; tres sobrevivientes del lead cerrados con test en el bis.
+- **E.0b** no corrió: E.0a sigue sin veredicto.
+
+Lo que cambia lo que se creía:
+
+- El freno por error de S6 no se alcanza con el cooldown de 7 días de S4 #9: un `error` cuenta para el cooldown y no hay reintento diario. Contradicción del plan que decide el dueño.
+- La cuota del motor es monótona (trigger de la 0002): cada intento reservado consume, aunque `cambiar_precio` salte sin escribir.
+- Los dos precios con sus horas de AC16 no se guardan ni se registran: la 0039 no tiene columna y la corrida no lee el `diagnostico`.
+- `seller_sku` no es único por plataforma: el aviso de buy box, que agrupa por SKU, puede confundir dos publicaciones.
+
+Lo que sigue es del dueño, en orden: E.2 parte 1, D.0 (con `!`), el goal del producto controlado y la sonda A.4; con A.4 y D.0, D.1 (sombra en producción: instalar el cron, goals en `shadow`, cinco corridas leídas con el lead). También el documento de origen de E.0a. Pendientes de código, anotados en las celdas de A.5 y A.6: la redacción de las frases del bloque (c), el aviso de buy box por `listing_id` y el diagnóstico de AC16.
+
 **2026-09-18 UTC — REPRICING 01, Fase 10 (AUTO-07) CERRADA: herramienta de goals y recuadro de cobertura en master, y veredicto del envío parcial por falta del documento de origen; ningún precio movido.**
 Cinco PRs mergeados por la ruta del kit:
 
