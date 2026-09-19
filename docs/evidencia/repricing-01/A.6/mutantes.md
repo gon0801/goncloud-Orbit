@@ -201,3 +201,19 @@ B10/B11). Cero sobrevivientes.
 | R2B3 | plantilla Estado: `estado_precio_es` -> id crudo | `test_r2b_b3_estado_en_palabras_con_mismo_mapa` (sin «objetivo inalcanzable») | MUERTO |
 | R2B4a | `_divergentes_precio`: `"dias": racha` -> `"dias": umbral` | `test_r2b_b4_divergente_racha_real_y_umbral_en_texto` (`3 == 5`) | MUERTO |
 | R2B4b | plantilla divergente: texto con el umbral -> «N días seguidos» literal | `test_r2b_b4_divergente_racha_real_y_umbral_en_texto` (sin «3 días seguidos») | MUERTO |
+
+---
+
+# A.6 — bloque R3 (N2 + kimi r3-3, solo tests)
+
+Siembra a mano sobre el HEAD nuevo con base real
+(`ORBIT_TEST_DSN=postgresql://orbit:orbit@localhost:5432/postgres`,
+Telegram falso) y `PYTHONPYCACHEPREFIX=$(mktemp -d)` fresco **por
+mutante**, revertido sin commit (restore con `git checkout --` del
+archivo sembrado, verificado con `git status`). El codigo ya era
+correcto: el test nuevo es lo que mata. Cero sobrevivientes.
+
+| ID | Mutante (que se cambio) | Test que lo mata | Estado |
+|----|-------------------------|------------------|--------|
+| R3N2 | `_frase_accion`: rama `bajar` de «`live` sin cambio real» (`if mode == "live" and cambio_estado is None:`, segunda ocurrencia) -> `if False:` | `test_r3_n2_live_bajar_sin_cambio_no_dice_bajo` (frase con «bajó») | MUERTO |
+| R3R33 | `base.html`: vuelve `<span class="nav-proximo">Repricing <span class="chip-proximo">pronto</span></span>` | `test_sidebar_reputacion_enlace_y_sin_chip_reviews` (chip en el marcado) | MUERTO |

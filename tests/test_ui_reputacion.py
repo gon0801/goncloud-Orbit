@@ -234,7 +234,10 @@ def test_sidebar_reputacion_enlace_y_sin_chip_reviews():
         html = _get_pagina(conn).text
         assert 'href="/reputacion"' in html
         assert "Reviews <span" not in html
-        assert 'href="/precios"' in html and "pronto" not in html  # R1 r2: sin chip "pronto"
+        assert 'href="/precios"' in html  # R1 r2: enlace real
+        # r3-3: sin chip «pronto» de Repricing en el marcado (no basta que la
+        # palabra no salga: hoy el unico «pronto» vive en un comentario Jinja).
+        assert "chip-proximo" not in html and "nav-proximo" not in html
 
 
 @_skip_db

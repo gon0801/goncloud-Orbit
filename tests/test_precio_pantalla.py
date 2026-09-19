@@ -2577,3 +2577,26 @@ def test_r2b_b4_divergente_racha_real_y_umbral_en_texto(monkeypatch):
 
 
 # --- fin bloque R2-b (otros carriles anexan debajo) ---
+
+
+def _r3_fila_bajar_live() -> dict:
+    """Detalle fabricado `bajar`/`live` sin cambio real (N2)."""
+    fila = _r2b_fila_subir_live()
+    # Sin cambio real, el «a» de la frase sale de `p_aplicado`.
+    fila.update(
+        {
+            "resultado": "bajar",
+            "p_actual": "127.60",
+            "p_objetivo": "116.00",
+            "p_aplicado": "116.00",
+        }
+    )
+    return fila
+
+
+def test_r3_n2_live_bajar_sin_cambio_no_dice_bajo():
+    """N2: `live` que baja sin cambio real: «decidió bajar ...; sin cambio
+    aplicado» (nunca «bajó»: nada se movió)."""
+    (accion,) = dash._acciones_precio([_r3_fila_bajar_live()], {}, "amazon_mx")
+    assert accion["frase"] == "SKU-1 decidió bajar de 127.60 a 116.00 MXN; sin cambio aplicado"
+    assert "bajó" not in accion["frase"]
