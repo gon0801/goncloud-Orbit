@@ -10,8 +10,8 @@ Lead: claude (sesión `fase11-lead`, worktree `wt-fase11-lead`). Implementador d
 el código revisado: muse. Runbook: `docs/runbooks/autopilot-fase11.md` de
 goncloud-openclaw (carril R).
 
-**Estado de este documento: parcial.** Cubre A.1, A.2, A.3, A.7 y A.5 (ya en `master`).
-A.6 entra cuando su PR mergee (Q2), con el mismo método.
+**Estado de este documento: completo.** Cubre A.1, A.2, A.3, A.7, A.5 y A.6 (todas en `master`)
+y el bis que cerró los sobrevivientes (PR #313, `de8c54f`).
 
 ## Parte 1 — cruzada de kimi por SHA de squash
 
@@ -19,9 +19,10 @@ A.6 entra cuando su PR mergee (Q2), con el mismo método.
 caracteres. Cada squash se revisó parado en ese SHA y **partido por archivos** en
 trozos de menos de ~58 KB, para que kimi viera el diff completo (guion:
 `kimi/kimi-rondas.sh`; cada salida cruda en `kimi/`, con el SHA, los archivos, la
-hora y el código de salida al pie). Dos archivos de prueba pasan solos del tope
-(`tests/test_precio_reglas.py`, 82 KB; `tests/test_precio_write.py`, 105 KB): kimi
-leyó el resto del archivo real en el repo y lo dice en su respuesta.
+hora y el código de salida al pie). Tres archivos de prueba pasan solos del tope
+(`tests/test_precio_reglas.py`, 82 KB; `tests/test_precio_write.py`, 105 KB;
+`tests/test_precio_pantalla.py`, 112 KB): kimi leyó el resto del archivo real en el repo y lo
+dice en su respuesta.
 
 | Fila | PR | SHA de squash | Trozos | Altas | Medias | Bajas |
 |---|---|---|---|---|---|---|
@@ -31,9 +32,10 @@ leyó el resto del archivo real en el repo y lo dice en su respuesta.
 | A.3 | #300 | `efc0555` | 3 | 0 | 0 | 13 |
 | A.7 | #305 | `0d88cc8` | 2 | 0 | 0 | 9 |
 | A.5 | #309 | `53c6067` | 3 | 0 | 0 | 9 (uno de los trozos, `LGTM`) |
+| A.6 | #312 | `510beda` | 3 | 0 | 0 | 15 |
 
-**Veredicto de kimi: sin hallazgos altos ni medios en ningún SHA** (A.5: los tres trozos
-«NO BLOQUEANTE» o `LGTM`; guion `kimi/kimi-A5-squash.sh`) (política de la
+**Veredicto de kimi: sin hallazgos altos ni medios en ningún SHA** (A.5 y A.6: todos los trozos
+«NO BLOQUEANTE» o `LGTM`; guiones `kimi/kimi-A5-squash.sh` y `kimi/kimi-A6-squash.sh`) (política de la
 sección 4 del loop: una ronda sin altas ni medias cierra). Las bajas quedan como
 residuales declarados; las que tocan un comportamiento, con su razón:
 
@@ -64,6 +66,20 @@ residuales declarados; las que tocan un comportamiento, con su razón:
   porque `_revisar_cotizacion` sale antes de leerlo. Residual.
 - A.5 (`kimi-A.5-c3`): fragilidades de tests (orden implícito en dos sabotajes, contadores de la
   red falsa sin lock, parámetro muerto). Residuales.
+
+- A.6 (`kimi-A.6-c2`, 2): el aviso `buy_box_perdida` agrupa hoy y ayer por
+  `COALESCE(seller_sku, external_id)`, y `seller_sku` no es único por plataforma (el `COMMENT` de
+  `listing` en la 0001 documenta 2–4 publicaciones por SKU): dos publicaciones con el mismo SKU se
+  confunden y la pérdida de una puede quedar escondida o mezclar su flanco con la otra. Lo robusto
+  es agrupar por `listing_id`. Residual con nombre en la celda de A.6.
+- A.6 (`kimi-A.6-c2`, 1 y 3): un `frenado(no_confirmado)` manda el aviso de grupo `frenado` y el
+  aviso por producto `no_confirmado` (lo piden la fila y AC5; son dos mensajes por el mismo
+  evento); una decisión `no_evaluado` con `buy_box_is_own = false` genera un aviso
+  `buy_box_perdida` con estado «no evaluado». Residuales.
+- A.6 (`kimi-A.6-c1`, 1–3): la frase del bloque (c) con un cambio `no_confirmado` dice «subió»
+  sin matiz (el revisor del merge encontró lo mismo con `error` y `pendiente`); un `mantener` sin
+  `p_actual` sale «None»; el docstring del módulo dice que `/salud` va «sin recuadro» y hoy lleva
+  `cobertura`. Residuales de redacción, con nombre en la celda de A.6.
 
 Dos más de A.5, vistas por el lead al auditar el carril B (no las trajo la cruzada):
 
@@ -113,6 +129,7 @@ hoy; el resultado de cada uno está en `remutacion/cat_*.resultado.jsonl`.
 | A.3 | 51 + 2 equivalentes + 1 del lead | 51 | 2 (`L2b`, `G4`) | 1 del lead (`R1-A3-S3`) |
 | A.7 | 32 + 1 del lead | 32 | 0 | 1 del lead (`R1-A7-S1`) |
 | A.5 | 94 (catálogo de muse r0–r5, que incluye los del lead de la auditoría) | 93 | 1 (`C3-1-doble-claim`) | 0 |
+| A.6 | 75 (catálogo de muse r0–r3, que incluye los del lead de la auditoría; 73 por `muta.py` y 2 de dos ediciones por `muta_dos_A6.py`) | 75 | 0 | 0 |
 
 **Todo mutante del catálogo de los implementadores que hoy puede morir, muere.**
 
@@ -123,6 +140,17 @@ razón y el id que los cubre hoy están en `cat_A5.obsoletos.json`. **Equivalent
 (quitar la guarda del claim en `_tomar_lock`): desde r4 la exclusión la da además
 `pg_try_advisory_lock`, que rechaza al segundo proceso con el mismo `LockOcupado`; el resultado
 observable no cambia.
+
+A.6 se re-mutó sobre el squash `510beda` (worktree aparte). `cat_A6.json` junta los ids de muse
+(P, Q, R, S del r0; R1*, R1B*, R2*, R3* de las correcciones, que incluyen los del lead) en su última
+forma. S3 y R1C2 mueven el import tardío de `avisar_precio` (dos ediciones en `app/cli.py`): los
+siembra `muta_dos_A6.py`, con el mismo método, y su resultado está en `cat_A6.dos.resultado.txt`.
+Dos ids quedan fuera, con su razón en `cat_A6.obsoletos.json`: Q8 (duplica a R1B-B9a) y R6 (el
+filtro de plantilla que mutaba ya no existe; lo cubre R1B-A5b). Transcripciones no literales: R3 y
+R9 («sección eliminada») se siembran cambiando el `id` del bloque; R4, vaciando la frase de cada
+fila; R5, sacando la traducción del motivo del JSON (la plantilla ya no traduce). La primera
+transcripción del lead de R1B-T3a ponía una frase fija sin el texto «aviso: puente» y sobrevivía:
+era infiel (el test busca ese texto); con el formato real del aviso muere por el caso bajo 5 %.
 
 Transcripciones que no son literales, declaradas:
 
@@ -152,8 +180,9 @@ catálogos; ningún test del archivo los mata):
 | `R1-A2-S2` | A.2 | `objetivo.margen_a_precio`: `divisor = iva_divisor if incluye_iva else Decimal(1)` → `divisor = iva_divisor` | Que `margen_a_precio` no aplica el divisor de IVA cuando el precio no lo incluye (el catálogo O9 lo prueba solo en `precio_estrella`) |
 | `R1-A3-S3` | A.3 | `tests/test_architecture.py`: sin `_sin_comentario` en el barrido de PATCH crudo | Que un comentario con `httpx.patch(` o `.patch(` no es fuga (el test existente solo usa `# PATCH`) |
 
-Se cierran con test por un encargo bis a muse antes de Q4 (PR pendiente; se cita
-aquí al mergear).
+**Cerrados** con test por el encargo bis a muse antes de Q4: PR #313, squash `de8c54f`
+(`bis.md`). Los tres mueren sobre el commit de muse (`54b46f9`) y sobreviven sobre la base
+`6eeaf2f` (control). Ronda cruzada del bis: glm, `LGTM`. A.6 no dejó sobrevivientes.
 
 ## Desviaciones de la fila R.1, declaradas
 
@@ -162,13 +191,21 @@ aquí al mergear).
 2. La cruzada corrió en un worktree aparte (`/Users/dn/dev/_wt/f11-kimi-r1`, detached
    en cada SHA) en vez de `checkout --detach` en `wt-fase11-lead`, para que la
    re-mutación corriera en paralelo en el worktree del lead. Mismo árbol, mismo SHA; el
-   worktree aparte se quita al cierre.
+   worktree aparte se quita al cierre. A.5 y A.6 se re-mutaron también en un worktree aparte
+   (`/Users/dn/dev/_wt/f11-rev-A`, detached en su squash), para no sembrar mutantes donde kimi
+   revisaba.
+5. El bis va en una sola rama (`fase11/r1-cierre-r1`) para los tres sobrevivientes, en vez de
+   una por fila (`fase11/<fila>-cierre-r<K>`): salen de la misma re-mutación y son tests sueltos.
 3. A.1 tiene dos squashes (#303 y su cierre r1 #307): se revisaron los dos.
 4. Cada squash se revisó en trozos por archivo (límite de 60 000 caracteres de
    `cross-review.ps1`); el veredicto por SHA es la unión de sus trozos.
 
 ## APPROVE
 
-- **kimi**: sin altas ni medias sobre `662db38`, `eeefb72`, `39cba88`, `efc0555` y
-  `0d88cc8`, y sobre `53c6067` (A.5) (salidas en `kimi/`). A.6: pendiente.
-- **lead**: pendiente (se escribe al cerrar A.6 y el PR bis).
+- **kimi**: sin altas ni medias sobre `662db38`, `eeefb72`, `39cba88`, `efc0555`, `0d88cc8`,
+  `53c6067` (A.5) y `510beda` (A.6) (salidas en `kimi/`).
+- **lead**: APPROVE sobre los mismos siete squashes y el bis `de8c54f`: todo mutante de los
+  catálogos que puede morir muere con base real (A.1 31/31, A.2 58/58, A.3 51/51 + 2
+  equivalentes, A.7 32/32, A.5 93/94 + 1 equivalente, A.6 75/75) y los tres sobrevivientes
+  propios del lead quedaron cerrados con test en el bis. El `APPROVE lead <sha>` de este
+  documento va en el comentario del PR, sobre su head.
