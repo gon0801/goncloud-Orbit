@@ -482,6 +482,7 @@ def _precio(args: argparse.Namespace) -> int:
     """Corrida diaria del motor de precios o su reporte (REPRICING 01 A.5)."""
     # D9 (r3): import tardio (un error de import de esta cadena no tumba
     # `ingest` ni `cycle`).
+    from app.notifica import avisar_precio
     from app.precio import corrida as corrida_precios
 
     if args.reporte:
@@ -548,6 +549,7 @@ def _precio(args: argparse.Namespace) -> int:
             fees=fees,
             limitador=limitador,
             owner=f"{socket.gethostname()}:{os.getpid()}",
+            avisar=avisar_precio,
         )
     except corrida_precios.ConfigInvalida as exc:
         # K8 (r4): config ausente o uso invalido = exit 2 (ver `main`).

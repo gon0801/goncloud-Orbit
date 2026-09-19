@@ -47,6 +47,11 @@ Task 1.4 — campanas + feed de decisiones (brief §3.3/§3.4):
 DETERMINISMO: `hoy` sale de `_hoy_utc()` (UTC), inyectable en tests; las
 ventanas se calculan en Python, no en SQL (nada depende de la TimeZone de
 sesion).
+
+REPRICING 01 A.6 — pantalla de precios: GET `/precios` (recuadro S10 en
+vivo con app.precio.fuentes + app.precio.cobertura, decisiones del dia y
+huerfanas) + `plataformas.<p>.precios` en /salud (liviano, sin recuadro,
+sin cambiar las claves existentes).
 """
 
 from __future__ import annotations
@@ -56,6 +61,7 @@ import logging
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Annotated, Literal
 
+import psycopg.errors
 from fastapi import APIRouter, HTTPException, Query
 from psycopg.rows import dict_row, tuple_row
 
@@ -85,6 +91,8 @@ from app.optimizer import bid, hygiene
 from app.optimizer import goals as g
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.windows import _SQL_SYNC_PLATAFORMA, _SQL_WATERMARK_PLATAFORMA
+from app.precio import cobertura as cobertura_precio
+from app.precio import fuentes as fuentes_precio
 from app.redaction import install_scrub_filter, scrub
 from app.spapi.salud import bloque_salud
 
@@ -922,6 +930,7 @@ def salud(conn: ConexionLectura) -> dict:
             "quota": _quota_de(conn, plataforma),
             "target_margen": bloque_target_margen(ultimo),
             "spapi": _spapi_de(conn, plataforma),
+            "precios": _precios_de(conn, plataforma),
         }
     return {"plataformas": plataformas}
 
@@ -1368,3 +1377,149 @@ def settings(conn: ConexionLectura) -> dict:
             for goal_id, goal, plataforma_campana, nombre in goals
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# REPRICING 01 A.6 - /precios + plataformas.<p>.precios en /salud: pantalla
+# del motor de precios
+# ---------------------------------------------------------------------------
+#
+# - GET /api/dashboard/precios: por plataforma, el recuadro S10 EN VIVO
+#   (armado con app.precio.fuentes + app.precio.cobertura, las MISMAS
+#   consultas del motor — este modulo no duplica ni una) + las decisiones
+#   del dia por resultado (precio_decision) + las huerfanas pendientes
+#   (precio_cambio pendiente no-reversa).
+# - /salud suma plataformas.<p>.precios LIVIANO ({hoy, decisiones,
+#   huerfanas}, sin recuadro) SIN cambiar las claves existentes.
+# - El reloj es el de la base (fuentes.hoy_base: el dia UTC que fija el
+#   trigger de precio_decision, no el local).
+# - Sin esquema de precios (migracion 0039 no aplicada): /salud deja el
+#   bloque en None + warning (patron _spapi_de) y /precios responde 503
+#   con el motivo claro — nunca 500 en ninguno de los dos.
+# - Dinero como STRING via _dec_str (regla 4); ausente = null (regla 3).
+
+_SQL_DECISIONES_PRECIO_HOY = """
+SELECT resultado, count(*)
+  FROM precio_decision
+ WHERE platform = %s::platform
+   AND decision_date = %s
+ GROUP BY resultado
+ ORDER BY resultado
+"""
+
+_SQL_HUERFANAS_PRECIO = """
+SELECT count(*)
+  FROM precio_cambio
+ WHERE platform = %s::platform
+   AND estado = 'pendiente'
+   AND NOT es_reversa
+"""
+
+_ERROR_SIN_0039 = "sin esquema de precios (migracion 0039 no aplicada)"
+
+
+def _decisiones_precio_hoy(conn: ConexionLectura, plataforma: str, hoy: dt.date) -> dict[str, int]:
+    """{resultado: conteo} de precio_decision del dia (grano exacto del
+    UNIQUE (listing, platform, decision_date): una fila por publicacion)."""
+    return {
+        fila[0]: fila[1]
+        for fila in conn.execute(_SQL_DECISIONES_PRECIO_HOY, (plataforma, hoy)).fetchall()
+    }
+
+
+def _huerfanas_precio(conn: ConexionLectura, plataforma: str) -> int:
+    """Cambios pendientes no-reversa (las huerfanas que la corrida cierra a
+    `error`: espejo del WHERE de cerrar_huerfanas en corrida.py)."""
+    return int(conn.execute(_SQL_HUERFANAS_PRECIO, (plataforma,)).fetchone()[0])
+
+
+def _recuadro_precio(conn: ConexionLectura, plataforma: str, hoy: dt.date) -> dict:
+    """Recuadro S10 serializado (la ecuacion cuadra: cobertura.cuadra_exact).
+    La clave de dias la lee fuentes.py de la config (este modulo no conoce
+    claves); el dinero sale como string (regla 4)."""
+    settings = fuentes_precio.config_vigente_settings(conn)
+    max_dias = fuentes_precio.max_dias_desde_settings(settings)
+    filas = fuentes_precio.leer_publicaciones(conn, platform=plataforma, hoy=hoy)
+    rec = cobertura_precio.armar_recuadro(filas, platform=plataforma, max_dias=max_dias)
+    return {
+        "activas": rec.activas,
+        "evaluadas": rec.evaluadas,
+        "no_evaluadas": [{"motivo": motivo, "count": n} for motivo, n in rec.no_evaluadas],
+        "sin_goal": [
+            {
+                "sku": detalle.sku,
+                "precio": _dec_str(detalle.precio),
+                "moneda": detalle.moneda,
+                "canal": detalle.canal,
+            }
+            for detalle in rec.sin_goal
+        ],
+        "fuera_de_alcance": [{"fase": fase, "count": n} for fase, n in rec.fuera_de_alcance],
+        "avisos": list(rec.avisos),
+    }
+
+
+def _bloque_precios(
+    conn: ConexionLectura, plataforma: str, hoy: dt.date, *, con_recuadro: bool
+) -> dict:
+    """Bloque de precios de UNA plataforma (hoy + decisiones del dia +
+    huerfanas; el recuadro solo en /precios, no en /salud)."""
+    bloque: dict = {
+        "hoy": hoy.isoformat(),
+        "decisiones": _decisiones_precio_hoy(conn, plataforma, hoy),
+        "huerfanas": _huerfanas_precio(conn, plataforma),
+    }
+    if con_recuadro:
+        bloque["recuadro"] = _recuadro_precio(conn, plataforma, hoy)
+    return bloque
+
+
+def _precios_de(conn: ConexionLectura, plataforma: str) -> dict | None:
+    """El bloque precios de UNA plataforma para /salud (liviano, sin
+    recuadro). Si la 0039 aun no se aplico (o la config no trae la clave),
+    el bloque queda en None + warning y la pantalla NO muere entera
+    (patron _spapi_de: degradacion visible, nunca 500)."""
+    try:
+        return _bloque_precios(conn, plataforma, fuentes_precio.hoy_base(conn), con_recuadro=False)
+    except psycopg.errors.UndefinedTable as exc:
+        logger.warning(
+            "salud: precios %s ilegible (%s): %s",
+            plataforma,
+            _ERROR_SIN_0039,
+            scrub(str(exc)),
+        )
+        return None
+    except Exception as exc:  # noqa: BLE001 - degradacion visible, no caida
+        logger.warning(
+            "salud: precios %s ilegible: %s",
+            plataforma,
+            scrub(str(exc)),
+        )
+        return None
+
+
+@router.get("/precios")
+def precios(conn: ConexionLectura) -> dict:
+    """Pantalla del motor de precios por plataforma (REPRICING 01 A.6):
+    recuadro S10 en vivo + decisiones del dia por resultado + huerfanas
+    pendientes. Sin esquema de precios o sin la clave de config -> 503 con
+    el motivo claro (fail-closed como sin DSN), nunca 500."""
+    hoy = fuentes_precio.hoy_base(conn)
+    plataformas: dict[str, dict] = {}
+    for plataforma in PLATAFORMAS_MONEDA:
+        try:
+            plataformas[plataforma] = _bloque_precios(conn, plataforma, hoy, con_recuadro=True)
+        except psycopg.errors.UndefinedTable as exc:
+            raise HTTPException(status_code=503, detail=_ERROR_SIN_0039) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001 - error claro, nunca 500
+            logger.warning(
+                "precios: %s ilegible: %s",
+                plataforma,
+                scrub(str(exc)),
+            )
+            raise HTTPException(
+                status_code=503, detail=f"precios de {plataforma} ilegibles"
+            ) from exc
+    return {"hoy": hoy.isoformat(), "plataformas": plataformas}

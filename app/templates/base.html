@@ -28,7 +28,8 @@
     'inertes': ('Inertes', 'Hojas activas sin trafico desde 14 dias o mas'),
     'settings': ('Settings', 'Cascada de targets, caps diarios y goals'),
     'fabrica': ('Crear campañas', 'Un grupo de cinco campañas de Sponsored Products'),
-    'reputacion': ('Reputación', 'Rating, reviews, preguntas y alertas por listing')
+    'reputacion': ('Reputación', 'Rating, reviews, preguntas y alertas por listing'),
+    'precios': ('Precios', 'Cobertura, decisiones y divergencias del motor de precios')
   } %}
   <a class="saltar-contenido" href="#contenido">Saltar al contenido</a>
   <aside class="sidebar" aria-label="Navegacion principal">
@@ -57,9 +58,7 @@
         {# REPUTACION 01 A.6 (acta 0.5 §6): Reputacion deja "pronto" y el
            chip Reviews se retira (pestana dentro de /reputacion). #}
         <a href="/reputacion" {% if pantalla == 'reputacion' %}aria-current="page"{% endif %}>Reputacion<span id="reputacion-contador" class="contador" hidden></span></a>
-        {% for nombre in ['Repricing'] %}
-        <span class="nav-proximo">{{ nombre }} <span class="chip-proximo">pronto</span></span>
-        {% endfor %}
+        <a href="/precios" {% if pantalla == 'precios' %}aria-current="page"{% endif %}>Repricing</a>
       </div>
       <div class="nav-pie">
         <a href="/settings" {% if pantalla == 'settings' %}aria-current="page"{% endif %}>Settings</a>

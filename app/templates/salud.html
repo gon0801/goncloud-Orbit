@@ -94,6 +94,19 @@
   </div>
   {% endif %}
 
+  {% if datos.precios is defined %}
+  {# REPRICING 01 A.6: bloque liviano {hoy, decisiones, huerfanas}; el
+     recuadro vive en /precios (un solo camino con con_recuadro). #}
+  <h3>Precios</h3>
+  <div id="bloque-precios-{{ plataforma }}">
+  {% if datos.precios %}
+  <p>Hoy {{ datos.precios.hoy }} · {% if datos.precios.decisiones %}decisiones: {% for resultado, n in datos.precios.decisiones.items() %}{{ resultado }} {{ n }}{% if not loop.last %} · {% endif %}{% endfor %}{% else %}sin decisiones hoy{% endif %} · huerfanas pendientes: {{ datos.precios.huerfanas }}</p>
+  {% else %}
+  <p class="mutado">Sin datos de precios (esquema 0039 no aplicado o corrida sin lectura).</p>
+  {% endif %}
+  </div>
+  {% endif %}
+
   <h3>Historico (14d)</h3>
   <div class="tabla-scroll" role="region" aria-label="Tabla de datos" tabindex="0">
   <table>
