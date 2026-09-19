@@ -19,7 +19,7 @@ SELECT 'estado_0039',
       (EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'listing_id_platform_key'))
   ) AS o(presente);
 SELECT 'btree_gist', count(*)::text FROM pg_extension WHERE extname = 'btree_gist';
-SELECT 'config_id', id::text FROM config_version ORDER BY id DESC LIMIT 1;
+SELECT 'config_id', max(id)::text FROM config_version;
 SELECT 'config_label', coalesce(label, '') FROM config_version ORDER BY id DESC LIMIT 1;
 SELECT 'claves_precio', count(*)::text
   FROM (SELECT settings FROM config_version ORDER BY id DESC LIMIT 1) v,

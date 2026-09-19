@@ -43,7 +43,7 @@ SELECT 'cap:' || m, coalesce(apply_cap_de_config(m)::text, 'NULL')
       'precio:amazon_mx', 'precio:amazon_us', 'precio:meli'
   ]) AS m
  ORDER BY m;
-SELECT 'config_id', id::text FROM config_version ORDER BY id DESC LIMIT 1;
+SELECT 'config_id', max(id)::text FROM config_version;
 SELECT 'config_label', coalesce(label, '') FROM config_version ORDER BY id DESC LIMIT 1;
 SELECT 'clave:' || e.key, e.value::text
   FROM (SELECT settings FROM config_version ORDER BY id DESC LIMIT 1) v,

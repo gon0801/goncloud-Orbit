@@ -19,11 +19,14 @@ evidencia de implementación y validación.
 
 ## Estado por módulo (criterio del doc vs realidad)
 
-### M1 Repricing — PLAN SELLADO `plans/repricing-01.md` (v1.1, 2026-09-16; AUTO-07)
+### M1 Repricing — EN CURSO `plans/repricing-01.md` (v1.3; AUTO-07)
 
 - Criterio doc: cambia precio en ambas plataformas con historial.
 - Realidad: plan y spec aprobados por el dueño (decisiones 1–12 el 15-sep,
-  13–15 el 16-sep); cero código. Motor por goal de margen estimado por
+  13–15 el 16-sep). Fases 8, 10 y 11 cerradas (A.0–A.3, A.5–A.7 y R.1 en
+  `master`) y D.0 aplicada en producción el 2026-09-19 (0039 + 20 claves
+  `precio_*`, `config_version` 20); ningún precio movido. Sigue A.4 (sonda
+  de escritura, del dueño). Motor por goal de margen estimado por
   producto, sube si falta, baja solo si pierde ventas, sombra primero, cuota
   propia, y **toda publicación activa contemplada** en un recuadro de
   cobertura que cuadra.
@@ -45,7 +48,8 @@ evidencia de implementación y validación.
   (13 passed) + `campanas-01`, `campana-activa-01`, `cortes-01`
   cerrados. Cumplido: sonda real ejecutada 2026-09-09 (lote `web-923cb2…`,
   5 campañas ENABLED en MX, shapes sellados en PR #233, pantalla corregida
-  en PR #232); ORBIT 17 solo espera el paso 4 (ciclo 08:41 UTC) para Done.
+  en PR #232); ORBIT 17 espera el paso 4 de la tarea 11 (decisiones en
+  sombra del grupo 1, desde el 2026-09-19) para Done.
   F2/AUTO-02 queda desbloqueada (ver secuencia, paso 3).
 - MeLi Ads (proposal-only, bloqueado a nivel cuenta): sin plan ni
   stub. Gap.
@@ -113,8 +117,8 @@ evidencia de implementación y validación.
   cortes-ui (1.2); briefs v2/repricing/promos/envíos antes de cada
   stub.
 - **Lead**: colas chicas (orbit-05
-  2.3/2.5, bids-01 1.5, orbit-02 3.4); cierre de ORBIT 17 (paso 4 tras el
-  ciclo del 2026-09-09 08:41 UTC); causa conciliación ventas/compras
+  2.3/2.5, orbit-02 3.4); cierre de ORBIT 17 (paso 4 de la tarea 11:
+  decisiones en sombra del grupo 1 desde el 2026-09-19); causa conciliación ventas/compras
   (orbit-19/0.3, no demostrada); stubs repricing/meli-ads/
   promociones/envíos (SP-API ya planeado: `plans/sp-api-01.md`,
   D1–D7 cerradas 2026-09-09); REP-FOLLOW-1/3 (opcionales).
@@ -137,7 +141,7 @@ histórica del registro:
 | AUTO-04 | Ajustes de placements | Top of Search, Product Pages y otros placements soportados; datos por ubicación, efecto sobre la puja efectiva, límites y reversa. Citado en orbit-03:128 y margen-estimado-01:156; schema listo (`ad_entity_kind`). | No hay motor de placements en Orbit. Confirmar fuente y API vigentes al planificar; no reutilizar el sistema viejo. | Pendiente de plan formal |
 | AUTO-05 | Gestión de presupuestos | Redistribución entre campañas/grupos, ritmo de gasto y límites por moneda, con una sola autoridad de escritura y reversa. Incluye budgets intradía + AMS/Stream (orbit-03:128). | Hoy se capturan budgets al crear. Las cuotas de operaciones no son presupuestos de publicidad. | Pendiente de plan formal |
 | AUTO-06 | Reactivación y limpieza del catálogo publicitario | Cuándo reactivar keywords/targets/campañas y si automatizar limpieza. Pausa reversible vs archivado irreversible; reponer crea identidad nueva sin historia. | Ya hay herramientas manuales y BIDS 01. No convertirlas en automatismo por defecto. | Pendiente de evaluación y plan |
-| AUTO-07 | Repricing | Plan del motor de precios, con costos, margen, inventario, límites y reversa. Ver M1 arriba. | Módulos avanzados; precondición margen-estimado-01. | Plan formal `plans/repricing-01.md` v1.1 (2026-09-16), 28 filas en 5 fases; cero implementación |
+| AUTO-07 | Repricing | Plan del motor de precios, con costos, margen, inventario, límites y reversa. Ver M1 arriba. | Módulos avanzados; precondición margen-estimado-01. | `plans/repricing-01.md` v1.3: Fases 8, 10 y 11 cerradas; D.0 aplicada en producción 2026-09-19; ningún precio movido; sigue A.4 |
 | AUTO-08 | Promociones | Plan de promociones y su efecto económico, con datos y autorizaciones explícitas. Ver M4 arriba. | Módulos avanzados; depende de Márgenes + Repricing. | Pendiente de plan formal |
 | AUTO-09 | Reputación | Seguimiento y acciones de reputación. v1 cerrada (reputacion-01); v2 = reputacion-02 (stub). Ver M3 arriba. | Módulos avanzados; v2 requiere SP-API + REP-FOLLOW-2. | Plan v2 pendiente de brief |
 | AUTO-10 | Estimación por venta antes de Ads | Precio, costo, comisiones, logística y retenciones verificables por publicación; desglose y ausencias explícitas. Comparación informativa. | `margen-estimado-01.md`; FBA MX desplegado. FBM/US quedan como ampliaciones. | Cerrado 2026-09-08 |
