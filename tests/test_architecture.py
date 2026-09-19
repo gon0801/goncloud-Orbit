@@ -1603,6 +1603,26 @@ def test_precio_write_frontera_comentario_con_patch_no_es_fuga(tmp_path):
     assert _fugas_patch_crudos(tmp_path, tmp_path) == []
 
 
+def test_r1bis_s3_comentario_con_llamada_patch_no_es_fuga(tmp_path):
+    """R.1 bis S3: `httpx.patch(` / `.patch(` en comentario no es fuga.
+
+    Con fuga real sembrada al lado: la ausencia se afirma junto a la
+    presencia (si el candado dejara de cazar, este test tambien cae).
+    """
+    (tmp_path / "notas.py").write_text(
+        "# httpx.patch('/listings/2021-08-01/items/X')\n"
+        "x = 1  # cliente.patch('/listings/2021-08-01/items/Y')\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "fuga.py").write_text(
+        "import httpx\nhttpx.patch('/listings/2021-08-01/items/Z', json={})\n",
+        encoding="utf-8",
+    )
+    fugas = _fugas_patch_crudos(tmp_path, tmp_path)
+    assert not any("notas.py" in f for f in fugas)
+    assert any("fuga.py" in f for f in fugas)
+
+
 def test_precio_write_frontera_caza_llamada_ejecutable_con_prefijo(tmp_path):
     """r6-C3: la frontera del prefijo es la llamada ejecutable."""
     (tmp_path / "fuga.py").write_text(
