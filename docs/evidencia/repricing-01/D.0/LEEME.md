@@ -10,8 +10,11 @@ Desde la raíz de un árbol del repo en la Mac **parado en `origin/master` y sin
 cambios**, en una ventana tranquila (**no** en la misma ventana de despliegue
 que D.3 de `fabrica-02`). Todo lo que corre sale del árbol (la 0039, la
 siembra, el readback, el verificador y `app/`), así que en producción el guion
-lo exige: si `HEAD` no es `origin/master` o hay cambios sin commitear, para en
-rojo antes de tocar el server.
+lo exige: si `HEAD` no es `origin/master` o hay cambios sin commitear en
+archivos del repo, para en rojo antes de tocar el server. Los archivos nuevos
+sin seguimiento no cuentan: no cambian lo que corre (todas las entradas son
+rutas fijas del repo), y las `salidas/` de una corrida anterior, todavía sin
+commitear, no deben impedir re-correrlo.
 
 El checkout principal suele estar en una rama de Muse, así que lo seguro es un
 worktree nuevo (el `.venv` se enlaza del checkout principal):
@@ -31,7 +34,7 @@ queda en `salidas/<stamp>/` con `CORRIDA.txt` de resumen.
 
 | Paso | Archivo | Con qué rol |
 |---|---|---|
-| 0. Preflight: en producción el árbol es `origin/master` sin cambios; 0039 del árbol = `origin/master`, `btree_gist`, `listing` sin duplicados, 8 caps de Ads vivos, estado de la 0039 y de las claves | `preflight.sql` | lector, `BEGIN READ ONLY` |
+| 0. Preflight: en producción el árbol es `origin/master` sin cambios; 0039 del árbol = `origin/master`, `btree_gist`, `listing` sin duplicados, 8 caps de Ads vivos, estado de la 0039 (`ausente`, `completa` o `parcial`: las cinco tablas más `listing_id_platform_key`; con `parcial` corta antes de migrar o sembrar) y de las claves | `preflight.sql` | lector, `BEGIN READ ONLY` |
 | 1. Backup `--schema-only` completo (bloque de `docs/DEPLOY.md` §0039) | en `correr.sh` | superusuario, en el server |
 | 2. 0039 en una transacción (si el `EXCLUDE` no se crea, se revierte entera) | `migrations/0039_precio.sql` | superusuario |
 | 3. Siembra de las 20 claves (se niega si ya hay claves `precio_*`) | `siembra.sql` | superusuario |
@@ -59,10 +62,14 @@ backup habría abortado con «DUMP INVALIDO». `tests/test_precio_d0.py` lo
 prueba ahora contra un `pg_dump` real, junto con la siembra, la cuota, el
 readback y el verificador.
 
-El ensayo corrió antes del cierre de la Fase 11, con el verificador sin los
-validadores de la corrida y la pantalla. Esos se agregaron después, con su
-prueba en `tests/test_precio_d0.py`, y el verificador nuevo da
-`CONFIG-OK 20 claves precio_*` sobre el `05-settings.json` del ensayo.
+Las dos primeras corridas (`20260918-*`) son de antes del cierre de la Fase 11.
+Las dos últimas (`20260919-070540` y `-070541`) repiten el ensayo con el guion
+de este PR: el verificador con los validadores de la corrida y la pantalla y
+el preflight con el estado de la 0039 en tres valores. La primera ve la 0039
+`ausente`, la aplica y siembra; la segunda la ve `completa` y salta las dos
+cosas; las dos dan `D0-VERDE`. La guarda de «árbol en `origin/master`» solo
+corre en producción, y la prueban `tests/test_precio_d0.py` con un repo
+desechable y un `ssh` falso, igual que el corte por una 0039 `parcial`.
 
 ## Después de la corrida (lead)
 

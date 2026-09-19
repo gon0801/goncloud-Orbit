@@ -212,7 +212,7 @@ def test_cuota_sin_siembra_revienta_fail_closed():
 def test_preflight_como_lector_antes_de_la_0039():
     with _db("orbit_d0_pre", con_0039=False) as (conn, _):
         pares = _pares(conn, (D0 / "preflight.sql").read_text(encoding="utf-8"), rol="app_read")
-        assert pares["sin_0039"] == "true"
+        assert pares["estado_0039"] == "ausente"
         assert pares["btree_gist"] == "1"
         assert pares["claves_precio"] == "0"
         assert pares["listing_dup_id_platform"] == "0"
@@ -221,6 +221,17 @@ def test_preflight_como_lector_antes_de_la_0039():
             f"cap:{m}": str(CAPS_ADS[f"ads_apply_cap_{m.split(':')[1]}_{m.split(':')[2]}"])
             for m in MOTORES_ADS
         }
+
+
+@_skip_db
+def test_preflight_distingue_0039_completa_y_a_medias():
+    """CodeRabbit (#317): con solo una parte de la 0039, el guion se saltaba la
+    migracion y sembraba antes de que el readback lo notara."""
+    with _db("orbit_d0_parcial", con_0039=True) as (conn, _):
+        preflight = (D0 / "preflight.sql").read_text(encoding="utf-8")
+        assert _pares(conn, preflight, rol="app_read")["estado_0039"] == "completa"
+        conn.execute("DROP TABLE precio_envio_muestra CASCADE")
+        assert _pares(conn, preflight, rol="app_read")["estado_0039"] == "parcial"
 
 
 @_skip_db
@@ -373,12 +384,22 @@ def _repo_d0(tmp_path: Path) -> Path:
     return repo
 
 
-def _corre_d0(repo: Path, tmp_path: Path) -> tuple[subprocess.CompletedProcess, bool]:
+def _corre_d0(
+    repo: Path, tmp_path: Path, *, respuesta: str | None = None
+) -> tuple[subprocess.CompletedProcess, bool]:
+    """Sin `respuesta`, el `ssh` falso deja marca y falla (99); con ella, la
+    imprime y sale 0 (una linea por llamada queda en la marca)."""
     falsos = tmp_path / "bin"
     falsos.mkdir(exist_ok=True)
     marca = tmp_path / "ssh-llamado"
     ssh = falsos / "ssh"
-    ssh.write_text(f"#!/bin/sh\ntouch '{marca}'\nexit 99\n", encoding="utf-8")
+    if respuesta is None:
+        cuerpo = f"#!/bin/sh\ntouch '{marca}'\nexit 99\n"
+    else:
+        canned = tmp_path / "respuesta-ssh.txt"
+        canned.write_text(respuesta, encoding="utf-8")
+        cuerpo = f"#!/bin/sh\ncat > /dev/null\necho llamada >> '{marca}'\ncat '{canned}'\nexit 0\n"
+    ssh.write_text(cuerpo, encoding="utf-8")
     ssh.chmod(0o755)
     env = {k: v for k, v in os.environ.items() if k != "DESTINO"}
     env["PATH"] = f"{falsos}{os.pathsep}{env['PATH']}"
@@ -423,6 +444,22 @@ def test_correr_en_produccion_con_arbol_en_origin_master_pasa_la_guarda(tmp_path
     assert "VERDE arbol = origin/master, sin cambios" in salida.stdout
     assert ssh_llamado
     assert salida.returncode == 1
+
+
+def test_correr_con_0039_a_medias_para_antes_de_migrar_o_sembrar(tmp_path):
+    """CodeRabbit (#317): el preflight dice `parcial` y el guion corta ahi,
+    con una sola llamada al server (la del preflight): ni backup, ni 0039,
+    ni siembra."""
+    repo = _repo_d0(tmp_path)
+    caps = "".join(f"cap:{m}|20\n" for m in MOTORES_ADS)
+    preflight = (
+        "pg_version|16.4\nestado_0039|parcial\nbtree_gist|1\nconfig_id|7\n"
+        "config_label|vigente\nclaves_precio|0\nlisting_dup_id_platform|0\n" + caps
+    )
+    salida, _ = _corre_d0(repo, tmp_path, respuesta=preflight)
+    assert salida.returncode == 1, salida.stdout + salida.stderr
+    assert "0039 a medias" in salida.stdout
+    assert (tmp_path / "ssh-llamado").read_text(encoding="utf-8").count("llamada") == 1
 
 
 # ---------------------------------------------------------------------------

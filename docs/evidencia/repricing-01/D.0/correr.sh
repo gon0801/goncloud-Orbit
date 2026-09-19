@@ -133,7 +133,12 @@ if grep -q '|NULL$' "$SAL/caps-ads-antes.txt" || [ "$(wc -l < "$SAL/caps-ads-ant
   corta "caps de Ads incompletos ANTES de tocar nada (ver $SAL/caps-ads-antes.txt)"
 fi
 verde "8 caps de Ads vivos antes"
-SIN_0039=$(val sin_0039 "$PRE")
+ESTADO_0039=$(val estado_0039 "$PRE")
+case "$ESTADO_0039" in
+  ausente | completa) anota "0039 antes: $ESTADO_0039" ;;
+  parcial) corta "0039 a medias (unas tablas o la constraint si, otras no): ni se migra ni se siembra; revisar a mano" ;;
+  *) corta "el preflight no dio estado_0039 (ver $PRE)" ;;
+esac
 CLAVES_ANTES=$(val claves_precio "$PRE")
 anota "config vigente antes: id=$(val config_id "$PRE") label=$(val config_label "$PRE") claves_precio=$CLAVES_ANTES"
 case "$CLAVES_ANTES" in
@@ -142,7 +147,7 @@ case "$CLAVES_ANTES" in
 esac
 
 # --- 1 y 2. backup y migración (solo si falta la 0039) -------------------------
-if [ "$SIN_0039" = true ]; then
+if [ "$ESTADO_0039" = ausente ]; then
   if [ "$DESTINO" = produccion ]; then
     # Bloque de docs/DEPLOY.md §«Migración 0039», tal cual.
     ssh goncloud 'set -eu; D=/mnt/data/appdata/orbit/backups; \
