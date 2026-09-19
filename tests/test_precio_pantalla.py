@@ -2600,3 +2600,90 @@ def test_r3_n2_live_bajar_sin_cambio_no_dice_bajo():
     (accion,) = dash._acciones_precio([_r3_fila_bajar_live()], {}, "amazon_mx")
     assert accion["frase"] == "SKU-1 decidió bajar de 127.60 a 116.00 MXN; sin cambio aplicado"
     assert "bajó" not in accion["frase"]
+
+
+# ---------------------------------------------------------------------------
+# Bloque R1-b2 (REPRICING 01, Fase 11 r1-cierre-r2): M1, M17 y M58 del lead.
+# Solo tests (app/ intacto). Evidencia:
+# docs/evidencia/repricing-01/R.1/bis-r2.md. Otros carriles anexan debajo.
+# ---------------------------------------------------------------------------
+
+
+@_skip_sin_pg
+def test_r1b2_m1_racha_que_sigue_no_reavisa(tmp_path, monkeypatch):
+    """M1: grupo `no_evaluado(precio_sin_observar)` presente 4 dias seguidos
+    (hoy-3..hoy): `avisar_precio` manda 0 avisos (la racha que sigue no
+    reavisa); contra la consulta real, no la funcion pura."""
+    with _db_temp() as conn, _canal_falso(tmp_path, monkeypatch) as mensajes:
+        _config(conn)
+        conn.execute("ALTER TABLE precio_decision DISABLE TRIGGER precio_decision_fecha_utc")
+        try:
+            prod = _producto(conn)
+            lid = _listing(conn, prod)
+            _goal(conn, lid)
+            for n in range(4):
+                _decision(conn, lid, dia=_dias_atras(conn, n), motivo="precio_sin_observar")
+        finally:
+            conn.execute("ALTER TABLE precio_decision ENABLE TRIGGER precio_decision_fecha_utc")
+        hoy = _dias_atras(conn, 0)
+        assert notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen()) == 0
+        assert mensajes == []
+
+
+@_skip_sin_pg
+def test_r1b2_m17_salud_huerfana_reversa_no_cuenta():
+    """M17: en /salud, un cambio pendiente con `es_reversa` no cuenta como
+    huerfana (0); uno no-reversa si (1)."""
+    with _db_temp() as conn:
+        _config_pantalla(conn)
+        prod = _producto(conn)
+        # Un solo cambio abierto por listing: la reversa va en uno y la
+        # pendiente comun en otro.
+        lid1 = _listing(conn, prod, sku="SKU-R1B2-M17R", ext="B0R1B20017")
+        _goal_live_pantalla(conn, lid1)
+        dec1 = _decision_subir_pantalla(conn, lid1, mode="live")
+        orig = _r1b_cambio_real(conn, dec1, lid1, antes="110.00", despues="116.00")
+        conn.execute(
+            "UPDATE precio_cambio SET estado = 'confirmado', confirmado_por = 'observacion'"
+            " WHERE id = %s",
+            (orig,),
+        )
+        conn.execute(
+            "INSERT INTO precio_cambio (listing_id, platform, precio_antes,"
+            " precio_antes_currency, precio_despues, precio_despues_currency,"
+            " aplicado, estado, es_reversa, reversa_de)"
+            " VALUES (%s, 'amazon_mx', 116.00, 'MXN', 110.00, 'MXN', true,"
+            " 'pendiente', true, %s)",
+            (lid1, orig),
+        )
+        precios = dash.salud(conn)["plataformas"]["amazon_mx"]["precios"]
+        assert precios["huerfanas"] == 0
+        assert precios["huerfanas"] == _select_huerfanas(conn, "amazon_mx")
+        lid2 = _listing(conn, prod, sku="SKU-R1B2-M17P", ext="B0R1B20018")
+        _goal_live_pantalla(conn, lid2)
+        dec2 = _decision_subir_pantalla(conn, lid2, mode="live")
+        _r1_cambio_pendiente(conn, dec2, lid2, antes="110", despues="116")
+        precios = dash.salud(conn)["plataformas"]["amazon_mx"]["precios"]
+        assert precios["huerfanas"] == 1
+        assert precios["huerfanas"] == _select_huerfanas(conn, "amazon_mx")
+
+
+@_skip_sin_pg
+def test_r1b2_m58_goal_anulado_hoy_fuera_de_con_goal():
+    """M58: un goal con `valid_from = valid_to = hoy` no sale en `con_goal`
+    de /precios; el vigente si."""
+    with _db_temp() as conn:
+        _config_pantalla(conn)
+        hoy = _dias_atras(conn, 0)
+        prod = _producto(conn)
+        lid_ok = _listing(conn, prod, sku="SKU-R1B2-M58K", ext="B0R1B20058")
+        _goal(conn, lid_ok)
+        lid_an = _listing(conn, prod, sku="SKU-R1B2-M58X", ext="B0R1B20059")
+        conn.execute(
+            "INSERT INTO precio_goal (listing_id, platform, margen_goal_pct, mode,"
+            " valid_from, valid_to, creado_por)"
+            " VALUES (%s, 'amazon_mx', '0.25', 'shadow', %s, %s, 'test-r1b2')",
+            (lid_an, hoy, hoy),
+        )
+        filas = dash.precios(conn)["plataformas"]["amazon_mx"]["con_goal"]
+        assert [f["sku"] for f in filas] == ["SKU-R1B2-M58K"]
