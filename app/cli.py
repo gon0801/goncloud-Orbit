@@ -540,6 +540,10 @@ def _precio(args: argparse.Namespace) -> int:
         return 1
     try:
         lector, escritor, fees, limitador = _clientes_precio(args.platform)
+        # C (r1): el import de avisos vive en la rama que llama a `correr`,
+        # no antes de `--reporte` (el reporte no avisa ni necesita Telegram).
+        from app.notifica import avisar_precio
+
         resumen = corrida_precios.correr(
             conn,
             args.platform,
@@ -548,6 +552,7 @@ def _precio(args: argparse.Namespace) -> int:
             fees=fees,
             limitador=limitador,
             owner=f"{socket.gethostname()}:{os.getpid()}",
+            avisar=avisar_precio,
         )
     except corrida_precios.ConfigInvalida as exc:
         # K8 (r4): config ausente o uso invalido = exit 2 (ver `main`).

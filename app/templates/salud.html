@@ -94,6 +94,20 @@
   </div>
   {% endif %}
 
+  {% if datos.precios is defined %}
+  {# REPRICING 01 A.6: conteos del dia (misma fuente que /precios: el bloque
+     `precios` de /salud; el recuadro S10 vive en /precios). #}
+  <h3>Precios</h3>
+  <div id="bloque-precios-{{ plataforma }}">
+  {% if datos.precios %}
+  {% set pr = datos.precios %}
+  <p>Hoy {{ pr.hoy }} · evaluados {{ pr.evaluados }} · movidos {{ pr.movidos }} · sombra {{ pr.sombra }} · no evaluados {{ pr.no_evaluados.values() | sum }} · frenados {{ pr.frenados.values() | sum }} · objetivo inalcanzable {{ pr.goal_inalcanzable }} · cupo {{ pr.cuota.used }} de {{ pr.cuota.cap }} · huerfanas pendientes: {{ pr.huerfanas }}</p>
+  {% else %}
+  <p class="mutado">Sin datos de precios del día.</p>
+  {% endif %}
+  </div>
+  {% endif %}
+
   <h3>Historico (14d)</h3>
   <div class="tabla-scroll" role="region" aria-label="Tabla de datos" tabindex="0">
   <table>
