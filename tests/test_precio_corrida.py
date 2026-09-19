@@ -1254,7 +1254,10 @@ def test_repartir_cupo_recibe_una_plataforma(monkeypatch):
     [
         ({"precio_cap_amazon_mx": 99}, "precio_cap_amazon_mx"),
         ({"precio_freno_dias_error": 0}, "precio_freno_dias_error"),
+        ({"precio_freno_dias_error": 15}, "precio_freno_dias_error"),
+        ({"precio_freno_dias_error": True}, "precio_freno_dias_error"),
     ],
+    ids=["cap-99", "freno-0", "r1b2_m32-freno-15", "r1b2_m33-freno-True"],
 )
 def test_umbral_fuera_de_cota_aborta_al_arrancar(ajuste, clave):
     """(f) cap o freno fuera de cota: `ValueError` que nombra la clave."""
@@ -3156,3 +3159,355 @@ def test_latido_roto_no_tumba_corrida(monkeypatch, caplog):
         texto = "\n".join(r.getMessage() for r in caplog.records)
         assert "latido fallo" in texto
         assert "s3cr3t-lat5" not in texto
+
+
+# ---------------------------------------------------------------------------
+# Bloque R1-b2 (REPRICING 01, Fase 11 r1-cierre-r2): mata los 17 mutantes del
+# lead (M1, M9, M9b, M10b, M17, M18, M20, M32, M33, M46-M50, M54, M58, M60).
+# Solo tests (app/ intacto); cada prueba afirma lo persistido. Evidencia:
+# docs/evidencia/repricing-01/R.1/bis-r2.md. Otros carriles anexan debajo.
+# ---------------------------------------------------------------------------
+
+
+def _r1b2_fila_senal(conn):
+    """La fila de `precio_decision` con sus numeros de senal."""
+    return conn.execute(
+        "SELECT resultado, motivo, u15, u60, n15, n60, racha_senal, perdiendo FROM precio_decision"
+    ).fetchone()
+
+
+def _r1b2_corrida_perdiendo(conn, *, extras=False):
+    """Escenario `_ventas_perdiendo` corrido en live; con `extras` agrega
+    filas `refund`/`fee` con cantidad en [hoy-15, hoy-1]. Devuelve la fila."""
+    datos = _cadena(conn, mode="live")
+    _price_obs(conn)
+    run_id, _fin = _run_ledger(conn)
+    _ventas_perdiendo(conn, datos["producto"], sku=datos["sku"], run_id=run_id)
+    if extras:
+        hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+        for kind, qty, importe, atraso, evento in (
+            ("refund", 5, "-50", 5, "refund-m9-1"),
+            ("fee", 7, "-70", 10, "fee-m9-1"),
+        ):
+            conn.execute(
+                "INSERT INTO ledger_event (platform, kind, event_date, observed_at,"
+                " product_id, quantity, amount, amount_currency, ingest_run_id,"
+                " source_event_id)"
+                " VALUES ('amazon_mx', %s, %s, %s, %s, %s, %s, 'MXN', %s, %s)",
+                (
+                    kind,
+                    hoy - timedelta(days=atraso),
+                    datetime.now(UTC),
+                    datos["producto"],
+                    qty,
+                    Decimal(importe),
+                    run_id,
+                    evento,
+                ),
+            )
+    red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
+    res = _corre(conn, red)
+    assert (res.decisiones, res.escritas) == (1, 1)
+    return _r1b2_fila_senal(conn)
+
+
+@_skip_sin_pg
+def test_r1b2_m9_refund_y_fee_no_inflan_u15():
+    """M9: filas `refund`/`fee` con cantidad en la ventana no entran a la
+    senal: u15=15 y la fila igual que sin esas filas."""
+    with _db() as (conn, _dsn):
+        control = _r1b2_corrida_perdiendo(conn)
+    with _db() as (conn, _dsn):
+        con_extras = _r1b2_corrida_perdiendo(conn, extras=True)
+    assert con_extras[2] == 15
+    assert tuple(con_extras) == tuple(control)
+
+
+@_skip_sin_pg
+def test_r1b2_m9b_primera_venta_sale_solo_de_kind_sale():
+    """M9b: ventas de los ultimos 60 dias + `refund` de hace 100: la senal
+    sigue `historia_corta` (la primera venta ignora el `refund`)."""
+    from app.precio.corrida import _insumos_ventas
+
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn, mode="live")
+        _price_obs(conn)
+        hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+        _cierra_goal(conn, datos["listing"], hoy)
+        _goal(conn, datos["listing"], mode="live", pct="0.10", desde=hoy)
+        run_id, _fin = _run_ledger(conn)
+        for atraso in range(1, 61):
+            conn.execute(
+                "INSERT INTO ledger_event (platform, kind, event_date, observed_at,"
+                " product_id, quantity, amount, amount_currency, ingest_run_id)"
+                " VALUES ('amazon_mx', 'sale', %s, %s, %s, 1, 200, 'MXN', %s)",
+                (hoy - timedelta(days=atraso), datetime.now(UTC), datos["producto"], run_id),
+            )
+        conn.execute(
+            "INSERT INTO ledger_event (platform, kind, event_date, observed_at,"
+            " product_id, quantity, amount, amount_currency, ingest_run_id,"
+            " source_event_id)"
+            " VALUES ('amazon_mx', 'refund', %s, %s, %s, 3, -30, 'MXN', %s, 'refund-m9b-1')",
+            (hoy - timedelta(days=100), datetime.now(UTC), datos["producto"], run_id),
+        )
+        insumos = _insumos_ventas(
+            conn, product_id=datos["producto"], platform="amazon_mx", sku=datos["sku"]
+        )
+        assert insumos.primera_venta == hoy - timedelta(days=60)
+        red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
+        res = _corre(conn, red)
+        assert (res.decisiones, res.escritas) == (1, 0)
+        fila = conn.execute(
+            "SELECT resultado, motivo FROM precio_decision WHERE listing_id = %s",
+            (datos["listing"],),
+        ).fetchone()
+        assert tuple(fila) == ("mantener", "ventas_sin_dato:historia_corta")
+        assert red.n_fees == 0 and red.n_patch == 0
+
+
+@_skip_sin_pg
+def test_r1b2_m54_dia_inactivo_no_deja_perdiendo():
+    """M54: con racha previa 2 y un dia no BUYABLE en la ventana, la
+    decision sale `listing_inactivo` (perdiendo false, racha 0)."""
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn, mode="live")
+        _price_obs(conn)
+        hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+        ayer = hoy - timedelta(days=1)
+        conn.execute("ALTER TABLE precio_decision DISABLE TRIGGER precio_decision_fecha_utc")
+        try:
+            conn.execute(
+                "INSERT INTO precio_decision (listing_id, platform, resultado, mode,"
+                " goal, m_actual, p_actual, p_actual_currency, p_objetivo,"
+                " p_objetivo_currency, p_aplicado, p_aplicado_currency, i_valor, i_currency,"
+                " c_valor, c_currency, f_valor, f_currency, l_valor, l_currency,"
+                " r_valor, r_currency, decision_date, racha_senal)"
+                " VALUES (%s, 'amazon_mx', 'subir', 'live', 0.30, 0.25,"
+                " 100, 'MXN', 110, 'MXN', 110, 'MXN', 10, 'MXN', 20, 'MXN',"
+                " 12, 'MXN', 5, 'MXN', 8, 'MXN', %s, 2)",
+                (datos["listing"], ayer),
+            )
+        finally:
+            conn.execute("ALTER TABLE precio_decision ENABLE TRIGGER precio_decision_fecha_utc")
+        run_ledger, _fin = _run_ledger(conn)
+        _ventas_perdiendo(conn, datos["producto"], sku=datos["sku"], run_id=run_ledger)
+        # La tabla es append-only: el dia se apaga INSERTANDO (activo solo
+        # si TODAS las filas del dia dicen activo; a las 18:00 para no chocar
+        # con la clave unica de la de mediodia).
+        dia_apagado = hoy - timedelta(days=7)
+        conn.execute(
+            "INSERT INTO spapi_listing_estado_observation (seller_sku, platform,"
+            " status, api_version, observed_at) VALUES (%s, 'amazon_mx', 'INACTIVE',"
+            " 'v1', %s)",
+            (
+                datos["sku"],
+                datetime(dia_apagado.year, dia_apagado.month, dia_apagado.day, 18, tzinfo=UTC),
+            ),
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM spapi_listing_estado_observation"
+                " WHERE seller_sku = %s AND platform = 'amazon_mx'"
+                " AND (observed_at AT TIME ZONE 'UTC')::date = %s",
+                (datos["sku"], dia_apagado),
+            ).fetchone()[0]
+            == 2
+        )
+        red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
+        res = _corre(conn, red)
+        assert (res.decisiones, res.escritas) == (1, 1)
+        fila = conn.execute(
+            "SELECT resultado, motivo, racha_senal, perdiendo FROM precio_decision"
+            " WHERE listing_id = %s AND decision_date = %s",
+            (datos["listing"], hoy),
+        ).fetchone()
+        assert tuple(fila) == ("subir", None, 0, False)
+
+
+@_skip_sin_pg
+def test_r1b2_m10b_ingreso_60d_suma_solo_su_moneda():
+    """M10b: una venta MXN y otra USD en ventana: `_ingreso_60d` en MXN
+    suma solo la MXN."""
+    from app.precio.corrida import _ingreso_60d
+
+    with _db() as (conn, _dsn):
+        prod = _producto(conn)
+        hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+        run_ledger, _fin = _run_ledger(conn)
+        for moneda, importe in (("MXN", "50"), ("USD", "999")):
+            conn.execute(
+                "INSERT INTO ledger_event (platform, kind, event_date, observed_at,"
+                " product_id, quantity, amount, amount_currency, ingest_run_id)"
+                " VALUES ('amazon_mx', 'sale', %s, %s, %s, 1, %s, %s, %s)",
+                (
+                    hoy - timedelta(days=20),
+                    datetime.now(UTC),
+                    prod,
+                    importe,
+                    moneda,
+                    run_ledger,
+                ),
+            )
+        total = _ingreso_60d(conn, product_id=prod, platform="amazon_mx", hoy=hoy, moneda="MXN")
+        assert total is not None
+        assert (total.valor, total.moneda) == (Decimal("50"), "MXN")
+
+
+@_skip_sin_pg
+def test_r1b2_m60_reversa_de_ayer_no_consume_cupo():
+    """M60: una reversa enviada ayer no cuenta en `reversas_hoy` (0) y con
+    cap=1 la corrida live aplica su subir."""
+    import app.precio.cuota as cuota_mod
+
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn, mode="live")
+        _config(conn, {**SETTINGS, "precio_cap_amazon_mx": 1})
+        _price_obs(conn)
+        lid_b, dec_b = _andamio_hoy(conn, sku="SKU-M60-B", ext="B0A50000M6")
+        orig = _cambio_con_estado(
+            conn, dec_b, lid_b, estado="enviado", dia=datetime.now(UTC) - timedelta(days=2)
+        )
+        conn.execute(
+            "UPDATE precio_cambio SET estado = 'confirmado', confirmado_por = 'observacion'"
+            " WHERE id = %s",
+            (orig,),
+        )
+        hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+        ayer = hoy - timedelta(days=1)
+        mediodia = datetime(ayer.year, ayer.month, ayer.day, 12, tzinfo=UTC)
+        rev = conn.execute(
+            "INSERT INTO precio_cambio (listing_id, platform, precio_antes,"
+            " precio_antes_currency, precio_despues, precio_despues_currency, aplicado,"
+            " estado, enviado_at, es_reversa, reversa_de)"
+            " VALUES (%s, 'amazon_mx', 110, 'MXN', 100, 'MXN', true,"
+            " 'pendiente', %s, true, %s) RETURNING id",
+            (lid_b, mediodia, orig),
+        ).fetchone()[0]
+        conn.execute(
+            "UPDATE precio_cambio SET estado = 'enviado',"
+            " ack = '{\"http_status\": 202}'::jsonb WHERE id = %s",
+            (rev,),
+        )
+        assert cuota_mod.reversas_hoy(conn, "amazon_mx", hoy) == 0
+        red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
+        res = _corre(conn, red)
+        assert (res.decisiones, res.escritas) == (1, 1)
+        fila = conn.execute(
+            "SELECT resultado, motivo FROM precio_decision"
+            " WHERE listing_id = (SELECT id FROM listing WHERE seller_sku = 'SKU-A5')"
+        ).fetchone()
+        assert tuple(fila) == ("subir", None)
+        assert red.n_patch == 1
+
+
+@_skip_sin_pg
+def test_r1b2_m46_m50_fila_persiste_prioridad_canal_e_ids():
+    """M46-M50: la fila del subir live trae prioridad, canal y los tres ids
+    exactos (config, cotizacion usada, fee del escenario)."""
+    from app.precio.corrida import _ingreso_60d
+
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn, mode="live")
+        _price_obs(conn)
+        run_id, _fin = _run_ledger(conn)
+        _ventas_parejas(conn, datos["producto"], qty=1, run_id=run_id, amount="200")
+        red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
+        res = _corre(conn, red)
+        assert (res.decisiones, res.escritas) == (1, 1)
+        fila = conn.execute(
+            "SELECT resultado, m_actual, goal, prioridad, canal, config_version_id,"
+            " cotizacion_id, fee_observation_id FROM precio_decision"
+        ).fetchone()
+        assert fila[0] == "subir"
+        hoy = conn.execute("SELECT decision_date FROM precio_decision").fetchone()[0]
+        ingreso = _ingreso_60d(
+            conn, product_id=datos["producto"], platform="amazon_mx", hoy=hoy, moneda="MXN"
+        )
+        assert (ingreso.valor, ingreso.moneda) == (Decimal("12000"), "MXN")
+        assert fila[3] == abs(fila[1] - fila[2]) * ingreso.valor
+        assert fila[3] == Decimal("900")
+        assert fila[4] == "fba"
+        assert fila[4] == conn.execute("SELECT canal FROM estimacion_escenario").fetchone()[0]
+        assert fila[5] == conn.execute("SELECT max(id) FROM config_version").fetchone()[0]
+        cotizaciones = [
+            r[0] for r in conn.execute("SELECT id FROM precio_cotizacion ORDER BY id").fetchall()
+        ]
+        assert cotizaciones != []
+        # La maquina puede cotizar dos veces; la usada es la ultima.
+        assert fila[6] == cotizaciones[-1]
+        assert (
+            fila[7]
+            == conn.execute("SELECT fee_observation_id FROM estimacion_escenario").fetchone()[0]
+        )
+
+
+@_skip_sin_pg
+def test_r1b2_m20_reversas_en_error_no_frenan():
+    """M20: tres dias seguidos con `error` que son reversas (y ningun error
+    real): `freno_por_error` es False."""
+    from app.precio.corrida import freno_por_error
+
+    with _db() as (conn, _dsn):
+        prod = _producto(conn)
+        lid = _listing(conn, prod)
+        _config(conn)
+        _goal(conn, lid, mode="live")
+        dec = _decision_subir(conn, lid)
+        orig = _cambio_con_estado(
+            conn, dec, lid, estado="enviado", dia=datetime.now(UTC) - timedelta(days=10)
+        )
+        conn.execute(
+            "UPDATE precio_cambio SET estado = 'confirmado', confirmado_por = 'observacion'"
+            " WHERE id = %s",
+            (orig,),
+        )
+        for atraso in (1, 2, 3):
+            rev = conn.execute(
+                "INSERT INTO precio_cambio (listing_id, platform, precio_antes,"
+                " precio_antes_currency, precio_despues, precio_despues_currency,"
+                " aplicado, estado, enviado_at, es_reversa, reversa_de)"
+                " VALUES (%s, 'amazon_mx', 110, 'MXN', 100, 'MXN', true,"
+                " 'pendiente', %s, true, %s) RETURNING id",
+                (lid, datetime.now(UTC) - timedelta(days=atraso), orig),
+            ).fetchone()[0]
+            conn.execute(
+                "UPDATE precio_cambio SET estado = 'error', error_code = 'PATCH /x 500'"
+                " WHERE id = %s",
+                (rev,),
+            )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM precio_cambio"
+                " WHERE listing_id = %s AND estado = 'error' AND es_reversa",
+                (lid,),
+            ).fetchone()[0]
+            == 3
+        )
+        hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+        assert (
+            freno_por_error(conn, lid, "amazon_mx", hoy, dias=3, desde=hoy - timedelta(days=30))
+            is False
+        )
+
+
+@_skip_sin_pg
+def test_r1b2_m18_pricing_del_dia_usa_la_mas_reciente():
+    """M18: dos observaciones del dia (temprana divergente, tardia igual al
+    escenario): manda la tardia y la decision es subir."""
+    with _db() as (conn, _dsn):
+        datos = _cadena(conn, mode="live")
+        hoy = conn.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+        _price_obs(
+            conn,
+            precio="200",
+            observada=datetime(hoy.year, hoy.month, hoy.day, 8, tzinfo=UTC),
+        )
+        _price_obs(
+            conn,
+            precio="116",
+            observada=datetime(hoy.year, hoy.month, hoy.day, 18, tzinfo=UTC),
+        )
+        red = _RedFalsa(skus={datos["evento"]: datos["sku"]})
+        res = _corre(conn, red)
+        assert (res.decisiones, res.escritas) == (1, 1)
+        assert tuple(_decision_unica(conn)) == ("subir", None, Decimal("127.60"))
