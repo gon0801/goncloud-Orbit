@@ -42,7 +42,7 @@ from fastapi.templating import Jinja2Templates
 from app import api_dashboard as dash
 from app import api_reputacion as reput
 from app.api import ConexionLectura
-from app.notifica import motivo_precio_es
+from app.notifica import estado_precio_es, motivo_precio_es
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.goals import PELDANOS_CASCADA
 from app.precio import cobertura as cobertura_precio
@@ -85,7 +85,19 @@ def dinero_ui(valor: str | None) -> str | None:
         return valor
 
 
+def porcentaje_ui(valor: str | None) -> str | None:
+    """Tanto por uno a porcentaje («0.2150» -> «21.50 %»). None queda None;
+    si no parsea, se deja igual."""
+    if valor is None:
+        return None
+    try:
+        return f"{Decimal(valor) * 100:.2f} %"
+    except (InvalidOperation, ValueError):
+        return valor
+
+
 templates.env.filters["dinero_ui"] = dinero_ui
+templates.env.filters["porcentaje_ui"] = porcentaje_ui
 templates.env.filters["kpis_serie"] = kpis_serie
 templates.env.filters["clase_cambio"] = clase_cambio
 templates.env.filters["kpis_inertes"] = kpis_inertes
@@ -161,6 +173,9 @@ templates.env.filters["hace"] = hace
 # Motivo de precio en palabras (el mismo mapa de los avisos: los ids crudos
 # nunca se muestran en la pantalla).
 templates.env.filters["motivo_precio_es"] = motivo_precio_es
+# Estado de precio en palabras (el mismo mapa de los avisos: los ids crudos
+# nunca se muestran en la pantalla).
+templates.env.filters["estado_precio_es"] = estado_precio_es
 
 # Columnas que YA estan en campanas.html. No se inventan orders/impressions.
 COLUMNAS_ORDEN = (

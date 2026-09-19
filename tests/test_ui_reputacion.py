@@ -234,7 +234,7 @@ def test_sidebar_reputacion_enlace_y_sin_chip_reviews():
         html = _get_pagina(conn).text
         assert 'href="/reputacion"' in html
         assert "Reviews <span" not in html
-        assert "Repricing" in html  # sigue "pronto", no se toco de mas
+        assert 'href="/precios"' in html and "pronto" not in html  # R1 r2: sin chip "pronto"
 
 
 @_skip_db

@@ -169,3 +169,35 @@ las menciones a identificadores sin definir se quitaron.
 | R1B3b | resto agrupado vaciado (el resto se pierde: 5 enviados) | `test_r1_b3_buybox_7_avisos_5_mas_agrupado` (`5 == 6`) | MUERTO |
 | R1B5a | `ESTADO_PRECIO_ES["goal_inalcanzable"]` en crudo | `test_r1_b5_estado_en_palabras_y_asin_solo_amazon` + `test_precio_aviso_builders_sin_prohibidos` | MUERTO |
 | R1B5b | puerta Amazon -> `True` (la etiqueta `asin` sale en `meli`) | `test_r1_b5_estado_en_palabras_y_asin_solo_amazon` (`asin:` en meli) | MUERTO |
+
+---
+
+# A.6 — bloque R2 (L1, L2, L14, L15, R2, R3, R4 + A1, L8, B1, B2, B3, B4, R1)
+
+Siembra a mano sobre el HEAD nuevo con base real
+(`ORBIT_TEST_DSN=postgresql://orbit:orbit@localhost:5432/postgres`,
+Telegram falso) y `PYTHONPYCACHEPREFIX=$(mktemp -d)` fresco **por
+mutante**, revertido sin commit (restore verificado por `cmp` contra el
+backup pre-siembra; primera ola corrida con `/tmp/r2_mutantes.py`,
+segunda con `/tmp/r2b_mutantes.py`). L1/L2/L14/L15/L8 son los mutantes
+del lead sobre `230e114` (el codigo ya era correcto: el test nuevo es
+lo que los mata); R2R2/R2R3/R2R4 y R2A1/R2B1/R2B2/R2B3/R2B4a/R2B4b
+cubren el codigo nuevo de r2. R1 es solo-test (sin mutante, como
+B10/B11). Cero sobrevivientes.
+
+| ID | Mutante (que se cambio) | Test que lo mata | Estado |
+|----|-------------------------|------------------|--------|
+| R2L1 | `_SQL_PRECIO_FRENADO_NOCONF_DIA` sin `AND d.motivo = 'no_confirmado'` | `test_r2_l1_frenado_api_error_no_da_aviso_no_confirmado` (`2 == 1`: sale el `no_confirmado` del `frenado(api_error)`) | MUERTO |
+| R2L2 | `_avisar_noconf_precio`: `flanco_nuevos(...)` -> `sorted(nc_hoy)` | `test_r2_l2_frenado_noconf_ayer_y_hoy_cero_avisos` (`1 == 0`) | MUERTO |
+| R2L14 | `_avisar_grupos_precio`: `elif (resultado, motivo) not in nuevos:` -> `elif False:` | `test_r2_l14_grupo_presente_ayer_y_hoy_no_reavisa` (`2 == 0`) | MUERTO |
+| R2L15 | `_SQL_PRECIO_ULTIMO_NOCONF`: `ORDER BY c.id DESC` -> `ASC` | `test_r2_l15_aviso_lleva_precios_del_no_confirmado_nuevo` (aviso con `100.0000 -> 110.0000` en vez de `200/210`) | MUERTO |
+| R2R2 | `_bloque_precios`: `validar_precio_aviso_dias(settings)` -> `3` fijo | `test_r2_r2_umbral_de_config_ausente_nombra_la_clave` (`200 == 503`) | MUERTO |
+| R2R3 | `_avisar_buybox_precio` sin `try` por pieza (armado directo) | `test_r2_r3_buybox_una_pieza_rota_no_calla_las_otras` (`0 == 1`: la pieza rota calla todo) | MUERTO |
+| R2R4 | docstring de `avisar_precio` sin la frase de la segunda corrida | `test_r2_r4_avisar_precio_docstring_declara_residuo_segunda_corrida` (sin `segunda corrida`) | MUERTO |
+| R2A1 | `_frase_accion`: `live` sin cambio dice «subió» (sin «decidió ...; sin cambio aplicado») | `test_r2b_a1_live_sin_cambio_no_dice_subio` (frase con «subió») | MUERTO |
+| R2L8 | `sombra`: `in ("subir", "bajar")` -> `in ("subir",)` | `test_r2b_l8_shadow_que_baja_cuenta_en_sombra` (`0 == 1`) | MUERTO |
+| R2B1 | plantilla con-goal: `porcentaje_ui` -> `dinero_ui` en «Margen hoy» | `test_r2b_b1_margen_y_goal_en_porcentaje_en_html` (sin «24.00 %») | MUERTO |
+| R2B2 | `movidos` sin exigir estado `enviado`/`confirmado`/`no_confirmado` | `test_r2b_b2_movidos_solo_con_patch_aceptado` (`3 == 1`) | MUERTO |
+| R2B3 | plantilla Estado: `estado_precio_es` -> id crudo | `test_r2b_b3_estado_en_palabras_con_mismo_mapa` (sin «objetivo inalcanzable») | MUERTO |
+| R2B4a | `_divergentes_precio`: `"dias": racha` -> `"dias": umbral` | `test_r2b_b4_divergente_racha_real_y_umbral_en_texto` (`3 == 5`) | MUERTO |
+| R2B4b | plantilla divergente: texto con el umbral -> «N días seguidos» literal | `test_r2b_b4_divergente_racha_real_y_umbral_en_texto` (sin «3 días seguidos») | MUERTO |

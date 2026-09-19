@@ -964,7 +964,9 @@ def test_precio_ui_hecho_habria_hecho_sombra(monkeypatch):
         _cambio_pendiente_pantalla(conn, dec, lid2)
         html = _html_precios(conn, dsn, monkeypatch)
         assert "habr" in html
-        assert "subir" in html.lower()
+        # B3 r2: el Estado va en palabras («subida», mismo mapa de la
+        # pantalla), jamás el id crudo «subir».
+        assert "subida" in html.lower()
         assert "pendiente" in html.lower()
 
 
@@ -2104,3 +2106,474 @@ def test_r1_b11_helper_unico_nombre_corto_y_migracion_omitida():
 
 
 # --- fin bloque R1-c (otros carriles anexan debajo) ---
+
+# ---------------------------------------------------------------------------
+# Bloque R2 (REPRICING 01, A.6 r2): L1, L2, L14, L15, R2, R3, R4.
+# Base real (ORBIT_TEST_DSN), Telegram falso. Otros carriles anexan debajo.
+# ---------------------------------------------------------------------------
+
+
+def _r2_decision_live(conn, listing, resultado, motivo, dia, *, platform="amazon_mx"):
+    """Decision live con fecha explicita (exige el trigger de fecha apagado);
+    `frenado`/`goal_inalcanzable` con motivo (el CHECK lo exige fuera de
+    subir/bajar)."""
+    return conn.execute(
+        "INSERT INTO precio_decision (listing_id, platform, decision_date, resultado,"
+        " motivo, p_actual_currency, p_objetivo_currency, p_aplicado_currency,"
+        " i_currency, c_currency, f_currency, l_currency, r_currency, mode)"
+        " VALUES (%s, %s, %s, %s, %s,"
+        " 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'MXN', 'live')"
+        " RETURNING id",
+        (listing, platform, dia, resultado, motivo),
+    ).fetchone()[0]
+
+
+def _r2_decision_subir_live(conn, listing, *, platform="amazon_mx", dia, p_aplicado):
+    """`subir` live con `p_aplicado` dado (el trigger de coherencia exige
+    `precio_despues = p_aplicado` en su cambio)."""
+    return conn.execute(
+        "INSERT INTO precio_decision (listing_id, platform, decision_date, resultado,"
+        " goal, m_actual, p_actual, p_actual_currency, p_objetivo, p_objetivo_currency,"
+        " p_aplicado, p_aplicado_currency, i_valor, i_currency, c_valor, c_currency,"
+        " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency, mode)"
+        " VALUES (%s, %s, %s, 'subir', 0.30, 0.24, %s, 'MXN', %s, 'MXN', %s, 'MXN',"
+        " 100, 'MXN', 40, 'MXN', 15, 'MXN', 0, 'MXN', 2.50, 'MXN', 'live') RETURNING id",
+        (listing, platform, dia, p_aplicado, p_aplicado, p_aplicado),
+    ).fetchone()[0]
+
+
+def _r2_cambio_no_confirmado(conn, dec, listing, *, antes, despues, enviado_en):
+    """Cambio real `no_confirmado`: nace `pendiente` y sigue la progresion
+    sellada (`pendiente -> enviado -> no_confirmado`, como haria el cierre
+    por observacion)."""
+    cam = _r1_cambio_pendiente(
+        conn, dec, listing, antes=antes, despues=despues, enviado_en=enviado_en
+    )
+    conn.execute(
+        "UPDATE precio_cambio SET estado = 'enviado', ack = %s WHERE id = %s",
+        (Json({"origen": "seed-r2"}), cam),
+    )
+    conn.execute(
+        "UPDATE precio_cambio SET estado = 'no_confirmado', confirmado_por = 'observacion'"
+        " WHERE id = %s",
+        (cam,),
+    )
+    return cam
+
+
+@_skip_sin_pg
+def test_r2_l1_frenado_api_error_no_da_aviso_no_confirmado(tmp_path, monkeypatch):
+    """L1: un `frenado(api_error)` de hoy no da aviso `no_confirmado` aunque
+    el listing tenga un cambio real `no_confirmado` en su historia (el
+    conjunto es solo `frenado` con motivo `no_confirmado`)."""
+    from test_precio_corrida import _goal as _goal_corrida
+
+    with _db_temp() as conn, _canal_falso(tmp_path, monkeypatch) as mensajes:
+        _config(conn)
+        prod = _producto(conn, sku="SKU-R2L1")
+        lid = _listing(conn, prod, sku="SKU-R2L1", ext="B0R2L10001")
+        hoy = _dias_atras(conn, 0)
+        ayer = _dias_atras(conn, 1)
+        _goal_corrida(conn, lid, platform="amazon_mx", mode="live", desde=_dias_atras(conn, 60))
+        conn.execute("ALTER TABLE precio_decision DISABLE TRIGGER precio_decision_fecha_utc")
+        dec_old = _r1_decision_subir_live(conn, lid, dia=ayer)
+        _r2_cambio_no_confirmado(
+            conn, dec_old, lid, antes="110", despues="116", enviado_en=_r1_mediodia(ayer)
+        )
+        _r2_decision_live(conn, lid, "frenado", "api_error", hoy)
+        conn.execute("ALTER TABLE precio_decision ENABLE TRIGGER precio_decision_fecha_utc")
+        enviados = notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen())
+        assert enviados == 1
+        assert len(mensajes) == 1
+        assert "[Orbit] precio: frenados" in mensajes[0]["text"]
+        assert all("[Orbit] precio: no confirmado" not in m["text"] for m in mensajes)
+
+
+@_skip_sin_pg
+def test_r2_l2_frenado_noconf_ayer_y_hoy_cero_avisos(tmp_path, monkeypatch):
+    """L2: `frenado(no_confirmado)` ayer y hoy -> cero avisos por producto
+    (la racha sigue); el cambio `no_confirmado` existe para que el mutante
+    `sorted(nc_hoy)` si avisaria."""
+    from test_precio_corrida import _goal as _goal_corrida
+
+    with _db_temp() as conn, _canal_falso(tmp_path, monkeypatch) as mensajes:
+        _config(conn)
+        prod = _producto(conn, sku="SKU-R2L2")
+        lid = _listing(conn, prod, sku="SKU-R2L2", ext="B0R2L20001")
+        hoy = _dias_atras(conn, 0)
+        ayer = _dias_atras(conn, 1)
+        hace2 = _dias_atras(conn, 2)
+        _goal_corrida(conn, lid, platform="amazon_mx", mode="live", desde=_dias_atras(conn, 60))
+        conn.execute("ALTER TABLE precio_decision DISABLE TRIGGER precio_decision_fecha_utc")
+        dec_old = _r1_decision_subir_live(conn, lid, dia=hace2)
+        _r2_cambio_no_confirmado(
+            conn, dec_old, lid, antes="110", despues="116", enviado_en=_r1_mediodia(hace2)
+        )
+        _r2_decision_live(conn, lid, "frenado", "no_confirmado", ayer)
+        _r2_decision_live(conn, lid, "frenado", "no_confirmado", hoy)
+        conn.execute("ALTER TABLE precio_decision ENABLE TRIGGER precio_decision_fecha_utc")
+        enviados = notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen())
+        assert enviados == 0
+        assert mensajes == []
+
+
+@_skip_sin_pg
+def test_r2_l14_grupo_presente_ayer_y_hoy_no_reavisa(tmp_path, monkeypatch):
+    """L14: un grupo `goal_inalcanzable` o `frenado` presente ayer y hoy no
+    reavisa, por `avisar_precio` con base (el flanco es por grupo nuevo)."""
+    with _db_temp() as conn, _canal_falso(tmp_path, monkeypatch) as mensajes:
+        _config(conn)
+        prod = _producto(conn, sku="SKU-R2L14")
+        lid1 = _listing(conn, prod, sku="SKU-R2L14-1", ext="B0R2L14001")
+        lid2 = _listing(conn, prod, sku="SKU-R2L14-2", ext="B0R2L14002")
+        _goal(conn, lid1)
+        _goal(conn, lid2)
+        conn.execute("ALTER TABLE precio_decision DISABLE TRIGGER precio_decision_fecha_utc")
+        hoy = _dias_atras(conn, 0)
+        ayer = _dias_atras(conn, 1)
+        _decision(conn, lid1, resultado="goal_inalcanzable", motivo="fee_no_lineal", dia=ayer)
+        _decision(conn, lid1, resultado="goal_inalcanzable", motivo="fee_no_lineal", dia=hoy)
+        _decision(conn, lid2, resultado="frenado", motivo="api_error", dia=ayer)
+        _decision(conn, lid2, resultado="frenado", motivo="api_error", dia=hoy)
+        conn.execute("ALTER TABLE precio_decision ENABLE TRIGGER precio_decision_fecha_utc")
+        enviados = notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen())
+        assert enviados == 0
+        assert mensajes == []
+
+
+@_skip_sin_pg
+def test_r2_l15_aviso_lleva_precios_del_no_confirmado_nuevo(tmp_path, monkeypatch):
+    """L15: con un `no_confirmado` viejo y uno nuevo de precios distintos,
+    el aviso lleva los del nuevo (el ultimo por id, no el primero)."""
+    from test_precio_corrida import _goal as _goal_corrida
+
+    with _db_temp() as conn, _canal_falso(tmp_path, monkeypatch) as mensajes:
+        _config(conn)
+        prod = _producto(conn, sku="SKU-R2L15")
+        lid = _listing(conn, prod, sku="SKU-R2L15", ext="B0R2L15001")
+        hoy = _dias_atras(conn, 0)
+        ayer = _dias_atras(conn, 1)
+        hace30 = _dias_atras(conn, 30)
+        _goal_corrida(conn, lid, platform="amazon_mx", mode="live", desde=_dias_atras(conn, 60))
+        conn.execute("ALTER TABLE precio_decision DISABLE TRIGGER precio_decision_fecha_utc")
+        dec_vieja = _r2_decision_subir_live(conn, lid, dia=hace30, p_aplicado="110")
+        cam_viejo = _r2_cambio_no_confirmado(
+            conn,
+            dec_vieja,
+            lid,
+            antes="100",
+            despues="110",
+            enviado_en=_r1_mediodia(hace30),
+        )
+        dec_nueva = _r2_decision_subir_live(conn, lid, dia=ayer, p_aplicado="210")
+        cam_nuevo = _r2_cambio_no_confirmado(
+            conn,
+            dec_nueva,
+            lid,
+            antes="200",
+            despues="210",
+            enviado_en=_r1_mediodia(ayer),
+        )
+        assert cam_nuevo > cam_viejo
+        _r2_decision_live(conn, lid, "frenado", "no_confirmado", hoy)
+        conn.execute("ALTER TABLE precio_decision ENABLE TRIGGER precio_decision_fecha_utc")
+        enviados = notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen())
+        avisos = [m for m in mensajes if "[Orbit] precio: no confirmado" in m["text"]]
+        assert len(avisos) == 1, [m["text"] for m in mensajes]
+        assert enviados >= 1
+        assert "200" in avisos[0]["text"] and "210" in avisos[0]["text"]
+        assert "100" not in avisos[0]["text"] and "110" not in avisos[0]["text"]
+
+
+def test_r2_r2_api_usa_validador_compartido_de_notifica():
+    """R2: `app/api_dashboard.py` usa `validar_precio_aviso_dias` de
+    `app/notifica.py` (la copia local `_dias_aviso_desde_settings` no
+    existe)."""
+    assert not hasattr(dash, "_dias_aviso_desde_settings")
+    assert dash.validar_precio_aviso_dias is notifica.validar_precio_aviso_dias
+
+
+@_skip_sin_pg
+def test_r2_r2_umbral_de_config_ausente_nombra_la_clave(monkeypatch):
+    """R2: el cableado usa el validador compartido: sin
+    `precio_aviso_dias_sin_evaluar` en la config, la pantalla 503 y nombra
+    la clave (un umbral fijo en codigo pasaria de largo)."""
+    with _db_pantalla("r2-umbral") as (conn, dsn):
+        conn.execute(
+            "INSERT INTO config_version (label, settings) VALUES (%s, %s)",
+            (
+                "test-r2",
+                Json(
+                    {
+                        "precio_catalogo_max_dias_sin_reportar": 7,
+                        "precio_cap_amazon_mx": 7,
+                        "precio_cap_amazon_us": 7,
+                    }
+                ),
+            ),
+        )
+        resp = _cliente_pantalla(dsn, monkeypatch).get("/api/dashboard/precios")
+        assert resp.status_code == 503
+        assert "precio_aviso_dias_sin_evaluar" in resp.json()["detail"]
+
+
+@_skip_sin_pg
+def test_r2_r3_buybox_una_pieza_rota_no_calla_las_otras(tmp_path, monkeypatch, caplog):
+    """R3: en `_avisar_buybox_precio` cada pieza va en su `try`: una que
+    levanta al armarse no calla las demas (sale 1 aviso, no 0)."""
+    import logging as _logging
+
+    with _db_temp() as conn, _canal_falso(tmp_path, monkeypatch) as mensajes:
+        _config(conn)
+        prod = _producto(conn, sku="SKU-R2R3")
+        lid1 = _listing(conn, prod, sku="SKU-R2R3-01", ext="B0R2R30001")
+        lid2 = _listing(conn, prod, sku="SKU-R2R3-02", ext="B0R2R30002")
+        _goal(conn, lid1)
+        _goal(conn, lid2)
+        hoy = _dias_atras(conn, 0)
+        _decision(conn, lid1, resultado="mantener", motivo="en_tolerancia", dia=hoy, buy_box=False)
+        _decision(conn, lid2, resultado="mantener", motivo="en_tolerancia", dia=hoy, buy_box=False)
+        real = notifica.ProductoPrecio
+
+        class _PiezaRota(real):
+            def __init__(self, *args, **kwargs):
+                sku = args[2] if len(args) >= 3 else kwargs.get("sku")
+                if sku == "SKU-R2R3-01":
+                    raise RuntimeError("boom pieza r3")
+                super().__init__(*args, **kwargs)
+
+        monkeypatch.setattr(notifica, "ProductoPrecio", _PiezaRota)
+        with caplog.at_level(_logging.WARNING, logger="app.notifica"):
+            enviados = notifica.avisar_precio(conn, "amazon_mx", hoy, _resumen())
+        assert enviados == 1
+        assert len(mensajes) == 1
+        assert "SKU-R2R3-02" in mensajes[0]["text"]
+        assert "boom pieza r3" not in mensajes[0]["text"]
+
+
+def test_r2_r4_avisar_precio_docstring_declara_residuo_segunda_corrida():
+    """R4: el docstring de `avisar_precio` declara el residuo de la segunda
+    corrida del mismo dia que persiste decisiones nuevas (reenvia todo)."""
+    doc = notifica.avisar_precio.__doc__ or ""
+    assert "segunda corrida" in doc
+    assert "reenv" in doc
+
+
+# --- fin bloque R2 (otros carriles anexan debajo) ---
+
+# ---------------------------------------------------------------------------
+# Bloque R2-b (REPRICING 01, A.6 r2): A1, L8, B1, B2, B3, B4.
+# Base real (ORBIT_TEST_DSN) donde aplica; A1 va directo contra
+# `_acciones_precio` (repro del lead, sin PG). Otros carriles anexan debajo.
+# ---------------------------------------------------------------------------
+
+
+def _r2b_fila_subir_live() -> dict:
+    """Detalle fabricado `subir`/`live` (repro A1 del lead)."""
+    return {
+        "id": 1,
+        "listing_id": 7,
+        "sku": "SKU-1",
+        "resultado": "subir",
+        "mode": "live",
+        "motivo": None,
+        "m_actual": "0.24",
+        "goal": "0.30",
+        "p_actual": "116.00",
+        "p_actual_currency": "MXN",
+        "p_objetivo": "127.60",
+        "p_objetivo_currency": "MXN",
+        "p_aplicado": "127.60",
+        "canal": "fba",
+    }
+
+
+def _r2b_cambio(estado: str) -> dict:
+    """Ultimo cambio real no-reversa fabricado en el estado pedido."""
+    return {
+        1: {
+            "antes": "116.00",
+            "antes_moneda": "MXN",
+            "despues": "127.60",
+            "despues_moneda": "MXN",
+            "real": True,
+            "estado": estado,
+            "fecha": "2026-09-18",
+        }
+    }
+
+
+def test_r2b_a1_live_sin_cambio_no_dice_subio():
+    """A1: `live` sin cambio real: «decidió subir ...; sin cambio aplicado»
+    (nunca «subió»: nada se movió)."""
+    (accion,) = dash._acciones_precio([_r2b_fila_subir_live()], {}, "amazon_mx")
+    assert accion["frase"] == "SKU-1 decidió subir de 116.00 a 127.60 MXN; sin cambio aplicado"
+    assert "subió" not in accion["frase"]
+
+
+def test_r2b_a1_live_cambio_pendiente_dice_pendiente():
+    """A1: `live` con el cambio `pendiente`: la frase lo dice."""
+    (accion,) = dash._acciones_precio(
+        [_r2b_fila_subir_live()], _r2b_cambio("pendiente"), "amazon_mx"
+    )
+    assert accion["frase"] == "SKU-1 subió de 116.00 a 127.60 MXN; pendiente de confirmación"
+
+
+def test_r2b_a1_live_cambio_error_como_esta():
+    """A1: `live` con el cambio en `error`: la frase queda como ya estaba."""
+    (accion,) = dash._acciones_precio([_r2b_fila_subir_live()], _r2b_cambio("error"), "amazon_mx")
+    assert accion["frase"] == "SKU-1 subió de 116.00 a 127.60 MXN; el cambio quedó en error"
+
+
+def _r2b_bajar_shadow(conn, listing, *, platform="amazon_mx"):
+    """`bajar` shadow con cuenta completa (el trigger fija goal y fecha)."""
+    return conn.execute(
+        "INSERT INTO precio_decision (listing_id, platform, resultado,"
+        " goal, m_actual, p_actual, p_actual_currency, p_objetivo, p_objetivo_currency,"
+        " p_aplicado, p_aplicado_currency, i_valor, i_currency, c_valor, c_currency,"
+        " f_valor, f_currency, l_valor, l_currency, r_valor, r_currency, mode)"
+        " VALUES (%s, %s, 'bajar', 0.30, 0.24, 127.60, 'MXN', 116, 'MXN', 116, 'MXN',"
+        " 100, 'MXN', 40, 'MXN', 15, 'MXN', 0, 'MXN', 2.50, 'MXN', 'shadow') RETURNING id",
+        (listing, platform),
+    ).fetchone()[0]
+
+
+@_skip_sin_pg
+def test_r2b_l8_shadow_que_baja_cuenta_en_sombra():
+    """L8: una `shadow` que baja cuenta en `sombra` (no solo la que sube)."""
+    with _db_temp() as conn:
+        _config_pantalla(conn)
+        prod = _producto(conn)
+        lid = _listing(conn, prod, sku="SKU-R2B-L8", ext="B0R2B80001")
+        _goal(conn, lid)
+        dec = _r2b_bajar_shadow(conn, lid)
+        _r1b_cambio_virtual(conn, dec, lid, antes="127.60", despues="116.00")
+        hoy = _dias_atras(conn, 0)
+        salud = dash.salud(conn)["plataformas"]["amazon_mx"]["precios"]
+        assert salud["sombra"] == 1
+        assert (
+            salud["sombra"]
+            == conn.execute(
+                "SELECT count(*) FROM precio_decision WHERE platform = 'amazon_mx'"
+                " AND decision_date = %s AND mode = 'shadow'"
+                " AND resultado IN ('subir', 'bajar')",
+                (hoy,),
+            ).fetchone()[0]
+        )
+        frases = {
+            a["sku"]: a["frase"] for a in dash.precios(conn)["plataformas"]["amazon_mx"]["acciones"]
+        }
+        assert frases["SKU-R2B-L8"] == "SKU-R2B-L8 habría bajado de 127.60 a 116.00 MXN"
+
+
+def test_r2b_b1_porcentaje_filtro_con_numero_del_fixture():
+    """B1: el filtro propio pinta el tanto por uno en porcentaje."""
+    from app import ui
+
+    assert ui.porcentaje_ui("0.2150") == "21.50 %"
+    assert ui.porcentaje_ui(None) is None
+    assert ui.porcentaje_ui("roto") == "roto"
+
+
+@_skip_sin_pg
+def test_r2b_b1_margen_y_goal_en_porcentaje_en_html(monkeypatch):
+    """B1: «Margen hoy» y «Objetivo» van en porcentaje (no como dinero)."""
+    with _db_pantalla("r2b-b1") as (conn, dsn):
+        _config_pantalla(conn)
+        prod = _producto(conn)
+        lid = _listing(conn, prod, sku="SKU-R2B-B1", ext="B0R2B10001")
+        _goal(conn, lid)
+        _decision_subir_pantalla(conn, lid)
+        html = _html_precios(conn, dsn, monkeypatch)
+        seccion = html.split('id="bloque-con-goal-amazon_mx"')[1].split("</section>")[0]
+        assert "24.00 %" in seccion
+        assert "25.00 %" in seccion
+        assert "0.24" not in seccion
+        assert "0.25" not in seccion
+
+
+def test_r2b_b2_docstring_movidos_declara_patch_aceptado():
+    """B2: el docstring de `movidos` dice que hubo PATCH aceptado."""
+    assert "PATCH aceptado" in (dash._precios_de.__doc__ or "")
+
+
+@_skip_sin_pg
+def test_r2b_b2_movidos_solo_con_patch_aceptado():
+    """B2: `movidos` solo cuenta `enviado`/`confirmado`/`no_confirmado`: un
+    cambio real en `error` (o `pendiente`) no movió el precio."""
+    with _db_temp() as conn:
+        _config_pantalla(conn)
+        prod = _producto(conn)
+        lid_e = _listing(conn, prod, sku="SKU-R2B-B2E", ext="B0R2B20001")
+        _goal_live_pantalla(conn, lid_e)
+        dec_e = _r1b_bajar_live(conn, lid_e)
+        cam_e = _r1_cambio_pendiente(conn, dec_e, lid_e, antes="127.60", despues="116")
+        conn.execute(
+            "UPDATE precio_cambio SET estado = 'error', error_code = 'patch_rechazado'"
+            " WHERE id = %s",
+            (cam_e,),
+        )
+        lid_p = _listing(conn, prod, sku="SKU-R2B-B2P", ext="B0R2B20002")
+        _goal_live_pantalla(conn, lid_p)
+        dec_p = _r1b_bajar_live(conn, lid_p)
+        _r1_cambio_pendiente(conn, dec_p, lid_p, antes="127.60", despues="116")
+        lid_ok = _listing(conn, prod, sku="SKU-R2B-B2K", ext="B0R2B20003")
+        _goal_live_pantalla(conn, lid_ok)
+        dec_ok = _r1b_bajar_live(conn, lid_ok)
+        _r1b_cambio_real(conn, dec_ok, lid_ok, antes="127.60", despues="116.00")
+        salud = dash.salud(conn)["plataformas"]["amazon_mx"]["precios"]
+        assert salud["movidos"] == 1
+
+
+@_skip_sin_pg
+def test_r2b_b3_estado_en_palabras_con_mismo_mapa(monkeypatch):
+    """B3: la columna Estado dice «objetivo inalcanzable» / «no evaluado»
+    (mismo mapa de la pantalla), jamás los ids crudos."""
+    with _db_pantalla("r2b-b3") as (conn, dsn):
+        _config_pantalla(conn)
+        prod = _producto(conn)
+        lid_g = _listing(conn, prod, sku="SKU-R2B-B3G", ext="B0R2B30001")
+        _goal(conn, lid_g)
+        _decision(conn, lid_g, resultado="goal_inalcanzable", motivo="sobre_goal_sin_perdida")
+        lid_n = _listing(conn, prod, sku="SKU-R2B-B3N", ext="B0R2B30002")
+        _goal(conn, lid_n)
+        _decision(conn, lid_n, motivo="precio_sin_observar")
+        html = _html_precios(conn, dsn, monkeypatch)
+        seccion = html.split('id="bloque-con-goal-amazon_mx"')[1].split("</section>")[0]
+        assert "objetivo inalcanzable" in seccion
+        assert "no evaluado" in seccion
+        assert "goal_inalcanzable" not in seccion
+        assert "no_evaluado" not in seccion
+
+
+@_skip_sin_pg
+def test_r2b_b4_divergente_racha_real_y_umbral_en_texto(monkeypatch):
+    """B4: el bloque (e) cuenta la racha real (5 dias, no el umbral 3) con
+    tope declarado, y el texto escribe el número del umbral."""
+    with _db_pantalla("r2b-b4") as (conn, dsn):
+        _config_pantalla(conn)
+        dias = [_dias_atras(conn, n) for n in range(31)]
+        prod = _producto(conn)
+        conn.execute("ALTER TABLE precio_decision DISABLE TRIGGER precio_decision_fecha_utc")
+        try:
+            lid = _listing(conn, prod, sku="SKU-R2B-B4", ext="B0R2B40001")
+            _goal(conn, lid)
+            for dia in dias[:5]:
+                _r1b_noeval(conn, lid, motivo="precio_divergente", dia=dia, p_actual="116")
+            lid_t = _listing(conn, prod, sku="SKU-R2B-B4T", ext="B0R2B40002")
+            _goal(conn, lid_t)
+            for dia in dias[:31]:
+                _r1b_noeval(conn, lid_t, motivo="precio_divergente", dia=dia, p_actual="116")
+        finally:
+            conn.execute("ALTER TABLE precio_decision ENABLE TRIGGER precio_decision_fecha_utc")
+        bloque = dash.precios(conn)["plataformas"]["amazon_mx"]
+        divs = {d["sku"]: d for d in bloque["divergentes"]}
+        assert divs["SKU-R2B-B4"]["dias"] == 5
+        assert divs["SKU-R2B-B4T"]["dias"] == dash._TOPE_RACHA_DIVERGENTE
+        html = _html_precios(conn, dsn, monkeypatch)
+        seccion = html.split('id="bloque-divergente-amazon_mx"')[1].split("</section>")[0]
+        assert "3 días seguidos" in seccion
+        assert "N días" not in seccion
+
+
+# --- fin bloque R2-b (otros carriles anexan debajo) ---

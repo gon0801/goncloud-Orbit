@@ -1361,7 +1361,8 @@ def _enviar_productos_precio_con_tope(tipo: str, motivo: str, piezas: list) -> i
 
 def _avisar_buybox_precio(conn, platform: str, hoy, ayer) -> int:
     """Un aviso por producto que pierde la buy box hoy y ayer la tenia
-    (B6: `try` propio; B3: con tope + resto agrupado). Jamas levanta."""
+    (B6: `try` propio y un `try` por pieza; B3: con tope + resto agrupado).
+    Jamas levanta."""
     try:
         bb_hoy = {r[0]: r for r in conn.execute(_SQL_PRECIO_BUYBOX_DIA, (platform, hoy)).fetchall()}
         bb_ayer = {r[0] for r in conn.execute(_SQL_PRECIO_BUYBOX_DIA, (platform, ayer)).fetchall()}
@@ -1370,20 +1371,27 @@ def _avisar_buybox_precio(conn, platform: str, hoy, ayer) -> int:
         return 0
     piezas = []
     for clave in flanco_nuevos(sorted(bb_hoy), sorted(bb_ayer)):
-        _id, sku, asin, estado, p_actual, moneda = bb_hoy[clave]
-        piezas.append(
-            ProductoPrecio(
-                platform,
-                "buy_box_perdida",
-                sku,
-                asin,
-                None,
-                str(p_actual) if p_actual is not None else None,
-                str(moneda) if moneda is not None else None,
-                estado,
-                "buy_box_perdida",
+        try:
+            _id, sku, asin, estado, p_actual, moneda = bb_hoy[clave]
+            piezas.append(
+                ProductoPrecio(
+                    platform,
+                    "buy_box_perdida",
+                    sku,
+                    asin,
+                    None,
+                    str(p_actual) if p_actual is not None else None,
+                    str(moneda) if moneda is not None else None,
+                    estado,
+                    "buy_box_perdida",
+                )
             )
-        )
+        except Exception as exc:  # noqa: BLE001 - B6: un producto no calla
+            logger.warning(
+                "telegram: fallo avisando buy box de precio %s: %s",
+                scrub(str(clave)),
+                scrub(str(exc)),
+            )
     return _enviar_productos_precio_con_tope("buy_box_perdida", "buy_box_perdida", piezas)
 
 
@@ -1459,6 +1467,9 @@ def avisar_precio(conn, platform: str, hoy, resumen) -> int:
     persistio >= 1 decision (`resumen.decisiones > 0`): una reejecucion el
     mismo dia no reenvia. Residuo declarado: si una corrida cae despues de
     persistir todo y antes de avisar, ese dia no avisa (queda el log).
+    Residuo declarado (r2): una segunda corrida del mismo dia que persiste
+    >= 1 decision nueva (un goal agregado despues de la corrida de la
+    manana) reenvia todos los avisos del dia; no se corrige en A.6.
 
     B4: un umbral `precio_aviso_dias_sin_evaluar` invalido o ausente solo
     apaga el aviso `no_evaluado` (warning); los demas tipos salen igual.

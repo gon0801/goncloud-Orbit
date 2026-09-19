@@ -58,7 +58,7 @@
     <thead><tr><th>SKU</th><th class="num">Margen hoy</th><th class="num">Objetivo</th><th class="num">Precio actual</th><th class="num">Precio objetivo</th><th>Canal</th><th>Modo</th><th>Último cambio</th><th>Estado</th></tr></thead>
     <tbody>
       {% for f in datos.con_goal %}
-      <tr><td class="mono">{{ f.sku }}</td><td class="num">{{ f.m_actual | dinero_ui or "—" }}</td><td class="num">{{ f.goal | dinero_ui or "—" }}</td><td class="num">{{ f.p_actual | dinero_ui or "—" }}</td><td class="num">{{ f.p_objetivo | dinero_ui or "—" }}</td><td>{{ f.canal or "—" }}</td><td>{{ f.modo }}</td><td>{% if f.ultimo_cambio %}{{ f.ultimo_cambio.fecha or "—" }} · {{ f.ultimo_cambio.antes | dinero_ui }} → {{ f.ultimo_cambio.despues | dinero_ui }}{% else %}sin cambio registrado{% endif %}</td><td>{% if f.ultimo_cambio %}{{ f.ultimo_cambio.estado_es }}{% elif f.decision_hoy %}{{ f.decision_hoy }}{% else %}sin decisión hoy{% endif %}</td></tr>
+      <tr><td class="mono">{{ f.sku }}</td><td class="num">{{ f.m_actual | porcentaje_ui or "—" }}</td><td class="num">{{ f.goal | porcentaje_ui or "—" }}</td><td class="num">{{ f.p_actual | dinero_ui or "—" }}</td><td class="num">{{ f.p_objetivo | dinero_ui or "—" }}</td><td>{{ f.canal or "—" }}</td><td>{{ f.modo }}</td><td>{% if f.ultimo_cambio %}{{ f.ultimo_cambio.fecha or "—" }} · {{ f.ultimo_cambio.antes | dinero_ui }} → {{ f.ultimo_cambio.despues | dinero_ui }}{% else %}sin cambio registrado{% endif %}</td><td>{% if f.ultimo_cambio %}{{ f.ultimo_cambio.estado_es }}{% elif f.decision_hoy %}{{ f.decision_hoy | estado_precio_es }}{% else %}sin decisión hoy{% endif %}</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -107,7 +107,7 @@
   <section id="bloque-divergente-{{ plataforma }}" aria-label="Precio divergente">
   <h3>Precio divergente</h3>
   {% if datos.divergentes %}
-  <p>Precio observado distinto del publicado N días seguidos:</p>
+  <p>Precio observado distinto del publicado {{ datos.divergentes_umbral }} días seguidos o más:</p>
   <div class="tabla-scroll" role="region" aria-label="Precio divergente" tabindex="0">
   <table>
     <thead><tr><th>SKU</th><th class="num">Días seguidos</th><th class="num">Precio actual</th></tr></thead>

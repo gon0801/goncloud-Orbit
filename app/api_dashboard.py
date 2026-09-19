@@ -87,7 +87,7 @@ from app.dashboard_pagina import (
     PageWindow,
 )
 from app.etiqueta_entidad import etiqueta_entidad, linea_entidad
-from app.notifica import motivo_precio_es
+from app.notifica import motivo_precio_es, validar_precio_aviso_dias
 from app.optimizer import bid, hygiene
 from app.optimizer import goals as g
 from app.optimizer.bid import PLATAFORMAS_MONEDA
@@ -1476,6 +1476,15 @@ _SQL_CUOTA_USED = """
 SELECT used FROM apply_quota_state WHERE motor = %s AND quota_date = %s
 """
 
+# Estados del cambio que prueban PATCH aceptado (B2): `pendiente` aun no
+# sale y `error` no movio el precio, aunque el cambio sea real.
+_ESTADOS_PRECIO_MOVIERON = ("enviado", "confirmado", "no_confirmado")
+
+# Tope de historia que recorre el bloque (e) (B4): la racha real se cuenta
+# dia por dia hacia atras desde hoy y se corta aqui (el umbral de dias
+# cabe siempre: su cota es 1-14).
+_TOPE_RACHA_DIVERGENTE = 30
+
 _ERROR_SIN_0039 = "el motor de precios todavía no está instalado en esta base"
 
 
@@ -1500,8 +1509,6 @@ _ESTADO_CAMBIO_ES = {
     "confirmado": "confirmado",
     "no_confirmado": "no confirmado por la observación",
 }
-
-_CLAVE_PRECIO_AVISO_DIAS = "precio_aviso_dias_sin_evaluar"
 
 
 def _decisiones_precio_hoy(conn: ConexionLectura, plataforma: str, hoy: dt.date) -> dict[str, int]:
@@ -1550,27 +1557,6 @@ def _dinero_2(valor) -> str | None:
     if valor is None:
         return None
     return f"{Decimal(str(valor)):.2f}"
-
-
-def _dias_aviso_desde_settings(settings) -> int:
-    """`precio_aviso_dias_sin_evaluar` entero 1-14; falta o fuera de cota =
-    ValueError que nombra la clave (misma semantica que notifica)."""
-    clave = _CLAVE_PRECIO_AVISO_DIAS
-    if not isinstance(settings, dict) or clave not in settings or settings[clave] is None:
-        raise ValueError(f"config sin {clave}")
-    valor = settings[clave]
-    if isinstance(valor, bool):
-        raise ValueError(f"setting {clave}: valor no numerico: {valor!r}")
-    try:
-        numero = Decimal(str(valor).strip() if isinstance(valor, str) else str(valor))
-    except Exception as exc:
-        raise ValueError(f"setting {clave}: valor no numerico: {valor!r}") from exc
-    if not numero.is_finite() or numero != numero.to_integral_value():
-        raise ValueError(f"setting {clave}: debe ser entero: {valor!r}")
-    entero = int(numero)
-    if not 1 <= entero <= 14:
-        raise ValueError(f"setting {clave}: fuera de cota [1, 14]: {entero}")
-    return entero
 
 
 def _detalle_decisiones_hoy(conn: ConexionLectura, plataforma: str, hoy: dt.date) -> list[dict]:
@@ -1643,14 +1629,21 @@ def _frase_accion(
     """Una frase por decision del dia (S7 bloque c): en `live` en indicativo
     («subió de 116.00 a 127.60 MXN») y en `shadow` en condicional («habría
     subido de 116.00 a 127.60 MXN»); `mantener`, `frenado` y
-    `goal_inalcanzable` llevan su motivo en palabras. Si el cambio quedo en
-    `error`, se dice (`saltado` no existe en el ledger: el CHECK de
-    `precio_cambio` solo admite pendiente/enviado/error/confirmado/
-    no_confirmado)."""
+    `goal_inalcanzable` llevan su motivo en palabras. Un `subir`/`bajar` en
+    `live` sin cambio real (`cambio_estado` None: `cambiar_precio` salto sin
+    escribir fila o la rama de parche no sello) dice «decidió subir ...; sin
+    cambio aplicado», nunca «subió»; con el cambio `pendiente` se dice
+    («...; pendiente de confirmación») y en `error` como ya estaba
+    (`saltado` no existe en el ledger: el CHECK de `precio_cambio` solo
+    admite pendiente/enviado/error/confirmado/no_confirmado)."""
     if resultado == "subir":
+        if mode == "live" and cambio_estado is None:
+            return f"{sku} decidió subir de {antes} a {despues} {moneda}; sin cambio aplicado"
         verbo = "habría subido" if mode == "shadow" else "subió"
         frase = f"{sku} {verbo} de {antes} a {despues} {moneda}"
     elif resultado == "bajar":
+        if mode == "live" and cambio_estado is None:
+            return f"{sku} decidió bajar de {antes} a {despues} {moneda}; sin cambio aplicado"
         verbo = "habría bajado" if mode == "shadow" else "bajó"
         frase = f"{sku} {verbo} de {antes} a {despues} {moneda}"
     elif resultado == "mantener":
@@ -1661,6 +1654,8 @@ def _frase_accion(
         frase = f"{sku} con objetivo inalcanzable: {motivo_precio_es(motivo)}"
     if cambio_estado == "error":
         frase += "; el cambio quedó en error"
+    elif cambio_estado == "pendiente":
+        frase += "; pendiente de confirmación"
     return frase
 
 
@@ -1768,10 +1763,11 @@ def _divergentes_precio(
     conn: ConexionLectura, plataforma: str, hoy: dt.date, umbral: int
 ) -> list[dict]:
     """Bloque (e): listings cuyos ultimos `umbral` dias seguidos hasta hoy
-    son todos `no_evaluado(precio_divergente)` (una fila por SKU con los
-    dias seguidos y el `p_actual` si esta; `moneda_divergente` va al (d))."""
-    desde = hoy - dt.timedelta(days=umbral - 1)
-    ventana = [hoy - dt.timedelta(days=n) for n in range(umbral)]
+    son todos `no_evaluado(precio_divergente)` (una fila por SKU con la
+    racha real en `dias` —hasta donde llegue la historia, con tope
+    `_TOPE_RACHA_DIVERGENTE`— y el `p_actual` si esta;
+    `moneda_divergente` va al (d))."""
+    desde = hoy - dt.timedelta(days=_TOPE_RACHA_DIVERGENTE - 1)
     por_listing: dict = {}
     for fila in conn.execute(_SQL_RACHA_RECIENTE, (plataforma, desde, hoy)).fetchall():
         (lid, sku, fecha, resultado, motivo, p_actual, p_moneda) = fila
@@ -1780,18 +1776,21 @@ def _divergentes_precio(
     divergentes = []
     for entrada in por_listing.values():
         dias = entrada["dias"]
-        if not all(
-            dias.get(dia) is not None
-            and dias[dia][0] == "no_evaluado"
-            and dias[dia][1] == "precio_divergente"
-            for dia in ventana
-        ):
+        racha = 0
+        dia = hoy
+        while racha < _TOPE_RACHA_DIVERGENTE:
+            actual = dias.get(dia)
+            if actual is None or actual[0] != "no_evaluado" or actual[1] != "precio_divergente":
+                break
+            racha += 1
+            dia -= dt.timedelta(days=1)
+        if racha < umbral:
             continue
         hoy_fila = dias[hoy]
         divergentes.append(
             {
                 "sku": entrada["sku"],
-                "dias": umbral,
+                "dias": racha,
                 "p_actual": _dec_str(hoy_fila[2]),
                 "moneda": hoy_fila[3],
             }
@@ -1810,9 +1809,14 @@ def _bloque_precios(
     if not _hay_esquema_precio(conn):
         raise _SinEsquemaPrecio(plataforma)
     settings = fuentes_precio.config_vigente_settings(conn)
-    umbral = _dias_aviso_desde_settings(settings)
+    umbral = validar_precio_aviso_dias(settings)
     detalle = _detalle_decisiones_hoy(conn, plataforma, hoy)
     cambios = _cambios_por_decision(conn, [fila["id"] for fila in detalle])
+    movieron = {
+        dec_id
+        for dec_id, cambio in cambios.items()
+        if cambio.get("real") is True and cambio.get("estado") in _ESTADOS_PRECIO_MOVIERON
+    }
     bloque: dict = {
         "hoy": hoy.isoformat(),
         "decisiones": _decisiones_precio_hoy(conn, plataforma, hoy),
@@ -1821,11 +1825,7 @@ def _bloque_precios(
         "evaluados": sum(
             1 for fila in detalle if fila["resultado"] in cobertura_precio.RESULTADOS_EVALUADOS
         ),
-        "movidos": sum(
-            1
-            for fila in detalle
-            if fila["mode"] == "live" and cambios.get(fila["id"], {}).get("real") is True
-        ),
+        "movidos": sum(1 for fila in detalle if fila["mode"] == "live" and fila["id"] in movieron),
         "sombra": sum(
             1
             for fila in detalle
@@ -1844,6 +1844,7 @@ def _bloque_precios(
         bloque["acciones"] = _acciones_precio(detalle, cambios, plataforma)
         bloque["no_evaluados_filas"] = _filas_no_evaluados(detalle)
         bloque["divergentes"] = _divergentes_precio(conn, plataforma, hoy, umbral)
+        bloque["divergentes_umbral"] = umbral
     return bloque
 
 
@@ -1871,7 +1872,9 @@ def _precios_de(conn: ConexionLectura, plataforma: str) -> dict | None:
       `recuadro` de /precios (misma funcion `_recuadro_precio`).
     - `evaluados`: decisiones de hoy con resultado evaluado (`subir`,
       `bajar`, `mantener`, `frenado`, `goal_inalcanzable`).
-    - `movidos`: decisiones de hoy en `live` con cambio real no-reversa.
+    - `movidos`: decisiones de hoy en `live` con cambio real no-reversa en
+      estado `enviado`/`confirmado`/`no_confirmado` (hubo PATCH aceptado; un
+      cambio en `error` o `pendiente` no movio el precio).
     - `sombra`: decisiones de hoy en `shadow` que suben o bajan.
     - `no_evaluados`: decisiones `no_evaluado` de hoy (motivo -> conteo).
     - `frenados`: decisiones `frenado` de hoy (motivo -> conteo).
