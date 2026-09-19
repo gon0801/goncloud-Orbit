@@ -107,6 +107,11 @@ ALLOWLIST_TAMANO = {
         "las piezas con frontera propia ya viven fuera (cuota, reglas, "
         "fuentes, precio_write). No se parte por partir."
     ),
+    "app/notifica.py": (
+        "REPRICING 01 A.6: senders fail-silent de Telegram de todos los "
+        "motores, builders puros + un sender por motor; estaba en 899 "
+        "antes de A.6."
+    ),
 }
 
 
