@@ -1,0 +1,671 @@
+[
+ {
+  "id": "P1",
+  "archivo": "app/notifica.py",
+  "viejo": "    skus = tuple(grupo.skus)[:TOPE_SKUS_PRECIO]",
+  "nuevo": "    skus = tuple(grupo.skus)[:TOPE_SKUS_PRECIO + 1]",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "P2",
+  "archivo": "app/notifica.py",
+  "viejo": "    return racha == umbral",
+  "nuevo": "    return racha >= umbral",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "P3",
+  "archivo": "app/notifica.py",
+  "viejo": "    if hoy not in presentes:",
+  "nuevo": "    if hoy in presentes:",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "P4",
+  "archivo": "app/notifica.py",
+  "viejo": "    if not 1 <= entero <= 14:",
+  "nuevo": "    if not 1 <= entero <= 15:",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "P5",
+  "archivo": "app/notifica.py",
+  "viejo": "\"precio_no_cubre_costo\": \"precio bajo el piso de rentabilidad\",",
+  "nuevo": "\"precio_no_cubre_costo\": \"precio bajo el costo\",",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "P6",
+  "archivo": "app/notifica.py",
+  "viejo": "        lineas.append(f\"y {resto} mas\")",
+  "nuevo": "        pass",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "P7",
+  "archivo": "app/notifica.py",
+  "viejo": "            texto = aviso_precio_huerfana(payload)\n        if not canal_activo():\n            return True",
+  "nuevo": "            texto = aviso_precio_huerfana(payload)\n        if not canal_activo():\n            return False",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "P8",
+  "archivo": "app/notifica.py",
+  "viejo": "logger.warning(\"telegram: tipo de aviso de precio desconocido: %s\", scrub(str(tipo)))\n            return False",
+  "nuevo": "logger.warning(\"telegram: tipo de aviso de precio desconocido: %s\", scrub(str(tipo)))\n            return True",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "P9",
+  "archivo": "app/notifica.py",
+  "viejo": "                if not flanco_umbral(dias, hoy, umbral):\n",
+  "nuevo": "                if False:\n",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "P10",
+  "archivo": "app/notifica.py",
+  "viejo": "        if huerfanas > 0:",
+  "nuevo": "        if huerfanas > 5:",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "P11",
+  "archivo": "app/notifica.py",
+  "viejo": "\"goal_inalcanzable\": \"objetivo inalcanzable\",",
+  "nuevo": "\"goal_inalcanzable\": \"goal inalcanzable\",",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ],
+  "cuenta": 2,
+  "ocurrencia": 1
+ },
+ {
+  "id": "P12",
+  "archivo": "app/notifica.py",
+  "viejo": "        if clave not in previos and clave not in vistos:",
+  "nuevo": "        if clave not in vistos:",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "Q1",
+  "archivo": "app/api_dashboard.py",
+  "viejo": "@router.get(\"/precios\")",
+  "nuevo": "@router.post(\"/precios\")",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "Q2",
+  "archivo": "app/api_dashboard.py",
+  "viejo": "    filas = fuentes_precio.leer_publicaciones(conn, platform=plataforma, hoy=hoy)",
+  "nuevo": "    filas = []",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "Q3",
+  "archivo": "app/api_dashboard.py",
+  "viejo": "   AND decision_date = %s",
+  "nuevo": "   AND decision_date <> %s",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "Q4",
+  "archivo": "app/api_dashboard.py",
+  "viejo": "        \"evaluadas\": rec.evaluadas,",
+  "nuevo": "        \"evaluadas\": rec.activas,",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "Q5",
+  "archivo": "app/api_dashboard.py",
+  "viejo": "   AND estado = 'pendiente'",
+  "nuevo": "   AND estado = 'confirmado'",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "Q6",
+  "archivo": "app/api_dashboard.py",
+  "viejo": "            \"precios\": _precios_de(conn, plataforma),\n",
+  "nuevo": "",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "Q7",
+  "archivo": "app/api_dashboard.py",
+  "viejo": "        \"huerfanas\": _huerfanas_precio(conn, plataforma),",
+  "nuevo": "        \"huerfanas\": 0,",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R1",
+  "archivo": "app/ui.py",
+  "viejo": "@router.get(\"/precios\", response_class=HTMLResponse)",
+  "nuevo": "@router.post(\"/precios\", response_class=HTMLResponse)",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R2",
+  "archivo": "app/ui.py",
+  "viejo": "cobertura_precio.aviso_puente(activas=recuadro[\"activas\"], puente=puente)",
+  "nuevo": "None",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R3",
+  "archivo": "app/templates/precios.html",
+  "viejo": "<section id=\"bloque-con-goal-{{ plataforma }}\"",
+  "nuevo": "<section id=\"bloque-quitado-{{ plataforma }}\"",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R4",
+  "archivo": "app/templates/precios.html",
+  "viejo": "    <li>{{ a.frase }}</li>",
+  "nuevo": "    <li></li>",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R5",
+  "archivo": "app/api_dashboard.py",
+  "viejo": "            \"motivo_es\": motivo_precio_es(fila[\"motivo\"]),",
+  "nuevo": "            \"motivo_es\": fila[\"motivo\"],",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R7",
+  "archivo": "app/templates/precios.html",
+  "viejo": "  {% if rec.activas == 0 %}",
+  "nuevo": "  {% if rec.activas < 0 %}",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R8",
+  "archivo": "app/ui.py",
+  "viejo": "            status_code=exc.status_code,",
+  "nuevo": "            status_code=200,",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R9",
+  "archivo": "app/templates/salud.html",
+  "viejo": "<div id=\"bloque-precios-{{ plataforma }}\">",
+  "nuevo": "<div id=\"bloque-quitado-{{ plataforma }}\">",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R10",
+  "archivo": "app/templates/base.html",
+  "viejo": "<a href=\"/precios\" ",
+  "nuevo": "<a href=\"/precio\" ",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "S1",
+  "archivo": "app/cli.py",
+  "viejo": "            avisar=avisar_precio,\n",
+  "nuevo": "",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "S2",
+  "archivo": "app/cli.py",
+  "viejo": "            avisar=avisar_precio,",
+  "nuevo": "            avisar=None,",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "S4",
+  "archivo": "app/cli.py",
+  "viejo": "            avisar=avisar_precio,",
+  "nuevo": "            avisar=lambda *a: None,",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R1T1",
+  "archivo": "app/notifica.py",
+  "viejo": "        logger.warning(\"telegram: fallo armando el aviso de precio: %s\", scrub(str(exc)))",
+  "nuevo": "        pass",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R1T2",
+  "archivo": "app/notifica.py",
+  "viejo": "    return racha == umbral",
+  "nuevo": "    return len(presentes) == umbral",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R1A1",
+  "archivo": "app/notifica.py",
+  "viejo": "for r in conn.execute(_SQL_PRECIO_FRENADO_NOCONF_DIA, (platform, hoy)).fetchall()",
+  "nuevo": "for r in conn.execute(_SQL_PRECIO_FRENADO_NOCONF_DIA, (platform, ayer)).fetchall()",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R1A2",
+  "archivo": "app/notifica.py",
+  "viejo": "        if huerfanas > 0:",
+  "nuevo": "        if huerfanas > 1:",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R1B2",
+  "archivo": "app/notifica.py",
+  "viejo": "        if resumen.decisiones > 0:",
+  "nuevo": "        if True:",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R1B4",
+  "archivo": "app/notifica.py",
+  "viejo": "            umbral = None",
+  "nuevo": "            return 0",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R1B6",
+  "archivo": "app/notifica.py",
+  "viejo": "    except Exception as exc:  # noqa: BLE001 - B6: los grupos no callan",
+  "nuevo": "    except ZeroDivisionError as exc:  # mutante R1B6",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R1C1",
+  "archivo": "app/notifica.py",
+  "viejo": "        if payload.tipo != tipo:",
+  "nuevo": "        if payload.tipo != tipo and False:",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R1B-A3a",
+  "archivo": "app/api_dashboard.py",
+  "viejo": "fila[\"mode\"] == \"live\" and fila[\"id\"] in movieron",
+  "nuevo": "fila[\"mode\"] == \"shadow\" and fila[\"id\"] in movieron",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R1B-A3b",
+  "archivo": "app/api_dashboard.py",
+  "viejo": "            if fila[\"mode\"] == \"shadow\" and fila[\"resultado\"] in (\"subir\", \"bajar\")",
+  "nuevo": "            if fila[\"mode\"] == \"live\" and fila[\"resultado\"] in (\"subir\", \"bajar\")",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R1B-A3c",
+  "archivo": "app/api_dashboard.py",
+  "viejo": "        \"cap\": cuota_precio.validar_cap(settings, plataforma),",
+  "nuevo": "        \"cap\": cuota_precio.validar_cap(settings, plataforma) - 1,",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R1B-A3d",
+  "archivo": "app/api_dashboard.py",
+  "viejo": "        bloque[\"recuadro\"] = bloque[\"cobertura\"]\n",
+  "nuevo": "",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R1B-A4a",
+  "archivo": "app/api_dashboard.py",
+  "viejo": "        verbo = \"habría subido\" if mode == \"shadow\" else \"subió\"",
+  "nuevo": "        verbo = \"subió\"",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R1B-A4b",
+  "archivo": "app/api_dashboard.py",
+  "viejo": "        verbo = \"habría bajado\" if mode == \"shadow\" else \"bajó\"",
+  "nuevo": "        verbo = \"habría bajado\"",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R1B-A4c",
+  "archivo": "app/api_dashboard.py",
+  "viejo": "frase = f\"{sku} {verbo} de {antes} a {despues} {moneda}\"",
+  "nuevo": "frase = f\"{sku} {verbo} de {despues} a {antes} {moneda}\"",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ],
+  "cuenta": 2
+ },
+ {
+  "id": "R1B-A5a",
+  "archivo": "app/api_dashboard.py",
+  "viejo": "        if racha < umbral:",
+  "nuevo": "        if racha < umbral - 1:",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R1B-A5b",
+  "archivo": "app/api_dashboard.py",
+  "viejo": "actual[1] != \"precio_divergente\"",
+  "nuevo": "actual[1] not in (\"precio_divergente\", \"moneda_divergente\")",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R1B-B1a",
+  "archivo": "app/api_dashboard.py",
+  "viejo": "if fila[\"resultado\"] == \"no_evaluado\"",
+  "nuevo": "if fila[\"resultado\"] != \"no_evaluado\"",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ],
+  "cuenta": 2,
+  "ocurrencia": 2
+ },
+ {
+  "id": "R1B-B9a",
+  "archivo": "app/api_dashboard.py",
+  "viejo": "_ERROR_SIN_0039 = \"el motor de precios todavía no está instalado en esta base\"",
+  "nuevo": "_ERROR_SIN_0039 = \"precios no disponibles\"",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R1B-B9b",
+  "archivo": "app/api_dashboard.py",
+  "viejo": "            logger.warning(\n                \"precios: %s ilegible (config): %s\",\n                plataforma,\n                scrub(str(exc)),\n            )\n",
+  "nuevo": "",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R1B-T3a",
+  "archivo": "app/ui.py",
+  "viejo": "cobertura_precio.aviso_puente(activas=recuadro[\"activas\"], puente=puente)",
+  "nuevo": "f\"aviso: puente bridge={puente} vs canonica={recuadro['activas']} (siempre, 5%)\"",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ],
+  "extra": "re-expresado: primera version del lead con frase sin 'aviso: puente' era infiel"
+ },
+ {
+  "id": "R1B-Ca",
+  "archivo": "app/templates/base.html",
+  "viejo": "aria-current=\"page\"{% endif %}>Precios</a>",
+  "nuevo": "aria-current=\"page\"{% endif %}>Repricing</a>",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R1B3a",
+  "archivo": "app/notifica.py",
+  "viejo": "TOPE_PRODUCTO_PRECIO = 5",
+  "nuevo": "TOPE_PRODUCTO_PRECIO = 6",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R1B3b",
+  "archivo": "app/notifica.py",
+  "viejo": "    resto = piezas[TOPE_PRODUCTO_PRECIO:]",
+  "nuevo": "    resto = []",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R1B5a",
+  "archivo": "app/notifica.py",
+  "viejo": "\"goal_inalcanzable\": \"objetivo inalcanzable\",",
+  "nuevo": "\"goal_inalcanzable\": \"goal_inalcanzable\",",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ],
+  "cuenta": 2,
+  "ocurrencia": 2
+ },
+ {
+  "id": "R1B5b",
+  "archivo": "app/notifica.py",
+  "viejo": "        if _es_plataforma_amazon(item.platform):",
+  "nuevo": "        if True:",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R2L1",
+  "archivo": "app/notifica.py",
+  "viejo": "AND d.resultado = 'frenado' AND d.motivo = 'no_confirmado'",
+  "nuevo": "AND d.resultado = 'frenado'",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R2L2",
+  "archivo": "app/notifica.py",
+  "viejo": "for lid in flanco_nuevos(sorted(nc_hoy), sorted(nc_ayer)):",
+  "nuevo": "for lid in sorted(nc_hoy):",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R2L14",
+  "archivo": "app/notifica.py",
+  "viejo": "            elif (resultado, motivo) not in nuevos:",
+  "nuevo": "            elif False:",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R2L15",
+  "archivo": "app/notifica.py",
+  "viejo": " ORDER BY c.id DESC LIMIT 1",
+  "nuevo": " ORDER BY c.id ASC LIMIT 1",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R2R2",
+  "archivo": "app/api_dashboard.py",
+  "viejo": "    umbral = validar_precio_aviso_dias(settings)",
+  "nuevo": "    umbral = 3",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R2R3",
+  "archivo": "app/notifica.py",
+  "viejo": "        except Exception as exc:  # noqa: BLE001 - B6: un producto no calla\n            logger.warning(\n                \"telegram: fallo avisando buy box de precio %s: %s\",",
+  "nuevo": "        except ZeroDivisionError as exc:  # mutante R2R3\n            logger.warning(\n                \"telegram: fallo avisando buy box de precio %s: %s\",",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R2R4",
+  "archivo": "app/notifica.py",
+  "viejo": "    Residuo declarado (r2): una segunda corrida del mismo dia que persiste",
+  "nuevo": "    Residuo declarado (r2): una corrida del mismo dia que persiste",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R2A1",
+  "archivo": "app/api_dashboard.py",
+  "viejo": "        if mode == \"live\" and cambio_estado is None:",
+  "nuevo": "        if False:",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ],
+  "cuenta": 2,
+  "ocurrencia": 1
+ },
+ {
+  "id": "R2L8",
+  "archivo": "app/api_dashboard.py",
+  "viejo": "            if fila[\"mode\"] == \"shadow\" and fila[\"resultado\"] in (\"subir\", \"bajar\")",
+  "nuevo": "            if fila[\"mode\"] == \"shadow\" and fila[\"resultado\"] in (\"subir\",)",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R2B1",
+  "archivo": "app/templates/precios.html",
+  "viejo": "{{ f.m_actual | porcentaje_ui",
+  "nuevo": "{{ f.m_actual | dinero_ui",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R2B2",
+  "archivo": "app/api_dashboard.py",
+  "viejo": "        if cambio.get(\"real\") is True and cambio.get(\"estado\") in _ESTADOS_PRECIO_MOVIERON",
+  "nuevo": "        if cambio.get(\"real\") is True",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R2B3",
+  "archivo": "app/templates/precios.html",
+  "viejo": "{{ f.decision_hoy | estado_precio_es }}",
+  "nuevo": "{{ f.decision_hoy }}",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R2B4a",
+  "archivo": "app/api_dashboard.py",
+  "viejo": "                \"dias\": racha,",
+  "nuevo": "                \"dias\": umbral,",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R2B4b",
+  "archivo": "app/templates/precios.html",
+  "viejo": "{{ datos.divergentes_umbral }} días seguidos o más",
+  "nuevo": "N días seguidos o más",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ]
+ },
+ {
+  "id": "R3N2",
+  "archivo": "app/api_dashboard.py",
+  "viejo": "        if mode == \"live\" and cambio_estado is None:",
+  "nuevo": "        if False:",
+  "tests": [
+   "tests/test_precio_pantalla.py"
+  ],
+  "cuenta": 2,
+  "ocurrencia": 2
+ },
+ {
+  "id": "R3R33",
+  "archivo": "app/templates/base.html",
+  "viejo": "aria-current=\"page\"{% endif %}>Precios</a>",
+  "nuevo": "aria-current=\"page\"{% endif %}>Precios</a><span class=\"nav-proximo\">Repricing <span class=\"chip-proximo\">pronto</span></span>",
+  "tests": [
+   "tests/test_ui_reputacion.py"
+  ]
+ }
+]

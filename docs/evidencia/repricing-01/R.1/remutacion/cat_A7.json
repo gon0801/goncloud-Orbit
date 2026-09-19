@@ -1,0 +1,303 @@
+[
+  {
+    "id": "A7-1",
+    "archivo": "app/precio/cobertura.py",
+    "viejo": "        return \"canal_sin_dato\"",
+    "nuevo": "        return None",
+    "tests": [
+      "tests/test_precio_cobertura.py::test_canal_desconocido_es_canal_sin_dato_sin_default"
+    ]
+  },
+  {
+    "id": "A7-2",
+    "archivo": "app/precio/cobertura.py",
+    "viejo": "    if fila.dias_sin_reportar > max_dias:",
+    "nuevo": "    if fila.dias_sin_reportar >= max_dias:",
+    "tests": [
+      "tests/test_precio_cobertura.py::test_stale_mas_de_max_dias_es_catalogo_desactualizado"
+    ]
+  },
+  {
+    "id": "A7-3",
+    "archivo": "app/precio/cobertura.py",
+    "viejo": "        if fase is not None:",
+    "nuevo": "        if False:",
+    "tests": [
+      "tests/test_precio_cobertura.py::test_recuadro_cuadra_exacto_con_doce"
+    ]
+  },
+  {
+    "id": "A7-4",
+    "archivo": "app/precio/cobertura.py",
+    "viejo": "                    sku=fila.seller_sku,",
+    "nuevo": "                    sku=str(fila.listing_id),",
+    "tests": [
+      "tests/test_precio_cobertura.py::test_sin_goal_aparece_listada_con_precio_y_canal"
+    ]
+  },
+  {
+    "id": "A7-5",
+    "archivo": "app/precio/cobertura.py",
+    "viejo": "        return FASE_MELI",
+    "nuevo": "        return FASE_FBM",
+    "tests": [
+      "tests/test_precio_cobertura.py::test_fuera_de_alcance_nombra_la_fase"
+    ]
+  },
+  {
+    "id": "A7-6",
+    "archivo": "app/precio/fuentes.py",
+    "viejo": "    \" SELECT DISTINCT ON (e.seller_sku, e.platform)\"",
+    "nuevo": "    \" SELECT\"",
+    "tests": [
+      "tests/test_precio_cobertura.py::test_fuentes_dos_listings_mismo_sku_cuentan_uno"
+    ]
+  },
+  {
+    "id": "A7-7",
+    "archivo": "app/precio/fuentes.py",
+    "viejo": "minimo=1, maximo=14)",
+    "nuevo": "minimo=0, maximo=99)",
+    "tests": [
+      "tests/test_precio_cobertura.py::test_max_dias_de_config_con_cota"
+    ]
+  },
+  {
+    "id": "A7-8",
+    "archivo": "app/precio/cobertura.py",
+    "viejo": "    if diferencia > 5:",
+    "nuevo": "    if diferencia > 50:",
+    "tests": [
+      "tests/test_precio_cobertura.py::test_aviso_puente_mas_de_5_por_ciento"
+    ]
+  },
+  {
+    "id": "A7-f1",
+    "archivo": "app/precio/fuentes.py",
+    "viejo": "from datetime import UTC, date\n",
+    "nuevo": "from datetime import UTC, date\nimport httpx  # mutante\n",
+    "tests": [
+      "tests/test_architecture.py::test_fuentes_solo_importa_permitido"
+    ]
+  },
+  {
+    "id": "A7-f2",
+    "archivo": "app/precio/fuentes.py",
+    "viejo": "_SQL_HOY = \"SELECT (now() AT TIME ZONE 'UTC')::date\"",
+    "nuevo": "_SQL_HOY = \"SELECT (now() AT TIME ZONE 'UTC')::date\"\n_X = \"INSERT INTO precio_goal (x) VALUES (1)\"",
+    "tests": [
+      "tests/test_architecture.py::test_fuentes_solo_select"
+    ]
+  },
+  {
+    "id": "A7-9",
+    "archivo": "docs/evidencia/repricing-01/A.7/consultas/01_canonicas.sql",
+    "viejo": "LIKE '%BUYABLE%'",
+    "nuevo": "= 'BUYABLE'",
+    "tests": [
+      "tests/test_precio_cobertura.py::test_consultas_iguales_a_las_que_ejecuta_fuentes"
+    ]
+  },
+  {
+    "id": "A7-10",
+    "archivo": "docs/evidencia/repricing-01/A.7/recuadro_desde_salidas.py",
+    "viejo": "= (canal, precio, moneda)",
+    "nuevo": "= (precio, canal, moneda)",
+    "tests": [
+      "tests/test_precio_cobertura.py::test_recuadro_desde_salidas_roundtrip"
+    ]
+  },
+  {
+    "id": "F1",
+    "archivo": "app/precio/cobertura.py",
+    "viejo": "        return \"canal_sin_dato\"",
+    "nuevo": "        return None",
+    "tests": [
+      "tests/test_precio_cobertura.py::test_canal_desconocido_con_goal_tambien_es_sin_dato"
+    ]
+  },
+  {
+    "id": "F2",
+    "archivo": "tools/precio_cobertura.py",
+    "viejo": "        if args.puente_activas is None:",
+    "nuevo": "        if False:",
+    "tests": [
+      "tests/test_precio_cobertura.py::test_tool_identidad_al_lado_sin_aviso_y_puente_con_bandera"
+    ]
+  },
+  {
+    "id": "F3",
+    "archivo": "app/precio/fuentes.py",
+    "viejo": "    \" LEFT JOIN listing l ON",
+    "nuevo": "    \" JOIN listing l ON",
+    "tests": [
+      "tests/test_precio_cobertura.py::test_activa_sin_listing_cuenta_y_cuadra"
+    ]
+  },
+  {
+    "id": "F5",
+    "archivo": "tools/precio_cobertura.py",
+    "viejo": "    if args.platform == \"meli\":",
+    "nuevo": "    if False:",
+    "tests": [
+      "tests/test_precio_cobertura.py::test_tool_meli_es_unknown_sin_recuadro"
+    ]
+  },
+  {
+    "id": "B6",
+    "archivo": "app/precio/fuentes.py",
+    "viejo": "(valid_to IS NULL OR valid_to > %s)",
+    "nuevo": "(valid_to IS NULL OR valid_to > %s OR valid_to IS NOT NULL)",
+    "tests": [
+      "tests/test_precio_cobertura.py::test_goal_cerrado_no_cuenta_como_goal"
+    ]
+  },
+  {
+    "id": "B7",
+    "archivo": "app/precio/fuentes.py",
+    "viejo": " AND decision_date = %s",
+    "nuevo": " AND decision_date <= %s",
+    "tests": [
+      "tests/test_precio_cobertura.py::test_decision_de_ayer_no_es_la_de_hoy"
+    ]
+  },
+  {
+    "id": "B8",
+    "archivo": "app/precio/fuentes.py",
+    "viejo": "    \" ORDER BY listing_id, observed_at DESC\"",
+    "nuevo": "    \" ORDER BY listing_id, observed_at ASC\"",
+    "tests": [
+      "tests/test_precio_cobertura.py::test_canal_manda_la_oferta_mas_reciente"
+    ]
+  },
+  {
+    "id": "B13",
+    "archivo": "app/precio/cobertura.py",
+    "viejo": "        return f\"resultado_desconocido:{fila.resultado_hoy}\"",
+    "nuevo": "        return None",
+    "tests": [
+      "tests/test_precio_cobertura.py::test_resultado_desconocido_se_nombra"
+    ]
+  },
+  {
+    "id": "K1",
+    "archivo": "app/precio/fuentes.py",
+    "viejo": " AND valid_from <= %s AND",
+    "nuevo": " AND (valid_from <= %s OR valid_from IS NOT NULL) AND",
+    "tests": [
+      "tests/test_precio_cobertura.py::test_goal_futuro_no_cuenta_como_vigente"
+    ]
+  },
+  {
+    "id": "G1",
+    "archivo": "app/precio/fuentes.py",
+    "viejo": "_SQL_HOY = \"SELECT (now() AT TIME ZONE 'UTC')::date\"",
+    "nuevo": "_SQL_HOY = \"SELECT (now() AT TIME ZONE 'UTC')::date\"\n_hora = date.today()",
+    "tests": [
+      "tests/test_architecture.py::test_fuentes_sin_reloj_ni_entorno_ni_dinamico"
+    ]
+  },
+  {
+    "id": "G2",
+    "archivo": "tests/test_architecture.py",
+    "viejo": "    r\"\\b(INSERT\\s+INTO|UPDATE\\s+|DELETE\\s+FROM|TRUNCATE",
+    "nuevo": "    r\"\\b(INSERT INTO|UPDATE\\s+|DELETE\\s+FROM|TRUNCATE",
+    "tests": [
+      "tests/test_architecture.py::test_candado_select_fuentes_caza_fugas_sembradas"
+    ]
+  },
+  {
+    "id": "G3",
+    "archivo": "tests/test_architecture.py",
+    "viejo": "                elif nodo.module == \"app.estimacion_insumos\":",
+    "nuevo": "                elif nodo.module == \"app.estimacion_insumos\" and False:",
+    "tests": [
+      "tests/test_architecture.py::test_candado_imports_fuentes_solo_mapear_canal"
+    ]
+  },
+  {
+    "id": "G4",
+    "archivo": "tests/test_architecture.py",
+    "viejo": "                if nodo.level:\n                    fugas.append(f\"<relativo-nivel-{nodo.level}>\")\n                elif nodo.module == \"app.estimacion_insumos\":",
+    "nuevo": "                if False:\n                    fugas.append(f\"<relativo-nivel-{nodo.level}>\")\n                elif nodo.module == \"app.estimacion_insumos\":",
+    "tests": [
+      "tests/test_architecture.py::test_candado_imports_fuentes_caza_relativo"
+    ]
+  },
+  {
+    "id": "M1-r2",
+    "archivo": "tests/test_architecture.py",
+    "viejo": "_PROHIBIDOS_IMPORTS_FUENTES = tuple(e for e in PROHIBIDOS_PRECIO if e != \"psycopg\")",
+    "nuevo": "_PROHIBIDOS_IMPORTS_FUENTES = tuple(e for e in PROHIBIDOS_PRECIO if e not in (\"psycopg\", \"os\"))",
+    "tests": [
+      "tests/test_architecture.py::test_candado_imports_fuentes_caza_from_os_getenv"
+    ]
+  },
+  {
+    "id": "M2-r2",
+    "archivo": "tests/test_architecture.py",
+    "viejo": "    hallados: list[str] = []\n    for nodo in ast.walk(arbol):\n        if isinstance(nodo, ast.Attribute):\n            dueno = nodo.value",
+    "nuevo": "    return []\n    hallados: list[str] = []\n    for nodo in ast.walk(arbol):\n        if isinstance(nodo, ast.Attribute):\n            dueno = nodo.value",
+    "tests": [
+      "tests/test_architecture.py::test_candado_reloj_fuentes_caza_fuga_sembrada",
+      "tests/test_architecture.py::test_candado_reloj_fuentes_caza_os_environ"
+    ]
+  },
+  {
+    "id": "M3-r2",
+    "archivo": "tests/test_architecture.py",
+    "viejo": "        for texto in _textos_constantes_fuentes(path)\n",
+    "nuevo": "        for texto in [path.read_text(encoding=\"utf-8\")]\n",
+    "tests": [
+      "tests/test_architecture.py::test_candado_escritura_fuentes_ignora_import_deepcopy",
+      "tests/test_architecture.py::test_candado_escritura_fuentes_ignora_comentario",
+      "tests/test_architecture.py::test_candado_select_fuentes_caza_fugas_sembradas"
+    ]
+  },
+  {
+    "id": "M1r3",
+    "archivo": "tools/precio_cobertura.py",
+    "viejo": "    except (OrbitDbError, Abortar) as exc:",
+    "nuevo": "    except OrbitDbError as exc:",
+    "tests": [
+      "tests/test_precio_cobertura.py::test_tool_sin_dsn_read_es_exit_2_sin_traceback"
+    ]
+  },
+  {
+    "id": "M2r3a",
+    "archivo": "tools/precio_cobertura.py",
+    "viejo": "    if args.puente_activas is not None and args.puente_activas < 0:",
+    "nuevo": "    if False:",
+    "tests": [
+      "tests/test_precio_cobertura.py::test_tool_puente_activas_negativo_es_exit_2"
+    ]
+  },
+  {
+    "id": "M2r3b",
+    "archivo": "docs/evidencia/repricing-01/A.7/recuadro_desde_salidas.py",
+    "viejo": "    if args.puente_activas is not None and args.puente_activas < 0:",
+    "nuevo": "    if False:",
+    "tests": [
+      "tests/test_precio_cobertura.py::test_recuadro_puente_activas_negativo_es_exit_2"
+    ]
+  },
+  {
+    "id": "M3r3",
+    "archivo": "tests/test_precio_cobertura.py",
+    "viejo": "        try:\n            conn.execute(\"SET ROLE app_read\")\n            for sentencia in validos:",
+    "nuevo": "        conn.execute(\"GRANT INSERT ON precio_goal TO app_read\")\n        try:\n            conn.execute(\"SET ROLE app_read\")\n            for sentencia in validos:",
+    "tests": [
+      "tests/test_precio_cobertura.py::test_app_read_no_escribe_tablas_de_fuentes"
+    ]
+  },
+  {
+    "id": "R1-A7-S1",
+    "extra": "sobreviviente",
+    "archivo": "tools/precio_cobertura.py",
+    "viejo": "    except (OrbitDbError, Abortar) as exc:",
+    "nuevo": "    except (Abortar,) as exc:",
+    "tests": [
+      "tests/test_precio_cobertura.py"
+    ]
+  }
+]
