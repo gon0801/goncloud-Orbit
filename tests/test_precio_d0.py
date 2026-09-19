@@ -20,6 +20,7 @@ sus piezas contra una base temporal con base real (patrón `db_39` de
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import re
 import shutil
@@ -133,6 +134,40 @@ def _pares(conn, texto: str, *, rol: str) -> dict[str, str]:
 
 def _cap(conn, motor: str):
     return conn.execute("SELECT apply_cap_de_config(%s)", (motor,)).fetchone()[0]
+
+
+def test_plan_escapa_el_operador_sql_en_la_fila_d0():
+    plan = (ROOT / "plans" / "repricing-01.md").read_text(encoding="utf-8")
+    fila = next(linea for linea in plan.splitlines() if linea.startswith("| D.0 |"))
+
+    assert "settings \\|\\| jsonb_build_object" in fila
+
+
+def test_snippet_del_plan_coincide_con_el_manifest():
+    plan = (ROOT / "plans" / "repricing-01.md").read_text(encoding="utf-8")
+    manifest = json.loads((ROOT / "plans" / "manifest.json").read_text(encoding="utf-8"))
+    bloque = re.search(
+        r"## Snippet para `plans/manifest\.json`.*?```json\n(.*?)\n```",
+        plan,
+        flags=re.DOTALL,
+    )
+
+    assert bloque is not None
+    snippet = json.loads(bloque.group(1))
+    registrado = next(item for item in manifest["plans"] if item["name"] == "repricing-01")
+    assert snippet == registrado
+
+
+def test_estado_de_relevo_no_vuelve_a_programar_d0():
+    plan = (ROOT / "plans" / "repricing-01.md").read_text(encoding="utf-8")
+    estado = plan.split("## Estado para la siguiente sesión", maxsplit=1)[1]
+    estado_en_una_linea = " ".join(estado.split())
+
+    assert "Migración 0039 **no aplicada**" not in estado
+    assert "D.0 (0039 + claves" not in estado
+    assert "D.0 aplicada" in estado
+    assert "goal `live` del producto controlado" in estado_en_una_linea
+    assert "A.4" in estado_en_una_linea
 
 
 # ---------------------------------------------------------------------------
