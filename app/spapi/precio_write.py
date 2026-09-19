@@ -5,10 +5,9 @@ escritura (PATCH) -> sello por ack -> readback informativo -> cierre por
 observacion del dia siguiente. Todo con el cliente falso en tests
 (`httpx.MockTransport`): cero red, cero Amazon.
 
-La forma del cuerpo del PATCH la sella la fila A.4 con ids reales: hasta
-entonces `FORMA_PARCHE = "pendiente_sonda"` y `construir_cuerpo_parche`
-levanta `FormaParcheSinSellar` ANTES de insertar la fila (no queda fila
-ni hay red). Los tests inyectan `construir_cuerpo=`.
+La forma del cuerpo del PATCH quedo sellada por la sonda A.4 con ids reales:
+`purchasable_offer` de Listings Items 2021-08-01, con el importe como string
+decimal. Los tests todavia pueden inyectar `construir_cuerpo=`.
 
 `leer_precio_vivo` usa el GET de ofertas de Pricing con `parsear_precios`
 (parser ya probado en produccion), no un GET de Listings Items cuyo
@@ -59,7 +58,7 @@ logger = logging.getLogger(__name__)
 # La forma del cuerpo del PATCH la sella A.4 con ids reales (el lead corre
 # `git grep -n pendiente_sonda -- app/spapi/precio_write.py` y exige linea
 # de codigo dentro de `construir_cuerpo_parche`, no un comentario).
-FORMA_PARCHE = "pendiente_sonda"
+FORMA_PARCHE = "listings_items_purchasable_offer_v1"
 
 
 class FormaParcheSinSellar(Exception):
@@ -130,10 +129,26 @@ def construir_escritor(
 
 
 def construir_cuerpo_parche(*, platform: str, sku: str, precio: Decimal, moneda: str) -> dict:
-    """Cuerpo del PATCH de precio. Hoy: sin forma sellada (A.4)."""
-    if FORMA_PARCHE != "pendiente_sonda":
+    """Cuerpo `purchasable_offer` aceptado por la sonda real A.4."""
+    if FORMA_PARCHE != "listings_items_purchasable_offer_v1":
         raise FormaParcheSinSellar(f"forma desconocida: {FORMA_PARCHE}")
-    raise FormaParcheSinSellar(FORMA_PARCHE)
+    return {
+        "productType": "PRODUCT",
+        "patches": [
+            {
+                "op": "replace",
+                "path": "/attributes/purchasable_offer",
+                "value": [
+                    {
+                        "currency": moneda,
+                        "audience": "ALL",
+                        "our_price": [{"schedule": [{"value_with_tax": format(precio, ".2f")}]}],
+                        "marketplace_id": MERCADOS[platform],
+                    }
+                ],
+            }
+        ],
+    }
 
 
 def leer_precio_vivo(
