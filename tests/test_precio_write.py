@@ -26,13 +26,14 @@ from test_schema import _postgres_obligatorio_ausente, _test_dsn
 from app.redaction import register_secret
 from app.spapi.client import MERCADOS, VENDEDORES_PROPIOS, SpapiClient
 from app.spapi.precio_write import (
+    FORMA_PARCHE,
     CambioNoReversible,
     DecisionSinAccion,
-    FormaParcheSinSellar,
     PrecioVivoAusente,
     PublicacionSinSku,
     cambiar_precio,
     cerrar_por_observacion,
+    construir_cuerpo_parche,
     construir_escritor,
     leer_precio_vivo,
     revertir,
@@ -546,18 +547,24 @@ def test_revertir_mal_uso_revienta(caso):
             )
 
 
-def test_revertir_arma_cuerpo_antes_de_insertar():
+def test_revertir_usa_cuerpo_sellado_aceptado_en_sonda():
     red = _RedFalsa(
-        gets_ofertas=[(200, _ofertas_body(110.0))], gets_competitivos=[(200, _competitivo_body())]
+        gets_ofertas=[(200, _ofertas_body(110.0)), (200, _ofertas_body(100.0))],
+        gets_competitivos=[(200, _competitivo_body())] * 2,
+        patchs=[(200, {"submissionId": "sonda-reversa", "status": "ACCEPTED"})],
     )
     with db_39c() as conn:
         _, cid = _semilla_reversion(conn)
         antes = conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0]
         lector, escritor = _clientes(red)
-        with rol(conn), pytest.raises(FormaParcheSinSellar, match="pendiente_sonda"):
-            revertir(conn, cid, lector=lector, escritor=escritor, ahora=AHORA)
-        assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == antes
-        assert red.n_patch == 0
+        with rol(conn):
+            res = revertir(conn, cid, lector=lector, escritor=escritor, ahora=AHORA)
+        assert res.estado == "enviado"
+        assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == antes + 1
+        assert red.n_patch == 1
+        assert json.loads(red.pedidos_patch[0].content) == construir_cuerpo_parche(
+            platform="amazon_mx", sku=SKU, precio=Decimal("100.00"), moneda="MXN"
+        )
 
 
 def test_revertir_patch_500_sella_error_con_codigo():
@@ -1131,17 +1138,37 @@ def test_cambiar_decision_que_no_mueve_precio_revienta():
         assert red.n_patch == 0
 
 
-def test_cambiar_forma_sin_sellar_no_deja_fila_ni_red():
+def test_cambiar_usa_forma_sellada_aceptada_en_sonda():
     red = _RedFalsa(
-        gets_ofertas=[(200, _ofertas_body(100.0))], gets_competitivos=[(200, _competitivo_body())]
+        gets_ofertas=[(200, _ofertas_body(100.0)), (200, _ofertas_body(110.0))],
+        gets_competitivos=[(200, _competitivo_body())] * 2,
+        patchs=[(200, {"submissionId": "sonda-cambio", "status": "ACCEPTED"})],
     )
     with db_39c() as conn:
         _, dec = _semilla_cambio(conn)
         lector, escritor = _clientes(red)
-        with rol(conn), pytest.raises(FormaParcheSinSellar, match="pendiente_sonda"):
-            cambiar_precio(conn, dec, lector=lector, escritor=escritor, ahora=AHORA)
-        assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 0
-        assert red.n_patch == 0
+        with rol(conn):
+            res = cambiar_precio(conn, dec, lector=lector, escritor=escritor, ahora=AHORA)
+        assert res.estado == "enviado"
+        assert FORMA_PARCHE == "listings_items_purchasable_offer_v1"
+        assert red.n_patch == 1
+        assert json.loads(red.pedidos_patch[0].content) == {
+            "productType": "PRODUCT",
+            "patches": [
+                {
+                    "op": "replace",
+                    "path": "/attributes/purchasable_offer",
+                    "value": [
+                        {
+                            "currency": "MXN",
+                            "audience": "ALL",
+                            "our_price": [{"schedule": [{"value_with_tax": "110.00"}]}],
+                            "marketplace_id": MERCADOS["amazon_mx"],
+                        }
+                    ],
+                }
+            ],
+        }
 
 
 # ----------------------------------------------- cerrar_por_observacion
@@ -1495,10 +1522,16 @@ def test_tool_go_huella_mala_aborta_sin_tocar(monkeypatch):
         assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 1
 
 
-def test_tool_go_huella_buena_choca_con_forma_sin_sellar(monkeypatch, capsys):
+def test_tool_go_huella_buena_usa_forma_sellada(monkeypatch, capsys):
     red = _RedFalsa(
-        gets_ofertas=[(200, _ofertas_body(110.0))] * 4,
+        gets_ofertas=[
+            (200, _ofertas_body(110.0)),
+            (200, _ofertas_body(110.0)),
+            (200, _ofertas_body(110.0)),
+            (200, _ofertas_body(100.0)),
+        ],
         gets_competitivos=[(200, _competitivo_body())] * 4,
+        patchs=[(200, {"submissionId": "sonda-tool", "status": "ACCEPTED"})],
     )
     with db_39c() as conn:
         _, cid = _semilla_reversion(conn)
@@ -1509,22 +1542,23 @@ def test_tool_go_huella_buena_choca_con_forma_sin_sellar(monkeypatch, capsys):
         assert seco == 0
         lineas = capsys.readouterr().out.splitlines()
         huella = [ln for ln in lineas if ln.startswith("huella: ")][0].split(": ")[1]
-        with pytest.raises(tool.Abortar, match="sin sellar"):
-            tool.main(
-                [
-                    "--cambio-id",
-                    str(cid),
-                    "--acepto-mutacion-real",
-                    "--huella",
-                    huella,
-                    "--go",
-                    "si",
-                ],
-                transport=red.transport,
-                credentials=dict(CRED),
-            )
-        assert red.n_patch == 0
-        assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 1
+        rc = tool.main(
+            [
+                "--cambio-id",
+                str(cid),
+                "--acepto-mutacion-real",
+                "--huella",
+                huella,
+                "--go",
+                "si",
+            ],
+            transport=red.transport,
+            credentials=dict(CRED),
+        )
+        assert rc == 0
+        assert "[hecho]" in capsys.readouterr().out
+        assert red.n_patch == 1
+        assert conn.execute("SELECT count(*) FROM precio_cambio").fetchone()[0] == 2
 
 
 def test_tool_cambio_inexistente_aborta(monkeypatch):
@@ -2652,7 +2686,15 @@ def test_r6_c5_go_comparte_un_cubo_de_pricing(monkeypatch, capsys):
     """r6-C5: el go lee el vivo bajo un solo CuboTasa (0.5/s): hay espera entre lecturas."""
     a1 = (200, _ofertas_body(110.0, asin="B0TESTC006"))
     b1 = (200, _ofertas_body(110.0, asin="B0TESTC007"))
-    red = _RedFalsa(gets_ofertas=[a1, b1, a1, b1, a1])
+    a0 = (200, _ofertas_body(100.0, asin="B0TESTC006"))
+    b0 = (200, _ofertas_body(100.0, asin="B0TESTC007"))
+    red = _RedFalsa(
+        gets_ofertas=[a1, b1, a1, b1, a1, a0, b1, b0],
+        patchs=[
+            (200, {"submissionId": "sonda-c61", "status": "ACCEPTED"}),
+            (200, {"submissionId": "sonda-c62", "status": "ACCEPTED"}),
+        ],
+    )
     with db_39c() as conn:
         lid1, dec1 = _semilla_cambio(conn, asin="B0TESTC006", sku="SKU-C61")
         cid1 = _cambio_cerrado(conn, dec1, lid1)
@@ -2672,21 +2714,22 @@ def test_r6_c5_go_comparte_un_cubo_de_pricing(monkeypatch, capsys):
         assert out_seco.count("[revertir]") == 2
         huella = [ln for ln in out_seco.splitlines() if ln.startswith("huella: ")][0].split(": ")[1]
         sleeps = []
-        with pytest.raises(tool.Abortar, match="forma del parche sin sellar"):
-            tool.main(
-                [
-                    "--cambio-id",
-                    str(cid1),
-                    "--cambio-id",
-                    str(cid2),
-                    "--acepto-mutacion-real",
-                    "--huella",
-                    huella,
-                    "--go",
-                    "si",
-                ],
-                transport=red.transport,
-                credentials=dict(CRED),
-                sleep=sleeps.append,
-            )
+        rc = tool.main(
+            [
+                "--cambio-id",
+                str(cid1),
+                "--cambio-id",
+                str(cid2),
+                "--acepto-mutacion-real",
+                "--huella",
+                huella,
+                "--go",
+                "si",
+            ],
+            transport=red.transport,
+            credentials=dict(CRED),
+            sleep=sleeps.append,
+        )
+        assert rc == 0
+        assert red.n_patch == 2
         assert len(sleeps) >= 2
