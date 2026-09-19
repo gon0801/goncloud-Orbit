@@ -28,6 +28,7 @@ DETERMINISMO: las paginas delegan en los endpoints (que ya usan `_hoy_utc`).
 from __future__ import annotations
 
 import datetime as dt
+import logging
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 from pathlib import Path
@@ -46,7 +47,10 @@ from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.goals import PELDANOS_CASCADA
 from app.precio import cobertura as cobertura_precio
 from app.precio import fuentes as fuentes_precio
+from app.redaction import scrub
 from app.ui_metricas import clase_cambio, kpis_inertes, kpis_serie
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="", tags=["dashboard-ui"])
 
@@ -457,7 +461,8 @@ def pagina_precios(request: Request, conn: ConexionLectura) -> HTMLResponse:
     for plataforma, bloque in datos["plataformas"].items():
         try:
             puente = fuentes_precio.contar_listing_identidad(conn, platform=plataforma)
-        except Exception:  # noqa: BLE001 - contraste opcional, no tumba la pantalla
+        except Exception as exc:  # noqa: BLE001 - contraste opcional, no tumba la pantalla
+            logger.warning("precios: puente %s ilegible: %s", plataforma, scrub(str(exc)))
             puente = None
         recuadro = bloque["recuadro"]
         plataformas[plataforma] = {

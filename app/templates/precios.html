@@ -3,7 +3,6 @@
 <h2>Precios — cobertura, decisiones y divergencias del dia</h2>
 {% if error %}
 <p class="alerta" role="alert">Precios ilegibles: {{ error }}</p>
-<p class="mutado">Sin esquema de precios no hay pantalla: aplica la migracion 0039 y recarga.</p>
 {% else %}
 <p class="mutado">Dia {{ hoy }} (reloj de la base) · sin javascript · las frases con margen y precio viven solo aqui</p>
 <div class="salud-grid">
@@ -52,16 +51,34 @@
 
   <section id="bloque-con-goal-{{ plataforma }}" aria-label="Con goal">
   <h3>Con goal</h3>
-  {% if rec.evaluadas == 0 %}
-  <p class="mutado">Sin evaluadas hoy.</p>
+  {% if datos.con_goal %}
+  <p>{{ rec.evaluadas }} evaluada{{ "s" if rec.evaluadas != 1 }} con goal hoy</p>
+  <div class="tabla-scroll" role="region" aria-label="Productos con goal" tabindex="0">
+  <table>
+    <thead><tr><th>SKU</th><th class="num">Margen hoy</th><th class="num">Objetivo</th><th class="num">Precio actual</th><th class="num">Precio objetivo</th><th>Canal</th><th>Modo</th><th>Último cambio</th><th>Estado</th></tr></thead>
+    <tbody>
+      {% for f in datos.con_goal %}
+      <tr><td class="mono">{{ f.sku }}</td><td class="num">{{ f.m_actual | dinero_ui or "—" }}</td><td class="num">{{ f.goal | dinero_ui or "—" }}</td><td class="num">{{ f.p_actual | dinero_ui or "—" }}</td><td class="num">{{ f.p_objetivo | dinero_ui or "—" }}</td><td>{{ f.canal or "—" }}</td><td>{{ f.modo }}</td><td>{% if f.ultimo_cambio %}{{ f.ultimo_cambio.fecha or "—" }} · {{ f.ultimo_cambio.antes | dinero_ui }} → {{ f.ultimo_cambio.despues | dinero_ui }}{% else %}sin cambio registrado{% endif %}</td><td>{% if f.ultimo_cambio %}{{ f.ultimo_cambio.estado_es }}{% elif f.decision_hoy %}{{ f.decision_hoy }}{% else %}sin decisión hoy{% endif %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
   {% else %}
-  <p>{{ rec.evaluadas }} evaluada{{ "s" if rec.evaluadas != 1 }} con goal hoy: {% for r in resultados_evaluados %}{{ r }} {{ datos.decisiones.get(r, 0) }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
+  <p class="mutado">Sin productos con goal vigente.</p>
   {% endif %}
   </section>
 
   <section id="bloque-hecho-{{ plataforma }}" aria-label="Hecho y habria hecho">
   <h3>Hecho y habria hecho</h3>
-  <p>Habria hecho hoy: subir {{ datos.decisiones.get("subir", 0) }} · bajar {{ datos.decisiones.get("bajar", 0) }} (sombra: las decisiones no se aplican solas)</p>
+  {% if datos.acciones %}
+  <ul>
+    {% for a in datos.acciones %}
+    <li>{{ a.frase }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="mutado">Sin decisiones hoy.</p>
+  {% endif %}
   {% if datos.huerfanas > 0 %}
   <p class="alerta">{{ datos.huerfanas }} cambio{{ "s" if datos.huerfanas != 1 }} hecho{{ "s" if datos.huerfanas != 1 }} pendiente{{ "s" if datos.huerfanas != 1 }} de confirmacion: revisar el log y revertir si el precio se movio</p>
   {% else %}
@@ -71,13 +88,13 @@
 
   <section id="bloque-no-evaluados-{{ plataforma }}" aria-label="No evaluados">
   <h3>No evaluados</h3>
-  {% if rec.no_evaluadas %}
-  <div class="tabla-scroll" role="region" aria-label="No evaluados por motivo" tabindex="0">
+  {% if datos.no_evaluados_filas %}
+  <div class="tabla-scroll" role="region" aria-label="No evaluados del dia" tabindex="0">
   <table>
-    <thead><tr><th class="num">Total</th><th>Motivo</th></tr></thead>
+    <thead><tr><th>SKU</th><th>Motivo</th></tr></thead>
     <tbody>
-      {% for item in rec.no_evaluadas %}
-      <tr><td class="num">{{ item.count }}</td><td>{{ item.motivo | motivo_precio_es }}</td></tr>
+      {% for f in datos.no_evaluados_filas %}
+      <tr><td class="mono">{{ f.sku }}</td><td>{{ f.motivo_es }}</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -89,13 +106,18 @@
 
   <section id="bloque-divergente-{{ plataforma }}" aria-label="Precio divergente">
   <h3>Precio divergente</h3>
-  {% set divergentes = rec.no_evaluadas | selectattr("motivo", "in", ["precio_divergente", "moneda_divergente"]) | list %}
-  {% if divergentes %}
-  <ul>
-    {% for item in divergentes %}
-    <li class="alerta">{{ item.count }} con {{ item.motivo | motivo_precio_es }}</li>
-    {% endfor %}
-  </ul>
+  {% if datos.divergentes %}
+  <p>Precio observado distinto del publicado N días seguidos:</p>
+  <div class="tabla-scroll" role="region" aria-label="Precio divergente" tabindex="0">
+  <table>
+    <thead><tr><th>SKU</th><th class="num">Días seguidos</th><th class="num">Precio actual</th></tr></thead>
+    <tbody>
+      {% for d in datos.divergentes %}
+      <tr><td class="mono">{{ d.sku }}</td><td class="num">{{ d.dias }}</td><td class="num">{{ d.p_actual | dinero_ui or "—" }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
   {% else %}
   <p class="mutado">Sin divergencias hoy.</p>
   {% endif %}

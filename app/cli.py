@@ -482,7 +482,6 @@ def _precio(args: argparse.Namespace) -> int:
     """Corrida diaria del motor de precios o su reporte (REPRICING 01 A.5)."""
     # D9 (r3): import tardio (un error de import de esta cadena no tumba
     # `ingest` ni `cycle`).
-    from app.notifica import avisar_precio
     from app.precio import corrida as corrida_precios
 
     if args.reporte:
@@ -541,6 +540,10 @@ def _precio(args: argparse.Namespace) -> int:
         return 1
     try:
         lector, escritor, fees, limitador = _clientes_precio(args.platform)
+        # C (r1): el import de avisos vive en la rama que llama a `correr`,
+        # no antes de `--reporte` (el reporte no avisa ni necesita Telegram).
+        from app.notifica import avisar_precio
+
         resumen = corrida_precios.correr(
             conn,
             args.platform,

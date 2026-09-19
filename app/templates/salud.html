@@ -95,14 +95,15 @@
   {% endif %}
 
   {% if datos.precios is defined %}
-  {# REPRICING 01 A.6: bloque liviano {hoy, decisiones, huerfanas}; el
-     recuadro vive en /precios (un solo camino con con_recuadro). #}
+  {# REPRICING 01 A.6: conteos del dia (misma fuente que /precios: el bloque
+     `precios` de /salud; el recuadro S10 vive en /precios). #}
   <h3>Precios</h3>
   <div id="bloque-precios-{{ plataforma }}">
   {% if datos.precios %}
-  <p>Hoy {{ datos.precios.hoy }} · {% if datos.precios.decisiones %}decisiones: {% for resultado, n in datos.precios.decisiones.items() %}{{ resultado }} {{ n }}{% if not loop.last %} · {% endif %}{% endfor %}{% else %}sin decisiones hoy{% endif %} · huerfanas pendientes: {{ datos.precios.huerfanas }}</p>
+  {% set pr = datos.precios %}
+  <p>Hoy {{ pr.hoy }} · evaluados {{ pr.evaluados }} · movidos {{ pr.movidos }} · sombra {{ pr.sombra }} · no evaluados {{ pr.no_evaluados.values() | sum }} · frenados {{ pr.frenados.values() | sum }} · objetivo inalcanzable {{ pr.goal_inalcanzable }} · cupo {{ pr.cuota.used }} de {{ pr.cuota.cap }} · huerfanas pendientes: {{ pr.huerfanas }}</p>
   {% else %}
-  <p class="mutado">Sin datos de precios (esquema 0039 no aplicado o corrida sin lectura).</p>
+  <p class="mutado">Sin datos de precios del día.</p>
   {% endif %}
   </div>
   {% endif %}
