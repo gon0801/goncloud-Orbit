@@ -1,0 +1,32 @@
+D.0 REPRICING 01 — destino=local — inicio_utc=2026-09-18T16:49:39Z
+go_literal: ensayo D.0 del lead (segunda corrida, idempotente)
+commit_del_repo: d37143bb4d2a5fdf652141809790d79d15c69c6d
+VERDE 0039 del arbol = origin/master
+pg_version: 16.15 (Homebrew)
+VERDE btree_gist instalada
+VERDE listing sin (id, platform) duplicado
+VERDE 8 caps de Ads vivos antes
+config vigente antes: id=2 label=ensayo D.0 del lead (primera corrida): it's a \test claves_precio=20
+SALTA 0039 ya aplicada: sin backup ni migracion
+SALTA la vigente ya trae las 20 claves: no se siembra
+VERDE las cinco tablas precio_*
+VERDE precio_goal con cero filas
+VERDE precio_decision con cero filas
+VERDE precio_cotizacion con cero filas
+VERDE precio_envio_muestra con cero filas
+VERDE precio_cambio con cero filas
+VERDE listing_id_platform_key
+VERDE EXCLUDE precio_goal_sin_solape
+VERDE dos indices parciales
+VERDE triggers habilitados en las cinco tablas
+VERDE cap precio:amazon_mx = 5
+VERDE cap precio:amazon_us = 5
+VERDE cap precio:meli = 5
+VERDE caps de Ads identicos antes y despues
+config vigente despues: id=2 label=ensayo D.0 del lead (primera corrida): it's a \test
+VERDE 20 claves precio_* en la vigente
+VERDE CONFIG-OK 20 claves precio_*
+VERDE apply_quota_state precio:amazon_mx nace con cap 5
+VERDE ROLLBACK: cero filas de cuota
+fin_utc: 2026-09-18T16:49:40Z
+D0-VERDE salidas=/Users/dn/dev/wt-d0/docs/evidencia/repricing-01/D.0/ensayo-local/20260918-164939

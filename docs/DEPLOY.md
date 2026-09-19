@@ -1221,7 +1221,9 @@ Backup del schema antes: `--schema-only` COMPLETO (patrón de la 0003:
 staging + verificación, el archivo final solo aparece con el marcador de
 cierre). A propósito sin `-t`: un `pg_dump -t` solo saca tablas y **no
 respalda `apply_cap_de_config`**, que esta migración reemplaza — «revertir es
-restaurar el dump» no revertiría la función:
+restaurar el dump» no revertiría la función. `pg_dump` la escribe como
+`CREATE FUNCTION` (nunca `CREATE OR REPLACE`): el `grep` busca esa forma, y
+`tests/test_precio_d0.py` lo prueba contra un `pg_dump` real:
 
 ```bash
 ssh goncloud 'set -eu; D=/mnt/data/appdata/orbit/backups; \
@@ -1230,7 +1232,7 @@ ssh goncloud 'set -eu; D=/mnt/data/appdata/orbit/backups; \
   docker exec orbit-db-1 pg_dump -U orbit -d orbit --schema-only > "$TMP"; \
   [ -s "$TMP" ] \
     && grep -q "CREATE TABLE public.listing" "$TMP" \
-    && grep -q "CREATE OR REPLACE FUNCTION public.apply_cap_de_config" "$TMP" \
+    && grep -q "CREATE FUNCTION public.apply_cap_de_config" "$TMP" \
     && tail -5 "$TMP" | grep -q "PostgreSQL database dump complete" \
     || { echo "DUMP INVALIDO"; rm -f "$TMP"; exit 1; }; \
   chmod 600 "$TMP"; mv "$TMP" "$OUT"; ls -l "$OUT"'

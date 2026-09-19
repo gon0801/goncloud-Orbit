@@ -1,0 +1,15 @@
+pg_version|16.15 (Homebrew)
+estado_0039|ausente
+btree_gist|1
+config_id|1
+config_label|vigente
+claves_precio|0
+listing_dup_id_platform|0
+cap:ads_optimizer:amazon_mx:bid|20
+cap:ads_optimizer:amazon_mx:harvest|2
+cap:ads_optimizer:amazon_mx:negative|10
+cap:ads_optimizer:amazon_mx:pause|5
+cap:ads_optimizer:amazon_us:bid|20
+cap:ads_optimizer:amazon_us:harvest|2
+cap:ads_optimizer:amazon_us:negative|10
+cap:ads_optimizer:amazon_us:pause|5
