@@ -7,7 +7,12 @@ desplegar), que:
 - las 20 claves `precio_*` están con el valor inicial de la tabla de umbrales
   del plan v1.3, y ninguna `precio_envio_*` (esas las siembra E.3);
 - `leer_config` (reglas), `banda_desde_settings` (goals, A.1) y
-  `max_dias_desde_settings` (cobertura, A.7) no levantan `ValueError`.
+  `max_dias_desde_settings` (cobertura, A.7) no levantan `ValueError`;
+- tampoco lo que la corrida (A.5) y la pantalla (A.6) validan al arrancar:
+  `validar_cap` de las plataformas de `PLATAFORMAS_MONEDA` (`/precios` las
+  lee todas y es fail-closed global) y de las tres de los caps sembrados (la
+  corrida acepta `--platform` de cualquiera), `validar_freno_dias_error` y
+  `validar_precio_aviso_dias`.
 
 Imprime `CONFIG-OK` y sale 0, o una línea por falla y sale 1. `CLAVES` es la
 lista literal de la fila D.0; `tests/test_precio_d0.py` comprueba que
@@ -25,7 +30,11 @@ RAIZ = Path(__file__).resolve().parents[4]
 if str(RAIZ) not in sys.path:
     sys.path.insert(0, str(RAIZ))
 
+from app.notifica import validar_precio_aviso_dias  # noqa: E402
+from app.optimizer.bid import PLATAFORMAS_MONEDA  # noqa: E402
 from app.precio.config import leer_config  # noqa: E402
+from app.precio.corrida import validar_freno_dias_error  # noqa: E402
+from app.precio.cuota import validar_cap  # noqa: E402
 from app.precio.fuentes import max_dias_desde_settings  # noqa: E402
 from app.precio.goals_write import banda_desde_settings  # noqa: E402
 
@@ -61,6 +70,13 @@ def _igual(esperado: object, valor: object) -> bool:
     return Decimal(str(valor)) == Decimal(str(esperado))
 
 
+def _plataformas_con_cap() -> list[str]:
+    """Las que `/precios` lee (`PLATAFORMAS_MONEDA`) más las de los caps que
+    se siembran (la corrida acepta `--platform` de las tres)."""
+    sembradas = {c.removeprefix("precio_cap_") for c in CLAVES if c.startswith("precio_cap_")}
+    return sorted(set(PLATAFORMAS_MONEDA) | sembradas)
+
+
 def fallas(settings: dict) -> list[str]:
     """Una línea por cada cosa que no cuadra; lista vacía = todo bien."""
     errores: list[str] = []
@@ -79,6 +95,9 @@ def fallas(settings: dict) -> list[str]:
         ("leer_config", leer_config),
         ("banda_desde_settings", banda_desde_settings),
         ("max_dias_desde_settings", max_dias_desde_settings),
+        *((f"validar_cap({p})", lambda s, p=p: validar_cap(s, p)) for p in _plataformas_con_cap()),
+        ("validar_freno_dias_error", validar_freno_dias_error),
+        ("validar_precio_aviso_dias", validar_precio_aviso_dias),
     ):
         try:
             lector(settings)

@@ -296,6 +296,36 @@ def test_verificar_config_caza_cada_falla(cambio, esperado):
     assert any(esperado in e for e in errores), errores
 
 
+@pytest.mark.parametrize("nombre", ["validar_freno_dias_error", "validar_precio_aviso_dias"])
+def test_verificar_config_corre_los_validadores_de_la_fase_11(monkeypatch, nombre):
+    """La corrida (A.5) y la pantalla (A.6) validan sus claves al arrancar:
+    el paso 5 corre esos mismos validadores sobre la config sembrada."""
+
+    def _revienta(*_args, **_kwargs):
+        raise ValueError(f"{nombre} saboteado")
+
+    monkeypatch.setattr(VERIFICADOR, nombre, _revienta)
+    errores = VERIFICADOR.fallas(_config_buena())
+    assert any(f"{nombre} saboteado" in e for e in errores), errores
+
+
+@pytest.mark.parametrize("plataforma", ["amazon_mx", "amazon_us", "meli"])
+def test_verificar_config_valida_el_cap_de_cada_plataforma(monkeypatch, plataforma):
+    """`/precios` lee el cap de amazon_mx y amazon_us (fail-closed global) y
+    la corrida acepta `--platform` de las tres: el paso 5 valida los tres
+    caps sembrados, no solo el de la corrida de MX."""
+    real = VERIFICADOR.validar_cap
+
+    def _cap(settings, platform):
+        if platform == plataforma:
+            raise ValueError(f"cap {platform} saboteado")
+        return real(settings, platform)
+
+    monkeypatch.setattr(VERIFICADOR, "validar_cap", _cap)
+    errores = VERIFICADOR.fallas(_config_buena())
+    assert any(f"cap {plataforma} saboteado" in e for e in errores), errores
+
+
 # ---------------------------------------------------------------------------
 # backup del schema contra un pg_dump real
 # ---------------------------------------------------------------------------

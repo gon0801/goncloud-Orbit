@@ -26,7 +26,7 @@ queda en `salidas/<stamp>/` con `CORRIDA.txt` de resumen.
 | 2. 0039 en una transacción (si el `EXCLUDE` no se crea, se revierte entera) | `migrations/0039_precio.sql` | superusuario |
 | 3. Siembra de las 20 claves (se niega si ya hay claves `precio_*`) | `siembra.sql` | superusuario |
 | 4. Readback: cinco tablas en cero filas, constraint, índices, `EXCLUDE`, triggers, caps `precio:*` = 5, caps de Ads **idénticos** a los de antes, 20 claves | `readback.sql` | lector, `BEGIN READ ONLY` |
-| 5. La config vigente pasa `leer_config`, la banda de goals y los días de catálogo con el código de `origin/master` | `verificar_config.py` | local, sobre el JSON leído como lector |
+| 5. La config vigente pasa, con el código de `origin/master`, `leer_config`, la banda de goals, los días de catálogo y lo que la corrida (A.5) y la pantalla (A.6) validan al arrancar: el cap de `amazon_mx`, `amazon_us` y `meli`, `precio_freno_dias_error` y `precio_aviso_dias_sin_evaluar` | `verificar_config.py` | local, sobre el JSON leído como lector |
 | 6. `apply_quota_state` de `precio:amazon_mx` nace con cap 5, en `BEGIN … ROLLBACK` | `cuota.sql` | `ORBIT_DSN_ADMIN` de la app |
 
 Re-correrlo es seguro: con la 0039 puesta no repite backup ni migración, y con
@@ -48,6 +48,11 @@ cosas (`D0-VERDE`). El ensayo cazó que el `grep` del backup de `DEPLOY.md`
 backup habría abortado con «DUMP INVALIDO». `tests/test_precio_d0.py` lo
 prueba ahora contra un `pg_dump` real, junto con la siembra, la cuota, el
 readback y el verificador.
+
+El ensayo corrió antes del cierre de la Fase 11, con el verificador sin los
+validadores de la corrida y la pantalla. Esos se agregaron después, con su
+prueba en `tests/test_precio_d0.py`, y el verificador nuevo da
+`CONFIG-OK 20 claves precio_*` sobre el `05-settings.json` del ensayo.
 
 ## Después de la corrida (lead)
 
