@@ -167,7 +167,8 @@ def test_estado_de_relevo_refleja_a4_en_curso_sin_reprogramar_d0():
     assert "D.0 (0039 + claves" not in estado
     assert "D.0 aplicada" in estado
     assert "A.4 en curso desde 2026-09-19" in estado_en_una_linea
-    assert "reversas esperan la observación UTC D+1" in estado_en_una_linea
+    assert "reversas 5/6/7 fueron aceptadas" in estado_en_una_linea
+    assert "Falta la observación del 21-sep" in estado_en_una_linea
     assert "Después de sellar A.4, sigue D.1" in estado_en_una_linea
 
 

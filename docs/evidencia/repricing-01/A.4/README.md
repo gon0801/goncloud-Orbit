@@ -7,11 +7,11 @@ una a tres publicaciones MX/FBA; el listing 1253 quedó como control negativo.
 
 ## Publicaciones
 
-| listing | seller SKU | ASIN | P | P + 0.01 | goal live | decision | cambio | submissionId |
-|---:|---|---|---:|---:|---:|---:|---:|---|
-| 1213 | `SK-YBQX-XQWV` | `B0C8RVWG4F` | 988.00 MXN | 988.01 MXN | 35.00% (`goal_id=3`) | 2 | 2 | `905178d2bc984c159ceb3835e096d0d2` |
-| 1284 | `Q3-7EV3-8TBH` | `B0D836626Q` | 1288.00 MXN | 1288.01 MXN | 53.00% (`goal_id=5`) | 3 | 3 | `bf9db60876d147adb87b643d94abeb0e` |
-| 1295 | `9D-5LHS-JYW6` | `B0D86QLQ3Y` | 699.00 MXN | 699.01 MXN | 59.50% (`goal_id=4`) | 4 | 4 | `e6ccb9ccb9be45b682ecba9d78223f3d` |
+| listing | seller SKU | P | P + 0.01 | cambio | submissionId | reversa | submissionId reversa |
+|---:|---|---:|---:|---:|---|---:|---|
+| 1213 | `SK-YBQX-XQWV` | 988.00 MXN | 988.01 MXN | 2 | `905178d2bc984c159ceb3835e096d0d2` | 5 | `cfd19184ddd84596868c848a09ae15d1` |
+| 1284 | `Q3-7EV3-8TBH` | 1288.00 MXN | 1288.01 MXN | 3 | `bf9db60876d147adb87b643d94abeb0e` | 6 | `0e85a3933dcf45f3a31531aea075f5fa` |
+| 1295 | `9D-5LHS-JYW6` | 699.00 MXN | 699.01 MXN | 4 | `e6ccb9ccb9be45b682ecba9d78223f3d` | 7 | `74a112029d684ef48733fd2d2d628da6` |
 
 Control negativo: listing 1253, SKU `0O-B6OS-8RRE`, ASIN `B0CJT6BK86`,
 848.00 MXN antes y después de los tres PATCH.
@@ -24,9 +24,18 @@ Control negativo: listing 1253, SKU `0O-B6OS-8RRE`, ASIN `B0CJT6BK86`,
   `submissionId`.
 - El GET de Listings Items posterior mostró 988.01, 1288.01 y 699.01 MXN.
 - El control negativo conservó 848.00 MXN.
-- Los tres cambios siguen `enviado`. La reversa no puede nacer mientras el original
-  esté abierto: se ejecutará después de que una observación de un día UTC posterior
-  confirme P+0.01 mediante `cerrar_por_observacion`.
+- La ingesta manual `spapi_pricing` del 2026-09-20 (`ingest_run=335`) escribió
+  342 observaciones, omitió 0 y confirmó P+0.01 en los tres listings y 848.00 MXN
+  en el control.
+- `cerrar_por_observacion` cerró los cambios 2/3/4 como `confirmado` por
+  `observacion`: 3 confirmados, 0 no confirmados.
+- El dry-run de reversa produjo la huella `07bd7818894c8e7f`. El go creó las
+  reversas 5/6/7; Amazon devolvió HTTP 200, `ACCEPTED`, sin issues, y los tres
+  `submissionId` de la tabla.
+- El GET posterior confirmó de nuevo 988.00, 1288.00 y 699.00 MXN. El control
+  conservó 848.00 MXN.
+- Los goals 3/5/4 quedaron cerrados con `valid_to=2026-09-20`; no queda ningún
+  goal vigente para los tres listings.
 
 ## Forma aceptada
 
@@ -47,8 +56,6 @@ fuente temporal que Amazon realmente actualice; no se declara cumplida.
 
 ## Pendiente para cerrar A.4
 
-1. Observación D+1 en P+0.01 y cierre de cambios 2, 3 y 4.
-2. Dry-run y go de `tools/precio_reversa.py` para los tres cambios.
-3. GET vivo en P y observación D+1 de cada reversa.
-4. Control negativo todavía en 848.00 MXN.
-5. PR de esta rama mergeado con CI verde.
+1. Observación del 2026-09-21 en P y cierre de las reversas 5/6/7.
+2. Control negativo todavía en 848.00 MXN.
+3. Revisión final y PR de esta rama mergeado con CI verde.

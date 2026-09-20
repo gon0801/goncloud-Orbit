@@ -517,7 +517,7 @@ conjunto; ninguna fase enciende dos conjuntos a la vez.
 {
   "name": "repricing-01",
   "path": "plans/repricing-01.md",
-  "description": "REPRICING 01 - motor de precios por goal de margen (M1/AUTO-07/ORBIT 09). Spec v1.3 (dos rondas de revision; la segunda invalido cuatro hechos que el plan daba por medidos): proteger margen; goal por producto; sube si el margen estimado no llega, baja solo si caen las unidades de 15 dias contra 60; sombra primero; cuota propia; envio FBM medido de las etiquetas (decision 13); toda publicacion activa contemplada (14); Mercado Libre en alcance (15). Plan v1.3: Fases 8, 10 y 11 cerradas (A.0-A.3, A.5-A.7, R.1 en master); D.0 aplicada en produccion 2026-09-19 (0039 + 20 claves precio_*). A.4 en curso: tres sondas MX aceptadas y confirmadas por GET en P+0.01; reversas esperan observacion D+1. E.0a bloqueada por el export de Seller Central."
+  "description": "REPRICING 01 - motor de precios por goal de margen (M1/AUTO-07/ORBIT 09). Spec v1.3 (dos rondas de revision; la segunda invalido cuatro hechos que el plan daba por medidos): proteger margen; goal por producto; sube si el margen estimado no llega, baja solo si caen las unidades de 15 dias contra 60; sombra primero; cuota propia; envio FBM medido de las etiquetas (decision 13); toda publicacion activa contemplada (14); Mercado Libre en alcance (15). Plan v1.3: Fases 8, 10 y 11 cerradas (A.0-A.3, A.5-A.7, R.1 en master); D.0 aplicada en produccion 2026-09-19 (0039 + 20 claves precio_*). A.4 en curso: tres sondas y sus reversas aceptadas; GET otra vez en P y goals cerrados; falta observacion D+1 de las reversas. E.0a bloqueada por el export de Seller Central."
 }
 ```
 
@@ -526,10 +526,11 @@ conjunto; ninguna fase enciende dos conjuntos a la vez.
 - Plan v1.3 sobre el spec v1.3. Las fases 8, 10 y 11 están cerradas. **D.0 aplicada**
   en producción el 2026-09-19: migración 0039 y 20 claves `precio_*`.
 - **A.4 en curso desde 2026-09-19** con autorización literal `usa los 3 de prueba`:
-  goals live 3/5/4, decisiones 2/3/4 y cambios 2/3/4. Amazon aceptó los tres
-  PATCH y el GET confirmó 988.01, 1288.01 y 699.01 MXN; el control 1253 siguió
-  en 848.00 MXN. Las reversas esperan la observación UTC D+1 que cierre los
-  originales; no se fuerza el cierre. Evidencia: `docs/evidencia/repricing-01/A.4/`.
+  los cambios 2/3/4 quedaron confirmados por la observación del 20-sep; las
+  reversas 5/6/7 fueron aceptadas y el GET confirmó 988.00, 1288.00 y 699.00 MXN.
+  El control 1253 siguió en 848.00 MXN y los goals de prueba quedaron cerrados.
+  Falta la observación del 21-sep que cierre las reversas. Evidencia:
+  `docs/evidencia/repricing-01/A.4/`.
 - La forma `listings_items_purchasable_offer_v1` quedó sellada en la rama
   `fase12/a4-forma-parche`; falta mergear su PR y completar reversa + observación D+1.
 - Después de sellar A.4, sigue D.1: despliegue en sombra MX, cron, goals `shadow`
