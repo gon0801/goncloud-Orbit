@@ -564,6 +564,7 @@ def test_ui_cero_no_se_pinta_como_dato_faltante(monkeypatch):
     `or "—"` pintaba clicks=0 y applied_count=0 como dato faltante. CERO es
     dato (y en shadow applied_count es SIEMPRE 0: se veia "—" en todos los
     ciclos)."""
+    monkeypatch.setattr("app.api_dashboard._hoy_utc", lambda: dt.date(2026, 8, 21))
     with _db_temporal("orbit_ui_ceros") as (conn, dsn):
         run = _run(conn)
         camp = _campana(conn, "amazon_us", "9001", name="Campana A")
