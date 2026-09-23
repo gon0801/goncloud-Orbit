@@ -123,7 +123,7 @@
     {
       "name": "repricing-01",
       "path": "plans/repricing-01.md",
-      "description": "REPRICING 01 - motor de precios por goal de margen (M1/AUTO-07/ORBIT 09). Spec v1.3 (dos rondas de revision; la segunda invalido cuatro hechos que el plan daba por medidos): proteger margen; goal por producto; sube si el margen estimado no llega, baja solo si caen las unidades de 15 dias contra 60; sombra primero; cuota propia; envio FBM medido de las etiquetas (decision 13); toda publicacion activa contemplada (14); Mercado Libre en alcance (15). Plan v1.3: Fases 8, 10 y 11 cerradas (A.0-A.3, A.5-A.7, R.1 en master); D.0 aplicada en produccion 2026-09-19 (0039 + 20 claves precio_*). A.4 cerrada 2026-09-22: tres cambios y reversas confirmados por Pricing; control intacto; sigue D.1 en sombra. E.0a bloqueada por el export de Seller Central."
+      "description": "REPRICING 01 - motor de precios por goal de margen (M1/AUTO-07/ORBIT 09). Spec v1.3 (dos rondas de revision; la segunda invalido cuatro hechos que el plan daba por medidos): proteger margen; goal por producto; sube si el margen estimado no llega, baja solo si caen las unidades de 15 dias contra 60; sombra primero; cuota propia; envio FBM medido de las etiquetas (decision 13); toda publicacion activa contemplada (14); Mercado Libre en alcance (15). Plan v1.3: Fases 8, 10 y 11 cerradas (A.0-A.3, A.5-A.7, R.1 en master); D.0 aplicada en produccion 2026-09-19 (0039 + 20 claves precio_*). A.4 cerrada 2026-09-22: tres cambios y reversas confirmados por Pricing; control intacto. D.1 cerrada 2026-09-23: tres goals MX en sombra, dos corridas automaticas 3/3 y cero cambios nuevos; cinco dias quedan en seguimiento. E.0a bloqueada por el export de Seller Central."
     }
   ],
   "active": "fabrica-01"

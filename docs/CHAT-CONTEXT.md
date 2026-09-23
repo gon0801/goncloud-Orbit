@@ -4,7 +4,19 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
-**2026-09-22 UTC — REPRICING 01 A.4: las tres reversas quedaron confirmadas por Pricing; sigue D.1 en sombra.**
+**2026-09-23 UTC — REPRICING 01 D.1 CERRADA: el motor de precios corre en sombra MX.**
+El dueño autorizó el despliegue con `!` el 20-sep: `f301cf4`, respaldo,
+checksums, imagen y cron de `gon` a las 13:10 UTC. Los listings 1213, 1284
+y 1295 tienen goals `shadow`; cero goals vigentes `live`. Las corridas
+automáticas del 21 y 22-sep evaluaron 3/3 goals cada una y decidieron
+`mantener(cooldown)`: los cambios de A.4 tenían 2 y 3 días frente a los
+7 configurados. No hubo cambios de precio nuevos. El recuadro canónico
+cuadró ambos días con 260 activas: 3 evaluadas, 102 sin canal y 155 sin goal.
+La cifra 264 del plan era histórica; 342 son identidades de `listing`, no
+activas del bridge. Evidencia: `docs/evidencia/repricing-01/D.1/LEEME.md`.
+Cinco corridas quedan como seguimiento operativo según el criterio de cierre
+que aprobó el dueño. D.2 exige un go distinto para encender 3–5 productos.
+**2026-09-22 UTC — REPRICING 01 A.4: las tres reversas quedaron confirmadas por Pricing; D.1 ya cerró en sombra.**
 Lectura de producción como `orbit_read`: los cambios 2/3/4 y las reversas
 5/6/7 están `confirmado` por `observacion`. Pricing del 21 y 22-sep devolvió
 los precios originales de los listings 1213, 1284 y 1295; el control 1253
@@ -13,10 +25,9 @@ Listings Items conservó `summaries.lastUpdatedDate` antiguo, así que A.4 usa
 el `observed_at` de la lectura externa de Pricing como evidencia temporal.
 Consulta y resultados: `docs/evidencia/repricing-01/A.4/readback.md`.
 
-Sigue D.1: elegir goals MX/FBA en `shadow`, desplegar el código y el cron de
-precio, y leer cinco corridas. D.3 de FABRICA 02 sigue separado y requiere el
-ensayo de reversa y dos go literales del dueño. E.0a espera el export de
-Seller Central.
+D.1 se cerró con las corridas automáticas del 21 y 22-sep. D.3 de
+FABRICA 02 sigue separado y requiere resolver el orden del ensayo de reversa.
+E.0a espera el export de Seller Central.
 
 **2026-09-19 UTC — REPRICING 01, D.0 APLICADA: la base de producción ya tiene las tablas y la configuración del motor de precios; ningún goal, ninguna decisión, ningún precio movido.**
 El dueño corrió el paquete de D.0 (`#317`, `1bcfc5e`) con `!` a las 15:06 UTC, desde un worktree en `origin/master`: `D0-VERDE`.
