@@ -372,8 +372,15 @@ def test_reversa_automatica_no_borra_keyword_sin_post_propio():
     borrado.assert_not_called()
 
 
-def test_reversa_no_borra_keyword_ajena_si_207_rechaza_creacion():
-    """Un error por item en 207 no confirma el POST ni autoriza borrar por LIST."""
+@pytest.mark.parametrize(
+    "ack_keyword",
+    [
+        {"keywords": {"success": [], "error": [{"code": "DUPLICATE"}]}},
+        {"keywords": {"success": [], "error": []}},
+    ],
+)
+def test_reversa_no_borra_keyword_ajena_sin_confirmacion(ack_keyword):
+    """Un ACK 207 sin ID propio no autoriza borrar por LIST."""
     conn = Mock()
     conn.transaction.side_effect = lambda: nullcontext()
     conn.execute.return_value.fetchone.return_value = None
@@ -400,9 +407,7 @@ def test_reversa_no_borra_keyword_ajena_si_207_rechaza_creacion():
         "amazon_mx",
     )
     cliente = Mock()
-    cliente.crear_keyword_exacta.return_value = httpx.Response(
-        207, json={"keywords": {"success": [], "error": [{"code": "DUPLICATE"}]}}
-    )
+    cliente.crear_keyword_exacta.return_value = httpx.Response(207, json=ack_keyword)
     ajena = {
         "keywordId": "keyword-ajena",
         "adGroupId": "destino",
@@ -427,8 +432,15 @@ def test_reversa_no_borra_keyword_ajena_si_207_rechaza_creacion():
     assert all(call.args[3] != "keyword" for call in borrado.call_args_list)
 
 
-def test_reversa_no_borra_negative_ajeno_si_207_rechaza_creacion():
-    """El rechazo por item de un negativo tampoco acredita su procedencia."""
+@pytest.mark.parametrize(
+    "ack_negative",
+    [
+        {"negativeKeywords": {"success": [], "error": [{"code": "DUPLICATE"}]}},
+        {"negativeKeywords": {"success": [], "error": []}},
+    ],
+)
+def test_reversa_no_borra_negative_ajeno_sin_confirmacion(ack_negative):
+    """Tampoco se borra un negative sin ID confirmado por el ACK."""
     conn = Mock()
     conn.transaction.side_effect = lambda: nullcontext()
     contexto = apply_harvest._Contexto(
@@ -446,9 +458,7 @@ def test_reversa_no_borra_negative_ajeno_si_207_rechaza_creacion():
     )
     job = apply_harvest._Job(1, 99, "arras", 10, "pending", {}, "amazon_mx")
     cliente = Mock()
-    cliente.crear_negative_exacto.return_value = httpx.Response(
-        207, json={"negativeKeywords": {"success": [], "error": [{"code": "DUPLICATE"}]}}
-    )
+    cliente.crear_negative_exacto.return_value = httpx.Response(207, json=ack_negative)
     ajeno = {
         "keywordId": "negative-ajeno",
         "adGroupId": "origen",

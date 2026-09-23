@@ -1366,9 +1366,6 @@ def _reversa_automatica(
     aplicador,
     job: _Job,
     ctx: _Contexto,
-    *,
-    keyword_post_confirmado: bool = False,
-    negative_post_confirmado: bool = False,
 ) -> str:
     """La reversa del fallo definitivo (sellado 13): borrar lo creado, en el
     ORDEN sellado (keyword PRIMERO). Best-effort: el detalle declara que
@@ -1377,16 +1374,15 @@ def _reversa_automatica(
     Semantica DECLARADA de la cola de GK1 (cross-review): parcial = lo que
     nacio se revierte. Si el negative_id NO se puede resolver (ack sin id y
     ausente de la lista de origen), la keyword nacida SE BORRA IGUAL y el
-    detalle lo declara — el retorno temprano viejo dejaba la exacta huerfana
-    en destino. El keyword_id ausente se resuelve por IDENTIDAD en el
-    destino (simetrico al negativo)."""
+    detalle lo declara. Un ACK sin id no prueba procedencia: LIST por
+    identidad no autoriza borrar un objeto que puede ser ajeno."""
     try:
         cliente = aplicador._cliente()
         ext = dict(job.external_ids)
         neg_id = ext.get("negative_id")
         kw_id = ext.get("keyword_id")
-        keyword_propia = ext.get("keyword_creada") is True or keyword_post_confirmado
-        negative_propia = ext.get("negative_creada") is True or negative_post_confirmado
+        keyword_propia = ext.get("keyword_creada") is True
+        negative_propia = ext.get("negative_creada") is True
         if kw_id is None and keyword_propia:
             kws = _lista_todos(cliente, "/sp/keywords/list", aplicador._profile_id)
             propio = _identidad(kws, ctx.destino_grupo, job.search_term)
@@ -1498,12 +1494,10 @@ def _paso_negative(
             )
             apply._sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
         conn.commit()
-        detalle = _reversa_automatica(
-            conn, aplicador, job, ctx, negative_post_confirmado=not errores
-        ) + (
+        detalle = _reversa_automatica(conn, aplicador, job, ctx) + (
             " | negative rechazado (fail-closed)"
             if errores
-            else " | ack sin negative_id (fail-closed)"
+            else " | ack sin negative_id; procedencia no comprobada"
         )
         return _falla_job(conn, job, MOTIVO_FALLO_NEGATIVE, queue_id=queue_id, detalle=detalle)
     with conn.transaction():
@@ -1526,7 +1520,7 @@ def _paso_keyword(
     automatica + failed + alerta. GK2(b) de la cross-review: la keyword
     JAMAS se postea sin negative_id resuelto (external_ids o evidencia viva
     del origen — fail-closed), y su ack SIN id tambien cierra failed con
-    reversa completa."""
+    alerta de procedencia no comprobada; solo revierte ids propios probados."""
     cliente = aplicador._cliente()
     if not job.external_ids.get("negative_id"):
         # id del negativo para la reversa: evidencia viva si el ack no lo dio
@@ -1616,17 +1610,19 @@ def _paso_keyword(
     errores = _errores_de_ack(ack)
     kw_id = _id_de_ack(ack, "keywordId")
     if errores or kw_id is None:
-        # GK2(b/c): fail-closed — reversa completa (la keyword nacida se
-        # resuelve por IDENTIDAD en el destino) y cierre con alerta.
+        # GK2(b/c): fail-closed — sin id del ACK, LIST no prueba propiedad;
+        # solo se revierte lo propio probado y se alerta para inspeccion.
         with conn.transaction():
             resultado = (
                 f"fallo:ack_con_error: {str(errores)[:300]}" if errores else "fallo:ack_sin_id"
             )
             apply._sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
         conn.commit()
-        detalle = _reversa_automatica(
-            conn, aplicador, job, ctx, keyword_post_confirmado=not errores
-        ) + (" | keyword rechazada" if errores else " | ack sin keyword_id")
+        detalle = _reversa_automatica(conn, aplicador, job, ctx) + (
+            " | keyword rechazada"
+            if errores
+            else " | ack sin keyword_id; procedencia no comprobada"
+        )
         return _falla_job(conn, job, MOTIVO_FALLO_KEYWORD, queue_id=queue_id, detalle=detalle)
     with conn.transaction():
         apply._sella_ledger(conn, id_attempt, ack=ack, resultado="ok")

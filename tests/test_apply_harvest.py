@@ -1988,11 +1988,11 @@ def test_paso_keyword_exige_negative_id_del_origen():
 
 
 @_skip_db
-def test_paso_keyword_con_ack_sin_id_falla_y_revierte_ambos():
+def test_paso_keyword_con_ack_sin_id_falla_y_revierte_solo_negative_propio():
     """GK2(b/c): el POST de la keyword responde 2xx SIN id legible: fail-closed
-    (failed + alerta) y la reversa completa borra keyword y negativo (el id de
-    la keyword se resuelve por IDENTIDAD en el destino). Regla 9: avanzar sin
-    id dejaba la keyword huerfana e irreversible."""
+    (failed + alerta); la reversa borra el negativo con id propio, pero no
+    una keyword que LIST no puede atribuir al job. Regla 9: borrar por
+    identidad podia archivar la keyword ajena de otro harvest."""
     with _db_temporal("orbit_har_ackk") as conn:
         ids = _semilla(conn)
         dec = _decision_harvest(conn, ids["ciclo_dec"], ids["config"], ids["ag"])
@@ -2025,10 +2025,9 @@ def test_paso_keyword_con_ack_sin_id_falla_y_revierte_ambos():
         assert resumen.jobs_failed == 1 and resumen.jobs_done == 0
         assert resumen.alertas[0].motivo == MOTIVO_FALLO_KEYWORD
         deletes = [r for r in _mutaciones(vistos) if r.url.path.endswith("/delete")]
-        assert [r.url.path for r in deletes] == [
-            "/sp/keywords/delete",
-            "/sp/negativeKeywords/delete",
-        ], "reversa completa: keyword PRIMERO (identidad resuelta), negativo despues"
+        assert [r.url.path for r in deletes] == ["/sp/negativeKeywords/delete"], (
+            "un ACK sin id no acredita propiedad de la keyword; solo el negativo propio se revierte"
+        )
         resultado = conn.execute(
             "SELECT resultado FROM apply_attempt WHERE decision_id = %s AND tipo = 'normal'"
             " ORDER BY seq DESC LIMIT 1",
