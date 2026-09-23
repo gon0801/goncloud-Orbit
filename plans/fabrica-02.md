@@ -615,14 +615,13 @@ actualizado por A.2.
 - **R.1 CERRADA 2026-09-16**: PR #278, squash `d7c0bf9`; catálogo M01–M29
   con re-mutación ejecutada de kimi (27/27 confirmados) y auditoría del lead
   (8 ejecutadas); un obligatorio sobrevivía (M14) y se cerró con test; M28 y
-  M29 residuales declarados. Sigue **D.1** con el runbook F2 de `docs/DEPLOY.md`
-  (PR #281 corrige gates, respaldo y contadores); D.3 espera además el brief
-  de `goals set --mode` (PR #279, Muse implementando).
-- **FASE A CERRADA 2026-09-15**: los ocho PRs de código de F2 están en
-  master (HEAD `7a32ec3`); 0038 sigue sin desplegar y nada de F2 corre en
-  vivo. Sigue **R.1** sobre `7a32ec3`: el implementador entrega
-  `E/R.1/mutantes.md` con el catálogo de todas las fases y lo revisa alguien
-  que no implementó (kimi/codex/grok); los residuales declarados en las filas
-  A.3–A.6 son su insumo. Después D.1 (0038 a producción, caps bajados al
-  arranque), D.2 (terna del grupo 1 con `tools/harvest_excepcion.py`) y D.3
-  (primer harvest de grupo en vivo; precondición `cortes-ui-01` 1.2).
+  M29 residuales declarados.
+- **D.1 y D.2 CERRADAS 2026-09-15**: 0038 y caps 2/2 desplegados; el grupo 1
+  quedó con terna NULL, destino resuelto por grupo y goals en `shadow`.
+  Evidencia en `docs/evidencia/fabrica-02/D.1/` y `D.2/`. El tool de modo
+  de #283 también quedó desplegado en D.1.
+- **D.3 EN CURSO 2026-09-23**: el dueño dio el go 1 literal; los cinco goals
+  `kit_arras` están en `live` efectivo, con readback independiente. Esperar el
+  primer harvest natural del cron MX hasta `done`, verificar IDs, biblioteca,
+  ledger y `/cortes`, y pedir un go 2 separado antes de revertir ese job.
+  Evidencia en `docs/evidencia/fabrica-02/D.3/`.
