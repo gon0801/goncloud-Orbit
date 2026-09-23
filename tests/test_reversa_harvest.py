@@ -132,7 +132,9 @@ def _job_done_mixto(conn, setup, *, term=TERMINO_F2):
     roles = [r for r in ROLES_DISCOVERY if r != setup["origen_rol"]]
     ext = {
         "keyword_id": "k-9",
+        "keyword_creada": True,
         "negative_id": "n-0",
+        "negative_creada": True,
         "hermanas_objetivo": {
             r: {
                 "campaign_id": setup["roles"][r]["camp_ext"],

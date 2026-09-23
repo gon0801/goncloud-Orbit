@@ -1,7 +1,7 @@
 """Reversa manual de un harvest con hermanas (FABRICA 02, A.3).
 
 Deriva todo de la base para `--job <id>` y ejecuta en orden canonico
-(keyword -> hermanas propias -> origen), con readback entre deletes, stop
+(keyword propia -> hermanas propias -> origen propio), con readback entre deletes, stop
 al primer fallo y reanudacion sin repetir (lo confirmado se salta por
 ledger, sin guard global).
 
@@ -93,7 +93,7 @@ def main(argv=None) -> int:
         return 0
     if args.esperado is None:
         raise Abortar("mutacion real exige --esperado N (anti-typo del plan)")
-    if not args.go:
+    if not args.go or not args.go.strip():
         raise Abortar("mutacion real exige --go con el literal del dueno (no vacio)")
     if len(pendientes) != args.esperado:
         raise Abortar(

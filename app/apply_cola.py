@@ -117,6 +117,7 @@ MOTIVO_VENDIO_EN_VENTANA = "vendio_en_ventana"
 MOTIVO_YA_NO_CALIFICA = "ya_no_califica"
 MOTIVO_ENTIDAD_NO_VIVA = "entidad_no_viva"
 MOTIVO_REACTIVACION_MANUAL = "reactivacion_manual"
+MOTIVO_MODO_NO_LIVE = "modo_no_live"
 # CAMPANA ACTIVA 01 · 1.6: alias de apply.MOTIVO_CAMPANA/GRUPO_NO_ENABLED
 # (la funcion compartida del gate vive en apply, dueno del write client; cycle
 # y los tests siguen importando de AQUI): un corte cuya campaña o ad group
@@ -891,6 +892,15 @@ def libera_vencidos(
             liberadas += 1
         # released (esperaba quota FIFO o es el reintento del ciclo
         # siguiente): SIN re-liberacion — directa a la secuencia sellada.
+        if (
+            _modo_efectivo_corte(
+                conn, aplicador, platform, fila.ad_entity_id, escalera_global="live"
+            )
+            != "live"
+        ):
+            conn.execute(_SQL_DESCARTA, (MOTIVO_MODO_NO_LIVE, fila.id, "released"))
+            descartadas.append(MOTIVO_MODO_NO_LIVE)
+            continue
         try:
             motivo = _revalida(conn, aplicador, platform, fila, ahora)
         except AdsApiError:

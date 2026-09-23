@@ -1080,7 +1080,9 @@ class PasoReversa:
     """Un delete de la reversa manual, en orden canonico de ejecucion:
     keyword destino -> hermanas (propias probadas y ACKs aun no resueltos,
     en orden ROLES_DISCOVERY) -> negativo de origen. `rol` solo en
-    hermanas; las adoptadas (`creada = false`) jamas entran al plan.
+    hermanas; los objetos adoptados jamas entran al plan. Keyword y negativo
+    de origen exigen `*_creada = true`; los jobs antiguos sin procedencia
+    tampoco autorizan su borrado.
     `provisional` = id de un ACK aceptado aun no resuelto (r3, AC-7): se
     busca fail-closed antes de tocarlo y se omite si esta ausente."""
 
@@ -1109,6 +1111,27 @@ SELECT request_payload->>'adGroupId', ack FROM apply_attempt
  WHERE decision_id = %s AND tipo = 'hermana' AND ack IS NOT NULL
  ORDER BY id
 """
+
+_SQL_INTENTO_NORMAL_OBJETO = """
+SELECT EXISTS (
+    SELECT 1 FROM apply_attempt
+     WHERE decision_id = %s AND tipo = 'normal'
+       AND request_payload->>'adGroupId' = %s
+       AND request_payload->>'keywordText' = %s
+       AND request_payload->>'matchType' = %s
+)
+"""
+
+
+def _intento_normal_objeto(conn: psycopg.Connection, job: _Job, grupo: str, tipo: str) -> bool:
+    """Una intencion propia durable identifica el objeto, pero no prueba su creacion."""
+    return bool(
+        conn.execute(
+            _SQL_INTENTO_NORMAL_OBJETO,
+            (job.decision_id, grupo, job.search_term, tipo),
+        ).fetchone()[0]
+    )
+
 
 _SQL_REVERSA_OK_KEYWORD = """
 SELECT EXISTS (
@@ -1151,6 +1174,8 @@ def plan_reversa_harvest(
     if cola is None or cola[0] != "applied":
         raise ValueError(f"job {job_id}: cola no applied")
     ext = dict(job.external_ids)
+    if "incierta" in (ext.get("keyword_creada"), ext.get("negative_creada")):
+        raise ValueError(f"job {job_id}: procedencia de keyword o negativo incierta")
     keyword_id = ext.get("keyword_id")
     negative_id = ext.get("negative_id")
     if keyword_id is None or negative_id is None:
@@ -1182,9 +1207,13 @@ def plan_reversa_harvest(
         id_ = _id_de_ack(ack, "negativeKeywordId")
         if id_ is not None and str(id_) not in registradas:
             provisionales.setdefault(ag_por_rol[ag], []).append(str(id_))
-    pasos = [
-        PasoReversa(clase="keyword", rol=None, ad_group_ext=destino_ag, objeto_id=str(keyword_id))
-    ]
+    pasos = []
+    if ext.get("keyword_creada") is True:
+        pasos.append(
+            PasoReversa(
+                clase="keyword", rol=None, ad_group_ext=destino_ag, objeto_id=str(keyword_id)
+            )
+        )
     for rol in ROLES_DISCOVERY:
         reg = hermanas.get(rol)
         if isinstance(reg, dict) and reg.get("creada") is True:
@@ -1212,11 +1241,12 @@ def plan_reversa_harvest(
                     provisional=True,
                 )
             )
-    pasos.append(
-        PasoReversa(
-            clase="negative", rol=None, ad_group_ext=externos[0], objeto_id=str(negative_id)
+    if ext.get("negative_creada") is True:
+        pasos.append(
+            PasoReversa(
+                clase="negative", rol=None, ad_group_ext=externos[0], objeto_id=str(negative_id)
+            )
         )
-    )
     return (job.plataforma, job.search_term, job.decision_id, pasos)
 
 
@@ -1331,7 +1361,12 @@ def ejecuta_reversa_harvest(
     return (True, "reversa: ok")
 
 
-def _reversa_automatica(conn: psycopg.Connection, aplicador, job: _Job, ctx: _Contexto) -> str:
+def _reversa_automatica(
+    conn: psycopg.Connection,
+    aplicador,
+    job: _Job,
+    ctx: _Contexto,
+) -> str:
     """La reversa del fallo definitivo (sellado 13): borrar lo creado, en el
     ORDEN sellado (keyword PRIMERO). Best-effort: el detalle declara que
     fallo (la alerta es la senal que el operador ve).
@@ -1339,29 +1374,32 @@ def _reversa_automatica(conn: psycopg.Connection, aplicador, job: _Job, ctx: _Co
     Semantica DECLARADA de la cola de GK1 (cross-review): parcial = lo que
     nacio se revierte. Si el negative_id NO se puede resolver (ack sin id y
     ausente de la lista de origen), la keyword nacida SE BORRA IGUAL y el
-    detalle lo declara — el retorno temprano viejo dejaba la exacta huerfana
-    en destino. El keyword_id ausente se resuelve por IDENTIDAD en el
-    destino (simetrico al negativo)."""
+    detalle lo declara. Un ACK sin id no prueba procedencia: LIST por
+    identidad no autoriza borrar un objeto que puede ser ajeno."""
     try:
         cliente = aplicador._cliente()
         ext = dict(job.external_ids)
         neg_id = ext.get("negative_id")
         kw_id = ext.get("keyword_id")
-        if kw_id is None:
+        keyword_propia = ext.get("keyword_creada") is True
+        negative_propia = ext.get("negative_creada") is True
+        if kw_id is None and keyword_propia:
             kws = _lista_todos(cliente, "/sp/keywords/list", aplicador._profile_id)
             propio = _identidad(kws, ctx.destino_grupo, job.search_term)
             if propio is not None:
                 kw_id = propio.get("keywordId")
-        if kw_id is not None and not _reversa_delete(
-            conn, cliente, job.decision_id, "keyword", kw_id
+        if (
+            kw_id is not None
+            and keyword_propia
+            and not _reversa_delete(conn, cliente, job.decision_id, "keyword", kw_id)
         ):
             return f"reversa: fallo borrando keyword {kw_id}"
-        if neg_id is None:
+        if neg_id is None and negative_propia:
             items = _lista_todos(cliente, "/sp/negativeKeywords/list", aplicador._profile_id)
             propio = _identidad(items, ctx.grupo_ext, job.search_term)
             if propio is not None:
                 neg_id = propio.get("keywordId")
-        if neg_id is None:
+        if neg_id is None or not negative_propia:
             if kw_id is None:
                 return "reversa: nada que borrar (sin keyword ni negativo)"
             return "reversa: keyword borrada; negativo no encontrado (nada mas que borrar)"
@@ -1409,8 +1447,18 @@ def _paso_negative(
     items = _lista_todos(cliente, "/sp/negativeKeywords/list", aplicador._profile_id)
     propio = _identidad(items, ctx.grupo_ext, job.search_term)
     if propio is not None:
+        procedencia = (
+            "incierta"
+            if _intento_normal_objeto(conn, job, ctx.grupo_ext, "NEGATIVE_EXACT")
+            else False
+        )
         _sella_pendientes(conn, job.decision_id, "ok:reconciliado")
-        _avanza(conn, job, "negative_created", {"negative_id": propio.get("keywordId")})
+        _avanza(
+            conn,
+            job,
+            "negative_created",
+            {"negative_id": propio.get("keywordId"), "negative_creada": procedencia},
+        )
         return "avanza", None
     payload = {
         # Espejo del wire REAL (probe 2.5, apply_attempt 13): enums UPPER.
@@ -1435,20 +1483,26 @@ def _paso_negative(
             conn, job, MOTIVO_FALLO_NEGATIVE, queue_id=queue_id, detalle=f"fallo http {exc.status}"
         )
     ack = apply._json_seguro(resp)
+    errores = _errores_de_ack(ack)
     neg_id = _id_de_ack(ack, "negativeKeywordId")
-    if neg_id is None:
+    if errores or neg_id is None:
         # GK2(a): fail-closed — sin id del ack no hay evidencia del corte en
         # origen; se sella el fallo y se revierte lo que pudo nacer.
         with conn.transaction():
-            apply._sella_ledger(conn, id_attempt, ack=ack, resultado="fallo:ack_sin_id")
+            resultado = (
+                f"fallo:ack_con_error: {str(errores)[:300]}" if errores else "fallo:ack_sin_id"
+            )
+            apply._sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
         conn.commit()
-        detalle = (
-            _reversa_automatica(conn, aplicador, job, ctx) + " | ack sin negative_id (fail-closed)"
+        detalle = _reversa_automatica(conn, aplicador, job, ctx) + (
+            " | negative rechazado (fail-closed)"
+            if errores
+            else " | ack sin negative_id; procedencia no comprobada"
         )
         return _falla_job(conn, job, MOTIVO_FALLO_NEGATIVE, queue_id=queue_id, detalle=detalle)
     with conn.transaction():
         apply._sella_ledger(conn, id_attempt, ack=ack, resultado="ok")
-        _avanza(conn, job, "negative_created", {"negative_id": neg_id})
+        _avanza(conn, job, "negative_created", {"negative_id": neg_id, "negative_creada": True})
     return "avanza", None
 
 
@@ -1466,14 +1520,24 @@ def _paso_keyword(
     automatica + failed + alerta. GK2(b) de la cross-review: la keyword
     JAMAS se postea sin negative_id resuelto (external_ids o evidencia viva
     del origen — fail-closed), y su ack SIN id tambien cierra failed con
-    reversa completa."""
+    alerta de procedencia no comprobada; solo revierte ids propios probados."""
     cliente = aplicador._cliente()
     if not job.external_ids.get("negative_id"):
         # id del negativo para la reversa: evidencia viva si el ack no lo dio
         items = _lista_todos(cliente, "/sp/negativeKeywords/list", aplicador._profile_id)
         propio = _identidad(items, ctx.grupo_ext, job.search_term)
         if propio is not None:
-            _avanza(conn, job, None, {"negative_id": propio.get("keywordId")})
+            procedencia = (
+                "incierta"
+                if _intento_normal_objeto(conn, job, ctx.grupo_ext, "NEGATIVE_EXACT")
+                else False
+            )
+            _avanza(
+                conn,
+                job,
+                None,
+                {"negative_id": propio.get("keywordId"), "negative_creada": procedencia},
+            )
     if not job.external_ids.get("negative_id"):
         # GK2(b): sin negativo cortado en origen NO se cosecha el termino.
         return _falla_job(
@@ -1486,8 +1550,16 @@ def _paso_keyword(
     kws = _lista_todos(cliente, "/sp/keywords/list", aplicador._profile_id)
     encontrado = _identidad(kws, ctx.destino_grupo, job.search_term)
     if encontrado is not None:
+        procedencia = (
+            "incierta" if _intento_normal_objeto(conn, job, ctx.destino_grupo, "EXACT") else False
+        )
         _sella_pendientes(conn, job.decision_id, "ok:reconciliado")
-        _avanza(conn, job, "exact_created", {"keyword_id": encontrado.get("keywordId")})
+        _avanza(
+            conn,
+            job,
+            "exact_created",
+            {"keyword_id": encontrado.get("keywordId"), "keyword_creada": procedencia},
+        )
         return "avanza", None
     archivada = conn.execute(
         _SQL_ARCHIVO_APLICADO, (job.plataforma, ctx.destino_grupo, job.search_term)
@@ -1535,18 +1607,26 @@ def _paso_keyword(
         detalle = _reversa_automatica(conn, aplicador, job, ctx) + f" | fallo http {exc.status}"
         return _falla_job(conn, job, MOTIVO_FALLO_KEYWORD, queue_id=queue_id, detalle=detalle)
     ack = apply._json_seguro(resp)
+    errores = _errores_de_ack(ack)
     kw_id = _id_de_ack(ack, "keywordId")
-    if kw_id is None:
-        # GK2(b/c): fail-closed — reversa completa (la keyword nacida se
-        # resuelve por IDENTIDAD en el destino) y cierre con alerta.
+    if errores or kw_id is None:
+        # GK2(b/c): fail-closed — sin id del ACK, LIST no prueba propiedad;
+        # solo se revierte lo propio probado y se alerta para inspeccion.
         with conn.transaction():
-            apply._sella_ledger(conn, id_attempt, ack=ack, resultado="fallo:ack_sin_id")
+            resultado = (
+                f"fallo:ack_con_error: {str(errores)[:300]}" if errores else "fallo:ack_sin_id"
+            )
+            apply._sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
         conn.commit()
-        detalle = _reversa_automatica(conn, aplicador, job, ctx) + " | ack sin keyword_id"
+        detalle = _reversa_automatica(conn, aplicador, job, ctx) + (
+            " | keyword rechazada"
+            if errores
+            else " | ack sin keyword_id; procedencia no comprobada"
+        )
         return _falla_job(conn, job, MOTIVO_FALLO_KEYWORD, queue_id=queue_id, detalle=detalle)
     with conn.transaction():
         apply._sella_ledger(conn, id_attempt, ack=ack, resultado="ok")
-        _avanza(conn, job, "exact_created", {"keyword_id": kw_id})
+        _avanza(conn, job, "exact_created", {"keyword_id": kw_id, "keyword_creada": True})
     return "avanza", None
 
 
