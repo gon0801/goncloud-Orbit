@@ -2177,6 +2177,16 @@ según la regla 7. Evidencia: `docs/evidencia/fabrica-02/D.3/preflight.md`.
    ssh goncloud 'docker exec orbit-app-1 python -m app.cli goals set <goal_id> --mode shadow'
    ```
 
+   `live` habilita bids inmediatos y cortes `pause`, `negative` y `harvest`,
+   cada uno con su cuota diaria vigente en `config_version`. El cap de
+   harvest no limita los otros tres. Tras apagar, comprobar la cola y los
+   jobs: las filas aun no reclamadas se descartan al barrerlas; un job de
+   harvest en vuelo queda detenido y requiere inspeccion antes de reactivar
+   el goal. Si el valor ya fue aplicado y solo falta higiene de hermanas,
+   el job cierra `done` con las hermanas pendientes y alerta, sin nuevos
+   POST. Un negative en `applying` aun puede confirmarse por LIST, pero no
+   reintenta POST. El apagado no revierte mutaciones confirmadas.
+
 2. **Seguir el primer harvest natural hasta `done`** (sin forzar `/run`:
    espera el ciclo del cron). Evidencia: `harvest_job` con `fase` pasando
    por `hermanas_negadas`, `external_ids.hermanas_objetivo` con las

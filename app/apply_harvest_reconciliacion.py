@@ -121,9 +121,8 @@ _SQL_CACHE_ESTADO = """
 UPDATE ad_entity_state SET status = %s, synced_at = now() WHERE ad_entity_id = %s
 """
 
-# ADV-05: constantes de firma de la re-decision (mismo trato declarado que
-# apply_cola._TARGET/_FLOOR/_CEILING_REVALIDA: JAMAS se persisten, regla 3).
-_TARGET_REVALIDA = Decimal("100")
+# ADV-05: piso y techo solo completan la firma de la re-decision. El target
+# del harvest sale de la decision original, nunca de una constante.
 _FLOOR_REVALIDA = Decimal("0.01")
 _CEILING_REVALIDA = Decimal("10000")
 
@@ -141,12 +140,26 @@ def revalida_harvest(
     None = sigue calificando (la cadena corre). Motivo = discard: el
     vocabulario es el de apply_cola (vendio_en_ventana / ya_no_califica /
     ...), espejado como string porque apply_cola importa este modulo. El
-    target/floor/ceiling de firma son los mismos valores declarados de
-    apply_cola (_TARGET_REVALIDA=100 deja el tope ACoS del harvest en el cap
-    fijo 35, igual que cualquier target real >= 35): JAMAS se persisten
-    (regla 3)."""
+    target es el usado por la decision original, acotado por un target
+    explicito mas estricto del goal vigente. Sin dato se descarta: no se
+    reemplaza por un numero inventado. Piso y techo solo completan la
+    firma del motor y no se persisten."""
     grupo = fila.ad_entity_id
     padre = conn.execute(_ejecucion._SQL_PADRE, (grupo,)).fetchone()
+    goal = _ejecucion._goal_del_grupo(conn, platform, padre[0]) if padre is not None else None
+    if goal is None or not goal.enabled:
+        return "ya_no_califica"
+    decision = conn.execute(_ejecucion._SQL_DECISION, (fila.decision_id,)).fetchone()
+    congelado = ((decision[2] or {}) if decision is not None else {}).get("target_acos_pct_usado")
+    if congelado is None:
+        congelado = goal.target_acos_pct
+        if congelado is None:
+            return "ya_no_califica"
+    target = Decimal(str(congelado))
+    if goal.target_acos_pct is not None:
+        target = min(target, goal.target_acos_pct)
+    if not target.is_finite() or target <= 0:
+        return "ya_no_califica"
     # FABRICA 02 (A.1): destino RESUELTO (grupo > excepcion > terna vigente
     # > skip) en vez del goal fresco; el dedupe mira el destino resuelto
     # (si no, un termino cosechado se re-propondria cada dia ~90 dias). Sin
@@ -208,7 +221,7 @@ def revalida_harvest(
     (resultado,) = hygiene.decide_hygiene(
         platform=platform,
         terminos=single,
-        target_acos_pct=_TARGET_REVALIDA,
+        target_acos_pct=target,
         config_harvest=config,
         keywords_existentes=keywords,
         umbral_negative=umbral,
@@ -332,6 +345,8 @@ def _reconcilia_negativas(  # noqa: PLR0915 - ver razon arriba
     confirmadas = fallidas = 0
     cliente = None
     filas = conn.execute(_SQL_NEGATIVAS_APLICANDO, (platform,)).fetchall()
+    from app import apply_cola
+
     for q_id, entidad, term, decision_id in filas:
         if apply.gate_ancestros(conn, entidad) is not None:
             with conn.transaction():
@@ -380,6 +395,13 @@ def _reconcilia_negativas(  # noqa: PLR0915 - ver razon arriba
                 texto=term,
             )
             confirmadas += 1
+            continue
+        if (
+            apply_cola._modo_efectivo_corte(
+                conn, aplicador, platform, entidad, escalera_global="live"
+            )
+            != "live"
+        ):
             continue
         if _ejecucion._solo_en_otro_ad_group(items, grupo_ext, term):
             _ejecucion._sella_pendientes(conn, decision_id, "fallo:senuelo_otro_ad_group")
@@ -477,7 +499,28 @@ def _reconcilia_harvest_huerfanas(conn: psycopg.Connection, platform: str) -> in
     return cerradas
 
 
-def reconcilia_harvest(
+def _cierra_higiene_apagada(
+    conn: psycopg.Connection, job: _ejecucion._Job, queue_id: int | None
+) -> tuple[bool, _ejecucion.AlertaHarvest | None]:
+    """Deja reversible el harvest aplicado sin crear hermanas en shadow."""
+    from app import apply_cola
+
+    objetivo = dict(job.external_ids.get("hermanas_objetivo") or {})
+    if not objetivo:
+        return False, None
+    hermanas = dict(job.external_ids.get("hermanas") or {})
+    for rol in objetivo:
+        if "negative_id" not in hermanas.get(rol, {}):
+            hermanas[rol] = {"motivo": apply_cola.MOTIVO_MODO_NO_LIVE}
+    with conn.transaction():
+        _ejecucion._avanza(conn, job, None, {"hermanas": hermanas})
+    resultado, alerta = _ejecucion._cierra_o_sigue(
+        conn, job, objetivo, hermanas, _ejecucion.TOPE_CICLOS_HERMANAS, queue_id
+    )
+    return resultado == "done", alerta
+
+
+def reconcilia_harvest(  # noqa: C901 - la matriz de fases y cola necesita ramas explicitas
     conn: psycopg.Connection, aplicador: Aplicador, platform: str
 ) -> _ejecucion.ResumenReconciliacion:
     """El barrido de reconciliacion al INICIO del ciclo (2.2/2.4 la invocan),
@@ -501,12 +544,32 @@ def reconcilia_harvest(
     alertas: list[_ejecucion.AlertaHarvest] = []
     caps_saturados: list[CapSaturado] = []
     jobs_done = jobs_failed = cerrados = 0
+    from app import apply_cola
+
     for fila_job in conn.execute(_SQL_JOBS_EN_VUELO, (platform,)).fetchall():
         job = _ejecucion._job_de_fila(fila_job)
         queue_id, queue_estado = _cola_de(conn, job.decision_id)
         if queue_estado in ("vetoed", "discarded"):
             conn.execute(_ejecucion._SQL_JOB_FAILED, (job.id,))
             cerrados += 1
+            continue
+        if (
+            apply_cola._modo_efectivo_corte(
+                conn, aplicador, platform, job.ad_entity_id, escalera_global="live"
+            )
+            != "live"
+        ):
+            if queue_estado == "released":
+                with conn.transaction():
+                    conn.execute(_ejecucion._SQL_JOB_FAILED, (job.id,))
+                    conn.execute(_SQL_DESCARTA, (apply_cola.MOTIVO_MODO_NO_LIVE, queue_id))
+                jobs_failed += 1
+            elif job.fase == "hermanas_negadas" and queue_estado == "applied":
+                terminado, alerta = _cierra_higiene_apagada(conn, job, queue_id)
+                if terminado:
+                    jobs_done += 1
+                if alerta is not None:
+                    alertas.append(alerta)
             continue
         # F2 (A.3): el gate de ancestros NO falla un job ya sellado. Pasado
         # el readback de la keyword, ni el gate ni la reconciliacion pueden
@@ -528,6 +591,19 @@ def reconcilia_harvest(
             jobs_failed += 1
             continue
         if queue_estado == "released":
+            fila = apply_cola.fila_cola(conn, queue_id) if queue_id is not None else None
+            if fila is None:
+                continue
+            try:
+                motivo = revalida_harvest(conn, platform, fila, dt.datetime.now(dt.UTC))
+            except AdsApiError:
+                continue
+            if motivo is not None:
+                with conn.transaction():
+                    conn.execute(_ejecucion._SQL_JOB_FAILED, (job.id,))
+                    conn.execute(_SQL_DESCARTA, (motivo, queue_id))
+                jobs_failed += 1
+                continue
             usada, saturada = apply.consume_quota_y_sello(conn, platform, "harvest")
             if not usada:
                 continue  # sigue esperando quota (y vetable)

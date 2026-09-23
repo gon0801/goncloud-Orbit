@@ -49,3 +49,18 @@ A las 02:44 UTC, cola harvest no terminal 0 y jobs en curso 0. El siguiente
 paso es observar el primer harvest natural y verificarlo hasta `done` con
 IDs de keyword y hermanas, biblioteca, ledger y `/cortes`. Solo entonces se
 prepara el dry-run de `tools/reversa_harvest.py` y se solicita el go 2.
+
+## Suspension tras revision adversarial
+
+El 2026-09-23 a las 03:35 UTC, el dueno autorizo pausar el grupo tras la
+revision adversarial. Se ejecuto el kill switch documentado sobre los goals
+8, 9, 10, 11 y 12, uno por uno. Una lectura independiente como `orbit_read`
+confirmo los cinco en `shadow`, **0** filas harvest no terminales y **0**
+jobs en vuelo. No hubo llamada a Amazon ni reversa de harvest.
+
+La observacion del primer harvest y el go 2 quedan suspendidos. La revision
+encontro fallos reproducibles en el apagado de colas, la revalidacion del
+target y de jobs que esperan cuota, y la procedencia de objetos adoptados
+en la reversa. La correccion se prepara en una rama separada; este archivo
+no afirma que este desplegada. El grupo sigue en `shadow` hasta una nueva
+decision explicita del dueno.

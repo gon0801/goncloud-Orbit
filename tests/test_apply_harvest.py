@@ -1855,7 +1855,7 @@ def test_reversa_automatica_borra_la_keyword_aun_sin_negative_id():
             dec,
             ids["ag"],
             "exact_created",
-            external_ids={"keyword_id": "k-7"},  # sin negative_id
+            external_ids={"keyword_id": "k-7", "keyword_creada": True},  # sin negative_id
         )
         handler, vistos = _handler_harvest()  # Amazon NO tiene el negativo
 
@@ -2004,7 +2004,7 @@ def test_paso_keyword_con_ack_sin_id_falla_y_revierte_ambos():
             dec,
             ids["ag"],
             "negative_created",
-            external_ids={"negative_id": "n-9"},
+            external_ids={"negative_id": "n-9", "negative_creada": True},
         )
         handler, vistos = _handler_harvest(
             ack_keyword_sin_id=True,
