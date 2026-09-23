@@ -2144,6 +2144,12 @@ de la fila. Hasta entonces D.3 no arranca; se declara, no se adelanta.
 
 Orden cuando llegue el día:
 
+El preflight del 2026-09-23 confirmó cinco goals `shadow`, cap 2/2 y ningún
+job F2 histórico con IDs de hermanas. El dueño aprobó este orden; el primer
+go literal para encender y el segundo para revertir siguen siendo autorizaciones
+separadas. La reversa ya está implementada y probada antes del encendido,
+según la regla 7. Evidencia: `docs/evidencia/fabrica-02/D.3/preflight.md`.
+
 1. **Encender el grupo a `live`** (go 1) con `tools/goals_modo_grupo.py`
    (PR #283: `mode` entra a `goals_write.edita_goal` con validación pura y
    regla post-lectura; el tool va goal por goal, reanudable, solo

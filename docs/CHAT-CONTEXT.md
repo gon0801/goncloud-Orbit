@@ -1,5 +1,14 @@
 # Orbit — contexto para Claude Chat
 
+**2026-09-23 UTC — FABRICA 02 D.3 EN CURSO, SIN MUTACIONES.**
+El dueño aprobó la secuencia del runbook: primero encender los cinco goals
+`kit_arras` con un go literal; después del primer harvest natural `done`,
+revertir ese mismo job con otro go literal. La reversa está implementada y
+probada antes de encender. El preflight leyó los cinco goals en `shadow`,
+cap de harvest 2/2, cero jobs en curso y ningún job F2 histórico con IDs de
+hermanas. La aprobación de la secuencia no autoriza aún el encendido.
+Evidencia: `docs/evidencia/fabrica-02/D.3/preflight.md`.
+
 > Archivo mantenido por la sesión lead de Claude Code: se actualiza al cierre
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
