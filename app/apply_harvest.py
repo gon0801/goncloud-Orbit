@@ -1487,16 +1487,23 @@ def _paso_negative(
             conn, job, MOTIVO_FALLO_NEGATIVE, queue_id=queue_id, detalle=f"fallo http {exc.status}"
         )
     ack = apply._json_seguro(resp)
+    errores = _errores_de_ack(ack)
     neg_id = _id_de_ack(ack, "negativeKeywordId")
-    if neg_id is None:
+    if errores or neg_id is None:
         # GK2(a): fail-closed — sin id del ack no hay evidencia del corte en
         # origen; se sella el fallo y se revierte lo que pudo nacer.
         with conn.transaction():
-            apply._sella_ledger(conn, id_attempt, ack=ack, resultado="fallo:ack_sin_id")
+            resultado = (
+                f"fallo:ack_con_error: {str(errores)[:300]}" if errores else "fallo:ack_sin_id"
+            )
+            apply._sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
         conn.commit()
-        detalle = (
-            _reversa_automatica(conn, aplicador, job, ctx, negative_post_confirmado=True)
-            + " | ack sin negative_id (fail-closed)"
+        detalle = _reversa_automatica(
+            conn, aplicador, job, ctx, negative_post_confirmado=not errores
+        ) + (
+            " | negative rechazado (fail-closed)"
+            if errores
+            else " | ack sin negative_id (fail-closed)"
         )
         return _falla_job(conn, job, MOTIVO_FALLO_NEGATIVE, queue_id=queue_id, detalle=detalle)
     with conn.transaction():
@@ -1606,17 +1613,20 @@ def _paso_keyword(
         detalle = _reversa_automatica(conn, aplicador, job, ctx) + f" | fallo http {exc.status}"
         return _falla_job(conn, job, MOTIVO_FALLO_KEYWORD, queue_id=queue_id, detalle=detalle)
     ack = apply._json_seguro(resp)
+    errores = _errores_de_ack(ack)
     kw_id = _id_de_ack(ack, "keywordId")
-    if kw_id is None:
+    if errores or kw_id is None:
         # GK2(b/c): fail-closed — reversa completa (la keyword nacida se
         # resuelve por IDENTIDAD en el destino) y cierre con alerta.
         with conn.transaction():
-            apply._sella_ledger(conn, id_attempt, ack=ack, resultado="fallo:ack_sin_id")
+            resultado = (
+                f"fallo:ack_con_error: {str(errores)[:300]}" if errores else "fallo:ack_sin_id"
+            )
+            apply._sella_ledger(conn, id_attempt, ack=ack, resultado=resultado)
         conn.commit()
-        detalle = (
-            _reversa_automatica(conn, aplicador, job, ctx, keyword_post_confirmado=True)
-            + " | ack sin keyword_id"
-        )
+        detalle = _reversa_automatica(
+            conn, aplicador, job, ctx, keyword_post_confirmado=not errores
+        ) + (" | keyword rechazada" if errores else " | ack sin keyword_id")
         return _falla_job(conn, job, MOTIVO_FALLO_KEYWORD, queue_id=queue_id, detalle=detalle)
     with conn.transaction():
         apply._sella_ledger(conn, id_attempt, ack=ack, resultado="ok")

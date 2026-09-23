@@ -372,6 +372,106 @@ def test_reversa_automatica_no_borra_keyword_sin_post_propio():
     borrado.assert_not_called()
 
 
+def test_reversa_no_borra_keyword_ajena_si_207_rechaza_creacion():
+    """Un error por item en 207 no confirma el POST ni autoriza borrar por LIST."""
+    conn = Mock()
+    conn.transaction.side_effect = lambda: nullcontext()
+    conn.execute.return_value.fetchone.return_value = None
+    contexto = apply_harvest._Contexto(
+        "amazon_mx",
+        "origen",
+        "campana",
+        "destino",
+        "campana-exacta",
+        Decimal("11.62"),
+        "MXN",
+        Decimal("1"),
+        Decimal("20"),
+        "grupo",
+        1,
+    )
+    job = apply_harvest._Job(
+        1,
+        99,
+        "arras",
+        10,
+        "negative_created",
+        {"negative_id": "n-propia", "negative_creada": True},
+        "amazon_mx",
+    )
+    cliente = Mock()
+    cliente.crear_keyword_exacta.return_value = httpx.Response(
+        207, json={"keywords": {"success": [], "error": [{"code": "DUPLICATE"}]}}
+    )
+    ajena = {
+        "keywordId": "keyword-ajena",
+        "adGroupId": "destino",
+        "keywordText": "arras",
+        "matchType": "EXACT",
+        "state": "ENABLED",
+    }
+    lecturas_keyword = iter([[], [ajena]])
+
+    def lista(_cliente, path, _profile):
+        return next(lecturas_keyword) if path == "/sp/keywords/list" else []
+
+    aplicador = SimpleNamespace(_cliente=lambda: cliente, _profile_id="perfil")
+    with (
+        patch.object(apply_harvest, "_lista_todos", side_effect=lista),
+        patch.object(apply_harvest, "bid_sugerido", return_value=None),
+        patch.object(apply, "_ledger", return_value=1),
+        patch.object(apply_harvest, "_reversa_delete", return_value=True) as borrado,
+        patch.object(apply_harvest, "_falla_job", return_value=("failed", None)),
+    ):
+        assert apply_harvest._paso_keyword(conn, aplicador, job, contexto, None)[0] == "failed"
+    assert all(call.args[3] != "keyword" for call in borrado.call_args_list)
+
+
+def test_reversa_no_borra_negative_ajeno_si_207_rechaza_creacion():
+    """El rechazo por item de un negativo tampoco acredita su procedencia."""
+    conn = Mock()
+    conn.transaction.side_effect = lambda: nullcontext()
+    contexto = apply_harvest._Contexto(
+        "amazon_mx",
+        "origen",
+        "campana",
+        "destino",
+        "campana-exacta",
+        Decimal("11.62"),
+        "MXN",
+        Decimal("1"),
+        Decimal("20"),
+        "grupo",
+        1,
+    )
+    job = apply_harvest._Job(1, 99, "arras", 10, "pending", {}, "amazon_mx")
+    cliente = Mock()
+    cliente.crear_negative_exacto.return_value = httpx.Response(
+        207, json={"negativeKeywords": {"success": [], "error": [{"code": "DUPLICATE"}]}}
+    )
+    ajeno = {
+        "keywordId": "negative-ajeno",
+        "adGroupId": "origen",
+        "keywordText": "arras",
+        "matchType": "NEGATIVE_EXACT",
+        "state": "ENABLED",
+    }
+    lecturas_negative = iter([[], [ajeno]])
+
+    def lista(_cliente, path, _profile):
+        return next(lecturas_negative) if path == "/sp/negativeKeywords/list" else []
+
+    aplicador = SimpleNamespace(_cliente=lambda: cliente, _profile_id="perfil")
+    with (
+        patch.object(apply_harvest, "_lista_todos", side_effect=lista),
+        patch.object(apply, "_ledger", return_value=1),
+        patch.object(apply_harvest, "_reversa_delete", return_value=True) as borrado,
+        patch.object(apply_harvest, "_falla_job", return_value=("failed", None)),
+    ):
+        assert apply_harvest._paso_negative(conn, aplicador, job, contexto, None)[0] == "failed"
+    borrado.assert_not_called()
+
+
 def test_reversa_rechaza_go_de_solo_espacios():
     """La ceremonia no abre el cliente Amazon con un literal vacio."""
     paso = apply_harvest.PasoReversa("keyword", None, "exact", "k-1")
