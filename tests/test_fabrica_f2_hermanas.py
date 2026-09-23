@@ -1129,7 +1129,7 @@ def _job_en_hermanas(
     conn.execute("UPDATE harvest_job SET fase = 'negative_created' WHERE id = %s", (jid,))
     conn.execute(
         "UPDATE harvest_job SET fase = 'exact_created', external_ids = %s WHERE id = %s",
-        (Json({"keyword_id": "k-1"}), jid),
+        (Json({"keyword_id": "k-1", "keyword_creada": True}), jid),
     )
     roster = {
         r: {
@@ -1145,7 +1145,9 @@ def _job_en_hermanas(
             Json(
                 {
                     "keyword_id": "k-1",
+                    "keyword_creada": True,
                     "negative_id": "n-0",
+                    "negative_creada": True,
                     "hermanas_objetivo": roster,
                     "hermanas": {},
                     "hermanas_ciclos": 0,

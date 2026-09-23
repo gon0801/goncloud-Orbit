@@ -361,8 +361,9 @@ def _job_en(conn, decision: int, entidad: int, fase: str, *, external_ids=None) 
     ).fetchone()[0]
     if fase in ("negative_created", "exact_created", "hermanas_negadas", "done"):
         conn.execute(
-            "UPDATE harvest_job SET fase = 'negative_created', updated_at = now() WHERE id = %s",
-            (jid,),
+            "UPDATE harvest_job SET fase = 'negative_created', external_ids = %s,"
+            " updated_at = now() WHERE id = %s",
+            (Json(external_ids if external_ids is not None else {}), jid),
         )
     if fase in ("exact_created", "hermanas_negadas", "done"):
         conn.execute(
@@ -1317,7 +1318,12 @@ def test_matriz_exact_created_keyword_ya_en_destino_done():
             dec,
             ids["ag"],
             "exact_created",
-            external_ids={"negative_id": "n-9", "keyword_id": "k-7"},
+            external_ids={
+                "negative_id": "n-9",
+                "negative_creada": True,
+                "keyword_id": "k-7",
+                "keyword_creada": True,
+            },
         )
         handler, vistos = _handler_harvest(
             keywords=[
@@ -1357,7 +1363,12 @@ def test_matriz_senuelo_en_otro_ad_group_no_es_ya_aplicada():
             dec,
             ids["ag"],
             "exact_created",
-            external_ids={"negative_id": "n-9", "keyword_id": "k-7"},
+            external_ids={
+                "negative_id": "n-9",
+                "negative_creada": True,
+                "keyword_id": "k-7",
+                "keyword_creada": True,
+            },
         )
         handler, vistos = _handler_harvest(
             keywords=[
