@@ -4,6 +4,20 @@
 > de cada phase. Si la fecha de abajo se ve vieja, pide al dueño que haga
 > "Sync now" en el Project o pregúntale el estado antes de asumir.
 
+**2026-09-22 UTC — REPRICING 01 A.4: las tres reversas quedaron confirmadas por Pricing; sigue D.1 en sombra.**
+Lectura de producción como `orbit_read`: los cambios 2/3/4 y las reversas
+5/6/7 están `confirmado` por `observacion`. Pricing del 21 y 22-sep devolvió
+los precios originales de los listings 1213, 1284 y 1295; el control 1253
+permaneció en 848.00 MXN. La forma del PATCH está sellada en #319. El GET de
+Listings Items conservó `summaries.lastUpdatedDate` antiguo, así que A.4 usa
+el `observed_at` de la lectura externa de Pricing como evidencia temporal.
+Consulta y resultados: `docs/evidencia/repricing-01/A.4/readback.md`.
+
+Sigue D.1: elegir goals MX/FBA en `shadow`, desplegar el código y el cron de
+precio, y leer cinco corridas. D.3 de FABRICA 02 sigue separado y requiere el
+ensayo de reversa y dos go literales del dueño. E.0a espera el export de
+Seller Central.
+
 **2026-09-19 UTC — REPRICING 01, D.0 APLICADA: la base de producción ya tiene las tablas y la configuración del motor de precios; ningún goal, ninguna decisión, ningún precio movido.**
 El dueño corrió el paquete de D.0 (`#317`, `1bcfc5e`) con `!` a las 15:06 UTC, desde un worktree en `origin/master`: `D0-VERDE`.
 

@@ -158,7 +158,7 @@ def test_snippet_del_plan_coincide_con_el_manifest():
     assert snippet == registrado
 
 
-def test_estado_de_relevo_refleja_a4_en_curso_sin_reprogramar_d0():
+def test_estado_de_relevo_refleja_a4_cerrada_sin_reprogramar_d0():
     plan = (ROOT / "plans" / "repricing-01.md").read_text(encoding="utf-8")
     estado = plan.split("## Estado para la siguiente sesión", maxsplit=1)[1]
     estado_en_una_linea = " ".join(estado.split())
@@ -166,10 +166,9 @@ def test_estado_de_relevo_refleja_a4_en_curso_sin_reprogramar_d0():
     assert "Migración 0039 **no aplicada**" not in estado
     assert "D.0 (0039 + claves" not in estado
     assert "D.0 aplicada" in estado
-    assert "A.4 en curso desde 2026-09-19" in estado_en_una_linea
-    assert "reversas 5/6/7 fueron aceptadas" in estado_en_una_linea
-    assert "Falta la observación del 21-sep" in estado_en_una_linea
-    assert "Después de sellar A.4, sigue D.1" in estado_en_una_linea
+    assert "A.4 cerrada el 2026-09-22" in estado_en_una_linea
+    assert "reversas 5/6/7 están `confirmado` por observación" in estado_en_una_linea
+    assert "Sigue D.1" in estado_en_una_linea
 
 
 # ---------------------------------------------------------------------------

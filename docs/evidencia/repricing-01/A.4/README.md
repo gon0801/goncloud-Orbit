@@ -16,7 +16,7 @@ una a tres publicaciones MX/FBA; el listing 1253 quedó como control negativo.
 Control negativo: listing 1253, SKU `0O-B6OS-8RRE`, ASIN `B0CJT6BK86`,
 848.00 MXN antes y después de los tres PATCH.
 
-## Resultado hasta ahora
+## Resultado
 
 - Las observaciones de Pricing de 2026-09-18 y 2026-09-19 mostraban P y Buy Box propia
   para las cuatro publicaciones.
@@ -36,6 +36,10 @@ Control negativo: listing 1253, SKU `0O-B6OS-8RRE`, ASIN `B0CJT6BK86`,
   conservó 848.00 MXN.
 - Los goals 3/5/4 quedaron cerrados con `valid_to=2026-09-20`; no queda ningún
   goal vigente para los tres listings.
+- La lectura como `orbit_read` del 2026-09-22 confirmó las reversas 5/6/7 en
+  `confirmado` por `observacion`. Pricing del 2026-09-21 y del 2026-09-22 mostró
+  988.00, 1288.00 y 699.00 MXN; el control 1253 conservó 848.00 MXN.
+  Consulta y resultados en [readback.md](readback.md).
 
 ## Forma aceptada
 
@@ -50,12 +54,8 @@ La forma coincide con el ejemplo oficial de Amazon para actualización de precio
 
 El GET confirmó el nuevo `purchasable_offer`, pero `summaries.lastUpdatedDate` no
 cambió: conservó 2024-07-13, 2026-07-30 y 2026-07-28 respectivamente, todas anteriores
-a `enviado_at`. Ese campo no evidencia la actualización de oferta en estos listings.
-La DoD que exige `lastUpdatedDate > enviado_at` queda pendiente de corregirse con una
-fuente temporal que Amazon realmente actualice; no se declara cumplida.
-
-## Pendiente para cerrar A.4
-
-1. Observación del 2026-09-21 en P y cierre de las reversas 5/6/7.
-2. Control negativo todavía en 848.00 MXN.
-3. Revisión final y PR de esta rama mergeado con CI verde.
+a `enviado_at`. Ese campo no fecha la oferta para estos listings. La DoD se
+corrige: el `submissionId` y el GET prueban la aceptación y el precio inmediato;
+`spapi_price_observation.observed_at`, capturado en una lectura posterior de
+Pricing, fecha la confirmación externa. La observación del día siguiente cierra
+el cambio y la reversa; el control negativo sigue en su precio original.
