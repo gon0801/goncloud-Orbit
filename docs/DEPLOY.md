@@ -2135,14 +2135,14 @@ cuántas campañas quedan en `migracion_pendiente` a propósito.
 
 ### D.3 Primer harvest de grupo en vivo y ensayo de reversa
 
-Dos gos separados del dueño, y **una precondición que no se puede
-forzar**: hace falta un harvest de grupo con hermanas, y las cinco
-campañas del grupo 1 (`kit_arras | Personalizado`, nacidas el 2026-09-09)
-no reciben decisiones antes de diez días de datos (regla 6; fabrica-01
-Tarea 11 paso 4, 2026-09-19). Además `cortes-ui-01` 1.2 es precondición
-de la fila. Hasta entonces D.3 no arranca; se declara, no se adelanta.
+Dos gos separados del dueño. Las cinco campañas del grupo 1
+(`kit_arras | Personalizado`, nacidas el 2026-09-09) cumplieron los diez
+días mínimos de datos el 2026-09-19 (regla 6; fabrica-01 Tarea 11 paso 4),
+y `cortes-ui-01` 1.2 ya está cerrada. El harvest con hermanas aparecerá
+solo después de encender el grupo y de que el motor lo proponga y aplique
+por el ciclo natural; no se fuerza para el ensayo.
 
-Orden cuando llegue el día:
+Orden de ejecución:
 
 El preflight del 2026-09-23 confirmó cinco goals `shadow`, cap 2/2 y ningún
 job F2 histórico con IDs de hermanas. El dueño aprobó este orden; el primer

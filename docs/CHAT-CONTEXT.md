@@ -35,8 +35,8 @@ el `observed_at` de la lectura externa de Pricing como evidencia temporal.
 Consulta y resultados: `docs/evidencia/repricing-01/A.4/readback.md`.
 
 D.1 se cerró con las corridas automáticas del 21 y 22-sep. D.3 de
-FABRICA 02 sigue separado y requiere resolver el orden del ensayo de reversa.
-E.0a espera el export de Seller Central.
+FABRICA 02 sigue separado; su orden quedó resuelto el 23-sep y espera
+el primer go literal. E.0a espera el export de Seller Central.
 
 **2026-09-19 UTC — REPRICING 01, D.0 APLICADA: la base de producción ya tiene las tablas y la configuración del motor de precios; ningún goal, ninguna decisión, ningún precio movido.**
 El dueño corrió el paquete de D.0 (`#317`, `1bcfc5e`) con `!` a las 15:06 UTC, desde un worktree en `origin/master`: `D0-VERDE`.
