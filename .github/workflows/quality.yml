@@ -70,7 +70,7 @@ jobs:
 
       - name: Guardas (arquitectura + config + contexto, ~1 s)
         run: |
-          pip install fastapi httpx pytest pglast jinja2
+          pip install fastapi "psycopg[binary]" httpx pytest pglast jinja2
           PYTHONPATH=. pytest -q tests/test_architecture.py tests/test_precommit_hooks.py tests/test_chat_context_guard.py
 
   completa:
