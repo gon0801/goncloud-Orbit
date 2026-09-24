@@ -314,6 +314,36 @@ def test_reporte_failed_da_error_con_failure_reason():
     assert "INTERNAL_ERROR" in str(excinfo.value)
 
 
+@pytest.mark.parametrize("segundos_hasta_completar", [780, 1490])
+def test_reporte_lento_completa_dentro_del_presupuesto_default(segundos_hasta_completar):
+    """Los reportes reales del 21-23/09 tardaron 12-13 min; no se deben perder."""
+    transcurrido = 0.0
+
+    def dormir(segundos):
+        nonlocal transcurrido
+        transcurrido += segundos
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return _token(request)
+        assert request.url.path == "/reporting/reports/rep-lento"
+        completo = transcurrido >= segundos_hasta_completar
+        return httpx.Response(
+            200,
+            json={
+                "reportId": "rep-lento",
+                "status": "COMPLETED" if completo else "PROCESSING",
+                "url": "https://bucket.example.com/lento.json.gz" if completo else None,
+                "fileSize": 19749 if completo else None,
+            },
+        )
+
+    url = esperar_reporte(_cliente(handler), _perfil(101, "US"), "rep-lento", sleep=dormir)
+
+    assert url == "https://bucket.example.com/lento.json.gz"
+    assert transcurrido == segundos_hasta_completar
+
+
 def test_poll_agotado_da_error_claro():
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "api.amazon.com":
