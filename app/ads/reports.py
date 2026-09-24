@@ -1857,19 +1857,15 @@ def sync_metrics(
         _run_de_fallo_de_api(conn, run_id, exc, perfil_actual, cfg_actual, report_id_actual)
         raise
 
-    with conn.transaction():
-        # El "hoy" del guard sale del MISMO reloj que escribe observed_at
-        # (now() de la DB, constante dentro de la transaccion) con UTC FIJADO
-        # en la expresion: el skew Python-DB ya no puede romper el invariante
-        # observado >= hecho (hallazgo grok).
-        hoy = conn.execute(_SQL_FECHA_HOY).fetchone()[0]
-
     escritos = 0
     skips: Counter[str] = Counter()
     reportes: list[ResumenReporte] = []
     perfil_actual, cfg_actual, report_id_actual = None, None, None
     try:
         with conn.transaction():
+            # El guard usa el MISMO reloj y transaccion que observed_at. Una
+            # lectura fallida tambien llega al sello de fallo de abajo.
+            hoy = conn.execute(_SQL_FECHA_HOY).fetchone()[0]
             for perfil, cfg, report_id, filas in descargados:
                 perfil_actual, cfg_actual, report_id_actual = perfil, cfg, report_id
                 # Dispatch por tabla (clave "tabla" solo la lleva el cfg de
