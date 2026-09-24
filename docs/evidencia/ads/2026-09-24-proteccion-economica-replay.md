@@ -74,7 +74,8 @@ Una observacion posterior elevó revenue del hecho 18-ago de USD 111.78 a
 tambien influye. Ambas señales del 11-sep dejan de cruzar antes de que venza
 el veto; usar la foto inicial causaria un corte injustificado. Otro ejemplo:
 la campaign 3919 cruza 18–19 sep con revenue USD 175.19, pero el 20-sep
-llega a USD 360.59 y deja de cruzar con target del ciclo 72 congelado.
+la ventana incorpora una fecha madura con venta y llega a USD 360.59; deja
+de cruzar con target del ciclo 72 congelado.
 
 En A1U, la señal inicial del 12-sep sigue cruzando el 14-sep; en AU2, la del
 11-sep sigue cruzando el 13-sep. Eso demuestra continuidad **economica**, no
