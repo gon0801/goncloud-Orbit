@@ -45,9 +45,8 @@ def _corre_hoja(
     monkeypatch.setattr(
         cycle.cortes,
         "umbral_corte",
-        lambda *_: SimpleNamespace(umbral=157, expected_clicks=None),
+        lambda *_: SimpleNamespace(umbral=157, expected_clicks=None, elegible=False),
     )
-    monkeypatch.setattr(cycle, "_pendiente_bid", lambda _id, resultado, **_kw: resultado)
     consultas = []
 
     def cooldown(_conn, _id, *, ahora, kind=None):
@@ -102,6 +101,8 @@ def test_4925_pause_madura_14_sep_pasa_bid_cooldown_sin_lookahead(monkeypatch):
     pendientes, contadores, consultas = _corre_hoja(monkeypatch)
     assert [p.kind for p in pendientes] == ["pause"]
     assert pendientes[0].window_end == dt.date(2026, 9, 4)
+    assert pendientes[0].inputs["cooldown_policy_version"] == "pause_after_bid_v1"
+    assert pendientes[0].inputs["target_procedencia"] == "goal_plataforma"
     assert contadores.decisiones == {"pause": 1}
     assert consultas == ["pause"]
 
