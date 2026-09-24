@@ -1589,6 +1589,26 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
             (run_mx,),
         ).fetchall() == [("downloaded", 4), ("failed", 1), ("pending", 8), ("rejected", 1)]
 
+        # Un profileId malformado se rechaza sin bloquear el perfil valido.
+        # No convertir bool a 0/1 ni inventar un ID para el rechazado.
+        for invalido in ("bad-id", False, [101], 2**70):
+            perfiles_respuesta["lista"] = [{"profileId": invalido}, PERFILES_API[0]]
+            res_valido = sync_metrics(
+                conn, client, fecha_ini=ayer, fecha_fin=ayer, sleep=lambda s: None
+            )
+            assert res_valido.ok is True
+            assert [r.profile_id for r in res_valido.reportes] == [101] * 4
+            motivo = (
+                "perfil no seller (accountInfo.type=None)"
+                if invalido == 2**70
+                else "perfil sin profileId"
+            )
+            assert conn.execute(
+                "SELECT profile_id, platform, report_name, status, reason"
+                " FROM ads_report_result WHERE ingest_run_id = %s AND status = 'rejected'",
+                (res_valido.run_id,),
+            ).fetchall() == [(None, None, None, "rejected", motivo)]
+
         # ------------------------------------------------------------------
         # PRIVILEGIO NEGATIVO (DoD): app_ingest inserta metricas, JAMAS
         # decisions (esas son del motor, rol app_decide). Va AL FINAL: en CI el
