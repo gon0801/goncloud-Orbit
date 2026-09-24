@@ -464,12 +464,13 @@ def test_cooldown_pause_filtra_bid_y_conserva_borde_7d():
         assert g.en_cooldown(conn, entidad, ahora=AHORA) is True
         assert g.en_cooldown(conn, entidad, ahora=AHORA, kind="pause") is False
 
+        ciclo_pause = _ciclo(conn)
         pause = conn.execute(
             "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at,"
             " config_version_id, data_observed_at, window_start, window_end, inputs)"
             " VALUES (%s, %s, 'pause', %s, %s, %s, %s, %s, %s) RETURNING id",
             (
-                ciclo,
+                ciclo_pause,
                 entidad,
                 DECIDED_AT,
                 config_id,
