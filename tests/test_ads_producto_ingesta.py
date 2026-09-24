@@ -49,6 +49,7 @@ from app.ads.structure import PerfilAds
 
 ROOT = Path(__file__).resolve().parents[1]
 SQL20 = (ROOT / "migrations" / "0020_ads_producto_metrica.sql").read_text(encoding="utf-8")
+SQL40 = (ROOT / "migrations" / "0040_ads_report_result.sql").read_text(encoding="utf-8")
 
 _skip_db = pytest.mark.skipif(
     _postgres_obligatorio_ausente(),
@@ -749,6 +750,7 @@ def test_pipeline_productos_en_vivo():
         conn.execute("SET TIME ZONE 'UTC'")
         conn.execute(SQL)  # 0001 completa
         conn.execute(SQL20)  # la migracion NUEVA aplica sobre esquema fresh
+        conn.execute(SQL40)
 
         ahora = dt.datetime.now(dt.UTC)
         ayer = ahora.date() - dt.timedelta(days=1)
@@ -860,6 +862,18 @@ def test_pipeline_productos_en_vivo():
         assert res1.ok is True
         assert res1.rows_written == 3
         assert res1.rows_skipped == 1
+        assert conn.execute(
+            "SELECT source FROM ingest_run WHERE id = %s", (res1.run_id,)
+        ).fetchone() == ("amazon_ads_products_v3",)
+        assert conn.execute(
+            "SELECT profile_id, platform::text, report_name, status"
+            " FROM ads_report_result WHERE ingest_run_id = %s AND status = 'written'"
+            " ORDER BY profile_id",
+            (res1.run_id,),
+        ).fetchall() == [
+            (101, "amazon_us", "productos", "written"),
+            (202, "amazon_mx", "productos", "written"),
+        ]
         assert "1x fila agregada por clave duplicada en el reporte" in res1.skip_reason
         assert [resumen.report_id for resumen in res1.reportes] == [
             "R-PROD-101",
@@ -1003,6 +1017,7 @@ def test_pipeline_productos_us_no_verificado_no_inventa_filas():
         conn.execute("SET TIME ZONE 'UTC'")
         conn.execute(SQL)
         conn.execute(SQL20)
+        conn.execute(SQL40)
 
         ayer = dt.datetime.now(dt.UTC).date() - dt.timedelta(days=1)
 
@@ -1051,6 +1066,9 @@ def test_pipeline_productos_us_no_verificado_no_inventa_filas():
         assert run[1] == 0
         assert run[2] is not None and "status=400" in run[2]
         assert run[3] is not None  # sellada, no abierta
+        assert conn.execute(
+            "SELECT source FROM ingest_run WHERE ok IS FALSE ORDER BY id DESC LIMIT 1"
+        ).fetchone() == ("amazon_ads_products_v3",)
     finally:
         if conn is not None:
             conn.close()
