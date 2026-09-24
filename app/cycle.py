@@ -55,9 +55,12 @@ Diseño sellado (plans/orbit-03.md task 3.1 + diseno v2):
   14d desde el watermark -> 'entidad_inerte' (BIDS 01: vista
   v_entidad_inerte leida UNA vez por ciclo en TX2; salta ANTES de resolver
   ventanas, no aplica al camino de terminos); cooldown 7d -> 'cooldown_7d'.
+  En hojas, PAUSE se decide con ventana madura antes de consultar su propio
+  cooldown; un BID previo solo enfria BID. En grupos, el gate sigue igual.
   Orden de gates del orquestador: campaña (goal) primero (la hace invisible al
-  optimizador por completo), luego ancestros, luego estado, luego cooldown; y
-  solo DESPUES de todos ellos el veto pendiente por clave de efecto
+  optimizador por completo), luego ancestros y estado. El veto pendiente por
+  clave de efecto corre despues; en hojas, cooldown depende del tipo de
+  decision ya calculada; en grupos, sigue antes del veto
   (CAMPANA ACTIVA 01 · 1.6: una hoja o termino dentro de una campana/grupo
   apagado se cuenta con el motivo del ANCESTRO, y un grupo gateado cuenta
   TODOS sus terminos con ese motivo — incluidos los bloqueados; solo cambian
@@ -1366,6 +1369,7 @@ def _gates_entidad(
     status,
     ancestros: tuple[tuple[str, str | None], ...],
     decided_at: dt.datetime,
+    comprobar_cooldown: bool = True,
 ) -> tuple[g.Goal | None, str | None]:
     """Cascada de gates del orquestador (orden sellado, ver docstring del
     modulo): goal de campaña -> ancestros ENABLED (CAMPANA ACTIVA 01: campaña
@@ -1379,7 +1383,7 @@ def _gates_entidad(
             motivo = motivo_ancestro
     if motivo is None and status != "ENABLED":
         motivo = MOTIVO_ESTADO_NO_ENABLED  # None (sin state) tambien queda fuera
-    if motivo is None and g.en_cooldown(conn, entidad_id, ahora=decided_at):
+    if motivo is None and comprobar_cooldown and g.en_cooldown(conn, entidad_id, ahora=decided_at):
         motivo = MOTIVO_COOLDOWN_7D
     return (goal, motivo)
 
@@ -1425,6 +1429,7 @@ def _procesa_decisora(
             (MOTIVO_GRUPO_NO_ENABLED, status_grupo),
         ),
         decided_at=decided_at,
+        comprobar_cooldown=False,
     )
     if motivo is not None:
         contadores.skips_entidad[motivo] += 1
@@ -1487,6 +1492,14 @@ def _procesa_decisora(
         # sella con el mismo corte_pause).
         expected_clicks=corte_pause.expected_clicks,
     )
+    # El BID verificado no posterga un corte que ya califico con datos maduros.
+    # La PAUSE aplicada (aun revertida) conserva su propio cooldown; si no
+    # califico PAUSE, el BID sigue sujeto al cooldown de cualquier apply.
+    kind_cooldown = "pause" if resultado.kind == "pause" else None
+    if g.en_cooldown(conn, entidad_id, ahora=decided_at, kind=kind_cooldown):
+        contadores.skips_entidad[MOTIVO_COOLDOWN_7D] += 1
+        tick()
+        return
     tick()
     if resultado.kind is None:
         contadores.skips_entidad[resultado.motivo] += 1
