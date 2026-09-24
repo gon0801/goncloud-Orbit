@@ -127,7 +127,7 @@ jobs:
       - name: Run Python tests
         if: hashFiles('pyproject.toml', 'requirements.txt') != ''
         env:
-          ORBIT_TEST_DSN: postgresql://orbit:***@localhost:5432/postgres
+          ORBIT_TEST_DSN: postgresql://orbit:orbit@localhost:5432/postgres
         run: |
           pip install fastapi "psycopg[binary]" pytest httpx pglast jinja2
           PYTHONPATH=. pytest -q
@@ -169,7 +169,7 @@ jobs:
 
       - name: Verificar dashboard con el harness real
         env:
-          ORBIT_TEST_DSN: postgresql://orbit:***@localhost:5432/postgres
+          ORBIT_TEST_DSN: postgresql://orbit:orbit@localhost:5432/postgres
         run: |
           pip install "uvicorn[standard]>=0.30"
           python -m venv --system-site-packages .venv
@@ -178,7 +178,7 @@ jobs:
       - name: Drive de superficie (verify/)
         # COMANDO_DRIVE de verify/Drive.md: la app como la ve el usuario.
         env:
-          ORBIT_TEST_DSN: postgresql://orbit:***@localhost:5432/postgres
+          ORBIT_TEST_DSN: postgresql://orbit:orbit@localhost:5432/postgres
         run: |
           .venv/bin/python -m pytest verify/ -q
 

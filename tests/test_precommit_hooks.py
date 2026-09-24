@@ -98,6 +98,24 @@ def test_bateria_completa_corre_en_ci():
     )
 
 
+def test_dsn_ci_coincide_con_el_postgres_del_job():
+    """La bateria con DB no puede usar una clave distinta a su servicio."""
+    workflow = yaml.safe_load((RAIZ / ".github" / "workflows" / "quality.yml").read_text("utf-8"))
+    for nombre in ("completa", "pesada"):
+        job = workflow["jobs"][nombre]
+        servicio = job["services"]["postgres"]["env"]
+        esperado = (
+            f"postgresql://{servicio['POSTGRES_USER']}:{servicio['POSTGRES_PASSWORD']}"
+            f"@localhost:5432/{servicio['POSTGRES_DB']}"
+        )
+        pasos = [paso for paso in job["steps"] if "ORBIT_TEST_DSN" in paso.get("env", {})]
+        assert pasos, f"{nombre}: falta ORBIT_TEST_DSN"
+        for paso in pasos:
+            assert paso["env"]["ORBIT_TEST_DSN"] == esperado, (
+                f"{nombre}/{paso['name']}: DSN distinto del servicio postgres"
+            )
+
+
 def test_pre_push_es_rapido_y_declara_donde_vive_la_bateria():
     """El entry de pre-push acota a las guardas y el archivo declara POR QUE.
 
