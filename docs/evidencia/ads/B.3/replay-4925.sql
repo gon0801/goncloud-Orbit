@@ -63,14 +63,15 @@ grupo AS (
 ),
 applies AS (
     SELECT c.id AS ciclo_id,
-           bool_or(d.kind = 'bid' AND a.verify_ok IS TRUE
+           bool_or(d.kind = 'bid' AND a.verify_ok IS TRUE AND oc.mode = 'live'
                AND a.confirmed_at > c.started_at - interval '7 days'
                AND a.confirmed_at <= c.started_at) AS bid_cooldown,
-           bool_or(d.kind = 'pause' AND a.verify_ok IS TRUE
+           bool_or(d.kind = 'pause' AND a.verify_ok IS TRUE AND oc.mode = 'live'
                AND a.confirmed_at > c.started_at - interval '7 days'
                AND a.confirmed_at <= c.started_at) AS pause_cooldown
       FROM ciclos c LEFT JOIN decision d ON d.ad_entity_id = 4925
       LEFT JOIN decision_application a ON a.decision_id = d.id
+      LEFT JOIN optimizer_cycle oc ON oc.id = a.applied_cycle_id
      GROUP BY c.id
 )
 SELECT h.ciclo_id, h.started_at, h.fin_corte, h.fechas, h.moneda,

@@ -43,7 +43,7 @@ revalidacion futura impide fijar una fecha de apply contrafactual o un ahorro.
   `verify_ok=true`. Por comparador estricto `confirmed_at > started_at-7d`,
   enfrio los ciclos 53–68, pero ya no el 70. Las decisiones reales previas
   a B.2 no llevan `cooldown_policy_version`; su gate se interpreta con la
-  politica de esa era. Las decisiones nuevas congelan
+  politica de esa era. Las decisiones nuevas del motor de bids congelan
   `cooldown_policy_version=pause_after_bid_v1`, ademas de la procedencia del
   target, umbral, piso y ventanas ya congelados en `inputs`.
 - La unica PAUSE real de 4925 fue la decision 2361 del ciclo 70, tomada el
