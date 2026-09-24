@@ -254,6 +254,8 @@ go 2 o sombreamiento coordinado); sin acuerdo, H5 no arranca.
 ```bash
 INICIO_SHADOW=$(ssh goncloud date -u +%Y-%m-%dT%H:%M:%SZ); echo $INICIO_SHADOW
 IDS_LIVE=$(ssh goncloud "$PSQL_READ -tA -c \"SELECT string_agg(id::text, ',') FROM ads_optimizer_goal WHERE mode='live';\""); echo $IDS_LIVE
+printf 'INICIO_SHADOW=%s\nIDS_LIVE=%s\n' "$INICIO_SHADOW" "$IDS_LIVE" > docs/evidencia/ads-proteccion-01/H5/inicio.txt
+source docs/evidencia/ads-proteccion-01/H5/inicio.txt  # en cada terminal nueva
 ```
 
 2. Deploy (go de deploy): regla 2, mas flip de los IDs live a `shadow`
@@ -306,10 +308,11 @@ ssh goncloud "$PSQL_READ -c \"SELECT id, mode FROM ads_optimizer_goal WHERE id I
 3. C.5: PR con DoD + descarte por el canal del runbook (ver Decisiones 2);
    go de merge. La pausa en Amazon la ejecuta el dueno sobre propuesta
    concreta; Orbit cierra con readback PAUSED mismo campaignId/profile.
-4. C.6: mismo recorrido que H5 (INICIO_SHADOW, IDS_LIVE, flip a `shadow`
-   acotado a IDs con antes/despues, encendido con el literal de aislamiento
-   off que C.3 dejo registrado, 5 ciclos, paradas (a)(b)(c) de H5.3, flip de
-   vuelta acotado a IDs): el go de
+4. C.6: mismo recorrido que H5 (INICIO_SHADOW, IDS_LIVE en su propio
+   `docs/evidencia/ads-proteccion-01/H6/inicio.txt`, nunca el de H5; flip a
+   `shadow` acotado a IDs con antes/despues, encendido con el literal de
+   aislamiento off que C.3 dejo registrado, 5 ciclos, paradas (a)(b)(c) de
+   H5.3, flip de vuelta acotado a IDs): el go de
    deploy declara el efecto cero-applies y el acuerdo con D.3 si sigue en
    curso; el go de live cita ademas el riesgo aceptado en C.2b; rollback por
    regla 3. Cierra con comparacion candidatos vs applies sin lookahead;
