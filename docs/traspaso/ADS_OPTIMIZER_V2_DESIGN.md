@@ -8,6 +8,11 @@
 > cualquier cambio de regla o umbral se refleja acá y en los tests de
 > acoplamiento numérico.
 
+**Delta posterior:** [`ADS PROTECCION 01`](../superpowers/specs/2026-09-24-ads-proteccion-design.md)
+define la precedencia de PAUSE frente al cooldown de bids y un limite
+economico adicional. Ese spec prevalece sobre las reglas 1 y de cooldown
+de este documento solo en los puntos que declara; las demas reglas siguen.
+
 ## Por qué existe
 
 El stack anterior no actuaba (gates evidenciales + cooldowns + damping
