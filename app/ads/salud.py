@@ -54,6 +54,14 @@ INSERT INTO ads_ingest_incident (profile_id, platform, tipo, opened_run_id)
 VALUES (%s, %s::platform, %s, %s)
 ON CONFLICT (profile_id, platform, tipo) WHERE closed_at IS NULL DO NOTHING
 """
+_SQL_CANCELAR_RECUPERACION = """
+UPDATE ads_ingest_incident
+   SET recovery_cancelled_at = now(), closed_at = now()
+ WHERE profile_id IS NOT DISTINCT FROM %s
+   AND platform IS NOT DISTINCT FROM %s::platform
+   AND tipo = %s AND closed_at IS NULL
+   AND recovered_at IS NOT NULL AND recovery_sent_at IS NULL
+"""
 _SQL_RECUPERAR = """
 UPDATE ads_ingest_incident
    SET recovered_run_id = %s, recovered_at = now(),
@@ -126,6 +134,7 @@ def procesar_run(conn: Any, run_id: int) -> None:
         unidades = conn.execute(_SQL_UNIDADES, (run_id,)).fetchall()
         fallos = incidentes_de_run(source=source, ok=ok, unidades=unidades)
         for perfil, plataforma, tipo in fallos:
+            conn.execute(_SQL_CANCELAR_RECUPERACION, (perfil, plataforma, tipo))
             conn.execute(_SQL_ABRIR, (perfil, plataforma, tipo, run_id))
         if ok:
             exitos = {(p, plat) for p, plat, _nombre, estado in unidades if estado == "written"}

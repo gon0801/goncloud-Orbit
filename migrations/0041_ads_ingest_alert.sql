@@ -13,6 +13,7 @@ CREATE TABLE ads_ingest_incident (
     recovered_at TIMESTAMPTZ,
     recovery_attempts INTEGER NOT NULL DEFAULT 0,
     recovery_sent_at TIMESTAMPTZ,
+    recovery_cancelled_at TIMESTAMPTZ,
     last_attempt_at TIMESTAMPTZ,
     closed_at TIMESTAMPTZ,
     CONSTRAINT ads_ingest_incident_scope CHECK (
@@ -21,6 +22,10 @@ CREATE TABLE ads_ingest_incident (
     ),
     CONSTRAINT ads_ingest_incident_recovery CHECK (
         recovery_sent_at IS NULL OR (recovered_at IS NOT NULL AND alert_sent_at IS NOT NULL)
+    ),
+    CONSTRAINT ads_ingest_incident_recovery_terminal CHECK (
+        recovery_cancelled_at IS NULL
+        OR (recovered_at IS NOT NULL AND recovery_sent_at IS NULL AND closed_at IS NOT NULL)
     )
 );
 

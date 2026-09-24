@@ -202,6 +202,47 @@ def test_episodio_persiste_reintenta_y_recupera_solo_con_principal(monkeypatch):
             ).fetchone()[0]
             == 1
         )
+
+        # Un fallo nuevo no puede perderse mientras sigue pendiente el aviso
+        # de recuperacion del episodio anterior del mismo perfil.
+        monkeypatch.setattr(salud.notifica, "canal_activo", lambda: False)
+        run(salud.SOURCE, True, "written")
+        monkeypatch.setattr(salud.notifica, "canal_activo", lambda: True)
+        salud.entregar_pendientes(conn, enviar=lambda _texto: True)
+        nuevos_textos = []
+        nuevas_respuestas = iter([True, False, True, True])
+
+        def nuevo_envio(texto):
+            nuevos_textos.append(texto)
+            return next(nuevas_respuestas)
+
+        monkeypatch.setattr(salud.notifica, "_envia_texto", nuevo_envio)
+        run(salud.SOURCE, False, "failed")
+        run(salud.SOURCE, True, "written")
+        episodio_anterior = conn.execute(
+            "SELECT id FROM ads_ingest_incident "
+            "WHERE profile_id = 101 AND tipo = 'fallo' ORDER BY id DESC LIMIT 1"
+        ).fetchone()[0]
+        assert conn.execute(
+            "SELECT recovered_at IS NOT NULL, recovery_sent_at IS NULL, closed_at "
+            "FROM ads_ingest_incident WHERE id = %s",
+            (episodio_anterior,),
+        ).fetchone() == (True, True, None)
+        run(salud.SOURCE, False, "failed")
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM ads_ingest_incident "
+                "WHERE profile_id = 101 AND tipo = 'fallo' "
+                "AND recovered_at IS NULL AND closed_at IS NULL"
+            ).fetchone()[0]
+            == 1
+        )
+        assert conn.execute(
+            "SELECT recovery_cancelled_at IS NOT NULL, recovery_sent_at, "
+            "closed_at IS NOT NULL FROM ads_ingest_incident WHERE id = %s",
+            (episodio_anterior,),
+        ).fetchone() == (True, None, True)
+        assert any("fallo de ingesta principal" in texto for texto in nuevos_textos[2:])
     finally:
         if conn is not None:
             conn.close()
