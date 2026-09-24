@@ -116,6 +116,22 @@ def test_dsn_ci_coincide_con_el_postgres_del_job():
             )
 
 
+def test_harness_ci_instala_dependencias_del_proyecto():
+    """El harness pesado necesita psycopg y pytest antes de arrancar."""
+    workflow = yaml.safe_load((RAIZ / ".github" / "workflows" / "quality.yml").read_text("utf-8"))
+    pasos = workflow["jobs"]["pesada"]["steps"]
+    harness = next(
+        paso for paso in pasos if paso.get("name") == "Verificar dashboard con el harness real"
+    )
+    comandos = harness["run"].splitlines()
+    assert "pip install . pytest" in comandos, "el harness debe instalar el proyecto y pytest"
+    assert comandos.index("pip install . pytest") < next(
+        i
+        for i, comando in enumerate(comandos)
+        if "orbit-verify maintain-verification-skill" in comando
+    )
+
+
 def test_pre_push_es_rapido_y_declara_donde_vive_la_bateria():
     """El entry de pre-push acota a las guardas y el archivo declara POR QUE.
 
