@@ -1,5 +1,22 @@
 # Orbit — contexto para Claude Chat
 
+**2026-09-24 UTC — ADS PROTECCION 01 A.1 CERRADA; spec de politica en revision.**
+PR #329 quedo mergeado y desplegado con `INTENTOS_POLL=300`. La primera
+ingesta principal posterior al deploy, run 426, cerro `ok=true` con 9.731
+filas; MX y US llegan al 23-sep y el costo/venta de los reportes de campana
+coincide exactamente con Amazon. Evidencia:
+`docs/evidencia/ads/2026-09-24-exact-us.md`. El plan #330 esta en master.
+El dueno eligio limite economico conservador para hojas con ventas
+(ACoS >3x target y exceso >=80 USD/1000 MXN), PAUSE automatica de hoja con
+veto/revalidacion, propuesta humana de campana y Telegram al fallo, atraso
+10:30 UTC y recuperacion. El spec `2026-09-24-ads-proteccion-design.md`
+esta en el PR #331. El dueno tambien eligio aplicar el mismo tope a
+`revenue=0` medido, antes del umbral adaptativo de clics, y ejecutar las
+pausas de campana manualmente en Amazon; Orbit solo propone, verifica
+`PAUSED` por campaignId/profile y registra el cierre. B.1 y C.1 quedan
+selladas en el spec; el replay y los gates de live siguen pendientes.
+No se cambiaron goals ni se reactivaron A1U/AU2.
+
 **2026-09-23 UTC — FABRICA 02 D.3 EN CURSO: cinco goals del grupo 1 en live.**
 El dueño dio el go 1 literal `D.3 encender grupo 1 kit_arras`; el tool cambió
 los goals 8–12 a `live` y su readback, más una consulta independiente como
