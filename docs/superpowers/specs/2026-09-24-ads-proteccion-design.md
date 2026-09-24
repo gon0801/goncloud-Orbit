@@ -39,9 +39,8 @@ permita varios ciclos con informacion vieja.
   El primer termino equivale a ACoS > 3 veces el target cuando `revenue>0`.
   Si la venta atribuida es **cero medido**, la comparacion algebraica evita
   dividir por cero y el limite absoluto frena el gasto aun cuando crezca el
-  umbral adaptativo. Esta extension a cero ventas es la interpretacion
-  propuesta para cerrar ese hueco; requiere revision del dueno en este spec.
-  Revenue ausente sigue siendo abstencion.
+  umbral adaptativo. El dueno aprobo expresamente esta extension tras elegir
+  el limite para hojas con ventas. Revenue ausente sigue siendo abstencion.
 - Los limites son inclusivos solo para el exceso (`>=`), estrictos para el
   cociente (`>`). No se hace FX ni se mezcla moneda. El bid en su floor no
   veta la proteccion; tampoco obliga a actuar si las otras guardas fallan.
@@ -70,7 +69,17 @@ permita varios ciclos con informacion vieja.
    procedencia, cost, revenue, exceso y limites usados. Replay de una
    decision historica usa su version congelada, nunca el limite vigente.
 
-## Campanas: propuesta con aprobacion humana
+La keyword 4925 de AU2 ya calificaba para la PAUSE existente el 14-sep
+con datos conocidos entonces; su BID aplicado el 11-sep no debe bloquearla.
+En la frontera exacta de 7 dias, el BID sigue enfriado hasta cumplir el
+plazo; una PAUSE verificada y su reversa mantienen el enfriamiento propio.
+Ejemplos del limite nuevo con target 20% y moneda USD: `cost=80`,
+`revenue=0` medidos califican por exceso 80; `cost=79.99`, `revenue=0`
+no califican. `cost=100`, `revenue=100` califican (exceso 80,
+ACoS 100% > 60%); `cost=80`, `revenue=500` no califican (ACoS 16%).
+`cost=30`, `revenue=5` supera 3x target pero no el exceso minimo.
+
+## Campanas: propuesta y pausa manual en Amazon
 
 - Aplicar el mismo calculo al grano `spCampaigns`; mostrar costo, venta,
   ACoS si revenue>0, target y fuente, exceso, ventana, estado y motivo.
@@ -83,18 +92,14 @@ permita varios ciclos con informacion vieja.
   observada sin riesgo. Venta tardia o cambio de target actualiza/cierra
   la propuesta tras revalidacion.
 - Ni el paso de 48 h ni el cron convierten la propuesta en mutacion. El
-  resultado operativo de la aprobacion humana sigue una de las dos rutas
-  pendientes de confirmacion del dueno: pausa manual en Amazon con readback
-  y cierre auditado en Orbit, o PAUSE ejecutada por Orbit tras aprobacion
-  individual identificable. No exponer boton que prometa aplicar una pausa
-  antes de implementar y probar la ruta elegida. Telegram es informativo.
-- Si se elige escritura por Orbit, la aprobacion consume una sola vez una
-  propuesta vigente vinculada a actor, campaignId, profile y version;
-  requiere escritura Amazon, readback, quota, ledger, conciliacion de
-  resultado incierto, bloqueo de pendientes descendientes y reversa RESUME
-  probados. Antes de mutar se revalidan estado, goal, target y datos
-  maduros. La reversa comprueba autoria y estado externo previo y se
-  abstiene si hubo una pausa manual posterior.
+  dueno revisa la propuesta y, si decide cortarla, pausa la campana en
+  Amazon. Orbit sincroniza la estructura, confirma `PAUSED` en el mismo
+  campaignId/profile y cierra la propuesta como `pausa_externa_observada`,
+  con fecha y snapshot. Una marca de revision o el mensaje Telegram no
+  ejecutan PAUSE. Si la campana sigue ENABLED, la propuesta permanece
+  pendiente o el dueno la descarta; Orbit no presume que una revision
+  significa pausa. El readback prueba estado externo, no autor individual
+  ni causalidad de la pausa. Orbit no escribe PAUSE/RESUME de campana.
 
 ## Salud de ingesta y avisos
 
@@ -122,5 +127,5 @@ CI y review antes de activar cambios de corte. El replay debe mostrar los
 candidatos y cambios tras nuevas atribuciones; un candidato que deja de
 cruzar el limite durante el veto se cancela. Si aparece un falso positivo
 material, se mantiene shadow y se revisa la politica antes de live.
-Ni este spec ni la aprobacion de las tres opciones reactivan A1U/AU2,
+Ni este spec ni las decisiones aprobadas reactivan A1U/AU2,
 cambian goals o autorizan presupuestos automaticos.

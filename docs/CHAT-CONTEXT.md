@@ -10,10 +10,12 @@ El dueno eligio limite economico conservador para hojas con ventas
 (ACoS >3x target y exceso >=80 USD/1000 MXN), PAUSE automatica de hoja con
 veto/revalidacion, propuesta humana de campana y Telegram al fallo, atraso
 10:30 UTC y recuperacion. El spec `2026-09-24-ads-proteccion-design.md`
-esta en el PR draft #331. Dos aclaraciones siguen pendientes antes de
-activar el nuevo corte: cero ventas bajo el umbral adaptativo y efecto de
-aprobar la propuesta de campana. No se cambiaron goals ni se reactivaron
-A1U/AU2.
+esta en el PR #331. El dueno tambien eligio aplicar el mismo tope a
+`revenue=0` medido, antes del umbral adaptativo de clics, y ejecutar las
+pausas de campana manualmente en Amazon; Orbit solo propone, verifica
+`PAUSED` por campaignId/profile y registra el cierre. B.1 y C.1 quedan
+selladas en el spec; el replay y los gates de live siguen pendientes.
+No se cambiaron goals ni se reactivaron A1U/AU2.
 
 **2026-09-23 UTC — FABRICA 02 D.3 EN CURSO: cinco goals del grupo 1 en live.**
 El dueño dio el go 1 literal `D.3 encender grupo 1 kit_arras`; el tool cambió

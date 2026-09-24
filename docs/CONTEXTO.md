@@ -78,12 +78,13 @@ Se adopta completo **como especificación**, con dos traducciones:
 prevalece sobre el diseno v2 para la precedencia de PAUSE frente al cooldown
 de bids, el limite economico de hojas y las propuestas de campana. El cooldown
 originado por un bid no frena PAUSE; el enfriamiento tras PAUSE/reversa sigue
-vigente. Para hojas con venta atribuida positiva, el corte economico usa datos maduros y
-requiere `cost > 3 * target * revenue` y exceso
+vigente. El corte economico de hojas usa datos maduros y requiere
+`cost > 3 * target * revenue` y exceso
 `cost - target * revenue >= 80 USD / 1000 MXN` (target en fraccion). La
-extension a cero ventas espera decision explicita. Hoja:
-PAUSE automatica con veto, revalidacion y reversa; campana: propuesta con
-aprobacion humana. La salud de la ingesta principal avisa por Telegram al
+misma regla cubre `revenue=0` medido aun antes del umbral adaptativo de
+clics; `None` abstiene. Hoja: PAUSE automatica con veto, revalidacion y
+reversa; campana: propuesta que el dueno ejecuta manualmente en Amazon y
+Orbit verifica. La salud de la ingesta principal avisa por Telegram al
 fallar, a las 10:30 UTC si sigue sin exito del dia y al recuperarse.
 La regla economica entra en live solo tras replay y gates del plan.
 

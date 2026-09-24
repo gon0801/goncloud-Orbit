@@ -14,18 +14,20 @@
   El [`Spec delta ADS PROTECCION 01`](../docs/superpowers/specs/2026-09-24-ads-proteccion-design.md)
   registra las tres opciones recomendadas elegidas por el dueno el
   24-sep-2026. `docs/traspaso/ADS_OPTIMIZER_V2_DESIGN.md` enlaza el delta y
-  declara su precedencia donde sustituye PAUSE/cooldown. La extension del
-  limite a cero ventas y el resultado de la aprobacion de campana requieren
-  una eleccion adicional; la fuente del target es la cascada ya sellada.
+  declara su precedencia donde sustituye PAUSE/cooldown. El dueno tambien
+  aprobo aplicar el mismo tope a revenue=0 medido y eligio pausa manual en
+  Amazon para propuestas de campana con readback en Orbit. La fuente del
+  target es la cascada ya sellada.
 - **Invariantes:** evidencia de corte madura >=10 dias, ventana independiente
   de bids, >=7 fechas, dinero con moneda, `None` distinto de cero, metricas
   bitemporales, una decision por entidad/ciclo, veto de 48h, revalidacion
   fresca antes del claim, quota, readback externo y reversa previa a live.
   Una venta atribuida no demuestra utilidad neta. Los reportes de campaign
   y leaf no se suman entre si: el grano de dinero se fija por regla.
-- **Decision economica del dueno:** ACoS Ads maduro >3x target efectivo y
+- **Decision economica del dueno:** ACoS Ads maduro >3x target efectivo
+  cuando hay revenue>0 (comparacion algebraica con revenue=0 medido) y
   exceso de gasto >=80 USD/1000 MXN; PAUSE automatica de hoja con las
-  salvaguardas actuales y propuesta de campana con aprobacion humana. El
+  salvaguardas actuales y propuesta de campana para pausa manual. El
   caso 17.563% / USD 246.03 / USD 115.20 es evidencia para replay, no un
   umbral inventado. La medicion C.2 decide si hay bloqueantes para live.
 - **Decision operativa:** Telegram al fallo principal, a las 10:30 UTC
@@ -50,7 +52,7 @@
 
 | Task | Contenido | DoD | Depends | Status |
 | --- | --- | --- | --- | --- |
-| B.1 | `[Spec]` `[lane:gate]` `[tdd:skip:contrato-producto]` Aprobar y escribir en `docs/CONTEXTO.md` la precedencia del PAUSE maduro sobre el cooldown de bids; preservar gates de goal, ancestros, estado, veto en vuelo, quota y revalidacion; fijar efecto sobre inertes y negativos; enlazar delta desde diseno v2 con precedencia explicita | Spec delta aprobado con ejemplos 4925 (14-sep) y frontera de 7d; explica que solo BID sigue enfriado y que no cambia el umbral de PAUSE | A.1 | cc:WIP |
+| B.1 | `[Spec]` `[lane:gate]` `[tdd:skip:contrato-producto]` Aprobar y escribir en `docs/CONTEXTO.md` la precedencia del PAUSE maduro sobre el cooldown de bids; preservar gates de goal, ancestros, estado, veto en vuelo, quota y revalidacion; fijar efecto sobre inertes y negativos; enlazar delta desde diseno v2 con precedencia explicita | Spec delta aprobado con ejemplos 4925 (14-sep) y frontera de 7d; explica que BID aplicado no frena PAUSE, pero PAUSE/reversa conservan su enfriamiento; no cambia el umbral existente | A.1 | cc:完了 |
 | B.2 | `[Motor]` `[lane:gate]` `[tdd:required]` Separar PAUSE del cooldown originado por BID, sin dos decisiones por entidad/ciclo ni loop tras reversa | Prueba roja previa: 4925 propone PAUSE el 14-sep y BID queda en cooldown; PAUSE aplicada/revertida conserva sus 7d; falta de madurez, `None`, PAUSED, veto pendiente, inertes y frontera exacta discriminan | B.1 | cc:TODO |
 | B.3 | `[Replay+release]` `[lane:release]` `[tdd:required]` Congelar procedencia y era para replay, medir propuestas historicas y validar el recorrido cola→48h→revalidacion→apply | Replay sin lookahead de 11–19 sep conserva decisiones antiguas y muestra la propuesta nueva desde el 14; no afirma ahorro ni fecha de apply contrafactual; comparar candidatos con snapshots historicos y readback externo de applies reales; CI, cross-review, shadow y live verificados | B.2 | cc:TODO |
 
@@ -58,11 +60,11 @@
 
 | Task | Contenido | DoD | Depends | Status |
 | --- | --- | --- | --- | --- |
-| C.1 | `[Spec+decision]` `[lane:gate]` `[tdd:skip:contrato-producto]` Sellar las tres opciones elegidas y resolver extension a cero ventas y efecto tras aprobacion humana de campana; publicar Spec delta antes del codigo. Usar A1U/AU2 y contraejemplos rentables | Regla literal por moneda, modalidad y caso cero ventas aprobados; spec separa riesgo Ads de utilidad neta, define target ausente, floor y mayor umbral adaptativo; reversa y opt-out definidos | A.1 | cc:WIP |
+| C.1 | `[Spec+decision]` `[lane:gate]` `[tdd:skip:contrato-producto]` Sellar las tres opciones elegidas y resolver extension a cero ventas y efecto tras revision humana de campana; publicar Spec delta antes del codigo. Usar A1U/AU2 y contraejemplos rentables | Regla literal por moneda, modalidad y caso cero ventas aprobados; spec separa riesgo Ads de utilidad neta, define target ausente, floor y mayor umbral adaptativo; reversa de hoja y opt-out definidos | A.1 | cc:完了 |
 | C.2 | `[Medicion]` `[lane:gate]` `[tdd:skip:analisis-contrafactual]` Medir la regla elegida con vintages `observed_at<=decided_at` y grano campaign/leaf separado; publicar impacto y falsos positivos | Tabla por ciclo de candidatos, vetos 48h, applies posibles y cambios de regla; no suma dinero duplicado ni convierte la propuesta en ahorro garantizado; el dueño acepta el riesgo medido antes de live | C.1 | cc:TODO |
 | C.3 | `[Hoja]` `[lane:gate]` `[tdd:required]` Implementar limite economico de C.1 en keyword/product_target y separar su revalidacion de la antigua regla `orders=0` en `apply_cola` | Tests rojos previos: 2423 compara limite literal, cero ventas segun decision final, 100→231 clics, floor, venta tardia, `None`, moneda invalida e inmadurez; una venta sobre limite recorre decision→cola→48h→revalidacion→apply/readback; si deja de cruzarlo se descarta antes del cobro, tambien tras espera por quota; version congelada para replay y politica/target vigentes al aplicar; reversa conservada | C.2, B.3 | cc:TODO |
 | C.4 | `[Campana]` `[lane:gate]` `[tdd:required]` Medir campana desde una unica fuente de dinero; emitir propuesta trazable con ancestros y limites visibles en registro separado de `apply_queue` | A1U/AU2 muestran costo, revenue, target, ventana, estado y motivo; sin doble conteo ni propuesta sobre PAUSED manual; identidad de episodio y dedupe probados ante cron repetido, retry, venta tardia y cambio de target | C.2 | cc:TODO |
-| C.5 | `[Accion humana]` `[lane:gate]` `[tdd:required]` Cerrar la propuesta segun la modalidad confirmada: si el dueno pausa en Amazon, exigir readback y registro; si Orbit aplica tras aprobacion identificable, agregar escritura, readback, ledger, quota, reconciliacion, bloqueo descendiente y reversa propios antes de habilitar | El boton o instruccion humana produce efecto verificable; propuesta descartada no muta; si hay escritura Orbit: aprobacion de un uso por actor/campaignId/profile/version, revalidacion y reversa que nunca levanta una pausa manual posterior; cola descendiente no aplica | C.4 | cc:TODO |
+| C.5 | `[Cierre humano]` `[lane:gate]` `[tdd:required]` Tras propuesta, el dueno pausa manualmente en Amazon o la descarta; Orbit sincroniza estructura y cierra solo con readback `PAUSED` del mismo campaignId/profile, sin escribir PAUSE/RESUME de campana | Propuesta revisada con campana ENABLED sigue pendiente; descarte no muta; PAUSED externo cierra con snapshot/fecha sin inferir autor ni causalidad; cola descendiente no aplica tras el readback; cron repetido no duplica ni reabre hasta un nuevo episodio; cero llamadas de mutacion de campana | C.4 | cc:TODO |
 | C.6 | `[Release]` `[lane:release]` `[tdd:skip:despliegue-y-medicion]` Shadow, review cruzada, CI completo, rampa live autorizada y seguimiento de resultados maduros; incluir A.3 como senal de datos | Comparacion de candidatos vs applies y resultados por campana/hoja sin lookahead; cero mutaciones sin readback o reversa; despliegue y checklist una vez por SHA final | C.3, C.5, A.4 | cc:TODO |
 
 ## Evaluacion y validacion del plan
@@ -103,7 +105,7 @@
 | Lectura de reportes Amazon y SQL de produccion como `orbit_read` | Contrafactual y conciliacion con fuente externa, sin exponer tokens | A.1, C.2, C.6 |
 | Push, PR y CI | Validar codigo y documentacion sin repetir bateria local | A.2–A.4, B.1–B.3, C.1–C.6 |
 | Deploy de `orbit-app-1` | Activar cada bloque tras CI, con respaldo y readback | A.4, B.3, C.6 |
-| Escritura Ads de pausa/reversa de campana | Solo si la modalidad live se decide en C.1 y la reversa existe | C.5, C.6 |
+| Pausa manual de campana en Amazon | El dueno ejecuta la accion fuera de Orbit; Orbit solo verifica el estado externo y registra el cierre | C.5 |
 
 Las operaciones futuras se autorizan por el dueño segun el bloque y la
 politica elegida. El merge/deploy del PR #329 fue autorizado aparte el
