@@ -64,3 +64,28 @@ target y de jobs que esperan cuota, y la procedencia de objetos adoptados
 en la reversa. La correccion se prepara en una rama separada; este archivo
 no afirma que este desplegada. El grupo sigue en `shadow` hasta una nueva
 decision explicita del dueno.
+
+## Reencendido tras PR #324 (2026-09-24 UTC)
+
+El PR #324 ya estaba mergeado y desplegado. El PR #327 corrigio solo CI;
+su corrida en `master` termino verde. Tras pedir una nueva decision para
+reactivar el grupo, el dueno respondio literalmente: `tienes mi go literal y
+especifico`. Se uso de nuevo el go 1 registrado arriba,
+`D.3 encender grupo 1 kit_arras`, para este encendido. No se interpreto
+como go 2 para revertir un harvest.
+
+Preflight inmediato, de solo lectura: `config_version` 20,
+`ads_optimizer_mode=live`, caps de harvest MX/US `2/2`; cinco candidatas
+`shadow` (goals 11, 9, 10, 8 y 12), huella `2bfabc992adf0951`.
+
+Se ejecuto `tools/goals_modo_grupo.py` por stdin dentro de `orbit-app-1` con
+`--grupo 1 --mode live --acepto-mutacion-real --esperado 5
+--huella 2bfabc992adf0951 --go "D.3 encender grupo 1 kit_arras"`.
+Codigo de salida 0: cinco `cambiado` y cinco readbacks `mode=live
+efectivo=live`. Una lectura independiente como `orbit_read` confirmo los
+goals 8-12 `live`, habilitados, terna NULL, `harvest_default_bid=11.6200`
+MXN y `updated_at=2026-09-24 04:03:55.326946 UTC`. La cola harvest no
+terminal y los jobs en vuelo quedaron en 0. El tool no llama a Amazon.
+
+Sigue observar el primer harvest natural del cron MX de las 08:41 UTC hasta
+`done`. La reversa del job exige su propio dry-run y go 2 separado.
