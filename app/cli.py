@@ -47,6 +47,7 @@ from app import (
 )
 from app import cycle as ciclo
 from app.ads import archivar, reports, structure
+from app.ads import salud as ads_salud
 from app.db import connect
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.redaction import scrub
@@ -786,6 +787,10 @@ def main(argv: list[str] | None = None) -> int:
             " requiere ORBIT_DSN_READ)"
         ),
     )
+    sub.add_parser(
+        "ads-salud",
+        help="comprueba atraso de ingesta principal Ads y reintenta avisos pendientes",
+    )
     p_precio = sub.add_parser(
         "precio",
         help="corrida diaria del motor de precios (--platform) o resumen (--reporte)",
@@ -846,6 +851,8 @@ def main(argv: list[str] | None = None) -> int:
         # Los args (--desde/--hasta/--dry-run) los valida el main del
         # modulo (patron report): ventana invalida -> exit 2 ahi.
         return spapi_vigilante.main(rest)
+    if args.comando == "ads-salud":
+        return ads_salud.main(rest)
     if args.comando == "precio":
         # Escribe decisiones y cambios: tokens extra SIEMPRE error del
         # operador (patron cycle).

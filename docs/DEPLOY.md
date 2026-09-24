@@ -404,6 +404,16 @@ crontab y como `ingest_run.source` (`amazon_ads_structure_v2` /
 `amazon_ads_reports_v3` para el pipeline principal /
 `amazon_ads_products_v3` para productos anunciados desde la migracion 0040).
 
+ADS PROTECCION 01 A.3 requiere aplicar `0040_ads_report_result.sql` y despues
+`0041_ads_ingest_alert.sql` antes de actualizar `orbit-app-1`. La 0041 guarda
+episodios y acuses; no reescribe metricas. Comprobar con
+`SELECT count(*) FROM ads_ingest_incident` y leer
+`/api/dashboard/salud` (`plataformas.amazon_us.ads_ingest` y
+`plataformas.amazon_mx.ads_ingest`). El comando `python -m app.cli ads-salud`
+se puede repetir: antes de 10:30 UTC no abre atraso y despues reintenta hasta
+seis veces los avisos pendientes. La ausencia de `telegram.json` deja pending;
+no cuenta como entrega. El cron de productos nunca cierra un incidente principal.
+
 ### Ingestas SP-API diarias 05:00–06:30 (A.5, PROPUESTA — NO instalada)
 
 Ocho corridas **en serie dentro de UN wrapper**, no ocho líneas de
@@ -598,6 +608,8 @@ ORBIT_BLOCK=$(cat <<'CRON'
 10 7 * * * FECHA=$(date -u -d "31 days ago" +\%F) FECHA_FIN=$(date -u -d "1 day ago" +\%F) && docker exec orbit-app-1 python -m app.cli ingest metrics --fecha "$FECHA" --fecha-fin "$FECHA_FIN" >> /mnt/data/appdata/orbit/logs/ingest-metrics.log 2>&1
 # job_key=ingest:metrics:productos  ORBIT 19 B.1 (spAdvertisedProduct por ASIN/SKU; poll hasta 25 min/reporte)
 20 7 * * * FECHA=$(date -u -d "31 days ago" +\%F) FECHA_FIN=$(date -u -d "1 day ago" +\%F) && docker exec orbit-app-1 python -m app.cli ingest metrics --fecha "$FECHA" --fecha-fin "$FECHA_FIN" --productos >> /mnt/data/appdata/orbit/logs/ingest-productos.log 2>&1
+# job_key=ads-salud  A.3: 10:30 UTC y reintentos hasta 12:50; antes de 10:30 no avisa atraso
+*/10 10-12 * * * docker exec orbit-app-1 python -m app.cli ads-salud >> /mnt/data/appdata/orbit/logs/ads-salud.log 2>&1
 # job_key=ads_optimizer:amazon_us + ads_optimizer:amazon_mx
 40 8 * * * docker exec orbit-app-1 python -m app.cli cycle --platform amazon_us >> /mnt/data/appdata/orbit/logs/optimizer.log 2>&1
 41 8 * * * docker exec orbit-app-1 python -m app.cli cycle --platform amazon_mx >> /mnt/data/appdata/orbit/logs/optimizer.log 2>&1

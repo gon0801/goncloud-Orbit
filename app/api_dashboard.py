@@ -66,6 +66,7 @@ from fastapi import APIRouter, HTTPException, Query
 from psycopg.rows import dict_row, tuple_row
 
 from app import cycle as ciclo
+from app.ads.salud import bloque_salud as bloque_ads_ingest
 from app.api import KINDS_DECISION, ConexionLectura
 from app.api_common import (
     _SQL_ULTIMO_CICLO_POR_PLATAFORMA,
@@ -932,9 +933,18 @@ def salud(conn: ConexionLectura) -> dict:
             "quota": _quota_de(conn, plataforma),
             "target_margen": bloque_target_margen(ultimo),
             "spapi": _spapi_de(conn, plataforma),
+            "ads_ingest": _ads_ingest_de(conn, plataforma),
             "precios": _precios_de(conn, plataforma),
         }
     return {"plataformas": plataformas}
+
+
+def _ads_ingest_de(conn: ConexionLectura, plataforma: str) -> dict | None:
+    try:
+        return bloque_ads_ingest(conn, plataforma)
+    except Exception as exc:  # noqa: BLE001 - version de schema visible en log
+        logger.warning("salud: ads_ingest %s ilegible: %s", plataforma, scrub(str(exc)))
+        return None
 
 
 def _spapi_de(conn: ConexionLectura, plataforma: str) -> dict | None:
