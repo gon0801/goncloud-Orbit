@@ -7,6 +7,7 @@ no del codigo -- y la salida facil es `--no-verify`, que este repo prohibe.
 
 from __future__ import annotations
 
+import re
 import shlex
 from pathlib import Path
 
@@ -139,7 +140,9 @@ def test_drive_ci_migra_su_base_antes_de_probar_rutas():
     drive = next(paso for paso in pasos if paso.get("name") == "Drive de superficie (verify/)")
     script = drive["run"]
     assert "_aplicar_migraciones" in script, "el drive necesita migrar su Postgres"
-    assert script.index("_aplicar_migraciones") < script.index("-m pytest verify/")
+    llamada = re.search(r"(?m)^[ \t]*aplicar\(conn\)[ \t]*$", script)
+    assert llamada, "el drive debe ejecutar la migracion, no solo mencionarla"
+    assert llamada.start() < script.index("-m pytest verify/")
 
 
 def test_pre_push_es_rapido_y_declara_donde_vive_la_bateria():
