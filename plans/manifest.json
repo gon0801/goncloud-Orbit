@@ -36,6 +36,11 @@
       "description": "CAMPANAS 01 — auditoria de campanas pausadas con historial rentable (Arras Manual, AGM2M, A1U...) y entidades sin impresiones en campanas ENABLED; URGENTE, analisis para decision humana de reactivar"
     },
     {
+      "name": "ads-proteccion-01",
+      "path": "plans/ads-proteccion-01.md",
+      "description": "ADS PROTECCION 01 — recuperar ingesta principal, avisar atraso, dar precedencia a PAUSE sobre cooldown de bids y definir proteccion economica por hoja/campana con datos maduros y reversa"
+    },
+    {
       "name": "cortes-01",
       "path": "plans/cortes-01.md",
       "description": "CORTES 01 — umbral adaptativo per-producto para NEGATIVE_EXACT y PAUSE (evidencia por ad group, fallback estricto; spec en docs/superpowers/specs/2026-08-24-cortes-adaptativos-design.md; debe aterrizar antes de ORBIT 04 Phase 2 y del cutover)"
