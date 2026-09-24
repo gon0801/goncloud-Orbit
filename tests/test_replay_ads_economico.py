@@ -225,6 +225,7 @@ def test_ciclo_antes_de_medianoche_incluye_observacion_hasta_decided_at():
                     ]
                     if observado <= limite
                 ]
+                # Ancla el fin de ventana en 23-ago sin entrar en sus siete fechas.
                 filas.append(
                     (
                         1,
