@@ -250,13 +250,13 @@ SOURCE = "amazon_ads_reports_v3"
 # Tope de rango de la API (verificado: spCampaigns max 31 dias).
 MAX_RANGO_DIAS = 31
 
-# Poll por defecto: 120 intentos x 5s = hasta 10 min por reporte (un reporte
-# real tardo ~40s; el tope cubre picos de la cola de Amazon sin colgar la
-# corrida para siempre).
-INTENTOS_POLL = 120
+# Poll por defecto: 300 intentos x 5s = hasta ~25 min por reporte. Los
+# reportes del 21-23/09/2026 completaron en 12-13 min, despues del antiguo
+# tope de 10 min que aborto las tres ingestas. La espera sigue acotada.
+INTENTOS_POLL = 300
 ESPERA_POLL_SEGUNDOS = 5.0
 
-# La corrida de productos anunciados (ORBIT 19 B.1) usa un presupuesto MAYOR:
+# La corrida de productos anunciados (ORBIT 19 B.1) tiene presupuesto propio:
 # el 2026-09-07 el primer reporte spAdvertisedProduct productivo tardo ~25 min
 # en salir de PENDING (la sonda de 0.3 tardo ~110 s: la latencia de la cola de
 # Amazon varia por orden de magnitud). 300 x 5s = 25 min por reporte.
@@ -1757,8 +1757,8 @@ def sync_metrics(
         for perfil in perfiles:
             for cfg in reportes:
                 report_id = solicitar_reporte(client, perfil, cfg, fecha_ini, fecha_fin)
-                # spAdvertisedProduct pasa hoy por colas mucho mas lentas que
-                # los 4 reportes estandar (ver INTENTOS_POLL_PRODUCTOS).
+                # Presupuesto por tipo de reporte; ambos cubren las latencias
+                # observadas (ver INTENTOS_POLL e INTENTOS_POLL_PRODUCTOS).
                 intentos = (
                     INTENTOS_POLL_PRODUCTOS
                     if cfg.get("reportTypeId") == "spAdvertisedProduct"
