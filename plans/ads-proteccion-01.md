@@ -72,13 +72,12 @@
 - **Clasificacion:** Required A.1–A.4, B.1–B.3, C.1–C.4 y C.6;
   C.5 Required como cierre de la modalidad humana, no como aprobacion
   anticipada de PAUSE live. Recommended: aviso de pacing con datos
-  intradia en otro bloque. Reject: budget automatico y ACoS intradia
-  decisorio, por conflicto de escritura y atribucion inmadura.
+  intradia en otro bloque. Reject: pausa automatica de campana (el dueno
+  eligio la ruta manual), budget automatico y ACoS intradia decisorio.
 - **Puntuacion (5=mejor):** recuperar/alertar datos 5 producto, 5 evidencia,
   5 factibilidad, 5 seguridad; PAUSE antes de cooldown 5/5/4/4;
-  proteccion hoja 5/4/3/3; pausa automatica campana 5/4/2/2 hasta
-  que C.1 y C.2 fijen regla, reversa y falsos positivos. Por eso C.5
-  tiene bifurcacion explicita y no se activa por defecto.
+  proteccion hoja 5/4/3/3; propuesta de campana con pausa manual en Amazon
+  y readback `PAUSED` en Orbit 4/4/4/5. C.5 implementa solo esa ruta.
 - **team_validation_mode: subagent.** Producto/QA, Arquitectura/Seguridad y
   Skeptic revisaron premisas y DoD por separado; el lead cotejo codigo,
   `docs/CONTEXTO.md`, diseno v2 y spec de CORTES 01. `spec.md` raiz no
