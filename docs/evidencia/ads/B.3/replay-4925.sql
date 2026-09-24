@@ -75,20 +75,20 @@ applies AS (
 )
 SELECT h.ciclo_id, h.started_at, h.fin_corte, h.fechas, h.moneda,
        h.cost, h.revenue, h.clicks, h.orders,
-       greatest(100, CASE WHEN g.fechas >= 14 AND g.orders > 0
+       greatest(100, CASE WHEN g.fechas >= 14 AND g.orders >= 3 AND g.clicks >= 60
                           THEN ceil(1.5 * g.clicks::numeric / g.orders)::int END) AS umbral,
        h.target_pct, h.target_fuente,
        coalesce(a.bid_cooldown, false) AS bid_cooldown,
        coalesce(a.pause_cooldown, false) AS pause_cooldown,
        (h.fechas >= 7 AND h.moneda = 'USD' AND h.cost >= 40
         AND h.orders = 0 AND h.clicks >= greatest(100,
-            CASE WHEN g.fechas >= 14 AND g.orders > 0
+            CASE WHEN g.fechas >= 14 AND g.orders >= 3 AND g.clicks >= 60
                  THEN ceil(1.5 * g.clicks::numeric / g.orders)::int END)
         AND NOT coalesce(a.bid_cooldown, false)
         AND NOT coalesce(a.pause_cooldown, false)) AS califica_era_real,
        (h.fechas >= 7 AND h.moneda = 'USD' AND h.cost >= 40
         AND h.orders = 0 AND h.clicks >= greatest(100,
-            CASE WHEN g.fechas >= 14 AND g.orders > 0
+            CASE WHEN g.fechas >= 14 AND g.orders >= 3 AND g.clicks >= 60
                  THEN ceil(1.5 * g.clicks::numeric / g.orders)::int END)
         AND NOT coalesce(a.pause_cooldown, false)) AS califica_b2_aislado,
        h.observado_hasta, h.report_ids,
