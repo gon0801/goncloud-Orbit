@@ -671,23 +671,20 @@ def _revalida_pause(
         return MOTIVO_YA_NO_CALIFICA
     razon = decision[0].get("motivo")
     economica = razon == motor_bid.MOTIVO_PAUSE_ECONOMICA
-    if economica:
-        target, procedencia = _target_pause_vigente(
-            conn, platform, fila.ad_entity_id, aplicador.cycle_id_ejecutor
-        )
-        if target is None:
-            if evidencias is not None:
-                evidencias.append(
-                    {
-                        "decision_id": fila.decision_id,
-                        "resultado": MOTIVO_YA_NO_CALIFICA,
-                        "motivo": "target_no_confiable",
-                        "revalidado_at": ahora.isoformat(),
-                    }
-                )
-            return MOTIVO_YA_NO_CALIFICA
-    else:
-        target = _TARGET_REVALIDA
+    target, procedencia = _target_pause_vigente(
+        conn, platform, fila.ad_entity_id, aplicador.cycle_id_ejecutor
+    )
+    if target is None and economica:
+        if evidencias is not None:
+            evidencias.append(
+                {
+                    "decision_id": fila.decision_id,
+                    "resultado": MOTIVO_YA_NO_CALIFICA,
+                    "motivo": "target_no_confiable",
+                    "revalidado_at": ahora.isoformat(),
+                }
+            )
+        return MOTIVO_YA_NO_CALIFICA
     grupo = conn.execute(_SQL_PADRE, (fila.ad_entity_id,)).fetchone()[0]
     evidencia = windows.ventanas_evidencia_ad_group(conn, platform, ahora).get(grupo)
     umbral = cortes.umbral_corte(evidencia, "pause").umbral
@@ -696,18 +693,20 @@ def _revalida_pause(
         platform=platform,
         bids=None,  # la re-decision es SOLO de la regla pause (cortes)
         cortes=fresco,
-        target_acos_pct=target,
+        target_acos_pct=target if target is not None else _TARGET_REVALIDA,
         bid_actual=None,
         bid_moneda=None,
         floor=_FLOOR_REVALIDA,
         ceiling=_CEILING_REVALIDA,
         umbral_pause=umbral,
-        policy_version=motor_bid.POLITICA_PAUSE_ECONOMICA if economica else None,
+        policy_version=motor_bid.POLITICA_PAUSE_ECONOMICA if target is not None else None,
     )
     califica = resultado.kind == "pause" and (
         not economica or resultado.motivo == motor_bid.MOTIVO_PAUSE_ECONOMICA
     )
-    if economica and evidencias is not None:
+    if (
+        economica or resultado.motivo == motor_bid.MOTIVO_PAUSE_ECONOMICA
+    ) and evidencias is not None:
         exceso = motor_bid.exceso_economico(fresco, target, motor_bid.PLATAFORMAS_MONEDA[platform])
         evidencias.append(
             {

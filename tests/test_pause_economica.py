@@ -185,3 +185,35 @@ def test_target_revalidacion_usa_goal_vigente_y_margen_del_ciclo():
         Decimal("20"),
         "goal_campana",
     )
+
+
+def test_pause_antigua_con_venta_tardia_conserva_corte_si_exceso_sigue_alto(monkeypatch):
+    from app import apply_cola
+
+    class Conn:
+        def execute(self, sql, params):
+            class Cursor:
+                def fetchone(self):
+                    if sql == apply_cola._SQL_DECISION_INPUTS:
+                        return ({"motivo": "pause_umbral"},)
+                    return (71,)
+
+            return Cursor()
+
+    monkeypatch.setattr(apply_cola.apply, "_identidad", lambda *_: ("keyword", "2423"))
+    monkeypatch.setattr(apply_cola.apply, "_estado_de_readback", lambda *_: "ENABLED")
+    monkeypatch.setattr(apply_cola, "_gracia_activa", lambda *_: False)
+    monkeypatch.setattr(apply_cola, "_pause_propio_verificado", lambda *_: False)
+    monkeypatch.setattr(
+        apply_cola, "_target_pause_vigente", lambda *_: (Decimal("20"), "goal_campana")
+    )
+    monkeypatch.setattr(apply_cola.windows, "ventanas_evidencia_ad_group", lambda *_: {})
+    monkeypatch.setattr(apply_cola.windows, "ventana_cortes", lambda *_: _corte("100", "100"))
+    monkeypatch.setattr(
+        apply_cola.cortes, "umbral_corte", lambda *_: type("U", (), {"umbral": 300})()
+    )
+    fila = apply_cola.FilaCola(1, "pause", 2423, None, 1, {}, "released")
+    aplicador = type(
+        "Aplicador", (), {"_cliente": lambda self: object(), "cycle_id_ejecutor": 42}
+    )()
+    assert apply_cola._revalida_pause(Conn(), aplicador, "amazon_us", fila, HOY) is None
