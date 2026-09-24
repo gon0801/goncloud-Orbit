@@ -7,6 +7,7 @@ no del codigo -- y la salida facil es `--no-verify`, que este repo prohibe.
 
 from __future__ import annotations
 
+import re
 import shlex
 from pathlib import Path
 
@@ -96,6 +97,52 @@ def test_bateria_completa_corre_en_ci():
         "CI debe correr la bateria COMPLETA (pytest SIN rutas de test); "
         f"invocaciones halladas: {[str(p['run']).strip() for p in pasos]!r}"
     )
+
+
+def test_dsn_ci_coincide_con_el_postgres_del_job():
+    """La bateria con DB no puede usar una clave distinta a su servicio."""
+    workflow = yaml.safe_load((RAIZ / ".github" / "workflows" / "quality.yml").read_text("utf-8"))
+    for nombre in ("completa", "pesada"):
+        job = workflow["jobs"][nombre]
+        servicio = job["services"]["postgres"]["env"]
+        esperado = (
+            f"postgresql://{servicio['POSTGRES_USER']}:{servicio['POSTGRES_PASSWORD']}"
+            f"@localhost:5432/{servicio['POSTGRES_DB']}"
+        )
+        pasos = [paso for paso in job["steps"] if "ORBIT_TEST_DSN" in paso.get("env", {})]
+        assert pasos, f"{nombre}: falta ORBIT_TEST_DSN"
+        for paso in pasos:
+            assert paso["env"]["ORBIT_TEST_DSN"] == esperado, (
+                f"{nombre}/{paso['name']}: DSN distinto del servicio postgres"
+            )
+
+
+def test_harness_ci_instala_dependencias_del_proyecto():
+    """El harness pesado necesita psycopg y pytest antes de arrancar."""
+    workflow = yaml.safe_load((RAIZ / ".github" / "workflows" / "quality.yml").read_text("utf-8"))
+    pasos = workflow["jobs"]["pesada"]["steps"]
+    harness = next(
+        paso for paso in pasos if paso.get("name") == "Verificar dashboard con el harness real"
+    )
+    comandos = harness["run"].splitlines()
+    assert "uv sync --frozen" in comandos, "el harness debe sincronizar las dependencias"
+    assert comandos.index("uv sync --frozen") < next(
+        i
+        for i, comando in enumerate(comandos)
+        if "orbit-verify maintain-verification-skill" in comando
+    )
+
+
+def test_drive_ci_migra_su_base_antes_de_probar_rutas():
+    """El drive consulta tablas reales y necesita el esquema en su DB desechable."""
+    workflow = yaml.safe_load((RAIZ / ".github" / "workflows" / "quality.yml").read_text("utf-8"))
+    pasos = workflow["jobs"]["pesada"]["steps"]
+    drive = next(paso for paso in pasos if paso.get("name") == "Drive de superficie (verify/)")
+    script = drive["run"]
+    assert "_aplicar_migraciones" in script, "el drive necesita migrar su Postgres"
+    llamada = re.search(r"(?m)^[ \t]*aplicar\(conn\)[ \t]*$", script)
+    assert llamada, "el drive debe ejecutar la migracion, no solo mencionarla"
+    assert llamada.start() < script.index("-m pytest verify/")
 
 
 def test_pre_push_es_rapido_y_declara_donde_vive_la_bateria():
