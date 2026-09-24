@@ -77,9 +77,10 @@ def agregado(fechas, instante):
 def medir(conn, desde: dt.date, hasta: dt.date):
     ciclos = list(
         conn.execute(
-            "SELECT id,platform,started_at FROM optimizer_cycle "
-            "WHERE started_at::date BETWEEN %s AND %s AND platform IS NOT NULL "
-            "ORDER BY started_at",
+            "SELECT c.id,c.platform,c.started_at,min(d.decided_at),max(d.decided_at) "
+            "FROM optimizer_cycle c LEFT JOIN decision d ON d.cycle_id=c.id "
+            "WHERE c.started_at::date BETWEEN %s AND %s AND c.platform IS NOT NULL "
+            "GROUP BY c.id,c.platform,c.started_at ORDER BY c.started_at",
             (desde, hasta),
         )
     )
@@ -105,7 +106,12 @@ def medir(conn, desde: dt.date, hasta: dt.date):
             (limite_observacion,),
         )
     )
-    targets = defaultdict(lambda: defaultdict(set))
+    targets_entidad = defaultdict(lambda: defaultdict(set))
+    targets_compartidos = defaultdict(lambda: defaultdict(set))
+    targets_plataforma = defaultdict(lambda: defaultdict(set))
+    fuentes_compartidas = frozenset(
+        {"goal_campana", "goal_plataforma", "margen_plataforma", "setting_plataforma"}
+    )
     for ciclo, entidad, valor, fuente in conn.execute(
         "SELECT d.cycle_id,d.ad_entity_id,d.inputs->>'target_acos_pct_usado',"
         "d.inputs->>'target_procedencia' FROM decision d "
@@ -115,7 +121,12 @@ def medir(conn, desde: dt.date, hasta: dt.date):
     ):
         campana = campana_de.get(entidad)
         if campana is not None and valor is not None:
-            targets[ciclo][campana].add((Decimal(valor), fuente))
+            par = (Decimal(valor), fuente)
+            targets_entidad[ciclo][entidad].add(par)
+            if fuente in fuentes_compartidas:
+                targets_compartidos[ciclo][campana].add(par)
+            if fuente == "margen_plataforma":
+                targets_plataforma[ciclo][entidades[entidad][1]].add(par)
     goals = {}
     for campana, target, updated in conn.execute(
         "SELECT ad_entity_id,target_acos_pct,updated_at FROM ads_optimizer_goal "
@@ -123,14 +134,14 @@ def medir(conn, desde: dt.date, hasta: dt.date):
     ):
         goals[campana] = (target, updated)
     salida = []
-    for ciclo, platform, instante in ciclos:
+    sin_reloj = []
+    for ciclo, platform, _started_at, decidido_min, decidido_max in ciclos:
+        if decidido_min is None or decidido_min != decidido_max:
+            sin_reloj.append({"cycle": ciclo, "platform": platform, "reason": "sin_reloj_unico"})
+            continue
+        instante = decidido_min
         vintage = ventana_vintage(metricas, instante)
-        plataforma = {
-            par
-            for pares in targets[ciclo].values()
-            for par in pares
-            if par[1] == "margen_plataforma"
-        }
+        plataforma = targets_plataforma[ciclo][platform]
         for entidad, fechas in vintage.items():
             meta = entidades.get(entidad)
             if (
@@ -145,13 +156,19 @@ def medir(conn, desde: dt.date, hasta: dt.date):
             campana = campana_de.get(entidad)
             if campana is None:
                 continue
-            propios = targets[ciclo].get(campana, set())
+            propios = targets_entidad[ciclo].get(entidad, set())
             if len(propios) == 1:
                 target, fuente = next(iter(propios))
-                procedencia = "freeze_campana"
+                procedencia = "freeze_entidad"
             elif len(propios) > 1:
                 target = fuente = None
                 procedencia = "freeze_inconsistente"
+            elif len(targets_compartidos[ciclo][campana]) == 1:
+                target, fuente = next(iter(targets_compartidos[ciclo][campana]))
+                procedencia = "freeze_compartido_campana"
+            elif len(targets_compartidos[ciclo][campana]) > 1:
+                target = fuente = None
+                procedencia = "freeze_compartido_inconsistente"
             elif (
                 campana in goals
                 and goals[campana][1] <= instante
@@ -183,7 +200,7 @@ def medir(conn, desde: dt.date, hasta: dt.date):
                     "excess": exceso,
                 }
             )
-    return salida
+    return {"rows": salida, "cycles_without_decision_clock": sin_reloj}
 
 
 def main():

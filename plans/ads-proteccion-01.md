@@ -62,6 +62,7 @@
 | --- | --- | --- | --- | --- |
 | C.1 | `[Spec+decision]` `[lane:gate]` `[tdd:skip:contrato-producto]` Sellar las tres opciones elegidas y resolver extension a cero ventas y efecto tras revision humana de campana; publicar Spec delta antes del codigo. Usar A1U/AU2 y contraejemplos rentables | Regla literal por moneda, modalidad y caso cero ventas aprobados; spec separa riesgo Ads de utilidad neta, define target ausente, floor y mayor umbral adaptativo; reversa de hoja y opt-out definidos | A.1 | cc:完了 |
 | C.2 | `[Medicion]` `[lane:gate]` `[tdd:skip:analisis-contrafactual]` Medir la regla elegida con vintages `observed_at<=decided_at` y grano campaign/leaf separado; publicar impacto y falsos positivos | Tabla por ciclo de candidatos, vetos 48h, applies posibles y cambios de regla; no suma dinero duplicado ni convierte la propuesta en ahorro garantizado; el dueño acepta el riesgo medido antes de live | C.1 | cc:TODO |
+| C.2a | `[Replay durable]` `[lane:gate]` `[tdd:required]` Congelar por entidad/ciclo la procedencia y el valor de target para nuevas mediciones, sin depender de `ads_optimizer_goal.updated_at` mutable | Una edicion posterior del goal no cambia el target ni la cobertura de un ciclo ya sellado; prueba con cambio de goal despues del freeze; los ciclos viejos sin evidencia siguen indeterminados | C.2 | cc:TODO |
 | C.3 | `[Hoja]` `[lane:gate]` `[tdd:required]` Implementar limite economico de C.1 en keyword/product_target y separar su revalidacion de la antigua regla `orders=0` en `apply_cola` | Tests rojos previos: 2423 compara limite literal, cero ventas segun decision final, 100→231 clics, floor, venta tardia, `None`, moneda invalida e inmadurez; una venta sobre limite recorre decision→cola→48h→revalidacion→apply/readback; si deja de cruzarlo se descarta antes del cobro, tambien tras espera por quota; version congelada para replay y politica/target vigentes al aplicar; reversa conservada | C.2, B.3 | cc:TODO |
 | C.4 | `[Campana]` `[lane:gate]` `[tdd:required]` Medir campana desde una unica fuente de dinero; emitir propuesta trazable con ancestros y limites visibles en registro separado de `apply_queue` | A1U/AU2 muestran costo, revenue, target, ventana, estado y motivo; sin doble conteo ni propuesta sobre PAUSED manual; identidad de episodio y dedupe probados ante cron repetido, retry, venta tardia y cambio de target | C.2 | cc:TODO |
 | C.5 | `[Cierre humano]` `[lane:gate]` `[tdd:required]` Tras propuesta, el dueno pausa manualmente en Amazon o la descarta; Orbit sincroniza estructura y cierra solo con readback `PAUSED` del mismo campaignId/profile, sin escribir PAUSE/RESUME de campana | Propuesta revisada con campana ENABLED sigue pendiente; descarte no muta; PAUSED externo cierra con snapshot/fecha sin inferir autor ni causalidad; cola descendiente no aplica tras el readback; cron repetido no duplica ni reabre hasta un nuevo episodio; cero llamadas de mutacion de campana | C.4 | cc:TODO |
@@ -71,7 +72,8 @@
 
 - **Clasificacion:** Required A.1–A.4, B.1–B.3, C.1–C.4 y C.6;
   C.5 Required como cierre de la modalidad humana, no como aprobacion
-  anticipada de PAUSE live. Recommended: aviso de pacing con datos
+  anticipada de PAUSE live. Recommended: C.2a para replay futuro estable
+  y aviso de pacing con datos
   intradia en otro bloque. Reject: pausa automatica de campana (el dueno
   eligio la ruta manual), budget automatico y ACoS intradia decisorio.
 - **Puntuacion (5=mejor):** recuperar/alertar datos 5 producto, 5 evidencia,

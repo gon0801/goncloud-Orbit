@@ -4,41 +4,54 @@ Medicion read-only del 24-sep-2026 sobre `orbit_read`. Periodo: ciclos Ads
 11–24 sep, MX y US. Codigo reproducible: `tools/replay_ads_economico.py`; se
 puede ejecutar dentro de `orbit-app-1` con `ORBIT_DSN_READ`. El calculo usa
 `Decimal`, la ultima observacion de cada `(entidad, metric_date)` con
-`observed_at <= optimizer_cycle.started_at`, y la ventana de cortes de 30
+`observed_at <= decision.decided_at` del ciclo, y la ventana de cortes de 30
 fechas calendario que termina en `min(max_metric_date - 3d, fecha UTC del
 ciclo - 10d)`. Exige al menos siete fechas observadas, cost y revenue medidos,
 moneda unica y target demostrable. Campaign consume solo filas `spCampaigns`;
 keyword y product_target consumen sus propias filas. No se suman granos.
 
-El target se toma de `decision.inputs` del mismo ciclo y campana cuando
-existe. Para A1U/AU2, cuyo goal de campana tiene target `None` y no cambia
+El target se toma primero del freeze de la **misma entidad**. Solo los
+peldaños compartidos (`goal_campana`, `goal_plataforma`, `margen_plataforma`,
+`setting_plataforma`) pueden heredarse de otra decisión de la misma campaña;
+`cache_estado` y `default` no se propagan a hermanas ni a campaign. Para
+A1U/AU2, cuyo goal de campana tiene target `None` y no cambia
 desde 2-sep, tambien se puede usar el target `margen_plataforma` congelado
-en el mismo ciclo. Si falta un freeze o hay fuentes incompatibles, el resultado
-es indeterminado. El replay mide **senales economicas**, no elegibilidad de
+en el mismo ciclo. Si falta un freeze, hay fuentes incompatibles o el ciclo
+no tiene un `decided_at` unico, el resultado es indeterminado. El replay mide
+**senales economicas**, no elegibilidad de
 PAUSE: el estado historico de Amazon es cache mutable y no puede reconstruirse
 para cada ciclo. Goal deshabilitado, entidad inerte, PAUSED, vetos y quota
 requieren revalidacion antes de live.
 
 ## Resultado por grano
 
-De 3.929 ventanas entidad-ciclo con >=7 fechas, hubo 79 senales positivas
-(11 entidades distintas), 955 negativas con target y 2.895 indeterminadas
-principalmente por falta de target historico. Las 79 son ciclos repetidos, no
-79 acciones. La cobertura del replay es parcial, sobre todo en MX.
+De 3.291 ventanas entidad-ciclo con >=7 fechas y reloj de decisión, hubo
+79 senales positivas (11 entidades distintas), 955 negativas con target y
+2.257 indeterminadas principalmente por falta de target historico. Cinco
+ciclos sin ninguna decisión (61–63, 66 y 67) carecen de `decided_at` y no se
+incluyen en esas ventanas; usar `started_at` habría inventado el instante
+de decisión. Las 79 son ciclos repetidos, no 79 acciones. La cobertura del
+replay es parcial, sobre todo en MX.
+
+El `started_at` del ciclo 51 fue 18.5 ms posterior a su `decided_at`. Una
+consulta de observaciones en esos intervalos para los ciclos medidos dio
+cero filas; corregir el reloj no cambió costos, ventas ni clasificaciones
+de los ciclos evaluables. El test focalizado inserta una observación en ese
+intervalo y prueba que el replay la excluye.
 
 | Plataforma / grano | Senales positivas | Entidades distintas | Negativas | Target indeterminado |
 | --- | ---: | ---: | ---: | ---: |
-| US campaign | 29 | 4 | 28 | 136 |
-| US keyword | 47 | 5 | 246 | 406 |
-| US product_target | 1 | 1 | 209 | 610 |
-| MX campaign | 0 | 0 | 58 | 354 |
-| MX keyword | 0 | 0 | 258 | 795 |
-| MX product_target | 2 | 1 | 156 | 594 |
+| US campaign | 29 | 4 | 28 | 122 |
+| US keyword | 47 | 5 | 246 | 355 |
+| US product_target | 1 | 1 | 209 | 551 |
+| MX campaign | 0 | 0 | 58 | 258 |
+| MX keyword | 0 | 0 | 258 | 550 |
+| MX product_target | 2 | 1 | 156 | 421 |
 
 A1U (3909) cruza en sus 12 ciclos evaluables desde el 12-sep; AU2 (3926)
-en sus 13 desde el 11-sep. El 17-sep queda indeterminado para ambas porque
-el ciclo US 66 no congeló ningun target. El 24-sep ambas ya estaban PAUSED en
-Amazon, por lo que su senal economica de ese ciclo **no** es propuesta
+en sus 13 desde el 11-sep. El 17-sep se omite para ambas porque el ciclo US
+66 no contiene ninguna decisión ni reloj `decided_at`. El 24-sep ambas ya
+estaban PAUSED en Amazon, por lo que su senal economica de ese ciclo **no** es propuesta
 aplicable. Los valores siguientes son de ventanas maduras conocidas en cada
 instante, no los importes finales vistos hoy:
 
@@ -115,6 +128,11 @@ reversa y review. El dueño debe aceptar que el limite es ACoS Ads, no utilidad
 neta, y que una entidad con ventas puede ser pausada automaticamente si el
 riesgo persiste. No hay evidencia aqui para bajar el limite ni cambiar los
 goals.
+
+La cobertura historica que usa `ads_optimizer_goal.updated_at` puede
+reducirse tras una edicion futura del goal mutable. La fila C.2a del plan
+registra esa mejora de reproducibilidad; este replay no presume un historial
+de goals que la base no guarda.
 
 Reproduccion focalizada: `uv run --frozen python -m pytest -q
 tests/test_replay_ads_economico.py`. Lectura en contenedor:
