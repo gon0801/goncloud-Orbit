@@ -478,11 +478,15 @@ SELECT EXISTS (
      WHERE d.ad_entity_id = %s
        AND da.verify_ok IS TRUE
        AND da.confirmed_at > %s
+       AND da.confirmed_at <= %s
+       AND (%s::decision_kind IS NULL OR d.kind = %s::decision_kind)
 )
 """
 
 
-def en_cooldown(conn: psycopg.Connection, ad_entity_id: int, *, ahora: dt.datetime) -> bool:
+def en_cooldown(
+    conn: psycopg.Connection, ad_entity_id: int, *, ahora: dt.datetime, kind: str | None = None
+) -> bool:
     """True si la ENTIDAD tiene alguna decision con apply VERIFICADO
     (verify_ok IS TRUE) EJECUTADO por un ciclo LIVE (applied_cycle_id, el
     ciclo ejecutor — no el decisor) y confirmado hace <7d respecto de
@@ -492,12 +496,15 @@ def en_cooldown(conn: psycopg.Connection, ad_entity_id: int, *, ahora: dt.dateti
     (mismo principio que windows._fecha_utc, replicado sin importar su
     privado). En shadow nunca enfria POR QUERY: el filtro del ciclo EJECUTOR
     mode='live' lo hace inmune a applies de dry-run (regla sellada del
-    diseno v2)."""
+    diseno v2). `kind='pause'` conserva el enfriamiento propio de una pausa
+    aplicada, incluso si el dueno la revirtio despues."""
     if ahora.tzinfo is None:
         raise ValueError(
             "ahora debe ser tz-aware (UTC): un naive evaluaria segun la TZ local del proceso"
         )
-    return conn.execute(_SQL_EN_COOLDOWN, (ad_entity_id, ahora - COOLDOWN)).fetchone()[0]
+    return conn.execute(
+        _SQL_EN_COOLDOWN, (ad_entity_id, ahora - COOLDOWN, ahora, kind, kind)
+    ).fetchone()[0]
 
 
 # ---------------------------------------------------------------------------

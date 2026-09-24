@@ -451,6 +451,50 @@ def test_cooldown_en_vivo_verificado_divergencia_y_borde_7d():
     _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
+def test_cooldown_pause_filtra_bid_y_conserva_borde_7d():
+    """Un BID reciente no enfria PAUSE; una PAUSE confirmada si, con borde estricto."""
+    with _db_temporal("orbit_goals_pause_cd") as conn:
+        conn.execute(SQL2)
+        config_id = _config_version(conn)
+        ciclo = _ciclo(conn)
+        entidad = _campana(conn, "7006")
+        bid = _decision(conn, ciclo, config_id, entidad)
+        _apply(conn, bid, confirmed_at=AHORA - dt.timedelta(days=3), verify_ok=True)
+
+        assert g.en_cooldown(conn, entidad, ahora=AHORA) is True
+        assert g.en_cooldown(conn, entidad, ahora=AHORA, kind="pause") is False
+
+        ciclo_pause = _ciclo(conn)
+        pause = conn.execute(
+            "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at,"
+            " config_version_id, data_observed_at, window_start, window_end, inputs)"
+            " VALUES (%s, %s, 'pause', %s, %s, %s, %s, %s, %s) RETURNING id",
+            (
+                ciclo_pause,
+                entidad,
+                DECIDED_AT,
+                config_id,
+                DECIDED_AT - dt.timedelta(hours=1),
+                dt.date(2026, 7, 7),
+                dt.date(2026, 8, 5),
+                Json({"seed": "pause"}),
+            ),
+        ).fetchone()[0]
+        _apply(conn, pause, confirmed_at=AHORA - dt.timedelta(days=6), verify_ok=True)
+        assert g.en_cooldown(conn, entidad, ahora=AHORA, kind="pause") is True
+        assert g.en_cooldown(conn, entidad, ahora=AHORA - dt.timedelta(days=7)) is False
+        assert (
+            g.en_cooldown(conn, entidad, ahora=AHORA - dt.timedelta(days=7), kind="pause") is False
+        )
+        assert (
+            g.en_cooldown(conn, entidad, ahora=AHORA + dt.timedelta(days=1), kind="pause") is False
+        )
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
 def test_cooldown_apply_de_ciclo_shadow_no_enfria():
     """Hallazgo codex+grok (cross-review ronda 1), regla sellada del diseno
     v2 ('solo cuenta mode=live AND verify_ok<>0'): un apply VERIFICADO hace
