@@ -274,6 +274,7 @@ def _decision_corte(
     valor=None,
     moneda=None,
     decided_at: dt.datetime | None = None,
+    motivo: str | None = None,
 ) -> int:
     """Decision de corte con la madurez del esquema (window_end <= decided-10d)
     y inputs congelados al shape del ciclo (el aplicador JAMAS los reusa para
@@ -283,7 +284,7 @@ def _decision_corte(
         "motor": "bid" if kind == "pause" else "hygiene",
         "platform": "amazon_us",
         "modo": "live",
-        "motivo": f"{kind}_umbral",
+        "motivo": motivo or f"{kind}_umbral",
         # Dato VERBATIM del fixture (el aplicador jamas lo reusa): el umbral
         # pause representa una decision VIGENTE (100 desde CORTES 03).
         "corte": {"umbral_clicks_usado": 20 if kind != "pause" else 100, "elegible": False},
@@ -1878,3 +1879,123 @@ def test_libera_descarta_negative_en_grupo_pausado():
         ).fetchone()
         assert fila == ("discarded", MOTIVO_GRUPO_NO_ENABLED)
         assert conn.execute("SELECT count(*) FROM apply_quota_state").fetchone()[0] == 0
+
+
+@_skip_db
+def test_pause_economica_venta_pasa_cola_veto_apply_y_readback():
+    """La venta medida no anula una PAUSE que aun excede el limite vigente."""
+    with _db_temporal("orbit_cola_econ_apply") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_pause": 1})
+        d = ids["ahora"]
+        conn.execute(
+            "UPDATE ads_optimizer_goal SET target_acos_pct = 20 WHERE platform = 'amazon_us'"
+        )
+        conn.execute(
+            "UPDATE optimizer_cycle SET notes = %s WHERE id = %s",
+            (json.dumps({"target": {"target_aplicado": None}}), ids["ciclo_ejec"]),
+        )
+        fechas = list(_fechas(d.date() - dt.timedelta(days=17), d.date() - dt.timedelta(days=11)))
+        for i, fecha in enumerate(fechas):
+            _metrica(
+                conn,
+                ids["run"],
+                ids["kw"],
+                fecha,
+                clicks=5,
+                cost=10 if i == 0 else 15,
+                orders=1 if i == 0 else 0,
+                ad_revenue=100 if i == 0 else 0,
+            )
+        dec = _decision_corte(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            ids["kw"],
+            "pause",
+            motivo="pause_economica",
+        )
+        q = _encola_fila(conn, dec, ids["kw"], "pause", payload=_payload_pause("7201"))
+        handler, vistos = _handler_cortes()
+        resultado = libera_vencidos(
+            conn, "amazon_us", ahora=d, aplicador=_aplicador(conn, handler, ids["ciclo_ejec"])
+        )
+        assert resultado.aplicadas == 1
+        assert resultado.revalidaciones_economicas[0]["exceso"] == "80"
+        assert conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone() == (
+            "applied",
+        )
+        assert conn.execute(
+            "SELECT verify_ok FROM decision_application WHERE decision_id = %s", (dec,)
+        ).fetchone() == (True,)
+        assert len(_mutaciones(vistos)) == 1
+
+
+@_skip_db
+def test_pause_economica_released_sin_quota_descarta_venta_tardia_antes_de_cobrar(monkeypatch):
+    """Una fila en espera de cuota se mide otra vez; la venta tardia la cancela."""
+    import app.apply_cola as cola
+
+    with _db_temporal("orbit_cola_econ_venta") as conn:
+        ids = _semilla(conn)
+        d = ids["ahora"]
+        conn.execute(
+            "UPDATE ads_optimizer_goal SET target_acos_pct = 20 WHERE platform = 'amazon_us'"
+        )
+        conn.execute(
+            "UPDATE optimizer_cycle SET notes = %s WHERE id = %s",
+            (json.dumps({"target": {"target_aplicado": None}}), ids["ciclo_ejec"]),
+        )
+        fechas = list(_fechas(d.date() - dt.timedelta(days=17), d.date() - dt.timedelta(days=11)))
+        for i, fecha in enumerate(fechas):
+            _metrica(
+                conn,
+                ids["run"],
+                ids["kw"],
+                fecha,
+                clicks=5,
+                cost=10 if i == 0 else 15,
+                orders=1 if i == 0 else 0,
+                ad_revenue=100 if i == 0 else 0,
+            )
+        dec = _decision_corte(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            ids["kw"],
+            "pause",
+            motivo="pause_economica",
+        )
+        q = _encola_fila(conn, dec, ids["kw"], "pause", payload=_payload_pause("7201"))
+        handler, vistos = _handler_cortes()
+        monkeypatch.setattr(cola, "consume_quota_y_sello", lambda *_: (False, False))
+        primero = libera_vencidos(
+            conn, "amazon_us", ahora=d, aplicador=_aplicador(conn, handler, ids["ciclo_ejec"])
+        )
+        assert primero.sin_quota == 1
+        assert conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone() == (
+            "released",
+        )
+        _metrica(
+            conn,
+            ids["run"],
+            ids["kw"],
+            fechas[0],
+            clicks=5,
+            cost=10,
+            orders=1,
+            ad_revenue=200,
+            observed=d - dt.timedelta(hours=1),
+        )
+
+        def cuota_prohibida(*_):
+            raise AssertionError("No debe cobrar cuota al descartar")
+
+        monkeypatch.setattr(cola, "consume_quota_y_sello", cuota_prohibida)
+        segundo = libera_vencidos(
+            conn, "amazon_us", ahora=d, aplicador=_aplicador(conn, handler, ids["ciclo_ejec"])
+        )
+        assert segundo.descartadas == [MOTIVO_YA_NO_CALIFICA]
+        assert conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone() == (
+            "discarded",
+        )
+        assert _mutaciones(vistos) == []

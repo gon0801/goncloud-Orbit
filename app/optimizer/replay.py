@@ -99,6 +99,7 @@ def _replay_bid(inputs: dict, target: Decimal | None = None) -> bid.ResultadoBid
         umbral_pause=umbral_pause,
         cost_min=cost_min,
         expected_clicks=expected,
+        policy_version=(inputs.get("economic_policy") or {}).get("version"),
     )
 
 

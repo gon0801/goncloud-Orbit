@@ -21,6 +21,10 @@ diseno manda):
   desde el 2026-08-28, antes 25 / 12 USD / 200 MXN; el ciclo vivo lo pasa y
   lo congela en inputs.corte.cost_min_usado, el replay pasa el congelado o
   el historico de su era).
+- ADS PROTECCION 01: despues del corte antiguo, PAUSE economica si cost
+  > 3 * target_pct/100 * revenue y exceso >= 80 USD / 1000 MXN. Revenue
+  cero medido participa; None abstiene. La version de politica viaja en
+  inputs para que el replay historico no adopte la regla nueva.
 - Bandas (kind 'bid') sobre el agregado de la ventana de BIDS:
   * -25% si ACoS > 1.35x target AND orders>=1 (estricto >)
   * -12% si ACoS > 1.15x target (sin condicion de orders)
@@ -133,6 +137,11 @@ MIN_DELTA_ABSOLUTO = Decimal("0.01")  # |new - bid_actual| < 0.01 -> no-op (estr
 
 # Motivo de decision (vocabulario cerrado; los tests lo fijan literal)
 MOTIVO_PAUSE = "pause_umbral"
+MOTIVO_PAUSE_ECONOMICA = "pause_economica"
+MOTIVO_PAUSE_ECONOMICA_DATO_FALTANTE = "pause_economica_dato_faltante"
+POLITICA_PAUSE_ECONOMICA = "economic_pause_v1"
+EXCESO_MINIMO = {"USD": Decimal("80"), "MXN": Decimal("1000")}
+MULT_PAUSE_ECONOMICA = Decimal("3")
 # BIDS 01 (regla A', spec 2026-08-26 aprobada 2026-09-03): cero ventas con
 # los clicks de una venta y gasto sobre el piso -> -25% con motivo propio.
 MOTIVO_BANDA_MENOS_25_CERO_VENTAS = "banda_menos_25_cero_ventas"
@@ -243,6 +252,86 @@ def _factor_cero_ventas(
     return None
 
 
+def exceso_economico(
+    cortes: AgregadoMetricas | None, target_acos_pct: Decimal, moneda: str
+) -> Decimal | None:
+    """Exceso en moneda original; None cuando el insumo maduro no es fiable."""
+    if (
+        cortes is None
+        or not cortes.completa
+        or cortes.metric_currency != moneda
+        or cortes.cost is None
+        or cortes.ad_revenue is None
+        or not cortes.cost.is_finite()
+        or not cortes.ad_revenue.is_finite()
+        or cortes.cost < 0
+        or cortes.ad_revenue < 0
+    ):
+        return None
+    return cortes.cost - target_acos_pct * cortes.ad_revenue / _CIEN
+
+
+def _decide_pause(
+    cortes: AgregadoMetricas | None,
+    moneda: str,
+    umbral_pause: int,
+    costo_piso: Decimal,
+    target_acos_pct: Decimal,
+    policy_version: str | None,
+) -> tuple[ResultadoBid | None, str | None]:
+    if cortes is None:
+        return (None, None)
+    motivo: str | None = None
+    if not cortes.completa:
+        motivo = MOTIVO_PAUSE_CORTES_INCOMPLETO
+    elif cortes.metric_currency != moneda:
+        motivo = MOTIVO_PAUSE_MONEDA_INVALIDA
+    elif cortes.orders is None:
+        motivo = MOTIVO_PAUSE_ORDERS_DESCONOCIDO
+    elif cortes.clicks is None or cortes.cost is None:
+        motivo = MOTIVO_PAUSE_CLICKS_COST_DESCONOCIDOS
+    elif cortes.orders == 0 and cortes.clicks >= umbral_pause and cortes.cost >= costo_piso:
+        razon = MOTIVO_PAUSE
+        return (
+            ResultadoBid(
+                "pause",
+                razon,
+                None,
+                None,
+                None,
+                None,
+                cortes.window_start,
+                cortes.window_end,
+                cortes.observed_at_max,
+            ),
+            None,
+        )
+    exceso = exceso_economico(cortes, target_acos_pct, moneda)
+    if (
+        policy_version == POLITICA_PAUSE_ECONOMICA
+        and exceso is not None
+        and cortes.cost > MULT_PAUSE_ECONOMICA * target_acos_pct * cortes.ad_revenue / _CIEN
+        and exceso >= EXCESO_MINIMO[moneda]
+    ):
+        return (
+            ResultadoBid(
+                "pause",
+                MOTIVO_PAUSE_ECONOMICA,
+                None,
+                None,
+                None,
+                None,
+                cortes.window_start,
+                cortes.window_end,
+                cortes.observed_at_max,
+            ),
+            None,
+        )
+    if policy_version == POLITICA_PAUSE_ECONOMICA and exceso is None and motivo is None:
+        motivo = MOTIVO_PAUSE_ECONOMICA_DATO_FALTANTE
+    return (None, motivo)
+
+
 def decide_bid(
     *,
     platform: str,
@@ -256,6 +345,7 @@ def decide_bid(
     umbral_pause: int = LEGACY_PAUSE,
     cost_min: Decimal | None = None,
     expected_clicks: Decimal | None = None,
+    policy_version: str | None = None,
 ) -> ResultadoBid:
     """Decide PAUSE o ajuste de bid para UNA entidad, puro y determinista.
 
@@ -274,10 +364,9 @@ def decide_bid(
     evidencia): el orquestador lo pasa y el replay lee el congelado.
 
     Orden interno sellado:
-    (1) PAUSE sobre el agregado de CORTES (si existe, esta completo, su
-        moneda es la de la plataforma, orders==0, clicks>=umbral_pause y
-        cost>= umbral de la plataforma) -> resultado pause con la ventana
-        de CORTES.
+    (1) PAUSE sobre CORTES: primero la regla antigua de cero pedidos y
+        clicks/cost; despues la economica versionada, aun con ventas y sin
+        depender del umbral de clicks. Ambas exigen moneda y madurez.
     (2) Si no: regla A' y luego bandas sobre el agregado de BIDS (si
         existe, esta completo y su moneda es la de la plataforma): primero
         cero ventas con clicks>=expected_clicks y cost>=piso -> -25% con
@@ -306,33 +395,18 @@ def decide_bid(
         raise ValueError(f"target_acos_pct invalido: {target_acos_pct!r} (debe ser > 0)")
     if floor > ceiling:
         raise ValueError(f"floor {floor} > ceiling {ceiling}: rango de bid invalido")
+    if policy_version not in (None, POLITICA_PAUSE_ECONOMICA):
+        raise ValueError(f"politica pause desconocida: {policy_version!r}")
     moneda = PLATAFORMAS_MONEDA[platform]
 
     # (1) PAUSE sobre la ventana de CORTES (un pause es un corte: regla 6)
     # piso de costo: el que llega resuelto; None = el VIGENTE (fuente unica)
     costo_piso = cost_min if cost_min is not None else PAUSE_COST_MIN[platform]
-    motivo_pause_bloqueado: str | None = None
-    if cortes is not None:
-        if not cortes.completa:
-            motivo_pause_bloqueado = MOTIVO_PAUSE_CORTES_INCOMPLETO
-        elif cortes.metric_currency != moneda:
-            motivo_pause_bloqueado = MOTIVO_PAUSE_MONEDA_INVALIDA
-        elif cortes.orders is None:
-            motivo_pause_bloqueado = MOTIVO_PAUSE_ORDERS_DESCONOCIDO
-        elif cortes.clicks is None or cortes.cost is None:
-            motivo_pause_bloqueado = MOTIVO_PAUSE_CLICKS_COST_DESCONOCIDOS
-        elif cortes.orders == 0 and cortes.clicks >= umbral_pause and cortes.cost >= costo_piso:
-            return ResultadoBid(
-                kind="pause",
-                motivo=MOTIVO_PAUSE,
-                old_value=None,
-                new_value=None,
-                value_currency=None,  # pause no lleva dinero (esquema: NULL)
-                factor=None,
-                window_start=cortes.window_start,
-                window_end=cortes.window_end,
-                data_observed_at=cortes.observed_at_max,
-            )
+    pausa, motivo_pause_bloqueado = _decide_pause(
+        cortes, moneda, umbral_pause, costo_piso, target_acos_pct, policy_version
+    )
+    if pausa is not None:
+        return pausa
 
     # (2) Bandas sobre la ventana de BIDS (independiente de cortes)
     motivo_bids_bloqueado: str | None = None

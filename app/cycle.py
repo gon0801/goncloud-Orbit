@@ -800,6 +800,21 @@ def _pendiente_bid(
         # decision posterior sin aplicar retrospectivamente esta politica
         # a una decision de la era anterior.
         "cooldown_policy_version": "pause_after_bid_v1",
+        "economic_policy": {
+            "version": bid.POLITICA_PAUSE_ECONOMICA,
+            "window_start": _fecha_iso(ventanas.cortes.window_start) if ventanas.cortes else None,
+            "window_end": _fecha_iso(ventanas.cortes.window_end) if ventanas.cortes else None,
+            "moneda": ventanas.cortes.metric_currency if ventanas.cortes else None,
+            "target": _dec_str(target),
+            "target_procedencia": procedencia,
+            "cost": _dec_str(ventanas.cortes.cost) if ventanas.cortes else None,
+            "revenue": _dec_str(ventanas.cortes.ad_revenue) if ventanas.cortes else None,
+            "exceso": _dec_str(
+                bid.exceso_economico(ventanas.cortes, target, PLATAFORMAS_MONEDA[platform])
+            ),
+            "multiplicador": "3",
+            "exceso_minimo": _dec_str(bid.EXCESO_MINIMO[PLATAFORMAS_MONEDA[platform]]),
+        },
         # ORBIT 06 2.3: peldano ganador + snapshot SOLO si gana el margen
         # (replay no lee estas claves: reproduce() intacto).
         "target_procedencia": procedencia,
@@ -1504,6 +1519,7 @@ def _procesa_decisora(
         # inputs.corte.expected_clicks (nada que congelar: _corte_json lo
         # sella con el mismo corte_pause).
         expected_clicks=corte_pause.expected_clicks,
+        policy_version=bid.POLITICA_PAUSE_ECONOMICA,
     )
     # El BID verificado no posterga un corte que ya califico con datos maduros.
     # La PAUSE aplicada (aun revertida) conserva su propio cooldown; si no
@@ -2038,6 +2054,8 @@ def _fase_apply(
                 "sin_quota": res_cola.sin_quota,
                 "carreras_perdidas": res_cola.carreras_perdidas,
             }
+            if res_cola.revalidaciones_economicas:
+                notas["revalidaciones_economicas"] = res_cola.revalidaciones_economicas
             # applied_count por COLUMNA al final de la fase (sellado 21): el
             # total confirmado de ESTE ciclo ejecutor. En aborto no se toca:
             # los incrementos por mutacion de _confirma_resumen ya quedaron
