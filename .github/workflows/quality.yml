@@ -171,8 +171,8 @@ jobs:
         env:
           ORBIT_TEST_DSN: postgresql://orbit:orbit@localhost:5432/postgres
         run: |
-          pip install . pytest
-          python -m venv --system-site-packages .venv
+          pip install uv
+          uv sync --frozen
           .venv/bin/python .cursor/skills/verify-orbit/helpers/orbit-verify maintain-verification-skill --run-id "ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
 
       - name: Drive de superficie (verify/)

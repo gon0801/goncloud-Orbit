@@ -124,8 +124,8 @@ def test_harness_ci_instala_dependencias_del_proyecto():
         paso for paso in pasos if paso.get("name") == "Verificar dashboard con el harness real"
     )
     comandos = harness["run"].splitlines()
-    assert "pip install . pytest" in comandos, "el harness debe instalar el proyecto y pytest"
-    assert comandos.index("pip install . pytest") < next(
+    assert "uv sync --frozen" in comandos, "el harness debe sincronizar las dependencias"
+    assert comandos.index("uv sync --frozen") < next(
         i
         for i, comando in enumerate(comandos)
         if "orbit-verify maintain-verification-skill" in comando
