@@ -417,6 +417,19 @@ corte del ciclo tiene fila en cola o skip registrado.
 terminales con `vence_el` vencido (el liberador las toma FIFO); vetos
 vigentes por clave de efecto (los consulta el skip del ciclo).
 
+**`ads_campaign_proposal`** (0042) — Propuestas para pausa manual de una
+campaña con riesgo económico. El dinero viene solo de `spCampaigns` en
+`ads_metric_observation`, colapsado por fecha con `observed_at <= decided_at`;
+la ventana madura usa los mismos límites de cortes. Guarda costo, venta,
+moneda, target efectivo y procedencia, exceso, ACoS, estado de campaña y
+evidencia congelada. Único parcial `(campaign_id, risk_type)` para `open`;
+una observación posterior sin riesgo cierra el episodio y habilita otro si
+el riesgo reaparece. Un descarte o estado `PAUSED` observado no reaparece hasta
+una ventana sin riesgo. `GET /api/ads-optimizer/campaign-proposals` expone el
+registro. `paused_observed` refleja el cache sincronizado; la verificación
+externa por perfil de C.5 cierra como `paused_external`. No hay FK ni camino
+de escritura hacia `apply_queue` o Amazon Ads.
+
 **`apply_attempt`** — Ledger de intentos de TODA mutación (bid, corte,
 reversa, probe): `decision_id` (NULL solo para probes), `seq` (tope de
 reintentos = 3, "no existe 4º intento" es un COUNT), `tipo`

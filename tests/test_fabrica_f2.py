@@ -57,6 +57,7 @@ ORDEN_F2 = (
     "0018_fabrica_campanas.sql",
     "0019_fabrica_grupo_publicacion_v2.sql",
     "0038_fabrica_hermanas_biblioteca.sql",
+    "0042_ads_campaign_proposal.sql",
     # Nada de F2 depende de migraciones 0005-0012 ni 0020-0037 (verificado
     # por grep en A.2: no mencionan harvest_job/apply_attempt/goals/grupos).
 )

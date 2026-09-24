@@ -193,7 +193,7 @@ from psycopg.conninfo import make_conninfo
 from psycopg.rows import dict_row
 from psycopg.types.json import Json
 
-from app import apply, apply_cola, apply_harvest, notifica
+from app import apply, apply_cola, apply_harvest, notifica, propuestas_campana
 from app.ads.config import AdsCredentials
 from app.apply import Aplicador, CapSaturado
 from app.optimizer import bid, cortes, harvest_destino, hygiene, windows
@@ -550,6 +550,7 @@ class _Contadores:
     # (campaign ad_entity_id -> SaltoDestinoGrupo; el dict dedupea).
     destinos: Counter = field(default_factory=Counter)
     saltos_grupo: dict[int, notifica.SaltoDestinoGrupo] = field(default_factory=dict)
+    propuestas_campana: tuple[propuestas_campana.Evaluacion, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1872,6 +1873,13 @@ def _recorre_plataforma(
         fila[0]: fila[1] for fila in conn.execute(_SQL_CAMPANAS, (platform,)).fetchall()
     }
     goals = _lee_goals(conn, platform, list(acos_campanas))
+    contadores.propuestas_campana = propuestas_campana.lee_evaluaciones(
+        conn,
+        platform=platform,
+        decidido=decided_at,
+        settings=settings,
+        target_margen=target_ciclo.margen,
+    )
     evidencia_ad_groups = windows.ventanas_evidencia_ad_group(conn, platform, decided_at)
     # BIDS 01 (D3): hojas inertes de la plataforma, UNA vez por ciclo en TX2
     # (mismo snapshot que la evidencia). Se pasa EXPLICITO a
@@ -2356,9 +2364,14 @@ def _corre_fases(
         harvest_destino=(_harvest_destino_notes(contadores) if target_ciclo is not None else None),
     )
     status = "degraded" if guarda is not None else "done"
-    notas = json.dumps(cuerpo, ensure_ascii=False, default=str)
     with conn.transaction():  # TX3: decisiones + cierre del envelope, atomicos
+        conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
         _inserta_decisiones(conn, cycle_id, config_id, decided_at, pendientes)
+        if target_ciclo is not None:
+            cuerpo["propuestas_campana"] = propuestas_campana.guarda_evaluaciones(
+                conn, contadores.propuestas_campana, decided_at
+            )
+        notas = json.dumps(cuerpo, ensure_ascii=False, default=str)
         _cierra_envelope(conn, cycle_id, status, len(pendientes), notas)
     # FASE DE APPLY DENTRO DEL LOCK (2.4): TX4 + apply propio, DESPUES de TX3
     # (las decisiones ya estan commitadas) y ANTES del return — el lock se

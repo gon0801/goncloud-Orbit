@@ -95,6 +95,19 @@ SELECT id, scope, ad_entity_id, platform, target_acos_pct, bid_floor,
  ORDER BY id
 """
 
+_SQL_PROPUESTAS_CAMPANA = """
+SELECT p.id, p.campaign_id, p.platform, p.campaign_external_id,
+       e.name AS nombre, p.status, p.risk_type, p.first_seen_at, p.last_seen_at,
+       p.window_start, p.window_end, p.observed_at, p.cost, p.revenue,
+       p.currency, p.target_pct, p.target_source, p.excess, p.acos_pct,
+       p.campaign_status, p.status_synced_at, p.evidence
+  FROM ads_campaign_proposal p
+  JOIN ad_entity e ON e.id = p.campaign_id
+ WHERE p.status = %s AND (%s::platform IS NULL OR p.platform = %s::platform)
+ ORDER BY p.last_seen_at DESC, p.id DESC
+ LIMIT %s
+"""
+
 
 def _conexion_lectura():
     """Dependency: conexion como rol de lectura (ORBIT_DSN_READ).
@@ -303,6 +316,45 @@ def goals(
             "mode": fila["mode"],
             "created_at": fila["created_at"],
             "updated_at": fila["updated_at"],
+        }
+        for fila in filas
+    ]
+
+
+@router.get("/campaign-proposals")
+def campaign_proposals(
+    conn: ConexionLectura,
+    platform: Literal["amazon_us", "amazon_mx"] | None = None,
+    status: Literal["open", "resolved", "dismissed", "paused_observed", "paused_external"] = "open",
+    limit: Annotated[int, Query(ge=1, le=LIMITE_MAX)] = LIMITE_DEFAULT,
+) -> list[dict]:
+    """Propuestas de campana para pausa manual; no hay accion Ads en esta API."""
+    conn.row_factory = dict_row
+    filas = conn.execute(_SQL_PROPUESTAS_CAMPANA, (status, platform, platform, limit)).fetchall()
+    return [
+        {
+            "id": fila["id"],
+            "campaign_id": fila["campaign_id"],
+            "platform": fila["platform"],
+            "campaign_external_id": fila["campaign_external_id"],
+            "nombre": fila["nombre"],
+            "status": fila["status"],
+            "risk_type": fila["risk_type"],
+            "first_seen_at": fila["first_seen_at"],
+            "last_seen_at": fila["last_seen_at"],
+            "window_start": fila["window_start"],
+            "window_end": fila["window_end"],
+            "observed_at": fila["observed_at"],
+            "cost": _dec_str(fila["cost"]),
+            "revenue": _dec_str(fila["revenue"]),
+            "currency": fila["currency"],
+            "target_pct": _dec_str(fila["target_pct"]),
+            "target_source": fila["target_source"],
+            "excess": _dec_str(fila["excess"]),
+            "acos_pct": _dec_str(fila["acos_pct"]),
+            "campaign_status": fila["campaign_status"],
+            "status_synced_at": fila["status_synced_at"],
+            "evidence": fila["evidence"],
         }
         for fila in filas
     ]

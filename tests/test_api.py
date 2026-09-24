@@ -592,6 +592,7 @@ SUPERFICIE_ADS_OPTIMIZER = {
     ("/api/ads-optimizer/status", "get"),
     ("/api/ads-optimizer/audit", "get"),
     ("/api/ads-optimizer/goals", "get"),
+    ("/api/ads-optimizer/campaign-proposals", "get"),
     ("/api/ads-optimizer/veto", "post"),
     ("/api/ads-optimizer/reversa/bid", "post"),
     ("/api/ads-optimizer/reversa/pause", "post"),
