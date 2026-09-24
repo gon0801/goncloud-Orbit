@@ -21,15 +21,9 @@
 
 Diagnostico solicitado por el dueno tras pausar A1U/AU2 Exact:
 [`docs/evidencia/ads/2026-09-24-exact-us.md`](../docs/evidencia/ads/2026-09-24-exact-us.md).
-Las filas de politica son propuestas pendientes; el cambio autorizado de
-este bloque es ampliar a ~25 min la espera de reportes.
-
-| Task | Trabajo | DoD | Status |
-| --- | --- | --- | --- |
-| 2.1 | Desplegar el timeout ampliado y recuperar la ingesta principal | Reportes tardios ingeridos; metricas recientes conciliadas con Amazon; checklist del deploy una vez | cc:TODO |
-| 2.2 | Dar prioridad a PAUSE sobre el cooldown de bids | Politica aprobada; reproduccion historica de keyword 4925 desde 14-sep; regresion y pausa evaluada cada ciclo con madurez y veto vigentes | cc:TODO |
-| 2.3 | Definir proteccion economica aunque haya ventas y a nivel campana | Limites explicitos por moneda/goal, evidencia madura, reversa y replay sin lookahead; cubrir tolerancia adaptativa creciente y puja en el piso | cc:TODO |
-| 2.4 | Detectar y recuperar atraso de la ingesta principal Ads | Salud por pipeline/plataforma; productos no oculta fallo principal; aviso temprano y comportamiento explicito del motor ante atraso | cc:TODO |
+El seguimiento ejecutable de los cuatro huecos vive en
+[`plans/ads-proteccion-01.md`](ads-proteccion-01.md). Este archivo conserva
+el analisis historico de reactivaciones y el enlace a su evidencia.
 
 ## Notas de reactivacion
 
