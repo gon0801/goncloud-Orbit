@@ -180,6 +180,18 @@ jobs:
         env:
           ORBIT_TEST_DSN: postgresql://orbit:orbit@localhost:5432/postgres
         run: |
+          .venv/bin/python - <<'PY'
+          import os
+          import runpy
+
+          import psycopg
+
+          aplicar = runpy.run_path(
+              ".cursor/skills/verify-orbit/helpers/orbit-verify"
+          )["_aplicar_migraciones"]
+          with psycopg.connect(os.environ["ORBIT_TEST_DSN"], autocommit=True) as conn:
+              aplicar(conn)
+          PY
           .venv/bin/python -m pytest verify/ -q
 
   gate:

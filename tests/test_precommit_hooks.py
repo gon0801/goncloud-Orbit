@@ -132,6 +132,16 @@ def test_harness_ci_instala_dependencias_del_proyecto():
     )
 
 
+def test_drive_ci_migra_su_base_antes_de_probar_rutas():
+    """El drive consulta tablas reales y necesita el esquema en su DB desechable."""
+    workflow = yaml.safe_load((RAIZ / ".github" / "workflows" / "quality.yml").read_text("utf-8"))
+    pasos = workflow["jobs"]["pesada"]["steps"]
+    drive = next(paso for paso in pasos if paso.get("name") == "Drive de superficie (verify/)")
+    script = drive["run"]
+    assert "_aplicar_migraciones" in script, "el drive necesita migrar su Postgres"
+    assert script.index("_aplicar_migraciones") < script.index("-m pytest verify/")
+
+
 def test_pre_push_es_rapido_y_declara_donde_vive_la_bateria():
     """El entry de pre-push acota a las guardas y el archivo declara POR QUE.
 
