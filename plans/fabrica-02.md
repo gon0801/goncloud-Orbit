@@ -620,8 +620,9 @@ actualizado por A.2.
   quedó con terna NULL, destino resuelto por grupo y goals en `shadow`.
   Evidencia en `docs/evidencia/fabrica-02/D.1/` y `D.2/`. El tool de modo
   de #283 también quedó desplegado en D.1.
-- **D.3 EN CURSO 2026-09-23**: el dueño dio el go 1 literal; los cinco goals
-  `kit_arras` están en `live` efectivo, con readback independiente. Esperar el
+- **D.3 EN CURSO 2026-09-24**: tras el apagado del 2026-09-23 y el deploy de
+  #324, el dueño reutilizó explícitamente el go 1 literal; los cinco goals
+  `kit_arras` están otra vez en `live` efectivo, con readback independiente. Esperar el
   primer harvest natural del cron MX hasta `done`, verificar IDs, biblioteca,
   ledger y `/cortes`, y pedir un go 2 separado antes de revertir ese job.
   Evidencia en `docs/evidencia/fabrica-02/D.3/`.
