@@ -6,6 +6,7 @@ WITH ciclos AS (
            notes::jsonb->'target'->>'procedencia' AS target_fuente
       FROM optimizer_cycle
      WHERE platform = 'amazon_us' AND motor = 'ads_optimizer'
+       AND status IN ('done', 'degraded')
        AND (started_at AT TIME ZONE 'UTC')::date
            BETWEEN DATE '2026-09-11' AND DATE '2026-09-19'
 ),
