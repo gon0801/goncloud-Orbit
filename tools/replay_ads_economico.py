@@ -75,13 +75,15 @@ def agregado(fechas, instante):
 
 
 def medir(conn, desde: dt.date, hasta: dt.date):
+    inicio_utc = dt.datetime.combine(desde, dt.time(), dt.UTC)
+    fin_utc = dt.datetime.combine(hasta + dt.timedelta(days=1), dt.time(), dt.UTC)
     ciclos = list(
         conn.execute(
             "SELECT c.id,c.platform,c.started_at,min(d.decided_at),max(d.decided_at) "
             "FROM optimizer_cycle c LEFT JOIN decision d ON d.cycle_id=c.id "
-            "WHERE c.started_at::date BETWEEN %s AND %s AND c.platform IS NOT NULL "
+            "WHERE c.started_at >= %s AND c.started_at < %s AND c.platform IS NOT NULL "
             "GROUP BY c.id,c.platform,c.started_at ORDER BY c.started_at",
-            (desde, hasta),
+            (inicio_utc, fin_utc),
         )
     )
     entidades = {}
@@ -98,12 +100,11 @@ def medir(conn, desde: dt.date, hasta: dt.date):
             abuelo = entidades[padre][2]
             if abuelo in entidades and entidades[abuelo][0] == "campaign":
                 campana_de[ident] = abuelo
-    limite_observacion = dt.datetime.combine(hasta + dt.timedelta(days=1), dt.time(), dt.UTC)
     metricas = list(
         conn.execute(
             "SELECT ad_entity_id,metric_date,observed_at,metric_currency::text,cost,ad_revenue "
             "FROM ads_metric_observation WHERE observed_at <= %s ORDER BY observed_at",
-            (limite_observacion,),
+            (fin_utc,),
         )
     )
     targets_entidad = defaultdict(lambda: defaultdict(set))
@@ -116,8 +117,8 @@ def medir(conn, desde: dt.date, hasta: dt.date):
         "SELECT d.cycle_id,d.ad_entity_id,d.inputs->>'target_acos_pct_usado',"
         "d.inputs->>'target_procedencia' FROM decision d "
         "JOIN optimizer_cycle c ON c.id=d.cycle_id "
-        "WHERE c.started_at::date BETWEEN %s AND %s",
-        (desde, hasta),
+        "WHERE c.started_at >= %s AND c.started_at < %s",
+        (inicio_utc, fin_utc),
     ):
         campana = campana_de.get(entidad)
         if campana is not None and valor is not None:

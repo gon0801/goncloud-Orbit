@@ -9,6 +9,9 @@ fechas calendario que termina en `min(max_metric_date - 3d, fecha UTC del
 ciclo - 10d)`. Exige al menos siete fechas observadas, cost y revenue medidos,
 moneda unica y target demostrable. Campaign consume solo filas `spCampaigns`;
 keyword y product_target consumen sus propias filas. No se suman granos.
+La seleccion de ciclos usa limites UTC inclusivo/exclusivo sobre
+`started_at` como `timestamptz`; no convierte ese campo a `date` segun el
+timezone de la sesion SQL.
 
 El target se toma primero del freeze de la **misma entidad**. Solo los
 peldaños compartidos (`goal_campana`, `goal_plataforma`, `margen_plataforma`,
@@ -22,6 +25,9 @@ no tiene un `decided_at` unico, el resultado es indeterminado. El replay mide
 PAUSE: el estado historico de Amazon es cache mutable y no puede reconstruirse
 para cada ciclo. Goal deshabilitado, entidad inerte, PAUSED, vetos y quota
 requieren revalidacion antes de live.
+Dos freezes con igual valor pero distinta procedencia siguen siendo
+incompatibles: coincidir en el numero no demuestra que el mismo peldano
+gobernara a la entidad sin decision congelada. En ese caso se abstiene.
 
 ## Resultado por grano
 

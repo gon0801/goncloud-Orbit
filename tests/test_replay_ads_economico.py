@@ -98,9 +98,7 @@ def test_replay_usa_decided_at_si_started_at_es_posterior():
     class Conexion:
         def execute(self, sql, _params=None):
             if "FROM optimizer_cycle " in sql:
-                if "min(d.decided_at)" in sql:
-                    return [(1, "amazon_us", iniciado, decidido, decidido)]
-                return [(1, "amazon_us", iniciado)]
+                return [(1, "amazon_us", iniciado, decidido, decidido)]
             if "FROM ad_entity " in sql:
                 return [
                     (1, "campaign", "amazon_us", None, "campana"),
@@ -165,3 +163,20 @@ def test_ciclo_sin_decisiones_no_inventa_reloj():
     assert resultado["cycles_without_decision_clock"] == [
         {"cycle": 66, "platform": "amazon_us", "reason": "sin_reloj_unico"}
     ]
+
+
+def test_seleccion_de_ciclos_usa_limites_utc_sin_timezone_de_sesion():
+    consultas = []
+
+    class Conexion:
+        def execute(self, sql, params=None):
+            consultas.append((sql, params))
+            return []
+
+    medir(Conexion(), dt.date(2026, 9, 11), dt.date(2026, 9, 24))
+    inicio = dt.datetime(2026, 9, 11, tzinfo=dt.UTC)
+    fin = dt.datetime(2026, 9, 25, tzinfo=dt.UTC)
+    for sql, params in consultas:
+        if "FROM optimizer_cycle " in sql or "FROM decision d" in sql:
+            assert "started_at::date" not in sql
+            assert params == (inicio, fin)
