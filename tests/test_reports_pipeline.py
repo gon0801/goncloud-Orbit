@@ -1609,6 +1609,27 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
                 (res_valido.run_id,),
             ).fetchall() == [(None, None, None, "rejected", motivo)]
 
+        # El reloj DB se lee despues de descargar: si falla, la run debe
+        # sellarse; de otro modo queda abierta sin estado para salud/alertas.
+        perfiles_respuesta["lista"] = [PERFILES_API[0]]
+        with monkeypatch.context() as mp:
+            mp.setattr(
+                reports_modulo,
+                "_SQL_FECHA_HOY",
+                "SELECT dia FROM tabla_reloj_inexistente_para_fallar",
+            )
+            with pytest.raises(psycopg.errors.UndefinedTable):
+                sync_metrics(conn, client, fecha_ini=ayer, fecha_fin=ayer, sleep=lambda s: None)
+        run_reloj = conn.execute(
+            "SELECT id, ok, finished_at FROM ingest_run ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        assert run_reloj[1] is False and run_reloj[2] is not None
+        assert conn.execute(
+            "SELECT profile_id, platform, report_name, status FROM ads_report_result"
+            " WHERE ingest_run_id = %s AND status = 'global_failed'",
+            (run_reloj[0],),
+        ).fetchall() == [(None, None, None, "global_failed")]
+
         # ------------------------------------------------------------------
         # PRIVILEGIO NEGATIVO (DoD): app_ingest inserta metricas, JAMAS
         # decisions (esas son del motor, rol app_decide). Va AL FINAL: en CI el
