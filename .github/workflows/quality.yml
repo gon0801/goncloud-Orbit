@@ -3,16 +3,82 @@
 # push y en cada pull request -- asi el repo queda protegido aunque alguien
 # (vos, otra IA, un colaborador) haga un commit sin pasar por los candados
 # locales, o desde una maquina que no los tiene instalados.
+#
+# Adelgazada 2026-09-23 (patron PR 362 de summonaikit-claude):
+# - `rapido` en cada PR: solo lo rapido que agarra errores (pre-commit +
+#   guardas de arquitectura/config/contexto, ~1-2 min, sin Postgres).
+# - `completa` al unir a main: pre-commit + la bateria ENTERA (`pytest -q`
+#   sin rutas; pineado por tests/test_precommit_hooks.py::
+#   test_bateria_completa_corre_en_ci -- no acotar ni borrar ese paso).
+# - `pesada` de noche (cron 04:00 UTC) + manual: el harness real del
+#   dashboard y el drive de superficie (lo pesado, con Postgres).
+# - `gate`: veredicto unico (acepta `skipped` de los jobs que no aplican).
+# Ahorro medido: cada PR pagaba bateria completa + harness (~varios min con
+# Postgres + ~1.5-2 min de pytest); ahora paga ~1-2 min.
+
 name: Quality
 
 on:
   push:
     branches: [main, master]
   pull_request:
+  schedule:
+    # Pesada nocturna: harness del dashboard + drive de superficie.
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+# Si llega un push nuevo sobre la misma rama o PR, la corrida anterior se
+# cancela sola y solo la ULTIMA corre. Lo cancelado nunca deja un verde
+# falso: el gate es fail-closed ante cancelaciones.
+concurrency:
+  group: quality-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  quality:
+  rapido:
+    # En cada propuesta: lo rapido que agarra errores. Sin Postgres: los
+    # tests que necesitan base skipean igual que antes en este job.
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # historia completa: el candado de frescura del contexto de chat
+          # necesita el merge-base contra la rama base del PR
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+          cache: 'pip'
+
+      - name: Candado de frescura del contexto de chat (solo PRs)
+        # guardrails-01 task 1.4: un PR que marca tareas completadas en un
+        # plan debe actualizar docs/CHAT-CONTEXT.md (lo lee el Project de
+        # Claude Chat del dueno). El candado revisa, jamas escribe.
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch origin "$GITHUB_BASE_REF"
+          python tools/check_chat_context_fresh.py "origin/$GITHUB_BASE_REF"
+
+      - name: "Run pre-commit (candados rapidos: higiene + ruff + contexto)"
+        # El hook pytest-pre-push tiene stages: [pre-push] y NO corre en CI;
+        # aqui solo corren los candados rapidos.
+        uses: pre-commit/action@v3.0.1
+
+      - name: Guardas (arquitectura + config + contexto, ~1 s)
+        run: |
+          pip install fastapi httpx pytest pglast jinja2
+          PYTHONPATH=. pytest -q tests/test_architecture.py tests/test_precommit_hooks.py tests/test_chat_context_guard.py
+
+  completa:
+    # Al unir a main: la bateria COMPLETA. No acotar el pytest a rutas:
+    # test_bateria_completa_corre_en_ci lo pinea y falla si se acota.
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       # Postgres 16 desechable para test_migracion_rechaza_en_vivo: sin este
       # servicio el test skipea en CI y los rechazos en vivo nunca corren
@@ -33,16 +99,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
-        with:
-          # historia completa: el candado de frescura del contexto de chat
-          # necesita el merge-base contra la rama base del PR
-          fetch-depth: 0
 
       - name: Set up Python
         if: hashFiles('pyproject.toml', 'requirements.txt') != ''
         uses: actions/setup-python@v6
         with:
           python-version: '3.x'
+          cache: 'pip'
 
       - name: Set up Node
         if: hashFiles('package.json') != ''
@@ -58,22 +121,13 @@ jobs:
         if: hashFiles('package-lock.json') != ''
         run: npm ci
 
-      - name: Candado de frescura del contexto de chat (solo PRs)
-        # guardrails-01 task 1.4: un PR que marca tareas completadas en un
-        # plan debe actualizar docs/CHAT-CONTEXT.md (lo lee el Project de
-        # Claude Chat del dueno). El candado revisa, jamas escribe.
-        if: github.event_name == 'pull_request'
-        run: |
-          git fetch origin "$GITHUB_BASE_REF"
-          python tools/check_chat_context_fresh.py "origin/$GITHUB_BASE_REF"
-
       - name: Run pre-commit (todos los candados locales, sobre todo el repo)
         uses: pre-commit/action@v3.0.1
 
       - name: Run Python tests
         if: hashFiles('pyproject.toml', 'requirements.txt') != ''
         env:
-          ORBIT_TEST_DSN: postgresql://orbit:orbit@localhost:5432/postgres
+          ORBIT_TEST_DSN: postgresql://orbit:***@localhost:5432/postgres
         run: |
           pip install fastapi "psycopg[binary]" pytest httpx pglast jinja2
           PYTHONPATH=. pytest -q
@@ -82,10 +136,70 @@ jobs:
         if: hashFiles('package.json') != ''
         run: npm test --if-present
 
+  pesada:
+    # De noche: lo pesado (harness real del dashboard + drive de
+    # superficie). Salio del camino de cada PR: era el paso mas lento y el
+    # que mas fallaba por entorno (Chrome), no por el cambio propuesto.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: orbit
+          POSTGRES_PASSWORD: orbit
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U orbit"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+          cache: 'pip'
+
       - name: Verificar dashboard con el harness real
         env:
-          ORBIT_TEST_DSN: postgresql://orbit:orbit@localhost:5432/postgres
+          ORBIT_TEST_DSN: postgresql://orbit:***@localhost:5432/postgres
         run: |
           pip install "uvicorn[standard]>=0.30"
           python -m venv --system-site-packages .venv
           .venv/bin/python .cursor/skills/verify-orbit/helpers/orbit-verify maintain-verification-skill --run-id "ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+      - name: Drive de superficie (verify/)
+        # COMANDO_DRIVE de verify/Drive.md: la app como la ve el usuario.
+        env:
+          ORBIT_TEST_DSN: postgresql://orbit:***@localhost:5432/postgres
+        run: |
+          .venv/bin/python -m pytest verify/ -q
+
+  gate:
+    # Veredicto unico: exige verde en lo que CORRIO; acepta `skipped` en lo
+    # que no aplica al evento (rapido en push, completa/pesada en PR).
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [rapido, completa, pesada]
+    timeout-minutes: 5
+    steps:
+      - name: Todos los jobs aplicables en verde
+        env:
+          R_RAPIDO: ${{ needs.rapido.result }}
+          R_COMPLETA: ${{ needs.completa.result }}
+          R_PESADA: ${{ needs.pesada.result }}
+        run: |
+          rc=0
+          for par in "rapido=$R_RAPIDO" "completa=$R_COMPLETA" "pesada=$R_PESADA"; do
+            printf '%s\n' "$par"
+            case "$par" in *=success|*=skipped) ;; *) rc=1 ;; esac
+          done
+          [ "$rc" -eq 0 ] || { echo "gate: algun job aplicable NO quedo en success" >&2; exit 1; }
+          echo "gate: OK -- todo lo aplicable en verde"
