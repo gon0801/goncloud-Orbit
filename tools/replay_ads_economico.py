@@ -86,6 +86,9 @@ def medir(conn, desde: dt.date, hasta: dt.date):
             (inicio_utc, fin_utc),
         )
     )
+    limite_observacion = max(
+        [fin_utc] + [decidido_max for *_, decidido_max in ciclos if decidido_max is not None]
+    )
     entidades = {}
     for ident, kind, platform, padre, nombre in conn.execute(
         "SELECT id,kind::text,platform::text,parent_id,name FROM ad_entity "
@@ -104,7 +107,7 @@ def medir(conn, desde: dt.date, hasta: dt.date):
         conn.execute(
             "SELECT ad_entity_id,metric_date,observed_at,metric_currency::text,cost,ad_revenue "
             "FROM ads_metric_observation WHERE observed_at <= %s ORDER BY observed_at",
-            (fin_utc,),
+            (limite_observacion,),
         )
     )
     targets_entidad = defaultdict(lambda: defaultdict(set))

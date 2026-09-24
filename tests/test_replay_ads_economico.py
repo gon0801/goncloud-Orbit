@@ -15,6 +15,11 @@ def test_riesgo_economico_fronteras_y_dato_ausente():
         Decimal("80"),
     )
     assert riesgo(Decimal("80"), Decimal("500"), "USD", objetivo)[0] is False
+    assert riesgo(Decimal("120"), Decimal("200"), "USD", objetivo) == (
+        False,
+        Decimal("80"),
+    )
+    assert riesgo(Decimal("120.01"), Decimal("200"), "USD", objetivo)[0] is True
     assert riesgo(Decimal("1000"), Decimal("0"), "MXN", objetivo)[0] is True
     assert riesgo(Decimal("999.99"), Decimal("0"), "MXN", objetivo)[0] is False
     assert riesgo(Decimal("80"), None, "USD", objetivo) == (None, None)
@@ -176,7 +181,70 @@ def test_seleccion_de_ciclos_usa_limites_utc_sin_timezone_de_sesion():
     medir(Conexion(), dt.date(2026, 9, 11), dt.date(2026, 9, 24))
     inicio = dt.datetime(2026, 9, 11, tzinfo=dt.UTC)
     fin = dt.datetime(2026, 9, 25, tzinfo=dt.UTC)
-    for sql, params in consultas:
-        if "FROM optimizer_cycle " in sql or "FROM decision d" in sql:
-            assert "started_at::date" not in sql
-            assert params == (inicio, fin)
+    ciclos = [
+        (" ".join(sql.split()), params)
+        for sql, params in consultas
+        if "FROM optimizer_cycle " in sql
+    ]
+    decisiones = [
+        (" ".join(sql.split()), params) for sql, params in consultas if "FROM decision d" in sql
+    ]
+    assert len(ciclos) == 1
+    assert len(decisiones) == 1
+    for sql, params in ciclos + decisiones:
+        assert "c.started_at >= %s AND c.started_at < %s" in sql
+        assert params == (inicio, fin)
+        assert all(value.tzinfo is not None for value in params)
+
+
+def test_ciclo_antes_de_medianoche_incluye_observacion_hasta_decided_at():
+    iniciado = dt.datetime(2026, 9, 11, 23, 59, 59, tzinfo=dt.UTC)
+    decidido = dt.datetime(2026, 9, 12, 0, 0, 5, tzinfo=dt.UTC)
+    observacion_tardia = decidido - dt.timedelta(seconds=2)
+
+    class Conexion:
+        def execute(self, sql, params=None):
+            if "FROM optimizer_cycle " in sql:
+                return [(1, "amazon_us", iniciado, decidido, decidido)]
+            if "FROM ad_entity " in sql:
+                return [(1, "campaign", "amazon_us", None, "campana")]
+            if "FROM ads_metric_observation" in sql:
+                limite = params[0]
+                filas = [
+                    (
+                        1,
+                        dt.date(2026, 8, 17) + dt.timedelta(days=i),
+                        observado,
+                        "USD",
+                        Decimal("15"),
+                        Decimal("0"),
+                    )
+                    for i in range(7)
+                    for observado in [
+                        observacion_tardia if i == 6 else iniciado - dt.timedelta(days=1)
+                    ]
+                    if observado <= limite
+                ]
+                filas.append(
+                    (
+                        1,
+                        dt.date(2026, 8, 26),
+                        iniciado - dt.timedelta(days=1),
+                        "USD",
+                        Decimal("0"),
+                        Decimal("0"),
+                    )
+                )
+                return filas
+            if "FROM decision d" in sql:
+                return [(1, 1, "20", "goal_campana")]
+            if "FROM ads_optimizer_goal" in sql:
+                return []
+            raise AssertionError(sql)
+
+    filas = medir(Conexion(), dt.date(2026, 9, 11), dt.date(2026, 9, 11))["rows"]
+    assert len(filas) == 1
+    assert filas[0]["as_of"] == decidido
+    assert filas[0]["fechas"] == 7
+    assert filas[0]["cost"] == Decimal("105")
+    assert filas[0]["candidate"] is True
