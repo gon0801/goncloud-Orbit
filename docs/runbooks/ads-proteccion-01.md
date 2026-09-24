@@ -245,18 +245,23 @@ pausados). Ese es el efecto declarado del go de deploy. Si FABRICA 02 D.3
 sigue en curso (go 2 pendiente), el go nombra el acuerdo con D.3 (esperar el
 go 2 o sombreamiento coordinado); sin acuerdo, H5 no arranca.
 
-1. Pre: lista de goals live de H2. Registrar inicio del shadow:
+1. Pre: lista de goals live de H2. Registrar inicio del shadow y los IDs
+   live (el flip de vuelta usa los IDs, nunca `WHERE mode='shadow'`: eso
+   subiria a live goals que ya estaban en shadow). Guardar ambos en
+   `docs/evidencia/ads-proteccion-01/H5/inicio.txt` y releerlos de ahi en
+   cada terminal nueva:
 
 ```bash
 INICIO_SHADOW=$(ssh goncloud date -u +%Y-%m-%dT%H:%M:%SZ); echo $INICIO_SHADOW
+IDS_LIVE=$(ssh goncloud "$PSQL_READ -tA -c \"SELECT string_agg(id::text, ',') FROM ads_optimizer_goal WHERE mode='live';\""); echo $IDS_LIVE
 ```
 
-2. Deploy (go de deploy): regla 2, mas flip de todos los live a `shadow`
+2. Deploy (go de deploy): regla 2, mas flip de los IDs live a `shadow`
    (registrar antes/despues), mas encendido del comportamiento nuevo:
 
 ```bash
 ssh goncloud "$PSQL_READ -c \"SELECT id, scope, mode, enabled FROM ads_optimizer_goal ORDER BY id;\""
-ssh goncloud "$PSQL -c \"UPDATE ads_optimizer_goal SET mode='shadow', updated_at=now() WHERE mode='live';\""
+ssh goncloud "$PSQL -c \"UPDATE ads_optimizer_goal SET mode='shadow', updated_at=now() WHERE id IN ($IDS_LIVE);\""
 ssh goncloud "$PSQL_READ -c \"SELECT mode, count(*) FROM ads_optimizer_goal GROUP BY mode;\""
 ```
 
@@ -276,9 +281,16 @@ ssh goncloud "$PSQL_READ -c \"SELECT count(*) AS applied_nuevos FROM apply_queue
 ```
 
    Evidencia por ciclo.
-4. Go de live separado (flip de vuelta a `live`, registrado con el mismo
-   par antes/despues). Rollback por regla 3 (revert `beae9ec`, o del
-   re-merge en el caso (b)) + 1 ciclo sin PAUSE-nueva.
+4. Go de live separado (flip de vuelta a `live` SOLO de `$IDS_LIVE`,
+   registrado con el mismo par antes/despues):
+
+```bash
+ssh goncloud "$PSQL -c \"UPDATE ads_optimizer_goal SET mode='live', updated_at=now() WHERE id IN ($IDS_LIVE) AND mode='shadow';\""
+ssh goncloud "$PSQL_READ -c \"SELECT id, mode FROM ads_optimizer_goal WHERE id IN ($IDS_LIVE) ORDER BY id;\""
+```
+
+   Rollback por regla 3 (revert `beae9ec`, o del re-merge en el caso (b)) +
+   1 ciclo sin PAUSE-nueva.
 
 ### H6 — C.2b, C.3, C.4, C.5 y C.6 (proteccion economica)
 
@@ -294,9 +306,10 @@ ssh goncloud "$PSQL_READ -c \"SELECT count(*) AS applied_nuevos FROM apply_queue
 3. C.5: PR con DoD + descarte por el canal del runbook (ver Decisiones 2);
    go de merge. La pausa en Amazon la ejecuta el dueno sobre propuesta
    concreta; Orbit cierra con readback PAUSED mismo campaignId/profile.
-4. C.6: mismo recorrido que H5 (INICIO_SHADOW, flip de todos los live a
-   `shadow` con antes/despues, encendido con el literal de aislamiento off
-   que C.3 dejo registrado, 5 ciclos, paradas (a)(b)(c) de H5.3): el go de
+4. C.6: mismo recorrido que H5 (INICIO_SHADOW, IDS_LIVE, flip a `shadow`
+   acotado a IDs con antes/despues, encendido con el literal de aislamiento
+   off que C.3 dejo registrado, 5 ciclos, paradas (a)(b)(c) de H5.3, flip de
+   vuelta acotado a IDs): el go de
    deploy declara el efecto cero-applies y el acuerdo con D.3 si sigue en
    curso; el go de live cita ademas el riesgo aceptado en C.2b; rollback por
    regla 3. Cierra con comparacion candidatos vs applies sin lookahead;
