@@ -84,6 +84,16 @@ historial completo de estado, veto, quota y readback contrafactual. No se
 estima ahorro. La campana rentable 3934 es contraejemplo negativo: el
 19-sep USD 0.95 de cost y USD 118.00 de revenue, target 17.8352%; no cruza.
 
+Sobre la **primera señal** de cada una de las 11 entidades, el primer ciclo
+disponible despues de 48 h mantiene seis señales (A1U/AU2 campaign y cuatro
+keywords), cancela una (campaign 3919) y deja cuatro indeterminadas por
+target historico ausente (campaign 3920, keyword 4919, product_targets 5896
+y 3859). Para 3920/4919, el snapshot del 13-sep justo antes de vencer 48 h
+ya muestra que la regla dejó de cumplirse; una revalidacion al liberar veto
+debe cancelar con ese dato si sigue siendo el ultimo conocido. Este conteo
+no incorpora estado, cuota ni vetos en vuelo y por ello no equivale a
+"applies posibles" confirmados.
+
 ## Senal MX con ventana vieja
 
 Product_target 3859 (MX, campaign 165) cruza con MXN 1,485.16 y revenue
