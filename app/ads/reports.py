@@ -265,11 +265,21 @@ def _registrar_resultado(
     status: str,
     reason: str | None = None,
 ) -> None:
+    profile_id = perfil.profile_id if perfil else None
+    # Un perfil rechazado conserva el payload crudo; puede traer str, bool,
+    # lista o entero fuera de BIGINT. NULL expresa ID desconocido sin
+    # bloquear los reportes de otros perfiles validos.
+    if (
+        not isinstance(profile_id, int)
+        or isinstance(profile_id, bool)
+        or not -(2**63) <= profile_id < 2**63
+    ):
+        profile_id = None
     conn.execute(
         _SQL_RESULTADO_REPORTE,
         (
             run_id,
-            perfil.profile_id if perfil else None,
+            profile_id,
             perfil.platform if perfil else None,
             cfg["nombre"] if cfg else None,
             report_id,
