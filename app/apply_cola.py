@@ -120,7 +120,7 @@ MOTIVO_ENTIDAD_NO_VIVA = "entidad_no_viva"
 MOTIVO_REACTIVACION_MANUAL = "reactivacion_manual"
 MOTIVO_MODO_NO_LIVE = "modo_no_live"
 # ADS D.1: el literal vive en apply.MOTIVO_ESPERA_TARGET (vocabulario de
-# decision_sin_aplicar, UNA fuente); alias como MOTIVO_CAMPANA_NO_ENABLED.
+# decision_sin_aplicar, UNA fuente); este modulo lo reexporta como alias.
 MOTIVO_ESPERA_TARGET = apply.MOTIVO_ESPERA_TARGET
 # CAMPANA ACTIVA 01 · 1.6: alias de apply.MOTIVO_CAMPANA/GRUPO_NO_ENABLED
 # (la funcion compartida del gate vive en apply, dueno del write client; cycle

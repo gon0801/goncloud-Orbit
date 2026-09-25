@@ -1326,9 +1326,12 @@ class Aplicador:
             modo = self.modo_efectivo(self._conn, decision, escalera_global=escalera_global)
             if modo != "live":
                 skips.append(MOTIVO_MODO_NO_LIVE)
-                registra_sin_aplicar(
-                    self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_MODO_NO_LIVE
-                )
+                # Review IA #345 (M1): una decision ya aplicada no se registra
+                # como no-apply aunque el re-run la vea fuera de live.
+                if not _ya_aplicada(self._conn, decision.id):
+                    registra_sin_aplicar(
+                        self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_MODO_NO_LIVE
+                    )
                 continue
             if _ya_aplicada(self._conn, decision.id):
                 # Excepcion declarada (D.1): ya_aplicada NO se registra — su

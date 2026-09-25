@@ -1876,6 +1876,30 @@ def test_sin_aplicar_modo_no_live_registra_el_skip():
 
 
 @_skip_db
+def test_sin_aplicar_modo_no_live_no_registra_una_decision_ya_aplicada():
+    """Review IA #345 (M1): una decision que YA tiene decision_application
+    (verify_ok TRUE) y en el re-run cae en modo_no_live (goal pasado a shadow)
+    NO recibe fila en decision_sin_aplicar: su desenlace ya es aplicada y la
+    tabla nueva la contradiria."""
+    with _db_temporal("orbit_apply_dsa_modo_ya") as conn:
+        ids = _semilla(conn, mode_ciclo_dec="live", goal_mode="shadow")
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], modo="live")
+        conn.execute(
+            "INSERT INTO decision_application (decision_id, confirmed_at, platform_ack,"
+            " verify_ok) VALUES (%s, now(), '{}'::jsonb, true)",
+            (dec,),
+        )
+        handler, vistos = _handler_api({"7201": "0.85"})
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.skips == [MOTIVO_MODO_NO_LIVE]
+        assert vistos == []
+        assert conn.execute("SELECT count(*) FROM decision_sin_aplicar").fetchone()[0] == 0
+
+
+@_skip_db
 def test_sin_aplicar_ya_aplicada_no_deja_fila():
     """ya_aplicada esta en el vocabulario (es un motivo de skip real) pero NO
     se graba: su desenlace YA es decision_application; una fila en
