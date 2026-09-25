@@ -1,7 +1,8 @@
-# C.5 — cierre humano: descarte en Orbit + pausa manual en Amazon (PR, sin merge)
+# C.5 — cierre humano: descarte en Orbit + pausa manual en Amazon
 
 Fecha: 2026-09-25 UTC. Rama: `feat/ads-proteccion-c5` (base `origin/master`).
-Alcance: codigo + tests + documento del PR. PROHIBIDO unir a main.
+Alcance: codigo + tests + documento del PR. Gate C.2b/C.2 LEVANTADO por
+decision expresa del dueno 2026-09-25 (ver «Estado de gates»): listo para unir.
 La pausa en Amazon la ejecuta David a mano; Orbit solo verifica (read-only).
 
 ## Contrato implementado (DoD fila 103 del plan)
