@@ -769,6 +769,7 @@ def _pendiente_bid(
     corte: cortes.UmbralResuelto,
     evidencia: windows.EvidenciaAdGroup | None,
     cost_min: Decimal,
+    pause_economica: bool,
 ) -> _Pendiente:
     """El freeze de CORTES 01 (1.3): `inputs.corte` se congela en TODA
     decision del motor de bids -- INCLUIDAS las de kind final 'bid' -- porque
@@ -801,7 +802,9 @@ def _pendiente_bid(
         # a una decision de la era anterior.
         "cooldown_policy_version": "pause_after_bid_v1",
         "economic_policy": {
-            "version": bid.POLITICA_PAUSE_ECONOMICA,
+            # C.3 B1: el freeze registra la politica EFECTIVA (None con
+            # flag apagado: el replay de esa era no adopta la regla nueva).
+            "version": bid.POLITICA_PAUSE_ECONOMICA if pause_economica else None,
             "window_start": _fecha_iso(ventanas.cortes.window_start) if ventanas.cortes else None,
             "window_end": _fecha_iso(ventanas.cortes.window_end) if ventanas.cortes else None,
             "moneda": ventanas.cortes.metric_currency if ventanas.cortes else None,
@@ -812,7 +815,7 @@ def _pendiente_bid(
             "exceso": _dec_str(
                 bid.exceso_economico(ventanas.cortes, target, PLATAFORMAS_MONEDA[platform])
             ),
-            "multiplicador": "3",
+            "multiplicador": str(bid.MULT_PAUSE_ECONOMICA),
             "exceso_minimo": _dec_str(bid.EXCESO_MINIMO[PLATAFORMAS_MONEDA[platform]]),
         },
         # ORBIT 06 2.3: peldano ganador + snapshot SOLO si gana el margen
@@ -1431,6 +1434,7 @@ def _procesa_decisora(
     margen_plataforma: Decimal | None,
     snapshot_margen: dict,
     pause_sin_cooldown_bid: bool,
+    pause_economica: bool,
 ) -> None:
     (
         entidad_id,
@@ -1519,7 +1523,8 @@ def _procesa_decisora(
         # inputs.corte.expected_clicks (nada que congelar: _corte_json lo
         # sella con el mismo corte_pause).
         expected_clicks=corte_pause.expected_clicks,
-        policy_version=bid.POLITICA_PAUSE_ECONOMICA,
+        # C.3 B1: sin flag, decide con la regla pre-economica (None).
+        policy_version=bid.POLITICA_PAUSE_ECONOMICA if pause_economica else None,
     )
     # El BID verificado no posterga un corte que ya califico con datos maduros.
     # La PAUSE aplicada (aun revertida) conserva su propio cooldown; si no
@@ -1553,6 +1558,7 @@ def _procesa_decisora(
             corte=corte_pause,
             evidencia=evidencia,
             cost_min=costo_piso,
+            pause_economica=pause_economica,
         )
     )
     contadores.decisiones[resultado.kind] += 1
@@ -1849,6 +1855,7 @@ def _recorre_plataforma(
     # _procesa_decisora (no en `comunes`: el camino de grupos no lo usa,
     # su gate sigue igual con o sin flag).
     pause_sin_cooldown_bid = g.pause_sin_cooldown_bid_desde_settings(settings)
+    pause_economica = g.pause_economica_desde_settings(settings)
     comunes = dict(
         platform=platform,
         setting_target=setting_target,
@@ -1871,6 +1878,7 @@ def _recorre_plataforma(
             corte_pause_por_grupo=corte_pause_por_grupo,
             inertes=inertes,
             pause_sin_cooldown_bid=pause_sin_cooldown_bid,
+            pause_economica=pause_economica,
             **comunes,
         )
     for fila in conn.execute(_SQL_GRUPOS, (platform,)).fetchall():
@@ -2053,6 +2061,8 @@ def _fase_apply(
                 "fallidas": res_cola.fallidas,
                 "sin_quota": res_cola.sin_quota,
                 "carreras_perdidas": res_cola.carreras_perdidas,
+                # Obs4: economicas en espera de target (released, reintentan).
+                "espera_target": res_cola.espera_target,
             }
             if res_cola.revalidaciones_economicas:
                 notas["revalidaciones_economicas"] = res_cola.revalidaciones_economicas

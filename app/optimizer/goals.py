@@ -113,6 +113,7 @@ DEFAULTS_POR_MONEDA: dict[str, tuple[Decimal, Decimal]] = {
 # humana de 4.3 escribe la escalera global aqui; valores off|shadow|live).
 CLAVE_SETTING_MODO = "ads_optimizer_mode"
 CLAVE_SETTING_PAUSE_SIN_COOLDOWN_BID = "ads_pause_sin_cooldown_bid"
+CLAVE_SETTING_PAUSE_ECONOMICA = "ads_pause_economica"
 
 # Encendido en ORBIT 04 2.4 (sellado 22: la tarea de integracion lo voltea):
 # con True, resuelve_modo YA NO degrada live->shadow — la fase de apply vive
@@ -433,6 +434,14 @@ def pause_sin_cooldown_bid_desde_settings(settings: Mapping) -> bool:
     FROM config_version ORDER BY id DESC LIMIT 1 RETURNING id;
     """
     return settings.get(CLAVE_SETTING_PAUSE_SIN_COOLDOWN_BID) is True
+
+
+def pause_economica_desde_settings(settings: Mapping) -> bool:
+    """C.3 B1: True solo si config_version.settings trae JSON true bajo la
+    clave sellada ads_pause_economica. Fail-closed como B.2a: sin clave,
+    NULL o cualquier otro valor -> False (un deploy no activa la PAUSE
+    economica sin el INSERT deliberado, igual que H5 de B.2)."""
+    return settings.get(CLAVE_SETTING_PAUSE_ECONOMICA) is True
 
 
 def _chequea_modo(nombre: str, modo: str) -> None:

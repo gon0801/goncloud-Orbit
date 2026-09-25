@@ -39,6 +39,7 @@ def _corre_hoja(
     bloqueada=False,
     inerte=False,
     flag=True,
+    econ=True,
 ):
     corte = _agregado() if corte is None else corte
     ventanas = SimpleNamespace(bids=_agregado(orders=1, clicks=30, cost="50"), cortes=corte)
@@ -95,6 +96,7 @@ def _corre_hoja(
         margen_plataforma=None,
         snapshot_margen={},
         pause_sin_cooldown_bid=flag,
+        pause_economica=econ,
     )
     return pendientes, contadores, consultas
 
@@ -186,3 +188,17 @@ def test_2423_venta_cara_emite_pause_y_congela_regla_economica(monkeypatch):
     anterior = dict(pendientes[0].inputs)
     anterior.pop("economic_policy")
     assert cycle.reproduce(anterior)[0] != "pause"
+
+
+def test_flag_economico_apagado_decide_regla_vieja_y_congela_none(monkeypatch):
+    """C.3 B1: con el flag apagado no hay PAUSE economica (misma hoja que
+    con flag emitiria pause_economica) y el freeze registra version None
+    para que el replay no adopte la regla nueva."""
+    corte = _agregado(orders=1, clicks=231, cost="105")
+    corte = windows.AgregadoMetricas(**{**corte.__dict__, "ad_revenue": Decimal("100")})
+    pendientes, contadores, _ = _corre_hoja(monkeypatch, corte=corte, econ=False)
+    assert pendientes == []
+    assert contadores.decisiones == {}
+    umbral, _, _ = _corre_hoja(monkeypatch, econ=False)
+    assert umbral[0].inputs["motivo"] == "pause_umbral"
+    assert umbral[0].inputs["economic_policy"]["version"] is None

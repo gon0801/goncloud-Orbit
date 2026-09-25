@@ -52,6 +52,7 @@ def _decide(corte, *, platform="amazon_us", target="20", politica="economic_paus
         ("30", "5", None),  # ACoS >60%, exceso insuficiente
         ("100", "100.01", None),  # exceso 79.998
         ("60", "100", None),  # cociente estrictamente >3x
+        ("120", "200", None),  # cociente == 3x exacto con exceso 80: estricto lo excluye
     ],
 )
 def test_regla_economica_us(cost, revenue, expected):
@@ -123,6 +124,8 @@ def test_revalida_pause_economica_con_venta_tardia(monkeypatch, cost, revenue, t
     monkeypatch.setattr(apply_cola.apply, "_estado_de_readback", lambda *_: "ENABLED")
     monkeypatch.setattr(apply_cola, "_gracia_activa", lambda *_: False)
     monkeypatch.setattr(apply_cola, "_pause_propio_verificado", lambda *_: False)
+    # B1: la revalidacion economica exige el flag prendido.
+    monkeypatch.setattr(apply_cola, "_flag_pause_economica", lambda *_: True)
     monkeypatch.setattr(
         apply_cola, "_target_pause_vigente", lambda *_: (Decimal(target), "goal_campana")
     )
@@ -204,6 +207,8 @@ def test_pause_antigua_con_venta_tardia_conserva_corte_si_exceso_sigue_alto(monk
     monkeypatch.setattr(apply_cola.apply, "_estado_de_readback", lambda *_: "ENABLED")
     monkeypatch.setattr(apply_cola, "_gracia_activa", lambda *_: False)
     monkeypatch.setattr(apply_cola, "_pause_propio_verificado", lambda *_: False)
+    # B1: la revalidacion economica exige el flag prendido.
+    monkeypatch.setattr(apply_cola, "_flag_pause_economica", lambda *_: True)
     monkeypatch.setattr(
         apply_cola, "_target_pause_vigente", lambda *_: (Decimal("20"), "goal_campana")
     )
@@ -217,3 +222,172 @@ def test_pause_antigua_con_venta_tardia_conserva_corte_si_exceso_sigue_alto(monk
         "Aplicador", (), {"_cliente": lambda self: object(), "cycle_id_ejecutor": 42}
     )()
     assert apply_cola._revalida_pause(Conn(), aplicador, "amazon_us", fila, HOY) is None
+
+
+@pytest.mark.parametrize(
+    ("hay_goal", "esperado"), [(True, "espera_target"), (False, "ya_no_califica")]
+)
+def test_revalida_pause_sin_target_espera_solo_con_goal(monkeypatch, hay_goal, esperado):
+    """Obs4: economica sin target confiable ESPERA (released, reintenta) si
+    hay goal que puede volver; sin goal se descarta terminal."""
+    from app import apply_cola
+
+    class Conn:
+        def execute(self, sql, params):
+            class Cursor:
+                def fetchone(self):
+                    if "SELECT inputs" in sql:
+                        return ({"motivo": "pause_economica"},)
+                    return (None,)
+
+            return Cursor()
+
+    monkeypatch.setattr(apply_cola.apply, "_identidad", lambda *_: ("keyword", "2423"))
+    monkeypatch.setattr(apply_cola.apply, "_estado_de_readback", lambda *_: "ENABLED")
+    monkeypatch.setattr(apply_cola, "_gracia_activa", lambda *_: False)
+    monkeypatch.setattr(apply_cola, "_pause_propio_verificado", lambda *_: False)
+    monkeypatch.setattr(apply_cola, "_target_pause_vigente", lambda *_: (None, None))
+    monkeypatch.setattr(apply_cola, "_hay_goal", lambda *_: hay_goal)
+    fila = apply_cola.FilaCola(1, "pause", 2423, None, 1, {}, "released")
+    aplicador = type(
+        "Aplicador", (), {"_cliente": lambda self: object(), "cycle_id_ejecutor": 42}
+    )()
+    assert apply_cola._revalida_pause(Conn(), aplicador, "amazon_us", fila, HOY) == esperado
+
+
+def test_negativos_no_pausan_ni_abstencion_ruidosa():
+    """Obs2/M11: cost o revenue negativos no califican ninguna regla."""
+    assert _decide(_corte("-5", "100")).kind is None
+    assert _decide(_corte("100", "-1")).kind is None
+
+
+@pytest.mark.parametrize(
+    ("enabled", "mode"),
+    [(False, "live"), (True, "off")],
+    ids=["disabled", "off"],
+)
+def test_target_revalidacion_sin_goal_habilitado_da_none(enabled, mode):
+    """Obs2/M8: goal deshabilitado o en off -> sin target (None, None)."""
+    from app import apply_cola
+
+    class Cursor:
+        def __init__(self, one=None, many=()):
+            self.one = one
+            self.many = many
+
+        def fetchone(self):
+            return self.one
+
+        def fetchall(self):
+            return self.many
+
+    class Conn:
+        def execute(self, sql, params=None):
+            if sql == apply_cola._SQL_PAUSE_TARGET_STATE:
+                return Cursor((3926, None))
+            if sql == apply_cola._SQL_NOTAS_CICLO_APLICADOR:
+                return Cursor(('{"target":{"target_aplicado":"30"}}',))
+            if sql == apply_cola._SQL_CONFIG_TARGET:
+                return Cursor(({},))
+            if sql == apply_cola.apply._SQL_GOALS_ENTIDAD:
+                return Cursor(
+                    many=(
+                        (
+                            "campaign",
+                            3926,
+                            "amazon_us",
+                            Decimal("20"),
+                            Decimal("0.1"),
+                            Decimal("2.5"),
+                            "USD",
+                            None,
+                            None,
+                            None,
+                            enabled,
+                            mode,
+                        ),
+                    )
+                )
+            raise AssertionError(sql)
+
+    assert apply_cola._target_pause_vigente(Conn(), "amazon_us", 2423, 42) == (None, None)
+
+
+def test_target_revalidacion_peldano_margen_con_goal_sin_target():
+    """Obs2/M12: goal de campana vivo pero sin target -> margen del ciclo."""
+    from app import apply_cola
+
+    class Cursor:
+        def __init__(self, one=None, many=()):
+            self.one = one
+            self.many = many
+
+        def fetchone(self):
+            return self.one
+
+        def fetchall(self):
+            return self.many
+
+    class Conn:
+        def execute(self, sql, params=None):
+            if sql == apply_cola._SQL_PAUSE_TARGET_STATE:
+                return Cursor((3926, None))
+            if sql == apply_cola._SQL_NOTAS_CICLO_APLICADOR:
+                return Cursor(('{"target":{"target_aplicado":"30"}}',))
+            if sql == apply_cola._SQL_CONFIG_TARGET:
+                return Cursor(({},))
+            if sql == apply_cola.apply._SQL_GOALS_ENTIDAD:
+                return Cursor(
+                    many=(
+                        (
+                            "campaign",
+                            3926,
+                            "amazon_us",
+                            None,
+                            Decimal("0.1"),
+                            Decimal("2.5"),
+                            "USD",
+                            None,
+                            None,
+                            None,
+                            True,
+                            "live",
+                        ),
+                    )
+                )
+            raise AssertionError(sql)
+
+    assert apply_cola._target_pause_vigente(Conn(), "amazon_us", 2423, 42) == (
+        Decimal("30"),
+        "margen_plataforma",
+    )
+
+
+def test_registra_evidencia_conserva_nota_previa_no_json():
+    """Obs3: notes con texto libre (rastro) no se pisa: se anida."""
+    import json as json_std
+
+    from app import apply_cola
+
+    guardado = {}
+
+    class Cursor:
+        def __init__(self, one=None):
+            self.one = one
+
+        def fetchone(self):
+            return self.one
+
+    class Conn:
+        def execute(self, sql, params=None):
+            if sql == apply_cola._SQL_LEE_NOTAS_CICLO:
+                return Cursor(('{"target":{"target_aplicado":null}}\nrastro: ciclo muerto',))
+            guardado["sql"] = sql
+            guardado["params"] = params
+            return Cursor()
+
+    apply_cola._registra_evidencia(Conn(), 42, [], {"decision_id": 1})
+    assert guardado["sql"] == apply_cola._SQL_ESCRIBE_NOTAS_CICLO
+    notas = json_std.loads(guardado["params"][0])
+    assert notas["revalidaciones_economicas"] == [{"decision_id": 1}]
+    assert notas["nota_previa_no_json"].endswith("rastro: ciclo muerto")
