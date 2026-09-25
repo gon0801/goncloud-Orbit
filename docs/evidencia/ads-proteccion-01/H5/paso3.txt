@@ -1,0 +1,31 @@
+# H5 Paso 3 — 2026-09-25T06:1xZ (UTC). IDS_LIVE=6,7,4,5,11,9,10,8,12 (de inicio.txt).
+
+$ source docs/evidencia/ads-proteccion-01/H5/inicio.txt
+$ ssh goncloud "$PSQL_READ -c \"SELECT id, scope, mode, enabled FROM ads_optimizer_goal ORDER BY id;\""
+== ANTES ==
+ id |  scope   | mode | enabled
+----+----------+------+---------
+  4 | platform | live | t
+  5 | platform | live | t
+  6 | campaign | live | t
+  7 | campaign | live | t
+  8 | campaign | live | t
+  9 | campaign | live | t
+ 10 | campaign | live | t
+ 11 | campaign | live | t
+ 12 | campaign | live | t
+(9 rows)
+
+$ ssh goncloud "$PSQL -c \"UPDATE ads_optimizer_goal SET mode='shadow', updated_at=now() WHERE id IN ($IDS_LIVE);\""
+UPDATE 9
+
+$ ssh goncloud "$PSQL_READ -c \"SELECT mode, count(*) FROM ads_optimizer_goal GROUP BY mode;\""
+== DESPUES ==
+  mode  | count
+--------+-------
+ shadow |     9
+(1 row)
+
+Esperado: antes 9 live; despues 9 shadow, 0 live. OK.
+
+EXIT=0
