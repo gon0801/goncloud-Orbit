@@ -18,7 +18,9 @@ mismo GO — ver "Estado D.3" abajo.
 
 ## SHA de deploy (regla 2)
 
-`$APROBADO = 25bded0` (`origin/master`).
+`$APROBADO = 25bded042cd7600f4161f25b42b2d22d0b6c783b` (`origin/master`;
+SHA completo por D.1.0 paso 1 — obs 3 de ronda 1: el corto rompe el
+comparador de fila 3).
 
 Por que:
 
@@ -57,7 +59,38 @@ Por que:
   revalidar + go nuevo).
 - D.3 sin cosecha en vuelo (repetir los dos conteos; si >0, parar).
 
-## BLOQUEANTE DECLARADO (para adjudicacion del review)
+## 0040 APLICADA EN PROD (ronda 2, 2026-09-25 ~06:05 UTC, ingeniero de turno)
+
+Comando verbatim (patron DEPLOY.md Aplicar migraciones, una transaccion):
+
+```bash
+ssh goncloud "$PSQL -v ON_ERROR_STOP=1 -1" < migrations/0040_ads_report_result.sql
+```
+
+Salida verbatim: `CREATE TABLE`, `CREATE INDEX` x2, `CREATE TRIGGER` x2,
+`COMMENT`, `GRANT` x3, `DO`. Exit code: 0.
+
+Archivo aplicado: `migrations/0040_ads_report_result.sql`, sha256
+`ae2970ef9c3e9a6e126e0b14aed49c7cf89f1704686931803dd456d665084b15`,
+identico a `origin/master` y al merge #333 (verificado en lectura este
+turno: sha256 del blob de master = mismo valor).
+
+Post-verificacion del turno (lectura) + re-verificacion FASE 1 ronda 2
+(2026-09-25 ~06:10 UTC, rol lector): `to_regclass` presente; 3 indices
+(pkey + run_idx + salud_idx); 2 triggers append-only; 0 filas;
+privilegios SELECT app_read=t, INSERT app_ingest=t, UPDATE=f, DELETE=f.
+
+Test focalizado del turno sobre arbol `25bded0` (/tmp/rv-h5-sha, `.venv`
+del repo, Postgres local): `pytest tests/test_reports_pipeline.py -k
+en_vivo` = 2 passed (metricas + search_terms), 25 deselected, exit 0
+(log /tmp/mig0040/focal.log).
+
+SHA revalidado este turno: `git ls-remote origin refs/heads/master` =
+`25bded042cd7600f4161f25b42b2d22d0b6c783b` (sin movimiento; fila 3 en
+verde). Con 0040 aplicada, el Bloqueante 1 de ronda 1 queda RESUELTO (la
+ingesta A.2 tiene su tabla antes del build).
+
+## BLOQUEANTE DECLARADO RONDA 1 (RESUELTO — ver seccion 0040 arriba)
 
 La migracion `0040_ads_report_result.sql` (A.2, PR #333, en master) NO esta
 aplicada en prod (verificado 2026-09-25 por `to_regclass` e
@@ -80,7 +113,7 @@ Definir en cada terminal (runbook 0.1):
 ```bash
 PSQL='docker exec -i orbit-db-1 psql -U orbit -d orbit -X -P pager=off'
 PSQL_READ='docker exec -i orbit-db-1 psql "$(docker exec orbit-app-1 printenv ORBIT_DSN_READ)" -X -P pager=off'
-APROBADO=25bded0
+APROBADO=25bded042cd7600f4161f25b42b2d22d0b6c783b
 ```
 
 ### Paso 1 — Pre H5.1: inicio del shadow e IDs live
@@ -92,8 +125,11 @@ printf 'INICIO_SHADOW=%s\nIDS_LIVE=%s\n' "$INICIO_SHADOW" "$IDS_LIVE" > docs/evi
 source docs/evidencia/ads-proteccion-01/H5/inicio.txt
 ```
 
-Esperado: `IDS_LIVE=4,5,6,7,8,9,10,11,12` (9 goals live medidos en FASE 1;
-si difiere, parar y explicar). Guardar salida en `H5/paso1.txt`.
+Esperado: el CONJUNTO {4,5,6,7,8,9,10,11,12} (9 goals live medidos en
+FASE 1; el orden de `string_agg` sin ORDER BY no es estable — obs 2 de
+ronda 1: prod devuelve `6,7,4,5,11,9,10,8,12`). Comparar ordenando ambos
+lados; si el conjunto difiere, parar y explicar. Guardar salida en
+`H5/paso1.txt`.
 
 ### Paso 2 — Deploy regla 2 (DEPLOY.md D.1.4 adaptado, `$APROBADO`)
 
