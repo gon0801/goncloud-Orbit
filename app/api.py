@@ -358,6 +358,13 @@ def _fila_propuesta_campana(fila: dict) -> dict:
         "status": fila["status"],
         "risk_type": fila["risk_type"],
         "motivo": (fila["evidence"].get("motivo") if isinstance(fila["evidence"], dict) else None),
+        # Obs3r2: en paused_observed el motivo es campana_no_enabled; esta
+        # clave dice si la sombra vio riesgo (el PORQUE de la fila).
+        "riesgo_ignorando_estado": (
+            fila["evidence"].get("riesgo_ignorando_estado")
+            if isinstance(fila["evidence"], dict)
+            else None
+        ),
         "first_seen_at": fila["first_seen_at"],
         "last_seen_at": fila["last_seen_at"],
         "closed_at": fila["closed_at"],

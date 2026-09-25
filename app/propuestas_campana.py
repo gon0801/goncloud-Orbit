@@ -136,6 +136,9 @@ def transicion(ultimo_estado: str | None, *, riesgo: bool, status: str | None, r
     if ultimo_estado == "open":
         return "actualizar"
     if ultimo_estado in ("paused_observed", "paused_external"):
+        # Candidato a episodio nuevo; _persiste exige evidencia NUEVA
+        # (ventana/vintage avanzados) y si no la hay degrada a
+        # actualizar_pausado/mantener (obs4r2).
         return "abrir"
     return "abrir" if ultimo_estado is None or reset else "mantener"
 
@@ -171,7 +174,7 @@ SELECT count(*)::integer, min(metric_currency),
 """
 
 _SQL_ULTIMO = """
-SELECT id, status, reset_at
+SELECT id, status, reset_at, window_end, observed_at
   FROM ads_campaign_proposal
  WHERE campaign_id = %s AND risk_type = %s
  ORDER BY id DESC LIMIT 1 FOR UPDATE
@@ -346,8 +349,22 @@ def _persiste(conn: psycopg.Connection, evaluacion: Evaluacion, decidido: dt.dat
             )
         return
     previo = conn.execute(_SQL_ULTIMO, (dato.campaign_id, TIPO_RIESGO)).fetchone()
-    prev_id, prev_estado, reset = previo if previo is not None else (None, None, None)
+    if previo is None:
+        prev_id, prev_estado, reset, prev_fin, prev_visto = (None,) * 5
+    else:
+        prev_id, prev_estado, reset, prev_fin, prev_visto = previo
     accion = transicion(prev_estado, riesgo=riesgo, status=dato.status, reset=reset is not None)
+    # Obs4r2: reactivada SIN evidencia nueva (misma ventana madura y mismo
+    # vintage que la pausa) = MISMO episodio: no reabre ni avisa de nuevo
+    # (C.5: "no reabre hasta un nuevo episodio"). Solo refresca el snapshot
+    # pausado (propio; el externo de C.5 ni se toca). Con ventana/vintage
+    # avanzados SI abre (gasto nuevo, episodio nuevo).
+    if (
+        accion == "abrir"
+        and prev_estado in ("paused_observed", "paused_external")
+        and (dato.window_end, dato.observed_at) == (prev_fin, prev_visto)
+    ):
+        accion = "actualizar_pausado" if prev_estado == "paused_observed" else "mantener"
     if accion == "abrir":
         conn.execute(
             _SQL_INSERTAR,
@@ -355,7 +372,7 @@ def _persiste(conn: psycopg.Connection, evaluacion: Evaluacion, decidido: dt.dat
                 dato.campaign_id,
                 dato.platform,
                 dato.external_id,
-                None,  # profile_id: lo resuelve C.5 por /v2/profiles (obs6)
+                None,  # profile_id: C.5 post-merge (ads_report_result 0040)
                 TIPO_RIESGO,
                 decidido,
                 decidido,
@@ -382,7 +399,7 @@ def _persiste(conn: psycopg.Connection, evaluacion: Evaluacion, decidido: dt.dat
                 dato.campaign_id,
                 dato.platform,
                 dato.external_id,
-                None,  # profile_id: lo resuelve C.5 por /v2/profiles (obs6)
+                None,  # profile_id: C.5 post-merge (ads_report_result 0040)
                 TIPO_RIESGO,
                 decidido,
                 decidido,
@@ -590,8 +607,15 @@ def envia_avisos_pendientes(
     llave de idempotencia del lado de Telegram no hay exactly-once).
     Solo filas open: la PAUSED visible (paused_observed) no es accionable
     y no avisa (DoD C.4). Devuelve {"enviados": [...], "fallos": [...]}.
+
+    El SELECT va en su PROPIA transaccion (BN1r2: la conexion de prod no
+    es autocommit — un SELECT suelto abriria la TX implicita y tanto los
+    `with` de marcado como el sello posterior serian savepoints jamas
+    commiteados: avisos duplicados, notes perdidas y degraded que llega
+    como done). Al salir, la conexion queda IDLE.
     """
-    pendientes = conn.execute(_SQL_AVISOS_PENDIENTES).fetchall()
+    with conn.transaction():
+        pendientes = conn.execute(_SQL_AVISOS_PENDIENTES).fetchall()
     enviados: list[int] = []
     fallos: list[int] = []
     for fila in pendientes:

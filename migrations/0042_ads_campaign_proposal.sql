@@ -66,8 +66,9 @@ COMMENT ON COLUMN ads_campaign_proposal.reset_at IS
   'mantiene la barrera contra reabrir por un cron repetido.';
 COMMENT ON COLUMN ads_campaign_proposal.profile_id IS
   'Perfil de Amazon Ads para el readback de C.5 (campaignId/profile). NULL '
-  'hasta que C.5 lo resuelva por /v2/profiles: la fase de decision no hace '
-  'HTTP y el profile_id no se inventa (regla 3).';
+  'hasta que C.5 lo resuelva, post-merge, desde ads_report_result de 0040 '
+  '(profile_id por plataforma) o por /v2/profiles: la fase de decision no '
+  'hace HTTP y el profile_id no se inventa (regla 3).';
 COMMENT ON COLUMN ads_campaign_proposal.aviso_estado IS
   'Contrato de entrega del aviso Telegram de propuesta nueva: pending al '
   'abrir, sent solo tras HTTP 2xx. Un fallo deja pending (+1 intento) y el '
@@ -103,7 +104,11 @@ BEGIN
     IF has_table_privilege('app_read', 'ads_campaign_proposal', 'INSERT') THEN
         RAISE EXCEPTION '0042: app_read no debe poder abrir propuestas';
     END IF;
-    IF has_table_privilege('app_read', 'ads_campaign_proposal', 'UPDATE') THEN
+    -- Obs8r2: has_table_privilege(UPDATE) NO ve grants por columna: el
+    -- candado real es por columna (test SET ROLE lo confirma en vivo).
+    IF has_column_privilege(
+        'app_read', 'ads_campaign_proposal', 'status', 'UPDATE'
+    ) THEN
         RAISE EXCEPTION '0042: app_read no debe poder tocar propuestas';
     END IF;
     IF has_table_privilege('app_ingest', 'ads_campaign_proposal', 'INSERT') THEN

@@ -2333,6 +2333,9 @@ def test_salud_muestra_avisos_propuesta_pendientes_y_fallo(monkeypatch):
         conn.execute(SQL42)
         camp = _campana(conn, "amazon_us", "9001", name="A1U")
         _propuesta_campana(conn, camp)
+        # M12r2: una paused_observed pending NO cuenta (solo open avisan).
+        camp2 = _campana(conn, "amazon_us", "9002", name="AU2")
+        _propuesta_campana(conn, camp2, estado="paused_observed", external="9002")
         notas = json_dumps({"telegram": {"aviso_propuesta": "fallo: canal caido"}})
         _ciclo(conn, platform="amazon_us", notes=notas)
         data = _cliente(dsn, monkeypatch).get("/api/dashboard/salud").json()["plataformas"]

@@ -1,6 +1,7 @@
 """Regresiones de las propuestas economicas de campana (ADS PROTECCION C.4)."""
 
 import datetime as dt
+import json
 import os
 from dataclasses import replace
 from decimal import Decimal
@@ -471,8 +472,9 @@ def test_pausada_con_riesgo_deja_fila_visible_no_accionable():
 
 
 @pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres de prueba")
-def test_reactivada_con_riesgo_abre_episodio_nuevo():
-    """Obs5: PAUSED->ENABLED con riesgo abre open (episodio nuevo)."""
+def test_reactivada_con_evidencia_nueva_abre_episodio_nuevo():
+    """Obs4r2: PAUSED->ENABLED con riesgo y VENTANA AVANZADA abre open
+    (gasto nuevo, episodio nuevo)."""
     decidido = dt.datetime(2026, 9, 24, 8, 40, tzinfo=dt.UTC)
     with _db_temporal("orbit_propuesta_react") as (conn, _extra):
         camp = _entidad(conn, "amazon_us", "campaign", "3909")
@@ -489,7 +491,12 @@ def test_reactivada_con_riesgo_abre_episodio_nuevo():
         conn.execute(
             "UPDATE ad_entity_state SET status = 'ENABLED' WHERE ad_entity_id = %s", (camp,)
         )
-        viva = replace(pausada, status="ENABLED")
+        viva = replace(
+            pausada,
+            status="ENABLED",
+            window_end=pausada.window_end + dt.timedelta(days=1),
+            observed_at=pausada.observed_at + dt.timedelta(days=1),
+        )
         p._persiste(conn, p.evalua(viva, decidido=decidido), decidido)
         assert conn.execute("SELECT status FROM ads_campaign_proposal ORDER BY id").fetchall() == [
             ("paused_observed",),
@@ -555,6 +562,9 @@ def test_endpoint_real_muestra_todas_con_motivo_y_cierre(tmp_path):
         assert abierta["aviso_estado"] == "pending"
         assert abierta["profile_id"] is None
         assert [i["status"] for i in campaign_proposals(conn, status="open")] == ["open"]
+        pausada = next(i for i in items if i["status"] == "paused_observed")
+        assert pausada["motivo"] == "campana_no_enabled"
+        assert pausada["riesgo_ignorando_estado"] is True
 
 
 @pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres de prueba")
@@ -674,3 +684,216 @@ def test_cascada_unificada_bloquea_plataforma_con_goal_campana_sin_target():
         )
         assert evaluacion.dato.target_pct == D("33")
         assert evaluacion.dato.target_source == "margen_plataforma"
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres de prueba")
+def test_bn1_aviso_y_sello_persisten_con_conexion_de_produccion(tmp_path, monkeypatch):
+    """BN1r2: con conexion NO-autocommit (prod) y close sin commit del CLI,
+    el aviso queda sent (1 solo Telegram en 2 ciclos) y el sello
+    notes['apply'] persiste. Sin el fix: pending + 2 avisos + sello perdido
+    (el SELECT abria la TX implicita y el `with` del sello era savepoint)."""
+    from test_cycle import DECIDED_AT
+    from test_cycle_apply import _db_temporal as _db_prod
+    from test_notifica import _canal
+
+    from app import cycle as ciclo
+
+    with _db_prod("orbit_bn1_aviso") as (setup, conectar):
+        ids = _siembra_maestra(setup)
+        _config_version(setup, {"ads_optimizer_mode": "shadow", "ads_propuestas_campana": True})
+        run = _run(setup)
+        for day in range(5, 13):
+            fecha = dt.date(2026, 8, day)
+            _metrica(
+                setup,
+                run,
+                ids["camp"],
+                fecha,
+                _obs(fecha),
+                cost="15",
+                ad_revenue="100" if day == 5 else "0",
+            )
+        _metrica(
+            setup,
+            run,
+            ids["camp"],
+            dt.date(2026, 8, 19),
+            _obs(dt.date(2026, 8, 19)),
+            cost="1",
+            ad_revenue="0",
+        )
+
+        def ciclo_prod(owner):
+            conn = conectar(autocommit=False)
+            conn.execute("SET TIME ZONE 'UTC'")
+            res = ciclo.corre_ciclo(
+                conn,
+                platform="amazon_us",
+                owner=owner,
+                decided_at=DECIDED_AT,
+                heartbeat_cada=1,
+            )
+            conn.close()
+            return res
+
+        with _canal(tmp_path, monkeypatch) as mensajes:
+            r1 = ciclo_prod("prod:1")
+            r2 = ciclo_prod("prod:2")
+        ver = conectar()
+        fila = ver.execute(
+            "SELECT status, aviso_estado, aviso_intentos FROM ads_campaign_proposal"
+        ).fetchall()
+        sellos = {
+            r.cycle_id: ver.execute(
+                "SELECT status, notes FROM optimizer_cycle WHERE id = %s", (r.cycle_id,)
+            ).fetchone()
+            for r in (r1, r2)
+        }
+        ver.close()
+        avisos = [m for m in mensajes if "propuesta de campana" in m["text"]]
+        assert fila == [("open", "sent", 1)]
+        assert len(avisos) == 1
+        for cid, (_st, notes) in sellos.items():
+            assert "apply" in json.loads(notes), f"sello apply del ciclo {cid} persiste"
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres de prueba")
+def test_bn1_degraded_persiste_con_flag_en_conexion_de_produccion(tmp_path, monkeypatch):
+    """BN1r2/ADV-01c: live cuyo apply aborta (sin perfil) queda degraded
+    PERSISTIDO con flag prendido, igual que apagado."""
+    from test_cycle_apply import _corre as corre_apply
+    from test_cycle_apply import _db_temporal as _db_prod
+
+    from app import cycle as ciclo
+
+    for flag in (True, False):
+        with _db_prod("orbit_bn1_adv01c") as (setup, conectar):
+            _siembra_maestra(setup, escalera="live")
+            _config_version(
+                setup,
+                {
+                    "ads_optimizer_mode": "live",
+                    "ads_apply_cap_amazon_us_bid": 10,
+                    "ads_apply_cap_amazon_us_pause": 2,
+                    "ads_apply_cap_amazon_us_negative": 5,
+                    "ads_apply_cap_amazon_us_harvest": 2,
+                    "ads_propuestas_campana": flag,
+                },
+            )
+
+            def fabrica_que_aborta(*_a, **_k):
+                raise ciclo.SinPerfilAplicar("secrets ilegibles (simulado)")
+
+            conn = conectar(autocommit=False)
+            conn.execute("SET TIME ZONE 'UTC'")
+            res = corre_apply(conn, factory=fabrica_que_aborta)
+            conn.close()
+            ver = conectar()
+            persistido = ver.execute(
+                "SELECT status FROM optimizer_cycle WHERE id = %s", (res.cycle_id,)
+            ).fetchone()[0]
+            ver.close()
+            assert res.status == "degraded"
+            assert persistido == "degraded", f"flag={flag}"
+
+
+def _propuesta_abierta(conn, camp: int, *, estado: str = "open", external: str = "3909"):
+    """Fila de propuesta directa (M8/M10: sin pasar por el motor)."""
+    from psycopg.types.json import Json
+
+    ahora = dt.datetime(2026, 9, 24, 8, 40, tzinfo=dt.UTC)
+    cerrado = ahora if estado != "open" else None
+    return conn.execute(
+        "INSERT INTO ads_campaign_proposal (campaign_id, platform, campaign_external_id,"
+        " risk_type, status, first_seen_at, last_seen_at, closed_at, close_reason,"
+        " window_start, window_end, observed_at, cost, revenue, currency, target_pct,"
+        " target_source, excess, campaign_status, status_synced_at, evidence)"
+        " VALUES (%s, 'amazon_us', %s, 'exceso_economico', %s, %s, %s, %s,"
+        " 'estado_pausado_observado', '2026-08-16', '2026-09-14', %s, 200, 0, 'USD',"
+        " 20, 'goal_plataforma', 200, 'ENABLED', %s, %s) RETURNING id",
+        (
+            camp,
+            external,
+            estado,
+            ahora,
+            ahora,
+            cerrado,
+            ahora,
+            ahora,
+            Json({"motivo": "exceso_economico", "riesgo_ignorando_estado": False}),
+        ),
+    ).fetchone()[0]
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres de prueba")
+def test_m8_apagar_flag_no_envia_pendientes(tmp_path, monkeypatch):
+    """M8r2 (rollback on->off): con flag apagado el ciclo NO envia avisos
+    pendientes (sin Telegram, fila sigue pending)."""
+    from test_cycle import DECIDED_AT
+    from test_cycle_apply import _db_temporal as _db_prod
+    from test_notifica import _canal
+
+    from app import cycle as ciclo
+
+    with _db_prod("orbit_m8_flagoff") as (setup, conectar):
+        ids = _siembra_maestra(setup)
+        _config_version(setup, {"ads_optimizer_mode": "shadow"})
+        _propuesta_abierta(setup, ids["camp"])
+        with _canal(tmp_path, monkeypatch) as mensajes:
+            conn = conectar()
+            ciclo.corre_ciclo(
+                conn,
+                platform="amazon_us",
+                owner="m8:1",
+                decided_at=DECIDED_AT,
+                heartbeat_cada=1,
+            )
+        assert [m for m in mensajes if "propuesta de campana" in m["text"]] == []
+        assert setup.execute(
+            "SELECT aviso_estado, aviso_intentos FROM ads_campaign_proposal"
+        ).fetchone() == ("pending", 0)
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres de prueba")
+def test_m10_envio_ignora_paused_observed(tmp_path, monkeypatch):
+    """M10r2: envia_avisos_pendientes solo avisa open (la paused_observed
+    visible no es accionable: sin Telegram, sigue pending)."""
+    from test_notifica import _canal
+
+    with _db_temporal("orbit_m10_pausada") as (conn, _extra):
+        camp = _entidad(conn, "amazon_us", "campaign", "3909")
+        prop = _propuesta_abierta(conn, camp, estado="paused_observed")
+        with _canal(tmp_path, monkeypatch) as mensajes:
+            assert p.envia_avisos_pendientes(conn) == {"enviados": [], "fallos": []}
+        assert mensajes == []
+        assert conn.execute(
+            "SELECT aviso_estado FROM ads_campaign_proposal WHERE id = %s", (prop,)
+        ).fetchone() == ("pending",)
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres de prueba")
+def test_reactivada_sin_evidencia_nueva_no_reabre_ni_avisa():
+    """Obs4r2: PAUSED->ENABLED con riesgo pero MISMA ventana/vintage =
+    mismo episodio: refresca el snapshot pausado, no abre open ni avisa."""
+    decidido = dt.datetime(2026, 9, 24, 8, 40, tzinfo=dt.UTC)
+    with _db_temporal("orbit_propuesta_mismoep") as (conn, _extra):
+        camp = _entidad(conn, "amazon_us", "campaign", "3909")
+        _estado(conn, camp, synced_at=decidido - dt.timedelta(hours=2))
+        conn.execute(
+            "UPDATE ad_entity_state SET status = 'PAUSED' WHERE ad_entity_id = %s", (camp,)
+        )
+        pausada = replace(
+            _dato("200", "0", status="PAUSED"),
+            campaign_id=camp,
+            status_synced_at=decidido - dt.timedelta(hours=2),
+        )
+        p._persiste(conn, p.evalua(pausada, decidido=decidido), decidido)
+        conn.execute(
+            "UPDATE ad_entity_state SET status = 'ENABLED' WHERE ad_entity_id = %s", (camp,)
+        )
+        viva = replace(pausada, status="ENABLED")
+        p._persiste(conn, p.evalua(viva, decidido=decidido), decidido)
+        filas = conn.execute(
+            "SELECT status, campaign_status, aviso_estado FROM ads_campaign_proposal"
+        ).fetchall()
+        assert filas == [("paused_observed", "ENABLED", "pending")]
