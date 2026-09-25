@@ -67,5 +67,28 @@ Sobre una propuesta `open` concreta (ejemplo: campana A1U):
 
 ## Estado de gates (2026-09-25)
 
-C.4 mergeado en `787869a` (PR #342). Este PR queda DRAFT hasta C.2b/C.2
-(gate de integracion C, runbook H6.1): no pide go de merge.
+C.4 mergeado en `787869a` (PR #342). El dueno decidio propiedad C.5 opcion
+(b) "si funciona hay que dejarlo": SE QUEDA TODO el paquete convergido.
+Gate C.2b/C.2 LEVANTADO por decision expresa del dueno 2026-09-25; este PR
+pasa a ready y se une.
+
+## Condiciones del veredicto forense (C1-C4, aplicadas 2026-09-25)
+
+- **C1 — 0040 ya en prod (solo lectura).** Confirmado sin escribir prod:
+  `migrations/0040_ads_report_result.sql` existe en el arbol, `docs/DATABASE.md`
+  documenta `ads_report_result` (0040) como fuente del `profile_id`, y
+  `docs/DEPLOY.md` lo referencia como base del pipeline vigente. Sigue ahi.
+- **C2 — 0043 JUNTO con el despliegue del codigo, nunca sola.** La 0043 viaja
+  en este mismo PR que el codigo que la exige (endpoint + tests la referencian).
+  Orden de deploy: aplicar `migrations/0043_ads_propuesta_descarte_admin.sql`
+  (patron «Aplicar migraciones» de `docs/DEPLOY.md`: `psql -U orbit -d orbit
+  -v ON_ERROR_STOP=1 -1`) inmediatamente antes del rebuild de `orbit-app-1`,
+  en la misma ventana. Sin 0043 el descarte da 500 (grant ausente); 0043 sola
+  sin codigo es un grant sin consumidor: por eso van juntas.
+- **C3 — ValueError de actor vacio -> 422.** `"   "` pasa el `min_length=1` de
+  pydantic y lo caza `descartar_propuesta` (`app/propuestas_campana.py:375`):
+  el endpoint (`app/api_write.py`, `descartar_propuesta`) lo mapea a 422
+  (mismo codigo que cuerpo invalido), nunca 500. Test:
+  `test_endpoint_descartar_auth_ciclo_y_errores` (caso actor en blanco).
+- **C4 — conteo real: 19 tests.** `tests/test_cierre_campana.py` trae 19
+  `def test` (verificado con `grep -c`). El PR decia 24: corregido a 19.

@@ -309,6 +309,10 @@ def descartar_propuesta(
         return propuestas_campana.descartar_propuesta(conn, proposal_id, cuerpo.actor)
     except tuple(_ERRORES_DESCARTE) as exc:
         raise HTTPException(status_code=_ERRORES_DESCARTE[type(exc)], detail=str(exc)) from None
+    except ValueError as exc:
+        # C.5 C3: "   " pasa el min_length=1 de pydantic y lo caza la
+        # funcion -> 422 (mismo codigo que cuerpo invalido), nunca 500.
+        raise HTTPException(status_code=422, detail=str(exc)) from None
 
 
 # Mapeo sellado de errores de reversa_manual -> HTTP (el endpoint no inventa

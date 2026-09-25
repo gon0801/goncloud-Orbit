@@ -196,6 +196,11 @@ def test_endpoint_descartar_auth_ciclo_y_errores(tmp_path, monkeypatch):
         assert resp.status_code == 404
         resp = cliente.post(ruta, json={"actor": "david"}, headers={"x-orbit-token": TOKEN})
         assert resp.status_code == 409
+        # C3: actor en blanco pasa pydantic (min_length=1) y lo caza la
+        # funcion -> 422, nunca 500 (aun sobre propuesta ya cerrada: el
+        # actor se valida primero).
+        resp = cliente.post(ruta, json={"actor": "   "}, headers={"x-orbit-token": TOKEN})
+        assert resp.status_code == 422, resp.text
 
 
 @_skip_db
