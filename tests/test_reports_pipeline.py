@@ -27,12 +27,13 @@ import os
 import socket
 from collections import Counter
 from decimal import Decimal
+from pathlib import Path
 
 import httpx
 import pytest
 from test_schema import SQL, _postgres_obligatorio_ausente, _test_dsn
 
-from app.ads.client import AdsApiError, AdsClient
+from app.ads.client import AdsApiError, AdsAuthError, AdsClient
 from app.ads.config import AdsCredentials
 from app.ads.reports import (
     CAMPANAS_CFG,
@@ -54,6 +55,8 @@ from app.ads.reports import (
     sync_metrics,
 )
 from app.ads.structure import PerfilAds
+
+SQL40 = (Path(__file__).resolve().parents[1] / "migrations/0040_ads_report_result.sql").read_text()
 
 FAKE_CLIENT_ID = "fake-client-id-123"
 FAKE_CLIENT_SECRET = "fake-client-secret-XYZ"
@@ -1039,6 +1042,7 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
         conn = psycopg.connect(dsn, dbname=db, autocommit=True)
         conn.execute("SET TIME ZONE 'UTC'")
         conn.execute(SQL)  # la migracion entera
+        conn.execute(SQL40)
 
         # seed de estructura (en produccion la escribe app.ads.structure):
         # campana/ad group/keyword/target en US y campana en MX
@@ -1206,7 +1210,7 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
         # [fix grok] el mock puede degenerar /v2/profiles (vacio / solo
         # rechazados) y [fix codex] puede romper la fase API (create 400)
         perfiles_respuesta = {"lista": PERFILES_API}
-        fallo_create = {"on": False}
+        fallo_create = {"on": False, "scope": None}
 
         def handler(request: httpx.Request) -> httpx.Response:
             if request.url.host == "api.amazon.com":
@@ -1214,12 +1218,12 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
             if request.url.path == "/v2/profiles":
                 return httpx.Response(200, json=perfiles_respuesta["lista"])
             if request.method == "POST" and request.url.path == "/reporting/reports":
-                if fallo_create["on"]:
+                scope = request.headers.get("Amazon-Advertising-API-Scope")
+                if fallo_create["on"] and fallo_create["scope"] in (None, scope):
                     # 400 en create: AdsApiError del cliente (POST no
                     # idempotente, fail-closed sin retries)
                     return httpx.Response(400, json={"code": 400})
                 cfg = json.loads(request.content)["configuration"]
-                scope = request.headers.get("Amazon-Advertising-API-Scope")
                 if cfg["reportTypeId"] == "spCampaigns":
                     reporte = f"R-CAMP-{scope}"
                 elif cfg["reportTypeId"] == "spSearchTerm":
@@ -1263,6 +1267,21 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
         assert res1.ok is True
         assert res1.rows_written == 4
         assert res1.rows_skipped == 3
+        # A.2: la salud consulta unidades persistidas, no stdout ni el ok
+        # agregado de una corrida que mezcla US y MX.
+        unidades = conn.execute(
+            "SELECT profile_id, platform::text, report_name, status"
+            " FROM ads_report_result WHERE ingest_run_id = %s AND status = 'written'"
+            " ORDER BY profile_id, report_name",
+            (res1.run_id,),
+        ).fetchall()
+        assert unidades == [
+            (101, "amazon_us", nombre, "written")
+            for nombre in sorted(("campanas", "keywords", "search_terms", "targets"))
+        ] + [
+            (202, "amazon_mx", nombre, "written")
+            for nombre in sorted(("campanas", "keywords", "search_terms", "targets"))
+        ]
         # el perfil vendor (303) queda como evidencia, sin generar reportes
         assert [p.profile_id for p in res1.perfiles_rechazados] == [303]
         assert all(resumen.profile_id != 303 for resumen in res1.reportes)
@@ -1435,6 +1454,17 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
         assert run_fallida[2] == 0  # rows_skipped=0 EXPLICITO (NOT NULL en UPDATE)
         assert run_fallida[3] is not None  # quedo SELLADA, no abierta
         assert run_fallida[4] is not None  # el fallo dejo rastro
+        run_db_id = conn.execute(
+            "SELECT id FROM ingest_run WHERE ok IS FALSE ORDER BY id DESC LIMIT 1"
+        ).fetchone()[0]
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM ads_report_result"
+                " WHERE ingest_run_id = %s AND status = 'written'",
+                (run_db_id,),
+            ).fetchone()[0]
+            == 0
+        )
         # rollback atomico: nada de lo que escribio la corrida fallida quedo
         assert conn.execute("SELECT count(*) FROM ads_metric_observation").fetchone()[0] == 9
         assert conn.execute("SELECT count(*) FROM ingest_run").fetchone()[0] == 4
@@ -1459,6 +1489,11 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
         assert run_vacio[2] == 0
         assert run_vacio[3] == "ningun perfil aceptado: /v2/profiles devolvio 0 perfiles"
         assert run_vacio[4] is not None
+        assert conn.execute(
+            "SELECT profile_id, platform, report_name, status FROM ads_report_result"
+            " WHERE ingest_run_id = %s",
+            (res_vacio.run_id,),
+        ).fetchall() == [(None, None, None, "global_failed")]
 
         # mismo veredicto con SOLO rechazados: los motivos de rechazo suben a
         # la run (el vendor 303 de la fixture)
@@ -1470,6 +1505,29 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
         assert [p.profile_id for p in res_vendor.perfiles_rechazados] == [303]
         assert res_vendor.skip_reason.startswith("ningun perfil aceptado: ")
         assert "no seller" in res_vendor.skip_reason
+        assert conn.execute(
+            "SELECT profile_id, platform, report_name, status FROM ads_report_result"
+            " WHERE ingest_run_id = %s",
+            (res_vendor.run_id,),
+        ).fetchall() == [(303, None, None, "rejected")]
+
+        # Error al listar perfiles: no atribuirlo a US ni MX.
+        with pytest.raises(AdsAuthError):
+            sync_metrics(
+                conn,
+                _cliente(lambda request: httpx.Response(500, json={"error": "profiles"})),
+                fecha_ini=ayer,
+                fecha_fin=ayer,
+                sleep=lambda s: None,
+            )
+        run_global = conn.execute("SELECT id FROM ingest_run ORDER BY id DESC LIMIT 1").fetchone()[
+            0
+        ]
+        assert conn.execute(
+            "SELECT profile_id, platform, report_name, status FROM ads_report_result"
+            " WHERE ingest_run_id = %s",
+            (run_global,),
+        ).fetchall() == [(None, None, None, "global_failed")]
 
         # ------------------------------------------------------------------
         # FALLO DE FASE API CON RUN AUDITABLE (hallazgo codex, mandatorio):
@@ -1494,9 +1552,83 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
         assert run_api[2] == 0  # rows_skipped=0 explicito
         assert run_api[3] is not None and "status=400" in run_api[3]  # rastro del error
         assert run_api[4] is not None  # sellada, no abierta
+        fallo_unidad = conn.execute(
+            "SELECT profile_id, platform::text, report_name, status"
+            " FROM ads_report_result WHERE ingest_run_id ="
+            " (SELECT id FROM ingest_run WHERE ok IS FALSE ORDER BY id DESC LIMIT 1)"
+            " AND status = 'failed'"
+        ).fetchone()
+        assert fallo_unidad == (101, "amazon_us", "campanas", "failed")
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM ads_report_result"
+                " WHERE ingest_run_id = (SELECT id FROM ingest_run ORDER BY id DESC LIMIT 1)"
+                " AND status = 'pending'"
+            ).fetchone()[0]
+            == 8
+        )
         # ni estas corridas ni la fallida escribieron metricas nuevas
         assert conn.execute("SELECT count(*) FROM ads_metric_observation").fetchone()[0] == 9
-        assert conn.execute("SELECT count(*) FROM ingest_run").fetchone()[0] == 7
+        assert conn.execute("SELECT count(*) FROM ingest_run").fetchone()[0] == 8
+
+        # US descargado y MX fallido: el fallo pertenece a MX; ninguna unidad
+        # acredita escritura porque toda la corrida se aborto antes de DB.
+        fallo_create.update(on=True, scope="202")
+        with pytest.raises(AdsApiError):
+            sync_metrics(conn, client, fecha_ini=ayer, fecha_fin=ayer, sleep=lambda s: None)
+        fallo_create.update(on=False, scope=None)
+        run_mx = conn.execute("SELECT id FROM ingest_run ORDER BY id DESC LIMIT 1").fetchone()[0]
+        assert conn.execute(
+            "SELECT profile_id, platform::text, report_name FROM ads_report_result"
+            " WHERE ingest_run_id = %s AND status = 'failed'",
+            (run_mx,),
+        ).fetchall() == [(202, "amazon_mx", "campanas")]
+        assert conn.execute(
+            "SELECT status, count(*) FROM ads_report_result WHERE ingest_run_id = %s"
+            " GROUP BY status ORDER BY status",
+            (run_mx,),
+        ).fetchall() == [("downloaded", 4), ("failed", 1), ("pending", 8), ("rejected", 1)]
+
+        # Un profileId malformado se rechaza sin bloquear el perfil valido.
+        # No convertir bool a 0/1 ni inventar un ID para el rechazado.
+        for invalido in ("bad-id", False, [101], 2**70):
+            perfiles_respuesta["lista"] = [{"profileId": invalido}, PERFILES_API[0]]
+            res_valido = sync_metrics(
+                conn, client, fecha_ini=ayer, fecha_fin=ayer, sleep=lambda s: None
+            )
+            assert res_valido.ok is True
+            assert [r.profile_id for r in res_valido.reportes] == [101] * 4
+            motivo = (
+                "perfil no seller (accountInfo.type=None)"
+                if invalido == 2**70
+                else "perfil sin profileId"
+            )
+            assert conn.execute(
+                "SELECT profile_id, platform, report_name, status, reason"
+                " FROM ads_report_result WHERE ingest_run_id = %s AND status = 'rejected'",
+                (res_valido.run_id,),
+            ).fetchall() == [(None, None, None, "rejected", motivo)]
+
+        # El reloj DB se lee despues de descargar: si falla, la run debe
+        # sellarse; de otro modo queda abierta sin estado para salud/alertas.
+        perfiles_respuesta["lista"] = [PERFILES_API[0]]
+        with monkeypatch.context() as mp:
+            mp.setattr(
+                reports_modulo,
+                "_SQL_FECHA_HOY",
+                "SELECT dia FROM tabla_reloj_inexistente_para_fallar",
+            )
+            with pytest.raises(psycopg.errors.UndefinedTable):
+                sync_metrics(conn, client, fecha_ini=ayer, fecha_fin=ayer, sleep=lambda s: None)
+        run_reloj = conn.execute(
+            "SELECT id, ok, finished_at FROM ingest_run ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        assert run_reloj[1] is False and run_reloj[2] is not None
+        assert conn.execute(
+            "SELECT profile_id, platform, report_name, status FROM ads_report_result"
+            " WHERE ingest_run_id = %s AND status = 'global_failed'",
+            (run_reloj[0],),
+        ).fetchall() == [(None, None, None, "global_failed")]
 
         # ------------------------------------------------------------------
         # PRIVILEGIO NEGATIVO (DoD): app_ingest inserta metricas, JAMAS
@@ -1529,6 +1661,21 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
                 "se ejercita en CI, donde el DSN es superuser"
             )
         try:
+            conn.execute(
+                "INSERT INTO ads_report_result"
+                " (ingest_run_id, profile_id, platform, report_name, status)"
+                " VALUES (%s, 101, 'amazon_us', 'campanas', 'pending')",
+                (res1.run_id,),
+            )
+            assert (
+                conn.execute(
+                    "SELECT count(*) FROM ads_report_result WHERE ingest_run_id = %s",
+                    (res1.run_id,),
+                ).fetchone()[0]
+                > 0
+            )
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute("UPDATE ads_report_result SET status = 'written'")
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
                 conn.execute(
                     "INSERT INTO decision (cycle_id, ad_entity_id, kind,"
@@ -1539,6 +1686,8 @@ def test_pipeline_metricas_en_vivo(monkeypatch):
                 )
         finally:
             conn.execute("SET ROLE NONE")
+        with pytest.raises(psycopg.errors.RestrictViolation):
+            conn.execute("UPDATE ads_report_result SET status = 'written'")
     finally:
         if conn is not None:
             conn.close()
@@ -1583,6 +1732,7 @@ def test_pipeline_search_terms_en_vivo():
         conn = psycopg.connect(dsn, dbname=db, autocommit=True)
         conn.execute("SET TIME ZONE 'UTC'")
         conn.execute(SQL)  # la migracion entera
+        conn.execute(SQL40)
 
         # seed de estructura (en produccion la escribe app.ads.structure):
         # campana + ad group en US; el reporte de terminos se adjunta al

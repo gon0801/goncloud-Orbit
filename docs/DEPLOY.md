@@ -401,7 +401,8 @@ forma del parche sellada (A.4): antes de A.4 solo goals en `shadow`.
 `job_key` del ciclo es `app.cycle.job_key_de` (`ads_optimizer:<platform>`),
 la misma fuente que el CLI. Los de ingesta quedan como comentario en el
 crontab y como `ingest_run.source` (`amazon_ads_structure_v2` /
-`amazon_ads_reports_v3`).
+`amazon_ads_reports_v3` para el pipeline principal /
+`amazon_ads_products_v3` para productos anunciados desde la migracion 0040).
 
 ### Ingestas SP-API diarias 05:00–06:30 (A.5, PROPUESTA — NO instalada)
 

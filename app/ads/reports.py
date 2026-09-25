@@ -71,7 +71,8 @@ Decisiones selladas de esta task:
 
 - NO hay reporte de ad groups: nada aguas abajo lo consume (regla 1); si un
   dia se necesitara, se agrega su cfg al REPORTES_CFG y nada mas cambia.
-- UNA ingest_run por llamada a sync_metrics (source amazon_ads_reports_v3),
+- UNA ingest_run por llamada a sync_metrics (source amazon_ads_reports_v3
+  para principal o amazon_ads_products_v3 para productos),
   sellada en exito y en fallo igual que sync_structure: nace abierta en su
   propia transaccion, el trabajo va en otra, y en fallo hay rollback atomico
   + sello best-effort ok=false con rows_skipped=0 EXPLICITO (la columna es
@@ -246,6 +247,47 @@ logger = logging.getLogger(__name__)
 install_scrub_filter(logger)
 
 SOURCE = "amazon_ads_reports_v3"
+SOURCE_PRODUCTOS = "amazon_ads_products_v3"
+
+_SQL_RESULTADO_REPORTE = """
+    INSERT INTO ads_report_result
+        (ingest_run_id, profile_id, platform, report_name, source_report_id, status, reason)
+    VALUES (%s, %s, %s, %s, %s, %s, %s)
+"""
+
+
+def _registrar_resultado(
+    conn: psycopg.Connection,
+    run_id: int,
+    perfil: PerfilAds | None,
+    cfg: dict | None,
+    report_id: str | None,
+    status: str,
+    reason: str | None = None,
+) -> None:
+    profile_id = perfil.profile_id if perfil else None
+    # Un perfil rechazado conserva el payload crudo; puede traer str, bool,
+    # lista o entero fuera de BIGINT. NULL expresa ID desconocido sin
+    # bloquear los reportes de otros perfiles validos.
+    if (
+        not isinstance(profile_id, int)
+        or isinstance(profile_id, bool)
+        or not -(2**63) <= profile_id < 2**63
+    ):
+        profile_id = None
+    conn.execute(
+        _SQL_RESULTADO_REPORTE,
+        (
+            run_id,
+            profile_id,
+            perfil.platform if perfil else None,
+            cfg["nombre"] if cfg else None,
+            report_id,
+            status,
+            scrub(reason) if reason else None,
+        ),
+    )
+
 
 # Tope de rango de la API (verificado: spCampaigns max 31 dias).
 MAX_RANGO_DIAS = 31
@@ -1661,18 +1703,33 @@ def _validar_rango(fecha_ini: dt.date, fecha_fin: dt.date) -> None:
         raise ValueError(f"rango de {dias} dias excede el maximo de {MAX_RANGO_DIAS} de la API")
 
 
-def _run_de_fallo_de_api(conn: psycopg.Connection, exc: BaseException) -> None:
-    """Fallo de la fase API: abre una run y la sella ok=false (best-effort).
+def _run_de_fallo_de_api(
+    conn: psycopg.Connection,
+    run_id: int,
+    exc: BaseException,
+    perfil: PerfilAds | None,
+    cfg: dict | None,
+    report_id: str | None,
+) -> None:
+    """Fallo API: registra unidad o fallo global y sella la run (best-effort).
 
     Toda invocacion deja fila auditable en ingest_run (hallazgo codex): sin
     esto, una corrida que revienta en perfiles/crear/poll/descarga no dejaba
-    rastro contable. Abrir y sellar van en UNA transaccion: nunca existe una
-    run abierta de un fallo de fase API. Si la conexion tambien esta muerta,
+    rastro contable. La run ya se abrio antes de consultar perfiles; evento
+    y sello de fallo van en UNA transaccion. Si la conexion tambien esta muerta,
     se deja el rastro en el log y la excepcion ORIGINAL sube igual.
     """
     try:
         with conn.transaction():
-            run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE,)).fetchone()[0]
+            _registrar_resultado(
+                conn,
+                run_id,
+                perfil,
+                cfg,
+                report_id,
+                "failed" if perfil and cfg else "global_failed",
+                str(exc) or type(exc).__name__,
+            )
             _sellar_run(
                 conn,
                 run_id,
@@ -1704,20 +1761,28 @@ def sync_metrics(
     misma ingest_run por corrida.
 
     Fase de API COMPLETA antes de la fase de DB (ninguna transaccion queda
-    abierta durante el polling) y ENVUELTA: todo fallo de esa fase abre una
-    run y la sella ok=false con el error antes de re-lanzar (toda invocacion
-    deja fila auditable; hallazgo codex). Cero perfiles aceptados NO es
+    abierta durante el polling) y ENVUELTA: la run se abre antes de consultar
+    perfiles y todo fallo se sella ok=false antes de re-lanzar. Los eventos
+    pending cubren reportes esperados; downloaded no acredita salud hasta
+    written en la misma transaccion que sella la run ok=true.
+    Cero perfiles aceptados NO es
     excepcion ni exito: la run se sella ok=false con los motivos de rechazo
-    (hallazgo grok). La fase de DB abre la run en su propia transaccion y
-    calcula ahi mismo el "hoy" del guard con now() de la DB (UTC fijado);
+    (hallazgo grok). La fase de DB calcula el "hoy" del guard con now() de
+    la DB (UTC fijado) en su propia transaccion;
     en fallo, rollback atomico del trabajo + sello best-effort ok=false
     (patron sync_structure). Un fallo en cualquier reporte aborta la corrida
     entera (fail-closed): re-correr es seguro por el dedupe de source_report_id.
     """
     _validar_rango(fecha_ini, fecha_fin)
+    source = SOURCE_PRODUCTOS if reportes == (PRODUCTOS_CFG,) else SOURCE
+    with conn.transaction():
+        run_id = conn.execute(_SQL_ABRIR_RUN, (source,)).fetchone()[0]
 
     descargados: list[tuple[PerfilAds, dict, str, list[dict]]] = []
     perfiles_rechazados: list[PerfilAds] = []
+    perfil_actual: PerfilAds | None = None
+    cfg_actual: dict | None = None
+    report_id_actual: str | None = None
     try:
         # Evidencia de perfiles RECHAZADOS al log (hallazgo reviewer): sin esto,
         # Amazon moviendo /v2/profiles dejaria corridas ok=true con 0 filas y sin
@@ -1733,6 +1798,20 @@ def sync_metrics(
                 )
         perfiles = [perfil for perfil in todos if perfil.aceptado]
         perfiles_rechazados = [perfil for perfil in todos if not perfil.aceptado]
+        with conn.transaction():
+            for rechazado in perfiles_rechazados:
+                _registrar_resultado(
+                    conn,
+                    run_id,
+                    rechazado,
+                    None,
+                    None,
+                    "rejected",
+                    rechazado.motivo or "perfil rechazado sin motivo",
+                )
+            for perfil in perfiles:
+                for cfg in reportes:
+                    _registrar_resultado(conn, run_id, perfil, cfg, None, "pending")
         if not perfiles:
             # Verde falso (hallazgo grok): sin perfiles aceptados la corrida se
             # sella ok=false CON los motivos, jamas ok=true con 0 filas.
@@ -1743,7 +1822,8 @@ def sync_metrics(
                 + "; ".join(perfil.motivo or "sin motivo" for perfil in perfiles_rechazados)
             )
             with conn.transaction():
-                run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE,)).fetchone()[0]
+                if not perfiles_rechazados:
+                    _registrar_resultado(conn, run_id, None, None, None, "global_failed", motivo)
                 _sellar_run(conn, run_id, ok=False, rows_skipped=0, skip_reason=motivo)
             return ResultadoSync(
                 run_id=run_id,
@@ -1756,7 +1836,9 @@ def sync_metrics(
             )
         for perfil in perfiles:
             for cfg in reportes:
+                perfil_actual, cfg_actual, report_id_actual = perfil, cfg, None
                 report_id = solicitar_reporte(client, perfil, cfg, fecha_ini, fecha_fin)
+                report_id_actual = report_id
                 # Presupuesto por tipo de reporte; ambos cubren las latencias
                 # observadas (ver INTENTOS_POLL e INTENTOS_POLL_PRODUCTOS).
                 intentos = (
@@ -1765,25 +1847,25 @@ def sync_metrics(
                     else INTENTOS_POLL
                 )
                 url = esperar_reporte(client, perfil, report_id, sleep=sleep, intentos=intentos)
-                descargados.append((perfil, cfg, report_id, descargar_filas(client, url)))
+                filas = descargar_filas(client, url)
+                descargados.append((perfil, cfg, report_id, filas))
+                with conn.transaction():
+                    _registrar_resultado(conn, run_id, perfil, cfg, report_id, "downloaded")
     except BaseException as exc:
-        _run_de_fallo_de_api(conn, exc)
+        _run_de_fallo_de_api(conn, run_id, exc, perfil_actual, cfg_actual, report_id_actual)
         raise
-
-    with conn.transaction():
-        run_id = conn.execute(_SQL_ABRIR_RUN, (SOURCE,)).fetchone()[0]
-        # El "hoy" del guard sale del MISMO reloj que escribe observed_at
-        # (now() de la DB, constante dentro de la transaccion) con UTC FIJADO
-        # en la expresion: el skew Python-DB ya no puede romper el invariante
-        # observado >= hecho (hallazgo grok).
-        hoy = conn.execute(_SQL_FECHA_HOY).fetchone()[0]
 
     escritos = 0
     skips: Counter[str] = Counter()
     reportes: list[ResumenReporte] = []
+    perfil_actual, cfg_actual, report_id_actual = None, None, None
     try:
         with conn.transaction():
+            # El guard usa el MISMO reloj y transaccion que observed_at. Una
+            # lectura fallida tambien llega al sello de fallo de abajo.
+            hoy = conn.execute(_SQL_FECHA_HOY).fetchone()[0]
             for perfil, cfg, report_id, filas in descargados:
+                perfil_actual, cfg_actual, report_id_actual = perfil, cfg, report_id
                 # Dispatch por tabla (clave "tabla" solo la lleva el cfg de
                 # search terms): mismo camino, un solo dueno por tabla. Un
                 # valor desconocido es fail-closed, jamas "caer" al camino de
@@ -1847,6 +1929,7 @@ def sync_metrics(
                         skip_reason=resultado.skip_reason,
                     )
                 )
+                _registrar_resultado(conn, run_id, perfil, cfg, report_id, "written")
             _sellar_run(
                 conn,
                 run_id,
@@ -1863,6 +1946,15 @@ def sync_metrics(
         # sello TAMBIEN falla, se deja rastro en el log (patron sync_structure).
         try:
             with conn.transaction():
+                _registrar_resultado(
+                    conn,
+                    run_id,
+                    perfil_actual,
+                    cfg_actual,
+                    report_id_actual,
+                    "failed" if perfil_actual and cfg_actual else "global_failed",
+                    str(exc) or type(exc).__name__,
+                )
                 _sellar_run(
                     conn,
                     run_id,
