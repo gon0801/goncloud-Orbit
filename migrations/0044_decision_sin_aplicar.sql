@@ -94,7 +94,7 @@ COMMENT ON VIEW v_decision_huerfana IS
   'Decisiones aplicables de ciclos live YA CERRADOS sin NINGUN desenlace '
   '(ni aplicada, ni no-apply registrado, ni fila terminal en la cola). '
   'origen tiene TRES valores por precedencia: sin_registro (ciclo cerrado '
-  'ANTES de la migracion 0043: hueco historico conocido), en_cola (fila '
+  'ANTES de la migracion 0044: hueco historico conocido), en_cola (fila '
   'live NO terminal en pending_veto/released/applying: la decision sigue '
   'en vuelo en la cola, atorada pero visible, NO es un hueco) y huerfana '
   '(posterior: debio quedar registrada: auditar una a una). Toda decision '
@@ -110,24 +110,24 @@ GRANT SELECT ON v_decision_huerfana TO app_read, app_admin;
 DO $$
 BEGIN
     IF NOT has_table_privilege('app_decide', 'decision_sin_aplicar', 'INSERT') THEN
-        RAISE EXCEPTION '0043: app_decide debe poder registrar no-applies';
+        RAISE EXCEPTION '0044: app_decide debe poder registrar no-applies';
     END IF;
     IF has_table_privilege('app_decide', 'decision_sin_aplicar', 'UPDATE')
        OR has_table_privilege('app_decide', 'decision_sin_aplicar', 'DELETE') THEN
-        RAISE EXCEPTION '0043: decision_sin_aplicar es append-only (app_decide)';
+        RAISE EXCEPTION '0044: decision_sin_aplicar es append-only (app_decide)';
     END IF;
     IF has_table_privilege('app_admin', 'decision_sin_aplicar', 'UPDATE')
        OR has_table_privilege('app_admin', 'decision_sin_aplicar', 'DELETE') THEN
-        RAISE EXCEPTION '0043: decision_sin_aplicar es append-only (app_admin)';
+        RAISE EXCEPTION '0044: decision_sin_aplicar es append-only (app_admin)';
     END IF;
     IF has_table_privilege('app_ingest', 'decision_sin_aplicar', 'INSERT') THEN
-        RAISE EXCEPTION '0043: app_ingest no debe registrar no-applies';
+        RAISE EXCEPTION '0044: app_ingest no debe registrar no-applies';
     END IF;
     IF NOT has_table_privilege('app_read', 'decision_sin_aplicar', 'SELECT') THEN
-        RAISE EXCEPTION '0043: app_read debe leer decision_sin_aplicar';
+        RAISE EXCEPTION '0044: app_read debe leer decision_sin_aplicar';
     END IF;
     IF NOT has_table_privilege('app_read', 'v_decision_huerfana', 'SELECT') THEN
-        RAISE EXCEPTION '0043: app_read debe leer v_decision_huerfana';
+        RAISE EXCEPTION '0044: app_read debe leer v_decision_huerfana';
     END IF;
 END $$;
 

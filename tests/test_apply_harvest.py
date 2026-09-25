@@ -77,9 +77,9 @@ SQL14 = (
     Path(__file__).resolve().parent.parent / "migrations" / "0014_keyword_archivo_manual.sql"
 ).read_text(encoding="utf-8")
 
-# ADS D.1: la cadena de harvest incluye 0043 (decision_sin_aplicar).
-SQL43 = (
-    Path(__file__).resolve().parent.parent / "migrations" / "0043_decision_sin_aplicar.sql"
+# ADS D.1: la cadena de harvest incluye 0044 (decision_sin_aplicar).
+SQL44 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0044_decision_sin_aplicar.sql"
 ).read_text(encoding="utf-8")
 
 FAKE_CLIENT_ID = "fake-client-id-123"
@@ -123,7 +123,7 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL2)  # 0002: cola de cortes, ledger, sellos de quota
         conn.execute(SQL3)  # 0003: ads_optimizer_goal sin DEFAULT en piso/techo
         conn.execute(SQL14)  # 0014: ledger keyword_archivo_manual (BIDS 01 2.2)
-        conn.execute(SQL43)  # 0043 (D.1): decision_sin_aplicar + vista
+        conn.execute(SQL44)  # 0044 (D.1): decision_sin_aplicar + vista
         yield conn
     finally:
         if conn is not None:

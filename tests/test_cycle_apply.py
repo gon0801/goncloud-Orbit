@@ -76,9 +76,9 @@ SQL14 = (
     Path(__file__).resolve().parent.parent / "migrations" / "0014_keyword_archivo_manual.sql"
 ).read_text(encoding="utf-8")
 
-# ADS D.1: la cadena del ciclo incluye 0043 (decision_sin_aplicar).
-SQL43 = (
-    Path(__file__).resolve().parent.parent / "migrations" / "0043_decision_sin_aplicar.sql"
+# ADS D.1: la cadena del ciclo incluye 0044 (decision_sin_aplicar).
+SQL44 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0044_decision_sin_aplicar.sql"
 ).read_text(encoding="utf-8")
 
 FAKE_CLIENT_ID = "fake-client-id-123"
@@ -158,7 +158,7 @@ def _db_temporal(prefijo: str):
         # ADS PROTECCION C.5: resuelve_profile_id lee ads_report_result.
         conn.execute(SQL40)
         conn.execute(SQL42)
-        conn.execute(SQL43)  # 0043 (D.1): decision_sin_aplicar + vista
+        conn.execute(SQL44)  # 0044 (D.1): decision_sin_aplicar + vista
         yield conn, conectar_extra
     finally:
         if conn is not None:

@@ -236,7 +236,7 @@ MOTIVO_ESPERA_TARGET = "espera_target"
 MOTIVO_SIN_RESPUESTA = "sin_respuesta"
 MOTIVO_PERDIDA = "perdida"
 
-# ADS D.1: vocabulario CERRADO de decision_sin_aplicar (migracion 0043) —
+# ADS D.1: vocabulario CERRADO de decision_sin_aplicar (migracion 0044) —
 # UNA fuente en la app; el CHECK de la tabla es su espejo (test estatico y
 # test de la constraint viva en test_apply_schema los mantienen
 # sincronizados, mismo patron que KINDS_QUOTA <-> trigger). `ya_aplicada`
@@ -271,7 +271,7 @@ def registra_sin_aplicar(
     *,
     detalle: dict | None = None,
 ) -> None:
-    """Registra el desenlace "no aplicado" del ciclo EJECUTOR (0043).
+    """Registra el desenlace "no aplicado" del ciclo EJECUTOR (0044).
 
     Idempotente por PK (ON CONFLICT DO NOTHING): un re-run del mismo ciclo
     no duplica; otro ciclo ejecutor agrega su propia fila. El motivo se

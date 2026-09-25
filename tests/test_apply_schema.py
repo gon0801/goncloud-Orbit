@@ -807,19 +807,19 @@ def test_grants_con_rol_real_y_reactivacion_manual():
 
 
 # ===========================================================================
-# ADS D.1 (migracion 0043): decision_sin_aplicar — el desenlace "no aplicado"
+# ADS D.1 (migracion 0044): decision_sin_aplicar — el desenlace "no aplicado"
 # deja de ser invisible; v_decision_huerfana distingue hueco historico
 # (sin_registro) de decision que DEBIO quedar registrada (huerfana)
 # ===========================================================================
 
-SQL43 = (
-    Path(__file__).resolve().parents[1] / "migrations" / "0043_decision_sin_aplicar.sql"
+SQL44 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0044_decision_sin_aplicar.sql"
 ).read_text(encoding="utf-8")
 
 
 @contextmanager
 def _db_temporal_d1(prefijo: str):
-    """_db_temporal + 0043 (la DB de prueba ES la de produccion: cadena
+    """_db_temporal + 0044 (la DB de prueba ES la de produccion: cadena
     completa de migraciones que toca la fase de apply)."""
     from psycopg import sql as pgsql
 
@@ -834,7 +834,7 @@ def _db_temporal_d1(prefijo: str):
         conn.execute(SQL)  # 0001: roles, esquema sellado, grants
         conn.execute(SQL2)  # 0002: cola de cortes, ledger, sellos de quota
         conn.execute(SQL3)  # 0003: ads_optimizer_goal sin DEFAULT en piso/techo
-        conn.execute(SQL43)  # 0043 (D.1): decision_sin_aplicar + vista
+        conn.execute(SQL44)  # 0044 (D.1): decision_sin_aplicar + vista
         yield conn
     finally:
         if conn is not None:
@@ -875,13 +875,13 @@ def _ciclo(conn, *, mode: str = "live", hace_dias: int | None = None) -> int:
 
 
 def test_motivos_sin_aplicar_espejo_estatico_del_check():
-    """La constante de la app ESPEJA el CHECK de 0043 (mismo patron que
+    """La constante de la app ESPEJA el CHECK de 0044 (mismo patron que
     KINDS_QUOTA <-> trigger): se lee el IN (...) del FUENTE de la migracion,
     no una tupla redeclarada — un motivo nuevo sin CHECK (o al reves) deja
     esto rojo."""
     from app.apply import MOTIVOS_SIN_APLICAR
 
-    bloque = SQL43.split("motivo TEXT NOT NULL CHECK (motivo IN (", 1)[1].split("))", 1)[0]
+    bloque = SQL44.split("motivo TEXT NOT NULL CHECK (motivo IN (", 1)[1].split("))", 1)[0]
     lista = tuple(re.findall(r"'([a-z_]+)'", bloque))
     assert lista, "el CHECK del motivo no se encontro: revisar el parseo"
     assert lista == MOTIVOS_SIN_APLICAR, (
@@ -1038,7 +1038,7 @@ def test_vista_decision_huerfana_origen_y_desenlaces():
     La fila de cola live EN VUELO (pending_veto/released/applying) NO es
     desenlace NI hueco: origen 'en_cola' (r2-2: sigue visible como en vuelo,
     no se confunde con una decision que debio quedar registrada). La
-    precedencia importa: el ciclo previo a 0043 con fila en vuelo sigue
+    precedencia importa: el ciclo previo a 0044 con fila en vuelo sigue
     'sin_registro'."""
     with _db_temporal_d1("orbit_dsa_vista") as conn:
         ids = _semilla_d1(conn)
@@ -1110,7 +1110,7 @@ def test_vista_decision_huerfana_origen_y_desenlaces():
         dec_rel = _decision(conn, ciclo_rel, cfg, kw3, "pause")
         q_rel = _encolar(conn, dec_rel, kw3, "pause")
         _avanzar(conn, q_rel, "released")
-        # Precedencia (r2-2): ciclo PREVIO a 0043 con fila live en vuelo ->
+        # Precedencia (r2-2): ciclo PREVIO a 0044 con fila live en vuelo ->
         # 'sin_registro', NO 'en_cola' (el hueco historico manda sobre la cola).
         dec_vieja_cola = _decision(conn, ciclo_viejo, cfg, kw4, "pause")
         _encolar(conn, dec_vieja_cola, kw4, "pause")
@@ -1126,7 +1126,7 @@ def test_vista_decision_huerfana_origen_y_desenlaces():
             (dec_vieja_cola, "sin_registro"),
         ], (
             "las sin desenlace; la de fila EN VUELO sale 'en_cola' (no hueco) "
-            "y la del ciclo previo a 0043 'sin_registro' aunque tenga fila; "
+            "y la del ciclo previo a 0044 'sin_registro' aunque tenga fila; "
             "el veto (terminal), el resumen y el registro sacan a la "
             "decision de la vista"
         )

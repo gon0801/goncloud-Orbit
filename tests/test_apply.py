@@ -87,10 +87,10 @@ _skip_db = pytest.mark.skipif(
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 
-# ADS D.1: la cadena del aplicador incluye 0043 (decision_sin_aplicar); los
+# ADS D.1: la cadena del aplicador incluye 0044 (decision_sin_aplicar); los
 # tests del bloque D.1 assertan el registro del desenlace "no aplicado".
-SQL43 = (
-    Path(__file__).resolve().parents[1] / "migrations" / "0043_decision_sin_aplicar.sql"
+SQL44 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0044_decision_sin_aplicar.sql"
 ).read_text(encoding="utf-8")
 
 
@@ -126,7 +126,7 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL)  # 0001: roles, esquema sellado, grants
         conn.execute(SQL2)  # 0002: cola de cortes, ledger, sellos de quota
         conn.execute(SQL3)  # 0003: ads_optimizer_goal sin DEFAULT en piso/techo
-        conn.execute(SQL43)  # 0043 (D.1): decision_sin_aplicar + vista
+        conn.execute(SQL44)  # 0044 (D.1): decision_sin_aplicar + vista
         yield conn
     finally:
         if conn is not None:

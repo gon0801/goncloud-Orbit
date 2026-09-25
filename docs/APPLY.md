@@ -288,7 +288,7 @@ ese poder se necesita, es decisión nueva del dueño.
 NULL→valor una vez; `test_schema` declara la excepción; COUNT del tope
 testeado en 2.1.
 
-### 4.3 El desenlace "no aplicado": `decision_sin_aplicar` (0043, ADS D.1)
+### 4.3 El desenlace "no aplicado": `decision_sin_aplicar` (0044, ADS D.1)
 
 Toda decisión aplicable (`bid`/`pause`/`negative`/`harvest`) de un ciclo
 **live ya cerrado** tiene exactamente UN desenlace visible:
@@ -309,7 +309,7 @@ vocabulario pero **jamás escrita**: su desenlace ya es el resumen),
 
 **Auditoría:** `v_decision_huerfana` lista las decisiones live de ciclos
 cerrados SIN ninguno de los tres desenlaces, con `origen` en tres valores
-por precedencia: `sin_registro` (ciclo cerrado ANTES de la migración 0043:
+por precedencia: `sin_registro` (ciclo cerrado ANTES de la migración 0044:
 hueco histórico conocido), `en_cola` (fila live NO terminal en la cola —
 `pending_veto`/`released`/`applying`: la decisión sigue en vuelo, atorada
 pero visible, no es un hueco) y `huerfana` (posterior: debió quedar
