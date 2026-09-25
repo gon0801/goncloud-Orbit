@@ -38,6 +38,7 @@ def _corre_hoja(
     estado="ENABLED",
     bloqueada=False,
     inerte=False,
+    flag=True,
 ):
     corte = _agregado() if corte is None else corte
     ventanas = SimpleNamespace(bids=_agregado(orders=1, clicks=30, cost="50"), cortes=corte)
@@ -93,6 +94,7 @@ def _corre_hoja(
         inertes={4925} if inerte else set(),
         margen_plataforma=None,
         snapshot_margen={},
+        pause_sin_cooldown_bid=flag,
     )
     return pendientes, contadores, consultas
 
@@ -105,6 +107,17 @@ def test_4925_pause_madura_14_sep_pasa_bid_cooldown_sin_lookahead(monkeypatch):
     assert pendientes[0].inputs["target_procedencia"] == "goal_plataforma"
     assert contadores.decisiones == {"pause": 1}
     assert consultas == ["pause"]
+
+
+def test_flag_apagado_bloquea_pause_nueva_como_antes_de_b2(monkeypatch):
+    """B.2a: con el flag apagado rige el comportamiento pre-B.2 — el cooldown
+    generico (cualquier apply <7d) bloquea la PAUSE en el gate, sin consulta
+    por kind. Es la prueba de aislamiento: un deploy con el flag apagado NO
+    activa la PAUSE nueva."""
+    pendientes, contadores, consultas = _corre_hoja(monkeypatch, flag=False)
+    assert pendientes == []
+    assert contadores.skips_entidad == {"cooldown_7d": 1}
+    assert consultas == [None]
 
 
 @pytest.mark.parametrize(

@@ -288,6 +288,20 @@ def test_modo_desde_settings_fail_closed():
     assert g.modo_desde_settings({"ads_optimizer_mode": None}) == "off"
 
 
+def test_pause_sin_cooldown_bid_fail_closed():
+    """B.2a: solo JSON true habilita la PAUSE sin cooldown de BID. Sin clave
+    o cualquier otro valor -> False (fail-closed como modo_desde_settings:
+    una config corrupta JAMAS activa el comportamiento nuevo por accidente,
+    asi que un deploy no lo enciende sin el INSERT de H5)."""
+    assert g.pause_sin_cooldown_bid_desde_settings({}) is False
+    assert g.pause_sin_cooldown_bid_desde_settings({"otra_clave": True}) is False
+    assert g.pause_sin_cooldown_bid_desde_settings({"ads_pause_sin_cooldown_bid": True}) is True
+    assert g.pause_sin_cooldown_bid_desde_settings({"ads_pause_sin_cooldown_bid": False}) is False
+    assert g.pause_sin_cooldown_bid_desde_settings({"ads_pause_sin_cooldown_bid": None}) is False
+    assert g.pause_sin_cooldown_bid_desde_settings({"ads_pause_sin_cooldown_bid": "true"}) is False
+    assert g.pause_sin_cooldown_bid_desde_settings({"ads_pause_sin_cooldown_bid": 1}) is False
+
+
 # ---------------------------------------------------------------------------
 # Cooldown: guarda tz-aware (unitario, sin conn)
 # ---------------------------------------------------------------------------
