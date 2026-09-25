@@ -1,0 +1,20 @@
+# H5 Paso 1 — 2026-09-25T06:13:41Z (UTC), SHA 25bded042cd7600f4161f25b42b2d22d0b6c783b
+# NOTA: ventana de deploy 0.2 ELIMINADA por orden literal del operador
+# ("manda a la verga esa puta ventana ... jamas pares por una puta ventana",
+# 2026-09-25 ~06:10 UTC). Ejecucion fuera de la ex-ventana por orden expresa.
+
+$ INICIO_SHADOW=$(ssh goncloud date -u +%Y-%m-%dT%H:%M:%SZ); echo $INICIO_SHADOW
+INICIO_SHADOW=2026-09-25T06:13:41Z
+
+$ IDS_LIVE=$(ssh goncloud "$PSQL_READ -tA -c \"SELECT string_agg(id::text, ',') FROM ads_optimizer_goal WHERE mode='live';\""); echo $IDS_LIVE
+IDS_LIVE=6,7,4,5,11,9,10,8,12
+
+$ printf 'INICIO_SHADOW=%s\nIDS_LIVE=%s\n' "$INICIO_SHADOW" "$IDS_LIVE" > docs/evidencia/ads-proteccion-01/H5/inicio.txt
+$ cat docs/evidencia/ads-proteccion-01/H5/inicio.txt
+INICIO_SHADOW=2026-09-25T06:13:41Z
+IDS_LIVE=6,7,4,5,11,9,10,8,12
+
+$ [ "$(printf '%s' "$IDS_LIVE" | tr ',' '\n' | sort -n | paste -sd, -)" = "4,5,6,7,8,9,10,11,12" ] && echo CONJUNTO-OK
+CONJUNTO-OK
+
+EXIT=0
