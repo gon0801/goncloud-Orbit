@@ -39,6 +39,43 @@ function vetar(form) {
     });
 }
 
+// C.5: descarte de propuesta de campana. El boton abre el mini-form de
+// su fila y el submit hace fetch POST
+// /api/ads-optimizer/propuestas-campana/<id>/descartar con el token en el
+// header x-orbit-token (igual que el veto: la query string JAMAS autentica).
+// El descarte NO toca Amazon: cierra el episodio en Orbit y la campana sigue
+// ENABLED hasta la pausa manual.
+function descartar(form) {
+  var estado = form.querySelector("[data-estado]");
+  estado.textContent = "Enviando…";
+  var cuerpo = {
+    actor: form.elements.actor.value,
+  };
+  fetch("/api/ads-optimizer/propuestas-campana/" + form.dataset.descarte + "/descartar", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-orbit-token": form.elements.token.value,
+    },
+    body: JSON.stringify(cuerpo),
+  })
+    .then(function (resp) {
+      return resp.json().then(function (data) {
+        return { ok: resp.ok, data: data };
+      });
+    })
+    .then(function (r) {
+      if (r.ok) {
+        estado.textContent = "Descartada (propuesta " + (r.data.id || "?") + ").";
+      } else {
+        estado.textContent = "Error: " + (r.data.detail || r.data) + ".";
+      }
+    })
+    .catch(function () {
+      estado.textContent = "Error de red al descartar.";
+    });
+}
+
 document.addEventListener("DOMContentLoaded", function () {
   document.querySelectorAll("button[data-vetar]").forEach(function (boton) {
     boton.addEventListener("click", function () {
@@ -50,6 +87,18 @@ document.addEventListener("DOMContentLoaded", function () {
     form.addEventListener("submit", function (evento) {
       evento.preventDefault();
       vetar(form);
+    });
+  });
+  document.querySelectorAll("button[data-descartar]").forEach(function (boton) {
+    boton.addEventListener("click", function () {
+      var fila = document.getElementById("descarte-" + boton.dataset.descartar);
+      if (fila) fila.hidden = !fila.hidden;
+    });
+  });
+  document.querySelectorAll("form[data-descarte]").forEach(function (form) {
+    form.addEventListener("submit", function (evento) {
+      evento.preventDefault();
+      descartar(form);
     });
   });
 });

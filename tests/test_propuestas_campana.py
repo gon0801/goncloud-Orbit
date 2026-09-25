@@ -282,18 +282,24 @@ def test_una_propuesta_por_episodio_con_venta_tardia_y_reaparicion():
         )
         _sincroniza(conn, decidido=pausado, **kw)
         _sincroniza(conn, decidido=pausado + dt.timedelta(minutes=1), **kw)
+        # C.5: la open cuya campana lee PAUSED cierra como pausa EXTERNA
+        # (paused_external): snapshot + fecha, sin inferir autor ni
+        # causalidad. La PAUSED vista sin open previa sigue siendo
+        # paused_observed informativa (B2).
         assert conn.execute("SELECT status FROM ads_campaign_proposal ORDER BY id").fetchall() == [
             ("resolved",),
-            ("paused_observed",),
+            ("paused_external",),
         ]
         cierre = conn.execute(
-            "SELECT close_reason, close_evidence FROM ads_campaign_proposal "
-            "WHERE status = 'paused_observed'"
+            "SELECT close_reason, close_evidence, campaign_status FROM ads_campaign_proposal "
+            "WHERE status = 'paused_external'"
         ).fetchone()
-        assert cierre[0] == "estado_pausado_observado"
-        assert cierre[1]["policy_version"] == "ads-proteccion-01-c1"
-        assert cierre[1]["limite_relativo"] == "3"
-        assert cierre[1]["limite_exceso"] == "80"
+        assert cierre[0] == "estado_pausado_externo"
+        assert cierre[1]["cierre"]["policy_version"] == "ads-proteccion-01-c1"
+        assert cierre[1]["cierre"]["limite_relativo"] == "3"
+        assert cierre[1]["cierre"]["limite_exceso"] == "80"
+        assert cierre[1]["cierre"]["campaign_status"] == "PAUSED"
+        assert cierre[2] == "PAUSED"
 
 
 @pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres de prueba")

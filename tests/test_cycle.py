@@ -73,6 +73,9 @@ SQL15 = (
 SQL16 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0016_target_margen_correcciones.sql"
 ).read_text(encoding="utf-8")
+SQL40 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0040_ads_report_result.sql"
+).read_text(encoding="utf-8")
 SQL42 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0042_ads_campaign_proposal.sql"
 ).read_text(encoding="utf-8")
@@ -150,6 +153,9 @@ def _db_temporal(prefijo: str):
         # ORBIT 06 (2.3): el peldano margen_plataforma lee su vista en TX2.
         conn.execute(SQL15)
         conn.execute(SQL16)
+        # ADS PROTECCION C.5: resuelve_profile_id lee ads_report_result
+        # (perfil por plataforma para el readback mismo campaignId/profile).
+        conn.execute(SQL40)
         conn.execute(SQL42)
         yield conn, conectar_extra
     finally:
