@@ -228,6 +228,60 @@ MOTIVO_FALLO_HTTP = "fallo_http"
 MOTIVO_BID_INCOMPLETO = "bid_incompleto"
 MOTIVO_ENTIDAD_NO_DECISORA = "entidad_no_decisora"
 
+# ADS D.1: motivos de no-apply que nacen fuera de aplica_bids (la cola de
+# cortes y el hook de harvest los registran desde libera_vencidos).
+MOTIVO_SIN_QUOTA = "sin_quota"
+MOTIVO_SIN_RESPUESTA = "sin_respuesta"
+MOTIVO_PERDIDA = "perdida"
+
+# ADS D.1: vocabulario CERRADO de decision_sin_aplicar (migracion 0043) —
+# UNA fuente en la app; el CHECK de la tabla es su espejo (test estatico y
+# test de la constraint viva en test_apply_schema los mantienen
+# sincronizados, mismo patron que KINDS_QUOTA <-> trigger). `ya_aplicada`
+# esta en la lista pero JAMAS se escribe: su desenlace ya es
+# decision_application (grabarla la marcaria como no-aplicada).
+MOTIVOS_SIN_APLICAR = (
+    MOTIVO_MODO_NO_LIVE,
+    MOTIVO_YA_APLICADA,
+    MOTIVO_BID_INCOMPLETO,
+    MOTIVO_ENTIDAD_NO_DECISORA,
+    MOTIVO_TOPE_INTENTOS,
+    MOTIVO_FUERA_DE_CAP,
+    MOTIVO_FALLO_HTTP,
+    MOTIVO_SIN_QUOTA,
+    MOTIVO_SIN_RESPUESTA,
+    MOTIVO_PERDIDA,
+)
+
+_SQL_SIN_APLICAR = """
+INSERT INTO decision_sin_aplicar (decision_id, cycle_id, motivo, detalle)
+VALUES (%s, %s, %s, %s)
+ON CONFLICT (decision_id, cycle_id) DO NOTHING
+"""
+
+
+def registra_sin_aplicar(
+    conn: psycopg.Connection,
+    decision_id: int,
+    cycle_id: int,
+    motivo: str,
+    *,
+    detalle: dict | None = None,
+) -> None:
+    """Registra el desenlace "no aplicado" del ciclo EJECUTOR (0043).
+
+    Idempotente por PK (ON CONFLICT DO NOTHING): un re-run del mismo ciclo
+    no duplica; otro ciclo ejecutor agrega su propia fila. El motivo se
+    valida contra MOTIVOS_SIN_APLICAR ANTES de tocar la base (la tabla lo
+    refuerza con el CHECK espejo)."""
+    if motivo not in MOTIVOS_SIN_APLICAR:
+        raise ValueError(f"motivo fuera del vocabulario cerrado: {motivo}")
+    conn.execute(
+        _SQL_SIN_APLICAR,
+        (decision_id, cycle_id, motivo, Json(detalle) if detalle is not None else None),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Quota: motor, cap desde config, consumo atomico
 # ---------------------------------------------------------------------------
@@ -1269,16 +1323,27 @@ class Aplicador:
             modo = self.modo_efectivo(self._conn, decision, escalera_global=escalera_global)
             if modo != "live":
                 skips.append(MOTIVO_MODO_NO_LIVE)
+                registra_sin_aplicar(
+                    self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_MODO_NO_LIVE
+                )
                 continue
             if _ya_aplicada(self._conn, decision.id):
+                # Excepcion declarada (D.1): ya_aplicada NO se registra — su
+                # desenlace YA es decision_application.
                 skips.append(MOTIVO_YA_APLICADA)
                 continue
             if decision.new_value is None or decision.value_currency is None:
                 skips.append(MOTIVO_BID_INCOMPLETO)
+                registra_sin_aplicar(
+                    self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_BID_INCOMPLETO
+                )
                 continue
             identidad = _identidad(self._conn, decision.ad_entity_id)
             if identidad is None or identidad[0] not in _KINDS_DECISORAS:
                 skips.append(MOTIVO_ENTIDAD_NO_DECISORA)
+                registra_sin_aplicar(
+                    self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_ENTIDAD_NO_DECISORA
+                )
                 continue
             # GK5/QW2: el tope se chequea ANTES del cobro — la unidad NO se
             # quema en una decision ya a tope (el _ledger re-chequea igual
@@ -1287,11 +1352,17 @@ class Aplicador:
                 TOPE_INTENTOS
             ):
                 skips.append(MOTIVO_TOPE_INTENTOS)
+                registra_sin_aplicar(
+                    self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_TOPE_INTENTOS
+                )
                 continue
             usada, saturada = consume_quota_y_sello(self._conn, self._platform, "bid")
             if not usada:
                 # Bids fuera de cap = DESCARTADOS, jamas reintentados (8).
                 descartadas.append(MOTIVO_FUERA_DE_CAP)
+                registra_sin_aplicar(
+                    self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_FUERA_DE_CAP
+                )
                 continue
             if saturada:
                 # Preflight 1.4: la unidad que llevo used a cap dispara UN
@@ -1303,10 +1374,16 @@ class Aplicador:
             id_attempt = _ledger(self._conn, decision.id, "normal", payload, quota_cobrada=True)
             if id_attempt is None:
                 skips.append(MOTIVO_TOPE_INTENTOS)
+                registra_sin_aplicar(
+                    self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_TOPE_INTENTOS
+                )
                 continue
             resultado_bid = self._ejecuta_mutacion(decision, identidad, id_attempt)
             if resultado_bid is None:
                 skips.append(MOTIVO_FALLO_HTTP)
+                registra_sin_aplicar(
+                    self._conn, decision.id, self.cycle_id_ejecutor, MOTIVO_FALLO_HTTP
+                )
             elif resultado_bid:
                 aplicadas += 1
             else:
