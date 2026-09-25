@@ -112,6 +112,7 @@ DEFAULTS_POR_MONEDA: dict[str, tuple[Decimal, Decimal]] = {
 # Clave NUEVA de config_version.settings (sellada en esta task; la siembra
 # humana de 4.3 escribe la escalera global aqui; valores off|shadow|live).
 CLAVE_SETTING_MODO = "ads_optimizer_mode"
+CLAVE_SETTING_PAUSE_SIN_COOLDOWN_BID = "ads_pause_sin_cooldown_bid"
 
 # Encendido en ORBIT 04 2.4 (sellado 22: la tarea de integracion lo voltea):
 # con True, resuelve_modo YA NO degrada live->shadow — la fase de apply vive
@@ -416,6 +417,22 @@ def modo_desde_settings(settings: Mapping) -> str:
     if isinstance(valor, str) and valor in _ORDEN_MODO:
         return valor
     return "off"
+
+
+def pause_sin_cooldown_bid_desde_settings(settings: Mapping) -> bool:
+    """B.2a: True solo si config_version.settings trae JSON true bajo la
+    clave sellada ads_pause_sin_cooldown_bid. Fail-closed como
+    modo_desde_settings: sin clave, NULL o cualquier otro valor -> False
+    (una config corrupta jamas activa la PAUSE nueva por accidente, asi que
+    un deploy no la enciende sin el INSERT de H5). Se enciende insertando una
+    config_version nueva (append-only, la UPDATE esta prohibida):
+
+    INSERT INTO config_version (label, settings)
+    SELECT 'B.2a flag on (H5, go <cita>)',
+           settings || '{"ads_pause_sin_cooldown_bid": true}'::jsonb
+    FROM config_version ORDER BY id DESC LIMIT 1 RETURNING id;
+    """
+    return settings.get(CLAVE_SETTING_PAUSE_SIN_COOLDOWN_BID) is True
 
 
 def _chequea_modo(nombre: str, modo: str) -> None:
