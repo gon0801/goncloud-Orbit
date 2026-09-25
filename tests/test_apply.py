@@ -50,6 +50,7 @@ import os
 import socket
 from contextlib import contextmanager
 from decimal import Decimal
+from pathlib import Path
 
 import httpx
 import psycopg
@@ -72,6 +73,7 @@ from app.apply import (
     intentos_sin_sello,
     motor_quota,
     orden_bids,
+    registra_sin_aplicar,
     reversa_bid,
 )
 
@@ -84,6 +86,12 @@ _skip_db = pytest.mark.skipif(
     _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
+
+# ADS D.1: la cadena del aplicador incluye 0044 (decision_sin_aplicar); los
+# tests del bloque D.1 assertan el registro del desenlace "no aplicado".
+SQL44 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0044_decision_sin_aplicar.sql"
+).read_text(encoding="utf-8")
 
 
 def _fake_credentials() -> AdsCredentials:
@@ -118,6 +126,7 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL)  # 0001: roles, esquema sellado, grants
         conn.execute(SQL2)  # 0002: cola de cortes, ledger, sellos de quota
         conn.execute(SQL3)  # 0003: ads_optimizer_goal sin DEFAULT en piso/techo
+        conn.execute(SQL44)  # 0044 (D.1): decision_sin_aplicar + vista
         yield conn
     finally:
         if conn is not None:
@@ -1770,3 +1779,197 @@ def test_ledger_tope_normal_no_bloquea_hermanas_ni_reversas():
             (4, "hermana"),
             (5, "reversa"),
         ]
+
+
+# ===========================================================================
+# ADS D.1: el desenlace "no aplicado" de aplica_bids queda registrado en
+# decision_sin_aplicar con el ciclo EJECUTOR (no el decisor). Un test por
+# rama; ya_aplicada es la excepcion deliberada (su desenlace YA es
+# decision_application: grabarla la marcaria como no-aplicada).
+# ===========================================================================
+
+
+def test_registra_sin_aplicar_rechaza_motivo_fuera_del_vocabulario():
+    """El vocabulario es CERRADO tambien en la app (la base lo refuerza con el
+    CHECK): un motivo inventado revienta ANTES de tocar la conexion."""
+    with pytest.raises(ValueError, match="capricho"):
+        registra_sin_aplicar(None, 1, 1, "capricho")
+
+
+@_skip_db
+def test_sin_aplicar_fuera_de_cap_registra_el_bid_descartado():
+    """Cap 10 con 11 elegibles: los 10 primeros del orden sellado aplican y el
+    11o queda registrado (fuera_de_cap) con el ciclo EJECUTOR. Regla 9: sin el
+    registro, la fila no existe y el assert revienta; con el ciclo DECISOR en
+    vez del ejecutor, cycle_id seria ciclo_dec."""
+    with _db_temporal("orbit_apply_dsa_cap") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_bid": 10})
+        kws = [ids["kw"], ids["kw2"]]
+        for i in range(3, 12):
+            kw = _entidad(conn, "keyword", f"72{i:02d}", parent=ids["ag"])
+            conn.execute(
+                "INSERT INTO ad_entity_state (ad_entity_id, current_bid, bid_currency, status,"
+                " synced_at) VALUES (%s, 1.00, 'USD', 'ENABLED', now())",
+                (kw,),
+            )
+            kws.append(kw)
+        decs = [
+            _decision_bid(conn, ids["ciclo_dec"], ids["config"], kw, cost=f"{200 - 10 * i}.00")
+            for i, kw in enumerate(kws)
+        ]
+        remoto = {f"72{i:02d}": "0.85" for i in range(1, 12)}
+        handler, vistos = _handler_api(remoto)
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.aplicadas == 10
+        assert res.descartadas == [MOTIVO_FUERA_DE_CAP]
+        assert len(_puts(vistos)) == 10
+        descartado = decs[10]  # costo de ventana mas bajo: ultimo del orden
+        fila = conn.execute(
+            "SELECT cycle_id, motivo FROM decision_sin_aplicar WHERE decision_id = %s",
+            (descartado,),
+        ).fetchone()
+        assert fila == (ids["ciclo_ejec"], "fuera_de_cap")
+        assert conn.execute("SELECT count(*) FROM decision_sin_aplicar").fetchone()[0] == 1
+        assert (
+            conn.execute(
+                "SELECT used FROM apply_quota_state WHERE motor = %s",
+                (motor_quota("amazon_us", "bid"),),
+            ).fetchone()[0]
+            == 10
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM decision_application WHERE decision_id = %s",
+                (descartado,),
+            ).fetchone()[0]
+            == 0
+        ), "el descartado no tiene desenlace de aplicada"
+
+        # Re-run del MISMO ciclo ejecutor: ON CONFLICT DO NOTHING, sigue 1.
+        res2 = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+        assert res2.descartadas == [MOTIVO_FUERA_DE_CAP]
+        assert conn.execute("SELECT count(*) FROM decision_sin_aplicar").fetchone()[0] == 1
+
+
+@_skip_db
+def test_sin_aplicar_modo_no_live_registra_el_skip():
+    """Envelope live + goal shadow: el skip deja rastro (modo_no_live); antes
+    de D.1 la decision quedaba invisible (huérfana)."""
+    with _db_temporal("orbit_apply_dsa_modo") as conn:
+        ids = _semilla(conn, mode_ciclo_dec="live", goal_mode="shadow")
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], modo="live")
+        handler, vistos = _handler_api({"7201": "0.85"})
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.skips == [MOTIVO_MODO_NO_LIVE]
+        assert vistos == []
+        fila = conn.execute(
+            "SELECT cycle_id, motivo FROM decision_sin_aplicar WHERE decision_id = %s",
+            (dec,),
+        ).fetchone()
+        assert fila == (ids["ciclo_ejec"], "modo_no_live")
+
+
+@_skip_db
+def test_sin_aplicar_modo_no_live_no_registra_una_decision_ya_aplicada():
+    """Review IA #345 (M1): una decision que YA tiene decision_application
+    (verify_ok TRUE) y en el re-run cae en modo_no_live (goal pasado a shadow)
+    NO recibe fila en decision_sin_aplicar: su desenlace ya es aplicada y la
+    tabla nueva la contradiria."""
+    with _db_temporal("orbit_apply_dsa_modo_ya") as conn:
+        ids = _semilla(conn, mode_ciclo_dec="live", goal_mode="shadow")
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"], modo="live")
+        conn.execute(
+            "INSERT INTO decision_application (decision_id, confirmed_at, platform_ack,"
+            " verify_ok) VALUES (%s, now(), '{}'::jsonb, true)",
+            (dec,),
+        )
+        handler, vistos = _handler_api({"7201": "0.85"})
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.skips == [MOTIVO_MODO_NO_LIVE]
+        assert vistos == []
+        assert conn.execute("SELECT count(*) FROM decision_sin_aplicar").fetchone()[0] == 0
+
+
+@_skip_db
+def test_sin_aplicar_ya_aplicada_no_deja_fila():
+    """ya_aplicada esta en el vocabulario (es un motivo de skip real) pero NO
+    se graba: su desenlace YA es decision_application; una fila en
+    decision_sin_aplicar la contradiria (mutante: grabar ya_aplicada infla la
+    tabla y la vista de auditoria mentiria)."""
+    with _db_temporal("orbit_apply_dsa_ya") as conn:
+        ids = _semilla(conn)
+        _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"])
+        handler, vistos = _handler_api({"7201": "0.85"})
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+        assert res.aplicadas == 1
+        res2 = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res2.skips == [MOTIVO_YA_APLICADA]
+        assert len(_puts(vistos)) == 1
+        assert conn.execute("SELECT count(*) FROM decision_sin_aplicar").fetchone()[0] == 0
+
+
+@_skip_db
+def test_sin_aplicar_tope_intentos_registra_el_skip_sin_quemar_quota():
+    """3 intentos normales presembrados -> el aplicador salta (tope_intentos)
+    y lo REGISTRA; la quota queda intacta (sin fila del motor)."""
+    with _db_temporal("orbit_apply_dsa_tope") as conn:
+        ids = _semilla(conn)
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"])
+        for seq in (1, 2, 3):
+            conn.execute(
+                "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload,"
+                " quota_cobrada) VALUES (%s, %s, 'normal', '{}'::jsonb, true)",
+                (dec, seq),
+            )
+        handler, vistos = _handler_api({"7201": "0.85"})
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.skips == [MOTIVO_TOPE_INTENTOS]
+        assert vistos == []
+        fila = conn.execute(
+            "SELECT cycle_id, motivo FROM decision_sin_aplicar WHERE decision_id = %s",
+            (dec,),
+        ).fetchone()
+        assert fila == (ids["ciclo_ejec"], "tope_intentos")
+        assert conn.execute("SELECT count(*) FROM apply_quota_state").fetchone()[0] == 0
+
+
+@_skip_db
+def test_sin_aplicar_fallo_http_registra_el_skip():
+    """El rechazo >=400 sella el ledger (esa parte ya existia) Y deja la fila
+    de no-aplicado (fallo_http): sin ella la decision no tenia desenlace
+    visible fuera del ledger."""
+    with _db_temporal("orbit_apply_dsa_http") as conn:
+        ids = _semilla(conn)
+        dec = _decision_bid(conn, ids["ciclo_dec"], ids["config"], ids["kw"])
+        vistos: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return _token_response()
+            vistos.append(request)
+            return httpx.Response(400, json={"detail": "INVALID_BID"})
+
+        ap = _aplicador(conn, handler, ids["ciclo_ejec"])
+        res = ap.aplica_bids(bids_del_ciclo(conn, ids["ciclo_dec"]), escalera_global="live")
+
+        assert res.skips == [MOTIVO_FALLO_HTTP]
+        fila = conn.execute(
+            "SELECT cycle_id, motivo FROM decision_sin_aplicar WHERE decision_id = %s",
+            (dec,),
+        ).fetchone()
+        assert fila == (ids["ciclo_ejec"], "fallo_http")

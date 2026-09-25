@@ -119,7 +119,9 @@ MOTIVO_YA_NO_CALIFICA = "ya_no_califica"
 MOTIVO_ENTIDAD_NO_VIVA = "entidad_no_viva"
 MOTIVO_REACTIVACION_MANUAL = "reactivacion_manual"
 MOTIVO_MODO_NO_LIVE = "modo_no_live"
-MOTIVO_ESPERA_TARGET = "espera_target"
+# ADS D.1: el literal vive en apply.MOTIVO_ESPERA_TARGET (vocabulario de
+# decision_sin_aplicar, UNA fuente); este modulo lo reexporta como alias.
+MOTIVO_ESPERA_TARGET = apply.MOTIVO_ESPERA_TARGET
 # CAMPANA ACTIVA 01 · 1.6: alias de apply.MOTIVO_CAMPANA/GRUPO_NO_ENABLED
 # (la funcion compartida del gate vive en apply, dueno del write client; cycle
 # y los tests siguen importando de AQUI): un corte cuya campaña o ad group
@@ -1066,6 +1068,7 @@ def libera_vencidos(
     *,
     ahora: dt.datetime,
     aplicador: Aplicador,
+    cycle_id: int | None = None,
 ) -> ResultadoLiberacion:
     """Barrido FIFO de las filas vencidas (pending_veto, modo live, vence_el
     <= ahora; por encolado_at/id) Y de las released no terminales que
@@ -1100,8 +1103,23 @@ def libera_vencidos(
     la UNICA unidad de la operacion logica la cobra el hook. GK3
     (cross-review): si el LIST fresco de la re-validacion de una fila muere
     (AdsApiError), ESA fila queda released con nota y el FIFO continua con
-    las demas — una entidad muerta NO aborta el barrido."""
+    las demas — una entidad muerta NO aborta el barrido.
+
+    ADS D.1: con `cycle_id` (el ciclo EJECUTOR; None = no registra, compat
+    con callers viejos) los no-applies del barrido quedan en
+    decision_sin_aplicar: sin_quota (cola y hook harvest), espera_target
+    (economica sin target confiable que espera en released), sin_respuesta
+    (LIST de re-validacion muerto) y perdida (claim del harvest perdido
+    contra un veto). Los DESCARTES no se graban: su desenlace ya es la fila
+    terminal discarded + discard_motivo."""
     filas = [FilaCola(*f) for f in conn.execute(_SQL_VENCIDAS, (platform, ahora)).fetchall()]
+
+    def _registra(fila: FilaCola, motivo: str) -> None:
+        if cycle_id is not None and fila.decision_id is not None:
+            apply.registra_sin_aplicar(
+                conn, fila.decision_id, cycle_id, motivo, detalle={"kind": fila.kind}
+            )
+
     liberadas = aplicadas = fallidas = sin_quota = carreras = sin_respuesta = 0
     espera_target = 0
     descartadas: list[str] = []
@@ -1134,12 +1152,14 @@ def libera_vencidos(
             # con las demas; una entidad muerta NO degrada el ciclo. Los 5xx
             # de las MUTACIONES siguen SUBIENDO (sellado 8).
             sin_respuesta += 1
+            _registra(fila, apply.MOTIVO_SIN_RESPUESTA)
             continue
         if motivo == MOTIVO_ESPERA_TARGET:
             # Obs4: la fila economica sin target confiable (pero CON goal
             # que puede volver) queda released y reintenta al ciclo
             # siguiente; sigue vetable. No se consume cuota ni claim.
             espera_target += 1
+            _registra(fila, MOTIVO_ESPERA_TARGET)
             continue
         if motivo is not None:
             conn.execute(_SQL_DESCARTA, (motivo, fila.id, "released"))
@@ -1162,12 +1182,15 @@ def libera_vencidos(
                 fallidas += 1
             elif resultado_h.estado == "perdida":
                 carreras += 1
+                _registra(fila, apply.MOTIVO_PERDIDA)
             else:
                 sin_quota += 1
+                _registra(fila, apply.MOTIVO_SIN_QUOTA)
             continue
         usada, saturada = consume_quota_y_sello(conn, platform, fila.kind)
         if not usada:
             sin_quota += 1
+            _registra(fila, apply.MOTIVO_SIN_QUOTA)
             continue  # queda en released: espera FIFO y SIGUE vetable
         if saturada:
             # Preflight 1.4 (D3a): el cobro que llevo used a cap es UN evento

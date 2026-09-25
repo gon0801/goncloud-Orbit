@@ -57,6 +57,7 @@ import os
 import socket
 from contextlib import contextmanager
 from decimal import Decimal
+from pathlib import Path
 
 import httpx
 import psycopg
@@ -91,6 +92,11 @@ _skip_db = pytest.mark.skipif(
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 
+# ADS D.1: la cadena de la cola incluye 0044 (decision_sin_aplicar).
+SQL44 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0044_decision_sin_aplicar.sql"
+).read_text(encoding="utf-8")
+
 
 # ---------------------------------------------------------------------------
 # Patron _db_temporal de test_apply (COPIADO; aplica 0001 + 0002)
@@ -112,6 +118,7 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL)  # 0001: roles, esquema sellado, grants
         conn.execute(SQL2)  # 0002: cola de cortes, ledger, sellos de quota
         conn.execute(SQL3)  # 0003: ads_optimizer_goal sin DEFAULT en piso/techo
+        conn.execute(SQL44)  # 0044 (D.1): decision_sin_aplicar + vista
         yield conn
     finally:
         if conn is not None:
@@ -2099,3 +2106,244 @@ def test_hay_goal_detecta_goal_y_su_ausencia_en_db():
         assert cola._hay_goal(conn, "amazon_us", ids["kw"]) is True
         kw_sin_estado = _entidad(conn, "keyword", "7209", parent=ids["ag"])
         assert cola._hay_goal(conn, "amazon_us", kw_sin_estado) is False
+
+
+# ===========================================================================
+# ADS D.1: libera_vencidos registra el desenlace "no aplicado" del ciclo
+# (cycle_id del EJECUTOR; None = no registra, compat con los callers viejos).
+# Los descartes (_SQL_DESCARTA) NO se graban: su desenlace YA es la fila
+# terminal discarded + discard_motivo.
+# ===========================================================================
+
+
+@_skip_db
+def test_sin_quota_registra_la_fila_que_espera_fifo():
+    """Cap pause=1 con dos vencidas: la segunda espera released y su decision
+    queda REGISTRADA (sin_quota, ciclo ejecutor). Re-run del MISMO ciclo no
+    duplica (PK + ON CONFLICT); otro ciclo ejecutor SI agrega su fila."""
+    with _db_temporal("orbit_cola_dsa_quota") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_pause": 1})
+        d = ids["ahora"]
+        for entidad in (ids["kw"], ids["kw2"]):
+            for fecha in _fechas(
+                d.date() - dt.timedelta(days=28), d.date() - dt.timedelta(days=11)
+            ):
+                # CORTES 03: la pause SOBREVIVE la re-validacion.
+                _metrica(conn, ids["run"], entidad, fecha, clicks=7, cost=3, orders=0)
+        dec1 = _decision_corte(conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause")
+        _encola_fila(
+            conn,
+            dec1,
+            ids["kw"],
+            "pause",
+            encolado=d - dt.timedelta(days=3),
+            payload=_payload_pause("7201"),
+        )
+        ciclo2 = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        dec2 = _decision_corte(conn, ciclo2, ids["config"], ids["kw2"], "pause")
+        _encola_fila(
+            conn,
+            dec2,
+            ids["kw2"],
+            "pause",
+            encolado=d - dt.timedelta(days=2),
+            payload=_payload_pause("7202"),
+        )
+        handler, _vistos = _handler_cortes()
+
+        res = libera_vencidos(
+            conn,
+            "amazon_us",
+            ahora=d,
+            aplicador=_aplicador(conn, handler, ids["ciclo_ejec"]),
+            cycle_id=ids["ciclo_ejec"],
+        )
+
+        assert res.aplicadas == 1 and res.sin_quota == 1
+        fila = conn.execute(
+            "SELECT cycle_id, motivo, detalle FROM decision_sin_aplicar WHERE decision_id = %s",
+            (dec2,),
+        ).fetchone()
+        assert fila == (ids["ciclo_ejec"], "sin_quota", {"kind": "pause"})
+        assert conn.execute("SELECT count(*) FROM decision_sin_aplicar").fetchone()[0] == 1, (
+            "la aplicada NO deja fila (su desenlace es decision_application)"
+        )
+
+        # Re-run del MISMO ciclo ejecutor: no duplica.
+        res2 = libera_vencidos(
+            conn,
+            "amazon_us",
+            ahora=d,
+            aplicador=_aplicador(conn, handler, ids["ciclo_ejec"]),
+            cycle_id=ids["ciclo_ejec"],
+        )
+        assert res2.sin_quota == 1
+        assert conn.execute("SELECT count(*) FROM decision_sin_aplicar").fetchone()[0] == 1
+
+        # El ciclo del dia siguiente SI agrega su propia fila.
+        ciclo3 = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        res3 = libera_vencidos(
+            conn,
+            "amazon_us",
+            ahora=d,
+            aplicador=_aplicador(conn, handler, ciclo3),
+            cycle_id=ciclo3,
+        )
+        assert res3.sin_quota == 1
+        assert conn.execute("SELECT count(*) FROM decision_sin_aplicar").fetchone()[0] == 2
+
+
+@_skip_db
+def test_espera_target_registra_la_fila_que_espera(monkeypatch):
+    """D.1 r2-3: la economica sin target confiable deja UNA fila
+    espera_target por ciclo ejecutor (re-run no duplica, ciclo nuevo agrega),
+    cero quota cobrada y la fila de la cola sigue released."""
+    import app.apply_cola as cola
+
+    with _db_temporal("orbit_cola_dsa_espera") as conn:
+        ids = _semilla(conn)
+        dec = _decision_corte(
+            conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause", motivo="pause_economica"
+        )
+        q = _encola_fila(conn, dec, ids["kw"], "pause", payload=_payload_pause("7201"))
+        handler, _vistos = _handler_cortes()
+        monkeypatch.setattr(cola, "_revalida", lambda *_: cola.MOTIVO_ESPERA_TARGET)
+
+        def cuota_prohibida(*_):
+            raise AssertionError("No debe cobrar cuota al esperar target")
+
+        monkeypatch.setattr(cola, "consume_quota_y_sello", cuota_prohibida)
+        res = libera_vencidos(
+            conn,
+            "amazon_us",
+            ahora=ids["ahora"],
+            aplicador=_aplicador(conn, handler, ids["ciclo_ejec"]),
+            cycle_id=ids["ciclo_ejec"],
+        )
+        assert res.espera_target == 1 and res.descartadas == []
+        fila = conn.execute(
+            "SELECT cycle_id, motivo, detalle FROM decision_sin_aplicar WHERE decision_id = %s",
+            (dec,),
+        ).fetchone()
+        assert fila == (ids["ciclo_ejec"], "espera_target", {"kind": "pause"}), fila
+        assert conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone() == (
+            "released",
+        )
+        assert conn.execute("SELECT count(*) FROM apply_quota_state").fetchone()[0] == 0
+
+        # Re-run del MISMO ciclo ejecutor: no duplica (PK + ON CONFLICT).
+        res2 = libera_vencidos(
+            conn,
+            "amazon_us",
+            ahora=ids["ahora"],
+            aplicador=_aplicador(conn, handler, ids["ciclo_ejec"]),
+            cycle_id=ids["ciclo_ejec"],
+        )
+        assert res2.espera_target == 1
+        assert conn.execute("SELECT count(*) FROM decision_sin_aplicar").fetchone()[0] == 1
+
+        # El ciclo siguiente SI agrega su propia fila.
+        ciclo3 = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        res3 = libera_vencidos(
+            conn,
+            "amazon_us",
+            ahora=ids["ahora"],
+            aplicador=_aplicador(conn, handler, ciclo3),
+            cycle_id=ciclo3,
+        )
+        assert res3.espera_target == 1
+        assert conn.execute("SELECT count(*) FROM decision_sin_aplicar").fetchone()[0] == 2
+
+
+@_skip_db
+def test_sin_respuesta_registra_la_fila_del_list_muerto():
+    """GK3 + D.1: el LIST fresco de la pause muere (404) -> la fila queda
+    released y la decision queda REGISTRADA (sin_respuesta) del ciclo
+    ejecutor; la negative que SI se proceso no deja fila."""
+    with _db_temporal("orbit_cola_dsa_404") as conn:
+        ids = _semilla(
+            conn,
+            caps={"ads_apply_cap_amazon_us_pause": 2, "ads_apply_cap_amazon_us_negative": 5},
+        )
+        d = ids["ahora"]
+        dec_pause = _decision_corte(conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause")
+        _encola_fila(conn, dec_pause, ids["kw"], "pause", payload=_payload_pause("7201"))
+        for fecha in _fechas(d.date() - dt.timedelta(days=40), d.date() - dt.timedelta(days=23)):
+            _termino_obs(
+                conn, ids["run"], ids["ag"], "zapato blanco", fecha, clicks=4, cost=4, orders=0
+            )
+        dec_neg = _decision_corte(
+            conn, ids["ciclo_dec"], ids["config"], ids["ag"], "negative", term="zapato blanco"
+        )
+        _encola_fila(
+            conn,
+            dec_neg,
+            ids["ag"],
+            "negative",
+            term="zapato blanco",
+            encolado=d - dt.timedelta(days=2),
+            payload=_payload_negative("7101", "7001", "zapato blanco"),
+        )
+        handler, _vistos = _handler_cortes(get_404=("7201",))
+
+        res = libera_vencidos(
+            conn,
+            "amazon_us",
+            ahora=d,
+            aplicador=_aplicador(conn, handler, ids["ciclo_ejec"]),
+            cycle_id=ids["ciclo_ejec"],
+        )
+
+        assert res.revalida_sin_respuesta == 1 and res.aplicadas == 1
+        filas = conn.execute(
+            "SELECT decision_id, cycle_id, motivo FROM decision_sin_aplicar ORDER BY decision_id"
+        ).fetchall()
+        assert filas == [(dec_pause, ids["ciclo_ejec"], "sin_respuesta")]
+
+
+@_skip_db
+def test_descarte_por_revalidacion_no_graba_sin_aplicar():
+    """El descarte YA tiene su desenlace en la cola (discarded +
+    discard_motivo): grabarlo TAMBIEN en decision_sin_aplicar duplicaria el
+    rastro. Regla 9: una implementacion que grabara los descartes dejaria la
+    fila aqui y este test reventaria."""
+    with _db_temporal("orbit_cola_dsa_descarte") as conn:
+        ids = _semilla(
+            conn,
+            caps={"ads_apply_cap_amazon_us_harvest": 2, "ads_apply_cap_amazon_us_negative": 5},
+        )
+        d = ids["ahora"]
+        # SIN _termino_obs: el termino no existe en la ventana fresca.
+        dec = _decision_corte(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            ids["ag"],
+            "harvest",
+            term="buen termino",
+            valor=0.75,
+            moneda="USD",
+        )
+        q = _encola_fila(conn, dec, ids["ag"], "harvest", term="buen termino", payload={})
+        handler, _vistos = _handler_cortes()
+
+        res = libera_vencidos(
+            conn,
+            "amazon_us",
+            ahora=d,
+            aplicador=_aplicador(conn, handler, ids["ciclo_ejec"]),
+            cycle_id=ids["ciclo_ejec"],
+        )
+
+        assert res.descartadas == [MOTIVO_YA_NO_CALIFICA]
+        fila = conn.execute(
+            "SELECT estado, discard_motivo FROM apply_queue WHERE id = %s", (q,)
+        ).fetchone()
+        assert fila == ("discarded", MOTIVO_YA_NO_CALIFICA)
+        assert conn.execute("SELECT count(*) FROM decision_sin_aplicar").fetchone()[0] == 0

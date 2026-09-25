@@ -76,6 +76,11 @@ SQL14 = (
     Path(__file__).resolve().parent.parent / "migrations" / "0014_keyword_archivo_manual.sql"
 ).read_text(encoding="utf-8")
 
+# ADS D.1: la cadena del ciclo incluye 0044 (decision_sin_aplicar).
+SQL44 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0044_decision_sin_aplicar.sql"
+).read_text(encoding="utf-8")
+
 FAKE_CLIENT_ID = "fake-client-id-123"
 FAKE_CLIENT_SECRET = "fake-client-secret-XYZ"
 FAKE_REFRESH_TOKEN = "fake-refresh-token-ABC"
@@ -153,6 +158,7 @@ def _db_temporal(prefijo: str):
         # ADS PROTECCION C.5: resuelve_profile_id lee ads_report_result.
         conn.execute(SQL40)
         conn.execute(SQL42)
+        conn.execute(SQL44)  # 0044 (D.1): decision_sin_aplicar + vista
         yield conn, conectar_extra
     finally:
         if conn is not None:
@@ -1067,3 +1073,41 @@ def test_evidencia_economica_sobrevive_aborto_despues_de_liberar(secrets_falsos)
         evidencias = notas["apply"]["revalidaciones_economicas"]
         assert [e["decision_id"] for e in evidencias] == [dec]
         assert evidencias[0]["resultado"] == "califica"
+
+
+# ===========================================================================
+# ADS D.1: el ciclo E2E registra el no-apply (modo_no_live) en
+# decision_sin_aplicar con el ciclo EJECUTOR (res.cycle_id) — prueba el
+# wiring cycle.py -> aplica_bids, no solo la unidad.
+# ===========================================================================
+
+
+@_skip_db
+def test_envelope_live_goal_shadow_registra_modo_no_live(secrets_falsos):
+    """Espejo del residual sellado (seccion 7) + D.1: la decision bid sigue
+    congelada 'live' y SIN HTTP, pero ahora deja su desenlace visible:
+    (decision, res.cycle_id, modo_no_live). Regla 9: sin el registro la fila
+    no existe; con el ciclo equivocado (el DECISOR, que aqui ES el ejecutor
+    porque el ciclo decide y aplica) no distinguiria — por eso el assert de
+    cycle_id usa res.cycle_id y el mutante real lo cazan los tests unitarios
+    de test_apply (ciclo_dec != ciclo_ejec)."""
+    with _db_temporal("orbit_cyc_dsa_modo") as (conn, _c):
+        _siembra_maestra(conn, escalera="live")
+        _config_live_caps(conn)
+        conn.execute("UPDATE ads_optimizer_goal SET mode = 'shadow'")
+        handler, vistos = _handler({"9201": "0.75"})
+        res = _corre(conn, factory=_fabrica_real_mock(handler))
+
+        assert res.status == "done"
+        assert _mutaciones(vistos) == []
+        dec = conn.execute(
+            "SELECT id FROM decision WHERE cycle_id = %s AND kind = 'bid'", (res.cycle_id,)
+        ).fetchone()[0]
+        fila = conn.execute(
+            "SELECT cycle_id, motivo FROM decision_sin_aplicar WHERE decision_id = %s",
+            (dec,),
+        ).fetchone()
+        assert fila == (res.cycle_id, "modo_no_live")
+        # Los cortes shadow encolados NO graban: su fila de cola (modo
+        # shadow, pending_veto) ya es su desenlace visible.
+        assert conn.execute("SELECT count(*) FROM decision_sin_aplicar").fetchone()[0] == 1

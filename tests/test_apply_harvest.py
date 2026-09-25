@@ -77,6 +77,11 @@ SQL14 = (
     Path(__file__).resolve().parent.parent / "migrations" / "0014_keyword_archivo_manual.sql"
 ).read_text(encoding="utf-8")
 
+# ADS D.1: la cadena de harvest incluye 0044 (decision_sin_aplicar).
+SQL44 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0044_decision_sin_aplicar.sql"
+).read_text(encoding="utf-8")
+
 FAKE_CLIENT_ID = "fake-client-id-123"
 FAKE_CLIENT_SECRET = "fake-client-secret-XYZ"
 FAKE_REFRESH_TOKEN = "fake-refresh-token-ABC"
@@ -118,6 +123,7 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL2)  # 0002: cola de cortes, ledger, sellos de quota
         conn.execute(SQL3)  # 0003: ads_optimizer_goal sin DEFAULT en piso/techo
         conn.execute(SQL14)  # 0014: ledger keyword_archivo_manual (BIDS 01 2.2)
+        conn.execute(SQL44)  # 0044 (D.1): decision_sin_aplicar + vista
         yield conn
     finally:
         if conn is not None:
@@ -2466,3 +2472,86 @@ def test_reconcilia_harvest_campana_pausada_fila_released_descarta_pre_claim():
         ).fetchone()
         assert fila == ("discarded", "campana_no_enabled")
         assert conn.execute("SELECT count(*) FROM apply_quota_state").fetchone()[0] == 0
+
+
+# ===========================================================================
+# ADS D.1: los no-applies del hook harvest (via libera_vencidos con
+# cycle_id) quedan registrados: sin_quota (cap 0) y perdida (claim perdido
+# contra un veto en carrera).
+# ===========================================================================
+
+
+@_skip_db
+def test_sin_quota_harvest_registra_la_decision():
+    """Cap de harvest en 0: el job nace pending igual, la fila queda released
+    Y la decision queda REGISTRADA (sin_quota, ciclo ejecutor). Antes de D.1
+    la espera FIFO era invisible fuera de la cola."""
+    with _db_temporal("orbit_har_dsa_quota") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_harvest": 0})
+        dec = _decision_harvest(conn, ids["ciclo_dec"], ids["config"], ids["ag"])
+        _encola_fila(conn, dec, ids["ag"], term=TERMINO)
+        handler, vistos = _handler_harvest()
+
+        res = libera_vencidos(
+            conn,
+            "amazon_us",
+            ahora=dt.datetime.now(dt.UTC),
+            aplicador=_aplicador(conn, handler, ids["ciclo_ejec"]),
+            cycle_id=ids["ciclo_ejec"],
+        )
+
+        assert res.sin_quota == 1
+        assert vistos == []
+        fila = conn.execute(
+            "SELECT cycle_id, motivo, detalle FROM decision_sin_aplicar WHERE decision_id = %s",
+            (dec,),
+        ).fetchone()
+        assert fila == (ids["ciclo_ejec"], "sin_quota", {"kind": "harvest"})
+
+
+@_skip_db
+def test_perdida_harvest_registra_el_claim_perdido(monkeypatch):
+    """El veto gana la carrera ENTRE el cobro de la unica unidad y el claim
+    del harvest (patron de test_veto_en_released_gana_limpio_contra_claim de
+    la cola, sobre app.apply.consume_quota_y_sello que es el hook que cobra):
+    estado 'perdida' -> la decision queda REGISTRADA con ese motivo."""
+    import app.apply
+    from app.apply import consume_quota_y_sello as _cqs
+
+    with _db_temporal("orbit_har_dsa_perdida") as conn:
+        ids = _semilla(conn)
+        dec = _decision_harvest(conn, ids["ciclo_dec"], ids["config"], ids["ag"])
+        _encola_fila(conn, dec, ids["ag"], term=TERMINO)
+        handler, vistos = _handler_harvest()
+
+        def quota_que_veta(conn, platform, kind):
+            # El admin veta TODA fila released en el instante del cobro: la
+            # carrera que el claim atomico del harvest tiene que perder limpio.
+            conn.execute("SET ROLE app_admin")
+            try:
+                conn.execute(
+                    "UPDATE apply_queue SET estado = 'vetoed', vetoed_at = now(),"
+                    " vetoed_by = 'dueno', vence_el = now() + interval '30 days'"
+                    " WHERE estado = 'released'"
+                )
+            finally:
+                conn.execute("RESET ROLE")
+            return _cqs(conn, platform, kind)
+
+        monkeypatch.setattr(app.apply, "consume_quota_y_sello", quota_que_veta)
+
+        res = libera_vencidos(
+            conn,
+            "amazon_us",
+            ahora=dt.datetime.now(dt.UTC),
+            aplicador=_aplicador(conn, handler, ids["ciclo_ejec"]),
+            cycle_id=ids["ciclo_ejec"],
+        )
+
+        assert res.carreras_perdidas == 1 and res.aplicadas == 0
+        assert _mutaciones(vistos) == [], "el perdedor del claim NO aplica"
+        fila = conn.execute(
+            "SELECT cycle_id, motivo FROM decision_sin_aplicar WHERE decision_id = %s",
+            (dec,),
+        ).fetchone()
+        assert fila == (ids["ciclo_ejec"], "perdida")

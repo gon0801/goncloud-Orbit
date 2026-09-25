@@ -2087,7 +2087,7 @@ def _fase_apply(
             )
             caps_saturados += res_bids.caps_saturados
             res_cola = apply_cola.libera_vencidos(
-                conn, platform, ahora=decided_at, aplicador=aplicador
+                conn, platform, ahora=decided_at, aplicador=aplicador, cycle_id=cycle_id
             )
             alertas_harvest += res_cola.alertas
             caps_saturados += res_cola.caps_saturados
