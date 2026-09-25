@@ -791,6 +791,11 @@ def _pendiente_bid(
         },
         "goal": _goal_json(goal, PLATAFORMAS_MONEDA[platform]),
         "target_acos_pct_usado": _dec_str(target),
+        # La elegibilidad de PAUSE frente al ultimo BID no se deduce del
+        # resultado puro de decide_bid. Congelarla permite interpretar una
+        # decision posterior sin aplicar retrospectivamente esta politica
+        # a una decision de la era anterior.
+        "cooldown_policy_version": "pause_after_bid_v1",
         # ORBIT 06 2.3: peldano ganador + snapshot SOLO si gana el margen
         # (replay no lee estas claves: reproduce() intacto).
         "target_procedencia": procedencia,
