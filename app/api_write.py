@@ -51,10 +51,11 @@ from typing import Annotated, Literal
 
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import Path as RutaPath
 from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
-from app import apply, config_write, goals_write
+from app import apply, config_write, goals_write, propuestas_campana
 from app.db import OrbitDbError, connect
 from app.redaction import install_scrub_filter, register_secret
 
@@ -150,6 +151,16 @@ class CuerpoVeto(BaseModel):
     queue_id: int = Field(ge=1)
     actor: str = Field(min_length=1, max_length=200)
     dias: int = Field(default=VENCIMIENTO_VETO_DEFAULT_DIAS, ge=1, le=365)
+
+
+class CuerpoDescartePropuesta(BaseModel):
+    """Descarte manual de una propuesta de campana (ADS PROTECCION C.5):
+    solo el actor humano que la reviso (el strip/vacio lo valida la
+    funcion: "   " pasa el min_length de pydantic). Sin dias ni
+    vencimiento: el descarte cierra el episodio (dismissed) y solo una
+    ventana sin riesgo observada habilita uno nuevo (reiniciar/abrir)."""
+
+    actor: str = Field(min_length=1, max_length=200)
 
 
 class CuerpoReversaBid(BaseModel):
@@ -266,6 +277,42 @@ def veto(
         "vetoed_at": fila["vetoed_at"].isoformat(),
         "vetoed_by": fila["vetoed_by"],
     }
+
+
+# C.5: descarte de propuesta de campana (canal visible del runbook,
+# Decisiones 2). Misma auth que el veto (token solo header + DSN admin):
+# 0043 da a app_admin UPDATE solo en las 5 columnas del cierre humano
+# (status, closed_at, last_seen_at, close_reason, close_evidence) — sin
+# INSERT ni columnas de dinero (candado en test_cierre_campana). El descarte
+# NO muta Amazon: descartar_propuesta no construye cliente HTTP y hace su
+# propio commit (la conexion del endpoint no es autocommit).
+_ERRORES_DESCARTE: dict[type[Exception], int] = {
+    propuestas_campana.PropuestaInexistente: 404,
+    propuestas_campana.PropuestaYaCerrada: 409,
+}
+
+
+@router.post("/propuestas-campana/{proposal_id}/descartar")
+def descartar_propuesta(
+    _token: Annotated[str, Depends(exige_token)],
+    conn: ConexionEscritura,
+    proposal_id: Annotated[int, RutaPath(ge=1)],
+    cuerpo: CuerpoDescartePropuesta,
+) -> dict:
+    """Descarta una propuesta open: dismissed con actor y fecha.
+
+    Solo open es descartable (404 inexistente; 409 cerrada/descartada/
+    pausada: repetir no duplica ni reabre). No toca Amazon ni apply_queue:
+    el episodio se cierra en Orbit y la campana sigue ENABLED hasta que
+    David la pause a mano (C.5)."""
+    try:
+        return propuestas_campana.descartar_propuesta(conn, proposal_id, cuerpo.actor)
+    except tuple(_ERRORES_DESCARTE) as exc:
+        raise HTTPException(status_code=_ERRORES_DESCARTE[type(exc)], detail=str(exc)) from None
+    except ValueError as exc:
+        # C.5 C3: "   " pasa el min_length=1 de pydantic y lo caza la
+        # funcion -> 422 (mismo codigo que cuerpo invalido), nunca 500.
+        raise HTTPException(status_code=422, detail=str(exc)) from None
 
 
 # Mapeo sellado de errores de reversa_manual -> HTTP (el endpoint no inventa

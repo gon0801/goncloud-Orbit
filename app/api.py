@@ -391,10 +391,11 @@ def _fila_propuesta_campana(fila: dict) -> dict:
 
 def propuestas_campana_visibles(conn: ConexionLectura) -> list[dict]:
     """Propuestas visibles en la pantalla (B2): open accionables primero,
-    luego paused_observed informativas. Sin limite (son decenas)."""
+    luego paused_observed informativas y paused_external (cierre C.5 por
+    readback PAUSED: como se cerro y cuando). Sin limite (son decenas)."""
     conn.row_factory = dict_row
     items = []
-    for estado in ("open", "paused_observed"):
+    for estado in ("open", "paused_observed", "paused_external"):
         filas = conn.execute(
             _SQL_PROPUESTAS_CAMPANA, (estado, estado, None, None, LIMITE_MAX)
         ).fetchall()
