@@ -57,6 +57,7 @@ from test_cycle import (
     JOB_KEY,
     SQL13,
     SQL15,
+    SQL40,
     SQL42,
     _config_version,
     _entidad,
@@ -154,6 +155,8 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL13)  # 0013 (BIDS 01): la guarda entidad_inerte lee la vista en TX2
         conn.execute(SQL15)  # 0015 (ORBIT 06 2.3): el peldano margen lee su vista en TX2
         conn.execute(SQL14)  # 0014 (BIDS 01 2.2): _paso_keyword lee el ledger anti-duplicado
+        # ADS PROTECCION C.5: resuelve_profile_id lee ads_report_result.
+        conn.execute(SQL40)
         conn.execute(SQL42)
         conn.execute(SQL43)  # 0043 (D.1): decision_sin_aplicar + vista
         yield conn, conectar_extra

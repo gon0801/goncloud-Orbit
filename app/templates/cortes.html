@@ -113,6 +113,7 @@
         <th>Ventana</th>
         <th>Motivo</th>
         <th>Aviso</th>
+        <th>Acción</th>
       </tr>
     </thead>
     <tbody>
@@ -130,6 +131,31 @@
         {# Obs3r2: solo open avisa; la paused_observed nace pending pero
            jamas envia (no accionable): mostrar "pending" mentiria #}
         <td class="mutado">{{ prop.aviso_estado if prop.status == "open" else "—" }}</td>
+        {# C.5: canal de descarte (solo open; el submit va contra
+           POST /api/ads-optimizer/propuestas-campana/<id>/descartar con el
+           token en x-orbit-token, igual que el veto). #}
+        <td>
+          {% if prop.status == "open" %}
+          <button type="button" data-descartar="{{ prop.id }}">Descartar</button>
+          {% else %}—{% endif %}
+        </td>
+      </tr>
+      <tr hidden id="descarte-{{ prop.id }}">
+        <td colspan="11">
+          {% if prop.status == "open" %}
+          <form data-descarte="{{ prop.id }}">
+            <p class="mutado">
+              Este descarte NO se puede deshacer y NO toca Amazon: la campaña
+              sigue ENABLED hasta pausarla a mano. Solo una ventana sin riesgo
+              observada abre un episodio nuevo.
+            </p>
+            <label>Actor <input type="text" name="actor" maxlength="200" placeholder="quien descarta" required></label>
+            <label>Token <input type="password" name="token" placeholder="x-orbit-token" required></label>
+            <button type="submit">Confirmar descarte</button>
+            <span data-estado class="mutado"></span>
+          </form>
+          {% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>

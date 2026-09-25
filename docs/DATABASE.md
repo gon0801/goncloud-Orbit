@@ -426,9 +426,16 @@ evidencia congelada. Único parcial `(campaign_id, risk_type)` para `open`;
 una observación posterior sin riesgo cierra el episodio y habilita otro si
 el riesgo reaparece. Un descarte o estado `PAUSED` observado no reaparece hasta
 una ventana sin riesgo. `GET /api/ads-optimizer/campaign-proposals` expone el
-registro. `paused_observed` refleja el cache sincronizado; la verificación
-externa por perfil de C.5 cierra como `paused_external`. `profile_id` viaja
-NULL hasta que C.5 lo resuelva por `/v2/profiles`. El aviso Telegram de
+registro. `paused_observed` refleja el cache sincronizado; el cierre C.5
+por readback `PAUSED` (misma campana tras propuesta open) escribe
+`paused_external` con snapshot + fecha en `close_evidence.cierre`, sin autor
+ni causalidad, y refresca `campaign_status`/`status_synced_at` de la fila.
+`profile_id` se resuelve del ultimo `written` del reporte `campanas` por
+plataforma (`ads_report_result`, 0040; NULL sin fuente, nunca inventado).
+El descarte humano es `POST /api/ads-optimizer/propuestas-campana/<id>/descartar`
+(token `x-orbit-token`, DSN admin): 0043 da a `app_admin` UPDATE solo en las
+5 columnas del cierre (`status`, `closed_at`, `last_seen_at`, `close_reason`,
+`close_evidence`), sin INSERT ni columnas de dinero. El aviso Telegram de
 propuesta nueva usa el contrato `aviso_estado` pending/sent
 (`aviso_intentos`, `aviso_enviado_at`): solo se marca sent tras HTTP 2xx y
 el fallo queda pending para reintento sin duplicar. No hay FK ni camino

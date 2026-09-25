@@ -26,6 +26,19 @@ VERSION_POLITICA = "ads-proteccion-01-c1"
 MULTIPLO_TARGET = Decimal("3")
 MAX_EDAD_ESTADO = dt.timedelta(hours=48)
 
+# C.5: motivos de cierre humano. El externo describe SOLO el readback
+# (snapshot + fecha); jamas autor ni causalidad (DoD fila 103).
+MOTIVO_DESCARTE_MANUAL = "descarte_manual"
+MOTIVO_PAUSADO_EXTERNO = "estado_pausado_externo"
+
+
+class PropuestaInexistente(Exception):
+    """La propuesta a descartar no existe (endpoint -> 404)."""
+
+
+class PropuestaYaCerrada(Exception):
+    """La propuesta ya salio de open (endpoint -> 409, sin duplicar)."""
+
 
 @dataclass(frozen=True)
 class DatoCampana:
@@ -116,8 +129,9 @@ def transicion(ultimo_estado: str | None, *, riesgo: bool, status: str | None, r
     (paused_observed, no accionable) en vez de nada. Obs5: una campana
     reactivada (ENABLED) con riesgo ABRE episodio nuevo aunque su fila
     previa sea paused_* (la pausa quedo atras; C.5 prohibe reabrir SIN
-    episodio nuevo, no con uno). paused_external (duena de C.5) jamas se
-    toca aqui salvo para abrir el episodio siguiente a su reactivacion.
+    episodio nuevo, no con uno). paused_external (cierre C.5 de una open
+    cuya campana leyo PAUSED) jamas se toca aqui salvo para abrir el
+    episodio siguiente a su reactivacion.
     """
     if status == "PAUSED":
         if ultimo_estado == "open":
@@ -245,6 +259,7 @@ UPDATE ads_campaign_proposal
  WHERE id = %s
 """
 
+
 _SQL_ACTUALIZAR = """
 UPDATE ads_campaign_proposal
    SET last_seen_at = %s, window_start = %s, window_end = %s,
@@ -252,6 +267,29 @@ UPDATE ads_campaign_proposal
        target_pct = %s, target_source = %s, excess = %s, acos_pct = %s,
        campaign_status = %s, status_synced_at = %s, evidence = %s
  WHERE id = %s AND status = 'open'
+"""
+
+# C.5: descarte humano atomico (patron veto: el WHERE de estado ES la
+# carrera; rowcount 0 = otro movio la fila y se relee para 404/409).
+_SQL_DESCARTAR = """
+UPDATE ads_campaign_proposal
+   SET status = 'dismissed', closed_at = now(), last_seen_at = now(),
+       close_reason = %s, close_evidence = %s
+ WHERE id = %s AND status = 'open'
+RETURNING id, status, closed_at, close_reason
+"""
+
+_SQL_ESTADO_PROPUESTA = "SELECT status FROM ads_campaign_proposal WHERE id = %s"
+
+# C.5: profile_id por plataforma para el readback campaignId/profile: el
+# ultimo written de ads_report_result (0040). Sin fuente -> NULL (regla 3:
+# el profile_id no se inventa; comentario de 0042).
+_SQL_PROFILE_POR_PLATAFORMA = """
+SELECT profile_id
+  FROM ads_report_result
+ WHERE platform = %s::platform AND report_name = 'campanas' AND status = 'written'
+   AND profile_id IS NOT NULL
+ ORDER BY observed_at DESC LIMIT 1
 """
 
 
@@ -317,6 +355,43 @@ def _ventana_asof(
     return (inicio, fin, cuenta, moneda, cost, revenue, observado)
 
 
+def _resuelve_profile_id(conn: psycopg.Connection, platform: str) -> int | None:
+    """Profile de Amazon Ads para el readback campaignId/profile (C.5).
+
+    Fuente UNICA: ultimo written de ads_report_result (0040) de la
+    plataforma. Sin fuente -> None (regla 3); la fase de decision no hace
+    HTTP y el profile_id no se inventa."""
+    fila = conn.execute(_SQL_PROFILE_POR_PLATAFORMA, (platform,)).fetchone()
+    return fila[0] if fila is not None else None
+
+
+def descartar_propuesta(conn: psycopg.Connection, propuesta_id: int, actor: str) -> dict:
+    """Cierra open->dismissed una propuesta (C.5, descarte humano).
+
+    Solo DB: cero HTTP a Amazon (con test que bloquea httpx). Atomico
+    (patron veto): inexistente -> PropuestaInexistente; ya cerrada ->
+    PropuestaYaCerrada (repetir no duplica ni reabre). Hace commit
+    explicito (la conexion del endpoint no es autocommit)."""
+    if not actor or not actor.strip():
+        raise ValueError("actor vacio: el descarte exige quien lo hace")
+    fila = conn.execute(
+        _SQL_DESCARTAR,
+        (MOTIVO_DESCARTE_MANUAL, Jsonb({"actor": actor.strip()}), propuesta_id),
+    ).fetchone()
+    if fila is None:
+        estado = conn.execute(_SQL_ESTADO_PROPUESTA, (propuesta_id,)).fetchone()
+        if estado is None:
+            raise PropuestaInexistente(f"propuesta {propuesta_id} no existe")
+        raise PropuestaYaCerrada(f"propuesta {propuesta_id} ya cerrada ({estado[0]})")
+    conn.commit()
+    return {
+        "id": fila[0],
+        "status": fila[1],
+        "closed_at": fila[2].isoformat(),
+        "close_reason": fila[3],
+    }
+
+
 def _persiste(conn: psycopg.Connection, evaluacion: Evaluacion, decidido: dt.datetime) -> None:
     dato = evaluacion.dato
     sombra: bool | None = None
@@ -372,7 +447,7 @@ def _persiste(conn: psycopg.Connection, evaluacion: Evaluacion, decidido: dt.dat
                 dato.campaign_id,
                 dato.platform,
                 dato.external_id,
-                None,  # profile_id: C.5 post-merge (ads_report_result 0040)
+                _resuelve_profile_id(conn, dato.platform),
                 TIPO_RIESGO,
                 decidido,
                 decidido,
@@ -399,7 +474,7 @@ def _persiste(conn: psycopg.Connection, evaluacion: Evaluacion, decidido: dt.dat
                 dato.campaign_id,
                 dato.platform,
                 dato.external_id,
-                None,  # profile_id: C.5 post-merge (ads_report_result 0040)
+                _resuelve_profile_id(conn, dato.platform),
                 TIPO_RIESGO,
                 decidido,
                 decidido,
@@ -478,22 +553,42 @@ def _persiste(conn: psycopg.Connection, evaluacion: Evaluacion, decidido: dt.dat
             ),
         )
     elif accion in ("cerrar_estado_pausado", "cerrar_riesgo"):
-        status = "paused_observed" if accion == "cerrar_estado_pausado" else "resolved"
-        motivo_cierre = (
-            "estado_pausado_observado" if accion == "cerrar_estado_pausado" else evaluacion.motivo
-        )
+        # C.5: la open cuya campana lee PAUSED se cierra como pausa EXTERNA
+        # (paused_external): snapshot + fecha, sin inferir autor ni
+        # causalidad (pudo ser David sobre esta propuesta u otro cambio; la
+        # evidencia no trae actor). La PAUSED vista sin open previa sigue
+        # siendo paused_observed informativa (B2, registrar_pausado).
+        if accion == "cerrar_estado_pausado":
+            status = "paused_external"
+            motivo_cierre = "estado_pausado_externo"
+        else:
+            status = "resolved"
+            motivo_cierre = evaluacion.motivo
+        if accion == "cerrar_estado_pausado":
+            # C.5: el cierre por readback refresca el snapshot de estado de
+            # la fila (la pantalla muestra la PAUSED leida, no la ENABLED de
+            # apertura) y anida la evidencia bajo "cierre" con el perfil del
+            # readback; sin autor ni causalidad inferidos.
+            evidencia_cierre = _evidencia(evaluacion)
+            evidencia_cierre["profile_id"] = _resuelve_profile_id(conn, dato.platform)
+            evidencia_cierre = {"cierre": evidencia_cierre}
+        else:
+            evidencia_cierre = _evidencia(evaluacion)
         conn.execute(
             """UPDATE ads_campaign_proposal
                   SET status = %s, closed_at = %s, last_seen_at = %s,
-                      close_reason = %s, close_evidence = %s, reset_at = %s
+                      close_reason = %s, close_evidence = %s, reset_at = %s,
+                      campaign_status = %s, status_synced_at = %s
                 WHERE id = %s AND status = 'open'""",
             (
                 status,
                 decidido,
                 decidido,
                 motivo_cierre,
-                Jsonb(_evidencia(evaluacion)),
+                Jsonb(evidencia_cierre),
                 decidido if accion == "cerrar_riesgo" else None,
+                dato.status,
+                dato.status_synced_at,
                 prev_id,
             ),
         )
