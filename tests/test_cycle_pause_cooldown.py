@@ -39,6 +39,7 @@ def _corre_hoja(
     bloqueada=False,
     inerte=False,
     flag=True,
+    econ=True,
 ):
     corte = _agregado() if corte is None else corte
     ventanas = SimpleNamespace(bids=_agregado(orders=1, clicks=30, cost="50"), cortes=corte)
@@ -95,6 +96,7 @@ def _corre_hoja(
         margen_plataforma=None,
         snapshot_margen={},
         pause_sin_cooldown_bid=flag,
+        pause_economica=econ,
     )
     return pendientes, contadores, consultas
 
@@ -105,6 +107,7 @@ def test_4925_pause_madura_14_sep_pasa_bid_cooldown_sin_lookahead(monkeypatch):
     assert pendientes[0].window_end == dt.date(2026, 9, 4)
     assert pendientes[0].inputs["cooldown_policy_version"] == "pause_after_bid_v1"
     assert pendientes[0].inputs["target_procedencia"] == "goal_plataforma"
+    assert pendientes[0].inputs["motivo"] == "pause_umbral"
     assert contadores.decisiones == {"pause": 1}
     assert consultas == ["pause"]
 
@@ -123,7 +126,10 @@ def test_flag_apagado_bloquea_pause_nueva_como_antes_de_b2(monkeypatch):
 @pytest.mark.parametrize(
     ("corte", "esperado"),
     [
-        (_agregado(clicks=156), "cooldown_7d"),
+        (_agregado(clicks=156, cost="79"), "cooldown_7d"),
+        # Obs4r2: costo SOBRE el limite (127.94): solo la abstencion por
+        # orders desconocidos impide la PAUSE (con cost 79 el caso no
+        # discriminaba: ni la economica cruzaba).
         (_agregado(orders=None), "cooldown_7d"),
         (_agregado(fechas=6), "cooldown_7d"),
     ],
@@ -168,3 +174,34 @@ def test_vetos_previos_siguen_impidiendo_pause(monkeypatch, opciones, motivo):
     pendientes, contadores, _ = _corre_hoja(monkeypatch, **opciones)
     assert pendientes == []
     assert contadores.skips_entidad == {motivo: 1}
+
+
+def test_2423_venta_cara_emite_pause_y_congela_regla_economica(monkeypatch):
+    corte = _agregado(orders=1, clicks=231, cost="105")
+    corte = windows.AgregadoMetricas(**{**corte.__dict__, "ad_revenue": Decimal("100")})
+    pendientes, contadores, _ = _corre_hoja(monkeypatch, corte=corte)
+    assert contadores.decisiones == {"pause": 1}
+    assert pendientes[0].inputs["motivo"] == "pause_economica"
+    assert pendientes[0].inputs["economic_policy"]["version"] == "economic_pause_v1"
+    assert pendientes[0].inputs["economic_policy"]["target"] == "25"
+    assert pendientes[0].inputs["economic_policy"]["cost"] == "105"
+    assert pendientes[0].inputs["economic_policy"]["revenue"] == "100"
+    assert pendientes[0].inputs["economic_policy"]["exceso"] == "80"
+    assert cycle.reproduce(pendientes[0].inputs)[0] == "pause"
+    anterior = dict(pendientes[0].inputs)
+    anterior.pop("economic_policy")
+    assert cycle.reproduce(anterior)[0] != "pause"
+
+
+def test_flag_economico_apagado_decide_regla_vieja_y_congela_none(monkeypatch):
+    """C.3 B1: con el flag apagado no hay PAUSE economica (misma hoja que
+    con flag emitiria pause_economica) y el freeze registra version None
+    para que el replay no adopte la regla nueva."""
+    corte = _agregado(orders=1, clicks=231, cost="105")
+    corte = windows.AgregadoMetricas(**{**corte.__dict__, "ad_revenue": Decimal("100")})
+    pendientes, contadores, _ = _corre_hoja(monkeypatch, corte=corte, econ=False)
+    assert pendientes == []
+    assert contadores.decisiones == {}
+    umbral, _, _ = _corre_hoja(monkeypatch, econ=False)
+    assert umbral[0].inputs["motivo"] == "pause_umbral"
+    assert umbral[0].inputs["economic_policy"]["version"] is None

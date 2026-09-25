@@ -1352,6 +1352,8 @@ _SQL_CYCLE = (
     "_SQL_OWNER_LOCK",
     "_SQL_SELLA_APPLY",
     "_SQL_APPLIED_COUNT_CICLO",
+    # ADS PROTECCION C.3 R3: el merge pre-sello lee las notes vigentes.
+    "_SQL_NOTAS_VIGENTES",
     # ORBIT 06 2.3: el peldano lee su vista + las notas previas en TX2.
     "_SQL_TARGET_MARGEN",
     "_SQL_NOTAS_PREVIAS",
@@ -2806,3 +2808,69 @@ def test_replay_ignora_la_vista():
         inputs, esperado = bids[0][9], (bids[0][1], bids[0][4], bids[0][5])
     with _db_temporal("orbit_c_replay_vacia") as (_conn2, _c2):
         assert reproduce(inputs) == esperado
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ciclo_lee_flag_economico_de_settings():
+    """B1'r2: el ciclo decide con la regla economica solo si settings trae
+    el flag (mata `pause_economica = True` en _recorre_plataforma); con
+    flag apagado el freeze registra version None."""
+    from test_apply_cola import _fechas
+
+    for flag, espera_economica in ((True, True), (False, False)):
+        with _db_temporal("orbit_c_flag_econ") as (conn, _c):
+            ids = _siembra_maestra(conn)
+            settings = {"ads_optimizer_mode": "shadow"}
+            if flag:
+                settings["ads_pause_economica"] = True
+            _config_version(conn, settings)
+            conn.execute(
+                "UPDATE ads_optimizer_goal SET target_acos_pct = 20 WHERE platform = 'amazon_us'"
+            )
+            kw3 = _entidad(
+                conn,
+                "amazon_us",
+                "keyword",
+                "9203",
+                parent=ids["ag"],
+                match_type="EXACT",
+                keyword_text="kw cara",
+            )
+            _estado(
+                conn,
+                kw3,
+                synced_at=DECIDED_AT - dt.timedelta(hours=4),
+                current_bid=Decimal("1.00"),
+                bid_currency="USD",
+            )
+            run = _run(conn)
+            for i, fecha in enumerate(
+                _fechas(
+                    DECIDED_AT.date() - dt.timedelta(days=20),
+                    DECIDED_AT.date() - dt.timedelta(days=11),
+                )
+            ):
+                _metrica(
+                    conn,
+                    run,
+                    kw3,
+                    fecha,
+                    _obs(fecha),
+                    cost="10" if i == 0 else "15",
+                    ad_revenue="100" if i == 0 else "0",
+                    clicks=5,
+                    orders=1 if i == 0 else 0,
+                )
+            res = _corre(conn)
+            decisiones = _decisions_de(conn, res.cycle_id)
+            motivos = [d[9].get("motivo") for d in decisiones if d[1] == "pause"]
+            if espera_economica:
+                assert "pause_economica" in motivos
+            else:
+                assert "pause_economica" not in motivos
+                for d in decisiones:
+                    if d[1] in ("pause", "bid"):
+                        assert d[9]["economic_policy"]["version"] is None

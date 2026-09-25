@@ -274,6 +274,7 @@ def _decision_corte(
     valor=None,
     moneda=None,
     decided_at: dt.datetime | None = None,
+    motivo: str | None = None,
 ) -> int:
     """Decision de corte con la madurez del esquema (window_end <= decided-10d)
     y inputs congelados al shape del ciclo (el aplicador JAMAS los reusa para
@@ -283,7 +284,7 @@ def _decision_corte(
         "motor": "bid" if kind == "pause" else "hygiene",
         "platform": "amazon_us",
         "modo": "live",
-        "motivo": f"{kind}_umbral",
+        "motivo": motivo or f"{kind}_umbral",
         # Dato VERBATIM del fixture (el aplicador jamas lo reusa): el umbral
         # pause representa una decision VIGENTE (100 desde CORTES 03).
         "corte": {"umbral_clicks_usado": 20 if kind != "pause" else 100, "elegible": False},
@@ -1878,3 +1879,223 @@ def test_libera_descarta_negative_en_grupo_pausado():
         ).fetchone()
         assert fila == ("discarded", MOTIVO_GRUPO_NO_ENABLED)
         assert conn.execute("SELECT count(*) FROM apply_quota_state").fetchone()[0] == 0
+
+
+@_skip_db
+def test_pause_economica_venta_pasa_cola_veto_apply_y_readback():
+    """La venta medida no anula una PAUSE que aun excede el limite vigente."""
+    with _db_temporal("orbit_cola_econ_apply") as conn:
+        # B1: la revalidacion economica exige el flag prendido.
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_pause": 1, "ads_pause_economica": True})
+        d = ids["ahora"]
+        conn.execute(
+            "UPDATE ads_optimizer_goal SET target_acos_pct = 20 WHERE platform = 'amazon_us'"
+        )
+        conn.execute(
+            "UPDATE optimizer_cycle SET notes = %s WHERE id = %s",
+            (json.dumps({"target": {"target_aplicado": None}}), ids["ciclo_ejec"]),
+        )
+        fechas = list(_fechas(d.date() - dt.timedelta(days=20), d.date() - dt.timedelta(days=11)))
+        for i, fecha in enumerate(fechas):
+            _metrica(
+                conn,
+                ids["run"],
+                ids["kw"],
+                fecha,
+                clicks=5,
+                cost=10 if i == 0 else 15,
+                orders=1 if i == 0 else 0,
+                ad_revenue=100 if i == 0 else 0,
+            )
+        dec = _decision_corte(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            ids["kw"],
+            "pause",
+            motivo="pause_economica",
+        )
+        q = _encola_fila(conn, dec, ids["kw"], "pause", payload=_payload_pause("7201"))
+        handler, vistos = _handler_cortes()
+        resultado = libera_vencidos(
+            conn, "amazon_us", ahora=d, aplicador=_aplicador(conn, handler, ids["ciclo_ejec"])
+        )
+        assert resultado.aplicadas == 1
+        assert Decimal(resultado.revalidaciones_economicas[0]["exceso"]) == 80
+        # Obs3: la evidencia vive en notes del ciclo EJECUTOR en la misma
+        # TX (sobrevive un ApplyAbortado posterior a la liberacion).
+        notas = json.loads(
+            conn.execute(
+                "SELECT notes FROM optimizer_cycle WHERE id = %s", (ids["ciclo_ejec"],)
+            ).fetchone()[0]
+        )
+        assert notas["revalidaciones_economicas"][0]["decision_id"] == dec
+        assert conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone() == (
+            "applied",
+        )
+        assert conn.execute(
+            "SELECT verify_ok FROM decision_application WHERE decision_id = %s", (dec,)
+        ).fetchone() == (True,)
+        assert len(_mutaciones(vistos)) == 1
+
+
+@_skip_db
+def test_pause_economica_released_sin_quota_descarta_venta_tardia_antes_de_cobrar(monkeypatch):
+    """Una fila en espera de cuota se mide otra vez; la venta tardia la cancela."""
+    import app.apply_cola as cola
+
+    with _db_temporal("orbit_cola_econ_venta") as conn:
+        # B1: la revalidacion economica exige el flag prendido.
+        ids = _semilla(
+            conn,
+            caps={
+                "ads_apply_cap_amazon_us_pause": 2,
+                "ads_apply_cap_amazon_us_negative": 5,
+                "ads_pause_economica": True,
+            },
+        )
+        d = ids["ahora"]
+        conn.execute(
+            "UPDATE ads_optimizer_goal SET target_acos_pct = 20 WHERE platform = 'amazon_us'"
+        )
+        conn.execute(
+            "UPDATE optimizer_cycle SET notes = %s WHERE id = %s",
+            (json.dumps({"target": {"target_aplicado": None}}), ids["ciclo_ejec"]),
+        )
+        fechas = list(_fechas(d.date() - dt.timedelta(days=20), d.date() - dt.timedelta(days=11)))
+        for i, fecha in enumerate(fechas):
+            _metrica(
+                conn,
+                ids["run"],
+                ids["kw"],
+                fecha,
+                clicks=5,
+                cost=10 if i == 0 else 15,
+                orders=1 if i == 0 else 0,
+                ad_revenue=100 if i == 0 else 0,
+            )
+        dec = _decision_corte(
+            conn,
+            ids["ciclo_dec"],
+            ids["config"],
+            ids["kw"],
+            "pause",
+            motivo="pause_economica",
+        )
+        q = _encola_fila(conn, dec, ids["kw"], "pause", payload=_payload_pause("7201"))
+        handler, vistos = _handler_cortes()
+        monkeypatch.setattr(cola, "consume_quota_y_sello", lambda *_: (False, False))
+        primero = libera_vencidos(
+            conn, "amazon_us", ahora=d, aplicador=_aplicador(conn, handler, ids["ciclo_ejec"])
+        )
+        assert primero.sin_quota == 1
+        assert conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone() == (
+            "released",
+        )
+        _metrica(
+            conn,
+            ids["run"],
+            ids["kw"],
+            fechas[0],
+            clicks=5,
+            cost=10,
+            orders=1,
+            ad_revenue=200,
+            observed=d - dt.timedelta(hours=1),
+        )
+
+        def cuota_prohibida(*_):
+            raise AssertionError("No debe cobrar cuota al descartar")
+
+        monkeypatch.setattr(cola, "consume_quota_y_sello", cuota_prohibida)
+        segundo = libera_vencidos(
+            conn, "amazon_us", ahora=d, aplicador=_aplicador(conn, handler, ids["ciclo_ejec"])
+        )
+        assert segundo.descartadas == [MOTIVO_YA_NO_CALIFICA]
+        assert conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone() == (
+            "discarded",
+        )
+        assert _mutaciones(vistos) == []
+
+
+@_skip_db
+def test_libera_espera_target_queda_released_y_cuenta(monkeypatch):
+    """Obs4: espera_target no descarta ni cobra: released, vetable, contado."""
+    import app.apply_cola as cola
+
+    with _db_temporal("orbit_cola_espera") as conn:
+        ids = _semilla(conn)
+        dec = _decision_corte(
+            conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause", motivo="pause_economica"
+        )
+        q = _encola_fila(conn, dec, ids["kw"], "pause", payload=_payload_pause("7201"))
+        handler, vistos = _handler_cortes()
+        monkeypatch.setattr(cola, "_revalida", lambda *_: cola.MOTIVO_ESPERA_TARGET)
+
+        def cuota_prohibida(*_):
+            raise AssertionError("No debe cobrar cuota al esperar target")
+
+        monkeypatch.setattr(cola, "consume_quota_y_sello", cuota_prohibida)
+        resultado = libera_vencidos(
+            conn,
+            "amazon_us",
+            ahora=ids["ahora"],
+            aplicador=_aplicador(conn, handler, ids["ciclo_ejec"]),
+        )
+        assert resultado.espera_target == 1
+        assert resultado.descartadas == []
+        assert conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone() == (
+            "released",
+        )
+        assert _mutaciones(vistos) == []
+
+
+@_skip_db
+def test_flag_pausa_economica_fail_closed_en_db():
+    """B1'r2: _flag_pause_economica lee la config vigente: sin clave o
+    false -> False; true -> True (mata `return True`)."""
+    import app.apply_cola as cola
+
+    with _db_temporal("orbit_cola_flag") as conn:
+        _semilla(conn)
+        assert cola._flag_pause_economica(conn) is False
+    with _db_temporal("orbit_cola_flag") as conn:
+        _semilla(
+            conn,
+            caps={
+                "ads_apply_cap_amazon_us_pause": 2,
+                "ads_pause_economica": False,
+            },
+        )
+        assert cola._flag_pause_economica(conn) is False
+    with _db_temporal("orbit_cola_flag") as conn:
+        _semilla(
+            conn,
+            caps={
+                "ads_apply_cap_amazon_us_pause": 2,
+                "ads_pause_economica": True,
+            },
+        )
+        assert cola._flag_pause_economica(conn) is True
+
+
+@_skip_db
+def test_hay_goal_detecta_goal_y_su_ausencia_en_db():
+    """Obs5r2: _hay_goal contra PG real (mata `return True`): True con
+    goal de plataforma o campana (aunque este deshabilitado); False sin
+    ninguno; False sin estado."""
+    import app.apply_cola as cola
+
+    with _db_temporal("orbit_cola_haygoal") as conn:
+        ids = _semilla(conn)
+        assert cola._hay_goal(conn, "amazon_us", ids["kw"]) is True
+        conn.execute("DELETE FROM ads_optimizer_goal")
+        assert cola._hay_goal(conn, "amazon_us", ids["kw"]) is False
+        conn.execute(
+            "INSERT INTO ads_optimizer_goal (scope, platform, target_acos_pct, bid_floor,"
+            " bid_ceiling, bid_currency, enabled, mode)"
+            " VALUES ('platform', 'amazon_us', 55, 0.10, 2.50, 'USD', false, 'off')"
+        )
+        assert cola._hay_goal(conn, "amazon_us", ids["kw"]) is True
+        kw_sin_estado = _entidad(conn, "keyword", "7209", parent=ids["ag"])
+        assert cola._hay_goal(conn, "amazon_us", kw_sin_estado) is False

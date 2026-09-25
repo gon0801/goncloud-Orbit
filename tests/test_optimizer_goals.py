@@ -916,3 +916,14 @@ def test_procedencia_peldano_invalido_revienta_no_cae_al_siguiente():
         g.cascada_target_acos_con_procedencia(
             None, None, {"ads_target_acos_pct_amazon_us": 0}, None, "amazon_us"
         )
+
+
+def test_pause_economica_fail_closed():
+    """C.3 B1: solo JSON true habilita la PAUSE economica (fail-closed
+    como B.2a)."""
+    assert g.pause_economica_desde_settings({}) is False
+    assert g.pause_economica_desde_settings({"ads_pause_economica": True}) is True
+    assert g.pause_economica_desde_settings({"ads_pause_economica": False}) is False
+    assert g.pause_economica_desde_settings({"ads_pause_economica": None}) is False
+    assert g.pause_economica_desde_settings({"ads_pause_economica": "true"}) is False
+    assert g.pause_economica_desde_settings({"ads_pause_economica": 1}) is False
