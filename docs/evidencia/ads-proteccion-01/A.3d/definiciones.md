@@ -53,4 +53,4 @@ ads-salud chequeo=omitido motivo=pre_1030 ahora=<ISO UTC>
 ```
 
 "El cron no corrio" = hueco en el log. Tests:
-`test_a3d_resumen_*`, `test_a3d_main_imprime_heartbeat_y_sale_cero`.
+`test_a3d_resumen_*`, `test_a3d_main_heartbeat_omitido_pre_1030`, `test_a3d_main_heartbeat_ejecutado_tras_1030`.

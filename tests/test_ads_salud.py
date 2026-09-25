@@ -449,7 +449,7 @@ def test_a3d_main_heartbeat_ejecutado_tras_1030(monkeypatch, capsys):
             return dt.datetime(2026, 9, 24, 11, 0, tzinfo=dt.UTC)
 
     monkeypatch.setattr(salud.dt, "datetime", _Reloj)
-    conn, _textos, admin, db = _base_a3d(monkeypatch, "main2", [True])
+    conn, textos, admin, db = _base_a3d(monkeypatch, "main2", [True])
     try:
         monkeypatch.setenv("ORBIT_DSN_INGEST", "postgres://test-inyectado/db")
         monkeypatch.setattr(salud, "connect", lambda _dsn: psycopg.connect(_test_dsn(), dbname=db))
@@ -459,5 +459,6 @@ def test_a3d_main_heartbeat_ejecutado_tras_1030(monkeypatch, capsys):
             "ads-salud chequeo=ejecutado ahora=2026-09-24T11:00:00+00:00 unidades=0"
             " episodios_abiertos=1\n"
         )
+        assert len(textos) == 1
     finally:
         _cerrar_a3d(conn, admin, db)
