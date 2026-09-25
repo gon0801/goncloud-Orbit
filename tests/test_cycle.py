@@ -73,6 +73,9 @@ SQL15 = (
 SQL16 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0016_target_margen_correcciones.sql"
 ).read_text(encoding="utf-8")
+SQL42 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0042_ads_campaign_proposal.sql"
+).read_text(encoding="utf-8")
 
 # ---------------------------------------------------------------------------
 # Reloj FIJO y ventanas derivadas (mismas constantes que test_optimizer_windows)
@@ -147,6 +150,7 @@ def _db_temporal(prefijo: str):
         # ORBIT 06 (2.3): el peldano margen_plataforma lee su vista en TX2.
         conn.execute(SQL15)
         conn.execute(SQL16)
+        conn.execute(SQL42)
         yield conn, conectar_extra
     finally:
         if conn is not None:

@@ -95,6 +95,22 @@ SELECT id, scope, ad_entity_id, platform, target_acos_pct, bid_floor,
  ORDER BY id
 """
 
+_SQL_PROPUESTAS_CAMPANA = """
+SELECT p.id, p.campaign_id, p.platform, p.campaign_external_id, p.profile_id,
+       e.name AS nombre, p.status, p.risk_type, p.first_seen_at, p.last_seen_at,
+       p.closed_at, p.close_reason,
+       p.window_start, p.window_end, p.observed_at, p.cost, p.revenue,
+       p.currency, p.target_pct, p.target_source, p.excess, p.acos_pct,
+       p.campaign_status, p.status_synced_at, p.evidence,
+       p.aviso_estado, p.aviso_intentos, p.aviso_enviado_at
+  FROM ads_campaign_proposal p
+  JOIN ad_entity e ON e.id = p.campaign_id
+ WHERE (%s::text IS NULL OR p.status = %s)
+   AND (%s::platform IS NULL OR p.platform = %s::platform)
+ ORDER BY p.last_seen_at DESC, p.id DESC
+ LIMIT %s
+"""
+
 
 def _conexion_lectura():
     """Dependency: conexion como rol de lectura (ORBIT_DSN_READ).
@@ -306,3 +322,81 @@ def goals(
         }
         for fila in filas
     ]
+
+
+@router.get("/campaign-proposals")
+def campaign_proposals(
+    conn: ConexionLectura,
+    platform: Literal["amazon_us", "amazon_mx"] | None = None,
+    status: Literal["open", "resolved", "dismissed", "paused_observed", "paused_external"]
+    | None = None,
+    limit: Annotated[int, Query(ge=1, le=LIMITE_MAX)] = LIMITE_DEFAULT,
+) -> list[dict]:
+    """Propuestas de campana para pausa manual; no hay accion Ads en esta API.
+
+    B2: sin status muestra TODAS (las PAUSED visibles son paused_observed,
+    no accionables). `sales30d` es el nombre del reporte (misma fuente que
+    revenue); `motivo` sale a primer nivel (en evidence sigue anidado).
+    Dinero como string (regla 4), NULL como null (regla 3)."""
+    conn.row_factory = dict_row
+    filas = conn.execute(
+        _SQL_PROPUESTAS_CAMPANA, (status, status, platform, platform, limit)
+    ).fetchall()
+    return [_fila_propuesta_campana(fila) for fila in filas]
+
+
+def _fila_propuesta_campana(fila: dict) -> dict:
+    """Una fila de propuesta a JSON (B2: la pantalla Propuestas la REUSA;
+    regla 22: la UI consume, no reimplementa)."""
+    return {
+        "id": fila["id"],
+        "campaign_id": fila["campaign_id"],
+        "platform": fila["platform"],
+        "campaign_external_id": fila["campaign_external_id"],
+        "profile_id": fila["profile_id"],
+        "nombre": fila["nombre"],
+        "status": fila["status"],
+        "risk_type": fila["risk_type"],
+        "motivo": (fila["evidence"].get("motivo") if isinstance(fila["evidence"], dict) else None),
+        # Obs3r2: en paused_observed el motivo es campana_no_enabled; esta
+        # clave dice si la sombra vio riesgo (el PORQUE de la fila).
+        "riesgo_ignorando_estado": (
+            fila["evidence"].get("riesgo_ignorando_estado")
+            if isinstance(fila["evidence"], dict)
+            else None
+        ),
+        "first_seen_at": fila["first_seen_at"],
+        "last_seen_at": fila["last_seen_at"],
+        "closed_at": fila["closed_at"],
+        "close_reason": fila["close_reason"],
+        "window_start": fila["window_start"],
+        "window_end": fila["window_end"],
+        "observed_at": fila["observed_at"],
+        "cost": _dec_str(fila["cost"]),
+        "revenue": _dec_str(fila["revenue"]),
+        "sales30d": _dec_str(fila["revenue"]),
+        "currency": fila["currency"],
+        "target_pct": _dec_str(fila["target_pct"]),
+        "target_source": fila["target_source"],
+        "excess": _dec_str(fila["excess"]),
+        "acos_pct": _dec_str(fila["acos_pct"]),
+        "campaign_status": fila["campaign_status"],
+        "status_synced_at": fila["status_synced_at"],
+        "aviso_estado": fila["aviso_estado"],
+        "aviso_intentos": fila["aviso_intentos"],
+        "aviso_enviado_at": fila["aviso_enviado_at"],
+        "evidence": fila["evidence"],
+    }
+
+
+def propuestas_campana_visibles(conn: ConexionLectura) -> list[dict]:
+    """Propuestas visibles en la pantalla (B2): open accionables primero,
+    luego paused_observed informativas. Sin limite (son decenas)."""
+    conn.row_factory = dict_row
+    items = []
+    for estado in ("open", "paused_observed"):
+        filas = conn.execute(
+            _SQL_PROPUESTAS_CAMPANA, (estado, estado, None, None, LIMITE_MAX)
+        ).fetchall()
+        items.extend(_fila_propuesta_campana(fila) for fila in filas)
+    return items

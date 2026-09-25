@@ -552,6 +552,8 @@ _CLAVES_SALUD_PREVIAS = (
     "target_margen",
     "spapi",
     "ads_ingest",  # ADS PROTECCION 01 A.3: salud de ingesta principal
+    # ADS PROTECCION C.4: bloque de avisos de propuestas de campana.
+    "avisos_propuesta",
 )
 
 

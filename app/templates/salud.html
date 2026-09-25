@@ -61,6 +61,13 @@
   {% endif %}
   {% endif %}
 
+  {% if datos.avisos_propuesta is defined and datos.avisos_propuesta is not none %}
+  {# ADS PROTECCION C.4 B1: avisos de propuestas de campana pendientes +
+     fallo del ultimo ciclo. Sin tabla (pre-0042) el bloque es None y no
+     se pinta nada (regla 3) #}
+  <p>Avisos de propuesta: {{ datos.avisos_propuesta.pendientes }} pendientes{% if datos.avisos_propuesta.fallo %} · <span class="alerta">{{ datos.avisos_propuesta.fallo }}</span>{% endif %}</p>
+  {% endif %}
+
   {% if datos.harvest_destino %}
   {# FABRICA 02 (A.6): destino del ultimo ciclo por procedencia + campanas de
      grupo sin destino. Sin bloque (ciclos pre-A.6) no se pinta nada (regla 3) #}

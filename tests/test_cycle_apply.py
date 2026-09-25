@@ -57,6 +57,7 @@ from test_cycle import (
     JOB_KEY,
     SQL13,
     SQL15,
+    SQL42,
     _config_version,
     _entidad,
     _estado,
@@ -148,6 +149,7 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL13)  # 0013 (BIDS 01): la guarda entidad_inerte lee la vista en TX2
         conn.execute(SQL15)  # 0015 (ORBIT 06 2.3): el peldano margen lee su vista en TX2
         conn.execute(SQL14)  # 0014 (BIDS 01 2.2): _paso_keyword lee el ledger anti-duplicado
+        conn.execute(SQL42)
         yield conn, conectar_extra
     finally:
         if conn is not None:

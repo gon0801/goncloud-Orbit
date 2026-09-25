@@ -67,7 +67,7 @@ from psycopg.rows import dict_row, tuple_row
 
 from app import cycle as ciclo
 from app.ads.salud import bloque_salud as bloque_ads_ingest
-from app.api import KINDS_DECISION, ConexionLectura
+from app.api import KINDS_DECISION, ConexionLectura, propuestas_campana_visibles
 from app.api_common import (
     _SQL_ULTIMO_CICLO_POR_PLATAFORMA,
     _dec_str,
@@ -931,6 +931,7 @@ def salud(conn: ConexionLectura) -> dict:
             "skips": _skips_de(ultimo),
             "harvest_destino": _harvest_destino_de(ultimo),
             "quota": _quota_de(conn, plataforma),
+            "avisos_propuesta": _avisos_propuesta_de(conn, plataforma, ultimo),
             "target_margen": bloque_target_margen(ultimo),
             "spapi": _spapi_de(conn, plataforma),
             "ads_ingest": _ads_ingest_de(conn, plataforma),
@@ -945,6 +946,35 @@ def _ads_ingest_de(conn: ConexionLectura, plataforma: str) -> dict | None:
     except Exception as exc:  # noqa: BLE001 - version de schema visible en log
         logger.warning("salud: ads_ingest %s ilegible: %s", plataforma, scrub(str(exc)))
         return None
+
+
+_SQL_AVISOS_PROPUESTA_PENDIENTES = """
+SELECT count(*)
+  FROM ads_campaign_proposal
+ WHERE platform = %s::platform AND status = 'open' AND aviso_estado = 'pending'
+"""
+
+
+def _avisos_propuesta_de(
+    conn: ConexionLectura, plataforma: str, ultimo_ciclo: dict | None
+) -> dict | None:
+    """Bloque avisos_propuesta de UNA plataforma (C.4 B1): propuestas open
+    cuyo aviso Telegram sigue pending + el fallo del ultimo ciclo (de
+    notes.telegram.aviso_propuesta). Sin tabla (pre-0042) -> None y la
+    pantalla omite la seccion (patron _spapi_de)."""
+    try:
+        pendientes = conn.execute(_SQL_AVISOS_PROPUESTA_PENDIENTES, (plataforma,)).fetchone()[0]
+    except Exception as exc:  # noqa: BLE001 - degradacion visible, no caida
+        logger.warning(
+            "salud: avisos de propuesta %s ilegibles: %s",
+            plataforma,
+            scrub(str(exc)),
+        )
+        return None
+    fallo = None
+    if ultimo_ciclo is not None and ultimo_ciclo.get("notes") is not None:
+        fallo = (ultimo_ciclo["notes"].get("telegram") or {}).get("aviso_propuesta")
+    return {"pendientes": pendientes, "fallo": fallo}
 
 
 def _spapi_de(conn: ConexionLectura, plataforma: str) -> dict | None:
@@ -1227,7 +1257,15 @@ def cortes(conn: ConexionLectura) -> dict:
                 "hermanas": hermanas,
             }
         )
-    return {"items": items}
+    # C.4 B2: propuestas de campana en la MISMA pantalla (open accionables
+    # + paused_observed informativas). Si la tabla aun no existe (pre-0042),
+    # la seccion queda vacia y la pantalla NO muere (patron _spapi_de).
+    try:
+        propuestas = propuestas_campana_visibles(conn)
+    except Exception as exc:  # noqa: BLE001 - degradacion visible, no caida
+        logger.warning("cortes: propuestas de campana ilegibles: %s", scrub(str(exc)))
+        propuestas = []
+    return {"items": items, "propuestas_campana": propuestas}
 
 
 @router.get("/inertes")

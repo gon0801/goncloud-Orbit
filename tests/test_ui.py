@@ -35,6 +35,7 @@ from test_api_dashboard import (
     SQL13,
     SQL14,
     SQL17,
+    SQL42,
     _campana,
     _ciclo,
     _config_version,
@@ -168,6 +169,67 @@ def test_ui_cortes_entidad_muestra_nombre_no_external_id():
     html = ui.templates.env.get_template("cortes.html").render(**_ctx_cortes())
     assert "Campana A" in html
     assert "7101" not in html
+
+
+def test_ui_cortes_pinta_propuestas_campana_y_escapa_nombre():
+    """C.4 B2: la seccion Campañas muestra costo/ingreso/target/ventana/
+    estado/motivo/aviso; el nombre (texto libre) va escapado."""
+    ctx = _ctx_cortes()
+    ctx["propuestas_campana"] = [
+        {
+            "id": 5,
+            "platform": "amazon_us",
+            "campaign_external_id": "123456",
+            "nombre": PAYLOAD_XSS,
+            "status": "open",
+            "motivo": "exceso_economico",
+            "cost": "642.6500",
+            "sales30d": "477.4000",
+            "currency": "USD",
+            "target_pct": "17.56",
+            "target_source": "goal_campana",
+            "excess": "558.8000",
+            "acos_pct": "134.61",
+            "window_start": "2026-08-16",
+            "window_end": "2026-09-14",
+            "campaign_status": "ENABLED",
+            "aviso_estado": "pending",
+            "riesgo_ignorando_estado": False,
+        },
+        {
+            "id": 6,
+            "platform": "amazon_us",
+            "campaign_external_id": "123457",
+            "nombre": "AU2 Exact",
+            "status": "paused_observed",
+            "motivo": "campana_no_enabled",
+            "cost": "200.0000",
+            "sales30d": "0.0000",
+            "currency": "USD",
+            "target_pct": "20.00",
+            "target_source": "goal_plataforma",
+            "excess": "200.0000",
+            "acos_pct": None,
+            "window_start": "2026-08-16",
+            "window_end": "2026-09-14",
+            "campaign_status": "PAUSED",
+            "aviso_estado": "pending",
+            "riesgo_ignorando_estado": True,
+        },
+    ]
+    html = ui.templates.env.get_template("cortes.html").render(**ctx)
+    assert PAYLOAD_XSS not in html
+    assert "&lt;script&gt;" in html
+    assert "Campañas" in html
+    assert "642.6500 USD" in html
+    assert "477.4000 USD" in html
+    assert "17.56%" in html
+    assert "exceso_economico" in html
+    assert "pending" in html
+    # Obs3r2: la pausada muestra chip de riesgo y "—" en aviso (jamas
+    # "pending": no es accionable y nunca envia).
+    assert "riesgo</span>" in html
+    assert html.count('class="mutado">pending<') == 1
 
 
 def test_ui_cortes_vacio_muestra_sin_pendientes():
@@ -1462,3 +1524,26 @@ def test_ui_salud_sin_bloque_no_muestra_destino_de_harvest(monkeypatch):
     )
     assert "Destino de harvest" not in html
     assert "Campañas de grupo sin destino" not in html
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ui_salud_muestra_avisos_propuesta_pendientes_y_fallo(monkeypatch):
+    """C.4 B1/obs2r2: /salud pinta pendientes de aviso + fallo (JSON y
+    pantalla coinciden; sin tabla no se pinta nada)."""
+    import json as _json
+
+    from test_api_dashboard import _propuesta_campana
+
+    with _db_temporal("orbit_ui_salud_av") as (conn, dsn):
+        conn.execute(SQL42)
+        camp = _campana(conn, "amazon_us", "9001", name="A1U")
+        _propuesta_campana(conn, camp)
+        notas = _json.dumps({"telegram": {"aviso_propuesta": "fallo: canal caido"}})
+        _ciclo(conn, platform="amazon_us", notes=notas)
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn)
+        salud_html = TestClient(app).get("/salud").text
+        assert "Avisos de propuesta: 1 pendientes" in salud_html
+        assert "fallo: canal caido" in salud_html

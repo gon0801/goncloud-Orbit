@@ -545,7 +545,14 @@ def pagina_cortes(request: Request, conn: ConexionLectura) -> HTMLResponse:
     search_term se renderiza ESCAPADO ({{ }}) — es el vector XSS real."""
     datos = dash.cortes(conn=conn)
     return templates.TemplateResponse(
-        request, "cortes.html", {"pantalla": "cortes", "items": datos["items"]}
+        request,
+        "cortes.html",
+        {
+            "pantalla": "cortes",
+            "items": datos["items"],
+            # C.4 B2: propuestas de campana en la misma pantalla.
+            "propuestas_campana": datos.get("propuestas_campana", []),
+        },
     )
 
 
