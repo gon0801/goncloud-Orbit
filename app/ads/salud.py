@@ -171,9 +171,14 @@ def comprobar_atraso(conn: Any, *, ahora: dt.datetime | None = None) -> None:
     hoy = ahora.astimezone(dt.UTC).date()
     with conn.transaction():
         ultimos = conn.execute(_SQL_ULTIMOS_EXITO, (SOURCE, SOURCE)).fetchall()
+        # A.3d: igual que procesar_run, un atraso nuevo cancela el recovery
+        # pendiente del episodio anterior antes de abrir (sin esto, el ABRIR
+        # choca con el episodio abierto y el atraso nuevo se pierde).
         for perfil, plataforma, tipo in unidades_atrasadas(ultimos, hoy):
+            conn.execute(_SQL_CANCELAR_RECUPERACION, (perfil, plataforma, tipo))
             conn.execute(_SQL_ABRIR, (perfil, plataforma, tipo, None))
         if not ultimos and not conn.execute(_SQL_EXITO_GLOBAL_HOY, (SOURCE, hoy)).fetchone()[0]:
+            conn.execute(_SQL_CANCELAR_RECUPERACION, (None, None, "atraso"))
             conn.execute(_SQL_ABRIR, (None, None, "atraso", None))
     entregar_pendientes(conn)
 

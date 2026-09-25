@@ -55,9 +55,16 @@ Diseño sellado (plans/orbit-03.md task 3.1 + diseno v2):
   14d desde el watermark -> 'entidad_inerte' (BIDS 01: vista
   v_entidad_inerte leida UNA vez por ciclo en TX2; salta ANTES de resolver
   ventanas, no aplica al camino de terminos); cooldown 7d -> 'cooldown_7d'.
+  En hojas, PAUSE se decide con ventana madura antes de consultar su propio
+  cooldown; un BID previo solo enfria BID. En grupos, el gate sigue igual.
+  B.2a: ese parrafo rige solo con el flag ads_pause_sin_cooldown_bid en
+  true; apagado (default), el cooldown generico pre-B.2 bloquea tambien la
+  PAUSE en el gate. El flag contiene el cooldown por kind; el tope
+  confirmed_at <= decided_at de B.2 queda vigente en la query.
   Orden de gates del orquestador: campaña (goal) primero (la hace invisible al
-  optimizador por completo), luego ancestros, luego estado, luego cooldown; y
-  solo DESPUES de todos ellos el veto pendiente por clave de efecto
+  optimizador por completo), luego ancestros y estado. El veto pendiente por
+  clave de efecto corre despues; en hojas, cooldown depende del tipo de
+  decision ya calculada; en grupos, sigue antes del veto
   (CAMPANA ACTIVA 01 · 1.6: una hoja o termino dentro de una campana/grupo
   apagado se cuenta con el motivo del ANCESTRO, y un grupo gateado cuenta
   TODOS sus terminos con ese motivo — incluidos los bloqueados; solo cambian
@@ -788,6 +795,11 @@ def _pendiente_bid(
         },
         "goal": _goal_json(goal, PLATAFORMAS_MONEDA[platform]),
         "target_acos_pct_usado": _dec_str(target),
+        # La elegibilidad de PAUSE frente al ultimo BID no se deduce del
+        # resultado puro de decide_bid. Congelarla permite interpretar una
+        # decision posterior sin aplicar retrospectivamente esta politica
+        # a una decision de la era anterior.
+        "cooldown_policy_version": "pause_after_bid_v1",
         # ORBIT 06 2.3: peldano ganador + snapshot SOLO si gana el margen
         # (replay no lee estas claves: reproduce() intacto).
         "target_procedencia": procedencia,
@@ -1366,6 +1378,7 @@ def _gates_entidad(
     status,
     ancestros: tuple[tuple[str, str | None], ...],
     decided_at: dt.datetime,
+    comprobar_cooldown: bool = True,
 ) -> tuple[g.Goal | None, str | None]:
     """Cascada de gates del orquestador (orden sellado, ver docstring del
     modulo): goal de campaña -> ancestros ENABLED (CAMPANA ACTIVA 01: campaña
@@ -1379,7 +1392,7 @@ def _gates_entidad(
             motivo = motivo_ancestro
     if motivo is None and status != "ENABLED":
         motivo = MOTIVO_ESTADO_NO_ENABLED  # None (sin state) tambien queda fuera
-    if motivo is None and g.en_cooldown(conn, entidad_id, ahora=decided_at):
+    if motivo is None and comprobar_cooldown and g.en_cooldown(conn, entidad_id, ahora=decided_at):
         motivo = MOTIVO_COOLDOWN_7D
     return (goal, motivo)
 
@@ -1402,6 +1415,7 @@ def _procesa_decisora(
     inertes: set[int],
     margen_plataforma: Decimal | None,
     snapshot_margen: dict,
+    pause_sin_cooldown_bid: bool,
 ) -> None:
     (
         entidad_id,
@@ -1425,6 +1439,10 @@ def _procesa_decisora(
             (MOTIVO_GRUPO_NO_ENABLED, status_grupo),
         ),
         decided_at=decided_at,
+        # B.2a: con el flag apagado rige el gate pre-B.2 (cualquier apply
+        # <7d bloquea tambien la PAUSE); encendido, el cooldown se evalua
+        # por kind despues de decidir (B.2).
+        comprobar_cooldown=not pause_sin_cooldown_bid,
     )
     if motivo is not None:
         contadores.skips_entidad[motivo] += 1
@@ -1487,6 +1505,17 @@ def _procesa_decisora(
         # sella con el mismo corte_pause).
         expected_clicks=corte_pause.expected_clicks,
     )
+    # El BID verificado no posterga un corte que ya califico con datos maduros.
+    # La PAUSE aplicada (aun revertida) conserva su propio cooldown; si no
+    # califico PAUSE, el BID sigue sujeto al cooldown de cualquier apply.
+    # B.2a: solo con el flag encendido; apagado, el gate de arriba ya aplico
+    # el cooldown generico pre-B.2 y no se consulta de nuevo.
+    if pause_sin_cooldown_bid:
+        kind_cooldown = "pause" if resultado.kind == "pause" else None
+        if g.en_cooldown(conn, entidad_id, ahora=decided_at, kind=kind_cooldown):
+            contadores.skips_entidad[MOTIVO_COOLDOWN_7D] += 1
+            tick()
+            return
     tick()
     if resultado.kind is None:
         contadores.skips_entidad[resultado.motivo] += 1
@@ -1800,6 +1829,10 @@ def _recorre_plataforma(
     corte_pause_por_grupo: dict[
         int, tuple[cortes.UmbralResuelto, windows.EvidenciaAdGroup | None]
     ] = {}
+    # B.2a: el flag se resuelve UNA vez por ciclo y viaja EXPLICITO a
+    # _procesa_decisora (no en `comunes`: el camino de grupos no lo usa,
+    # su gate sigue igual con o sin flag).
+    pause_sin_cooldown_bid = g.pause_sin_cooldown_bid_desde_settings(settings)
     comunes = dict(
         platform=platform,
         setting_target=setting_target,
@@ -1817,7 +1850,12 @@ def _recorre_plataforma(
     for fila in conn.execute(_SQL_DECISORAS, (platform,)).fetchall():
         contadores.entidades += 1
         _procesa_decisora(
-            conn, fila=fila, corte_pause_por_grupo=corte_pause_por_grupo, inertes=inertes, **comunes
+            conn,
+            fila=fila,
+            corte_pause_por_grupo=corte_pause_por_grupo,
+            inertes=inertes,
+            pause_sin_cooldown_bid=pause_sin_cooldown_bid,
+            **comunes,
         )
     for fila in conn.execute(_SQL_GRUPOS, (platform,)).fetchall():
         contadores.ad_groups += 1

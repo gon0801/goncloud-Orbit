@@ -250,3 +250,140 @@ def test_episodio_persiste_reintenta_y_recupera_solo_con_principal(monkeypatch):
             pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
         )
         admin.close()
+
+
+def _base_a3d(monkeypatch, nombre, respuestas):
+    """Fixture A.3d: DB temporal con 0001+0040+0041, rol app_ingest y canal
+    con respuestas programadas. Devuelve (conn, textos, admin) para cerrar."""
+    import psycopg
+    from psycopg import sql as pgsql
+
+    db = f"orbit_a3d_{nombre}_{os.getpid()}"
+    admin = psycopg.connect(_test_dsn(), autocommit=True)
+    admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+    conn = psycopg.connect(_test_dsn(), dbname=db, autocommit=True)
+    conn.execute(SQL)
+    conn.execute(SQL40)
+    conn.execute(SQL41)
+    conn.execute("SET ROLE app_ingest")
+    monkeypatch.setattr(salud.notifica, "canal_activo", lambda: True)
+    textos = []
+    cola = list(respuestas)
+
+    def enviar(texto):
+        textos.append(texto)
+        assert cola, "envio no programado"
+        return cola.pop(0)
+
+    monkeypatch.setattr(salud.notifica, "_envia_texto", enviar)
+    return conn, textos, admin, db
+
+
+def _cerrar_a3d(conn, admin, db):
+    from psycopg import sql as pgsql
+
+    conn.close()
+    admin.execute(pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db)))
+    admin.close()
+
+
+def _run(conn, source, ok, status, reporte="campaigns", perfil=101, plataforma="amazon_us"):
+    run_id = conn.execute(
+        "INSERT INTO ingest_run (source, finished_at, ok) VALUES (%s, now(), %s) RETURNING id",
+        (source, ok),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO ads_report_result "
+        "(ingest_run_id, profile_id, platform, report_name, status, reason) "
+        "VALUES (%s, %s, %s, %s, %s, %s)",
+        (run_id, perfil, plataforma, reporte, status, "fallo" if status == "failed" else None),
+    )
+    salud.procesar_run(conn, run_id)
+    return run_id
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="Postgres no disponible")
+def test_a3d_fallo_nuevo_tras_recovery_pendiente_no_se_pierde(monkeypatch):
+    """A.3d secuencia 1 (ya cubierta por 13af38e, se deja sellada): fallo ->
+    aviso ok -> exito -> recovery pendiente (canal falla) -> fallo nuevo
+    cancela el recovery viejo y abre episodio nuevo con su aviso."""
+    conn, textos, admin, db = _base_a3d(monkeypatch, "fallo", [True, False, True])
+    try:
+        _run(conn, salud.SOURCE, False, "failed")
+        _run(conn, salud.SOURCE, True, "written")
+        viejo = conn.execute(
+            "SELECT id FROM ads_ingest_incident WHERE tipo = 'fallo' ORDER BY id DESC LIMIT 1"
+        ).fetchone()[0]
+        assert conn.execute(
+            "SELECT recovered_at IS NOT NULL, recovery_sent_at IS NULL, closed_at IS NULL"
+            " FROM ads_ingest_incident WHERE id = %s",
+            (viejo,),
+        ).fetchone() == (True, True, True)
+        _run(conn, salud.SOURCE, False, "failed")
+        assert conn.execute("SELECT count(*) FROM ads_ingest_incident").fetchone()[0] == 2
+        assert conn.execute(
+            "SELECT recovery_cancelled_at IS NOT NULL, closed_at IS NOT NULL"
+            " FROM ads_ingest_incident WHERE id = %s",
+            (viejo,),
+        ).fetchone() == (True, True)
+        assert (
+            conn.execute(
+                "SELECT alert_sent_at IS NOT NULL FROM ads_ingest_incident"
+                " WHERE tipo = 'fallo' AND closed_at IS NULL"
+            ).fetchone()[0]
+            is True
+        )
+        assert any("fallo de ingesta principal" in t for t in textos[2:])
+    finally:
+        _cerrar_a3d(conn, admin, db)
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="Postgres no disponible")
+def test_a3d_atraso_nuevo_tras_recovery_pendiente_no_se_pierde(monkeypatch):
+    """A.3d secuencia 2 (el hueco): atraso -> aviso ok -> exito -> recovery
+    pendiente -> atraso nuevo debe cancelar el recovery viejo y abrir
+    episodio nuevo. Antes del fix simetrico, el ABRIR choca con el episodio
+    abierto (ON CONFLICT DO NOTHING) y el atraso nuevo se pierde."""
+    conn, textos, admin, db = _base_a3d(monkeypatch, "atraso", [True, False, True])
+    try:
+        conn.execute(
+            "INSERT INTO ingest_run (source, finished_at, ok) "
+            "VALUES (%s, now() - interval '1 day', true)",
+            (salud.SOURCE,),
+        )
+        vieja = conn.execute("SELECT id FROM ingest_run ORDER BY id DESC LIMIT 1").fetchone()[0]
+        conn.execute(
+            "INSERT INTO ads_report_result "
+            "(ingest_run_id, profile_id, platform, report_name, status)"
+            " VALUES (%s, 101, 'amazon_us', 'campaigns', 'written')",
+            (vieja,),
+        )
+        hoy_11 = dt.datetime.combine(dt.datetime.now(dt.UTC).date(), dt.time(11, 0), tzinfo=dt.UTC)
+        manana_11 = hoy_11 + dt.timedelta(days=1)
+        salud.comprobar_atraso(conn, ahora=hoy_11)
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM ads_ingest_incident "
+                "WHERE tipo = 'atraso' AND closed_at IS NULL"
+            ).fetchone()[0]
+            == 1
+        )
+        _run(conn, salud.SOURCE, True, "written")
+        viejo = conn.execute(
+            "SELECT id FROM ads_ingest_incident WHERE tipo = 'atraso' ORDER BY id DESC LIMIT 1"
+        ).fetchone()[0]
+        assert conn.execute(
+            "SELECT recovered_at IS NOT NULL, recovery_sent_at IS NULL, closed_at IS NULL"
+            " FROM ads_ingest_incident WHERE id = %s",
+            (viejo,),
+        ).fetchone() == (True, True, True)
+        salud.comprobar_atraso(conn, ahora=manana_11)
+        assert conn.execute("SELECT count(*) FROM ads_ingest_incident").fetchone()[0] == 2
+        assert conn.execute(
+            "SELECT recovery_cancelled_at IS NOT NULL, closed_at IS NOT NULL"
+            " FROM ads_ingest_incident WHERE id = %s",
+            (viejo,),
+        ).fetchone() == (True, True)
+        assert any("atrasada" in t for t in textos[2:])
+    finally:
+        _cerrar_a3d(conn, admin, db)
