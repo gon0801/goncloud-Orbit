@@ -172,7 +172,7 @@ def test_ui_cortes_entidad_muestra_nombre_no_external_id():
 
 
 def test_ui_cortes_pinta_propuestas_campana_y_escapa_nombre():
-    """C.4 B2: la seccion Campanas muestra costo/ingreso/target/ventana/
+    """C.4 B2: la seccion Campañas muestra costo/ingreso/target/ventana/
     estado/motivo/aviso; el nombre (texto libre) va escapado."""
     ctx = _ctx_cortes()
     ctx["propuestas_campana"] = [
@@ -220,7 +220,7 @@ def test_ui_cortes_pinta_propuestas_campana_y_escapa_nombre():
     html = ui.templates.env.get_template("cortes.html").render(**ctx)
     assert PAYLOAD_XSS not in html
     assert "&lt;script&gt;" in html
-    assert "Campanas" in html
+    assert "Campañas" in html
     assert "642.6500 USD" in html
     assert "477.4000 USD" in html
     assert "17.56%" in html
