@@ -59,7 +59,8 @@ Diseño sellado (plans/orbit-03.md task 3.1 + diseno v2):
   cooldown; un BID previo solo enfria BID. En grupos, el gate sigue igual.
   B.2a: ese parrafo rige solo con el flag ads_pause_sin_cooldown_bid en
   true; apagado (default), el cooldown generico pre-B.2 bloquea tambien la
-  PAUSE en el gate.
+  PAUSE en el gate. El flag contiene el cooldown por kind; el tope
+  confirmed_at <= decided_at de B.2 queda vigente en la query.
   Orden de gates del orquestador: campaña (goal) primero (la hace invisible al
   optimizador por completo), luego ancestros y estado. El veto pendiente por
   clave de efecto corre despues; en hojas, cooldown depende del tipo de

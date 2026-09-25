@@ -5,6 +5,8 @@ Rama `feat/ads-proteccion-b2a-flag`. El comportamiento PAUSE-nueva de B.2
 (cooldown generico bloquea tambien la PAUSE); encendido, rige B.2.
 Lectura: `app/optimizer/goals.py::pause_sin_cooldown_bid_desde_settings`
 (fail-closed: solo JSON true habilita; sin clave/NULL/otro valor -> False).
+El flag contiene el cooldown por kind; el tope confirmed_at <= decided_at de
+B.2 queda vigente en la query.
 Resolucion una vez por ciclo en `_recorre_plataforma`; el camino de grupos
 no lo usa (su gate sigue igual).
 
@@ -30,6 +32,10 @@ Readback (la fila mas reciente debe traer true):
 ssh goncloud "$PSQL_READ -c \"SELECT id, label, settings->'ads_pause_sin_cooldown_bid' AS flag
 FROM config_version ORDER BY id DESC LIMIT 1;\""
 ```
+
+Todo INSERT futuro a config_version debe arrastrar los settings con el patron
+settings || ... (si escribe un objeto nuevo apaga o cuela el flag en silencio);
+repite este readback tras cualquier cambio de config.
 
 ## Apagado (rollback del flag, con go)
 
