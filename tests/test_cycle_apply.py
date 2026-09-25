@@ -919,3 +919,146 @@ def test_sello_fallido_no_pisa_el_rastro_del_sucesor(caplog):
         assert fila[0] == "failed"
         assert "rastro: ciclo muerto" in fila[1], "el sello del zombie NO pisa el rastro"
         assert "boom" not in fila[1]
+
+
+@_skip_db
+def test_evidencia_economica_sobrevive_aborto_despues_de_liberar(secrets_falsos):
+    """Obs3r2: liberacion cometida + aborto a mitad (lease perdido) -> el
+    sello post-apply CONSERVA la evidencia economica (merge antes de sellar);
+    status degraded y la mutacion del pause SI salio."""
+    from test_apply_cola import (
+        _decision_corte,
+        _encola_fila,
+        _fechas,
+        _payload_pause,
+    )
+    from test_apply_cola import (
+        _metrica as _metrica_cola,
+    )
+    from test_cycle import _run
+
+    with _db_temporal("orbit_cyc_obs3") as (conn, _c):
+        ids = _siembra_maestra(conn, escalera="live")
+        _config_live_caps(conn)
+        # Flag ON en la version mas reciente (gana por id DESC).
+        _config_version(
+            conn,
+            {
+                "ads_optimizer_mode": "live",
+                "ads_apply_cap_amazon_us_bid": 10,
+                "ads_apply_cap_amazon_us_pause": 2,
+                "ads_apply_cap_amazon_us_negative": 5,
+                "ads_apply_cap_amazon_us_harvest": 2,
+                "ads_pause_economica": True,
+            },
+        )
+        conn.execute(
+            "UPDATE ads_optimizer_goal SET target_acos_pct = 20 WHERE platform = 'amazon_us'"
+        )
+        d = DECIDED_AT
+        run = _run(conn)
+        for i, fecha in enumerate(
+            _fechas(d.date() - dt.timedelta(days=20), d.date() - dt.timedelta(days=11))
+        ):
+            _metrica_cola(
+                conn,
+                run,
+                ids["kw_pause"],
+                fecha,
+                clicks=5,
+                cost=10 if i == 0 else 15,
+                orders=1 if i == 0 else 0,
+                ad_revenue=100 if i == 0 else 0,
+                # Vintage posterior al de la siembra (manda por fecha),
+                # anterior al decided_at (entra al asof).
+                observed=_obs(fecha) + dt.timedelta(hours=1),
+            )
+        ciclo_dec = conn.execute(
+            "INSERT INTO optimizer_cycle (motor, mode, platform, status, finished_at,"
+            " decisions_count) VALUES ('ads_optimizer', 'live', 'amazon_us', 'done', %s, 1)"
+            " RETURNING id",
+            (d - dt.timedelta(days=3),),
+        ).fetchone()[0]
+        dec = _decision_corte(
+            conn,
+            ciclo_dec,
+            ids["config_id"],
+            ids["kw_pause"],
+            "pause",
+            motivo="pause_economica",
+            decided_at=d - dt.timedelta(days=3),
+        )
+        _encola_fila(
+            conn,
+            dec,
+            ids["kw_pause"],
+            "pause",
+            payload=_payload_pause("9202"),
+            vence=d - dt.timedelta(hours=1),
+            encolado=d - dt.timedelta(days=3),
+        )
+        flip = {"hecho": False}
+
+        def al_request(request: httpx.Request) -> None:
+            # Tras el PUT del pause (state PAUSED en el body): el sucesor
+            # reclama el lock; el zombie lo descubre en el PROXIMO HTTP
+            # (el LIST de readback del pause) y aborta.
+            if not flip["hecho"] and request.method == "PUT":
+                body = json.loads(request.content)
+                objs = body.get("keywords") or body.get("targetingClauses") or []
+                if objs and objs[0].get("state") == "PAUSED":
+                    flip["hecho"] = True
+                    conn.execute(
+                        "UPDATE ads_optimizer_lock SET owner = 'sucesor' WHERE job_key = %s",
+                        (JOB_KEY,),
+                    )
+
+        remoto_bid = {"9201": "1.00", "9202": "1.00"}
+        remoto_state = {"9201": "ENABLED", "9202": "ENABLED"}
+        vistos: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(
+                    200, json={"access_token": "fake-access-1", "expires_in": 3600}
+                )
+            vistos.append(request)
+            if al_request is not None:
+                al_request(request)
+            if request.method == "GET" and request.url.path == "/v2/profiles":
+                return httpx.Response(200, json={"profiles": [PERFIL_US]})
+            if request.method == "PUT":
+                body = json.loads(request.content)
+                obj = body["keywords"][0] if "keywords" in body else body["targetingClauses"][0]
+                ext = str(obj.get("keywordId") or obj.get("targetId"))
+                if "state" in obj:
+                    remoto_state[ext] = obj["state"]
+                if "bid" in obj:
+                    remoto_bid[ext] = obj["bid"]
+                return httpx.Response(207, json={"ack": obj})
+            if request.method == "POST" and request.url.path.endswith("/list"):
+                contenedor, campo = (
+                    ("targetingClauses", "targetId")
+                    if request.url.path == "/sp/targets/list"
+                    else ("keywords", "keywordId")
+                )
+                filas = [
+                    {campo: ext, "bid": remoto_bid[ext], "state": remoto_state[ext]}
+                    for ext in remoto_bid
+                ]
+                return httpx.Response(200, json={contenedor: filas})
+            raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
+
+        res = _corre(conn, factory=_fabrica_real_mock(handler))
+
+        assert flip["hecho"], "el PUT del pause debio salir antes del aborto"
+        assert res.status == "degraded"
+        notas = json.loads(
+            conn.execute(
+                "SELECT notes FROM optimizer_cycle WHERE id = %s", (res.cycle_id,)
+            ).fetchone()[0]
+        )
+        assert notas["apply"]["apply_abortado_owner"] is True
+        evidencias = notas["apply"]["revalidaciones_economicas"]
+        assert [e["decision_id"] for e in evidencias] == [dec]
+        assert evidencias[0]["resultado"] == "califica"

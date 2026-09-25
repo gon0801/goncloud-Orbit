@@ -587,11 +587,14 @@ def _pause_propio_verificado(conn: psycopg.Connection, ad_entity_id: int) -> boo
 
 def _flag_pause_economica(conn: psycopg.Connection) -> bool:
     """C.3 B1: la PAUSE economica rige solo con ads_pause_economica=true.
-    Fail-closed (falta de config/tabla -> False, como B.2a)."""
-    try:
-        config = conn.execute(_SQL_CONFIG_TARGET).fetchone()
-    except Exception:  # noqa: BLE001 - fail-closed
-        return False
+
+    Fail-closed SOLO en datos (sin fila, NULL o settings no-dict ->
+    False). Un SELECT fallido NO se atrapa: dejaria la TX abortada y el
+    siguiente statement tronaria con InFailedSqlTransaction — el
+    "fail-closed" seria ilusorio (obs7r2). Si la config es ilegible, el
+    ciclo debe fallar ruidoso aqui, no seguir con un False mentiroso.
+    """
+    config = conn.execute(_SQL_CONFIG_TARGET).fetchone()
     settings = config[0] if config is not None else {}
     if not isinstance(settings, dict):
         return False
@@ -673,8 +676,10 @@ def _registra_evidencia(
     evidencia: dict,
 ) -> None:
     """Obs3: la evidencia economica se anexa a notes (TEXT con JSON) del
-    ciclo EJECUTOR en la misma TX que el descarte/aplicacion (misma suerte
-    ante abortos; el cierre del ciclo la reescribe identica)."""
+    ciclo EJECUTOR en la misma TX que el descarte/aplicacion. El sello
+    post-apply REEMPLAZA notes, asi que _corre_fases mezcla lo persistido
+    a apply.revalidaciones_economicas antes de sellar (obs3r2): la
+    evidencia sobrevive al aborto y no se duplica en exito."""
     if evidencias is not None:
         evidencias.append(evidencia)
     fila = conn.execute(_SQL_LEE_NOTAS_CICLO, (cycle_id,)).fetchone()
@@ -770,6 +775,13 @@ def _revalida_pause(
     evidencia = windows.ventanas_evidencia_ad_group(conn, platform, ahora).get(grupo)
     umbral = cortes.umbral_corte(evidencia, "pause").umbral
     fresco = windows.ventana_cortes(conn, fila.ad_entity_id, ahora)
+    # C.3 B1 + obs3r2: la politica EFECTIVA (una sola lectura del flag;
+    # la evidencia registra esta, no la version nominal).
+    version_efectiva = (
+        motor_bid.POLITICA_PAUSE_ECONOMICA
+        if target is not None and _flag_pause_economica(conn)
+        else None
+    )
     resultado = motor_bid.decide_bid(
         platform=platform,
         bids=None,  # la re-decision es SOLO de la regla pause (cortes)
@@ -782,11 +794,7 @@ def _revalida_pause(
         umbral_pause=umbral,
         # C.3 B1: la revalidacion economica rige solo con el flag (con
         # flag apagado, camino pre-economico aunque la fila sea vieja).
-        policy_version=(
-            motor_bid.POLITICA_PAUSE_ECONOMICA
-            if target is not None and _flag_pause_economica(conn)
-            else None
-        ),
+        policy_version=version_efectiva,
     )
     # Obs1: una fila economica aplica si la hoja califica PAUSE por
     # CUALQUIER regla (si ademas califica la umbral, pausar sigue siendo
@@ -801,7 +809,7 @@ def _revalida_pause(
             {
                 "decision_id": fila.decision_id,
                 "revalidado_at": ahora.isoformat(),
-                "version": motor_bid.POLITICA_PAUSE_ECONOMICA,
+                "version": version_efectiva,
                 "window_start": fresco.window_start.isoformat() if fresco else None,
                 "window_end": fresco.window_end.isoformat() if fresco else None,
                 "moneda": fresco.metric_currency if fresco else None,

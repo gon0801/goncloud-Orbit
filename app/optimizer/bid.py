@@ -307,9 +307,15 @@ def _decide_pause(
             None,
         )
     exceso = exceso_economico(cortes, target_acos_pct, moneda)
+    # Obs4r2: la regla economica exige orders/clicks CONOCIDOS, como la
+    # umbral (pausar con ventas desconocidas es justo lo que
+    # pause_orders_desconocido prohibe; el motivo de abstencion ya quedo
+    # en `motivo` arriba y manda al no disparar).
     if (
         policy_version == POLITICA_PAUSE_ECONOMICA
         and exceso is not None
+        and cortes.orders is not None
+        and cortes.clicks is not None
         and cortes.cost > MULT_PAUSE_ECONOMICA * target_acos_pct * cortes.ad_revenue / _CIEN
         and exceso >= EXCESO_MINIMO[moneda]
     ):

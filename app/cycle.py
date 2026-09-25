@@ -1146,6 +1146,44 @@ def _cierra_envelope(
     return True
 
 
+_SQL_NOTAS_VIGENTES = "SELECT notes FROM optimizer_cycle WHERE id = %s"
+
+
+def _mezcla_evidencias_persistidas(conn: psycopg.Connection, cycle_id: int, cuerpo: dict) -> None:
+    """Obs3r2: el sello post-apply REEMPLAZA notes — sin este merge, las
+    evidencias economicas anexadas DURANTE la fase (misma TX que cada
+    descarte/aplicacion, ya commitadas) se pierden cuando la fase aborta
+    (el cuerpo del aborto no trae la lista en memoria). Lo persistido
+    (top-level `revalidaciones_economicas`) se mezcla a
+    `apply.revalidaciones_economicas` con dedupe por decision_id (la
+    version en memoria manda; en exito son identicas). El SELECT va en
+    su PROPIA transaccion (la conexion de prod no es autocommit: un SELECT
+    suelto abriria la TX implicita y el `with` del sello seria un savepoint
+    jamas commiteado — el BN1 de C.4 ronda 2)."""
+    with conn.transaction():
+        fila = conn.execute(_SQL_NOTAS_VIGENTES, (cycle_id,)).fetchone()
+    if fila is None or not isinstance(fila[0], str) or not fila[0]:
+        return
+    try:
+        notas = json.loads(fila[0])
+    except ValueError:
+        return
+    if not isinstance(notas, dict):
+        return
+    persistidas = notas.get("revalidaciones_economicas")
+    if not isinstance(persistidas, list) or not persistidas:
+        return
+    seccion = cuerpo.setdefault("apply", {})
+    if not isinstance(seccion, dict):
+        return
+    destino = seccion.setdefault("revalidaciones_economicas", [])
+    vistos = {e.get("decision_id") for e in destino if isinstance(e, dict)}
+    for evidencia in persistidas:
+        if isinstance(evidencia, dict) and evidencia.get("decision_id") not in vistos:
+            destino.append(evidencia)
+            vistos.add(evidencia.get("decision_id"))
+
+
 def _sella_apply(conn: psycopg.Connection, cycle_id: int, notes: str, *, degradar: bool) -> bool:
     """Sello post-apply: notes['apply'] y degraded si la fase aborto (2.4).
     Misma regla de no-sobre-cerrar: un envelope cerrado en 'failed' por el
@@ -2375,6 +2413,8 @@ def _corre_fases(
     if notas_apply or telegram or ancla_avanzo:
         if telegram:
             cuerpo["telegram"] = telegram
+        # Obs3r2: lo anexado durante la fase sobrevive al reemplazo del sello.
+        _mezcla_evidencias_persistidas(conn, cycle_id, cuerpo)
         notas = json.dumps(cuerpo, ensure_ascii=False, default=str)
         with conn.transaction():
             _sella_apply(conn, cycle_id, notas, degradar=fase.fallo)

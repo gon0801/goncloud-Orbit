@@ -127,7 +127,10 @@ def test_flag_apagado_bloquea_pause_nueva_como_antes_de_b2(monkeypatch):
     ("corte", "esperado"),
     [
         (_agregado(clicks=156, cost="79"), "cooldown_7d"),
-        (_agregado(orders=None, cost="79"), "cooldown_7d"),
+        # Obs4r2: costo SOBRE el limite (127.94): solo la abstencion por
+        # orders desconocidos impide la PAUSE (con cost 79 el caso no
+        # discriminaba: ni la economica cruzaba).
+        (_agregado(orders=None), "cooldown_7d"),
         (_agregado(fechas=6), "cooldown_7d"),
     ],
 )

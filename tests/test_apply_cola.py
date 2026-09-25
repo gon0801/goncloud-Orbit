@@ -2048,3 +2048,54 @@ def test_libera_espera_target_queda_released_y_cuenta(monkeypatch):
             "released",
         )
         assert _mutaciones(vistos) == []
+
+
+@_skip_db
+def test_flag_pausa_economica_fail_closed_en_db():
+    """B1'r2: _flag_pause_economica lee la config vigente: sin clave o
+    false -> False; true -> True (mata `return True`)."""
+    import app.apply_cola as cola
+
+    with _db_temporal("orbit_cola_flag") as conn:
+        _semilla(conn)
+        assert cola._flag_pause_economica(conn) is False
+    with _db_temporal("orbit_cola_flag") as conn:
+        _semilla(
+            conn,
+            caps={
+                "ads_apply_cap_amazon_us_pause": 2,
+                "ads_pause_economica": False,
+            },
+        )
+        assert cola._flag_pause_economica(conn) is False
+    with _db_temporal("orbit_cola_flag") as conn:
+        _semilla(
+            conn,
+            caps={
+                "ads_apply_cap_amazon_us_pause": 2,
+                "ads_pause_economica": True,
+            },
+        )
+        assert cola._flag_pause_economica(conn) is True
+
+
+@_skip_db
+def test_hay_goal_detecta_goal_y_su_ausencia_en_db():
+    """Obs5r2: _hay_goal contra PG real (mata `return True`): True con
+    goal de plataforma o campana (aunque este deshabilitado); False sin
+    ninguno; False sin estado."""
+    import app.apply_cola as cola
+
+    with _db_temporal("orbit_cola_haygoal") as conn:
+        ids = _semilla(conn)
+        assert cola._hay_goal(conn, "amazon_us", ids["kw"]) is True
+        conn.execute("DELETE FROM ads_optimizer_goal")
+        assert cola._hay_goal(conn, "amazon_us", ids["kw"]) is False
+        conn.execute(
+            "INSERT INTO ads_optimizer_goal (scope, platform, target_acos_pct, bid_floor,"
+            " bid_ceiling, bid_currency, enabled, mode)"
+            " VALUES ('platform', 'amazon_us', 55, 0.10, 2.50, 'USD', false, 'off')"
+        )
+        assert cola._hay_goal(conn, "amazon_us", ids["kw"]) is True
+        kw_sin_estado = _entidad(conn, "keyword", "7209", parent=ids["ag"])
+        assert cola._hay_goal(conn, "amazon_us", kw_sin_estado) is False

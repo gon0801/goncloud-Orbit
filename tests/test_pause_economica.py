@@ -256,9 +256,12 @@ def test_revalida_pause_sin_target_espera_solo_con_goal(monkeypatch, hay_goal, e
 
 
 def test_negativos_no_pausan_ni_abstencion_ruidosa():
-    """Obs2/M11: cost o revenue negativos no califican ninguna regla."""
+    """Obs2/M11: cost o revenue negativos no califican ninguna regla, con
+    motivo auditable (mata la guarda cost<0: sin ella el motivo cambia)."""
     assert _decide(_corte("-5", "100")).kind is None
+    assert _decide(_corte("-5", "100")).motivo == "pause_economica_dato_faltante"
     assert _decide(_corte("100", "-1")).kind is None
+    assert _decide(_corte("100", "-1")).motivo == "pause_economica_dato_faltante"
 
 
 @pytest.mark.parametrize(
@@ -391,3 +394,139 @@ def test_registra_evidencia_conserva_nota_previa_no_json():
     notas = json_std.loads(guardado["params"][0])
     assert notas["revalidaciones_economicas"] == [{"decision_id": 1}]
     assert notas["nota_previa_no_json"].endswith("rastro: ciclo muerto")
+
+
+def test_flag_apagado_revalidacion_legada_no_adopta_regla_economica(monkeypatch):
+    """B1'r2: con el flag APAGADO, una fila legada pause_umbral cuya hoja
+    vendio (orders>0) pero aun cruza el limite economico se descarta
+    vendio_en_ventana (camino pre-C.3), JAMAS se aplica."""
+    from app import apply_cola
+
+    class Conn:
+        def execute(self, sql, params):
+            class Cursor:
+                def fetchone(self):
+                    if sql == apply_cola._SQL_DECISION_INPUTS:
+                        return ({"motivo": "pause_umbral"},)
+                    return (71,)
+
+            return Cursor()
+
+    monkeypatch.setattr(apply_cola.apply, "_identidad", lambda *_: ("keyword", "2423"))
+    monkeypatch.setattr(apply_cola.apply, "_estado_de_readback", lambda *_: "ENABLED")
+    monkeypatch.setattr(apply_cola, "_gracia_activa", lambda *_: False)
+    monkeypatch.setattr(apply_cola, "_pause_propio_verificado", lambda *_: False)
+    monkeypatch.setattr(apply_cola, "_flag_pause_economica", lambda *_: False)
+    monkeypatch.setattr(
+        apply_cola, "_target_pause_vigente", lambda *_: (Decimal("20"), "goal_campana")
+    )
+    monkeypatch.setattr(apply_cola.windows, "ventanas_evidencia_ad_group", lambda *_: {})
+    monkeypatch.setattr(apply_cola.windows, "ventana_cortes", lambda *_: _corte("100", "100"))
+    monkeypatch.setattr(
+        apply_cola.cortes, "umbral_corte", lambda *_: type("U", (), {"umbral": 300})()
+    )
+    fila = apply_cola.FilaCola(1, "pause", 2423, None, 1, {}, "released")
+    aplicador = type(
+        "Aplicador", (), {"_cliente": lambda self: object(), "cycle_id_ejecutor": 42}
+    )()
+    assert (
+        apply_cola._revalida_pause(Conn(), aplicador, "amazon_us", fila, HOY)
+        == apply_cola.MOTIVO_VENDIO_EN_VENTANA
+    )
+
+
+def test_fila_economica_que_solo_califica_umbral_sigue_aplicando(monkeypatch):
+    """Obs1r2: fila economica cuya hoja fresca solo califica por la regla
+    antigua (0 pedidos, clicks>=umbral, exceso<minimo) APLICA (None), no
+    se descarta (mata `califica and motivo==economica`)."""
+    from app import apply_cola
+
+    class Conn:
+        def execute(self, sql, params):
+            class Cursor:
+                def fetchone(self):
+                    if sql == apply_cola._SQL_DECISION_INPUTS:
+                        return ({"motivo": "pause_economica"},)
+                    if sql == apply_cola._SQL_LEE_NOTAS_CICLO:
+                        return ("{}",)
+
+                    return (71,)
+
+            return Cursor()
+
+    monkeypatch.setattr(apply_cola.apply, "_identidad", lambda *_: ("keyword", "2423"))
+    monkeypatch.setattr(apply_cola.apply, "_estado_de_readback", lambda *_: "ENABLED")
+    monkeypatch.setattr(apply_cola, "_gracia_activa", lambda *_: False)
+    monkeypatch.setattr(apply_cola, "_pause_propio_verificado", lambda *_: False)
+    monkeypatch.setattr(apply_cola, "_flag_pause_economica", lambda *_: True)
+    monkeypatch.setattr(
+        apply_cola, "_target_pause_vigente", lambda *_: (Decimal("20"), "goal_campana")
+    )
+    monkeypatch.setattr(apply_cola.windows, "ventanas_evidencia_ad_group", lambda *_: {})
+    monkeypatch.setattr(
+        apply_cola.windows, "ventana_cortes", lambda *_: _corte("50", "0", clicks=300, orders=0)
+    )
+    evidencias_b: list = []
+    monkeypatch.setattr(
+        apply_cola.cortes, "umbral_corte", lambda *_: type("U", (), {"umbral": 300})()
+    )
+    fila = apply_cola.FilaCola(1, "pause", 2423, None, 1, {}, "released")
+    aplicador = type(
+        "Aplicador", (), {"_cliente": lambda self: object(), "cycle_id_ejecutor": 42}
+    )()
+    assert (
+        apply_cola._revalida_pause(Conn(), aplicador, "amazon_us", fila, HOY, evidencias_b) is None
+    )
+    assert evidencias_b[0]["version"] == "economic_pause_v1"
+
+
+def test_evidencia_registra_version_efectiva_no_nominal(monkeypatch):
+    """Obs3r2: fila economica revalidada con flag APAGADO registra
+    version None (la politica aplicada fue la anterior, no v1)."""
+    from app import apply_cola
+
+    class Conn:
+        def execute(self, sql, params):
+            class Cursor:
+                def fetchone(self):
+                    if sql == apply_cola._SQL_DECISION_INPUTS:
+                        return ({"motivo": "pause_economica"},)
+                    if sql == apply_cola._SQL_LEE_NOTAS_CICLO:
+                        return ("{}",)
+
+                    return (71,)
+
+            return Cursor()
+
+    monkeypatch.setattr(apply_cola.apply, "_identidad", lambda *_: ("keyword", "2423"))
+    monkeypatch.setattr(apply_cola.apply, "_estado_de_readback", lambda *_: "ENABLED")
+    monkeypatch.setattr(apply_cola, "_gracia_activa", lambda *_: False)
+    monkeypatch.setattr(apply_cola, "_pause_propio_verificado", lambda *_: False)
+    monkeypatch.setattr(apply_cola, "_flag_pause_economica", lambda *_: False)
+    monkeypatch.setattr(
+        apply_cola, "_target_pause_vigente", lambda *_: (Decimal("20"), "goal_campana")
+    )
+    monkeypatch.setattr(apply_cola.windows, "ventanas_evidencia_ad_group", lambda *_: {})
+    monkeypatch.setattr(apply_cola.windows, "ventana_cortes", lambda *_: _corte("100", "500"))
+    monkeypatch.setattr(
+        apply_cola.cortes, "umbral_corte", lambda *_: type("U", (), {"umbral": 300})()
+    )
+    fila = apply_cola.FilaCola(1, "pause", 2423, None, 1, {}, "released")
+    aplicador = type(
+        "Aplicador", (), {"_cliente": lambda self: object(), "cycle_id_ejecutor": 42}
+    )()
+    evidencias: list = []
+    assert (
+        apply_cola._revalida_pause(Conn(), aplicador, "amazon_us", fila, HOY, evidencias)
+        == "ya_no_califica"
+    )
+    assert evidencias[0]["version"] is None
+
+
+def test_economica_abstiene_con_orders_o_clicks_desconocidos():
+    """Obs4r2: orders/clicks None no pausan aunque el exceso cruce (misma
+    abstencion que la regla umbral; el motivo lo dice)."""
+    assert _decide(_corte("127.94", "0", orders=None)).kind is None
+    assert _decide(_corte("127.94", "0", orders=None)).motivo == "pause_orders_desconocido"
+    assert _decide(_corte("127.94", "0", clicks=None)).kind is None
+    assert _decide(_corte("127.94", "0", clicks=None)).motivo == "pause_clicks_o_cost_desconocidos"
