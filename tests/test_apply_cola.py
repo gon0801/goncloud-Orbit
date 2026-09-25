@@ -2198,6 +2198,70 @@ def test_sin_quota_registra_la_fila_que_espera_fifo():
 
 
 @_skip_db
+def test_espera_target_registra_la_fila_que_espera(monkeypatch):
+    """D.1 r2-3: la economica sin target confiable deja UNA fila
+    espera_target por ciclo ejecutor (re-run no duplica, ciclo nuevo agrega),
+    cero quota cobrada y la fila de la cola sigue released."""
+    import app.apply_cola as cola
+
+    with _db_temporal("orbit_cola_dsa_espera") as conn:
+        ids = _semilla(conn)
+        dec = _decision_corte(
+            conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause", motivo="pause_economica"
+        )
+        q = _encola_fila(conn, dec, ids["kw"], "pause", payload=_payload_pause("7201"))
+        handler, _vistos = _handler_cortes()
+        monkeypatch.setattr(cola, "_revalida", lambda *_: cola.MOTIVO_ESPERA_TARGET)
+
+        def cuota_prohibida(*_):
+            raise AssertionError("No debe cobrar cuota al esperar target")
+
+        monkeypatch.setattr(cola, "consume_quota_y_sello", cuota_prohibida)
+        res = libera_vencidos(
+            conn,
+            "amazon_us",
+            ahora=ids["ahora"],
+            aplicador=_aplicador(conn, handler, ids["ciclo_ejec"]),
+            cycle_id=ids["ciclo_ejec"],
+        )
+        assert res.espera_target == 1 and res.descartadas == []
+        fila = conn.execute(
+            "SELECT cycle_id, motivo, detalle FROM decision_sin_aplicar WHERE decision_id = %s",
+            (dec,),
+        ).fetchone()
+        assert fila == (ids["ciclo_ejec"], "espera_target", {"kind": "pause"}), fila
+        assert conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone() == (
+            "released",
+        )
+        assert conn.execute("SELECT count(*) FROM apply_quota_state").fetchone()[0] == 0
+
+        # Re-run del MISMO ciclo ejecutor: no duplica (PK + ON CONFLICT).
+        res2 = libera_vencidos(
+            conn,
+            "amazon_us",
+            ahora=ids["ahora"],
+            aplicador=_aplicador(conn, handler, ids["ciclo_ejec"]),
+            cycle_id=ids["ciclo_ejec"],
+        )
+        assert res2.espera_target == 1
+        assert conn.execute("SELECT count(*) FROM decision_sin_aplicar").fetchone()[0] == 1
+
+        # El ciclo siguiente SI agrega su propia fila.
+        ciclo3 = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        res3 = libera_vencidos(
+            conn,
+            "amazon_us",
+            ahora=ids["ahora"],
+            aplicador=_aplicador(conn, handler, ciclo3),
+            cycle_id=ciclo3,
+        )
+        assert res3.espera_target == 1
+        assert conn.execute("SELECT count(*) FROM decision_sin_aplicar").fetchone()[0] == 2
+
+
+@_skip_db
 def test_sin_respuesta_registra_la_fila_del_list_muerto():
     """GK3 + D.1: el LIST fresco de la pause muere (404) -> la fila queda
     released y la decision queda REGISTRADA (sin_respuesta) del ciclo

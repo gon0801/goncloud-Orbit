@@ -1035,12 +1035,27 @@ def test_vista_decision_huerfana_origen_y_desenlaces():
     CUALQUIERA de los tres desenlaces (decision_application,
     decision_sin_aplicar, fila terminal en apply_queue) NO aparece; ciclo
     shadow o aun corriendo tampoco (el ejecutor live no corrio / no cerro).
-    La fila de cola EN VUELO (pending_veto) NO es desenlace: la decision
-    aparece hasta que la fila termine o el no-apply se registre."""
+    La fila de cola live EN VUELO (pending_veto/released/applying) NO es
+    desenlace NI hueco: origen 'en_cola' (r2-2: sigue visible como en vuelo,
+    no se confunde con una decision que debio quedar registrada). La
+    precedencia importa: el ciclo previo a 0043 con fila en vuelo sigue
+    'sin_registro'."""
     with _db_temporal_d1("orbit_dsa_vista") as conn:
         ids = _semilla_d1(conn)
         cfg = ids["config_id"]
         kw = ids["kw"]
+        # Tres keywords para tres filas NO terminales sin chocar la clave de
+        # efecto (pause = entity_cut sobre la entidad).
+        kw2 = _entidad(
+            conn, "keyword", "7202", parent=ids["ag"], match_type="EXACT", keyword_text="kw d1 dos"
+        )
+
+        kw3 = _entidad(
+            conn, "keyword", "7203", parent=ids["ag"], match_type="EXACT", keyword_text="kw d1 tres"
+        )
+        kw4 = _entidad(
+            conn, "keyword", "7204", parent=ids["ag"], match_type="EXACT", keyword_text="kw d1 4"
+        )
 
         # Huerfana pura: ciclo live terminado AHORA, decision bid sin nada.
         ciclo_live = _ciclo(conn, hace_dias=0)
@@ -1084,12 +1099,21 @@ def test_vista_decision_huerfana_origen_y_desenlaces():
             )
         finally:
             conn.execute("SET ROLE NONE")
-        # Una fila NO terminal (pending_veto) NO es desenlace: la decision
-        # APARECE en la vista hasta que la fila termine (terminal) o el
-        # no-apply se registre — semantica del COMMENT de la vista.
+        # Una fila live NO terminal (pending_veto) NO es desenlace NI hueco:
+        # la decision APARECE como 'en_cola' hasta que la fila termine
+        # (terminal) o el no-apply se registre (r2-2).
         ciclo_pend = _ciclo(conn, hace_dias=0)
-        dec_pend = _decision(conn, ciclo_pend, cfg, kw, "pause")
-        _encolar(conn, dec_pend, kw, "pause")
+        dec_pend = _decision(conn, ciclo_pend, cfg, kw2, "pause")
+        _encolar(conn, dec_pend, kw2, "pause")
+        # Igual con la fila RELEASED (esperando quota FIFO): en vuelo, no hueco.
+        ciclo_rel = _ciclo(conn, hace_dias=0)
+        dec_rel = _decision(conn, ciclo_rel, cfg, kw3, "pause")
+        q_rel = _encolar(conn, dec_rel, kw3, "pause")
+        _avanzar(conn, q_rel, "released")
+        # Precedencia (r2-2): ciclo PREVIO a 0043 con fila live en vuelo ->
+        # 'sin_registro', NO 'en_cola' (el hueco historico manda sobre la cola).
+        dec_vieja_cola = _decision(conn, ciclo_viejo, cfg, kw4, "pause")
+        _encolar(conn, dec_vieja_cola, kw4, "pause")
 
         filas = conn.execute(
             "SELECT decision_id, origen FROM v_decision_huerfana ORDER BY decision_id"
@@ -1097,9 +1121,25 @@ def test_vista_decision_huerfana_origen_y_desenlaces():
         assert filas == [
             (dec_huerfana, "huerfana"),
             (dec_vieja, "sin_registro"),
-            (dec_pend, "huerfana"),
+            (dec_pend, "en_cola"),
+            (dec_rel, "en_cola"),
+            (dec_vieja_cola, "sin_registro"),
         ], (
-            "las sin desenlace (incluida la de fila EN VUELO, que aun no lo "
-            "tiene); el veto (terminal), el resumen y el registro sacan a la "
+            "las sin desenlace; la de fila EN VUELO sale 'en_cola' (no hueco) "
+            "y la del ciclo previo a 0043 'sin_registro' aunque tenga fila; "
+            "el veto (terminal), el resumen y el registro sacan a la "
             "decision de la vista"
         )
+
+
+@_skip_db
+def test_vista_huerfana_excluye_corte_shadow_de_ciclo_live():
+    """Corte de goal shadow en ciclo live, encolado modo='shadow': su
+    desenlace es la practica de veto (sellado 6), no un apply."""
+    with _db_temporal_d1("orbit_dsa_shadow_live") as conn:
+        ids = _semilla_d1(conn)
+        ciclo = _ciclo(conn, hace_dias=0)
+        dec = _decision(conn, ciclo, ids["config_id"], ids["kw"], "pause")
+        _encolar(conn, dec, ids["kw"], "pause", modo="shadow")
+        filas = conn.execute("SELECT decision_id, origen FROM v_decision_huerfana").fetchall()
+        assert filas == [], filas

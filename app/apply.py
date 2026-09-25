@@ -229,8 +229,10 @@ MOTIVO_BID_INCOMPLETO = "bid_incompleto"
 MOTIVO_ENTIDAD_NO_DECISORA = "entidad_no_decisora"
 
 # ADS D.1: motivos de no-apply que nacen fuera de aplica_bids (la cola de
-# cortes y el hook de harvest los registran desde libera_vencidos).
+# cortes y el hook de harvest los registran desde libera_vencidos). El
+# literal de espera_target vive AQUI (una sola fuente): apply_cola lo aliasa.
 MOTIVO_SIN_QUOTA = "sin_quota"
+MOTIVO_ESPERA_TARGET = "espera_target"
 MOTIVO_SIN_RESPUESTA = "sin_respuesta"
 MOTIVO_PERDIDA = "perdida"
 
@@ -249,6 +251,7 @@ MOTIVOS_SIN_APLICAR = (
     MOTIVO_FUERA_DE_CAP,
     MOTIVO_FALLO_HTTP,
     MOTIVO_SIN_QUOTA,
+    MOTIVO_ESPERA_TARGET,
     MOTIVO_SIN_RESPUESTA,
     MOTIVO_PERDIDA,
 )

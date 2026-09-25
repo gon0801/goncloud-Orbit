@@ -6,8 +6,11 @@
 -- KINDS_QUOTA <-> trigger de quota). `ya_aplicada` esta en el vocabulario
 -- pero JAMAS se escribe: su desenlace ya es decision_application.
 -- v_decision_huerfana distingue el hueco HISTORICO (ciclos cerrados antes
--- de esta migracion: 'sin_registro') de la decision live que DEBIO quedar
--- registrada y no quedo ('huerfana': auditables una a una).
+-- de esta migracion: 'sin_registro'), la decision con fila live EN VUELO
+-- ('en_cola': sigue en la cola, no es un hueco) y la decision live que
+-- DEBIO quedar registrada y no quedo ('huerfana': auditables una a una).
+-- Toda decision con fila modo='shadow' (cualquier estado) queda FUERA: su
+-- desenlace es la practica de veto del dueno (sellado 6), no un apply.
 BEGIN;
 
 CREATE TABLE decision_sin_aplicar (
@@ -16,7 +19,7 @@ CREATE TABLE decision_sin_aplicar (
     motivo TEXT NOT NULL CHECK (motivo IN (
         'modo_no_live', 'ya_aplicada', 'bid_incompleto', 'entidad_no_decisora',
         'tope_intentos', 'fuera_de_cap', 'fallo_http', 'sin_quota',
-        'sin_respuesta', 'perdida'
+        'espera_target', 'sin_respuesta', 'perdida'
     )),
     detalle       JSONB,
     registrado_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -62,8 +65,15 @@ SELECT d.id AS decision_id,
        d.ad_entity_id,
        oc.platform,
        oc.finished_at AS ciclo_cerrado_at,
-       CASE WHEN oc.finished_at < %L::timestamptz THEN 'sin_registro' ELSE 'huerfana' END
-           AS origen
+       CASE
+         WHEN oc.finished_at < %L::timestamptz THEN 'sin_registro'
+         WHEN EXISTS (SELECT 1 FROM apply_queue q
+                       WHERE q.decision_id = d.id
+                         AND q.modo = 'live'
+                         AND q.estado IN ('pending_veto', 'released', 'applying'))
+           THEN 'en_cola'
+         ELSE 'huerfana'
+       END AS origen
   FROM decision d
   JOIN optimizer_cycle oc ON oc.id = d.cycle_id
  WHERE d.kind IN ('bid', 'pause', 'negative', 'harvest')
@@ -74,17 +84,23 @@ SELECT d.id AS decision_id,
    AND NOT EXISTS (SELECT 1 FROM apply_queue q
                     WHERE q.decision_id = d.id
                       AND q.estado IN ('applied', 'failed', 'vetoed', 'discarded'))
+   AND NOT EXISTS (SELECT 1 FROM apply_queue q
+                    WHERE q.decision_id = d.id
+                      AND q.modo = 'shadow')
 $v$, now()::text);
 END $$;
 
 COMMENT ON VIEW v_decision_huerfana IS
   'Decisiones aplicables de ciclos live YA CERRADOS sin NINGUN desenlace '
   '(ni aplicada, ni no-apply registrado, ni fila terminal en la cola). '
-  'origen = sin_registro para los ciclos cerrados ANTES de la migracion 0043 '
-  '(el registro no existia: hueco historico conocido) y huerfana para los '
-  'posteriores (debio quedar registrada: auditar una a una). Una fila de '
-  'cola EN VUELO (pending_veto/released/applying) no es desenlace: la '
-  'decision aparece hasta que la fila termine o el no-apply se registre.';
+  'origen tiene TRES valores por precedencia: sin_registro (ciclo cerrado '
+  'ANTES de la migracion 0043: hueco historico conocido), en_cola (fila '
+  'live NO terminal en pending_veto/released/applying: la decision sigue '
+  'en vuelo en la cola, atorada pero visible, NO es un hueco) y huerfana '
+  '(posterior: debio quedar registrada: auditar una a una). Toda decision '
+  'con CUALQUIER fila modo=shadow en apply_queue (cualquier estado) queda '
+  'FUERA de la vista: su desenlace es la practica de veto del dueno '
+  '(sellado 6), no un apply que debio registrarse.';
 
 GRANT SELECT ON v_decision_huerfana TO app_read, app_admin;
 

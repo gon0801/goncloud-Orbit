@@ -305,15 +305,18 @@ El motivo es un vocabulario CERRADO (`app.apply.MOTIVOS_SIN_APLICAR`,
 espejado por el CHECK de la tabla): `modo_no_live`, `ya_aplicada` (en el
 vocabulario pero **jamás escrita**: su desenlace ya es el resumen),
 `bid_incompleto`, `entidad_no_decisora`, `tope_intentos`, `fuera_de_cap`,
-`fallo_http`, `sin_quota`, `sin_respuesta`, `perdida`.
+`fallo_http`, `sin_quota`, `espera_target`, `sin_respuesta`, `perdida`.
 
 **Auditoría:** `v_decision_huerfana` lista las decisiones live de ciclos
-cerrados SIN ninguno de los tres desenlaces, con `origen` =
-`sin_registro` (ciclo cerrado ANTES de la migración 0043: hueco histórico
-conocido) o `huerfana` (posterior: debió quedar registrada — auditar una a
-una). Una fila de cola EN VUELO (`pending_veto`/`released`/`applying`) no es
-desenlace: la decisión aparece hasta que la fila termine o el no-apply se
-registre.
+cerrados SIN ninguno de los tres desenlaces, con `origen` en tres valores
+por precedencia: `sin_registro` (ciclo cerrado ANTES de la migración 0043:
+hueco histórico conocido), `en_cola` (fila live NO terminal en la cola —
+`pending_veto`/`released`/`applying`: la decisión sigue en vuelo, atorada
+pero visible, no es un hueco) y `huerfana` (posterior: debió quedar
+registrada — auditar una a una). Una decisión con CUALQUIER fila
+`modo='shadow'` en `apply_queue` (en cualquier estado) queda fuera de la
+vista: su desenlace es la práctica de veto del dueño (sellado 6), no un
+apply que debió registrarse.
 
 ```sql
 SELECT * FROM v_decision_huerfana WHERE origen = 'huerfana';

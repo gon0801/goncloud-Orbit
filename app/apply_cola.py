@@ -119,7 +119,9 @@ MOTIVO_YA_NO_CALIFICA = "ya_no_califica"
 MOTIVO_ENTIDAD_NO_VIVA = "entidad_no_viva"
 MOTIVO_REACTIVACION_MANUAL = "reactivacion_manual"
 MOTIVO_MODO_NO_LIVE = "modo_no_live"
-MOTIVO_ESPERA_TARGET = "espera_target"
+# ADS D.1: el literal vive en apply.MOTIVO_ESPERA_TARGET (vocabulario de
+# decision_sin_aplicar, UNA fuente); alias como MOTIVO_CAMPANA_NO_ENABLED.
+MOTIVO_ESPERA_TARGET = apply.MOTIVO_ESPERA_TARGET
 # CAMPANA ACTIVA 01 · 1.6: alias de apply.MOTIVO_CAMPANA/GRUPO_NO_ENABLED
 # (la funcion compartida del gate vive en apply, dueno del write client; cycle
 # y los tests siguen importando de AQUI): un corte cuya campaña o ad group
@@ -1105,7 +1107,8 @@ def libera_vencidos(
 
     ADS D.1: con `cycle_id` (el ciclo EJECUTOR; None = no registra, compat
     con callers viejos) los no-applies del barrido quedan en
-    decision_sin_aplicar: sin_quota (cola y hook harvest), sin_respuesta
+    decision_sin_aplicar: sin_quota (cola y hook harvest), espera_target
+    (economica sin target confiable que espera en released), sin_respuesta
     (LIST de re-validacion muerto) y perdida (claim del harvest perdido
     contra un veto). Los DESCARTES no se graban: su desenlace ya es la fila
     terminal discarded + discard_motivo."""
@@ -1156,6 +1159,7 @@ def libera_vencidos(
             # que puede volver) queda released y reintenta al ciclo
             # siguiente; sigue vetable. No se consume cuota ni claim.
             espera_target += 1
+            _registra(fila, MOTIVO_ESPERA_TARGET)
             continue
         if motivo is not None:
             conn.execute(_SQL_DESCARTA, (motivo, fila.id, "released"))
