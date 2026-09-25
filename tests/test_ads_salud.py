@@ -416,18 +416,48 @@ def test_a3d_resumen_ejecutado_cuenta_unidades_y_aperturas(monkeypatch):
 
 
 @pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="Postgres no disponible")
-def test_a3d_main_imprime_heartbeat_y_sale_cero(monkeypatch, capsys):
-    """main() imprime una linea ads-salud ... por corrida (la captura el log
-    del cron) y sale 0 en ambos caminos."""
+def test_a3d_main_heartbeat_omitido_pre_1030(monkeypatch, capsys):
+    """main() antes de las 10:30 UTC: sale 0 e imprime omitido. Hora fija."""
     import psycopg
 
-    conn, _textos, admin, db = _base_a3d(monkeypatch, "main", [True])
+    class _Reloj(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return dt.datetime(2026, 9, 24, 9, 0, tzinfo=dt.UTC)
+
+    monkeypatch.setattr(salud.dt, "datetime", _Reloj)
+    conn, _textos, admin, db = _base_a3d(monkeypatch, "main1", [])
     try:
         monkeypatch.setenv("ORBIT_DSN_INGEST", "postgres://test-inyectado/db")
         monkeypatch.setattr(salud, "connect", lambda _dsn: psycopg.connect(_test_dsn(), dbname=db))
         assert salud.main([]) == 0
         out, _err = capsys.readouterr()
-        assert out.startswith("ads-salud chequeo=")
-        assert "ahora=" in out
+        assert out == "ads-salud chequeo=omitido motivo=pre_1030 ahora=2026-09-24T09:00:00+00:00\n"
+    finally:
+        _cerrar_a3d(conn, admin, db)
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="Postgres no disponible")
+def test_a3d_main_heartbeat_ejecutado_tras_1030(monkeypatch, capsys):
+    """main() tras las 10:30 UTC: sale 0 e imprime ejecutado con conteos.
+    Hora fija; el reloj congelado solo afecta a Python (SQL usa now())."""
+    import psycopg
+
+    class _Reloj(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return dt.datetime(2026, 9, 24, 11, 0, tzinfo=dt.UTC)
+
+    monkeypatch.setattr(salud.dt, "datetime", _Reloj)
+    conn, _textos, admin, db = _base_a3d(monkeypatch, "main2", [True])
+    try:
+        monkeypatch.setenv("ORBIT_DSN_INGEST", "postgres://test-inyectado/db")
+        monkeypatch.setattr(salud, "connect", lambda _dsn: psycopg.connect(_test_dsn(), dbname=db))
+        assert salud.main([]) == 0
+        out, _err = capsys.readouterr()
+        assert out == (
+            "ads-salud chequeo=ejecutado ahora=2026-09-24T11:00:00+00:00 unidades=0"
+            " episodios_abiertos=1\n"
+        )
     finally:
         _cerrar_a3d(conn, admin, db)
