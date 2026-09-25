@@ -163,24 +163,33 @@ SELECT EXISTS (SELECT 1 FROM ingest_run WHERE source = %s AND ok = true
 """
 
 
-def comprobar_atraso(conn: Any, *, ahora: dt.datetime | None = None) -> None:
-    """Cron a las 10:30 UTC y reintentos posteriores; no alerta antes."""
+def comprobar_atraso(conn: Any, *, ahora: dt.datetime | None = None) -> dict:
+    """Cron a las 10:30 UTC y reintentos posteriores; no alerta antes.
+    Devuelve el resumen del chequeo para el heartbeat de main()."""
     ahora = ahora or dt.datetime.now(dt.UTC)
+    marca = ahora.astimezone(dt.UTC).isoformat()
     if ahora.astimezone(dt.UTC).time() < dt.time(10, 30):
-        return
+        return {"chequeo": "omitido", "motivo": "pre_1030", "ahora": marca}
     hoy = ahora.astimezone(dt.UTC).date()
     with conn.transaction():
         ultimos = conn.execute(_SQL_ULTIMOS_EXITO, (SOURCE, SOURCE)).fetchall()
+        abiertos = 0
         # A.3d: igual que procesar_run, un atraso nuevo cancela el recovery
         # pendiente del episodio anterior antes de abrir (sin esto, el ABRIR
         # choca con el episodio abierto y el atraso nuevo se pierde).
         for perfil, plataforma, tipo in unidades_atrasadas(ultimos, hoy):
             conn.execute(_SQL_CANCELAR_RECUPERACION, (perfil, plataforma, tipo))
-            conn.execute(_SQL_ABRIR, (perfil, plataforma, tipo, None))
+            abiertos += conn.execute(_SQL_ABRIR, (perfil, plataforma, tipo, None)).rowcount
         if not ultimos and not conn.execute(_SQL_EXITO_GLOBAL_HOY, (SOURCE, hoy)).fetchone()[0]:
             conn.execute(_SQL_CANCELAR_RECUPERACION, (None, None, "atraso"))
-            conn.execute(_SQL_ABRIR, (None, None, "atraso", None))
+            abiertos += conn.execute(_SQL_ABRIR, (None, None, "atraso", None)).rowcount
     entregar_pendientes(conn)
+    return {
+        "chequeo": "ejecutado",
+        "ahora": marca,
+        "unidades": len(ultimos),
+        "episodios_abiertos": abiertos,
+    }
 
 
 _SQL_SALUD = """
@@ -312,8 +321,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         with connect(dsn) as conn:
-            comprobar_atraso(conn)
+            resumen = comprobar_atraso(conn)
     except Exception as exc:
         print(f"ads-salud fallo: {scrub(str(exc))}", file=sys.stderr)
         return 1
+    print("ads-salud " + " ".join(f"{k}={v}" for k, v in resumen.items()))
     return 0

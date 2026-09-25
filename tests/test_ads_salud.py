@@ -387,3 +387,47 @@ def test_a3d_atraso_nuevo_tras_recovery_pendiente_no_se_pierde(monkeypatch):
         assert any("atrasada" in t for t in textos[2:])
     finally:
         _cerrar_a3d(conn, admin, db)
+
+
+def test_a3d_resumen_omitido_pre_1030_sin_tocar_db():
+    """Antes de las 10:30 UTC el chequeo se omite y lo dice (sin DB)."""
+    antes = dt.datetime(2026, 9, 24, 9, 0, tzinfo=dt.UTC)
+    assert salud.comprobar_atraso(object(), ahora=antes) == {
+        "chequeo": "omitido",
+        "motivo": "pre_1030",
+        "ahora": "2026-09-24T09:00:00+00:00",
+    }
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="Postgres no disponible")
+def test_a3d_resumen_ejecutado_cuenta_unidades_y_aperturas(monkeypatch):
+    """Tras las 10:30 el resumen trae unidades revisadas y episodios abiertos."""
+    conn, _textos, admin, db = _base_a3d(monkeypatch, "resumen", [True])
+    try:
+        tarde = dt.datetime.combine(dt.datetime.now(dt.UTC).date(), dt.time(11, 0), tzinfo=dt.UTC)
+        assert salud.comprobar_atraso(conn, ahora=tarde) == {
+            "chequeo": "ejecutado",
+            "ahora": tarde.isoformat(),
+            "unidades": 0,
+            "episodios_abiertos": 1,
+        }
+    finally:
+        _cerrar_a3d(conn, admin, db)
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="Postgres no disponible")
+def test_a3d_main_imprime_heartbeat_y_sale_cero(monkeypatch, capsys):
+    """main() imprime una linea ads-salud ... por corrida (la captura el log
+    del cron) y sale 0 en ambos caminos."""
+    import psycopg
+
+    conn, _textos, admin, db = _base_a3d(monkeypatch, "main", [True])
+    try:
+        monkeypatch.setenv("ORBIT_DSN_INGEST", "postgres://test-inyectado/db")
+        monkeypatch.setattr(salud, "connect", lambda _dsn: psycopg.connect(_test_dsn(), dbname=db))
+        assert salud.main([]) == 0
+        out, _err = capsys.readouterr()
+        assert out.startswith("ads-salud chequeo=")
+        assert "ahora=" in out
+    finally:
+        _cerrar_a3d(conn, admin, db)

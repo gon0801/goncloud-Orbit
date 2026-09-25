@@ -36,5 +36,5 @@ duplicado hace `ON CONFLICT DO NOTHING` (el evento se pierde en silencio).
   el atraso nuevo.
 - (b) No autorizar: A.3/A.4/C.6 siguen pausadas.
 
-Decision literal 25-sep-2026: "Corregir simetrico (Recomendado)" — autorizada
+Decision literal 24-sep-2026: "Corregir simetrico (Recomendado)" — autorizada
 la correccion (a). A.3 se reanuda tras el merge de A.2.

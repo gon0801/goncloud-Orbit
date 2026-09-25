@@ -551,6 +551,7 @@ _CLAVES_SALUD_PREVIAS = (
     "quota",
     "target_margen",
     "spapi",
+    "ads_ingest",  # ADS PROTECCION 01 A.3: salud de ingesta principal
 )
 
 
