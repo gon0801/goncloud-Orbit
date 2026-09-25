@@ -114,6 +114,7 @@ DEFAULTS_POR_MONEDA: dict[str, tuple[Decimal, Decimal]] = {
 CLAVE_SETTING_MODO = "ads_optimizer_mode"
 CLAVE_SETTING_PAUSE_SIN_COOLDOWN_BID = "ads_pause_sin_cooldown_bid"
 CLAVE_SETTING_PAUSE_ECONOMICA = "ads_pause_economica"
+CLAVE_SETTING_PROPUESTAS_CAMPANA = "ads_propuestas_campana"
 
 # Encendido en ORBIT 04 2.4 (sellado 22: la tarea de integracion lo voltea):
 # con True, resuelve_modo YA NO degrada live->shadow — la fase de apply vive
@@ -442,6 +443,14 @@ def pause_economica_desde_settings(settings: Mapping) -> bool:
     NULL o cualquier otro valor -> False (un deploy no activa la PAUSE
     economica sin el INSERT deliberado, igual que H5 de B.2)."""
     return settings.get(CLAVE_SETTING_PAUSE_ECONOMICA) is True
+
+
+def propuestas_campana_desde_settings(settings: Mapping) -> bool:
+    """C.4 B3: True solo si config_version.settings trae JSON true bajo la
+    clave sellada ads_propuestas_campana. Fail-closed: sin clave, NULL o
+    cualquier otro valor -> False (un deploy no evalua ni avisa propuestas
+    de campana sin el INSERT deliberado)."""
+    return settings.get(CLAVE_SETTING_PROPUESTAS_CAMPANA) is True
 
 
 def _chequea_modo(nombre: str, modo: str) -> None:

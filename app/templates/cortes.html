@@ -93,4 +93,46 @@
 {% else %}
 <p>sin propuestas pendientes: la cola no tiene filas esperando decision.</p>
 {% endif %}
+{# C.4 B2: propuestas de campana (pausa MANUAL en Amazon, sin veto en Orbit:
+   seccion solo lectura; open = accionable, paused_observed = informativa). #}
+{% if propuestas_campana %}
+<div class="tarjeta">
+  <h3><span class="alerta">●</span> Campanas <span class="chip">{{ propuestas_campana | length }}</span></h3>
+  <p class="mutado">Pausar a mano en Amazon; Orbit no toca campanas.</p>
+  <div class="tabla-scroll" role="region" aria-label="Tabla de datos" tabindex="0">
+  <table>
+    <thead>
+      <tr>
+        <th>Campana</th>
+        <th>Estado</th>
+        <th>Costo</th>
+        <th>Ingreso 30d</th>
+        <th>Target</th>
+        <th>Exceso</th>
+        <th>ACoS</th>
+        <th>Ventana</th>
+        <th>Motivo</th>
+        <th>Aviso</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for prop in propuestas_campana %}
+      <tr>
+        <td>{{ prop.nombre or "—" }} <span class="detalle-celda mono">#{{ prop.campaign_external_id }} · propuesta #{{ prop.id }}</span><span class="detalle-celda">{{ prop.platform }}</span></td>
+        <td><span class="chip">{{ prop.status }}</span><span class="detalle-celda">{{ prop.campaign_status }}</span></td>
+        <td>{{ prop.cost }} {{ prop.currency }}</td>
+        <td>{{ prop.sales30d }} {{ prop.currency }}</td>
+        <td>{{ prop.target_pct }}%<span class="detalle-celda">{{ prop.target_source }}</span></td>
+        <td>{{ prop.excess }} {{ prop.currency }}</td>
+        <td>{{ prop.acos_pct ~ "%" if prop.acos_pct is not none else "—" }}</td>
+        <td class="mutado">{{ prop.window_start }}..{{ prop.window_end }}</td>
+        <td>{{ prop.motivo or "—" }}</td>
+        <td class="mutado">{{ prop.aviso_estado }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endif %}
 {% endblock %}

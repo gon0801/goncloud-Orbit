@@ -81,6 +81,11 @@ SQL02 = (Path(__file__).resolve().parent.parent / "migrations" / "0002_apply.sql
     encoding="utf-8"
 )
 
+# ADS PROTECCION C.4: propuestas de campana (pantalla + /salud).
+SQL42 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0042_ads_campaign_proposal.sql"
+).read_text(encoding="utf-8")
+
 # BIDS 01 1.3: la vista v_entidad_inerte (migracion 0013) es la UNICA fuente
 # de "inerte" (D2 sellada); el endpoint la lee, no reimplementa el diagnostico.
 SQL13 = (
@@ -2273,3 +2278,66 @@ def test_cortes_ui01_indicador_exige_termino_completo():
     assert dash._indicador_harvest("harvest", {"termino": {"orders": 2}}) is None
     assert dash._indicador_harvest("harvest", None) is None
     assert dash._indicador_harvest("pause", {"termino": lleno}) is None
+
+
+def _propuesta_campana(conn, camp: int, *, estado: str = "open", external: str = "9001") -> int:
+    """Fila de propuesta (C.4) con los NOT NULL minimos."""
+    cerrado = AHORA if estado != "open" else None
+    return conn.execute(
+        "INSERT INTO ads_campaign_proposal (campaign_id, platform, campaign_external_id,"
+        " risk_type, status, first_seen_at, last_seen_at, closed_at, close_reason,"
+        " window_start, window_end,"
+        " observed_at, cost, revenue, currency, target_pct, target_source, excess,"
+        " campaign_status, status_synced_at, evidence)"
+        " VALUES (%s, 'amazon_us', %s, 'exceso_economico', %s, %s, %s, %s,"
+        " 'estado_pausado_observado', '2026-08-16', '2026-09-14', %s, 200, 0, 'USD',"
+        " 20, 'goal_plataforma', 200, 'ENABLED', %s, %s) RETURNING id",
+        (
+            camp,
+            external,
+            estado,
+            AHORA,
+            AHORA,
+            cerrado,
+            AHORA,
+            AHORA,
+            Json({"motivo": "exceso_economico"}),
+        ),
+    ).fetchone()[0]
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
+def test_cortes_incluye_propuestas_campana(monkeypatch):
+    """C.4 B2: /api/dashboard/cortes trae open + paused_observed con motivo,
+    sales30d y aviso (la pantalla los pinta en su seccion)."""
+    with _db_temporal("orbit_dash_cortesprop") as (conn, dsn):
+        conn.execute(SQL02)
+        conn.execute(SQL42)
+        camp = _campana(conn, "amazon_us", "9001", name="A1U")
+        _propuesta_campana(conn, camp)
+        camp2 = _campana(conn, "amazon_us", "9002", name="AU2")
+        _propuesta_campana(conn, camp2, estado="paused_observed", external="9002")
+        resp = _cliente(dsn, monkeypatch).get("/api/dashboard/cortes")
+        assert resp.status_code == 200, resp.text
+        props = resp.json()["propuestas_campana"]
+        assert [pr["status"] for pr in props] == ["open", "paused_observed"]
+        assert props[0]["motivo"] == "exceso_economico"
+        assert props[0]["sales30d"] == "0.0000"
+        assert props[0]["aviso_estado"] == "pending"
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
+def test_salud_muestra_avisos_propuesta_pendientes_y_fallo(monkeypatch):
+    """C.4 B1: /salud trae pendientes de aviso + fallo del ultimo ciclo."""
+    with _db_temporal("orbit_dash_saludaviso") as (conn, dsn):
+        conn.execute(SQL42)
+        camp = _campana(conn, "amazon_us", "9001", name="A1U")
+        _propuesta_campana(conn, camp)
+        notas = json_dumps({"telegram": {"aviso_propuesta": "fallo: canal caido"}})
+        _ciclo(conn, platform="amazon_us", notes=notas)
+        data = _cliente(dsn, monkeypatch).get("/api/dashboard/salud").json()["plataformas"]
+        assert data["amazon_us"]["avisos_propuesta"] == {
+            "pendientes": 1,
+            "fallo": "fallo: canal caido",
+        }
+        assert data["amazon_mx"]["avisos_propuesta"] == {"pendientes": 0, "fallo": None}

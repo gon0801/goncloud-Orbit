@@ -427,7 +427,11 @@ una observación posterior sin riesgo cierra el episodio y habilita otro si
 el riesgo reaparece. Un descarte o estado `PAUSED` observado no reaparece hasta
 una ventana sin riesgo. `GET /api/ads-optimizer/campaign-proposals` expone el
 registro. `paused_observed` refleja el cache sincronizado; la verificación
-externa por perfil de C.5 cierra como `paused_external`. No hay FK ni camino
+externa por perfil de C.5 cierra como `paused_external`. `profile_id` viaja
+NULL hasta que C.5 lo resuelva por `/v2/profiles`. El aviso Telegram de
+propuesta nueva usa el contrato `aviso_estado` pending/sent
+(`aviso_intentos`, `aviso_enviado_at`): solo se marca sent tras HTTP 2xx y
+el fallo queda pending para reintento sin duplicar. No hay FK ni camino
 de escritura hacia `apply_queue` o Amazon Ads.
 
 **`apply_attempt`** — Ledger de intentos de TODA mutación (bid, corte,

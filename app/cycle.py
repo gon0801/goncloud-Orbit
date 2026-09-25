@@ -1873,13 +1873,16 @@ def _recorre_plataforma(
         fila[0]: fila[1] for fila in conn.execute(_SQL_CAMPANAS, (platform,)).fetchall()
     }
     goals = _lee_goals(conn, platform, list(acos_campanas))
-    contadores.propuestas_campana = propuestas_campana.lee_evaluaciones(
-        conn,
-        platform=platform,
-        decidido=decided_at,
-        settings=settings,
-        target_margen=target_ciclo.margen,
-    )
+    # C.4 B3: sin flag, ni se evaluan (fail-closed: un deploy no avisa
+    # propuestas sin el INSERT deliberado de ads_propuestas_campana).
+    if g.propuestas_campana_desde_settings(settings):
+        contadores.propuestas_campana = propuestas_campana.lee_evaluaciones(
+            conn,
+            platform=platform,
+            decidido=decided_at,
+            settings=settings,
+            target_margen=target_ciclo.margen,
+        )
     evidencia_ad_groups = windows.ventanas_evidencia_ad_group(conn, platform, decided_at)
     # BIDS 01 (D3): hojas inertes de la plataforma, UNA vez por ciclo en TX2
     # (mismo snapshot que la evidencia). Se pasa EXPLICITO a
@@ -2365,9 +2368,14 @@ def _corre_fases(
     )
     status = "degraded" if guarda is not None else "done"
     with conn.transaction():  # TX3: decisiones + cierre del envelope, atomicos
-        conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
         _inserta_decisiones(conn, cycle_id, config_id, decided_at, pendientes)
-        if target_ciclo is not None:
+        # C.4 B3: la guarda va con el mismo flag que la lectura (con flag
+        # apagado no hay nada que persistir; la condicion es cinturon).
+        # Obs1: TX3 vuelve a READ COMMITTED (el REPEATABLE READ no tenia
+        # prueba ni justificacion y el descarte concurrente de C.5 lo
+        # abortaria con SerializationFailure; la concurrencia la cubre el
+        # FOR UPDATE de _SQL_ULTIMO).
+        if target_ciclo is not None and g.propuestas_campana_desde_settings(settings):
             cuerpo["propuestas_campana"] = propuestas_campana.guarda_evaluaciones(
                 conn, contadores.propuestas_campana, decided_at
             )
@@ -2393,6 +2401,28 @@ def _corre_fases(
         cuerpo["apply"] = notas_apply
         if fase.fallo:
             status = "degraded"
+    # C.4 B1: avisos Telegram de propuestas de campana nuevas, con el
+    # mismo flag que la evaluacion (B3) y la misma filosofia fail-silent
+    # que _fase_notifica: un fallo del canal deja pending (+reintento) y
+    # NOTA, jamas rompe el ciclo ni degrada el status.
+    nota_propuesta: str | None = None
+    if g.propuestas_campana_desde_settings(settings):
+        try:
+            resultado_avisos = propuestas_campana.envia_avisos_pendientes(conn)
+        except Exception as exc:  # noqa: BLE001 - jamas rompe el ciclo
+            logger.warning("notifica: fallo enviando avisos de propuesta: %s", scrub(str(exc)))
+            nota_propuesta = "fallo: avisos de propuesta no enviados (ver log)"
+        else:
+            if resultado_avisos["fallos"]:
+                nota_propuesta = (
+                    "fallo: aviso de propuesta nueva no enviado por Telegram "
+                    f"(propuestas {resultado_avisos['fallos']}: quedan pending "
+                    "y reintentan en el ciclo siguiente)"
+                )
+            # Un latido por mensaje (mismo patron que _fase_notifica: N
+            # avisos con el canal lento no comen el lease).
+            for _ in range(len(resultado_avisos["enviados"]) + len(resultado_avisos["fallos"])):
+                tick()
     # NOTIFICA (3.3, sellados 2/19): la NOTA telegram se integra al notes ANTES
     # del sello post-apply (la escritura final de notes del ciclo) para que el
     # fallo del canal viva en la MISMA notes — un fallo de Telegram JAMAS
@@ -2423,6 +2453,8 @@ def _corre_fases(
         and isinstance(cuerpo.get("target"), dict)
         and cuerpo["target"].get("ultimo_avisado") != target_ciclo.ancla
     )
+    if nota_propuesta is not None:
+        telegram["aviso_propuesta"] = nota_propuesta
     if notas_apply or telegram or ancla_avanzo:
         if telegram:
             cuerpo["telegram"] = telegram

@@ -170,6 +170,42 @@ def test_ui_cortes_entidad_muestra_nombre_no_external_id():
     assert "7101" not in html
 
 
+def test_ui_cortes_pinta_propuestas_campana_y_escapa_nombre():
+    """C.4 B2: la seccion Campanas muestra costo/ingreso/target/ventana/
+    estado/motivo/aviso; el nombre (texto libre) va escapado."""
+    ctx = _ctx_cortes()
+    ctx["propuestas_campana"] = [
+        {
+            "id": 5,
+            "platform": "amazon_us",
+            "campaign_external_id": "123456",
+            "nombre": PAYLOAD_XSS,
+            "status": "open",
+            "motivo": "exceso_economico",
+            "cost": "642.6500",
+            "sales30d": "477.4000",
+            "currency": "USD",
+            "target_pct": "17.56",
+            "target_source": "goal_campana",
+            "excess": "558.8000",
+            "acos_pct": "134.61",
+            "window_start": "2026-08-16",
+            "window_end": "2026-09-14",
+            "campaign_status": "ENABLED",
+            "aviso_estado": "pending",
+        }
+    ]
+    html = ui.templates.env.get_template("cortes.html").render(**ctx)
+    assert PAYLOAD_XSS not in html
+    assert "&lt;script&gt;" in html
+    assert "Campanas" in html
+    assert "642.6500 USD" in html
+    assert "477.4000 USD" in html
+    assert "17.56%" in html
+    assert "exceso_economico" in html
+    assert "pending" in html
+
+
 def test_ui_cortes_vacio_muestra_sin_pendientes():
     """Estado vacio de la matriz: cola sin pendientes -> mensaje explicito,
     jamas una tabla mentirosa. CORTES UI 01 D1: la pantalla se llama

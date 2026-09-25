@@ -574,6 +574,68 @@ def aviso_cap_agotado(plataforma: str, kind: str, used: int, cap: int) -> str:
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class PropuestaCampanaNueva:
+    """Lo que el aviso de propuesta nueva necesita (C.4 B1): la fila open
+    con su ventana madura. Sin secretos, sin relojes inyectados (las fechas
+    son datos de la fila, regla 2)."""
+
+    proposal_id: int
+    platform: str
+    campaign_external_id: str
+    nombre: str | None
+    first_seen_at: dt.datetime
+    window_start: dt.date
+    window_end: dt.date
+    cost: Decimal
+    revenue: Decimal
+    currency: str
+    target_pct: Decimal
+    target_source: str
+    excess: Decimal
+    acos_pct: Decimal | None
+
+
+def aviso_propuesta_campana_nueva(aviso: PropuestaCampanaNueva) -> str:
+    """Aviso de UNA propuesta de campana nueva: pausa MANUAL en Amazon
+    (C.4 es proposal-only; el mensaje jamas sugiere que Orbit pauso)."""
+    lineas = [
+        "[Orbit] propuesta de campana — pausar a mano en Amazon",
+        f"plataforma: {aviso.platform}",
+        f"campana: {aviso.campaign_external_id}",
+    ]
+    if aviso.nombre:  # regla 3: nombre ausente no se menciona
+        lineas.append(f"nombre: {aviso.nombre}")
+    lineas.extend(
+        [
+            f"costo: {_formatea_monto(aviso.cost)} {aviso.currency}",
+            f"ingreso: {_formatea_monto(aviso.revenue)} {aviso.currency}",
+            f"target: {_formatea_monto(aviso.target_pct)}% ({aviso.target_source})",
+            f"exceso: {_formatea_monto(aviso.excess)} {aviso.currency}",
+        ]
+    )
+    if aviso.acos_pct is not None:  # regla 3: revenue 0 no tiene ACoS
+        lineas.append(f"acos: {_formatea_monto(aviso.acos_pct)}%")
+    lineas.append(f"ventana: {aviso.window_start.isoformat()}..{aviso.window_end.isoformat()}")
+    lineas.append(f"propuesta: {aviso.proposal_id}")
+    return "\n".join(lineas)
+
+
+def notifica_propuesta_campana(
+    aviso: PropuestaCampanaNueva, *, transport: httpx.BaseTransport | None = None
+) -> bool:
+    """Aviso de UNA propuesta de campana nueva (C.4 B1). False = fallo del
+    canal (la fila queda pending y reintenta); canal deshabilitado -> True
+    (no hay a quien avisar: marcar sent es correcto)."""
+    try:
+        if not canal_activo():
+            return True
+        return _envia_texto(aviso_propuesta_campana_nueva(aviso), transport=transport)
+    except Exception as exc:  # noqa: BLE001 - fail-silent (docstring del modulo)
+        logger.warning("telegram: fallo armando el aviso de propuesta: %s", scrub(str(exc)))
+        return False
+
+
 def notifica_encola(fila: CorteEncolado, *, transport: httpx.BaseTransport | None = None) -> bool:
     """Aviso de UN corte nuevo encolado. False = fallo del canal (el caller
     deja la NOTA); canal deshabilitado -> True."""
