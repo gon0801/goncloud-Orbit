@@ -233,6 +233,7 @@ from psycopg.types.json import Jsonb
 
 from app.ads.client import AdsClient
 from app.ads.config import AdsCredentials
+from app.ads.salud import SOURCE, intentar_procesar_run
 from app.ads.structure import (
     _SQL_ABRIR_RUN,
     PerfilAds,
@@ -246,7 +247,6 @@ from app.redaction import install_scrub_filter, scrub
 logger = logging.getLogger(__name__)
 install_scrub_filter(logger)
 
-SOURCE = "amazon_ads_reports_v3"
 SOURCE_PRODUCTOS = "amazon_ads_products_v3"
 
 _SQL_RESULTADO_REPORTE = """
@@ -1742,6 +1742,7 @@ def _run_de_fallo_de_api(
             "fallo de fase API sin run auditable (sello tambien fallo): %s",
             scrub(str(exc)),
         )
+    intentar_procesar_run(conn, run_id)
 
 
 def sync_metrics(
@@ -1825,6 +1826,7 @@ def sync_metrics(
                 if not perfiles_rechazados:
                     _registrar_resultado(conn, run_id, None, None, None, "global_failed", motivo)
                 _sellar_run(conn, run_id, ok=False, rows_skipped=0, skip_reason=motivo)
+            intentar_procesar_run(conn, run_id)
             return ResultadoSync(
                 run_id=run_id,
                 ok=False,
@@ -1972,8 +1974,10 @@ def sync_metrics(
                 run_id,
                 scrub(str(exc)),
             )
+        intentar_procesar_run(conn, run_id)
         raise
 
+    intentar_procesar_run(conn, run_id)
     return ResultadoSync(
         run_id=run_id,
         ok=True,
@@ -2072,10 +2076,35 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
     try:
-        client = AdsClient(AdsCredentials.from_secrets_dir())
         conn = connect(dsn)
         try:
             reportes = (PRODUCTOS_CFG,) if args.productos else REPORTES_CFG
+            source = SOURCE_PRODUCTOS if args.productos else SOURCE
+            try:
+                client = AdsClient(AdsCredentials.from_secrets_dir())
+            except Exception as exc:
+                # El preflight tambien pertenece al pipeline principal. Sin
+                # run, un fallo de credenciales quedaria invisible en Salud.
+                with conn.transaction():
+                    run_id = conn.execute(_SQL_ABRIR_RUN, (source,)).fetchone()[0]
+                    _registrar_resultado(
+                        conn,
+                        run_id,
+                        None,
+                        None,
+                        None,
+                        "global_failed",
+                        scrub(str(exc)) or type(exc).__name__,
+                    )
+                    _sellar_run(
+                        conn,
+                        run_id,
+                        ok=False,
+                        rows_skipped=0,
+                        skip_reason=scrub(str(exc)) or type(exc).__name__,
+                    )
+                intentar_procesar_run(conn, run_id)
+                raise
             resultado = sync_metrics(
                 conn, client, fecha_ini=fecha_ini, fecha_fin=fecha_fin, reportes=reportes
             )

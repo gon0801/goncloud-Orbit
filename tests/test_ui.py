@@ -664,6 +664,45 @@ def _salud_html_fakeado(monkeypatch, plataformas: dict) -> str:
         app.dependency_overrides.pop(_conexion_lectura, None)
 
 
+def test_ui_salud_ads_ingest_muestra_fecha_y_entrega_pendiente(monkeypatch):
+    plataforma = _plataforma_quota()
+    plataforma["ads_ingest"] = {
+        "fuente": "amazon_ads_reports_v3",
+        "reportes": [
+            {
+                "profile_id": 101,
+                "reporte": "campanas",
+                "ultimo_exito": "2026-09-23T09:14:00+00:00",
+                "metric_date": "2026-09-22",
+                "edad_dias": 2,
+                "ultimo_estado": "failed",
+                "ultima_corrida": 42,
+                "ultimo_evento": "2026-09-24T08:00:00+00:00",
+            }
+        ],
+        "incidentes": [
+            {
+                "profile_id": 101,
+                "platform": "amazon_us",
+                "tipo": "fallo",
+                "estado_entrega": "pending",
+                "recuperado": False,
+                "recuperacion_entregada": False,
+                "intentos": 2,
+                "intentos_recuperacion": 0,
+                "abierto_desde": "2026-09-24T08:00:00+00:00",
+            }
+        ],
+    }
+    html = _salud_html_fakeado(monkeypatch, {"amazon_us": plataforma})
+    assert "Ingesta Ads principal" in html
+    assert "amazon_ads_reports_v3" in html
+    assert "2026-09-22" in html
+    assert "2 dias" in html
+    assert "pendiente" in html
+    assert "campanas" in html
+
+
 def _fila_de(html: str, forma: str) -> str:
     """La fila <tr> de UNA forma de la tabla de quota (aserciones por fila:
     el used/cap de una forma no se confunde con el de otra)."""

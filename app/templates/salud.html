@@ -13,6 +13,33 @@
   <p class="mutado">Watermark (v_metric_latest): {{ datos.watermark or "—" }} ·
      Sync estructura: {{ datos.synced_at or "—" }}</p>
 
+  {% if datos.ads_ingest %}
+  <h3>Ingesta Ads principal</h3>
+  <p class="mutado">Fuente: {{ datos.ads_ingest.fuente }}</p>
+  <div class="tabla-scroll" role="region" aria-label="Reportes Ads" tabindex="0">
+  <table>
+    <thead><tr><th>Perfil</th><th>Reporte</th><th>Ultimo exito</th><th>Fecha metrica</th><th>Edad</th><th>Ultimo estado</th></tr></thead>
+    <tbody>
+      {% for reporte in datos.ads_ingest.reportes %}
+      <tr>
+        <td>{{ reporte.profile_id }}</td>
+        <td>{{ reporte.reporte }}</td>
+        <td>{{ reporte.ultimo_exito or "—" }}</td>
+        <td>{{ reporte.metric_date or "—" }}</td>
+        <td>{% if reporte.edad_dias is not none %}{{ reporte.edad_dias }} dias{% else %}—{% endif %}</td>
+        <td><span class="chip {% if reporte.ultimo_estado in ('failed', 'rejected', 'global_failed') %}alerta{% elif reporte.ultimo_estado == 'written' %}ok{% endif %}">{{ reporte.ultimo_estado or "—" }}</span></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="mutado">Sin reportes principales registrados.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% for incidente in datos.ads_ingest.incidentes %}
+  <p class="alerta">Ingesta Ads {{ incidente.tipo }} · {% if incidente.profile_id is not none %}perfil {{ incidente.profile_id }}{% else %}global{% endif %} · aviso {{ "entregado" if incidente.estado_entrega == "sent" else "pendiente" }} ({{ incidente.intentos }} intentos){% if incidente.recuperado %} · recuperacion {{ "entregada" if incidente.recuperacion_entregada else "pendiente" }}{% endif %} · desde {{ incidente.abierto_desde }}</p>
+  {% endfor %}
+  {% endif %}
+
   <h3>Skips del ultimo ciclo</h3>
   <div class="lienzo">
   <canvas id="skips-{{ plataforma }}"></canvas>
