@@ -30,9 +30,17 @@ Definiciones selladas para los avisos de ingesta principal
 
 Si el recovery agota sus 6 intentos sin acuse, el episodio SIGUE ABIERTO
 sin limite hasta que un fallo/atraso nuevo del mismo scope/tipo lo
-supersede (A.3d) o el `recovery_sent_at` se complete en un reintento
-posterior. No se auto-cierra: cerrarlo fingiria un aviso que el dueno
-nunca recibio. Cambiar esto requiere decision del dueno.
+supersede (A.3d): `_SQL_PENDIENTES` solo toma recoveries con
+`recovery_attempts < 6`, asi que agotado ya no sale en reintentos. No se
+auto-cierra: cerrarlo fingiria un aviso que el dueno nunca recibio.
+Cambiar esto requiere decision del dueno.
+
+## Aviso inicial agotado (definido)
+
+Si `alert_attempts` llega a 6 sin acuse, el episodio queda abierto sin
+avisar hasta el proximo exito del scope, que lo cierra SIN recovery
+(`_SQL_RECUPERAR` cierra directo cuando `alert_sent_at IS NULL`: no hay
+aviso que recuperar y no se inventa uno).
 
 ## Observabilidad del chequeo 10:30
 

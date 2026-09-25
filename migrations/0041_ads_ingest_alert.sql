@@ -41,3 +41,13 @@ COMMENT ON TABLE ads_ingest_incident IS
 GRANT SELECT ON ads_ingest_incident TO app_read, app_ingest, app_decide, app_admin;
 GRANT INSERT, UPDATE ON ads_ingest_incident TO app_ingest;
 GRANT USAGE, SELECT ON SEQUENCE ads_ingest_incident_id_seq TO app_ingest;
+
+DO $$
+BEGIN
+    IF NOT has_table_privilege('app_read', 'ads_ingest_incident', 'SELECT')
+       OR NOT has_table_privilege('app_ingest', 'ads_ingest_incident', 'INSERT')
+       OR NOT has_table_privilege('app_ingest', 'ads_ingest_incident', 'UPDATE')
+       OR has_table_privilege('app_ingest', 'ads_ingest_incident', 'DELETE') THEN
+        RAISE EXCEPTION '0041: privilegios de ads_ingest_incident invalidos';
+    END IF;
+END $$;
