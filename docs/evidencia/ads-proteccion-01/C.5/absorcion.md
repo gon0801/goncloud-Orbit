@@ -72,6 +72,6 @@ deploy C.5 (0041+0042+0043, codigo `ad79eeb`) sin cambios.
 
 ## Cierre
 
-- Merge PR #351: MERGED 2026-09-26T00:50:06Z, commit 345af51280eb6a3dc5f4ae90213bf9d543dc050c (padres ee50332 + af503ce).
-- Rama absorbida `fix/superficie-descartar-c5`: borrar tras el merge
-  (`git push origin --delete fix/superficie-descartar-c5`).
+- Merge PR #351: MERGED 2026-09-26T00:50:06Z, commit 345af51280eb6a3dc5f4ae90213bf9d543dc050c (merge interno `a256cff`; padres ee50332 + af503ce).
+- Rama absorbida `fix/superficie-descartar-c5`: borrada tras el merge
+  (verificado 2026-09-26: `git ls-remote origin fix/superficie-descartar-c5` vacio).

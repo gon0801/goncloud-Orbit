@@ -53,13 +53,48 @@ Por que:
 
 - Ventana de deploy (runbook 0.2): 09:30-15:00 UTC o despues de 16:00 UTC,
   excepto 13:00-13:20 UTC; lejos de 05:00-07:20 y 08:40. Las escrituras de
-  este plan SOLO corren en ventana.
+  este plan SOLO corren en ventana. En esta corrida NO se cumplio para
+  0040 ni para `paso2.txt`: ver "Excepcion de ventana" abajo.
 - Backup nocturno presente (regla 2 / D.1.0).
 - `origin/master` sigue en `25bded0` (fila 3: si avanzo, no desplegar;
   revalidar + go nuevo).
 - D.3 sin cosecha en vuelo (repetir los dos conteos; si >0, parar).
 
-## 0040 APLICADA EN PROD (ronda 2, 2026-09-25 ~06:05 UTC, ingeniero de turno)
+## Excepcion de ventana (declarada a posteriori)
+
+La 0040 (aplicada entre las 05:40 y las 05:45:15 UTC; el "~06:05 UTC" del
+go era una estimacion, ver `H5/review-opus-r2.md` obs 1) y el deploy de
+`paso2.txt` (06:13-06:15 UTC) cayeron dentro de la franja 05:00-07:20 UTC
+que las precondiciones excluyen, y tambien las escrituras de los pasos 3
+(`UPDATE ads_optimizer_goal SET mode='shadow'`) y 4 (`INSERT INTO
+config_version` 21 con el flag B.2a), corridos a las 06:1x
+(`H5/paso3.txt:1`, `H5/paso4.txt:1`; el paso 5 es solo lectura + `inicio.txt`).
+En total: 0040 + corrida H5 pasos 2-5. No fue una dispensa formal: la corrida
+pasos 2-5 fue una desviacion del runbook 0.2 por orden literal del dueno (que
+elimino 0.2 solo para H5; la ventana sigue vigente), y la 0040 fue una
+desviacion sin autorizacion (ver "Autorizacion" abajo). Registradas aqui:
+
+- `H5/paso1.txt:2-4`:
+  `# NOTA: ventana de deploy 0.2 ELIMINADA por orden literal del operador`
+  `# ("manda a la verga esa puta ventana ... jamas pares por una puta ventana",`
+  `# 2026-09-25 ~06:10 UTC). Ejecucion fuera de la ex-ventana por orden expresa.`
+- `H5/paso2.txt:2`:
+  `# Fuera de ex-ventana por orden literal del operador (ver paso1.txt).`
+
+## 0040 APLICADA EN PROD (ronda 2, 2026-09-25 entre 05:40 y 05:45:15 UTC, ingeniero de turno)
+
+Autorizacion: el GO citado en la cabecera decia literalmente "SIN
+migraciones nuevas" y la 0040 se ejecuto fuera de ventana SIN dispensa previa.
+El go "P3-H5 RONDA 2" del dueno la registro como hecho ("0040 ya aplicada en
+prod por el ingeniero de turno. Lee entero antes de actuar.", nombra archivo,
+sha256 y #333) y ordeno re-verificacion en lectura + ventana para los pasos
+(FASE 3: "espera idle hasta la ventana, NO ejecutes antes", `H5/go-h5r2.txt:12`):
+no es una autorizacion previa ni una ratificacion literal. La 0040 queda como
+desviacion sin autorizacion (declarada aqui y en el runbook). La eliminacion
+de 0.2 consta solo en la nota del propio ejecutor (`H5/paso1.txt:2-4`),
+~25-30 min posterior a la migracion, y no puede cubrirla. Vivia en
+`/tmp/mig0040/go-h5r2.txt` (efimero); copia verbatim preservada en
+`H5/go-h5r2.txt` el 2026-09-26.
 
 Comando verbatim (patron DEPLOY.md Aplicar migraciones, una transaccion):
 
@@ -76,7 +111,8 @@ identico a `origin/master` y al merge #333 (verificado en lectura este
 turno: sha256 del blob de master = mismo valor).
 
 Post-verificacion del turno (lectura) + re-verificacion FASE 1 ronda 2
-(2026-09-25 ~06:10 UTC, rol lector): `to_regclass` presente; 3 indices
+(hora declarada por el turno ~06:10 UTC; cota dura posterior a 05:47:34 UTC,
+ver `H5/review-opus-r2.md` obs 1, rol lector): `to_regclass` presente; 3 indices
 (pkey + run_idx + salud_idx); 2 triggers append-only; 0 filas;
 privilegios SELECT app_read=t, INSERT app_ingest=t, UPDATE=f, DELETE=f.
 
@@ -107,6 +143,11 @@ nuevas. Este plan NO incluye aplicar 0040. Pregunta al review: ¿BLOQUEANTE
 para el deploy (NO APROBADO hasta go + paso de migracion), u otro camino?
 
 ## Pasos de ejecucion (solo si review APROBADO + precondiciones en verde)
+
+Evidencia de la condicion: ronda 1 NO APROBADO (`H5/review-opus.md`,
+bloqueante 0040) + ronda 2 APROBADO (`H5/review-opus-r2.md`, bloqueante
+levantado con 0040 aplicada). La ronda 2 vivia en
+`.saikit/scratch/ads-proteccion-1/` y se movio aqui sin cambiar su contenido.
 
 Definir en cada terminal (runbook 0.1):
 

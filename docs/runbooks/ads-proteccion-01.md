@@ -93,6 +93,25 @@ runbook sobre la corrida de precios 13:10), y lejos de 05:00-07:20 y 08:40.
 La autorizacion puntual del PR #329 (24-sep-2026) no se extiende a nada de
 esta tabla. CI verde o `APPROVE` no sustituyen ningun go.
 
+## Desviaciones declaradas (no son gos)
+
+- C.5 deploy (2026-09-25): codigo C.4/C.5 + migraciones 0041-0043
+  desplegados con hito C.5 + backup + rollback listo, pero sin go literal
+  registrado del dueno. Evidencia en `docs/evidencia/ads-proteccion-01/H6/deploy-c5.md`.
+- 0040 en prod (2026-09-25 entre 05:40 y 05:45:15 UTC): migracion aplicada
+  fuera de la franja 05:00-07:20 sin dispensa previa; registrada como hecho en
+  el go "P3-H5 RONDA 2" (re-verificacion ordenada; no autorizacion previa).
+  Desviacion sin autorizacion. Mismo alcance que `H5/plan-deploy.md`
+  "Excepcion de ventana".
+- Corrida H5 (2026-09-25 06:13-06:15 UTC): pasos 2-5 del plan
+  (`paso2.txt` deploy + paso 3 flip a shadow + paso 4 flag B.2a + paso 5
+  lectura) dentro de la franja 05:00-07:20 excluida por 0.2, por orden literal
+  del dueno que elimino 0.2 solo para H5 (`H5/paso1.txt:2-4`). La ventana sigue
+  vigente. Evidencia en `docs/evidencia/ads-proteccion-01/H5/`.
+- Merges C.3 (#341) y C.4 (#342) previos al literal C.2b: hecho consumado
+  declarado en `docs/evidencia/ads-proteccion-01/C.2b/aceptacion.md` (no son
+  gos; el literal "Aceptado" no los retroautoriza).
+
 ## Prohibido
 
 Mergear, desplegar o activar live sin su go literal; inferir permiso de la

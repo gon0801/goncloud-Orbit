@@ -4,6 +4,18 @@ Fecha: 2026-09-25 19:45-20:05 UTC. Operador: ingenieria (subagente orbita C5).
 Go: tarea del lead "Desplegar 0043 junto al codigo + rebuild" (2026-09-25).
 Ventana runbook 0.2: despues de 16:00 UTC, lejos de 05:00-07:20 y 08:40. OK.
 
+## Autorizacion
+
+Lo que consta: `Go: tarea del lead "Desplegar 0043 junto al codigo +
+rebuild" (2026-09-25)` (linea 4 de este archivo). No consta un go literal
+del dueno para este deploy en ningun archivo de evidencia (buscado en
+`docs/evidencia/ads-proteccion-01/H6/`, `C.5/` y el resto de
+`docs/evidencia/` el 2026-09-25): sin go literal registrado; desviacion
+del runbook declarada aqui. El runbook reserva al dueno cada go de
+merge/deploy/live (tabla "Gos requeridos"); este deploy C.5 no tenia fila
+propia en esa tabla y se ejecuto sin go literal: consta como desviacion
+aqui y en la seccion "Desviaciones declaradas" del runbook, no como go.
+
 ## $APROBADO
 
 `ad79eeb2bb4faba20426fddb1563d974702891c6` (= `origin/master`, verificado

@@ -9,7 +9,7 @@
 | C.5 merge | LISTO: #344 en `ad79eeb` |
 | C.5 deploy (0041+0042+0043 + codigo) | LISTO hoy: `H6/deploy-c5.md` (tablas activas, endpoint 200/401, sombra intacta) |
 | C.5 pausa manual en Amazon | BLOQUEADO (la hace David; ver paso exacto abajo). Hoy `proposals open = []`: aun no hay propuesta open sobre la que actuar. |
-| C.6 shadow economico 5 ciclos | LISTO PARA ARRANCAR, no arrancado (requiere go de deploy con efecto declarado + acuerdo D.3; este turno no incluye flips de `mode`). Sin `H6/inicio.txt` en ningun lado: el arranque lo crea con el paso H6.4 del runbook. |
+| C.6 shadow economico 5 ciclos | BLOQUEADO hasta cerrar A.4 y B.4 (sombra H5 en curso; C.6 exige su propio INICIO_SHADOW, runbook H6.4). Sin `H6/inicio.txt` en ningun lado: el arranque lo crea con el paso H6.4 del runbook. |
 | `ads_pause_economica` | ausente en `config_version` 21 (fail-closed False): el vivo economico sigue apagado. |
 
 ## H7 (cierre)
@@ -46,8 +46,13 @@ Cuando el motor abra una (el sync + ciclo las crean solas), sobre ESA propuesta:
    sombra (hoy 1/5). Comando que correra el lead (NO correr aun):
    `UPDATE ads_optimizer_goal SET mode='live' ... WHERE id IN ($IDS_LIVE)
    AND mode='shadow';` + antes/despues.
-2. C.6 (shadow economico 5 ciclos + su propio live): requiere tu go de
+2. C.6 (shadow economico 5 ciclos + su propio live): PRIMERO tienen que
+   estar cerrados A.4 (observacion 7 dias + readbacks H4) y B.4 (5/5 ciclos
+   sombra + live H5.4), cada uno con su evidencia; el plan declara
+   `C.6 Depends: C.3, C.5, A.4, B.4`. Despues de eso, requiere tu go de
    deploy (efecto cero-applies + acuerdo D.3) y luego go de live con el
-   riesgo C.2b citado. Sin tus dos literales no arranca.
-3. Di la palabra con el literal (`vivo H5.4 GO sobre IDS_LIVE ...` /
-   `C.6 deploy GO ...`) y el lead ejecuta en ventana.
+   riesgo C.2b citado. Sin A.4+B.4 cerrados y sin tus dos literales no arranca.
+3. Di la palabra con los dos literales en orden (`C.6 deploy GO ...`
+   con efecto cero-applies + acuerdo D.3, y despues `C.6 live GO ...`
+   citando el riesgo C.2b) y el lead ejecuta en ventana. El literal
+   `vivo H5.4 GO sobre IDS_LIVE ...` corresponde al paso 1 (B.4), no a C.6.
