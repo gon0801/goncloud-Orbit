@@ -72,6 +72,6 @@ deploy C.5 (0041+0042+0043, codigo `ad79eeb`) sin cambios.
 
 ## Cierre
 
-- Merge PR #351: <PENDIENTE / SHA>.
-- Rama absorbida `fix/superficie-descartar-c5`: borrar tras el merge
-  (`git push origin --delete fix/superficie-descartar-c5`).
+- Merge PR #351: `345af51` (2026-09-26; merge interno `a256cff`).
+- Rama absorbida `fix/superficie-descartar-c5`: borrada tras el merge
+  (verificado 2026-09-26: `git ls-remote origin fix/superficie-descartar-c5` vacio).

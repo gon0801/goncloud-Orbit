@@ -83,10 +83,13 @@ para H5; la ventana sigue vigente), registrada aqui:
 ## 0040 APLICADA EN PROD (ronda 2, 2026-09-25 entre 05:40 y 05:45:15 UTC, ingeniero de turno)
 
 Autorizacion: el GO citado en la cabecera decia literalmente "SIN
-migraciones nuevas"; la 0040 quedo ratificada por el go "P3-H5 RONDA 2" del
-dueno ("0040 ya aplicada en prod por el ingeniero de turno. Lee entero antes
-de actuar.", nombra archivo, sha256 y #333). Vivia en `/tmp/mig0040/go-h5r2.txt`
-(efimero); copia verbatim preservada en `H5/go-h5r2.txt` el 2026-09-26.
+migraciones nuevas" y la 0040 se ejecuto fuera de ventana SIN dispensa previa:
+quedo ratificada retroactivamente por el go "P3-H5 RONDA 2" del dueno
+("0040 ya aplicada en prod por el ingeniero de turno. Lee entero antes
+de actuar.", nombra archivo, sha256 y #333; orden ~25-30 min posterior a la
+migracion, asi que no la autorizaba por adelantado). Vivia en
+`/tmp/mig0040/go-h5r2.txt` (efimero); copia verbatim preservada en
+`H5/go-h5r2.txt` el 2026-09-26.
 
 Comando verbatim (patron DEPLOY.md Aplicar migraciones, una transaccion):
 

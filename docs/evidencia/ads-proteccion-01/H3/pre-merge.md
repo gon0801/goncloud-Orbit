@@ -58,6 +58,13 @@ rama-vs-merge-base. No se mergea nada; esto habilita los gos, no los sustituye.
 - Veredicto: NO LISTO — rebase sobre master + resolver plan + CI de nuevo.
   Tras eso, repite esta pre-verificacion (SHA nuevo).
 
+### Adenda 2026-09-26 (post-rebase; el veredicto NO LISTO de arriba aplica solo al SHA pre-rebase `97d74388`)
+
+Tras el rebase: head final `0dfea742964d5ae2c9d5382fd1f3574b3b2c4238` con
+gate+rapido success (run 36082771428); merge `4512a5a78e1c0a1c390d7d3aae93ffc19c86c33e`
+(PR #334). El run post-merge en master quedo cancelled por push posterior,
+sin fallo de tests.
+
 ## #339 — B.2a `flag off para PAUSE sin cooldown de BID`
 
 - SHA final: `58e9d043ac60fd66ae41fa5490a86d4e97ea2cc7`, OPEN, MERGEABLE.
