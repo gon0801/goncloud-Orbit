@@ -1,5 +1,18 @@
 # Orbit — contexto para Claude Chat
 
+**2026-09-25 UTC — ADS PROTECCION 01 D.1 CERRADA: todo no-apply deja su motivo.**
+Tabla append-only `decision_sin_aplicar` (migracion 0044) con el motivo de
+cada decision que el ciclo live no aplico (cuota, modo no live, tope,
+espera de target, sin respuesta...) y vista `v_decision_huerfana` para
+auditar huecos (`sin_registro` historico, `en_cola`, `huerfana`). Nace del
+analisis de Kimi del 24-sep (176 bids live del 2-3 sep sin rastro). PR #345
+merge `03faa24`, desplegado el 25-sep 23:53 UTC: 197 `sin_registro`, cero
+`huerfana`. #347 arreglo master rojo desde C.5. Evidencia H5/H6 y la
+aceptacion de C.2b del dueno quedan en master. Pendientes: D.1b (no
+bloqueantes de la revision IA) y D.2 (anti-inversion de bids, el dueno
+decide cuantos dias de evidencia exigir tras un cambio). Goals: 9 shadow,
+0 live.
+
 **2026-09-24 UTC — ADS PROTECCION 01 A.1 CERRADA; spec de politica en revision.**
 PR #329 quedo mergeado y desplegado con `INTENTOS_POLL=300`. La primera
 ingesta principal posterior al deploy, run 426, cerro `ok=true` con 9.731
