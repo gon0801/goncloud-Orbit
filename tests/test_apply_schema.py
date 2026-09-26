@@ -1044,8 +1044,8 @@ def test_vista_decision_huerfana_origen_y_desenlaces():
         ids = _semilla_d1(conn)
         cfg = ids["config_id"]
         kw = ids["kw"]
-        # Tres keywords para tres filas NO terminales sin chocar la clave de
-        # efecto (pause = entity_cut sobre la entidad).
+        # Cuatro keywords para cuatro filas NO terminales sin chocar la clave
+        # de efecto (pause = entity_cut sobre la entidad).
         kw2 = _entidad(
             conn, "keyword", "7202", parent=ids["ag"], match_type="EXACT", keyword_text="kw d1 dos"
         )
@@ -1055,6 +1055,9 @@ def test_vista_decision_huerfana_origen_y_desenlaces():
         )
         kw4 = _entidad(
             conn, "keyword", "7204", parent=ids["ag"], match_type="EXACT", keyword_text="kw d1 4"
+        )
+        kw5 = _entidad(
+            conn, "keyword", "7205", parent=ids["ag"], match_type="EXACT", keyword_text="kw d1 5"
         )
 
         # Huerfana pura: ciclo live terminado AHORA, decision bid sin nada.
@@ -1110,6 +1113,13 @@ def test_vista_decision_huerfana_origen_y_desenlaces():
         dec_rel = _decision(conn, ciclo_rel, cfg, kw3, "pause")
         q_rel = _encolar(conn, dec_rel, kw3, "pause")
         _avanzar(conn, q_rel, "released")
+        # Y con la fila APPLYING (claim ganado y proceso muerto pre-HTTP: la
+        # FSM de 0002 no le da salida sin el claimer): en vuelo, no hueco.
+        ciclo_app = _ciclo(conn, hace_dias=0)
+        dec_app = _decision(conn, ciclo_app, cfg, kw5, "pause")
+        q_app = _encolar(conn, dec_app, kw5, "pause")
+        _avanzar(conn, q_app, "released")
+        _avanzar(conn, q_app, "applying")
         # Precedencia (r2-2): ciclo PREVIO a 0044 con fila live en vuelo ->
         # 'sin_registro', NO 'en_cola' (el hueco historico manda sobre la cola).
         dec_vieja_cola = _decision(conn, ciclo_viejo, cfg, kw4, "pause")
@@ -1123,12 +1133,13 @@ def test_vista_decision_huerfana_origen_y_desenlaces():
             (dec_vieja, "sin_registro"),
             (dec_pend, "en_cola"),
             (dec_rel, "en_cola"),
+            (dec_app, "en_cola"),
             (dec_vieja_cola, "sin_registro"),
         ], (
-            "las sin desenlace; la de fila EN VUELO sale 'en_cola' (no hueco) "
-            "y la del ciclo previo a 0044 'sin_registro' aunque tenga fila; "
-            "el veto (terminal), el resumen y el registro sacan a la "
-            "decision de la vista"
+            "las sin desenlace; las de fila EN VUELO (pending_veto, released "
+            "Y applying) salen 'en_cola' (no hueco) y la del ciclo previo a "
+            "0044 'sin_registro' aunque tenga fila; el veto (terminal), el "
+            "resumen y el registro sacan a la decision de la vista"
         )
 
 
