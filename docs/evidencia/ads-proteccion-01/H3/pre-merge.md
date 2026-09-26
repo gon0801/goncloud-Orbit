@@ -41,7 +41,7 @@ rama-vs-merge-base. No se mergea nada; esto habilita los gos, no los sustituye.
 
 ## #334 — C.2 `medir replay economico sin lookahead`
 
-- SHA final: `97d7438838901007054272f0f6362d18f6526b0d`, OPEN, CONFLICTING.
+- SHA final (pre-rebase; superado, ver Adenda abajo): `97d7438838901007054272f0f6362d18f6526b0d`, OPEN, CONFLICTING.
 - CI: verde sobre el SHA final, pero el SHA no mergea: CONFLICTING (el
   toque de 4 lineas a `plans/ads-proteccion-01.md` choca con #336).
 - Aporte real (base `f98b30a`): `tools/replay_ads_economico.py` (nuevo),
@@ -88,5 +88,5 @@ sin fallo de tests.
 | --- | --- | --- | --- | --- | --- |
 | 333 | 9378401a | verde | cubierto | bot Major atendido, sin humano | LISTO |
 | 335 | 4bfdf1ef | verde | cubierto (unknown implicito) | bot Minor, sin humano | LISTO |
-| 334 | 97d74388 | verde pero CONFLICTING | cubierto (peldano abstencion) | 3 Minors resolved (1 FP bot) | NO LISTO: rebase |
+| 334 | 97d74388 (pre-rebase; superado: head 0dfea74, merge 4512a5a, ver Adenda) | verde pero CONFLICTING | cubierto (peldano abstencion) | 3 Minors resolved (1 FP bot) | NO LISTO: rebase |
 | 339 | 58e9d043 | verde | cubierto | opus APROBADO CON OBS. MENORES | LISTO |
