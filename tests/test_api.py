@@ -585,11 +585,12 @@ def test_goals_lectura_con_filtros(monkeypatch):
 # La lista EXACTA (ni mas ni menos) de (path, metodo) bajo /api/ads-optimizer:
 # las 3 lecturas de ORBIT 03 + el veto, las 3 reversas manuales de ORBIT 04
 # 3.1, la edicion de goals de ORBIT 04 3.2 (token estatico solo-header en
-# app/api_write.py; ambos despachan a app/goals_write.edita_goal) y los
+# app/api_write.py; ambos despachan a app/goals_write.edita_goal), los
 # settings de plataforma de DASHBOARD 01 3.1 (despacha a
 # app/config_write.guarda_config: fila NUEVA de config_version) y el descarte
-# autenticado de propuestas de campana de ADS PROTECCION C.5 (exige_token;
-# no toca Amazon ni apply_queue).
+# humano de propuestas de campana de ADS PROTECCION C.5 (autenticada con
+# exige_token; despacha a app/propuestas_campana.descartar_propuesta: cierra
+# el episodio sin tocar Amazon ni apply_queue).
 SUPERFICIE_ADS_OPTIMIZER = {
     ("/api/ads-optimizer/status", "get"),
     ("/api/ads-optimizer/audit", "get"),
