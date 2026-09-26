@@ -1,0 +1,23 @@
+# H5 Paso 4 — 2026-09-25T06:1xZ (UTC). Literal B.2a/flag.md caso (a).
+
+$ ssh goncloud "$PSQL -c \"INSERT INTO config_version (label, settings)
+SELECT 'B.2a flag on (H5, go PUNTO P3-H5 2026-09-25)',
+       settings || '{\\\"ads_pause_sin_cooldown_bid\\\": true}'::jsonb
+FROM config_version ORDER BY id DESC LIMIT 1 RETURNING id;\""
+ id
+----
+ 21
+(1 row)
+
+INSERT 0 1
+
+$ ssh goncloud "$PSQL_READ -c \"SELECT id, label, settings->'ads_pause_sin_cooldown_bid' AS flag
+FROM config_version ORDER BY id DESC LIMIT 1;\""
+ id |                    label                     | flag
+----+----------------------------------------------+------
+ 21 | B.2a flag on (H5, go PUNTO P3-H5 2026-09-25) | true
+(1 row)
+
+Esperado: RETURNING id = max+1 = 21; readback true. OK.
+
+EXIT=0

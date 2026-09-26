@@ -1,0 +1,53 @@
+# H5 ciclo-0 + revalidacion 341/342 — 2026-09-25T06:30:42Z (UTC). SOLO lectura.
+
+$ ssh goncloud 'curl -fsS http://127.0.0.1:8010/health'
+{"status":"ok"}
+
+$ ssh goncloud "$PSQL_READ -c \"SELECT mode, count(*) FROM ads_optimizer_goal GROUP BY mode;\""
+  mode  | count
+--------+-------
+ shadow |     9
+(1 row)
+
+$ ssh goncloud "$PSQL_READ -c \"SELECT count(*) AS applied_desde_inicio FROM apply_queue WHERE applied_at > '2026-09-25T06:13:41Z';\""
+ applied_desde_inicio
+----------------------
+                    0
+(1 row)
+
+$ ssh goncloud "$PSQL_READ -c \"SELECT count(*) AS bids_desde_inicio FROM apply_attempt WHERE tipo='normal' AND started_at > '2026-09-25T06:13:41Z';\""
+ bids_desde_inicio
+-------------------
+                 0
+(1 row)
+
+$ ssh goncloud "$PSQL_READ -c \"SELECT id, platform, started_at, finished_at FROM optimizer_cycle ORDER BY id DESC LIMIT 3;\""
+ id | platform  |          started_at           |          finished_at
+----+-----------+-------------------------------+-------------------------------
+ 81 | amazon_mx | 2026-09-24 08:41:02.388215+00 | 2026-09-24 08:41:03.225319+00
+ 80 | amazon_us | 2026-09-24 08:40:02.704356+00 | 2026-09-24 08:40:03.387086+00
+ 79 | amazon_mx | 2026-09-23 08:41:01.989114+00 | 2026-09-23 08:41:02.835319+00
+(3 rows)
+
+Conclusion ciclo-0: sombra 0/5 (ultimo ciclo 81 del 24-sep, pre-shadow;
+primer ciclo shadow hoy 08:40/08:41 UTC). Cero applies, cero bids desde
+INICIO_SHADOW. Health ok.
+
+$ git rev-parse origin/master ; git log --oneline 25bded0..origin/master
+b3b2c8ee3e4889ab2dc08e5643d593d6c1259a7e
+b3b2c8e [DRAFT] ADS PROTECCION A.3 — avisos de ingesta (gate: A.3d + merge A.2) (#340)
+(master se movio por #340; prod sigue en deploy 25bded0 — esperado, H5 no re-despliega)
+
+$ gh pr view 341 --json headRefOid,mergeable,mergeStateStatus
+341 82fbb32 MERGEABLE/CLEAN
+$ gh pr view 342 --json headRefOid,mergeable,mergeStateStatus
+342 9aaedff UNKNOWN/UNKNOWN (GitHub sin computar; ver merge-tree local)
+
+$ git merge-tree <mb> origin/master origin/feat/ads-proteccion-c3 → 0 marcas <<<<<<<
+$ git merge-tree <mb> origin/master origin/feat/ads-proteccion-c4 → 0 marcas <<<<<<<
+(ambos mergean limpio contra b3b2c8e; mb c3=f31058d, mb c4=25bded0)
+
+$ git show origin/feat/ads-proteccion-c3:.../review-c3-opus.md | grep ^VEREDICTO
+VEREDICTO: APROBADO
+$ git show origin/feat/ads-proteccion-c4:.../review-c4-opus.md | grep ^VEREDICTO
+VEREDICTO: APROBADO (R4) + VEREDICTO: APROBADO (confirmacion rebase)
