@@ -26,6 +26,29 @@ Los dos `WARNING` de transaccion son el `BEGIN`/`COMMIT` propios de la 0044 dent
 
 Reversa: codigo `predeploy-20260925-2353/` + rebuild; esquema `backups/pre0044_schema_20260925-2353.sql`.
 
+## Primer ciclo post-deploy (2026-09-26, solo lectura)
+
+Job `at` 3 en goncloud a las 08:52 UTC (`recordatorios/d1-ciclo.sh`, solo SELECT), reporte enviado por Telegram (`enviado: True`):
+
+```text
+Ciclos cerrados desde el deploy (25-sep 23:53 UTC):
+84 | amazon_us | live | done | 08:40:03
+85 | amazon_mx | live | done | 08:41:03
+decision_sin_aplicar por motivo (desde el deploy):
+modo_no_live | 27
+v_decision_huerfana por origen (esperado: huerfana = 0):
+sin_registro | 197
+```
+
+Cruce por ciclo (lead, 08:57 UTC, solo lectura; ciclo | kind | decisiones | con sin_aplicar | aplicadas | en cola):
+
+```text
+84 | bid | 13 | 13 | 0 | 0
+85 | bid | 14 | 14 | 0 | 0
+```
+
+Cada bid del ciclo live quedo con su desenlace (`modo_no_live`: los 9 goals siguen en shadow). Cero `huerfana`; `sin_registro` sin cambio (197). Sin cortes ese dia, asi que los motivos de cola (`sin_quota`, `espera_target`, `sin_respuesta`) aun no se ejercitan en prod.
+
 ## Pendiente
 
 D.1b (no bloqueantes de la revision IA) y D.2 (anti-inversion de bids, decision del dueno).
