@@ -1,5 +1,14 @@
 # Orbit — contexto para Claude Chat
 
+**2026-09-26 UTC — ADS PROTECCION 01: plan conciliado con evidencia.**
+Filas a `cc:完了`: A.2 (#333), A.3d (literal), A.3 (#340), B.2 (#332),
+B.2a (#339), B.3 (#335), C.0 (cotejo), C.1 (spec), C.2 (#334), C.2b
+("Aceptado"), C.3 (#341), C.4 (#342), C.5 (#344, desplegado). B.4 WIP
+(sombra 1/5); A.4 TODO (falta H4); C.2a TODO. Advertencia: C.6 sigue
+BLOQUEADO hasta cerrar A.4 y B.4 (sombra H5 en curso; exige su propio
+INICIO_SHADOW). Desviaciones declaradas: merges C.3/C.4 previos al
+literal C.2b; deploy C.5 sin go literal registrado.
+
 **2026-09-25 UTC — ADS PROTECCION 01 D.1 CERRADA: todo no-apply deja su motivo.**
 Tabla append-only `decision_sin_aplicar` (migracion 0044) con el motivo de
 cada decision que el ciclo live no aplico (cuota, modo no live, tope,
