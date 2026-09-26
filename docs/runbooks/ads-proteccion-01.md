@@ -98,6 +98,11 @@ esta tabla. CI verde o `APPROVE` no sustituyen ningun go.
 - C.5 deploy (2026-09-25): codigo C.4/C.5 + migraciones 0041-0043
   desplegados con hito C.5 + backup + rollback listo, pero sin go literal
   registrado del dueno. Evidencia en `docs/evidencia/ads-proteccion-01/H6/deploy-c5.md`.
+- Corrida H5 (2026-09-25 06:13-06:15 UTC): pasos 2-5 del plan
+  (`paso2.txt` deploy + paso 3 flip a shadow + paso 4 flag B.2a + paso 5
+  lectura) dentro de la franja 05:00-07:20 excluida por 0.2, por orden literal
+  del dueno que elimino 0.2 solo para H5 (`H5/paso1.txt:2-4`). La ventana sigue
+  vigente. Evidencia en `docs/evidencia/ads-proteccion-01/H5/`.
 
 ## Prohibido
 

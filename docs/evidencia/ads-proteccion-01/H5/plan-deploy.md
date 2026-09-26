@@ -65,8 +65,13 @@ Por que:
 La 0040 (aplicada entre las 05:40 y las 05:45:15 UTC; el "~06:05 UTC" del
 go era una estimacion, ver `H5/review-opus-r2.md` obs 1) y el deploy de
 `paso2.txt` (06:13-06:15 UTC) cayeron dentro de la franja 05:00-07:20 UTC
-que las precondiciones excluyen. No fue una dispensa formal: fue una
-desviacion del runbook 0.2 por orden literal del dueno, registrada aqui:
+que las precondiciones excluyen, y tambien las escrituras de los pasos 3
+(`UPDATE ads_optimizer_goal SET mode='shadow'`) y 4 (`INSERT INTO
+config_version` 21 con el flag B.2a), corridos a las 06:1x
+(`H5/paso3.txt:1`, `H5/paso4.txt:1`; el paso 5 es solo lectura + `inicio.txt`).
+En total: 0040 + corrida H5 pasos 2-5. No fue una dispensa formal: fue una
+desviacion del runbook 0.2 por orden literal del dueno (que elimino 0.2 solo
+para H5; la ventana sigue vigente), registrada aqui:
 
 - `H5/paso1.txt:2-4`:
   `# NOTA: ventana de deploy 0.2 ELIMINADA por orden literal del operador`

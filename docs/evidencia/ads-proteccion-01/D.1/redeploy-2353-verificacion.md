@@ -24,7 +24,7 @@ Metodo: solo lectura (`SELECT`, `md5sum`, `curl` GET, `ls`). Sin escrituras en p
 4. Migracion 0044 presente: `to_regclass('public.decision_sin_aplicar')` OK;
    0041/0042 (`ads_ingest_incident`, `ads_campaign_proposal`) presentes.
 5. Sombra intacta tras el redeploy: 9 goals en `shadow` (0 en otro modo);
-   `applied` con `encolado_at >= INICIO_SHADOW (2026-09-25T06:13:41Z)` = 0;
+   predicado canonico (runbook H5.3, `H5/paso5.txt:12`) `applied_at > '2026-09-25T06:13:41Z'` = 0; filas encoladas antes y aplicadas despues = 0;
    `ads_campaign_proposal` con `status='open'` = 0 (C.5 pausa manual aun sin objeto).
 
 ## Que cambio vs deploy C.5 19:50 UTC (ad79eeb)

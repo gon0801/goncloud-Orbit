@@ -82,6 +82,7 @@ Ninguno.
 ## Observaciones (no bloqueantes)
 
 1. **El run `pull_request` 36097024815 (mismo SHA `fcfd318`) no corre la bateria.** Como el PR es draft, se saltan `completa` y `pesada` (`skipped`) y aun asi `gate` sale `success`. El rollup del PR muestra `rapido=SUCCESS, completa=SKIPPED, pesada=SKIPPED, gate=SUCCESS, review=SKIPPED, CodeRabbit=SUCCESS`. La evidencia de la bateria completa sobre `fcfd318` viene solo del `workflow_dispatch` 36097030041. Sirve mientras el SHA no cambie; si se mueve antes del merge, hay que volver a despachar.
+[Errata 2026-09-26: los `skipped` son por tipo de evento (`quality.yml`: un `pull_request` nunca corre `completa`/`pesada`), no por draft; ver `C.4/review-c4-rb2-opus.md:17`.]
 2. **`review=SKIPPED`:** el revisor automatico con IA que entro con master #343 no corrio porque el PR es draft. No afecta la validez de la punta.
 
 ## Lo verificado OK

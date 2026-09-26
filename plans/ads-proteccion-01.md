@@ -5,11 +5,11 @@
 > proteccion economica aunque haya ventas o el umbral adaptativo crezca, y
 > ausencia de una senal temprana de datos atrasados. Evidencia primaria:
 > [`docs/evidencia/ads/2026-09-24-exact-us.md`](../docs/evidencia/ads/2026-09-24-exact-us.md).
-> **Estado: borrador corregido tras cross-review Fable 5.1; ejecucion no aprobada.**
+> **Estado (foto 24-sep-2026, ver filas para el estado al 26-sep-2026): borrador corregido tras cross-review Fable 5.1; ejecucion no aprobada entonces.**
 > Este plan propone tareas y gates. Las elecciones de producto registradas el
 > 24-sep-2026 no autorizan por si mismas implementar el plan, mergear PR,
 > desplegar ni activar PAUSE live. El runbook y la aprobacion del dueno vienen
-> despues de corregir este plan. No autoriza una pausa automatica de campana.
+> despues de corregir este plan (el runbook existe: `docs/runbooks/ads-proteccion-01.md`, hito H0b; las autorizaciones fueron por go literal, ver filas y H6/estado.md). No autoriza una pausa automatica de campana.
 
 ## Contrato y decisiones
 
@@ -66,16 +66,16 @@
   preparada una contencion aprobada (flag off por defecto o revert). Si no
   se puede demostrar aislamiento, el deploy queda bloqueado.
 - **Estado de trabajo, no autorizacion:** PR #333 (A.2), #335 (B.3) y #334
-  (C.2) abiertos; C.3 y C.4 tienen ramas locales; A.3 esta pausado por el
-  mismo bloqueante en dos rondas de Quality Kit. Ninguna de estas piezas se
-  da por integrada, desplegada o aprobada por existir.
+  (C.2) abiertos entonces; C.3 y C.4 tenian ramas locales; A.3 pausado por el
+  mismo bloqueante en dos rondas de Quality Kit. (Foto 24-sep-2026; estado al
+  26-sep-2026: #333, #335, #334, #340, #341 y #342 mergeados, ver filas.)
 
 ## Fase A — recuperar y vigilar la ingesta [lane:gate]
 
 | Task | Contenido | DoD | Depends | Status |
 | --- | --- | --- | --- | --- |
 | A.1 | `[Operacion]` `[lane:release]` `[tdd:skip:deploy-y-conciliacion]` Cerrar PR #329: esperar la primera ingesta principal con 300 polls, confirmar datos nuevos US/MX y conciliar fechas e importes contra reportes Amazon; registrar el respaldo y el unico checklist post-deploy | `ingest_run` principal `ok=true`; cada grano/perfil llega a la fecha maxima publicada por su reporte Amazon, con desfase registrado; D-1 solo si esta disponible; muestras de costo/venta por report_id coinciden con Amazon; health y DB conservados | - | cc:完了 #329 merge 43ddd93 (run 426 ok=true, 9731 filas; docs/evidencia/ads/2026-09-24-exact-us.md) |
-| A.2 | `[Contrato+datos]` `[lane:gate]` `[tdd:required]` Distinguir pipeline principal de productos y resultado por perfil/plataforma/reporte; registrar fallo global si ocurre antes de identificar perfil; usar datos existentes antes de migrar | Test rojo previo: tres fallos principales con productos `ok=true` se leen como fallo principal; perfil/reporte fallido no se presenta como todo sano ni se atribuye a otro; consulta prueba grano y permisos; migracion solo si fuente actual insuficiente | A.1 | cc:完了 #333 merge 8cfe7b0 (CI gate+rapido pass; review bot + H3/pre-merge.md; desplegado: 0040 en prod + codigo en ad79eeb; observacion 7d = A.4) |
+| A.2 | `[Contrato+datos]` `[lane:gate]` `[tdd:required]` Distinguir pipeline principal de productos y resultado por perfil/plataforma/reporte; registrar fallo global si ocurre antes de identificar perfil; usar datos existentes antes de migrar | Test rojo previo: tres fallos principales con productos `ok=true` se leen como fallo principal; perfil/reporte fallido no se presenta como todo sano ni se atribuye a otro; consulta prueba grano y permisos; migracion solo si fuente actual insuficiente | A.1 | cc:完了 #333 merge 8cfe7b0 (CI gate+rapido pass; review bot + H3/pre-merge.md; desplegado: 0040 en prod + codigo en H5 25bded0 (arrastrado a ad79eeb; 25bded0 ancestro verificado); observacion 7d = A.4) |
 | A.3d | `[Decision]` `[lane:gate]` `[tdd:skip:decision-operador]` Resolver el bloqueo repetido de A.3: una recuperacion pendiente puede impedir un fallo o atraso nuevo; Quality Kit exige decision del operador antes de otra correccion | Registrar la decision literal del dueno y el caso reproducible de ambas secuencias; si no se autoriza una nueva correccion, A.3/A.4/C.6 siguen pausadas | A.2 | cc:完了 decision literal 24-sep-2026 "Corregir simetrico (Recomendado)" + caso ambas secuencias (A.3d/caso.md) + definiciones (A.3d/definiciones.md) |
 | A.3 | `[Salud+aviso]` `[lane:gate]` `[tdd:required]` Exponer ultima corrida principal exitosa, fecha metrica y edad por plataforma; Telegram al fallo, a las 10:30 UTC sin exito de hoy y al recuperarse | A.2 produce aviso por incidente aunque `cycle=done`; productos no lo limpia; fallo y atraso nuevos no se pierden tras una recuperacion pending; entrega HTTP fallida queda pending y reintenta sin duplicar; recovery solo tras exito principal y alerta entregada; estados terminal/superseded, cadencia por episodio y ejecucion observable del chequeo 10:30 quedan definidos antes de implementacion; `/salud` muestra fuente, fecha y estado de entrega sin secretos | A.2, A.3d | cc:完了 #340 merge b3b2c8e (CI pass; opus r4 APROBADO CON OBSERVACIONES docs/evidencia/ads-proteccion-01/A.3/review-a3-r4-opus.md + CodeRabbit; desplegado en ad79eeb; residuales M6 (`episodios_abiertos` scoped sin test) y M3 (cancel global inalcanzable, mutante equivalente documentado)) |
 | A.4 | `[Release]` `[lane:release]` `[tdd:skip:verificacion-operativa]` Preparar release de A.2/A.3 sin activar por arrastre el cambio B.2; comprobar cron y avisos sin tocar otros servicios | Runbook posterior fija metodo seguro y plazo de observacion de alerta/recovery; CI completo, cross-review, SHA/backup y readback de `/salud` e `ingest_run` por perfil/plataforma; aislamiento B.2 comprobado; checklist de deploy una vez por SHA, despues del go de deploy | A.3, B.2a | cc:TODO; codigo desplegado por arrastre: A.2 en H5 25bded0 (8cfe7b0 ancestro verificado), A.3 recien en C.5 ad79eeb (b3b2c8e posterior a 25bded0); falta operacion H4 (observacion 7 dias + readbacks) + go |
@@ -153,7 +153,7 @@
 | Operacion | Gate previo | Alcance |
 | --- | --- | --- |
 | Continuar implementacion y PR preparados | Plan y runbook aprobados; A.3d para A.3; C.0 y C.2b para integrar C.3/C.4 | A.2–A.4, B.2a–B.4, C.0–C.6 |
-| Merge de cada PR | DoD, review y CI sobre SHA final; go especifico de merge | A.2/B.3/C.2 abiertos y PR futuros |
+| Merge de cada PR | DoD, review y CI sobre SHA final; go especifico de merge | A.2/B.3/C.2 mergeados; resto y PR futuros |
 | Deploy de `orbit-app-1` | B.2a resuelto; backup, SHA, rollback y go especifico de deploy | A.4, B.4, C.6 |
 | Activacion live de cortes | Shadow y riesgo medido aceptados; go especifico de live y readback | B.4, C.6 |
 | Pausa manual de campana en Amazon | Decision humana sobre propuesta concreta; Orbit solo verifica estado externo | C.5 |
