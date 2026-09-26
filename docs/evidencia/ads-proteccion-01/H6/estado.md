@@ -52,5 +52,7 @@ Cuando el motor abra una (el sync + ciclo las crean solas), sobre ESA propuesta:
    `C.6 Depends: C.3, C.5, A.4, B.4`. Despues de eso, requiere tu go de
    deploy (efecto cero-applies + acuerdo D.3) y luego go de live con el
    riesgo C.2b citado. Sin A.4+B.4 cerrados y sin tus dos literales no arranca.
-3. Di la palabra con el literal (`vivo H5.4 GO sobre IDS_LIVE ...` /
-   `C.6 deploy GO ...`) y el lead ejecuta en ventana.
+3. Di la palabra con los dos literales en orden (`C.6 deploy GO ...`
+   con efecto cero-applies + acuerdo D.3, y despues `C.6 live GO ...`
+   citando el riesgo C.2b) y el lead ejecuta en ventana. El literal
+   `vivo H5.4 GO sobre IDS_LIVE ...` corresponde al paso 1 (B.4), no a C.6.

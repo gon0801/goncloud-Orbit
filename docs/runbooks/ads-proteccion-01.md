@@ -89,10 +89,15 @@ runbook sobre la corrida de precios 13:10), y lejos de 05:00-07:20 y 08:40.
 | Live | Activar cortes nuevos en live | Shadow + riesgo aceptado (C.2b para C) | B.4, C.6 (cubre el flip de vuelta a live) |
 | C.2b | Aceptar riesgo economico medido | Reporte C.2 con horizonte y tolerancia fijados | Gate para merge C.3/C.4 y live C |
 | C.5 | Pausa manual de campana en Amazon | Propuesta concreta visible (hito C.4) | La ejecuta el dueno; Orbit solo verifica |
-| C.5 deploy | Deploy codigo C.4/C.5 + migraciones 0041-0043 | Hito C.5 + backup + rollback listo | Ejecutado sin go literal registrado (2026-09-25); evidencia en `docs/evidencia/ads-proteccion-01/H6/deploy-c5.md` |
 
 La autorizacion puntual del PR #329 (24-sep-2026) no se extiende a nada de
 esta tabla. CI verde o `APPROVE` no sustituyen ningun go.
+
+## Desviaciones declaradas (no son gos)
+
+- C.5 deploy (2026-09-25): codigo C.4/C.5 + migraciones 0041-0043
+  desplegados con hito C.5 + backup + rollback listo, pero sin go literal
+  registrado del dueno. Evidencia en `docs/evidencia/ads-proteccion-01/H6/deploy-c5.md`.
 
 ## Prohibido
 

@@ -1,0 +1,13 @@
+GO P3-H5 RONDA 2 (2026-09-25 ~06:05 UTC) - 0040 ya aplicada en prod por el ingeniero de turno. Lee entero antes de actuar.
+
+HECHO (verificalo en lectura, no lo repitas):
+- migrations/0040_ads_report_result.sql (sha256 ae2970ef9c3e9a6e126e0b14aed49c7cf89f1704686931803dd456d665084b15, identica a origin/master y al merge #333) aplicada en prod con el patron DEPLOY.md Aplicar migraciones (docker exec -i orbit-db-1 psql -U orbit -d orbit -v ON_ERROR_STOP=1 -1, una transaccion). Salida: CREATE TABLE, CREATE INDEX x2, CREATE TRIGGER x2, COMMENT, GRANT x3, DO. Exit 0.
+- Post-verificacion (lectura): to_regclass presente, 3 indices (pkey + run_idx + salud_idx), 2 triggers append-only, 0 filas, privilegios t|t|f|f (SELECT app_read, INSERT app_ingest, sin UPDATE/DELETE).
+- Test focalizado en /tmp/rv-h5-sha (arbol 25bded0) con .venv del repo contra Postgres local: pytest tests/test_reports_pipeline.py -k en_vivo -> 2 passed (metricas + search_terms), 25 deselected, exit 0, log /tmp/mig0040/focal.log. Cero DBs colgadas.
+- origin/master sigue en 25bded0 (ls-remote verificado este turno).
+
+TU TRABAJO:
+1. FASE 1 (solo lectura): re-verifica en prod que ads_report_result existe con indices/triggers/privilegios, y que origin/master sigue en 25bded0. Si algo difiere, PARA y explica.
+2. FASE 2: actualiza H5/plan-deploy.md en la rama evidencia/ads-proteccion-h5 (0040 aplicada: comando verbatim + salida + exit de arriba; SHA revalidado) y pide cross-review opus ronda 2 (model anthropic/claude-opus-5, misma modalidad independiente que ronda 1) del diff nuevo, con veredicto explicito guardado en .saikit/scratch/ads-proteccion-1/ (o docs/evidencia/ads-proteccion-h5 segun el repo).
+3. FASE 3: SOLO si el veredicto opus es APROBADO explicito: ejecuta los pasos H5 1-6 del plan en VENTANA de deploy (runbook 0.2: 09:30-15:00 UTC o despues de 16:00 UTC; ahora ~06:05 UTC = FUERA de ventana, asi que espera idle hasta la ventana, NO ejecutes antes). Comando verbatim + salida verbatim + exit code de cada paso. Si NO APROBADO: deten tras FASE 2 y queda idle.
+PROHIBIDO: merges a main, borrar ramas, tocar fase8-lead o /dev/ttys, y cualquier escritura en prod fuera de los pasos H5 (solo con APROBADO + ventana).

@@ -12,9 +12,9 @@ del dueno para este deploy en ningun archivo de evidencia (buscado en
 `docs/evidencia/ads-proteccion-01/H6/`, `C.5/` y el resto de
 `docs/evidencia/` el 2026-09-25): sin go literal registrado; desviacion
 del runbook declarada aqui. El runbook reserva al dueno cada go de
-merge/deploy/live (tabla "Gos requeridos"), que no incluye C.5; la fila
-"C.5 deploy" quedo agregada ahi marcada como ejecutada sin go literal
-registrado (2026-09-25).
+merge/deploy/live (tabla "Gos requeridos"); este deploy C.5 no tenia fila
+propia en esa tabla y se ejecuto sin go literal: consta como desviacion
+aqui y en la seccion "Desviaciones declaradas" del runbook, no como go.
 
 ## $APROBADO
 
