@@ -237,6 +237,9 @@ MOTIVO_GRUPO_NO_ENABLED = apply.MOTIVO_GRUPO_NO_ENABLED
 # la sirve. Se salta ANTES de resolver ventanas (no gasta consultas ni cupo).
 MOTIVO_ENTIDAD_INERTE = "entidad_inerte"
 MOTIVO_COOLDOWN_7D = "cooldown_7d"
+# D.2 (ads-proteccion-01): hoja cuya reversa de bid no cumple N=10 dias de
+# evidencia posterior al ultimo bid aplicado (decision del dueno).
+MOTIVO_INVERSION_SIN_EVIDENCIA = "inversion_sin_evidencia"
 MOTIVO_ESCALERA_OFF = "escalera_off"
 MOTIVO_VETO_PENDIENTE = apply_cola.MOTIVO_VETO_PENDIENTE
 
@@ -802,6 +805,10 @@ def _pendiente_bid(
         # decision posterior sin aplicar retrospectivamente esta politica
         # a una decision de la era anterior.
         "cooldown_policy_version": "pause_after_bid_v1",
+        # D.2: la politica anti-inversion que consumo la decision de bid que
+        # pasa el gate; None en PAUSE (no paso por el gate, regla 3) para que
+        # el replay de cada era no adopte la regla que no corrio.
+        "inversion_policy_version": (g.POLITICA_INVERSION if resultado.kind == "bid" else None),
         "economic_policy": {
             # C.3 B1: el freeze registra la politica EFECTIVA (None con
             # flag apagado: el replay de esa era no adopta la regla nueva).
@@ -1580,6 +1587,21 @@ def _procesa_decisora(
     if resultado.kind is None:
         contadores.skips_entidad[resultado.motivo] += 1
         return
+    # D.2 (ads-proteccion-01, decision del dueno "N = 10"): solo un BID puede
+    # ser la reversa de otro BID aplicado, y queda DESPUES del cooldown B.2 y
+    # del no-op: una hoja enfriada o sin decision jamas gasta la consulta
+    # (PAUSE y no-op no llegan a ultimo_bid_aplicado). Sin historia la hoja
+    # decide libre; historia rota o ventana de bids desconocida bloquean
+    # (fail-closed), y el contador queda en notes.skips (P1: sin Telegram).
+    if resultado.kind == "bid":
+        historia = g.ultimo_bid_aplicado(conn, entidad_id)
+        if not g.permite_reversa_bid(
+            historia,
+            nueva_direccion=1 if resultado.new_value > resultado.old_value else -1,
+            fin_ventana_bids=ventanas.bids.window_end,
+        ):
+            contadores.skips_entidad[MOTIVO_INVERSION_SIN_EVIDENCIA] += 1
+            return
     pendientes.append(
         _pendiente_bid(
             entidad_id,

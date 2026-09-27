@@ -2,8 +2,8 @@
 
 Resuelve QUE config gobierna a cada entidad y con que modo corre el ciclo.
 No decide bids ni cortes: 2.2/2.3 consumen lo que aqui se resuelve, y 3.1
-(orquestador) es quien lo congela en decision.inputs. La UNICA IO del
-modulo es en_cooldown (LECTURA sobre decision_application).
+(orquestador) es quien lo congela en decision.inputs. La IO del modulo son
+DOS lecturas sobre decision_application: en_cooldown y ultimo_bid_aplicado.
 
 Reglas selladas (plans/orbit-03.md task 2.4 + Spec delta de CONTEXTO.md):
 
@@ -71,12 +71,23 @@ Reglas selladas (plans/orbit-03.md task 2.4 + Spec delta de CONTEXTO.md):
   contra applied_cycle_id (el ciclo que EJECUTO, sellado con verify_ok en
   0002), no contra d.cycle_id (el que decidio): la decision shadow aplicada
   en live SI enfria desde el apply.
+- ANTI-INVERSION D.2 (ads-proteccion-01; decision del dueno "N = 10",
+  D.2/decision.md): tras un BID aplicado (verify_ok IS TRUE, ciclo
+  ejecutor live), la direccion CONTRARIA exige >= DIAS_EVIDENCIA_INVERSION
+  dias de evidencia posterior al cambio: de la fecha UTC del confirmed_at
+  del ULTIMO bid aplicado hasta el fin de la ventana de bids de la
+  entidad. Misma direccion y PAUSE no se frenan; historia rota o ventana
+  desconocida bloquean (fail-closed). La decision es PURA
+  (permite_reversa_bid) y la consulta la hace ultimo_bid_aplicado; el
+  gate vive en cycle._procesa_decisora (despues del cooldown B.2 y del
+  no-op, solo kind 'bid'), NUNCA dentro de decide_bid: mezclaria la
+  historia de applies con la regla pura.
 - DETERMINISMO: no hay now() escondido; `ahora` llega por parametro y DEBE
   ser tz-aware (mismo principio que windows._fecha_utc, replicado aqui
   localmente: no se importan privados de otro modulo).
 
 SQL del modulo (LECTURA; la parsea el test de sintaxis con pglast):
-_SQL_EN_COOLDOWN.
+_SQL_EN_COOLDOWN y _SQL_ULTIMO_BID_APLICADO.
 """
 
 from __future__ import annotations
@@ -85,7 +96,7 @@ import datetime as dt
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     import psycopg
@@ -124,6 +135,12 @@ CLAVE_SETTING_PROPUESTAS_CAMPANA = "ads_propuestas_campana"
 HAY_MODULO_APPLY = True
 
 COOLDOWN = dt.timedelta(days=7)  # por ENTIDAD; comparador ESTRICTO en el umbral
+
+# D.2 (ads-proteccion-01): dias de evidencia posterior al cambio que exige
+# la direccion contraria de un BID aplicado. Literal del dueno "N = 10"
+# (D.2/decision.md), alineado al invariante de maduracion >=10d.
+DIAS_EVIDENCIA_INVERSION = 10
+POLITICA_INVERSION = "inversion_n10_v1"  # se congela en inputs.inversion_policy_version
 
 # Reticulo de modos: off < shadow < live. modo_efectivo es el INFIMO (meet).
 MODOS = ("off", "shadow", "live")
@@ -540,6 +557,93 @@ def en_cooldown(
     return conn.execute(
         _SQL_EN_COOLDOWN, (ad_entity_id, ahora - COOLDOWN, ahora, kind, kind)
     ).fetchone()[0]
+
+
+# D.2 (ads-proteccion-01): historia del ULTIMO BID aplicado de la entidad.
+# Mismos filtros que _SQL_EN_COOLDOWN (verify_ok IS TRUE, ciclo EJECUTOR
+# live via applied_cycle_id) mas kind='bid', y SOLO la fila mas reciente:
+# la direccion vigente es la del ultimo cambio aplicado, no la del primero.
+# confirmed_at se convierte a fecha UTC EN PYTHON: un ::date en SQL usaria
+# la zona de la sesion.
+_SQL_ULTIMO_BID_APLICADO = """
+SELECT d.old_value, d.new_value, da.confirmed_at
+  FROM decision_application da
+  JOIN decision d ON d.id = da.decision_id
+  JOIN optimizer_cycle oc ON oc.id = da.applied_cycle_id AND oc.mode = 'live'
+ WHERE d.ad_entity_id = %s
+   AND d.kind = 'bid'
+   AND da.verify_ok IS TRUE
+ ORDER BY da.confirmed_at DESC
+ LIMIT 1
+"""
+
+
+@dataclass(frozen=True)
+class SinHistoriaBid:
+    """La entidad no tiene NINGUN bid aplicado verificado en vivo: D.2 no
+    aplica y la decision se emite."""
+
+
+@dataclass(frozen=True)
+class HistoriaBidRota:
+    """El ultimo bid aplicado es inservible (old/new None o iguales, o sin
+    confirmed_at): fail-closed, la reversa queda bloqueada."""
+
+
+@dataclass(frozen=True)
+class UltimoBidAplicado:
+    """El ultimo bid aplicado verificado: subio (+1) o bajo (-1), y en que
+    fecha UTC quedo confirmado el cambio."""
+
+    direccion: Literal[-1, 1]
+    fecha_cambio: dt.date
+
+
+HistoriaUltimoBid = SinHistoriaBid | HistoriaBidRota | UltimoBidAplicado
+
+
+def ultimo_bid_aplicado(conn: psycopg.Connection, ad_entity_id: int) -> HistoriaUltimoBid:
+    """Historia del ULTIMO bid aplicado verificado en vivo de la entidad
+    (mismos filtros que en_cooldown mas kind='bid'), o SinHistoriaBid si
+    nunca tuvo uno. Es la unica pieza impura de D.2: parcheable desde los
+    harnesses que corren _procesa_decisora con conn=object(). La fecha del
+    cambio es la fecha UTC de confirmed_at, convertida en Python (un
+    ::date en SQL usaria la TZ de la sesion); una fila inservible devuelve
+    HistoriaBidRota (fail-closed), jamas una direccion inventada."""
+    fila = conn.execute(_SQL_ULTIMO_BID_APLICADO, (ad_entity_id,)).fetchone()
+    if fila is None:
+        return SinHistoriaBid()
+    viejo, nuevo, confirmado = fila
+    if viejo is None or nuevo is None or nuevo == viejo or confirmado is None:
+        return HistoriaBidRota()
+    return UltimoBidAplicado(
+        direccion=1 if nuevo > viejo else -1,
+        fecha_cambio=confirmado.astimezone(dt.UTC).date(),
+    )
+
+
+def permite_reversa_bid(
+    historia: HistoriaUltimoBid,
+    *,
+    nueva_direccion: Literal[-1, 1],
+    fin_ventana_bids: dt.date | None,
+) -> bool:
+    """Pura (D.2): True si la hoja puede mover el bid en `nueva_direccion`
+    dada la historia del ultimo bid aplicado. Misma direccion: siempre.
+    Reversa: exige >= DIAS_EVIDENCIA_INVERSION dias de evidencia posterior
+    al cambio (fin de la ventana de bids menos la fecha UTC del cambio);
+    historia rota o ventana desconocida (None) bloquean (fail-closed).
+    El fin de ventana llega del AGREGADO que decidiria (ventanas.bids),
+    jamas del reloj: contar dias de reloj es justo el error del caso 3835."""
+    if isinstance(historia, SinHistoriaBid):
+        return True
+    if isinstance(historia, HistoriaBidRota):
+        return False
+    if historia.direccion == nueva_direccion:
+        return True
+    if fin_ventana_bids is None:
+        return False
+    return (fin_ventana_bids - historia.fecha_cambio).days >= DIAS_EVIDENCIA_INVERSION
 
 
 # ---------------------------------------------------------------------------
