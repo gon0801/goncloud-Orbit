@@ -1,3 +1,5 @@
+**2026-09-27 UTC — ADS PROTECCION 01 D.2 CERRADA: anti-inversion de bids con N=10.** Tras un BID aplicado, la direccion contraria exige 10 dias maduros de evidencia posterior al cambio; si no, se salta con `inversion_sin_evidencia` (sin Telegram, solo contador en `notes.skips`). PR #357 merge `3f773a6` (head `1eba77b` por zcode + cherry-pick `7648195` con la decision literal N=10 del dueno): TDD 10 failed antes, 60 passed despues con Postgres real, 10/10 mutantes en rojo, CI gate+rapido+bateria Quality success, DeepSeek 3 Low + CodeRabbit 2 Minor (residuales R-D2-1..R-D2-4). Sin migracion. Deploy pendiente: solo codigo, antes del ~12-oct (tiene fecha). Evidencia: `docs/evidencia/ads-proteccion-01/D.2/` (decision, replay, cierre). Siguiente: D.1b (migracion 0045) y C.2a (migracion 0046).
+
 # Orbit — contexto para Claude Chat
 
 **2026-09-26 UTC — ADS PROTECCION 01: plan conciliado con evidencia.**
