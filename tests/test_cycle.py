@@ -79,6 +79,16 @@ SQL40 = (
 SQL42 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0042_ads_campaign_proposal.sql"
 ).read_text(encoding="utf-8")
+# ADS D.1 (0044): decision_sin_aplicar + v_decision_huerfana; D.1b (0045)
+# nombra el CHECK y agrega choque_clave. La cadena del ciclo ES la de
+# produccion: el registro del choque de clave en ciclos live necesita la
+# tabla.
+SQL44 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0044_decision_sin_aplicar.sql"
+).read_text(encoding="utf-8")
+SQL45 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0045_sin_aplicar_choque_clave.sql"
+).read_text(encoding="utf-8")
 
 # ---------------------------------------------------------------------------
 # Reloj FIJO y ventanas derivadas (mismas constantes que test_optimizer_windows)
@@ -157,6 +167,10 @@ def _db_temporal(prefijo: str):
         # (perfil por plataforma para el readback mismo campaignId/profile).
         conn.execute(SQL40)
         conn.execute(SQL42)
+        # ADS D.1/D.1b: decision_sin_aplicar (0044) + CHECK nombrado con
+        # choque_clave (0045) — la cadena del ciclo es la de produccion.
+        conn.execute(SQL44)
+        conn.execute(SQL45)
         yield conn, conectar_extra
     finally:
         if conn is not None:
@@ -1387,6 +1401,43 @@ def test_sql_del_modulo_parsea_como_postgres():
     for nombre in _SQL_CYCLE:
         sql = getattr(ciclo, nombre).replace("%s", "NULL")
         assert pglast.parse_sql(sql), f"{nombre} no parseo"
+
+
+def test_mezcla_evidencias_persistidas_acepta_destino_tupla_sin_base():
+    """R-C3-1 (obs3r2) SIN base: en el camino de EXITO
+    cuerpo['apply']['revalidaciones_economicas'] llega como la TUPLA de
+    ResultadoLiberacion (apply_cola) — el merge no puede reventar con
+    AttributeError fuera de todo try (el ciclo se sellaria 'failed'): el
+    destino se normaliza a lista antes de agregar."""
+    import contextlib
+
+    from app import cycle
+
+    class _ConnFalso:
+        """Lo minimo que lee _mezcla_evidencias_persistidas: una TX nula y el
+        SELECT de notes con UNA evidencia persistida."""
+
+        def transaction(self):
+            return contextlib.nullcontext()
+
+        def execute(self, *_args, **_kwargs):
+            return self
+
+        def fetchone(self):
+            return (
+                json.dumps(
+                    {"revalidaciones_economicas": [{"decision_id": 7, "resultado": "califica"}]}
+                ),
+            )
+
+    cuerpo = {
+        "apply": {"revalidaciones_economicas": ({"decision_id": 7, "resultado": "califica"},)}
+    }
+    cycle._mezcla_evidencias_persistidas(_ConnFalso(), 1, cuerpo)
+
+    entradas = cuerpo["apply"]["revalidaciones_economicas"]
+    assert isinstance(entradas, list), "el destino tupla del camino de exito se normaliza"
+    assert len(entradas) == 1 and entradas[0]["decision_id"] == 7
 
 
 # ---------------------------------------------------------------------------

@@ -305,7 +305,25 @@ El motivo es un vocabulario CERRADO (`app.apply.MOTIVOS_SIN_APLICAR`,
 espejado por el CHECK de la tabla): `modo_no_live`, `ya_aplicada` (en el
 vocabulario pero **jamás escrita**: su desenlace ya es el resumen),
 `bid_incompleto`, `entidad_no_decisora`, `tope_intentos`, `fuera_de_cap`,
-`fallo_http`, `sin_quota`, `espera_target`, `sin_respuesta`, `perdida`.
+`fallo_http`, `sin_quota`, `espera_target`, `sin_respuesta`, `perdida`,
+`choque_clave` (D.1b).
+
+**`choque_clave` (D.1b):** la decisión de corte live cuyo INSERT chocó la
+clave de efecto en vuelo (otra fila no terminal con la misma clave). No
+deja fila en la cola y, sin registro, `v_decision_huerfana` la listaría
+como `huerfana` sin serlo. El registro usa el modo del **envelope**
+(`encola_cortes` solo lo escribe en ciclos live; en shadow el desenlace
+es la práctica de veto del dueño, sellado 6) y corre FUERA del savepoint
+por fila, para que el rollback del INSERT que chocó no se lo lleve. El
+CHECK de 0044 nació anónimo; 0045 lo re-crea nombrado
+`decision_sin_aplicar_motivo_check` con la lista ampliada (mismo orden
+que la constante).
+
+**`perdida` (D.1b):** sigue en el vocabulario y en el CHECK (puede haber
+filas históricas) pero `libera_vencidos` ya NO la escribe: el claim del
+harvest perdido contra un veto queda como contador del resumen
+(`carreras_perdidas`) y su desenlace ya es visible en la fila de la cola
+(`vetoed`) — duplicarlo en la tabla no agrega nada.
 
 **Auditoría:** `v_decision_huerfana` lista las decisiones live de ciclos
 cerrados SIN ninguno de los tres desenlaces, con `origen` en tres valores

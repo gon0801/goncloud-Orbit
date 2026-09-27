@@ -1164,10 +1164,13 @@ def _mezcla_evidencias_persistidas(conn: psycopg.Connection, cycle_id: int, cuer
     (el cuerpo del aborto no trae la lista en memoria). Lo persistido
     (top-level `revalidaciones_economicas`) se mezcla a
     `apply.revalidaciones_economicas` con dedupe por decision_id (la
-    version en memoria manda; en exito son identicas). El SELECT va en
-    su PROPIA transaccion (la conexion de prod no es autocommit: un SELECT
-    suelto abriria la TX implicita y el `with` del sello seria un savepoint
-    jamas commiteado — el BN1 de C.4 ronda 2)."""
+    version en memoria manda; en exito son identicas). El destino puede
+    llegar como la TUPLA del camino de exito
+    (ResultadoLiberacion.revalidaciones_economicas) y se normaliza a lista
+    antes de agregar. El SELECT va en su PROPIA transaccion (la conexion de
+    prod no es autocommit: un SELECT suelto abriria la TX implicita y el
+    `with` del sello seria un savepoint jamas commiteado — el BN1 de C.4
+    ronda 2)."""
     with conn.transaction():
         fila = conn.execute(_SQL_NOTAS_VIGENTES, (cycle_id,)).fetchone()
     if fila is None or not isinstance(fila[0], str) or not fila[0]:
@@ -1185,6 +1188,11 @@ def _mezcla_evidencias_persistidas(conn: psycopg.Connection, cycle_id: int, cuer
     if not isinstance(seccion, dict):
         return
     destino = seccion.setdefault("revalidaciones_economicas", [])
+    if not isinstance(destino, list):
+        # R-C3-1: el append sobre la tupla del camino de exito daria
+        # AttributeError fuera de todo try (el ciclo se sellaria failed).
+        destino = list(destino)
+        seccion["revalidaciones_economicas"] = destino
     vistos = {e.get("decision_id") for e in destino if isinstance(e, dict)}
     for evidencia in persistidas:
         if isinstance(evidencia, dict) and evidencia.get("decision_id") not in vistos:

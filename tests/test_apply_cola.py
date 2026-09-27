@@ -97,6 +97,11 @@ SQL44 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0044_decision_sin_aplicar.sql"
 ).read_text(encoding="utf-8")
 
+# (D.1b): CHECK nombrado + choque_clave
+SQL45 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0045_sin_aplicar_choque_clave.sql"
+).read_text(encoding="utf-8")
+
 
 # ---------------------------------------------------------------------------
 # Patron _db_temporal de test_apply (COPIADO; aplica 0001 + 0002)
@@ -119,6 +124,7 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL2)  # 0002: cola de cortes, ledger, sellos de quota
         conn.execute(SQL3)  # 0003: ads_optimizer_goal sin DEFAULT en piso/techo
         conn.execute(SQL44)  # 0044 (D.1): decision_sin_aplicar + vista
+        conn.execute(SQL45)  # 0045 (D.1b): CHECK nombrado + choque_clave
         yield conn
     finally:
         if conn is not None:
@@ -598,6 +604,118 @@ def test_choque_de_clave_en_vuelo_se_registra_y_la_decision_queda():
             "SELECT EXISTS (SELECT 1 FROM decision WHERE id = %s)", (dec2,)
         ).fetchone()[0]
         assert existe is True, "la decision sigue en decision (append-only)"
+
+
+@_skip_db
+def test_choque_deja_fila_choque_clave_y_la_vista_no_lista_la_decision():
+    """D.1b: en ciclo live el choque TAMBIEN deja su fila en
+    decision_sin_aplicar (choque_clave): la decision no tiene fila en la cola
+    y sin registro v_decision_huerfana la listaria como 'huerfana'. El
+    registro vive FUERA del savepoint por fila: la transaccion sigue usable,
+    el loop sigue y la decision siguiente se encola."""
+    with _db_temporal("orbit_cola_cho_reg") as conn:
+        ids = _semilla(conn)
+        dec1 = _decision_corte(conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause")
+        _encola_fila(conn, dec1, ids["kw"], "pause", payload=_payload_pause("7201"))
+        ciclo2 = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        dec2 = _decision_corte(conn, ciclo2, ids["config"], ids["kw"], "pause")
+        dec3 = _decision_corte(conn, ciclo2, ids["config"], ids["kw2"], "pause")
+        handler, _v = _handler_cortes()
+
+        resumen = encola_cortes(
+            conn,
+            _aplicador(conn, handler, ids["ciclo_ejec"]),
+            ciclo2,
+            modo_envelope="live",
+            ahora=ids["ahora"],
+        )
+
+        assert resumen.encoladas_live == 1 and len(resumen.choques) == 1
+        assert str(dec2) in resumen.choques[0]
+        fila = conn.execute(
+            "SELECT decision_id, cycle_id, motivo, detalle FROM decision_sin_aplicar"
+            " WHERE decision_id = %s",
+            (dec2,),
+        ).fetchone()
+        assert fila == (
+            dec2,
+            ciclo2,
+            "choque_clave",
+            {"kind": "pause", "entidad": ids["kw"], "termino": None},
+        )
+        encolada = conn.execute(
+            "SELECT estado FROM apply_queue WHERE decision_id = %s", (dec3,)
+        ).fetchone()
+        assert encolada == ("pending_veto",), "el loop sigue tras el choque: dec3 quedo encolada"
+        conn.execute(
+            "UPDATE optimizer_cycle SET status = 'done', finished_at = now() WHERE id = %s",
+            (ciclo2,),
+        )
+        huerfanas = conn.execute(
+            "SELECT count(*) FROM v_decision_huerfana WHERE decision_id = %s", (dec2,)
+        ).fetchone()[0]
+        assert huerfanas == 0, "con choque_clave la vista ya no lista la decision"
+
+
+@_skip_db
+def test_choque_con_goal_shadow_en_ciclo_live_deja_fila_choque_clave():
+    """El modo EFECTIVO de la fila sale shadow (goal en shadow) pero el
+    registro usa el modo del ENVELOPE (live): el choque SI deja choque_clave.
+    Mata al mutante 'gate por modo de fila'."""
+    with _db_temporal("orbit_cola_cho_sh") as conn:
+        ids = _semilla(conn, goal_mode="shadow")
+        dec1 = _decision_corte(conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause")
+        _encola_fila(conn, dec1, ids["kw"], "pause", payload=_payload_pause("7201"))
+        ciclo2 = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        dec2 = _decision_corte(conn, ciclo2, ids["config"], ids["kw"], "pause")
+        handler, _v = _handler_cortes()
+
+        resumen = encola_cortes(
+            conn,
+            _aplicador(conn, handler, ids["ciclo_ejec"]),
+            ciclo2,
+            modo_envelope="live",
+            ahora=ids["ahora"],
+        )
+
+        assert len(resumen.choques) == 1
+        motivo = conn.execute(
+            "SELECT motivo FROM decision_sin_aplicar WHERE decision_id = %s", (dec2,)
+        ).fetchone()
+        assert motivo == ("choque_clave",), "el registro usa el modo del envelope, no el de la fila"
+
+
+@_skip_db
+def test_choque_en_ciclo_shadow_no_registra_nada():
+    """El negativo: con el envelope en shadow NO se escribe registro (el
+    desenlace del ciclo shadow es la practica de veto del dueno, sellado 6);
+    el choque se ve solo en el resumen."""
+    with _db_temporal("orbit_cola_cho_shadow") as conn:
+        ids = _semilla(conn)
+        dec1 = _decision_corte(conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause")
+        _encola_fila(conn, dec1, ids["kw"], "pause", payload=_payload_pause("7201"))
+        ciclo2 = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        _decision_corte(conn, ciclo2, ids["config"], ids["kw"], "pause")
+        handler, _v = _handler_cortes()
+
+        resumen = encola_cortes(
+            conn,
+            _aplicador(conn, handler, ids["ciclo_ejec"]),
+            ciclo2,
+            modo_envelope="shadow",
+            ahora=ids["ahora"],
+        )
+
+        assert len(resumen.choques) == 1, "el choque se ve en el resumen"
+        assert conn.execute("SELECT count(*) FROM decision_sin_aplicar").fetchone()[0] == 0, (
+            "en shadow el desenlace es la practica de veto, no un registro de no-apply"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1944,6 +2062,78 @@ def test_pause_economica_venta_pasa_cola_veto_apply_y_readback():
             "SELECT verify_ok FROM decision_application WHERE decision_id = %s", (dec,)
         ).fetchone() == (True,)
         assert len(_mutaciones(vistos)) == 1
+
+
+@_skip_db
+def test_camino_de_exito_una_sola_entrada_por_decision():
+    """R-C3-1 (obs3r2) sobre el camino de EXITO completo: el cuerpo trae la
+    TUPLA real de libera_vencidos y el merge deja UNA sola entrada por
+    decision_id — lo persistido identico no se duplica (sin el filtro de
+    vistos habria 2) y la evidencia persistida que la memoria no tiene se
+    agrega sin el AttributeError del append sobre tupla (la asimetria
+    memoria/persistido que R-C3-1 sella)."""
+    from app import cycle
+
+    with _db_temporal("orbit_cola_econ_una") as conn:
+        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_pause": 1, "ads_pause_economica": True})
+        d = ids["ahora"]
+        conn.execute(
+            "UPDATE ads_optimizer_goal SET target_acos_pct = 20 WHERE platform = 'amazon_us'"
+        )
+        conn.execute(
+            "UPDATE optimizer_cycle SET notes = %s WHERE id = %s",
+            (json.dumps({"target": {"target_aplicado": None}}), ids["ciclo_ejec"]),
+        )
+        fechas = list(_fechas(d.date() - dt.timedelta(days=20), d.date() - dt.timedelta(days=11)))
+        for i, fecha in enumerate(fechas):
+            _metrica(
+                conn,
+                ids["run"],
+                ids["kw"],
+                fecha,
+                clicks=5,
+                cost=10 if i == 0 else 15,
+                orders=1 if i == 0 else 0,
+                ad_revenue=100 if i == 0 else 0,
+            )
+        dec = _decision_corte(
+            conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause", motivo="pause_economica"
+        )
+        _encola_fila(conn, dec, ids["kw"], "pause", payload=_payload_pause("7201"))
+        handler, _v = _handler_cortes()
+        resultado = libera_vencidos(
+            conn, "amazon_us", ahora=d, aplicador=_aplicador(conn, handler, ids["ciclo_ejec"])
+        )
+        assert resultado.aplicadas == 1
+
+        # La asimetria que R-C3-1 sella: una segunda decision queda SOLO en
+        # lo persistido (anexada en la fase sin contraparte en memoria).
+        dec_b = _decision_corte(
+            conn, ids["ciclo_dec"], ids["config"], ids["kw2"], "pause", motivo="pause_economica"
+        )
+        notas = json.loads(
+            conn.execute(
+                "SELECT notes FROM optimizer_cycle WHERE id = %s", (ids["ciclo_ejec"],)
+            ).fetchone()[0]
+        )
+        notas["revalidaciones_economicas"].append(
+            {"decision_id": dec_b, "resultado": "califica", "revalidado_at": d.isoformat()}
+        )
+        conn.execute(
+            "UPDATE optimizer_cycle SET notes = %s WHERE id = %s",
+            (json.dumps(notas), ids["ciclo_ejec"]),
+        )
+
+        # Shape del camino de exito (cycle.py): cuerpo['apply'] trae la TUPLA
+        # de ResultadoLiberacion y notes del ciclo ya trae lo persistido.
+        cuerpo = {"apply": {"revalidaciones_economicas": resultado.revalidaciones_economicas}}
+        cycle._mezcla_evidencias_persistidas(conn, ids["ciclo_ejec"], cuerpo)
+
+        entradas = cuerpo["apply"]["revalidaciones_economicas"]
+        assert sorted(e["decision_id"] for e in entradas) == sorted([dec, dec_b]), (
+            "una sola entrada por decision_id: la de memoria no se duplica y la"
+            " persistida nueva se agrega"
+        )
 
 
 @_skip_db
