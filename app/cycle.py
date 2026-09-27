@@ -531,6 +531,16 @@ INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_i
 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 """
 
+# C.2a: el freeze es idempotente por PK (un re-run del mismo ciclo no
+# duplica); la fila nace en TX2 (mismo snapshot que la decision) y se
+# escribe en TX3 aunque la hoja no haya dejado decision.
+_SQL_INSERT_TARGET_CICLO = """
+INSERT INTO target_acos_ciclo (cycle_id, ad_entity_id, decided_at,
+                               target_acos_pct, procedencia)
+VALUES (%s, %s, %s, %s, %s)
+ON CONFLICT (cycle_id, ad_entity_id) DO NOTHING
+"""
+
 
 # ---------------------------------------------------------------------------
 # Estructuras internas
@@ -554,6 +564,10 @@ class _Contadores:
     destinos: Counter = field(default_factory=Counter)
     saltos_grupo: dict[int, notifica.SaltoDestinoGrupo] = field(default_factory=dict)
     propuestas_campana: tuple[propuestas_campana.Evaluacion, ...] = ()
+    # C.2a: freeze del target por hoja (ad_entity_id -> (target, procedencia))
+    # capturado donde la cascada lo calculo; TX3 lo escribe aunque la hoja no
+    # deje decision (no-op y cooldown incluidos).
+    targets: dict[int, tuple[Decimal, str]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -1137,6 +1151,20 @@ def _inserta_decisiones(
     conn.cursor().executemany(_SQL_INSERT_DECISION, filas)
 
 
+def _inserta_targets(
+    conn: psycopg.Connection, cycle_id: int, decided_at: dt.datetime, contadores: _Contadores
+) -> None:
+    """C.2a: el freeze capturado en TX2 se persiste en TX3 (junto a las
+    decisiones, atomico con el cierre del envelope)."""
+    if not contadores.targets:
+        return
+    filas = [
+        (cycle_id, entidad, decided_at, target, procedencia)
+        for entidad, (target, procedencia) in sorted(contadores.targets.items())
+    ]
+    conn.cursor().executemany(_SQL_INSERT_TARGET_CICLO, filas)
+
+
 def _cierra_envelope(
     conn: psycopg.Connection, cycle_id: int, status: str, decisions_count: int, notes: str
 ) -> bool:
@@ -1560,6 +1588,10 @@ def _procesa_decisora(
     procedencia = g.peldano_target_acos(
         goal.target_acos_pct, goal.scope, margen_plataforma, setting_target, acos_cache
     )
+    # C.2a: el freeze va AQUI, no mas arriba — cascada_target_acos revienta
+    # con cache <= 0 y meterla en hojas que hoy salen limpias (veto/inerte)
+    # inventaria fallas nuevas.
+    contadores.targets[entidad_id] = (target, procedencia)
     floor, ceiling = g.resuelve_floor_ceiling(goal, PLATAFORMAS_MONEDA[platform])
     costo_piso = bid.PAUSE_COST_MIN[platform]
     resultado = bid.decide_bid(
@@ -2399,6 +2431,7 @@ def _corre_fases(
     status = "degraded" if guarda is not None else "done"
     with conn.transaction():  # TX3: decisiones + cierre del envelope, atomicos
         _inserta_decisiones(conn, cycle_id, config_id, decided_at, pendientes)
+        _inserta_targets(conn, cycle_id, decided_at, contadores)
         # C.4 B3: la guarda va con el mismo flag que la lectura (con flag
         # apagado no hay nada que persistir; la condicion es cinturon).
         # Obs1: TX3 vuelve a READ COMMITTED (el REPEATABLE READ no tenia

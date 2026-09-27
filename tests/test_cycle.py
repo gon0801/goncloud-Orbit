@@ -89,6 +89,11 @@ SQL44 = (
 SQL45 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0045_sin_aplicar_choque_clave.sql"
 ).read_text(encoding="utf-8")
+# ADS C.2a (0046): target_acos_ciclo — la TX3 del ciclo escribe el freeze del
+# target por hoja; sin la tabla TODO ciclo con hojas revienta en TX3.
+SQL46 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0046_target_acos_ciclo.sql"
+).read_text(encoding="utf-8")
 
 # ---------------------------------------------------------------------------
 # Reloj FIJO y ventanas derivadas (mismas constantes que test_optimizer_windows)
@@ -171,6 +176,8 @@ def _db_temporal(prefijo: str):
         # choque_clave (0045) — la cadena del ciclo es la de produccion.
         conn.execute(SQL44)
         conn.execute(SQL45)
+        # ADS C.2a: target_acos_ciclo (0046) — la TX3 escribe el freeze.
+        conn.execute(SQL46)
         yield conn, conectar_extra
     finally:
         if conn is not None:
@@ -1373,6 +1380,8 @@ _SQL_CYCLE = (
     "_SQL_INERTES",
     "_SQL_GRUPOS",
     "_SQL_INSERT_DECISION",
+    # ADS C.2a: el freeze del target por hoja se escribe en TX3.
+    "_SQL_INSERT_TARGET_CICLO",
     "_SQL_OWNER_LOCK",
     "_SQL_SELLA_APPLY",
     "_SQL_APPLIED_COUNT_CICLO",

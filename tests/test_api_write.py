@@ -69,6 +69,11 @@ SQL15 = (
 SQL42 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0042_ads_campaign_proposal.sql"
 ).read_text(encoding="utf-8")
+# ADS C.2a (0046): el ciclo real de test_edicion_visible... escribe el freeze
+# del target en TX3.
+SQL46 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0046_target_acos_ciclo.sql"
+).read_text(encoding="utf-8")
 
 TOKEN = "token-escritura-de-test-314159"
 
@@ -399,6 +404,7 @@ def _db_con_rol_admin(prefijo: str, *, con_decide: bool = False):
         conn.execute(SQL13)  # 0013 (BIDS 01): los ciclos reales leen la vista en TX2
         conn.execute(SQL15)  # 0015 (ORBIT 06 2.3): el peldano margen lee su vista en TX2
         conn.execute(SQL42)
+        conn.execute(SQL46)  # 0046 (C.2a): la TX3 del ciclo escribe el freeze
         # CREATE ROLE es utility statement: NO admite parametros posicionales
         # (revienta con syntax error en $1); la password va como sql.Literal
         # (composicion segura de psycopg, no interpolacion de strings).

@@ -112,31 +112,25 @@ def medir(conn, desde: dt.date, hasta: dt.date):
     )
     targets_entidad = defaultdict(lambda: defaultdict(set))
     targets_compartidos = defaultdict(lambda: defaultdict(set))
-    targets_plataforma = defaultdict(lambda: defaultdict(set))
     fuentes_compartidas = frozenset(
         {"goal_campana", "goal_plataforma", "margen_plataforma", "setting_plataforma"}
     )
+    # C.2a: el target viene CONGELADO de target_acos_ciclo (fila por hoja y
+    # ciclo, decision o no). Ciclos anteriores a 0046 sin filas quedan
+    # sin_target_historico: el goal vigente NO es fuente (se edita).
     for ciclo, entidad, valor, fuente in conn.execute(
-        "SELECT d.cycle_id,d.ad_entity_id,d.inputs->>'target_acos_pct_usado',"
-        "d.inputs->>'target_procedencia' FROM decision d "
-        "JOIN optimizer_cycle c ON c.id=d.cycle_id "
+        "SELECT t.cycle_id,t.ad_entity_id,t.target_acos_pct,t.procedencia "
+        "FROM target_acos_ciclo t "
+        "JOIN optimizer_cycle c ON c.id=t.cycle_id "
         "WHERE c.started_at >= %s AND c.started_at < %s",
         (inicio_utc, fin_utc),
     ):
         campana = campana_de.get(entidad)
         if campana is not None and valor is not None:
-            par = (Decimal(valor), fuente)
+            par = (valor, fuente)
             targets_entidad[ciclo][entidad].add(par)
             if fuente in fuentes_compartidas:
                 targets_compartidos[ciclo][campana].add(par)
-            if fuente == "margen_plataforma":
-                targets_plataforma[ciclo][entidades[entidad][1]].add(par)
-    goals = {}
-    for campana, target, updated in conn.execute(
-        "SELECT ad_entity_id,target_acos_pct,updated_at FROM ads_optimizer_goal "
-        "WHERE scope='campaign'"
-    ):
-        goals[campana] = (target, updated)
     salida = []
     sin_reloj = []
     for ciclo, platform, _started_at, decidido_min, decidido_max in ciclos:
@@ -145,7 +139,6 @@ def medir(conn, desde: dt.date, hasta: dt.date):
             continue
         instante = decidido_min
         vintage = ventana_vintage(metricas, instante)
-        plataforma = targets_plataforma[ciclo][platform]
         for entidad, fechas in vintage.items():
             meta = entidades.get(entidad)
             if (
@@ -173,14 +166,6 @@ def medir(conn, desde: dt.date, hasta: dt.date):
             elif len(targets_compartidos[ciclo][campana]) > 1:
                 target = fuente = None
                 procedencia = "freeze_compartido_inconsistente"
-            elif (
-                campana in goals
-                and goals[campana][1] <= instante
-                and goals[campana][0] is None
-                and len(plataforma) == 1
-            ):
-                target, fuente = next(iter(plataforma))
-                procedencia = "goal_estable_y_freeze_plataforma"
             else:
                 target = fuente = None
                 procedencia = "sin_target_historico"
