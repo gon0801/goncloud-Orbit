@@ -82,6 +82,11 @@ SQL44 = (
     Path(__file__).resolve().parent.parent / "migrations" / "0044_decision_sin_aplicar.sql"
 ).read_text(encoding="utf-8")
 
+# (D.1b): CHECK nombrado + choque_clave
+SQL45 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0045_sin_aplicar_choque_clave.sql"
+).read_text(encoding="utf-8")
+
 FAKE_CLIENT_ID = "fake-client-id-123"
 FAKE_CLIENT_SECRET = "fake-client-secret-XYZ"
 FAKE_REFRESH_TOKEN = "fake-refresh-token-ABC"
@@ -124,6 +129,7 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL3)  # 0003: ads_optimizer_goal sin DEFAULT en piso/techo
         conn.execute(SQL14)  # 0014: ledger keyword_archivo_manual (BIDS 01 2.2)
         conn.execute(SQL44)  # 0044 (D.1): decision_sin_aplicar + vista
+        conn.execute(SQL45)  # 0045 (D.1b): CHECK nombrado + choque_clave
         yield conn
     finally:
         if conn is not None:
@@ -2476,8 +2482,9 @@ def test_reconcilia_harvest_campana_pausada_fila_released_descarta_pre_claim():
 
 # ===========================================================================
 # ADS D.1: los no-applies del hook harvest (via libera_vencidos con
-# cycle_id) quedan registrados: sin_quota (cap 0) y perdida (claim perdido
-# contra un veto en carrera).
+# cycle_id) quedan registrados: sin_quota (cap 0). D.1b retiro 'perdida'
+# (el claim perdido contra un veto deja su desenlace en la fila 'vetoed'
+# de la cola; el contador del resumen basta).
 # ===========================================================================
 
 
@@ -2510,18 +2517,21 @@ def test_sin_quota_harvest_registra_la_decision():
 
 
 @_skip_db
-def test_perdida_harvest_registra_el_claim_perdido(monkeypatch):
+def test_perdida_harvest_deja_cero_filas_y_la_cola_en_vetoed(monkeypatch):
     """El veto gana la carrera ENTRE el cobro de la unica unidad y el claim
     del harvest (patron de test_veto_en_released_gana_limpio_contra_claim de
     la cola, sobre app.apply.consume_quota_y_sello que es el hook que cobra):
-    estado 'perdida' -> la decision queda REGISTRADA con ese motivo."""
+    D.1b deja de registrar 'perdida' — duplicaria el desenlace, que YA es
+    visible en la fila de la cola ('vetoed'). El vocabulario y el CHECK
+    conservan 'perdida' (puede haber filas historicas) pero
+    libera_vencidos ya no la escribe."""
     import app.apply
     from app.apply import consume_quota_y_sello as _cqs
 
     with _db_temporal("orbit_har_dsa_perdida") as conn:
         ids = _semilla(conn)
         dec = _decision_harvest(conn, ids["ciclo_dec"], ids["config"], ids["ag"])
-        _encola_fila(conn, dec, ids["ag"], term=TERMINO)
+        q = _encola_fila(conn, dec, ids["ag"], term=TERMINO)
         handler, vistos = _handler_harvest()
 
         def quota_que_veta(conn, platform, kind):
@@ -2550,8 +2560,11 @@ def test_perdida_harvest_registra_el_claim_perdido(monkeypatch):
 
         assert res.carreras_perdidas == 1 and res.aplicadas == 0
         assert _mutaciones(vistos) == [], "el perdedor del claim NO aplica"
-        fila = conn.execute(
-            "SELECT cycle_id, motivo FROM decision_sin_aplicar WHERE decision_id = %s",
-            (dec,),
-        ).fetchone()
-        assert fila == (ids["ciclo_ejec"], "perdida")
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM decision_sin_aplicar WHERE decision_id = %s", (dec,)
+            ).fetchone()[0]
+            == 0
+        ), "perdida ya no se registra: el desenlace vive en la fila de la cola"
+        estado = conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone()[0]
+        assert estado == "vetoed", "el veto del dueno gano y su desenlace ya es visible en la cola"

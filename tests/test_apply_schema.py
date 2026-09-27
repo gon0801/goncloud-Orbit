@@ -816,11 +816,30 @@ SQL44 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0044_decision_sin_aplicar.sql"
 ).read_text(encoding="utf-8")
 
+# (D.1b): CHECK nombrado + choque_clave
+SQL45 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0045_sin_aplicar_choque_clave.sql"
+).read_text(encoding="utf-8")
+
+
+def _ultima_migracion_con(marcador: str) -> str:
+    """El SQL de la ULTIMA migracion (nombre mayor) cuyo texto contiene
+    `marcador`: los espejos leen la definicion VIGENTE (0045 re-creo el
+    CHECK de 0044; una migracion futura puede re-crear la vista), no una
+    version fija."""
+    hallados: list[str] = []
+    for ruta in sorted((Path(__file__).resolve().parents[1] / "migrations").glob("*.sql")):
+        texto = ruta.read_text(encoding="utf-8")
+        if marcador in texto:
+            hallados.append(texto)
+    assert hallados, f"ninguna migracion contiene el marcador {marcador!r}"
+    return hallados[-1]
+
 
 @contextmanager
 def _db_temporal_d1(prefijo: str):
-    """_db_temporal + 0044 (la DB de prueba ES la de produccion: cadena
-    completa de migraciones que toca la fase de apply)."""
+    """_db_temporal + 0044 + 0045 (la DB de prueba ES la de produccion:
+    cadena completa de migraciones que toca la fase de apply)."""
     from psycopg import sql as pgsql
 
     dsn = _test_dsn()
@@ -835,6 +854,7 @@ def _db_temporal_d1(prefijo: str):
         conn.execute(SQL2)  # 0002: cola de cortes, ledger, sellos de quota
         conn.execute(SQL3)  # 0003: ads_optimizer_goal sin DEFAULT en piso/techo
         conn.execute(SQL44)  # 0044 (D.1): decision_sin_aplicar + vista
+        conn.execute(SQL45)  # 0045 (D.1b): CHECK nombrado + choque_clave
         yield conn
     finally:
         if conn is not None:
@@ -875,13 +895,14 @@ def _ciclo(conn, *, mode: str = "live", hace_dias: int | None = None) -> int:
 
 
 def test_motivos_sin_aplicar_espejo_estatico_del_check():
-    """La constante de la app ESPEJA el CHECK de 0044 (mismo patron que
-    KINDS_QUOTA <-> trigger): se lee el IN (...) del FUENTE de la migracion,
-    no una tupla redeclarada — un motivo nuevo sin CHECK (o al reves) deja
-    esto rojo."""
+    """La constante de la app ESPEJA el CHECK VIGENTE (mismo patron que
+    KINDS_QUOTA <-> trigger): se lee el IN (...) de la ULTIMA migracion que
+    define el CHECK (0045 re-creo con nombre el anonimo de 0044), no una
+    tupla redeclarada — un motivo nuevo sin CHECK (o al reves) deja esto
+    rojo."""
     from app.apply import MOTIVOS_SIN_APLICAR
 
-    bloque = SQL44.split("motivo TEXT NOT NULL CHECK (motivo IN (", 1)[1].split("))", 1)[0]
+    bloque = _ultima_migracion_con("motivo IN (").split("motivo IN (", 1)[1].split("))", 1)[0]
     lista = tuple(re.findall(r"'([a-z_]+)'", bloque))
     assert lista, "el CHECK del motivo no se encontro: revisar el parseo"
     assert lista == MOTIVOS_SIN_APLICAR, (
@@ -905,17 +926,39 @@ def test_sin_aplicar_motivo_fuera_de_la_lista_revienta():
 
 @_skip_db
 def test_sin_aplicar_espejo_contra_el_check_vivo():
-    """El espejo contra la constraint VIVA (pg_get_constraintdef): el CHECK
-    que Postgres ejecuta es el de la constante, ni uno de mas ni de menos."""
+    """El espejo contra la constraint VIVA (conname + pg_get_constraintdef):
+    el CHECK que Postgres ejecuta lleva el NOMBRE de 0045 (una migracion
+    futura lo encuentra sin adivinar) y su lista ES la de la constante, ni un
+    motivo de mas ni de menos."""
     from app.apply import MOTIVOS_SIN_APLICAR
 
     with _db_temporal_d1("orbit_dsa_espejo") as conn:
-        defin = conn.execute(
-            "SELECT pg_get_constraintdef(oid) FROM pg_constraint"
+        nombre, defin = conn.execute(
+            "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint"
             " WHERE conrelid = 'decision_sin_aplicar'::regclass AND contype = 'c'"
-        ).fetchone()[0]
+        ).fetchone()
+        assert nombre == "decision_sin_aplicar_motivo_check", (
+            "0045 nombra el CHECK: localizable en pg_constraint sin adivinar"
+        )
         lista = tuple(re.findall(r"'([a-z_]+)'", defin))
         assert lista == MOTIVOS_SIN_APLICAR
+
+
+def test_kinds_de_la_vista_huerfana_espejan_kinds_quota():
+    """Los kinds del filtro d.kind IN (...) de v_decision_huerfana ESPEJAN
+    KINDS_QUOTA (mismo patron que el espejo del motivo): agregar un kind
+    aplicable sin tocar la vista deja esto rojo — la decision existiria sin
+    auditoria de huerfanas."""
+    from app.apply import KINDS_QUOTA
+
+    bloque = (
+        _ultima_migracion_con("CREATE VIEW v_decision_huerfana")
+        .split("d.kind IN (", 1)[1]
+        .split(")", 1)[0]
+    )
+    lista = tuple(re.findall(r"'([a-z_]+)'", bloque))
+    assert lista, "el filtro de kinds de la vista no se encontro: revisar el parseo"
+    assert lista == KINDS_QUOTA, "mismos kinds y mismo orden: la vista audita TODO kind aplicable"
 
 
 @_skip_db

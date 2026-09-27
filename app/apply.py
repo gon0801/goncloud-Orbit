@@ -235,13 +235,19 @@ MOTIVO_SIN_QUOTA = "sin_quota"
 MOTIVO_ESPERA_TARGET = "espera_target"
 MOTIVO_SIN_RESPUESTA = "sin_respuesta"
 MOTIVO_PERDIDA = "perdida"
+# D.1b: la decision de corte live cuyo INSERT choco la clave de efecto en
+# vuelo (sin fila en la cola; sin registro, v_decision_huerfana la listaria
+# como huerfana). `perdida` SE QUEDA en el vocabulario (puede haber filas
+# historicas) aunque libera_vencidos ya no la escriba.
+MOTIVO_CHOQUE_CLAVE = "choque_clave"
 
-# ADS D.1: vocabulario CERRADO de decision_sin_aplicar (migracion 0044) —
-# UNA fuente en la app; el CHECK de la tabla es su espejo (test estatico y
-# test de la constraint viva en test_apply_schema los mantienen
-# sincronizados, mismo patron que KINDS_QUOTA <-> trigger). `ya_aplicada`
-# esta en la lista pero JAMAS se escribe: su desenlace ya es
-# decision_application (grabarla la marcaria como no-aplicada).
+# ADS D.1: vocabulario CERRADO de decision_sin_aplicar (migracion 0044; el
+# CHECK nombrado vive desde 0045) — UNA fuente en la app; el CHECK de la
+# tabla es su espejo (test estatico y test de la constraint viva en
+# test_apply_schema los mantienen sincronizados, mismo patron que
+# KINDS_QUOTA <-> trigger). `ya_aplicada` esta en la lista pero JAMAS se
+# escribe: su desenlace ya es decision_application (grabarla la marcaria
+# como no-aplicada).
 MOTIVOS_SIN_APLICAR = (
     MOTIVO_MODO_NO_LIVE,
     MOTIVO_YA_APLICADA,
@@ -254,6 +260,7 @@ MOTIVOS_SIN_APLICAR = (
     MOTIVO_ESPERA_TARGET,
     MOTIVO_SIN_RESPUESTA,
     MOTIVO_PERDIDA,
+    MOTIVO_CHOQUE_CLAVE,
 )
 
 _SQL_SIN_APLICAR = """

@@ -441,6 +441,46 @@ propuesta nueva usa el contrato `aviso_estado` pending/sent
 el fallo queda pending para reintento sin duplicar. No hay FK ni camino
 de escritura hacia `apply_queue` o Amazon Ads.
 
+**`decision_sin_aplicar`** (0044, ADS D.1; CHECK nombrado desde 0045,
+D.1b) — El desenlace "no aplicado" deja de ser invisible: una fila por
+`(decision_id, cycle_id)` con el motivo de un **vocabulario CERRADO**,
+espejo de `app.apply.MOTIVOS_SIN_APLICAR`: `modo_no_live`, `ya_aplicada`
+(en el vocabulario pero **jamás escrita**: su desenlace ya es
+`decision_application`), `bid_incompleto`, `entidad_no_decisora`,
+`tope_intentos`, `fuera_de_cap`, `fallo_http`, `sin_quota`,
+`espera_target`, `sin_respuesta`, `perdida` y `choque_clave` (D.1b: la
+decisión de corte live cuyo INSERT chocó la clave de efecto en vuelo —
+no deja fila en la cola y, sin registro, `v_decision_huerfana` la
+listaría como `huerfana`; el registro usa el modo del **envelope**, fuera
+del savepoint por fila). **Append-only por GRANTs**: nadie de la app
+tiene UPDATE/DELETE; idempotente por PK (un re-run del mismo ciclo
+ejecutor no duplica; `cycle_id` es el ciclo EJECUTOR, no el decisor). El
+CHECK de 0044 nació anónimo (columna inline); 0045 lo localiza en
+`pg_constraint` (aborta si no hay exactamente uno) y lo re-crea nombrado
+`decision_sin_aplicar_motivo_check` con la lista ampliada en el mismo
+orden. `perdida` sigue en el vocabulario y en el CHECK por las filas
+históricas, pero `libera_vencidos` ya no la escribe: el claim perdido
+contra un veto queda como contador del resumen y su desenlace es la fila
+`vetoed` de la cola.
+*Cómo se audita*: `SELECT * FROM decision_sin_aplicar WHERE cycle_id = …`
+(el no-apply del ciclo, motivo a motivo); la tabla alimenta la
+exclusión de `v_decision_huerfana`.
+
+**`v_decision_huerfana`** (0044) — Decisiones aplicables (kinds espejo de
+`app.apply.KINDS_QUOTA`: bid/pause/negative/harvest) de ciclos live **ya
+cerrados** sin NINGÚN desenlace (ni `decision_application`, ni fila en
+`decision_sin_aplicar`, ni fila terminal en la cola). `origen` con TRES
+valores por precedencia: `sin_registro` (ciclo cerrado antes de la
+migración 0044: hueco histórico conocido), `en_cola` (fila live NO
+terminal en `pending_veto`/`released`/`applying`: la decisión sigue en
+vuelo, no es un hueco) y `huerfana` (posterior a 0044: debió quedar
+registrada — auditar una a una). Una decisión con CUALQUIER fila
+`modo='shadow'` en la cola queda fuera de la vista: su desenlace es la
+práctica de veto del dueño (sellado 6), no un apply que debió
+registrarse.
+*Cómo se audita*: `SELECT * FROM v_decision_huerfana WHERE origen =
+'huerfana'` — cada fila es un hueco de auditoría del ciclo live.
+
 **`apply_attempt`** — Ledger de intentos de TODA mutación (bid, corte,
 reversa, probe): `decision_id` (NULL solo para probes), `seq` (tope de
 reintentos = 3, "no existe 4º intento" es un COUNT), `tipo`

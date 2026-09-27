@@ -495,7 +495,12 @@ def encola_cortes(
     escalera de 2.1, JAMAS inputs.modo): live -> modo='live'; no-live ->
     modo='shadow' (el dueno practica el veto con candidatos reales, sellado 6).
     Si el INSERT choca el unico parcial (clave ya en vuelo), la decision queda
-    (decision es append-only) y el choque viaja en el resumen. vence_el =
+    (decision es append-only), el choque viaja en el resumen y —solo en ciclos
+    con modo_envelope='live'— queda registrado en decision_sin_aplicar como
+    'choque_clave' (fuera del savepoint por fila, con el modo del ENVELOPE:
+    una decision que choca no tiene fila en la cola y sin registro su goal en
+    shadow la listaria v_decision_huerfana como 'huerfana'; en shadow el
+    desenlace es la practica de veto del dueno, sellado 6). vence_el =
     ahora + 48h. `aplicador` llega por parametro porque modo_efectivo es
     metodo de Aplicador (plataforma atada a la instancia); la plataforma de la
     cola sale del ciclo (la fuente de sus decisiones)."""
@@ -559,6 +564,17 @@ def encola_cortes(
                 )
             )
         except psycopg.errors.UniqueViolation:
+            # D.1b: el registro usa el modo del ENVELOPE (no el efectivo de la
+            # fila) y corre FUERA del savepoint por fila: el rollback del
+            # INSERT choque no se lo lleva.
+            if modo_envelope == "live":
+                apply.registra_sin_aplicar(
+                    conn,
+                    dec_id,
+                    cycle_id,
+                    apply.MOTIVO_CHOQUE_CLAVE,
+                    detalle={"kind": kind, "entidad": entidad, "termino": term},
+                )
             choques.append(
                 f"decision {dec_id}: clave de efecto en vuelo"
                 f" (entidad {entidad}, kind {kind}, termino {term!r})"
@@ -1108,9 +1124,12 @@ def libera_vencidos(
     ADS D.1: con `cycle_id` (el ciclo EJECUTOR; None = no registra, compat
     con callers viejos) los no-applies del barrido quedan en
     decision_sin_aplicar: sin_quota (cola y hook harvest), espera_target
-    (economica sin target confiable que espera en released), sin_respuesta
-    (LIST de re-validacion muerto) y perdida (claim del harvest perdido
-    contra un veto). Los DESCARTES no se graban: su desenlace ya es la fila
+    (economica sin target confiable que espera en released) y sin_respuesta
+    (LIST de re-validacion muerto). D.1b: `perdida` ya NO se escribe — el
+    claim del harvest perdido contra un veto queda como contador del resumen
+    (carreras_perdidas) y su desenlace ya es visible en la fila de la cola
+    ('vetoed'); el motivo sigue en el vocabulario y el CHECK por las filas
+    historicas. Los DESCARTES no se graban: su desenlace ya es la fila
     terminal discarded + discard_motivo."""
     filas = [FilaCola(*f) for f in conn.execute(_SQL_VENCIDAS, (platform, ahora)).fetchall()]
 
@@ -1181,8 +1200,9 @@ def libera_vencidos(
             elif resultado_h.estado == "failed":
                 fallidas += 1
             elif resultado_h.estado == "perdida":
+                # D.1b: sin registro — duplicaria el desenlace que ya es
+                # visible en la fila de la cola ('vetoed').
                 carreras += 1
-                _registra(fila, apply.MOTIVO_PERDIDA)
             else:
                 sin_quota += 1
                 _registra(fila, apply.MOTIVO_SIN_QUOTA)
