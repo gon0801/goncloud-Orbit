@@ -10,17 +10,17 @@ Base: `origin/master` `c6e3fc1`. Las líneas citadas son de esa base.
 Antes de empezar cada tarea, vuelve a ubicar cada símbolo con
 `git grep -n <símbolo> origin/master`, porque las líneas se mueven.
 
-## Resuelve cuatro decisiones del dueño antes de empezar
+## Las cuatro decisiones del dueño ya están tomadas
 
-Cada decisión frena una tarea concreta. No empieces esa tarea hasta tener
-la respuesta literal del dueño en la evidencia.
+El dueño aceptó las cuatro recomendaciones el 2026-09-27, con el literal
+"sí a las 4 recomendaciones". Cada decisión aplica a la tarea que indica.
 
-| # | Decisión | Frena | Recomendación del lead |
+| # | Decisión | Aplica a | Resuelto |
 | --- | --- | --- | --- |
-| P1 | ¿D.2 avisa por Telegram cuando frena una inversión? | D.2 | No. Basta el contador en `notes.skips`. |
-| P2 | R-C3-1 pasa de "solo test" a arreglo de 3 líneas en `app/cycle.py`. ¿Se aprueba dentro de D.1b? | D.1b | Sí. Es un bug latente que puede sellar un ciclo como `failed`. |
-| P3 | C.2a borra el fallback de `ads_optimizer_goal.updated_at` en el replay y baja la cobertura histórica de C.2. ¿Se acepta, o se vuelve a medir C.2 antes? | C.2a | Aceptar. Ese fallback no era durable. |
-| P4 | C.2a congela solo hojas (keyword y product_target). ¿Está bien? | C.2a | Sí. Ningún consumidor mide `ad_group`. |
+| P1 | ¿D.2 avisa por Telegram cuando frena una inversión? | D.2 | No hay aviso por Telegram. Basta el contador en `notes.skips`. |
+| P2 | R-C3-1 pasa de "solo test" a arreglo de 3 líneas en `app/cycle.py`. ¿Se aprueba dentro de D.1b? | D.1b | Sí, se arregla en D.1b. Es un bug latente que puede sellar un ciclo como `failed`. |
+| P3 | C.2a borra el fallback de `ads_optimizer_goal.updated_at` en el replay y baja la cobertura histórica de C.2. ¿Se acepta, o se vuelve a medir C.2 antes? | C.2a | Se acepta sin volver a medir C.2. Ese fallback no era durable. |
+| P4 | C.2a congela solo hojas (keyword y product_target). ¿Está bien? | C.2a | Sí, solo hojas. Ningún consumidor mide `ad_group`. |
 
 ## Sigue estas reglas en las tres tareas
 
@@ -112,8 +112,6 @@ Resultado: ninguna decisión live queda huérfana por un choque de clave,
 `perdida` deja de duplicar el desenlace de la cola y el ciclo ya no puede
 caerse en el merge de evidencia económica.
 
-Espera la decisión P2 antes del paso 5.
-
 1. En el `except psycopg.errors.UniqueViolation` de `encola_cortes`
    (`app/apply_cola.py:~561`), llama a
    `registra_sin_aplicar(conn, dec_id, cycle_id, MOTIVO_CHOQUE_CLAVE,
@@ -136,10 +134,10 @@ Espera la decisión P2 antes del paso 5.
    en un test nuevo que compare los kinds de `v_decision_huerfana` con
    `KINDS_QUOTA`. Agrega `0045` a las cadenas de migraciones que hoy aplican
    `0044`, y `0044`+`0045` a la de `tests/test_cycle.py`.
-5. Si el dueño aprobó P2: en `_mezcla_evidencias_persistidas`
+5. En `_mezcla_evidencias_persistidas`
    (`cycle.py:1153`), convierte `destino` a lista antes de agregar. En el
-   camino de éxito, `destino` es una tupla (`cycle.py:2116-2117`). Si el dueño
-   no lo aprobó, escribe solo las pruebas y deja el arreglo como residual.
+   camino de éxito, `destino` es una tupla (`cycle.py:2116-2117`). El dueño
+   aprobó este arreglo (P2).
 6. Agrega a `docs/DATABASE.md` las fichas de `decision_sin_aplicar` y
    `v_decision_huerfana`. Documenta `perdida` y `choque_clave` en
    `docs/APPLY.md` §4.3.
@@ -163,8 +161,6 @@ deploy de D.1.
 
 Resultado: el replay de un ciclo cerrado da el mismo target aunque después
 alguien edite el goal, y ya no depende de `ads_optimizer_goal.updated_at`.
-
-Espera las decisiones P3 y P4 antes de empezar.
 
 1. Crea `migrations/0046_target_acos_ciclo.sql` con la tabla
    `target_acos_ciclo`. Tiene las columnas `cycle_id`, `ad_entity_id`,

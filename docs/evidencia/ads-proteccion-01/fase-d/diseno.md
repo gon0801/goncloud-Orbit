@@ -134,7 +134,7 @@ CREATE TABLE target_acos_ciclo (
 - C.2a como historial SCD-2 de goals (el cache de target también es mutable), mapa JSON
   en `notes` (no consultable) o decisión "hold" (ensucia `decision`).
 
-## Preguntas para el dueño
+## Preguntas para el dueño (resueltas 2026-09-27: "sí a las 4 recomendaciones")
 
 1. R-C3-1 pasa de "solo test" a "arreglo de 3 líneas en `cycle.py`": ¿aprobado dentro de D.1b?
 2. C.2a borra el fallback `updated_at` del replay: los ciclos viejos sin decisión quedan
