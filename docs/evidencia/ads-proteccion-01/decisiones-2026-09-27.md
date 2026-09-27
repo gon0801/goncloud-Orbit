@@ -21,7 +21,8 @@ las lecturas (solo SELECT) que cerraron los puntos 5 y 6 del analisis de Kimi de
 ```text
 06:49:04  merge C.3 (#341)
 06:49:39  #342 ready_for_review
-06:50:14  ultimo push (rebase)
+06:50:14  commit del rebase (timestamp del commit)
+06:50:48  force-push de cb193a1 (C.4/review-c4-rb3-opus.md:4)
 06:51:25  gate success
 06:52:11  merge #342 (cuenta gon0801)
 06:56:55  commit de la aceptacion C.2b (28d34d8)
