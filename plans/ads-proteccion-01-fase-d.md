@@ -199,6 +199,6 @@ Deploy: el dueño aplica `0046` y después el código.
 
 Una tarea está cerrada cuando su PR tiene la batería completa en verde, está
 mergeado y desplegado, y su evidencia está en
-`docs/evidencia/ads-proteccion-01/<tarea>/`. Marca entonces su fila del plan
-como `cc:完了` y agrega una entrada corta a `docs/CHAT-CONTEXT.md`. El
-candado de CI lo exige.
+`docs/evidencia/ads-proteccion-01/<tarea>/`. En ese mismo PR de cierre, marca
+su fila en `ads-proteccion-01.md` con el estado de cerrada y agrega una
+entrada corta a `docs/CHAT-CONTEXT.md`. El candado de CI lo exige.
