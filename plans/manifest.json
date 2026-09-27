@@ -41,6 +41,11 @@
       "description": "ADS PROTECCION 01 — recuperar ingesta principal, avisar atraso, dar precedencia a PAUSE sobre cooldown de bids y definir proteccion economica por hoja/campana con datos maduros y reversa"
     },
     {
+      "name": "ads-proteccion-01-fase-d",
+      "path": "plans/ads-proteccion-01-fase-d.md",
+      "description": "ADS PROTECCION 01 Fase D — plan de implementacion de D.2 (anti-inversion de bids, N=10), D.1b (choque_clave, perdida, R-C3-1, 0045) y C.2a (target_acos_ciclo, 0046), en ese orden. Cuatro decisiones del dueno abiertas (P1-P4)."
+    },
+    {
       "name": "cortes-01",
       "path": "plans/cortes-01.md",
       "description": "CORTES 01 — umbral adaptativo per-producto para NEGATIVE_EXACT y PAUSE (evidencia por ad group, fallback estricto; spec en docs/superpowers/specs/2026-08-24-cortes-adaptativos-design.md; debe aterrizar antes de ORBIT 04 Phase 2 y del cutover)"
