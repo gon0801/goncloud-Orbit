@@ -822,6 +822,14 @@ SQL45 = (
 ).read_text(encoding="utf-8")
 
 
+def _sql46() -> str:
+    """0046 (C.2a) se lee AL USARSE (misma idea que _ultima_migracion_con):
+    el texto vigente de la migracion, no una copia horneada."""
+    return (
+        Path(__file__).resolve().parents[1] / "migrations" / "0046_target_acos_ciclo.sql"
+    ).read_text(encoding="utf-8")
+
+
 def _ultima_migracion_con(marcador: str) -> str:
     """El SQL de la ULTIMA migracion (nombre mayor) cuyo texto contiene
     `marcador`: los espejos leen la definicion VIGENTE (0045 re-creo el
@@ -855,6 +863,32 @@ def _db_temporal_d1(prefijo: str):
         conn.execute(SQL3)  # 0003: ads_optimizer_goal sin DEFAULT en piso/techo
         conn.execute(SQL44)  # 0044 (D.1): decision_sin_aplicar + vista
         conn.execute(SQL45)  # 0045 (D.1b): CHECK nombrado + choque_clave
+        yield conn
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()
+
+
+@contextmanager
+def _db_temporal_c2a(prefijo: str):
+    """0001 + 0046 (C.2a): target_acos_ciclo solo referencia tablas de 0001
+    (optimizer_cycle, ad_entity); los roles de la app tambien nacen en 0001."""
+    from psycopg import sql as pgsql
+
+    dsn = _test_dsn()
+    db = f"{prefijo}_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(dsn, dbname=db, autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        conn.execute(SQL)  # 0001: roles, esquema sellado, grants
+        conn.execute(_sql46())  # 0046 (C.2a): target_acos_ciclo
         yield conn
     finally:
         if conn is not None:
@@ -942,6 +976,110 @@ def test_sin_aplicar_espejo_contra_el_check_vivo():
         )
         lista = tuple(re.findall(r"'([a-z_]+)'", defin))
         assert lista == MOTIVOS_SIN_APLICAR
+
+
+def test_procedencia_target_ciclo_espejo_estatico_del_check():
+    """El CHECK de procedencia de target_acos_ciclo (0046, C.2a) ESPEJA
+    PELDANOS_CASCADA (mismo patron que el motivo de decision_sin_aplicar):
+    agregar un peldano a la cascada sin ampliar el CHECK deja esto rojo — la
+    fila del freeze revendria en la migracion, no en el motor."""
+    from app.optimizer.goals import PELDANOS_CASCADA
+
+    migracion = _ultima_migracion_con("procedencia IN (")
+    bloque = migracion.split("procedencia IN (", 1)[1].split("))", 1)[0]
+    lista = tuple(re.findall(r"'([a-z_]+)'", bloque))
+    assert lista, "el CHECK de procedencia no se encontro: revisar el parseo"
+    assert lista == PELDANOS_CASCADA, (
+        "misma lista y mismo orden: la tupla de la app es la unica fuente y el CHECK su espejo"
+    )
+
+
+@_skip_db
+def test_procedencia_target_ciclo_espejo_contra_el_check_vivo():
+    """El espejo contra la constraint VIVA: el CHECK nace NOMBRADO
+    (localizable en pg_constraint sin adivinar) y su lista ES
+    PELDANOS_CASCADA, ni un peldano de mas ni de menos."""
+    from app.optimizer.goals import PELDANOS_CASCADA
+
+    with _db_temporal_c2a("orbit_tac_espejo") as conn:
+        nombre, defin = conn.execute(
+            "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint"
+            " WHERE conrelid = 'target_acos_ciclo'::regclass AND contype = 'c'"
+        ).fetchone()
+        assert nombre == "target_acos_ciclo_procedencia_check", (
+            "0046 nombra el CHECK: localizable en pg_constraint sin adivinar"
+        )
+        assert tuple(re.findall(r"'([a-z_]+)'", defin)) == PELDANOS_CASCADA
+
+
+@_skip_db
+def test_target_acos_ciclo_append_only_update_y_delete_rechazados_por_la_app():
+    """Append-only por GRANTs (estilo 0044): app_decide INSERTA (el ciclo
+    escribe el freeze en TX3 junto a decision), NADIE de la app actualiza ni
+    borra; app_read y app_admin leen; app_ingest no escribe."""
+    with _db_temporal_c2a("orbit_tac_grants") as conn:
+        ciclo = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('shadow', 'amazon_us')"
+            " RETURNING id"
+        ).fetchone()[0]
+        entidad = _entidad(conn, "campaign", "9901")
+        conn.execute(
+            "INSERT INTO target_acos_ciclo (cycle_id, ad_entity_id, decided_at,"
+            " target_acos_pct, procedencia) VALUES (%s, %s, now(), 25, 'goal_plataforma')",
+            (ciclo, entidad),
+        )
+        conn.execute("SET ROLE app_decide")
+        try:
+            conn.execute(
+                "INSERT INTO target_acos_ciclo (cycle_id, ad_entity_id, decided_at,"
+                " target_acos_pct, procedencia)"
+                " VALUES (%s, %s, now(), 25, 'cache_estado') ON CONFLICT DO NOTHING",
+                (ciclo, entidad),
+            )
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute(
+                    "UPDATE target_acos_ciclo SET target_acos_pct = 99"
+                    " WHERE cycle_id = %s AND ad_entity_id = %s",
+                    (ciclo, entidad),
+                )
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute(
+                    "DELETE FROM target_acos_ciclo WHERE cycle_id = %s AND ad_entity_id = %s",
+                    (ciclo, entidad),
+                )
+        finally:
+            conn.execute("SET ROLE NONE")
+        conn.execute("SET ROLE app_admin")
+        try:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute(
+                    "DELETE FROM target_acos_ciclo WHERE cycle_id = %s AND ad_entity_id = %s",
+                    (ciclo, entidad),
+                )
+        finally:
+            conn.execute("SET ROLE NONE")
+        conn.execute("SET ROLE app_ingest")
+        try:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                conn.execute(
+                    "INSERT INTO target_acos_ciclo (cycle_id, ad_entity_id, decided_at,"
+                    " target_acos_pct, procedencia) VALUES (%s, %s, now(), 25, 'default')",
+                    (ciclo, entidad),
+                )
+        finally:
+            conn.execute("SET ROLE NONE")
+        conn.execute("SET ROLE app_read")
+        try:
+            assert (
+                conn.execute(
+                    "SELECT procedencia FROM target_acos_ciclo"
+                    " WHERE cycle_id = %s AND ad_entity_id = %s",
+                    (ciclo, entidad),
+                ).fetchone()[0]
+                == "goal_plataforma"
+            )
+        finally:
+            conn.execute("SET ROLE NONE")
 
 
 def test_kinds_de_la_vista_huerfana_espejan_kinds_quota():

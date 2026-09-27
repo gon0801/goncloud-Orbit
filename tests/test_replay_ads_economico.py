@@ -81,10 +81,10 @@ def test_cache_de_hoja_no_da_target_a_hermanas_ni_campana():
                     for entidad in (1, 3, 4)
                     for i in range(10)
                 ]
+            if "FROM target_acos_ciclo" in sql:
+                return [(1, 3, Decimal("20"), "cache_estado")]
             if "FROM decision d" in sql:
-                return [(1, 3, "20", "cache_estado")]
-            if "FROM ads_optimizer_goal" in sql:
-                return []
+                return []  # el ciclo tiene freeze en tabla: sus inputs no se miran
             raise AssertionError(sql)
 
     resultados = {
@@ -133,9 +133,9 @@ def test_replay_usa_decided_at_si_started_at_es_posterior():
                     )
                 )
                 return filas
+            if "FROM target_acos_ciclo" in sql:
+                return [(1, 3, Decimal("20"), "cache_estado")]
             if "FROM decision d" in sql:
-                return [(1, 3, "20", "cache_estado")]
-            if "FROM ads_optimizer_goal" in sql:
                 return []
             raise AssertionError(sql)
 
@@ -157,9 +157,9 @@ def test_ciclo_sin_decisiones_no_inventa_reloj():
                 return []
             if "FROM ads_metric_observation" in sql:
                 return []
-            if "FROM decision d" in sql:
+            if "FROM target_acos_ciclo" in sql:
                 return []
-            if "FROM ads_optimizer_goal" in sql:
+            if "FROM decision d" in sql:
                 return []
             raise AssertionError(sql)
 
@@ -186,15 +186,159 @@ def test_seleccion_de_ciclos_usa_limites_utc_sin_timezone_de_sesion():
         for sql, params in consultas
         if "FROM optimizer_cycle " in sql
     ]
+    targets = [
+        (" ".join(sql.split()), params)
+        for sql, params in consultas
+        if "FROM target_acos_ciclo" in sql
+    ]
     decisiones = [
         (" ".join(sql.split()), params) for sql, params in consultas if "FROM decision d" in sql
     ]
     assert len(ciclos) == 1
+    assert len(targets) == 1
     assert len(decisiones) == 1
-    for sql, params in ciclos + decisiones:
+    for sql, params in ciclos + targets + decisiones:
         assert "c.started_at >= %s AND c.started_at < %s" in sql
         assert params == (inicio, fin)
         assert all(value.tzinfo is not None for value in params)
+
+
+def test_editar_el_goal_despues_del_ciclo_no_cambia_el_replay():
+    """C.2a: el replay lee el target CONGELADO de target_acos_ciclo; el goal
+    vigente (editado despues del ciclo o no) es INALCANZABLE: cualquier
+    consulta a ads_optimizer_goal es un error, no una fuente."""
+    instante = dt.datetime(2026, 9, 11, 8, 40, tzinfo=dt.UTC)
+
+    class Conexion:
+        def execute(self, sql, _params=None):
+            if "FROM optimizer_cycle " in sql:
+                return [(1, "amazon_us", instante, instante, instante)]
+            if "FROM ad_entity " in sql:
+                return [
+                    (1, "campaign", "amazon_us", None, "campana"),
+                    (2, "ad_group", "amazon_us", 1, "grupo"),
+                    (3, "keyword", "amazon_us", 2, "hoja 3"),
+                ]
+            if "FROM ads_metric_observation" in sql:
+                return [
+                    (
+                        3,
+                        dt.date(2026, 8, 23) + dt.timedelta(days=i),
+                        instante - dt.timedelta(days=1),
+                        "USD",
+                        Decimal("15"),
+                        Decimal("15"),
+                    )
+                    for i in range(10)
+                ]
+            if "FROM target_acos_ciclo" in sql:
+                return [(1, 3, Decimal("20"), "cache_estado")]
+            if "FROM decision d" in sql:
+                # El ciclo tiene freeze en tabla: la decision (que aqui dice
+                # otro target) se ignora — no se mezclan fuentes.
+                return [(1, 3, "99", "default")]
+            if "FROM ads_optimizer_goal" in sql:
+                raise AssertionError("el replay no consulta el goal vigente (C.2a)")
+            raise AssertionError(sql)
+
+    filas = medir(Conexion(), dt.date(2026, 9, 11), dt.date(2026, 9, 11))["rows"]
+    hoja = next(fila for fila in filas if fila["entity"] == 3)
+    assert hoja["target"] == Decimal("20")
+    assert hoja["target_source"] == "cache_estado"
+    assert hoja["target_evidence"] == "freeze_entidad"
+    assert hoja["candidate"] is True
+
+
+def test_ciclo_pre_0046_con_decision_propia_sale_freeze_entidad():
+    """El freeze que cada decision YA guarda en inputs no se pierde: un ciclo
+    anterior a 0046 (sin NINGUNA fila en target_acos_ciclo) pero con decision
+    propia de la hoja resuelve freeze_entidad con ese target. Solo el goal
+    vigente queda fuera (P3)."""
+    instante = dt.datetime(2026, 9, 11, 8, 40, tzinfo=dt.UTC)
+
+    class Conexion:
+        def execute(self, sql, _params=None):
+            if "FROM optimizer_cycle " in sql:
+                return [(1, "amazon_us", instante, instante, instante)]
+            if "FROM ad_entity " in sql:
+                return [
+                    (1, "campaign", "amazon_us", None, "campana"),
+                    (2, "ad_group", "amazon_us", 1, "grupo"),
+                    (3, "keyword", "amazon_us", 2, "hoja 3"),
+                ]
+            if "FROM ads_metric_observation" in sql:
+                return [
+                    (
+                        3,
+                        dt.date(2026, 8, 23) + dt.timedelta(days=i),
+                        instante - dt.timedelta(days=1),
+                        "USD",
+                        Decimal("15"),
+                        Decimal("15"),
+                    )
+                    for i in range(10)
+                ]
+            if "FROM target_acos_ciclo" in sql:
+                return []
+            if "FROM decision d" in sql:
+                return [(1, 3, "20", "cache_estado")]
+            if "FROM ads_optimizer_goal" in sql:
+                raise AssertionError("el replay no consulta el goal vigente (C.2a)")
+            raise AssertionError(sql)
+
+    filas = medir(Conexion(), dt.date(2026, 9, 11), dt.date(2026, 9, 11))["rows"]
+    hoja = next(fila for fila in filas if fila["entity"] == 3)
+    assert hoja["target"] == Decimal("20")
+    assert hoja["target_source"] == "cache_estado"
+    assert hoja["target_evidence"] == "freeze_entidad"
+    assert hoja["candidate"] is True
+
+
+def test_ciclo_sin_filas_pre_0046_sale_sin_target_historico():
+    """Ciclos ANTERIORES a 0046 no tienen filas en target_acos_ciclo: salen
+    sin target (`sin_target_historico`) aunque el goal vigente de la campana
+    exista, este estable y la plataforma tenga un freeze margen en otra
+    campana — rellenar con el goal actual es el mutante prohibido."""
+    instante = dt.datetime(2026, 9, 11, 8, 40, tzinfo=dt.UTC)
+
+    class Conexion:
+        def execute(self, sql, _params=None):
+            if "FROM optimizer_cycle " in sql:
+                return [(1, "amazon_us", instante, instante, instante)]
+            if "FROM ad_entity " in sql:
+                return [
+                    (1, "campaign", "amazon_us", None, "campana"),
+                    (2, "ad_group", "amazon_us", 1, "grupo"),
+                    (3, "keyword", "amazon_us", 2, "hoja 3"),
+                    (8, "campaign", "amazon_us", None, "otra campana"),
+                    (9, "ad_group", "amazon_us", 8, "otro grupo"),
+                    (5, "keyword", "amazon_us", 9, "hoja 5"),
+                ]
+            if "FROM ads_metric_observation" in sql:
+                return [
+                    (
+                        3,
+                        dt.date(2026, 8, 23) + dt.timedelta(days=i),
+                        instante - dt.timedelta(days=1),
+                        "USD",
+                        Decimal("15"),
+                        Decimal("15"),
+                    )
+                    for i in range(10)
+                ]
+            if "FROM target_acos_ciclo" in sql:
+                return []
+            if "FROM decision d" in sql:
+                return [(1, 5, "20", "margen_plataforma")]
+            if "FROM ads_optimizer_goal" in sql:
+                return [(1, None, instante - dt.timedelta(hours=1))]
+            raise AssertionError(sql)
+
+    filas = medir(Conexion(), dt.date(2026, 9, 11), dt.date(2026, 9, 11))["rows"]
+    hoja = next(fila for fila in filas if fila["entity"] == 3)
+    assert hoja["target"] is None
+    assert hoja["target_source"] is None
+    assert hoja["target_evidence"] == "sin_target_historico"
 
 
 def test_ciclo_antes_de_medianoche_incluye_observacion_hasta_decided_at():
@@ -237,9 +381,9 @@ def test_ciclo_antes_de_medianoche_incluye_observacion_hasta_decided_at():
                     )
                 )
                 return filas
+            if "FROM target_acos_ciclo" in sql:
+                return [(1, 1, Decimal("20"), "goal_campana")]
             if "FROM decision d" in sql:
-                return [(1, 1, "20", "goal_campana")]
-            if "FROM ads_optimizer_goal" in sql:
                 return []
             raise AssertionError(sql)
 
