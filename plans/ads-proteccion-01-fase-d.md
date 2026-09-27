@@ -119,11 +119,16 @@ caerse en el merge de evidencia económica.
    savepoint por fila (`apply_cola.py:530-565`) y solo si
    `modo_envelope == "live"`. Agrega `MOTIVO_CHOQUE_CLAVE = "choque_clave"` al
    final de `MOTIVOS_SIN_APLICAR` en `app/apply.py`.
+   Usa el modo del envelope, no el modo efectivo de la fila. Una decisión que
+   choca no tiene fila en la cola. Si su goal está en shadow dentro de un ciclo
+   live y no se registra, `v_decision_huerfana` la lista como `huerfana` aunque
+   no sea un hueco.
 2. Borra el `_registra` de `perdida` en `libera_vencidos`
    (`apply_cola.py:1183-1185`). Deja `perdida` en `MOTIVOS_SIN_APLICAR` y en el
    CHECK, porque ya puede haber filas. Invierte la prueba que la fija
    (`tests/test_apply_harvest.py:2513-2557`): ahora espera cero filas y la cola
-   en `vetoed`.
+   en `vetoed`. Actualiza el docstring de `libera_vencidos`: hoy nombra
+   `perdida` entre los motivos que registra.
 3. Crea `migrations/0045_sin_aplicar_choque_clave.sql`. El CHECK de `0044` no
    tiene nombre. Búscalo en `pg_constraint`, aborta si no hay exactamente uno y
    créalo de nuevo con el nombre `decision_sin_aplicar_motivo_check` y la lista
@@ -179,7 +184,9 @@ alguien edite el goal, y ya no depende de `ads_optimizer_goal.updated_at`.
 4. En `tools/replay_ads_economico.py`, lee el target de la tabla nueva. Borra
    la consulta a `ads_optimizer_goal` (`:134-139`) y la rama
    `goal_estable_y_freeze_plataforma` (`:176-183`). Los ciclos anteriores a
-   `0046` sin decisión quedan `sin_target_historico`.
+   `0046` sin decisión quedan `sin_target_historico`. Borra también los
+   helpers, constantes e imports que queden sin uso, para que `ruff check`
+   pase.
 5. Agrega `0046` a las cadenas de migraciones de los tests que corren
    `corre_ciclo`.
 
@@ -191,6 +198,7 @@ Estas pruebas tienen que fallar antes del cambio:
 | Editar el goal después del ciclo no cambia el replay. | Leer el goal vigente |
 | `decision.inputs.target_acos_pct_usado` es igual al valor de la tabla. | Dos fuentes que divergen |
 | La app no puede hacer `UPDATE` ni `DELETE` en la tabla. | Tabla mutable |
+| El CHECK de `procedencia` en `0046` es igual a `PELDANOS_CASCADA` (espejo estático y contra la base). | Agregar un peldaño a la cascada sin ampliar el CHECK |
 | Un ciclo sin decisiones anterior a `0046` sale `sin_target_historico`. | Rellenar con el goal actual |
 
 Deploy: el dueño aplica `0046` y después el código.

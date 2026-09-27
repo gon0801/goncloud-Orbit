@@ -43,7 +43,7 @@
     {
       "name": "ads-proteccion-01-fase-d",
       "path": "plans/ads-proteccion-01-fase-d.md",
-      "description": "ADS PROTECCION 01 Fase D — plan de implementacion de D.2 (anti-inversion de bids, N=10), D.1b (choque_clave, perdida, R-C3-1, 0045) y C.2a (target_acos_ciclo, 0046), en ese orden. Cuatro decisiones del dueno abiertas (P1-P4)."
+      "description": "ADS PROTECCION 01 Fase D — plan de implementacion de D.2 (anti-inversion de bids, N=10), D.1b (choque_clave, perdida, R-C3-1, 0045) y C.2a (target_acos_ciclo, 0046), en ese orden. Las cuatro decisiones del dueno (P1-P4) resueltas el 2026-09-27."
     },
     {
       "name": "cortes-01",
