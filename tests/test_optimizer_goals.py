@@ -322,7 +322,7 @@ def test_cooldown_ahora_naive_raise_sin_tocar_conn():
 def test_sql_del_modulo_parsea_como_postgres():
     """Patron test_optimizer_windows/test_optimizer_hygiene: pglast es dev-dep
     declarada y su desaparicion debe FALLAR ruidosamente, no saltar."""
-    for nombre in ("_SQL_EN_COOLDOWN",):
+    for nombre in ("_SQL_EN_COOLDOWN", "_SQL_ULTIMO_BID_APLICADO"):
         sql = getattr(g, nombre).replace("%s", "NULL")
         assert pglast.parse_sql(sql), f"{nombre} no parseo"
 

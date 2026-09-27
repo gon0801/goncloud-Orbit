@@ -62,6 +62,9 @@ def _corre_hoja(
         )
 
     monkeypatch.setattr(cycle.g, "en_cooldown", cooldown)
+    # D.2: el conn del harness es object(); la historia del ultimo bid se
+    # parchea igual que en_cooldown (ninguna prueba de aqui emite kind bid).
+    monkeypatch.setattr(cycle.g, "ultimo_bid_aplicado", lambda *_: goals.SinHistoriaBid())
     goal = goals.Goal(
         scope="platform",
         ad_entity_id=None,

@@ -78,7 +78,12 @@ Se adopta completo **como especificación**, con dos traducciones:
 prevalece sobre el diseno v2 para la precedencia de PAUSE frente al cooldown
 de bids, el limite economico de hojas y las propuestas de campana. El cooldown
 originado por un bid no frena PAUSE; el enfriamiento tras PAUSE/reversa sigue
-vigente. El corte economico de hojas usa datos maduros y requiere
+vigente. D.2 (anti-inversión, decisión del dueño "N = 10"): tras un BID
+aplicado (verify_ok, ciclo live), la dirección contraria exige ≥ 10 días de
+evidencia posterior al cambio (fecha UTC del `confirmed_at` del último bid
+aplicado → fin de la ventana de bids); la misma dirección y la PAUSE no se
+frenan, una historia rota o una ventana desconocida bloquean (falla cerrada),
+y el salto queda contado en `notes.skips` (`inversion_sin_evidencia`). El corte economico de hojas usa datos maduros y requiere
 `cost > 3 * target * revenue` y exceso
 `cost - target * revenue >= 80 USD / 1000 MXN` (target en fraccion). La
 misma regla cubre `revenue=0` medido aun antes del umbral adaptativo de
