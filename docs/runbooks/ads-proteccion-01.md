@@ -72,9 +72,9 @@ ssh goncloud "$PSQL_READ -c 'SELECT 1 AS ok;'"
 0.2 Horas: el server esta en UTC y esas horas SON UTC (DEPLOY.md, tabla
 "Crons de Orbit"). Reloj: `ssh goncloud date -u`. Cronos que no se pisan:
 ingestas 06:45/07:10/07:20, ciclo Ads 08:40, precio MX 13:10, backup root 03:30.
-Ventana de deploy (del runbook FABRICA 02, DEPLOY.md seccion FABRICA 02 (F2)):
-09:30-15:00 UTC o despues de 16:00 UTC, excepto 13:00-13:20 UTC (margen del
-runbook sobre la corrida de precios 13:10), y lejos de 05:00-07:20 y 08:40.
+Sin ventana de deploy: se despliega a cualquier hora (decision del dueno,
+2026-09-28). Guarda tecnica, no de horario: no recrear `orbit-app-1` con un
+ciclo en `running` ni con un harvest en vuelo (DEPLOY.md D.1.0-2).
 
 ## Gos requeridos (ninguno preaprobado)
 
@@ -112,7 +112,8 @@ esta tabla. CI verde o `APPROVE` no sustituyen ningun go.
   declarado en `docs/evidencia/ads-proteccion-01/C.2b/aceptacion.md` (no son
   gos; el literal "Aceptado" no los retroautoriza).
 - Deploy conjunto de la Fase D (2026-09-28 00:31 UTC): 0045 + 0046 + codigo
-  `2aa70cc`, ejecutado por el dueno con `!`, fuera de la ventana de 0.2 y sin
+  `2aa70cc`, ejecutado por el dueno con `!`, fuera de la ventana de 0.2 (regla eliminada
+  por el dueno el 2026-09-28) y sin
   el conteo de harvest en vuelo de DEPLOY.md D.1.0-2. Desviacion sin dispensa
   previa. Evidencia en `docs/evidencia/ads-proteccion-01/fase-d/deploy.md`.
 

@@ -1846,7 +1846,7 @@ PSQL_READ='sh -c '"'"'DSN=$(docker exec orbit-app-1 printenv ORBIT_DSN_READ); do
 
 ### D.1.0 Precondiciones (solo lectura, sin go)
 
-1. **SHA y ventana.** Fija en una variable el SHA **completo** que el lead
+1. **SHA aprobado.** Fija en una variable el SHA **completo** que el lead
    aprobó al cerrar el momento de merge (CI de master verde sobre él) y
    comprueba que `origin/master` sigue ahí; todo lo que sigue usa
    `$APROBADO`, nunca `origin/master`, para que un push posterior no cambie
@@ -1858,9 +1858,10 @@ PSQL_READ='sh -c '"'"'DSN=$(docker exec orbit-app-1 printenv ORBIT_DSN_READ); do
      && echo "ok: origin/master = $APROBADO" || echo "FALLO: origin/master avanzó; no despliegues"
    ```
 
-   Ventana: lejos del ciclo de Ads (08:40
-   UTC) y de las ingestas (05:00–07:20 UTC); entre 09:30 y 15:00 UTC o
-   después de las 16:00 UTC.
+   Sin ventana horaria: se despliega a cualquier hora (decisión del dueño,
+   2026-09-28). La única guarda de horario es técnica: no recrear
+   `orbit-app-1` mientras un ciclo está en `running` (el rebuild lo corta a
+   la mitad); si lo está, esperar a que termine.
 2. **Cola sin harvest en vuelo** (patrón orbit-05 1.3). Las dos consultas
    deben dar `0`:
 
