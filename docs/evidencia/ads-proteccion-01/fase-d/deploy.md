@@ -82,6 +82,15 @@ hubiera harvest a medias entonces. Solo acota el riesgo posterior. La fase
 ssh goncloud "docker exec -i orbit-db-1 psql -U orbit -d orbit -tA -c \"SELECT count(*) FROM apply_queue WHERE kind = 'harvest' AND estado NOT IN ('applied','failed','vetoed','discarded');\" -c \"SELECT count(*) FROM harvest_job WHERE fase IN ('pending','negative_created','exact_created','hermanas_negadas');\""
 ```
 
+Resultado (2026-09-28 ~00:55 UTC, corrido por el dueño; sin ciclo entre el
+deploy y el conteo):
+
+```text
+apply_queue harvest no terminal: 0
+harvest_job pending/negative_created/exact_created: 0
+harvest_job hermanas_negadas: 0
+```
+
 ## Reversa
 
 - Código: `/mnt/data/appdata/orbit/predeploy-20260928-0031/` + rebuild.
