@@ -242,6 +242,10 @@ MOTIVOS_ES_SALUD: dict[str, str] = {
         "Entidad sin trafico reciente (sin impresiones en 14 dias): sin ajuste"
     ),
     ciclo.MOTIVO_COOLDOWN_7D: "Cooldown 7d: apply verificado reciente",
+    # R-D2-1: texto exacto ordenado por el dueno (decision N=10 de D.2)
+    ciclo.MOTIVO_INVERSION_SIN_EVIDENCIA: (
+        "Inversión frenada: el último bid aplicado tiene menos de 10 días de evidencia"
+    ),
     ciclo.MOTIVO_ESCALERA_OFF: "Escalera global off",
     # guardas de plataforma (windows.py; el envelope las persiste como
     # motivo_skip = guarda_<guarda>)

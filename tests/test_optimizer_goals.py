@@ -321,8 +321,15 @@ def test_cooldown_ahora_naive_raise_sin_tocar_conn():
 
 def test_sql_del_modulo_parsea_como_postgres():
     """Patron test_optimizer_windows/test_optimizer_hygiene: pglast es dev-dep
-    declarada y su desaparicion debe FALLAR ruidosamente, no saltar."""
-    for nombre in ("_SQL_EN_COOLDOWN", "_SQL_ULTIMO_BID_APLICADO"):
+    declarada y su desaparicion debe FALLAR ruidosamente, no saltar. R-D2-2
+    (DeepSeek F3 Low en #357): la lista ya no es fija — recorre TODAS las
+    _SQL_* del modulo (dir), asi una constante futura no puede quedar sin
+    candado."""
+    nombres = sorted(n for n in dir(g) if n.startswith("_SQL_"))
+    assert nombres, "goals.py sin constantes _SQL_*: el candado quedo ciego"
+    assert "_SQL_EN_COOLDOWN" in nombres
+    assert "_SQL_ULTIMO_BID_APLICADO" in nombres
+    for nombre in nombres:
         sql = getattr(g, nombre).replace("%s", "NULL")
         assert pglast.parse_sql(sql), f"{nombre} no parseo"
 

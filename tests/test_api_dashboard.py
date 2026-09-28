@@ -1829,6 +1829,17 @@ def test_motivos_salud_traducen_los_gates_de_ancestros():
     assert MOTIVOS_ES_SALUD[ciclo.MOTIVO_GRUPO_NO_ENABLED].startswith("Ad group")
 
 
+def test_motivo_inversion_sin_evidencia_traducido_en_salud():
+    """R-D2-1 (DeepSeek F1 Low en #357): inversion_sin_evidencia con
+    traduccion en /salud (sin ella la pantalla mostraria el id crudo)."""
+    from app import cycle as ciclo
+    from app.api_dashboard import MOTIVOS_ES_SALUD
+
+    texto = MOTIVOS_ES_SALUD[ciclo.MOTIVO_INVERSION_SIN_EVIDENCIA]
+    assert texto != ciclo.MOTIVO_INVERSION_SIN_EVIDENCIA
+    assert texto == "Inversión frenada: el último bid aplicado tiene menos de 10 días de evidencia"
+
+
 def test_motivo_cero_ventas_tiene_etiqueta_en_decisiones():
     """BIDS 01: el motivo nuevo de cero ventas tiene traduccion en el feed
     (sin ella la pantalla mostraria el id crudo)."""

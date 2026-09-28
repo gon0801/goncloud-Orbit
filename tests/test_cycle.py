@@ -1417,14 +1417,19 @@ def test_mezcla_evidencias_persistidas_acepta_destino_tupla_sin_base():
     cuerpo['apply']['revalidaciones_economicas'] llega como la TUPLA de
     ResultadoLiberacion (apply_cola) — el merge no puede reventar con
     AttributeError fuera de todo try (el ciclo se sellaria 'failed'): el
-    destino se normaliza a lista antes de agregar."""
+    destino se normaliza a lista antes de agregar. R-D1b-3 (revisor Claude
+    r1 en #360): lo persistido trae una SEGUNDA evidencia (8) que la memoria
+    no tiene, asi el append posterior a la normalizacion es parte del
+    contrato — sin la normalizacion el propio append revienta (tuple no
+    tiene append), sin depender de ningun assert isinstance."""
     import contextlib
 
     from app import cycle
 
     class _ConnFalso:
         """Lo minimo que lee _mezcla_evidencias_persistidas: una TX nula y el
-        SELECT de notes con UNA evidencia persistida."""
+        SELECT de notes con DOS evidencias persistidas (la 8 no esta en
+        memoria)."""
 
         def transaction(self):
             return contextlib.nullcontext()
@@ -1435,7 +1440,12 @@ def test_mezcla_evidencias_persistidas_acepta_destino_tupla_sin_base():
         def fetchone(self):
             return (
                 json.dumps(
-                    {"revalidaciones_economicas": [{"decision_id": 7, "resultado": "califica"}]}
+                    {
+                        "revalidaciones_economicas": [
+                            {"decision_id": 7, "resultado": "califica"},
+                            {"decision_id": 8, "resultado": "califica"},
+                        ]
+                    }
                 ),
             )
 
@@ -1445,8 +1455,7 @@ def test_mezcla_evidencias_persistidas_acepta_destino_tupla_sin_base():
     cycle._mezcla_evidencias_persistidas(_ConnFalso(), 1, cuerpo)
 
     entradas = cuerpo["apply"]["revalidaciones_economicas"]
-    assert isinstance(entradas, list), "el destino tupla del camino de exito se normaliza"
-    assert len(entradas) == 1 and entradas[0]["decision_id"] == 7
+    assert [e["decision_id"] for e in entradas] == [7, 8]
 
 
 # ---------------------------------------------------------------------------
