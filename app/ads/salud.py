@@ -10,6 +10,7 @@ from collections.abc import Callable
 from typing import Any
 
 from app import notifica
+from app.ads import structure_api
 from app.db import connect
 from app.redaction import install_scrub_filter, scrub
 
@@ -23,15 +24,24 @@ MAX_INTENTOS = 6
 def incidentes_de_run(
     *, source: str, ok: bool, unidades: list[tuple]
 ) -> list[tuple[int | None, str | None, str]]:
-    """Una alerta por perfil afectado; el reporte y motivo quedan en A.2."""
+    """Una alerta por perfil afectado; el reporte y motivo quedan en A.2.
+
+    Un perfil de pais no soportado no abre fallo: su rechazo es intencional
+    (fuera del alcance US/MX de Orbit), no un fallo de la ingesta principal.
+    """
     if source != SOURCE:
         return []
     scopes = {
         (profile_id, platform, "fallo")
         if profile_id is not None and platform is not None
         else (None, None, "fallo")
-        for profile_id, platform, _report_name, estado in unidades
-        if estado in ("failed", "rejected", "global_failed") or (not ok and estado == "pending")
+        for profile_id, platform, _report_name, estado, motivo in unidades
+        if estado in ("failed", "global_failed")
+        or (
+            estado == "rejected"
+            and not (motivo or "").startswith(structure_api.MOTIVO_PAIS_NO_SOPORTADO)
+        )
+        or (not ok and estado == "pending")
     }
     if not ok and not unidades:
         scopes.add((None, None, "fallo"))
@@ -46,7 +56,7 @@ def unidades_atrasadas(
 
 _SQL_RUN = "SELECT source, ok FROM ingest_run WHERE id = %s"
 _SQL_UNIDADES = """
-SELECT profile_id, platform::text, report_name, status
+SELECT profile_id, platform::text, report_name, status, reason
   FROM ads_report_result WHERE ingest_run_id = %s
 """
 _SQL_ABRIR = """
@@ -137,7 +147,9 @@ def procesar_run(conn: Any, run_id: int) -> None:
             conn.execute(_SQL_CANCELAR_RECUPERACION, (perfil, plataforma, tipo))
             conn.execute(_SQL_ABRIR, (perfil, plataforma, tipo, run_id))
         if ok:
-            exitos = {(p, plat) for p, plat, _nombre, estado in unidades if estado == "written"}
+            exitos = {
+                (p, plat) for p, plat, _nombre, estado, _motivo in unidades if estado == "written"
+            }
             for perfil, plataforma in exitos:
                 conn.execute(_SQL_RECUPERAR, (run_id, perfil, plataforma))
             if exitos and (None, None, "fallo") not in fallos:

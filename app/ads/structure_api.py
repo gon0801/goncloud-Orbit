@@ -32,6 +32,10 @@ _PAIS_PLATAFORMA_MONEDA: dict[str, tuple[str, str]] = {
     "MX": ("amazon_mx", "MXN"),
 }
 
+# Prefijo del motivo de rechazo por pais; app.ads.salud lo reconoce para no
+# abrir un episodio de fallo: es un perfil fuera de alcance, no un fallo.
+MOTIVO_PAIS_NO_SOPORTADO = "pais no soportado"
+
 # Clave contenedora de cada respuesta (ojo targets: "targetingClauses";
 # negativeKeywords: evidencia regla 8, comentario en PATH_NEGATIVE_KEYWORDS).
 _CLAVE_CONTENEDORA = {
@@ -220,10 +224,10 @@ def _evaluar_perfil(raw: dict) -> PerfilAds:
     if account_type != "seller":
         return perfil(False, motivo=f"perfil no seller (accountInfo.type={account_type!r})")
     if not isinstance(country, str):
-        return perfil(False, motivo=f"pais no soportado: {country!r}")
+        return perfil(False, motivo=f"{MOTIVO_PAIS_NO_SOPORTADO}: {country!r}")
     mapeo = _PAIS_PLATAFORMA_MONEDA.get(country)
     if mapeo is None:
-        return perfil(False, motivo=f"pais no soportado: {country}")
+        return perfil(False, motivo=f"{MOTIVO_PAIS_NO_SOPORTADO}: {country}")
     platform, moneda_esperada = mapeo
     if currency_code != moneda_esperada:
         return perfil(
