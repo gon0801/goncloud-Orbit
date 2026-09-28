@@ -18,30 +18,47 @@ def test_fallo_principal_abre_aviso_y_productos_no_lo_cierra():
     abiertos = salud.incidentes_de_run(
         source="amazon_ads_reports_v3",
         ok=False,
-        unidades=[(101, "amazon_us", "campaigns", "failed")],
+        unidades=[(101, "amazon_us", "campaigns", "failed", "fallo")],
     )
     assert abiertos == [(101, "amazon_us", "fallo")]
     assert (
         salud.incidentes_de_run(
             source="amazon_ads_products_v3",
             ok=True,
-            unidades=[(101, "amazon_us", "productos", "written")],
+            unidades=[(101, "amazon_us", "productos", "written", None)],
         )
         == []
     )
 
 
 def test_fallo_global_no_se_atribuye_a_un_perfil():
+    motivo_moneda = "moneda 'CAD' no corresponde al pais US (se esperaba USD)"
     assert salud.incidentes_de_run(
         source="amazon_ads_reports_v3",
         ok=False,
-        unidades=[(None, None, None, "global_failed")],
+        unidades=[(None, None, None, "global_failed", "perfil no identificado")],
     ) == [(None, None, "fallo")]
     assert salud.incidentes_de_run(
         source="amazon_ads_reports_v3",
         ok=True,
-        unidades=[(None, "amazon_us", None, "rejected")],
+        unidades=[(None, "amazon_us", None, "rejected", motivo_moneda)],
     ) == [(None, None, "fallo")]
+
+
+def test_perfil_pais_no_soportado_no_es_fallo_de_run():
+    """El rechazo intencional de un perfil fuera de {US, MX} no es un fallo
+    de la ingesta principal (docs/evidencia/ads-proteccion-01/H4)."""
+    assert (
+        salud.incidentes_de_run(
+            source=salud.SOURCE,
+            ok=True,
+            unidades=[
+                (1104602105442735, None, None, "rejected", "pais no soportado: CA"),
+                (101, "amazon_us", "campanas", "written", None),
+            ],
+        )
+        == []
+    )
 
 
 def test_atraso_solo_para_unidades_sin_exito_de_hoy():
@@ -385,6 +402,52 @@ def test_a3d_atraso_nuevo_tras_recovery_pendiente_no_se_pierde(monkeypatch):
             (viejo,),
         ).fetchone() == (True, True)
         assert any("atrasada" in t for t in textos[2:])
+    finally:
+        _cerrar_a3d(conn, admin, db)
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="Postgres no disponible")
+def test_perfil_pais_no_soportado_no_abre_fallo_global(monkeypatch):
+    """Corrida sana con el perfil CA rechazado: sin episodio previo deja cero
+    filas; con el episodio global historico abierto por ese rechazo (aviso ya
+    enviado), no abre otro episodio y si lo recupera, que es justo lo que
+    obliga al cierre manual del episodio 1 tras el deploy."""
+    conn, textos, admin, db = _base_a3d(monkeypatch, "perfil_ca", [True])
+    try:
+
+        def correr_run_mixta():
+            run_id = conn.execute(
+                "INSERT INTO ingest_run (source, finished_at, ok) "
+                "VALUES (%s, now(), true) RETURNING id",
+                (salud.SOURCE,),
+            ).fetchone()[0]
+            conn.execute(
+                "INSERT INTO ads_report_result "
+                "(ingest_run_id, profile_id, platform, report_name, status, reason) VALUES "
+                "(%s, 101, 'amazon_us', 'campaigns', 'written', NULL), "
+                "(%s, 202, 'amazon_mx', 'campaigns', 'written', NULL), "
+                "(%s, 1104602105442735, NULL, NULL, 'rejected', 'pais no soportado: CA')",
+                (run_id, run_id, run_id),
+            )
+            salud.procesar_run(conn, run_id)
+            return run_id
+
+        correr_run_mixta()
+        assert conn.execute("SELECT count(*) FROM ads_ingest_incident").fetchone()[0] == 0
+
+        run_historica = correr_run_mixta()
+        conn.execute(
+            "INSERT INTO ads_ingest_incident "
+            "(profile_id, platform, tipo, opened_run_id, alert_attempts, alert_sent_at) "
+            "VALUES (NULL, NULL, 'fallo', %s, 1, now())",
+            (run_historica,),
+        )
+        run_nueva = correr_run_mixta()
+        assert conn.execute("SELECT count(*) FROM ads_ingest_incident").fetchone()[0] == 1
+        assert conn.execute(
+            "SELECT recovered_run_id, closed_at IS NOT NULL FROM ads_ingest_incident"
+        ).fetchone() == (run_nueva, True)
+        assert "recuperada" in textos[-1]
     finally:
         _cerrar_a3d(conn, admin, db)
 
