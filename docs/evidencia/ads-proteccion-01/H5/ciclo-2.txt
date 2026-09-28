@@ -1,0 +1,20 @@
+# H5 sombra — dia 2/5 (2026-09-26 UTC). INICIO_SHADOW=2026-09-25T06:13:41Z.
+# Leido 2026-09-28T02:48Z por el lead, SOLO lectura (BEGIN READ ONLY ... ROLLBACK).
+
+$ optimizer_cycle del dia:
+ id | platform  | mode | status | started             | fin      | decisions | bid | pause | otros
+ 84 | amazon_us | live | done   | 2026-09-26 08:40:02 | 08:40:03 | 13        | 13  | 0     | 0
+ 85 | amazon_mx | live | done   | 2026-09-26 08:41:02 | 08:41:03 | 14        | 14  | 0     | 0
+(mode = modo del ciclo/plataforma; los 9 goals siguen en shadow.)
+
+$ skips (notes.skips.entidad):
+ 84 us: campana_no_enabled 1616, entidad_inerte 124, pause_cortes_incompleto 66, estado_no_enabled 36,
+        cooldown_7d 18, sin_banda 13, rango_bloquea_ajuste 1
+ 85 mx: campana_no_enabled 3111, entidad_inerte 222, pause_cortes_incompleto 49, estado_no_enabled 121,
+        cooldown_7d 36, sin_banda 25, bid_actual_ausente 4, rango_bloquea_ajuste 2, bids_incompleto 1
+
+$ mutaciones desde INICIO_SHADOW (condicion R-H5-1: cola + bids aplicados):
+ apply_queue.applied_at: 0 | apply_attempt (todos): 0 | apply_attempt normal: 0 | decision_application: 0
+
+Paradas H5.3: (a) ninguna PAUSE-nueva en el ciclo (0 decisiones pause): nada que explicar
+contra B.3; (b) ambos ciclos done; (c) cero mutaciones en los tres conteos. Ninguna dispara.
