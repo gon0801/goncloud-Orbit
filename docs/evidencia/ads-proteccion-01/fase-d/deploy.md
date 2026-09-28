@@ -72,10 +72,14 @@ crear con la lista ampliada.
   `2aa70cc`, así que la reversa no lo necesita. El script corregido ya lo
   respalda.
 
-Conteo pendiente de harvest en vuelo (solo lectura; ambos deben dar `0`):
+Conteo posterior de harvest en vuelo (solo lectura; ambos deben dar `0`). No
+prueba la precondición D.1.0-2 a las 00:31: un `0` hoy no demuestra que no
+hubiera harvest a medias entonces. Solo acota el riesgo posterior. La fase
+`hermanas_negadas` cuenta como en vuelo desde la `0038`, igual que en
+`app/apply_harvest.py`:
 
 ```bash
-ssh goncloud "docker exec -i orbit-db-1 psql -U orbit -d orbit -tA -c \"SELECT count(*) FROM apply_queue WHERE kind = 'harvest' AND estado NOT IN ('applied','failed','vetoed','discarded');\" -c \"SELECT count(*) FROM harvest_job WHERE fase IN ('pending','negative_created','exact_created');\""
+ssh goncloud "docker exec -i orbit-db-1 psql -U orbit -d orbit -tA -c \"SELECT count(*) FROM apply_queue WHERE kind = 'harvest' AND estado NOT IN ('applied','failed','vetoed','discarded');\" -c \"SELECT count(*) FROM harvest_job WHERE fase IN ('pending','negative_created','exact_created','hermanas_negadas');\""
 ```
 
 ## Reversa

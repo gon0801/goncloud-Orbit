@@ -1868,7 +1868,7 @@ PSQL_READ='sh -c '"'"'DSN=$(docker exec orbit-app-1 printenv ORBIT_DSN_READ); do
    ssh goncloud "$PSQL -c \"SELECT count(*) AS harvest_no_terminales FROM apply_queue
      WHERE kind = 'harvest' AND estado NOT IN ('applied','failed','vetoed','discarded');\" \
      -c \"SELECT count(*) AS jobs_en_vuelo FROM harvest_job
-     WHERE fase IN ('pending','negative_created','exact_created');\""
+     WHERE fase IN ('pending','negative_created','exact_created','hermanas_negadas');\""
    ```
 
    Si hay filas, se esperan (vencen solas) o se resuelven por `/cortes`

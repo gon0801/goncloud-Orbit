@@ -32,7 +32,7 @@ SELECT 'ok',
        (SELECT count(*) FROM apply_queue
          WHERE kind = 'harvest' AND estado NOT IN ('applied', 'failed', 'vetoed', 'discarded')),
        (SELECT count(*) FROM harvest_job
-         WHERE fase IN ('pending', 'negative_created', 'exact_created'));
+         WHERE fase IN ('pending', 'negative_created', 'exact_created', 'hermanas_negadas'));
 SQL
 )
 echo "$R"
