@@ -117,3 +117,26 @@ La consulta revisa siete cosas:
 5. Bids con `inversion_n10_v1`.
 6. `decision_sin_aplicar` por motivo (D.1b).
 7. `v_decision_huerfana` por origen. Se espera `huerfana` = 0.
+
+## Deploy de código 649d104 (lote de residuales, #365)
+
+2026-09-28 02:39 UTC, por el dueño con `!`, con
+[`deploy-codigo-649d104.sh`](deploy-codigo-649d104.sh). Solo código, sin
+migraciones: el único cambio de `app/` es `api_dashboard.py` (traducción de
+`inversion_sin_evidencia` en `/salud`). Sin ventana horaria (se eliminó el
+mismo día, #366).
+
+```text
+APROBADO=649d1044593885066c0121e374f463432a78761d (CI success)
+preflight: ok|0|t|0|0   (sin ciclo running, 0046 presente, cero harvest en vuelo)
+prod = 2aa70cc6fa583fe673fde512ae823141ca8efe18 (md5 api_dashboard.py)
+respaldo: predeploy-20260928-0239/ (app, Dockerfile, .dockerignore, pyproject.toml, tools, uv.lock)
+md5 OK app/api_dashboard.py, app/cycle.py, app/apply.py, app/apply_cola.py, app/optimizer/goals.py
+DIGEST antes=sha256:0a113111b921eb951f9cffb5342ad9b032bc9c0a0011f964d0fbe33e709d4ab2
+DIGEST despues=sha256:d6fd2f5f277bc8a9d3d14a6c82b37489fd1735742c6bfa89eb291d1aae5a2f7e
+COPY app ./app  DONE (no CACHED); orbit-app-1 Recreated
+{"status":"ok"}   /salud HTTP 200
+```
+
+El primer intento (02:36 UTC) abortó en el chequeo de ventana horaria antes de
+tocar el server. Reversa: `predeploy-20260928-0239/` + rebuild.
