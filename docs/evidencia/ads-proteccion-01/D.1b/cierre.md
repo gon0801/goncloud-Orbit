@@ -6,4 +6,4 @@
 - CI: bateria `quality.yml` run 36353652944 success (6m14s) + PR Quality 36353649473 success (gate pass, rapido pass; completa/pesada skipping por diseno) + AI review 36353649492 success (DeepSeek: 1 Low F1, 0 High/Critical) + CodeRabbit pass (1 Major hipotetico a escala, 0 High/Critical).
 - Recibo `saikit-entrega.v1` (`APPROVE lead 2b0a869...`, comentarios del PR #360) validado con `entrega_validar` (exit 0); merge por `tools/saikit-merge.sh --confirmado` (MERGE-OK `91c7c5a`).
 - Residuales nuevos R-D1b-1..R-D1b-6 en `plans/ads-proteccion-01.md` (van a fila al cierre H7).
-- Deploy pendiente (del dueno, el loop no despliega): primero la migracion `0045`, despues el codigo.
+- Deploy: 2026-09-28 00:31 UTC, conjunto de la Fase D (0045 + 0046 y despues el codigo `2aa70cc`), por el dueno con `!`. Evidencia: [`../fase-d/deploy.md`](../fase-d/deploy.md).

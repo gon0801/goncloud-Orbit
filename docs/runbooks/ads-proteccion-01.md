@@ -111,6 +111,10 @@ esta tabla. CI verde o `APPROVE` no sustituyen ningun go.
 - Merges C.3 (#341) y C.4 (#342) previos al literal C.2b: hecho consumado
   declarado en `docs/evidencia/ads-proteccion-01/C.2b/aceptacion.md` (no son
   gos; el literal "Aceptado" no los retroautoriza).
+- Deploy conjunto de la Fase D (2026-09-28 00:31 UTC): 0045 + 0046 + codigo
+  `2aa70cc`, ejecutado por el dueno con `!`, fuera de la ventana de 0.2 y sin
+  el conteo de harvest en vuelo de DEPLOY.md D.1.0-2. Desviacion sin dispensa
+  previa. Evidencia en `docs/evidencia/ads-proteccion-01/fase-d/deploy.md`.
 
 ## Prohibido
 
