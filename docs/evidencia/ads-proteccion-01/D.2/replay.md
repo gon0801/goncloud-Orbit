@@ -49,6 +49,13 @@ posterior al cambio: es la inversión que D.2 existe para frenar.
 
 ## Reproducción
 
+El script de abajo se corrigió en este PR (R-D2-4): la clase
+`reversa_frenada_n10` se pisaba con `reversa_frenada_n7` antes del
+contador, así que `resultado` informaba 1 en vez de 7; ahora N=10 y N=7 se
+cuentan por separado (dos contadores, sin pisar la clase). La tabla de
+Resultado ya informaba los números correctos; es evidencia y no se
+re-corrió contra producción.
+
 `ssh goncloud 'docker exec -i orbit-app-1 python -' < replay_d2.py`
 (archivo local; el contenedor aporta `ORBIT_DSN_READ`; reemplaza
 `127.0.0.1` por `ORBIT_PG_HOST` dentro del contenedor):
@@ -113,7 +120,7 @@ for did, ent, decidido, d_viejo, d_nuevo, wend, modo, h_viejo, h_nuevo, conf in 
         reversas.append({"decision": did, "entidad": ent, "modo": modo,
                          "decidido": decidido.isoformat(), "dias": dias})
         if dias is not None and dias < 7:
-            clase = "reversa_frenada_n7"
+            resultado["reversa_frenada_n7"] += 1
     resultado[clase] += 1
     if dias is not None:
         dias_reversa[dias] += 1
