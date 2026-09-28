@@ -441,7 +441,7 @@ propuesta nueva usa el contrato `aviso_estado` pending/sent
 el fallo queda pending para reintento sin duplicar. No hay FK ni camino
 de escritura hacia `apply_queue` o Amazon Ads.
 
-**`decision_sin_aplicar`** (0044, ADS D.1; CHECK nombrado desde 0045,
+**`decision_sin_aplicar`** (0044, ADS D.1; CHECK re-creado en 0045,
 D.1b) — El desenlace "no aplicado" deja de ser invisible: una fila por
 `(decision_id, cycle_id)` con el motivo de un **vocabulario CERRADO**,
 espejo de `app.apply.MOTIVOS_SIN_APLICAR`: `modo_no_live`, `ya_aplicada`
@@ -455,10 +455,11 @@ listaría como `huerfana`; el registro usa el modo del **envelope**, fuera
 del savepoint por fila). **Append-only por GRANTs**: nadie de la app
 tiene UPDATE/DELETE; idempotente por PK (un re-run del mismo ciclo
 ejecutor no duplica; `cycle_id` es el ciclo EJECUTOR, no el decisor). El
-CHECK de 0044 nació anónimo (columna inline); 0045 lo localiza en
-`pg_constraint` (aborta si no hay exactamente uno) y lo re-crea nombrado
-`decision_sin_aplicar_motivo_check` con la lista ampliada en el mismo
-orden. `perdida` sigue en el vocabulario y en el CHECK por las filas
+CHECK de 0044 nació sin nombre explícito (columna inline) y Postgres lo
+nombró `decision_sin_aplicar_motivo_check` (patrón
+`<tabla>_<columna>_check`); 0045 lo localiza igual en `pg_constraint`
+(aborta si no hay exactamente uno) y lo re-crea con ese nombre y la lista
+ampliada en el mismo orden. `perdida` sigue en el vocabulario y en el CHECK por las filas
 históricas, pero `libera_vencidos` ya no la escribe: el claim perdido
 contra un veto queda como contador del resumen y su desenlace es la fila
 `vetoed` de la cola.
@@ -480,6 +481,23 @@ práctica de veto del dueño (sellado 6), no un apply que debió
 registrarse.
 *Cómo se audita*: `SELECT * FROM v_decision_huerfana WHERE origen =
 'huerfana'` — cada fila es un hueco de auditoría del ciclo live.
+
+**`target_acos_ciclo`** (0046, ADS C.2a) — El target congelado por ciclo:
+una fila por ciclo y hoja con el `target_acos_pct` y la `procedencia`
+EXACTOS que usó la cascada (0046 los captura donde se calcula), incluidas
+las hojas que luego salen por no-op o cooldown; las que no llegaron al
+cálculo —gates, veto, inerte— no tienen fila, igual que los ad groups (no
+es veto ni inerte). PK `(cycle_id, ad_entity_id)`; `target_acos_pct`
+NUMERIC sin escala (conserva el valor exacto consumido, sin redondeo de
+schema); CHECK nombrado `target_acos_ciclo_procedencia_check`, espejo
+sellado de `app.optimizer.goals.PELDANOS_CASCADA` (mismo orden).
+**Append-only por GRANTs**: INSERT solo `app_decide` (nadie tiene
+UPDATE/DELETE); escrita en TX3 del ciclo, junto a `decision`, con
+`ON CONFLICT DO NOTHING`. El replay económico la lee como fuente PRIMARIA
+(jamás el goal vigente); el respaldo en `decision.inputs` aplica SOLO a
+ciclos sin filas (anteriores a 0046).
+*Cómo se audita*: `SELECT * FROM target_acos_ciclo WHERE cycle_id = …`
+(el target y su procedencia que el ciclo usó, hoja por hoja).
 
 **`apply_attempt`** — Ledger de intentos de TODA mutación (bid, corte,
 reversa, probe): `decision_id` (NULL solo para probes), `seq` (tope de
