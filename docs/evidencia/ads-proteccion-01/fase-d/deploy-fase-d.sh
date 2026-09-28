@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Deploy Fase D (D.2 + D.1b + C.2a): primero 0045 y 0046, despues el codigo.
 # Se corre desde el repo local: cd ~/dev/goncloud-Orbit && bash <este archivo>
+# Version corregida tras la revision IA de #364 (harvest en vuelo en el preflight,
+# .dockerignore en el respaldo). La que corrio el 28-sep no los tenia: ver deploy.md.
 # Patron de docs/DEPLOY.md y del deploy de D.1 (backup de esquema, psql -1,
 # git archive del SHA aprobado, md5, digest antes/despues, health).
 set -euo pipefail
@@ -25,11 +27,16 @@ SELECT 'ok',
        EXISTS (SELECT 1 FROM pg_constraint
                 WHERE conrelid = 'decision_sin_aplicar'::regclass AND contype = 'c'
                   AND pg_get_constraintdef(oid) LIKE '%choque_clave%'),
-       to_regclass('public.target_acos_ciclo') IS NOT NULL;
+       to_regclass('public.target_acos_ciclo') IS NOT NULL,
+       -- DEPLOY.md D.1.0-2: no se despliega encima de un harvest a medias.
+       (SELECT count(*) FROM apply_queue
+         WHERE kind = 'harvest' AND estado NOT IN ('applied', 'failed', 'vetoed', 'discarded')),
+       (SELECT count(*) FROM harvest_job
+         WHERE fase IN ('pending', 'negative_created', 'exact_created'));
 SQL
 )
 echo "$R"
-[ "$R" = "ok|0|f|f" ] || { echo "ABORTA: preflight no es ok|0|f|f (ciclo corriendo o migracion ya aplicada)"; exit 1; }
+[ "$R" = "ok|0|f|f|0|0" ] || { echo "ABORTA: preflight no es ok|0|f|f|0|0 (ciclo corriendo, migracion ya aplicada o harvest en vuelo)"; exit 1; }
 
 echo "== 2) Backup del esquema (staging + verificacion)"
 ssh goncloud "set -e; D=$SRV/backups; TMP=\"\$D/.pre0045_0046_schema_$STAMP.sql.tmp\"; \
@@ -64,7 +71,7 @@ echo "$R"
 
 echo "== 6) Respaldo del codigo actual"
 ssh goncloud "set -e; cd $SRV; mkdir -p predeploy-$STAMP; \
-  cp -a app Dockerfile pyproject.toml uv.lock tools predeploy-$STAMP/; ls predeploy-$STAMP"
+  cp -a app Dockerfile .dockerignore pyproject.toml uv.lock tools predeploy-$STAMP/; ls predeploy-$STAMP"
 
 echo "== 7) Copiar el codigo del SHA aprobado (git archive, LF)"
 git archive --format=tar "$APROBADO" app Dockerfile .dockerignore pyproject.toml uv.lock tools/fabrica_campanas.py \

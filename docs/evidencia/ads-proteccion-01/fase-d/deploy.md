@@ -54,6 +54,30 @@ definición del CHECK, y el segundo intento dio `ok|0|f|f`. La `0045` no depende
 de ese nombre: localiza el único CHECK de la tabla, lo borra y lo vuelve a
 crear con la lista ampliada.
 
+## Desviaciones (revisión IA de #364)
+
+- **Fuera de ventana.** El deploy corrió a las 00:31 UTC. La ventana de
+  `docs/DEPLOY.md` (D.1.0-1) y del runbook (0.2) es 09:30–15:00 UTC o después
+  de las 16:00 UTC, lejos de 05:00–07:20 y 08:40. Las 00:31 quedan lejos de
+  los crons (backup 03:30, ingestas 05:00–07:20, ciclo 08:40) y no había ciclo
+  corriendo, pero no hubo dispensa previa. Queda declarada como desviación en
+  el runbook.
+- **Harvest en vuelo sin comprobar.** El preflight que corrió solo revisó
+  ciclos en `running`. No contó los harvests no terminales en `apply_queue` ni
+  los `harvest_job` a medias que exige D.1.0-2 antes de recrear el contenedor.
+  El conteo después del hecho queda pendiente (abajo). El script de este
+  directorio ya incluye los dos conteos para el siguiente deploy.
+- **Respaldo sin `.dockerignore`.** El paso 6 no respaldó `.dockerignore`, que
+  el paso 7 sí sobrescribe. Ese archivo no cambió entre el código anterior y
+  `2aa70cc`, así que la reversa no lo necesita. El script corregido ya lo
+  respalda.
+
+Conteo pendiente de harvest en vuelo (solo lectura; ambos deben dar `0`):
+
+```bash
+ssh goncloud "docker exec -i orbit-db-1 psql -U orbit -d orbit -tA -c \"SELECT count(*) FROM apply_queue WHERE kind = 'harvest' AND estado NOT IN ('applied','failed','vetoed','discarded');\" -c \"SELECT count(*) FROM harvest_job WHERE fase IN ('pending','negative_created','exact_created');\""
+```
+
 ## Reversa
 
 - Código: `/mnt/data/appdata/orbit/predeploy-20260928-0031/` + rebuild.

@@ -36,6 +36,9 @@ El dueño aceptó las cuatro recomendaciones el 2026-09-27, con el literal
   revisor. Anota `Medium` y `Low` en la descripción como residuales, sin otra
   ronda.
 - No toques producción. El dueño despliega cada tarea aparte.
+  Nota del 2026-09-28: al final las tres salieron en un solo deploy, porque
+  `master` ya traía las tres y sin `0045` y `0046` el ciclo falla. Ver
+  `docs/evidencia/ads-proteccion-01/fase-d/deploy.md`.
 
 ## Por qué este orden
 
