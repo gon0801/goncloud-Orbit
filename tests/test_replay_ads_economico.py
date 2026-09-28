@@ -294,6 +294,54 @@ def test_ciclo_pre_0046_con_decision_propia_sale_freeze_entidad():
     assert hoja["candidate"] is True
 
 
+def test_ciclo_con_solo_filas_de_hojas_sin_campana_no_cae_a_decision_inputs():
+    """R-C2a-3 (mutante sobreviviente del review r2 en #362): el ciclo cuenta
+    como CON tabla aunque sus filas de target_acos_ciclo sean todas de hojas
+    que no cuelgan de campana — la decision de la hoja 3 no se mezcla: sale
+    sin_target_historico (la tabla manda por ciclo, no se mezclan fuentes)."""
+    instante = dt.datetime(2026, 9, 11, 8, 40, tzinfo=dt.UTC)
+
+    class Conexion:
+        def execute(self, sql, _params=None):
+            if "FROM optimizer_cycle " in sql:
+                return [(1, "amazon_us", instante, instante, instante)]
+            if "FROM ad_entity " in sql:
+                return [
+                    (1, "campaign", "amazon_us", None, "campana"),
+                    (2, "ad_group", "amazon_us", 1, "grupo"),
+                    (3, "keyword", "amazon_us", 2, "hoja 3"),
+                    (9, "ad_group", "amazon_us", None, "grupo huerfano"),
+                    (7, "keyword", "amazon_us", 9, "hoja sin campana"),
+                ]
+            if "FROM ads_metric_observation" in sql:
+                return [
+                    (
+                        3,
+                        dt.date(2026, 8, 23) + dt.timedelta(days=i),
+                        instante - dt.timedelta(days=1),
+                        "USD",
+                        Decimal("15"),
+                        Decimal("15"),
+                    )
+                    for i in range(10)
+                ]
+            if "FROM target_acos_ciclo" in sql:
+                # La UNICA fila del ciclo 1 es de la hoja 7, que no cuelga de
+                # ninguna campana (el grupo 9 no tiene padre campaign).
+                return [(1, 7, Decimal("20"), "cache_estado")]
+            if "FROM decision d" in sql:
+                # El mutante caeria aqui: la decision de la hoja 3 le daria
+                # target 20 por inputs.
+                return [(1, 3, "20", "cache_estado")]
+            raise AssertionError(sql)
+
+    filas = medir(Conexion(), dt.date(2026, 9, 11), dt.date(2026, 9, 11))["rows"]
+    hoja = next(fila for fila in filas if fila["entity"] == 3)
+    assert hoja["target"] is None
+    assert hoja["target_source"] is None
+    assert hoja["target_evidence"] == "sin_target_historico"
+
+
 def test_ciclo_sin_filas_pre_0046_sale_sin_target_historico():
     """Ciclos ANTERIORES a 0046 no tienen filas en target_acos_ciclo: salen
     sin target (`sin_target_historico`) aunque el goal vigente de la campana
