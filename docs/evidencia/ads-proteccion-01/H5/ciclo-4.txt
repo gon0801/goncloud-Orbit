@@ -1,0 +1,15 @@
+# H5 sombra — dia 4/5 (2026-09-28 UTC)
+# Lectura de produccion: 2026-09-30 01:21 UTC, orbit_read, BEGIN READ ONLY ... ROLLBACK.
+# INICIO_SHADOW=2026-09-25T06:13:41Z (H5/inicio.txt).
+
+optimizer_cycle:
+  88 amazon_us  08:40:02 UTC done; 17 decisiones bid, 0 pause, 0 otras; applied_count=0.
+  89 amazon_mx  08:41:01 UTC done; 44 decisiones bid, 0 pause, 0 otras; applied_count=0.
+
+notes.skips.entidad.pause_cortes_incompleto: US 66, MX 42.
+notes.skips.entidad.inversion_sin_evidencia: US 1, MX 0 (D.2, no es PAUSE).
+
+Verificacion conjunta al terminar el dia 5: los 9 goals siguen en shadow;
+desde INICIO_SHADOW, apply_queue.applied_at=0, apply_attempt.started_at=0
+y decision_application.attempted_at=0. No hubo candidato PAUSE nuevo que
+comparar con el replay B.3. Las tres condiciones de parada H5.3 no se activan.

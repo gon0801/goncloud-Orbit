@@ -1,0 +1,18 @@
+# H5 sombra — dia 5/5 (2026-09-29 UTC)
+# Lectura de produccion: 2026-09-30 01:21 UTC, orbit_read, BEGIN READ ONLY ... ROLLBACK.
+# INICIO_SHADOW=2026-09-25T06:13:41Z (H5/inicio.txt).
+
+optimizer_cycle:
+  90 amazon_us  08:40:02 UTC done; 19 decisiones bid, 0 pause, 0 otras; applied_count=0.
+  91 amazon_mx  08:41:01 UTC done; 45 decisiones bid, 0 pause, 0 otras; applied_count=0.
+
+notes.skips.entidad.pause_cortes_incompleto: US 67, MX 43.
+notes.skips.entidad.inversion_sin_evidencia: US 1, MX 0 (D.2, no es PAUSE).
+
+Readback al 2026-09-30 01:21 UTC: ads_optimizer_goal contiene 9 filas en
+shadow, 0 en live. Desde INICIO_SHADOW: apply_queue.applied_at=0,
+apply_attempt.started_at=0, decision_application.attempted_at=0. En los
+ciclos 4 y 5 hay 0 decisiones PAUSE. Las tres condiciones de parada H5.3
+no se activan. La sombra de 5/5 dias esta observada; no demuestra la rama
+PAUSE nueva sobre un caso real. H5.4 exige un go distinto antes de volver
+a live los IDs de H5/inicio.txt.
