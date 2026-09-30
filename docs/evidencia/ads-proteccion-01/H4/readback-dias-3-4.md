@@ -38,8 +38,10 @@ exit 1
 
 La instalacion del cron requiere el go de deploy de A.4 del runbook. Despues
 hay que repetir la prueba hasta exit 0, comprobar la primera ejecucion
-programada en `logs/ads-salud.log` y continuar el readback diario hasta el
-2 oct. A.4 sigue abierta; los cuatro exitos de ingesta no demuestran que
+programada en `logs/ads-salud.log`. La serie original de ingesta se sigue
+leyendo hasta el 2 oct; los dias sin cron no cuentan para los siete dias de
+observacion del aviso, que empiezan con la instalacion. A.4 sigue abierta;
+los cuatro exitos de ingesta no demuestran que
 funcione el aviso de atraso sin el cron.
 
 Operacion preparada para despues del go especifico, NO ejecutada: respaldar

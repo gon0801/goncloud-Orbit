@@ -251,7 +251,8 @@ Orden libre entre ellos; cada merge pide su go con PR + SHA final. Gates:
    respaldar el crontab de `gon`, instalar la linea exacta de `docs/DEPLOY.md`
    para `ads-salud`, repetir el checker y observar su primera salida en
    `logs/ads-salud.log`. No inferir que el cron existe porque el codigo esta
-   desplegado o porque la ingesta de las 07:10 termina bien.
+   desplegado o porque la ingesta de las 07:10 termina bien. Los dias sin
+   cron no cuentan para los siete dias de observacion de ese aviso.
    Readback diario (7 dias naturales, app en `127.0.0.1:8010` del server,
    DASHBOARD.md modelo de acceso):
 
