@@ -22,9 +22,10 @@ def test_reinstalar_orbit_conserva_una_sola_linea_de_salud():
         capture_output=True,
         check=True,
     )
-    reinstalado = resultado.stdout + linea + "\n"
+    reinstalado = resultado.stdout + "# job_key=ads-salud\n" + linea + "\n"
 
     assert reinstalado.count(linea + "\n") == 1
+    assert reinstalado.count("# job_key=ads-salud\n") == 1
     assert "# accounting\n0 0 * * * accounting\n" in reinstalado
 
 

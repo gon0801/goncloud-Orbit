@@ -621,7 +621,7 @@ SCRIPT
 ```
 
 Diff obligatorio contra el respaldo: las líneas de accounting deben
-seguir byte-iguales. Solo aparecen las 3 (más comentarios) de Orbit.
+seguir byte-iguales. Solo aparecen las seis líneas del bloque Orbit y sus comentarios.
 
 ## Usuarios y DSN
 
