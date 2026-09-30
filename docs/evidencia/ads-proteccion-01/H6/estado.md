@@ -1,9 +1,12 @@
 # H6/H7 — estado 2026-09-25 ~20:05 UTC, actualizado 2026-09-30 UTC
 
-La sombra H5 ya tiene 5/5 dias observados (ciclos 82-91, evidencia en
-`H5/ciclo-1..5.txt`). B.4 sigue abierta hasta el go separado de H5.4 y el
-flip de vuelta a live. A.4 sigue abierta: falta el cron real `ads-salud` y
-la observacion posterior (evidencia en el PR #374 de A.4).
+La sombra H5 tiene cinco fechas de ciclo observadas (25-29 sep, ciclos
+82-91, evidencia en `H5/ciclo-1..5.txt`); no son 120 horas completas desde
+el flip del 25-sep. H5.4 se ejecuto con go separado el 30-sep 03:04 UTC:
+goals 4-12 `live`, readback 9/9 (`H5/live-h5-4.md`). B.4 sigue abierta
+hasta observar el primer ciclo live. A.4 sigue abierta: el cron real
+`ads-salud` ya se instalo; faltan su primera ejecucion programada y siete
+dias de observacion (PR #374).
 
 ## H6 (proteccion economica)
 
@@ -14,13 +17,13 @@ la observacion posterior (evidencia en el PR #374 de A.4).
 | C.5 merge | LISTO: #344 en `ad79eeb` |
 | C.5 deploy (0041+0042+0043 + codigo) | LISTO hoy: `H6/deploy-c5.md` (tablas activas, endpoint 200/401, sombra intacta) |
 | C.5 pausa manual en Amazon | BLOQUEADO (la hace David; ver paso exacto abajo). Hoy `proposals open = []`: aun no hay propuesta open sobre la que actuar. |
-| C.6 shadow economico 5 ciclos | BLOQUEADO hasta cerrar A.4 y B.4 (H5 observado 5/5, H5.4 aun sin go; A.4 espera cron y observacion; C.6 exige su propio INICIO_SHADOW, runbook H6.4). Sin `H6/inicio.txt` en ningun lado: el arranque lo crea con el paso H6.4 del runbook. |
+| C.6 shadow economico 5 ciclos | BLOQUEADO hasta cerrar A.4 y B.4 (H5.4 live ejecutado; B.4 espera primer ciclo live; A.4 observa el cron ya instalado; C.6 exige su propio INICIO_SHADOW, runbook H6.4). Sin `H6/inicio.txt` en ningun lado: el arranque lo crea con el paso H6.4 del runbook. |
 | `ads_pause_economica` | ausente en `config_version` 21 (fail-closed False): el vivo economico sigue apagado. |
 
 ## H7 (cierre)
 
-- Ledger: este archivo + `H6/deploy-c5.md` + `H5/ciclo-1..5.txt` + `C.5/cierre.md`
-  (en master) con SHAs, fechas UTC y salidas.
+- Ledger: este archivo + `H6/deploy-c5.md` + `C.5/cierre.md` en master;
+  `H5/ciclo-4..5.txt` y `H5/live-h5-4.md` estan en el PR #373 sin merge.
 - Rama de cierre: `docs/c5-deploy-cierre-h6` (desde `ad79eeb`), pusheada,
   SIN merge (prohibido sin orden).
 - Pendiente para el PR de cierre: cross-review opus del diff (solo docs de
@@ -46,18 +49,17 @@ Cuando el motor abra una (el sync + ciclo las crean solas), sobre ESA propuesta:
 
 ## PASO EXACTO PARA DAVID 2/2 — permiso vivo (H5.4 + C.6)
 
-1. H5.4 (flip de vuelta a live de B.4): requiere tu go literal citando
-   `$IDS_LIVE = 6,7,4,5,11,9,10,8,12` + riesgo aceptado, tras 5/5 ciclos
-   sombra (5/5 observados; go separado aun pendiente). Comando que correra el lead (NO correr aun):
-   `UPDATE ads_optimizer_goal SET mode='live' ... WHERE id IN ($IDS_LIVE)
-   AND mode='shadow';` + antes/despues.
+1. H5.4 (flip de vuelta a live de B.4): EJECUTADO con el go separado del
+   dueno el 30-sep 03:04 UTC para `$IDS_LIVE = 6,7,4,5,11,9,10,8,12`.
+   Transaccion y antes/despues en `H5/live-h5-4.md`. Falta verificar el
+   primer ciclo live; no repetir el UPDATE.
 2. C.6 (shadow economico 5 ciclos + su propio live): PRIMERO tienen que
    estar cerrados A.4 (observacion 7 dias + readbacks H4) y B.4 (5/5 ciclos
    sombra + live H5.4), cada uno con su evidencia; el plan declara
    `C.6 Depends: C.3, C.5, A.4, B.4`. Despues de eso, requiere tu go de
    deploy (efecto cero-applies + acuerdo D.3) y luego go de live con el
    riesgo C.2b citado. Sin A.4+B.4 cerrados y sin tus dos literales no arranca.
-3. Di la palabra con los dos literales en orden (`C.6 deploy GO ...`
-   con efecto cero-applies + acuerdo D.3, y despues `C.6 live GO ...`
-   citando el riesgo C.2b) y el lead ejecuta en ventana. El literal
-   `vivo H5.4 GO sobre IDS_LIVE ...` corresponde al paso 1 (B.4), no a C.6.
+3. Para C.6 siguen haciendo falta sus dos gos separados en orden:
+   `C.6 deploy GO ...` con efecto cero-applies + acuerdo D.3 y, tras su
+   propia sombra, `C.6 live GO ...` citando el riesgo C.2b. El go H5.4
+   ejecutado solo cubre B.4, no C.6.
