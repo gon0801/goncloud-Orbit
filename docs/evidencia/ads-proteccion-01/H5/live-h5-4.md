@@ -127,7 +127,45 @@ Si el primer ciclo muestra PAUSE nueva no explicada, aplicar la parada y el
 rollback de B.2 descritos en H5.4 del runbook; no inferir reversa de una
 mutacion externa solo por el modo del goal.
 
-Pendiente: observar los primeros ciclos live previstos a las 08:40 UTC
-(US) y 08:41 UTC (MX) del 30-sep. Confirmar `done`, decisiones y applies
-contra las fuentes externas y criterio de parada H5.3 antes de cerrar B.4.
-Consulta preparada: `H5/primer-live-readback.sql` (rol `orbit_read`, solo lectura).
+Los primeros ciclos live del 30-sep quedaron verificados por lectura como
+`orbit_read`: 92 US y 93 MX `done`, 69 bids confirmados, cero PAUSE nueva y
+una cosecha en ventana de veto. Ver `H5/primer-live-2026-09-30.md` y la
+consulta `H5/primer-live-readback.sql`.
+
+Readback independiente adicional, 30-sep 22:40 UTC, solo lectura:
+
+```bash
+ssh -T goncloud 'docker exec -i orbit-db-1 psql "$(docker exec orbit-app-1 printenv ORBIT_DSN_READ)" -X -A -F " | " -P pager=off -v ON_ERROR_STOP=1' <<'SQL'
+BEGIN READ ONLY;
+SELECT id, mode, enabled FROM ads_optimizer_goal WHERE id IN (4,5,6,7,8,9,10,11,12) ORDER BY id;
+SELECT count(*) AS running FROM optimizer_cycle WHERE status='running';
+ROLLBACK;
+SQL
+```
+
+```text
+BEGIN
+id | mode | enabled
+4 | live | t
+5 | live | t
+6 | live | t
+7 | live | t
+8 | live | t
+9 | live | t
+10 | live | t
+11 | live | t
+12 | live | t
+(9 rows)
+running
+0
+(1 row)
+ROLLBACK
+```
+
+Reversa preparada, NO ejecutada: antes de cambiar modos, comprobar otra vez
+que no haya ciclo `running`, registrar los modos actuales y confirmar que
+los nueve IDs de `H5/inicio.txt` siguen `live`. El rollback de modo afecta
+solo esos IDs: `UPDATE ads_optimizer_goal SET mode='shadow', updated_at=now()
+WHERE id IN (6,7,4,5,11,9,10,8,12) AND mode='live' RETURNING id, mode;`.
+Si hubo una mutacion externa, seguir la reversa especifica de esa decision;
+el flip de modo no la revierte.
