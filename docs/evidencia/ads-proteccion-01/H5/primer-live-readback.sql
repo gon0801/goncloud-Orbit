@@ -5,6 +5,8 @@
 -- Esperado: dos ciclos (US/MX), mode=live, status=done; investigar toda PAUSE
 -- contra B.3 y toda mutacion contra Amazon por platform/kind/external_id.
 -- Si un ciclo falla, no queda done o hay PAUSE nueva inexplicable: parada H5.
+-- (4)/(5) muestran solo decisiones de ciclos live; (7) cubre toda la ventana
+-- desde INICIO_SHADOW, incluso un apply tardio de un ciclo shadow anterior.
 BEGIN READ ONLY;
 
 \echo '(1) ciclos desde el flip H5.4'
@@ -70,5 +72,44 @@ SELECT count(*) AS ciclos_running FROM optimizer_cycle WHERE status = 'running';
 SELECT count(*) AS harvest_en_vuelo FROM harvest_job WHERE fase NOT IN ('done', 'failed');
 SELECT count(*) AS cola_harvest_en_vuelo FROM apply_queue
  WHERE kind = 'harvest' AND estado IN ('pending_veto', 'released', 'applying');
+
+\echo '(7) mutaciones e intentos desde INICIO_SHADOW, sin filtro por ciclo'
+SELECT (SELECT count(*) FROM apply_queue
+         WHERE applied_at > TIMESTAMPTZ '2026-09-25 06:13:41+00') AS cola_aplicada,
+       (SELECT count(*) FROM apply_attempt
+         WHERE started_at > TIMESTAMPTZ '2026-09-25 06:13:41+00') AS intentos,
+       (SELECT count(*) FROM apply_attempt t JOIN decision d ON d.id = t.decision_id
+         WHERE t.started_at > TIMESTAMPTZ '2026-09-25 06:13:41+00'
+           AND t.tipo = 'normal' AND d.kind = 'bid') AS intentos_bid,
+       (SELECT count(*) FROM decision_application
+         WHERE attempted_at > TIMESTAMPTZ '2026-09-25 06:13:41+00') AS aplicaciones,
+       (SELECT count(*) FROM decision_application a JOIN decision d ON d.id = a.decision_id
+         WHERE a.attempted_at > TIMESTAMPTZ '2026-09-25 06:13:41+00'
+           AND a.verify_ok IS TRUE AND d.kind = 'bid') AS bids_confirmados;
+
+\echo '(8) origen shadow/live de cada mutacion desde INICIO_SHADOW (shadow aplicado = 0)'
+WITH movimientos AS (
+    SELECT 'cola_aplicada' AS fuente, c.mode AS modo_origen, d.kind::text AS kind
+      FROM apply_queue q
+      JOIN decision d ON d.id = q.decision_id
+      JOIN optimizer_cycle c ON c.id = d.cycle_id
+     WHERE q.applied_at > TIMESTAMPTZ '2026-09-25 06:13:41+00'
+    UNION ALL
+    SELECT 'intento_http', c.mode, d.kind::text
+      FROM apply_attempt t
+      JOIN decision d ON d.id = t.decision_id
+      JOIN optimizer_cycle c ON c.id = d.cycle_id
+     WHERE t.started_at > TIMESTAMPTZ '2026-09-25 06:13:41+00'
+    UNION ALL
+    SELECT 'aplicacion', c.mode, d.kind::text
+      FROM decision_application a
+      JOIN decision d ON d.id = a.decision_id
+      JOIN optimizer_cycle c ON c.id = d.cycle_id
+     WHERE a.attempted_at > TIMESTAMPTZ '2026-09-25 06:13:41+00'
+)
+SELECT fuente, modo_origen, kind, count(*) AS filas
+  FROM movimientos
+ GROUP BY fuente, modo_origen, kind
+ ORDER BY fuente, modo_origen, kind;
 
 ROLLBACK;

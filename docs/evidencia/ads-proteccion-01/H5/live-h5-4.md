@@ -130,3 +130,4 @@ mutacion externa solo por el modo del goal.
 Pendiente: observar los primeros ciclos live previstos a las 08:40 UTC
 (US) y 08:41 UTC (MX) del 30-sep. Confirmar `done`, decisiones y applies
 contra las fuentes externas y criterio de parada H5.3 antes de cerrar B.4.
+Consulta preparada: `H5/primer-live-readback.sql` (rol `orbit_read`, solo lectura).
