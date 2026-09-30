@@ -8,6 +8,7 @@ live 92/93 terminaron `done`, con 69 bids confirmados y tres bids
 `fuera_de_cap` (`H5/primer-live-2026-09-30.md`); B.4 sigue WIP hasta
 integrar #373. A.4 sigue abierta: el cron real `ads-salud` corrio desde
 10:30 UTC del 30-sep; observacion 1/7, faltan seis dias (PR #374).
+La primera salida esta registrada en `H4/primer-cron-2026-09-30.md` de #374.
 
 ## H6 (proteccion economica)
 
@@ -52,8 +53,8 @@ Cuando el motor abra una (el sync + ciclo las crean solas), sobre ESA propuesta:
 
 1. H5.4 (flip de vuelta a live de B.4): EJECUTADO con el go separado del
    dueno el 30-sep 03:04 UTC para `$IDS_LIVE = 6,7,4,5,11,9,10,8,12`.
-   Transaccion y antes/despues en `H5/live-h5-4.md`. Falta verificar el
-   primer ciclo live esta en `H5/primer-live-2026-09-30.md`; no repetir el UPDATE.
+   Transaccion y antes/despues en `H5/live-h5-4.md`. Los primeros ciclos
+   live estan verificados en `H5/primer-live-2026-09-30.md`; no repetir el UPDATE.
 2. C.6 (shadow economico 5 ciclos + su propio live): PRIMERO tienen que
    estar cerrados A.4 (observacion 7 dias + readbacks H4) y B.4 (5/5 ciclos
    sombra + live H5.4), cada uno con su evidencia; el plan declara

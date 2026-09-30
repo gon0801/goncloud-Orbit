@@ -25,7 +25,30 @@ Las tres decisiones bid de MX sin apply (2670, 2676 y 2694) tienen cada
 una `decision_sin_aplicar.motivo=fuera_de_cap`, ciclo ejecutor 93. La vista
 `v_decision_huerfana` no mostro ninguna `huerfana` de los ciclos 92/93;
 solo mostro la cosecha 2707 como `en_cola`. El readback corregido corrio
-de nuevo como `orbit_read` con exit 0 el 30-sep 22:44 UTC.
+de nuevo como `orbit_read` con exit 0 el 30-sep 22:47 UTC.
+
+Salida literal relevante del ultimo readback de solo lectura (consulta
+`H5/primer-live-readback.sql`, secciones 7-9, exit 0):
+
+```text
+cola_aplicada | intentos | intentos_bid | aplicaciones | bids_confirmados
+0 | 69 | 69 | 69 | 69
+fuente | origen | kind | filas
+aplicacion | post_flip | bid | 69
+intento_http | post_flip | bid | 69
+cola_fila_shadow_aplicada | cola_decision_pre_flip_aplicada
+0 | 0
+decision_id | cycle_id | kind | ciclo_ejecutor | motivo | detalle
+2670 | 93 | bid | 93 | fuera_de_cap |
+2676 | 93 | bid | 93 | fuera_de_cap |
+2694 | 93 | bid | 93 | fuera_de_cap |
+2707 | 93 | harvest | | |
+huerfanas | en_cola
+0 | 1
+decision_id | origen
+2707 | en_cola
+ROLLBACK
+```
 
 La decision harvest 2707 dejo `apply_queue` 17 en `pending_veto`, con
 vencimiento 2026-10-02 08:41:02 UTC. Es una cosecha por terna del goal de
@@ -40,4 +63,4 @@ con 10 111 filas. `/api/dashboard/salud` mostro los ocho reportes MX/US
 
 Evidencia de origen: consulta de solo lectura de este archivo, salidas de
 `decision_application`, `apply_queue`, `ingest_run` y `/api/dashboard/salud`
-leidas el 30-sep-2026 22:29-22:36 UTC. No se modifico produccion.
+leidas el 30-sep-2026 22:29-22:47 UTC. No se modifico produccion.

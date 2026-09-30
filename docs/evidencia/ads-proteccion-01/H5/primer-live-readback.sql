@@ -8,7 +8,8 @@
 -- Si un ciclo falla, no queda done o hay PAUSE nueva inexplicable: parada H5.
 -- (4)/(5) muestran solo decisiones posteriores al flip; (7)/(8) cubren toda
 -- la ventana desde INICIO_SHADOW, incluso un apply tardio de una decision
--- shadow anterior. (8) usa la era de la decision y el modo real de la cola.
+-- shadow anterior. (8) usa la era de la decision y el modo real de la cola;
+-- fila_shadow y decision_pre_flip deben ser cero.
 BEGIN READ ONLY;
 
 \echo '(1) ciclos desde el flip H5.4'
@@ -119,6 +120,11 @@ SELECT fuente, origen, kind, count(*) AS filas
   FROM movimientos
  GROUP BY fuente, origen, kind
  ORDER BY fuente, origen, kind;
+SELECT count(*) FILTER (WHERE q.modo = 'shadow') AS cola_fila_shadow_aplicada,
+       count(*) FILTER (WHERE d.decided_at < TIMESTAMPTZ '2026-09-30 03:04:56+00')
+         AS cola_decision_pre_flip_aplicada
+  FROM apply_queue q JOIN decision d ON d.id = q.decision_id
+ WHERE q.applied_at > TIMESTAMPTZ '2026-09-25 06:13:41+00';
 
 \echo '(9) decisiones sin apply y su motivo; huerfanas reales = 0'
 SELECT d.id AS decision_id, d.cycle_id, d.kind,
@@ -130,6 +136,11 @@ SELECT d.id AS decision_id, d.cycle_id, d.kind,
                        WHERE started_at >= TIMESTAMPTZ '2026-09-30 03:04:56+00')
    AND a.decision_id IS NULL
  ORDER BY d.id, sa.cycle_id;
+SELECT count(*) FILTER (WHERE origen = 'huerfana') AS huerfanas,
+       count(*) FILTER (WHERE origen = 'en_cola') AS en_cola
+  FROM v_decision_huerfana
+ WHERE cycle_id IN (SELECT id FROM optimizer_cycle
+                     WHERE started_at >= TIMESTAMPTZ '2026-09-30 03:04:56+00');
 SELECT decision_id, origen FROM v_decision_huerfana
  WHERE cycle_id IN (SELECT id FROM optimizer_cycle
                      WHERE started_at >= TIMESTAMPTZ '2026-09-30 03:04:56+00')
