@@ -3,7 +3,7 @@
 La sombra H5 ya tiene 5/5 dias observados (ciclos 82-91, evidencia en
 `H5/ciclo-1..5.txt`). B.4 sigue abierta hasta el go separado de H5.4 y el
 flip de vuelta a live. A.4 sigue abierta: falta el cron real `ads-salud` y
-la observacion posterior (evidencia `H4/readback-dias-3-4.md`).
+la observacion posterior (evidencia en el PR #374 de A.4).
 
 ## H6 (proteccion economica)
 
@@ -19,7 +19,7 @@ la observacion posterior (evidencia `H4/readback-dias-3-4.md`).
 
 ## H7 (cierre)
 
-- Ledger: este archivo + `H6/deploy-c5.md` + `H5/ciclo-1.txt` + `C.5/cierre.md`
+- Ledger: este archivo + `H6/deploy-c5.md` + `H5/ciclo-1..5.txt` + `C.5/cierre.md`
   (en master) con SHAs, fechas UTC y salidas.
 - Rama de cierre: `docs/c5-deploy-cierre-h6` (desde `ad79eeb`), pusheada,
   SIN merge (prohibido sin orden).
