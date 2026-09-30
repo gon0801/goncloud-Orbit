@@ -41,3 +41,19 @@ hay que repetir la prueba hasta exit 0, comprobar la primera ejecucion
 programada en `logs/ads-salud.log` y continuar el readback diario hasta el
 2 oct. A.4 sigue abierta; los cuatro exitos de ingesta no demuestran que
 funcione el aviso de atraso sin el cron.
+
+Operacion preparada para despues del go especifico, NO ejecutada: respaldar
+`crontab -u gon -l` en `archive/crontab-gon-pre-ads-salud-<UTC>`, comprobar
+que no haya ninguna linea con `app.cli ads-salud`, y anadir solo estas dos
+lineas al crontab de `gon`:
+
+```cron
+# job_key=ads-salud  A.3: 10:30 UTC y reintentos hasta 12:50
+*/10 10-12 * * * docker exec orbit-app-1 python -m app.cli ads-salud >> /mnt/data/appdata/orbit/logs/ads-salud.log 2>&1
+```
+
+Readback inmediato: repetir `ssh goncloud 'bash -s' <
+tools/check_ads_salud_cron.sh` (debe salir 0), comparar el crontab anterior
+y posterior para exigir que el unico delta sean esas dos lineas, y verificar
+que `orbit-app-1` sigue sano. Reversa: `crontab -u gon
+/mnt/data/appdata/orbit/archive/<respaldo>`; no toca otros servicios.
