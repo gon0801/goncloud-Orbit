@@ -2,11 +2,13 @@
 -- SOLO LECTURA. Ejecutar despues de 08:41 UTC del 30-sep desde este repo:
 -- ssh -T goncloud 'docker exec -i orbit-db-1 psql "$(docker exec orbit-app-1 printenv ORBIT_DSN_READ)" -X -A -F " | " -P pager=off -v ON_ERROR_STOP=1' \
 --   < docs/evidencia/ads-proteccion-01/H5/primer-live-readback.sql
--- Esperado: dos ciclos (US/MX), mode=live, status=done; investigar toda PAUSE
+-- Esperado: dos ciclos (US/MX), status=done; mode es el envelope y tambien
+-- fue live durante H5 shadow. Investigar toda PAUSE
 -- contra B.3 y toda mutacion contra Amazon por platform/kind/external_id.
 -- Si un ciclo falla, no queda done o hay PAUSE nueva inexplicable: parada H5.
--- (4)/(5) muestran solo decisiones de ciclos live; (7) cubre toda la ventana
--- desde INICIO_SHADOW, incluso un apply tardio de un ciclo shadow anterior.
+-- (4)/(5) muestran solo decisiones posteriores al flip; (7)/(8) cubren toda
+-- la ventana desde INICIO_SHADOW, incluso un apply tardio de una decision
+-- shadow anterior. (8) usa la era de la decision y el modo real de la cola.
 BEGIN READ ONLY;
 
 \echo '(1) ciclos desde el flip H5.4'
@@ -87,29 +89,50 @@ SELECT (SELECT count(*) FROM apply_queue
          WHERE a.attempted_at > TIMESTAMPTZ '2026-09-25 06:13:41+00'
            AND a.verify_ok IS TRUE AND d.kind = 'bid') AS bids_confirmados;
 
-\echo '(8) origen shadow/live de cada mutacion desde INICIO_SHADOW (shadow aplicado = 0)'
+\echo '(8) era de cada mutacion desde INICIO_SHADOW (pre-flip aplicado = 0)'
 WITH movimientos AS (
-    SELECT 'cola_aplicada' AS fuente, c.mode AS modo_origen, d.kind::text AS kind
+    SELECT 'cola_aplicada' AS fuente,
+           CASE WHEN q.modo = 'shadow' THEN 'fila_shadow'
+                WHEN d.decided_at < TIMESTAMPTZ '2026-09-30 03:04:56+00'
+                  THEN 'decision_pre_flip'
+                ELSE 'post_flip' END AS origen,
+           d.kind::text AS kind
       FROM apply_queue q
       JOIN decision d ON d.id = q.decision_id
-      JOIN optimizer_cycle c ON c.id = d.cycle_id
      WHERE q.applied_at > TIMESTAMPTZ '2026-09-25 06:13:41+00'
     UNION ALL
-    SELECT 'intento_http', c.mode, d.kind::text
+    SELECT 'intento_http',
+           CASE WHEN d.decided_at < TIMESTAMPTZ '2026-09-30 03:04:56+00'
+                  THEN 'decision_pre_flip' ELSE 'post_flip' END, d.kind::text
       FROM apply_attempt t
       JOIN decision d ON d.id = t.decision_id
-      JOIN optimizer_cycle c ON c.id = d.cycle_id
      WHERE t.started_at > TIMESTAMPTZ '2026-09-25 06:13:41+00'
     UNION ALL
-    SELECT 'aplicacion', c.mode, d.kind::text
+    SELECT 'aplicacion',
+           CASE WHEN d.decided_at < TIMESTAMPTZ '2026-09-30 03:04:56+00'
+                  THEN 'decision_pre_flip' ELSE 'post_flip' END, d.kind::text
       FROM decision_application a
       JOIN decision d ON d.id = a.decision_id
-      JOIN optimizer_cycle c ON c.id = d.cycle_id
      WHERE a.attempted_at > TIMESTAMPTZ '2026-09-25 06:13:41+00'
 )
-SELECT fuente, modo_origen, kind, count(*) AS filas
+SELECT fuente, origen, kind, count(*) AS filas
   FROM movimientos
- GROUP BY fuente, modo_origen, kind
- ORDER BY fuente, modo_origen, kind;
+ GROUP BY fuente, origen, kind
+ ORDER BY fuente, origen, kind;
+
+\echo '(9) decisiones sin apply y su motivo; huerfanas reales = 0'
+SELECT d.id AS decision_id, d.cycle_id, d.kind,
+       sa.cycle_id AS ciclo_ejecutor, sa.motivo, sa.detalle
+  FROM decision d
+  LEFT JOIN decision_application a ON a.decision_id = d.id
+  LEFT JOIN decision_sin_aplicar sa ON sa.decision_id = d.id
+ WHERE d.cycle_id IN (SELECT id FROM optimizer_cycle
+                       WHERE started_at >= TIMESTAMPTZ '2026-09-30 03:04:56+00')
+   AND a.decision_id IS NULL
+ ORDER BY d.id, sa.cycle_id;
+SELECT decision_id, origen FROM v_decision_huerfana
+ WHERE cycle_id IN (SELECT id FROM optimizer_cycle
+                     WHERE started_at >= TIMESTAMPTZ '2026-09-30 03:04:56+00')
+ ORDER BY decision_id;
 
 ROLLBACK;

@@ -11,10 +11,21 @@ Lectura de produccion a las 22:30 UTC con `orbit_read`, `BEGIN READ ONLY` y
 
 `decision_application.verify_ok=true`: 69; distinto de true: 0. Los 69
 `apply_attempt` fueron bid normal con resultado `ok`. Cero PAUSE nuevas,
-cero filas aplicadas de la cola, cero mutaciones con origen shadow desde
-`INICIO_SHADOW=2026-09-25T06:13:41Z`. Los nueve goals estan `live`, el flag
+cero filas aplicadas de la cola. La consulta (8), corregida para usar
+`decision.decided_at` y `apply_queue.modo` en vez de `optimizer_cycle.mode`,
+demostro cero mutaciones de decisiones anteriores al flip H5.4 desde
+`INICIO_SHADOW=2026-09-25T06:13:41Z`; los 69 intentos y 69 aplicaciones
+son bids decididos despues del flip. `optimizer_cycle.mode=live` tambien
+durante H5 shadow porque describe el envelope, no el modo efectivo del goal.
+Los nueve goals estan `live`, el flag
 `ads_pause_sin_cooldown_bid` sigue `true`, no hay ciclos running ni jobs
 harvest en curso. No se activo el criterio de parada H5.3.
+
+Las tres decisiones bid de MX sin apply (2670, 2676 y 2694) tienen cada
+una `decision_sin_aplicar.motivo=fuera_de_cap`, ciclo ejecutor 93. La vista
+`v_decision_huerfana` no mostro ninguna `huerfana` de los ciclos 92/93;
+solo mostro la cosecha 2707 como `en_cola`. El readback corregido corrio
+de nuevo como `orbit_read` con exit 0 el 30-sep 22:44 UTC.
 
 La decision harvest 2707 dejo `apply_queue` 17 en `pending_veto`, con
 vencimiento 2026-10-02 08:41:02 UTC. Es una cosecha por terna del goal de
