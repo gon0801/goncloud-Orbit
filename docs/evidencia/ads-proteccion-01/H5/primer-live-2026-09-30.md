@@ -18,8 +18,9 @@ demostro cero mutaciones de decisiones anteriores al flip H5.4 desde
 son bids decididos despues del flip. `optimizer_cycle.mode=live` tambien
 durante H5 shadow porque describe el envelope, no el modo efectivo del goal.
 Los nueve goals estan `live`, el flag
-`ads_pause_sin_cooldown_bid` sigue `true`, no hay ciclos running ni jobs
-harvest en curso. No se activo el criterio de parada H5.3.
+`ads_pause_sin_cooldown_bid` sigue `true`. Hay cero ciclos `running` y cero
+`harvest_job` en curso; aparte, hay **una** fila harvest `pending_veto` en
+`apply_queue` (17, vence el 2-oct). No se activo el criterio de parada H5.3.
 
 Las tres decisiones bid de MX sin apply (2670, 2676 y 2694) tienen cada
 una `decision_sin_aplicar.motivo=fuera_de_cap`, ciclo ejecutor 93. La vista

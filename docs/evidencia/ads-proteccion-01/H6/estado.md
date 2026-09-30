@@ -7,7 +7,9 @@ goals 4-12 `live`, readback 9/9 (`H5/live-h5-4.md`). Los primeros ciclos
 live 92/93 terminaron `done`, con 69 bids confirmados y tres bids
 `fuera_de_cap` (`H5/primer-live-2026-09-30.md`); B.4 sigue WIP hasta
 integrar #373. A.4 sigue abierta: el cron real `ads-salud` corrio desde
-10:30 UTC del 30-sep; observacion 1/7, faltan seis dias (PR #374).
+10:30 UTC del 30-sep; su ventana propia de observacion va 1/7 (30-sep a
+6-oct). Los exitos de ingesta del 26-29 sep pertenecen a la serie anterior
+de A.4 y no cuentan como dias con cron activo (PR #374).
 La primera salida esta registrada en `H4/primer-cron-2026-09-30.md` de #374.
 
 ## H6 (proteccion economica)
@@ -25,7 +27,8 @@ La primera salida esta registrada en `H4/primer-cron-2026-09-30.md` de #374.
 ## H7 (cierre)
 
 - Ledger: este archivo + `H6/deploy-c5.md` + `C.5/cierre.md` en master;
-  `H5/ciclo-4..5.txt` y `H5/live-h5-4.md` estan en el PR #373 sin merge.
+  #373 agrega `H5/ciclo-4.txt`, `ciclo-5.txt`, `live-h5-4.md`,
+  `primer-live-2026-09-30.md` y `primer-live-readback.sql` sin merge.
 - Rama de cierre: `docs/c5-deploy-cierre-h6` (desde `ad79eeb`), pusheada,
   SIN merge (prohibido sin orden).
 - Pendiente para el PR de cierre: cross-review opus del diff (solo docs de
