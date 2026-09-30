@@ -1,6 +1,11 @@
 # H5 sombra — dia 5/5 (2026-09-29 UTC)
 # Lectura de produccion: 2026-09-30 01:21 UTC, orbit_read, BEGIN READ ONLY ... ROLLBACK.
 # INICIO_SHADOW=2026-09-25T06:13:41Z (H5/inicio.txt).
+# Imagen del contenedor durante ambos ciclos, verificada con:
+# $ ssh goncloud 'docker inspect orbit-app-1 --format "{{.Created}} {{.Image}}"'
+# 2026-09-28T03:51:59.31269132Z sha256:f84b0a350b89a7e64c97a3fdc943b44d6f7c2dea372b502184d8f5b1d01ba122
+# Es la imagen registrada para el deploy #369 del SHA aprobado 2d29ef2
+# en H4/deploy-a3-fallo-global.md; no hubo recreate entre esos ciclos.
 
 optimizer_cycle:
   90 amazon_us  08:40:02 UTC done; 19 decisiones bid, 0 pause, 0 otras; applied_count=0.
@@ -16,3 +21,45 @@ ciclos 4 y 5 hay 0 decisiones PAUSE. Las tres condiciones de parada H5.3
 no se activan. La sombra de 5/5 dias esta observada; no demuestra la rama
 PAUSE nueva sobre un caso real. H5.4 exige un go distinto antes de volver
 a live los IDs de H5/inicio.txt.
+
+Consulta reproducible (ejecutada de nuevo 2026-09-30 UTC):
+$ ssh -T goncloud 'docker exec -i orbit-db-1 psql "$(docker exec orbit-app-1 printenv ORBIT_DSN_READ)" -X -A -F " | " -P pager=off -v ON_ERROR_STOP=1' <<'SQL'
+BEGIN READ ONLY;
+SELECT c.id, c.platform, c.status, c.started_at AT TIME ZONE 'UTC' AS inicio_utc, c.finished_at AT TIME ZONE 'UTC' AS fin_utc, c.decisions_count, c.applied_count, count(d.id) FILTER (WHERE d.kind='bid') AS bid, count(d.id) FILTER (WHERE d.kind='pause') AS pause, count(d.id) FILTER (WHERE d.kind NOT IN ('bid','pause')) AS otros FROM optimizer_cycle c LEFT JOIN decision d ON d.cycle_id=c.id WHERE c.id IN (90,91) GROUP BY c.id ORDER BY c.id;
+SELECT c.id, e.key, e.value FROM optimizer_cycle c CROSS JOIN LATERAL jsonb_each_text(c.notes::jsonb #> '{skips,entidad}') e WHERE c.id IN (90,91) ORDER BY c.id,e.key;
+SELECT count(*) AS cola_aplicada, (SELECT count(*) FROM apply_attempt WHERE started_at > TIMESTAMPTZ '2026-09-25 06:13:41+00') AS intentos, (SELECT count(*) FROM decision_application WHERE attempted_at > TIMESTAMPTZ '2026-09-25 06:13:41+00') AS aplicaciones FROM apply_queue WHERE applied_at > TIMESTAMPTZ '2026-09-25 06:13:41+00';
+SELECT mode, count(*) FROM ads_optimizer_goal GROUP BY mode ORDER BY mode;
+ROLLBACK;
+SQL
+BEGIN
+id | platform | status | inicio_utc | fin_utc | decisions_count | applied_count | bid | pause | otros
+90 | amazon_us | done | 2026-09-29 08:40:02.552231 | 2026-09-29 08:40:03.551574 | 19 | 0 | 19 | 0 | 0
+91 | amazon_mx | done | 2026-09-29 08:41:01.992936 | 2026-09-29 08:41:02.946826 | 45 | 0 | 45 | 0 | 0
+(2 rows)
+id | key | value
+90 | campana_no_enabled | 1620
+90 | cooldown_7d | 7
+90 | entidad_inerte | 123
+90 | estado_no_enabled | 33
+90 | inversion_sin_evidencia | 1
+90 | pause_cortes_incompleto | 67
+90 | rango_bloquea_ajuste | 1
+90 | sin_banda | 16
+91 | bid_actual_ausente | 4
+91 | bids_incompleto | 1
+91 | campana_no_enabled | 3111
+91 | cooldown_7d | 8
+91 | entidad_inerte | 221
+91 | estado_no_enabled | 121
+91 | pause_cortes_incompleto | 43
+91 | rango_bloquea_ajuste | 2
+91 | sin_banda | 29
+(17 rows)
+cola_aplicada | intentos | aplicaciones
+0 | 0 | 0
+(1 row)
+mode | count
+shadow | 9
+(1 row)
+ROLLBACK
+exit 0

@@ -1,4 +1,9 @@
-# H6/H7 — estado 2026-09-25 ~20:05 UTC y pasos exactos para David
+# H6/H7 — estado 2026-09-25 ~20:05 UTC, actualizado 2026-09-30 UTC
+
+La sombra H5 ya tiene 5/5 dias observados (ciclos 82-91, evidencia en
+`H5/ciclo-1..5.txt`). B.4 sigue abierta hasta el go separado de H5.4 y el
+flip de vuelta a live. A.4 sigue abierta: falta el cron real `ads-salud` y
+la observacion posterior (evidencia `H4/readback-dias-3-4.md`).
 
 ## H6 (proteccion economica)
 
@@ -9,7 +14,7 @@
 | C.5 merge | LISTO: #344 en `ad79eeb` |
 | C.5 deploy (0041+0042+0043 + codigo) | LISTO hoy: `H6/deploy-c5.md` (tablas activas, endpoint 200/401, sombra intacta) |
 | C.5 pausa manual en Amazon | BLOQUEADO (la hace David; ver paso exacto abajo). Hoy `proposals open = []`: aun no hay propuesta open sobre la que actuar. |
-| C.6 shadow economico 5 ciclos | BLOQUEADO hasta cerrar A.4 y B.4 (sombra H5 en curso; C.6 exige su propio INICIO_SHADOW, runbook H6.4). Sin `H6/inicio.txt` en ningun lado: el arranque lo crea con el paso H6.4 del runbook. |
+| C.6 shadow economico 5 ciclos | BLOQUEADO hasta cerrar A.4 y B.4 (H5 observado 5/5, H5.4 aun sin go; A.4 espera cron y observacion; C.6 exige su propio INICIO_SHADOW, runbook H6.4). Sin `H6/inicio.txt` en ningun lado: el arranque lo crea con el paso H6.4 del runbook. |
 | `ads_pause_economica` | ausente en `config_version` 21 (fail-closed False): el vivo economico sigue apagado. |
 
 ## H7 (cierre)
@@ -43,7 +48,7 @@ Cuando el motor abra una (el sync + ciclo las crean solas), sobre ESA propuesta:
 
 1. H5.4 (flip de vuelta a live de B.4): requiere tu go literal citando
    `$IDS_LIVE = 6,7,4,5,11,9,10,8,12` + riesgo aceptado, tras 5/5 ciclos
-   sombra (hoy 1/5). Comando que correra el lead (NO correr aun):
+   sombra (5/5 observados; go separado aun pendiente). Comando que correra el lead (NO correr aun):
    `UPDATE ads_optimizer_goal SET mode='live' ... WHERE id IN ($IDS_LIVE)
    AND mode='shadow';` + antes/despues.
 2. C.6 (shadow economico 5 ciclos + su propio live): PRIMERO tienen que
