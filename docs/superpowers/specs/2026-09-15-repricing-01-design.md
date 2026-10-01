@@ -398,9 +398,10 @@ Y sobre el valor:
   medido; la muestra guarda su ventana efectiva. Antes de activar FBM se
   refresca esta medición.
 - **Mínimo con histéresis.** Mínimo 6 envíos para entrar; **sale con 3**. Sin
-  histéresis el mínimo parpadea: de 20 productos que alcanzan 6 en alguna de
-  seis ventanas móviles, solo 11 se mantienen en las seis, y los otros 9
-  alternan `evaluado` / `envio_sin_historia` con aviso recurrente. Debajo del
+  histéresis el mínimo parpadea: en E.1, de 13 productos MX que alcanzan 6
+  en alguna de seis ventanas móviles, solo 4 se mantienen en las seis; en US,
+  son 5 de 15. Los otros 9 MX y 10 US alternan `evaluado` /
+  `envio_sin_historia` con aviso recurrente. Debajo del
   mínimo: `envio_sin_historia` y el producto no se evalúa.
 - **La cotización de fees en FBM no se pide como FBA.** La cotización de
   referral hoy se pide con cumplimiento FBA; en FBM eso devuelve la comisión de

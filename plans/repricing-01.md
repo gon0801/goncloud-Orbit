@@ -189,11 +189,12 @@ M.** Los seis invalidan algo que la v1.1 de este plan daba por cierto:
     0.00 y 0.43 puntos (mediana 0.17) en 15 de 16 productos. Y el p75 móvil de
     90 días **tardó ~75 días** en registrar el cambio de 95 a 91 del 1-jun (el
     p50 tardó 45), así que ante una **subida** de tarifa subestima `L` durante
-    ~75 días. Y el rezago son **dos medidas distintas**: el de *ingesta*, entre
-    el `event_date` y la corrida que trajo la fila, 1 a 11 días; y el de
-    *emisión*, entre la fecha del envío y el `event_date` con que Amazon lo
-    cobra, p50 27 días en MX y 22 en US, p90 ~57–59, máximo 73. La ventana la
-    cierra el segundo, y `precio_envio_rezago_dias` sale de su p90.
+    ~75 días. E.1 corrigió el rezago: el de *emisión*, entre venta y
+    `event_date`, tiene p50 cero, p90 de 0–2 y máximo de 3 días; el de
+    *ingesta*, entre `event_date` y la corrida que trajo la fila, tiene p90
+    de 4.2 días MX y 13 US. E.2 parte 1 selló una ventana de 180 días y
+    propuso 13 días para `precio_envio_rezago_dias`, sujetos a medición fresca
+    antes de activar FBM.
 16. **En US el cobro de envío al cliente es NULL, no cero.** De 351 ventas de US
     en 180 días, **ninguna** trae `shipping_price` ni `item_price`; la causa es
     estructural: `_money_from_payload` descarta el desglose cuando el
@@ -522,7 +523,7 @@ conjunto; ninguna fase enciende dos conjuntos a la vez.
 {
   "name": "repricing-01",
   "path": "plans/repricing-01.md",
-  "description": "REPRICING 01 - motor de precios por goal de margen (M1/AUTO-07/ORBIT 09). Spec v1.3 (dos rondas de revision; la segunda invalido cuatro hechos que el plan daba por medidos): proteger margen; goal por producto; sube si el margen estimado no llega, baja solo si caen las unidades de 15 dias contra 60; sombra primero; cuota propia; envio FBM medido de las etiquetas (decision 13); toda publicacion activa contemplada (14); Mercado Libre en alcance (15). Plan v1.3: Fases 8, 10 y 11 cerradas (A.0-A.3, A.5-A.7, R.1 en master); D.0 aplicada en produccion 2026-09-19 (0039 + 20 claves precio_*). A.4 cerrada 2026-09-22: tres cambios y reversas confirmados por Pricing; control intacto. D.1 cerrada 2026-09-23: tres goals MX en sombra, dos corridas automaticas 3/3 y cero cambios nuevos; cinco dias quedan en seguimiento. E.0a bloqueada por el export de Seller Central."
+  "description": "REPRICING 01 - motor de precios por goal de margen (M1/AUTO-07/ORBIT 09). Spec v1.3 (dos rondas de revision; la segunda invalido cuatro hechos que el plan daba por medidos): proteger margen; goal por producto; sube si el margen estimado no llega, baja solo si caen las unidades de 15 dias contra 60; sombra primero; cuota propia; envio FBM medido de las etiquetas (decision 13); toda publicacion activa contemplada (14); Mercado Libre en alcance (15). Plan v1.3: Fases 8, 10 y 11 cerradas (A.0-A.3, A.5-A.7, R.1 en master); D.0 aplicada en produccion 2026-09-19 (0039 + 20 claves precio_*). A.4 cerrada 2026-09-22: tres cambios y reversas confirmados por Pricing; control intacto. D.1 cerrada 2026-09-23: tres goals MX en sombra, dos corridas automaticas 3/3 y cero cambios nuevos; cinco dias quedan en seguimiento. E.2 parte 1 sello 180 dias el 2026-09-30; parte 2 espera E.0a/E.0b/E.1."
 }
 ```
 
@@ -541,6 +542,8 @@ conjunto; ninguna fase enciende dos conjuntos a la vez.
   Recuadro 260 = 3 + 102 + 155 + 0. Cinco días siguen como observación
   operativa, según el criterio aprobado por el dueño. E/D.1.
 - Sigue D.2, que requiere un go separado para encender 3–5 productos MX FBA.
-- E.2 parte 1 puede cerrarse en paralelo. La parte 2 espera a E.0a y E.1.
+- E.2 parte 1 selló 180 días el 2026-09-30 (acta en
+  `docs/evidencia/repricing-01/E.2/acta.md`). La parte 2
+  espera a E.0a, E.0b y E.1.
 - E.1 sigue detrás de E.0: E.0a (veredicto contra el documento de origen, del
   lead con insumo del dueño) y E.0b (la regla en la ingesta, de Muse).
