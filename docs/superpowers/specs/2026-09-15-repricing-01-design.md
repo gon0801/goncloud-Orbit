@@ -493,10 +493,10 @@ de motor:
   corrida diaria con lock y cuota propia, `/precios` con cobertura, revisión
   independiente, sombra con **≥ 80% de los goals evaluados**, encendido de
   3–5 productos y medición de 30 días en dos cortes.
-- **Fase E — envío medido y FBM** (habilita **~10 activas en MX y ~10 en US**
-  con la ventana de 90 días; 113 y 109 son el techo TEÓRICO del canal FBM, no
-  lo que la fase enciende: el límite lo pone el volumen de ventas, no el
-  umbral, y subirlo es cuestión de ventana, que sella E.2):
+- **Fase E — envío medido y FBM** (E.2 selló una ventana de 180 días: en la
+  medición del 17-sep-2026 alcanzan el mínimo **14 productos MX y 17 US**;
+  las publicaciones activas correspondientes se cuentan en el readback de
+  E.4, sin extrapolar las 10+10 que calificaban a 90 días):
   medición del envío por producto, acta de **la ventana** con el dueño (no
   del percentil: S10 sella la mediana),
   ampliación del margen estimado a FBM, y encendido FBM en México.
@@ -565,11 +565,12 @@ que el spec creía saber del sistema. Las cuatro correcciones de hecho:
    elegir p75 en vez de p50 mueve el margen ≤ 0.43 puntos), y el p75 móvil de
    90 días **rezaga ~75 días** un cambio de tarifa, al revés del argumento. Se
    sella la mediana de los últimos envíos, con ventana corregida por rezago.
-4. **La fase E no habilita 222 publicaciones, habilita ~20 hoy**: solo 7
-   productos de MX y 9 de US llegan a 6 envíos en 90 días, y cruzados con
-   publicaciones activas son 10 y 10. El techo lo pone el volumen de ventas,
-   no el umbral, y la palanca medida es **la ventana** (180 días duplica la
-   cobertura; 365 la triplica), no el percentil.
+4. **La medición inicial de 90 días no habilitaba 222 publicaciones**: 7
+   productos MX y 9 US alcanzaban 6 envíos, equivalentes a 10+10
+   publicaciones activas. E.1 reconcilió el 9 US con un solo filtro. Con la
+   ventana de 180 días sellada en E.2, califican 14 productos MX y 17 US;
+   la cuenta de publicaciones activas a 180 días queda para E.4. El techo
+   lo pone el volumen de ventas, no el percentil.
 
 Y tres correcciones de alcance, que abaratan el plan sin tocar ninguna
 decisión: el canal por publicación **ya se ingiere** (A.7 no necesita

@@ -158,17 +158,17 @@ número), con clave y cota; fuera de cota = `ValueError` ruidoso al leer:
 **Medidos en la segunda ronda de revisión (2026-09-16), sobre las fases E, B y
 M.** Los seis invalidan algo que la v1.1 de este plan daba por cierto:
 
-13. **La fase E no habilita 222 publicaciones; habilita ~20 hoy.** Contando
-    **órdenes** con etiqueta en 90 días, solo **7 productos de MX y 9 de US**
+13. **La medición inicial a 90 días no habilitaba 222 publicaciones.** Contando
+    **órdenes** con etiqueta en 90 días, **7 productos de MX y 9 de US**
     llegan al mínimo de 6 envíos; cruzados con publicaciones activas son **10 y
-    10**. El techo no lo pone el umbral sino el volumen: de 264 activas de MX
-    solo 117 vendieron algo en 90 días y 15 vendieron ≥ 6 unidades; en US, 48 de
+    10** en esa foto histórica. El techo no lo pone el umbral sino el volumen:
+    de 264 activas de MX solo 117 vendieron algo en 90 días y 15 vendieron ≥ 6
+    unidades; en US, 48 de
     106 y 10. La palanca medida es la **ventana**: 180 días lleva los productos
-    de 7 a 14 y de 8 a 17; 365 días, a 17 y 22. El percentil no mueve nada.
-    **Ojo con el 9 y el 8**: la misma medición reporta 9 productos de US a 90
-    días en un corte y 8 en la serie de ventanas. No se reconcilió y no se
-    sella ninguno: **E.1 mide las tres ventanas con un solo filtro** y su
-    evidencia deja el número, con el filtro escrito, antes de que E.2 decida.
+    de 7 a 14 y de 9 a 17; 365 días, a 17 y 22. El percentil no mueve nada.
+    **E.1 reconcilió el 9 y el 8** de US: la medición con un solo filtro da 9
+    productos a 90 días. E.2 selló 180 días; la cuenta de publicaciones
+    activas a 180 días queda para el readback de E.4.
 14. **Tres fuentes de envío se solapan; si duplican dinero está EN DISPUTA.**
     A 90 días en US: `finance:ShippingHB` (170 filas, promedio −85.23),
     `finance:LabmanLabelPurchase` (54, −441.60) y el reporte `shipping_label`
@@ -296,16 +296,19 @@ Está en el spec S2–S11. Invariantes que el revisor verifica en cada fila:
 | D.2 | [stage:cierre-pr] [lane:release] [tdd:skip:ops] **Encendido de 3–5 productos MX (FBA)** con go literal y **medición de 30 días en dos cortes** (14: subida; 30: señal de ventas), con `precio --reporte`. | E/D.2 con la salida literal en ambos cortes. «Funcionó» = (a) 100% de `precio_cambio` en `confirmado`; (b) `abs(m_actual − goal) ≤ tol` o `frenado`/`goal_inalcanzable` con motivo; (c) al día 30 `u15` ≥ esperado salvo que haya disparado la rama de pérdida, y esa rama ejercida o declarada «no ocurrió» con números; (d) cero `no_evaluado` sin motivo; (e) Buy Box D y D+1. (a) y (d) en todos y (b) en ≥ N−1 → ampliar; cualquier `no_confirmado` → parar. Decisión literal del dueño | D.1, A.4 | cc:TODO |
 | D.3 | [stage:cierre-pr] [lane:release] [tdd:skip:ops] **Ampliación MX FBA** por lotes con go, en orden de prioridad. | E/D.3; cobertura de MX FBA con `sin_goal` bajando lote a lote; tracker anotado | D.2 | cc:TODO |
 
-### Fase E — envío medido y FBM (habilita ~10 activas en MX y ~10 en US con la ventana de 90 días)
+### Fase E — envío medido y FBM (ventana de 180 días sellada en E.2)
 
 **El encabezado de la v1.1 decía «habilita 113 en MX y 109 en US» y era falso.**
-Con el mínimo de 6 envíos en 90 días, hoy califican 7 productos de MX y 9 de US,
-que son 10 y 10 publicaciones activas (hecho 13). El resto de las FBM queda en
+Con el mínimo de 6 envíos en la foto histórica de 90 días calificaban 7
+productos MX y 9 US, equivalentes a 10+10 publicaciones activas. Con los
+180 días sellados por E.2 califican 14 productos MX y 17 US en la medición de
+E.1; la cantidad de publicaciones activas se recalcula en E.4. El resto de
+las FBM queda en
 `fuera_de_alcance(fase_E_sin_historia_envio)`, contado y visible, no escondido.
 La palanca para subir esa cobertura es **la ventana**, y E.2 la sella con los
-números de E.1: 180 días duplica, 365 triplica. Ampliar la ventana también
-envejece la tarifa, y ese intercambio es exactamente lo que el dueño decide en
-E.2 — no el percentil, que mueve ≤ 0.43 puntos de margen.
+números de E.1: 180 días amplían la cobertura de productos frente a 90.
+Ampliar la ventana también envejece la tarifa; E.2 selló 180 días. El
+percentil mueve ≤ 0.43 puntos de margen y no decide la cobertura.
 
 | ID | Tarea | DoD (verificable) | Deps | Estado |
 |---|---|---|---|---|
@@ -314,7 +317,7 @@ E.2 — no el percentil, que mueve ≤ 0.43 puntos de margen.
 | E.1 | [stage:verificacion] [lane:gate] [tdd:skip:sonda] **Medición del envío por producto** (lead, solo lectura) sobre el ledger **ya deduplicado** por E.0b, agrupando por **orden** y sobre `abs(amount)`: cuántos productos alcanzan el mínimo en ventanas de 90, 180 y 365 días; dispersión (mediana, p90, máximo); órdenes descartadas por traer más de un producto o no ligar a venta, con su razón; **rezago** del cargo (p50, p90, máximo) para fijar el cierre de ventana; y cuántos productos entran y salen del mínimo a lo largo de seis ventanas móviles (el parpadeo del hecho 15). | `docs/evidencia/repricing-01/E.1/` con las consultas y sus salidas; tabla por producto con `ordenes, mediana, p90, max` en las tres ventanas; conteo de descartes por razón; tabla de rezago; tabla de parpadeo; y el efecto sobre el margen de **90 vs 180 vs 365 días** en al menos 10 productos — que es la decisión real, no p50 vs p75 | E.0b | cc:TODO — **fila abierta** (depende de E.0b, ledger con la regla de E.0a, que no es de esta fase); la **evidencia** de la Fase 8 ya está mergeada en `6127708` (PR #297) bajo dos lecturas de la disputa del hecho 14. Salvedades: «365 días» son 287 de datos; el rezago de emisión del hecho 15 (27/22 días) NO se reproduce (p50 0, máx 3) y el que sí se mide es el de ingesta (MX p90 4.2, US p90 13): lo decide E.2; 148 órdenes con cargo tienen venta sin `product_id` |
 | E.2 | [stage:contrato] [lane:fast] [tdd:skip:contrato] **Acta del envío medido** (dueño; **en dos partes desde la v1.3**: la parte 1, con los hechos 20–22, sella (a), (b) y (d) porque E.1 midió que ventana, mínimo e histéresis dan lo mismo bajo las dos lecturas de la disputa; la parte 2, (c) y (e), espera a E.0a/E.0b porque el **valor** sí cambia con el veredicto): con los números de E.1 sella (a) la **ventana**, sabiendo que más ventana es más cobertura y tarifa más vieja; (b) el **mínimo de envíos y su histéresis** (propuesta: entra con 6, sale con 3, para que no parpadee); (c) el **valor** (propuesta: mediana de la ventana, con p90 y máximo mostrados como dispersión); (d) qué pasa con un producto sin historia; y (e) que el ingreso por envío entra **donde el dato exista**, y donde no, `ingreso_envio_sin_dato` — nunca cero. | `docs/evidencia/repricing-01/E.2/acta.md` con la decisión literal del dueño; spec delta en S10; ninguna ausencia convertida en cero; el acta dice explícitamente que en US **no hay** dato de ingreso por envío (hecho 16) y que eso no bloquea la fase; la parte 1 lleva los hechos 20–22 como insumo y la parte 2 el veredicto de E.0a | parte 1: hechos 20–22 (ya medidos); parte 2: E.1 | cc:WIP; parte 1: ventana 180 dias decidida por el dueno el 30-sep-2026 (E.2/acta.md); parte 2 espera E.0a/E.0b/E.1 |
 | E.3 | [stage:implementacion] [lane:gate] [tdd:required] **`L` medido en el margen estimado FBM** (Muse): `app/precio/envio.py` (`muestra_envio(product_id, platform, hoy, cfg) -> Muestra`, puro sobre filas ya leídas) + la lectura que las trae; persistencia en `precio_envio_muestra`; el escenario FBM produce contribución con `L` de la muestra y `F` de una cotización **pedida con cumplimiento FBM**. **Amplía el universo de la estimación a FBM y a US en la misma edición** (ver nota de fusión con 0.3). | Rojo-primero: percentil/mediana sobre `abs(amount)` — un mutante que use el monto crudo elige el envío más barato y **muere**; agrupa por `order_id` antes de resumir — un mutante que percentile filas muere; `L_unidad = L_orden / unidades` con una orden de 2 unidades sembrada; orden con dos productos **excluida** y contada aparte; histéresis: 6 entra, 5 no, y un producto dentro con 4 **sigue dentro** hasta caer a 3; ventana que termina en `hoy − rezago` y excluye un envío fuera de rango; la cotización FBM **no** trae comisión de logística (mutante que pida FBA en FBM duplica `L` y muere); producto FBA nunca toca este camino (`L = 0`); `envio_muestra_id` no nulo en toda decisión FBM; `ingreso_envio_sin_dato` cuando falta `shipping_price`, jamás cero | E.2, A.2 | cc:TODO |
-| E.4 | [stage:implementacion] [lane:gate] [tdd:required] **El motor distingue canal** (Muse): `canal` en la decisión y en el recuadro de cobertura; `precio_goal` admite publicaciones FBM; la corrida evalúa FBA y FBM con la misma regla y distinta `L`; `/precios` y `/salud` muestran el canal y, en FBM, la muestra con su ventana efectiva, sus órdenes y su dispersión. La **rama de inventario queda `sin_dato` por diseño en FBM** y así se muestra: la fuente que la alimenta es de FBA y en FBM nunca se puebla. | Rojo-primero: una publicación FBM con goal y muestra completa produce `subir` con `L` de la muestra en la cuenta; la misma sin muestra → `no_evaluado(envio_sin_historia)`; el recuadro de MX mueve **~10** publicaciones de `fuera_de_alcance` a en alcance y **el resto del subconjunto FBM canónico** queda en `fase_E_sin_historia_envio` **contado** (el número exacto sale de la fuente canónica en A.7, no del 113 del bridge); `/precios` muestra «envío medido, mediana 94.50 MXN sobre 18 órdenes, ventana 90 d al 2026-09-01» y no un número sin origen; en FBM el motivo de inventario es `sin_dato(inventario_no_aplica_fbm)`, nunca una rama que no puede dispararse | E.3, A.7 | cc:TODO |
+| E.4 | [stage:implementacion] [lane:gate] [tdd:required] **El motor distingue canal** (Muse): `canal` en la decisión y en el recuadro de cobertura; `precio_goal` admite publicaciones FBM; la corrida evalúa FBA y FBM con la misma regla y distinta `L`; `/precios` y `/salud` muestran el canal y, en FBM, la muestra con su ventana efectiva, sus órdenes y su dispersión. La **rama de inventario queda `sin_dato` por diseño en FBM** y así se muestra: la fuente que la alimenta es de FBA y en FBM nunca se puebla. | Rojo-primero: una publicación FBM con goal y muestra completa produce `subir` con `L` de la muestra en la cuenta; la misma sin muestra → `no_evaluado(envio_sin_historia)`; el recuadro de MX cuenta las publicaciones que pasan de `fuera_de_alcance` a en alcance con la ventana de 180 dias, sin fijar un numero antes del readback y **el resto del subconjunto FBM canónico** queda en `fase_E_sin_historia_envio` **contado** (el número exacto sale de la fuente canónica en A.7, no del 113 del bridge); `/precios` muestra mediana, moneda, numero de ordenes y ventana efectiva de 180 dias con fecha, no un numero sin origen; en FBM el motivo de inventario es `sin_dato(inventario_no_aplica_fbm)`, nunca una rama que no puede dispararse | E.3, A.7 | cc:TODO |
 | E.5 | [stage:cierre-pr] [lane:release] [tdd:skip:ops] **Sombra y encendido FBM en México**: goals FBM en `shadow`, cinco corridas leídas, luego 3–5 productos en vivo con go y 30 días en dos cortes. | E/E.5 con el mismo criterio de D.1 y D.2, más: ningún producto FBM movido sin `envio_muestra_id`; la cobertura de MX cuadra con las **264** activas de la fuente canónica y `fuera_de_alcance` queda solo con los motivos declarados (`sin_historia_envio`, `sin_goal`), no en cero; el criterio (c) se declara «no ocurrió» con números (hecho 17) si no se ejerce | E.4, D.2 | cc:TODO |
 
 ### Fase 0 — política fiscal de Estados Unidos
@@ -479,8 +482,10 @@ conjunto; ninguna fase enciende dos conjuntos a la vez.
   diferencia de moneda (hecho 16). Mientras tanto `ingreso_envio_sin_dato`, y
   esa parte del DoD de E.3 queda declarada como no implementable en US. **No
   bloquea la fase.**
-- **La fase E habilita ~20 publicaciones, no 222** (hecho 13). El techo lo pone
-  el volumen de ventas, no el umbral. Las FBM restantes quedan contadas en
+- **La foto inicial de 90 días habilitaba 20 publicaciones, no 222** (hecho 13).
+  E.2 selló 180 días y E.4 medirá la nueva cuenta de publicaciones activas.
+  El techo lo pone el volumen de ventas, no el umbral. Las FBM restantes
+  quedan contadas en
   `fuera_de_alcance(fase_E_sin_historia_envio)`, que es exactamente lo que la
   decisión 14 pide: visibles, no cubiertas.
 - **El precio no es la palanca de Estados Unidos** (hecho 18). El margen ya va
