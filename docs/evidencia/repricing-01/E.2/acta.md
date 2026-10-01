@@ -38,5 +38,6 @@ verificara que el rezago siga siendo valido.
 
 El valor monetario del costo y el ingreso por envio esperan E.0a, E.0b y E.1
 sobre el ledger corregido. Los pares `LabmanLabelPurchase`/`shipping_label`
-y `ShippingHB` siguen sin veredicto documental. No se configura ni enciende
-el motor FBM a partir de esta acta parcial.
+y `ShippingHB` tienen la aclaracion del dueno de contar componentes distintos
+(`E.0/decision-dueno.md`), pero siguen sin conciliacion documental. No se
+configura ni enciende el motor FBM a partir de esta acta parcial.
