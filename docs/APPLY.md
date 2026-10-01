@@ -994,8 +994,9 @@ recálculo manual + veto ejecutado por el dueño sobre una fila real (4.3)**.
        cambian a diario) — el punto de restauración REAL se toma en el
        ítem 4, el mismo día, con este runbook.
 3. [x] **(2026-09-02, ORBIT 05 1.1; (a) adelantado por enmienda literal del dueño, ver la celda) Candado humano pre-flip**: (a) **2 semanas de shadow cumplidas**
-       (shadow desde 2026-08-24 → ~2026-09-07; hasta entonces NO se marca
-       aunque todo lo demás esté listo), (b) **firma del dueño del
+       (regla original: shadow desde 2026-08-24 → ~2026-09-07; **sustituida
+       por la enmienda literal del dueño de ORBIT 05 1.1**, que adelantó el flip
+       al 2026-09-02 renunciando a los días restantes de shadow), (b) **firma del dueño del
        spot-check — CUMPLIDA 2026-08-28** ("spot check confirmado";
        checkpoint humano de 4.4: `out/orbit-04-4-4-cierre-20260828.md` §3.4
        y AppFlowy "ORBIT 04 4.4 — spot-check shadow" — 33 decisiones con
@@ -1008,7 +1009,7 @@ recálculo manual + veto ejecutado por el dueño sobre una fila real (4.3)**.
        156/156 decisiones con `cost_min_usado`; evidencia
        `out/orbit-05-preflight-1-1-20260829.md`). Cumplido 2026-08-28: techo de bids MX del goal 4 corregido
        a 1.00/45.00 MXN (el default 2.50 era un número en USD aplicado a
-       pesos). **SIN MARCAR hasta el 2026-09-07 por (a) y sólo por (a)**
+       pesos). ~~SIN MARCAR hasta el 2026-09-07 por (a) y sólo por (a)~~ (superado por la enmienda de ORBIT 05 1.1)
        (preflight 1.8, 2026-08-29): (b) y (c) están cumplidas y el
        preflight completo (1.1-1.8) está en master, así que lo único que
        mantiene abierto este candado es el calendario de shadow. La firma
