@@ -3,15 +3,15 @@
 En la sesion del 30-sep-2026 (America/Vancouver), el dueno aclaro:
 «no no estan contando dos veces el envio sigue».
 
-La lectura operativa para preparar E.0b es **componentes distintos** para
-`finance:LabmanLabelPurchase`, `finance:ShippingHB` y `shipping_label`: una
-coincidencia de orden o importe no autoriza a descartar ninguna de esas fuentes.
-La ingesta actual conserva cada `source_event_id`; no deduplica entre estas
-tres identidades por `order_id`.
+El dueno afirma que `finance:LabmanLabelPurchase`, `finance:ShippingHB` y
+`shipping_label` **no cuentan dos veces el mismo envio**. La ingesta actual
+conserva cada `source_event_id`; no deduplica entre estas tres identidades
+por `order_id`. Esta anotacion no fija una regla nueva de costo por orden.
 
 Esta aclaracion es una decision del dueno, no el documento de origen de las
 54 ordenes US de `veredicto.md` §7. El DoD de E.0a aun exige conciliar cada
-par contra Seller Central o la contabilidad que alimenta el ledger. Quedan
+par contra Seller Central o la contabilidad que alimenta el ledger **antes de
+dar a E.0b una regla que cuente o descarte fuentes**. Quedan
 pendientes tambien la clasificacion de descartes por signo y decidir si
 `ShippingHB` entra en `L` o en otro componente del margen sin duplicar una
 cotizacion FBM. Hasta entonces no se sella el valor de `L` ni se activa FBM.
