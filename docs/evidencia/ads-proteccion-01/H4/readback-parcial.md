@@ -4,6 +4,15 @@ Leído 2026-09-28 ~03:00 UTC por el lead, solo lectura (`/api/dashboard/salud` y
 `BEGIN READ ONLY` … `ROLLBACK`). A.3 se desplegó con C.5 el 2026-09-25 19:50 UTC;
 la observación de 7 días termina el 2026-10-02.
 
+**Actualizacion 30-sep:** el plazo anterior era la previsión hecha el 28-sep
+para la ingesta principal. El cron `ads-salud` aun no estaba instalado;
+se instalo el 30-sep con go y su primera comprobacion util corrio a las
+10:30 UTC (`H4/cron-instalado.md`, `H4/primer-cron-2026-09-30.md`). Para
+cerrar A.4, la ventana efectiva del aviso programado es **30-sep a 6-oct**
+(siete dias naturales). Los exitos de ingesta del 26-29 sep siguen siendo
+evidencia de la ingesta, pero no cuentan como dias con cron activo. El
+apartado "Pendiente de A.4" de abajo conserva la foto del 28-sep.
+
 ## Éxito principal por día (`amazon_ads_reports_v3`)
 
 | Día UTC | Corrida | ok | Filas escritas | Perfiles `written` |
