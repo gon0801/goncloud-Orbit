@@ -387,15 +387,16 @@ Y sobre el valor:
   argumento «que el motor nunca crea que gana más de lo que gana». Por eso el
   valor sellado es la **mediana de los últimos N envíos del producto**, y p90 y
   máximo se muestran como dispersión, sin entrar a la cuenta.
-- **Ventana con rezago, que son DOS medidas distintas.** (a) *Rezago de
-  ingesta*: entre el `event_date` del cargo y la corrida que lo trajo, 1 a 11
-  días; dice cuánto tarda Orbit en enterarse. (b) *Rezago de emisión*: entre la
-  fecha del envío y el `event_date` con que Amazon lo cobra, p50 27 días en MX
-  y 22 en US, p90 ~57–59, máximo 73; es la que deja la cola a medio cargar. Una
-  ventana de 90 días que termina hoy son ~80 días completos más esa cola. La
-  ventana termina en `hoy − precio_envio_rezago_dias`, que se alimenta del
-  **p90 de (b)**, y la muestra guarda su ventana efectiva. E.1 mide las dos por
-  separado y E.2 sella el estadístico.
+- **Ventana con rezago.** E.1 no reprodujo el antiguo p90 de emisión de
+  57–59 días: entre la fecha de venta y el `event_date` del cargo midió p50
+  cero, p90 de 0–2 y máximo de 3 días. El rezago relevante es el de
+  **ingesta**, entre `event_date` y la corrida que trajo el cargo: p90 de
+  4.2 días MX y 13 US en la medición del 17-sep-2026. E.2 parte 1 selló
+  **180 días de historial** por decisión del dueño del 30-sep-2026. La
+  ventana termina en `hoy − precio_envio_rezago_dias`. La clave es única
+  para ambas plataformas: el corte propuesto es 13 días, el mayor p90
+  medido; la muestra guarda su ventana efectiva. Antes de activar FBM se
+  refresca esta medición.
 - **Mínimo con histéresis.** Mínimo 6 envíos para entrar; **sale con 3**. Sin
   histéresis el mínimo parpadea: de 20 productos que alcanzan 6 en alguna de
   seis ventanas móviles, solo 11 se mantienen en las seis, y los otros 9
