@@ -993,9 +993,10 @@ recálculo manual + veto ejecutado por el dueño sobre una fila real (4.3)**.
        será OBSOLETO el día del flip** (~2026-09-07: la base y las listas
        cambian a diario) — el punto de restauración REAL se toma en el
        ítem 4, el mismo día, con este runbook.
-3. [ ] **Candado humano pre-flip**: (a) **2 semanas de shadow cumplidas**
-       (shadow desde 2026-08-24 → ~2026-09-07; hasta entonces NO se marca
-       aunque todo lo demás esté listo), (b) **firma del dueño del
+3. [x] **(2026-09-02, ORBIT 05 1.1; (a) adelantado por enmienda literal del dueño, ver la celda) Candado humano pre-flip**: (a) **2 semanas de shadow cumplidas**
+       (regla original: shadow desde 2026-08-24 → ~2026-09-07; **sustituida
+       por la enmienda literal del dueño de ORBIT 05 1.1**, que adelantó el flip
+       al 2026-09-02 renunciando a los días restantes de shadow), (b) **firma del dueño del
        spot-check — CUMPLIDA 2026-08-28** ("spot check confirmado";
        checkpoint humano de 4.4: `out/orbit-04-4-4-cierre-20260828.md` §3.4
        y AppFlowy "ORBIT 04 4.4 — spot-check shadow" — 33 decisiones con
@@ -1008,13 +1009,13 @@ recálculo manual + veto ejecutado por el dueño sobre una fila real (4.3)**.
        156/156 decisiones con `cost_min_usado`; evidencia
        `out/orbit-05-preflight-1-1-20260829.md`). Cumplido 2026-08-28: techo de bids MX del goal 4 corregido
        a 1.00/45.00 MXN (el default 2.50 era un número en USD aplicado a
-       pesos). **SIN MARCAR hasta el 2026-09-07 por (a) y sólo por (a)**
+       pesos). ~~SIN MARCAR hasta el 2026-09-07 por (a) y sólo por (a)~~ (superado por la enmienda de ORBIT 05 1.1)
        (preflight 1.8, 2026-08-29): (b) y (c) están cumplidas y el
        preflight completo (1.1-1.8) está en master, así que lo único que
        mantiene abierto este candado es el calendario de shadow. La firma
        del spot-check ya la dio el dueño; ningún recálculo de la IA la
        sustituye (el implementador es el autor del motor).
-4. [ ] **Backup pre-cutover REAL (el mismo día, ANTES del discard) +
+4. [x] **(2026-09-02, ORBIT 05 1.2 backup + 1.3 discard) Backup pre-cutover REAL (el mismo día, ANTES del discard) +
        discard masivo de filas shadow:** repetir el runbook del ítem 2 en
        `backups/precutover_orbit05_<fecha>/` con VERIFY_OK de los CUATRO
        artefactos y conteos del día (prerequisito **CUMPLIDO** en preflight
@@ -1028,20 +1029,20 @@ recálculo manual + veto ejecutado por el dueño sobre una fila real (4.3)**.
        antes/después concilia (`UPDATE … RETURNING` = filas shadow
        pendientes antes); cero filas shadow no terminales al terminar.
        Orden operativo sellado: **backup real → discard → flip → rampa**.
-5. [ ] **Flip:** modo live por la escalera (decisión humana, config nueva;
+5. [x] **(2026-09-02, ORBIT 05 1.4) Flip:** modo live por la escalera (decisión humana, config nueva;
        off→shadow→live del diseño v2 adoptado en CONTEXTO).
-6. [ ] Rampa día 1 ya sembrada: 10 bids / 2 pauses / 5 negatives /
+6. [x] (2026-09-02, ORBIT 05 1.5) Rampa día 1 ya sembrada: 10 bids / 2 pauses / 5 negatives /
        2 harvests por día y plataforma (4.2), fail-closed verificado.
-7. [ ] El live arranca SOLO con decisiones frescas post-flip (ventana
+7. [x] (2026-09-02, ORBIT 05 1.5) El live arranca SOLO con decisiones frescas post-flip (ventana
        completa 48h desde cero).
-8. [ ] Monitoreo 48h (checklist PR2 del diseño v2: caps bajos día 1,
+8. [x] (2026-09-03/04, ORBIT 05 2.4) Monitoreo 48h (checklist PR2 del diseño v2: caps bajos día 1,
        monitoreo 48h) + digest por ciclo ejecutor activo.
-9. [ ] **Verificación adversarial TRIPLE (codex+grok+qwen) de las primeras
+9. [x] **(2026-09-02, ORBIT 05 2.1) Verificación adversarial TRIPLE (codex+grok+qwen) de las primeras
        decisiones APLICADAS EN VIVO** (ritual sellado en la aprobación del
        plan, AppFlowy 2026-08-24; movido aquí desde el DoD de 4.4 — el
        commit 1e41a1f lo había colado en la tarea de cierre, pero pertenece
        a ORBIT 05: solo tiene sentido con decisiones live reales).
-10. [ ] Post-flip: SELECT de la cola (cero shadow pendientes), quota del
+10. [x] (2026-10-01, ORBIT 05 2.5; `docs/evidencia/orbit-05/cierre-2026-10-01.md`) Post-flip: SELECT de la cola (cero shadow pendientes), quota del
        día, `HAY_MODULO_APPLY` con escalera live verificada.
 
 ---
