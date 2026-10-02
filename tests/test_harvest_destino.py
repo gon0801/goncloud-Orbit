@@ -985,3 +985,220 @@ def test_r1_revalida_duplicado_en_exacta_resuelta_descarta():
         assert _posts_a(vistos, "/sp/keywords") == []
         assert _posts_a(vistos, "/sp/negativeKeywords") == []
         assert conn.execute("SELECT count(*) FROM harvest_job").fetchone()[0] == 0
+
+
+# ---------------------------------------------------------------------------
+# D.4: origen == destino en excepcion y terna -> SaltoHarvest(origen_es_destino)
+#
+# Caso real: job 2 (decision 2311, 2026-09-15, amazon_mx). Origen = ad group
+# Arras Manual 272585315669297 = destino de la terna del goal 4 (scope
+# platform). `decide` solo comparaba origen con destino en el camino de
+# GRUPO; excepcion y terna devolvian DestinoHarvest sin comparar y el motor
+# creo en ESE MISMO ad group el NEGATIVE_EXACT (negativo 92333897493675) y
+# la EXACT (keyword 197174507964917): el negativo bloquea la keyword.
+# La comparacion es por external_id del AD GROUP (otra campana u otro ad
+# group de la misma campana SI se cosechan). El camino de grupo no cambia.
+# ---------------------------------------------------------------------------
+
+
+@_skip_db
+def test_d4_terna_origen_es_destino_salta():
+    """Terna de plataforma (forma del job 2) con origen = destino -> salto
+    con el motivo existente (no uno nuevo). Rojo: DestinoHarvest."""
+    with db_f2("orbit_d4_terna") as conn:
+        camp = _campana(conn)
+        _goal_plataforma_con_terna(conn)
+        salto = resolver_destino(conn, PLATFORM, camp, origen_ad_group_external="8101")
+        assert salto == SaltoHarvest(motivo="origen_es_destino")
+
+
+@_skip_db
+def test_d4_excepcion_origen_es_destino_salta():
+    """Excepcion con origen = destino -> mismo salto. Rojo: DestinoHarvest."""
+    with db_f2("orbit_d4_exc") as conn:
+        camp = _campana(conn)
+        conn.execute(
+            "INSERT INTO harvest_excepcion (ad_entity_id, destino_campaign_external,"
+            " destino_ad_group_external, go_literal) VALUES (%s, '8001', '8101', 'go')",
+            (camp,),
+        )
+        salto = resolver_destino(conn, PLATFORM, camp, origen_ad_group_external="8101")
+        assert salto == SaltoHarvest(motivo="origen_es_destino")
+
+
+@_skip_db
+def test_d4_origen_distinto_sigue_cosechando():
+    """Controles: mismo destino con origen en otro ad group de la misma
+    campana, origen en otra campana, y origen desconocido (None, el default
+    de los callers por campana como tools/harvest_excepcion.py) -> resuelven
+    como antes. El camino de grupo no cambia (lo cubren (a)(b)(e))."""
+    with db_f2("orbit_d4_ctrl") as conn:
+        camp = _campana(conn)
+        _goal_plataforma_con_terna(conn)
+        for origen in ("8201", "otro-ag-de-otra-campana", None):
+            destino = resolver_destino(conn, PLATFORM, camp, origen_ad_group_external=origen)
+            assert isinstance(destino, DestinoHarvest), origen
+            assert destino.resuelto_por == "terna"
+        conn.execute(
+            "INSERT INTO harvest_excepcion (ad_entity_id, destino_campaign_external,"
+            " destino_ad_group_external, go_literal) VALUES (%s, '8001', '8101', 'go')",
+            (camp,),
+        )
+        for origen in ("8201", "otro-ag-de-otra-campana", None):
+            destino = resolver_destino(conn, PLATFORM, camp, origen_ad_group_external=origen)
+            assert isinstance(destino, DestinoHarvest), origen
+            assert destino.resuelto_por == "excepcion"
+
+
+@_skip_db
+def test_d4_ciclo_terna_origen_es_destino_es_skip():
+    """Punta a punta del caso job 2: campana suelta cuyo ad group ES el
+    destino de la terna -> el termino que se cosecharia salta con
+    origen_es_destino (y no harvest_duplicado). Rojo: harvest decidido."""
+    with db_f2("orbit_d4_ciclo") as conn:
+        _gpo, run = _base_ciclo(conn, con_goals=False)
+        _goal_plataforma_con_terna(conn)
+        _camp, ag = _campana_suelta(conn, camp_ext="7009", ag_ext="8101")
+        _siembra_terminos(conn, run, ag)
+        res = _corre(conn)
+        assert res.status in ("done", "degraded"), (
+            "en live sin credenciales la fase apply aborta fail-closed (degraded)"
+            " pero las decisiones y el encolado persisten"
+        )
+        assert _harvests_de(conn, res.cycle_id) == [], "origen = destino no se cosecha"
+        skips = json.loads(res.notes)["skips"]["termino"]
+        assert skips.get("origen_es_destino") == 1
+        assert "harvest_duplicado" not in skips
+
+
+def _decision_harvest_terna(conn, ciclo, config_id, ag_origen, *, camp_ext, ag_ext, term):
+    """Decision kind='harvest' con destino de terna congelado
+    (`inputs.goal.harvest` con `resuelto_por = terna`, como lo deja
+    `_goal_json`): la forma heredada del hueco D.4 (cfr. decision 2311)."""
+    from psycopg.types.json import Json
+
+    dec = dt.datetime.now(dt.UTC) - dt.timedelta(days=3)
+    inputs = {
+        "motor": "hygiene",
+        "platform": "amazon_us",
+        "modo": "live",
+        "motivo": "harvest_umbral",
+        "goal": {
+            "scope": "platform",
+            "bid_floor": "0.10",
+            "bid_ceiling": "2.50",
+            "harvest": {
+                "campaign_id": camp_ext,
+                "ad_group_id": ag_ext,
+                "default_bid": "1.00",
+                "moneda": "USD",
+                "resuelto_por": "terna",
+                "grupo_id": None,
+                "motivo": "migracion_pendiente",
+            },
+        },
+    }
+    return conn.execute(
+        "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
+        " data_observed_at, window_start, window_end, search_term, new_value, value_currency,"
+        " inputs) VALUES (%s, %s, 'harvest', %s, %s, %s - interval '1 day', %s - 60, %s - 30,"
+        " %s, 1.00, 'USD', %s) RETURNING id",
+        (ciclo, ag_origen, dec, config_id, dec, dec.date(), dec.date(), term, Json(inputs)),
+    ).fetchone()[0]
+
+
+@_skip_db
+def test_d4_apply_congelado_terna_origen_es_destino_cero_http():
+    """Defensa al ejecutar: decision heredada del hueco (congelado de terna
+    = origen) con la terna viva ya sana (la revalida pasa con el destino
+    vivo) -> el job falla con origen_es_destino ANTES de cualquier HTTP.
+    Rojo: POSTs emitidos."""
+    from test_apply_harvest import _encola_fila, _termino_calificado
+
+    with db_f2("orbit_d4_apply") as conn:
+        _gpo, _run = _base_ciclo(conn, con_goals=False)
+        _goal_plataforma_con_terna(conn)
+        _camp, ag = _campana_suelta(conn, camp_ext="7009", ag_ext="7109")
+        term = "buen termino d4"
+        _termino_calificado(conn, ag, term=term)
+        config_id = conn.execute("SELECT max(id) FROM config_version").fetchone()[0]
+        ciclo = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        dec = _decision_harvest_terna(
+            conn, ciclo, config_id, ag, camp_ext="7009", ag_ext="7109", term=term
+        )
+        _encola_fila(conn, dec, ag, term=term)
+        handler, vistos = _handler_harvest()
+        res2 = libera_vencidos(
+            conn,
+            PLATFORM,
+            ahora=dt.datetime.now(dt.UTC),
+            aplicador=_aplicador_us(conn, handler, ciclo),
+        )
+        assert vistos == [], "cero HTTP: el congelado origen = destino no sale"
+        assert res2.aplicadas == 0
+        fase = conn.execute("SELECT fase FROM harvest_job").fetchone()[0]
+        assert fase == "failed"
+        assert [a.motivo for a in res2.alertas] == ["origen_es_destino"]
+
+
+@_skip_db
+def test_d4_contexto_fresco_origen_es_destino_aborta():
+    """Mismo invariante en el camino de goal fresco (decisiones pre-F2 sin
+    congelado, forma de la 2311): terna viva = origen -> _contexto levanta
+    origen_es_destino antes de armar el POST. Alcanza por continuacion de un
+    job en vuelo con la cola applying (la revalida solo corre en released)."""
+    from app import apply_harvest as _ejecucion
+
+    with db_f2("orbit_d4_fresco") as conn:
+        _gpo, _run = _base_ciclo(conn, con_goals=False)
+        _goal_plataforma_con_terna(conn, camp_ext="7009", ag_ext="7109")
+        _camp, ag = _campana_suelta(conn, camp_ext="7009", ag_ext="7109")
+        config_id = conn.execute("SELECT max(id) FROM config_version").fetchone()[0]
+        ciclo = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        from psycopg.types.json import Json
+
+        vieja = dt.datetime.now(dt.UTC) - dt.timedelta(days=3)
+        dec = conn.execute(
+            "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at,"
+            " config_version_id, data_observed_at, window_start, window_end, search_term,"
+            " new_value, value_currency, inputs) VALUES (%s, %s, 'harvest', %s, %s,"
+            " %s - interval '1 day', %s - 60, %s - 30, 'termino fresco', 1.00, 'USD',"
+            " %s) RETURNING id",
+            (
+                ciclo,
+                ag,
+                vieja,
+                config_id,
+                vieja,
+                vieja.date(),
+                vieja.date(),
+                Json(
+                    {
+                        "goal": {
+                            "harvest": {
+                                "campaign_id": "7009",
+                                "ad_group_id": "7109",
+                                "default_bid": "1.00",
+                                "moneda": "USD",
+                            }
+                        }
+                    }
+                ),
+            ),
+        ).fetchone()[0]
+        job_id = conn.execute(
+            "INSERT INTO harvest_job (decision_id, search_term, platform, ad_entity_id, fase)"
+            " VALUES (%s, 'termino fresco', 'amazon_us', %s, 'pending') RETURNING id",
+            (dec, ag),
+        ).fetchone()[0]
+        fila = conn.execute(
+            "SELECT id, decision_id, search_term, ad_entity_id, fase, external_ids,"
+            " platform::text FROM harvest_job WHERE id = %s",
+            (job_id,),
+        ).fetchone()
+        with pytest.raises(ValueError, match="origen_es_destino"):
+            _ejecucion._contexto(conn, _ejecucion._job_de_fila(fila))
