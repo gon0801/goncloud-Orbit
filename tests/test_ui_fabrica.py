@@ -104,6 +104,9 @@ def test_preview_sin_manual_muestra_linea_de_margen():
     assert "plan.goals_fijan_target !== false" in codigo
     assert '["Target ACoS aplicado", aplicado]' in codigo
     assert '["Target ACoS aplicado", porcentaje(target)]' not in codigo
+    # F7: el orden de las ramas tambien se fija (numero con true/ausente,
+    # linea solo con false); invertirlas debe romper la suite.
+    assert "const aplicado = fijan ? porcentaje(target)" in codigo
 
 
 def test_pantalla_carga_bids_sugeridos_y_firma_su_fuente():

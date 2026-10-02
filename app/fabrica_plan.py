@@ -541,10 +541,21 @@ def plan_como_json(plan: PlanGrupo) -> dict:
     }
 
 
+def _canonico_sin_derivados(datos: dict) -> str:
+    """JSON canonico para la huella, SIN llaves derivadas: `goals_fijan_target`
+    se recalcula desde el objetivo cubierto, asi que excluirla no debilita la
+    firma y evita rotar la identidad durable (`web-<huella>`) de los lotes
+    (F6 AI-review PR #381: rotarla invalidaria el guard anti-duplicados de
+    `crear` para previews en vuelo)."""
+    datos = dict(datos)
+    datos.pop("goals_fijan_target", None)
+    return json.dumps(datos, sort_keys=True, separators=(",", ":"))
+
+
 def huella_plan(plan: PlanGrupo) -> str:
     """sha256 del JSON canonico del plan: cambia si cambia CUALQUIER cosa que
     se va a crear (productos, bids, budgets, semillas, target, modo)."""
-    canonico = json.dumps(plan_como_json(plan), sort_keys=True, separators=(",", ":"))
+    canonico = _canonico_sin_derivados(plan_como_json(plan))
     return hashlib.sha256(canonico.encode("utf-8")).hexdigest()
 
 
@@ -661,7 +672,7 @@ def plan_v2_como_json(plan: PlanGrupoV2) -> dict:
 
 def huella_plan_v2(plan: PlanGrupoV2) -> str:
     """Huella de altas v2: el orden visual no cambia lo que se crea."""
-    canonico = json.dumps(plan_v2_como_json(plan), sort_keys=True, separators=(",", ":"))
+    canonico = _canonico_sin_derivados(plan_v2_como_json(plan))
     return hashlib.sha256(canonico.encode("utf-8")).hexdigest()
 
 

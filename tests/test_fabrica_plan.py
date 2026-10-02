@@ -251,7 +251,9 @@ def test_huella_cambia_con_bids_productos_o_semillas():
     assert fp.huella_plan(base) != fp.huella_plan(_plan(parametros=_parametros(bid="5.50")))
     assert fp.huella_plan(base) != fp.huella_plan(_plan(productos=(_producto(), _producto(2))))
     assert fp.huella_plan(base) != fp.huella_plan(_plan(modo="live"))
-    canonico = json.dumps(fp.plan_como_json(base), sort_keys=True, separators=(",", ":"))
+    sin_derivados = fp.plan_como_json(base)
+    del sin_derivados["goals_fijan_target"]
+    canonico = json.dumps(sin_derivados, sort_keys=True, separators=(",", ":"))
     assert fp.huella_plan(base) == hashlib.sha256(canonico.encode("utf-8")).hexdigest()
 
 
@@ -815,6 +817,34 @@ def test_plan_json_registra_si_goals_fijan_target():
     historico = fp.plan_v2_como_json(_plan_v2(objetivo="25.00"))
     del historico["goals_fijan_target"]
     assert fp.plan_v2_desde_json(historico).objetivo.acos_pct == Decimal("25.00")
+    # F7: los tres estados que ve el JS, en el cable serializado (lo que
+    # el preview distingue: true numero, false linea, ausente numero).
+    assert '"goals_fijan_target": true' in json.dumps(
+        fp.plan_v2_como_json(_plan_v2(objetivo="25.00")), sort_keys=True
+    )
+    assert '"goals_fijan_target": false' in json.dumps(
+        fp.plan_v2_como_json(_plan_v2_medido()), sort_keys=True
+    )
+    assert "goals_fijan_target" not in json.dumps(historico, sort_keys=True)
+
+
+def test_huella_ignora_marcador_derivado():
+    """F6 AI-review PR #381: goals_fijan_target NO entra a la huella (es
+    derivada del objetivo cubierto): un preview en vuelo sobrevive al
+    despliegue y el guard `web-<huella>` de `crear` sigue encontrando
+    el lote en vez de duplicar campanas."""
+    plan = _plan_v2(objetivo="25.00")
+    con_marcador = fp.plan_v2_como_json(plan)
+    assert con_marcador["goals_fijan_target"] is True
+    sin_marcador = dict(con_marcador)
+    del sin_marcador["goals_fijan_target"]
+    canonico = json.dumps(sin_marcador, sort_keys=True, separators=(",", ":"))
+    assert fp.huella_plan_v2(plan) == hashlib.sha256(canonico.encode("utf-8")).hexdigest()
+    datos_v1 = fp.plan_como_json(_plan())
+    assert datos_v1["goals_fijan_target"] is False
+    del datos_v1["goals_fijan_target"]
+    canonico_v1 = json.dumps(datos_v1, sort_keys=True, separators=(",", ":"))
+    assert fp.huella_plan(_plan()) == hashlib.sha256(canonico_v1.encode("utf-8")).hexdigest()
 
 
 @pytest.mark.parametrize("valor", ["0", "0.00", "9.99", "45.01", "70"])
