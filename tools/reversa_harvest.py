@@ -12,6 +12,12 @@ dry-run, sobre los pasos PENDIENTES) y `--go` no vacio. Usa
 `apply._cliente_reversa`: no construye `AdsWriteClient`, no acepta
 profile/IDs arbitrarios.
 
+`--solo-origen` (D.4, remediacion del job 2): archiva SOLO el negativo de
+origen de un job legado con destino congelado = origen, con procedencia
+probada por el ledger, y deja intacta la keyword. Misma ceremonia, misma
+huella, mismo ledger (`reversa`, sin quota), mismo readback. Sin la firma
+D.4 el plan no existe (el tool aborta, no toca nada).
+
 La ejecucion real se ensaya en D.3 con un go nuevo del dueno; en A.3 solo
 se prueba con MockTransport (la logica vive en `app.apply_harvest`).
 """
@@ -27,7 +33,11 @@ from app import apply
 from app.ads.client import AdsClientError
 from app.ads.config import AdsConfigError
 from app.apply import SinPerfilReversa
-from app.apply_harvest import ejecuta_reversa_harvest, plan_reversa_harvest
+from app.apply_harvest import (
+    ejecuta_reversa_harvest,
+    plan_reversa_harvest,
+    plan_reversa_origen_harvest,
+)
 from app.db import OrbitDbError, connect
 
 
@@ -64,6 +74,12 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--job", type=int, required=True, help="id de harvest_job done a revertir")
     ap.add_argument(
+        "--solo-origen",
+        action="store_true",
+        help="D.4: solo el negativo de origen (job legado con destino = origen;"
+        " la keyword queda intacta)",
+    )
+    ap.add_argument(
         "--acepto-mutacion-real",
         action="store_true",
         help="obligatorio para tocar Amazon; sin el = dry-run",
@@ -78,12 +94,17 @@ def main(argv=None) -> int:
     except OrbitDbError as exc:
         raise Abortar(str(exc)) from None
     try:
-        platform, term, decision_id, pasos = plan_reversa_harvest(conn, args.job)
+        if args.solo_origen:
+            platform, term, decision_id, pasos = plan_reversa_origen_harvest(conn, args.job)
+        else:
+            platform, term, decision_id, pasos = plan_reversa_harvest(conn, args.job)
     except ValueError as exc:
         raise Abortar(str(exc)) from None
     pendientes = _pendientes(conn, decision_id, pasos)
     huella = _huella_pasos(pendientes)
     print(f"job: {args.job} platform: {platform} termino: {term} decision: {decision_id}")
+    if args.solo_origen:
+        print("alcance: solo negativo de origen (la keyword destino queda intacta)")
     for paso in pasos:
         print(_linea_paso(paso, paso not in pendientes))
     print(f"pendientes: {len(pendientes)} huella: {huella}")

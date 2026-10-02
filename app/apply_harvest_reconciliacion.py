@@ -168,8 +168,18 @@ def revalida_harvest(
     # savepoint + camino del goal fresco, como antes de F2.
     try:
         with conn.transaction():
+            # D.4: la revalida hila el ad group de origen (el mismo que
+            # evalua el ciclo): destino vivo = origen descarta con
+            # origen_es_destino PRE-claim, sin cobro. Sin externos (padre
+            # roto) el origen es desconocido y se resuelve como antes.
+            externos = conn.execute(_ejecucion._SQL_EXTERNALES, (grupo,)).fetchone()
             destino = (
-                harvest_destino.resolver_destino(conn, platform, padre[0])
+                harvest_destino.resolver_destino(
+                    conn,
+                    platform,
+                    padre[0],
+                    origen_ad_group_external=externos[0] if externos else None,
+                )
                 if padre is not None
                 else harvest_destino.SaltoHarvest(motivo=hygiene.MOTIVO_SIN_DESTINO_HARVEST)
             )

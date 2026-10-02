@@ -51,8 +51,13 @@ def _handler_reversa(vivos, *, no_archiva=(), fallo_delete=(), muta_identidad=()
         body = json.loads(request.content) if request.content else {}
         if path == "/sp/negativeKeywords/list":
             dentro = set((body.get("adGroupIdFilter") or {}).get("include", []))
+            # D.4: un LIST de negativos jamas trae keywords (con origen =
+            # destino conviven en el mismo ad group y el mock los mezclaba).
+            negativos = [x for x in store if x.get("_clase") != "keyword"]
             filtrados = (
-                [x for x in store if str(x.get("adGroupId")) in dentro] if dentro else list(store)
+                [x for x in negativos if str(x.get("adGroupId")) in dentro]
+                if dentro
+                else list(negativos)
             )
             return httpx.Response(
                 200, json={"negativeKeywords": filtrados, "totalResults": len(filtrados)}
@@ -1032,3 +1037,384 @@ def test_cli_auth_durante_delete_aborta_limpio(monkeypatch, capsys):
             (dec,),
         ).fetchone()
         assert fila is None or fila[0] is None, "el delete no confirmado queda abierto"
+
+
+# ---------------------------------------------------------------------------
+# D.4: remediacion sellada del job 2 — reversa SOLO del negativo de origen
+#
+# El job 2 (decision 2311, attempts 208/209) nacio del hueco D.4: destino =
+# origen (ad group 272585315669297) y el NEGATIVE_EXACT sigue ENABLED
+# bloqueando la EXACT cosechada. `plan_reversa_harvest` da 0 pasos para el
+# porque sus external_ids no traen flags *_creada (a proposito: sin
+# procedencia F2 no autoriza borrado). El camino sellado es
+# `plan_reversa_origen_harvest` + `tools/reversa_harvest.py --solo-origen`:
+# archiva SOLO el negativo de origen con procedencia probada por el ledger
+# (intento normal ok + ack con la id, forma del attempt 208) y deja intacta
+# la keyword. Alcance estricto: solo jobs legado (sin *_creada en True, sin
+# hermanas creadas) cuyo destino congelado ES el origen.
+# ---------------------------------------------------------------------------
+
+TERMINO_D4 = "arras matrimoniales de oro"
+CAMP_D4 = "EC-41"
+AG_D4 = "EO-41"
+KW_D4 = "k-d4"
+NEG_D4 = "n-d4"
+
+
+def _job_done_d4(
+    conn,
+    *,
+    destino=None,
+    ext=None,
+    ack_negativo=True,
+    term=TERMINO_D4,
+    verify_ok=True,
+    cola_final="applied",
+):
+    """Job done legado con la FORMA del job 2: destino congelado (shape
+    pre-F2, sin resuelto_por, como la decision 2311) = ad group de origen;
+    external_ids con ids pero SIN flags *_creada; ledger normal ok con
+    payloads y acks (forma de los attempts 208/209). `decision` es
+    append-only: cada caso fail-closed se siembra con sus parametros, no
+    con UPDATE."""
+    import datetime as _dt
+
+    from psycopg.types.json import Json
+
+    camp_dest, ag_dest = destino or (CAMP_D4, AG_D4)
+    config_id = conn.execute(
+        "INSERT INTO config_version (label, settings) VALUES ('t-d4', '{}') RETURNING id"
+    ).fetchone()[0]
+    ciclo_dec = conn.execute(
+        "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+    ).fetchone()[0]
+    ciclo_ejec = conn.execute(
+        "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+    ).fetchone()[0]
+    camp = conn.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id)"
+        " VALUES ('amazon_us', 'campaign', %s) RETURNING id",
+        (CAMP_D4,),
+    ).fetchone()[0]
+    ag = conn.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id, parent_id)"
+        " VALUES ('amazon_us', 'ad_group', %s, %s) RETURNING id",
+        (AG_D4, camp),
+    ).fetchone()[0]
+    vieja = _dt.datetime.now(_dt.UTC) - _dt.timedelta(days=3)
+    inputs = {
+        "motor": "hygiene",
+        "platform": "amazon_us",
+        "modo": "live",
+        "motivo": "harvest_umbral",
+        "goal": {
+            "harvest": {
+                "campaign_id": camp_dest,
+                "ad_group_id": ag_dest,
+                "default_bid": "1.00",
+                "moneda": "USD",
+            },
+        },
+    }
+    dec = conn.execute(
+        "INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_id,"
+        " data_observed_at, window_start, window_end, search_term, new_value, value_currency,"
+        " inputs) VALUES (%s, %s, 'harvest', %s, %s, %s - interval '1 day', %s - 60, %s - 30,"
+        " %s, 1.00, 'USD', %s) RETURNING id",
+        (ciclo_dec, ag, vieja, config_id, vieja, vieja.date(), vieja.date(), term, Json(inputs)),
+    ).fetchone()[0]
+    qid = _encola_fila(conn, dec, ag, term=term)
+    _libera_cola(conn, qid)
+    if cola_final == "applied":
+        conn.execute(
+            "UPDATE apply_queue SET estado = 'applying', applying_at = now() WHERE id = %s",
+            (qid,),
+        )
+        conn.execute(
+            "UPDATE apply_queue SET estado = 'applied', applied_at = now() WHERE id = %s", (qid,)
+        )
+    conn.execute(
+        "INSERT INTO decision_application (decision_id, confirmed_at, platform_ack,"
+        " verify_ok, applied_cycle_id) VALUES (%s, now(), '{}'::jsonb, %s, %s)",
+        (dec, verify_ok, ciclo_ejec),
+    )
+    jid = conn.execute(
+        "INSERT INTO harvest_job (decision_id, search_term, platform, ad_entity_id, fase)"
+        " VALUES (%s, %s, 'amazon_us', %s, 'pending') RETURNING id",
+        (dec, term, ag),
+    ).fetchone()[0]
+    conn.execute("UPDATE harvest_job SET fase = 'negative_created' WHERE id = %s", (jid,))
+    conn.execute("UPDATE harvest_job SET fase = 'exact_created' WHERE id = %s", (jid,))
+    conn.execute(
+        "UPDATE harvest_job SET fase = 'done', external_ids = %s WHERE id = %s",
+        (Json(ext if ext is not None else {"keyword_id": KW_D4, "negative_id": NEG_D4}), jid),
+    )
+    ack_neg = (
+        {"negativeKeywords": {"error": [], "success": [{"negativeKeywordId": NEG_D4}]}}
+        if ack_negativo
+        else {}
+    )
+    # Forma de los attempts 208 (negativo) y 209 (keyword) del job 2.
+    conn.execute(
+        "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada,"
+        " ack, resultado, finished_at) VALUES (%s, 1, 'normal', %s, true, %s, 'ok', now()),"
+        " (%s, 2, 'normal', %s, true, %s, 'ok', now())",
+        (
+            dec,
+            Json(
+                {
+                    "adGroupId": AG_D4,
+                    "campaignId": CAMP_D4,
+                    "keywordText": term,
+                    "matchType": "NEGATIVE_EXACT",
+                    "state": "ENABLED",
+                }
+            ),
+            Json(ack_neg),
+            dec,
+            Json(
+                {
+                    "adGroupId": AG_D4,
+                    "campaignId": CAMP_D4,
+                    "keywordText": term,
+                    "matchType": "EXACT",
+                    "state": "ENABLED",
+                    "bid": "1.00",
+                }
+            ),
+            Json({"keywords": {"error": [], "success": [{"keywordId": KW_D4}]}}),
+        ),
+    )
+    return {"jid": jid, "dec": dec, "qid": qid, "ag": ag, "camp": camp}
+
+
+def _vivos_d4():
+    """Los dos objetos del job 2 vivos y ENABLED en el MISMO ad group."""
+    return [
+        {
+            "adGroupId": AG_D4,
+            "campaignId": CAMP_D4,
+            "keywordId": NEG_D4,
+            "keywordText": TERMINO_D4,
+            "matchType": "NEGATIVE_EXACT",
+            "state": "ENABLED",
+        },
+        {
+            "_clase": "keyword",
+            "adGroupId": AG_D4,
+            "campaignId": CAMP_D4,
+            "keywordId": KW_D4,
+            "keywordText": TERMINO_D4,
+            "matchType": "EXACT",
+            "state": "ENABLED",
+        },
+    ]
+
+
+@_skip_db
+def test_d4_solo_origen_da_cero_pasos_en_reversa_completa():
+    """Precondicion del diseno (hecho de produccion): el job con forma del
+    2 da plan VACIO en `plan_reversa_harvest` (sin *_creada no autoriza
+    borrado). Si algun dia lo reconoce, --solo-origen sobra."""
+    from app.apply_harvest import plan_reversa_harvest
+
+    with db_f2("orbit_d4_rev0") as conn:
+        fix = _job_done_d4(conn)
+        _platform, _term, _dec, pasos = plan_reversa_harvest(conn, fix["jid"])
+        assert pasos == []
+
+
+@_skip_db
+def test_d4_solo_origen_plan_un_paso_negativo():
+    """El plan solo-origen del job con forma del 2: UN paso, el negativo
+    de origen. Rojo: la funcion no existe."""
+    from app.apply_harvest import plan_reversa_origen_harvest
+
+    with db_f2("orbit_d4_plan") as conn:
+        fix = _job_done_d4(conn)
+        platform, term, dec, pasos = plan_reversa_origen_harvest(conn, fix["jid"])
+        assert (platform, term, dec) == ("amazon_us", TERMINO_D4, fix["dec"])
+        assert len(pasos) == 1
+        (paso,) = pasos
+        assert paso.clase == "negative" and paso.rol is None
+        assert paso.ad_group_ext == AG_D4 and paso.objeto_id == NEG_D4
+        assert paso.provisional is False
+
+
+@_skip_db
+def test_d4_solo_origen_falla_cerrado():
+    """Sin firma D.4 no hay plan: destino != origen, sin negative_id, sin
+    intento normal ok con ack-id, job no done, jobs F2 (solo keyword_creada,
+    solo negative_creada y, por separado, hermanas creadas: esos van por la
+    reversa completa), sin verify_ok y cola no applied. Una DB por caso
+    (ad_entity y decision no se re-siembran)."""
+    from app.apply_harvest import plan_reversa_origen_harvest
+
+    with db_f2("orbit_d4_fail1") as conn:
+        fix = _job_done_d4(conn, destino=("OTRA", "OTRO"))
+        with pytest.raises(ValueError, match="destino.*origen|origen.*destino"):
+            plan_reversa_origen_harvest(conn, fix["jid"])
+    with db_f2("orbit_d4_fail2") as conn:
+        fix = _job_done_d4(conn, ext={"keyword_id": KW_D4})
+        with pytest.raises(ValueError, match="sin negative_id"):
+            plan_reversa_origen_harvest(conn, fix["jid"])
+    with db_f2("orbit_d4_fail3") as conn:
+        fix = _job_done_d4(conn, ack_negativo=False)
+        with pytest.raises(ValueError, match="procedencia"):
+            plan_reversa_origen_harvest(conn, fix["jid"])
+    with db_f2("orbit_d4_fail4a") as conn:
+        # Ronda 1 del lead (B4): una sola bandera ya deriva a la completa.
+        fix = _job_done_d4(
+            conn,
+            ext={"keyword_id": KW_D4, "keyword_creada": True, "negative_id": NEG_D4},
+        )
+        with pytest.raises(ValueError, match="reversa completa"):
+            plan_reversa_origen_harvest(conn, fix["jid"])
+    with db_f2("orbit_d4_fail4b") as conn:
+        fix = _job_done_d4(
+            conn,
+            ext={"keyword_id": KW_D4, "negative_id": NEG_D4, "negative_creada": True},
+        )
+        with pytest.raises(ValueError, match="reversa completa"):
+            plan_reversa_origen_harvest(conn, fix["jid"])
+    with db_f2("orbit_d4_fail5") as conn:
+        fix = _job_done_d4(conn)
+        pendiente = conn.execute(
+            "INSERT INTO harvest_job (decision_id, search_term, platform, ad_entity_id, fase)"
+            " VALUES (%s, %s, 'amazon_us', %s, 'pending') RETURNING id",
+            (fix["dec"], TERMINO_D4, fix["ag"]),
+        ).fetchone()[0]
+        with pytest.raises(ValueError, match="solo acepta done"):
+            plan_reversa_origen_harvest(conn, pendiente)
+    with db_f2("orbit_d4_fail6") as conn:
+        # Ronda grok (hallazgo 3): sin este caso, borrar el guard de
+        # hermanas en plan_reversa_origen_harvest dejaba la suite verde.
+        fix = _job_done_d4(
+            conn,
+            ext={
+                "keyword_id": KW_D4,
+                "negative_id": NEG_D4,
+                "hermanas": {"category_phrase": {"negative_id": "n-h", "creada": True}},
+            },
+        )
+        with pytest.raises(ValueError, match="reversa completa"):
+            plan_reversa_origen_harvest(conn, fix["jid"])
+    with db_f2("orbit_d4_fail7") as conn:
+        # Ronda 1 del lead (B3): sin verify_ok no hay pasos.
+        fix = _job_done_d4(conn, verify_ok=False)
+        with pytest.raises(ValueError, match="sin verify_ok"):
+            plan_reversa_origen_harvest(conn, fix["jid"])
+    with db_f2("orbit_d4_fail8") as conn:
+        # Ronda 1 del lead (B3): cola no applied no hay pasos.
+        fix = _job_done_d4(conn, cola_final="released")
+        with pytest.raises(ValueError, match="cola no applied"):
+            plan_reversa_origen_harvest(conn, fix["jid"])
+
+
+@_skip_db
+def test_d4_solo_origen_ejecuta_solo_negativo_keyword_intacta():
+    """MockTransport: el delete archiva el negativo y la keyword sigue
+    ENABLED; UN solo delete; ledger reversa ok sin quota. Rojo: no existe
+    el plan (el ejecutor se reusa)."""
+    from app.apply_harvest import ejecuta_reversa_harvest, plan_reversa_origen_harvest
+
+    with db_f2("orbit_d4_ejec") as conn:
+        fix = _job_done_d4(conn)
+        _platform, term, dec, pasos = plan_reversa_origen_harvest(conn, fix["jid"])
+        handler, vistos = _handler_reversa(_vivos_d4())
+        ok, detalle = ejecuta_reversa_harvest(conn, _cliente_reversa(handler), dec, term, pasos)
+        assert (ok, detalle) == (True, "reversa: ok")
+        deletes = [r for r in vistos if r.url.path.endswith("/delete")]
+        assert len(deletes) == 1, "un solo delete: el negativo de origen"
+        assert NEG_D4 in deletes[0].content.decode()
+        assert KW_D4.encode() not in b"".join(r.content for r in deletes), "la keyword no se toca"
+        fila = conn.execute(
+            "SELECT quota_cobrada, resultado FROM apply_attempt WHERE decision_id = %s"
+            " AND tipo = 'reversa'",
+            (dec,),
+        ).fetchone()
+        assert (fila[0], fila[1]) == (False, "ok")
+
+
+@_skip_db
+def test_d4_solo_origen_idempotente_segunda_corrida_cero_pendientes():
+    """Tras archivar, re-planear da 0 pendientes (ledger reversa ok): la
+    re-corida del tool imprime 'pendientes: 0', no re-borra."""
+    from app.apply_harvest import ejecuta_reversa_harvest, plan_reversa_origen_harvest
+
+    with db_f2("orbit_d4_idem") as conn:
+        fix = _job_done_d4(conn)
+        _platform, term, dec, pasos = plan_reversa_origen_harvest(conn, fix["jid"])
+        handler, _vistos = _handler_reversa(_vivos_d4())
+        ok, _detalle = ejecuta_reversa_harvest(conn, _cliente_reversa(handler), dec, term, pasos)
+        assert ok
+        mod = _carga_tool()
+        _platform2, _term2, dec2, pasos2 = plan_reversa_origen_harvest(conn, fix["jid"])
+        pendientes = mod._pendientes(conn, dec2, pasos2)
+        assert pendientes == []
+
+
+@_skip_db
+def test_d4_cli_solo_origen_dry_run_cero_http(monkeypatch, capsys):
+    """`--solo-origen` en dry-run: plan de 1 paso + huella + linea de
+    alcance, cero HTTP. Rojo: argparse no conoce el flag."""
+    mod = _carga_tool()
+    with db_f2("orbit_d4_cli") as conn:
+        fix = _job_done_d4(conn)
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", _dsn_decide_de(conn))
+        rc = mod.main(["--job", str(fix["jid"]), "--solo-origen"])
+        assert rc == 0
+        salida = capsys.readouterr().out
+        assert "dry-run" in salida and "huella:" in salida
+        assert "solo negativo de origen" in salida
+        assert "[pendiente] negative" in salida
+        assert "[pendiente] keyword" not in salida, "la keyword no entra al plan"
+
+
+@_skip_db
+def test_d4_cli_solo_origen_exige_ceremonia(monkeypatch, capsys):
+    """Sin ceremonia completa no hay mutacion: falta --esperado / --go /
+    --huella y huella muerta abortan; --esperado distinto de 1 aborta."""
+    mod = _carga_tool()
+    with db_f2("orbit_d4_cer") as conn:
+        fix = _job_done_d4(conn)
+        monkeypatch.setenv("ORBIT_DSN_DECIDE", _dsn_decide_de(conn))
+        base = ["--job", str(fix["jid"]), "--solo-origen"]
+        with pytest.raises(Exception, match="--esperado"):
+            mod.main([*base, "--acepto-mutacion-real", "--go", "x"])
+        with pytest.raises(Exception, match="--go"):
+            mod.main([*base, "--acepto-mutacion-real", "--esperado", "1"])
+        with pytest.raises(Exception, match="--huella"):
+            mod.main([*base, "--acepto-mutacion-real", "--esperado", "1", "--go", "x"])
+        capsys.readouterr()
+        assert mod.main(base) == 0
+        salida = capsys.readouterr().out
+        linea = [ln for ln in salida.splitlines() if ln.startswith("pendientes:")][0]
+        assert linea.split()[1] == "1"
+        huella = linea.split("huella: ")[1]
+        with pytest.raises(Exception, match="huella"):
+            mod.main(
+                [
+                    *base,
+                    "--acepto-mutacion-real",
+                    "--esperado",
+                    "1",
+                    "--go",
+                    "x",
+                    "--huella",
+                    "muerta",
+                ]
+            )
+        with pytest.raises(Exception, match="--esperado"):
+            mod.main(
+                [
+                    *base,
+                    "--acepto-mutacion-real",
+                    "--esperado",
+                    "2",
+                    "--go",
+                    "x",
+                    "--huella",
+                    huella,
+                ]
+            )

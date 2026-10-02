@@ -5,12 +5,19 @@ decision pura (`decide`) testeable sin base y el SQL en UNA sola funcion
 lectora (`_lee`). `test_motor_puro_sin_io` prohíbe `psycopg` en runtime en
 todo `app/optimizer`.
 
-Firma: `resolver_destino(conn, platform, campaign_ad_entity_id)`. El
-parametro es la CAMPANA (`campana_grupo_rol.ad_entity_id` y
-`harvest_excepcion.ad_entity_id` son campanas; `decision.ad_entity_id` y
-`harvest_job.ad_entity_id` son el ad group: cada caller resuelve el padre,
-como hace `_SQL_PADRE` en `apply_harvest.py`). Si se pasa el ad group, los
-SELECT devuelven cero filas y todo resuelve `sin_destino_de_harvest`.
+Firma: `resolver_destino(conn, platform, campaign_ad_entity_id,
+origen_ad_group_external=None)`. El tercer parametro es la CAMPANA
+(`campana_grupo_rol.ad_entity_id` y `harvest_excepcion.ad_entity_id` son
+campanas; `decision.ad_entity_id` y `harvest_job.ad_entity_id` son el ad
+group: cada caller resuelve el padre, como hace `_SQL_PADRE` en
+`apply_harvest.py`). Si se pasa el ad group, los SELECT devuelven cero
+filas y todo resuelve `sin_destino_de_harvest`. El cuarto parametro es el
+external del ad group ORIGEN que se cosecha (D.4): en los caminos de
+excepcion y terna, si el destino resuelto es ESE MISMO ad group, el
+negativo de origen bloquearia la keyword cosechada (caso real: job 2) y se
+salta con `origen_es_destino`. None = origen desconocido (callers por
+campana): resuelve como antes. El camino de grupo no lo usa (su
+comparacion es por rol).
 
 Orden (plan, seccion "Diseno"):
 1. `campana_grupo_rol` por campana: rol `category_exact` como origen ->
@@ -167,8 +174,16 @@ def _monto(lectura: _Lectura) -> tuple[Decimal | None, str | None, Decimal | Non
     return (goal.harvest_default_bid, goal.bid_currency, floor, ceiling)
 
 
-def decide(lectura: _Lectura) -> DestinoHarvest | SaltoHarvest:
-    """Los cuatro pasos, puros y sin IO (testeables sin base)."""
+def decide(
+    lectura: _Lectura, origen_ad_group_external: str | None = None
+) -> DestinoHarvest | SaltoHarvest:
+    """Los cuatro pasos, puros y sin IO (testeables sin base).
+
+    `origen_ad_group_external` (D.4): external del ad group ORIGEN que se
+    cosecha. En excepcion y terna, destino = origen es salto con
+    `origen_es_destino` (el negativo bloquearia la keyword: job 2). None =
+    origen desconocido: resuelve como antes. El camino de grupo no cambia.
+    """
     bid, moneda, floor, ceiling = _monto(lectura)
     if lectura.grupo is not None:
         grupo_id, rol_origen, camp_ext, ag_ext = lectura.grupo
@@ -194,6 +209,8 @@ def decide(lectura: _Lectura) -> DestinoHarvest | SaltoHarvest:
         )
     if lectura.excepcion is not None:
         camp_ext, ag_ext = lectura.excepcion
+        if origen_ad_group_external is not None and ag_ext == origen_ad_group_external:
+            return SaltoHarvest(motivo=hygiene.MOTIVO_ORIGEN_ES_DESTINO)
         return DestinoHarvest(
             campaign_external=camp_ext,
             ad_group_external=ag_ext,
@@ -210,6 +227,11 @@ def decide(lectura: _Lectura) -> DestinoHarvest | SaltoHarvest:
         assert goal is not None
         assert goal.harvest_campaign_id is not None
         assert goal.harvest_ad_group_id is not None
+        if (
+            origen_ad_group_external is not None
+            and goal.harvest_ad_group_id == origen_ad_group_external
+        ):
+            return SaltoHarvest(motivo=hygiene.MOTIVO_ORIGEN_ES_DESTINO)
         return DestinoHarvest(
             campaign_external=goal.harvest_campaign_id,
             ad_group_external=goal.harvest_ad_group_id,
@@ -225,14 +247,17 @@ def decide(lectura: _Lectura) -> DestinoHarvest | SaltoHarvest:
 
 
 def resolver_destino(
-    conn: psycopg.Connection, platform: str, campaign_ad_entity_id: int
+    conn: psycopg.Connection,
+    platform: str,
+    campaign_ad_entity_id: int,
+    origen_ad_group_external: str | None = None,
 ) -> DestinoHarvest | SaltoHarvest:
     """Destino de harvest de una CAMPANA (ver docstring del modulo)."""
     if platform not in PLATAFORMAS_MONEDA:
         raise ValueError(
             f"plataforma fuera del vocabulario sellado {{amazon_us, amazon_mx}}: {platform!r}"
         )
-    return decide(_lee(conn, platform, campaign_ad_entity_id))
+    return decide(_lee(conn, platform, campaign_ad_entity_id), origen_ad_group_external)
 
 
 def simula_excepcion(
@@ -240,6 +265,7 @@ def simula_excepcion(
     platform: str,
     campaign_ad_entity_id: int,
     par: tuple[str, str],
+    origen_ad_group_external: str | None = None,
 ) -> DestinoHarvest | SaltoHarvest:
     """Resolucion "despues" de migrar (A.5, dry-run de `--migrar`): la
     misma lectura de `_lee` con la excepcion sustituida por `par`
@@ -250,4 +276,7 @@ def simula_excepcion(
         raise ValueError(
             f"plataforma fuera del vocabulario sellado {{amazon_us, amazon_mx}}: {platform!r}"
         )
-    return decide(replace(_lee(conn, platform, campaign_ad_entity_id), excepcion=par))
+    return decide(
+        replace(_lee(conn, platform, campaign_ad_entity_id), excepcion=par),
+        origen_ad_group_external,
+    )

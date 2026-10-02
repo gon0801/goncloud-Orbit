@@ -220,6 +220,9 @@ def test_revalidacion_harvest_respeta_target_del_goal(target_congelado):
     filas = {
         apply_harvest._SQL_DECISION: [(None, None, {"target_acos_pct_usado": target_congelado})],
         apply_harvest._SQL_PADRE: [(100,)],
+        # D.4: la revalida lee el external del origen para el resolutor;
+        # "301" != destino "201" (el escenario sigue siendo grupo valido).
+        apply_harvest._SQL_EXTERNALES: [("301", "300")],
         apply._SQL_GOALS_ENTIDAD: [goal],
         harvest_destino._SQL_GRUPO: [(1, "category_phrase", "200", "201")],
         harvest_destino._SQL_EXCEPCION: [],
