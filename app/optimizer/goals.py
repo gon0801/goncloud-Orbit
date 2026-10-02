@@ -764,6 +764,66 @@ def _valida_fraccion(fraccion: Decimal | None) -> Decimal | None:
     return fraccion
 
 
+# ---------------------------------------------------------------------------
+# Confianzas del motor (A3): lo conservador que es el dueno por plataforma.
+# ---------------------------------------------------------------------------
+
+CONFIANZA_RECORTE_DEFAULT = Decimal("0.80")
+CONFIANZA_SUBIDA_DEFAULT = Decimal("0.70")
+CONFIANZA_MIN = Decimal("0.50")
+CONFIANZA_MAX = Decimal("0.99")
+
+
+def clave_confianza_recorte(platform: str) -> str:
+    """Clave sellada de la confianza de recorte
+    (ads_confianza_recorte_<platform>, docs/DATABASE.md)."""
+    return f"ads_confianza_recorte_{platform}"
+
+
+def clave_confianza_subida(platform: str) -> str:
+    """Clave sellada de la confianza de subida
+    (ads_confianza_subida_<platform>, docs/DATABASE.md)."""
+    return f"ads_confianza_subida_{platform}"
+
+
+def _confianza_desde_settings(
+    settings: Mapping, clave: str, default: Decimal, nombre: str
+) -> Decimal:
+    """Confianza YA resuelta: clave ausente = default (el dueno no ha
+    tocado nada); PRESENTE pero no numerica, NaN/Inf o fuera de
+    [0.50, 0.99] = config CORRUPTA: ValueError ruidoso que tumba al
+    lector (regla 3, mismo trato que target/fraccion: decidir con una
+    confianza que nadie configuro seria inventar lo conservador)."""
+    valor = settings.get(clave)
+    if valor is None:
+        return default
+    try:
+        confianza = Decimal(str(valor).strip())
+    except InvalidOperation as exc:
+        raise ValueError(f"setting {clave}: confianza no numerica: {valor!r}") from exc
+    if not confianza.is_finite() or not CONFIANZA_MIN <= confianza <= CONFIANZA_MAX:
+        raise ValueError(
+            f"setting {clave}: confianza de {nombre} debe estar en [0.50, 0.99], llego {valor!r}"
+        )
+    return confianza
+
+
+def confianza_recorte_desde_settings(settings: Mapping, platform: str) -> Decimal:
+    """Confianza de recorte: mas alta, el motor recorta menos y con mas
+    evidencia. Ausente = 0.80."""
+    return _confianza_desde_settings(
+        settings, clave_confianza_recorte(platform), CONFIANZA_RECORTE_DEFAULT, "recorte"
+    )
+
+
+def confianza_subida_desde_settings(settings: Mapping, platform: str) -> Decimal:
+    """Confianza de subida: mas baja, el motor sube pujas mas facil.
+    Ausente = 0.70."""
+    return _confianza_desde_settings(
+        settings, clave_confianza_subida(platform), CONFIANZA_SUBIDA_DEFAULT, "subida"
+    )
+
+
 def ratio_ads_publicable(
     suma_ads: Decimal | None,
     n_monedas_ads: int | None,

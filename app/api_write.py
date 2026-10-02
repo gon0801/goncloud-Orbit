@@ -219,6 +219,9 @@ class CuerpoSettings(BaseModel):
     margen: CuerpoMargen | None = None
     caps: dict[str, Annotated[int, Field(ge=0)] | None] | None = None
     ack_respaldo: bool = False
+    # A3: confianzas del motor, opcionales (None = no tocar), en [0.50, 0.99].
+    confianza_recorte: Decimal | None = Field(default=None, ge=0.5, le=0.99)
+    confianza_subida: Decimal | None = Field(default=None, ge=0.5, le=0.99)
 
 
 # Transicion atomica del veto: el WHERE de estados ES la carrera contra el
@@ -442,6 +445,8 @@ def editar_settings(
             fraccion=None if cuerpo.margen is None else cuerpo.margen.fraccion,
             caps=cuerpo.caps,
             ack_respaldo=cuerpo.ack_respaldo,
+            confianza_recorte=cuerpo.confianza_recorte,
+            confianza_subida=cuerpo.confianza_subida,
         )
     except tuple(_ERRORES_SETTINGS) as exc:
         raise HTTPException(status_code=_ERRORES_SETTINGS[type(exc)], detail=str(exc)) from None

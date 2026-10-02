@@ -174,6 +174,36 @@ def test_target_invalido_es_config_corrupta_no_ausente():
         g.cascada_target_acos(None, Decimal("NaN"), None)
 
 
+def test_confianza_ausente_lee_default_por_plataforma():
+    """A3: sin clave -> defaults (recorte 0.80, subida 0.70); presentes se
+    leen exactos por plataforma."""
+    assert g.confianza_recorte_desde_settings({}, "amazon_us") == Decimal("0.80")
+    assert g.confianza_subida_desde_settings({}, "amazon_us") == Decimal("0.70")
+    settings = {
+        "ads_confianza_recorte_amazon_us": "0.90",
+        "ads_confianza_subida_amazon_mx": 0.6,
+    }
+    assert g.confianza_recorte_desde_settings(settings, "amazon_us") == Decimal("0.90")
+    assert g.confianza_subida_desde_settings(settings, "amazon_mx") == Decimal("0.6")
+    assert g.confianza_recorte_desde_settings(settings, "amazon_mx") == Decimal("0.80")
+
+
+def test_confianza_bordes_validos_y_fuera_corrupta():
+    """A3: [0.50, 0.99] valido (bordes incluidos); fuera, NaN o basura =
+    config CORRUPTA (ValueError, falla cerrado como target/fraccion)."""
+    for borde in ("0.50", "0.99"):
+        assert g.confianza_recorte_desde_settings(
+            {"ads_confianza_recorte_amazon_us": borde}, "amazon_us"
+        ) == Decimal(borde)
+    for mala in ("0.49", "0.40", "1.0", "1.5", "nan", "Infinity", "abc", "0,5"):
+        with pytest.raises(ValueError, match="confianza"):
+            g.confianza_recorte_desde_settings(
+                {"ads_confianza_recorte_amazon_us": mala}, "amazon_us"
+            )
+        with pytest.raises(ValueError, match="confianza"):
+            g.confianza_subida_desde_settings({"ads_confianza_subida_amazon_us": mala}, "amazon_us")
+
+
 # ---------------------------------------------------------------------------
 # Floor/ceiling con defaults POR MONEDA (ORBIT 05 preflight 1.2)
 # ---------------------------------------------------------------------------

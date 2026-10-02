@@ -77,7 +77,7 @@ from app.api_common import (
 )
 from app.apply import KINDS_QUOTA, estado_quota
 from app.apply_harvest import ROLES_DISCOVERY
-from app.config_write import ADVERTENCIA_RESPALDO, clave_cap, clave_fraccion
+from app.config_write import ADVERTENCIA_RESPALDO, clave_cap
 from app.dashboard_contribucion import contribucion_campanas as _contribucion_campanas
 from app.dashboard_pagina import (
     _CAMPANA_ANCESTRO,
@@ -1401,7 +1401,10 @@ def settings(conn: ConexionLectura) -> dict:
             None, goal, settings, None, plataforma, _target_margen_del_ciclo(conn, plataforma)
         )
         peldanos[plataforma] = peldano
-        fraccion = settings.get(clave_fraccion(plataforma))
+        # A3 lane 5: la fraccion pasa por el lector del motor (ausente =
+        # None como antes; corrupta = ValueError y la pagina NO se muestra,
+        # igual que target y confianzas).
+        fraccion = g.fraccion_desde_settings(settings, plataforma)
         caps = {kind: settings.get(clave_cap(plataforma, kind)) for kind in KINDS_QUOTA}
         plataformas.append(
             {
@@ -1411,6 +1414,13 @@ def settings(conn: ConexionLectura) -> dict:
                 "target_manual_pct": _dec_str(settings.get(g.clave_target_plataforma(plataforma))),
                 "margen_habilitado": fraccion is not None,
                 "fraccion_margen": _dec_str(fraccion),
+                # A3: confianzas resueltas (ausentes = defaults 0.80/0.70).
+                "confianza_recorte": _dec_str(
+                    g.confianza_recorte_desde_settings(settings, plataforma)
+                ),
+                "confianza_subida": _dec_str(
+                    g.confianza_subida_desde_settings(settings, plataforma)
+                ),
                 "caps": {kind: _dec_str(cap) for kind, cap in caps.items()},
                 "goal": (_goal_editable(goal_id, goal, plataforma, None, None) if goal else None),
             }

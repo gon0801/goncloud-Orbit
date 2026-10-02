@@ -57,6 +57,18 @@
     </fieldset>
 
     <fieldset>
+      <legend>Confianzas del motor [0.50, 0.99]</legend>
+      <label>Confianza de recorte
+        <input type="text" name="confianza_recorte" value="{{ p.confianza_recorte or '' }}" inputmode="decimal">
+      </label>
+      <p class="mutado">Más alto, el motor recorta menos y con más evidencia.</p>
+      <label>Confianza de subida
+        <input type="text" name="confianza_subida" value="{{ p.confianza_subida or '' }}" inputmode="decimal">
+      </label>
+      <p class="mutado">Más bajo, el motor sube pujas más fácil.</p>
+    </fieldset>
+
+    <fieldset>
       <legend>Caps diarios</legend>
       {% for kind, valor in p.caps.items() %}
       <label>{{ kind }}
