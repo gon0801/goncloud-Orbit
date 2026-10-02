@@ -248,13 +248,28 @@ def valida_banda_manual(acos_pct: Decimal) -> None:
     (tool `_datos_plan_v2`, unico sitio de alta: CLI, preview, crear y
     bids-sugeridos); jamas al releer lotes persistidos (F1 AI-review
     PR #381: una regla de creacion no puede ser candado retroactivo
-    de lectura)."""
+    de lectura). Valida finitud primero (F4: sin esto NaN lanza
+    InvalidOperation en la comparacion, no PlanInvalido)."""
+    if not acos_pct.is_finite():
+        raise PlanInvalido("objetivo manual v2 debe ser Decimal finito")
     if not (g.MARGEN_BANDA_MIN <= acos_pct <= g.MARGEN_BANDA_MAX):
         raise PlanInvalido(
             f"objetivo manual v2 {acos_pct} fuera de la banda"
             f" [{g.MARGEN_BANDA_MIN}, {g.MARGEN_BANDA_MAX}]: el lanzamiento manual"
             " vive dentro de la banda del margen"
         )
+
+
+def valida_forma_objetivo(acos_pct: Decimal) -> None:
+    """El objetivo cabe en NUMERIC(6,2) (fuente unica del mensaje de forma).
+    Invariante atemporal: corre en `_valida_plan_v2` (creacion y relectura;
+    todo lote viejo lo cumple) y al construir en `_datos_plan_v2` (F2
+    AI-review PR #381: `sugerir_bids` nunca pisa `_valida_plan_v2` y sin
+    esto aceptaba 25.123 que `/plan` rechaza)."""
+    if not acos_pct.is_finite():
+        raise PlanInvalido("objetivo ACoS v2 debe ser Decimal finito")
+    if acos_pct.as_tuple().exponent < -2 or acos_pct > Decimal("9999.99"):
+        raise PlanInvalido("objetivo ACoS v2 fuera de NUMERIC(6,2)")
 
 
 @dataclass(frozen=True)
@@ -574,10 +589,7 @@ def _valida_plan_v2(plan: PlanGrupoV2) -> None:
     # al construir, en `valida_banda_manual` via `_datos_plan_v2`.
     if plan.objetivo.acos_pct <= 0:
         raise PlanInvalido("objetivo ACoS v2 debe ser Decimal finito > 0")
-    if plan.objetivo.acos_pct.as_tuple().exponent < -2 or plan.objetivo.acos_pct > Decimal(
-        "9999.99"
-    ):
-        raise PlanInvalido("objetivo ACoS v2 fuera de NUMERIC(6,2)")
+    valida_forma_objetivo(plan.objetivo.acos_pct)
     if plan.objetivo.origen == "margen_medido":
         if plan.objetivo.fraccion is None or plan.objetivo.derivado is None:
             raise PlanInvalido("objetivo por margen v2 requiere fraccion y derivado")

@@ -611,6 +611,25 @@ def test_cli_v2_con_target_acos_muestra_fijo_sin_linea_de_margen(monkeypatch, ca
     assert conn.escrituras == []
 
 
+def test_cli_v2_rechaza_manual_fuera_de_forma(monkeypatch):
+    """F2 AI-review PR #381: 25.123 (en banda, 3 decimales) se rechaza con
+    el mensaje de forma, igual que /plan, sin escribir nada."""
+    args = ARGS_BASE.copy()
+    indice = args.index("--productos")
+    args[indice : indice + 2] = ["--listing-ids", "11"]
+    args.extend(["--target-acos", "25.123"])
+    conn = _ConnFalsa(
+        publicaciones=[(11, 1, "B0AAAAAAAA", "SS-1", None)],
+        biblioteca=([], []),
+    )
+    _frontera_lectura(monkeypatch, conn)
+    _sin_red(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *args])
+    with pytest.raises(fc.Abortar, match="NUMERIC"):
+        fc.main()
+    assert conn.escrituras == []
+
+
 @pytest.mark.parametrize("valor", ["0", "70"])
 def test_cli_v2_rechaza_manual_fuera_de_banda(monkeypatch, valor):
     """0 y 70 se rechazan con el mensaje de la banda, sin escribir nada."""

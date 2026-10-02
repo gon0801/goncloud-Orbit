@@ -310,6 +310,27 @@ def test_bids_sugeridos_rechaza_manual_fuera_de_banda(escenario, valor):
     assert "banda" in exc.value.detail["mensaje"]
 
 
+def test_bids_sugeridos_rechaza_manual_fuera_de_forma(escenario):
+    """F2 AI-review PR #381 (resto): 25.123 en banda pero con 3 decimales →
+    422 NUMERIC (igual que /plan), antes de tocar Amazon."""
+    cliente, conn, solicitud, fw, ids = escenario
+    listing = conn.execute(
+        "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx'", (ids[0],)
+    ).fetchone()[0]
+    with pytest.raises(HTTPException) as exc:
+        fw.sugerir_bids(
+            conn,
+            {
+                "plataforma": "amazon_mx",
+                "tipo_producto": "collar_perro",
+                "listing_ids": [listing],
+                "objetivo": {"origen": "manual_lanzamiento", "acos_pct": "25.123"},
+            },
+        )
+    assert exc.value.status_code == 422
+    assert "NUMERIC" in exc.value.detail["mensaje"]
+
+
 def test_reenvio_v2_reordena_listings_y_no_duplica_mutacion(escenario, monkeypatch):
     cliente, conn, solicitud, fw, ids = escenario
     listing_ids = [

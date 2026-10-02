@@ -822,14 +822,37 @@ def test_objetivo_manual_v2_dentro_de_banda_pasa(valor):
 
 
 @pytest.mark.parametrize("valor", ["NaN", "sNaN", "Infinity", "-Infinity"])
-def test_objetivo_v2_no_finito_se_rechaza_antes_de_la_banda(valor):
-    """CodeRabbit PR #381: la comparacion de banda con NaN lanza
-    decimal.InvalidOperation, no PlanInvalido; la finitud se valida antes
-    (vale para manual y medido: el mensaje es el de finitud)."""
+def test_valida_banda_manual_rechaza_no_finito(valor):
+    """F4 AI-review PR #381: la comparacion de banda con NaN lanza
+    decimal.InvalidOperation, no PlanInvalido; el guard vive DENTRO de
+    valida_banda_manual (falla contra el codigo previo con
+    InvalidOperation, no con PlanInvalido)."""
+    with pytest.raises(fp.PlanInvalido, match="finito"):
+        fp.valida_banda_manual(Decimal(valor))
+
+
+@pytest.mark.parametrize("valor", ["NaN", "sNaN", "Infinity", "-Infinity"])
+def test_objetivo_v2_no_finito_se_rechaza_al_serializar(valor):
+    """Guardia (pasa en ambos): _valida_plan_v2 preserva el rechazo de no
+    finitos al serializar/releer, con el mensaje de finitud."""
     plan = _plan_v2(objetivo="25.00")
     plan = replace(plan, objetivo=replace(plan.objetivo, acos_pct=Decimal(valor)))
     with pytest.raises(fp.PlanInvalido, match="finito"):
         fp.plan_v2_como_json(plan)
+
+
+@pytest.mark.parametrize("valor", ["25.123", "0.001", "10000"])
+def test_valida_forma_objetivo_rechaza_fuera_de_numeric(valor):
+    """F2 AI-review PR #381: mas de 2 decimales o mas de 9999.99 se
+    rechazan con el mensaje de forma (fuente unica para _valida_plan_v2
+    y _datos_plan_v2)."""
+    with pytest.raises(fp.PlanInvalido, match="NUMERIC"):
+        fp.valida_forma_objetivo(Decimal(valor))
+
+
+@pytest.mark.parametrize("valor", ["10", "25.00", "45", "9999.99"])
+def test_valida_forma_objetivo_acepta_en_numeric(valor):
+    fp.valida_forma_objetivo(Decimal(valor))
 
 
 @pytest.mark.parametrize("valor", ["5.00", "50"])
