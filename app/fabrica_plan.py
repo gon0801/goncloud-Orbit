@@ -528,6 +528,10 @@ def plan_como_json(plan: PlanGrupo) -> dict:
         "target_derivado_pct": str(plan.target.derivado),
         "fraccion": str(plan.target.fraccion),
         "target_procedencia": plan.target.procedencia,
+        # F5 AI-review PR #381: registra si los goals fijan el numero
+        # (manual) o nacen NULL (margen). Ausente en lotes viejos = numero
+        # (congelado entonces); el JS decide con `!== false`.
+        "goals_fijan_target": target_para_goals(plan) is not None,
         "semillas": {
             "keywords": list(plan.semillas.keywords),
             "asins": list(plan.semillas.asins),
@@ -627,6 +631,10 @@ def plan_v2_como_json(plan: PlanGrupoV2) -> dict:
         "fecha": plan.fecha.isoformat(),
         "moneda": plan.moneda,
         "modo": plan.modo,
+        # F5 AI-review PR #381: registra si los goals fijan el numero
+        # (manual) o nacen NULL (margen). Ausente en lotes viejos = numero
+        # (congelado entonces); el JS decide con `!== false`.
+        "goals_fijan_target": target_para_goals(plan) is not None,
         "publicaciones": [
             _publicacion_v2_como_json(p)
             for p in sorted(plan.publicaciones, key=lambda publicacion: publicacion.listing_id)

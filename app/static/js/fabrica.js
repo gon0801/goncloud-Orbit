@@ -296,10 +296,10 @@ document.addEventListener("DOMContentLoaded", function () {
     const esV2 = plan.schema_version === 2;
     const objetivo = esV2 ? plan.objetivo : null;
     const target = esV2 ? objetivo.acos_pct : plan.target_acos_pct;
-    const esManual = esV2 && objetivo.origen === "manual_lanzamiento";
-    // A1-r2: sin manual los goals nacen NULL (margen de la plataforma); el
-    // derivado vive solo en su fila. Literal de fabrica_plan (test_ui_fabrica).
-    const aplicado = esManual ? porcentaje(target)
+    // A1-r2/F5: el plan registra si sus goals fijan el numero; ausente en
+    // lotes viejos (congelado entonces). Solo `false` muestra la linea.
+    const fijan = plan.goals_fijan_target !== false;
+    const aplicado = fijan ? porcentaje(target)
       : "target: margen de la plataforma (se ajusta cada ciclo)";
     ficha(contenedor, [
       ["Grupo", plan.nombre_base], ["Tipo de producto", plan.tipo_producto],

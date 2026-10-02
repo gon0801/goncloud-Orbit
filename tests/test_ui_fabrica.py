@@ -92,15 +92,16 @@ def test_formulario_muestra_linea_de_margen_sin_manual():
 
 
 def test_preview_sin_manual_muestra_linea_de_margen():
-    """A1-r2 (bloqueante VEREDICTO-A1-r1): sin manual confirmado, la fila
-    'Target ACoS aplicado' del preview muestra la linea de margen (los
-    goals nacen NULL), no el derivado; el literal es el MISMO del nucleo
-    y el numero fijo solo aparece con manual."""
+    """A1-r2 (bloqueante VEREDICTO-A1-r1) + F5: la fila 'Target ACoS
+    aplicado' muestra la linea de margen solo cuando el plan registra
+    goals_fijan_target false (goals NULL); con true o ausente (lotes
+    viejos, congelados entonces) muestra el numero. El literal es el
+    MISMO del nucleo."""
     from app import fabrica_plan as fp
 
     codigo = (RAIZ / "static/js/fabrica.js").read_text()
     assert fp.TEXTO_TARGET_MARGEN_PLATAFORMA in codigo
-    assert 'const esManual = esV2 && objetivo.origen === "manual_lanzamiento"' in codigo
+    assert "plan.goals_fijan_target !== false" in codigo
     assert '["Target ACoS aplicado", aplicado]' in codigo
     assert '["Target ACoS aplicado", porcentaje(target)]' not in codigo
 

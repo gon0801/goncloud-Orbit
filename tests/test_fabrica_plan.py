@@ -805,6 +805,18 @@ def test_target_para_goals_manual_sobrevive():
     assert fp.target_para_goals(_plan_v2(objetivo="25.00")) == Decimal("25.00")
 
 
+def test_plan_json_registra_si_goals_fijan_target():
+    """F5 AI-review PR #381: el JSON registra goals_fijan_target (manual
+    True, medido/v1 False); el preview decide con `!== false` y los lotes
+    viejos (sin la llave) conservan el numero congelado."""
+    assert fp.plan_v2_como_json(_plan_v2(objetivo="25.00"))["goals_fijan_target"] is True
+    assert fp.plan_v2_como_json(_plan_v2_medido())["goals_fijan_target"] is False
+    assert fp.plan_como_json(_plan())["goals_fijan_target"] is False
+    historico = fp.plan_v2_como_json(_plan_v2(objetivo="25.00"))
+    del historico["goals_fijan_target"]
+    assert fp.plan_v2_desde_json(historico).objetivo.acos_pct == Decimal("25.00")
+
+
 @pytest.mark.parametrize("valor", ["0", "0.00", "9.99", "45.01", "70"])
 def test_objetivo_manual_v2_fuera_de_banda_se_rechaza(valor):
     """El manual vive dentro de la banda del margen [10, 45]: 0 y 70 (y los
