@@ -204,6 +204,8 @@ def test_sql_del_modulo_parsea_como_postgres():
         "_SQL_WATERMARK_PLATAFORMA",
         "_SQL_SYNC_PLATAFORMA",
         "_SQL_EVIDENCIA_AD_GROUP",
+        "_SQL_CONVERSION_GRANO",
+        "_SQL_CPC_SLICE",
     ):
         sql = getattr(w, nombre).replace("%s", "NULL")
         assert pglast.parse_sql(sql), f"{nombre} no parseo"
@@ -1307,3 +1309,413 @@ def test_evidencia_ad_group_en_vivo():
         with pytest.raises(ValueError) as excinfo:
             w.ventanas_evidencia_ad_group(conn, "amazon_us", dt.datetime(2026, 8, 22, 12))
         assert "tz-aware" in str(excinfo.value)
+
+
+# ---------------------------------------------------------------------------
+# A4: conversion jerarquica + CPC vigente (integracion)
+# ---------------------------------------------------------------------------
+
+
+@contextmanager
+def _db_temporal_a4(prefijo: str):
+    """DB temporal con 0001 + 0018 (fabrica) + 0047 (familias): el grano
+    cruza campana_grupo_rol y familia (verificado: aplican limpio)."""
+    import pathlib
+
+    psycopg = pytest.importorskip("psycopg")
+    from psycopg import sql as pgsql
+
+    migraciones = pathlib.Path(__file__).resolve().parents[1] / "migrations"
+    dsn = _test_dsn()
+    db = f"{prefijo}_{socket.gethostname().lower()}_{os.getpid()}"
+    admin = psycopg.connect(dsn, autocommit=True)
+    conn = None
+    try:
+        admin.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(db)))
+        conn = psycopg.connect(dsn, dbname=db, autocommit=True)
+        conn.execute("SET TIME ZONE 'UTC'")
+        for nombre in ("0001_initial.sql", "0018_fabrica_campanas.sql", "0047_familias.sql"):
+            conn.execute((migraciones / nombre).read_text(encoding="utf-8"))
+        yield conn
+    finally:
+        if conn is not None:
+            conn.close()
+        admin.execute(
+            pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(pgsql.Identifier(db))
+        )
+        admin.close()
+
+
+def _lote(conn, lote, platform="amazon_us", tipo="arras"):
+    conn.execute(
+        "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base,"
+        " go_literal, huella, plan, modo_goal, estado)"
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        (lote, platform, tipo, "base", "go", "h", "{}", "shadow", "planeado"),
+    )
+
+
+def _grupo(conn, platform, tipo, lote):
+    return conn.execute(
+        "INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote,"
+        " target_acos_pct, target_derivado_pct, fraccion, target_procedencia,"
+        " go_literal) VALUES (%s, %s, %s, %s, 20, 20, 0.5, 'x', 'go')"
+        " RETURNING id",
+        (platform, tipo, "base", lote),
+    ).fetchone()[0]
+
+
+def _rol(conn, grupo_id, campana_id, ad_group_id, rol="auto_discovery"):
+    conn.execute(
+        "INSERT INTO campana_grupo_rol (grupo_id, rol, ad_entity_id,"
+        " ad_group_ad_entity_id) VALUES (%s, %s, %s, %s)",
+        (grupo_id, rol, campana_id, ad_group_id),
+    )
+
+
+def _familia(conn, platform, nombre, slug, padre_id=None):
+    return conn.execute(
+        "INSERT INTO familia (platform, nombre, slug, padre_id)"
+        " VALUES (%s, %s, %s, %s) RETURNING id",
+        (platform, nombre, slug, padre_id),
+    ).fetchone()[0]
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_conversion_jerarquica_grano_rollup_y_mapeo():
+    """Grano por hoja D-90..D-10 literal + roll-up + mapeo slug; legacy
+    sin rol conserva su grano con mapeo None (LEFT JOIN, res A5)."""
+    with _db_temporal_a4("orbit_win_a4") as conn:
+        run_id = _run(conn)
+        decidido = dt.datetime(2026, 8, 22, 12, 0, tzinfo=dt.UTC)
+        desde = dt.date(2026, 5, 24)  # D-90
+        hasta = dt.date(2026, 8, 12)  # D-10
+        # campana de fabrica C1 (grupo arras) + campana legacy C2
+        c1 = _entidad(conn, "amazon_us", "campaign", "C1")
+        g1 = _entidad(conn, "amazon_us", "ad_group", "G1", parent=c1)
+        g2 = _entidad(conn, "amazon_us", "ad_group", "G2", parent=c1)
+        k1 = _entidad(
+            conn, "amazon_us", "keyword", "K1", parent=g1, match_type="EXACT", keyword_text="kw"
+        )
+        k2 = _entidad(
+            conn, "amazon_us", "keyword", "K2", parent=g2, match_type="EXACT", keyword_text="kw"
+        )
+        c2 = _entidad(conn, "amazon_us", "campaign", "C2")
+        g3 = _entidad(conn, "amazon_us", "ad_group", "G3", parent=c2)
+        k3 = _entidad(
+            conn, "amazon_us", "keyword", "K3", parent=g3, match_type="EXACT", keyword_text="kw"
+        )
+        _lote(conn, "L1")
+        gr1 = _grupo(conn, "amazon_us", "arras", "L1")
+        _rol(conn, gr1, c1, g1)
+        f1 = _familia(conn, "amazon_us", "Arras", "arras")
+        # metricas: K1 0/16 (2 fechas), K2 1/50, K3 0/5; bordes dentro
+        for fecha in (dt.date(2026, 8, 11), dt.date(2026, 8, 12)):
+            _metrica(
+                conn,
+                run_id,
+                k1,
+                fecha,
+                _obs(fecha),
+                moneda="USD",
+                report_id="R",
+                cost=Decimal("24.00"),
+                ad_revenue=Decimal("0.00"),
+                clicks=8,
+                orders=0,
+                impressions=80,
+            )
+        _metrica(
+            conn,
+            run_id,
+            k2,
+            dt.date(2026, 8, 12),
+            _obs(dt.date(2026, 8, 12)),
+            moneda="USD",
+            report_id="R",
+            cost=Decimal("10.00"),
+            ad_revenue=Decimal("100.00"),
+            clicks=50,
+            orders=1,
+            impressions=500,
+        )
+        _metrica(
+            conn,
+            run_id,
+            k3,
+            dt.date(2026, 8, 12),
+            _obs(dt.date(2026, 8, 12)),
+            moneda="USD",
+            report_id="R",
+            cost=Decimal("5.00"),
+            ad_revenue=Decimal("0.00"),
+            clicks=5,
+            orders=0,
+            impressions=50,
+        )
+        # fuera de ventana: no entran (08-13 posterior, 05-23 anterior)
+        _metrica(
+            conn,
+            run_id,
+            k1,
+            dt.date(2026, 8, 13),
+            _obs(dt.date(2026, 8, 13)),
+            moneda="USD",
+            report_id="R",
+            cost=Decimal("999.00"),
+            ad_revenue=Decimal("0.00"),
+            clicks=999,
+            orders=0,
+            impressions=1,
+        )
+        _metrica(
+            conn,
+            run_id,
+            k1,
+            dt.date(2026, 5, 23),
+            _obs(dt.date(2026, 5, 23)),
+            moneda="USD",
+            report_id="R",
+            cost=Decimal("999.00"),
+            ad_revenue=Decimal("0.00"),
+            clicks=999,
+            orders=0,
+            impressions=1,
+        )
+        conv = w.conversion_jerarquica(conn, "amazon_us", decidido)
+        assert conv.moneda == "USD"
+        assert (conv.ventana_desde, conv.ventana_hasta) == (desde, hasta)
+        grano1 = conv.por_hoja[k1]
+        assert (grano1.ad_group_id, grano1.familia_id, grano1.subfamilia_id) == (g1, f1, None)
+        assert (grano1.conteo.clicks, grano1.conteo.orders) == (16, 0)
+        assert conv.por_hoja[k2].familia_id == f1
+        # legacy: grano presente, mapeo ausente
+        grano3 = conv.por_hoja[k3]
+        assert (grano3.ad_group_id, grano3.familia_id) == (g3, None)
+        assert grano3.conteo.clicks == 5
+        # roll-up: grupo G1 = K1; familia = K1 + K2; plataforma = todo
+        assert conv.por_ad_group[g1].clicks == 16
+        assert conv.por_familia[f1].clicks == 66
+        assert conv.por_familia[f1].orders == 1
+        assert conv.plataforma is not None
+        assert (conv.plataforma.clicks, conv.plataforma.orders) == (71, 1)
+        assert conv.plataforma.ad_revenue == Decimal("100.00")
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_conversion_jerarquica_subfamilia_y_colision_slug():
+    """Slug de subfamilia resuelve (familia=padre, subfamilia=match) y el
+    filtro familia.platform evita colision MX/US (res B5)."""
+    with _db_temporal_a4("orbit_win_a4b") as conn:
+        run_id = _run(conn)
+        decidido = dt.datetime(2026, 8, 22, 12, 0, tzinfo=dt.UTC)
+        # MX: familia raiz + subfamilia; grupo con el slug de la SUBFAMILIA
+        fraiz = _familia(conn, "amazon_mx", "Arras", "arras")
+        fsub = _familia(conn, "amazon_mx", "Arras premium", "arras_premium", fraiz)
+        _familia(conn, "amazon_us", "Arras US", "arras_premium")  # colision
+        cmx = _entidad(conn, "amazon_mx", "campaign", "CMX")
+        gmx = _entidad(conn, "amazon_mx", "ad_group", "GMX", parent=cmx)
+        kmx = _entidad(
+            conn, "amazon_mx", "keyword", "KMX", parent=gmx, match_type="EXACT", keyword_text="kw"
+        )
+        _lote(conn, "LMX", platform="amazon_mx", tipo="arras_premium")
+        grmx = _grupo(conn, "amazon_mx", "arras_premium", "LMX")
+        _rol(conn, grmx, cmx, gmx)
+        _metrica(
+            conn,
+            run_id,
+            kmx,
+            dt.date(2026, 8, 12),
+            _obs(dt.date(2026, 8, 12)),
+            moneda="MXN",
+            report_id="R",
+            cost=Decimal("30.00"),
+            ad_revenue=Decimal("0.00"),
+            clicks=10,
+            orders=0,
+            impressions=100,
+        )
+        conv = w.conversion_jerarquica(conn, "amazon_mx", decidido)
+        grano = conv.por_hoja[kmx]
+        assert (grano.familia_id, grano.subfamilia_id) == (fraiz, fsub)
+        assert conv.por_subfamilia[fsub].clicks == 10
+        assert conv.por_familia[fraiz].clicks == 10
+        # US no ve la hoja MX aunque el slug colisione
+        conv_us = w.conversion_jerarquica(conn, "amazon_us", decidido)
+        assert kmx not in conv_us.por_hoja
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_conversion_jerarquica_veneno_y_moneda():
+    """NULL envenena la metrica (jamas cero-fill) y el veneno sube por
+    metrica (OR); filas de otra moneda se excluyen pre-agregado (no
+    envenenan); negativos los rechaza el esquema (metric_no_negativos)."""
+    with _db_temporal_a4("orbit_win_a4c") as conn:
+        run_id = _run(conn)
+        decidido = dt.datetime(2026, 8, 22, 12, 0, tzinfo=dt.UTC)
+        camp = _entidad(conn, "amazon_us", "campaign", "C9")
+        grp = _entidad(conn, "amazon_us", "ad_group", "G9", parent=camp)
+        knull = _entidad(
+            conn, "amazon_us", "keyword", "KN", parent=grp, match_type="EXACT", keyword_text="kw"
+        )
+        fok = _entidad(
+            conn, "amazon_us", "keyword", "KO", parent=grp, match_type="EXACT", keyword_text="kw"
+        )
+        fecha = dt.date(2026, 8, 12)
+        _metrica(
+            conn,
+            run_id,
+            knull,
+            fecha,
+            _obs(fecha),
+            moneda="USD",
+            report_id="R",
+            cost=Decimal("5.00"),
+            ad_revenue=Decimal("0.00"),
+            clicks=5,
+            orders=None,
+            impressions=50,
+        )
+        _metrica(
+            conn,
+            run_id,
+            fok,
+            fecha,
+            _obs(fecha),
+            moneda="USD",
+            report_id="R",
+            cost=Decimal("5.00"),
+            ad_revenue=Decimal("0.00"),
+            clicks=7,
+            orders=0,
+            impressions=50,
+        )
+        psycopg = pytest.importorskip("psycopg")
+
+        # moneda ajena a la plataforma: la rechaza el trigger (el filtro de
+        # moneda del grano es defensa en profundidad, inalcanzable hoy)
+        with pytest.raises(psycopg.errors.CheckViolation, match="reporta sus metricas"):
+            _metrica(
+                conn,
+                run_id,
+                knull,
+                fecha,
+                _obs(fecha, 2),
+                moneda="MXN",
+                report_id="R2",
+                cost=Decimal("999.00"),
+                ad_revenue=Decimal("0.00"),
+                clicks=999,
+                orders=9,
+                impressions=50,
+            )
+        with pytest.raises(psycopg.errors.CheckViolation, match="metric_no_negativos"):
+            _metrica(
+                conn,
+                run_id,
+                fok,
+                fecha,
+                _obs(fecha, 3),
+                moneda="USD",
+                report_id="R3",
+                cost=Decimal("1.00"),
+                ad_revenue=Decimal("0.00"),
+                clicks=-1,
+                orders=0,
+                impressions=1,
+            )
+        conv = w.conversion_jerarquica(conn, "amazon_us", decidido)
+        assert conv.por_hoja[knull].conteo.orders is None
+        assert conv.por_hoja[knull].conteo.clicks == 5
+        # el grupo hereda el veneno por metrica (OR hacia arriba)
+        assert conv.por_ad_group[grp].clicks == 12
+        assert conv.por_ad_group[grp].orders is None
+        assert conv.por_ad_group[grp].ad_revenue == Decimal("0.00")
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_cpc_vigente_slices_e_historia():
+    """CPC post-cambio desde fecha_cambio+1; sin historia la ventana
+    entera; rota/None/moneda-None => None (fail-closed). Mide aunque
+    clicks < 20 (el gate es del motor)."""
+    from app.optimizer import goals as g
+
+    with _db_temporal_a4("orbit_win_a4d") as conn:
+        run_id = _run(conn)
+        camp = _entidad(conn, "amazon_us", "campaign", "CD")
+        grp = _entidad(conn, "amazon_us", "ad_group", "GD", parent=camp)
+        hoja = _entidad(
+            conn, "amazon_us", "keyword", "KD", parent=grp, match_type="EXACT", keyword_text="kw"
+        )
+        # ventana bids 07-18..08-16; cambio el 08-10 => slice 08-11..08-16
+        for fecha in _rango(dt.date(2026, 7, 18), dt.date(2026, 8, 16)):
+            _metrica(
+                conn,
+                run_id,
+                hoja,
+                fecha,
+                _obs(fecha),
+                moneda="USD",
+                report_id="R",
+                cost=Decimal("1.00"),
+                ad_revenue=Decimal("0.00"),
+                clicks=1,
+                orders=0,
+                impressions=10,
+            )
+        ventana = w.AgregadoMetricas(
+            window_start=dt.date(2026, 7, 18),
+            window_end=dt.date(2026, 8, 16),
+            fechas=tuple(_rango(dt.date(2026, 7, 18), dt.date(2026, 8, 16))),
+            metric_currency="USD",
+            cost=Decimal("30.00"),
+            ad_revenue=Decimal("0.00"),
+            revenue_same_sku=Decimal("0.00"),
+            impressions=300,
+            clicks=30,
+            orders=0,
+            observed_at_max=None,
+        )
+        cambio = g.UltimoBidAplicado(direccion=-1, fecha_cambio=dt.date(2026, 8, 10))
+        cpc = w.cpc_vigente(conn, hoja, cambio, ventana)
+        assert cpc is not None
+        assert (cpc.desde, cpc.hasta, cpc.post_cambio) == (
+            dt.date(2026, 8, 11),
+            dt.date(2026, 8, 16),
+            True,
+        )
+        assert (cpc.cost, cpc.clicks) == (Decimal("6.00"), 6)
+        entero = w.cpc_vigente(conn, hoja, g.SinHistoriaBid(), ventana)
+        assert entero is not None
+        assert (entero.desde, entero.post_cambio) == (dt.date(2026, 7, 18), False)
+        assert (entero.cost, entero.clicks) == (Decimal("30.00"), 30)
+        assert w.cpc_vigente(conn, hoja, g.HistoriaBidRota(), ventana) is None
+        assert w.cpc_vigente(conn, hoja, cambio, None) is None
+        sin_moneda = w.AgregadoMetricas(
+            window_start=ventana.window_start,
+            window_end=ventana.window_end,
+            fechas=ventana.fechas,
+            metric_currency=None,
+            cost=None,
+            ad_revenue=None,
+            revenue_same_sku=None,
+            impressions=None,
+            clicks=None,
+            orders=None,
+            observed_at_max=None,
+        )
+        assert w.cpc_vigente(conn, hoja, cambio, sin_moneda) is None
+        with pytest.raises(ValueError, match="fuera de vocabulario"):
+            w.cpc_vigente(conn, hoja, "ayer", ventana)  # type: ignore[arg-type]

@@ -15,11 +15,18 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 from app import cycle
+from app.optimizer import evidencia as ev
 from app.optimizer import goals, windows
 
 AHORA = dt.datetime(2026, 9, 14, 8, 40, tzinfo=dt.UTC)
 D = dt.date(2026, 8, 1)  # fecha_cambio del caso 3835 (subida aplicada ese dia)
 ENTIDAD = 3835
+
+# A4: conv vacia (el hook abstiene) + cpc_vigente parcheado (el conn del
+# harness es object(); los veredictos live de aqui no cambian).
+_CONV_VACIA = ev.enrolla_granos(
+    [], moneda="USD", ventana_desde=dt.date(2026, 6, 16), ventana_hasta=dt.date(2026, 9, 4)
+)
 
 
 def _agregado(
@@ -75,6 +82,7 @@ def _corre_hoja(monkeypatch, *, bids, historia, cooldown=False, cortes=None):
         return historia
 
     monkeypatch.setattr(cycle.g, "ultimo_bid_aplicado", ultimo_bid)
+    monkeypatch.setattr(cycle.windows, "cpc_vigente", lambda *_a, **_k: None)
     goal = goals.Goal(
         scope="platform",
         ad_entity_id=None,
@@ -110,6 +118,9 @@ def _corre_hoja(monkeypatch, *, bids, historia, cooldown=False, cortes=None):
         snapshot_margen={},
         pause_sin_cooldown_bid=True,
         pause_economica=False,
+        conv_jerarquica=_CONV_VACIA,
+        confianza_recorte=Decimal("0.80"),
+        confianza_subida=Decimal("0.70"),
     )
     return pendientes, contadores, consultas
 

@@ -74,6 +74,14 @@ SQL42 = (
 SQL46 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0046_target_acos_ciclo.sql"
 ).read_text(encoding="utf-8")
+# A4: conversion_jerarquica cruza campana_grupo_rol (0018) y familia (0047)
+# en TX2 — sin estas TODO ciclo revienta con UndefinedTable.
+SQL18 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0018_fabrica_campanas.sql"
+).read_text(encoding="utf-8")
+SQL47 = (Path(__file__).resolve().parents[1] / "migrations" / "0047_familias.sql").read_text(
+    encoding="utf-8"
+)
 
 TOKEN = "token-escritura-de-test-314159"
 
@@ -405,6 +413,8 @@ def _db_con_rol_admin(prefijo: str, *, con_decide: bool = False):
         conn.execute(SQL15)  # 0015 (ORBIT 06 2.3): el peldano margen lee su vista en TX2
         conn.execute(SQL42)
         conn.execute(SQL46)  # 0046 (C.2a): la TX3 del ciclo escribe el freeze
+        conn.execute(SQL18)  # 0018 (A4): campana_grupo_rol en TX2
+        conn.execute(SQL47)  # 0047 (A4): familia en TX2
         # CREATE ROLE es utility statement: NO admite parametros posicionales
         # (revienta con syntax error en $1); la password va como sql.Literal
         # (composicion segura de psycopg, no interpolacion de strings).

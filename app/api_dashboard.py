@@ -203,6 +203,14 @@ MOTIVOS_ES_DECISIONES: dict[str, str] = {
     bid._MOTIVO_BANDA[bid.FACTOR_SUBIDA]: "ACoS bajo 0.85x del target: +15%",
     hygiene.MOTIVO_NEGATIVE: "Negativo: termino sin ventas con clicks y costo sobre el umbral",
     hygiene.MOTIVO_HARVEST: "Harvest: termino con ACoS bajo el tope hacia campaña manual",
+    # A4: abstenciones del contrafactual v2 (viven en inputs.evidencia_v2,
+    # jamas en inputs.motivo; el feed las traduce con lookup de union).
+    bid.MOTIVO_EVIDENCIA_INSUFICIENTE: (
+        "Sin evidencia: la posterior no alcanza la confianza para ajustar"
+    ),
+    bid.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE: (
+        "CPC desconocido tras el cambio: menos de 20 clics al bid vigente"
+    ),
 }
 
 # ---------------------------------------------------------------------------
@@ -268,6 +276,15 @@ MOTIVOS_ES_SALUD: dict[str, str] = {
     bid.MOTIVO_BID_MONEDA_INVALIDA: "Bid con moneda invalida",
     bid.MOTIVO_SIN_BANDA: "Sin banda de ajuste (ACoS dentro del rango)",
     bid.MOTIVO_DELTA_BAJO_UMBRAL: "Cambio menor a 0.01: no-op",
+    # A4: abstenciones v2 (clase no-op; en A4 nada las escribe en
+    # notes.skips — forward-A6 — pero el feed las traduce por union;
+    # precedente del doble-dict: MOTIVO_PAUSE).
+    bid.MOTIVO_EVIDENCIA_INSUFICIENTE: (
+        "Sin evidencia: la posterior no alcanza la confianza para ajustar"
+    ),
+    bid.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE: (
+        "CPC desconocido tras el cambio: menos de 20 clics al bid vigente"
+    ),
     # MOTIVO_* de hygiene (idem)
     hygiene.MOTIVO_ENTIDAD_INCOMPLETA: "Entidad incompleta: sin umbral de fechas",
     hygiene.MOTIVO_ASIN_LIKE: "Termino ASIN-like: se salta siempre",
@@ -741,6 +758,29 @@ def _fila_decision(fila) -> dict:
     traen el harvest_job (id, fase, external_ids; NULLs sin job)."""
     inputs = fila[11] if isinstance(fila[11], dict) else {}
     motivo = inputs.get("motivo")
+    # A4: linea de sombra del contrafactual (Python puro: inputs YA viaja
+    # en la fila, cero SQL). Lookup de UNION (res C-W2: v2 emite bandas
+    # de DECISIONES, abstenciones nuevas, y motivos SALUD-only como
+    # rango_bloquea_ajuste/delta_bajo_umbral via distinto factor).
+    frozen_v2 = inputs.get("evidencia_v2")
+    evidencia_v2 = None
+    if isinstance(frozen_v2, dict):
+        veredicto = frozen_v2.get("veredicto") or {}
+        motivo_v2 = veredicto.get("motivo")
+        evidencia_v2 = {
+            "kind": veredicto.get("kind"),
+            "motivo": motivo_v2,
+            "motivo_es": (
+                MOTIVOS_ES_DECISIONES.get(motivo_v2, MOTIVOS_ES_SALUD.get(motivo_v2, motivo_v2))
+                if motivo_v2 is not None
+                else None
+            ),
+            "factor": veredicto.get("factor"),
+            "new_value": veredicto.get("new_value"),
+            "mantiene": (
+                veredicto.get("kind") == fila[5] and veredicto.get("factor") == inputs.get("factor")
+            ),
+        }
     harvest_job = None
     if fila[15] is not None:
         externos = fila[17] if isinstance(fila[17], dict) else {}
@@ -771,6 +811,7 @@ def _fila_decision(fila) -> dict:
         "target_acos_pct_usado": inputs.get("target_acos_pct_usado"),
         "motivo_es": MOTIVOS_ES_DECISIONES.get(motivo, motivo) if motivo is not None else None,
         "harvest_job": harvest_job,
+        "evidencia_v2": evidencia_v2,
     }
 
 

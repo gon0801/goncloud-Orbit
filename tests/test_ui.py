@@ -1547,3 +1547,21 @@ def test_ui_salud_muestra_avisos_propuesta_pendientes_y_fallo(monkeypatch):
         salud_html = TestClient(app).get("/salud").text
         assert "Avisos de propuesta: 1 pendientes" in salud_html
         assert "fallo: canal caido" in salud_html
+
+
+def test_ui_decisiones_muestra_linea_de_sombra_v2():
+    """A4 (pin UI lane 10): la fila con contrafactual pinta el chip
+    v2: <motivo_es>; sin la clave no pinta nada (filas pre-A4)."""
+    ctx = _ctx_decisiones()
+    ctx["items"][0]["evidencia_v2"] = {
+        "kind": None,
+        "motivo": "cpc_post_cambio_insuficiente",
+        "motivo_es": "CPC desconocido tras el cambio: menos de 20 clics al bid vigente",
+        "factor": None,
+        "new_value": None,
+        "mantiene": False,
+    }
+    html = ui.templates.env.get_template("decisiones.html").render(**ctx)
+    assert "v2: CPC desconocido tras el cambio" in html
+    html_vieja = ui.templates.env.get_template("decisiones.html").render(**_ctx_decisiones())
+    assert "v2:" not in html_vieja

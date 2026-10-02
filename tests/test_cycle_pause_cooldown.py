@@ -7,10 +7,17 @@ from types import SimpleNamespace
 import pytest
 
 from app import cycle
+from app.optimizer import evidencia as ev
 from app.optimizer import goals, windows
 
 AHORA = dt.datetime(2026, 9, 14, 8, 40, tzinfo=dt.UTC)
 BID_CONFIRMADO = dt.datetime(2026, 9, 11, 8, 40, 3, tzinfo=dt.UTC)
+
+# A4: el hook contrafactual corre tras D.2; este harness solo emite pause
+# (marcador pause_intacto, cero queries): conv vacia + confianzas fijas.
+_CONV_VACIA = ev.enrolla_granos(
+    [], moneda="USD", ventana_desde=dt.date(2026, 6, 16), ventana_hasta=dt.date(2026, 9, 4)
+)
 
 
 def _agregado(*, orders=0, clicks=164, cost="127.94", fechas=22, fin=dt.date(2026, 9, 4)):
@@ -100,6 +107,9 @@ def _corre_hoja(
         snapshot_margen={},
         pause_sin_cooldown_bid=flag,
         pause_economica=econ,
+        conv_jerarquica=_CONV_VACIA,
+        confianza_recorte=Decimal("0.80"),
+        confianza_subida=Decimal("0.70"),
     )
     return pendientes, contadores, consultas
 
