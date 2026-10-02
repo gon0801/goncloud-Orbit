@@ -1233,9 +1233,9 @@ def test_d4_solo_origen_plan_un_paso_negativo():
 @_skip_db
 def test_d4_solo_origen_falla_cerrado():
     """Sin firma D.4 no hay plan: destino != origen, sin negative_id, sin
-    intento normal ok con ack-id, job no done, y jobs F2 (con *_creada o
-    hermanas creadas: esos van por la reversa completa). Una DB por caso
-    (ad_entity y decision no se re-siembran)."""
+    intento normal ok con ack-id, job no done, y jobs F2 (con *_creada y,
+    por separado, con hermanas creadas: esos van por la reversa completa).
+    Una DB por caso (ad_entity y decision no se re-siembran)."""
     from app.apply_harvest import plan_reversa_origen_harvest
 
     with db_f2("orbit_d4_fail1") as conn:
@@ -1271,6 +1271,19 @@ def test_d4_solo_origen_falla_cerrado():
         ).fetchone()[0]
         with pytest.raises(ValueError, match="solo acepta done"):
             plan_reversa_origen_harvest(conn, pendiente)
+    with db_f2("orbit_d4_fail6") as conn:
+        # Ronda grok (hallazgo 3): sin este caso, borrar el guard de
+        # hermanas en plan_reversa_origen_harvest dejaba la suite verde.
+        fix = _job_done_d4(
+            conn,
+            ext={
+                "keyword_id": KW_D4,
+                "negative_id": NEG_D4,
+                "hermanas": {"category_phrase": {"negative_id": "n-h", "creada": True}},
+            },
+        )
+        with pytest.raises(ValueError, match="reversa completa"):
+            plan_reversa_origen_harvest(conn, fix["jid"])
 
 
 @_skip_db
