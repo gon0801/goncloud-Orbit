@@ -284,7 +284,9 @@ MOTIVOS_ES_SALUD: dict[str, str] = {
     hygiene.MOTIVO_ORIGEN_ES_DESTINO: (
         # "campaña" con ñ: test_ui_copy_campana.py exige ñ en la copia
         # visible de MOTIVOS_ES_* (el dict ya la usa: "la campaña no esta").
-        "Harvest saltado: la campaña exacta es el destino (origen = destino)"
+        # D.4: el motivo cubre grupo, terna y excepcion (el ad group de
+        # origen es el destino), no solo la exacta del grupo.
+        "Harvest saltado: el ad group de origen es el destino de la campaña"
     ),
     hygiene.MOTIVO_SIN_DESTINO_HARVEST: "Harvest sin destino: sin grupo, sin excepcion y sin terna",
     hygiene.MOTIVO_DESTINO_INCONSISTENTE: (

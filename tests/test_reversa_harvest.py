@@ -1061,7 +1061,16 @@ KW_D4 = "k-d4"
 NEG_D4 = "n-d4"
 
 
-def _job_done_d4(conn, *, destino=None, ext=None, ack_negativo=True, term=TERMINO_D4):
+def _job_done_d4(
+    conn,
+    *,
+    destino=None,
+    ext=None,
+    ack_negativo=True,
+    term=TERMINO_D4,
+    verify_ok=True,
+    cola_final="applied",
+):
     """Job done legado con la FORMA del job 2: destino congelado (shape
     pre-F2, sin resuelto_por, como la decision 2311) = ad group de origen;
     external_ids con ids pero SIN flags *_creada; ledger normal ok con
@@ -1116,16 +1125,18 @@ def _job_done_d4(conn, *, destino=None, ext=None, ack_negativo=True, term=TERMIN
     ).fetchone()[0]
     qid = _encola_fila(conn, dec, ag, term=term)
     _libera_cola(conn, qid)
-    conn.execute(
-        "UPDATE apply_queue SET estado = 'applying', applying_at = now() WHERE id = %s", (qid,)
-    )
-    conn.execute(
-        "UPDATE apply_queue SET estado = 'applied', applied_at = now() WHERE id = %s", (qid,)
-    )
+    if cola_final == "applied":
+        conn.execute(
+            "UPDATE apply_queue SET estado = 'applying', applying_at = now() WHERE id = %s",
+            (qid,),
+        )
+        conn.execute(
+            "UPDATE apply_queue SET estado = 'applied', applied_at = now() WHERE id = %s", (qid,)
+        )
     conn.execute(
         "INSERT INTO decision_application (decision_id, confirmed_at, platform_ack,"
-        " verify_ok, applied_cycle_id) VALUES (%s, now(), '{}'::jsonb, true, %s)",
-        (dec, ciclo_ejec),
+        " verify_ok, applied_cycle_id) VALUES (%s, now(), '{}'::jsonb, %s, %s)",
+        (dec, verify_ok, ciclo_ejec),
     )
     jid = conn.execute(
         "INSERT INTO harvest_job (decision_id, search_term, platform, ad_entity_id, fase)"
@@ -1233,9 +1244,10 @@ def test_d4_solo_origen_plan_un_paso_negativo():
 @_skip_db
 def test_d4_solo_origen_falla_cerrado():
     """Sin firma D.4 no hay plan: destino != origen, sin negative_id, sin
-    intento normal ok con ack-id, job no done, y jobs F2 (con *_creada y,
-    por separado, con hermanas creadas: esos van por la reversa completa).
-    Una DB por caso (ad_entity y decision no se re-siembran)."""
+    intento normal ok con ack-id, job no done, jobs F2 (solo keyword_creada,
+    solo negative_creada y, por separado, hermanas creadas: esos van por la
+    reversa completa), sin verify_ok y cola no applied. Una DB por caso
+    (ad_entity y decision no se re-siembran)."""
     from app.apply_harvest import plan_reversa_origen_harvest
 
     with db_f2("orbit_d4_fail1") as conn:
@@ -1250,15 +1262,18 @@ def test_d4_solo_origen_falla_cerrado():
         fix = _job_done_d4(conn, ack_negativo=False)
         with pytest.raises(ValueError, match="procedencia"):
             plan_reversa_origen_harvest(conn, fix["jid"])
-    with db_f2("orbit_d4_fail4") as conn:
+    with db_f2("orbit_d4_fail4a") as conn:
+        # Ronda 1 del lead (B4): una sola bandera ya deriva a la completa.
         fix = _job_done_d4(
             conn,
-            ext={
-                "keyword_id": KW_D4,
-                "keyword_creada": True,
-                "negative_id": NEG_D4,
-                "negative_creada": True,
-            },
+            ext={"keyword_id": KW_D4, "keyword_creada": True, "negative_id": NEG_D4},
+        )
+        with pytest.raises(ValueError, match="reversa completa"):
+            plan_reversa_origen_harvest(conn, fix["jid"])
+    with db_f2("orbit_d4_fail4b") as conn:
+        fix = _job_done_d4(
+            conn,
+            ext={"keyword_id": KW_D4, "negative_id": NEG_D4, "negative_creada": True},
         )
         with pytest.raises(ValueError, match="reversa completa"):
             plan_reversa_origen_harvest(conn, fix["jid"])
@@ -1283,6 +1298,16 @@ def test_d4_solo_origen_falla_cerrado():
             },
         )
         with pytest.raises(ValueError, match="reversa completa"):
+            plan_reversa_origen_harvest(conn, fix["jid"])
+    with db_f2("orbit_d4_fail7") as conn:
+        # Ronda 1 del lead (B3): sin verify_ok no hay pasos.
+        fix = _job_done_d4(conn, verify_ok=False)
+        with pytest.raises(ValueError, match="sin verify_ok"):
+            plan_reversa_origen_harvest(conn, fix["jid"])
+    with db_f2("orbit_d4_fail8") as conn:
+        # Ronda 1 del lead (B3): cola no applied no hay pasos.
+        fix = _job_done_d4(conn, cola_final="released")
+        with pytest.raises(ValueError, match="cola no applied"):
             plan_reversa_origen_harvest(conn, fix["jid"])
 
 

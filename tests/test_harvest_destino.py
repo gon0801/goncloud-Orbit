@@ -1071,10 +1071,13 @@ def test_d4_ciclo_terna_origen_es_destino_es_skip():
         assert "harvest_duplicado" not in skips
 
 
-def _decision_harvest_terna(conn, ciclo, config_id, ag_origen, *, camp_ext, ag_ext, term):
-    """Decision kind='harvest' con destino de terna congelado
-    (`inputs.goal.harvest` con `resuelto_por = terna`, como lo deja
-    `_goal_json`): la forma heredada del hueco D.4 (cfr. decision 2311)."""
+def _decision_harvest_terna(
+    conn, ciclo, config_id, ag_origen, *, camp_ext, ag_ext, term, resuelto_por="terna"
+):
+    """Decision kind='harvest' con destino congelado (`inputs.goal.harvest`
+    con `resuelto_por`, como lo deja `_goal_json`): la forma heredada del
+    hueco D.4 (cfr. decision 2311). `resuelto_por` parametriza terna y
+    excepcion (ronda 1 del lead, B1)."""
     from psycopg.types.json import Json
 
     dec = dt.datetime.now(dt.UTC) - dt.timedelta(days=3)
@@ -1092,9 +1095,9 @@ def _decision_harvest_terna(conn, ciclo, config_id, ag_origen, *, camp_ext, ag_e
                 "ad_group_id": ag_ext,
                 "default_bid": "1.00",
                 "moneda": "USD",
-                "resuelto_por": "terna",
+                "resuelto_por": resuelto_por,
                 "grupo_id": None,
-                "motivo": "migracion_pendiente",
+                "motivo": "migracion_pendiente" if resuelto_por == "terna" else None,
             },
         },
     }
@@ -1141,6 +1144,93 @@ def test_d4_apply_congelado_terna_origen_es_destino_cero_http():
         fase = conn.execute("SELECT fase FROM harvest_job").fetchone()[0]
         assert fase == "failed"
         assert [a.motivo for a in res2.alertas] == ["origen_es_destino"]
+
+
+@_skip_db
+def test_d4_apply_congelado_excepcion_origen_es_destino_cero_http():
+    """Ronda 1 del lead (B1): lo mismo con congelado de EXCEPCION
+    (resuelto_por = excepcion, destino = origen) -> failed con
+    origen_es_destino, cero HTTP. Sin ella, quitar RESUELTO_EXCEPCION del
+    guard deja la suite verde."""
+    from test_apply_harvest import _encola_fila, _termino_calificado
+
+    with db_f2("orbit_d4_applyexc") as conn:
+        _gpo, _run = _base_ciclo(conn, con_goals=False)
+        _goal_plataforma_con_terna(conn)
+        _camp, ag = _campana_suelta(conn, camp_ext="7009", ag_ext="7109")
+        term = "buen termino d4 exc"
+        _termino_calificado(conn, ag, term=term)
+        config_id = conn.execute("SELECT max(id) FROM config_version").fetchone()[0]
+        ciclo = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        dec = _decision_harvest_terna(
+            conn,
+            ciclo,
+            config_id,
+            ag,
+            camp_ext="7009",
+            ag_ext="7109",
+            term=term,
+            resuelto_por="excepcion",
+        )
+        _encola_fila(conn, dec, ag, term=term)
+        handler, vistos = _handler_harvest()
+        res2 = libera_vencidos(
+            conn,
+            PLATFORM,
+            ahora=dt.datetime.now(dt.UTC),
+            aplicador=_aplicador_us(conn, handler, ciclo),
+        )
+        assert vistos == [], "cero HTTP: el congelado excepcion = origen no sale"
+        assert res2.aplicadas == 0
+        fase = conn.execute("SELECT fase FROM harvest_job").fetchone()[0]
+        assert fase == "failed"
+        assert [a.motivo for a in res2.alertas] == ["origen_es_destino"]
+
+
+@_skip_db
+def test_d4_revalida_destino_vivo_es_origen_descarta_sin_cobro():
+    """Ronda 1 del lead (B2): fila harvest released cuyo destino VIVO es
+    el ad group de origen (terna viva = origen) -> descartada PRE-claim
+    con origen_es_destino, sin cobro de quota, sin job y cero HTTP. El
+    congelado es valido a proposito (8001/8101): la revalida manda por el
+    vivo (fail-closed). Sin hilar el origen, el descarte seria
+    ya_no_califica y el mutante pasa."""
+    from test_apply_harvest import _encola_fila, _libera_fila
+
+    with db_f2("orbit_d4_reval") as conn:
+        _gpo, _run = _base_ciclo(conn, con_goals=False)
+        _goal_plataforma_con_terna(conn, camp_ext="7009", ag_ext="7109")
+        _camp, ag = _campana_suelta(conn, camp_ext="7009", ag_ext="7109")
+        term = "termino revalida d4"
+        config_id = conn.execute("SELECT max(id) FROM config_version").fetchone()[0]
+        ciclo = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        dec = _decision_harvest_terna(
+            conn, ciclo, config_id, ag, camp_ext="8001", ag_ext="8101", term=term
+        )
+        qid = _encola_fila(conn, dec, ag, term=term)
+        _libera_fila(conn, qid)
+        handler, vistos = _handler_harvest()
+        res2 = libera_vencidos(
+            conn,
+            PLATFORM,
+            ahora=dt.datetime.now(dt.UTC),
+            aplicador=_aplicador_us(conn, handler, ciclo),
+        )
+        assert res2.descartadas == ["origen_es_destino"]
+        assert res2.aplicadas == 0
+        assert vistos == [], "cero HTTP: el descarte es PRE-claim"
+        assert conn.execute("SELECT count(*) FROM harvest_job").fetchone()[0] == 0
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM apply_quota_state WHERE motor = %s",
+                ("ads_optimizer:amazon_us:harvest",),
+            ).fetchone()[0]
+            == 0
+        ), "sin cobro: el descarte PRE-claim no toca la quota"
 
 
 @_skip_db
