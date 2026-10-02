@@ -12,11 +12,13 @@ import datetime as dt
 from decimal import Decimal
 
 import pytest
+from fastapi.testclient import TestClient
 from psycopg.types.json import Json
-from test_api_write import _db_con_rol_admin
+from test_api_write import TOKEN, _db_con_rol_admin, _secrets_token
 from test_schema import _postgres_obligatorio_ausente
 
 import app.config_write as config_write
+from app.main import app
 from app.optimizer import goals as g
 
 _skip_db = pytest.mark.skipif(
@@ -125,6 +127,76 @@ def test_confianza_fuera_de_rango_rechazada_sin_fila(mala):
             )
         total = conn.execute("SELECT count(*) FROM config_version").fetchone()[0]
         assert total == 1
+
+
+@_skip_db
+def test_endpoint_post_confianzas_wire_200_y_422(tmp_path, monkeypatch):
+    """F2 AI-review PR #383: el contrato por el wire que usa el dueno
+    (0.99 -> 200 con "0.99" exacto en la fila; 1.0 y 0.40 -> 422)."""
+    with _db_con_rol_admin("orbit_cfg_wire") as (conn, dsn_admin, _dsn_l):
+        vieja = conn.execute(
+            "INSERT INTO config_version (label, settings) VALUES (%s, %s) RETURNING id",
+            ("previa", Json(_base())),
+        ).fetchone()[0]
+        _secrets_token(tmp_path, monkeypatch)
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
+        cliente = TestClient(app)
+        headers = {"x-orbit-token": TOKEN}
+        url = f"/api/ads-optimizer/settings/{PLAT}"
+        ok = cliente.post(
+            url,
+            json={
+                "base_config_version_id": vieja,
+                "confianza_recorte": "0.99",
+                "confianza_subida": "0.50",
+            },
+            headers=headers,
+        )
+        assert ok.status_code == 200, ok.text
+        settings = conn.execute(
+            "SELECT settings FROM config_version WHERE id = %s",
+            (ok.json()["config_version_id"],),
+        ).fetchone()[0]
+        assert settings[f"ads_confianza_recorte_{PLAT}"] == "0.99"
+        assert settings[f"ads_confianza_subida_{PLAT}"] == "0.50"
+        for mala in ("1.0", "0.40"):
+            resp = cliente.post(
+                url,
+                json={
+                    "base_config_version_id": ok.json()["config_version_id"],
+                    "confianza_recorte": mala,
+                },
+                headers=headers,
+            )
+            assert resp.status_code == 422, (mala, resp.text)
+        assert conn.execute("SELECT count(*) FROM config_version").fetchone()[0] == 2
+
+
+@_skip_db
+def test_get_settings_expone_confianzas_resueltas(monkeypatch):
+    """F2 AI-review PR #383: GET /api/dashboard/settings trae ambas claves
+    resueltas (guardada + default relleno)."""
+    from test_api_dashboard import _config_version, _db_temporal, _goal_db
+
+    with _db_temporal("orbit_cfg_get") as (conn, dsn_read):
+        _config_version(
+            conn,
+            {
+                "ads_optimizer_mode": "live",
+                f"ads_target_acos_pct_{PLAT}": "20",
+                "ads_target_acos_pct_amazon_mx": "22",
+                f"ads_confianza_recorte_{PLAT}": "0.90",
+            },
+        )
+        _goal_db(conn, scope="platform", platform=PLAT, target=None)
+        _goal_db(conn, scope="platform", platform="amazon_mx", target=None)
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn_read)
+        resp = TestClient(app).get("/api/dashboard/settings")
+        assert resp.status_code == 200, resp.text
+        plats = {p["plataforma"]: p for p in resp.json()["plataformas"]}
+        assert plats[PLAT]["confianza_recorte"] == "0.90"
+        assert plats[PLAT]["confianza_subida"] == "0.70"
+        assert plats["amazon_mx"]["confianza_recorte"] == "0.80"
 
 
 def test_cada_plataforma_conserva_sus_valores():
