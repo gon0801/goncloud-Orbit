@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from psycopg.conninfo import make_conninfo
 from psycopg.rows import tuple_row
@@ -285,6 +285,29 @@ def test_preview_v2_rechaza_manual_fuera_de_banda(escenario, valor):
     assert respuesta.status_code == 422
     assert "banda" in respuesta.json()["detail"]["mensaje"]
     assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("valor", ["0", "70"])
+def test_bids_sugeridos_rechaza_manual_fuera_de_banda(escenario, valor):
+    """F2 AI-review PR #381: sugerir_bids valida la banda igual que el alta
+    (antes 422 en el API; sin el fix pasaba y alteraba las semillas exactas).
+    Falla antes de credenciales/Amazon: sin mocks de red."""
+    cliente, conn, solicitud, fw, ids = escenario
+    listing = conn.execute(
+        "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx'", (ids[0],)
+    ).fetchone()[0]
+    with pytest.raises(HTTPException) as exc:
+        fw.sugerir_bids(
+            conn,
+            {
+                "plataforma": "amazon_mx",
+                "tipo_producto": "collar_perro",
+                "listing_ids": [listing],
+                "objetivo": {"origen": "manual_lanzamiento", "acos_pct": valor},
+            },
+        )
+    assert exc.value.status_code == 422
+    assert "banda" in exc.value.detail["mensaje"]
 
 
 def test_reenvio_v2_reordena_listings_y_no_duplica_mutacion(escenario, monkeypatch):

@@ -808,9 +808,9 @@ def test_target_para_goals_manual_sobrevive():
 @pytest.mark.parametrize("valor", ["0", "0.00", "9.99", "45.01", "70"])
 def test_objetivo_manual_v2_fuera_de_banda_se_rechaza(valor):
     """El manual vive dentro de la banda del margen [10, 45]: 0 y 70 (y los
-    bordes) se rechazan con el mensaje de la banda, sin escribir nada."""
+    bordes) se rechazan con el mensaje de la banda al construir."""
     with pytest.raises(fp.PlanInvalido, match="banda"):
-        fp.plan_v2_como_json(_plan_v2(objetivo=valor))
+        fp.valida_banda_manual(Decimal(valor))
 
 
 @pytest.mark.parametrize("valor", ["10", "10.00", "25.00", "45", "45.00"])
@@ -830,3 +830,17 @@ def test_objetivo_v2_no_finito_se_rechaza_antes_de_la_banda(valor):
     plan = replace(plan, objetivo=replace(plan.objetivo, acos_pct=Decimal(valor)))
     with pytest.raises(fp.PlanInvalido, match="finito"):
         fp.plan_v2_como_json(plan)
+
+
+@pytest.mark.parametrize("valor", ["5.00", "50"])
+def test_plan_v2_desde_json_relee_manual_historico_fuera_de_banda(valor):
+    """F1 AI-review PR #381: la banda es regla de creacion, no candado de
+    lectura: un lote v2 persistido antes de A1 con manual fuera de [10, 45]
+    (valido entonces) se sigue leyendo para recuperar/pausar/consultar."""
+    serializado = fp.plan_v2_como_json(_plan_v2(objetivo="25.00"))
+    serializado["objetivo"]["acos_pct"] = valor
+    plan = fp.plan_v2_desde_json(serializado)
+    assert plan.objetivo.origen == "manual_lanzamiento"
+    assert plan.objetivo.acos_pct == Decimal(valor)
+    with pytest.raises(fp.PlanInvalido, match="banda"):
+        fp.valida_banda_manual(Decimal(valor))

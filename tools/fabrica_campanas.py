@@ -571,6 +571,11 @@ def _datos_plan_v2(args, conn_read, tipo: str):
             target = _decimal(args.target_acos, "--target-acos")
         except (InvalidOperation, TypeError):
             raise Abortar("--target-acos invalido") from None
+        # F2 AI-review PR #381: la banda se valida AQUI (unico sitio de
+        # alta manual: CLI, preview, crear y bids-sugeridos), no solo en
+        # _valida_plan_v2 (que sugerir_bids nunca pisa). PlanInvalido ya
+        # lo traducen _arma_plan (Abortar) y sugerir_bids (422).
+        fp.valida_banda_manual(target)
         objetivo = fp.ObjetivoPlanV2(origen, target, "manual_lanzamiento confirmado")
     elif origen == "margen_medido":
         fraccion = _fraccion(conn_read, args.plataforma)

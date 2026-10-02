@@ -119,8 +119,10 @@ class ObjetivoPlan(_Cuerpo):
             if not valor.is_finite():
                 raise ValueError("acos_pct manual no es finito")
             # A1: el API valida FORMA (decimal finito); el RANGO vive en una
-            # sola fuente, fabrica_plan._valida_plan_v2 (banda del margen):
-            # API, CLI y web rechazan con el MISMO mensaje de banda.
+            # sola fuente, fabrica_plan.valida_banda_manual, que corre al
+            # construir en _datos_plan_v2 (CLI, preview, crear y
+            # bids-sugeridos rechazan con el MISMO mensaje de banda; jamas
+            # al releer lotes viejos, F1 AI-review PR #381).
         return self
 
 

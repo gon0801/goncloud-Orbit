@@ -242,6 +242,21 @@ def target_para_goals(plan: PlanCanonico) -> Decimal | None:
     return None
 
 
+def valida_banda_manual(acos_pct: Decimal) -> None:
+    """El manual vive dentro de la banda del margen (fuente unica del
+    mensaje de banda). Solo corre al CONSTRUIR un objetivo manual nuevo
+    (tool `_datos_plan_v2`, unico sitio de alta: CLI, preview, crear y
+    bids-sugeridos); jamas al releer lotes persistidos (F1 AI-review
+    PR #381: una regla de creacion no puede ser candado retroactivo
+    de lectura)."""
+    if not (g.MARGEN_BANDA_MIN <= acos_pct <= g.MARGEN_BANDA_MAX):
+        raise PlanInvalido(
+            f"objetivo manual v2 {acos_pct} fuera de la banda"
+            f" [{g.MARGEN_BANDA_MIN}, {g.MARGEN_BANDA_MAX}]: el lanzamiento manual"
+            " vive dentro de la banda del margen"
+        )
+
+
 @dataclass(frozen=True)
 class Paso:
     """Un POST del lote: recurso + path + payload SIN los ids del padre
@@ -553,14 +568,10 @@ def _valida_plan_v2(plan: PlanGrupoV2) -> None:
         raise PlanInvalido("origen de objetivo v2 invalido")
     if not plan.objetivo.acos_pct.is_finite():
         raise PlanInvalido("objetivo ACoS v2 debe ser Decimal finito")
-    if plan.objetivo.origen == "manual_lanzamiento" and not (
-        g.MARGEN_BANDA_MIN <= plan.objetivo.acos_pct <= g.MARGEN_BANDA_MAX
-    ):
-        raise PlanInvalido(
-            f"objetivo manual v2 {plan.objetivo.acos_pct} fuera de la banda"
-            f" [{g.MARGEN_BANDA_MIN}, {g.MARGEN_BANDA_MAX}]: el lanzamiento manual"
-            " vive dentro de la banda del margen"
-        )
+    # Sin chequeo de banda aqui a proposito (F1 AI-review PR #381): este
+    # validador tambien corre al releer lotes persistidos, y la banda es
+    # regla de creacion, no candado retroactivo. La banda se valida solo
+    # al construir, en `valida_banda_manual` via `_datos_plan_v2`.
     if plan.objetivo.acos_pct <= 0:
         raise PlanInvalido("objetivo ACoS v2 debe ser Decimal finito > 0")
     if plan.objetivo.acos_pct.as_tuple().exponent < -2 or plan.objetivo.acos_pct > Decimal(
