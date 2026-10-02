@@ -52,6 +52,9 @@ COMMENT ON COLUMN producto_familia.asignada_por IS
     'motor). Hoy siempre dueno: es el unico escritor via /familias.';
 
 CREATE INDEX ON producto_familia (familia_id);
+-- F5 AI-review PR #382: toda FK tiene indice de apoyo (DATABASE.md);
+-- el trigger busca hijas por padre_id en cada escritura.
+CREATE INDEX ON familia (padre_id);
 
 -- Dos niveles: el padre de una subfamilia es de primer nivel, de la misma
 -- plataforma, y nadie convierte en subfamilia a quien ya tiene hijas
@@ -61,6 +64,15 @@ DECLARE
     padre_padre BIGINT;
     padre_plataforma platform;
 BEGIN
+    -- F6 AI-review PR #382: mover la plataforma de una familia no puede
+    -- dejar etiquetas en otra plataforma (raiz sin hijas incluida).
+    IF EXISTS (
+        SELECT 1 FROM producto_familia
+         WHERE familia_id = NEW.id AND platform IS DISTINCT FROM NEW.platform
+    ) THEN
+        RAISE EXCEPTION '0047: la familia % tiene etiquetas en otra plataforma',
+            NEW.id;
+    END IF;
     IF NEW.padre_id IS NULL THEN
         -- F3 AI-review PR #382: un UPDATE de platform en una raiz con
         -- hijas no puede dejarlas en otra plataforma (el COMMENT declara

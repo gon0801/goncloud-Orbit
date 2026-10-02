@@ -195,6 +195,26 @@ def test_trigger_serializa_reparentado_concurrente():
 
 
 @_skip_db
+def test_fks_con_indice_de_apoyo():
+    """F5 AI-review PR #382: toda FK de 0047 tiene indice de apoyo
+    (invariante transversal; test_schema solo parsea 0001/0002/0039)."""
+    with db_familias() as conn:
+        indices = {
+            (fila[0], fila[1])
+            for fila in conn.execute(
+                "SELECT tablename, indexdef FROM pg_indexes"
+                " WHERE schemaname = 'public'"
+                " AND tablename IN ('familia', 'producto_familia')"
+            ).fetchall()
+        }
+        por_tabla = {}
+        for tabla, definicion in indices:
+            por_tabla.setdefault(tabla, []).append(definicion)
+        assert any("padre_id" in d for d in por_tabla["familia"])
+        assert any("familia_id" in d for d in por_tabla["producto_familia"])
+
+
+@_skip_db
 def test_trigger_raiz_no_cambia_plataforma_con_hijas():
     """F3 AI-review PR #382: un UPDATE de platform en una raiz con hijas
     no las deja en otra plataforma."""
@@ -205,6 +225,21 @@ def test_trigger_raiz_no_cambia_plataforma_con_hijas():
             conn.execute(
                 "UPDATE familia SET platform = 'amazon_us' WHERE id = %s",
                 (raiz["id"],),
+            )
+
+
+@_skip_db
+def test_trigger_no_mueve_plataforma_con_etiquetas():
+    """F6 AI-review PR #382: mover la plataforma de una familia con
+    etiquetas (aunque no tenga hijas) no deja filas cruzadas."""
+    with db_familias() as conn:
+        pid, _ = _producto(conn, sku="SKU-F6", asin="B0FAMILIAF6", seller_sku="SF6")
+        fam = familias.crea(conn, "amazon_mx", "Sola")
+        familias.asigna(conn, [pid], fam["id"])
+        with pytest.raises(Exception, match="0047: .* etiquetas en otra plataforma"):
+            conn.execute(
+                "UPDATE familia SET platform = 'amazon_us' WHERE id = %s",
+                (fam["id"],),
             )
 
 

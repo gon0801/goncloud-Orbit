@@ -499,6 +499,28 @@ ciclos sin filas (anteriores a 0046).
 *Cómo se audita*: `SELECT * FROM target_acos_ciclo WHERE cycle_id = …`
 (el target y su procedencia que el ciclo usó, hoja por hoja).
 
+**`familia`** (0047, A2) — Árbol de familias por plataforma en DOS niveles
+como máximo (familia → subfamilia): `padre_id` NULL es primer nivel. El
+tope vive en el trigger `familia_dos_niveles` (un CHECK no ve otras
+filas), con `SELECT … FOR UPDATE` sobre el padre contra la carrera
+T1-hija/T2-reparenta y rechazo a mover `platform` con hijas o etiquetas
+en otra plataforma. `slug` único por plataforma con la forma
+`^[a-z0-9_]+$` de 0018: ES el `tipo_producto` de la fábrica. Escritura
+humana: INSERT/UPDATE solo `app_admin` (vía `app/familias.py`, único
+escritor); lectura `app_read`, `app_decide` (el motor la lee desde A4) y
+`app_admin`.
+*Cómo se audita*: `SELECT * FROM familia WHERE platform = … ORDER BY
+nombre` (el árbol que ve /familias).
+
+**`producto_familia`** (0047, A2) — Etiqueta de familia: UN producto tiene
+UNA familia por plataforma (`UNIQUE (product_id, platform)`), de primer
+nivel o subfamilia, con `asignada_at` y `asignada_por` (hoy siempre
+`dueno`, único escritor vía /familias). Upsert idempotente; el trigger
+`producto_familia_misma_plataforma` exige etiqueta y familia de la misma
+plataforma. Mismos GRANTs que `familia`.
+*Cómo se audita*: `SELECT product_id, familia_id FROM producto_familia
+WHERE platform = …` (una fila por producto etiquetado).
+
 **`apply_attempt`** — Ledger de intentos de TODA mutación (bid, corte,
 reversa, probe): `decision_id` (NULL solo para probes), `seq` (tope de
 reintentos = 3, "no existe 4º intento" es un COUNT), `tipo`
