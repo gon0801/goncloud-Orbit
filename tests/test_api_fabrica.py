@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from psycopg.conninfo import make_conninfo
 from psycopg.rows import tuple_row
@@ -268,6 +268,67 @@ def test_crear_v2_exige_interruptor_y_target_valido_sin_mutar(escenario, monkeyp
     )
     assert cliente.post("/api/fabrica/plan", json=invalida).status_code == 422
     assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("valor", ["0", "70"])
+def test_preview_v2_rechaza_manual_fuera_de_banda(escenario, valor):
+    """A1: manual 0 y 70 por el formulario/API → 422 con el mensaje de la
+    banda (el MISMO de CLI y nucleo), sin escribir lote."""
+    cliente, conn, solicitud, fw, ids = escenario
+    listing = conn.execute(
+        "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx'", (ids[0],)
+    ).fetchone()[0]
+    v2 = _solicitud_v2(
+        solicitud, [listing], objetivo={"origen": "manual_lanzamiento", "acos_pct": valor}
+    )
+    respuesta = cliente.post("/api/fabrica/plan", json=v2)
+    assert respuesta.status_code == 422
+    assert "banda" in respuesta.json()["detail"]["mensaje"]
+    assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("valor", ["0", "70"])
+def test_bids_sugeridos_rechaza_manual_fuera_de_banda(escenario, valor):
+    """F2 AI-review PR #381: sugerir_bids valida la banda igual que el alta
+    (antes 422 en el API; sin el fix pasaba y alteraba las semillas exactas).
+    Falla antes de credenciales/Amazon: sin mocks de red."""
+    cliente, conn, solicitud, fw, ids = escenario
+    listing = conn.execute(
+        "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx'", (ids[0],)
+    ).fetchone()[0]
+    with pytest.raises(HTTPException) as exc:
+        fw.sugerir_bids(
+            conn,
+            {
+                "plataforma": "amazon_mx",
+                "tipo_producto": "collar_perro",
+                "listing_ids": [listing],
+                "objetivo": {"origen": "manual_lanzamiento", "acos_pct": valor},
+            },
+        )
+    assert exc.value.status_code == 422
+    assert "banda" in exc.value.detail["mensaje"]
+
+
+def test_bids_sugeridos_rechaza_manual_fuera_de_forma(escenario):
+    """F2 AI-review PR #381 (resto): 25.123 en banda pero con 3 decimales →
+    422 NUMERIC (igual que /plan), antes de tocar Amazon."""
+    cliente, conn, solicitud, fw, ids = escenario
+    listing = conn.execute(
+        "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx'", (ids[0],)
+    ).fetchone()[0]
+    with pytest.raises(HTTPException) as exc:
+        fw.sugerir_bids(
+            conn,
+            {
+                "plataforma": "amazon_mx",
+                "tipo_producto": "collar_perro",
+                "listing_ids": [listing],
+                "objetivo": {"origen": "manual_lanzamiento", "acos_pct": "25.123"},
+            },
+        )
+    assert exc.value.status_code == 422
+    assert "NUMERIC" in exc.value.detail["mensaje"]
 
 
 def test_reenvio_v2_reordena_listings_y_no_duplica_mutacion(escenario, monkeypatch):

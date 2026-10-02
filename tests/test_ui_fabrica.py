@@ -81,6 +81,34 @@ def test_selector_v2_exige_objetivo_y_envia_listings_no_productos():
     assert "productos:" not in codigo
 
 
+def test_formulario_muestra_linea_de_margen_sin_manual():
+    """A1: sin ACoS manual, el formulario declara la misma linea del dry-run:
+    los goals usan el margen de la plataforma y se ajustan cada ciclo."""
+    from app import fabrica_plan as fp
+
+    respuesta = TestClient(app).get("/campanas/nuevas")
+    assert respuesta.status_code == 200
+    assert fp.TEXTO_TARGET_MARGEN_PLATAFORMA in " ".join(respuesta.text.split())
+
+
+def test_preview_sin_manual_muestra_linea_de_margen():
+    """A1-r2 (bloqueante VEREDICTO-A1-r1) + F5: la fila 'Target ACoS
+    aplicado' muestra la linea de margen solo cuando el plan registra
+    goals_fijan_target false (goals NULL); con true o ausente (lotes
+    viejos, congelados entonces) muestra el numero. El literal es el
+    MISMO del nucleo."""
+    from app import fabrica_plan as fp
+
+    codigo = (RAIZ / "static/js/fabrica.js").read_text()
+    assert fp.TEXTO_TARGET_MARGEN_PLATAFORMA in codigo
+    assert "plan.goals_fijan_target !== false" in codigo
+    assert '["Target ACoS aplicado", aplicado]' in codigo
+    assert '["Target ACoS aplicado", porcentaje(target)]' not in codigo
+    # F7: el orden de las ramas tambien se fija (numero con true/ausente,
+    # linea solo con false); invertirlas debe romper la suite.
+    assert "const aplicado = fijan ? porcentaje(target)" in codigo
+
+
 def test_pantalla_carga_bids_sugeridos_y_firma_su_fuente():
     respuesta = TestClient(app).get("/campanas/nuevas")
     assert respuesta.status_code == 200

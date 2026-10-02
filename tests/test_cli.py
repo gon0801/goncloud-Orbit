@@ -464,6 +464,17 @@ def test_cli_goals_set_harvest_limpia(monkeypatch):
     assert capturado["harvest_limpia"] is True
 
 
+def test_cli_goals_set_limpia_target(monkeypatch):
+    """A1: `goals set 7 --limpia-target` despacha limpia_target=True (el goal
+    queda NULL y resuelve por margen_plataforma)."""
+    capturado = _goal_captura(monkeypatch)
+    monkeypatch.setenv("ORBIT_DSN_ADMIN", "postgresql://orbit_admin:secreta@127.0.0.1:5432/o")
+    codigo = cli.main(["goals", "set", "7", "--limpia-target"])
+    assert codigo == 0
+    assert capturado["limpia_target"] is True
+    assert capturado["target_acos_pct"] is None
+
+
 def test_cli_goals_set_sin_campos_es_uso_invalido(monkeypatch, capsys):
     """`goals set 7` sin NINGUN campo: edicion vacia = error del operador
     (exit 2), jamas un UPDATE que solo toque updated_at."""

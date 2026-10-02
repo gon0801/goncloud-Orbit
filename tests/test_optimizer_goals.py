@@ -718,6 +718,18 @@ def test_peldano_margen_no_pisa_goals():
     assert (valor, peldano) == (Decimal("30"), "setting_plataforma")
 
 
+def test_peldano_margen_gana_con_goal_campana_null_a1():
+    """A1: un goal de campana con target NULL (grupo sin objetivo manual)
+    resuelve por margen_plataforma, NO por goal_plataforma: el piso del goal
+    de campana tapa al de plataforma pero deja pasar al margen."""
+    campana_null = _goal(scope="campaign", ad_entity_id=1, platform=None, target_acos_pct=None)
+    plataforma = _goal(target_acos_pct=Decimal("25"))
+    valor, peldano = g.cascada_target_acos_con_procedencia(
+        campana_null, plataforma, _settings_target(us=30), Decimal("28"), "amazon_us", Decimal("20")
+    )
+    assert (valor, peldano) == (Decimal("20"), "margen_plataforma")
+
+
 def test_peldano_margen_invalido_revienta():
     """Rojo (b): margen presente pero invalido (cero/negativo) revienta
     ruidoso con el nombre del parametro (regla 3: jamas un target cero;

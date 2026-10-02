@@ -72,6 +72,13 @@ ALLOWLIST_TAMANO = {
         "y no tiene frontera coherente para partirse mas (partir por partir "
         "esta prohibido por la regla anti-Goodhart)"
     ),
+    "app/fabrica_plan.py": (
+        "A1: nucleo PURO de la fabrica (planes v1/v2, huella, payloads, "
+        "dry-run); cruzo el umbral con target_para_goals + la validacion de "
+        "banda del objetivo manual (920). Candidato DECLARADO a partirse "
+        "(planes/payloads) la proxima vez que se toque en grande; partirlo "
+        "por 20 lineas seria partir por partir (regla anti-Goodhart)"
+    ),
     "app/apply.py": (
         "ORBIT 04 2.1: nucleo del aplicador (quota, ledger, secuencia sellada "
         "de mutaciones, reversas). La review adversaria de phase 2 le SUMO "

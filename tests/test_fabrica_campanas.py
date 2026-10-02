@@ -554,6 +554,101 @@ def test_dry_run_dice_semillas_cero_explicito(monkeypatch, capsys):
     assert "category_phrase" in salida and "semillas=0" in salida
 
 
+def test_dry_run_v1_declara_linea_de_margen(monkeypatch, capsys):
+    """A1: el dry-run v1 (sin manual posible) declara que los goals usan el
+    margen de la plataforma; el snapshot derivado sigue visible."""
+    conn = _ConnFalsa(
+        settings={"ads_target_fraccion_margen_amazon_mx": "0.5"}, productos=[FILA_PRODUCTO]
+    )
+    _frontera_lectura(monkeypatch, conn)
+    _sin_red(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *ARGS_BASE])
+    assert fc.main() == 0
+    salida = capsys.readouterr().out
+    assert fp.TEXTO_TARGET_MARGEN_PLATAFORMA in salida
+    assert "target=19.10" in salida
+    assert conn.escrituras == []
+
+
+def test_cli_v2_sin_target_acos_deriva_margen_y_declara_linea(monkeypatch, capsys):
+    """A1: --target-acos es opcional; sin el, el CLI deriva margen_medido y
+    el dry-run declara la linea de margen de plataforma (goals NULL)."""
+    args = ARGS_BASE.copy()
+    indice = args.index("--productos")
+    args[indice : indice + 2] = ["--listing-ids", "11"]
+    conn = _ConnFalsa(
+        settings={"ads_target_fraccion_margen_amazon_mx": "0.5"},
+        publicaciones=[(11, 1, "B0AAAAAAAA", "SS-1", Decimal("38.20"))],
+        biblioteca=([], []),
+    )
+    _frontera_lectura(monkeypatch, conn)
+    _sin_red(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *args])
+    assert fc.main() == 0
+    salida = capsys.readouterr().out
+    assert fp.TEXTO_TARGET_MARGEN_PLATAFORMA in salida
+    assert "origen=margen_medido" in salida
+    assert conn.escrituras == []
+
+
+def test_cli_v2_con_target_acos_muestra_fijo_sin_linea_de_margen(monkeypatch, capsys):
+    """Con manual confirmado, el dry-run muestra el numero fijo, no la linea."""
+    args = ARGS_BASE.copy()
+    indice = args.index("--productos")
+    args[indice : indice + 2] = ["--listing-ids", "11"]
+    args.extend(["--target-acos", "25.00"])
+    conn = _ConnFalsa(
+        publicaciones=[(11, 1, "B0AAAAAAAA", "SS-1", None)],
+        biblioteca=([], []),
+    )
+    _frontera_lectura(monkeypatch, conn)
+    _sin_red(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *args])
+    assert fc.main() == 0
+    salida = capsys.readouterr().out
+    assert "target=25.00" in salida
+    assert fp.TEXTO_TARGET_MARGEN_PLATAFORMA not in salida
+    assert conn.escrituras == []
+
+
+def test_cli_v2_rechaza_manual_fuera_de_forma(monkeypatch):
+    """F2 AI-review PR #381: 25.123 (en banda, 3 decimales) se rechaza con
+    el mensaje de forma, igual que /plan, sin escribir nada."""
+    args = ARGS_BASE.copy()
+    indice = args.index("--productos")
+    args[indice : indice + 2] = ["--listing-ids", "11"]
+    args.extend(["--target-acos", "25.123"])
+    conn = _ConnFalsa(
+        publicaciones=[(11, 1, "B0AAAAAAAA", "SS-1", None)],
+        biblioteca=([], []),
+    )
+    _frontera_lectura(monkeypatch, conn)
+    _sin_red(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *args])
+    with pytest.raises(fc.Abortar, match="NUMERIC"):
+        fc.main()
+    assert conn.escrituras == []
+
+
+@pytest.mark.parametrize("valor", ["0", "70"])
+def test_cli_v2_rechaza_manual_fuera_de_banda(monkeypatch, valor):
+    """0 y 70 se rechazan con el mensaje de la banda, sin escribir nada."""
+    args = ARGS_BASE.copy()
+    indice = args.index("--productos")
+    args[indice : indice + 2] = ["--listing-ids", "11"]
+    args.extend(["--target-acos", valor])
+    conn = _ConnFalsa(
+        publicaciones=[(11, 1, "B0AAAAAAAA", "SS-1", None)],
+        biblioteca=([], []),
+    )
+    _frontera_lectura(monkeypatch, conn)
+    _sin_red(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["fabrica_campanas.py", *args])
+    with pytest.raises(fc.Abortar, match="banda"):
+        fc.main()
+    assert conn.escrituras == []
+
+
 def test_cli_v2_manual_normaliza_listing_sin_margen_sin_http(monkeypatch, capsys):
     args = ARGS_BASE.copy()
     indice = args.index("--productos")
@@ -1532,12 +1627,14 @@ def test_registrar_escribe_grupo_roles_productos_y_goals(monkeypatch):
             (grupo,),
         ).fetchall()
         assert len(goals) == 5
+        # A1: el grupo conserva el snapshot derivado (19.10 de arriba) pero los
+        # goals nacen con target NULL (resuelven por margen_plataforma).
         assert all(
             g
             == (
                 "shadow",
                 True,
-                Decimal("19.10"),
+                None,
                 "c-category_exact",
                 "ag-category_exact",
                 Decimal("6.0000"),
@@ -1601,6 +1698,10 @@ def test_registrar_v2_conserva_dos_listings_y_objetivo_manual(monkeypatch):
         (12, "SS-2", Decimal("-5")),
     ]
     assert len(llamadas) == 6
+    # A1: con manual confirmado, los 5 goals SI fijan el target del dueno.
+    goals = [kw for kw in llamadas if isinstance(kw, dict)]
+    assert len(goals) == 5
+    assert all(kw["target_acos_pct"] == Decimal("25.00") for kw in goals)
 
 
 def test_registrar_cmd_lee_lote_v2_con_interruptor_v1_y_no_repite_post(monkeypatch):

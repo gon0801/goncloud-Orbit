@@ -17,7 +17,9 @@ now() UTC de SU reloj (endpoint: reloj del servidor; CLI: reloj del operador).
 
 PRE-VALIDACION antes del UPDATE, con mensajes en espanol, combinando los
 valores NUEVOS con los EXISTENTES de la fila (un floor nuevo puede chocar con
-el ceiling viejo): floor/ceiling positivos y floor <= ceiling, target > 0,
+el ceiling viejo): floor/ceiling positivos y floor <= ceiling, target > 0
+o NULL (`limpia_target` lo pone a NULL y JAMAS se combina con
+`target_acos_pct`, simetrico a `harvest_limpia`),
 harvest_default_bid > 0 o NULL, y la terna harvest all-or-nothing del CHECK
 `goal_harvest_completo` (tras aplicar los cambios, o los TRES son NULL o los
 TRES no-NULL; `harvest_limpia` pone los tres a NULL y JAMAS se combina con
@@ -30,7 +32,11 @@ el trigger que admite bid-solo en grupo, asi que el camino feliz solo corre
 con 00NN aplicada). El objetivo es doble: mensaje claro de USO
 (422/exit 2) y no quemar la validez del CHECK en la base para un error de
 operador. `None` en un parametro significa "no cambiar" — el unico camino a
-NULL de la terna harvest es `harvest_limpia` (regla 3: faltante no es cero).
+NULL de la terna harvest es `harvest_limpia`, y el unico camino a NULL del
+target es `limpia_target` (regla 3: faltante no es cero). Un goal de campana
+con target NULL resuelve su target por `margen_plataforma` cada ciclo (la
+cascada de app/optimizer/goals.py lo deja pasar; A1 retira el congelado de
+los grupos de fabrica).
 
 DEFAULTS POR MONEDA (ORBIT 05 preflight 1.2): si el estado efectivo del
 goal queda con `bid_floor`/`bid_ceiling` ausentes, se resuelven con
@@ -252,6 +258,7 @@ def _cambios_edicion(
     harvest_limpia: bool,
     harvest_limpia_destino: bool,
     mode: str | None,
+    limpia_target: bool,
 ) -> dict[str, object]:
     """Mapa columna -> valor nuevo desde los parametros (None = no cambiar).
     `harvest_limpia` pone los TRES campos de harvest a NULL;
@@ -259,9 +266,12 @@ def _cambios_edicion(
     (bid intacto); ambos rechazan combinarse con campos harvest
     individuales, y entre si (la primera anularia el bid que la segunda
     promete dejar intacto: combinarlas borra el bid en silencio, ronda
-    PR #258). `mode` es una columna mas: vocabulario cerrado del CHECK de
-    0001 (el de `MODOS` de app.optimizer.goals, regla 2: una fuente),
-    validado aqui en puro, antes de leer la fila."""
+    PR #258). `limpia_target` (A1) pone `target_acos_pct` a NULL y rechaza
+    combinarse con `target_acos_pct` (simetrico a `harvest_limpia`: limpiar
+    y fijar a la vez seria una contradiccion silenciosa). `mode` es una
+    columna mas: vocabulario cerrado del CHECK de 0001 (el de `MODOS` de
+    app.optimizer.goals, regla 2: una fuente), validado aqui en puro,
+    antes de leer la fila."""
     cambios: dict[str, object] = {}
     if mode is not None:
         if mode not in MODOS:
@@ -269,6 +279,12 @@ def _cambios_edicion(
         cambios["mode"] = mode
     if target_acos_pct is not None:
         cambios["target_acos_pct"] = target_acos_pct
+    if limpia_target:
+        if target_acos_pct is not None:
+            raise GoalInvalido(
+                "limpia_target no se combina con target_acos_pct: limpia el target o fija uno nuevo"
+            )
+        cambios["target_acos_pct"] = None
     if enabled is not None:
         cambios["enabled"] = enabled
     if bid_floor is not None:
@@ -324,13 +340,17 @@ def edita_goal(
     harvest_limpia: bool = False,
     harvest_limpia_destino: bool = False,
     mode: str | None = None,
+    limpia_target: bool = False,
     updated_at: dt.datetime,
 ) -> dict:
     """Edita un goal: UPDATE de SOLO los campos pasados + `updated_at`
     EXPLICITO (parametro OBLIGATORIO, tz-aware; ver docstring del modulo),
     devolviendo la fila completa en el shape de GET /goals.
 
-    `None` = no cambiar ese campo; `harvest_limpia=True` pone los TRES campos
+    `None` = no cambiar ese campo; `limpia_target=True` (A1) pone
+    `target_acos_pct` a NULL (el goal resuelve por `margen_plataforma`)
+    y rechaza combinarse con `target_acos_pct` (simetrico a
+    `harvest_limpia`); `harvest_limpia=True` pone los TRES campos
     de harvest a NULL y rechaza combinarse con campos harvest individuales.
     `harvest_limpia_destino=True` (FABRICA 02, limpieza de la terna
     transitoria de F1 grupo por grupo, A.5/D.2): pone a NULL SOLO
@@ -369,6 +389,7 @@ def edita_goal(
         harvest_limpia=harvest_limpia,
         harvest_limpia_destino=harvest_limpia_destino,
         mode=mode,
+        limpia_target=limpia_target,
     )
 
     # Validacion de ENTRADA pura, ANTES de leer la fila (sin I/O; hallazgos
@@ -482,7 +503,7 @@ def crea_goal(
     conn: psycopg.Connection,
     *,
     ad_entity_id: int,
-    target_acos_pct: Decimal,
+    target_acos_pct: Decimal | None,
     bid_currency: str,
     mode: str,
     harvest_campaign_id: str,
@@ -495,7 +516,10 @@ def crea_goal(
     §4, decisiones 12 y 13): terna harvest COMPLETA obligatoria, `mode`
     explicito en {shadow, live} (nunca `off`: un goal apagado al nacer es
     una campana que el motor jamas toca), piso/techo de DEFAULTS_POR_MONEDA
-    de SU moneda. Camino unico de escritura de goals (sellado 26 de ORBIT 04,
+    de SU moneda. `target_acos_pct=None` (A1) escribe NULL: el goal resuelve
+    su target por `margen_plataforma` cada ciclo en vez de nacer congelado
+    (la columna ya es nullable y el CHECK admite NULL). Camino unico de
+    escritura de goals (sellado 26 de ORBIT 04,
     docs/APPLY.md §10.3): la fabrica despacha aqui, jamas duplica el INSERT.
 
     Validacion PURA antes de I/O (mismo criterio que edita_goal); los
@@ -506,12 +530,14 @@ def crea_goal(
         raise ValueError("created_at es obligatorio y tz-aware")
     if mode not in MODOS_CREACION:
         raise GoalInvalido(f"mode debe ser uno de {MODOS_CREACION}, llego {mode!r}")
-    for nombre, valor in (
-        ("target_acos_pct", target_acos_pct),
-        ("harvest_default_bid", harvest_default_bid),
+    if target_acos_pct is not None and (
+        not isinstance(target_acos_pct, Decimal) or not target_acos_pct.is_finite()
     ):
-        if not isinstance(valor, Decimal) or not valor.is_finite():
-            raise GoalInvalido(f"{nombre} debe ser un Decimal finito, llego {valor!r}")
+        raise GoalInvalido(f"target_acos_pct debe ser un Decimal finito, llego {target_acos_pct!r}")
+    if not isinstance(harvest_default_bid, Decimal) or not harvest_default_bid.is_finite():
+        raise GoalInvalido(
+            f"harvest_default_bid debe ser un Decimal finito, llego {harvest_default_bid!r}"
+        )
     for nombre, valor in (
         ("harvest_campaign_id", harvest_campaign_id),
         ("harvest_ad_group_id", harvest_ad_group_id),

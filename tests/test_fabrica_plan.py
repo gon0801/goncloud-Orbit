@@ -251,7 +251,9 @@ def test_huella_cambia_con_bids_productos_o_semillas():
     assert fp.huella_plan(base) != fp.huella_plan(_plan(parametros=_parametros(bid="5.50")))
     assert fp.huella_plan(base) != fp.huella_plan(_plan(productos=(_producto(), _producto(2))))
     assert fp.huella_plan(base) != fp.huella_plan(_plan(modo="live"))
-    canonico = json.dumps(fp.plan_como_json(base), sort_keys=True, separators=(",", ":"))
+    sin_derivados = fp.plan_como_json(base)
+    del sin_derivados["goals_fijan_target"]
+    canonico = json.dumps(sin_derivados, sort_keys=True, separators=(",", ":"))
     assert fp.huella_plan(base) == hashlib.sha256(canonico.encode("utf-8")).hexdigest()
 
 
@@ -771,3 +773,139 @@ def test_cobertura_minima_pineada_contra_el_sql():
 
     ruta = Path(__file__).resolve().parents[1] / "migrations" / "0018_fabrica_campanas.sql"
     assert f"< {g.MARGEN_COBERTURA_MIN} THEN NULL" in ruta.read_text(encoding="utf-8")
+
+
+# --- A1: goals sin target congelado ----------------------------------------
+
+
+def _plan_v2_medido():
+    """v2 valido con origen margen_medido: margenes positivos en cada
+    publicacion, fraccion y derivado presentes (CHECK 0019)."""
+    base = _plan_v2()
+    publicaciones = tuple(replace(p, margen_neto_pct=Decimal("38.20")) for p in base.publicaciones)
+    objetivo = fp.ObjetivoPlanV2(
+        "margen_medido",
+        Decimal("19.10"),
+        "0.5 x 38.20 = 19.100",
+        Decimal("0.5"),
+        Decimal("19.10"),
+    )
+    return replace(base, publicaciones=publicaciones, objetivo=objetivo)
+
+
+def test_target_para_goals_sin_manual_es_null():
+    """Sin objetivo manual (v1 o v2 medido) los goals nacen NULL: resuelven
+    por margen_plataforma cada ciclo en vez de cargar el congelado."""
+    assert fp.target_para_goals(_plan()) is None
+    medido = _plan_v2_medido()
+    fp.plan_v2_como_json(medido)  # el plan medido sigue valido
+    assert fp.target_para_goals(medido) is None
+
+
+def test_target_para_goals_manual_sobrevive():
+    """Con manual confirmado, el target del dueno si se escribe en los goals."""
+    assert fp.target_para_goals(_plan_v2(objetivo="25.00")) == Decimal("25.00")
+
+
+def test_plan_json_registra_si_goals_fijan_target():
+    """F5 AI-review PR #381: el JSON registra goals_fijan_target (manual
+    True, medido/v1 False); el preview decide con `!== false` y los lotes
+    viejos (sin la llave) conservan el numero congelado."""
+    assert fp.plan_v2_como_json(_plan_v2(objetivo="25.00"))["goals_fijan_target"] is True
+    assert fp.plan_v2_como_json(_plan_v2_medido())["goals_fijan_target"] is False
+    assert fp.plan_como_json(_plan())["goals_fijan_target"] is False
+    historico = fp.plan_v2_como_json(_plan_v2(objetivo="25.00"))
+    del historico["goals_fijan_target"]
+    assert fp.plan_v2_desde_json(historico).objetivo.acos_pct == Decimal("25.00")
+    # F7: los tres estados que ve el JS, en el cable serializado (lo que
+    # el preview distingue: true numero, false linea, ausente numero).
+    assert '"goals_fijan_target": true' in json.dumps(
+        fp.plan_v2_como_json(_plan_v2(objetivo="25.00")), sort_keys=True
+    )
+    assert '"goals_fijan_target": false' in json.dumps(
+        fp.plan_v2_como_json(_plan_v2_medido()), sort_keys=True
+    )
+    assert "goals_fijan_target" not in json.dumps(historico, sort_keys=True)
+
+
+def test_huella_ignora_marcador_derivado():
+    """F6 AI-review PR #381: goals_fijan_target NO entra a la huella (es
+    derivada del objetivo cubierto): un preview en vuelo sobrevive al
+    despliegue y el guard `web-<huella>` de `crear` sigue encontrando
+    el lote en vez de duplicar campanas."""
+    plan = _plan_v2(objetivo="25.00")
+    con_marcador = fp.plan_v2_como_json(plan)
+    assert con_marcador["goals_fijan_target"] is True
+    sin_marcador = dict(con_marcador)
+    del sin_marcador["goals_fijan_target"]
+    canonico = json.dumps(sin_marcador, sort_keys=True, separators=(",", ":"))
+    assert fp.huella_plan_v2(plan) == hashlib.sha256(canonico.encode("utf-8")).hexdigest()
+    datos_v1 = fp.plan_como_json(_plan())
+    assert datos_v1["goals_fijan_target"] is False
+    del datos_v1["goals_fijan_target"]
+    canonico_v1 = json.dumps(datos_v1, sort_keys=True, separators=(",", ":"))
+    assert fp.huella_plan(_plan()) == hashlib.sha256(canonico_v1.encode("utf-8")).hexdigest()
+
+
+@pytest.mark.parametrize("valor", ["0", "0.00", "9.99", "45.01", "70"])
+def test_objetivo_manual_v2_fuera_de_banda_se_rechaza(valor):
+    """El manual vive dentro de la banda del margen [10, 45]: 0 y 70 (y los
+    bordes) se rechazan con el mensaje de la banda al construir."""
+    with pytest.raises(fp.PlanInvalido, match="banda"):
+        fp.valida_banda_manual(Decimal(valor))
+
+
+@pytest.mark.parametrize("valor", ["10", "10.00", "25.00", "45", "45.00"])
+def test_objetivo_manual_v2_dentro_de_banda_pasa(valor):
+    """Banda inclusiva: 10 y 45 pasan, con el valor intacto en el JSON."""
+    serializado = fp.plan_v2_como_json(_plan_v2(objetivo=valor))
+    assert Decimal(serializado["objetivo"]["acos_pct"]) == Decimal(valor)
+    assert serializado["objetivo"]["origen"] == "manual_lanzamiento"
+
+
+@pytest.mark.parametrize("valor", ["NaN", "sNaN", "Infinity", "-Infinity"])
+def test_valida_banda_manual_rechaza_no_finito(valor):
+    """F4 AI-review PR #381: la comparacion de banda con NaN lanza
+    decimal.InvalidOperation, no PlanInvalido; el guard vive DENTRO de
+    valida_banda_manual (falla contra el codigo previo con
+    InvalidOperation, no con PlanInvalido)."""
+    with pytest.raises(fp.PlanInvalido, match="finito"):
+        fp.valida_banda_manual(Decimal(valor))
+
+
+@pytest.mark.parametrize("valor", ["NaN", "sNaN", "Infinity", "-Infinity"])
+def test_objetivo_v2_no_finito_se_rechaza_al_serializar(valor):
+    """Guardia (pasa en ambos): _valida_plan_v2 preserva el rechazo de no
+    finitos al serializar/releer, con el mensaje de finitud."""
+    plan = _plan_v2(objetivo="25.00")
+    plan = replace(plan, objetivo=replace(plan.objetivo, acos_pct=Decimal(valor)))
+    with pytest.raises(fp.PlanInvalido, match="finito"):
+        fp.plan_v2_como_json(plan)
+
+
+@pytest.mark.parametrize("valor", ["25.123", "0.001", "10000"])
+def test_valida_forma_objetivo_rechaza_fuera_de_numeric(valor):
+    """F2 AI-review PR #381: mas de 2 decimales o mas de 9999.99 se
+    rechazan con el mensaje de forma (fuente unica para _valida_plan_v2
+    y _datos_plan_v2)."""
+    with pytest.raises(fp.PlanInvalido, match="NUMERIC"):
+        fp.valida_forma_objetivo(Decimal(valor))
+
+
+@pytest.mark.parametrize("valor", ["10", "25.00", "45", "9999.99"])
+def test_valida_forma_objetivo_acepta_en_numeric(valor):
+    fp.valida_forma_objetivo(Decimal(valor))
+
+
+@pytest.mark.parametrize("valor", ["5.00", "50"])
+def test_plan_v2_desde_json_relee_manual_historico_fuera_de_banda(valor):
+    """F1 AI-review PR #381: la banda es regla de creacion, no candado de
+    lectura: un lote v2 persistido antes de A1 con manual fuera de [10, 45]
+    (valido entonces) se sigue leyendo para recuperar/pausar/consultar."""
+    serializado = fp.plan_v2_como_json(_plan_v2(objetivo="25.00"))
+    serializado["objetivo"]["acos_pct"] = valor
+    plan = fp.plan_v2_desde_json(serializado)
+    assert plan.objetivo.origen == "manual_lanzamiento"
+    assert plan.objetivo.acos_pct == Decimal(valor)
+    with pytest.raises(fp.PlanInvalido, match="banda"):
+        fp.valida_banda_manual(Decimal(valor))

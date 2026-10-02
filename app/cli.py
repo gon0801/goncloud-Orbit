@@ -392,10 +392,14 @@ def _goals_set(args) -> int:
         "harvest_default_bid": args.harvest_bid,
         "mode": args.mode,
     }
-    if not any(v is not None for v in campos.values()) and not args.harvest_limpia:
+    if (
+        not any(v is not None for v in campos.values())
+        and not args.harvest_limpia
+        and not args.limpia_target
+    ):
         print(
             "goals set necesita al menos un campo a editar "
-            "(--target/--enabled/--floor/--ceiling/--harvest-*/--mode)",
+            "(--target/--limpia-target/--enabled/--floor/--ceiling/--harvest-*/--mode)",
             file=sys.stderr,
         )
         return 2
@@ -424,6 +428,7 @@ def _goals_set(args) -> int:
                 conn,
                 args.goal_id,
                 harvest_limpia=args.harvest_limpia,
+                limpia_target=args.limpia_target,
                 updated_at=dt.datetime.now(dt.UTC),
                 **campos,
             )
@@ -660,6 +665,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_set.add_argument(
         "--target", type=_decimal_arg("target"), default=None, help="target_acos_pct"
+    )
+    p_set.add_argument(
+        "--limpia-target",
+        action="store_true",
+        help="pone target_acos_pct en NULL (el goal resuelve por margen_plataforma;"
+        " no combina con --target)",
     )
     p_set.add_argument("--enabled", type=_bool_arg("enabled"), default=None, help="true|false")
     p_set.add_argument("--floor", type=_decimal_arg("floor"), default=None, help="bid_floor")

@@ -227,6 +227,50 @@ class PlanGrupoV2:
 
 PlanCanonico = PlanGrupo | PlanGrupoV2
 
+# A1: sin objetivo manual, los 5 goals nacen con target NULL y resuelven por
+# margen_plataforma cada ciclo. El dry-run lo declara con esta linea literal
+# (el snapshot derivado del grupo se conserva solo como auditoria).
+TEXTO_TARGET_MARGEN_PLATAFORMA = "target: margen de la plataforma (se ajusta cada ciclo)"
+
+
+def target_para_goals(plan: PlanCanonico) -> Decimal | None:
+    """Target con el que nacen los 5 goals: el manual cuando el dueno lo
+    confirmo en un v2, NULL en cualquier otro caso (el goal resuelve por
+    margen_plataforma cada ciclo; A1 retira el congelado de fabrica)."""
+    if isinstance(plan, PlanGrupoV2) and plan.objetivo.origen == "manual_lanzamiento":
+        return plan.objetivo.acos_pct
+    return None
+
+
+def valida_banda_manual(acos_pct: Decimal) -> None:
+    """El manual vive dentro de la banda del margen (fuente unica del
+    mensaje de banda). Solo corre al CONSTRUIR un objetivo manual nuevo
+    (tool `_datos_plan_v2`, unico sitio de alta: CLI, preview, crear y
+    bids-sugeridos); jamas al releer lotes persistidos (F1 AI-review
+    PR #381: una regla de creacion no puede ser candado retroactivo
+    de lectura). Valida finitud primero (F4: sin esto NaN lanza
+    InvalidOperation en la comparacion, no PlanInvalido)."""
+    if not acos_pct.is_finite():
+        raise PlanInvalido("objetivo manual v2 debe ser Decimal finito")
+    if not (g.MARGEN_BANDA_MIN <= acos_pct <= g.MARGEN_BANDA_MAX):
+        raise PlanInvalido(
+            f"objetivo manual v2 {acos_pct} fuera de la banda"
+            f" [{g.MARGEN_BANDA_MIN}, {g.MARGEN_BANDA_MAX}]: el lanzamiento manual"
+            " vive dentro de la banda del margen"
+        )
+
+
+def valida_forma_objetivo(acos_pct: Decimal) -> None:
+    """El objetivo cabe en NUMERIC(6,2) (fuente unica del mensaje de forma).
+    Invariante atemporal: corre en `_valida_plan_v2` (creacion y relectura;
+    todo lote viejo lo cumple) y al construir en `_datos_plan_v2` (F2
+    AI-review PR #381: `sugerir_bids` nunca pisa `_valida_plan_v2` y sin
+    esto aceptaba 25.123 que `/plan` rechaza)."""
+    if not acos_pct.is_finite():
+        raise PlanInvalido("objetivo ACoS v2 debe ser Decimal finito")
+    if acos_pct.as_tuple().exponent < -2 or acos_pct > Decimal("9999.99"):
+        raise PlanInvalido("objetivo ACoS v2 fuera de NUMERIC(6,2)")
+
 
 @dataclass(frozen=True)
 class Paso:
@@ -484,6 +528,10 @@ def plan_como_json(plan: PlanGrupo) -> dict:
         "target_derivado_pct": str(plan.target.derivado),
         "fraccion": str(plan.target.fraccion),
         "target_procedencia": plan.target.procedencia,
+        # F5 AI-review PR #381: registra si los goals fijan el numero
+        # (manual) o nacen NULL (margen). Ausente en lotes viejos = numero
+        # (congelado entonces); el JS decide con `!== false`.
+        "goals_fijan_target": target_para_goals(plan) is not None,
         "semillas": {
             "keywords": list(plan.semillas.keywords),
             "asins": list(plan.semillas.asins),
@@ -493,10 +541,21 @@ def plan_como_json(plan: PlanGrupo) -> dict:
     }
 
 
+def _canonico_sin_derivados(datos: dict) -> str:
+    """JSON canonico para la huella, SIN llaves derivadas: `goals_fijan_target`
+    se recalcula desde el objetivo cubierto, asi que excluirla no debilita la
+    firma y evita rotar la identidad durable (`web-<huella>`) de los lotes
+    (F6 AI-review PR #381: rotarla invalidaria el guard anti-duplicados de
+    `crear` para previews en vuelo)."""
+    datos = dict(datos)
+    datos.pop("goals_fijan_target", None)
+    return json.dumps(datos, sort_keys=True, separators=(",", ":"))
+
+
 def huella_plan(plan: PlanGrupo) -> str:
     """sha256 del JSON canonico del plan: cambia si cambia CUALQUIER cosa que
     se va a crear (productos, bids, budgets, semillas, target, modo)."""
-    canonico = json.dumps(plan_como_json(plan), sort_keys=True, separators=(",", ":"))
+    canonico = _canonico_sin_derivados(plan_como_json(plan))
     return hashlib.sha256(canonico.encode("utf-8")).hexdigest()
 
 
@@ -537,12 +596,15 @@ def _valida_plan_v2(plan: PlanGrupoV2) -> None:
         raise PlanInvalido("seller_sku ausente o repetido en el grupo v2")
     if plan.objetivo.origen not in ("margen_medido", "manual_lanzamiento"):
         raise PlanInvalido("origen de objetivo v2 invalido")
-    if not plan.objetivo.acos_pct.is_finite() or plan.objetivo.acos_pct <= 0:
+    if not plan.objetivo.acos_pct.is_finite():
+        raise PlanInvalido("objetivo ACoS v2 debe ser Decimal finito")
+    # Sin chequeo de banda aqui a proposito (F1 AI-review PR #381): este
+    # validador tambien corre al releer lotes persistidos, y la banda es
+    # regla de creacion, no candado retroactivo. La banda se valida solo
+    # al construir, en `valida_banda_manual` via `_datos_plan_v2`.
+    if plan.objetivo.acos_pct <= 0:
         raise PlanInvalido("objetivo ACoS v2 debe ser Decimal finito > 0")
-    if plan.objetivo.acos_pct.as_tuple().exponent < -2 or plan.objetivo.acos_pct > Decimal(
-        "9999.99"
-    ):
-        raise PlanInvalido("objetivo ACoS v2 fuera de NUMERIC(6,2)")
+    valida_forma_objetivo(plan.objetivo.acos_pct)
     if plan.objetivo.origen == "margen_medido":
         if plan.objetivo.fraccion is None or plan.objetivo.derivado is None:
             raise PlanInvalido("objetivo por margen v2 requiere fraccion y derivado")
@@ -580,6 +642,10 @@ def plan_v2_como_json(plan: PlanGrupoV2) -> dict:
         "fecha": plan.fecha.isoformat(),
         "moneda": plan.moneda,
         "modo": plan.modo,
+        # F5 AI-review PR #381: registra si los goals fijan el numero
+        # (manual) o nacen NULL (margen). Ausente en lotes viejos = numero
+        # (congelado entonces); el JS decide con `!== false`.
+        "goals_fijan_target": target_para_goals(plan) is not None,
         "publicaciones": [
             _publicacion_v2_como_json(p)
             for p in sorted(plan.publicaciones, key=lambda publicacion: publicacion.listing_id)
@@ -606,7 +672,7 @@ def plan_v2_como_json(plan: PlanGrupoV2) -> dict:
 
 def huella_plan_v2(plan: PlanGrupoV2) -> str:
     """Huella de altas v2: el orden visual no cambia lo que se crea."""
-    canonico = json.dumps(plan_v2_como_json(plan), sort_keys=True, separators=(",", ":"))
+    canonico = _canonico_sin_derivados(plan_v2_como_json(plan))
     return hashlib.sha256(canonico.encode("utf-8")).hexdigest()
 
 
