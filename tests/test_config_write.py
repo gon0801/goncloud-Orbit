@@ -199,6 +199,27 @@ def test_get_settings_expone_confianzas_resueltas(monkeypatch):
         assert plats["amazon_mx"]["confianza_recorte"] == "0.80"
 
 
+@_skip_db
+def test_get_settings_fraccion_corrupta_no_se_muestra(monkeypatch):
+    """Lane 5 A3: fraccion corrupta en la vigente = el GET NO muestra
+    (500, igual que target y confianzas corruptas)."""
+    from test_api_dashboard import _config_version, _db_temporal, _goal_db
+
+    with _db_temporal("orbit_cfg_corrupt") as (conn, dsn_read):
+        _config_version(
+            conn,
+            {
+                "ads_optimizer_mode": "live",
+                f"ads_target_acos_pct_{PLAT}": "20",
+                f"ads_target_fraccion_margen_{PLAT}": "5",
+            },
+        )
+        _goal_db(conn, scope="platform", platform=PLAT, target=None)
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn_read)
+        resp = TestClient(app, raise_server_exceptions=False).get("/api/dashboard/settings")
+        assert resp.status_code == 500
+
+
 def test_cada_plataforma_conserva_sus_valores():
     """Plan A3: editar una plataforma no toca las claves de la otra."""
     base = dict(_base())
