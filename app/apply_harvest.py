@@ -1153,6 +1153,15 @@ def _intento_normal_objeto(conn: psycopg.Connection, job: _Job, grupo: str, tipo
     )
 
 
+_SQL_INTENTOS_NORMAL_OK_NEGATIVE = """
+SELECT ack FROM apply_attempt
+ WHERE decision_id = %s AND tipo = 'normal' AND resultado = 'ok'
+   AND request_payload->>'adGroupId' = %s
+   AND request_payload->>'keywordText' = %s
+   AND request_payload->>'matchType' = 'NEGATIVE_EXACT'
+ ORDER BY id
+"""
+
 _SQL_REVERSA_OK_KEYWORD = """
 SELECT EXISTS (
     SELECT 1 FROM apply_attempt
@@ -1268,6 +1277,97 @@ def plan_reversa_harvest(
             )
         )
     return (job.plataforma, job.search_term, job.decision_id, pasos)
+
+
+def plan_reversa_origen_harvest(
+    conn: psycopg.Connection, job_id: int
+) -> tuple[str, str, int, list[PasoReversa]]:
+    """Plan SOLO-origen de un job legado con la firma D.4 (lo ejecuta el
+    tool con `--solo-origen`; caso real: job 2): UN paso, el negativo de
+    origen. La keyword destino queda INTACTA (ese es el estado deseado: con
+    destino = origen, archivar el negativo la pone a servir; la objecion
+    CX3 de `reversa_harvest_completo` no aplica porque origen y destino son
+    el MISMO ad group).
+
+    Precondiciones fail-closed (ValueError si no proceden): job `done`,
+    decision confirmada (`verify_ok`), cola `applied`, `negative_id` en
+    external_ids, destino congelado PRESENTE e IGUAL al ad group de origen
+    (la firma D.4: sin ella este plan no existe), y procedencia PROBADA por
+    el ledger (intento tipo normal con resultado ok cuyo payload es el
+    NEGATIVE_EXACT de (origen, termino) y cuyo ack trae esa id: forma del
+    attempt 208; el flag `*_creada` es un cache y el ledger manda).
+
+    Alcance estricto: SOLO jobs legado. Con `keyword_creada` o
+    `negative_creada` en True, o hermanas creadas, el job va por la reversa
+    completa (`plan_reversa_harvest`) y este plan se niega: archivar solo
+    el origen de un job F2 dejaria hermanas huerfanas. La ejecucion,
+    ceremonia, huella, ledger (`reversa`, sin quota), readback e
+    idempotencia son los mismos de la reversa manual (mismo
+    `ejecuta_reversa_harvest`, mismo tool).
+    """
+    fila = conn.execute(_SQL_JOB_POR_ID, (job_id,)).fetchone()
+    if fila is None:
+        raise ValueError(f"job {job_id}: no existe")
+    job = _job_de_fila(fila)
+    if job.fase != "done":
+        raise ValueError(f"job {job_id}: fase {job.fase} (la reversa manual solo acepta done)")
+    ver = conn.execute(_SQL_VERIFY_OK, (job.decision_id,)).fetchone()
+    if ver is None or ver[0] is not True:
+        raise ValueError(f"job {job_id}: decision {job.decision_id} sin verify_ok")
+    cola = conn.execute(_SQL_ULTIMA_COLA, (job.decision_id,)).fetchone()
+    if cola is None or cola[0] != "applied":
+        raise ValueError(f"job {job_id}: cola no applied")
+    ext = dict(job.external_ids)
+    negative_id = ext.get("negative_id")
+    if negative_id is None:
+        raise ValueError(f"job {job_id}: sin negative_id en external_ids")
+    if ext.get("keyword_creada") is True or ext.get("negative_creada") is True:
+        raise ValueError(
+            f"job {job_id}: con procedencia F2 va por la reversa completa, no --solo-origen"
+        )
+    hermanas = dict(ext.get("hermanas") or {})
+    if any(isinstance(v, dict) and v.get("creada") is True for v in hermanas.values()):
+        raise ValueError(
+            f"job {job_id}: con hermanas creadas va por la reversa completa, no --solo-origen"
+        )
+    externos = conn.execute(_SQL_EXTERNALES, (job.ad_entity_id,)).fetchone()
+    if externos is None:
+        raise ValueError(f"job {job_id}: origen sin externos")
+    _dec = conn.execute(_SQL_DECISION, (job.decision_id,)).fetchone()
+    congelado = (((_dec[2] or {}).get("goal") or {}).get("harvest") or {}) if _dec else {}
+    if not congelado.get("campaign_id") or not congelado.get("ad_group_id"):
+        raise ValueError(f"job {job_id}: sin destino congelado para la firma D.4")
+    if str(congelado["ad_group_id"]) != externos[0]:
+        raise ValueError(
+            f"job {job_id}: el destino congelado no es el origen"
+            " (--solo-origen solo remedia origen_es_destino)"
+        )
+    probado = False
+    for (ack,) in conn.execute(
+        _SQL_INTENTOS_NORMAL_OK_NEGATIVE, (job.decision_id, externos[0], job.search_term)
+    ).fetchall():
+        id_ack = _id_de_ack(ack, "negativeKeywordId")
+        if id_ack is not None and str(id_ack) == str(negative_id):
+            probado = True
+            break
+    if not probado:
+        raise ValueError(
+            f"job {job_id}: procedencia del negativo no probada por el ledger"
+            " (sin intento normal ok con ack-id)"
+        )
+    return (
+        job.plataforma,
+        job.search_term,
+        job.decision_id,
+        [
+            PasoReversa(
+                clase="negative",
+                rol=None,
+                ad_group_ext=externos[0],
+                objeto_id=str(negative_id),
+            )
+        ],
+    )
 
 
 def _reversa_confirmada(
