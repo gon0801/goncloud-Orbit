@@ -812,6 +812,12 @@ def _contexto(conn: psycopg.Connection, job: _Job) -> _Contexto:
         raise ValueError(MOTIVO_BID_DEFAULT_FALTANTE)
     if value_currency != goal.bid_currency:
         raise ValueError(MOTIVO_MONEDA_INCOHERENTE)
+    if goal.harvest_ad_group_id == externos[0]:
+        # D.4 (camino fresco): la terna viva ES el ad group de origen: el
+        # negativo bloquearia la keyword (caso real: job 2). Se falla el
+        # job con el motivo existente, jamas se postea. El camino de grupo
+        # no se toca: este invariante solo cubre terna/excepcion.
+        raise ValueError(hygiene.MOTIVO_ORIGEN_ES_DESTINO)
     # Defaults POR MONEDA (preflight 1.2): la moneda es la del PROPIO goal
     # (ya cruzada contra value_currency de la decision, dos lineas arriba).
     floor, ceiling = g.resuelve_floor_ceiling(goal, goal.bid_currency)
@@ -855,6 +861,20 @@ def _contexto_congelado(
         raise ValueError(MOTIVO_SIN_CONFIG)
     if value_currency != congelado.get("moneda"):
         raise ValueError(MOTIVO_MONEDA_INCOHERENTE)
+    if (
+        congelado.get("resuelto_por")
+        in (
+            harvest_destino.RESUELTO_EXCEPCION,
+            harvest_destino.RESUELTO_TERNA,
+        )
+        and destino_grupo == externos[0]
+    ):
+        # D.4 (congelado F2): decision heredada del hueco (el destino
+        # congelado ES el ad group de origen, cfr. decision 2311): el
+        # negativo bloquearia la keyword y re-rutear esta prohibido, asi
+        # que se falla con el motivo existente, sin POST. El camino de
+        # grupo no se toca.
+        raise ValueError(hygiene.MOTIVO_ORIGEN_ES_DESTINO)
     if congelado.get("resuelto_por") == harvest_destino.RESUELTO_GRUPO and padre is not None:
         vigente = harvest_destino.resolver_destino(conn, job.plataforma, padre[0])
         if not (

@@ -485,7 +485,8 @@ SELECT mode, status, notes
 
 # Ad groups con SU campaña y state: son las entidades que portean terminos.
 _SQL_GRUPOS = """
-SELECT ag.id, ag.parent_id AS campaign_id, s.status, sc.status AS status_campana
+SELECT ag.id, ag.parent_id AS campaign_id, s.status, sc.status AS status_campana,
+       ag.external_id
   FROM ad_entity ag
   LEFT JOIN ad_entity_state s ON s.ad_entity_id = ag.id
   LEFT JOIN ad_entity_state sc ON sc.ad_entity_id = ag.parent_id
@@ -1683,7 +1684,7 @@ def _procesa_grupo(
     margen_plataforma: Decimal | None,
     snapshot_margen: dict,
 ) -> None:
-    grupo_id, campaign_id, status, status_campana = fila
+    grupo_id, campaign_id, status, status_campana, grupo_external = fila
     terminos = windows.terminos_cortes(conn, grupo_id, decided_at)
     contadores.terminos += len(terminos.terminos)
     goal, motivo = _gates_entidad(
@@ -1736,7 +1737,9 @@ def _procesa_grupo(
         # (REPEATABLE READ) y se sigue con la terna del goal, como antes
         # de F2. En produccion 0018 existe desde F1: inalcanzable.
         with conn.transaction():
-            destino = harvest_destino.resolver_destino(conn, platform, campaign_id)
+            destino = harvest_destino.resolver_destino(
+                conn, platform, campaign_id, origen_ad_group_external=grupo_external
+            )
     except psycopg.errors.UndefinedTable:
         destino = None
     config_harvest, keywords, motivo_salto = _config_harvest_de(conn, goal, platform, destino)
