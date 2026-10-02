@@ -621,6 +621,7 @@ ALLOWLIST_IMPORTS_FABRICA_CAMPANAS = frozenset(
         "psycopg.rows.tuple_row",
         "app",
         "app.fabrica_plan",
+        "app.familias",
         "app.goals_write",
         "app.ads.client",
         "app.ads.client.DEFAULT_BASE_URL",

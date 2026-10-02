@@ -55,7 +55,7 @@ from fastapi import Path as RutaPath
 from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
-from app import apply, config_write, goals_write, propuestas_campana
+from app import apply, config_write, familias, goals_write, propuestas_campana
 from app.db import OrbitDbError, connect
 from app.redaction import install_scrub_filter, register_secret
 
@@ -445,3 +445,59 @@ def editar_settings(
         )
     except tuple(_ERRORES_SETTINGS) as exc:
         raise HTTPException(status_code=_ERRORES_SETTINGS[type(exc)], detail=str(exc)) from None
+
+
+# A2: familias de producto. Router propio bajo /api/familias (misma auth
+# solo-header que el resto de escrituras). Despachan a app/familias.py, el
+# UNICO escritor de familia/producto_familia.
+router_familias = APIRouter(prefix="/api/familias", tags=["familias-write"])
+
+
+class CuerpoFamilia(BaseModel):
+    platform: Literal["amazon_mx", "amazon_us"]
+    nombre: str = Field(min_length=1, max_length=100)
+    padre_id: int | None = Field(default=None, ge=1)
+
+
+class CuerpoAsignar(BaseModel):
+    familia_id: int = Field(ge=1)
+    product_ids: list[int] = Field(min_length=1, max_length=500)
+
+
+_ERRORES_FAMILIA: dict[type[Exception], int] = {
+    familias.FamiliaNoExiste: 404,
+    familias.FamiliaDuplicada: 409,
+    familias.FamiliaInvalida: 422,
+}
+
+
+@router_familias.post("")
+def crear_familia(
+    _token: Annotated[str, Depends(exige_token)],
+    conn: ConexionEscritura,
+    cuerpo: CuerpoFamilia,
+) -> dict:
+    """Crea una familia (padre NULL) o subfamilia. 404 padre inexistente;
+    409 nombre/slug ya usado; 422 tercer nivel o plataforma ajena."""
+    try:
+        salida = familias.crea(conn, cuerpo.platform, cuerpo.nombre, cuerpo.padre_id)
+    except tuple(_ERRORES_FAMILIA) as exc:
+        raise HTTPException(status_code=_ERRORES_FAMILIA[type(exc)], detail=str(exc)) from None
+    conn.commit()
+    return salida
+
+
+@router_familias.post("/asignar")
+def asignar_familia(
+    _token: Annotated[str, Depends(exige_token)],
+    conn: ConexionEscritura,
+    cuerpo: CuerpoAsignar,
+) -> dict:
+    """Etiqueta productos con una familia (idempotente: repetir deja las
+    mismas filas). 404 familia o producto inexistente."""
+    try:
+        salida = familias.asigna(conn, cuerpo.product_ids, cuerpo.familia_id)
+    except tuple(_ERRORES_FAMILIA) as exc:
+        raise HTTPException(status_code=_ERRORES_FAMILIA[type(exc)], detail=str(exc)) from None
+    conn.commit()
+    return salida

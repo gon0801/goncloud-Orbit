@@ -336,6 +336,8 @@ class _ConnFalsa:
         grupo=(),
         lote_platform="amazon_mx",
         goals=(),
+        familias_productos=(),
+        productos_de_listings=(),
     ):
         self.settings = settings
         self.productos = list(productos)
@@ -352,6 +354,8 @@ class _ConnFalsa:
         self.grupo = list(grupo)
         self.lote_platform = lote_platform
         self.goals = list(goals)
+        self.familias_productos = list(familias_productos)
+        self.productos_de_listings = list(productos_de_listings)
         self.escrituras = []  # (sql plano, params)
         self.commits = 0
         self.closes = 0
@@ -376,6 +380,11 @@ class _ConnFalsa:
             return _Cursor([(1, self.settings)] if self.settings is not None else [])
         if "from listing l" in bajo and "join product p" in bajo:
             return _Cursor(self.publicaciones)
+        # A2: productos de los listings (vacio = sin etiqueta, camino viejo).
+        if "from listing l" in bajo:
+            return _Cursor(self.productos_de_listings)
+        if "from producto_familia" in bajo:
+            return _Cursor(self.familias_productos)
         if "v_margen_producto" in bajo:
             return _Cursor(self.productos)
         if "ventana_cortes" in bajo:  # _SQL_TERMINOS_EXACT (ventana de cortes)

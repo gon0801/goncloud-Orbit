@@ -29,7 +29,8 @@
     'settings': ('Settings', 'Cascada de targets, caps diarios y goals'),
     'fabrica': ('Crear campañas', 'Un grupo de cinco campañas de Sponsored Products'),
     'reputacion': ('Reputación', 'Rating, reviews, preguntas y alertas por listing'),
-    'precios': ('Precios', 'Cobertura, decisiones y divergencias del motor de precios')
+    'precios': ('Precios', 'Cobertura, decisiones y divergencias del motor de precios'),
+    'familias': ('Familias', 'Etiquetas de producto en dos niveles para la fábrica')
   } %}
   <a class="saltar-contenido" href="#contenido">Saltar al contenido</a>
   <aside class="sidebar" aria-label="Navegacion principal">
@@ -59,6 +60,7 @@
            chip Reviews se retira (pestana dentro de /reputacion). #}
         <a href="/reputacion" {% if pantalla == 'reputacion' %}aria-current="page"{% endif %}>Reputacion<span id="reputacion-contador" class="contador" hidden></span></a>
         <a href="/precios" {% if pantalla == 'precios' %}aria-current="page"{% endif %}>Precios</a>
+        <a href="/familias" {% if pantalla == 'familias' %}aria-current="page"{% endif %}>Familias</a>
       </div>
       <div class="nav-pie">
         <a href="/settings" {% if pantalla == 'settings' %}aria-current="page"{% endif %}>Settings</a>
@@ -91,7 +93,7 @@
   {% set tab_por_pantalla = {
     'resumen': 'inicio', 'salud': 'inicio',
     'contribucion': 'pnl',
-    'reputacion': 'skus',
+    'reputacion': 'skus', 'familias': 'skus',
     'decisiones': 'ordenes',
     'campanas': 'gastos', 'fabrica': 'gastos', 'inertes': 'gastos',
     'settings': 'saldos',

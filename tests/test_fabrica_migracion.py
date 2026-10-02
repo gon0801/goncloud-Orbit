@@ -37,6 +37,9 @@ ORDEN = (
     "0017_first_seen_at.sql",
     "0018_fabrica_campanas.sql",
     "0019_fabrica_grupo_publicacion_v2.sql",
+    # A2: _arma_plan resuelve la familia de los productos (tablas vacias
+    # = camino viejo, sin etiqueta).
+    "0047_familias.sql",
 )
 SQL18 = (MIGRACIONES / "0018_fabrica_campanas.sql").read_text(encoding="utf-8")
 SQL19 = (MIGRACIONES / "0019_fabrica_grupo_publicacion_v2.sql").read_text(encoding="utf-8")

@@ -179,6 +179,12 @@ class PlanGrupo:
     target: ResultadoTarget
     semillas: Semillas
     existentes: tuple[dict, ...] = field(default_factory=tuple)
+    # A2: slug de la familia unica de los productos (None = sin etiqueta).
+    # Solo presentacion (dry-run) y tipo_producto; no entra al JSON ni a la
+    # huella (el slug ya viaja en tipo_producto).
+    familia: str | None = None
+    # A2: aviso cuando el grupo mezcla familias (None = sin mezcla).
+    advertencia_mezcla: str | None = None
 
 
 @dataclass(frozen=True)
@@ -223,6 +229,10 @@ class PlanGrupoV2:
     objetivo: ObjetivoPlanV2
     semillas: Semillas
     existentes: tuple[dict, ...] = field(default_factory=tuple)
+    # A2: slug de la familia unica de las publicaciones (None = sin etiqueta).
+    familia: str | None = None
+    # A2: aviso cuando el grupo mezcla familias (None = sin mezcla).
+    advertencia_mezcla: str | None = None
 
 
 PlanCanonico = PlanGrupo | PlanGrupoV2
@@ -295,6 +305,16 @@ def valida_tipo_producto(tipo: str) -> str:
             f"tipo_producto {tipo!r} invalido: etiqueta ascii minuscula [a-z0-9_]+ (decision 7)"
         )
     return tipo
+
+
+def aviso_mezcla_familias(nombres: list[str]) -> str | None:
+    """Aviso puro cuando un grupo mezcla familias (A2, regla operativa:
+    no mezclar familias de margen distinto en una misma campana).
+    Cero o una familia = None (nada que avisar)."""
+    unicas = sorted(set(nombres))
+    if len(unicas) < 2:
+        return None
+    return "mezcla de familias en el grupo: " + ", ".join(unicas) + " (una campana, una familia)"
 
 
 def target_del_grupo(margenes: list[Decimal | None], fraccion: Decimal | None) -> ResultadoTarget:

@@ -128,7 +128,10 @@ class ObjetivoPlan(_Cuerpo):
 
 class SolicitudPlan(_Cuerpo):
     plataforma: Plataforma
-    tipo_producto: str = Field(min_length=1, max_length=60, pattern=r"^[a-z0-9_]+$")
+    # A2: opcional (con familia unica sale del slug); presente se valida igual.
+    tipo_producto: str | None = Field(
+        default=None, min_length=1, max_length=60, pattern=r"^[a-z0-9_]+$"
+    )
     nombre_base: str = Field(min_length=1, max_length=100)
     productos: list[Identificador] | None = Field(default=None, min_length=1, max_length=100)
     listing_ids: list[Identificador] | None = Field(default=None, min_length=1, max_length=100)
@@ -180,7 +183,10 @@ class SolicitudCrear(_Cuerpo):
 
 class SolicitudBids(_Cuerpo):
     plataforma: Plataforma
-    tipo_producto: str = Field(min_length=1, max_length=60, pattern=r"^[a-z0-9_]+$")
+    # A2: opcional (con familia unica sale del slug); presente se valida igual.
+    tipo_producto: str | None = Field(
+        default=None, min_length=1, max_length=60, pattern=r"^[a-z0-9_]+$"
+    )
     listing_ids: list[Identificador] = Field(min_length=1, max_length=100)
     objetivo: ObjetivoPlan
 

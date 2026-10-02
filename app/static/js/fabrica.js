@@ -352,6 +352,13 @@ document.addEventListener("DOMContentLoaded", function () {
   function mostrarPreview(datos) {
     const contenedor = porId("preview-datos");
     contenedor.replaceChildren();
+    // A2: el plan avisa cuando el grupo mezcla familias (regla operativa:
+    // no mezclar familias de margen distinto en una misma campana).
+    if (datos.advertencia_mezcla) {
+      const aviso = nodo("p", "Advertencia: " + datos.advertencia_mezcla);
+      aviso.setAttribute("role", "alert");
+      contenedor.append(aviso);
+    }
     mostrarPlan(contenedor, datos.plan);
     contenedor.append(nodo("h4", "Las cinco campañas"));
     tabla(contenedor, ["Rol", "Nombre", "Presupuesto diario", "Puja predeterminada del grupo", "Fuente"], datos.campanas.map(campana => [
