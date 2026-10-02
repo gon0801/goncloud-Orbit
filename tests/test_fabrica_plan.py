@@ -819,3 +819,14 @@ def test_objetivo_manual_v2_dentro_de_banda_pasa(valor):
     serializado = fp.plan_v2_como_json(_plan_v2(objetivo=valor))
     assert Decimal(serializado["objetivo"]["acos_pct"]) == Decimal(valor)
     assert serializado["objetivo"]["origen"] == "manual_lanzamiento"
+
+
+@pytest.mark.parametrize("valor", ["NaN", "sNaN", "Infinity", "-Infinity"])
+def test_objetivo_v2_no_finito_se_rechaza_antes_de_la_banda(valor):
+    """CodeRabbit PR #381: la comparacion de banda con NaN lanza
+    decimal.InvalidOperation, no PlanInvalido; la finitud se valida antes
+    (vale para manual y medido: el mensaje es el de finitud)."""
+    plan = _plan_v2(objetivo="25.00")
+    plan = replace(plan, objetivo=replace(plan.objetivo, acos_pct=Decimal(valor)))
+    with pytest.raises(fp.PlanInvalido, match="finito"):
+        fp.plan_v2_como_json(plan)
