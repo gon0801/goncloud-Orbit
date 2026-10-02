@@ -27,6 +27,10 @@ alcance: solo negativo de origen (la keyword destino queda intacta)
 pendientes: 1 huella: afc9ef3591ca6200
 ```
 
+Procedencia del tool: dry-run y corrida real usaron `tools/reversa_harvest.py` de
+`origin/master` (= `8d4890a`) por stdin (`git show origin/master:tools/reversa_harvest.py |
+ssh goncloud "docker exec -i orbit-app-1 python - ..."`), no la copia del árbol del server.
+
 Corrida real del dueño con `!` (`--job 2 --solo-origen --acepto-mutacion-real
 --esperado 1 --huella afc9ef3591ca6200 --go 'D.4 archivar negativo origen job 2'`):
 `reversa: ok`.
@@ -47,3 +51,12 @@ LIST de Amazon (dueño, `docs/evidencia/orbit-05/list-negativos.py` y
 Los negativos de los jobs 3 y 4 (`238992858651508`, `123271341601901`) siguen
 ENABLED en sus propios ad groups, como corresponde. La EXACT de «arras
 matrimoniales de oro» ya puede servir en su búsqueda exacta.
+
+## Desviación del runbook (revisión IA de #380)
+
+`deploy-codigo-8d4890a.sh` copió y verificó solo `tools/fabrica_campanas.py` y los 5 archivos de
+`app/` que cambian; `docs/DEPLOY.md` D.1.4 manda además `tools/harvest_excepcion.py` y
+`tools/reversa_harvest.py`, con md5 del árbol completo. Efecto: el server quedó con
+`tools/reversa_harvest.py` viejo (md5 `a70974…` contra `74bcfa…` de master). Sin efecto en la
+remediación (el tool entró por stdin desde master). Corrección: copiar esos dos tools del SHA
+desplegado al server y verificar su md5 (comando del dueño con `!`, lectura posterior del lead).
