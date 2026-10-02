@@ -1149,3 +1149,68 @@ def test_edita_goal_live_en_suelto_sin_grupo_ok():
         for goal_id in ids:
             fila = goals_write.edita_goal(conn, goal_id, mode="live", updated_at=T_EDITADO)
             assert fila["mode"] == "live"
+
+
+# ---------------------------------------------------------------------------
+# A1: target NULL — los goals de fabrica resuelven por margen_plataforma
+# ---------------------------------------------------------------------------
+
+
+def test_edita_goal_limpia_target_rechaza_combo_con_target_antes_de_leer():
+    """`limpia_target` + `target_acos_pct` a la vez es contradiccion (limpiar
+    y fijar): se rechaza en puro, antes de leer la fila, simetrico a
+    `harvest_limpia` con campos harvest individuales."""
+    with pytest.raises(goals_write.GoalInvalido, match="limpia_target"):
+        goals_write.edita_goal(
+            _CONN_INTOCABLE,
+            7,
+            target_acos_pct=Decimal("25"),
+            limpia_target=True,
+            updated_at=T_EDITADO,
+        )
+
+
+@_skip_db
+def test_edita_goal_limpia_target_pone_null_y_deja_floor():
+    """`limpia_target=True` escribe target NULL y deja `bid_floor` (y el
+    resto) intacto: el goal resuelve por `margen_plataforma` al ciclo
+    siguiente en vez de cargar el congelado."""
+    with _db_con_rol_admin("orbit_g_limpia") as (conn, dsn_admin, _dsn_l):
+        goal_id = _siembra_goal_plataforma(conn, target="21.08", floor="0.40", ceiling="2.50")
+        conn_admin = psycopg.connect(dsn_admin)
+        try:
+            fila = goals_write.edita_goal(
+                conn_admin, goal_id, limpia_target=True, updated_at=T_EDITADO
+            )
+        finally:
+            conn_admin.close()
+        assert fila["target_acos_pct"] is None
+        assert fila["bid_floor"] == "0.4000"
+        assert fila["bid_ceiling"] == "2.5000"
+        en_db = conn.execute(
+            "SELECT target_acos_pct, bid_floor, bid_ceiling, updated_at"
+            " FROM ads_optimizer_goal WHERE id = %s",
+            (goal_id,),
+        ).fetchone()
+        assert en_db[0] is None
+        assert en_db[1] == Decimal("0.4000")
+        assert en_db[2] == Decimal("2.5000")
+        assert en_db[3] == T_EDITADO
+
+
+@_skip_db
+def test_crea_goal_con_target_none_escribe_null():
+    """`crea_goal(target_acos_pct=None)` persiste NULL (la columna ya es
+    nullable y el CHECK admite NULL): asi nacen los 5 goals de un grupo sin
+    objetivo manual."""
+    from test_cycle import _db_temporal, _entidad
+
+    with _db_temporal("orbit_goals_crea_null") as (conn, _):
+        camp = _entidad(conn, "amazon_mx", "campaign", "c-1")
+        fila = goals_write.crea_goal(conn, **_kw_crea(ad_entity_id=camp, target_acos_pct=None))
+        assert fila["target_acos_pct"] is None
+        assert fila["bid_floor"] == "1.0000"
+        en_db = conn.execute(
+            "SELECT target_acos_pct FROM ads_optimizer_goal WHERE id = %s", (fila["id"],)
+        ).fetchone()
+        assert en_db[0] is None
