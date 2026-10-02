@@ -559,8 +559,13 @@ def _datos_plan_v2(args, conn_read, tipo: str):
     ids = _ids_listings(args.listing_ids)
     publicaciones = _publicaciones_v2(conn_read, args.plataforma, ids)
     origen = getattr(args, "origen_objetivo", None)
-    if origen is None and getattr(args, "target_acos", None) is not None:
-        origen = "manual_lanzamiento"
+    if origen is None:
+        # A1: --target-acos es opcional; sin el, el CLI deriva del margen
+        # medido (la web siempre manda origen_objetivo explicito).
+        if getattr(args, "target_acos", None) is not None:
+            origen = "manual_lanzamiento"
+        else:
+            origen = "margen_medido"
     if origen == "manual_lanzamiento":
         try:
             target = _decimal(args.target_acos, "--target-acos")
@@ -623,6 +628,8 @@ def _lote_nuevo(huella: str) -> str:
 
 
 def _imprime_dry_run(plan: fp.PlanGrupo | fp.PlanGrupoV2, huella: str) -> None:
+    if fp.target_para_goals(plan) is None:
+        print(fp.TEXTO_TARGET_MARGEN_PLATAFORMA, flush=True)
     if isinstance(plan, fp.PlanGrupoV2):
         for rol in fp.ROLES_ORDEN_CREACION:
             parametro = plan.parametros[rol]
@@ -697,7 +704,15 @@ def _parser() -> argparse.ArgumentParser:
     ap.add_argument("--nombre-base", default=None)
     ap.add_argument("--productos", default=None, help="ids de product separados por coma")
     ap.add_argument("--listing-ids", default=None, help="ids de listing v2 separados por coma")
-    ap.add_argument("--target-acos", default=None, help="objetivo manual v2 explicito")
+    ap.add_argument(
+        "--target-acos",
+        default=None,
+        help=(
+            "objetivo manual v2 explicito (vive dentro de la banda del margen);"
+            " sin el, el objetivo se deriva del margen medido y los goals nacen"
+            " NULL (margen de la plataforma)"
+        ),
+    )
     ap.add_argument(
         "--modo",
         choices=fp.MODOS_GOAL,
@@ -730,8 +745,6 @@ def _valida_args_creacion(args) -> None:
     ]
     if (args.productos is None) == (args.listing_ids is None):
         faltan.append("exactamente uno de --productos o --listing-ids")
-    if args.listing_ids is not None and args.target_acos is None:
-        faltan.append("--target-acos para --listing-ids")
     faltan += [
         f"{k}_{s}"
         for k in ("budget", "bid")
@@ -1098,6 +1111,10 @@ def _registrar(ctx: _Ctx, plan: fp.PlanCanonico, creadas: list[dict]) -> int:
         for c in creadas
     }
     target, derivado, fraccion, origen, procedencia = _datos_objetivo(plan)
+    # A1: el grupo conserva el snapshot derivado (auditoria de con que nacio);
+    # los goals solo fijan target con manual confirmado, si no nacen NULL y
+    # resuelven por margen_plataforma cada ciclo.
+    goal_target = fp.target_para_goals(plan)
     grupo = conn.execute(
         _SQL_INSERTA_GRUPO,
         (
@@ -1154,7 +1171,7 @@ def _registrar(ctx: _Ctx, plan: fp.PlanCanonico, creadas: list[dict]) -> int:
         goal = goals_write.crea_goal(
             conn,
             ad_entity_id=camp_id,
-            target_acos_pct=target,
+            target_acos_pct=goal_target,
             bid_currency=plan.moneda,
             mode=plan.modo,
             harvest_campaign_id=exact["campaign"],
@@ -1162,7 +1179,14 @@ def _registrar(ctx: _Ctx, plan: fp.PlanCanonico, creadas: list[dict]) -> int:
             harvest_default_bid=bid_exact,
             created_at=ahora,
         )
-        _log("goal_creado", lote=ctx.lote, rol=rol, goal_id=goal["id"], mode=plan.modo)
+        _log(
+            "goal_creado",
+            lote=ctx.lote,
+            rol=rol,
+            goal_id=goal["id"],
+            mode=plan.modo,
+            target=str(goal_target),
+        )
     _log("grupo_registrado", lote=ctx.lote, grupo_id=grupo, target=str(target))
     return grupo
 

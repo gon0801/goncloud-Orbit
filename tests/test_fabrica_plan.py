@@ -771,3 +771,51 @@ def test_cobertura_minima_pineada_contra_el_sql():
 
     ruta = Path(__file__).resolve().parents[1] / "migrations" / "0018_fabrica_campanas.sql"
     assert f"< {g.MARGEN_COBERTURA_MIN} THEN NULL" in ruta.read_text(encoding="utf-8")
+
+
+# --- A1: goals sin target congelado ----------------------------------------
+
+
+def _plan_v2_medido():
+    """v2 valido con origen margen_medido: margenes positivos en cada
+    publicacion, fraccion y derivado presentes (CHECK 0019)."""
+    base = _plan_v2()
+    publicaciones = tuple(replace(p, margen_neto_pct=Decimal("38.20")) for p in base.publicaciones)
+    objetivo = fp.ObjetivoPlanV2(
+        "margen_medido",
+        Decimal("19.10"),
+        "0.5 x 38.20 = 19.100",
+        Decimal("0.5"),
+        Decimal("19.10"),
+    )
+    return replace(base, publicaciones=publicaciones, objetivo=objetivo)
+
+
+def test_target_para_goals_sin_manual_es_null():
+    """Sin objetivo manual (v1 o v2 medido) los goals nacen NULL: resuelven
+    por margen_plataforma cada ciclo en vez de cargar el congelado."""
+    assert fp.target_para_goals(_plan()) is None
+    medido = _plan_v2_medido()
+    fp.plan_v2_como_json(medido)  # el plan medido sigue valido
+    assert fp.target_para_goals(medido) is None
+
+
+def test_target_para_goals_manual_sobrevive():
+    """Con manual confirmado, el target del dueno si se escribe en los goals."""
+    assert fp.target_para_goals(_plan_v2(objetivo="25.00")) == Decimal("25.00")
+
+
+@pytest.mark.parametrize("valor", ["0", "0.00", "9.99", "45.01", "70"])
+def test_objetivo_manual_v2_fuera_de_banda_se_rechaza(valor):
+    """El manual vive dentro de la banda del margen [10, 45]: 0 y 70 (y los
+    bordes) se rechazan con el mensaje de la banda, sin escribir nada."""
+    with pytest.raises(fp.PlanInvalido, match="banda"):
+        fp.plan_v2_como_json(_plan_v2(objetivo=valor))
+
+
+@pytest.mark.parametrize("valor", ["10", "10.00", "25.00", "45", "45.00"])
+def test_objetivo_manual_v2_dentro_de_banda_pasa(valor):
+    """Banda inclusiva: 10 y 45 pasan, con el valor intacto en el JSON."""
+    serializado = fp.plan_v2_como_json(_plan_v2(objetivo=valor))
+    assert Decimal(serializado["objetivo"]["acos_pct"]) == Decimal(valor)
+    assert serializado["objetivo"]["origen"] == "manual_lanzamiento"

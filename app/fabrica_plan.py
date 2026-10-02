@@ -227,6 +227,20 @@ class PlanGrupoV2:
 
 PlanCanonico = PlanGrupo | PlanGrupoV2
 
+# A1: sin objetivo manual, los 5 goals nacen con target NULL y resuelven por
+# margen_plataforma cada ciclo. El dry-run lo declara con esta linea literal
+# (el snapshot derivado del grupo se conserva solo como auditoria).
+TEXTO_TARGET_MARGEN_PLATAFORMA = "target: margen de la plataforma (se ajusta cada ciclo)"
+
+
+def target_para_goals(plan: PlanCanonico) -> Decimal | None:
+    """Target con el que nacen los 5 goals: el manual cuando el dueno lo
+    confirmo en un v2, NULL en cualquier otro caso (el goal resuelve por
+    margen_plataforma cada ciclo; A1 retira el congelado de fabrica)."""
+    if isinstance(plan, PlanGrupoV2) and plan.objetivo.origen == "manual_lanzamiento":
+        return plan.objetivo.acos_pct
+    return None
+
 
 @dataclass(frozen=True)
 class Paso:
@@ -537,6 +551,14 @@ def _valida_plan_v2(plan: PlanGrupoV2) -> None:
         raise PlanInvalido("seller_sku ausente o repetido en el grupo v2")
     if plan.objetivo.origen not in ("margen_medido", "manual_lanzamiento"):
         raise PlanInvalido("origen de objetivo v2 invalido")
+    if plan.objetivo.origen == "manual_lanzamiento" and not (
+        g.MARGEN_BANDA_MIN <= plan.objetivo.acos_pct <= g.MARGEN_BANDA_MAX
+    ):
+        raise PlanInvalido(
+            f"objetivo manual v2 {plan.objetivo.acos_pct} fuera de la banda"
+            f" [{g.MARGEN_BANDA_MIN}, {g.MARGEN_BANDA_MAX}]: el lanzamiento manual"
+            " vive dentro de la banda del margen"
+        )
     if not plan.objetivo.acos_pct.is_finite() or plan.objetivo.acos_pct <= 0:
         raise PlanInvalido("objetivo ACoS v2 debe ser Decimal finito > 0")
     if plan.objetivo.acos_pct.as_tuple().exponent < -2 or plan.objetivo.acos_pct > Decimal(

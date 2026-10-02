@@ -81,6 +81,16 @@ def test_selector_v2_exige_objetivo_y_envia_listings_no_productos():
     assert "productos:" not in codigo
 
 
+def test_formulario_muestra_linea_de_margen_sin_manual():
+    """A1: sin ACoS manual, el formulario declara la misma linea del dry-run:
+    los goals usan el margen de la plataforma y se ajustan cada ciclo."""
+    from app import fabrica_plan as fp
+
+    respuesta = TestClient(app).get("/campanas/nuevas")
+    assert respuesta.status_code == 200
+    assert fp.TEXTO_TARGET_MARGEN_PLATAFORMA in " ".join(respuesta.text.split())
+
+
 def test_pantalla_carga_bids_sugeridos_y_firma_su_fuente():
     respuesta = TestClient(app).get("/campanas/nuevas")
     assert respuesta.status_code == 200

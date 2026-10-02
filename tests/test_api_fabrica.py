@@ -270,6 +270,23 @@ def test_crear_v2_exige_interruptor_y_target_valido_sin_mutar(escenario, monkeyp
     assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone()[0] == 0
 
 
+@pytest.mark.parametrize("valor", ["0", "70"])
+def test_preview_v2_rechaza_manual_fuera_de_banda(escenario, valor):
+    """A1: manual 0 y 70 por el formulario/API → 422 con el mensaje de la
+    banda (el MISMO de CLI y nucleo), sin escribir lote."""
+    cliente, conn, solicitud, fw, ids = escenario
+    listing = conn.execute(
+        "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx'", (ids[0],)
+    ).fetchone()[0]
+    v2 = _solicitud_v2(
+        solicitud, [listing], objetivo={"origen": "manual_lanzamiento", "acos_pct": valor}
+    )
+    respuesta = cliente.post("/api/fabrica/plan", json=v2)
+    assert respuesta.status_code == 422
+    assert "banda" in respuesta.json()["detail"]["mensaje"]
+    assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone()[0] == 0
+
+
 def test_reenvio_v2_reordena_listings_y_no_duplica_mutacion(escenario, monkeypatch):
     cliente, conn, solicitud, fw, ids = escenario
     listing_ids = [

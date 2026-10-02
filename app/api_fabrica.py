@@ -116,13 +116,11 @@ class ObjetivoPlan(_Cuerpo):
                 valor = Decimal(self.acos_pct)
             except ArithmeticError as exc:
                 raise ValueError("acos_pct manual no es decimal") from exc
-            if (
-                not valor.is_finite()
-                or valor <= 0
-                or valor.as_tuple().exponent < -2
-                or valor > Decimal("9999.99")
-            ):
-                raise ValueError("acos_pct manual fuera de NUMERIC(6,2)")
+            if not valor.is_finite():
+                raise ValueError("acos_pct manual no es finito")
+            # A1: el API valida FORMA (decimal finito); el RANGO vive en una
+            # sola fuente, fabrica_plan._valida_plan_v2 (banda del margen):
+            # API, CLI y web rechazan con el MISMO mensaje de banda.
         return self
 
 
