@@ -16,7 +16,7 @@ function postFamilias(url, cuerpo) {
     },
     body: JSON.stringify(cuerpo),
   }).then(function (resp) {
-    return resp.json().then(function (data) {
+    return resp.json().catch(function () { return {}; }).then(function (data) {
       return { ok: resp.ok, status: resp.status, data: data };
     });
   });

@@ -174,7 +174,8 @@ def sugerir_bids(conn, solicitud: dict) -> dict:
         target_acos=solicitud["objetivo"].get("acos_pct"),
     )
     try:
-        tipo_dado = fp.valida_tipo_producto(solicitud["tipo_producto"])
+        crudo = solicitud.get("tipo_producto")
+        tipo_dado = fp.valida_tipo_producto(crudo) if crudo is not None else None
         # A2: las semillas se leen con el slug cuando hay familia unica
         # (misma resolucion que el plan).
         ids = fc._ids_listings(args.listing_ids)

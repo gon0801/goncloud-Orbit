@@ -47,6 +47,9 @@ COMMENT ON TABLE producto_familia IS
     'Etiqueta de familia (A2): un producto tiene UNA familia por '
     'plataforma (puede ser de primer nivel o subfamilia). Escritor '
     'unico: app/familias.py (UI /familias).';
+COMMENT ON COLUMN producto_familia.asignada_por IS
+    'Actor de la asignacion (auditoria futura A4/A5: bulk UI, fabrica, '
+    'motor). Hoy siempre dueno: es el unico escritor via /familias.';
 
 CREATE INDEX ON producto_familia (familia_id);
 
@@ -59,10 +62,23 @@ DECLARE
     padre_plataforma platform;
 BEGIN
     IF NEW.padre_id IS NULL THEN
+        -- F3 AI-review PR #382: un UPDATE de platform en una raiz con
+        -- hijas no puede dejarlas en otra plataforma (el COMMENT declara
+        -- misma plataforma padre/hijas).
+        IF EXISTS (
+            SELECT 1 FROM familia
+             WHERE padre_id = NEW.id AND platform IS DISTINCT FROM NEW.platform
+        ) THEN
+            RAISE EXCEPTION '0047: la familia % tiene hijas en otra plataforma',
+                NEW.id;
+        END IF;
         RETURN NEW;
     END IF;
+    -- FOR UPDATE: sin el bloqueo, dos transacciones concurrentes (una que
+    -- cuelga una hija de B y otra que cuelga B de A) pasarian la validacion
+    -- y formarian un tercer nivel. El UPDATE ya trae el lock de NEW.id.
     SELECT padre_id, platform INTO padre_padre, padre_plataforma
-      FROM familia WHERE id = NEW.padre_id;
+      FROM familia WHERE id = NEW.padre_id FOR UPDATE;
     IF NOT FOUND THEN
         RAISE EXCEPTION '0047: la familia padre % no existe', NEW.padre_id;
     END IF;

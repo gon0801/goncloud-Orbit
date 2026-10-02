@@ -123,8 +123,9 @@ def test_aviso_mezcla_necesita_dos():
 
 @_skip_db
 def test_tercer_nivel_rechazado_por_trigger():
-    """Plan A2: un tercer nivel lo rechaza el CHECK (trigger 0047: un CHECK
-    no ve otras filas) y la DB queda sin cambios."""
+    """Plan A2: un tercer nivel lo rechaza el Python con error cerrado y el
+    candado final es el trigger 0047 (un CHECK no ve otras filas); la DB
+    queda sin cambios."""
     with db_familias() as conn:
         raiz = familias.crea(conn, "amazon_mx", "Arras")
         hija = familias.crea(conn, "amazon_mx", "Arras premium", raiz["id"])
@@ -141,6 +142,70 @@ def test_tercer_nivel_rechazado_por_trigger():
             )
         filas = conn.execute("SELECT nombre FROM familia ORDER BY id").fetchall()
         assert [f[0] for f in filas] == ["Arras", "Arras premium"]
+
+
+@_skip_db
+def test_trigger_etiqueta_otra_plataforma_y_reparentado_con_hijas():
+    """F2 AI-review PR #382: los dos invariantes sin camino en la app
+    (etiqueta cruzada y reparentar con hijas) tienen regresion SQL cruda."""
+    with db_familias() as conn:
+        pid, _ = _producto(conn, sku="SKU-F2", asin="B0FAMILIAF2", seller_sku="SF2")
+        us = familias.crea(conn, "amazon_us", "Arras")
+        with pytest.raises(Exception, match="0047: la familia .* no es de"):
+            conn.execute(
+                "INSERT INTO producto_familia(product_id, platform, familia_id)"
+                " VALUES (%s, 'amazon_mx', %s)",
+                (pid, us["id"]),
+            )
+        raiz = familias.crea(conn, "amazon_mx", "Raiz")
+        familias.crea(conn, "amazon_mx", "Hija", raiz["id"])
+        otra = familias.crea(conn, "amazon_mx", "Otra")
+        with pytest.raises(Exception, match="0047: .* ya tiene hijas"):
+            conn.execute(
+                "UPDATE familia SET padre_id = %s WHERE id = %s",
+                (otra["id"], raiz["id"]),
+            )
+
+
+@_skip_db
+def test_trigger_serializa_reparentado_concurrente():
+    """F1 AI-review PR #382: el FOR UPDATE del trigger serializa el
+    reparentado contra la hija concurrente sin confirmar (sin el lock,
+    el UPDATE pasaria y formaria un tercer nivel)."""
+    with db_familias() as conn:
+        b = familias.crea(conn, "amazon_mx", "B")
+        a = familias.crea(conn, "amazon_mx", "A")
+        dsn = make_conninfo(_test_dsn(), dbname=conn.info.dbname)
+        t1 = psycopg.connect(dsn)
+        t1.execute(
+            "INSERT INTO familia(platform, nombre, slug, padre_id)"
+            " VALUES ('amazon_mx', 'HijaB', 'hijab', %s)",
+            (b["id"],),
+        )
+        t2 = psycopg.connect(dsn, autocommit=True)
+        t2.execute("SET lock_timeout = '1s'")
+        with pytest.raises(psycopg.errors.LockNotAvailable):
+            t2.execute("UPDATE familia SET padre_id = %s WHERE id = %s", (a["id"], b["id"]))
+        t1.commit()
+        t1.close()
+        t2.execute("SET lock_timeout = '10s'")
+        with pytest.raises(psycopg.errors.RaiseException, match="ya tiene hijas"):
+            t2.execute("UPDATE familia SET padre_id = %s WHERE id = %s", (a["id"], b["id"]))
+        t2.close()
+
+
+@_skip_db
+def test_trigger_raiz_no_cambia_plataforma_con_hijas():
+    """F3 AI-review PR #382: un UPDATE de platform en una raiz con hijas
+    no las deja en otra plataforma."""
+    with db_familias() as conn:
+        raiz = familias.crea(conn, "amazon_mx", "Raiz")
+        familias.crea(conn, "amazon_mx", "Hija", raiz["id"])
+        with pytest.raises(Exception, match="0047: .* otra plataforma"):
+            conn.execute(
+                "UPDATE familia SET platform = 'amazon_us' WHERE id = %s",
+                (raiz["id"],),
+            )
 
 
 @_skip_db
@@ -347,6 +412,55 @@ def test_fabrica_avisa_mezcla_y_exige_tipo():
         assert "Collares" in plan.advertencia_mezcla
         with pytest.raises(fc.Abortar, match="--tipo-producto es obligatorio"):
             fc._arma_plan(_args_fabrica(productos=f"{p1},{p2}", tipo=None), conn)
+
+
+@_skip_db
+def test_fabrica_parcial_no_toma_slug():
+    """CodeRabbit PR #382 (Major): un grupo con un producto etiquetado y
+    otro sin etiqueta NO toma el slug: usa el tipo dado y avisa."""
+    import tools.fabrica_campanas as fc
+
+    with db_fabrica("orbit_familias_par") as conn:
+        _base_fabrica(conn)
+        p1, _ = _producto(conn, sku="SKU-P1", asin="B0FAMILIAP1", seller_sku="SP1")
+        p2, _ = _producto(conn, sku="SKU-P2", asin="B0FAMILIAP2", seller_sku="SP2")
+        _ledger_producto(conn, p1, hoy=HOY)
+        _ledger_producto(conn, p2, hoy=HOY, fee_desfase=7)
+        familias.asigna(conn, [p1], familias.crea(conn, "amazon_mx", "Arras")["id"])
+        plan = fc._arma_plan(_args_fabrica(productos=f"{p1},{p2}"), conn)
+        assert plan.tipo_producto == "collar_perro"
+        assert plan.familia is None
+        assert plan.advertencia_mezcla is not None
+        assert "sin familia" in plan.advertencia_mezcla
+        assert str(p2) in plan.advertencia_mezcla
+
+
+@_skip_db
+def test_preview_web_sin_tipo_con_familia_unica():
+    """CodeRabbit PR #382: el schema web acepta tipo ausente y el preview
+    lo resuelve del slug (misma resolucion que el CLI)."""
+    from app import fabrica_web as fw
+
+    with db_fabrica("orbit_familias_web") as conn:
+        _base_fabrica(conn)
+        pid, lid = _producto(conn, sku="SKU-WEB", asin="B0FAMWEB01", seller_sku="SWB")
+        _ledger_producto(conn, pid, hoy=HOY)
+        familias.asigna(conn, [pid], familias.crea(conn, "amazon_mx", "Arras")["id"])
+        roles = fp.ROLES_ORDEN_CREACION
+        salida = fw.previsualizar(
+            conn,
+            {
+                "plataforma": "amazon_mx",
+                "nombre_base": "Web",
+                "listing_ids": [lid],
+                "objetivo": {"origen": "manual_lanzamiento", "acos_pct": "25.00"},
+                "modo": "shadow",
+                "parametros": {rol: {"budget": "120.00", "bid": "4.00"} for rol in roles},
+            },
+        )
+        assert salida["plan"]["tipo_producto"] == "arras"
+        assert salida["familia"] == "arras"
+        assert salida["advertencia_mezcla"] is None
 
 
 @_skip_db

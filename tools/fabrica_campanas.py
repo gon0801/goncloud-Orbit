@@ -523,13 +523,21 @@ def _tipo_desde_familia(
     """
     por_producto = familias.familia_de_productos(conn, platform, product_ids)
     distintas = {info["slug"]: info["nombre"] for info in por_producto.values()}
-    advertencia = fp.aviso_mezcla_familias(list(distintas.values()))
-    if len(distintas) == 1:
+    sin_etiqueta = sorted(set(product_ids) - set(por_producto))
+    if len(distintas) == 1 and not sin_etiqueta:
         slug = next(iter(distintas))
-        return slug, slug, advertencia
+        return slug, slug, None
+    # Mezcla y/o parcial: camino viejo con el tipo dado + aviso de cada mal.
+    # Nadie etiquetado = camino viejo silencioso (salida byte-identica).
+    avisos = []
+    mezcla = fp.aviso_mezcla_familias(list(distintas.values()))
+    if mezcla is not None:
+        avisos.append(mezcla)
+    if distintas and sin_etiqueta:
+        avisos.append(f"productos sin familia en el grupo: {sin_etiqueta}")
     if tipo_dado is None:
         raise Abortar("--tipo-producto es obligatorio sin familia unica en los productos")
-    return tipo_dado, None, advertencia
+    return tipo_dado, None, " · ".join(avisos) or None
 
 
 def _arma_plan(args, conn_read: psycopg.Connection) -> fp.PlanGrupo | fp.PlanGrupoV2:
