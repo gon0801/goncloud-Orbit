@@ -41,6 +41,7 @@ from fastapi.templating import Jinja2Templates
 
 from app import api_dashboard as dash
 from app import api_reputacion as reput
+from app import familias
 from app.api import ConexionLectura
 from app.notifica import estado_precio_es, motivo_precio_es
 from app.optimizer.bid import PLATAFORMAS_MONEDA
@@ -618,5 +619,37 @@ def pagina_reputacion(
             "resumen": resumen,
             "filtros": filtros,
             "ahora": dt.datetime.now(dt.UTC),
+        },
+    )
+
+
+@router.get("/familias", response_class=HTMLResponse)
+def pagina_familias(
+    request: Request,
+    conn: ConexionLectura,
+    plataforma: Annotated[str | None, Query()] = None,
+    q: Annotated[str | None, Query()] = None,
+    sin_familia: Annotated[str | None, Query()] = None,
+) -> HTMLResponse:
+    """Familias en dos niveles (A2): arbol con conteo, ventas 90d y origen
+    de meta; productos con etiqueta o insignia "sin familia"; buscador,
+    filtro sin-familia y asignacion masiva. Lee por app/familias.py (un
+    camino); escribe por /api/familias* con x-orbit-token desde
+    /static/js/familias.js."""
+    filtros = {
+        "plataforma": _vocab_o_422(plataforma, frozenset(PLATAFORMAS_MONEDA), "plataforma")
+        or "amazon_mx",
+        "q": _limpia_query(q),
+        "sin_familia": _limpia_query(sin_familia) is not None,
+    }
+    items = familias.productos(conn, filtros["plataforma"], filtros["q"], filtros["sin_familia"])
+    return templates.TemplateResponse(
+        request,
+        "familias.html",
+        {
+            "pantalla": "familias",
+            "items": items,
+            "arbol": familias.arbol(conn, filtros["plataforma"]),
+            "filtros": filtros,
         },
     )

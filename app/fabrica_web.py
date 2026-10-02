@@ -143,6 +143,9 @@ def previsualizar(conn, solicitud: dict) -> dict:
     return {
         "huella": huella,
         "lote": f"web-{huella}",
+        # A2: familia unica (slug) y aviso de mezcla para el preview.
+        "familia": plan.familia,
+        "advertencia_mezcla": plan.advertencia_mezcla,
         "plan": _plan_como_json(plan),
         "bids": _bids_como_json(plan),
         "campanas": [
@@ -171,7 +174,16 @@ def sugerir_bids(conn, solicitud: dict) -> dict:
         target_acos=solicitud["objetivo"].get("acos_pct"),
     )
     try:
-        tipo = fp.valida_tipo_producto(solicitud["tipo_producto"])
+        tipo_dado = fp.valida_tipo_producto(solicitud["tipo_producto"])
+        # A2: las semillas se leen con el slug cuando hay familia unica
+        # (misma resolucion que el plan).
+        ids = fc._ids_listings(args.listing_ids)
+        filas = conn.execute(
+            fc._SQL_PRODUCTOS_DE_LISTINGS, (solicitud["plataforma"], ids)
+        ).fetchall()
+        tipo, _, _ = fc._tipo_desde_familia(
+            conn, solicitud["plataforma"], [fila[0] for fila in filas], tipo_dado
+        )
         publicaciones, _, semillas, _ = fc._datos_plan_v2(args, conn, tipo)
         conn.commit()
         credenciales = AdsCredentials.from_secrets_dir()

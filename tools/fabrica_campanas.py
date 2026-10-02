@@ -62,7 +62,7 @@ import psycopg
 from psycopg.rows import tuple_row
 
 from app import fabrica_plan as fp
-from app import goals_write
+from app import familias, goals_write
 from app.ads.client import DEFAULT_BASE_URL, AdsClient
 from app.ads.config import AdsCredentials
 from app.ads.structure import evaluar_perfiles, fetch_structure, sync_structure
@@ -97,6 +97,14 @@ SELECT l.id, p.id, l.external_id, l.seller_sku, m.margen_neto_pct
   LEFT JOIN v_margen_producto m ON m.product_id = p.id AND m.platform = l.platform
  WHERE l.platform = %s::platform AND l.id = ANY(%s)
  ORDER BY l.id
+"""
+
+# A2: productos de los listings para resolver la familia ANTES de armar el
+# plan (el tipo_producto sale del slug cuando hay familia unica).
+_SQL_PRODUCTOS_DE_LISTINGS = """
+SELECT DISTINCT l.product_id
+  FROM listing l
+ WHERE l.platform = %s::platform AND l.id = ANY(%s)
 """
 
 # Terminos de las campanas del producto: campanas con un product_ad ligado
@@ -505,20 +513,46 @@ def _ids_listings(texto: str) -> list[int]:
     return sorted(ids)
 
 
+def _tipo_desde_familia(
+    conn: psycopg.Connection, platform: str, product_ids: list[int], tipo_dado: str | None
+) -> tuple[str, str | None, str | None]:
+    """A2: tipo_producto, slug de familia y advertencia de mezcla.
+
+    Una familia unica manda: el tipo sale de su slug (el dado se corrige).
+    Sin etiqueta o con mezcla, el tipo dado es obligatorio (camino viejo).
+    """
+    por_producto = familias.familia_de_productos(conn, platform, product_ids)
+    distintas = {info["slug"]: info["nombre"] for info in por_producto.values()}
+    advertencia = fp.aviso_mezcla_familias(list(distintas.values()))
+    if len(distintas) == 1:
+        slug = next(iter(distintas))
+        return slug, slug, advertencia
+    if tipo_dado is None:
+        raise Abortar("--tipo-producto es obligatorio sin familia unica en los productos")
+    return tipo_dado, None, advertencia
+
+
 def _arma_plan(args, conn_read: psycopg.Connection) -> fp.PlanGrupo | fp.PlanGrupoV2:
     """Plan completo desde la base + validacion SIN HTTP (spec §5.1)."""
     try:
-        tipo = fp.valida_tipo_producto(args.tipo_producto)
+        tipo_dado = (
+            fp.valida_tipo_producto(args.tipo_producto)
+            if getattr(args, "tipo_producto", None) is not None
+            else None
+        )
         moneda = fp.MONEDA_POR_PLATAFORMA[args.plataforma]
         parametros = _parametros(args)
         fp.valida_parametros(parametros, moneda)
         if not args.nombre_base or not args.nombre_base.strip():
             raise Abortar("--nombre-base no puede ser vacio")
         if getattr(args, "listing_ids", None) is not None:
-            return _arma_plan_v2(args, conn_read, tipo, moneda, parametros)
+            return _arma_plan_v2(args, conn_read, tipo_dado, moneda, parametros)
         ids = _ids_productos(args.productos)
         fraccion = _fraccion(conn_read, args.plataforma)
         productos = _productos(conn_read, args.plataforma, ids)
+        tipo, familia, advertencia = _tipo_desde_familia(
+            conn_read, args.plataforma, [p.product_id for p in productos], tipo_dado
+        )
         target = fp.target_del_grupo([p.margen_neto_pct for p in productos], fraccion)
         listings = [p.listing_id for p in productos]
         terminos = _terminos_producto(conn_read, args.plataforma, listings)
@@ -551,6 +585,8 @@ def _arma_plan(args, conn_read: psycopg.Connection) -> fp.PlanGrupo | fp.PlanGru
         target=target,
         semillas=semillas,
         existentes=existentes,
+        familia=familia,
+        advertencia_mezcla=advertencia,
     )
 
 
@@ -610,7 +646,16 @@ def _datos_plan_v2(args, conn_read, tipo: str):
     return publicaciones, objetivo, semillas, existentes
 
 
-def _arma_plan_v2(args, conn_read, tipo: str, moneda: str, parametros: dict) -> fp.PlanGrupoV2:
+def _arma_plan_v2(
+    args, conn_read, tipo_dado: str | None, moneda: str, parametros: dict
+) -> fp.PlanGrupoV2:
+    # A2: la familia sale de los productos de los listings; con familia
+    # unica el tipo es su slug (el dado se corrige).
+    ids = _ids_listings(args.listing_ids)
+    filas = conn_read.execute(_SQL_PRODUCTOS_DE_LISTINGS, (args.plataforma, ids)).fetchall()
+    tipo, familia, advertencia = _tipo_desde_familia(
+        conn_read, args.plataforma, [fila[0] for fila in filas], tipo_dado
+    )
     publicaciones, objetivo, semillas, existentes = _datos_plan_v2(args, conn_read, tipo)
     plan = fp.PlanGrupoV2(
         args.plataforma,
@@ -624,6 +669,8 @@ def _arma_plan_v2(args, conn_read, tipo: str, moneda: str, parametros: dict) -> 
         objetivo,
         semillas,
         existentes,
+        familia,
+        advertencia,
     )
     fp._valida_plan_v2(plan)
     return plan
@@ -637,6 +684,12 @@ def _lote_nuevo(huella: str) -> str:
 def _imprime_dry_run(plan: fp.PlanGrupo | fp.PlanGrupoV2, huella: str) -> None:
     if fp.target_para_goals(plan) is None:
         print(fp.TEXTO_TARGET_MARGEN_PLATAFORMA, flush=True)
+    # A2: lineas solo cuando hay familia (sin etiqueta la salida es
+    # byte-identica a trunk: lane 1 de regresion).
+    if plan.familia is not None:
+        print(f"familia: {plan.familia} (tipo_producto tomado de la familia)", flush=True)
+    if plan.advertencia_mezcla is not None:
+        print(f"advertencia: {plan.advertencia_mezcla}", flush=True)
     if isinstance(plan, fp.PlanGrupoV2):
         for rol in fp.ROLES_ORDEN_CREACION:
             parametro = plan.parametros[rol]
@@ -745,10 +798,10 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _valida_args_creacion(args) -> None:
+    # A2: --tipo-producto es opcional (con familia unica sale del slug);
+    # _tipo_desde_familia lo exige cuando no hay familia unica.
     faltan = [
-        nombre
-        for nombre in ("plataforma", "tipo_producto", "nombre_base", "modo")
-        if getattr(args, nombre) is None
+        nombre for nombre in ("plataforma", "nombre_base", "modo") if getattr(args, nombre) is None
     ]
     if (args.productos is None) == (args.listing_ids is None):
         faltan.append("exactamente uno de --productos o --listing-ids")

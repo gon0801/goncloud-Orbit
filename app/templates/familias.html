@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block contenido %}
+<h2>Familias</h2>
+<p class="mutado">
+  Etiquetas de producto en dos niveles (familia · subfamilia). La fábrica
+  toma el tipo de producto de la familia y avisa si un grupo mezcla
+  familias. Auth: header x-orbit-token (campo Token).
+</p>
+
+<section class="tarjeta">
+  <label>Token
+    <input type="password" id="familias-token" name="token" placeholder="x-orbit-token" autocomplete="off">
+  </label>
+</section>
+
+<section class="tarjeta">
+  <h3>Árbol de familias · {{ filtros.plataforma }}</h3>
+  {% if arbol %}
+  <table id="familias-arbol">
+    <thead>
+      <tr><th>Familia</th><th>Nivel</th><th>Productos</th><th>Ventas 90d</th><th>Meta</th></tr>
+    </thead>
+    <tbody>
+      {% for nodo in arbol %}
+      <tr data-familia-id="{{ nodo.id }}">
+        <td>{{ nodo.nombre }}</td>
+        <td>familia</td>
+        <td class="num">{{ nodo.productos }}</td>
+        <td class="num">{{ nodo.ventas_90d }}</td>
+        <td>{{ nodo.origen_meta }}</td>
+      </tr>
+      {% for hija in nodo.hijas %}
+      <tr data-familia-id="{{ hija.id }}">
+        <td>— {{ hija.nombre }}</td>
+        <td>subfamilia</td>
+        <td class="num">{{ hija.productos }}</td>
+        <td class="num">{{ hija.ventas_90d }}</td>
+        <td>{{ hija.origen_meta }}</td>
+      </tr>
+      {% endfor %}
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="mutado">Sin familias en esta plataforma. Crea la primera abajo.</p>
+  {% endif %}
+</section>
+
+<section class="tarjeta">
+  <h3>Crear familia</h3>
+  <form id="familias-crear" autocomplete="off">
+    <label>Nombre
+      <input type="text" name="nombre" required maxlength="100" autocomplete="off">
+    </label>
+    <label>Padre (vacío = familia de primer nivel)
+      <select name="padre_id">
+        <option value="">— primer nivel —</option>
+        {% for nodo in arbol %}
+        <option value="{{ nodo.id }}">{{ nodo.nombre }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Crear familia</button>
+    <span data-estado class="mutado" role="status"></span>
+  </form>
+</section>
+
+<section class="tarjeta">
+  <h3>Productos · {{ items | length }}</h3>
+  <form method="get" action="/familias" id="familias-filtros">
+    <label>Plataforma
+      <select name="plataforma">
+        <option value="amazon_mx" {% if filtros.plataforma == 'amazon_mx' %}selected{% endif %}>amazon_mx</option>
+        <option value="amazon_us" {% if filtros.plataforma == 'amazon_us' %}selected{% endif %}>amazon_us</option>
+      </select>
+    </label>
+    <label>Buscar
+      <input type="search" name="q" value="{{ filtros.q or '' }}" autocomplete="off">
+    </label>
+    <label>
+      <input type="checkbox" name="sin_familia" value="1"
+        {% if filtros.sin_familia %}checked{% endif %}>
+      Solo sin familia
+    </label>
+    <button type="submit">Filtrar</button>
+  </form>
+  <form id="familias-asignar" autocomplete="off">
+    <label>Asignar los seleccionados a
+      <select name="familia_id" required>
+        <option value="">— elige familia —</option>
+        {% for nodo in arbol %}
+        <option value="{{ nodo.id }}">{{ nodo.nombre }}</option>
+        {% for hija in nodo.hijas %}
+        <option value="{{ hija.id }}">— {{ hija.nombre }}</option>
+        {% endfor %}
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Asignar a los seleccionados</button>
+    <span data-estado class="mutado" role="status"></span>
+  </form>
+  {% if items %}
+  <table id="familias-productos">
+    <thead>
+      <tr><th><span class="mutado">Sel</span></th><th>Producto</th><th>SKU</th><th>Familia</th><th>Ventas 90d</th></tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr data-producto-id="{{ item.id }}">
+        <td><input type="checkbox" class="familias-check" value="{{ item.id }}" aria-label="Seleccionar {{ item.name }}"></td>
+        <td>{{ item.name }}</td>
+        <td><code>{{ item.odoo_sku }}</code></td>
+        <td>
+          {% if item.familia %}
+          <span class="chip">{{ item.familia.nombre }}</span>
+          {% else %}
+          <span class="chip chip-sin-familia">sin familia</span>
+          {% endif %}
+        </td>
+        <td class="num">{{ item.ventas_90d }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="mutado">Sin productos para este filtro.</p>
+  {% endif %}
+</section>
+{% endblock %}
+{% block scripts %}<script src="/static/js/familias.js?v={{ asset_version }}"></script>{% endblock %}

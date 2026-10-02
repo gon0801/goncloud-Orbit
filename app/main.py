@@ -21,6 +21,7 @@ from app.api_dashboard import router as dashboard_router
 from app.api_fabrica import router as fabrica_router
 from app.api_reputacion import router as reputacion_router
 from app.api_write import router as ads_optimizer_write_router
+from app.api_write import router_familias
 from app.ui import router as dashboard_ui_router
 
 
@@ -51,6 +52,7 @@ app.add_middleware(_HeadersDashboard)
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 app.include_router(ads_optimizer_router)
 app.include_router(ads_optimizer_write_router)
+app.include_router(router_familias)
 app.include_router(dashboard_router)
 app.include_router(fabrica_router)
 app.include_router(reputacion_router)
