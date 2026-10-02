@@ -227,4 +227,5 @@ def test_cada_plataforma_conserva_sus_valores():
     nuevo, cambios = config_write.proxima_config(base, PLAT, confianza_recorte=Decimal("0.90"))
     assert nuevo[f"ads_confianza_recorte_{OTRA}"] == "0.95"
     assert nuevo[f"ads_confianza_recorte_{PLAT}"] == "0.90"
-    assert OTRA not in " ".join(cambios)
+    # F4 AI-review PR #383: el rastro nombra SOLO el cambio us (nada de mx).
+    assert cambios == ["confianza recorte ausente -> 0.90"]
