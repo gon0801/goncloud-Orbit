@@ -26,9 +26,9 @@ edicion se rechaza con el mismo texto que la pantalla muestra ANTES de
 guardar. El servidor no confia en el copy del HTML.
 
 VALIDACION CON LOS LECTORES DEL MOTOR (regla 2): la config nueva se relee
-con target_desde_settings / fraccion_desde_settings antes de persistirse; lo
-que el motor rechazaria como config corrupta se rechaza aqui como
-SettingsInvalido (422), jamas llega a una fila.
+con target_desde_settings / fraccion_desde_settings / confianza_* antes de
+persistirse; lo que el motor rechazaria como config corrupta se rechaza aqui
+como SettingsInvalido (422), jamas llega a una fila.
 
 Valores como STRING en el JSONB (regla 4; misma forma que las configs
 sembradas a mano: "20", "0.5", "10").
@@ -95,6 +95,8 @@ def proxima_config(
     fraccion: Decimal | None = None,
     caps: Mapping[str, int | None] | None = None,
     ack_respaldo: bool = False,
+    confianza_recorte: Decimal | None = None,
+    confianza_subida: Decimal | None = None,
 ) -> tuple[dict, list[str]]:
     """Config NUEVA a partir de la vigente + la lista legible de cambios.
 
@@ -138,6 +140,18 @@ def proxima_config(
             cambios.append(f"target manual {_antes(nuevo.get(k_target))} -> {valor}")
             nuevo[k_target] = valor
 
+    # A3: confianzas del motor (solo cambian si se mandan; ausentes en la
+    # config = defaults del lector, nunca se escriben solos).
+    for nombre, clave, entrante in (
+        ("recorte", g.clave_confianza_recorte(platform), confianza_recorte),
+        ("subida", g.clave_confianza_subida(platform), confianza_subida),
+    ):
+        if entrante is not None:
+            valor = _texto(entrante)
+            if nuevo.get(clave) != valor:
+                cambios.append(f"confianza {nombre} {_antes(nuevo.get(clave))} -> {valor}")
+                nuevo[clave] = valor
+
     for kind, cap in (caps or {}).items():
         if kind not in KINDS_QUOTA:
             raise SettingsInvalido(f"cap desconocido {kind!r}: los kinds son {KINDS_QUOTA}")
@@ -155,6 +169,8 @@ def proxima_config(
     try:
         g.target_desde_settings(nuevo, platform)
         g.fraccion_desde_settings(nuevo, platform)
+        g.confianza_recorte_desde_settings(nuevo, platform)
+        g.confianza_subida_desde_settings(nuevo, platform)
     except ValueError as exc:
         raise SettingsInvalido(str(exc)) from None
     return nuevo, cambios

@@ -50,6 +50,11 @@ function guardarConfig(form) {
 
   var cuerpo = { base_config_version_id: baseId, ack_respaldo: !!ack };
   if (cambio(target)) cuerpo.target_manual_pct = target.value.trim();
+  // A3: solo viaja lo cambiado (cambio), como texto (Decimal exacto).
+  ["confianza_recorte", "confianza_subida"].forEach(function (nombre) {
+    var el = form.elements[nombre];
+    if (cambio(el)) cuerpo[nombre] = el.value.trim();
+  });
   if (cambio(toggle) || (margenOn && cambio(fraccion))) {
     cuerpo.margen = margenOn
       ? { habilitado: true, fraccion: fraccion.value.trim() || null }
@@ -63,7 +68,13 @@ function guardarConfig(form) {
   });
   if (Object.keys(caps).length) cuerpo.caps = caps;
 
-  if (!cuerpo.target_manual_pct && !cuerpo.margen && !cuerpo.caps) {
+  if (
+    !cuerpo.target_manual_pct &&
+    !cuerpo.margen &&
+    !cuerpo.caps &&
+    !cuerpo.confianza_recorte &&
+    !cuerpo.confianza_subida
+  ) {
     estado.textContent = "Nada que cambiar.";
     return;
   }

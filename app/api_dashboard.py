@@ -1411,6 +1411,13 @@ def settings(conn: ConexionLectura) -> dict:
                 "target_manual_pct": _dec_str(settings.get(g.clave_target_plataforma(plataforma))),
                 "margen_habilitado": fraccion is not None,
                 "fraccion_margen": _dec_str(fraccion),
+                # A3: confianzas resueltas (ausentes = defaults 0.80/0.70).
+                "confianza_recorte": _dec_str(
+                    g.confianza_recorte_desde_settings(settings, plataforma)
+                ),
+                "confianza_subida": _dec_str(
+                    g.confianza_subida_desde_settings(settings, plataforma)
+                ),
                 "caps": {kind: _dec_str(cap) for kind, cap in caps.items()},
                 "goal": (_goal_editable(goal_id, goal, plataforma, None, None) if goal else None),
             }

@@ -79,6 +79,14 @@ ALLOWLIST_TAMANO = {
         "(planes/payloads) la proxima vez que se toque en grande; partirlo "
         "por 20 lineas seria partir por partir (regla anti-Goodhart)"
     ),
+    "app/optimizer/goals.py": (
+        "A3: lectores de settings por plataforma (target/fraccion/confianzas) "
+        "+ cascadas del peldano; cruzo el umbral con confianza_* (914). Los "
+        "lectores son cohesivos con fraccion_desde_settings (misma validacion "
+        "fail-closed) y config_write los importa como bloque. Candidato "
+        "DECLARADO a extraer lectores a app/optimizer/settings_lectura.py la "
+        "proxima vez que se toque en grande"
+    ),
     "app/apply.py": (
         "ORBIT 04 2.1: nucleo del aplicador (quota, ledger, secuencia sellada "
         "de mutaciones, reversas). La review adversaria de phase 2 le SUMO "
