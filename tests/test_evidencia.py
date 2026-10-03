@@ -908,3 +908,81 @@ def test_compara_vive_v2_sin_clasificar():
         "pause_umbral": {"mantiene": 1, "quita": 0, "cambia_banda": 0},
     }
     assert "NO MEDIBLE" in resumen["agrega_puro"]
+
+
+def test_compara_invertida_cuenta_vivo_v2_contra_v1():
+    """A6-r2 B3 (ambos sentidos): la fila decide CON contrafactual v1 se
+    clasifica ADEMAS en la seccion invertida (vivo v2 vs v1 congelado,
+    vocabulario v1); la fila decide SIN bloque (era r1) solo cuenta
+    vive_v2. Los sentidos no se mezclan."""
+    from tools import compara_evidencia as ce
+
+    filas = [
+        # Vivo v2 -12% donde v1 daba -25%: invertida cambia_banda.
+        {
+            "id": 1,
+            "kind": "bid",
+            "motivo": "banda_menos_12",
+            "factor": "-0.12",
+            "evidencia_v2": {
+                "via": "decide",
+                "abstencion_v2": None,
+                "veredicto": {"kind": "bid", "motivo": "banda_menos_12", "factor": "-0.12"},
+            },
+            "bandas_v1": {
+                "via": "contrafactual",
+                "veredicto": {"kind": "bid", "motivo": "banda_menos_25", "factor": "-0.25"},
+            },
+        },
+        # Fallback v1: vive_v2_fallback + invertida mantiene (v1 == vivo).
+        {
+            "id": 2,
+            "kind": "bid",
+            "motivo": "banda_menos_25",
+            "factor": "-0.25",
+            "evidencia_v2": {
+                "via": "decide",
+                "abstencion_v2": "evidencia_insuficiente",
+                "veredicto": {"kind": "bid", "motivo": "banda_menos_25", "factor": "-0.25"},
+            },
+            "bandas_v1": {
+                "via": "contrafactual",
+                "veredicto": {"kind": "bid", "motivo": "banda_menos_25", "factor": "-0.25"},
+            },
+        },
+        # Era r1 (decide sin bloque v1): solo vive_v2, sin invertida.
+        {
+            "id": 3,
+            "kind": "bid",
+            "motivo": "banda_menos_12",
+            "factor": "-0.12",
+            "evidencia_v2": {
+                "via": "decide",
+                "abstencion_v2": None,
+                "veredicto": {"kind": "bid", "motivo": "banda_menos_12", "factor": "-0.12"},
+            },
+        },
+    ]
+    resumen = ce.resume(filas)
+    assert resumen["buckets"]["vive_v2"] == 2
+    assert resumen["buckets"]["vive_v2_fallback"] == 1
+    assert resumen["invertida"]["decisiones"] == 2
+    assert resumen["invertida"]["buckets"] == {
+        "mantiene": 1,
+        "quita": 0,
+        "cambia_banda": 1,
+    }
+    assert resumen["invertida"]["por_motivo_v2"] == {
+        "banda_menos_12": {"mantiene": 0, "quita": 0, "cambia_banda": 1},
+        "banda_menos_25": {"mantiene": 1, "quita": 0, "cambia_banda": 0},
+    }
+    # Vocabulario v1: motivo futuro truena con etiqueta v1.
+    with pytest.raises(ValueError, match="vocabulario cerrado"):
+        ce.clasifica(
+            "bid",
+            "banda_menos_12",
+            "-0.12",
+            {"kind": "bid", "motivo": "motivo_futuro"},
+            motivos=ce._MOTIVOS_V1,
+            etiqueta="v1",
+        )

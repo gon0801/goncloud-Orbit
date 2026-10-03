@@ -232,34 +232,34 @@ def test_cada_plataforma_conserva_sus_valores():
 
 
 # ---------------------------------------------------------------------------
-# Interruptor del motor de bids (A6): ads_motor_bid_<platform>
+# Interruptor del motor de bids (A6): ads_bid_politica_<platform>
 # ---------------------------------------------------------------------------
 
 
-def test_motor_bid_proxima_setea_popea_y_no_toca():
-    """A6-M9 (vacio-se-escribe): "evidencia" ESCRIBE la clave, "" la POPEA
-    (jamas se escribe "" porque el lector lo rechaza como corrupto),
-    None no toca, ajeno = SettingsInvalido, repetir valor = vacia."""
-    k = f"ads_motor_bid_{PLAT}"
-    nuevo, cambios = config_write.proxima_config(_base(), PLAT, motor_bid="evidencia")
-    assert nuevo[k] == "evidencia"
-    assert cambios == ["motor bid ausente -> evidencia"]
+def test_motor_bid_proxima_setea_revierte_y_no_toca():
+    """A6-M9 (vacio-se-escribe): "evidencia_v2" ESCRIBE la clave,
+    "bandas_v1" explicito REVIERTE (carril 10, A6-r2 B1), None no toca,
+    ajeno (incluido "" y el ID viejo "evidencia") = SettingsInvalido,
+    repetir valor = vacia."""
+    k = f"ads_bid_politica_{PLAT}"
+    nuevo, cambios = config_write.proxima_config(_base(), PLAT, motor_bid="evidencia_v2")
+    assert nuevo[k] == "evidencia_v2"
+    assert cambios == ["motor bid ausente -> evidencia_v2"]
     assert g.motor_evidencia_desde_settings(nuevo, PLAT) is True
     assert g.motor_evidencia_desde_settings(nuevo, OTRA) is False
 
     base_ev = dict(_base())
-    base_ev[k] = "evidencia"
-    nuevo2, cambios2 = config_write.proxima_config(base_ev, PLAT, motor_bid="")
-    assert k not in nuevo2
-    assert cambios2 == ["motor bid evidencia -> ausente"]
+    base_ev[k] = "evidencia_v2"
+    nuevo2, cambios2 = config_write.proxima_config(base_ev, PLAT, motor_bid="bandas_v1")
+    assert nuevo2[k] == "bandas_v1"
+    assert cambios2 == ["motor bid evidencia_v2 -> bandas_v1"]
     assert g.motor_evidencia_desde_settings(nuevo2, PLAT) is False
 
-    with pytest.raises(config_write.SettingsInvalido, match="motor bid"):
-        config_write.proxima_config(_base(), PLAT, motor_bid="bandas_v1")
+    for malo in ("", "evidencia", "v2"):
+        with pytest.raises(config_write.SettingsInvalido, match="motor bid"):
+            config_write.proxima_config(_base(), PLAT, motor_bid=malo)
     with pytest.raises(config_write.SettingsInvalido, match="edicion vacia"):
-        config_write.proxima_config(_base(), PLAT, motor_bid="")
-    with pytest.raises(config_write.SettingsInvalido, match="edicion vacia"):
-        config_write.proxima_config(base_ev, PLAT, motor_bid="evidencia")
+        config_write.proxima_config(base_ev, PLAT, motor_bid="evidencia_v2")
     with pytest.raises(config_write.SettingsInvalido, match="edicion vacia"):
         config_write.proxima_config(_base(), PLAT)
 
@@ -274,34 +274,34 @@ def test_guardar_motor_bid_label_y_lector():
             ("previa", Json(_base())),
         ).fetchone()[0]
         salida = config_write.guarda_config(
-            conn, platform=PLAT, base_config_version_id=vieja, ahora=AHORA, motor_bid="evidencia"
+            conn, platform=PLAT, base_config_version_id=vieja, ahora=AHORA, motor_bid="evidencia_v2"
         )
         fila = conn.execute(
             "SELECT label, settings FROM config_version WHERE id = %s",
             (salida["config_version_id"],),
         ).fetchone()
-        assert "motor bid ausente -> evidencia" in fila[0]
-        assert fila[1][f"ads_motor_bid_{PLAT}"] == "evidencia"
+        assert "motor bid ausente -> evidencia_v2" in fila[0]
+        assert fila[1][f"ads_bid_politica_{PLAT}"] == "evidencia_v2"
         assert g.motor_evidencia_desde_settings(fila[1], PLAT) is True
-        # Volver a v1 popea la clave (ausencia = viejo, sin migraciones).
+        # Volver a v1 escribe bandas_v1 explicito (carril 10, A6-r2 B1).
         salida2 = config_write.guarda_config(
             conn,
             platform=PLAT,
             base_config_version_id=salida["config_version_id"],
             ahora=AHORA,
-            motor_bid="",
+            motor_bid="bandas_v1",
         )
         fila2 = conn.execute(
             "SELECT settings FROM config_version WHERE id = %s",
             (salida2["config_version_id"],),
         ).fetchone()[0]
-        assert f"ads_motor_bid_{PLAT}" not in fila2
+        assert fila2[f"ads_bid_politica_{PLAT}"] == "bandas_v1"
 
 
 @_skip_db
 def test_endpoint_post_motor_bid_wire_200_y_422(tmp_path, monkeypatch):
-    """A6: el contrato por el wire (evidencia -> 200 con la clave en la
-    fila; "" -> 200 y la popea; ajeno -> 422 del Literal)."""
+    """A6: el contrato por el wire (evidencia_v2 -> 200 con la clave en la
+    fila; bandas_v1 -> 200 y revierte; ajeno -> 422 del Literal)."""
     with _db_con_rol_admin("orbit_cfg_motorw") as (conn, dsn_admin, _dsn_l):
         vieja = conn.execute(
             "INSERT INTO config_version (label, settings) VALUES (%s, %s) RETURNING id",
@@ -313,14 +313,16 @@ def test_endpoint_post_motor_bid_wire_200_y_422(tmp_path, monkeypatch):
         headers = {"x-orbit-token": TOKEN}
         url = f"/api/ads-optimizer/settings/{PLAT}"
         ok = cliente.post(
-            url, json={"base_config_version_id": vieja, "motor_bid": "evidencia"}, headers=headers
+            url,
+            json={"base_config_version_id": vieja, "motor_bid": "evidencia_v2"},
+            headers=headers,
         )
         assert ok.status_code == 200, ok.text
         settings = conn.execute(
             "SELECT settings FROM config_version WHERE id = %s",
             (ok.json()["config_version_id"],),
         ).fetchone()[0]
-        assert settings[f"ads_motor_bid_{PLAT}"] == "evidencia"
+        assert settings[f"ads_bid_politica_{PLAT}"] == "evidencia_v2"
         malo = cliente.post(
             url,
             json={"base_config_version_id": ok.json()["config_version_id"], "motor_bid": "v2"},
@@ -329,7 +331,10 @@ def test_endpoint_post_motor_bid_wire_200_y_422(tmp_path, monkeypatch):
         assert malo.status_code == 422, malo.text
         vuelve = cliente.post(
             url,
-            json={"base_config_version_id": ok.json()["config_version_id"], "motor_bid": ""},
+            json={
+                "base_config_version_id": ok.json()["config_version_id"],
+                "motor_bid": "bandas_v1",
+            },
             headers=headers,
         )
         assert vuelve.status_code == 200, vuelve.text
@@ -337,12 +342,12 @@ def test_endpoint_post_motor_bid_wire_200_y_422(tmp_path, monkeypatch):
             "SELECT settings FROM config_version WHERE id = %s",
             (vuelve.json()["config_version_id"],),
         ).fetchone()[0]
-        assert f"ads_motor_bid_{PLAT}" not in settings2
+        assert settings2[f"ads_bid_politica_{PLAT}"] == "bandas_v1"
 
 
 def test_literal_motor_bid_api_pineado_contra_valor():
-    """A6: el Literal del endpoint admite EXACTAMENTE el valor sellado y
-    "" (volver a v1); si goals cambia el valor, este test truena."""
+    """A6: el Literal del endpoint admite EXACTAMENTE los dos valores
+    sellados; si goals cambia el vocabulario, este test truena."""
     from typing import get_args
 
     from app.api_write import CuerpoSettings
@@ -350,7 +355,7 @@ def test_literal_motor_bid_api_pineado_contra_valor():
     anotacion = CuerpoSettings.model_fields["motor_bid"].annotation
     literales = [a for a in get_args(anotacion) if a is not type(None)]
     assert len(literales) == 1
-    assert set(get_args(literales[0])) == {g.VALOR_MOTOR_EVIDENCIA, ""}
+    assert set(get_args(literales[0])) == {g.POLITICA_BANDAS_V1, g.POLITICA_BANDAS_EVIDENCIA}
 
 
 @_skip_db
@@ -366,7 +371,7 @@ def test_get_settings_expone_motor_bid_crudo_y_vive(monkeypatch):
                 "ads_optimizer_mode": "live",
                 f"ads_target_acos_pct_{PLAT}": "20",
                 "ads_target_acos_pct_amazon_mx": "22",
-                f"ads_motor_bid_{PLAT}": "evidencia",
+                f"ads_bid_politica_{PLAT}": "evidencia_v2",
             },
         )
         _goal_db(conn, scope="platform", platform=PLAT, target=None)
@@ -375,7 +380,7 @@ def test_get_settings_expone_motor_bid_crudo_y_vive(monkeypatch):
         resp = TestClient(app).get("/api/dashboard/settings")
         assert resp.status_code == 200, resp.text
         plats = {p["plataforma"]: p for p in resp.json()["plataformas"]}
-        assert plats[PLAT]["motor_bid"] == "evidencia"
+        assert plats[PLAT]["motor_bid"] == "evidencia_v2"
         assert plats[PLAT]["motor_bid_vive"] is True
         assert plats["amazon_mx"]["motor_bid"] is None
         assert plats["amazon_mx"]["motor_bid_vive"] is False
@@ -393,7 +398,7 @@ def test_get_settings_motor_bid_corrupto_no_se_muestra(monkeypatch):
             {
                 "ads_optimizer_mode": "live",
                 f"ads_target_acos_pct_{PLAT}": "20",
-                f"ads_motor_bid_{PLAT}": "EVIDENCIA",
+                f"ads_bid_politica_{PLAT}": "EVIDENCIA_V2",
             },
         )
         _goal_db(conn, scope="platform", platform=PLAT, target=None)

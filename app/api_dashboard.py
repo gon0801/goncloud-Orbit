@@ -1529,7 +1529,7 @@ def settings(conn: ConexionLectura) -> dict:
                 # ausente = bandas v1) + resuelto (vive: True = evidencia
                 # v2). Clave corrupta = ValueError y la pagina NO se
                 # muestra, igual que target/fraccion/confianzas.
-                "motor_bid": settings.get(g.clave_motor_bid(plataforma)),
+                "motor_bid": settings.get(g.clave_bid_politica(plataforma)),
                 "motor_bid_vive": g.motor_evidencia_desde_settings(settings, plataforma),
                 "caps": {kind: _dec_str(cap) for kind, cap in caps.items()},
                 "goal": (_goal_editable(goal_id, goal, plataforma, None, None) if goal else None),

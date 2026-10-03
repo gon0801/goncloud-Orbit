@@ -9,16 +9,17 @@ mantiene (mismo kind+factor), quita (bid vivo -> v2 no actua), cambia_banda
 (bid vivo -> bid v2 con OTRO factor).
 
 A6-live: las filas via=decide (el vivo DECIDIO con evidencia) van al bucket
-vive_v2 SIN clasificar (la sombra termino para esa plataforma: compara
-detiene mantiene/quita/cambia_banda ahi, no los extiende). A6-r1 F1:
-via=decide se parte por abstencion_v2 en vive_v2 (decidio v2) y
-vive_v2_fallback (decidio el fallback v1).
+vive_v2 SIN clasificar en la direccion sombra (ahi no hay sombra v2 que
+comparar). A6-r1 F1: via=decide se PARTE por abstencion_v2 en vive_v2
+(decidio v2) y vive_v2_fallback (decidio el fallback v1). A6-r2 B3: las
+filas decide llevan ADEMAS el contrafactual v1 (inputs.bandas_v1) y se
+clasifican en la direccion INVERTIDA (vivo v2 vs v1 congelado): compara
+cuenta en los dos sentidos, sin mezclarlos.
 
 LIMITACION ESTRUCTURAL DECLARADA (no escondida como cero): el "agrega puro"
-(silencio v1 -> bid v2) es INVISIBLE en A4 porque los no-op v1 no tienen
-fila donde congelar, y en A6-live porque las filas decide no llevan
-contrafactual v1 (compara DETIENE la sombra, no la extiende). Este tool
-reporta agrega_puro como no-medible, jamas como 0.
+es INVISIBLE en ambas direcciones porque los no-op no tienen fila donde
+congelar (ni silencio v1 -> bid v2 en A4, ni silencio v2 -> bid v1 en
+A6-live). Este tool reporta agrega_puro como no-medible, jamas como 0.
 
 Cero mutaciones. DSN: ORBIT_DSN_READ via app.db.connect. SOLO SELECT.
 
@@ -39,7 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.db import connect  # noqa: E402
 from app.optimizer import bid as b  # noqa: E402
-from app.optimizer.replay import reproduce_evidencia_v2  # noqa: E402
+from app.optimizer.replay import reproduce_bandas_v1, reproduce_evidencia_v2  # noqa: E402
 from app.redaction import scrub  # noqa: E402
 
 # Vocabulario cerrado de motivos v2 (res B12): bandas v1 (las que v2 puede
@@ -78,6 +79,35 @@ _MOTIVOS_V2 = frozenset(
 # Fold de presentacion (res B12): cero_ventas es un -25 con motivo propio.
 _FOLD_MOTIVO = {b.MOTIVO_BANDA_MENOS_25_CERO_VENTAS: b._MOTIVO_BANDA[b.FACTOR_BAJA_FUERTE]}
 
+# Vocabulario cerrado de motivos v1 (A6-r2 B3, direccion invertida): bandas
+# v1 (las 3 + cero_ventas, que v2 nunca emite) + no-ops v1 que un veredicto
+# puede traer (el no-op reporta la primera guarda que bloqueo, pause antes
+# que bids). Las abstenciones v2 y pause_economica quedan FUERA a proposito
+# (v1 no abstiene; un pause en fila bid es invariante roto, no vocabulario).
+_MOTIVOS_V1 = frozenset(
+    {
+        b._MOTIVO_BANDA[b.FACTOR_BAJA_FUERTE],
+        b._MOTIVO_BANDA[b.FACTOR_BAJA_SUAVE],
+        b._MOTIVO_BANDA[b.FACTOR_SUBIDA],
+        b.MOTIVO_BANDA_MENOS_25_CERO_VENTAS,
+        b.MOTIVO_PAUSE_CORTES_INCOMPLETO,
+        b.MOTIVO_PAUSE_MONEDA_INVALIDA,
+        b.MOTIVO_PAUSE_ORDERS_DESCONOCIDO,
+        b.MOTIVO_PAUSE_CLICKS_COST_DESCONOCIDOS,
+        b.MOTIVO_PAUSE_ECONOMICA_DATO_FALTANTE,
+        b.MOTIVO_BIDS_SIN_OBSERVACIONES,
+        b.MOTIVO_BIDS_INCOMPLETO,
+        b.MOTIVO_BIDS_MONEDA_INVALIDA,
+        b.MOTIVO_ACOS_DESCONOCIDO,
+        b.MOTIVO_SIN_BANDA,
+        b.MOTIVO_DELTA_BAJO_UMBRAL,
+        b.MOTIVO_RANGO_BLOQUEA_AJUSTE,
+        b.MOTIVO_BID_ACTUAL_INVALIDO,
+        b.MOTIVO_BID_ACTUAL_AUSENTE,
+        b.MOTIVO_BID_MONEDA_INVALIDA,
+    }
+)
+
 _SQL_DECISIONES = """
 SELECT d.id, d.cycle_id, d.kind, d.inputs
   FROM decision d JOIN optimizer_cycle c ON c.id = d.cycle_id
@@ -86,25 +116,35 @@ SELECT d.id, d.cycle_id, d.kind, d.inputs
 """
 
 
-def clasifica(live_kind: str, live_motivo: str, live_factor: str | None, veredicto: dict) -> str:
+def clasifica(
+    live_kind: str,
+    live_motivo: str,
+    live_factor: str | None,
+    veredicto: dict,
+    *,
+    motivos: frozenset = _MOTIVOS_V2,
+    etiqueta: str = "v2",
+) -> str:
     """Bucket de UNA decision (pura, testeable): mantiene | quita |
     cambia_banda. Invariantes estructurales (res A14, ambas direcciones):
     pause->bid y bid->pause son IMPOSIBLES (pause_intacto + mismo bloque
     pause): si aparecen, es un bug y se levanta, no se clasifica. El
-    vocabulario cerrado aplica SOLO a filas bid (veredicto v2 DECIDIDO):
-    en filas pause el motivo congelado es eco del vivo (cualquiera de
-    los pause, ej pause_economica) y no se valida (r3, F1)."""
-    kind_v2 = veredicto.get("kind")
-    if live_kind == "pause" and kind_v2 != "pause":
-        raise ValueError(f"invariante roto: pause viva con v2 kind={kind_v2!r}")
-    if live_kind == "bid" and kind_v2 == "pause":
-        raise ValueError("invariante roto: bid viva con v2 pause (mismo bloque)")
+    vocabulario cerrado aplica SOLO a filas bid (veredicto DECIDIDO): en
+    filas pause el motivo congelado es eco del vivo (cualquiera de los
+    pause, ej pause_economica) y no se valida (r3, F1). `motivos` + la
+    `etiqueta` del contrafactual eligen la direccion (sombra v2 por
+    default; v1 en la invertida de A6-r2 B3)."""
+    kind_cf = veredicto.get("kind")
+    if live_kind == "pause" and kind_cf != "pause":
+        raise ValueError(f"invariante roto: pause viva con {etiqueta} kind={kind_cf!r}")
+    if live_kind == "bid" and kind_cf == "pause":
+        raise ValueError(f"invariante roto: bid viva con {etiqueta} pause (mismo bloque)")
     if live_kind == "pause":
         return "mantiene"
-    motivo_v2 = veredicto.get("motivo")
-    if motivo_v2 not in _MOTIVOS_V2:
-        raise ValueError(f"motivo v2 fuera del vocabulario cerrado: {motivo_v2!r}")
-    if kind_v2 != "bid":
+    motivo_cf = veredicto.get("motivo")
+    if motivo_cf not in motivos:
+        raise ValueError(f"motivo {etiqueta} fuera del vocabulario cerrado: {motivo_cf!r}")
+    if kind_cf != "bid":
         return "quita"
     if veredicto.get("factor") == live_factor:
         return "mantiene"
@@ -112,13 +152,16 @@ def clasifica(live_kind: str, live_motivo: str, live_factor: str | None, veredic
 
 
 def resume(filas: list[dict]) -> dict:
-    """Resume puro sobre filas {id, kind, motivo, factor, evidencia_v2}:
-    buckets + detalle por motivo (foldeado) + nota de agrega. Sin clave
-    evidencia_v2 (fila pre-A4) => se cuenta aparte (pre_a4), no se inventa.
-    A6-live: fila via=decide => bucket vive_v2 SIN clasificar (ni
-    vocabulario ni invariantes: el veredicto ES el vivo, no una sombra).
-    A6-r1 F1: via=decide se PARTE por abstencion_v2 (decidido-por-v2 vs
-    decidido-por-fallback-v1: mezclarlos mentiria el rollout)."""
+    """Resume puro sobre filas {id, kind, motivo, factor, evidencia_v2,
+    bandas_v1}: buckets + detalle por motivo (foldeado) + nota de agrega.
+    Sin clave evidencia_v2 (fila pre-A4) => se cuenta aparte (pre_a4), no
+    se inventa. A6-live: fila via=decide => bucket vive_v2 SIN clasificar
+    en la direccion sombra (ni vocabulario ni invariantes: el veredicto
+    ES el vivo, no una sombra). A6-r1 F1: via=decide se PARTE por
+    abstencion_v2 (decidido-por-v2 vs decidido-por-fallback-v1:
+    mezclarlos mentiria el rollout). A6-r2 B3: la fila decide CON
+    contrafactual v1 se clasifica ADEMAS en la direccion invertida
+    (seccion propia `invertida`, sin mezclar sentidos)."""
     buckets: dict[str, int] = {
         "mantiene": 0,
         "quita": 0,
@@ -128,6 +171,9 @@ def resume(filas: list[dict]) -> dict:
         "vive_v2_fallback": 0,
     }
     por_motivo: dict[str, dict[str, int]] = {}
+    inv_buckets: dict[str, int] = {"mantiene": 0, "quita": 0, "cambia_banda": 0}
+    inv_motivo: dict[str, dict[str, int]] = {}
+    inv_n = 0
     for fila in filas:
         frozen = fila.get("evidencia_v2")
         if not isinstance(frozen, dict) or "veredicto" not in frozen:
@@ -138,6 +184,23 @@ def resume(filas: list[dict]) -> dict:
                 buckets["vive_v2_fallback"] += 1
             else:
                 buckets["vive_v2"] += 1
+            cf_v1 = fila.get("bandas_v1")
+            if isinstance(cf_v1, dict) and "veredicto" in cf_v1:
+                inv_n += 1
+                inv = clasifica(
+                    fila["kind"],
+                    fila["motivo"],
+                    fila.get("factor"),
+                    cf_v1["veredicto"],
+                    motivos=_MOTIVOS_V1,
+                    etiqueta="v1",
+                )
+                inv_buckets[inv] += 1
+                motivo = _FOLD_MOTIVO.get(fila["motivo"], fila["motivo"])
+                celda = inv_motivo.setdefault(
+                    motivo, {"mantiene": 0, "quita": 0, "cambia_banda": 0}
+                )
+                celda[inv] += 1
             continue
         bucket = clasifica(fila["kind"], fila["motivo"], fila.get("factor"), frozen["veredicto"])
         buckets[bucket] += 1
@@ -148,10 +211,14 @@ def resume(filas: list[dict]) -> dict:
         "decisiones": len(filas),
         "buckets": buckets,
         "por_motivo_v1": por_motivo,
+        "invertida": {
+            "decisiones": inv_n,
+            "buckets": inv_buckets,
+            "por_motivo_v2": inv_motivo,
+        },
         "agrega_puro": (
-            "NO MEDIBLE: en A4 los no-op v1 no tienen fila donde congelar el "
-            "contrafactual, y en A6-live las filas decide no llevan "
-            "contrafactual v1 (estructural, no cero)."
+            "NO MEDIBLE: los no-op no tienen fila donde congelar el "
+            "contrafactual, en ninguna direccion (estructural, no cero)."
         ),
     }
 
@@ -177,10 +244,29 @@ def _filas(conn, platform: str, cycle: int | None, since: str | None) -> list[di
                 "motivo": inputs.get("motivo"),
                 "factor": inputs.get("factor"),
                 "evidencia_v2": inputs.get("evidencia_v2"),
+                "bandas_v1": inputs.get("bandas_v1"),
                 "inputs": inputs,
             }
         )
     return filas
+
+
+def _verifica_bloque(fila: dict, clave: str, reproduce) -> str | None:
+    """Re-decide UN bloque contrafactual y exige igualdad con lo congelado.
+    Devuelve el mensaje de falla o None (lane-8-continuo, ambas direcciones)."""
+    frozen = fila.get(clave)
+    if not isinstance(frozen, dict):
+        return None
+    try:
+        rejugado = reproduce(fila["inputs"])
+    except Exception as exc:
+        return f"decision {fila['id']}: replay {clave} fallo: {scrub(str(exc))}"
+    if rejugado != frozen["veredicto"]:
+        return (
+            f"decision {fila['id']}: veredicto {clave} congelado != rejugado"
+            f" (frozen={frozen['veredicto']} replay={rejugado})"
+        )
+    return None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -192,8 +278,9 @@ def main(argv: list[str] | None = None) -> int:
         "--verificar",
         action="store_true",
         help="re-decide cada bloque evidencia_v2 con reproduce_evidencia_v2"
-        " (contrafactual, decide y pause_intacto) y exige igualdad con lo"
-        " congelado (lane-8-continuo)",
+        " (contrafactual, decide y pause_intacto) y cada bloque bandas_v1"
+        " con reproduce_bandas_v1, y exige igualdad con lo congelado"
+        " (lane-8-continuo, ambas direcciones)",
     )
     parser.add_argument("--json", action="store_true", help="salida JSON")
     args = parser.parse_args(argv)
@@ -215,20 +302,13 @@ def main(argv: list[str] | None = None) -> int:
         conn.close()
     if args.verificar:
         for fila in filas:
-            if not isinstance(fila.get("evidencia_v2"), dict):
-                continue
-            try:
-                rejugado = reproduce_evidencia_v2(fila["inputs"])
-            except Exception as exc:
-                print(f"decision {fila['id']}: replay fallo: {scrub(str(exc))}", file=sys.stderr)
-                return 1
-            if rejugado != fila["evidencia_v2"]["veredicto"]:
-                print(
-                    f"decision {fila['id']}: veredicto congelado != rejugado"
-                    f" (frozen={fila['evidencia_v2']['veredicto']} replay={rejugado})",
-                    file=sys.stderr,
-                )
-                return 1
+            for clave, reproduce in (
+                ("evidencia_v2", reproduce_evidencia_v2),
+                ("bandas_v1", reproduce_bandas_v1),
+            ):
+                if (falla := _verifica_bloque(fila, clave, reproduce)) is not None:
+                    print(falla, file=sys.stderr)
+                    return 1
     try:
         resumen = resume(filas)
     except ValueError as exc:
@@ -243,9 +323,16 @@ def main(argv: list[str] | None = None) -> int:
     print("por motivo v1:")
     for motivo, celdas in sorted(resumen["por_motivo_v1"].items()):
         print(f"  {motivo}: {celdas}")
+    inv = resumen["invertida"]
+    print(f"invertida (vivo v2 vs v1, decisiones: {inv['decisiones']}):")
+    for bucket, n in inv["buckets"].items():
+        print(f"  {bucket}: {n}")
+    print("por motivo v2:")
+    for motivo, celdas in sorted(inv["por_motivo_v2"].items()):
+        print(f"  {motivo}: {celdas}")
     print(f"agrega_puro: {resumen['agrega_puro']}")
     if args.verificar:
-        print("verificar: OK (todo bloque evidencia_v2 reproduce exacto)")
+        print("verificar: OK (ambos bloques reproducen exacto)")
     return 0
 
 

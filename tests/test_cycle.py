@@ -3217,17 +3217,22 @@ def test_flag_apagado_bit_identico_una_sombra(monkeypatch):
 
 
 def test_flag_encendido_una_llamada_con_fallback(monkeypatch):
-    """A6-M15 (doble-llamada): flag en evidencia = UNA llamada decide_bid
-    por hoja (v2 + fallback_v1=True, sin segundo call); D.2 REUSA la
-    historia (una sola lectura por hoja). Sin previa (kw_bid era el unico
-    vendedor), el fallback decide el vivo correspondiente: -25% v1 con
-    la abstencion auditada (nunca-peor: igual que v1)."""
+    """A6-M15 (doble-llamada): flag en evidencia = vivo v2 con
+    fallback_v1=True por hoja (D.2 REUSA la historia: una sola lectura
+    por hoja) + SEGUNDO call v1 puro en la fila bid (contrafactual B3);
+    la fila pause lleva marcador, sin segundo call. Sin previa (kw_bid
+    era el unico vendedor), el fallback decide el vivo correspondiente:
+    -25% v1 con la abstencion auditada (nunca-peor: igual que v1)."""
     with _db_temporal("orbit_ciclo_a6on") as (conn, _c):
-        ids = _siembra_maestra(conn, settings={"ads_motor_bid_amazon_us": "evidencia"})
+        ids = _siembra_maestra(conn, settings={"ads_bid_politica_amazon_us": "evidencia_v2"})
         llamadas, historias, cpcs = _cuenta_llamadas(monkeypatch)
         res = _corre(conn)
         assert res.status == "done"
-        assert llamadas == [("evidencia_v2", True), ("evidencia_v2", True)]
+        assert llamadas == [
+            ("evidencia_v2", True),
+            ("bandas_v1", False),
+            ("evidencia_v2", True),
+        ]
         # Historia y cpc se miden ANTES del vivo (1x por hoja; D.2 reusa).
         assert sorted(historias) == sorted([ids["kw_bid"], ids["kw_pause"]])
         assert sorted(cpcs) == sorted([ids["kw_bid"], ids["kw_pause"]])
@@ -3251,12 +3256,16 @@ def test_flag_encendido_v2_dispara_queda_v2(monkeypatch):
     (-12% donde v1 daba -25%: el cambio de numeros ES el fix F3) y se
     persiste con via decide + politica evidencia_v2, sin abstencion."""
     with _db_temporal("orbit_ciclo_a6v2") as (conn, _c):
-        ids = _siembra_maestra(conn, settings={"ads_motor_bid_amazon_us": "evidencia"})
+        ids = _siembra_maestra(conn, settings={"ads_bid_politica_amazon_us": "evidencia_v2"})
         _fondo_maduro(conn, ids["kw_pause"])
         llamadas, _, _ = _cuenta_llamadas(monkeypatch)
         res = _corre(conn)
         assert res.status == "done"
-        assert llamadas == [("evidencia_v2", True), ("evidencia_v2", True)]
+        assert llamadas == [
+            ("evidencia_v2", True),
+            ("bandas_v1", False),
+            ("evidencia_v2", True),
+        ]
         filas = _decisions_de(conn, res.cycle_id)
         por = {(f[0], f[1], f[2]): f for f in filas}
         ins_bid = por[(ids["kw_bid"], "bid", None)][9]
@@ -3268,19 +3277,74 @@ def test_flag_encendido_v2_dispara_queda_v2(monkeypatch):
         assert ins_bid["politica_bandas_usada"] == "evidencia_v2"
 
 
+def test_swap_live_contrafactual_entre_politicas():
+    """A6-r2 B3 (the swap of live and counterfactual): con bandas_v1 la
+    sombra es v2 (via contrafactual, sin bloque bandas_v1); con
+    evidencia_v2 el vivo es v2 (via decide) y la sombra es v1 (bloque
+    bandas_v1 con el -25% que v1 decidia donde v2 da -12%). El replay
+    re-decide ambos bloques exactos y D.2 congela su version efectiva."""
+    from app.optimizer.replay import reproduce_bandas_v1, reproduce_evidencia_v2
+
+    with _db_temporal("orbit_ciclo_a6swap1") as (conn, _c):
+        ids = _siembra_maestra(conn)
+        _fondo_maduro(conn, ids["kw_pause"])
+        res = _corre(conn)
+        assert res.status == "done"
+        filas = _decisions_de(conn, res.cycle_id)
+        ins = [f[9] for f in filas if f[0] == ids["kw_bid"]][0]
+        assert (ins["motivo"], ins["factor"]) == ("banda_menos_25", "-0.25")
+        assert ins["evidencia_v2"]["via"] == "contrafactual"
+        sombra = ins["evidencia_v2"]["veredicto"]
+        assert (sombra["kind"], sombra["motivo"], sombra["factor"]) == (
+            "bid",
+            "banda_menos_12",
+            "-0.12",
+        )
+        assert "bandas_v1" not in ins
+        assert ins["inversion_policy_version"] == "inversion_n10_v1"
+        assert reproduce_evidencia_v2(ins) == ins["evidencia_v2"]["veredicto"]
+        assert reproduce_bandas_v1(ins) is None
+
+    with _db_temporal("orbit_ciclo_a6swap2") as (conn, _c):
+        ids = _siembra_maestra(conn, settings={"ads_bid_politica_amazon_us": "evidencia_v2"})
+        _fondo_maduro(conn, ids["kw_pause"])
+        res = _corre(conn)
+        assert res.status == "done"
+        filas = _decisions_de(conn, res.cycle_id)
+        por = {(f[0], f[1], f[2]): f for f in filas}
+        ins = por[(ids["kw_bid"], "bid", None)][9]
+        assert (ins["motivo"], ins["factor"]) == ("banda_menos_12", "-0.12")
+        assert ins["evidencia_v2"]["via"] == "decide"
+        assert ins["bandas_v1"]["via"] == "contrafactual"
+        cf_v1 = ins["bandas_v1"]["veredicto"]
+        assert (cf_v1["kind"], cf_v1["motivo"], cf_v1["factor"]) == (
+            "bid",
+            "banda_menos_25",
+            "-0.25",
+        )
+        assert ins["inversion_policy_version"] == "inversion_cpc20_v2"
+        assert reproduce_bandas_v1(ins) == ins["bandas_v1"]["veredicto"]
+        assert reproduce_evidencia_v2(ins) == ins["evidencia_v2"]["veredicto"]
+        insp = por[(ids["kw_pause"], "pause", None)][9]
+        assert insp["evidencia_v2"]["via"] == "pause_intacto"
+        assert insp["bandas_v1"]["via"] == "pause_intacto"
+        assert insp["bandas_v1"]["veredicto"]["motivo"] == insp["motivo"]
+        assert reproduce_bandas_v1(insp) == insp["bandas_v1"]["veredicto"]
+
+
 def test_motor_bid_corrupto_tumba_ciclo_fail_closed():
     """A6: clave presente pero corrupta => ciclo failed (fail-closed,
     igual que un target/fraccion/confianza corruptos: jamas habilita v2
     por accidente)."""
     with _db_temporal("orbit_ciclo_a6c") as (conn, _c):
-        _siembra_maestra(conn, settings={"ads_motor_bid_amazon_us": "EVIDENCIA"})
-        with pytest.raises(ValueError, match="motor de bids"):
+        _siembra_maestra(conn, settings={"ads_bid_politica_amazon_us": "EVIDENCIA_V2"})
+        with pytest.raises(ValueError, match="politica de bids"):
             _corre(conn)
         status, notes = conn.execute(
             "SELECT status, notes FROM optimizer_cycle WHERE motor = 'ads_optimizer'"
         ).fetchone()
         assert status == "failed"
-        assert json.loads(notes)["error"].startswith("setting ads_motor_bid")
+        assert json.loads(notes)["error"].startswith("setting ads_bid_politica")
         assert conn.execute("SELECT count(*) FROM decision").fetchone()[0] == 0
 
 
@@ -3292,7 +3356,7 @@ def test_replay_decide_fallback_reproduce_vivo_exacto():
     from app.optimizer.replay import reproduce, reproduce_evidencia_v2
 
     with _db_temporal("orbit_ciclo_a6r") as (conn, _c):
-        ids = _siembra_maestra(conn, settings={"ads_motor_bid_amazon_us": "evidencia"})
+        ids = _siembra_maestra(conn, settings={"ads_bid_politica_amazon_us": "evidencia_v2"})
         res = _corre(conn)
         assert res.status == "done"
         filas = _decisions_de(conn, res.cycle_id)
@@ -3330,7 +3394,7 @@ def test_replay_decide_v2_puro_reproduce_vivo_exacto():
     from app.optimizer.replay import reproduce, reproduce_evidencia_v2
 
     with _db_temporal("orbit_ciclo_a6r2") as (conn, _c):
-        ids = _siembra_maestra(conn, settings={"ads_motor_bid_amazon_us": "evidencia"})
+        ids = _siembra_maestra(conn, settings={"ads_bid_politica_amazon_us": "evidencia_v2"})
         _fondo_maduro(conn, ids["kw_pause"])
         res = _corre(conn)
         assert res.status == "done"

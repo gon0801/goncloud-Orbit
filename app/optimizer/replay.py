@@ -56,7 +56,10 @@ def _agregado_sintetico(d: dict | None) -> windows.AgregadoMetricas | None:
     )
 
 
-def _replay_bid(inputs: dict, target: Decimal | None = None) -> bid.ResultadoBid:
+def _args_replay_bid(inputs: dict, target: Decimal | None = None) -> dict:
+    """Args v1 de decide_bid desde inputs congelados (fuente unica para
+    _replay_bid y reproduce_bandas_v1: el contrafactual v1 espeja al vivo
+    arg-por-arg, cero drift)."""
     goal = inputs["goal"]
     # CORTES 01 (spec) + cierre CORTES 03: umbral de clicks =
     # inputs.corte.umbral_clicks_usado; piso de costo = inputs.corte.cost_min_usado
@@ -89,7 +92,7 @@ def _replay_bid(inputs: dict, target: Decimal | None = None) -> bid.ResultadoBid
         if corte is not None and corte.get("cero_ventas_expected_usado") is not None
         else None
     )
-    args = {
+    return {
         "platform": inputs["platform"],
         "bids": _agregado_sintetico(inputs["ventanas"]["bids"]),
         "cortes": _agregado_sintetico(inputs["ventanas"]["cortes"]),
@@ -105,6 +108,10 @@ def _replay_bid(inputs: dict, target: Decimal | None = None) -> bid.ResultadoBid
         "expected_clicks": expected,
         "policy_version": (inputs.get("economic_policy") or {}).get("version"),
     }
+
+
+def _replay_bid(inputs: dict, target: Decimal | None = None) -> bid.ResultadoBid:
+    args = _args_replay_bid(inputs, target)
     # A6-live: fila via=decide = el vivo DECIDIO con evidencia: se
     # rejuega con los parciales + confianzas congelados y fallback_v1
     # (los MISMOS 5 params del vivo; via mapea fallback). Cualquier otra
@@ -260,6 +267,37 @@ def reproduce_evidencia_v2(inputs: dict) -> dict | None:
         "motivo": veredicto.motivo,
         "factor": str(veredicto.factor) if veredicto.factor is not None else None,
         "new_value": str(veredicto.new_value) if veredicto.new_value is not None else None,
+    }
+
+
+def reproduce_bandas_v1(inputs: dict) -> dict | None:
+    """Re-decide el contrafactual v1 (A6 B3) desde `inputs.bandas_v1` y
+    devuelve el veredicto re-derivado {kind, motivo, factor, new_value}
+    (strings/None, como el freeze). REPLAY FIEL: decide_bid PURO v1
+    con los args congelados (SIN rutado por via: el contrafactual v1
+    siempre es politica pura). Filas sin la clave (vivo v1, era
+    pre-B3) -> None. Filas pause_intacto: EXIGE kind pause + MISMO
+    motivo que lo congelado (el marcador copia el vivo)."""
+    frozen = inputs.get("bandas_v1")
+    if frozen is None:
+        return None
+    vivo = bid.decide_bid(**_args_replay_bid(inputs))
+    if frozen.get("via") == "pause_intacto":
+        assert vivo.kind == "pause", f"pause_intacto con replay v1 {vivo.kind}"
+        assert vivo.motivo == frozen["veredicto"]["motivo"], (
+            f"pause_intacto motivo {frozen['veredicto']['motivo']} vs replay {vivo.motivo}"
+        )
+        return {
+            "kind": vivo.kind,
+            "motivo": vivo.motivo,
+            "factor": None,
+            "new_value": None,
+        }
+    return {
+        "kind": vivo.kind,
+        "motivo": vivo.motivo,
+        "factor": str(vivo.factor) if vivo.factor is not None else None,
+        "new_value": str(vivo.new_value) if vivo.new_value is not None else None,
     }
 
 

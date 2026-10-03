@@ -67,7 +67,7 @@ function guardarConfig(form) {
     var el = form.elements[nombre];
     if (cambio(el)) cuerpo[nombre] = el.value.trim();
   });
-  // A6: el motor viaja si el select cambio ("" incluido: volver a v1).
+  // A6: el motor viaja si el select cambio (bandas_v1 o evidencia_v2).
   var motor = form.elements.motor_bid;
   if (cambioSelect(motor)) cuerpo.motor_bid = motor.value;
   if (cambio(toggle) || (margenOn && cambio(fraccion))) {

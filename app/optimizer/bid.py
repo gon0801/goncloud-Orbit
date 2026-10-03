@@ -96,6 +96,7 @@ from app.optimizer.evidencia import (
     estima_acos,
     factor_por_evidencia,
 )
+from app.optimizer.goals import POLITICA_BANDAS_EVIDENCIA, POLITICA_BANDAS_V1
 from app.optimizer.windows import AgregadoMetricas
 
 # ---------------------------------------------------------------------------
@@ -164,9 +165,7 @@ _MOTIVO_BANDA: dict[Decimal, str] = {
 # cerrada siga teniendo una sola cara (este modulo). Los tests los fijan
 # literal; el dashboard los etiqueta en MOTIVOS_ES_*.
 # Politica de bandas (A4; IDs sellados por A6: ads_bid_politica_<p> en
-# {bandas_v1, evidencia_v2}; un numero, una fuente).
-POLITICA_BANDAS_V1 = "bandas_v1"
-POLITICA_BANDAS_EVIDENCIA = "evidencia_v2"
+# {bandas_v1, evidencia_v2}; fuente unica en goals, aqui re-exportados).
 
 # Inversa privada de _MOTIVO_BANDA (A4 res 16): la rama v2 recibe el
 # motivo de banda (motivo-only, cero imports) y recupera el factor.

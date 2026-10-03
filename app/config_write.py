@@ -89,22 +89,20 @@ def _antes(valor) -> str:
 
 def _aplica_motor_bid(nuevo: dict, cambios: list[str], platform: str, motor_bid: str) -> None:
     """Rama A6 de proxima_config (helper puro: baja la complejidad del
-    presupuesto guardrails-01). "evidencia" escribe la clave, "" la POPEA
-    (ausencia = motor viejo, como el margen apagado: jamas se escribe ""
-    porque el lector lo rechaza como corrupto). Valor ajeno = 422 (el
-    endpoint solo manda su Literal)."""
-    k_motor = g.clave_motor_bid(platform)
-    if motor_bid == g.VALOR_MOTOR_EVIDENCIA:
+    presupuesto guardrails-01). Solo los dos valores sellados viajan:
+    `evidencia_v2` enciende, `bandas_v1` explicito revierte (plan A6
+    carril 10); la ausencia sigue leyendo como v1 pero el editor no la
+    escribe ni la popea. Valor ajeno = 422 (el endpoint solo manda su
+    Literal)."""
+    k_motor = g.clave_bid_politica(platform)
+    if motor_bid in (g.POLITICA_BANDAS_V1, g.POLITICA_BANDAS_EVIDENCIA):
         if nuevo.get(k_motor) != motor_bid:
             cambios.append(f"motor bid {_antes(nuevo.get(k_motor))} -> {motor_bid}")
             nuevo[k_motor] = motor_bid
-    elif motor_bid == "":
-        if k_motor in nuevo:
-            anterior = nuevo.pop(k_motor)
-            cambios.append(f"motor bid {anterior} -> ausente")
     else:
         raise SettingsInvalido(
-            f"motor bid debe ser {g.VALOR_MOTOR_EVIDENCIA!r} o vacio, llego {motor_bid!r}"
+            f"motor bid debe ser {g.POLITICA_BANDAS_V1!r} o"
+            f" {g.POLITICA_BANDAS_EVIDENCIA!r}, llego {motor_bid!r}"
         )
 
 

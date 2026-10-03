@@ -211,28 +211,37 @@ def test_confianza_bordes_validos_y_fuera_corrupta():
 
 def test_motor_evidencia_ausente_es_viejo_por_plataforma():
     """A6-M7 (clave-sin-platform): sin clave (o null) -> False en AMBAS
-    plataformas; la clave de UNA no enciende la otra."""
+    plataformas; la clave de UNA no enciende la otra. bandas_v1
+    explicito tambien es False (revertir es escribirlo, A6-r2 B1)."""
     assert g.motor_evidencia_desde_settings({}, "amazon_us") is False
     assert g.motor_evidencia_desde_settings({}, "amazon_mx") is False
-    assert g.motor_evidencia_desde_settings({"ads_motor_bid_amazon_us": None}, "amazon_us") is False
-    solo_us = {"ads_motor_bid_amazon_us": "evidencia"}
+    assert (
+        g.motor_evidencia_desde_settings({"ads_bid_politica_amazon_us": None}, "amazon_us") is False
+    )
+    assert (
+        g.motor_evidencia_desde_settings({"ads_bid_politica_amazon_us": "bandas_v1"}, "amazon_us")
+        is False
+    )
+    solo_us = {"ads_bid_politica_amazon_us": "evidencia_v2"}
     assert g.motor_evidencia_desde_settings(solo_us, "amazon_us") is True
     assert g.motor_evidencia_desde_settings(solo_us, "amazon_mx") is False
-    assert g.clave_motor_bid("amazon_mx") == "ads_motor_bid_amazon_mx"
+    assert g.clave_bid_politica("amazon_mx") == "ads_bid_politica_amazon_mx"
 
 
-def test_motor_evidencia_solo_evidencia_exacta_y_lo_demas_corrupto():
-    """A6-M8 (default-silencioso): SOLO "evidencia" exacto enciende;
-    PRESENTE con cualquier otro valor ("" a mano, mayusculas, basura,
-    numero) = config CORRUPTA (ValueError, falla cerrado como
-    target/fraccion/confianzas)."""
+def test_motor_evidencia_solo_v2_exacta_y_lo_demas_corrupto():
+    """A6-M8 (default-silencioso): SOLO "evidencia_v2" exacto enciende;
+    PRESENTE con cualquier otro valor ("" a mano, mayusculas, el ID
+    viejo "evidencia", basura, numero) = config CORRUPTA (ValueError,
+    falla cerrado como target/fraccion/confianzas)."""
     assert (
-        g.motor_evidencia_desde_settings({"ads_motor_bid_amazon_us": "evidencia"}, "amazon_us")
+        g.motor_evidencia_desde_settings(
+            {"ads_bid_politica_amazon_us": "evidencia_v2"}, "amazon_us"
+        )
         is True
     )
-    for malo in ("", "EVIDENCIA", "Evidencia", "bandas_v1", "evidencia_v2", " ", 1, True):
-        with pytest.raises(ValueError, match="motor de bids"):
-            g.motor_evidencia_desde_settings({"ads_motor_bid_amazon_us": malo}, "amazon_us")
+    for malo in ("", "EVIDENCIA_V2", "Evidencia_v2", "evidencia", "bandas", " ", 1, True):
+        with pytest.raises(ValueError, match="politica de bids"):
+            g.motor_evidencia_desde_settings({"ads_bid_politica_amazon_us": malo}, "amazon_us")
 
 
 # ---------------------------------------------------------------------------
