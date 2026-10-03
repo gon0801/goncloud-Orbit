@@ -53,6 +53,11 @@ _MOTIVOS_V2 = frozenset(
         b.MOTIVO_PAUSE_MONEDA_INVALIDA,
         b.MOTIVO_PAUSE_ORDERS_DESCONOCIDO,
         b.MOTIVO_PAUSE_CLICKS_COST_DESCONOCIDOS,
+        # Dato faltante economico (r3, F1): cortes completa pero revenue
+        # None/negativo + policy economica + live-bid + v2-abstiene -> el
+        # no-op reporta esta guarda pause. pause_economica AUSENTE a
+        # proposito: v2 no pausa en fila bid (mismos cortes que live).
+        b.MOTIVO_PAUSE_ECONOMICA_DATO_FALTANTE,
         b.MOTIVO_BIDS_SIN_OBSERVACIONES,
         b.MOTIVO_BIDS_MONEDA_INVALIDA,
         b.MOTIVO_BID_ACTUAL_AUSENTE,

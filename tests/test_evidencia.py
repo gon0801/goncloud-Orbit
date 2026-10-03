@@ -647,6 +647,15 @@ def test_compara_buckets_y_fold():
 def test_compara_vocabulario_cerrado_e_invariantes():
     from tools import compara_evidencia as ce
 
+    assert (
+        ce.clasifica(
+            "bid",
+            "banda_menos_12",
+            "-0.12",
+            {"kind": None, "motivo": "pause_economica_dato_faltante", "factor": None},
+        )
+        == "quita"
+    )
     with pytest.raises(ValueError, match="vocabulario cerrado"):
         ce.clasifica("bid", "banda_menos_12", "-0.12", {"kind": "bid", "motivo": "motivo_futuro"})
     with pytest.raises(ValueError, match="invariante roto"):

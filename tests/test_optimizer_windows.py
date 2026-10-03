@@ -206,6 +206,7 @@ def test_sql_del_modulo_parsea_como_postgres():
         "_SQL_SYNC_PLATAFORMA",
         "_SQL_EVIDENCIA_AD_GROUP",
         "_SQL_CONVERSION_GRANO",
+        "_SQL_MAPEO_HOJAS",
         "_SQL_CPC_SLICE",
     ):
         sql = getattr(w, nombre).replace("%s", "NULL")
