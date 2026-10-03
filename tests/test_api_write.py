@@ -74,6 +74,14 @@ SQL42 = (
 SQL46 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0046_target_acos_ciclo.sql"
 ).read_text(encoding="utf-8")
+# A5: el peldano familiar lee kind 'product_ad' (0004) y v_margen_familia
+# (0048) en TX2 — sin estas TODO ciclo revienta.
+SQL4 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0004_ad_entity_kind_product_ad.sql"
+).read_text(encoding="utf-8")
+SQL48 = (Path(__file__).resolve().parents[1] / "migrations" / "0048_margen_familia.sql").read_text(
+    encoding="utf-8"
+)
 # A4: conversion_jerarquica cruza campana_grupo_rol (0018) y familia (0047)
 # en TX2 — sin estas TODO ciclo revienta con UndefinedTable.
 SQL18 = (
@@ -415,6 +423,8 @@ def _db_con_rol_admin(prefijo: str, *, con_decide: bool = False):
         conn.execute(SQL46)  # 0046 (C.2a): la TX3 del ciclo escribe el freeze
         conn.execute(SQL18)  # 0018 (A4): campana_grupo_rol en TX2
         conn.execute(SQL47)  # 0047 (A4): familia en TX2
+        conn.execute(SQL4)  # 0004 (A5): kind 'product_ad' en TX2
+        conn.execute(SQL48)  # 0048 (A5): v_margen_familia en TX2
         # CREATE ROLE es utility statement: NO admite parametros posicionales
         # (revienta con syntax error en $1); la password va como sql.Literal
         # (composicion segura de psycopg, no interpolacion de strings).

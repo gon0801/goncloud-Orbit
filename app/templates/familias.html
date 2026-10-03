@@ -18,7 +18,7 @@
   {% if arbol %}
   <table id="familias-arbol">
     <thead>
-      <tr><th>Familia</th><th>Nivel</th><th>Productos</th><th>Ventas 90d</th><th>Meta</th></tr>
+      <tr><th>Familia</th><th>Nivel</th><th>Productos</th><th>Ventas 90d</th><th>Meta</th><th>Origen</th></tr>
     </thead>
     <tbody>
       {% for nodo in arbol %}
@@ -27,6 +27,7 @@
         <td>familia</td>
         <td class="num">{{ nodo.productos }}</td>
         <td class="num">{{ nodo.ventas_90d }}</td>
+        <td class="num">{% if nodo.target_familia %}{{ nodo.target_familia }} %{% else %}—{% endif %}</td>
         <td>{{ nodo.origen_meta }}</td>
       </tr>
       {% for hija in nodo.hijas %}
@@ -35,6 +36,7 @@
         <td>subfamilia</td>
         <td class="num">{{ hija.productos }}</td>
         <td class="num">{{ hija.ventas_90d }}</td>
+        <td class="num">{% if hija.target_familia %}{{ hija.target_familia }} %{% else %}—{% endif %}</td>
         <td>{{ hija.origen_meta }}</td>
       </tr>
       {% endfor %}

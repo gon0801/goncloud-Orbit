@@ -116,6 +116,7 @@ def _corre_hoja(monkeypatch, *, bids, historia, cooldown=False, cortes=None):
         inertes=set(),
         margen_plataforma=None,
         snapshot_margen={},
+        familias_ciclo=cycle._FamiliasCiclo({}, {}, {}, {}, None, AHORA.date(), None, {}),
         pause_sin_cooldown_bid=True,
         pause_economica=False,
         conv_jerarquica=_CONV_VACIA,

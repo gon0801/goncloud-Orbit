@@ -449,6 +449,47 @@ SELECT platform, ventana_desde, ventana_hasta, venta_total, venta_cubierta,
  WHERE platform = %s::platform
 """
 
+# A5: medicion del margen POR FAMILIA (la vista SOLO MIDE; la resolucion es
+# goals.resuelve_target_margen_familia en Python, por hoja).
+_SQL_MARGENES_FAMILIA = """
+SELECT familia_id, padre_id, ventana_desde, ventana_hasta, venta_cubierta,
+       cobertura, dias_con_venta, margen_neto_pct, ledger_fresco_at, moneda
+  FROM v_margen_familia
+ WHERE platform = %s::platform
+"""
+
+# A5: parejas (campana, familia | None) por producto anunciado, via product
+# ads (campana -> ad groups -> product_ad.listing_id -> product ->
+# producto_familia). Una fila por product_ad; el colapso a familia efectiva
+# (mezcla o sin etiqueta -> None estricto) es goals.familia_efectiva_por_campana
+# en Python (regla UNICA compartida con el dashboard, regla 2).
+_SQL_PAREJAS_CAMPANA_FAMILIA = """
+SELECT camp.id AS campana_id, pf.familia_id, f.padre_id
+  FROM ad_entity camp
+  JOIN ad_entity ag ON ag.parent_id = camp.id AND ag.kind = 'ad_group'
+  JOIN ad_entity pa ON pa.parent_id = ag.id AND pa.kind = 'product_ad'
+  LEFT JOIN listing li ON li.id = pa.listing_id
+  LEFT JOIN producto_familia pf
+    ON pf.product_id = li.product_id AND pf.platform = camp.platform
+  LEFT JOIN familia f ON f.id = pf.familia_id
+ WHERE camp.platform = %s::platform AND camp.kind = 'campaign'
+"""
+
+# A5: ultimo target aplicado POR HOJA (ancla del paso familiar). Sin filtro
+# de procedencia (B-F9: la trayectoria es el ultimo numero, venga del
+# peldano que venga); live + done, anterior al ciclo (espejo plataforma).
+# A5-r2: tambien lee la procedencia. Separacion deliberada: el ANCLA (ultimo)
+# sigue sin filtro, pero la BANDERA tiene_previo solo vale con previo
+# margen_familia (espejo _resuelve_target_ciclo:2101). No filtrar ultimo.
+_SQL_TARGETS_PREVIOS = """
+SELECT DISTINCT ON (t.ad_entity_id) t.ad_entity_id, t.target_acos_pct, t.procedencia
+  FROM target_acos_ciclo t
+  JOIN optimizer_cycle c ON c.id = t.cycle_id
+ WHERE c.platform = %s::platform AND c.mode = 'live' AND c.status = 'done'
+   AND c.id < %s
+ ORDER BY t.ad_entity_id, c.id DESC
+"""
+
 # Ad revenue de la ventana del margen (A7, D-2.3.15): SUM sobre
 # v_metric_latest al grano keyword+product_target (el mismo grano
 # anti-duplicado de v_tacos: las filas campaign repiten el dinero) con los
@@ -1647,6 +1688,7 @@ def _procesa_decisora(
     inertes: set[int],
     margen_plataforma: Decimal | None,
     snapshot_margen: dict,
+    familias_ciclo: _FamiliasCiclo,
     pause_sin_cooldown_bid: bool,
     pause_economica: bool,
     conv_jerarquica: ev.ConversionPlataforma,
@@ -1717,11 +1759,26 @@ def _procesa_decisora(
     ventanas = windows.ventanas_entidad(conn, entidad_id, decided_at)
     # ORBIT 06 2.3: el peldano entra a la cascada del motor; la procedencia
     # sale del mismo nucleo (peldano_target_acos) para el freeze.
+    # A5: el peldano familiar se resuelve por hoja (su ancla es el ultimo
+    # aplicado DE LA HOJA); el snapshot viaja al freeze si gana.
+    target_margen_familia, snapshot_fam = _margen_familia_de_hoja(
+        familias_ciclo, campaign_id, entidad_id
+    )
     target = g.cascada_target_acos(
-        goal.target_acos_pct, setting_target, acos_cache, margen_plataforma, goal.scope
+        goal.target_acos_pct,
+        setting_target,
+        acos_cache,
+        margen_plataforma,
+        goal.scope,
+        target_margen_familia,
     )
     procedencia = g.peldano_target_acos(
-        goal.target_acos_pct, goal.scope, margen_plataforma, setting_target, acos_cache
+        goal.target_acos_pct,
+        goal.scope,
+        margen_plataforma,
+        setting_target,
+        acos_cache,
+        target_margen_familia,
     )
     # C.2a: el freeze va AQUI, no mas arriba — cascada_target_acos revienta
     # con cache <= 0 y meterla en hojas que hoy salen limpias (veto/inerte)
@@ -1825,7 +1882,11 @@ def _procesa_decisora(
             ventanas=ventanas,
             target=target,
             procedencia=procedencia,
-            snapshot=(snapshot_margen if procedencia == "margen_plataforma" else None),
+            snapshot=(
+                snapshot_margen
+                if procedencia == "margen_plataforma"
+                else (snapshot_fam if procedencia == "margen_familia" else None)
+            ),
             bid_actual=current_bid,
             bid_moneda=bid_currency,
             decided_at=decided_at,
@@ -1856,6 +1917,7 @@ def _procesa_grupo(
     bloqueadas: set[tuple[int, str, str | None]],
     margen_plataforma: Decimal | None,
     snapshot_margen: dict,
+    familias_ciclo: _FamiliasCiclo,
 ) -> None:
     grupo_id, campaign_id, status, status_campana, grupo_external = fila
     terminos = windows.terminos_cortes(conn, grupo_id, decided_at)
@@ -1897,11 +1959,24 @@ def _procesa_grupo(
     corte_negativo = cortes.umbral_corte(evidencia, "negative")
     piso_neg = cortes.piso_corte(evidencia, platform)
     cache_campana = acos_campanas.get(campaign_id)
+    # A5: el grupo no tiene trayectoria (no congela target): hoja None, el
+    # peldano camina desde el destino o cae, nunca converge.
+    target_margen_familia, snapshot_fam = _margen_familia_de_hoja(familias_ciclo, campaign_id, None)
     target = g.cascada_target_acos(
-        goal.target_acos_pct, setting_target, cache_campana, margen_plataforma, goal.scope
+        goal.target_acos_pct,
+        setting_target,
+        cache_campana,
+        margen_plataforma,
+        goal.scope,
+        target_margen_familia,
     )
     procedencia = g.peldano_target_acos(
-        goal.target_acos_pct, goal.scope, margen_plataforma, setting_target, cache_campana
+        goal.target_acos_pct,
+        goal.scope,
+        margen_plataforma,
+        setting_target,
+        cache_campana,
+        target_margen_familia,
     )
     destino = None
     try:
@@ -1951,7 +2026,11 @@ def _procesa_grupo(
                 terminos=terminos,
                 target=target,
                 procedencia=procedencia,
-                snapshot=(snapshot_margen if procedencia == "margen_plataforma" else None),
+                snapshot=(
+                    snapshot_margen
+                    if procedencia == "margen_plataforma"
+                    else (snapshot_fam if procedencia == "margen_familia" else None)
+                ),
                 decided_at=decided_at,
                 # el freeze SOLO en decisiones que consultan umbral de
                 # clicks: negative (las harvest NO llevan inputs.corte)
@@ -2083,6 +2162,135 @@ def _resuelve_target_ciclo(
     return _TargetCiclo(res.aplicado, snapshot, ancla)
 
 
+@dataclass
+class _FamiliasCiclo:
+    """Insumos A5 del peldano margen_familia, leidos UNA vez por ciclo en TX2
+    (mismo snapshot que la evidencia): mediciones por familia, mapa
+    campana -> familia efectiva, ultimo aplicado por hoja (ancla del paso),
+    fraccion/destino del reemplazo y notas por familia (informativas: el
+    dashboard las muestra; las anclas NO salen de notes, regla 2)."""
+
+    mediciones: dict[int, g.MedicionMargen]
+    padres: dict[int, int | None]
+    fam_por_campana: dict[int, int | None]
+    previos: dict[int, tuple[Decimal, str]]
+    fraccion: Decimal | None
+    hoy: dt.date
+    destino: Decimal | None
+    notas: dict[int, dict]
+
+
+def _lee_familias_ciclo(
+    conn: psycopg.Connection,
+    *,
+    platform: str,
+    cycle_id: int,
+    hoy: dt.date,
+    fraccion: Decimal | None,
+    destino: Decimal | None,
+) -> _FamiliasCiclo:
+    """Tres lecturas (margenes, parejas, previos) + colapso puro. Las notas
+    por familia evaluan su motivo con ultimo=None (sin ancla: solo dicen si
+    la familia MIDE y a que deriva, sin paso); el motor resuelve por hoja."""
+    mediciones: dict[int, g.MedicionMargen] = {}
+    padres: dict[int, int | None] = {}
+    for fila in conn.execute(_SQL_MARGENES_FAMILIA, (platform,)).fetchall():
+        fid = fila[0]
+        padres[fid] = fila[1]
+        mediciones[fid] = g.MedicionMargen(
+            margen_neto_pct=fila[7],
+            cobertura=fila[5],
+            dias_con_venta=fila[6],
+            venta_cubierta=fila[4],
+            ledger_fresco_at=fila[8],
+            moneda=str(fila[9]) if fila[9] is not None else None,
+            ventana_desde=fila[2],
+            ventana_hasta=fila[3],
+        )
+    pares: list[tuple[int, int | None]] = []
+    for fila in conn.execute(_SQL_PAREJAS_CAMPANA_FAMILIA, (platform,)).fetchall():
+        pares.append((fila[0], fila[1]))
+        if fila[1] is not None and fila[1] not in padres:
+            padres[fila[1]] = fila[2]
+    fam_por_campana = g.familia_efectiva_por_campana(pares)
+    previos = {
+        fila[0]: (fila[1], fila[2])
+        for fila in conn.execute(_SQL_TARGETS_PREVIOS, (platform, cycle_id)).fetchall()
+    }
+    notas: dict[int, dict] = {}
+    for fid, med in mediciones.items():
+        res = g.resuelve_target_margen(med, fraccion, hoy, None, destino, g.MARGEN_DIAS_MIN_FAMILIA)
+        notas[fid] = {
+            "margen_neto_pct": _dec_str(med.margen_neto_pct),
+            "cobertura": _dec_str(med.cobertura),
+            "dias_con_venta": med.dias_con_venta,
+            "motivo": res.motivo,
+            "derivado": _dec_str(res.derivado),
+            # Ronda 2 F1: la web consume ESTE (recortado a banda, ultimo=None;
+            # nunca <= 0): el derivado crudo revienta la cascada cuando el
+            # margen es <= 0 (500 en /campanas). Precedente: target_aplicado
+            # del peldaño plataforma.
+            "aplicado": _dec_str(res.aplicado),
+        }
+    return _FamiliasCiclo(
+        mediciones, padres, fam_por_campana, previos, fraccion, hoy, destino, notas
+    )
+
+
+def _margen_familia_de_hoja(
+    familias: _FamiliasCiclo, campaign_id: int, hoja_id: int | None
+) -> tuple[Decimal | None, dict | None]:
+    """Peldano margen_familia para UNA hoja (Python puro, sin queries): la
+    familia efectiva de su campana (None = sin_familia), reintento al padre,
+    ancla = ultimo aplicado DE LA HOJA ?? destino (plataforma ?? setting).
+    `hoja_id` None = camino de grupo (sin trayectoria: nunca converge, solo
+    camina desde el destino o cae). Devuelve (aplicado, snapshot) donde
+    snapshot lleva las claves pineadas margen_neto_pct + target_aplicado
+    (espejo plataforma, C-F11) + familia_etiqueta/usada + motivo."""
+    fam_id = familias.fam_por_campana.get(campaign_id)
+    etiqueta = familias.mediciones.get(fam_id) if fam_id is not None else None
+    if fam_id is not None and etiqueta is None:
+        etiqueta = g.MEDICION_NULA
+    padre_id = familias.padres.get(fam_id) if fam_id is not None else None
+    padre = familias.mediciones.get(padre_id) if padre_id is not None else None
+    previo = familias.previos.get(hoja_id) if hoja_id is not None else None
+    # A5-r2 (B1): el ANCLA es el ultimo numero sin filtro (B-F9), pero la
+    # BANDERA tiene_previo exige previo margen_familia (con previo de otro
+    # peldano la hoja cae a plataforma, no converge con valor ajeno).
+    ultimo = previo[0] if previo is not None else familias.destino
+    tiene_previo = previo is not None and previo[1] == "margen_familia"
+    res, ganadora = g.resuelve_target_margen_familia(
+        etiqueta,
+        padre,
+        familias.fraccion,
+        familias.hoy,
+        ultimo,
+        familias.destino,
+        tiene_previo=tiene_previo,
+    )
+    if res.aplicado is None:
+        return (None, None)
+    usada = {"etiqueta": fam_id, "padre": padre_id}.get(ganadora if ganadora else "")
+    # B1b: sin_familia convergente no tiene medicion: NULLs honestos (solo
+    # cuando etiqueta es None; etiqueta invalida convergente conserva la suya
+    # como antes). Con ganadora, med_ref existe (el assert lo sigue exigiendo).
+    if ganadora is None and etiqueta is None:
+        med_ref = g.MEDICION_NULA
+    else:
+        med_ref = {"etiqueta": etiqueta, "padre": padre}.get(ganadora if ganadora else "", etiqueta)
+        assert med_ref is not None
+    snapshot = {
+        "margen_neto_pct": _dec_str(med_ref.margen_neto_pct),
+        "cobertura": _dec_str(med_ref.cobertura),
+        "dias_con_venta": med_ref.dias_con_venta,
+        "motivo": res.motivo,
+        "target_aplicado": _dec_str(res.aplicado),
+        "familia_etiqueta": fam_id,
+        "familia_usada": usada,
+    }
+    return (res.aplicado, snapshot)
+
+
 def _recorre_plataforma(
     conn: psycopg.Connection,
     *,
@@ -2106,6 +2314,20 @@ def _recorre_plataforma(
         setting_target=setting_target,
         cycle_id=cycle_id,
         decided_at=decided_at,
+    )
+    # A5: insumos del peldano margen_familia, UNA vez por ciclo en TX2
+    # (mismo snapshot); el destino del reemplazo es plataforma ?? setting.
+    destino_familia = target_ciclo.margen if target_ciclo.margen is not None else setting_target
+    familias_ciclo = _lee_familias_ciclo(
+        conn,
+        platform=platform,
+        cycle_id=cycle_id,
+        hoy=decided_at.date(),
+        fraccion=g.fraccion_desde_settings(settings, platform),
+        destino=destino_familia,
+    )
+    target_ciclo = replace(
+        target_ciclo, snapshot={**target_ciclo.snapshot, "familias": familias_ciclo.notas}
     )
     acos_campanas = {
         fila[0]: fila[1] for fila in conn.execute(_SQL_CAMPANAS, (platform,)).fetchall()
@@ -2163,7 +2385,12 @@ def _recorre_plataforma(
         evidencia_ad_groups=evidencia_ad_groups,
         bloqueadas=bloqueadas,
         margen_plataforma=target_ciclo.margen,
-        snapshot_margen=target_ciclo.snapshot,
+        # Ronda 2 CR-2312: las notas de TODAS las familias viven en
+        # notes.target (ahi las lee la web); copiarlas al inputs de cada
+        # decision con procedencia margen_plataforma multiplica el JSON por
+        # familias x decisiones. Se filtran aqui, no en notes.
+        snapshot_margen={k: v for k, v in target_ciclo.snapshot.items() if k != "familias"},
+        familias_ciclo=familias_ciclo,
     )
     for fila in conn.execute(_SQL_DECISORAS, (platform,)).fetchall():
         contadores.entidades += 1

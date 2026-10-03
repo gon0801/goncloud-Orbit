@@ -63,6 +63,8 @@ ORDEN_F2 = (
     "0046_target_acos_ciclo.sql",
     # A4: conversion_jerarquica cruza familia en TX2.
     "0047_familias.sql",
+    # A5: el peldano familiar lee v_margen_familia en TX2.
+    "0048_margen_familia.sql",
     # Nada de F2 depende de migraciones 0005-0012 ni 0020-0037 (verificado
     # por grep en A.2: no mencionan harvest_job/apply_attempt/goals/grupos).
 )

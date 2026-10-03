@@ -13,20 +13,23 @@ Reglas (migracion 0047):
 from __future__ import annotations
 
 import datetime as dt
+import json
 import re
 import unicodedata
 
 import psycopg
 
 from app.optimizer.bid import PLATAFORMAS_MONEDA
+from app.optimizer.goals import ETIQUETA_ABSTENCION
 
 PLATAFORMAS = frozenset(PLATAFORMAS_MONEDA)
 
 PATRON_SLUG = re.compile(r"^[a-z0-9_]+$")
 
 # A2: sin la 0048 ninguna familia mide margen propio; todas usan la meta
-# del pais. A5 especializa esta funcion por familia medible.
+# del pais. A5 especializa por familia medible (origen_meta_familia).
 ORIGEN_META_PAIS = "usa la meta del país"
+ORIGEN_MARGEN_FAMILIA = "margen de la familia"
 
 VENTANA_VENTAS_DIAS = 90
 
@@ -164,14 +167,19 @@ SELECT f.id, f.nombre, f.slug, f.padre_id, COUNT(pf.product_id) AS productos,
 
 def arbol(conn, platform: str, hoy: dt.date | None = None) -> list[dict]:
     """Arbol de la plataforma: familias con sus hijas, conteo de productos
-    (etiqueta directa, sin heredar), ventas 90d y origen de meta."""
+    (etiqueta directa, sin heredar), ventas 90d, target familiar (aplicado,
+    recortado a banda) y origen de meta. Las notas se leen UNA vez (no N+1
+    por nodo)."""
     _valida_plataforma(platform)
     if hoy is None:
         hoy = dt.datetime.now(dt.UTC).date()
+    notas = _notas_familias(conn, platform)
     nodos = {}
     for fid, nombre, fslug, padre_id, productos, ventas in conn.execute(
         _SQL_ARBOL, (hoy, VENTANA_VENTAS_DIAS, hoy, platform)
     ):
+        nota = notas.get(str(fid))
+        target, origen = _origen_de_nota(nota)
         nodos[fid] = {
             "id": fid,
             "nombre": nombre,
@@ -179,7 +187,8 @@ def arbol(conn, platform: str, hoy: dt.date | None = None) -> list[dict]:
             "padre_id": padre_id,
             "productos": int(productos),
             "ventas_90d": int(ventas),
-            "origen_meta": ORIGEN_META_PAIS,
+            "origen_meta": origen,
+            "target_familia": target,
             "hijas": [],
         }
     raices = []
@@ -278,10 +287,54 @@ def productos(
     ]
 
 
-def origen_meta_familia(conn, platform: str, familia_id: int) -> str:
-    """Origen del target de una familia. A2: siempre la meta del pais
-    (la 0048/A5 medira margen por familia). Existe para pinchar la
-    costura que A5 especializa."""
+_SQL_NOTAS_FAMILIAS = """
+SELECT notes
+  FROM optimizer_cycle
+ WHERE platform = %s::platform AND motor = 'ads_optimizer' AND status = 'done'
+ ORDER BY id DESC
+ LIMIT 1
+"""
+
+
+def _notas_familias(conn, platform: str) -> dict:
+    """notes.target.familias del ultimo ciclo done (fail-soft: sin ciclo,
+    notes no-JSON o forma rota -> {} y la familia usa la meta del pais).
+    La web NO re-resuelve: muestra lo que el ciclo midio."""
+    fila = conn.execute(_SQL_NOTAS_FAMILIAS, (platform,)).fetchone()
+    if fila is None or not isinstance(fila[0], str):
+        return {}
+    try:
+        cuerpo = json.loads(fila[0])
+    except (json.JSONDecodeError, ValueError):
+        return {}
+    if not isinstance(cuerpo, dict):
+        return {}
+    target = cuerpo.get("target")
+    if not isinstance(target, dict):
+        return {}
+    familias = target.get("familias")
+    return familias if isinstance(familias, dict) else {}
+
+
+def _origen_de_nota(nota) -> tuple[str | None, str]:
+    """(target_aplicado, origen) desde UNA nota de notes.target.familias
+    (UNICA regla: arbol() y origen_meta_familia la comparten). Se consume
+    `aplicado` (recortado a banda), NUNCA el derivado crudo (<= 0 con
+    margen <= 0, F1 ronda 2)."""
+    if not isinstance(nota, dict):
+        return (None, ORIGEN_META_PAIS)
+    motivo = nota.get("motivo")
+    if motivo is None:
+        aplicado = nota.get("aplicado")
+        return (str(aplicado) if aplicado is not None else None, ORIGEN_MARGEN_FAMILIA)
+    etiqueta = ETIQUETA_ABSTENCION.get(motivo, motivo)
+    return (None, f"{ORIGEN_META_PAIS} ({etiqueta})")
+
+
+def origen_meta_familia(conn, platform: str, familia_id: int) -> tuple[str | None, str]:
+    """Target (aplicado, str) y origen ES de una familia. Mide -> su margen;
+    motivo -> la meta del pais con el motivo; sin notas -> la meta del pais.
+    A5 especializa la costura A2 (firma str -> tupla: sin callers previos)."""
     _valida_plataforma(platform)
     _lee_familia(conn, familia_id)
-    return ORIGEN_META_PAIS
+    return _origen_de_nota(_notas_familias(conn, platform).get(str(familia_id)))

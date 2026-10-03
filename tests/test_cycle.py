@@ -61,6 +61,10 @@ from app.optimizer import windows as w
 SQL13 = (Path(__file__).resolve().parents[1] / "migrations" / "0013_entidad_inerte.sql").read_text(
     encoding="utf-8"
 )
+# A5: el mapeo campana -> familia usa kind 'product_ad' (0004) en TX2.
+SQL4 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0004_ad_entity_kind_product_ad.sql"
+).read_text(encoding="utf-8")
 
 # ORBIT 06 (2.3): el ciclo lee v_target_margen_plataforma UNA vez por ciclo
 # en TX2 — sin esta migracion TODO ciclo revienta con UndefinedTable.
@@ -100,6 +104,11 @@ SQL18 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0018_fabrica_campanas.sql"
 ).read_text(encoding="utf-8")
 SQL47 = (Path(__file__).resolve().parents[1] / "migrations" / "0047_familias.sql").read_text(
+    encoding="utf-8"
+)
+# A5: _lee_familias_ciclo lee v_margen_familia en TX2 — sin esta TODO ciclo
+# revienta con UndefinedTable.
+SQL48 = (Path(__file__).resolve().parents[1] / "migrations" / "0048_margen_familia.sql").read_text(
     encoding="utf-8"
 )
 
@@ -173,6 +182,8 @@ def _db_temporal(prefijo: str):
         # BIDS 01 (1.2): la guarda entidad_inerte lee v_entidad_inerte en
         # TX2 — sin esta migracion TODO ciclo revienta con UndefinedTable.
         conn.execute(SQL13)
+        # A5: kind 'product_ad' para el mapeo campana -> familia.
+        conn.execute(SQL4)
         # ORBIT 06 (2.3): el peldano margen_plataforma lee su vista en TX2.
         conn.execute(SQL15)
         conn.execute(SQL16)
@@ -189,6 +200,8 @@ def _db_temporal(prefijo: str):
         # A4: el grano jerarquico cruza 0018 + 0047 en TX2.
         conn.execute(SQL18)
         conn.execute(SQL47)
+        # A5: el peldano familiar lee v_margen_familia en TX2.
+        conn.execute(SQL48)
         yield conn, conectar_extra
     finally:
         if conn is not None:
@@ -1410,6 +1423,10 @@ _SQL_CYCLE = (
     # para el flanco del aviso.
     "_SQL_MEMBRESIA_GRUPO",
     "_SQL_SALTOS_PREVIOS",
+    # A5: el peldano familiar lee margenes + mapeo + previos en TX2.
+    "_SQL_MARGENES_FAMILIA",
+    "_SQL_PAREJAS_CAMPANA_FAMILIA",
+    "_SQL_TARGETS_PREVIOS",
 )
 
 
@@ -2801,6 +2818,10 @@ def test_freeze_margen_gana_con_procedencia_y_snapshot():
         assert inputs["target_procedencia"] == "margen_plataforma"
         assert Decimal(inputs["target_snapshot"]["margen_neto_pct"]) == 40
         assert inputs["target_snapshot"]["target_aplicado"] == "29.5"
+        # Ronda 2 CR-2312: las notas de familias viven en notes.target, no
+        # copiadas en cada decision (familias x decisiones).
+        assert "familias" not in inputs["target_snapshot"]
+        assert "familias" in target
         assert reproduce(inputs) == (bids[0][1], bids[0][4], bids[0][5])
 
 

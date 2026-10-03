@@ -99,6 +99,14 @@ SQL18 = (
 SQL47 = (Path(__file__).resolve().parent.parent / "migrations" / "0047_familias.sql").read_text(
     encoding="utf-8"
 )
+# A5: el peldano familiar lee v_margen_familia (0048) y kind 'product_ad'
+# (0004) en TX2.
+SQL4 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0004_ad_entity_kind_product_ad.sql"
+).read_text(encoding="utf-8")
+SQL48 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0048_margen_familia.sql"
+).read_text(encoding="utf-8")
 
 FAKE_CLIENT_ID = "fake-client-id-123"
 FAKE_CLIENT_SECRET = "fake-client-secret-XYZ"
@@ -182,6 +190,8 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL46)  # 0046 (C.2a): target_acos_ciclo (freeze en TX3)
         conn.execute(SQL18)  # 0018 (A4): campana_grupo_rol en TX2
         conn.execute(SQL47)  # 0047 (A4): familia en TX2
+        conn.execute(SQL4)  # 0004 (A5): kind 'product_ad' en TX2
+        conn.execute(SQL48)  # 0048 (A5): v_margen_familia en TX2
         yield conn, conectar_extra
     finally:
         if conn is not None:
