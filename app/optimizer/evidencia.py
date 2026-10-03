@@ -286,14 +286,19 @@ def previa_jerarquica(
     familia_id: int | None = None,
     subfamilia_id: int | None = None,
 ) -> Previa | None:
-    """Pliegue de arriba a abajo. cadena[0] es la plataforma (raiz):
-    exige orders > 0, clicks > 0 y revenue > 0 (si no, None: sin previa
-    no hay posterior). Cada nivel presente encoge hacia el padre con
-    K_PREVIA seudo-ordenes: cvr_n = (o + K)/(c + K/cvr_p),
-    aov_n = (rev + K.aov_p)/(o + K). CVR y AOV se pliegan POR SEPARADO:
-    nivel sin metricas para uno lo salta para ese (None), o clicks == 0
-    lo salta para CVR (ordenes sin clics son artefacto, no evidencia).
-    Determinista en Decimal bajo _PRECISION."""
+    """Pliegue de arriba a abajo de UNA cadena ya construida. El leave-one-out
+    NO vive aqui: el llamador lo aplica al armar la cadena (parciales_evidencia
+    usa _cadena_niveles(..., resta=grano.conteo) para la hoja con historia; la
+    hoja nueva hereda SIN resta porque no esta en los agregados). Este pliegue
+    consume los conteos tal cual: cada nivel ya viaja menos el grano de la hoja
+    (cero doble conteo es invariant del llamador via resta_conteo).
+    cadena[0] es la plataforma (raiz): exige orders > 0, clicks > 0 y revenue > 0
+    (si no, None: sin previa no hay posterior). Cada nivel presente encoge hacia
+    el padre con K_PREVIA seudo-ordenes: cvr_n = (o + K)/(c + K/cvr_p),
+    aov_n = (rev + K.aov_p)/(o + K). CVR y AOV se pliegan POR SEPARADO: nivel sin
+    metricas para uno lo salta para ese (None), o clicks == 0 lo salta para CVR
+    (ordenes sin clics son artefacto, no evidencia). Determinista en Decimal
+    bajo _PRECISION."""
     if not cadena:
         return None
     raiz = cadena[0][1]
