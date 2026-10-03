@@ -105,7 +105,7 @@ def _corre_hoja(
         inertes={4925} if inerte else set(),
         margen_plataforma=None,
         snapshot_margen={},
-        familias_ciclo=cycle._FamiliasCiclo({}, {}, {}, {}, None, AHORA.date(), None, {}),
+        familias_ciclo=cycle._FamiliasCiclo({}, {}, {}, {}, {}, None, AHORA.date(), None, {}),
         pause_sin_cooldown_bid=flag,
         pause_economica=econ,
         conv_jerarquica=_CONV_VACIA,

@@ -186,6 +186,7 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
+from typing import NamedTuple
 
 import httpx
 import psycopg
@@ -482,10 +483,14 @@ SELECT camp.id AS campana_id, pf.familia_id, f.padre_id
 # A5-r2: tambien lee la procedencia. Separacion deliberada: el ANCLA (ultimo)
 # sigue sin filtro, pero la BANDERA tiene_previo solo vale con previo
 # margen_familia (espejo _resuelve_target_ciclo:2101). No filtrar ultimo.
+# A7: lee ADEMAS cycle_id + ad_group_id (JOIN ad_entity): el ancla del GRUPO
+# colapsa previos margen_familia por grupo en Python (cero queries nuevas).
 _SQL_TARGETS_PREVIOS = """
-SELECT DISTINCT ON (t.ad_entity_id) t.ad_entity_id, t.target_acos_pct, t.procedencia
+SELECT DISTINCT ON (t.ad_entity_id) t.ad_entity_id, t.target_acos_pct, t.procedencia,
+       t.cycle_id, k.parent_id AS ad_group_id
   FROM target_acos_ciclo t
   JOIN optimizer_cycle c ON c.id = t.cycle_id
+  JOIN ad_entity k ON k.id = t.ad_entity_id
  WHERE c.platform = %s::platform AND c.mode = 'live' AND c.status = 'done'
    AND c.id < %s
  ORDER BY t.ad_entity_id, c.id DESC
@@ -2116,9 +2121,12 @@ def _procesa_grupo(
     corte_negativo = cortes.umbral_corte(evidencia, "negative")
     piso_neg = cortes.piso_corte(evidencia, platform)
     cache_campana = acos_campanas.get(campaign_id)
-    # A5: el grupo no tiene trayectoria (no congela target): hoja None, el
-    # peldano camina desde el destino o cae, nunca converge.
-    target_margen_familia, snapshot_fam = _margen_familia_de_hoja(familias_ciclo, campaign_id, None)
+    # A7: el grupo gana trayectoria familiar: converge desde el ancla
+    # (ultimo margen_familia entre sus hojas) o camina desde el destino o
+    # cae, como hoy, sin ancla.
+    target_margen_familia, snapshot_fam = _margen_familia_de_hoja(
+        familias_ciclo, campaign_id, None, ancla_grupo=familias_ciclo.anclas_grupo.get(grupo_id)
+    )
     target = g.cascada_target_acos(
         goal.target_acos_pct,
         setting_target,
@@ -2319,18 +2327,30 @@ def _resuelve_target_ciclo(
     return _TargetCiclo(res.aplicado, snapshot, ancla)
 
 
+class _PrevioHoja(NamedTuple):
+    """Ultimo target live+done de UNA hoja (A7: cycle_id + ad_group_id para
+    el ancla del grupo, que colapsa previos margen_familia por grupo)."""
+
+    target: Decimal
+    procedencia: str
+    cycle_id: int
+    ad_group_id: int | None
+
+
 @dataclass
 class _FamiliasCiclo:
     """Insumos A5 del peldano margen_familia, leidos UNA vez por ciclo en TX2
     (mismo snapshot que la evidencia): mediciones por familia, mapa
     campana -> familia efectiva, ultimo aplicado por hoja (ancla del paso),
+    ancla familiar por grupo (A7: ultimo margen_familia entre sus hojas),
     fraccion/destino del reemplazo y notas por familia (informativas: el
     dashboard las muestra; las anclas NO salen de notes, regla 2)."""
 
     mediciones: dict[int, g.MedicionMargen]
     padres: dict[int, int | None]
     fam_por_campana: dict[int, int | None]
-    previos: dict[int, tuple[Decimal, str]]
+    previos: dict[int, _PrevioHoja]
+    anclas_grupo: dict[int, Decimal]
     fraccion: Decimal | None
     hoy: dt.date
     destino: Decimal | None
@@ -2371,9 +2391,12 @@ def _lee_familias_ciclo(
             padres[fila[1]] = fila[2]
     fam_por_campana = g.familia_efectiva_por_campana(pares)
     previos = {
-        fila[0]: (fila[1], fila[2])
+        fila[0]: _PrevioHoja(
+            target=fila[1], procedencia=fila[2], cycle_id=fila[3], ad_group_id=fila[4]
+        )
         for fila in conn.execute(_SQL_TARGETS_PREVIOS, (platform, cycle_id)).fetchall()
     }
+    anclas_grupo = _anclas_grupo(previos)
     notas: dict[int, dict] = {}
     for fid, med in mediciones.items():
         res = g.resuelve_target_margen(med, fraccion, hoy, None, destino, g.MARGEN_DIAS_MIN_FAMILIA)
@@ -2390,20 +2413,53 @@ def _lee_familias_ciclo(
             "aplicado": _dec_str(res.aplicado),
         }
     return _FamiliasCiclo(
-        mediciones, padres, fam_por_campana, previos, fraccion, hoy, destino, notas
+        mediciones,
+        padres,
+        fam_por_campana,
+        previos,
+        anclas_grupo,
+        fraccion,
+        hoy,
+        destino,
+        notas,
     )
 
 
+def _anclas_grupo(previos: dict[int, _PrevioHoja]) -> dict[int, Decimal]:
+    """Ancla familiar por grupo (A7, puro): entre los previos margen_familia
+    de SUS hojas, el maximo (cycle_id, hoja_id). Solo valor familiar: el
+    grupo es agregado sin dueno y no camina desde numero ajeno. El desempate
+    por hoja_id es DECLARADO arbitrario (dos hojas del mismo ciclo empatan
+    en recencia; cualquiera ancla igual de bien)."""
+    mejor: dict[int, tuple[int, int, Decimal]] = {}
+    for hoja_id, previo in previos.items():
+        if previo.procedencia != "margen_familia" or previo.ad_group_id is None:
+            continue
+        candidato = (previo.cycle_id, hoja_id, previo.target)
+        actual = mejor.get(previo.ad_group_id)
+        if actual is None or (candidato[0], candidato[1]) > (actual[0], actual[1]):
+            mejor[previo.ad_group_id] = candidato
+    return {grupo_id: target for grupo_id, (_, _, target) in mejor.items()}
+
+
 def _margen_familia_de_hoja(
-    familias: _FamiliasCiclo, campaign_id: int, hoja_id: int | None
+    familias: _FamiliasCiclo,
+    campaign_id: int,
+    hoja_id: int | None,
+    *,
+    ancla_grupo: Decimal | None = None,
 ) -> tuple[Decimal | None, dict | None]:
     """Peldano margen_familia para UNA hoja (Python puro, sin queries): la
     familia efectiva de su campana (None = sin_familia), reintento al padre,
     ancla = ultimo aplicado DE LA HOJA ?? destino (plataforma ?? setting).
-    `hoja_id` None = camino de grupo (sin trayectoria: nunca converge, solo
-    camina desde el destino o cae). Devuelve (aplicado, snapshot) donde
-    snapshot lleva las claves pineadas margen_neto_pct + target_aplicado
-    (espejo plataforma, C-F11) + familia_etiqueta/usada + motivo."""
+    `hoja_id` None = camino de grupo: converge desde `ancla_grupo` (ultimo
+    margen_familia entre sus hojas) o camina desde el destino o cae, como
+    hoy, sin ancla. Asimetria deliberada: la hoja camina desde numero ajeno
+    porque es SU trayectoria; el grupo solo ancla valor familiar porque es
+    agregado sin dueno. Devuelve (aplicado, snapshot) donde snapshot lleva
+    las claves pineadas margen_neto_pct + target_aplicado (espejo
+    plataforma, C-F11) + familia_etiqueta/usada + motivo (+ "ancla" en el
+    camino de grupo: "grupo" o "destino")."""
     fam_id = familias.fam_por_campana.get(campaign_id)
     etiqueta = familias.mediciones.get(fam_id) if fam_id is not None else None
     if fam_id is not None and etiqueta is None:
@@ -2411,11 +2467,18 @@ def _margen_familia_de_hoja(
     padre_id = familias.padres.get(fam_id) if fam_id is not None else None
     padre = familias.mediciones.get(padre_id) if padre_id is not None else None
     previo = familias.previos.get(hoja_id) if hoja_id is not None else None
-    # A5-r2 (B1): el ANCLA es el ultimo numero sin filtro (B-F9), pero la
-    # BANDERA tiene_previo exige previo margen_familia (con previo de otro
-    # peldano la hoja cae a plataforma, no converge con valor ajeno).
-    ultimo = previo[0] if previo is not None else familias.destino
-    tiene_previo = previo is not None and previo[1] == "margen_familia"
+    ancla = None
+    if hoja_id is None and ancla_grupo is not None:
+        ultimo, tiene_previo, ancla = ancla_grupo, True, "grupo"
+    elif hoja_id is None:
+        ultimo, tiene_previo, ancla = familias.destino, False, "destino"
+    else:
+        # A5-r2 (B1): el ANCLA es el ultimo numero sin filtro (B-F9), pero
+        # la BANDERA tiene_previo exige previo margen_familia (con previo
+        # de otro peldano la hoja cae a plataforma, no converge con valor
+        # ajeno).
+        ultimo = previo.target if previo is not None else familias.destino
+        tiene_previo = previo is not None and previo.procedencia == "margen_familia"
     res, ganadora = g.resuelve_target_margen_familia(
         etiqueta,
         padre,
@@ -2444,6 +2507,7 @@ def _margen_familia_de_hoja(
         "target_aplicado": _dec_str(res.aplicado),
         "familia_etiqueta": fam_id,
         "familia_usada": usada,
+        **({"ancla": ancla} if hoja_id is None else {}),
     }
     return (res.aplicado, snapshot)
 

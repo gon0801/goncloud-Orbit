@@ -28,6 +28,7 @@ from test_cycle import (
     _siembra_kw_bid,
     _siembra_kw_pause,
     _siembra_terminos,
+    _termino,
 )
 from test_schema import _postgres_obligatorio_ausente
 
@@ -852,6 +853,195 @@ def test_hoja_sin_familia_efectiva_converge_sin_salto():
         assert snap["motivo"] == "sin_familia"
         assert snap["familia_etiqueta"] is None and snap["familia_usada"] is None
         assert snap["margen_neto_pct"] is None
+
+
+def _ballena(conn, ag, nombre):
+    """Termino negativo seguro (0 ordenes, 480 clics, cost 480): dispara en
+    cualquier ciclo. Uno fresco por ciclo: el decidido queda veto_pendiente
+    en apply_queue y no re-decide (maquinaria ortogonal al target)."""
+    run = _run(conn)
+    for fecha in _rango(dt.date(2026, 7, 10), dt.date(2026, 7, 17)):
+        _termino(
+            conn,
+            run,
+            ag,
+            nombre,
+            fecha,
+            _obs(fecha),
+            cost="60.00",
+            ad_revenue="0.00",
+            clicks=60,
+            orders=0,
+        )
+
+
+def _negativa_de(conn, cycle_id, termino):
+    """Inputs de la decision negative del termino (el target del GRUPO)."""
+    vetos = [
+        fila[9]
+        for fila in _decisions_de(conn, cycle_id)
+        if fila[1] == "negative" and fila[2] == termino
+    ]
+    assert len(vetos) == 1
+    return vetos[0]
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_grupo_sigue_hojas_desde_el_ancla():
+    """A7 B2: familia barata (derivado 10, destino 30): el target de hygiene
+    del grupo sigue a sus hojas 29.5 -> 29.0 -> 28.5 (<= 0.5/ciclo), con
+    ancla destino en el ciclo 1 y grupo desde el 2. Sin ancla el grupo
+    quedaria en 29.5 siempre."""
+    with _db_temporal("orbit_c5_ancla") as (conn, _c):
+        ids = _mundo_familia(conn)
+        ag = conn.execute(
+            "SELECT id FROM ad_entity WHERE kind='ad_group' AND external_id='9402'"
+        ).fetchone()[0]
+        _siembra_terminos(conn, _run(conn), ag)
+        vistos = []
+        for n in range(3):
+            _ballena(conn, ag, f"ballena {n}")
+            r = _corre(conn)
+            assert r.status == "done", r.notes
+            hoja = _targets_de(conn, r.cycle_id)[ids["kw"]]
+            inputs = _negativa_de(conn, r.cycle_id, f"ballena {n}")
+            vistos.append(
+                (
+                    hoja[2],
+                    hoja[3],
+                    Decimal(inputs["target_acos_pct_usado"]),
+                    inputs["target_procedencia"],
+                    inputs["target_snapshot"]["ancla"],
+                )
+            )
+            _a_live(conn, r.cycle_id)
+        assert vistos == [
+            (Decimal("29.5"), "margen_familia", Decimal("29.5"), "margen_familia", "destino"),
+            (Decimal("29.0"), "margen_familia", Decimal("29.0"), "margen_familia", "grupo"),
+            (Decimal("28.5"), "margen_familia", Decimal("28.5"), "margen_familia", "grupo"),
+        ]
+        for previo, actual in zip(vistos, vistos[1:], strict=False):
+            assert abs(actual[2] - previo[2]) <= Decimal("0.5")
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_grupo_con_previo_ajeno_camina_desde_destino():
+    """A7 B2: hojas con previo ajeno (setting 30) no anclan al grupo: la
+    hoja camina desde SU numero (29.5) pero el grupo camina desde el
+    destino con ancla "destino" (agregado sin dueno, sin valor ajeno)."""
+    with _db_temporal("orbit_c5_anclad") as (conn, _c):
+        ids = _mundo_familia(conn)
+        conn.execute("DELETE FROM producto_familia")
+        ag = conn.execute(
+            "SELECT id FROM ad_entity WHERE kind='ad_group' AND external_id='9402'"
+        ).fetchone()[0]
+        _siembra_terminos(conn, _run(conn), ag)
+        _ballena(conn, ag, "ballena previa")
+        r1 = _corre(conn)
+        assert r1.status == "done", r1.notes
+        t1 = _targets_de(conn, r1.cycle_id)[ids["kw"]]
+        assert (t1[2], t1[3]) == (Decimal("30"), "setting_plataforma")
+        n1 = _negativa_de(conn, r1.cycle_id, "ballena previa")
+        assert (Decimal(n1["target_acos_pct_usado"]), n1["target_procedencia"]) == (
+            Decimal("30"),
+            "setting_plataforma",
+        )
+        _a_live(conn, r1.cycle_id)
+        pid = conn.execute("SELECT id FROM product WHERE odoo_sku='SKU-FAM'").fetchone()[0]
+        _etiqueta(conn, pid, ids["familia"])
+        _ballena(conn, ag, "ballena ancla")
+        r2 = _corre(conn)
+        assert r2.status == "done", r2.notes
+        t2 = _targets_de(conn, r2.cycle_id)[ids["kw"]]
+        assert (t2[2], t2[3]) == (Decimal("29.5"), "margen_familia")
+        inputs = _negativa_de(conn, r2.cycle_id, "ballena ancla")
+        assert Decimal(inputs["target_acos_pct_usado"]) == Decimal("29.5")
+        assert inputs["target_procedencia"] == "margen_familia"
+        assert inputs["target_snapshot"]["ancla"] == "destino"
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_ancla_grupo_elige_maximo_ciclo_hoja_familiar():
+    """A7 B2: el colapso del ancla solo mira previos margen_familia y gana
+    el maximo (cycle_id, hoja_id): ciclo nuevo gana a viejo, y el desempate
+    por hoja_id es declarado arbitrario (gana la mayor)."""
+    from app import cycle as ciclo
+
+    hoy = dt.date(2026, 8, 22)
+    with _db_temporal("orbit_c5_anclac") as (conn, _c):
+        camp = _entidad(conn, "amazon_us", "campaign", "9601")
+        ag = _entidad(conn, "amazon_us", "ad_group", "9602", parent=camp)
+        kw1 = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "9603",
+            parent=ag,
+            match_type="EXACT",
+            keyword_text="kw a1",
+        )
+        kw2 = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "9604",
+            parent=ag,
+            match_type="EXACT",
+            keyword_text="kw a2",
+        )
+
+        def _ciclo_live():
+            return conn.execute(
+                "INSERT INTO optimizer_cycle (mode, platform, status)"
+                " VALUES ('live', 'amazon_us', 'done') RETURNING id"
+            ).fetchone()[0]
+
+        c1, c2, c3 = _ciclo_live(), _ciclo_live(), _ciclo_live()
+        conn.execute(
+            "INSERT INTO target_acos_ciclo (cycle_id, ad_entity_id, decided_at,"
+            " target_acos_pct, procedencia) VALUES (%s, %s, %s, %s, 'margen_familia'),"
+            " (%s, %s, %s, %s, 'margen_familia'), (%s, %s, %s, %s, 'margen_plataforma')",
+            (
+                c1,
+                kw1,
+                DECIDED_AT,
+                Decimal("29.5"),
+                c2,
+                kw2,
+                DECIDED_AT,
+                Decimal("29.0"),
+                c2,
+                kw1,
+                DECIDED_AT,
+                Decimal("25.0"),
+            ),
+        )
+        familias = ciclo._lee_familias_ciclo(
+            conn, platform="amazon_us", cycle_id=c3, hoy=hoy, fraccion=None, destino=None
+        )
+        # DISTINCT ON toma la ultima por hoja: kw1 trae (25.0, plataforma)
+        # del c2 y no cuenta; kw2 aporta 29.0 familiar: gana el ciclo nuevo.
+        assert familias.anclas_grupo == {ag: Decimal("29.0")}
+        # desempate mismo ciclo: gana la hoja mayor (arbitrario declarado).
+        conn.execute(
+            "UPDATE target_acos_ciclo SET target_acos_pct = %s, procedencia = 'margen_familia'"
+            " WHERE cycle_id = %s AND ad_entity_id = %s",
+            (Decimal("28.0"), c2, kw1),
+        )
+        familias = ciclo._lee_familias_ciclo(
+            conn, platform="amazon_us", cycle_id=c3, hoy=hoy, fraccion=None, destino=None
+        )
+        assert familias.anclas_grupo == {ag: Decimal("29.0")}
+        assert kw1 < kw2
 
 
 @pytest.mark.skipif(
