@@ -60,8 +60,8 @@ Fuente: `GET /api/dashboard/series/plataforma` (§3.1).
 
 ### 2.2 Campañas
 Tabla 30d por campaña: métricas colapsadas (mismo grano campaign, misma ventana
-e inmadurez), **target efectivo CON procedencia de 7 peldaños** (decisión 5, vía
-`goals.py` 1.2 + `margen_plataforma` de ORBIT 06 2.3) y estado del goal (enabled / floor / ceiling / mode). Cada fila
+e inmadurez), **target efectivo CON procedencia de 7 peldaños** (decisión 5: desde A7,
+lo congelado en `target_acos_ciclo` del último ciclo live+done, §3.3) y estado del goal (enabled / floor / ceiling / mode). Cada fila
 lleva su moneda; sin total al pie que mezcle monedas (regla 4).
 Fuente: `GET /api/dashboard/campanas` (§3.3, 1.4).
 
