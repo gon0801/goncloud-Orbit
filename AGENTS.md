@@ -7,7 +7,11 @@ de **ISR** son costo de primer orden: Amazon las manda sin `order_id` → se pro
 Roadmap (`docs/traspaso/MODULOS-AVANZADOS.md`): **Repricing** (inventory-aware),
 **Campañas** (MeLi Ads *proposal-only*), **Reputación**, **Promociones**, **Envíos**.
 Sistema **nuevo desde cero** (DB nueva); reemplaza a `goncloud-MCP-2` sin reutilizar
-código viejo. **Leer primero:** `docs/CONTEXTO.md` y `docs/traspaso/ADS_OPTIMIZER_V2_DESIGN.md`.
+código viejo (solo se migran credenciales y datos verificados). **Leer primero:** `docs/CONTEXTO.md` y
+`docs/traspaso/ADS_OPTIMIZER_V2_DESIGN.md`.
+
+Muse y los agentes que leen `AGENTS.md` ignoran `CLAUDE.md` en este repo: toda regla que deba
+valer para todos va aquí también.
 
 ## Reglas de comportamiento
 
@@ -25,8 +29,10 @@ código viejo. **Leer primero:** `docs/CONTEXTO.md` y `docs/traspaso/ADS_OPTIMIZ
 
 ```
 app/          # main.py (API), db.py (connect), redaction.py (secretos), ads/ (cliente Amazon READ-ONLY)
-migrations/   # 0001_initial.sql: 19 tablas, roles, triggers. NO re-runnable
+migrations/   # 0001..NNNN en orden (0001 = esquema inicial, roles, triggers). NO re-runnable
 tests/        # pytest
+tools/        # scripts operativos (fabrica_campanas.py, compara_evidencia.py, ...)
+verify/       # mapa de la app + Drive e2e; receta de arranque en verify/Launch.md
 docs/         # CONTEXTO.md, DATABASE.md, DEPLOY.md, traspaso/ (fuentes verbatim)
 plans/        # manifest.json marca el plan ORBIT NN activo (sigue sus tasks y DoD)
 ```
@@ -69,7 +75,20 @@ Aplican a todo el código (detalle en `docs/CONTEXTO.md`; los invariantes de tie
   `/sp/targets/bid/recommendations` de lectura); API exacta: `get`, `list_objects`,
   `recommend_bids`, `create_report`, `get_report`, `download`.
 - Base: roles LOGIN por servicio (`orbit_ingest`/`_decide`/`_read`/`_admin`); invariante nuevo del esquema = con su test; ADRs en `COMMENT ON` y docstrings.
-- Trabajo en planes `ORBIT NN` (PR a `master` con CI verde por fase); registro en AppFlowy (**EHV Tasks**, skill `appflowy-ehv-task`): `In progress` al empezar, `Done` con notas completas.
+- Trabajo en planes `ORBIT NN` (PR a `master` con CI verde por fase).
+
+## Registro de trabajo (AppFlowy)
+
+El grid **EHV Tasks** (notion.goncloud.cc, server goncloud) registra todo el trabajo del repo. Regla obligatoria:
+
+- Al **empezar** una tarea: `In progress`. Al **terminarla**: `Done`. Sin tarea: crearla primero.
+- Las notas llevan TODO: qué se hizo, evidencia (comandos y resultados), decisiones, PRs ligados y qué
+  queda pendiente. Un `Done` sin anotaciones no cierra nada.
+- `--notes` REEMPLAZA el campo completo (no agrega): leer las notas actuales y reescribirlas enteras.
+
+Con la skill `appflowy-ehv-task`:
+`ssh goncloud "python3 /mnt/data/appdata/appflowy/_migrate/add_ehv_task.py --name '<ORBIT NN — ...>' --status 'In progress|Done' --notes '<...>'"`
+(idempotente por nombre: re-correr actualiza la misma fila).
 
 <!-- >>> QUALITY-KIT CALIDAD SECTION START -- managed by quality-kit's init-repo.ps1. Do not hand-edit between these markers; re-running init-repo.ps1 will refresh this block cleanly. -->
 ## Calidad (quality-kit)
