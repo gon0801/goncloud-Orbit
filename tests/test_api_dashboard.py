@@ -1918,13 +1918,19 @@ def test_motivos_salud_traducen_los_gates_de_ancestros():
 
 def test_motivo_inversion_sin_evidencia_traducido_en_salud():
     """R-D2-1 (DeepSeek F1 Low en #357): inversion_sin_evidencia con
-    traduccion en /salud (sin ella la pantalla mostraria el id crudo)."""
+    traduccion en /salud (sin ella la pantalla mostraria el id crudo).
+    A6-r2 F5: la etiqueta nombra la regla de CADA politica (10 dias en
+    v1, 20 clics post-cambio en v2): un texto solo-dias mentiria bajo
+    evidencia_v2."""
     from app import cycle as ciclo
     from app.api_dashboard import MOTIVOS_ES_SALUD
 
     texto = MOTIVOS_ES_SALUD[ciclo.MOTIVO_INVERSION_SIN_EVIDENCIA]
     assert texto != ciclo.MOTIVO_INVERSION_SIN_EVIDENCIA
-    assert texto == "Inversión frenada: el último bid aplicado tiene menos de 10 días de evidencia"
+    assert texto == (
+        "Inversión frenada: el último bid aplicado tiene menos de 10 días de evidencia"
+        " (bandas v1) o menos de 20 clics post-cambio (evidencia v2)"
+    )
 
 
 def test_motivo_cero_ventas_tiene_etiqueta_en_decisiones():

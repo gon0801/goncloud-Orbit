@@ -33,8 +33,8 @@ function cambio(el) {
 }
 
 // A6: el select del motor de bids compara contra la opcion que el
-// servidor pinto (defaultSelected); "" SI viaja (volver a v1 es un
-// cambio real: la API popea la clave).
+// servidor pinto (defaultSelected); viaja si cambio (bandas_v1 o
+// evidencia_v2 explicitos; la API jamas popea: ausente lee v1).
 function cambioSelect(sel) {
   if (!sel) return false;
   var inicial = null;
