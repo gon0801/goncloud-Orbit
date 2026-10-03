@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import importlib.util
+import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -974,3 +975,142 @@ def test_catalogo_estimacion_stub_sin_fila(escenario):
             assert est["snapshot_id"] is None
             assert est["contribucion"] is None
             assert est["base_porcentaje"] == "ingreso_normalizado"
+
+
+# ---------------------------------------------------------------------------
+# A7 B8: manual no-finito con mensaje que dice "no es finito"
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "valor",
+    ["NaN", "nan", "Infinity", "-Infinity", float("nan"), float("inf"), float("-inf")],
+)
+def test_objetivo_manual_no_finito_dice_no_es_finito(valor):
+    """A7 B8: str y float no-finitos caen con el MISMO mensaje (los floats
+    son el delta: en trunk daban el generico de Pydantic)."""
+    from pydantic import ValidationError
+
+    api_fabrica, _ = _modulos()
+    with pytest.raises(ValidationError) as exc:
+        api_fabrica.ObjetivoPlan(origen="manual_lanzamiento", acos_pct=valor)
+    assert "no es finito" in str(exc.value)
+
+
+@pytest.mark.parametrize("valor", ["20.5", 20.5, 20])
+def test_objetivo_manual_finito_pasa_en_str_y_float(valor):
+    """A7 B8: el finito pasa en ambas formas (el float finito aguas abajo
+    se valida via str en _decimal, sin expansion binaria)."""
+    api_fabrica, _ = _modulos()
+    objetivo = api_fabrica.ObjetivoPlan(origen="manual_lanzamiento", acos_pct=valor)
+    assert objetivo.acos_pct == valor
+
+
+def test_objetivo_manual_exige_acos_pct_y_decimal():
+    """A7 B8: None exige acos_pct; texto no numerico no es decimal."""
+    from pydantic import ValidationError
+
+    api_fabrica, _ = _modulos()
+    with pytest.raises(ValidationError) as exc:
+        api_fabrica.ObjetivoPlan(origen="manual_lanzamiento", acos_pct=None)
+    assert "exige acos_pct" in str(exc.value)
+    with pytest.raises(ValidationError) as exc:
+        api_fabrica.ObjetivoPlan(origen="manual_lanzamiento", acos_pct="abc")
+    assert "no es decimal" in str(exc.value)
+    medido = api_fabrica.ObjetivoPlan(origen="margen_medido", acos_pct=None)
+    assert medido.acos_pct is None
+
+
+@pytest.mark.parametrize("valor", [float("nan"), float("inf")])
+def test_crear_manual_no_finito_422_sin_filas(escenario, valor):
+    """A7 B8: POST crear con NaN/Infinity JSON numerico -> 422 y 0 filas
+    (el status ya pasaba en trunk; el MENSAJE del modelo discrimina)."""
+    cliente, conn, solicitud, _, ids = escenario
+    listing = conn.execute(
+        "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx'", (ids[0],)
+    ).fetchone()[0]
+    v2 = _solicitud_v2(
+        solicitud, [listing], objetivo={"origen": "manual_lanzamiento", "acos_pct": valor}
+    )
+    # TestClient serializa con allow_nan=False: el NaN/Infinity del form roto
+    # viaja como cuerpo crudo (el servidor lo parsea con json.loads).
+    cuerpo = json.dumps({"solicitud": v2, "huella": "0" * 64, "confirmacion": "CREAR 5 CAMPAÑAS"})
+    respuesta = cliente.post(
+        "/api/fabrica/crear",
+        headers={**HEADERS, "Content-Type": "application/json"},
+        content=cuerpo,
+    )
+    assert respuesta.status_code == 422
+    assert "no es finito" in respuesta.text  # discrimina: en trunk era "valid string"
+    assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone()[0] == 0
+
+
+def test_crear_error_ajeno_sigue_generico_sin_input(escenario):
+    """A7 B8: el passthrough del "no es finito" no abre la puerta: otros
+    errores de validacion siguen con el generico y sin input crudo."""
+    cliente, conn, solicitud, _, _ids = escenario
+    v2 = _solicitud_v2(solicitud, [], objetivo={"origen": "margen_medido"})
+    respuesta = cliente.post(
+        "/api/fabrica/crear",
+        headers=HEADERS,
+        json={"solicitud": v2, "huella": "0" * 64, "confirmacion": "CREAR 5 CAMPAÑAS"},
+    )
+    assert respuesta.status_code == 422
+    assert "Los datos no son válidos" in respuesta.text
+    assert "margen_medido" not in respuesta.text
+
+
+# ---------------------------------------------------------------------------
+# A7 B5: procedencia del target a 2 decimales (post-huella, fabrica.js intacto)
+# ---------------------------------------------------------------------------
+
+
+def test_procedencia_dos_dec_fija_los_3_formatos():
+    """A7 B5: pura sobre crudos REALES de target_del_grupo: medida larga,
+    clamp (el "[10, 45]" sin punto queda intacto, igual que enteros) y
+    manual (sin numeros, intacta)."""
+    from decimal import Decimal
+
+    _, fw = _modulos()
+    crudo = fp.target_del_grupo([Decimal("38.21")], Decimal("0.5")).procedencia
+    assert crudo == "margen_minimo_grupo: 0.5 x 38.21 = 19.105 -> redondeo NUMERIC(6,2) = 19.10"
+    assert fw._procedencia_dos_dec(crudo) == (
+        "margen_minimo_grupo: 0.50 x 38.21 = 19.10 -> redondeo NUMERIC(6,2) = 19.10"
+    )
+    clamp = fp.target_del_grupo([Decimal("5")], Decimal("0.5")).procedencia
+    assert clamp == "margen_minimo_grupo: 0.5 x 5 = 2.5 -> clamp [10, 45] = 10"
+    assert (
+        fw._procedencia_dos_dec(clamp)
+        == "margen_minimo_grupo: 0.50 x 5 = 2.50 -> clamp [10, 45] = 10"
+    )
+    assert (
+        fw._procedencia_dos_dec("manual_lanzamiento confirmado") == "manual_lanzamiento confirmado"
+    )
+
+
+def test_preview_formatea_procedencia_y_huella_sigue_valida(escenario, monkeypatch):
+    """A7 B5: el preview publica la procedencia a 2 decimales (v1 y v2
+    medida) y la huella sigue valida para crear (formato post-huella
+    sobre la copia serializada: huella-neutral por construccion)."""
+    import re
+
+    cliente, conn, solicitud, fw, ids = escenario
+    listing = conn.execute(
+        "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx'", (ids[0],)
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO config_version(label, settings) VALUES ('v2', %s)",
+        (Json({"ads_target_fraccion_margen_amazon_mx": "0.5", "fabrica.creacion": "v2"}),),
+    )
+    v2 = _solicitud_v2(solicitud, [listing], objetivo={"origen": "margen_medido"})
+    vista = _preview(cliente, v2)
+    proc = vista["plan"]["objetivo"]["procedencia"]
+    assert proc == "margen_minimo_grupo: 0.50 x 40.00 = 20.00"
+    for token in re.findall(r"\d+\.\d+", proc):
+        assert re.fullmatch(r"\d+\.\d{2}", token), token
+    v1 = _preview(cliente, solicitud)
+    assert v1["plan"]["target_procedencia"] == "margen_minimo_grupo: 0.50 x 40.00 = 20.00"
+    llamadas = _motor_simulado(monkeypatch, fw, conn)
+    respuesta = _crear(cliente, v2, vista["huella"])
+    assert respuesta.status_code == 200, respuesta.text
+    assert llamadas == [vista["lote"]]

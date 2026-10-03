@@ -982,143 +982,158 @@ def test_sql_pagina_decisiones_offset_sobre_el_mismo_from():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(
-    _postgres_obligatorio_ausente(),
-    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
-)
-def test_campanas_procedencia_en_los_5_peldanos(monkeypatch):
-    """DoD: procedencia en los 5 peldanos via el ENDPOINT. Con una sola
-    config vigente y dos plataformas no alcanza a aislar los 5 estados, asi
-    que la config se avanza entre llamadas (la vigente es la de mayor id): la
-    primera config cubre goal_campana/goal_plataforma/cache/default; una
-    config NUEVA con la clave de amazon_mx voltea las campañas mx a
-    setting_plataforma (el setting pisa el cache)."""
-    with _db_temporal("orbit_dash_peldanos") as (conn, dsn):
-        run = _run(conn)
-        _config_version(conn, {"ads_target_acos_pct_amazon_us": 30})
-        _goal_db(conn, scope="platform", platform="amazon_us", target="25")
-        camp_a = _campana(conn, "amazon_us", "9001", name="A")
-        camp_b = _campana(conn, "amazon_us", "9002", name="B")
-        _goal_db(conn, scope="campaign", ad_entity_id=camp_a, target="18")
-        camp_c = _campana(conn, "amazon_mx", "9003", name="C")
-        camp_d = _campana(conn, "amazon_mx", "9004", name="D")
-        _estado_acos(conn, camp_c, Decimal("28"))
-        for camp in (camp_a, camp_b):
-            _metrica(
-                conn,
-                run,
-                camp,
-                dt.date(2026, 8, 20),
-                cost="1.0000",
-                ad_revenue="3.0000",
-                clicks=1,
-                moneda="USD",
-            )
-        for camp in (camp_c, camp_d):
-            _metrica(
-                conn,
-                run,
-                camp,
-                dt.date(2026, 8, 20),
-                cost="1.0000",
-                ad_revenue="3.0000",
-                clicks=1,
-                moneda="MXN",
-            )
-        _hoy(monkeypatch, dt.date(2026, 8, 24))
-        cliente = _cliente(dsn, monkeypatch)
+def _ciclo_live(conn, platform: str) -> int:
+    """Ciclo live+done (el congelado solo lee esos)."""
+    return conn.execute(
+        "INSERT INTO optimizer_cycle (motor, mode, platform, status, finished_at,"
+        " decisions_count) VALUES ('ads_optimizer', 'live', %s::platform, 'done', %s, 0)"
+        " RETURNING id",
+        (platform, AHORA),
+    ).fetchone()[0]
 
-        data = cliente.get("/api/dashboard/campanas").json()["items"]
-        por_id = {i["ad_entity_id"]: i for i in data}
-        assert por_id[camp_a]["target_efectivo"] == {"valor": "18.00", "peldano": "goal_campana"}
-        assert por_id[camp_b]["target_efectivo"] == {"valor": "25.00", "peldano": "goal_plataforma"}
-        assert por_id[camp_c]["target_efectivo"] == {"valor": "28.00", "peldano": "cache_estado"}
-        assert por_id[camp_d]["target_efectivo"] == {"valor": "55", "peldano": "default"}
-        assert por_id[camp_d]["goal"] is None  # sin goal de plataforma ni de campana
 
-        # config VIGENTE nueva: amazon_mx gana setting_plataforma (40)
-        _config_version(conn, {"ads_target_acos_pct_amazon_mx": 40})
-        data2 = cliente.get("/api/dashboard/campanas").json()["items"]
-        por_id2 = {i["ad_entity_id"]: i for i in data2}
-        assert por_id2[camp_d]["target_efectivo"] == {
-            "valor": "40",
-            "peldano": "setting_plataforma",
-        }
-        assert por_id2[camp_c]["target_efectivo"] == {
-            "valor": "40",
-            "peldano": "setting_plataforma",
-        }
-        # los goals siguen pisando: camp_a y camp_b intactos
-        assert por_id2[camp_a]["target_efectivo"]["peldano"] == "goal_campana"
-        assert por_id2[camp_b]["target_efectivo"]["peldano"] == "goal_plataforma"
+def _congelado(conn, cycle_id: int, hoja_id: int, target, procedencia, decided_at=None) -> None:
+    conn.execute(
+        "INSERT INTO target_acos_ciclo (cycle_id, ad_entity_id, decided_at,"
+        " target_acos_pct, procedencia) VALUES (%s, %s, %s, %s, %s)",
+        (cycle_id, hoja_id, decided_at or AHORA, str(target), procedencia),
+    )
+
+
+def _campana_con_hojas(conn, run, platform, external, hojas):
+    """Campana con metrica 30d + ad group + keywords (aparece en items)."""
+    camp = _campana(conn, platform, external, name=external)
+    ag = _grupo(conn, platform, f"{external}-G", camp)
+    ids = [_keyword(conn, platform, f"{external}-K{n}", ag, f"kw {n}") for n in range(hojas)]
+    _metrica(
+        conn,
+        run,
+        camp,
+        dt.date(2026, 8, 20),
+        cost="1.0000",
+        ad_revenue="3.0000",
+        clicks=1,
+        moneda="USD" if platform == "amazon_us" else "MXN",
+    )
+    return camp, ids
+
+
+def test_congelado_unico_compara_redondeados():
+    """A7r3 F4: 29.501 y 29.504 difieren en crudo pero muestran "29.50":
+    unico compara lo ya redondeado, nunca sale "29.50–29.50"."""
+    cong = dash.CongeladoCampana(
+        minimo=Decimal("29.501"),
+        maximo=Decimal("29.504"),
+        procedencias=frozenset({"margen_familia"}),
+        ciclo_ids=frozenset({7}),
+        decideds=frozenset({dt.datetime(2026, 8, 20, 12, tzinfo=dt.UTC)}),
+    )
+    assert cong.display()["valor"] == "29.50"
 
 
 @pytest.mark.skipif(
     _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
-def test_campanas_peldano_margen_familia_y_crudo_negativo_no_revienta(monkeypatch):
-    """Ronda 2 F1/F3: septimo peldano via el ENDPOINT. Campana con
-    product_ad -> producto etiquetado + ciclo done con notes.target.familias:
-    el endpoint publica el APLICADO (recortado a banda) con procedencia
-    margen_familia. Con margen <= 0 el derivado crudo es <= 0: consumirlo
-    reventaba la cascada (ValueError -> 500 en TODA la pantalla); el
-    aplicado 10 no revienta."""
-    with _db_temporal("orbit_dash_fam7") as (conn, dsn):
+def test_campanas_muestra_congelado_unico_rango_y_null(monkeypatch):
+    """A7 B3: /campanas publica lo que congelo el ULTIMO ciclo live+done,
+    no la historia de cada hoja: unico a 2 decimales, rango "min–max" si
+    difieren en ese ciclo, null-honesto sin ciclo. Trampas: shadow,
+    running y hojas viejas no se cuelan; el goal sigue resuelto."""
+    with _db_temporal("orbit_dash_cong") as (conn, dsn):
         run = _run(conn)
         _config_version(conn, {"ads_optimizer_mode": "shadow"})
-        camp = _campana(conn, "amazon_us", "9501", name="F")
-        ag = _grupo(conn, "amazon_us", "9502", camp)
-        pid = conn.execute(
-            "INSERT INTO product (odoo_sku, name) VALUES ('SKU-F7', 'F7') RETURNING id"
+        camp_a, (a1, a2) = _campana_con_hojas(conn, run, "amazon_us", "9001", 2)
+        camp_b, (b1, b2, b3) = _campana_con_hojas(conn, run, "amazon_us", "9002", 3)
+        camp_c, _ = _campana_con_hojas(conn, run, "amazon_mx", "9003", 1)
+        camp_d, (d1, d2) = _campana_con_hojas(conn, run, "amazon_us", "9004", 2)
+        _goal_db(conn, scope="campaign", ad_entity_id=camp_a, target="18")
+        c1 = _ciclo_live(conn, "amazon_us")
+        c2 = _ciclo_live(conn, "amazon_us")
+        manana = AHORA + dt.timedelta(days=1)
+        _congelado(conn, c1, a1, "28.5", "margen_familia")
+        _congelado(conn, c2, a2, "29.50", "margen_familia")
+        _congelado(conn, c1, b1, "28.5", "margen_familia")
+        _congelado(conn, c2, b2, "29.5", "margen_familia", decided_at=manana)
+        _congelado(conn, c1, b3, "27.0", "margen_familia")
+        _congelado(conn, c2, d1, "28.0", "margen_familia")
+        _congelado(conn, c2, d2, "29.5", "margen_familia")
+        # Trampas anti-filtro (IDs mayores que c1/c2): sin mode='live' o
+        # status='done' el filtro del ultimo ciclo las excluye; si colaran,
+        # los asserts de camp_a mueren.
+        c_shadow = _ciclo(conn, platform="amazon_us")
+        _congelado(conn, c_shadow, a1, "99.9", "margen_familia")
+        c_running = conn.execute(
+            "INSERT INTO optimizer_cycle (motor, mode, platform, status,"
+            " decisions_count) VALUES ('ads_optimizer', 'live',"
+            " 'amazon_us'::platform, 'running', 0) RETURNING id"
         ).fetchone()[0]
-        lid = conn.execute(
-            "INSERT INTO listing (product_id, platform, external_id, seller_sku)"
-            " VALUES (%s, 'amazon_us', 'ASIN-F7', 'SS-F7') RETURNING id",
-            (pid,),
-        ).fetchone()[0]
-        conn.execute(
-            "INSERT INTO ad_entity (platform, kind, external_id, parent_id, listing_id)"
-            " VALUES ('amazon_us', 'product_ad', '9503', %s, %s)",
-            (ag, lid),
-        )
-        fid = conn.execute(
-            "INSERT INTO familia (platform, nombre, slug) VALUES ('amazon_us', 'F7', 'f7')"
-            " RETURNING id"
-        ).fetchone()[0]
-        conn.execute(
-            "INSERT INTO producto_familia (product_id, platform, familia_id)"
-            " VALUES (%s, 'amazon_us', %s)",
-            (pid, fid),
-        )
-        _ciclo(
-            conn,
-            platform="amazon_us",
-            notes=json_dumps(
-                {
-                    "target": {
-                        "familias": {
-                            str(fid): {"derivado": "-25.0", "aplicado": "10", "motivo": None}
-                        }
-                    }
-                }
-            ),
-        )
-        _metrica(
-            conn,
-            run,
-            camp,
-            dt.date(2026, 8, 20),
-            cost="1.0000",
-            ad_revenue="3.0000",
-            clicks=1,
-            moneda="USD",
-        )
+        _congelado(conn, c_running, a1, "88.8", "margen_familia")
         _hoy(monkeypatch, dt.date(2026, 8, 24))
         resp = _cliente(dsn, monkeypatch).get("/api/dashboard/campanas")
         assert resp.status_code == 200, resp.text
         por_id = {i["ad_entity_id"]: i for i in resp.json()["items"]}
-        assert por_id[camp]["target_efectivo"] == {"valor": "10", "peldano": "margen_familia"}
+        assert por_id[camp_a]["target_efectivo"] == {
+            "valor": "29.50",
+            "minimo": "29.50",
+            "maximo": "29.50",
+            "peldano": "margen_familia",
+            "ciclo": {
+                "id_min": c2,
+                "id_max": c2,
+                "decided_min": AHORA.isoformat(),
+                "decided_max": AHORA.isoformat(),
+            },
+        }
+        assert por_id[camp_b]["target_efectivo"] == {
+            "valor": "29.50",
+            "minimo": "29.50",
+            "maximo": "29.50",
+            "peldano": "margen_familia",
+            "ciclo": {
+                "id_min": c2,
+                "id_max": c2,
+                "decided_min": manana.isoformat(),
+                "decided_max": manana.isoformat(),
+            },
+        }
+        assert por_id[camp_d]["target_efectivo"] == {
+            "valor": "28.00–29.50",
+            "minimo": "28.00",
+            "maximo": "29.50",
+            "peldano": "margen_familia",
+            "ciclo": {
+                "id_min": c2,
+                "id_max": c2,
+                "decided_min": AHORA.isoformat(),
+                "decided_max": AHORA.isoformat(),
+            },
+        }
+        assert por_id[camp_c]["target_efectivo"] is None
+        assert por_id[camp_a]["goal"]["scope"] == "campaign"
+        assert por_id[camp_c]["goal"] is None
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_campanas_peldano_mixto_cuando_procedencias_difieren(monkeypatch):
+    """A7 B3: hojas con la misma cifra pero distinta procedencia: valor
+    unico y peldano "mixto" (default documentado)."""
+    with _db_temporal("orbit_dash_mixto") as (conn, dsn):
+        run = _run(conn)
+        _config_version(conn, {"ads_optimizer_mode": "shadow"})
+        camp, (k1, k2) = _campana_con_hojas(conn, run, "amazon_us", "9004", 2)
+        c1 = _ciclo_live(conn, "amazon_us")
+        _congelado(conn, c1, k1, "29.5", "margen_familia")
+        _congelado(conn, c1, k2, "29.5", "setting_plataforma")
+        _hoy(monkeypatch, dt.date(2026, 8, 24))
+        resp = _cliente(dsn, monkeypatch).get("/api/dashboard/campanas")
+        assert resp.status_code == 200, resp.text
+        por_id = {i["ad_entity_id"]: i for i in resp.json()["items"]}
+        assert por_id[camp]["target_efectivo"]["valor"] == "29.50"
+        assert por_id[camp]["target_efectivo"]["peldano"] == "mixto"
 
 
 @pytest.mark.skipif(

@@ -91,8 +91,8 @@ SQL46 = (
     Path(__file__).resolve().parent.parent / "migrations" / "0046_target_acos_ciclo.sql"
 ).read_text(encoding="utf-8")
 
-# A4: conversion_jerarquica cruza campana_grupo_rol (0018) y familia (0047)
-# en TX2 — sin estas TODO ciclo revienta con UndefinedTable.
+# A7: el ciclo cruza campana_grupo_rol (0018, harvest_destino) y familia
+# (0047, mapa A5) en TX2 — sin estas TODO ciclo revienta con UndefinedTable.
 SQL18 = (
     Path(__file__).resolve().parent.parent / "migrations" / "0018_fabrica_campanas.sql"
 ).read_text(encoding="utf-8")

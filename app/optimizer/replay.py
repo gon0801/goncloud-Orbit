@@ -203,6 +203,29 @@ def replay_bid_con_target(inputs: dict, target_acos_pct: Decimal) -> bid.Resulta
     return _replay_bid(inputs, target_acos_pct)
 
 
+def verifica_politica(inputs: dict) -> None:
+    """Verificador de la politica EFECTIVA (A7, CI-only: sin cablear a
+    compara/dossier — eso es follow-up declarado). Reglas: sin clave =
+    era pre-A6, OK; vocabulario cerrado {bandas_v1, evidencia_v2} =
+    ValueError si no; via pause_intacto = solo vocabulario (el pause no
+    consume bandas y declara el regimen pedido, no el efectivo); otra via
+    (incluida ausente) = la congelada DEBE igualar la re-derivada por
+    _replay_bid (el fallback refira igual: efectivo es efectivo)."""
+    frozen = inputs.get("politica_bandas_usada")
+    if frozen is None:
+        return
+    if frozen not in ("bandas_v1", "evidencia_v2"):
+        raise ValueError(f"politica_bandas_usada fuera de vocabulario: {frozen!r}")
+    if (inputs.get("evidencia_v2") or {}).get("via") == "pause_intacto":
+        return
+    esperada = _replay_bid(inputs).politica
+    if frozen != esperada:
+        raise ValueError(
+            f"politica_bandas_usada {frozen!r} != re-derivada {esperada!r}"
+            " (freeze corrupto o politica cambiada sin migrar)"
+        )
+
+
 def reproduce_evidencia_v2(inputs: dict) -> dict | None:
     """Re-decide el contrafactual v2 (A4) desde `inputs.evidencia_v2` y
     devuelve el veredicto re-derivado {kind, motivo, factor, new_value}

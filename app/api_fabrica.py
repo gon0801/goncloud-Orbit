@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Annotated, Literal
@@ -41,8 +42,14 @@ class _RutaFabrica(APIRoute):
         async def sin_input_privado(request):
             try:
                 return await manejar(request)
-            except RequestValidationError:
+            except RequestValidationError as exc:
                 # Pydantic incluye input crudo (incluidos extras como token).
+                # Excepcion A7 B8: el "no es finito" no lleva el valor (frase
+                # fija del validador) y el plan exige el mensaje, no el generico.
+                for error in exc.errors():
+                    mensaje = str(error.get("msg", ""))
+                    if "no es finito" in mensaje:
+                        raise fw.error(422, mensaje) from None
                 raise fw.error(
                     422, "Los datos no son válidos. Revisa los campos y la confirmación."
                 ) from None
@@ -103,7 +110,7 @@ class RecomendacionBid(_Cuerpo):
 
 class ObjetivoPlan(_Cuerpo):
     origen: Literal["margen_medido", "manual_lanzamiento"]
-    acos_pct: str | None = Field(default=None, min_length=1, max_length=14)
+    acos_pct: Annotated[str, Field(min_length=1, max_length=14)] | float | None = None
 
     @model_validator(mode="after")
     def objetivo_valido(self):
@@ -112,12 +119,21 @@ class ObjetivoPlan(_Cuerpo):
         if self.origen == "manual_lanzamiento":
             if self.acos_pct is None:
                 raise ValueError("objetivo manual exige acos_pct")
-            try:
-                valor = Decimal(self.acos_pct)
-            except ArithmeticError as exc:
-                raise ValueError("acos_pct manual no es decimal") from exc
-            if not valor.is_finite():
-                raise ValueError("acos_pct manual no es finito")
+            crudo = self.acos_pct
+            if isinstance(crudo, float):
+                # A7: el form puede mandar JSON numerico (NaN/Infinity de un
+                # campo roto); Decimal(float) expande el binario, asi que el
+                # finito se valida via str y el no-finito cae con el MISMO
+                # mensaje que el str (aguas abajo _decimal tambien hace str).
+                if not math.isfinite(crudo):
+                    raise ValueError("acos_pct manual no es finito")
+            else:
+                try:
+                    valor = Decimal(crudo)
+                except ArithmeticError as exc:
+                    raise ValueError("acos_pct manual no es decimal") from exc
+                if not valor.is_finite():
+                    raise ValueError("acos_pct manual no es finito")
             # A1: el API valida FORMA (decimal finito); el RANGO vive en una
             # sola fuente, fabrica_plan.valida_banda_manual, que corre al
             # construir en _datos_plan_v2 (CLI, preview, crear y

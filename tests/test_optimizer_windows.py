@@ -1320,8 +1320,8 @@ def test_evidencia_ad_group_en_vivo():
 
 @contextmanager
 def _db_temporal_a4(prefijo: str):
-    """DB temporal con 0001 + 0018 (fabrica) + 0047 (familias): el grano
-    cruza campana_grupo_rol y familia (verificado: aplican limpio)."""
+    """DB temporal con 0001 + 0018 (fabrica) + 0047 (familias)
+    (verificado: aplican limpio)."""
     import pathlib
 
     psycopg = pytest.importorskip("psycopg")
@@ -1348,33 +1348,6 @@ def _db_temporal_a4(prefijo: str):
         admin.close()
 
 
-def _lote(conn, lote, platform="amazon_us", tipo="arras"):
-    conn.execute(
-        "INSERT INTO fabrica_lote (lote, platform, tipo_producto, nombre_base,"
-        " go_literal, huella, plan, modo_goal, estado)"
-        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-        (lote, platform, tipo, "base", "go", "h", "{}", "shadow", "planeado"),
-    )
-
-
-def _grupo(conn, platform, tipo, lote):
-    return conn.execute(
-        "INSERT INTO campana_grupo (platform, tipo_producto, nombre_base, lote,"
-        " target_acos_pct, target_derivado_pct, fraccion, target_procedencia,"
-        " go_literal) VALUES (%s, %s, %s, %s, 20, 20, 0.5, 'x', 'go')"
-        " RETURNING id",
-        (platform, tipo, "base", lote),
-    ).fetchone()[0]
-
-
-def _rol(conn, grupo_id, campana_id, ad_group_id, rol="auto_discovery"):
-    conn.execute(
-        "INSERT INTO campana_grupo_rol (grupo_id, rol, ad_entity_id,"
-        " ad_group_ad_entity_id) VALUES (%s, %s, %s, %s)",
-        (grupo_id, rol, campana_id, ad_group_id),
-    )
-
-
 def _familia(conn, platform, nombre, slug, padre_id=None):
     return conn.execute(
         "INSERT INTO familia (platform, nombre, slug, padre_id)"
@@ -1388,14 +1361,15 @@ def _familia(conn, platform, nombre, slug, padre_id=None):
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 def test_conversion_jerarquica_grano_rollup_y_mapeo():
-    """Grano por hoja D-90..D-10 literal + roll-up + mapeo slug; legacy
-    sin rol conserva su grano con mapeo None (LEFT JOIN, res A5)."""
+    """Grano por hoja D-90..D-10 literal + roll-up + mapeo por etiquetas
+    A5 (dicts puros); legacy sin entrada conserva su grano con mapeo None
+    (LEFT JOIN, res A5)."""
     with _db_temporal_a4("orbit_win_a4") as conn:
         run_id = _run(conn)
         decidido = dt.datetime(2026, 8, 22, 12, 0, tzinfo=dt.UTC)
         desde = dt.date(2026, 5, 24)  # D-90
         hasta = dt.date(2026, 8, 12)  # D-10
-        # campana de fabrica C1 (grupo arras) + campana legacy C2
+        # campana etiquetada C1 (familia arras) + campana legacy C2
         c1 = _entidad(conn, "amazon_us", "campaign", "C1")
         g1 = _entidad(conn, "amazon_us", "ad_group", "G1", parent=c1)
         g2 = _entidad(conn, "amazon_us", "ad_group", "G2", parent=c1)
@@ -1410,9 +1384,6 @@ def test_conversion_jerarquica_grano_rollup_y_mapeo():
         k3 = _entidad(
             conn, "amazon_us", "keyword", "K3", parent=g3, match_type="EXACT", keyword_text="kw"
         )
-        _lote(conn, "L1")
-        gr1 = _grupo(conn, "amazon_us", "arras", "L1")
-        _rol(conn, gr1, c1, g1)
         f1 = _familia(conn, "amazon_us", "Arras", "arras")
         # metricas: K1 0/16 (2 fechas), K2 1/50, K3 0/5; bordes dentro
         for fecha in (dt.date(2026, 8, 11), dt.date(2026, 8, 12)):
@@ -1487,7 +1458,9 @@ def test_conversion_jerarquica_grano_rollup_y_mapeo():
             orders=0,
             impressions=1,
         )
-        conv = w.conversion_jerarquica(conn, "amazon_us", decidido)
+        conv = w.conversion_jerarquica(
+            conn, "amazon_us", decidido, fam_por_campana={c1: f1}, padres={f1: None}
+        )
         assert conv.moneda == "USD"
         assert (conv.ventana_desde, conv.ventana_hasta) == (desde, hasta)
         grano1 = conv.por_hoja[k1]
@@ -1526,9 +1499,6 @@ def test_conversion_jerarquica_hoja_sin_filas_hereda_mapeo():
         k4 = _entidad(
             conn, "amazon_us", "keyword", "K4", parent=g1, match_type="EXACT", keyword_text="nueva"
         )
-        _lote(conn, "L1")
-        gr1 = _grupo(conn, "amazon_us", "arras", "L1")
-        _rol(conn, gr1, c1, g1)
         f1 = _familia(conn, "amazon_us", "Arras", "arras")
         _metrica(
             conn,
@@ -1544,7 +1514,9 @@ def test_conversion_jerarquica_hoja_sin_filas_hereda_mapeo():
             orders=1,
             impressions=500,
         )
-        conv = w.conversion_jerarquica(conn, "amazon_us", decidido)
+        conv = w.conversion_jerarquica(
+            conn, "amazon_us", decidido, fam_por_campana={c1: f1}, padres={f1: None}
+        )
         assert k4 not in conv.por_hoja
         mapeo4 = conv.mapeo_hoja[k4]
         assert (mapeo4.ad_group_id, mapeo4.familia_id, mapeo4.subfamilia_id) == (g1, f1, None)
@@ -1566,24 +1538,22 @@ def test_conversion_jerarquica_hoja_sin_filas_hereda_mapeo():
     _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
-def test_conversion_jerarquica_subfamilia_y_colision_slug():
-    """Slug de subfamilia resuelve (familia=padre, subfamilia=match) y el
-    filtro familia.platform evita colision MX/US (res B5)."""
+def test_conversion_jerarquica_subfamilia_por_mapa():
+    """Match subfamilia resuelve (familia=padre, subfamilia=match) via la
+    mapa A5; la plataforma del SQL sigue aislando MX/US; con mapa vacia
+    la hoja queda sin familia aunque existan filas familia (el SQL ya no
+    la lee)."""
     with _db_temporal_a4("orbit_win_a4b") as conn:
         run_id = _run(conn)
         decidido = dt.datetime(2026, 8, 22, 12, 0, tzinfo=dt.UTC)
-        # MX: familia raiz + subfamilia; grupo con el slug de la SUBFAMILIA
+        # MX: familia raiz + subfamilia; campana etiquetada con la SUBFAMILIA
         fraiz = _familia(conn, "amazon_mx", "Arras", "arras")
         fsub = _familia(conn, "amazon_mx", "Arras premium", "arras_premium", fraiz)
-        _familia(conn, "amazon_us", "Arras US", "arras_premium")  # colision
         cmx = _entidad(conn, "amazon_mx", "campaign", "CMX")
         gmx = _entidad(conn, "amazon_mx", "ad_group", "GMX", parent=cmx)
         kmx = _entidad(
             conn, "amazon_mx", "keyword", "KMX", parent=gmx, match_type="EXACT", keyword_text="kw"
         )
-        _lote(conn, "LMX", platform="amazon_mx", tipo="arras_premium")
-        grmx = _grupo(conn, "amazon_mx", "arras_premium", "LMX")
-        _rol(conn, grmx, cmx, gmx)
         _metrica(
             conn,
             run_id,
@@ -1598,14 +1568,31 @@ def test_conversion_jerarquica_subfamilia_y_colision_slug():
             orders=0,
             impressions=100,
         )
-        conv = w.conversion_jerarquica(conn, "amazon_mx", decidido)
+        conv = w.conversion_jerarquica(
+            conn,
+            "amazon_mx",
+            decidido,
+            fam_por_campana={cmx: fsub},
+            padres={fsub: fraiz, fraiz: None},
+        )
         grano = conv.por_hoja[kmx]
         assert (grano.familia_id, grano.subfamilia_id) == (fraiz, fsub)
         assert conv.por_subfamilia[fsub].clicks == 10
         assert conv.por_familia[fraiz].clicks == 10
-        # US no ve la hoja MX aunque el slug colisione
-        conv_us = w.conversion_jerarquica(conn, "amazon_us", decidido)
+        # US no ve la hoja MX (el filtro k.platform sigue en el SQL)
+        conv_us = w.conversion_jerarquica(
+            conn, "amazon_us", decidido, fam_por_campana={}, padres={}
+        )
         assert kmx not in conv_us.por_hoja
+        # mapa vacia: sin familia aunque la tabla familia tenga filas
+        conv_sin = w.conversion_jerarquica(
+            conn, "amazon_mx", decidido, fam_por_campana={}, padres={}
+        )
+        assert (conv_sin.por_hoja[kmx].familia_id, conv_sin.por_hoja[kmx].subfamilia_id) == (
+            None,
+            None,
+        )
+        assert conv_sin.mapeo_hoja[kmx].familia_id is None
 
 
 @pytest.mark.skipif(
@@ -1690,7 +1677,7 @@ def test_conversion_jerarquica_veneno_y_moneda():
                 orders=0,
                 impressions=1,
             )
-        conv = w.conversion_jerarquica(conn, "amazon_us", decidido)
+        conv = w.conversion_jerarquica(conn, "amazon_us", decidido, fam_por_campana={}, padres={})
         assert conv.por_hoja[knull].conteo.orders is None
         assert conv.por_hoja[knull].conteo.clicks == 5
         # el grupo hereda el veneno por metrica (OR hacia arriba)
@@ -1776,3 +1763,57 @@ def test_cpc_vigente_slices_e_historia():
         assert w.cpc_vigente(conn, hoja, cambio, sin_moneda) is None
         with pytest.raises(ValueError, match="fuera de vocabulario"):
             w.cpc_vigente(conn, hoja, "ayer", ventana)  # type: ignore[arg-type]
+
+
+def test_hoja_nueva_hereda_familia_en_previa():
+    """A7 (herencia A4r3 + regla A5): hoja sin filas en D-90..D-10
+    bajo campana etiquetada: su previa trae el nivel familia con la
+    conversion de sus hermanas (SIN resta: la hoja nueva no esta en los
+    agregados). A nivel ciclo es inalcanzable (cortes completo implica
+    grano: la ventana de cortes esta contenida en la de conversion), asi
+    que se pinea en la composicion real SQL -> roll-up -> parciales."""
+    with _db_temporal_a4("orbit_win_pin2") as conn:
+        run_id = _run(conn)
+        decidido = dt.datetime(2026, 8, 22, 12, 0, tzinfo=dt.UTC)
+        c1 = _entidad(conn, "amazon_us", "campaign", "C1")
+        g1 = _entidad(conn, "amazon_us", "ad_group", "G1", parent=c1)
+        k1 = _entidad(
+            conn, "amazon_us", "keyword", "K1", parent=g1, match_type="EXACT", keyword_text="k1"
+        )
+        k2 = _entidad(
+            conn, "amazon_us", "keyword", "K2", parent=g1, match_type="EXACT", keyword_text="k2"
+        )
+        nueva = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "KNUEVA",
+            parent=g1,
+            match_type="EXACT",
+            keyword_text="nueva",
+        )
+        f1 = _familia(conn, "amazon_us", "Arras", "arras")
+        for kw, orders, revenue in ((k1, 0, "0.00"), (k2, 1, "100.00")):
+            _metrica(
+                conn,
+                run_id,
+                kw,
+                dt.date(2026, 8, 12),
+                _obs(dt.date(2026, 8, 12)),
+                moneda="USD",
+                report_id="R",
+                cost=Decimal("10.00"),
+                ad_revenue=Decimal(revenue),
+                clicks=50,
+                orders=orders,
+                impressions=500,
+            )
+        conv = w.conversion_jerarquica(
+            conn, "amazon_us", decidido, fam_por_campana={c1: f1}, padres={f1: None}
+        )
+        assert nueva not in conv.por_hoja
+        previa, conversion, _ = ev.parciales_evidencia(conv, nueva, None)
+        assert conversion is None
+        assert previa is not None
+        assert previa.familia_id == f1
+        assert "familia" in previa.niveles

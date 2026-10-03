@@ -386,7 +386,7 @@ def test_origen_meta_mide_y_cae_con_motivo():
             ),
         )
         assert familias.origen_meta_familia(conn, "amazon_mx", fid) == (
-            "10",
+            "10.00",
             "margen de la familia",
         )
         conn.execute(
@@ -411,6 +411,84 @@ def test_origen_meta_mide_y_cae_con_motivo():
         assert familias.origen_meta_familia(conn, "amazon_mx", fid) == (
             None,
             "usa la meta del país (cobertura de costos bajo el minimo)",
+        )
+
+
+def _notas_familias(conn, platform, notas):
+    import json
+
+    conn.execute(
+        "INSERT INTO optimizer_cycle (platform, mode, status, notes)"
+        " VALUES (%s, 'live', 'done', %s)",
+        (platform, json.dumps({"target": {"familias": notas}})),
+    )
+
+
+@_skip_db
+def test_subfamilia_hereda_padre_que_mide():
+    """A7 B4: subfamilia sin margen propio (motivo ventana_corta) bajo un
+    padre que mide: muestra el aplicado del padre a 2 decimales con origen
+    "margen de la familia padre" (el motor usa el padre para sus hojas).
+    El padre intacto y la raiz sin notas intacta."""
+    with db_familias() as conn:
+        raiz = familias.crea(conn, "amazon_mx", "Arras")
+        hija = familias.crea(conn, "amazon_mx", "Arras premium", raiz["id"])
+        _notas_familias(
+            conn,
+            "amazon_mx",
+            {
+                str(raiz["id"]): {"derivado": "19.105", "aplicado": "19.105", "motivo": None},
+                str(hija["id"]): {
+                    "derivado": None,
+                    "aplicado": None,
+                    "motivo": "ventana_corta",
+                },
+            },
+        )
+        (nodo,) = familias.arbol(conn, "amazon_mx")
+        assert (nodo["target_familia"], nodo["origen_meta"]) == ("19.10", "margen de la familia")
+        (sub,) = nodo["hijas"]
+        assert (sub["target_familia"], sub["origen_meta"]) == (
+            "19.10",
+            "margen de la familia padre",
+        )
+        assert familias.origen_meta_familia(conn, "amazon_mx", hija["id"]) == (
+            "19.10",
+            "margen de la familia padre",
+        )
+
+
+@_skip_db
+def test_subfamilia_con_padre_sin_medida_conserva_motivo():
+    """A7 B4: padre que NO mide (motivo cobertura_baja): la hija conserva
+    su motivo propio intacto, sin heredar (heredar un padre sin medida
+    mentiria el target)."""
+    with db_familias() as conn:
+        raiz = familias.crea(conn, "amazon_mx", "Baratas")
+        hija = familias.crea(conn, "amazon_mx", "Baratas tela", raiz["id"])
+        _notas_familias(
+            conn,
+            "amazon_mx",
+            {
+                str(raiz["id"]): {
+                    "derivado": None,
+                    "aplicado": None,
+                    "motivo": "cobertura_baja",
+                },
+                str(hija["id"]): {
+                    "derivado": None,
+                    "aplicado": None,
+                    "motivo": "ventana_corta",
+                },
+            },
+        )
+        (nodo,) = familias.arbol(conn, "amazon_mx")
+        (sub,) = nodo["hijas"]
+        assert sub["target_familia"] is None
+        assert sub["origen_meta"] == "usa la meta del país (pocos dias con venta en la ventana)"
+        assert familias.origen_meta_familia(conn, "amazon_mx", hija["id"]) == (
+            None,
+            "usa la meta del país (pocos dias con venta en la ventana)",
         )
 
 

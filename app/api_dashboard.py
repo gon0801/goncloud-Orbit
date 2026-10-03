@@ -58,6 +58,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Annotated, Literal
 
@@ -71,6 +72,7 @@ from app.api import KINDS_DECISION, ConexionLectura, propuestas_campana_visibles
 from app.api_common import (
     _SQL_ULTIMO_CICLO_POR_PLATAFORMA,
     _dec_str,
+    _dos_dec,
     _fila_ciclo,
     _parse_notes,
     bloque_target_margen,
@@ -624,64 +626,92 @@ def _target_margen_del_ciclo(conn, plataforma: str) -> Decimal | None:
         return None
 
 
-def _targets_familia_del_ciclo(conn, plataforma: str) -> dict[int, Decimal]:
-    """Target por familia segun el ULTIMO ciclo done (A5, espejo de
-    _target_margen_del_ciclo). Fuente UNICA: notes.target.familias — la web
-    NO re-resuelve. Se consume `aplicado` (recortado a banda, el numero al
-    que las hojas convergen), NUNCA el derivado crudo: con margen <= 0 el
-    crudo es <= 0 y revienta la cascada (500 en /campanas, F1 ronda 2).
-    Fail-soft por entrada."""
-    fila = conn.execute(_SQL_TARGET_MARGEN_ULTIMO, (plataforma,)).fetchone()
-    notes = _parse_notes(fila[0]) if fila else None
-    if notes is None:
-        return {}
-    bloque = notes.get("target")
-    if not isinstance(bloque, dict):
-        return {}
-    familias = bloque.get("familias")
-    if not isinstance(familias, dict):
-        return {}
-    targets: dict[int, Decimal] = {}
-    for fid, nota in familias.items():
-        if not isinstance(nota, dict):
-            continue
-        try:
-            fid_int = int(fid)
-        except (TypeError, ValueError):
-            continue
-        aplicado = nota.get("aplicado")
-        if aplicado is None:
-            continue
-        try:
-            targets[fid_int] = Decimal(str(aplicado))
-        except (InvalidOperation, ValueError, ArithmeticError):
-            continue
-    return targets
+@dataclass(frozen=True)
+class CongeladoCampana:
+    """Lo que el motor APLICO a las hojas de UNA campana (A7, dato puro):
+    minimo/maximo Decimal (sin strings redondeados en campos), procedencias
+    y ciclos que aportaron. display() formatea con _dos_dec (borde de
+    presentacion): valor unico o rango "min–max", peldano unico o "mixto"."""
+
+    minimo: Decimal
+    maximo: Decimal
+    procedencias: frozenset[str]
+    ciclo_ids: frozenset[int]
+    decideds: frozenset[dt.datetime]
+
+    def display(self) -> dict:
+        unico = _dos_dec(self.minimo) == _dos_dec(self.maximo)
+        # decideds a UTC explicito: el isoformat crudo heredaria la TimeZone
+        # de la sesion y el contrato seria no-determinista entre entornos.
+        decideds_utc = sorted(d.astimezone(dt.UTC).isoformat() for d in self.decideds)
+        return {
+            "valor": (
+                _dos_dec(self.minimo)
+                if unico
+                else f"{_dos_dec(self.minimo)}–{_dos_dec(self.maximo)}"
+            ),
+            "minimo": _dos_dec(self.minimo),
+            "maximo": _dos_dec(self.maximo),
+            "peldano": next(iter(self.procedencias)) if len(self.procedencias) == 1 else "mixto",
+            "ciclo": {
+                "id_min": min(self.ciclo_ids),
+                "id_max": max(self.ciclo_ids),
+                "decided_min": decideds_utc[0],
+                "decided_max": decideds_utc[-1],
+            },
+        }
+
+
+# A7r2: hojas congeladas en el ULTIMO ciclo live+done de la plataforma
+# (el plan: lo que ese ciclo aplico; una hoja vieja no mete su valor en
+# el rango). Una query por plataforma; el colapso es Python puro.
+_SQL_CONGELADO_CAMPANAS = """
+SELECT camp.id AS campana_id, t.target_acos_pct, t.procedencia, t.cycle_id, t.decided_at
+  FROM target_acos_ciclo t
+  JOIN optimizer_cycle c ON c.id = t.cycle_id
+  JOIN ad_entity k ON k.id = t.ad_entity_id
+  JOIN ad_entity ag ON ag.id = k.parent_id AND ag.kind = 'ad_group'
+  JOIN ad_entity camp ON camp.id = ag.parent_id AND camp.kind = 'campaign'
+ WHERE c.platform = %s::platform AND c.mode = 'live' AND c.status = 'done'
+   AND c.id = (SELECT max(c2.id) FROM optimizer_cycle c2
+                WHERE c2.platform = c.platform AND c2.motor = 'ads_optimizer'
+                  AND c2.mode = 'live' AND c2.status = 'done')
+"""
+
+
+def _congelados_por_campana(conn, plataforma: str) -> dict[int, CongeladoCampana]:
+    """Congelado por campana (A7r2): hojas del ULTIMO ciclo live+done
+    colapsadas en Python. Campana sin hojas en ese ciclo -> ausente (el
+    endpoint publica null-honesto, regla 3)."""
+    por_campana: dict[int, list] = {}
+    for fila in conn.execute(_SQL_CONGELADO_CAMPANAS, (plataforma,)).fetchall():
+        por_campana.setdefault(fila[0], []).append(fila[1:])
+    congelados = {}
+    for campana_id, filas in por_campana.items():
+        targets = [fila[0] for fila in filas]
+        congelados[campana_id] = CongeladoCampana(
+            minimo=min(targets),
+            maximo=max(targets),
+            procedencias=frozenset(fila[1] for fila in filas),
+            ciclo_ids=frozenset(fila[2] for fila in filas),
+            decideds=frozenset(fila[3] for fila in filas),
+        )
+    return congelados
 
 
 def _fila_campana(
     fila,
     goals_campana: dict[int, g.Goal],
     goal_plataforma: g.Goal | None,
-    settings: dict,
     plataforma: str,
-    target_margen: Decimal | None = None,
-    target_margen_familia: Decimal | None = None,
+    congelado: CongeladoCampana | None,
 ) -> dict:
-    """Fila del resumen: metricas 30d (grano campaign, dinero string) + target
-    EFECTIVO con PROCEDENCIA (cascada de 1.2 REUTILIZADA, jamas
-    reimplementada) + goal resuelto. Sin total al pie (regla 4)."""
-    camp_id, nombre, _plataforma, acos_cache, estado, cost, revenue, clicks = fila
+    """Fila del resumen: metricas 30d (grano campaign, dinero string) +
+    target EFECTIVO = lo que el motor aplico (congelado; A7) o null-honesto
+    sin ciclo (campanas sin ciclo: null, cambio visible y pineado) + goal
+    resuelto. Sin total al pie (regla 4)."""
+    camp_id, nombre, _plataforma, _acos_cache, estado, cost, revenue, clicks = fila
     goal_campana = goals_campana.get(camp_id)
-    valor, peldano = g.cascada_target_acos_con_procedencia(
-        goal_campana,
-        goal_plataforma,
-        settings,
-        acos_cache,
-        plataforma,
-        target_margen,
-        target_margen_familia,
-    )
     acos, sin_ventas = _acoso(cost, revenue)
     return {
         "ad_entity_id": camp_id,
@@ -703,7 +733,7 @@ def _fila_campana(
             # tres relojes), jamas mostrarlos como maduros.
             "inmaduro": True,
         },
-        "target_efectivo": {"valor": _dec_str(valor), "peldano": peldano},
+        "target_efectivo": congelado.display() if congelado is not None else None,
         "goal": _goal_estado(g.resuelve_goal(goal_campana, goal_plataforma)),
     }
 
@@ -714,45 +744,33 @@ def campanas(
     platform: Literal["amazon_us", "amazon_mx"] | None = None,
 ) -> dict:
     """Resumen de campanas de la(s) plataforma(s) (brief §3.3): metricas 30d
-    colapsadas (v_metric_latest, kind='campaign') + target EFECTIVO con
-    procedencia (cascada de 1.2) + estado VIVO del goal resuelto. Cada fila
-    lleva su moneda; NO existe total al pie (anti-mezcla, regla 4)."""
+    colapsadas (v_metric_latest, kind='campaign') + target EFECTIVO = lo que
+    el ultimo ciclo live+done congelo para sus hojas (A7; rango si difieren,
+    null-honesto sin ciclo) + estado VIVO del goal resuelto. Cada fila
+    lleva su moneda; NO existe total al pie (anti-mezcla, regla 4).
+
+    Cambio de contrato A7 (documentado): target_efectivo ya no es la
+    cascada viva {valor, peldano} sino {valor, minimo, maximo, peldano,
+    ciclo{id_min, id_max, decided_min, decided_max}} o null. ui.py intacto:
+    el sort por target degrada en rangos (no parsean a Decimal) y el filtro
+    por "mixto" da 422 (vocabulario cerrado preexistente); ambos declarados.
+    """
     hoy = _hoy_utc()
     desde = hoy - dt.timedelta(days=DIAS_VENTANA_CAMPANAS)
     hasta = hoy - dt.timedelta(days=1)
-    settings = _config_vigente(conn)
     goals_campana, goals_plataforma = _carga_goals(conn)
     items: list[dict] = []
     plataformas = (platform,) if platform is not None else tuple(PLATAFORMAS_MONEDA)
     for plataforma in plataformas:
-        # ORBIT 06 2.3 (cross-review grok H3): el peldano `margen_plataforma`
-        # lo resuelve el CICLO, no la web (la vista y el paso maximo exigen
-        # estado). La tabla lee el aplicado del ultimo ciclo de esa plataforma
-        # y se lo pasa a la MISMA cascada que usa el motor. Sin esto el
-        # dashboard llamaba con target_margen=None y mostraba el setting (20)
-        # mientras el motor ya decidia con el derivado: dos verdades en
-        # pantallas distintas, y el dueno creeria que no encendio.
-        target_margen = _target_margen_del_ciclo(conn, plataforma)
-        # A5: el peldano familiar es POR CAMPANA: mapa campana -> familia
-        # efectiva (MISMO SQL y MISMA regla pura que el motor: cero drift) +
-        # targets del ultimo ciclo. Sin familia o sin target -> None.
-        pares = [
-            (fila[0], fila[1])
-            for fila in conn.execute(ciclo._SQL_PAREJAS_CAMPANA_FAMILIA, (plataforma,)).fetchall()
-        ]
-        fam_por_campana = g.familia_efectiva_por_campana(pares)
-        targets_fam = _targets_familia_del_ciclo(conn, plataforma)
+        congelados = _congelados_por_campana(conn, plataforma)
         for fila in conn.execute(_SQL_CAMPANAS_30D, (plataforma, desde, hasta)).fetchall():
-            fam_id = fam_por_campana.get(fila[0])
             items.append(
                 _fila_campana(
                     fila,
                     goals_campana,
                     goals_plataforma.get(plataforma),
-                    settings,
                     plataforma,
-                    target_margen,
-                    targets_fam.get(fam_id) if fam_id is not None else None,
+                    congelados.get(fila[0]),
                 )
             )
     return {"items": items}

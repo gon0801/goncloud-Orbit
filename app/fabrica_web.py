@@ -21,6 +21,7 @@ from app import fabrica_bids as br
 from app import fabrica_plan as fp
 from app.ads.client import AdsApiError, AdsClient
 from app.ads.config import AdsConfigError, AdsCredentials
+from app.api_common import _dos_dec
 from app.db import OrbitDbError, connect
 from app.disponibilidad import estado_disponibilidad
 from app.estimacion_proyeccion import adjuntar_estimaciones
@@ -114,6 +115,31 @@ def _plan_como_json(plan: fp.PlanGrupo | fp.PlanGrupoV2) -> dict:
     return fp.plan_como_json(plan)
 
 
+# A7: decimales con punto dentro de la procedencia ("0.5 x 38.21 = 19.105").
+# El clamp "[10, 45]" y "NUMERIC(6,2)" no matchean (sin punto): intactos.
+_RE_DECIMAL_PROCEDENCIA = re.compile(r"\d+\.\d+")
+
+
+def _procedencia_dos_dec(texto: str) -> str:
+    """Procedencia para PANTALLA (A7, pura): cada decimal con punto a 2
+    cifras con _dos_dec (HALF_EVEN). Solo formatea presentacion: el plan,
+    la huella y la DB ven el crudo."""
+    return _RE_DECIMAL_PROCEDENCIA.sub(lambda m: _dos_dec(m.group(0)), texto)
+
+
+def _plan_con_procedencia_2dec(plan_json: dict) -> dict:
+    """Formatea la procedencia del MISMO dict serializado (v1:
+    target_procedencia; v2: objetivo.procedencia). Se llama sobre la copia
+    que previsualizar serializa DESPUES de la huella: huella-neutral por
+    construccion (la huella sale del objeto plan, no de este JSON)."""
+    if isinstance(plan_json.get("target_procedencia"), str):
+        plan_json["target_procedencia"] = _procedencia_dos_dec(plan_json["target_procedencia"])
+    objetivo = plan_json.get("objetivo")
+    if isinstance(objetivo, dict) and isinstance(objetivo.get("procedencia"), str):
+        objetivo["procedencia"] = _procedencia_dos_dec(objetivo["procedencia"])
+    return plan_json
+
+
 def _bids_como_json(plan: fp.PlanGrupo | fp.PlanGrupoV2) -> dict[str, list[dict]]:
     """Detalle auditable de cada objetivo Amazon y del bid que se enviaria."""
     return {
@@ -146,7 +172,7 @@ def previsualizar(conn, solicitud: dict) -> dict:
         # A2: familia unica (slug) y aviso de mezcla para el preview.
         "familia": plan.familia,
         "advertencia_mezcla": plan.advertencia_mezcla,
-        "plan": _plan_como_json(plan),
+        "plan": _plan_con_procedencia_2dec(_plan_como_json(plan)),
         "bids": _bids_como_json(plan),
         "campanas": [
             {

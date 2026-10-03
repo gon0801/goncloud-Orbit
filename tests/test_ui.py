@@ -684,6 +684,43 @@ def test_ui_cero_no_se_pinta_como_dato_faltante(monkeypatch):
     _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
+def test_ui_campanas_target_null_pinta_hueco_visible(monkeypatch):
+    """A7r3 B3 (DeepSeek F2): campana sin hojas en el ultimo ciclo trae
+    target_efectivo null; el template debe pintar "—" en valor y chip,
+    nunca un "%" suelto ni un chip vacio (DASHBOARD.md decision 4)."""
+    monkeypatch.setattr("app.api_dashboard._hoy_utc", lambda: dt.date(2026, 8, 21))
+    with _db_temporal("orbit_ui_null") as (conn, dsn):
+        run = _run(conn)
+        camp = _campana(conn, "amazon_us", "9001", name="Campana B")
+        _metrica(
+            conn,
+            run,
+            camp,
+            dt.date(2026, 8, 20),
+            cost="1.0000",
+            ad_revenue="3.0000",
+            clicks=5,
+            moneda="USD",
+        )
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, current_bid, bid_currency,"
+            " status, synced_at) VALUES (%s, 1.00, 'USD', 'ENABLED', now())",
+            (camp,),
+        )
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn)
+        html = TestClient(app).get("/campanas").text
+        assert "Campana B" in html
+        assert '<td class="num">%</td>' not in html, "target null pinta % suelto"
+        assert '<span class="chip"></span>' not in html, "target null pinta chip vacio"
+        assert html.count('<span class="mutado">—</span>') == 2, (
+            "metricas completas: los unicos huecos son valor y chip del target"
+        )
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
 def test_ui_salud_muestra_nota_telegram_del_ciclo(monkeypatch):
     """ORBIT 04 3.3 (sellado 2): la NOTA notes['telegram'] — la unica
     visibilidad del fallo del canal — se MUESTRA en la pantalla de Salud del
