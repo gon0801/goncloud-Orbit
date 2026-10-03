@@ -100,7 +100,8 @@ def _aplica_motor_bid(nuevo: dict, cambios: list[str], platform: str, motor_bid:
             nuevo[k_motor] = motor_bid
     elif motor_bid == "":
         if k_motor in nuevo:
-            cambios.append(f"motor bid {nuevo.pop(k_motor)} -> ausente")
+            anterior = nuevo.pop(k_motor)
+            cambios.append(f"motor bid {anterior} -> ausente")
     else:
         raise SettingsInvalido(
             f"motor bid debe ser {g.VALOR_MOTOR_EVIDENCIA!r} o vacio, llego {motor_bid!r}"

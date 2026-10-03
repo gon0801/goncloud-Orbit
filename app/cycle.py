@@ -925,7 +925,9 @@ def _pendiente_bid(
     evidencia del grupo, clampeado a decided_at. A4: `evidencia_v2` llega
     YA SERIALIZADO del hook contrafactual (el vivo no lo consume; el replay
     lo re-decide con reproduce_evidencia_v2). A6: `politica_bandas_usada`
-    (inputs raiz) es la politica efectiva del vivo (viene del result)."""
+    (inputs raiz) es la politica efectiva del vivo (viene del result).
+    DECLARATIVA sin verifier (el replay compara kind/motivo/factor/value y
+    rutea por `via`): jamas fuente de rutado futura (interrogate A6)."""
     inputs = {
         "motor": "bid",
         "platform": platform,
@@ -1882,11 +1884,15 @@ def _procesa_decisora(
     # los mismos insumos congelados). El vivo NO lo consume.
     # A6-live: con el interruptor en evidencia NO hay segundo call (el
     # vivo DECIDIO con evidencia): se congelan SUS insumos + SU veredicto
-    # con via "decide". kind pause: el mismo marcador pause_intacto.
+    # con via "decide". kind pause: el mismo marcador pause_intacto. Costo
+    # declarado: en modo evidencia la fila pause/no-op YA gasto historia +
+    # cpc pre-vivo (desechados; precio de la llamada unica, interrogate A6).
     if resultado.kind == "pause":
         evidencia_v2 = {
             "politica": bid.POLITICA_BANDAS_EVIDENCIA,
             "via": "pause_intacto",
+            # Shape consistente con _evidencia_v2_json (interrogate A-nit3).
+            "abstencion_v2": None,
             "veredicto": {
                 "kind": "pause",
                 "motivo": resultado.motivo,

@@ -3062,7 +3062,8 @@ def test_evidencia_v2_congelada_shape_exacto():
 
         ins_pause = por[(ids["kw_pause"], "pause", None)][9]
         pause = ins_pause["evidencia_v2"]
-        assert set(pause) == {"politica", "via", "veredicto"}
+        assert set(pause) == {"politica", "via", "abstencion_v2", "veredicto"}
+        assert pause["abstencion_v2"] is None
         assert (pause["politica"], pause["via"]) == ("evidencia_v2", "pause_intacto")
         assert ins_pause["politica_bandas_usada"] == "bandas_v1"
         assert pause["veredicto"]["kind"] == "pause"
