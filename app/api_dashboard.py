@@ -820,12 +820,20 @@ def _fila_decision(fila) -> dict:
     if isinstance(frozen_v2, dict):
         veredicto = frozen_v2.get("veredicto") or {}
         motivo_v2 = veredicto.get("motivo")
+        # A6-r1 F1 (DeepSeek): en via=decide con fallback, el veredicto ES
+        # la decision viva v1 (no el resultado de v2): rotularlo "v2:"
+        # mentiria. Se muestra la abstencion v2 real + quien decidio.
+        abstencion = frozen_v2.get("abstencion_v2")
+        fallback = frozen_v2.get("via") == "decide" and abstencion is not None
+        motivo_mostrado = abstencion if fallback else motivo_v2
         evidencia_v2 = {
             "kind": veredicto.get("kind"),
-            "motivo": motivo_v2,
+            "motivo": motivo_mostrado,
             "motivo_es": (
-                MOTIVOS_ES_DECISIONES.get(motivo_v2, MOTIVOS_ES_SALUD.get(motivo_v2, motivo_v2))
-                if motivo_v2 is not None
+                MOTIVOS_ES_DECISIONES.get(
+                    motivo_mostrado, MOTIVOS_ES_SALUD.get(motivo_mostrado, motivo_mostrado)
+                )
+                if motivo_mostrado is not None
                 else None
             ),
             "factor": veredicto.get("factor"),
@@ -833,6 +841,7 @@ def _fila_decision(fila) -> dict:
             "mantiene": (
                 veredicto.get("kind") == fila[5] and veredicto.get("factor") == inputs.get("factor")
             ),
+            "fallback_v1": fallback,
         }
     harvest_job = None
     if fila[15] is not None:

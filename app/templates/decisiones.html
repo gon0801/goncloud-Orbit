@@ -17,7 +17,7 @@
         <td>{{ item.nombre or "—" }} <span class="detalle-celda mono">#{{ item.ad_entity_id }} · decision #{{ item.id }}</span></td>
         <td><span class="chip">{{ item.kind }}</span>{% if item.harvest_job %} <span class="chip">{{ item.harvest_job.fase_es }}</span> <span class="detalle-celda mono">job #{{ item.harvest_job.id }}</span>{% if item.harvest_job.hermanas_pendientes %} <span class="detalle-celda alerta">hermanas pendientes: {% for rol, motivo in item.harvest_job.hermanas_pendientes.items() %}{{ rol }}: {{ motivo }}{% if not loop.last %}, {% endif %}{% endfor %}</span>{% endif %}{% endif %}</td>
         <td>{{ item.search_term or "—" }}</td>
-        <td>{{ item.motivo_es or "—" }}{% if item.evidencia_v2 %} <span class="detalle-celda">v2: {{ item.evidencia_v2.motivo_es or "—" }}</span>{% endif %}</td>
+        <td>{{ item.motivo_es or "—" }}{% if item.evidencia_v2 %} <span class="detalle-celda">v2: {{ item.evidencia_v2.motivo_es or "—" }}{% if item.evidencia_v2.fallback_v1 %} (abstuvo, decidió v1){% endif %}</span>{% endif %}</td>
         <td class="num">{% if item.target_acos_pct_usado is none %}<span class="mutado">—</span>{% else %}{{ item.target_acos_pct_usado }}%{% endif %}</td>
         <td class="cambio">
           <span class="cambio-anterior">{{ item.old_value | dinero_ui if item.old_value is not none else '—' }}</span>

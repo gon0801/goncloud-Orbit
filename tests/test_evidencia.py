@@ -797,6 +797,7 @@ def test_compara_buckets_y_fold():
         "cambia_banda": 1,
         "pre_a4": 1,
         "vive_v2": 0,
+        "vive_v2_fallback": 0,
     }
     # cero_ventas se foldea al renglon -25 (res B12)
     assert resumen["por_motivo_v1"]["banda_menos_25"] == {
@@ -838,7 +839,8 @@ def test_compara_vive_v2_sin_clasificar():
     """A6-M18 (clasifica-decide): filas via=decide (vivo v2 o fallback)
     van a vive_v2 SIN clasificar (aunque el veredicto parezca
     cambia_banda); pause_intacto en modo evidencia sigue mantiene; las
-    contrafactual se clasifican como hoy."""
+    contrafactual se clasifican como hoy. A6-r1 F1: via=decide se PARTE
+    por abstencion_v2 (decidido-por-v2 vs decidido-por-fallback)."""
     from tools import compara_evidencia as ce
 
     filas = [
@@ -897,7 +899,8 @@ def test_compara_vive_v2_sin_clasificar():
         "quita": 1,
         "cambia_banda": 0,
         "pre_a4": 0,
-        "vive_v2": 2,
+        "vive_v2": 1,
+        "vive_v2_fallback": 1,
     }
     # vive_v2 no entra al detalle por motivo v1 (ahi no hay sombra).
     assert resumen["por_motivo_v1"] == {

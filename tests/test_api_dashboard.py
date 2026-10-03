@@ -2575,3 +2575,49 @@ def test_decisiones_feed_evidencia_v2_union_y_mantiene(monkeypatch):
         assert salud["motivo_es"] == "Rango [floor, ceiling] bloquea el ajuste"
 
         assert por_id[id_vieja]["evidencia_v2"] is None
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_decisiones_feed_fallback_muestra_abstencion_no_motivo_v1(monkeypatch):
+    """A6-r1 F1 (DeepSeek): fila via=decide con fallback (veredicto v1 vivo
+    + abstencion_v2): el feed muestra la ABSTENCION v2 real con marca de
+    fallback, NO el motivo v1 rotulado como v2. Sin el fix, el operador
+    lee 'v2: ACoS sobre...' y cree que v2 recorta cuando abstuvo."""
+    with _db_temporal("orbit_dash_a6f1") as (conn, dsn):
+        config_id = _config_version(conn, {"ads_optimizer_mode": "shadow"})
+        camp = _campana(conn, "amazon_us", "9001", name="Campana A")
+        _grupo(conn, "amazon_us", "9101", parent=camp)
+        ciclo = _ciclo(conn, platform="amazon_us")
+        id_fb = _decision(
+            conn,
+            ciclo,
+            camp,
+            kind="bid",
+            config_id=config_id,
+            moneda="USD",
+            inputs={
+                "motor": "bid",
+                "motivo": "banda_menos_25",
+                "factor": "-0.25",
+                "target_acos_pct_usado": "25.00",
+                "evidencia_v2": {
+                    "politica": "evidencia_v2",
+                    "via": "decide",
+                    "abstencion_v2": "evidencia_insuficiente",
+                    "veredicto": {
+                        "kind": "bid",
+                        "motivo": "banda_menos_25",
+                        "factor": "-0.25",
+                        "new_value": "0.7500",
+                    },
+                },
+            },
+        )
+        data = _cliente(dsn, monkeypatch).get("/api/dashboard/decisiones").json()
+        fb = {i["id"]: i for i in data["items"]}[id_fb]["evidencia_v2"]
+        assert fb["motivo"] == "evidencia_insuficiente"
+        assert fb["fallback_v1"] is True
+        assert "banda_menos_25" not in (fb["motivo"] or "")

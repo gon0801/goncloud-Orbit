@@ -114,13 +114,16 @@ def resume(filas: list[dict]) -> dict:
     buckets + detalle por motivo (foldeado) + nota de agrega. Sin clave
     evidencia_v2 (fila pre-A4) => se cuenta aparte (pre_a4), no se inventa.
     A6-live: fila via=decide => bucket vive_v2 SIN clasificar (ni
-    vocabulario ni invariantes: el veredicto ES el vivo, no una sombra)."""
+    vocabulario ni invariantes: el veredicto ES el vivo, no una sombra).
+    A6-r1 F1: via=decide se PARTE por abstencion_v2 (decidido-por-v2 vs
+    decidido-por-fallback-v1: mezclarlos mentiria el rollout)."""
     buckets: dict[str, int] = {
         "mantiene": 0,
         "quita": 0,
         "cambia_banda": 0,
         "pre_a4": 0,
         "vive_v2": 0,
+        "vive_v2_fallback": 0,
     }
     por_motivo: dict[str, dict[str, int]] = {}
     for fila in filas:
@@ -129,7 +132,10 @@ def resume(filas: list[dict]) -> dict:
             buckets["pre_a4"] += 1
             continue
         if frozen.get("via") == "decide":
-            buckets["vive_v2"] += 1
+            if frozen.get("abstencion_v2") is not None:
+                buckets["vive_v2_fallback"] += 1
+            else:
+                buckets["vive_v2"] += 1
             continue
         bucket = clasifica(fila["kind"], fila["motivo"], fila.get("factor"), frozen["veredicto"])
         buckets[bucket] += 1
