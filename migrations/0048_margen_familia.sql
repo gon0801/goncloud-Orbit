@@ -75,12 +75,15 @@ prod AS (
            COALESCE(SUM(co.fees_sin_tipo), 0) AS fees_sin_tipo,
            COUNT(DISTINCT v.amount_currency) AS n_monedas_ventas,
            MAX(v.amount_currency) AS moneda_ventas,
-           MAX(co.n_monedas) AS n_monedas_cargos,
+           -- Guard de moneda de los cargos, DOS casos (espejo 0018 D-3/D-4:
+           -- MAX(co.n_monedas) solo ve mezcla DENTRO de una orden;
+           -- COUNT(DISTINCT co.moneda) cierra la mezcla ENTRE ordenes).
+           GREATEST(MAX(co.n_monedas), COUNT(DISTINCT co.moneda)) AS n_monedas_cargos,
            MAX(co.moneda) AS moneda_cargos,
            MAX(o.n_monedas) AS n_monedas_orden,
            CASE
                WHEN COUNT(DISTINCT v.amount_currency) <> 1 THEN NULL
-               WHEN MAX(co.n_monedas) > 1 THEN NULL
+               WHEN GREATEST(MAX(co.n_monedas), COUNT(DISTINCT co.moneda)) > 1 THEN NULL
                WHEN MAX(co.moneda) IS NOT NULL
                     AND MAX(co.moneda) <> MAX(v.amount_currency)::text THEN NULL
                ELSE MAX(v.amount_currency)
@@ -186,6 +189,10 @@ SELECT a.platform,
            WHEN a.venta_cubierta / NULLIF(a.venta_total, 0) < 0.95 THEN NULL
            WHEN d.dias_con_venta < 30 THEN NULL
            WHEN a.n_monedas_orden > 1 THEN NULL
+           -- Espejo 0018: cargos de plataforma en > 1 moneda anulan aunque
+           -- MAX(moneda) coincida con la familiar (comparar solo MAX es
+           -- fail-open lexicografico).
+           WHEN COALESCE(p.n_monedas, 0) > 1 THEN NULL
            WHEN p.moneda IS NOT NULL AND p.moneda <> a.moneda_max::text THEN NULL
            WHEN vp.n_monedas > 1 THEN NULL
            ELSE 100.0 * (a.venta_cubierta + a.cargos_con_orden

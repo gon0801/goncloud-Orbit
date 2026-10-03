@@ -2223,6 +2223,11 @@ def _lee_familias_ciclo(
             "dias_con_venta": med.dias_con_venta,
             "motivo": res.motivo,
             "derivado": _dec_str(res.derivado),
+            # Ronda 2 F1: la web consume ESTE (recortado a banda, ultimo=None;
+            # nunca <= 0): el derivado crudo revienta la cascada cuando el
+            # margen es <= 0 (500 en /campanas). Precedente: target_aplicado
+            # del peldaño plataforma.
+            "aplicado": _dec_str(res.aplicado),
         }
     return _FamiliasCiclo(
         mediciones, padres, fam_por_campana, previos, fraccion, hoy, destino, notas
@@ -2367,7 +2372,11 @@ def _recorre_plataforma(
         evidencia_ad_groups=evidencia_ad_groups,
         bloqueadas=bloqueadas,
         margen_plataforma=target_ciclo.margen,
-        snapshot_margen=target_ciclo.snapshot,
+        # Ronda 2 CR-2312: las notas de TODAS las familias viven en
+        # notes.target (ahi las lee la web); copiarlas al inputs de cada
+        # decision con procedencia margen_plataforma multiplica el JSON por
+        # familias x decisiones. Se filtran aqui, no en notes.
+        snapshot_margen={k: v for k, v in target_ciclo.snapshot.items() if k != "familias"},
         familias_ciclo=familias_ciclo,
     )
     for fila in conn.execute(_SQL_DECISORAS, (platform,)).fetchall():

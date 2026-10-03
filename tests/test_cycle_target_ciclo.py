@@ -293,11 +293,24 @@ def _etiqueta(conn, pid, fid, platform="amazon_us"):
     )
 
 
-def _ledger_ventas(conn, pid, hoy, *, dias, precio, costo, platform="amazon_us", moneda="USD"):
+def _ledger_ventas(
+    conn,
+    pid,
+    hoy,
+    *,
+    dias,
+    precio,
+    costo,
+    platform="amazon_us",
+    moneda="USD",
+    fee_moneda_orden=None,
+):
     """`dias` ventas diarias de `precio` con costo `costo` + fee 10 % con
     orden: cobertura 1, margen = (precio - 0.1*precio - costo) / precio.
     `costo=None` = sin fila de costo (cobertura 0; el trigger prohibe
-    DELETE de vigencias, asi que la ausencia se siembra, no se borra)."""
+    DELETE de vigencias, asi que la ausencia se siembra, no se borra).
+    `fee_moneda_orden` = {indice_orden: moneda} para el fee (mezcla de cargos
+    ENTRE ordenes; el trigger append-only prohibe UPDATEs)."""
     run = _run(conn)
     if costo is not None:
         conn.execute(
@@ -315,11 +328,12 @@ def _ledger_ventas(conn, pid, hoy, *, dias, precio, costo, platform="amazon_us",
             " VALUES (%s, 'sale', %s, %s, %s, 1, %s, %s, %s)",
             (platform, fecha, orden, pid, precio, moneda, run),
         )
+        fee_mon = (fee_moneda_orden or {}).get(i, moneda)
         conn.execute(
             "INSERT INTO ledger_event (platform, kind, event_date, order_id, amount,"
             " amount_currency, fee_type, ingest_run_id)"
             " VALUES (%s, 'fee', %s, %s, %s, %s, 'referral', %s)",
-            (platform, fecha, orden, -precio // 10, moneda, run),
+            (platform, fecha, orden, -precio // 10, fee_mon, run),
         )
     conn.execute(
         "INSERT INTO ingest_run (source, finished_at, ok)"
@@ -409,6 +423,9 @@ def test_familia_20_target_camina_a_10_y_congela():
         notas = json.loads(res.notes)["target"]["familias"][str(ids["familia"])]
         assert notas["motivo"] is None
         assert Decimal(notas["derivado"]) == 10
+        # Ronda 2 F1: la nota trae el recortado a banda (la web consume
+        # este, nunca el crudo).
+        assert Decimal(notas["aplicado"]) == 10
 
 
 @pytest.mark.skipif(
@@ -590,3 +607,56 @@ def test_conciliacion_familia_de_un_producto_y_padre_sin_doble_conteo():
             ([pid_d, pid_s],),
         ).fetchone()
         assert tuple(raiz_f) == tuple(suma)
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_vista_familia_mezcla_cargos_entre_ordenes_anula():
+    """Ronda 2 (codex P1 / F2): cargos con orden en USD y MXN en ORDENES
+    distintas (cada orden una sola moneda): MAX(co.n_monedas) = 1 no lo ve;
+    el COUNT(DISTINCT co.moneda) espejo de 0018 D-3/D-4 anula moneda y
+    margen (sin el fix, MAX(moneda) = 'USD' coincide y publica margen)."""
+    with _db_temporal("orbit_c5_fxeo") as (conn, _c):
+        hoy = conn.execute("SELECT CURRENT_DATE").fetchone()[0]
+        pid, _l = _producto_con_listing(conn, "SKU-FXEO")
+        _ledger_ventas(conn, pid, hoy, dias=40, precio=100, costo=50, fee_moneda_orden={0: "MXN"})
+        fid = _familia(conn, "FxEo", "fxeo")
+        _etiqueta(conn, pid, fid)
+        margen, moneda = conn.execute(
+            "SELECT margen_neto_pct, moneda FROM v_margen_familia WHERE familia_id = %s",
+            (fid,),
+        ).fetchone()
+        assert (margen, moneda) == (None, None)
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_vista_familia_cargos_plataforma_multimoneda_anulan():
+    """Ronda 2 (F2): cargos SIN orden en USD y MXN: p.moneda = MAX = 'USD'
+    coincide con la familiar; solo el guard p.n_monedas > 1 (espejo 0018)
+    anula el margen. `moneda` sigue siendo la de ventas ('USD', espejo
+    0018: solo diagnostica, no gobierna con margen NULL)."""
+    with _db_temporal("orbit_c5_fxpl") as (conn, _c):
+        hoy = conn.execute("SELECT CURRENT_DATE").fetchone()[0]
+        pid, _l = _producto_con_listing(conn, "SKU-FXPL")
+        _ledger_ventas(conn, pid, hoy, dias=40, precio=100, costo=50)
+        run = _run(conn)
+        fecha = hoy - dt.timedelta(days=20)
+        for mon in ("USD", "MXN"):
+            conn.execute(
+                "INSERT INTO ledger_event (platform, kind, event_date, amount,"
+                " amount_currency, fee_type, ingest_run_id)"
+                " VALUES ('amazon_us', 'withholding', %s, -5, %s, 'isr', %s)",
+                (fecha, mon, run),
+            )
+        fid = _familia(conn, "FxPl", "fxpl")
+        _etiqueta(conn, pid, fid)
+        margen, moneda = conn.execute(
+            "SELECT margen_neto_pct, moneda FROM v_margen_familia WHERE familia_id = %s",
+            (fid,),
+        ).fetchone()
+        assert (margen, moneda) == (None, "USD")

@@ -622,12 +622,13 @@ def _target_margen_del_ciclo(conn, plataforma: str) -> Decimal | None:
         return None
 
 
-def _derivados_familia_del_ciclo(conn, plataforma: str) -> dict[int, Decimal]:
-    """DERIVADO por familia segun el ULTIMO ciclo done (A5, espejo de
+def _targets_familia_del_ciclo(conn, plataforma: str) -> dict[int, Decimal]:
+    """Target por familia segun el ULTIMO ciclo done (A5, espejo de
     _target_margen_del_ciclo). Fuente UNICA: notes.target.familias — la web
-    NO re-resuelve. El dashboard muestra el DERIVADO (numero de la familia),
-    no el aplicado por hoja (las hojas convergen a el a ±0.5/ciclo:
-    divergencia transitoria declarada). Fail-soft por entrada."""
+    NO re-resuelve. Se consume `aplicado` (recortado a banda, el numero al
+    que las hojas convergen), NUNCA el derivado crudo: con margen <= 0 el
+    crudo es <= 0 y revienta la cascada (500 en /campanas, F1 ronda 2).
+    Fail-soft por entrada."""
     fila = conn.execute(_SQL_TARGET_MARGEN_ULTIMO, (plataforma,)).fetchone()
     notes = _parse_notes(fila[0]) if fila else None
     if notes is None:
@@ -638,7 +639,7 @@ def _derivados_familia_del_ciclo(conn, plataforma: str) -> dict[int, Decimal]:
     familias = bloque.get("familias")
     if not isinstance(familias, dict):
         return {}
-    derivados: dict[int, Decimal] = {}
+    targets: dict[int, Decimal] = {}
     for fid, nota in familias.items():
         if not isinstance(nota, dict):
             continue
@@ -646,14 +647,14 @@ def _derivados_familia_del_ciclo(conn, plataforma: str) -> dict[int, Decimal]:
             fid_int = int(fid)
         except (TypeError, ValueError):
             continue
-        derivado = nota.get("derivado")
-        if derivado is None:
+        aplicado = nota.get("aplicado")
+        if aplicado is None:
             continue
         try:
-            derivados[fid_int] = Decimal(str(derivado))
+            targets[fid_int] = Decimal(str(aplicado))
         except (InvalidOperation, ValueError, ArithmeticError):
             continue
-    return derivados
+    return targets
 
 
 def _fila_campana(
@@ -732,13 +733,13 @@ def campanas(
         target_margen = _target_margen_del_ciclo(conn, plataforma)
         # A5: el peldano familiar es POR CAMPANA: mapa campana -> familia
         # efectiva (MISMO SQL y MISMA regla pura que el motor: cero drift) +
-        # derivados del ultimo ciclo. Sin familia o sin derivado -> None.
+        # targets del ultimo ciclo. Sin familia o sin target -> None.
         pares = [
             (fila[0], fila[1])
             for fila in conn.execute(ciclo._SQL_PAREJAS_CAMPANA_FAMILIA, (plataforma,)).fetchall()
         ]
         fam_por_campana = g.familia_efectiva_por_campana(pares)
-        derivados = _derivados_familia_del_ciclo(conn, plataforma)
+        targets_fam = _targets_familia_del_ciclo(conn, plataforma)
         for fila in conn.execute(_SQL_CAMPANAS_30D, (plataforma, desde, hasta)).fetchall():
             fam_id = fam_por_campana.get(fila[0])
             items.append(
@@ -749,7 +750,7 @@ def campanas(
                     settings,
                     plataforma,
                     target_margen,
-                    derivados.get(fam_id) if fam_id is not None else None,
+                    targets_fam.get(fam_id) if fam_id is not None else None,
                 )
             )
     return {"items": items}

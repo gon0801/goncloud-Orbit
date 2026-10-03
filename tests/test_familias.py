@@ -355,9 +355,12 @@ def test_origen_meta_exige_familia():
             familias.origen_meta_familia(conn, "amazon_mx", 424242)
 
 
+@_skip_db
 def test_origen_meta_mide_y_cae_con_motivo():
-    """A5: familia en notes con derivado y sin motivo -> su margen; con
-    motivo -> la meta del pais con la etiqueta ES del motivo."""
+    """A5: familia en notes con aplicado y sin motivo -> su margen; con
+    motivo -> la meta del pais con la etiqueta ES del motivo. Ronda 2: la
+    web consume `aplicado` (recortado), NUNCA el derivado crudo: con margen
+    <= 0 el crudo es <= 0 y mostrarlo mentiria el target (F1)."""
     import json
 
     with db_familias() as conn:
@@ -368,12 +371,22 @@ def test_origen_meta_mide_y_cae_con_motivo():
             " VALUES ('amazon_mx', 'live', 'done', %s)",
             (
                 json.dumps(
-                    {"target": {"familias": {str(fid): {"derivado": "10.0", "motivo": None}}}}
+                    {
+                        "target": {
+                            "familias": {
+                                str(fid): {
+                                    "derivado": "-25.0",
+                                    "aplicado": "10",
+                                    "motivo": None,
+                                }
+                            }
+                        }
+                    }
                 ),
             ),
         )
         assert familias.origen_meta_familia(conn, "amazon_mx", fid) == (
-            "10.0",
+            "10",
             "margen de la familia",
         )
         conn.execute(
@@ -383,7 +396,13 @@ def test_origen_meta_mide_y_cae_con_motivo():
                 json.dumps(
                     {
                         "target": {
-                            "familias": {str(fid): {"derivado": None, "motivo": "cobertura_baja"}}
+                            "familias": {
+                                str(fid): {
+                                    "derivado": None,
+                                    "aplicado": None,
+                                    "motivo": "cobertura_baja",
+                                }
+                            }
                         }
                     }
                 ),

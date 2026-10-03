@@ -2818,6 +2818,10 @@ def test_freeze_margen_gana_con_procedencia_y_snapshot():
         assert inputs["target_procedencia"] == "margen_plataforma"
         assert Decimal(inputs["target_snapshot"]["margen_neto_pct"]) == 40
         assert inputs["target_snapshot"]["target_aplicado"] == "29.5"
+        # Ronda 2 CR-2312: las notas de familias viven en notes.target, no
+        # copiadas en cada decision (familias x decisiones).
+        assert "familias" not in inputs["target_snapshot"]
+        assert "familias" in target
         assert reproduce(inputs) == (bids[0][1], bids[0][4], bids[0][5])
 
 

@@ -167,8 +167,9 @@ SELECT f.id, f.nombre, f.slug, f.padre_id, COUNT(pf.product_id) AS productos,
 
 def arbol(conn, platform: str, hoy: dt.date | None = None) -> list[dict]:
     """Arbol de la plataforma: familias con sus hijas, conteo de productos
-    (etiqueta directa, sin heredar), ventas 90d, target familiar (derivado)
-    y origen de meta. Las notas se leen UNA vez (no N+1 por nodo)."""
+    (etiqueta directa, sin heredar), ventas 90d, target familiar (aplicado,
+    recortado a banda) y origen de meta. Las notas se leen UNA vez (no N+1
+    por nodo)."""
     _valida_plataforma(platform)
     if hoy is None:
         hoy = dt.datetime.now(dt.UTC).date()
@@ -316,20 +317,22 @@ def _notas_familias(conn, platform: str) -> dict:
 
 
 def _origen_de_nota(nota) -> tuple[str | None, str]:
-    """(target_derivado, origen) desde UNA nota de notes.target.familias
-    (UNICA regla: arbol() y origen_meta_familia la comparten)."""
+    """(target_aplicado, origen) desde UNA nota de notes.target.familias
+    (UNICA regla: arbol() y origen_meta_familia la comparten). Se consume
+    `aplicado` (recortado a banda), NUNCA el derivado crudo (<= 0 con
+    margen <= 0, F1 ronda 2)."""
     if not isinstance(nota, dict):
         return (None, ORIGEN_META_PAIS)
     motivo = nota.get("motivo")
     if motivo is None:
-        derivado = nota.get("derivado")
-        return (str(derivado) if derivado is not None else None, ORIGEN_MARGEN_FAMILIA)
+        aplicado = nota.get("aplicado")
+        return (str(aplicado) if aplicado is not None else None, ORIGEN_MARGEN_FAMILIA)
     etiqueta = ETIQUETA_ABSTENCION.get(motivo, motivo)
     return (None, f"{ORIGEN_META_PAIS} ({etiqueta})")
 
 
 def origen_meta_familia(conn, platform: str, familia_id: int) -> tuple[str | None, str]:
-    """Target (derivado, str) y origen ES de una familia. Mide -> su margen;
+    """Target (aplicado, str) y origen ES de una familia. Mide -> su margen;
     motivo -> la meta del pais con el motivo; sin notas -> la meta del pais.
     A5 especializa la costura A2 (firma str -> tupla: sin callers previos)."""
     _valida_plataforma(platform)

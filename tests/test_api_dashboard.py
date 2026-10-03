@@ -1057,6 +1057,74 @@ def test_campanas_procedencia_en_los_5_peldanos(monkeypatch):
     _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
+def test_campanas_peldano_margen_familia_y_crudo_negativo_no_revienta(monkeypatch):
+    """Ronda 2 F1/F3: septimo peldano via el ENDPOINT. Campana con
+    product_ad -> producto etiquetado + ciclo done con notes.target.familias:
+    el endpoint publica el APLICADO (recortado a banda) con procedencia
+    margen_familia. Con margen <= 0 el derivado crudo es <= 0: consumirlo
+    reventaba la cascada (ValueError -> 500 en TODA la pantalla); el
+    aplicado 10 no revienta."""
+    with _db_temporal("orbit_dash_fam7") as (conn, dsn):
+        run = _run(conn)
+        _config_version(conn, {"ads_optimizer_mode": "shadow"})
+        camp = _campana(conn, "amazon_us", "9501", name="F")
+        ag = _grupo(conn, "amazon_us", "9502", camp)
+        pid = conn.execute(
+            "INSERT INTO product (odoo_sku, name) VALUES ('SKU-F7', 'F7') RETURNING id"
+        ).fetchone()[0]
+        lid = conn.execute(
+            "INSERT INTO listing (product_id, platform, external_id, seller_sku)"
+            " VALUES (%s, 'amazon_us', 'ASIN-F7', 'SS-F7') RETURNING id",
+            (pid,),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id, parent_id, listing_id)"
+            " VALUES ('amazon_us', 'product_ad', '9503', %s, %s)",
+            (ag, lid),
+        )
+        fid = conn.execute(
+            "INSERT INTO familia (platform, nombre, slug) VALUES ('amazon_us', 'F7', 'f7')"
+            " RETURNING id"
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO producto_familia (product_id, platform, familia_id)"
+            " VALUES (%s, 'amazon_us', %s)",
+            (pid, fid),
+        )
+        _ciclo(
+            conn,
+            platform="amazon_us",
+            notes=json_dumps(
+                {
+                    "target": {
+                        "familias": {
+                            str(fid): {"derivado": "-25.0", "aplicado": "10", "motivo": None}
+                        }
+                    }
+                }
+            ),
+        )
+        _metrica(
+            conn,
+            run,
+            camp,
+            dt.date(2026, 8, 20),
+            cost="1.0000",
+            ad_revenue="3.0000",
+            clicks=1,
+            moneda="USD",
+        )
+        _hoy(monkeypatch, dt.date(2026, 8, 24))
+        resp = _cliente(dsn, monkeypatch).get("/api/dashboard/campanas")
+        assert resp.status_code == 200, resp.text
+        por_id = {i["ad_entity_id"]: i for i in resp.json()["items"]}
+        assert por_id[camp]["target_efectivo"] == {"valor": "10", "peldano": "margen_familia"}
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
 def test_campanas_goal_estado_resuelto_y_metricas_string(monkeypatch):
     """DoD: estado VIVO del goal RESUELTO (campaña > plataforma, decision 17);
     goal null sin goal (regla 3); dinero string; metricas 30d con acos y
