@@ -3333,6 +3333,54 @@ def test_swap_live_contrafactual_entre_politicas():
         assert reproduce_bandas_v1(insp) == insp["bandas_v1"]["veredicto"]
 
 
+def test_pin_contrafactual_v1_noop_bajo_vivo_v2_bid():
+    """A7 Pin2 (residual A6-r2 1): bajo evidencia_v2, hoja con ventana de
+    cortes incompleta pero posterior suficiente: el vivo v2 decide bid y el
+    contrafactual v1 se congela no-op tal cual (kind None, no "bid")."""
+    from app.optimizer.replay import reproduce_bandas_v1
+
+    with _db_temporal("orbit_pin_cf_noop") as (conn, _c):
+        ids = _siembra_maestra(conn, settings={"ads_bid_politica_amazon_us": "evidencia_v2"})
+        _fondo_maduro(conn, ids["kw_pause"])
+        kw = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "9203",
+            parent=ids["ag"],
+            match_type="EXACT",
+            keyword_text="kw parcial",
+        )
+        _estado(
+            conn,
+            kw,
+            synced_at=DECIDED_AT - dt.timedelta(hours=4),
+            current_bid=Decimal("1.00"),
+            bid_currency="USD",
+        )
+        run = _run(conn)
+        for fecha in _rango(dt.date(2026, 8, 8), dt.date(2026, 8, 12)):
+            _metrica(
+                conn,
+                run,
+                kw,
+                fecha,
+                _obs(fecha),
+                cost="13.00",
+                ad_revenue="30.00",
+                clicks=40,
+                orders=1,
+                impressions=400,
+            )
+        res = _corre(conn)
+        assert res.status == "done"
+        (fila,) = [f for f in _decisions_de(conn, res.cycle_id) if f[0] == kw]
+        assert (fila[1], fila[9]["evidencia_v2"]["via"]) == ("bid", "decide")
+        assert fila[9]["bandas_v1"]["via"] == "contrafactual"
+        assert fila[9]["bandas_v1"]["veredicto"]["kind"] is None
+        assert reproduce_bandas_v1(fila[9]) == fila[9]["bandas_v1"]["veredicto"]
+
+
 def test_motor_bid_corrupto_tumba_ciclo_fail_closed():
     """A6: clave presente pero corrupta => ciclo failed (fail-closed,
     igual que un target/fraccion/confianza corruptos: jamas habilita v2

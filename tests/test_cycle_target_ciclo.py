@@ -1076,8 +1076,8 @@ def _snapshot_bid(conn, cycle_id, kw):
     _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
-def test_pin5_subfamilia_etiquetada_aplica_su_margen():
-    """A7 Pin5a: campana etiquetada con la SUBFAMILIA que mide: el peldano
+def test_subfamilia_etiquetada_aplica_su_margen():
+    """A7: campana etiquetada con la SUBFAMILIA que mide: el peldano
     aplica el margen de la hija (familia_usada = hija), no el del padre."""
     with _db_temporal("orbit_c5_pin5a") as (conn, _c):
         ids = _mundo_familia(conn)
@@ -1099,8 +1099,8 @@ def test_pin5_subfamilia_etiquetada_aplica_su_margen():
     _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
-def test_pin5_padre_solo_reintento_si_hija_abstiene():
-    """A7 Pin5b: hija etiquetada sin ventas (abstiene) + padre que mide: el
+def test_padre_solo_reintento_si_hija_abstiene():
+    """A7: hija etiquetada sin ventas (abstiene) + padre que mide: el
     peldano reintenta al padre (familia_usada = padre, motivo None)."""
     with _db_temporal("orbit_c5_pin5b") as (conn, _c):
         ids = _mundo_familia(conn, dias=0)
@@ -1126,17 +1126,17 @@ def test_pin5_padre_solo_reintento_si_hija_abstiene():
     _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
-def test_pin4_previo_familiar_con_cobertura_baja_clampa_al_destino():
-    """A7 Pin4: hoja con previo margen_familia (29.5) cuya familia se
+def test_previo_familiar_con_cobertura_baja_clampa_al_destino():
+    """A7: hoja con previo margen_familia (29.5) cuya familia se
     invalida (cobertura 0 con historia larga): el peldano NO cae en seco
     — CLAMPA al destino 30.0 con motivo cobertura_baja (kimi-H1: sin
     salto de salida ni skip). 203 contados = 163 fijos (300 sembrados,
     la vista corta en 2026-02-20) + 40 re-etiquetados de CURRENT_DATE
     (disjuntos desde oct-2026: estable hacia adelante)."""
-    with _db_temporal("orbit_c5_pin4") as (conn, _c):
+    with _db_temporal("orbit_c5_cobertura") as (conn, _c):
         ids = _mundo_familia(conn)
         pid_b, _ = _producto_con_listing(conn, "SKU-PIN4")
-        fid_b = _familia(conn, "Pin4", "pin4")
+        fid_b = _familia(conn, "Cobertura", "cobertura")
         _etiqueta(conn, pid_b, fid_b)
         _ledger_ventas(conn, pid_b, dt.date(2026, 8, 22), dias=300, precio=100, costo=None)
         r1 = _corre(conn)

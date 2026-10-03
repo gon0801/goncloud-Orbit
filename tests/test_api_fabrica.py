@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import importlib.util
+import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -1028,8 +1029,6 @@ def test_crear_manual_no_finito_422_sin_filas(escenario, valor):
     listing = conn.execute(
         "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx'", (ids[0],)
     ).fetchone()[0]
-    import json
-
     v2 = _solicitud_v2(
         solicitud, [listing], objetivo={"origen": "manual_lanzamiento", "acos_pct": valor}
     )
@@ -1042,7 +1041,23 @@ def test_crear_manual_no_finito_422_sin_filas(escenario, valor):
         content=cuerpo,
     )
     assert respuesta.status_code == 422
+    assert "no es finito" in respuesta.text  # discrimina: en trunk era "valid string"
     assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone()[0] == 0
+
+
+def test_crear_error_ajeno_sigue_generico_sin_input(escenario):
+    """A7 B8: el passthrough del "no es finito" no abre la puerta: otros
+    errores de validacion siguen con el generico y sin input crudo."""
+    cliente, conn, solicitud, _, _ids = escenario
+    v2 = _solicitud_v2(solicitud, [], objetivo={"origen": "margen_medido"})
+    respuesta = cliente.post(
+        "/api/fabrica/crear",
+        headers=HEADERS,
+        json={"solicitud": v2, "huella": "0" * 64, "confirmacion": "CREAR 5 CAMPAÑAS"},
+    )
+    assert respuesta.status_code == 422
+    assert "Los datos no son válidos" in respuesta.text
+    assert "margen_medido" not in respuesta.text
 
 
 # ---------------------------------------------------------------------------

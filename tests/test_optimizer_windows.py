@@ -1765,8 +1765,8 @@ def test_cpc_vigente_slices_e_historia():
             w.cpc_vigente(conn, hoja, "ayer", ventana)  # type: ignore[arg-type]
 
 
-def test_pin2_hoja_nueva_hereda_familia_en_previa():
-    """A7 Pin2 (herencia A4r3 + regla A5): hoja sin filas en D-90..D-10
+def test_hoja_nueva_hereda_familia_en_previa():
+    """A7 (herencia A4r3 + regla A5): hoja sin filas en D-90..D-10
     bajo campana etiquetada: su previa trae el nivel familia con la
     conversion de sus hermanas (SIN resta: la hoja nueva no esta en los
     agregados). A nivel ciclo es inalcanzable (cortes completo implica

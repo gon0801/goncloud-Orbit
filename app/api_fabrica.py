@@ -42,8 +42,14 @@ class _RutaFabrica(APIRoute):
         async def sin_input_privado(request):
             try:
                 return await manejar(request)
-            except RequestValidationError:
+            except RequestValidationError as exc:
                 # Pydantic incluye input crudo (incluidos extras como token).
+                # Excepcion A7 B8: el "no es finito" no lleva el valor (frase
+                # fija del validador) y el plan exige el mensaje, no el generico.
+                for error in exc.errors():
+                    mensaje = str(error.get("msg", ""))
+                    if "no es finito" in mensaje:
+                        raise fw.error(422, mensaje) from None
                 raise fw.error(
                     422, "Los datos no son válidos. Revisa los campos y la confirmación."
                 ) from None
