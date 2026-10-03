@@ -83,10 +83,10 @@ def clasifica(live_kind: str, live_motivo: str, live_factor: str | None, veredic
     """Bucket de UNA decision (pura, testeable): mantiene | quita |
     cambia_banda. Invariantes estructurales (res A14, ambas direcciones):
     pause->bid y bid->pause son IMPOSIBLES (pause_intacto + mismo bloque
-    pause): si aparecen, es un bug y se levanta, no se clasifica."""
-    motivo_v2 = veredicto.get("motivo")
-    if motivo_v2 not in _MOTIVOS_V2:
-        raise ValueError(f"motivo v2 fuera del vocabulario cerrado: {motivo_v2!r}")
+    pause): si aparecen, es un bug y se levanta, no se clasifica. El
+    vocabulario cerrado aplica SOLO a filas bid (veredicto v2 DECIDIDO):
+    en filas pause el motivo congelado es eco del vivo (cualquiera de
+    los pause, ej pause_economica) y no se valida (r3, F1)."""
     kind_v2 = veredicto.get("kind")
     if live_kind == "pause" and kind_v2 != "pause":
         raise ValueError(f"invariante roto: pause viva con v2 kind={kind_v2!r}")
@@ -94,6 +94,9 @@ def clasifica(live_kind: str, live_motivo: str, live_factor: str | None, veredic
         raise ValueError("invariante roto: bid viva con v2 pause (mismo bloque)")
     if live_kind == "pause":
         return "mantiene"
+    motivo_v2 = veredicto.get("motivo")
+    if motivo_v2 not in _MOTIVOS_V2:
+        raise ValueError(f"motivo v2 fuera del vocabulario cerrado: {motivo_v2!r}")
     if kind_v2 != "bid":
         return "quita"
     if veredicto.get("factor") == live_factor:

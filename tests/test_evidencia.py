@@ -656,6 +656,13 @@ def test_compara_vocabulario_cerrado_e_invariantes():
         )
         == "quita"
     )
+    # Fila pause: el motivo congelado es eco del vivo (no se valida).
+    assert (
+        ce.clasifica(
+            "pause", "pause_economica", None, {"kind": "pause", "motivo": "pause_economica"}
+        )
+        == "mantiene"
+    )
     with pytest.raises(ValueError, match="vocabulario cerrado"):
         ce.clasifica("bid", "banda_menos_12", "-0.12", {"kind": "bid", "motivo": "motivo_futuro"})
     with pytest.raises(ValueError, match="invariante roto"):
