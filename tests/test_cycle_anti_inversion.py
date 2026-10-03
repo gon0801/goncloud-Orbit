@@ -122,6 +122,7 @@ def _corre_hoja(monkeypatch, *, bids, historia, cooldown=False, cortes=None):
         conv_jerarquica=_CONV_VACIA,
         confianza_recorte=Decimal("0.80"),
         confianza_subida=Decimal("0.70"),
+        motor_evidencia=False,
     )
     return pendientes, contadores, consultas
 
