@@ -1131,6 +1131,47 @@ def test_familia_sin_fraccion_corta_y_no_reintenta_padre():
     assert (res.aplicado, res.motivo, res.convergiendo) == (None, "sin_fraccion", False)
 
 
+def test_familia_orden_fraccion_antes_que_etiqueta():
+    """A5-r2 (B1b): con etiqueta Y fraccion ausentes el motivo es sin_fraccion
+    (la fase apagada corta en seco, sin converger: publicar margen_familia
+    apagado mentiria el peldano). Deliberado, pineado."""
+    res, _ganadora = g.resuelve_target_margen_familia(
+        None, None, None, _HOY_A5, Decimal("29"), Decimal("30"), tiene_previo=True
+    )
+    assert (res.aplicado, res.motivo, res.convergiendo) == (None, "sin_fraccion", False)
+
+
+def test_familia_sin_familia_con_previo_converge_y_satura_como_plataforma():
+    """A5-r2 (B1b): etiqueta None + previo familiar: converge al destino a
+    <=0.5 con motivo sin_familia (nunca sin_margen). Con destino 50 (setting
+    manual fuera de banda) satura en 45.5 como la plataforma (paridad H4),
+    no camina sin cota."""
+    res, _ganadora = g.resuelve_target_margen_familia(
+        None, None, Decimal("0.5"), _HOY_A5, Decimal("29"), Decimal("30"), tiene_previo=True
+    )
+    assert (res.aplicado, res.motivo, res.convergiendo) == (
+        Decimal("29.5"),
+        "sin_familia",
+        True,
+    )
+    borde, _g2 = g.resuelve_target_margen_familia(
+        None, None, Decimal("0.5"), _HOY_A5, Decimal("45"), Decimal("50"), tiene_previo=True
+    )
+    assert (borde.aplicado, borde.motivo, borde.convergiendo) == (
+        Decimal("45.5"),
+        "sin_familia",
+        True,
+    )
+    sat, _g3 = g.resuelve_target_margen_familia(
+        None, None, Decimal("0.5"), _HOY_A5, Decimal("45.5"), Decimal("50"), tiene_previo=True
+    )
+    assert sat.aplicado == Decimal("45.5")
+    caida, _g4 = g.resuelve_target_margen_familia(
+        None, None, Decimal("0.5"), _HOY_A5, Decimal("29"), Decimal("30"), tiene_previo=False
+    )
+    assert (caida.aplicado, caida.motivo) == (None, "sin_familia")
+
+
 def test_peldano_familia_gana_entre_goal_y_plataforma():
     """Precedencia: goal > margen_familia > margen_plataforma > setting."""
     valor, peldano = g.cascada_target_acos_con_procedencia(

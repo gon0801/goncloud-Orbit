@@ -865,6 +865,26 @@ def ratio_ads_publicable(
     return suma_ads
 
 
+def _converge_al_destino(
+    ultimo: Decimal | None, destino: Decimal | None, motivo: str
+) -> ResolucionMargen:
+    """UN paso kimi-H1 hacia `destino` (A5-r2, B1b): extraccion EXACTA de la
+    rama kimi-H1/H4 (pre-clamp del ancla a banda + 3 disyuntos + paso <=0.5).
+    Sin ancla, sin destino o ya en el destino -> None (el peldano cae y el
+    siguiente lo toma al mismo numero: converger termina donde caer no duele).
+    El llamador de plataforma pasa setting, el familiar pasa destino."""
+    # kimi H4: el ancla se clampa a la banda ANTES de usarla (si viene del
+    # setting manual y alguien dejo ahi un 50, el paso anclado a 50 anularia
+    # el clamp de banda). Con setting 50 la caminata satura en 45.5, paridad
+    # plataforma/familia (no cota: cerrar 45.5 seria rediseno de plataforma).
+    if ultimo is not None:
+        ultimo = min(max(ultimo, MARGEN_BANDA_MIN), MARGEN_BANDA_MAX)
+    if ultimo is None or destino is None or ultimo == destino:
+        return ResolucionMargen(None, None, motivo, False)
+    hacia = min(max(destino, ultimo - MARGEN_PASO_MAX), ultimo + MARGEN_PASO_MAX)
+    return ResolucionMargen(hacia, None, motivo, True)
+
+
 def resuelve_target_margen(
     medicion: MedicionMargen,
     fraccion: Decimal | None,
@@ -890,7 +910,7 @@ def resuelve_target_margen(
     # `ultimo` es el ancla del paso. Se clampea a la banda ANTES de usarlo
     # (cross-review kimi H4): si viene del setting manual y alguien dejo ahi
     # un 50, el paso anclado a 50 produciria un aplicado de 49.5 y el clamp de
-    # banda quedaria anulado por el paso.
+    # banda quedaria anulado por el paso. El helper re-clampa (idempotente).
     if ultimo is not None:
         ultimo = min(max(ultimo, MARGEN_BANDA_MIN), MARGEN_BANDA_MAX)
     motivo = _motivo_dato_invalido(medicion, hoy, dias_min)
@@ -905,10 +925,8 @@ def resuelve_target_margen(
         # <=0.5/ciclo: sin salto de salida ni de re-entrada, y en pocos dias
         # queda en el setting si el dato no vuelve. `retorno` marca que el
         # valor ya no lo manda el margen (el snapshot lo declara).
-        if ultimo is None or setting is None or ultimo == setting:
-            return ResolucionMargen(None, None, motivo, False)
-        hacia = min(max(setting, ultimo - MARGEN_PASO_MAX), ultimo + MARGEN_PASO_MAX)
-        return ResolucionMargen(hacia, None, motivo, True)
+        # A5-r2: cuerpo extraido a _converge_al_destino (dedup con sin_familia).
+        return _converge_al_destino(ultimo, setting, motivo)
     derivado = fraccion * medicion.margen_neto_pct
     # derivado se DEVUELVE crudo (snapshot + linea fuera-de-banda); el
     # clamp solo alimenta al aplicado (D-2.3.10).
@@ -992,18 +1010,27 @@ def resuelve_target_margen_familia(
     del paso (ultimo aplicado DE LA HOJA ?? plataforma ?? setting);
     `destino` = reemplazo al abstener (plataforma ?? setting): la
     convergencia kimi-H1 camina hacia el destino, no al setting (B-F3: hacia
-    el setting re-entra con salto). `tiene_previo` = la hoja trae aplicado
-    previo (trayectoria que proteger): sin previo + dato invalido -> None
-    (cae a plataforma, L5); con previo + dato invalido -> converge.
+    el setting re-entra con salto). `tiene_previo` = el previo DE LA HOJA es
+    margen_familia (trayectoria que proteger: con previo de otro peldano la
+    hoja cae, no converge).
     `sin_fraccion` corta la cadena (la fraccion es de plataforma: reintentar
     al padre daria lo mismo). Banda y paso identicos a plataforma (plan).
     Devuelve (resolucion, ganadora): "etiqueta" | "padre" | None (None =
-    nadie midio; el snapshot la usa para familia_usada)."""
-    if etiqueta is None:
-        return (ResolucionMargen(None, None, "sin_familia", False), None)
+    nadie midio; el snapshot la usa para familia_usada).
+    Orden A5-r2 (B1b): fraccion ANTES que etiqueta (la fase apagada corta en
+    seco, sin converger: publicar margen_familia apagado mentiria el peldano;
+    con etiqueta+fraccion ausentes el motivo es sin_fraccion, deliberado)."""
     fraccion = _valida_fraccion(fraccion)
     if fraccion is None:
         return (ResolucionMargen(None, None, "sin_fraccion", False), None)
+    if etiqueta is None:
+        # B1b: sin familia efectiva pero CON trayectoria familiar, la hoja
+        # converge al destino a <=0.5/ciclo como cualquier dato invalido
+        # (mismo precipicio kimi-H1: caer de golpe seria el salto 29->30).
+        # Motivo sin_familia (no sin_margen: no hubo medicion que invalidar).
+        if not tiene_previo:
+            return (ResolucionMargen(None, None, "sin_familia", False), None)
+        return (_converge_al_destino(ultimo, destino, "sin_familia"), None)
     res_etiqueta = resuelve_target_margen(
         etiqueta, fraccion, hoy, ultimo, destino, MARGEN_DIAS_MIN_FAMILIA
     )

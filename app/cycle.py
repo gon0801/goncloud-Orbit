@@ -478,8 +478,11 @@ SELECT camp.id AS campana_id, pf.familia_id, f.padre_id
 # A5: ultimo target aplicado POR HOJA (ancla del paso familiar). Sin filtro
 # de procedencia (B-F9: la trayectoria es el ultimo numero, venga del
 # peldano que venga); live + done, anterior al ciclo (espejo plataforma).
+# A5-r2: tambien lee la procedencia. Separacion deliberada: el ANCLA (ultimo)
+# sigue sin filtro, pero la BANDERA tiene_previo solo vale con previo
+# margen_familia (espejo _resuelve_target_ciclo:2101). No filtrar ultimo.
 _SQL_TARGETS_PREVIOS = """
-SELECT DISTINCT ON (t.ad_entity_id) t.ad_entity_id, t.target_acos_pct
+SELECT DISTINCT ON (t.ad_entity_id) t.ad_entity_id, t.target_acos_pct, t.procedencia
   FROM target_acos_ciclo t
   JOIN optimizer_cycle c ON c.id = t.cycle_id
  WHERE c.platform = %s::platform AND c.mode = 'live' AND c.status = 'done'
@@ -2170,7 +2173,7 @@ class _FamiliasCiclo:
     mediciones: dict[int, g.MedicionMargen]
     padres: dict[int, int | None]
     fam_por_campana: dict[int, int | None]
-    previos: dict[int, Decimal]
+    previos: dict[int, tuple[Decimal, str]]
     fraccion: Decimal | None
     hoy: dt.date
     destino: Decimal | None
@@ -2211,7 +2214,7 @@ def _lee_familias_ciclo(
             padres[fila[1]] = fila[2]
     fam_por_campana = g.familia_efectiva_por_campana(pares)
     previos = {
-        fila[0]: fila[1]
+        fila[0]: (fila[1], fila[2])
         for fila in conn.execute(_SQL_TARGETS_PREVIOS, (platform, cycle_id)).fetchall()
     }
     notas: dict[int, dict] = {}
@@ -2251,7 +2254,11 @@ def _margen_familia_de_hoja(
     padre_id = familias.padres.get(fam_id) if fam_id is not None else None
     padre = familias.mediciones.get(padre_id) if padre_id is not None else None
     previo = familias.previos.get(hoja_id) if hoja_id is not None else None
-    ultimo = previo if previo is not None else familias.destino
+    # A5-r2 (B1): el ANCLA es el ultimo numero sin filtro (B-F9), pero la
+    # BANDERA tiene_previo exige previo margen_familia (con previo de otro
+    # peldano la hoja cae a plataforma, no converge con valor ajeno).
+    ultimo = previo[0] if previo is not None else familias.destino
+    tiene_previo = previo is not None and previo[1] == "margen_familia"
     res, ganadora = g.resuelve_target_margen_familia(
         etiqueta,
         padre,
@@ -2259,13 +2266,19 @@ def _margen_familia_de_hoja(
         familias.hoy,
         ultimo,
         familias.destino,
-        tiene_previo=previo is not None,
+        tiene_previo=tiene_previo,
     )
     if res.aplicado is None:
         return (None, None)
     usada = {"etiqueta": fam_id, "padre": padre_id}.get(ganadora if ganadora else "")
-    med_ref = {"etiqueta": etiqueta, "padre": padre}.get(ganadora if ganadora else "", etiqueta)
-    assert med_ref is not None
+    # B1b: sin_familia convergente no tiene medicion: NULLs honestos (solo
+    # cuando etiqueta es None; etiqueta invalida convergente conserva la suya
+    # como antes). Con ganadora, med_ref existe (el assert lo sigue exigiendo).
+    if ganadora is None and etiqueta is None:
+        med_ref = g.MEDICION_NULA
+    else:
+        med_ref = {"etiqueta": etiqueta, "padre": padre}.get(ganadora if ganadora else "", etiqueta)
+        assert med_ref is not None
     snapshot = {
         "margen_neto_pct": _dec_str(med_ref.margen_neto_pct),
         "cobertura": _dec_str(med_ref.cobertura),

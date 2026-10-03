@@ -660,3 +660,110 @@ def test_vista_familia_cargos_plataforma_multimoneda_anulan():
             (fid,),
         ).fetchone()
         assert (margen, moneda) == (None, "USD")
+
+
+def _a_live(conn, cycle_id):
+    """Marca un ciclo previo como live (_SQL_TARGETS_PREVIOS solo lee live+done)."""
+    conn.execute("UPDATE optimizer_cycle SET mode = 'live' WHERE id = %s", (cycle_id,))
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_familia_invalida_con_previo_plataforma_cae_a_plataforma():
+    """B1a (repro A del lead): familia con cobertura 0.80 (margen NULL) y hoja
+    con previo de margen_plataforma: la hoja CAE a plataforma (29.0
+    margen_plataforma), no converge con valor ajeno bajo procedencia familiar.
+    Sin el filtro == margen_familia, el ciclo 2 congela 29.0 margen_familia."""
+    with _db_temporal("orbit_c5_b1a") as (conn, _c):
+        ids = _mundo_familia(conn, suelto_dias=70)
+        conn.execute("DELETE FROM producto_familia")
+        r1 = _corre(conn)
+        assert r1.status == "done", r1.notes
+        t1 = _targets_de(conn, r1.cycle_id)[ids["kw"]]
+        assert (t1[2], t1[3]) == (Decimal("29.5"), "margen_plataforma")
+        _a_live(conn, r1.cycle_id)
+        pid = conn.execute("SELECT id FROM product WHERE odoo_sku='SKU-FAM'").fetchone()[0]
+        _etiqueta(conn, pid, ids["familia"])
+        hoy = conn.execute("SELECT CURRENT_DATE").fetchone()[0]
+        pid2, _l2 = _producto_con_listing(conn, "SKU-SIN-COSTO")
+        _ledger_ventas(conn, pid2, hoy, dias=10, precio=100, costo=None)
+        _etiqueta(conn, pid2, ids["familia"])
+        cob = conn.execute(
+            "SELECT cobertura, margen_neto_pct FROM v_margen_familia WHERE familia_id=%s",
+            (ids["familia"],),
+        ).fetchone()
+        assert cob[0] < Decimal("0.95") and cob[1] is None
+        r2 = _corre(conn)
+        assert r2.status == "done", r2.notes
+        t2 = _targets_de(conn, r2.cycle_id)[ids["kw"]]
+        assert (t2[2], t2[3]) == (Decimal("29.0"), "margen_plataforma")
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_hoja_sin_familia_efectiva_converge_sin_salto():
+    """B1b (repro B del lead): hoja con trayectoria familiar que pierde familia
+    efectiva (campana mezclada) converge al destino a <=0.5/ciclo con motivo
+    sin_familia, en vez de saltar a plataforma. Terna derivada corriendo:
+    29.5 -> 29.0 -> 29.5, toda margen_familia. El 29.0 del ciclo 2 mata M4
+    (sin ancla por hoja quedaria en 29.5)."""
+    with _db_temporal("orbit_c5_b1b") as (conn, _c):
+        ids = _mundo_familia(conn)
+        vistos = []
+        for _ in range(2):
+            r = _corre(conn)
+            assert r.status == "done", r.notes
+            t = _targets_de(conn, r.cycle_id)[ids["kw"]]
+            vistos.append((t[2], t[3]))
+            _a_live(conn, r.cycle_id)
+        assert vistos == [
+            (Decimal("29.5"), "margen_familia"),
+            (Decimal("29.0"), "margen_familia"),
+        ]
+        hoy = conn.execute("SELECT CURRENT_DATE").fetchone()[0]
+        ag = conn.execute(
+            "SELECT id FROM ad_entity WHERE kind='ad_group' AND external_id='9402'"
+        ).fetchone()[0]
+        pid3, lid3 = _producto_con_listing(conn, "SKU-OTRA-FAM")
+        _ledger_ventas(conn, pid3, hoy, dias=40, precio=100, costo=70)
+        _etiqueta(conn, pid3, _familia(conn, "Otra", "otra"))
+        _product_ad(conn, ag, lid3, "PA-OTRA")
+        r3 = _corre(conn)
+        assert r3.status == "done", r3.notes
+        t3 = _targets_de(conn, r3.cycle_id)[ids["kw"]]
+        vistos.append((t3[2], t3[3]))
+        assert vistos[2] == (Decimal("29.5"), "margen_familia")
+        assert abs(vistos[2][0] - vistos[1][0]) <= Decimal("0.5")
+        bids = [d for d in _decisions_de(conn, r3.cycle_id) if d[1] == "bid"]
+        assert len(bids) == 1
+        snap = bids[0][9]["target_snapshot"]
+        assert bids[0][9]["target_procedencia"] == "margen_familia"
+        assert snap["motivo"] == "sin_familia"
+        assert snap["familia_etiqueta"] is None and snap["familia_usada"] is None
+        assert snap["margen_neto_pct"] is None
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_vista_familia_dias_distintos_no_suma_por_producto():
+    """B2/M5: dos productos de la misma familia vendiendo los MISMOS 20 dias:
+    dias_con_venta = 20 (COUNT DISTINCT), no 40; con 20 < 30 el margen es NULL.
+    Con COUNT(*) el mutante publica margen."""
+    with _db_temporal("orbit_c5_m5") as (conn, _c):
+        hoy = conn.execute("SELECT CURRENT_DATE").fetchone()[0]
+        fid = _familia(conn, "Doble", "doble")
+        for sku in ("SKU-M5-A", "SKU-M5-B"):
+            pid, _l = _producto_con_listing(conn, sku)
+            _ledger_ventas(conn, pid, hoy, dias=20, precio=100, costo=50)
+            _etiqueta(conn, pid, fid)
+        dias, margen = conn.execute(
+            "SELECT dias_con_venta, margen_neto_pct FROM v_margen_familia WHERE familia_id = %s",
+            (fid,),
+        ).fetchone()
+        assert (dias, margen) == (20, None)
