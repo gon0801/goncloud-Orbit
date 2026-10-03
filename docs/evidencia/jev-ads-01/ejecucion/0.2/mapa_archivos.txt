@@ -40,3 +40,10 @@ test_ui_fabrica.py
 0047_familias.sql
 0048_margen_familia.sql
 zsh:1: no matches found: migrations/0049_*.sql
+
+## Migraciones: ultimas ocupadas y numero libre
+0045_sin_aplicar_choque_clave.sql
+0046_target_acos_ciclo.sql
+0047_familias.sql
+0048_margen_familia.sql
+0049 LIBRE (ninguna migrations/0049_*)

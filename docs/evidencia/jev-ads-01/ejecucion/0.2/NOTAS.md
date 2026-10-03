@@ -75,8 +75,11 @@ implementar" del §1.
   `jev_ficha_revocacion`, `jev_revision` y `jev_par_evento` y ninguna existe
   todavía.
 - **Fichas sintéticas existentes:** `docs/evidencia/jev-ads-01/prototipo/fixtures.json`,
-  16 casos author-written con `provenance: "synthetic author-written fixture
-  v1"`. Prueban el contrato del prototipo, no productos reales.
+  12 casos con `synthetic: true` por caso y `synthetic_only: true` a nivel de
+  archivo (`fixture_version: 1`, `expectations_fixed_before_live: true`), sin
+  campo `provenance` por caso. Prueban el contrato del prototipo, no productos
+  reales. (Corregido en verificación cruzada: una versión previa de esta nota
+  decía 16 casos y atribuía un campo `provenance` que no existe.)
 - **Roster: `desconocido`.** El censo observa MX 342 publicaciones de 249
   productos y US 176 de 119, todas con producto; pero la sincronización no
   demuestra universo completo (estados ausentes y padres omitidos son
