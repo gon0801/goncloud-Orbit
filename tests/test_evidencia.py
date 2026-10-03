@@ -1,9 +1,9 @@
 """Tests de tabla de la politica por evidencia (A4).
 
 Pinnean los casos del diseno (CPC 3 MXN, target 20.8 %, previa 2.1 %,
-AOV 1000): 0/16 -> nada, 0/100 -> -12, 0/150 -> -25 (CF); hoja nueva
-hereda familia; Gamma contra oraculos independientes (suma
-complemento a prec 100, acuerdo serie<->CF, formas cerradas a=1
+AOV 1000): 0/16 -> nada, 0/100 -> -12, 0/150 -> -25 (complemento); hoja
+nueva hereda familia (mapeo estructural r3); Gamma contra oraculos
+independientes (suma complemento a prec 100, formas cerradas a=1
 verificables con calculadora); mutante "ignora confianzas" muerto por
 casos no-default (registrado: MUTANTE-A4-CONF).
 """
