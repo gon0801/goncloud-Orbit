@@ -304,8 +304,9 @@ manda para la implementación; este párrafo es el spec delta sellado:
   setting_plataforma, cache_estado, default), compatible con el camino del
   motor — la capa web jamás la reimplementa.
 - **Target derivado del margen (ORBIT 06 Fase 2, sello del dueño 2026-09-03)**:
-  la cascada pasa a SEIS peldaños — `goal_campana → goal_plataforma →
-  margen_plataforma → setting_plataforma → cache_estado → default`. El
+  la cascada pasa a SIETE peldaños — `goal_campana → goal_plataforma →
+  margen_familia (A5: fraccion × margen de la familia) → margen_plataforma →
+  setting_plataforma → cache_estado → default`. El
   peldaño `margen_plataforma` = `fraccion × margen neto antes de publicidad`
   de la plataforma (ledger, 90 días maduros `[D-105, D-15)`, cargos sin
   `fee_type = ads`, COGS a la fecha, misma moneda, cobertura ≥ 95 %), con
