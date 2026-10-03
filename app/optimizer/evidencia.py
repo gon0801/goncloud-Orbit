@@ -266,12 +266,15 @@ def resta_conteo(acum: Conteo | None, grano: Conteo) -> Conteo | None:
 
 
 def _resta_ent(a: int | None, b: int | None) -> int | None:
+    """Resta leave-one-out entera, fail-closed: veneno None se propaga,
+    resto negativo -> None (jamas clamp a 0: inventaria densidad)."""
     if a is None or b is None:
         return None
     return a - b if a >= b else None
 
 
 def _resta_dec(a: Decimal | None, b: Decimal | None) -> Decimal | None:
+    """Resta leave-one-out decimal, fail-closed (espejo de _resta_ent)."""
     if a is None or b is None:
         return None
     return a - b if a >= b else None
