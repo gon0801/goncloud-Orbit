@@ -28,11 +28,8 @@ def _dec_str(valor) -> str | None:
 
 
 def _dos_dec(valor) -> str | None:
-    """Target para PANTALLA: 2 decimales (UNICO hogar canonico, A7: jamas
-    dos copias). Cuantiza Decimal("0.01") con HALF_EVEN EXPLICITO (ley
-    Python: mismo modo que fabrica_plan:335 y _dinero_2 de api_dashboard;
-    el default del contexto global nadie lo mira). El motor y el freeze
-    guardan exacto; el redondeo vive solo en este borde."""
+    """Target para PANTALLA a 2 decimales. HALF_EVEN explicito (no el
+    default del contexto): mismo modo que fabrica_plan:335."""
     if valor is None:
         return None
     return str(Decimal(str(valor)).quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN))
