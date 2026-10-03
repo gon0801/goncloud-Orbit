@@ -1,3 +1,5 @@
+**2026-10-03 UTC — ACOS por evidencia: A1-A6 mergeadas y desplegadas; sin registro en AppFlowy.** PRs #381-#386 en master y en produccion (md5 de `goals.py`/`cycle.py` iguales a master; migraciones 0047 y 0048 aplicadas; goals 8-12 sin target fijo). La politica de bids sigue en `bandas_v1`: el paso de MX a `evidencia_v2` espera 14 ciclos de sombra de A4 (MX 1/14, US 0/14; no antes de ~2026-10-16) y el criterio de menos de un tercio de recortes con replay exacto; US va 7 ciclos live de MX despues. La meta por familia (A5) no actua mientras no haya familias etiquetadas en `/familias` (hoy 0). A7 (residuales de revision de A1-A6) en curso con Muse. Desde hoy el trabajo de Orbit ya no se registra en AppFlowy: el seguimiento vive en `plans/`, `docs/evidencia/` y este archivo (#387).
+
 **2026-10-02 UTC — FABRICA 02 D.4 CERRADA: candado `origen_es_destino` en produccion y job 2 remediado.** #378 (Muse, revision del lead APROBADO en ronda 1) + #379 (master estaba rojo desde #376 por `plans/manifest.json`; bateria completa 3485 passed); deploy `8d4890a` por el dueno con `!`. Remediacion con go «D.4 archivar negativo origen job 2»: el negativo 92333897493675 quedo ARCHIVED (ledger `reversa` 384 sin cuota) y la EXACT 197174507964917 de «arras matrimoniales de oro» sigue ENABLED a 2.50 y ya puede servir. Evidencia: `docs/evidencia/fabrica-02/D.4/remediacion.md`.
 
 **2026-10-01 UTC — ORBIT 05 CERRADA (2.3 y 2.5).** El motor ya aplico solo tres harvests MX hacia la terna del goal 4 (Arras Manual): jobs 2, 3 y 4 (15, 19 y 20-sep), cola `applied`, `verify_ok`, ledger sellado; LIST de Amazon: las EXACT de los jobs 3 y 4 ENABLED con bid 2.50 y sin duplicados. Post-flip: cero shadow no terminal, config 21 `live`, goals 4-12 `live`, caps bid 45 / pause 5 / negative 15 / harvest 2, quota MX bid 45/45 el 30-sep; checklist APPLY §12 marcado con fechas. **Defecto encontrado**: el job 2 cosecho desde el mismo ad group que el destino y su `NEGATIVE_EXACT` (92333897493675, ENABLED) bloquea su propia keyword; el candado `origen_es_destino` solo existe en el camino de grupo. Nueva fila `plans/fabrica-02.md` D.4 (Muse): candado en excepcion y terna con prueba roja + remediacion sellada del job 2 (`reversa_harvest.py --job 2` da 0 pendientes). Evidencia: `docs/evidencia/orbit-05/cierre-2026-10-01.md`.
@@ -1349,6 +1351,11 @@ escribe nada a Amazon hasta pasar validación humana (el "apply" llega en PR2).
   ingesta). Ninguna clave `precio_*` está sembrada en la config. Lo que sigue
   es del dueño: A.1 (sembrar goals, dependencia de A.5), la sonda A.4, el acta E.2 y aplicar la
   0039 (D.1); la corrida diaria es A.5.
+- **ACOS por evidencia (A1-A6, 2026-10-03)**: mergeado y desplegado. Meta del grupo de
+  fábrica por margen, familias en dos niveles (`/familias`), confianzas por plataforma,
+  pujas por evidencia en sombra y meta por familia; la política de bids sigue en
+  `bandas_v1` hasta 14 ciclos de sombra (MX 1/14; no antes de ~2026-10-16). A7
+  (residuales de revisión) en curso. Sin registro en AppFlowy desde esta fecha.
 - **Datos reales ya en la base viva** (Postgres en el server `goncloud`):
   5,897 entidades, ~22,000 observaciones de métricas, ~6,900 de search terms.
 
@@ -1363,7 +1370,6 @@ escribe nada a Amazon hasta pasar validación humana (el "apply" llega en PR2).
   checkpoints humanos en Phase 4: elegir campañas piloto (4.3) y el
   spot-check manual de ≥20 decisiones del primer shadow (4.4).
 - Un PR por phase; nada llega a master sin CI verde y reviews atendidas.
-- Registro de trabajo: fila `ORBIT 04` en AppFlowy (EHV Tasks).
 
 ## Arquitectura (mapa de carpetas)
 
@@ -1462,8 +1468,7 @@ PR1 'live' degrada a shadow (fail-closed).
   abierto por phase en curso).
 - **Base de datos viva**: Postgres en el server `goncloud` (Docker, solo
   localhost; acceso por túnel SSH).
-- **Tracker**: AppFlowy (notion.goncloud.cc), grid EHV Tasks, fila
-  `ORBIT 03 — PR1 optimizador: SHADOW completo (cero escrituras a Amazon)`.
+- **Tracker**: los planes de `plans/` y la evidencia de `docs/evidencia/` (sin espejo en AppFlowy desde 2026-10-03).
 - **Fuentes de verdad**: `docs/CONTEXTO.md` (reglas), `docs/traspaso/
   ADS_OPTIMIZER_V2_DESIGN.md` (umbrales), `docs/DATABASE.md` (schema),
   `plans/orbit-03.md` (plan y estado por tarea).

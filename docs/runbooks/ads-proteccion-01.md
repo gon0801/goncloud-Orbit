@@ -150,8 +150,8 @@ dueno algo que este runbook ya responde.
 5. Bateria completa una vez por SHA final en CI; durante implementacion solo
    focalizados; `ruff check` + `ruff format` antes de cada push
    (line-length 100). Cada bug, con prueba que falla en codigo previo.
-6. Espejo en AppFlowy (EHV Tasks, skill `appflowy-ehv-task`): el hito en
-   curso en `In progress`, al cerrar en `Done` con notas y enlaces a PR/evidencia.
+6. (Retirado 2026-10-03: el seguimiento vive solo en el plan y en
+   `docs/evidencia/`. Se conserva el numero para no mover las reglas citadas.)
 7. Telegram (fallos, atrasos, recovery, propuestas C.4): destino desde el
    cron existente, nunca pegado en el repo; contrato `pending/sent` de A.3
    para toda entrega (fallo de canal = `pending` + reintento acotado).
@@ -353,8 +353,7 @@ ssh goncloud "$PSQL_READ -c \"SELECT id, mode FROM ads_optimizer_goal WHERE id I
 
 ### H7 — cierre
 
-Ledger del plan (decisiones, gos con cita, SHAs, fechas UTC), AppFlowy a
-`Done`, y `plans/ads-proteccion-01.md` con estados finales en PR de cierre
+Ledger del plan (decisiones, gos con cita, SHAs, fechas UTC) y `plans/ads-proteccion-01.md` con estados finales en PR de cierre
 con CI verde (go de merge). Lo no bloqueante pendiente va a fila del plan y
 se nombra en el PR; un bloqueante nunca se mergea abierto.
 
@@ -385,7 +384,7 @@ se nombra en el PR; un bloqueante nunca se mergea abierto.
 | 5 | Fallo real durante observacion A.4 | Registrar aviso+recovery como evidencia; si el aviso falla, A.4 no cierra y se abre correccion como PR nuevo con su go de merge |
 | 6 | Parada en shadow H5/H6 | Congelar live; diagnosticar contra replay; reanudar o revertir solo con go nuevo |
 | 7 | Dueno pide cambio de alcance | Pausar hito; PR al plan (como #336) + ajuste a este runbook; retomar tras H0a/H0b nuevos |
-| 8 | Sesion/lead muere a mitad | Estado en `docs/evidencia/ads-proteccion-01/<hito>/` + AppFlowy; el siguiente lead retoma desde el ultimo hito sin go |
+| 8 | Sesion/lead muere a mitad | Estado en `docs/evidencia/ads-proteccion-01/<hito>/`; el siguiente lead retoma desde el ultimo hito sin go |
 | 9 | Runbook contradice al plan | Gana el plan; pausar hito; PR de correccion al runbook; retomar tras merge |
 
 ## Inventario y cierre del runbook

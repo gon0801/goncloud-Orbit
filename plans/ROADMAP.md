@@ -8,8 +8,6 @@ editar) cruzado con `plans/manifest.json`, TODOs por plan
 (auditados), y follow-ups de evidencia. Este archivo es el índice
 ejecutable: estado real + secuencia + pendientes. No es plan
 harness (sin tasks propias); los stubs viven en `plans/`.
-Espejo de seguimiento: grid EHV Tasks en AppFlowy (tareas AUTO-01..10
-+ plan activo; el repo manda, AppFlowy refleja).
 
 Regla: antes de implementar cada función nueva, plan formal con
 alcance, fuente verificada, contrato de decisión, dependencias,
@@ -163,7 +161,6 @@ no se asignan fechas ni presupuestos aquí.
   (`bids-01` 1.5, `cortes-ui-01` 1.2, `orbit-02` 3.4 y `orbit-05`
   2.3/2.5), más la sonda `fabrica-01` tarea 11; docs/
   (specs/briefs/evidencia =
-  históricos), AppFlowy y código (0 TODO reales). Faltantes
+  históricos) y código (0 TODO reales). Faltantes
   hallados y agregados: sonda fábrica t11 + causa
-  conciliación. Cero huérfanos conocidos. Espejo AppFlowy:
-  tareas AUTO-01..10 + plan activo en EHV Tasks.
+  conciliación. Cero huérfanos conocidos.
