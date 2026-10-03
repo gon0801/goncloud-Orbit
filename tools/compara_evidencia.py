@@ -8,10 +8,15 @@ CONFIA en lo congelado, no re-decide (eso lo hace --verificar). Buckets:
 mantiene (mismo kind+factor), quita (bid vivo -> v2 no actua), cambia_banda
 (bid vivo -> bid v2 con OTRO factor).
 
+A6-live: las filas via=decide (el vivo DECIDIO con evidencia) van al bucket
+vive_v2 SIN clasificar (la sombra termino para esa plataforma: compara
+detiene mantiene/quita/cambia_banda ahi, no los extiende).
+
 LIMITACION ESTRUCTURAL DECLARADA (no escondida como cero): el "agrega puro"
 (silencio v1 -> bid v2) es INVISIBLE en A4 porque los no-op v1 no tienen
-fila donde congelar; aparece con A6-live. Este tool reporta agrega_puro
-como no-medible, jamas como 0.
+fila donde congelar, y en A6-live porque las filas decide no llevan
+contrafactual v1 (compara DETIENE la sombra, no la extiende). Este tool
+reporta agrega_puro como no-medible, jamas como 0.
 
 Cero mutaciones. DSN: ORBIT_DSN_READ via app.db.connect. SOLO SELECT.
 
@@ -107,13 +112,24 @@ def clasifica(live_kind: str, live_motivo: str, live_factor: str | None, veredic
 def resume(filas: list[dict]) -> dict:
     """Resume puro sobre filas {id, kind, motivo, factor, evidencia_v2}:
     buckets + detalle por motivo (foldeado) + nota de agrega. Sin clave
-    evidencia_v2 (fila pre-A4) => se cuenta aparte (pre_a4), no se inventa."""
-    buckets: dict[str, int] = {"mantiene": 0, "quita": 0, "cambia_banda": 0, "pre_a4": 0}
+    evidencia_v2 (fila pre-A4) => se cuenta aparte (pre_a4), no se inventa.
+    A6-live: fila via=decide => bucket vive_v2 SIN clasificar (ni
+    vocabulario ni invariantes: el veredicto ES el vivo, no una sombra)."""
+    buckets: dict[str, int] = {
+        "mantiene": 0,
+        "quita": 0,
+        "cambia_banda": 0,
+        "pre_a4": 0,
+        "vive_v2": 0,
+    }
     por_motivo: dict[str, dict[str, int]] = {}
     for fila in filas:
         frozen = fila.get("evidencia_v2")
         if not isinstance(frozen, dict) or "veredicto" not in frozen:
             buckets["pre_a4"] += 1
+            continue
+        if frozen.get("via") == "decide":
+            buckets["vive_v2"] += 1
             continue
         bucket = clasifica(fila["kind"], fila["motivo"], fila.get("factor"), frozen["veredicto"])
         buckets[bucket] += 1
@@ -125,8 +141,9 @@ def resume(filas: list[dict]) -> dict:
         "buckets": buckets,
         "por_motivo_v1": por_motivo,
         "agrega_puro": (
-            "NO MEDIBLE en A4: los no-op v1 no tienen fila donde congelar el "
-            "contrafactual (estructural, no cero). Aparece con A6-live."
+            "NO MEDIBLE: en A4 los no-op v1 no tienen fila donde congelar el "
+            "contrafactual, y en A6-live las filas decide no llevan "
+            "contrafactual v1 (estructural, no cero)."
         ),
     }
 
@@ -166,8 +183,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--verificar",
         action="store_true",
-        help="re-decide cada contrafactual con reproduce_evidencia_v2 y exige"
-        " igualdad con lo congelado (lane-8-continuo)",
+        help="re-decide cada bloque evidencia_v2 con reproduce_evidencia_v2"
+        " (contrafactual, decide y pause_intacto) y exige igualdad con lo"
+        " congelado (lane-8-continuo)",
     )
     parser.add_argument("--json", action="store_true", help="salida JSON")
     args = parser.parse_args(argv)
@@ -219,7 +237,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  {motivo}: {celdas}")
     print(f"agrega_puro: {resumen['agrega_puro']}")
     if args.verificar:
-        print("verificar: OK (todo contrafactual reproduce exacto)")
+        print("verificar: OK (todo bloque evidencia_v2 reproduce exacto)")
     return 0
 
 

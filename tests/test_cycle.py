@@ -3281,3 +3281,68 @@ def test_motor_bid_corrupto_tumba_ciclo_fail_closed():
         assert status == "failed"
         assert json.loads(notes)["error"].startswith("setting ads_motor_bid")
         assert conn.execute("SELECT count(*) FROM decision").fetchone()[0] == 0
+
+
+def test_replay_decide_fallback_reproduce_vivo_exacto():
+    """A6-M17 (replay-sin-fallback): fila via=decide con fallback =
+    reproduce() Y reproduce_evidencia_v2() re-deciden el vivo EXACTO
+    (banda v1 congelada). Sin fallback en el replay, la previa None
+    daria abstencion != lo congelado. Shape decide == contrafactual."""
+    from app.optimizer.replay import reproduce, reproduce_evidencia_v2
+
+    with _db_temporal("orbit_ciclo_a6r") as (conn, _c):
+        ids = _siembra_maestra(conn, settings={"ads_motor_bid_amazon_us": "evidencia"})
+        res = _corre(conn)
+        assert res.status == "done"
+        filas = _decisions_de(conn, res.cycle_id)
+        vistas = 0
+        for fila in filas:
+            ins = fila[9]
+            if ins.get("motor") != "bid":
+                continue
+            vistas += 1
+            assert reproduce(ins) == (fila[1], fila[4], fila[5])
+            assert reproduce_evidencia_v2(ins) == ins["evidencia_v2"]["veredicto"]
+        assert vistas >= 2
+        ev2 = [f[9] for f in filas if f[0] == ids["kw_bid"]][0]["evidencia_v2"]
+        assert ev2["via"] == "decide"
+        assert ev2["abstencion_v2"] == "evidencia_insuficiente"
+        assert set(ev2) == {
+            "politica",
+            "via",
+            "abstencion_v2",
+            "confianza_recorte_usada",
+            "confianza_subida_usada",
+            "moneda",
+            "ventana_madura",
+            "previa",
+            "conversion",
+            "cpc",
+            "veredicto",
+        }
+
+
+def test_replay_decide_v2_puro_reproduce_vivo_exacto():
+    """A6-M17b (replay-decide-v2): fila via=decide con banda v2 =
+    reproduce() y reproduce_evidencia_v2() re-deciden el vivo EXACTO
+    (v2 puro, sin abstencion)."""
+    from app.optimizer.replay import reproduce, reproduce_evidencia_v2
+
+    with _db_temporal("orbit_ciclo_a6r2") as (conn, _c):
+        ids = _siembra_maestra(conn, settings={"ads_motor_bid_amazon_us": "evidencia"})
+        _fondo_maduro(conn, ids["kw_pause"])
+        res = _corre(conn)
+        assert res.status == "done"
+        filas = _decisions_de(conn, res.cycle_id)
+        vistas = 0
+        for fila in filas:
+            ins = fila[9]
+            if ins.get("motor") != "bid":
+                continue
+            vistas += 1
+            assert reproduce(ins) == (fila[1], fila[4], fila[5])
+            assert reproduce_evidencia_v2(ins) == ins["evidencia_v2"]["veredicto"]
+        assert vistas >= 2
+        ev2 = [f[9] for f in filas if f[0] == ids["kw_bid"]][0]["evidencia_v2"]
+        assert ev2["via"] == "decide"
+        assert ev2["abstencion_v2"] is None

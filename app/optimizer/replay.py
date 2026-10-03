@@ -89,20 +89,41 @@ def _replay_bid(inputs: dict, target: Decimal | None = None) -> bid.ResultadoBid
         if corte is not None and corte.get("cero_ventas_expected_usado") is not None
         else None
     )
-    return bid.decide_bid(
-        platform=inputs["platform"],
-        bids=_agregado_sintetico(inputs["ventanas"]["bids"]),
-        cortes=_agregado_sintetico(inputs["ventanas"]["cortes"]),
-        target_acos_pct=target if target is not None else Decimal(inputs["target_acos_pct_usado"]),
-        bid_actual=_dec_de_json(inputs["bid_actual"]),
-        bid_moneda=inputs["bid_moneda"],
-        floor=Decimal(goal["bid_floor"]),
-        ceiling=Decimal(goal["bid_ceiling"]),
-        umbral_pause=umbral_pause,
-        cost_min=cost_min,
-        expected_clicks=expected,
-        policy_version=(inputs.get("economic_policy") or {}).get("version"),
-    )
+    args = {
+        "platform": inputs["platform"],
+        "bids": _agregado_sintetico(inputs["ventanas"]["bids"]),
+        "cortes": _agregado_sintetico(inputs["ventanas"]["cortes"]),
+        "target_acos_pct": (
+            target if target is not None else Decimal(inputs["target_acos_pct_usado"])
+        ),
+        "bid_actual": _dec_de_json(inputs["bid_actual"]),
+        "bid_moneda": inputs["bid_moneda"],
+        "floor": Decimal(goal["bid_floor"]),
+        "ceiling": Decimal(goal["bid_ceiling"]),
+        "umbral_pause": umbral_pause,
+        "cost_min": cost_min,
+        "expected_clicks": expected,
+        "policy_version": (inputs.get("economic_policy") or {}).get("version"),
+    }
+    # A6-live: fila via=decide = el vivo DECIDIO con evidencia: se
+    # rejuega con los parciales + confianzas congelados y fallback_v1
+    # (los MISMOS 5 params del vivo; via mapea fallback). Cualquier otra
+    # via (ausente/contrafactual/pause_intacto) = vivo v1, como hoy (el
+    # pause no consume params v2 en ninguna era).
+    bloque = inputs.get("evidencia_v2") or {}
+    if bloque.get("via") == "decide":
+        previa = _previa_de_json(bloque["previa"])
+        conversion = _conversion_de_json(bloque["conversion"])
+        cpc = _cpc_de_json(bloque["cpc"])
+        return bid.decide_bid(
+            **args,
+            evidencia=evidencia.clasifica(previa, conversion, cpc),
+            politica_bandas=bid.POLITICA_BANDAS_EVIDENCIA,
+            confianza_recorte=Decimal(bloque["confianza_recorte_usada"]),
+            confianza_subida=Decimal(bloque["confianza_subida_usada"]),
+            fallback_v1=True,
+        )
+    return bid.decide_bid(**args)
 
 
 def _replay_hygiene(inputs: dict) -> hygiene.ResultadoTermino:
@@ -184,7 +205,9 @@ def reproduce_evidencia_v2(inputs: dict) -> dict | None:
     evidencia + las confianzas congeladas. Filas pre-A4 (sin la clave) ->
     None (sin constantes REPLAY_*: v2 no tiene era). Filas pause_intacto:
     re-ejecuta _replay_bid (camino v1) y EXIGE kind pause + MISMO motivo
-    (res A13: el marcador copia el vivo, y el replay lo verifica)."""
+    (res A13: el marcador copia el vivo, y el replay lo verifica). Filas
+    decide (A6-live): el veredicto congelado ES el vivo (v2 + fallback):
+    DELEGA en _replay_bid (el MISMO camino del spot-check, cero drift)."""
     frozen = inputs.get("evidencia_v2")
     if frozen is None:
         return None
@@ -199,6 +222,14 @@ def reproduce_evidencia_v2(inputs: dict) -> dict | None:
             "motivo": vivo.motivo,
             "factor": None,
             "new_value": None,
+        }
+    if frozen.get("via") == "decide":
+        veredicto = _replay_bid(inputs)
+        return {
+            "kind": veredicto.kind,
+            "motivo": veredicto.motivo,
+            "factor": str(veredicto.factor) if veredicto.factor is not None else None,
+            "new_value": str(veredicto.new_value) if veredicto.new_value is not None else None,
         }
     previa = _previa_de_json(frozen["previa"])
     conversion = _conversion_de_json(frozen["conversion"])

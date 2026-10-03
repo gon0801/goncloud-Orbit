@@ -791,7 +791,13 @@ def test_compara_buckets_y_fold():
     ]
     resumen = ce.resume(filas)
     assert resumen["decisiones"] == 5
-    assert resumen["buckets"] == {"mantiene": 2, "quita": 1, "cambia_banda": 1, "pre_a4": 1}
+    assert resumen["buckets"] == {
+        "mantiene": 2,
+        "quita": 1,
+        "cambia_banda": 1,
+        "pre_a4": 1,
+        "vive_v2": 0,
+    }
     # cero_ventas se foldea al renglon -25 (res B12)
     assert resumen["por_motivo_v1"]["banda_menos_25"] == {
         "mantiene": 0,
@@ -826,3 +832,76 @@ def test_compara_vocabulario_cerrado_e_invariantes():
         ce.clasifica("pause", "pause_umbral", None, {"kind": "bid", "motivo": "banda_menos_12"})
     with pytest.raises(ValueError, match="invariante roto"):
         ce.clasifica("bid", "banda_menos_12", "-0.12", {"kind": "pause", "motivo": "pause_umbral"})
+
+
+def test_compara_vive_v2_sin_clasificar():
+    """A6-M18 (clasifica-decide): filas via=decide (vivo v2 o fallback)
+    van a vive_v2 SIN clasificar (aunque el veredicto parezca
+    cambia_banda); pause_intacto en modo evidencia sigue mantiene; las
+    contrafactual se clasifican como hoy."""
+    from tools import compara_evidencia as ce
+
+    filas = [
+        # Vivo v2: veredicto == vivo (clasificarlo daria mantiene).
+        {
+            "id": 1,
+            "kind": "bid",
+            "motivo": "banda_menos_12",
+            "factor": "-0.12",
+            "evidencia_v2": {
+                "via": "decide",
+                "abstencion_v2": None,
+                "veredicto": {"kind": "bid", "motivo": "banda_menos_12", "factor": "-0.12"},
+            },
+        },
+        # Fallback v1: motivo v1 con abstencion auditada (clasificarlo
+        # contra el vivo daria mantiene y esconderia el regimen).
+        {
+            "id": 2,
+            "kind": "bid",
+            "motivo": "banda_menos_25",
+            "factor": "-0.25",
+            "evidencia_v2": {
+                "via": "decide",
+                "abstencion_v2": "evidencia_insuficiente",
+                "veredicto": {"kind": "bid", "motivo": "banda_menos_25", "factor": "-0.25"},
+            },
+        },
+        # Sombra viva en plataforma vieja: se clasifica (quita).
+        {
+            "id": 3,
+            "kind": "bid",
+            "motivo": "banda_menos_12",
+            "factor": "-0.12",
+            "evidencia_v2": {
+                "via": "contrafactual",
+                "veredicto": {"kind": None, "motivo": "evidencia_insuficiente", "factor": None},
+            },
+        },
+        # Pause en modo evidencia: el marcador no distingue eras.
+        {
+            "id": 4,
+            "kind": "pause",
+            "motivo": "pause_umbral",
+            "factor": None,
+            "evidencia_v2": {
+                "via": "pause_intacto",
+                "veredicto": {"kind": "pause", "motivo": "pause_umbral"},
+            },
+        },
+    ]
+    resumen = ce.resume(filas)
+    assert resumen["decisiones"] == 4
+    assert resumen["buckets"] == {
+        "mantiene": 1,
+        "quita": 1,
+        "cambia_banda": 0,
+        "pre_a4": 0,
+        "vive_v2": 2,
+    }
+    # vive_v2 no entra al detalle por motivo v1 (ahi no hay sombra).
+    assert resumen["por_motivo_v1"] == {
+        "banda_menos_12": {"mantiene": 0, "quita": 1, "cambia_banda": 0},
+        "pause_umbral": {"mantiene": 1, "quita": 0, "cambia_banda": 0},
+    }
+    assert "NO MEDIBLE" in resumen["agrega_puro"]
