@@ -1,0 +1,5 @@
+Comando: uv run --frozen python -m pytest -q tests/test_precio_d0.py::test_snippet_del_plan_coincide_con_el_manifest
+SHA HEAD: fa2039ee94ddc0742f1f3895f267fccbc59c8aa9
+Salida:
+.                                                                        [100%]
+1 passed in 0.17s

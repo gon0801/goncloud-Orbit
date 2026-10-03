@@ -1,0 +1,59 @@
+BEGIN
+SET
+== contexto ==
+ current_database | current_user |          corrida_utc
+------------------+--------------+-------------------------------
+ orbit            | orbit        | 2026-10-03 22:55:37.347331+00
+(1 row)
+
+== roles vigentes (pg_roles) ==
+   rolname    | rolcanlogin
+--------------+-------------
+ app_admin    | f
+ app_decide   | f
+ app_ingest   | f
+ app_read     | f
+ orbit        | t
+ orbit_admin  | t
+ orbit_decide | t
+ orbit_ingest | t
+ orbit_read   | t
+ orbit_test   | t
+(10 rows)
+
+== censo de catalogo product_ad por plataforma ==
+ platform  | anuncios | enabled | sin_estado | sin_listing | sin_producto | ad_groups
+-----------+----------+---------+------------+-------------+--------------+-----------
+ amazon_mx |     7714 |    4773 |          0 |        2660 |         2660 |        37
+ amazon_us |     4818 |    4090 |          0 |        1207 |         1207 |        48
+(2 rows)
+
+== decisiones negative/harvest por plataforma (casos etiquetables) ==
+ platform  |   kind   | total | ultimos_30d | terminos_distintos
+-----------+----------+-------+-------------+--------------------
+ amazon_mx | negative |     6 |           0 |                  2
+ amazon_mx | harvest  |     8 |           5 |                  6
+ amazon_us | negative |    46 |           4 |                 11
+ amazon_us | harvest  |     3 |           2 |                  2
+(4 rows)
+
+== harvest_job por plataforma y fase ==
+ platform  | fase | count
+-----------+------+-------
+ amazon_mx | done |     4
+ amazon_us | done |     1
+(2 rows)
+
+== semillas: bibliotecas keyword y negative ==
+ fuente | platform | filas | con_orders
+--------+----------+-------+------------
+(0 rows)
+
+== roster de fabrica: roles por plataforma ==
+ platform  | roles | roles_sin_anuncios_observados
+-----------+-------+-------------------------------
+ amazon_mx |     5 |                             0
+(1 row)
+
+== fin (ROLLBACK: sin escritura) ==
+ROLLBACK
