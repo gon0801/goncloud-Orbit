@@ -392,9 +392,7 @@ def _factor_ventana_v1(
     costo_piso: Decimal,
 ) -> tuple[str | None, Decimal | None]:
     """Seleccion de factor v1 (BIDS 01 regla A' + bandas de ventana):
-    (motivo, factor) o (None, None) sin banda. Extraido tal cual de
-    decide_bid (A4: decide_bid supero el tope de complejidad con la rama
-    v2; extract-method puro, comportamiento identico, golden intacto)."""
+    (motivo, factor) o (None, None) sin banda."""
     factor = _factor_cero_ventas(bids, expected_clicks, costo_piso)
     motivo_banda = MOTIVO_BANDA_MENOS_25_CERO_VENTAS if factor is not None else None
     if factor is None:

@@ -7,8 +7,8 @@ cargar app.apply/app.ads. app.cycle lo reexporta (API publica sellada). El
 FREEZE (serializacion congelada de inputs) sigue en app/cycle.py: el par
 freeze<->replay queda partido a proposito y DECLARADO (pinneado con asserts
 por clave + golden en tests/test_cycle.py; no existe allowlist en
-tests/test_architecture.py: doc drift registrado A4); cualquier clave nueva
-en inputs se agrega en los dos.
+tests/test_architecture.py); cualquier clave nueva en inputs se agrega en
+los dos.
 
 REPLAY FIEL POR CONSTRUCCION (decision del lead 2026-08-28, cierre CORTES
 03): el replay LEE lo congelado, JAMAS recalcula evidencia (el snapshot de la
