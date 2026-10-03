@@ -497,8 +497,17 @@ def test_evidencia_hoja_hereda_familia_y_mapea_ids():
     resultado = evidencia.evidencia_hoja(conv, 5, _cpc_fijo(30, "90.00"))
     assert isinstance(resultado, EvidenciaHoja)
     assert resultado.previa.familia_id == 7
-    assert "familia" in resultado.previa.niveles
-    assert "ad_group" in resultado.previa.niveles
+    # A6 leave-one-out (recomputo a mano 2026-10-03): la cadena viaja
+    # menos el grano de la hoja 5 (16, 0, 0.00). Raiz y familia 7 quedan
+    # en (500, 20, 20000.00); ad_group 9 queda en (0, 0, 0) = ausente
+    # (la hoja ERA el nivel: no aporta). Pliegue: cvr raiz 20/500 =
+    # 0.04, aov 20000/20 = 1000; familia encoge a (20+1)/(500+1/0.04) =
+    # 21/525 = 0.04 y (20000+1000)/21 = 1000 (exactos, cocientes
+    # finitos).
+    assert resultado.previa.niveles == ("plataforma", "familia")
+    assert "ad_group" not in resultado.previa.niveles
+    assert resultado.previa.cvr == Decimal("0.04")
+    assert resultado.previa.aov == Decimal("1000.00")
 
 
 def test_evidencia_hoja_nueva_sin_grano():
@@ -582,6 +591,154 @@ def test_parciales_igual_que_evidencia_hoja():
     assert evidencia.clasifica(previa, conversion, cpc_medido) == evidencia.evidencia_hoja(
         conv, 5, cpc
     )
+
+
+# ---------------------------------------------------------------------------
+# A6 leave-one-out: la previa de la hoja excluye su propio grano
+# ---------------------------------------------------------------------------
+
+
+def test_loo_previa_excluye_grano_de_la_hoja():
+    """A6-M1 (sin-resta): con 2 hojas en la familia, la previa de A es el
+    pliegue de la cadena SIN A (igualdad TOTAL incl. niveles e ids). Sin
+    la resta, la raiz/familia llevarian (516, ...) y los valores
+    diferirian."""
+    conv = _conv_minima(
+        [
+            GranoHoja(
+                hoja_id=5,
+                ad_group_id=9,
+                familia_id=7,
+                subfamilia_id=None,
+                conteo=_conteo(16, 0, "0.00"),
+            ),
+            GranoHoja(
+                hoja_id=6,
+                ad_group_id=10,
+                familia_id=7,
+                subfamilia_id=None,
+                conteo=_conteo(500, 20, "20000.00"),
+            ),
+        ]
+    )
+    previa, conversion, _ = evidencia.parciales_evidencia(conv, 5, _cpc_fijo(30, "90.00"))
+    assert conversion is not None and conversion.clicks == 16
+    sin_a = _conteo(500, 20, "20000.00")
+    esperada = evidencia.previa_jerarquica(
+        [("plataforma", sin_a), ("familia", sin_a), ("subfamilia", None), ("ad_group", None)],
+        familia_id=7,
+        subfamilia_id=None,
+    )
+    assert previa == esperada
+
+
+def test_loo_hoja_unica_en_familia_no_aporta():
+    """A6-M2 (resto-cero-aporta): la hoja es TODA su familia y su ad
+    group: ambos niveles quedan ausentes (None, no ceros que ensucien
+    `niveles`) y la previa es la raiz menos la hoja."""
+    conv = _conv_minima(
+        [
+            GranoHoja(
+                hoja_id=5,
+                ad_group_id=9,
+                familia_id=7,
+                subfamilia_id=None,
+                conteo=_conteo(16, 0, "0.00"),
+            ),
+            GranoHoja(
+                hoja_id=6,
+                ad_group_id=10,
+                familia_id=8,
+                subfamilia_id=None,
+                conteo=_conteo(500, 20, "20000.00"),
+            ),
+        ]
+    )
+    previa, _, _ = evidencia.parciales_evidencia(conv, 5, _cpc_fijo(30, "90.00"))
+    assert previa is not None
+    assert previa.niveles == ("plataforma",)
+    assert previa.familia_id == 7  # el mapeo viaja aunque no aporte
+    assert previa.cvr == Decimal(20) / Decimal(500)
+    assert previa.aov == Decimal("20000.00") / Decimal(20)
+
+
+def test_resta_conteo_veneno_negativo_y_vacio():
+    """A6-M3 (clamp-a-0): la resta es fail-closed por metrica, jamas
+    clamp a 0; A6-M4 (suma-parcial): el veneno se propaga, no se ignora."""
+    acum = _conteo(516, 20, "20000.00")
+    assert evidencia.resta_conteo(acum, _conteo(16, 0, "0.00")) == _conteo(500, 20, "20000.00")
+    assert evidencia.resta_conteo(None, _conteo(16, 0, "0.00")) is None
+    # Grano envenenado en orders con acum conocido -> orders None (el
+    # resto de metricas si resta: veneno OR por metrica, espejo de _suma).
+    assert evidencia.resta_conteo(
+        acum, Conteo(clicks=16, orders=None, ad_revenue=Decimal("0.00"))
+    ) == Conteo(clicks=500, orders=None, ad_revenue=Decimal("20000.00"))
+    # Resto negativo (inconsistente: el nivel contiene a la hoja) -> None
+    # por metrica, NO 0 (un 0 contaria como evidencia de "sin clics").
+    assert evidencia.resta_conteo(_conteo(10, 1, "100.00"), _conteo(20, 0, "0.00")) == Conteo(
+        clicks=None, orders=1, ad_revenue=Decimal("100.00")
+    )
+    # La hoja ERA el nivel -> ausente (no aporta al pliegue).
+    assert evidencia.resta_conteo(_conteo(16, 0, "0.00"), _conteo(16, 0, "0.00")) is None
+
+
+def test_loo_hoja_nueva_hereda_sin_resta():
+    """A6-M5 (resta-global): la hoja nueva NO esta en los agregados: su
+    previa es el pliegue de la cadena COMPLETA (regresion r3: hereda sus
+    niveles intactos)."""
+    conv = _conv_minima(
+        [
+            GranoHoja(
+                hoja_id=1,
+                ad_group_id=9,
+                familia_id=7,
+                subfamilia_id=None,
+                conteo=_conteo(2000, 42, "42000.00"),
+            )
+        ],
+        mapeo=[MapeoHoja(hoja_id=999, ad_group_id=9, familia_id=7, subfamilia_id=None)],
+    )
+    previa, conversion, _ = evidencia.parciales_evidencia(conv, 999, _cpc_fijo(30, "90.00"))
+    assert conversion is None
+    assert previa is not None
+    assert previa.niveles == ("plataforma", "familia", "ad_group")
+    assert previa == evidencia.previa_jerarquica(
+        [
+            ("plataforma", conv.plataforma),
+            ("familia", conv.por_familia[7]),
+            ("subfamilia", None),
+            ("ad_group", conv.por_ad_group[9]),
+        ],
+        familia_id=7,
+        subfamilia_id=None,
+    )
+
+
+def test_loo_cadena_niveles_con_id_none_siguen_none():
+    """A6-M6 (resta-en-nivel-sin-id): con resta activa, los niveles cuyo
+    id es None siguen None (la resta no inventa niveles ni los toca)."""
+    conv = _conv_minima(
+        [
+            GranoHoja(
+                hoja_id=1,
+                ad_group_id=None,
+                familia_id=None,
+                subfamilia_id=None,
+                conteo=_conteo(100, 2, "2000.00"),
+            )
+        ]
+    )
+    cadena = evidencia._cadena_niveles(
+        conv,
+        ad_group_id=None,
+        familia_id=None,
+        subfamilia_id=None,
+        resta=_conteo(10, 0, "0.00"),
+    )
+    assert cadena[0] == ("plataforma", _conteo(90, 2, "2000.00"))
+    assert cadena[1] == ("familia", None)
+    assert cadena[2] == ("subfamilia", None)
+    assert cadena[3] == ("ad_group", None)
 
 
 # ---------------------------------------------------------------------------

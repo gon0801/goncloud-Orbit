@@ -3001,6 +3001,26 @@ def test_evidencia_v2_congelada_shape_exacto():
     llevan el marcador pause_intacto (cero queries)."""
     with _db_temporal("orbit_ciclo_a4") as (conn, _c):
         ids = _siembra_maestra(conn)
+        # A6 leave-one-out: kw_bid era el UNICO vendedor de la ventana
+        # madura (su previa anterior eran sus propias ventas: el doble
+        # conteo F3). Fondo ajeno SOLO-maduro (07-08..07-12: fuera de
+        # cortes/bids/terminos, dentro de D-90..D-10): la previa LOO de
+        # kw_bid existe y el shape se pineo sobre ella. No mueve el pause
+        # (cortes intactos; el piso 100 sigue ganando el umbral).
+        fondo = _run(conn)
+        for fecha in _rango(dt.date(2026, 7, 8), dt.date(2026, 7, 12)):
+            _metrica(
+                conn,
+                fondo,
+                ids["kw_pause"],
+                fecha,
+                _obs(fecha),
+                cost="1.00",
+                ad_revenue="10.00",
+                clicks=2,
+                orders=1,
+                impressions=20,
+            )
         res = _corre(conn)
         assert res.status == "done"
         filas = _decisions_de(conn, res.cycle_id)
@@ -3025,7 +3045,7 @@ def test_evidencia_v2_congelada_shape_exacto():
         # D = 08-22: madura literal D-90..D-10
         assert ev2["ventana_madura"] == {"desde": "2026-05-24", "hasta": "2026-08-12"}
         previa = ev2["previa"]
-        assert previa is not None  # la siembra vende en la raiz
+        assert previa is not None  # el fondo ajeno vende en la raiz (LOO)
         assert set(previa) == {"cvr", "aov", "niveles", "familia_id", "subfamilia_id"}
         assert Decimal(previa["cvr"]) > 0 and Decimal(previa["aov"]) > 0
         assert previa["niveles"][0] == "plataforma"
