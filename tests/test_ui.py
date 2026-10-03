@@ -119,6 +119,29 @@ def test_ui_xss_search_term_demostrado_fallando_con_autoescape_off():
     assert PAYLOAD_XSS in html, "con autoescape off el payload DEBE aparecer crudo"
 
 
+def test_ui_decisiones_fallback_v1_marca_abstencion():
+    """A6-r1 F3 (DeepSeek): fila via=decide con fallback pinta la marca
+    '(abstuvo, decidió v1)' junto al motivo v2; sin fallback no la pinta.
+    Render sin DB con el entorno REAL de Jinja2."""
+    ctx_fb = _ctx_decisiones()
+    ctx_fb["items"][0]["evidencia_v2"] = {
+        "motivo": "evidencia_insuficiente",
+        "motivo_es": "Sin evidencia: la posterior no alcanza la confianza para ajustar",
+        "fallback_v1": True,
+    }
+    html_fb = ui.templates.env.get_template("decisiones.html").render(**ctx_fb)
+    assert "(abstuvo, decidió v1)" in html_fb
+    ctx_v2 = _ctx_decisiones()
+    ctx_v2["items"][0]["evidencia_v2"] = {
+        "motivo": "banda_menos_12",
+        "motivo_es": "ACoS sobre 1.15x del target: -12%",
+        "fallback_v1": False,
+    }
+    html_v2 = ui.templates.env.get_template("decisiones.html").render(**ctx_v2)
+    assert "(abstuvo, decidió v1)" not in html_v2
+    assert "v2: ACoS sobre 1.15x del target: -12%" in html_v2
+
+
 # ---------------------------------------------------------------------------
 # Pantalla de cortes (ORBIT 04 3.1): XSS + vacio + cableo CSP
 # ---------------------------------------------------------------------------

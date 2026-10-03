@@ -10,7 +10,9 @@ mantiene (mismo kind+factor), quita (bid vivo -> v2 no actua), cambia_banda
 
 A6-live: las filas via=decide (el vivo DECIDIO con evidencia) van al bucket
 vive_v2 SIN clasificar (la sombra termino para esa plataforma: compara
-detiene mantiene/quita/cambia_banda ahi, no los extiende).
+detiene mantiene/quita/cambia_banda ahi, no los extiende). A6-r1 F1:
+via=decide se parte por abstencion_v2 en vive_v2 (decidio v2) y
+vive_v2_fallback (decidio el fallback v1).
 
 LIMITACION ESTRUCTURAL DECLARADA (no escondida como cero): el "agrega puro"
 (silencio v1 -> bid v2) es INVISIBLE en A4 porque los no-op v1 no tienen
