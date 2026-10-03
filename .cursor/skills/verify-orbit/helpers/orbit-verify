@@ -728,6 +728,12 @@ def cmd_drive_campanas(args: argparse.Namespace) -> None:
         i.get("nombre") == "Campana B" and i.get("target_efectivo") is None for i in items
     )
     checks["fila_campana_b"] = "Campana B" in texto
+    # A7r3 B3: la FILA de Campana B (target null) pinta hueco visible,
+    # no % suelto ni chip vacio.
+    _seg_b = texto.split("Campana B", 1)[1].split("</tr>", 1)[0] if "Campana B" in texto else ""
+    checks["celda_campana_b_hueco"] = '<span class="mutado">—</span>' in _seg_b
+    checks["celda_campana_b_sin_pct_suelto"] = '<td class="num">%</td>' not in _seg_b
+    checks["celda_campana_b_sin_chip_vacio"] = '<span class="chip"></span>' not in _seg_b
 
     st_mx, _, html_mx = _http(f"{base}/campanas?plataforma=amazon_mx")
     (evidence / "05-campanas-filtro-mx.html").write_bytes(html_mx)

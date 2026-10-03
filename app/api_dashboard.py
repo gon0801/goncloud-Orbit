@@ -640,7 +640,7 @@ class CongeladoCampana:
     decideds: frozenset[dt.datetime]
 
     def display(self) -> dict:
-        unico = self.minimo == self.maximo
+        unico = _dos_dec(self.minimo) == _dos_dec(self.maximo)
         # decideds a UTC explicito: el isoformat crudo heredaria la TimeZone
         # de la sesion y el contrato seria no-determinista entre entornos.
         decideds_utc = sorted(d.astimezone(dt.UTC).isoformat() for d in self.decideds)
@@ -674,7 +674,8 @@ SELECT camp.id AS campana_id, t.target_acos_pct, t.procedencia, t.cycle_id, t.de
   JOIN ad_entity camp ON camp.id = ag.parent_id AND camp.kind = 'campaign'
  WHERE c.platform = %s::platform AND c.mode = 'live' AND c.status = 'done'
    AND c.id = (SELECT max(c2.id) FROM optimizer_cycle c2
-                WHERE c2.platform = c.platform AND c2.mode = 'live' AND c2.status = 'done')
+                WHERE c2.platform = c.platform AND c2.motor = 'ads_optimizer'
+                  AND c2.mode = 'live' AND c2.status = 'done')
 """
 
 

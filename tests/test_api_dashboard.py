@@ -1018,6 +1018,19 @@ def _campana_con_hojas(conn, run, platform, external, hojas):
     return camp, ids
 
 
+def test_congelado_unico_compara_redondeados():
+    """A7r3 F4: 29.501 y 29.504 difieren en crudo pero muestran "29.50":
+    unico compara lo ya redondeado, nunca sale "29.50–29.50"."""
+    cong = dash.CongeladoCampana(
+        minimo=Decimal("29.501"),
+        maximo=Decimal("29.504"),
+        procedencias=frozenset({"margen_familia"}),
+        ciclo_ids=frozenset({7}),
+        decideds=frozenset({dt.datetime(2026, 8, 20, 12, tzinfo=dt.UTC)}),
+    )
+    assert cong.display()["valor"] == "29.50"
+
+
 @pytest.mark.skipif(
     _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
@@ -1046,7 +1059,8 @@ def test_campanas_muestra_congelado_unico_rango_y_null(monkeypatch):
         _congelado(conn, c2, d1, "28.0", "margen_familia")
         _congelado(conn, c2, d2, "29.5", "margen_familia")
         # Trampas anti-filtro (IDs mayores que c1/c2): sin mode='live' o
-        # status='done', DISTINCT ON las elegiria y los asserts de camp_a mueren.
+        # status='done' el filtro del ultimo ciclo las excluye; si colaran,
+        # los asserts de camp_a mueren.
         c_shadow = _ciclo(conn, platform="amazon_us")
         _congelado(conn, c_shadow, a1, "99.9", "margen_familia")
         c_running = conn.execute(

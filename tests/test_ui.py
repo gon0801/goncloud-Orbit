@@ -702,6 +702,11 @@ def test_ui_campanas_target_null_pinta_hueco_visible(monkeypatch):
             clicks=5,
             moneda="USD",
         )
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, current_bid, bid_currency,"
+            " status, synced_at) VALUES (%s, 1.00, 'USD', 'ENABLED', now())",
+            (camp,),
+        )
         monkeypatch.setenv("ORBIT_DSN_READ", dsn)
         html = TestClient(app).get("/campanas").text
         assert "Campana B" in html
