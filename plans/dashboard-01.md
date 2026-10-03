@@ -5,9 +5,6 @@
 > Pedido del dueño 2026-08-24: gráficas de spend/revenue/ACoS, info de
 > campañas, decisiones explicadas, y poder editar el target ACoS. Acceso:
 > por su VPN WireGuard (compu/cel), patrón de sus demás apps del server.
-> Registro: fila `ORBIT 16 — Dashboard del optimizador` en EHV Tasks
-> (`In progress` al arrancar 1.1; `Done` con notas completas al cerrar el
-> plan — mandato de AGENTS.md).
 >
 > Validación en TRES rondas (tope cerrado — sin más re-reviews): (a) 5 perspectivas subagent (4 majors + 4
 > minors) y (b) cross-review paralela codex+qwen sobre el documento v1

@@ -49,7 +49,7 @@
 - **Módulos de `app/` ≤ 900 líneas** (`test_presupuesto_de_tamano_por_modulo`); complejidad bajo los topes de ruff (C901 22, PLR0912 25, PLR0915 80). `tools/` no tiene tope de líneas pero sí ruff.
 - **Proceso**: rama por tarea desde `origin/master` (`git fetch` primero); un PR por tarea; CI corre la batería completa (no correr la suite entera local, solo el archivo de test que se toca); `pre-commit run --all-files` verde; JAMÁS `--no-verify`. Cross-review: 1 ronda por PR de código; 2ª SOLO si la 1ª halla severidad alta; jamás 3ª. Prohibido tocar el contenedor de producción: la corrida real (tarea 11) es del lead.
 - **Commits**: Conventional Commits en español (`feat(fabrica): ...`, `test(fabrica): ...`, `docs: ...`) con los trailers `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>` y `Claude-Session: https://claude.ai/code/session_016wRNF2Uuu7fJoQAJ5tPZU5`.
-- **Registro**: fila `ORBIT 17 — Fábrica de campañas por grupo (FABRICA 01)` en EHV Tasks (17 = el siguiente libre en el grid, verificado contra el grid completo el 2026-09-05; row_id `032b2432-5cec-477a-bfa2-f7892175f2be`): `In progress` al arrancar la tarea 1, `Done` con notas completas al cerrar la 11 (skill `appflowy-ehv-task`). Cada tarea cerrada agrega su marker `cc:完了` en este plan y actualiza `docs/CHAT-CONTEXT.md` (candado `tools/check_chat_context_fresh.py`).
+- **Registro**: cada tarea cerrada agrega su marker `cc:完了` en este plan y actualiza `docs/CHAT-CONTEXT.md` (candado `tools/check_chat_context_fresh.py`).
 
 ## Mapa de archivos
 
@@ -5131,7 +5131,7 @@ git commit -m "test(architecture): allowlist de imports de tools/fabrica_campana
 
 **Interfaces:**
 - Consumes: todo lo anterior mergeado en `master`; contenedor `orbit-app-1` y Postgres de producción; `ORBIT_DSN_ADMIN`, `ORBIT_DSN_READ`, `ORBIT_DSN_INGEST` dentro del contenedor.
-- Produces: migración 0018 aplicada en producción; un dry-run real; la sonda = primer grupo real con UN producto y budgets mínimos; vendors/shapes sellados (o corregidos con PR de fix + test regla 9); tarea AppFlowy `Done`.
+- Produces: migración 0018 aplicada en producción; un dry-run real; la sonda = primer grupo real con UN producto y budgets mínimos; vendors/shapes sellados (o corregidos con PR de fix + test regla 9).
 
 - [ ] **Step 1: Backup y migración (patrón de las migraciones anteriores, disciplina aditiva)**
 
@@ -5805,7 +5805,7 @@ E   AssertionError: assert {'filtroEquiv... ['no-esta']}} == {'campaignIdF... ['
   por piso/techo); rol con cero sugerencias sigue manual. Brief para GLM emitido;
   implementación en PR propio.
 - **Pendiente para cerrar la tarea**: paso 4 (ciclo 2026-09-09 08:41 UTC lista las 5
-  campañas con goal `shadow` como elegibles) y `ORBIT 17` Done en AppFlowy.
+  campañas con goal `shadow` como elegibles).
 
 ## Fuera de este plan (F2, spec §7)
 
