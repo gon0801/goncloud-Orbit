@@ -1,0 +1,28 @@
+# Salida cruda: prueba focalizada sobre HEAD
+HEAD: fa2039ee94ddc0742f1f3895f267fccbc59c8aa9 (rama docs/jev-ads-b1, origin/master)
+Comando: uv run --frozen python -m pytest -q tests/test_precio_d0.py::test_snippet_del_plan_coincide_con_el_manifest
+
+.                                                                        [100%]
+1 passed in 0.15s
+EXIT_PYTEST=0
+
+# PR que arreglo el fallo
+{"mergeCommit":{"oid":"8d4890adc442d4405d82d8a36707c743cf8a9bcc"},"mergedAt":"2026-10-02T03:05:20Z","number":379,"state":"MERGED","title":"fix(plans): manifest de repricing-01 al dia con el snippet del plan","url":"https://github.com/gon0801/goncloud-Orbit/pull/379"}
+
+# Commit de la rama del PR (contenido del arreglo)
+commit cfb3deaaf6b60433f634c5cbcdf606a081775e10
+Author: gon <undyingrecords@gmail.com>
+Date:   Thu Oct 1 19:20:08 2026 -0700
+
+    fix(plans): manifest de repricing-01 al dia con el snippet del plan
+
+    Master rojo desde #376: aa3d5ee cambio el snippet de `plans/repricing-01.md`
+    (E.2 parte 1 sellada) sin `plans/manifest.json`, y
+     {
+       "name": "repricing-01",
+       "path": "plans/repricing-01.md",
+-      "description": "REPRICING 01 - motor de precios por goal de margen (M1/AUTO-07/ORBIT 09). Spec v1.3 (dos rondas de revision; la segunda invalido cuatro hechos que el plan daba por medidos): proteger margen; goal por producto; sube si el margen estimado no llega, baja solo si caen las unidades de 15 dias contra 60; sombra primero; cuota propia; envio FBM medido de las etiquetas (decision 13); toda publicacion activa contemplada (14); Mercado Libre en alcance (15). Plan v1.3: Fases 8, 10 y 11 cerradas (A.0-A.3, A.5-A.7, R.1 en master); D.0 aplicada en produccion 2026-09-19 (0039 + 20 claves precio_*). A.4 cerrada 2026-09-22: tres cambios y reversas confirmados por Pricing; control intacto. D.1 cerrada 2026-09-23: tres goals MX en sombra, dos corridas automaticas 3/3 y cero cambios nuevos; cinco dias quedan en seguimiento. E.0a bloqueada por el export de Seller Central."
++      "description": "REPRICING 01 - motor de precios por goal de margen (M1/AUTO-07/ORBIT 09). Spec v1.3 (dos rondas de revision; la segunda invalido cuatro hechos que el plan daba por medidos): proteger margen; goal por producto; sube si el margen estimado no llega, baja solo si caen las unidades de 15 dias contra 60; sombra primero; cuota propia; envio FBM medido de las etiquetas (decision 13); toda publicacion activa contemplada (14); Mercado Libre en alcance (15). Plan v1.3: Fases 8, 10 y 11 cerradas (A.0-A.3, A.5-A.7, R.1 en master); D.0 aplicada en produccion 2026-09-19 (0039 + 20 claves precio_*). A.4 cerrada 2026-09-22: tres cambios y reversas confirmados por Pricing; control intacto. D.1 cerrada 2026-09-23: tres goals MX en sombra, dos corridas automaticas 3/3 y cero cambios nuevos; cinco dias quedan en seguimiento. E.2 parte 1 sello 180 dias el 2026-09-30; parte 2 espera E.0a/E.0b/E.1."
+     }
+   ],
+   "active": "fabrica-01"

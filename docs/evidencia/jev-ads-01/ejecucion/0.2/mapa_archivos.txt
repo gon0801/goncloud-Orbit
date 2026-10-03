@@ -1,0 +1,42 @@
+# Mapa de archivos contra HEAD fa2039ee94ddc0742f1f3895f267fccbc59c8aa9 (rama docs/jev-ads-b1)
+
+## Existencia de rutas previstas por el plan (Archivos y duenos)
+NO EXISTE   app/jev_ads.py
+NO EXISTE   app/jev_catalogo.py
+NO EXISTE   app/jev_juicios.py
+NO EXISTE   tools/jev_ads.py
+NO EXISTE   tests/test_jev_ads.py
+NO EXISTE   tests/test_jev_catalogo.py
+NO EXISTE   tests/test_jev_juicios.py
+NO EXISTE   tests/test_jev_cli.py
+EXISTE      app/api_dashboard.py
+NO EXISTE   templates/cortes.html
+EXISTE      tests/test_api_dashboard.py
+EXISTE      app/fabrica_web.py
+EXISTE      app/api_fabrica.py
+
+## Rutas reales de pantallas (plan dice localizarlas en el commit de trabajo)
+app/templates/cortes.html:   EXISTE
+app/templates/fabrica.html:  EXISTE
+app/static/js/cortes.js:     EXISTE
+app/static/js/fabrica.js:    EXISTE
+
+## Tests de fabrica presentes
+test_api_fabrica.py
+test_estimacion_aislamiento_fabrica.py
+test_fabrica_0038.py
+test_fabrica_campanas.py
+test_fabrica_f2_biblioteca.py
+test_fabrica_f2_hermanas.py
+test_fabrica_f2_visibilidad.py
+test_fabrica_f2.py
+test_fabrica_migracion.py
+test_fabrica_plan.py
+test_ui_fabrica.py
+
+## Migraciones: ultimas ocupadas y numero libre
+0045_sin_aplicar_choque_clave.sql
+0046_target_acos_ciclo.sql
+0047_familias.sql
+0048_margen_familia.sql
+zsh:1: no matches found: migrations/0049_*.sql

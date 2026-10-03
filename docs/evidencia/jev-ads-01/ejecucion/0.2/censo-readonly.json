@@ -1,0 +1,106 @@
+{
+  "read_only": "on",
+  "transaction": "REPEATABLE READ READ ONLY, ROLLBACK final",
+  "observed_at": "2026-10-03T22:54:18.551006+00:00",
+  "consultas": {
+    "negativos_biblioteca": [],
+    "semillas_biblioteca": [],
+    "search_terms": [
+      {
+        "platform": "amazon_mx",
+        "terminos_distintos": 1360,
+        "asin_like": 339,
+        "con_orders": 49,
+        "con_costo": 1021,
+        "ultimos_30d": 687,
+        "desde": "2026-06-19",
+        "hasta": "2026-10-02"
+      },
+      {
+        "platform": "amazon_us",
+        "terminos_distintos": 2631,
+        "asin_like": 1017,
+        "con_orders": 48,
+        "con_costo": 1614,
+        "ultimos_30d": 1092,
+        "desde": "2026-06-19",
+        "hasta": "2026-10-02"
+      }
+    ],
+    "roles_grupo": [
+      {
+        "platform": "amazon_mx",
+        "rol": "auto_discovery",
+        "roles": 1,
+        "roles_sin_anuncios_observados": 0
+      },
+      {
+        "platform": "amazon_mx",
+        "rol": "category_phrase",
+        "roles": 1,
+        "roles_sin_anuncios_observados": 0
+      },
+      {
+        "platform": "amazon_mx",
+        "rol": "product_targeting",
+        "roles": 1,
+        "roles_sin_anuncios_observados": 0
+      },
+      {
+        "platform": "amazon_mx",
+        "rol": "category_broad",
+        "roles": 1,
+        "roles_sin_anuncios_observados": 0
+      },
+      {
+        "platform": "amazon_mx",
+        "rol": "category_exact",
+        "roles": 1,
+        "roles_sin_anuncios_observados": 0
+      }
+    ],
+    "harvest_excepciones": [],
+    "publicaciones_roster": [
+      {
+        "platform": "amazon_mx",
+        "publicaciones": 342,
+        "productos": 249
+      },
+      {
+        "platform": "amazon_us",
+        "publicaciones": 176,
+        "productos": 119
+      }
+    ],
+    "keywords_en_grupos": [
+      {
+        "platform": "amazon_mx",
+        "keywords_totales": 2715,
+        "keywords_ep": 377,
+        "targets_totales": 871
+      },
+      {
+        "platform": "amazon_us",
+        "keywords_totales": 1338,
+        "keywords_ep": 412,
+        "targets_totales": 549
+      }
+    ],
+    "censo_grupos": [
+      {
+        "platform": "amazon_mx",
+        "grupos_conocidos": 193,
+        "grupos_con_ep": 33,
+        "grupos_ep_sin_catalogo": 0,
+        "grupos_ep_catalogo_incompleto": 1
+      },
+      {
+        "platform": "amazon_us",
+        "grupos_conocidos": 79,
+        "grupos_con_ep": 48,
+        "grupos_ep_sin_catalogo": 0,
+        "grupos_ep_catalogo_incompleto": 24
+      }
+    ]
+  }
+}
