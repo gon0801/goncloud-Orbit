@@ -20,6 +20,7 @@ from app.optimizer.evidencia import (
     EstimacionAcos,
     EvidenciaHoja,
     GranoHoja,
+    MapeoHoja,
     Previa,
 )
 
@@ -463,12 +464,13 @@ def test_precedencia_menos25_sobre_menos12():
 # ---------------------------------------------------------------------------
 
 
-def _conv_minima(granos):
+def _conv_minima(granos, mapeo=()):
     return evidencia.enrolla_granos(
         granos,
         moneda="MXN",
         ventana_desde=dt.date(2026, 7, 4),
         ventana_hasta=dt.date(2026, 9, 23),
+        mapeo=mapeo,
     )
 
 
@@ -500,10 +502,31 @@ def test_evidencia_hoja_hereda_familia_y_mapea_ids():
 
 
 def test_evidencia_hoja_nueva_sin_grano():
+    """Hoja SIN filas en ad group y familia CON datos: hereda SUS
+    niveles (r3, bloqueante CAMBIOS r2: antes caia a plataforma)."""
     otra = GranoHoja(
         hoja_id=1,
         ad_group_id=9,
-        familia_id=None,
+        familia_id=7,
+        subfamilia_id=None,
+        conteo=_conteo(2000, 42, "42000.00"),
+    )
+    mapeo = [MapeoHoja(hoja_id=999, ad_group_id=9, familia_id=7, subfamilia_id=None)]
+    conv = _conv_minima([otra], mapeo=mapeo)
+    resultado = evidencia.evidencia_hoja(conv, 999, _cpc_fijo(30, "90.00"))
+    assert isinstance(resultado, EvidenciaHoja)
+    assert resultado.conversion is None
+    assert resultado.previa.niveles == ("plataforma", "familia", "ad_group")
+    assert resultado.previa.familia_id == 7
+
+
+def test_evidencia_hoja_sin_mapeo_solo_plataforma():
+    """Hoja desconocida total (sin grano NI mapeo): solo plataforma
+    (fallback conservado de r1)."""
+    otra = GranoHoja(
+        hoja_id=1,
+        ad_group_id=9,
+        familia_id=7,
         subfamilia_id=None,
         conteo=_conteo(2000, 42, "42000.00"),
     )

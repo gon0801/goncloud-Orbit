@@ -89,11 +89,24 @@ class GranoHoja:
 
 
 @dataclass(frozen=True)
+class MapeoHoja:
+    """Mapeo ESTRUCTURAL hoja -> jerarquia (de ad_entity, sin metricas):
+    la hoja nueva sin grano hereda la previa de SUS niveles (r3: antes
+    caia a plataforma aunque su familia tuviera datos)."""
+
+    hoja_id: int
+    ad_group_id: int | None
+    familia_id: int | None
+    subfamilia_id: int | None
+
+
+@dataclass(frozen=True)
 class ConversionPlataforma:
-    """UNA lectura por plataforma y ciclo + roll-up precomputado O(H).
+    """DOS lecturas por plataforma y ciclo (grano + mapeo) + roll-up O(H).
     Dicts: nivel con granos; nivel sin granos o totalmente envenenado =
     AUSENTE (regla 3). `moneda` es la de la plataforma (el query filtra;
-    fuente unica para el freeze)."""
+    fuente unica para el freeze). `mapeo_hoja` cubre TODAS las hojas
+    (con o sin grano): sin el, la hoja nueva no heredaria (r3)."""
 
     moneda: str
     ventana_desde: dt.date
@@ -103,6 +116,7 @@ class ConversionPlataforma:
     por_subfamilia: dict[int, Conteo]
     por_ad_group: dict[int, Conteo]
     por_hoja: dict[int, GranoHoja]
+    mapeo_hoja: dict[int, MapeoHoja]
 
 
 @dataclass(frozen=True)
@@ -165,16 +179,19 @@ def enrolla_granos(
     moneda: str,
     ventana_desde: dt.date,
     ventana_hasta: dt.date,
+    mapeo: list[MapeoHoja] | tuple[MapeoHoja, ...] = (),
 ) -> ConversionPlataforma:
     """Roll-up puro O(H) del grano a niveles (incluida la raiz
     plataforma: suma de los granos, mismo veneno; sin granos -> None).
     Veneno por metrica: nivel con ALGUN grano envenenado en M -> M None
     en ese nivel (semantica identica al bool_and global por nivel).
-    Nivel sin granos -> ausente del dict (regla 3)."""
+    Nivel sin granos -> ausente del dict (regla 3). `mapeo` = estructura
+    hoja -> jerarquia (incluye hojas sin grano: heredan, r3)."""
     por_familia: dict[int, Conteo] = {}
     por_subfamilia: dict[int, Conteo] = {}
     por_ad_group: dict[int, Conteo] = {}
     por_hoja: dict[int, GranoHoja] = {}
+    mapeo_hoja = {hoja.hoja_id: hoja for hoja in mapeo}
     plataforma: Conteo | None = None
     for grano in granos:
         por_hoja[grano.hoja_id] = grano
@@ -198,6 +215,7 @@ def enrolla_granos(
         por_subfamilia=por_subfamilia,
         por_ad_group=por_ad_group,
         por_hoja=por_hoja,
+        mapeo_hoja=mapeo_hoja,
     )
 
 
@@ -321,6 +339,33 @@ def clasifica(
     return EvidenciaHoja(previa=previa, conversion=conversion, cpc=cpc)
 
 
+def _cadena_niveles(
+    conv: ConversionPlataforma,
+    *,
+    ad_group_id: int | None,
+    familia_id: int | None,
+    subfamilia_id: int | None,
+) -> list[tuple[Nivel, Conteo | None]]:
+    """Cadena plataforma -> familia -> subfamilia -> ad_group con los
+    conteos del roll-up (UNICO constructor: grano y mapeo comparten
+    forma, cero drift entre hoja con y sin historia)."""
+    return [
+        ("plataforma", conv.plataforma),
+        (
+            "familia",
+            conv.por_familia.get(familia_id) if familia_id is not None else None,
+        ),
+        (
+            "subfamilia",
+            conv.por_subfamilia.get(subfamilia_id) if subfamilia_id is not None else None,
+        ),
+        (
+            "ad_group",
+            conv.por_ad_group.get(ad_group_id) if ad_group_id is not None else None,
+        ),
+    ]
+
+
 def parciales_evidencia(
     conv: ConversionPlataforma,
     hoja_id: int,
@@ -329,33 +374,47 @@ def parciales_evidencia(
     """Parciales as-measured para (previa, conversion, cpc): cada uno
     nullable por separado (el freeze los congela tal cual y el replay
     re-deriva con clasifica). Hoja ausente del grano = hoja nueva
-    (conversion None, hereda previa). Funcion TOTAL: el pliegue no
-    divide por cero por construccion (toda division lleva guarda)."""
+    (conversion None, hereda previa de SUS niveles via mapeo_hoja; sin
+    mapeo = desconocida total, solo plataforma). Funcion TOTAL: el
+    pliegue no divide por cero por construccion (toda division lleva
+    guarda)."""
     grano = conv.por_hoja.get(hoja_id)
     if grano is None:
-        cadena: list[tuple[Nivel, Conteo | None]] = [("plataforma", conv.plataforma)]
-        return (previa_jerarquica(cadena), None, cpc)
-    cadena = [
-        ("plataforma", conv.plataforma),
-        (
-            "familia",
-            conv.por_familia.get(grano.familia_id) if grano.familia_id is not None else None,
-        ),
-        (
-            "subfamilia",
-            conv.por_subfamilia.get(grano.subfamilia_id)
-            if grano.subfamilia_id is not None
-            else None,
-        ),
-        (
-            "ad_group",
-            conv.por_ad_group.get(grano.ad_group_id) if grano.ad_group_id is not None else None,
-        ),
-    ]
+        return _parciales_hoja_nueva(conv, hoja_id, cpc)
+    cadena = _cadena_niveles(
+        conv,
+        ad_group_id=grano.ad_group_id,
+        familia_id=grano.familia_id,
+        subfamilia_id=grano.subfamilia_id,
+    )
     previa = previa_jerarquica(
         cadena, familia_id=grano.familia_id, subfamilia_id=grano.subfamilia_id
     )
     return (previa, grano.conteo, cpc)
+
+
+def _parciales_hoja_nueva(
+    conv: ConversionPlataforma,
+    hoja_id: int,
+    cpc: CostoPorClic | None,
+) -> tuple[Previa | None, Conteo | None, CostoPorClic | None]:
+    """Hoja sin filas en la ventana madura: conversion None (posterior =
+    previa pura) + cadena de SUS niveles estructurales (r3: la keyword
+    nueva de familia conocida hereda su familia, no el pais)."""
+    mapeo = conv.mapeo_hoja.get(hoja_id)
+    if mapeo is None:
+        cadena: list[tuple[Nivel, Conteo | None]] = [("plataforma", conv.plataforma)]
+        return (previa_jerarquica(cadena), None, cpc)
+    cadena = _cadena_niveles(
+        conv,
+        ad_group_id=mapeo.ad_group_id,
+        familia_id=mapeo.familia_id,
+        subfamilia_id=mapeo.subfamilia_id,
+    )
+    previa = previa_jerarquica(
+        cadena, familia_id=mapeo.familia_id, subfamilia_id=mapeo.subfamilia_id
+    )
+    return (previa, None, cpc)
 
 
 def evidencia_hoja(

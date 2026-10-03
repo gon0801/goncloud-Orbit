@@ -729,11 +729,32 @@ SELECT k.id AS hoja_id,
 """
 
 
+# A4r3 (herencia hoja nueva): mapeo ESTRUCTURAL de TODAS las hojas de
+# la plataforma (MISMA cadena LEFT JOIN que el grano, pero FROM
+# ad_entity: no depende de metricas). La hoja creada en los ultimos 10
+# dias, o sin filas en D-90..D-10, hereda la previa de SU ad group y
+# familia en vez de caer a plataforma.
+_SQL_MAPEO_HOJAS = """
+SELECT k.id AS hoja_id,
+       k.parent_id AS ad_group_id,
+       f.id AS familia_id,
+       f.padre_id AS familia_padre_id
+  FROM ad_entity k
+  LEFT JOIN ad_entity ag ON ag.id = k.parent_id AND ag.kind = 'ad_group'
+  LEFT JOIN campana_grupo_rol r ON r.ad_entity_id = ag.parent_id
+  LEFT JOIN campana_grupo gr ON gr.id = r.grupo_id
+  LEFT JOIN familia f ON f.slug = gr.tipo_producto AND f.platform = %s::platform
+ WHERE k.platform = %s::platform
+   AND k.kind IN ('keyword', 'product_target')
+"""
+
+
 def conversion_jerarquica(
     conn: psycopg.Connection, platform: str, decided_at: dt.datetime
 ) -> ev.ConversionPlataforma:
-    """Conversion para el pliegue v2 (A4): UNA lectura por plataforma
-    sobre la ventana LITERAL D-90..D-10 (mismo D y constantes que
+    """Conversion para el pliegue v2 (A4): DOS lecturas por plataforma
+    (grano sobre la ventana LITERAL D-90..D-10 + mapeo estructural de
+    TODAS las hojas; mismo D y constantes que
     ventanas_evidencia_ad_group: LOOKBACK_EVIDENCIA, DIAS_MADUREZ_CORTES)
     + roll-up puro O(H) en evidencia.enrolla_granos (testeable sin DB).
     Grano por hoja; niveles agregados en Python con veneno por metrica
@@ -764,7 +785,18 @@ def conversion_jerarquica(
         )
         for fila in filas
     ]
-    return ev.enrolla_granos(granos, moneda=moneda, ventana_desde=desde, ventana_hasta=hasta)
+    mapeo = [
+        ev.MapeoHoja(
+            hoja_id=fila[0],
+            ad_group_id=fila[1],
+            familia_id=_familia_de_match(fila[2], fila[3]),
+            subfamilia_id=_subfamilia_de_match(fila[2], fila[3]),
+        )
+        for fila in conn.execute(_SQL_MAPEO_HOJAS, (platform, platform)).fetchall()
+    ]
+    return ev.enrolla_granos(
+        granos, moneda=moneda, ventana_desde=desde, ventana_hasta=hasta, mapeo=mapeo
+    )
 
 
 def _familia_de_match(match_id: int | None, padre_id: int | None) -> int | None:

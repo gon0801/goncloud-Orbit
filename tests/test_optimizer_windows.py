@@ -33,6 +33,7 @@ import pglast
 import pytest
 from test_schema import SQL, _postgres_obligatorio_ausente, _test_dsn
 
+from app.optimizer import evidencia as ev
 from app.optimizer import windows as w
 
 # ---------------------------------------------------------------------------
@@ -1503,6 +1504,61 @@ def test_conversion_jerarquica_grano_rollup_y_mapeo():
         assert conv.plataforma is not None
         assert (conv.plataforma.clicks, conv.plataforma.orders) == (71, 1)
         assert conv.plataforma.ad_revenue == Decimal("100.00")
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_conversion_jerarquica_hoja_sin_filas_hereda_mapeo():
+    """Hoja SIN metricas en D-90..D-10: fuera del grano pero DENTRO del
+    mapeo estructural, y su previa hereda familia + ad_group (r3,
+    bloqueante CAMBIOS r2)."""
+    with _db_temporal_a4("orbit_win_a4map") as conn:
+        run_id = _run(conn)
+        decidido = dt.datetime(2026, 8, 22, 12, 0, tzinfo=dt.UTC)
+        c1 = _entidad(conn, "amazon_us", "campaign", "C1")
+        g1 = _entidad(conn, "amazon_us", "ad_group", "G1", parent=c1)
+        k1 = _entidad(
+            conn, "amazon_us", "keyword", "K1", parent=g1, match_type="EXACT", keyword_text="kw"
+        )
+        k4 = _entidad(
+            conn, "amazon_us", "keyword", "K4", parent=g1, match_type="EXACT", keyword_text="nueva"
+        )
+        _lote(conn, "L1")
+        gr1 = _grupo(conn, "amazon_us", "arras", "L1")
+        _rol(conn, gr1, c1, g1)
+        f1 = _familia(conn, "amazon_us", "Arras", "arras")
+        _metrica(
+            conn,
+            run_id,
+            k1,
+            dt.date(2026, 8, 12),
+            _obs(dt.date(2026, 8, 12)),
+            moneda="USD",
+            report_id="R",
+            cost=Decimal("10.00"),
+            ad_revenue=Decimal("100.00"),
+            clicks=50,
+            orders=1,
+            impressions=500,
+        )
+        conv = w.conversion_jerarquica(conn, "amazon_us", decidido)
+        assert k4 not in conv.por_hoja
+        mapeo4 = conv.mapeo_hoja[k4]
+        assert (mapeo4.ad_group_id, mapeo4.familia_id, mapeo4.subfamilia_id) == (g1, f1, None)
+        cpc = ev.CostoPorClic(
+            cost=Decimal("10.00"),
+            clicks=50,
+            desde=dt.date(2026, 8, 1),
+            hasta=dt.date(2026, 8, 12),
+            post_cambio=True,
+        )
+        resultado = ev.evidencia_hoja(conv, k4, cpc)
+        assert isinstance(resultado, ev.EvidenciaHoja)
+        assert resultado.conversion is None
+        assert resultado.previa.niveles == ("plataforma", "familia", "ad_group")
+        assert resultado.previa.familia_id == f1
 
 
 @pytest.mark.skipif(
