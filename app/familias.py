@@ -19,6 +19,7 @@ import unicodedata
 
 import psycopg
 
+from app.api_common import _dos_dec
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.goals import ETIQUETA_ABSTENCION
 
@@ -30,6 +31,9 @@ PATRON_SLUG = re.compile(r"^[a-z0-9_]+$")
 # del pais. A5 especializa por familia medible (origen_meta_familia).
 ORIGEN_META_PAIS = "usa la meta del país"
 ORIGEN_MARGEN_FAMILIA = "margen de la familia"
+# A7: subfamilia sin margen propio bajo un padre que mide: el motor usa el
+# padre para sus hojas y la pantalla lo declara con este origen.
+ORIGEN_MARGEN_PADRE = "margen de la familia padre"
 
 VENTANA_VENTAS_DIAS = 90
 
@@ -178,8 +182,6 @@ def arbol(conn, platform: str, hoy: dt.date | None = None) -> list[dict]:
     for fid, nombre, fslug, padre_id, productos, ventas in conn.execute(
         _SQL_ARBOL, (hoy, VENTANA_VENTAS_DIAS, hoy, platform)
     ):
-        nota = notas.get(str(fid))
-        target, origen = _origen_de_nota(nota)
         nodos[fid] = {
             "id": fid,
             "nombre": nombre,
@@ -187,10 +189,18 @@ def arbol(conn, platform: str, hoy: dt.date | None = None) -> list[dict]:
             "padre_id": padre_id,
             "productos": int(productos),
             "ventas_90d": int(ventas),
-            "origen_meta": origen,
-            "target_familia": target,
+            "origen_meta": None,
+            "target_familia": None,
             "hijas": [],
         }
+    # A7: segunda pasada (las notas se leyeron UNA vez): cada nodo resuelve
+    # su meta con herencia de UN nivel desde notas CRUDAS del dict.
+    for fid, nodo in nodos.items():
+        padre_id = nodo["padre_id"]
+        nota_padre = notas.get(str(padre_id)) if padre_id else None
+        target, origen = _meta_con_herencia(notas.get(str(fid)), nota_padre)
+        nodo["origen_meta"] = origen
+        nodo["target_familia"] = target
     raices = []
     for nodo in nodos.values():
         padre = nodos.get(nodo["padre_id"]) if nodo["padre_id"] else None
@@ -331,10 +341,32 @@ def _origen_de_nota(nota) -> tuple[str | None, str]:
     return (None, f"{ORIGEN_META_PAIS} ({etiqueta})")
 
 
+def _meta_con_herencia(nota_crud, nota_padre_cruda) -> tuple[str | None, str]:
+    """(target, origen) con herencia de UN nivel (A7, pura). La propia manda
+    si mide (formateada a 2 decimales con _dos_dec); si no y el padre mide
+    (motivo None, aplicado presente), hereda su aplicado con origen
+    ORIGEN_MARGEN_PADRE; si no, motivo propio intacto (la regla de
+    _origen_de_nota, sin tocar). Lee notas CRUDAS del dict, no nodos."""
+    propia_target, propia_origen = _origen_de_nota(nota_crud)
+    if propia_origen == ORIGEN_MARGEN_FAMILIA and propia_target is not None:
+        return (_dos_dec(propia_target), propia_origen)
+    if (
+        isinstance(nota_padre_cruda, dict)
+        and nota_padre_cruda.get("motivo") is None
+        and nota_padre_cruda.get("aplicado") is not None
+    ):
+        return (_dos_dec(nota_padre_cruda["aplicado"]), ORIGEN_MARGEN_PADRE)
+    return (propia_target, propia_origen)
+
+
 def origen_meta_familia(conn, platform: str, familia_id: int) -> tuple[str | None, str]:
-    """Target (aplicado, str) y origen ES de una familia. Mide -> su margen;
-    motivo -> la meta del pais con el motivo; sin notas -> la meta del pais.
-    A5 especializa la costura A2 (firma str -> tupla: sin callers previos)."""
+    """Target (aplicado a 2 decimales, str) y origen ES de una familia.
+    Mide -> su margen; subfamilia sin margen bajo padre que mide -> el
+    padre con ORIGEN_MARGEN_PADRE; motivo -> la meta del pais con el
+    motivo; sin notas -> la meta del pais. A5 especializa la costura A2
+    (firma str -> tupla: sin callers previos)."""
     _valida_plataforma(platform)
-    _lee_familia(conn, familia_id)
-    return _origen_de_nota(_notas_familias(conn, platform).get(str(familia_id)))
+    fila = _lee_familia(conn, familia_id)
+    notas = _notas_familias(conn, platform)
+    nota_padre = notas.get(str(fila[4])) if fila[4] is not None else None
+    return _meta_con_herencia(notas.get(str(familia_id)), nota_padre)
