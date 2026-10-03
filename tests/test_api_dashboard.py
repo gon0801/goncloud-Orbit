@@ -1040,7 +1040,16 @@ def test_campanas_muestra_congelado_unico_rango_y_null(monkeypatch):
         _congelado(conn, c1, a2, "29.50", "margen_familia")
         _congelado(conn, c1, b1, "28.5", "margen_familia")
         _congelado(conn, c2, b2, "29.5", "margen_familia", decided_at=manana)
-        _ciclo(conn, platform="amazon_us")  # shadow: no se cuela
+        # Trampas anti-filtro (IDs mayores que c1/c2): sin mode='live' o
+        # status='done', DISTINCT ON las elegiria y los asserts de camp_a mueren.
+        c_shadow = _ciclo(conn, platform="amazon_us")
+        _congelado(conn, c_shadow, a1, "99.9", "margen_familia")
+        c_running = conn.execute(
+            "INSERT INTO optimizer_cycle (motor, mode, platform, status,"
+            " decisions_count) VALUES ('ads_optimizer', 'live',"
+            " 'amazon_us'::platform, 'running', 0) RETURNING id"
+        ).fetchone()[0]
+        _congelado(conn, c_running, a1, "88.8", "margen_familia")
         _hoy(monkeypatch, dt.date(2026, 8, 24))
         resp = _cliente(dsn, monkeypatch).get("/api/dashboard/campanas")
         assert resp.status_code == 200, resp.text
