@@ -1066,8 +1066,9 @@ def test_politica_default_v1_y_vivo_v1_la_deja():
 
 
 def test_cola_bloqueada_no_recae_queda_v2():
-    """A6 (graft C3, pin nunca-peor): v2 dispara + la cola bloquea ->
-    no-op con motivo de cola y politica v2 (NO re-cae al fallback)."""
+    """A6-M19 (cola-recae; graft C3, pin nunca-peor): v2 dispara + la cola
+    bloquea -> no-op con motivo de cola y politica v2 (NO re-cae al
+    fallback)."""
     bids = _bids(cost=Decimal("300"), ad_revenue=Decimal("0"), clicks=100, orders=0, moneda="MXN")
     ev_dispara = _evidencia_hoja(100, 0, "0.00", 100, "300.00")
     r = b.decide_bid(
@@ -1114,6 +1115,72 @@ def test_cola_bloqueada_no_recae_queda_v2():
     assert (r2.kind, r2.motivo) == (None, b.MOTIVO_RANGO_BLOQUEA_AJUSTE)
     assert r2.politica == b.POLITICA_BANDAS_EVIDENCIA
     assert r2.abstencion_v2 is None
+
+
+def test_matriz_bids_none_y_moneda_no_corren_fallback():
+    """A6-M20 (fallback-antes-de-guardas): las guardas COMPARTIDAS
+    (bids None, moneda) bloquean ANTES de la rama: el fallback no corre
+    (politica pedida, sin abstencion), igual con o sin flag."""
+    ev_abstiene = _evidencia_hoja(16, 0, "0.00", 16, "48.00")
+    r = _decide_v2_fb(None, _cortes_mx_sin_pause(), ev_abstiene)
+    assert (r.kind, r.motivo) == (None, b.MOTIVO_BIDS_SIN_OBSERVACIONES)
+    assert r.politica == b.POLITICA_BANDAS_EVIDENCIA
+    assert r.abstencion_v2 is None
+    moneda_mala = _bids(
+        cost=Decimal("48"), ad_revenue=Decimal("0"), clicks=16, orders=0, moneda="USD"
+    )
+    r2 = _decide_v2_fb(moneda_mala, _cortes_mx_sin_pause(), ev_abstiene)
+    assert (r2.kind, r2.motivo) == (None, b.MOTIVO_BIDS_MONEDA_INVALIDA)
+    assert r2.politica == b.POLITICA_BANDAS_EVIDENCIA
+    assert r2.abstencion_v2 is None
+
+
+def test_matriz_pause_con_fallback_sigue_pause():
+    """A6-M21 (fallback-antes-de-pause): el pause corre ANTES de la rama:
+    con datos de pause + fallback pedido, manda el pause (politica
+    pedida, sin abstencion)."""
+    cortes = _cortes(
+        cost=Decimal("600"), ad_revenue=Decimal("0"), clicks=150, orders=0, moneda="MXN"
+    )
+    bids = _bids(cost=Decimal("300"), ad_revenue=Decimal("0"), clicks=100, orders=0, moneda="MXN")
+    r = _decide_v2_fb(bids, cortes, _evidencia_hoja(16, 0, "0.00", 16, "48.00"))
+    assert (r.kind, r.motivo) == ("pause", b.MOTIVO_PAUSE)
+    assert r.politica == b.POLITICA_BANDAS_EVIDENCIA
+    assert r.abstencion_v2 is None
+
+
+def test_matriz_abstencion_frontera_str_cae_a_v1():
+    """A6-M22 (str-sin-fallback): abstencion resuelta en la FRONTERA
+    (previa None post-LOO, cpc insuficiente) + fallback -> el tramo v1
+    decide con el motivo v1 y la abstencion auditada (cadena
+    LOO-negativo -> None -> fallback, graft C2)."""
+    bids = _bids(cost=Decimal("48"), ad_revenue=Decimal("0"), clicks=16, orders=0, moneda="MXN")
+    for motivo in ("evidencia_insuficiente", "cpc_post_cambio_insuficiente"):
+        r = _decide_v2_fb(bids, _cortes_mx_sin_pause(), motivo)
+        assert (r.kind, r.motivo, r.factor) == ("bid", "banda_menos_12", Decimal("-0.12"))
+        assert r.politica == b.POLITICA_BANDAS_V1
+        assert r.abstencion_v2 == motivo
+
+
+def test_matriz_fallback_corre_regla_a_cero_ventas():
+    """A6-M23 (fallback-sin-A-prima): el fallback es el tramo v1 COMPLETO
+    (A' + bandas): cero ventas con clicks esperados y gasto sobre piso
+    -> -25% con motivo propio, politica v1."""
+    bids = _bids(cost=Decimal("45"), ad_revenue=Decimal("0"), clicks=200, orders=0, moneda="MXN")
+    r = _decide_v2_fb(
+        bids,
+        _cortes_mx_sin_pause(),
+        _evidencia_hoja(16, 0, "0.00", 16, "48.00"),
+        expected_clicks="120",
+        cost_min="40",
+    )
+    assert (r.kind, r.motivo, r.factor) == (
+        "bid",
+        b.MOTIVO_BANDA_MENOS_25_CERO_VENTAS,
+        Decimal("-0.25"),
+    )
+    assert r.politica == b.POLITICA_BANDAS_V1
+    assert r.abstencion_v2 == "evidencia_insuficiente"
 
 
 def test_replay_evidencia_v2_fila_pre_a4_sin_clave():
