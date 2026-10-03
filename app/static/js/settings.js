@@ -32,6 +32,18 @@ function cambio(el) {
   return el.value.trim() !== el.defaultValue.trim() && el.value.trim() !== "";
 }
 
+// A6: el select del motor de bids compara contra la opcion que el
+// servidor pinto (defaultSelected); "" SI viaja (volver a v1 es un
+// cambio real: la API popea la clave).
+function cambioSelect(sel) {
+  if (!sel) return false;
+  var inicial = null;
+  for (var i = 0; i < sel.options.length; i++) {
+    if (sel.options[i].defaultSelected) inicial = sel.options[i].value;
+  }
+  return sel.value !== inicial;
+}
+
 function guardarConfig(form) {
   var estado = form.querySelector("[data-estado]");
   var plataforma = form.getAttribute("data-settings-config");
@@ -55,6 +67,9 @@ function guardarConfig(form) {
     var el = form.elements[nombre];
     if (cambio(el)) cuerpo[nombre] = el.value.trim();
   });
+  // A6: el motor viaja si el select cambio ("" incluido: volver a v1).
+  var motor = form.elements.motor_bid;
+  if (cambioSelect(motor)) cuerpo.motor_bid = motor.value;
   if (cambio(toggle) || (margenOn && cambio(fraccion))) {
     cuerpo.margen = margenOn
       ? { habilitado: true, fraccion: fraccion.value.trim() || null }
@@ -73,7 +88,8 @@ function guardarConfig(form) {
     !cuerpo.margen &&
     !cuerpo.caps &&
     !cuerpo.confianza_recorte &&
-    !cuerpo.confianza_subida
+    !cuerpo.confianza_subida &&
+    !("motor_bid" in cuerpo)
   ) {
     estado.textContent = "Nada que cambiar.";
     return;

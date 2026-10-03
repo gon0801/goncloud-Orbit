@@ -1476,9 +1476,10 @@ def settings(conn: ConexionLectura) -> dict:
     plataforma el target VIGENTE y su peldano (la MISMA cascada del motor,
     cascada_target_acos_con_procedencia, con el aplicado del margen del
     ultimo ciclo), el target manual, el interruptor del margen (E3: clave
-    presente = encendido) con su fraccion, los caps y el goal de plataforma;
-    `modo_global` de SOLO lectura (E6; ausente -> null, jamas inventado); y
-    los goals con id y, en los de campana, a quien pisan (E4)."""
+    presente = encendido) con su fraccion, el motor de bids (A6: crudo +
+    resuelto), los caps y el goal de plataforma; `modo_global` de SOLO
+    lectura (E6; ausente -> null, jamas inventado); y los goals con id y,
+    en los de campana, a quien pisan (E4)."""
     config_id, settings = _config_vigente_con_id(conn)
     goals = [
         (fila[0], _goal_desde_fila(fila[1:13]), fila[13], fila[14])
@@ -1515,6 +1516,12 @@ def settings(conn: ConexionLectura) -> dict:
                 "confianza_subida": _dec_str(
                     g.confianza_subida_desde_settings(settings, plataforma)
                 ),
+                # A6: interruptor del motor de bids: valor CRUDO (None =
+                # ausente = bandas v1) + resuelto (vive: True = evidencia
+                # v2). Clave corrupta = ValueError y la pagina NO se
+                # muestra, igual que target/fraccion/confianzas.
+                "motor_bid": settings.get(g.clave_motor_bid(plataforma)),
+                "motor_bid_vive": g.motor_evidencia_desde_settings(settings, plataforma),
                 "caps": {kind: _dec_str(cap) for kind, cap in caps.items()},
                 "goal": (_goal_editable(goal_id, goal, plataforma, None, None) if goal else None),
             }

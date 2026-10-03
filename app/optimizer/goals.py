@@ -845,6 +845,40 @@ def confianza_subida_desde_settings(settings: Mapping, platform: str) -> Decimal
     )
 
 
+# ---------------------------------------------------------------------------
+# Motor de bids por plataforma (A6): bandas v1 o evidencia v2.
+# ---------------------------------------------------------------------------
+
+VALOR_MOTOR_EVIDENCIA = "evidencia"
+
+
+def clave_motor_bid(platform: str) -> str:
+    """Clave sellada del interruptor del motor de bids
+    (ads_motor_bid_<platform>, docs/DATABASE.md)."""
+    return f"ads_motor_bid_{platform}"
+
+
+def motor_evidencia_desde_settings(settings: Mapping, platform: str) -> bool:
+    """True SOLO si la plataforma decide con evidencia (A6-live). Clave
+    ausente (o JSON null) = False: el default es el motor viejo de bandas
+    v1 y las configs actuales (sin la clave) quedan intactas, SIN
+    migraciones. SOLO el valor exacto "evidencia" enciende; PRESENTE con
+    cualquier otro valor (incluido "" escrito a mano o "EVIDENCIA") =
+    config CORRUPTA: ValueError ruidoso que tumba al lector (regla 3,
+    mismo trato que target/fraccion/confianzas: decidir v2 con un valor
+    que nadie configuro seria inventar el motor)."""
+    clave = clave_motor_bid(platform)
+    valor = settings.get(clave)
+    if valor is None:
+        return False
+    if valor == VALOR_MOTOR_EVIDENCIA:
+        return True
+    raise ValueError(
+        f"setting {clave}: motor de bids debe ser {VALOR_MOTOR_EVIDENCIA!r} o ausente,"
+        f" llego {valor!r}"
+    )
+
+
 def ratio_ads_publicable(
     suma_ads: Decimal | None,
     n_monedas_ads: int | None,

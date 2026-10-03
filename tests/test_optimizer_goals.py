@@ -205,6 +205,37 @@ def test_confianza_bordes_validos_y_fuera_corrupta():
 
 
 # ---------------------------------------------------------------------------
+# Motor de bids por plataforma (A6): bandas v1 o evidencia v2
+# ---------------------------------------------------------------------------
+
+
+def test_motor_evidencia_ausente_es_viejo_por_plataforma():
+    """A6-M7 (clave-sin-platform): sin clave (o null) -> False en AMBAS
+    plataformas; la clave de UNA no enciende la otra."""
+    assert g.motor_evidencia_desde_settings({}, "amazon_us") is False
+    assert g.motor_evidencia_desde_settings({}, "amazon_mx") is False
+    assert g.motor_evidencia_desde_settings({"ads_motor_bid_amazon_us": None}, "amazon_us") is False
+    solo_us = {"ads_motor_bid_amazon_us": "evidencia"}
+    assert g.motor_evidencia_desde_settings(solo_us, "amazon_us") is True
+    assert g.motor_evidencia_desde_settings(solo_us, "amazon_mx") is False
+    assert g.clave_motor_bid("amazon_mx") == "ads_motor_bid_amazon_mx"
+
+
+def test_motor_evidencia_solo_evidencia_exacta_y_lo_demas_corrupto():
+    """A6-M8 (default-silencioso): SOLO "evidencia" exacto enciende;
+    PRESENTE con cualquier otro valor ("" a mano, mayusculas, basura,
+    numero) = config CORRUPTA (ValueError, falla cerrado como
+    target/fraccion/confianzas)."""
+    assert (
+        g.motor_evidencia_desde_settings({"ads_motor_bid_amazon_us": "evidencia"}, "amazon_us")
+        is True
+    )
+    for malo in ("", "EVIDENCIA", "Evidencia", "bandas_v1", "evidencia_v2", " ", 1, True):
+        with pytest.raises(ValueError, match="motor de bids"):
+            g.motor_evidencia_desde_settings({"ads_motor_bid_amazon_us": malo}, "amazon_us")
+
+
+# ---------------------------------------------------------------------------
 # Floor/ceiling con defaults POR MONEDA (ORBIT 05 preflight 1.2)
 # ---------------------------------------------------------------------------
 
