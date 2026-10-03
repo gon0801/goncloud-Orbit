@@ -5,8 +5,10 @@ Vivio en app/cycle.py hasta ORBIT 05 2.1a: se movio aqui (motor puro, sin
 psycopg ni app.ads) para que tools/dossier_adversarial.py pueda replayear sin
 cargar app.apply/app.ads. app.cycle lo reexporta (API publica sellada). El
 FREEZE (serializacion congelada de inputs) sigue en app/cycle.py: el par
-freeze<->replay queda partido a proposito y DECLARADO (allowlist de
-test_architecture); cualquier clave nueva en inputs se agrega en los dos.
+freeze<->replay queda partido a proposito y DECLARADO (pinneado con asserts
+por clave + golden en tests/test_cycle.py; no existe allowlist en
+tests/test_architecture.py); cualquier clave nueva en inputs se agrega en
+los dos.
 
 REPLAY FIEL POR CONSTRUCCION (decision del lead 2026-08-28, cierre CORTES
 03): el replay LEE lo congelado, JAMAS recalcula evidencia (el snapshot de la
@@ -20,7 +22,7 @@ from __future__ import annotations
 import datetime as dt
 from decimal import Decimal
 
-from app.optimizer import bid, cortes, hygiene, windows
+from app.optimizer import bid, cortes, evidencia, hygiene, windows
 
 
 def _dec_de_json(valor) -> Decimal | None:
@@ -171,6 +173,97 @@ def replay_bid_con_target(inputs: dict, target_acos_pct: Decimal) -> bid.Resulta
     inyectado); devuelve el ResultadoBid COMPLETO (kind/new/factor).
     El target se valida en decide_bid (> 0, como el spot-check)."""
     return _replay_bid(inputs, target_acos_pct)
+
+
+def reproduce_evidencia_v2(inputs: dict) -> dict | None:
+    """Re-decide el contrafactual v2 (A4) desde `inputs.evidencia_v2` y
+    devuelve el veredicto re-derivado {kind, motivo, factor, new_value}
+    (strings/None, como el freeze). REPLAY FIEL: reconstruye (previa,
+    conversion, cpc) desde los parciales congelados (jamas recalcula
+    desde la DB ni usa el vigente) y llama a decide_bid con la politica
+    evidencia + las confianzas congeladas. Filas pre-A4 (sin la clave) ->
+    None (sin constantes REPLAY_*: v2 no tiene era). Filas pause_intacto:
+    re-ejecuta _replay_bid (camino v1) y EXIGE kind pause + MISMO motivo
+    (res A13: el marcador copia el vivo, y el replay lo verifica)."""
+    frozen = inputs.get("evidencia_v2")
+    if frozen is None:
+        return None
+    if frozen.get("via") == "pause_intacto":
+        vivo = _replay_bid(inputs)
+        assert vivo.kind == "pause", f"pause_intacto con replay vivo {vivo.kind}"
+        assert vivo.motivo == frozen["veredicto"]["motivo"], (
+            f"pause_intacto motivo {frozen['veredicto']['motivo']} vs replay {vivo.motivo}"
+        )
+        return {
+            "kind": vivo.kind,
+            "motivo": vivo.motivo,
+            "factor": None,
+            "new_value": None,
+        }
+    previa = _previa_de_json(frozen["previa"])
+    conversion = _conversion_de_json(frozen["conversion"])
+    cpc = _cpc_de_json(frozen["cpc"])
+    # Espejo arg-por-arg de _replay_bid + los 4 params v2. Sin fallbacks
+    # de era: la clave evidencia_v2 SOLO existe en filas escritas por el
+    # codigo nuevo (que siempre congela corte completo).
+    veredicto = bid.decide_bid(
+        platform=inputs["platform"],
+        bids=_agregado_sintetico(inputs["ventanas"]["bids"]),
+        cortes=_agregado_sintetico(inputs["ventanas"]["cortes"]),
+        target_acos_pct=Decimal(inputs["target_acos_pct_usado"]),
+        bid_actual=_dec_de_json(inputs["bid_actual"]),
+        bid_moneda=inputs["bid_moneda"],
+        floor=Decimal(inputs["goal"]["bid_floor"]),
+        ceiling=Decimal(inputs["goal"]["bid_ceiling"]),
+        umbral_pause=inputs["corte"]["umbral_clicks_usado"],
+        cost_min=Decimal(inputs["corte"]["cost_min_usado"]),
+        expected_clicks=_dec_de_json(inputs["corte"]["cero_ventas_expected_usado"]),
+        policy_version=(inputs.get("economic_policy") or {}).get("version"),
+        evidencia=evidencia.clasifica(previa, conversion, cpc),
+        politica_bandas=bid.POLITICA_BANDAS_EVIDENCIA,
+        confianza_recorte=Decimal(frozen["confianza_recorte_usada"]),
+        confianza_subida=Decimal(frozen["confianza_subida_usada"]),
+    )
+    return {
+        "kind": veredicto.kind,
+        "motivo": veredicto.motivo,
+        "factor": str(veredicto.factor) if veredicto.factor is not None else None,
+        "new_value": str(veredicto.new_value) if veredicto.new_value is not None else None,
+    }
+
+
+def _previa_de_json(d: dict | None) -> evidencia.Previa | None:
+    if d is None:
+        return None
+    return evidencia.Previa(
+        cvr=Decimal(d["cvr"]),
+        aov=Decimal(d["aov"]),
+        niveles=tuple(d["niveles"]),
+        familia_id=d["familia_id"],
+        subfamilia_id=d["subfamilia_id"],
+    )
+
+
+def _conversion_de_json(d: dict | None) -> evidencia.Conteo | None:
+    if d is None:
+        return None
+    return evidencia.Conteo(
+        clicks=d["clicks"],
+        orders=d["orders"],
+        ad_revenue=_dec_de_json(d["ad_revenue"]),
+    )
+
+
+def _cpc_de_json(d: dict | None) -> evidencia.CostoPorClic | None:
+    if d is None:
+        return None
+    return evidencia.CostoPorClic(
+        cost=_dec_de_json(d["cost"]),
+        clicks=d["clicks"],
+        desde=dt.date.fromisoformat(d["desde"]),
+        hasta=dt.date.fromisoformat(d["hasta"]),
+        post_cambio=d["post_cambio"],
+    )
 
 
 def reproduce(inputs: dict) -> tuple[str | None, Decimal | None, str | None]:

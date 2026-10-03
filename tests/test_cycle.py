@@ -94,6 +94,14 @@ SQL45 = (
 SQL46 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0046_target_acos_ciclo.sql"
 ).read_text(encoding="utf-8")
+# A4: conversion_jerarquica cruza campana_grupo_rol (0018) y familia (0047)
+# en TX2 — sin estas TODO ciclo revienta con UndefinedTable.
+SQL18 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0018_fabrica_campanas.sql"
+).read_text(encoding="utf-8")
+SQL47 = (Path(__file__).resolve().parents[1] / "migrations" / "0047_familias.sql").read_text(
+    encoding="utf-8"
+)
 
 # ---------------------------------------------------------------------------
 # Reloj FIJO y ventanas derivadas (mismas constantes que test_optimizer_windows)
@@ -178,6 +186,9 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL45)
         # ADS C.2a: target_acos_ciclo (0046) — la TX3 escribe el freeze.
         conn.execute(SQL46)
+        # A4: el grano jerarquico cruza 0018 + 0047 en TX2.
+        conn.execute(SQL18)
+        conn.execute(SQL47)
         yield conn, conectar_extra
     finally:
         if conn is not None:
@@ -559,11 +570,14 @@ def _siembra_terminos(conn, run_id, ag) -> None:
         )
 
 
-def _siembra_maestra(conn, *, escalera: str = "shadow") -> dict:
+def _siembra_maestra(conn, *, escalera: str = "shadow", settings: dict | None = None) -> dict:
     """Fixture maestra del DoD: config + goal de plataforma + campana/ad_group/
     2 keywords con ventanas maduras + 7 terminos. Reloj FIJO DECIDED_AT."""
     run_id = _run(conn)
-    config_id = _config_version(conn, {"ads_optimizer_mode": escalera})
+    base = {"ads_optimizer_mode": escalera}
+    if settings:
+        base.update(settings)
+    config_id = _config_version(conn, base)
     _goal_plataforma(conn)
     camp = _entidad(conn, "amazon_us", "campaign", "9001")
     ag = _entidad(conn, "amazon_us", "ad_group", "9101", parent=camp)
@@ -2953,3 +2967,127 @@ def test_ciclo_lee_flag_economico_de_settings():
                 for d in decisiones:
                     if d[1] in ("pause", "bid"):
                         assert d[9]["economic_policy"]["version"] is None
+
+
+# ---------------------------------------------------------------------------
+# A4: freeze evidencia_v2 + replay del contrafactual (pins por clave + golden)
+# ---------------------------------------------------------------------------
+
+
+def test_evidencia_v2_congelada_shape_exacto():
+    """TODA decision del motor de bids congela inputs.evidencia_v2 con el
+    shape EXACTO (claves, Decimal-como-string, fechas ISO); filas pause
+    llevan el marcador pause_intacto (cero queries)."""
+    with _db_temporal("orbit_ciclo_a4") as (conn, _c):
+        ids = _siembra_maestra(conn)
+        res = _corre(conn)
+        assert res.status == "done"
+        filas = _decisions_de(conn, res.cycle_id)
+        por = {(f[0], f[1], f[2]): f for f in filas}
+
+        ev2 = por[(ids["kw_bid"], "bid", None)][9]["evidencia_v2"]
+        assert set(ev2) == {
+            "politica",
+            "confianza_recorte_usada",
+            "confianza_subida_usada",
+            "moneda",
+            "ventana_madura",
+            "previa",
+            "conversion",
+            "cpc",
+            "veredicto",
+        }
+        assert ev2["politica"] == "evidencia_v2"
+        assert ev2["confianza_recorte_usada"] == "0.80"
+        assert ev2["confianza_subida_usada"] == "0.70"
+        assert ev2["moneda"] == "USD"
+        # D = 08-22: madura literal D-90..D-10
+        assert ev2["ventana_madura"] == {"desde": "2026-05-24", "hasta": "2026-08-12"}
+        previa = ev2["previa"]
+        assert previa is not None  # la siembra vende en la raiz
+        assert set(previa) == {"cvr", "aov", "niveles", "familia_id", "subfamilia_id"}
+        assert Decimal(previa["cvr"]) > 0 and Decimal(previa["aov"]) > 0
+        assert previa["niveles"][0] == "plataforma"
+        assert previa["familia_id"] is None  # legacy sin etiquetar
+        conv = ev2["conversion"]
+        assert set(conv) == {"clicks", "orders", "ad_revenue"}
+        assert isinstance(conv["clicks"], int) and isinstance(conv["orders"], int)
+        Decimal(conv["ad_revenue"])
+        cpc = ev2["cpc"]
+        assert set(cpc) == {"cost", "clicks", "desde", "hasta", "post_cambio"}
+        assert isinstance(cpc["post_cambio"], bool)
+        veredicto = ev2["veredicto"]
+        assert set(veredicto) == {"kind", "motivo", "factor", "new_value"}
+        assert veredicto["motivo"] in (
+            "banda_menos_25",
+            "banda_menos_12",
+            "banda_mas_15",
+            "evidencia_insuficiente",
+            "cpc_post_cambio_insuficiente",
+        )
+
+        pause = por[(ids["kw_pause"], "pause", None)][9]["evidencia_v2"]
+        assert set(pause) == {"politica", "via", "veredicto"}
+        assert (pause["politica"], pause["via"]) == ("evidencia_v2", "pause_intacto")
+        assert pause["veredicto"]["kind"] == "pause"
+        assert pause["veredicto"]["motivo"] == por[(ids["kw_pause"], "pause", None)][9]["motivo"]
+        assert pause["veredicto"]["factor"] is None
+        assert pause["veredicto"]["new_value"] is None
+
+
+def test_replay_evidencia_v2_reproduce_contrafactual_exacto():
+    """Golden A4 (lane 8): reproduce_evidencia_v2 re-decide el veredicto
+    v2 EXACTO (kind, motivo, factor, new_value) para cada decision del
+    motor de bids; el vivo sigue reproduciendo con reproduce()."""
+    from app.optimizer.replay import reproduce, reproduce_evidencia_v2
+
+    with _db_temporal("orbit_ciclo_a4b") as (conn, _c):
+        _siembra_maestra(conn)
+        res = _corre(conn)
+        assert res.status == "done"
+        filas = _decisions_de(conn, res.cycle_id)
+        vistas = 0
+        for fila in filas:
+            ins = fila[9]
+            if ins.get("motor") != "bid":
+                continue
+            vistas += 1
+            assert reproduce(ins) == (fila[1], fila[4], fila[5])
+            assert reproduce_evidencia_v2(ins) == ins["evidencia_v2"]["veredicto"]
+        assert vistas >= 2  # al menos la bid y la pause de la siembra
+
+
+def test_evidencia_v2_confianzas_configuradas_viajan_y_se_congelan():
+    """Las confianzas A3 resueltas 1x/plataforma viajan al motor y se
+    congelan *_usada; el replay usa las congeladas (lane 7)."""
+    with _db_temporal("orbit_ciclo_a4c") as (conn, _c):
+        ids = _siembra_maestra(
+            conn,
+            settings={
+                "ads_confianza_recorte_amazon_us": "0.90",
+                "ads_confianza_subida_amazon_us": "0.60",
+            },
+        )
+        res = _corre(conn)
+        assert res.status == "done"
+        filas = _decisions_de(conn, res.cycle_id)
+        por = {(f[0], f[1], f[2]): f for f in filas}
+        ev2 = por[(ids["kw_bid"], "bid", None)][9]["evidencia_v2"]
+        assert ev2["confianza_recorte_usada"] == "0.90"
+        assert ev2["confianza_subida_usada"] == "0.60"
+
+
+def test_evidencia_v2_confianza_corrupta_tumba_ciclo_fail_closed():
+    """Confianza fuera de [0.50, 0.99] => ciclo failed (fail-closed, igual
+    que un target/fraccion corrupto; desviacion de disponibilidad A4
+    documentada: el trunk jamas leia confianzas)."""
+    with _db_temporal("orbit_ciclo_a4d") as (conn, _c):
+        _siembra_maestra(conn, settings={"ads_confianza_recorte_amazon_us": "0.30"})
+        with pytest.raises(ValueError, match="confianza de recorte"):
+            _corre(conn)
+        ciclo_id, status, notes = conn.execute(
+            "SELECT id, status, notes FROM optimizer_cycle WHERE motor = 'ads_optimizer'"
+        ).fetchone()
+        assert status == "failed"
+        assert json.loads(notes)["error"].startswith("setting ads_confianza_recorte")
+        assert conn.execute("SELECT count(*) FROM decision").fetchone()[0] == 0

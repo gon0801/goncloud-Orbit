@@ -197,9 +197,11 @@ from app import apply, apply_cola, apply_harvest, notifica, propuestas_campana
 from app.ads.config import AdsCredentials
 from app.apply import Aplicador, CapSaturado
 from app.optimizer import bid, cortes, harvest_destino, hygiene, windows
+from app.optimizer import evidencia as ev
 from app.optimizer import goals as g
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.replay import reproduce as reproduce
+from app.optimizer.replay import reproduce_evidencia_v2 as reproduce_evidencia_v2
 from app.redaction import install_scrub_filter, scrub
 
 logger = logging.getLogger(__name__)
@@ -771,6 +773,71 @@ def _goal_json(
     }
 
 
+def _evidencia_v2_json(
+    *,
+    previa: ev.Previa | None,
+    conversion: ev.Conteo | None,
+    cpc: ev.CostoPorClic | None,
+    veredicto: bid.ResultadoBid,
+    confianza_recorte: Decimal,
+    confianza_subida: Decimal,
+    moneda: str,
+    ventana_desde: dt.date,
+    ventana_hasta: dt.date,
+) -> dict:
+    """Freeze de `inputs.evidencia_v2` (A4, shape EXACTO): insumos CRUDOS
+    (previa/conversion/cpc cada uno nullable, as-measured) + veredicto
+    v2. NO se congela la estimacion (derivada re-derivable exacta: un
+    numero, una fuente). Decimal como string, fechas ISO (regla 4)."""
+    return {
+        "politica": bid.POLITICA_BANDAS_EVIDENCIA,
+        "confianza_recorte_usada": _dec_str(confianza_recorte),
+        "confianza_subida_usada": _dec_str(confianza_subida),
+        "moneda": moneda,
+        "ventana_madura": {
+            "desde": ventana_desde.isoformat(),
+            "hasta": ventana_hasta.isoformat(),
+        },
+        "previa": (
+            {
+                "cvr": _dec_str(previa.cvr),
+                "aov": _dec_str(previa.aov),
+                "niveles": list(previa.niveles),
+                "familia_id": previa.familia_id,
+                "subfamilia_id": previa.subfamilia_id,
+            }
+            if previa is not None
+            else None
+        ),
+        "conversion": (
+            {
+                "clicks": conversion.clicks,
+                "orders": conversion.orders,
+                "ad_revenue": _dec_str(conversion.ad_revenue),
+            }
+            if conversion is not None
+            else None
+        ),
+        "cpc": (
+            {
+                "cost": _dec_str(cpc.cost),
+                "clicks": cpc.clicks,
+                "desde": cpc.desde.isoformat(),
+                "hasta": cpc.hasta.isoformat(),
+                "post_cambio": cpc.post_cambio,
+            }
+            if cpc is not None
+            else None
+        ),
+        "veredicto": {
+            "kind": veredicto.kind,
+            "motivo": veredicto.motivo,
+            "factor": _dec_str(veredicto.factor),
+            "new_value": _dec_str(veredicto.new_value),
+        },
+    }
+
+
 def _pendiente_bid(
     entidad_id: int,
     resultado: bid.ResultadoBid,
@@ -789,6 +856,7 @@ def _pendiente_bid(
     evidencia: windows.EvidenciaAdGroup | None,
     cost_min: Decimal,
     pause_economica: bool,
+    evidencia_v2: dict,
 ) -> _Pendiente:
     """El freeze de CORTES 01 (1.3): `inputs.corte` se congela en TODA
     decision del motor de bids -- INCLUIDAS las de kind final 'bid' -- porque
@@ -805,7 +873,9 @@ def _pendiente_bid(
     `expected_clicks` queda informativo. El sello bitemporal
     (_sello_bitemporal) aplica al obs directo del
     agregado que decidio (cortes para pause, bids para bid) mezclado con la
-    evidencia del grupo, clampeado a decided_at."""
+    evidencia del grupo, clampeado a decided_at. A4: `evidencia_v2` llega
+    YA SERIALIZADO del hook contrafactual (el vivo no lo consume; el replay
+    lo re-decide con reproduce_evidencia_v2)."""
     inputs = {
         "motor": "bid",
         "platform": platform,
@@ -860,6 +930,10 @@ def _pendiente_bid(
             **_corte_json(corte, evidencia, cost_min=cost_min),
             "cero_ventas_expected_usado": _dec_str(corte.expected_clicks),
         },
+        # A4: contrafactual v2 congelado en TODA decision del motor de
+        # bids (filas pause llevan el marcador pause_intacto, sin queries;
+        # el replay lo re-decide con reproduce_evidencia_v2).
+        "evidencia_v2": evidencia_v2,
     }
     return _Pendiente(
         ad_entity_id=entidad_id,
@@ -1498,6 +1572,63 @@ def _gates_entidad(
     return (goal, motivo)
 
 
+def _contrafactual_v2_json(
+    conn: psycopg.Connection,
+    *,
+    entidad_id: int,
+    platform: str,
+    ventanas: windows.VentanasEntidad,
+    historia,
+    conv: ev.ConversionPlataforma,
+    target: Decimal,
+    bid_actual: Decimal | None,
+    bid_moneda: str | None,
+    floor: Decimal,
+    ceiling: Decimal,
+    corte_pause: cortes.UmbralResuelto,
+    costo_piso: Decimal,
+    pause_economica: bool,
+    confianza_recorte: Decimal,
+    confianza_subida: Decimal,
+) -> dict:
+    """Contrafactual v2 YA SERIALIZADO para `inputs.evidencia_v2` (A4).
+    Mide (cpc_vigente + parciales) y juzga (segundo decide_bid con la
+    politica evidencia y los MISMOS args live). La llamada v2 espeja la
+    live arg-por-arg + los 4 params v2 (evidencia, politica_bandas,
+    confianzas): el replay la reproduce con los insumos congelados."""
+    cpc = windows.cpc_vigente(conn, entidad_id, historia, ventanas.bids)
+    previa, conversion, cpc_medido = ev.parciales_evidencia(conv, entidad_id, cpc)
+    veredicto = bid.decide_bid(
+        platform=platform,
+        bids=ventanas.bids,
+        cortes=ventanas.cortes,
+        target_acos_pct=target,
+        bid_actual=bid_actual,
+        bid_moneda=bid_moneda,
+        floor=floor,
+        ceiling=ceiling,
+        umbral_pause=corte_pause.umbral,
+        cost_min=costo_piso,
+        expected_clicks=corte_pause.expected_clicks,
+        policy_version=bid.POLITICA_PAUSE_ECONOMICA if pause_economica else None,
+        evidencia=ev.clasifica(previa, conversion, cpc_medido),
+        politica_bandas=bid.POLITICA_BANDAS_EVIDENCIA,
+        confianza_recorte=confianza_recorte,
+        confianza_subida=confianza_subida,
+    )
+    return _evidencia_v2_json(
+        previa=previa,
+        conversion=conversion,
+        cpc=cpc_medido,
+        veredicto=veredicto,
+        confianza_recorte=confianza_recorte,
+        confianza_subida=confianza_subida,
+        moneda=conv.moneda,
+        ventana_desde=conv.ventana_desde,
+        ventana_hasta=conv.ventana_hasta,
+    )
+
+
 def _procesa_decisora(
     conn: psycopg.Connection,
     *,
@@ -1518,6 +1649,9 @@ def _procesa_decisora(
     snapshot_margen: dict,
     pause_sin_cooldown_bid: bool,
     pause_economica: bool,
+    conv_jerarquica: ev.ConversionPlataforma,
+    confianza_recorte: Decimal,
+    confianza_subida: Decimal,
 ) -> None:
     (
         entidad_id,
@@ -1643,6 +1777,44 @@ def _procesa_decisora(
         ):
             contadores.skips_entidad[MOTIVO_INVERSION_SIN_EVIDENCIA] += 1
             return
+    # A4 (contrafactual v2): corre tras D.2, SOLO para filas que se
+    # PERSISTEN (kind bid o pause; los no-op no tienen fila donde
+    # congelar). kind bid: segundo decide_bid con la politica evidencia,
+    # REUSANDO la historia de D.2 (costo marginal = 1 query cpc_vigente).
+    # kind pause: marcador pause_intacto, CERO queries (pause es v1 en
+    # ambas politicas: el veredicto coincide por construccion). Politica
+    # pura: sin cooldown, sin D.2, sin veto (el replay la re-decide con
+    # los mismos insumos congelados). El vivo NO lo consume.
+    if resultado.kind == "pause":
+        evidencia_v2 = {
+            "politica": bid.POLITICA_BANDAS_EVIDENCIA,
+            "via": "pause_intacto",
+            "veredicto": {
+                "kind": "pause",
+                "motivo": resultado.motivo,
+                "factor": None,
+                "new_value": None,
+            },
+        }
+    else:
+        evidencia_v2 = _contrafactual_v2_json(
+            conn,
+            entidad_id=entidad_id,
+            platform=platform,
+            ventanas=ventanas,
+            historia=historia,
+            conv=conv_jerarquica,
+            target=target,
+            bid_actual=current_bid,
+            bid_moneda=bid_currency,
+            floor=floor,
+            ceiling=ceiling,
+            corte_pause=corte_pause,
+            costo_piso=costo_piso,
+            pause_economica=pause_economica,
+            confianza_recorte=confianza_recorte,
+            confianza_subida=confianza_subida,
+        )
     pendientes.append(
         _pendiente_bid(
             entidad_id,
@@ -1661,6 +1833,7 @@ def _procesa_decisora(
             evidencia=evidencia,
             cost_min=costo_piso,
             pause_economica=pause_economica,
+            evidencia_v2=evidencia_v2,
         )
     )
     contadores.decisiones[resultado.kind] += 1
@@ -1970,6 +2143,14 @@ def _recorre_plataforma(
     # su gate sigue igual con o sin flag).
     pause_sin_cooldown_bid = g.pause_sin_cooldown_bid_desde_settings(settings)
     pause_economica = g.pause_economica_desde_settings(settings)
+    # A4 (contrafactual v2): el roll-up de conversion se resuelve UNA vez
+    # por plataforma en TX2 (mismo snapshot REPEATABLE READ) y viaja
+    # EXPLICITO; las confianzas A3 se resuelven UNA vez por plataforma
+    # (fail-closed: corrupta = ValueError = ciclo failed, igual que un
+    # target/fraccion corruptos; el motor jamas ve los defaults 0.80/0.70).
+    conv_jerarquica = windows.conversion_jerarquica(conn, platform, decided_at)
+    confianza_recorte = g.confianza_recorte_desde_settings(settings, platform)
+    confianza_subida = g.confianza_subida_desde_settings(settings, platform)
     comunes = dict(
         platform=platform,
         setting_target=setting_target,
@@ -1993,6 +2174,9 @@ def _recorre_plataforma(
             inertes=inertes,
             pause_sin_cooldown_bid=pause_sin_cooldown_bid,
             pause_economica=pause_economica,
+            conv_jerarquica=conv_jerarquica,
+            confianza_recorte=confianza_recorte,
+            confianza_subida=confianza_subida,
             **comunes,
         )
     for fila in conn.execute(_SQL_GRUPOS, (platform,)).fetchall():

@@ -24,12 +24,18 @@ completa). Acoplamiento numerico sellado contra el diseno v2
 from __future__ import annotations
 
 import datetime as dt
+import json
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
 from app.optimizer import bid as b
+from app.optimizer import evidencia as ev
 from app.optimizer import windows as w
+from app.optimizer.evidencia import Conteo, CostoPorClic, EvidenciaHoja, Previa
+from app.optimizer.replay import reproduce_evidencia_v2
+from app.optimizer.windows import AgregadoMetricas
 
 # ---------------------------------------------------------------------------
 # Reloj/ventanas FIJAS (mismas fechas que test_optimizer_windows: bids
@@ -698,3 +704,353 @@ def test_pause_gana_sobre_la_regla_de_cero_ventas():
     # Cross-review grok-2: motivo pineado (kind solo no distingue el pause
     # que gana del que se bloquea).
     assert (r.kind, r.motivo) == ("pause", b.MOTIVO_PAUSE)
+
+
+# ---------------------------------------------------------------------------
+# A4: politica por evidencia (contrafactual v2)
+# ---------------------------------------------------------------------------
+
+
+def _evidencia_hoja(
+    clicks,
+    orders,
+    revenue,
+    cpc_clicks,
+    cpc_cost,
+    cvr="0.021",
+    aov="1000.00",
+):
+    """EvidenciaHoja a mano (headline: CPC 3, target 20.8, previa 2.1 %)."""
+    return EvidenciaHoja(
+        previa=Previa(cvr=Decimal(cvr), aov=Decimal(aov), niveles=("plataforma",)),
+        conversion=Conteo(clicks=clicks, orders=orders, ad_revenue=Decimal(revenue)),
+        cpc=CostoPorClic(
+            cost=Decimal(cpc_cost),
+            clicks=cpc_clicks,
+            desde=dt.date(2026, 9, 1),
+            hasta=dt.date(2026, 9, 30),
+            post_cambio=True,
+        ),
+    )
+
+
+def _decide_v2(
+    bids,
+    cortes,
+    evidencia,
+    *,
+    conf_rec="0.80",
+    conf_sub="0.70",
+    platform="amazon_mx",
+    target="20.8",
+    bid_actual="3.00",
+    bid_moneda="MXN",
+    floor="1",
+    ceiling="45",
+    cost_min="500",
+    umbral_pause=100,
+):
+    return b.decide_bid(
+        platform=platform,
+        bids=bids,
+        cortes=cortes,
+        target_acos_pct=Decimal(target),
+        bid_actual=Decimal(bid_actual),
+        bid_moneda=bid_moneda,
+        floor=Decimal(floor),
+        ceiling=Decimal(ceiling),
+        umbral_pause=umbral_pause,
+        cost_min=Decimal(cost_min),
+        evidencia=evidencia,
+        politica_bandas=b.POLITICA_BANDAS_EVIDENCIA,
+        confianza_recorte=Decimal(conf_rec),
+        confianza_subida=Decimal(conf_sub),
+    )
+
+
+def _cortes_mx_sin_pause():
+    return _cortes(cost=Decimal("10"), ad_revenue=Decimal("100"), clicks=50, orders=5, moneda="MXN")
+
+
+def test_v2_0_en_16_v1_recorta_por_ruido_v2_abstiene():
+    """Discriminador A4: 0/16 con gasto y sin venta. v1 dispara -12 (el
+    ruido que el programa mata); v2 abstiene (P = 0.55 < 0.80)."""
+    bids = _bids(cost=Decimal("48"), ad_revenue=Decimal("0"), clicks=16, orders=0, moneda="MXN")
+    cortes = _cortes_mx_sin_pause()
+    r1 = b.decide_bid(
+        platform="amazon_mx",
+        bids=bids,
+        cortes=cortes,
+        target_acos_pct=Decimal("20.8"),
+        bid_actual=Decimal("3.00"),
+        bid_moneda="MXN",
+        floor=Decimal("1"),
+        ceiling=Decimal("45"),
+        umbral_pause=100,
+        cost_min=Decimal("500"),
+    )
+    assert (r1.kind, r1.motivo, r1.factor) == ("bid", "banda_menos_12", Decimal("-0.12"))
+    r2 = _decide_v2(bids, cortes, _evidencia_hoja(16, 0, "0.00", 16, "48.00"))
+    assert (r2.kind, r2.motivo, r2.factor) == (None, "evidencia_insuficiente", None)
+
+
+def test_v2_0_en_100_recorta_menos_12_justificado():
+    bids = _bids(cost=Decimal("300"), ad_revenue=Decimal("0"), clicks=100, orders=0, moneda="MXN")
+    r2 = _decide_v2(bids, _cortes_mx_sin_pause(), _evidencia_hoja(100, 0, "0.00", 100, "300.00"))
+    assert (r2.kind, r2.motivo, r2.factor) == ("bid", "banda_menos_12", Decimal("-0.12"))
+    assert r2.new_value == Decimal("3.00") * Decimal("0.88")
+
+
+def test_v2_pausa_identica_a_v1_mismo_bloque():
+    """Pause intacto: mismo bloque, mismos args => mismo ResultadoBid."""
+    bids = _bids(cost=Decimal("300"), ad_revenue=Decimal("0"), clicks=100, orders=0, moneda="MXN")
+    cortes = _cortes(
+        cost=Decimal("600"), ad_revenue=Decimal("0"), clicks=150, orders=0, moneda="MXN"
+    )
+    comunes = {
+        "platform": "amazon_mx",
+        "bids": bids,
+        "cortes": cortes,
+        "target_acos_pct": Decimal("20.8"),
+        "bid_actual": Decimal("3.00"),
+        "bid_moneda": "MXN",
+        "floor": Decimal("1"),
+        "ceiling": Decimal("45"),
+        "umbral_pause": 100,
+        "cost_min": Decimal("500"),
+    }
+    r1 = b.decide_bid(**comunes)
+    r2 = b.decide_bid(
+        **comunes,
+        evidencia=_evidencia_hoja(100, 0, "0.00", 100, "300.00"),
+        politica_bandas=b.POLITICA_BANDAS_EVIDENCIA,
+        confianza_recorte=Decimal("0.80"),
+        confianza_subida=Decimal("0.70"),
+    )
+    assert (r1.kind, r1.motivo) == ("pause", b.MOTIVO_PAUSE)
+    assert r1 == r2
+
+
+def test_v2_no_exige_bids_completa_ni_acos_conocido():
+    """v2 consume otra evidencia: decide con bids incompleta y con ACoS
+    desconocido (v1 se abstendria en ambas)."""
+    incompletos = _bids(
+        cost=Decimal("300"),
+        ad_revenue=Decimal("0"),
+        clicks=100,
+        orders=0,
+        moneda="MXN",
+        n_fechas=3,
+    )
+    ev = _evidencia_hoja(100, 0, "0.00", 100, "300.00")
+    r2 = _decide_v2(incompletos, _cortes_mx_sin_pause(), ev)
+    assert (r2.kind, r2.motivo) == ("bid", "banda_menos_12")
+    # la ventana auditada sigue siendo la de bids (aunque incompleta)
+    assert (r2.window_start, r2.window_end) == (INICIO_BIDS, FIN_BIDS)
+    assert r2.data_observed_at == OBS_BIDS
+    sin_acos = _bids(cost=None, ad_revenue=Decimal("0"), clicks=100, orders=0, moneda="MXN")
+    r3 = _decide_v2(sin_acos, _cortes_mx_sin_pause(), ev)
+    assert (r3.kind, r3.motivo) == ("bid", "banda_menos_12")
+
+
+def test_v2_evidencia_str_abstencion_passthrough():
+    bids = _bids(cost=Decimal("300"), ad_revenue=Decimal("0"), clicks=100, orders=0, moneda="MXN")
+    cortes = _cortes_mx_sin_pause()
+    for motivo in ("evidencia_insuficiente", "cpc_post_cambio_insuficiente"):
+        r = _decide_v2(bids, cortes, motivo)
+        assert (r.kind, r.motivo, r.factor) == (None, motivo, None)
+
+
+def test_v2_subida_mas_15_misma_cola():
+    r2 = _decide_v2(
+        _bids(cost=Decimal("600"), ad_revenue=Decimal("8000"), clicks=200, orders=8, moneda="MXN"),
+        _cortes_mx_sin_pause(),
+        _evidencia_hoja(200, 8, "8000.00", 200, "600.00"),
+    )
+    assert (r2.kind, r2.motivo, r2.factor) == ("bid", "banda_mas_15", Decimal("0.15"))
+    assert r2.new_value == Decimal("3.45")
+
+
+def test_v2_clamps_identicos_delta_bajo_umbral():
+    r2 = _decide_v2(
+        _bids(cost=Decimal("300"), ad_revenue=Decimal("0"), clicks=100, orders=0, moneda="MXN"),
+        _cortes_mx_sin_pause(),
+        _evidencia_hoja(100, 0, "0.00", 100, "300.00"),
+        bid_actual="0.05",
+        floor="0.01",
+    )
+    assert (r2.kind, r2.motivo) == (None, "delta_bajo_umbral")
+
+
+def test_v2_firma_cerrada_y_ruidosa():
+    bids = _bids(cost=Decimal("300"), ad_revenue=Decimal("0"), clicks=100, orders=0, moneda="MXN")
+    cortes = _cortes_mx_sin_pause()
+    ev = _evidencia_hoja(100, 0, "0.00", 100, "300.00")
+    base = {
+        "platform": "amazon_mx",
+        "bids": bids,
+        "cortes": cortes,
+        "target_acos_pct": Decimal("20.8"),
+        "bid_actual": Decimal("3.00"),
+        "bid_moneda": "MXN",
+        "floor": Decimal("1"),
+        "ceiling": Decimal("45"),
+    }
+    with pytest.raises(ValueError, match="bandas desconocida"):
+        b.decide_bid(**base, politica_bandas="bandas_v3")
+    with pytest.raises(ValueError, match="parametros v2"):
+        b.decide_bid(**base, evidencia=ev)
+    with pytest.raises(ValueError, match="parametros v2"):
+        b.decide_bid(**base, confianza_recorte=Decimal("0.80"))
+    with pytest.raises(ValueError, match="exige evidencia"):
+        b.decide_bid(**base, politica_bandas=b.POLITICA_BANDAS_EVIDENCIA)
+    with pytest.raises(ValueError, match="exige confianzas"):
+        b.decide_bid(
+            **base,
+            politica_bandas=b.POLITICA_BANDAS_EVIDENCIA,
+            evidencia=ev,
+            confianza_recorte=Decimal("0.80"),
+        )
+    with pytest.raises(ValueError, match="ajeno al vocabulario"):
+        _decide_v2(bids, cortes, "motivo_futuro")
+    with pytest.raises(ValueError, match="tipo invalido"):
+        _decide_v2(bids, cortes, {"previa": None})  # type: ignore[arg-type]
+
+
+def test_v2_error_aritmetico_abstiene_por_hoja(monkeypatch):
+    """Fail-stance shadow (res 9): gamma sin converger (a fuera de rango)
+    abstiene la hoja, jamas tumba al llamador (ciclo y replay comparten
+    este camino)."""
+    bids = _bids(cost=Decimal("300"), ad_revenue=Decimal("0"), clicks=100, orders=0, moneda="MXN")
+
+    def _revienta(ev, target):
+        raise ArithmeticError("gamma sin converger")
+
+    # decide_bid importa estima_acos por nombre: se parcha su alias
+    monkeypatch.setattr(b, "estima_acos", _revienta)
+    r = _decide_v2(bids, _cortes_mx_sin_pause(), _evidencia_hoja(100, 0, "0.00", 100, "300.00"))
+    assert (r.kind, r.motivo) == (None, "evidencia_insuficiente")
+
+
+def test_replay_evidencia_v2_fila_pre_a4_sin_clave():
+    """Filas pre-A4 (sin inputs.evidencia_v2) -> None, sin constantes
+    REPLAY_*: v2 no tiene era (decide_bid v1 intacto para replay)."""
+    assert reproduce_evidencia_v2({"motor": "bid"}) is None
+
+
+def test_replay_395_banda_menos_12_v2_conserva_maximo_10():
+    """A4 (Verify-unit del plan): replay PURO sobre el fixture de recortes
+    -12% desde 2026-09-04 (403 al snapshot 2026-10-02; el plan decia 395 al
+    medirlo) con mediciones corrientes congeladas. Cada fila rejuega su
+    veredicto EXACTO y la politica de evidencia conserva (sigue recortando)
+    como maximo 10 (diseno: Poisson justifica 4; extraer, reportar,
+    ENTONCES pinnear: este pin fija lo medido). Sin DB."""
+    fixture = json.loads(
+        (Path(__file__).parent / "fixtures" / "a4_banda_menos_12.json").read_text(encoding="utf-8")
+    )
+    assert fixture["procedencia"]["conteo"] == len(fixture["registros"]) == 403
+    conserva = 0
+    for fila in fixture["registros"]:
+        vc = fila["cortes"]
+        fin_cortes = dt.date.fromisoformat(vc["window_end"])
+        cortes = AgregadoMetricas(
+            window_start=dt.date.fromisoformat(vc["window_start"]),
+            window_end=fin_cortes,
+            fechas=tuple(fin_cortes - dt.timedelta(days=n) for n in range(vc["fechas"])),
+            metric_currency=vc["moneda"],
+            cost=Decimal(vc["cost"]) if vc["cost"] is not None else None,
+            ad_revenue=Decimal(vc["ad_revenue"]) if vc["ad_revenue"] is not None else None,
+            revenue_same_sku=(
+                Decimal(vc["revenue_same_sku"]) if vc.get("revenue_same_sku") is not None else None
+            ),
+            impressions=None,
+            clicks=vc["clicks"],
+            orders=vc["orders"],
+            observed_at_max=(
+                dt.datetime.fromisoformat(vc["observed_at_max"]) if vc["observed_at_max"] else None
+            ),
+        )
+        vb = fila["bids"]
+        bids = AgregadoMetricas(
+            window_start=dt.date.fromisoformat(vb["window_start"]),
+            window_end=dt.date.fromisoformat(vb["window_end"]),
+            fechas=tuple(),
+            metric_currency=vb["moneda"],
+            cost=None,
+            ad_revenue=None,
+            revenue_same_sku=None,
+            impressions=None,
+            clicks=None,
+            orders=None,
+            observed_at_max=None,
+        )
+        previa = fila["previa"]
+        conversion = fila["conversion"]
+        cpc = fila["cpc"]
+        resultado = b.decide_bid(
+            platform=fila["platform"],
+            bids=bids,
+            cortes=cortes,
+            target_acos_pct=Decimal(fila["target"]),
+            bid_actual=Decimal(fila["bid_actual"]) if fila["bid_actual"] is not None else None,
+            bid_moneda=fila["bid_moneda"],
+            floor=Decimal(fila["floor"]),
+            ceiling=Decimal(fila["ceiling"]),
+            umbral_pause=fila["umbral"],
+            cost_min=Decimal(fila["cost_min"]),
+            expected_clicks=Decimal(fila["expected"]) if fila["expected"] is not None else None,
+            policy_version=fila["policy_version"],
+            evidencia=ev.clasifica(
+                (
+                    ev.Previa(
+                        cvr=Decimal(previa["cvr"]),
+                        aov=Decimal(previa["aov"]),
+                        niveles=tuple(previa["niveles"]),
+                        familia_id=previa["familia_id"],
+                        subfamilia_id=previa["subfamilia_id"],
+                    )
+                    if previa is not None
+                    else None
+                ),
+                (
+                    ev.Conteo(
+                        clicks=conversion["clicks"],
+                        orders=conversion["orders"],
+                        ad_revenue=(
+                            Decimal(conversion["ad_revenue"])
+                            if conversion["ad_revenue"] is not None
+                            else None
+                        ),
+                    )
+                    if conversion is not None
+                    else None
+                ),
+                (
+                    ev.CostoPorClic(
+                        cost=Decimal(cpc["cost"]) if cpc["cost"] is not None else None,
+                        clicks=cpc["clicks"],
+                        desde=dt.date.fromisoformat(cpc["desde"]),
+                        hasta=dt.date.fromisoformat(cpc["hasta"]),
+                        post_cambio=cpc["post_cambio"],
+                    )
+                    if cpc is not None
+                    else None
+                ),
+            ),
+            politica_bandas=b.POLITICA_BANDAS_EVIDENCIA,
+            confianza_recorte=Decimal(fila["conf_rec"]),
+            confianza_subida=Decimal(fila["conf_sub"]),
+        )
+        esperado = fila["veredicto_esperado"]
+        assert (resultado.kind, resultado.motivo) == (esperado["kind"], esperado["motivo"]), fila[
+            "id"
+        ]
+        assert (str(resultado.factor) if resultado.factor is not None else None) == esperado[
+            "factor"
+        ], fila["id"]
+        assert (str(resultado.new_value) if resultado.new_value is not None else None) == esperado[
+            "new_value"
+        ], fila["id"]
+        if resultado.kind == "bid" and resultado.factor is not None and resultado.factor < 0:
+            conserva += 1
+    assert conserva <= 10, f"v2 conserva {conserva} recortes (maximo 10)"

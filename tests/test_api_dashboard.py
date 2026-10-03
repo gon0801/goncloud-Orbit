@@ -2355,3 +2355,136 @@ def test_salud_muestra_avisos_propuesta_pendientes_y_fallo(monkeypatch):
             "fallo": "fallo: canal caido",
         }
         assert data["amazon_mx"]["avisos_propuesta"] == {"pendientes": 0, "fallo": None}
+
+
+def test_motivos_v2_en_ambos_dicts_es():
+    """A4: las abstenciones v2 viven en DECISIONES (plan-literal) y en
+    SALUD (clase no-op, forward-A6; precedente MOTIVO_PAUSE dual)."""
+    from app.api_dashboard import MOTIVOS_ES_DECISIONES, MOTIVOS_ES_SALUD
+    from app.optimizer import bid as b
+
+    assert MOTIVOS_ES_DECISIONES[b.MOTIVO_EVIDENCIA_INSUFICIENTE] == (
+        "Sin evidencia: la posterior no alcanza la confianza para ajustar"
+    )
+    assert MOTIVOS_ES_DECISIONES[b.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE] == (
+        "CPC desconocido tras el cambio: menos de 20 clics al bid vigente"
+    )
+    assert MOTIVOS_ES_SALUD[b.MOTIVO_EVIDENCIA_INSUFICIENTE] == (
+        "Sin evidencia: la posterior no alcanza la confianza para ajustar"
+    )
+    assert MOTIVOS_ES_SALUD[b.MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE] == (
+        "CPC desconocido tras el cambio: menos de 20 clics al bid vigente"
+    )
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_decisiones_feed_evidencia_v2_union_y_mantiene(monkeypatch):
+    """A4: el feed expone la linea de sombra (motivo_es por UNION:
+    abstencion nueva, banda y SALUD-only) + mantiene (mismo kind+factor
+    que el vivo); sin clave => null (filas pre-A4)."""
+    with _db_temporal("orbit_dash_a4") as (conn, dsn):
+        config_id = _config_version(conn, {"ads_optimizer_mode": "shadow"})
+        camp = _campana(conn, "amazon_us", "9001", name="Campana A")
+        ag = _grupo(conn, "amazon_us", "9101", parent=camp)
+        ciclo = _ciclo(conn, platform="amazon_us")
+        id_abstiene = _decision(
+            conn,
+            ciclo,
+            camp,
+            kind="bid",
+            config_id=config_id,
+            moneda="USD",
+            inputs={
+                "motor": "bid",
+                "motivo": "banda_menos_12",
+                "factor": "-0.12",
+                "target_acos_pct_usado": "25.00",
+                "evidencia_v2": {
+                    "politica": "evidencia_v2",
+                    "veredicto": {
+                        "kind": None,
+                        "motivo": "cpc_post_cambio_insuficiente",
+                        "factor": None,
+                        "new_value": None,
+                    },
+                },
+            },
+        )
+        id_banda = _decision(
+            conn,
+            _ciclo(conn, platform="amazon_us"),
+            camp,
+            kind="bid",
+            config_id=config_id,
+            moneda="USD",
+            inputs={
+                "motor": "bid",
+                "motivo": "banda_menos_12",
+                "factor": "-0.12",
+                "target_acos_pct_usado": "25.00",
+                "evidencia_v2": {
+                    "politica": "evidencia_v2",
+                    "veredicto": {
+                        "kind": "bid",
+                        "motivo": "banda_menos_12",
+                        "factor": "-0.12",
+                        "new_value": "0.8800",
+                    },
+                },
+            },
+        )
+        id_salud = _decision(
+            conn,
+            _ciclo(conn, platform="amazon_us"),
+            ag,
+            kind="bid",
+            config_id=config_id,
+            moneda="USD",
+            inputs={
+                "motor": "bid",
+                "motivo": "banda_menos_12",
+                "factor": "-0.12",
+                "target_acos_pct_usado": "25.00",
+                "evidencia_v2": {
+                    "politica": "evidencia_v2",
+                    "veredicto": {
+                        "kind": None,
+                        "motivo": "rango_bloquea_ajuste",
+                        "factor": None,
+                        "new_value": None,
+                    },
+                },
+            },
+        )
+        id_vieja = _decision(
+            conn,
+            _ciclo(conn, platform="amazon_us"),
+            ag,
+            kind="bid",
+            config_id=config_id,
+            moneda="USD",
+            inputs={"motor": "bid", "motivo": "banda_menos_12", "factor": "-0.12"},
+        )
+        cliente = _cliente(dsn, monkeypatch)
+        data = cliente.get("/api/dashboard/decisiones").json()
+        por_id = {i["id"]: i for i in data["items"]}
+
+        abstiene = por_id[id_abstiene]["evidencia_v2"]
+        assert abstiene["motivo"] == "cpc_post_cambio_insuficiente"
+        assert abstiene["motivo_es"] == (
+            "CPC desconocido tras el cambio: menos de 20 clics al bid vigente"
+        )
+        assert abstiene["mantiene"] is False
+
+        banda = por_id[id_banda]["evidencia_v2"]
+        assert banda["motivo_es"] == "ACoS sobre 1.15x del target: -12%"
+        assert banda["mantiene"] is True
+        assert banda["new_value"] == "0.8800"
+
+        salud = por_id[id_salud]["evidencia_v2"]
+        assert salud["motivo_es"] == "Rango [floor, ceiling] bloquea el ajuste"
+
+        assert por_id[id_vieja]["evidencia_v2"] is None

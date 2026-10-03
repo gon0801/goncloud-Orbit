@@ -89,6 +89,13 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from app.optimizer.cortes import LEGACY_PAUSE
+from app.optimizer.evidencia import (
+    MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE,
+    MOTIVO_EVIDENCIA_INSUFICIENTE,
+    EvidenciaHoja,
+    estima_acos,
+    factor_por_evidencia,
+)
 from app.optimizer.windows import AgregadoMetricas
 
 # ---------------------------------------------------------------------------
@@ -149,6 +156,22 @@ _MOTIVO_BANDA: dict[Decimal, str] = {
     FACTOR_BAJA_FUERTE: "banda_menos_25",
     FACTOR_BAJA_SUAVE: "banda_menos_12",
     FACTOR_SUBIDA: "banda_mas_15",
+}
+
+# A4 (politica por evidencia, contrafactual v2): los 2 motivos de
+# abstencion se DEFINEN en app.optimizer.evidencia (fuente unica; el ciclo
+# de imports impide definirlos aqui) y se re-exportan para que la lista
+# cerrada siga teniendo una sola cara (este modulo). Los tests los fijan
+# literal; el dashboard los etiqueta en MOTIVOS_ES_*.
+# Politica de bandas (A4; IDs sellados por A6: ads_bid_politica_<p> en
+# {bandas_v1, evidencia_v2}; un numero, una fuente).
+POLITICA_BANDAS_V1 = "bandas_v1"
+POLITICA_BANDAS_EVIDENCIA = "evidencia_v2"
+
+# Inversa privada de _MOTIVO_BANDA (A4 res 16): la rama v2 recibe el
+# motivo de banda (motivo-only, cero imports) y recupera el factor.
+_FACTOR_POR_MOTIVO: dict[str, Decimal] = {
+    motivo: factor for factor, motivo in _MOTIVO_BANDA.items()
 }
 
 # Motivo de skip/no-op (vocabulario cerrado; los tests lo fijan literal)
@@ -338,6 +361,80 @@ def _decide_pause(
     return (None, motivo)
 
 
+def _valida_politica_bandas(
+    politica_bandas: str,
+    evidencia: EvidenciaHoja | str | None,
+    confianza_recorte: Decimal | None,
+    confianza_subida: Decimal | None,
+) -> bool:
+    """Valida la politica de BANDAS (A4, cerrada y ruidosa) y devuelve si
+    es v2. v1 + params v2 = llamada contradictoria ("crei que corria v2"):
+    ValueError aunque pause gane (incondicional, como policy_version). v2
+    exige evidencia y confianzas resueltas (el ciclo las resuelve
+    1x/plataforma y las congela; este modulo jamas conoce los defaults)."""
+    if politica_bandas not in (POLITICA_BANDAS_V1, POLITICA_BANDAS_EVIDENCIA):
+        raise ValueError(f"politica de bandas desconocida: {politica_bandas!r}")
+    if politica_bandas == POLITICA_BANDAS_V1:
+        if evidencia is not None or confianza_recorte is not None or confianza_subida is not None:
+            raise ValueError("politica bandas_v1 con parametros v2 (evidencia/confianzas)")
+        return False
+    if evidencia is None:
+        raise ValueError("politica evidencia_v2 exige evidencia (el ciclo DEBE pasarla)")
+    if confianza_recorte is None or confianza_subida is None:
+        raise ValueError("politica evidencia_v2 exige confianzas resueltas")
+    return True
+
+
+def _factor_ventana_v1(
+    bids: AgregadoMetricas,
+    target_acos_pct: Decimal,
+    expected_clicks: Decimal | None,
+    costo_piso: Decimal,
+) -> tuple[str | None, Decimal | None]:
+    """Seleccion de factor v1 (BIDS 01 regla A' + bandas de ventana):
+    (motivo, factor) o (None, None) sin banda."""
+    factor = _factor_cero_ventas(bids, expected_clicks, costo_piso)
+    motivo_banda = MOTIVO_BANDA_MENOS_25_CERO_VENTAS if factor is not None else None
+    if factor is None:
+        factor = _factor_banda(bids, target_acos_pct)
+        motivo_banda = _MOTIVO_BANDA.get(factor) if factor is not None else None
+    return (motivo_banda, factor)
+
+
+def _factor_evidencia(
+    evidencia: EvidenciaHoja | str,
+    target_acos_pct: Decimal,
+    confianza_recorte: Decimal,
+    confianza_subida: Decimal,
+) -> tuple[str, Decimal | None]:
+    """Seleccion de factor v2 (A4): (motivo, factor) o (motivo, None) si
+    abstiene. `evidencia` str = abstencion resuelta en la frontera
+    (motivo del vocabulario; ajeno = ValueError ruidoso). Con
+    EvidenciaHoja estima la posterior y juzga las bandas; la posterior
+    inconclusa abstiene con evidencia_insuficiente (sin_banda jamas
+    ocurre en v2). El motivo de banda se traduce a factor con la
+    inversa de _MOTIVO_BANDA (v2 nunca emite cero_ventas: inyectivo)."""
+    if isinstance(evidencia, str):
+        if evidencia not in (MOTIVO_EVIDENCIA_INSUFICIENTE, MOTIVO_CPC_POST_CAMBIO_INSUFICIENTE):
+            raise ValueError(f"motivo de abstencion v2 ajeno al vocabulario: {evidencia!r}")
+        return (evidencia, None)
+    if not isinstance(evidencia, EvidenciaHoja):
+        raise ValueError(f"evidencia v2 de tipo invalido: {type(evidencia).__name__}")
+    # Fail-stance shadow (res 9): error matematico data-dependent (gamma
+    # sin converger, a fuera de rango) -> abstencion por hoja, JAMAS
+    # excepcion al ciclo ni al replay (ambos comparten este camino). La
+    # convergencia en el rango operativo esta ADEMAS probada por tests;
+    # esto es defensa en profundidad, con motivo auditado (no silencioso).
+    try:
+        estimacion = estima_acos(evidencia, target_acos_pct)
+    except ArithmeticError:
+        return (MOTIVO_EVIDENCIA_INSUFICIENTE, None)
+    motivo = factor_por_evidencia(estimacion, confianza_recorte, confianza_subida)
+    if motivo == MOTIVO_EVIDENCIA_INSUFICIENTE:
+        return (motivo, None)
+    return (motivo, _FACTOR_POR_MOTIVO[motivo])
+
+
 def decide_bid(
     *,
     platform: str,
@@ -352,6 +449,10 @@ def decide_bid(
     cost_min: Decimal | None = None,
     expected_clicks: Decimal | None = None,
     policy_version: str | None = None,
+    evidencia: EvidenciaHoja | str | None = None,
+    politica_bandas: str = POLITICA_BANDAS_V1,
+    confianza_recorte: Decimal | None = None,
+    confianza_subida: Decimal | None = None,
 ) -> ResultadoBid:
     """Decide PAUSE o ajuste de bid para UNA entidad, puro y determinista.
 
@@ -389,6 +490,16 @@ def decide_bid(
 
     El bid resultante NO se redondea (sin quantize): la presentacion la
     decide el apply de PR2.
+
+    A4 (politica_bandas): 'bandas_v1' (default) es este comportamiento,
+    intacto; 'evidencia_v2' juzga las bandas sobre la posterior del CVR
+    (app.optimizer.evidencia) con las confianzas YA RESUELTAS por el
+    ciclo (A3). En v2: PAUSE identico a v1 (corre antes de la rama);
+    A' y ORDERS_MIN_* subsumidos (no se evaluan); bids.completa y ACoS
+    conocido NO se exigen (otra evidencia, otros gates); `evidencia`
+    str = abstencion de la frontera (no-op con ese motivo); posterior
+    inconclusa = no-op 'evidencia_insuficiente'. Clamps, floor/ceiling,
+    delta minimo y rango_bloquea_ajuste: IDENTICOS (una sola cola).
     """
     if platform not in PLATAFORMAS_MONEDA:
         raise ValueError(
@@ -403,6 +514,7 @@ def decide_bid(
         raise ValueError(f"floor {floor} > ceiling {ceiling}: rango de bid invalido")
     if policy_version not in (None, POLITICA_PAUSE_ECONOMICA):
         raise ValueError(f"politica pause desconocida: {policy_version!r}")
+    es_v2 = _valida_politica_bandas(politica_bandas, evidencia, confianza_recorte, confianza_subida)
     moneda = PLATAFORMAS_MONEDA[platform]
 
     # (1) PAUSE sobre la ventana de CORTES (un pause es un corte: regla 6)
@@ -414,27 +526,40 @@ def decide_bid(
     if pausa is not None:
         return pausa
 
-    # (2) Bandas sobre la ventana de BIDS (independiente de cortes)
+    # (2) Bandas sobre la ventana de BIDS (independiente de cortes).
+    # A4: v2 consume OTRA evidencia (madura + CPC) con sus propios gates
+    # (CPC>=20, previa existente): NO exige bids.completa (la suficiencia
+    # la mide la posterior, no el conteo de fechas) NI acos conocido (no
+    # consume cost/revenue de la ventana). SI exige bids PRESENTE (sus
+    # bounds acotan el slice del CPC; res A16) y moneda coherente. La rama
+    # por politica existe SOLO en la seleccion de factor: la cola
+    # (bid_actual -> clamps -> delta -> rango) es UNA sola, compartida.
     motivo_bids_bloqueado: str | None = None
     if bids is None:
         motivo_bids_bloqueado = MOTIVO_BIDS_SIN_OBSERVACIONES
-    elif not bids.completa:
+    elif not bids.completa and not es_v2:
         motivo_bids_bloqueado = MOTIVO_BIDS_INCOMPLETO
     elif bids.metric_currency != moneda:
         motivo_bids_bloqueado = MOTIVO_BIDS_MONEDA_INVALIDA
-    elif bids.cost is None or bids.ad_revenue is None:
+    elif (bids.cost is None or bids.ad_revenue is None) and not es_v2:
         motivo_bids_bloqueado = MOTIVO_ACOS_DESCONOCIDO
     else:
-        # BIDS 01 (regla A'): cero ventas con los clicks de una venta y
-        # gasto sobre el piso (RESUELTO: el mismo costo_piso del pause) ->
-        # -25% con motivo propio; si no aplica, las bandas de siempre.
-        factor = _factor_cero_ventas(bids, expected_clicks, costo_piso)
-        motivo_banda = MOTIVO_BANDA_MENOS_25_CERO_VENTAS if factor is not None else None
+        # A4: en v2, A' y ORDERS_MIN_* estan subsumidos por la posterior y
+        # NO se evaluan (v1 intacto para replay).
+        if es_v2:
+            assert evidencia is not None  # validado arriba
+            assert confianza_recorte is not None and confianza_subida is not None
+            motivo_banda, factor = _factor_evidencia(
+                evidencia, target_acos_pct, confianza_recorte, confianza_subida
+            )
+        else:
+            motivo_banda, factor = _factor_ventana_v1(
+                bids, target_acos_pct, expected_clicks, costo_piso
+            )
         if factor is None:
-            factor = _factor_banda(bids, target_acos_pct)
-            motivo_banda = _MOTIVO_BANDA.get(factor) if factor is not None else None
-        if factor is None:
-            motivo_bids_bloqueado = MOTIVO_SIN_BANDA
+            # v1: sin banda; v2: la abstencion trae su motivo (_factor_evidencia
+            # devuelve (motivo, None); sin_banda jamas ocurre en v2).
+            motivo_bids_bloqueado = motivo_banda if es_v2 else MOTIVO_SIN_BANDA
         elif bid_actual is None:
             motivo_bids_bloqueado = MOTIVO_BID_ACTUAL_AUSENTE
         elif bid_actual <= 0:

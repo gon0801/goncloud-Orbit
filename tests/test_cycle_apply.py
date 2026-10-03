@@ -91,6 +91,15 @@ SQL46 = (
     Path(__file__).resolve().parent.parent / "migrations" / "0046_target_acos_ciclo.sql"
 ).read_text(encoding="utf-8")
 
+# A4: conversion_jerarquica cruza campana_grupo_rol (0018) y familia (0047)
+# en TX2 — sin estas TODO ciclo revienta con UndefinedTable.
+SQL18 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0018_fabrica_campanas.sql"
+).read_text(encoding="utf-8")
+SQL47 = (Path(__file__).resolve().parent.parent / "migrations" / "0047_familias.sql").read_text(
+    encoding="utf-8"
+)
+
 FAKE_CLIENT_ID = "fake-client-id-123"
 FAKE_CLIENT_SECRET = "fake-client-secret-XYZ"
 FAKE_REFRESH_TOKEN = "fake-refresh-token-ABC"
@@ -171,6 +180,8 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL44)  # 0044 (D.1): decision_sin_aplicar + vista
         conn.execute(SQL45)  # 0045 (D.1b): CHECK nombrado + choque_clave
         conn.execute(SQL46)  # 0046 (C.2a): target_acos_ciclo (freeze en TX3)
+        conn.execute(SQL18)  # 0018 (A4): campana_grupo_rol en TX2
+        conn.execute(SQL47)  # 0047 (A4): familia en TX2
         yield conn, conectar_extra
     finally:
         if conn is not None:

@@ -111,7 +111,8 @@ Supuestos declarados (nuevos, de este modulo):
 SQL del modulo (todas de LECTURA; las parsea el test de sintaxis con pglast):
 _SQL_MAX_FECHA_ENTIDAD, _SQL_AGREGA_METRICAS, _SQL_MAX_FECHA_TERMINOS,
 _SQL_TERMINOS_CORTES, _SQL_FECHAS_ENTIDAD_TERMINOS, _SQL_WATERMARK_PLATAFORMA,
-_SQL_SYNC_PLATAFORMA, _SQL_EVIDENCIA_AD_GROUP.
+_SQL_SYNC_PLATAFORMA, _SQL_EVIDENCIA_AD_GROUP, _SQL_CONVERSION_GRANO,
+_SQL_MAPEO_HOJAS, _SQL_CPC_SLICE.
 """
 
 from __future__ import annotations
@@ -120,6 +121,9 @@ import datetime as dt
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import TYPE_CHECKING, Literal
+
+from app.optimizer import evidencia as ev
+from app.optimizer import goals as g
 
 if TYPE_CHECKING:
     import psycopg
@@ -690,3 +694,170 @@ def ventanas_evidencia_ad_group(
         )
         for fila in filas
     }
+
+
+# A4 (conversion jerarquica): grano UNA fila por HOJA con su mapeo
+# pre-resuelto a la jerarquia. Toda la cadena hoja -> campana -> rol ->
+# grupo -> familia va con LEFT JOIN (hoja legacy o eslabon roto: mapeo
+# None, jamas desaparece la hoja; res A5). El filtro de moneda es de LA
+# plataforma (sums multi-moneda prohibidos; res A6) y familia filtra por
+# SU plataforma (slugs colisionables MX/US; res B5). Veneno por metrica
+# (bool_and) + negativos como veneno (unico dueno: esta frontera; res
+# B5-iii): el roll-up y el pliegue JAMAS re-chequean.
+_SQL_CONVERSION_GRANO = """
+SELECT k.id AS hoja_id,
+       k.parent_id AS ad_group_id,
+       f.id AS familia_id,
+       f.padre_id AS familia_padre_id,
+       CASE WHEN bool_and(v.clicks IS NOT NULL AND v.clicks >= 0)
+            THEN sum(v.clicks)::bigint END,
+       CASE WHEN bool_and(v.orders IS NOT NULL AND v.orders >= 0)
+            THEN sum(v.orders)::bigint END,
+       CASE WHEN bool_and(v.ad_revenue IS NOT NULL AND v.ad_revenue >= 0)
+            THEN sum(v.ad_revenue) END
+  FROM v_metric_latest v
+  JOIN ad_entity k ON k.id = v.ad_entity_id
+  LEFT JOIN ad_entity ag ON ag.id = k.parent_id AND ag.kind = 'ad_group'
+  LEFT JOIN campana_grupo_rol r ON r.ad_entity_id = ag.parent_id
+  LEFT JOIN campana_grupo gr ON gr.id = r.grupo_id
+  LEFT JOIN familia f ON f.slug = gr.tipo_producto AND f.platform = %s::platform
+ WHERE k.platform = %s::platform
+   AND k.kind IN ('keyword', 'product_target')
+   AND v.metric_currency = %s
+   AND v.metric_date BETWEEN %s AND %s
+ GROUP BY k.id, k.parent_id, f.id, f.padre_id
+"""
+
+
+# A4r3 (herencia hoja nueva): mapeo ESTRUCTURAL de TODAS las hojas de
+# la plataforma (MISMA cadena LEFT JOIN que el grano, pero FROM
+# ad_entity: no depende de metricas). La hoja creada en los ultimos 10
+# dias, o sin filas en D-90..D-10, hereda la previa de SU ad group y
+# familia en vez de caer a plataforma.
+_SQL_MAPEO_HOJAS = """
+SELECT k.id AS hoja_id,
+       k.parent_id AS ad_group_id,
+       f.id AS familia_id,
+       f.padre_id AS familia_padre_id
+  FROM ad_entity k
+  LEFT JOIN ad_entity ag ON ag.id = k.parent_id AND ag.kind = 'ad_group'
+  LEFT JOIN campana_grupo_rol r ON r.ad_entity_id = ag.parent_id
+  LEFT JOIN campana_grupo gr ON gr.id = r.grupo_id
+  LEFT JOIN familia f ON f.slug = gr.tipo_producto AND f.platform = %s::platform
+ WHERE k.platform = %s::platform
+   AND k.kind IN ('keyword', 'product_target')
+"""
+
+
+def conversion_jerarquica(
+    conn: psycopg.Connection, platform: str, decided_at: dt.datetime
+) -> ev.ConversionPlataforma:
+    """Conversion para el pliegue v2 (A4): DOS lecturas por plataforma
+    (grano sobre la ventana LITERAL D-90..D-10 + mapeo estructural de
+    TODAS las hojas; mismo D y constantes que
+    ventanas_evidencia_ad_group: LOOKBACK_EVIDENCIA, DIAS_MADUREZ_CORTES)
+    + roll-up puro O(H) en evidencia.enrolla_granos (testeable sin DB).
+    Grano por hoja; niveles agregados en Python con veneno por metrica
+    (semantica identica al bool_and global por nivel). Plataforma sin
+    filas -> roll-up vacio con plataforma None (regla 3)."""
+    # Import DIFERIDO: la fuente unica vive en bid.PLATAFORMAS_MONEDA y
+    # bid importa este modulo a nivel top (ciclo real: el mapa se define
+    # DESPUES de sus imports). Cero duplicados (regla 2 + candado
+    # DEFINICIONES_MONEDA_DECLARADAS).
+    from app.optimizer.bid import PLATAFORMAS_MONEDA
+
+    if platform not in PLATAFORMAS_MONEDA:
+        raise ValueError(f"plataforma fuera de vocabulario: {platform!r}")
+    moneda = PLATAFORMAS_MONEDA[platform]
+    fecha_decision = _fecha_utc(decided_at)
+    hasta = fecha_decision - dt.timedelta(days=DIAS_MADUREZ_CORTES)
+    desde = fecha_decision - dt.timedelta(days=LOOKBACK_EVIDENCIA)
+    filas = conn.execute(
+        _SQL_CONVERSION_GRANO, (platform, platform, moneda, desde, hasta)
+    ).fetchall()
+    granos = [
+        ev.GranoHoja(
+            hoja_id=fila[0],
+            ad_group_id=fila[1],
+            familia_id=_familia_de_match(fila[2], fila[3]),
+            subfamilia_id=_subfamilia_de_match(fila[2], fila[3]),
+            conteo=ev.Conteo(clicks=fila[4], orders=fila[5], ad_revenue=fila[6]),
+        )
+        for fila in filas
+    ]
+    mapeo = [
+        ev.MapeoHoja(
+            hoja_id=fila[0],
+            ad_group_id=fila[1],
+            familia_id=_familia_de_match(fila[2], fila[3]),
+            subfamilia_id=_subfamilia_de_match(fila[2], fila[3]),
+        )
+        for fila in conn.execute(_SQL_MAPEO_HOJAS, (platform, platform)).fetchall()
+    ]
+    return ev.enrolla_granos(
+        granos, moneda=moneda, ventana_desde=desde, ventana_hasta=hasta, mapeo=mapeo
+    )
+
+
+def _familia_de_match(match_id: int | None, padre_id: int | None) -> int | None:
+    """Slug etiquetado: si es raiz, familia = match; si es hija,
+    familia = padre (el trigger familia_dos_niveles sella 2 niveles)."""
+    if match_id is None:
+        return None
+    return match_id if padre_id is None else padre_id
+
+
+def _subfamilia_de_match(match_id: int | None, padre_id: int | None) -> int | None:
+    if match_id is None or padre_id is None:
+        return None
+    return match_id
+
+
+# A4 (CPC vigente): costo/clics de UNA hoja en un slice de fechas, con
+# el mismo veneno de frontera que el grano (NULL o negativo -> None;
+# conjunto vacio -> (None, None): sum() sobre vacio es NULL, regla 3).
+_SQL_CPC_SLICE = """
+SELECT CASE WHEN bool_and(v.cost IS NOT NULL AND v.cost >= 0)
+            THEN sum(v.cost) END,
+       CASE WHEN bool_and(v.clicks IS NOT NULL AND v.clicks >= 0)
+            THEN sum(v.clicks)::bigint END
+  FROM v_metric_latest v
+ WHERE v.ad_entity_id = %s
+   AND v.metric_currency = %s
+   AND v.metric_date BETWEEN %s AND %s
+"""
+
+
+def cpc_vigente(
+    conn: psycopg.Connection,
+    entidad_id: int,
+    historia: g.HistoriaUltimoBid,
+    ventana: AgregadoMetricas | None,
+) -> ev.CostoPorClic | None:
+    """CPC pagado con el bid VIGENTE (A4): suma cost/clics de la hoja
+    desde max(fecha_cambio + 1, ventana.window_start) hasta
+    ventana.window_end. Sin historia -> la ventana entera (post_cambio
+    False). Historia rota o ventana None/ sin moneda -> None
+    (fail-closed: sin cambio datable no hay CPC post-cambio). MIDE, no
+    juzga: devuelve el struct aunque clicks < 20 (el gate vive en
+    evidencia.clasifica, puro y testeable; el freeze distingue "19
+    clics" de "sin datos")."""
+    if ventana is None or ventana.metric_currency is None:
+        return None
+    if isinstance(historia, g.HistoriaBidRota):
+        return None
+    if isinstance(historia, g.SinHistoriaBid):
+        desde = ventana.window_start
+        post_cambio = False
+    elif isinstance(historia, g.UltimoBidAplicado):
+        desde = max(historia.fecha_cambio + dt.timedelta(days=1), ventana.window_start)
+        post_cambio = True
+    else:
+        raise ValueError(f"historia fuera de vocabulario: {historia!r}")
+    hasta = ventana.window_end
+    cost, clics = conn.execute(
+        _SQL_CPC_SLICE, (entidad_id, ventana.metric_currency, desde, hasta)
+    ).fetchone()
+    return ev.CostoPorClic(
+        cost=cost, clicks=clics, desde=desde, hasta=hasta, post_cambio=post_cambio
+    )

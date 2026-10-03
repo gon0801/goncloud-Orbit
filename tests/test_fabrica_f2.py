@@ -61,6 +61,8 @@ ORDEN_F2 = (
     # C.2a: corre_ciclo escribe el freeze del target en TX3 (aunque estos
     # ciclos de F2 no procesen hojas, la cadena ES la del ciclo en produccion).
     "0046_target_acos_ciclo.sql",
+    # A4: conversion_jerarquica cruza familia en TX2.
+    "0047_familias.sql",
     # Nada de F2 depende de migraciones 0005-0012 ni 0020-0037 (verificado
     # por grep en A.2: no mencionan harvest_job/apply_attempt/goals/grupos).
 )
