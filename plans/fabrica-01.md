@@ -5102,7 +5102,7 @@ git commit -m "test(architecture): allowlist de imports de tools/fabrica_campana
 > `applied`, cero rechazos, `reconciliacion_final ok`; 5 campañas ENABLED en
 > Amazon MX leídas de vuelta por el sync (ingest_run 130). Shapes sellados en
 > este commit. Quedan: paso 4 (ciclo del 2026-09-09 08:41 UTC debe listar las
-> 5 como elegibles en shadow) y el cierre en AppFlowy. Evidencia completa en
+> 5 como elegibles en shadow). Evidencia completa en
 > «Tarea 11 — sonda».]
 >
 > cc:WIP [**2026-09-10 (lead): el paso 4 NO se puede cerrar todavía, y no por
@@ -5121,8 +5121,8 @@ git commit -m "test(architecture): allowlist de imports de tools/fabrica_campana
 > `status=done decisions_count=0`, sin errores.
 >
 > **Cómo cerrarlo**: re-correr esa consulta a partir del 2026-09-19/20; con
-> decisiones > 0 en shadow, el paso 4 queda demostrado y la tarea se cierra
-> junto con AppFlowy. **Esto NO bloquea F2**: lo que falta es que pase el
+> decisiones > 0 en shadow, el paso 4 queda demostrado y la tarea se cierra.
+> **Esto NO bloquea F2**: lo que falta es que pase el
 > tiempo, no trabajo pendiente.]
 
 **Files:**
@@ -5181,10 +5181,6 @@ Resultados posibles y qué hacer:
 Con `--modo shadow`, el siguiente ciclo debe listar las 5 campañas nuevas como elegibles (goal propio, `enabled`, `mode=shadow`) y sus decisiones en shadow. Evidencia: `SELECT` sobre `decision` del ciclo filtrando `ad_entity_id` en `campana_grupo_rol` del lote.
 
 - [ ] **Step 5: Cerrar**
-
-```bash
-ssh goncloud "python3 /mnt/data/appdata/appflowy/_migrate/add_ehv_task.py --name 'ORBIT 17 — Fábrica de campañas por grupo (FABRICA 01)' --status 'Done' --notes '<qué se hizo, comandos y resultados de la sonda, decisiones (fracción, producto, budgets, bids, modo), PRs #..., pendiente: F2 (harvest por grupo, negative cruzado, biblioteca escrita por el motor) con su propio spec/plan>'"
-```
 
 Marker `cc:完了` en las 11 tareas de este plan + línea final en `docs/CHAT-CONTEXT.md` + commit `plan: fabrica-01 cerrada — sonda verificada`.
 

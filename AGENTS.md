@@ -29,7 +29,7 @@ valer para todos va aquí también.
 
 ```
 app/          # main.py (API), db.py (connect), redaction.py (secretos), ads/ (cliente Amazon READ-ONLY)
-migrations/   # 0001..NNNN en orden (0001 = esquema inicial, roles, triggers). NO re-runnable
+migrations/   # por numero (0001 = esquema inicial); las *_reversa_* y las que salta verify/Launch.md no van en el deploy. NO re-runnable
 tests/        # pytest
 tools/        # scripts operativos (fabrica_campanas.py, compara_evidencia.py, ...)
 verify/       # mapa de la app + Drive e2e; receta de arranque en verify/Launch.md
