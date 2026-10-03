@@ -1763,3 +1763,57 @@ def test_cpc_vigente_slices_e_historia():
         assert w.cpc_vigente(conn, hoja, cambio, sin_moneda) is None
         with pytest.raises(ValueError, match="fuera de vocabulario"):
             w.cpc_vigente(conn, hoja, "ayer", ventana)  # type: ignore[arg-type]
+
+
+def test_pin2_hoja_nueva_hereda_familia_en_previa():
+    """A7 Pin2 (herencia A4r3 + regla A5): hoja sin filas en D-90..D-10
+    bajo campana etiquetada: su previa trae el nivel familia con la
+    conversion de sus hermanas (SIN resta: la hoja nueva no esta en los
+    agregados). A nivel ciclo es inalcanzable (cortes completo implica
+    grano: la ventana de cortes esta contenida en la de conversion), asi
+    que se pinea en la composicion real SQL -> roll-up -> parciales."""
+    with _db_temporal_a4("orbit_win_pin2") as conn:
+        run_id = _run(conn)
+        decidido = dt.datetime(2026, 8, 22, 12, 0, tzinfo=dt.UTC)
+        c1 = _entidad(conn, "amazon_us", "campaign", "C1")
+        g1 = _entidad(conn, "amazon_us", "ad_group", "G1", parent=c1)
+        k1 = _entidad(
+            conn, "amazon_us", "keyword", "K1", parent=g1, match_type="EXACT", keyword_text="k1"
+        )
+        k2 = _entidad(
+            conn, "amazon_us", "keyword", "K2", parent=g1, match_type="EXACT", keyword_text="k2"
+        )
+        nueva = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "KNUEVA",
+            parent=g1,
+            match_type="EXACT",
+            keyword_text="nueva",
+        )
+        f1 = _familia(conn, "amazon_us", "Arras", "arras")
+        for kw, orders, revenue in ((k1, 0, "0.00"), (k2, 1, "100.00")):
+            _metrica(
+                conn,
+                run_id,
+                kw,
+                dt.date(2026, 8, 12),
+                _obs(dt.date(2026, 8, 12)),
+                moneda="USD",
+                report_id="R",
+                cost=Decimal("10.00"),
+                ad_revenue=Decimal(revenue),
+                clicks=50,
+                orders=orders,
+                impressions=500,
+            )
+        conv = w.conversion_jerarquica(
+            conn, "amazon_us", decidido, fam_por_campana={c1: f1}, padres={f1: None}
+        )
+        assert nueva not in conv.por_hoja
+        previa, conversion, _ = ev.parciales_evidencia(conv, nueva, None)
+        assert conversion is None
+        assert previa is not None
+        assert previa.familia_id == f1
+        assert "familia" in previa.niveles

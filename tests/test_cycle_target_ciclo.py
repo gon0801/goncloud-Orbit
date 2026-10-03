@@ -1064,3 +1064,127 @@ def test_vista_familia_dias_distintos_no_suma_por_producto():
             (fid,),
         ).fetchone()
         assert (dias, margen) == (20, None)
+
+
+def _snapshot_bid(conn, cycle_id, kw):
+    bids = [f[9] for f in _decisions_de(conn, cycle_id) if f[0] == kw and f[1] == "bid"]
+    assert len(bids) == 1
+    return bids[0]
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_pin5_subfamilia_etiquetada_aplica_su_margen():
+    """A7 Pin5a: campana etiquetada con la SUBFAMILIA que mide: el peldano
+    aplica el margen de la hija (familia_usada = hija), no el del padre."""
+    with _db_temporal("orbit_c5_pin5a") as (conn, _c):
+        ids = _mundo_familia(conn)
+        fsub = _familia(conn, "Arras premium", "arras_premium", ids["familia"])
+        pid = conn.execute("SELECT id FROM product WHERE odoo_sku='SKU-FAM'").fetchone()[0]
+        conn.execute(
+            "UPDATE producto_familia SET familia_id = %s WHERE product_id = %s", (fsub, pid)
+        )
+        res = _corre(conn)
+        assert res.status == "done", res.notes
+        hoja = _targets_de(conn, res.cycle_id)[ids["kw"]]
+        assert (hoja[2], hoja[3]) == (Decimal("29.5"), "margen_familia")
+        snap = _snapshot_bid(conn, res.cycle_id, ids["kw"])["target_snapshot"]
+        assert (snap["familia_etiqueta"], snap["familia_usada"]) == (fsub, fsub)
+        assert snap["motivo"] is None
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_pin5_padre_solo_reintento_si_hija_abstiene():
+    """A7 Pin5b: hija etiquetada sin ventas (abstiene) + padre que mide: el
+    peldano reintenta al padre (familia_usada = padre, motivo None)."""
+    with _db_temporal("orbit_c5_pin5b") as (conn, _c):
+        ids = _mundo_familia(conn, dias=0)
+        fsub = _familia(conn, "Arras premium", "arras_premium", ids["familia"])
+        pid = conn.execute("SELECT id FROM product WHERE odoo_sku='SKU-FAM'").fetchone()[0]
+        conn.execute(
+            "UPDATE producto_familia SET familia_id = %s WHERE product_id = %s", (fsub, pid)
+        )
+        hoy = dt.date(2026, 8, 22)
+        pid2, _ = _producto_con_listing(conn, "SKU-FAM2")
+        _ledger_ventas(conn, pid2, hoy, dias=40, precio=100, costo=70)
+        _etiqueta(conn, pid2, ids["familia"])
+        res = _corre(conn)
+        assert res.status == "done", res.notes
+        hoja = _targets_de(conn, res.cycle_id)[ids["kw"]]
+        assert (hoja[2], hoja[3]) == (Decimal("29.5"), "margen_familia")
+        snap = _snapshot_bid(conn, res.cycle_id, ids["kw"])["target_snapshot"]
+        assert (snap["familia_etiqueta"], snap["familia_usada"]) == (fsub, ids["familia"])
+        assert snap["motivo"] is None
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_pin4_previo_familiar_con_cobertura_baja_clampa_al_destino():
+    """A7 Pin4: hoja con previo margen_familia (29.5) cuya familia se
+    invalida (cobertura 0 con historia larga): el peldano NO cae en seco
+    — CLAMPA al destino 30.0 con motivo cobertura_baja (kimi-H1: sin
+    salto de salida ni skip). 203 contados = 163 fijos (300 sembrados,
+    la vista corta en 2026-02-20) + 40 re-etiquetados de CURRENT_DATE
+    (disjuntos desde oct-2026: estable hacia adelante)."""
+    with _db_temporal("orbit_c5_pin4") as (conn, _c):
+        ids = _mundo_familia(conn)
+        pid_b, _ = _producto_con_listing(conn, "SKU-PIN4")
+        fid_b = _familia(conn, "Pin4", "pin4")
+        _etiqueta(conn, pid_b, fid_b)
+        _ledger_ventas(conn, pid_b, dt.date(2026, 8, 22), dias=300, precio=100, costo=None)
+        r1 = _corre(conn)
+        assert r1.status == "done", r1.notes
+        t1 = _targets_de(conn, r1.cycle_id)[ids["kw"]]
+        assert (t1[2], t1[3]) == (Decimal("29.5"), "margen_familia")
+        _a_live(conn, r1.cycle_id)
+        pid_a = conn.execute("SELECT id FROM product WHERE odoo_sku='SKU-FAM'").fetchone()[0]
+        conn.execute(
+            "UPDATE producto_familia SET familia_id = %s WHERE product_id = %s", (fid_b, pid_a)
+        )
+        r2 = _corre(conn)
+        assert r2.status == "done", r2.notes
+        t2 = _targets_de(conn, r2.cycle_id)[ids["kw"]]
+        assert (t2[2], t2[3]) == (Decimal("30.0"), "margen_familia")
+        snap = _snapshot_bid(conn, r2.cycle_id, ids["kw"])["target_snapshot"]
+        assert snap["motivo"] == "cobertura_baja"
+        assert snap["dias_con_venta"] == 203
+        assert (snap["familia_etiqueta"], snap["familia_usada"]) == (fid_b, None)
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_pin1_previo_ajeno_lejos_camina_desde_el():
+    """A7 Pin1: hoja con previo de OTRO peldano (goal 18, a >0.5 del
+    destino 30) + familia vigente (derivado 20): el goal se remueve y la
+    hoja camina desde SU numero (18 -> 18.5, ancla sin filtro B-F9), no
+    desde el destino (desde 30 daria 29.5)."""
+    with _db_temporal("orbit_c5_pin1") as (conn, _c):
+        ids = _mundo_familia(conn, margen_familia=40)
+        camp = conn.execute(
+            "SELECT id FROM ad_entity WHERE kind='campaign' AND external_id='9401'"
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO ads_optimizer_goal (scope, ad_entity_id, target_acos_pct, bid_floor,"
+            " bid_ceiling, bid_currency, enabled, mode)"
+            " VALUES ('campaign', %s, 18, 0.10, 2.50, 'USD', true, 'shadow')",
+            (camp,),
+        )
+        r1 = _corre(conn)
+        assert r1.status == "done", r1.notes
+        t1 = _targets_de(conn, r1.cycle_id)[ids["kw"]]
+        assert (t1[2], t1[3]) == (Decimal("18"), "goal_campana")
+        _a_live(conn, r1.cycle_id)
+        conn.execute("DELETE FROM ads_optimizer_goal WHERE scope = 'campaign'")
+        r2 = _corre(conn)
+        assert r2.status == "done", r2.notes
+        t2 = _targets_de(conn, r2.cycle_id)[ids["kw"]]
+        assert (t2[2], t2[3]) == (Decimal("18.5"), "margen_familia")
