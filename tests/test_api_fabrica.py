@@ -974,3 +974,72 @@ def test_catalogo_estimacion_stub_sin_fila(escenario):
             assert est["snapshot_id"] is None
             assert est["contribucion"] is None
             assert est["base_porcentaje"] == "ingreso_normalizado"
+
+
+# ---------------------------------------------------------------------------
+# A7 B8: manual no-finito con mensaje que dice "no es finito"
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "valor",
+    ["NaN", "nan", "Infinity", "-Infinity", float("nan"), float("inf"), float("-inf")],
+)
+def test_objetivo_manual_no_finito_dice_no_es_finito(valor):
+    """A7 B8: str y float no-finitos caen con el MISMO mensaje (los floats
+    son el delta: en trunk daban el generico de Pydantic)."""
+    from pydantic import ValidationError
+
+    api_fabrica, _ = _modulos()
+    with pytest.raises(ValidationError) as exc:
+        api_fabrica.ObjetivoPlan(origen="manual_lanzamiento", acos_pct=valor)
+    assert "no es finito" in str(exc.value)
+
+
+@pytest.mark.parametrize("valor", ["20.5", 20.5, 20])
+def test_objetivo_manual_finito_pasa_en_str_y_float(valor):
+    """A7 B8: el finito pasa en ambas formas (el float finito aguas abajo
+    se valida via str en _decimal, sin expansion binaria)."""
+    api_fabrica, _ = _modulos()
+    objetivo = api_fabrica.ObjetivoPlan(origen="manual_lanzamiento", acos_pct=valor)
+    assert objetivo.acos_pct == valor
+
+
+def test_objetivo_manual_exige_acos_pct_y_decimal():
+    """A7 B8: None exige acos_pct; texto no numerico no es decimal."""
+    from pydantic import ValidationError
+
+    api_fabrica, _ = _modulos()
+    with pytest.raises(ValidationError) as exc:
+        api_fabrica.ObjetivoPlan(origen="manual_lanzamiento", acos_pct=None)
+    assert "exige acos_pct" in str(exc.value)
+    with pytest.raises(ValidationError) as exc:
+        api_fabrica.ObjetivoPlan(origen="manual_lanzamiento", acos_pct="abc")
+    assert "no es decimal" in str(exc.value)
+    medido = api_fabrica.ObjetivoPlan(origen="margen_medido", acos_pct=None)
+    assert medido.acos_pct is None
+
+
+@pytest.mark.parametrize("valor", [float("nan"), float("inf")])
+def test_crear_manual_no_finito_422_sin_filas(escenario, valor):
+    """A7 B8: POST crear con NaN/Infinity JSON numerico -> 422 y 0 filas
+    (el status ya pasaba en trunk; el MENSAJE del modelo discrimina)."""
+    cliente, conn, solicitud, _, ids = escenario
+    listing = conn.execute(
+        "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx'", (ids[0],)
+    ).fetchone()[0]
+    import json
+
+    v2 = _solicitud_v2(
+        solicitud, [listing], objetivo={"origen": "manual_lanzamiento", "acos_pct": valor}
+    )
+    # TestClient serializa con allow_nan=False: el NaN/Infinity del form roto
+    # viaja como cuerpo crudo (el servidor lo parsea con json.loads).
+    cuerpo = json.dumps({"solicitud": v2, "huella": "0" * 64, "confirmacion": "CREAR 5 CAMPAÑAS"})
+    respuesta = cliente.post(
+        "/api/fabrica/crear",
+        headers={**HEADERS, "Content-Type": "application/json"},
+        content=cuerpo,
+    )
+    assert respuesta.status_code == 422
+    assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone()[0] == 0
