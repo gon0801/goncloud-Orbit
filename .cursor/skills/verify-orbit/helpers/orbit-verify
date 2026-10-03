@@ -224,6 +224,37 @@ def _sembrar(conn) -> dict:
         " VALUES ('amazon_us', 'ad_group', '9101', %s) RETURNING id",
         (camp_id,),
     ).fetchone()[0]
+    # A7 B3: la hoja existe para congelar (sin state ni metricas: invisible
+    # para inertes y resumen, visible para target_acos_ciclo).
+    hoja_id = conn.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id, parent_id, match_type,"
+        " keyword_text) VALUES ('amazon_us', 'keyword', '9201', %s, 'EXACT', 'kw drive')"
+        " RETURNING id",
+        (ag_id,),
+    ).fetchone()[0]
+    # Campana B: con actividad 30d pero SIN freeze (caso null-honesto).
+    # Metrica en hoy-10: inmadura para contribucion (90d maduros), dentro
+    # de 30d para /campanas, fuera de la fila seed (hoy-15) de resumen.
+    camp_b_id = conn.execute(
+        "INSERT INTO ad_entity (platform, kind, external_id, name)"
+        " VALUES ('amazon_us', 'campaign', '9002', 'Campana B') RETURNING id"
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO ad_entity_state (ad_entity_id, current_bid, bid_currency, status,"
+        " synced_at) VALUES (%s, 1.00, 'USD', 'ENABLED', %s)",
+        (camp_b_id, decided_at),
+    )
+    conn.execute(
+        "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
+        " metric_currency, cost, ad_revenue, impressions, clicks, orders, ingest_run_id)"
+        " VALUES (%s, %s, %s, 'USD', 1.0000, 2.0000, 10, 1, 0, %s)",
+        (
+            camp_b_id,
+            hoy - timedelta(days=10),
+            datetime.now(UTC),
+            run_id,
+        ),
+    )
     conn.execute(
         "INSERT INTO ads_metric_observation (ad_entity_id, metric_date, observed_at,"
         " metric_currency, cost, ad_revenue, impressions, clicks, orders, ingest_run_id)"
@@ -245,8 +276,22 @@ def _sembrar(conn) -> dict:
         " bid_ceiling, bid_currency, enabled, mode)"
         " VALUES ('platform', 'amazon_us', 25.00, 0.10, 2.50, 'USD', true, 'shadow')"
     )
-    # Un solo ciclo: /salud toma DISTINCT ON (platform) ORDER BY id DESC.
-    # Un segundo ciclo sin notes escondia los skips del snapshot.
+    # A7 B3: ciclo live+done ANTES del shadow (id menor): /salud sigue
+    # tomando el shadow con DISTINCT ON, y el freeze tiene donde vivir.
+    ciclo_live_id = conn.execute(
+        "INSERT INTO optimizer_cycle (motor, mode, platform, status, finished_at,"
+        " decisions_count) VALUES"
+        " ('ads_optimizer', 'live', 'amazon_us', 'done', %s, 1) RETURNING id",
+        (decided_at,),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO target_acos_ciclo (cycle_id, ad_entity_id, decided_at,"
+        " target_acos_pct, procedencia) VALUES (%s, %s, %s, 25.00, 'goal_plataforma')",
+        (ciclo_live_id, hoja_id, decided_at),
+    )
+    # Un solo ciclo con notes: /salud toma DISTINCT ON (platform) ORDER BY
+    # id DESC (este shadow, id mayor). Un segundo ciclo sin notes escondia
+    # los skips del snapshot.
     ciclo_id = conn.execute(
         "INSERT INTO optimizer_cycle (motor, mode, platform, status, finished_at,"
         " decisions_count, applied_count, notes) VALUES"
@@ -678,6 +723,11 @@ def cmd_drive_campanas(args: argparse.Namespace) -> None:
     checks["api_peldano"] = any(
         (i.get("target_efectivo") or {}).get("peldano") == "goal_plataforma" for i in items
     )
+    # A7 B3 null-honesto: Campana B tiene actividad 30d pero ningun freeze.
+    checks["api_null_sin_ciclo"] = any(
+        i.get("nombre") == "Campana B" and i.get("target_efectivo") is None for i in items
+    )
+    checks["fila_campana_b"] = "Campana B" in texto
 
     st_mx, _, html_mx = _http(f"{base}/campanas?plataforma=amazon_mx")
     (evidence / "05-campanas-filtro-mx.html").write_bytes(html_mx)
