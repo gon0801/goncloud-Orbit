@@ -622,6 +622,40 @@ def _target_margen_del_ciclo(conn, plataforma: str) -> Decimal | None:
         return None
 
 
+def _derivados_familia_del_ciclo(conn, plataforma: str) -> dict[int, Decimal]:
+    """DERIVADO por familia segun el ULTIMO ciclo done (A5, espejo de
+    _target_margen_del_ciclo). Fuente UNICA: notes.target.familias — la web
+    NO re-resuelve. El dashboard muestra el DERIVADO (numero de la familia),
+    no el aplicado por hoja (las hojas convergen a el a ±0.5/ciclo:
+    divergencia transitoria declarada). Fail-soft por entrada."""
+    fila = conn.execute(_SQL_TARGET_MARGEN_ULTIMO, (plataforma,)).fetchone()
+    notes = _parse_notes(fila[0]) if fila else None
+    if notes is None:
+        return {}
+    bloque = notes.get("target")
+    if not isinstance(bloque, dict):
+        return {}
+    familias = bloque.get("familias")
+    if not isinstance(familias, dict):
+        return {}
+    derivados: dict[int, Decimal] = {}
+    for fid, nota in familias.items():
+        if not isinstance(nota, dict):
+            continue
+        try:
+            fid_int = int(fid)
+        except (TypeError, ValueError):
+            continue
+        derivado = nota.get("derivado")
+        if derivado is None:
+            continue
+        try:
+            derivados[fid_int] = Decimal(str(derivado))
+        except (InvalidOperation, ValueError, ArithmeticError):
+            continue
+    return derivados
+
+
 def _fila_campana(
     fila,
     goals_campana: dict[int, g.Goal],
@@ -629,6 +663,7 @@ def _fila_campana(
     settings: dict,
     plataforma: str,
     target_margen: Decimal | None = None,
+    target_margen_familia: Decimal | None = None,
 ) -> dict:
     """Fila del resumen: metricas 30d (grano campaign, dinero string) + target
     EFECTIVO con PROCEDENCIA (cascada de 1.2 REUTILIZADA, jamas
@@ -636,7 +671,13 @@ def _fila_campana(
     camp_id, nombre, _plataforma, acos_cache, estado, cost, revenue, clicks = fila
     goal_campana = goals_campana.get(camp_id)
     valor, peldano = g.cascada_target_acos_con_procedencia(
-        goal_campana, goal_plataforma, settings, acos_cache, plataforma, target_margen
+        goal_campana,
+        goal_plataforma,
+        settings,
+        acos_cache,
+        plataforma,
+        target_margen,
+        target_margen_familia,
     )
     acos, sin_ventas = _acoso(cost, revenue)
     return {
@@ -689,7 +730,17 @@ def campanas(
         # mientras el motor ya decidia con el derivado: dos verdades en
         # pantallas distintas, y el dueno creeria que no encendio.
         target_margen = _target_margen_del_ciclo(conn, plataforma)
+        # A5: el peldano familiar es POR CAMPANA: mapa campana -> familia
+        # efectiva (MISMO SQL y MISMA regla pura que el motor: cero drift) +
+        # derivados del ultimo ciclo. Sin familia o sin derivado -> None.
+        pares = [
+            (fila[0], fila[1])
+            for fila in conn.execute(ciclo._SQL_PAREJAS_CAMPANA_FAMILIA, (plataforma,)).fetchall()
+        ]
+        fam_por_campana = g.familia_efectiva_por_campana(pares)
+        derivados = _derivados_familia_del_ciclo(conn, plataforma)
         for fila in conn.execute(_SQL_CAMPANAS_30D, (plataforma, desde, hasta)).fetchall():
+            fam_id = fam_por_campana.get(fila[0])
             items.append(
                 _fila_campana(
                     fila,
@@ -698,6 +749,7 @@ def campanas(
                     settings,
                     plataforma,
                     target_margen,
+                    derivados.get(fam_id) if fam_id is not None else None,
                 )
             )
     return {"items": items}

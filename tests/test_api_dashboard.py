@@ -92,6 +92,21 @@ SQL13 = (
     Path(__file__).resolve().parent.parent / "migrations" / "0013_entidad_inerte.sql"
 ).read_text(encoding="utf-8")
 
+# A5: /campanas lee el mapeo campana -> familia (kind 'product_ad', 0004),
+# la membresia 0047 y la vista v_margen_familia 0048.
+SQL04 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0004_ad_entity_kind_product_ad.sql"
+).read_text(encoding="utf-8")
+SQL46 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0046_target_acos_ciclo.sql"
+).read_text(encoding="utf-8")
+SQL47 = (Path(__file__).resolve().parent.parent / "migrations" / "0047_familias.sql").read_text(
+    encoding="utf-8"
+)
+SQL48 = (
+    Path(__file__).resolve().parent.parent / "migrations" / "0048_margen_familia.sql"
+).read_text(encoding="utf-8")
+
 # BIDS 01 2.6: /inertes muestra la puerta de antiguedad del archivado
 # (first_seen_at, migracion 0017) y el resumen del ledger de lotes
 # (keyword_archivo_manual, migracion 0014).
@@ -127,6 +142,10 @@ def _db_temporal(prefijo: str):
         conn = psycopg.connect(dsn, dbname=db, autocommit=True)
         conn.execute("SET TIME ZONE 'UTC'")
         conn.execute(SQL_MIGRACION)
+        conn.execute(SQL04)  # 0004 (A5): /campanas lee kind 'product_ad'
+        conn.execute(SQL46)  # 0046 (A5): snapshot target_acos_ciclo
+        conn.execute(SQL47)  # 0047 (A5): membresia producto_familia
+        conn.execute(SQL48)  # 0048 (A5): vista v_margen_familia
         dsn_lectura = make_conninfo(dsn, dbname=db)
         yield conn, dsn_lectura
     finally:

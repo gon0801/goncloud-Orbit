@@ -830,6 +830,12 @@ def _sql46() -> str:
     ).read_text(encoding="utf-8")
 
 
+def _sql_mig(nombre: str) -> str:
+    """Cualquier migracion al usarse (A5: la cadena del espejo vivo crece a
+    0001 + 0018 + 0046 + 0047 + 0048; mismo principio, sin copias)."""
+    return (Path(__file__).resolve().parents[1] / "migrations" / nombre).read_text(encoding="utf-8")
+
+
 def _ultima_migracion_con(marcador: str) -> str:
     """El SQL de la ULTIMA migracion (nombre mayor) cuyo texto contiene
     `marcador`: los espejos leen la definicion VIGENTE (0045 re-creo el
@@ -875,8 +881,9 @@ def _db_temporal_d1(prefijo: str):
 
 @contextmanager
 def _db_temporal_c2a(prefijo: str):
-    """0001 + 0046 (C.2a): target_acos_ciclo solo referencia tablas de 0001
-    (optimizer_cycle, ad_entity); los roles de la app tambien nacen en 0001."""
+    """0001 + 0018 + 0046 + 0047 + 0048 (C.2a + A5): el CHECK vigente vive en
+    0048 y la vista exige 0018 + 0047; target_acos_ciclo solo referencia
+    tablas de 0001 y los roles tambien nacen ahi."""
     from psycopg import sql as pgsql
 
     dsn = _test_dsn()
@@ -888,7 +895,10 @@ def _db_temporal_c2a(prefijo: str):
         conn = psycopg.connect(dsn, dbname=db, autocommit=True)
         conn.execute("SET TIME ZONE 'UTC'")
         conn.execute(SQL)  # 0001: roles, esquema sellado, grants
+        conn.execute(_sql_mig("0018_fabrica_campanas.sql"))  # 0018: v_margen_producto
         conn.execute(_sql46())  # 0046 (C.2a): target_acos_ciclo
+        conn.execute(_sql_mig("0047_familias.sql"))  # 0047: familia/producto_familia
+        conn.execute(_sql_mig("0048_margen_familia.sql"))  # 0048 (A5): vista + CHECK
         yield conn
     finally:
         if conn is not None:

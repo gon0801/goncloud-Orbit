@@ -348,10 +348,51 @@ def test_origen_meta_exige_familia():
     with db_familias() as conn:
         fam = familias.crea(conn, "amazon_mx", "Arras")
         assert familias.origen_meta_familia(conn, "amazon_mx", fam["id"]) == (
-            "usa la meta del país"
+            None,
+            "usa la meta del país",
         )
         with pytest.raises(familias.FamiliaNoExiste):
             familias.origen_meta_familia(conn, "amazon_mx", 424242)
+
+
+def test_origen_meta_mide_y_cae_con_motivo():
+    """A5: familia en notes con derivado y sin motivo -> su margen; con
+    motivo -> la meta del pais con la etiqueta ES del motivo."""
+    import json
+
+    with db_familias() as conn:
+        fam = familias.crea(conn, "amazon_mx", "Arras")
+        fid = fam["id"]
+        conn.execute(
+            "INSERT INTO optimizer_cycle (platform, mode, status, notes)"
+            " VALUES ('amazon_mx', 'live', 'done', %s)",
+            (
+                json.dumps(
+                    {"target": {"familias": {str(fid): {"derivado": "10.0", "motivo": None}}}}
+                ),
+            ),
+        )
+        assert familias.origen_meta_familia(conn, "amazon_mx", fid) == (
+            "10.0",
+            "margen de la familia",
+        )
+        conn.execute(
+            "INSERT INTO optimizer_cycle (platform, mode, status, notes)"
+            " VALUES ('amazon_mx', 'live', 'done', %s)",
+            (
+                json.dumps(
+                    {
+                        "target": {
+                            "familias": {str(fid): {"derivado": None, "motivo": "cobertura_baja"}}
+                        }
+                    }
+                ),
+            ),
+        )
+        assert familias.origen_meta_familia(conn, "amazon_mx", fid) == (
+            None,
+            "usa la meta del país (cobertura de costos bajo el minimo)",
+        )
 
 
 # ---------------------------------------------------------------------------

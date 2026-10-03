@@ -17,12 +17,13 @@ Reglas selladas (plans/orbit-03.md task 2.4 + Spec delta de CONTEXTO.md):
 - CASCADA de target ACoS, peldano por peldano: cada peldano decide SOLO si
   el anterior es None (regla 3: faltante != valor):
   goal.target_acos_pct -> setting `ads_target_acos_pct_<platform>` de
-  goal resuelto (campana pisa a plataforma) -> margen_plataforma (ORBIT 06
-  2.3: resuelve_target_margen, None = peldano apagado) ->
-  config_version.settings (clave sellada en docs/DATABASE.md; por
-  plataforma DEL ENUM, amazon_us/amazon_mx) -> ad_entity_state.acos_target
-  (cache de lo publicado en Amazon; NO es la fuente, ver su COMMENT) ->
-  DEFAULT_TARGET_PCT 55.
+  goal resuelto (campana pisa a plataforma) -> margen_familia (A5:
+  resuelve_target_margen_familia, None = peldano apagado) ->
+  margen_plataforma (ORBIT 06 2.3: resuelve_target_margen, None = peldano
+  apagado) -> config_version.settings (clave sellada en docs/DATABASE.md;
+  por plataforma DEL ENUM, amazon_us/amazon_mx) ->
+  ad_entity_state.acos_target (cache de lo publicado en Amazon; NO es la
+  fuente, ver su COMMENT) -> DEFAULT_TARGET_PCT 55.
 - VARIANTE CON PROCEDENCIA (ORBIT 16, task 1.2): `cascada_target_acos_con_procedencia`
   devuelve (valor, peldano) con los SEIS peldanos (ORBIT 06 2.3 suma
   margen_plataforma entre goal_plataforma y setting_plataforma) para el
@@ -252,9 +253,11 @@ def cascada_target_acos(
     cache_acos_target: Decimal | None,
     target_margen: Decimal | None = None,
     scope_goal: str | None = None,
+    target_margen_familia: Decimal | None = None,
 ) -> Decimal:
-    """Cascada sellada, peldano por peldano: goal resuelto -> margen_plataforma
-    (ORBIT 06 2.3, None = peldano apagado) -> setting de plataforma -> cache
+    """Cascada sellada, peldano por peldano: goal resuelto -> margen_familia
+    (A5, None = peldano apagado) -> margen_plataforma (ORBIT 06 2.3, None =
+    peldano apagado) -> setting de plataforma -> cache
     ad_entity_state.acos_target -> default 55. Cada peldano decide SOLO si el
     anterior es None (regla 3: dato faltante != valor); un peldano presente
     pero invalido (<= 0, no finito) revienta, NO cae al siguiente.
@@ -268,7 +271,10 @@ def cascada_target_acos(
     margen = _valida_target_peldano(target_margen, "target_margen")
     setting = _valida_target_peldano(setting_plataforma, "setting ads_target_acos_pct")
     cache = _valida_target_peldano(cache_acos_target, "ad_entity_state.acos_target")
-    return _nucleo_target_acos(t_goal, _nombre_goal(scope_goal), margen, setting, cache)[0]
+    margen_fam = _valida_target_peldano(target_margen_familia, "target_margen_familia")
+    return _nucleo_target_acos(
+        t_goal, _nombre_goal(scope_goal), margen, setting, cache, margen_fam
+    )[0]
 
 
 # ---------------------------------------------------------------------------
@@ -278,12 +284,13 @@ def cascada_target_acos(
 # jamas la reimplementa.
 # ---------------------------------------------------------------------------
 
-# Vocabulario sellado de los SEIS peldanos (ORBIT 06 2.3: margen_plataforma
-# tercero, entre goal_plataforma y setting_plataforma): el dashboard los
-# muestra tal cual; un nombre distinto aqui rompe el contrato.
+# Vocabulario sellado de los SIETE peldanos (A5: margen_familia tercero,
+# entre goal_plataforma y margen_plataforma): el dashboard los muestra tal
+# cual; un nombre distinto aqui rompe el contrato.
 PELDANOS_CASCADA = (
     "goal_campana",
     "goal_plataforma",
+    "margen_familia",
     "margen_plataforma",
     "setting_plataforma",
     "cache_estado",
@@ -297,15 +304,20 @@ def _nucleo_target_acos(
     target_margen: Decimal | None,
     setting_plataforma: Decimal | None,
     cache_acos_target: Decimal | None,
+    target_margen_familia: Decimal | None = None,
 ) -> tuple[Decimal, str | None]:
-    """Orden de precedencia UNICO (D-2.3.1): goal resuelto -> margen ->
-    setting -> cache -> default. Los valores llegan VALIDADOS por cada
-    variante (los mensajes historicos de error difieren por variante y se
-    conservan en cada llamador con _valida_target_peldano). nombre_goal es
-    goal_campana / goal_plataforma / None (None = llamador viejo sin scope:
-    el peldano sale None y el motor lo descarta)."""
+    """Orden de precedencia UNICO (D-2.3.1): goal resuelto -> margen_familia
+    -> margen -> setting -> cache -> default. Los valores llegan VALIDADOS
+    por cada variante (los mensajes historicos de error difieren por variante
+    y se conservan en cada llamador con _valida_target_peldano). nombre_goal
+    es goal_campana / goal_plataforma / None (None = llamador viejo sin
+    scope: el peldano sale None y el motor lo descarta).
+    `target_margen_familia` va AL FINAL por compatibilidad posicional (C-F10);
+    su PRECEDENCIA es tercera aunque su posicion sea ultima."""
     if target_goal is not None:
         return (target_goal, nombre_goal)
+    if target_margen_familia is not None:
+        return (target_margen_familia, "margen_familia")
     if target_margen is not None:
         return (target_margen, "margen_plataforma")
     if setting_plataforma is not None:
@@ -330,6 +342,7 @@ def peldano_target_acos(
     target_margen: Decimal | None,
     setting_plataforma: Decimal | None,
     cache_acos_target: Decimal | None,
+    target_margen_familia: Decimal | None = None,
 ) -> str:
     """SOLO el nombre del peldano ganador (para el freeze del motor en
     cycle.py; la aritmetica es la del nucleo, no otra). scope_goal es
@@ -340,7 +353,10 @@ def peldano_target_acos(
     margen = _valida_target_peldano(target_margen, "target_margen")
     setting = _valida_target_peldano(setting_plataforma, "setting ads_target_acos_pct")
     cache = _valida_target_peldano(cache_acos_target, "ad_entity_state.acos_target")
-    _valor, peldano = _nucleo_target_acos(t_goal, _nombre_goal(scope_goal), margen, setting, cache)
+    margen_fam = _valida_target_peldano(target_margen_familia, "target_margen_familia")
+    _valor, peldano = _nucleo_target_acos(
+        t_goal, _nombre_goal(scope_goal), margen, setting, cache, margen_fam
+    )
     if peldano is None:
         raise ValueError("peldano sin nombre: target presente sin scope del goal")
     return peldano
@@ -353,10 +369,11 @@ def cascada_target_acos_con_procedencia(
     cache_acos_target: Decimal | None,
     platform: str,
     target_margen: Decimal | None = None,
+    target_margen_familia: Decimal | None = None,
 ) -> tuple[Decimal, str]:
     """Cascada sellada con PROCEDENCIA: devuelve (valor, peldaño) con los
-    SEIS peldanos y estos nombres EXACTOS (ORBIT 06 2.3 suma
-    margen_plataforma entre goal_plataforma y setting_plataforma).
+    SIETE peldanos y estos nombres EXACTOS (A5 suma margen_familia entre
+    goal_plataforma y margen_plataforma).
     Cada peldano decide SOLO si el anterior es None (regla 3); un valor
     PRESENTE pero invalido (<= 0, no finito) revienta, jamas cae al
     siguiente. La clave del setting sale de
@@ -383,8 +400,9 @@ def cascada_target_acos_con_procedencia(
         objetivo, nombre = None, None
     setting = target_desde_settings(settings, platform)
     margen = _valida_target_peldano(target_margen, "target_margen")
+    margen_fam = _valida_target_peldano(target_margen_familia, "target_margen_familia")
     cache = _valida_target_peldano(cache_acos_target, "cache_estado")
-    valor, peldano = _nucleo_target_acos(objetivo, nombre, margen, setting, cache)
+    valor, peldano = _nucleo_target_acos(objetivo, nombre, margen, setting, cache, margen_fam)
     assert peldano is not None  # con goals el nombre siempre se resuelve
     return (valor, peldano)
 
@@ -655,6 +673,7 @@ MARGEN_BANDA_MAX = Decimal("45")
 MARGEN_PASO_MAX = Decimal("0.5")  # puntos por ciclo (spec §7)
 MARGEN_COBERTURA_MIN = Decimal("0.95")
 MARGEN_DIAS_MIN = 60
+MARGEN_DIAS_MIN_FAMILIA = 30  # A5: guards de producto, no de plataforma
 MARGEN_RANCIO_DIAS = 3  # ledger_fresco_at < hoy-3 dias -> rancio
 
 # Vocabulario CERRADO de abstenciones (spec §5, orden = orden de evaluacion
@@ -666,6 +685,7 @@ MOTIVOS_ABSTENCION = (
     "ventana_corta",
     "sin_fraccion",
     "ledger_rancio",
+    "sin_familia",
 )
 
 ETIQUETA_ABSTENCION = {
@@ -674,6 +694,7 @@ ETIQUETA_ABSTENCION = {
     "ventana_corta": "pocos dias con venta en la ventana",
     "sin_fraccion": "sin fraccion configurada para la plataforma",
     "ledger_rancio": "ledger sin refrescar mas de 3 dias",
+    "sin_familia": "hoja sin familia etiquetada (el peldano no aplica)",
 }
 
 
@@ -850,6 +871,7 @@ def resuelve_target_margen(
     hoy: dt.date,
     ultimo: Decimal | None,
     setting: Decimal | None = None,
+    dias_min: int = MARGEN_DIAS_MIN,
 ) -> ResolucionMargen:
     """Resolver PURO del peldano (D-2.3.2: LA fuente; el ciclo lo llama UNA
     vez por plataforma y el dashboard no lo reimplementa). Primer match del
@@ -858,7 +880,8 @@ def resuelve_target_margen(
     CLAMPEA sobre el derivado (A1, D-2.3.10) y LUEGO aplica el paso maximo
     ±0.5 desde `ultimo` (None = sin ancla: aplicado = derivado clampeado).
     Sin redondeos: Decimal exacto de punta a punta (la escala del snapshot
-    es artefacto deterministico)."""
+    es artefacto deterministico). `dias_min` (A5): la familia exige 30 dias
+    (guards de producto), la plataforma 60."""
     fraccion = _valida_fraccion(fraccion)
     # La fraccion AUSENTE es el interruptor de la fase: se apaga en seco, sin
     # convergencia (es una decision humana deliberada y debe surtir efecto ya).
@@ -870,7 +893,7 @@ def resuelve_target_margen(
     # banda quedaria anulado por el paso.
     if ultimo is not None:
         ultimo = min(max(ultimo, MARGEN_BANDA_MIN), MARGEN_BANDA_MAX)
-    motivo = _motivo_dato_invalido(medicion, hoy)
+    motivo = _motivo_dato_invalido(medicion, hoy, dias_min)
     if motivo is not None:
         # CROSS-REVIEW kimi H1 / grok H2 (ALTA): abstenerse por datos malos
         # NO puede tirar el target al setting de un salto. Es el mismo
@@ -896,14 +919,16 @@ def resuelve_target_margen(
     return ResolucionMargen(aplicado, derivado, None, False)
 
 
-def _motivo_dato_invalido(medicion: MedicionMargen, hoy: dt.date) -> str | None:
+def _motivo_dato_invalido(
+    medicion: MedicionMargen, hoy: dt.date, dias_min: int = MARGEN_DIAS_MIN
+) -> str | None:
     """Vocabulario cerrado de datos invalidos (orden D-2.3.11: dias ANTES de
     margen-None porque la vista nulifica el margen ante dias cortos)."""
     if medicion.venta_cubierta is None or medicion.venta_cubierta <= 0:
         return "sin_margen"
     if medicion.cobertura is None or medicion.cobertura < MARGEN_COBERTURA_MIN:
         return "cobertura_baja"
-    if medicion.dias_con_venta is None or medicion.dias_con_venta < MARGEN_DIAS_MIN:
+    if medicion.dias_con_venta is None or medicion.dias_con_venta < dias_min:
         return "ventana_corta"
     if medicion.margen_neto_pct is None:
         return "sin_margen"
@@ -911,3 +936,94 @@ def _motivo_dato_invalido(medicion: MedicionMargen, hoy: dt.date) -> str | None:
     if fresco is None or fresco.date() < hoy - dt.timedelta(days=MARGEN_RANCIO_DIAS):
         return "ledger_rancio"
     return None
+
+
+# ---------------------------------------------------------------------------
+# A5 - peldano margen_familia: medicion por familia + fallback sub -> padre.
+# ---------------------------------------------------------------------------
+
+MEDICION_NULA = MedicionMargen(
+    margen_neto_pct=None,
+    cobertura=None,
+    dias_con_venta=None,
+    venta_cubierta=None,
+    ledger_fresco_at=None,
+    moneda=None,
+    ventana_desde=None,
+    ventana_hasta=None,
+)
+
+
+def familia_efectiva_por_campana(
+    pares: list[tuple[int, int | None]],
+) -> dict[int, int | None]:
+    """Colapso puro campana -> familia efectiva (UNICA regla, compartida por
+    el motor y el dashboard: regla 2, cero drift). `pares` = (campana_id,
+    familia_id | None) por producto anunciado. Campana con UN producto sin
+    etiqueta o con >1 familia distinta -> None estricto (regla 3); campana
+    sin pares -> ausente (el llamador la trata como None)."""
+    etiquetas: dict[int, set[int | None]] = {}
+    for campana_id, familia_id in pares:
+        etiquetas.setdefault(campana_id, set()).add(familia_id)
+    efectivas: dict[int, int | None] = {}
+    for campana_id, vistas in etiquetas.items():
+        if len(vistas) == 1:
+            unica = next(iter(vistas))
+            efectivas[campana_id] = unica
+        else:
+            efectivas[campana_id] = None
+    return efectivas
+
+
+def resuelve_target_margen_familia(
+    etiqueta: MedicionMargen | None,
+    padre: MedicionMargen | None,
+    fraccion: Decimal | None,
+    hoy: dt.date,
+    ultimo: Decimal | None,
+    destino: Decimal | None,
+    *,
+    tiene_previo: bool,
+) -> tuple[ResolucionMargen, str | None]:
+    """Resolver PURO del peldano margen_familia (A5). `etiqueta` = medicion
+    de la familia de la hoja (None = hoja sin familia: el peldano no aplica,
+    motivo sin_familia); `padre` = medicion del padre si etiqueta es
+    subfamilia (reintento: sub sin margen usa su familia). `ultimo` = ancla
+    del paso (ultimo aplicado DE LA HOJA ?? plataforma ?? setting);
+    `destino` = reemplazo al abstener (plataforma ?? setting): la
+    convergencia kimi-H1 camina hacia el destino, no al setting (B-F3: hacia
+    el setting re-entra con salto). `tiene_previo` = la hoja trae aplicado
+    previo (trayectoria que proteger): sin previo + dato invalido -> None
+    (cae a plataforma, L5); con previo + dato invalido -> converge.
+    `sin_fraccion` corta la cadena (la fraccion es de plataforma: reintentar
+    al padre daria lo mismo). Banda y paso identicos a plataforma (plan).
+    Devuelve (resolucion, ganadora): "etiqueta" | "padre" | None (None =
+    nadie midio; el snapshot la usa para familia_usada)."""
+    if etiqueta is None:
+        return (ResolucionMargen(None, None, "sin_familia", False), None)
+    fraccion = _valida_fraccion(fraccion)
+    if fraccion is None:
+        return (ResolucionMargen(None, None, "sin_fraccion", False), None)
+    res_etiqueta = resuelve_target_margen(
+        etiqueta, fraccion, hoy, ultimo, destino, MARGEN_DIAS_MIN_FAMILIA
+    )
+    if res_etiqueta.motivo is None:
+        return (res_etiqueta, "etiqueta")
+    if padre is not None:
+        res_padre = resuelve_target_margen(
+            padre, fraccion, hoy, ultimo, destino, MARGEN_DIAS_MIN_FAMILIA
+        )
+        if res_padre.motivo is None:
+            return (res_padre, "padre")
+    # Etiqueta invalida (y padre ausente o invalido): el motivo que manda es
+    # el de la ETIQUETA (B-F11: conserva por que la sub no midio). Sin previo
+    # no hay trayectoria que proteger: None, cae a plataforma (L5). Con
+    # previo: converge al destino (el resuelve ya lo calculo: aplicado camina
+    # o None al llegar; ultimo == destino nunca salta).
+    if not tiene_previo:
+        return (ResolucionMargen(None, None, res_etiqueta.motivo, False), None)
+    res = res_etiqueta
+    return (
+        ResolucionMargen(res.aplicado, None, res.motivo, res.convergiendo),
+        None,
+    )

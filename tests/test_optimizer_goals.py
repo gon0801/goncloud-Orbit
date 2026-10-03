@@ -630,13 +630,14 @@ def _settings_target(us=None, mx=None) -> dict:
 
 
 def test_peldanos_vocabulario_exacto():
-    """El vocabulario de los SEIS peldanos es EXACTO y sellado (ORBIT 06
-    2.3: margen_plataforma tercero, entre goal_plataforma y
-    setting_plataforma): el dashboard lo muestra tal cual y la variante lo
-    reporta; un nombre distinto aqui rompe el contrato."""
+    """El vocabulario de los SIETE peldanos es EXACTO y sellado (A5:
+    margen_familia tercero, entre goal_plataforma y margen_plataforma):
+    el dashboard lo muestra tal cual y la variante lo reporta; un nombre
+    distinto aqui rompe el contrato."""
     assert g.PELDANOS_CASCADA == (
         "goal_campana",
         "goal_plataforma",
+        "margen_familia",
         "margen_plataforma",
         "setting_plataforma",
         "cache_estado",
@@ -976,3 +977,182 @@ def test_pause_economica_fail_closed():
     assert g.pause_economica_desde_settings({"ads_pause_economica": None}) is False
     assert g.pause_economica_desde_settings({"ads_pause_economica": "true"}) is False
     assert g.pause_economica_desde_settings({"ads_pause_economica": 1}) is False
+
+
+# ---------------------------------------------------------------------------
+# A5: peldano margen_familia (medicion por familia, fallback sub -> padre).
+# ---------------------------------------------------------------------------
+
+
+_HOY_A5 = dt.date(2026, 9, 4)
+
+
+def _medicion_fam(
+    *,
+    margen=Decimal("40"),
+    cobertura=Decimal("1"),
+    dias=40,
+    cubierta=Decimal("4000"),
+    fresco=True,
+):
+    return g.MedicionMargen(
+        margen_neto_pct=margen,
+        cobertura=cobertura,
+        dias_con_venta=dias,
+        venta_cubierta=cubierta,
+        ledger_fresco_at=(dt.datetime(2026, 9, 3, 12, 0) if fresco else None),
+        moneda="MXN",
+        ventana_desde=dt.date(2026, 2, 20),
+        ventana_hasta=dt.date(2026, 8, 20),
+    )
+
+
+def test_familia_20_y_40_misma_plataforma_cada_una_su_target():
+    """Plan A5: barata 20 % -> derivado 10; arras 40 % -> derivado 20
+    (fraccion 0.5); con ancla cercana el aplicado camina <= 0.5."""
+    barata, ganadora_barata = g.resuelve_target_margen_familia(
+        _medicion_fam(margen=Decimal("20")),
+        None,
+        Decimal("0.5"),
+        _HOY_A5,
+        Decimal("10.4"),
+        Decimal("20"),
+        tiene_previo=False,
+    )
+    assert (barata.aplicado, barata.derivado, barata.motivo) == (
+        Decimal("10"),
+        Decimal("10.0"),
+        None,
+    )
+    arras, ganadora_arras = g.resuelve_target_margen_familia(
+        _medicion_fam(margen=Decimal("40")),
+        None,
+        Decimal("0.5"),
+        _HOY_A5,
+        Decimal("20.4"),
+        Decimal("20"),
+        tiene_previo=False,
+    )
+    assert (arras.aplicado, arras.derivado, arras.motivo) == (
+        Decimal("20.0"),
+        Decimal("20.0"),
+        None,
+    )
+    assert (ganadora_barata, ganadora_arras) == ("etiqueta", "etiqueta")
+
+
+def test_subfamilia_sin_margen_usa_su_familia():
+    """Sub con dias cortos + padre sano: gobierna el padre."""
+    sub = _medicion_fam(dias=10)
+    padre = _medicion_fam(margen=Decimal("40"))
+    res, ganadora = g.resuelve_target_margen_familia(
+        sub, padre, Decimal("0.5"), _HOY_A5, Decimal("20"), Decimal("20"), tiene_previo=False
+    )
+    assert (res.aplicado, res.motivo) == (Decimal("20.0"), None)
+    assert ganadora == "padre"
+
+
+def test_familia_sin_margen_cae_a_plataforma():
+    """Familia invalida sin previo: el peldano devuelve None (la cascada
+    cae a margen_plataforma); el motivo se conserva para el snapshot."""
+    mala = _medicion_fam(cobertura=Decimal("0.80"))
+    res, _ganadora = g.resuelve_target_margen_familia(
+        mala, None, Decimal("0.5"), _HOY_A5, Decimal("20"), Decimal("20"), tiene_previo=False
+    )
+    assert (res.aplicado, res.motivo, res.convergiendo) == (None, "cobertura_baja", False)
+    valor, peldano = g.cascada_target_acos_con_procedencia(
+        None, None, {}, None, "amazon_mx", Decimal("20"), res.aplicado
+    )
+    assert (valor, peldano) == (Decimal("20"), "margen_plataforma")
+
+
+def test_familia_invalida_con_previo_converge_al_destino():
+    """Con trayectoria: camina al destino (plataforma), no al setting;
+    al llegar se apaga (None) y la cascada cae sin salto."""
+    mala = _medicion_fam(cobertura=Decimal("0.80"))
+    res, _ganadora = g.resuelve_target_margen_familia(
+        mala, None, Decimal("0.5"), _HOY_A5, Decimal("30"), Decimal("25"), tiene_previo=True
+    )
+    assert (res.aplicado, res.motivo, res.convergiendo) == (
+        Decimal("29.5"),
+        "cobertura_baja",
+        True,
+    )
+    llegado, _g2 = g.resuelve_target_margen_familia(
+        mala, None, Decimal("0.5"), _HOY_A5, Decimal("25"), Decimal("25"), tiene_previo=True
+    )
+    assert (llegado.aplicado, llegado.motivo, llegado.convergiendo) == (
+        None,
+        "cobertura_baja",
+        False,
+    )
+
+
+def test_familia_dias_30_no_60_y_sin_familia_no_aplica():
+    """Guard de producto (30 dias bastan; 60 es de plataforma) y hoja sin
+    familia etiquetada: motivo sin_familia, aplicado None."""
+    justa, _g3 = g.resuelve_target_margen_familia(
+        _medicion_fam(dias=30),
+        None,
+        Decimal("0.5"),
+        _HOY_A5,
+        Decimal("20"),
+        Decimal("20"),
+        tiene_previo=False,
+    )
+    assert justa.motivo is None
+    corta, _g4 = g.resuelve_target_margen_familia(
+        _medicion_fam(dias=29),
+        None,
+        Decimal("0.5"),
+        _HOY_A5,
+        Decimal("20"),
+        Decimal("20"),
+        tiene_previo=False,
+    )
+    assert (corta.aplicado, corta.motivo) == (None, "ventana_corta")
+    suelta, _g5 = g.resuelve_target_margen_familia(
+        None, None, Decimal("0.5"), _HOY_A5, Decimal("20"), Decimal("20"), tiene_previo=False
+    )
+    assert (suelta.aplicado, suelta.motivo) == (None, "sin_familia")
+
+
+def test_familia_sin_fraccion_corta_y_no_reintenta_padre():
+    """Fraccion ausente: sin_fraccion en seco aunque el padre mida."""
+    res, _ganadora = g.resuelve_target_margen_familia(
+        _medicion_fam(dias=10),
+        _medicion_fam(margen=Decimal("40")),
+        None,
+        _HOY_A5,
+        Decimal("20"),
+        Decimal("20"),
+        tiene_previo=True,
+    )
+    assert (res.aplicado, res.motivo, res.convergiendo) == (None, "sin_fraccion", False)
+
+
+def test_peldano_familia_gana_entre_goal_y_plataforma():
+    """Precedencia: goal > margen_familia > margen_plataforma > setting."""
+    valor, peldano = g.cascada_target_acos_con_procedencia(
+        None, None, {}, None, "amazon_mx", Decimal("20"), Decimal("10")
+    )
+    assert (valor, peldano) == (Decimal("10"), "margen_familia")
+    assert g.peldano_target_acos(None, None, Decimal("20"), None, None, Decimal("10")) == (
+        "margen_familia"
+    )
+    # Goal sigue ganando (lane 6); sin familia, plataforma intacta.
+    campana = _goal(scope="campaign", ad_entity_id=1, platform=None, target_acos_pct=Decimal("15"))
+    valor, peldano = g.cascada_target_acos_con_procedencia(
+        campana, None, {}, None, "amazon_mx", Decimal("20"), Decimal("10")
+    )
+    assert (valor, peldano) == (Decimal("15"), "goal_campana")
+
+
+def test_familia_efectiva_colapso_estricto():
+    """Un producto sin etiqueta o >1 familia -> None; unanimidad -> esa."""
+    assert g.familia_efectiva_por_campana([(1, 7), (1, 7), (2, 7), (2, 9)]) == {
+        1: 7,
+        2: None,
+    }
+    assert g.familia_efectiva_por_campana([(3, 7), (3, None)]) == {3: None}
+    assert g.familia_efectiva_por_campana([]) == {}
