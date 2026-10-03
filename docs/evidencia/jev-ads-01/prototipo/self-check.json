@@ -1,0 +1,18 @@
+{
+  "version": "jev-ads-probe-1",
+  "model": "jev-1.13.0",
+  "self_check": {
+    "status": "passed",
+    "cases": 12,
+    "http_requests": 0,
+    "checks": [
+      "fixture_contract",
+      "pair_coverage",
+      "composition",
+      "choice_order",
+      "identity_and_evidence_invalidation",
+      "invalid_inputs",
+      "response_contract"
+    ]
+  }
+}
