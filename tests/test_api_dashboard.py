@@ -1023,23 +1023,28 @@ def _campana_con_hojas(conn, run, platform, external, hojas):
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
 )
 def test_campanas_muestra_congelado_unico_rango_y_null(monkeypatch):
-    """A7 B3: /campanas publica lo APLICADO (target_acos_ciclo live+done),
-    no la cascada viva: unico a 2 decimales, rango "min–max" si difieren,
-    null-honesto sin ciclo. El shadow no se cuela y el goal sigue resuelto."""
+    """A7 B3: /campanas publica lo que congelo el ULTIMO ciclo live+done,
+    no la historia de cada hoja: unico a 2 decimales, rango "min–max" si
+    difieren en ese ciclo, null-honesto sin ciclo. Trampas: shadow,
+    running y hojas viejas no se cuelan; el goal sigue resuelto."""
     with _db_temporal("orbit_dash_cong") as (conn, dsn):
         run = _run(conn)
         _config_version(conn, {"ads_optimizer_mode": "shadow"})
         camp_a, (a1, a2) = _campana_con_hojas(conn, run, "amazon_us", "9001", 2)
-        camp_b, (b1, b2) = _campana_con_hojas(conn, run, "amazon_us", "9002", 2)
+        camp_b, (b1, b2, b3) = _campana_con_hojas(conn, run, "amazon_us", "9002", 3)
         camp_c, _ = _campana_con_hojas(conn, run, "amazon_mx", "9003", 1)
+        camp_d, (d1, d2) = _campana_con_hojas(conn, run, "amazon_us", "9004", 2)
         _goal_db(conn, scope="campaign", ad_entity_id=camp_a, target="18")
         c1 = _ciclo_live(conn, "amazon_us")
         c2 = _ciclo_live(conn, "amazon_us")
         manana = AHORA + dt.timedelta(days=1)
-        _congelado(conn, c1, a1, "29.5", "margen_familia")
-        _congelado(conn, c1, a2, "29.50", "margen_familia")
+        _congelado(conn, c1, a1, "28.5", "margen_familia")
+        _congelado(conn, c2, a2, "29.50", "margen_familia")
         _congelado(conn, c1, b1, "28.5", "margen_familia")
         _congelado(conn, c2, b2, "29.5", "margen_familia", decided_at=manana)
+        _congelado(conn, c1, b3, "27.0", "margen_familia")
+        _congelado(conn, c2, d1, "28.0", "margen_familia")
+        _congelado(conn, c2, d2, "29.5", "margen_familia")
         # Trampas anti-filtro (IDs mayores que c1/c2): sin mode='live' o
         # status='done', DISTINCT ON las elegiria y los asserts de camp_a mueren.
         c_shadow = _ciclo(conn, platform="amazon_us")
@@ -1060,22 +1065,34 @@ def test_campanas_muestra_congelado_unico_rango_y_null(monkeypatch):
             "maximo": "29.50",
             "peldano": "margen_familia",
             "ciclo": {
-                "id_min": c1,
-                "id_max": c1,
+                "id_min": c2,
+                "id_max": c2,
                 "decided_min": AHORA.isoformat(),
                 "decided_max": AHORA.isoformat(),
             },
         }
         assert por_id[camp_b]["target_efectivo"] == {
-            "valor": "28.50–29.50",
-            "minimo": "28.50",
+            "valor": "29.50",
+            "minimo": "29.50",
             "maximo": "29.50",
             "peldano": "margen_familia",
             "ciclo": {
-                "id_min": c1,
+                "id_min": c2,
+                "id_max": c2,
+                "decided_min": manana.isoformat(),
+                "decided_max": manana.isoformat(),
+            },
+        }
+        assert por_id[camp_d]["target_efectivo"] == {
+            "valor": "28.00–29.50",
+            "minimo": "28.00",
+            "maximo": "29.50",
+            "peldano": "margen_familia",
+            "ciclo": {
+                "id_min": c2,
                 "id_max": c2,
                 "decided_min": AHORA.isoformat(),
-                "decided_max": manana.isoformat(),
+                "decided_max": AHORA.isoformat(),
             },
         }
         assert por_id[camp_c]["target_efectivo"] is None
