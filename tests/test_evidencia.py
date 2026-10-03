@@ -369,14 +369,14 @@ def test_headline_0_en_100_recorta_12():
     assert evidencia.factor_por_evidencia(est, Decimal("0.80"), Decimal("0.70")) == "banda_menos_12"
 
 
-def test_headline_0_en_150_recorta_25_por_cf():
-    """B9: x = 2.1113 >= a+1 = 2 -> region fraccion continua."""
+def test_headline_0_en_150_recorta_25_por_complemento():
+    """B9: x = 2.1113 >= a+1 = 2 -> region complemento de cabeza exacta."""
     ev = _evidencia_conteo(150, 0, "0.00", cpc_clicks=150, cpc_cost="450.00")
     est = evidencia.estima_acos(ev, _TARGET)
     with localcontext(prec=28):
         b = Decimal(1) / Decimal("0.021") + 150
         x = b * Decimal(3) / (Decimal("1.35") * Decimal("0.208") * 1000)
-        assert x >= 2  # region CF pineada
+        assert x >= 2  # region complemento pineada
         assert abs(est.p_sobre[Decimal("1.35")] - (1 - (-x).exp())) < TOL
     assert evidencia.factor_por_evidencia(est, Decimal("0.80"), Decimal("0.70")) == "banda_menos_25"
 
