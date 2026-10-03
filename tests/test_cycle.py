@@ -3412,3 +3412,100 @@ def test_replay_decide_v2_puro_reproduce_vivo_exacto():
         ev2 = [f[9] for f in filas if f[0] == ids["kw_bid"]][0]["evidencia_v2"]
         assert ev2["via"] == "decide"
         assert ev2["abstencion_v2"] is None
+
+
+def _inputs_bid_pause(conn, cycle_id, ids):
+    filas = _decisions_de(conn, cycle_id)
+    por = {(f[0], f[1], f[2]): f for f in filas}
+    return (
+        dict(por[(ids["kw_bid"], "bid", None)][9]),
+        dict(por[(ids["kw_pause"], "pause", None)][9]),
+    )
+
+
+def test_verifica_politica_acepta_matriz_eras_vias():
+    """A7 B9: freezes REALES del ciclo (via _pendiente_bid) pasan: v1
+    contrafactual + pause intacto, v2 decide puro, decide con fallback
+    (el fallback refira igual) y era pre-A6 sin clave."""
+    from app.optimizer.replay import verifica_politica
+
+    with _db_temporal("orbit_ciclo_a7v1") as (conn, _c):
+        ids = _siembra_maestra(conn)
+        res = _corre(conn)
+        assert res.status == "done"
+        ins_bid, ins_pause = _inputs_bid_pause(conn, res.cycle_id, ids)
+        assert (ins_bid["evidencia_v2"]["via"], ins_bid["politica_bandas_usada"]) == (
+            "contrafactual",
+            "bandas_v1",
+        )
+        verifica_politica(ins_bid)
+        assert (ins_pause["evidencia_v2"]["via"], ins_pause["politica_bandas_usada"]) == (
+            "pause_intacto",
+            "bandas_v1",
+        )
+        verifica_politica(ins_pause)
+    with _db_temporal("orbit_ciclo_a7v2") as (conn, _c):
+        ids = _siembra_maestra(conn, settings={"ads_bid_politica_amazon_us": "evidencia_v2"})
+        res = _corre(conn)
+        assert res.status == "done"
+        ins_bid, ins_pause = _inputs_bid_pause(conn, res.cycle_id, ids)
+        assert (ins_bid["evidencia_v2"]["via"], ins_bid["politica_bandas_usada"]) == (
+            "decide",
+            "bandas_v1",
+        )
+        assert ins_bid["evidencia_v2"]["abstencion_v2"] == "evidencia_insuficiente"
+        verifica_politica(ins_bid)
+        assert (ins_pause["evidencia_v2"]["via"], ins_pause["politica_bandas_usada"]) == (
+            "pause_intacto",
+            "evidencia_v2",
+        )
+        verifica_politica(ins_pause)
+    with _db_temporal("orbit_ciclo_a7v3") as (conn, _c):
+        ids = _siembra_maestra(conn, settings={"ads_bid_politica_amazon_us": "evidencia_v2"})
+        _fondo_maduro(conn, ids["kw_pause"])
+        res = _corre(conn)
+        assert res.status == "done"
+        ins_bid, _ = _inputs_bid_pause(conn, res.cycle_id, ids)
+        assert (ins_bid["evidencia_v2"]["via"], ins_bid["politica_bandas_usada"]) == (
+            "decide",
+            "evidencia_v2",
+        )
+        verifica_politica(ins_bid)
+    verifica_politica({"motivo": "banda_menos_25"})  # pre-A6: sin clave, OK
+
+
+def test_verifica_politica_rechaza_incoherencias():
+    """A7 B9: congelada != re-derivada grita (freeze corrupto) y el
+    vocabulario es cerrado (bandas_v3 grita antes de repelear)."""
+    from app.optimizer.replay import verifica_politica
+
+    with _db_temporal("orbit_ciclo_a7v4") as (conn, _c):
+        ids = _siembra_maestra(conn)
+        res = _corre(conn)
+        assert res.status == "done"
+        ins_bid, _ = _inputs_bid_pause(conn, res.cycle_id, ids)
+        assert ins_bid["politica_bandas_usada"] == "bandas_v1"
+        corrupto = dict(ins_bid, politica_bandas_usada="evidencia_v2")
+        with pytest.raises(ValueError, match="re-derivada"):
+            verifica_politica(corrupto)
+        basura = dict(ins_bid, politica_bandas_usada="bandas_v3")
+        with pytest.raises(ValueError, match="vocabulario"):
+            verifica_politica(basura)
+
+
+def test_arquitectura_via_politica_pause_declara_bid_efectiva():
+    """A7 B9 (arquitectura via->politica): el pause NO consume bandas, asi
+    que su congelada es el regimen pedido y verifica con CUALQUIER valor
+    del vocabulario (sin replay); la bid con la congelada volteada grita
+    (la efectiva se re-deriva)."""
+    from app.optimizer.replay import verifica_politica
+
+    with _db_temporal("orbit_ciclo_a7v5") as (conn, _c):
+        ids = _siembra_maestra(conn)
+        res = _corre(conn)
+        assert res.status == "done"
+        ins_bid, ins_pause = _inputs_bid_pause(conn, res.cycle_id, ids)
+        assert ins_pause["politica_bandas_usada"] == "bandas_v1"
+        verifica_politica(dict(ins_pause, politica_bandas_usada="evidencia_v2"))
+        with pytest.raises(ValueError, match="re-derivada"):
+            verifica_politica(dict(ins_bid, politica_bandas_usada="evidencia_v2"))

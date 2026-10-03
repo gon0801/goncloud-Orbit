@@ -934,8 +934,9 @@ def _pendiente_bid(
     YA SERIALIZADO del hook contrafactual (el vivo no lo consume; el replay
     lo re-decide con reproduce_evidencia_v2). A6: `politica_bandas_usada`
     (inputs raiz) es la politica efectiva del vivo (viene del result).
-    DECLARATIVA sin verifier (el replay compara kind/motivo/factor/value y
-    rutea por `via`): jamas fuente de rutado futura (interrogate A6).
+    DECLARATIVA con verifier A7 (replay.verifica_politica la valida contra
+    la re-derivada; CI-only, sin cablear a compara/dossier): jamas fuente
+    de rutado futura (interrogate A6).
     A6-r2 B3: `bandas_v1` llega YA SERIALIZADO del contrafactual v1 y se
     congela SOLO en vivo v2 (None en v1: la fila queda intacta); el
     replay lo re-decide con reproduce_bandas_v1. `motor_evidencia`
