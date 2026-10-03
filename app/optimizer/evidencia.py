@@ -233,7 +233,7 @@ def previa_jerarquica(
     """Pliegue de arriba a abajo. cadena[0] es la plataforma (raiz):
     exige orders > 0, clicks > 0 y revenue > 0 (si no, None: sin previa
     no hay posterior). Cada nivel presente encoge hacia el padre con
-    K_PREVIA seudo-ordenes: cvr_n = (o + K.cvr_p)/(c + K/cvr_p),
+    K_PREVIA seudo-ordenes: cvr_n = (o + K)/(c + K/cvr_p),
     aov_n = (rev + K.aov_p)/(o + K). CVR y AOV se pliegan POR SEPARADO:
     nivel sin metricas para uno lo salta para ese (None), o clicks == 0
     lo salta para CVR (ordenes sin clics son artefacto, no evidencia).
@@ -265,7 +265,11 @@ def previa_jerarquica(
                 and conteo.clicks is not None
                 and conteo.clicks > 0
             ):
-                cvr = (Decimal(conteo.orders) + K_PREVIA * cvr) / (
+                # Conjugada Poisson-Gamma: K seudo-ORDENES en el numerador
+                # (unidades: conteos) y K/cvr_p seudo-clics en el
+                # denominador; la media previa implicita es cvr_p (K.cvr_p
+                # en el numerador daria cvr_p^2: bug atrapado en review).
+                cvr = (Decimal(conteo.orders) + K_PREVIA) / (
                     Decimal(conteo.clicks) + K_PREVIA / cvr
                 )
                 aporto = True

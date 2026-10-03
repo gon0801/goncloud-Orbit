@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -162,9 +163,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--json", action="store_true", help="salida JSON")
     args = parser.parse_args(argv)
+    dsn = os.environ.get("ORBIT_DSN_READ")
+    if not dsn:
+        print("ORBIT_DSN_READ no esta definido: fail-closed, cero lecturas", file=sys.stderr)
+        return 2
     try:
-        conn = connect()
-    except Exception as exc:
+        conn = connect(dsn)
+    except Exception as exc:  # noqa: BLE001 - connect ya redacta el DSN
         print(f"no se pudo conectar: {scrub(str(exc))}", file=sys.stderr)
         return 1
     try:

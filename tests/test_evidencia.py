@@ -203,10 +203,10 @@ def test_previa_salta_nivel_ausente_y_encoge():
     )
     assert previa is not None
     assert previa.niveles == ("plataforma", "ad_group")
-    # K=1: cvr = (0 + 0.021)/(100 + 1/0.021) < 0.021 (encoge al padre)
+    # K=1 conjugada: cvr = (0 + 1)/(100 + 1/0.021) < 0.021 (encoge al padre)
     assert previa.cvr < Decimal("0.021")
     with localcontext(prec=28):
-        esperado = (Decimal(0) + Decimal("0.021")) / (Decimal(100) + Decimal(1) / Decimal("0.021"))
+        esperado = (Decimal(0) + Decimal(1)) / (Decimal(100) + Decimal(1) / Decimal("0.021"))
         assert abs(previa.cvr - esperado) < Decimal("1e-24")
 
 
