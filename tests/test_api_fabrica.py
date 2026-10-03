@@ -1043,3 +1043,59 @@ def test_crear_manual_no_finito_422_sin_filas(escenario, valor):
     )
     assert respuesta.status_code == 422
     assert conn.execute("SELECT count(*) FROM fabrica_lote").fetchone()[0] == 0
+
+
+# ---------------------------------------------------------------------------
+# A7 B5: procedencia del target a 2 decimales (post-huella, fabrica.js intacto)
+# ---------------------------------------------------------------------------
+
+
+def test_procedencia_dos_dec_fija_los_3_formatos():
+    """A7 B5: pura sobre crudos REALES de target_del_grupo: medida larga,
+    clamp (el "[10, 45]" sin punto queda intacto, igual que enteros) y
+    manual (sin numeros, intacta)."""
+    from decimal import Decimal
+
+    _, fw = _modulos()
+    crudo = fp.target_del_grupo([Decimal("38.21")], Decimal("0.5")).procedencia
+    assert crudo == "margen_minimo_grupo: 0.5 x 38.21 = 19.105 -> redondeo NUMERIC(6,2) = 19.10"
+    assert fw._procedencia_dos_dec(crudo) == (
+        "margen_minimo_grupo: 0.50 x 38.21 = 19.10 -> redondeo NUMERIC(6,2) = 19.10"
+    )
+    clamp = fp.target_del_grupo([Decimal("5")], Decimal("0.5")).procedencia
+    assert clamp == "margen_minimo_grupo: 0.5 x 5 = 2.5 -> clamp [10, 45] = 10"
+    assert (
+        fw._procedencia_dos_dec(clamp)
+        == "margen_minimo_grupo: 0.50 x 5 = 2.50 -> clamp [10, 45] = 10"
+    )
+    assert (
+        fw._procedencia_dos_dec("manual_lanzamiento confirmado") == "manual_lanzamiento confirmado"
+    )
+
+
+def test_preview_formatea_procedencia_y_huella_sigue_valida(escenario, monkeypatch):
+    """A7 B5: el preview publica la procedencia a 2 decimales (v1 y v2
+    medida) y la huella sigue valida para crear (formato post-huella
+    sobre la copia serializada: huella-neutral por construccion)."""
+    import re
+
+    cliente, conn, solicitud, fw, ids = escenario
+    listing = conn.execute(
+        "SELECT id FROM listing WHERE product_id = %s AND platform = 'amazon_mx'", (ids[0],)
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO config_version(label, settings) VALUES ('v2', %s)",
+        (Json({"ads_target_fraccion_margen_amazon_mx": "0.5", "fabrica.creacion": "v2"}),),
+    )
+    v2 = _solicitud_v2(solicitud, [listing], objetivo={"origen": "margen_medido"})
+    vista = _preview(cliente, v2)
+    proc = vista["plan"]["objetivo"]["procedencia"]
+    assert proc == "margen_minimo_grupo: 0.50 x 40.00 = 20.00"
+    for token in re.findall(r"\d+\.\d+", proc):
+        assert re.fullmatch(r"\d+\.\d{2}", token), token
+    v1 = _preview(cliente, solicitud)
+    assert v1["plan"]["target_procedencia"] == "margen_minimo_grupo: 0.50 x 40.00 = 20.00"
+    llamadas = _motor_simulado(monkeypatch, fw, conn)
+    respuesta = _crear(cliente, v2, vista["huella"])
+    assert respuesta.status_code == 200, respuesta.text
+    assert llamadas == [vista["lote"]]
