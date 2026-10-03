@@ -443,6 +443,113 @@ def test_mezcla_dos_familias_cae_a_plataforma():
         assert por[ids["kw"]][3] == "margen_plataforma"
 
 
+def _mundo_evidencia_familia(conn, *, mezcla=False):
+    """Dos keywords hermanas en campana NO fabrica (sin slug) con product
+    ads etiquetados; mezcla=True anuncia dos familias y agrega una campana
+    vecina etiquetada (la mezcla no debe tomar su familia). Sin ledger: el
+    target viene del goal de plataforma y la previa solo necesita metricas."""
+    run_id = _run(conn)
+    _config_version(conn, {"ads_optimizer_mode": "shadow"})
+    _goal_plataforma(conn)
+    camp = _entidad(conn, "amazon_us", "campaign", "9501")
+    ag = _entidad(conn, "amazon_us", "ad_group", "9502", parent=camp)
+    kws = []
+    for n, ext in enumerate(("9503", "9504")):
+        kw = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            ext,
+            parent=ag,
+            match_type="EXACT",
+            keyword_text=f"kw ev{n}",
+        )
+        _estado(conn, kw, synced_at=_SYNCED, current_bid=Decimal("1.00"), bid_currency="USD")
+        _siembra_kw_bid(conn, run_id, kw)
+        kws.append(kw)
+    _estado(conn, ag, synced_at=_SYNCED)
+    _estado(conn, camp, synced_at=_SYNCED)
+    pid, lid = _producto_con_listing(conn, "SKU-EV")
+    fid = _familia(conn, "Evidencia", "evidencia")
+    _etiqueta(conn, pid, fid)
+    _product_ad(conn, ag, lid, "PA-EV1")
+    vecina = None
+    if mezcla:
+        pid2, lid2 = _producto_con_listing(conn, "SKU-EV2")
+        fid2 = _familia(conn, "Otra ev", "otra_ev")
+        _etiqueta(conn, pid2, fid2)
+        _product_ad(conn, ag, lid2, "PA-EV2")
+        camp2 = _entidad(conn, "amazon_us", "campaign", "9505")
+        ag2 = _entidad(conn, "amazon_us", "ad_group", "9506", parent=camp2)
+        vecina = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "9507",
+            parent=ag2,
+            match_type="EXACT",
+            keyword_text="kw vecina",
+        )
+        _estado(conn, vecina, synced_at=_SYNCED, current_bid=Decimal("1.00"), bid_currency="USD")
+        _estado(conn, ag2, synced_at=_SYNCED)
+        _estado(conn, camp2, synced_at=_SYNCED)
+        _siembra_kw_bid(conn, run_id, vecina)
+        pid3, lid3 = _producto_con_listing(conn, "SKU-EV3")
+        _etiqueta(conn, pid3, fid)
+        _product_ad(conn, ag2, lid3, "PA-EV3")
+    return {"kws": kws, "familia": fid, "vecina": vecina}
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_evidencia_hereda_familia_etiquetada_sin_slug():
+    """A7 B1: hoja de campana no-fabrica con productos etiquetados (sin
+    slug): su previa trae el nivel familia con la hermana como evidencia
+    (LOO deja al hermano; con un solo kw la resta vaciaria el nivel)."""
+    with _db_temporal("orbit_c5_evmap") as (conn, _c):
+        ids = _mundo_evidencia_familia(conn)
+        res = _corre(conn)
+        assert res.status == "done", res.notes
+        decisiones = {
+            fila[0]: fila[9] for fila in _decisions_de(conn, res.cycle_id) if fila[1] == "bid"
+        }
+        assert set(decisiones) == set(ids["kws"])
+        for kw in ids["kws"]:
+            previa = decisiones[kw]["evidencia_v2"]["previa"]
+            assert previa is not None
+            assert previa["familia_id"] == ids["familia"]
+            assert "familia" in previa["niveles"]
+
+
+@pytest.mark.skipif(
+    _postgres_obligatorio_ausente(),
+    reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",
+)
+def test_evidencia_mezcla_dos_familias_sin_nivel():
+    """A7 B1: campana que anuncia dos familias: familia efectiva None y la
+    previa de sus hojas no trae nivel familia (plataforma si, del hermano);
+    la vecina etiquetada si resuelve su familia (la mezcla no la toma)."""
+    with _db_temporal("orbit_c5_evmez") as (conn, _c):
+        ids = _mundo_evidencia_familia(conn, mezcla=True)
+        res = _corre(conn)
+        assert res.status == "done", res.notes
+        decisiones = {
+            fila[0]: fila[9] for fila in _decisions_de(conn, res.cycle_id) if fila[1] == "bid"
+        }
+        assert set(decisiones) == set(ids["kws"]) | {ids["vecina"]}
+        for kw in ids["kws"]:
+            previa = decisiones[kw]["evidencia_v2"]["previa"]
+            assert previa is not None
+            assert previa["familia_id"] is None
+            assert "familia" not in previa["niveles"]
+        previa_vecina = decisiones[ids["vecina"]]["evidencia_v2"]["previa"]
+        assert previa_vecina["familia_id"] == ids["familia"]
+        # unica aportante de su familia: el LOO vacia el nivel pero el mapeo queda
+        assert "familia" not in previa_vecina["niveles"]
+
+
 @pytest.mark.skipif(
     _postgres_obligatorio_ausente(),
     reason="sin Postgres utilizable en ORBIT_TEST_DSN/localhost:5432",

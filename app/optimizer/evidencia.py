@@ -78,8 +78,8 @@ class Conteo:
 @dataclass(frozen=True)
 class GranoHoja:
     """UNA fila del grano de conversion_jerarquica: la hoja en la ventana
-    madura + su mapeo pre-resuelto a la jerarquia (campana -> grupo ->
-    slug -> familia; legacy sin eslabon = None)."""
+    madura + su mapeo pre-resuelto a la jerarquia (campana -> familia
+    efectiva A5 por etiquetas de product ads; legacy sin etiqueta = None)."""
 
     hoja_id: int
     ad_group_id: int | None

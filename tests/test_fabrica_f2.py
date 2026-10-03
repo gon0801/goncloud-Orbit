@@ -61,7 +61,7 @@ ORDEN_F2 = (
     # C.2a: corre_ciclo escribe el freeze del target en TX3 (aunque estos
     # ciclos de F2 no procesen hojas, la cadena ES la del ciclo en produccion).
     "0046_target_acos_ciclo.sql",
-    # A4: conversion_jerarquica cruza familia en TX2.
+    # A7: la mapa A5 cruza familia en TX2.
     "0047_familias.sql",
     # A5: el peldano familiar lee v_margen_familia en TX2.
     "0048_margen_familia.sql",

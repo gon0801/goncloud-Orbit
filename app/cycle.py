@@ -2527,7 +2527,15 @@ def _recorre_plataforma(
     # EXPLICITO; las confianzas A3 se resuelven UNA vez por plataforma
     # (fail-closed: corrupta = ValueError = ciclo failed, igual que un
     # target/fraccion corruptos; el motor jamas ve los defaults 0.80/0.70).
-    conv_jerarquica = windows.conversion_jerarquica(conn, platform, decided_at)
+    # A7: la evidencia usa la regla A5 (mapa de _FamiliasCiclo, leida arriba
+    # en TX2): la hoja etiquetada cuenta en la evidencia y en el target.
+    conv_jerarquica = windows.conversion_jerarquica(
+        conn,
+        platform,
+        decided_at,
+        fam_por_campana=familias_ciclo.fam_por_campana,
+        padres=familias_ciclo.padres,
+    )
     confianza_recorte = g.confianza_recorte_desde_settings(settings, platform)
     confianza_subida = g.confianza_subida_desde_settings(settings, platform)
     # A6-live: el interruptor del motor se resuelve UNA vez por plataforma

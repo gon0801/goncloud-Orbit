@@ -696,19 +696,18 @@ def ventanas_evidencia_ad_group(
     }
 
 
-# A4 (conversion jerarquica): grano UNA fila por HOJA con su mapeo
-# pre-resuelto a la jerarquia. Toda la cadena hoja -> campana -> rol ->
-# grupo -> familia va con LEFT JOIN (hoja legacy o eslabon roto: mapeo
-# None, jamas desaparece la hoja; res A5). El filtro de moneda es de LA
-# plataforma (sums multi-moneda prohibidos; res A6) y familia filtra por
-# SU plataforma (slugs colisionables MX/US; res B5). Veneno por metrica
-# (bool_and) + negativos como veneno (unico dueno: esta frontera; res
-# B5-iii): el roll-up y el pliegue JAMAS re-chequean.
+# A4 (conversion jerarquica): grano UNA fila por HOJA con SU campana
+# (ag.parent_id; hoja huerfana o grupo roto: campana None, jamas
+# desaparece la hoja). A7: la familia NO se resuelve aqui (el JOIN por
+# slug campana_grupo -> familia murio): viaja en `fam_por_campana`, la
+# MISMA mapa A5 del ciclo (cero queries nuevas, cero drift). El filtro
+# de moneda es de LA plataforma (sums multi-moneda prohibidos; res A6).
+# Veneno por metrica (bool_and) + negativos como veneno (unico dueno:
+# esta frontera; res B5-iii): el roll-up y el pliegue JAMAS re-chequean.
 _SQL_CONVERSION_GRANO = """
 SELECT k.id AS hoja_id,
        k.parent_id AS ad_group_id,
-       f.id AS familia_id,
-       f.padre_id AS familia_padre_id,
+       ag.parent_id AS campana_id,
        CASE WHEN bool_and(v.clicks IS NOT NULL AND v.clicks >= 0)
             THEN sum(v.clicks)::bigint END,
        CASE WHEN bool_and(v.orders IS NOT NULL AND v.orders >= 0)
@@ -718,39 +717,38 @@ SELECT k.id AS hoja_id,
   FROM v_metric_latest v
   JOIN ad_entity k ON k.id = v.ad_entity_id
   LEFT JOIN ad_entity ag ON ag.id = k.parent_id AND ag.kind = 'ad_group'
-  LEFT JOIN campana_grupo_rol r ON r.ad_entity_id = ag.parent_id
-  LEFT JOIN campana_grupo gr ON gr.id = r.grupo_id
-  LEFT JOIN familia f ON f.slug = gr.tipo_producto AND f.platform = %s::platform
  WHERE k.platform = %s::platform
    AND k.kind IN ('keyword', 'product_target')
    AND v.metric_currency = %s
    AND v.metric_date BETWEEN %s AND %s
- GROUP BY k.id, k.parent_id, f.id, f.padre_id
+ GROUP BY k.id, k.parent_id, ag.parent_id
 """
 
 
 # A4r3 (herencia hoja nueva): mapeo ESTRUCTURAL de TODAS las hojas de
-# la plataforma (MISMA cadena LEFT JOIN que el grano, pero FROM
-# ad_entity: no depende de metricas). La hoja creada en los ultimos 10
-# dias, o sin filas en D-90..D-10, hereda la previa de SU ad group y
-# familia en vez de caer a plataforma.
+# la plataforma (MISMA forma que el grano, pero FROM ad_entity: no
+# depende de metricas). La hoja creada en los ultimos 10 dias, o sin
+# filas en D-90..D-10, hereda la previa de SU ad group y familia en vez
+# de caer a plataforma. La familia se resuelve con la mapa A5, igual
+# que el grano.
 _SQL_MAPEO_HOJAS = """
 SELECT k.id AS hoja_id,
        k.parent_id AS ad_group_id,
-       f.id AS familia_id,
-       f.padre_id AS familia_padre_id
+       ag.parent_id AS campana_id
   FROM ad_entity k
   LEFT JOIN ad_entity ag ON ag.id = k.parent_id AND ag.kind = 'ad_group'
-  LEFT JOIN campana_grupo_rol r ON r.ad_entity_id = ag.parent_id
-  LEFT JOIN campana_grupo gr ON gr.id = r.grupo_id
-  LEFT JOIN familia f ON f.slug = gr.tipo_producto AND f.platform = %s::platform
  WHERE k.platform = %s::platform
    AND k.kind IN ('keyword', 'product_target')
 """
 
 
 def conversion_jerarquica(
-    conn: psycopg.Connection, platform: str, decided_at: dt.datetime
+    conn: psycopg.Connection,
+    platform: str,
+    decided_at: dt.datetime,
+    *,
+    fam_por_campana: dict[int, int | None],
+    padres: dict[int, int | None],
 ) -> ev.ConversionPlataforma:
     """Conversion para el pliegue v2 (A4): DOS lecturas por plataforma
     (grano sobre la ventana LITERAL D-90..D-10 + mapeo estructural de
@@ -759,7 +757,10 @@ def conversion_jerarquica(
     + roll-up puro O(H) en evidencia.enrolla_granos (testeable sin DB).
     Grano por hoja; niveles agregados en Python con veneno por metrica
     (semantica identica al bool_and global por nivel). Plataforma sin
-    filas -> roll-up vacio con plataforma None (regla 3)."""
+    filas -> roll-up vacio con plataforma None (regla 3). A7: la familia
+    de cada hoja sale de `fam_por_campana` (mapa A5 del ciclo: campana
+    sin product ads o mezcla -> None, regla 3) con niveles via
+    _familia_de_match/_subfamilia_de_match; dicts puros, sin queries."""
     # Import DIFERIDO: la fuente unica vive en bid.PLATAFORMAS_MONEDA y
     # bid importa este modulo a nivel top (ciclo real: el mapa se define
     # DESPUES de sus imports). Cero duplicados (regla 2 + candado
@@ -772,35 +773,45 @@ def conversion_jerarquica(
     fecha_decision = _fecha_utc(decided_at)
     hasta = fecha_decision - dt.timedelta(days=DIAS_MADUREZ_CORTES)
     desde = fecha_decision - dt.timedelta(days=LOOKBACK_EVIDENCIA)
-    filas = conn.execute(
-        _SQL_CONVERSION_GRANO, (platform, platform, moneda, desde, hasta)
-    ).fetchall()
-    granos = [
-        ev.GranoHoja(
-            hoja_id=fila[0],
-            ad_group_id=fila[1],
-            familia_id=_familia_de_match(fila[2], fila[3]),
-            subfamilia_id=_subfamilia_de_match(fila[2], fila[3]),
-            conteo=ev.Conteo(clicks=fila[4], orders=fila[5], ad_revenue=fila[6]),
+    filas = conn.execute(_SQL_CONVERSION_GRANO, (platform, moneda, desde, hasta)).fetchall()
+    granos = []
+    for fila in filas:
+        fam, sub = _familia_de_campana(fam_por_campana, padres, fila[2])
+        granos.append(
+            ev.GranoHoja(
+                hoja_id=fila[0],
+                ad_group_id=fila[1],
+                familia_id=fam,
+                subfamilia_id=sub,
+                conteo=ev.Conteo(clicks=fila[3], orders=fila[4], ad_revenue=fila[5]),
+            )
         )
-        for fila in filas
-    ]
-    mapeo = [
-        ev.MapeoHoja(
-            hoja_id=fila[0],
-            ad_group_id=fila[1],
-            familia_id=_familia_de_match(fila[2], fila[3]),
-            subfamilia_id=_subfamilia_de_match(fila[2], fila[3]),
+    mapeo = []
+    for fila in conn.execute(_SQL_MAPEO_HOJAS, (platform,)).fetchall():
+        fam, sub = _familia_de_campana(fam_por_campana, padres, fila[2])
+        mapeo.append(
+            ev.MapeoHoja(hoja_id=fila[0], ad_group_id=fila[1], familia_id=fam, subfamilia_id=sub)
         )
-        for fila in conn.execute(_SQL_MAPEO_HOJAS, (platform, platform)).fetchall()
-    ]
     return ev.enrolla_granos(
         granos, moneda=moneda, ventana_desde=desde, ventana_hasta=hasta, mapeo=mapeo
     )
 
 
+def _familia_de_campana(
+    fam_por_campana: dict[int, int | None],
+    padres: dict[int, int | None],
+    campana_id: int | None,
+) -> tuple[int | None, int | None]:
+    """(familia, subfamilia) de UNA campana via la mapa A5 (puro): match +
+    su padre resuelven niveles con _familia_de_match/_subfamilia_de_match.
+    Campana ausente, None o mezcla -> (None, None) (regla 3)."""
+    match = fam_por_campana.get(campana_id) if campana_id is not None else None
+    padre = padres.get(match) if match is not None else None
+    return (_familia_de_match(match, padre), _subfamilia_de_match(match, padre))
+
+
 def _familia_de_match(match_id: int | None, padre_id: int | None) -> int | None:
-    """Slug etiquetado: si es raiz, familia = match; si es hija,
+    """Match etiquetado: si es raiz, familia = match; si es hija,
     familia = padre (el trigger familia_dos_niveles sella 2 niveles)."""
     if match_id is None:
         return None

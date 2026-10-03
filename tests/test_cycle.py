@@ -98,8 +98,9 @@ SQL45 = (
 SQL46 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0046_target_acos_ciclo.sql"
 ).read_text(encoding="utf-8")
-# A4: conversion_jerarquica cruza campana_grupo_rol (0018) y familia (0047)
-# en TX2 — sin estas TODO ciclo revienta con UndefinedTable.
+# A7: el ciclo cruza campana_grupo_rol (0018, harvest_destino) y familia
+# (0047, mapa A5 de _lee_familias_ciclo) en TX2 — sin estas TODO ciclo
+# revienta con UndefinedTable.
 SQL18 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0018_fabrica_campanas.sql"
 ).read_text(encoding="utf-8")
@@ -197,7 +198,7 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL45)
         # ADS C.2a: target_acos_ciclo (0046) — la TX3 escribe el freeze.
         conn.execute(SQL46)
-        # A4: el grano jerarquico cruza 0018 + 0047 en TX2.
+        # A7: harvest_destino cruza 0018 y la mapa A5 cruza 0047 en TX2.
         conn.execute(SQL18)
         conn.execute(SQL47)
         # A5: el peldano familiar lee v_margen_familia en TX2.
