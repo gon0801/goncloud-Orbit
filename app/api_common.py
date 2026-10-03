@@ -17,7 +17,7 @@ importandolo de app.api (una sola implementacion, cero copias).
 from __future__ import annotations
 
 import json
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 
 
 def _dec_str(valor) -> str | None:
@@ -25,6 +25,17 @@ def _dec_str(valor) -> str | None:
     jamas float; la escala del string es artefacto deterministico del
     NUMERIC de origen, mismo criterio que _dec_str de app/cycle)."""
     return str(valor) if valor is not None else None
+
+
+def _dos_dec(valor) -> str | None:
+    """Target para PANTALLA: 2 decimales (UNICO hogar canonico, A7: jamas
+    dos copias). Cuantiza Decimal("0.01") con HALF_EVEN EXPLICITO (ley
+    Python: mismo modo que fabrica_plan:335 y _dinero_2 de api_dashboard;
+    el default del contexto global nadie lo mira). El motor y el freeze
+    guardan exacto; el redondeo vive solo en este borde."""
+    if valor is None:
+        return None
+    return str(Decimal(str(valor)).quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN))
 
 
 def _parse_notes(notes) -> dict | None:
