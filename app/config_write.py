@@ -26,9 +26,10 @@ edicion se rechaza con el mismo texto que la pantalla muestra ANTES de
 guardar. El servidor no confia en el copy del HTML.
 
 VALIDACION CON LOS LECTORES DEL MOTOR (regla 2): la config nueva se relee
-con target_desde_settings / fraccion_desde_settings / confianza_* antes de
-persistirse; lo que el motor rechazaria como config corrupta se rechaza aqui
-como SettingsInvalido (422), jamas llega a una fila.
+con target_desde_settings / fraccion_desde_settings / confianza_* /
+motor_evidencia_desde_settings antes de persistirse; lo que el motor
+rechazaria como config corrupta se rechaza aqui como SettingsInvalido (422),
+jamas llega a una fila.
 
 Valores como STRING en el JSONB (regla 4; misma forma que las configs
 sembradas a mano: "20", "0.5", "10").
@@ -86,6 +87,25 @@ def _antes(valor) -> str:
     return "ausente" if valor is None else str(valor)
 
 
+def _aplica_motor_bid(nuevo: dict, cambios: list[str], platform: str, motor_bid: str) -> None:
+    """Rama A6 de proxima_config (helper puro: baja la complejidad del
+    presupuesto guardrails-01). Solo los dos valores sellados viajan:
+    `evidencia_v2` enciende, `bandas_v1` explicito revierte (plan A6
+    carril 10); la ausencia sigue leyendo como v1 pero el editor no la
+    escribe ni la popea. Valor ajeno = 422 (el endpoint solo manda su
+    Literal)."""
+    k_motor = g.clave_bid_politica(platform)
+    if motor_bid in (g.POLITICA_BANDAS_V1, g.POLITICA_BANDAS_EVIDENCIA):
+        if nuevo.get(k_motor) != motor_bid:
+            cambios.append(f"motor bid {_antes(nuevo.get(k_motor))} -> {motor_bid}")
+            nuevo[k_motor] = motor_bid
+    else:
+        raise SettingsInvalido(
+            f"motor bid debe ser {g.POLITICA_BANDAS_V1!r} o"
+            f" {g.POLITICA_BANDAS_EVIDENCIA!r}, llego {motor_bid!r}"
+        )
+
+
 def proxima_config(
     actual: Mapping,
     platform: str,
@@ -97,6 +117,7 @@ def proxima_config(
     ack_respaldo: bool = False,
     confianza_recorte: Decimal | None = None,
     confianza_subida: Decimal | None = None,
+    motor_bid: str | None = None,
 ) -> tuple[dict, list[str]]:
     """Config NUEVA a partir de la vigente + la lista legible de cambios.
 
@@ -152,6 +173,10 @@ def proxima_config(
                 cambios.append(f"confianza {nombre} {_antes(nuevo.get(clave))} -> {valor}")
                 nuevo[clave] = valor
 
+    # A6: interruptor del motor de bids (None = no tocar).
+    if motor_bid is not None:
+        _aplica_motor_bid(nuevo, cambios, platform, motor_bid)
+
     for kind, cap in (caps or {}).items():
         if kind not in KINDS_QUOTA:
             raise SettingsInvalido(f"cap desconocido {kind!r}: los kinds son {KINDS_QUOTA}")
@@ -171,6 +196,7 @@ def proxima_config(
         g.fraccion_desde_settings(nuevo, platform)
         g.confianza_recorte_desde_settings(nuevo, platform)
         g.confianza_subida_desde_settings(nuevo, platform)
+        g.motor_evidencia_desde_settings(nuevo, platform)
     except ValueError as exc:
         raise SettingsInvalido(str(exc)) from None
     return nuevo, cambios

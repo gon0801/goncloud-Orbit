@@ -201,6 +201,7 @@ from app.optimizer import evidencia as ev
 from app.optimizer import goals as g
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.replay import reproduce as reproduce
+from app.optimizer.replay import reproduce_bandas_v1 as reproduce_bandas_v1
 from app.optimizer.replay import reproduce_evidencia_v2 as reproduce_evidencia_v2
 from app.redaction import install_scrub_filter, scrub
 
@@ -825,13 +826,21 @@ def _evidencia_v2_json(
     moneda: str,
     ventana_desde: dt.date,
     ventana_hasta: dt.date,
+    via: str,
+    abstencion_v2: str | None,
 ) -> dict:
     """Freeze de `inputs.evidencia_v2` (A4, shape EXACTO): insumos CRUDOS
     (previa/conversion/cpc cada uno nullable, as-measured) + veredicto
     v2. NO se congela la estimacion (derivada re-derivable exacta: un
-    numero, una fuente). Decimal como string, fechas ISO (regla 4)."""
+    numero, una fuente). Decimal como string, fechas ISO (regla 4). A6
+    (ADITIVO, shape A4 intacto): `via` ("contrafactual" = sombra de un
+    vivo v1, "decide" = el vivo DECIDIO con evidencia) y `abstencion_v2`
+    (el motivo v2 cuando el fallback v1 decidio, None si no). Filas A4
+    sin `via` = contrafactual (el replay defaultea)."""
     return {
         "politica": bid.POLITICA_BANDAS_EVIDENCIA,
+        "via": via,
+        "abstencion_v2": abstencion_v2,
         "confianza_recorte_usada": _dec_str(confianza_recorte),
         "confianza_subida_usada": _dec_str(confianza_subida),
         "moneda": moneda,
@@ -898,6 +907,8 @@ def _pendiente_bid(
     cost_min: Decimal,
     pause_economica: bool,
     evidencia_v2: dict,
+    motor_evidencia: bool,
+    bandas_v1: dict | None,
 ) -> _Pendiente:
     """El freeze de CORTES 01 (1.3): `inputs.corte` se congela en TODA
     decision del motor de bids -- INCLUIDAS las de kind final 'bid' -- porque
@@ -916,7 +927,14 @@ def _pendiente_bid(
     agregado que decidio (cortes para pause, bids para bid) mezclado con la
     evidencia del grupo, clampeado a decided_at. A4: `evidencia_v2` llega
     YA SERIALIZADO del hook contrafactual (el vivo no lo consume; el replay
-    lo re-decide con reproduce_evidencia_v2)."""
+    lo re-decide con reproduce_evidencia_v2). A6: `politica_bandas_usada`
+    (inputs raiz) es la politica efectiva del vivo (viene del result).
+    DECLARATIVA sin verifier (el replay compara kind/motivo/factor/value y
+    rutea por `via`): jamas fuente de rutado futura (interrogate A6).
+    A6-r2 B3: `bandas_v1` llega YA SERIALIZADO del contrafactual v1 y se
+    congela SOLO en vivo v2 (None en v1: la fila queda intacta); el
+    replay lo re-decide con reproduce_bandas_v1. `motor_evidencia`
+    congela la version D.2 EFECTIVA (n10 en v1, cpc20 en v2)."""
     inputs = {
         "motor": "bid",
         "platform": platform,
@@ -932,9 +950,14 @@ def _pendiente_bid(
         # a una decision de la era anterior.
         "cooldown_policy_version": "pause_after_bid_v1",
         # D.2: la politica anti-inversion que consumo la decision de bid que
-        # pasa el gate; None en PAUSE (no paso por el gate, regla 3) para que
-        # el replay de cada era no adopte la regla que no corrio.
-        "inversion_policy_version": (g.POLITICA_INVERSION if resultado.kind == "bid" else None),
+        # pasa el gate (n10 en v1, cpc20 en v2); None en PAUSE (no paso por
+        # el gate, regla 3) para que el replay de cada era no adopte la
+        # regla que no corrio.
+        "inversion_policy_version": (
+            (g.POLITICA_INVERSION_EVIDENCIA if motor_evidencia else g.POLITICA_INVERSION)
+            if resultado.kind == "bid"
+            else None
+        ),
         "economic_policy": {
             # C.3 B1: el freeze registra la politica EFECTIVA (None con
             # flag apagado: el replay de esa era no adopta la regla nueva).
@@ -975,6 +998,13 @@ def _pendiente_bid(
         # bids (filas pause llevan el marcador pause_intacto, sin queries;
         # el replay lo re-decide con reproduce_evidencia_v2).
         "evidencia_v2": evidencia_v2,
+        # A6: politica EFECTIVA del vivo (reason declarativo v1/v2; la
+        # pone el motor en ResultadoBid.politica, nunca el llamador).
+        # Filas pre-A6 no la llevan (el replay defaultea a bandas_v1).
+        "politica_bandas_usada": resultado.politica,
+        # A6-r2 B3: contrafactual v1 SOLO en vivo v2 (en v1 la clave no
+        # existe: bit-identico a la era pre-B3, como target_snapshot).
+        **({"bandas_v1": bandas_v1} if bandas_v1 is not None else {}),
     }
     return _Pendiente(
         ad_entity_id=entidad_id,
@@ -1667,7 +1697,53 @@ def _contrafactual_v2_json(
         moneda=conv.moneda,
         ventana_desde=conv.ventana_desde,
         ventana_hasta=conv.ventana_hasta,
+        via="contrafactual",
+        abstencion_v2=None,
     )
+
+
+def _contrafactual_v1_json(
+    *,
+    platform: str,
+    ventanas: windows.VentanasEntidad,
+    target: Decimal,
+    bid_actual: Decimal | None,
+    bid_moneda: str | None,
+    floor: Decimal,
+    ceiling: Decimal,
+    corte_pause: cortes.UmbralResuelto,
+    costo_piso: Decimal,
+    pause_economica: bool,
+) -> dict:
+    """Contrafactual v1 YA SERIALIZADO para `inputs.bandas_v1` (A6 B3).
+    Segundo decide_bid con la politica PURA de bandas (sin D.2, sin
+    cooldown, sin veto: igual que la sombra A4), espejo arg-por-arg del
+    vivo MENOS los params v2. v1 no necesita insumos extra: todo lo que
+    consume ya viaja congelado en inputs (ventanas, target, corte)."""
+    veredicto = bid.decide_bid(
+        platform=platform,
+        bids=ventanas.bids,
+        cortes=ventanas.cortes,
+        target_acos_pct=target,
+        bid_actual=bid_actual,
+        bid_moneda=bid_moneda,
+        floor=floor,
+        ceiling=ceiling,
+        umbral_pause=corte_pause.umbral,
+        cost_min=costo_piso,
+        expected_clicks=corte_pause.expected_clicks,
+        policy_version=bid.POLITICA_PAUSE_ECONOMICA if pause_economica else None,
+    )
+    return {
+        "politica": bid.POLITICA_BANDAS_V1,
+        "via": "contrafactual",
+        "veredicto": {
+            "kind": veredicto.kind,
+            "motivo": veredicto.motivo,
+            "factor": _dec_str(veredicto.factor),
+            "new_value": _dec_str(veredicto.new_value),
+        },
+    }
 
 
 def _procesa_decisora(
@@ -1694,6 +1770,7 @@ def _procesa_decisora(
     conv_jerarquica: ev.ConversionPlataforma,
     confianza_recorte: Decimal,
     confianza_subida: Decimal,
+    motor_evidencia: bool,
 ) -> None:
     (
         entidad_id,
@@ -1786,6 +1863,24 @@ def _procesa_decisora(
     contadores.targets[entidad_id] = (target, procedencia)
     floor, ceiling = g.resuelve_floor_ceiling(goal, PLATAFORMAS_MONEDA[platform])
     costo_piso = bid.PAUSE_COST_MIN[platform]
+    # A6-live: con el interruptor en evidencia, la hoja mide SU historia
+    # (D.2 la REUSA abajo: una sola lectura), SU cpc vigente y SUS
+    # parciales ANTES del vivo, y el vivo decide con evidencia + fallback
+    # v1 en LA MISMA llamada (sin segundo call). Con el flag apagado este
+    # bloque no existe: el vivo es v1 EXACTO como hoy (cero queries extra,
+    # cero labels distintos) y la sombra se congela tras D.2.
+    args_v2: dict = {}
+    if motor_evidencia:
+        historia = g.ultimo_bid_aplicado(conn, entidad_id)
+        cpc = windows.cpc_vigente(conn, entidad_id, historia, ventanas.bids)
+        previa, conversion, cpc_medido = ev.parciales_evidencia(conv_jerarquica, entidad_id, cpc)
+        args_v2 = {
+            "evidencia": ev.clasifica(previa, conversion, cpc_medido),
+            "politica_bandas": bid.POLITICA_BANDAS_EVIDENCIA,
+            "confianza_recorte": confianza_recorte,
+            "confianza_subida": confianza_subida,
+            "fallback_v1": True,
+        }
     resultado = bid.decide_bid(
         platform=platform,
         bids=ventanas.bids,
@@ -1803,6 +1898,7 @@ def _procesa_decisora(
         expected_clicks=corte_pause.expected_clicks,
         # C.3 B1: sin flag, decide con la regla pre-economica (None).
         policy_version=bid.POLITICA_PAUSE_ECONOMICA if pause_economica else None,
+        **args_v2,
     )
     # El BID verificado no posterga un corte que ya califico con datos maduros.
     # La PAUSE aplicada (aun revertida) conserva su propio cooldown; si no
@@ -1826,11 +1922,18 @@ def _procesa_decisora(
     # decide libre; historia rota o ventana de bids desconocida bloquean
     # (fail-closed), y el contador queda en notes.skips (P1: sin Telegram).
     if resultado.kind == "bid":
-        historia = g.ultimo_bid_aplicado(conn, entidad_id)
+        # A6-live: la historia YA se midio antes del vivo (se reusa, sin
+        # segunda lectura); con el flag apagado se mide aqui como hoy.
+        # Bajo evidencia D.2 consume ADEMAS el cpc pre-vivo (>= 20 clics
+        # post-cambio en vez de 10 dias; plan A6, inversion_cpc20_v2).
+        if not motor_evidencia:
+            historia = g.ultimo_bid_aplicado(conn, entidad_id)
         if not g.permite_reversa_bid(
             historia,
             nueva_direccion=1 if resultado.new_value > resultado.old_value else -1,
             fin_ventana_bids=ventanas.bids.window_end,
+            motor_evidencia=motor_evidencia,
+            cpc=cpc_medido if motor_evidencia else None,
         ):
             contadores.skips_entidad[MOTIVO_INVERSION_SIN_EVIDENCIA] += 1
             return
@@ -1842,10 +1945,19 @@ def _procesa_decisora(
     # ambas politicas: el veredicto coincide por construccion). Politica
     # pura: sin cooldown, sin D.2, sin veto (el replay la re-decide con
     # los mismos insumos congelados). El vivo NO lo consume.
+    # A6-live: con el interruptor en evidencia el vivo DECIDIO con
+    # evidencia: se congelan SUS insumos + SU veredicto con via "decide"
+    # Y la politica pura de bandas como contrafactual (B3: segundo call
+    # v1 en kind bid; kind pause lleva el marcador pause_intacto en
+    # AMBOS bloques, CERO calls extra: pause es v1 por construccion).
+    # Costo declarado: en modo evidencia la fila pause/no-op YA gasto
+    # historia + cpc pre-vivo (desechados; precio del vivo v2).
     if resultado.kind == "pause":
         evidencia_v2 = {
             "politica": bid.POLITICA_BANDAS_EVIDENCIA,
             "via": "pause_intacto",
+            # Shape consistente con _evidencia_v2_json (interrogate A-nit3).
+            "abstencion_v2": None,
             "veredicto": {
                 "kind": "pause",
                 "motivo": resultado.motivo,
@@ -1853,6 +1965,46 @@ def _procesa_decisora(
                 "new_value": None,
             },
         }
+        bandas_v1 = (
+            {
+                "politica": bid.POLITICA_BANDAS_V1,
+                "via": "pause_intacto",
+                "veredicto": {
+                    "kind": "pause",
+                    "motivo": resultado.motivo,
+                    "factor": None,
+                    "new_value": None,
+                },
+            }
+            if motor_evidencia
+            else None
+        )
+    elif motor_evidencia:
+        evidencia_v2 = _evidencia_v2_json(
+            previa=previa,
+            conversion=conversion,
+            cpc=cpc_medido,
+            veredicto=resultado,
+            confianza_recorte=confianza_recorte,
+            confianza_subida=confianza_subida,
+            moneda=conv_jerarquica.moneda,
+            ventana_desde=conv_jerarquica.ventana_desde,
+            ventana_hasta=conv_jerarquica.ventana_hasta,
+            via="decide",
+            abstencion_v2=resultado.abstencion_v2,
+        )
+        bandas_v1 = _contrafactual_v1_json(
+            platform=platform,
+            ventanas=ventanas,
+            target=target,
+            bid_actual=current_bid,
+            bid_moneda=bid_currency,
+            floor=floor,
+            ceiling=ceiling,
+            corte_pause=corte_pause,
+            costo_piso=costo_piso,
+            pause_economica=pause_economica,
+        )
     else:
         evidencia_v2 = _contrafactual_v2_json(
             conn,
@@ -1872,6 +2024,9 @@ def _procesa_decisora(
             confianza_recorte=confianza_recorte,
             confianza_subida=confianza_subida,
         )
+        # Vivo v1: el contrafactual v1 ES el vivo (nada que congelar: la
+        # fila queda bit-identica a la era pre-B3).
+        bandas_v1 = None
     pendientes.append(
         _pendiente_bid(
             entidad_id,
@@ -1895,6 +2050,8 @@ def _procesa_decisora(
             cost_min=costo_piso,
             pause_economica=pause_economica,
             evidencia_v2=evidencia_v2,
+            motor_evidencia=motor_evidencia,
+            bandas_v1=bandas_v1,
         )
     )
     contadores.decisiones[resultado.kind] += 1
@@ -2373,6 +2530,10 @@ def _recorre_plataforma(
     conv_jerarquica = windows.conversion_jerarquica(conn, platform, decided_at)
     confianza_recorte = g.confianza_recorte_desde_settings(settings, platform)
     confianza_subida = g.confianza_subida_desde_settings(settings, platform)
+    # A6-live: el interruptor del motor se resuelve UNA vez por plataforma
+    # en TX2 junto a las confianzas (fail-closed: corrupto = ValueError =
+    # ciclo failed, igual que un target/fraccion/confianza corruptos).
+    motor_evidencia = g.motor_evidencia_desde_settings(settings, platform)
     comunes = dict(
         platform=platform,
         setting_target=setting_target,
@@ -2404,6 +2565,7 @@ def _recorre_plataforma(
             conv_jerarquica=conv_jerarquica,
             confianza_recorte=confianza_recorte,
             confianza_subida=confianza_subida,
+            motor_evidencia=motor_evidencia,
             **comunes,
         )
     for fila in conn.execute(_SQL_GRUPOS, (platform,)).fetchall():

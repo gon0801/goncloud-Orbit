@@ -99,6 +99,8 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Literal
 
+from app.optimizer.evidencia import MIN_CLICS_CPC, CostoPorClic
+
 if TYPE_CHECKING:
     import psycopg
 
@@ -142,6 +144,9 @@ COOLDOWN = dt.timedelta(days=7)  # por ENTIDAD; comparador ESTRICTO en el umbral
 # (D.2/decision.md), alineado al invariante de maduracion >=10d.
 DIAS_EVIDENCIA_INVERSION = 10
 POLITICA_INVERSION = "inversion_n10_v1"  # se congela en inputs.inversion_policy_version
+# A6: bajo evidencia_v2 D.2 ya no cuenta dias sino CPC post-cambio con
+# >= MIN_CLICS_CPC clics (evidencia.py, fuente unica del 20).
+POLITICA_INVERSION_EVIDENCIA = "inversion_cpc20_v2"
 
 # Reticulo de modos: off < shadow < live. modo_efectivo es el INFIMO (meet).
 MODOS = ("off", "shadow", "live")
@@ -645,20 +650,33 @@ def permite_reversa_bid(
     *,
     nueva_direccion: Literal[-1, 1],
     fin_ventana_bids: dt.date | None,
+    motor_evidencia: bool = False,
+    cpc: CostoPorClic | None = None,
 ) -> bool:
     """Pura (D.2): True si la hoja puede mover el bid en `nueva_direccion`
     dada la historia del ultimo bid aplicado. Misma direccion: siempre.
-    Reversa: exige >= DIAS_EVIDENCIA_INVERSION dias de evidencia posterior
-    al cambio (fin de la ventana de bids menos la fecha UTC del cambio);
-    historia rota o ventana desconocida (None) bloquean (fail-closed).
-    El fin de ventana llega del AGREGADO que decidiria (ventanas.bids),
-    jamas del reloj: contar dias de reloj es justo el error del caso 3835."""
+    Reversa bajo bandas_v1: exige >= DIAS_EVIDENCIA_INVERSION dias de
+    evidencia posterior al cambio (fin de la ventana de bids menos la
+    fecha UTC del cambio); historia rota o ventana desconocida (None)
+    bloquean (fail-closed). El fin de ventana llega del AGREGADO que
+    decidiria (ventanas.bids), jamas del reloj: contar dias de reloj es
+    justo el error del caso 3835. Reversa bajo evidencia_v2 (A6): el
+    check de dias se REEMPLAZA por el CPC post-cambio que el ciclo ya
+    midio antes del vivo (>= MIN_CLICS_CPC clics, post_cambio True); CPC
+    ausente o corto bloquea (fail-closed)."""
     if isinstance(historia, SinHistoriaBid):
         return True
     if isinstance(historia, HistoriaBidRota):
         return False
     if historia.direccion == nueva_direccion:
         return True
+    if motor_evidencia:
+        return (
+            cpc is not None
+            and cpc.post_cambio
+            and cpc.clicks is not None
+            and cpc.clicks >= MIN_CLICS_CPC
+        )
     if fin_ventana_bids is None:
         return False
     return (fin_ventana_bids - historia.fecha_cambio).days >= DIAS_EVIDENCIA_INVERSION
@@ -842,6 +860,46 @@ def confianza_subida_desde_settings(settings: Mapping, platform: str) -> Decimal
     Ausente = 0.70."""
     return _confianza_desde_settings(
         settings, clave_confianza_subida(platform), CONFIANZA_SUBIDA_DEFAULT, "subida"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Motor de bids por plataforma (A6): bandas v1 o evidencia v2.
+# ---------------------------------------------------------------------------
+
+# Politica de bandas (fuente unica; bid.py la re-exporta): los IDs que
+# el interruptor ads_bid_politica_<platform> acepta (plan A6).
+POLITICA_BANDAS_V1 = "bandas_v1"
+POLITICA_BANDAS_EVIDENCIA = "evidencia_v2"
+
+
+def clave_bid_politica(platform: str) -> str:
+    """Clave sellada del interruptor del motor de bids
+    (ads_bid_politica_<platform>, docs/DATABASE.md)."""
+    return f"ads_bid_politica_{platform}"
+
+
+def motor_evidencia_desde_settings(settings: Mapping, platform: str) -> bool:
+    """True SOLO si la plataforma decide con evidencia (A6-live). Clave
+    ausente (o JSON null) = False: el default es el motor viejo de bandas
+    v1 y las configs actuales (sin la clave) quedan intactas, SIN
+    migraciones. `bandas_v1` explicito tambien es False (revertir es
+    escribirlo, plan A6 carril 10); SOLO `evidencia_v2` enciende.
+    PRESENTE con cualquier otro valor (incluido "" escrito a mano o
+    "EVIDENCIA_V2") = config CORRUPTA: ValueError ruidoso que tumba al
+    lector (regla 3, mismo trato que target/fraccion/confianzas: decidir
+    v2 con un valor que nadie configuro seria inventar el motor)."""
+    clave = clave_bid_politica(platform)
+    valor = settings.get(clave)
+    if valor is None:
+        return False
+    if valor == POLITICA_BANDAS_EVIDENCIA:
+        return True
+    if valor == POLITICA_BANDAS_V1:
+        return False
+    raise ValueError(
+        f"setting {clave}: politica de bids debe ser {POLITICA_BANDAS_V1!r} o"
+        f" {POLITICA_BANDAS_EVIDENCIA!r}, llego {valor!r}"
     )
 
 

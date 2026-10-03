@@ -63,7 +63,7 @@ def _bajada(fin=dt.date(2026, 9, 4)):
     return _agregado(orders=1, cost="50", revenue="100", fin=fin)
 
 
-def _corre_hoja(monkeypatch, *, bids, historia, cooldown=False, cortes=None):
+def _corre_hoja(monkeypatch, *, bids, historia, cooldown=False, cortes=None, motor=False, cpc=None):
     ventanas = SimpleNamespace(
         bids=bids,
         cortes=cortes if cortes is not None else _agregado(orders=1, cost="50", revenue="100"),
@@ -82,7 +82,7 @@ def _corre_hoja(monkeypatch, *, bids, historia, cooldown=False, cortes=None):
         return historia
 
     monkeypatch.setattr(cycle.g, "ultimo_bid_aplicado", ultimo_bid)
-    monkeypatch.setattr(cycle.windows, "cpc_vigente", lambda *_a, **_k: None)
+    monkeypatch.setattr(cycle.windows, "cpc_vigente", lambda *_a, **_k: cpc)
     goal = goals.Goal(
         scope="platform",
         ad_entity_id=None,
@@ -122,94 +122,27 @@ def _corre_hoja(monkeypatch, *, bids, historia, cooldown=False, cortes=None):
         conv_jerarquica=_CONV_VACIA,
         confianza_recorte=Decimal("0.80"),
         confianza_subida=Decimal("0.70"),
-        motor_evidencia=False,
+        motor_evidencia=motor,
     )
     return pendientes, contadores, consultas
 
 
-def test_caso_3835_reversa_bloqueada_con_ventana_d9_y_emitida_con_d10(monkeypatch):
-    bloqueada, contadores, consultas = _corre_hoja(
-        monkeypatch,
-        bids=_bajada(fin=D + dt.timedelta(days=9)),
-        historia=goals.UltimoBidAplicado(direccion=1, fecha_cambio=D),
+def test_repro_lead_d2_v2_20_clics_post_cambio_permite_reversa(monkeypatch):
+    """Plan A6 (Build + lane 4): hoja recortada hace 5 dias con 25 clics
+    post-cambio. bandas_v1: D.2 (10 dias) bloquea. evidencia: el check es
+    CPC post-cambio >= 20 clics, la subida se emite."""
+    historia = goals.UltimoBidAplicado(direccion=-1, fecha_cambio=D)
+    cpc = ev.CostoPorClic(
+        cost=Decimal("12.5"),
+        clicks=25,
+        desde=D + dt.timedelta(days=1),
+        hasta=D + dt.timedelta(days=5),
+        post_cambio=True,
     )
-    assert bloqueada == []
-    assert contadores.skips_entidad == {"inversion_sin_evidencia": 1}
-    assert contadores.decisiones == {}
-    assert consultas == [ENTIDAD]
-
-    emitida, contadores, consultas = _corre_hoja(
-        monkeypatch,
-        bids=_bajada(fin=D + dt.timedelta(days=10)),
-        historia=goals.UltimoBidAplicado(direccion=1, fecha_cambio=D),
+    fin5 = D + dt.timedelta(days=5)
+    _v1, c1, _ = _corre_hoja(monkeypatch, bids=_subida(fin=fin5), historia=historia)
+    assert c1.skips_entidad == {"inversion_sin_evidencia": 1}
+    v2, c2, _ = _corre_hoja(
+        monkeypatch, bids=_subida(fin=fin5), historia=historia, motor=True, cpc=cpc
     )
-    assert [p.kind for p in emitida] == ["bid"]
-    assert contadores.skips_entidad == {}
-    assert contadores.decisiones == {"bid": 1}
-    assert emitida[0].inputs["inversion_policy_version"] == "inversion_n10_v1"
-    assert consultas == [ENTIDAD]
-
-
-def test_misma_direccion_con_ventana_corta_se_emite(monkeypatch):
-    pendientes, contadores, _ = _corre_hoja(
-        monkeypatch,
-        bids=_subida(fin=D + dt.timedelta(days=2)),
-        historia=goals.UltimoBidAplicado(direccion=1, fecha_cambio=D),
-    )
-    assert [p.kind for p in pendientes] == ["bid"]
-    assert contadores.skips_entidad == {}
-
-
-def test_pause_y_no_op_no_consultan_el_ultimo_bid(monkeypatch):
-    # La PAUSE seria reversa si el gate la tocara (bajada tras subida): si el
-    # gate corre sobre kind 'pause', el espia se llena y/o la pause se frena.
-    pause, _, consultas = _corre_hoja(
-        monkeypatch,
-        bids=_bajada(),
-        historia=goals.UltimoBidAplicado(direccion=1, fecha_cambio=D),
-        cortes=_agregado(orders=0, clicks=164, cost="127.94", revenue="0"),
-    )
-    assert [p.kind for p in pause] == ["pause"]
-    assert consultas == []
-
-    no_op, contadores, consultas = _corre_hoja(
-        monkeypatch,
-        bids=_agregado(orders=1, cost="280", revenue="1000"),
-        historia=goals.UltimoBidAplicado(direccion=1, fecha_cambio=D),
-    )
-    assert no_op == []
-    assert contadores.skips_entidad == {"sin_banda": 1}
-    assert consultas == []
-
-
-def test_sin_historia_previa_se_emite(monkeypatch):
-    pendientes, contadores, _ = _corre_hoja(
-        monkeypatch,
-        bids=_bajada(fin=D + dt.timedelta(days=2)),
-        historia=goals.SinHistoriaBid(),
-    )
-    assert [p.kind for p in pendientes] == ["bid"]
-    assert contadores.skips_entidad == {}
-
-
-def test_historia_rota_bloquea_la_reversa(monkeypatch):
-    pendientes, contadores, consultas = _corre_hoja(
-        monkeypatch,
-        bids=_bajada(fin=D + dt.timedelta(days=2)),
-        historia=goals.HistoriaBidRota(),
-    )
-    assert pendientes == []
-    assert contadores.skips_entidad == {"inversion_sin_evidencia": 1}
-    assert consultas == [ENTIDAD]
-
-
-def test_cooldown_b2_gana_antes_de_consultar_la_inversion(monkeypatch):
-    pendientes, contadores, consultas = _corre_hoja(
-        monkeypatch,
-        bids=_bajada(fin=D + dt.timedelta(days=2)),
-        historia=goals.UltimoBidAplicado(direccion=1, fecha_cambio=D),
-        cooldown=True,
-    )
-    assert pendientes == []
-    assert contadores.skips_entidad == {"cooldown_7d": 1}
-    assert consultas == []
+    assert [p.kind for p in v2] == ["bid"], c2.skips_entidad

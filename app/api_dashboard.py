@@ -250,9 +250,11 @@ MOTIVOS_ES_SALUD: dict[str, str] = {
         "Entidad sin trafico reciente (sin impresiones en 14 dias): sin ajuste"
     ),
     ciclo.MOTIVO_COOLDOWN_7D: "Cooldown 7d: apply verificado reciente",
-    # R-D2-1: texto exacto ordenado por el dueno (decision N=10 de D.2)
+    # R-D2-1: texto del dueno (decision N=10 de D.2) + variante A6-B2:
+    # bajo evidencia_v2 D.2 ya no cuenta dias sino clics post-cambio.
     ciclo.MOTIVO_INVERSION_SIN_EVIDENCIA: (
         "Inversión frenada: el último bid aplicado tiene menos de 10 días de evidencia"
+        " (bandas v1) o menos de 20 clics post-cambio (evidencia v2)"
     ),
     ciclo.MOTIVO_ESCALERA_OFF: "Escalera global off",
     # guardas de plataforma (windows.py; el envelope las persiste como
@@ -820,12 +822,20 @@ def _fila_decision(fila) -> dict:
     if isinstance(frozen_v2, dict):
         veredicto = frozen_v2.get("veredicto") or {}
         motivo_v2 = veredicto.get("motivo")
+        # A6-r1 F1 (DeepSeek): en via=decide con fallback, el veredicto ES
+        # la decision viva v1 (no el resultado de v2): rotularlo "v2:"
+        # mentiria. Se muestra la abstencion v2 real + quien decidio.
+        abstencion = frozen_v2.get("abstencion_v2")
+        fallback = frozen_v2.get("via") == "decide" and abstencion is not None
+        motivo_mostrado = abstencion if fallback else motivo_v2
         evidencia_v2 = {
             "kind": veredicto.get("kind"),
-            "motivo": motivo_v2,
+            "motivo": motivo_mostrado,
             "motivo_es": (
-                MOTIVOS_ES_DECISIONES.get(motivo_v2, MOTIVOS_ES_SALUD.get(motivo_v2, motivo_v2))
-                if motivo_v2 is not None
+                MOTIVOS_ES_DECISIONES.get(
+                    motivo_mostrado, MOTIVOS_ES_SALUD.get(motivo_mostrado, motivo_mostrado)
+                )
+                if motivo_mostrado is not None
                 else None
             ),
             "factor": veredicto.get("factor"),
@@ -833,6 +843,7 @@ def _fila_decision(fila) -> dict:
             "mantiene": (
                 veredicto.get("kind") == fila[5] and veredicto.get("factor") == inputs.get("factor")
             ),
+            "fallback_v1": fallback,
         }
     harvest_job = None
     if fila[15] is not None:
@@ -1476,9 +1487,10 @@ def settings(conn: ConexionLectura) -> dict:
     plataforma el target VIGENTE y su peldano (la MISMA cascada del motor,
     cascada_target_acos_con_procedencia, con el aplicado del margen del
     ultimo ciclo), el target manual, el interruptor del margen (E3: clave
-    presente = encendido) con su fraccion, los caps y el goal de plataforma;
-    `modo_global` de SOLO lectura (E6; ausente -> null, jamas inventado); y
-    los goals con id y, en los de campana, a quien pisan (E4)."""
+    presente = encendido) con su fraccion, el motor de bids (A6: crudo +
+    resuelto), los caps y el goal de plataforma; `modo_global` de SOLO
+    lectura (E6; ausente -> null, jamas inventado); y los goals con id y,
+    en los de campana, a quien pisan (E4)."""
     config_id, settings = _config_vigente_con_id(conn)
     goals = [
         (fila[0], _goal_desde_fila(fila[1:13]), fila[13], fila[14])
@@ -1515,6 +1527,12 @@ def settings(conn: ConexionLectura) -> dict:
                 "confianza_subida": _dec_str(
                     g.confianza_subida_desde_settings(settings, plataforma)
                 ),
+                # A6: interruptor del motor de bids: valor CRUDO (None =
+                # ausente = bandas v1) + resuelto (vive: True = evidencia
+                # v2). Clave corrupta = ValueError y la pagina NO se
+                # muestra, igual que target/fraccion/confianzas.
+                "motor_bid": settings.get(g.clave_bid_politica(plataforma)),
+                "motor_bid_vive": g.motor_evidencia_desde_settings(settings, plataforma),
                 "caps": {kind: _dec_str(cap) for kind, cap in caps.items()},
                 "goal": (_goal_editable(goal_id, goal, plataforma, None, None) if goal else None),
             }

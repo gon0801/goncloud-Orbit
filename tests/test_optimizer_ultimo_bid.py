@@ -57,6 +57,68 @@ def test_permite_reversa_bid_bordes():
     )
 
 
+def test_permite_reversa_bid_bajo_cada_politica():
+    """A6-r2 B2 (D.2 under each policy, pura): bajo bandas_v1 la reversa
+    exige 10 dias (el cpc, si llega, se ignora); bajo evidencia_v2 el
+    check de dias se REEMPLAZA por CPC post-cambio >= 20 clics (5 dias
+    con 25 clics emite; 19 clics, post_cambio False o cpc None
+    bloquean). Misma direccion y sin historia pasan en ambas."""
+    from app.optimizer import evidencia as ev
+
+    abajo = g.UltimoBidAplicado(direccion=-1, fecha_cambio=D)
+    fin5 = D + dt.timedelta(days=5)
+
+    def cpc(clicks, post_cambio=True):
+        return ev.CostoPorClic(
+            cost=Decimal("12.5"), clicks=clicks, desde=D, hasta=fin5, post_cambio=post_cambio
+        )
+
+    # v1 exacto: 5 dias bloquean aunque el cpc sobre; 10 dias emiten.
+    assert not g.permite_reversa_bid(abajo, nueva_direccion=1, fin_ventana_bids=fin5)
+    assert not g.permite_reversa_bid(abajo, nueva_direccion=1, fin_ventana_bids=fin5, cpc=cpc(25))
+    assert g.permite_reversa_bid(
+        abajo, nueva_direccion=1, fin_ventana_bids=D + dt.timedelta(days=10)
+    )
+    # v2: solo manda el cpc post-cambio (los dias se ignoran).
+    assert g.permite_reversa_bid(
+        abajo, nueva_direccion=1, fin_ventana_bids=fin5, motor_evidencia=True, cpc=cpc(25)
+    )
+    assert g.permite_reversa_bid(
+        abajo,
+        nueva_direccion=1,
+        fin_ventana_bids=D + dt.timedelta(days=99),
+        motor_evidencia=True,
+        cpc=cpc(20),
+    )
+    assert not g.permite_reversa_bid(
+        abajo, nueva_direccion=1, fin_ventana_bids=fin5, motor_evidencia=True, cpc=cpc(19)
+    )
+    assert not g.permite_reversa_bid(
+        abajo,
+        nueva_direccion=1,
+        fin_ventana_bids=fin5,
+        motor_evidencia=True,
+        cpc=cpc(25, post_cambio=False),
+    )
+    assert not g.permite_reversa_bid(
+        abajo, nueva_direccion=1, fin_ventana_bids=fin5, motor_evidencia=True, cpc=None
+    )
+    # Atajos intactos en ambas politicas.
+    assert g.permite_reversa_bid(
+        g.SinHistoriaBid(), nueva_direccion=1, fin_ventana_bids=None, motor_evidencia=True
+    )
+    assert g.permite_reversa_bid(
+        abajo, nueva_direccion=-1, fin_ventana_bids=fin5, motor_evidencia=True, cpc=None
+    )
+    assert not g.permite_reversa_bid(
+        g.HistoriaBidRota(),
+        nueva_direccion=1,
+        fin_ventana_bids=fin5,
+        motor_evidencia=True,
+        cpc=cpc(25),
+    )
+
+
 # ---------------------------------------------------------------------------
 # (b) INTEGRACION - ultimo_bid_aplicado contra Postgres real
 # ---------------------------------------------------------------------------

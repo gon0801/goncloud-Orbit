@@ -242,6 +242,44 @@ def _suma_dec(a: Decimal | None, b: Decimal | None) -> Decimal | None:
     return a + b
 
 
+def resta_conteo(acum: Conteo | None, grano: Conteo) -> Conteo | None:
+    """Resta la hoja de UN nivel del roll-up (leave-one-out, A6): la previa
+    de la hoja se pliega SIN su propio grano (cero doble conteo). Espejo
+    de _suma: veneno None-OR por metrica (acum None -> None; metrica None
+    en el grano con acum conocido -> None, fail-closed: imposible en el
+    mismo snapshot porque el veneno baja del grano). Resto negativo ->
+    None por metrica (fail-closed, jamas clamp a 0: el nivel agregado
+    contiene a la hoja, un negativo es dato inconsistente). Resto total
+    cero (la hoja ERA el nivel) -> None: el nivel queda ausente, espejo
+    de enrolla_granos (nivel sin granos no entra al dict) y no aporta al
+    pliegue. Pura, O(1), cero queries."""
+    if acum is None:
+        return None
+    resto = Conteo(
+        clicks=_resta_ent(acum.clicks, grano.clicks),
+        orders=_resta_ent(acum.orders, grano.orders),
+        ad_revenue=_resta_dec(acum.ad_revenue, grano.ad_revenue),
+    )
+    if resto.clicks == 0 and resto.orders == 0 and resto.ad_revenue == 0:
+        return None
+    return resto
+
+
+def _resta_ent(a: int | None, b: int | None) -> int | None:
+    """Resta leave-one-out entera, fail-closed: veneno None se propaga,
+    resto negativo -> None (jamas clamp a 0: inventaria densidad)."""
+    if a is None or b is None:
+        return None
+    return a - b if a >= b else None
+
+
+def _resta_dec(a: Decimal | None, b: Decimal | None) -> Decimal | None:
+    """Resta leave-one-out decimal, fail-closed (espejo de _resta_ent)."""
+    if a is None or b is None:
+        return None
+    return a - b if a >= b else None
+
+
 def previa_jerarquica(
     cadena: list[tuple[Nivel, Conteo | None]],
     *,
@@ -345,23 +383,33 @@ def _cadena_niveles(
     ad_group_id: int | None,
     familia_id: int | None,
     subfamilia_id: int | None,
+    resta: Conteo | None = None,
 ) -> list[tuple[Nivel, Conteo | None]]:
     """Cadena plataforma -> familia -> subfamilia -> ad_group con los
     conteos del roll-up (UNICO constructor: grano y mapeo comparten
-    forma, cero drift entre hoja con y sin historia)."""
+    forma, cero drift entre hoja con y sin historia). Con `resta` (A6,
+    leave-one-out), cada nivel PRESENTE (raiz incluida) viaja menos el
+    grano de la hoja; los niveles con id None siguen None (la resta no
+    inventa niveles)."""
+
+    def _menos(nivel: Conteo | None) -> Conteo | None:
+        if nivel is None or resta is None:
+            return nivel
+        return resta_conteo(nivel, resta)
+
     return [
-        ("plataforma", conv.plataforma),
+        ("plataforma", _menos(conv.plataforma)),
         (
             "familia",
-            conv.por_familia.get(familia_id) if familia_id is not None else None,
+            _menos(conv.por_familia.get(familia_id)) if familia_id is not None else None,
         ),
         (
             "subfamilia",
-            conv.por_subfamilia.get(subfamilia_id) if subfamilia_id is not None else None,
+            _menos(conv.por_subfamilia.get(subfamilia_id)) if subfamilia_id is not None else None,
         ),
         (
             "ad_group",
-            conv.por_ad_group.get(ad_group_id) if ad_group_id is not None else None,
+            _menos(conv.por_ad_group.get(ad_group_id)) if ad_group_id is not None else None,
         ),
     ]
 
@@ -373,11 +421,13 @@ def parciales_evidencia(
 ) -> tuple[Previa | None, Conteo | None, CostoPorClic | None]:
     """Parciales as-measured para (previa, conversion, cpc): cada uno
     nullable por separado (el freeze los congela tal cual y el replay
-    re-deriva con clasifica). Hoja ausente del grano = hoja nueva
-    (conversion None, hereda previa de SUS niveles via mapeo_hoja; sin
-    mapeo = desconocida total, solo plataforma). Funcion TOTAL: el
-    pliegue no divide por cero por construccion (toda division lleva
-    guarda)."""
+    re-deriva con clasifica). Hoja CON grano: la previa se pliega
+    leave-one-out (A6: la cadena viaja menos el grano de la hoja, cero
+    doble conteo). Hoja ausente del grano = hoja nueva (conversion None,
+    hereda previa de SUS niveles via mapeo_hoja SIN resta (no esta en
+    los agregados; sin mapeo = desconocida total, solo plataforma).
+    Funcion TOTAL: el pliegue no divide por cero por construccion (toda
+    division lleva guarda)."""
     grano = conv.por_hoja.get(hoja_id)
     if grano is None:
         return _parciales_hoja_nueva(conv, hoja_id, cpc)
@@ -386,6 +436,7 @@ def parciales_evidencia(
         ad_group_id=grano.ad_group_id,
         familia_id=grano.familia_id,
         subfamilia_id=grano.subfamilia_id,
+        resta=grano.conteo,
     )
     previa = previa_jerarquica(
         cadena, familia_id=grano.familia_id, subfamilia_id=grano.subfamilia_id
