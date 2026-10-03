@@ -662,25 +662,25 @@ class CongeladoCampana:
         }
 
 
-# A7: ULTIMO target live+done POR HOJA (toda la historia) + su campana
-# (cadena hoja -> ad_group -> campana). Una query por plataforma; el
-# colapso a CongeladoCampana es Python puro.
+# A7r2: hojas congeladas en el ULTIMO ciclo live+done de la plataforma
+# (el plan: lo que ese ciclo aplico; una hoja vieja no mete su valor en
+# el rango). Una query por plataforma; el colapso es Python puro.
 _SQL_CONGELADO_CAMPANAS = """
-SELECT DISTINCT ON (t.ad_entity_id)
-       camp.id AS campana_id, t.target_acos_pct, t.procedencia, t.cycle_id, t.decided_at
+SELECT camp.id AS campana_id, t.target_acos_pct, t.procedencia, t.cycle_id, t.decided_at
   FROM target_acos_ciclo t
   JOIN optimizer_cycle c ON c.id = t.cycle_id
   JOIN ad_entity k ON k.id = t.ad_entity_id
   JOIN ad_entity ag ON ag.id = k.parent_id AND ag.kind = 'ad_group'
   JOIN ad_entity camp ON camp.id = ag.parent_id AND camp.kind = 'campaign'
  WHERE c.platform = %s::platform AND c.mode = 'live' AND c.status = 'done'
- ORDER BY t.ad_entity_id, c.id DESC
+   AND c.id = (SELECT max(c2.id) FROM optimizer_cycle c2
+                WHERE c2.platform = c.platform AND c2.mode = 'live' AND c2.status = 'done')
 """
 
 
 def _congelados_por_campana(conn, plataforma: str) -> dict[int, CongeladoCampana]:
-    """Congelado por campana (A7): ULTIMO live+done por hoja colapsado en
-    Python. Hoja sin fila o campana sin hojas congeladas -> ausente (el
+    """Congelado por campana (A7r2): hojas del ULTIMO ciclo live+done
+    colapsadas en Python. Campana sin hojas en ese ciclo -> ausente (el
     endpoint publica null-honesto, regla 3)."""
     por_campana: dict[int, list] = {}
     for fila in conn.execute(_SQL_CONGELADO_CAMPANAS, (plataforma,)).fetchall():
