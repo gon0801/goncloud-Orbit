@@ -48,16 +48,17 @@ MotivoIndeterminado = Literal[
 ]
 MotivoNoAplica = Literal["asin_like"]
 
-# ASIN: 10 alfanumericos con al menos una letra y un digito. Un termino
-# puramente numerico no es ASIN-like (queda en el clasificador de texto).
-_ASIN_RE = re.compile(r"(?=.*[A-Z])(?=.*[0-9])[A-Z0-9]{10}")
+# ASIN-like: misma regla que fabrica_plan.PATRON_ASIN y el sellado
+# is_asin_like de search_term_observation (10 alfanumericos empezando en b0,
+# sin distinguir mayusculas). La equivalencia queda fijada por test.
+_ASIN_RE = re.compile(r"b0[a-z0-9]{8}", re.IGNORECASE)
 
 
 def es_asin_like(termino: str) -> bool:
     """True si el termino parece un ASIN. ASIN-like queda FUERA del
     clasificador de texto (contrato del plan); el llamador construye
     NoAplicaTexto con ese par."""
-    return _ASIN_RE.fullmatch(termino.strip().upper()) is not None
+    return _ASIN_RE.fullmatch(termino.strip()) is not None
 
 
 @dataclass(frozen=True)

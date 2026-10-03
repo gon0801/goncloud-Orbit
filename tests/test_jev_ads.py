@@ -182,6 +182,14 @@ def test_asin_like_no_entra_al_clasificador():
     assert componer(censo, pares) == Indeterminado(frozenset({"texto_no_aplica", "juicio_ausente"}))
 
 
+def test_regla_asin_like_coincide_con_fabrica_plan():
+    from app.fabrica_plan import PATRON_ASIN
+
+    muestras = ("B0CX4ABCD9", "b0cx4abcd9", "soporte para mesa", "1234567890", "ABCDEFGHIJ")
+    for muestra in muestras:
+        assert es_asin_like(muestra) == bool(PATRON_ASIN.match(muestra)), muestra
+
+
 # ---------------------------------------------------------------------------
 # Estructural y pureza
 # ---------------------------------------------------------------------------
