@@ -2654,7 +2654,7 @@ SQL49 = (Path(__file__).resolve().parent.parent / "migrations" / "0049_jev_ads.s
 )
 
 
-def _ficha_jev(conn, producto: int, listing: int) -> object:
+def _ficha_jev(conn, producto: int, listing: int, sha: str = "f" * 64) -> object:
     import uuid as _uuid
 
     ficha_id = _uuid.uuid4()
@@ -2668,7 +2668,7 @@ def _ficha_jev(conn, producto: int, listing: int) -> object:
             producto,
             listing,
             json.dumps([{"texto": "hecho", "fuente": "fuente"}]),
-            "f" * 64,
+            sha,
             AHORA,
             AHORA + _DIA * 120,
         ),
@@ -2983,6 +2983,202 @@ def test_asesoria_lee_solo_eventos_de_su_revision(monkeypatch):
         assert "fallo_proveedor" in vista_1.resultados[0][1].motivos
 
 
+def _fallo_jev(codigo: str = "timeout", detalle: str = "se agoto la espera"):
+    from app.jev_juicios import FalloPar
+
+    return FalloPar(codigo=codigo, detalle=detalle, duracion_ms=12)
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
+def test_asesoria_muestra_el_exito_de_la_reanudacion(monkeypatch):
+    """Regresion VEREDICTO-B4-r1 B1: una reanudacion de la MISMA revision
+    reintenta el par fallido (1.4: intencion y resultado con ordinal nuevo).
+    leer() y /cortes deben reproducir lo que evaluar compuso (el exito del
+    reintento), no quedarse con el fallo del primer intento."""
+    import uuid as _uuid
+
+    from app.jev_ads import AsesorAds, DecisionARevisar, HayCompatible
+
+    with _db_temporal("orbit_dash_jevb4r2") as (conn, dsn):
+        conn.execute(SQL02)
+        conn.execute(SQL49)
+        _siembra_cortes_ui01(conn)
+        p1 = conn.execute(
+            "INSERT INTO product (odoo_sku, name) VALUES ('S-1', 'S-1') RETURNING id"
+        ).fetchone()[0]
+        l1 = conn.execute(
+            "INSERT INTO listing (product_id, platform, external_id)"
+            " VALUES (%s, 'amazon_us', 'B0JEV00001') RETURNING id",
+            (p1,),
+        ).fetchone()[0]
+        grupo = conn.execute("SELECT id FROM ad_entity WHERE external_id = '9101'").fetchone()[0]
+        conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id, parent_id, listing_id)"
+            " VALUES ('amazon_us', 'product_ad', 'jev-ad-1', %s, %s)",
+            (grupo, l1),
+        )
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+            " VALUES ((SELECT id FROM ad_entity WHERE external_id = 'jev-ad-1'),"
+            " 'ENABLED', now())"
+        )
+        ficha_id = _ficha_jev(conn, p1, l1)
+        censo = _censo_jev(conn, "amazon_us", grupo, {p1: ficha_id})
+        dec_neg = conn.execute(
+            "SELECT id FROM decision WHERE kind = 'negative' LIMIT 1"
+        ).fetchone()[0]
+        solicitud = _uuid.uuid4()
+        sujeto = DecisionARevisar(dec_neg, "tenis blancos", censo, "amazon_us", AHORA)
+        # Intento 1: fallo del proveedor, visible sin clave (cero HTTP).
+        AsesorAds(conn, api_key="", presupuesto=5, ahora=lambda: AHORA).evaluar(
+            sujeto, solicitud_id=solicitud
+        )
+        # Reanudacion de la MISMA revision: el fallo no se reutiliza y el
+        # reintento resuelve con exito (ordinal nuevo).
+        AsesorAds(
+            conn,
+            pedir=lambda termino, ficha: _juicio_falso(termino, ficha, "satisface"),
+            api_key="k",
+            presupuesto=5,
+            ahora=lambda: AHORA,
+        ).evaluar(sujeto, solicitud_id=solicitud)
+        # El par quedo en ESA revision: fallo (ordinal 1) y exito (ordinal 2).
+        eventos = conn.execute(
+            "SELECT respuesta IS NOT NULL FROM jev_par_evento"
+            " WHERE revision_id = %s AND tipo = 'resultado' ORDER BY ordinal",
+            (solicitud,),
+        ).fetchall()
+        assert [fila[0] for fila in eventos] == [False, True]
+        # leer() reproduce lo que evaluar compuso: el exito del reintento.
+        vista = AsesorAds(conn).leer([dec_neg], ahora=AHORA + _DIA)[dec_neg]
+        assert isinstance(vista.resultados[0][1], HayCompatible), vista.resultados[0][1]
+        # Y /cortes lo muestra igual, sin una sola llamada externa.
+        monkeypatch.setattr(
+            "app.jev_juicios.transporte_httpx",
+            lambda *a, **kw: (_ for _ in ()).throw(
+                AssertionError("el GET de cortes no llama a TypeSafe")
+            ),
+        )
+        resp = _cliente(dsn, monkeypatch).get("/api/dashboard/cortes")
+        assert resp.status_code == 200, resp.text
+        item = {i["decision_id"]: i for i in resp.json()["items"]}[dec_neg]
+        assert item["asesoria"]["resultados"][0]["resultado"]["tipo"] == "hay_compatible"
+
+
+@pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres local")
+def test_cortes_asesoria_origen_y_destino_por_separado(monkeypatch):
+    """DoD 2.1 (origen/destino): para harvest, el termino se compone POR
+    SEPARADO contra el censo del origen y contra el censo del destino
+    congelado. La UI muestra cada ambito con su propio veredicto: mismo
+    termino, resultados distintos, sin mezclar universos."""
+    import uuid as _uuid
+
+    from app.jev_ads import AsesorAds, DecisionARevisar, HayCompatible, Indeterminado
+
+    with _db_temporal("orbit_dash_jevod") as (conn, dsn):
+        conn.execute(SQL02)
+        conn.execute(SQL49)
+        _siembra_cortes_ui01(conn)
+        # Origen: grupo 9101 con P1 (ya sembrado por los tests Jev).
+        p1 = conn.execute(
+            "INSERT INTO product (odoo_sku, name) VALUES ('S-1', 'S-1') RETURNING id"
+        ).fetchone()[0]
+        l1 = conn.execute(
+            "INSERT INTO listing (product_id, platform, external_id)"
+            " VALUES (%s, 'amazon_us', 'B0JEV00001') RETURNING id",
+            (p1,),
+        ).fetchone()[0]
+        grupo_origen = conn.execute(
+            "SELECT id FROM ad_entity WHERE external_id = '9101'"
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id, parent_id, listing_id)"
+            " VALUES ('amazon_us', 'product_ad', 'jev-ad-1', %s, %s)",
+            (grupo_origen, l1),
+        )
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+            " VALUES ((SELECT id FROM ad_entity WHERE external_id = 'jev-ad-1'),"
+            " 'ENABLED', now())"
+        )
+        ficha_origen = _ficha_jev(conn, p1, l1)
+        # Destino: grupo PROPIO (9301, campana 9002) con P2 y su ficha.
+        camp_destino = _campana(conn, "amazon_us", "9002", name="Campana destino")
+        grupo_destino = _grupo(conn, "amazon_us", "9301", camp_destino)
+        p2 = conn.execute(
+            "INSERT INTO product (odoo_sku, name) VALUES ('S-2', 'S-2') RETURNING id"
+        ).fetchone()[0]
+        l2 = conn.execute(
+            "INSERT INTO listing (product_id, platform, external_id)"
+            " VALUES (%s, 'amazon_us', 'B0JEV00002') RETURNING id",
+            (p2,),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO ad_entity (platform, kind, external_id, parent_id, listing_id)"
+            " VALUES ('amazon_us', 'product_ad', 'jev-ad-2', %s, %s)",
+            (grupo_destino, l2),
+        )
+        conn.execute(
+            "INSERT INTO ad_entity_state (ad_entity_id, status, synced_at)"
+            " VALUES ((SELECT id FROM ad_entity WHERE external_id = 'jev-ad-2'),"
+            " 'ENABLED', now())"
+        )
+        ficha_destino = _ficha_jev(conn, p2, l2, sha="e" * 64)
+        censo_origen = _censo_jev(conn, "amazon_us", grupo_origen, {p1: ficha_origen})
+        censo_destino = _censo_jev(conn, "amazon_us", grupo_destino, {p2: ficha_destino})
+        dec_harv = conn.execute(
+            "SELECT id FROM decision WHERE kind = 'harvest' AND inputs ? 'termino' LIMIT 1"
+        ).fetchone()[0]
+
+        def pedir(termino, ficha):
+            relacion = "satisface" if ficha.id == ficha_destino else "no_satisface"
+            return _juicio_falso(termino, ficha, relacion)
+
+        asesor = AsesorAds(conn, pedir=pedir, api_key="k", presupuesto=5, ahora=lambda: AHORA)
+        revision = asesor.evaluar(
+            DecisionARevisar(
+                decision_id=dec_harv,
+                termino="arras para boda cristiana",
+                censo=censo_origen,
+                plataforma="amazon_us",
+                decided_at=AHORA,
+                destino_censo=censo_destino,
+            ),
+            solicitud_id=_uuid.uuid4(),
+        )
+        # En la revision ya vienen los dos ambitos, compuestos por separado.
+        _, resultado_origen = revision.resultados[0]
+        _, resultado_destino = revision.destinos[0]
+        assert isinstance(resultado_origen, Indeterminado), resultado_origen
+        assert isinstance(resultado_destino, HayCompatible), resultado_destino
+        assert resultado_destino.producto_ids == (p2,)
+        conteos_antes = _conteos_jev(conn)
+        # El GET muestra cada ambito con su veredicto, sin HTTP ni escritura.
+        monkeypatch.setattr(
+            "app.jev_juicios.transporte_httpx",
+            lambda *a, **kw: (_ for _ in ()).throw(
+                AssertionError("el GET de cortes no llama a TypeSafe")
+            ),
+        )
+        resp = _cliente(dsn, monkeypatch).get("/api/dashboard/cortes")
+        assert resp.status_code == 200, resp.text
+        item = {i["decision_id"]: i for i in resp.json()["items"]}[dec_harv]
+        asesoria = item["asesoria"]
+        assert asesoria is not None
+        origen = asesoria["resultados"][0]
+        destino = asesoria["destinos"][0]
+        assert origen["resultado"]["tipo"] == "indeterminado"
+        assert "universo_desconocido" in origen["resultado"]["motivos"]
+        assert destino["resultado"]["tipo"] == "hay_compatible"
+        assert destino["resultado"]["producto_ids"] == [p2]
+        assert destino["resultado"]["miembros_totales"] == 1
+        assert asesoria["vigencia"] == "vigente"
+        # El veto sigue visible (regla de las 48 horas, asesoria no lo detiene).
+        assert item["vence_el"] and item["estado"]
+        # Cero INSERT/UPDATE en las tablas Jev durante el GET.
+        assert _conteos_jev(conn) == conteos_antes
+
+
 def test_cortes_plantilla_asesoria_sin_error_economico_y_veto_visible():
     from app import ui
 
@@ -2992,6 +3188,10 @@ def test_cortes_plantilla_asesoria_sin_error_economico_y_veto_visible():
     assert "compatible" in html
     assert "cobertura" in html
     assert "revisado con catalogo del" in html
+    # DoD 2.1: la asesoria distingue el ambito de cada veredicto.
+    assert "origen" in html
+    assert "destino" in html
+    assert "sin compatibilidad" in html
     # Relevancia compatible jamas se presenta como error economico: la
     # palabra "error" no aparece en el HTML renderizado de esta pantalla.
     assert "error" not in html.lower()
@@ -3036,6 +3236,15 @@ def _ctx_cortes_local():
                                 "producto_ids": [7],
                                 "miembros_con_juicio": 1,
                                 "miembros_totales": 1,
+                            },
+                        }
+                    ],
+                    "destinos": [
+                        {
+                            "termino": "tenis blancos",
+                            "resultado": {
+                                "tipo": "ninguno_compatible",
+                                "miembros_totales": 3,
                             },
                         }
                     ],

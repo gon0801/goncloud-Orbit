@@ -331,13 +331,17 @@ def componer(censo: CensoCongelado, pares: tuple[EstadoPar, ...]) -> RelevanciaC
 
 @dataclass(frozen=True)
 class DecisionARevisar:
-    """Decision guardada + termino + censo congelados (leerla es de 2.1)."""
+    """Decision guardada + termino + censo congelados (leerla es de 2.1).
+    Para harvest, `destino_censo` congela el universo del DESTINO y se
+    compone por separado del origen (`censo`): la UI muestra ambos ambitos
+    sin mezclar universos ni heredar conclusiones entre ellos."""
 
     decision_id: int
     termino: str
     censo: CensoCongelado
     plataforma: PlataformaAmazon
     decided_at: datetime | None = None
+    destino_censo: CensoCongelado | None = None
 
 
 @dataclass(frozen=True)
@@ -358,11 +362,14 @@ Sujeto = DecisionARevisar | SemillasARevisar
 
 @dataclass(frozen=True)
 class Revision:
-    """Salida de evaluar; presupuesto_agotado = lote retomable (misma solicitud)."""
+    """Salida de evaluar; presupuesto_agotado = lote retomable (misma
+    solicitud). `destinos` trae la composicion del censo destino (harvest),
+    un resultado por termino; vacia cuando el sujeto no lleva destino."""
 
     solicitud: UUID
     resultados: tuple[tuple[str, RelevanciaConjunto], ...]
     presupuesto_agotado: bool
+    destinos: tuple[tuple[str, RelevanciaConjunto], ...] = ()
 
 
 def _censo_a_json(censo: CensoCongelado) -> dict:
@@ -454,23 +461,30 @@ class AsesorAds:
 
         ahora = self._ahora()
         censo, fichas = self._enriquecer(sujeto.censo, sujeto.plataforma, ahora)
+        destino = None
+        if isinstance(sujeto, DecisionARevisar) and sujeto.destino_censo is not None:
+            destino, fichas_destino = self._enriquecer(
+                sujeto.destino_censo, sujeto.plataforma, ahora
+            )
+            fichas = {**fichas, **fichas_destino}
         terminos = (sujeto.termino,) if isinstance(sujeto, DecisionARevisar) else sujeto.terminos
         contexto = {
             "censo": _censo_a_json(censo),
             "plataforma": sujeto.plataforma,
             "terminos": list(terminos),
         }
-        self._abrir_revision(sujeto, solicitud_id, contexto, censo, ahora)
+        if destino is not None:
+            contexto["destino"] = _censo_a_json(destino)
+        self._abrir_revision(sujeto, solicitud_id, contexto, censo, destino, ahora)
         resultados = []
+        destinos: list[tuple[str, RelevanciaConjunto]] = []
         http_hechos = 0
         agotado = False
-        for termino in terminos:
+
+        def pares_de(un_censo: CensoCongelado, termino: str) -> list[EstadoPar]:
+            nonlocal http_hechos, agotado
             pares: list[EstadoPar] = []
-            if es_asin_like(termino):
-                pares.append(NoAplicaTexto(motivo="asin_like"))
-                resultados.append((termino, componer(censo, tuple(pares))))
-                continue
-            for miembro in censo.miembros:
+            for miembro in un_censo.miembros:
                 if _solo_no_activo(miembro.estados):
                     continue  # no anunciado (ARCHIVED): no paga intencion ni HTTP
                 ficha = fichas.get(miembro.ficha_version_id) if miembro.ficha_version_id else None
@@ -495,8 +509,19 @@ class AsesorAds:
                 http_hechos += 1
                 devuelto = self._pedir(termino, ficha)
                 pares.append(self._resultado(solicitud_id, clave, intencion_id, devuelto, miembro))
-            resultados.append((termino, componer(censo, tuple(pares))))
-        return Revision(solicitud_id, tuple(resultados), agotado)
+            return pares
+
+        for termino in terminos:
+            if es_asin_like(termino):
+                sin_texto = (NoAplicaTexto(motivo="asin_like"),)
+                resultados.append((termino, componer(censo, sin_texto)))
+                if destino is not None:
+                    destinos.append((termino, componer(destino, sin_texto)))
+                continue
+            resultados.append((termino, componer(censo, tuple(pares_de(censo, termino)))))
+            if destino is not None:
+                destinos.append((termino, componer(destino, tuple(pares_de(destino, termino)))))
+        return Revision(solicitud_id, tuple(resultados), agotado, tuple(destinos))
 
     # internos (confirmaciones = los tres puntos del orden sellado)
 
@@ -524,7 +549,7 @@ class AsesorAds:
             miembros.append(miembro)
         return CensoCongelado(miembros=tuple(miembros), exhaustivo=censo.exhaustivo), fichas
 
-    def _abrir_revision(self, sujeto, solicitud_id, contexto, censo, ahora):
+    def _abrir_revision(self, sujeto, solicitud_id, contexto, censo, destino, ahora):
         """Revision ANTES del primer HTTP; otro payload con la misma solicitud -> ValueError."""
         contrato_json = {
             "modelo": self._contrato.modelo,
@@ -532,7 +557,8 @@ class AsesorAds:
             "sha256": self._contrato.sha256(),
             "version": self._contrato.version,
         }
-        fichas_ids = sorted(str(m.ficha_version_id) for m in censo.miembros if m.ficha_version_id)
+        miembros = (*censo.miembros, *(destino.miembros if destino is not None else ()))
+        fichas_ids = sorted({str(m.ficha_version_id) for m in miembros if m.ficha_version_id})
         if isinstance(sujeto, DecisionARevisar):
             columnas = ("decision_id", "decided_at")
             valores: dict = {"decision_id": sujeto.decision_id, "decided_at": sujeto.decided_at}
@@ -712,6 +738,7 @@ class AsesorAds:
         fila = _fila_dict(fila, _COLUMNAS_REVISION)
         contexto = fila["censos"]
         censo = _censo_de_json(contexto["censo"])
+        destino = _censo_de_json(contexto["destino"]) if "destino" in contexto else None
         terminos = list(contexto["terminos"])
         ids_fichas = [
             x if isinstance(x, UUID) else UUID(x) for x in fila["ficha_version_ids"] or []
@@ -787,43 +814,43 @@ class AsesorAds:
                 (fila["solicitud"],),
             ).fetchall()
         ]
+
+        def composicion_de(un_censo: CensoCongelado, termino: str, hash_termino: str):
+            """Reconstruccion HISTORICA del ambito: mismos eventos, un
+            universo propio (origen o destino jamas mezclados)."""
+            if es_asin_like(termino):
+                return componer(un_censo, (NoAplicaTexto(motivo="asin_like"),))
+            pares: list[EstadoPar] = []
+            for miembro in un_censo.miembros:
+                if miembro.ficha_version_id is None:
+                    pares.append(FichaFaltante(producto_id=miembro.producto_id))
+                    continue
+                propio = _evento_del_par(eventos, hash_termino, miembro.ficha_version_id)
+                if propio is None:
+                    continue
+                clave = ClavePar(
+                    termino_literal_sha256=hash_termino,
+                    ficha_version_id=miembro.ficha_version_id,
+                    contrato_sha256=propio["contrato_sha256"],
+                )
+                if propio["respuesta"] is not None:
+                    pares.append(_juicio_de_respuesta(propio["respuesta"], clave, propio["id"]))
+                else:
+                    pares.append(
+                        FalloProveedor(
+                            producto_id=miembro.producto_id,
+                            motivo=str(propio["error"] or "fallo del proveedor"),
+                        )
+                    )
+            return componer(un_censo, tuple(pares))
+
         resultados = []
+        destinos = []
         for termino in terminos:
             hash_termino = hashlib.sha256(termino.encode("utf-8")).hexdigest()
-            if es_asin_like(termino):
-                pares: list[EstadoPar] = [NoAplicaTexto(motivo="asin_like")]
-            else:
-                pares = []
-                for miembro in censo.miembros:
-                    if miembro.ficha_version_id is None:
-                        pares.append(FichaFaltante(producto_id=miembro.producto_id))
-                        continue
-                    propio = next(
-                        (
-                            e
-                            for e in eventos
-                            if e["termino_sha256"] == hash_termino
-                            and e["ficha_version_id"] == miembro.ficha_version_id
-                        ),
-                        None,
-                    )
-                    if propio is None:
-                        continue
-                    clave = ClavePar(
-                        termino_literal_sha256=hash_termino,
-                        ficha_version_id=miembro.ficha_version_id,
-                        contrato_sha256=propio["contrato_sha256"],
-                    )
-                    if propio["respuesta"] is not None:
-                        pares.append(_juicio_de_respuesta(propio["respuesta"], clave, propio["id"]))
-                    else:
-                        pares.append(
-                            FalloProveedor(
-                                producto_id=miembro.producto_id,
-                                motivo=str(propio["error"] or "fallo del proveedor"),
-                            )
-                        )
-            resultados.append((termino, componer(censo, tuple(pares))))
+            resultados.append((termino, composicion_de(censo, termino, hash_termino)))
+            if destino is not None:
+                destinos.append((termino, composicion_de(destino, termino, hash_termino)))
 
         return VistaAsesoria(
             solicitud=fila["solicitud"],
@@ -835,6 +862,7 @@ class AsesorAds:
             fichas=tuple(fichas),
             fuentes_semillas=fila["fuentes_semillas"],
             vigencia=vigencia,
+            destinos=tuple(destinos),
         )
 
     def leer(self, referencias, *, ahora: datetime) -> dict:
@@ -884,6 +912,7 @@ class VistaAsesoria:
     fichas: tuple[FichaVersion, ...]
     fuentes_semillas: Mapping[str, object] | None
     vigencia: Vigencia
+    destinos: tuple[tuple[str, RelevanciaConjunto], ...] = ()
 
     def como_dict(self) -> dict:
         nivel = {Vigente: "vigente", Obsoleta: "obsoleta", NoComprobable: "no_comprobable"}
@@ -901,6 +930,10 @@ class VistaAsesoria:
             "resultados": [
                 {"termino": termino, "resultado": _relevancia_a_dict(resultado)}
                 for termino, resultado in self.resultados
+            ],
+            "destinos": [
+                {"termino": termino, "resultado": _relevancia_a_dict(resultado)}
+                for termino, resultado in self.destinos
             ],
             "fichas": [
                 {
@@ -943,6 +976,24 @@ _COLUMNAS_REVISION = (
 def _fila_dict(fila, columnas) -> dict:
     """Normaliza fila psycopg (dict_row o tuple) a dict por columnas."""
     return fila if isinstance(fila, dict) else dict(zip(columnas, fila, strict=True))
+
+
+def _evento_del_par(eventos: list[dict], hash_termino: str, ficha_id: UUID) -> dict | None:
+    """El resultado del par que la vista debe mostrar: el ULTIMO exito
+    validado si existe; si no, el ULTIMO resultado. Es la misma regla con la
+    que evaluar reutiliza y compone: una reanudacion de la MISMA revision
+    reintenta un par fallido con ordinal nuevo y la vista no puede quedarse
+    con el fallo del primer intento. Los eventos de reutilizacion enlazan a
+    un resultado de la misma revision (reutiliza_id), que es el que aqui
+    se resuelve."""
+    ultimo = None
+    ultimo_exito = None
+    for evento in eventos:
+        if evento["termino_sha256"] == hash_termino and evento["ficha_version_id"] == ficha_id:
+            ultimo = evento
+            if evento["respuesta"] is not None:
+                ultimo_exito = evento
+    return ultimo_exito if ultimo_exito is not None else ultimo
 
 
 def _censo_de_json(datos: dict) -> CensoCongelado:
