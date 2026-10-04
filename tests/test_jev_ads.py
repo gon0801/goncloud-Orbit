@@ -251,6 +251,22 @@ def test_estado_ausente_bloquea_negativo_universal_y_no_el_compatible():
     )
 
 
+def test_plan_sin_anuncios_con_todo_no_satisface_da_ninguno_compatible():
+    """Regresion VEREDICTO-B2-r2 (B3): el universo explicito del plan de
+    fabrica puede tener miembros sin anuncios todavia (anuncio_ids vacio).
+    Sin anuncios no hay estado que falte: missing_state no aplica y el
+    negativo universal, con fichas y no_satisface en cada par, si llega."""
+    plan = CensoCongelado(
+        miembros=(
+            _miembro(11, F1, anuncios=(), listings=frozenset({1}), estados=()),
+            _miembro(12, F2, anuncios=(), listings=frozenset({2}), estados=()),
+        ),
+        exhaustivo=True,
+    )
+    pares = (_juicio(F1, "no_satisface"), _juicio(F2, "no_satisface"))
+    assert componer(plan, pares) == NingunoCompatible(miembros_totales=2)
+
+
 def test_anuncio_mixto_archived_y_activo_cuenta_como_anunciado():
     censo = CensoCongelado(
         miembros=(

@@ -240,8 +240,15 @@ def _solo_no_activo(estados: tuple[EstadoAnuncio, ...]) -> bool:
     )
 
 
-def _con_estado_ausente(estados: tuple[EstadoAnuncio, ...]) -> bool:
-    return not estados or any(estado.status is None for estado in estados)
+def _con_estado_ausente(miembro: MiembroCenso) -> bool:
+    """missing_state SOLO para miembros CON anuncios cuyo estado falta: un
+    miembro sin anuncios (plan de fabrica, anuncio_ids vacio) no tiene
+    estado que falte y tampoco es no_anunciado."""
+    if not miembro.anuncio_ids:
+        return False
+    if not miembro.estados:
+        return True
+    return any(estado.status is None for estado in miembro.estados)
 
 
 def _universo_anunciado(
@@ -276,7 +283,9 @@ def componer(censo: CensoCongelado, pares: tuple[EstadoPar, ...]) -> RelevanciaC
     como anunciado: se excluye del universo (motivo `no_anunciado`) y su
     juicio no acredita compatibilidad. El estado ausente NO excluye: se
     conserva como incidencia `missing_state` que impide el negativo
-    universal. La cobertura viaja sobre el universo anunciado.
+    universal; un miembro SIN anuncios (plan de fabrica con conjunto
+    explicito) no tiene estado que falte y no aporta esa incidencia. La
+    cobertura viaja sobre el universo anunciado.
 
     Un censo con la misma ficha en dos miembros, un miembro con ficha y sin
     producto, o `estados` no paralelo a `anuncio_ids` es error estructural
@@ -302,7 +311,7 @@ def componer(censo: CensoCongelado, pares: tuple[EstadoPar, ...]) -> RelevanciaC
             motivos.add("no_anunciado")
         if not censo.exhaustivo:
             motivos.add("universo_desconocido")
-    if any(_con_estado_ausente(miembro.estados) for miembro in universo):
+    if any(_con_estado_ausente(miembro) for miembro in universo):
         motivos.add("missing_state")
     if any(miembro.ficha_version_id is None for miembro in universo):
         motivos.add("ficha_ausente")
