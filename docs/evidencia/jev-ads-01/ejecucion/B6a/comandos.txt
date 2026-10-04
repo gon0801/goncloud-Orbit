@@ -1,0 +1,29 @@
+# Secuencia completa de B6a-r1 (directorio de trabajo: raiz del repo, rama ci/quality-concurrencia-por-evento, base 58d1ea43c6bcd5524a78226764edbdb0f4c790b4)
+
+## 1. ROJO (workflow sin arreglo)
+uv run --frozen python -m pytest tests/test_precommit_hooks.py::test_concurrencia_de_ci_distingue_evento_y_gate_sigue_fail_closed -q
+# -> 1 failed (assert github.event_name in grupo); salida en rojo-antes.txt
+
+## 2. Arreglo en .github/workflows/quality.yml
+# group: quality-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+
+## 3. VERDE
+uv run --frozen python -m pytest tests/test_precommit_hooks.py::test_concurrencia_de_ci_distingue_evento_y_gate_sigue_fail_closed -q
+# -> 1 passed; salida en verde-despues.txt
+
+## 4. Mutante (quitar github.event_name del grupo)
+cp .github/workflows/quality.yml $TMP/quality.yml.bak
+sed -i '' 's|group: quality-${{ github.event_name }}-${{ github.event.pull_request.number \|\| github.ref }}|group: quality-${{ github.event.pull_request.number \|\| github.ref }}|' .github/workflows/quality.yml
+uv run --frozen python -m pytest tests/test_precommit_hooks.py::test_concurrencia_de_ci_distingue_evento_y_gate_sigue_fail_closed -q
+cp $TMP/quality.yml.bak .github/workflows/quality.yml  # restauracion
+# -> 1 failed (mutante caza); salida en mutante-rojo.txt; grep de group tras restaurar:
+#   38:  group: quality-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+
+## 5. Bateria focalizada del modulo + Ruff
+ruff check tests/test_precommit_hooks.py && ruff format --check tests/test_precommit_hooks.py
+uv run --frozen python -m pytest tests/test_precommit_hooks.py -q
+# -> All checks passed! / 1 file already formatted / 9 passed in 0.15s
+
+## 6. pre-commit
+pre-commit run --all-files
+# -> 9 hooks Passed; salida en precommit.txt
