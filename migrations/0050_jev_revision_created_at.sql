@@ -42,8 +42,9 @@ $$;
 
 COMMENT ON COLUMN jev_revision.created_at IS
   'Insercion real de la revision: el trigger jev_revision_tiempos la fija '
-  'con clock_timestamp() e ignora un valor explicito (0050). decided_at y '
-  'captured_at nunca son posteriores.';
+  'con clock_timestamp() e ignora un valor explicito (0050). En filas '
+  'insertadas desde 0050, decided_at y captured_at nunca son posteriores; '
+  '0049 y 0050 se despliegan juntas, sin filas entre ambas.';
 
 COMMENT ON TABLE jev_ficha_version IS
   'JEV ADS 01: ficha de producto aprobada POR VERSION. La unidad de juicio '

@@ -680,10 +680,11 @@ def test_created_at_es_la_insercion_real_y_nunca_precede_a_otros_tiempos():
             captured_at="2026-10-03 11:59:00+00",
             decided_at="2026-10-03 11:00:00+00",
         )
+        despues = conn.execute("SELECT clock_timestamp()").fetchone()[0]
         creado = conn.execute(
             "SELECT created_at FROM jev_revision WHERE solicitud = %s", (falseada,)
         ).fetchone()[0]
-        assert creado >= antes
+        assert antes <= creado <= despues
         futuro = (datetime.now(UTC) + timedelta(days=1)).isoformat()
         with pytest.raises(psycopg.errors.CheckViolation):
             _revision(conn, captured_at=futuro)
