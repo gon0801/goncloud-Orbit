@@ -16,7 +16,6 @@ Reglas que fijan (docs/superpowers/specs/2026-10-03-jev-ads-design.md,
 from __future__ import annotations
 
 import ast
-import sys
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -383,14 +382,12 @@ def _candidatos_import(nodo: ast.Import | ast.ImportFrom) -> set[str]:
 
 
 def _violacion_import(nombre: str, permitidos: set[str]) -> bool:
-    """Un nombre esta vedado si cae en la lista negra o si NO es stdlib puro
-    ni esta concedido (mismo criterio para top-level y anidados, B5-r3)."""
+    """Un nombre esta vedado si cae en la lista negra o si NO esta concedido
+    en `permitidos` (lista blanca estricta, mismo criterio para top-level y
+    anidados, B5-r3; un stdlib de IO como sqlite3 NO pasa por ser stdlib)."""
     if any(nombre == p or nombre.startswith(p + ".") for p in _PROHIBIDOS_MODULOS_PUROS):
         return True
-    return not (
-        nombre.split(".")[0] in sys.stdlib_module_names
-        or any(nombre == p or nombre.startswith(p.rstrip(".") + ".") for p in permitidos)
-    )
+    return not any(nombre == p or nombre.startswith(p.rstrip(".") + ".") for p in permitidos)
 
 
 def _fugas_pureza(codigo: str) -> list[tuple[str, str]]:
@@ -457,9 +454,18 @@ def test_guarda_pureza_caza_relativo_anidado():
 def test_guarda_pureza_caza_import_en_try_de_modulo():
     """B5-r3 mutante (b): un `try: import boto3` a nivel de modulo no
     escapa a la guarda: el cuerpo del Try sigue siendo alcance de modulo y
-    boto3 no es stdlib ni esta concedido."""
+    boto3 no esta concedido en permitidos."""
     codigo = "import json\ntry:\n    import boto3\nexcept ImportError:\n    boto3 = None\n"
     assert any(hallazgo == "boto3" for _, hallazgo in _fugas_pureza(codigo))
+
+
+def test_guarda_pureza_permitidos_sigue_siendo_lista_blanca():
+    """B5-r3 ronda 2 (delta kimi): `permitidos` sigue siendo lista blanca
+    estricta en alcance de modulo: un stdlib de IO como `sqlite3` o
+    `subprocess` (que la version de 8372f5aa rechazaba) no pasa por el solo
+    hecho de ser stdlib."""
+    codigo = "import sqlite3\nimport subprocess\nimport os\n"
+    assert _fugas_pureza(codigo) != []
 
 
 def test_guarda_pureza_deja_pasar_permitido_anidado():
