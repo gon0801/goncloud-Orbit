@@ -1423,3 +1423,7 @@ def test_cli_evaluar_plan_calcula_el_export_y_la_asesoria_queda_por_huella(escen
     revisiones = conn.execute("SELECT count(*) FROM jev_revision").fetchone()[0]
     assert cli_jev([*argv[:3], "--solicitud", str(_uuid.uuid4()), "--aplicar"], pedir=pedir) == 2
     assert conn.execute("SELECT count(*) FROM jev_revision").fetchone()[0] == revisiones
+    # Bien formada pero el plan no se arma (producto que no existe): 2 tambien.
+    ruta.write_text(json.dumps({**solicitud, "productos": [999_999]}), encoding="utf-8")
+    assert cli_jev([*argv[:3], "--solicitud", str(_uuid.uuid4()), "--aplicar"], pedir=pedir) == 2
+    assert conn.execute("SELECT count(*) FROM jev_revision").fetchone()[0] == revisiones

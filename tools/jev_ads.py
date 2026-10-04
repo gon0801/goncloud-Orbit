@@ -68,7 +68,7 @@ SALIDA_PRESUPUESTO_AGOTADO = 3
 
 
 class _Configuracion(Exception):
-    """Argumentos o export invalidos: exit 2 con el motivo."""
+    """Argumentos o solicitud de plan invalidos: exit 2 con el motivo."""
 
 
 def _presupuesto(valor: str) -> int:
@@ -126,7 +126,10 @@ def _sujeto_de_plan(conn, ruta: str):
     try:
         export = fabrica_web.exportar_semillas(conn, solicitud)
     except HTTPException as error:
-        raise ValueError(f"plan rechazado ({error.status_code}): {error.detail}") from error
+        motivo = f"plan rechazado ({error.status_code}): {error.detail}"
+        if error.status_code < 500:  # la solicitud no arma un plan: configuracion
+            raise _Configuracion(motivo) from error
+        raise ValueError(motivo) from error
     sujeto = SemillasARevisar(
         plan_sha256=export["plan_sha256"],
         plan_canonico=export["plan_canonico"],
