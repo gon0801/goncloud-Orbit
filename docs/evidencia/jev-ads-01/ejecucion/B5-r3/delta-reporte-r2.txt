@@ -1,10 +1,596 @@
 === quality-kit cross-review.ps1 ===
 Repo: /Users/dn/dev/wt/jev-ads-worker
-CLI: qwen
-[31;1mException: [0m/Users/dn/quality-kit/cross-review.ps1:601
-[36;1mLine |[0m
-[36;1m[36;1m 601 | [0m         [36;1mthrow "-Desde: '$Desde' no es un commit de este repo ($RepoPa[0m …
-[36;1m     | [31;1m         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
-[36;1m[31;1m[31;1m[36;1m     | [31;1m-Desde: '6070bbb5fc12a52a6e9ff6355686b4ea6d6acd1' no es un commit de[0m
-[36;1m[31;1m[31;1m[36;1m[31;1m[36;1m     | [31;1meste repo (/Users/dn/dev/wt/jev-ads-worker).[0m
-[36;1m[31;1m[31;1m[36;1m[31;1m[36;1m[31;1m[0m
+CLI: codex
+Alcance: desde 6070bbbb5fc12a52a6e9ff6355686b4ea6d6acd1 (solo los arreglos)
+Archivos (pathspec de la tarea): tests/test_jev_ads.py
+Tamano del diff: 2531 caracteres
+Tope automatico para este diff (~3 KB): 390 s. Usa -TimeoutSec para fijarlo a mano.
+==> Invocando codex de forma no interactiva (tope: 390 s)...
+
+=== Respuesta de codex (codigo de salida: 0) ===
+1. BLOQUEANTE — La prueba nueva solo exige algun hallazgo: pasa aunque `sqlite3` quede permitido, por lo que no discrimina si se cumple la lista blanca estricta. Reproduccion: hacer que `_violacion_import` devuelva `False` para `sqlite3` y ejecutar `PYTHONPATH=. .venv/bin/python -m pytest -q tests/test_jev_ads.py::test_guarda_pureza_permitidos_sigue_siendo_lista_blanca`; la prueba sigue verde por los hallazgos de `subprocess` y `os`.
+
+
+=== stderr ===
+Reading additional input from stdin...
+OpenAI Codex v0.160.0
+--------
+workdir: /Users/dn/dev/wt/jev-ads-worker
+model: gpt-6-sol
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR]
+reasoning effort: medium
+reasoning summaries: none
+session id: 01a10647-072e-7843-9f3e-0e9b9917380e
+--------
+user
+Actua como revisor de codigo externo e independiente -- una segunda opinion sobre un cambio que escribio otro asistente de IA, no vos. Este diff son SOLO los arreglos de una ronda de revision anterior (lo que cambio desde 6070bbbb5fc12a52a6e9ff6355686b4ea6d6acd1): juzga si cada arreglo es correcto y si rompio algo, y no vuelvas a revisar codigo que no cambio. NO uses skills ni workflows propios: responde vos directamente en este mismo turno, sin cargar ninguna skill. Lee el archivo '/var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/quality-kit-review-53945c723a67486eb82f30c0cf211a7c.txt' (contiene un diff de git: SOLO los arreglos desde 6070bbbb5fc12a52a6e9ff6355686b4ea6d6acd1 (git diff 6070bbbb5fc12a52a6e9ff6355686b4ea6d6acd1), LIMITADO a los archivos de la tarea en curso: tests/test_jev_ads.py, del repositorio 'jev-ads-worker') y revisalo. Busca bugs, regresiones, riesgos de seguridad y riesgos de calidad. Un diff es parcial por naturaleza: si un posible hallazgo depende de codigo que NO aparece en el diff (un import, un DDL/esquema, una funcion o constante definida en otra parte), NO lo afirmes en ciego -- tu directorio de trabajo ES el repositorio real: verificalo primero leyendo/grepeando el archivo en cuestion. Si no podes verificarlo, reportalo con el prefijo 'VERIFICAR:' en vez de afirmarlo como bug, diciendo exactamente que habria que confirmar. Devuelve los hallazgos como una lista numerada. Marca cada uno como BLOQUEANTE o NO BLOQUEANTE: bloqueante es SOLO seguridad, datos, una regla innegociable del repo, el comportamiento pedido roto o una prueba que no discrimina, y va con el comando o los pasos que lo reproducen; sin reproduccion va como NO BLOQUEANTE. Una linea de explicacion por hallazgo. Si no encontras nada que objetar, responde exactamente la palabra: LGTM. Responde todo en espanol, en texto plano (sin acentos si podes evitarlos).
+warning: Under-development features enabled: default_mode_request_user_input. Under-development features are incomplete and may behave unpredictably. To suppress this warning, set `suppress_unstable_features_warning = true` in /Users/dn/.codex/config.toml.
+codex
+Voy a leer el diff y comprobar en el repositorio cualquier dependencia que afecte a los arreglos. Me limitare a las lineas cambiadas.
+exec
+/bin/zsh -lc 'cat /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/quality-kit-review-53945c723a67486eb82f30c0cf211a7c.txt' in /Users/dn/dev/wt/jev-ads-worker
+ succeeded in 0ms:
+diff --git a/tests/test_jev_ads.py b/tests/test_jev_ads.py
+index b195d59..4ed11f4 100644
+--- a/tests/test_jev_ads.py
++++ b/tests/test_jev_ads.py
+@@ -16,7 +16,6 @@ Reglas que fijan (docs/superpowers/specs/2026-10-03-jev-ads-design.md,
+ from __future__ import annotations
+
+ import ast
+-import sys
+ import uuid
+ from datetime import UTC, datetime
+ from decimal import Decimal
+@@ -383,14 +382,12 @@ def _candidatos_import(nodo: ast.Import | ast.ImportFrom) -> set[str]:
+
+
+ def _violacion_import(nombre: str, permitidos: set[str]) -> bool:
+-    """Un nombre esta vedado si cae en la lista negra o si NO es stdlib puro
+-    ni esta concedido (mismo criterio para top-level y anidados, B5-r3)."""
++    """Un nombre esta vedado si cae en la lista negra o si NO esta concedido
++    en `permitidos` (lista blanca estricta, mismo criterio para top-level y
++    anidados, B5-r3; un stdlib de IO como sqlite3 NO pasa por ser stdlib)."""
+     if any(nombre == p or nombre.startswith(p + ".") for p in _PROHIBIDOS_MODULOS_PUROS):
+         return True
+-    return not (
+-        nombre.split(".")[0] in sys.stdlib_module_names
+-        or any(nombre == p or nombre.startswith(p.rstrip(".") + ".") for p in permitidos)
+-    )
++    return not any(nombre == p or nombre.startswith(p.rstrip(".") + ".") for p in permitidos)
+
+
+ def _fugas_pureza(codigo: str) -> list[tuple[str, str]]:
+@@ -457,11 +454,20 @@ def test_guarda_pureza_caza_relativo_anidado():
+ def test_guarda_pureza_caza_import_en_try_de_modulo():
+     """B5-r3 mutante (b): un `try: import boto3` a nivel de modulo no
+     escapa a la guarda: el cuerpo del Try sigue siendo alcance de modulo y
+-    boto3 no es stdlib ni esta concedido."""
++    boto3 no esta concedido en permitidos."""
+     codigo = "import json\ntry:\n    import boto3\nexcept ImportError:\n    boto3 = None\n"
+     assert any(hallazgo == "boto3" for _, hallazgo in _fugas_pureza(codigo))
+
+
++def test_guarda_pureza_permitidos_sigue_siendo_lista_blanca():
++    """B5-r3 ronda 2 (delta kimi): `permitidos` sigue siendo lista blanca
++    estricta en alcance de modulo: un stdlib de IO como `sqlite3` o
++    `subprocess` (que la version de 8372f5aa rechazaba) no pasa por el solo
++    hecho de ser stdlib."""
++    codigo = "import sqlite3\nimport subprocess\nimport os\n"
++    assert _fugas_pureza(codigo) != []
++
++
+ def test_guarda_pureza_deja_pasar_permitido_anidado():
+     """B5-r3 control positivo (c): un import anidado de la lista permitidos
+     sigue pasando en cualquier profundidad (la guarda no se vuelve
+exec
+/bin/zsh -lc 'git status --short; git diff --stat 6070bbbb5fc12a52a6e9ff6355686b4ea6d6acd1 -- tests/test_jev_ads.py' in /Users/dn/dev/wt/jev-ads-worker
+ succeeded in 0ms:
+ M docs/evidencia/jev-ads-01/ejecucion/B5-r3/delta-reporte-r2.txt
+?? docs/evidencia/jev-ads-01/ejecucion/B5-r3/delta-reporte-r2-qwen-fallo.txt
+ tests/test_jev_ads.py | 22 ++++++++++++++--------
+ 1 file changed, 14 insertions(+), 8 deletions(-)
+
+exec
+/bin/zsh -lc "sed -n '310,490p' tests/test_jev_ads.py" in /Users/dn/dev/wt/jev-ads-worker
+ succeeded in 0ms:
+def test_la_misma_ficha_en_dos_miembros_es_error_estructural():
+    censo = CensoCongelado(
+        miembros=(_miembro(11, F1), _miembro(12, F1)),
+        exhaustivo=True,
+    )
+    with pytest.raises(ValueError):
+        componer(censo, ())
+
+
+def test_dos_juicios_para_la_misma_ficha_es_error_estructural():
+    censo = CensoCongelado(miembros=(_miembro(11, F1),), exhaustivo=True)
+    with pytest.raises(ValueError):
+        componer(censo, (_juicio(F1, "no_satisface"), _juicio(F1, "satisface")))
+
+
+def test_relacion_no_reconocida_es_error_estructural():
+    """Regresion revision automatica B2-r4 (F3): una relacion fuera del
+    contrato no puede contar como juicio y menos producir NingunoCompatible
+    silencioso."""
+    censo = CensoCongelado(miembros=(_miembro(11, F1),), exhaustivo=True)
+    raro = Juicio(
+        intento_id=uuid.uuid4(),
+        clave=ClavePar(
+            termino_literal_sha256="a" * 64,
+            ficha_version_id=F1,
+            contrato_sha256="b" * 64,
+        ),
+        relacion="desconocida",  # type: ignore[arg-type]
+        probabilidades={"desconocida": Decimal("1.00")},
+        confidence=Decimal("0.90"),
+        observado_at=OBS,
+    )
+    with pytest.raises(ValueError):
+        componer(censo, (raro,))
+
+
+_PROHIBIDOS_MODULOS_PUROS = {
+    "httpx",
+    "psycopg",
+    "requests",
+    "urllib",
+    "socket",
+    "ssl",
+    "app.db",
+    "app.ads",
+    "app.jev_catalogo",
+    "app.jev_juicios",
+}
+_PROHIBIDOS_NOMBRES_PUROS = {"psycopg", "httpx", "requests", "socket", "ssl", "conn"}
+_PERMITIDOS_PUROS = {
+    "__future__",
+    "collections.abc",
+    "dataclasses",
+    "datetime",
+    "decimal",
+    "hashlib",
+    "json",
+    "re",
+    "typing",
+    "uuid",
+}
+
+
+def _candidatos_import(nodo: ast.Import | ast.ImportFrom) -> set[str]:
+    """Nombres ABSOLUTOS que trae un nodo de import (B5-r3): los relativos
+    se resuelven contra su paquete (`from . import db` es "app.db" y
+    `from .x import Y` trae "app.x" y "app.x.y"; misma semantica que la
+    guarda B3 de test_jev_cli.py)."""
+    if isinstance(nodo, ast.Import):
+        return {alias.name for alias in nodo.names}
+    base = (("app." if nodo.level else "") + (nodo.module or "")).rstrip(".")
+    return {base, *(f"{base}.{alias.name}" for alias in nodo.names)}
+
+
+def _violacion_import(nombre: str, permitidos: set[str]) -> bool:
+    """Un nombre esta vedado si cae en la lista negra o si NO esta concedido
+    en `permitidos` (lista blanca estricta, mismo criterio para top-level y
+    anidados, B5-r3; un stdlib de IO como sqlite3 NO pasa por ser stdlib)."""
+    if any(nombre == p or nombre.startswith(p + ".") for p in _PROHIBIDOS_MODULOS_PUROS):
+        return True
+    return not any(nombre == p or nombre.startswith(p.rstrip(".") + ".") for p in permitidos)
+
+
+def _fugas_pureza(codigo: str) -> list[tuple[str, str]]:
+    """Guarda de pureza del nucleo: devuelve (donde, hallazgo) por cada
+    import o nombre IO que la viole. Vacio = puro."""
+    arbol = ast.parse(codigo)
+    fugas: list[tuple[str, str]] = []
+
+    # 1) imports de ALCANCE DE MODULO (B5-r3: un `try:`/`if:` top-level
+    #    sigue siendo alcance de modulo, asi que se recorre su cuerpo; los
+    #    def/class no, porque sus imports son perezosos y los juzga el
+    #    punto 2): solo la biblioteca estandar pura.
+    pendientes = list(arbol.body)
+    while pendientes:
+        nodo = pendientes.pop()
+        if isinstance(nodo, (ast.Import, ast.ImportFrom)):
+            for candidato in _candidatos_import(nodo):
+                if _violacion_import(candidato, _PERMITIDOS_PUROS):
+                    fugas.append(("top-level", candidato))
+        elif not isinstance(nodo, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            pendientes.extend(ast.iter_child_nodes(nodo))
+
+    # 2) cada nodo top-level EXCEPTO AsesorAds: puro incluso por dentro
+    #    (sin imports vedados ni fuera de permitidos a cualquier
+    #    profundidad, sin nombres IO). Los imports se RESUELVEN antes de
+    #    comparar (B5-r2, B5a): `from app import db` es "app.db" e
+    #    `import urllib.request` cae bajo "urllib"; valen igualdad o prefijo
+    #    con punto.
+    for nodo in arbol.body:
+        if isinstance(nodo, (ast.Import, ast.ImportFrom)):
+            continue
+        nombre = getattr(nodo, "name", None) or getattr(nodo, "id", "")
+        if nombre == "AsesorAds":
+            continue
+        for sub in ast.walk(nodo):
+            if isinstance(sub, (ast.Import, ast.ImportFrom)):
+                for candidato in _candidatos_import(sub):
+                    if _violacion_import(candidato, _PERMITIDOS_PUROS):
+                        fugas.append((nombre or "<modulo>", candidato))
+            elif isinstance(sub, ast.Name) and sub.id in _PROHIBIDOS_NOMBRES_PUROS:
+                fugas.append((nombre, sub.id))
+    return sorted(set(fugas))
+
+
+def test_modulo_puro_sin_red_ni_db_en_top_level():
+    """El nucleo (tipos + componer y sus helpers) es PURO: red y DB solo
+    entran con AsesorAds (1.4) y por imports PEREZOSOS dentro de sus
+    metodos. La guarda cubre TODO nodo top-level excepto AsesorAds, con
+    imports anidados a cualquier profundidad y nombres IO (CodeRabbit
+    B3-r3); en alcance de modulo (incluido el cuerpo de un try/if
+    top-level, B5-r3) tampoco hay red, ni DB, ni modulos Jev de IO; los
+    relativos se resuelven a absolutos y `permitidos` rige tambien los
+    anidados (B5-r3)."""
+    assert _fugas_pureza((RAIZ / "app" / "jev_ads.py").read_text(encoding="utf-8")) == []
+
+
+def test_guarda_pureza_caza_relativo_anidado():
+    """B5-r3 mutante (a): `from . import db` anidado en una funcion es
+    `app.db` (el relativo se resuelve antes de juzgar) y sale rojo."""
+    codigo = "import json\n\ndef componer():\n    from . import db\n    return db\n"
+    assert any(hallazgo == "app.db" for _, hallazgo in _fugas_pureza(codigo))
+
+
+def test_guarda_pureza_caza_import_en_try_de_modulo():
+    """B5-r3 mutante (b): un `try: import boto3` a nivel de modulo no
+    escapa a la guarda: el cuerpo del Try sigue siendo alcance de modulo y
+    boto3 no esta concedido en permitidos."""
+    codigo = "import json\ntry:\n    import boto3\nexcept ImportError:\n    boto3 = None\n"
+    assert any(hallazgo == "boto3" for _, hallazgo in _fugas_pureza(codigo))
+
+
+def test_guarda_pureza_permitidos_sigue_siendo_lista_blanca():
+    """B5-r3 ronda 2 (delta kimi): `permitidos` sigue siendo lista blanca
+    estricta en alcance de modulo: un stdlib de IO como `sqlite3` o
+    `subprocess` (que la version de 8372f5aa rechazaba) no pasa por el solo
+    hecho de ser stdlib."""
+    codigo = "import sqlite3\nimport subprocess\nimport os\n"
+    assert _fugas_pureza(codigo) != []
+
+
+def test_guarda_pureza_deja_pasar_permitido_anidado():
+    """B5-r3 control positivo (c): un import anidado de la lista permitidos
+    sigue pasando en cualquier profundidad (la guarda no se vuelve
+    paranoica)."""
+    codigo = (
+        "import json\n"
+        "\n"
+        "def componer(pares):\n"
+        "    from decimal import Decimal\n"
+        "    import uuid\n"
+        "\n"
+        "    return Decimal(0) + uuid.UUID(int=0) if pares else None\n"
+    )
+    assert _fugas_pureza(codigo) == []
+
+exec
+/bin/zsh -lc "git show 6070bbbb5fc12a52a6e9ff6355686b4ea6d6acd1:tests/test_jev_ads.py | sed -n '335,480p'" in /Users/dn/dev/wt/jev-ads-worker
+ succeeded in 0ms:
+            ficha_version_id=F1,
+            contrato_sha256="b" * 64,
+        ),
+        relacion="desconocida",  # type: ignore[arg-type]
+        probabilidades={"desconocida": Decimal("1.00")},
+        confidence=Decimal("0.90"),
+        observado_at=OBS,
+    )
+    with pytest.raises(ValueError):
+        componer(censo, (raro,))
+
+
+_PROHIBIDOS_MODULOS_PUROS = {
+    "httpx",
+    "psycopg",
+    "requests",
+    "urllib",
+    "socket",
+    "ssl",
+    "app.db",
+    "app.ads",
+    "app.jev_catalogo",
+    "app.jev_juicios",
+}
+_PROHIBIDOS_NOMBRES_PUROS = {"psycopg", "httpx", "requests", "socket", "ssl", "conn"}
+_PERMITIDOS_PUROS = {
+    "__future__",
+    "collections.abc",
+    "dataclasses",
+    "datetime",
+    "decimal",
+    "hashlib",
+    "json",
+    "re",
+    "typing",
+    "uuid",
+}
+
+
+def _candidatos_import(nodo: ast.Import | ast.ImportFrom) -> set[str]:
+    """Nombres ABSOLUTOS que trae un nodo de import (B5-r3): los relativos
+    se resuelven contra su paquete (`from . import db` es "app.db" y
+    `from .x import Y` trae "app.x" y "app.x.y"; misma semantica que la
+    guarda B3 de test_jev_cli.py)."""
+    if isinstance(nodo, ast.Import):
+        return {alias.name for alias in nodo.names}
+    base = (("app." if nodo.level else "") + (nodo.module or "")).rstrip(".")
+    return {base, *(f"{base}.{alias.name}" for alias in nodo.names)}
+
+
+def _violacion_import(nombre: str, permitidos: set[str]) -> bool:
+    """Un nombre esta vedado si cae en la lista negra o si NO es stdlib puro
+    ni esta concedido (mismo criterio para top-level y anidados, B5-r3)."""
+    if any(nombre == p or nombre.startswith(p + ".") for p in _PROHIBIDOS_MODULOS_PUROS):
+        return True
+    return not (
+        nombre.split(".")[0] in sys.stdlib_module_names
+        or any(nombre == p or nombre.startswith(p.rstrip(".") + ".") for p in permitidos)
+    )
+
+
+def _fugas_pureza(codigo: str) -> list[tuple[str, str]]:
+    """Guarda de pureza del nucleo: devuelve (donde, hallazgo) por cada
+    import o nombre IO que la viole. Vacio = puro."""
+    arbol = ast.parse(codigo)
+    fugas: list[tuple[str, str]] = []
+
+    # 1) imports de ALCANCE DE MODULO (B5-r3: un `try:`/`if:` top-level
+    #    sigue siendo alcance de modulo, asi que se recorre su cuerpo; los
+    #    def/class no, porque sus imports son perezosos y los juzga el
+    #    punto 2): solo la biblioteca estandar pura.
+    pendientes = list(arbol.body)
+    while pendientes:
+        nodo = pendientes.pop()
+        if isinstance(nodo, (ast.Import, ast.ImportFrom)):
+            for candidato in _candidatos_import(nodo):
+                if _violacion_import(candidato, _PERMITIDOS_PUROS):
+                    fugas.append(("top-level", candidato))
+        elif not isinstance(nodo, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            pendientes.extend(ast.iter_child_nodes(nodo))
+
+    # 2) cada nodo top-level EXCEPTO AsesorAds: puro incluso por dentro
+    #    (sin imports vedados ni fuera de permitidos a cualquier
+    #    profundidad, sin nombres IO). Los imports se RESUELVEN antes de
+    #    comparar (B5-r2, B5a): `from app import db` es "app.db" e
+    #    `import urllib.request` cae bajo "urllib"; valen igualdad o prefijo
+    #    con punto.
+    for nodo in arbol.body:
+        if isinstance(nodo, (ast.Import, ast.ImportFrom)):
+            continue
+        nombre = getattr(nodo, "name", None) or getattr(nodo, "id", "")
+        if nombre == "AsesorAds":
+            continue
+        for sub in ast.walk(nodo):
+            if isinstance(sub, (ast.Import, ast.ImportFrom)):
+                for candidato in _candidatos_import(sub):
+                    if _violacion_import(candidato, _PERMITIDOS_PUROS):
+                        fugas.append((nombre or "<modulo>", candidato))
+            elif isinstance(sub, ast.Name) and sub.id in _PROHIBIDOS_NOMBRES_PUROS:
+                fugas.append((nombre, sub.id))
+    return sorted(set(fugas))
+
+
+def test_modulo_puro_sin_red_ni_db_en_top_level():
+    """El nucleo (tipos + componer y sus helpers) es PURO: red y DB solo
+    entran con AsesorAds (1.4) y por imports PEREZOSOS dentro de sus
+    metodos. La guarda cubre TODO nodo top-level excepto AsesorAds, con
+    imports anidados a cualquier profundidad y nombres IO (CodeRabbit
+    B3-r3); en alcance de modulo (incluido el cuerpo de un try/if
+    top-level, B5-r3) tampoco hay red, ni DB, ni modulos Jev de IO; los
+    relativos se resuelven a absolutos y `permitidos` rige tambien los
+    anidados (B5-r3)."""
+    assert _fugas_pureza((RAIZ / "app" / "jev_ads.py").read_text(encoding="utf-8")) == []
+
+
+def test_guarda_pureza_caza_relativo_anidado():
+    """B5-r3 mutante (a): `from . import db` anidado en una funcion es
+    `app.db` (el relativo se resuelve antes de juzgar) y sale rojo."""
+    codigo = "import json\n\ndef componer():\n    from . import db\n    return db\n"
+    assert any(hallazgo == "app.db" for _, hallazgo in _fugas_pureza(codigo))
+
+
+def test_guarda_pureza_caza_import_en_try_de_modulo():
+    """B5-r3 mutante (b): un `try: import boto3` a nivel de modulo no
+    escapa a la guarda: el cuerpo del Try sigue siendo alcance de modulo y
+    boto3 no es stdlib ni esta concedido."""
+    codigo = "import json\ntry:\n    import boto3\nexcept ImportError:\n    boto3 = None\n"
+    assert any(hallazgo == "boto3" for _, hallazgo in _fugas_pureza(codigo))
+
+
+def test_guarda_pureza_deja_pasar_permitido_anidado():
+    """B5-r3 control positivo (c): un import anidado de la lista permitidos
+    sigue pasando en cualquier profundidad (la guarda no se vuelve
+    paranoica)."""
+    codigo = (
+        "import json\n"
+        "\n"
+        "def componer(pares):\n"
+        "    from decimal import Decimal\n"
+        "    import uuid\n"
+        "\n"
+        "    return Decimal(0) + uuid.UUID(int=0) if pares else None\n"
+    )
+    assert _fugas_pureza(codigo) == []
+
+exec
+/bin/zsh -lc "rg -n '_PROHIBIDOS_MODULOS_PUROS|_fugas_pureza|_violacion_import|permitidos|pureza' tests/test_jev_ads.py docs/superpowers/specs/2026-10-03-jev-ads-design.md" in /Users/dn/dev/wt/jev-ads-worker
+ succeeded in 0ms:
+tests/test_jev_ads.py:306:# Estructural y pureza
+tests/test_jev_ads.py:346:_PROHIBIDOS_MODULOS_PUROS = {
+tests/test_jev_ads.py:384:def _violacion_import(nombre: str, permitidos: set[str]) -> bool:
+tests/test_jev_ads.py:386:    en `permitidos` (lista blanca estricta, mismo criterio para top-level y
+tests/test_jev_ads.py:388:    if any(nombre == p or nombre.startswith(p + ".") for p in _PROHIBIDOS_MODULOS_PUROS):
+tests/test_jev_ads.py:390:    return not any(nombre == p or nombre.startswith(p.rstrip(".") + ".") for p in permitidos)
+tests/test_jev_ads.py:393:def _fugas_pureza(codigo: str) -> list[tuple[str, str]]:
+tests/test_jev_ads.py:394:    """Guarda de pureza del nucleo: devuelve (donde, hallazgo) por cada
+tests/test_jev_ads.py:408:                if _violacion_import(candidato, _PERMITIDOS_PUROS):
+tests/test_jev_ads.py:414:    #    (sin imports vedados ni fuera de permitidos a cualquier
+tests/test_jev_ads.py:428:                    if _violacion_import(candidato, _PERMITIDOS_PUROS):
+tests/test_jev_ads.py:442:    relativos se resuelven a absolutos y `permitidos` rige tambien los
+tests/test_jev_ads.py:444:    assert _fugas_pureza((RAIZ / "app" / "jev_ads.py").read_text(encoding="utf-8")) == []
+tests/test_jev_ads.py:447:def test_guarda_pureza_caza_relativo_anidado():
+tests/test_jev_ads.py:451:    assert any(hallazgo == "app.db" for _, hallazgo in _fugas_pureza(codigo))
+tests/test_jev_ads.py:454:def test_guarda_pureza_caza_import_en_try_de_modulo():
+tests/test_jev_ads.py:457:    boto3 no esta concedido en permitidos."""
+tests/test_jev_ads.py:459:    assert any(hallazgo == "boto3" for _, hallazgo in _fugas_pureza(codigo))
+tests/test_jev_ads.py:462:def test_guarda_pureza_permitidos_sigue_siendo_lista_blanca():
+tests/test_jev_ads.py:463:    """B5-r3 ronda 2 (delta kimi): `permitidos` sigue siendo lista blanca
+tests/test_jev_ads.py:468:    assert _fugas_pureza(codigo) != []
+tests/test_jev_ads.py:471:def test_guarda_pureza_deja_pasar_permitido_anidado():
+tests/test_jev_ads.py:472:    """B5-r3 control positivo (c): un import anidado de la lista permitidos
+tests/test_jev_ads.py:484:    assert _fugas_pureza(codigo) == []
+
+exec
+/bin/zsh -lc "sed -n '1,85p' tests/test_jev_ads.py" in /Users/dn/dev/wt/jev-ads-worker
+ succeeded in 0ms:
+"""Tests de `app/jev_ads.py`: tipos puros y `componer` (JEV ADS 01, 1.1).
+
+Reglas que fijan (docs/superpowers/specs/2026-10-03-jev-ads-design.md,
+"Catalogo y reglas de composicion"):
+
+- Un producto compatible observado permite HayCompatible aun con cobertura
+  parcial; la limitacion viaja en el resultado.
+- NingunoCompatible exige universo no vacio, exhaustivo, fichas de todos los
+  miembros y no_satisface en cada par.
+- En el resto de casos, Indeterminado con motivos explicitos: vacio no prueba
+  exclusion, un fallo del proveedor jamas es incompatibilidad y una ficha de
+  otra variante no acredita un producto.
+- El modulo es PURO: no importa red ni DB.
+"""
+
+from __future__ import annotations
+
+import ast
+import uuid
+from datetime import UTC, datetime
+from decimal import Decimal
+from pathlib import Path
+
+import pytest
+
+from app.jev_ads import (
+    CensoCongelado,
+    ClavePar,
+    EstadoAnuncio,
+    FalloProveedor,
+    FichaFaltante,
+    HayCompatible,
+    Indeterminado,
+    Juicio,
+    MiembroCenso,
+    NingunoCompatible,
+    NoAplicaTexto,
+    componer,
+    es_asin_like,
+)
+
+RAIZ = Path(__file__).resolve().parents[1]
+
+# Fichas del censo: versiones fijas por test (los UUID dan igualdad literal).
+F1 = uuid.uuid4()
+F2 = uuid.uuid4()
+
+OBS = datetime(2026, 10, 3, tzinfo=UTC)
+
+
+def _juicio(ficha: uuid.UUID, relacion: str) -> Juicio:
+    return Juicio(
+        intento_id=uuid.uuid4(),
+        clave=ClavePar(
+            termino_literal_sha256="a" * 64,
+            ficha_version_id=ficha,
+            contrato_sha256="b" * 64,
+        ),
+        relacion=relacion,  # type: ignore[arg-type]
+        probabilidades={
+            "satisface": Decimal("0.70"),
+            "no_satisface": Decimal("0.20"),
+            "informacion_insuficiente": Decimal("0.10"),
+        },
+        confidence=Decimal("0.80"),
+        observado_at=OBS,
+    )
+
+
+def _miembro(
+    producto_id: int | None,
+    ficha: uuid.UUID | None,
+    *,
+    anuncios: tuple[int, ...] = (1,),
+    listings: frozenset[int] = frozenset({1}),
+    estados: tuple[EstadoAnuncio, ...] | None = None,
+) -> MiembroCenso:
+    """Por defecto el miembro trae estado activo conocido (ENABLED): los
+    tests que prueban estados especiales los pasan explicitos."""
+    if estados is None:
+        estados = tuple(EstadoAnuncio("ENABLED", OBS) for _ in anuncios)
+    return MiembroCenso(
+        anuncio_ids=anuncios,
+        producto_id=producto_id,
+        listing_ids=listings,
+
+exec
+/bin/zsh -lc "rg -n 'pure|puro|stdlib|permitid|import' docs/superpowers/specs/2026-10-03-jev-ads-design.md | head -65" in /Users/dn/dev/wt/jev-ads-worker
+ succeeded in 0ms:
+exec
+/bin/zsh -lc "rg -n '"'^(import |from )|class AsesorAds|''^def '"' app/jev_ads.py | head -100" in /Users/dn/dev/wt/jev-ads-worker
+ succeeded in 0ms:
+14:from __future__ import annotations
+16:import hashlib
+17:import json
+18:import re
+19:import uuid
+20:from collections.abc import Mapping
+21:from dataclasses import dataclass, replace
+22:from datetime import UTC, datetime
+23:from decimal import Decimal
+24:from typing import Literal
+25:from uuid import UUID
+50:def es_asin_like(termino: str) -> bool:
+208:def _solo_no_activo(estados: tuple[EstadoAnuncio, ...]) -> bool:
+216:def _con_estado_ausente(miembro: MiembroCenso) -> bool:
+225:def _universo_anunciado(
+240:def _absorber_pares(
+278:def componer(censo: CensoCongelado, pares: tuple[EstadoPar, ...]) -> RelevanciaConjunto:
+376:def _censo_a_json(censo: CensoCongelado) -> dict:
+397:def _canonico(objeto: object) -> str:
+401:def _juicio_de_respuesta(respuesta: dict, clave: ClavePar, evento_id: UUID) -> Juicio:
+413:class AsesorAds:
+989:def _relevancia_a_dict(resultado: RelevanciaConjunto) -> dict:
+1014:def _fila_dict(fila, columnas) -> dict:
+1019:def _evento_del_par(eventos: list[dict], hash_termino: str, ficha_id: UUID) -> dict | None:
+1037:def _censo_de_json(datos: dict) -> CensoCongelado:
+
+codex
+El cambio restablece la lista blanca para los imports. Estoy comprobando si la prueba nueva detecta una regresion en cada modulo que menciona.
+exec
+/bin/zsh -lc "PYTHONPATH=. .venv/bin/python - <<'PY'
+import importlib.util
+spec = importlib.util.spec_from_file_location('test_jev_ads', 'tests/test_jev_ads.py')
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+original = mod._violacion_import
+mod._violacion_import = lambda nombre, permitidos: False if nombre == 'sqlite3' else original(nombre, permitidos)
+mod.test_guarda_pureza_permitidos_sigue_siendo_lista_blanca()
+print('La prueba pasa aunque sqlite3 sea permitido')
+print(mod._fugas_pureza('import sqlite3\\nimport subprocess\\nimport os\\n'))
+PY" in /Users/dn/dev/wt/jev-ads-worker
+ succeeded in 5ms:
+La prueba pasa aunque sqlite3 sea permitido
+[('top-level', 'os'), ('top-level', 'subprocess')]
+
+codex
+1. BLOQUEANTE — La prueba nueva solo exige algun hallazgo: pasa aunque `sqlite3` quede permitido, por lo que no discrimina si se cumple la lista blanca estricta. Reproduccion: hacer que `_violacion_import` devuelva `False` para `sqlite3` y ejecutar `PYTHONPATH=. .venv/bin/python -m pytest -q tests/test_jev_ads.py::test_guarda_pureza_permitidos_sigue_siendo_lista_blanca`; la prueba sigue verde por los hallazgos de `subprocess` y `os`.
+tokens used
+33,833
+
+
+=== Revisor efectivo: codex (binario 'codex') ===

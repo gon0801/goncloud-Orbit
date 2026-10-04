@@ -39,7 +39,12 @@ tests/test_jev_ads.py:448: AssertionError  (mutante b: assert False, sin "boto3"
   escape quedo fuera y `permitidos` volvio a ser lista blanca estricta; la
   prueba nueva test_guarda_pureza_permitidos_sigue_siendo_lista_blanca se
   demostro en ROJO contra la version ensanchada (devolvia []) y VERDE tras
-  el arreglo.
+  el arreglo. La primera version de ESA prueba usaba `!= []` (agregado) y
+  codex demostro que no discriminaba un mutante que perdonara solo sqlite3
+  (ronda 3): hoy afirma el hallazgo exacto modulo por modulo.
+- (d) ronda 3 (codex): control de que la prueba de lista blanca discrimina
+  por modulo: perdonar solo sqlite3 -> ROJO (mutante-d-r3.txt), guarda real
+  -> VERDE.
 - Los imports perezosos reales de `app/jev_ads.py` viven todos dentro de
   `AsesorAds` (lineas 437-461, 531 y 749-751, entre las lineas 413 y 933),
   asi que aplicar `permitidos` a los anidados de los DEMAS nodos no toca el
@@ -77,9 +82,37 @@ y (ii) `_candidatos_import` fija "app." sin importar el nivel relativo
 (level>1 resolveria mal, caso invalido en el unico archivo que hoy se
 parsea).
 
-Ronda 2, revisor: (se completa al correr cross-review sobre SOLO los
-arreglos desde el SHA que kimi vio: 6070bbbb) — reporte en
-delta-reporte-r2.txt.
+Ronda 2, revisores: QWEN y CODEX. qwen salio sin revision (exit 1, "403
+Access to model denied", sin cuota; salida en delta-reporte-r2-qwen-fallo.txt).
+CODEX (binario codex, exit 0) reviso SOLO los arreglos desde 6070bbbb
+limitados a tests/test_jev_ads.py (con -Archivos: el delta completo con
+evidencia truncaba a 60000 caracteres; el cambio real de codigo es chico).
+Hallazgo codex: 1 BLOQUEANTE de prueba que no discrimina: la prueba de
+lista blanca usaba `!= []` (agregado), asi que un mutante que perdone SOLO
+`sqlite3` la dejaba en verde (subprocess y os seguian saliendo); lo demostro
+con monkeypatch en vivo. Corregido en ronda 3: la prueba afirma el hallazgo
+EXACTO modulo por modulo
+([("top-level","os"),("top-level","sqlite3"),("top-level","subprocess")]);
+el mutante sqlite3-solo quedo en ROJO (mutante-d-r3.txt) y la guarda real
+en VERDE.
+
+Ronda 3, revisor: KIMI (binario kimi, exit 0) sobre SOLO el arreglo desde
+6a379bc4, limitado a tests/test_jev_ads.py: **LGTM**, con verificaciones
+propias (orden lexicografico de sorted(set()), 26 passed corridos por el
+revisor). Primera ronda sin bloqueantes: el ciclo de revision termina.
+
+```
+export PATH=/opt/homebrew/bin:/Users/dn/.local/bin:/Users/dn/bin:$PATH
+pwsh -NoProfile -File /Users/dn/quality-kit/cross-review.ps1 -Con codex \
+  -Excluir glm -Desde 6070bbbb5fc12a52a6e9ff6355686b4ea6d6acd1 \
+  -Archivos tests/test_jev_ads.py -RepoPath /Users/dn/dev/wt/jev-ads-worker
+pwsh -NoProfile -File /Users/dn/quality-kit/cross-review.ps1 -Con kimi \
+  -Excluir glm -Desde 6a379bc4443d9bf2cb4b3d5e8f0655842b76a28b \
+  -Archivos tests/test_jev_ads.py -RepoPath /Users/dn/dev/wt/jev-ads-worker
+```
+
+Reportes: delta-reporte.txt (kimi r1), delta-reporte-r2-qwen-fallo.txt
+(qwen), delta-reporte-r2.txt (codex), delta-reporte-r3.txt (kimi, LGTM).
 
 ## Comandos exactos
 
@@ -103,3 +136,4 @@ delta-reporte-r2.txt.
 | (b) `try: import boto3` a nivel de modulo | PASA (no discrimina) -> prueba sembrada ROJO | RECHAZA (Try es alcance de modulo; boto3 fuera de permitidos), VERDE |
 | (c) `from decimal import Decimal` + `import uuid` anidados (control) | PASA | PASA (no se volvio paranoica), VERDE |
 | (d) ronda 2 (kimi): `import sqlite3`/`subprocess`/`os` a nivel de modulo | ROJO en 8372f5aa (lista blanca); PASA en la primera version del rediseno (escape stdlib) | RECHAZA de nuevo tras quitar el escape (permitidos lista blanca estricta), VERDE |
+| (e) ronda 3 (codex): mutante que perdona SOLO sqlite3 contra la prueba de lista blanca | n/a (prueba no existia) | ROJO con la prueba exacta (mutante-d-r3.txt); con el `!= []` viejo quedaba VERDE (hallazgo codex) |

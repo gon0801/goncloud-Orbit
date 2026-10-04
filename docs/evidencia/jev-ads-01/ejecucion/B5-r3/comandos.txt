@@ -57,7 +57,25 @@ uv run ruff check tests/test_jev_ads.py && uv run ruff format tests/test_jev_ads
 pre-commit run --all-files
 git add tests/test_jev_ads.py && git commit -m "..."
 
-# 11) Auto-revision delta ronda 2 (solo los arreglos desde el SHA que vio kimi):
+# 11) Auto-revision delta ronda 2 (solo los arreglos desde el SHA que vio kimi).
+#     qwen salio sin cuota (403); se acoto con -Archivos porque el delta con
+#     evidencia truncaba a 60000 caracteres (el cambio de codigo es chico):
 /Users/dn/.local/bin/pwsh -NoProfile -File /Users/dn/quality-kit/cross-review.ps1 \
   -Con qwen -Excluir glm -Desde 6070bbbb5fc12a52a6e9ff6355686b4ea6d6acd1 \
-  -RepoPath /Users/dn/dev/wt/jev-ads-worker
+  -RepoPath /Users/dn/dev/wt/jev-ads-worker          # 403, sin revision (delta-reporte-r2-qwen-fallo.txt)
+/Users/dn/.local/bin/pwsh -NoProfile -File /Users/dn/quality-kit/cross-review.ps1 \
+  -Con codex -Excluir glm -Desde 6070bbbb5fc12a52a6e9ff6355686b4ea6d6acd1 \
+  -Archivos tests/test_jev_ads.py -RepoPath /Users/dn/dev/wt/jev-ads-worker
+
+# 12) Arreglo ronda 3 (afirmacion exacta modulo por modulo) + demo del mutante
+PYTHONPATH=. uv run --frozen python /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/opencode/mutante-d-r3.py
+uv run --frozen python -m pytest -q tests/test_jev_ads.py
+uv run ruff check tests/test_jev_ads.py && uv run ruff format tests/test_jev_ads.py
+pre-commit run --all-files
+git add tests/test_jev_ads.py && git commit -m "..."
+
+# 13) Auto-revision delta ronda 3 (solo el arreglo desde el SHA que vio codex):
+/Users/dn/.local/bin/pwsh -NoProfile -File /Users/dn/quality-kit/cross-review.ps1 \
+  -Con kimi -Excluir glm -Desde 6a379bc4443d9bf2cb4b3d5e8f0655842b76a28b \
+  -Archivos tests/test_jev_ads.py -RepoPath /Users/dn/dev/wt/jev-ads-worker
+# (kimi: LGTM)
