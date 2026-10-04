@@ -1,0 +1,299 @@
+diff --git a/app/jev_ads.py b/app/jev_ads.py
+index eb5a477..064fd00 100644
+--- a/app/jev_ads.py
++++ b/app/jev_ads.py
+@@ -592,7 +592,7 @@ class AsesorAds:
+             ),
+         )
+         guardado = self._conn.execute(
+-            "SELECT sujeto_tipo, decision_id, plan_sha256, censos"
++            "SELECT sujeto_tipo, decision_id, plan_sha256, censos, contrato"
+             " FROM jev_revision WHERE solicitud = %s",
+             (solicitud_id,),
+         ).fetchone()
+@@ -601,6 +601,7 @@ class AsesorAds:
+             and guardado[1] == esperado[1]
+             and guardado[2] == esperado[2]
+             and guardado[3] == contexto
++            and guardado[4] == contrato_json
+         )
+         if not coherente:
+             raise ValueError("misma solicitud con otro payload")
+diff --git a/tests/test_api_dashboard.py b/tests/test_api_dashboard.py
+index df47c9f..881a5c4 100644
+--- a/tests/test_api_dashboard.py
++++ b/tests/test_api_dashboard.py
+@@ -3356,9 +3356,13 @@ def test_cortes_plantilla_asesoria_sin_error_economico_y_veto_visible():
+     assert "compatible" in html
+     assert "cobertura" in html
+     assert "revisado con catalogo del" in html
+-    # DoD 2.1: la asesoria distingue el ambito de cada veredicto.
+-    assert "origen" in html
+-    assert "destino" in html
++    # DoD 2.1: la asesoria distingue el ambito de cada veredicto. B5-r2
++    # (B4): el rotulo va PEGADO a su propio resultado (con espacios
++    # normalizados), no basta que ambas palabras aparezcan por separado:
++    # intercambiar los rotulos de los dos bucles debe romper esta prueba.
++    plano = " ".join(html.split())
++    assert "origen · tenis blancos: compatible (7) · cobertura 1/1" in plano
++    assert "destino · tenis blancos: sin compatibilidad en 3 producto(s)" in plano
+     assert "sin compatibilidad" in html
+     # Relevancia compatible jamas se presenta como error economico: la
+     # palabra "error" no aparece en el HTML renderizado de esta pantalla.
+diff --git a/tests/test_jev_ads.py b/tests/test_jev_ads.py
+index 0c4a9b2..92af989 100644
+--- a/tests/test_jev_ads.py
++++ b/tests/test_jev_ads.py
+@@ -387,7 +387,10 @@ def test_modulo_puro_sin_red_ni_db_en_top_level():
+     assert importados <= permitidos, importados - permitidos
+
+     # 2) cada nodo top-level EXCEPTO AsesorAds: puro incluso por dentro
+-    #    (sin imports prohibidos anidados, sin nombres IO).
++    #    (sin imports prohibidos anidados, sin nombres IO). Los imports se
++    #    RESUELVEN antes de comparar (B5-r2, B5a): `from app import db` es
++    #    "app.db" y `import urllib.request` cae bajo "urllib"; valen
++    #    igualdad o prefijo con punto, en cualquier profundidad.
+     for nodo in arbol.body:
+         if isinstance(nodo, (ast.Import, ast.ImportFrom)):
+             continue
+@@ -395,10 +398,18 @@ def test_modulo_puro_sin_red_ni_db_en_top_level():
+         if nombre == "AsesorAds":
+             continue
+         for sub in ast.walk(nodo):
++            candidatos: set[str] = set()
+             if isinstance(sub, ast.Import):
+-                encontrados = {alias.name for alias in sub.names} & prohibidos_modulos
+-                assert not encontrados, (nombre, encontrados)
++                candidatos = {alias.name for alias in sub.names}
+             elif isinstance(sub, ast.ImportFrom):
+-                assert (sub.module or "") not in prohibidos_modulos, (nombre, sub.module)
+-            elif isinstance(sub, ast.Name) and sub.id in prohibidos_nombres:
+-                raise AssertionError((nombre, sub.id))
++                candidatos = {sub.module or ""}
++                candidatos |= {f"{sub.module or ''}.{alias.name}" for alias in sub.names}
++            else:
++                if isinstance(sub, ast.Name) and sub.id in prohibidos_nombres:
++                    raise AssertionError((nombre, sub.id))
++                continue
++            for candidato in candidatos:
++                assert not any(
++                    candidato == prohibido or candidato.startswith(prohibido + ".")
++                    for prohibido in prohibidos_modulos
++                ), (nombre, candidato)
+diff --git a/tests/test_jev_cli.py b/tests/test_jev_cli.py
+index a0aedae..248c79e 100644
+--- a/tests/test_jev_cli.py
++++ b/tests/test_jev_cli.py
+@@ -19,6 +19,9 @@ from __future__ import annotations
+ import ast
+ import hashlib
+ import json
++import os
++import subprocess
++import sys
+ import uuid
+ from datetime import UTC, datetime, timedelta
+ from decimal import Decimal
+@@ -45,7 +48,7 @@ from app.jev_ads import (
+     MiembroCenso,
+     SemillasARevisar,
+ )
+-from app.jev_juicios import FalloPar, ResultadoPar
++from app.jev_juicios import Contrato, FalloPar, ResultadoPar, contrato_por_defecto
+
+ pytestmark = pytest.mark.skipif(_postgres_obligatorio_ausente(), reason="sin Postgres")
+
+@@ -345,6 +348,47 @@ def test_misma_solicitud_otro_payload_rechazado():
+         assert revision.resultados[0][0] == "t1"
+
+
++def test_misma_solicitud_otro_contrato_rechazado():
++    """B5-r2 (B1): el contrato es parte del payload congelado de la
++    revision; retomar la MISMA solicitud con OTRO contrato debe rechazarse
++    en vez de mezclar juicios de dos contratos bajo una revision."""
++    with db_jev() as conn:
++        censo, _, _, grupo = _grupo_con_fichas(conn, con_ficha_p2=False)
++        pedido = _Pedido()
++        base = contrato_por_defecto()
++        otro = Contrato(
++            modelo=base.modelo,
++            opciones=base.opciones,
++            criterios=base.criterios,
++            instrucciones=base.instrucciones,
++            version=base.version + "-OTRA",
++            max_bytes_termino=base.max_bytes_termino,
++            max_bytes_ficha=base.max_bytes_ficha,
++        )
++        solicitud = uuid.uuid4()
++        AsesorAds(conn, pedir=pedido, api_key="k", presupuesto=5, ahora=lambda: AHORA).evaluar(
++            _sujeto(censo, terminos=("t1",)), solicitud_id=solicitud
++        )
++        with pytest.raises(ValueError, match="misma solicitud"):
++            AsesorAds(
++                conn,
++                pedir=pedido,
++                api_key="k",
++                presupuesto=5,
++                ahora=lambda: AHORA,
++                contrato=otro,
++            ).evaluar(_sujeto(censo, terminos=("t1",)), solicitud_id=solicitud)
++        # El contrato NO cambio: retomar sigue siendo valido.
++        AsesorAds(conn, pedir=pedido, api_key="k", presupuesto=5, ahora=lambda: AHORA).evaluar(
++            _sujeto(censo, terminos=("t1",)), solicitud_id=solicitud
++        )
++        contratos = conn.execute(
++            "SELECT count(DISTINCT contrato_sha256) FROM jev_par_evento WHERE revision_id = %s",
++            (solicitud,),
++        ).fetchone()[0]
++        assert contratos == 1
++
++
+ def test_reutilizacion_solo_de_exitos_validos():
+     with db_jev() as conn:
+         censo, _, _, grupo = _grupo_con_fichas(conn, con_ficha_p2=False)
+@@ -531,15 +575,22 @@ def test_cli_decision_id_se_rechaza_hasta_2_1(tmp_path):
+
+
+ def test_los_consumidores_no_importan_al_asesor():
++    """Guarda del contrato: cycle/apply_cola/apply_harvest no importan al
++    asesor ni a sus modulos, en NINGUNA forma de import (B5-r2, B3):
++    resuelve `from app import X` -> "app.X", `from .x import y` ->
++    "app.x.y" y los imports anidados en cualquier profundidad."""
++    prohibidos = {"app.jev_ads", "app.jev_juicios", "app.jev_catalogo", "tools.jev_ads"}
+     for nombre in ("cycle.py", "apply_cola.py", "apply_harvest.py"):
+         arbol = ast.parse((RAIZ / "app" / nombre).read_text(encoding="utf-8"))
+-        importados = set()
++        importados: set[str] = set()
+         for nodo in ast.walk(arbol):
+             if isinstance(nodo, ast.Import):
+                 importados.update(alias.name for alias in nodo.names)
+             elif isinstance(nodo, ast.ImportFrom):
+-                importados.add(nodo.module or "")
+-        prohibidos = {"app.jev_ads", "app.jev_juicios", "app.jev_catalogo", "tools.jev_ads"}
++                # Relativo (level>=1): los modulos guardados viven en app/.
++                base = (("app." if nodo.level else "") + (nodo.module or "")).rstrip(".")
++                importados.add(base)
++                importados.update(f"{base}.{alias.name}" for alias in nodo.names)
+         assert not (importados & prohibidos), (nombre, importados & prohibidos)
+
+
+@@ -706,3 +757,37 @@ def test_cli_sin_dsn_da_error_config(monkeypatch):
+     monkeypatch.delenv("ORBIT_DSN_ADMIN", raising=False)
+     codigo = cli_jev(argv, dsn="")
+     assert codigo == 2
++
++
++def test_cli_modulo_ejecutable_da_error_config_y_no_es_no_op():
++    """B5-r2 (B2): `python -m tools.jev_ads ...` DEBE ejecutar main(); sin
++    ORBIT_DSN_ADMIN sale 2 con el mensaje de configuracion, jamas un no-op
++    silencioso con exit 0. Va por subprocess: el bug era justamente que el
++    modulo importado no llamaba a nada."""
++    argv = [
++        sys.executable,
++        "-m",
++        "tools.jev_ads",
++        "evaluar",
++        "--plataforma",
++        "amazon_mx",
++        "--grupo-id",
++        "1",
++        "--termino",
++        "t",
++        "--solicitud",
++        "00000000-0000-0000-0000-000000000001",
++        "--aplicar",
++    ]
++    entorno = {k: v for k, v in os.environ.items() if k != "ORBIT_DSN_ADMIN"}
++    corrida = subprocess.run(
++        argv,
++        cwd=RAIZ,
++        env=entorno,
++        capture_output=True,
++        text=True,
++        timeout=120,
++        check=False,
++    )
++    assert corrida.returncode == 2, (corrida.returncode, corrida.stdout, corrida.stderr)
++    assert "falta ORBIT_DSN_ADMIN" in corrida.stderr
+diff --git a/tests/test_jev_juicios.py b/tests/test_jev_juicios.py
+index 3a4a2f4..4d0a08d 100644
+--- a/tests/test_jev_juicios.py
++++ b/tests/test_jev_juicios.py
+@@ -123,13 +123,18 @@ def _pedir(transporte, termino="soporte mesa", **kw):
+
+ def test_wire_lleva_solo_termino_y_ficha():
+     transporte = _Transporte(RESPUESTA_OK)
+-    resultado = _pedir(transporte)
++    # Termino con MAYUSCULAS a proposito (B5-r2, B5b): una normalizacion
++    # como .lower() cambia este valor y la asercion literal de abajo lo
++    # detecta; con un termino ya minusculo el mutante seria invisible.
++    resultado = _pedir(transporte, termino="Soporte MESA")
+     assert hasattr(resultado, "juicio")
+     url, payload, headers, timeout_s = transporte.ultima
+     assert url == "https://api.typesafe.ai/v1/systemone"
+     assert payload["model"] == MODELO
+     assert set(payload) == {"state", "model", "questions"}
+     assert set(payload["state"]) == {"termino", "ficha"}
++    # B5-r2 (B5b): el termino viaja LITERAL (DoD 1.3), no normalizado.
++    assert payload["state"]["termino"] == "Soporte MESA"
+     # Correccion VEREDICTO-B3-r1: SOLO hechos y desconocidos viajan al
+     # proveedor; listings/observado_at/revisar_antes_de son internos de
+     # Orbit (la identidad viaja por la ficha id en la clave y en el hash).
+@@ -175,6 +180,44 @@ def test_clave_estable_y_request_hash_con_mismo_contrato():
+     )
+
+
++def test_request_sha256_valor_fijo_y_sensible_al_contenido():
++    """B5-r2 (B5c): el hash del request se fija contra un valor LITERAL
++    (un hash constante o un payload que pierda el termino no puede pasar)
++    y cambia con el contenido que viaja por el wire: termino, hechos de la
++    ficha y modelo del contrato. La identidad (id de ficha) y la version
++    del contrato NO van en el payload wire (viajan en la clave): no cambian
++    este hash por diseno."""
++    ficha = _ficha(id=uuid.UUID("00000000-0000-0000-0000-00000000f1a1"))
++    contrato = contrato_por_defecto()
++    assert (
++        request_sha256("soporte mesa", ficha, contrato)
++        == "6ddbb70b1b5aaa4901c3a8e46a8f50d03859c68a09510bbeb460ebfe1ca9b1d9"
++    )
++    assert request_sha256("soporte mesas", ficha, contrato) != request_sha256(
++        "soporte mesa", ficha, contrato
++    )
++    otra_ficha = _ficha(
++        id=uuid.UUID("00000000-0000-0000-0000-00000000f1a1"),
++        hechos=(HechoConFuente(texto="otro hecho", fuente="fuente"),),
++    )
++    assert request_sha256("soporte mesa", otra_ficha, contrato) != request_sha256(
++        "soporte mesa", ficha, contrato
++    )
++    base = contrato_por_defecto()
++    otro_modelo = Contrato(
++        modelo="jev-9.9.9",
++        opciones=base.opciones,
++        criterios=base.criterios,
++        instrucciones=base.instrucciones,
++        version=base.version,
++        max_bytes_termino=base.max_bytes_termino,
++        max_bytes_ficha=base.max_bytes_ficha,
++    )
++    assert request_sha256("soporte mesa", ficha, otro_modelo) != request_sha256(
++        "soporte mesa", ficha, contrato
++    )
++
++
+ # ---------------------------------------------------------------------------
+ # La clave cambia con orden de opciones y version del contrato
+ # ---------------------------------------------------------------------------
+diff --git a/tools/jev_ads.py b/tools/jev_ads.py
+index 7f1d689..0f43227 100644
+--- a/tools/jev_ads.py
++++ b/tools/jev_ads.py
+@@ -166,4 +166,8 @@ def _canonico(objeto: object) -> str:
+     return json.dumps(objeto, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
++if __name__ == "__main__":
++    raise SystemExit(main())
++
++
+ __all__ = ["main", "scrub"]
