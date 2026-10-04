@@ -29,9 +29,13 @@ on:
 
 # Si llega un push nuevo sobre la misma rama o PR, la corrida anterior se
 # cancela sola y solo la ULTIMA corre. Lo cancelado nunca deja un verde
-# falso: el gate es fail-closed ante cancelaciones.
+# falso: el gate es fail-closed ante cancelaciones. El grupo distingue el
+# EVENTO (hallazgo B6a, run 37195080800): sin `github.event_name`, el
+# schedule nocturno y un push a master comparten grupo
+# (`quality-refs/heads/master`) y se cancelan entre si; con el prefijo,
+# dos pushes de la misma rama/PR siguen cancelandose pero schedule y push no.
 concurrency:
-  group: quality-${{ github.event.pull_request.number || github.ref }}
+  group: quality-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:

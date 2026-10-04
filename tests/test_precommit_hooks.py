@@ -145,6 +145,41 @@ def test_drive_ci_migra_su_base_antes_de_probar_rutas():
     assert llamada.start() < script.index("-m pytest verify/")
 
 
+def test_concurrencia_de_ci_distingue_evento_y_gate_sigue_fail_closed():
+    """El grupo de concurrencia separa schedule de push y el gate sigue cerrado.
+
+    Con `quality-<PR||ref>` el schedule nocturno y el push a master comparten
+    grupo (`quality-refs/heads/master`) y se cancelan entre si: en el run
+    37195080800 (squash de B5) la corrida schedule dejo `completa=cancelled`
+    y `gate=failure`. Al anteponer `github.event_name` al grupo, dos pushes
+    de la misma rama o PR siguen cancelandose entre si, pero schedule y push
+    ya no comparten grupo. El gate se pinea fail-closed para que una
+    cancelacion jamas deje un verde falso.
+    """
+    workflow = yaml.safe_load((RAIZ / ".github" / "workflows" / "quality.yml").read_text("utf-8"))
+
+    concurrencia = workflow["concurrency"]
+    grupo = str(concurrencia["group"])
+    assert "github.event_name" in grupo, (
+        "el grupo debe distinguir github.event_name: si no, el schedule nocturno "
+        f"comparte grupo con el push a master y cancela su bateria completa ({grupo!r})"
+    )
+    assert concurrencia["cancel-in-progress"] is True, (
+        "la cancelacion entre pushes de la misma rama o PR se mantiene"
+    )
+
+    gate = workflow["jobs"]["gate"]
+    assert gate["if"] == "always()", "el gate corre siempre para dar veredicto unico"
+    veredicto = "\n".join(str(paso.get("run", "")) for paso in gate["steps"])
+    caso = re.search(r'case "\$par" in ([^)]*)\)', veredicto)
+    assert caso, "el gate decide con el case sobre el resultado de cada job"
+    assert set(caso.group(1).split("|")) == {"*=success", "*=skipped"}, (
+        "el gate es fail-closed: solo success o skipped pasan; cancelled o "
+        "failure dejan rc=1 y exit 1"
+    )
+    assert "exit 1" in veredicto, "un job aplicable no verde mata el gate con exit 1"
+
+
 def test_pre_push_es_rapido_y_declara_donde_vive_la_bateria():
     """El entry de pre-push acota a las guardas y el archivo declara POR QUE.
 
