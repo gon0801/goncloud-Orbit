@@ -845,6 +845,25 @@ def test_cli_evaluar_seco_no_escribe_ni_llama(tmp_path):
         assert any("seco" in linea for linea in salida)
 
 
+def test_cli_seco_cuenta_fichas_con_la_regla_de_evaluar():
+    """Nota de codex en B9b: el seco contaba fichas solo con un listing; un
+    producto con 2 listings cubiertos por UNA ficha si se evalua al aplicar,
+    y el seco debe decir lo mismo."""
+    from tools.jev_ads import main as cli_jev
+
+    with db_jev() as conn:
+        producto = _producto(conn, "MULTI")
+        l1 = _listing(conn, producto, asin="B0MULTI101")
+        l2 = _listing(conn, producto, asin="B0MULTI102")
+        grupo = _grupo(conn, "amazon_mx", (l1, l2))
+        _ficha(conn, producto, (l1, l2))
+        argv = ["evaluar", "--plataforma", "amazon_mx", "--grupo-id", str(grupo)]
+        argv += ["--termino", "t", "--solicitud", str(uuid.uuid4())]
+        salida = []
+        assert cli_jev(argv, pedir=_Pedido(), dsn=_dsn_jev(), imprimir=salida.append) == 0
+        assert any("fichas vigentes 1;" in linea for linea in salida), salida
+
+
 def test_cli_evaluar_aplica_y_retoma(tmp_path):
     from tools.jev_ads import main as cli_jev
 

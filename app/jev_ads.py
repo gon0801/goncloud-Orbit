@@ -577,6 +577,11 @@ class AsesorAds:
         )
         return censo, destino, fichas, capturado
 
+    def fichas_del_censo(self, censo: CensoCongelado, plataforma, ahora) -> dict:
+        """Las fichas que una revision NUEVA usaria hoy (la misma regla que
+        evaluar, R8); solo lectura, para el modo seco del CLI."""
+        return self._enriquecer(censo, plataforma, ahora)[1]
+
     def _enriquecer(self, censo: CensoCongelado, plataforma, ahora):
         """Ficha vigente por miembro, congelada en el censo. Un producto con
         varios listings se acredita solo si la MISMA ficha vigente cubre todos
