@@ -1,0 +1,62 @@
+Salida de desplegar.sh, corrido por David desde ~/dev/goncloud-Orbit el
+2026-10-04 (STAMP=20261004-2253). Se omiten solo las lineas de progreso del
+build de Docker (#1 a #18); todo lo demas es literal.
+
+== 0) SHA aprobado = origin/master con la bateria completa verde
+APROBADO=25cebe7be1be938be5f55c0b05299961732f72b7 CI=success
+== 1) Preflight (esperado ok|0|f|0|0: sin ciclo corriendo, sin tablas Jev, sin harvest en vuelo)
+ok|0|f|0|0
+== 2) Respaldo del codigo actual y del SHA (antes de tocar la base: toda reversa lo encuentra)
+app
+Dockerfile
+pyproject.toml
+SHA
+tools
+uv.lock
+== 3) Backup del esquema (staging + verificacion)
+-rw------- 1 root root 451395 Oct  4 22:53 /mnt/data/appdata/orbit/backups/pre0049_0050_schema_20261004-2253.sql
+== 4) Migracion 0049 (catalogo, revisiones, eventos, app_jev)
+BEGIN
+WARNING:  there is already a transaction in progress
+CREATE TABLE (x4), COMMENT, CREATE FUNCTION (x3), CREATE TRIGGER (x11),
+CREATE INDEX (x7), DO, GRANT (x6), COMMENT, DO
+COMMIT
+WARNING:  there is no transaction in progress
+== 5) Migracion 0050 (created_at = insercion real)
+BEGIN
+WARNING:  there is already a transaction in progress
+ALTER TABLE
+CREATE FUNCTION
+COMMENT
+COMMENT
+COMMIT
+WARNING:  there is no transaction in progress
+== 5b) orbit_admin entra a app_jev (el CLI escribe revisiones con ORBIT_DSN_ADMIN; R2)
+== 6) Permisos y esquema Jev (esperado: permisos OK)
+permisos OK
+== 7) Copiar el codigo del SHA aprobado (git archive, LF)
+== 8) md5 server vs SHA aprobado
+md5 OK Dockerfile
+md5 OK app/jev_ads.py
+md5 OK app/jev_asesor.py
+md5 OK app/jev_vista.py
+md5 OK app/jev_catalogo.py
+md5 OK app/jev_juicios.py
+md5 OK app/api_dashboard.py
+md5 OK app/api_fabrica.py
+md5 OK app/cycle.py
+md5 OK tools/jev_ads.py
+md5 OK tools/jev_fichas.py
+== 9) Build + recrear app (digest antes/despues) + health
+DIGEST antes=sha256:5b2bdb1c169ac05ad8377c0a26cb3b3178308393020e84922e609b30a871e615
+ [build: COPY app, COPY tools/fabrica_campanas.py, COPY tools/jev_ads.py,
+  COPY tools/jev_fichas.py; capas de dependencias CACHED]
+ Container orbit-app-1 Recreated
+ Container orbit-app-1 Started
+DIGEST despues=sha256:aff285a88d9b09b0918e7f5e8a58fc6fbe1f78d30001c8873cbab0cd433eb088
+{"status":"ok"}
+orbit-app-1 Up 5 seconds
+== LISTO. STAMP=20261004-2253
+
+Los WARNING de transaccion son esperados: cada migracion trae su propio
+BEGIN/COMMIT dentro de psql -1 (mismo patron del deploy de la fase D).
