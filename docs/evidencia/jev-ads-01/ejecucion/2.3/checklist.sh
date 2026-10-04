@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Checklist post-deploy de 2.3 (DoD de la fila): SOLO LECTURA. Corre UNA vez
-# despues de desplegar.sh y deja su salida en checklist-salida.txt.
+# despues de desplegar.sh y del siguiente ciclo del optimizador, y deja su
+# salida en checklist-salida.txt. Exit 0 = todo comprobado; 1 = alguna falla;
+# 3 = sin fallas pero todavia sin ciclo posterior (no cuenta como verde).
 # Uso: cd ~/dev/goncloud-Orbit && bash docs/evidencia/jev-ads-01/ejecucion/2.3/checklist.sh <STAMP> | tee docs/evidencia/jev-ads-01/ejecucion/2.3/checklist-salida.txt
 set -uo pipefail
 
@@ -9,6 +11,7 @@ DESDE=$(date -u -j -f '%Y%m%d-%H%M' "$STAMP" '+%Y-%m-%dT%H:%M:00Z' 2>/dev/null |
 REPO=$(git rev-parse --show-toplevel)
 DIR=docs/evidencia/jev-ads-01/ejecucion/2.3
 FALLAS=0
+PENDIENTE=0
 cd "$REPO"
 
 revisa() {  # revisa <nombre> <esperado> <obtenido>
@@ -49,11 +52,13 @@ revisa "filas Jev (fichas|revocaciones|revisiones|eventos)" "0|0|0|0" \
 echo "== 5) Primer ciclo del optimizador despues del deploy"
 CICLOS=$(echo "SELECT id || ' ' || coalesce(platform::text, '-') || ' ' || status || ' ' || coalesce(decisions_count, 0) FROM optimizer_cycle WHERE started_at > '$DESDE' ORDER BY id;" | lee)
 if [ -z "$CICLOS" ]; then
-  echo "PENDIENTE: todavia no corre un ciclo despues de $DESDE; vuelve a correr solo esta seccion despues del siguiente ciclo"
+  echo "INCOMPLETO: todavia no corre un ciclo despues de $DESDE; vuelve a correr el checklist despues del siguiente ciclo"
+  PENDIENTE=1
 else
   echo "$CICLOS"
   revisa "ciclos posteriores fallidos o colgados" 0 "$(echo "$CICLOS" | grep -c -E ' (failed|running) ')"
 fi
 
-echo "== RESULTADO: $FALLAS falla(s)"
-[ "$FALLAS" -eq 0 ]
+echo "== RESULTADO: $FALLAS falla(s), ciclo posterior $([ "$PENDIENTE" = 1 ] && echo PENDIENTE || echo comprobado)"
+[ "$FALLAS" -eq 0 ] || exit 1
+[ "$PENDIENTE" = 0 ] || exit 3

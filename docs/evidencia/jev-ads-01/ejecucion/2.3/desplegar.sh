@@ -56,7 +56,7 @@ echo "== 5) Permisos y esquema Jev (esperado: permisos OK)"
 R=$(git show "$APROBADO:$DIR/permisos.sql" \
   | ssh goncloud 'docker exec -i orbit-db-1 psql -U orbit -d orbit -v ON_ERROR_STOP=1 -tA')
 echo "$R"
-[ "$R" = "permisos OK" ] || { echo "ABORTA antes del codigo: $R. Reversa: bash $DIR/rollback.sh $STAMP"; exit 1; }
+[ "$R" = "permisos OK" ] || { echo "ABORTA antes del codigo: $R. Reversa: bash $DIR/rollback.sh $STAMP --solo-esquema"; exit 1; }
 
 echo "== 6) Respaldo del codigo actual"
 ssh goncloud "set -e; cd $SRV; mkdir -p predeploy-$STAMP; \

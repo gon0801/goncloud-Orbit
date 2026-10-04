@@ -3,14 +3,20 @@
 # las tablas Jev), despues las reversas 0050 y 0049. La reversa 0049 aborta
 # sola si ya hay fichas, revisiones o eventos: despues del primer dato real
 # la salida es corregir hacia adelante, no reversar.
-# Uso: cd ~/dev/goncloud-Orbit && bash docs/evidencia/jev-ads-01/ejecucion/2.3/rollback.sh <STAMP de desplegar.sh>
+# Uso: cd ~/dev/goncloud-Orbit && bash docs/evidencia/jev-ads-01/ejecucion/2.3/rollback.sh <STAMP de desplegar.sh> [--solo-esquema]
+# --solo-esquema: desplegar.sh aborto antes de copiar el codigo (paso 5); solo
+# hay que deshacer las migraciones.
 set -euo pipefail
 
-STAMP=${1:?uso: rollback.sh <STAMP impreso por desplegar.sh>}
+STAMP=${1:?uso: rollback.sh <STAMP impreso por desplegar.sh> [--solo-esquema]}
+MODO=${2:-}
 REPO=$(git rev-parse --show-toplevel)
 SRV=/mnt/data/appdata/orbit
 cd "$REPO"
 
+if [ "$MODO" = "--solo-esquema" ]; then
+  echo "== 1) Codigo sin tocar (desplegar.sh aborto antes de copiarlo)"
+else
 echo "== 1) Restaurar el codigo de predeploy-$STAMP y reconstruir"
 ssh goncloud "set -e; cd $SRV; [ -d predeploy-$STAMP/app ] || { echo 'ABORTA: no existe predeploy-$STAMP'; exit 1; }; \
   rm -rf app tools; cp -a predeploy-$STAMP/app predeploy-$STAMP/tools .; \
@@ -19,6 +25,7 @@ ssh goncloud "set -e; cd $SRV; [ -d predeploy-$STAMP/app ] || { echo 'ABORTA: no
   docker compose up -d --no-deps --build app; \
   echo DIGEST despues=\$(docker inspect -f '{{.Image}}' orbit-app-1); \
   sleep 5; curl -sS http://127.0.0.1:8010/health; echo"
+fi
 
 echo "== 2) Reversa 0050 y despues 0049"
 git show "origin/master:migrations/0050_reversa_jev_revision_created_at.sql" \

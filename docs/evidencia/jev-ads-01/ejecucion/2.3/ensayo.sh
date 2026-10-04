@@ -12,7 +12,12 @@ REPO=$(git rev-parse --show-toplevel)
 DSN_LOCAL=${ORBIT_TEST_DSN:-postgresql://orbit:orbit@localhost:5432/postgres}
 DB=orbit_ensayo_jev_2_3
 TMP=$(mktemp -d)
-trap 'psql "$DSN_LOCAL" -qc "DROP DATABASE IF EXISTS $DB WITH (FORCE)" >/dev/null; rm -rf "$TMP"' EXIT
+CREADA=0
+limpiar() {
+  [ "$CREADA" = 1 ] && psql "$DSN_LOCAL" -qc "DROP DATABASE IF EXISTS $DB WITH (FORCE)" >/dev/null
+  rm -rf "$TMP"
+}
+trap limpiar EXIT
 DSN_DB="${DSN_LOCAL%/*}/$DB"
 
 volcar() { pg_dump "$DSN_DB" --schema-only | grep -v -E '^\\(un)?restrict ' > "$TMP/$1.sql"; }
@@ -24,8 +29,11 @@ ssh goncloud 'DSN=$(docker exec orbit-app-1 printenv ORBIT_DSN_READ); docker exe
 grep -q 'CREATE TABLE public.decision ' "$TMP/prod.sql" || { echo "ABORTA: dump de prod invalido"; exit 1; }
 if grep -q 'jev_revision' "$TMP/prod.sql"; then echo "ABORTA: prod ya tiene tablas Jev"; exit 1; fi
 
-psql "$DSN_LOCAL" -qc "DROP DATABASE IF EXISTS $DB WITH (FORCE)" >/dev/null
+if [ -n "$(psql "$DSN_LOCAL" -tAc "SELECT 1 FROM pg_database WHERE datname = '$DB'")" ]; then
+  echo "ABORTA: ya existe la base local $DB; no es de este ensayo y no se toca"; exit 1
+fi
 psql "$DSN_LOCAL" -qc "CREATE DATABASE $DB" >/dev/null
+CREADA=1
 psql "$DSN_DB" -q -v ON_ERROR_STOP=1 -f "$TMP/prod.sql" >/dev/null
 volcar a_prod
 echo "esquema de prod cargado: $(grep -c '^CREATE TABLE' "$TMP/a_prod.sql") tablas"

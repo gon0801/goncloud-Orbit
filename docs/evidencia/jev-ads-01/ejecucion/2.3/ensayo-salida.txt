@@ -1,5 +1,4 @@
 == esquema de prod (orbit_read, solo lectura)
-NOTICE:  database "orbit_ensayo_jev_2_3" does not exist, skipping
 esquema de prod cargado: 59 tablas
 == 1) aplicar 0049 y 0050
 psql:~/dev/wt/jev-b8/migrations/0049_jev_ads.sql:49: WARNING:  there is already a transaction in progress
