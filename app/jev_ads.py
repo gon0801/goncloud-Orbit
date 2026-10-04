@@ -642,7 +642,9 @@ class AsesorAds:
                 destino, fichas_destino = self._enriquecer(destino_crudo, sujeto.plataforma, ahora)
                 fichas = {**fichas, **fichas_destino}
         else:
-            censo, destino, fichas, _ = self._retomar(guardada, sujeto.censo, destino_crudo)
+            censo, destino, fichas, _ = self._retomar(
+                guardada, sujeto.censo, destino_crudo, sujeto.plataforma
+            )
         terminos = (sujeto.termino,) if isinstance(sujeto, DecisionARevisar) else sujeto.terminos
         nuevas: set = set()
         reutilizables: set = set()
