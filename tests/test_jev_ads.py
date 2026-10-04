@@ -343,15 +343,29 @@ def test_relacion_no_reconocida_es_error_estructural():
         componer(censo, (raro,))
 
 
-def test_modulo_puro_sin_red_ni_db():
+def test_modulo_puro_sin_red_ni_db_en_top_level():
+    """El nucleo (tipos + componer) es PURO: red y DB solo entran con
+    AsesorAds (1.4) y por imports PEREZOSOS dentro de metodos. En top-level
+    del modulo no hay red, ni DB, ni modulos Jev de IO."""
     arbol = ast.parse((RAIZ / "app" / "jev_ads.py").read_text(encoding="utf-8"))
     importados: set[str] = set()
-    for nodo in ast.walk(arbol):
+    for nodo in arbol.body:  # SOLO top-level del modulo
         if isinstance(nodo, ast.Import):
             importados.update(alias.name for alias in nodo.names)
         elif isinstance(nodo, ast.ImportFrom):
             importados.add(nodo.module or "")
-    prohibidos = {"httpx", "psycopg", "requests", "urllib", "socket", "ssl", "app.db", "app.ads"}
+    prohibidos = {
+        "httpx",
+        "psycopg",
+        "requests",
+        "urllib",
+        "socket",
+        "ssl",
+        "app.db",
+        "app.ads",
+        "app.jev_catalogo",
+        "app.jev_juicios",
+    }
     assert not (importados & prohibidos), importados & prohibidos
     permitidos = {
         "__future__",
@@ -359,8 +373,17 @@ def test_modulo_puro_sin_red_ni_db():
         "dataclasses",
         "datetime",
         "decimal",
+        "json",
         "re",
         "typing",
         "uuid",
     }
     assert importados <= permitidos, importados - permitidos
+    # y el chequeo fino: componer no llama a nada de IO (su codigo no
+    # referencia conn/httpx/requests)
+    componer = next(
+        n for n in arbol.body if isinstance(n, ast.FunctionDef) and n.name == "componer"
+    )
+    texto = ast.unparse(componer)
+    for prohibido in ("psycopg", "httpx", "requests", "conn"):
+        assert prohibido not in texto
