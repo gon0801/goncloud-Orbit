@@ -97,7 +97,9 @@ def _parser() -> argparse.ArgumentParser:
 
 def _terminos(crudos) -> tuple[str, ...]:
     terminos = tuple(str(t).strip() for t in crudos or ())
-    if not terminos or any(not t for t in terminos):
+    if not terminos:
+        raise _Configuracion("no hay terminos que cotejar")
+    if any(not t for t in terminos):
         raise _Configuracion("cada termino debe traer texto")
     if len(set(terminos)) != len(terminos):
         raise _Configuracion("termino repetido")

@@ -1176,7 +1176,10 @@ def test_cli_escribe_con_el_rol_real_de_prod(con_app_jev, capsys):
         try:
             conn.execute(f"CREATE ROLE {rol} LOGIN PASSWORD 'clave' NOSUPERUSER")
         except psycopg.errors.InsufficientPrivilege:
-            pytest.skip("crear un login de prueba exige CREATEROLE")
+            pytest.fail(
+                "ORBIT_TEST_DSN sin CREATEROLE: esta prueba es la unica evidencia del"
+                " GRANT app_jev TO orbit_admin y no puede saltarse en silencio"
+            )
         try:
             conn.execute(f"GRANT app_admin TO {rol}")
             if con_app_jev:

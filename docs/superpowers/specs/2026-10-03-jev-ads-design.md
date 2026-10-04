@@ -267,7 +267,7 @@ par duplicado; sus resultados siguen separados. Un crash tras intención deja
 estado interrumpido, con costo desconocido si no se recibió usage. Retomar
 registra otro ordinal sin borrar el anterior.
 
-Rol nuevo `orbit_jev` con lectura de entradas e INSERT en revisiones/eventos;
+Rol nuevo `app_jev` con lectura de entradas e INSERT en revisiones/eventos;
 sin permisos sobre decisiones, cola, ledger, goals ni bibliotecas. Administración
 inserta fichas/revocaciones; `orbit_read` lee resultados. Los grants y triggers
 se prueban con conexiones de cada rol. La asesoría no recibe credenciales Ads.
