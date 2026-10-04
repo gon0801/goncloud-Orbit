@@ -27,7 +27,8 @@ delta). PR #397.
   Ronda 2 (kimi, delta): sin bloqueantes. CodeRabbit: alcance del COMMENT y
   cota superior en la prueba, corregidos. ai-review: el cambio a `cc:DONE` se
   hace en el PR de cierre con PR y SHA, y la asercion estatica de 0050.
-- Ensayo sobre el esquema REAL de prod: `docs/evidencia/jev-ads-01/ejecucion/2.3/`.
+- El ensayo de 0049 + 0050 sobre el esquema real de prod viaja con B8 (PR
+  siguiente, fila 2.3), no con este PR.
 
 ## R4. Reutilizacion entre revisiones
 
