@@ -166,4 +166,8 @@ def _canonico(objeto: object) -> str:
     return json.dumps(objeto, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+
 __all__ = ["main", "scrub"]

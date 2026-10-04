@@ -1,0 +1,15 @@
+# B5-r2 mutante B5b: 'termino': termino.lower() en _payload de app/jev_juicios.py
+Fecha: 2026-10-04T08:44:45Z
+Comando: uv run --frozen python -m pytest -q tests/test_jev_juicios.py::test_wire_lleva_solo_termino_y_ficha
+Fixture: termino 'Soporte MESA' (con mayusculas; con 'soporte mesa' el mutante lower() es un no-op y no discrimina, corrida previa descartada)
+Esperado: FAILED (el wire lleva 'soporte mesa' en vez del literal). Observado:
+
+
+tests/test_jev_juicios.py:137: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_jev_juicios.py::test_wire_lleva_solo_termino_y_ficha - Asse...
+1 failed in 0.11s
+
+(mutante retirado; verde con el arbol limpio:)
+...........................                                              [100%]
+27 passed in 0.07s

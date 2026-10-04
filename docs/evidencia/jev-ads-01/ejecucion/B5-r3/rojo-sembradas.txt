@@ -1,0 +1,46 @@
+ROJO: pruebas sembradas contra la logica VIEJA de la guarda (extraida al
+helper _fugas_pureza sin cambiar criterio; corrida antes del rediseno).
+
+Comando: uv run --frozen python -m pytest -q \
+  "tests/test_jev_ads.py::test_modulo_puro_sin_red_ni_db_en_top_level" \
+  "tests/test_jev_ads.py::test_guarda_pureza_caza_relativo_anidado" \
+  "tests/test_jev_ads.py::test_guarda_pureza_caza_import_en_try_de_modulo" \
+  "tests/test_jev_ads.py::test_guarda_pureza_deja_pasar_permitido_anidado"
+
+Salida observada (fragmento de asercion + resumen):
+
+        """B5-r3 mutante (a): `from . import db` anidado en una funcion es
+        `app.db` (el relativo se resuelve antes de juzgar) y sale rojo."""
+        codigo = "import json\n\ndef componer():\n    from . import db\n    return db\n"
+>       assert any(hallazgo == "app.db" for _, hallazgo in _fugas_pureza(codigo))
+E       assert False
+E        +  where False = any(<generator object test_guarda_pureza_caza_relativo_anidado.<locals>.<genexpr> at 0x10ab32180>)
+
+tests/test_jev_ads.py:434: AssertionError
+_______________ test_guarda_pureza_caza_import_en_try_de_modulo ________________
+
+    def test_guarda_pureza_caza_import_en_try_de_modulo():
+        """B5-r3 mutante (b): un `try: import boto3` a nivel de modulo no
+        escapa a la guarda: el cuerpo del Try sigue siendo alcance de modulo y
+        boto3 no es stdlib ni esta concedido."""
+        codigo = (
+            "import json\n"
+            "try:\n"
+            "    import boto3\n"
+            "except ImportError:\n"
+            "    boto3 = None\n"
+        )
+>       assert any(hallazgo == "boto3" for _, hallazgo in _fugas_pureza(codigo))
+E       assert False
+E        +  where False = any(<generator object test_guarda_pureza_caza_import_en_try_de_modulo.<locals>.<genexpr> at 0x10ab31c40>)
+
+tests/test_jev_ads.py:448: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_jev_ads.py::test_guarda_pureza_caza_relativo_anidado - asse...
+FAILED tests/test_jev_ads.py::test_guarda_pureza_caza_import_en_try_de_modulo
+2 failed, 2 passed in 0.14s
+
+Lectura: los dos mutantes del bloqueante quedaron EN VERDE bajo la guarda
+vieja (las pruebas nuevas fallan: eso es el rojo que discrimina). El control
+positivo (c) y el archivo real pasaron (2 passed): la extraccion del helper
+fue neutra y el rojo encendio SOLO por los dos huecos.

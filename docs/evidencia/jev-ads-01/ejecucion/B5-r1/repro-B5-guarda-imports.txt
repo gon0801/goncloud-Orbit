@@ -1,0 +1,9 @@
+# B5-r1 repro B5.1: test_modulo_puro_sin_red_ni_db_en_top_level no discrimina
+Fecha: 2026-10-04T08:01:16Z HEAD: a47086651ceae2e055d842fc41bc07262b93e46e
+
+Mutante (revertido despues de la corrida): 'from app import db' anidado dentro de componer() en app/jev_ads.py (fuera de AsesorAds, que es donde la guarda SI aplica)
+Comando: uv run --frozen python -m pytest tests/test_jev_ads.py::test_modulo_puro_sin_red_ni_db_en_top_level -q
+Esperado si la guardara discriminara: 1 failed (import de app.db prohibido en nodo no-AsesorAds). Observado:
+
+.                                                                        [100%]
+1 passed in 0.07s

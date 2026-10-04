@@ -1,0 +1,53 @@
+=== quality-kit cross-review.ps1 ===
+Repo: /Users/dn/dev/wt/jev-ads-worker
+CLI: auto
+Cadena auto: claude -> grok -> kimi -> qwen -> codex (excluido: glm, escribio el cambio)
+Alcance: bloque desde afc1f3b68715c5bf05bdf939eefc9a6683adc0cd hasta HEAD
+Archivos (pathspec de la tarea): app/api_dashboard.py, app/api_fabrica.py, app/fabrica_web.py, app/templates/cortes.html, tests/test_api_dashboard.py, tests/test_api_fabrica.py, tests/test_architecture.py, verify/
+Tamano del diff: 56137 caracteres
+Tope automatico para este diff (~55 KB): 1800 s. Usa -TimeoutSec para fijarlo a mano.
+
+==> AVISO: el diff es grande (56137 caracteres). Una revision asi cuesta del orden de 100-200k tokens y varios minutos. Si solo te interesa parte del cambio, acotalo con -Archivos <pathspecs> en vez de mandarlo entero.
+
+==> Invocando claude de forma no interactiva (tope: 1800 s)...
+
+=== Respuesta de claude (codigo de salida: 0) ===
+1. BLOQUEANTE - `tests/test_api_dashboard.py::test_cortes_plantilla_asesoria_sin_error_economico_y_veto_visible` no discrimina el ambito de cada veredicto (DoD 2.1): solo afirma que "origen" y "destino" aparecen en el HTML, no que cada etiqueta acompane a su propio resultado. Reproduccion: en `app/templates/cortes.html` intercambiar las etiquetas (`veredicto("destino", r)` en el bucle de `resultados` y `veredicto("origen", r)` en el de `destinos`) y correr `pytest tests/test_api_dashboard.py::test_cortes_plantilla_asesoria_sin_error_economico_y_veto_visible`; sigue en verde porque todas las subcadenas buscadas siguen presentes. Arreglo: normalizar espacios y afirmar "origen · tenis blancos: compatible" y "destino · tenis blancos: sin compatibilidad".
+
+2. NO BLOQUEANTE - VERIFICAR: en `cortes()` el `except Exception` promete "degradacion visible, no caida", pero si `leer()` falla con un error SQL (por ejemplo, la 0049 sin aplicar al desplegar) y `ConexionLectura` no es autocommit, la transaccion queda abortada y las queries posteriores de la misma funcion daran 500. Confirmar el modo de la conexion o envolver la lectura en `with conn.transaction():`.
+
+3. NO BLOQUEANTE - La rama de degradacion de `cortes()` no tiene prueba y no es visible para el operador: deja `asesoria` en `None` en todos los items, igual que "sin revision", y un `ImportError` de `app.jev_ads` queda como un simple warning. Falta una prueba que fuerce el fallo de `leer` y exija 200, y una senal en el payload.
+
+4. NO BLOQUEANTE - `test_export_semillas_trae_plan_huella_y_fuentes_sin_tocar_biblioteca` no afirma nada sobre `terminos_vendedores`, `terminos_exactos` ni `negativos_biblioteca`: un mutante que devuelva `[]` en esas claves o quite `sql=fc._SQL_TERMINOS_EXACT` pasa. La rama `else` de `hasattr(plan, "publicaciones")` (`plan.productos`) tampoco se ejercita.
+
+5. NO BLOQUEANTE - VERIFICAR: `exportar_semillas` vuelve a consultar las fuentes con privados de otro modulo (`fc._biblioteca`, `fc._terminos_producto`, `fc._SQL_TERMINOS_EXACT`) despues de `planificar`, en vez de tomarlas del plan. Confirmar que usa los mismos argumentos y ventana que `planificar`; si no, las fuentes exportadas pueden no ser las que produjeron la huella.
+
+6. NO BLOQUEANTE - `terminos_a_cotejar = sorted(set(kws) | set(negs))` pierde el rol del termino: para una keyword "hay_compatible" es buena noticia y para un negativo es la alerta, y la vista por huella no lo distingue. VERIFICAR tambien que `product_id` nunca sea `None`, porque `sorted()` de `None` con enteros lanza `TypeError` y da 500.
+
+7. NO BLOQUEANTE - VERIFICAR: varias pruebas dependen de un desempate temporal que el diff no muestra. `_ficha_jev` inserta todas las fichas con `observado_at = AHORA` y las dos revisiones de `test_asesoria_vigencia_vigente_obsoleta_y_no_comprobable` usan el mismo reloj fijo. Confirmar que `leer` y el predicado de ficha vigente desempatan por un `created_at` que avanza por sentencia (conexion autocommit); si no, "posterior" y "ultima revision" quedan no deterministas.
+
+8. NO BLOQUEANTE - VERIFICAR: la guardia "cero HTTP" parchea `app.jev_juicios.transporte_httpx`; si `app.jev_ads` lo importa con `from ... import`, o `leer` usa otro camino, el parche no intercepta nada. Ademas el `AssertionError` de la guardia lo tragaria el `except Exception` de `cortes()`, asi que la deteccion depende solo de `asesoria is not None`. La afirmacion "cero INSERT/UPDATE" se mide por `count(*)`, que no detecta un UPDATE.
+
+9. NO BLOQUEANTE - VERIFICAR: `cortes()` pasa a `leer` la lista de `decision_id` tal cual. Confirmar que `_SQL_CORTES_PENDIENTES` no devuelve `decision_id` nulo ni repetido, o que `leer` los tolera; ninguna prueba cubre ese caso.
+
+10. NO BLOQUEANTE - En `cortes.html` el `{% macro veredicto %}` esta definido dentro del bucle de items (se redefine en cada fila) y con sangria rota; deberia ir al inicio del template. VERIFICAR que `ui.templates.env` tiene autoescape activo, porque `r.termino` es texto de busqueda de terceros.
+
+11. NO BLOQUEANTE - `assert "error" not in html.lower()` es fragil y no prueba la regla que dice probar: se rompe con cualquier "error" futuro en el layout o en JS, y no verifica como se presenta el veredicto compatible.
+
+12. NO BLOQUEANTE - Codigo muerto y duplicacion en pruebas: `_fallo_jev` (`test_api_dashboard.py`) y `_juicio_simple` (`test_api_fabrica.py`) no se usan, `pedir_satisface` duplica a `_juicio_falso`, y hay parametros `monkeypatch`/`dsn` sin uso. La siembra producto/listing/product_ad/estado/ficha se repite casi identica en seis pruebas y deberia ser un helper.
+
+13. NO BLOQUEANTE - `verify/Launch.md` actualiza 59 a 63 y 73 a 77, pero deja el comentario "64 con headers" de `\dt | wc -l`, que con cuatro tablas mas ya no corresponde.
+
+14. NO BLOQUEANTE - `app/jev_ads.py` entra a `ALLOWLIST_TAMANO` como modulo nuevo que ya supera las 900 lineas. La razon esta escrita, pero la particion dominio/asesor/lectura deberia ir a una fila del plan y no quedar solo como "candidato declarado".
+
+15. NO BLOQUEANTE - VERIFICAR: `POST /export-semillas` y `GET /asesoria/{huella}` no declaran autenticacion propia. Confirmar que el router de fabrica la aplica a nivel de router, como a `/plan`, porque el export expone la biblioteca y los terminos vendedores.
+
+
+=== stderr ===
+Permission allow rule (../../../.claude/settings.json): Write(/Users/dn/.local/state/**) is not matched by file permission checks — only Edit(path) rules are. Use Edit(/Users/dn/.local/state/**) instead (Edit rules cover all file-editing tools).
+Permission allow rule (../../../.claude/settings.json): Write(~/.claude/orchestrate/**) is not matched by file permission checks — only Edit(path) rules are. Use Edit(~/.claude/orchestrate/**) instead (Edit rules cover all file-editing tools).
+Permission allow rule (../../../.claude/settings.json): Write(~/.claude/projects/-Users-dn-dev-goncloud-Orbit/memory/**) is not matched by file permission checks — only Edit(path) rules are. Use Edit(~/.claude/projects/-Users-dn-dev-goncloud-Orbit/memory/**) instead (Edit rules cover all file-editing tools).
+Warning: claude.ai MCP servers blocked by enterprise policy: claude.ai Microsoft 365, claude.ai Notion, claude.ai Shopify, claude.ai Google Drive, claude.ai Gmail
+
+
+=== Revisor efectivo: claude (binario 'claude') ===

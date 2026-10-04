@@ -1,0 +1,14 @@
+# B5-r2 mutante B5c: request_sha256 devuelve '0'*64 constante
+Fecha: 2026-10-04T08:44:54Z
+Comando: uv run --frozen python -m pytest -q tests/test_jev_juicios.py::test_request_sha256_valor_fijo_y_sensible_al_contenido
+Esperado: FAILED (el valor no es el literal fijado). Observado:
+
+
+tests/test_jev_juicios.py:192: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_jev_juicios.py::test_request_sha256_valor_fijo_y_sensible_al_contenido
+1 failed in 0.07s
+
+(mutante retirado; verde con el arbol limpio:)
+...........................                                              [100%]
+27 passed in 0.07s

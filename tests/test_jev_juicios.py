@@ -123,13 +123,18 @@ def _pedir(transporte, termino="soporte mesa", **kw):
 
 def test_wire_lleva_solo_termino_y_ficha():
     transporte = _Transporte(RESPUESTA_OK)
-    resultado = _pedir(transporte)
+    # Termino con MAYUSCULAS a proposito (B5-r2, B5b): una normalizacion
+    # como .lower() cambia este valor y la asercion literal de abajo lo
+    # detecta; con un termino ya minusculo el mutante seria invisible.
+    resultado = _pedir(transporte, termino="Soporte MESA")
     assert hasattr(resultado, "juicio")
     url, payload, headers, timeout_s = transporte.ultima
     assert url == "https://api.typesafe.ai/v1/systemone"
     assert payload["model"] == MODELO
     assert set(payload) == {"state", "model", "questions"}
     assert set(payload["state"]) == {"termino", "ficha"}
+    # B5-r2 (B5b): el termino viaja LITERAL (DoD 1.3), no normalizado.
+    assert payload["state"]["termino"] == "Soporte MESA"
     # Correccion VEREDICTO-B3-r1: SOLO hechos y desconocidos viajan al
     # proveedor; listings/observado_at/revisar_antes_de son internos de
     # Orbit (la identidad viaja por la ficha id en la clave y en el hash).
@@ -171,6 +176,44 @@ def test_clave_estable_y_request_hash_con_mismo_contrato():
     assert a.termino_literal_sha256 != otra_clave
     assert a.ficha_version_id == ficha.id
     assert request_sha256("soporte mesa", ficha, contrato) == request_sha256(
+        "soporte mesa", ficha, contrato
+    )
+
+
+def test_request_sha256_valor_fijo_y_sensible_al_contenido():
+    """B5-r2 (B5c): el hash del request se fija contra un valor LITERAL
+    (un hash constante o un payload que pierda el termino no puede pasar)
+    y cambia con el contenido que viaja por el wire: termino, hechos de la
+    ficha y modelo del contrato. La identidad (id de ficha) y la version
+    del contrato NO van en el payload wire (viajan en la clave): no cambian
+    este hash por diseno."""
+    ficha = _ficha(id=uuid.UUID("00000000-0000-0000-0000-00000000f1a1"))
+    contrato = contrato_por_defecto()
+    assert (
+        request_sha256("soporte mesa", ficha, contrato)
+        == "6ddbb70b1b5aaa4901c3a8e46a8f50d03859c68a09510bbeb460ebfe1ca9b1d9"
+    )
+    assert request_sha256("soporte mesas", ficha, contrato) != request_sha256(
+        "soporte mesa", ficha, contrato
+    )
+    otra_ficha = _ficha(
+        id=uuid.UUID("00000000-0000-0000-0000-00000000f1a1"),
+        hechos=(HechoConFuente(texto="otro hecho", fuente="fuente"),),
+    )
+    assert request_sha256("soporte mesa", otra_ficha, contrato) != request_sha256(
+        "soporte mesa", ficha, contrato
+    )
+    base = contrato_por_defecto()
+    otro_modelo = Contrato(
+        modelo="jev-9.9.9",
+        opciones=base.opciones,
+        criterios=base.criterios,
+        instrucciones=base.instrucciones,
+        version=base.version,
+        max_bytes_termino=base.max_bytes_termino,
+        max_bytes_ficha=base.max_bytes_ficha,
+    )
+    assert request_sha256("soporte mesa", ficha, otro_modelo) != request_sha256(
         "soporte mesa", ficha, contrato
     )
 

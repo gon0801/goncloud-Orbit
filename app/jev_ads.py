@@ -592,7 +592,7 @@ class AsesorAds:
             ),
         )
         guardado = self._conn.execute(
-            "SELECT sujeto_tipo, decision_id, plan_sha256, censos"
+            "SELECT sujeto_tipo, decision_id, plan_sha256, censos, contrato"
             " FROM jev_revision WHERE solicitud = %s",
             (solicitud_id,),
         ).fetchone()
@@ -601,6 +601,7 @@ class AsesorAds:
             and guardado[1] == esperado[1]
             and guardado[2] == esperado[2]
             and guardado[3] == contexto
+            and guardado[4] == contrato_json
         )
         if not coherente:
             raise ValueError("misma solicitud con otro payload")
