@@ -1,0 +1,48 @@
+# Comandos B5-r3 (en orden; workdir /Users/dn/dev/wt/jev-ads-worker)
+
+# 0) ACK
+date -u +%FT%TZ > /Users/dn/.local/state/jev-ads-01-loop/ACK-B5-r3
+
+# 1) Repro de la guarda VIEJA contra los 3 mutantes (script de scratch fuera del repo;
+#    salida: repro-guarda-vieja.txt)
+uv run --frozen python /var/folders/hp/sc_3c6qs7nvdswl_x3w5sdbr0000gn/T/opencode/repro-b5-r3-vieja.py
+
+# 2) ROJO: pruebas sembradas contra la logica vieja extraida (salida: rojo-sembradas.txt)
+uv run --frozen python -m pytest -q \
+  "tests/test_jev_ads.py::test_modulo_puro_sin_red_ni_db_en_top_level" \
+  "tests/test_jev_ads.py::test_guarda_pureza_caza_relativo_anidado" \
+  "tests/test_jev_ads.py::test_guarda_pureza_caza_import_en_try_de_modulo" \
+  "tests/test_jev_ads.py::test_guarda_pureza_deja_pasar_permitido_anidado"
+
+# 3) VERDE tras el rediseno (salida: verde-sembradas.txt)
+uv run --frozen python -m pytest -q \
+  "tests/test_jev_ads.py::test_modulo_puro_sin_red_ni_db_en_top_level" \
+  "tests/test_jev_ads.py::test_guarda_pureza_caza_relativo_anidado" \
+  "tests/test_jev_ads.py::test_guarda_pureza_caza_import_en_try_de_modulo" \
+  "tests/test_jev_ads.py::test_guarda_pureza_deja_pasar_permitido_anidado"
+
+# 4) Bateria focalizada del archivo tocado + lint (salida: bateria-focalizada.txt)
+uv run --frozen python -m pytest -q tests/test_jev_ads.py
+uv run ruff check tests/test_jev_ads.py && uv run ruff format tests/test_jev_ads.py
+
+# 5) Candados (salida: precommit.txt)
+pre-commit run --all-files
+
+# 6) Commits locales (SIN push; Claw pushea tras VEREDICTO: APROBADO)
+git add tests/test_jev_ads.py && git commit -m "..."
+git add docs/evidencia/jev-ads-01/ejecucion/B5-r3 && git commit -m "..."
+
+# 7) Delta de codigo de la ronda (delta-codigo.diff)
+git diff 8372f5aaf9e73b3c791396de8b317c560618a90e -- tests/test_jev_ads.py > \
+  docs/evidencia/jev-ads-01/ejecucion/B5-r3/delta-codigo.diff
+
+# 8) Auto-revision delta con revisor distinto de claude/glm/grok.
+#    El comando del encargo combinaba -Base y -Desde y cross-review.ps1 los rechaza
+#    por excluyentes ("Base y Desde no se combinan"); se corrio con la intencion
+#    exacta del delta (solo los arreglos desde el SHA que vio la ronda anterior),
+#    igual que se resolvio en B5-r2:
+export PATH=/opt/homebrew/bin:/Users/dn/.local/bin:/Users/dn/bin:$PATH
+/Users/dn/.local/bin/pwsh -NoProfile -File /Users/dn/quality-kit/cross-review.ps1 \
+  -Con kimi -Excluir glm -Desde 8372f5aaf9e73b3c791396de8b317c560618a90e \
+  -RepoPath /Users/dn/dev/wt/jev-ads-worker
+# (si kimi no responde, siguiente de la cadena: qwen, luego codex)
