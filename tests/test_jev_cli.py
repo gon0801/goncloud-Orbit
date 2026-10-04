@@ -1116,20 +1116,18 @@ def test_cli_presupuesto_agotado_sale_3_y_el_seco_lo_anticipa():
 
 
 @pytest.mark.parametrize(
-    ("extra", "motivo"),
+    ("argumentos", "motivo"),
     [
-        (["--termino", " "], "texto"),
-        (["--termino", "a", "--termino", "a"], "repetido"),
+        (["--grupo-id", "1", "--termino", " "], "texto"),
+        (["--grupo-id", "1", "--termino", "a", "--termino", "a"], "repetido"),
+        (["--grupo-id", "1"], "no hay terminos"),
         ([], "hacen falta"),
     ],
 )
-def test_cli_entradas_invalidas_salen_2(capsys, extra, motivo):
+def test_cli_entradas_invalidas_salen_2(capsys, argumentos, motivo):
     from tools.jev_ads import main as cli_jev
 
-    argv = ["evaluar", "--plataforma", "amazon_mx", "--grupo-id", "1", *extra]
-    argv += ["--solicitud", str(uuid.uuid4())]
-    if not extra:
-        argv = ["evaluar", "--plataforma", "amazon_mx", "--solicitud", str(uuid.uuid4())]
+    argv = ["evaluar", "--plataforma", "amazon_mx", *argumentos, "--solicitud", str(uuid.uuid4())]
     with db_jev():
         assert cli_jev(argv, pedir=_Pedido(), dsn=_dsn_jev()) == 2
     assert motivo in capsys.readouterr().err
