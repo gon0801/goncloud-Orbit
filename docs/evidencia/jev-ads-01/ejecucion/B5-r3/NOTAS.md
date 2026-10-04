@@ -28,13 +28,22 @@ tests/test_jev_ads.py:448: AssertionError  (mutante b: assert False, sin "boto3"
 
 ## Hallazgos de esta correccion
 
-- La extraccion al helper fue NEUTRA: mismo criterio y misma lista; el test
+- La extraccion al helper fue neutra (mismo criterio y misma lista): el test
   del archivo real siguio en verde antes del rediseno (la ROJO solo encendio
   las semillas nuevas, nunca el archivo real).
+- PERO la primera version del rediseno cometio una regresion que detecto el
+  delta review (kimi, ronda 1 de esta vuelta): `_violacion_import` agrego el
+  escape `sys.stdlib_module_names`, que convirtio la lista blanca de modulo
+  en "cualquier stdlib" (`import sqlite3`/`subprocess`/`os` pasaban en
+  verde; la version de 8372f5aa los rechazaba). Corregido en ronda 2: el
+  escape quedo fuera y `permitidos` volvio a ser lista blanca estricta; la
+  prueba nueva test_guarda_pureza_permitidos_sigue_siendo_lista_blanca se
+  demostro en ROJO contra la version ensanchada (devolvia []) y VERDE tras
+  el arreglo.
 - Los imports perezosos reales de `app/jev_ads.py` viven todos dentro de
   `AsesorAds` (lineas 437-461, 531 y 749-751, entre las lineas 413 y 933),
   asi que aplicar `permitidos` a los anidados de los DEMAS nodos no toca el
-  archivo real (sigue en verde).
+  archivo real (sigue en verde, verificado tambien por kimi).
 - La resolucion de relativos usa la misma semantica que la guarda B3 de
   r2 (test_jev_cli.py: `(("app." if level else "") + module).rstrip(".")`),
   un solo criterio en el repo.
@@ -43,18 +52,34 @@ tests/test_jev_ads.py:448: AssertionError  (mutante b: assert False, sin "boto3"
 
 ## Delta review
 
-Revisor: (se completa al correr cross-review) — distinto de claude/glm/grok.
-Comando (nota: el del encargo combinaba -Base y -Desde y el script los
-rechaza por excluyentes; se corrio con la intencion exacta del delta, solo
-los arreglos desde 8372f5aa, igual que se resolvio en B5-r2):
+Ronda 1, revisor: KIMI (binario kimi, exit 0, diff de 30489 caracteres,
+sin truncamiento; reporte completo en delta-reporte.txt). Comando (nota: el
+del encargo combinaba -Base y -Desde y el script los rechaza por
+excluyentes; se corrio con la intencion exacta del delta, solo los arreglos
+desde 8372f5aa, igual que se resolvio en B5-r2):
 
 ```
-pwsh -NoProfile -File /Users/dn/quality-kit/cross-review.ps1 -Con <revisor> \
+export PATH=/opt/homebrew/bin:/Users/dn/.local/bin:/Users/dn/bin:$PATH
+pwsh -NoProfile -File /Users/dn/quality-kit/cross-review.ps1 -Con kimi \
   -Excluir glm -Desde 8372f5aaf9e73b3c791396de8b317c560618a90e \
   -RepoPath /Users/dn/dev/wt/jev-ads-worker
 ```
 
-Reporte: delta-reporte.txt.
+Hallazgos kimi: 1 BLOQUEANTE (el escape stdlib de arriba, con repro:
+`uv run --frozen python -c "import sys; sys.path.insert(0,'tests'); from
+test_jev_ads import _fugas_pureza; assert _fugas_pureza('import
+sqlite3\nimport subprocess\nimport os\n') != [], 'guarda ciega ante DB/IO
+stdlib en top-level'"` corria FALLANDO contra la version ensanchada) y 2 NO
+BLOQUEANTES anotados como residual para el PR: (i) un import en try/if
+top-level se reporta dos veces con rotulos distintos ("top-level" en parte
+1 y "<modulo>" en parte 2; solo ensucia el mensaje, no cambia el veredicto)
+y (ii) `_candidatos_import` fija "app." sin importar el nivel relativo
+(level>1 resolveria mal, caso invalido en el unico archivo que hoy se
+parsea).
+
+Ronda 2, revisor: (se completa al correr cross-review sobre SOLO los
+arreglos desde el SHA que kimi vio: 6070bbb) — reporte en
+delta-reporte-r2.txt.
 
 ## Comandos exactos
 
@@ -75,5 +100,6 @@ Reporte: delta-reporte.txt.
 | Mutante | Contra guarda vieja | Contra guarda nueva |
 |---|---|---|
 | (a) `from . import db` anidado en componer() | PASA (no discrimina) -> prueba sembrada ROJO | RECHAZA (`app.db` resuelto), VERDE |
-| (b) `try: import boto3` a nivel de modulo | PASA (no discrimina) -> prueba sembrada ROJO | RECHAZA (Try es alcance de modulo; boto3 no stdlib ni permitido), VERDE |
+| (b) `try: import boto3` a nivel de modulo | PASA (no discrimina) -> prueba sembrada ROJO | RECHAZA (Try es alcance de modulo; boto3 fuera de permitidos), VERDE |
 | (c) `from decimal import Decimal` + `import uuid` anidados (control) | PASA | PASA (no se volvio paranoica), VERDE |
+| (d) ronda 2 (kimi): `import sqlite3`/`subprocess`/`os` a nivel de modulo | ROJO en 8372f5aa (lista blanca); PASA en la primera version del rediseno (escape stdlib) | RECHAZA de nuevo tras quitar el escape (permitidos lista blanca estricta), VERDE |

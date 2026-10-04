@@ -36,7 +36,7 @@ git add docs/evidencia/jev-ads-01/ejecucion/B5-r3 && git commit -m "..."
 git diff 8372f5aaf9e73b3c791396de8b317c560618a90e -- tests/test_jev_ads.py > \
   docs/evidencia/jev-ads-01/ejecucion/B5-r3/delta-codigo.diff
 
-# 8) Auto-revision delta con revisor distinto de claude/glm/grok.
+# 8) Auto-revision delta ronda 1, revisor distinto de claude/glm/grok: KIMI.
 #    El comando del encargo combinaba -Base y -Desde y cross-review.ps1 los rechaza
 #    por excluyentes ("Base y Desde no se combinan"); se corrio con la intencion
 #    exacta del delta (solo los arreglos desde el SHA que vio la ronda anterior),
@@ -45,4 +45,19 @@ export PATH=/opt/homebrew/bin:/Users/dn/.local/bin:/Users/dn/bin:$PATH
 /Users/dn/.local/bin/pwsh -NoProfile -File /Users/dn/quality-kit/cross-review.ps1 \
   -Con kimi -Excluir glm -Desde 8372f5aaf9e73b3c791396de8b317c560618a90e \
   -RepoPath /Users/dn/dev/wt/jev-ads-worker
-# (si kimi no responde, siguiente de la cadena: qwen, luego codex)
+# (kimi respondio: 1 BLOQUEANTE con repro + 2 NO BLOQUEANTES)
+
+# 9) ROJO ronda 2: la prueba de lista blanca contra la version ensanchada
+uv run --frozen python -m pytest -q \
+  "tests/test_jev_ads.py::test_guarda_pureza_permitidos_sigue_siendo_lista_blanca"
+
+# 10) Arreglo (quitar escape stdlib de _violacion_import) + verde + lint + candados
+uv run --frozen python -m pytest -q tests/test_jev_ads.py
+uv run ruff check tests/test_jev_ads.py && uv run ruff format tests/test_jev_ads.py
+pre-commit run --all-files
+git add tests/test_jev_ads.py && git commit -m "..."
+
+# 11) Auto-revision delta ronda 2 (solo los arreglos desde el SHA que vio kimi):
+/Users/dn/.local/bin/pwsh -NoProfile -File /Users/dn/quality-kit/cross-review.ps1 \
+  -Con qwen -Excluir glm -Desde 6070bbb5fc12a52a6e9ff6355686b4ea6d6acd1 \
+  -RepoPath /Users/dn/dev/wt/jev-ads-worker
